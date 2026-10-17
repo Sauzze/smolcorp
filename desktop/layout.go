@@ -120,16 +120,16 @@ const (
 
 // Each part of a team member's choices; the first is the standard one.
 var teamChoices = map[string][]string{
-	"skin": {"auto", "porcelain", "fair", "light", "tan", "olive", "brown", "deep", "ebony"},
+	"skin": {"auto", "porcelain", "fair", "light", "tan", "olive", "brown", "deep", "ebony", "cream"},
 	"hair": {"auto", "black", "espresso", "brown", "chestnut", "auburn", "ginger", "blond", "platinum", "grey", "white",
-		"pink", "blue", "green", "purple"},
+		"pink", "blue", "green", "purple", "orange"},
 	"hairstyle": {"auto", "short", "long", "spiky", "bun", "curly", "ponytail", "afro", "mohawk", "buzz", "bald"},
 	"extra":     {"none", "glasses", "sunglasses", "headphones", "cap", "beanie", "beard", "moustache", "bow"},
 	"outfit": {"auto", "tee", "hoodie", "collar", "sweater", "jacket", "suit", "labcoat", "polo", "cardigan", "hawaiian",
 		"tracksuit", "overalls", "waistcoat",
 		// A style's own, and each model family's
 		"astronaut", "flightsuit", "pirate", "captain", "parka", "explorer", "robe", "knight", "wizard", "gamer",
-		"founder", "gymkit", "safari", "flannel", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
+		"founder", "gymkit", "safari", "flannel", "hire", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
 		"deepseek", "kimi", "glm", "phi"},
 	"colour": {"auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"},
 	"desk": {"auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug",

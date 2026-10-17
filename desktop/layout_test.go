@@ -527,7 +527,10 @@ func TestTheDressCodeKeepsOnlyChoicesItHas(t *testing.T) {
 	if got, _ := json.Marshal(room.Dress); string(got) != string(must(json.Marshal(want))) {
 		t.Errorf("dress code kept as\n%s\nwant\n%s", got, must(json.Marshal(want)))
 	}
-	for _, outfit := range []string{"polo", "cardigan", "hawaiian", "tracksuit", "overalls", "waistcoat", "astronaut", "flannel", "claude", "phi"} {
+	if got := (TeamMember{Skin: "cream", Hair: "orange"}).checked(); got.Skin != "cream" || got.Hair != "orange" {
+		t.Errorf("the hire's cream skin and orange hair became %q and %q", got.Skin, got.Hair)
+	}
+	for _, outfit := range []string{"polo", "cardigan", "hawaiian", "tracksuit", "overalls", "waistcoat", "astronaut", "flannel", "hire", "claude", "phi"} {
 		if got := (Attire{Outfit: outfit}).checked().Outfit; got != outfit {
 			t.Errorf("the dress code's %s became %s", outfit, got)
 		}
