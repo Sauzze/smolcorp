@@ -168,6 +168,8 @@
   .arranger aside .tray { display: grid; gap: 6px; }
   .arranger aside .btn { white-space: normal; }
   .arranger aside .tray .btn { text-align: left; }
+  .arranger aside .tiles.adding { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .arranger aside .tiles.adding .tile { font-size: 11px; padding: 4px; }
   /* Your team: a card for each project, its choices in a grid. */
   .team { display: grid; gap: 10px; }
   .member { border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; }
@@ -454,7 +456,9 @@
       </div>
       <h3>Put away</h3>
       <div class="tray" id="arrange-tray"></div>
-      <p class="hint">Click a piece in the room to pick it, and drag it where you want it. The room on its side and upright are arranged on their own. Desks only move: each is a key on your phone. Your phone follows as you go.</p>
+      <h3>Add to the room</h3>
+      <div class="tiles adding" id="arrange-add"></div>
+      <p class="hint">Click a piece in the room to pick it, and drag it where you want it. Add as many pieces to the lounge as you like, up to twelve, the same one more than once. The room on its side and upright are arranged on their own. Desks only move: each is a key on your phone. Your phone follows as you go.</p>
     </aside>
   </div>
 </div>
@@ -1432,16 +1436,32 @@
     return (plan && plan[arrangeShape]) || {};
   }
 
+  /** The pieces added to the lounge in the shape shown. */
+  function addedPieces() {
+    const plan = layout.room && layout.room.plan;
+    return (plan && plan.added && plan.added[arrangeShape]) || [];
+  }
+
+  /** What a part of the room is called: a desk, a piece the room has, or one added, by what it is. */
+  function pieceName(part) {
+    if (!part) return '';
+    if (part.startsWith('added:')) {
+      const piece = addedPieces()[Number(part.slice(6))];
+      const label = piece && ROOM_CHOICES.corner.find(([id]) => id === piece.kind);
+      return label ? label[1] : '';
+    }
+    return AgentOffice.arrangeable[part].name;
+  }
+
   function showArranged() {
     if (!arranger || !layout) return;
     arranger.show({ keys: sampleKeys(), overflow: 0, theme: colours || {}, layout: { ...layout, office: true } });
   }
 
-  /** A piece moved, grown or put away in the room: kept in the layout, and sent on in a moment. */
-  function keepArranged(shape, part, piece) {
+  /** The room arranged anew, a piece moved, grown, put away or added: kept in the layout, and sent on in a moment. */
+  function keepArranged(plan) {
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
-    const plan = room.plan || (room.plan = { wide: {}, tall: {} });
-    plan[shape] = { ...plan[shape], [part]: piece };
+    room.plan = plan;
     clearTimeout(unsaved);
     unsaved = setTimeout(() => { unsaved = null; sendLayout(); }, 250);
     showPreview();
@@ -1451,9 +1471,13 @@
 
   function drawArrangeTools() {
     const kinds = AgentOffice.arrangeable;
-    const piece = arrangePicked && (arrangedPieces()[arrangePicked] || { x: 0, y: 0, size: 1, off: false });
-    const kind = arrangePicked && kinds[arrangePicked];
-    $('arrange-picked').textContent = kind ? kind.name : 'Pick a piece in the room.';
+    const added = arrangePicked && arrangePicked.startsWith('added:');
+    const piece = arrangePicked && (added ? addedPieces()[Number(arrangePicked.slice(6))]
+      : arrangedPieces()[arrangePicked] || { x: 0, y: 0, size: 1, off: false });
+    // An added piece grows, and is taken out rather than put away.
+    const kind = arrangePicked && (added ? { grows: true, hides: true } : kinds[arrangePicked]);
+    $('arrange-picked').textContent = kind ? pieceName(arrangePicked) : 'Pick a piece in the room.';
+    $('arrange-hide').textContent = added ? 'Take it out' : 'Put it away';
     $('arrange-size').replaceChildren(...AgentOffice.sizes.map((size) => {
       const b = choice(PIECE_SIZE_NAMES[size], !!piece && piece.size === size, () => arranger.arrange(arrangePicked, { size }));
       b.disabled = !kind || !kind.grows;
@@ -1474,6 +1498,16 @@
       };
       return b;
     }) : [Object.assign(document.createElement('p'), { className: 'hint', textContent: 'Nothing: everything is in the room.' })]));
+    const full = addedPieces().length >= 12;
+    $('arrange-add').replaceChildren(...ROOM_CHOICES.corner.filter(([id]) => id !== 'none').map(([id, label]) => {
+      const b = tile('corner', id, label, false, () => {
+        const part = arranger.add(id);
+        if (part) arrangePicked = part;
+        drawArrangeTools();
+      }, layout.room || STANDARD_ROOM);
+      b.disabled = full;
+      return b;
+    }));
     $('arrange-shape').replaceChildren(
       choice('On its side', arrangeShape === 'wide', () => setArrangeShape('wide')),
       choice('Upright', arrangeShape === 'tall', () => setArrangeShape('tall')));
@@ -1527,7 +1561,7 @@
     const part = arrangePicked;
     arrangePicked = null;
     arranger.pick(null);
-    arranger.arrange(part, { off: true });
+    arranger.arrange(part, part.startsWith('added:') ? { remove: true } : { off: true });
   };
   $('arrange-back').onclick = () => arranger.arrange(arrangePicked, { x: 0, y: 0, size: 1 });
   $('arrange-clear').onclick = () => {
@@ -1537,7 +1571,8 @@
   };
   $('arrange-reset').onclick = () => {
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
-    room.plan = { ...(room.plan || { wide: {}, tall: {} }), [arrangeShape]: {} };
+    const plan = room.plan || { wide: {}, tall: {}, added: { wide: [], tall: [] } };
+    room.plan = { ...plan, [arrangeShape]: {}, added: { ...(plan.added || { wide: [], tall: [] }), [arrangeShape]: [] } };
     arrangePicked = null;
     arranger.pick(null);
     showArranged();

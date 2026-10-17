@@ -244,11 +244,45 @@ struct TeamMember: Codable, Equatable {
 /// Linux app's Dress matches.
 /// The room arranged your way, from the setup page's editor: for each shape
 /// of the room, `wide` and `tall`, the pieces moved from where they stand,
-/// made bigger, or put away. office.js draws it, with the same pieces and
-/// sizes. Anything unknown is left out, so the piece stands as it comes.
+/// made bigger, or put away, and the pieces added to the lounge. office.js
+/// draws it, with the same pieces and sizes. Anything unknown is left out,
+/// so the piece stands as it comes.
 struct Plan: Codable, Equatable {
     var wide: [String: Piece] = [:]
     var tall: [String: Piece] = [:]
+    var added = Added()
+
+    /// Pieces added to the lounge, for each shape of the room: any its
+    /// corner can hold, the same one more than once, each moved from where
+    /// the corner's piece stands, and grown.
+    struct Added: Codable, Equatable {
+        var wide: [AddedPiece] = []
+        var tall: [AddedPiece] = []
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try? decoder.container(keyedBy: CodingKeys.self)
+            func pieces(_ key: CodingKeys) -> [AddedPiece] {
+                let given = ((try? c?.decodeIfPresent([LooseAdded].self, forKey: key)) ?? nil) ?? []
+                return Array(given.compactMap(\.piece).prefix(Plan.addedMost))
+            }
+            wide = pieces(.wide)
+            tall = pieces(.tall)
+        }
+    }
+
+    struct AddedPiece: Codable, Equatable {
+        var kind: String
+        var x = 0
+        var y = 0
+        var size = 1.0
+    }
+
+    /// The most pieces that can be added to the lounge, in each shape.
+    static let addedMost = 12
+    /// What can be added: anything the lounge's corner can hold.
+    static var addable: [String] { (Room.choices["corner"] ?? []).filter { $0 != "none" } }
 
     struct Piece: Codable, Equatable {
         var x = 0
@@ -286,6 +320,26 @@ struct Plan: Codable, Equatable {
         }
         wide = arranged(.wide)
         tall = arranged(.tall)
+        added = ((try? c?.decodeIfPresent(Added.self, forKey: .added)) ?? nil) ?? Added()
+    }
+
+    /// Where a piece is moved to, within reach.
+    fileprivate static func at(_ n: Double?) -> Int { min(Plan.reach, max(-Plan.reach, Int((n ?? 0).rounded()))) }
+
+    /// An added piece as given, read leniently: one that isn't anything the corner can hold is left out.
+    private struct LooseAdded: Decodable {
+        let piece: AddedPiece?
+        private enum Keys: String, CodingKey { case kind, x, y, size }
+        init(from decoder: Decoder) throws {
+            guard let c = try? decoder.container(keyedBy: Keys.self),
+                  let kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil, Plan.addable.contains(kind) else {
+                piece = nil
+                return
+            }
+            func number(_ key: Keys) -> Double? { (try? c.decodeIfPresent(Double.self, forKey: key)) ?? nil }
+            let size = number(.size) ?? 1
+            piece = AddedPiece(kind: kind, x: Plan.at(number(.x)), y: Plan.at(number(.y)), size: Plan.sizes.contains(size) ? size : 1)
+        }
     }
 
     /// A piece as given, each of its parts read on its own: one of the wrong

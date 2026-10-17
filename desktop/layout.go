@@ -523,13 +523,33 @@ func (l Layout) sameAs(other Layout) bool {
 
 // Plan is the room arranged your way, from the setup page's editor: for each
 // shape of the room, wide and tall, the pieces moved from where they stand,
-// made bigger, or put away, as the Mac app's Plan. office.js draws it, with
-// the same pieces and sizes. Anything unknown is left out, so the piece
-// stands as it comes.
+// made bigger, or put away, and the pieces added to the lounge, as the Mac
+// app's Plan. office.js draws it, with the same pieces and sizes. Anything
+// unknown is left out, so the piece stands as it comes.
 type Plan struct {
-	Wide map[string]Piece `json:"wide"`
-	Tall map[string]Piece `json:"tall"`
+	Wide  map[string]Piece `json:"wide"`
+	Tall  map[string]Piece `json:"tall"`
+	Added Added            `json:"added"`
 }
+
+// Added is the pieces added to the lounge, for each shape of the room: any
+// its corner can hold, the same one more than once, each moved from where the
+// corner's piece stands, and grown.
+type Added struct {
+	Wide []AddedPiece `json:"wide"`
+	Tall []AddedPiece `json:"tall"`
+}
+
+// AddedPiece is one piece added to the lounge.
+type AddedPiece struct {
+	Kind string  `json:"kind"`
+	X    int     `json:"x"`
+	Y    int     `json:"y"`
+	Size float64 `json:"size"`
+}
+
+// addedMost is the most pieces that can be added to the lounge, in each shape.
+const addedMost = 12
 
 // Piece is how one piece is arranged: moved by X and Y, in the room's pixels,
 // grown to Size, or put away.
@@ -588,7 +608,29 @@ func (p *Plan) UnmarshalJSON(data []byte) error {
 		}
 		return pieces
 	}
-	*p = Plan{Wide: arranged(raw["wide"]), Tall: arranged(raw["tall"])}
+	var added map[string]json.RawMessage
+	json.Unmarshal(raw["added"], &added)
+	pieces := func(data json.RawMessage) []AddedPiece {
+		var given []json.RawMessage
+		json.Unmarshal(data, &given)
+		list := []AddedPiece{}
+		for _, one := range given {
+			var parts map[string]json.RawMessage
+			if json.Unmarshal(one, &parts) != nil || parts == nil {
+				continue
+			}
+			var kind string
+			json.Unmarshal(parts["kind"], &kind)
+			number := func(name string) float64 {
+				var n float64
+				json.Unmarshal(parts[name], &n)
+				return n
+			}
+			list = append(list, AddedPiece{Kind: kind, X: int(math.Round(number("x"))), Y: int(math.Round(number("y"))), Size: number("size")})
+		}
+		return list
+	}
+	*p = Plan{Wide: arranged(raw["wide"]), Tall: arranged(raw["tall"]), Added: Added{Wide: pieces(added["wide"]), Tall: pieces(added["tall"])}}
 	return nil
 }
 
@@ -612,5 +654,20 @@ func (p Plan) checked() Plan {
 		}
 		return checked
 	}
-	return Plan{Wide: pieces(p.Wide), Tall: pieces(p.Tall)}
+	added := func(given []AddedPiece) []AddedPiece {
+		checked := []AddedPiece{}
+		for _, piece := range given {
+			if piece.Kind == "none" || !slices.Contains(roomChoices["corner"], piece.Kind) || len(checked) == addedMost {
+				continue
+			}
+			piece.X = max(-pieceReach, min(pieceReach, piece.X))
+			piece.Y = max(-pieceReach, min(pieceReach, piece.Y))
+			if !slices.Contains(pieceSizes, piece.Size) {
+				piece.Size = 1
+			}
+			checked = append(checked, piece)
+		}
+		return checked
+	}
+	return Plan{Wide: pieces(p.Wide), Tall: pieces(p.Tall), Added: Added{Wide: added(p.Added.Wide), Tall: added(p.Added.Tall)}}
 }

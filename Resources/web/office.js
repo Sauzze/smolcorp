@@ -107,9 +107,11 @@
    * false leaves the arrangement out, for what stays put on a wall.
    */
   function placed(part, point, arranged = true) {
-    const { x, y } = shape.offsets[part] || { x: 0, y: 0 };
+    // A piece added to the lounge comes in where the corner's piece stands.
+    const base = isAdded(part) ? 'corner' : part;
+    const { x, y } = shape.offsets[base] || { x: 0, y: 0 };
     const piece = arranged ? pieceOf(part) : STANDARD_PIECE;
-    const anchor = PIECE_ANCHORS[part] || { x: 0, y: 0 };
+    const anchor = PIECE_ANCHORS[base] || { x: 0, y: 0 };
     const grow = (value, from) => from + (value - from) * piece.size;
     const moved = { ...point, x: grow(point.x, anchor.x) + x + piece.x, y: grow(point.y, anchor.y) + y + piece.y };
     if (point.depth !== undefined) moved.depth = grow(point.depth, anchor.y) + y + piece.y;
@@ -123,7 +125,11 @@
    * called there, and whether it can be made bigger or hidden. Desks only
    * move: each is a key, and the people at them don't grow. The red button
    * and the mic are controls, so they stay. Each shape of the room has an
-   * arrangement of its own, `wide` and `tall`.
+   * arrangement of its own, `wide` and `tall`. And pieces for the lounge
+   * can be added, any of those its corner can hold, as many as ADDED_MOST,
+   * the same one more than once: `added.wide` and `added.tall`, each
+   * `{ kind, x, y, size }` from where the corner's piece stands. In the
+   * room, the nth is the part `added:n`.
    */
   const ARRANGEABLE = {
     ...Object.fromEntries(STANDARD_DESKS.map((_, i) => [`desk${i + 1}`, { name: `Desk ${i + 1}`, grows: false, hides: false }])),
@@ -135,6 +141,8 @@
     button: { name: 'The red button', grows: true, hides: false },
     mic: { name: 'The mic', grows: true, hides: false },
   };
+  const ADDED_MOST = 12;
+  const isAdded = (part) => part.startsWith('added:');
   /** How big a piece can be: as it comes, half as big again, or twice. */
   const PIECE_SIZES = [1, 1.5, 2];
   /** How far a piece can be moved from where it stands, either way, in art pixels. */
@@ -165,18 +173,19 @@
     ballpit: { x: 253, y: 75, w: 48, h: 22 }, campfire: { x: 248, y: 63, w: 57, h: 33 },
   };
   /** What `part` takes up, in the wide room as it comes: the corner's by what's in it, null with nothing there. */
-  const pieceRect = (part) => (part === 'corner' ? CORNER_BOXES[decor.corner] || null : PIECE_BOXES[part]);
+  const pieceRect = (part) => (part === 'corner' ? CORNER_BOXES[decor.corner] || null
+    : isAdded(part) ? CORNER_BOXES[addedOf(decor)[Number(part.slice(6))]?.kind] || null : PIECE_BOXES[part]);
 
   /** A room's arrangement, as given: anything unknown left out, positions within reach, sizes as offered. */
   function planOf(given) {
     const raw = given && typeof given === 'object' && !Array.isArray(given) ? given : {};
+    const at = (n) => (Number.isFinite(n) ? Math.max(-PIECE_REACH, Math.min(PIECE_REACH, Math.round(n))) : 0);
     const shaped = (pieces) => {
       const arranged = {};
       if (!pieces || typeof pieces !== 'object' || Array.isArray(pieces)) return arranged;
       for (const [part, piece] of Object.entries(pieces)) {
         if (!Object.hasOwn(ARRANGEABLE, part) || !piece || typeof piece !== 'object') continue;
         const { grows, hides } = ARRANGEABLE[part];
-        const at = (n) => (Number.isFinite(n) ? Math.max(-PIECE_REACH, Math.min(PIECE_REACH, Math.round(n))) : 0);
         arranged[part] = {
           x: at(piece.x), y: at(piece.y),
           size: grows && PIECE_SIZES.includes(piece.size) ? piece.size : 1,
@@ -185,14 +194,31 @@
       }
       return arranged;
     };
-    return { wide: shaped(raw.wide), tall: shaped(raw.tall) };
+    const added = (list) => (Array.isArray(list) ? list : [])
+      .filter((piece) => piece && typeof piece === 'object' && Object.hasOwn(CORNER_BOXES, piece.kind))
+      .slice(0, ADDED_MOST)
+      .map((piece) => ({ kind: piece.kind, x: at(piece.x), y: at(piece.y), size: PIECE_SIZES.includes(piece.size) ? piece.size : 1 }));
+    const more = raw.added && typeof raw.added === 'object' ? raw.added : {};
+    return { wide: shaped(raw.wide), tall: shaped(raw.tall), added: { wide: added(more.wide), tall: added(more.tall) } };
   }
 
   /** How `part` is arranged in the room's shape now. */
   function pieceOf(part, room = decor) {
+    if (isAdded(part)) {
+      const piece = addedOf(room)[Number(part.slice(6))];
+      return piece ? { x: piece.x, y: piece.y, size: piece.size, off: false } : { ...STANDARD_PIECE, off: true };
+    }
     const pieces = room && room.plan && room.plan[shape === TALL ? 'tall' : 'wide'];
     return (pieces && pieces[part]) || STANDARD_PIECE;
   }
+
+  /** Every piece in the lounge's corner and added to it, by its part and what it is, those put away left out. */
+  const loungePieces = (room = decor) => [
+    { part: 'corner', kind: room.corner }, ...addedOf(room).map((piece, i) => ({ part: `added:${i}`, kind: piece.kind })),
+  ].filter(({ part, kind }) => kind !== 'none' && !pieceOf(part, room).off);
+
+  /** The pieces added to the lounge in the room's shape now. */
+  const addedOf = (room) => (room && room.plan && room.plan.added && room.plan.added[shape === TALL ? 'tall' : 'wide']) || [];
 
   /** Where each desk is, as the room's shape now and its arrangement put them. */
   const desksOf = (room) => STANDARD_DESKS.map((desk, i) => {
@@ -404,7 +430,20 @@
   // drawing and the people's comings and goings read it from here.
   let decor = roomOf(null);
   /** The lounge's spots, and those round its corner piece, where the room's shape puts them. */
-  const spotsOf = (room) => [...LOUNGE_SPOTS.map((spot) => placed(spot.part, spot)), ...CORNER_SPOTS[room.corner].map((spot) => placed('corner', spot))];
+  const spotsOf = (room) => [
+    ...LOUNGE_SPOTS.map((spot) => placed(spot.part, spot)),
+    // Round each piece in the lounge, each spot knowing which piece it's at, and the first of each its first
+    ...[{ part: 'corner', kind: room.corner }, ...addedOf(room).map((piece, i) => ({ part: `added:${i}`, kind: piece.kind }))]
+      .flatMap(({ part, kind }) => CORNER_SPOTS[kind].map((spot, i) => ({ ...placed(part, spot), kind, first: i === 0 }))),
+  ];
+  /** Where the spots round the lounge's `part` start, among the room's spots. */
+  function spotsFrom(part, room = decor) {
+    let at = LOUNGE_SPOTS.length + CORNER_SPOTS[room.corner].length;
+    if (part === 'corner') return LOUNGE_SPOTS.length;
+    const added = addedOf(room);
+    for (let i = 0; i < Number(part.slice(6)); i++) at += CORNER_SPOTS[added[i].kind].length;
+    return at;
+  }
   let spots = spotsOf(decor);
   let boardSpots = boardSpotsOf(decor);
   /** Under the clock by the door, where a rate-limited agent waits. */
@@ -491,10 +530,12 @@
       take(DOORWAY.right + 1, shape.loungeWall - WALL_BOTTOM, shape.width, shape.loungeWall - 1);
     }
     for (const { x, y } of DESKS) take(x - 1, y - 1, x + DESK_WIDTH + 1, y + 17);
-    // The corner piece stands on the bottom of what it takes up: what's above is the piece itself, or its smoke.
-    const corner = CORNER_BOXES[decor.corner];
-    const standing = corner ? [{ ...corner, y: corner.y + corner.h - Math.max(6, Math.round(corner.h * 0.4)), h: Math.max(6, Math.round(corner.h * 0.4)) }] : [];
-    for (const [part, rects] of [...Object.entries(FOOTPRINTS), ['corner', standing]]) {
+    // Each piece in the lounge stands on the bottom of what it takes up: what's above is the piece itself, or its smoke.
+    const standing = ({ part, kind }) => {
+      const box = CORNER_BOXES[kind], h = Math.max(6, Math.round(box.h * 0.4));
+      return [part, [{ ...box, y: box.y + box.h - h, h }]];
+    };
+    for (const [part, rects] of [...Object.entries(FOOTPRINTS), ...loungePieces().map(standing)]) {
       if (pieceOf(part).off) continue;
       for (const { x, y, w, h } of rects) {
         const a = placed(part, { x, y }), b = placed(part, { x: x + w, y: y + h });
@@ -1055,6 +1096,9 @@
       const next = roomOf(given);
       if (JSON.stringify(next) === JSON.stringify(decor)) return;
       const cornerGone = next.corner !== decor.corner;
+      // Pieces added or taken out of the lounge move the spots round them: anyone there goes elsewhere.
+      const kinds = (room) => JSON.stringify(['wide', 'tall'].map((side) => room.plan.added[side].map((piece) => piece.kind)));
+      const piecesChanged = kinds(next) !== kinds(decor);
       if (next.pet !== decor.pet) this.pet = next.pet === 'none' ? null : new Pet(next.pet);
       const boardGone = next.wall.indexOf('whiteboard') !== decor.wall.indexOf('whiteboard');
       const rearranged = JSON.stringify(next.plan) !== JSON.stringify(decor.plan);
@@ -1066,8 +1110,8 @@
       for (const person of this.people) {
         if (person.isLeaving) continue;
         const spot = spotOf(person.place);
-        const stranded = (cornerGone && spot !== null && spot >= LOUNGE_SPOTS.length) || (boardGone && person.place.startsWith('board:'))
-          || (spot !== null && spots[spot].off);
+        const stranded = ((cornerGone || piecesChanged) && spot !== null && spot >= LOUNGE_SPOTS.length)
+          || (boardGone && person.place.startsWith('board:')) || (spot !== null && spots[spot].off);
         if (!stranded) continue;
         if (!person.isStaff) {
           this.send(person, deskPlace(person.desk));
@@ -1311,7 +1355,7 @@
             places.push({ x: x + 36 + dx, y: y + 2 + dy, depth: y + 5.6 + dy, pose: 'sit' });
           }
           if (desk) places.push({ x: desk.x - 5, y: desk.y + 15, pose: 'sit' });
-          if (watches[decor.corner]) places.push(placed('corner', watches[decor.corner]));
+          for (const { part, kind } of loungePieces()) if (watches[kind]) places.push(placed(part, watches[kind]));
           places.push(placed('wall', { x: 252, y: 33, depth: 47, pose: 'sit' }));
           break;
         case 'dog': {
@@ -1332,7 +1376,7 @@
         case 'monkey':
           places.push(placed('wall', { x: 308, y: 18, depth: 50.5, pose: 'sit' }), { x: CORRIDOR_X, y: 13, depth: 41.5, pose: 'sit' },
             placed('couch', { x: 270, y: 102, depth: 110.5, pose: 'sit' }), placed('wall', { x: 247, y: 33, depth: 47, pose: 'sit', grab: true }));
-          if (tops[decor.corner]) places.push(placed('corner', { depth: 86.5, ...tops[decor.corner], pose: 'sit' }));
+          for (const { part, kind } of loungePieces()) if (tops[kind]) places.push(placed(part, { depth: 86.5, ...tops[kind], pose: 'sit' }));
           break;
       }
       // Nowhere on a piece that's been put away.
@@ -2958,7 +3002,10 @@
 
     /* The lounge's corner piece, as set up, and whoever is at it */
 
-    const atCorner = (i) => office.people.some((p) => p.place === spotPlace(LOUNGE_SPOTS.length + i) && !p.isWalking && !p.isLeaving);
+    // Where the spots round the piece being drawn start, among the room's spots: set as each is drawn.
+    let cornerBase = LOUNGE_SPOTS.length;
+    /** Someone at the nth spot round the piece being drawn. */
+    const atCorner = (i) => office.people.some((p) => p.place === spotPlace(cornerBase + i) && !p.isWalking && !p.isLeaving);
 
     /** An arcade cabinet: invaders march across its screen, and a ship fires back while someone plays. */
     function drawArcade() {
@@ -4257,7 +4304,7 @@
         // A nap, after a while on the couch or the beanbag, not at the drums or in the hot tub
         const spot = spotOf(person.place);
         if (person.isWalking || spot === null || spots[spot].pose !== 'sit' || now - person.arrivedAt <= 20) return;
-        if (spot >= LOUNGE_SPOTS.length && decor.corner !== 'books') return;
+        if (spots[spot].kind && spots[spot].kind !== 'books') return;
         const rise = (now * 0.35 + person.look.phase) % 1;
         const zx = x + 3 + Math.round(rise * 3), zy = top - 3 - Math.round(rise * 8);
         fill(zx, zy, 3, 1, WHITE, 1 - rise);
@@ -4820,7 +4867,11 @@
       lounge('wall', 46.5, drawCounter), lounge('wall', 50, drawCooler), lounge('couch', 110, drawCouchBack),
       lounge('couch', 117, drawCouchFront), lounge('couch', 134, drawCoffeeTable), lounge('pong', 157, drawPingPong),
       lounge('plant', 176, drawPlant), lounge('button', 176.5, drawButton), lounge('mic', 177, drawMic),
-      ...CORNER_PARTS[decor.corner].map(([depth, draw]) => lounge('corner', depth, draw)),
+      // The corner's piece and each added one, each told where the spots round it start
+      ...loungePieces().flatMap(({ part, kind }) => CORNER_PARTS[kind].map(([depth, draw]) => lounge(part, depth, () => {
+        cornerBase = spotsFrom(part);
+        draw();
+      }))),
     ];
     if (shape.loungeWall !== undefined) items.push([shape.loungeWall, drawLoungeWall]);
     const pet = office.pet;
@@ -5541,7 +5592,7 @@
           heard.arrived = person.arrivedAt;
           const spot = spotOf(person.place);
           if (spot === 0) this.play('coffee', x);
-          if (decor.corner === 'vending' && spot === LOUNGE_SPOTS.length) this.play('vending', x);
+          if (spot !== null && spots[spot].kind === 'vending' && spots[spot].first) this.play('vending', x);
         }
         // A long turn finished
         if (person.celebratedAt !== null && heard.celebrated !== person.celebratedAt) {
@@ -5552,7 +5603,7 @@
 
       // The corner piece, now and then, while someone's at it
       const cornering = office.people.find((p) => !p.isWalking && !p.isLeaving && spotOf(p.place) >= LOUNGE_SPOTS.length);
-      const cornerSound = CORNER_SOUNDS[decor.corner];
+      const cornerSound = cornering && CORNER_SOUNDS[spots[spotOf(cornering.place)].kind];
       if (!cornering || !cornerSound) this.nextCorner = null;
       else if (this.nextCorner === null) this.nextCorner = t + random(1, 4);
       else if (t >= this.nextCorner) this.nextCorner = t + (this.murmur(cornerSound, cornering.position.x) ? random(...CORNER_EVERY) : 1);
@@ -6058,7 +6109,8 @@
 
     /** What can be arranged and is in the room, the smallest first, so a piece on a bigger one is picked first. */
     function arrangeable() {
-      return Object.keys(ARRANGEABLE).filter((part) => !pieceOf(part).off && (part.startsWith('desk') || pieceRect(part)))
+      const added = addedOf(decor).map((_, i) => `added:${i}`);
+      return [...Object.keys(ARRANGEABLE), ...added].filter((part) => !pieceOf(part).off && (part.startsWith('desk') || pieceRect(part)))
         .map((part) => ({ part, box: pieceBox(part) }))
         .sort((a, b) => (a.box.right - a.box.left) * (a.box.bottom - a.box.top) - (b.box.right - b.box.left) * (b.box.bottom - b.box.top));
     }
@@ -6069,18 +6121,54 @@
      */
     function rearrange(part, change) {
       const plan = structuredClone(decor.plan);
-      const pieces = plan[shapeName()];
-      const piece = { ...(pieces[part] || STANDARD_PIECE), ...change };
-      pieces[part] = piece;
+      const side = shapeName();
+      let piece;
+      if (isAdded(part)) {
+        const i = Number(part.slice(6));
+        if (change.remove) plan.added[side].splice(i, 1);
+        else piece = plan.added[side][i] = { ...plan.added[side][i], ...change };
+      } else {
+        piece = plan[side][part] = { ...(plan[side][part] || STANDARD_PIECE), ...change };
+      }
       decor = { ...decor, plan };
-      // Kept inside the room, however big it's grown
-      const box = pieceBox(part);
-      piece.x += Math.max(0, -box.left) - Math.max(0, box.right - shape.width);
-      piece.y += Math.max(0, -box.top) - Math.max(0, box.bottom - shape.height);
+      if (piece) {
+        // Kept inside the room, however big it's grown
+        const box = pieceBox(part);
+        piece.x += Math.max(0, -box.left) - Math.max(0, box.right - shape.width);
+        piece.y += Math.max(0, -box.top) - Math.max(0, box.bottom - shape.height);
+      }
       decor = { ...decor, plan: planOf(plan) };
       spots = spotsOf(decor);
       office.relayout(clock());
-      on.arranged?.(shapeName(), part, decor.plan[shapeName()][part]);
+      on.arranged?.(decor.plan);
+    }
+
+    /**
+     * A piece added to the lounge: where nothing else is, as near as can be
+     * to where the corner's piece stands, or there if the lounge is full.
+     */
+    function addPiece(kind) {
+      const side = shapeName();
+      if (addedOf(decor).length >= ADDED_MOST) return null;
+      const part = `added:${addedOf(decor).length}`;
+      const plan = structuredClone(decor.plan);
+      plan.added[side].push({ kind, x: 0, y: 0, size: 1 });
+      decor = { ...decor, plan };
+      const others = arrangeable().filter((other) => other.part !== part).map(({ box }) => box);
+      const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const tries = [];
+      for (let dy = -160; dy <= 160; dy += 4) for (let dx = -200; dx <= 120; dx += 4) tries.push({ dx, dy });
+      tries.sort((a, b) => Math.hypot(a.dx, a.dy) - Math.hypot(b.dx, b.dy));
+      const piece = plan.added[side][plan.added[side].length - 1];
+      for (const { dx, dy } of tries) {
+        Object.assign(piece, { x: dx, y: dy });
+        const box = pieceBox(part);
+        const inside = box.left >= 0 && box.top >= WALL_BOTTOM && box.right <= shape.width && box.bottom <= shape.height;
+        if (inside && !others.some((other) => overlaps(box, other))) break;
+        Object.assign(piece, { x: 0, y: 0 });
+      }
+      rearrange(part, {});
+      return part;
     }
 
     canvas.addEventListener('pointerdown', (e) => {
@@ -6189,9 +6277,10 @@
       setFloating(how) { floating = how; },
       /**
        * On the setup page, the room is for arranging: a tap picks a piece,
-       * `on.picked(part)`, and dragging moves it, `on.arranged(shape, part,
-       * piece)` as it goes. `arrange(change)` changes the piece picked, such
-       * as its size, and `pick(part)` picks one.
+       * `on.picked(part)`, and dragging moves it, `on.arranged(plan)` with
+       * the room's whole arrangement as it goes. `arrange(part, change)`
+       * changes a piece, such as its size, or with `remove` takes an added
+       * one out; `add(kind)` adds one; `pick(part)` picks one.
        */
       setArranging(shown) {
         arranging = shown ? { picked: null, drag: null } : null;
@@ -6199,6 +6288,13 @@
       },
       pick(part) { if (arranging) arranging.picked = part; },
       arrange(part, change) { if (arranging) rearrange(part, change); },
+      /** Adds a piece to the lounge, any the corner can hold, and picks it: its part, or null with the lounge full. */
+      add(kind) {
+        if (!arranging || !Object.hasOwn(CORNER_BOXES, kind)) return null;
+        const part = addPiece(kind);
+        if (part) arranging.picked = part;
+        return part;
+      },
       /**
        * The canvas is in another window now, or back on its page. Moving it
        * takes the finger off without a word to the canvas, so the mic is let

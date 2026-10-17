@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -645,7 +646,31 @@ func TestAnArrangementKeepsWhatCanBeArrangedAsItCanBe(t *testing.T) {
 		t.Errorf("a tall arrangement that isn't one gave %v, want none", room.Plan.Tall)
 	}
 	written, err := json.Marshal(Room{})
-	if err != nil || !strings.Contains(string(written), `"plan":{"wide":{},"tall":{}}`) {
+	if err != nil || !strings.Contains(string(written), `"plan":{"wide":{},"tall":{},"added":{"wide":[],"tall":[]}}`) {
 		t.Errorf("a room kept before arrangements wrote %s, %v; want an empty plan", written, err)
+	}
+}
+
+func TestPiecesAddedToTheLoungeAreThoseItsCornerCanHold(t *testing.T) {
+	var plan Plan
+	given := `{"added": {"wide": [{"kind": "fishtank", "x": 10.4, "y": -20, "size": 1.5}, {"kind": "fishtank", "size": 4},
+		{"kind": "none"}, {"kind": "volcano"}, "arcade", {"kind": "arcade", "x": 999}], "tall": {"kind": "dragon"}}}`
+	if err := json.Unmarshal([]byte(given), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan = plan.checked()
+	want := []AddedPiece{{Kind: "fishtank", X: 10, Y: -20, Size: 1.5}, {Kind: "fishtank", Size: 1}, {Kind: "arcade", X: pieceReach, Size: 1}}
+	if !slices.Equal(plan.Added.Wide, want) {
+		t.Errorf("added %+v, want %+v", plan.Added.Wide, want)
+	}
+	if plan.Added.Tall == nil || len(plan.Added.Tall) != 0 {
+		t.Errorf("a list that isn't one gave %+v, want none", plan.Added.Tall)
+	}
+	many := make([]AddedPiece, 20)
+	for i := range many {
+		many[i] = AddedPiece{Kind: "arcade", Size: 1}
+	}
+	if got := (Plan{Added: Added{Wide: many}}).checked().Added.Wide; len(got) != addedMost {
+		t.Errorf("kept %d added pieces, want at most %d", len(got), addedMost)
 	}
 }
