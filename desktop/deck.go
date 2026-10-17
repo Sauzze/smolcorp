@@ -31,7 +31,12 @@ type Deck struct {
 	micPress *micPress
 	// Whether music is playing, for the office's jukebox, when it can be told.
 	playing *bool
-	work    chan func()
+	// What each session was when the webhook was last told, nil until the
+	// deck first looks; and how the last delivery went, for the setup page.
+	told        map[string]told
+	webhookMu   sync.Mutex
+	webhookLast string
+	work        chan func()
 	// OnChange is called on every change, for the tray.
 	OnChange func()
 }
@@ -191,6 +196,7 @@ func (d *Deck) changed() {
 		stream.send(state)
 	}
 	go d.OnChange()
+	d.tellWebhook()
 }
 
 // Refresh re-sends the state, for changes the sessions don't see (the setup

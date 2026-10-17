@@ -29,11 +29,13 @@ final class Config: Codable {
     /// Whether a jukebox in the office may play and pause the Mac's music.
     /// Off until you turn it on: it presses a media key.
     var musicEnabled = false
+    /// Where the deck's sessions are told to other tools, if anywhere.
+    var webhook = Webhook()
     var hasCompletedSetup = false
 
     private enum CodingKeys: String, CodingKey {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent
-        case musicEnabled, hasCompletedSetup
+        case musicEnabled, webhook, hasCompletedSetup
     }
 
     init() {}
@@ -56,6 +58,7 @@ final class Config: Codable {
         hireFolder = try c.decodeIfPresent(String.self, forKey: .hireFolder) ?? ""
         hireAgent = (try c.decodeIfPresent(String.self, forKey: .hireAgent)).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
         musicEnabled = try c.decodeIfPresent(Bool.self, forKey: .musicEnabled) ?? false
+        webhook = (try? c.decodeIfPresent(Webhook.self, forKey: .webhook)) ?? Webhook()
         hasCompletedSetup = try c.decodeIfPresent(Bool.self, forKey: .hasCompletedSetup) ?? false
     }
 

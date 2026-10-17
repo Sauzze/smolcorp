@@ -132,7 +132,7 @@ opens in your browser.
 
 ## Set up
 
-The setup page walks you through five steps:
+The setup page walks you through these steps:
 
 <p align="center">
   <img src="docs/setup.png" alt="The setup page: its checklist, the keys, and a pairing code with its QR code for your phone" width="720">
@@ -149,7 +149,10 @@ The setup page walks you through five steps:
 4. **Let the office hire and fire** (optional). Lets you start and stop agents
    from [the office](#the-office): choose the folder new hires start in, and
    which agent they are.
-5. **Open at login** (optional). Keeps the deck ready whenever your Mac is on.
+5. **Tell other tools** (optional). Sends what your agents do to an address
+   on your network, such as a Home Assistant webhook. See
+   [Tell other tools](#tell-other-tools).
+6. **Open at login** (optional). Keeps the deck ready whenever your Mac is on.
 
 The first time you press a button, macOS asks whether SauzzeDeck Pro may
 control Terminal. Click **Allow**.
@@ -409,11 +412,92 @@ Voice input needs Claude Code signed in with a Claude.ai account. Claude Code
 sends your audio to Anthropic to be transcribed. SauzzeDeck Pro itself never
 hears it.
 
+## Tell other tools
+
+SauzzeDeck Pro can tell another tool what your agents are doing, so a lamp
+turns orange when one waits on you, or your phone buzzes when a long task is
+done. Turn on **Tell other tools** on the setup page, give it an address, and
+pick what to send:
+
+| Event | When |
+|---|---|
+| `waiting` | An agent is waiting on you: a permission prompt or a question |
+| `done` | An agent finished, and you haven't looked yet |
+| `error` | A turn ended on an error, such as a rate limit |
+| `working` | An agent got to work |
+| `started` | A session started |
+| `ended` | A session ended |
+
+Waiting on you, done and failed are on to begin with. Each event is a `POST`
+with a JSON body:
+
+```json
+{
+  "event": "waiting",
+  "at": "2026-10-17T20:41:07Z",
+  "session": {
+    "project": "api-server",
+    "agent": "claude",
+    "agentName": "Claude Code",
+    "state": "asking",
+    "previous": "thinking",
+    "key": 1
+  }
+}
+```
+
+`key` is the deck key the session is on, or `null` if it isn't on one. An
+`error` also has an `errorKind`, as the agent named it, such as `rate_limit`
+or `overloaded`. **Send a test** sends `"event": "test"` with no session. If
+you set a secret, every message carries it in an `X-SauzzeDeck-Secret` header.
+
+Only addresses on your own network are allowed: your computer, a `.local`
+name, a name without dots or a private IP address. Tick **Allow addresses
+outside your network** to send elsewhere. Messages name the project, never its
+folder, and never carry prompts or anything an agent wrote.
+
+### Home Assistant
+
+Add an automation with a webhook trigger, then give SauzzeDeck Pro the
+webhook's address, such as
+`http://homeassistant.local:8123/api/webhook/sauzzedeck-lamp`. Home Assistant
+doesn't read headers, so keep the webhook id hard to guess and leave the
+secret empty.
+
+```yaml
+automation:
+  - alias: Desk lamp follows the agents
+    triggers:
+      - trigger: webhook
+        webhook_id: sauzzedeck-lamp
+        allowed_methods: [POST]
+        local_only: true
+    actions:
+      - choose:
+          - conditions: "{{ trigger.json.event == 'waiting' }}"
+            sequence:
+              - action: light.turn_on
+                target: { entity_id: light.desk_lamp }
+                data: { color_name: orange }
+          - conditions: "{{ trigger.json.event == 'done' }}"
+            sequence:
+              - action: light.turn_on
+                target: { entity_id: light.desk_lamp }
+                data: { color_name: green }
+          - conditions: "{{ trigger.json.event == 'error' }}"
+            sequence:
+              - action: light.turn_on
+                target: { entity_id: light.desk_lamp }
+                data: { color_name: red }
+```
+
 ## Privacy and security
 
 - **SauzzeDeck Pro sends nothing off your network.** It talks only to your
-  phone and to the coding agents on your computer. It has no accounts, no analytics and
-  no cloud service.
+  phone, to the coding agents on your computer and, if you turn it on, to the
+  address you gave [Tell other tools](#tell-other-tools), which is on your
+  network unless you allow otherwise. It has no accounts, no analytics and no
+  cloud service.
 - **Each phone has its own key.** Every request carries a long random key that
   only that phone has. The key is never typed: pairing hands it over. Your
   computer keeps only a fingerprint of each key (a SHA-256 hash), so you can revoke one

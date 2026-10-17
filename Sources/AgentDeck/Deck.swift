@@ -106,6 +106,81 @@ final class Deck {
         streams.values.forEach { $0.stream.send(state) }
         onChange()
         scheduleSave()
+        tellWebhook()
+    }
+
+    // MARK: Webhook
+
+    /// What each session was when the webhook was last told, to tell it
+    /// what changed: nil until the deck first looks, so what's already
+    /// running when it starts isn't news.
+    private var told: [String: (state: SessionState, project: String, agent: Agent, key: Int?)]?
+    /// How the last delivery went, for the setup page: what came back, and when.
+    private(set) var webhookLast: String?
+
+    /// The webhook's event for a session going from `before` to `after`, if it has one.
+    private static func event(from before: SessionState?, to after: SessionState) -> String? {
+        switch after {
+        case .asking: return before == .asking ? nil : "waiting"
+        case .unread: return before == .unread ? nil : "done"
+        case .error: return before == .error ? nil : "error"
+        case .thinking: return before == .thinking ? nil : "working"
+        case .idle: return nil
+        }
+    }
+
+    /// Tells the webhook what has happened since it was last told: sessions
+    /// started, ended, or now waiting on you, done, failed or at work.
+    private func tellWebhook() {
+        let (keys, _) = layout()
+        var keyOf: [String: Int] = [:]
+        for (index, key) in keys.enumerated() { if let session = key.session { keyOf[session.id] = index + 1 } }
+        let now = Dictionary(uniqueKeysWithValues: sessions.all.map { ($0.id, (state: $0.state, project: $0.projectName, agent: $0.agent, key: keyOf[$0.id])) })
+        defer { told = now }
+        let webhook = Config.shared.webhook
+        guard let before = told, webhook.enabled, !webhook.url.isEmpty, Webhook.problem(with: webhook.url, outside: webhook.outside) == nil else { return }
+        var messages: [[String: Any]] = []
+        let message = { (event: String, id: String, now: (state: SessionState, project: String, agent: Agent, key: Int?), previous: SessionState?) -> [String: Any] in
+            var session: [String: Any] = [
+                "project": now.project, "agent": now.agent.rawValue, "agentName": now.agent.name, "state": now.state.rawValue,
+                "previous": previous?.rawValue ?? NSNull(), "key": now.key ?? NSNull(),
+            ]
+            if now.state == .error, let kind = self.sessions[id]?.errorKind, !kind.isEmpty { session["errorKind"] = kind }
+            return ["event": event, "at": ISO8601DateFormatter().string(from: Date()), "session": session]
+        }
+        for (id, session) in now {
+            if let old = before[id] {
+                if let event = Deck.event(from: old.state, to: session.state) { messages.append(message(event, id, session, old.state)) }
+            } else {
+                messages.append(message("started", id, session, nil))
+                if let event = Deck.event(from: nil, to: session.state), event != "working" { messages.append(message(event, id, session, nil)) }
+            }
+        }
+        for (id, old) in before where now[id] == nil { messages.append(message("ended", id, old, old.state)) }
+        for message in messages where webhook.events.contains(message["event"] as? String ?? "") {
+            webhook.send(message) { [weak self] result in self?.webhookLast = Deck.described(result) }
+        }
+    }
+
+    /// A test message to the webhook as it's set up, saying how it went.
+    func testWebhook(done: @escaping () -> Void) {
+        let webhook = Config.shared.webhook
+        if let problem = Webhook.problem(with: webhook.url, outside: webhook.outside) {
+            webhookLast = problem
+            return done()
+        }
+        let message: [String: Any] = ["event": "test", "at": ISO8601DateFormatter().string(from: Date()), "session": NSNull()]
+        webhook.send(message) { [weak self] result in
+            self?.webhookLast = Deck.described(result)
+            done()
+        }
+    }
+
+    /// How a delivery went, for the setup page: "Sent: 204 at 20:41", or what went wrong.
+    private static func described(_ result: String) -> String {
+        let time = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
+        guard let status = Int(result) else { return "\(result) (\(time))" }
+        return (200..<300).contains(status) ? "Sent: \(status) at \(time)" : "It answered \(status) at \(time)"
     }
 
     // MARK: Across a restart

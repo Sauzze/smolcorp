@@ -62,6 +62,12 @@
   .hire-setup input, .hire-setup select { background: var(--cap); color: var(--ink); border: 1px solid var(--edge); border-radius: 6px;
     padding: 5px 8px; font: 13px ui-monospace, "SF Mono", Menlo, monospace; }
   .hire-setup input { flex: 1; min-width: 160px; }
+  .webhook-setup #webhook-url { flex: 3 1 260px; }
+  .webhook-setup label { display: flex; align-items: center; gap: 5px; color: var(--dim); font-size: 13px; }
+  .webhook-setup input[type="checkbox"] { flex: none; min-width: 0; margin: 0; }
+  .webhook-setup .events { display: flex; flex-wrap: wrap; gap: 4px 12px; width: 100%; }
+  .webhook-setup .last { color: var(--dim); font-size: 13px; align-self: center; }
+  .webhook-setup .last.wrong { color: var(--error); }
   .switch { position: relative; width: 42px; height: 24px; border-radius: 12px; background: var(--faint); border: 0; flex: none; transition: background .15s; }
   .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; }
   .switch.on { background: var(--unread); }
@@ -318,6 +324,22 @@
         </div>
         <button class="switch" id="music" aria-label="Let the jukebox play your music"></button>
       </div>
+      <div class="step" id="step-webhook" hidden>
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Tell other tools</div>
+          <div class="detail" data-pending="Optional. Send what your agents do to an address on your network, such as a Home Assistant webhook, so a lamp can turn orange when one waits on you." data-done="Each event below goes to this address as it happens: the project's name, the agent and its state, never folders or prompts."></div>
+          <div class="hire-setup webhook-setup" id="webhook-setup" hidden>
+            <input type="url" id="webhook-url" spellcheck="false" placeholder="http://homeassistant.local:8123/api/webhook/deck" aria-label="The address to send events to">
+            <input type="password" id="webhook-secret" spellcheck="false" autocomplete="new-password" placeholder="Secret (optional)" aria-label="A secret sent with each event">
+            <div class="events" id="webhook-events"></div>
+            <label><input type="checkbox" id="webhook-outside"> Allow addresses outside your network</label>
+            <button class="btn" id="webhook-test">Send a test</button>
+            <span class="last" id="webhook-last"></span>
+          </div>
+        </div>
+        <button class="switch" id="webhook" aria-label="Tell other tools"></button>
+      </div>
       <div class="step" id="step-login">
         <div class="mark">✓</div>
         <div class="text">
@@ -553,6 +575,7 @@
     $('login').classList.toggle('on', c.openAtLogin);
     renderHiring();
     renderMusic();
+    renderWebhook();
   }
 
   /**
@@ -566,6 +589,47 @@
     if (!m) return;
     mark('step-music', m.enabled);
     $('music').classList.toggle('on', m.enabled);
+  }
+
+  /** What each event the webhook can send is called here. */
+  const WEBHOOK_EVENTS = [
+    ['waiting', 'Waiting on you'], ['done', 'Done'], ['error', 'Failed'],
+    ['working', 'Working'], ['started', 'Started'], ['ended', 'Ended'],
+  ];
+  /** What the setup page last couldn't keep, shown until the next change. */
+  let webhookProblem = '';
+
+  /** The webhook's step: the switch, where it sends, what, and how the last one went. */
+  function renderWebhook() {
+    const w = state.webhook;
+    $('step-webhook').hidden = !w;
+    if (!w) return;
+    mark('step-webhook', w.enabled && !!w.url);
+    $('webhook').classList.toggle('on', w.enabled);
+    $('webhook-setup').hidden = !w.enabled;
+    // Not while it's being typed in
+    if (document.activeElement !== $('webhook-url')) $('webhook-url').value = w.url;
+    if (document.activeElement !== $('webhook-secret')) $('webhook-secret').value = w.secret;
+    $('webhook-outside').checked = w.outside;
+    $('webhook-events').replaceChildren(...WEBHOOK_EVENTS.map(([id, name]) => {
+      const row = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = w.events.includes(id);
+      box.onchange = () => setWebhook({ events: WEBHOOK_EVENTS.map(([e]) => e).filter((e) => e === id ? box.checked : w.events.includes(e)) });
+      row.append(box, name);
+      return row;
+    }));
+    $('webhook-test').disabled = !w.url;
+    $('webhook-last').textContent = webhookProblem || w.last || '';
+    $('webhook-last').classList.toggle('wrong', !!webhookProblem || (!!w.last && !w.last.startsWith('Sent')));
+  }
+
+  /** Changes part of the webhook; what it refuses is said beside it. */
+  async function setWebhook(change) {
+    const res = await post('/setup/webhook', change);
+    webhookProblem = res.ok ? '' : await res.text();
+    renderWebhook();
   }
 
   function renderHiring() {
@@ -638,6 +702,15 @@
   $('login').onclick = () => post(`/setup/login?enabled=${state.checklist.openAtLogin ? 0 : 1}`);
   $('hiring').onclick = () => post(`/setup/hiring?enabled=${state.hiring.enabled ? 0 : 1}`);
   $('music').onclick = () => post(`/setup/music?enabled=${state.music.enabled ? 0 : 1}`);
+  $('webhook').onclick = () => setWebhook({ enabled: !state.webhook.enabled });
+  $('webhook-url').onchange = () => setWebhook({ url: $('webhook-url').value });
+  $('webhook-secret').onchange = () => setWebhook({ secret: $('webhook-secret').value });
+  $('webhook-outside').onchange = () => setWebhook({ outside: $('webhook-outside').checked });
+  $('webhook-test').onclick = async () => {
+    $('webhook-last').textContent = 'Sending…';
+    webhookProblem = '';
+    await post('/setup/webhook/test');
+  };
   $('hire-folder').onchange = async () => {
     const res = await post(`/setup/hiring?folder=${encodeURIComponent($('hire-folder').value)}`);
     if (!res.ok) alert(await res.text());

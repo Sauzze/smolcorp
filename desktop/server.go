@@ -463,6 +463,56 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupState())
 
+	// Every part is checked before any is kept, so a wrong one changes
+	// nothing. In the body, not the address, as it carries the secret.
+	case r.Method == http.MethodPost && path == "/setup/webhook":
+		var given struct {
+			Enabled *bool     `json:"enabled"`
+			URL     *string   `json:"url"`
+			Secret  *string   `json:"secret"`
+			Outside *bool     `json:"outside"`
+			Events  *[]string `json:"events"`
+		}
+		if data, _ := io.ReadAll(r.Body); json.Unmarshal(data, &given) != nil {
+			writeStatus(w)(http.StatusBadRequest, "That isn't a webhook this deck can use.")
+			return
+		}
+		d.mu.Lock()
+		webhook := config.Webhook
+		if given.Enabled != nil {
+			webhook.Enabled = *given.Enabled
+		}
+		if given.URL != nil {
+			webhook.URL = strings.TrimSpace(*given.URL)
+		}
+		if given.Secret != nil {
+			webhook.Secret = *given.Secret
+		}
+		if given.Outside != nil {
+			webhook.Outside = *given.Outside
+		}
+		if given.Events != nil {
+			webhook.Events = knownEvents(*given.Events)
+		}
+		if webhook.Enabled && webhook.URL != "" {
+			if problem := webhookProblem(webhook.URL, webhook.Outside); problem != "" {
+				d.mu.Unlock()
+				writeStatus(w)(http.StatusBadRequest, problem)
+				return
+			}
+		}
+		config.Webhook = webhook
+		config.save()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupState())
+
+	case r.Method == http.MethodPost && path == "/setup/webhook/test":
+		d.mu.Lock()
+		webhook := config.Webhook
+		d.mu.Unlock()
+		d.testWebhook(webhook)
+		writeJSON(w, http.StatusOK, rt.setupState())
+
 	case r.Method == http.MethodPost && path == "/setup/music":
 		d.mu.Lock()
 		config.MusicEnabled = query.Get("enabled") == "1"
@@ -649,6 +699,10 @@ func (rt *router) setupState() map[string]any {
 			"canHire": false, "canChoose": false,
 		},
 		"music": map[string]any{"enabled": d.config.MusicEnabled},
+		"webhook": map[string]any{
+			"enabled": d.config.Webhook.Enabled, "url": d.config.Webhook.URL, "secret": d.config.Webhook.Secret,
+			"outside": d.config.Webhook.Outside, "events": d.config.Webhook.Events, "last": d.lastDelivery(),
+		},
 		// What to type to start an agent through the launcher.
 		"launcher": launchCommand(),
 		"pairing":  pairing,

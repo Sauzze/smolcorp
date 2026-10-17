@@ -30,10 +30,12 @@ type Config struct {
 	HiringEnabled bool `json:"hiringEnabled"`
 	// MusicEnabled lets a jukebox in the office play and pause this
 	// computer's music. Off until you turn it on: it presses a media key.
-	MusicEnabled      bool   `json:"musicEnabled"`
-	HireFolder        string `json:"hireFolder"`
-	HireAgent         string `json:"hireAgent"`
-	HasCompletedSetup bool   `json:"hasCompletedSetup"`
+	MusicEnabled bool `json:"musicEnabled"`
+	// Where the deck's sessions are told to other tools, if anywhere.
+	Webhook           Webhook `json:"webhook"`
+	HireFolder        string  `json:"hireFolder"`
+	HireAgent         string  `json:"hireAgent"`
+	HasCompletedSetup bool    `json:"hasCompletedSetup"`
 }
 
 // The logos to choose from: the Sauzze mark, or the six keys the deck
@@ -41,7 +43,7 @@ type Config struct {
 var logos = []string{"sauzze", "keys"}
 
 func loadConfig() *Config {
-	config := &Config{Colours: map[string]string{}, Logo: "sauzze", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude)}
+	config := &Config{Colours: map[string]string{}, Logo: "sauzze", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook()}
 	if data, err := os.ReadFile(configFile); err == nil {
 		_ = json.Unmarshal(data, config)
 	}
