@@ -919,12 +919,13 @@
       shape = next;
       spots = spotsOf(decor);
       this.relayout(now);
+      if (this.pet) this.pet = new Pet(this.pet.kind);
     }
 
     /**
      * The desks and the lounge's places have moved, with the room's shape or
-     * its arrangement: anyone on the way somewhere is there at once, everyone
-     * at their place as it is now, and the pet starts again from the door.
+     * its arrangement: anyone on the way somewhere is there at once, and
+     * everyone at their place as it is now.
      */
     relayout(now) {
       DESKS = desksOf(decor);
@@ -938,7 +939,6 @@
         const spot = spotOf(walker.place);
         if (spot !== null) walker.isFacingAway = facesAway(spots[spot].pose);
       }
-      if (this.pet) this.pet = new Pet(this.pet.kind);
     }
 
     apply(seats, colours, now) {
