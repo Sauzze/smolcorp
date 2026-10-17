@@ -50,9 +50,6 @@
 
   /** Where the person at a desk sits, feet hidden behind it. */
   const seat = (desk) => ({ x: DESKS[desk].x + 28, y: DESKS[desk].y + 4 });
-  /** The walkway behind each row of desks. */
-  const lane = (desk) => DESKS[desk].y - 5;
-  const laneNearest = (y) => DESKS.map((desk) => desk.y - 5).reduce((a, b) => (Math.abs(b - y) < Math.abs(a - y) ? b : a));
 
   /** Where idle people spend their time in the lounge, whatever its corner holds, and the part of the lounge each is by. */
   const LOUNGE_SPOTS = [
@@ -101,8 +98,6 @@
     },
   };
   let shape = WIDE;
-  /** Steps into the lounge, held upright, through the doorway at the corridor's foot. */
-  const DOORWAY_STEP = 6;
 
   /**
    * `point`, as it is in the wide room, where `part` of the lounge puts it in
@@ -155,10 +150,22 @@
     plant: { x: 231, y: 168 }, button: { x: 214, y: 177 }, mic: { x: 311, y: 176 },
   };
   const PIECE_BOXES = {
-    wall: { x: 229, y: 17, w: 94, h: 34 }, corner: { x: 238, y: 49, w: 80, h: 52 }, couch: { x: 244, y: 100, w: 66, h: 45 },
-    pong: { x: 236, y: 146, w: 64, h: 22 }, plant: { x: 224, y: 152, w: 14, h: 26 }, button: { x: 206, y: 159, w: 17, h: 19 },
-    mic: { x: 301, y: 150, w: 14, h: 28 },
+    wall: { x: 230, y: 19, w: 83, h: 30 }, couch: { x: 244, y: 102, w: 64, h: 42 }, pong: { x: 246, y: 146, w: 46, h: 16 },
+    plant: { x: 226, y: 154, w: 11, h: 23 }, button: { x: 206, y: 159, w: 17, h: 19 }, mic: { x: 301, y: 150, w: 14, h: 28 },
   };
+  /** What each corner piece takes up, as drawn, with whatever moves: smoke, a swinging bag. */
+  const CORNER_BOXES = {
+    arcade: { x: 264, y: 60, w: 16, h: 27 }, vending: { x: 262, y: 58, w: 20, h: 29 }, foosball: { x: 255, y: 75, w: 34, h: 20 },
+    fishtank: { x: 257, y: 60, w: 31, h: 27 }, books: { x: 265, y: 57, w: 43, h: 41 }, dragon: { x: 244, y: 68, w: 59, h: 29 },
+    pinball: { x: 261, y: 51, w: 27, h: 40 }, jukebox: { x: 263, y: 56, w: 23, h: 33 }, pool: { x: 250, y: 72, w: 52, h: 21 },
+    piano: { x: 261, y: 56, w: 31, h: 36 }, drums: { x: 250, y: 68, w: 54, h: 26 }, telescope: { x: 266, y: 54, w: 36, h: 39 },
+    jellyfish: { x: 260, y: 51, w: 31, h: 41 }, bonsai: { x: 260, y: 60, w: 34, h: 32 }, jungle: { x: 243, y: 56, w: 64, h: 38 },
+    coffee: { x: 244, y: 54, w: 58, h: 40 }, servers: { x: 258, y: 50, w: 35, h: 40 }, printer: { x: 257, y: 56, w: 42, h: 36 },
+    boxing: { x: 268, y: 53, w: 41, h: 41 }, treadmill: { x: 260, y: 63, w: 32, h: 31 }, hottub: { x: 253, y: 63, w: 48, h: 34 },
+    ballpit: { x: 253, y: 75, w: 48, h: 22 }, campfire: { x: 248, y: 63, w: 57, h: 33 },
+  };
+  /** What `part` takes up, in the wide room as it comes: the corner's by what's in it, null with nothing there. */
+  const pieceRect = (part) => (part === 'corner' ? CORNER_BOXES[decor.corner] || null : PIECE_BOXES[part]);
 
   /** A room's arrangement, as given: anything unknown left out, positions within reach, sizes as offered. */
   function planOf(given) {
@@ -431,40 +438,206 @@
     }
   }
 
-  /** The walkway a place is reached by: a desk's own row, or the first row's for the back wall. */
-  function laneTo(place) {
-    const [kind, a] = place.split(':');
-    if (kind === 'desk' || kind === 'shred' || kind === 'near') return lane(Number(a));
-    if (kind === 'board' || kind === 'clock') return lane(0);
-    return null;
+  /*
+   * Walking: the floor as a grid of cells, each free or taken by something
+   * standing on it (a desk, the couch, the lounge's piece…, as they're
+   * arranged), with the walls round it and, held upright, the lounge's own
+   * wall but for its doorway. A* finds the shortest way between free cells,
+   * then the way is pulled straight wherever the floor between two of its
+   * points is free, so people walk in long straight lines round what's in
+   * their way. A place taken by furniture itself, such as a seat at a desk
+   * or in the hot tub, is reached from the free cell nearest to it.
+   */
+
+  /** How big a cell of the floor is, in art pixels. */
+  const CELL = 2;
+  /** What each part of the lounge stands on, in the wide room, as it comes: placed as it's arranged. */
+  const FOOTPRINTS = {
+    wall: [{ x: 230, y: 41, w: 28, h: 9 }, { x: 302, y: 42, w: 11, h: 7 }], // the counter, the cooler
+    couch: [{ x: 246, y: 104, w: 62, h: 14 }, { x: 256, y: 130, w: 40, h: 8 }], // the couch, its table
+    pong: [{ x: 246, y: 150, w: 46, h: 10 }],
+    plant: [{ x: 226, y: 160, w: 12, h: 8 }],
+    button: [{ x: 207, y: 168, w: 15, h: 9 }],
+    mic: [{ x: 308, y: 170, w: 6, h: 6 }],
+  };
+  /** The doorway onto the corridor, at the top of the floor, kept free of the wall: and held upright, the lounge's. */
+  const DOORWAY = { left: 206, right: 222 };
+
+  let floor = null; // the grid, for the room as it is now: built when it's first walked, and again once the room changes
+
+  /** The room's floor has changed: its shape, its furniture or where it stands. */
+  function floorChanged() {
+    floor = null;
   }
 
-  /**
-   * The way from where someone stands to a place. Desks, and what's round
-   * them or on the back wall, are reached along the walkway behind their
-   * row, from the corridor; the lounge is open floor, crossed in a straight
-   * line. Held upright, the lounge is through the doorway at the foot of
-   * the corridor.
-   */
+  function floorNow() {
+    if (floor) return floor;
+    const columns = Math.ceil(shape.width / CELL), rows = Math.ceil(shape.height / CELL);
+    const taken = new Uint8Array(columns * rows);
+    const take = (left, top, right, bottom) => {
+      for (let row = Math.max(0, Math.floor(top / CELL)); row <= Math.min(rows - 1, Math.floor(bottom / CELL)); row++) {
+        for (let column = Math.max(0, Math.floor(left / CELL)); column <= Math.min(columns - 1, Math.floor(right / CELL)); column++) {
+          taken[row * columns + column] = 1;
+        }
+      }
+    };
+    // The back wall, but for the doorway onto the corridor
+    take(0, 0, DOORWAY.left - 1, WALL_BOTTOM - 1);
+    take(DOORWAY.right + 1, 0, shape.width, WALL_BOTTOM - 1);
+    take(DOORWAY.left, 0, DOORWAY.right, DOOR.y - 3);
+    // Held upright, the lounge's wall, but for its doorway
+    if (shape.loungeWall !== undefined) {
+      take(0, shape.loungeWall - WALL_BOTTOM, DOORWAY.left - 1, shape.loungeWall - 1);
+      take(DOORWAY.right + 1, shape.loungeWall - WALL_BOTTOM, shape.width, shape.loungeWall - 1);
+    }
+    for (const { x, y } of DESKS) take(x - 1, y - 1, x + DESK_WIDTH + 1, y + 17);
+    // The corner piece stands on the bottom of what it takes up: what's above is the piece itself, or its smoke.
+    const corner = CORNER_BOXES[decor.corner];
+    const standing = corner ? [{ ...corner, y: corner.y + corner.h - Math.max(6, Math.round(corner.h * 0.4)), h: Math.max(6, Math.round(corner.h * 0.4)) }] : [];
+    for (const [part, rects] of [...Object.entries(FOOTPRINTS), ['corner', standing]]) {
+      if (pieceOf(part).off) continue;
+      for (const { x, y, w, h } of rects) {
+        const a = placed(part, { x, y }), b = placed(part, { x: x + w, y: y + h });
+        take(a.x, a.y, b.x, b.y);
+      }
+    }
+    floor = { columns, rows, taken };
+    return floor;
+  }
+
+  /** The way from where someone stands to a place, round what's in the way. */
   function route(from, place) {
     const target = pointOf(place);
-    const walkway = laneTo(place);
-    const amongDesks = from.x < CORRIDOR_X - 1 && from.y > WALL_BOTTOM && !inLounge(from);
-    const current = laneNearest(from.y);
-    const path = [];
-    const doorway = { x: CORRIDOR_X, y: shape.loungeWall + DOORWAY_STEP };
-    if (inLounge(from) && !inLounge(target)) path.push(doorway);
-    if (walkway !== null && amongDesks && walkway === current) {
-      path.push({ x: from.x, y: current });
-    } else {
-      if (amongDesks) path.push({ x: from.x, y: current }, { x: CORRIDOR_X, y: current });
-      if (walkway !== null) path.push({ x: CORRIDOR_X, y: walkway });
-      else if (place === 'door') path.push({ x: CORRIDOR_X, y: WALL_BOTTOM + 8 });
+    const path = walkway(from, target);
+    return path.filter((p, i) => i > 0 ? p.x !== path[i - 1].x || p.y !== path[i - 1].y : p.x !== from.x || p.y !== from.y);
+  }
+
+  /** The points to walk through from `from` to `to`, `to` last. */
+  function walkway(from, to) {
+    const { columns, rows, taken } = floorNow();
+    const cellOf = (p) => {
+      const column = Math.max(0, Math.min(columns - 1, Math.floor(p.x / CELL)));
+      const row = Math.max(0, Math.min(rows - 1, Math.floor(p.y / CELL)));
+      return row * columns + column;
+    };
+    const centre = (cell) => ({ x: (cell % columns) * CELL + CELL / 2, y: Math.floor(cell / columns) * CELL + CELL / 2 });
+    /** The free cell nearest to `cell`, itself if it's free. */
+    const nearestFree = (cell) => {
+      if (!taken[cell]) return cell;
+      const seen = new Uint8Array(columns * rows);
+      const queue = [cell];
+      seen[cell] = 1;
+      for (let i = 0; i < queue.length; i++) {
+        const at = queue[i], column = at % columns, row = Math.floor(at / columns);
+        for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+          const c = column + dx, r = row + dy;
+          if (c < 0 || r < 0 || c >= columns || r >= rows) continue;
+          const next = r * columns + c;
+          if (seen[next]) continue;
+          if (!taken[next]) return next;
+          seen[next] = 1;
+          queue.push(next);
+        }
+      }
+      return cell;
+    };
+    const start = nearestFree(cellOf(from)), goal = nearestFree(cellOf(to));
+    const cells = search(start, goal, columns, rows, taken);
+    if (!cells) return [{ x: to.x, y: to.y }]; // walled in: straight there, as before there were walls
+    // Pulled straight: from each point, on to the farthest one in plain sight
+    const clear = (pa, pb) => {
+      // Every half pixel, so a line that only grazes a corner of something still counts
+      const steps = Math.ceil(Math.hypot(pb.x - pa.x, pb.y - pa.y) / 0.5);
+      for (let k = 1; k < steps; k++) {
+        if (taken[cellOf({ x: pa.x + ((pb.x - pa.x) * k) / steps, y: pa.y + ((pb.y - pa.y) * k) / steps })]) return false;
+      }
+      return true;
+    };
+    const points = [];
+    // From where they stand, or out from behind the furniture first
+    let here = start === cellOf(from) ? { x: from.x, y: from.y } : centre(start);
+    if (start !== cellOf(from)) points.push(here);
+    let at = 0;
+    while (at < cells.length - 1) {
+      // As far along the way as can be seen from here, looking a little further each time
+      let next = at + 1;
+      while (next + 1 < cells.length && clear(here, centre(cells[next + 1]))) next++;
+      here = centre(cells[next]);
+      points.push(here);
+      at = next;
     }
-    if (!inLounge(from) && inLounge(target)) path.push(doorway);
-    if (walkway !== null) path.push({ x: target.x, y: walkway });
-    path.push({ x: target.x, y: target.y });
-    return path.filter((p) => p.x !== from.x || p.y !== from.y);
+    points.push({ x: to.x, y: to.y });
+    return points;
+  }
+
+  /** A*, from cell to cell, straight and diagonally but never round a corner: the cells on the way, or null with none. */
+  function search(start, goal, columns, rows, taken) {
+    if (start === goal) return [start];
+    const cost = new Float32Array(columns * rows).fill(Infinity);
+    const from = new Int32Array(columns * rows).fill(-1);
+    const done = new Uint8Array(columns * rows);
+    const goalColumn = goal % columns, goalRow = Math.floor(goal / columns);
+    const guess = (cell) => {
+      const dx = Math.abs((cell % columns) - goalColumn), dy = Math.abs(Math.floor(cell / columns) - goalRow);
+      // A hair over the distance, so of ways equally short the one heading for the goal is tried first
+      return (Math.max(dx, dy) + (Math.SQRT2 - 1) * Math.min(dx, dy)) * 1.001;
+    };
+    // A binary heap of [estimate, cell]
+    const heap = [];
+    const push = (item) => {
+      heap.push(item);
+      for (let i = heap.length - 1; i > 0;) {
+        const parent = (i - 1) >> 1;
+        if (heap[parent][0] <= heap[i][0]) break;
+        [heap[parent], heap[i]] = [heap[i], heap[parent]];
+        i = parent;
+      }
+    };
+    const pop = () => {
+      const top = heap[0], last = heap.pop();
+      if (heap.length) {
+        heap[0] = last;
+        for (let i = 0; ;) {
+          const l = i * 2 + 1, r = l + 1;
+          let least = i;
+          if (l < heap.length && heap[l][0] < heap[least][0]) least = l;
+          if (r < heap.length && heap[r][0] < heap[least][0]) least = r;
+          if (least === i) break;
+          [heap[least], heap[i]] = [heap[i], heap[least]];
+          i = least;
+        }
+      }
+      return top;
+    };
+    cost[start] = 0;
+    push([guess(start), start]);
+    while (heap.length) {
+      const [, cell] = pop();
+      if (done[cell]) continue;
+      if (cell === goal) {
+        const cells = [];
+        for (let at = goal; at !== -1; at = from[at]) cells.push(at);
+        return cells.reverse();
+      }
+      done[cell] = 1;
+      const column = cell % columns, row = Math.floor(cell / columns);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const c = column + dx, r = row + dy;
+          if (c < 0 || r < 0 || c >= columns || r >= rows) continue;
+          const next = r * columns + c;
+          if (taken[next] || done[next]) continue;
+          if (dx && dy && (taken[row * columns + c] || taken[r * columns + column])) continue; // no cutting corners
+          const through = cost[cell] + (dx && dy ? Math.SQRT2 : 1);
+          if (through >= cost[next]) continue;
+          cost[next] = through;
+          from[next] = cell;
+          push([through + guess(next), next]);
+        }
+      }
+    }
+    return null;
   }
 
   /* ---------------------------------------------------------- the palette */
@@ -929,6 +1102,7 @@
      */
     relayout(now) {
       DESKS = desksOf(decor);
+      floorChanged();
       for (const walker of [...this.people, ...this.interns]) {
         if (walker.isWalking) {
           walker.arrivedAt = now;
@@ -5877,14 +6051,14 @@
         const seat = office.seats[desk] || {};
         return { left: x - 2, top: y + WORKSPACES[workspaceOf(seat.session)].top, right: x + DESK_WIDTH + 2, bottom: y + 20 };
       }
-      const { x, y, w, h } = PIECE_BOXES[part];
+      const { x, y, w, h } = pieceRect(part);
       const a = placed(part, { x, y }), b = placed(part, { x: x + w, y: y + h });
       return { left: a.x, top: a.y, right: b.x, bottom: b.y };
     }
 
     /** What can be arranged and is in the room, the smallest first, so a piece on a bigger one is picked first. */
     function arrangeable() {
-      return Object.keys(ARRANGEABLE).filter((part) => !pieceOf(part).off)
+      return Object.keys(ARRANGEABLE).filter((part) => !pieceOf(part).off && (part.startsWith('desk') || pieceRect(part)))
         .map((part) => ({ part, box: pieceBox(part) }))
         .sort((a, b) => (a.box.right - a.box.left) * (a.box.bottom - a.box.top) - (b.box.right - b.box.left) * (b.box.bottom - b.box.top));
     }
@@ -6062,13 +6236,14 @@
    * shows it where the room held upright has it.
    */
   function preview(canvas, what, { room = null, now = 0, tall = false } = {}) {
-    const kept = { decor, spots, boardSpots, shape, DESKS };
+    const kept = { decor, spots, boardSpots, shape, DESKS, floor };
     try {
       shape = tall ? TALL : WIDE;
       // Shown in the room as you furnished it, unless it's a style being shown.
       // As it comes, not as it's arranged: a picture of a piece, not of where it is.
       decor = { ...roomOf({ ...room, preset: 'yours', ...what, team: null, plan: null }), staff: 'none', sky: 'day', pet: 'none' };
       DESKS = STANDARD_DESKS;
+      floor = null;
       spots = spotsOf(decor);
       boardSpots = boardSpotsOf(decor);
       const office = new Office();
@@ -6098,7 +6273,7 @@
       ctx.drawImage(whole, crop.x * scale, crop.y * scale, w, h,
         Math.floor((canvas.width - w) / 2), Math.floor((canvas.height - h) / 2), w, h);
     } finally {
-      ({ decor, spots, boardSpots, shape, DESKS } = kept);
+      ({ decor, spots, boardSpots, shape, DESKS, floor } = kept);
     }
   }
 
