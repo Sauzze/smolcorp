@@ -970,7 +970,7 @@
   const WORKSPACE_DRESS = {
     cockpit: 'astronaut', console: 'astronaut', hover: 'astronaut', ship: 'pirate', chest: 'pirate', throne: 'robe', gilded: 'robe',
     igloo: 'parka', crates: 'parka', greenhouse: 'wizard', altar: 'wizard', tent: 'flannel', log: 'flannel', van: 'flannel',
-    box: 'founder', bench: 'founder', bamboo: 'safari', rack: 'gymkit',
+    box: 'founder', bench: 'founder', bamboo: 'safari', rack: 'gymkit', gaming: 'gamer',
   };
   const STAFF_DRESS = { astronaut: 'flightsuit', pirate: 'captain', parka: 'explorer', robe: 'knight' };
   /**
