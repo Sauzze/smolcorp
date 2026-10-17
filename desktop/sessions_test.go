@@ -67,8 +67,10 @@ func TestEndingsOtherThanDone(t *testing.T) {
 func TestOnlyNotificationsThatWaitOnYouAsk(t *testing.T) {
 	s := NewSessions()
 	s.Apply(event("UserPromptSubmit"), Claude, tab, "", 100)
+	// An idle reminder doesn't ask anything of you; that it ends a turn left
+	// off with Esc is TestATurnLeftOffWithEscEndsWhenTheAgentWaitsForAPrompt's.
 	s.Apply(event("Notification", "notification_type", "idle_prompt"), Claude, tab, "", 200)
-	if got := stateAfter(t, s); got != Thinking {
+	if got := stateAfter(t, s); got == Asking {
 		t.Fatalf("an idle reminder turned the key %s", got)
 	}
 	s.Apply(event("Notification", "notification_type", "permission_prompt"), Claude, tab, "", 300)
@@ -313,5 +315,68 @@ func TestASubagentsTranscriptIsReadAtMostOnceASecond(t *testing.T) {
 	s.Get("s1").Subagents[0].lookedForModelAt = time.Now().Add(-modelLookInterval)
 	if !s.Apply(event("PreToolUse", "agent_id", "a1", "tool_name", "Grep"), Claude, tab, "", 500) || s.Get("s1").Subagents[0].Model != "claude-haiku-5-5" {
 		t.Fatalf("a second on, the subagent's model is %q, want claude-haiku-5-5", s.Get("s1").Subagents[0].Model)
+	}
+}
+
+func TestATurnLeftOffWithEscEndsWhenTheAgentWaitsForAPrompt(t *testing.T) {
+	s := NewSessions()
+	s.Apply(event("UserPromptSubmit"), Claude, tab, "", 100)
+	s.Apply(event("Notification", "notification_type", "idle_prompt"), Claude, tab, "", 200)
+	if got := stateAfter(t, s); got != Idle || s.Get("s1").TurnStartedAt != 0 {
+		t.Fatalf("after Esc and a minute's wait: %s with a turn from %v, want idle with none", got, s.Get("s1").TurnStartedAt)
+	}
+	s.Apply(event("Stop"), Claude, tab, "", 300)
+	s.Apply(event("Notification", "notification_type", "idle_prompt"), Claude, tab, "", 400)
+	if got := stateAfter(t, s); got != Unread {
+		t.Fatalf("a finished turn waiting for a prompt is %s, want it still unread", got)
+	}
+}
+
+func TestAnAgentGoesBackToWorkWhenItsLimitResets(t *testing.T) {
+	s := NewSessions()
+	s.Apply(event("StopFailure", "error", "rate_limit"), Claude, tab, "", 100)
+	s.Apply(event("Notification", "notification_type", "quota_auto_resume_fired"), Claude, tab, "", 200)
+	if got := stateAfter(t, s); got != Thinking || s.Get("s1").ErrorKind != "" {
+		t.Fatalf("after the limit reset: %s, %q; want working and no error", got, s.Get("s1").ErrorKind)
+	}
+}
+
+func TestASessionClearedInItsTabHandsOnItsPlace(t *testing.T) {
+	s := NewSessions()
+	s.Apply(event("UserPromptSubmit"), Claude, tab, "", 100)
+	s.Apply(event("SessionEnd", "reason", "clear"), Claude, tab, "", 200)
+	if s.Get("s1") == nil {
+		t.Fatal("a session ended for /clear left before the next one came")
+	}
+	next := event("SessionStart", "source", "clear")
+	next["session_id"] = "s2"
+	s.Apply(next, Claude, tab, "", 210)
+	if s.Get("s1") != nil || s.Get("s2") == nil {
+		t.Fatal("the new session didn't take the cleared one's place")
+	}
+	if replaced := s.TakeReplacements(); replaced["s2"] != "s1" {
+		t.Fatalf("replacements %v, want s2 in place of s1", replaced)
+	}
+}
+
+func TestASessionClearedWithNothingAfterItEnds(t *testing.T) {
+	s := NewSessions()
+	s.Apply(event("UserPromptSubmit"), Claude, tab, "", 100)
+	s.Apply(event("SessionEnd", "reason", "resume"), Claude, tab, "", 200)
+	if s.EndHandOns(200+handOnWait/2) || s.Get("s1") == nil {
+		t.Fatal("it ended before its wait was up")
+	}
+	if !s.EndHandOns(200+handOnWait+1) || s.Get("s1") != nil {
+		t.Fatal("it's still there after its wait")
+	}
+	another := func(name string, fields ...any) map[string]any {
+		e := event(name, fields...)
+		e["session_id"] = "s3"
+		return e
+	}
+	s.Apply(another("UserPromptSubmit"), Claude, tab, "", 9000)
+	s.Apply(another("SessionEnd", "reason", "prompt_input_exit"), Claude, tab, "", 9100)
+	if s.Get("s3") != nil {
+		t.Fatal("a session quit for good waited at the door")
 	}
 }

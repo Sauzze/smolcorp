@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -480,6 +481,18 @@ func TestEveryoneWorksAtTheOfficesChoiceOrTheirOwn(t *testing.T) {
 	}
 }
 
+func TestAStyleIsKeptByNameAndAnUnknownOneIsYours(t *testing.T) {
+	for given, want := range map[string]string{`"lair"`: "lair", `"disco"`: "yours", `5`: "yours", `null`: "yours"} {
+		var room Room
+		if err := json.Unmarshal([]byte(`{"preset": `+given+`}`), &room); err != nil || room.Preset != want {
+			t.Errorf("a style of %s gave %q, %v; want %q", given, room.Preset, err, want)
+		}
+	}
+	if (Room{}).checked().Preset != "yours" {
+		t.Error("a room kept before styles isn't in Yours")
+	}
+}
+
 func TestATeamRemembersFiftyProjectsAtMost(t *testing.T) {
 	team := map[string]TeamMember{}
 	for i := range 60 {
@@ -514,7 +527,10 @@ func TestTheDressCodeKeepsOnlyChoicesItHas(t *testing.T) {
 	if got, _ := json.Marshal(room.Dress); string(got) != string(must(json.Marshal(want))) {
 		t.Errorf("dress code kept as\n%s\nwant\n%s", got, must(json.Marshal(want)))
 	}
-	for _, outfit := range []string{"polo", "cardigan", "hawaiian", "tracksuit", "overalls", "waistcoat"} {
+	if got := (TeamMember{Skin: "cream", Hair: "orange"}).checked(); got.Skin != "cream" || got.Hair != "orange" {
+		t.Errorf("the hire's cream skin and orange hair became %q and %q", got.Skin, got.Hair)
+	}
+	for _, outfit := range []string{"polo", "cardigan", "hawaiian", "tracksuit", "overalls", "waistcoat", "astronaut", "flannel", "hire", "claude", "phi"} {
 		if got := (Attire{Outfit: outfit}).checked().Outfit; got != outfit {
 			t.Errorf("the dress code's %s became %s", outfit, got)
 		}
@@ -604,4 +620,162 @@ func must[T any](value T, err error) T {
 		panic(err)
 	}
 	return value
+}
+
+func TestAnArrangementKeepsWhatCanBeArrangedAsItCanBe(t *testing.T) {
+	var room Room
+	if err := json.Unmarshal([]byte(`{"plan": {"wide": {
+		"desk1": {"x": 12, "y": -4.6, "size": 2, "off": true, "workspace": "tent", "monitor": "crt", "finish": "walnut",
+			"chair": "red", "thing": "duck"},
+		"desk2": {"workspace": "hammock"},
+		"mic": {"x": -3, "y": 0, "size": 1.5, "off": true, "workspace": "tent", "monitor": "crt"},
+		"corner": {"x": 9999, "size": 3, "off": true},
+		"sofa": {"x": 1},
+		"plant": "here"}, "tall": 5}}`), &room); err != nil {
+		t.Fatal(err)
+	}
+	with := func(p Piece) Piece {
+		for _, field := range []*string{&p.Workspace, &p.Monitor, &p.Finish, &p.Chair, &p.Thing} {
+			if *field == "" {
+				*field = "auto"
+			}
+		}
+		return p
+	}
+	want := map[string]Piece{
+		"desk1":  {X: 12, Y: -5, Size: 1, Off: true, Workspace: "tent", Monitor: "crt", Finish: "walnut", Chair: "red", Thing: "duck"},
+		"desk2":  with(Piece{Size: 1}),
+		"mic":    with(Piece{X: -3, Size: 1.5}),
+		"corner": with(Piece{X: pieceReach, Size: 1, Off: true}),
+	}
+	if len(room.Plan.Wide) != len(want) {
+		t.Fatalf("kept %v, want %v", room.Plan.Wide, want)
+	}
+	for part, piece := range want {
+		if room.Plan.Wide[part] != piece {
+			t.Errorf("%s is %+v, want %+v", part, room.Plan.Wide[part], piece)
+		}
+	}
+	if room.Plan.Tall == nil || len(room.Plan.Tall) != 0 {
+		t.Errorf("a tall arrangement that isn't one gave %v, want none", room.Plan.Tall)
+	}
+	written, err := json.Marshal(Room{})
+	if err != nil || !strings.Contains(string(written), `"plan":{"wide":{},"tall":{},"added":{"wide":[],"tall":[]},"hung":{}}`) {
+		t.Errorf("a room kept before arrangements wrote %s, %v; want an empty plan", written, err)
+	}
+}
+
+func TestPiecesAddedToTheLoungeAreThoseItsCornerCanHold(t *testing.T) {
+	var plan Plan
+	given := `{"added": {"wide": [{"kind": "fishtank", "x": 10.4, "y": -20, "size": 1.5}, {"kind": "fishtank", "size": 4},
+		{"kind": "none"}, {"kind": "volcano"}, "arcade", {"kind": "arcade", "x": 999}], "tall": {"kind": "dragon"}}}`
+	if err := json.Unmarshal([]byte(given), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan = plan.checked()
+	want := []AddedPiece{{Kind: "fishtank", X: 10, Y: -20, Size: 1.5}, {Kind: "fishtank", Size: 1}, {Kind: "arcade", X: pieceReach, Size: 1}}
+	if !slices.Equal(plan.Added.Wide, want) {
+		t.Errorf("added %+v, want %+v", plan.Added.Wide, want)
+	}
+	if plan.Added.Tall == nil || len(plan.Added.Tall) != 0 {
+		t.Errorf("a list that isn't one gave %+v, want none", plan.Added.Tall)
+	}
+	many := make([]AddedPiece, 20)
+	for i := range many {
+		many[i] = AddedPiece{Kind: "arcade", Size: 1}
+	}
+	if got := (Plan{Added: Added{Wide: many}}).checked().Added.Wide; len(got) != addedMost {
+		t.Errorf("kept %d added pieces, want at most %d", len(got), addedMost)
+	}
+}
+
+func TestADesksOwnLookIsKeptOnlyAsItsChoices(t *testing.T) {
+	var plan Plan
+	given := `{"wide": {"desk3": {"monitor": "hologram", "finish": "black", "chair": "pink", "thing": "auto"},
+		"pong": {"thing": "duck"}}}`
+	if err := json.Unmarshal([]byte(given), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan = plan.checked()
+	if got := plan.Wide["desk3"]; got.Monitor != "auto" || got.Finish != "black" || got.Chair != "auto" || got.Thing != "auto" {
+		t.Errorf("desk3 is %+v, want only its black finish kept", got)
+	}
+	if got := plan.Wide["pong"].Thing; got != "auto" {
+		t.Errorf("the ping-pong table has a thing of its own: %q", got)
+	}
+}
+
+func TestTheLoungeTakesAFloorAndAWallOfItsOwn(t *testing.T) {
+	var room Room
+	if err := json.Unmarshal([]byte(`{"lounge": "marble", "loungePaint": "damask"}`), &room); err != nil {
+		t.Fatal(err)
+	}
+	if room.Lounge != "marble" || room.LoungePaint != "damask" {
+		t.Errorf("lounge %q, wall %q; want marble and damask", room.Lounge, room.LoungePaint)
+	}
+	var unknown Room
+	if err := json.Unmarshal([]byte(`{"lounge": "lava", "loungePaint": "navy"}`), &unknown); err != nil {
+		t.Fatal(err)
+	}
+	if unknown.Lounge != "navy" || unknown.LoungePaint != "auto" {
+		t.Errorf("lounge %q, wall %q; want the standard navy, and auto", unknown.Lounge, unknown.LoungePaint)
+	}
+}
+
+func TestADeskCanBePutAway(t *testing.T) {
+	var plan Plan
+	if err := json.Unmarshal([]byte(`{"wide": {"desk4": {"off": true}, "button": {"off": true}}}`), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan = plan.checked()
+	if !plan.Wide["desk4"].Off {
+		t.Error("desk4 wasn't put away")
+	}
+	if plan.Wide["button"].Off {
+		t.Error("the red button was put away, but it's a control")
+	}
+}
+
+func TestTheBackWallKeepsWhereItsPiecesHang(t *testing.T) {
+	var plan Plan
+	given := `{"hung": {"wide": [{"kind": "window", "x": 30}, {"kind": "bare", "x": 60}, {"kind": "lava", "x": 90},
+		{"kind": "whiteboard", "x": 999}, {"kind": "poster"}], "tall": []}}`
+	if err := json.Unmarshal([]byte(given), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan = plan.checked()
+	want := []HungPiece{{"window", 30}, {"whiteboard", wallLength}, {"poster", wallMiddle}}
+	if plan.Hung.Wide == nil || !slices.Equal(*plan.Hung.Wide, want) {
+		t.Errorf("the wide wall is %v, want %v", plan.Hung.Wide, want)
+	}
+	if plan.Hung.Tall == nil || len(*plan.Hung.Tall) != 0 {
+		t.Errorf("the tall wall is %v, want bare", plan.Hung.Tall)
+	}
+	// Saved and read again, a wall with nothing said keeps its five places, and a bare one stays bare
+	var again Plan
+	if err := json.Unmarshal(must(json.Marshal(Plan{Hung: Hung{Tall: &[]HungPiece{}}})), &again); err != nil {
+		t.Fatal(err)
+	}
+	if again.Hung.Wide != nil || again.Hung.Tall == nil {
+		t.Errorf("after saving: wide %v, tall %v; want nil and bare", again.Hung.Wide, again.Hung.Tall)
+	}
+}
+
+func TestAPositionFarOutOfRangeStopsAtTheEdge(t *testing.T) {
+	var plan Plan
+	given := `{"wide": {"couch": {"x": 1e20, "y": -1e300}}, "added": {"wide": [{"kind": "jukebox", "x": -1e20, "y": 1e20}]},
+		"hung": {"wide": [{"kind": "window", "x": 1e20}]}}`
+	if err := json.Unmarshal([]byte(given), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan = plan.checked()
+	if got := plan.Wide["couch"]; got.X != pieceReach || got.Y != -pieceReach {
+		t.Errorf("the couch is at %d, %d, want %d, %d", got.X, got.Y, pieceReach, -pieceReach)
+	}
+	if got := plan.Added.Wide[0]; got.X != -pieceReach || got.Y != pieceReach {
+		t.Errorf("the jukebox is at %d, %d", got.X, got.Y)
+	}
+	if got := (*plan.Hung.Wide)[0].X; got != wallLength {
+		t.Errorf("the window hangs at %d, want %d", got, wallLength)
+	}
 }

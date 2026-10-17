@@ -1,4 +1,4 @@
-// Package agentdeck holds what SauzzeDeck Pro's apps share: the phone,
+// Package agentdeck holds what Smolcorp's apps share: the phone,
 // pairing and setup pages, and OpenCode's plugin. The Mac app copies them
 // into its bundle; the Windows and Linux app builds them in.
 package agentdeck

@@ -29,7 +29,15 @@ type Deck struct {
 	keyOf map[string]int
 	// The tab recording started in, and when. One computer, one microphone.
 	micPress *micPress
-	work     chan func()
+	// Whether music is playing, for the office's jukebox, when it can be told.
+	playing *bool
+	// What each session was when the webhook was last told, nil until the
+	// deck first looks; and how the last delivery went, for the setup page.
+	told         map[string]told
+	webhookMu    sync.Mutex
+	webhookLast  string
+	webhookSends chan func() // the webhook's messages, sent in turn by sendWebhooks
+	work         chan func()
 	// OnChange is called on every change, for the tray.
 	OnChange func()
 }
@@ -46,6 +54,10 @@ const (
 	pruneInterval = 10 * time.Second
 	// Claude stops listening by itself after two minutes.
 	voiceLimit = 120 * time.Second
+	// How often to end the sessions ended for /clear or /resume that nothing took the place of.
+	handOnInterval = 1500 * time.Millisecond
+	// How often to look whether music is playing, with the jukebox on.
+	musicInterval = 3 * time.Second
 )
 
 var effortLevels = []string{"low", "medium", "high", "xhigh", "max"}
@@ -55,7 +67,11 @@ func NewDeck() *Deck {
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
 		keyOf: map[string]int{}, work: make(chan func(), 64), OnChange: func() {},
+		webhookSends: make(chan func(), webhookQueue),
 	}
+	go d.sendWebhooks()
+	// What's running as it starts is where the webhook starts from, so the first change after it is news
+	d.tellWebhook()
 	go func() {
 		for job := range d.work {
 			job()
@@ -75,8 +91,69 @@ func NewDeck() *Deck {
 			d.pruneClosedTabs()
 		}
 	}()
+	go func() {
+		for range time.Tick(handOnInterval) {
+			d.mu.Lock()
+			if d.sessions.EndHandOns(nowMillis()) {
+				d.changed()
+			}
+			d.mu.Unlock()
+		}
+	}()
+	go func() {
+		for range time.Tick(musicInterval) {
+			d.followMusic()
+		}
+	}()
 	return d
 }
+
+// followMusic looks whether music is playing, with the jukebox on, and tells
+// the phones when that changes.
+func (d *Deck) followMusic() {
+	d.mu.Lock()
+	enabled := d.config.MusicEnabled
+	d.mu.Unlock()
+	if !enabled {
+		return
+	}
+	playing := musicPlaying()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if (playing == nil) != (d.playing == nil) || (playing != nil && *playing != *d.playing) {
+		d.playing = playing
+		d.changed()
+	}
+}
+
+// musicKeys is what a jukebox's keys do, as the office names them.
+var musicKeys = []string{"playpause", "previous", "next"}
+
+// pressMusicKey presses one of musicKeys: a variable, for the tests.
+var pressMusicKey = musicKey
+
+// playMusic plays or pauses this computer's music, or skips a song either
+// way, from a jukebox in the office.
+func (d *Deck) playMusic(key string) (int, string) {
+	if !contains(musicKeys, key) {
+		return http.StatusBadRequest, "A jukebox has no " + key + " key."
+	}
+	d.mu.Lock()
+	enabled := d.config.MusicEnabled
+	d.mu.Unlock()
+	if !enabled {
+		return http.StatusForbidden, musicOff
+	}
+	if err := pressMusicKey(key); err != nil {
+		return http.StatusInternalServerError, "Couldn't reach the music here."
+	}
+	// The player takes a moment to say it has.
+	time.AfterFunc(600*time.Millisecond, d.followMusic)
+	return http.StatusNoContent, ""
+}
+
+// musicOff is what the phone says when a jukebox is tapped with the control off.
+const musicOff = "The jukebox can't play your music: turn it on in setup."
 
 // MARK: Hook events
 
@@ -134,6 +211,7 @@ func (d *Deck) changed() {
 		stream.send(state)
 	}
 	go d.OnChange()
+	d.tellWebhook()
 }
 
 // Refresh re-sends the state, for changes the sessions don't see (the setup
@@ -159,6 +237,14 @@ type deckKey struct {
 // Sessions beyond the last key have none until one frees up.
 func (d *Deck) layout() ([]deckKey, []*Session) {
 	remaining := d.sessions.All()
+	// A session that took another's place in its tab, as after /clear, takes its key too.
+	for new, old := range d.sessions.TakeReplacements() {
+		if index, ok := d.keyOf[old]; ok {
+			if _, has := d.keyOf[new]; !has {
+				d.keyOf[new] = index
+			}
+		}
+	}
 	live := map[string]bool{}
 	for _, s := range remaining {
 		live[s.ID] = true
@@ -274,12 +360,22 @@ func (d *Deck) snapshot() []byte {
 		"keys": entries, "overflow": len(overflow), "theme": currentTheme(d.config), "scroll": d.config.ScrollEnabled,
 		// What the office's held desks offer: firing here; hiring is the Mac app's for now.
 		"hiring": map[string]bool{"fire": d.config.HiringEnabled, "hire": false},
+		"music":  d.musicState(),
 		"layout": d.config.Layout,
 		// This computer's clock, so the office can count turns on the phone's,
 		// whichever of the two is right.
 		"now": int64(nowMillis()),
 	})
 	return state
+}
+
+// musicState is what the office's jukeboxes know: whether music is playing,
+// null when that can't be told, or nothing at all with the control off.
+func (d *Deck) musicState() any {
+	if !d.config.MusicEnabled {
+		return nil
+	}
+	return map[string]any{"playing": d.playing}
 }
 
 // orNull and millisOrNull write nothing as null, as the Mac app does.
@@ -435,6 +531,24 @@ const hiringOff = "Hiring and firing are off. Turn them on in setup, on your com
 // another in the office: each is pinned where the other was, so the order
 // holds the next time too, as pins made in setup do. It only orders the keys,
 // so any paired phone may.
+// setStyle puts the office in one of its styles, from the phone, on every
+// screen it's on. Only the style's name is kept: what you furnished stays
+// under it.
+func (d *Deck) setStyle(preset string) (int, string) {
+	if !slices.Contains(roomStyles, preset) {
+		return http.StatusBadRequest, "Unknown style"
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.config.Layout.Room.Preset == preset {
+		return http.StatusNoContent, ""
+	}
+	d.config.Layout.Room.Preset = preset
+	d.config.save()
+	d.changed()
+	return http.StatusNoContent, ""
+}
+
 func (d *Deck) swapKeys(query url.Values) (int, string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -475,6 +589,16 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	d.mu.Unlock()
 	if action == "swap" {
 		return d.swapKeys(query)
+	}
+	if action == "style" {
+		return d.setStyle(query.Get("preset"))
+	}
+	if action == "music" {
+		key := query.Get("do")
+		if key == "" {
+			key = "playpause"
+		}
+		return d.playMusic(key)
 	}
 	if action == "hire" {
 		if !hiring {

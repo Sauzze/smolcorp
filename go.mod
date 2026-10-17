@@ -1,4 +1,4 @@
-module github.com/Sauzze/agentdeck
+module github.com/Sauzze/smolcorp
 
 go 1.26.0
 

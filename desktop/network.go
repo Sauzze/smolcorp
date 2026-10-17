@@ -56,9 +56,12 @@ func localAddress() string {
 // the program is on PATH, by its full path when it isn't.
 func launchCommand() string {
 	program := commandLineProgram()
-	if found, err := exec.LookPath("sauzzedeck"); err == nil {
-		if resolved, err := filepath.EvalSymlinks(found); err == nil && sameFile(resolved, program) {
-			return "sauzzedeck run"
+	// As Windows names it, and by the name it had before, while that's the one on PATH
+	for _, name := range []string{"smolcorp", "smolcorp-cli", "sauzzedeck"} {
+		if found, err := exec.LookPath(name); err == nil {
+			if resolved, err := filepath.EvalSymlinks(found); err == nil && sameFile(resolved, program) {
+				return name + " run"
+			}
 		}
 	}
 	return shellPath(program) + " run"

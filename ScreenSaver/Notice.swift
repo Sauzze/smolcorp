@@ -12,8 +12,8 @@ enum Notice {
         switch self {
         case .notPaired: return "Pair the screen saver"
         case .unpaired: return "Pair again in Options"
-        case .appClosed: return "Open SauzzeDeck Pro to see your office"
-        case .ready: return "Agent Office"
+        case .appClosed: return "Open Smolcorp to see your office"
+        case .ready: return "Smolcorp Office"
         }
     }
 

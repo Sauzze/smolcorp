@@ -11,11 +11,11 @@ import (
 	"runtime"
 	"strings"
 
-	agentdeck "github.com/Sauzze/agentdeck"
+	agentdeck "github.com/Sauzze/smolcorp"
 )
 
 // Hooks is where each coding agent is told to run the hook, as the Mac app's
-// Hooks.swift: the same files, the same entries, with `sauzzedeck hook` in
+// Hooks.swift: the same files, the same entries, with `smolcorp hook` in
 // place of report.sh.
 //
 // User-level, so every session reports to the deck, whatever folder it
@@ -42,7 +42,17 @@ func agentFolder(agent Agent) string {
 }
 
 func openCodePlugin() string {
+	return filepath.Join(agentFolder(OpenCode), "plugins", "smolcorp.js")
+}
+
+// Grok's and OpenCode's files under the name the app had before, moved to the
+// new ones as the app connects or starts.
+func oldOpenCodePlugin() string {
 	return filepath.Join(agentFolder(OpenCode), "plugins", "sauzzedeck-pro.js")
+}
+
+func oldGrokHooks() string {
+	return filepath.Join(agentFolder(Grok), "hooks", "sauzzedeck-pro.json")
 }
 
 // hookCommand is the command an agent runs. Grok's entries match Claude
@@ -64,7 +74,7 @@ func commandLineProgram() string {
 		program = resolved
 	}
 	if runtime.GOOS == "windows" {
-		return filepath.Join(filepath.Dir(program), "sauzzedeck.exe")
+		return filepath.Join(filepath.Dir(program), "smolcorp-cli.exe")
 	}
 	return program
 }
@@ -87,9 +97,9 @@ func entriesFor(agent Agent) *hookEntries {
 		// Gemini CLI waits for its hooks, and counts their timeout in milliseconds.
 		return &hookEntries{file: filepath.Join(agentFolder(Gemini), "settings.json"), events: []string{
 			"SessionStart", "BeforeAgent", "BeforeTool", "AfterTool", "Notification", "AfterAgent", "SessionEnd",
-		}, handler: map[string]any{"type": "command", "command": command, "name": "sauzzedeck-pro", "timeout": 5000}}
+		}, handler: map[string]any{"type": "command", "command": command, "name": "smolcorp", "timeout": 5000}}
 	case Grok:
-		return &hookEntries{file: filepath.Join(agentFolder(Grok), "hooks", "sauzzedeck-pro.json"), events: []string{
+		return &hookEntries{file: filepath.Join(agentFolder(Grok), "hooks", "smolcorp.json"), events: []string{
 			"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
 			"Notification", "Stop", "StopFailure", "StopCancelled", "SessionEnd",
 		}, handler: map[string]any{"type": "command", "command": command}, isOwnFile: true}
@@ -112,7 +122,8 @@ func isConnected(agent Agent) bool {
 	entries := entriesFor(agent)
 	if entries == nil {
 		_, err := os.Stat(openCodePlugin())
-		return err == nil
+		_, old := os.Stat(oldOpenCodePlugin())
+		return err == nil || old == nil
 	}
 	settings, err := readSettings(entries.file)
 	if err != nil {
@@ -169,7 +180,15 @@ var errUnreadable = errors.New("settings aren't valid JSON")
 func connect(agent Agent, turnOnVoice bool) error {
 	entries := entriesFor(agent)
 	if entries == nil {
-		return writePlugin()
+		if err := writePlugin(); err != nil {
+			return err
+		}
+		// Under the name the app had before, it's gone now, so each event is reported once
+		_ = os.Remove(oldOpenCodePlugin())
+		return nil
+	}
+	if agent == Grok {
+		_ = os.Remove(oldGrokHooks())
 	}
 	settings := map[string]any{}
 	if !entries.isOwnFile {
@@ -197,8 +216,10 @@ func disconnectAgents() error {
 		switch {
 		case entries == nil:
 			_ = os.Remove(openCodePlugin())
+			_ = os.Remove(oldOpenCodePlugin())
 		case entries.isOwnFile:
 			_ = os.Remove(entries.file)
+			_ = os.Remove(oldGrokHooks())
 		default:
 			if _, err := os.Stat(entries.file); err != nil {
 				continue
@@ -226,7 +247,9 @@ func disconnectAgents() error {
 // didn't. Voice is left alone: only connecting turns it on.
 func refreshHooks() {
 	for _, agent := range foundAgents() {
-		if hasEntries(agent) {
+		// Grok's hooks in their own file under the name the app had before count too
+		_, old := os.Stat(oldGrokHooks())
+		if hasEntries(agent) || (agent == Grok && old == nil) {
 			_ = connect(agent, false)
 		}
 	}
@@ -267,13 +290,15 @@ func writePlugin() error {
 }
 
 // isOurs recognises the deck's handler by its command, wherever the program
-// was when it was written. On Windows that path is in its short form, where
-// sauzzedeck.exe reads SAUZZE~1.EXE.
+// was when it was written, under this name or the one it had before, so an
+// update replaces the old entries rather than adding to them. On Windows that
+// path is in its short form, where smolcorp-cli.exe reads SMOLCO~1.EXE and
+// sauzzedeck.exe SAUZZE~1.EXE.
 func isOurs(handler any) bool {
 	h, _ := handler.(map[string]any)
 	command, _ := h["command"].(string)
 	command = strings.ToLower(command)
-	return strings.Contains(command, "sauzze") && strings.Contains(command, " hook")
+	return (strings.Contains(command, "smolco") || strings.Contains(command, "sauzze")) && strings.Contains(command, " hook")
 }
 
 func hasOurs(groups any) bool {

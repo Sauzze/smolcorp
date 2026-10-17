@@ -1,6 +1,6 @@
 import AppKit
 
-/// The screen saver's Options: where it pairs with SauzzeDeck Pro, with a
+/// The screen saver's Options: where it pairs with Smolcorp, with a
 /// code from the setup page, as a phone does.
 @MainActor
 final class PairingSheet: NSObject, NSTextFieldDelegate {
@@ -22,7 +22,7 @@ final class PairingSheet: NSObject, NSTextFieldDelegate {
         let heading = NSTextField(labelWithString: "Pair the screen saver")
         heading.font = .boldSystemFont(ofSize: NSFont.systemFontSize + 2)
         let help = NSTextField(wrappingLabelWithString:
-            "Click SauzzeDeck Pro in the menu bar, choose Pair a Phone…, and enter the code it shows.")
+            "Click Smolcorp in the menu bar, choose Pair a Phone…, and enter the code it shows.")
         code.font = .monospacedSystemFont(ofSize: 24, weight: .semibold)
         code.alignment = .center
         code.placeholderString = "000000"
@@ -64,7 +64,7 @@ final class PairingSheet: NSObject, NSTextFieldDelegate {
                 switch answer {
                 case .paired: status.stringValue = "Paired. Your office shows while the screen saver runs."
                 case .unpaired: status.stringValue = "Unpaired on the setup page. Pair again with a new code."
-                case .unreachable: status.stringValue = "Paired. Open SauzzeDeck Pro to see your office."
+                case .unreachable: status.stringValue = "Paired. Open Smolcorp to see your office."
                 }
             }
         } else {

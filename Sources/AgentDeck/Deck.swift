@@ -12,6 +12,8 @@ final class Deck {
     private static let closedTabCheckInterval: TimeInterval = 10
     /// How often to ping idle event streams so they stay open.
     private static let pingInterval: TimeInterval = 20
+    /// How often to look whether music is playing, with the jukebox on.
+    private static let musicInterval: TimeInterval = 3
     /// How soon after a change the sessions are saved, so a burst of events
     /// writes once.
     private static let saveDelay: TimeInterval = 1
@@ -46,19 +48,28 @@ final class Deck {
     /// can catch Terminal in the middle of opening or closing a window.
     private var missedOnce = Set<String>()
     private var savePending = false
+    /// Whether music is playing, for the office's jukeboxes: true, or nil when it can't be told.
+    private var playing: Bool?
+    private var checkingMusic = false
 
     init() {
         sessions.onChange = { [weak self] in self?.changed() }
         restoreSessions()
+        // What's running as it starts is where the webhook starts from, so the first change after it is news
+        tellWebhook()
 
         Timer.scheduledTimer(withTimeInterval: Deck.seenCheckInterval, repeats: true) { [weak self] _ in
             self?.checkFrontTab()
+            self?.sessions.endHandOns(now: Date().timeIntervalSince1970 * 1000)
         }
         Timer.scheduledTimer(withTimeInterval: Deck.closedTabCheckInterval, repeats: true) { [weak self] _ in
             self?.pruneClosedTabs()
         }
         Timer.scheduledTimer(withTimeInterval: Deck.pingInterval, repeats: true) { [weak self] _ in
             self?.streams.values.forEach { $0.stream.ping() }
+        }
+        Timer.scheduledTimer(withTimeInterval: Deck.musicInterval, repeats: true) { [weak self] _ in
+            self?.followMusic()
         }
     }
 
@@ -97,6 +108,110 @@ final class Deck {
         streams.values.forEach { $0.stream.send(state) }
         onChange()
         scheduleSave()
+        tellWebhook()
+    }
+
+    // MARK: Webhook
+
+    /// What each session was when the webhook was last told, to tell it
+    /// what changed: nil until the deck first looks, so what's already
+    /// running when it starts isn't news.
+    private var told: [String: Told]?
+    private typealias Told = (state: SessionState, project: String, agent: Agent, key: Int?, kind: String)
+    /// The webhook's messages waiting their turn, sent one after another so
+    /// a quick "working" then "done" can't arrive the other way round.
+    private var webhookQueue: [(webhook: Webhook, message: [String: Any])] = []
+    private var webhookSending = false
+    /// How many messages wait at most, if the address stops answering.
+    private static let webhookQueueMost = 64
+    /// How the last delivery went, for the setup page: what came back, and when.
+    private(set) var webhookLast: String?
+
+    /// The webhook's event for a session going from `before` to `after`, if it has one.
+    private static func event(from before: SessionState?, to after: SessionState) -> String? {
+        switch after {
+        case .asking: return before == .asking ? nil : "waiting"
+        case .unread: return before == .unread ? nil : "done"
+        case .error: return before == .error ? nil : "error"
+        case .thinking: return before == .thinking ? nil : "working"
+        case .idle: return nil
+        }
+    }
+
+    /// Tells the webhook what has happened since it was last told: sessions
+    /// started, ended, or now waiting on you, done, failed or at work.
+    private func tellWebhook() {
+        let (keys, _) = layout()
+        var keyOf: [String: Int] = [:]
+        for (index, key) in keys.enumerated() { if let session = key.session { keyOf[session.id] = index + 1 } }
+        let now: [String: Told] = Dictionary(uniqueKeysWithValues: sessions.all.map {
+            ($0.id, (state: $0.state, project: $0.projectName, agent: $0.agent, key: keyOf[$0.id], kind: $0.errorKind))
+        })
+        defer { told = now }
+        let webhook = Config.shared.webhook
+        guard let before = told, webhook.enabled, !webhook.url.isEmpty, Webhook.problem(with: webhook.url, outside: webhook.outside) == nil else { return }
+        var messages: [[String: Any]] = []
+        let message = { (event: String, now: Told, previous: SessionState?) -> [String: Any] in
+            var session: [String: Any] = [
+                "project": now.project, "agent": now.agent.rawValue, "agentName": now.agent.name, "state": now.state.rawValue,
+                "previous": previous?.rawValue ?? NSNull(), "key": now.key ?? NSNull(),
+            ]
+            if now.state == .error, !now.kind.isEmpty { session["errorKind"] = now.kind }
+            return ["event": event, "at": ISO8601DateFormatter().string(from: Date()), "session": session]
+        }
+        // In the order of the desks, then of their ids: one change's messages
+        // always go in the same order, and a new session's start before its state
+        let inOrder = { (sessions: [String: Told]) in
+            sessions.keys.sorted { (sessions[$0]!.key ?? 0, $0) < (sessions[$1]!.key ?? 0, $1) }
+        }
+        for id in inOrder(now) {
+            let session = now[id]!
+            if let old = before[id] {
+                if let event = Deck.event(from: old.state, to: session.state) { messages.append(message(event, session, old.state)) }
+            } else {
+                messages.append(message("started", session, nil))
+                if let event = Deck.event(from: nil, to: session.state), event != "working" { messages.append(message(event, session, nil)) }
+            }
+        }
+        for id in inOrder(before) where now[id] == nil { messages.append(message("ended", before[id]!, before[id]!.state)) }
+        for message in messages where webhook.events.contains(message["event"] as? String ?? "") {
+            guard webhookQueue.count < Deck.webhookQueueMost else { break } // the address has stopped answering
+            webhookQueue.append((webhook, message))
+        }
+        sendNextWebhook()
+    }
+
+    /// Sends the next message waiting, once the last has gone.
+    private func sendNextWebhook() {
+        guard !webhookSending, !webhookQueue.isEmpty else { return }
+        let (webhook, message) = webhookQueue.removeFirst()
+        webhookSending = true
+        webhook.send(message) { [weak self] result in
+            self?.webhookLast = Deck.described(result)
+            self?.webhookSending = false
+            self?.sendNextWebhook()
+        }
+    }
+
+    /// A test message to the webhook as it's set up, saying how it went.
+    func testWebhook(done: @escaping () -> Void) {
+        let webhook = Config.shared.webhook
+        if let problem = Webhook.problem(with: webhook.url, outside: webhook.outside) {
+            webhookLast = problem
+            return done()
+        }
+        let message: [String: Any] = ["event": "test", "at": ISO8601DateFormatter().string(from: Date()), "session": NSNull()]
+        webhook.send(message) { [weak self] result in
+            self?.webhookLast = Deck.described(result)
+            done()
+        }
+    }
+
+    /// How a delivery went, for the setup page: "Sent: 204 at 20:41", or what went wrong.
+    private static func described(_ result: String) -> String {
+        let time = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
+        guard let status = Int(result) else { return "\(result) (\(time))" }
+        return (200..<300).contains(status) ? "Sent: \(status) at \(time)" : "It answered \(status) at \(time)"
     }
 
     // MARK: Across a restart
@@ -246,6 +361,8 @@ final class Deck {
                 "fire": Config.shared.hiringEnabled,
                 "hire": Config.shared.hiringEnabled && Deck.folder(Config.shared.hireFolder) != nil,
             ],
+            // What the office's jukeboxes know: whether music is playing, null when that can't be told.
+            "music": Config.shared.musicEnabled ? ["playing": playing.map { $0 as Any } ?? NSNull()] : NSNull(),
             "layout": Config.shared.layout.jsonObject,
         ]
         // Keys in order: unsorted, the same layout can come out differently
@@ -293,6 +410,8 @@ final class Deck {
         // A new hire has no session yet, and a swap is of two desks.
         if action == "hire" { return hire(at: query["desk"], done: done) }
         if action == "swap" { return done(swapKeys(query)) }
+        if action == "style" { return done(setStyle(query["preset"])) }
+        if action == "music" { return done(playMusic(query["do"] ?? "playpause")) }
         guard let session = sessions[id], !session.tty.isEmpty else { return done(.status(404, "Session not found")) }
         let tty = session.tty
 
@@ -382,6 +501,54 @@ final class Deck {
         Config.shared.swapPins(first, at: a, with: second, at: b)
         changed()
         return .status(204)
+    }
+
+    /// The office in one of its styles, from the phone, on every screen it's
+    /// on. Only the style's name is kept: what you furnished stays under it.
+    private func setStyle(_ preset: String?) -> Response {
+        guard let preset, Room.presets.contains(preset) else { return .status(400, "Unknown style") }
+        let config = Config.shared
+        guard config.layout.room.preset != preset else { return .status(204) }
+        config.layout.room.preset = preset
+        config.save()
+        changed()
+        return .status(204)
+    }
+
+    static let musicOff = "The jukebox can't play your music: turn it on in setup, on your Mac."
+
+    /// Plays or pauses the Mac's music, or skips a song either way, from a
+    /// jukebox in the office: `key` is "playpause", "previous" or "next".
+    private func playMusic(_ key: String) -> Response {
+        guard Music.keys[key] != nil else { return .status(400, "A jukebox has no \(key) key.") }
+        guard Config.shared.musicEnabled else { return .status(403, Deck.musicOff) }
+        guard Permissions.hasAccessibility else { return .status(403, Deck.noKeyboard) }
+        Music.press(key)
+        // The player takes a moment to say it has.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.followMusic() }
+        return .status(204)
+    }
+
+    /// Looks whether music is playing, with the jukebox on, and tells the phones when that changes.
+    func followMusic() {
+        guard !checkingMusic else { return }
+        guard Config.shared.musicEnabled else {
+            if playing != nil {
+                playing = nil
+                changed()
+            }
+            return
+        }
+        checkingMusic = true
+        DispatchQueue.global(qos: .utility).async {
+            let now = Music.isPlaying()
+            DispatchQueue.main.async {
+                self.checkingMusic = false
+                guard now != self.playing else { return }
+                self.playing = now
+                self.changed()
+            }
+        }
     }
 
     /// How long after a hire the next is refused. A second tap, or a second

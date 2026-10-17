@@ -1,70 +1,65 @@
-# SauzzeDeck Pro
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+  <img src="docs/logo-light.svg" alt="Smolcorp" width="420">
+</picture>
 
-[![CI](https://github.com/Sauzze/agentdeck/actions/workflows/ci.yml/badge.svg)](https://github.com/Sauzze/agentdeck/actions/workflows/ci.yml)
+# Smolcorp
+
+[![CI](https://github.com/Sauzze/smolcorp/actions/workflows/ci.yml/badge.svg)](https://github.com/Sauzze/smolcorp/actions/workflows/ci.yml)
 
 <p align="center">
-  <img src="docs/demo.gif" alt="SauzzeDeck Pro 1.6 in use: an agent's outfit changes with its model from a T-shirt to a suit; the office is refurnished from the floor to the lounge, a pet and the seasons; a held desk shows paint chips for effort and the big red button sends another agent to max; then one agent is fired and walks out with a box, and a new hire walks in" width="800">
+  <img src="docs/demo.gif" alt="Smolcorp on a phone held sideways: the office fills the screen, and the new hire, in an orange tie, works at their desk while coffee mugs drop in as their effort rises; a finger held on their desk brings up their keys along the foot of the room; they wait for an answer, the phone's edge glows orange and ✓ is tapped; then the jukebox plays and heads bob to the beat" width="800">
 </p>
 
 A control pad on your phone for the AI coding agents in your terminal: Claude
 Code, Codex, Gemini CLI, OpenCode and Grok.
 
-A key lights up for each of your agent sessions to show what it's doing. You
-can approve a permission request from across the room, interrupt an agent, turn
-a dial to change how hard Claude thinks, or hold a button and talk to it. Lay
-the deck out your way, with buttons of your own, or watch your agents at work
-as people in [a little pixel-art office](#the-office). SauzzeDeck Pro runs in
+Your agent sessions are people in [a little pixel-art office](#the-office) on
+your phone, each at a desk, acting out what it's doing. From the office you can
+approve a permission request from across the room, interrupt an agent, change
+how hard Claude thinks, press buttons of your own, or hold the mic and talk to
+it. Smolcorp runs in
 your Mac's menu bar, or in the tray on [Windows and Linux](#windows-and-linux-preview).
 Your phone connects to it over your Wi-Fi, so there's nothing to install from
 an app store.
 
-SauzzeDeck Pro was called AgentDeck up to version 1.0.1.
+Smolcorp was called SauzzeDeck Pro up to version 1.6.1, and AgentDeck up to 1.0.1.
 
 <p align="center">
-  <img src="docs/deck-portrait.png" alt="The deck on a phone: six session keys, a dial and a stick" width="300">
+  <img src="docs/deck-portrait.png" alt="The deck on a phone held upright: the office, an agent picked, and its keys along the foot of the room" width="300">
 </p>
 
-> SauzzeDeck Pro is an independent project. It is not made by or affiliated with Anthropic.
+> Smolcorp is an independent project. It is not made by or affiliated with Anthropic.
 
-## What's on the deck
+## On your phone
 
-| Control | What it does |
+The phone opens straight into the office, full screen, upright or sideways as
+you hold it. Each desk is one of your agent sessions, named after its project:
+the folder the agent started in, or the top of its git repository.
+
+| In the office | What it does |
 |---|---|
-| **Session keys** | One per agent session, up to nine, sharing the same space: one fills it, four make a 2×2. Each is named after its project: the folder the agent started in, or the top of its git repository. The colour shows its state, and the line underneath its agent, or Claude Code's thinking effort. Tap a key to select that session and bring its Terminal window to the front. |
-| **Dial** | Claude Code's thinking effort: low, medium, high, extra high, max. If Claude is mid-task, the change waits until it finishes. |
-| **Stick** | When the agent asks you something, slide up or down to choose an answer and tap to confirm. The rest of the time it's a scroll wheel for that session's Terminal window: roll it to scroll, tap to jump back to the bottom. Scrolling is off until you turn on **Let the stick scroll Terminal** on the setup page. Tap the stick's SCROLL / CHOICES label to switch by hand. |
-| **✓ and ✕** | Accept or reject a permission request. |
-| **🎙 (hold)** | Talk to Claude Code. Release, and Claude sends what you said once it's three words or more. |
-| **esc · send · /clear** | Interrupt the agent, press Return, or start a fresh conversation. `/clear` asks you to tap twice, and waits until the agent isn't busy. |
-| **☢ Max** and **effort steps** | Optional, from [Layout](#make-it-yours): one press sends Claude straight to max effort, or tap a level from low to max. |
+| **A desk, or its person** | Picks that session and brings its Terminal window to the front. |
+| **▲ ▼ ✓ ✕ over the picked agent, when it's waiting on you** | Move through its options, accept or reject. They come up on their own. |
+| **A desk, held** | Brings out its keys along the foot of the room: **esc** interrupts it, **⏎ send** presses Return, **/clear** starts a fresh conversation (tap twice), **↑ ↓** move through its menus, then [your own buttons](#make-it-yours). On a Claude Code desk, also paint chips for its thinking effort, from low to max; if Claude is mid-task, the change waits until it finishes. The coffee by the monitor shows the effort: one mug for low, up to four, and a steaming pot at max. A tap elsewhere puts them away. |
+| **The red button** | ☢ Max effort for the picked session, in one press. |
+| **The mic, held** | Talk to Claude Code. Let go, and Claude sends what you said once it's three words or more. |
+| **Two fingers, dragged** | Scroll the picked session's Terminal window; tap with two to jump back to the bottom. Off until you turn on **Let two fingers scroll Terminal** on the setup page. |
 
-What the key colours mean:
+How the people show what their sessions are doing is under
+[The office](#the-office). The room's edge glows while an agent is waiting on
+you.
 
-| | |
-|---|---|
-| ⚪ White | Idle |
-| 🔵 Blue, pulsing | Working |
-| 🟠 Orange, blinking | Waiting on you: a permission request or a question |
-| 🟢 Green | Done, and you haven't looked yet |
-| 🔴 Red | Stopped on an error |
-
-Sessions keep their order on the keys; with a fixed number of keys, each
-keeps its own key until it ends. You can pin projects to specific keys, lay
-the deck out your way and change every colour:
-
-<p align="center">
-  <img src="docs/themes.png" alt="The deck in five colour schemes: Default, Midnight, Moonlight, Light and High contrast" width="100%">
-</p>
-
-Four of these are built-in presets. Moonlight is a custom palette, made in the
-colour editor in a minute.
+Sessions keep their order at the desks; with a fixed number of desks, each
+keeps its own until it ends. You can pin projects to specific desks and
+furnish the office your way.
 
 ## Supported agents
 
-Each agent tells SauzzeDeck Pro what it's doing through its own hooks, and the
+Each agent tells Smolcorp what it's doing through its own hooks, and the
 deck presses that agent's own keys:
 
-| Agent | Interrupt | Fresh conversation | Dial and mic |
+| Agent | Interrupt | Fresh conversation | Effort and mic |
 |---|---|---|---|
 | [Claude Code](https://claude.com/claude-code) | Esc | `/clear` | ✓ |
 | [Codex](https://github.com/openai/codex) | Esc | `/new` | – |
@@ -72,12 +67,12 @@ deck presses that agent's own keys:
 | [OpenCode](https://opencode.ai) | Esc, twice | `/new` | – |
 | [Grok](https://github.com/xai-org/grok-build) | Ctrl+C | `/new` | – |
 
-The dial and the mic drive Claude Code's own `/effort` and `/voice`, so they
-switch off when another agent's key is selected. In Grok, ✕ declines with
+The effort chips, the red button and the mic drive Claude Code's own `/effort`
+and `/voice`, so they do nothing when another agent is picked. In Grok, ✕ declines with
 Ctrl+C, the key Grok uses to cancel a request.
 
 **Codex** asks you to approve new hooks before it runs them: after connecting,
-run `/hooks` in Codex once and trust SauzzeDeck Pro's. Codex runs its hooks in
+run `/hooks` in Codex once and trust Smolcorp's. Codex runs its hooks in
 a background service rather than in your tab, so the deck finds each Codex
 session's tab by its project folder.
 
@@ -96,22 +91,26 @@ There are two ways. Both give you the same app.
 
 ### Download the app
 
-1. Download **SauzzeDeck-Pro.zip** from the
-   [latest release](https://github.com/Sauzze/agentdeck/releases/latest) and open it.
-2. Drag **SauzzeDeck Pro** into your Applications folder, then open it.
-3. macOS will say it can't check SauzzeDeck Pro for malicious software, because
+1. Download **Smolcorp.zip** from the
+   [latest release](https://github.com/Sauzze/smolcorp/releases/latest) and open it.
+2. Drag **Smolcorp** into your Applications folder, then open it.
+3. macOS will say it can't check Smolcorp for malicious software, because
    the app isn't notarised by Apple. Click **Done**, then go to
    **System Settings → Privacy & Security**, scroll down, and click
-   **Open Anyway** next to SauzzeDeck Pro. You only do this once.
+   **Open Anyway** next to Smolcorp. You only do this once.
 
 To check that your download is the one that was published, run
-`shasum -a 256 SauzzeDeck-Pro.zip` in Terminal and compare the result with the
+`shasum -a 256 Smolcorp.zip` in Terminal and compare the result with the
 SHA-256 in the release notes.
+
+Updating from SauzzeDeck Pro? Quit it, delete **SauzzeDeck Pro** from
+Applications and install as above. Your settings and paired phones carry over;
+turn the app back on under Accessibility (see [Set up](#set-up)), and add the
+deck to your phone's Home Screen again for the new name and icon.
 
 Updating from AgentDeck? Quit it, delete **AgentDeck** from Applications and
 install as above. Your settings carry over, but pair your phone again, add it
-to your Home Screen again, and turn the app back on under Accessibility (see
-[Set up](#set-up)).
+to your Home Screen again, and turn the app back on under Accessibility.
 
 ### Or build it yourself
 
@@ -119,44 +118,50 @@ You need Apple's free developer tools. The installer offers to install them if
 you don't have them. A copy you build yourself opens without the warning.
 
 ```bash
-git clone https://github.com/Sauzze/agentdeck.git
-cd agentdeck
+git clone https://github.com/Sauzze/smolcorp.git
+cd smolcorp
 ./install.sh
 ```
 
-This builds SauzzeDeck Pro, puts it in your Applications folder and opens it.
-It also replaces an older copy named AgentDeck.
+This builds Smolcorp, puts it in your Applications folder and opens it.
+It also replaces an older copy named SauzzeDeck Pro or AgentDeck.
 
-Either way, you'll see an S in a circle in the menu bar, and the setup page
+Either way, you'll see a little person in a suit in the menu bar, and the setup page
 opens in your browser.
 
 ## Set up
 
-The setup page walks you through five steps:
+The setup page walks you through these steps:
 
 <p align="center">
-  <img src="docs/setup.png" alt="The setup page: its checklist, the keys, and a pairing code with its QR code for your phone" width="720">
+  <img src="docs/setup.png" alt="The setup page: getting started, the desks, and a pairing code with its QR code for your phone" width="720">
 </p>
 
 1. **Connect your coding agents.** This lets every supported agent on your Mac
-   tell SauzzeDeck Pro what it's doing. Restart any sessions that were already
+   tell Smolcorp what it's doing. Restart any sessions that were already
    open. Install another agent later? Click **Connect** again.
-2. **Allow SauzzeDeck Pro to use your keyboard.** System Settings opens. Turn
-   on **SauzzeDeck Pro** in the list. The buttons, the mic and scrolling need
+2. **Allow Smolcorp to use your keyboard.** System Settings opens. Turn
+   on **Smolcorp** in the list. The buttons, the mic and scrolling need
    this.
-3. **Let the stick scroll Terminal** (optional). Turns the stick into a scroll
-   wheel for the selected session's Terminal window.
+3. **Let two fingers scroll Terminal** (optional). Drag two fingers on the
+   office to scroll the picked session's Terminal window.
 4. **Let the office hire and fire** (optional). Lets you start and stop agents
    from [the office](#the-office): choose the folder new hires start in, and
    which agent they are.
-5. **Open at login** (optional). Keeps the deck ready whenever your Mac is on.
+5. **Let the jukebox play your music** (optional). Tap a jukebox in the
+   office to play or pause whatever your Mac is playing: Spotify, Apple
+   Music, a video in your browser. It presses the keyboard's play/pause key.
+6. **Open at login** (optional). Keeps the deck ready whenever your Mac is on.
 
-The first time you press a button, macOS asks whether SauzzeDeck Pro may
+Under **More**, at the foot of the page: [Tell other tools](#tell-other-tools),
+for sending what your agents do to Home Assistant or another tool of yours.
+
+The first time you press a button, macOS asks whether Smolcorp may
 control Terminal. Click **Allow**.
 
 ## Pair your phone
 
-1. On your computer, click the SauzzeDeck Pro icon in the menu bar or tray and
+1. On your computer, click the Smolcorp icon in the menu bar or tray and
    choose **Pair a Phone…**. The setup page opens with a six-digit code and a
    QR code.
 2. Scan the QR code with your phone's camera. Or open your phone's browser, go
@@ -164,7 +169,7 @@ control Terminal. Click **Allow**.
    type the code.
 3. Add the deck to your Home Screen: on an iPhone, tap **Share → Add to Home
    Screen**; on Android, open the browser's menu and tap **Add to Home
-   screen**. SauzzeDeck Pro now opens full screen and stays paired.
+   screen**. Smolcorp now opens full screen and stays paired.
 
 While the deck is open, your phone's screen stays on, from your first tap. If
 an agent has been waiting on you for five minutes, the deck reminds you once,
@@ -172,47 +177,45 @@ with a chime, and a buzz on phones that allow it.
 
 Each phone you pair appears under **Paired phones** on the setup page, with
 when it was last used. **Revoke** cuts one phone off straight away;
-**Unpair All Phones** does it for every phone, and is also in SauzzeDeck
-Pro's menu. A phone you've cut off shows the pairing page again. To use it once
+**Unpair All Phones** does it for every phone, and is also in Smolcorp's
+menu. A phone you've cut off shows the pairing page again. To use it once
 more, pair it with a new code, then remove the old Home Screen icon and add
 the deck again: the icon keeps the old pairing.
 
 <p align="center">
-  <img src="docs/deck-landscape.png" alt="The deck sideways: keys on the left, controls on the right" width="640">
+  <img src="docs/deck-landscape.png" alt="The deck sideways: the office, with the picked agent's keys along the foot of the room" width="640">
 </p>
 
 ## Make it yours
 
 The setup page also has:
 
-- **Keys.** Drag a running session onto a key to keep that project on it.
-  Keys you don't pin go to the next session that starts.
-- **Logo.** The Sauzze logo or the original six keys, in the menu bar, on the
+- **Desks.** How many desks for sessions: Auto, one per running session, or
+  always 3, 6 or 9. Drag a running session onto a desk to keep that project
+  there; desks you don't pin go to the next session that starts.
+- **Profiles.** Save your office and your buttons under a name, and switch
+  between them in a click: one for the couch, one for the desk. Default is
+  always the standard office. Export a profile to back it up or share it.
+  Before an imported profile is added, the setup page lists everything its
+  buttons would type or press.
+- **Office.** Its style, [arranging the room](#the-office), its look and its
+  life, your team, the dress code, and **Your buttons**: each types a command,
+  such as `/compact`, or presses a key, such as Shift+Tab to switch Claude
+  Code's mode, from the keys a held desk brings out. A button can wait until
+  the agent isn't busy, ask for a second tap, or be for some agents only. A
+  live preview of your phone sits beside it.
+- **Logo.** The Smolcorp hire or the original six keys, in the menu bar, on the
   setup page and on your phone's Home Screen. A phone picks up a new logo the
   next time you add the deck to its Home Screen.
-- **Layout.** Keys or [the office](#the-office), how many keys (Auto, one per
-  running session, or always 3, 6 or 9), whether the dial and stick show, and
-  up to four rows of buttons, tall or short, each button one to three widths
-  wide. Use the deck's own buttons, the ☢ Max button or the effort steps, or
-  make your own: a button that types a command, such as `/compact`, or presses
-  a key, such as Shift+Tab to switch Claude Code's mode. It can wait until the
-  agent isn't busy, ask for a second tap, or be for some agents only. A live
-  preview of your phone sits beside the editor.
-- **Colours.** Pick any colour for the background, keys, text and each state,
-  or start from a preset (Default, Midnight, High contrast, Light). Your
-  phone updates as you pick.
-- **Profiles.** Save a layout and its colours under a name, and switch between
-  them in a click: one for the couch, one for the desk. Default is always the
-  standard deck. Export a profile to back it up or share it; it carries your
-  office and your team's nicknames too. Before an imported profile is added,
-  the setup page lists everything its buttons would type or press.
+- **More:** [Tell other tools](#tell-other-tools), for sending what your agents
+  do to Home Assistant or another tool of yours.
 
 <p align="center">
-  <img src="docs/layout.png" alt="Profiles and Layout on the setup page: the Couch profile, Auto keys, buttons ✓, ✕ and ☢ Max over esc, send and a /compact button, beside a live preview of the phone" width="720">
+  <img src="docs/layout.png" alt="Profiles and the Office on the setup page: its styles, Arrange the room, and its look, beside a live preview of the phone" width="720">
 </p>
 
 Open the setup page any time from the menu bar (**Open Setup…**), or by opening
-SauzzeDeck Pro again from Applications.
+Smolcorp again from Applications.
 
 ## The office
 
@@ -220,11 +223,11 @@ SauzzeDeck Pro again from Applications.
   <img src="docs/office.png" alt="The office: nine agents at their desks, dressed for their models from a T-shirt to a suit, one waving for attention as the room's edge glows, interns round a desk, a dog lying by the web-app desk, an arcade machine in the lounge, and the big red button in the corridor" width="800">
 </p>
 
-Your sessions can also be people in a little pixel-art office. Each key is a
-desk, in the same order, and the person at it acts out what their session is
-doing:
+Your sessions are people in a little pixel-art office. Each session is a
+desk, numbered as on the setup page, and the person at it acts out what their
+session is doing:
 
-| On the deck | In the office |
+| Session | In the office |
 |---|---|
 | Working | Typing, the screen lit, dots rising from it |
 | Waiting on you | Standing up and waving, with a blinking **!**. Kept waiting more than five minutes, they get agitated: hopping, a red **!**, steam from the ears |
@@ -251,20 +254,28 @@ There's more to see while they work:
   as Opus or Gemini Pro a jacket; and the top ones, such as Fable, a suit and
   tie. Interns dress for their own model. While an agent's model isn't known,
   as for most agents but Claude Code, it wears its agent's colour.
-- **The desk's colour** is Claude Code's effort, from white for low to red for
-  max. Press ☢ Max, and the agent runs to the big red button in the corridor
-  and slams it.
+- **Coffee at the desk** is Claude Code's effort: a stack of mugs by the
+  monitor, one for low up to four, swaying, for extra high, and at max a
+  steaming moka pot, with steam coming off the agent. Press ☢ Max, and the
+  agent runs to the big red button in the corridor and slams it.
 - When few sessions are running, the office's own staff hang around the lounge.
 
-**Furnish it your way** under *Office* in the setup page's Layout:
+**Furnish it your way** under *Office* on the setup page:
 
-- **Talk into** a microphone or a megaphone.
-- **The back wall:** five places, each a window, a whiteboard, a pinboard, a
-  poster, a bookshelf, a plant or bare wall. The to-do lists go up on the
-  first whiteboard.
-- **The floor** in wood, tiles, concrete or carpet, **the walls** in slate,
-  sage, clay or cream, and **the lounge's carpet** in navy, teal, plum or sand.
-- **In the lounge:** one of 23 pieces, each picked from its picture: an arcade
+- **A style** furnishes the whole office in one go: Classic, Campsite, Royal
+  court, Space station, Pirate cove, Arctic base, Dragon's lair, Gamer den,
+  Startup garage, Fitness floor or Jungle. Switch it from your phone too: tap
+  the key in the room's top-left corner and pick one. **Yours**
+  is the office as you furnish it below, and changing anything there takes you
+  back to it. Your team, the daylight, the seasons and the sound stay as you
+  set them.
+- **The floor** in wood, tiles, concrete or carpet, and more, and **the walls**
+  in slate, sage, clay or cream, and more.
+- **In the room editor** (below): the mic you talk into, from a microphone to a
+  megaphone, what hangs on the back wall, a window, a whiteboard, a pinboard,
+  a poster and dozens more, with the to-do lists going up on the first
+  whiteboard, the lounge's own floor and wall, and its corner piece, one of
+  the lounge's pieces, each picked from its picture: an arcade
   machine, a vending machine, a foosball table, a fish tank, a bookcase and a
   beanbag, a dragon asleep on its gold, pinball, a jukebox, a pool table, a
   piano, a drum kit, a telescope, jellyfish, a bonsai, a jungle, a coffee bar,
@@ -287,9 +298,36 @@ There's more to see while they work:
   the pets, the wind in winter, and now and then the lounge's piece while
   someone's at it. The one sound that asks for you is the reminder after five
   minutes of waiting. It starts with your first tap, as browsers require.
-- **The desks** in wood, walnut, white or black, where no effort paints them,
-  and **the chairs** in teal, black, red, grey or green.
+- **The desks** in wood, walnut, white or black, and **the chairs** in teal,
+  black, red, grey or green.
 - **Office staff:** a few, none, or lots of them in the lounge.
+- **A jukebox that plays your music**, once you turn it on under *Getting
+  started*: tap any jukebox in the office to play or pause whatever this
+  computer is playing, Spotify, Apple Music or a video in your browser. It
+  lights up while Spotify or Apple Music plays; macOS asks once whether
+  Smolcorp may ask them.
+
+**Arrange the room** puts everything where you want it. Click **Arrange the
+room…** under *Office*, and the office fills the window: click a piece to pick
+it and drag it anywhere, or nudge it with the arrow keys. The lounge's pieces,
+the couch, the ping-pong table, the plant, the coffee counter, the red button
+and the mic grow by the handle on their corner: small, medium or large. Pick a
+desk to make it what you like, a tent, a beanbag or a cardboard box, whoever
+sits at it; a project's own choice on its team card still comes first.
+
+**The drawer** beside the room holds whatever isn't in it: desks and furniture
+put away, any piece the lounge can hold, up to twelve and the same one more
+than once, and everything the back wall can hang, up to twelve, wherever you
+slide them along it. Drag a piece into the room, or click it to put it where
+it fits. To put one away, drag it onto the trash that shows below the room
+while you carry it, or back to the drawer. A session whose
+desk is put away waits in line along the back wall. **Start empty** leaves the
+floor, the walls, the door, the mic and the red button; **Back to standard**
+puts everything back; **Undo** and **Redo** (⌘Z, ⇧⌘Z) step through your
+changes. The room on its side and upright are arranged on their own, and
+**Copy from upright** or **Copy from sideways** starts one from the other.
+People walk round whatever is in their way, and a desk nobody can get to from
+the door is outlined in red. Your phone follows as you go.
 
 **Your team**, under the furnishing, has a card for each of your projects:
 choose its agent's skin, hair and hairstyle, something extra (glasses,
@@ -306,22 +344,13 @@ cards, from a T-shirt to a lab coat, overalls or a Hawaiian shirt.
 
 It's all kept with the layout, so each profile can have an office of its own.
 
-**On your phone**, choose **Office** under *Sessions* in the setup page's
-Layout, or tap **OFFICE** above the keys to switch on the phone itself (and
-**KEYS** to switch back). The dial, stick and buttons stay where they are, and
-the room works like the keys:
+**On your phone**, the office is the deck: see [On your phone](#on-your-phone).
+Two more things work there:
 
-| Tap | What it does |
+| In the office | What it does |
 |---|---|
-| A desk, or its person | Selects that session and brings its Terminal window to the front, like its key |
-| An agent's desk, held, then dragged | Picks the agent up, chair and all. Let go over another desk and the two swap. They stay that way: each project is pinned to its new key, as on the setup page's *Keys*, where you can undo it. |
-| The red button | ☢ Max for the selected session |
-| The microphone, held | Talks to the selected session, like 🎙 |
-| A desk, or its person, held* | On a Claude Code desk, puts paint chips along its front, from white for low to red for max: tap one to set its effort, like the dial, and they go away. Max is the red button's. With hiring and firing on, also **YOU'RE FIRED**, or **HIRE** on a desk a new hire would take (see below). |
-| ▲ ▼ ✓ ✕, over an agent waiting on you* | Move through its options, accept or reject, like the stick and ✓ ✕. Select the agent, and the keys appear over its desk. |
-
-\* Where the deck's own controls are out of sight: in full screen, on `/office`
-and in the pop-out window. Beside the dial and the stick, use those.
+| An agent's desk, held, then dragged | Picks the agent up, chair and all. Let go over another desk and the two swap. They stay that way: each project is pinned to its new desk, as on the setup page's *Desks*, where you can undo it. |
+| A desk, held | With hiring and firing on, also **YOU'RE FIRED**, or **HIRE** on a desk a new hire would take (see below). |
 
 **Hire and fire**, once you turn on **Let the office hire and fire** on the
 setup page (it's off until you do):
@@ -337,34 +366,32 @@ setup page (it's off until you do):
   in that project instead.
 
 On Windows and Linux, firing closes the agent's pane in tmux, kitty and
-WezTerm, and stops an agent started with `sauzzedeck run`. Hiring needs the
+WezTerm, and stops an agent started with `smolcorp run`. Hiring needs the
 Mac app, for now.
 
-**Full screen:** tap **⛶** above the room, and the dial and buttons step aside
-for it. The desks, the red button and the microphone work as above, and the
-corner brings the controls back. Held upright, the room stands upright too: the
-lounge moves below the desks, through a doorway at the end of the corridor.
+**Held upright,** the room stands upright too: the lounge moves below the
+desks, through a doorway at the end of the corridor.
 
 **On a spare screen**, such as an old tablet, a TV or a second monitor, open the
 address your phone uses with `/office` at the end. It pairs like a phone, then
 shows the office alone, full screen, and can be tapped too.
 
-**On top of your other windows:** on the computer running SauzzeDeck Pro, open
+**On top of your other windows:** on the computer running Smolcorp, open
 `http://localhost:7710/office` in Chrome or Edge and click **POP OUT** in its
 corner. The office moves into a small window that stays above everything else,
 and can still be clicked. Other browsers, and the address your phone uses,
 don't offer it.
 
-**As your Mac's screen saver:** click the SauzzeDeck Pro icon in the menu bar
+**As your Mac's screen saver:** click the Smolcorp icon in the menu bar
 and choose **Install Screen Saver…**. System Settings opens at Screen Saver:
-choose **SauzzeDeck Office**, click **Options…**, and enter a code from
+choose **Smolcorp Office**, click **Options…**, and enter a code from
 **Pair a Phone…**. It's listed under Paired phones as **Screen saver**. While
 your Mac is idle, each display shows the office, just to watch: a key or a click
-ends the screen saver as usual. When SauzzeDeck Pro isn't running, or the screen
-saver was unpaired, it says what to do instead. After updating SauzzeDeck Pro,
+ends the screen saver as usual. When Smolcorp isn't running, or the screen
+saver was unpaired, it says what to do instead. After updating Smolcorp,
 choose **Install Screen Saver…** again.
 
-In full screen, on a spare screen and in the pop-out window, the office fills a
+On your phone, on a spare screen and in the pop-out window, the office fills a
 rounded window; the screen saver fills each display edge to edge. Either way,
 its edge glows while an agent is waiting on you.
 
@@ -379,14 +406,96 @@ yourself. In that case, make sure `~/.claude/settings.json` contains:
 ```
 
 Voice input needs Claude Code signed in with a Claude.ai account. Claude Code
-sends your audio to Anthropic to be transcribed. SauzzeDeck Pro itself never
+sends your audio to Anthropic to be transcribed. Smolcorp itself never
 hears it.
+
+## Tell other tools
+
+Smolcorp can tell another tool what your agents are doing, so a lamp
+turns orange when one waits on you, or your phone buzzes when a long task is
+done. Turn on **Tell other tools** under **More** on the setup page, give it an address, and
+pick what to send:
+
+| Event | When |
+|---|---|
+| `waiting` | An agent is waiting on you: a permission prompt or a question |
+| `done` | An agent finished, and you haven't looked yet |
+| `error` | A turn ended on an error, such as a rate limit |
+| `working` | An agent got to work |
+| `started` | A session started |
+| `ended` | A session ended |
+
+Waiting on you, done and failed are on to begin with. Each event is a `POST`
+with a JSON body:
+
+```json
+{
+  "event": "waiting",
+  "at": "2026-10-17T20:41:07Z",
+  "session": {
+    "project": "api-server",
+    "agent": "claude",
+    "agentName": "Claude Code",
+    "state": "asking",
+    "previous": "thinking",
+    "key": 1
+  }
+}
+```
+
+`key` is the number of the desk the session is at, as the setup page numbers
+them from 1, or `null` if it has none. An
+`error` also has an `errorKind`, as the agent named it, such as `rate_limit`
+or `overloaded`. **Send a test** sends `"event": "test"` with no session. If
+you set a secret, every message carries it in an `X-Smolcorp-Secret` header.
+
+Only addresses on your own network are allowed: your computer, a `.local`
+name, a name without dots or a private IP address. Tick **Allow addresses
+outside your network** to send elsewhere. Messages name the project, never its
+folder, and never carry prompts or anything an agent wrote.
+
+### Home Assistant
+
+Add an automation with a webhook trigger, then give Smolcorp the
+webhook's address, such as
+`http://homeassistant.local:8123/api/webhook/smolcorp-lamp`. Home Assistant
+doesn't read headers, so keep the webhook id hard to guess and leave the
+secret empty.
+
+```yaml
+automation:
+  - alias: Desk lamp follows the agents
+    triggers:
+      - trigger: webhook
+        webhook_id: smolcorp-lamp
+        allowed_methods: [POST]
+        local_only: true
+    actions:
+      - choose:
+          - conditions: "{{ trigger.json.event == 'waiting' }}"
+            sequence:
+              - action: light.turn_on
+                target: { entity_id: light.desk_lamp }
+                data: { color_name: orange }
+          - conditions: "{{ trigger.json.event == 'done' }}"
+            sequence:
+              - action: light.turn_on
+                target: { entity_id: light.desk_lamp }
+                data: { color_name: green }
+          - conditions: "{{ trigger.json.event == 'error' }}"
+            sequence:
+              - action: light.turn_on
+                target: { entity_id: light.desk_lamp }
+                data: { color_name: red }
+```
 
 ## Privacy and security
 
-- **SauzzeDeck Pro sends nothing off your network.** It talks only to your
-  phone and to the coding agents on your computer. It has no accounts, no analytics and
-  no cloud service.
+- **Smolcorp sends nothing off your network.** It talks only to your
+  phone, to the coding agents on your computer and, if you turn it on, to the
+  address you gave [Tell other tools](#tell-other-tools), which is on your
+  network unless you allow otherwise. It has no accounts, no analytics and no
+  cloud service.
 - **Each phone has its own key.** Every request carries a long random key that
   only that phone has. The key is never typed: pairing hands it over. Your
   computer keeps only a fingerprint of each key (a SHA-256 hash), so you can revoke one
@@ -405,8 +514,8 @@ hears it.
   an agent is doing. A phone's key can't pose as an agent, and the agents' key
   can't drive the deck.
 - **Scrolling, hiring and firing are off until you turn them on.** Out of the
-  box, a paired phone can only use the deck's buttons, dial and choices, and
-  move desks around in the office, which pins projects to keys as the setup
+  box, a paired phone can only use the office's keys, effort chips and
+  choices, and move desks around, which pins projects to desks as the setup
   page does. Even turned on, firing asks first, and only stops the agent
   itself; hiring only starts the agent you chose, in the folder you chose or
   in a pinned project's.
@@ -415,33 +524,33 @@ hears it.
 - **The office says what your agents are doing in a few words.** They're made
   from a file's name, a web page's site or the description the agent gave a
   step, never from a command or a file's path.
-- **SauzzeDeck Pro listens on port 7710 on your network,** so your phone can
+- **Smolcorp listens on port 7710 on your network,** so your phone can
   reach it. Without a key, all another device gets is the pairing page. Its
   pages can't be shown inside other websites, and it turns away connections
   beyond a fixed limit, so a misbehaving device can't swamp it.
 - **The setup page only opens on your computer.** Other devices can't reach it, and
   other websites can't press its buttons.
 - **Use a network you trust.** The connection is plain HTTP on your local
-  network. Use SauzzeDeck Pro on home or office Wi-Fi, not public hotspots.
+  network. Use Smolcorp on home or office Wi-Fi, not public hotspots.
 
 ## Troubleshooting
 
-**The keys stay empty.** Click **Connect** on the setup page, then restart your
+**The desks stay empty.** Click **Connect** on the setup page, then restart your
 agent sessions. On a Mac, they need to run in the Terminal app. On Windows and
-Linux, start them with `sauzzedeck run`, or in tmux, WezTerm or kitty.
+Linux, start them with `smolcorp run`, or in tmux, WezTerm or kitty.
 
-**Codex sessions don't appear.** Run `/hooks` in Codex and trust SauzzeDeck
-Pro's hook. Codex skips new hooks until you do.
+**Codex sessions don't appear.** Run `/hooks` in Codex and trust Smolcorp's
+hook. Codex skips new hooks until you do.
 
 **Buttons, the mic or scrolling do nothing, or the phone says keyboard access
-is off.** Turn SauzzeDeck Pro on in System
-Settings → Privacy & Security → Accessibility. Updating SauzzeDeck Pro clears
+is off.** Turn Smolcorp on in System
+Settings → Privacy & Security → Accessibility. Updating Smolcorp clears
 that permission, because macOS treats each version as a new app. Click
-**Open Settings** on the setup page again afterwards, and turn SauzzeDeck Pro
+**Open Settings** on the setup page again afterwards, and turn Smolcorp
 back on.
 
-**The stick says SCROLL OFF.** Turn on **Let the stick scroll Terminal** on the
-setup page.
+**Two fingers don't scroll.** Turn on **Let two fingers scroll Terminal** on
+the setup page.
 
 **The phone shows the pairing page instead of the deck.** It was revoked, or
 it was paired with AgentDeck 1.0. Pair it again, then add it to your Home
@@ -451,7 +560,7 @@ Screen again: see [Pair your phone](#pair-your-phone).
 empty, and voice has to be in tap mode: see [Voice](#voice).
 
 **The phone can't connect.** Check that both devices are on the same Wi-Fi.
-If macOS or Windows Firewall asked whether SauzzeDeck Pro may accept incoming
+If macOS or Windows Firewall asked whether Smolcorp may accept incoming
 connections, allow it.
 
 **HIRE doesn't come out.** Turn on **Let the office hire and fire** on the
@@ -459,34 +568,37 @@ setup page, and choose a folder for new hires. HIRE shows only on a desk a new
 hire would take: the next free one, or a pinned project's. Hiring needs the
 Mac app, for now.
 
-**The screen saver says to open SauzzeDeck Pro, or to pair again.** Make sure
-SauzzeDeck Pro is running. If it was unpaired, open System Settings → Screen
-Saver, click **Options…** and enter a new code. After updating SauzzeDeck Pro,
+**The screen saver says to open Smolcorp, or to pair again.** Make sure
+Smolcorp is running. If it was unpaired, open System Settings → Screen
+Saver, click **Options…** and enter a new code. After updating Smolcorp,
 choose **Install Screen Saver…** again.
 
-**"Port 7710 is in use."** Another copy of SauzzeDeck Pro, or another app, is
-using that port. Quit it and open SauzzeDeck Pro again.
+**"Port 7710 is in use."** Another copy of Smolcorp, or another app, is
+using that port. Quit it and open Smolcorp again.
 
 ## Uninstall
 
 1. On the setup page, click **Disconnect** next to your coding agents, and turn
    off **Open at login**.
-2. Quit SauzzeDeck Pro from the menu bar.
-3. Delete **SauzzeDeck Pro** from Applications, and the folder
+2. Quit Smolcorp from the menu bar.
+3. Delete **Smolcorp** from Applications, and the folder
    `~/Library/Application Support/AgentDeck`. It kept the app's original name.
 4. If you installed the screen saver, choose another one in System Settings →
-   Screen Saver, then delete **SauzzeDeck Office.saver** from
+   Screen Saver, then delete **Smolcorp Office.saver** from
    `~/Library/Screen Savers`, and the files starting with
    `io.github.sauzze.agentdeck.screensaver` in
    `~/Library/Containers/com.apple.ScreenSaver.Engine.legacyScreenSaver/Data/Library/Preferences/ByHost`.
 
 On Windows and Linux, disconnect and turn off **Open at login** the same way,
-quit SauzzeDeck Pro from its tray menu, then delete:
+quit Smolcorp from its tray menu, then delete:
 
-- **Linux:** `~/.local/bin/sauzzedeck`,
-  `~/.local/share/applications/sauzzedeck-pro.desktop`, and the folders
-  `~/.local/share/sauzzedeck-pro` and `~/.config/sauzzedeck-pro`.
-- **Windows:** the folder you extracted, and `%APPDATA%\SauzzeDeck Pro`.
+- **Linux:** `~/.local/bin/smolcorp` (and `~/.local/bin/sauzzedeck`, if you
+  updated from SauzzeDeck Pro), `~/.local/share/applications/smolcorp.desktop`,
+  and the folders
+  `~/.local/share/smolcorp` and `~/.config/sauzzedeck-pro`. The settings folder
+  kept the name the app had before.
+- **Windows:** the folder you extracted, and `%APPDATA%\SauzzeDeck Pro`, which
+  kept the name the app had before.
 
 Connecting left a backup of each settings file it changed next to it, ending
 in `.agentdeck.bak`: Claude Code's `~/.claude/settings.json`, Codex's
@@ -502,13 +614,13 @@ at each step of a session, through its hooks: Claude Code's
 [hooks](https://code.claude.com/docs/en/hooks), and the matching settings in
 Codex, Gemini CLI and Grok. OpenCode has no command hooks, so a small plugin
 ([`Resources/opencode-plugin.js`](Resources/opencode-plugin.js)) runs the same
-script. The script tells SauzzeDeck Pro what happened and which Terminal tab it
-happened in. SauzzeDeck Pro reads each agent's events in that agent's terms,
+script. The script tells Smolcorp what happened and which Terminal tab it
+happened in. Smolcorp reads each agent's events in that agent's terms,
 works out each session's state and streams it to your phone. On Windows and
-Linux, `sauzzedeck hook` does the script's job, and names the launcher, tmux
+Linux, `smolcorp hook` does the script's job, and names the launcher, tmux
 pane or terminal window instead of a Terminal tab.
 
-On the Mac, controls work in one of two ways:
+On the Mac, controls work in one of three ways:
 
 - **Typed commands** such as `/effort` and `/clear` are typed into the tab
   through Terminal's scripting.
@@ -528,7 +640,7 @@ a single web page, shared by both.
 Sources/AgentDeck/   the Mac app
 ScreenSaver/         the Mac's screen saver, which shows the office
 desktop/             the Windows and Linux app, file for file where they match
-cmd/sauzzedeck/      its command: the app, the launcher and the hook
+cmd/smolcorp/        its command: the app, the launcher and the hook
 Resources/web/       the phone page, the office, the pairing page and the setup page, shared
 Resources/           the Mac's hook script, and the OpenCode plugin
 install.sh           build and install on a Mac
@@ -539,15 +651,16 @@ docs/                screenshots for this page
 
 ## Windows and Linux (preview)
 
-SauzzeDeck Pro also runs on Windows and Linux, with the same phone deck, the
+Smolcorp also runs on Windows and Linux, with the same phone deck, the
 same pairing and the same agents. It's a preview: the Linux version is
 tested, the Windows version is built but hasn't been run on a real PC yet.
-Please report how it goes in [the issues](https://github.com/Sauzze/agentdeck/issues).
+Please report how it goes in [the issues](https://github.com/Sauzze/smolcorp/issues).
 
 What's different from the Mac:
 
-- **Start agents through SauzzeDeck Pro**, in any terminal:
-  `sauzzedeck run claude`, or `codex`, `gemini`, `opencode` or `grok`. The
+- **Start agents through Smolcorp**, in any terminal:
+  `smolcorp run claude` (on Windows, `smolcorp-cli run claude`), or `codex`,
+  `gemini`, `opencode` or `grok`. The
   agent runs exactly as usual, and the deck can press its keys, with no
   permission to grant. Windows and Linux have no equivalent of Terminal's
   scripting, so this is how the deck reaches a session.
@@ -555,51 +668,52 @@ What's different from the Mac:
   deck sends keys through the terminal's own commands. kitty needs its remote
   control turned on (`allow_remote_control yes` and `listen_on` in
   `kitty.conf`).
-- **Tapping a key** brings its pane forward in tmux, WezTerm and kitty. In the
+- **Tapping a desk** brings its pane forward in tmux, WezTerm and kitty. In the
   launcher it only selects the session, because the launcher can't tell which
   window it's in.
-- **The scroll wheel** works in tmux and kitty.
+- **Two-finger scrolling** works in tmux and kitty.
 - **No Accessibility step.** Nothing here needs that permission.
 
 ### Linux
 
-Download **SauzzeDeck-Pro-Linux-x86_64.tar.gz** (or `-arm64`) from the
-[latest release](https://github.com/Sauzze/agentdeck/releases/latest), then:
+Download **Smolcorp-Linux-x86_64.tar.gz** (or `-arm64`) from the
+[latest release](https://github.com/Sauzze/smolcorp/releases/latest), then:
 
 ```bash
-tar -xzf SauzzeDeck-Pro-Linux-x86_64.tar.gz
-./SauzzeDeck-Pro-Linux-x86_64/install.sh
+tar -xzf Smolcorp-Linux-x86_64.tar.gz
+./Smolcorp-Linux-x86_64/install.sh
 ```
 
 This installs it for you alone, in `~/.local`, with an entry in your app
-menu. Open **SauzzeDeck Pro** from the menu, or run `sauzzedeck`. The setup
+menu. Open **Smolcorp** from the menu, or run `smolcorp`. The setup
 page opens in your browser.
 
 - On GNOME, the tray icon needs the AppIndicator extension, which Ubuntu
-  includes. Without it, SauzzeDeck Pro still runs: open
+  includes. Without it, Smolcorp still runs: open
   `http://localhost:7710/setup` yourself.
 - On a machine without a desktop, such as one you reach over SSH, run
-  `sauzzedeck serve`.
+  `smolcorp serve`.
 
 ### Windows
 
-1. Download **SauzzeDeck-Pro-Windows-x86_64.zip** (or `-arm64` for an ARM
-   PC) from the [latest release](https://github.com/Sauzze/agentdeck/releases/latest),
+1. Download **Smolcorp-Windows-x86_64.zip** (or `-arm64` for an ARM
+   PC) from the [latest release](https://github.com/Sauzze/smolcorp/releases/latest),
    and extract it.
-2. Open **SauzzeDeck Pro.exe**. Windows SmartScreen warns about an unsigned
+2. Open **Smolcorp.exe**. Windows SmartScreen warns about an unsigned
    app: click **More info**, then **Run anyway**.
-3. When Windows Firewall asks, allow SauzzeDeck Pro on private networks, so
+3. When Windows Firewall asks, allow Smolcorp on private networks, so
    your phone can reach it.
 
-To type `sauzzedeck run claude` in a terminal, add the extracted folder to
-your PATH. The setup page also shows the full command for where it is.
+To type `smolcorp-cli run claude` in a terminal, add the extracted folder to
+your PATH: on Windows the command is `smolcorp-cli.exe`, beside the app's
+`Smolcorp.exe`, as Windows doesn't tell their names apart by case. The setup page also shows the full command for where it is.
 
 ### Build it yourself
 
 You need [Go](https://go.dev) 1.26 or later:
 
 ```bash
-go build ./cmd/sauzzedeck
+go build ./cmd/smolcorp
 ```
 
 `go test ./...` runs the tests, and `scripts/release-desktop.sh` builds the
@@ -607,7 +721,7 @@ downloads for both systems.
 
 ## Support the project
 
-SauzzeDeck Pro is free. If it earns a place on your desk and you'd like to say
+Smolcorp is free. If it earns a place on your desk and you'd like to say
 thanks, you can send ETH, BNB or any token to this address, on Ethereum, BNB
 Smart Chain or another EVM network:
 

@@ -80,13 +80,14 @@ struct Layout: Codable, Equatable {
     }
 }
 
-/// How the office is furnished: the microphone or a megaphone, what each of
+/// How the office is furnished: what's talked into, what each of
 /// the back wall's five places holds, the floor, the walls' paint, the
 /// lounge's carpet and the piece in its corner, whether the sky keeps the
 /// computer's time or it's always day, its pet, whether the windows follow
 /// the seasons, how loud it is, the desks' finish, what everyone works at (a
-/// desk, a tent, a throne…) and the chairs' colour, how many of its own staff
-/// hang about, your team, and the dress code. office.js
+/// desk, a tent, a throne…), the monitors and the chairs' colour, how many of
+/// its own staff hang about, the style it's in (Yours, or one that furnishes
+/// it for you), your team, the dress code, and where everything goes. office.js
 /// draws it, with the same choices. Anything unknown, or of the wrong kind, is
 /// as standard: it only changes how the room looks.
 struct Room: Codable, Equatable {
@@ -95,6 +96,8 @@ struct Room: Codable, Equatable {
     var floor = "wood"
     var paint = "slate"
     var lounge = "navy"
+    /// The lounge's wall: "auto", as the office's walls, or a paint of its own.
+    var loungePaint = "auto"
     var corner = "arcade"
     var sky = "live"
     var pet = "none"
@@ -102,40 +105,61 @@ struct Room: Codable, Equatable {
     var sound = "off"
     var desk = "wood"
     var workspace = "desk"
+    var monitor = "standard"
     var chair = "teal"
     var staff = "some"
+    var preset = "yours"
     /// How each project's agent looks, by the project's name.
     var team: [String: TeamMember] = [:]
     /// What agents wear by their model's size and by agent. After the team,
     /// in the same place as the Windows and Linux app's Room has it.
     var dress = Dress()
+    /// Where each piece of the room is, as arranged on the setup page.
+    var plan = Plan()
 
     /// The most projects a team remembers.
     static let teamLimit = 50
 
     /// Each part's choices; the first is the standard one.
     static let choices = [
-        "mic": ["mic", "megaphone"],
-        "floor": ["wood", "tiles", "concrete", "carpet"],
-        "paint": ["slate", "sage", "clay", "cream"],
-        "lounge": ["navy", "teal", "plum", "sand"],
+        "mic": ["mic", "megaphone", "studio", "podcast", "karaoke", "headset", "walkie", "tincan", "radio"],
+        "floor": Room.floors,
+        "paint": Room.paints,
+        // The lounge's carpets, or any of the office's floors
+        "lounge": ["navy", "teal", "plum", "sand"] + Room.floors,
+        "loungePaint": ["auto"] + Room.paints,
         "corner": ["arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
                    "telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub",
-                   "ballpit", "campfire", "none"],
+                   "ballpit", "campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth", "none"],
         "sky": ["live", "day"],
         "pet": ["none", "cat", "dog", "lizard", "monkey"],
         "season": ["calendar", "off"],
         "sound": ["off", "quiet", "normal"],
         "desk": ["wood", "walnut", "white", "black"],
         "workspace": Room.workspaces,
+        "monitor": ["standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet",
+                    "portrait"],
         "chair": ["teal", "black", "red", "grey", "green"],
         "staff": ["some", "none", "many"],
+        "preset": Room.presets,
     ]
+    static let floors = ["wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest",
+                         "rubber", "epoxy", "arcade"]
+    static let paints = ["slate", "sage", "clay", "cream", "hull", "timber", "damask", "stone", "ice", "logs", "brick", "bamboo",
+                         "block", "foam"]
+    /// The office's styles: Yours, as you furnished it, then each that
+    /// furnishes it for you. office.js keeps what each one is.
+    static let presets = ["yours", "classic", "campsite", "royal", "space", "pirates", "arctic", "lair", "gamers", "garage", "gym", "jungle"]
     /// What an agent can work at: the office's choice for everyone, and a
     /// team member's own, which can also be "auto".
     static let workspaces = ["desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
-                             "greenhouse"]
-    static let wallChoices = ["window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare"]
+                             "greenhouse", "console", "hover", "chest", "gilded", "crates", "altar", "log", "bench", "bamboo", "rack",
+                             "drafting", "glass"]
+    static let wallChoices = ["window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare",
+                              "viewport", "porthole", "panel", "pipes", "seaPorthole", "map", "flag", "cutlasses", "tapestry",
+                              "portrait", "stained", "shield", "frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex",
+                              "pegboard", "roller", "bike", "mirror", "timer", "climbing", "vines", "tiki", "blind", "cabin", "trail",
+                              "paddles"]
     static let standardWall = ["window", "whiteboard", "window", "pinboard", "window"]
 
     init() {}
@@ -150,6 +174,7 @@ struct Room: Codable, Equatable {
         floor = choice(.floor) ?? floor
         paint = choice(.paint) ?? paint
         lounge = choice(.lounge) ?? lounge
+        loungePaint = choice(.loungePaint) ?? loungePaint
         corner = choice(.corner) ?? corner
         sky = choice(.sky) ?? sky
         pet = choice(.pet) ?? pet
@@ -157,8 +182,10 @@ struct Room: Codable, Equatable {
         sound = choice(.sound) ?? sound
         desk = choice(.desk) ?? desk
         workspace = choice(.workspace) ?? workspace
+        monitor = choice(.monitor) ?? monitor
         chair = choice(.chair) ?? chair
         staff = choice(.staff) ?? staff
+        preset = choice(.preset) ?? preset
         let given = ((try? c?.decodeIfPresent([Loose].self, forKey: .wall)) ?? nil) ?? []
         wall = Room.standardWall.enumerated().map { i, standard in
             i < given.count ? given[i].text.flatMap { Room.wallChoices.contains($0) ? $0 : nil } ?? standard : standard
@@ -167,6 +194,7 @@ struct Room: Codable, Equatable {
         team = Dictionary(uniqueKeysWithValues: members.filter { !$0.key.isEmpty }.sorted { $0.key < $1.key }
             .prefix(Room.teamLimit).map { ($0.key, $0.value) })
         dress = ((try? c?.decodeIfPresent(Dress.self, forKey: .dress)) ?? nil) ?? Dress()
+        plan = ((try? c?.decodeIfPresent(Plan.self, forKey: .plan)) ?? nil) ?? Plan()
     }
 
     /// One of the wall's places as given: text, or nothing for any other kind of value.
@@ -194,15 +222,22 @@ struct TeamMember: Codable, Equatable {
 
     /// Each part's choices; the first is the standard one.
     static let choices = [
-        "skin": ["auto", "porcelain", "fair", "light", "tan", "olive", "brown", "deep", "ebony"],
+        "skin": ["auto", "porcelain", "fair", "light", "tan", "olive", "brown", "deep", "ebony", "cream"],
         "hair": ["auto", "black", "espresso", "brown", "chestnut", "auburn", "ginger", "blond", "platinum", "grey", "white",
-                 "pink", "blue", "green", "purple"],
+                 "pink", "blue", "green", "purple", "orange"],
         "hairstyle": ["auto", "short", "long", "spiky", "bun", "curly", "ponytail", "afro", "mohawk", "buzz", "bald"],
         "extra": ["none", "glasses", "sunglasses", "headphones", "cap", "beanie", "beard", "moustache", "bow"],
         "outfit": ["auto", "tee", "hoodie", "collar", "sweater", "jacket", "suit", "labcoat", "polo", "cardigan", "hawaiian",
-                   "tracksuit", "overalls", "waistcoat"],
+                   "tracksuit", "overalls", "waistcoat",
+                   // A style's own, and each model family's
+                   "astronaut", "flightsuit", "pirate", "captain", "parka", "explorer", "robe", "knight", "wizard", "gamer",
+                   "founder", "gymkit", "safari", "flannel", "hire", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
+                   "deepseek", "kimi", "glm", "phi"],
         "colour": ["auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"],
-        "desk": ["auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug", "none"],
+        "desk": ["auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug",
+                 "helmet", "rocket", "terrarium", "quill", "candelabra", "goblet", "rum", "compass", "skull", "snowglobe", "thermos",
+                 "penguin", "potions", "egg", "spellbook", "controller", "energy", "headset", "circuit", "pizza", "coffeepot",
+                 "dumbbell", "shaker", "kettlebell", "coconut", "pineapple", "tikimug", "enamel", "lantern", "pinecone", "none"],
         "workspace": ["auto"] + Room.workspaces,
     ]
     /// The most a nickname can be, in characters.
@@ -232,6 +267,201 @@ struct TeamMember: Codable, Equatable {
 /// set, so office.js never finds one missing. Anything unknown, or of the
 /// wrong kind, is as standard, as in the rest of the room. The Windows and
 /// Linux app's Dress matches.
+/// The room arranged your way, from the setup page's editor: for each shape
+/// of the room, `wide` and `tall`, the pieces moved from where they stand,
+/// made bigger, or put away, and the pieces added to the lounge. office.js
+/// draws it, with the same pieces and sizes. Anything unknown is left out,
+/// so the piece stands as it comes.
+struct Plan: Codable, Equatable {
+    var wide: [String: Piece] = [:]
+    var tall: [String: Piece] = [:]
+    var added = Added()
+    var hung = Hung()
+
+    /// What hangs on the back wall, for each shape of the room: each piece
+    /// round its middle, where you put it. nil keeps the wall's five places,
+    /// as set up; an empty list is a bare wall.
+    struct Hung: Codable, Equatable {
+        var wide: [HungPiece]?
+        var tall: [HungPiece]?
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try? decoder.container(keyedBy: CodingKeys.self)
+            func pieces(_ key: CodingKeys) -> [HungPiece]? {
+                guard let given = (try? c?.decodeIfPresent([LooseHung].self, forKey: key)) ?? nil else { return nil }
+                return Array(given.compactMap(\.piece).prefix(Plan.hungMost))
+            }
+            wide = pieces(.wide)
+            tall = pieces(.tall)
+        }
+    }
+
+    struct HungPiece: Codable, Equatable {
+        var kind: String
+        var x = 0
+    }
+
+    /// The most pieces the back wall holds, in each shape.
+    static let hungMost = 12
+    /// How far along the wall a piece can be, in the room's pixels: the wide room's width.
+    static let wallLength = 320
+
+    /// Pieces added to the lounge, for each shape of the room: any its
+    /// corner can hold, the same one more than once, each moved from where
+    /// the corner's piece stands, and grown.
+    struct Added: Codable, Equatable {
+        var wide: [AddedPiece] = []
+        var tall: [AddedPiece] = []
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try? decoder.container(keyedBy: CodingKeys.self)
+            func pieces(_ key: CodingKeys) -> [AddedPiece] {
+                let given = ((try? c?.decodeIfPresent([LooseAdded].self, forKey: key)) ?? nil) ?? []
+                return Array(given.compactMap(\.piece).prefix(Plan.addedMost))
+            }
+            wide = pieces(.wide)
+            tall = pieces(.tall)
+        }
+    }
+
+    struct AddedPiece: Codable, Equatable {
+        var kind: String
+        var x = 0
+        var y = 0
+        var size = 1.0
+    }
+
+    /// The most pieces that can be added to the lounge, in each shape.
+    static let addedMost = 12
+    /// What can be added: anything the lounge's corner can hold.
+    static var addable: [String] { (Room.choices["corner"] ?? []).filter { $0 != "none" } }
+
+    struct Piece: Codable, Equatable {
+        var x = 0
+        var y = 0
+        var size = 1.0
+        var off = false
+        /// A desk's own look, whoever sits at it: its workspace and its
+        /// monitor, finish, chair and thing, unless their project has its
+        /// own workspace or thing; "auto" for each otherwise, and on what
+        /// isn't a desk.
+        var workspace = "auto"
+        var monitor = "auto"
+        var finish = "auto"
+        var chair = "auto"
+        var thing = "auto"
+    }
+
+    /// What can be arranged: each desk, which moves and can be put away,
+    /// and the lounge's pieces, which can grow, and be put away but for the
+    /// red button and the mic, which are controls.
+    static let pieces: [String: (grows: Bool, hides: Bool)] = {
+        var pieces = Dictionary(uniqueKeysWithValues: (1...9).map { ("desk\($0)", (grows: false, hides: true)) })
+        for part in ["wall", "corner", "couch", "pong", "plant"] { pieces[part] = (true, true) }
+        for part in ["button", "mic"] { pieces[part] = (true, false) }
+        return pieces
+    }()
+    static let sizes: [Double] = [1, 1.5, 2]
+    /// How far a piece can be moved, either way, in the room's pixels.
+    static let reach = 400
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        func arranged(_ key: CodingKeys) -> [String: Piece] {
+            let given = ((try? c?.decodeIfPresent([String: Loose].self, forKey: key)) ?? nil) ?? [:]
+            return given.reduce(into: [:]) { pieces, entry in
+                guard let kind = Plan.pieces[entry.key], let piece = entry.value.piece else { return }
+                let at = { (n: Double?) in Plan.whole(n, within: -Plan.reach...Plan.reach) }
+                let desk = entry.key.hasPrefix("desk")
+                // One of a desk's own, or "auto"
+                func own(_ name: String, _ choices: [String]) -> String {
+                    guard desk, let given = piece.texts[name], choices.contains(given) else { return "auto" }
+                    return given
+                }
+                pieces[entry.key] = Piece(x: at(piece.x), y: at(piece.y),
+                                          size: kind.grows && Plan.sizes.contains(piece.size ?? 1) ? piece.size ?? 1 : 1,
+                                          off: kind.hides && piece.off == true,
+                                          workspace: own("workspace", Room.workspaces),
+                                          monitor: own("monitor", Room.choices["monitor"] ?? []),
+                                          finish: own("finish", Room.choices["desk"] ?? []),
+                                          chair: own("chair", Room.choices["chair"] ?? []),
+                                          thing: own("thing", (TeamMember.choices["desk"] ?? []).filter { $0 != "auto" }))
+            }
+        }
+        wide = arranged(.wide)
+        tall = arranged(.tall)
+        added = ((try? c?.decodeIfPresent(Added.self, forKey: .added)) ?? nil) ?? Added()
+        hung = ((try? c?.decodeIfPresent(Hung.self, forKey: .hung)) ?? nil) ?? Hung()
+    }
+
+    /// A piece on the back wall as given, read leniently: one that isn't anything the wall can hold is left out.
+    private struct LooseHung: Decodable {
+        let piece: HungPiece?
+        private enum Keys: String, CodingKey { case kind, x }
+        init(from decoder: Decoder) throws {
+            guard let c = try? decoder.container(keyedBy: Keys.self),
+                  let kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil, Room.wallChoices.contains(kind), kind != "bare" else {
+                piece = nil
+                return
+            }
+            let x = ((try? c.decodeIfPresent(Double.self, forKey: .x)) ?? nil) ?? 110
+            piece = HungPiece(kind: kind, x: Plan.whole(x, within: 0...Plan.wallLength))
+        }
+    }
+
+    /// Where a piece is moved to, within reach.
+    fileprivate static func at(_ n: Double?) -> Int { whole(n, within: -reach...reach) }
+
+    /// `n` as a whole number within `range`: clamped before it's made whole,
+    /// as a number too big for an Int would stop the app, and 0 when it isn't
+    /// a number at all.
+    fileprivate static func whole(_ n: Double?, within range: ClosedRange<Int>) -> Int {
+        guard let n, n.isFinite else { return min(max(0, range.lowerBound), range.upperBound) }
+        return Int(min(Double(range.upperBound), max(Double(range.lowerBound), n)).rounded())
+    }
+
+    /// An added piece as given, read leniently: one that isn't anything the corner can hold is left out.
+    private struct LooseAdded: Decodable {
+        let piece: AddedPiece?
+        private enum Keys: String, CodingKey { case kind, x, y, size }
+        init(from decoder: Decoder) throws {
+            guard let c = try? decoder.container(keyedBy: Keys.self),
+                  let kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil, Plan.addable.contains(kind) else {
+                piece = nil
+                return
+            }
+            func number(_ key: Keys) -> Double? { (try? c.decodeIfPresent(Double.self, forKey: key)) ?? nil }
+            let size = number(.size) ?? 1
+            piece = AddedPiece(kind: kind, x: Plan.at(number(.x)), y: Plan.at(number(.y)), size: Plan.sizes.contains(size) ? size : 1)
+        }
+    }
+
+    /// A piece as given, each of its parts read on its own: one of the wrong
+    /// kind is as standard.
+    private struct Loose: Decodable {
+        let piece: (x: Double?, y: Double?, size: Double?, off: Bool?, texts: [String: String])?
+        private enum Keys: String, CodingKey { case x, y, size, off, workspace, monitor, finish, chair, thing }
+        init(from decoder: Decoder) throws {
+            guard let c = try? decoder.container(keyedBy: Keys.self) else {
+                piece = nil
+                return
+            }
+            func number(_ key: Keys) -> Double? { (try? c.decodeIfPresent(Double.self, forKey: key)) ?? nil }
+            var texts: [String: String] = [:]
+            for key in [Keys.workspace, .monitor, .finish, .chair, .thing] {
+                if let text = (try? c.decodeIfPresent(String.self, forKey: key)) ?? nil { texts[key.stringValue] = text }
+            }
+            piece = (number(.x), number(.y), number(.size), (try? c.decodeIfPresent(Bool.self, forKey: .off)) ?? nil, texts)
+        }
+    }
+}
+
 struct Dress: Codable, Equatable {
     /// By the size of the model: small, medium, large and top.
     var sizes = Dress.standard(Dress.sizeNames)

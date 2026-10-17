@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="/icon.png">
-<title>SauzzeDeck Pro Setup</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<title>Smolcorp Setup</title>
 <style>
   :root {
     --body: #0e0e0e; --cap: #1f1f1f; --cap-top: #262626; --edge: #2c2c2c;
@@ -17,15 +18,15 @@
     font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
   /* minmax(0, …) lets a column narrow past its longest line, such as a deep
      project path, so the page follows the window down to phone width. */
-  main { max-width: 1000px; margin: 0 auto; padding: 36px 24px 64px; display: grid; gap: 32px 28px;
+  main { max-width: 1240px; margin: 0 auto; padding: 36px 24px 64px; display: grid; gap: 32px 28px;
     grid-template-columns: minmax(0, 1fr) 320px;
     /* The phone panel runs beside two rows; the keys' row takes up whatever
        height it has to spare, rather than a gap opening above the keys. */
     grid-template-rows: auto auto 1fr;
-    grid-template-areas: "head head" "start phone" "keys phone" "sessions sessions" "profiles profiles" "layout layout" "logo logo" "colours colours"; }
+    grid-template-areas: "head head" "start phone" "keys phone" "profiles profiles" "layout layout" "logo logo" "more more"; }
   @media (max-width: 840px) {
     main { grid-template-columns: minmax(0, 1fr); grid-template-rows: none;
-      grid-template-areas: "head" "start" "phone" "keys" "sessions" "profiles" "layout" "logo" "colours"; }
+      grid-template-areas: "head" "start" "phone" "keys" "profiles" "layout" "logo" "more"; }
   }
   header { grid-area: head; display: flex; gap: 16px; align-items: center; }
   header img { width: 52px; height: 52px; border-radius: 12px; }
@@ -47,6 +48,11 @@
 
   /* Getting started */
   .start { grid-area: start; }
+  .invite { display: grid; gap: 10px; margin-bottom: 20px; background: var(--panel); border: 1px solid var(--edge); border-radius: 12px; padding: 14px 16px; }
+  .invite[hidden] { display: none; }
+  .invite .title { font-weight: 600; }
+  .invite .detail { color: var(--dim); font-size: 13px; }
+  .invite .tools { display: flex; flex-wrap: wrap; gap: 8px; }
   .steps { display: grid; gap: 8px; }
   .step { display: flex; gap: 14px; align-items: center; background: var(--panel); border: 1px solid var(--edge); border-radius: 12px; padding: 14px 16px; }
   .step .mark { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--faint); flex: none; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: transparent; }
@@ -62,6 +68,12 @@
   .hire-setup input, .hire-setup select { background: var(--cap); color: var(--ink); border: 1px solid var(--edge); border-radius: 6px;
     padding: 5px 8px; font: 13px ui-monospace, "SF Mono", Menlo, monospace; }
   .hire-setup input { flex: 1; min-width: 160px; }
+  .webhook-setup #webhook-url { flex: 3 1 260px; }
+  .webhook-setup label { display: flex; align-items: center; gap: 5px; color: var(--dim); font-size: 13px; }
+  .webhook-setup input[type="checkbox"] { flex: none; min-width: 0; margin: 0; }
+  .webhook-setup .events { display: flex; flex-wrap: wrap; gap: 4px 12px; width: 100%; }
+  .webhook-setup .last { color: var(--dim); font-size: 13px; align-self: center; }
+  .webhook-setup .last.wrong { color: var(--error); }
   .switch { position: relative; width: 42px; height: 24px; border-radius: 12px; background: var(--faint); border: 0; flex: none; transition: background .15s; }
   .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; }
   .switch.on { background: var(--unread); }
@@ -90,6 +102,8 @@
 
   /* Keys */
   .keys { grid-area: keys; }
+  .keys h3 { font-size: 13px; margin: 24px 0 10px; }
+  .keys > .field { margin-bottom: 4px; }
   .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
   .slot { background: var(--cap); border: 1px solid var(--edge); border-radius: 14px; min-height: 108px; min-width: 0;
     padding: 12px; display: flex; flex-direction: column; justify-content: space-between; }
@@ -104,8 +118,7 @@
   .slot.spare { opacity: .55; }
   .hint { color: var(--dim); font-size: 13px; margin: 10px 0 0; }
 
-  /* Sessions */
-  .sessions { grid-area: sessions; }
+  /* Running sessions, under the desks, to drag onto one */
   .list { display: grid; gap: 8px; }
   .row { display: flex; align-items: center; gap: 12px; background: var(--panel); border: 1px solid var(--edge);
     border-radius: 10px; padding: 10px 12px; cursor: grab; }
@@ -116,7 +129,7 @@
   .row .where { font-size: 12px; color: var(--dim); white-space: nowrap; }
   .empty { color: var(--dim); padding: 16px; border: 1px dashed var(--edge); border-radius: 10px; }
 
-  /* Profiles: a layout and its colours, saved under a name to switch back to. */
+  /* Profiles: an office and its buttons, saved under a name to switch back to. */
   .profiles { grid-area: profiles; display: grid; gap: 12px; }
   .profiles[hidden] { display: none; }
   .profiles .choices { flex-wrap: wrap; }
@@ -124,15 +137,18 @@
   /* Layout: the editor, and beside it the phone's own page as a preview. */
   .layout { grid-area: layout; }
   .layout[hidden] { display: none; }
+  /* The options, and beside them the phone, which stays in view as they scroll by. */
   .layout-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; align-items: start; }
-  @media (max-width: 840px) { .layout-body { grid-template-columns: minmax(0, 1fr); } }
-  .editor { display: grid; gap: 14px; min-width: 0; }
+  /* One column: each row of choices wraps inside it rather than running on under the phone. */
+  .editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
   .editor h3 { font-size: 13px; margin: 6px 0 0; }
   .field { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
   .field > span:first-child { color: var(--dim); }
   .field input[type=text], .field select { flex: 1; max-width: 260px; background: var(--cap); color: var(--ink); border: 1px solid var(--edge);
     border-radius: 6px; padding: 5px 8px; font: 13px ui-monospace, "SF Mono", Menlo, monospace; }
   .choices { display: flex; gap: 6px; }
+  /* A long row of choices, such as the floors, wraps onto more lines, still to the right. */
+  .field > .choices { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
   .choices .btn { padding: 4px 12px; }
   .choices .btn.on, .chip.on { border-color: var(--ink); background: var(--cap-top); }
   .choices .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px;
@@ -150,6 +166,50 @@
   .tile.on { border-color: var(--ink); background: var(--cap-top); }
   .tile canvas, .member canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; border-radius: 6px; }
   .member canvas { max-width: 116px; }
+  /* Arranging the room: the office over the whole window, its tools beside it. */
+  .arranger { position: fixed; inset: 0; z-index: 10; background: var(--body); display: grid; grid-template-rows: auto minmax(0, 1fr);
+    padding: 16px 20px 20px; gap: 14px; }
+  .arranger[hidden] { display: none; }
+  .arranger .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .arranger .bar .saved { color: var(--dim); font-size: 13px; }
+  .arranger .bar h2 { margin: 0 auto 0 0; font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--ink); }
+  .arranger .body { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 18px; min-height: 0; }
+  @media (max-width: 840px) { .arranger .body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; } }
+  .arranger .stage { min-height: 0; min-width: 0; display: grid; place-items: center; overflow: hidden; }
+  /* Sized from the stage, in fitStage: a canvas sized by itself would grow with each frame. */
+  /* The trash, at the foot of the room while a piece is carried: a piece let go on it is taken out. */
+  .arranger .stage { position: relative; }
+  .arranger .trash { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-radius: 12px; background: rgb(0 0 0 / .7); border: 2px dashed var(--dim); color: var(--ink);
+    font-size: 13px; pointer-events: none; transition: transform .12s, border-color .12s, background .12s; }
+  .arranger .trash[hidden] { display: none; }
+  .arranger .trash svg { width: 24px; height: 28px; fill: var(--dim); }
+  .arranger .trash .slot { fill: rgb(0 0 0 / .7); }
+  .arranger .trash.over { border-color: var(--error); background: color-mix(in srgb, var(--error) 30%, #000); transform: translateX(-50%) scale(1.08); }
+  .arranger .trash.over svg { fill: var(--error); }
+  .arranger .stage canvas { display: block; border-radius: 12px; background: var(--cap); touch-action: none; }
+  .arranger aside { display: grid; gap: 12px; align-content: start; overflow-y: auto; }
+  .arranger aside h3 { margin: 6px 0 0; font-size: 12px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+  .arranger aside .picked { font-weight: 600; }
+  .arranger aside .tools { display: flex; flex-wrap: wrap; gap: 6px; }
+  .arranger aside .tray { display: grid; gap: 6px; }
+  .arranger aside h4 { margin: 4px 0 0; font-size: 12px; color: var(--dim); font-weight: 600; }
+  .arranger .drawer { display: grid; gap: 8px; border-radius: 10px; }
+  .arranger .drawer.over { outline: 2px dashed var(--thinking); outline-offset: 4px; }
+  .arranger .drawer .hint { margin: 0; }
+  /* A piece carried from the drawer, under the pointer */
+  .carried { position: fixed; z-index: 20; pointer-events: none; opacity: .85; transform: translate(-50%, -50%); }
+  .carried canvas { display: block; width: 72px; height: auto; image-rendering: pixelated; }
+  .arranger aside #arrange-kinds.choices { flex-wrap: wrap; }
+  .arranger aside .looks { display: grid; gap: 6px; }
+  .arranger aside .looks label { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; align-items: center;
+    font-size: 13px; color: var(--dim); }
+  .arranger aside .looks select { min-width: 0; background: var(--cap); color: var(--ink); border: 1px solid var(--edge);
+    border-radius: 6px; padding: 5px 8px; font: inherit; }
+  .arranger aside .btn { white-space: normal; }
+  .arranger aside .tray .btn { text-align: left; }
+  .arranger aside .tiles.adding { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .arranger aside .tiles.adding .tile { font-size: 11px; padding: 4px; }
   /* Your team: a card for each project, its choices in a grid. */
   .team { display: grid; gap: 10px; }
   .member { border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; }
@@ -185,13 +245,25 @@
   .note { color: var(--asking); font-size: 13px; margin: 0; }
   .note[hidden] { display: none; }
   /* The phone page at an everyday phone's size, scaled down to fit. */
-  .preview { margin: 0; display: grid; gap: 10px; justify-items: center; --w: 390px; --h: 844px; --scale: .6; }
+  .preview { margin: 0; display: grid; gap: 10px; justify-items: center; --w: 390px; --h: 844px; --scale: .6;
+    position: sticky; top: 16px; }
+  /* A shorter window, a smaller phone, so its buttons stay in view too. */
+  @media (max-height: 760px) { .preview { --scale: .5; } }
+  @media (max-height: 640px) { .preview { --scale: .4; } }
+  /* A narrow window: the phone goes above the options, where it's seen first. */
+  @media (max-width: 840px) {
+    .layout-body { grid-template-columns: minmax(0, 1fr); }
+    .preview { order: -1; position: static; }
+  }
   .preview .samples { min-width: 110px; text-align: center; align-self: center; color: var(--dim); font-size: 13px; }
-  /* Sideways, the phone is too wide to sit beside the editor, so it goes under it. */
+  /* Sideways, the phone is too wide to sit beside the editor, so it goes above it. */
   .layout.sideways .layout-body { grid-template-columns: minmax(0, 1fr); }
-  .layout.sideways .preview { --w: 844px; --h: 390px; justify-items: start; }
+  .layout.sideways .preview { --w: 844px; --h: 390px; justify-items: start; order: -1; position: static; }
+  @media (max-width: 600px) { .layout.sideways .preview { --scale: .38; } }
   .frame { width: calc(var(--w) * var(--scale) + 16px); height: calc(var(--h) * var(--scale) + 16px); padding: 8px;
-    border: 1px solid var(--edge); border-radius: 30px; background: #000; }
+    border: 1px solid var(--edge); border-radius: 30px; background: #000;
+    /* The page inside is laid out at full size before it's scaled down: none of that may widen this one. */
+    overflow: hidden; }
   .frame iframe { width: var(--w); height: var(--h); border: 0; border-radius: 22px; transform: scale(var(--scale)); transform-origin: 0 0; }
 
   /* Logo */
@@ -202,20 +274,12 @@
   .logos button.on { border-color: var(--ink); }
   .logos img { width: 44px; height: 44px; border-radius: 10px; }
 
-  /* Colours */
-  .colours { grid-area: colours; }
-  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-  .presets .btn { border-radius: 999px; }
-  .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
-  .group h3 { font-size: 13px; margin: 0 0 6px; }
-  .swatch { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--edge); }
-  .swatch label { flex: 1; }
-  .swatch input[type=color] { width: 36px; height: 26px; border: 1px solid var(--edge); border-radius: 6px; padding: 0; background: none; cursor: pointer; }
-  .swatch input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
-  .swatch input[type=color]::-webkit-color-swatch { border: 0; border-radius: 4px; }
-  .swatch input[type=text] { width: 84px; background: var(--cap); color: var(--ink); border: 1px solid var(--edge);
-    border-radius: 6px; padding: 4px 8px; font: 12px ui-monospace, "SF Mono", Menlo, monospace; }
-  .swatch input[type=text].bad { border-color: var(--error); }
+  /* More: what most people won't need, at the foot of the page. */
+  .more { grid-area: more; }
+
+  /* The dress code, folded away until it's wanted. */
+  .dress-code summary { cursor: pointer; font-size: 13px; font-weight: 600; margin: 6px 0 0; }
+  .dress-code[open] summary { margin-bottom: 10px; }
 
   /* Phone width: last, so it overrides the rules above. */
   @media (max-width: 480px) {
@@ -229,12 +293,23 @@
   <header>
     <img id="header-logo" alt="">
     <div>
-      <h1>SauzzeDeck Pro</h1>
+      <h1>Smolcorp</h1>
       <p>A control pad for your coding agents, on your phone.</p>
     </div>
   </header>
 
   <section class="start">
+    <div class="invite" id="invite" hidden>
+      <div class="text">
+        <div class="title">Make the office your own</div>
+        <div class="detail">Your sessions work in a little office on your phone. Arrange it as you like: desks where you want them, a jukebox, pictures on the wall, on its side and upright.</div>
+      </div>
+      <div class="tools">
+        <button class="btn primary" id="invite-standard">Start from the standard office</button>
+        <button class="btn" id="invite-empty">Start empty</button>
+        <button class="btn" id="invite-later">Not now</button>
+      </div>
+    </div>
     <h2>Getting started</h2>
     <div class="steps">
       <div class="step" id="step-hooks">
@@ -249,25 +324,25 @@
       <div class="step" id="step-launcher" hidden>
         <div class="mark">✓</div>
         <div class="text">
-          <div class="title">Start your agents through SauzzeDeck Pro</div>
+          <div class="title">Start your agents through Smolcorp</div>
           <div class="detail">In any terminal, type <code id="launch"></code>, or codex, gemini, opencode or grok in place of claude. In tmux, WezTerm or kitty, start them as you always do.</div>
         </div>
       </div>
       <div class="step" id="step-accessibility">
         <div class="mark">✓</div>
         <div class="text">
-          <div class="title">Allow SauzzeDeck Pro to use your keyboard</div>
-          <div class="detail" data-pending="Needed for the buttons, the mic and scrolling. Turn SauzzeDeck Pro on in the list that opens. After an update, turn it on again." data-done="Allowed."></div>
+          <div class="title">Allow Smolcorp to use your keyboard</div>
+          <div class="detail" data-pending="Needed for the buttons, the mic and scrolling. Turn Smolcorp on in the list that opens. After an update, turn it on again." data-done="Allowed."></div>
         </div>
         <button class="btn primary" data-pending-only id="accessibility">Open Settings</button>
       </div>
       <div class="step" id="step-scroll">
         <div class="mark">✓</div>
         <div class="text">
-          <div class="title">Let the stick scroll Terminal</div>
-          <div class="detail" data-pending="Optional. Turns your phone's stick into a scroll wheel for the selected session's Terminal window." data-done="The stick scrolls the selected session's Terminal window."></div>
+          <div class="title">Let two fingers scroll Terminal</div>
+          <div class="detail" data-pending="Optional. Two fingers on the office scroll the picked agent's Terminal." data-done="Two fingers on the office scroll the picked agent's Terminal."></div>
         </div>
-        <button class="switch" id="scroll" aria-label="Let the stick scroll Terminal"></button>
+        <button class="switch" id="scroll" aria-label="Let two fingers scroll Terminal"></button>
       </div>
       <div class="step" id="step-hiring">
         <div class="mark">✓</div>
@@ -282,11 +357,19 @@
         </div>
         <button class="switch" id="hiring" aria-label="Let the office hire and fire"></button>
       </div>
+      <div class="step" id="step-music" hidden>
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Let the jukebox play your music</div>
+          <div class="detail" data-pending="Optional. Tap a jukebox in the office to play or pause this computer's music." data-done="Tap a jukebox in the office to play or pause your music."></div>
+        </div>
+        <button class="switch" id="music" aria-label="Let the jukebox play your music"></button>
+      </div>
       <div class="step" id="step-login">
         <div class="mark">✓</div>
         <div class="text">
           <div class="title">Open at login</div>
-          <div class="detail" data-pending="Keep the deck ready whenever your computer is on." data-done="SauzzeDeck Pro starts when you log in."></div>
+          <div class="detail" data-pending="Keep the deck ready whenever your computer is on." data-done="Smolcorp starts when you log in."></div>
         </div>
         <button class="switch" id="login" aria-label="Open at login"></button>
       </div>
@@ -316,13 +399,12 @@
   </aside>
 
   <section class="keys">
-    <h2>Keys</h2>
+    <h2>Desks</h2>
+    <div class="field"><span>Desks for sessions</span><div class="choices" id="key-count"></div></div>
+    <p class="hint" id="key-hint"></p>
     <div class="grid" id="grid"></div>
-    <p class="hint">Drag a session onto a key to keep its project there. Unpinned keys take the next session that starts. Dimmed keys aren't on your phone right now: with Auto, pin a project to one and the phone shows it.</p>
-  </section>
-
-  <section class="sessions">
-    <h2>Running sessions</h2>
+    <p class="hint">Drag a running session onto a desk to keep its project there. Dimmed desks aren't in the office right now.</p>
+    <h3>Running sessions</h3>
     <div class="list" id="list"></div>
   </section>
 
@@ -338,54 +420,49 @@
       <button class="btn" id="profile-import">Import…</button>
       <input type="file" id="profile-file" accept=".json,application/json" hidden>
     </div>
-    <p class="hint">A profile keeps a layout and its colours. Switch, and your phone follows. Export one to back it up or share it.</p>
+    <p class="hint">A profile keeps your office and your buttons. Switch, and your phone follows.</p>
   </section>
 
   <section class="layout" id="layout" hidden>
-    <h2>Layout</h2>
+    <h2>Office</h2>
     <div class="layout-body">
       <div class="editor">
-        <div class="field"><span>Sessions</span><div class="choices" id="view"></div></div>
-        <div class="field"><span>Session keys</span><div class="choices" id="key-count"></div></div>
-        <p class="hint" id="key-hint"></p>
-        <div class="field"><span>Effort dial</span><button class="switch" id="show-dial" aria-label="Show the effort dial"></button></div>
-        <div class="field"><span>Stick</span><button class="switch" id="show-stick" aria-label="Show the stick"></button></div>
-        <h3>Office</h3>
-        <div class="field"><span>Talk into</span><div class="choices" id="room-mic"></div></div>
-        <div class="field stacked"><span>Back wall, left to right</span><div class="wall" id="room-wall"></div></div>
+        <div class="field stacked"><span>Style</span><div class="tiles small" id="room-preset"></div></div>
+        <p class="hint">A style furnishes the office for you; the phone can switch it from the key in the room's corner. Change anything below, and you're back to Yours.</p>
+        <div class="field"><span>Where everything goes</span><button class="btn" id="arrange-open">Arrange the room…</button></div>
+        <h3>Look</h3>
         <div class="field"><span>Floor</span><div class="choices" id="room-floor"></div></div>
         <div class="field"><span>Walls</span><div class="choices" id="room-paint"></div></div>
-        <div class="field"><span>Lounge</span><div class="choices" id="room-lounge"></div></div>
-        <div class="field stacked"><span>In the lounge</span><div class="tiles" id="room-corner"></div></div>
+        <div class="field stacked"><span>Everyone works at</span><div class="tiles small" id="room-workspace"></div></div>
+        <div class="field"><span>Desks</span><div class="choices" id="room-desk"></div></div>
+        <div class="field"><span>Monitors</span><div class="choices" id="room-monitor"></div></div>
+        <div class="field"><span>Chairs</span><div class="choices" id="room-chair"></div></div>
+        <h3>Life</h3>
         <div class="field"><span>Daylight</span><div class="choices" id="room-sky"></div></div>
         <div class="field"><span>Seasons in the windows</span><div class="choices" id="room-season"></div></div>
         <div class="field"><span>Pet</span><div class="choices" id="room-pet"></div></div>
         <div class="field"><span>Sound</span><div class="choices" id="room-sound"></div></div>
-        <div class="field stacked"><span>Everyone works at</span><div class="tiles small" id="room-workspace"></div></div>
-        <div class="field"><span>Desks</span><div class="choices" id="room-desk"></div></div>
-        <div class="field"><span>Chairs</span><div class="choices" id="room-chair"></div></div>
         <div class="field"><span>Office staff</span><div class="choices" id="room-staff"></div></div>
-        <p class="hint">How the office looks and sounds on your phone and on a screen of its own. Point at a piece to see it move. A project can work somewhere of its own, on its card under Your team. Sound starts with your first tap. The preview shows the office while you change it.</p>
         <h3>Your team</h3>
         <div class="team" id="room-team"></div>
-        <p class="hint">Each project's agent, your way. Anything on Auto is as the project's name picks it, and clothes on Auto follow the dress code below.</p>
-        <h3>Dress code</h3>
-        <div class="dress" id="room-dress"></div>
-        <p class="hint">What agents and their interns wear, by the size of the model they run: the bigger, the smarter, unless you say otherwise. The office tells a model's size from the words in its name; your own rules come first. While an agent's model isn't known, as for most agents but Claude Code, it dresses by agent. A project's own outfit on its team card comes before all of this.</p>
-        <h3>Buttons</h3>
+        <p class="hint">Each project's agent, your way. Clothes on Auto follow the dress code.</p>
+        <details class="dress-code">
+          <summary>Dress code</summary>
+          <div class="dress" id="room-dress"></div>
+          <p class="hint">What agents wear by the size of their model, told from its name; your own rules come first.</p>
+        </details>
+        <h3>Your buttons</h3>
         <div class="rows" id="rows"></div>
-        <p class="note" id="stick-note" hidden>Without the stick, add ▲ and ▼ to answer your agents' questions.</p>
-        <div><button class="btn" id="add-row">Add a Row</button></div>
+        <p class="hint">Hold an agent's desk on your phone: esc, ⏎ send, /clear, ↑ and ↓ come out along the foot of the room, then these.</p>
         <div class="inspector" id="inspector" hidden>
           <label class="field"><span>Does</span><select id="does"></select></label>
           <label class="field" id="field-text"><span>Types</span><input type="text" id="text" maxlength="200" spellcheck="false" placeholder="/compact"></label>
           <label class="field" id="field-key"><span>Presses</span><select id="key"></select></label>
           <label class="field" id="field-label"><span>Label</span><input type="text" id="label" maxlength="16" spellcheck="false"></label>
-          <div class="field"><span>Width</span><div class="choices" id="width"></div></div>
           <label class="check" id="field-free"><input type="checkbox" id="when-free">Only when the agent isn't busy</label>
           <label class="check" id="field-confirm"><input type="checkbox" id="confirm">Tap twice to confirm</label>
           <div class="field" id="field-agents"><span>Works with</span><div class="agents" id="agents"></div></div>
-          <div class="tools"><button class="btn" id="move-back" aria-label="Move left">←</button><button class="btn" id="move-on" aria-label="Move right">→</button><button class="btn" id="remove">Remove</button></div>
+          <div class="tools"><button class="btn" id="move-back" aria-label="Move earlier">←</button><button class="btn" id="move-on" aria-label="Move later">→</button><button class="btn" id="remove">Remove</button></div>
         </div>
       </div>
       <figure class="preview" id="preview">
@@ -394,32 +471,102 @@
         <button class="btn" id="turn">Turn Sideways</button>
       </figure>
     </div>
-    <p class="hint">Your phone updates as you change it. A button you make types a command, such as /compact, or presses a key. Your phone only says which button you tapped, so a paired phone can't type anything you didn't set up here.</p>
+    <p class="hint">Your phone updates as you change it. It only says which button you tapped, so it can't type anything you didn't set up here.</p>
   </section>
 
   <section class="logo">
     <h2>Logo</h2>
     <div class="logos" id="logos">
-      <button data-logo="sauzze"><img src="/setup/logo/sauzze" alt="">Sauzze</button>
+      <button data-logo="smolcorp"><img src="/setup/logo/smolcorp" alt="">Smolcorp</button>
       <button data-logo="keys"><img src="/setup/logo/keys" alt="">Six keys</button>
     </div>
     <p class="hint">Shown as the app's icon, on this page, and on your phone's Home Screen the next time you add the deck to it.</p>
   </section>
 
-  <section class="colours">
-    <h2>Colours</h2>
-    <div class="presets" id="presets"></div>
-    <div class="groups" id="groups"></div>
-    <p class="hint">Your phone updates as you pick.</p>
+  <section class="more">
+    <h2>More</h2>
+    <div class="steps">
+      <div class="step" id="step-webhook" hidden>
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Tell other tools</div>
+          <div class="detail" data-pending="Optional. Send what your agents do to an address on your network, such as Home Assistant." data-done="Each event goes to this address: the project's name, the agent and its state, never folders or prompts."></div>
+          <div class="hire-setup webhook-setup" id="webhook-setup" hidden>
+            <input type="url" id="webhook-url" spellcheck="false" placeholder="http://homeassistant.local:8123/api/webhook/deck" aria-label="The address to send events to">
+            <input type="password" id="webhook-secret" spellcheck="false" autocomplete="new-password" placeholder="Secret (optional)" aria-label="A secret sent with each event">
+            <div class="events" id="webhook-events"></div>
+            <label><input type="checkbox" id="webhook-outside"> Allow addresses outside your network</label>
+            <button class="btn" id="webhook-test">Send a test</button>
+            <span class="last" id="webhook-last"></span>
+          </div>
+        </div>
+        <button class="switch" id="webhook" aria-label="Tell other tools"></button>
+      </div>
+    </div>
   </section>
 </main>
+
+<div class="arranger" id="arranger" role="dialog" aria-modal="true" aria-labelledby="arranger-title" hidden>
+  <div class="bar">
+    <h2 id="arranger-title">Arrange the room</h2>
+    <div class="choices" id="arrange-shape" role="group" aria-label="The room on its side or upright"></div>
+    <button class="btn" id="arrange-copy"></button>
+    <button class="btn" id="arrange-undo" aria-keyshortcuts="Meta+Z">Undo</button>
+    <button class="btn" id="arrange-redo" aria-keyshortcuts="Meta+Shift+Z">Redo</button>
+    <button class="btn" id="arrange-empty">Start empty</button>
+    <button class="btn" id="arrange-reset">Back to standard</button>
+    <span class="saved" id="arrange-saved" role="status"></span>
+    <button class="btn primary" id="arrange-done">Done</button>
+  </div>
+  <div class="body">
+    <div class="stage" id="arrange-stage"><canvas id="arrange-canvas" aria-label="The office, to arrange"></canvas>
+      <div class="trash" id="arrange-trash" hidden aria-label="Drop here to take it out of the room">
+        <svg viewBox="0 0 12 14" aria-hidden="true" shape-rendering="crispEdges"><path d="M4 0h4v1h4v2H0V1h4z"/><path d="M1 4h10v10H1z"/><path class="slot" d="M3 6h1v6H3zM5.5 6h1v6h-1zM8 6h1v6H8z"/></svg>
+        <span>Drop to take it out</span>
+      </div></div>
+    <aside>
+      <p class="picked" id="arrange-picked"></p>
+      <div class="tools" id="arrange-size" role="group" aria-label="Size"></div>
+      <div id="arrange-kind" hidden>
+        <h3 id="arrange-kind-title"></h3>
+        <div class="tiles adding" id="arrange-kinds"></div>
+      </div>
+      <div id="arrange-desk" hidden>
+        <h3>This desk is</h3>
+        <div class="tools"><span id="arrange-desk-auto"></span></div>
+        <div class="tiles adding" id="arrange-workspace"></div>
+        <div class="looks" id="arrange-look"></div>
+        <p class="hint">A desk looks the same on its side and upright. A project's own workspace or desk item, on its card under Your team, comes first.</p>
+      </div>
+      <div class="tools">
+        <button class="btn" id="arrange-hide">Put it away</button>
+        <button class="btn" id="arrange-back">Where it was</button>
+      </div>
+      <p class="note" id="arrange-blocked" role="status" hidden></p>
+      <h3>The lounge</h3>
+      <div class="looks" id="arrange-lounge"></div>
+      <div class="drawer" id="arrange-drawer">
+        <h3>The drawer</h3>
+        <p class="hint">Drag a piece into the room, or click it to put it where it fits. Drag a piece back here, or onto the trash, to put it away.</p>
+        <h4>Desks</h4>
+        <div class="tiles adding" id="drawer-desks"></div>
+        <h4>Furniture</h4>
+        <div class="tiles adding" id="drawer-furniture"></div>
+        <h4>Lounge pieces</h4>
+        <div class="tiles adding" id="arrange-add"></div>
+        <h4>On the back wall</h4>
+        <div class="tiles adding" id="drawer-wall"></div>
+      </div>
+      <p class="hint">Click a piece in the room to pick it, drag it where you want it, and drag its corner to grow it. The arrow keys nudge it, and Shift nudges it further. A session whose desk is put away waits in line along the back wall. The room on its side and upright are arranged on their own. Your phone follows as you go.</p>
+    </aside>
+  </div>
+</div>
 
 <script src="/office.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
   let state = null;
   let picked = null;  // a session's folder, clicked rather than dragged, waiting for a key
-  let colours = null; // the theme as edited here
 
   async function load() {
     try {
@@ -457,7 +604,7 @@
     renderSessions();
     renderProfiles();
     renderLayout();
-    renderTheme();
+    showInvite();
   }
 
   /* ------------------------------------------------------- getting started */
@@ -475,23 +622,75 @@
     $('scroll').classList.toggle('on', c.scroll);
     $('login').classList.toggle('on', c.openAtLogin);
     renderHiring();
+    renderMusic();
+    renderWebhook();
   }
 
   /**
    * Hiring and firing from the office: the switch, and where new hires
    * start. Only the Mac app hires, for now; the others can fire.
    */
+  /** The jukebox's switch: whether a tap on one plays and pauses this computer's music. */
+  function renderMusic() {
+    const m = state.music;
+    $('step-music').hidden = !m;
+    if (!m) return;
+    mark('step-music', m.enabled);
+    $('music').classList.toggle('on', m.enabled);
+  }
+
+  /** What each event the webhook can send is called here. */
+  const WEBHOOK_EVENTS = [
+    ['waiting', 'Waiting on you'], ['done', 'Done'], ['error', 'Failed'],
+    ['working', 'Working'], ['started', 'Started'], ['ended', 'Ended'],
+  ];
+  /** What the setup page last couldn't keep, shown until the next change. */
+  let webhookProblem = '';
+
+  /** The webhook's step: the switch, where it sends, what, and how the last one went. */
+  function renderWebhook() {
+    const w = state.webhook;
+    $('step-webhook').hidden = !w;
+    if (!w) return;
+    mark('step-webhook', w.enabled && !!w.url);
+    $('webhook').classList.toggle('on', w.enabled);
+    $('webhook-setup').hidden = !w.enabled;
+    // Not while it's being typed in
+    if (document.activeElement !== $('webhook-url')) $('webhook-url').value = w.url;
+    if (document.activeElement !== $('webhook-secret')) $('webhook-secret').value = w.secret;
+    $('webhook-outside').checked = w.outside;
+    $('webhook-events').replaceChildren(...WEBHOOK_EVENTS.map(([id, name]) => {
+      const row = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = w.events.includes(id);
+      box.onchange = () => setWebhook({ events: WEBHOOK_EVENTS.map(([e]) => e).filter((e) => e === id ? box.checked : w.events.includes(e)) });
+      row.append(box, name);
+      return row;
+    }));
+    $('webhook-test').disabled = !w.url;
+    $('webhook-last').textContent = webhookProblem || w.last || '';
+    $('webhook-last').classList.toggle('wrong', !!webhookProblem || (!!w.last && !w.last.startsWith('Sent')));
+  }
+
+  /** Changes part of the webhook; what it refuses is said beside it. */
+  async function setWebhook(change) {
+    const res = await post('/setup/webhook', change);
+    webhookProblem = res.ok ? '' : await res.text();
+    renderWebhook();
+  }
+
   function renderHiring() {
     const h = state.hiring;
     $('step-hiring').hidden = !h;
     if (!h) return;
     const detail = $('step-hiring').querySelector('.detail');
     if (h.canHire) {
-      detail.dataset.pending = "Optional. Hold a desk in the office: on the next free one, hire an agent into a new Terminal window; on an agent's, fire it, which stops its work and closes its tab.";
-      detail.dataset.done = h.folder ? "New hires start in the folder below, or in a pinned project's on its desk. Hold a desk in the office to hire or fire."
+      detail.dataset.pending = 'Optional. Hold a free desk in the office to hire an agent, or an agent\'s to fire it.';
+      detail.dataset.done = h.folder ? 'New hires start in the folder below. Hold a desk in the office to hire or fire.'
         : 'Choose the folder new hires start in.';
     } else {
-      detail.dataset.pending = "Optional. Hold an agent's desk in the office to fire it: its work stops and its pane closes. Hiring needs the Mac app, for now.";
+      detail.dataset.pending = "Optional. Hold an agent's desk in the office to fire it. Hiring needs the Mac app, for now.";
       detail.dataset.done = "Hold an agent's desk in the office to fire it.";
     }
     mark('step-hiring', h.enabled);
@@ -512,9 +711,9 @@
       detail.dataset.pending = 'No coding agent found yet. Install Claude Code, Codex, Gemini CLI, OpenCode or Grok, open it once, then connect.';
       return;
     }
-    detail.dataset.pending = `Lets ${names(found)} tell SauzzeDeck Pro what they're doing.`;
+    detail.dataset.pending = `Lets ${names(found)} tell Smolcorp what they're doing.`;
     detail.dataset.done = `Connected: ${names(found)}. Sessions that were already open need a restart.`
-      + (found.some((a) => a.id === 'codex') ? ' In Codex, run /hooks once and trust SauzzeDeck Pro.' : '');
+      + (found.some((a) => a.id === 'codex') ? ' In Codex, run /hooks once and trust Smolcorp.' : '');
   }
 
   /**
@@ -527,9 +726,9 @@
     $('launch').textContent = `${state.launcher} claude`;
     $('step-launcher').classList.toggle('done', state.sessions.length > 0);
     const scroll = $('step-scroll');
-    scroll.querySelector('.title').textContent = 'Let the stick scroll tmux and kitty';
-    scroll.querySelector('.detail').dataset.pending = "Optional. Turns your phone's stick into a scroll wheel for sessions in tmux or kitty.";
-    scroll.querySelector('.detail').dataset.done = 'The stick scrolls the selected session in tmux or kitty.';
+    scroll.querySelector('.title').textContent = 'Let two fingers scroll tmux and kitty';
+    scroll.querySelector('.detail').dataset.pending = 'Optional. Drag two fingers up or down on the office to scroll the picked agent in tmux or kitty.';
+    scroll.querySelector('.detail').dataset.done = 'Two fingers on the office scroll the picked agent in tmux or kitty.';
   }
 
   function mark(id, done) {
@@ -550,6 +749,16 @@
   $('scroll').onclick = () => post(`/setup/scroll?enabled=${state.checklist.scroll ? 0 : 1}`);
   $('login').onclick = () => post(`/setup/login?enabled=${state.checklist.openAtLogin ? 0 : 1}`);
   $('hiring').onclick = () => post(`/setup/hiring?enabled=${state.hiring.enabled ? 0 : 1}`);
+  $('music').onclick = () => post(`/setup/music?enabled=${state.music.enabled ? 0 : 1}`);
+  $('webhook').onclick = () => setWebhook({ enabled: !state.webhook.enabled });
+  $('webhook-url').onchange = () => setWebhook({ url: $('webhook-url').value });
+  $('webhook-secret').onchange = () => setWebhook({ secret: $('webhook-secret').value });
+  $('webhook-outside').onchange = () => setWebhook({ outside: $('webhook-outside').checked });
+  $('webhook-test').onclick = async () => {
+    $('webhook-last').textContent = 'Sending…';
+    webhookProblem = '';
+    await post('/setup/webhook/test');
+  };
   $('hire-folder').onchange = async () => {
     const res = await post(`/setup/hiring?folder=${encodeURIComponent($('hire-folder').value)}`);
     if (!res.ok) alert(await res.text());
@@ -662,7 +871,7 @@
       el.querySelector('.label').innerHTML = `${i + 1}${pin ? ' · <span class="pinned">pinned</span>' : ''}`;
       if (s) el.querySelector('.dot').dataset.state = s.state;
       el.querySelector('.name').textContent = s ? s.name : pin ? pin.name : shown ? 'Free' : 'Spare';
-      el.querySelector('.sub').textContent = !open ? `Not on the phone with ${state.layout.keys} keys`
+      el.querySelector('.sub').textContent = !open ? `Not in the office with ${state.layout.keys} desks`
         : pin ? pin.folder : s ? s.folder : shown ? 'Takes the next session' : 'Not on the phone yet';
       if (pin) {
         const unpin = document.createElement('button');
@@ -702,7 +911,7 @@
       el.querySelector('.dot').dataset.state = s.state;
       el.querySelector('.name').textContent = s.name;
       el.querySelector('.path').textContent = s.folder;
-      el.querySelector('.where').textContent = `${s.agentName} · ${s.key === null ? 'no key' : `key ${s.key + 1}`}`;
+      el.querySelector('.where').textContent = `${s.agentName} · ${s.key === null ? 'no desk' : `desk ${s.key + 1}`}`;
       el.ondragstart = (e) => e.dataTransfer.setData('text/plain', s.folder);
       el.onclick = () => { picked = picked === s.folder ? null : s.folder; renderKeys(); renderSessions(); };
       return el;
@@ -714,7 +923,7 @@
   /** Auto: a key per running session, up to nine. Or always the same number. */
   const KEY_COUNTS = ['auto', 3, 6, 9];
   const MOST_KEYS = 9;
-  const MAX_ROWS = 4, MAX_PER_ROW = 4, WIDTHS = [1, 2, 3];
+  const MAX_ROWS = 4, MAX_PER_ROW = 4;
   /** The deck's own buttons, as the phone draws them, and what each does. */
   const BUILT_IN = {
     accept: ['✓', 'Accept'], reject: ['✕', 'Reject'], mic: ['🎙', 'Talk to Claude Code'],
@@ -746,8 +955,8 @@
   let sending = 0;    // layouts on their way to the computer
 
   /**
-   * Like the colours: built from the computer's copy, then left alone while
-   * you edit, so a refresh never undoes a change on its way there.
+   * Built from the computer's copy, then left alone while you edit, so a
+   * refresh never undoes a change on its way there.
    */
   function renderLayout() {
     $('layout').hidden = !state.layout;
@@ -760,16 +969,14 @@
       return;
     }
     layout = structuredClone(state.layout);
+    // Another layout, as a profile switched to: what could be undone was another's
+    undone = [];
+    redone = [];
     drawLayout();
   }
 
-  /**
-   * Makes a change, shows it here and on the preview, and sends it on. A
-   * change to the office's furnishing shows the office on the preview, even
-   * for a phone that shows keys, until something else changes.
-   */
-  function change(edit, furnishing = false) {
-    peekOffice = furnishing;
+  /** Makes a change, shows it here and on the preview, and sends it on. */
+  function change(edit) {
     const before = JSON.stringify(layout);
     edit();
     if (JSON.stringify(layout) === before) return; // already so, like Auto clicked again
@@ -789,23 +996,16 @@
   }
 
   function drawLayout() {
-    $('view').replaceChildren(
-      choice('Keys', !layout.office, () => change(() => { layout.office = false; })),
-      choice('Office', layout.office, () => change(() => { layout.office = true; })));
     $('key-count').replaceChildren(...KEY_COUNTS.map((n) =>
       choice(n === 'auto' ? 'Auto' : n, layout.keys === n, () => change(() => { layout.keys = n; }))));
-    $('key-hint').textContent = (layout.keys === 'auto'
-      ? 'A key for each running session, up to nine. The fewer there are, the bigger they get.'
-      : `Always ${layout.keys} keys, each in the same place.`)
-      + (layout.office ? ' In the office, each key is a desk, with its session at work there. Tap a desk to pick it.' : '');
-    $('show-dial').classList.toggle('on', layout.dial);
-    $('show-stick').classList.toggle('on', layout.stick);
-    $('stick-note').hidden = layout.stick || (uses('up') && uses('down'));
-    $('add-row').disabled = layout.rows.length >= MAX_ROWS;
+    $('key-hint').textContent = layout.keys === 'auto'
+      ? 'A desk for each running session, up to nine, with its agent at work there. Tap a desk to pick it.'
+      : `Always ${layout.keys} desks, each in the same place, with a pinned project's kept for it.`;
     drawRoom();
     drawRows();
     drawInspector();
     showPreview();
+    if (arranger && !$('arranger').hidden) showArranged();
   }
 
   function choice(label, on, onclick, swatch) {
@@ -826,7 +1026,7 @@
      it's furnished: a still, and moving while the pointer is on one. */
 
   /** How much of the office each picture shows, in its art pixels, at three of the canvas's pixels to each. */
-  const PICTURE_SIZES = { corner: [80, 51], workspace: [58, 45] };
+  const PICTURE_SIZES = { corner: [80, 51], workspace: [58, 45], preset: [62, 34], wall: [58, 45], part: [58, 45] };
   /** How far into a piece's moving its still is taken, in seconds: far enough in for something to be going on. */
   const PICTURE_STILL = 3.3;
   let moving = null; // the picture under the pointer: { canvas, what, room, start }
@@ -839,9 +1039,9 @@
   let stillsFor = '';
   let refocus = null; // the picture picked from the keyboard, to keep it focused as the page redraws
 
-  /** What a picture shows of the room besides its own piece: what it's drawn in. */
+  /** What a picture shows of the room besides its own piece: what it's drawn in. Pictures leave out where things stand. */
   const lookOf = (room) => JSON.stringify({ ...room, team: null, dress: null, corner: null, workspace: null, staff: null, pet: null,
-    sky: null, sound: null, mic: null });
+    sky: null, sound: null, mic: null, preset: null, plan: null });
 
   /** A picture of one of the office's choices, moving while the pointer, or the keyboard, is on `host`. */
   function picture(kind, id, room, host = null) {
@@ -872,7 +1072,7 @@
       moving = { canvas, what, room, start: performance.now() / 1000 - PICTURE_STILL };
       if (!looping) {
         looping = true;
-        requestAnimationFrame(move);
+        requestAnimationFrame(movePicture);
       }
     };
     over.onpointerleave = over.onblur = () => {
@@ -882,14 +1082,14 @@
     return canvas;
   }
 
-  function move(time) {
+  function movePicture(time) {
     // Gone from the page, or out of sight, it stops.
     if (!moving || !moving.canvas.isConnected || document.hidden) {
       looping = false;
       return;
     }
     AgentOffice.preview(moving.canvas, moving.what, { room: moving.room, now: time / 1000 - moving.start });
-    requestAnimationFrame(move);
+    requestAnimationFrame(movePicture);
   }
 
   /** A choice shown by its picture, with its name under it. */
@@ -912,16 +1112,26 @@
   /* The office's furnishing: the choices office.js draws and the apps keep. */
 
   const ROOM_CHOICES = {
-    mic: [['mic', 'Microphone'], ['megaphone', 'Megaphone']],
-    floor: [['wood', 'Wood', '#6f5440'], ['tiles', 'Tiles', '#9c9fa6'], ['concrete', 'Concrete', '#73767b'], ['carpet', 'Carpet', '#4b5065']],
-    paint: [['slate', 'Slate', '#2f3446'], ['sage', 'Sage', '#34463d'], ['clay', 'Clay', '#4b3631'], ['cream', 'Cream', '#b5ad98']],
+    mic: [['mic', 'Microphone'], ['megaphone', 'Megaphone'], ['studio', 'Ribbon mic'], ['podcast', 'Podcast mic'],
+      ['karaoke', 'Karaoke mic'], ['headset', 'Headset'], ['walkie', 'Walkie-talkie'], ['tincan', 'Tin-can phone'], ['radio', 'Radio mic']],
+    floor: [['wood', 'Wood', '#6f5440'], ['tiles', 'Tiles', '#9c9fa6'], ['concrete', 'Concrete', '#73767b'], ['carpet', 'Carpet', '#4b5065'],
+      ['plating', 'Deck plating', '#50565f'], ['deck', "Ship's deck", '#8a6440'], ['marble', 'Marble', '#e4e0d8'],
+      ['flagstone', 'Flagstones', '#5a5d5a'], ['snow', 'Snow', '#dbe6ef'], ['grass', 'Grass', '#4a7a3a'], ['forest', 'Forest floor', '#5a4632'],
+      ['rubber', 'Gym mats', '#26282d'], ['epoxy', 'Garage epoxy', '#5f646c'], ['arcade', 'Arcade carpet', '#1c1a33']],
+    paint: [['slate', 'Slate', '#2f3446'], ['sage', 'Sage', '#34463d'], ['clay', 'Clay', '#4b3631'], ['cream', 'Cream', '#b5ad98'],
+      ['hull', 'Hull panels', '#3a404c'], ['timber', "Ship's timbers", '#5a3b25'], ['damask', 'Damask', '#6a1e2a'],
+      ['stone', 'Castle stone', '#4d5056'], ['ice', 'Ice blocks', '#b4d0e2'], ['logs', 'Log cabin', '#7a5232'], ['brick', 'Brick', '#8a3a2a'],
+      ['bamboo', 'Bamboo', '#a8a050'], ['block', 'Blockwork', '#9aa0a8'], ['foam', 'Acoustic foam', '#16171c']],
     lounge: [['navy', 'Navy', '#3f4a5c'], ['teal', 'Teal', '#2f5656'], ['plum', 'Plum', '#513d50'], ['sand', 'Sand', '#7b6e58']],
+    // filled in below: the lounge's floor can be any of the office's too, and its wall any paint
     corner: [['arcade', 'An arcade machine'], ['vending', 'A vending machine'], ['foosball', 'A foosball table'],
       ['fishtank', 'A fish tank'], ['books', 'A bookcase and a beanbag'], ['dragon', 'A dragon on its gold'], ['pinball', 'Pinball'],
       ['jukebox', 'A jukebox'], ['pool', 'A pool table'], ['piano', 'A piano'], ['drums', 'A drum kit'], ['telescope', 'A telescope'],
       ['jellyfish', 'Jellyfish'], ['bonsai', 'A bonsai'], ['jungle', 'A jungle'], ['coffee', 'A coffee bar'], ['servers', 'Servers'],
       ['printer', 'A 3D printer'], ['boxing', 'A punching bag'], ['treadmill', 'A treadmill'], ['hottub', 'A hot tub'],
-      ['ballpit', 'A ball pit'], ['campfire', 'A campfire'], ['none', 'Nothing']],
+      ['ballpit', 'A ball pit'], ['campfire', 'A campfire'], ['bubbler', 'A bubbler jukebox'], ['neonbox', 'A neon jukebox'],
+      ['wallbox', 'A diner booth'], ['djtable', 'A DJ booth'], ['turntable', 'A record player'], ['boombox', 'A boombox'],
+      ['hifi', 'A hi-fi'], ['synth', 'A synth rig'], ['none', 'Nothing']],
     sky: [['live', 'Follows the clock'], ['day', 'Always day']],
     season: [['calendar', 'Follow the calendar'], ['off', 'Off']],
     pet: [['none', 'None'], ['cat', 'Cat'], ['dog', 'Dog'], ['lizard', 'Lizard'], ['monkey', 'Monkey']],
@@ -929,26 +1139,47 @@
     desk: [['wood', 'Wood', '#c49a6c'], ['walnut', 'Walnut', '#7e5536'], ['white', 'White', '#e9e6de'], ['black', 'Black', '#3c404a']],
     workspace: [['desk', 'A desk'], ['standing', 'A standing desk'], ['gaming', 'A gaming desk'], ['tent', 'A tent'],
       ['box', 'A cardboard box'], ['beanbag', 'A beanbag'], ['igloo', 'An igloo'], ['van', 'A camper van'], ['cockpit', 'A spaceship'],
-      ['ship', 'A pirate ship'], ['throne', 'A throne'], ['greenhouse', 'A greenhouse']],
+      ['ship', 'A pirate ship'], ['throne', 'A throne'], ['greenhouse', 'A greenhouse'], ['console', 'A console desk'],
+      ['hover', 'A hover desk'], ['chest', 'A sea chest'], ['gilded', 'A gilded desk'], ['crates', 'Expedition cases'],
+      ['altar', 'A stone altar'], ['log', 'A log desk'], ['bench', 'A workbench'], ['bamboo', 'A bamboo desk'], ['rack', 'A weight rack'],
+      ['drafting', 'A drafting table'], ['glass', 'A glass desk']],
+    monitor: [['standard', 'Standard'], ['crt', 'CRT'], ['holo', 'Hologram'], ['brass', "Ship's monitor"], ['crystal', 'Crystal ball'],
+      ['gilt', 'Gilt frame'], ['ice', 'Frozen'], ['ultrawide', 'Curved ultrawide'], ['dual', 'Two monitors'], ['laptop', 'Rugged laptop'],
+      ['bamboo', 'Bamboo frame'], ['tablet', 'Tablet on an arm'], ['portrait', 'Turned on its side']],
     chair: [['teal', 'Teal', '#3f7080'], ['black', 'Black', '#353842'], ['red', 'Red', '#9a3c3a'], ['grey', 'Grey', '#737987'],
       ['green', 'Green', '#3f7a4c']],
     staff: [['some', 'A few'], ['none', 'None'], ['many', 'Lots']],
+    preset: [['yours', 'Yours'], ['classic', 'Classic'], ['campsite', 'Campsite'], ['royal', 'Royal court'], ['space', 'Space station'],
+      ['pirates', 'Pirate cove'], ['arctic', 'Arctic base'], ['lair', "Dragon's lair"], ['gamers', 'Gamer den'], ['garage', 'Startup garage'],
+      ['gym', 'Fitness floor'], ['jungle', 'Jungle']],
   };
   const WALL_CHOICES = [['window', 'Window'], ['whiteboard', 'Whiteboard'], ['pinboard', 'Pinboard'], ['poster', 'Poster'],
-    ['shelf', 'Bookshelf'], ['plant', 'Plant'], ['bare', 'Bare wall']];
+    ['shelf', 'Bookshelf'], ['plant', 'Plant'], ['bare', 'Bare wall'],
+    ['viewport', 'Viewport onto space'], ['porthole', 'Porthole onto Earth'], ['panel', 'Control panel'],
+    ['pipes', 'Pipes and a gauge'], ['seaPorthole', 'Porthole onto the sea'], ['map', 'Treasure map'], ['flag', 'Jolly Roger'],
+    ['cutlasses', 'Crossed cutlasses'], ['tapestry', 'Royal banner'], ['portrait', 'Royal portrait'], ['stained', 'Stained glass'],
+    ['shield', 'Shield and swords'], ['frost', 'Frosted window'], ['skis', 'Skis and poles'], ['weather', 'Weather station'],
+    ['torch', 'Wall torch'], ['arch', 'Arched stone window'], ['neon', 'Neon sign'], ['tv', 'Wall TV'], ['hex', 'Hex light panels'],
+    ['pegboard', 'Pegboard of tools'], ['roller', 'Roller door'], ['bike', 'Bike on hooks'], ['mirror', 'Gym mirror'],
+    ['timer', 'Interval timer'], ['climbing', 'Climbing holds'], ['vines', 'Hanging vines'], ['tiki', 'Tiki mask'],
+    ['blind', 'Bamboo blind window'], ['cabin', 'Cabin window'], ['trail', 'Trail map'], ['paddles', 'Crossed paddles']];
+  ROOM_CHOICES.lounge.push(...ROOM_CHOICES.floor);
+  ROOM_CHOICES.loungePaint = [['auto', 'Same as the walls'], ...ROOM_CHOICES.paint];
   const STANDARD_ROOM = { mic: 'mic', wall: ['window', 'whiteboard', 'window', 'pinboard', 'window'], floor: 'wood', paint: 'slate',
-    lounge: 'navy', corner: 'arcade', sky: 'live', pet: 'none', season: 'calendar', sound: 'off', desk: 'wood', workspace: 'desk',
-    chair: 'teal', staff: 'some' };
-  let peekOffice = false; // the preview shows the office while it's being furnished
+    lounge: 'navy', loungePaint: 'auto', corner: 'arcade', sky: 'live', pet: 'none', season: 'calendar', sound: 'off', desk: 'wood', workspace: 'desk',
+    monitor: 'standard', chair: 'teal', staff: 'some', preset: 'yours' };
+  /** What a style furnishes, as office.js has it: changing one of these goes back to Yours. */
+  const STYLED = new Set(['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair',
+    'staff']);
 
   /* Your team: how each project's agent looks, the choices office.js draws
      and the apps keep. The first of each is Auto. */
   const TEAM_CHOICES = {
     skin: ['Skin', [['auto', 'Auto'], ['porcelain', 'Porcelain'], ['fair', 'Fair'], ['light', 'Light'], ['tan', 'Tan'],
-      ['olive', 'Olive'], ['brown', 'Brown'], ['deep', 'Deep'], ['ebony', 'Ebony']]],
+      ['olive', 'Olive'], ['brown', 'Brown'], ['deep', 'Deep'], ['ebony', 'Ebony'], ['cream', 'Cream']]],
     hair: ['Hair', [['auto', 'Auto'], ['black', 'Black'], ['espresso', 'Espresso'], ['brown', 'Brown'], ['chestnut', 'Chestnut'],
       ['auburn', 'Auburn'], ['ginger', 'Ginger'], ['blond', 'Blond'], ['platinum', 'Platinum'], ['grey', 'Grey'], ['white', 'White'],
-      ['pink', 'Pink'], ['blue', 'Blue'], ['green', 'Green'], ['purple', 'Purple']]],
+      ['pink', 'Pink'], ['blue', 'Blue'], ['green', 'Green'], ['purple', 'Purple'], ['orange', 'Orange']]],
     hairstyle: ['Hairstyle', [['auto', 'Auto'], ['short', 'Short'], ['long', 'Long'], ['spiky', 'Spiky'], ['bun', 'Bun'],
       ['curly', 'Curly'], ['ponytail', 'Ponytail'], ['afro', 'Afro'], ['mohawk', 'Mohawk'], ['buzz', 'Buzz cut'], ['bald', 'Bald']]],
     extra: ['Extra', [['none', 'Nothing'], ['glasses', 'Glasses'], ['sunglasses', 'Sunglasses'], ['headphones', 'Headphones'],
@@ -956,17 +1187,34 @@
     outfit: ['Outfit', [['auto', 'By the dress code'], ['tee', 'T-shirt and jeans'], ['hoodie', 'Hoodie'], ['collar', 'Shirt'],
       ['sweater', 'Sweater'], ['jacket', 'Jacket'], ['suit', 'Suit and tie'], ['labcoat', 'Lab coat'], ['polo', 'Polo shirt'],
       ['cardigan', 'Cardigan'], ['hawaiian', 'Hawaiian shirt'], ['tracksuit', 'Tracksuit'], ['overalls', 'Overalls'],
-      ['waistcoat', 'Waistcoat']]],
+      ['waistcoat', 'Waistcoat'],
+      // A style's own
+      ['astronaut', 'Astronaut'], ['flightsuit', 'Launch suit'], ['pirate', 'Pirate'], ['captain', 'Pirate captain'],
+      ['parka', 'Parka'], ['explorer', 'Polar explorer'], ['robe', 'Royal robe'], ['knight', 'Knight'], ['wizard', 'Wizard'],
+      ['gamer', 'Team jersey and headset'], ['founder', "Founder's vest"], ['gymkit', 'Gym kit'], ['safari', 'Safari kit'],
+      ['flannel', 'Flannel and beanie'], ['hire', 'The hire'],
+      // Each model family's
+      ['claude', "Claude's knit"], ['gpt', 'GPT hoodie'], ['gemini', 'Gemini top'], ['grok', "Grok's leather jacket"],
+      ['qwen', 'Qwen jacket'], ['llama', 'Llama poncho'], ['mistral', 'Mistral stripes'], ['deepseek', 'DeepSeek turtleneck'],
+      ['kimi', 'Kimi bomber'], ['glm', 'GLM vest'], ['phi', 'Phi polo']]],
     colour: ['Colour', [['auto', 'Auto'], ['orange', 'Orange'], ['red', 'Red'], ['pink', 'Pink'], ['purple', 'Purple'], ['blue', 'Blue'],
       ['teal', 'Teal'], ['green', 'Green'], ['yellow', 'Yellow'], ['grey', 'Grey'], ['black', 'Black'], ['white', 'White']]],
     desk: ['On the desk', [['auto', 'Auto'], ['plant', 'A plant'], ['papers', 'Papers'], ['lamp', 'A lamp'], ['cactus', 'A cactus'],
-      ['duck', 'A rubber duck'], ['trophy', 'A trophy'], ['photo', 'A photo'], ['mug', 'A mug'], ['none', 'Nothing']]],
+      ['duck', 'A rubber duck'], ['trophy', 'A trophy'], ['photo', 'A photo'], ['mug', 'A mug'],
+      ['helmet', 'A space helmet'], ['rocket', 'A model rocket'], ['terrarium', 'A plant under glass'], ['quill', 'A quill and ink'],
+      ['candelabra', 'A candelabra'], ['goblet', 'A goblet'], ['rum', 'A bottle of rum'], ['compass', 'A compass'],
+      ['skull', 'A skull candle'], ['snowglobe', 'A snow globe'], ['thermos', 'A thermos'], ['penguin', 'A penguin'],
+      ['potions', 'Potions'], ['egg', 'A dragon egg'], ['spellbook', 'A spellbook'], ['controller', 'A game controller'],
+      ['energy', 'Energy drinks'], ['headset', 'A headset'], ['circuit', 'A circuit board'], ['pizza', 'A pizza'],
+      ['coffeepot', 'A coffee machine'], ['dumbbell', 'A dumbbell'], ['shaker', 'A protein shaker'], ['kettlebell', 'A kettlebell'],
+      ['coconut', 'A coconut drink'], ['pineapple', 'A pineapple'], ['tikimug', 'A tiki mug'], ['enamel', 'A camp mug'],
+      ['lantern', 'A lantern'], ['pinecone', 'A pinecone'], ['none', 'Nothing']]],
     workspace: ['Works at', [['auto', 'Where everyone does'], ...ROOM_CHOICES.workspace]],
   };
   const NICKNAME_LIMIT = 16;
   let teamShown = ''; // the projects the team's cards were drawn for
 
-  /** The projects a team can have: those running, those pinned to a key, and those already dressed. */
+  /** The projects a team can have: those running, those pinned to a desk, and those already dressed. */
   function teamProjects() {
     const names = [...state.sessions.map((s) => s.name), ...state.pins.filter(Boolean).map((p) => p.name),
       ...Object.keys((layout.room && layout.room.team) || {})];
@@ -979,7 +1227,7 @@
     teamShown = projects.join('\n');
     if (!projects.length) {
       $('room-team').innerHTML = '<div class="empty"></div>';
-      $('room-team').firstChild.textContent = 'Your projects show here once an agent is running in one, or one is pinned to a key.';
+      $('room-team').firstChild.textContent = 'Your projects show here once an agent is running in one, or one is pinned to a desk.';
       return;
     }
     const blank = () => ({ ...Object.fromEntries(Object.entries(TEAM_CHOICES).map(([part, [, options]]) => [part, options[0][0]])), name: '' });
@@ -1049,7 +1297,7 @@
 
   function drawDress(room) {
     const dress = room.dress || (room.dress = blankDress());
-    const furnish = (edit) => change(edit, true);
+    const furnish = (edit) => change(edit);
     const [, outfits] = TEAM_CHOICES.outfit, [, colours] = TEAM_CHOICES.colour;
     /** A row: what it's for, then its outfit (Auto saying what that is) and colour. */
     const row = (title, note, attire, auto) => {
@@ -1124,21 +1372,33 @@
     return el;
   }
 
+  /** The room as it looks: in a style, furnished as the style has it. */
+  const furnished = (room) => (window.AgentOffice && AgentOffice.furnishingOf ? AgentOffice.furnishingOf(room) : room);
+
+  /**
+   * Furnishes the office, `edit` given the room. In a style, a change to
+   * what it furnishes keeps the rest of it: the room becomes Yours,
+   * furnished as the style was, with the change.
+   */
+  function furnish(edit, part = null) {
+    change(() => {
+      if (STYLED.has(part) && layout.room.preset !== 'yours') layout.room = furnished(layout.room);
+      edit(layout.room);
+    }, true);
+  }
+
   function drawRoom() {
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
-    const furnish = (edit) => change(edit, true);
-    for (const part of ['mic', 'floor', 'paint', 'lounge', 'sky', 'season', 'pet', 'sound', 'desk', 'chair', 'staff']) {
+    // What's picked in each row: in a style, as the style furnishes it.
+    const shown = furnished(room);
+    for (const part of ['floor', 'paint', 'sky', 'season', 'pet', 'sound', 'desk', 'monitor', 'chair', 'staff']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label, swatch]) =>
-        choice(label, room[part] === id, () => furnish(() => { room[part] = id; }), swatch)));
+        choice(label, (shown[part] || STANDARD_ROOM[part]) === id, () => furnish((r) => { r[part] = id; }, part), swatch)));
     }
-    $('room-wall').replaceChildren(...room.wall.map((piece, i) => {
-      const el = select(WALL_CHOICES, piece, (value) => furnish(() => { room.wall[i] = value; }));
-      el.setAttribute('aria-label', `The back wall, place ${i + 1} from the left`);
-      return el;
-    }));
-    for (const part of ['corner', 'workspace']) {
+    for (const part of ['preset', 'workspace']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label]) =>
-        tile(part, id, label, (room[part] || STANDARD_ROOM[part]) === id, () => furnish(() => { room[part] = id; }), room)));
+        tile(part, id, label, ((part === 'preset' ? room : shown)[part] || STANDARD_ROOM[part]) === id,
+          () => furnish((r) => { r[part] = id; }, part), room)));
     }
     if (refocus) {
       const picked = document.querySelector(`.tile[data-pick="${refocus}"]`);
@@ -1149,44 +1409,46 @@
     drawDress(room);
   }
 
-  /** Each row as the phone draws it, with its own tools. */
+  /**
+   * Your own buttons, in the order the office shows them under a picked
+   * agent. They're kept in the layout's rows, as they always were; the
+   * deck's own buttons there, from before the phone was the office, are
+   * left as they are and not shown, the office having its own.
+   */
+  function ownButtons() {
+    return layout.rows.flatMap((row, r) => row.buttons.map((b, p) => ({ b, r, p }))).filter(({ b }) => !BUILT_IN[b.id]);
+  }
+
   function drawRows() {
-    $('rows').replaceChildren(...layout.rows.map((row, r) => {
-      const el = document.createElement('div');
-      el.className = 'line';
-      const chips = document.createElement('div');
-      chips.className = 'chips' + (row.tall ? '' : ' short');
-      row.buttons.forEach((b, p) => {
-        const chip = document.createElement('button');
-        chip.className = 'chip' + (chosen && chosen[0] === r && chosen[1] === p ? ' on' : '');
-        chip.style.flexGrow = b.width;
-        chip.textContent = faceOf(b);
-        chip.title = whatItDoes(b);
-        chip.onclick = () => { chosen = [r, p]; drawLayout(); };
-        chips.append(chip);
-      });
-      if (row.buttons.length < MAX_PER_ROW) {
-        const add = document.createElement('button');
-        add.className = 'chip add';
-        add.textContent = '+';
-        add.title = 'Add a button';
-        add.onclick = () => change(() => {
-          row.buttons.push(newButton());
-          chosen = [r, row.buttons.length - 1];
-        });
-        chips.append(add);
-      }
-      const tools = document.createElement('div');
-      tools.className = 'tools';
-      tools.append(
-        tool(row.tall ? 'Tall' : 'Short', 'Make this row taller or shorter', () => change(() => { row.tall = !row.tall; })),
-        tool('↑', 'Move this row up', () => change(() => moveRow(r, -1)), r === 0),
-        tool('↓', 'Move this row down', () => change(() => moveRow(r, 1)), r === layout.rows.length - 1),
-        tool('✕', 'Remove this row', () => change(() => { layout.rows.splice(r, 1); chosen = null; })),
-      );
-      el.append(chips, tools);
-      return el;
+    const own = ownButtons();
+    const chips = document.createElement('div');
+    chips.className = 'chips own';
+    chips.append(...own.map(({ b, r, p }) => {
+      const chip = document.createElement('button');
+      chip.className = 'chip' + (chosen && chosen[0] === r && chosen[1] === p ? ' on' : '');
+      chip.textContent = faceOf(b);
+      chip.title = whatItDoes(b);
+      chip.onclick = () => { chosen = [r, p]; drawLayout(); };
+      return chip;
     }));
+    // A new one goes last: in the last row, or a new one after it
+    const last = layout.rows[layout.rows.length - 1];
+    const room = (last && last.buttons.length < MAX_PER_ROW) || layout.rows.length < MAX_ROWS;
+    if (room) {
+      const add = document.createElement('button');
+      add.className = 'chip add';
+      add.textContent = '+';
+      add.title = 'Add a button';
+      add.onclick = () => change(() => {
+        let r = layout.rows.length - 1;
+        if (r < 0 || layout.rows[r].buttons.length >= MAX_PER_ROW) r = layout.rows.push({ tall: false, buttons: [] }) - 1;
+        layout.rows[r].buttons.push(newButton());
+        chosen = [r, layout.rows[r].buttons.length - 1];
+      });
+      chips.append(add);
+    }
+    $('rows').replaceChildren(chips, ...(own.length ? [] : [Object.assign(document.createElement('p'),
+      { className: 'hint', textContent: 'None yet. Add one to type a command, such as /compact, or press a key.' })]));
   }
 
   function tool(label, title, onclick, disabled) {
@@ -1196,26 +1458,14 @@
     return b;
   }
 
-  function moveRow(r, by) {
-    const [row] = layout.rows.splice(r, 1);
-    layout.rows.splice(r + by, 0, row);
-    if (chosen && chosen[0] === r) chosen[0] = r + by;
-    else if (chosen && chosen[0] === r + by) chosen[0] = r;
-  }
-
-  /** A new button is the first of the deck's own not on it yet, else Shift+Tab. */
+  /** A new button types a command, to fill in. */
   function newButton() {
-    const free = Object.keys(BUILT_IN).find((id) => !uses(id));
-    return free ? { id: free, width: 1 } : made({ key: 'shift-tab' });
+    return made({ text: '/compact' });
   }
 
   /** A button made here, with an id the phone can name it by. */
   function made(fields) {
     return { id: `custom-${Math.random().toString(36).slice(2, 10)}`, label: '', width: 1, ...fields };
-  }
-
-  function uses(id) {
-    return layout.rows.some((row) => row.buttons.some((b) => b.id === id));
   }
 
   function faceOf(b) {
@@ -1231,7 +1481,6 @@
      are typing; a redraw only fills in the others. */
 
   $('does').replaceChildren(
-    ...Object.entries(BUILT_IN).map(([id, [, name]]) => new Option(name, id)),
     new Option('Type a command…', 'text'),
     new Option('Press a key…', 'key'),
   );
@@ -1252,29 +1501,23 @@
     const b = chosenButton();
     $('inspector').hidden = !b;
     if (!b) return;
-    const own = !!BUILT_IN[b.id];
-    const kind = own ? b.id : b.key ? 'key' : 'text';
+    const kind = b.key ? 'key' : 'text';
     $('does').value = kind;
-    // One of each of the deck's own buttons.
-    [...$('does').options].forEach((o) => { o.disabled = !!BUILT_IN[o.value] && o.value !== b.id && uses(o.value); });
     $('field-text').hidden = kind !== 'text';
     $('field-key').hidden = kind !== 'key';
-    for (const id of ['field-label', 'field-free', 'field-confirm', 'field-agents']) $(id).hidden = own;
     fill($('text'), b.text || '');
     $('key').value = b.key || 'enter';
     fill($('label'), b.label || '');
     $('label').placeholder = b.key ? KEY_NAMES[b.key] : b.text || '';
-    $('width').replaceChildren(...WIDTHS.map((w) =>
-      choice(`${w}×`, b.width === w, () => change(() => { b.width = w; }))));
     $('when-free').checked = !!b.whenFree;
     $('confirm').checked = !!b.confirm;
     // No agent ticked means every agent: the button never greys out.
     $('agents').querySelectorAll('input').forEach((box) => {
       box.checked = !b.agents || !b.agents.length || b.agents.includes(box.value);
     });
-    const [r, p] = chosen;
-    $('move-back').disabled = r === 0 && p === 0;
-    $('move-on').disabled = r === layout.rows.length - 1 && p === layout.rows[r].buttons.length - 1;
+    const own = ownButtons(), at = own.findIndex(({ r, p }) => r === chosen[0] && p === chosen[1]);
+    $('move-back').disabled = at <= 0;
+    $('move-on').disabled = at === own.length - 1;
   }
 
   function fill(input, value) {
@@ -1283,7 +1526,7 @@
 
   $('does').onchange = () => change(() => {
     const kind = $('does').value;
-    const next = BUILT_IN[kind] ? { id: kind } : made(kind === 'text' ? { text: '/compact' } : { key: 'shift-tab' });
+    const next = made(kind === 'text' ? { text: '/compact' } : { key: 'shift-tab' });
     layout.rows[chosen[0]].buttons[chosen[1]] = { ...next, width: chosenButton().width };
   });
   $('text').oninput = () => change(() => { chosenButton().text = $('text').value; });
@@ -1296,21 +1539,15 @@
     chosenButton().agents = ticked.length === Object.keys(AGENTS).length ? [] : ticked;
   });
 
-  /** Along the rows: off the end of one, onto the next, if it has room. */
+  /** Earlier or later among your own buttons: it swaps places with the one beside it. */
   function move(by) {
-    const [r, p] = chosen;
-    const row = layout.rows[r].buttons;
-    const [b] = row.splice(p, 1);
-    if (p + by >= 0 && p + by <= row.length) {
-      row.splice(p + by, 0, b);
-      chosen = [r, p + by];
-    } else {
-      const next = layout.rows[r + by];
-      if (!next || next.buttons.length >= MAX_PER_ROW) { row.splice(p, 0, b); return; }
-      if (by < 0) next.buttons.push(b); else next.buttons.unshift(b);
-      chosen = [r + by, by < 0 ? next.buttons.length - 1 : 0];
-    }
-    dropEmptyRows();
+    const own = ownButtons(), at = own.findIndex(({ r, p }) => r === chosen[0] && p === chosen[1]);
+    const other = own[at + by];
+    if (at < 0 || !other) return;
+    const here = own[at];
+    layout.rows[here.r].buttons[here.p] = other.b;
+    layout.rows[other.r].buttons[other.p] = here.b;
+    chosen = [other.r, other.p];
   }
 
   function dropEmptyRows() {
@@ -1328,34 +1565,508 @@
     dropEmptyRows();
   });
 
-  $('show-dial').onclick = () => change(() => { layout.dial = !layout.dial; });
-  $('show-stick').onclick = () => change(() => { layout.stick = !layout.stick; });
-  $('add-row').onclick = () => change(() => {
-    layout.rows.push({ tall: false, buttons: [newButton()] });
-    chosen = [layout.rows.length - 1, 0];
-  });
+
 
   /* The preview: the phone's own page, sent what it would get from here,
      with sample sessions on its keys. */
 
-  function showPreview() {
-    const page = $('preview-page').contentWindow;
-    if (!page || !layout || !colours) return;
+  /** The keys the preview shows: the samples, under your projects' names so they're dressed as your team. */
+  function sampleKeys() {
     const count = layout.keys === 'auto' ? Math.max(1, samples) : layout.keys;
-    // The samples take your projects' names, so they're dressed as your team.
     const projects = teamProjects();
-    const keys = Array.from({ length: count }, (_, i) => {
+    return Array.from({ length: count }, (_, i) => {
       const s = i < samples && { ...SAMPLES[i], name: projects[i] || SAMPLES[i].name };
       return { pin: null, session: s && { id: s.name, project: s.name, dial: false, mic: false, effort: '', ...s } };
     });
+  }
+
+  function showPreview() {
+    const page = $('preview-page').contentWindow;
+    if (!page || !layout) return;
+    const count = layout.keys === 'auto' ? Math.max(1, samples) : layout.keys;
+    const keys = sampleKeys();
     page.postMessage({
-      keys, overflow: Math.max(0, samples - count), theme: colours, scroll: true,
-      layout: peekOffice ? { ...layout, office: true } : layout,
+      keys, overflow: Math.max(0, samples - count), theme: {}, scroll: true,
+      layout,
     }, location.origin);
     $('samples').textContent = `${samples} session${samples === 1 ? '' : 's'}`;
     $('fewer').disabled = samples === 0;
     $('more').disabled = samples === MOST_KEYS;
   }
+
+  /* Arranging the room: the office over the whole window, a piece picked in
+     it and dragged, its size and whether it's there beside it. Each shape
+     of the room is arranged on its own, in the layout's room.plan. */
+
+  let arranger = null;     // the office being arranged, once it's been opened
+  let arrangeShape = 'wide';
+  let arrangePicked = null;
+  const PIECE_SIZE_NAMES = { 1: 'Small', 1.5: 'Medium', 2: 'Large' };
+
+  /** The pieces of the room as arranged in the shape shown, by name. */
+  function arrangedPieces() {
+    const plan = layout.room && layout.room.plan;
+    return (plan && plan[arrangeShape]) || {};
+  }
+
+  /**
+   * What a desk can be given of its own besides its workspace, each "auto"
+   * unless set: the setting, what the editor calls it, and its choices.
+   */
+  const DESK_LOOKS = [
+    ['monitor', 'Monitor', () => ROOM_CHOICES.monitor],
+    ['finish', 'Finish', () => ROOM_CHOICES.desk],
+    ['chair', 'Chair', () => ROOM_CHOICES.chair],
+    ['thing', 'On the desk', () => TEAM_CHOICES.desk[1].filter(([id]) => id !== 'auto')],
+  ];
+
+  /** A desk's own `field`, as the office reads it: the shape shown's, or the other's when that's "auto". */
+  function deskLook(part, field) {
+    const plan = (layout.room && layout.room.plan) || {};
+    const own = (side) => (plan[side] && plan[side][part] && plan[side][part][field]) || 'auto';
+    const here = own(arrangeShape);
+    return here !== 'auto' ? here : own(arrangeShape === 'wide' ? 'tall' : 'wide');
+  }
+
+  /** Gives a desk its own look, the same on its side and upright; where it stands stays each shape's own. */
+  function setLook(part, field, value) {
+    remember();
+    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
+    const plan = room.plan || (room.plan = { wide: {}, tall: {}, added: { wide: [], tall: [] } });
+    for (const side of ['wide', 'tall']) {
+      plan[side] = { ...plan[side], [part]: { x: 0, y: 0, size: 1, off: false, ...(plan[side] && plan[side][part]), [field]: value } };
+    }
+    showArranged();
+    saveArranged();
+    showPreview();
+    renderProfiles();
+    drawArrangeTools();
+  }
+
+  /** The pieces added to the lounge in the shape shown. */
+  function addedPieces() {
+    const plan = layout.room && layout.room.plan;
+    return (plan && plan.added && plan.added[arrangeShape]) || [];
+  }
+
+  /** What a part of the room is called: a desk, a piece the room has, or one added, by what it is. */
+  function pieceName(part) {
+    if (!part) return '';
+    if (part.startsWith('hung:')) {
+      const piece = arranger && arranger.hung()[Number(part.slice(5))];
+      const label = piece && WALL_CHOICES.find(([id]) => id === piece.kind);
+      return label ? label[1] : '';
+    }
+    if (part.startsWith('added:')) {
+      const piece = addedPieces()[Number(part.slice(6))];
+      const label = piece && ROOM_CHOICES.corner.find(([id]) => id === piece.kind);
+      return label ? label[1] : '';
+    }
+    return AgentOffice.arrangeable[part].name;
+  }
+
+  function showArranged() {
+    if (!arranger || !layout) return;
+    arranger.show({ keys: sampleKeys(), overflow: 0, theme: {}, layout: { ...layout, office: true } });
+  }
+
+  /**
+   * Undo and redo: the arrangement before each change, and before each
+   * undone. A drag, or any changes close together, are one change.
+   */
+  let undone = [], redone = [];
+  let changedAt = 0;
+  const TOGETHER = 700; // ms
+  const UNDO_MOST = 100;
+  /** The arrangement as it is, kept to go back to, unless it's part of the change just made. */
+  function remember() {
+    const now = performance.now();
+    if (now - changedAt > TOGETHER) {
+      undone = [...undone.slice(1 - UNDO_MOST), structuredClone((layout.room && layout.room.plan) || null)];
+      redone = [];
+    }
+    changedAt = now;
+  }
+  /** Back to the arrangement before the last change, or on to the one undone. */
+  function undo(back) {
+    const from = back ? undone : redone, to = back ? redone : undone;
+    if (!from.length) return;
+    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
+    to.push(structuredClone(room.plan || null));
+    room.plan = from.pop();
+    changedAt = 0;
+    arrangePicked = null;
+    arranger.pick(null);
+    showArranged();
+    saveArranged();
+    showPreview();
+    renderProfiles();
+    drawArrangeTools();
+  }
+
+  /** "a, b and c" */
+  const listed = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
+  /** The room arranged anew, a piece moved, grown, put away or added: kept in the layout, and sent on in a moment. */
+  function keepArranged(plan) {
+    remember();
+    let room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
+    const hungBefore = JSON.stringify((room.plan && room.plan.hung) || {});
+    // In a style, a change to the back wall makes the office yours, as any change to its furnishing does: the
+    // style written out, as it looked, with the wall as it's now hung in the shape shown
+    if (room.preset && room.preset !== 'yours' && JSON.stringify(plan.hung || {}) !== hungBefore) {
+      const out = furnished(room);
+      const other = arrangeShape === 'wide' ? 'tall' : 'wide';
+      const kept = out.plan && out.plan.hung ? out.plan.hung[other] : plan.hung[other];
+      room = layout.room = { ...out, plan: { ...plan, hung: { ...plan.hung, [other]: kept === undefined ? null : kept } } };
+      saveArranged();
+      showArranged();
+      showPreview();
+      renderProfiles();
+      drawLayout();
+      return;
+    }
+    room.plan = plan;
+    saveArranged();
+    showPreview();
+    renderProfiles();
+    drawArrangeTools();
+  }
+
+  /** The arrangement sent on in a moment, saying so beside Done. */
+  function saveArranged() {
+    $('arrange-saved').textContent = 'Saving…';
+    clearTimeout(unsaved);
+    unsaved = setTimeout(async () => {
+      unsaved = null;
+      await sendLayout();
+      if (!unsaved) $('arrange-saved').textContent = 'Saved. Your phone shows it as it is now.';
+    }, 250);
+  }
+
+  function drawArrangeTools() {
+    const kinds = AgentOffice.arrangeable;
+    const added = arrangePicked && arrangePicked.startsWith('added:');
+    const hung = arrangePicked && arrangePicked.startsWith('hung:');
+    const piece = arrangePicked && (added ? addedPieces()[Number(arrangePicked.slice(6))]
+      : hung ? { ...arranger.hung()[Number(arrangePicked.slice(5))], y: 0, size: 1 }
+      : arrangedPieces()[arrangePicked] || { x: 0, y: 0, size: 1, off: false, workspace: 'auto' });
+    // An added piece grows, and is taken out rather than put away; one on the wall only moves along it.
+    const kind = arrangePicked && (added ? { grows: true, hides: true } : hung ? { grows: false, hides: true } : kinds[arrangePicked]);
+    $('arrange-picked').textContent = kind ? pieceName(arrangePicked) : 'Pick a piece in the room.';
+    // A desk is what you make it, whoever sits at it, unless their project's card says otherwise.
+    drawKinds();
+    const desk = !!arrangePicked && arrangePicked.startsWith('desk');
+    $('arrange-desk').hidden = !desk;
+    if (desk) {
+      const part = arrangePicked;
+      const own = deskLook(part, 'workspace');
+      const set = (workspace) => setLook(part, 'workspace', workspace);
+      $('arrange-desk-auto').replaceChildren(choice('As everyone works', own === 'auto', () => set('auto')));
+      $('arrange-workspace').replaceChildren(...ROOM_CHOICES.workspace.map(([id, label]) =>
+        tile('workspace', id, label, own === id, () => set(id), layout.room || STANDARD_ROOM)));
+      $('arrange-look').replaceChildren(...DESK_LOOKS.map(([field, name, options]) => {
+        const row = document.createElement('label');
+        row.append(name, select([['auto', 'As the office'], ...options()], deskLook(part, field), (value) => setLook(part, field, value)));
+        return row;
+      }));
+    }
+    // The lounge's floor and wall: in a style, as it has them
+    const shown = furnished(layout.room || STANDARD_ROOM);
+    $('arrange-lounge').replaceChildren(...[['lounge', 'Floor'], ['loungePaint', 'Wall']].map(([part, name]) => {
+      const row = document.createElement('label');
+      row.append(name, select(ROOM_CHOICES[part], shown[part] || STANDARD_ROOM[part], (value) => furnish((r) => { r[part] = value; }, part)));
+      return row;
+    }));
+    $('arrange-hide').textContent = added || hung ? 'Take it out' : 'Put it away';
+    $('arrange-size').replaceChildren(...AgentOffice.sizes.map((size) => {
+      const b = choice(PIECE_SIZE_NAMES[size], !!piece && piece.size === size, () => arranger.arrange(arrangePicked, { size }));
+      b.disabled = !kind || !kind.grows;
+      return b;
+    }));
+    $('arrange-hide').disabled = !kind || !kind.hides;
+    $('arrange-back').disabled = !piece || hung || (piece.x === 0 && piece.y === 0 && piece.size === 1);
+    drawDrawer();
+    $('arrange-copy').textContent = arrangeShape === 'wide' ? 'Copy from upright' : 'Copy from sideways';
+    $('arrange-undo').disabled = !undone.length;
+    $('arrange-redo').disabled = !redone.length;
+    const blocked = arranger ? arranger.blocked() : [];
+    $('arrange-blocked').hidden = !blocked.length;
+    $('arrange-blocked').textContent = blocked.length
+      ? `Nobody can get from the door to ${listed(blocked.map((part) => pieceName(part).replace(/^(The|Desk)\b/, (word) => word.toLowerCase())))}. Clear a way there.` : '';
+    $('arrange-shape').replaceChildren(
+      choice('On its side', arrangeShape === 'wide', () => setArrangeShape('wide')),
+      choice('Upright', arrangeShape === 'tall', () => setArrangeShape('tall')));
+  }
+
+  /** What the chooser below was last drawn for, so it's drawn again only when that changes. */
+  let kindsFor = null;
+
+  /**
+   * What the picked piece is, where it can be several things: the lounge's
+   * corner piece, chosen by its picture, and the mic. In a style, as the
+   * style has it; choosing one makes the office yours.
+   */
+  function drawKinds() {
+    const part = arrangePicked === 'corner' || arrangePicked === 'mic' ? arrangePicked : null;
+    const room = layout.room || STANDARD_ROOM, shown = furnished(room);
+    const key = part && JSON.stringify([part, shown[part], lookOf(room)]);
+    $('arrange-kind').hidden = !part;
+    if (!part || key === kindsFor) return;
+    kindsFor = key;
+    const pick = (id) => furnish((r) => { r[part] = id; }, part);
+    $('arrange-kind-title').textContent = part === 'corner' ? 'This piece is' : 'Talk into';
+    $('arrange-kinds').className = part === 'corner' ? 'tiles adding' : 'choices';
+    $('arrange-kinds').replaceChildren(...(part === 'corner'
+      ? ROOM_CHOICES.corner.filter(([id]) => id !== 'none').map(([id, label]) => tile('corner', id, label, shown.corner === id, () => pick(id), room))
+      : ROOM_CHOICES.mic.map(([id, label]) => choice(label, (shown.mic || STANDARD_ROOM.mic) === id, () => pick(id)))));
+  }
+
+  /** What the drawer was last drawn for, so it's drawn again only when that changes, not as a piece is dragged. */
+  let drawerFor = null;
+
+  /**
+   * The drawer: every desk and piece of furniture put away, any lounge
+   * piece to add, and anything to hang on the back wall, each to drag into
+   * the room or click to put where it fits.
+   */
+  function drawDrawer() {
+    const room = layout.room || STANDARD_ROOM, shown = furnished(room), pieces = arrangedPieces();
+    const away = (part) => !!(pieces[part] && pieces[part].off);
+    const desks = Object.keys(AgentOffice.arrangeable).filter((part) => part.startsWith('desk') && away(part));
+    const furniture = ['wall', 'couch', 'pong', 'plant', 'corner'].filter((part) => away(part) && (part !== 'corner' || shown.corner !== 'none'));
+    const addedFull = addedPieces().length >= AgentOffice.addedMost;
+    const hungFull = arranger.hung().length >= AgentOffice.hungMost;
+    const key = JSON.stringify([desks, furniture, shown.corner, addedFull, hungFull, lookOf(room)]);
+    if (key === drawerFor) return;
+    drawerFor = key;
+    const nothing = (text) => Object.assign(document.createElement('p'), { className: 'hint', textContent: text });
+    $('drawer-desks').replaceChildren(...(desks.length
+      ? desks.map((part) => drawerTile('part', 'desk', pieceName(part), { part }, room)) : [nothing('Every desk is in the room.')]));
+    $('drawer-furniture').replaceChildren(...(furniture.length ? furniture.map((part) => (part === 'corner'
+      ? drawerTile('corner', shown.corner, pieceName(part), { part }, room)
+      : drawerTile('part', part, pieceName(part), { part }, room))) : [nothing('Everything is in the room.')]));
+    $('arrange-add').replaceChildren(...ROOM_CHOICES.corner.filter(([id]) => id !== 'none').map(([id, label]) => {
+      const b = drawerTile('corner', id, label, { kind: id }, room);
+      b.disabled = addedFull;
+      return b;
+    }));
+    $('drawer-wall').replaceChildren(...WALL_CHOICES.filter(([id]) => id !== 'bare').map(([id, label]) => {
+      const b = drawerTile('wall', id, label, { wall: id }, room);
+      b.disabled = hungFull;
+      return b;
+    }));
+  }
+
+  /** Something from the drawer into the room: at a point if it was carried there, or where it fits. Picked once it's there. */
+  function bringIn(what, clientX, clientY) {
+    const part = arranger.bring(what, clientX, clientY);
+    if (part) arrangePicked = part;
+    else $('arrange-saved').textContent = "There's no room for that there.";
+    drawArrangeTools();
+  }
+
+  /** A tile in the drawer: clicked, it comes into the room where it fits; carried, it goes where it's let go. */
+  function drawerTile(kind, id, label, what, room) {
+    let press = null, carried = null;
+    const b = tile(kind, id, label, false, () => { if (!b.dataset.carried) bringIn(what); }, room);
+    b.addEventListener('pointerdown', (e) => {
+      if (b.disabled || e.button !== 0) return;
+      press = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      // Held from the start, so a quick drag off the tile is still the tile's
+      b.setPointerCapture(e.pointerId);
+    });
+    b.addEventListener('pointermove', (e) => {
+      if (!press || e.pointerId !== press.id) return;
+      if (!carried) {
+        if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < 6) return;
+        carried = Object.assign(document.createElement('div'), { className: 'carried' });
+        const copy = document.createElement('canvas'), shown = b.querySelector('canvas');
+        [copy.width, copy.height] = [shown.width, shown.height];
+        copy.getContext('2d').drawImage(shown, 0, 0);
+        carried.append(copy);
+        document.body.append(carried);
+      }
+      Object.assign(carried.style, { left: `${e.clientX}px`, top: `${e.clientY}px` });
+    });
+    const letGo = (e) => {
+      if (!press || e.pointerId !== press.id) return;
+      press = null;
+      if (!carried) return;
+      carried.remove();
+      carried = null;
+      // The click that follows isn't one
+      b.dataset.carried = '1';
+      setTimeout(() => { delete b.dataset.carried; });
+      if (e.type === 'pointerup' && arranger.over(e.clientX, e.clientY)) bringIn(what, e.clientX, e.clientY);
+    };
+    b.addEventListener('pointerup', letGo);
+    b.addEventListener('pointercancel', letGo);
+    return b;
+  }
+
+  /** Whether `part` can leave the room: all but the red button and the mic, which are controls. */
+  const removable = (part) => part.startsWith('added:') || part.startsWith('hung:')
+    || !!(AgentOffice.arrangeable[part] && AgentOffice.arrangeable[part].hides);
+
+  /** Whether a client point is over the trash, while it's out. */
+  function overTrash(clientX, clientY) {
+    if ($('arrange-trash').hidden) return false;
+    const r = $('arrange-trash').getBoundingClientRect();
+    return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+  }
+
+  /** A piece carried, the trash out for it if it can leave the room, and lit while it's over it; or let go. */
+  function dragging(part) {
+    $('arrange-trash').hidden = !part || !removable(part);
+    $('arrange-trash').classList.remove('over');
+  }
+  document.addEventListener('pointermove', (e) => {
+    if (!$('arrange-trash').hidden) $('arrange-trash').classList.toggle('over', overTrash(e.clientX, e.clientY));
+  });
+
+  /** A piece let go off the room or on the trash: onto the drawer or the trash, it's put away, or taken out if it was added or hung. */
+  function droppedOut(part, clientX, clientY) {
+    const r = $('arranger').querySelector('aside').getBoundingClientRect();
+    const onDrawer = clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+    if (!onDrawer && !overTrash(clientX, clientY)) return;
+    const added = part.startsWith('added:') || part.startsWith('hung:');
+    if (!added && !(AgentOffice.arrangeable[part] && AgentOffice.arrangeable[part].hides)) return;
+    arrangePicked = null;
+    arranger.pick(null);
+    arranger.arrange(part, added ? { remove: true } : { off: true });
+  }
+
+  /** The picked piece nudged by the arrow keys, a pixel at a time, or five with Shift. */
+  function nudge(dx, dy) {
+    const part = arrangePicked;
+    if (!part) return;
+    if (part.startsWith('hung:')) return arranger.arrange(part, { x: arranger.hung()[Number(part.slice(5))].x + dx });
+    const piece = part.startsWith('added:') ? addedPieces()[Number(part.slice(6))] : arrangedPieces()[part] || { x: 0, y: 0 };
+    arranger.arrange(part, { x: piece.x + dx, y: piece.y + dy });
+  }
+
+  function setArrangeShape(shape) {
+    arrangeShape = shape;
+    arrangePicked = null;
+    arranger.pick(null);
+    fitStage();
+    drawArrangeTools();
+  }
+
+  /** The canvas as big as the stage allows, in the shape of the room shown: the room takes the shape of its canvas. */
+  function fitStage() {
+    const stage = $('arrange-stage').getBoundingClientRect();
+    const [w, h] = arrangeShape === 'tall' ? [224, 372] : [320, 180];
+    const fit = Math.min(stage.width / w, stage.height / h);
+    Object.assign($('arrange-canvas').style, { width: `${Math.floor(w * fit)}px`, height: `${Math.floor(h * fit)}px` });
+  }
+  new ResizeObserver(() => { if (!$('arranger').hidden) fitStage(); }).observe($('arrange-stage'));
+
+  $('arrange-open').onclick = () => {
+    if (!window.AgentOffice || !layout) return;
+    $('arranger').hidden = false;
+    fitStage();
+    if (!arranger) {
+      arranger = AgentOffice.create($('arrange-canvas'), {
+        picked(part) {
+          arrangePicked = part;
+          drawArrangeTools();
+        },
+        arranged: keepArranged,
+        droppedOut,
+        dragging,
+        takesAway: overTrash,
+      });
+      arranger.setArranging(true);
+    }
+    arranger.setVisible(true);
+    $('arrange-saved').textContent = '';
+    showArranged();
+    drawArrangeTools();
+    $('arrange-done').focus();
+  };
+
+  /*
+   * The invitation to make the office your own: shown on this computer
+   * until it's taken up or put off, while the room is still as it comes.
+   */
+  function invited() {
+    try { return localStorage.getItem('room-invite') === 'done'; } catch { return false; }
+  }
+  function showInvite() {
+    const plan = layout && layout.room && layout.room.plan;
+    const arranged = !!plan && (['wide', 'tall'].some((side) => Object.keys(plan[side] || {}).length
+      || (plan.added && (plan.added[side] || []).length) || (plan.hung && Array.isArray(plan.hung[side]))));
+    $('invite').hidden = invited() || arranged || !window.AgentOffice;
+  }
+  function answerInvite(empty) {
+    try { localStorage.setItem('room-invite', 'done'); } catch {}
+    $('invite').hidden = true;
+    if (empty === null) return;
+    $('arrange-open').click();
+    if (empty) arranger.empty(true);
+  }
+  $('invite-standard').onclick = () => answerInvite(false);
+  $('invite-empty').onclick = () => answerInvite(true);
+  $('invite-later').onclick = () => answerInvite(null);
+
+  function closeArranger() {
+    $('arranger').hidden = true;
+    arranger.setVisible(false);
+    drawLayout();
+  }
+  $('arrange-done').onclick = closeArranger;
+  // On the whole page while the editor's open: clicking in the room leaves nothing in it focused.
+  document.addEventListener('keydown', (e) => {
+    if ($('arranger').hidden) return;
+    if (e.key === 'Escape') return closeArranger();
+    const typing = e.target.matches('input, select, textarea');
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !typing) {
+      e.preventDefault();
+      return undo(!e.shiftKey);
+    }
+    const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    if (arrows[e.key] && arrangePicked && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      const step = e.shiftKey ? 5 : 1;
+      nudge(arrows[e.key][0] * step, arrows[e.key][1] * step);
+    }
+  });
+  $('arrange-hide').onclick = () => {
+    const part = arrangePicked;
+    arrangePicked = null;
+    arranger.pick(null);
+    arranger.arrange(part, part.startsWith('added:') ? { remove: true } : { off: true });
+  };
+  // Back where it stood, as big as it came; a desk's look is its own, set above.
+  $('arrange-back').onclick = () => arranger.arrange(arrangePicked, { x: 0, y: 0, size: 1 });
+  $('arrange-empty').onclick = () => {
+    arrangePicked = null;
+    arranger.empty();
+  };
+  $('arrange-copy').onclick = () => {
+    arrangePicked = null;
+    arranger.copyFrom(arrangeShape === 'wide' ? 'tall' : 'wide');
+  };
+  $('arrange-undo').onclick = () => undo(true);
+  $('arrange-redo').onclick = () => undo(false);
+  $('arrange-reset').onclick = () => {
+    remember();
+    changedAt = 0;
+    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
+    const plan = room.plan || { wide: {}, tall: {}, added: { wide: [], tall: [] } };
+    // Back as it comes: every piece where it stands, nothing added, and the wall's five places
+    room.plan = { ...plan, [arrangeShape]: {}, added: { ...(plan.added || { wide: [], tall: [] }), [arrangeShape]: [] },
+      hung: { ...(plan.hung || {}), [arrangeShape]: null } };
+    arrangePicked = null;
+    arranger.pick(null);
+    showArranged();
+    saveArranged();
+    showPreview();
+    renderProfiles();
+    drawArrangeTools();
+  };
 
   $('fewer').onclick = () => { samples--; showPreview(); };
   $('more').onclick = () => { samples++; showPreview(); };
@@ -1366,102 +2077,9 @@
     $('turn').textContent = sideways ? 'Stand Upright' : 'Turn Sideways';
   };
 
-  /* --------------------------------------------------------------- colours */
-
-  /**
-   * Built once, then kept in step. A colour being edited is never overwritten
-   * by a refresh, only by a change made elsewhere while it is not in use.
-   */
-  function renderTheme() {
-    const t = state.theme;
-    if (!colours) return buildTheme(t);
-    if (JSON.stringify(t.colours) === JSON.stringify(colours)) return;
-    if (document.activeElement && document.activeElement.closest('.swatch')) return;
-    // Nor by a refresh from before a change made here reached the computer.
-    if (saving || inFlight.size) return;
-    colours = { ...t.colours };
-    syncSwatches();
-    paint();
-  }
-
-  function buildTheme(t) {
-    colours = { ...t.colours };
-    $('presets').replaceChildren(...t.presets.map((preset) => {
-      const b = document.createElement('button');
-      b.className = 'btn';
-      b.textContent = preset.name;
-      b.onclick = () => { colours = { ...preset.colours }; syncSwatches(); paint(); save(); };
-      return b;
-    }));
-
-    const groups = {};
-    for (const [name, label, group] of t.tokens) {
-      if (!groups[group]) {
-        groups[group] = document.createElement('div');
-        groups[group].className = 'group';
-        groups[group].innerHTML = '<h3></h3>';
-        groups[group].querySelector('h3').textContent = group;
-      }
-      const row = document.createElement('div');
-      row.className = 'swatch';
-      row.dataset.name = name;
-      row.innerHTML = '<label></label><input type="color"><input type="text" spellcheck="false" maxlength="7">';
-      row.querySelector('label').textContent = label;
-      const [picker, hex] = row.querySelectorAll('input');
-      picker.oninput = () => setColour(name, picker.value);
-      hex.oninput = () => {
-        const value = hex.value.trim();
-        const valid = /^#?[0-9a-f]{6}$/i.test(value);
-        hex.classList.toggle('bad', !valid);
-        if (valid) setColour(name, value.startsWith('#') ? value : `#${value}`);
-      };
-      groups[group].appendChild(row);
-    }
-    $('groups').replaceChildren(...Object.values(groups));
-    syncSwatches();
-    paint();
-  }
-
-  function setColour(name, value) {
-    colours[name] = value.toLowerCase();
-    syncSwatches(name);
-    paint();
-    save();
-  }
-
-  function syncSwatches(typing) {
-    document.querySelectorAll('.swatch').forEach((row) => {
-      const value = colours[row.dataset.name];
-      const [picker, hex] = row.querySelectorAll('input');
-      picker.value = value;
-      if (row.dataset.name !== typing || document.activeElement !== hex) {
-        hex.value = value;
-        hex.classList.remove('bad');
-      }
-    });
-  }
-
-  /** The page wears the theme it edits, and so does the preview of the deck. */
-  function paint() {
-    for (const [name, value] of Object.entries(colours)) document.documentElement.style.setProperty(`--${name}`, value);
-    showPreview();
-  }
-
-  // Dragging across the picker fires many changes; only the last is sent.
-  let saving = null;
-  function save() {
-    clearTimeout(saving);
-    saving = setTimeout(() => { saving = null; sendTheme(); }, 120);
-    renderProfiles();
-  }
-
-  function sendTheme() {
-    return send('/setup/theme', colours);
-  }
-
   const inFlight = new Set(); // changes sent that the computer hasn't answered yet
 
-  /** Sends a change of layout or colours, keeping track of it until it lands. */
+  /** Sends a change of layout, keeping track of it until it lands. */
   async function send(path, body) {
     const request = fetch(path, { method: 'POST', headers: setupHeaders(true), body: JSON.stringify(body) });
     inFlight.add(request);
@@ -1475,7 +2093,7 @@
   }
 
   function changesWaiting() {
-    return Boolean(unsaved || saving || inFlight.size);
+    return Boolean(unsaved || inFlight.size);
   }
 
   /* -------------------------------------------------------------- profiles */
@@ -1507,11 +2125,6 @@
       unsaved = null;
       sendLayout().catch(() => {}); // if it fails, the wait below says so
     }
-    if (saving) {
-      clearTimeout(saving);
-      saving = null;
-      sendTheme().catch(() => {});
-    }
     await Promise.all(inFlight);
   }
 
@@ -1539,7 +2152,7 @@
     const name = (prompt(question, suggestion) || '').trim().slice(0, NAME_LIMIT);
     if (!name) return null;
     if (name.toLowerCase() === DEFAULT_PROFILE.toLowerCase()) {
-      alert('Default is taken: it\'s always the standard deck.');
+      alert('Default is taken: it\'s always the standard office.');
       return null;
     }
     return name;
@@ -1547,7 +2160,7 @@
 
   $('profile-save').onclick = () => profileAction('save', state.activeProfile);
   $('profile-save-as').onclick = () => {
-    const name = askName('Save this layout and its colours as:', '');
+    const name = askName('Save this office and its buttons as:', '');
     if (!name) return;
     if (state.profiles.some((p) => p.name === name) && !confirm(`Replace the saved ${name}?`)) return;
     profileAction('save', name);
@@ -1560,19 +2173,18 @@
     if (confirm(`Delete the profile ${state.activeProfile}? Your deck stays as it is.`)) profileAction('delete', state.activeProfile);
   };
 
-  /** What you see, as a file: the layout, and only the colours that differ from the default. */
+  /** What you see, as a file: the layout. Colours are no longer set here, so none go with it. */
   $('profile-export').onclick = async () => {
     await settle();
-    const standard = state.theme.presets[0].colours;
     const file = {
-      sauzzedeckProfile: 1,
+      smolcorpProfile: 1,
       name: state.activeProfile,
       layout,
-      colours: Object.fromEntries(Object.entries(colours).filter(([name, value]) => value !== standard[name])),
+      colours: {},
     };
     const link = document.createElement('a');
     link.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));
-    link.download = `${state.activeProfile}.sauzzedeck.json`;
+    link.download = `${state.activeProfile}.smolcorp.json`;
     document.body.append(link);
     link.click();
     link.remove();

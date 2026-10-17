@@ -18,9 +18,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     func showPortInUse() {
-        error = "Port \(Deck.port) is in use. Is SauzzeDeck Pro already running?"
+        error = "Port \(Deck.port) is in use. Is Smolcorp already running? Trying again…"
         item.button?.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: error)
         item.button?.title = ""
+    }
+
+    /// The port is the deck's again: back to the usual icon.
+    func showListening() {
+        guard error != nil else { return }
+        error = nil
+        update()
     }
 
     private func update() {
@@ -50,7 +57,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let login = add(to: menu, "Open at Login", #selector(toggleLogin))
         login.state = LoginItem.isEnabled ? .on : .off
         menu.addItem(.separator())
-        add(to: menu, "Quit SauzzeDeck Pro", #selector(quit), key: "q")
+        add(to: menu, "Quit Smolcorp", #selector(quit), key: "q")
     }
 
     @discardableResult
@@ -96,30 +103,38 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     /// Both are drawn as templates, so they follow the menu bar's colour.
     private static func icon(for logo: Logo) -> NSImage {
         switch logo {
-        case .sauzze: return sauzzeIcon
+        case .smolcorp: return smolcorpIcon
         case .keys: return keysIcon
         }
     }
 
-    /// The Sauzze mark, a disc with the S cut out of it, from the mark's own
-    /// geometry on a 100 × 100 grid.
-    private static let sauzzeIcon: NSImage = {
-        let side: CGFloat = 16
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: true) { _ in
+    /// The hire, a little person in a suit and tie, a point to each cell of
+    /// its grid, as the logo kit draws it. A template is tinted white in a
+    /// dark menu bar, where the light-ground drawing's hollow face would turn
+    /// into a helmet, so a dark one gets the drawing made for dark grounds.
+    private static let hireOnLight = [
+        ".....######.....", "....########....", "....##....##....", "....#......#....",
+        "....#.#..#.#....", "....#.#..#.#....", "....#......#....", ".....######.....",
+        "................", "...##..##..##...", "...###.##.###...", "...####..####...",
+        "...####..####...", "...##########...", "....###..###....", "....###..###....",
+    ]
+    private static let hireOnDark = [
+        ".....######.....", "....########....", "................", "....########....",
+        "....##.##.##....", "....##.##.##....", "....########....", ".....######.....",
+        "................", "...##.#..#.##...", "...###.##.###...", "...####..####...",
+        "...####..####...", "...##########...", "....###..###....", "....###..###....",
+    ]
+    private static let smolcorpIcon: NSImage = {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            context.scaleBy(x: side / 100, y: side / 100)
-            context.fillEllipse(in: CGRect(x: 0, y: 0, width: 100, height: 100))
-            let s = CGMutablePath()
-            s.move(to: CGPoint(x: 67, y: 32))
-            s.addCurve(to: CGPoint(x: 38, y: 27), control1: CGPoint(x: 67, y: 21), control2: CGPoint(x: 47, y: 17))
-            s.addCurve(to: CGPoint(x: 52, y: 51), control1: CGPoint(x: 29, y: 37), control2: CGPoint(x: 40, y: 47))
-            s.addCurve(to: CGPoint(x: 63, y: 75), control1: CGPoint(x: 64, y: 55), control2: CGPoint(x: 72, y: 66))
-            s.addCurve(to: CGPoint(x: 30, y: 69), control1: CGPoint(x: 54, y: 83), control2: CGPoint(x: 34, y: 79))
-            context.addPath(s)
-            context.setBlendMode(.clear)
-            context.setLineWidth(9)
-            context.setLineCap(.round)
-            context.strokePath()
+            // Whole cells only, or the edges blur
+            context.setShouldAntialias(false)
+            let dark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            for (row, cells) in (dark ? hireOnDark : hireOnLight).enumerated() {
+                for (column, cell) in cells.enumerated() where cell == "#" {
+                    context.fill(CGRect(x: 1 + column, y: 1 + row, width: 1, height: 1))
+                }
+            }
             return true
         }
         image.isTemplate = true

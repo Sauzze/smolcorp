@@ -48,7 +48,19 @@ func TestSettingsFromAnotherVersionStillLoad(t *testing.T) {
 	if len(config.Pins) != mostKeys || config.Pins[0] == nil || *config.Pins[0] != "/work/a" {
 		t.Errorf("pins are %v, want the saved one and %d pin slots", config.Pins, mostKeys)
 	}
-	if config.Logo != "sauzze" || config.Colours == nil {
+	if config.Logo != "smolcorp" || config.Colours == nil {
 		t.Errorf("logo %q and colours %v, want the defaults", config.Logo, config.Colours)
+	}
+}
+
+func TestTheOldMarkBecomesTheHire(t *testing.T) {
+	isolate(t)
+	writeFile(t, configFile, `{"logo": "sauzze"}`)
+	if logo := loadConfig().Logo; logo != "smolcorp" {
+		t.Errorf("a saved sauzze logo loads as %q, want smolcorp", logo)
+	}
+	writeFile(t, configFile, `{"logo": "keys"}`)
+	if logo := loadConfig().Logo; logo != "keys" {
+		t.Errorf("the six keys load as %q", logo)
 	}
 }

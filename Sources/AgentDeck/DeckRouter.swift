@@ -29,6 +29,11 @@ final class DeckRouter: Router {
         if request.path == "/icon.png" {
             return respond(.file(Config.shared.logo.icon))
         }
+        // A browser tab's icon, drawn for its size: the hire's head and shoulders, or the six keys
+        if request.path == "/favicon-16.png" || request.path == "/favicon-32.png" {
+            let logo = Config.shared.logo
+            return respond(.file(logo == .smolcorp ? Paths.web.appendingPathComponent(String(request.path.dropFirst())) : logo.icon))
+        }
 
         if request.path == "/setup" || request.path.hasPrefix("/setup/") {
             guard request.isLocal else { return respond(.status(404)) }
@@ -201,6 +206,34 @@ final class DeckRouter: Router {
             deck.refresh()
             respond(.json(setupState()))
 
+        // Every part is checked before any is kept, so a wrong one changes nothing.
+        case ("POST", "/setup/webhook"):
+            guard let given = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any] else {
+                return respond(.status(400, "That isn't a webhook this deck can use."))
+            }
+            var webhook = config.webhook
+            if let enabled = given["enabled"] as? Bool { webhook.enabled = enabled }
+            if let url = given["url"] as? String { webhook.url = url.trimmingCharacters(in: .whitespaces) }
+            if let secret = given["secret"] as? String { webhook.secret = secret }
+            if let outside = given["outside"] as? Bool { webhook.outside = outside }
+            if let events = given["events"] as? [String] { webhook.events = Webhook.allEvents.filter { events.contains($0) } }
+            if webhook.enabled, !webhook.url.isEmpty, let problem = Webhook.problem(with: webhook.url, outside: webhook.outside) {
+                return respond(.status(400, problem))
+            }
+            config.webhook = webhook
+            config.save()
+            respond(.json(setupState()))
+
+        case ("POST", "/setup/webhook/test"):
+            deck.testWebhook { [self] in respond(.json(setupState())) }
+
+        case ("POST", "/setup/music"):
+            config.musicEnabled = request.query["enabled"] == "1"
+            config.save()
+            deck.followMusic()
+            deck.refresh()
+            respond(.json(setupState()))
+
         // Every part is checked before any is kept, so a wrong one changes
         // nothing. An empty folder clears it.
         case ("POST", "/setup/hiring"):
@@ -295,6 +328,11 @@ final class DeckRouter: Router {
             "hiring": [
                 "enabled": config.hiringEnabled, "folder": config.hireFolder, "agent": config.hireAgent,
                 "canHire": true, "canChoose": true,
+            ],
+            "music": ["enabled": config.musicEnabled],
+            "webhook": [
+                "enabled": config.webhook.enabled, "url": config.webhook.url, "secret": config.webhook.secret,
+                "outside": config.webhook.outside, "events": config.webhook.events, "last": deck.webhookLast ?? NSNull(),
             ],
             "pairing": pairing,
             // Times in milliseconds, as the page's Date counts them.

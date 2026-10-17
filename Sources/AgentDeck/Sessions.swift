@@ -42,6 +42,9 @@ final class Session {
     /// When ☢ Max was last pressed for this session, in ms. Only the button
     /// sets it, never the dial, so the office knows which one was used.
     var maxPressedAt: Double?
+    /// Ended for /clear or /resume, when: the session waits for the one
+    /// taking its place in its tab. See `Sessions.endHandOns(now:)`.
+    var handingOnSince: Double?
     var compacting = false
     var turnStartedAt: Double?
     /// Why the last turn failed, as Claude Code names it: "rate_limit",
@@ -157,6 +160,12 @@ final class Sessions {
 
         if let end = endedAt[id], time <= end { return }
         if name == "SessionEnd" {
+            // Ended by /clear or /resume, a session waits a moment for the one
+            // taking its place in the same tab, which then keeps its key.
+            if let session = byID[id], !session.tty.isEmpty, Sessions.handedOn.contains(event["reason"] as? String ?? "") {
+                session.handingOnSince = time
+                return
+            }
             end(id, at: time)
             onChange()
             return
@@ -183,7 +192,7 @@ final class Sessions {
         }
         followModel(name, event, of: session)
         follow(name, event, in: session, at: time)
-        if let next = transition(for: name, event: event) {
+        if let next = transition(for: name, event: event, in: session) {
             session.state = next
             if next != .error { session.errorKind = "" }
         }
@@ -279,6 +288,10 @@ final class Sessions {
         // that started it.
         let isAgentsOwn = event["agent_id"] == nil
         switch name {
+        case "Notification" where event["notification_type"] as? String == "idle_prompt" && session.state == .thinking:
+            session.endTurn()
+        case "Notification" where event["notification_type"] as? String == "quota_auto_resume_fired":
+            if session.turnStartedAt == nil { session.turnStartedAt = time }
         case "UserPromptSubmit":
             session.turnStartedAt = time
             session.stoppedSubagents = []
@@ -354,7 +367,7 @@ final class Sessions {
     /// is kept for it.
     func wasDropped(_ id: String) -> Bool { dropped[id] != nil }
 
-    private func transition(for name: String, event: [String: Any]) -> SessionState? {
+    private func transition(for name: String, event: [String: Any], in session: Session) -> SessionState? {
         switch name {
         case "SessionStart":
             // A resume or compaction is the same conversation carrying on.
@@ -369,7 +382,13 @@ final class Sessions {
         case "PostToolUse", "PostToolUseFailure":
             return .thinking
         case "Notification":
-            return Sessions.isWaitingOnUser(event) ? .asking : nil
+            switch event["notification_type"] as? String {
+            // Waiting for a prompt a while after Esc, which no hook reports: the turn was over.
+            case "idle_prompt": return session.state == .thinking ? .idle : nil
+            // A usage limit has reset and the task carries on by itself.
+            case "quota_auto_resume_fired": return .thinking
+            default: return Sessions.isWaitingOnUser(event) ? .asking : nil
+            }
         case "Stop":
             return .unread
         case "StopFailure":
@@ -379,6 +398,19 @@ final class Sessions {
         default:
             return nil
         }
+    }
+
+    /// Why a session ends when another takes its place in the same tab.
+    private static let handedOn: Set<String> = ["clear", "resume"]
+    /// How long a session ended for /clear or /resume waits for the one taking its place, in ms.
+    private static let handOnWait: Double = 5000
+
+    /// Sessions ended for /clear or /resume that nothing has taken the place of in time: ended for good.
+    func endHandOns(now: Double) {
+        let gone = byID.values.filter { $0.handingOnSince.map { now - $0 > Sessions.handOnWait } ?? false }
+        guard !gone.isEmpty else { return }
+        for session in gone { end(session.id, at: now) }
+        onChange()
     }
 
     private static let waitingNotifications: Set<String> = [

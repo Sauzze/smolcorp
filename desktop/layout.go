@@ -3,6 +3,8 @@ package desktop
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
@@ -53,35 +55,43 @@ func (k *KeyCount) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Room is how the office is furnished: the microphone or a megaphone, what
+// Room is how the office is furnished: what's talked into, what
 // each of the back wall's five places holds, the floor, the walls' paint, the
 // lounge's carpet and the piece in its corner, whether the sky keeps the
 // computer's time or it's always day, its pet, whether the windows follow the
 // seasons, how loud it is, the desks' finish, what everyone works at (a desk,
-// a tent, a throne…) and the chairs' colour, how many of its own staff hang
-// about, your team, and the dress code, as the Mac app's
-// Room. office.js draws it, with the same choices. Anything unknown, or of the wrong kind, is
+// a tent, a throne…), the monitors and the chairs' colour, how many of its
+// own staff hang about, the style it's in (Yours, or one that furnishes it
+// for you), your team, the dress code, and where everything goes, as the Mac
+// app's Room. office.js draws it, with the same choices. Anything unknown, or of the wrong kind, is
 // as standard: it only changes how the room looks.
 type Room struct {
-	Mic       string   `json:"mic"`
-	Wall      []string `json:"wall"`
-	Floor     string   `json:"floor"`
-	Paint     string   `json:"paint"`
-	Lounge    string   `json:"lounge"`
-	Corner    string   `json:"corner"`
-	Sky       string   `json:"sky"`
-	Pet       string   `json:"pet"`
-	Season    string   `json:"season"`
-	Sound     string   `json:"sound"`
-	Desk      string   `json:"desk"`
-	Workspace string   `json:"workspace"`
-	Chair     string   `json:"chair"`
-	Staff     string   `json:"staff"`
+	Mic    string   `json:"mic"`
+	Wall   []string `json:"wall"`
+	Floor  string   `json:"floor"`
+	Paint  string   `json:"paint"`
+	Lounge string   `json:"lounge"`
+	// LoungePaint is the lounge's wall: "auto", as the office's walls, or a
+	// paint of its own.
+	LoungePaint string `json:"loungePaint"`
+	Corner      string `json:"corner"`
+	Sky         string `json:"sky"`
+	Pet         string `json:"pet"`
+	Season      string `json:"season"`
+	Sound       string `json:"sound"`
+	Desk        string `json:"desk"`
+	Workspace   string `json:"workspace"`
+	Monitor     string `json:"monitor"`
+	Chair       string `json:"chair"`
+	Staff       string `json:"staff"`
+	Preset      string `json:"preset"`
 	// How each project's agent looks, by the project's name.
 	Team map[string]TeamMember `json:"team"`
 	// What agents wear by their model's size and by agent. After the team, so
 	// it's written in the same place as the Mac app's Room has it.
 	Dress Dress `json:"dress"`
+	// Where each piece of the room is, as arranged on the setup page.
+	Plan Plan `json:"plan"`
 }
 
 // TeamMember is how one project's agent looks in the office: skin, hair, a
@@ -110,22 +120,41 @@ const (
 
 // Each part of a team member's choices; the first is the standard one.
 var teamChoices = map[string][]string{
-	"skin": {"auto", "porcelain", "fair", "light", "tan", "olive", "brown", "deep", "ebony"},
+	"skin": {"auto", "porcelain", "fair", "light", "tan", "olive", "brown", "deep", "ebony", "cream"},
 	"hair": {"auto", "black", "espresso", "brown", "chestnut", "auburn", "ginger", "blond", "platinum", "grey", "white",
-		"pink", "blue", "green", "purple"},
+		"pink", "blue", "green", "purple", "orange"},
 	"hairstyle": {"auto", "short", "long", "spiky", "bun", "curly", "ponytail", "afro", "mohawk", "buzz", "bald"},
 	"extra":     {"none", "glasses", "sunglasses", "headphones", "cap", "beanie", "beard", "moustache", "bow"},
 	"outfit": {"auto", "tee", "hoodie", "collar", "sweater", "jacket", "suit", "labcoat", "polo", "cardigan", "hawaiian",
-		"tracksuit", "overalls", "waistcoat"},
-	"colour":    {"auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"},
-	"desk":      {"auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug", "none"},
+		"tracksuit", "overalls", "waistcoat",
+		// A style's own, and each model family's
+		"astronaut", "flightsuit", "pirate", "captain", "parka", "explorer", "robe", "knight", "wizard", "gamer",
+		"founder", "gymkit", "safari", "flannel", "hire", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
+		"deepseek", "kimi", "glm", "phi"},
+	"colour": {"auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"},
+	"desk": {"auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug",
+		"helmet", "rocket", "terrarium", "quill", "candelabra", "goblet", "rum", "compass", "skull", "snowglobe", "thermos", "penguin",
+		"potions", "egg", "spellbook", "controller", "energy", "headset", "circuit", "pizza", "coffeepot", "dumbbell", "shaker", "kettlebell",
+		"coconut", "pineapple", "tikimug", "enamel", "lantern", "pinecone", "none"},
 	"workspace": append([]string{"auto"}, workspaces...),
 }
 
 // What an agent can work at: the office's choice for everyone, the first
 // being standard, and a team member's own, which can also be "auto".
+var (
+	floors = []string{"wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest",
+		"rubber", "epoxy", "arcade"}
+	paints = []string{"slate", "sage", "clay", "cream", "hull", "timber", "damask", "stone", "ice", "logs", "brick", "bamboo",
+		"block", "foam"}
+)
+
+// roomStyles are the office's styles: Yours, as you furnished it, then each that
+// furnishes it for you. office.js keeps what each one is.
+var roomStyles = []string{"yours", "classic", "campsite", "royal", "space", "pirates", "arctic", "lair", "gamers", "garage", "gym",
+	"jungle"}
+
 var workspaces = []string{"desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
-	"greenhouse"}
+	"greenhouse", "console", "hover", "chest", "gilded", "crates", "altar", "log", "bench", "bamboo", "rack", "drafting", "glass"}
 
 // checked is the member with anything unknown as standard, and the nickname
 // on one line, cut to its limit.
@@ -264,23 +293,30 @@ func (a Attire) checked() Attire {
 var (
 	// Each part's choices; the first is the standard one.
 	roomChoices = map[string][]string{
-		"mic":    {"mic", "megaphone"},
-		"floor":  {"wood", "tiles", "concrete", "carpet"},
-		"paint":  {"slate", "sage", "clay", "cream"},
-		"lounge": {"navy", "teal", "plum", "sand"},
+		"mic":   {"mic", "megaphone", "studio", "podcast", "karaoke", "headset", "walkie", "tincan", "radio"},
+		"floor": floors,
+		"paint": paints,
+		// The lounge's carpets, or any of the office's floors
+		"lounge":      append([]string{"navy", "teal", "plum", "sand"}, floors...),
+		"loungePaint": append([]string{"auto"}, paints...),
 		"corner": {"arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
 			"telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub", "ballpit",
-			"campfire", "none"},
+			"campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth", "none"},
 		"sky":       {"live", "day"},
 		"pet":       {"none", "cat", "dog", "lizard", "monkey"},
 		"season":    {"calendar", "off"},
 		"sound":     {"off", "quiet", "normal"},
 		"desk":      {"wood", "walnut", "white", "black"},
 		"workspace": workspaces,
+		"monitor":   {"standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet", "portrait"},
 		"chair":     {"teal", "black", "red", "grey", "green"},
 		"staff":     {"some", "none", "many"},
+		"preset":    roomStyles,
 	}
-	wallChoices  = []string{"window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare"}
+	wallChoices = []string{"window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare",
+		"viewport", "porthole", "panel", "pipes", "seaPorthole", "map", "flag", "cutlasses", "tapestry", "portrait", "stained", "shield",
+		"frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex", "pegboard", "roller", "bike", "mirror", "timer", "climbing",
+		"vines", "tiki", "blind", "cabin", "trail", "paddles"}
 	standardWall = []string{"window", "whiteboard", "window", "pinboard", "window"}
 )
 
@@ -295,9 +331,11 @@ func (r *Room) UnmarshalJSON(data []byte) error {
 	}
 	var wall []json.RawMessage
 	json.Unmarshal(raw["wall"], &wall)
-	*r = Room{Mic: text(raw["mic"]), Floor: text(raw["floor"]), Paint: text(raw["paint"]), Lounge: text(raw["lounge"]),
+	*r = Room{Mic: text(raw["mic"]), Floor: text(raw["floor"]), Paint: text(raw["paint"]), Lounge: text(raw["lounge"]), LoungePaint: text(raw["loungePaint"]),
 		Corner: text(raw["corner"]), Sky: text(raw["sky"]), Pet: text(raw["pet"]), Season: text(raw["season"]), Sound: text(raw["sound"]),
-		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Chair: text(raw["chair"]), Staff: text(raw["staff"])}
+		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Monitor: text(raw["monitor"]), Chair: text(raw["chair"]),
+		Staff:  text(raw["staff"]),
+		Preset: text(raw["preset"])}
 	for _, place := range wall {
 		r.Wall = append(r.Wall, text(place))
 	}
@@ -312,6 +350,7 @@ func (r *Room) UnmarshalJSON(data []byte) error {
 			Workspace: text(parts["workspace"]), Name: text(parts["name"])}
 	}
 	json.Unmarshal(raw["dress"], &r.Dress)
+	json.Unmarshal(raw["plan"], &r.Plan)
 	*r = r.checked()
 	return nil
 }
@@ -332,10 +371,12 @@ func (r Room) checked() Room {
 		return roomChoices[part][0]
 	}
 	checked := Room{Mic: choose("mic", r.Mic), Floor: choose("floor", r.Floor), Paint: choose("paint", r.Paint),
-		Lounge: choose("lounge", r.Lounge), Corner: choose("corner", r.Corner), Sky: choose("sky", r.Sky),
+		Lounge: choose("lounge", r.Lounge), LoungePaint: choose("loungePaint", r.LoungePaint), Corner: choose("corner", r.Corner), Sky: choose("sky", r.Sky),
 		Pet: choose("pet", r.Pet), Season: choose("season", r.Season), Sound: choose("sound", r.Sound),
-		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Chair: choose("chair", r.Chair),
-		Staff: choose("staff", r.Staff), Wall: slices.Clone(standardWall), Dress: r.Dress.checked()}
+		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Monitor: choose("monitor", r.Monitor),
+		Chair: choose("chair", r.Chair),
+		Staff: choose("staff", r.Staff), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked(),
+		Plan: r.Plan.checked()}
 	for i := range checked.Wall {
 		if i < len(r.Wall) && slices.Contains(wallChoices, r.Wall[i]) {
 			checked.Wall[i] = r.Wall[i]
@@ -504,4 +545,253 @@ func (l Layout) sameAs(other Layout) bool {
 	a, _ := json.Marshal(l)
 	b, _ := json.Marshal(other)
 	return string(a) == string(b)
+}
+
+// Plan is the room arranged your way, from the setup page's editor: for each
+// shape of the room, wide and tall, the pieces moved from where they stand,
+// made bigger, or put away, and the pieces added to the lounge, as the Mac
+// app's Plan. office.js draws it, with the same pieces and sizes. Anything
+// unknown is left out, so the piece stands as it comes.
+type Plan struct {
+	Wide  map[string]Piece `json:"wide"`
+	Tall  map[string]Piece `json:"tall"`
+	Added Added            `json:"added"`
+	Hung  Hung             `json:"hung"`
+}
+
+// Hung is what hangs on the back wall, for each shape of the room: each piece
+// round its middle, where you put it. nil keeps the wall's five places, as set
+// up; an empty list is a bare wall.
+type Hung struct {
+	Wide *[]HungPiece `json:"wide,omitempty"`
+	Tall *[]HungPiece `json:"tall,omitempty"`
+}
+
+// HungPiece is one piece on the back wall, X being its middle.
+type HungPiece struct {
+	Kind string `json:"kind"`
+	X    int    `json:"x"`
+}
+
+const (
+	// hungMost is the most pieces the back wall holds, in each shape.
+	hungMost = 12
+	// wallLength is how far along the wall a piece can be: the wide room's width.
+	wallLength = 320
+	// wallMiddle is where a piece goes on the wall when it doesn't say.
+	wallMiddle = 110
+)
+
+// Added is the pieces added to the lounge, for each shape of the room: any
+// its corner can hold, the same one more than once, each moved from where the
+// corner's piece stands, and grown.
+type Added struct {
+	Wide []AddedPiece `json:"wide"`
+	Tall []AddedPiece `json:"tall"`
+}
+
+// AddedPiece is one piece added to the lounge.
+type AddedPiece struct {
+	Kind string  `json:"kind"`
+	X    int     `json:"x"`
+	Y    int     `json:"y"`
+	Size float64 `json:"size"`
+}
+
+// addedMost is the most pieces that can be added to the lounge, in each shape.
+const addedMost = 12
+
+// Piece is how one piece is arranged: moved by X and Y, in the room's pixels,
+// grown to Size, or put away.
+type Piece struct {
+	X    int     `json:"x"`
+	Y    int     `json:"y"`
+	Size float64 `json:"size"`
+	Off  bool    `json:"off"`
+	// A desk's own look, whoever sits at it: its workspace, monitor,
+	// finish, chair and thing, unless their project has its own workspace
+	// or thing; "auto" for each otherwise, and on what isn't a desk.
+	Workspace string `json:"workspace"`
+	Monitor   string `json:"monitor"`
+	Finish    string `json:"finish"`
+	Chair     string `json:"chair"`
+	Thing     string `json:"thing"`
+}
+
+var (
+	// What can be arranged: each desk, which moves and can be put away, and
+	// the lounge's pieces, which can grow, and be put away but for the red
+	// button and the mic, which are controls.
+	arrangeable = func() map[string]struct{ grows, hides bool } {
+		pieces := map[string]struct{ grows, hides bool }{}
+		for i := 1; i <= 9; i++ {
+			pieces[fmt.Sprintf("desk%d", i)] = struct{ grows, hides bool }{false, true}
+		}
+		for _, part := range []string{"wall", "corner", "couch", "pong", "plant"} {
+			pieces[part] = struct{ grows, hides bool }{true, true}
+		}
+		for _, part := range []string{"button", "mic"} {
+			pieces[part] = struct{ grows, hides bool }{true, false}
+		}
+		return pieces
+	}()
+	pieceSizes = []float64{1, 1.5, 2}
+)
+
+// pieceReach is how far a piece can be moved, either way, in the room's pixels.
+const pieceReach = 400
+
+// UnmarshalJSON keeps what it knows of the arrangement it's given, each piece,
+// and each part of one, read on its own.
+func (p *Plan) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	json.Unmarshal(data, &raw)
+	arranged := func(data json.RawMessage) map[string]Piece {
+		var given map[string]json.RawMessage
+		json.Unmarshal(data, &given)
+		pieces := map[string]Piece{}
+		for part, fields := range given {
+			var parts map[string]json.RawMessage
+			if _, ok := arrangeable[part]; !ok || json.Unmarshal(fields, &parts) != nil || parts == nil {
+				continue
+			}
+			number := func(name string) float64 {
+				var n float64
+				json.Unmarshal(parts[name], &n)
+				return n
+			}
+			var off bool
+			json.Unmarshal(parts["off"], &off)
+			text := func(name string) string {
+				var given string
+				json.Unmarshal(parts[name], &given)
+				return given
+			}
+			pieces[part] = Piece{X: wholeWithin(number("x"), pieceReach), Y: wholeWithin(number("y"), pieceReach), Size: number("size"), Off: off,
+				Workspace: text("workspace"), Monitor: text("monitor"), Finish: text("finish"), Chair: text("chair"), Thing: text("thing")}
+		}
+		return pieces
+	}
+	var added map[string]json.RawMessage
+	json.Unmarshal(raw["added"], &added)
+	pieces := func(data json.RawMessage) []AddedPiece {
+		var given []json.RawMessage
+		json.Unmarshal(data, &given)
+		list := []AddedPiece{}
+		for _, one := range given {
+			var parts map[string]json.RawMessage
+			if json.Unmarshal(one, &parts) != nil || parts == nil {
+				continue
+			}
+			var kind string
+			json.Unmarshal(parts["kind"], &kind)
+			number := func(name string) float64 {
+				var n float64
+				json.Unmarshal(parts[name], &n)
+				return n
+			}
+			list = append(list, AddedPiece{Kind: kind, X: wholeWithin(number("x"), pieceReach), Y: wholeWithin(number("y"), pieceReach), Size: number("size")})
+		}
+		return list
+	}
+	var hung map[string]json.RawMessage
+	json.Unmarshal(raw["hung"], &hung)
+	// A list for a wall as hung, or nil, for its five places, when there isn't one
+	wall := func(data json.RawMessage) *[]HungPiece {
+		var given []json.RawMessage
+		if json.Unmarshal(data, &given) != nil || given == nil {
+			return nil
+		}
+		list := []HungPiece{}
+		for _, one := range given {
+			var parts map[string]json.RawMessage
+			if json.Unmarshal(one, &parts) != nil || parts == nil {
+				continue
+			}
+			var kind string
+			json.Unmarshal(parts["kind"], &kind)
+			x := float64(wallMiddle)
+			json.Unmarshal(parts["x"], &x)
+			list = append(list, HungPiece{Kind: kind, X: wholeWithin(x, wallLength)})
+		}
+		return &list
+	}
+	*p = Plan{Wide: arranged(raw["wide"]), Tall: arranged(raw["tall"]), Added: Added{Wide: pieces(added["wide"]), Tall: pieces(added["tall"])},
+		Hung: Hung{Wide: wall(hung["wide"]), Tall: wall(hung["tall"])}}
+	return nil
+}
+
+// wholeWithin is n as a whole number no further than reach either side of 0:
+// clamped before it's made whole, as converting a number beyond an int's range
+// gives a different answer on each processor.
+func wholeWithin(n float64, reach int) int {
+	if math.IsNaN(n) {
+		return 0
+	}
+	return int(math.Round(max(-float64(reach), min(float64(reach), n))))
+}
+
+// checked is the arrangement with every piece within reach, at a size it can
+// be, and put away only if it can be.
+func (p Plan) checked() Plan {
+	pieces := func(given map[string]Piece) map[string]Piece {
+		checked := map[string]Piece{}
+		for part, piece := range given {
+			kind, ok := arrangeable[part]
+			if !ok {
+				continue
+			}
+			piece.X = max(-pieceReach, min(pieceReach, piece.X))
+			piece.Y = max(-pieceReach, min(pieceReach, piece.Y))
+			if !kind.grows || !slices.Contains(pieceSizes, piece.Size) {
+				piece.Size = 1
+			}
+			piece.Off = piece.Off && kind.hides
+			desk := strings.HasPrefix(part, "desk")
+			own := func(given string, choices []string) string {
+				if desk && given != "auto" && slices.Contains(choices, given) {
+					return given
+				}
+				return "auto"
+			}
+			piece.Workspace = own(piece.Workspace, workspaces)
+			piece.Monitor = own(piece.Monitor, roomChoices["monitor"])
+			piece.Finish = own(piece.Finish, roomChoices["desk"])
+			piece.Chair = own(piece.Chair, roomChoices["chair"])
+			piece.Thing = own(piece.Thing, teamChoices["desk"])
+			checked[part] = piece
+		}
+		return checked
+	}
+	added := func(given []AddedPiece) []AddedPiece {
+		checked := []AddedPiece{}
+		for _, piece := range given {
+			if piece.Kind == "none" || !slices.Contains(roomChoices["corner"], piece.Kind) || len(checked) == addedMost {
+				continue
+			}
+			piece.X = max(-pieceReach, min(pieceReach, piece.X))
+			piece.Y = max(-pieceReach, min(pieceReach, piece.Y))
+			if !slices.Contains(pieceSizes, piece.Size) {
+				piece.Size = 1
+			}
+			checked = append(checked, piece)
+		}
+		return checked
+	}
+	hung := func(given *[]HungPiece) *[]HungPiece {
+		if given == nil {
+			return nil
+		}
+		checked := []HungPiece{}
+		for _, piece := range *given {
+			if piece.Kind == "bare" || !slices.Contains(wallChoices, piece.Kind) || len(checked) == hungMost {
+				continue
+			}
+			piece.X = max(0, min(wallLength, piece.X))
+			checked = append(checked, piece)
+		}
+		return &checked
+	}
+	return Plan{Wide: pieces(p.Wide), Tall: pieces(p.Tall), Added: Added{Wide: added(p.Added.Wide), Tall: added(p.Added.Tall)},
+		Hung: Hung{Wide: hung(p.Hung.Wide), Tall: hung(p.Hung.Tall)}}
 }

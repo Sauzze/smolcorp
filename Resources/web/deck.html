@@ -6,11 +6,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="SauzzeDeck Pro">
+<meta name="apple-mobile-web-app-title" content="Smolcorp">
 <meta name="theme-color" content="#0e0e0e">
 <link rel="apple-touch-icon" href="/icon.png">
-<link rel="icon" href="/icon.png">
-<title>SauzzeDeck Pro</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<title>Smolcorp</title>
 <style>
   :root {
     --body: #0e0e0e;
@@ -25,76 +26,31 @@
     --asking: #ff8a1f;
     --unread: #22c55e;
     --error: #ef4444;
-    --gap: 12px;
-    /* Derived, so a custom theme reaches everything. */
+    /* Derived from the colours above. */
     --shadow: color-mix(in srgb, var(--body) 50%, #000);
     --sheen: color-mix(in srgb, var(--ink) 4%, transparent);
-    --well: color-mix(in srgb, var(--body) 70%, #000);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  /* Nothing moves but the room: no bounce, no zoom, no text to select. */
   html, body { margin: 0; height: 100%; background: var(--body); color: var(--ink);
     font: 500 14px/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
-    touch-action: manipulation; overflow: hidden; }
+    touch-action: none; overflow: hidden; overscroll-behavior: none; }
 
-  /* Pinned to the screen's edges rather than sized by height: on an iPhone
-     Home Screen app, percentage and viewport heights can stop short of the
-     bottom and leave the deck sitting high. */
-  .deck { position: fixed; inset: 0; display: flex; flex-direction: column; gap: var(--gap);
-    padding: calc(env(safe-area-inset-top) + 28px) calc(env(safe-area-inset-right) + 16px)
-             calc(env(safe-area-inset-bottom) + 16px) calc(env(safe-area-inset-left) + 16px); }
-
-  /* ------------------------------------------------------------- keycaps */
-  .cap { background: linear-gradient(var(--cap-top), var(--cap)); border: 1px solid var(--edge);
-    border-radius: 16px; box-shadow: 0 3px 0 var(--shadow), inset 0 1px 0 var(--sheen);
-    transition: transform .06s, box-shadow .06s; position: relative; }
-  .cap.pressed { transform: translateY(2px); box-shadow: 0 1px 0 var(--shadow), inset 0 1px 0 var(--sheen); }
-  .cap.off { opacity: .35; pointer-events: none; }
-
-  /* --------------------------------------------------------- session keys */
-  /* The keys always take the same part of the screen, however many there
-     are, so the controls under them never change size. Rows share the keys
-     out evenly, shorter rows first, and a row's keys span its whole width,
-     on a grid of six columns: one key fills the space, two stack, three are
-     one over two, up to a 3×3 of nine, and no cell is ever left empty.
-     What's written on a key grows with it. */
-  .view { position: relative; height: 44dvh; flex: none; min-height: 0; }
-  .keys { display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: repeat(var(--rows, 2), 1fr);
-    gap: var(--gap); height: 100%; }
-  .key { grid-column: span var(--span, 2); min-width: 0; min-height: 0; display: flex; flex-direction: column;
-    justify-content: space-between; padding: 11px 12px; container-type: inline-size; }
-  .key .row { display: flex; justify-content: space-between; align-items: center; }
-  .key .slot { font-size: clamp(11px, 7cqi, 18px); color: var(--dim); font-variant-numeric: tabular-nums; }
-  .key .light { width: clamp(12px, 8cqi, 22px); height: clamp(12px, 8cqi, 22px); border-radius: 50%; background: var(--faint); }
-  .key .name { font-size: clamp(13px, 11cqi, 30px); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .key .effort { font-size: clamp(10px, 6.5cqi, 16px); color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin-top: 3px; min-height: 12px; }
-  .key.empty .name { color: var(--faint); font-weight: 500; }
-  .key.pinned .name { color: var(--dim); font-weight: 600; }
-  .key.pinned { border-style: dashed; }
-
-  .key[data-state] .light { background: var(--c); box-shadow: 0 0 10px var(--c), 0 0 2px var(--c); }
-  .key[data-state]:not([data-state="idle"]) { border-color: color-mix(in srgb, var(--c) 50%, var(--edge));
-    background: linear-gradient(color-mix(in srgb, var(--c) 14%, var(--cap-top)), color-mix(in srgb, var(--c) 8%, var(--cap))); }
-  .key[data-state="idle"]     { --c: var(--idle); }
-  .key[data-state="thinking"] { --c: var(--thinking); animation: pulse 1.6s ease-in-out infinite; }
-  .key[data-state="asking"]   { --c: var(--asking); animation: blink 1s steps(2, jump-none) infinite; }
-  .key[data-state="unread"]   { --c: var(--unread); }
-  .key[data-state="error"]    { --c: var(--error); }
-  .key.selected { outline: 2px solid var(--ink); outline-offset: 3px; }
-
-  /* The office in place of the keys: the same sessions, as people at desks. */
+  /* The office, filling the screen. Pinned to its edges rather than sized by
+     height: on an iPhone Home Screen app, percentage and viewport heights
+     can stop short of the bottom. Held clear of the notch, the rounded
+     corners and the home indicator, where nothing could be tapped. */
+  .deck { position: fixed; inset: 0; display: flex;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .view { position: relative; flex: 1; min-width: 0; min-height: 0; }
   /* The canvas is laid over the space, not sized by it: its own pixels would
      otherwise feed back into its size. */
-  .office { position: relative; height: 100%; touch-action: none; }
+  .office { position: absolute; inset: 0; touch-action: none; }
   .office canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .keys[hidden], .office[hidden], .away[hidden] { display: none; }
+  .away[hidden] { display: none; }
   /* The video that keeps the screen on: playing, but out of sight. */
   .awake { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-  /* Keys or office, flipped on this phone like the stick's legend. */
-  .view-switch { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); display: flex; gap: 14px;
-    padding: 6px 12px; background: none; border: 0; font-family: inherit; font-size: 10px; font-weight: 700; line-height: 1;
-    letter-spacing: .14em; color: var(--faint); }
-  .view-switch .on { color: var(--dim); }
   /* /office on the computer, where the browser can: the room in a window of
      its own, kept on top of the others. The page says where it went. */
   .pop-out { position: absolute; top: 8px; right: 8px; padding: 6px 8px; background: none; border: 0; cursor: pointer;
@@ -102,110 +58,10 @@
   .pop-out:hover { color: var(--ink); }
   .away { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 16px; color: var(--dim); font-size: 15px; text-align: center; }
-  .away button { padding: 12px 20px; color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
-  /* The phone's office alone, full screen: asked for above the room, at the
-     legend's height, and left from the screen's corner. */
-  .full-switch { position: absolute; bottom: 100%; right: -6px; padding: 4px 6px; background: none; border: 0;
-    line-height: 0; color: var(--faint); }
-  .full-switch svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.2;
-    stroke-linecap: round; stroke-linejoin: round; }
-  .full-switch .shrink, .full .full-switch .grow { display: none; }
-  .full .full-switch .shrink { display: inline; }
-  .full .full-switch { position: fixed; bottom: auto; top: calc(env(safe-area-inset-top) + 4px);
-    right: calc(env(safe-area-inset-right) + 4px); padding: 12px; color: var(--dim); }
+  .away button { padding: 12px 20px; color: var(--ink); font: inherit; font-size: 14px; cursor: pointer;
+    background: linear-gradient(var(--cap-top), var(--cap)); border: 1px solid var(--edge); border-radius: 16px;
+    box-shadow: 0 3px 0 var(--shadow), inset 0 1px 0 var(--sheen); }
 
-  @keyframes pulse { 50% { background: linear-gradient(color-mix(in srgb, var(--c) 30%, var(--cap-top)), color-mix(in srgb, var(--c) 20%, var(--cap))); } }
-  @keyframes blink { 50% { background: linear-gradient(color-mix(in srgb, var(--c) 38%, var(--cap-top)), color-mix(in srgb, var(--c) 28%, var(--cap))); } }
-
-  /* ------------------------------------------------------------- controls */
-  .controls { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--gap); }
-  .target { font-size: 12px; color: var(--dim); display: flex; justify-content: space-between; padding: 0 2px; }
-  .target b { color: var(--ink); font-weight: 600; }
-
-  .analog { flex: 1; min-height: 140px; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr); gap: var(--gap); }
-  .analog.single { grid-template-columns: 1fr; }
-  .analog[hidden], .dial[hidden], .stick[hidden] { display: none; }
-
-  /* The dial: a knob in a well, five detents round a 270° sweep. */
-  /* One cell the knob fits inside, however wide or short the dial gets. */
-  .dial { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; min-height: 0; touch-action: none; padding: 6px; }
-  .dial svg { width: 100%; height: 100%; max-height: 220px; overflow: visible; }
-  .dial .tick { stroke: var(--faint); stroke-width: 3; stroke-linecap: round; }
-  .dial .tick.on { stroke: var(--ink); }
-  .dial .lbl { fill: var(--dim); font-size: 13px; font-weight: 600; text-anchor: middle; dominant-baseline: middle; letter-spacing: .04em; }
-  .dial .lbl.on { fill: var(--ink); }
-  .dial .knob { transition: transform .18s cubic-bezier(.3,1.4,.6,1); transform-origin: 100px 100px; }
-  .dial .pointer { stroke: var(--ink); stroke-width: 4; stroke-linecap: round; }
-  .dial.unknown .pointer { stroke: var(--faint); }
-
-  /* The stick: a mouse's scroll wheel, or a well with a nub for choices; its
-     legend says which. */
-  .stick { touch-action: none; overflow: hidden; display: grid; place-items: center;
-    background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--cap) 70%, var(--body)), var(--body) 70%); }
-  .stick .cross { position: absolute; inset: 30px 18px 18px; border: 1px dashed var(--faint); border-radius: 10px; }
-  .stick .nub { width: 44px; height: 44px; border-radius: 50%; z-index: 1;
-    background: linear-gradient(color-mix(in srgb, var(--cap-top) 75%, var(--ink)), var(--cap-top));
-    border: 1px solid var(--edge); box-shadow: 0 3px 8px var(--shadow);
-    transition: transform .18s cubic-bezier(.3,1.4,.6,1); }
-  /* Seen from above, sunk in its slot: shaded towards both ends, where it
-     curves away, with ridges that roll with the finger. */
-  .stick .wheel { width: 44px; height: min(64%, 150px); border-radius: 22px; z-index: 1;
-    border: 1px solid var(--edge); box-shadow: 0 0 0 6px var(--well), 0 0 0 7px var(--edge);
-    background:
-      linear-gradient(var(--well), transparent 30%, transparent 70%, var(--well)),
-      repeating-linear-gradient(color-mix(in srgb, var(--cap-top) 80%, var(--ink)) 0 5px, var(--cap) 5px 9px);
-    background-position: 0 0, 0 var(--roll, 0px); }
-  .stick:not(.choices) .nub, .stick:not(.choices) .cross, .stick.choices .wheel { display: none; }
-  .stick.unavailable .wheel { opacity: .35; }
-  .stick.unavailable .mode { color: var(--faint); }
-  .stick .mode { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); padding: 6px 12px;
-    font-size: 10px; letter-spacing: .14em; color: var(--dim); font-weight: 700; z-index: 2; white-space: nowrap; }
-  .stick.pressed .nub { transition: none; }
-  .stick.pressed { transform: none; box-shadow: 0 3px 0 var(--shadow), inset 0 1px 0 var(--sheen); }
-  .stick.choices .mode { color: var(--asking); }
-  .stick .arrows { position: absolute; inset: 0; pointer-events: none; color: var(--faint); font-size: 12px; }
-  .stick .arrows span { position: absolute; }
-  .stick .arrows .u { top: 36px; left: 50%; transform: translateX(-50%); }
-  .stick .arrows .d { bottom: 12px; left: 50%; transform: translateX(-50%); }
-  .stick.choices .arrows { color: var(--asking); }
-
-  /* Rows of buttons as set up on the computer: each row tall or short, its
-     buttons sharing its width by their weight. Without the dial and stick,
-     they sit at the bottom, under your thumb. */
-  .buttons { display: flex; flex-direction: column; gap: var(--gap); flex: none; margin-top: auto; }
-  .buttons .line { display: flex; gap: var(--gap); }
-  .btn { flex: var(--weight, 1) 1 0; min-width: 0; height: 64px; display: grid; place-items: center;
-    font-size: 15px; font-weight: 600; color: var(--ink); }
-  .line.short .btn { height: 48px; }
-  .btn.text { padding: 0 8px; font: 500 13px ui-monospace, "SF Mono", Menlo, monospace;
-    color: color-mix(in srgb, var(--ink) 75%, var(--body)); }
-  .btn.text span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .btn svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 2.4;
-    stroke-linecap: round; stroke-linejoin: round; }
-  .btn.accept.live { color: var(--unread); border-color: color-mix(in srgb, var(--unread) 50%, var(--edge)); }
-  .btn.reject.live { color: var(--error); border-color: color-mix(in srgb, var(--error) 50%, var(--edge)); }
-  .btn.accept:not(.live), .btn.reject:not(.live) { color: var(--faint); }
-  .btn.mic.pressed { color: var(--error); border-color: var(--error);
-    box-shadow: 0 1px 0 var(--shadow), 0 0 18px color-mix(in srgb, var(--error) 45%, transparent); }
-
-  .btn.armed { color: var(--error); border-color: var(--error); }
-
-  /* ☢ Max: a red dome on a plate of hazard stripes. */
-  .btn.max { background: repeating-linear-gradient(-45deg, #f2c200 0 7px, #1a1a1a 7px 14px); border-color: #f2c200; }
-  .btn.max .dome { height: 80%; aspect-ratio: 1; border-radius: 50%; display: grid; place-content: center; justify-items: center; gap: 1px;
-    color: #fff; font: 800 9px/1 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: .1em;
-    background: radial-gradient(circle at 35% 30%, #ff7a6b, #d4140b 55%, #7d0602);
-    box-shadow: 0 0 0 4px #141414, 0 4px 0 4px #0a0a0a, inset 0 -4px 8px rgba(0, 0, 0, .45), inset 0 3px 6px rgba(255, 255, 255, .35);
-    transition: transform .06s; }
-  .btn.max .dome svg { width: 18px; height: 18px; fill: #fff; stroke: none; }
-  .btn.max.pressed .dome { transform: translateY(3px); }
-
-  /* Effort steps: the dial's five levels as a row to tap, the current one lit. */
-  .btn.efforts { display: flex; gap: 4px; padding: 4px; }
-  .btn.efforts .step { flex: 1; align-self: stretch; display: grid; place-items: center; border-radius: 11px;
-    font: 600 12px ui-monospace, "SF Mono", Menlo, monospace; color: var(--dim); }
-  .btn.efforts .step.on { color: var(--ink); background: var(--cap-top); box-shadow: inset 0 0 0 1.5px var(--ink); }
-  .btn.efforts .step.pressed { background: color-mix(in srgb, var(--ink) 14%, var(--cap)); }
   /* Off screen, not display:none — a hidden switch gives no haptic. */
   #haptic { position: fixed; left: -100px; top: 0; opacity: 0; pointer-events: none; }
 
@@ -215,118 +71,35 @@
   .install[hidden] { display: none; }
   .install button { margin-left: auto; background: none; border: 0; color: var(--dim); font: inherit; padding: 0 0 0 8px; }
 
-  .status { font-size: 11px; color: var(--dim); text-align: center; min-height: 13px; flex: none; }
+  /* What the status line has to say floats over the room, and only while it says it. */
+  .status { position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 12px); z-index: 5;
+    font-size: 13px; color: var(--dim); text-align: center; pointer-events: none; }
   .status.off { color: var(--error); }
   .status.flash { color: var(--ink); }
-
-  /* /office, and the phone's office full screen: the office alone, filling
-     the screen. What the status line has to say floats over it, and only
-     while it says it. */
-  .whole .deck, .full .deck { display: flex;
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-  .whole .view, .full .view { flex: 1; height: auto; }
-  .whole .controls, .whole .view-switch, .full .controls, .full .view-switch, .full .install { display: none; }
-  .whole .status, .full .status { position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 12px); font-size: 13px; }
-  .whole .status:not(.flash):not(.off), .full .status:not(.flash):not(.off) { visibility: hidden; }
-
-  /* Sideways: keys on the left, everything else on the right. */
-  @media (orientation: landscape) {
-    .deck { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr auto; column-gap: 20px;
-      padding-top: calc(env(safe-area-inset-top) + 24px); }
-    .view { height: 100%; }
-    .controls { grid-row: 1; grid-column: 2; }
-    .status { grid-column: 1 / -1; }
-    .analog { min-height: 0; }
-    .btn { height: 48px; }
-    .line.short .btn { height: 40px; }
-  }
+  .status:not(.flash):not(.off) { visibility: hidden; }
 </style>
 </head>
 <body>
 <main class="deck">
   <div class="view">
-    <button class="view-switch" id="view-switch" aria-label="Switch between keys and office"><span>KEYS</span><span>OFFICE</span></button>
-    <section class="keys" id="keys"></section>
-    <section class="office" id="office" hidden>
+    <section class="office" id="office">
       <canvas id="office-canvas"></canvas>
-      <button class="full-switch" id="full-switch" aria-label="Full screen" hidden><svg viewBox="0 0 24 24"><path class="grow" d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><path class="shrink" d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/></svg></button>
       <button class="pop-out" id="pop-out" title="Keep the office on top of your other windows" hidden>POP OUT</button>
-      <div class="away" id="away" hidden>The office is in its own window.<button class="cap" id="bring-back">Bring it back</button></div>
+      <div class="away" id="away" hidden>The office is in its own window.<button id="bring-back">Bring it back</button></div>
     </section>
   </div>
-
-  <section class="controls">
-    <div class="target"><span id="target">no session selected</span><span id="target-state"></span></div>
-
-    <div class="analog" id="analog">
-      <div class="cap dial" id="dial" data-control="dial">
-        <svg viewBox="0 0 200 200" aria-label="Thinking effort">
-          <g id="dial-ticks"></g>
-          <circle cx="100" cy="100" r="58" style="fill: var(--well)"/>
-          <g class="knob" id="knob">
-            <circle cx="100" cy="100" r="52" fill="url(#knob-face)" style="stroke: var(--edge)"/>
-            <line class="pointer" x1="100" y1="58" x2="100" y2="76"/>
-          </g>
-          <defs>
-            <radialGradient id="knob-face" cx="40%" cy="35%" r="75%">
-              <stop offset="0" style="stop-color: color-mix(in srgb, var(--cap-top) 70%, var(--ink))"/><stop offset="1" style="stop-color: var(--cap)"/>
-            </radialGradient>
-          </defs>
-        </svg>
-      </div>
-
-      <div class="cap stick" id="stick" data-control="stick">
-        <div class="cross"></div>
-        <div class="arrows"><span class="u">▲</span><span class="d">▼</span></div>
-        <div class="mode" id="stick-mode">SCROLL</div>
-        <div class="nub" id="nub"></div>
-        <div class="wheel" id="wheel"></div>
-      </div>
-    </div>
-
-    <div class="buttons" id="buttons"></div>
-  </section>
-
   <div class="status" id="status">connecting…</div>
 </main>
 <div class="install" id="install" hidden>
-  <div><b>Add SauzzeDeck Pro to your Home Screen.</b><br><span id="install-how">Tap Share, then “Add to Home Screen”.</span> It opens full screen and stays paired.</div>
+  <div><b>Add Smolcorp to your Home Screen.</b><br><span id="install-how">Tap Share, then “Add to Home Screen”.</span> It opens full screen and stays paired.</div>
   <button id="install-close" aria-label="Dismiss">✕</button>
 </div>
 <label id="haptic" aria-hidden="true"><input type="checkbox" switch></label>
 
 <script src="/office.js"></script>
 <script>
-  /** Today's controls, for a computer that sends no layout of its own. The
-      keys are whatever it sends: one per session, or a fixed number. */
-  const STANDARD_LAYOUT = {
-    dial: true, stick: true,
-    rows: [
-      { tall: true, buttons: [{ id: 'accept' }, { id: 'reject' }, { id: 'mic' }] },
-      { tall: false, buttons: [{ id: 'esc' }, { id: 'send' }, { id: 'clear' }] },
-    ],
-  };
-  /** The deck's own buttons: an icon, or a word in the deck's typewriter face. */
-  const FACES = {
-    accept: { name: 'Accept', icon: '<path d="M5 12.5l4.5 4.5L19 7.5"/>' },
-    reject: { name: 'Reject', icon: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>' },
-    mic: { name: 'Hold to dictate', icon: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>' },
-    up: { name: 'Up', icon: '<path d="M6 14.5l6-6 6 6"/>' },
-    down: { name: 'Down', icon: '<path d="M6 9.5l6 6 6-6"/>' },
-    esc: { name: 'Interrupt', word: 'esc' },
-    send: { name: 'Send', word: '⏎ send' },
-    clear: { name: 'Fresh conversation', word: '/clear' },
-    max: { name: 'Max effort' },
-    efforts: { name: 'Thinking effort' },
-  };
-  /** The radiation trefoil on the Max button's dome. */
-  const TREFOIL = 'M17.25 21.09A10.5 10.5 0 0 1 6.75 21.09L10.35 14.86A3.3 3.3 0 0 0 13.65 14.86ZM1.50 12.00A10.5 10.5 0 0 1 6.75 2.91L10.35 9.14A3.3 3.3 0 0 0 8.70 12.00ZM17.25 2.91A10.5 10.5 0 0 1 22.50 12.00L15.30 12.00A3.3 3.3 0 0 0 13.65 9.14ZM14.2 12a2.2 2.2 0 1 1-4.4 0a2.2 2.2 0 1 1 4.4 0Z';
-  /** The keys a button made in setup can press. */
+  /** The keys a button made in setup can press, for what the preview says it would do. */
   const KEY_NAMES = { enter: 'Return', escape: 'Esc', tab: 'Tab', 'shift-tab': 'Shift+Tab', up: '↑', down: '↓', 'ctrl-c': 'Ctrl+C' };
-  const LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
-  const LEVEL_LABELS = ['L', 'M', 'H', 'XH', 'MAX'];
-  const SWEEP = 270; // degrees the dial covers, centred on straight up
-  const STATE_WORDS = { idle: 'idle', thinking: 'working', asking: 'waiting on you', unread: 'done', error: 'error' };
 
   const token = new URLSearchParams(location.search).get('t') || '';
   // On the setup page, the deck is a preview: that page sends it what to
@@ -337,77 +110,21 @@
   const saver = whole && new URLSearchParams(location.search).has('saver');
   const $ = (id) => document.getElementById(id);
 
-  let keyData = [];    // the keys as the server lays them out
-  let sessions = [];   // the sessions on them
-  let overflow = 0;    // sessions running with no key to show them
-  let selected = null; // session id the controls act on
-  let layout = null;   // dial, stick and rows of buttons, as set up on the computer
-
-  /* -------------------------------------------------------------- layout */
-
-  let layoutShown = '';
-  function applyLayout(next) {
-    const key = canonical(next);
-    if (key === layoutShown) return;
-    layoutShown = key;
-    layout = next;
-    $('dial').hidden = !layout.dial;
-    $('stick').hidden = !layout.stick;
-    $('analog').hidden = !layout.dial && !layout.stick;
-    $('analog').classList.toggle('single', layout.dial !== layout.stick);
-    buildButtons(layout.rows);
-    showView();
-  }
-
-  /**
-   * A value as JSON with every object's keys in order, so the same layout
-   * reads the same however the computer happened to write it.
-   */
-  function canonical(value) {
-    return JSON.stringify(value, (_, v) => (v && typeof v === 'object' && !Array.isArray(v)
-      ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]]))
-      : v));
-  }
-
-  /* ---------------------------------------------------------------- keys */
-
-  /**
-   * How many keys go on each row: one row for a single key, two rows up to
-   * six, three up to nine, sharing the keys out as evenly as they can with
-   * the shorter rows first.
-   */
-  function rowsOf(count) {
-    const rows = count === 1 ? 1 : count <= 6 ? 2 : 3;
-    const each = Math.floor(count / rows), longer = count % rows;
-    return Array.from({ length: rows }, (_, r) => each + (r >= rows - longer ? 1 : 0));
-  }
-
-  function buildKeys(count) {
-    const rows = rowsOf(count);
-    // Each key spans six columns over the number of keys in its row.
-    const spans = rows.flatMap((keys) => Array(keys).fill(6 / keys));
-    $('keys').style.setProperty('--rows', rows.length);
-    $('keys').replaceChildren(...Array.from({ length: count }, (_, i) => {
-      const el = document.createElement('div');
-      el.className = 'cap key empty';
-      el.style.setProperty('--span', spans[i]);
-      el.innerHTML = `<div class="row"><span class="slot">${i + 1}</span><span class="light"></span></div>
-                      <div><div class="name">—</div><div class="effort"></div></div>`;
-      press(el, () => {
-        const id = el.dataset.session;
-        if (!id) return;
-        selected = id;
-        render();
-        post('/focus', { session: id });
-      });
-      return el;
-    }));
-  }
+  let sessions = [];   // the sessions at desks
+  let overflow = 0;    // sessions running with no desk to show them
+  let selected = null; // session id the office's controls act on
+  let layout = null;   // as set up on the computer: the buttons made there, and the office's room
+  let scrollEnabled = false; // whether two fingers may scroll Terminal, as set on the computer
 
   /* ------------------------------------------------------------- office */
 
-  // Tapping the room does what the keys and buttons do, with the deck's tick.
-  // Without its script, lost on a bad connection, the keys still work.
+  /*
+   * The phone is the office: everything the deck does, it does from the
+   * room. A desk picks its agent; held, it brings out the effort chips; the
+   * keys along the foot of the room interrupt it, send, clear, move up and down,
+   * and press the buttons made in setup; two fingers scroll its Terminal;
+   * the red button is ☢ Max, the mic dictates, and a jukebox plays music.
+   */
   const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, moved() {} } : AgentOffice.create($('office-canvas'), {
     select(id) {
       tick();
@@ -442,15 +159,47 @@
       tick();
       send('/act', { action: 'swap', from, to });
     },
-    // The paint chips on the picked desk, as the dial.
+    // A jukebox's keys: the computer's music plays or pauses, or skips a song either way.
+    music(key = 'playpause') {
+      tick();
+      send('/act', { action: 'music', do: key });
+    },
+    // One of the office's styles, from its key in the room's corner, for every screen it's on.
+    style(preset) {
+      tick();
+      send('/act', { action: 'style', preset });
+    },
+    // The paint chips on the picked desk.
     effort(level) {
       tick();
       setEffort(level);
     },
-    // The keys over an agent waiting on you, as the stick's choices: in turn.
+    // The keys over an agent waiting on you, in turn.
     choose(action) {
       if (action === 'accept') tick();
       choose(action);
+    },
+    /**
+     * A key for the picked agent: 'esc', 'send', 'clear', 'up' or 'down',
+     * or 'button:<id>' for one made in setup, which the computer looks up by
+     * its id. A key that asks twice, as /clear does, only comes here once
+     * it's sure.
+     */
+    key(action) {
+      tick();
+      if (!selected) return;
+      if (action === 'up' || action === 'down') return choose(action);
+      if (action.startsWith('button:')) return send('/act', { session: selected, action: 'button', button: action.slice(7) });
+      if (['esc', 'send', 'clear'].includes(action)) send('/act', { session: selected, action });
+    },
+    /** Two fingers on the room: lines to scroll the picked agent's Terminal, or 'bottom'. */
+    scroll(by) {
+      if (!scrollEnabled) return flash('Scrolling is off: turn it on in setup, on your computer');
+      if (by === 'bottom') {
+        tick();
+        return scrollToBottom();
+      }
+      scrollBy(by);
     },
     hint(text) {
       tick();
@@ -458,69 +207,28 @@
     },
   });
 
-  /**
-   * The keys or the office, as chosen in setup's layout. The legend above
-   * them flips it on this phone, until the layout's choice changes.
+  /*
+   * The room fills the screen, all of it in sight: on the phone, in the
+   * space the deck keeps clear of the notch and the home indicator. Only
+   * the screen saver goes from edge to edge, cropping what doesn't fit,
+   * there being nothing on it to tap.
    */
-  function showView() {
-    const chosen = !!(layout && layout.office);
-    let flipped = null;
-    try { flipped = JSON.parse(localStorage.getItem('view')); } catch {}
-    const showOffice = whole || (!preview && flipped && flipped.chosen === chosen ? flipped.office : chosen);
-    $('keys').hidden = showOffice;
-    $('office').hidden = !showOffice;
-    office.setVisible(showOffice);
-    // Full screen is the phone's office alone: with the keys back, it ends.
-    $('full-switch').hidden = whole || preview || !showOffice;
-    if (full && !showOffice) setFull(false);
-    const [keys, room] = $('view-switch').children;
-    keys.classList.toggle('on', !showOffice);
-    room.classList.toggle('on', showOffice);
-  }
+  office.setFramed(false);
+  office.setFloating(saver ? 'edge' : 'screen');
+  office.setVisible(true);
 
-  $('view-switch').addEventListener('click', () => {
-    const chosen = !!(layout && layout.office);
-    try { localStorage.setItem('view', JSON.stringify({ chosen, office: $('office').hidden })); } catch {}
-    tick();
-    showView();
-  });
-
-  /* --------------------------------------------------------- full screen */
-
-  /**
-   * The phone's office alone, filling the screen as /office does: the dial
-   * and buttons step aside, and the room's desks, red button and microphone
-   * do their work. Where the browser can, its own bars go too; iPhone
-   * Safari keeps them, having no full screen for a page. Held upright, the
-   * room stands upright too. A reload brings the controls back.
+  /*
+   * Where the browser can, its own bars go too, from the first tap: Android
+   * browsers can, and do again if their back gesture takes them away.
+   * iPhone Safari keeps its bars, having no full screen for a page; added
+   * to the Home Screen, the deck has none to begin with.
    */
-  let full = false;
-  // Beside the controls, the room is seen through a window, rounded like the
-  // keys. On a screen of its own, that window floats, filling the screen,
-  // and as the screen saver it goes from edge to edge.
-  office.setFramed(!whole);
-  if (whole) office.setFloating(saver ? 'edge' : 'screen');
-
-  function setFull(on) {
-    full = on;
-    document.body.classList.toggle('full', on);
-    office.setFramed(!on);
-    office.setFloating(on ? 'screen' : null);
-    $('full-switch').setAttribute('aria-label', on ? 'Leave full screen' : 'Full screen');
+  function fillScreen() {
     const page = document.documentElement;
-    if (on && page.requestFullscreen && !document.fullscreenElement) page.requestFullscreen().catch(() => {});
-    if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    if (preview || whole || !page.requestFullscreen || document.fullscreenElement) return;
+    page.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
   }
-
-  $('full-switch').addEventListener('click', () => {
-    tick();
-    setFull(!full);
-  });
-
-  // Leaving the browser's full screen, by its back gesture or a key, leaves the office's too.
-  document.addEventListener('fullscreenchange', () => {
-    if (full && !document.fullscreenElement) setFull(false);
-  });
+  document.addEventListener('pointerdown', fillScreen, { capture: true });
 
   /* ---------------------------------------------------------- screen on */
 
@@ -666,125 +374,19 @@
     }, { once: true });
   }
 
-  /* --------------------------------------------------------------- dial */
-
-  // Ticks and legends round the knob, drawn once.
-  (function drawDial() {
-    const g = $('dial-ticks');
-    LEVELS.forEach((_, i) => {
-      const a = angleOf(i) * Math.PI / 180;
-      const pt = (r) => [100 + r * Math.sin(a), 100 - r * Math.cos(a)];
-      const [x1, y1] = pt(64), [x2, y2] = pt(74), [lx, ly] = pt(90);
-      g.insertAdjacentHTML('beforeend',
-        `<line class="tick" data-i="${i}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>` +
-        `<text class="lbl" data-i="${i}" x="${lx}" y="${ly}">${LEVEL_LABELS[i]}</text>`);
-    });
-  })();
-
-  function angleOf(i) { return -SWEEP / 2 + (SWEEP / (LEVELS.length - 1)) * i; }
-
-  function showEffort(level) {
-    const i = LEVELS.indexOf(level);
-    $('dial').classList.toggle('unknown', i < 0);
-    $('knob').style.transform = `rotate(${i < 0 ? 0 : angleOf(i)}deg)`;
-    document.querySelectorAll('#dial-ticks [data-i]').forEach((n) => n.classList.toggle('on', Number(n.dataset.i) === i));
-  }
-
-  /* ----------------------------------------------------------- buttons */
-
-  function buildButtons(rows) {
-    // A control held down as the buttons are drawn afresh is let go first:
-    // its release would be lost with it, and the mic would keep listening.
-    if (held) held();
-    disarm();
-    $('buttons').replaceChildren(...rows.map((row) => {
-      const line = document.createElement('div');
-      line.className = row.tall ? 'line' : 'line short';
-      line.append(...row.buttons.map(button));
-      return line;
-    }));
-  }
-
-  /**
-   * One of the deck's own buttons, or one made in setup, which types a
-   * command or presses a key. The phone names a made button only by its id,
-   * so it can't have anything typed that wasn't set up on the computer.
-   */
-  function button(b) {
-    const face = FACES[b.id];
-    const el = document.createElement('div');
-    el.className = 'cap btn';
-    el.style.setProperty('--weight', b.width || 1);
-    const unset = 'A button to set up';
-    el.setAttribute('aria-label', face ? face.name : b.label || b.text || KEY_NAMES[b.key] || unset);
-    if (face) {
-      el.classList.add(b.id);
-      el.dataset.action = b.id;
-    } else {
-      el.dataset.action = 'button';
-      el.dataset.button = b.id;
-      if (b.agents && b.agents.length) el.dataset.agents = b.agents.join(' ');
-    }
-    if (b.id === 'efforts') {
-      // Its five steps are its controls; the button around them does nothing.
-      el.append(...LEVELS.map((level, i) => {
-        const step = document.createElement('span');
-        step.className = 'step';
-        step.dataset.level = level;
-        step.textContent = LEVEL_LABELS[i];
-        press(step, () => setEffort(level));
-        return step;
-      }));
-      return el;
-    }
-    if (b.id === 'max') {
-      el.innerHTML = `<span class="dome"><svg viewBox="0 0 24 24"><path d="${TREFOIL}"/></svg>MAX</span>`;
-    } else if (face && face.icon) {
-      el.innerHTML = `<svg viewBox="0 0 24 24">${face.icon}</svg>`;
-    } else {
-      el.classList.add('text');
-      el.innerHTML = '<span></span>';
-      el.firstChild.textContent = face ? face.word : b.label || b.text || KEY_NAMES[b.key] || '…';
-    }
-    if (b.id === 'clear' || b.confirm) el.dataset.confirm = '';
-    const holds = b.id === 'mic';
-    press(el, () => act(el, 'down'), holds ? () => act(el, 'up') : null);
-    return el;
-  }
+  /* ---------------------------------------------------- what the office does */
 
   let listening = Promise.resolve(); // the mic's press and release, in order
   // Long enough for a busy computer, short enough that a request lost on the
   // way doesn't hold up the presses after it.
   const MIC_WAIT = 5000;
-  function act(el, phase) {
-    const action = el.dataset.action;
-
-    if (action === 'mic') return talk(phase);
-    if (!selected) return;
-
-    // /clear throws the conversation away, and a made button can ask twice
-    // too: the first tap arms it, the second sends.
-    if ('confirm' in el.dataset) {
-      if (armed !== el) return arm(el);
-      disarm();
-    }
-
-    if (action === 'max') {
-      el.querySelector('.dome').animate({ filter: ['brightness(1.7) drop-shadow(0 0 14px #ff2a1a)', 'none'] }, { duration: 700, easing: 'ease-out' });
-      setEffort('max', 'max');
-    } else if (action === 'button') {
-      send('/act', { session: selected, action, button: el.dataset.button });
-    } else {
-      send('/act', { session: selected, action });
-    }
-  }
 
   /**
-   * The mic, from the 🎙 button or the office's: pressed to start listening,
-   * let go to send. The Mac stops recording in the tab where it started, so
-   * a release has to arrive even if the selection has gone in the meantime.
-   * It goes after its press: one that overtook it would stop nothing, and
-   * the press would then start a recording nothing stops.
+   * The office's mic: pressed to start listening, let go to stop. The Mac
+   * stops recording in the tab where it started, so a release has to arrive
+   * even if the selection has gone in the meantime. It goes after its press:
+   * one that overtook it would stop nothing, and the press would then start
+   * a recording nothing stops.
    */
   function talk(phase) {
     if (phase === 'down' && !selected) return;
@@ -795,31 +397,51 @@
     return listening;
   }
 
-  /** Claude Code's thinking effort, from the Max button or the steps, as the dial sets it.
-   *  ☢ Max names itself as the source, so the office can tell a press from the dial. */
+  /** Claude Code's thinking effort, from the red button or the chips.
+   *  ☢ Max names itself as the source, so the office can tell a press from the chips. */
   function setEffort(level, source) {
     if (!selected) return;
     send('/act', { session: selected, action: 'effort', level, ...(source && { source }) });
   }
 
-  let armed = null; // the button waiting for its second tap
-  let armedTimer = null;
-
-  function arm(el) {
-    disarm();
-    armed = el;
-    el.dataset.word = el.firstChild.textContent;
-    el.firstChild.textContent = 'sure?';
-    el.classList.add('armed');
-    armedTimer = setTimeout(disarm, 2500);
+  /**
+   * Choices are keystrokes into the session, and order matters — two quick
+   * taps down must arrive as down, down — so they go one at a time.
+   */
+  let choosing = Promise.resolve();
+  function choose(action) {
+    if (!selected) return;
+    if (action !== 'accept') tick();
+    const params = { session: selected, action };
+    choosing = choosing.then(() => send('/act', params));
   }
 
-  function disarm() {
-    clearTimeout(armedTimer);
-    if (!armed) return;
-    armed.firstChild.textContent = armed.dataset.word;
-    armed.classList.remove('armed');
-    armed = null;
+  /**
+   * Two fingers move faster than the computer can scroll a window, so lines
+   * scrolled while a request is out are added up and go together in the next.
+   */
+  let unscrolled = 0;
+  let scrolling = false;
+  function scrollBy(lines) {
+    unscrolled += lines;
+    sendScroll();
+  }
+
+  function sendScroll() {
+    if (scrolling || !unscrolled || !selected) return;
+    const params = { session: selected, action: 'scroll', lines: unscrolled };
+    unscrolled = 0;
+    scrolling = true;
+    send('/act', params).finally(() => {
+      scrolling = false;
+      sendScroll();
+    });
+  }
+
+  function scrollToBottom() {
+    if (!selected) return;
+    unscrolled = 0;
+    send('/act', { session: selected, action: 'scroll', to: 'bottom' });
   }
 
   /**
@@ -852,48 +474,8 @@
     flashTimer = setTimeout(() => { el.classList.remove('flash'); render(); }, 2500);
   }
 
-  /* ---------------------------------------------------- turning the dial */
-
   /**
-   * Point at a level: the knob follows the finger round the sweep and snaps
-   * to the nearest detent, ticking as it passes each one. Letting go sends it.
-   */
-  const dial = $('dial');
-  let dragging = false;
-  let turning = -1; // detent under the finger
-
-  dial.addEventListener('pointerdown', (e) => {
-    if (!selected) return;
-    dial.setPointerCapture(e.pointerId);
-    dragging = true;
-    turning = LEVELS.indexOf(current()?.effort);
-    turnTo(e);
-  });
-  dial.addEventListener('pointermove', (e) => { if (dragging) turnTo(e); });
-  dial.addEventListener('pointerup', () => {
-    if (!dragging) return;
-    dragging = false;
-    const level = LEVELS[turning];
-    const sel = current();
-    if (sel && level && level !== sel.effort) send('/act', { session: selected, action: 'effort', level });
-    else render();
-  });
-  dial.addEventListener('pointercancel', () => { dragging = false; render(); });
-
-  function turnTo(e) {
-    const r = dial.querySelector('svg').getBoundingClientRect();
-    const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
-    let a = Math.atan2(dx, -dy) * 180 / Math.PI; // 0 = straight up, clockwise positive
-    a = Math.max(-SWEEP / 2, Math.min(SWEEP / 2, a));
-    const i = Math.round((a + SWEEP / 2) / (SWEEP / (LEVELS.length - 1)));
-    if (i === turning) return;
-    turning = i;
-    showEffort(LEVELS[i]);
-    tick();
-  }
-
-  /**
-   * A detent you can feel. Android has vibrate; iOS Safari has none, but
+   * A tap you can feel. Android has vibrate; iOS Safari has none, but
    * toggling a native switch control gives a haptic tick, so flip a hidden one.
    */
   function tick() {
@@ -903,231 +485,19 @@
 
   function current() { return sessions.find((s) => s.id === selected); }
 
-  /* ------------------------------------------------------------ the stick */
-
-  /**
-   * Two jobs, picked by what the selected session is doing:
-   *
-   *   choices  The agent is asking. Slide up or down to move through the
-   *            options, a notch per step; tap to confirm the highlighted one.
-   *   scroll   Everything else. A mouse's scroll wheel for the session's
-   *            Terminal window: roll it to scroll, tap to jump back to the
-   *            bottom. Off until it's turned on in setup on the computer.
-   *
-   * Tapping the SCROLL/CHOICES legend flips it by hand.
-   */
-  const STEP = 34;           // finger travel per choice
-  const NOTCH = 10;          // finger travel per notch of the wheel…
-  const LINES_PER_NOTCH = 3; // …and the lines each notch scrolls, as a mouse's does
-  const TAP_MS = 300, TAP_SLOP = 12;
-
-  let stickMode = 'scroll';
-  let stickAuto = 'scroll';
-  let stickOverride = null;
-  let scrollEnabled = false; // as set on the computer
-
-  const stick = $('stick');
-  let gesture = null; // { id, start, x0, y0, x, y, moved, acc, roll } while a finger is down
-
-  $('stick-mode').addEventListener('pointerdown', (e) => {
-    e.stopPropagation();
-    stickOverride = stickMode === 'choices' ? 'scroll' : 'choices';
-    tick();
-    render();
-  });
-
-  // One finger at a time: a second one is ignored until the first lifts.
-  stick.addEventListener('pointerdown', (e) => {
-    if (gesture) return;
-    stick.setPointerCapture(e.pointerId);
-    gesture = { id: e.pointerId, start: performance.now(), x0: e.clientX, y0: e.clientY,
-                x: e.clientX, y: e.clientY, moved: 0, acc: 0, roll: 0 };
-    stick.classList.add('pressed');
-  });
-
-  stick.addEventListener('pointermove', (e) => {
-    const g = gesture;
-    if (!g || e.pointerId !== g.id) return;
-    const dx = e.clientX - g.x, dy = e.clientY - g.y;
-    g.x = e.clientX; g.y = e.clientY;
-    g.moved += Math.abs(dx) + Math.abs(dy);
-
-    if (stickMode === 'choices') {
-      nub(g);
-      g.acc += dy;
-      while (g.acc >= STEP) { g.acc -= STEP; choose('down'); }
-      while (g.acc <= -STEP) { g.acc += STEP; choose('up'); }
-      return;
-    }
-
-    if (!scrollEnabled) return;
-    // Counted the way natural scrolling does, drawing down for earlier lines.
-    // The Mac app turns it round if natural scrolling is off there.
-    g.roll += dy;
-    $('wheel').style.setProperty('--roll', `${g.roll}px`);
-    g.acc += dy;
-    while (g.acc >= NOTCH) { g.acc -= NOTCH; tick(); scrollBy(-LINES_PER_NOTCH); }
-    while (g.acc <= -NOTCH) { g.acc += NOTCH; tick(); scrollBy(LINES_PER_NOTCH); }
-  });
-
-  function lift(e, cancelled) {
-    const g = gesture;
-    if (!g || e.pointerId !== g.id) return;
-    gesture = null;
-    stick.classList.remove('pressed');
-    nub(null);
-    if (cancelled || performance.now() - g.start > TAP_MS || g.moved > TAP_SLOP) return;
-    if (stickMode === 'choices') { tick(); choose('accept'); }
-    else if (scrollEnabled) { tick(); scrollToBottom(); }
-  }
-  stick.addEventListener('pointerup', (e) => lift(e, false));
-  stick.addEventListener('pointercancel', (e) => lift(e, true));
-
-  /** The nub leans toward the finger, and springs back when it lifts. */
-  function nub(g) {
-    const el = $('nub');
-    if (!g) { el.style.transform = ''; return; }
-    const dx = g.x - g.x0, dy = g.y - g.y0, d = Math.hypot(dx, dy), max = 26;
-    const k = d > max ? max / d : 1;
-    el.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
-  }
-
-  /**
-   * Choices are keystrokes into the session, and order matters — two quick
-   * notches down must arrive as down, down — so they go one at a time.
-   */
-  let choosing = Promise.resolve();
-  function choose(action) {
-    if (!selected) return;
-    if (action !== 'accept') tick();
-    const params = { session: selected, action };
-    choosing = choosing.then(() => send('/act', params));
-  }
-
-  /**
-   * The wheel turns faster than the computer can scroll a window, so notches
-   * turned while a request is out are added up and go together in the next.
-   */
-  let unscrolled = 0;
-  let scrolling = false;
-  function scrollBy(lines) {
-    unscrolled += lines;
-    sendScroll();
-  }
-
-  function sendScroll() {
-    if (scrolling || !unscrolled || !selected) return;
-    const params = { session: selected, action: 'scroll', lines: unscrolled };
-    unscrolled = 0;
-    scrolling = true;
-    send('/act', params).finally(() => {
-      scrolling = false;
-      sendScroll();
-    });
-  }
-
-  function scrollToBottom() {
-    if (!selected) return;
-    unscrolled = 0;
-    send('/act', { session: selected, action: 'scroll', to: 'bottom' });
-  }
-
   /* ------------------------------------------------------------ render */
 
   function render() {
     if (selected && !sessions.some((s) => s.id === selected)) selected = null;
     // Nothing chosen: whoever is waiting on you, else the first.
     if (!selected && sessions.length) selected = (sessions.find((s) => s.state === 'asking') || sessions[0]).id;
-    const sel = sessions.find((s) => s.id === selected);
     office.select(selected);
-
-    [...$('keys').children].forEach((el, i) => {
-      const k = keyData[i] || {};
-      const s = k.session;
-      el.classList.toggle('empty', !s);
-      el.classList.toggle('pinned', !s && !!k.pin);
-      el.classList.toggle('selected', !!s && s.id === selected);
-      if (s) { el.dataset.state = s.state; el.dataset.session = s.id; }
-      else { delete el.dataset.state; delete el.dataset.session; }
-      // A pinned project with nothing running keeps its name on its key.
-      // Claude Code's keys show its effort; every other agent's, its name.
-      el.querySelector('.name').textContent = s ? s.project : k.pin || '—';
-      el.querySelector('.effort').textContent = s ? (s.dial ? s.effort : s.agentName) : k.pin ? 'not running' : '';
-    });
-
-    $('target').innerHTML = sel ? `→ <b></b>` : 'no session selected';
-    if (sel) $('target').querySelector('b').textContent = sel.project;
-    $('target-state').textContent = !sel ? ''
-      : sel.pending ? `${STATE_WORDS[sel.state] || sel.state} · effort queued`
-      : STATE_WORDS[sel.state] || sel.state;
-
-    const asking = !!sel && sel.state === 'asking';
-    document.querySelectorAll('.controls .cap').forEach((el) => el.classList.toggle('off', !sel));
-    // The dial and the mic drive Claude Code's own /effort and /voice, and a
-    // made button can be for some agents only.
-    $('dial').classList.toggle('off', !sel || !sel.dial);
-    document.querySelectorAll('#buttons .btn').forEach((el) => {
-      const fits = el.classList.contains('mic') ? sel && sel.mic
-        : el.classList.contains('max') || el.classList.contains('efforts') ? sel && sel.dial
-        : !el.dataset.agents || (sel && el.dataset.agents.split(' ').includes(sel.agent));
-      el.classList.toggle('off', !sel || !fits);
-    });
-    document.querySelectorAll('.efforts .step').forEach((step) => step.classList.toggle('on', !!sel && step.dataset.level === sel.effort));
-    // An override lasts until the session's own situation changes.
-    const auto = asking ? 'choices' : 'scroll';
-    if (auto !== stickAuto) { stickAuto = auto; stickOverride = null; }
-    stickMode = stickOverride || auto;
-    document.querySelectorAll('.accept, .reject').forEach((el) => el.classList.toggle('live', asking));
-    $('stick').classList.toggle('choices', stickMode === 'choices');
-    $('stick').classList.toggle('unavailable', stickMode === 'scroll' && !scrollEnabled);
-    $('stick-mode').textContent = stickMode === 'choices' ? 'CHOICES' : scrollEnabled ? 'SCROLL' : 'SCROLL OFF';
-    // Leave the knob alone while a finger is on it.
-    if (!dragging) showEffort(sel ? sel.effort : '');
-
     if (!$('status').classList.contains('off') && !$('status').classList.contains('flash')) {
-      $('status').textContent = overflow > 0 ? `${overflow} more session${overflow > 1 ? 's' : ''} without a key` : '';
+      $('status').textContent = overflow > 0 ? `${overflow} more session${overflow > 1 ? 's' : ''} without a desk` : '';
     }
   }
 
   /* ----------------------------------------------------------- plumbing */
-
-  /**
-   * Pressed look on touch, not on click: iOS fires click late and :active
-   * barely at all. `onUp` makes it a hold control — down and up both count,
-   * and the up must never go missing: iOS can take the touch away, or the
-   * page can be sent to the background, mid-hold.
-   */
-  function press(el, onDown, onUp) {
-    const up = () => {
-      if (!el.classList.contains('pressed')) return;
-      el.classList.remove('pressed');
-      if (held === up) held = null;
-      if (onUp) onUp();
-    };
-    el.addEventListener('pointerdown', (e) => {
-      el.setPointerCapture(e.pointerId);
-      el.classList.add('pressed');
-      if (onUp) held = up;
-      onDown();
-    });
-    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) el.addEventListener(type, up);
-  }
-
-  // The hold control under a finger, let go if the page is sent to the
-  // background mid-hold. One listener for whichever it is: controls are
-  // drawn afresh whenever the layout changes.
-  let held = null;
-  document.addEventListener('visibilitychange', () => { if (document.hidden && held) held(); });
-
-  /** Colours from the setup page, live: each one overrides its CSS variable. */
-  let themeShown = '';
-  function applyTheme(colours) {
-    const key = JSON.stringify(colours || {});
-    if (key === themeShown) return;
-    themeShown = key;
-    for (const [name, value] of Object.entries(colours || {})) document.documentElement.style.setProperty(`--${name}`, value);
-    if (colours && colours.body) document.querySelector('meta[name="theme-color"]').content = colours.body;
-  }
 
   function post(pathname, params = {}, signal) {
     if (preview) return Promise.resolve();
@@ -1135,19 +505,15 @@
     return fetch(`${pathname}?${q}`, { method: 'POST', signal }).catch(() => {});
   }
 
-  /** What the computer streams: the keys and who is on them, the theme and the layout. */
+  /** What the computer streams: the sessions at their desks and the layout. */
   function receive(data) {
-    keyData = data.keys;
-    // There is always a key, even an empty one, to show where sessions will go.
-    const count = Math.max(1, keyData.length);
-    if (count !== $('keys').children.length) buildKeys(count);
-    sessions = keyData.filter((k) => k.session).map((k) => k.session);
+    sessions = (data.keys || []).filter((k) => k.session).map((k) => k.session);
     noteWaits();
     overflow = data.overflow;
     scrollEnabled = data.scroll;
-    applyTheme(data.theme);
-    applyLayout(data.layout || STANDARD_LAYOUT);
-    office.show(data);
+    layout = data.layout || null;
+    // The office's own colours: a theme saved by an older setup page is left out.
+    office.show({ ...data, theme: {} });
     $('status').classList.remove('off');
     render();
   }
@@ -1155,11 +521,11 @@
   /** In the preview, what a control would have done to the selected session. */
   function rehearse(params) {
     // A hire is for no session yet; firing names the one the office asked about.
-    const target = params.action === 'hire' || params.action === 'swap' ? null : sessions.find((s) => s.id === params.session) || current();
+    const target = ['hire', 'swap', 'style', 'music'].includes(params.action) ? null : sessions.find((s) => s.id === params.session) || current();
     const name = target ? ` · ${target.project}` : '';
     if (params.action === 'button') {
-      const b = layout.rows.flatMap((row) => row.buttons).find((x) => x.id === params.button);
-      const does = b.text ? `types ${b.text}` : b.key ? `presses ${KEY_NAMES[b.key]}` : 'types nothing yet';
+      const b = ((layout && layout.rows) || []).flatMap((row) => row.buttons).find((x) => x.id === params.button);
+      const does = !b ? 'presses a button' : b.text ? `types ${b.text}` : b.key ? `presses ${KEY_NAMES[b.key]}` : 'types nothing yet';
       return `${does}${name}`;
     }
     const words = {
@@ -1167,7 +533,8 @@
       clear: 'starts a fresh conversation', up: 'moves up', down: 'moves down',
       mic: params.phase === 'down' ? 'starts listening' : 'stops listening',
       effort: `sets effort to ${params.level}`, scroll: 'scrolls',
-      fire: 'fires', hire: 'hires a new agent', swap: 'swaps two desks',
+      fire: 'fires', hire: 'hires a new agent', swap: 'swaps two desks', style: 'changes the office\'s style',
+      music: { previous: 'goes back a song', next: 'skips to the next song' }[params.do] || 'plays or pauses your music',
     };
     return `${words[params.action] || params.action}${name}`;
   }
@@ -1192,12 +559,7 @@
     };
   }
 
-  if (whole) {
-    document.body.classList.add('whole');
-    document.title = 'Agent Office';
-  }
-  buildKeys(6);
-  applyLayout(STANDARD_LAYOUT);
+  if (whole) document.title = 'Smolcorp Office';
   if (preview) {
     addEventListener('message', (e) => {
       if (e.source === parent && e.origin === location.origin) receive(e.data);
@@ -1212,7 +574,7 @@
       if (stream.readyState === EventSource.CLOSED) return unpaired();
       office.close();
       $('status').classList.add('off');
-      $('status').textContent = "Can't reach your computer. Is SauzzeDeck Pro running?";
+      $('status').textContent = "Can't reach your computer. Is Smolcorp running?";
     };
     if (!whole) installHint();
   }

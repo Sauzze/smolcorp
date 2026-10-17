@@ -1,10 +1,10 @@
-// Package desktop is SauzzeDeck Pro for Windows and Linux: the counterpart of
+// Package desktop is Smolcorp for Windows and Linux: the counterpart of
 // the Mac app in Sources/AgentDeck, file for file where the two can match.
 //
 // The phone sees the same deck, pairs the same way and follows the same
 // agents. What differs is how a session's keys are pressed: the Mac drives
 // Terminal.app, which nothing on Windows or Linux matches, so here agents are
-// started through the app's launcher (`sauzzedeck run claude`), or found in a
+// started through the app's launcher (`smolcorp run claude`), or found in a
 // tmux, WezTerm or kitty pane, whose own commands reach them.
 package desktop
 
@@ -19,7 +19,8 @@ const Port = 7710
 
 // Where the app keeps its state, outside the program itself, so it can be
 // moved or updated without losing the paired phones: ~/.config/sauzzedeck-pro
-// on Linux, %APPDATA%\SauzzeDeck Pro on Windows.
+// on Linux, %APPDATA%\SauzzeDeck Pro on Windows. They keep the name the app
+// had before it was Smolcorp, as the Mac app keeps AgentDeck's.
 var (
 	supportDir  = makeSupportDir()
 	phonesFile  = filepath.Join(supportDir, "phones.json")

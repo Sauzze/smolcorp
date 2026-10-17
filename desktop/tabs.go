@@ -12,7 +12,7 @@ import (
 // drives Terminal.app; here each kind of tab is driven its own way. The hook
 // names a session's tab with a string:
 //
-//	launcher:<id>              a terminal `sauzzedeck run` started the agent in
+//	launcher:<id>              a terminal `smolcorp run` started the agent in
 //	tmux:<pane>@<socket>       a tmux pane: $TMUX_PANE and $TMUX
 //	wezterm:<pane>@<socket>    a WezTerm pane: $WEZTERM_PANE and $WEZTERM_UNIX_SOCKET
 //	kitty:<window>@<socket>    a kitty window: $KITTY_WINDOW_ID and $KITTY_LISTEN_ON

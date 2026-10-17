@@ -10,7 +10,9 @@ import (
 // you when you sign in, and what Task Manager's Startup apps lists.
 const (
 	runKey   = `Software\Microsoft\Windows\CurrentVersion\Run`
-	runValue = "SauzzeDeck Pro"
+	runValue = "Smolcorp"
+	// oldRunValue is the entry under the name the app had before Smolcorp.
+	oldRunValue = "SauzzeDeck Pro"
 )
 
 func isOpenAtLogin() bool {
@@ -20,7 +22,22 @@ func isOpenAtLogin() bool {
 	}
 	defer key.Close()
 	_, _, err = key.GetStringValue(runValue)
-	return err == nil
+	_, _, old := key.GetStringValue(oldRunValue)
+	return err == nil || old == nil
+}
+
+// moveOpenAtLogin turns an entry under the old name into one under the new,
+// so the app isn't started twice at sign-in.
+func moveOpenAtLogin() {
+	key, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE)
+	if err != nil {
+		return
+	}
+	_, _, old := key.GetStringValue(oldRunValue)
+	key.Close()
+	if old == nil {
+		setOpenAtLogin(true)
+	}
 }
 
 func setOpenAtLogin(enabled bool) {
@@ -29,6 +46,7 @@ func setOpenAtLogin(enabled bool) {
 		return
 	}
 	defer key.Close()
+	_ = key.DeleteValue(oldRunValue)
 	if !enabled {
 		_ = key.DeleteValue(runValue)
 		return

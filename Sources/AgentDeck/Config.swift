@@ -2,7 +2,7 @@ import Foundation
 
 /// What you set on the setup page: which project is pinned to which key, the
 /// deck's layout and colours, the profiles they're saved in, its logo,
-/// whether the stick scrolls, and whether the office hires and fires. Saved
+/// whether two fingers scroll, and whether the office hires and fires. Saved
 /// as JSON in Application Support.
 final class Config: Codable {
     static let shared = Config.load()
@@ -15,9 +15,9 @@ final class Config: Codable {
     /// Saved looks, besides Default, and the one the deck was last switched to.
     var profiles: [Profile] = []
     var activeProfile = Profile.defaultName
-    var logo = Logo.sauzze
-    /// Whether the stick scrolls Terminal. Off until you turn it on, so a
-    /// newly paired phone can do no more than the deck's buttons do.
+    var logo = Logo.smolcorp
+    /// Whether two fingers on the office scroll Terminal. Off until you turn it on, so a
+    /// newly paired phone can do no more than the office's keys do.
     var scrollEnabled = false
     /// Whether the office may hire and fire: open a new Terminal window with
     /// an agent in it, and stop an agent and close its tab. Off until you
@@ -26,11 +26,16 @@ final class Config: Codable {
     /// The folder new hires start in, and the agent they are.
     var hireFolder = ""
     var hireAgent = Agent.claude.rawValue
+    /// Whether a jukebox in the office may play and pause the Mac's music.
+    /// Off until you turn it on: it presses a media key.
+    var musicEnabled = false
+    /// Where the deck's sessions are told to other tools, if anywhere.
+    var webhook = Webhook()
     var hasCompletedSetup = false
 
     private enum CodingKeys: String, CodingKey {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent
-        case hasCompletedSetup
+        case musicEnabled, webhook, hasCompletedSetup
     }
 
     init() {}
@@ -47,11 +52,13 @@ final class Config: Codable {
             Profile(name: $0.name, layout: $0.layout.checked, colours: $0.colours)
         }
         activeProfile = (try? c.decodeIfPresent(String.self, forKey: .activeProfile)) ?? activeProfile
-        logo = (try? c.decodeIfPresent(Logo.self, forKey: .logo)) ?? logo
+        logo = ((try? c.decodeIfPresent(String.self, forKey: .logo)) ?? nil).flatMap(Logo.init(stored:)) ?? logo
         scrollEnabled = try c.decodeIfPresent(Bool.self, forKey: .scrollEnabled) ?? false
         hiringEnabled = try c.decodeIfPresent(Bool.self, forKey: .hiringEnabled) ?? false
         hireFolder = try c.decodeIfPresent(String.self, forKey: .hireFolder) ?? ""
         hireAgent = (try c.decodeIfPresent(String.self, forKey: .hireAgent)).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
+        musicEnabled = try c.decodeIfPresent(Bool.self, forKey: .musicEnabled) ?? false
+        webhook = (try? c.decodeIfPresent(Webhook.self, forKey: .webhook)) ?? Webhook()
         hasCompletedSetup = try c.decodeIfPresent(Bool.self, forKey: .hasCompletedSetup) ?? false
     }
 
@@ -203,10 +210,16 @@ extension Config {
     }
 }
 
-/// The deck's logo: the Sauzze mark, or the six keys it started out with.
-/// It shows on the phone's Home Screen, on the setup page and in the menu bar.
+/// The deck's logo: the hire, a little person in a suit, or the six keys it
+/// started out with. It shows on the phone's Home Screen, on the setup page
+/// and in the menu bar.
 enum Logo: String, Codable, CaseIterable {
-    case sauzze, keys
+    case smolcorp, keys
+
+    /// As saved: the mark the app had before it was Smolcorp is now the hire.
+    init?(stored: String) {
+        self.init(rawValue: stored == "sauzze" ? "smolcorp" : stored)
+    }
 
     var icon: URL { Paths.web.appendingPathComponent("icon-\(rawValue).png") }
 }

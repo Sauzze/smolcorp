@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds the download for a GitHub release: build/SauzzeDeck-Pro.zip, a
+# Builds the download for a GitHub release: build/Smolcorp.zip, a
 # universal app for Apple silicon and Intel Macs, and prints its SHA-256 for
 # the release notes.
 #
@@ -13,8 +13,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 scripts/build-app.sh universal
 
-ZIP="build/SauzzeDeck-Pro.zip"
+ZIP="build/Smolcorp.zip"
 rm -f "$ZIP"
-ditto -c -k --keepParent "build/SauzzeDeck Pro.app" "$ZIP"
-echo "$ZIP ($(lipo -archs "build/SauzzeDeck Pro.app/Contents/MacOS/AgentDeck"))"
+ditto -c -k --keepParent "build/Smolcorp.app" "$ZIP"
+echo "$ZIP ($(lipo -archs "build/Smolcorp.app/Contents/MacOS/AgentDeck"))"
 echo "SHA-256: $(shasum -a 256 "$ZIP" | cut -d ' ' -f 1)"

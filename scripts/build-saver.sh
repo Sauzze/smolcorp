@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compiles the screen saver and assembles build/SauzzeDeck Office.saver.
+# Compiles the screen saver and assembles build/Smolcorp Office.saver.
 #
 #   scripts/build-saver.sh             for this Mac's processor
 #   scripts/build-saver.sh universal   for Apple silicon and Intel, as released
@@ -10,8 +10,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-SAVER="build/SauzzeDeck Office.saver"
-EXECUTABLE="SauzzeDeckOffice" # named in ScreenSaver/Info.plist
+SAVER="build/Smolcorp Office.saver"
+EXECUTABLE="SauzzeDeckOffice" # named in ScreenSaver/Info.plist; kept from its first name, as is its class
 MIN_MACOS="13.0"              # the app's, in Package.swift
 WORK="build/saver"
 

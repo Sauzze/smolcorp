@@ -7,12 +7,13 @@ enum ScreenSaver {
     /// System Settings → Screen Saver.
     private static let settings = URL(string: "x-apple.systempreferences:com.apple.ScreenSaver-Settings.extension")!
 
-    /// Copies it in, replacing an older copy, and opens System Settings to choose it.
+    /// Copies it in, replacing an older copy, under this name or the one it
+    /// had before, and opens System Settings to choose it.
     static func install() throws {
         let files = FileManager.default
         let installed = Paths.installedScreenSaver
         try files.createDirectory(at: installed.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if files.fileExists(atPath: installed.path) { try files.removeItem(at: installed) }
+        for copy in [installed, Paths.oldScreenSaver] where files.fileExists(atPath: copy.path) { try files.removeItem(at: copy) }
         try files.copyItem(at: Paths.bundledScreenSaver, to: installed)
         unquarantine(installed)
         NSWorkspace.shared.open(settings)

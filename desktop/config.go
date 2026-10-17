@@ -9,7 +9,7 @@ import (
 
 // Config is what you set on the setup page: which project is pinned to which
 // key, the deck's layout and colours, the profiles they're saved in, its logo,
-// whether the stick scrolls and whether the office hires and fires. Saved as
+// whether two fingers scroll and whether the office hires and fires. Saved as
 // JSON next to the paired phones, in the Mac app's format.
 type Config struct {
 	// A project folder per key, or nil for a key that takes any session.
@@ -21,24 +21,29 @@ type Config struct {
 	Profiles      []Profile `json:"profiles"`
 	ActiveProfile string    `json:"activeProfile"`
 	Logo          string    `json:"logo"`
-	// Whether the stick scrolls tmux and kitty panes. Off until you turn it
-	// on, so a newly paired phone can do no more than the deck's buttons do.
+	// Whether two fingers on the office scroll tmux and kitty panes. Off until you turn it
+	// on, so a newly paired phone can do no more than the office's keys do.
 	ScrollEnabled bool `json:"scrollEnabled"`
 	// Whether the office may fire: stop an agent and close its pane. Off until
 	// you turn it on, for the same reason. Hiring is the Mac app's for now,
 	// but the folder and agent are kept as it keeps them.
-	HiringEnabled     bool   `json:"hiringEnabled"`
-	HireFolder        string `json:"hireFolder"`
-	HireAgent         string `json:"hireAgent"`
-	HasCompletedSetup bool   `json:"hasCompletedSetup"`
+	HiringEnabled bool `json:"hiringEnabled"`
+	// MusicEnabled lets a jukebox in the office play and pause this
+	// computer's music. Off until you turn it on: it presses a media key.
+	MusicEnabled bool `json:"musicEnabled"`
+	// Where the deck's sessions are told to other tools, if anywhere.
+	Webhook           Webhook `json:"webhook"`
+	HireFolder        string  `json:"hireFolder"`
+	HireAgent         string  `json:"hireAgent"`
+	HasCompletedSetup bool    `json:"hasCompletedSetup"`
 }
 
-// The logos to choose from: the Sauzze mark, or the six keys the deck
-// started out with.
-var logos = []string{"sauzze", "keys"}
+// The logos to choose from: the hire, a little person in a suit, or the six
+// keys the deck started out with.
+var logos = []string{"smolcorp", "keys"}
 
 func loadConfig() *Config {
-	config := &Config{Colours: map[string]string{}, Logo: "sauzze", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude)}
+	config := &Config{Colours: map[string]string{}, Logo: "smolcorp", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook()}
 	if data, err := os.ReadFile(configFile); err == nil {
 		_ = json.Unmarshal(data, config)
 	}
@@ -50,8 +55,12 @@ func loadConfig() *Config {
 	if config.Profiles == nil {
 		config.Profiles = []Profile{}
 	}
+	// The mark the app had before it was Smolcorp is now the hire.
+	if config.Logo == "sauzze" {
+		config.Logo = "smolcorp"
+	}
 	if !contains(logos, config.Logo) {
-		config.Logo = "sauzze"
+		config.Logo = "smolcorp"
 	}
 	if config.Colours == nil {
 		config.Colours = map[string]string{}

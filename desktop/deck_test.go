@@ -112,3 +112,20 @@ func TestTheSnapshotCarriesTheComputersClock(t *testing.T) {
 		t.Fatalf("the snapshot's clock says %d, %v from now", snapshot.Now, ago)
 	}
 }
+
+func TestAStyleFromThePhoneIsKeptAndAnUnknownOneIsNot(t *testing.T) {
+	d := newTestDeck(t)
+	d.config.Layout.Room.Corner = "dragon"
+	if status, _ := d.Perform("style", "", url.Values{"preset": {"campsite"}}); status != http.StatusNoContent {
+		t.Fatalf("picking a style: %d, want %d", status, http.StatusNoContent)
+	}
+	if room := d.config.Layout.Room; room.Preset != "campsite" || room.Corner != "dragon" {
+		t.Fatalf("after picking Campsite the room is in %q with %q in the corner, want campsite over yours", room.Preset, room.Corner)
+	}
+	if status, _ := d.Perform("style", "", url.Values{"preset": {"disco"}}); status != http.StatusBadRequest {
+		t.Fatalf("picking an unknown style: %d, want %d", status, http.StatusBadRequest)
+	}
+	if d.config.Layout.Room.Preset != "campsite" {
+		t.Fatalf("an unknown style changed the room to %q", d.config.Layout.Room.Preset)
+	}
+}
