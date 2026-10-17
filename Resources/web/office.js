@@ -23,8 +23,13 @@
  * the microphone, held, `on.style(id)` for one of the office's styles, from
  * its key in the corner, `on.music(action)` for a piece that plays music, to
  * play or pause the computer's music, 'playpause', from a tap, or from the
- * control a finger held on it opens, 'previous', 'playpause' or 'next', and
- * `on.hint(text)` for a word on the status line.
+ * control a finger held on it opens, 'previous', 'playpause' or 'next',
+ * `on.key(action)` for one of the picked agent's keys along the foot of the
+ * room, out from a tap on the agent till a tap elsewhere, 'esc', 'send',
+ * 'clear', 'up', 'down' or 'button:<id>' for one of the layout's own
+ * buttons (/clear and a button marked `confirm` on a second tap),
+ * `on.scroll(lines | 'bottom')` for two fingers moving up and down the room,
+ * or tapped together, and `on.hint(text)` for a word on the status line.
  *
  * Its sound, once set up and tapped, is in the style of an old console. A
  * piece of the room asks for one of its sounds by name with
@@ -2217,6 +2222,32 @@
    * through `on.music`, and how long it stays open unused, in seconds.
    */
   const MUSIC_KEY = { w: 11, h: 9, gap: 2 };
+  /**
+   * The picked agent's keys, in a row under its desk: their size in art
+   * pixels, their labels' size, how long a key that wants a second tap
+   * stays armed for it, in seconds, and what's always there, first.
+   */
+  const KEY_ROW = { h: 14, gap: 2, inset: 3, text: 7, icon: 13, pad: 4 };
+  const KEY_ARMED_LENGTH = 2.5;
+  /** Two fingers scroll a line for this many CSS pixels they move; down and up again within this many seconds, still, they're a tap. */
+  const SCROLL_STEP = 4;
+  const TWO_FINGER_TAP = 0.35;
+  const ROW_KEYS = [
+    { action: 'esc', label: 'esc' }, { action: 'send', icon: 'send' }, { action: 'clear', label: '/clear', confirm: true },
+    { action: 'up', icon: 'up' }, { action: 'down', icon: 'down' },
+  ];
+  /** The layout's own buttons that are already the office's, by their ids, and the names of the keys a button can press. */
+  const BUILT_IN_BUTTONS = ['accept', 'reject', 'mic', 'up', 'down', 'esc', 'send', 'clear', 'max', 'efforts'];
+  const KEY_NAMES = { enter: '⏎', escape: 'esc', tab: '⇥', 'shift-tab': '⇤', up: '↑', down: '↓', 'ctrl-c': '^C' };
+  /** ⏎, in pixels. */
+  const SEND_MARK = ['0000001', '0000001', '0100001', '1111111', '0100000'];
+  /** The keys for the picked agent: the office's own, then your buttons from the layout, each by its label, its text or the key it presses. */
+  function rowKeysOf(layout) {
+    const yours = (layout && Array.isArray(layout.rows) ? layout.rows : []).flatMap((row) => (row && Array.isArray(row.buttons) ? row.buttons : []))
+      .filter((b) => b && typeof b.id === 'string' && !BUILT_IN_BUTTONS.includes(b.id))
+      .map((b) => ({ action: `button:${b.id}`, label: String(b.label || b.text || KEY_NAMES[b.key] || b.key || b.id).slice(0, 16), confirm: b.confirm === true }));
+    return [...ROW_KEYS, ...yours];
+  }
   const MUSIC_ACTIONS = ['previous', 'playpause', 'next'];
   const MUSIC_PANEL_LENGTH = 6;
   /** Play, pause, previous and next, in pixels. */
@@ -7576,6 +7607,86 @@
       }
     }
 
+    /**
+     * The picked agent's keys, wrapped on a strip of a bubble's paper along
+     * the foot of what can be seen, the same whoever is picked: the office's
+     * own first, ⏎ and the arrows in pixels, the rest labelled in the name
+     * labels' lettering. Where the foot is the room's own, it stops short of
+     * the red button and the mic, so they can still be pressed. A key that
+     * wants a second tap shows SURE? in red while it waits for it. Where each
+     * key lands is kept on `row.at`, and the strip on `row.box`, for taps.
+     */
+    function drawKeyRow(row) {
+      const { keys, armed, down } = row;
+      const font = `600 ${Math.max(KEY_ROW.text * scale, 7 * ratio)}px ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif`;
+      ctx.font = font;
+      const isArmed = (key) => armed && armed.action === key.action && now - armed.at < KEY_ARMED_LENGTH;
+      const labelOf = (key) => (isArmed(key) ? 'sure?' : key.label);
+      const widthOf = (key) => (key.icon && !isArmed(key) ? KEY_ROW.icon : Math.ceil(ctx.measureText(labelOf(key)).width / scale) + KEY_ROW.pad * 2);
+      const widths = keys.map(widthOf);
+      /** The keys wrapped onto rows `across` wide. */
+      const wrap = (across) => {
+        const rows = [[]];
+        let used = 0;
+        keys.forEach((key, i) => {
+          if (used && used + KEY_ROW.gap + widths[i] > across - KEY_ROW.inset * 2) { rows.push([]); used = 0; }
+          rows[rows.length - 1].push({ key, w: widths[i] });
+          used += (used ? KEY_ROW.gap : 0) + widths[i];
+        });
+        return rows;
+      };
+      const heightOf = (rows) => rows.length * (KEY_ROW.h + KEY_ROW.gap) - KEY_ROW.gap + KEY_ROW.inset * 2;
+      // The red button and the mic, where the strip would cover them: it stops short of them
+      let left = seen.left + 2, right = seen.right - 2;
+      let rows = wrap(right - left);
+      const { tap } = MIC_KINDS[decor.mic];
+      const controls = [['button', BUTTON.x - 7, BUTTON.y - 1, BUTTON.x + 8, BUTTON.y + 16], ['mic', MIC.x + tap.left, MIC.y + tap.top, MIC.x + tap.right, MIC.y + tap.bottom]]
+        .map(([part, l, tp, r, b]) => ({ a: placed(part, { x: l, y: tp }), b: placed(part, { x: r, y: b }) }));
+      for (let pass = 0; pass < 2; pass++) {
+        const top = seen.bottom - 2 - heightOf(rows);
+        for (const { a, b } of controls) {
+          if (b.y < top || b.x < left || a.x > right) continue;
+          if ((a.x + b.x) / 2 > (left + right) / 2) right = Math.min(right, Math.floor(a.x) - 3);
+          else left = Math.max(left, Math.ceil(b.x) + 3);
+        }
+        rows = wrap(right - left);
+      }
+      const w = right - left, h = heightOf(rows), top = Math.round(seen.bottom - 2 - h);
+      fill(left + 1, top, w - 2, h, PALETTE.bubbleEdge);
+      fill(left, top + 1, w, h - 2, PALETTE.bubbleEdge);
+      fill(left + 1, top + 1, w - 2, h - 2, PALETTE.bubble);
+      row.box = { left, top, right: left + w, bottom: top + h };
+      row.at = [];
+      rows.forEach((r, i) => {
+        let x = left + KEY_ROW.inset;
+        const y = top + KEY_ROW.inset + i * (KEY_ROW.h + KEY_ROW.gap);
+        for (const { key, w: kw } of r) {
+          const sunk = down && down.action === key.action && (down.held || now - down.at < CHOICE_PRESS_LENGTH) ? 1 : 0, ky = y + sunk;
+          const ready = isArmed(key);
+          fill(x + 1, ky, kw - 2, KEY_ROW.h - sunk, PALETTE.frame);
+          fill(x, ky + 1, kw, KEY_ROW.h - 2 - sunk, PALETTE.frame);
+          fill(x + 1, ky + 1, kw - 2, KEY_ROW.h - 2 - sunk, ready ? darker(PALETTE.dome) : sunk ? 0x2a2d35 : 0x3a3d47);
+          if (!sunk) fill(x + 1, ky + KEY_ROW.h - 2, kw - 2, 1, ready ? darker(darker(PALETTE.dome)) : 0x2a2d35);
+          fill(x + 2, ky + 1, kw - 4, 1, WHITE, sunk ? 0.1 : 0.25);
+          const ink = sunk ? PALETTE.terminal : PALETTE.bubble;
+          if (key.icon && !ready) {
+            const mark = key.icon === 'send' ? SEND_MARK : CHOICE_MARKS[key.icon];
+            const mx = x + Math.floor((kw - mark[0].length) / 2), my = ky + Math.floor((KEY_ROW.h - 2 - mark.length) / 2) + 1;
+            mark.forEach((bits, r2) => [...bits].forEach((bit, c) => { if (bit === '1') dot(mx + c, my + r2, ink); }));
+          } else {
+            const at = screen(x + kw / 2, ky + (KEY_ROW.h - 2) / 2 + 0.5);
+            ctx.font = font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = css(ready ? WHITE : ink);
+            ctx.fillText(labelOf(key), at.x, at.y);
+          }
+          row.at.push({ action: key.action, left: x, top: y, right: x + kw, bottom: y + KEY_ROW.h });
+          x += kw + KEY_ROW.gap;
+        }
+      });
+    }
+
     /** Arranging the room: a dotted line round each piece that can be picked, and a solid one round the one picked. */
     function drawArrangement({ pieces, picked, blocked, handle }) {
       for (const { part, box } of pieces) {
@@ -7788,6 +7899,7 @@
     if (frame.arranging) drawArrangement(frame.arranging);
     if (frame.musicTap) drawMusicTap(frame.musicTap);
     if (frame.musicPanel) drawMusicPanel(frame.musicPanel);
+    if (frame.keyRow) drawKeyRow(frame.keyRow);
     if (frame.styleKey) drawStyleKey(frame.styleKey);
     if (frame.firing) drawFireDialog(frame.firing);
     if (frame.styles) drawStyleMenu(frame.styles);
@@ -8587,6 +8699,13 @@
     let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
     let musicPanel = null;   // a music piece's control, held open: { part, at }, `at` when it was last used
     let musicDown = null;    // the music control's key last pressed: { action, at, held }
+    let keysOut = false;     // the picked agent's keys are out, from a tap on them till a tap elsewhere
+    let keyArmed = null;     // a key that wants a second tap, tapped once: { action, at }
+    let keyDown = null;      // the key last pressed: { action, at, held }
+    let keysAt = null;       // where the keys were last drawn, in art pixels: { keys, box }
+    // Two fingers on the room scroll the picked agent's Terminal: each finger by its id, where it is, in CSS pixels
+    const touches = new Map();
+    let scrolling = null;    // { y, at, moved, carry }, while two fingers are down
     // Arranging the room, on the setup page: the piece picked, and the one being dragged.
     let arranging = null;    // { picked, drag: { part, x, y, from } }
     let styleKeyAt = null;   // where the styles' key was last drawn, in art pixels
@@ -8708,6 +8827,12 @@
       return { left, top, w, h, tip, keys: MUSIC_ACTIONS.map((action, i) => ({ action, x: left + 2 + i * (MUSIC_KEY.w + MUSIC_KEY.gap), y: top + 2 })) };
     }
 
+    /** The picked agent's keys, along the foot of the room, if they're out and nothing else is up in their place. */
+    function keyRow() {
+      if (framed || !keysOut || !on.key || arranging || styling || firing || carrying || choices() || !selectedSession()) return null;
+      return { keys: rowKeysOf(latest && latest.layout), armed: keyArmed, down: keyDown };
+    }
+
     function choices() {
       if (framed) return null;
       const desk = office.seats.findIndex((s) => s.session && s.session.id === selected);
@@ -8754,6 +8879,7 @@
       ambience.follow(office, now, loudness(), { mic, carrying, music: music && music.playing === true });
       const key = styleKey();
       if (!key) styling = false;
+      const keys = keyRow();
       drawOffice(ctx, office, {
         now, hour: date.getHours(), minute: date.getMinutes(), month: date.getMonth(),
         width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1,
@@ -8769,8 +8895,10 @@
         music,
         musicTap: musicTap && now - musicTap.at < MUSIC_TAP_LENGTH && { box: pieceBox(musicTap.part), was: musicTap.was, since: now - musicTap.at },
         musicPanel: musicControl() && { ...musicControl(), playing: music.playing, down: musicDown },
+        keyRow: keys,
       });
       styleKeyAt = key && key.at;
+      keysAt = keys && keys.at ? { keys: keys.at, box: keys.box } : null;
     }
 
     function run() {
@@ -8900,6 +9028,12 @@
         const onStrip = x >= strip.left - 1 && x <= strip.left + strip.w + 1 && y >= strip.top - 1 && y <= strip.top + strip.h + 2;
         if (onStrip) return best && best.target.kind === 'chip' ? best.target : null;
       }
+      // The picked agent's keys cover what's under them: a tap on their strip goes to a key or nowhere.
+      if (keysAt && keyRow()) {
+        for (const k of keysAt.keys) consider({ kind: 'key', action: k.action }, k, -1);
+        const { box } = keysAt;
+        if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return best && best.target.kind === 'key' ? best.target : null;
+      }
       // The music control covers what's under it: a tap on it goes to a key or nowhere.
       const control = musicControl();
       if (control) {
@@ -8923,6 +9057,21 @@
 
     /** Everything a key or button does on the deck, done by tapping the room. */
     function press(target) {
+      // An agent tapped puts their keys out; anything else but their keys and chips puts them away.
+      if (target.kind === 'session') keysOut = true;
+      else if (target.kind !== 'key' && target.kind !== 'chip') keysOut = false;
+      if (target.kind !== 'key') keyArmed = null;
+      if (target.kind === 'key') {
+        keyDown = { action: target.action, at: clock(), held: true };
+        const wanted = rowKeysOf(latest && latest.layout).find((k) => k.action === target.action);
+        // A key that wants to be sure acts on its second tap, while it says SURE?
+        if (wanted && wanted.confirm && !(keyArmed && keyArmed.action === target.action && clock() - keyArmed.at < KEY_ARMED_LENGTH)) {
+          keyArmed = { action: target.action, at: clock() };
+          return on.held?.();
+        }
+        keyArmed = null;
+        return on.key?.(target.action);
+      }
       // Anything else tapped puts the held desk's chips and button away.
       const holding = held;
       if (target.kind !== 'chip') held = null;
@@ -9016,6 +9165,7 @@
         on.music?.('playpause');
       }
       if (musicDown) musicDown.held = false;
+      if (keyDown) keyDown.held = false;
       // A chip, once chosen, goes away with the rest.
       if (finger && finger.target.kind === 'chip') held = null;
       if (finger && !finger.held) {
@@ -9277,12 +9427,23 @@
         arranging.drag = { id: e.pointerId, part: hit.part, x, y, from };
         return;
       }
+      if (e.pointerType === 'touch') touches.set(e.pointerId, e.clientY);
+      // A second finger down: the two scroll the picked agent's Terminal, and what the first was doing stops.
+      if (touches.size === 2 && !scrolling) {
+        if (finger) lift();
+        canvas.setPointerCapture(e.pointerId);
+        scrolling = { y: middleOf(touches), at: clock(), moved: false, carry: 0 };
+        return;
+      }
+      if (scrolling) return;
       if (finger) return; // one finger at a time
       const target = targetAt(e.clientX, e.clientY);
       // A tap on the floor, with nothing there, puts away whatever was held out.
       if (!target) {
         held = null;
         musicPanel = null;
+        keysOut = false;
+        keyArmed = null;
         return;
       }
       canvas.setPointerCapture(e.pointerId);
@@ -9304,8 +9465,16 @@
       });
     }
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-      canvas.addEventListener(type, (e) => { if (finger && e.pointerId === finger.id) lift(type === 'pointerup'); });
+      canvas.addEventListener(type, (e) => {
+        if (finger && e.pointerId === finger.id) lift(type === 'pointerup');
+        if (!touches.delete(e.pointerId) || !scrolling || touches.size) return;
+        // Both up: a quick tap of two fingers, still, goes to the bottom
+        if (type === 'pointerup' && !scrolling.moved && clock() - scrolling.at < TWO_FINGER_TAP) on.scroll?.('bottom');
+        scrolling = null;
+      });
     }
+    /** Where two fingers are, between them, in CSS pixels down the page. */
+    const middleOf = (fingers) => [...fingers.values()].reduce((sum, y) => sum + y, 0) / fingers.size;
     canvas.addEventListener('pointermove', (e) => {
       if (arranging) {
         const { x, y } = roomAt(e.clientX, e.clientY);
@@ -9327,6 +9496,21 @@
         } else if (e.pointerType === 'mouse') {
           canvas.style.cursor = onHandle(e.clientX, e.clientY) ? 'nwse-resize'
             : arrangeable().some(({ box }) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) ? 'grab' : '';
+        }
+        return;
+      }
+      if (scrolling && touches.has(e.pointerId)) {
+        touches.set(e.pointerId, e.clientY);
+        if (touches.size < 2) return;
+        // Fingers going up scroll down, a line for each so far they go, as they go
+        const y = middleOf(touches);
+        scrolling.carry += scrolling.y - y;
+        scrolling.y = y;
+        if (Math.abs(scrolling.carry) >= SCROLL_STEP) scrolling.moved = true;
+        const lines = Math.trunc(scrolling.carry / SCROLL_STEP);
+        if (lines) {
+          scrolling.carry -= lines * SCROLL_STEP;
+          on.scroll?.(lines);
         }
         return;
       }
