@@ -273,19 +273,20 @@
       room[part] = Object.hasOwn(style.room, part) ? structuredClone(style.room[part]) : part === 'wall' ? [...STANDARD_WALL] : ROOM_CHOICES[part][0];
     }
     const plan = room.plan && typeof room.plan === 'object' && !Array.isArray(room.plan) ? room.plan : {};
-    for (const key of ['wide', 'tall']) {
-      const pieces = plan[key] && typeof plan[key] === 'object' && !Array.isArray(plan[key]) ? plan[key] : {};
-      STANDARD_DESKS.forEach((_, desk) => {
-        const piece = pieces[`desk${desk + 1}`] && typeof pieces[`desk${desk + 1}`] === 'object' ? pieces[`desk${desk + 1}`] : {};
-        for (const own of ['workspace', 'monitor', 'thing']) {
-          const mix = own === 'thing' ? style.things : STYLE_MIXES[room.preset] && STYLE_MIXES[room.preset][own];
-          if (mix && (!piece[own] || piece[own] === 'auto')) piece[own] = mix[desk % mix.length];
-        }
-        if (Object.keys(piece).length) pieces[`desk${desk + 1}`] = piece;
-      });
-      plan[key] = pieces;
-    }
-    room.plan = plan;
+    const object = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+    const shapes = { wide: object(plan.wide), tall: object(plan.tall) };
+    STANDARD_DESKS.forEach((_, desk) => {
+      const name = `desk${desk + 1}`, pieces = { wide: object(shapes.wide[name]), tall: object(shapes.tall[name]) };
+      for (const own of ['workspace', 'monitor', 'thing']) {
+        const mix = own === 'thing' ? style.things : STYLE_MIXES[room.preset] && STYLE_MIXES[room.preset][own];
+        // What the desk has of its own in either shape it keeps, as deskOwn has it: the mix only goes where it has nothing.
+        const given = (piece) => piece[own] !== 'auto' && DESK_CHOICES[own]().includes(piece[own]);
+        if (!mix || given(pieces.wide) || given(pieces.tall)) continue;
+        pieces.wide[own] = pieces.tall[own] = mix[desk % mix.length];
+      }
+      for (const key of ['wide', 'tall']) if (Object.keys(pieces[key]).length) shapes[key][name] = pieces[key];
+    });
+    room.plan = { ...plan, ...shapes };
     room.preset = 'yours';
     return room;
   }
