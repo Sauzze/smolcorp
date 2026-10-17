@@ -67,8 +67,10 @@ func TestEndingsOtherThanDone(t *testing.T) {
 func TestOnlyNotificationsThatWaitOnYouAsk(t *testing.T) {
 	s := NewSessions()
 	s.Apply(event("UserPromptSubmit"), Claude, tab, "", 100)
+	// An idle reminder doesn't ask anything of you; that it ends a turn left
+	// off with Esc is TestATurnLeftOffWithEscEndsWhenTheAgentWaitsForAPrompt's.
 	s.Apply(event("Notification", "notification_type", "idle_prompt"), Claude, tab, "", 200)
-	if got := stateAfter(t, s); got != Thinking {
+	if got := stateAfter(t, s); got == Asking {
 		t.Fatalf("an idle reminder turned the key %s", got)
 	}
 	s.Apply(event("Notification", "notification_type", "permission_prompt"), Claude, tab, "", 300)

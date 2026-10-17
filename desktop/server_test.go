@@ -89,7 +89,7 @@ func TestAPairedPhoneGetsTheDeck(t *testing.T) {
 	d := newTestDeck(t)
 	key := pair(t, d)
 	page := serve(t, d, call{method: "GET", target: "/?t=" + key, host: deckOnWiFi, from: aPhone})
-	if !strings.Contains(page.Body.String(), `id="keys"`) {
+	if !strings.Contains(page.Body.String(), `id="office-canvas"`) {
 		t.Fatal("a paired phone didn't get the deck")
 	}
 	if page.Header().Get("X-Frame-Options") != "DENY" {

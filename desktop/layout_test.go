@@ -643,7 +643,7 @@ func TestAnArrangementKeepsWhatCanBeArrangedAsItCanBe(t *testing.T) {
 		return p
 	}
 	want := map[string]Piece{
-		"desk1":  {X: 12, Y: -5, Size: 1, Workspace: "tent", Monitor: "crt", Finish: "walnut", Chair: "red", Thing: "duck"},
+		"desk1":  {X: 12, Y: -5, Size: 1, Off: true, Workspace: "tent", Monitor: "crt", Finish: "walnut", Chair: "red", Thing: "duck"},
 		"desk2":  with(Piece{Size: 1}),
 		"mic":    with(Piece{X: -3, Size: 1.5}),
 		"corner": with(Piece{X: pieceReach, Size: 1, Off: true}),
@@ -660,7 +660,7 @@ func TestAnArrangementKeepsWhatCanBeArrangedAsItCanBe(t *testing.T) {
 		t.Errorf("a tall arrangement that isn't one gave %v, want none", room.Plan.Tall)
 	}
 	written, err := json.Marshal(Room{})
-	if err != nil || !strings.Contains(string(written), `"plan":{"wide":{},"tall":{},"added":{"wide":[],"tall":[]}}`) {
+	if err != nil || !strings.Contains(string(written), `"plan":{"wide":{},"tall":{},"added":{"wide":[],"tall":[]},"hung":{}}`) {
 		t.Errorf("a room kept before arrangements wrote %s, %v; want an empty plan", written, err)
 	}
 }
@@ -758,5 +758,24 @@ func TestTheBackWallKeepsWhereItsPiecesHang(t *testing.T) {
 	}
 	if again.Hung.Wide != nil || again.Hung.Tall == nil {
 		t.Errorf("after saving: wide %v, tall %v; want nil and bare", again.Hung.Wide, again.Hung.Tall)
+	}
+}
+
+func TestAPositionFarOutOfRangeStopsAtTheEdge(t *testing.T) {
+	var plan Plan
+	given := `{"wide": {"couch": {"x": 1e20, "y": -1e300}}, "added": {"wide": [{"kind": "jukebox", "x": -1e20, "y": 1e20}]},
+		"hung": {"wide": [{"kind": "window", "x": 1e20}]}}`
+	if err := json.Unmarshal([]byte(given), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan = plan.checked()
+	if got := plan.Wide["couch"]; got.X != pieceReach || got.Y != -pieceReach {
+		t.Errorf("the couch is at %d, %d, want %d, %d", got.X, got.Y, pieceReach, -pieceReach)
+	}
+	if got := plan.Added.Wide[0]; got.X != -pieceReach || got.Y != pieceReach {
+		t.Errorf("the jukebox is at %d, %d", got.X, got.Y)
+	}
+	if got := (*plan.Hung.Wide)[0].X; got != wallLength {
+		t.Errorf("the window hangs at %d, want %d", got, wallLength)
 	}
 }

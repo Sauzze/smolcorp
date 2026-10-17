@@ -667,7 +667,7 @@ func (p *Plan) UnmarshalJSON(data []byte) error {
 				json.Unmarshal(parts[name], &given)
 				return given
 			}
-			pieces[part] = Piece{X: int(math.Round(number("x"))), Y: int(math.Round(number("y"))), Size: number("size"), Off: off,
+			pieces[part] = Piece{X: wholeWithin(number("x"), pieceReach), Y: wholeWithin(number("y"), pieceReach), Size: number("size"), Off: off,
 				Workspace: text("workspace"), Monitor: text("monitor"), Finish: text("finish"), Chair: text("chair"), Thing: text("thing")}
 		}
 		return pieces
@@ -690,7 +690,7 @@ func (p *Plan) UnmarshalJSON(data []byte) error {
 				json.Unmarshal(parts[name], &n)
 				return n
 			}
-			list = append(list, AddedPiece{Kind: kind, X: int(math.Round(number("x"))), Y: int(math.Round(number("y"))), Size: number("size")})
+			list = append(list, AddedPiece{Kind: kind, X: wholeWithin(number("x"), pieceReach), Y: wholeWithin(number("y"), pieceReach), Size: number("size")})
 		}
 		return list
 	}
@@ -712,13 +712,23 @@ func (p *Plan) UnmarshalJSON(data []byte) error {
 			json.Unmarshal(parts["kind"], &kind)
 			x := float64(wallMiddle)
 			json.Unmarshal(parts["x"], &x)
-			list = append(list, HungPiece{Kind: kind, X: int(math.Round(x))})
+			list = append(list, HungPiece{Kind: kind, X: wholeWithin(x, wallLength)})
 		}
 		return &list
 	}
 	*p = Plan{Wide: arranged(raw["wide"]), Tall: arranged(raw["tall"]), Added: Added{Wide: pieces(added["wide"]), Tall: pieces(added["tall"])},
 		Hung: Hung{Wide: wall(hung["wide"]), Tall: wall(hung["tall"])}}
 	return nil
+}
+
+// wholeWithin is n as a whole number no further than reach either side of 0:
+// clamped before it's made whole, as converting a number beyond an int's range
+// gives a different answer on each processor.
+func wholeWithin(n float64, reach int) int {
+	if math.IsNaN(n) {
+		return 0
+	}
+	return int(math.Round(max(-float64(reach), min(float64(reach), n))))
 }
 
 // checked is the arrangement with every piece within reach, at a size it can

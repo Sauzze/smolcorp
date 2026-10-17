@@ -377,7 +377,7 @@ struct Plan: Codable, Equatable {
             let given = ((try? c?.decodeIfPresent([String: Loose].self, forKey: key)) ?? nil) ?? [:]
             return given.reduce(into: [:]) { pieces, entry in
                 guard let kind = Plan.pieces[entry.key], let piece = entry.value.piece else { return }
-                let at = { (n: Double?) in min(Plan.reach, max(-Plan.reach, Int((n ?? 0).rounded()))) }
+                let at = { (n: Double?) in Plan.whole(n, within: -Plan.reach...Plan.reach) }
                 let desk = entry.key.hasPrefix("desk")
                 // One of a desk's own, or "auto"
                 func own(_ name: String, _ choices: [String]) -> String {
@@ -411,12 +411,20 @@ struct Plan: Codable, Equatable {
                 return
             }
             let x = ((try? c.decodeIfPresent(Double.self, forKey: .x)) ?? nil) ?? 110
-            piece = HungPiece(kind: kind, x: min(Plan.wallLength, max(0, Int(x.rounded()))))
+            piece = HungPiece(kind: kind, x: Plan.whole(x, within: 0...Plan.wallLength))
         }
     }
 
     /// Where a piece is moved to, within reach.
-    fileprivate static func at(_ n: Double?) -> Int { min(Plan.reach, max(-Plan.reach, Int((n ?? 0).rounded()))) }
+    fileprivate static func at(_ n: Double?) -> Int { whole(n, within: -reach...reach) }
+
+    /// `n` as a whole number within `range`: clamped before it's made whole,
+    /// as a number too big for an Int would stop the app, and 0 when it isn't
+    /// a number at all.
+    fileprivate static func whole(_ n: Double?, within range: ClosedRange<Int>) -> Int {
+        guard let n, n.isFinite else { return min(max(0, range.lowerBound), range.upperBound) }
+        return Int(min(Double(range.upperBound), max(Double(range.lowerBound), n)).rounded())
+    }
 
     /// An added piece as given, read leniently: one that isn't anything the corner can hold is left out.
     private struct LooseAdded: Decodable {

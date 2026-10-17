@@ -140,7 +140,7 @@ func TestADeckTellsTheWebhookAsSessionsChange(t *testing.T) {
 	setWebhook(t, d, `{"enabled": true, "url": "`+server.URL+`", "events": ["waiting", "done", "started"]}`)
 	apply := func(event map[string]any) {
 		d.mu.Lock()
-		d.sessions.Apply(event, Claude, "", "", float64(time.Now().UnixMilli()))
+		d.sessions.Apply(event, Claude, "launcher:"+event["session_id"].(string), "", float64(time.Now().UnixMilli()))
 		d.changed()
 		d.mu.Unlock()
 	}

@@ -222,8 +222,9 @@ func TestAnUpdateMovesGrokAndOpenCodeToTheNewName(t *testing.T) {
 			t.Errorf("%s is still there after the update", old)
 		}
 	}
-	if !isConnected(Grok) || !isConnected(OpenCode) {
-		t.Errorf("after the update: Grok connected %v, OpenCode %v; want both", isConnected(Grok), isConnected(OpenCode))
+	// Under the test program's own name, Grok's file is there to see rather than its hooks to recognise
+	if _, err := os.Stat(filepath.Join(home, ".grok", "hooks", "smolcorp.json")); err != nil || !isConnected(OpenCode) {
+		t.Errorf("after the update: Grok's new file %v, OpenCode connected %v; want both", err, isConnected(OpenCode))
 	}
 	// Disconnecting takes out both names
 	writeFile(t, oldGrokHooks(), `{"hooks": {}}`)
