@@ -903,7 +903,10 @@
     outfit: ['auto', 'tee', 'hoodie', 'collar', 'sweater', 'jacket', 'suit', 'labcoat', 'polo', 'cardigan', 'hawaiian', 'tracksuit',
       'overalls', 'waistcoat'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
-    desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug', 'none'],
+    desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
+      'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
+      'potions', 'egg', 'spellbook', 'controller', 'energy', 'headset', 'circuit', 'pizza', 'coffeepot', 'dumbbell', 'shaker',
+      'kettlebell', 'coconut', 'pineapple', 'tikimug', 'enamel', 'lantern', 'pinecone', 'none'],
     workspace: ['auto', ...ROOM_CHOICES.workspace],
   };
   /** The most a nickname can be, in characters, and the most projects a team remembers. */
@@ -3894,8 +3897,166 @@
       };
     }
 
+    /** What else can sit at the end of a desk whose corner is at `x`, `y`, where the plant, papers or lamp go. */
+    const DESK_ITEMS = {
+      /** Space helmet. */
+      helmet(x, y) {
+        fill(x + 36, y - 5, 6, 5, 0xe8e8ec); fill(x + 37, y - 6, 4, 1, 0xe8e8ec); fill(x + 37, y - 4, 4, 2, PALETTE.brass); dot(x + 37, y - 4, WHITE, 0.7); fill(x + 36, y, 6, 1, 0x8a93a3); dot(x + 41, y - 2, 0xd4140b);
+      },
+      /** Model rocket. */
+      rocket(x, y) {
+        fill(x + 37, y, 5, 1, 0x3a3f4a); fill(x + 39, y - 7, 2, 6, 0xe8e8ec); fill(x + 39, y - 8, 2, 1, 0xd4140b); dot(x + 39, y - 5, 0x4ad4e8); fill(x + 38, y - 2, 1, 2, 0xd4140b); fill(x + 41, y - 2, 1, 2, 0xd4140b);
+      },
+      /** Plant under glass. */
+      terrarium(x, y) {
+        fill(x + 35, y, 8, 1, 0x6e4a2e); fill(x + 37, y - 3, 1, 3, PALETTE.leafDark); fill(x + 38, y - 4, 2, 2, PALETTE.leaf); dot(x + 39, y - 2, PALETTE.leaf);
+        fill(x + 36, y - 6, 6, 6, 0xcfeee0, 0.18); fill(x + 37, y - 7, 4, 1, 0xcfeee0, 0.7); fill(x + 36, y - 6, 1, 6, 0xcfeee0, 0.6); fill(x + 41, y - 6, 1, 6, 0xcfeee0, 0.6); dot(x + 37, y - 5, WHITE, 0.6);
+      },
+      /** Quill and inkpot. */
+      quill(x, y) {
+        fill(x + 35, y - 2, 4, 3, 0x1d1f25); fill(x + 36, y - 3, 2, 1, 0x3a3d47); line(x + 37, y - 3, x + 40, y - 8, 0xf4f1ea); fill(x + 40, y - 9, 2, 3, 0xf4f1ea); dot(x + 41, y - 10, 0xf4f1ea); dot(x + 39, y - 6, 0xc8c4ba);
+      },
+      /** Candelabra. */
+      candelabra(x, y) {
+        const gold = PALETTE.brass;
+        fill(x + 36, y - 9, 7, 6, 0xffd36b, 0.1);
+        fill(x + 37, y, 5, 1, gold); fill(x + 39, y - 5, 1, 5, gold); fill(x + 36, y - 5, 7, 1, gold); dot(x + 36, y - 6, gold); dot(x + 42, y - 6, gold);
+        for (const [cx, top] of [[36, -8], [39, -9], [42, -8]]) { fill(x + cx, y + top + 1, 1, -top - 7 + 1, 0xf4f1ea); dot(x + cx, y + top, Math.floor(now * 6 + cx) % 2 ? 0xffd36b : 0xff8a3d); }
+      },
+      /** Jewelled goblet. */
+      goblet(x, y) {
+        const gold = PALETTE.brass; fill(x + 37, y - 6, 4, 3, gold); fill(x + 37, y - 6, 4, 1, 0x6a1e2a); dot(x + 38, y - 4, 0xd4140b); fill(x + 38, y - 3, 2, 2, 0x9a7a3a); fill(x + 37, y - 1, 4, 1, gold);
+      },
+      /** Bottle of rum. */
+      rum(x, y) {
+        fill(x + 38, y - 5, 3, 5, 0x3b6a3a); fill(x + 39, y - 8, 1, 3, 0x3b6a3a); dot(x + 39, y - 9, 0xc9a06a); fill(x + 38, y - 3, 3, 2, 0xe0c890); dot(x + 38, y - 5, WHITE, 0.4);
+      },
+      /** Brass compass. */
+      compass(x, y) {
+        fill(x + 36, y - 7, 5, 3, 0x9a7a3a); fill(x + 37, y - 6, 3, 1, 0xf4f1ea);
+        fill(x + 36, y - 3, 5, 3, PALETTE.brass); fill(x + 37, y - 4, 3, 1, PALETTE.brass); fill(x + 37, y - 3, 3, 2, 0xf4f1ea);
+        dot(x + 38 + Math.round(Math.sin(now * 2.5) * 0.7), y - 3, 0xd4140b);
+      },
+      /** Skull candle. */
+      skull(x, y) {
+        fill(x + 36, y - 4, 5, 4, 0xe8e4d6); dot(x + 37, y - 3, 0x1d1f25); dot(x + 39, y - 3, 0x1d1f25); dot(x + 37, y - 1, 0x8a846f); dot(x + 39, y - 1, 0x8a846f);
+        fill(x + 38, y - 7, 2, 3, 0xf4f1ea); dot(x + 37, y - 5, 0xf4f1ea); dot(x + 40, y - 4, 0xf4f1ea);
+        dot(x + 38 + (Math.floor(now * 5) % 2), y - 8, 0xffd36b); dot(x + 38, y - 9, 0xff8a3d, 0.6); fill(x + 36, y - 10, 5, 4, 0xffd36b, 0.08);
+      },
+      /** Snow globe. */
+      snowglobe(x, y) {
+        fill(x + 36, y - 1, 7, 2, 0x8c6744); disc(x + 39, y - 5, 3.2, 0xcfe3ef, 0.35); ring(x + 39, y - 5, 3, 0xcfe3ef, 0.7);
+        fill(x + 38, y - 5, 3, 3, 0x2f5a3a); dot(x + 39, y - 6, 0x2f5a3a);
+        for (let k = 0; k < 3; k++) { const f = (now * 0.6 + k / 3) % 1; dot(x + 37 + k * 2, y - 7 + Math.round(f * 5), WHITE); }
+        dot(x + 37, y - 7, WHITE, 0.6);
+      },
+      /** Thermos and cup. */
+      thermos(x, y) {
+        fill(x + 37, y - 6, 4, 6, 0xc9443a); fill(x + 37, y - 8, 4, 2, 0x8a8f9c); fill(x + 37, y - 3, 4, 1, 0x9a2a2a);
+        fill(x + 41, y - 2, 2, 2, 0x8a8f9c); const rise = (now * 0.6) % 1; dot(x + 41, y - 3 - Math.round(rise * 4), WHITE, 0.6 * (1 - rise));
+      },
+      /** Penguin figure. */
+      penguin(x, y) {
+        fill(x + 37, y - 6, 4, 6, 0x1d1f25); fill(x + 38, y - 4, 2, 4, 0xf4f1ea); dot(x + 38, y - 5, 0xe8823a); dot(x + 37, y - 5, WHITE); fill(x + 37, y, 4, 1, 0xe8823a);
+      },
+      /** Potions. */
+      potions(x, y) {
+        fill(x + 36, y - 4, 4, 4, 0x5ad46a, 0.85); fill(x + 37, y - 6, 2, 2, 0xcfe3ef, 0.6); dot(x + 37, y - 7, 0xc9a06a);
+        const rise = (now * 0.9) % 1; dot(x + 37 + (Math.floor(now * 3) % 2), y - 1 - Math.round(rise * 3), 0xb8f0c0, 1 - rise);
+        fill(x + 41, y - 6, 2, 6, 0x9a6ad0, 0.85); dot(x + 41, y - 7, 0xcfe3ef, 0.6); dot(x + 41, y - 8, 0xc9a06a);
+      },
+      /** Dragon egg. */
+      egg(x, y) {
+        const t = now % 6, wob = t < 0.6 ? Math.round(Math.sin(t * 30)) : 0;
+        fill(x + 35, y, 8, 1, 0xc9a06a); dot(x + 35, y - 1, 0xc9a06a); dot(x + 42, y - 1, 0xc9a06a);
+        fill(x + 37 + wob, y - 6, 4, 1, 0x3f8a6a); fill(x + 36 + wob, y - 5, 6, 5, 0x3f8a6a); fill(x + 41 + wob, y - 5, 1, 5, 0x2f6a52);
+        dot(x + 37 + wob, y - 4, PALETTE.brass); dot(x + 39 + wob, y - 2, PALETTE.brass); dot(x + 40 + wob, y - 5, PALETTE.brass); dot(x + 37 + wob, y - 5, WHITE, 0.4);
+      },
+      /** Spellbook. */
+      spellbook(x, y) {
+        fill(x + 34, y - 1, 9, 2, 0x5a2a6a); fill(x + 35, y - 2, 7, 2, PALETTE.paper); fill(x + 38, y - 2, 1, 2, 0xc8c4ba);
+        const rise = (now * 0.5) % 1; dot(x + 38, y - 4 - Math.round(rise * 4), 0xc05aff, 1 - rise); dot(x + 37 + (Math.floor(now * 2) % 3), y - 3, 0xc05aff, 0.5);
+      },
+      /** Game controller. */
+      controller(x, y) {
+        fill(x + 36, y - 2, 7, 2, 0x3a3d47); fill(x + 36, y, 2, 1, 0x3a3d47); fill(x + 41, y, 2, 1, 0x3a3d47);
+        dot(x + 37, y - 2, 0x6a7080); dot(x + 41, y - 2, 0xd4140b); dot(x + 42, y - 1, 0x4c8bf5); dot(x + 40, y - 1, 0x6fd36f);
+      },
+      /** Energy drinks. */
+      energy(x, y) {
+        fill(x + 37, y - 5, 3, 5, 0x2a2d35); fill(x + 37, y - 6, 3, 1, 0x9aa0a6); fill(x + 37, y - 3, 3, 1, 0x6fd36f); dot(x + 38, y - 4, 0x6fd36f);
+        fill(x + 40, y - 1, 3, 1, 0x2a2d35); dot(x + 41, y - 1, 0x6fd36f); dot(x + 40, y - 2, 0x2a2d35);
+      },
+      /** Headset on a stand. */
+      headset(x, y) {
+        fill(x + 39, y - 7, 1, 7, 0x1d1f25); fill(x + 37, y, 5, 1, 0x1d1f25); fill(x + 37, y - 8, 5, 1, 0x2a2d35);
+        for (const cx of [x + 36, x + 41]) { fill(cx, y - 7, 2, 3, 0x2a2d35); dot(cx + (cx > x + 38 ? 1 : 0), y - 6, rainbow((now * 0.3) % 1)); }
+      },
+      /** Board and soldering iron. */
+      circuit(x, y) {
+        fill(x + 34, y - 1, 6, 2, 0x2f7a4a); dot(x + 35, y - 1, 0x1d1f25); dot(x + 37, y - 1, PALETTE.brass); dot(x + 38, y, 0x1d1f25);
+        fill(x + 41, y - 1, 2, 1, 0x8a8f9c); line(x + 41, y - 2, x + 43, y - 6, 0xc9443a); dot(x + 40, y - 1, 0xc8cdd6);
+        const rise = (now * 0.4) % 1; dot(x + 40 + Math.round(Math.sin(rise * 6)), y - 3 - Math.round(rise * 5), PALETTE.smoke, 0.5 * (1 - rise));
+      },
+      /** Pizza box. */
+      pizza(x, y) {
+        fill(x + 34, y - 7, 9, 5, 0xb8905a); dot(x + 38, y - 5, 0xc9443a);
+        fill(x + 34, y - 2, 9, 3, 0xc9a06a); fill(x + 35, y - 2, 7, 2, 0xe8b04a); dot(x + 36, y - 2, 0xc9443a); dot(x + 39, y - 1, 0xc9443a); fill(x + 40, y - 2, 2, 2, 0xc9a06a);
+      },
+      /** Coffee machine. */
+      coffeepot(x, y) {
+        fill(x + 38, y - 8, 5, 8, 0x2a2a2e); fill(x + 38, y - 8, 5, 1, 0x3a3a40); dot(x + 42, y - 6, 0xd4140b);
+        fill(x + 36, y - 3, 4, 3, 0xcfe3ef, 0.45); fill(x + 36, y - 2, 4, 2, 0x5a3a24);
+        const rise = (now * 0.6) % 1; dot(x + 37, y - 4 - Math.round(rise * 4), WHITE, 0.5 * (1 - rise));
+      },
+      /** Dumbbell. */
+      dumbbell(x, y) {
+        fill(x + 36, y - 2, 2, 3, 0x2a2c30); fill(x + 38, y - 1, 3, 1, 0x8a8f9c); fill(x + 41, y - 2, 2, 3, 0x2a2c30); dot(x + 36, y - 2, 0x4a4e56);
+      },
+      /** Protein shaker. */
+      shaker(x, y) {
+        fill(x + 37, y - 6, 4, 6, 0xe8e4da, 0.85); fill(x + 37, y - 4, 4, 4, 0xc9a06a); fill(x + 37, y - 8, 4, 2, 0x1d1f25); dot(x + 39, y - 9, 0x1d1f25); dot(x + 37, y - 6, WHITE, 0.6);
+      },
+      /** Kettlebell. */
+      kettlebell(x, y) {
+        fill(x + 37, y - 6, 4, 1, 0x1d1f25); dot(x + 37, y - 5, 0x1d1f25); dot(x + 40, y - 5, 0x1d1f25); fill(x + 36, y - 4, 6, 4, 0xe0703a); dot(x + 37, y - 3, 0xf08a50);
+      },
+      /** Coconut drink. */
+      coconut(x, y) {
+        fill(x + 36, y - 4, 5, 4, 0x6e4a2e); fill(x + 36, y - 4, 5, 1, 0xe8e4da); line(x + 39, y - 4, x + 41, y - 8, 0xe07aa0);
+        fill(x + 36, y - 8, 5, 1, 0xf2d35b); fill(x + 37, y - 9, 3, 1, 0xf2d35b); fill(x + 38, y - 7, 1, 3, 0x8a6a42);
+      },
+      /** Pineapple. */
+      pineapple(x, y) {
+        fill(x + 37, y - 5, 4, 5, 0xe8c04a); for (const [dx, dy] of [[0, 4], [2, 4], [1, 3], [3, 3], [0, 2], [2, 2], [1, 1], [3, 1]]) dot(x + 37 + dx, y - dy, 0xb8902a);
+        fill(x + 38, y - 8, 2, 3, PALETTE.leaf); dot(x + 37, y - 7, PALETTE.leafDark); dot(x + 40, y - 7, PALETTE.leafDark); dot(x + 39, y - 9, PALETTE.leaf);
+      },
+      /** Tiki mug. */
+      tikimug(x, y) {
+        fill(x + 37, y - 6, 4, 6, 0x8a5a2b); dot(x + 37, y - 4, 0x1d1f25); dot(x + 40, y - 4, 0x1d1f25); fill(x + 38, y - 2, 2, 1, 0x1d1f25); dot(x + 41, y - 4, 0x8a5a2b); dot(x + 41, y - 3, 0x8a5a2b);
+        fill(x + 38, y - 8, 1, 2, 0xe07aa0); dot(x + 39, y - 7, PALETTE.leaf);
+      },
+      /** Enamel camp mug. */
+      enamel(x, y) {
+        fill(x + 37, y - 3, 4, 3, 0x3f6fc4); fill(x + 37, y - 3, 4, 1, 0x1d1f25); dot(x + 38, y - 1, WHITE); dot(x + 40, y - 2, WHITE); fill(x + 41, y - 2, 1, 2, 0x3f6fc4);
+        const rise = (now * 0.6) % 1; dot(x + 38, y - 4 - Math.round(rise * 4), WHITE, 0.6 * (1 - rise));
+      },
+      /** Camp lantern. */
+      lantern(x, y) {
+        const flick = 0.75 + 0.25 * Math.sin(now * 11) * Math.sin(now * 5.3);
+        fill(x + 35, y - 9, 9, 9, 0xffd36b, 0.1 * flick);
+        fill(x + 37, y - 1, 5, 1, 0x2f5a3a); fill(x + 37, y - 5, 5, 4, 0xffd36b, flick); fill(x + 37, y - 5, 1, 4, 0x2f5a3a); fill(x + 41, y - 5, 1, 4, 0x2f5a3a);
+        fill(x + 37, y - 6, 5, 1, 0x2f5a3a); dot(x + 38, y - 8, 0x2f5a3a); dot(x + 40, y - 8, 0x2f5a3a); dot(x + 39, y - 9, 0x2f5a3a);
+      },
+      /** Pinecone. */
+      pinecone(x, y) {
+        fill(x + 37, y - 4, 4, 4, 0x8a5a2b); fill(x + 38, y - 5, 2, 1, 0x8a5a2b); for (const [dx, dy] of [[0, 1], [2, 1], [1, 2], [3, 2], [0, 3], [2, 3]]) dot(x + 37 + dx, y - dy, 0xa87048);
+      },
+    };
+
     /** Something on a desk whose corner is at `x`, `y`: a plant, papers, a lamp, or what you've put on it. */
     function drawDeskThing(thing, x, y) {
+      if (Object.hasOwn(DESK_ITEMS, thing)) return DESK_ITEMS[thing](x, y);
       if (thing === 'plant') {
         fill(x + 38, y - 2, 3, 3, PALETTE.pot);
         fill(x + 37, y - 5, 5, 3, PALETTE.leaf);
