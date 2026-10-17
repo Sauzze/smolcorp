@@ -55,9 +55,12 @@ type Session struct {
 	WaitingFor string
 	// When ☢ Max was last pressed for this session, in ms. Only the button
 	// sets it, never the dial, so the office knows which one was used.
-	MaxPressedAt  float64
-	Compacting    bool
-	TurnStartedAt float64
+	MaxPressedAt float64
+	// Ended for /clear or /resume, when: the session waits for the one
+	// taking its place in its tab. See EndHandOns.
+	HandingOnSince float64
+	Compacting     bool
+	TurnStartedAt  float64
 	// Why the last turn failed, as Claude Code names it: "rate_limit",
 	// "overloaded"… Kept while the session shows the error.
 	ErrorKind string
@@ -151,10 +154,13 @@ type Sessions struct {
 	// When each ended or replaced session ended. A resumed session raises
 	// events after that time and is welcome back; a late one does not.
 	endedAt map[string]float64
+	// Sessions that took another's place in its tab since the deck last
+	// looked, new id to old: the deck gives each the key the old one had.
+	replacements map[string]string
 }
 
 func NewSessions() *Sessions {
-	return &Sessions{byID: map[string]*Session{}, endedAt: map[string]float64{}}
+	return &Sessions{byID: map[string]*Session{}, endedAt: map[string]float64{}, replacements: map[string]string{}}
 }
 
 // All is oldest first, so a session keeps its place as others come and go.
@@ -184,6 +190,13 @@ func (s *Sessions) Apply(event map[string]any, agent Agent, tab, startedIn strin
 		return false
 	}
 	if name == "SessionEnd" {
+		// Ended by /clear or /resume, a session waits a moment for the one
+		// taking its place in the same tab, which then keeps its key.
+		reason, _ := event["reason"].(string)
+		if session := s.byID[id]; session != nil && session.Tab != "" && handedOn[reason] {
+			session.HandingOnSince = at
+			return false
+		}
 		s.end(id, at)
 		return true
 	}
@@ -220,7 +233,7 @@ func (s *Sessions) Apply(event map[string]any, agent Agent, tab, startedIn strin
 	}
 	followModel(name, event, session)
 	followDetails(name, event, session, at)
-	if next, ok := transition(name, event); ok {
+	if next, ok := transition(name, event, session); ok {
 		session.State = next
 		if next != Failed {
 			session.ErrorKind = ""
@@ -255,9 +268,38 @@ func (s *Sessions) adopt(id string, agent Agent, folder, startedIn, tab string, 
 		session.Effort = previous.Effort
 		session.Model = previous.Model
 		s.end(previous.ID, at)
+		s.replacements[id] = previous.ID
 	}
 	s.byID[id] = session
 	return session
+}
+
+// TakeReplacements gives the sessions that have taken another's place since
+// it was last asked, such as after /clear, each with the id it replaced.
+func (s *Sessions) TakeReplacements() map[string]string {
+	taken := s.replacements
+	s.replacements = map[string]string{}
+	return taken
+}
+
+// handedOn is why a session ends when another takes its place in the same tab.
+var handedOn = map[string]bool{"clear": true, "resume": true}
+
+// handOnWait is how long a session ended for /clear or /resume waits for the
+// one taking its place, in ms.
+const handOnWait = 5000
+
+// EndHandOns ends for good the sessions ended for /clear or /resume that
+// nothing has taken the place of in time.
+func (s *Sessions) EndHandOns(now float64) bool {
+	changed := false
+	for _, session := range s.All() {
+		if session.HandingOnSince > 0 && now-session.HandingOnSince > handOnWait {
+			s.end(session.ID, now)
+			changed = true
+		}
+	}
+	return changed
 }
 
 // projectOf is the project of a session started in folder: the top folder of
@@ -424,6 +466,17 @@ func followDetails(name string, event map[string]any, session *Session, at float
 	// started it.
 	_, fromSubagent := event["agent_id"]
 	switch name {
+	case "Notification":
+		switch event["notification_type"] {
+		case "idle_prompt":
+			if session.State == Thinking {
+				session.endTurn(nil)
+			}
+		case "quota_auto_resume_fired":
+			if session.TurnStartedAt == 0 {
+				session.TurnStartedAt = at
+			}
+		}
 	case "UserPromptSubmit":
 		session.TurnStartedAt = at
 		session.StoppedSubagents = nil
@@ -490,7 +543,7 @@ func (s *Sessions) end(id string, at float64) {
 	}
 }
 
-func transition(name string, event map[string]any) (SessionState, bool) {
+func transition(name string, event map[string]any, session *Session) (SessionState, bool) {
 	switch name {
 	case "SessionStart":
 		// A resume or compaction is the same conversation carrying on.
@@ -508,6 +561,14 @@ func transition(name string, event map[string]any) (SessionState, bool) {
 	case "PostToolUse", "PostToolUseFailure":
 		return Thinking, true
 	case "Notification":
+		switch event["notification_type"] {
+		// Waiting for a prompt a while after Esc, which no hook reports: the turn was over.
+		case "idle_prompt":
+			return Idle, session.State == Thinking
+		// A usage limit has reset and the task carries on by itself.
+		case "quota_auto_resume_fired":
+			return Thinking, true
+		}
 		return Asking, isWaitingOnUser(event)
 	case "Stop":
 		return Unread, true

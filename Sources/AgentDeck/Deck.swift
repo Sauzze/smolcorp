@@ -58,6 +58,7 @@ final class Deck {
 
         Timer.scheduledTimer(withTimeInterval: Deck.seenCheckInterval, repeats: true) { [weak self] _ in
             self?.checkFrontTab()
+            self?.sessions.endHandOns(now: Date().timeIntervalSince1970 * 1000)
         }
         Timer.scheduledTimer(withTimeInterval: Deck.closedTabCheckInterval, repeats: true) { [weak self] _ in
             self?.pruneClosedTabs()
