@@ -276,8 +276,9 @@
 
   const ROOM_CHOICES = {
     mic: ['mic', 'megaphone'],
-    floor: ['wood', 'tiles', 'concrete', 'carpet'],
-    paint: ['slate', 'sage', 'clay', 'cream'],
+    floor: ['wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass', 'forest', 'rubber',
+      'epoxy', 'arcade'],
+    paint: ['slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block', 'foam'],
     lounge: ['navy', 'teal', 'plum', 'sand'],
     corner: ['arcade', 'vending', 'foosball', 'fishtank', 'books', 'dragon', 'pinball', 'jukebox', 'pool', 'piano', 'drums',
       'telescope', 'jellyfish', 'bonsai', 'jungle', 'coffee', 'servers', 'printer', 'boxing', 'treadmill', 'hottub', 'ballpit',
@@ -718,6 +719,17 @@
     sage: { wall: 0x34463d, top: 0x2a3931, wainscot: 0x2b3a32, rail: 0x485c50, lounge: 0x3b4a43 },
     clay: { wall: 0x4b3631, top: 0x3e2c28, wainscot: 0x3c2b27, rail: 0x60463f, lounge: 0x51393b },
     cream: { wall: 0xb5ad98, top: 0xa39b86, wainscot: 0x8f8773, rail: 0xcac2ad, lounge: 0xc0b6a0 },
+    // A wall with a finish of its own, drawn in drawOffice's WALL_FINISHES: its colours, for above the room and the setup page
+    hull: { wall: 0x3a404c, top: 0x2a2f39, wainscot: 0x2a2f39, rail: 0x6a7280, lounge: 0x3a404c },
+    timber: { wall: 0x5a3b25, top: 0x3a2616, wainscot: 0x3a2616, rail: 0xc9a06a, lounge: 0x5a3b25 },
+    damask: { wall: 0x6a1e2a, top: 0x4e1620, wainscot: 0x4a2618, rail: 0xd6b25e, lounge: 0x6a1e2a },
+    stone: { wall: 0x4d5056, top: 0x26282c, wainscot: 0x34363b, rail: 0x6a6d73, lounge: 0x4d5056 },
+    ice: { wall: 0xb4d0e2, top: 0x86aac0, wainscot: 0xe8f0f6, rail: 0xdcebf4, lounge: 0xb4d0e2 },
+    logs: { wall: 0x7a5232, top: 0x2a1d16, wainscot: 0x5a3b25, rail: 0x9a6a42, lounge: 0x7a5232 },
+    brick: { wall: 0x8a3a2a, top: 0x3a2e2a, wainscot: 0x4a5060, rail: 0x5a6070, lounge: 0x8a3a2a },
+    bamboo: { wall: 0xa8a050, top: 0x2a2a18, wainscot: 0x8a8440, rail: 0xb8b05a, lounge: 0xa8a050 },
+    block: { wall: 0x9aa0a8, top: 0x6a7078, wainscot: 0x2a2c30, rail: 0x3a3d42, lounge: 0x9aa0a8 },
+    foam: { wall: 0x16171c, top: 0x0e0f13, wainscot: 0x16171c, rail: 0x24262e, lounge: 0x16171c },
   };
   /** The lounge's carpet, and its edge along the office's floor. */
   const LOUNGES = {
@@ -960,6 +972,14 @@
   }
 
   const random = (low, high) => low + Math.random() * (high - low);
+  /** A number from 0 to 2³² − 1 for a pair of whole numbers, the same every time: to vary a pattern from tile to tile. */
+  const hash = (x, y) => {
+    let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return (h ^ (h >>> 16)) >>> 0;
+  };
+  /** The first multiple of `step`, offset by `off`, at or left of `left`: so a pattern lines up wherever it's cut. */
+  const from = (left, step, off = 0) => left - ((((left - off) % step) + step) % step);
   const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
   /* ----------------------------------------------------------- the people */
@@ -1704,9 +1724,11 @@
     3: ['111', '001', '111', '001', '111'], 4: ['101', '101', '111', '001', '001'], 5: ['111', '100', '111', '001', '111'],
     6: ['111', '100', '111', '101', '111'], 7: ['111', '001', '001', '001', '001'], 8: ['111', '101', '111', '101', '111'],
     9: ['111', '101', '111', '001', '111'], ':': ['0', '1', '0', '1', '0'], '+': ['000', '010', '111', '010', '000'],
+    '-': ['000', '000', '111', '000', '000'],
     m: ['000', '000', '111', '111', '101'], h: ['100', '100', '111', '101', '101'],
     // The letters the office's buttons spell
     D: ['110', '101', '101', '101', '110'], E: ['111', '100', '110', '100', '111'], F: ['111', '100', '110', '100', '100'],
+    G: ['011', '100', '101', '101', '011'],
     H: ['101', '101', '111', '101', '101'], I: ['111', '010', '010', '010', '111'], K: ['101', '101', '110', '101', '101'],
     O: ['010', '101', '101', '101', '010'], P: ['110', '101', '110', '100', '100'], R: ['110', '101', '110', '101', '101'],
     U: ['101', '101', '101', '101', '111'], Y: ['101', '101', '010', '010', '010'], "'": ['1', '1', '0', '0', '0'],
@@ -1982,6 +2004,39 @@
       }
     }
 
+    /** A round thing of radius `r`, filled, row by row. */
+    function disc(cx, cy, r, color, alpha = 1) {
+      for (let row = -Math.floor(r); row <= Math.floor(r); row++) {
+        const half = Math.floor(Math.sqrt(r * r - row * row));
+        fill(cx - half, cy + row, half * 2 + 1, 1, color, alpha);
+      }
+    }
+    /** The rim of a round thing of radius `r`, a dot at a time. */
+    function ring(cx, cy, r, color, alpha = 1) {
+      const steps = Math.ceil(r * 8);
+      for (let k = 0; k < steps; k++) {
+        const a = (k / steps) * Math.PI * 2;
+        dot(cx + Math.round(Math.cos(a) * r), cy + Math.round(Math.sin(a) * r), color, alpha);
+      }
+    }
+    /** A line of dots from one point to another. */
+    function line(x0, y0, x1, y1, color, alpha = 1) {
+      const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) || 1;
+      for (let k = 0; k <= steps; k++) dot(Math.round(x0 + ((x1 - x0) * k) / steps), Math.round(y0 + ((y1 - y0) * k) / steps), color, alpha);
+    }
+    /** Draws only inside `rects`, each [x, y, w, h], leaving the rest as it was. */
+    function within(rects, draw) {
+      ctx.save();
+      ctx.beginPath();
+      for (const [x, y, w, h] of rects) ctx.rect(ox + x * scale, oy + y * scale, w * scale, h * scale);
+      ctx.clip();
+      try {
+        draw();
+      } finally {
+        ctx.restore();
+      }
+    }
+
     // The sky keeps the computer's time, or it's always the middle of the day.
     const daylight = decor.sky === 'day' ? 12 : hour;
     const isNight = daylight >= 20 || daylight < 5;
@@ -2135,17 +2190,269 @@
       }
     }
 
+    /**
+     * The walls' finishes besides paint, each drawn from `L` to `R` as the
+     * back wall is, from its top down to the baseboard: its top edge, a
+     * rail at 30 and the baseboard at 38, so what hangs on it sits as it
+     * does on paint.
+     */
+    const WALL_FINISHES = {
+      /** Hull panels. Status lights blink along the panels; a pipe runs along the rail over a hazard strip. */
+      hull(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 40, 0x3a404c); fill(L, 0, w, 2, 0x2a2f39);
+        for (let x = from(L, 24); x < R; x += 24) {
+          fill(x, 2, 1, 28, 0x2a2f39); fill(x + 1, 2, 1, 28, 0x4a515e);
+          for (const ry of [4, 13, 18, 27]) { dot(x + 3, ry, 0x5f6775); dot(x + 21, ry, 0x5f6775); }
+        }
+        fill(L, 15, w, 1, 0x2a2f39); fill(L, 16, w, 1, 0x4a515e);
+        for (let x = from(L, 48, 12); x < R; x += 48) {
+          const beat = (Math.floor(now * 1.5) + Math.floor(x / 48)) % 3;
+          fill(x - 1, 7, 5, 3, 0x1d1f25); dot(x, 8, 0x6fd36f, beat === 0 ? 1 : 0.3); dot(x + 2, 8, 0xf2d35b, beat === 1 ? 1 : 0.25);
+        }
+        fill(L, 30, w, 8, 0x2a2f39);
+        fill(L, 31, w, 3, 0x6a7280); fill(L, 31, w, 1, 0x8a93a3); fill(L, 33, w, 1, 0x4a515e);
+        for (let x = from(L, 40, 8); x < R; x += 40) fill(x, 30, 2, 5, 0x4a515e);
+        for (let x = L; x < R; x++) for (const row of [36, 37]) dot(x, row, Math.floor((x + row) / 2) % 2 ? PALETTE.hazard : 0x1d1f25);
+        fill(L, 38, w, 2, PALETTE.baseboard);
+      },
+      /** Ship's timbers. Planks pegged at their ends between heavy beams, and a rope for the rail. */
+      timber(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 30, 0x5a3b25); fill(L, 0, w, 2, 0x3a2616);
+        for (let y = 2, row = 0; y < 30; y += 4, row++) {
+          fill(L, y, w, 1, 0x4a301e); fill(L, y + 1, w, 1, 0x6b4a2e, 0.5);
+          for (let x = from(L, 39, (row % 3) * 13); x < R; x += 39) { fill(x, y, 1, 4, 0x3a2616); dot(x + 2, y + 2, 0x8a6a42); dot(x - 2, y + 2, 0x8a6a42); }
+        }
+        for (let x = from(L, 64, 20); x < R; x += 64) { fill(x, 0, 5, 30, 0x4a301e); fill(x, 0, 1, 30, 0x6b4a2e); fill(x + 4, 0, 1, 30, 0x3a2616); }
+        fill(L, 30, w, 8, 0x3a2616);
+        for (let x = from(L, 16); x < R; x += 16) fill(x + 2, 32, 12, 5, 0x4a301e);
+        for (let x = L; x < R; x++) { const k = ((x % 3) + 3) % 3; dot(x, 30, k === 0 ? 0x8a6a42 : 0xc9a06a); dot(x, 31, k === 1 ? 0x8a6a42 : 0xb8905a); }
+        fill(L, 38, w, 2, PALETTE.baseboard);
+      },
+      /** Damask and gilt rail. Red damask over dark panelling, a gilt rail between them. */
+      damask(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 30, 0x6a1e2a); fill(L, 0, w, 2, 0x4e1620);
+        for (let x = from(L, 8); x < R; x += 8) for (let y = 3, r = 0; y < 26; y += 7, r++) {
+          const cx = x + (r % 2) * 4;
+          for (const [dx, dy] of [[2, 0], [1, 1], [3, 1], [0, 2], [4, 2], [1, 3], [3, 3], [2, 4]]) dot(cx + dx, y + dy, PALETTE.brass, 0.32);
+          dot(cx + 2, y + 2, PALETTE.brass, 0.7);
+        }
+        fill(L, 30, w, 8, 0x4a2618);
+        for (let x = from(L, 20); x < R; x += 20) { fill(x + 2, 32, 16, 5, 0x5a301e); fill(x + 2, 32, 16, 1, 0x3a1c10); }
+        fill(L, 30, w, 1, PALETTE.brass); fill(L, 31, w, 1, 0x9a7a3a);
+        fill(L, 38, w, 2, PALETTE.baseboard);
+      },
+      /** Castle stone. Blocks of grey stone, moss in a few joints, a stone ledge for the rail. */
+      stone(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 40, 0x34363b);
+        const block = (x, y, bw, bh, h) => {
+          const tone = [0x55585e, 0x4d5056, 0x5c5f65][h % 3];
+          fill(x, y, bw - 1, bh - 1, tone); fill(x, y, bw - 1, 1, 0x686b71);
+          if (h % 7 === 0) { dot(x + 2, y + bh - 2, 0x3b5a3a); dot(x + 3, y + bh - 2, 0x4f7a3a); }
+        };
+        for (let y = 0, row = 0; y < 30; y += 6, row++) for (let x = from(L, 14, (row % 2) * 7); x < R; x += 14) block(x, y, 14, 6, hash(x, row));
+        fill(L, 30, w, 2, 0x6a6d73); fill(L, 30, w, 1, 0x7a7d83);
+        for (let x = from(L, 18); x < R; x += 18) block(x, 32, 18, 7, hash(x, 9));
+        fill(L, 0, w, 2, 0x26282c);
+        fill(L, 38, w, 2, PALETTE.baseboard);
+      },
+      /** Ice blocks. Blocks of ice catching the light, snow drifted along the bottom. */
+      ice(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 30, 0x9ec0d4); fill(L, 0, w, 2, 0x86aac0);
+        for (let y = 2, row = 0; y < 30; y += 7, row++) for (let x = from(L, 16, (row % 2) * 8); x < R; x += 16) {
+          const tone = hash(x, row) % 3 === 0 ? 0xc4dcea : 0xb4d0e2;
+          fill(x, y, 15, 6, tone); fill(x, y, 15, 1, 0xe0eef6); dot(x + 1, y + 1, WHITE, 0.7); fill(x + 14, y + 1, 1, 5, 0xa4c4d8);
+        }
+        fill(L, 30, w, 8, 0xe8f0f6);
+        for (let x = from(L, 12); x < R; x += 12) { fill(x + 2, 29, 7, 1, 0xe8f0f6); fill(x + 4, 28, 3, 1, 0xe8f0f6); fill(x, 35, 12, 3, 0xd2e0ea); }
+        fill(L, 38, w, 2, 0x5a7a90);
+      },
+      /** Log cabin. Round logs stacked to the floor, chinked between, a knot here and there. */
+      logs(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 40, 0x3a2616);
+        for (let y = 1, row = 0; y < 38; y += 5, row++) {
+          fill(L, y, w, 4, 0x7a5232); fill(L, y, w, 1, 0x9a6a42); fill(L, y + 3, w, 1, 0x5a3b25); fill(L, y + 4, w, 1, 0x9a8a6a);
+          for (let x = from(L, 23, (row * 7) % 23); x < R; x += 23) { dot(x, y + 1, 0x5a3b25); dot(x + 1, y + 2, 0x5a3b25); }
+        }
+        fill(L, 0, w, 1, 0x2a1d16);
+        fill(L, 38, w, 2, PALETTE.baseboard);
+      },
+      /** Bare brick. Brick above, a painted band below. */
+      brick(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 30, 0x5a4a44);
+        for (let y = 0, row = 0; y < 30; y += 4, row++) for (let x = from(L, 10, (row % 2) * 5); x < R; x += 10) {
+          const tone = [0x8a3a2a, 0x9a4432, 0x7a3022, 0x8f4030][hash(x, row) % 4];
+          fill(x, y + 1, 9, 3, tone); fill(x, y + 1, 9, 1, shaded(tone, 1.15));
+        }
+        fill(L, 0, w, 2, 0x3a2e2a);
+        fill(L, 30, w, 8, 0x4a5060); fill(L, 30, w, 1, 0x5a6070);
+        fill(L, 38, w, 2, PALETTE.baseboard);
+      },
+      /** Bamboo. Canes side by side, more laid across below and lashed with rope. */
+      bamboo(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 30, 0x3a3a20);
+        for (let x = from(L, 5); x < R; x += 5) {
+          const i = Math.floor(x / 5), cane = i % 2 ? 0xa8a050 : 0x9a9248;
+          fill(x, 0, 4, 30, cane); fill(x, 0, 1, 30, shaded(cane, 1.15)); fill(x + 3, 0, 1, 30, shaded(cane, 0.8));
+          for (let y = 4 + (hash(i, 3) % 7); y < 30; y += 11) { fill(x, y, 4, 1, 0x6a6430); fill(x, y + 1, 4, 1, shaded(cane, 1.2)); }
+        }
+        fill(L, 30, w, 8, 0x3a3a20);
+        for (const y of [30, 33]) { fill(L, y, w, 3, 0x8a8440); fill(L, y, w, 1, 0xb8b05a); }
+        for (let x = from(L, 20, 4); x < R; x += 20) { fill(x, 30, 2, 6, 0xc9a06a); dot(x + 2, 31, 0xc9a06a); }
+        fill(L, 0, w, 2, 0x2a2a18);
+        fill(L, 38, w, 2, PALETTE.baseboard);
+      },
+      /** Painted blockwork. Painted blocks with a stripe in the gym's colours, padded below. */
+      block(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 30, 0x80868e);
+        for (let y = 0, row = 0; y < 30; y += 6, row++) for (let x = from(L, 16, (row % 2) * 8); x < R; x += 16) { fill(x, y, 15, 5, 0x9aa0a8); fill(x, y, 15, 1, 0xa8aeb6); }
+        fill(L, 0, w, 2, 0x6a7078);
+        fill(L, 19, w, 3, 0xd4140b); fill(L, 22, w, 1, PALETTE.hazard);
+        fill(L, 30, w, 8, 0x2a2c30); for (let x = from(L, 12); x < R; x += 12) fill(x, 30, 1, 8, 0x1d1f25); fill(L, 30, w, 1, 0x3a3d42);
+        fill(L, 38, w, 2, PALETTE.baseboard);
+      },
+      /** Acoustic foam. Foam tiles, turned this way and that, and an LED strip along the top that cycles the colours. */
+      foam(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 38, 0x16171c);
+        for (let x = from(L, 8); x < R; x += 8) for (let y = 4, r = 0; y < 36; y += 8, r++) {
+          const across = (Math.floor(x / 8) + r) % 2 === 0;
+          for (let k = 0; k < 3; k++) { if (across) fill(x + 1, y + 1 + k * 2, 6, 1, 0x24262e); else fill(x + 1 + k * 2, y + 1, 1, 6, 0x24262e); }
+        }
+        fill(L, 0, w, 2, 0x0e0f13);
+        for (let x = L; x < R; x++) { const c = rainbow((((now * 0.15) + x / 120) % 1 + 1) % 1); dot(x, 2, c); dot(x, 3, c, 0.25); dot(x, 4, c, 0.1); }
+        fill(L, 38, w, 2, PALETTE.baseboard);
+      },
+    };
+
+    /** The office's floors besides wood, tiles, concrete and carpet, each from `L`, `T` to `R`, `B`, lined up from the room's corner. */
+    const FLOOR_FINISHES = {
+      /** Deck plating. Riveted plates with a grille every so often. */
+      plating(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0x50565f);
+        for (let y = T, r = 0; y < B; y += 12, r++) for (let x = from(L, 16); x < R; x += 16) {
+          const c = Math.floor(x / 16);
+          if (((c * 3 + r * 5) % 7 + 7) % 7 === 0) { fill(x + 2, y + 2, 13, 9, 0x2a2e36); for (let k = 0; k < 4; k++) fill(x + 3, y + 3 + k * 2, 11, 1, 0x454b55); }
+          else for (let k = 0; k < 4; k++) fill(x + 4 + k * 3, y + 4 + (k % 2) * 3, 2, 1, 0x5a606a);
+          fill(x, y, 16, 1, 0x3c4149); fill(x, y, 1, 12, 0x3c4149); fill(x + 1, y + 1, 15, 1, 0x5f6670);
+          for (const [dx, dy] of [[2, 2], [14, 2], [2, 10], [14, 10]]) dot(x + dx, y + dy, 0x7a828f);
+        }
+      },
+      /** Ship's deck. Wide planks, tarred seams, pegged at their ends. */
+      deck(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0x8a6440);
+        for (let y = T, row = 0; y < B; y += 4, row++) {
+          fill(L, y, R - L, 1, 0x3a2616);
+          if (row % 2) fill(L, y + 1, R - L, 1, 0x9a7450, 0.5);
+          for (let x = from(L, 48, (row % 4) * 12); x < R; x += 48) { fill(x, y, 1, 4, 0x3a2616); dot(x + 2, y + 2, 0x5a3b25); dot(x - 2, y + 2, 0x5a3b25); }
+        }
+      },
+      /** Chequered marble. Black and white marble, veined. */
+      marble(L, T, R, B) {
+        for (let y = T, r = 0; y < B; y += 10, r++) for (let x = from(L, 10); x < R; x += 10) {
+          const c = Math.floor(x / 10), dark = ((c + r) % 2 + 2) % 2 === 1;
+          fill(x, y, 10, 10, dark ? 0x3a3540 : 0xe4e0d8);
+          const vein = dark ? 0x4e4856 : 0xc8c2b8, k = hash(c, r) % 6;
+          for (let s = 0; s < 6; s++) dot(x + ((k + s) % 10), y + s + 2, vein);
+        }
+      },
+      /** Flagstones. Uneven stones, moss in a few gaps. */
+      flagstone(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0x2a2c2a);
+        for (let y = T, r = 0; y < B; y += 9, r++) for (let x = from(L, 15, (r % 2) * 7); x < R; x += 15) {
+          const h = hash(x, r), w = 13 - (h % 3), tone = [0x5a5d5a, 0x63665f, 0x55585b, 0x5e5a52][(h >>> 3) % 4];
+          fill(x + 1, y + 1, w, 7, tone); fill(x + 1, y + 1, w, 1, shaded(tone, 1.15)); fill(x + 1, y + 7, w, 1, shaded(tone, 0.85));
+          if (h % 5 === 0) { dot(x + w + 1, y + 3, 0x3b5a3a); dot(x + w + 1, y + 4, 0x4f7a3a); }
+        }
+      },
+      /** Packed snow. Wind lines in the snow, a glint here and there. */
+      snow(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0xdbe6ef);
+        for (let y = T, r = 0; y < B; y += 6, r++) for (let x = from(L, 14, (r % 2) * 7); x < R; x += 14) {
+          const h = hash(x, r);
+          fill(x + (h % 5), y + 2, 5 + ((h >>> 3) % 4), 1, 0xc0d2e2);
+          if ((h >>> 5) % 3 === 0) fill(x + ((h >>> 6) % 7), y + 4, 3, 1, 0xccdae6);
+          if ((h >>> 8) % 4 === 1) dot(x + ((h >>> 9) % 11), y + ((h >>> 4) % 5), WHITE, 0.4 + 0.6 * Math.max(0, Math.sin(now * 2 + h)));
+        }
+      },
+      /** Grass. Tufts and the odd flower. */
+      grass(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0x4a7a3a);
+        for (let y = T, r = 0; y < B; y += 8, r++) for (let x = from(L, 8); x < R; x += 8) {
+          const h = hash(x, r);
+          if (((Math.floor(x / 8) + r) % 2 + 2) % 2) fill(x, y, 8, 8, 0x467238);
+          const tx = x + (h % 6), ty = y + 1 + ((h >>> 2) % 6);
+          dot(tx, ty, 0x6a9a4a); dot(tx + 1, ty - 1, 0x6a9a4a); dot(tx + 2, ty, 0x5a8a42);
+          if ((h >>> 7) % 9 === 0) dot(x + ((h >>> 3) % 7), y + ((h >>> 1) % 7), h % 2 ? 0xf2d35b : 0xf6b8cc);
+        }
+      },
+      /** Forest floor. Earth, fallen leaves, pine needles and pebbles. */
+      forest(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0x5a4632);
+        for (let y = T, r = 0; y < B; y += 6, r++) for (let x = from(L, 7); x < R; x += 7) {
+          const h = hash(x, r);
+          if ((h >>> 13) % 5 === 0) fill(x, y, 5, 3, 0x4e3c2a);
+          if (h % 3 === 0) fill(x + (h % 5), y + ((h >>> 3) % 5), 2, 1, [0xb8562a, 0xd9893a, 0xe0b040][(h >>> 4) % 3]);
+          if ((h >>> 9) % 4 === 0) fill(x + ((h >>> 5) % 6), y + ((h >>> 7) % 5), 2, 1, 0x3b5a3a);
+          if ((h >>> 11) % 11 === 0) dot(x + 3, y + 2, 0x8a8f9c);
+        }
+      },
+      /** Rubber gym tiles. Interlocking tiles, flecked. */
+      rubber(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0x26282d);
+        for (let y = T, r = 0; y < B; y += 16, r++) for (let x = from(L, 16); x < R; x += 16) {
+          fill(x, y, 16, 1, 0x18191c); fill(x, y, 1, 16, 0x18191c);
+          fill(x + 6, y, 4, 1, 0x26282d); fill(x + 6, y + 1, 4, 1, 0x18191c);
+          fill(x, y + 6, 1, 4, 0x26282d); fill(x + 1, y + 6, 1, 4, 0x18191c);
+          for (let k = 0; k < 7; k++) { const h = hash(x + k, r); dot(x + 2 + (h % 13), y + 2 + ((h >>> 4) % 13), (h >>> 8) % 3 ? 0x34373e : 0x3f5a8a); }
+        }
+      },
+      /** Garage epoxy. Flecked epoxy with a yellow line and an oil stain or two. */
+      epoxy(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0x5f646c);
+        for (let y = T, r = 0; y < B; y += 5, r++) for (let x = from(L, 6); x < R; x += 6) { const h = hash(x, r); dot(x + (h % 6), y + ((h >>> 3) % 5), [0x6e737c, 0x52565d, 0x7d828a][(h >>> 6) % 3]); }
+        for (let x = from(L, 120, 60); x < R; x += 120) fill(x, T, 2, B - T, 0xe8c04a);
+        for (let x = from(L, 120, 20); x < R; x += 120) { const y = T + 14; fill(x, y, 7, 3, 0x3e4148, 0.7); fill(x + 1, y - 1, 5, 5, 0x3e4148, 0.7); dot(x + 2, y, 0x8a7ab0, 0.4); }
+        for (let x = from(L, 40, 10); x < R; x += 40) fill(x, T + 3, 1, B - T - 3, WHITE, 0.05);
+      },
+      /** Arcade carpet. The dark carpet with neon squiggles every arcade had. */
+      arcade(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0x1c1a33);
+        for (let y = T, r = 0; y < B; y += 12, r++) for (let x = from(L, 12, (r % 2) * 6); x < R; x += 12) {
+          const h = hash(x, r) % 4;
+          if (h === 0) for (let k = 0; k < 5; k++) dot(x + 2 + k, y + 3 + (k % 2), 0xe0507a);
+          else if (h === 1) { dot(x + 4, y + 6, 0x4ad4e8); dot(x + 5, y + 5, 0x4ad4e8); dot(x + 6, y + 6, 0x4ad4e8); dot(x + 5, y + 7, 0x4ad4e8); }
+          else if (h === 2) { dot(x + 3, y + 8, 0xf2d35b); fill(x + 3, y + 9, 2, 1, 0xf2d35b); fill(x + 3, y + 10, 3, 1, 0xf2d35b); }
+          else { dot(x + 8, y + 2, 0x9a6ad0); dot(x + 2, y + 9, 0x4ad4e8); }
+        }
+      },
+    };
+
     function drawWall() {
       const { left, top, right, width: across } = seen;
-      const paint = PAINTS[decor.paint];
+      const paint = PAINTS[decor.paint], finish = WALL_FINISHES[decor.paint];
       // Held upright, the back wall is the office's alone: the lounge has its own, below.
       const wide = shape === WIDE, loungeLeft = wide ? LOUNGE_LEFT : right;
-      fill(left, top, loungeLeft - left, WALL_BOTTOM - top, paint.wall);
-      fill(loungeLeft, top, right - loungeLeft, WALL_BOTTOM - top, paint.lounge);
-      fill(left, top, across, 2, paint.top);
-      fill(left, 30, across, 8, paint.wainscot);
-      fill(left, 30, across, 1, paint.rail);
-      fill(left, 38, across, 2, PALETTE.baseboard);
+      if (finish) {
+        // The same all along, the lounge's too, and its colour above the room
+        if (top < 0) fill(left, top, across, -top, paint.wall);
+        finish(left, right);
+      } else {
+        fill(left, top, loungeLeft - left, WALL_BOTTOM - top, paint.wall);
+        fill(loungeLeft, top, right - loungeLeft, WALL_BOTTOM - top, paint.lounge);
+        fill(left, top, across, 2, paint.top);
+        fill(left, 30, across, 8, paint.wainscot);
+        fill(left, 30, across, 1, paint.rail);
+        fill(left, 38, across, 2, PALETTE.baseboard);
+      }
       if (wide) fill(LOUNGE_LEFT, top, 1, WALL_BOTTOM - top, paint.top);
 
       decor.wall.forEach((piece, slot) => drawWallPiece(piece, WALL_SLOTS[slot]));
@@ -2273,6 +2580,8 @@
           fill(x, y, 1, 36, 0x67696e);
           for (let k = 0; k < 7; k++) dot(x + ((c * 13 + r * 7 + k * 11) % 33) + 1, y + ((c * 5 + r * 17 + k * 9) % 33) + 2, 0x80838a);
         });
+      } else if (FLOOR_FINISHES[decor.floor]) {
+        FLOOR_FINISHES[decor.floor](left, top, officeRight, officeBottom);
       } else if (decor.floor === 'carpet') {
         fill(left, top, across, depth, 0x4b5065);
         squares(12, (x, y, c, r, w) => {
@@ -2314,7 +2623,7 @@
      */
     function drawLoungeWall() {
       const { left, right } = seen;
-      const paint = PAINTS[decor.paint];
+      const paint = PAINTS[decor.paint], finish = WALL_FINISHES[decor.paint];
       const top = shape.loungeWall - WALL_BOTTOM;
       const face = (l, r) => {
         fill(l, top, r - l, WALL_BOTTOM, paint.lounge);
@@ -2322,11 +2631,22 @@
         fill(l, top + 30, r - l, 1, paint.rail);
         fill(l, top + 38, r - l, 2, PALETTE.baseboard);
       };
-      // Either side of the doorway, and above it
-      face(left, 207);
-      face(221, right);
-      fill(207, top, 14, 13, paint.lounge);
-      fill(left, top, right - left, 2, paint.top);
+      if (finish) {
+        // Its finish, as the back wall has it, either side of the doorway and above it
+        const kept = oy;
+        oy += top * scale;
+        try {
+          within([[left, 0, 207 - left, WALL_BOTTOM], [221, 0, right - 221, WALL_BOTTOM], [207, 0, 14, 13]], () => finish(left, right));
+        } finally {
+          oy = kept;
+        }
+      } else {
+        // Either side of the doorway, and above it
+        face(left, 207);
+        face(221, right);
+        fill(207, top, 14, 13, paint.lounge);
+        fill(left, top, right - left, 2, paint.top);
+      }
       // The doorway's frame, open onto the corridor
       fill(205, top + 13, 18, 2, PALETTE.frame);
       fill(205, top + 15, 2, 25, PALETTE.frame);

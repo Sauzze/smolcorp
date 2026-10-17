@@ -120,8 +120,10 @@ struct Room: Codable, Equatable {
     /// Each part's choices; the first is the standard one.
     static let choices = [
         "mic": ["mic", "megaphone"],
-        "floor": ["wood", "tiles", "concrete", "carpet"],
-        "paint": ["slate", "sage", "clay", "cream"],
+        "floor": ["wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest", "rubber",
+                  "epoxy", "arcade"],
+        "paint": ["slate", "sage", "clay", "cream", "hull", "timber", "damask", "stone", "ice", "logs", "brick", "bamboo", "block",
+                  "foam"],
         "lounge": ["navy", "teal", "plum", "sand"],
         "corner": ["arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
                    "telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub",
