@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	agentdeck "github.com/Sauzze/agentdeck"
+	agentdeck "github.com/Sauzze/smolcorp"
 	"rsc.io/qr"
 )
 

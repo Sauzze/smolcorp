@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Sauzze/agentdeck/desktop"
+	"github.com/Sauzze/smolcorp/desktop"
 )
 
 // version is set by scripts/release-desktop.sh.

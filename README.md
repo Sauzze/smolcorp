@@ -5,7 +5,7 @@
 
 # Smolcorp
 
-[![CI](https://github.com/Sauzze/agentdeck/actions/workflows/ci.yml/badge.svg)](https://github.com/Sauzze/agentdeck/actions/workflows/ci.yml)
+[![CI](https://github.com/Sauzze/smolcorp/actions/workflows/ci.yml/badge.svg)](https://github.com/Sauzze/smolcorp/actions/workflows/ci.yml)
 
 <p align="center">
   <img src="docs/demo.gif" alt="Smolcorp on a phone held sideways: the office fills the screen, and the new hire, in an orange tie, works at their desk while coffee mugs drop in as their effort rises; a finger held on their desk brings up their keys along the foot of the room; they wait for an answer, the phone's edge glows orange and ✓ is tapped; then the jukebox plays and heads bob to the beat" width="800">
@@ -92,7 +92,7 @@ There are two ways. Both give you the same app.
 ### Download the app
 
 1. Download **Smolcorp.zip** from the
-   [latest release](https://github.com/Sauzze/agentdeck/releases/latest) and open it.
+   [latest release](https://github.com/Sauzze/smolcorp/releases/latest) and open it.
 2. Drag **Smolcorp** into your Applications folder, then open it.
 3. macOS will say it can't check Smolcorp for malicious software, because
    the app isn't notarised by Apple. Click **Done**, then go to
@@ -118,8 +118,8 @@ You need Apple's free developer tools. The installer offers to install them if
 you don't have them. A copy you build yourself opens without the warning.
 
 ```bash
-git clone https://github.com/Sauzze/agentdeck.git
-cd agentdeck
+git clone https://github.com/Sauzze/smolcorp.git
+cd smolcorp
 ./install.sh
 ```
 
@@ -654,7 +654,7 @@ docs/                screenshots for this page
 Smolcorp also runs on Windows and Linux, with the same phone deck, the
 same pairing and the same agents. It's a preview: the Linux version is
 tested, the Windows version is built but hasn't been run on a real PC yet.
-Please report how it goes in [the issues](https://github.com/Sauzze/agentdeck/issues).
+Please report how it goes in [the issues](https://github.com/Sauzze/smolcorp/issues).
 
 What's different from the Mac:
 
@@ -677,7 +677,7 @@ What's different from the Mac:
 ### Linux
 
 Download **Smolcorp-Linux-x86_64.tar.gz** (or `-arm64`) from the
-[latest release](https://github.com/Sauzze/agentdeck/releases/latest), then:
+[latest release](https://github.com/Sauzze/smolcorp/releases/latest), then:
 
 ```bash
 tar -xzf Smolcorp-Linux-x86_64.tar.gz
@@ -697,7 +697,7 @@ page opens in your browser.
 ### Windows
 
 1. Download **Smolcorp-Windows-x86_64.zip** (or `-arm64` for an ARM
-   PC) from the [latest release](https://github.com/Sauzze/agentdeck/releases/latest),
+   PC) from the [latest release](https://github.com/Sauzze/smolcorp/releases/latest),
    and extract it.
 2. Open **Smolcorp.exe**. Windows SmartScreen warns about an unsigned
    app: click **More info**, then **Run anyway**.

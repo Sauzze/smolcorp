@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"strings"
 
-	agentdeck "github.com/Sauzze/agentdeck"
+	agentdeck "github.com/Sauzze/smolcorp"
 )
 
 // Hooks is where each coding agent is told to run the hook, as the Mac app's
