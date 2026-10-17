@@ -265,30 +265,38 @@
   /**
    * Styles for the whole office, picked from the phone or the setup page:
    * each furnishes it from the standard. Your own furnishing stays under a
-   * style, as Yours, and what a style leaves alone stays yours too.
+   * style, as Yours, and what a style leaves alone stays yours too. A
+   * style's `things` go on its desks, one to each, unless a project has
+   * its own.
    */
   const ROOM_STYLES = {
     classic: { name: 'Classic', room: {} },
-    campsite: { name: 'Campsite', room: { workspace: 'tent', floor: 'carpet', paint: 'sage', lounge: 'teal', corner: 'campfire', pet: 'dog',
-      chair: 'green', wall: ['window', 'plant', 'window', 'plant', 'window'] } },
-    royal: { name: 'Royal court', room: { workspace: 'throne', floor: 'carpet', paint: 'clay', lounge: 'plum', corner: 'piano', desk: 'walnut',
-      chair: 'red', pet: 'cat', wall: ['window', 'poster', 'window', 'shelf', 'window'] } },
-    space: { name: 'Space station', room: { workspace: 'cockpit', floor: 'concrete', paint: 'slate', lounge: 'navy', corner: 'telescope',
-      desk: 'black', chair: 'grey', staff: 'none', wall: ['window', 'whiteboard', 'window', 'bare', 'window'] } },
-    pirates: { name: 'Pirate cove', room: { workspace: 'ship', floor: 'wood', paint: 'clay', lounge: 'sand', corner: 'jukebox', desk: 'walnut',
-      pet: 'monkey' } },
-    arctic: { name: 'Arctic base', room: { workspace: 'igloo', floor: 'tiles', paint: 'cream', lounge: 'teal', corner: 'hottub', desk: 'white',
-      chair: 'grey', pet: 'cat' } },
-    lair: { name: "Dragon's lair", room: { workspace: 'greenhouse', floor: 'carpet', paint: 'sage', lounge: 'plum', corner: 'dragon',
-      pet: 'lizard', chair: 'green', wall: ['window', 'plant', 'window', 'plant', 'window'] } },
-    gamers: { name: 'Gamer den', room: { workspace: 'gaming', floor: 'carpet', paint: 'slate', lounge: 'navy', corner: 'pinball', desk: 'black',
-      chair: 'black', wall: ['poster', 'window', 'poster', 'window', 'poster'] } },
-    garage: { name: 'Startup garage', room: { workspace: 'box', floor: 'concrete', paint: 'cream', lounge: 'sand', corner: 'servers',
-      chair: 'grey', staff: 'many', wall: ['whiteboard', 'window', 'whiteboard', 'shelf', 'window'] } },
-    gym: { name: 'Fitness floor', room: { workspace: 'standing', floor: 'tiles', paint: 'slate', lounge: 'teal', corner: 'boxing',
-      mic: 'megaphone', desk: 'white' } },
-    jungle: { name: 'Jungle', room: { workspace: 'beanbag', floor: 'wood', paint: 'sage', lounge: 'teal', corner: 'jungle', pet: 'monkey',
-      wall: ['plant', 'window', 'plant', 'window', 'plant'] } },
+    campsite: { name: 'Campsite', room: { workspace: 'tent', floor: 'forest', paint: 'logs', lounge: 'teal', corner: 'campfire', pet: 'dog',
+      chair: 'green', monitor: 'laptop', wall: ['cabin', 'trail', 'cabin', 'paddles', 'cabin'] }, things: ['lantern', 'enamel', 'pinecone'] },
+    royal: { name: 'Royal court', room: { workspace: 'throne', floor: 'marble', paint: 'damask', lounge: 'plum', corner: 'piano', desk: 'walnut',
+      chair: 'red', pet: 'cat', monitor: 'gilt', wall: ['stained', 'tapestry', 'portrait', 'shield', 'stained'] },
+      things: ['candelabra', 'quill', 'goblet'] },
+    space: { name: 'Space station', room: { workspace: 'cockpit', floor: 'plating', paint: 'hull', lounge: 'navy', corner: 'telescope',
+      desk: 'black', chair: 'grey', staff: 'none', monitor: 'holo', wall: ['viewport', 'panel', 'whiteboard', 'pipes', 'porthole'] },
+      things: ['helmet', 'rocket', 'terrarium'] },
+    pirates: { name: 'Pirate cove', room: { workspace: 'ship', floor: 'deck', paint: 'timber', lounge: 'sand', corner: 'jukebox', desk: 'walnut',
+      pet: 'monkey', monitor: 'brass', wall: ['seaPorthole', 'map', 'seaPorthole', 'cutlasses', 'flag'] }, things: ['compass', 'rum', 'skull'] },
+    arctic: { name: 'Arctic base', room: { workspace: 'igloo', floor: 'snow', paint: 'ice', lounge: 'teal', corner: 'hottub', desk: 'white',
+      chair: 'grey', pet: 'cat', monitor: 'ice', wall: ['frost', 'skis', 'frost', 'weather', 'frost'] },
+      things: ['snowglobe', 'thermos', 'penguin'] },
+    lair: { name: "Dragon's lair", room: { workspace: 'greenhouse', floor: 'flagstone', paint: 'stone', lounge: 'plum', corner: 'dragon',
+      pet: 'lizard', chair: 'green', monitor: 'crystal', wall: ['torch', 'arch', 'torch', 'arch', 'torch'] },
+      things: ['potions', 'egg', 'spellbook'] },
+    gamers: { name: 'Gamer den', room: { workspace: 'gaming', floor: 'arcade', paint: 'foam', lounge: 'navy', corner: 'pinball', desk: 'black',
+      chair: 'black', monitor: 'ultrawide', wall: ['neon', 'tv', 'hex', 'tv', 'neon'] }, things: ['controller', 'energy', 'headset'] },
+    garage: { name: 'Startup garage', room: { workspace: 'box', floor: 'epoxy', paint: 'brick', lounge: 'sand', corner: 'servers',
+      chair: 'grey', staff: 'many', monitor: 'dual', wall: ['whiteboard', 'roller', 'pegboard', 'whiteboard', 'bike'] },
+      things: ['circuit', 'pizza', 'coffeepot'] },
+    gym: { name: 'Fitness floor', room: { workspace: 'standing', floor: 'rubber', paint: 'block', lounge: 'teal', corner: 'boxing',
+      mic: 'megaphone', desk: 'white', monitor: 'tablet', wall: ['mirror', 'whiteboard', 'timer', 'climbing', 'mirror'] },
+      things: ['dumbbell', 'shaker', 'kettlebell'] },
+    jungle: { name: 'Jungle', room: { workspace: 'beanbag', floor: 'grass', paint: 'bamboo', lounge: 'teal', corner: 'jungle', pet: 'monkey',
+      monitor: 'bamboo', wall: ['vines', 'blind', 'tiki', 'blind', 'vines'] }, things: ['coconut', 'pineapple', 'tikimug'] },
   };
   /** What a style furnishes. The sky, the seasons, the sound and your team stay as you have them. */
   const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff'];
@@ -4125,9 +4133,9 @@
       const kind = workspaceOf(sessionAt(desk), desk), workspace = WORKSPACES[kind];
       WORKSPACE_PARTS[kind].front(workspaceAt(desk));
 
-      // Something different on each desk, or what you've put on it
+      // Something different on each desk, the style's own if it has them, or what you've put on it
       const member = memberOf(sessionAt(desk));
-      const thing = member && member.desk !== 'auto' ? member.desk : ['plant', 'papers', 'lamp'][desk % 3];
+      const thing = member && member.desk !== 'auto' ? member.desk : (ROOM_STYLES[decor.preset]?.things ?? ['plant', 'papers', 'lamp'])[desk % 3];
       if (workspace.things) drawDeskThing(thing, x + workspace.things.dx, y + workspace.things.dy);
 
       const occupant = occupantOf(desk);
