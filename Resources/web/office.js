@@ -4023,10 +4023,13 @@
         fill(x + 37, y - 5, 3, 5, 0x2a2d35); fill(x + 37, y - 6, 3, 1, 0x9aa0a6); fill(x + 37, y - 3, 3, 1, 0x6fd36f); dot(x + 38, y - 4, 0x6fd36f);
         fill(x + 40, y - 1, 3, 1, 0x2a2d35); dot(x + 41, y - 1, 0x6fd36f); dot(x + 40, y - 2, 0x2a2d35);
       },
-      /** Headset on a stand. */
+      /** Headset on a stand, in grey with a light rim so it shows on a dark wall, its cups lit round the colours. */
       headset(x, y) {
-        fill(x + 39, y - 7, 1, 7, 0x1d1f25); fill(x + 37, y, 5, 1, 0x1d1f25); fill(x + 37, y - 8, 5, 1, 0x2a2d35);
-        for (const cx of [x + 36, x + 41]) { fill(cx, y - 7, 2, 3, 0x2a2d35); dot(cx + (cx > x + 38 ? 1 : 0), y - 6, rainbow((now * 0.3) % 1)); }
+        fill(x + 39, y - 7, 1, 7, 0x4a4e56); fill(x + 37, y, 5, 1, 0x4a4e56); fill(x + 37, y - 8, 5, 1, 0x8a93a3);
+        for (const cx of [x + 36, x + 41]) {
+          fill(cx, y - 7, 2, 3, 0x5a5f6c); fill(cx, y - 7, 2, 1, 0x8a93a3);
+          dot(cx + (cx > x + 38 ? 1 : 0), y - 6, rainbow((now * 0.3) % 1));
+        }
       },
       /** Board and soldering iron. */
       circuit(x, y) {
@@ -5463,13 +5466,14 @@
         if (held) for (let k = 0; k < 6; k++) { const ang = now * 3 + (k * Math.PI) / 3; dot(x + Math.round(Math.cos(ang) * 4), y - 23 + Math.round(Math.sin(ang) * 4), rainbow(k / 6)); }
         else if ((now % 3) < 0.25) dot(x - 1, y - 25, WHITE);
       },
-      /** Headset on a stand. A gaming headset with a boom mic, its cup lit green while it's held. */
+      /** Headset on a stand. A gaming headset in grey, a light rim on its band, a boom mic, its cup's light green, brighter while it's held. */
       headset(x, y, a, held) {
-        disc(x, y - 20, 2.5, 0x3a3d47, a);
-        fill(x - 2, y - 24, 5, 1, 0x2a2d35, a); dot(x - 3, y - 23, 0x2a2d35, a); dot(x + 3, y - 23, 0x2a2d35, a);
-        fill(x - 4, y - 22, 2, 4, 0x2a2d35, a); fill(x + 3, y - 22, 2, 4, 0x2a2d35, a);
-        line(x - 4, y - 18, x - 6, y - 16, 0x5a5f6c, a); fill(x - 7, y - 17, 2, 2, 0x1d1f25, a);
-        dot(x + 4, y - 21, held ? 0x6fd36f : 0x3a3d47, a);
+        disc(x, y - 20, 2.5, 0x6a7080, a);
+        fill(x - 2, y - 24, 5, 1, 0x9aa0a6, a); dot(x - 3, y - 23, 0x737987, a); dot(x + 3, y - 23, 0x737987, a);
+        fill(x - 4, y - 22, 2, 4, 0x5a5f6c, a); fill(x + 3, y - 22, 2, 4, 0x5a5f6c, a);
+        fill(x - 4, y - 22, 1, 4, 0x8a93a3, a); fill(x + 3, y - 22, 1, 4, 0x8a93a3, a);
+        line(x - 4, y - 18, x - 6, y - 16, 0x8a93a3, a); fill(x - 7, y - 17, 2, 2, 0x3a3d47, a);
+        dot(x + 4, y - 21, 0x6fd36f, held ? a : 0.45 * a);
       },
       /** Walkie-talkie. Standing in its charger, its light slowly blinking green; red while it's held. */
       walkie(x, y, a, held) {
