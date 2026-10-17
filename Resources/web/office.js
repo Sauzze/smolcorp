@@ -1014,6 +1014,8 @@
     gymkit: { style: 'gymkit', tint: 1, pants: 0x2a2c30, shoes: TRAINERS, sleeves: 'skin', legs: 'skin' },
     safari: { style: 'safari', shirt: 0xc9b07a, pants: 0x8a7a5a, shoes: 0x5a3b25 },
     flannel: { style: 'flannel', tint: 1, pants: DENIM, shoes: 0x5a3b25 },
+    // The hire's: a blue suit, its trousers too, a paper collar and an orange tie
+    hire: { style: 'hire', shirt: 0x3b82f6, pants: 0x3b82f6, shoes: 0x1e2433, tie: 0xff8a1f },
     // The models' looks, one for each family
     claude: { style: 'claude', shirt: 0xd97757 },
     gpt: { style: 'gpt', shirt: 0x2a2d35 },
@@ -1195,14 +1197,14 @@
    * keep the same choices.
    */
   const TEAM_CHOICES = {
-    skin: ['auto', 'porcelain', 'fair', 'light', 'tan', 'olive', 'brown', 'deep', 'ebony'],
+    skin: ['auto', 'porcelain', 'fair', 'light', 'tan', 'olive', 'brown', 'deep', 'ebony', 'cream'],
     hair: ['auto', 'black', 'espresso', 'brown', 'chestnut', 'auburn', 'ginger', 'blond', 'platinum', 'grey', 'white',
-      'pink', 'blue', 'green', 'purple'],
+      'pink', 'blue', 'green', 'purple', 'orange'],
     hairstyle: ['auto', 'short', 'long', 'spiky', 'bun', 'curly', 'ponytail', 'afro', 'mohawk', 'buzz', 'bald'],
     extra: ['none', 'glasses', 'sunglasses', 'headphones', 'cap', 'beanie', 'beard', 'moustache', 'bow'],
     outfit: ['auto', 'tee', 'hoodie', 'collar', 'sweater', 'jacket', 'suit', 'labcoat', 'polo', 'cardigan', 'hawaiian', 'tracksuit',
       'overalls', 'waistcoat', 'astronaut', 'flightsuit', 'pirate', 'captain', 'parka', 'explorer', 'robe', 'knight', 'wizard', 'gamer',
-      'founder', 'gymkit', 'safari', 'flannel', 'claude', 'gpt', 'gemini', 'grok', 'qwen', 'llama', 'mistral', 'deepseek', 'kimi', 'glm',
+      'founder', 'gymkit', 'safari', 'flannel', 'hire', 'claude', 'gpt', 'gemini', 'grok', 'qwen', 'llama', 'mistral', 'deepseek', 'kimi', 'glm',
       'phi'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
@@ -1217,11 +1219,13 @@
   const SKIN_TONES = {
     porcelain: 0xfbe3cf, fair: 0xf6d3b3, light: 0xe8b48a, tan: 0xd59b6a, olive: 0xb8875a, brown: 0x9b6a43, deep: 0x6e4a2e,
     ebony: 0x4a3020,
+    // Paper, as a drawn character's face is
+    cream: 0xf4f1ea,
   };
   const HAIR_COLOURS = {
     black: 0x1a1a1a, espresso: 0x2a1d16, brown: 0x4a3022, chestnut: 0x8a5a2b, auburn: 0xa8432a, ginger: 0xd4722f,
     blond: 0xd9b26a, platinum: 0xece0b8, grey: 0x9a9aa0, white: 0xe8e8e8, pink: 0xe878a8, blue: 0x4a7fd8,
-    green: 0x4fae6a, purple: 0x8a5ac8,
+    green: 0x4fae6a, purple: 0x8a5ac8, orange: 0xff8a1f,
   };
   const SHIRT_COLOURS = {
     orange: 0xd97757, red: 0xc9443a, pink: 0xe07aa0, purple: 0x7d5ab8, blue: 0x3f6fc4, teal: 0x2f9a92, green: 0x4f9a5a,
@@ -1360,6 +1364,8 @@
       // The effort their desk is painted for. It catches up with the
       // session's when they press the nuclear button.
       this.deskEffort = session.effort;
+      // When it last went up, for the coffee that comes with it to drop in
+      this.effortRoseAt = null;
       // The last ☢ Max press they've answered, so only a new one sends them.
       this.answeredPress = session.maxPressedAt;
       this.isGoingNuclear = false;
@@ -1688,6 +1694,12 @@
       return person && person.deskEffort ? person.deskEffort : null;
     }
 
+    /** When the effort at a desk last went up, if it has. */
+    effortRoseAt(desk) {
+      const person = this.people.find((p) => p.desk === desk && !p.isLeaving);
+      return person ? person.effortRoseAt : null;
+    }
+
     step(now) {
       this.elapsed = Math.min(now - (this.lastStep ?? now), 0.1);
       this.lastStep = now;
@@ -1896,7 +1908,10 @@
         this.send(person, this.home(person));
       }
       person.answeredPress = pressed;
-      if (!person.isGoingNuclear) person.deskEffort = session.effort;
+      if (!person.isGoingNuclear) {
+        if (EFFORTS.indexOf(session.effort) > EFFORTS.indexOf(person.deskEffort)) person.effortRoseAt = now;
+        person.deskEffort = session.effort;
+      }
 
       if (person.desk !== placement.desk) {
         person.desk = placement.desk;
@@ -5032,6 +5047,8 @@
     /** Workspaces with no flat top to put a mug on: their mugs stand on the floor beside them. */
     const NO_TOP = ['tent', 'beanbag', 'ship'];
     const EFFORT_MUGS = { low: 1, medium: 2, high: 3, xhigh: 4 };
+    /** A mug dropping in, in seconds and art pixels: how long it falls, from how high, and its bounce. */
+    const MUG_DROP = { fall: 0.22, height: 14, bounce: 0.18 };
 
     /** A mug of coffee, 4 wide and 4 tall, outlined so it shows on any desk, its bottom on `y`, its left at `x`, its handle on the right. */
     function drawMug(x, y) {
@@ -5062,14 +5079,18 @@
       const effort = office.deskEffort(desk);
       if (!effort) return;
       const away = NO_TOP.includes(kind), mx = away ? x - 7 : x + 1;
+      // The effort just gone up, the newest of the coffee drops in from above and bounces
+      const rose = office.effortRoseAt(desk), since = rose === null ? Infinity : now - rose;
+      const drop = since < MUG_DROP.fall ? -Math.round(MUG_DROP.height * (1 - (since / MUG_DROP.fall) ** 2))
+        : since < MUG_DROP.fall + MUG_DROP.bounce ? -Math.round(2 * Math.sin((Math.PI * (since - MUG_DROP.fall)) / MUG_DROP.bounce)) : 0;
       if (effort !== 'max') {
         const my = away ? y + 15 : y + 1, count = EFFORT_MUGS[effort] ?? 1, sway = count >= 4 ? Math.round(Math.sin(now * 3) * 0.6) : 0;
         if (away) fill(mx - 1, my + 1, 6, 1, SHADOW);
-        for (let i = 0; i < count; i++) drawMug(mx + (i >= 2 ? sway : 0), my - i * 5);
+        for (let i = 0; i < count; i++) drawMug(mx + (i >= 2 ? sway : 0), my - i * 5 + (i === count - 1 ? drop : 0));
         return;
       }
       // A moka pot at the desk's front edge, outlined, its handle black, steam from its spout
-      const my = away ? y + 15 : y + 3;
+      const ground = away ? y + 15 : y + 3, my = ground + drop;
       fill(mx - 1, my - 10, 9, 11, PALETTE.frame);
       fill(mx + 1, my - 7, 4, 3, 0xc8cdd6);
       fill(mx, my - 4, 6, 4, 0xa8adb6);
@@ -5078,7 +5099,7 @@
       fill(mx + 6, my - 6, 1, 3, 0x2a2a2e);
       dot(mx - 1, my - 7, 0x9aa0a6);
       fill(mx + 1, my - 3, 1, 2, WHITE, 0.5);
-      fill(mx, my, 6, 1, SHADOW);
+      fill(mx, ground, 6, 1, SHADOW);
       drawSteam(mx - 1, my - 8, 3, 7);
       // And steam off the agent at it
       if (occupant) drawSteam(occupant.position.x - 1, topOf(occupant, poseOf(occupant, now)) - 1, 4, 9);
@@ -6592,75 +6613,81 @@
         dot(x + 2, top + 7, PALETTE.mug);
       }
 
+      // With music playing, a head at a desk or in the lounge bobs on the beat, each a little off from the next.
+      const beat = frame.music?.playing === true && !person.isWalking && (pose.kind === 'sit' || pose.kind === 'stand')
+        && (person.isAtDesk || spotOf(person.place) !== null);
+      const bob = beat ? Math.floor(now * 4 + look.phase * 4) % 2 : 0;
+      const head = top + bob;
+
       // Head: a face, or the back of it, and the hair. A shaved head shows
       // skin where the hair would be, a buzz cut a thin layer of it.
       const shaved = look.hairStyle === 'bald' || look.hairStyle === 'mohawk';
       const cropped = shaved || look.hairStyle === 'buzz';
-      fill(x - 3, top + 2, 7, 5, away && !shaved ? look.hair : look.skin);
-      if (away) fill(x - 2, top + 6, 5, 1, look.skin);
+      fill(x - 3, head + 2, 7, 5, away && !shaved ? look.hair : look.skin);
+      if (away) fill(x - 2, head + 6, 5, 1, look.skin);
       if (cropped) {
-        fill(x - 2, top + 1, 5, 1, shaved ? look.skin : look.hair);
+        fill(x - 2, head + 1, 5, 1, shaved ? look.skin : look.hair);
       } else {
-        fill(x - 2, top, 5, 1, look.hair);
-        fill(x - 3, top + 1, 7, 1, look.hair);
-        dot(x - 3, top + 2, look.hair);
-        dot(x + 3, top + 2, look.hair);
+        fill(x - 2, head, 5, 1, look.hair);
+        fill(x - 3, head + 1, 7, 1, look.hair);
+        dot(x - 3, head + 2, look.hair);
+        dot(x + 3, head + 2, look.hair);
       }
       if (look.hairStyle === 'long') {
-        fill(x - 3, top + 2, 1, 7, look.hair);
-        fill(x + 3, top + 2, 1, 7, look.hair);
+        fill(x - 3, head + 2, 1, 7, look.hair);
+        fill(x + 3, head + 2, 1, 7, look.hair);
       } else if (look.hairStyle === 'spiky') {
-        for (const dx of [-2, 0, 2]) dot(x + dx, top - 1, look.hair);
+        for (const dx of [-2, 0, 2]) dot(x + dx, head - 1, look.hair);
       } else if (look.hairStyle === 'bun') {
-        fill(x - 1, top - 2, 3, 2, look.hair);
+        fill(x - 1, head - 2, 3, 2, look.hair);
       } else if (look.hairStyle === 'curly') {
-        for (const dx of [-3, -1, 1, 3]) dot(x + dx, top - 1, look.hair);
-        dot(x - 4, top + 2, look.hair);
-        dot(x + 4, top + 2, look.hair);
+        for (const dx of [-3, -1, 1, 3]) dot(x + dx, head - 1, look.hair);
+        dot(x - 4, head + 2, look.hair);
+        dot(x + 4, head + 2, look.hair);
       } else if (look.hairStyle === 'ponytail') {
-        fill(x + 4, top + 1, 1, 5, look.hair);
+        fill(x + 4, head + 1, 1, 5, look.hair);
       } else if (look.hairStyle === 'afro') {
-        fill(x - 4, top - 2, 9, 3, look.hair);
-        fill(x - 4, top + 1, 1, 4, look.hair);
-        fill(x + 4, top + 1, 1, 4, look.hair);
+        fill(x - 4, head - 2, 9, 3, look.hair);
+        fill(x - 4, head + 1, 1, 4, look.hair);
+        fill(x + 4, head + 1, 1, 4, look.hair);
       } else if (look.hairStyle === 'mohawk') {
-        fill(x, top - 2, 1, 3, look.hair);
+        fill(x, head - 2, 1, 3, look.hair);
       }
       // A hat that comes with the outfit takes the place of one of your own.
-      if (!(parts && parts.head && ['cap', 'beanie', 'headphones', 'bow'].includes(look.extra))) drawHeadwear(x, top, look.extra, outfit.shirt, away);
+      if (!(parts && parts.head && ['cap', 'beanie', 'headphones', 'bow'].includes(look.extra))) drawHeadwear(x, head, look.extra, outfit.shirt, away);
 
       if (away) {
-        if (parts && parts.head) parts.head(x, top, look, true, outfit);
+        if (parts && parts.head) parts.head(x, head, look, true, outfit);
         return;
       }
-      drawFace(x, top, look);
+      drawFace(x, head, look);
       const blinking = (now + look.phase * 5) % 4.5 < 0.15;
       // While the mic is held its listener looks toward it, and when it goes
       // on, everyone looks up for a moment.
       if (isListener(person) && mic.held && pose.kind !== 'slump') {
-        dot(x - 1, top + 4, PALETTE.eye);
-        dot(x + 3, top + 4, PALETTE.eye);
+        dot(x - 1, head + 4, PALETTE.eye);
+        dot(x + 3, head + 4, PALETTE.eye);
       } else if ((lookingUp || pose.kind === 'tap') && pose.kind !== 'slump') {
-        dot(x - 2, top + 3, PALETTE.eye);
-        dot(x + 2, top + 3, PALETTE.eye);
+        dot(x - 2, head + 3, PALETTE.eye);
+        dot(x + 2, head + 3, PALETTE.eye);
       } else if (pose.kind === 'slump') {
         // Eyes shut, head in hands
-        dot(x - 2, top + 4, PALETTE.eye, 0.45);
-        dot(x + 2, top + 4, PALETTE.eye, 0.45);
-        fill(x - 4, top + 3, 1, 3, look.skin);
-        fill(x + 4, top + 3, 1, 3, look.skin);
+        dot(x - 2, head + 4, PALETTE.eye, 0.45);
+        dot(x + 2, head + 4, PALETTE.eye, 0.45);
+        fill(x - 4, head + 3, 1, 3, look.skin);
+        fill(x + 4, head + 3, 1, 3, look.skin);
       } else if (pose.kind === 'wave' || pose.kind === 'press') {
-        dot(x - 2, top + 4, PALETTE.eye);
-        dot(x + 2, top + 4, PALETTE.eye);
-        dot(x, top + 6, PALETTE.eye);
+        dot(x - 2, head + 4, PALETTE.eye);
+        dot(x + 2, head + 4, PALETTE.eye);
+        dot(x, head + 6, PALETTE.eye);
       } else if (!blinking) {
-        dot(x - 2, top + 4, PALETTE.eye);
-        dot(x + 2, top + 4, PALETTE.eye);
+        dot(x - 2, head + 4, PALETTE.eye);
+        dot(x + 2, head + 4, PALETTE.eye);
       }
       // Sunglasses stay on, whatever the eyes behind them do.
-      if (look.extra === 'sunglasses') fill(x - 3, top + 4, 7, 1, SHADES);
+      if (look.extra === 'sunglasses') fill(x - 3, head + 4, 7, 1, SHADES);
       // What the outfit puts on the head and face, over the eyes: a helmet, a hat, an eyepatch, dark glasses
-      if (parts && parts.head) parts.head(x, top, look, false, outfit);
+      if (parts && parts.head) parts.head(x, head, look, false, outfit);
     }
 
     /** What's worn on the head, seen from in front or behind: headphones, a cap, a beanie or a bow. */
@@ -7202,6 +7229,13 @@
         dot(x - 1, y, white);
         dot(x + 1, y, white);
         fill(x, y, 1, rows - 2, outfit.tie);
+      } else if (outfit.style === 'hire') {
+        // The collar's points either side of the tie, the tie down to the last row but one
+        fill(x - 2, y, 2, 1, white);
+        fill(x + 1, y, 2, 1, white);
+        dot(x - 1, y + 1, white);
+        dot(x + 1, y + 1, white);
+        fill(x, y, 1, rows - 1, outfit.tie);
       } else if (outfit.style === 'polo') {
         // A soft collar, and a short placket with a button
         dot(x - 1, y, lighter(outfit.shirt));
@@ -7370,22 +7404,33 @@
       fill(lifted.position.x + 3, top - 3, 1, 2, chair);
     }
 
-    /** Sound waves from the mic while it's held, spreading across the room. */
+    /**
+     * Sound waves from the mic while it's held, spreading out into the room
+     * from its corner; or, with someone picked to listen, a beam of them
+     * aimed at their head, carried as far as they are, wherever they are.
+     */
     function drawMicWaves() {
       if (!mic.held) return;
       const heldFor = now - mic.heldAt;
       const at = placed('mic', MIC);
       const { dx, dy } = MIC_KINDS[decor.mic].mouth, mouth = { x: at.x + dx, y: at.y + dy };
+      // As far as the listener's head, the waves being flatter than they're wide
+      const listener = office.people.find(isListener);
+      const head = listener && { x: listener.position.x, y: topOf(listener, poseOf(listener, now)) + 3 };
+      const reach = head ? Math.max(WAVE_REACH, Math.hypot(head.x - mouth.x, (head.y - mouth.y) / 0.8)) : WAVE_REACH;
+      const toward = head ? Math.atan2((head.y - mouth.y) / 0.8, head.x - mouth.x) : 0;
       for (let k = 0; k < 3; k++) {
         const age = (heldFor - k * WAVE_EVERY) % (WAVE_EVERY * 3) / (WAVE_EVERY * 3);
         if (heldFor < k * WAVE_EVERY) continue;
-        const radius = 6 + age * WAVE_REACH;
-        const count = Math.floor(radius * 1.5);
+        const radius = 6 + age * reach;
+        // A quarter turn, out into the room from the corner, or aimed at the listener
+        const [from, turn] = head ? [toward - 0.4, 0.8] : [Math.PI, Math.PI / 2];
+        const count = Math.floor(radius * turn);
+        // Strong most of the way, fading as it gets there
+        const alpha = 0.6 * Math.min(1, (1 - age) * 3);
         for (let i = 0; i <= count; i++) {
-          // A quarter turn, out into the room from the corner
-          const angle = Math.PI + (i / count) * (Math.PI / 2);
-          dot(Math.round(mouth.x + Math.cos(angle) * radius), Math.round(mouth.y + Math.sin(angle) * radius * 0.8),
-            PALETTE.alarm, 0.6 * (1 - age));
+          const angle = from + (i / count) * turn;
+          dot(Math.round(mouth.x + Math.cos(angle) * radius), Math.round(mouth.y + Math.sin(angle) * radius * 0.8), PALETTE.alarm, alpha);
         }
       }
     }
