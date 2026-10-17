@@ -718,3 +718,42 @@ func TestTheLoungeTakesAFloorAndAWallOfItsOwn(t *testing.T) {
 		t.Errorf("lounge %q, wall %q; want the standard navy, and auto", unknown.Lounge, unknown.LoungePaint)
 	}
 }
+
+func TestADeskCanBePutAway(t *testing.T) {
+	var plan Plan
+	if err := json.Unmarshal([]byte(`{"wide": {"desk4": {"off": true}, "button": {"off": true}}}`), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan = plan.checked()
+	if !plan.Wide["desk4"].Off {
+		t.Error("desk4 wasn't put away")
+	}
+	if plan.Wide["button"].Off {
+		t.Error("the red button was put away, but it's a control")
+	}
+}
+
+func TestTheBackWallKeepsWhereItsPiecesHang(t *testing.T) {
+	var plan Plan
+	given := `{"hung": {"wide": [{"kind": "window", "x": 30}, {"kind": "bare", "x": 60}, {"kind": "lava", "x": 90},
+		{"kind": "whiteboard", "x": 999}, {"kind": "poster"}], "tall": []}}`
+	if err := json.Unmarshal([]byte(given), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan = plan.checked()
+	want := []HungPiece{{"window", 30}, {"whiteboard", wallLength}, {"poster", wallMiddle}}
+	if plan.Hung.Wide == nil || !slices.Equal(*plan.Hung.Wide, want) {
+		t.Errorf("the wide wall is %v, want %v", plan.Hung.Wide, want)
+	}
+	if plan.Hung.Tall == nil || len(*plan.Hung.Tall) != 0 {
+		t.Errorf("the tall wall is %v, want bare", plan.Hung.Tall)
+	}
+	// Saved and read again, a wall with nothing said keeps its five places, and a bare one stays bare
+	var again Plan
+	if err := json.Unmarshal(must(json.Marshal(Plan{Hung: Hung{Tall: &[]HungPiece{}}})), &again); err != nil {
+		t.Fatal(err)
+	}
+	if again.Hung.Wide != nil || again.Hung.Tall == nil {
+		t.Errorf("after saving: wide %v, tall %v; want nil and bare", again.Hung.Wide, again.Hung.Tall)
+	}
+}

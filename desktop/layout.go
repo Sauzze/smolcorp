@@ -556,7 +556,31 @@ type Plan struct {
 	Wide  map[string]Piece `json:"wide"`
 	Tall  map[string]Piece `json:"tall"`
 	Added Added            `json:"added"`
+	Hung  Hung             `json:"hung"`
 }
+
+// Hung is what hangs on the back wall, for each shape of the room: each piece
+// round its middle, where you put it. nil keeps the wall's five places, as set
+// up; an empty list is a bare wall.
+type Hung struct {
+	Wide *[]HungPiece `json:"wide,omitempty"`
+	Tall *[]HungPiece `json:"tall,omitempty"`
+}
+
+// HungPiece is one piece on the back wall, X being its middle.
+type HungPiece struct {
+	Kind string `json:"kind"`
+	X    int    `json:"x"`
+}
+
+const (
+	// hungMost is the most pieces the back wall holds, in each shape.
+	hungMost = 12
+	// wallLength is how far along the wall a piece can be: the wide room's width.
+	wallLength = 320
+	// wallMiddle is where a piece goes on the wall when it doesn't say.
+	wallMiddle = 110
+)
 
 // Added is the pieces added to the lounge, for each shape of the room: any
 // its corner can hold, the same one more than once, each moved from where the
@@ -595,13 +619,13 @@ type Piece struct {
 }
 
 var (
-	// What can be arranged: each desk, which only moves, and the lounge's
-	// pieces, which can grow, and be put away but for the red button and the
-	// mic, which are controls.
+	// What can be arranged: each desk, which moves and can be put away, and
+	// the lounge's pieces, which can grow, and be put away but for the red
+	// button and the mic, which are controls.
 	arrangeable = func() map[string]struct{ grows, hides bool } {
 		pieces := map[string]struct{ grows, hides bool }{}
 		for i := 1; i <= 9; i++ {
-			pieces[fmt.Sprintf("desk%d", i)] = struct{ grows, hides bool }{}
+			pieces[fmt.Sprintf("desk%d", i)] = struct{ grows, hides bool }{false, true}
 		}
 		for _, part := range []string{"wall", "corner", "couch", "pong", "plant"} {
 			pieces[part] = struct{ grows, hides bool }{true, true}
@@ -670,7 +694,30 @@ func (p *Plan) UnmarshalJSON(data []byte) error {
 		}
 		return list
 	}
-	*p = Plan{Wide: arranged(raw["wide"]), Tall: arranged(raw["tall"]), Added: Added{Wide: pieces(added["wide"]), Tall: pieces(added["tall"])}}
+	var hung map[string]json.RawMessage
+	json.Unmarshal(raw["hung"], &hung)
+	// A list for a wall as hung, or nil, for its five places, when there isn't one
+	wall := func(data json.RawMessage) *[]HungPiece {
+		var given []json.RawMessage
+		if json.Unmarshal(data, &given) != nil || given == nil {
+			return nil
+		}
+		list := []HungPiece{}
+		for _, one := range given {
+			var parts map[string]json.RawMessage
+			if json.Unmarshal(one, &parts) != nil || parts == nil {
+				continue
+			}
+			var kind string
+			json.Unmarshal(parts["kind"], &kind)
+			x := float64(wallMiddle)
+			json.Unmarshal(parts["x"], &x)
+			list = append(list, HungPiece{Kind: kind, X: int(math.Round(x))})
+		}
+		return &list
+	}
+	*p = Plan{Wide: arranged(raw["wide"]), Tall: arranged(raw["tall"]), Added: Added{Wide: pieces(added["wide"]), Tall: pieces(added["tall"])},
+		Hung: Hung{Wide: wall(hung["wide"]), Tall: wall(hung["tall"])}}
 	return nil
 }
 
@@ -721,5 +768,20 @@ func (p Plan) checked() Plan {
 		}
 		return checked
 	}
-	return Plan{Wide: pieces(p.Wide), Tall: pieces(p.Tall), Added: Added{Wide: added(p.Added.Wide), Tall: added(p.Added.Tall)}}
+	hung := func(given *[]HungPiece) *[]HungPiece {
+		if given == nil {
+			return nil
+		}
+		checked := []HungPiece{}
+		for _, piece := range *given {
+			if piece.Kind == "bare" || !slices.Contains(wallChoices, piece.Kind) || len(checked) == hungMost {
+				continue
+			}
+			piece.X = max(0, min(wallLength, piece.X))
+			checked = append(checked, piece)
+		}
+		return &checked
+	}
+	return Plan{Wide: pieces(p.Wide), Tall: pieces(p.Tall), Added: Added{Wide: added(p.Added.Wide), Tall: added(p.Added.Tall)},
+		Hung: Hung{Wide: hung(p.Hung.Wide), Tall: hung(p.Hung.Tall)}}
 }

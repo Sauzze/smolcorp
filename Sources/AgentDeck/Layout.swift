@@ -276,6 +276,37 @@ struct Plan: Codable, Equatable {
     var wide: [String: Piece] = [:]
     var tall: [String: Piece] = [:]
     var added = Added()
+    var hung = Hung()
+
+    /// What hangs on the back wall, for each shape of the room: each piece
+    /// round its middle, where you put it. nil keeps the wall's five places,
+    /// as set up; an empty list is a bare wall.
+    struct Hung: Codable, Equatable {
+        var wide: [HungPiece]?
+        var tall: [HungPiece]?
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try? decoder.container(keyedBy: CodingKeys.self)
+            func pieces(_ key: CodingKeys) -> [HungPiece]? {
+                guard let given = (try? c?.decodeIfPresent([LooseHung].self, forKey: key)) ?? nil else { return nil }
+                return Array(given.compactMap(\.piece).prefix(Plan.hungMost))
+            }
+            wide = pieces(.wide)
+            tall = pieces(.tall)
+        }
+    }
+
+    struct HungPiece: Codable, Equatable {
+        var kind: String
+        var x = 0
+    }
+
+    /// The most pieces the back wall holds, in each shape.
+    static let hungMost = 12
+    /// How far along the wall a piece can be, in the room's pixels: the wide room's width.
+    static let wallLength = 320
 
     /// Pieces added to the lounge, for each shape of the room: any its
     /// corner can hold, the same one more than once, each moved from where
@@ -325,11 +356,11 @@ struct Plan: Codable, Equatable {
         var thing = "auto"
     }
 
-    /// What can be arranged: each desk, which only moves, and the lounge's
-    /// pieces, which can grow, and be put away but for the red button and
-    /// the mic, which are controls.
+    /// What can be arranged: each desk, which moves and can be put away,
+    /// and the lounge's pieces, which can grow, and be put away but for the
+    /// red button and the mic, which are controls.
     static let pieces: [String: (grows: Bool, hides: Bool)] = {
-        var pieces = Dictionary(uniqueKeysWithValues: (1...9).map { ("desk\($0)", (grows: false, hides: false)) })
+        var pieces = Dictionary(uniqueKeysWithValues: (1...9).map { ("desk\($0)", (grows: false, hides: true)) })
         for part in ["wall", "corner", "couch", "pong", "plant"] { pieces[part] = (true, true) }
         for part in ["button", "mic"] { pieces[part] = (true, false) }
         return pieces
@@ -366,6 +397,22 @@ struct Plan: Codable, Equatable {
         wide = arranged(.wide)
         tall = arranged(.tall)
         added = ((try? c?.decodeIfPresent(Added.self, forKey: .added)) ?? nil) ?? Added()
+        hung = ((try? c?.decodeIfPresent(Hung.self, forKey: .hung)) ?? nil) ?? Hung()
+    }
+
+    /// A piece on the back wall as given, read leniently: one that isn't anything the wall can hold is left out.
+    private struct LooseHung: Decodable {
+        let piece: HungPiece?
+        private enum Keys: String, CodingKey { case kind, x }
+        init(from decoder: Decoder) throws {
+            guard let c = try? decoder.container(keyedBy: Keys.self),
+                  let kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil, Room.wallChoices.contains(kind), kind != "bare" else {
+                piece = nil
+                return
+            }
+            let x = ((try? c.decodeIfPresent(Double.self, forKey: .x)) ?? nil) ?? 110
+            piece = HungPiece(kind: kind, x: min(Plan.wallLength, max(0, Int(x.rounded()))))
+        }
     }
 
     /// Where a piece is moved to, within reach.
