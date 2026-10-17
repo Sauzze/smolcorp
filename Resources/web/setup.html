@@ -133,6 +133,8 @@
   .field input[type=text], .field select { flex: 1; max-width: 260px; background: var(--cap); color: var(--ink); border: 1px solid var(--edge);
     border-radius: 6px; padding: 5px 8px; font: 13px ui-monospace, "SF Mono", Menlo, monospace; }
   .choices { display: flex; gap: 6px; }
+  /* A long row of choices, such as the floors, wraps onto more lines, still to the right. */
+  .field > .choices { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
   .choices .btn { padding: 4px 12px; }
   .choices .btn.on, .chip.on { border-color: var(--ink); background: var(--cap-top); }
   .choices .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px;
