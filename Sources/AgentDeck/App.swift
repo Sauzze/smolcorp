@@ -20,12 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? Hooks.refresh()
         LoginItem.refresh()
         server.onFailure = { [menu] _ in menu.showPortInUse() }
-        do {
-            try server.start()
-        } catch {
-            menu.showPortInUse()
-            return
-        }
+        server.onReady = { [menu] in menu.showListening() }
+        server.start()
 
         if !Config.shared.hasCompletedSetup {
             NSWorkspace.shared.open(Deck.setupURL)

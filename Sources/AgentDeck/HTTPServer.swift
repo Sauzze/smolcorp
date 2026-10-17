@@ -7,28 +7,54 @@ final class HTTPServer {
     /// Far more than a few phones and the hook ever open at once. Beyond it,
     /// new connections are refused, so a flood can't exhaust the app.
     static let maxConnections = 64
+    /// How long to wait before listening again when the port is taken: by
+    /// the app as it quits, say, while this one starts.
+    static let retryDelay: TimeInterval = 2
 
     private let port: UInt16
     private let router: Router
     private var listener: NWListener?
     private var openConnections = 0
+    /// Called each time listening fails, before trying again, and once it works.
     var onFailure: (Error) -> Void = { _ in }
+    var onReady: () -> Void = {}
 
     init(port: UInt16, router: Router) {
         self.port = port
         self.router = router
     }
 
-    func start() throws {
-        let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
-        listener.newConnectionHandler = { [weak self] connection in
-            self?.accept(connection)
+    /// Listens on the port, and keeps trying until it can: a port taken
+    /// now may be free in a moment.
+    func start() {
+        do {
+            let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
+            listener.newConnectionHandler = { [weak self] connection in
+                self?.accept(connection)
+            }
+            listener.stateUpdateHandler = { [weak self, weak listener] state in
+                switch state {
+                case .ready: self?.onReady()
+                case .failed(let error):
+                    listener?.cancel()
+                    self?.failed(error)
+                default: break
+                }
+            }
+            listener.start(queue: .main)
+            self.listener = listener
+        } catch {
+            failed(error)
         }
-        listener.stateUpdateHandler = { [weak self] state in
-            if case .failed(let error) = state { self?.onFailure(error) }
+    }
+
+    private func failed(_ error: Error) {
+        listener = nil
+        onFailure(error)
+        DispatchQueue.main.asyncAfter(deadline: .now() + HTTPServer.retryDelay) { [weak self] in
+            guard let self, self.listener == nil else { return }
+            self.start()
         }
-        listener.start(queue: .main)
-        self.listener = listener
     }
 
     private func accept(_ connection: NWConnection) {

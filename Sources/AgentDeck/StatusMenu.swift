@@ -18,9 +18,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     func showPortInUse() {
-        error = "Port \(Deck.port) is in use. Is SauzzeDeck Pro already running?"
+        error = "Port \(Deck.port) is in use. Is SauzzeDeck Pro already running? Trying again…"
         item.button?.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: error)
         item.button?.title = ""
+    }
+
+    /// The port is the deck's again: back to the usual icon.
+    func showListening() {
+        guard error != nil else { return }
+        error = nil
+        update()
     }
 
     private func update() {
