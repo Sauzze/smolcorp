@@ -28,7 +28,11 @@ final class HTTPServer {
     /// now may be free in a moment.
     func start() {
         do {
-            let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
+            // As other servers do: the last copy's closed connections, which
+            // linger half a minute, don't keep the port.
+            let parameters = NWParameters.tcp
+            parameters.allowLocalEndpointReuse = true
+            let listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
             listener.newConnectionHandler = { [weak self] connection in
                 self?.accept(connection)
             }
