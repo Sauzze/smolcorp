@@ -257,9 +257,10 @@ There's more to see while they work:
   as Opus or Gemini Pro a jacket; and the top ones, such as Fable, a suit and
   tie. Interns dress for their own model. While an agent's model isn't known,
   as for most agents but Claude Code, it wears its agent's colour.
-- **The desk's colour** is Claude Code's effort, from white for low to red for
-  max. Press ☢ Max, and the agent runs to the big red button in the corridor
-  and slams it.
+- **Coffee at the desk** is Claude Code's effort: a stack of mugs by the
+  monitor, one for low up to four, swaying, for extra high, and at max a
+  steaming moka pot, with steam coming off the agent. Press ☢ Max, and the
+  agent runs to the big red button in the corridor and slams it.
 - When few sessions are running, the office's own staff hang around the lounge.
 
 **Furnish it your way** under *Office* in the setup page's Layout:
@@ -300,8 +301,8 @@ There's more to see while they work:
   the pets, the wind in winter, and now and then the lounge's piece while
   someone's at it. The one sound that asks for you is the reminder after five
   minutes of waiting. It starts with your first tap, as browsers require.
-- **The desks** in wood, walnut, white or black, where no effort paints them,
-  and **the chairs** in teal, black, red, grey or green.
+- **The desks** in wood, walnut, white or black, and **the chairs** in teal,
+  black, red, grey or green.
 - **Office staff:** a few, none, or lots of them in the lounge.
 - **A jukebox that plays your music**, once you turn it on under *Getting
   started*: tap any jukebox in the office to play or pause whatever this

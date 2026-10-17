@@ -1083,7 +1083,7 @@
       moving = { canvas, what, room, start: performance.now() / 1000 - PICTURE_STILL };
       if (!looping) {
         looping = true;
-        requestAnimationFrame(move);
+        requestAnimationFrame(movePicture);
       }
     };
     over.onpointerleave = over.onblur = () => {
@@ -1093,14 +1093,14 @@
     return canvas;
   }
 
-  function move(time) {
+  function movePicture(time) {
     // Gone from the page, or out of sight, it stops.
     if (!moving || !moving.canvas.isConnected || document.hidden) {
       looping = false;
       return;
     }
     AgentOffice.preview(moving.canvas, moving.what, { room: moving.room, now: time / 1000 - moving.start });
-    requestAnimationFrame(move);
+    requestAnimationFrame(movePicture);
   }
 
   /** A choice shown by its picture, with its name under it. */
