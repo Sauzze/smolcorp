@@ -128,7 +128,7 @@ struct Room: Codable, Equatable {
         "lounge": ["navy", "teal", "plum", "sand"],
         "corner": ["arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
                    "telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub",
-                   "ballpit", "campfire", "none"],
+                   "ballpit", "campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth", "none"],
         "sky": ["live", "day"],
         "pet": ["none", "cat", "dog", "lizard", "monkey"],
         "season": ["calendar", "off"],

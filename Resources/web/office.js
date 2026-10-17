@@ -178,6 +178,9 @@
     coffee: { x: 244, y: 54, w: 58, h: 40 }, servers: { x: 258, y: 50, w: 35, h: 40 }, printer: { x: 257, y: 56, w: 42, h: 36 },
     boxing: { x: 268, y: 53, w: 41, h: 41 }, treadmill: { x: 260, y: 63, w: 32, h: 31 }, hottub: { x: 253, y: 63, w: 48, h: 34 },
     ballpit: { x: 253, y: 75, w: 48, h: 22 }, campfire: { x: 248, y: 63, w: 57, h: 33 },
+    bubbler: { x: 261, y: 45, w: 27, h: 44 }, neonbox: { x: 263, y: 46, w: 23, h: 43 }, wallbox: { x: 256, y: 61, w: 41, h: 33 },
+    djtable: { x: 244, y: 55, w: 64, h: 43 }, turntable: { x: 259, y: 54, w: 45, h: 39 }, boombox: { x: 257, y: 55, w: 36, h: 38 },
+    hifi: { x: 250, y: 50, w: 52, h: 43 }, synth: { x: 257, y: 49, w: 40, h: 44 },
   };
   /** What `part` takes up, in the wide room as it comes: the corner's by what's in it, null with nothing there. */
   const pieceRect = (part) => (part === 'corner' ? CORNER_BOXES[decor.corner] || null
@@ -282,7 +285,7 @@
     lounge: ['navy', 'teal', 'plum', 'sand'],
     corner: ['arcade', 'vending', 'foosball', 'fishtank', 'books', 'dragon', 'pinball', 'jukebox', 'pool', 'piano', 'drums',
       'telescope', 'jellyfish', 'bonsai', 'jungle', 'coffee', 'servers', 'printer', 'boxing', 'treadmill', 'hottub', 'ballpit',
-      'campfire', 'none'],
+      'campfire', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'none'],
     sky: ['live', 'day'],
     pet: ['none', 'cat', 'dog', 'lizard', 'monkey'],
     season: ['calendar', 'off'],
@@ -445,6 +448,14 @@
     hottub: [{ x: 266, y: 88, pose: 'sit' }, { x: 287, y: 88, pose: 'sit' }],
     ballpit: [{ x: 277, y: 88, pose: 'sit' }],
     campfire: [{ x: 255, y: 92, pose: 'sit' }, { x: 297, y: 92, pose: 'sit' }],
+    bubbler: [{ x: 274, y: 95, pose: 'away' }],
+    neonbox: [{ x: 274, y: 94, pose: 'away' }],
+    wallbox: [{ x: 266, y: 85, pose: 'sit' }, { x: 286, y: 85, pose: 'sit' }],
+    djtable: [{ x: 276, y: 82, pose: 'stand' }],
+    turntable: [{ x: 276, y: 95, pose: 'away' }],
+    boombox: [{ x: 296, y: 93, pose: 'stand' }],
+    hifi: [{ x: 276, y: 96, pose: 'away' }],
+    synth: [{ x: 277, y: 93, pose: 'away' }],
     none: [],
   };
 
@@ -1393,7 +1404,8 @@
         arcade: { x: 271, y: 60 }, vending: { x: 271, y: 58 }, fishtank: { x: 272, y: 60 }, books: { x: 297, y: 57 },
         pinball: { x: 274, y: 51, depth: 90.5 }, jukebox: { x: 274, y: 56, depth: 88.5 }, piano: { x: 268, y: 58 },
         jellyfish: { x: 276, y: 51, depth: 91.5 }, servers: { x: 283, y: 50, depth: 89.5 }, printer: { x: 270, y: 56, depth: 91.5 },
-        coffee: { x: 289, y: 63, depth: 93.5 },
+        coffee: { x: 289, y: 63, depth: 93.5 }, bubbler: { x: 274, y: 53, depth: 89 }, neonbox: { x: 274, y: 55, depth: 88.5 },
+        hifi: { x: 257, y: 59, depth: 92.5 },
       };
       /** Beside the corner piece, where the cat likes to be: watching the fish, warm by the fire, on the dragon's gold. */
       const watches = {
@@ -4985,6 +4997,241 @@
       }
     }
 
+    /*
+     * The pieces that play music: each comes alive while the computer's
+     * music plays, with the control on, or while someone is at it.
+     */
+
+    /** Notes rising from `x`, `y`, as the jukebox has them, `spread` apart. */
+    function notes(x, y, spread = 6) {
+      for (let k = 0; k < 3; k++) {
+        const rise = (now * 0.45 + k / 3) % 1;
+        const nx = x + k * spread + Math.round(Math.sin(rise * 6 + k) * 2), ny = y - Math.round(rise * 5);
+        const colour = [0xf2d35b, 0x8fc0e8, 0xf28fb0][k];
+        fill(nx, ny, 2, 1, colour, 1 - rise);
+        fill(nx + 1, ny - 3, 1, 3, colour, 1 - rise);
+      }
+    }
+    /** On the beat, twice a second or so: for what pumps or pulses. */
+    const onBeat = () => Math.floor(now * 2.2) % 2 === 0;
+    /** Records' sleeves, seen edge on in a crate or a cabinet. */
+    const RECORDS = [0xd96a5a, 0x4c8bf5, 0xf2d35b, 0x4f9a5a, 0xeae6dc, 0x9a6ad0, 0xe08a3a];
+
+    /** Bubbler jukebox. A chrome arch round a glowing tube, bubbles rising in the side tubes. Playing, the tube runs round the colours and the bubbles rise faster. */
+    function drawBubbler() {
+      // Playing: the computer's music, with the control on, or someone at it
+      const playing = frame.music?.playing === true || atCorner(0);
+      const wood = 0x6b3a22, chrome = 0xc8cdd6, cx = 274;
+      const tube = playing ? lighter(rainbow((now * 0.12) % 1)) : 0xb0703a;
+      fill(261, 88, 27, 1, SHADOW);
+      for (let row = 54; row <= 66; row++) {
+        const d = 66 - row, half = (r) => Math.round(Math.sqrt(Math.max(0, r * r - d * d)));
+        fill(cx - half(12.5), row, half(12.5) * 2 + 1, 1, chrome);
+        if (row >= 56) fill(cx - half(10.5), row, half(10.5) * 2 + 1, 1, tube);
+        if (row >= 58) fill(cx - half(8), row, half(8) * 2 + 1, 1, 0x2a1a2a);
+      }
+      fill(cx - 4, 60, 1, 4, WHITE, 0.3); dot(cx - 3, 59, WHITE, 0.3);
+      // the pilasters, a bubble tube in each
+      for (const px of [262, 282]) {
+        fill(px, 66, 5, 20, wood); fill(px, 66, 1, 20, 0x8a4a2e);
+        fill(px + 1, 67, 3, 18, playing ? 0xe0507a : 0x8a3a52);
+        for (let k = 0; k < 4; k++) {
+          const by = playing ? 84 - ((now * 7 + k * 4.6 + px) % 17) : 70 + k * 4;
+          dot(px + 1 + (k % 2) * 2, Math.round(by), WHITE, playing ? 0.85 : 0.4);
+        }
+      }
+      fill(267, 66, 15, 20, wood);
+      // the record turning behind glass, the buttons, the grille
+      fill(268, 67, 13, 6, PALETTE.doorway); fill(268, 67, 13, 1, WHITE, 0.2);
+      fill(271, 69, 7, 3, 0x1a1a1f); dot(274, 70, 0xd96a5a);
+      if (playing) dot(271 + (Math.floor(now * 8) % 2) * 6, 70, 0x5a5a66);
+      fill(268, 74, 13, 2, chrome); for (let k = 0; k < 6; k++) dot(269 + k * 2, 74, playing && k === 3 ? 0x6fd36f : 0x8a8f9c);
+      fill(268, 77, 13, 8, playing ? 0xf0a040 : 0x8a5a2a);
+      for (let row = 77; row < 85; row += 2) fill(268, row, 13, 1, chrome);
+      fill(262, 85, 25, 1, chrome); fill(262, 86, 25, 2, 0x4a2618);
+      if (playing) notes(266, 52, 7);
+    }
+
+    /** Neon jukebox. A black cabinet outlined in neon, an equaliser in its window. Playing, the neon pulses on the beat and the bars dance. */
+    function drawNeonJukebox() {
+      // Playing: the computer's music, with the control on, or someone at it
+      const playing = frame.music?.playing === true || atCorner(0);
+      const body = 0x14161b, pink = 0xff5aa8, cyan = 0x4ad4e8;
+      const pulse = playing ? (onBeat() ? 1 : 0.65) : 0.3;
+      fill(263, 88, 23, 1, SHADOW);
+      if (playing) fill(261, 52, 27, 37, pink, 0.05 * pulse);
+      fill(267, 56, 15, 1, body); fill(265, 57, 19, 31, body);
+      const tube = (x, y, c) => { dot(x, y, playing ? lighter(c) : shaded(c, 0.55), playing ? 1 : 0.8); if (playing) fill(x - 1, y - 1, 3, 3, c, 0.07 * pulse); };
+      for (let x = 267; x <= 281; x++) tube(x, 57, pink);
+      for (let y = 58; y <= 72; y++) { tube(265, y, pink); tube(283, y, pink); }
+      fill(268, 60, 13, 10, PALETTE.doorway);
+      for (let k = 0; k < 6; k++) {
+        const h = playing ? 1 + Math.round(3.5 * (1 + Math.sin(now * (4 + k * 1.3) + k))) : 1;
+        for (let r = 0; r < h; r++) dot(269 + k * 2, 68 - r, r > 4 ? pink : r > 2 ? 0xf2d35b : cyan);
+      }
+      for (let x = 267; x <= 281; x++) { tube(x, 74, cyan); tube(x, 86, cyan); }
+      for (let y = 75; y <= 85; y++) { tube(267, y, cyan); tube(281, y, cyan); }
+      for (const sx of [271, 278]) {
+        disc(sx, 80, 2.5, 0x3a3d47); disc(sx, 80, playing && onBeat() ? 1.5 : 1, 0x1d1f25); dot(sx, 80, 0x6a7080);
+      }
+      if (playing) notes(268, 53);
+    }
+
+    /** Diner booth. A red booth, a wall-box jukebox on the table between two milkshakes. Playing, its title cards flip and its lights chase. */
+    function drawBoothBench() {
+      const red = 0xb8322a;
+      fill(256, 66, 41, 16, red); fill(256, 66, 41, 2, 0xd94a3f);
+      for (let x = 260; x < 296; x += 5) fill(x, 68, 1, 13, 0x9a2a2a);
+      for (const sx of [256, 293]) { fill(sx, 80, 4, 12, 0x7a1e1e); fill(sx, 80, 4, 1, red); }
+    }
+
+    /** Diner booth. A red booth, a wall-box jukebox on the table between two milkshakes. Playing, its title cards flip and its lights chase. */
+    function drawBoothTable() {
+      // Playing: the computer's music, with the control on, or someone at it
+      const playing = frame.music?.playing === true || atCorner(0);
+      const chrome = 0xc8cdd6;
+      fill(258, 93, 37, 1, SHADOW);
+      fill(260, 81, 33, 1, chrome); fill(260, 82, 33, 3, 0xe8e4da); fill(260, 85, 33, 1, 0x9aa0a6);
+      for (const [dx, dy] of [[4, 0], [12, 1], [20, 0], [28, 1]]) dot(260 + dx, 82 + dy, 0xc8c4ba);
+      fill(275, 86, 3, 6, chrome); fill(272, 92, 9, 1, 0x9aa0a6);
+      // the wall-box: a domed chrome case, title cards behind glass, lights along its top
+      fill(271, 74, 10, 8, chrome); fill(272, 73, 8, 1, chrome); fill(271, 74, 10, 1, 0xe0e4ea);
+      fill(272, 75, 8, 4, 0xf4f1ea);
+      const flip = playing ? Math.floor(now * 1.5) % 3 : 0;
+      for (let r = 0; r < 4; r++) fill(273, 75 + r, 6, 1, [0xd96a5a, 0x4c8bf5, 0xf4f1ea, 0xd96a5a][(r + flip) % 4], r % 2 ? 0.5 : 0.9);
+      for (let k = 0; k < 4; k++) dot(272 + k * 2, 73, playing && (Math.floor(now * 4) + k) % 4 === 0 ? 0xf2d35b : 0x9aa0a6);
+      fill(272, 80, 8, 1, 0x5a5f6c); dot(279, 79, 0xd4140b);
+      // two milkshakes
+      for (const mx of [262, 289]) { fill(mx, 77, 3, 4, 0xf6b8cc); fill(mx, 77, 3, 1, WHITE); fill(mx + 2, 74, 1, 3, 0xd4140b); dot(mx + 1, 76, 0xd4140b); }
+      if (playing) notes(271, 68, 4);
+    }
+
+    /** DJ booth. Two decks and a mixer, a light strip along the front. Playing, the platters spin, the faders ride, the meters jump and the floor glows. */
+    function drawDjBooth() {
+      // Playing: the computer's music, with the control on, or someone at it
+      const playing = frame.music?.playing === true || atCorner(0);
+      fill(251, 92, 50, 1, SHADOW);
+      if (playing) fill(244, 90, 64, 8, rainbow((now * 0.15) % 1), 0.08);
+      fill(252, 77, 48, 1, 0x5a5f6c); fill(252, 78, 48, 3, 0x3a3d47);
+      for (const [dx, phase] of [[254, 0], [285, 1.7]]) {
+        fill(dx, 77, 13, 4, 0x2a2c30); fill(dx + 3, 77, 6, 1, 0x14161b); fill(dx + 2, 78, 8, 2, 0x14161b);
+        const a = playing ? now * 6 + phase : phase;
+        dot(dx + 6 + Math.round(Math.cos(a) * 3), 78 + Math.round(Math.sin(a) * 0.9), 0xd96a5a);
+        dot(dx + 11, 77, 0x9aa0a6); dot(dx + 10, 78, 0x9aa0a6); dot(dx + 9, 79, 0x9aa0a6);
+      }
+      fill(270, 77, 13, 4, 0x1d1f25);
+      for (let k = 0; k < 3; k++) { const pos = playing ? Math.round(1 + Math.sin(now * (1.3 + k) + k)) : 1; fill(271 + k * 3, 77, 1, 3, 0x0e0f12); dot(271 + k * 3, 77 + pos, 0xc8cdd6); }
+      for (const mx of [280, 281]) { const h = playing ? 1 + Math.round(1.5 * (1 + Math.sin(now * 9 + mx))) : 0; for (let r = 0; r < h; r++) dot(mx, 80 - r, r > 2 ? 0xd4140b : r > 1 ? 0xf2d35b : 0x6fd36f); }
+      fill(252, 81, 48, 11, 0x1d1f25); fill(252, 81, 48, 1, 0x2a2c30);
+      for (let x = 253; x < 299; x++) dot(x, 85, playing ? rainbow(((x - 253) / 46 + now * 0.5) % 1) : 0x3a3d47);
+      fill(255, 88, 42, 1, 0x2a2c30);
+      if (playing) notes(266, 62, 8);
+    }
+
+    /** Record player. A turntable on a cabinet of records, its lid up, a crate of records beside it. Playing, the arm is down, the record turns and notes rise. */
+    function drawRecordPlayer() {
+      // Playing: the computer's music, with the control on, or someone at it
+      const playing = frame.music?.playing === true || atCorner(0);
+      fill(259, 91, 32, 1, SHADOW);
+      fill(263, 63, 20, 10, 0xcfe3ef, 0.12); fill(263, 63, 20, 1, 0xcfe3ef, 0.5); fill(263, 63, 1, 10, 0xcfe3ef, 0.35); fill(282, 63, 1, 10, 0xcfe3ef, 0.35);
+      fill(260, 77, 30, 1, 0xa87a56); fill(260, 78, 30, 12, 0x8c6744);
+      fill(262, 80, 12, 9, 0x3a2616); for (let k = 0; k < 11; k++) fill(263 + k, 81 + (k % 3 === 0 ? 1 : 0), 1, 8 - (k % 3 === 0 ? 1 : 0), RECORDS[k % RECORDS.length]);
+      fill(276, 80, 12, 9, 0x3a2616); fill(277, 83, 10, 4, 0x2a2a2e); dot(279, 84, playing ? 0xf0b040 : 0x5a4a2a); dot(284, 84, 0x9aa0a6);
+      fill(261, 90, 2, 1, 0x5a3b25); fill(287, 90, 2, 1, 0x5a3b25);
+      fill(263, 73, 20, 4, 0xc8cdd6); fill(263, 73, 20, 1, 0xe0e4ea);
+      fill(266, 71, 10, 1, 0x14161b); fill(265, 72, 12, 2, 0x14161b); dot(271, 72, 0xd96a5a);
+      if (playing) dot(266 + (Math.floor(now * 10) % 10), 72, 0x5a5a66);
+      dot(280, 72, 0x9aa0a6);
+      if (playing) line(280, 72, 276, 71, 0x9aa0a6); else fill(280, 73, 1, 3, 0x9aa0a6);
+      if (playing) notes(266, 61);
+    }
+
+    /** Record player. A turntable on a cabinet of records, its lid up, a crate of records beside it. Playing, the arm is down, the record turns and notes rise. */
+    function drawRecordCrate() {
+      fill(291, 92, 13, 1, SHADOW); fill(292, 84, 11, 8, 0xa07a4a); fill(292, 87, 11, 1, 0x7a5a36); fill(292, 84, 11, 1, 0xb8905a);
+      for (let k = 0; k < 5; k++) fill(293 + k * 2, 81 + (k % 2), 2, 3 - (k % 2), RECORDS[(k + 2) % RECORDS.length]);
+    }
+
+    /** Boombox. A boombox on a milk crate. Playing, the cones pump, the tape turns and sound rings out. */
+    function drawBoombox() {
+      // Playing: the computer's music, with the control on, or someone at it
+      const playing = frame.music?.playing === true || atCorner(0);
+      fill(264, 92, 21, 1, SHADOW);
+      fill(265, 80, 19, 12, 0x3f6fc4); fill(265, 80, 19, 1, 0x5a8ad0);
+      for (let y = 83; y < 91; y += 3) for (let x = 267; x < 283; x += 3) fill(x, y, 2, 2, 0x2a4a8a);
+      fill(266, 66, 17, 1, 0x5a5f6c); fill(266, 67, 1, 2, 0x5a5f6c); fill(282, 67, 1, 2, 0x5a5f6c);
+      line(284, 68, 290, 58, 0x9aa0a6); dot(290, 57, 0xc8cdd6);
+      fill(262, 69, 25, 11, 0xc8cdd6); fill(262, 69, 25, 1, 0xe0e4ea); fill(262, 79, 25, 1, 0x8a8f9c);
+      for (const cx of [267, 282]) {
+        disc(cx, 75, 4, 0x3a3d47); disc(cx, 75, 3, 0x1d1f25); disc(cx, 75, playing && onBeat() ? 2.2 : 1.4, 0x4a4e56); dot(cx, 75, 0x8a8f9c);
+      }
+      fill(271, 72, 8, 5, 0x2a2a2e); fill(272, 73, 6, 2, 0x5a5f6c);
+      const turn = playing ? Math.floor(now * 6) % 2 : 0;
+      for (const rx of [273, 276]) { dot(rx + turn, 73, 0xeae6dc); dot(rx + 1 - turn, 74, 0xeae6dc); }
+      for (let k = 0; k < 4; k++) dot(271 + k * 2, 70, k === 1 && playing ? 0xd4140b : 0x5a5f6c);
+      if (playing) {
+        for (let k = 0; k < 2; k++) {
+          const r = 5 + ((now * 6 + k * 3) % 6), fade = 0.45 * (1 - (r - 5) / 6);
+          for (const [cx, dir] of [[267, -1], [282, 1]]) for (let a = -0.6; a <= 0.6; a += 0.2) dot(cx + dir * Math.round(Math.cos(a) * r), 75 + Math.round(Math.sin(a) * r), WHITE, fade);
+        }
+        notes(268, 62);
+      }
+    }
+
+    /** Hi-fi stack. A rack of separates between two tall speakers. Playing, the VU needles swing, the reels turn and the woofers pump. */
+    function drawHifi() {
+      // Playing: the computer's music, with the control on, or someone at it
+      const playing = frame.music?.playing === true || atCorner(0);
+      fill(250, 92, 52, 1, SHADOW);
+      const pump = playing && onBeat();
+      for (const sx of [252, 290]) {
+        fill(sx, 60, 10, 32, 0x5a3b25); fill(sx, 60, 10, 1, 0x7a5232); fill(sx + 9, 61, 1, 31, 0x3a2616);
+        disc(sx + 5, 65, 1.5, 0x2a2a2e); dot(sx + 5, 65, 0x8a8f9c);
+        disc(sx + 5, 76, 4, 0x2a2a2e); disc(sx + 5, 76, pump ? 2.6 : 1.8, 0x3a3d47); dot(sx + 5, 76, 0x8a8f9c);
+        fill(sx + 3, 86, 4, 2, 0x1d1f25);
+      }
+      fill(266, 66, 20, 26, 0x2a2a2e);
+      fill(267, 63, 18, 3, 0x5a3b25); fill(269, 62, 12, 1, 0x14161b); dot(274, 62, 0xd96a5a);
+      fill(267, 67, 18, 6, 0xc8cdd6); fill(267, 67, 18, 1, 0xe0e4ea);
+      for (const [vx, ph] of [[268, 0], [276, 1.3]]) {
+        fill(vx, 68, 6, 3, playing ? 0xf0b040 : 0x9a7a3a);
+        const a = playing ? -0.5 + 0.5 * Math.abs(Math.sin(now * 5 + ph)) : -0.9;
+        dot(vx + 3 + Math.round(Math.sin(a) * 2), 70 - Math.round(Math.cos(a) * 2), 0x1d1f25); dot(vx + 3, 70, 0x1d1f25);
+      }
+      fill(283, 69, 1, 2, 0x5a5f6c);
+      fill(267, 74, 18, 6, 0x3a3d47); fill(269, 75, 14, 3, 0x1d1f25);
+      const turn = playing ? Math.floor(now * 5) % 2 : 0;
+      for (const rx of [271, 279]) { fill(rx, 75, 3, 3, 0x5a5f6c); dot(rx + 1, 76, 0x1d1f25); dot(rx + turn * 2, 75 + turn * 2, 0xeae6dc); }
+      fill(267, 81, 18, 4, 0x2a2c30); fill(268, 82, 16, 1, 0x4ad4e8, playing ? 0.7 : 0.3); fill(274, 81, 1, 3, 0xd4140b);
+      for (let k = 0; k < 14; k++) fill(268 + k, 87 + (k % 4 === 0 ? 1 : 0), 1, 4 - (k % 4 === 0 ? 1 : 0), RECORDS[k % RECORDS.length]);
+      if (playing) { fill(266, 66, 20, 8, 0xf0b040, 0.06); notes(266, 57, 8); }
+    }
+
+    /** Synth rig. A keyboard on an X-stand under a modular case, patch cables hanging. Playing, keys light, LEDs blink and the cables sway. */
+    function drawSynth() {
+      // Playing: the computer's music, with the control on, or someone at it
+      const playing = frame.music?.playing === true || atCorner(0);
+      fill(257, 92, 40, 1, SHADOW);
+      for (const lx of [262, 282]) { line(lx, 81, lx + 10, 91, 0x3a3d47); line(lx + 10, 81, lx, 91, 0x3a3d47); }
+      fill(264, 74, 1, 2, 0x5a5f6c); fill(290, 74, 1, 2, 0x5a5f6c);
+      fill(262, 60, 30, 14, 0x5a3b25); fill(264, 61, 26, 12, 0x2a2c30);
+      for (let k = 1; k < 5; k++) fill(264 + k * 6, 61, 1, 12, 0x1d1f25);
+      for (let k = 0; k < 10; k++) dot(266 + (k % 5) * 6, 63 + Math.floor(k / 5) * 3, 0x9aa0a6);
+      const leds = [0xd4140b, 0x6fd36f, 0xf2d35b, 0x4ad4e8];
+      for (let k = 0; k < 5; k++) dot(268 + k * 6, 69, leds[k % 4], playing ? ((Math.floor(now * (3 + k)) % 2) ? 1 : 0.25) : 0.25);
+      for (const [x0, y0, x1, y1, c, ph] of [[266, 66, 278, 64, 0xd96a5a, 0], [272, 70, 286, 66, 0xf2d35b, 1], [280, 63, 288, 70, 0x4c8bf5, 2]]) {
+        const sag = 4 + (playing ? Math.sin(now * 2 + ph) * 0.8 : 0);
+        for (let t = 0; t <= 1; t += 0.08) dot(Math.round(x0 + (x1 - x0) * t), Math.round(y0 + (y1 - y0) * t + Math.sin(t * Math.PI) * sag), c);
+      }
+      fill(258, 76, 38, 5, 0x2a2d35); fill(258, 76, 38, 1, 0x3a3d47);
+      for (let k = 0; k < 6; k++) dot(260 + k * 2, 77, 0x9aa0a6);
+      fill(285, 77, 8, 2, 0x1a3a2a); fill(285, 77, playing ? 1 + (Math.floor(now * 4) % 7) : 2, 1, 0x6fd36f);
+      fill(260, 79, 34, 2, 0xf4f1ea);
+      for (let k = 0; k < 34; k++) if ([1, 2, 4, 5, 6].includes(k % 7)) dot(260 + k, 79, 0x1d1f25);
+      if (playing) for (let k = 0; k < 3; k++) dot(260 + ((Math.floor(now * 6) + k * 11) % 34), 80, 0xc05aff);
+      if (playing) notes(266, 56, 8);
+    }
+
     /* The pet */
 
     /**
@@ -5104,6 +5351,9 @@
       servers: [[89, drawServers]], printer: [[91, drawPrinter]], boxing: [[93, drawBoxing]],
       treadmill: [[80, drawTreadmillConsole], [88, drawTreadmillBelt]], hottub: [[80, drawHotTubBack], [89, drawHotTubFront]],
       ballpit: [[80, drawBallPitBack], [89, drawBallPitFront]], campfire: [[92.5, drawCampfire], [93, drawCampfireLogs]],
+      bubbler: [[88.5, drawBubbler]], neonbox: [[88, drawNeonJukebox]], wallbox: [[78, drawBoothBench], [88, drawBoothTable]],
+      djtable: [[90, drawDjBooth]], turntable: [[90, drawRecordPlayer], [92, drawRecordCrate]], boombox: [[92, drawBoombox]],
+      hifi: [[92, drawHifi]], synth: [[88, drawSynth]],
       none: [],
     };
 
@@ -6664,6 +6914,8 @@
     arcade: 'arcade', foosball: 'foosball', fishtank: 'fishtank', jellyfish: 'fishtank', dragon: 'dragon', pinball: 'pinball',
     jukebox: 'jukebox', pool: 'pool', piano: 'piano', drums: 'drums', telescope: 'twinkle', jungle: 'bird', coffee: 'coffee',
     servers: 'hum', printer: 'printer', boxing: 'boxing', treadmill: 'treadmill', hottub: 'splash', ballpit: 'rustle', campfire: 'crackle',
+    bubbler: 'jukebox', neonbox: 'jukebox', wallbox: 'jukebox', djtable: 'jukebox', turntable: 'jukebox', boombox: 'jukebox',
+    hifi: 'jukebox', synth: 'piano',
   };
   /** How often the weather in the windows, or the corner piece being played, makes itself heard, in seconds. */
   const WEATHER_EVERY = [50, 120];
