@@ -17,7 +17,7 @@
     font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
   /* minmax(0, …) lets a column narrow past its longest line, such as a deep
      project path, so the page follows the window down to phone width. */
-  main { max-width: 1000px; margin: 0 auto; padding: 36px 24px 64px; display: grid; gap: 32px 28px;
+  main { max-width: 1240px; margin: 0 auto; padding: 36px 24px 64px; display: grid; gap: 32px 28px;
     grid-template-columns: minmax(0, 1fr) 320px;
     /* The phone panel runs beside two rows; the keys' row takes up whatever
        height it has to spare, rather than a gap opening above the keys. */
@@ -130,9 +130,10 @@
   /* Layout: the editor, and beside it the phone's own page as a preview. */
   .layout { grid-area: layout; }
   .layout[hidden] { display: none; }
+  /* The options, and beside them the phone, which stays in view as they scroll by. */
   .layout-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; align-items: start; }
-  @media (max-width: 840px) { .layout-body { grid-template-columns: minmax(0, 1fr); } }
-  .editor { display: grid; gap: 14px; min-width: 0; }
+  /* One column: each row of choices wraps inside it rather than running on under the phone. */
+  .editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
   .editor h3 { font-size: 13px; margin: 6px 0 0; }
   .field { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
   .field > span:first-child { color: var(--dim); }
@@ -219,13 +220,25 @@
   .note { color: var(--asking); font-size: 13px; margin: 0; }
   .note[hidden] { display: none; }
   /* The phone page at an everyday phone's size, scaled down to fit. */
-  .preview { margin: 0; display: grid; gap: 10px; justify-items: center; --w: 390px; --h: 844px; --scale: .6; }
+  .preview { margin: 0; display: grid; gap: 10px; justify-items: center; --w: 390px; --h: 844px; --scale: .6;
+    position: sticky; top: 16px; }
+  /* A shorter window, a smaller phone, so its buttons stay in view too. */
+  @media (max-height: 760px) { .preview { --scale: .5; } }
+  @media (max-height: 640px) { .preview { --scale: .4; } }
+  /* A narrow window: the phone goes above the options, where it's seen first. */
+  @media (max-width: 840px) {
+    .layout-body { grid-template-columns: minmax(0, 1fr); }
+    .preview { order: -1; position: static; }
+  }
   .preview .samples { min-width: 110px; text-align: center; align-self: center; color: var(--dim); font-size: 13px; }
-  /* Sideways, the phone is too wide to sit beside the editor, so it goes under it. */
+  /* Sideways, the phone is too wide to sit beside the editor, so it goes above it. */
   .layout.sideways .layout-body { grid-template-columns: minmax(0, 1fr); }
-  .layout.sideways .preview { --w: 844px; --h: 390px; justify-items: start; }
+  .layout.sideways .preview { --w: 844px; --h: 390px; justify-items: start; order: -1; position: static; }
+  @media (max-width: 600px) { .layout.sideways .preview { --scale: .38; } }
   .frame { width: calc(var(--w) * var(--scale) + 16px); height: calc(var(--h) * var(--scale) + 16px); padding: 8px;
-    border: 1px solid var(--edge); border-radius: 30px; background: #000; }
+    border: 1px solid var(--edge); border-radius: 30px; background: #000;
+    /* The page inside is laid out at full size before it's scaled down: none of that may widen this one. */
+    overflow: hidden; }
   .frame iframe { width: var(--w); height: var(--h); border: 0; border-radius: 22px; transform: scale(var(--scale)); transform-origin: 0 0; }
 
   /* Logo */
