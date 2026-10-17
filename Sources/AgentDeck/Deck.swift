@@ -380,7 +380,7 @@ final class Deck {
         if action == "hire" { return hire(at: query["desk"], done: done) }
         if action == "swap" { return done(swapKeys(query)) }
         if action == "style" { return done(setStyle(query["preset"])) }
-        if action == "music" { return done(playMusic()) }
+        if action == "music" { return done(playMusic(query["do"] ?? "playpause")) }
         guard let session = sessions[id], !session.tty.isEmpty else { return done(.status(404, "Session not found")) }
         let tty = session.tty
 
@@ -486,11 +486,13 @@ final class Deck {
 
     static let musicOff = "The jukebox can't play your music: turn it on in setup, on your Mac."
 
-    /// Plays or pauses the Mac's music, from a jukebox in the office.
-    private func playMusic() -> Response {
+    /// Plays or pauses the Mac's music, or skips a song either way, from a
+    /// jukebox in the office: `key` is "playpause", "previous" or "next".
+    private func playMusic(_ key: String) -> Response {
+        guard Music.keys[key] != nil else { return .status(400, "A jukebox has no \(key) key.") }
         guard Config.shared.musicEnabled else { return .status(403, Deck.musicOff) }
         guard Permissions.hasAccessibility else { return .status(403, Deck.noKeyboard) }
-        Music.playPause()
+        Music.press(key)
         // The player takes a moment to say it has.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.followMusic() }
         return .status(204)

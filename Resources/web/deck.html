@@ -447,10 +447,10 @@
       tick();
       send('/act', { action: 'swap', from, to });
     },
-    // A jukebox tapped: the computer's music plays or pauses.
-    music() {
+    // A jukebox's keys: the computer's music plays or pauses, or skips a song either way.
+    music(key = 'playpause') {
       tick();
-      send('/act', { action: 'music' });
+      send('/act', { action: 'music', do: key });
     },
     // One of the office's styles, from its key in the room's corner, for every screen it's on.
     style(preset) {
@@ -1186,7 +1186,7 @@
       mic: params.phase === 'down' ? 'starts listening' : 'stops listening',
       effort: `sets effort to ${params.level}`, scroll: 'scrolls',
       fire: 'fires', hire: 'hires a new agent', swap: 'swaps two desks', style: 'changes the office\'s style',
-      music: 'plays or pauses your music',
+      music: { previous: 'goes back a song', next: 'skips to the next song' }[params.do] || 'plays or pauses your music',
     };
     return `${words[params.action] || params.action}${name}`;
   }

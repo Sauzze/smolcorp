@@ -5,10 +5,12 @@ import (
 	"strings"
 )
 
-// playPause plays or pauses whatever player is playing, through MPRIS, as
-// playerctl reaches it: music apps, and browsers playing a video.
-func playPause() error {
-	return exec.Command("playerctl", "play-pause").Run()
+// musicKey plays or pauses whatever player is playing, or skips a song
+// either way, through MPRIS, as playerctl reaches it: music apps, and
+// browsers playing a video. key is one of musicKeys.
+func musicKey(key string) error {
+	command := map[string]string{"playpause": "play-pause", "previous": "previous", "next": "next"}[key]
+	return exec.Command("playerctl", command).Run()
 }
 
 // musicPlaying is whether a player is playing, or nil without playerctl or

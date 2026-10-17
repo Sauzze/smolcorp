@@ -121,16 +121,26 @@ func (d *Deck) followMusic() {
 	}
 }
 
-// playMusic plays or pauses this computer's music, from a jukebox in the office.
-func (d *Deck) playMusic() (int, string) {
+// musicKeys is what a jukebox's keys do, as the office names them.
+var musicKeys = []string{"playpause", "previous", "next"}
+
+// pressMusicKey presses one of musicKeys: a variable, for the tests.
+var pressMusicKey = musicKey
+
+// playMusic plays or pauses this computer's music, or skips a song either
+// way, from a jukebox in the office.
+func (d *Deck) playMusic(key string) (int, string) {
+	if !contains(musicKeys, key) {
+		return http.StatusBadRequest, "A jukebox has no " + key + " key."
+	}
 	d.mu.Lock()
 	enabled := d.config.MusicEnabled
 	d.mu.Unlock()
 	if !enabled {
 		return http.StatusForbidden, musicOff
 	}
-	if err := playPause(); err != nil {
-		return http.StatusInternalServerError, "Couldn't play or pause the music here."
+	if err := pressMusicKey(key); err != nil {
+		return http.StatusInternalServerError, "Couldn't reach the music here."
 	}
 	// The player takes a moment to say it has.
 	time.AfterFunc(600*time.Millisecond, d.followMusic)
@@ -579,7 +589,11 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		return d.setStyle(query.Get("preset"))
 	}
 	if action == "music" {
-		return d.playMusic()
+		key := query.Get("do")
+		if key == "" {
+			key = "playpause"
+		}
+		return d.playMusic(key)
 	}
 	if action == "hire" {
 		if !hiring {
