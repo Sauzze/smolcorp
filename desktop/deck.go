@@ -31,7 +31,12 @@ type Deck struct {
 	micPress *micPress
 	// Whether music is playing, for the office's jukebox, when it can be told.
 	playing *bool
-	work    chan func()
+	// What each session was when the webhook was last told, nil until the
+	// deck first looks; and how the last delivery went, for the setup page.
+	told        map[string]told
+	webhookMu   sync.Mutex
+	webhookLast string
+	work        chan func()
 	// OnChange is called on every change, for the tray.
 	OnChange func()
 }
@@ -48,6 +53,8 @@ const (
 	pruneInterval = 10 * time.Second
 	// Claude stops listening by itself after two minutes.
 	voiceLimit = 120 * time.Second
+	// How often to end the sessions ended for /clear or /resume that nothing took the place of.
+	handOnInterval = 1500 * time.Millisecond
 	// How often to look whether music is playing, with the jukebox on.
 	musicInterval = 3 * time.Second
 )
@@ -77,6 +84,15 @@ func NewDeck() *Deck {
 	go func() {
 		for range time.Tick(pruneInterval) {
 			d.pruneClosedTabs()
+		}
+	}()
+	go func() {
+		for range time.Tick(handOnInterval) {
+			d.mu.Lock()
+			if d.sessions.EndHandOns(nowMillis()) {
+				d.changed()
+			}
+			d.mu.Unlock()
 		}
 	}()
 	go func() {
@@ -180,6 +196,7 @@ func (d *Deck) changed() {
 		stream.send(state)
 	}
 	go d.OnChange()
+	d.tellWebhook()
 }
 
 // Refresh re-sends the state, for changes the sessions don't see (the setup
@@ -205,6 +222,14 @@ type deckKey struct {
 // Sessions beyond the last key have none until one frees up.
 func (d *Deck) layout() ([]deckKey, []*Session) {
 	remaining := d.sessions.All()
+	// A session that took another's place in its tab, as after /clear, takes its key too.
+	for new, old := range d.sessions.TakeReplacements() {
+		if index, ok := d.keyOf[old]; ok {
+			if _, has := d.keyOf[new]; !has {
+				d.keyOf[new] = index
+			}
+		}
+	}
 	live := map[string]bool{}
 	for _, s := range remaining {
 		live[s.ID] = true
