@@ -1112,6 +1112,13 @@
   }
 
   const random = (low, high) => low + Math.random() * (high - low);
+  /**
+   * Floors as drawn, a canvas each, by the floor, where it is and how big:
+   * so a floor is drawn square by square once, not every frame. A few are
+   * kept for each document the office is drawn in.
+   */
+  const floorsDrawn = new WeakMap();
+  const FLOORS_KEPT = 6;
   /** A number from 0 to 2³² − 1 for a pair of whole numbers, the same every time: to vary a pattern from tile to tile. */
   const hash = (x, y) => {
     let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0;
@@ -2488,6 +2495,18 @@
       },
     };
 
+    /** What moves on a floor, over it as it's kept: where the snow glints, each `h` setting when, from `L`, `T` to `R`, `B`. */
+    const FLOOR_GLINTS = {
+      snow(L, T, R, B) {
+        const glints = [];
+        for (let y = T, r = 0; y < B; y += 6, r++) for (let x = from(L, 14, (r % 2) * 7); x < R; x += 14) {
+          const h = hash(x, r), gx = x + ((h >>> 9) % 11), gy = y + ((h >>> 4) % 5);
+          if ((h >>> 8) % 4 === 1 && gx >= L && gx < R && gy < B) glints.push({ x: gx, y: gy, h });
+        }
+        return glints;
+      },
+    };
+
     /** The office's floors besides wood, tiles, concrete and carpet, each from `L`, `T` to `R`, `B`, lined up from the room's corner. */
     const FLOOR_FINISHES = {
       /** Deck plating. Riveted plates with a grille every so often. */
@@ -2535,7 +2554,6 @@
           const h = hash(x, r);
           fill(x + (h % 5), y + 2, 5 + ((h >>> 3) % 4), 1, 0xc0d2e2);
           if ((h >>> 5) % 3 === 0) fill(x + ((h >>> 6) % 7), y + 4, 3, 1, 0xccdae6);
-          if ((h >>> 8) % 4 === 1) dot(x + ((h >>> 9) % 11), y + ((h >>> 4) % 5), WHITE, 0.4 + 0.6 * Math.max(0, Math.sin(now * 2 + h)));
         }
       },
       /** Grass. Tufts and the odd flower. */
@@ -3119,8 +3137,53 @@
       }
     }
 
-    /** A floor of `kind` from `L`, `T` to `R`, `B`, lined up from the room's corner: the office's, or one in the lounge. */
+    /**
+     * A floor of `kind` from `L`, `T` to `R`, `B`, lined up from the room's
+     * corner: the office's, or one in the lounge. Drawn once and kept, at
+     * whole screen pixels to an art pixel, then copied each frame, with
+     * whatever moves on it over the top.
+     */
     function paintFloor(kind, L, T, R, B) {
+      if (R <= L || B <= T) return;
+      if (!Number.isInteger(scale) || !Number.isInteger(ox) || !Number.isInteger(oy)) {
+        drawFloorOf(kind, L, T, R, B);
+        if (FLOOR_GLINTS[kind]) drawGlints(FLOOR_GLINTS[kind](L, T, R, B));
+        return;
+      }
+      const doc = ctx.canvas.ownerDocument || document;
+      if (!floorsDrawn.has(doc)) floorsDrawn.set(doc, new Map());
+      const kept = floorsDrawn.get(doc), key = `${kind} ${L} ${T} ${R} ${B} ${scale}`;
+      let floor = kept.get(key);
+      if (floor) {
+        kept.delete(key); // the most recently drawn last, so the oldest goes first
+      } else {
+        const canvas = doc.createElement('canvas');
+        canvas.width = (R - L) * scale;
+        canvas.height = (B - T) * scale;
+        const main = { ctx, ox, oy };
+        ctx = canvas.getContext('2d');
+        ox = -L * scale;
+        oy = -T * scale;
+        try {
+          drawFloorOf(kind, L, T, R, B);
+        } finally {
+          ({ ctx, ox, oy } = main);
+        }
+        floor = { canvas, glints: FLOOR_GLINTS[kind] ? FLOOR_GLINTS[kind](L, T, R, B) : null };
+        if (kept.size >= FLOORS_KEPT) kept.delete(kept.keys().next().value);
+      }
+      kept.set(key, floor);
+      ctx.drawImage(floor.canvas, ox + L * scale, oy + T * scale);
+      if (floor.glints) drawGlints(floor.glints);
+    }
+
+    /** Glints on a floor, each twinkling in its own time. */
+    function drawGlints(glints) {
+      for (const { x, y, h } of glints) dot(x, y, WHITE, 0.4 + 0.6 * Math.max(0, Math.sin(now * 2 + h)));
+    }
+
+    /** Draws a floor of `kind` from `L`, `T` to `R`, `B`, square by square. */
+    function drawFloorOf(kind, L, T, R, B) {
       const depth = B - T, across = R - L;
       /** Squares of `size` from the room's corner outwards, cut at `R`: `paint(x, y, column, row, width)` for each. */
       const squares = (size, paint) => {
