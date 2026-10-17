@@ -164,7 +164,7 @@
    * on any of them plays or pauses the computer's music, and they show
    * whether it's playing, where the computer can tell.
    */
-  const MUSIC_KINDS = ['jukebox'];
+  const MUSIC_KINDS = ['jukebox', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth'];
   const isAdded = (part) => part.startsWith('added:');
   /** How big a piece can be: as it comes, half as big again, or twice. */
   const PIECE_SIZES = [1, 1.5, 2];
@@ -188,7 +188,7 @@
   const CORNER_BOXES = {
     arcade: { x: 264, y: 60, w: 16, h: 27 }, vending: { x: 262, y: 58, w: 20, h: 29 }, foosball: { x: 255, y: 75, w: 34, h: 20 },
     fishtank: { x: 257, y: 60, w: 31, h: 27 }, books: { x: 265, y: 57, w: 43, h: 41 }, dragon: { x: 244, y: 68, w: 59, h: 29 },
-    pinball: { x: 261, y: 51, w: 27, h: 40 }, jukebox: { x: 263, y: 56, w: 23, h: 33 }, pool: { x: 250, y: 72, w: 52, h: 21 },
+    pinball: { x: 261, y: 51, w: 27, h: 40 }, jukebox: { x: 263, y: 50, w: 23, h: 39 }, pool: { x: 250, y: 72, w: 52, h: 21 },
     piano: { x: 261, y: 56, w: 31, h: 36 }, drums: { x: 250, y: 68, w: 54, h: 26 }, telescope: { x: 266, y: 54, w: 36, h: 39 },
     jellyfish: { x: 260, y: 51, w: 31, h: 41 }, bonsai: { x: 260, y: 60, w: 34, h: 32 }, jungle: { x: 243, y: 56, w: 64, h: 38 },
     coffee: { x: 244, y: 54, w: 58, h: 40 }, servers: { x: 258, y: 50, w: 35, h: 40 }, printer: { x: 257, y: 56, w: 42, h: 36 },
