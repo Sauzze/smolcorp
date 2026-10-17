@@ -5091,6 +5091,24 @@
       dot(x + 4, y - 1, PALETTE.mug);
       fill(x, y - 2, 1, 2, WHITE, 0.5);
     }
+    /** A cup drunk, 3 wide and 3 tall, the coffee left in it on top, its handle on the right: its top-left at `x`, `y`. */
+    function drawCup(x, y) {
+      fill(x, y, 3, 1, DESK_THINGS.coffee);
+      fill(x, y + 1, 3, 2, PALETTE.mug);
+      dot(x + 3, y + 1, shaded(PALETTE.mug, 0.72));
+      dot(x, y + 2, shaded(PALETTE.mug, 0.86));
+    }
+    /** A little moka pot, 5 wide and 5 tall, its top-left at `x`, `y`: its knob, its lid, its spout and handle, its waist and its base. */
+    function drawLittlePot(x, y) {
+      dot(x + 2, y, 0x2a2a2e);
+      fill(x + 1, y + 1, 3, 1, 0xc8cdd6);
+      dot(x, y + 2, 0x9aa0a6);
+      fill(x + 1, y + 2, 3, 1, 0xb8bdc6);
+      dot(x + 4, y + 2, 0x2a2a2e);
+      fill(x + 1, y + 3, 3, 1, 0x8a8f99);
+      fill(x + 1, y + 4, 3, 1, 0xa8adb6);
+      dot(x + 1, y + 2, WHITE, 0.6);
+    }
     /** Steam rising, `count` puffs, from `x`, `y`. */
     function drawSteam(x, y, count, reach) {
       for (let k = 0; k < count; k++) {
@@ -5100,11 +5118,13 @@
     }
 
     /**
-     * How hard an agent is working, in coffee: a tower of mugs by the
-     * monitor, one for low effort up to four for extra high, the fourth
-     * making it sway, and for the most, a moka pot steaming and steam off
-     * the agent. A workspace with no top to put them on has them on the
-     * floor beside it.
+     * How hard an agent is working, in coffee: cups already drunk in a row
+     * along the front of the desk, one for low effort up to four for extra
+     * high, under the monitor and clear of the keyboard; and for the most, a
+     * little moka pot at the end of the row, steaming, and steam off the
+     * agent. A workspace with no top to put them on has them on the floor
+     * beside it, in a tower, the pot a big one; the floor to the desk's right
+     * is the interns'.
      */
     function drawEffort(desk, { x, y, kind, occupant }) {
       const effort = office.deskEffort(desk);
@@ -5114,6 +5134,16 @@
       const rose = office.effortRoseAt(desk), since = rose === null ? Infinity : now - rose;
       const drop = since < MUG_DROP.fall ? -Math.round(MUG_DROP.height * (1 - (since / MUG_DROP.fall) ** 2))
         : since < MUG_DROP.fall + MUG_DROP.bounce ? -Math.round(2 * Math.sin((Math.PI * (since - MUG_DROP.fall)) / MUG_DROP.bounce)) : 0;
+      if (!away) {
+        // The row: four cups at most, the newest dropping in, and the pot at its end
+        const cups = effort === 'max' ? 4 : EFFORT_MUGS[effort] ?? 1;
+        for (let i = 0; i < cups; i++) drawCup(x + 1 + i * 4, y + 2 + (effort !== 'max' && i === cups - 1 ? drop : 0));
+        if (effort !== 'max') return;
+        drawLittlePot(x + 18, y + drop);
+        drawSteam(x + 17, y + 1 + drop, 3, 6);
+        if (occupant) drawSteam(occupant.position.x - 1, topOf(occupant, poseOf(occupant, now)) - 1, 4, 9);
+        return;
+      }
       if (effort !== 'max') {
         const my = away ? y + 15 : y + 1, count = EFFORT_MUGS[effort] ?? 1, sway = count >= 4 ? Math.round(Math.sin(now * 3) * 0.6) : 0;
         if (away) fill(mx - 1, my + 1, 6, 1, SHADOW);
