@@ -25,7 +25,7 @@
  * play or pause the computer's music, 'playpause', from a tap, or from the
  * control a finger held on it opens, 'previous', 'playpause' or 'next',
  * `on.key(action)` for one of the picked agent's keys along the foot of the
- * room, out from a tap on the agent till a tap elsewhere, 'esc', 'send',
+ * room, out from a finger held on the agent till a tap elsewhere, 'esc', 'send',
  * 'clear', 'up', 'down' or 'button:<id>' for one of the layout's own
  * buttons (/clear and a button marked `confirm` on a second tap),
  * `on.scroll(lines | 'bottom')` for two fingers moving up and down the room,
@@ -8699,7 +8699,7 @@
     let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
     let musicPanel = null;   // a music piece's control, held open: { part, at }, `at` when it was last used
     let musicDown = null;    // the music control's key last pressed: { action, at, held }
-    let keysOut = false;     // the picked agent's keys are out, from a tap on them till a tap elsewhere
+    let keysFor = null;      // the agent whose keys are out, by its session's id: from a finger held on them till a tap elsewhere
     let keyArmed = null;     // a key that wants a second tap, tapped once: { action, at }
     let keyDown = null;      // the key last pressed: { action, at, held }
     let keysAt = null;       // where the keys were last drawn, in art pixels: { keys, box }
@@ -8827,9 +8827,9 @@
       return { left, top, w, h, tip, keys: MUSIC_ACTIONS.map((action, i) => ({ action, x: left + 2 + i * (MUSIC_KEY.w + MUSIC_KEY.gap), y: top + 2 })) };
     }
 
-    /** The picked agent's keys, along the foot of the room, if they're out and nothing else is up in their place. */
+    /** The picked agent's keys, along the foot of the room, if a finger held on them put them out and nothing else is up in their place. */
     function keyRow() {
-      if (framed || !keysOut || !on.key || arranging || styling || firing || carrying || choices() || !selectedSession()) return null;
+      if (framed || !keysFor || keysFor !== selected || !on.key || arranging || styling || firing || carrying || !selectedSession()) return null;
       return { keys: rowKeysOf(latest && latest.layout), armed: keyArmed, down: keyDown };
     }
 
@@ -8870,7 +8870,9 @@
         finger.held = true;
         const { kind, id, desk } = finger.target;
         held = kind === 'session' ? { kind, id } : hiresInto(desk) ? { kind: 'empty', desk } : null;
-        if (chips() || heldButton()) on.held?.();
+        // An agent held, at a desk or in the line, puts out their keys too, whether or not they have chips.
+        if (kind === 'session') keysFor = id;
+        if (chips() || heldButton() || keyRow()) on.held?.();
       }
       // The room takes its canvas's shape: tall on a screen held upright, where it comes out bigger.
       const fitting = canvas.height > canvas.width ? TALL : WIDE;
@@ -9057,9 +9059,8 @@
 
     /** Everything a key or button does on the deck, done by tapping the room. */
     function press(target) {
-      // An agent tapped puts their keys out; anything else but their keys and chips puts them away.
-      if (target.kind === 'session') keysOut = true;
-      else if (target.kind !== 'key' && target.kind !== 'chip') keysOut = false;
+      // Anything tapped but the keys out and the chips puts the keys away; a finger held on an agent puts theirs out (see `tick`).
+      if (target.kind !== 'key' && target.kind !== 'chip') keysFor = null;
       if (target.kind !== 'key') keyArmed = null;
       if (target.kind === 'key') {
         keyDown = { action: target.action, at: clock(), held: true };
@@ -9442,7 +9443,7 @@
       if (!target) {
         held = null;
         musicPanel = null;
-        keysOut = false;
+        keysFor = null;
         keyArmed = null;
         return;
       }
