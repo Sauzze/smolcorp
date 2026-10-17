@@ -478,6 +478,8 @@
     // Full screen is the phone's office alone: with the keys back, it ends.
     $('full-switch').hidden = whole || preview || !showOffice;
     if (full && !showOffice) setFull(false);
+    // On the setup page, the office is shown as it is in full screen, the room filling the phone.
+    if (preview && full !== showOffice) setFull(showOffice);
     const [keys, room] = $('view-switch').children;
     keys.classList.toggle('on', !showOffice);
     room.classList.toggle('on', showOffice);
@@ -513,6 +515,7 @@
     office.setFloating(on ? 'screen' : null);
     $('full-switch').setAttribute('aria-label', on ? 'Leave full screen' : 'Full screen');
     const page = document.documentElement;
+    if (preview) return; // the setup page's preview fills its phone, not the screen
     if (on && page.requestFullscreen && !document.fullscreenElement) page.requestFullscreen().catch(() => {});
     if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }
