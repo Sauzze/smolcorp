@@ -495,6 +495,11 @@
   const STANDARD_WALL = ['window', 'whiteboard', 'window', 'pinboard', 'window'];
   /** The middle of each of the back wall's places, left to right. */
   const WALL_SLOTS = [44, 77, 110, 143, 176];
+  /** How wide each piece on the back wall is drawn, in art pixels: the editor keeps them apart by it. Unlisted, a window's width. */
+  const WALL_WIDTHS = {};
+  const wallWidthOf = (kind) => WALL_WIDTHS[kind] || 32;
+  /** Where along the back wall a piece can hang, edge to edge, in each shape: clear of the doorway. */
+  const WALL_RANGE = { wide: [0, 194], tall: [0, 194] };
 
   /** A room as the layout gives it: anything unknown or left out is as standard. */
   /**
@@ -746,6 +751,13 @@
     return floor;
   }
 
+  /** Whether nothing stands on the floor at `point`. */
+  function standsFree(point) {
+    const { columns, rows, taken } = floorNow();
+    const column = Math.floor(point.x / CELL), row = Math.floor(point.y / CELL);
+    return column >= 0 && row >= 0 && column < columns && row < rows && !taken[row * columns + column];
+  }
+
   /** The way from where someone stands to a place, round what's in the way. */
   function route(from, place) {
     const target = pointOf(place);
@@ -753,8 +765,8 @@
     return path.filter((p, i) => i > 0 ? p.x !== path[i - 1].x || p.y !== path[i - 1].y : p.x !== from.x || p.y !== from.y);
   }
 
-  /** The points to walk through from `from` to `to`, `to` last. */
-  function walkway(from, to) {
+  /** The points to walk through from `from` to `to`, `to` last; with `strict`, null when there's no way through. */
+  function walkway(from, to, strict = false) {
     const { columns, rows, taken } = floorNow();
     const cellOf = (p) => {
       const column = Math.max(0, Math.min(columns - 1, Math.floor(p.x / CELL)));
@@ -784,7 +796,7 @@
     };
     const start = nearestFree(cellOf(from)), goal = nearestFree(cellOf(to));
     const cells = search(start, goal, columns, rows, taken);
-    if (!cells) return [{ x: to.x, y: to.y }]; // walled in: straight there, as before there were walls
+    if (!cells) return strict ? null : [{ x: to.x, y: to.y }]; // walled in: straight there, as before there were walls
     // Pulled straight: from each point, on to the farthest one in plain sight
     const clear = (pa, pb) => {
       // Every half pixel, so a line that only grazes a corner of something still counts
@@ -7378,10 +7390,11 @@
     }
 
     /** Arranging the room: a dotted line round each piece that can be picked, and a solid one round the one picked. */
-    function drawArrangement({ pieces, picked }) {
+    function drawArrangement({ pieces, picked, blocked, handle }) {
       for (const { part, box } of pieces) {
-        const chosen = part === picked;
-        const edge = chosen ? colour('thinking') : WHITE, alpha = chosen ? 1 : 0.4, step = chosen ? 1 : 2;
+        const chosen = part === picked, cut = blocked.includes(part);
+        // Picked, in the deck's blue; cut off from the door, in its red
+        const edge = cut ? colour('error') : chosen ? colour('thinking') : WHITE, alpha = chosen || cut ? 1 : 0.4, step = chosen ? 1 : 2;
         const l = Math.round(box.left), t = Math.round(box.top), r = Math.round(box.right), b = Math.round(box.bottom);
         for (let x = l; x <= r; x += step) {
           dot(x, t, edge, alpha);
@@ -7391,6 +7404,11 @@
           dot(l, y, edge, alpha);
           dot(r, y, edge, alpha);
         }
+      }
+      if (handle) {
+        const x = Math.round(handle.right) - 1, y = Math.round(handle.bottom) - 1;
+        fill(x - 1, y - 1, 5, 5, BLACK, 0.6);
+        fill(x, y, 3, 3, colour('thinking'));
       }
     }
 
@@ -8535,7 +8553,12 @@
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
         deskButton: heldButton(), firing: firing && { ...fireDialog(), name: firing.name }, carrying,
         styleKey: key, styles: styling && key && { ...styleMenu(), current: decor.preset, pictures: stylePictures },
-        arranging: arranging && { pieces: arrangeable(), picked: arranging.picked },
+        arranging: arranging && {
+          pieces: arrangeable(), picked: arranging.picked, blocked: arranging.blocked || [],
+          // The picked piece's handle, if it can grow
+          handle: arranging.picked && !isHung(arranging.picked) && (isAdded(arranging.picked) || ARRANGEABLE[arranging.picked]?.grows)
+            ? pieceBox(arranging.picked) : null,
+        },
         music,
         musicTap: musicTap && now - musicTap.at < MUSIC_TAP_LENGTH && { box: pieceBox(musicTap.part), was: musicTap.was, since: now - musicTap.at },
         musicPanel: musicControl() && { ...musicControl(), playing: music.playing, down: musicDown },
@@ -8805,6 +8828,11 @@
     /* Arranging the room */
 
     const shapeName = () => (shape === TALL ? 'tall' : 'wide');
+    /** How far down the back wall a piece hanging on it reaches, for picking it: from near the ceiling to above the floor. */
+    const HUNG_SPAN = { top: 3, bottom: WALL_BOTTOM - 10 };
+    /** How close to the picked piece's corner a finger counts as on its handle, in CSS pixels, and how big it's drawn, in art pixels. */
+    const HANDLE_REACH = 14;
+    const HANDLE_SIZE = 3;
 
     /** The part of the room `part` takes up now, in art pixels: a desk with its workspace, or a piece as grown and moved. */
     function pieceBox(part) {
@@ -8812,6 +8840,10 @@
         const desk = Number(part.slice(4)) - 1, { x, y } = DESKS[desk];
         const seat = office.seats[desk] || {};
         return { left: x - 2, top: y + WORKSPACES[workspaceOf(seat.session, desk)].top, right: x + DESK_WIDTH + 2, bottom: y + 20 };
+      }
+      if (isHung(part)) {
+        const piece = hungOf()[Number(part.slice(5))], half = wallWidthOf(piece.kind) / 2;
+        return { left: piece.x - half, top: HUNG_SPAN.top, right: piece.x + half, bottom: HUNG_SPAN.bottom };
       }
       const { x, y, w, h } = pieceRect(part);
       const a = placed(part, { x, y }), b = placed(part, { x: x + w, y: y + h });
@@ -8821,18 +8853,88 @@
     /** What can be arranged and is in the room, the smallest first, so a piece on a bigger one is picked first. */
     function arrangeable() {
       const added = addedOf(decor).map((_, i) => `added:${i}`);
+      const hung = hungOf().map((_, i) => `hung:${i}`).filter((part) => hungOf()[Number(part.slice(5))].kind !== 'bare');
       return [...Object.keys(ARRANGEABLE), ...added].filter((part) => !pieceOf(part).off && (part.startsWith('desk') || pieceRect(part)))
+        .concat(hung)
         .map((part) => ({ part, box: pieceBox(part) }))
         .sort((a, b) => (a.box.right - a.box.left) * (a.box.bottom - a.box.top) - (b.box.right - b.box.left) * (b.box.bottom - b.box.top));
     }
 
+    /** How far behind a desk its chair can be got to, in art pixels: the floor there has to be free. */
+    const CHAIR_ROOM = 8;
     /**
-     * `part` arranged anew in the room's shape now, kept inside the room,
-     * here at once and then on the page, which keeps it in the layout.
+     * The desks, and the red button, that nobody can walk to from the door,
+     * as the room is arranged now: a desk with something right behind it,
+     * where its chair is, or with no way there.
+     */
+    function blocked() {
+      const behind = (desk) => {
+        for (let dy = 2; dy <= CHAIR_ROOM; dy += CELL) {
+          const at = { x: seat(desk).x, y: DESKS[desk].y - dy };
+          if (standsFree(at)) return at;
+        }
+        return null;
+      };
+      const parts = DESKS.map((desk, i) => (desk.off ? null : { part: `desk${i + 1}`, at: behind(i) })).filter(Boolean);
+      const presser = placed('button', PRESSER);
+      parts.push({ part: 'button', at: standsFree(presser) ? presser : null });
+      return parts.filter(({ at }) => !at || !walkway(DOOR, at, true)).map(({ part }) => part);
+    }
+
+    /** The room arranged as `plan` from now on: here at once, and then on the page, which keeps it in the layout. */
+    function settle(plan) {
+      decor = { ...decor, plan: planOf(plan) };
+      spots = spotsOf(decor);
+      office.relayout(clock());
+      floorChanged();
+      if (arranging) arranging.blocked = blocked();
+      on.arranged?.(decor.plan);
+    }
+
+    /** The back wall as you hung it in the room's shape now, written out from its five places the first time it's changed. */
+    function hungList(plan) {
+      const side = shapeName();
+      if (!Array.isArray(plan.hung[side])) plan.hung[side] = hungOf({ ...decor, preset: 'yours' }).filter((piece) => piece.kind !== 'bare');
+      return plan.hung[side];
+    }
+
+    /** Where along the wall a piece of `kind` can hang at `x`, nearest it, clear of `others`: or null where there's no room. */
+    function hangAt(kind, x, others) {
+      const [from, to] = WALL_RANGE[shapeName()], half = wallWidthOf(kind) / 2;
+      const fits = (at) => at - half >= from && at + half <= to
+        && others.every((other) => Math.abs(other.x - at) >= half + wallWidthOf(other.kind) / 2);
+      for (let d = 0; d <= to - from; d++) {
+        for (const at of [Math.round(x) - d, Math.round(x) + d]) if (fits(at)) return at;
+      }
+      return null;
+    }
+
+    /**
+     * `part` arranged anew in the room's shape now, kept inside the room:
+     * moved, grown, put away, back, or, for a piece added or hung, taken out.
      */
     function rearrange(part, change) {
       const plan = structuredClone(decor.plan);
       const side = shapeName();
+      if (isHung(part)) {
+        // Found by what it is and where, as the wall's five places, written out, leave out the bare ones
+        const was = hungOf()[Number(part.slice(5))], list = hungList(plan);
+        const i = list.findIndex((piece) => piece.kind === was.kind && piece.x === was.x);
+        if (i < 0) return settle(plan);
+        if (change.remove || change.off) list.splice(i, 1);
+        else if (change.x !== undefined) {
+          const at = hangAt(list[i].kind, change.x, list.filter((_, j) => j !== i));
+          if (at !== null) list[i] = { ...list[i], x: at };
+        }
+        // What was picked or carried is called by its place in the list now
+        if (arranging && !(change.remove || change.off)) {
+          if (arranging.picked === part) arranging.picked = `hung:${i}`;
+          if (arranging.drag && arranging.drag.part === part) arranging.drag.part = `hung:${i}`;
+        }
+        settle(plan);
+        if (arranging && arranging.picked !== part && !(change.remove || change.off)) on.picked?.(arranging.picked);
+        return;
+      }
       let piece;
       if (isAdded(part)) {
         const i = Number(part.slice(6));
@@ -8842,16 +8944,19 @@
         piece = plan[side][part] = { ...(plan[side][part] || STANDARD_PIECE), ...change };
       }
       decor = { ...decor, plan };
-      if (piece) {
+      if (piece && !piece.off) {
         // Kept inside the room, however big it's grown
         const box = pieceBox(part);
         piece.x += Math.max(0, -box.left) - Math.max(0, box.right - shape.width);
         piece.y += Math.max(0, -box.top) - Math.max(0, box.bottom - shape.height);
       }
-      decor = { ...decor, plan: planOf(plan) };
-      spots = spotsOf(decor);
-      office.relayout(clock());
-      on.arranged?.(decor.plan);
+      settle(plan);
+    }
+
+    /** `part` moved so the middle of what it takes up is at `point`, in art pixels. */
+    function centreOn(part, point) {
+      const box = pieceBox(part), piece = pieceOf(part);
+      rearrange(part, { x: piece.x + Math.round(point.x - (box.left + box.right) / 2), y: piece.y + Math.round(point.y - (box.top + box.bottom) / 2) });
     }
 
     /**
@@ -8882,15 +8987,82 @@
       return part;
     }
 
+    /**
+     * Something from the editor's drawer, into the room at `point` (art
+     * pixels), or where it fits best without one: `{ part }` for a desk or a
+     * piece put away, `{ kind }` for a piece added to the lounge, or
+     * `{ wall }` for one to hang on the back wall. Its part, or null where
+     * there's no room for it.
+     */
+    function bring(what, point) {
+      if (what.wall) {
+        if (!WALL_CHOICES.includes(what.wall) || what.wall === 'bare') return null;
+        const plan = structuredClone(decor.plan), list = hungList(plan);
+        if (list.length >= HUNG_MOST) return null;
+        const [from, to] = WALL_RANGE[shapeName()];
+        const at = hangAt(what.wall, point ? point.x : (from + to) / 2, list);
+        if (at === null) return null;
+        list.push({ kind: what.wall, x: at });
+        settle(plan);
+        return `hung:${hungOf().length - 1}`;
+      }
+      let part = what.part;
+      if (what.kind) part = Object.hasOwn(CORNER_BOXES, what.kind) ? addPiece(what.kind) : null;
+      else if (!Object.hasOwn(ARRANGEABLE, part) || !ARRANGEABLE[part].hides) return null;
+      else rearrange(part, { off: false });
+      if (part && point) centreOn(part, point);
+      return part;
+    }
+
+    /** The room, in the shape shown or in `sides`, with nothing in it but its floor, walls and door, the mic and the red button. */
+    function empty(sides = [shapeName()]) {
+      const plan = structuredClone(decor.plan);
+      for (const side of sides) {
+        for (const [part, kind] of Object.entries(ARRANGEABLE)) if (kind.hides) plan[side][part] = { ...(plan[side][part] || STANDARD_PIECE), off: true };
+        plan.added[side] = [];
+        plan.hung[side] = [];
+      }
+      settle(plan);
+    }
+
+    /** The shape shown arranged as the other one is: what's in it, where, and how big, kept inside this one. */
+    function copyFrom(other) {
+      const plan = structuredClone(decor.plan), side = shapeName();
+      if (other === side) return;
+      plan[side] = structuredClone(plan[other]);
+      plan.added[side] = structuredClone(plan.added[other]);
+      plan.hung[side] = plan.hung[other] ? plan.hung[other].map((piece) => ({ ...piece })) : null;
+      settle(plan);
+      // Each piece back inside this shape's walls
+      for (const { part } of arrangeable()) if (!isHung(part)) rearrange(part, {});
+    }
+
+    /** Whether `point` (client pixels) is on the picked piece's handle, for growing it. */
+    function onHandle(clientX, clientY) {
+      const part = arranging && arranging.picked;
+      if (!part || isHung(part) || !(isAdded(part) || (ARRANGEABLE[part] && ARRANGEABLE[part].grows))) return false;
+      const { x, y, scale, ratio } = roomAt(clientX, clientY), box = pieceBox(part);
+      const reach = Math.max(HANDLE_SIZE, (HANDLE_REACH * ratio) / scale);
+      return Math.abs(x - box.right) <= reach && Math.abs(y - box.bottom) <= reach;
+    }
+
     canvas.addEventListener('pointerdown', (e) => {
       if (arranging) {
         const { x, y } = roomAt(e.clientX, e.clientY);
+        // The picked piece's handle grows it
+        if (onHandle(e.clientX, e.clientY)) {
+          const part = arranging.picked, box = pieceBox(part);
+          canvas.setPointerCapture(e.pointerId);
+          arranging.drag = { id: e.pointerId, part, grow: { left: box.left, top: box.top, w: box.right - box.left, h: box.bottom - box.top, size: pieceOf(part).size } };
+          return;
+        }
         const hit = arrangeable().find(({ box }) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom);
         arranging.picked = hit ? hit.part : null;
         on.picked?.(arranging.picked);
         if (!hit) return;
         canvas.setPointerCapture(e.pointerId);
-        arranging.drag = { id: e.pointerId, part: hit.part, x, y, from: { ...pieceOf(hit.part) } };
+        const from = isHung(hit.part) ? { x: hungOf()[Number(hit.part.slice(5))].x, y: 0 } : { ...pieceOf(hit.part) };
+        arranging.drag = { id: e.pointerId, part: hit.part, x, y, from };
         return;
       }
       if (finger) return; // one finger at a time
@@ -8906,7 +9078,18 @@
       press(target);
     });
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-      canvas.addEventListener(type, (e) => { if (arranging && arranging.drag && e.pointerId === arranging.drag.id) arranging.drag = null; });
+      canvas.addEventListener(type, (e) => {
+        if (!arranging || !arranging.drag || e.pointerId !== arranging.drag.id) return;
+        const { part, grow, from } = arranging.drag;
+        arranging.drag = null;
+        // Let go off the room, as onto the editor's drawer: back where it was carried from, and the page says what becomes of it
+        const rect = canvas.getBoundingClientRect();
+        const outside = e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom;
+        if (type === 'pointerup' && !grow && outside) {
+          rearrange(arranging.picked || part, isHung(part) ? { x: from.x } : { x: from.x, y: from.y });
+          on.droppedOut?.(arranging.picked || part, e.clientX, e.clientY);
+        }
+      });
     }
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
       canvas.addEventListener(type, (e) => { if (finger && e.pointerId === finger.id) lift(type === 'pointerup'); });
@@ -8915,12 +9098,23 @@
       if (arranging) {
         const { x, y } = roomAt(e.clientX, e.clientY);
         const drag = arranging.drag;
-        if (drag && e.pointerId === drag.id) {
+        if (drag && e.pointerId === drag.id && drag.grow) {
+          // Grown by how far the handle is from the piece's top-left corner, to the nearest size it can be
+          const { left, top, w, h, size } = drag.grow;
+          const wanted = size * Math.max((x - left) / w, (y - top) / h);
+          const nearest = PIECE_SIZES.reduce((best, s) => (Math.abs(s - wanted) < Math.abs(best - wanted) ? s : best));
+          if (nearest !== pieceOf(drag.part).size) rearrange(drag.part, { size: nearest });
+        } else if (drag && e.pointerId === drag.id) {
           const moved = { x: drag.from.x + Math.round(x - drag.x), y: drag.from.y + Math.round(y - drag.y) };
-          const now = pieceOf(drag.part);
-          if (moved.x !== now.x || moved.y !== now.y) rearrange(drag.part, moved);
+          if (isHung(drag.part)) {
+            if (moved.x !== hungOf()[Number(drag.part.slice(5))].x) rearrange(drag.part, { x: moved.x });
+          } else {
+            const now = pieceOf(drag.part);
+            if (moved.x !== now.x || moved.y !== now.y) rearrange(drag.part, moved);
+          }
         } else if (e.pointerType === 'mouse') {
-          canvas.style.cursor = arrangeable().some(({ box }) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) ? 'grab' : '';
+          canvas.style.cursor = onHandle(e.clientX, e.clientY) ? 'nwse-resize'
+            : arrangeable().some(({ box }) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) ? 'grab' : '';
         }
         return;
       }
@@ -8991,12 +9185,14 @@
       /**
        * On the setup page, the room is for arranging: a tap picks a piece,
        * `on.picked(part)`, and dragging moves it, `on.arranged(plan)` with
-       * the room's whole arrangement as it goes. `arrange(part, change)`
+       * the room's whole arrangement as it goes; the picked piece's handle
+       * grows it, and a piece let go off the room says so with
+       * `on.droppedOut(part, clientX, clientY)`. `arrange(part, change)`
        * changes a piece, such as its size, or with `remove` takes an added
-       * one out; `add(kind)` adds one; `pick(part)` picks one.
+       * or hung one out; `add(kind)` adds one; `pick(part)` picks one.
        */
       setArranging(shown) {
-        arranging = shown ? { picked: null, drag: null } : null;
+        arranging = shown ? { picked: null, drag: null, blocked: blocked() } : null;
         if (shown) styling = false;
       },
       pick(part) { if (arranging) arranging.picked = part; },
@@ -9008,6 +9204,36 @@
         if (part) arranging.picked = part;
         return part;
       },
+      /**
+       * Brings something from the editor's drawer into the room, at the
+       * client point given if it's over the room, or where it fits: `{ part }`
+       * for a desk or a piece put away, `{ kind }` for a lounge piece, or
+       * `{ wall }` for one to hang. Picks it: its part, or null with no room.
+       */
+      bring(what, clientX, clientY) {
+        if (!arranging) return null;
+        let point = null;
+        if (clientX !== undefined) {
+          const { x, y } = roomAt(clientX, clientY);
+          if (x >= 0 && y >= 0 && x <= shape.width && y <= shape.height) point = { x, y };
+        }
+        const part = bring(what, point);
+        if (part) arranging.picked = part;
+        return part;
+      },
+      /** Whether a client point is over the room itself, for something carried from the drawer. */
+      over(clientX, clientY) {
+        const { x, y } = roomAt(clientX, clientY);
+        return x >= 0 && y >= 0 && x <= shape.width && y <= shape.height;
+      },
+      /** Empties the room in the shape shown, or on its side and upright with `both`, but for its floor, walls and door, the mic and the red button. */
+      empty(both = false) { if (arranging) { arranging.picked = null; empty(both ? ['wide', 'tall'] : undefined); } },
+      /** Arranges the shape shown as the other one, 'wide' or 'tall', is arranged. */
+      copyFrom(side) { if (arranging) { arranging.picked = null; copyFrom(side); } },
+      /** The desks, and the red button, nobody can walk to from the door. */
+      blocked() { return arranging ? [...(arranging.blocked || [])] : []; },
+      /** What hangs on the back wall in the shape shown, as `hung:i` names it. */
+      hung() { return hungOf().map((piece) => ({ ...piece })); },
       /**
        * The canvas is in another window now, or back on its page. Moving it
        * takes the finger off without a word to the canvas, so the mic is let
@@ -9105,5 +9331,8 @@
   // `remind` is the deck's reminder; `Ambience` and `sounds` let each of the office's sounds be tried on its own.
   window.AgentOffice = {
     create, popOutSize, preview, arrangeable: ARRANGEABLE, sizes: PIECE_SIZES, remind, Ambience, sounds: Object.keys(SOUNDS), furnishingOf,
+    // What the back wall can hold, each piece's width, and where along the wall they can go, for the editor's drawer
+    wallPieces: Object.fromEntries(WALL_CHOICES.filter((kind) => kind !== 'bare').map((kind) => [kind, { w: wallWidthOf(kind) }])),
+    wallRange: WALL_RANGE, hungMost: HUNG_MOST, addedMost: ADDED_MOST,
   };
 })();

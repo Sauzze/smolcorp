@@ -47,6 +47,11 @@
 
   /* Getting started */
   .start { grid-area: start; }
+  .invite { display: grid; gap: 10px; margin-bottom: 20px; background: var(--panel); border: 1px solid var(--edge); border-radius: 12px; padding: 14px 16px; }
+  .invite[hidden] { display: none; }
+  .invite .title { font-weight: 600; }
+  .invite .detail { color: var(--dim); font-size: 13px; }
+  .invite .tools { display: flex; flex-wrap: wrap; gap: 8px; }
   .steps { display: grid; gap: 8px; }
   .step { display: flex; gap: 14px; align-items: center; background: var(--panel); border: 1px solid var(--edge); border-radius: 12px; padding: 14px 16px; }
   .step .mark { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--faint); flex: none; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: transparent; }
@@ -176,6 +181,13 @@
   .arranger aside .picked { font-weight: 600; }
   .arranger aside .tools { display: flex; flex-wrap: wrap; gap: 6px; }
   .arranger aside .tray { display: grid; gap: 6px; }
+  .arranger aside h4 { margin: 4px 0 0; font-size: 12px; color: var(--dim); font-weight: 600; }
+  .arranger .drawer { display: grid; gap: 8px; border-radius: 10px; }
+  .arranger .drawer.over { outline: 2px dashed var(--thinking); outline-offset: 4px; }
+  .arranger .drawer .hint { margin: 0; }
+  /* A piece carried from the drawer, under the pointer */
+  .carried { position: fixed; z-index: 20; pointer-events: none; opacity: .85; transform: translate(-50%, -50%); }
+  .carried canvas { display: block; width: 72px; height: auto; image-rendering: pixelated; }
   .arranger aside .looks { display: grid; gap: 6px; }
   .arranger aside .looks label { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; align-items: center;
     font-size: 13px; color: var(--dim); }
@@ -282,6 +294,17 @@
   </header>
 
   <section class="start">
+    <div class="invite" id="invite" hidden>
+      <div class="text">
+        <div class="title">Make the office your own</div>
+        <div class="detail">Your sessions work in a little office on your phone. Arrange it as you like: desks where you want them, a jukebox, pictures on the wall, on its side and upright.</div>
+      </div>
+      <div class="tools">
+        <button class="btn primary" id="invite-standard">Start from the standard office</button>
+        <button class="btn" id="invite-empty">Start empty</button>
+        <button class="btn" id="invite-later">Not now</button>
+      </div>
+    </div>
     <h2>Getting started</h2>
     <div class="steps">
       <div class="step" id="step-hooks">
@@ -494,7 +517,10 @@
   <div class="bar">
     <h2 id="arranger-title">Arrange the room</h2>
     <div class="choices" id="arrange-shape" role="group" aria-label="The room on its side or upright"></div>
-    <button class="btn" id="arrange-clear">Clear the room</button>
+    <button class="btn" id="arrange-copy"></button>
+    <button class="btn" id="arrange-undo" aria-keyshortcuts="Meta+Z">Undo</button>
+    <button class="btn" id="arrange-redo" aria-keyshortcuts="Meta+Shift+Z">Redo</button>
+    <button class="btn" id="arrange-empty">Start empty</button>
     <button class="btn" id="arrange-reset">Back to standard</button>
     <span class="saved" id="arrange-saved" role="status"></span>
     <button class="btn primary" id="arrange-done">Done</button>
@@ -515,13 +541,22 @@
         <button class="btn" id="arrange-hide">Put it away</button>
         <button class="btn" id="arrange-back">Where it was</button>
       </div>
-      <h3>Put away</h3>
-      <div class="tray" id="arrange-tray"></div>
+      <p class="note" id="arrange-blocked" role="status" hidden></p>
       <h3>The lounge</h3>
       <div class="looks" id="arrange-lounge"></div>
-      <h3>Add to the room</h3>
-      <div class="tiles adding" id="arrange-add"></div>
-      <p class="hint">Click a piece in the room to pick it, and drag it where you want it. Add as many pieces to the lounge as you like, up to twelve, the same one more than once. The room on its side and upright are arranged on their own. Desks only move: each is a key on your phone. Your phone follows as you go.</p>
+      <div class="drawer" id="arrange-drawer">
+        <h3>The drawer</h3>
+        <p class="hint">Drag a piece into the room, or click it to put it where it fits. Drag a piece from the room back here to put it away.</p>
+        <h4>Desks</h4>
+        <div class="tiles adding" id="drawer-desks"></div>
+        <h4>Furniture</h4>
+        <div class="tiles adding" id="drawer-furniture"></div>
+        <h4>Lounge pieces</h4>
+        <div class="tiles adding" id="arrange-add"></div>
+        <h4>On the back wall</h4>
+        <div class="tiles adding" id="drawer-wall"></div>
+      </div>
+      <p class="hint">Click a piece in the room to pick it, drag it where you want it, and drag its corner to grow it. The arrow keys nudge it, and Shift nudges it further. Each desk is a key on your phone: a session whose desk is put away waits by the door. The room on its side and upright are arranged on their own. Your phone follows as you go.</p>
     </aside>
   </div>
 </div>
@@ -570,6 +605,7 @@
     renderProfiles();
     renderLayout();
     renderTheme();
+    showInvite();
   }
 
   /* ------------------------------------------------------- getting started */
@@ -1001,7 +1037,7 @@
      it's furnished: a still, and moving while the pointer is on one. */
 
   /** How much of the office each picture shows, in its art pixels, at three of the canvas's pixels to each. */
-  const PICTURE_SIZES = { corner: [80, 51], workspace: [58, 45], preset: [62, 34] };
+  const PICTURE_SIZES = { corner: [80, 51], workspace: [58, 45], preset: [62, 34], wall: [58, 45], part: [58, 45] };
   /** How far into a piece's moving its still is taken, in seconds: far enough in for something to be going on. */
   const PICTURE_STILL = 3.3;
   let moving = null; // the picture under the pointer: { canvas, what, room, start }
@@ -1014,9 +1050,9 @@
   let stillsFor = '';
   let refocus = null; // the picture picked from the keyboard, to keep it focused as the page redraws
 
-  /** What a picture shows of the room besides its own piece: what it's drawn in. */
+  /** What a picture shows of the room besides its own piece: what it's drawn in. Pictures leave out where things stand. */
   const lookOf = (room) => JSON.stringify({ ...room, team: null, dress: null, corner: null, workspace: null, staff: null, pet: null,
-    sky: null, sound: null, mic: null, preset: null });
+    sky: null, sound: null, mic: null, preset: null, plan: null });
 
   /** A picture of one of the office's choices, moving while the pointer, or the keyboard, is on `host`. */
   function picture(kind, id, room, host = null) {
@@ -1640,6 +1676,7 @@
 
   /** Gives a desk its own look, the same on its side and upright; where it stands stays each shape's own. */
   function setLook(part, field, value) {
+    remember();
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
     const plan = room.plan || (room.plan = { wide: {}, tall: {}, added: { wide: [], tall: [] } });
     for (const side of ['wide', 'tall']) {
@@ -1661,6 +1698,11 @@
   /** What a part of the room is called: a desk, a piece the room has, or one added, by what it is. */
   function pieceName(part) {
     if (!part) return '';
+    if (part.startsWith('hung:')) {
+      const piece = arranger && arranger.hung()[Number(part.slice(5))];
+      const label = piece && WALL_CHOICES.find(([id]) => id === piece.kind);
+      return label ? label[1] : '';
+    }
     if (part.startsWith('added:')) {
       const piece = addedPieces()[Number(part.slice(6))];
       const label = piece && ROOM_CHOICES.corner.find(([id]) => id === piece.kind);
@@ -1674,8 +1716,46 @@
     arranger.show({ keys: sampleKeys(), overflow: 0, theme: colours || {}, layout: { ...layout, office: true } });
   }
 
+  /**
+   * Undo and redo: the arrangement before each change, and before each
+   * undone. A drag, or any changes close together, are one change.
+   */
+  let undone = [], redone = [];
+  let changedAt = 0;
+  const TOGETHER = 700; // ms
+  const UNDO_MOST = 100;
+  /** The arrangement as it is, kept to go back to, unless it's part of the change just made. */
+  function remember() {
+    const now = performance.now();
+    if (now - changedAt > TOGETHER) {
+      undone = [...undone.slice(1 - UNDO_MOST), structuredClone((layout.room && layout.room.plan) || null)];
+      redone = [];
+    }
+    changedAt = now;
+  }
+  /** Back to the arrangement before the last change, or on to the one undone. */
+  function undo(back) {
+    const from = back ? undone : redone, to = back ? redone : undone;
+    if (!from.length) return;
+    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
+    to.push(structuredClone(room.plan || null));
+    room.plan = from.pop();
+    changedAt = 0;
+    arrangePicked = null;
+    arranger.pick(null);
+    showArranged();
+    saveArranged();
+    showPreview();
+    renderProfiles();
+    drawArrangeTools();
+  }
+
+  /** "a, b and c" */
+  const listed = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
   /** The room arranged anew, a piece moved, grown, put away or added: kept in the layout, and sent on in a moment. */
   function keepArranged(plan) {
+    remember();
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
     room.plan = plan;
     saveArranged();
@@ -1698,10 +1778,12 @@
   function drawArrangeTools() {
     const kinds = AgentOffice.arrangeable;
     const added = arrangePicked && arrangePicked.startsWith('added:');
+    const hung = arrangePicked && arrangePicked.startsWith('hung:');
     const piece = arrangePicked && (added ? addedPieces()[Number(arrangePicked.slice(6))]
+      : hung ? { ...arranger.hung()[Number(arrangePicked.slice(5))], y: 0, size: 1 }
       : arrangedPieces()[arrangePicked] || { x: 0, y: 0, size: 1, off: false, workspace: 'auto' });
-    // An added piece grows, and is taken out rather than put away.
-    const kind = arrangePicked && (added ? { grows: true, hides: true } : kinds[arrangePicked]);
+    // An added piece grows, and is taken out rather than put away; one on the wall only moves along it.
+    const kind = arrangePicked && (added ? { grows: true, hides: true } : hung ? { grows: false, hides: true } : kinds[arrangePicked]);
     $('arrange-picked').textContent = kind ? pieceName(arrangePicked) : 'Pick a piece in the room.';
     // A desk is what you make it, whoever sits at it, unless their project's card says otherwise.
     const desk = !!arrangePicked && arrangePicked.startsWith('desk');
@@ -1726,40 +1808,128 @@
       row.append(name, select(ROOM_CHOICES[part], shown[part] || STANDARD_ROOM[part], (value) => furnish((r) => { r[part] = value; }, part)));
       return row;
     }));
-    $('arrange-hide').textContent = added ? 'Take it out' : 'Put it away';
+    $('arrange-hide').textContent = added || hung ? 'Take it out' : 'Put it away';
     $('arrange-size').replaceChildren(...AgentOffice.sizes.map((size) => {
       const b = choice(PIECE_SIZE_NAMES[size], !!piece && piece.size === size, () => arranger.arrange(arrangePicked, { size }));
       b.disabled = !kind || !kind.grows;
       return b;
     }));
     $('arrange-hide').disabled = !kind || !kind.hides;
-    $('arrange-back').disabled = !piece || (piece.x === 0 && piece.y === 0 && piece.size === 1);
-    const away = Object.entries(arrangedPieces()).filter(([, p]) => p.off).map(([part]) => part);
-    $('arrange-tray').replaceChildren(...(away.length ? away.map((part) => {
-      const b = document.createElement('button');
-      b.className = 'btn';
-      const name = kinds[part].name;
-      b.textContent = `Bring back ${name.charAt(0).toLowerCase()}${name.slice(1)}`;
-      b.onclick = () => {
-        arrangePicked = part;
-        arranger.pick(part);
-        arranger.arrange(part, { off: false });
-      };
-      return b;
-    }) : [Object.assign(document.createElement('p'), { className: 'hint', textContent: 'Nothing: everything is in the room.' })]));
-    const full = addedPieces().length >= 12;
-    $('arrange-add').replaceChildren(...ROOM_CHOICES.corner.filter(([id]) => id !== 'none').map(([id, label]) => {
-      const b = tile('corner', id, label, false, () => {
-        const part = arranger.add(id);
-        if (part) arrangePicked = part;
-        drawArrangeTools();
-      }, layout.room || STANDARD_ROOM);
-      b.disabled = full;
-      return b;
-    }));
+    $('arrange-back').disabled = !piece || hung || (piece.x === 0 && piece.y === 0 && piece.size === 1);
+    drawDrawer();
+    $('arrange-copy').textContent = arrangeShape === 'wide' ? 'Copy from upright' : 'Copy from sideways';
+    $('arrange-undo').disabled = !undone.length;
+    $('arrange-redo').disabled = !redone.length;
+    const blocked = arranger ? arranger.blocked() : [];
+    $('arrange-blocked').hidden = !blocked.length;
+    $('arrange-blocked').textContent = blocked.length
+      ? `Nobody can get from the door to ${listed(blocked.map((part) => pieceName(part).replace(/^(The|Desk)\b/, (word) => word.toLowerCase())))}. Clear a way there.` : '';
     $('arrange-shape').replaceChildren(
       choice('On its side', arrangeShape === 'wide', () => setArrangeShape('wide')),
       choice('Upright', arrangeShape === 'tall', () => setArrangeShape('tall')));
+  }
+
+  /** What the drawer was last drawn for, so it's drawn again only when that changes, not as a piece is dragged. */
+  let drawerFor = null;
+
+  /**
+   * The drawer: every desk and piece of furniture put away, any lounge
+   * piece to add, and anything to hang on the back wall, each to drag into
+   * the room or click to put where it fits.
+   */
+  function drawDrawer() {
+    const room = layout.room || STANDARD_ROOM, shown = furnished(room), pieces = arrangedPieces();
+    const away = (part) => !!(pieces[part] && pieces[part].off);
+    const desks = Object.keys(AgentOffice.arrangeable).filter((part) => part.startsWith('desk') && away(part));
+    const furniture = ['wall', 'couch', 'pong', 'plant', 'corner'].filter((part) => away(part) && (part !== 'corner' || shown.corner !== 'none'));
+    const addedFull = addedPieces().length >= AgentOffice.addedMost;
+    const hungFull = arranger.hung().length >= AgentOffice.hungMost;
+    const key = JSON.stringify([desks, furniture, shown.corner, addedFull, hungFull, lookOf(room)]);
+    if (key === drawerFor) return;
+    drawerFor = key;
+    const nothing = (text) => Object.assign(document.createElement('p'), { className: 'hint', textContent: text });
+    $('drawer-desks').replaceChildren(...(desks.length
+      ? desks.map((part) => drawerTile('part', 'desk', pieceName(part), { part }, room)) : [nothing('Every desk is in the room.')]));
+    $('drawer-furniture').replaceChildren(...(furniture.length ? furniture.map((part) => (part === 'corner'
+      ? drawerTile('corner', shown.corner, pieceName(part), { part }, room)
+      : drawerTile('part', part, pieceName(part), { part }, room))) : [nothing('Everything is in the room.')]));
+    $('arrange-add').replaceChildren(...ROOM_CHOICES.corner.filter(([id]) => id !== 'none').map(([id, label]) => {
+      const b = drawerTile('corner', id, label, { kind: id }, room);
+      b.disabled = addedFull;
+      return b;
+    }));
+    $('drawer-wall').replaceChildren(...WALL_CHOICES.filter(([id]) => id !== 'bare').map(([id, label]) => {
+      const b = drawerTile('wall', id, label, { wall: id }, room);
+      b.disabled = hungFull;
+      return b;
+    }));
+  }
+
+  /** Something from the drawer into the room: at a point if it was carried there, or where it fits. Picked once it's there. */
+  function bringIn(what, clientX, clientY) {
+    const part = arranger.bring(what, clientX, clientY);
+    if (part) arrangePicked = part;
+    else $('arrange-saved').textContent = "There's no room for that there.";
+    drawArrangeTools();
+  }
+
+  /** A tile in the drawer: clicked, it comes into the room where it fits; carried, it goes where it's let go. */
+  function drawerTile(kind, id, label, what, room) {
+    let press = null, carried = null;
+    const b = tile(kind, id, label, false, () => { if (!b.dataset.carried) bringIn(what); }, room);
+    b.addEventListener('pointerdown', (e) => {
+      if (b.disabled || e.button !== 0) return;
+      press = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      // Held from the start, so a quick drag off the tile is still the tile's
+      b.setPointerCapture(e.pointerId);
+    });
+    b.addEventListener('pointermove', (e) => {
+      if (!press || e.pointerId !== press.id) return;
+      if (!carried) {
+        if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < 6) return;
+        carried = Object.assign(document.createElement('div'), { className: 'carried' });
+        const copy = document.createElement('canvas'), shown = b.querySelector('canvas');
+        [copy.width, copy.height] = [shown.width, shown.height];
+        copy.getContext('2d').drawImage(shown, 0, 0);
+        carried.append(copy);
+        document.body.append(carried);
+      }
+      Object.assign(carried.style, { left: `${e.clientX}px`, top: `${e.clientY}px` });
+    });
+    const letGo = (e) => {
+      if (!press || e.pointerId !== press.id) return;
+      press = null;
+      if (!carried) return;
+      carried.remove();
+      carried = null;
+      // The click that follows isn't one
+      b.dataset.carried = '1';
+      setTimeout(() => { delete b.dataset.carried; });
+      if (e.type === 'pointerup' && arranger.over(e.clientX, e.clientY)) bringIn(what, e.clientX, e.clientY);
+    };
+    b.addEventListener('pointerup', letGo);
+    b.addEventListener('pointercancel', letGo);
+    return b;
+  }
+
+  /** A piece let go off the room: onto the drawer, it's put away, or taken out if it was added or hung. */
+  function droppedOut(part, clientX, clientY) {
+    const r = $('arranger').querySelector('aside').getBoundingClientRect();
+    if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return;
+    const added = part.startsWith('added:') || part.startsWith('hung:');
+    if (!added && !(AgentOffice.arrangeable[part] && AgentOffice.arrangeable[part].hides)) return;
+    arrangePicked = null;
+    arranger.pick(null);
+    arranger.arrange(part, added ? { remove: true } : { off: true });
+  }
+
+  /** The picked piece nudged by the arrow keys, a pixel at a time, or five with Shift. */
+  function nudge(dx, dy) {
+    const part = arrangePicked;
+    if (!part) return;
+    if (part.startsWith('hung:')) return arranger.arrange(part, { x: arranger.hung()[Number(part.slice(5))].x + dx });
+    const piece = part.startsWith('added:') ? addedPieces()[Number(part.slice(6))] : arrangedPieces()[part] || { x: 0, y: 0 };
+    arranger.arrange(part, { x: piece.x + dx, y: piece.y + dy });
   }
 
   function setArrangeShape(shape) {
@@ -1790,6 +1960,7 @@
           drawArrangeTools();
         },
         arranged: keepArranged,
+        droppedOut,
       });
       arranger.setArranging(true);
     }
@@ -1800,13 +1971,52 @@
     $('arrange-done').focus();
   };
 
+  /*
+   * The invitation to make the office your own: shown on this computer
+   * until it's taken up or put off, while the room is still as it comes.
+   */
+  function invited() {
+    try { return localStorage.getItem('room-invite') === 'done'; } catch { return false; }
+  }
+  function showInvite() {
+    const plan = layout && layout.room && layout.room.plan;
+    const arranged = !!plan && (['wide', 'tall'].some((side) => Object.keys(plan[side] || {}).length
+      || (plan.added && (plan.added[side] || []).length) || (plan.hung && Array.isArray(plan.hung[side]))));
+    $('invite').hidden = invited() || arranged || !window.AgentOffice;
+  }
+  function answerInvite(empty) {
+    try { localStorage.setItem('room-invite', 'done'); } catch {}
+    $('invite').hidden = true;
+    if (empty === null) return;
+    $('arrange-open').click();
+    if (empty) arranger.empty(true);
+  }
+  $('invite-standard').onclick = () => answerInvite(false);
+  $('invite-empty').onclick = () => answerInvite(true);
+  $('invite-later').onclick = () => answerInvite(null);
+
   function closeArranger() {
     $('arranger').hidden = true;
     arranger.setVisible(false);
     drawLayout();
   }
   $('arrange-done').onclick = closeArranger;
-  $('arranger').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeArranger(); });
+  // On the whole page while the editor's open: clicking in the room leaves nothing in it focused.
+  document.addEventListener('keydown', (e) => {
+    if ($('arranger').hidden) return;
+    if (e.key === 'Escape') return closeArranger();
+    const typing = e.target.matches('input, select, textarea');
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !typing) {
+      e.preventDefault();
+      return undo(!e.shiftKey);
+    }
+    const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    if (arrows[e.key] && arrangePicked && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      const step = e.shiftKey ? 5 : 1;
+      nudge(arrows[e.key][0] * step, arrows[e.key][1] * step);
+    }
+  });
   $('arrange-hide').onclick = () => {
     const part = arrangePicked;
     arrangePicked = null;
@@ -1815,15 +2025,24 @@
   };
   // Back where it stood, as big as it came; a desk's look is its own, set above.
   $('arrange-back').onclick = () => arranger.arrange(arrangePicked, { x: 0, y: 0, size: 1 });
-  $('arrange-clear').onclick = () => {
+  $('arrange-empty').onclick = () => {
     arrangePicked = null;
-    arranger.pick(null);
-    for (const [part, kind] of Object.entries(AgentOffice.arrangeable)) if (kind.hides) arranger.arrange(part, { off: true });
+    arranger.empty();
   };
+  $('arrange-copy').onclick = () => {
+    arrangePicked = null;
+    arranger.copyFrom(arrangeShape === 'wide' ? 'tall' : 'wide');
+  };
+  $('arrange-undo').onclick = () => undo(true);
+  $('arrange-redo').onclick = () => undo(false);
   $('arrange-reset').onclick = () => {
+    remember();
+    changedAt = 0;
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
     const plan = room.plan || { wide: {}, tall: {}, added: { wide: [], tall: [] } };
-    room.plan = { ...plan, [arrangeShape]: {}, added: { ...(plan.added || { wide: [], tall: [] }), [arrangeShape]: [] } };
+    // Back as it comes: every piece where it stands, nothing added, and the wall's five places
+    room.plan = { ...plan, [arrangeShape]: {}, added: { ...(plan.added || { wide: [], tall: [] }), [arrangeShape]: [] },
+      hung: { ...(plan.hung || {}), [arrangeShape]: null } };
     arrangePicked = null;
     arranger.pick(null);
     showArranged();
