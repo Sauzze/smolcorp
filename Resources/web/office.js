@@ -241,12 +241,16 @@
 
   /**
    * What desk `desk` has of `own` (one of DESK_OWN): its own, as arranged,
-   * or its style's mix, or 'auto' for the room's.
+   * or its style's mix, or 'auto' for the room's. A desk looks the same
+   * held upright as on its side, wherever it stands: what it has in the
+   * room's other shape counts too.
    */
   function deskOwn(desk, own, room = decor) {
     if (desk === null || desk === undefined) return 'auto';
-    const mine = pieceOf(`desk${desk + 1}`, room)[own];
-    if (mine && mine !== 'auto') return mine;
+    const other = room && room.plan && room.plan[shape === TALL ? 'wide' : 'tall'];
+    const mine = [pieceOf(`desk${desk + 1}`, room)[own], other && other[`desk${desk + 1}`] && other[`desk${desk + 1}`][own]]
+      .find((given) => given && given !== 'auto');
+    if (mine) return mine;
     const style = ROOM_STYLES[room.preset];
     const mix = style && (own === 'thing' ? style.things : STYLE_MIXES[room.preset] && STYLE_MIXES[room.preset][own]);
     return mix ? mix[desk % mix.length] : 'auto';
