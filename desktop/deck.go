@@ -29,7 +29,9 @@ type Deck struct {
 	keyOf map[string]int
 	// The tab recording started in, and when. One computer, one microphone.
 	micPress *micPress
-	work     chan func()
+	// Whether music is playing, for the office's jukebox, when it can be told.
+	playing *bool
+	work    chan func()
 	// OnChange is called on every change, for the tray.
 	OnChange func()
 }
@@ -46,6 +48,8 @@ const (
 	pruneInterval = 10 * time.Second
 	// Claude stops listening by itself after two minutes.
 	voiceLimit = 120 * time.Second
+	// How often to look whether music is playing, with the jukebox on.
+	musicInterval = 3 * time.Second
 )
 
 var effortLevels = []string{"low", "medium", "high", "xhigh", "max"}
@@ -75,8 +79,50 @@ func NewDeck() *Deck {
 			d.pruneClosedTabs()
 		}
 	}()
+	go func() {
+		for range time.Tick(musicInterval) {
+			d.followMusic()
+		}
+	}()
 	return d
 }
+
+// followMusic looks whether music is playing, with the jukebox on, and tells
+// the phones when that changes.
+func (d *Deck) followMusic() {
+	d.mu.Lock()
+	enabled := d.config.MusicEnabled
+	d.mu.Unlock()
+	if !enabled {
+		return
+	}
+	playing := musicPlaying()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if (playing == nil) != (d.playing == nil) || (playing != nil && *playing != *d.playing) {
+		d.playing = playing
+		d.changed()
+	}
+}
+
+// playMusic plays or pauses this computer's music, from a jukebox in the office.
+func (d *Deck) playMusic() (int, string) {
+	d.mu.Lock()
+	enabled := d.config.MusicEnabled
+	d.mu.Unlock()
+	if !enabled {
+		return http.StatusForbidden, musicOff
+	}
+	if err := playPause(); err != nil {
+		return http.StatusInternalServerError, "Couldn't play or pause the music here."
+	}
+	// The player takes a moment to say it has.
+	time.AfterFunc(600*time.Millisecond, d.followMusic)
+	return http.StatusNoContent, ""
+}
+
+// musicOff is what the phone says when a jukebox is tapped with the control off.
+const musicOff = "The jukebox can't play your music: turn it on in setup."
 
 // MARK: Hook events
 
@@ -274,12 +320,22 @@ func (d *Deck) snapshot() []byte {
 		"keys": entries, "overflow": len(overflow), "theme": currentTheme(d.config), "scroll": d.config.ScrollEnabled,
 		// What the office's held desks offer: firing here; hiring is the Mac app's for now.
 		"hiring": map[string]bool{"fire": d.config.HiringEnabled, "hire": false},
+		"music":  d.musicState(),
 		"layout": d.config.Layout,
 		// This computer's clock, so the office can count turns on the phone's,
 		// whichever of the two is right.
 		"now": int64(nowMillis()),
 	})
 	return state
+}
+
+// musicState is what the office's jukeboxes know: whether music is playing,
+// null when that can't be told, or nothing at all with the control off.
+func (d *Deck) musicState() any {
+	if !d.config.MusicEnabled {
+		return nil
+	}
+	return map[string]any{"playing": d.playing}
 }
 
 // orNull and millisOrNull write nothing as null, as the Mac app does.
@@ -496,6 +552,9 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	}
 	if action == "style" {
 		return d.setStyle(query.Get("preset"))
+	}
+	if action == "music" {
+		return d.playMusic()
 	}
 	if action == "hire" {
 		if !hiring {

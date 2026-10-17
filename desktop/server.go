@@ -463,6 +463,17 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupState())
 
+	case r.Method == http.MethodPost && path == "/setup/music":
+		d.mu.Lock()
+		config.MusicEnabled = query.Get("enabled") == "1"
+		if !config.MusicEnabled {
+			d.playing = nil
+		}
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupState())
+
 	// Every part is checked before any is kept, so a wrong one changes
 	// nothing. An empty folder clears it.
 	case r.Method == http.MethodPost && path == "/setup/hiring":
@@ -637,6 +648,7 @@ func (rt *router) setupState() map[string]any {
 			"enabled": d.config.HiringEnabled, "folder": d.config.HireFolder, "agent": d.config.HireAgent,
 			"canHire": false, "canChoose": false,
 		},
+		"music": map[string]any{"enabled": d.config.MusicEnabled},
 		// What to type to start an agent through the launcher.
 		"launcher": launchCommand(),
 		"pairing":  pairing,

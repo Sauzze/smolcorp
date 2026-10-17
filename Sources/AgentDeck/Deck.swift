@@ -12,6 +12,8 @@ final class Deck {
     private static let closedTabCheckInterval: TimeInterval = 10
     /// How often to ping idle event streams so they stay open.
     private static let pingInterval: TimeInterval = 20
+    /// How often to look whether music is playing, with the jukebox on.
+    private static let musicInterval: TimeInterval = 3
     /// How soon after a change the sessions are saved, so a burst of events
     /// writes once.
     private static let saveDelay: TimeInterval = 1
@@ -46,6 +48,9 @@ final class Deck {
     /// can catch Terminal in the middle of opening or closing a window.
     private var missedOnce = Set<String>()
     private var savePending = false
+    /// Whether music is playing, for the office's jukeboxes: true, or nil when it can't be told.
+    private var playing: Bool?
+    private var checkingMusic = false
 
     init() {
         sessions.onChange = { [weak self] in self?.changed() }
@@ -59,6 +64,9 @@ final class Deck {
         }
         Timer.scheduledTimer(withTimeInterval: Deck.pingInterval, repeats: true) { [weak self] _ in
             self?.streams.values.forEach { $0.stream.ping() }
+        }
+        Timer.scheduledTimer(withTimeInterval: Deck.musicInterval, repeats: true) { [weak self] _ in
+            self?.followMusic()
         }
     }
 
@@ -246,6 +254,8 @@ final class Deck {
                 "fire": Config.shared.hiringEnabled,
                 "hire": Config.shared.hiringEnabled && Deck.folder(Config.shared.hireFolder) != nil,
             ],
+            // What the office's jukeboxes know: whether music is playing, null when that can't be told.
+            "music": Config.shared.musicEnabled ? ["playing": playing.map { $0 as Any } ?? NSNull()] : NSNull(),
             "layout": Config.shared.layout.jsonObject,
         ]
         // Keys in order: unsorted, the same layout can come out differently
@@ -294,6 +304,7 @@ final class Deck {
         if action == "hire" { return hire(at: query["desk"], done: done) }
         if action == "swap" { return done(swapKeys(query)) }
         if action == "style" { return done(setStyle(query["preset"])) }
+        if action == "music" { return done(playMusic()) }
         guard let session = sessions[id], !session.tty.isEmpty else { return done(.status(404, "Session not found")) }
         let tty = session.tty
 
@@ -395,6 +406,40 @@ final class Deck {
         config.save()
         changed()
         return .status(204)
+    }
+
+    static let musicOff = "The jukebox can't play your music: turn it on in setup, on your Mac."
+
+    /// Plays or pauses the Mac's music, from a jukebox in the office.
+    private func playMusic() -> Response {
+        guard Config.shared.musicEnabled else { return .status(403, Deck.musicOff) }
+        guard Permissions.hasAccessibility else { return .status(403, Deck.noKeyboard) }
+        Music.playPause()
+        // The player takes a moment to say it has.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.followMusic() }
+        return .status(204)
+    }
+
+    /// Looks whether music is playing, with the jukebox on, and tells the phones when that changes.
+    func followMusic() {
+        guard !checkingMusic else { return }
+        guard Config.shared.musicEnabled else {
+            if playing != nil {
+                playing = nil
+                changed()
+            }
+            return
+        }
+        checkingMusic = true
+        DispatchQueue.global(qos: .utility).async {
+            let now = Music.isPlaying()
+            DispatchQueue.main.async {
+                self.checkingMusic = false
+                guard now != self.playing else { return }
+                self.playing = now
+                self.changed()
+            }
+        }
     }
 
     /// How long after a hire the next is refused. A second tap, or a second

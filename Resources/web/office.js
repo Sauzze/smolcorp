@@ -21,7 +21,8 @@
  * page to do what its keys and buttons would: `on.select(id)` for a desk or
  * its person, `on.max()` for the nuclear button, `on.mic('down' | 'up')` for
  * the microphone, held, `on.style(id)` for one of the office's styles, from
- * its key in the corner, and `on.hint(text)` for a word on the status line.
+ * its key in the corner, `on.music()` for a jukebox, to play or pause the
+ * computer's music, and `on.hint(text)` for a word on the status line.
  *
  * Its sound, once set up and tapped, is in the style of an old console. A
  * piece of the room asks for one of its sounds by name with
@@ -142,6 +143,12 @@
     mic: { name: 'The mic', grows: true, hides: false },
   };
   const ADDED_MOST = 12;
+  /**
+   * The lounge's pieces that play music. With the jukebox on in setup, a tap
+   * on any of them plays or pauses the computer's music, and they show
+   * whether it's playing, where the computer can tell.
+   */
+  const MUSIC_KINDS = ['jukebox'];
   const isAdded = (part) => part.startsWith('added:');
   /** How big a piece can be: as it comes, half as big again, or twice. */
   const PIECE_SIZES = [1, 1.5, 2];
@@ -1795,6 +1802,8 @@
    * them.
    */
   const STYLE_KEY = { w: 15, h: 13, inset: 3, rounded: 6 };
+  /** How long a tapped music piece shows ▶ or ❚❚ over it, in seconds. */
+  const MUSIC_TAP_LENGTH = 0.9;
   const STYLE_MARK = ['1111110', '1111110', '0000010', '0011110', '0010000', '0010000', '0010000'];
   const STYLE_THUMB = { w: 62, h: 34 };
   const STYLE_GAP = 4;
@@ -3228,7 +3237,8 @@
 
     /** A jukebox, its arch of light running round the colours: while someone picks a record, it spins and notes rise. */
     function drawJukebox() {
-      const playing = atCorner(0), wood = 0x7a3b2a;
+      // Playing: the computer's music, with the jukebox on, or someone at it
+      const playing = frame.music?.playing === true || atCorner(0), wood = 0x7a3b2a;
       fill(263, 88, 23, 1, SHADOW);
       fill(266, 56, 17, 1, wood);
       fill(264, 57, 21, 2, wood);
@@ -4729,6 +4739,30 @@
       drawPixelKey(left, top, w, h, kind === 'fire' ? PALETTE.dome : 0x2f8f5b, label);
     }
 
+    /**
+     * A music piece just tapped: a bubble over it with what the tap does, ▶
+     * when nothing was playing, ❚❚ when something was, both when the
+     * computer couldn't tell.
+     */
+    function drawMusicTap({ box, was }) {
+      const w = was === null ? 17 : 11, h = 9;
+      const x = Math.round((box.left + box.right) / 2 - w / 2), y = Math.round(box.top) - h - 2;
+      fill(x + 1, y, w - 2, h, PALETTE.bubbleEdge);
+      fill(x, y + 1, w, h - 2, PALETTE.bubbleEdge);
+      fill(x + 1, y + 1, w - 2, h - 2, PALETTE.bubble);
+      const play = (px) => { for (let k = 0; k < 3; k++) fill(px + k, y + 2 + k, 1, 5 - k * 2, PALETTE.bubbleEdge); };
+      const pause = (px) => {
+        fill(px, y + 2, 1, 5, PALETTE.bubbleEdge);
+        fill(px + 2, y + 2, 1, 5, PALETTE.bubbleEdge);
+      };
+      if (was === true) pause(x + 4);
+      else if (was === false) play(x + 4);
+      else {
+        play(x + 4);
+        pause(x + 10);
+      }
+    }
+
     /** Arranging the room: a dotted line round each piece that can be picked, and a solid one round the one picked. */
     function drawArrangement({ pieces, picked }) {
       for (const { part, box } of pieces) {
@@ -4909,6 +4943,7 @@
     if (frame.deskButton) drawDeskButton(frame.deskButton);
     if (frame.choices) drawChoices();
     if (frame.arranging) drawArrangement(frame.arranging);
+    if (frame.musicTap) drawMusicTap(frame.musicTap);
     if (frame.styleKey) drawStyleKey(frame.styleKey);
     if (frame.firing) drawFireDialog(frame.firing);
     if (frame.styles) drawStyleMenu(frame.styles);
@@ -5603,7 +5638,9 @@
 
       // The corner piece, now and then, while someone's at it
       const cornering = office.people.find((p) => !p.isWalking && !p.isLeaving && spotOf(p.place) >= LOUNGE_SPOTS.length);
-      const cornerSound = cornering && CORNER_SOUNDS[spots[spotOf(cornering.place)].kind];
+      // The jukebox keeps quiet while the computer's own music plays.
+      const cornerKind = cornering && spots[spotOf(cornering.place)].kind;
+      const cornerSound = cornering && !(held.music && cornerKind === 'jukebox') && CORNER_SOUNDS[cornerKind];
       if (!cornering || !cornerSound) this.nextCorner = null;
       else if (this.nextCorner === null) this.nextCorner = t + random(1, 4);
       else if (t >= this.nextCorner) this.nextCorner = t + (this.murmur(cornerSound, cornering.position.x) ? random(...CORNER_EVERY) : 1);
@@ -5700,6 +5737,8 @@
     let firing = null;       // an agent about to be fired, while the question is up: { id, name }
     let carrying = null;     // an agent carried to another desk: { person, from, x, y, over }
     let styling = false;     // the styles' panel is up
+    let music = null;        // what the computer says of its music, with the jukebox on: { playing: true | false | null }
+    let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
     // Arranging the room, on the setup page: the piece picked, and the one being dragged.
     let arranging = null;    // { picked, drag: { part, x, y, from } }
     let styleKeyAt = null;   // where the styles' key was last drawn, in art pixels
@@ -5847,7 +5886,7 @@
       const fitting = canvas.height > canvas.width ? TALL : WIDE;
       if (fitting !== shape) office.reshape(fitting, now);
       office.step(now);
-      ambience.follow(office, now, loudness(), { mic, carrying });
+      ambience.follow(office, now, loudness(), { mic, carrying, music: music && music.playing === true });
       const key = styleKey();
       if (!key) styling = false;
       drawOffice(ctx, office, {
@@ -5857,6 +5896,8 @@
         deskButton: heldButton(), firing: firing && { ...fireDialog(), name: firing.name }, carrying,
         styleKey: key, styles: styling && key && { ...styleMenu(), current: decor.preset, pictures: stylePictures },
         arranging: arranging && { pieces: arrangeable(), picked: arranging.picked },
+        music,
+        musicTap: musicTap && now - musicTap.at < MUSIC_TAP_LENGTH && { box: pieceBox(musicTap.part), was: musicTap.was },
       });
       styleKeyAt = key && key.at;
     }
@@ -5943,6 +5984,10 @@
         consider({ kind: 'session', id: person.session.id },
           { left: px - 5, right: px + 8, top: top - 11, bottom: Math.round(person.position.y) + 1 }, 0);
       }
+      // A music piece, with the jukebox on: play or pause
+      if (music && on.music) {
+        for (const { part, kind } of loungePieces()) if (MUSIC_KINDS.includes(kind)) consider({ kind: 'music', part }, pieceBox(part), 1);
+      }
       if (styleKey() && styleKeyAt) {
         const { x: kx, y: ky, w: kw, h: kh } = styleKeyAt;
         consider({ kind: 'styles' }, { left: kx, right: kx + kw, top: ky, bottom: ky + kh }, -1);
@@ -6006,6 +6051,10 @@
         styling = !styling;
         if (styling) drawStylePictures();
         return;
+      }
+      if (target.kind === 'music') {
+        musicTap = { part: target.part, at: clock(), was: music ? music.playing : null };
+        return on.music?.();
       }
       if (target.kind === 'unstyle') {
         styling = false;
@@ -6244,6 +6293,7 @@
         if (snapshot.now) gaps = [...gaps.slice(1 - CLOCK_SAMPLES), Date.now() - snapshot.now];
         ahead = gaps.length ? Math.min(...gaps) : 0;
         hiring = snapshot.hiring || { fire: false, hire: false };
+        music = snapshot.music || null;
         office.furnish(snapshot.layout && snapshot.layout.room, clock());
         office.apply(seatsOf(snapshot, ahead), snapshot.theme, clock());
         // The question and what's held out go with their agent; a hire, once its desk is taken.

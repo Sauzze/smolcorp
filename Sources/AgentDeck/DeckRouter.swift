@@ -201,6 +201,13 @@ final class DeckRouter: Router {
             deck.refresh()
             respond(.json(setupState()))
 
+        case ("POST", "/setup/music"):
+            config.musicEnabled = request.query["enabled"] == "1"
+            config.save()
+            deck.followMusic()
+            deck.refresh()
+            respond(.json(setupState()))
+
         // Every part is checked before any is kept, so a wrong one changes
         // nothing. An empty folder clears it.
         case ("POST", "/setup/hiring"):
@@ -296,6 +303,7 @@ final class DeckRouter: Router {
                 "enabled": config.hiringEnabled, "folder": config.hireFolder, "agent": config.hireAgent,
                 "canHire": true, "canChoose": true,
             ],
+            "music": ["enabled": config.musicEnabled],
             "pairing": pairing,
             // Times in milliseconds, as the page's Date counts them.
             "phones": deck.access.phones.all.map { phone -> [String: Any] in

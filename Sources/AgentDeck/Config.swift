@@ -26,11 +26,14 @@ final class Config: Codable {
     /// The folder new hires start in, and the agent they are.
     var hireFolder = ""
     var hireAgent = Agent.claude.rawValue
+    /// Whether a jukebox in the office may play and pause the Mac's music.
+    /// Off until you turn it on: it presses a media key.
+    var musicEnabled = false
     var hasCompletedSetup = false
 
     private enum CodingKeys: String, CodingKey {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent
-        case hasCompletedSetup
+        case musicEnabled, hasCompletedSetup
     }
 
     init() {}
@@ -52,6 +55,7 @@ final class Config: Codable {
         hiringEnabled = try c.decodeIfPresent(Bool.self, forKey: .hiringEnabled) ?? false
         hireFolder = try c.decodeIfPresent(String.self, forKey: .hireFolder) ?? ""
         hireAgent = (try c.decodeIfPresent(String.self, forKey: .hireAgent)).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
+        musicEnabled = try c.decodeIfPresent(Bool.self, forKey: .musicEnabled) ?? false
         hasCompletedSetup = try c.decodeIfPresent(Bool.self, forKey: .hasCompletedSetup) ?? false
     }
 

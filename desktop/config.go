@@ -27,7 +27,10 @@ type Config struct {
 	// Whether the office may fire: stop an agent and close its pane. Off until
 	// you turn it on, for the same reason. Hiring is the Mac app's for now,
 	// but the folder and agent are kept as it keeps them.
-	HiringEnabled     bool   `json:"hiringEnabled"`
+	HiringEnabled bool `json:"hiringEnabled"`
+	// MusicEnabled lets a jukebox in the office play and pause this
+	// computer's music. Off until you turn it on: it presses a media key.
+	MusicEnabled      bool   `json:"musicEnabled"`
 	HireFolder        string `json:"hireFolder"`
 	HireAgent         string `json:"hireAgent"`
 	HasCompletedSetup bool   `json:"hasCompletedSetup"`

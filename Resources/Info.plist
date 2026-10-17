@@ -25,6 +25,6 @@
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSAppleEventsUsageDescription</key>
-  <string>SauzzeDeck Pro brings your coding agents' tabs forward in Terminal and types commands into them.</string>
+  <string>SauzzeDeck Pro brings your coding agents' tabs forward in Terminal and types commands into them, and with the office's jukebox on, asks Spotify and Music whether they're playing.</string>
 </dict>
 </plist>
