@@ -961,13 +961,18 @@
     phi: { style: 'phi', shirt: 0x2f9a92 },
   };
   /**
-   * What agents left on Auto wear in each style, in their agent's colour,
-   * and its office staff the last of them, in theirs.
+   * What an agent left on Auto wears for the workspace they're at, in their
+   * agent's colour, whatever the room: a desk of its own kind gives its
+   * clothes, and any other the agent's own look. The office's staff, who
+   * have no desk, wear the second of what most desks give, where there is
+   * one: launch suits among astronauts, captains among pirates.
    */
-  const STYLE_DRESS = {
-    space: ['astronaut', 'flightsuit'], pirates: ['pirate', 'captain'], arctic: ['parka', 'explorer'], royal: ['robe', 'knight'],
-    lair: ['wizard'], gamers: ['gamer'], garage: ['founder'], gym: ['gymkit'], jungle: ['safari'], campsite: ['flannel'],
+  const WORKSPACE_DRESS = {
+    cockpit: 'astronaut', console: 'astronaut', hover: 'astronaut', ship: 'pirate', chest: 'pirate', throne: 'robe', gilded: 'robe',
+    igloo: 'parka', crates: 'parka', greenhouse: 'wizard', altar: 'wizard', tent: 'flannel', log: 'flannel', van: 'flannel',
+    box: 'founder', bench: 'founder', bamboo: 'safari', rack: 'gymkit',
   };
+  const STAFF_DRESS = { astronaut: 'flightsuit', pirate: 'captain', parka: 'explorer', robe: 'knight' };
   /**
    * Each family of models by the words in its models' names, as their own
    * words or with a version after them (`qwen3`, `llama4`), and the family
@@ -1028,19 +1033,20 @@
   /**
    * What an agent running `model` wears: its project's own outfit on the team
    * card first, then the dress code for the model's size, or for the agent
-   * while its model isn't known. Left on Auto, in a style they wear its
-   * clothes in their agent's colour, and otherwise their model's family's
-   * look, a shade lighter or darker for its size, or for a model of no
-   * family the office knows, clothes for its size in their agent's colour.
+   * while its model isn't known. Left on Auto, at a `workspace` of its own
+   * kind they wear its clothes in their agent's colour (see
+   * WORKSPACE_DRESS), and otherwise their model's family's look, a shade
+   * lighter or darker for its size, or for a model of no family the office
+   * knows, clothes for its size in their agent's colour.
    */
-  function outfitOf(agent, model, member) {
+  function outfitOf(agent, model, member, workspace = null) {
     const own = SHIRTS[agent] ?? SHIRTS.claude;
     const size = model ? sizeOf(model) : null;
     const code = (size ? decor.dress.sizes[size] : decor.dress.agents[agent]) || AUTO_ATTIRE;
     const colour = member && member.colour !== 'auto' ? member.colour : code.colour !== 'auto' ? code.colour : null;
     const accent = colour ? SHIRT_COLOURS[colour] : own;
     const chosen = member && member.outfit !== 'auto' ? member.outfit : code.outfit !== 'auto' ? code.outfit : null;
-    const styled = chosen ? null : (STYLE_DRESS[decor.preset] || [])[0] ?? null;
+    const styled = chosen ? null : WORKSPACE_DRESS[workspace] ?? null;
     const family = chosen || styled ? null : familyOf(model, agent);
     const style = chosen || styled || family || (size ? SIZE_OUTFITS[size] : null);
     const outfit = dressFor(style, accent);
@@ -1056,11 +1062,10 @@
     return outfit;
   }
 
-  /** What one of the office's staff wears: plain clothes, or in a style, its staff's in their colour. */
-  function staffOutfitOf(look) {
+  /** What one of the office's staff wears: plain clothes, or `dress`, what most desks give (see WORKSPACE_DRESS), in their colour. */
+  function staffOutfitOf(look, dress) {
     const shirt = STAFF_SHIRTS[Math.floor(look.phase * STAFF_SHIRTS.length) % STAFF_SHIRTS.length];
-    const dress = STYLE_DRESS[decor.preset];
-    return dress ? dressFor(dress[dress.length - 1], shirt) : { style: 'plain', shirt, pants: PALETTE.pants, shoes: PALETTE.shoes };
+    return dress ? dressFor(STAFF_DRESS[dress] ?? dress, shirt) : { style: 'plain', shirt, pants: PALETTE.pants, shoes: PALETTE.shoes };
   }
   /** Staff wear plain colours, none of them an agent's. */
   const STAFF_SHIRTS = [0x8a8f9c, 0x3e4a66, 0xd8d4c8, 0xb08a3a, 0x6b7f5a];
@@ -2666,6 +2671,15 @@
     const colour = (state) => fromCss(office.colours[state]) ?? fromCss(STANDARD_STATES[state]);
     const ink = fromCss(office.colours.ink) ?? INK;
     const sessionAt = (desk) => (desk < office.seats.length ? office.seats[desk].session : null);
+    /** What most desks give their agents to wear, for the office's staff: null where most are desks of no kind of their own. */
+    const crewDress = (() => {
+      const counts = new Map();
+      DESKS.forEach((_, desk) => {
+        const dress = WORKSPACE_DRESS[workspaceOf(sessionAt(desk), desk)] ?? null;
+        counts.set(dress, (counts.get(dress) || 0) + 1);
+      });
+      return [...counts].reduce((most, entry) => (entry[1] > most[1] ? entry : most))[0];
+    })();
     /** How far above its corner a desk's workspace reaches, in art pixels: a negative number. */
     const reachOf = (desk) => WORKSPACES[workspaceOf(sessionAt(desk), desk)].top;
     // Someone being carried is drawn where the finger has them, so nothing of them stays at their desk.
@@ -4098,7 +4112,7 @@
           fill(cx + 9, y - 2, 2, 1, 0xc9c3b8);
           // Their feet, either side of the laptop, while they sit
           if (occupant && poseOf(occupant, now).kind === 'sit') {
-            const outfit = outfitOf(occupant.session.agent, occupant.session.model, memberOf(occupant.session));
+            const outfit = outfitOf(occupant.session.agent, occupant.session.model, memberOf(occupant.session), 'tent');
             fill(s.x - 5, y + 5, 3, 2, outfit.shoes);
             fill(s.x + 3, y + 5, 3, 2, outfit.shoes);
           }
@@ -4167,7 +4181,7 @@
           fill(x + 18, y + 10, 21, 1, SHADOW);
           // Legs out in front, crossed at the ankles, while they sit
           if (occupant && poseOf(occupant, now).kind === 'sit') {
-            const outfit = outfitOf(occupant.session.agent, occupant.session.model, memberOf(occupant.session));
+            const outfit = outfitOf(occupant.session.agent, occupant.session.model, memberOf(occupant.session), 'beanbag');
             fill(s.x - 3, y + 2, 7, 3, outfit.pants);
             fill(s.x - 4, y + 5, 3, 2, outfit.shoes);
             fill(s.x + 2, y + 5, 3, 2, outfit.shoes);
@@ -6297,7 +6311,8 @@
       const nod = isListener(person) && since < NOD_LENGTH && Math.floor((since / NOD_LENGTH) * 4) % 2 === 0 ? 1 : 0;
       const top = topOf(person, pose) + nod;
       const look = lookFor(person), away = person.isFacingAway;
-      const outfit = person.isStaff ? staffOutfitOf(look) : outfitOf(person.session.agent, person.session.model, memberOf(person.session));
+      const outfit = person.isStaff ? staffOutfitOf(look, crewDress)
+        : outfitOf(person.session.agent, person.session.model, memberOf(person.session), workspaceOf(person.session, person.desk));
       const shirtColour = outfit.shirt, parts = OUTFIT_PARTS[outfit.style];
       // Sleeves are the shirt's, or a white shirt's under a waistcoat, or bare arms.
       const sleeve = (px, py, w, h) => {
@@ -7060,7 +7075,10 @@
      */
     function drawIntern(intern) {
       const x = Math.round(intern.position.x), feet = Math.round(intern.position.y), top = feet - 13;
-      const { look } = intern, outfit = outfitOf(intern.agent, intern.model), shirt = outfit.shirt;
+      // Dressed for their agent's desk
+      const desk = office.deskOfSession(intern.agentId);
+      const { look } = intern, outfit = outfitOf(intern.agent, intern.model, null, desk === null ? null : workspaceOf(sessionAt(desk), desk));
+      const shirt = outfit.shirt;
       const step = intern.isWalking ? Math.floor(now * 7) % 2 : null;
       const lift = step === null ? [0, 0] : step === 0 ? [1, 0] : [0, 1];
       fill(x - 2, feet, 5, 1, SHADOW);
