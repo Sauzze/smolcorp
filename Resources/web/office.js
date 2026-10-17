@@ -21,8 +21,10 @@
  * page to do what its keys and buttons would: `on.select(id)` for a desk or
  * its person, `on.max()` for the nuclear button, `on.mic('down' | 'up')` for
  * the microphone, held, `on.style(id)` for one of the office's styles, from
- * its key in the corner, `on.music()` for a jukebox, to play or pause the
- * computer's music, and `on.hint(text)` for a word on the status line.
+ * its key in the corner, `on.music(action)` for a piece that plays music, to
+ * play or pause the computer's music, 'playpause', from a tap, or from the
+ * control a finger held on it opens, 'previous', 'playpause' or 'next', and
+ * `on.hint(text)` for a word on the status line.
  *
  * Its sound, once set up and tapped, is in the style of an old console. A
  * piece of the room asks for one of its sounds by name with
@@ -2100,6 +2102,21 @@
   const STYLE_KEY = { w: 15, h: 13, inset: 3, rounded: 6 };
   /** How long a tapped music piece shows ▶ or ❚❚ over it, in seconds. */
   const MUSIC_TAP_LENGTH = 0.9;
+  /**
+   * A music piece's control, opened by a finger held on the piece as long as
+   * a desk's chips take: its keys, what each asks of the computer's music
+   * through `on.music`, and how long it stays open unused, in seconds.
+   */
+  const MUSIC_KEY = { w: 11, h: 9, gap: 2 };
+  const MUSIC_ACTIONS = ['previous', 'playpause', 'next'];
+  const MUSIC_PANEL_LENGTH = 6;
+  /** Play, pause, previous and next, in pixels. */
+  const MUSIC_ICONS = {
+    play: ['100', '110', '111', '110', '100'],
+    pause: ['101', '101', '101', '101', '101'],
+    previous: ['1..1..1', '1.11.11', '1111111', '1.11.11', '1..1..1'],
+    next: ['1..1..1', '11.11.1', '1111111', '11.11.1', '1..1..1'],
+  };
   const STYLE_MARK = ['1111110', '1111110', '0000010', '0011110', '0010000', '0010000', '0010000'];
   const STYLE_THUMB = { w: 62, h: 34 };
   const STYLE_GAP = 4;
@@ -7259,27 +7276,62 @@
       drawPixelKey(left, top, w, h, kind === 'fire' ? PALETTE.dome : 0x2f8f5b, label);
     }
 
+    /** One of MUSIC_ICONS, its top-left at `x`, `y`. */
+    function drawMusicIcon(name, x, y, colour) {
+      MUSIC_ICONS[name].forEach((row, r) => [...row].forEach((on, column) => { if (on === '1') dot(x + column, y + r, colour); }));
+    }
+
+    /** What a tap on the music does, centred on `cx`: ❚❚ while it plays, ▶ while it doesn't, both when the computer can't tell. */
+    function drawPlayPause(cx, y, playing, play, pause = play) {
+      if (playing === null) {
+        drawMusicIcon('play', cx - 3, y, play);
+        drawMusicIcon('pause', cx + 1, y, pause);
+      } else {
+        drawMusicIcon(playing ? 'pause' : 'play', cx - 1, y, playing ? pause : play);
+      }
+    }
+
     /**
-     * A music piece just tapped: a bubble over it with what the tap does, ▶
-     * when nothing was playing, ❚❚ when something was, both when the
-     * computer couldn't tell.
+     * A music piece just tapped: a dark key over it with what the tap did,
+     * green ▶ when nothing was playing, amber ❚❚ when something was, both
+     * when the computer couldn't tell, going down as it's pressed.
      */
-    function drawMusicTap({ box, was }) {
-      const w = was === null ? 17 : 11, h = 9;
-      const x = Math.round((box.left + box.right) / 2 - w / 2), y = Math.round(box.top) - h - 2;
-      fill(x + 1, y, w - 2, h, PALETTE.bubbleEdge);
-      fill(x, y + 1, w, h - 2, PALETTE.bubbleEdge);
-      fill(x + 1, y + 1, w - 2, h - 2, PALETTE.bubble);
-      const play = (px) => { for (let k = 0; k < 3; k++) fill(px + k, y + 2 + k, 1, 5 - k * 2, PALETTE.bubbleEdge); };
-      const pause = (px) => {
-        fill(px, y + 2, 1, 5, PALETTE.bubbleEdge);
-        fill(px + 2, y + 2, 1, 5, PALETTE.bubbleEdge);
-      };
-      if (was === true) pause(x + 4);
-      else if (was === false) play(x + 4);
-      else {
-        play(x + 4);
-        pause(x + 10);
+    function drawMusicTap({ box, was, since }) {
+      const w = was === null ? 15 : 11, h = 11, sink = since < CHOICE_PRESS_LENGTH ? 1 : 0;
+      const x = Math.round((box.left + box.right) / 2 - w / 2), y = Math.round(box.top) - h - 3 + sink;
+      fill(x + 1, y + h - sink, w - 2, 1 + sink, PALETTE.frame);
+      fill(x + 1, y, w - 2, h, PALETTE.frame);
+      fill(x, y + 1, w, h - 2, PALETTE.frame);
+      fill(x + 1, y + 1, w - 2, h - 3, 0x3a3d47);
+      fill(x + 2, y + 1, w - 4, 1, WHITE, 0.25);
+      fill(x + 1, y + h - 2, w - 2, 1, 0x2a2d35);
+      drawPlayPause(x + Math.floor(w / 2), y + 3, was, PALETTE.terminal, PALETTE.hazard);
+    }
+
+    /**
+     * A music piece's control: previous, play or pause, and next, dark keys
+     * on a speech bubble's paper over the piece, each going down as it's
+     * pressed and lit while it is.
+     */
+    function drawMusicPanel({ left, top, w, h, tip, keys, playing, down }) {
+      fill(left + 1, top, w - 2, h, PALETTE.bubbleEdge);
+      fill(left, top + 1, w, h - 2, PALETTE.bubbleEdge);
+      fill(left + 1, top + 1, w - 2, h - 2, PALETTE.bubble);
+      fill(tip.x - 1, top + h - 1, 3, 1, PALETTE.bubble);
+      dot(tip.x - 1, top + h, PALETTE.bubbleEdge);
+      dot(tip.x, top + h, PALETTE.bubble);
+      dot(tip.x + 1, top + h, PALETTE.bubbleEdge);
+      dot(tip.x, top + h + 1, PALETTE.bubbleEdge);
+      for (const { action, x, y } of keys) {
+        const sunk = down && down.action === action && (down.held || now - down.at < CHOICE_PRESS_LENGTH) ? 1 : 0, ky = y + sunk;
+        fill(x + 1, ky, MUSIC_KEY.w - 2, MUSIC_KEY.h - sunk, PALETTE.frame);
+        fill(x, ky + 1, MUSIC_KEY.w, MUSIC_KEY.h - 2 - sunk, PALETTE.frame);
+        fill(x + 1, ky + 1, MUSIC_KEY.w - 2, MUSIC_KEY.h - 2 - sunk, sunk ? 0x2a2d35 : 0x3a3d47);
+        if (!sunk) fill(x + 1, ky + MUSIC_KEY.h - 2, MUSIC_KEY.w - 2, 1, 0x2a2d35);
+        fill(x + 2, ky + 1, MUSIC_KEY.w - 4, 1, WHITE, sunk ? 0.1 : 0.25);
+        const ink = sunk ? PALETTE.terminal : PALETTE.bubble;
+        if (action === 'playpause') drawPlayPause(x + 5, ky + 2, playing, ink);
+        else drawMusicIcon(action, x + 2, ky + 2, ink);
       }
     }
 
@@ -7468,6 +7520,7 @@
     if (frame.choices) drawChoices();
     if (frame.arranging) drawArrangement(frame.arranging);
     if (frame.musicTap) drawMusicTap(frame.musicTap);
+    if (frame.musicPanel) drawMusicPanel(frame.musicPanel);
     if (frame.styleKey) drawStyleKey(frame.styleKey);
     if (frame.firing) drawFireDialog(frame.firing);
     if (frame.styles) drawStyleMenu(frame.styles);
@@ -8265,6 +8318,8 @@
     let styling = false;     // the styles' panel is up
     let music = null;        // what the computer says of its music, with the jukebox on: { playing: true | false | null }
     let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
+    let musicPanel = null;   // a music piece's control, held open: { part, at }, `at` when it was last used
+    let musicDown = null;    // the music control's key last pressed: { action, at, held }
     // Arranging the room, on the setup page: the piece picked, and the one being dragged.
     let arranging = null;    // { picked, drag: { part, x, y, from } }
     let styleKeyAt = null;   // where the styles' key was last drawn, in art pixels
@@ -8375,6 +8430,17 @@
     }
 
     /** The choice keys, while the picked agent waits on you and the deck's own controls are out of sight. */
+    /** The music control, over its piece and kept in the room: its keys, and its tip pointing at the piece. */
+    function musicControl() {
+      if (!musicPanel || !music || !on.music || !loungePieces().some(({ part }) => part === musicPanel.part)) return null;
+      const box = pieceBox(musicPanel.part);
+      const w = 2 + MUSIC_KEY.w * 3 + MUSIC_KEY.gap * 2 + 2, h = MUSIC_KEY.h + 4;
+      const tip = { x: Math.round((box.left + box.right) / 2), y: Math.round(box.top) - 2 };
+      const left = Math.max(1, Math.min(shape.width - w - 1, tip.x - Math.floor(w / 2))), top = Math.max(1, tip.y - h - 2);
+      tip.x = Math.max(left + 2, Math.min(left + w - 3, tip.x));
+      return { left, top, w, h, tip, keys: MUSIC_ACTIONS.map((action, i) => ({ action, x: left + 2 + i * (MUSIC_KEY.w + MUSIC_KEY.gap), y: top + 2 })) };
+    }
+
     function choices() {
       if (framed) return null;
       const desk = office.seats.findIndex((s) => s.session && s.session.id === selected);
@@ -8401,6 +8467,12 @@
       mic.usable = !session || !!session.mic;
       // A finger held on a desk, or its person, puts out its chips and
       // button; on a desk a hire would sit at, the button to hire.
+      // Held on a music piece, its control opens; left unused a while, it goes away again.
+      if (finger && !finger.held && finger.target.kind === 'music' && now - finger.at >= HOLD_FOR_CHIPS) {
+        finger.held = true;
+        musicPanel = { part: finger.target.part, at: now };
+      }
+      if (musicPanel && now - musicPanel.at > MUSIC_PANEL_LENGTH && !(musicDown && musicDown.held)) musicPanel = null;
       const holding = finger && !finger.held && ['session', 'pinned', 'empty'].includes(finger.target.kind);
       if (holding && now - finger.at >= HOLD_FOR_CHIPS) {
         finger.held = true;
@@ -8423,7 +8495,8 @@
         styleKey: key, styles: styling && key && { ...styleMenu(), current: decor.preset, pictures: stylePictures },
         arranging: arranging && { pieces: arrangeable(), picked: arranging.picked },
         music,
-        musicTap: musicTap && now - musicTap.at < MUSIC_TAP_LENGTH && { box: pieceBox(musicTap.part), was: musicTap.was },
+        musicTap: musicTap && now - musicTap.at < MUSIC_TAP_LENGTH && { box: pieceBox(musicTap.part), was: musicTap.was, since: now - musicTap.at },
+        musicPanel: musicControl() && { ...musicControl(), playing: music.playing, down: musicDown },
       });
       styleKeyAt = key && key.at;
     }
@@ -8553,6 +8626,15 @@
         const onStrip = x >= strip.left - 1 && x <= strip.left + strip.w + 1 && y >= strip.top - 1 && y <= strip.top + strip.h + 2;
         if (onStrip) return best && best.target.kind === 'chip' ? best.target : null;
       }
+      // The music control covers what's under it: a tap on it goes to a key or nowhere.
+      const control = musicControl();
+      if (control) {
+        for (const key of control.keys) {
+          consider({ kind: 'musicKey', action: key.action }, { left: key.x, right: key.x + MUSIC_KEY.w, top: key.y, bottom: key.y + MUSIC_KEY.h }, -1);
+        }
+        const onControl = x >= control.left && x <= control.left + control.w && y >= control.top && y <= control.tip.y;
+        if (onControl) return best && best.target.kind === 'musicKey' ? best.target : null;
+      }
       const panel = choices();
       if (panel) {
         for (const key of panel.keys) {
@@ -8570,6 +8652,8 @@
       // Anything else tapped puts the held desk's chips and button away.
       const holding = held;
       if (target.kind !== 'chip') held = null;
+      // Anything but its keys puts the music control away.
+      if (target.kind !== 'musicKey') musicPanel = null;
       if (target.kind === 'keep') {
         firing = null;
         return;
@@ -8579,9 +8663,12 @@
         if (styling) drawStylePictures();
         return;
       }
-      if (target.kind === 'music') {
-        musicTap = { part: target.part, at: clock(), was: music ? music.playing : null };
-        return on.music?.();
+      // A music piece plays or pauses once the finger lifts, if it isn't held to open the control.
+      if (target.kind === 'music') return;
+      if (target.kind === 'musicKey') {
+        musicDown = { action: target.action, at: clock(), held: true };
+        if (musicPanel) musicPanel.at = clock();
+        return on.music?.(target.action);
       }
       if (target.kind === 'unstyle') {
         styling = false;
@@ -8649,6 +8736,12 @@
         if (dropped && over !== null && over !== from) on.swap?.(from, over);
         return;
       }
+      // A quick tap on a music piece plays or pauses the computer's music; held, it opened the control instead.
+      if (finger && finger.target.kind === 'music' && !finger.held && dropped) {
+        musicTap = { part: finger.target.part, at: clock(), was: music ? music.playing : null };
+        on.music?.('playpause');
+      }
+      if (musicDown) musicDown.held = false;
       // A chip, once chosen, goes away with the rest.
       if (finger && finger.target.kind === 'chip') held = null;
       if (finger && !finger.held) {
@@ -8763,6 +8856,7 @@
       // A tap on the floor, with nothing there, puts away whatever was held out.
       if (!target) {
         held = null;
+        musicPanel = null;
         return;
       }
       canvas.setPointerCapture(e.pointerId);
