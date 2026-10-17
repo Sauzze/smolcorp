@@ -149,10 +149,13 @@ The setup page walks you through these steps:
 4. **Let the office hire and fire** (optional). Lets you start and stop agents
    from [the office](#the-office): choose the folder new hires start in, and
    which agent they are.
-5. **Tell other tools** (optional). Sends what your agents do to an address
+5. **Let the jukebox play your music** (optional). Tap a jukebox in the
+   office to play or pause whatever your Mac is playing: Spotify, Apple
+   Music, a video in your browser. It presses the keyboard's play/pause key.
+6. **Tell other tools** (optional). Sends what your agents do to an address
    on your network, such as a Home Assistant webhook. See
    [Tell other tools](#tell-other-tools).
-6. **Open at login** (optional). Keeps the deck ready whenever your Mac is on.
+7. **Open at login** (optional). Keeps the deck ready whenever your Mac is on.
 
 The first time you press a button, macOS asks whether SauzzeDeck Pro may
 control Terminal. Click **Allow**.
