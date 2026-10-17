@@ -25,7 +25,7 @@
     --asking: #ff8a1f;
     --unread: #22c55e;
     --error: #ef4444;
-    /* Derived, so a custom theme reaches everything. */
+    /* Derived from the colours above. */
     --shadow: color-mix(in srgb, var(--body) 50%, #000);
     --sheen: color-mix(in srgb, var(--ink) 4%, transparent);
   }
@@ -498,31 +498,21 @@
 
   /* ----------------------------------------------------------- plumbing */
 
-  /** Colours from the setup page, live: each one overrides its CSS variable. */
-  let themeShown = '';
-  function applyTheme(colours) {
-    const key = JSON.stringify(colours || {});
-    if (key === themeShown) return;
-    themeShown = key;
-    for (const [name, value] of Object.entries(colours || {})) document.documentElement.style.setProperty(`--${name}`, value);
-    if (colours && colours.body) document.querySelector('meta[name="theme-color"]').content = colours.body;
-  }
-
   function post(pathname, params = {}, signal) {
     if (preview) return Promise.resolve();
     const q = new URLSearchParams({ t: token, ...params });
     return fetch(`${pathname}?${q}`, { method: 'POST', signal }).catch(() => {});
   }
 
-  /** What the computer streams: the sessions at their desks, the theme and the layout. */
+  /** What the computer streams: the sessions at their desks and the layout. */
   function receive(data) {
     sessions = (data.keys || []).filter((k) => k.session).map((k) => k.session);
     noteWaits();
     overflow = data.overflow;
     scrollEnabled = data.scroll;
     layout = data.layout || null;
-    applyTheme(data.theme);
-    office.show(data);
+    // The office's own colours: a theme saved by an older setup page is left out.
+    office.show({ ...data, theme: {} });
     $('status').classList.remove('off');
     render();
   }

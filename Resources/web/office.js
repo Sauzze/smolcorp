@@ -9454,15 +9454,18 @@
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
       canvas.addEventListener(type, (e) => {
         if (!arranging || !arranging.drag || e.pointerId !== arranging.drag.id) return;
-        const { part, grow, from } = arranging.drag;
+        const { part, grow, from, carried } = arranging.drag;
         arranging.drag = null;
-        // Let go off the room, as onto the editor's drawer: back where it was carried from, and the page says what becomes of it
+        // Let go off the room, as onto the editor's drawer, or on a place the page takes pieces away at, such as its trash:
+        // back where it was carried from, and the page says what becomes of it
         const rect = canvas.getBoundingClientRect();
-        const outside = e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom;
+        const outside = e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom
+          || !!on.takesAway?.(e.clientX, e.clientY);
         if (type === 'pointerup' && !grow && outside) {
           rearrange(arranging.picked || part, isHung(part) ? { x: from.x } : { x: from.x, y: from.y });
           on.droppedOut?.(arranging.picked || part, e.clientX, e.clientY);
         }
+        if (carried) on.dragging?.(null);
       });
     }
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
@@ -9487,6 +9490,11 @@
           const nearest = PIECE_SIZES.reduce((best, s) => (Math.abs(s - wanted) < Math.abs(best - wanted) ? s : best));
           if (nearest !== pieceOf(drag.part).size) rearrange(drag.part, { size: nearest });
         } else if (drag && e.pointerId === drag.id) {
+          // Carried, not just picked: the page can show where pieces are taken away
+          if (!drag.carried && Math.hypot(x - drag.x, y - drag.y) >= 1) {
+            drag.carried = true;
+            on.dragging?.(drag.part);
+          }
           const moved = { x: drag.from.x + Math.round(x - drag.x), y: drag.from.y + Math.round(y - drag.y) };
           if (isHung(drag.part)) {
             if (moved.x !== hungOf()[Number(drag.part.slice(5))].x) rearrange(drag.part, { x: moved.x });
@@ -9583,8 +9591,10 @@
        * On the setup page, the room is for arranging: a tap picks a piece,
        * `on.picked(part)`, and dragging moves it, `on.arranged(plan)` with
        * the room's whole arrangement as it goes; the picked piece's handle
-       * grows it, and a piece let go off the room says so with
-       * `on.droppedOut(part, clientX, clientY)`. `arrange(part, change)`
+       * grows it, and a piece let go off the room, or where
+       * `on.takesAway(clientX, clientY)` says pieces are taken away, says so
+       * with `on.droppedOut(part, clientX, clientY)`. `on.dragging(part)`
+       * says a piece is being carried, and `on.dragging(null)` that it's down. `arrange(part, change)`
        * changes a piece, such as its size, or with `remove` takes an added
        * or hung one out; `add(kind)` adds one; `pick(part)` picks one.
        */

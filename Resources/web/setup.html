@@ -22,10 +22,10 @@
     /* The phone panel runs beside two rows; the keys' row takes up whatever
        height it has to spare, rather than a gap opening above the keys. */
     grid-template-rows: auto auto 1fr;
-    grid-template-areas: "head head" "start phone" "keys phone" "sessions sessions" "profiles profiles" "layout layout" "logo logo" "colours colours"; }
+    grid-template-areas: "head head" "start phone" "keys phone" "profiles profiles" "layout layout" "logo logo" "more more"; }
   @media (max-width: 840px) {
     main { grid-template-columns: minmax(0, 1fr); grid-template-rows: none;
-      grid-template-areas: "head" "start" "phone" "keys" "sessions" "profiles" "layout" "logo" "colours"; }
+      grid-template-areas: "head" "start" "phone" "keys" "profiles" "layout" "logo" "more"; }
   }
   header { grid-area: head; display: flex; gap: 16px; align-items: center; }
   header img { width: 52px; height: 52px; border-radius: 12px; }
@@ -101,6 +101,8 @@
 
   /* Keys */
   .keys { grid-area: keys; }
+  .keys h3 { font-size: 13px; margin: 24px 0 10px; }
+  .keys > .field { margin-bottom: 4px; }
   .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
   .slot { background: var(--cap); border: 1px solid var(--edge); border-radius: 14px; min-height: 108px; min-width: 0;
     padding: 12px; display: flex; flex-direction: column; justify-content: space-between; }
@@ -115,8 +117,7 @@
   .slot.spare { opacity: .55; }
   .hint { color: var(--dim); font-size: 13px; margin: 10px 0 0; }
 
-  /* Sessions */
-  .sessions { grid-area: sessions; }
+  /* Running sessions, under the desks, to drag onto one */
   .list { display: grid; gap: 8px; }
   .row { display: flex; align-items: center; gap: 12px; background: var(--panel); border: 1px solid var(--edge);
     border-radius: 10px; padding: 10px 12px; cursor: grab; }
@@ -127,7 +128,7 @@
   .row .where { font-size: 12px; color: var(--dim); white-space: nowrap; }
   .empty { color: var(--dim); padding: 16px; border: 1px dashed var(--edge); border-radius: 10px; }
 
-  /* Profiles: a layout and its colours, saved under a name to switch back to. */
+  /* Profiles: an office and its buttons, saved under a name to switch back to. */
   .profiles { grid-area: profiles; display: grid; gap: 12px; }
   .profiles[hidden] { display: none; }
   .profiles .choices { flex-wrap: wrap; }
@@ -175,6 +176,16 @@
   @media (max-width: 840px) { .arranger .body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; } }
   .arranger .stage { min-height: 0; min-width: 0; display: grid; place-items: center; overflow: hidden; }
   /* Sized from the stage, in fitStage: a canvas sized by itself would grow with each frame. */
+  /* The trash, at the foot of the room while a piece is carried: a piece let go on it is taken out. */
+  .arranger .stage { position: relative; }
+  .arranger .trash { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-radius: 12px; background: rgb(0 0 0 / .7); border: 2px dashed var(--dim); color: var(--ink);
+    font-size: 13px; pointer-events: none; transition: transform .12s, border-color .12s, background .12s; }
+  .arranger .trash[hidden] { display: none; }
+  .arranger .trash svg { width: 24px; height: 28px; fill: var(--dim); }
+  .arranger .trash .slot { fill: rgb(0 0 0 / .7); }
+  .arranger .trash.over { border-color: var(--error); background: color-mix(in srgb, var(--error) 30%, #000); transform: translateX(-50%) scale(1.08); }
+  .arranger .trash.over svg { fill: var(--error); }
   .arranger .stage canvas { display: block; border-radius: 12px; background: var(--cap); touch-action: none; }
   .arranger aside { display: grid; gap: 12px; align-content: start; overflow-y: auto; }
   .arranger aside h3 { margin: 6px 0 0; font-size: 12px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
@@ -188,6 +199,7 @@
   /* A piece carried from the drawer, under the pointer */
   .carried { position: fixed; z-index: 20; pointer-events: none; opacity: .85; transform: translate(-50%, -50%); }
   .carried canvas { display: block; width: 72px; height: auto; image-rendering: pixelated; }
+  .arranger aside #arrange-kinds.choices { flex-wrap: wrap; }
   .arranger aside .looks { display: grid; gap: 6px; }
   .arranger aside .looks label { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; align-items: center;
     font-size: 13px; color: var(--dim); }
@@ -261,20 +273,12 @@
   .logos button.on { border-color: var(--ink); }
   .logos img { width: 44px; height: 44px; border-radius: 10px; }
 
-  /* Colours */
-  .colours { grid-area: colours; }
-  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-  .presets .btn { border-radius: 999px; }
-  .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
-  .group h3 { font-size: 13px; margin: 0 0 6px; }
-  .swatch { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--edge); }
-  .swatch label { flex: 1; }
-  .swatch input[type=color] { width: 36px; height: 26px; border: 1px solid var(--edge); border-radius: 6px; padding: 0; background: none; cursor: pointer; }
-  .swatch input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
-  .swatch input[type=color]::-webkit-color-swatch { border: 0; border-radius: 4px; }
-  .swatch input[type=text] { width: 84px; background: var(--cap); color: var(--ink); border: 1px solid var(--edge);
-    border-radius: 6px; padding: 4px 8px; font: 12px ui-monospace, "SF Mono", Menlo, monospace; }
-  .swatch input[type=text].bad { border-color: var(--error); }
+  /* More: what most people won't need, at the foot of the page. */
+  .more { grid-area: more; }
+
+  /* The dress code, folded away until it's wanted. */
+  .dress-code summary { cursor: pointer; font-size: 13px; font-weight: 600; margin: 6px 0 0; }
+  .dress-code[open] summary { margin-bottom: 10px; }
 
   /* Phone width: last, so it overrides the rules above. */
   @media (max-width: 480px) {
@@ -335,7 +339,7 @@
         <div class="mark">✓</div>
         <div class="text">
           <div class="title">Let two fingers scroll Terminal</div>
-          <div class="detail" data-pending="Optional. Drag two fingers up or down on the office to scroll the picked agent's Terminal window, and tap with two to jump back to the bottom." data-done="Two fingers on the office scroll the picked agent's Terminal window."></div>
+          <div class="detail" data-pending="Optional. Two fingers on the office scroll the picked agent's Terminal." data-done="Two fingers on the office scroll the picked agent's Terminal."></div>
         </div>
         <button class="switch" id="scroll" aria-label="Let two fingers scroll Terminal"></button>
       </div>
@@ -356,25 +360,9 @@
         <div class="mark">✓</div>
         <div class="text">
           <div class="title">Let the jukebox play your music</div>
-          <div class="detail" data-pending="Optional. Tap a jukebox in the office to play or pause whatever this computer is playing: Spotify, Apple Music, a video in your browser. It presses the keyboard's play/pause key." data-done="Tap a jukebox in the office to play or pause your music. It lights up while Spotify or Apple Music plays."></div>
+          <div class="detail" data-pending="Optional. Tap a jukebox in the office to play or pause this computer's music." data-done="Tap a jukebox in the office to play or pause your music."></div>
         </div>
         <button class="switch" id="music" aria-label="Let the jukebox play your music"></button>
-      </div>
-      <div class="step" id="step-webhook" hidden>
-        <div class="mark">✓</div>
-        <div class="text">
-          <div class="title">Tell other tools</div>
-          <div class="detail" data-pending="Optional. Send what your agents do to an address on your network, such as a Home Assistant webhook, so a lamp can turn orange when one waits on you." data-done="Each event below goes to this address as it happens: the project's name, the agent and its state, never folders or prompts."></div>
-          <div class="hire-setup webhook-setup" id="webhook-setup" hidden>
-            <input type="url" id="webhook-url" spellcheck="false" placeholder="http://homeassistant.local:8123/api/webhook/deck" aria-label="The address to send events to">
-            <input type="password" id="webhook-secret" spellcheck="false" autocomplete="new-password" placeholder="Secret (optional)" aria-label="A secret sent with each event">
-            <div class="events" id="webhook-events"></div>
-            <label><input type="checkbox" id="webhook-outside"> Allow addresses outside your network</label>
-            <button class="btn" id="webhook-test">Send a test</button>
-            <span class="last" id="webhook-last"></span>
-          </div>
-        </div>
-        <button class="switch" id="webhook" aria-label="Tell other tools"></button>
       </div>
       <div class="step" id="step-login">
         <div class="mark">✓</div>
@@ -410,13 +398,12 @@
   </aside>
 
   <section class="keys">
-    <h2>Keys</h2>
+    <h2>Desks</h2>
+    <div class="field"><span>Desks for sessions</span><div class="choices" id="key-count"></div></div>
+    <p class="hint" id="key-hint"></p>
     <div class="grid" id="grid"></div>
-    <p class="hint">Drag a session onto a key to keep its project there. Unpinned keys take the next session that starts. Dimmed keys aren't on your phone right now: with Auto, pin a project to one and the phone shows it.</p>
-  </section>
-
-  <section class="sessions">
-    <h2>Running sessions</h2>
+    <p class="hint">Drag a running session onto a desk to keep its project there. Dimmed desks aren't in the office right now.</p>
+    <h3>Running sessions</h3>
     <div class="list" id="list"></div>
   </section>
 
@@ -432,45 +419,40 @@
       <button class="btn" id="profile-import">Import…</button>
       <input type="file" id="profile-file" accept=".json,application/json" hidden>
     </div>
-    <p class="hint">A profile keeps a layout and its colours. Switch, and your phone follows. Export one to back it up or share it.</p>
+    <p class="hint">A profile keeps your office and your buttons. Switch, and your phone follows.</p>
   </section>
 
   <section class="layout" id="layout" hidden>
-    <h2>Layout</h2>
+    <h2>Office</h2>
     <div class="layout-body">
       <div class="editor">
-        <div class="field"><span>Desks for sessions</span><div class="choices" id="key-count"></div></div>
-        <p class="hint" id="key-hint"></p>
-        <h3>Office</h3>
         <div class="field stacked"><span>Style</span><div class="tiles small" id="room-preset"></div></div>
-        <p class="hint">A style furnishes the whole office for you, and the phone can switch it too, from the key in the room's corner. Yours is the office as you furnish it below: change anything there, and you're back to it. Your team, the daylight, the seasons and the sound stay as you set them.</p>
+        <p class="hint">A style furnishes the office for you; the phone can switch it from the key in the room's corner. Change anything below, and you're back to Yours.</p>
         <div class="field"><span>Where everything goes</span><button class="btn" id="arrange-open">Arrange the room…</button></div>
-        <div class="field"><span>Talk into</span><div class="choices" id="room-mic"></div></div>
-        <div class="field stacked"><span>Back wall, left to right</span><div class="wall" id="room-wall"></div></div>
+        <h3>Look</h3>
         <div class="field"><span>Floor</span><div class="choices" id="room-floor"></div></div>
         <div class="field"><span>Walls</span><div class="choices" id="room-paint"></div></div>
-        <div class="field"><span>Lounge floor</span><div class="choices" id="room-lounge"></div></div>
-        <div class="field"><span>Lounge wall</span><div class="choices" id="room-loungePaint"></div></div>
-        <div class="field stacked"><span>In the lounge</span><div class="tiles" id="room-corner"></div></div>
-        <div class="field"><span>Daylight</span><div class="choices" id="room-sky"></div></div>
-        <div class="field"><span>Seasons in the windows</span><div class="choices" id="room-season"></div></div>
-        <div class="field"><span>Pet</span><div class="choices" id="room-pet"></div></div>
-        <div class="field"><span>Sound</span><div class="choices" id="room-sound"></div></div>
         <div class="field stacked"><span>Everyone works at</span><div class="tiles small" id="room-workspace"></div></div>
         <div class="field"><span>Desks</span><div class="choices" id="room-desk"></div></div>
         <div class="field"><span>Monitors</span><div class="choices" id="room-monitor"></div></div>
         <div class="field"><span>Chairs</span><div class="choices" id="room-chair"></div></div>
+        <h3>Life</h3>
+        <div class="field"><span>Daylight</span><div class="choices" id="room-sky"></div></div>
+        <div class="field"><span>Seasons in the windows</span><div class="choices" id="room-season"></div></div>
+        <div class="field"><span>Pet</span><div class="choices" id="room-pet"></div></div>
+        <div class="field"><span>Sound</span><div class="choices" id="room-sound"></div></div>
         <div class="field"><span>Office staff</span><div class="choices" id="room-staff"></div></div>
-        <p class="hint">How the office looks and sounds on your phone and on a screen of its own. Point at a piece to see it move. A project can work somewhere of its own, on its card under Your team. Sound starts with your first tap. The preview shows the office while you change it.</p>
         <h3>Your team</h3>
         <div class="team" id="room-team"></div>
-        <p class="hint">Each project's agent, your way. Anything on Auto is as the project's name picks it, and clothes on Auto follow the dress code below.</p>
-        <h3>Dress code</h3>
-        <div class="dress" id="room-dress"></div>
-        <p class="hint">What agents and their interns wear, by the size of the model they run: the bigger, the smarter, unless you say otherwise. The office tells a model's size from the words in its name; your own rules come first. While an agent's model isn't known, as for most agents but Claude Code, it dresses by agent. A project's own outfit on its team card comes before all of this.</p>
+        <p class="hint">Each project's agent, your way. Clothes on Auto follow the dress code.</p>
+        <details class="dress-code">
+          <summary>Dress code</summary>
+          <div class="dress" id="room-dress"></div>
+          <p class="hint">What agents wear by the size of their model, told from its name; your own rules come first.</p>
+        </details>
         <h3>Your buttons</h3>
         <div class="rows" id="rows"></div>
-        <p class="hint">On your phone, tap an agent: along the foot of the room come esc, ⏎ send, /clear, ↑ and ↓, then these, in this order, for that agent. Hold its desk for the effort chips; the red button is ☢ Max, and the mic dictates.</p>
+        <p class="hint">Hold an agent's desk on your phone: esc, ⏎ send, /clear, ↑ and ↓ come out along the foot of the room, then these.</p>
         <div class="inspector" id="inspector" hidden>
           <label class="field"><span>Does</span><select id="does"></select></label>
           <label class="field" id="field-text"><span>Types</span><input type="text" id="text" maxlength="200" spellcheck="false" placeholder="/compact"></label>
@@ -488,7 +470,7 @@
         <button class="btn" id="turn">Turn Sideways</button>
       </figure>
     </div>
-    <p class="hint">Your phone updates as you change it. A button you make types a command, such as /compact, or presses a key. Your phone only says which button you tapped, so a paired phone can't type anything you didn't set up here.</p>
+    <p class="hint">Your phone updates as you change it. It only says which button you tapped, so it can't type anything you didn't set up here.</p>
   </section>
 
   <section class="logo">
@@ -500,11 +482,26 @@
     <p class="hint">Shown as the app's icon, on this page, and on your phone's Home Screen the next time you add the deck to it.</p>
   </section>
 
-  <section class="colours">
-    <h2>Colours</h2>
-    <div class="presets" id="presets"></div>
-    <div class="groups" id="groups"></div>
-    <p class="hint">Your phone updates as you pick.</p>
+  <section class="more">
+    <h2>More</h2>
+    <div class="steps">
+      <div class="step" id="step-webhook" hidden>
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Tell other tools</div>
+          <div class="detail" data-pending="Optional. Send what your agents do to an address on your network, such as Home Assistant." data-done="Each event goes to this address: the project's name, the agent and its state, never folders or prompts."></div>
+          <div class="hire-setup webhook-setup" id="webhook-setup" hidden>
+            <input type="url" id="webhook-url" spellcheck="false" placeholder="http://homeassistant.local:8123/api/webhook/deck" aria-label="The address to send events to">
+            <input type="password" id="webhook-secret" spellcheck="false" autocomplete="new-password" placeholder="Secret (optional)" aria-label="A secret sent with each event">
+            <div class="events" id="webhook-events"></div>
+            <label><input type="checkbox" id="webhook-outside"> Allow addresses outside your network</label>
+            <button class="btn" id="webhook-test">Send a test</button>
+            <span class="last" id="webhook-last"></span>
+          </div>
+        </div>
+        <button class="switch" id="webhook" aria-label="Tell other tools"></button>
+      </div>
+    </div>
   </section>
 </main>
 
@@ -521,10 +518,18 @@
     <button class="btn primary" id="arrange-done">Done</button>
   </div>
   <div class="body">
-    <div class="stage" id="arrange-stage"><canvas id="arrange-canvas" aria-label="The office, to arrange"></canvas></div>
+    <div class="stage" id="arrange-stage"><canvas id="arrange-canvas" aria-label="The office, to arrange"></canvas>
+      <div class="trash" id="arrange-trash" hidden aria-label="Drop here to take it out of the room">
+        <svg viewBox="0 0 12 14" aria-hidden="true" shape-rendering="crispEdges"><path d="M4 0h4v1h4v2H0V1h4z"/><path d="M1 4h10v10H1z"/><path class="slot" d="M3 6h1v6H3zM5.5 6h1v6h-1zM8 6h1v6H8z"/></svg>
+        <span>Drop to take it out</span>
+      </div></div>
     <aside>
       <p class="picked" id="arrange-picked"></p>
       <div class="tools" id="arrange-size" role="group" aria-label="Size"></div>
+      <div id="arrange-kind" hidden>
+        <h3 id="arrange-kind-title"></h3>
+        <div class="tiles adding" id="arrange-kinds"></div>
+      </div>
       <div id="arrange-desk" hidden>
         <h3>This desk is</h3>
         <div class="tools"><span id="arrange-desk-auto"></span></div>
@@ -541,7 +546,7 @@
       <div class="looks" id="arrange-lounge"></div>
       <div class="drawer" id="arrange-drawer">
         <h3>The drawer</h3>
-        <p class="hint">Drag a piece into the room, or click it to put it where it fits. Drag a piece from the room back here to put it away.</p>
+        <p class="hint">Drag a piece into the room, or click it to put it where it fits. Drag a piece back here, or onto the trash, to put it away.</p>
         <h4>Desks</h4>
         <div class="tiles adding" id="drawer-desks"></div>
         <h4>Furniture</h4>
@@ -561,7 +566,6 @@
   const $ = (id) => document.getElementById(id);
   let state = null;
   let picked = null;  // a session's folder, clicked rather than dragged, waiting for a key
-  let colours = null; // the theme as edited here
 
   async function load() {
     try {
@@ -599,7 +603,6 @@
     renderSessions();
     renderProfiles();
     renderLayout();
-    renderTheme();
     showInvite();
   }
 
@@ -682,11 +685,11 @@
     if (!h) return;
     const detail = $('step-hiring').querySelector('.detail');
     if (h.canHire) {
-      detail.dataset.pending = "Optional. Hold a desk in the office: on the next free one, hire an agent into a new Terminal window; on an agent's, fire it, which stops its work and closes its tab.";
-      detail.dataset.done = h.folder ? "New hires start in the folder below, or in a pinned project's on its desk. Hold a desk in the office to hire or fire."
+      detail.dataset.pending = 'Optional. Hold a free desk in the office to hire an agent, or an agent\'s to fire it.';
+      detail.dataset.done = h.folder ? 'New hires start in the folder below. Hold a desk in the office to hire or fire.'
         : 'Choose the folder new hires start in.';
     } else {
-      detail.dataset.pending = "Optional. Hold an agent's desk in the office to fire it: its work stops and its pane closes. Hiring needs the Mac app, for now.";
+      detail.dataset.pending = "Optional. Hold an agent's desk in the office to fire it. Hiring needs the Mac app, for now.";
       detail.dataset.done = "Hold an agent's desk in the office to fire it.";
     }
     mark('step-hiring', h.enabled);
@@ -951,8 +954,8 @@
   let sending = 0;    // layouts on their way to the computer
 
   /**
-   * Like the colours: built from the computer's copy, then left alone while
-   * you edit, so a refresh never undoes a change on its way there.
+   * Built from the computer's copy, then left alone while you edit, so a
+   * refresh never undoes a change on its way there.
    */
   function renderLayout() {
     $('layout').hidden = !state.layout;
@@ -1384,17 +1387,11 @@
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
     // What's picked in each row: in a style, as the style furnishes it.
     const shown = furnished(room);
-    for (const part of ['mic', 'floor', 'paint', 'lounge', 'loungePaint', 'sky', 'season', 'pet', 'sound', 'desk', 'monitor', 'chair',
-      'staff']) {
+    for (const part of ['floor', 'paint', 'sky', 'season', 'pet', 'sound', 'desk', 'monitor', 'chair', 'staff']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label, swatch]) =>
         choice(label, (shown[part] || STANDARD_ROOM[part]) === id, () => furnish((r) => { r[part] = id; }, part), swatch)));
     }
-    $('room-wall').replaceChildren(...shown.wall.map((piece, i) => {
-      const el = select(WALL_CHOICES, piece, (value) => furnish((r) => { r.wall[i] = value; }, 'wall'));
-      el.setAttribute('aria-label', `The back wall, place ${i + 1} from the left`);
-      return el;
-    }));
-    for (const part of ['preset', 'corner', 'workspace']) {
+    for (const part of ['preset', 'workspace']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label]) =>
         tile(part, id, label, ((part === 'preset' ? room : shown)[part] || STANDARD_ROOM[part]) === id,
           () => furnish((r) => { r[part] = id; }, part), room)));
@@ -1581,11 +1578,11 @@
 
   function showPreview() {
     const page = $('preview-page').contentWindow;
-    if (!page || !layout || !colours) return;
+    if (!page || !layout) return;
     const count = layout.keys === 'auto' ? Math.max(1, samples) : layout.keys;
     const keys = sampleKeys();
     page.postMessage({
-      keys, overflow: Math.max(0, samples - count), theme: colours, scroll: true,
+      keys, overflow: Math.max(0, samples - count), theme: {}, scroll: true,
       layout,
     }, location.origin);
     $('samples').textContent = `${samples} session${samples === 1 ? '' : 's'}`;
@@ -1666,7 +1663,7 @@
 
   function showArranged() {
     if (!arranger || !layout) return;
-    arranger.show({ keys: sampleKeys(), overflow: 0, theme: colours || {}, layout: { ...layout, office: true } });
+    arranger.show({ keys: sampleKeys(), overflow: 0, theme: {}, layout: { ...layout, office: true } });
   }
 
   /**
@@ -1739,6 +1736,7 @@
     const kind = arrangePicked && (added ? { grows: true, hides: true } : hung ? { grows: false, hides: true } : kinds[arrangePicked]);
     $('arrange-picked').textContent = kind ? pieceName(arrangePicked) : 'Pick a piece in the room.';
     // A desk is what you make it, whoever sits at it, unless their project's card says otherwise.
+    drawKinds();
     const desk = !!arrangePicked && arrangePicked.startsWith('desk');
     $('arrange-desk').hidden = !desk;
     if (desk) {
@@ -1780,6 +1778,29 @@
     $('arrange-shape').replaceChildren(
       choice('On its side', arrangeShape === 'wide', () => setArrangeShape('wide')),
       choice('Upright', arrangeShape === 'tall', () => setArrangeShape('tall')));
+  }
+
+  /** What the chooser below was last drawn for, so it's drawn again only when that changes. */
+  let kindsFor = null;
+
+  /**
+   * What the picked piece is, where it can be several things: the lounge's
+   * corner piece, chosen by its picture, and the mic. In a style, as the
+   * style has it; choosing one makes the office yours.
+   */
+  function drawKinds() {
+    const part = arrangePicked === 'corner' || arrangePicked === 'mic' ? arrangePicked : null;
+    const room = layout.room || STANDARD_ROOM, shown = furnished(room);
+    const key = part && JSON.stringify([part, shown[part], lookOf(room)]);
+    $('arrange-kind').hidden = !part;
+    if (!part || key === kindsFor) return;
+    kindsFor = key;
+    const pick = (id) => furnish((r) => { r[part] = id; }, part);
+    $('arrange-kind-title').textContent = part === 'corner' ? 'This piece is' : 'Talk into';
+    $('arrange-kinds').className = part === 'corner' ? 'tiles adding' : 'choices';
+    $('arrange-kinds').replaceChildren(...(part === 'corner'
+      ? ROOM_CHOICES.corner.filter(([id]) => id !== 'none').map(([id, label]) => tile('corner', id, label, shown.corner === id, () => pick(id), room))
+      : ROOM_CHOICES.mic.map(([id, label]) => choice(label, (shown.mic || STANDARD_ROOM.mic) === id, () => pick(id)))));
   }
 
   /** What the drawer was last drawn for, so it's drawn again only when that changes, not as a piece is dragged. */
@@ -1865,10 +1886,31 @@
     return b;
   }
 
-  /** A piece let go off the room: onto the drawer, it's put away, or taken out if it was added or hung. */
+  /** Whether `part` can leave the room: all but the red button and the mic, which are controls. */
+  const removable = (part) => part.startsWith('added:') || part.startsWith('hung:')
+    || !!(AgentOffice.arrangeable[part] && AgentOffice.arrangeable[part].hides);
+
+  /** Whether a client point is over the trash, while it's out. */
+  function overTrash(clientX, clientY) {
+    if ($('arrange-trash').hidden) return false;
+    const r = $('arrange-trash').getBoundingClientRect();
+    return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+  }
+
+  /** A piece carried, the trash out for it if it can leave the room, and lit while it's over it; or let go. */
+  function dragging(part) {
+    $('arrange-trash').hidden = !part || !removable(part);
+    $('arrange-trash').classList.remove('over');
+  }
+  document.addEventListener('pointermove', (e) => {
+    if (!$('arrange-trash').hidden) $('arrange-trash').classList.toggle('over', overTrash(e.clientX, e.clientY));
+  });
+
+  /** A piece let go off the room or on the trash: onto the drawer or the trash, it's put away, or taken out if it was added or hung. */
   function droppedOut(part, clientX, clientY) {
     const r = $('arranger').querySelector('aside').getBoundingClientRect();
-    if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return;
+    const onDrawer = clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+    if (!onDrawer && !overTrash(clientX, clientY)) return;
     const added = part.startsWith('added:') || part.startsWith('hung:');
     if (!added && !(AgentOffice.arrangeable[part] && AgentOffice.arrangeable[part].hides)) return;
     arrangePicked = null;
@@ -1914,6 +1956,8 @@
         },
         arranged: keepArranged,
         droppedOut,
+        dragging,
+        takesAway: overTrash,
       });
       arranger.setArranging(true);
     }
@@ -2014,102 +2058,9 @@
     $('turn').textContent = sideways ? 'Stand Upright' : 'Turn Sideways';
   };
 
-  /* --------------------------------------------------------------- colours */
-
-  /**
-   * Built once, then kept in step. A colour being edited is never overwritten
-   * by a refresh, only by a change made elsewhere while it is not in use.
-   */
-  function renderTheme() {
-    const t = state.theme;
-    if (!colours) return buildTheme(t);
-    if (JSON.stringify(t.colours) === JSON.stringify(colours)) return;
-    if (document.activeElement && document.activeElement.closest('.swatch')) return;
-    // Nor by a refresh from before a change made here reached the computer.
-    if (saving || inFlight.size) return;
-    colours = { ...t.colours };
-    syncSwatches();
-    paint();
-  }
-
-  function buildTheme(t) {
-    colours = { ...t.colours };
-    $('presets').replaceChildren(...t.presets.map((preset) => {
-      const b = document.createElement('button');
-      b.className = 'btn';
-      b.textContent = preset.name;
-      b.onclick = () => { colours = { ...preset.colours }; syncSwatches(); paint(); save(); };
-      return b;
-    }));
-
-    const groups = {};
-    for (const [name, label, group] of t.tokens) {
-      if (!groups[group]) {
-        groups[group] = document.createElement('div');
-        groups[group].className = 'group';
-        groups[group].innerHTML = '<h3></h3>';
-        groups[group].querySelector('h3').textContent = group;
-      }
-      const row = document.createElement('div');
-      row.className = 'swatch';
-      row.dataset.name = name;
-      row.innerHTML = '<label></label><input type="color"><input type="text" spellcheck="false" maxlength="7">';
-      row.querySelector('label').textContent = label;
-      const [picker, hex] = row.querySelectorAll('input');
-      picker.oninput = () => setColour(name, picker.value);
-      hex.oninput = () => {
-        const value = hex.value.trim();
-        const valid = /^#?[0-9a-f]{6}$/i.test(value);
-        hex.classList.toggle('bad', !valid);
-        if (valid) setColour(name, value.startsWith('#') ? value : `#${value}`);
-      };
-      groups[group].appendChild(row);
-    }
-    $('groups').replaceChildren(...Object.values(groups));
-    syncSwatches();
-    paint();
-  }
-
-  function setColour(name, value) {
-    colours[name] = value.toLowerCase();
-    syncSwatches(name);
-    paint();
-    save();
-  }
-
-  function syncSwatches(typing) {
-    document.querySelectorAll('.swatch').forEach((row) => {
-      const value = colours[row.dataset.name];
-      const [picker, hex] = row.querySelectorAll('input');
-      picker.value = value;
-      if (row.dataset.name !== typing || document.activeElement !== hex) {
-        hex.value = value;
-        hex.classList.remove('bad');
-      }
-    });
-  }
-
-  /** The page wears the theme it edits, and so does the preview of the deck. */
-  function paint() {
-    for (const [name, value] of Object.entries(colours)) document.documentElement.style.setProperty(`--${name}`, value);
-    showPreview();
-  }
-
-  // Dragging across the picker fires many changes; only the last is sent.
-  let saving = null;
-  function save() {
-    clearTimeout(saving);
-    saving = setTimeout(() => { saving = null; sendTheme(); }, 120);
-    renderProfiles();
-  }
-
-  function sendTheme() {
-    return send('/setup/theme', colours);
-  }
-
   const inFlight = new Set(); // changes sent that the computer hasn't answered yet
 
-  /** Sends a change of layout or colours, keeping track of it until it lands. */
+  /** Sends a change of layout, keeping track of it until it lands. */
   async function send(path, body) {
     const request = fetch(path, { method: 'POST', headers: setupHeaders(true), body: JSON.stringify(body) });
     inFlight.add(request);
@@ -2123,7 +2074,7 @@
   }
 
   function changesWaiting() {
-    return Boolean(unsaved || saving || inFlight.size);
+    return Boolean(unsaved || inFlight.size);
   }
 
   /* -------------------------------------------------------------- profiles */
@@ -2154,11 +2105,6 @@
       clearTimeout(unsaved);
       unsaved = null;
       sendLayout().catch(() => {}); // if it fails, the wait below says so
-    }
-    if (saving) {
-      clearTimeout(saving);
-      saving = null;
-      sendTheme().catch(() => {});
     }
     await Promise.all(inFlight);
   }
@@ -2195,7 +2141,7 @@
 
   $('profile-save').onclick = () => profileAction('save', state.activeProfile);
   $('profile-save-as').onclick = () => {
-    const name = askName('Save this layout and its colours as:', '');
+    const name = askName('Save this office and its buttons as:', '');
     if (!name) return;
     if (state.profiles.some((p) => p.name === name) && !confirm(`Replace the saved ${name}?`)) return;
     profileAction('save', name);
@@ -2208,15 +2154,14 @@
     if (confirm(`Delete the profile ${state.activeProfile}? Your deck stays as it is.`)) profileAction('delete', state.activeProfile);
   };
 
-  /** What you see, as a file: the layout, and only the colours that differ from the default. */
+  /** What you see, as a file: the layout. Colours are no longer set here, so none go with it. */
   $('profile-export').onclick = async () => {
     await settle();
-    const standard = state.theme.presets[0].colours;
     const file = {
       smolcorpProfile: 1,
       name: state.activeProfile,
       layout,
-      colours: Object.fromEntries(Object.entries(colours).filter(([name, value]) => value !== standard[name])),
+      colours: {},
     };
     const link = document.createElement('a');
     link.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));

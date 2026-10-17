@@ -40,9 +40,8 @@ the folder the agent started in, or the top of its git repository.
 | In the office | What it does |
 |---|---|
 | **A desk, or its person** | Picks that session and brings its Terminal window to the front. |
-| **The keys along the foot of the room** | For the picked session: **esc** interrupts it, **⏎ send** presses Return, **/clear** starts a fresh conversation (tap twice), **↑ ↓** move through its menus, then [your own buttons](#make-it-yours). |
-| **▲ ▼ ✓ ✕ over an agent waiting on you** | Move through its options, accept or reject. |
-| **A desk, held** | On a Claude Code desk, paint chips for its thinking effort, from low to max. If Claude is mid-task, the change waits until it finishes. The coffee by the monitor shows the effort: one mug for low, up to four, and a steaming pot at max. |
+| **▲ ▼ ✓ ✕ over an agent waiting on you** | Move through its options, accept or reject. They come up on their own. |
+| **A desk, held** | Brings out its keys along the foot of the room: **esc** interrupts it, **⏎ send** presses Return, **/clear** starts a fresh conversation (tap twice), **↑ ↓** move through its menus, then [your own buttons](#make-it-yours). On a Claude Code desk, also paint chips for its thinking effort, from low to max; if Claude is mid-task, the change waits until it finishes. The coffee by the monitor shows the effort: one mug for low, up to four, and a steaming pot at max. A tap elsewhere puts them away. |
 | **The red button** | ☢ Max effort for the picked session, in one press. |
 | **The mic, held** | Talk to Claude Code. Let go, and Claude sends what you said once it's three words or more. |
 | **Two fingers, dragged** | Scroll the picked session's Terminal window; tap with two to jump back to the bottom. Off until you turn on **Let two fingers scroll Terminal** on the setup page. |
@@ -52,15 +51,8 @@ How the people show what their sessions are doing is under
 you.
 
 Sessions keep their order at the desks; with a fixed number of desks, each
-keeps its own until it ends. You can pin projects to specific desks, furnish
-the office your way and change every colour:
-
-<p align="center">
-  <img src="docs/themes.png" alt="The deck in five colour schemes: Default, Midnight, Moonlight, Light and High contrast" width="100%">
-</p>
-
-Four of these are built-in presets. Moonlight is a custom palette, made in the
-colour editor in a minute.
+keeps its own until it ends. You can pin projects to specific desks and
+furnish the office your way.
 
 ## Supported agents
 
@@ -142,7 +134,7 @@ opens in your browser.
 The setup page walks you through these steps:
 
 <p align="center">
-  <img src="docs/setup.png" alt="The setup page: its checklist, the keys, and a pairing code with its QR code for your phone" width="720">
+  <img src="docs/setup.png" alt="The setup page: getting started, the desks, and a pairing code with its QR code for your phone" width="720">
 </p>
 
 1. **Connect your coding agents.** This lets every supported agent on your Mac
@@ -198,28 +190,28 @@ the deck again: the icon keeps the old pairing.
 
 The setup page also has:
 
-- **Keys.** Drag a running session onto a key to keep that project at its
-  desk. Desks you don't pin go to the next session that starts.
+- **Desks.** How many desks for sessions: Auto, one per running session, or
+  always 3, 6 or 9. Drag a running session onto a desk to keep that project
+  there; desks you don't pin go to the next session that starts.
+- **Profiles.** Save your office and your buttons under a name, and switch
+  between them in a click: one for the couch, one for the desk. Default is
+  always the standard office. Export a profile to back it up or share it.
+  Before an imported profile is added, the setup page lists everything its
+  buttons would type or press.
+- **Office.** Its style, [arranging the room](#the-office), its look and its
+  life, your team, the dress code, and **Your buttons**: each types a command,
+  such as `/compact`, or presses a key, such as Shift+Tab to switch Claude
+  Code's mode, from the keys a held desk brings out. A button can wait until
+  the agent isn't busy, ask for a second tap, or be for some agents only. A
+  live preview of your phone sits beside it.
 - **Logo.** The Smolcorp hire or the original six keys, in the menu bar, on the
   setup page and on your phone's Home Screen. A phone picks up a new logo the
   next time you add the deck to its Home Screen.
-- **Layout.** How many desks for sessions (Auto, one per running session, or
-  always 3, 6 or 9), [the office](#the-office), and **Your buttons**: each
-  types a command, such as `/compact`, or presses a key, such as Shift+Tab to
-  switch Claude Code's mode, from the keys along the foot of the room. A button
-  can wait until the agent isn't busy, ask for a second tap, or be for some
-  agents only. A live preview of your phone sits beside the editor.
-- **Colours.** Pick any colour for the background, keys, text and each state,
-  or start from a preset (Default, Midnight, High contrast, Light). Your
-  phone updates as you pick.
-- **Profiles.** Save a layout and its colours under a name, and switch between
-  them in a click: one for the couch, one for the desk. Default is always the
-  standard deck. Export a profile to back it up or share it; it carries your
-  office and your team's nicknames too. Before an imported profile is added,
-  the setup page lists everything its buttons would type or press.
+- **More:** [Tell other tools](#tell-other-tools), for sending what your agents
+  do to Home Assistant or another tool of yours.
 
 <p align="center">
-  <img src="docs/layout.png" alt="Profiles and Layout on the setup page: desks for sessions, the office's styles and furnishing, beside a live preview of the phone" width="720">
+  <img src="docs/layout.png" alt="Profiles and the Office on the setup page: its styles, Arrange the room, and its look, beside a live preview of the phone" width="720">
 </p>
 
 Open the setup page any time from the menu bar (**Open Setup…**), or by opening
@@ -268,7 +260,7 @@ There's more to see while they work:
   agent runs to the big red button in the corridor and slams it.
 - When few sessions are running, the office's own staff hang around the lounge.
 
-**Furnish it your way** under *Office* in the setup page's Layout:
+**Furnish it your way** under *Office* on the setup page:
 
 - **A style** furnishes the whole office in one go: Classic, Campsite, Royal
   court, Space station, Pirate cove, Arctic base, Dragon's lair, Gamer den,
@@ -277,13 +269,13 @@ There's more to see while they work:
   is the office as you furnish it below, and changing anything there takes you
   back to it. Your team, the daylight, the seasons and the sound stay as you
   set them.
-- **Talk into** a microphone or a megaphone.
-- **The back wall:** five places, each a window, a whiteboard, a pinboard, a
-  poster, a bookshelf, a plant or bare wall. The to-do lists go up on the
-  first whiteboard.
-- **The floor** in wood, tiles, concrete or carpet, **the walls** in slate,
-  sage, clay or cream, and **the lounge's carpet** in navy, teal, plum or sand.
-- **In the lounge:** one of 23 pieces, each picked from its picture: an arcade
+- **The floor** in wood, tiles, concrete or carpet, and more, and **the walls**
+  in slate, sage, clay or cream, and more.
+- **In the room editor** (below): the mic you talk into, from a microphone to a
+  megaphone, what hangs on the back wall, a window, a whiteboard, a pinboard,
+  a poster and dozens more, with the to-do lists going up on the first
+  whiteboard, the lounge's own floor and wall, and its corner piece, one of
+  the lounge's pieces, each picked from its picture: an arcade
   machine, a vending machine, a foosball table, a fish tank, a bookcase and a
   beanbag, a dragon asleep on its gold, pinball, a jukebox, a pool table, a
   piano, a drum kit, a telescope, jellyfish, a bonsai, a jungle, a coffee bar,
@@ -327,7 +319,8 @@ sits at it; a project's own choice on its team card still comes first.
 put away, any piece the lounge can hold, up to twelve and the same one more
 than once, and everything the back wall can hang, up to twelve, wherever you
 slide them along it. Drag a piece into the room, or click it to put it where
-it fits, and drag a piece back to the drawer to put it away. A session whose
+it fits. To put one away, drag it onto the trash that shows below the room
+while you carry it, or back to the drawer. A session whose
 desk is put away waits in line along the back wall. **Start empty** leaves the
 floor, the walls, the door, the mic and the red button; **Back to standard**
 puts everything back; **Undo** and **Redo** (⌘Z, ⇧⌘Z) step through your
