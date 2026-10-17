@@ -9,16 +9,21 @@
 # Running it again updates an existing install; your paired phones and
 # settings are kept. Quit Smolcorp from its tray menu first: agents you
 # started with `smolcorp run` keep running either way. An install from
-# before it was Smolcorp is taken out, so the app menu shows it once.
+# before it was Smolcorp is taken out, so the app menu shows it once; its
+# command stays as a link to the new one, as your agents' hooks and the login
+# item still name it until Smolcorp first runs and moves them over.
 
 set -eu
 cd "$(dirname "$0")"
 BIN="$HOME/.local/bin"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 
-rm -rf "$BIN/sauzzedeck" "$DATA/sauzzedeck-pro" "$DATA/applications/sauzzedeck-pro.desktop"
+rm -rf "$DATA/sauzzedeck-pro" "$DATA/applications/sauzzedeck-pro.desktop"
 mkdir -p "$BIN" "$DATA/applications" "$DATA/smolcorp"
 install -m 755 smolcorp "$BIN/smolcorp"
+if [ -e "$BIN/sauzzedeck" ] || [ -L "$BIN/sauzzedeck" ]; then
+  ln -sf smolcorp "$BIN/sauzzedeck"
+fi
 install -m 644 smolcorp.png "$DATA/smolcorp/icon.png"
 cat > "$DATA/applications/smolcorp.desktop" <<ENTRY
 [Desktop Entry]

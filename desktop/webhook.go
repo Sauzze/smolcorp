@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -187,8 +188,25 @@ func webhookMessages(before, now map[string]told, at time.Time) []map[string]any
 		}
 		return map[string]any{"event": event, "at": at.UTC().Format(time.RFC3339), "session": session}
 	}
+	// In the order of the desks, then of their ids: one change's messages
+	// always go in the same order, and a new session's start before its state
+	inOrder := func(sessions map[string]told) []string {
+		ids := make([]string, 0, len(sessions))
+		for id := range sessions {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool {
+			a, b := sessions[ids[i]], sessions[ids[j]]
+			if a.key != b.key {
+				return a.key < b.key
+			}
+			return ids[i] < ids[j]
+		})
+		return ids
+	}
 	messages := []map[string]any{}
-	for id, s := range now {
+	for _, id := range inOrder(now) {
+		s := now[id]
 		if old, ok := before[id]; ok {
 			if event := webhookEvent(old.state, s.state); event != "" {
 				messages = append(messages, message(event, s, old.state))
@@ -200,9 +218,9 @@ func webhookMessages(before, now map[string]told, at time.Time) []map[string]any
 			messages = append(messages, message(event, s, ""))
 		}
 	}
-	for id, old := range before {
+	for _, id := range inOrder(before) {
 		if _, ok := now[id]; !ok {
-			messages = append(messages, message("ended", old, old.state))
+			messages = append(messages, message("ended", before[id], before[id].state))
 		}
 	}
 	return messages
@@ -233,12 +251,27 @@ func (d *Deck) tellWebhook() {
 		if !contains(webhook.Events, message["event"].(string)) {
 			continue
 		}
-		go func() {
+		// One at a time, in order, so a quick "working" then "done" can't arrive the other way round
+		select {
+		case d.webhookSends <- func() {
 			result := describedDelivery(webhook.send(message))
 			d.webhookMu.Lock()
 			d.webhookLast = result
 			d.webhookMu.Unlock()
-		}()
+		}:
+		default:
+			// The address has stopped answering and messages are piling up: these go
+		}
+	}
+}
+
+// webhookQueue is how many messages wait to be sent at most.
+const webhookQueue = 64
+
+// sendWebhooks sends the webhook's messages, one after another, as they come.
+func (d *Deck) sendWebhooks() {
+	for send := range d.webhookSends {
+		send()
 	}
 }
 

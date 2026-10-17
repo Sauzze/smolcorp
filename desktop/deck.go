@@ -33,10 +33,11 @@ type Deck struct {
 	playing *bool
 	// What each session was when the webhook was last told, nil until the
 	// deck first looks; and how the last delivery went, for the setup page.
-	told        map[string]told
-	webhookMu   sync.Mutex
-	webhookLast string
-	work        chan func()
+	told         map[string]told
+	webhookMu    sync.Mutex
+	webhookLast  string
+	webhookSends chan func() // the webhook's messages, sent in turn by sendWebhooks
+	work         chan func()
 	// OnChange is called on every change, for the tray.
 	OnChange func()
 }
@@ -66,7 +67,11 @@ func NewDeck() *Deck {
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
 		keyOf: map[string]int{}, work: make(chan func(), 64), OnChange: func() {},
+		webhookSends: make(chan func(), webhookQueue),
 	}
+	go d.sendWebhooks()
+	// What's running as it starts is where the webhook starts from, so the first change after it is news
+	d.tellWebhook()
 	go func() {
 		for job := range d.work {
 			job()

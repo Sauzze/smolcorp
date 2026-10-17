@@ -144,12 +144,12 @@ func TestADeckTellsTheWebhookAsSessionsChange(t *testing.T) {
 		d.changed()
 		d.mu.Unlock()
 	}
-	// Already running when the deck first looks: not news
+	// The first change after the deck starts is news too, and they come in the order they happened
 	apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "/work/api"})
 	apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s2", "cwd": "/work/web"})
 	apply(map[string]any{"hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api"})
 	got := []string{}
-	for range 2 {
+	for range 3 {
 		select {
 		case m := <-messages:
 			got = append(got, m["event"].(string)+":"+m["session"].(map[string]any)["project"].(string))
@@ -157,8 +157,7 @@ func TestADeckTellsTheWebhookAsSessionsChange(t *testing.T) {
 			t.Fatalf("only %v arrived", got)
 		}
 	}
-	slices.Sort(got)
-	if !slices.Equal(got, []string{"done:api", "started:web"}) {
+	if !slices.Equal(got, []string{"started:api", "started:web", "done:api"}) {
 		t.Fatalf("the webhook heard %v", got)
 	}
 }

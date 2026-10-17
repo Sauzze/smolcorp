@@ -55,6 +55,8 @@ final class Deck {
     init() {
         sessions.onChange = { [weak self] in self?.changed() }
         restoreSessions()
+        // What's running as it starts is where the webhook starts from, so the first change after it is news
+        tellWebhook()
 
         Timer.scheduledTimer(withTimeInterval: Deck.seenCheckInterval, repeats: true) { [weak self] _ in
             self?.checkFrontTab()
@@ -114,7 +116,14 @@ final class Deck {
     /// What each session was when the webhook was last told, to tell it
     /// what changed: nil until the deck first looks, so what's already
     /// running when it starts isn't news.
-    private var told: [String: (state: SessionState, project: String, agent: Agent, key: Int?)]?
+    private var told: [String: Told]?
+    private typealias Told = (state: SessionState, project: String, agent: Agent, key: Int?, kind: String)
+    /// The webhook's messages waiting their turn, sent one after another so
+    /// a quick "working" then "done" can't arrive the other way round.
+    private var webhookQueue: [(webhook: Webhook, message: [String: Any])] = []
+    private var webhookSending = false
+    /// How many messages wait at most, if the address stops answering.
+    private static let webhookQueueMost = 64
     /// How the last delivery went, for the setup page: what came back, and when.
     private(set) var webhookLast: String?
 
@@ -135,30 +144,52 @@ final class Deck {
         let (keys, _) = layout()
         var keyOf: [String: Int] = [:]
         for (index, key) in keys.enumerated() { if let session = key.session { keyOf[session.id] = index + 1 } }
-        let now = Dictionary(uniqueKeysWithValues: sessions.all.map { ($0.id, (state: $0.state, project: $0.projectName, agent: $0.agent, key: keyOf[$0.id])) })
+        let now: [String: Told] = Dictionary(uniqueKeysWithValues: sessions.all.map {
+            ($0.id, (state: $0.state, project: $0.projectName, agent: $0.agent, key: keyOf[$0.id], kind: $0.errorKind))
+        })
         defer { told = now }
         let webhook = Config.shared.webhook
         guard let before = told, webhook.enabled, !webhook.url.isEmpty, Webhook.problem(with: webhook.url, outside: webhook.outside) == nil else { return }
         var messages: [[String: Any]] = []
-        let message = { (event: String, id: String, now: (state: SessionState, project: String, agent: Agent, key: Int?), previous: SessionState?) -> [String: Any] in
+        let message = { (event: String, now: Told, previous: SessionState?) -> [String: Any] in
             var session: [String: Any] = [
                 "project": now.project, "agent": now.agent.rawValue, "agentName": now.agent.name, "state": now.state.rawValue,
                 "previous": previous?.rawValue ?? NSNull(), "key": now.key ?? NSNull(),
             ]
-            if now.state == .error, let kind = self.sessions[id]?.errorKind, !kind.isEmpty { session["errorKind"] = kind }
+            if now.state == .error, !now.kind.isEmpty { session["errorKind"] = now.kind }
             return ["event": event, "at": ISO8601DateFormatter().string(from: Date()), "session": session]
         }
-        for (id, session) in now {
+        // In the order of the desks, then of their ids: one change's messages
+        // always go in the same order, and a new session's start before its state
+        let inOrder = { (sessions: [String: Told]) in
+            sessions.keys.sorted { (sessions[$0]!.key ?? 0, $0) < (sessions[$1]!.key ?? 0, $1) }
+        }
+        for id in inOrder(now) {
+            let session = now[id]!
             if let old = before[id] {
-                if let event = Deck.event(from: old.state, to: session.state) { messages.append(message(event, id, session, old.state)) }
+                if let event = Deck.event(from: old.state, to: session.state) { messages.append(message(event, session, old.state)) }
             } else {
-                messages.append(message("started", id, session, nil))
-                if let event = Deck.event(from: nil, to: session.state), event != "working" { messages.append(message(event, id, session, nil)) }
+                messages.append(message("started", session, nil))
+                if let event = Deck.event(from: nil, to: session.state), event != "working" { messages.append(message(event, session, nil)) }
             }
         }
-        for (id, old) in before where now[id] == nil { messages.append(message("ended", id, old, old.state)) }
+        for id in inOrder(before) where now[id] == nil { messages.append(message("ended", before[id]!, before[id]!.state)) }
         for message in messages where webhook.events.contains(message["event"] as? String ?? "") {
-            webhook.send(message) { [weak self] result in self?.webhookLast = Deck.described(result) }
+            guard webhookQueue.count < Deck.webhookQueueMost else { break } // the address has stopped answering
+            webhookQueue.append((webhook, message))
+        }
+        sendNextWebhook()
+    }
+
+    /// Sends the next message waiting, once the last has gone.
+    private func sendNextWebhook() {
+        guard !webhookSending, !webhookQueue.isEmpty else { return }
+        let (webhook, message) = webhookQueue.removeFirst()
+        webhookSending = true
+        webhook.send(message) { [weak self] result in
+            self?.webhookLast = Deck.described(result)
+            self?.webhookSending = false
+            self?.sendNextWebhook()
         }
     }
 
