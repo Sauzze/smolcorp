@@ -151,7 +151,7 @@
    * room, the nth is the part `added:n`.
    */
   const ARRANGEABLE = {
-    ...Object.fromEntries(STANDARD_DESKS.map((_, i) => [`desk${i + 1}`, { name: `Desk ${i + 1}`, grows: false, hides: false }])),
+    ...Object.fromEntries(STANDARD_DESKS.map((_, i) => [`desk${i + 1}`, { name: `Desk ${i + 1}`, grows: false, hides: true }])),
     wall: { name: 'Coffee counter and water cooler', grows: true, hides: true },
     corner: { name: "The lounge's piece", grows: true, hides: true },
     couch: { name: 'The couch, its rug and table', grows: true, hides: true },
@@ -161,6 +161,9 @@
     mic: { name: 'The mic', grows: true, hides: false },
   };
   const ADDED_MOST = 12;
+  /** The most pieces the back wall holds, placed where you like along it. */
+  const HUNG_MOST = 12;
+  const isHung = (part) => part.startsWith('hung:');
   /**
    * The lounge's pieces that play music. With the jukebox on in setup, a tap
    * on any of them plays or pauses the computer's music, and they show
@@ -232,7 +235,17 @@
       .slice(0, ADDED_MOST)
       .map((piece) => ({ kind: piece.kind, x: at(piece.x), y: at(piece.y), size: PIECE_SIZES.includes(piece.size) ? piece.size : 1 }));
     const more = raw.added && typeof raw.added === 'object' ? raw.added : {};
-    return { wide: shaped(raw.wide), tall: shaped(raw.tall), added: { wide: added(more.wide), tall: added(more.tall) } };
+    // The back wall's pieces, each round its middle: a list for the wall as you hung it, or null for its five places
+    const hung = (list) => (Array.isArray(list) ? list
+      .filter((piece) => piece && typeof piece === 'object' && WALL_CHOICES.includes(piece.kind) && piece.kind !== 'bare')
+      .slice(0, HUNG_MOST)
+      .map((piece) => ({ kind: piece.kind, x: Number.isFinite(piece.x) ? Math.max(0, Math.min(WIDTH, Math.round(piece.x))) : WALL_SLOTS[2] }))
+      : null);
+    const walls = raw.hung && typeof raw.hung === 'object' ? raw.hung : {};
+    return {
+      wide: shaped(raw.wide), tall: shaped(raw.tall), added: { wide: added(more.wide), tall: added(more.tall) },
+      hung: { wide: hung(walls.wide), tall: hung(walls.tall) },
+    };
   }
 
   /** What a desk can have of its own, each but Auto: read when asked, the lists being further on. */
@@ -311,11 +324,22 @@
   /** The pieces added to the lounge in the room's shape now. */
   const addedOf = (room) => (room && room.plan && room.plan.added && room.plan.added[shape === TALL ? 'tall' : 'wide']) || [];
 
-  /** Where each desk is, as the room's shape now and its arrangement put them. */
+  /** Where each desk is, as the room's shape now and its arrangement put them, and whether it's been put away. */
   const desksOf = (room) => STANDARD_DESKS.map((desk, i) => {
     const piece = pieceOf(`desk${i + 1}`, room);
-    return { x: desk.x + piece.x, y: desk.y + piece.y };
+    return { x: desk.x + piece.x, y: desk.y + piece.y, off: piece.off };
   });
+
+  /**
+   * What hangs on the back wall in the room's shape now, each round its
+   * middle `x`: as you hung it, or in the wall's five places as set up. In a
+   * style, the style's pieces go where yours are, in turn.
+   */
+  function hungOf(room = decor) {
+    const placed = room && room.plan && room.plan.hung && room.plan.hung[shape === TALL ? 'tall' : 'wide'];
+    if (!Array.isArray(placed)) return room.wall.map((kind, i) => ({ kind, x: WALL_SLOTS[i] }));
+    return ROOM_STYLES[room.preset] ? placed.map((piece, i) => ({ ...piece, kind: room.wall[i % room.wall.length] })) : placed;
+  }
 
   /** Held upright, whether `point` is in the lounge, past its wall. */
   const inLounge = (point) => shape.loungeWall !== undefined && point.y > shape.loungeWall;
@@ -705,7 +729,7 @@
       take(0, shape.loungeWall - WALL_BOTTOM, DOORWAY.left - 1, shape.loungeWall - 1);
       take(DOORWAY.right + 1, shape.loungeWall - WALL_BOTTOM, shape.width, shape.loungeWall - 1);
     }
-    for (const { x, y } of DESKS) take(x - 1, y - 1, x + DESK_WIDTH + 1, y + 17);
+    for (const { x, y, off } of DESKS) if (!off) take(x - 1, y - 1, x + DESK_WIDTH + 1, y + 17);
     // Each piece in the lounge stands on the bottom of what it takes up: what's above is the piece itself, or its smoke.
     const standing = ({ part, kind }) => {
       const box = CORNER_BOXES[kind], h = Math.max(6, Math.round(box.h * 0.4));
