@@ -351,6 +351,8 @@
         <div class="field"><span>Effort dial</span><button class="switch" id="show-dial" aria-label="Show the effort dial"></button></div>
         <div class="field"><span>Stick</span><button class="switch" id="show-stick" aria-label="Show the stick"></button></div>
         <h3>Office</h3>
+        <div class="field stacked"><span>Style</span><div class="tiles small" id="room-preset"></div></div>
+        <p class="hint">A style furnishes the whole office for you, and the phone can switch it too, from the key in the room's corner. Yours is the office as you furnish it below: change anything there, and you're back to it. Your team, the daylight, the seasons and the sound stay as you set them.</p>
         <div class="field"><span>Talk into</span><div class="choices" id="room-mic"></div></div>
         <div class="field stacked"><span>Back wall, left to right</span><div class="wall" id="room-wall"></div></div>
         <div class="field"><span>Floor</span><div class="choices" id="room-floor"></div></div>
@@ -826,7 +828,7 @@
      it's furnished: a still, and moving while the pointer is on one. */
 
   /** How much of the office each picture shows, in its art pixels, at three of the canvas's pixels to each. */
-  const PICTURE_SIZES = { corner: [80, 51], workspace: [58, 45] };
+  const PICTURE_SIZES = { corner: [80, 51], workspace: [58, 45], preset: [62, 34] };
   /** How far into a piece's moving its still is taken, in seconds: far enough in for something to be going on. */
   const PICTURE_STILL = 3.3;
   let moving = null; // the picture under the pointer: { canvas, what, room, start }
@@ -841,7 +843,7 @@
 
   /** What a picture shows of the room besides its own piece: what it's drawn in. */
   const lookOf = (room) => JSON.stringify({ ...room, team: null, dress: null, corner: null, workspace: null, staff: null, pet: null,
-    sky: null, sound: null, mic: null });
+    sky: null, sound: null, mic: null, preset: null });
 
   /** A picture of one of the office's choices, moving while the pointer, or the keyboard, is on `host`. */
   function picture(kind, id, room, host = null) {
@@ -933,12 +935,17 @@
     chair: [['teal', 'Teal', '#3f7080'], ['black', 'Black', '#353842'], ['red', 'Red', '#9a3c3a'], ['grey', 'Grey', '#737987'],
       ['green', 'Green', '#3f7a4c']],
     staff: [['some', 'A few'], ['none', 'None'], ['many', 'Lots']],
+    preset: [['yours', 'Yours'], ['classic', 'Classic'], ['campsite', 'Campsite'], ['royal', 'Royal court'], ['space', 'Space station'],
+      ['pirates', 'Pirate cove'], ['arctic', 'Arctic base'], ['lair', "Dragon's lair"], ['gamers', 'Gamer den'], ['garage', 'Startup garage'],
+      ['gym', 'Fitness floor'], ['jungle', 'Jungle']],
   };
   const WALL_CHOICES = [['window', 'Window'], ['whiteboard', 'Whiteboard'], ['pinboard', 'Pinboard'], ['poster', 'Poster'],
     ['shelf', 'Bookshelf'], ['plant', 'Plant'], ['bare', 'Bare wall']];
   const STANDARD_ROOM = { mic: 'mic', wall: ['window', 'whiteboard', 'window', 'pinboard', 'window'], floor: 'wood', paint: 'slate',
     lounge: 'navy', corner: 'arcade', sky: 'live', pet: 'none', season: 'calendar', sound: 'off', desk: 'wood', workspace: 'desk',
-    chair: 'teal', staff: 'some' };
+    chair: 'teal', staff: 'some', preset: 'yours' };
+  /** What a style furnishes, as office.js has it: changing one of these goes back to Yours. */
+  const STYLED = new Set(['mic', 'wall', 'floor', 'paint', 'lounge', 'corner', 'pet', 'desk', 'workspace', 'chair', 'staff']);
   let peekOffice = false; // the preview shows the office while it's being furnished
 
   /* Your team: how each project's agent looks, the choices office.js draws
@@ -1126,19 +1133,23 @@
 
   function drawRoom() {
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
-    const furnish = (edit) => change(edit, true);
+    // A change to what a style furnishes is a change to Yours, and puts the office back in it.
+    const furnish = (edit, part = null) => change(() => {
+      edit();
+      if (STYLED.has(part)) room.preset = 'yours';
+    }, true);
     for (const part of ['mic', 'floor', 'paint', 'lounge', 'sky', 'season', 'pet', 'sound', 'desk', 'chair', 'staff']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label, swatch]) =>
-        choice(label, room[part] === id, () => furnish(() => { room[part] = id; }), swatch)));
+        choice(label, room[part] === id, () => furnish(() => { room[part] = id; }, part), swatch)));
     }
     $('room-wall').replaceChildren(...room.wall.map((piece, i) => {
-      const el = select(WALL_CHOICES, piece, (value) => furnish(() => { room.wall[i] = value; }));
+      const el = select(WALL_CHOICES, piece, (value) => furnish(() => { room.wall[i] = value; }, 'wall'));
       el.setAttribute('aria-label', `The back wall, place ${i + 1} from the left`);
       return el;
     }));
-    for (const part of ['corner', 'workspace']) {
+    for (const part of ['preset', 'corner', 'workspace']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label]) =>
-        tile(part, id, label, (room[part] || STANDARD_ROOM[part]) === id, () => furnish(() => { room[part] = id; }), room)));
+        tile(part, id, label, (room[part] || STANDARD_ROOM[part]) === id, () => furnish(() => { room[part] = id; }, part), room)));
     }
     if (refocus) {
       const picked = document.querySelector(`.tile[data-pick="${refocus}"]`);

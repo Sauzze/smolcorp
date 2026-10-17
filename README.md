@@ -258,6 +258,13 @@ There's more to see while they work:
 
 **Furnish it your way** under *Office* in the setup page's Layout:
 
+- **A style** furnishes the whole office in one go: Classic, Campsite, Royal
+  court, Space station, Pirate cove, Arctic base, Dragon's lair, Gamer den,
+  Startup garage, Fitness floor or Jungle. Switch it from your phone too: in
+  full screen, tap the key in the room's top-left corner and pick one. **Yours**
+  is the office as you furnish it below, and changing anything there takes you
+  back to it. Your team, the daylight, the seasons and the sound stay as you
+  set them.
 - **Talk into** a microphone or a megaphone.
 - **The back wall:** five places, each a window, a whiteboard, a pinboard, a
   poster, a bookshelf, a plant or bare wall. The to-do lists go up on the

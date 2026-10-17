@@ -435,6 +435,24 @@ const hiringOff = "Hiring and firing are off. Turn them on in setup, on your com
 // another in the office: each is pinned where the other was, so the order
 // holds the next time too, as pins made in setup do. It only orders the keys,
 // so any paired phone may.
+// setStyle puts the office in one of its styles, from the phone, on every
+// screen it's on. Only the style's name is kept: what you furnished stays
+// under it.
+func (d *Deck) setStyle(preset string) (int, string) {
+	if !slices.Contains(roomStyles, preset) {
+		return http.StatusBadRequest, "Unknown style"
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.config.Layout.Room.Preset == preset {
+		return http.StatusNoContent, ""
+	}
+	d.config.Layout.Room.Preset = preset
+	d.config.save()
+	d.changed()
+	return http.StatusNoContent, ""
+}
+
 func (d *Deck) swapKeys(query url.Values) (int, string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -475,6 +493,9 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	d.mu.Unlock()
 	if action == "swap" {
 		return d.swapKeys(query)
+	}
+	if action == "style" {
+		return d.setStyle(query.Get("preset"))
 	}
 	if action == "hire" {
 		if !hiring {

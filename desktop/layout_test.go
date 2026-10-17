@@ -480,6 +480,18 @@ func TestEveryoneWorksAtTheOfficesChoiceOrTheirOwn(t *testing.T) {
 	}
 }
 
+func TestAStyleIsKeptByNameAndAnUnknownOneIsYours(t *testing.T) {
+	for given, want := range map[string]string{`"lair"`: "lair", `"disco"`: "yours", `5`: "yours", `null`: "yours"} {
+		var room Room
+		if err := json.Unmarshal([]byte(`{"preset": `+given+`}`), &room); err != nil || room.Preset != want {
+			t.Errorf("a style of %s gave %q, %v; want %q", given, room.Preset, err, want)
+		}
+	}
+	if (Room{}).checked().Preset != "yours" {
+		t.Error("a room kept before styles isn't in Yours")
+	}
+}
+
 func TestATeamRemembersFiftyProjectsAtMost(t *testing.T) {
 	team := map[string]TeamMember{}
 	for i := range 60 {

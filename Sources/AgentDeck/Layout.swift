@@ -86,7 +86,8 @@ struct Layout: Codable, Equatable {
 /// computer's time or it's always day, its pet, whether the windows follow
 /// the seasons, how loud it is, the desks' finish, what everyone works at (a
 /// desk, a tent, a throne…) and the chairs' colour, how many of its own staff
-/// hang about, your team, and the dress code. office.js
+/// hang about, the style it's in (Yours, or one that furnishes it for you),
+/// your team, and the dress code. office.js
 /// draws it, with the same choices. Anything unknown, or of the wrong kind, is
 /// as standard: it only changes how the room looks.
 struct Room: Codable, Equatable {
@@ -104,6 +105,7 @@ struct Room: Codable, Equatable {
     var workspace = "desk"
     var chair = "teal"
     var staff = "some"
+    var preset = "yours"
     /// How each project's agent looks, by the project's name.
     var team: [String: TeamMember] = [:]
     /// What agents wear by their model's size and by agent. After the team,
@@ -130,7 +132,11 @@ struct Room: Codable, Equatable {
         "workspace": Room.workspaces,
         "chair": ["teal", "black", "red", "grey", "green"],
         "staff": ["some", "none", "many"],
+        "preset": Room.presets,
     ]
+    /// The office's styles: Yours, as you furnished it, then each that
+    /// furnishes it for you. office.js keeps what each one is.
+    static let presets = ["yours", "classic", "campsite", "royal", "space", "pirates", "arctic", "lair", "gamers", "garage", "gym", "jungle"]
     /// What an agent can work at: the office's choice for everyone, and a
     /// team member's own, which can also be "auto".
     static let workspaces = ["desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
@@ -159,6 +165,7 @@ struct Room: Codable, Equatable {
         workspace = choice(.workspace) ?? workspace
         chair = choice(.chair) ?? chair
         staff = choice(.staff) ?? staff
+        preset = choice(.preset) ?? preset
         let given = ((try? c?.decodeIfPresent([Loose].self, forKey: .wall)) ?? nil) ?? []
         wall = Room.standardWall.enumerated().map { i, standard in
             i < given.count ? given[i].text.flatMap { Room.wallChoices.contains($0) ? $0 : nil } ?? standard : standard

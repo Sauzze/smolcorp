@@ -293,6 +293,7 @@ final class Deck {
         // A new hire has no session yet, and a swap is of two desks.
         if action == "hire" { return hire(at: query["desk"], done: done) }
         if action == "swap" { return done(swapKeys(query)) }
+        if action == "style" { return done(setStyle(query["preset"])) }
         guard let session = sessions[id], !session.tty.isEmpty else { return done(.status(404, "Session not found")) }
         let tty = session.tty
 
@@ -380,6 +381,18 @@ final class Deck {
         guard first != nil || second != nil else { return .status(204) }
         guard first != second else { return .status(409, "Both desks are the same project, so they stay as they are.") }
         Config.shared.swapPins(first, at: a, with: second, at: b)
+        changed()
+        return .status(204)
+    }
+
+    /// The office in one of its styles, from the phone, on every screen it's
+    /// on. Only the style's name is kept: what you furnished stays under it.
+    private func setStyle(_ preset: String?) -> Response {
+        guard let preset, Room.presets.contains(preset) else { return .status(400, "Unknown style") }
+        let config = Config.shared
+        guard config.layout.room.preset != preset else { return .status(204) }
+        config.layout.room.preset = preset
+        config.save()
         changed()
         return .status(204)
     }

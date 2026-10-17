@@ -20,7 +20,8 @@
  * The room can be tapped, and says what was tapped through `on`, for the
  * page to do what its keys and buttons would: `on.select(id)` for a desk or
  * its person, `on.max()` for the nuclear button, `on.mic('down' | 'up')` for
- * the microphone, held, and `on.hint(text)` for a word on the status line.
+ * the microphone, held, `on.style(id)` for one of the office's styles, from
+ * its key in the corner, and `on.hint(text)` for a word on the status line.
  *
  * Its sound, once set up and tapped, is in the style of an old console. A
  * piece of the room asks for one of its sounds by name with
@@ -117,6 +118,37 @@
    * `room`. Each part's choices, the first being what an office has when the
    * layout says nothing. The apps' Layout.swift and layout.go keep the same.
    */
+  /**
+   * Styles for the whole office, picked from the phone or the setup page:
+   * each furnishes it from the standard. Your own furnishing stays under a
+   * style, as Yours, and what a style leaves alone stays yours too.
+   */
+  const ROOM_STYLES = {
+    classic: { name: 'Classic', room: {} },
+    campsite: { name: 'Campsite', room: { workspace: 'tent', floor: 'carpet', paint: 'sage', lounge: 'teal', corner: 'campfire', pet: 'dog',
+      chair: 'green', wall: ['window', 'plant', 'window', 'plant', 'window'] } },
+    royal: { name: 'Royal court', room: { workspace: 'throne', floor: 'carpet', paint: 'clay', lounge: 'plum', corner: 'piano', desk: 'walnut',
+      chair: 'red', pet: 'cat', wall: ['window', 'poster', 'window', 'shelf', 'window'] } },
+    space: { name: 'Space station', room: { workspace: 'cockpit', floor: 'concrete', paint: 'slate', lounge: 'navy', corner: 'telescope',
+      desk: 'black', chair: 'grey', staff: 'none', wall: ['window', 'whiteboard', 'window', 'bare', 'window'] } },
+    pirates: { name: 'Pirate cove', room: { workspace: 'ship', floor: 'wood', paint: 'clay', lounge: 'sand', corner: 'jukebox', desk: 'walnut',
+      pet: 'monkey' } },
+    arctic: { name: 'Arctic base', room: { workspace: 'igloo', floor: 'tiles', paint: 'cream', lounge: 'teal', corner: 'hottub', desk: 'white',
+      chair: 'grey', pet: 'cat' } },
+    lair: { name: "Dragon's lair", room: { workspace: 'greenhouse', floor: 'carpet', paint: 'sage', lounge: 'plum', corner: 'dragon',
+      pet: 'lizard', chair: 'green', wall: ['window', 'plant', 'window', 'plant', 'window'] } },
+    gamers: { name: 'Gamer den', room: { workspace: 'gaming', floor: 'carpet', paint: 'slate', lounge: 'navy', corner: 'pinball', desk: 'black',
+      chair: 'black', wall: ['poster', 'window', 'poster', 'window', 'poster'] } },
+    garage: { name: 'Startup garage', room: { workspace: 'box', floor: 'concrete', paint: 'cream', lounge: 'sand', corner: 'servers',
+      chair: 'grey', staff: 'many', wall: ['whiteboard', 'window', 'whiteboard', 'shelf', 'window'] } },
+    gym: { name: 'Fitness floor', room: { workspace: 'standing', floor: 'tiles', paint: 'slate', lounge: 'teal', corner: 'boxing',
+      mic: 'megaphone', desk: 'white' } },
+    jungle: { name: 'Jungle', room: { workspace: 'beanbag', floor: 'wood', paint: 'sage', lounge: 'teal', corner: 'jungle', pet: 'monkey',
+      wall: ['plant', 'window', 'plant', 'window', 'plant'] } },
+  };
+  /** What a style furnishes. The sky, the seasons, the sound and your team stay as you have them. */
+  const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'corner', 'pet', 'desk', 'workspace', 'chair', 'staff'];
+
   const ROOM_CHOICES = {
     mic: ['mic', 'megaphone'],
     floor: ['wood', 'tiles', 'concrete', 'carpet'],
@@ -133,6 +165,7 @@
     workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse'],
     chair: ['teal', 'black', 'red', 'grey', 'green'],
     staff: ['some', 'none', 'many'],
+    preset: ['yours', ...Object.keys(ROOM_STYLES)],
   };
   /**
    * The desks' finish when no effort paints them, from the edge catching the
@@ -224,6 +257,14 @@
     room.wall = STANDARD_WALL.map((standard, i) => (Array.isArray(raw.wall) && WALL_CHOICES.includes(raw.wall[i]) ? raw.wall[i] : standard));
     room.team = teamOf(raw.team);
     room.dress = dressOf(raw.dress);
+    // In a style, the style furnishes it, from the standard.
+    const style = ROOM_STYLES[room.preset];
+    if (style) {
+      for (const part of STYLED) {
+        const standard = part === 'wall' ? [...STANDARD_WALL] : ROOM_CHOICES[part][0];
+        room[part] = Object.hasOwn(style.room, part) ? structuredClone(style.room[part]) : standard;
+      }
+    }
     return room;
   }
 
@@ -1424,6 +1465,42 @@
         { action: 'keep', label: 'KEEP', x: left + 22, y, ...DIALOG_KEY },
         { action: 'fired', label: 'FIRE', x: left + w - 22 - DIALOG_KEY.w, y, ...DIALOG_KEY },
       ],
+    };
+  }
+
+  /**
+   * Where the deck's controls are out of sight, a pixel key in the room's
+   * top-left corner offers the office's styles: a panel over the room with a
+   * picture of each, Yours first. In art pixels: the key, from the corner of
+   * what's seen of the room (further in where the window's corners are
+   * rounded), its mark (a paint roller), each picture, and the gaps round
+   * them.
+   */
+  const STYLE_KEY = { w: 15, h: 13, inset: 3, rounded: 6 };
+  const STYLE_MARK = ['1111110', '1111110', '0000010', '0011110', '0010000', '0010000', '0010000'];
+  const STYLE_THUMB = { w: 62, h: 34 };
+  const STYLE_GAP = 4;
+  const STYLE_LABEL = 8;
+  const STYLE_INSET = 6;
+  const STYLE_TITLE = 14;
+  const STYLE_IDS = ['yours', ...Object.keys(ROOM_STYLES)];
+  const styleName = (id) => (id === 'yours' ? 'Yours' : ROOM_STYLES[id].name);
+
+  /** The styles' panel, in the middle of the room: four pictures to a row, or three held upright. */
+  function styleMenu() {
+    const columns = shape === TALL ? 3 : 4;
+    const rows = Math.ceil(STYLE_IDS.length / columns);
+    const w = STYLE_INSET * 2 + columns * STYLE_THUMB.w + (columns - 1) * STYLE_GAP;
+    const h = STYLE_TITLE + STYLE_INSET + rows * (STYLE_THUMB.h + STYLE_LABEL) + (rows - 1) * STYLE_GAP;
+    const left = Math.round(shape.width / 2 - w / 2), top = Math.round(shape.height / 2 - h / 2);
+    return {
+      left, top, w, h,
+      tiles: STYLE_IDS.map((id, i) => ({
+        id,
+        x: left + STYLE_INSET + (i % columns) * (STYLE_THUMB.w + STYLE_GAP),
+        y: top + STYLE_TITLE + Math.floor(i / columns) * (STYLE_THUMB.h + STYLE_LABEL + STYLE_GAP),
+        w: STYLE_THUMB.w, h: STYLE_THUMB.h + STYLE_LABEL,
+      })),
     };
   }
 
@@ -4315,6 +4392,47 @@
       drawPixelKey(left, top, w, h, kind === 'fire' ? PALETTE.dome : 0x2f8f5b, label);
     }
 
+    /** The styles' key in the top-left corner, held down while its panel is up. Where it lands is kept on `key.at`, for taps. */
+    function drawStyleKey(key) {
+      const { open } = key;
+      const inset = floating && floating !== 'edge' ? STYLE_KEY.rounded : STYLE_KEY.inset;
+      const { w, h } = STYLE_KEY, x = seen.left + inset, y = seen.top + inset;
+      key.at = { x, y, w, h };
+      drawPixelKey(x, y + (open ? 1 : 0), w, h - (open ? 1 : 0), open ? darker(PALETTE.rail) : PALETTE.rail, '');
+      const mx = x + Math.floor((w - STYLE_MARK[0].length) / 2), my = y + Math.floor((h - 2 - STYLE_MARK.length) / 2) + (open ? 1 : 0);
+      STYLE_MARK.forEach((row, r) => [...row].forEach((on, c) => { if (on === '1') dot(mx + c, my + r, WHITE); }));
+    }
+
+    /** The styles over a dimmed room: a picture of each, the one in use outlined. */
+    function drawStyleMenu({ left, top, w, h, tiles, current, pictures }) {
+      fill(seen.left, seen.top, seen.width, seen.height, BLACK, 0.45);
+      fill(left + 1, top, w - 2, h, PALETTE.bubbleEdge);
+      fill(left, top + 1, w, h - 2, PALETTE.bubbleEdge);
+      fill(left + 1, top + 1, w - 2, h - 2, PALETTE.bubble);
+      const size = Math.max(LABEL_SIZE * scale, LABEL_SMALLEST * ratio);
+      const font = (weight, px) => `${weight} ${px}px ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = css(PALETTE.bubbleEdge);
+      ctx.font = font(700, size * 1.15);
+      ctx.fillText('Office style', screen(left + w / 2, 0).x, screen(0, top + STYLE_TITLE / 2 + 1).y);
+      ctx.font = font(600, size * 0.9);
+      for (const tile of tiles) {
+        const on = tile.id === current;
+        if (on) fill(tile.x - 2, tile.y - 2, tile.w + 4, STYLE_THUMB.h + 4, colour('thinking'));
+        fill(tile.x - 1, tile.y - 1, tile.w + 2, STYLE_THUMB.h + 2, PALETTE.bubbleEdge);
+        const picture = pictures.get(tile.id);
+        if (picture) {
+          const at = screen(tile.x, tile.y);
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(picture, at.x, at.y, STYLE_THUMB.w * scale, STYLE_THUMB.h * scale);
+        }
+        ctx.fillStyle = css(PALETTE.bubbleEdge, on ? 1 : 0.75);
+        ctx.fillText(fitText(ctx, styleName(tile.id), (tile.w + STYLE_GAP) * scale),
+          screen(tile.x + tile.w / 2, 0).x, screen(0, tile.y + STYLE_THUMB.h + STYLE_LABEL / 2 + 1).y);
+      }
+    }
+
     /** The question before firing, over a dimmed room. */
     function drawFireDialog({ left, top, w, h, keys, name }) {
       fill(seen.left, seen.top, seen.width, seen.height, BLACK, 0.45);
@@ -4432,7 +4550,9 @@
     if (frame.chips) drawChips();
     if (frame.deskButton) drawDeskButton(frame.deskButton);
     if (frame.choices) drawChoices();
+    if (frame.styleKey) drawStyleKey(frame.styleKey);
     if (frame.firing) drawFireDialog(frame.firing);
+    if (frame.styles) drawStyleMenu(frame.styles);
 
     if (glass) {
       ctx.restore();
@@ -5220,6 +5340,9 @@
     let held = null;
     let firing = null;       // an agent about to be fired, while the question is up: { id, name }
     let carrying = null;     // an agent carried to another desk: { person, from, x, y, over }
+    let styling = false;     // the styles' panel is up
+    let styleKeyAt = null;   // where the styles' key was last drawn, in art pixels
+    const stylePictures = new Map(); // a picture of each style, by its id, drawn as the panel opens
     let hiring = { fire: false, hire: false }; // what the computer lets a held desk offer
     const ambience = new Ambience();
     const loudness = () => SOUND_LEVELS[decor.sound];
@@ -5307,6 +5430,24 @@
       return desk >= 0 ? deskButton(desk, 'fire') : null;
     }
 
+    /** The styles' key, where the deck's own controls are out of sight and the page can change the style. */
+    function styleKey() {
+      if (framed || !on.style || !latest) return null;
+      return { open: styling };
+    }
+
+    /** A picture of each style, in the room as you furnished it, for the panel: drawn as it opens. */
+    function drawStylePictures() {
+      const room = latest && latest.layout && latest.layout.room;
+      for (const id of STYLE_IDS) {
+        const picture = stylePictures.get(id) || canvas.ownerDocument.createElement('canvas');
+        picture.width = STYLE_THUMB.w;
+        picture.height = STYLE_THUMB.h;
+        preview(picture, { preset: id }, { room, now: 3.3 });
+        stylePictures.set(id, picture);
+      }
+    }
+
     /** The choice keys, while the picked agent waits on you and the deck's own controls are out of sight. */
     function choices() {
       if (framed) return null;
@@ -5346,12 +5487,16 @@
       if (fitting !== shape) office.reshape(fitting, now);
       office.step(now);
       ambience.follow(office, now, loudness(), { mic, carrying });
+      const key = styleKey();
+      if (!key) styling = false;
       drawOffice(ctx, office, {
         now, hour: date.getHours(), minute: date.getMinutes(), month: date.getMonth(),
         width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1,
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
         deskButton: heldButton(), firing: firing && { ...fireDialog(), name: firing.name }, carrying,
+        styleKey: key, styles: styling && key && { ...styleMenu(), current: decor.preset, pictures: stylePictures },
       });
+      styleKeyAt = key && key.at;
     }
 
     function run() {
@@ -5416,6 +5561,13 @@
         if (!best || distance < best.distance || (distance === best.distance && rank < best.rank)) best = { target, distance, rank };
       };
 
+      // While the styles are up, they're all there is; a tap anywhere else puts them away.
+      if (styling && styleKey()) {
+        for (const tile of styleMenu().tiles) {
+          consider({ kind: 'style', id: tile.id }, { left: tile.x, right: tile.x + tile.w, top: tile.y, bottom: tile.y + tile.h }, -1);
+        }
+        return best ? best.target : { kind: 'unstyle' };
+      }
       // While the question is up, its keys are all there is; a tap anywhere else keeps them on.
       if (firing) {
         for (const key of fireDialog().keys) consider({ kind: key.action }, { left: key.x, right: key.x + key.w, top: key.y, bottom: key.y + key.h }, -1);
@@ -5428,6 +5580,10 @@
         // The sprite, its arms, and the bubble over its head
         consider({ kind: 'session', id: person.session.id },
           { left: px - 5, right: px + 8, top: top - 11, bottom: Math.round(person.position.y) + 1 }, 0);
+      }
+      if (styleKey() && styleKeyAt) {
+        const { x: kx, y: ky, w: kw, h: kh } = styleKeyAt;
+        consider({ kind: 'styles' }, { left: kx, right: kx + kw, top: ky, bottom: ky + kh }, -1);
       }
       const dome = placed('button', BUTTON), stand = placed('mic', MIC);
       consider({ kind: 'button' }, { left: dome.x - 7, right: dome.x + 8, top: dome.y - 1, bottom: dome.y + 16 }, 1);
@@ -5479,6 +5635,19 @@
       if (target.kind === 'keep') {
         firing = null;
         return;
+      }
+      if (target.kind === 'styles') {
+        styling = !styling;
+        if (styling) drawStylePictures();
+        return;
+      }
+      if (target.kind === 'unstyle') {
+        styling = false;
+        return;
+      }
+      if (target.kind === 'style') {
+        styling = false;
+        return on.style?.(target.id);
       }
       // They carry their things out in a box only once the computer says
       // they're fired; if it couldn't, the deck says why.
@@ -5653,6 +5822,7 @@
   const PREVIEW_CROPS = {
     corner: { x: 238, y: 49, w: 80, h: 51 },
     workspace: { x: DESKS[0].x - 6, y: DESKS[0].y - 27, w: DESK_WIDTH + 14, h: 45 },
+    preset: { x: DESKS[0].x - 10, y: DESKS[0].y - 24, w: STYLE_THUMB.w, h: STYLE_THUMB.h },
   };
   let previewRoom = null; // the canvas previews draw the whole room on
   /** Someone at a workspace in its preview, at ease, so no bubble hides it. */
@@ -5663,8 +5833,9 @@
 
   /**
    * One of the room's choices on its own, for the setup page to show it by:
-   * `what` is { corner } with someone at each of its places, or
-   * { workspace } with an agent at it. It's drawn by the room's own code in
+   * `what` is { corner } with someone at each of its places, { workspace }
+   * with an agent at it, or { preset }, a style, round the first desk. It's
+   * drawn by the room's own code in
    * the layout's `room` (its floor, paint and finishes), `now` seconds in,
    * and cut to the piece, as big as fits `canvas` in whole pixels. `tall`
    * shows it where the room held upright has it.
@@ -5673,18 +5844,19 @@
     const kept = { decor, spots, boardSpots, shape };
     try {
       shape = tall ? TALL : WIDE;
-      decor = roomOf({ ...room, ...what, team: null, staff: 'none', sky: 'day', pet: 'none' });
+      // Shown in the room as you furnished it, unless it's a style being shown.
+      decor = { ...roomOf({ ...room, preset: 'yours', ...what, team: null }), staff: 'none', sky: 'day', pet: 'none' };
       spots = spotsOf(decor);
       boardSpots = boardSpotsOf(decor);
       const office = new Office();
-      office.apply(what.workspace ? [{ pin: null, session: PREVIEW_AGENT }] : [], {}, now);
+      office.apply(what.corner ? [] : [{ pin: null, session: PREVIEW_AGENT }], {}, now);
       if (what.corner) CORNER_SPOTS[decor.corner].forEach((_, i) => {
         const spot = LOUNGE_SPOTS.length + i, member = office.hireStaff();
         member.place = spotPlace(spot);
         member.position = { x: spots[spot].x, y: spots[spot].y };
         member.isFacingAway = facesAway(spots[spot].pose);
       });
-      const crop = { ...PREVIEW_CROPS[what.workspace ? 'workspace' : 'corner'] };
+      const crop = { ...PREVIEW_CROPS[what.corner ? 'corner' : what.preset ? 'preset' : 'workspace'] };
       if (what.corner) Object.assign(crop, placed('corner', crop));
       const scale = Math.max(1, Math.floor(Math.min(canvas.width / crop.w, canvas.height / crop.h)));
       // One canvas for the whole room, kept from one preview to the next
