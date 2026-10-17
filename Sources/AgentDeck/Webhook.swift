@@ -77,8 +77,8 @@ struct Webhook: Codable, Equatable {
         request.httpMethod = "POST"
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("SauzzeDeck Pro", forHTTPHeaderField: "User-Agent")
-        if !secret.isEmpty { request.setValue(secret, forHTTPHeaderField: "X-SauzzeDeck-Secret") }
+        request.setValue("Smolcorp", forHTTPHeaderField: "User-Agent")
+        if !secret.isEmpty { request.setValue(secret, forHTTPHeaderField: "X-Smolcorp-Secret") }
         URLSession.shared.dataTask(with: request) { _, response, error in
             let result: String
             if let status = (response as? HTTPURLResponse)?.statusCode {

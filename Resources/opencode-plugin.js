@@ -1,11 +1,11 @@
-// SauzzeDeck Pro's OpenCode plugin. OpenCode has no command hooks, so this
+// Smolcorp's OpenCode plugin. OpenCode has no command hooks, so this
 // passes its session events to the hook the other agents run, named the way
 // Claude Code names its hooks. The hook finds the session's tab and reports
-// to the app; SauzzeDeck Pro writes this file when you connect your agents,
+// to the app; Smolcorp writes this file when you connect your agents,
 // and keeps it up to date.
 const COMMAND = ["{{COMMAND}}"]
 
-export const SauzzeDeckPro = async ({ directory }) => {
+export const Smolcorp = async ({ directory }) => {
   // Subagent sessions run inside their parent's tab and are not its state.
   const children = new Set()
   // How a turn ended when it didn't finish. OpenCode follows an interrupt or

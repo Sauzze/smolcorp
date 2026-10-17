@@ -6,11 +6,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="SauzzeDeck Pro">
+<meta name="apple-mobile-web-app-title" content="Smolcorp">
 <meta name="theme-color" content="#0e0e0e">
 <link rel="apple-touch-icon" href="/icon.png">
 <link rel="icon" href="/icon.png">
-<title>SauzzeDeck Pro</title>
+<title>Smolcorp</title>
 <style>
   :root {
     --body: #0e0e0e;
@@ -295,7 +295,7 @@
   <div class="status" id="status">connecting…</div>
 </main>
 <div class="install" id="install" hidden>
-  <div><b>Add SauzzeDeck Pro to your Home Screen.</b><br><span id="install-how">Tap Share, then “Add to Home Screen”.</span> It opens full screen and stays paired.</div>
+  <div><b>Add Smolcorp to your Home Screen.</b><br><span id="install-how">Tap Share, then “Add to Home Screen”.</span> It opens full screen and stays paired.</div>
   <button id="install-close" aria-label="Dismiss">✕</button>
 </div>
 <label id="haptic" aria-hidden="true"><input type="checkbox" switch></label>
@@ -1231,7 +1231,7 @@
       if (stream.readyState === EventSource.CLOSED) return unpaired();
       office.close();
       $('status').classList.add('off');
-      $('status').textContent = "Can't reach your computer. Is SauzzeDeck Pro running?";
+      $('status').textContent = "Can't reach your computer. Is Smolcorp running?";
     };
     if (!whole) installHint();
   }

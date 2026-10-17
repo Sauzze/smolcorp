@@ -1,10 +1,10 @@
 import Foundation
 import ScreenSaver
 
-/// The screen saver's pairing with SauzzeDeck Pro on this Mac: the key it was
+/// The screen saver's pairing with Smolcorp on this Mac: the key it was
 /// given, kept in the screen saver's own defaults, and the requests that use it.
 enum Pairing {
-    /// SauzzeDeck Pro on this Mac. The port is the app's `Deck.port`.
+    /// Smolcorp on this Mac. The port is the app's `Deck.port`.
     private static let base = URL(string: "http://localhost:7710")!
     /// Long enough for a busy Mac, short enough that no answer doesn't keep
     /// the message from showing.
@@ -42,7 +42,7 @@ enum Pairing {
         return items.contains { $0.name == "t" && !($0.value ?? "").isEmpty }
     }
 
-    /// Whether SauzzeDeck Pro is running and still knows `key`. It asks for
+    /// Whether Smolcorp is running and still knows `key`. It asks for
     /// the office's stream, which needs a key and changes nothing, and hangs
     /// up as soon as the answer starts.
     static func check(_ key: String) async -> Answer {
@@ -65,11 +65,11 @@ enum Pairing {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
         guard let (data, _) = try? await session.data(for: request) else {
-            throw PairingError("Couldn't reach SauzzeDeck Pro. Is it running?")
+            throw PairingError("Couldn't reach Smolcorp. Is it running?")
         }
         let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] ?? [:]
         guard let fresh = body["key"] else {
-            throw PairingError(body["error"] ?? "SauzzeDeck Pro didn't pair the screen saver. Try a new code.")
+            throw PairingError(body["error"] ?? "Smolcorp didn't pair the screen saver. Try a new code.")
         }
         key = fresh
     }

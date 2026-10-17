@@ -51,7 +51,7 @@ enum Hooks {
             return Entries(file: Paths.geminiSettings, events: [
                 "SessionStart", "BeforeAgent", "BeforeTool", "AfterTool", "Notification", "AfterAgent",
                 "SessionEnd",
-            ], handler: ["type": "command", "command": command, "name": "sauzzedeck-pro", "timeout": 5000])
+            ], handler: ["type": "command", "command": command, "name": "smolcorp", "timeout": 5000])
         case .grok:
             return Entries(file: Paths.grokHooks, events: [
                 "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
@@ -76,7 +76,7 @@ enum Hooks {
 
     static func isConnected(_ agent: Agent) -> Bool {
         guard let entries = entries(for: agent) else {
-            return FileManager.default.fileExists(atPath: Paths.openCodePlugin.path)
+            return [Paths.openCodePlugin, Paths.oldOpenCodePlugin].contains { FileManager.default.fileExists(atPath: $0.path) }
         }
         guard let hooks = (try? read(entries.file))?["hooks"] as? [String: Any] else { return false }
         return entries.events.allSatisfy { event in
@@ -100,6 +100,7 @@ enum Hooks {
         let agents = found
         guard !agents.isEmpty else { throw HookError.noAgents }
         try updateFiles()
+        moveGrokHooks()
         var unreadable: [URL] = []
         for agent in agents {
             do {
@@ -116,10 +117,20 @@ enum Hooks {
     /// connecting again. Agents the deck isn't in are left alone, and so is
     /// voice: only connecting turns it on.
     static func refresh() throws {
+        moveGrokHooks()
         let connected = found.filter(hasEntries)
         guard !connected.isEmpty else { return }
         try updateFiles()
         for agent in connected where !isConnected(agent) { try? add(agent, turningOnVoice: false) }
+    }
+
+    /// Grok's hooks, in their own file under the name the app had before:
+    /// written to the new file and the old one taken out, so each event is
+    /// reported once.
+    private static func moveGrokHooks() {
+        guard FileManager.default.fileExists(atPath: Paths.oldGrokHooks.path) else { return }
+        try? FileManager.default.removeItem(at: Paths.oldGrokHooks)
+        if !isConnected(.grok) { try? add(.grok, turningOnVoice: false) }
     }
 
     /// The deck is in `agent`'s hooks for at least one event.
@@ -151,11 +162,11 @@ enum Hooks {
     static func disconnect() throws {
         for agent in Agent.allCases {
             guard let entries = entries(for: agent) else {
-                try? FileManager.default.removeItem(at: Paths.openCodePlugin)
+                for plugin in [Paths.openCodePlugin, Paths.oldOpenCodePlugin] { try? FileManager.default.removeItem(at: plugin) }
                 continue
             }
             if entries.isOwnFile {
-                try? FileManager.default.removeItem(at: entries.file)
+                for file in [entries.file, Paths.oldGrokHooks] { try? FileManager.default.removeItem(at: file) }
                 continue
             }
             guard FileManager.default.fileExists(atPath: entries.file.path) else { continue }
@@ -175,7 +186,11 @@ enum Hooks {
         let script = template.replacingOccurrences(of: "{{PORT}}", with: String(Deck.port))
         try script.write(to: Paths.hookScript, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: Paths.hookScript.path)
-        if FileManager.default.fileExists(atPath: Paths.openCodePlugin.path) { try writePlugin() }
+        // Under the name the app had before, it moves to the new one
+        if isConnected(.opencode) {
+            try writePlugin()
+            try? FileManager.default.removeItem(at: Paths.oldOpenCodePlugin)
+        }
     }
 
     private static func writePlugin() throws {

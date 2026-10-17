@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compiles SauzzeDeck Pro and assembles build/SauzzeDeck Pro.app.
+# Compiles Smolcorp and assembles build/Smolcorp.app.
 #
 #   scripts/build-app.sh             for this Mac's processor
 #   scripts/build-app.sh universal   for Apple silicon and Intel, as released
@@ -9,7 +9,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-APP_NAME="SauzzeDeck Pro"
+APP_NAME="Smolcorp"
 EXECUTABLE="AgentDeck" # the Swift package's product, named in Info.plist
 APP="build/$APP_NAME.app"
 
@@ -37,5 +37,5 @@ cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns Resources/report.sh Resources/opencode-plugin.js "$APP/Contents/Resources/"
 cp -R Resources/web "$APP/Contents/Resources/"
 # Signed already, so the app's signature seals it as it is.
-cp -R "build/SauzzeDeck Office.saver" "$APP/Contents/Resources/"
+cp -R "build/Smolcorp Office.saver" "$APP/Contents/Resources/"
 codesign --force --sign - "$APP"

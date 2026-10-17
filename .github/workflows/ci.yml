@@ -39,5 +39,5 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
-            GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/sauzzedeck
+            GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/smolcorp
           done

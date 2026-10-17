@@ -1,9 +1,14 @@
-# SauzzeDeck Pro
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+  <img src="docs/logo-light.svg" alt="Smolcorp" width="420">
+</picture>
+
+# Smolcorp
 
 [![CI](https://github.com/Sauzze/agentdeck/actions/workflows/ci.yml/badge.svg)](https://github.com/Sauzze/agentdeck/actions/workflows/ci.yml)
 
 <p align="center">
-  <img src="docs/demo.gif" alt="SauzzeDeck Pro 1.6 in use: an agent's outfit changes with its model from a T-shirt to a suit; the office is refurnished from the floor to the lounge, a pet and the seasons; a held desk shows paint chips for effort and the big red button sends another agent to max; then one agent is fired and walks out with a box, and a new hire walks in" width="800">
+  <img src="docs/demo.gif" alt="Smolcorp in use: an agent's outfit changes with its model from a T-shirt to a suit; the office is refurnished from the floor to the lounge, a pet and the seasons; a held desk shows paint chips for effort and the big red button sends another agent to max; then one agent is fired and walks out with a box, and a new hire walks in" width="800">
 </p>
 
 A control pad on your phone for the AI coding agents in your terminal: Claude
@@ -13,18 +18,18 @@ A key lights up for each of your agent sessions to show what it's doing. You
 can approve a permission request from across the room, interrupt an agent, turn
 a dial to change how hard Claude thinks, or hold a button and talk to it. Lay
 the deck out your way, with buttons of your own, or watch your agents at work
-as people in [a little pixel-art office](#the-office). SauzzeDeck Pro runs in
+as people in [a little pixel-art office](#the-office). Smolcorp runs in
 your Mac's menu bar, or in the tray on [Windows and Linux](#windows-and-linux-preview).
 Your phone connects to it over your Wi-Fi, so there's nothing to install from
 an app store.
 
-SauzzeDeck Pro was called AgentDeck up to version 1.0.1.
+Smolcorp was called SauzzeDeck Pro up to version 1.6.1, and AgentDeck up to 1.0.1.
 
 <p align="center">
   <img src="docs/deck-portrait.png" alt="The deck on a phone: six session keys, a dial and a stick" width="300">
 </p>
 
-> SauzzeDeck Pro is an independent project. It is not made by or affiliated with Anthropic.
+> Smolcorp is an independent project. It is not made by or affiliated with Anthropic.
 
 ## What's on the deck
 
@@ -61,7 +66,7 @@ colour editor in a minute.
 
 ## Supported agents
 
-Each agent tells SauzzeDeck Pro what it's doing through its own hooks, and the
+Each agent tells Smolcorp what it's doing through its own hooks, and the
 deck presses that agent's own keys:
 
 | Agent | Interrupt | Fresh conversation | Dial and mic |
@@ -77,7 +82,7 @@ switch off when another agent's key is selected. In Grok, ✕ declines with
 Ctrl+C, the key Grok uses to cancel a request.
 
 **Codex** asks you to approve new hooks before it runs them: after connecting,
-run `/hooks` in Codex once and trust SauzzeDeck Pro's. Codex runs its hooks in
+run `/hooks` in Codex once and trust Smolcorp's. Codex runs its hooks in
 a background service rather than in your tab, so the deck finds each Codex
 session's tab by its project folder.
 
@@ -96,22 +101,26 @@ There are two ways. Both give you the same app.
 
 ### Download the app
 
-1. Download **SauzzeDeck-Pro.zip** from the
+1. Download **Smolcorp.zip** from the
    [latest release](https://github.com/Sauzze/agentdeck/releases/latest) and open it.
-2. Drag **SauzzeDeck Pro** into your Applications folder, then open it.
-3. macOS will say it can't check SauzzeDeck Pro for malicious software, because
+2. Drag **Smolcorp** into your Applications folder, then open it.
+3. macOS will say it can't check Smolcorp for malicious software, because
    the app isn't notarised by Apple. Click **Done**, then go to
    **System Settings → Privacy & Security**, scroll down, and click
-   **Open Anyway** next to SauzzeDeck Pro. You only do this once.
+   **Open Anyway** next to Smolcorp. You only do this once.
 
 To check that your download is the one that was published, run
-`shasum -a 256 SauzzeDeck-Pro.zip` in Terminal and compare the result with the
+`shasum -a 256 Smolcorp.zip` in Terminal and compare the result with the
 SHA-256 in the release notes.
+
+Updating from SauzzeDeck Pro? Quit it, delete **SauzzeDeck Pro** from
+Applications and install as above. Your settings and paired phones carry over;
+turn the app back on under Accessibility (see [Set up](#set-up)), and add the
+deck to your phone's Home Screen again for the new name and icon.
 
 Updating from AgentDeck? Quit it, delete **AgentDeck** from Applications and
 install as above. Your settings carry over, but pair your phone again, add it
-to your Home Screen again, and turn the app back on under Accessibility (see
-[Set up](#set-up)).
+to your Home Screen again, and turn the app back on under Accessibility.
 
 ### Or build it yourself
 
@@ -124,10 +133,10 @@ cd agentdeck
 ./install.sh
 ```
 
-This builds SauzzeDeck Pro, puts it in your Applications folder and opens it.
-It also replaces an older copy named AgentDeck.
+This builds Smolcorp, puts it in your Applications folder and opens it.
+It also replaces an older copy named SauzzeDeck Pro or AgentDeck.
 
-Either way, you'll see an S in a circle in the menu bar, and the setup page
+Either way, you'll see a little person in a suit in the menu bar, and the setup page
 opens in your browser.
 
 ## Set up
@@ -139,10 +148,10 @@ The setup page walks you through these steps:
 </p>
 
 1. **Connect your coding agents.** This lets every supported agent on your Mac
-   tell SauzzeDeck Pro what it's doing. Restart any sessions that were already
+   tell Smolcorp what it's doing. Restart any sessions that were already
    open. Install another agent later? Click **Connect** again.
-2. **Allow SauzzeDeck Pro to use your keyboard.** System Settings opens. Turn
-   on **SauzzeDeck Pro** in the list. The buttons, the mic and scrolling need
+2. **Allow Smolcorp to use your keyboard.** System Settings opens. Turn
+   on **Smolcorp** in the list. The buttons, the mic and scrolling need
    this.
 3. **Let the stick scroll Terminal** (optional). Turns the stick into a scroll
    wheel for the selected session's Terminal window.
@@ -157,12 +166,12 @@ The setup page walks you through these steps:
    [Tell other tools](#tell-other-tools).
 7. **Open at login** (optional). Keeps the deck ready whenever your Mac is on.
 
-The first time you press a button, macOS asks whether SauzzeDeck Pro may
+The first time you press a button, macOS asks whether Smolcorp may
 control Terminal. Click **Allow**.
 
 ## Pair your phone
 
-1. On your computer, click the SauzzeDeck Pro icon in the menu bar or tray and
+1. On your computer, click the Smolcorp icon in the menu bar or tray and
    choose **Pair a Phone…**. The setup page opens with a six-digit code and a
    QR code.
 2. Scan the QR code with your phone's camera. Or open your phone's browser, go
@@ -170,7 +179,7 @@ control Terminal. Click **Allow**.
    type the code.
 3. Add the deck to your Home Screen: on an iPhone, tap **Share → Add to Home
    Screen**; on Android, open the browser's menu and tap **Add to Home
-   screen**. SauzzeDeck Pro now opens full screen and stays paired.
+   screen**. Smolcorp now opens full screen and stays paired.
 
 While the deck is open, your phone's screen stays on, from your first tap. If
 an agent has been waiting on you for five minutes, the deck reminds you once,
@@ -178,8 +187,8 @@ with a chime, and a buzz on phones that allow it.
 
 Each phone you pair appears under **Paired phones** on the setup page, with
 when it was last used. **Revoke** cuts one phone off straight away;
-**Unpair All Phones** does it for every phone, and is also in SauzzeDeck
-Pro's menu. A phone you've cut off shows the pairing page again. To use it once
+**Unpair All Phones** does it for every phone, and is also in Smolcorp's
+menu. A phone you've cut off shows the pairing page again. To use it once
 more, pair it with a new code, then remove the old Home Screen icon and add
 the deck again: the icon keeps the old pairing.
 
@@ -193,7 +202,7 @@ The setup page also has:
 
 - **Keys.** Drag a running session onto a key to keep that project on it.
   Keys you don't pin go to the next session that starts.
-- **Logo.** The Sauzze logo or the original six keys, in the menu bar, on the
+- **Logo.** The Smolcorp hire or the original six keys, in the menu bar, on the
   setup page and on your phone's Home Screen. A phone picks up a new logo the
   next time you add the deck to its Home Screen.
 - **Layout.** Keys or [the office](#the-office), how many keys (Auto, one per
@@ -218,7 +227,7 @@ The setup page also has:
 </p>
 
 Open the setup page any time from the menu bar (**Open Setup…**), or by opening
-SauzzeDeck Pro again from Applications.
+Smolcorp again from Applications.
 
 ## The office
 
@@ -308,7 +317,7 @@ There's more to see while they work:
   started*: tap any jukebox in the office to play or pause whatever this
   computer is playing, Spotify, Apple Music or a video in your browser. It
   lights up while Spotify or Apple Music plays; macOS asks once whether
-  SauzzeDeck Pro may ask them.
+  Smolcorp may ask them.
 
 **Arrange the room** puts everything where you want it. Click **Arrange the
 room…** under *Office*, and the office fills the window: click a piece to pick
@@ -371,7 +380,7 @@ setup page (it's off until you do):
   in that project instead.
 
 On Windows and Linux, firing closes the agent's pane in tmux, kitty and
-WezTerm, and stops an agent started with `sauzzedeck run`. Hiring needs the
+WezTerm, and stops an agent started with `smolcorp run`. Hiring needs the
 Mac app, for now.
 
 **Full screen:** tap **⛶** above the room, and the dial and buttons step aside
@@ -383,19 +392,19 @@ lounge moves below the desks, through a doorway at the end of the corridor.
 address your phone uses with `/office` at the end. It pairs like a phone, then
 shows the office alone, full screen, and can be tapped too.
 
-**On top of your other windows:** on the computer running SauzzeDeck Pro, open
+**On top of your other windows:** on the computer running Smolcorp, open
 `http://localhost:7710/office` in Chrome or Edge and click **POP OUT** in its
 corner. The office moves into a small window that stays above everything else,
 and can still be clicked. Other browsers, and the address your phone uses,
 don't offer it.
 
-**As your Mac's screen saver:** click the SauzzeDeck Pro icon in the menu bar
+**As your Mac's screen saver:** click the Smolcorp icon in the menu bar
 and choose **Install Screen Saver…**. System Settings opens at Screen Saver:
-choose **SauzzeDeck Office**, click **Options…**, and enter a code from
+choose **Smolcorp Office**, click **Options…**, and enter a code from
 **Pair a Phone…**. It's listed under Paired phones as **Screen saver**. While
 your Mac is idle, each display shows the office, just to watch: a key or a click
-ends the screen saver as usual. When SauzzeDeck Pro isn't running, or the screen
-saver was unpaired, it says what to do instead. After updating SauzzeDeck Pro,
+ends the screen saver as usual. When Smolcorp isn't running, or the screen
+saver was unpaired, it says what to do instead. After updating Smolcorp,
 choose **Install Screen Saver…** again.
 
 In full screen, on a spare screen and in the pop-out window, the office fills a
@@ -413,12 +422,12 @@ yourself. In that case, make sure `~/.claude/settings.json` contains:
 ```
 
 Voice input needs Claude Code signed in with a Claude.ai account. Claude Code
-sends your audio to Anthropic to be transcribed. SauzzeDeck Pro itself never
+sends your audio to Anthropic to be transcribed. Smolcorp itself never
 hears it.
 
 ## Tell other tools
 
-SauzzeDeck Pro can tell another tool what your agents are doing, so a lamp
+Smolcorp can tell another tool what your agents are doing, so a lamp
 turns orange when one waits on you, or your phone buzzes when a long task is
 done. Turn on **Tell other tools** on the setup page, give it an address, and
 pick what to send:
@@ -453,7 +462,7 @@ with a JSON body:
 `key` is the deck key the session is on, or `null` if it isn't on one. An
 `error` also has an `errorKind`, as the agent named it, such as `rate_limit`
 or `overloaded`. **Send a test** sends `"event": "test"` with no session. If
-you set a secret, every message carries it in an `X-SauzzeDeck-Secret` header.
+you set a secret, every message carries it in an `X-Smolcorp-Secret` header.
 
 Only addresses on your own network are allowed: your computer, a `.local`
 name, a name without dots or a private IP address. Tick **Allow addresses
@@ -462,9 +471,9 @@ folder, and never carry prompts or anything an agent wrote.
 
 ### Home Assistant
 
-Add an automation with a webhook trigger, then give SauzzeDeck Pro the
+Add an automation with a webhook trigger, then give Smolcorp the
 webhook's address, such as
-`http://homeassistant.local:8123/api/webhook/sauzzedeck-lamp`. Home Assistant
+`http://homeassistant.local:8123/api/webhook/smolcorp-lamp`. Home Assistant
 doesn't read headers, so keep the webhook id hard to guess and leave the
 secret empty.
 
@@ -473,7 +482,7 @@ automation:
   - alias: Desk lamp follows the agents
     triggers:
       - trigger: webhook
-        webhook_id: sauzzedeck-lamp
+        webhook_id: smolcorp-lamp
         allowed_methods: [POST]
         local_only: true
     actions:
@@ -497,7 +506,7 @@ automation:
 
 ## Privacy and security
 
-- **SauzzeDeck Pro sends nothing off your network.** It talks only to your
+- **Smolcorp sends nothing off your network.** It talks only to your
   phone, to the coding agents on your computer and, if you turn it on, to the
   address you gave [Tell other tools](#tell-other-tools), which is on your
   network unless you allow otherwise. It has no accounts, no analytics and no
@@ -530,29 +539,29 @@ automation:
 - **The office says what your agents are doing in a few words.** They're made
   from a file's name, a web page's site or the description the agent gave a
   step, never from a command or a file's path.
-- **SauzzeDeck Pro listens on port 7710 on your network,** so your phone can
+- **Smolcorp listens on port 7710 on your network,** so your phone can
   reach it. Without a key, all another device gets is the pairing page. Its
   pages can't be shown inside other websites, and it turns away connections
   beyond a fixed limit, so a misbehaving device can't swamp it.
 - **The setup page only opens on your computer.** Other devices can't reach it, and
   other websites can't press its buttons.
 - **Use a network you trust.** The connection is plain HTTP on your local
-  network. Use SauzzeDeck Pro on home or office Wi-Fi, not public hotspots.
+  network. Use Smolcorp on home or office Wi-Fi, not public hotspots.
 
 ## Troubleshooting
 
 **The keys stay empty.** Click **Connect** on the setup page, then restart your
 agent sessions. On a Mac, they need to run in the Terminal app. On Windows and
-Linux, start them with `sauzzedeck run`, or in tmux, WezTerm or kitty.
+Linux, start them with `smolcorp run`, or in tmux, WezTerm or kitty.
 
-**Codex sessions don't appear.** Run `/hooks` in Codex and trust SauzzeDeck
-Pro's hook. Codex skips new hooks until you do.
+**Codex sessions don't appear.** Run `/hooks` in Codex and trust Smolcorp's
+hook. Codex skips new hooks until you do.
 
 **Buttons, the mic or scrolling do nothing, or the phone says keyboard access
-is off.** Turn SauzzeDeck Pro on in System
-Settings → Privacy & Security → Accessibility. Updating SauzzeDeck Pro clears
+is off.** Turn Smolcorp on in System
+Settings → Privacy & Security → Accessibility. Updating Smolcorp clears
 that permission, because macOS treats each version as a new app. Click
-**Open Settings** on the setup page again afterwards, and turn SauzzeDeck Pro
+**Open Settings** on the setup page again afterwards, and turn Smolcorp
 back on.
 
 **The stick says SCROLL OFF.** Turn on **Let the stick scroll Terminal** on the
@@ -566,7 +575,7 @@ Screen again: see [Pair your phone](#pair-your-phone).
 empty, and voice has to be in tap mode: see [Voice](#voice).
 
 **The phone can't connect.** Check that both devices are on the same Wi-Fi.
-If macOS or Windows Firewall asked whether SauzzeDeck Pro may accept incoming
+If macOS or Windows Firewall asked whether Smolcorp may accept incoming
 connections, allow it.
 
 **HIRE doesn't come out.** Turn on **Let the office hire and fire** on the
@@ -574,34 +583,36 @@ setup page, and choose a folder for new hires. HIRE shows only on a desk a new
 hire would take: the next free one, or a pinned project's. Hiring needs the
 Mac app, for now.
 
-**The screen saver says to open SauzzeDeck Pro, or to pair again.** Make sure
-SauzzeDeck Pro is running. If it was unpaired, open System Settings → Screen
-Saver, click **Options…** and enter a new code. After updating SauzzeDeck Pro,
+**The screen saver says to open Smolcorp, or to pair again.** Make sure
+Smolcorp is running. If it was unpaired, open System Settings → Screen
+Saver, click **Options…** and enter a new code. After updating Smolcorp,
 choose **Install Screen Saver…** again.
 
-**"Port 7710 is in use."** Another copy of SauzzeDeck Pro, or another app, is
-using that port. Quit it and open SauzzeDeck Pro again.
+**"Port 7710 is in use."** Another copy of Smolcorp, or another app, is
+using that port. Quit it and open Smolcorp again.
 
 ## Uninstall
 
 1. On the setup page, click **Disconnect** next to your coding agents, and turn
    off **Open at login**.
-2. Quit SauzzeDeck Pro from the menu bar.
-3. Delete **SauzzeDeck Pro** from Applications, and the folder
+2. Quit Smolcorp from the menu bar.
+3. Delete **Smolcorp** from Applications, and the folder
    `~/Library/Application Support/AgentDeck`. It kept the app's original name.
 4. If you installed the screen saver, choose another one in System Settings →
-   Screen Saver, then delete **SauzzeDeck Office.saver** from
+   Screen Saver, then delete **Smolcorp Office.saver** from
    `~/Library/Screen Savers`, and the files starting with
    `io.github.sauzze.agentdeck.screensaver` in
    `~/Library/Containers/com.apple.ScreenSaver.Engine.legacyScreenSaver/Data/Library/Preferences/ByHost`.
 
 On Windows and Linux, disconnect and turn off **Open at login** the same way,
-quit SauzzeDeck Pro from its tray menu, then delete:
+quit Smolcorp from its tray menu, then delete:
 
-- **Linux:** `~/.local/bin/sauzzedeck`,
-  `~/.local/share/applications/sauzzedeck-pro.desktop`, and the folders
-  `~/.local/share/sauzzedeck-pro` and `~/.config/sauzzedeck-pro`.
-- **Windows:** the folder you extracted, and `%APPDATA%\SauzzeDeck Pro`.
+- **Linux:** `~/.local/bin/smolcorp`,
+  `~/.local/share/applications/smolcorp.desktop`, and the folders
+  `~/.local/share/smolcorp` and `~/.config/sauzzedeck-pro`. The settings folder
+  kept the name the app had before.
+- **Windows:** the folder you extracted, and `%APPDATA%\SauzzeDeck Pro`, which
+  kept the name the app had before.
 
 Connecting left a backup of each settings file it changed next to it, ending
 in `.agentdeck.bak`: Claude Code's `~/.claude/settings.json`, Codex's
@@ -617,10 +628,10 @@ at each step of a session, through its hooks: Claude Code's
 [hooks](https://code.claude.com/docs/en/hooks), and the matching settings in
 Codex, Gemini CLI and Grok. OpenCode has no command hooks, so a small plugin
 ([`Resources/opencode-plugin.js`](Resources/opencode-plugin.js)) runs the same
-script. The script tells SauzzeDeck Pro what happened and which Terminal tab it
-happened in. SauzzeDeck Pro reads each agent's events in that agent's terms,
+script. The script tells Smolcorp what happened and which Terminal tab it
+happened in. Smolcorp reads each agent's events in that agent's terms,
 works out each session's state and streams it to your phone. On Windows and
-Linux, `sauzzedeck hook` does the script's job, and names the launcher, tmux
+Linux, `smolcorp hook` does the script's job, and names the launcher, tmux
 pane or terminal window instead of a Terminal tab.
 
 On the Mac, controls work in one of two ways:
@@ -643,7 +654,7 @@ a single web page, shared by both.
 Sources/AgentDeck/   the Mac app
 ScreenSaver/         the Mac's screen saver, which shows the office
 desktop/             the Windows and Linux app, file for file where they match
-cmd/sauzzedeck/      its command: the app, the launcher and the hook
+cmd/smolcorp/        its command: the app, the launcher and the hook
 Resources/web/       the phone page, the office, the pairing page and the setup page, shared
 Resources/           the Mac's hook script, and the OpenCode plugin
 install.sh           build and install on a Mac
@@ -654,15 +665,16 @@ docs/                screenshots for this page
 
 ## Windows and Linux (preview)
 
-SauzzeDeck Pro also runs on Windows and Linux, with the same phone deck, the
+Smolcorp also runs on Windows and Linux, with the same phone deck, the
 same pairing and the same agents. It's a preview: the Linux version is
 tested, the Windows version is built but hasn't been run on a real PC yet.
 Please report how it goes in [the issues](https://github.com/Sauzze/agentdeck/issues).
 
 What's different from the Mac:
 
-- **Start agents through SauzzeDeck Pro**, in any terminal:
-  `sauzzedeck run claude`, or `codex`, `gemini`, `opencode` or `grok`. The
+- **Start agents through Smolcorp**, in any terminal:
+  `smolcorp run claude` (on Windows, `smolcorp-cli run claude`), or `codex`,
+  `gemini`, `opencode` or `grok`. The
   agent runs exactly as usual, and the deck can press its keys, with no
   permission to grant. Windows and Linux have no equivalent of Terminal's
   scripting, so this is how the deck reaches a session.
@@ -678,43 +690,44 @@ What's different from the Mac:
 
 ### Linux
 
-Download **SauzzeDeck-Pro-Linux-x86_64.tar.gz** (or `-arm64`) from the
+Download **Smolcorp-Linux-x86_64.tar.gz** (or `-arm64`) from the
 [latest release](https://github.com/Sauzze/agentdeck/releases/latest), then:
 
 ```bash
-tar -xzf SauzzeDeck-Pro-Linux-x86_64.tar.gz
-./SauzzeDeck-Pro-Linux-x86_64/install.sh
+tar -xzf Smolcorp-Linux-x86_64.tar.gz
+./Smolcorp-Linux-x86_64/install.sh
 ```
 
 This installs it for you alone, in `~/.local`, with an entry in your app
-menu. Open **SauzzeDeck Pro** from the menu, or run `sauzzedeck`. The setup
+menu. Open **Smolcorp** from the menu, or run `smolcorp`. The setup
 page opens in your browser.
 
 - On GNOME, the tray icon needs the AppIndicator extension, which Ubuntu
-  includes. Without it, SauzzeDeck Pro still runs: open
+  includes. Without it, Smolcorp still runs: open
   `http://localhost:7710/setup` yourself.
 - On a machine without a desktop, such as one you reach over SSH, run
-  `sauzzedeck serve`.
+  `smolcorp serve`.
 
 ### Windows
 
-1. Download **SauzzeDeck-Pro-Windows-x86_64.zip** (or `-arm64` for an ARM
+1. Download **Smolcorp-Windows-x86_64.zip** (or `-arm64` for an ARM
    PC) from the [latest release](https://github.com/Sauzze/agentdeck/releases/latest),
    and extract it.
-2. Open **SauzzeDeck Pro.exe**. Windows SmartScreen warns about an unsigned
+2. Open **Smolcorp.exe**. Windows SmartScreen warns about an unsigned
    app: click **More info**, then **Run anyway**.
-3. When Windows Firewall asks, allow SauzzeDeck Pro on private networks, so
+3. When Windows Firewall asks, allow Smolcorp on private networks, so
    your phone can reach it.
 
-To type `sauzzedeck run claude` in a terminal, add the extracted folder to
-your PATH. The setup page also shows the full command for where it is.
+To type `smolcorp-cli run claude` in a terminal, add the extracted folder to
+your PATH: on Windows the command is `smolcorp-cli.exe`, beside the app's
+`Smolcorp.exe`, as Windows doesn't tell their names apart by case. The setup page also shows the full command for where it is.
 
 ### Build it yourself
 
 You need [Go](https://go.dev) 1.26 or later:
 
 ```bash
-go build ./cmd/sauzzedeck
+go build ./cmd/smolcorp
 ```
 
 `go test ./...` runs the tests, and `scripts/release-desktop.sh` builds the
@@ -722,7 +735,7 @@ downloads for both systems.
 
 ## Support the project
 
-SauzzeDeck Pro is free. If it earns a place on your desk and you'd like to say
+Smolcorp is free. If it earns a place on your desk and you'd like to say
 thanks, you can send ETH, BNB or any token to this address, on Ethereum, BNB
 Smart Chain or another EVM network:
 

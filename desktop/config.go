@@ -38,12 +38,12 @@ type Config struct {
 	HasCompletedSetup bool    `json:"hasCompletedSetup"`
 }
 
-// The logos to choose from: the Sauzze mark, or the six keys the deck
-// started out with.
-var logos = []string{"sauzze", "keys"}
+// The logos to choose from: the hire, a little person in a suit, or the six
+// keys the deck started out with.
+var logos = []string{"smolcorp", "keys"}
 
 func loadConfig() *Config {
-	config := &Config{Colours: map[string]string{}, Logo: "sauzze", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook()}
+	config := &Config{Colours: map[string]string{}, Logo: "smolcorp", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook()}
 	if data, err := os.ReadFile(configFile); err == nil {
 		_ = json.Unmarshal(data, config)
 	}
@@ -55,8 +55,12 @@ func loadConfig() *Config {
 	if config.Profiles == nil {
 		config.Profiles = []Profile{}
 	}
+	// The mark the app had before it was Smolcorp is now the hire.
+	if config.Logo == "sauzze" {
+		config.Logo = "smolcorp"
+	}
 	if !contains(logos, config.Logo) {
-		config.Logo = "sauzze"
+		config.Logo = "smolcorp"
 	}
 	if config.Colours == nil {
 		config.Colours = map[string]string{}

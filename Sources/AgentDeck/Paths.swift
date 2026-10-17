@@ -25,15 +25,20 @@ enum Paths {
     static let claudeSettings = home.appendingPathComponent(".claude/settings.json")
     static let codexHooks = home.appendingPathComponent(".codex/hooks.json")
     static let geminiSettings = home.appendingPathComponent(".gemini/settings.json")
-    static let grokHooks = home.appendingPathComponent(".grok/hooks/sauzzedeck-pro.json")
-    static let openCodePlugin = home.appendingPathComponent(".config/opencode/plugins/sauzzedeck-pro.js")
+    static let grokHooks = home.appendingPathComponent(".grok/hooks/smolcorp.json")
+    static let openCodePlugin = home.appendingPathComponent(".config/opencode/plugins/smolcorp.js")
+    /// Grok's and OpenCode's files under the name the app had before, moved to the new ones.
+    static let oldGrokHooks = home.appendingPathComponent(".grok/hooks/sauzzedeck-pro.json")
+    static let oldOpenCodePlugin = home.appendingPathComponent(".config/opencode/plugins/sauzzedeck-pro.js")
     static let launchAgent = home.appendingPathComponent("Library/LaunchAgents/\(LoginItem.label).plist")
     /// Where macOS finds screen savers installed for you alone.
-    static let installedScreenSaver = home.appendingPathComponent("Library/Screen Savers/SauzzeDeck Office.saver")
+    static let installedScreenSaver = home.appendingPathComponent("Library/Screen Savers/Smolcorp Office.saver")
+    /// The screen saver as it was called before, taken out when the new one goes in.
+    static let oldScreenSaver = home.appendingPathComponent("Library/Screen Savers/SauzzeDeck Office.saver")
 
     /// The phone and setup pages, bundled inside the app.
     static let web = Bundle.main.resourceURL!.appendingPathComponent("web", isDirectory: true)
     static let bundledHookScript = Bundle.main.resourceURL!.appendingPathComponent("report.sh")
     static let bundledOpenCodePlugin = Bundle.main.resourceURL!.appendingPathComponent("opencode-plugin.js")
-    static let bundledScreenSaver = Bundle.main.resourceURL!.appendingPathComponent("SauzzeDeck Office.saver")
+    static let bundledScreenSaver = Bundle.main.resourceURL!.appendingPathComponent("Smolcorp Office.saver")
 }

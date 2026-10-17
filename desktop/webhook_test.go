@@ -92,7 +92,7 @@ func listener(t *testing.T) (*httptest.Server, chan map[string]any, chan string)
 		var message map[string]any
 		data, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(data, &message)
-		secrets <- r.Header.Get("X-SauzzeDeck-Secret")
+		secrets <- r.Header.Get("X-Smolcorp-Secret")
 		messages <- message
 		w.WriteHeader(http.StatusNoContent)
 	}))

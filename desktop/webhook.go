@@ -112,9 +112,9 @@ func (w Webhook) send(message map[string]any) string {
 		return "Nothing sent: the address isn't one it can send to."
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("User-Agent", "SauzzeDeck Pro")
+	request.Header.Set("User-Agent", "Smolcorp")
 	if w.Secret != "" {
-		request.Header.Set("X-SauzzeDeck-Secret", w.Secret)
+		request.Header.Set("X-Smolcorp-Secret", w.Secret)
 	}
 	response, err := webhookClient.Do(request)
 	if err != nil {

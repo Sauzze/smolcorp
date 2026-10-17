@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="/icon.png">
-<title>SauzzeDeck Pro Setup</title>
+<title>Smolcorp Setup</title>
 <style>
   :root {
     --body: #0e0e0e; --cap: #1f1f1f; --cap-top: #262626; --edge: #2c2c2c;
@@ -288,7 +288,7 @@
   <header>
     <img id="header-logo" alt="">
     <div>
-      <h1>SauzzeDeck Pro</h1>
+      <h1>Smolcorp</h1>
       <p>A control pad for your coding agents, on your phone.</p>
     </div>
   </header>
@@ -319,15 +319,15 @@
       <div class="step" id="step-launcher" hidden>
         <div class="mark">✓</div>
         <div class="text">
-          <div class="title">Start your agents through SauzzeDeck Pro</div>
+          <div class="title">Start your agents through Smolcorp</div>
           <div class="detail">In any terminal, type <code id="launch"></code>, or codex, gemini, opencode or grok in place of claude. In tmux, WezTerm or kitty, start them as you always do.</div>
         </div>
       </div>
       <div class="step" id="step-accessibility">
         <div class="mark">✓</div>
         <div class="text">
-          <div class="title">Allow SauzzeDeck Pro to use your keyboard</div>
-          <div class="detail" data-pending="Needed for the buttons, the mic and scrolling. Turn SauzzeDeck Pro on in the list that opens. After an update, turn it on again." data-done="Allowed."></div>
+          <div class="title">Allow Smolcorp to use your keyboard</div>
+          <div class="detail" data-pending="Needed for the buttons, the mic and scrolling. Turn Smolcorp on in the list that opens. After an update, turn it on again." data-done="Allowed."></div>
         </div>
         <button class="btn primary" data-pending-only id="accessibility">Open Settings</button>
       </div>
@@ -380,7 +380,7 @@
         <div class="mark">✓</div>
         <div class="text">
           <div class="title">Open at login</div>
-          <div class="detail" data-pending="Keep the deck ready whenever your computer is on." data-done="SauzzeDeck Pro starts when you log in."></div>
+          <div class="detail" data-pending="Keep the deck ready whenever your computer is on." data-done="Smolcorp starts when you log in."></div>
         </div>
         <button class="switch" id="login" aria-label="Open at login"></button>
       </div>
@@ -499,7 +499,7 @@
   <section class="logo">
     <h2>Logo</h2>
     <div class="logos" id="logos">
-      <button data-logo="sauzze"><img src="/setup/logo/sauzze" alt="">Sauzze</button>
+      <button data-logo="smolcorp"><img src="/setup/logo/smolcorp" alt="">Smolcorp</button>
       <button data-logo="keys"><img src="/setup/logo/keys" alt="">Six keys</button>
     </div>
     <p class="hint">Shown as the app's icon, on this page, and on your phone's Home Screen the next time you add the deck to it.</p>
@@ -712,9 +712,9 @@
       detail.dataset.pending = 'No coding agent found yet. Install Claude Code, Codex, Gemini CLI, OpenCode or Grok, open it once, then connect.';
       return;
     }
-    detail.dataset.pending = `Lets ${names(found)} tell SauzzeDeck Pro what they're doing.`;
+    detail.dataset.pending = `Lets ${names(found)} tell Smolcorp what they're doing.`;
     detail.dataset.done = `Connected: ${names(found)}. Sessions that were already open need a restart.`
-      + (found.some((a) => a.id === 'codex') ? ' In Codex, run /hooks once and trust SauzzeDeck Pro.' : '');
+      + (found.some((a) => a.id === 'codex') ? ' In Codex, run /hooks once and trust Smolcorp.' : '');
   }
 
   /**
@@ -2260,14 +2260,14 @@
     await settle();
     const standard = state.theme.presets[0].colours;
     const file = {
-      sauzzedeckProfile: 1,
+      smolcorpProfile: 1,
       name: state.activeProfile,
       layout,
       colours: Object.fromEntries(Object.entries(colours).filter(([name, value]) => value !== standard[name])),
     };
     const link = document.createElement('a');
     link.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));
-    link.download = `${state.activeProfile}.sauzzedeck.json`;
+    link.download = `${state.activeProfile}.smolcorp.json`;
     document.body.append(link);
     link.click();
     link.remove();

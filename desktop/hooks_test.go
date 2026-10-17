@@ -9,7 +9,7 @@ import (
 )
 
 // Where an installed copy lives, as its hooks name it.
-const installedCommand = "/home/someone/.local/bin/sauzzedeck hook"
+const installedCommand = "/home/someone/.local/bin/smolcorp hook"
 
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
@@ -133,7 +133,7 @@ func TestGrokGetsAHooksFileOfItsOwn(t *testing.T) {
 	if err := connect(Grok, true); err != nil {
 		t.Fatal(err)
 	}
-	file := filepath.Join(home, ".grok", "hooks", "sauzzedeck-pro.json")
+	file := filepath.Join(home, ".grok", "hooks", "smolcorp.json")
 	if commands(readJSON(t, file), "Stop")[0] != hookCommand(Grok) {
 		t.Fatal("Grok's hooks file doesn't run the deck's hook")
 	}
@@ -193,14 +193,46 @@ func TestTheDecksHooksAreRecognisedWhereverTheyPoint(t *testing.T) {
 	for command, ours := range map[string]bool{
 		installedCommand:             true,
 		installedCommand + " gemini": true,
-		// On Windows, in the short form of C:\Program Files\SauzzeDeck Pro\sauzzedeck.exe.
-		"C:/PROGRA~1/SAUZZE~1/SAUZZE~1.EXE hook codex": true,
+		// Written by the app under the name it had before, so an update replaces them
+		"/home/someone/.local/bin/sauzzedeck hook": true,
+		// On Windows, in the short form of C:\Program Files\Smolcorp\smolcorp-cli.exe, and of the old name
+		"C:/PROGRA~1/SMOLCO~1/SMOLCO~1.EXE hook codex":    true,
+		"C:/PROGRA~1/SAUZZE~1/SAUZZE~1.EXE hook codex":    true,
+		"C:/Program Files/Smolcorp/smolcorp-cli.exe hook": true,
 		"say done":                       false,
 		"/usr/local/bin/other-tool hook": false,
-		"/home/someone/.local/bin/sauzzedeck run claude": false,
+		"/home/someone/.local/bin/smolcorp run claude": false,
 	} {
 		if got := isOurs(map[string]any{"type": "command", "command": command}); got != ours {
 			t.Errorf("isOurs(%q) = %v, want %v", command, got, ours)
+		}
+	}
+}
+
+func TestAnUpdateMovesGrokAndOpenCodeToTheNewName(t *testing.T) {
+	home := isolate(t)
+	writeFile(t, filepath.Join(home, ".grok", "hooks", "sauzzedeck-pro.json"), `{"hooks": {}}`)
+	writeFile(t, filepath.Join(home, ".config", "opencode", "plugins", "sauzzedeck-pro.js"), "// the old plugin")
+	if !isConnected(OpenCode) {
+		t.Fatal("OpenCode's plugin under the old name doesn't count as connected")
+	}
+	refreshHooks()
+	for _, old := range []string{oldGrokHooks(), oldOpenCodePlugin()} {
+		if _, err := os.Stat(old); !os.IsNotExist(err) {
+			t.Errorf("%s is still there after the update", old)
+		}
+	}
+	if !isConnected(Grok) || !isConnected(OpenCode) {
+		t.Errorf("after the update: Grok connected %v, OpenCode %v; want both", isConnected(Grok), isConnected(OpenCode))
+	}
+	// Disconnecting takes out both names
+	writeFile(t, oldGrokHooks(), `{"hooks": {}}`)
+	if err := disconnectAgents(); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{oldGrokHooks(), filepath.Join(home, ".grok", "hooks", "smolcorp.json"), openCodePlugin()} {
+		if _, err := os.Stat(file); !os.IsNotExist(err) {
+			t.Errorf("disconnecting left %s behind", file)
 		}
 	}
 }

@@ -10,7 +10,7 @@ import (
 	"fyne.io/systray"
 )
 
-//go:embed tray-sauzze.png tray-keys.png
+//go:embed tray-smolcorp.png tray-keys.png
 var trayIcons embed.FS
 
 // RunApp is the app: the deck's server, with an icon in the tray, the
@@ -18,6 +18,7 @@ var trayIcons embed.FS
 func RunApp() int {
 	deck := NewDeck()
 	refreshHooks()
+	moveOpenAtLogin()
 	failed := make(chan error, 1)
 	go func() { failed <- Serve(deck) }()
 
@@ -43,7 +44,7 @@ func RunServer() int {
 }
 
 func reportFailure(err error) int {
-	fmt.Fprintf(os.Stderr, "sauzzedeck: %v\n", err)
+	fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 	return 1
 }
 
@@ -61,7 +62,7 @@ type tray struct {
 
 func newTray(deck *Deck, failed <-chan error) {
 	t := &tray{deck: deck}
-	systray.SetTooltip("SauzzeDeck Pro")
+	systray.SetTooltip("Smolcorp")
 	t.count = systray.AddMenuItem("", "")
 	t.count.Disable()
 	systray.AddSeparator()
@@ -71,7 +72,7 @@ func newTray(deck *Deck, failed <-chan error) {
 	systray.AddSeparator()
 	t.login = systray.AddMenuItemCheckbox("Open at Login", "", isOpenAtLogin())
 	systray.AddSeparator()
-	t.quit = systray.AddMenuItem("Quit SauzzeDeck Pro", "")
+	t.quit = systray.AddMenuItem("Quit Smolcorp", "")
 
 	deck.mu.Lock()
 	deck.OnChange = t.update
@@ -106,7 +107,7 @@ func (t *tray) update() {
 		title = fmt.Sprint(waiting)
 	}
 	systray.SetTitle(title)
-	systray.SetTooltip(strings.TrimSpace("SauzzeDeck Pro " + map[bool]string{true: "· " + title + " waiting on you"}[waiting > 0]))
+	systray.SetTooltip(strings.TrimSpace("Smolcorp " + map[bool]string{true: "· " + title + " waiting on you"}[waiting > 0]))
 	if phones > 0 {
 		t.unpair.Show()
 	} else {
@@ -142,7 +143,7 @@ func (t *tray) listen(failed <-chan error) {
 			systray.Quit()
 			return
 		case <-failed:
-			t.count.SetTitle(fmt.Sprintf("Port %d is in use. Is SauzzeDeck Pro already running?", Port))
+			t.count.SetTitle(fmt.Sprintf("Port %d is in use. Is Smolcorp already running?", Port))
 		}
 	}
 }

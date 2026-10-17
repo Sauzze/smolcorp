@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// The hook is `sauzzedeck hook [agent]`, which every agent runs at each step
+// The hook is `smolcorp hook [agent]`, which every agent runs at each step
 // of a session: the counterpart of the Mac app's report.sh, built in because
 // Windows has no bash or curl. The event JSON arrives on stdin and is passed
 // on as it is, with headers for the agent, the time the event was raised,
@@ -75,8 +75,11 @@ func tabFromEnvironment(agent Agent) string {
 	if agent == Codex {
 		return ""
 	}
-	if id := os.Getenv("SAUZZEDECK_SESSION"); id != "" {
-		return "launcher:" + id
+	// Agents started before the app was Smolcorp carry the old name
+	for _, name := range []string{"SMOLCORP_SESSION", "SAUZZEDECK_SESSION"} {
+		if id := os.Getenv(name); id != "" {
+			return "launcher:" + id
+		}
 	}
 	if pane := os.Getenv("TMUX_PANE"); pane != "" {
 		socket, _, _ := strings.Cut(os.Getenv("TMUX"), ",")

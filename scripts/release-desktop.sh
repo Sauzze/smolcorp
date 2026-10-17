@@ -2,8 +2,8 @@
 # Builds the Windows and Linux downloads for a GitHub release, next to the
 # Mac's, and prints their SHA-256s for the release notes:
 #
-#   build/SauzzeDeck-Pro-Windows-x86_64.zip    build/SauzzeDeck-Pro-Windows-arm64.zip
-#   build/SauzzeDeck-Pro-Linux-x86_64.tar.gz   build/SauzzeDeck-Pro-Linux-arm64.tar.gz
+#   build/Smolcorp-Windows-x86_64.zip    build/Smolcorp-Windows-arm64.zip
+#   build/Smolcorp-Linux-x86_64.tar.gz   build/Smolcorp-Linux-arm64.tar.gz
 #
 #   scripts/release-desktop.sh
 #
@@ -21,36 +21,37 @@ mkdir -p "$STAGE"
 # -trimpath keeps the paths of this machine out of the programs.
 build() { # GOOS GOARCH OUTPUT [extra linker flags]
   CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath \
-    -ldflags "-s -w -X main.version=$VERSION ${4:-}" -o "$3" ./cmd/sauzzedeck
+    -ldflags "-s -w -X main.version=$VERSION ${4:-}" -o "$3" ./cmd/smolcorp
 }
 
 for arch in amd64 arm64; do
   name="${arch/amd64/x86_64}"
 
   # Windows: the app, which has no console window, and the command line
-  # that agents and terminals run.
-  dir="$STAGE/SauzzeDeck-Pro-Windows-$name"
+  # that agents and terminals run. Windows ignores case, so the two can't be
+  # Smolcorp.exe and smolcorp.exe.
+  dir="$STAGE/Smolcorp-Windows-$name"
   mkdir -p "$dir"
-  build windows "$arch" "$dir/SauzzeDeck Pro.exe" "-H windowsgui"
-  build windows "$arch" "$dir/sauzzedeck.exe"
+  build windows "$arch" "$dir/Smolcorp.exe" "-H windowsgui"
+  build windows "$arch" "$dir/smolcorp-cli.exe"
   cp LICENSE "$dir/LICENSE.txt"
-  rm -f "build/SauzzeDeck-Pro-Windows-$name.zip"
+  rm -f "build/Smolcorp-Windows-$name.zip"
   # -X leaves out this machine's user and group ids.
-  (cd "$STAGE" && zip -qrX "../SauzzeDeck-Pro-Windows-$name.zip" "SauzzeDeck-Pro-Windows-$name")
+  (cd "$STAGE" && zip -qrX "../Smolcorp-Windows-$name.zip" "Smolcorp-Windows-$name")
 
   # Linux: one program, and an installer for your own account.
-  dir="$STAGE/SauzzeDeck-Pro-Linux-$name"
+  dir="$STAGE/Smolcorp-Linux-$name"
   mkdir -p "$dir"
-  build linux "$arch" "$dir/sauzzedeck"
+  build linux "$arch" "$dir/smolcorp"
   cp packaging/linux/install.sh LICENSE "$dir/"
-  cp Resources/web/icon-sauzze.png "$dir/sauzzedeck-pro.png"
+  cp packaging/linux/smolcorp.png "$dir/smolcorp.png"
   # Owned by root, without the Mac's extended attributes: an archive made
   # here would otherwise carry this machine's user name and metadata.
   COPYFILE_DISABLE=1 tar --uid 0 --gid 0 --uname root --gname root --no-xattrs --no-mac-metadata \
-    -czf "build/SauzzeDeck-Pro-Linux-$name.tar.gz" -C "$STAGE" "SauzzeDeck-Pro-Linux-$name"
+    -czf "build/Smolcorp-Linux-$name.tar.gz" -C "$STAGE" "Smolcorp-Linux-$name"
 done
 
-echo "SauzzeDeck Pro $VERSION for Windows and Linux"
-for file in build/SauzzeDeck-Pro-Windows-*.zip build/SauzzeDeck-Pro-Linux-*.tar.gz; do
+echo "Smolcorp $VERSION for Windows and Linux"
+for file in build/Smolcorp-Windows-*.zip build/Smolcorp-Linux-*.tar.gz; do
   echo "SHA-256: $(shasum -a 256 "$file" | cut -d ' ' -f 1)  ${file#build/}"
 done

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>SauzzeDeck Office</string>
+  <string>Smolcorp Office</string>
   <key>CFBundleIdentifier</key>
   <string>io.github.sauzze.agentdeck.screensaver</string>
   <key>CFBundleExecutable</key>

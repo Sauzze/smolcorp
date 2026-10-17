@@ -22,11 +22,11 @@ import (
 	"golang.org/x/term"
 )
 
-// The launcher is `sauzzedeck run <agent> [arguments]`. It starts the agent
+// The launcher is `smolcorp run <agent> [arguments]`. It starts the agent
 // in a terminal of its own, inside the one you typed the command in: your
 // typing goes in and the agent's screen comes out exactly as before, and the
 // deck can press keys in it too, with no window to find and no permission to
-// ask for. It sets SAUZZEDECK_SESSION, so the agent's hooks can say which
+// ask for. It sets SMOLCORP_SESSION, so the agent's hooks can say which
 // launcher they run in.
 //
 // The launcher holds a connection to the app open, and the app sends the
@@ -50,18 +50,18 @@ const reconnectDelay = 3 * time.Second
 // RunLauncher returns the agent's exit code.
 func RunLauncher(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: sauzzedeck run <agent> [arguments], for example: sauzzedeck run claude")
+		fmt.Fprintln(os.Stderr, "Usage: smolcorp run <agent> [arguments], for example: smolcorp run claude")
 		return 2
 	}
 	program, programArgs, err := resolveProgram(args[0], args[1:])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "sauzzedeck: %v\n", err)
+		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 		return 127
 	}
 
 	terminal, err := pty.New()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "sauzzedeck: no pseudo-terminal: %v\n", err)
+		fmt.Fprintf(os.Stderr, "smolcorp: no pseudo-terminal: %v\n", err)
 		return 1
 	}
 	defer terminal.Close()
@@ -69,11 +69,11 @@ func RunLauncher(args []string) int {
 	id := newID()
 	folder, _ := os.Getwd()
 	cmd := terminal.Command(program, programArgs...)
-	cmd.Env = append(os.Environ(), "SAUZZEDECK_SESSION="+id)
+	cmd.Env = append(os.Environ(), "SMOLCORP_SESSION="+id)
 	cmd.Dir = folder
 	matchSize(terminal)
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "sauzzedeck: %v\n", err)
+		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 		return 127
 	}
 

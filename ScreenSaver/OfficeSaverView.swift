@@ -4,7 +4,7 @@ import WebKit
 /// The Agent Office as a screen saver: `/office`, the page a spare screen
 /// shows, watched rather than used, since any input ends a screen saver.
 ///
-/// It asks SauzzeDeck Pro whether its key still works before showing the
+/// It asks Smolcorp whether its key still works before showing the
 /// page, because the page can't tell it: a key the app no longer knows gets
 /// the pairing page instead, as a 200 like the office. Until the answer is
 /// yes, a notice says what to do, and the screen saver asks again every few
@@ -26,7 +26,7 @@ final class OfficeSaverView: ScreenSaverView {
 
     /// Added to the office: no cursor, no clicks and no status line, since
     /// nobody can use them here. The status line still says when the page
-    /// loses SauzzeDeck Pro, and the screen saver takes over from there.
+    /// loses Smolcorp, and the screen saver takes over from there.
     private static let watchOnly = """
         const style = document.createElement('style');
         style.textContent = '* { cursor: none !important; } body { pointer-events: none; } .status, .pop-out { display: none !important; }';
@@ -82,7 +82,7 @@ final class OfficeSaverView: ScreenSaverView {
 
     @objc private func screenSaverWillStop() { stopAnimation() }
 
-    /// Shows the office if SauzzeDeck Pro is running and still knows the
+    /// Shows the office if Smolcorp is running and still knows the
     /// key, and otherwise says why not.
     private func check() {
         // macOS may start a view twice: one office each is enough.
@@ -183,7 +183,7 @@ extension OfficeSaverView: WKNavigationDelegate {
 }
 
 extension OfficeSaverView: WKScriptMessageHandler {
-    /// The page lost SauzzeDeck Pro: see `watchOnly`.
+    /// The page lost Smolcorp: see `watchOnly`.
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) { lost() }
 }
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# SauzzeDeck Pro's hook, run by every coding agent it follows. Forwards each
+# Smolcorp's hook, run by every coding agent it follows. Forwards each
 # hook event to the app.
 #
 #   report.sh [agent]   claude (the default), codex, gemini or opencode
