@@ -40,7 +40,7 @@ the folder the agent started in, or the top of its git repository.
 | In the office | What it does |
 |---|---|
 | **A desk, or its person** | Picks that session and brings its Terminal window to the front. |
-| **▲ ▼ ✓ ✕ over an agent waiting on you** | Move through its options, accept or reject. They come up on their own. |
+| **▲ ▼ ✓ ✕ over the picked agent, when it's waiting on you** | Move through its options, accept or reject. They come up on their own. |
 | **A desk, held** | Brings out its keys along the foot of the room: **esc** interrupts it, **⏎ send** presses Return, **/clear** starts a fresh conversation (tap twice), **↑ ↓** move through its menus, then [your own buttons](#make-it-yours). On a Claude Code desk, also paint chips for its thinking effort, from low to max; if Claude is mid-task, the change waits until it finishes. The coffee by the monitor shows the effort: one mug for low, up to four, and a steaming pot at max. A tap elsewhere puts them away. |
 | **The red button** | ☢ Max effort for the picked session, in one press. |
 | **The mic, held** | Talk to Claude Code. Let go, and Claude sends what you said once it's three words or more. |
@@ -59,7 +59,7 @@ furnish the office your way.
 Each agent tells Smolcorp what it's doing through its own hooks, and the
 deck presses that agent's own keys:
 
-| Agent | Interrupt | Fresh conversation | Dial and mic |
+| Agent | Interrupt | Fresh conversation | Effort and mic |
 |---|---|---|---|
 | [Claude Code](https://claude.com/claude-code) | Esc | `/clear` | ✓ |
 | [Codex](https://github.com/openai/codex) | Esc | `/new` | – |
@@ -151,10 +151,10 @@ The setup page walks you through these steps:
 5. **Let the jukebox play your music** (optional). Tap a jukebox in the
    office to play or pause whatever your Mac is playing: Spotify, Apple
    Music, a video in your browser. It presses the keyboard's play/pause key.
-6. **Tell other tools** (optional). Sends what your agents do to an address
-   on your network, such as a Home Assistant webhook. See
-   [Tell other tools](#tell-other-tools).
-7. **Open at login** (optional). Keeps the deck ready whenever your Mac is on.
+6. **Open at login** (optional). Keeps the deck ready whenever your Mac is on.
+
+Under **More**, at the foot of the page: [Tell other tools](#tell-other-tools),
+for sending what your agents do to Home Assistant or another tool of yours.
 
 The first time you press a button, macOS asks whether Smolcorp may
 control Terminal. Click **Allow**.
@@ -223,11 +223,11 @@ Smolcorp again from Applications.
   <img src="docs/office.png" alt="The office: nine agents at their desks, dressed for their models from a T-shirt to a suit, one waving for attention as the room's edge glows, interns round a desk, a dog lying by the web-app desk, an arcade machine in the lounge, and the big red button in the corridor" width="800">
 </p>
 
-Your sessions can also be people in a little pixel-art office. Each key is a
-desk, in the same order, and the person at it acts out what their session is
-doing:
+Your sessions are people in a little pixel-art office. Each session is a
+desk, numbered as on the setup page, and the person at it acts out what their
+session is doing:
 
-| On the deck | In the office |
+| Session | In the office |
 |---|---|
 | Working | Typing, the screen lit, dots rising from it |
 | Waiting on you | Standing up and waving, with a blinking **!**. Kept waiting more than five minutes, they get agitated: hopping, a red **!**, steam from the ears |
@@ -349,7 +349,7 @@ Two more things work there:
 
 | In the office | What it does |
 |---|---|
-| An agent's desk, held, then dragged | Picks the agent up, chair and all. Let go over another desk and the two swap. They stay that way: each project is pinned to its new desk, as on the setup page's *Keys*, where you can undo it. |
+| An agent's desk, held, then dragged | Picks the agent up, chair and all. Let go over another desk and the two swap. They stay that way: each project is pinned to its new desk, as on the setup page's *Desks*, where you can undo it. |
 | A desk, held | With hiring and firing on, also **YOU'RE FIRED**, or **HIRE** on a desk a new hire would take (see below). |
 
 **Hire and fire**, once you turn on **Let the office hire and fire** on the
@@ -413,7 +413,7 @@ hears it.
 
 Smolcorp can tell another tool what your agents are doing, so a lamp
 turns orange when one waits on you, or your phone buzzes when a long task is
-done. Turn on **Tell other tools** on the setup page, give it an address, and
+done. Turn on **Tell other tools** under **More** on the setup page, give it an address, and
 pick what to send:
 
 | Event | When |
@@ -443,7 +443,8 @@ with a JSON body:
 }
 ```
 
-`key` is the deck key the session is on, or `null` if it isn't on one. An
+`key` is the number of the desk the session is at, as the setup page numbers
+them from 1, or `null` if it has none. An
 `error` also has an `errorKind`, as the agent named it, such as `rate_limit`
 or `overloaded`. **Send a test** sends `"event": "test"` with no session. If
 you set a secret, every message carries it in an `X-Smolcorp-Secret` header.
@@ -513,8 +514,8 @@ automation:
   an agent is doing. A phone's key can't pose as an agent, and the agents' key
   can't drive the deck.
 - **Scrolling, hiring and firing are off until you turn them on.** Out of the
-  box, a paired phone can only use the deck's buttons, dial and choices, and
-  move desks around in the office, which pins projects to keys as the setup
+  box, a paired phone can only use the office's keys, effort chips and
+  choices, and move desks around, which pins projects to desks as the setup
   page does. Even turned on, firing asks first, and only stops the agent
   itself; hiring only starts the agent you chose, in the folder you chose or
   in a pinned project's.
@@ -534,7 +535,7 @@ automation:
 
 ## Troubleshooting
 
-**The keys stay empty.** Click **Connect** on the setup page, then restart your
+**The desks stay empty.** Click **Connect** on the setup page, then restart your
 agent sessions. On a Mac, they need to run in the Terminal app. On Windows and
 Linux, start them with `smolcorp run`, or in tmux, WezTerm or kitty.
 
@@ -591,8 +592,9 @@ using that port. Quit it and open Smolcorp again.
 On Windows and Linux, disconnect and turn off **Open at login** the same way,
 quit Smolcorp from its tray menu, then delete:
 
-- **Linux:** `~/.local/bin/smolcorp`,
-  `~/.local/share/applications/smolcorp.desktop`, and the folders
+- **Linux:** `~/.local/bin/smolcorp` (and `~/.local/bin/sauzzedeck`, if you
+  updated from SauzzeDeck Pro), `~/.local/share/applications/smolcorp.desktop`,
+  and the folders
   `~/.local/share/smolcorp` and `~/.config/sauzzedeck-pro`. The settings folder
   kept the name the app had before.
 - **Windows:** the folder you extracted, and `%APPDATA%\SauzzeDeck Pro`, which
@@ -618,7 +620,7 @@ works out each session's state and streams it to your phone. On Windows and
 Linux, `smolcorp hook` does the script's job, and names the launcher, tmux
 pane or terminal window instead of a Terminal tab.
 
-On the Mac, controls work in one of two ways:
+On the Mac, controls work in one of three ways:
 
 - **Typed commands** such as `/effort` and `/clear` are typed into the tab
   through Terminal's scripting.
@@ -666,10 +668,10 @@ What's different from the Mac:
   deck sends keys through the terminal's own commands. kitty needs its remote
   control turned on (`allow_remote_control yes` and `listen_on` in
   `kitty.conf`).
-- **Tapping a key** brings its pane forward in tmux, WezTerm and kitty. In the
+- **Tapping a desk** brings its pane forward in tmux, WezTerm and kitty. In the
   launcher it only selects the session, because the launcher can't tell which
   window it's in.
-- **The scroll wheel** works in tmux and kitty.
+- **Two-finger scrolling** works in tmux and kitty.
 - **No Accessibility step.** Nothing here needs that permission.
 
 ### Linux

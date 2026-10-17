@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="/icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <title>Smolcorp Setup</title>
 <style>
   :root {
@@ -556,7 +557,7 @@
         <h4>On the back wall</h4>
         <div class="tiles adding" id="drawer-wall"></div>
       </div>
-      <p class="hint">Click a piece in the room to pick it, drag it where you want it, and drag its corner to grow it. The arrow keys nudge it, and Shift nudges it further. Each desk is a key on your phone: a session whose desk is put away waits by the door. The room on its side and upright are arranged on their own. Your phone follows as you go.</p>
+      <p class="hint">Click a piece in the room to pick it, drag it where you want it, and drag its corner to grow it. The arrow keys nudge it, and Shift nudges it further. A session whose desk is put away waits in line along the back wall. The room on its side and upright are arranged on their own. Your phone follows as you go.</p>
     </aside>
   </div>
 </div>
@@ -870,7 +871,7 @@
       el.querySelector('.label').innerHTML = `${i + 1}${pin ? ' · <span class="pinned">pinned</span>' : ''}`;
       if (s) el.querySelector('.dot').dataset.state = s.state;
       el.querySelector('.name').textContent = s ? s.name : pin ? pin.name : shown ? 'Free' : 'Spare';
-      el.querySelector('.sub').textContent = !open ? `Not on the phone with ${state.layout.keys} keys`
+      el.querySelector('.sub').textContent = !open ? `Not in the office with ${state.layout.keys} desks`
         : pin ? pin.folder : s ? s.folder : shown ? 'Takes the next session' : 'Not on the phone yet';
       if (pin) {
         const unpin = document.createElement('button');
@@ -910,7 +911,7 @@
       el.querySelector('.dot').dataset.state = s.state;
       el.querySelector('.name').textContent = s.name;
       el.querySelector('.path').textContent = s.folder;
-      el.querySelector('.where').textContent = `${s.agentName} · ${s.key === null ? 'no key' : `key ${s.key + 1}`}`;
+      el.querySelector('.where').textContent = `${s.agentName} · ${s.key === null ? 'no desk' : `desk ${s.key + 1}`}`;
       el.ondragstart = (e) => e.dataTransfer.setData('text/plain', s.folder);
       el.onclick = () => { picked = picked === s.folder ? null : s.folder; renderKeys(); renderSessions(); };
       return el;
@@ -968,6 +969,9 @@
       return;
     }
     layout = structuredClone(state.layout);
+    // Another layout, as a profile switched to: what could be undone was another's
+    undone = [];
+    redone = [];
     drawLayout();
   }
 
@@ -1210,7 +1214,7 @@
   const NICKNAME_LIMIT = 16;
   let teamShown = ''; // the projects the team's cards were drawn for
 
-  /** The projects a team can have: those running, those pinned to a key, and those already dressed. */
+  /** The projects a team can have: those running, those pinned to a desk, and those already dressed. */
   function teamProjects() {
     const names = [...state.sessions.map((s) => s.name), ...state.pins.filter(Boolean).map((p) => p.name),
       ...Object.keys((layout.room && layout.room.team) || {})];
@@ -1223,7 +1227,7 @@
     teamShown = projects.join('\n');
     if (!projects.length) {
       $('room-team').innerHTML = '<div class="empty"></div>';
-      $('room-team').firstChild.textContent = 'Your projects show here once an agent is running in one, or one is pinned to a key.';
+      $('room-team').firstChild.textContent = 'Your projects show here once an agent is running in one, or one is pinned to a desk.';
       return;
     }
     const blank = () => ({ ...Object.fromEntries(Object.entries(TEAM_CHOICES).map(([part, [, options]]) => [part, options[0][0]])), name: '' });
@@ -1706,7 +1710,22 @@
   /** The room arranged anew, a piece moved, grown, put away or added: kept in the layout, and sent on in a moment. */
   function keepArranged(plan) {
     remember();
-    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
+    let room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
+    const hungBefore = JSON.stringify((room.plan && room.plan.hung) || {});
+    // In a style, a change to the back wall makes the office yours, as any change to its furnishing does: the
+    // style written out, as it looked, with the wall as it's now hung in the shape shown
+    if (room.preset && room.preset !== 'yours' && JSON.stringify(plan.hung || {}) !== hungBefore) {
+      const out = furnished(room);
+      const other = arrangeShape === 'wide' ? 'tall' : 'wide';
+      const kept = out.plan && out.plan.hung ? out.plan.hung[other] : plan.hung[other];
+      room = layout.room = { ...out, plan: { ...plan, hung: { ...plan.hung, [other]: kept === undefined ? null : kept } } };
+      saveArranged();
+      showArranged();
+      showPreview();
+      renderProfiles();
+      drawLayout();
+      return;
+    }
     room.plan = plan;
     saveArranged();
     showPreview();
@@ -2133,7 +2152,7 @@
     const name = (prompt(question, suggestion) || '').trim().slice(0, NAME_LIMIT);
     if (!name) return null;
     if (name.toLowerCase() === DEFAULT_PROFILE.toLowerCase()) {
-      alert('Default is taken: it\'s always the standard deck.');
+      alert('Default is taken: it\'s always the standard office.');
       return null;
     }
     return name;

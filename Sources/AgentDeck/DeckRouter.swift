@@ -29,6 +29,11 @@ final class DeckRouter: Router {
         if request.path == "/icon.png" {
             return respond(.file(Config.shared.logo.icon))
         }
+        // A browser tab's icon, drawn for its size: the hire's head and shoulders, or the six keys
+        if request.path == "/favicon-16.png" || request.path == "/favicon-32.png" {
+            let logo = Config.shared.logo
+            return respond(.file(logo == .smolcorp ? Paths.web.appendingPathComponent(String(request.path.dropFirst())) : logo.icon))
+        }
 
         if request.path == "/setup" || request.path.hasPrefix("/setup/") {
             guard request.isLocal else { return respond(.status(404)) }

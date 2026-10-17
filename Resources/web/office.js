@@ -306,7 +306,12 @@
       }
       for (const key of ['wide', 'tall']) if (Object.keys(pieces[key]).length) shapes[key][name] = pieces[key];
     });
-    room.plan = { ...plan, ...shapes };
+    // The back wall as hung, in each shape, as the style shows it: its pieces in your places, in turn
+    const wall = room.wall;
+    const hung = object(plan.hung);
+    const walls = Object.fromEntries(['wide', 'tall'].map((side) => [side, Array.isArray(hung[side])
+      ? hung[side].map((piece, i) => ({ ...piece, kind: wall[i % wall.length] })) : hung[side]]));
+    room.plan = { ...plan, ...shapes, ...(plan.hung ? { hung: { ...hung, ...walls } } : {}) };
     room.preset = 'yours';
     return room;
   }
@@ -9288,6 +9293,8 @@
     function hungList(plan) {
       const side = shapeName();
       if (!Array.isArray(plan.hung[side])) plan.hung[side] = hungOf({ ...decor, preset: 'yours' }).filter((piece) => piece.kind !== 'bare');
+      // In a style, the wall as it's seen, the style's pieces in your places: what's changed is what you see
+      else if (ROOM_STYLES[decor.preset]) plan.hung[side] = hungOf().map((piece) => ({ ...piece }));
       return plan.hung[side];
     }
 
@@ -9337,6 +9344,8 @@
         piece = plan[side][part] = { ...(plan[side][part] || STANDARD_PIECE), ...change };
       }
       decor = { ...decor, plan };
+      // A desk is measured where it's going, not where it was
+      if (part.startsWith('desk')) DESKS = desksOf(decor);
       if (piece && !piece.off) {
         // Kept inside the room, however big it's grown
         const box = pieceBox(part);

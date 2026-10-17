@@ -133,6 +133,17 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		serveFile(w, "Resources/web/icon-"+logo+".png")
 		return
+	// A browser tab's icon, drawn for its size: the hire's head and shoulders, or the six keys
+	case r.URL.Path == "/favicon-16.png" || r.URL.Path == "/favicon-32.png":
+		d.mu.Lock()
+		logo := d.config.Logo
+		d.mu.Unlock()
+		if logo == "smolcorp" {
+			serveFile(w, "Resources/web"+r.URL.Path)
+		} else {
+			serveFile(w, "Resources/web/icon-"+logo+".png")
+		}
+		return
 	case r.URL.Path == "/setup" || strings.HasPrefix(r.URL.Path, "/setup/"):
 		if !r.isLocal {
 			http.NotFound(w, r.Request)
