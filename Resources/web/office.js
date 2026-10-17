@@ -4638,8 +4638,8 @@
      */
     function workspaceAt(desk) {
       const { x, y } = DESKS[desk];
-      let paint = EFFORT_PAINT[office.deskEffort(desk)] ?? null;
-      if (blast && blast.desk === desk && sinceBlast >= 0 && sinceBlast < 1.2 && Math.floor(sinceBlast * 6) % 2 === 0) paint = WHITE;
+      // The desk keeps its own finish whatever the effort, which shows in mugs of coffee on it; it flashes as the button goes down.
+      const paint = blast && blast.desk === desk && sinceBlast >= 0 && sinceBlast < 1.2 && Math.floor(sinceBlast * 6) % 2 === 0 ? WHITE : null;
       return {
         x, y, s: seat(desk),
         tint: (plain, shade) => (paint === null ? plain : shaded(paint, shade)),
@@ -4858,6 +4858,7 @@
       if (workspace.things) drawDeskThing(thing, x + workspace.things.dx, y + workspace.things.dy);
 
       const occupant = occupantOf(desk);
+      drawEffort(desk, { x, y, kind, occupant });
       if (!occupant) return;
       const failure = failureOf(occupant.session);
       if (failure) drawFailureAtDesk(failure, takeOf(occupant), { x, y, s, workspace, occupant });
@@ -4929,6 +4930,61 @@
         fill(l + 1, sy + 5, 23, 6, 0xf4f1ea);
         pixelText('CLOSED', l + 1, sy + 5, PALETTE.dome, false);
       }
+    }
+
+    /** Workspaces with no flat top to put a mug on: their mugs stand on the floor beside them. */
+    const NO_TOP = ['tent', 'beanbag', 'ship'];
+    const EFFORT_MUGS = { low: 1, medium: 2, high: 3, xhigh: 4 };
+
+    /** A mug of coffee, 4 wide and 4 tall, outlined so it shows on any desk, its bottom on `y`, its left at `x`, its handle on the right. */
+    function drawMug(x, y) {
+      fill(x - 1, y - 4, 6, 6, PALETTE.frame);
+      fill(x, y - 3, 4, 4, PALETTE.mug);
+      fill(x, y - 3, 4, 1, DESK_THINGS.coffee);
+      fill(x + 5, y - 2, 1, 2, PALETTE.frame);
+      dot(x + 4, y - 2, PALETTE.mug);
+      dot(x + 4, y - 1, PALETTE.mug);
+      fill(x, y - 2, 1, 2, WHITE, 0.5);
+    }
+    /** Steam rising, `count` puffs, from `x`, `y`. */
+    function drawSteam(x, y, count, reach) {
+      for (let k = 0; k < count; k++) {
+        const rise = (now * 0.7 + k / count) % 1;
+        fill(x + Math.round(Math.sin(rise * 6 + k) * 2), y - Math.round(rise * reach), 2, 1, WHITE, 0.6 * (1 - rise));
+      }
+    }
+
+    /**
+     * How hard an agent is working, in coffee: a tower of mugs by the
+     * monitor, one for low effort up to four for extra high, the fourth
+     * making it sway, and for the most, a moka pot steaming and steam off
+     * the agent. A workspace with no top to put them on has them on the
+     * floor beside it.
+     */
+    function drawEffort(desk, { x, y, kind, occupant }) {
+      const effort = office.deskEffort(desk);
+      if (!effort) return;
+      const away = NO_TOP.includes(kind), mx = away ? x - 7 : x + 1;
+      if (effort !== 'max') {
+        const my = away ? y + 15 : y + 1, count = EFFORT_MUGS[effort] ?? 1, sway = count >= 4 ? Math.round(Math.sin(now * 3) * 0.6) : 0;
+        if (away) fill(mx - 1, my + 1, 6, 1, SHADOW);
+        for (let i = 0; i < count; i++) drawMug(mx + (i >= 2 ? sway : 0), my - i * 5);
+        return;
+      }
+      // A moka pot at the desk's front edge, outlined, its handle black, steam from its spout
+      const my = away ? y + 15 : y + 3;
+      fill(mx - 1, my - 10, 9, 11, PALETTE.frame);
+      fill(mx + 1, my - 7, 4, 3, 0xc8cdd6);
+      fill(mx, my - 4, 6, 4, 0xa8adb6);
+      fill(mx + 1, my - 8, 4, 1, 0x9aa0a6);
+      dot(mx + 2, my - 9, 0x2a2a2e);
+      fill(mx + 6, my - 6, 1, 3, 0x2a2a2e);
+      dot(mx - 1, my - 7, 0x9aa0a6);
+      fill(mx + 1, my - 3, 1, 2, WHITE, 0.5);
+      fill(mx, my, 6, 1, SHADOW);
+      drawSteam(mx - 1, my - 8, 3, 7);
+      // And steam off the agent at it
+      if (occupant) drawSteam(occupant.position.x - 1, topOf(occupant, poseOf(occupant, now)) - 1, 4, 9);
     }
 
     /** The office's chair, at a workspace that has one. */
