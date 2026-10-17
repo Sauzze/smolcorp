@@ -169,6 +169,11 @@
   .arranger aside .picked { font-weight: 600; }
   .arranger aside .tools { display: flex; flex-wrap: wrap; gap: 6px; }
   .arranger aside .tray { display: grid; gap: 6px; }
+  .arranger aside .looks { display: grid; gap: 6px; }
+  .arranger aside .looks label { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; align-items: center;
+    font-size: 13px; color: var(--dim); }
+  .arranger aside .looks select { min-width: 0; background: var(--cap); color: var(--ink); border: 1px solid var(--edge);
+    border-radius: 6px; padding: 5px 8px; font: inherit; }
   .arranger aside .btn { white-space: normal; }
   .arranger aside .tray .btn { text-align: left; }
   .arranger aside .tiles.adding { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
@@ -389,7 +394,8 @@
         <div class="field stacked"><span>Back wall, left to right</span><div class="wall" id="room-wall"></div></div>
         <div class="field"><span>Floor</span><div class="choices" id="room-floor"></div></div>
         <div class="field"><span>Walls</span><div class="choices" id="room-paint"></div></div>
-        <div class="field"><span>Lounge</span><div class="choices" id="room-lounge"></div></div>
+        <div class="field"><span>Lounge floor</span><div class="choices" id="room-lounge"></div></div>
+        <div class="field"><span>Lounge wall</span><div class="choices" id="room-loungePaint"></div></div>
         <div class="field stacked"><span>In the lounge</span><div class="tiles" id="room-corner"></div></div>
         <div class="field"><span>Daylight</span><div class="choices" id="room-sky"></div></div>
         <div class="field"><span>Seasons in the windows</span><div class="choices" id="room-season"></div></div>
@@ -467,6 +473,8 @@
         <h3>This desk is</h3>
         <div class="tools"><span id="arrange-desk-auto"></span></div>
         <div class="tiles adding" id="arrange-workspace"></div>
+        <div class="looks" id="arrange-look"></div>
+        <p class="hint">A desk looks the same on its side and upright. A project's own workspace or desk item, on its card under Your team, comes first.</p>
       </div>
       <div class="tools">
         <button class="btn" id="arrange-hide">Put it away</button>
@@ -474,6 +482,8 @@
       </div>
       <h3>Put away</h3>
       <div class="tray" id="arrange-tray"></div>
+      <h3>The lounge</h3>
+      <div class="looks" id="arrange-lounge"></div>
       <h3>Add to the room</h3>
       <div class="tiles adding" id="arrange-add"></div>
       <p class="hint">Click a piece in the room to pick it, and drag it where you want it. Add as many pieces to the lounge as you like, up to twelve, the same one more than once. The room on its side and upright are arranged on their own. Desks only move: each is a key on your phone. Your phone follows as you go.</p>
@@ -1002,6 +1012,7 @@
       ['stone', 'Castle stone', '#4d5056'], ['ice', 'Ice blocks', '#b4d0e2'], ['logs', 'Log cabin', '#7a5232'], ['brick', 'Brick', '#8a3a2a'],
       ['bamboo', 'Bamboo', '#a8a050'], ['block', 'Blockwork', '#9aa0a8'], ['foam', 'Acoustic foam', '#16171c']],
     lounge: [['navy', 'Navy', '#3f4a5c'], ['teal', 'Teal', '#2f5656'], ['plum', 'Plum', '#513d50'], ['sand', 'Sand', '#7b6e58']],
+    // filled in below: the lounge's floor can be any of the office's too, and its wall any paint
     corner: [['arcade', 'An arcade machine'], ['vending', 'A vending machine'], ['foosball', 'A foosball table'],
       ['fishtank', 'A fish tank'], ['books', 'A bookcase and a beanbag'], ['dragon', 'A dragon on its gold'], ['pinball', 'Pinball'],
       ['jukebox', 'A jukebox'], ['pool', 'A pool table'], ['piano', 'A piano'], ['drums', 'A drum kit'], ['telescope', 'A telescope'],
@@ -1041,11 +1052,14 @@
     ['pegboard', 'Pegboard of tools'], ['roller', 'Roller door'], ['bike', 'Bike on hooks'], ['mirror', 'Gym mirror'],
     ['timer', 'Interval timer'], ['climbing', 'Climbing holds'], ['vines', 'Hanging vines'], ['tiki', 'Tiki mask'],
     ['blind', 'Bamboo blind window'], ['cabin', 'Cabin window'], ['trail', 'Trail map'], ['paddles', 'Crossed paddles']];
+  ROOM_CHOICES.lounge.push(...ROOM_CHOICES.floor);
+  ROOM_CHOICES.loungePaint = [['auto', 'Same as the walls'], ...ROOM_CHOICES.paint];
   const STANDARD_ROOM = { mic: 'mic', wall: ['window', 'whiteboard', 'window', 'pinboard', 'window'], floor: 'wood', paint: 'slate',
-    lounge: 'navy', corner: 'arcade', sky: 'live', pet: 'none', season: 'calendar', sound: 'off', desk: 'wood', workspace: 'desk',
+    lounge: 'navy', loungePaint: 'auto', corner: 'arcade', sky: 'live', pet: 'none', season: 'calendar', sound: 'off', desk: 'wood', workspace: 'desk',
     monitor: 'standard', chair: 'teal', staff: 'some', preset: 'yours' };
   /** What a style furnishes, as office.js has it: changing one of these goes back to Yours. */
-  const STYLED = new Set(['mic', 'wall', 'floor', 'paint', 'lounge', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff']);
+  const STYLED = new Set(['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair',
+    'staff']);
   let peekOffice = false; // the preview shows the office while it's being furnished
 
   /* Your team: how each project's agent looks, the choices office.js draws
@@ -1239,25 +1253,39 @@
     return el;
   }
 
+  /** The room as it looks: in a style, furnished as the style has it. */
+  const furnished = (room) => (window.AgentOffice && AgentOffice.furnishingOf ? AgentOffice.furnishingOf(room) : room);
+
+  /**
+   * Furnishes the office, `edit` given the room. In a style, a change to
+   * what it furnishes keeps the rest of it: the room becomes Yours,
+   * furnished as the style was, with the change.
+   */
+  function furnish(edit, part = null) {
+    change(() => {
+      if (STYLED.has(part) && layout.room.preset !== 'yours') layout.room = furnished(layout.room);
+      edit(layout.room);
+    }, true);
+  }
+
   function drawRoom() {
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
-    // A change to what a style furnishes is a change to Yours, and puts the office back in it.
-    const furnish = (edit, part = null) => change(() => {
-      edit();
-      if (STYLED.has(part)) room.preset = 'yours';
-    }, true);
-    for (const part of ['mic', 'floor', 'paint', 'lounge', 'sky', 'season', 'pet', 'sound', 'desk', 'monitor', 'chair', 'staff']) {
+    // What's picked in each row: in a style, as the style furnishes it.
+    const shown = furnished(room);
+    for (const part of ['mic', 'floor', 'paint', 'lounge', 'loungePaint', 'sky', 'season', 'pet', 'sound', 'desk', 'monitor', 'chair',
+      'staff']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label, swatch]) =>
-        choice(label, room[part] === id, () => furnish(() => { room[part] = id; }, part), swatch)));
+        choice(label, (shown[part] || STANDARD_ROOM[part]) === id, () => furnish((r) => { r[part] = id; }, part), swatch)));
     }
-    $('room-wall').replaceChildren(...room.wall.map((piece, i) => {
-      const el = select(WALL_CHOICES, piece, (value) => furnish(() => { room.wall[i] = value; }, 'wall'));
+    $('room-wall').replaceChildren(...shown.wall.map((piece, i) => {
+      const el = select(WALL_CHOICES, piece, (value) => furnish((r) => { r.wall[i] = value; }, 'wall'));
       el.setAttribute('aria-label', `The back wall, place ${i + 1} from the left`);
       return el;
     }));
     for (const part of ['preset', 'corner', 'workspace']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label]) =>
-        tile(part, id, label, (room[part] || STANDARD_ROOM[part]) === id, () => furnish(() => { room[part] = id; }, part), room)));
+        tile(part, id, label, ((part === 'preset' ? room : shown)[part] || STANDARD_ROOM[part]) === id,
+          () => furnish((r) => { r[part] = id; }, part), room)));
     }
     if (refocus) {
       const picked = document.querySelector(`.tile[data-pick="${refocus}"]`);
@@ -1496,6 +1524,39 @@
     return (plan && plan[arrangeShape]) || {};
   }
 
+  /**
+   * What a desk can be given of its own besides its workspace, each "auto"
+   * unless set: the setting, what the editor calls it, and its choices.
+   */
+  const DESK_LOOKS = [
+    ['monitor', 'Monitor', () => ROOM_CHOICES.monitor],
+    ['finish', 'Finish', () => ROOM_CHOICES.desk],
+    ['chair', 'Chair', () => ROOM_CHOICES.chair],
+    ['thing', 'On the desk', () => TEAM_CHOICES.desk[1].filter(([id]) => id !== 'auto')],
+  ];
+
+  /** A desk's own `field`, as the office reads it: the shape shown's, or the other's when that's "auto". */
+  function deskLook(part, field) {
+    const plan = (layout.room && layout.room.plan) || {};
+    const own = (side) => (plan[side] && plan[side][part] && plan[side][part][field]) || 'auto';
+    const here = own(arrangeShape);
+    return here !== 'auto' ? here : own(arrangeShape === 'wide' ? 'tall' : 'wide');
+  }
+
+  /** Gives a desk its own look, the same on its side and upright; where it stands stays each shape's own. */
+  function setLook(part, field, value) {
+    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
+    const plan = room.plan || (room.plan = { wide: {}, tall: {}, added: { wide: [], tall: [] } });
+    for (const side of ['wide', 'tall']) {
+      plan[side] = { ...plan[side], [part]: { x: 0, y: 0, size: 1, off: false, ...(plan[side] && plan[side][part]), [field]: value } };
+    }
+    showArranged();
+    saveArranged();
+    showPreview();
+    renderProfiles();
+    drawArrangeTools();
+  }
+
   /** The pieces added to the lounge in the shape shown. */
   function addedPieces() {
     const plan = layout.room && layout.room.plan;
@@ -1551,12 +1612,25 @@
     const desk = !!arrangePicked && arrangePicked.startsWith('desk');
     $('arrange-desk').hidden = !desk;
     if (desk) {
-      const own = (piece && piece.workspace) || 'auto';
-      const set = (workspace) => arranger.arrange(arrangePicked, { workspace });
+      const part = arrangePicked;
+      const own = deskLook(part, 'workspace');
+      const set = (workspace) => setLook(part, 'workspace', workspace);
       $('arrange-desk-auto').replaceChildren(choice('As everyone works', own === 'auto', () => set('auto')));
       $('arrange-workspace').replaceChildren(...ROOM_CHOICES.workspace.map(([id, label]) =>
         tile('workspace', id, label, own === id, () => set(id), layout.room || STANDARD_ROOM)));
+      $('arrange-look').replaceChildren(...DESK_LOOKS.map(([field, name, options]) => {
+        const row = document.createElement('label');
+        row.append(name, select([['auto', 'As the office'], ...options()], deskLook(part, field), (value) => setLook(part, field, value)));
+        return row;
+      }));
     }
+    // The lounge's floor and wall: in a style, as it has them
+    const shown = furnished(layout.room || STANDARD_ROOM);
+    $('arrange-lounge').replaceChildren(...[['lounge', 'Floor'], ['loungePaint', 'Wall']].map(([part, name]) => {
+      const row = document.createElement('label');
+      row.append(name, select(ROOM_CHOICES[part], shown[part] || STANDARD_ROOM[part], (value) => furnish((r) => { r[part] = value; }, part)));
+      return row;
+    }));
     $('arrange-hide').textContent = added ? 'Take it out' : 'Put it away';
     $('arrange-size').replaceChildren(...AgentOffice.sizes.map((size) => {
       const b = choice(PIECE_SIZE_NAMES[size], !!piece && piece.size === size, () => arranger.arrange(arrangePicked, { size }));
@@ -1564,7 +1638,7 @@
       return b;
     }));
     $('arrange-hide').disabled = !kind || !kind.hides;
-    $('arrange-back').disabled = !piece || (piece.x === 0 && piece.y === 0 && piece.size === 1 && (piece.workspace || 'auto') === 'auto');
+    $('arrange-back').disabled = !piece || (piece.x === 0 && piece.y === 0 && piece.size === 1);
     const away = Object.entries(arrangedPieces()).filter(([, p]) => p.off).map(([part]) => part);
     $('arrange-tray').replaceChildren(...(away.length ? away.map((part) => {
       const b = document.createElement('button');
@@ -1644,7 +1718,8 @@
     arranger.pick(null);
     arranger.arrange(part, part.startsWith('added:') ? { remove: true } : { off: true });
   };
-  $('arrange-back').onclick = () => arranger.arrange(arrangePicked, { x: 0, y: 0, size: 1, workspace: 'auto' });
+  // Back where it stood, as big as it came; a desk's look is its own, set above.
+  $('arrange-back').onclick = () => arranger.arrange(arrangePicked, { x: 0, y: 0, size: 1 });
   $('arrange-clear').onclick = () => {
     arrangePicked = null;
     arranger.pick(null);

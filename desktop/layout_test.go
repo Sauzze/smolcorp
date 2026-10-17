@@ -622,19 +622,28 @@ func must[T any](value T, err error) T {
 func TestAnArrangementKeepsWhatCanBeArrangedAsItCanBe(t *testing.T) {
 	var room Room
 	if err := json.Unmarshal([]byte(`{"plan": {"wide": {
-		"desk1": {"x": 12, "y": -4.6, "size": 2, "off": true, "workspace": "tent"},
+		"desk1": {"x": 12, "y": -4.6, "size": 2, "off": true, "workspace": "tent", "monitor": "crt", "finish": "walnut",
+			"chair": "red", "thing": "duck"},
 		"desk2": {"workspace": "hammock"},
-		"mic": {"x": -3, "y": 0, "size": 1.5, "off": true, "workspace": "tent"},
+		"mic": {"x": -3, "y": 0, "size": 1.5, "off": true, "workspace": "tent", "monitor": "crt"},
 		"corner": {"x": 9999, "size": 3, "off": true},
 		"sofa": {"x": 1},
 		"plant": "here"}, "tall": 5}}`), &room); err != nil {
 		t.Fatal(err)
 	}
+	with := func(p Piece) Piece {
+		for _, field := range []*string{&p.Workspace, &p.Monitor, &p.Finish, &p.Chair, &p.Thing} {
+			if *field == "" {
+				*field = "auto"
+			}
+		}
+		return p
+	}
 	want := map[string]Piece{
-		"desk1":  {X: 12, Y: -5, Size: 1, Workspace: "tent"},
-		"desk2":  {Size: 1, Workspace: "auto"},
-		"mic":    {X: -3, Size: 1.5, Workspace: "auto"},
-		"corner": {X: pieceReach, Size: 1, Off: true, Workspace: "auto"},
+		"desk1":  {X: 12, Y: -5, Size: 1, Workspace: "tent", Monitor: "crt", Finish: "walnut", Chair: "red", Thing: "duck"},
+		"desk2":  with(Piece{Size: 1}),
+		"mic":    with(Piece{X: -3, Size: 1.5}),
+		"corner": with(Piece{X: pieceReach, Size: 1, Off: true}),
 	}
 	if len(room.Plan.Wide) != len(want) {
 		t.Fatalf("kept %v, want %v", room.Plan.Wide, want)
@@ -674,5 +683,38 @@ func TestPiecesAddedToTheLoungeAreThoseItsCornerCanHold(t *testing.T) {
 	}
 	if got := (Plan{Added: Added{Wide: many}}).checked().Added.Wide; len(got) != addedMost {
 		t.Errorf("kept %d added pieces, want at most %d", len(got), addedMost)
+	}
+}
+
+func TestADesksOwnLookIsKeptOnlyAsItsChoices(t *testing.T) {
+	var plan Plan
+	given := `{"wide": {"desk3": {"monitor": "hologram", "finish": "black", "chair": "pink", "thing": "auto"},
+		"pong": {"thing": "duck"}}}`
+	if err := json.Unmarshal([]byte(given), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan = plan.checked()
+	if got := plan.Wide["desk3"]; got.Monitor != "auto" || got.Finish != "black" || got.Chair != "auto" || got.Thing != "auto" {
+		t.Errorf("desk3 is %+v, want only its black finish kept", got)
+	}
+	if got := plan.Wide["pong"].Thing; got != "auto" {
+		t.Errorf("the ping-pong table has a thing of its own: %q", got)
+	}
+}
+
+func TestTheLoungeTakesAFloorAndAWallOfItsOwn(t *testing.T) {
+	var room Room
+	if err := json.Unmarshal([]byte(`{"lounge": "marble", "loungePaint": "damask"}`), &room); err != nil {
+		t.Fatal(err)
+	}
+	if room.Lounge != "marble" || room.LoungePaint != "damask" {
+		t.Errorf("lounge %q, wall %q; want marble and damask", room.Lounge, room.LoungePaint)
+	}
+	var unknown Room
+	if err := json.Unmarshal([]byte(`{"lounge": "lava", "loungePaint": "navy"}`), &unknown); err != nil {
+		t.Fatal(err)
+	}
+	if unknown.Lounge != "navy" || unknown.LoungePaint != "auto" {
+		t.Errorf("lounge %q, wall %q; want the standard navy, and auto", unknown.Lounge, unknown.LoungePaint)
 	}
 }

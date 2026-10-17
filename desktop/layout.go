@@ -66,22 +66,25 @@ func (k *KeyCount) UnmarshalJSON(data []byte) error {
 // app's Room. office.js draws it, with the same choices. Anything unknown, or of the wrong kind, is
 // as standard: it only changes how the room looks.
 type Room struct {
-	Mic       string   `json:"mic"`
-	Wall      []string `json:"wall"`
-	Floor     string   `json:"floor"`
-	Paint     string   `json:"paint"`
-	Lounge    string   `json:"lounge"`
-	Corner    string   `json:"corner"`
-	Sky       string   `json:"sky"`
-	Pet       string   `json:"pet"`
-	Season    string   `json:"season"`
-	Sound     string   `json:"sound"`
-	Desk      string   `json:"desk"`
-	Workspace string   `json:"workspace"`
-	Monitor   string   `json:"monitor"`
-	Chair     string   `json:"chair"`
-	Staff     string   `json:"staff"`
-	Preset    string   `json:"preset"`
+	Mic    string   `json:"mic"`
+	Wall   []string `json:"wall"`
+	Floor  string   `json:"floor"`
+	Paint  string   `json:"paint"`
+	Lounge string   `json:"lounge"`
+	// LoungePaint is the lounge's wall: "auto", as the office's walls, or a
+	// paint of its own.
+	LoungePaint string `json:"loungePaint"`
+	Corner      string `json:"corner"`
+	Sky         string `json:"sky"`
+	Pet         string `json:"pet"`
+	Season      string `json:"season"`
+	Sound       string `json:"sound"`
+	Desk        string `json:"desk"`
+	Workspace   string `json:"workspace"`
+	Monitor     string `json:"monitor"`
+	Chair       string `json:"chair"`
+	Staff       string `json:"staff"`
+	Preset      string `json:"preset"`
 	// How each project's agent looks, by the project's name.
 	Team map[string]TeamMember `json:"team"`
 	// What agents wear by their model's size and by agent. After the team, so
@@ -134,6 +137,13 @@ var teamChoices = map[string][]string{
 
 // What an agent can work at: the office's choice for everyone, the first
 // being standard, and a team member's own, which can also be "auto".
+var (
+	floors = []string{"wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest",
+		"rubber", "epoxy", "arcade"}
+	paints = []string{"slate", "sage", "clay", "cream", "hull", "timber", "damask", "stone", "ice", "logs", "brick", "bamboo",
+		"block", "foam"}
+)
+
 // roomStyles are the office's styles: Yours, as you furnished it, then each that
 // furnishes it for you. office.js keeps what each one is.
 var roomStyles = []string{"yours", "classic", "campsite", "royal", "space", "pirates", "arctic", "lair", "gamers", "garage", "gym",
@@ -279,12 +289,12 @@ func (a Attire) checked() Attire {
 var (
 	// Each part's choices; the first is the standard one.
 	roomChoices = map[string][]string{
-		"mic": {"mic", "megaphone", "studio", "podcast", "karaoke", "headset", "walkie", "tincan", "radio"},
-		"floor": {"wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest", "rubber",
-			"epoxy", "arcade"},
-		"paint": {"slate", "sage", "clay", "cream", "hull", "timber", "damask", "stone", "ice", "logs", "brick", "bamboo", "block",
-			"foam"},
-		"lounge": {"navy", "teal", "plum", "sand"},
+		"mic":   {"mic", "megaphone", "studio", "podcast", "karaoke", "headset", "walkie", "tincan", "radio"},
+		"floor": floors,
+		"paint": paints,
+		// The lounge's carpets, or any of the office's floors
+		"lounge":      append([]string{"navy", "teal", "plum", "sand"}, floors...),
+		"loungePaint": append([]string{"auto"}, paints...),
 		"corner": {"arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
 			"telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub", "ballpit",
 			"campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth", "none"},
@@ -317,7 +327,7 @@ func (r *Room) UnmarshalJSON(data []byte) error {
 	}
 	var wall []json.RawMessage
 	json.Unmarshal(raw["wall"], &wall)
-	*r = Room{Mic: text(raw["mic"]), Floor: text(raw["floor"]), Paint: text(raw["paint"]), Lounge: text(raw["lounge"]),
+	*r = Room{Mic: text(raw["mic"]), Floor: text(raw["floor"]), Paint: text(raw["paint"]), Lounge: text(raw["lounge"]), LoungePaint: text(raw["loungePaint"]),
 		Corner: text(raw["corner"]), Sky: text(raw["sky"]), Pet: text(raw["pet"]), Season: text(raw["season"]), Sound: text(raw["sound"]),
 		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Monitor: text(raw["monitor"]), Chair: text(raw["chair"]),
 		Staff:  text(raw["staff"]),
@@ -357,7 +367,7 @@ func (r Room) checked() Room {
 		return roomChoices[part][0]
 	}
 	checked := Room{Mic: choose("mic", r.Mic), Floor: choose("floor", r.Floor), Paint: choose("paint", r.Paint),
-		Lounge: choose("lounge", r.Lounge), Corner: choose("corner", r.Corner), Sky: choose("sky", r.Sky),
+		Lounge: choose("lounge", r.Lounge), LoungePaint: choose("loungePaint", r.LoungePaint), Corner: choose("corner", r.Corner), Sky: choose("sky", r.Sky),
 		Pet: choose("pet", r.Pet), Season: choose("season", r.Season), Sound: choose("sound", r.Sound),
 		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Monitor: choose("monitor", r.Monitor),
 		Chair: choose("chair", r.Chair),
@@ -570,9 +580,14 @@ type Piece struct {
 	Y    int     `json:"y"`
 	Size float64 `json:"size"`
 	Off  bool    `json:"off"`
-	// Workspace is a desk's own, whoever sits at it, unless their project
-	// has one; "auto" otherwise.
+	// A desk's own look, whoever sits at it: its workspace, monitor,
+	// finish, chair and thing, unless their project has its own workspace
+	// or thing; "auto" for each otherwise, and on what isn't a desk.
 	Workspace string `json:"workspace"`
+	Monitor   string `json:"monitor"`
+	Finish    string `json:"finish"`
+	Chair     string `json:"chair"`
+	Thing     string `json:"thing"`
 }
 
 var (
@@ -619,10 +634,13 @@ func (p *Plan) UnmarshalJSON(data []byte) error {
 			}
 			var off bool
 			json.Unmarshal(parts["off"], &off)
-			var workspace string
-			json.Unmarshal(parts["workspace"], &workspace)
+			text := func(name string) string {
+				var given string
+				json.Unmarshal(parts[name], &given)
+				return given
+			}
 			pieces[part] = Piece{X: int(math.Round(number("x"))), Y: int(math.Round(number("y"))), Size: number("size"), Off: off,
-				Workspace: workspace}
+				Workspace: text("workspace"), Monitor: text("monitor"), Finish: text("finish"), Chair: text("chair"), Thing: text("thing")}
 		}
 		return pieces
 	}
@@ -668,9 +686,18 @@ func (p Plan) checked() Plan {
 				piece.Size = 1
 			}
 			piece.Off = piece.Off && kind.hides
-			if !strings.HasPrefix(part, "desk") || !slices.Contains(workspaces, piece.Workspace) {
-				piece.Workspace = "auto"
+			desk := strings.HasPrefix(part, "desk")
+			own := func(given string, choices []string) string {
+				if desk && given != "auto" && slices.Contains(choices, given) {
+					return given
+				}
+				return "auto"
 			}
+			piece.Workspace = own(piece.Workspace, workspaces)
+			piece.Monitor = own(piece.Monitor, roomChoices["monitor"])
+			piece.Finish = own(piece.Finish, roomChoices["desk"])
+			piece.Chair = own(piece.Chair, roomChoices["chair"])
+			piece.Thing = own(piece.Thing, teamChoices["desk"])
 			checked[part] = piece
 		}
 		return checked
