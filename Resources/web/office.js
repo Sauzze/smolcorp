@@ -170,7 +170,9 @@
   const PIECE_SIZES = [1, 1.5, 2];
   /** How far a piece can be moved from where it stands, either way, in art pixels. */
   const PIECE_REACH = 400;
-  const STANDARD_PIECE = Object.freeze({ x: 0, y: 0, size: 1, off: false, workspace: 'auto' });
+  const STANDARD_PIECE = Object.freeze({
+    x: 0, y: 0, size: 1, off: false, workspace: 'auto', monitor: 'auto', finish: 'auto', chair: 'auto', thing: 'auto',
+  });
   /**
    * Where each part of the lounge stands on the floor, in the wide room: it
    * grows from there. And the part of the room each takes up, for the
@@ -216,8 +218,9 @@
           x: at(piece.x), y: at(piece.y),
           size: grows && PIECE_SIZES.includes(piece.size) ? piece.size : 1,
           off: hides && piece.off === true,
-          // A desk's own workspace, whoever sits at it, unless their project has one
-          workspace: part.startsWith('desk') && Object.hasOwn(WORKSPACES, piece.workspace) ? piece.workspace : 'auto',
+          // A desk's own workspace, monitor, finish, chair and what's on it, whoever sits at it, unless their project has its own
+          ...Object.fromEntries(DESK_OWN.map((own) => [own,
+            part.startsWith('desk') && DESK_CHOICES[own]().includes(piece[own]) && piece[own] !== 'auto' ? piece[own] : 'auto'])),
         };
       }
       return arranged;
@@ -228,6 +231,59 @@
       .map((piece) => ({ kind: piece.kind, x: at(piece.x), y: at(piece.y), size: PIECE_SIZES.includes(piece.size) ? piece.size : 1 }));
     const more = raw.added && typeof raw.added === 'object' ? raw.added : {};
     return { wide: shaped(raw.wide), tall: shaped(raw.tall), added: { wide: added(more.wide), tall: added(more.tall) } };
+  }
+
+  /** What a desk can have of its own, each but Auto: read when asked, the lists being further on. */
+  const DESK_CHOICES = {
+    workspace: () => ROOM_CHOICES.workspace, monitor: () => ROOM_CHOICES.monitor, finish: () => ROOM_CHOICES.desk,
+    chair: () => ROOM_CHOICES.chair, thing: () => TEAM_CHOICES.desk,
+  };
+
+  /**
+   * What desk `desk` has of `own` (one of DESK_OWN): its own, as arranged,
+   * or its style's mix, or 'auto' for the room's.
+   */
+  function deskOwn(desk, own, room = decor) {
+    if (desk === null || desk === undefined) return 'auto';
+    const mine = pieceOf(`desk${desk + 1}`, room)[own];
+    if (mine && mine !== 'auto') return mine;
+    const style = ROOM_STYLES[room.preset];
+    const mix = style && (own === 'thing' ? style.things : STYLE_MIXES[room.preset] && STYLE_MIXES[room.preset][own]);
+    return mix ? mix[desk % mix.length] : 'auto';
+  }
+  /** A desk's monitor, desk finish and chair: its own, its style's, or the room's. */
+  const monitorAt = (desk) => (deskOwn(desk, 'monitor') !== 'auto' ? deskOwn(desk, 'monitor') : decor.monitor);
+  const finishAt = (desk) => DESK_FINISHES[deskOwn(desk, 'finish') !== 'auto' ? deskOwn(desk, 'finish') : decor.desk];
+  const chairAt = (desk) => CHAIRS[deskOwn(desk, 'chair') !== 'auto' ? deskOwn(desk, 'chair') : decor.chair];
+
+  /**
+   * A room in a style written out as your own: each part the style
+   * furnishes as it furnishes it, and its mix at each desk with nothing of
+   * its own, so that changing one piece keeps the rest. For the setup page.
+   */
+  function furnishingOf(given) {
+    const room = structuredClone(given && typeof given === 'object' && !Array.isArray(given) ? given : {});
+    const style = ROOM_STYLES[room.preset];
+    if (!style) return room;
+    for (const part of STYLED) {
+      room[part] = Object.hasOwn(style.room, part) ? structuredClone(style.room[part]) : part === 'wall' ? [...STANDARD_WALL] : ROOM_CHOICES[part][0];
+    }
+    const plan = room.plan && typeof room.plan === 'object' && !Array.isArray(room.plan) ? room.plan : {};
+    for (const key of ['wide', 'tall']) {
+      const pieces = plan[key] && typeof plan[key] === 'object' && !Array.isArray(plan[key]) ? plan[key] : {};
+      STANDARD_DESKS.forEach((_, desk) => {
+        const piece = pieces[`desk${desk + 1}`] && typeof pieces[`desk${desk + 1}`] === 'object' ? pieces[`desk${desk + 1}`] : {};
+        for (const own of ['workspace', 'monitor', 'thing']) {
+          const mix = own === 'thing' ? style.things : STYLE_MIXES[room.preset] && STYLE_MIXES[room.preset][own];
+          if (mix && (!piece[own] || piece[own] === 'auto')) piece[own] = mix[desk % mix.length];
+        }
+        if (Object.keys(piece).length) pieces[`desk${desk + 1}`] = piece;
+      });
+      plan[key] = pieces;
+    }
+    room.plan = plan;
+    room.preset = 'yours';
+    return room;
   }
 
   /** How `part` is arranged in the room's shape now. */
@@ -299,14 +355,37 @@
       monitor: 'bamboo', wall: ['vines', 'blind', 'tiki', 'blind', 'vines'] }, things: ['coconut', 'pineapple', 'tikimug'] },
   };
   /** What a style furnishes. The sky, the seasons, the sound and your team stay as you have them. */
-  const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff'];
+  const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff'];
+  /**
+   * How a style mixes its desks, desk by desk round each list, wherever a
+   * desk has nothing of its own: its own workspace among others, and its
+   * monitors. Its `things` go on them the same way.
+   */
+  const STYLE_MIXES = {
+    campsite: { workspace: ['tent', 'log', 'tent'] },
+    royal: { workspace: ['throne', 'gilded', 'throne'] },
+    space: { workspace: ['cockpit', 'console', 'hover'], monitor: ['holo', 'holo', 'portrait'] },
+    pirates: { workspace: ['ship', 'chest', 'ship'] },
+    arctic: { workspace: ['igloo', 'crates', 'igloo'] },
+    lair: { workspace: ['greenhouse', 'altar', 'greenhouse'] },
+    gamers: { workspace: ['gaming', 'glass', 'gaming'], monitor: ['ultrawide', 'dual', 'ultrawide'] },
+    garage: { workspace: ['box', 'bench', 'box'], monitor: ['crt', 'dual', 'crt'] },
+    gym: { workspace: ['standing', 'rack', 'standing'] },
+    jungle: { workspace: ['beanbag', 'bamboo', 'beanbag'] },
+  };
+  /** What a desk can have of its own in the room's arrangement, besides where it is. */
+  const DESK_OWN = ['workspace', 'monitor', 'finish', 'chair', 'thing'];
 
   const ROOM_CHOICES = {
     mic: ['mic', 'megaphone', 'studio', 'podcast', 'karaoke', 'headset', 'walkie', 'tincan', 'radio'],
     floor: ['wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass', 'forest', 'rubber',
       'epoxy', 'arcade'],
     paint: ['slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block', 'foam'],
-    lounge: ['navy', 'teal', 'plum', 'sand'],
+    // The lounge's floor: a carpet, or any of the office's floors; and its wall, as the office's unless it has its own
+    lounge: ['navy', 'teal', 'plum', 'sand', 'wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass',
+      'forest', 'rubber', 'epoxy', 'arcade'],
+    loungePaint: ['auto', 'slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block',
+      'foam'],
     corner: ['arcade', 'vending', 'foosball', 'fishtank', 'books', 'dragon', 'pinball', 'jukebox', 'pool', 'piano', 'drums',
       'telescope', 'jellyfish', 'bonsai', 'jungle', 'coffee', 'servers', 'printer', 'boxing', 'treadmill', 'hottub', 'ballpit',
       'campfire', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'none'],
@@ -1010,8 +1089,8 @@
   function workspaceOf(session, desk = null) {
     const member = memberOf(session);
     if (member && member.workspace !== 'auto') return member.workspace;
-    const own = desk === null ? 'auto' : pieceOf(`desk${desk + 1}`).workspace;
-    return own && own !== 'auto' ? own : decor.workspace;
+    const own = deskOwn(desk, 'workspace');
+    return own !== 'auto' ? own : decor.workspace;
   }
 
   /** How a person looks: as their project's name picks it, with your choices for them over the top. */
@@ -2507,22 +2586,37 @@
       },
     };
 
+    /** The lounge's wall: its own, or the office's. */
+    const loungePaint = () => (decor.loungePaint === 'auto' ? decor.paint : decor.loungePaint);
+
+    /**
+     * A wall from `l` to `r`, from `top` down to the floor, in `kind`: a
+     * finish of its own, the same all along and its colour above the room,
+     * or paint, in its lounge's shade for a `lounge`.
+     */
+    function paintWall(kind, l, r, top, lounge = false) {
+      const paint = PAINTS[kind], finish = WALL_FINISHES[kind];
+      if (finish) {
+        if (top < 0) fill(l, top, r - l, -top, paint.wall);
+        return finish(l, r);
+      }
+      fill(l, top, r - l, WALL_BOTTOM - top, lounge ? paint.lounge : paint.wall);
+      fill(l, top, r - l, 2, paint.top);
+      fill(l, 30, r - l, 8, paint.wainscot);
+      fill(l, 30, r - l, 1, paint.rail);
+      fill(l, 38, r - l, 2, PALETTE.baseboard);
+    }
+
     function drawWall() {
       const { left, top, right, width: across } = seen;
-      const paint = PAINTS[decor.paint], finish = WALL_FINISHES[decor.paint];
+      const paint = PAINTS[decor.paint];
       // Held upright, the back wall is the office's alone: the lounge has its own, below.
-      const wide = shape === WIDE, loungeLeft = wide ? LOUNGE_LEFT : right;
-      if (finish) {
-        // The same all along, the lounge's too, and its colour above the room
-        if (top < 0) fill(left, top, across, -top, paint.wall);
-        finish(left, right);
+      const wide = shape === WIDE;
+      if (wide) {
+        paintWall(decor.paint, left, LOUNGE_LEFT, top);
+        paintWall(loungePaint(), LOUNGE_LEFT, right, top, true);
       } else {
-        fill(left, top, loungeLeft - left, WALL_BOTTOM - top, paint.wall);
-        fill(loungeLeft, top, right - loungeLeft, WALL_BOTTOM - top, paint.lounge);
-        fill(left, top, across, 2, paint.top);
-        fill(left, 30, across, 8, paint.wainscot);
-        fill(left, 30, across, 1, paint.rail);
-        fill(left, 38, across, 2, PALETTE.baseboard);
+        paintWall(decor.paint, left, right, top);
       }
       if (wide) fill(LOUNGE_LEFT, top, 1, WALL_BOTTOM - top, paint.top);
 
@@ -3020,54 +3114,59 @@
       }
     }
 
-    function drawFloor() {
-      const { left, right, bottom } = seen;
-      // The office's floor, to the lounge: on its right, or held upright, behind its wall.
-      const wide = shape === WIDE;
-      const officeRight = wide ? LOUNGE_LEFT : right, officeBottom = wide ? bottom : shape.loungeWall;
-      const top = WALL_BOTTOM, depth = officeBottom - top, across = officeRight - left;
-      /** Squares of `size` from the room's corner outwards, cut at the lounge: `paint(x, y, column, row, width)` for each. */
+    /** A floor of `kind` from `L`, `T` to `R`, `B`, lined up from the room's corner: the office's, or one in the lounge. */
+    function paintFloor(kind, L, T, R, B) {
+      const depth = B - T, across = R - L;
+      /** Squares of `size` from the room's corner outwards, cut at `R`: `paint(x, y, column, row, width)` for each. */
       const squares = (size, paint) => {
-        for (let y = top, r = 0; y < officeBottom; y += size, r++) {
-          for (let x = Math.floor(left / size) * size; x < officeRight; x += size) paint(x, y, Math.floor(x / size), r, Math.min(size, officeRight - x));
+        for (let y = T, r = 0; y < B; y += size, r++) {
+          for (let x = Math.floor(L / size) * size; x < R; x += size) paint(x, y, Math.floor(x / size), r, Math.min(size, R - x));
         }
       };
-      if (decor.floor === 'tiles') {
-        fill(left, top, across, depth, 0x777a81);
+      if (kind === 'tiles') {
+        fill(L, T, across, depth, 0x777a81);
         squares(9, (x, y, c, r, w) => fill(x, y, w - 1, 8, (c + r) % 2 === 0 ? 0x9c9fa6 : 0x8c8f96));
-      } else if (decor.floor === 'concrete') {
-        fill(left, top, across, depth, 0x73767b);
+      } else if (kind === 'concrete') {
+        fill(L, T, across, depth, 0x73767b);
         squares(36, (x, y, c, r, w) => {
           fill(x, y, w, 1, 0x67696e);
           fill(x, y, 1, 36, 0x67696e);
           for (let k = 0; k < 7; k++) dot(x + ((c * 13 + r * 7 + k * 11) % 33) + 1, y + ((c * 5 + r * 17 + k * 9) % 33) + 2, 0x80838a);
         });
-      } else if (FLOOR_FINISHES[decor.floor]) {
-        FLOOR_FINISHES[decor.floor](left, top, officeRight, officeBottom);
-      } else if (decor.floor === 'carpet') {
-        fill(left, top, across, depth, 0x4b5065);
+      } else if (FLOOR_FINISHES[kind]) {
+        FLOOR_FINISHES[kind](L, T, R, B);
+      } else if (kind === 'carpet') {
+        fill(L, T, across, depth, 0x4b5065);
         squares(12, (x, y, c, r, w) => {
           if ((c + r) % 2 === 0) fill(x, y, w, 12, 0x474c60);
           dot(x + ((c * 5 + r * 3) % 10) + 1, y + ((c * 7 + r) % 10) + 1, 0x565b71);
         });
       } else {
-        fill(left, top, across, depth, PALETTE.wood);
+        fill(L, T, across, depth, PALETTE.wood);
         let row = 0;
-        for (let y = top + 4; y < officeBottom + 4; y += 5, row++) {
-          fill(left, y, across, 1, PALETTE.plankSeam);
+        for (let y = T + 4; y < B + 4; y += 5, row++) {
+          fill(L, y, across, 1, PALETTE.plankSeam);
           // The planks' ends, staggered from row to row, from the room's left edge outwards
           let x = (row % 3) * 11;
-          while (x > left) x -= 33;
-          for (; x < officeRight; x += 33) fill(x, y - 4, 1, 4, PALETTE.plankSeam);
+          while (x > L) x -= 33;
+          for (; x < R; x += 33) fill(x, y - 4, 1, 4, PALETTE.plankSeam);
         }
       }
-      const [carpet, carpetEdge] = LOUNGES[decor.lounge];
-      if (wide) {
-        fill(LOUNGE_LEFT, top, right - LOUNGE_LEFT, depth, carpet);
-        fill(LOUNGE_LEFT, top, 1, depth, carpetEdge);
-      } else {
-        fill(left, officeBottom, right - left, bottom - officeBottom, carpet);
-      }
+    }
+
+    function drawFloor() {
+      const { left, right, bottom } = seen;
+      // The office's floor, to the lounge: on its right, or held upright, behind its wall.
+      const wide = shape === WIDE;
+      const officeRight = wide ? LOUNGE_LEFT : right, officeBottom = wide ? bottom : shape.loungeWall;
+      const top = WALL_BOTTOM, depth = officeBottom - top;
+      paintFloor(decor.floor, left, top, officeRight, officeBottom);
+      // The lounge's: a carpet, or a floor of its own, kept to the lounge
+      const carpet = LOUNGES[decor.lounge];
+      const lounge = wide ? { x: LOUNGE_LEFT, y: top } : { x: left, y: officeBottom };
+      if (carpet) fill(lounge.x, lounge.y, right - lounge.x, bottom - lounge.y, carpet[0]);
+      else within([[lounge.x, lounge.y, right - lounge.x, bottom - lounge.y]], () => paintFloor(decor.lounge, lounge.x, lounge.y, right, bottom));
+      if (wide) fill(LOUNGE_LEFT, top, 1, depth, carpet ? carpet[1] : SHADOW);
       if (!pieceOf('couch').off) {
         moved('couch', () => {
           fill(244, 124, 64, 20, PALETTE.rugEdge);
@@ -3085,7 +3184,7 @@
      */
     function drawLoungeWall() {
       const { left, right } = seen;
-      const paint = PAINTS[decor.paint], finish = WALL_FINISHES[decor.paint];
+      const paint = PAINTS[loungePaint()], finish = WALL_FINISHES[loungePaint()];
       const top = shape.loungeWall - WALL_BOTTOM;
       const face = (l, r) => {
         fill(l, top, r - l, WALL_BOTTOM, paint.lounge);
@@ -3240,9 +3339,12 @@
       },
     };
 
-    /** A monitor from behind, its top-left at `x`, `y`: its screen faces whoever sits at it. The office's own, if it has one. */
+    /** The monitor at the desk being drawn: its own, its style's, or the room's. */
+    let monitorNow = decor.monitor;
+
+    /** A monitor from behind, its top-left at `x`, `y`: its screen faces whoever sits at it. The desk's own kind, if it has one. */
     function drawMonitor(x, y) {
-      if (MONITORS[decor.monitor]) return MONITORS[decor.monitor].draw(x, y);
+      if (MONITORS[monitorNow]) return MONITORS[monitorNow].draw(x, y);
       fill(x, y, 13, 9, PALETTE.monitor);
       fill(x + 1, y + 1, 11, 7, PALETTE.monitorPanel);
       fill(x + 5, y + 9, 3, 2, PALETTE.monitorStand);
@@ -3928,7 +4030,7 @@
       return {
         x, y, s: seat(desk),
         tint: (plain, shade) => (paint === null ? plain : shaded(paint, shade)),
-        finish: DESK_FINISHES[decor.desk],
+        finish: finishAt(desk),
         occupant: occupantOf(desk),
       };
     }
@@ -4134,11 +4236,12 @@
     function drawDesk(desk) {
       const { x, y } = DESKS[desk], s = seat(desk);
       const kind = workspaceOf(sessionAt(desk), desk), workspace = WORKSPACES[kind];
+      monitorNow = monitorAt(desk);
       WORKSPACE_PARTS[kind].front(workspaceAt(desk));
 
-      // Something different on each desk, the style's own if it has them, or what you've put on it
-      const member = memberOf(sessionAt(desk));
-      const thing = member && member.desk !== 'auto' ? member.desk : (ROOM_STYLES[decor.preset]?.things ?? ['plant', 'papers', 'lamp'])[desk % 3];
+      // Something different on each desk: what you've put on it, for its project or for the desk, its style's, or the office's own
+      const member = memberOf(sessionAt(desk)), own = deskOwn(desk, 'thing');
+      const thing = member && member.desk !== 'auto' ? member.desk : own !== 'auto' ? own : ['plant', 'papers', 'lamp'][desk % 3];
       if (workspace.things) drawDeskThing(thing, x + workspace.things.dx, y + workspace.things.dy);
 
       const occupant = occupantOf(desk);
@@ -4184,7 +4287,7 @@
       if (!WORKSPACES[workspaceOf(sessionAt(desk), desk)].chair) return;
       const s = seat(desk), y = DESKS[desk].y;
       // A rounded back, lower than the monitor beside it
-      const [chair, chairTop] = CHAIRS[decor.chair];
+      const [chair, chairTop] = chairAt(desk);
       fill(s.x - 3, y - 7, 7, 1, chairTop);
       fill(s.x - 4, y - 6, 9, 6, chair);
       fill(s.x - 4, y - 6, 1, 6, chairTop);
@@ -5787,7 +5890,7 @@
       // The screen's top-left, wherever the desk has it, and its size: a laptop's, or the office's monitor's, or two of them
       const workspace = WORKSPACES[workspaceOf(session, desk)];
       const at = { x: DESKS[desk].x + workspace.screen.dx, y: DESKS[desk].y + workspace.screen.dy };
-      const monitor = !workspace.laptop && MONITORS[decor.monitor];
+      const monitor = !workspace.laptop && MONITORS[monitorAt(desk)];
       const screens = [].concat(monitor && monitor.screen ? monitor.screen(at.x, at.y) : { ...at, w: 13, h: 9 });
       const { x, y } = screens[0];
       const blinkedOff = session.state === 'asking' && Math.floor(now * 2) % 2 === 1;
@@ -6178,7 +6281,7 @@
       const top = topOf(lifted, poseOf(lifted, now));
       // Their chair, or what they sit on at a workspace with none
       const workspace = WORKSPACES[workspaceOf(person.session, from)];
-      const [chair, chairTop] = workspace.carry || CHAIRS[decor.chair];
+      const [chair, chairTop] = workspace.carry || chairAt(from);
       fill(lifted.position.x - 4, top - 5, 9, 2, chairTop);
       fill(lifted.position.x - 3, top - 3, 1, 2, chair);
       fill(lifted.position.x + 3, top - 3, 1, 2, chair);
@@ -7987,8 +8090,9 @@
   }
 
   // `preview` draws a piece for the setup page, and `arrangeable` and `sizes` are what its editor can arrange;
+  // `furnishingOf` writes a room in a style out as your own, for the setup page to change one piece of it;
   // `remind` is the deck's reminder; `Ambience` and `sounds` let each of the office's sounds be tried on its own.
   window.AgentOffice = {
-    create, popOutSize, preview, arrangeable: ARRANGEABLE, sizes: PIECE_SIZES, remind, Ambience, sounds: Object.keys(SOUNDS),
+    create, popOutSize, preview, arrangeable: ARRANGEABLE, sizes: PIECE_SIZES, remind, Ambience, sounds: Object.keys(SOUNDS), furnishingOf,
   };
 })();
