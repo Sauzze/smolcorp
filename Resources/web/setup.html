@@ -460,6 +460,11 @@
     <aside>
       <p class="picked" id="arrange-picked"></p>
       <div class="tools" id="arrange-size" role="group" aria-label="Size"></div>
+      <div id="arrange-desk" hidden>
+        <h3>This desk is</h3>
+        <div class="tools"><span id="arrange-desk-auto"></span></div>
+        <div class="tiles adding" id="arrange-workspace"></div>
+      </div>
       <div class="tools">
         <button class="btn" id="arrange-hide">Put it away</button>
         <button class="btn" id="arrange-back">Where it was</button>
@@ -1504,10 +1509,20 @@
     const kinds = AgentOffice.arrangeable;
     const added = arrangePicked && arrangePicked.startsWith('added:');
     const piece = arrangePicked && (added ? addedPieces()[Number(arrangePicked.slice(6))]
-      : arrangedPieces()[arrangePicked] || { x: 0, y: 0, size: 1, off: false });
+      : arrangedPieces()[arrangePicked] || { x: 0, y: 0, size: 1, off: false, workspace: 'auto' });
     // An added piece grows, and is taken out rather than put away.
     const kind = arrangePicked && (added ? { grows: true, hides: true } : kinds[arrangePicked]);
     $('arrange-picked').textContent = kind ? pieceName(arrangePicked) : 'Pick a piece in the room.';
+    // A desk is what you make it, whoever sits at it, unless their project's card says otherwise.
+    const desk = !!arrangePicked && arrangePicked.startsWith('desk');
+    $('arrange-desk').hidden = !desk;
+    if (desk) {
+      const own = (piece && piece.workspace) || 'auto';
+      const set = (workspace) => arranger.arrange(arrangePicked, { workspace });
+      $('arrange-desk-auto').replaceChildren(choice('As everyone works', own === 'auto', () => set('auto')));
+      $('arrange-workspace').replaceChildren(...ROOM_CHOICES.workspace.map(([id, label]) =>
+        tile('workspace', id, label, own === id, () => set(id), layout.room || STANDARD_ROOM)));
+    }
     $('arrange-hide').textContent = added ? 'Take it out' : 'Put it away';
     $('arrange-size').replaceChildren(...AgentOffice.sizes.map((size) => {
       const b = choice(PIECE_SIZE_NAMES[size], !!piece && piece.size === size, () => arranger.arrange(arrangePicked, { size }));
@@ -1515,7 +1530,7 @@
       return b;
     }));
     $('arrange-hide').disabled = !kind || !kind.hides;
-    $('arrange-back').disabled = !piece || (piece.x === 0 && piece.y === 0 && piece.size === 1);
+    $('arrange-back').disabled = !piece || (piece.x === 0 && piece.y === 0 && piece.size === 1 && (piece.workspace || 'auto') === 'auto');
     const away = Object.entries(arrangedPieces()).filter(([, p]) => p.off).map(([part]) => part);
     $('arrange-tray').replaceChildren(...(away.length ? away.map((part) => {
       const b = document.createElement('button');
@@ -1595,7 +1610,7 @@
     arranger.pick(null);
     arranger.arrange(part, part.startsWith('added:') ? { remove: true } : { off: true });
   };
-  $('arrange-back').onclick = () => arranger.arrange(arrangePicked, { x: 0, y: 0, size: 1 });
+  $('arrange-back').onclick = () => arranger.arrange(arrangePicked, { x: 0, y: 0, size: 1, workspace: 'auto' });
   $('arrange-clear').onclick = () => {
     arrangePicked = null;
     arranger.pick(null);

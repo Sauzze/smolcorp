@@ -558,6 +558,9 @@ type Piece struct {
 	Y    int     `json:"y"`
 	Size float64 `json:"size"`
 	Off  bool    `json:"off"`
+	// Workspace is a desk's own, whoever sits at it, unless their project
+	// has one; "auto" otherwise.
+	Workspace string `json:"workspace"`
 }
 
 var (
@@ -604,7 +607,10 @@ func (p *Plan) UnmarshalJSON(data []byte) error {
 			}
 			var off bool
 			json.Unmarshal(parts["off"], &off)
-			pieces[part] = Piece{X: int(math.Round(number("x"))), Y: int(math.Round(number("y"))), Size: number("size"), Off: off}
+			var workspace string
+			json.Unmarshal(parts["workspace"], &workspace)
+			pieces[part] = Piece{X: int(math.Round(number("x"))), Y: int(math.Round(number("y"))), Size: number("size"), Off: off,
+				Workspace: workspace}
 		}
 		return pieces
 	}
@@ -650,6 +656,9 @@ func (p Plan) checked() Plan {
 				piece.Size = 1
 			}
 			piece.Off = piece.Off && kind.hides
+			if !strings.HasPrefix(part, "desk") || !slices.Contains(workspaces, piece.Workspace) {
+				piece.Workspace = "auto"
+			}
 			checked[part] = piece
 		}
 		return checked

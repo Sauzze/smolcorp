@@ -154,7 +154,7 @@
   const PIECE_SIZES = [1, 1.5, 2];
   /** How far a piece can be moved from where it stands, either way, in art pixels. */
   const PIECE_REACH = 400;
-  const STANDARD_PIECE = Object.freeze({ x: 0, y: 0, size: 1, off: false });
+  const STANDARD_PIECE = Object.freeze({ x: 0, y: 0, size: 1, off: false, workspace: 'auto' });
   /**
    * Where each part of the lounge stands on the floor, in the wide room: it
    * grows from there. And the part of the room each takes up, for the
@@ -197,6 +197,8 @@
           x: at(piece.x), y: at(piece.y),
           size: grows && PIECE_SIZES.includes(piece.size) ? piece.size : 1,
           off: hides && piece.off === true,
+          // A desk's own workspace, whoever sits at it, unless their project has one
+          workspace: part.startsWith('desk') && Object.hasOwn(WORKSPACES, piece.workspace) ? piece.workspace : 'auto',
         };
       }
       return arranged;
@@ -932,10 +934,16 @@
   /** A session's place on your team, if you've made one for its project. */
   const memberOf = (session) => (session && Object.hasOwn(decor.team, session.name) && decor.team[session.name]) || null;
 
-  /** What a session's agent works at: its own, from your team, or the office's. An empty desk is the office's. */
-  function workspaceOf(session) {
+  /**
+   * What an agent works at: its own, from your team; or else what the desk
+   * it's at was given when the room was arranged; or else the office's. An
+   * empty desk is its own, or the office's.
+   */
+  function workspaceOf(session, desk = null) {
     const member = memberOf(session);
-    return member && member.workspace !== 'auto' ? member.workspace : decor.workspace;
+    if (member && member.workspace !== 'auto') return member.workspace;
+    const own = desk === null ? 'auto' : pieceOf(`desk${desk + 1}`).workspace;
+    return own && own !== 'auto' ? own : decor.workspace;
   }
 
   /** How a person looks: as their project's name picks it, with your choices for them over the top. */
@@ -1357,7 +1365,7 @@
           for (const p of this.people) {
             if (p.isStaff || !p.isAtDesk) continue;
             // Where what's on the desk is, or on a desk with nowhere for it, its end.
-            const { dx, dy } = WORKSPACES[workspaceOf(p.session)].things || { dx: 0, dy: 0 };
+            const { dx, dy } = WORKSPACES[workspaceOf(p.session, p.desk)].things || { dx: 0, dy: 0 };
             const { x, y } = DESKS[p.desk];
             places.push({ x: x + 36 + dx, y: y + 2 + dy, depth: y + 5.6 + dy, pose: 'sit' });
           }
@@ -1376,7 +1384,7 @@
           decor.wall.forEach((piece, slot) => { if (piece === 'window') places.push({ x: WALL_SLOTS[slot] + 19, y: 22, depth: 41.5, pose: 'still' }); });
           places.push(placed('wall', { x: 296, y: 24, depth: 41.5, pose: 'still' }), placed('corner', { x: 276, y: 58, pose: 'still' }));
           if (desk) {
-            const { screen } = WORKSPACES[workspaceOf(worker.session)];
+            const { screen } = WORKSPACES[workspaceOf(worker.session, worker.desk)];
             places.push({ x: desk.x + screen.dx + 6, y: desk.y + screen.dy, depth: desk.y + 5.6, pose: 'still' });
           }
           break;
@@ -1862,7 +1870,7 @@
         return { kind: 'wave', frame: Math.floor(now * (4 + 8 * agitation)) % 2, hop: agitation ? Math.floor(now * (3 + 5 * agitation)) % 2 : 0 };
       }
       if (person.session.state === 'error') return { kind: 'slump' };
-      return { kind: WORKSPACES[workspaceOf(person.session)].stands ? 'stand' : 'sit' };
+      return { kind: WORKSPACES[workspaceOf(person.session, deskOf(person.place))].stands ? 'stand' : 'sit' };
     }
     const spot = spotOf(person.place);
     if (spot !== null) {
@@ -1982,7 +1990,7 @@
     const ink = fromCss(office.colours.ink) ?? INK;
     const sessionAt = (desk) => (desk < office.seats.length ? office.seats[desk].session : null);
     /** How far above its corner a desk's workspace reaches, in art pixels: a negative number. */
-    const reachOf = (desk) => WORKSPACES[workspaceOf(sessionAt(desk))].top;
+    const reachOf = (desk) => WORKSPACES[workspaceOf(sessionAt(desk), desk)].top;
     // Someone being carried is drawn where the finger has them, so nothing of them stays at their desk.
     const carried = frame.carrying && frame.carrying.person;
     /** Who is at a desk now, if anyone. */
@@ -2840,7 +2848,7 @@
 
     /** The back of a desk's workspace, behind whoever is at it. */
     function drawWorkspaceBack(desk) {
-      const kind = workspaceOf(sessionAt(desk));
+      const kind = workspaceOf(sessionAt(desk), desk);
       if (WORKSPACE_PARTS[kind].back) WORKSPACE_PARTS[kind].back(workspaceAt(desk));
     }
 
@@ -2900,7 +2908,7 @@
 
     function drawDesk(desk) {
       const { x, y } = DESKS[desk], s = seat(desk);
-      const kind = workspaceOf(sessionAt(desk)), workspace = WORKSPACES[kind];
+      const kind = workspaceOf(sessionAt(desk), desk), workspace = WORKSPACES[kind];
       WORKSPACE_PARTS[kind].front(workspaceAt(desk));
 
       // Something different on each desk, or what you've put on it
@@ -2948,7 +2956,7 @@
 
     /** The office's chair, at a workspace that has one. */
     function drawChair(desk) {
-      if (!WORKSPACES[workspaceOf(sessionAt(desk))].chair) return;
+      if (!WORKSPACES[workspaceOf(sessionAt(desk), desk)].chair) return;
       const s = seat(desk), y = DESKS[desk].y;
       // A rounded back, lower than the monitor beside it
       const [chair, chairTop] = CHAIRS[decor.chair];
@@ -4250,7 +4258,7 @@
       const session = sessionAt(desk);
       if (!session) return;
       // The screen's top-left, wherever the desk has it
-      const { screen } = WORKSPACES[workspaceOf(session)];
+      const { screen } = WORKSPACES[workspaceOf(session, desk)];
       const x = DESKS[desk].x + screen.dx, y = DESKS[desk].y + screen.dy;
       const blinkedOff = session.state === 'asking' && Math.floor(now * 2) % 2 === 1;
       // A command running turns the screen terminal-green.
@@ -4569,7 +4577,7 @@
       const gap = (c, next) => (c === ':' || next === ':' ? 0 : 1);
       const chars = [...text];
       const width = chars.reduce((w, c, i) => w + GLYPHS[c][0].length + (i < chars.length - 1 ? gap(c, chars[i + 1]) : 0), 0);
-      const { screen } = WORKSPACES[workspaceOf(session)];
+      const { screen } = WORKSPACES[workspaceOf(session, desk)];
       let at = x + screen.dx + 1 + Math.floor((11 - width) / 2);
       chars.forEach((c, i) => {
         GLYPHS[c].forEach((row, r) => [...row].forEach((on, column) => { if (on === '1') dot(at + column, y + screen.dy + 2 + r, PALETTE.bubble); }));
@@ -4630,7 +4638,7 @@
       drawPerson(lifted);
       const top = topOf(lifted, poseOf(lifted, now));
       // Their chair, or what they sit on at a workspace with none
-      const workspace = WORKSPACES[workspaceOf(person.session)];
+      const workspace = WORKSPACES[workspaceOf(person.session, from)];
       const [chair, chairTop] = workspace.carry || CHAIRS[decor.chair];
       fill(lifted.position.x - 4, top - 5, 9, 2, chairTop);
       fill(lifted.position.x - 3, top - 3, 1, 2, chair);
@@ -5934,7 +5942,7 @@
       const { x, y } = DESKS[desk], seat = office.seats[desk] || {};
       const left = x - 2, right = x + DESK_WIDTH + 2;
       return [
-        { left, right, top: y + WORKSPACES[workspaceOf(seat.session)].top, bottom: y + 18 },
+        { left, right, top: y + WORKSPACES[workspaceOf(seat.session, desk)].top, bottom: y + 18 },
         { left, right, top: y + 18, bottom: y + 27 },
       ];
     }
@@ -6149,7 +6157,7 @@
       if (part.startsWith('desk')) {
         const desk = Number(part.slice(4)) - 1, { x, y } = DESKS[desk];
         const seat = office.seats[desk] || {};
-        return { left: x - 2, top: y + WORKSPACES[workspaceOf(seat.session)].top, right: x + DESK_WIDTH + 2, bottom: y + 20 };
+        return { left: x - 2, top: y + WORKSPACES[workspaceOf(seat.session, desk)].top, right: x + DESK_WIDTH + 2, bottom: y + 20 };
       }
       const { x, y, w, h } = pieceRect(part);
       const a = placed(part, { x, y }), b = placed(part, { x: x + w, y: y + h });

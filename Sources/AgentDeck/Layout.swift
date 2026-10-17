@@ -289,6 +289,8 @@ struct Plan: Codable, Equatable {
         var y = 0
         var size = 1.0
         var off = false
+        /// A desk's own workspace, whoever sits at it, unless their project has one; "auto" otherwise.
+        var workspace = "auto"
     }
 
     /// What can be arranged: each desk, which only moves, and the lounge's
@@ -313,9 +315,11 @@ struct Plan: Codable, Equatable {
             return given.reduce(into: [:]) { pieces, entry in
                 guard let kind = Plan.pieces[entry.key], let piece = entry.value.piece else { return }
                 let at = { (n: Double?) in min(Plan.reach, max(-Plan.reach, Int((n ?? 0).rounded()))) }
+                let desk = entry.key.hasPrefix("desk")
                 pieces[entry.key] = Piece(x: at(piece.x), y: at(piece.y),
                                           size: kind.grows && Plan.sizes.contains(piece.size ?? 1) ? piece.size ?? 1 : 1,
-                                          off: kind.hides && piece.off == true)
+                                          off: kind.hides && piece.off == true,
+                                          workspace: desk && Room.workspaces.contains(piece.workspace ?? "") ? piece.workspace! : "auto")
             }
         }
         wide = arranged(.wide)
@@ -345,15 +349,16 @@ struct Plan: Codable, Equatable {
     /// A piece as given, each of its parts read on its own: one of the wrong
     /// kind is as standard.
     private struct Loose: Decodable {
-        let piece: (x: Double?, y: Double?, size: Double?, off: Bool?)?
-        private enum Keys: String, CodingKey { case x, y, size, off }
+        let piece: (x: Double?, y: Double?, size: Double?, off: Bool?, workspace: String?)?
+        private enum Keys: String, CodingKey { case x, y, size, off, workspace }
         init(from decoder: Decoder) throws {
             guard let c = try? decoder.container(keyedBy: Keys.self) else {
                 piece = nil
                 return
             }
             func number(_ key: Keys) -> Double? { (try? c.decodeIfPresent(Double.self, forKey: key)) ?? nil }
-            piece = (number(.x), number(.y), number(.size), (try? c.decodeIfPresent(Bool.self, forKey: .off)) ?? nil)
+            piece = (number(.x), number(.y), number(.size), (try? c.decodeIfPresent(Bool.self, forKey: .off)) ?? nil,
+                     (try? c.decodeIfPresent(String.self, forKey: .workspace)) ?? nil)
         }
     }
 }

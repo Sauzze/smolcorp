@@ -622,17 +622,19 @@ func must[T any](value T, err error) T {
 func TestAnArrangementKeepsWhatCanBeArrangedAsItCanBe(t *testing.T) {
 	var room Room
 	if err := json.Unmarshal([]byte(`{"plan": {"wide": {
-		"desk1": {"x": 12, "y": -4.6, "size": 2, "off": true},
-		"mic": {"x": -3, "y": 0, "size": 1.5, "off": true},
+		"desk1": {"x": 12, "y": -4.6, "size": 2, "off": true, "workspace": "tent"},
+		"desk2": {"workspace": "hammock"},
+		"mic": {"x": -3, "y": 0, "size": 1.5, "off": true, "workspace": "tent"},
 		"corner": {"x": 9999, "size": 3, "off": true},
 		"sofa": {"x": 1},
 		"plant": "here"}, "tall": 5}}`), &room); err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]Piece{
-		"desk1":  {X: 12, Y: -5, Size: 1},
-		"mic":    {X: -3, Size: 1.5},
-		"corner": {X: pieceReach, Size: 1, Off: true},
+		"desk1":  {X: 12, Y: -5, Size: 1, Workspace: "tent"},
+		"desk2":  {Size: 1, Workspace: "auto"},
+		"mic":    {X: -3, Size: 1.5, Workspace: "auto"},
+		"corner": {X: pieceReach, Size: 1, Off: true, Workspace: "auto"},
 	}
 	if len(room.Plan.Wide) != len(want) {
 		t.Fatalf("kept %v, want %v", room.Plan.Wide, want)

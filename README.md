@@ -297,13 +297,20 @@ There's more to see while they work:
 - **The desks** in wood, walnut, white or black, where no effort paints them,
   and **the chairs** in teal, black, red, grey or green.
 - **Office staff:** a few, none, or lots of them in the lounge.
+- **A jukebox that plays your music**, once you turn it on under *Getting
+  started*: tap any jukebox in the office to play or pause whatever this
+  computer is playing, Spotify, Apple Music or a video in your browser. It
+  lights up while Spotify or Apple Music plays; macOS asks once whether
+  SauzzeDeck Pro may ask them.
 
 **Arrange the room** puts everything where you want it. Click **Arrange the
 room…** under *Office*, and the office fills the window: click a piece to pick
 it and drag it anywhere. The desks move; the lounge's piece, the couch, the
 ping-pong table, the plant, the coffee counter, the red button and the mic
 also come in small, medium or large, and all but the button and the mic can
-be put away and brought back. **Add to the room** puts more pieces in the
+be put away and brought back. Pick a desk to make it what you like, a tent, a
+beanbag or a cardboard box, whoever sits at it; a project's own choice on its
+team card still comes first. **Add to the room** puts more pieces in the
 lounge, up to twelve, any of those its corner can hold and the same one more
 than once: two fish tanks, an arcade and the dragon, say. **Clear the room**
 starts from an empty lounge, and **Back to standard** puts everything back.
