@@ -74,6 +74,22 @@
 
   /** The microphone on its stand, in the lounge's bottom-right corner: where its base meets the floor. */
   const MIC = { x: 311, y: 176 };
+  /**
+   * What the mic can be, each on the same stand: how tall its pole is, what
+   * a finger finds (`tap`, from where its base meets the floor), where its
+   * sound waves come from (`mouth`), and what it sounds like going on.
+   */
+  const MIC_KINDS = {
+    mic: { pole: 17, tap: { left: -5, top: -25, right: 6, bottom: 1 }, mouth: { dx: 0, dy: -21 }, sound: 'mic-on' },
+    megaphone: { pole: 17, tap: { left: -9, top: -25, right: 6, bottom: 1 }, mouth: { dx: -8, dy: -20 }, sound: 'megaphone' },
+    studio: { pole: 16, tap: { left: -5, top: -29, right: 6, bottom: 1 }, mouth: { dx: 0, dy: -23 }, sound: 'mic-on' },
+    podcast: { pole: 16, tap: { left: -15, top: -29, right: 6, bottom: 1 }, mouth: { dx: -12, dy: -24 }, sound: 'mic-on' },
+    karaoke: { pole: 15, tap: { left: -5, top: -28, right: 6, bottom: 1 }, mouth: { dx: 0, dy: -24 }, sound: 'mic-on' },
+    headset: { pole: 15, tap: { left: -8, top: -25, right: 6, bottom: 1 }, mouth: { dx: -6, dy: -17 }, sound: 'mic-on' },
+    walkie: { pole: 15, tap: { left: -4, top: -31, right: 6, bottom: 1 }, mouth: { dx: 0, dy: -22 }, sound: 'mic-on' },
+    tincan: { pole: 15, tap: { left: -5, top: -23, right: 9, bottom: 1 }, mouth: { dx: -3, dy: -19 }, sound: 'mic-on' },
+    radio: { pole: 15, tap: { left: -6, top: -28, right: 6, bottom: 1 }, mouth: { dx: 0, dy: -22 }, sound: 'mic-on' },
+  };
   /** The plant, moved to the lounge's bottom-left to make room for it: its leaves' left edge. */
   const PLANT_X = 226;
 
@@ -278,7 +294,7 @@
   const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff'];
 
   const ROOM_CHOICES = {
-    mic: ['mic', 'megaphone'],
+    mic: ['mic', 'megaphone', 'studio', 'podcast', 'karaoke', 'headset', 'walkie', 'tincan', 'radio'],
     floor: ['wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass', 'forest', 'rubber',
       'epoxy', 'arcade'],
     paint: ['slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block', 'foam'],
@@ -5394,15 +5410,17 @@
      * glows while it's held; with no voice input in the picked session, it's
      * dimmed.
      */
-    function drawMic() {
-      const x = MIC.x + wobble('mic'), y = MIC.y;
-      const a = mic.usable ? 1 : 0.4;
-      fill(x - 4, y, 9, 1, SHADOW);
-      fill(x - 3, y - 1, 7, 1, PALETTE.machine, a);
-      fill(x - 1, y - 2, 3, 1, PALETTE.machine, a);
-      fill(x, y - 17, 1, 15, PALETTE.monitorStand, a);
-      if (decor.mic === 'megaphone') {
-        // A megaphone on the stand, its horn to the room, a red rim on its mouth
+    /** What's on top of the mic's stand, at `x`, `y` where its base meets the floor, `a` its opacity: each of MIC_KINDS. */
+    const MIC_HEADS = {
+      /** The head: a grille in a rounded case. */
+      mic(x, y, a) {
+        fill(x - 1, y - 24, 3, 1, PALETTE.sill, a);
+        fill(x - 2, y - 23, 5, 5, PALETTE.sill, a);
+        for (const row of [-22, -20]) fill(x - 1, y + row, 3, 1, PALETTE.monitor, a);
+        fill(x - 1, y - 18, 3, 1, PALETTE.monitorStand, a);
+      },
+      /** A megaphone on the stand, its horn to the room, a red rim on its mouth. */
+      megaphone(x, y, a) {
         fill(x - 1, y - 22, 4, 5, MEGAPHONE, a);
         fill(x + 2, y - 22, 1, 5, PALETTE.dome, a);
         fill(x, y - 18, 2, 2, PALETTE.machine, a);
@@ -5411,13 +5429,74 @@
           fill(x - 1 - k, y - 20 - half, 1, half * 2 + 1, k === 6 ? PALETTE.dome : MEGAPHONE, a);
         }
         fill(x - 6, y - 23, 4, 1, WHITE, 0.5 * a);
-      } else {
-        // The head: a grille in a rounded case
-        fill(x - 1, y - 24, 3, 1, PALETTE.sill, a);
-        fill(x - 2, y - 23, 5, 5, PALETTE.sill, a);
-        for (const row of [-22, -20]) fill(x - 1, y + row, 3, 1, PALETTE.monitor, a);
-        fill(x - 1, y - 18, 3, 1, PALETTE.monitorStand, a);
-      }
+      },
+      /** Ribbon mic. A chrome ribbon mic held in a yoke, a gold band round it: a 1950s studio. */
+      studio(x, y, a, held) {
+        fill(x - 3, y - 19, 7, 1, 0x9aa0a6, a); fill(x - 3, y - 24, 1, 5, 0x9aa0a6, a); fill(x + 3, y - 24, 1, 5, 0x9aa0a6, a);
+        fill(x - 1, y - 28, 3, 1, 0xc8cdd6, a); fill(x - 2, y - 27, 5, 8, 0xc8cdd6, a); fill(x - 1, y - 19, 3, 1, 0xc8cdd6, a);
+        for (let r = -26; r <= -20; r += 2) fill(x - 1, y + r, 3, 1, 0x5a5f6c, a);
+        fill(x - 2, y - 23, 5, 1, PALETTE.brass, a); dot(x - 2, y - 26, WHITE, 0.5 * a);
+      },
+      /** Podcast mic. A broadcast mic hung in a shock mount on a boom arm, a pop filter in front of it. */
+      podcast(x, y, a, held) {
+        line(x, y - 16, x - 4, y - 20, 0x3a3d47, a); line(x - 4, y - 20, x - 6, y - 22, 0x3a3d47, a);
+        dot(x - 2, y - 19, 0x9aa0a6, a); dot(x - 4, y - 21, 0x9aa0a6, a);
+        fill(x - 9, y - 27, 5, 1, 0x5a5f6c, a); fill(x - 9, y - 20, 5, 1, 0x5a5f6c, a);
+        fill(x - 8, y - 28, 3, 8, 0x1d1f25, a); fill(x - 8, y - 28, 3, 3, 0x3a3d47, a); dot(x - 7, y - 27, 0x6a7080, a);
+        line(x - 9, y - 21, x - 11, y - 21, 0x3a3d47, a);
+        disc(x - 12, y - 24, 2.5, 0x1d1f25, 0.35 * a); ring(x - 12, y - 24, 2.5, 0x2a2a2e, a);
+      },
+      /** Karaoke mic. Gold, with a silver ball. Held, lights run round it in every colour. */
+      karaoke(x, y, a, held) {
+        fill(x - 1, y - 16, 3, 1, PALETTE.machine, a);
+        fill(x, y - 21, 2, 6, PALETTE.brass, a); fill(x, y - 21, 1, 6, 0xf2d38a, a);
+        disc(x, y - 23, 2.2, 0xc8cdd6, a); for (const [dx, dy] of [[-1, -23], [1, -24], [0, -22], [1, -22]]) dot(x + dx, y + dy, 0x8a8f9c, a);
+        fill(x, y - 19, 2, 1, held ? rainbow((now * 0.8) % 1) : 0xd4140b, a);
+        if (held) for (let k = 0; k < 6; k++) { const ang = now * 3 + (k * Math.PI) / 3; dot(x + Math.round(Math.cos(ang) * 4), y - 23 + Math.round(Math.sin(ang) * 4), rainbow(k / 6)); }
+        else if ((now % 3) < 0.25) dot(x - 1, y - 25, WHITE);
+      },
+      /** Headset on a stand. A gaming headset with a boom mic, its cup lit green while it's held. */
+      headset(x, y, a, held) {
+        disc(x, y - 20, 2.5, 0x3a3d47, a);
+        fill(x - 2, y - 24, 5, 1, 0x2a2d35, a); dot(x - 3, y - 23, 0x2a2d35, a); dot(x + 3, y - 23, 0x2a2d35, a);
+        fill(x - 4, y - 22, 2, 4, 0x2a2d35, a); fill(x + 3, y - 22, 2, 4, 0x2a2d35, a);
+        line(x - 4, y - 18, x - 6, y - 16, 0x5a5f6c, a); fill(x - 7, y - 17, 2, 2, 0x1d1f25, a);
+        dot(x + 4, y - 21, held ? 0x6fd36f : 0x3a3d47, a);
+      },
+      /** Walkie-talkie. Standing in its charger, its light slowly blinking green; red while it's held. */
+      walkie(x, y, a, held) {
+        fill(x - 2, y - 17, 6, 2, 0x3a3d47, a);
+        fill(x - 1, y - 25, 4, 8, 0x2a2c30, a); fill(x - 1, y - 25, 4, 1, 0x3a3d47, a);
+        fill(x, y - 23, 2, 1, 0x5a5f6c, a); fill(x, y - 21, 2, 1, 0x5a5f6c, a);
+        fill(x + 2, y - 29, 1, 4, 0x1d1f25, a); dot(x + 2, y - 30, 0x3a3d47, a); dot(x - 1, y - 26, 0x5a5f6c, a);
+        fill(x - 2, y - 22, 1, 2, 0xe8c04a, a);
+        dot(x, y - 25, held ? 0xd4140b : 0x6fd36f, held ? 1 : (Math.floor(now * 0.8) % 2 ? 1 : 0.35));
+      },
+      /** Tin-can phone. A can on the stand, its string running off out of the room. */
+      tincan(x, y, a, held) {
+        const sway = Math.sin(now * 1.5) * 0.6;
+        for (let k = 0; k <= 8; k++) dot(x + 3 + Math.round(k * 0.75), y - 19 + Math.round(k * 0.6 + Math.sin((k / 8) * Math.PI) * (1.5 + sway)), 0xeae6dc, 0.8 * a);
+        fill(x - 2, y - 21, 5, 5, 0xa8adb6, a); fill(x - 2, y - 21, 5, 1, 0xc8cdd6, a); fill(x - 2, y - 17, 5, 1, 0x8a8f9c, a);
+        fill(x - 2, y - 20, 5, 2, 0xc9443a, a); dot(x, y - 20, WHITE, a);
+        fill(x - 3, y - 21, 1, 5, 0x5a5f6c, a);
+      },
+      /** Radio ring mic. A 1930s broadcast mic, hung on springs in a chrome ring over its station plate. */
+      radio(x, y, a, held) {
+        fill(x - 3, y - 17, 7, 1, PALETTE.brass, a);
+        ring(x, y - 22, 4.5, 0xc8cdd6, a);
+        for (const [dx, dy] of [[-2, -25], [-3, -26], [2, -25], [3, -26], [-2, -19], [-3, -18], [2, -19], [3, -18]]) dot(x + dx, y + dy, 0x9aa0a6, a);
+        fill(x - 1, y - 24, 3, 4, 0x2a2c30, a); fill(x - 1, y - 24, 3, 1, 0x5a5f6c, a); dot(x, y - 22, 0x5a5f6c, a);
+      },
+    };
+
+    function drawMic() {
+      const x = MIC.x + wobble('mic'), y = MIC.y, { pole } = MIC_KINDS[decor.mic];
+      const a = mic.usable ? 1 : 0.4;
+      fill(x - 4, y, 9, 1, SHADOW);
+      fill(x - 3, y - 1, 7, 1, PALETTE.machine, a);
+      fill(x - 1, y - 2, 3, 1, PALETTE.machine, a);
+      fill(x, y - pole, 1, pole - 2, PALETTE.monitorStand, a);
+      MIC_HEADS[decor.mic](x, y, a, mic.held);
       // The on-air light, on the stand's clip
       fill(x - 1, y - 15, 3, 2, PALETTE.frame, a);
       if (mic.held) {
@@ -6098,7 +6177,7 @@
       if (!mic.held) return;
       const heldFor = now - mic.heldAt;
       const at = placed('mic', MIC);
-      const mouth = decor.mic === 'megaphone' ? { x: at.x - 8, y: at.y - 20 } : { x: at.x, y: at.y - 21 };
+      const { dx, dy } = MIC_KINDS[decor.mic].mouth, mouth = { x: at.x + dx, y: at.y + dy };
       for (let k = 0; k < 3; k++) {
         const age = (heldFor - k * WAVE_EVERY) % (WAVE_EVERY * 3) / (WAVE_EVERY * 3);
         if (heldFor < k * WAVE_EVERY) continue;
@@ -7119,7 +7198,7 @@
       // The mic switched on and off, and an agent picked up and put down
       // A quick tap can hold and let go of the mic between two frames: each is told by its time.
       const { heldAt = null, releasedAt = null } = held.mic || {};
-      if (this.mic && heldAt !== this.mic.heldAt && heldAt !== null) this.play(decor.mic === 'megaphone' ? 'megaphone' : 'mic-on');
+      if (this.mic && heldAt !== this.mic.heldAt && heldAt !== null) this.play(MIC_KINDS[decor.mic].sound);
       if (this.mic && releasedAt !== this.mic.releasedAt && releasedAt !== null) this.play('mic-off', null, 0.12);
       this.mic = { heldAt, releasedAt };
       if (held.carrying && this.carried === null) this.play('pick-up', held.carrying.x);
@@ -7456,7 +7535,8 @@
         return { left: a.x, top: a.y, right: b.x, bottom: b.y };
       };
       consider({ kind: 'button' }, box('button', BUTTON.x - 7, BUTTON.y - 1, BUTTON.x + 8, BUTTON.y + 16), 1);
-      consider({ kind: 'mic' }, box('mic', MIC.x - (decor.mic === 'megaphone' ? 9 : 5), MIC.y - 25, MIC.x + 6, MIC.y + 1), 1);
+      const { tap } = MIC_KINDS[decor.mic];
+      consider({ kind: 'mic' }, box('mic', MIC.x + tap.left, MIC.y + tap.top, MIC.x + tap.right, MIC.y + tap.bottom), 1);
       DESKS.forEach((_, desk) => {
         const seat = office.seats[desk] || {};
         // An empty desk only matters where a hire would sit.

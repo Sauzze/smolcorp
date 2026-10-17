@@ -55,7 +55,7 @@ func (k *KeyCount) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Room is how the office is furnished: the microphone or a megaphone, what
+// Room is how the office is furnished: what's talked into, what
 // each of the back wall's five places holds, the floor, the walls' paint, the
 // lounge's carpet and the piece in its corner, whether the sky keeps the
 // computer's time or it's always day, its pet, whether the windows follow the
@@ -279,7 +279,7 @@ func (a Attire) checked() Attire {
 var (
 	// Each part's choices; the first is the standard one.
 	roomChoices = map[string][]string{
-		"mic": {"mic", "megaphone"},
+		"mic": {"mic", "megaphone", "studio", "podcast", "karaoke", "headset", "walkie", "tincan", "radio"},
 		"floor": {"wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest", "rubber",
 			"epoxy", "arcade"},
 		"paint": {"slate", "sage", "clay", "cream", "hull", "timber", "damask", "stone", "ice", "logs", "brick", "bamboo", "block",
