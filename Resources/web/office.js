@@ -593,6 +593,31 @@
   }
   let spots = spotsOf(decor);
   let boardSpots = boardSpotsOf(decor);
+  /**
+   * What a session's error, by its kind, has its agent do in the office:
+   * 'auth' locked out at the door, 'overloaded' watching a storm, 'billing'
+   * out of order at the desk. A rate limit waits under the clock, and any
+   * other error is head in hands at the desk.
+   */
+  const FAILURE_KINDS = {
+    authentication_failed: 'auth', oauth_org_not_allowed: 'auth', account_on_hold: 'auth', cloud_credential_error: 'auth',
+    overloaded: 'overloaded', billing_error: 'billing',
+  };
+  const failureOf = (session) => (session && session.state === 'error' && FAILURE_KINDS[session.errorKind]) || null;
+  /** Which of two ways a person takes a failure: knocking or patting their pockets, at a window or under a cloud, a sign or a closed one. */
+  const takeOf = (person) => (person.look.phase < 0.5 ? 0 : 1);
+  /** In front of the door, where someone locked out knocks or looks for their key. */
+  const LOCKED_SPOTS = [{ x: 214, y: 46 }, { x: 205, y: 48 }, { x: 223, y: 48 }];
+  /** The back wall's pieces you can see a storm through, and their glass, from the middle of their place. */
+  const STORM_PANES = {
+    window: [-16, 6, 32, 20], viewport: [-16, 6, 32, 20], frost: [-16, 6, 32, 20], cabin: [-14, 6, 28, 20], blind: [-16, 6, 32, 20],
+  };
+  /** In front of each window on the back wall, where someone watches a storm: the slot it's in, too. */
+  const stormSpotsOf = (room) => room.wall.flatMap((piece, slot) => (STORM_PANES[piece] ? [{ x: WALL_SLOTS[slot], y: 44, slot }] : []));
+  let stormSpots = stormSpotsOf(decor);
+  /** After this long at a failure, in seconds, a sigh now and then. */
+  const SIGH_AFTER = 90;
+
   /** Under the clock by the door, where a rate-limited agent waits. */
   const CLOCK_SPOTS = [{ x: 202, y: 47 }, { x: 193, y: 47 }, { x: 184, y: 47 }];
   /** Where a desk's subagents stand round it: two on each side. */
@@ -618,6 +643,8 @@
       case 'spot': return spots[Number(a)];
       case 'board': return boardSpots[Number(a)];
       case 'clock': return CLOCK_SPOTS[Number(a)];
+      case 'locked': return LOCKED_SPOTS[Number(a)];
+      case 'storm': return stormSpots[Number(a)];
       case 'shred': return { x: desk.x + SHREDDING.dx, y: desk.y + SHREDDING.dy };
       case 'near': return { x: desk.x + INTERN_SLOTS[Number(b)].dx, y: desk.y + INTERN_SLOTS[Number(b)].dy };
       default: return { door: DOOR, button: placed('button', PRESSER), queue: placed('button', NEXT_IN_LINE) }[place];
@@ -902,16 +929,79 @@
     tracksuit: { style: 'tracksuit', matching: true, shoes: TRAINERS },
     overalls: { style: 'overalls', pants: DENIM },
     waistcoat: { style: 'waistcoat', sleeves: 0xeeeae2 },
+    // The styles' clothes: `tint` is the shirt as a shade of the agent's colour, `robe` reaches the floor,
+    // `sleeves` and `legs` can be bare, the 'skin'. Drawn in drawOffice's OUTFIT_PARTS.
+    astronaut: { style: 'astronaut', shirt: 0xe8e8ec, pants: 0xd8d8de, shoes: 0x6a7080, sleeves: 0xffffff },
+    flightsuit: { style: 'flightsuit', shirt: 0xe0703a, pants: 0xc0602e, shoes: 0x3a3d47 },
+    pirate: { style: 'pirate', shirt: 0xf4f1ea, pants: 0x3a2616, shoes: 0x1a1a1f, sleeves: 0xffffff },
+    captain: { style: 'captain', tint: 0.6, robe: true, shoes: 0x1a1a1f },
+    parka: { style: 'parka', tint: 1, pants: 0x3a3f4a, shoes: 0x5a3b25 },
+    explorer: { style: 'explorer', shirt: 0xe0703a, pants: 0x3a3f4a, shoes: 0x2a2c30 },
+    robe: { style: 'robe', tint: 0.7, robe: true, shoes: 0x2a1d16 },
+    knight: { style: 'knight', shirt: 0x9aa0a6, pants: 0x8a8f9c, shoes: 0x5a5f6c, sleeves: 0xb0b5bc },
+    wizard: { style: 'wizard', tint: 0.45, robe: true, shoes: 0x2a1d16 },
+    gamer: { style: 'gamer', shirt: 0x1d1f25, pants: 0x2a2d35, shoes: TRAINERS },
+    founder: { style: 'founder', shirt: 0x6a7080, pants: 0x3a4a6a, shoes: TRAINERS, sleeves: 0xd8f0ff },
+    gymkit: { style: 'gymkit', tint: 1, pants: 0x2a2c30, shoes: TRAINERS, sleeves: 'skin', legs: 'skin' },
+    safari: { style: 'safari', shirt: 0xc9b07a, pants: 0x8a7a5a, shoes: 0x5a3b25 },
+    flannel: { style: 'flannel', tint: 1, pants: DENIM, shoes: 0x5a3b25 },
+    // The models' looks, one for each family
+    claude: { style: 'claude', shirt: 0xd97757 },
+    gpt: { style: 'gpt', shirt: 0x2a2d35 },
+    gemini: { style: 'gemini', shirt: 0x6a7ae8 },
+    grok: { style: 'grok', shirt: 0x1a1a1f },
+    qwen: { style: 'qwen', shirt: 0x6a4ac8 },
+    llama: { style: 'llama', shirt: 0xe8dcc0 },
+    mistral: { style: 'mistral', shirt: 0xf4f1ea, sleeves: 0xffffff },
+    deepseek: { style: 'deepseek', shirt: 0x1f3a7a },
+    kimi: { style: 'kimi', shirt: 0x23252c },
+    glm: { style: 'glm', shirt: 0x2f4a9a },
+    phi: { style: 'phi', shirt: 0x2f9a92 },
   };
+  /**
+   * What agents left on Auto wear in each style, in their agent's colour,
+   * and its office staff the last of them, in theirs.
+   */
+  const STYLE_DRESS = {
+    space: ['astronaut', 'flightsuit'], pirates: ['pirate', 'captain'], arctic: ['parka', 'explorer'], royal: ['robe', 'knight'],
+    lair: ['wizard'], gamers: ['gamer'], garage: ['founder'], gym: ['gymkit'], jungle: ['safari'], campsite: ['flannel'],
+  };
+  /**
+   * Each family of models by the words in its models' names, as their own
+   * words or with a version after them (`qwen3`, `llama4`), and the family
+   * of an agent that says nothing of its model.
+   */
+  const FAMILY_WORDS = {
+    claude: ['claude', 'opus', 'sonnet', 'haiku', 'fable'], gpt: ['gpt', 'codex', 'o1', 'o3', 'o4'], gemini: ['gemini'], grok: ['grok'],
+    qwen: ['qwen'], llama: ['llama'], mistral: ['mistral', 'codestral', 'devstral', 'magistral'], deepseek: ['deepseek'],
+    kimi: ['kimi', 'moonshot'], glm: ['glm', 'zai'], phi: ['phi'],
+  };
+  const AGENT_FAMILIES = { claude: 'claude', codex: 'gpt', gemini: 'gemini', grok: 'grok' };
+  /** A model's look a shade lighter for a small one, darker for a big one. */
+  const FAMILY_SHADES = { small: 1.15, medium: 1, large: 0.85, top: 0.72 };
+
+  /** The family of the model an agent runs, by its name, or by the agent's when it gives none. */
+  function familyOf(model, agent) {
+    if (!model) return AGENT_FAMILIES[agent] ?? null;
+    const words = model.toLowerCase().split(/[^a-z0-9]+/);
+    const says = (name) => words.some((word) => word === name || (word.startsWith(name) && /^[0-9]/.test(word.slice(name.length))));
+    return Object.keys(FAMILY_WORDS).find((family) => FAMILY_WORDS[family].some(says)) ?? null;
+  }
+
+  /** An outfit as worn, its shirt a shade of `accent` for clothes that take the wearer's colour. */
+  function dressFor(style, accent) {
+    const outfit = { style: 'plain', shirt: accent, pants: PALETTE.pants, shoes: PALETTE.shoes, accent, ...(style ? OUTFITS[style] : {}) };
+    if (outfit.tint !== undefined) outfit.shirt = shaded(accent, outfit.tint);
+    if (outfit.robe) outfit.pants = outfit.shirt;
+    return outfit;
+  }
 
   /**
-   * The bigger the model the smarter, unless the dress code says otherwise:
-   * small models in a T-shirt and jeans, medium in a collared shirt, large in
-   * a jacket, the top ones in a suit and tie. Claude Code's wear its own
-   * oranges, from Haiku's bright one to Opus's deep one.
+   * The bigger the model the smarter, for a model of no family the office
+   * knows: small models in a T-shirt and jeans, medium in a collared shirt,
+   * large in a jacket, the top ones in a suit and tie.
    */
   const SIZE_OUTFITS = { small: 'tee', medium: 'collar', large: 'jacket', top: 'suit' };
-  const CLAUDE_SIZE_SHIRTS = { small: 0xf59a3e, medium: 0xd97757, large: 0xa94a2c };
   /**
    * Words model names use for their size, as their own words: so `gemini`
    * isn't `mini`. A model with none of them is medium.
@@ -936,22 +1026,39 @@
   /**
    * What an agent running `model` wears: its project's own outfit on the team
    * card first, then the dress code for the model's size, or for the agent
-   * while its model isn't known, then plain clothes in its agent's colour.
+   * while its model isn't known. Left on Auto, in a style they wear its
+   * clothes in their agent's colour, and otherwise their model's family's
+   * look, a shade lighter or darker for its size, or for a model of no
+   * family the office knows, clothes for its size in their agent's colour.
    */
   function outfitOf(agent, model, member) {
     const own = SHIRTS[agent] ?? SHIRTS.claude;
     const size = model ? sizeOf(model) : null;
     const code = (size ? decor.dress.sizes[size] : decor.dress.agents[agent]) || AUTO_ATTIRE;
-    const chosen = member && member.outfit !== 'auto' ? member.outfit : null;
-    const style = chosen || (code.outfit !== 'auto' ? code.outfit : size ? SIZE_OUTFITS[size] : null);
-    const outfit = { style: 'plain', shirt: own, pants: PALETTE.pants, shoes: PALETTE.shoes, ...(style ? OUTFITS[style] : {}) };
-    // A size's own outfit, left on Auto, is in Claude's oranges; a suit's tie is in its agent's colour.
-    if (!chosen && code.outfit === 'auto' && agent === 'claude' && CLAUDE_SIZE_SHIRTS[size]) outfit.shirt = CLAUDE_SIZE_SHIRTS[size];
-    if (style === 'suit' && agent && agent !== 'claude') outfit.tie = own;
     const colour = member && member.colour !== 'auto' ? member.colour : code.colour !== 'auto' ? code.colour : null;
-    if (colour) outfit.shirt = SHIRT_COLOURS[colour];
+    const accent = colour ? SHIRT_COLOURS[colour] : own;
+    const chosen = member && member.outfit !== 'auto' ? member.outfit : code.outfit !== 'auto' ? code.outfit : null;
+    const styled = chosen ? null : (STYLE_DRESS[decor.preset] || [])[0] ?? null;
+    const family = chosen || styled ? null : familyOf(model, agent);
+    const style = chosen || styled || family || (size ? SIZE_OUTFITS[size] : null);
+    const outfit = dressFor(style, accent);
+    if (family) {
+      outfit.shade = FAMILY_SHADES[size || 'medium'];
+      outfit.shirt = shaded(colour ? accent : outfit.shirt, outfit.shade);
+    } else if (colour && outfit.tint === undefined) {
+      outfit.shirt = accent;
+    }
+    // A suit's tie is in its agent's colour.
+    if (style === 'suit' && agent && agent !== 'claude') outfit.tie = own;
     if (outfit.matching) outfit.pants = darker(outfit.shirt);
     return outfit;
+  }
+
+  /** What one of the office's staff wears: plain clothes, or in a style, its staff's in their colour. */
+  function staffOutfitOf(look) {
+    const shirt = STAFF_SHIRTS[Math.floor(look.phase * STAFF_SHIRTS.length) % STAFF_SHIRTS.length];
+    const dress = STYLE_DRESS[decor.preset];
+    return dress ? dressFor(dress[dress.length - 1], shirt) : { style: 'plain', shirt, pants: PALETTE.pants, shoes: PALETTE.shoes };
   }
   /** Staff wear plain colours, none of them an agent's. */
   const STAFF_SHIRTS = [0x8a8f9c, 0x3e4a66, 0xd8d4c8, 0xb08a3a, 0x6b7f5a];
@@ -1020,7 +1127,9 @@
     hairstyle: ['auto', 'short', 'long', 'spiky', 'bun', 'curly', 'ponytail', 'afro', 'mohawk', 'buzz', 'bald'],
     extra: ['none', 'glasses', 'sunglasses', 'headphones', 'cap', 'beanie', 'beard', 'moustache', 'bow'],
     outfit: ['auto', 'tee', 'hoodie', 'collar', 'sweater', 'jacket', 'suit', 'labcoat', 'polo', 'cardigan', 'hawaiian', 'tracksuit',
-      'overalls', 'waistcoat'],
+      'overalls', 'waistcoat', 'astronaut', 'flightsuit', 'pirate', 'captain', 'parka', 'explorer', 'robe', 'knight', 'wizard', 'gamer',
+      'founder', 'gymkit', 'safari', 'flannel', 'claude', 'gpt', 'gemini', 'grok', 'qwen', 'llama', 'mistral', 'deepseek', 'kimi', 'glm',
+      'phi'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
@@ -1287,13 +1396,15 @@
       decor = next;
       spots = spotsOf(decor);
       boardSpots = boardSpotsOf(decor);
+      stormSpots = stormSpotsOf(decor);
       // Moved furniture takes whoever is at it, or on their way, along with it.
       if (rearranged) this.relayout(now);
       for (const person of this.people) {
         if (person.isLeaving) continue;
         const spot = spotOf(person.place);
         const stranded = ((cornerGone || piecesChanged) && spot !== null && spot >= LOUNGE_SPOTS.length)
-          || (boardGone && person.place.startsWith('board:')) || (spot !== null && spots[spot].off);
+          || (boardGone && person.place.startsWith('board:')) || (spot !== null && spots[spot].off)
+          || (person.place.startsWith('storm:') && !stormSpots[numberAfter('storm:', person.place)]);
         if (!stranded) continue;
         if (!person.isStaff) {
           this.send(person, deskPlace(person.desk));
@@ -1728,7 +1839,7 @@
         return;
       }
       // Nothing to do any more, away from the desk on a job: back to it first.
-      if (/^(board|clock|shred):/.test(person.place)) {
+      if (/^(board|clock|shred|locked|storm):/.test(person.place)) {
         this.send(person, desk);
         return;
       }
@@ -1758,6 +1869,9 @@
       const s = person.session, desk = deskPlace(person.desk);
       if (s.compacting) return `shred:${person.desk}`;
       if (s.state === 'error' && s.errorKind === 'rate_limit') return this.wallSpot(person, 'clock', CLOCK_SPOTS.length) || desk;
+      const failure = failureOf(s);
+      if (failure === 'auth') return this.wallSpot(person, 'locked', LOCKED_SPOTS.length) || desk;
+      if (failure === 'overloaded' && takeOf(person) === 0) return this.wallSpot(person, 'storm', stormSpots.length) || desk;
       if (s.state === 'thinking' && toolKind(s.tool) === 'todo' && now - person.toolSince >= LONG_TOOL) {
         return this.wallSpot(person, 'board', boardSpots.length) || desk;
       }
@@ -1801,7 +1915,8 @@
         person.isFacingAway = facesAway(spots[spot].pose);
         person.nextMove = now + random(12, 30);
       } else {
-        person.isFacingAway = person.place.startsWith('board:');
+        // At the whiteboard, at a window, or knocking at the door, their back is to the room.
+        person.isFacingAway = /^(board|storm):/.test(person.place) || (person.place.startsWith('locked:') && takeOf(person) === 0);
         person.nextMove = now + random(8, 20);
       }
     }
@@ -1880,6 +1995,9 @@
     H: ['101', '101', '111', '101', '101'], I: ['111', '010', '010', '010', '111'], K: ['101', '101', '110', '101', '101'],
     O: ['010', '101', '101', '101', '010'], P: ['110', '101', '110', '100', '100'], R: ['110', '101', '110', '101', '101'],
     U: ['101', '101', '101', '101', '111'], Y: ['101', '101', '010', '010', '010'], "'": ['1', '1', '0', '0', '0'],
+    A: ['010', '101', '111', '101', '101'], C: ['011', '100', '100', '100', '011'], L: ['100', '100', '100', '100', '111'],
+    N: ['101', '111', '111', '101', '101'], S: ['011', '100', '010', '001', '110'], T: ['111', '010', '010', '010', '010'],
+    W: ['101', '101', '111', '111', '101'],
     ' ': ['00', '00', '00', '00', '00'],
   };
   /** How wide `text` is in the pixel font. */
@@ -2031,6 +2149,10 @@
     if (person.isGoingNuclear && person.place === 'button') return { kind: 'press', raised: person.pressedAt === null };
     if (person.place.startsWith('board:')) return { kind: 'write', stroke: Math.floor(now * 3) % 2 };
     if (person.place.startsWith('clock:')) return { kind: 'tap', beat: Math.floor(now * 4) % 2 };
+    // Locked out, knocking or patting their pockets; or watching a storm. After a while, a sigh now and then.
+    const sigh = now - person.arrivedAt > SIGH_AFTER && (now + person.look.phase * 8) % 8 > 7 ? 1 : 0;
+    if (person.place.startsWith('locked:')) return { kind: takeOf(person) === 0 ? 'knock' : 'pockets', beat: Math.floor(now * 5) % 4 < 2 ? 0 : 1, sigh };
+    if (person.place.startsWith('storm:')) return { kind: 'stand', sigh };
     if (person.place.startsWith('shred:')) return { kind: 'shred' };
     if (deskOf(person.place) !== null) {
       if (person.celebratedAt !== null && now - person.celebratedAt < PARTY_LENGTH) return { kind: 'cheer', frame: Math.floor(now * 6) % 2 };
@@ -2039,7 +2161,8 @@
         const agitation = agitationOf(person, now);
         return { kind: 'wave', frame: Math.floor(now * (4 + 8 * agitation)) % 2, hop: agitation ? Math.floor(now * (3 + 5 * agitation)) % 2 : 0 };
       }
-      if (person.session.state === 'error') return { kind: 'slump' };
+      // Out of order, they hold up an empty wallet, or put their head in their hands.
+      if (person.session.state === 'error') return failureOf(person.session) === 'billing' && takeOf(person) === 0 ? { kind: 'wallet' } : { kind: 'slump' };
       return { kind: WORKSPACES[workspaceOf(person.session, deskOf(person.place))].stands ? 'stand' : 'sit' };
     }
     const spot = spotOf(person.place);
@@ -2054,9 +2177,9 @@
   /** The top row of a person's hair. Sitting lowers it; standing at the desk to wave raises them back up. */
   function topOf(person, pose) {
     const feet = Math.round(person.position.y);
-    if (pose.kind === 'sit') return feet - 15;
+    if (pose.kind === 'sit' || pose.kind === 'wallet') return feet - 15;
     if (pose.kind === 'slump') return feet - 14;
-    return feet - 17 - (pose.hop || 0);
+    return feet - 17 - (pose.hop || 0) + (pose.sigh || 0);
   }
 
   /**
@@ -2172,6 +2295,340 @@
       const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) || 1;
       for (let k = 0; k <= steps; k++) dot(Math.round(x0 + ((x1 - x0) * k) / steps), Math.round(y0 + ((y1 - y0) * k) / steps), color, alpha);
     }
+    /*
+     * What the calendar brings to a room furnished for it, as the seasons
+     * come to the windows: each touch goes with something in the room, in
+     * its months. Drawn on the wall, on the floor, in the air over
+     * everything, or glowing over the night; or over a piece of the back
+     * wall (`over`), or in its place (`instead`).
+     */
+    const has = (piece) => decor.wall.includes(piece);
+    const hung = (piece) => decor.wall.flatMap((p, slot) => (p === piece ? [WALL_SLOTS[slot]] : []));
+    /** The office's floor, to the lounge. */
+    const officeFloor = () => ({
+      left: seen.left, right: shape === WIDE ? LOUNGE_LEFT : seen.right, top: WALL_BOTTOM, bottom: shape === WIDE ? seen.bottom : shape.loungeWall,
+    });
+    const LEAVES = [0xd9893a, 0xb8562a, 0xe0b040, 0xc0402a];
+    /** Snow falling through the room, or through `area`. */
+    const snowfall = (count, area = seen) => {
+      const w = area.right - area.left, h = area.bottom - area.top;
+      for (let k = 0; k < count; k++) {
+        const x = area.left + (((k * 37 + Math.round(Math.sin(now + k) * 2)) % w) + w) % w;
+        dot(x, Math.round(area.top + ((now * 6 + k * 13) % h)), WHITE, 0.85);
+      }
+    };
+    /** Snow on the desks, either side of the monitor, `depth` deep. */
+    const snowOnDesks = (depth) => {
+      for (const { x, y } of DESKS) {
+        fill(x + 1, y - depth, 5, depth, 0xf2f6fa);
+        fill(x + 34, y - depth, 9, depth, 0xf2f6fa);
+      }
+    };
+    /** Icicles from `y` all along the wall, `grow` long and a little more, dripping as they melt. */
+    const icicles = (y, grow, step, dripping) => {
+      for (let x = from(seen.left, step, 3); x < seen.right; x += step) {
+        const length = grow + (((x * 7) % 3) + 3) % 3;
+        fill(x, y, 1, length, 0x7aa8c8);
+        dot(x, y, WHITE);
+        dot(x, y + length - 1, 0x5a8ab0);
+        if (dripping) {
+          const fall = (now * 0.8 + x * 0.13) % 1;
+          dot(x, y + length + Math.round(fall * 8), 0x8fc6f0, 1 - fall);
+        }
+      }
+    };
+    /** A garland swung along the wall at `y`, `drop` deep, in loops `span` wide. */
+    const garland = (y, drop, span, paint) => {
+      for (let x = seen.left; x < seen.right; x++) paint(x, y + Math.round(Math.abs(Math.sin((x * Math.PI) / span)) * drop));
+    };
+
+    const SEASONAL_TOUCHES = [
+      // Arctic: snow building up from December to February; icicles growing, dripping in March
+      { months: [11, 0, 1], when: () => decor.floor === 'snow' || decor.paint === 'ice',
+        floor() {
+          const deep = { 11: 1, 0: 2, 1: 4 }[month];
+          for (let x = from(seen.left, 2); x < seen.right; x += 2) {
+            const h = Math.max(0, deep + Math.round(Math.sin(x * 0.3) * 0.8 + Math.sin(x * 0.11 + 1)));
+            if (!h) continue;
+            fill(x, WALL_BOTTOM, 2, h, 0xf2f6fa);
+            fill(x, WALL_BOTTOM + h - 1, 2, 1, 0xd2e0ea);
+          }
+        },
+        air() { snowOnDesks({ 11: 1, 0: 2, 1: 3 }[month]); snowfall(24); } },
+      { months: [0, 1, 2], when: () => decor.paint === 'ice', wall() { icicles(31, { 0: 1, 1: 3, 2: 3 }[month], 6, month === 2); } },
+      // Campsite: leaves piling up through the autumn; snow in winter; fireflies on summer nights
+      { months: [8, 9, 10], when: () => decor.floor === 'forest' || decor.paint === 'logs',
+        floor() {
+          const area = officeFloor(), w = area.right - area.left, pile = { 8: 60, 9: 140, 10: 260 }[month];
+          for (let k = 0; k < pile; k++) {
+            const h = hash(k, 7);
+            fill(area.left + (h % w), area.top + 1 + ((h >>> 8) % (k % 3 ? 4 : area.bottom - area.top - 2)), 2, 1, LEAVES[(h >>> 4) % 4]);
+          }
+        },
+        air() {
+          for (let k = 0; k < 16; k++) {
+            const fall = (now * 0.15 + k / 16) % 1, x = seen.left + ((k * 29) % seen.width) + Math.round(Math.sin(fall * 9 + k) * 4);
+            fill(x, Math.round(seen.top + fall * seen.height), 2, 1, LEAVES[k % 4]);
+          }
+        } },
+      { months: [11, 0, 1], when: () => decor.floor === 'forest' || decor.paint === 'logs',
+        wall() { for (const x of [...hung('cabin'), ...hung('window')]) fill(x - 16, 27, 32, 2, 0xf2f6fa); },
+        floor() { fill(seen.left, WALL_BOTTOM, seen.width, 1, 0xf2f6fa); },
+        air() { snowOnDesks(2); snowfall(20); } },
+      { months: [5, 6, 7], when: () => decor.floor === 'forest',
+        glow() {
+          if (!isNight) return;
+          for (let k = 0; k < 14; k++) {
+            const x = Math.round(seen.left + seen.width / 2 + Math.sin(now * 0.4 + k * 1.7) * seen.width * 0.42);
+            const y = Math.round(WALL_BOTTOM + (seen.bottom - WALL_BOTTOM) / 2 + Math.cos(now * 0.3 + k * 2.3) * (seen.bottom - WALL_BOTTOM) * 0.4);
+            const a = Math.max(0, Math.sin(now * 2 + k * 1.3));
+            if (a < 0.1) continue;
+            dot(x, y, 0xe8f870, a);
+            fill(x - 1, y - 1, 3, 3, 0xe8f870, 0.15 * a);
+          }
+        } },
+      // Space station: a tree floating about in December; the Earth's seasons in a porthole all year
+      { months: [11], when: () => decor.paint === 'hull' || decor.floor === 'plating',
+        air() {
+          const tx = 110 + Math.round(Math.sin(now * 0.3) * 60), ty = 64 + Math.round(Math.cos(now * 0.4) * 8), lean = Math.round(Math.sin(now * 0.5));
+          for (let r = 0; r < 7; r++) {
+            const half = Math.floor(r / 2) + 1;
+            fill(tx - half + (r < 3 ? lean : 0), ty + r, half * 2 + 1, 1, 0x2f7a4a);
+          }
+          fill(tx, ty + 7, 1, 2, 0x6e4a2e);
+          dot(tx + lean, ty - 1, 0xf2d35b);
+          for (const [dx, dy, c] of [[-1, 2, 0xd4140b], [1, 4, 0x4c8bf5], [-2, 5, 0xf2d35b], [2, 6, 0xd4140b]]) dot(tx + dx, ty + dy, c);
+          for (let k = 0; k < 3; k++) {
+            const bx = 70 + k * 40 + Math.round(Math.sin(now * 0.6 + k) * 6), by = 56 + Math.round(Math.cos(now * 0.5 + k * 2) * 6);
+            fill(bx, by, 2, 2, [0xd4140b, 0xf2d35b, 0x4c8bf5][k]);
+            dot(bx, by, WHITE, 0.6);
+          }
+        } },
+      { months: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], piece: 'porthole',
+        over(x) {
+          const px = x + 1, py = 18, season = SEASONS[month];
+          disc(px, py, 4.5, 0x3f7fc0);
+          const land = { winter: 0x4f9a5a, spring: 0x5fba5a, summer: 0xb8b040, autumn: 0xd9893a }[season];
+          for (const [dx, dy] of [[-2, -1], [-1, -1], [-1, 0], [0, 0], [1, 1], [2, 1], [2, 2], [-3, 2], [0, 3]]) dot(px + dx, py + dy, land);
+          if (season === 'winter') {
+            fill(px - 2, py - 4, 5, 1, WHITE);
+            fill(px - 3, py - 3, 7, 1, WHITE);
+            fill(px - 4, py - 2, 3, 1, WHITE, 0.8);
+          }
+          fill(px - 2 + Math.round(Math.sin(now * 0.7) * 2), py + 1, 3, 1, WHITE, 0.6);
+        } },
+      // Pirate cove: an autumn storm at sea; ice on the rigging in winter
+      { months: [9, 10], piece: 'seaPorthole',
+        over(x) {
+          const cx = x, cy = 16;
+          for (let row = -7; row <= 7; row++) {
+            const half = Math.floor(Math.sqrt(49 - row * row));
+            fill(cx - half, cy + row, half * 2 + 1, 1, row <= 0 ? 0x3a4252 : 0x1f3a52);
+          }
+          for (let row = 1; row <= 6; row++) {
+            const half = Math.floor(Math.sqrt(49 - row * row));
+            for (let k = -half; k <= half; k++) if ((((k + row * 2 + Math.floor(now * 6)) % 4) + 4) % 4 === 0) dot(cx + k, cy + row - (k % 2 ? 1 : 0), WHITE, 0.7);
+          }
+          for (let k = 0; k < 10; k++) {
+            const rx = cx - 6 + ((k * 5 + Math.floor(now * 25)) % 13), ry = cy - 6 + ((k * 3 + Math.floor(now * 30)) % 12);
+            if (Math.hypot(rx - cx, ry - cy) < 7) dot(rx, ry, 0xa8c0d8, 0.8);
+          }
+        } },
+      { months: [9, 10], when: () => has('seaPorthole'), air() { if ((now % 6) < 0.12) fill(seen.left, seen.top, seen.width, seen.height, WHITE, 0.1); } },
+      { months: [11, 0, 1], when: () => decor.paint === 'timber',
+        wall() { icicles(32, 1, 5, false); },
+        floor() {
+          const area = officeFloor(), w = area.right - area.left, h = area.bottom - area.top;
+          for (let k = 0; k < 120; k++) { const r = hash(k, 3); dot(area.left + (r % w), area.top + 1 + ((r >>> 8) % (h - 1)), 0xf2f6fa, 0.7); }
+        } },
+      // Royal court: holly on the rail through Christmas; garlands of flowers in spring
+      { months: [11, 0], when: () => decor.paint === 'damask',
+        wall() {
+          garland(31, 2, 20, (x, y) => {
+            dot(x, y, x % 3 ? 0x2f6a3a : 0x3f8a4a);
+            if (x % 4 === 0) dot(x, y - 1, 0x2f6a3a);
+            if (((x % 10) + 10) % 10 === 5) dot(x, y + 1, 0xd4140b);
+          });
+          for (let x = from(seen.left, 40); x < seen.right; x += 40) fill(x, 30, 1, 2, 0xd4140b);
+        } },
+      { months: [3, 4], when: () => decor.paint === 'damask',
+        wall() {
+          garland(3, 3, 23, (x, y) => {
+            dot(x, y, 0x3f8a4a);
+            if (((x % 5) + 5) % 5 === 2) dot(x, y + 1, [0xf6b8cc, WHITE, 0xf2d35b][((x % 3) + 3) % 3]);
+          });
+        },
+        air() {
+          for (let k = 0; k < 10; k++) {
+            const fall = (now * 0.12 + k / 10) % 1;
+            dot(seen.left + ((k * 41) % seen.width) + Math.round(Math.sin(fall * 8 + k) * 3), Math.round(seen.top + 6 + fall * seen.height), 0xf6b8cc, 1 - fall * 0.5);
+          }
+        } },
+      // Dragon's lair: cobwebs and jack-o'-lanterns in October; mushrooms in the stones in spring
+      { months: [9], when: () => decor.paint === 'stone' || decor.floor === 'flagstone',
+        wall() {
+          for (const [cx, dir] of [[seen.left, 1], [seen.right - 1, -1]]) {
+            for (let r = 3; r <= 12; r += 3) for (let a = 0; a <= 8; a++) {
+              const angle = (a / 8) * (Math.PI / 2);
+              dot(cx + dir * Math.round(Math.cos(angle) * r), Math.round(Math.sin(angle) * r), WHITE, 0.4);
+            }
+            for (const angle of [0.2, 0.8, 1.3]) line(cx, 0, cx + dir * Math.round(Math.cos(angle) * 13), Math.round(Math.sin(angle) * 13), WHITE, 0.35);
+          }
+          const sx = seen.left + 9, sy = 14 + Math.round(Math.sin(now * 1.2) * 3);
+          line(sx, 0, sx, sy, WHITE, 0.4);
+          fill(sx - 1, sy, 3, 2, 0x1a1a1f);
+          dot(sx - 2, sy + 1, 0x1a1a1f);
+          dot(sx + 2, sy + 1, 0x1a1a1f);
+        },
+        floor() {
+          for (const [px, py] of [[DESKS[6].x - 10, DESKS[6].y + 16], [DESKS[2].x + DESK_WIDTH + 4, DESKS[2].y + 16]]) {
+            const flicker = 0.7 + 0.3 * Math.sin(now * 9 + px);
+            fill(px - 1, py - 6, 9, 9, 0xff8a3d, 0.1 * flicker);
+            fill(px, py - 4, 7, 5, 0xe0702a);
+            fill(px + 1, py - 5, 5, 1, 0xe0702a);
+            dot(px + 3, py - 6, 0x3f8a4a);
+            fill(px + 3, py - 4, 1, 5, 0xc05a20);
+            dot(px + 1, py - 3, 0xf2d35b, flicker);
+            dot(px + 5, py - 3, 0xf2d35b, flicker);
+            fill(px + 2, py - 1, 3, 1, 0xf2d35b, flicker);
+          }
+        } },
+      { months: [3, 4, 5], when: () => decor.floor === 'flagstone',
+        wall() { for (let x = from(seen.left, 7); x < seen.right; x += 7) fill(x + (((x % 3) + 3) % 3), 37, 3, 1, 0x3b5a3a); },
+        floor() {
+          const area = officeFloor(), w = area.right - area.left, h = area.bottom - area.top;
+          for (let k = 0; k < 24; k++) {
+            const r = hash(k, 11), x = area.left + 2 + (r % (w - 4)), y = area.top + 6 + ((r >>> 8) % (h - 8)), glow = k % 3 === 0;
+            fill(x, y - 1, 1, 2, 0xeae6dc);
+            fill(x - 1, y - 2, 3, 1, glow ? 0x4ad4e8 : 0xc9443a);
+            if (glow) fill(x - 2, y - 4, 5, 4, 0x4ad4e8, 0.1 + 0.05 * Math.sin(now * 2 + k));
+            else dot(x, y - 2, WHITE);
+            dot(x + 1, y, 0x3b5a3a);
+            dot(x - 2, y, 0x4f7a3a);
+          }
+        } },
+      // Gamer den: Christmas lights in December, on the strip and the TV; a neon pumpkin in October
+      { months: [11], when: () => decor.paint === 'foam',
+        wall() {
+          for (let x = seen.left; x < seen.right; x++) {
+            const c = (Math.floor(x / 4) + Math.floor(now * 4)) % 2 ? 0xd4140b : 0x2fa04a;
+            dot(x, 2, c);
+            dot(x, 3, c, 0.25);
+          }
+        } },
+      { months: [11], piece: 'tv',
+        over(x) {
+          const l = x - 13, t = 8;
+          fill(l, t, 26, 15, 0x0b1022);
+          for (let r = 0; r < 9; r++) { const half = Math.floor(r / 2) + 1; fill(x - half, t + 3 + r, half * 2 + 1, 1, 0x2fa04a); }
+          dot(x, t + 2, 0xf2d35b, 0.6 + 0.4 * Math.sin(now * 4));
+          fill(x, t + 12, 1, 2, 0x6e4a2e);
+          for (const [dx, dy, c] of [[-1, 5, 0xd4140b], [2, 7, 0x4c8bf5], [-3, 9, 0xf2d35b], [3, 10, 0xd4140b]]) dot(x + dx, t + dy, c);
+          for (let k = 0; k < 5; k++) dot(l + 2 + k * 5, t + Math.floor((now * 4 + k * 3) % 14), WHITE, 0.7);
+        } },
+      { months: [9], piece: 'neon',
+        instead(x) {
+          const tube = (px, py, c) => { fill(px - 1, py - 1, 3, 3, c, 0.1); dot(px, py, lighter(c)); };
+          ['..XXXXX..', '.X.....X.', 'X.X...X.X', 'X.......X', 'X..XXX..X', '.X.....X.', '..XXXXX..']
+            .forEach((row, r) => [...row].forEach((c, k) => { if (c === 'X') tube(x - 4 + k, 10 + r, 0xff8a3d); }));
+          tube(x, 9, 0x6fd36f);
+          tube(x + 1, 8, 0x6fd36f);
+          const bx = x + 8 + Math.round(Math.sin(now * 2) * 2), wing = Math.floor(now * 6) % 2;
+          for (const [dx, dy] of [[0, 0], [-1, wing - 1], [1, wing - 1]]) tube(bx + dx, 8 + dy, 0xc05aff);
+        } },
+      // Startup garage: snow on the drive in winter, a heater on; leaves blowing in in autumn
+      { months: [11, 0, 1], piece: 'roller',
+        over(x) {
+          const l = x - 15, w = 30;
+          fill(l, 31, w, 7, 0xf2f6fa);
+          fill(l, 27, w, 1, 0xf2f6fa);
+          fill(x + 3, 29, 10, 1, 0xf2f6fa);
+          fill(x + 5, 27, 6, 1, 0xf2f6fa);
+          snowfall(6, { left: l, right: l + w, top: 19, bottom: 38 });
+        } },
+      { months: [11, 0, 1], when: () => has('roller') || decor.paint === 'brick',
+        floor() {
+          const hx = DESKS[0].x + DESK_WIDTH + 4, hy = DESKS[0].y + 16, glow = 0.7 + 0.3 * Math.sin(now * 3);
+          fill(hx - 3, hy - 9, 12, 10, 0xff8a3d, 0.08 * glow);
+          fill(hx, hy - 6, 6, 6, 0x5a5f6c);
+          fill(hx + 1, hy - 5, 4, 4, 0x2a2a2e);
+          for (const r of [1, 3]) fill(hx + 1, hy - 5 + r, 4, 1, 0xff6a2a, glow);
+          fill(hx, hy, 6, 1, SHADOW);
+        } },
+      { months: [9, 10], when: () => has('roller'),
+        floor() {
+          for (const x of hung('roller')) for (let k = 0; k < 14; k++) { const r = hash(k, 5); fill(x - 14 + (r % 30), WALL_BOTTOM + ((r >>> 6) % 3), 2, 1, LEAVES[(r >>> 3) % 4]); }
+        },
+        air() {
+          const area = officeFloor();
+          for (const x of hung('roller')) for (let k = 0; k < 6; k++) {
+            const go = (now * 0.25 + k / 6) % 1, lx = x + Math.round(go * 110);
+            if (lx < area.right) fill(lx, WALL_BOTTOM + 2 + Math.round(Math.abs(Math.sin(go * 12 + k)) * 6) + k * 4, 2, 1, LEAVES[k % 4], 1 - go * 0.6);
+          }
+        } },
+      // Fitness floor: a New Year banner in January; a fan in summer
+      { months: [0], when: () => decor.paint === 'block',
+        wall() {
+          for (let x = from(seen.left, 6); x < seen.right; x += 6) {
+            const c = [0xd4140b, 0xf2c200, 0x3f6fc4][((x / 6) % 3 + 3) % 3];
+            fill(x, 2, 5, 1, c);
+            fill(x + 1, 3, 3, 1, c);
+            dot(x + 2, 4, c);
+          }
+          const bx = WALL_SLOTS[2] - 19;
+          fill(bx, 1, 38, 8, 0xd4140b);
+          fill(bx + 1, 2, 36, 6, 0xb8100a);
+          pixelText('NEW YEAR', bx + 3, 2, WHITE, false);
+        } },
+      { months: [6, 7], when: () => decor.paint === 'block' || decor.floor === 'rubber',
+        floor() {
+          const fx = DESKS[1].x - 11, fy = DESKS[4].y;
+          fill(fx - 3, fy + 16, 7, 1, 0x3a3d47);
+          fill(fx, fy + 6, 1, 10, 0x5a5f6c);
+          ring(fx, fy, 5, 0x9aa0a6);
+          for (let k = 0; k < 3; k++) {
+            const a = now * 12 + (k * Math.PI * 2) / 3;
+            for (let r = 1; r <= 4; r++) dot(fx + Math.round(Math.cos(a) * r), fy + Math.round(Math.sin(a) * r), 0xc8cdd6);
+          }
+          dot(fx, fy, 0x3a3d47);
+          for (let k = 0; k < 3; k++) for (let s = 1; s <= 6; s++) dot(fx + 5 + s, fy - 2 + k * 2 + Math.round(Math.sin(now * 14 + s + k) * 0.8), [0xd4140b, 0xf2c200, 0x3f6fc4][k]);
+        } },
+      // Jungle: the rainy season in spring; butterflies in summer
+      { months: [3, 4], piece: 'blind',
+        over(x) { for (let k = 0; k < 16; k++) dot(x - 14 + ((k * 5 + Math.floor(now * 20)) % 30), 6 + ((k * 7 + Math.floor(now * 40)) % 20), 0xa8c0d8, 0.7); } },
+      { months: [3, 4], piece: 'vines',
+        over(x) { for (const dx of [-13, -8, -3, 2, 7, 12]) { const fall = (now * 0.9 + dx * 0.17 + 5) % 1; dot(x + dx, 18 + Math.round(fall * 20), 0x8fc6f0, 1 - fall); } } },
+      { months: [3, 4], when: () => decor.paint === 'bamboo' || has('vines') || has('blind'),
+        floor() {
+          const area = officeFloor();
+          for (const [fx, fy] of [[0.18, 0.5], [0.55, 0.85], [0.8, 0.3]]) {
+            const px = Math.round(area.left + (area.right - area.left) * fx), py = Math.round(area.top + (area.bottom - area.top) * fy);
+            fill(px - 4, py, 9, 2, 0x5a8ab0, 0.6);
+            fill(px - 3, py - 1, 7, 1, 0x5a8ab0, 0.4);
+            const ripple = (now * 1.5 + px) % 1;
+            fill(px - Math.round(ripple * 4), py, Math.round(ripple * 8) + 1, 1, 0xa8c8e0, 0.6 * (1 - ripple));
+          }
+        } },
+      { months: [6, 7], when: () => decor.floor === 'grass',
+        air() {
+          for (let k = 0; k < 8; k++) {
+            const x = Math.round(seen.left + seen.width / 2 + Math.sin(now * 0.5 + k * 1.9) * seen.width * 0.42);
+            const y = Math.round(WALL_BOTTOM + (seen.bottom - WALL_BOTTOM) * 0.4 + Math.sin(now * 0.7 + k * 2.7) * (seen.bottom - WALL_BOTTOM) * 0.3);
+            const open = Math.floor(now * 8 + k) % 2, c = [0xf2d35b, 0x4c8bf5, 0xe0507a, 0xff8a3d][k % 4];
+            dot(x, y, 0x1a1a1f);
+            dot(x - 1, y - 1, c);
+            dot(x + 1, y - 1, c);
+            if (open) { dot(x - 1, y, c); dot(x + 1, y, c); }
+          }
+        } },
+    ];
+
+    /** The touches the calendar brings to the room as it's furnished, for `layer`: 'wall', 'floor', 'air' or 'glow'. */
+    function drawSeasonal(layer) {
+      if (decor.season !== 'calendar') return;
+      for (const touch of SEASONAL_TOUCHES) if (touch[layer] && touch.months.includes(month) && (!touch.when || touch.when())) touch[layer]();
+    }
+
     /** Draws only inside `rects`, each [x, y, w, h], leaving the rest as it was. */
     function within(rects, draw) {
       ctx.save();
@@ -2296,7 +2753,9 @@
 
     /** The door stands open while someone passes through it. */
     function drawDoor() {
-      const open = office.people.some((p) => Math.hypot(p.position.x - DOOR.x, p.position.y - DOOR.y) < 14);
+      // Someone locked out in front of it doesn't open it.
+      const lockedOut = (p) => !p.isWalking && !p.isLeaving && p.place.startsWith('locked:');
+      const open = office.people.some((p) => !lockedOut(p) && Math.hypot(p.position.x - DOOR.x, p.position.y - DOOR.y) < 14);
       fill(205, 13, 18, 27, PALETTE.frame);
       if (open) {
         fill(207, 15, 14, 25, PALETTE.doorway);
@@ -2306,6 +2765,21 @@
         fill(209, 17, 10, 9, PALETTE.doorPanel);
         fill(209, 28, 10, 10, PALETTE.doorPanel);
         fill(218, 27, 1, 2, PALETTE.brass);
+      }
+      // Locked out: the keypad beside it red, a padlock on it for whoever looks for their key, and knocks
+      const locked = office.people.filter(lockedOut);
+      if (!locked.length) return;
+      fill(224, 22, 4, 6, PALETTE.frame);
+      fill(225, 23, 2, 2, 0x3a3d47);
+      dot(225, 26, PALETTE.alarm, 0.6 + 0.4 * Math.sin(now * 4));
+      if (!open && locked.some((p) => takeOf(p) === 1)) {
+        ring(218, 25, 1.5, 0x9aa0a6);
+        fill(216, 26, 5, 4, PALETTE.brass);
+        fill(216, 26, 5, 1, 0xf2d38a);
+        dot(218, 28, PALETTE.frame);
+      }
+      if (!open && locked.some((p) => takeOf(p) === 0) && Math.floor(now * 5) % 4 === 1) {
+        for (const [kx, ky] of [[219, 30], [220, 32], [219, 34]]) dot(kx, ky, WHITE, 0.8);
       }
     }
 
@@ -3068,7 +3542,47 @@
       },
     };
 
+    /**
+     * One of the back wall's places, as set up, around its middle `x`: what
+     * the season makes of it, and a storm through it while someone watches.
+     */
     function drawWallPiece(piece, x) {
+      const touches = decor.season === 'calendar' ? SEASONAL_TOUCHES.filter((touch) => touch.piece === piece && touch.months.includes(month)) : [];
+      const instead = touches.find((touch) => touch.instead);
+      if (instead) instead.instead(x);
+      else drawWallPieceItself(piece, x);
+      for (const touch of touches) if (touch.over) touch.over(x);
+      const slot = WALL_SLOTS.indexOf(x), pane = STORM_PANES[piece];
+      const watched = slot >= 0 && pane && office.people.some((p) => !p.isWalking && p.place.startsWith('storm:')
+        && stormSpots[numberAfter('storm:', p.place)] && stormSpots[numberAfter('storm:', p.place)].slot === slot);
+      if (watched) drawStorm(x + pane[0], pane[1], pane[2], pane[3]);
+    }
+
+    /** A storm through a pane: dark clouds, rain, and lightning now and then. */
+    function drawStorm(l, t, w, h) {
+      const flash = (now % 5) < 0.12 || ((now % 5) > 0.25 && (now % 5) < 0.32);
+      within([[l, t, w, h]], () => {
+        fill(l, t, w, h / 2, 0x3a4252);
+        fill(l, t + h / 2, w, h / 2, 0x4a5262);
+        for (const [cx, cy, cw] of [[2, 1, 12], [16, 2, 14], [8, 4, 10], [22, 5, 9]]) {
+          fill(l + cx, t + cy, cw, 2, 0x2a303c);
+          fill(l + cx + 2, t + cy - 1, cw - 4, 1, 0x2a303c);
+        }
+        for (let k = 0; k < 14; k++) {
+          const rx = l + ((k * 7 + Math.floor(now * 30) + k * k) % w), ry = t + ((k * 5 + Math.floor(now * 40)) % h);
+          dot(rx, ry, 0xa8c0d8, 0.8);
+          dot(rx + 1, ry + 1, 0xa8c0d8, 0.5);
+        }
+        if (flash) {
+          fill(l, t, w, h, WHITE, 0.55);
+          for (const [dx, dy] of [[20, 1], [19, 2], [19, 3], [18, 4], [19, 5], [18, 6], [17, 7], [18, 8]]) dot(l + dx, t + dy, 0xfff6c0);
+        }
+      });
+      fill(l + w / 2, t, 1, h, PALETTE.frame);
+      fill(l, t + h / 2, w, 1, PALETTE.frame);
+    }
+
+    function drawWallPieceItself(piece, x) {
       if (Object.hasOwn(WALL_PIECES, piece)) return WALL_PIECES[piece](x);
       switch (piece) {
         case 'window':
@@ -4314,6 +4828,8 @@
 
       const occupant = occupantOf(desk);
       if (!occupant) return;
+      const failure = failureOf(occupant.session);
+      if (failure) drawFailureAtDesk(failure, takeOf(occupant), { x, y, s, workspace, occupant });
       const skin = lookFor(occupant).skin;
       const tool = occupant.session.state === 'thinking' ? toolKind(occupant.session.tool) : null;
       if (tool === 'web') {
@@ -4347,6 +4863,40 @@
       } else {
         dot(s.x - 3, y + 2, skin);
         dot(s.x + 2, y + 2, skin);
+      }
+    }
+
+    /**
+     * What a failure looks like at the desk: a storm cloud of their own over
+     * the head of whoever has no window to watch, or out of order, a sign
+     * taped across the desk or a closed one hung from the screen.
+     */
+    function drawFailureAtDesk(failure, take, { x, y, s, workspace, occupant }) {
+      if (failure === 'overloaded') {
+        const cx = s.x + Math.round(Math.sin(now * 0.8)), cy = topOf(occupant, poseOf(occupant, now)) - 9;
+        fill(cx - 5, cy, 11, 3, 0x5a6070);
+        fill(cx - 3, cy - 2, 7, 2, 0x5a6070);
+        fill(cx - 4, cy + 2, 9, 1, 0x4a5060);
+        fill(cx - 2, cy - 2, 3, 1, 0x7a8090);
+        for (let k = 0; k < 5; k++) dot(cx - 4 + k * 2, Math.round(cy + 4 + ((now * 18 + k * 3.7) % 7)), 0x8fc6f0, 0.8);
+        if ((now % 4) < 0.1) for (const [dx, dy] of [[0, 3], [-1, 4], [0, 5]]) dot(cx + dx, cy + dy, 0xfff6c0);
+      } else if (failure === 'billing' && take === 0) {
+        fill(x + 8, y + 3, 28, 13, PALETTE.frame, 0.25);
+        fill(x + 7, y + 2, 28, 13, 0xf4f1ea);
+        fill(x + 7, y + 2, 28, 1, PALETTE.dome);
+        fill(x + 7, y + 14, 28, 1, PALETTE.dome);
+        pixelText('OUT OF', x + 10, y + 4, PALETTE.dome, false);
+        pixelText('ORDER', x + 11, y + 9, PALETTE.dome, false);
+        for (const [dx, dy] of [[0, 0], [26, 0], [0, 12], [26, 12]]) fill(x + 7 + dx, y + 2 + dy, 2, 1, 0xe8e0c0, 0.9);
+      } else if (failure === 'billing') {
+        // Hung on a string from the screen, swinging a little
+        const sx = x + workspace.screen.dx, sy = y + workspace.screen.dy, swing = Math.round(Math.sin(now * 1.6) * 1.2);
+        line(sx + 3, sy, sx + 2 + swing, sy + 4, 0xc8c4ba);
+        line(sx + 10, sy, sx + 11 + swing, sy + 4, 0xc8c4ba);
+        const l = sx - 5 + swing;
+        fill(l, sy + 4, 25, 8, PALETTE.dome);
+        fill(l + 1, sy + 5, 23, 6, 0xf4f1ea);
+        pixelText('CLOSED', l + 1, sy + 5, PALETTE.dome, false);
       }
     }
 
@@ -5730,31 +6280,63 @@
       const nod = isListener(person) && since < NOD_LENGTH && Math.floor((since / NOD_LENGTH) * 4) % 2 === 0 ? 1 : 0;
       const top = topOf(person, pose) + nod;
       const look = lookFor(person), away = person.isFacingAway;
-      const outfit = person.isStaff
-        ? { ...outfitOf(null), shirt: STAFF_SHIRTS[Math.floor(look.phase * STAFF_SHIRTS.length) % STAFF_SHIRTS.length] }
-        : outfitOf(person.session.agent, person.session.model, memberOf(person.session));
-      const shirtColour = outfit.shirt;
-      // Sleeves are the shirt's, or a white shirt's under a waistcoat.
+      const outfit = person.isStaff ? staffOutfitOf(look) : outfitOf(person.session.agent, person.session.model, memberOf(person.session));
+      const shirtColour = outfit.shirt, parts = OUTFIT_PARTS[outfit.style];
+      // Sleeves are the shirt's, or a white shirt's under a waistcoat, or bare arms.
       const sleeve = (px, py, w, h) => {
-        ctx.fillStyle = css(outfit.sleeves ?? shirtColour, 1, 0.78);
+        ctx.fillStyle = outfit.sleeves === 'skin' ? css(look.skin) : css(outfit.sleeves ?? shirtColour, 1, 0.78);
         ctx.fillRect(ox + px * scale, oy + py * scale, w * scale, h * scale);
       };
 
-      // Legs, for anyone not sitting down
-      if (pose.kind !== 'sit' && pose.kind !== 'slump') {
+      // Legs, for anyone not sitting down: bare below shorts, or a robe's to the floor
+      if (pose.kind !== 'sit' && pose.kind !== 'slump' && pose.kind !== 'wallet') {
         const lift = pose.kind === 'walk' ? (pose.step === 0 ? [1, 0] : [0, 1]) : pose.kind === 'tap' ? [0, pose.beat] : [0, 0];
         fill(x - 3, top + 17, 7, 1, SHADOW);
         fill(x - 3, top + 13, 7, 1, outfit.pants);
         fill(x - 2, top + 14 - lift[0], 2, 2, outfit.pants);
         fill(x + 1, top + 14 - lift[1], 2, 2, outfit.pants);
+        if (outfit.legs === 'skin') {
+          fill(x - 2, top + 15 - lift[0], 2, 1, look.skin);
+          fill(x + 1, top + 15 - lift[1], 2, 1, look.skin);
+        }
+        if (outfit.robe && pose.kind !== 'walk') fill(x - 3, top + 14, 7, 2, outfit.pants);
         fill(x - 2, top + 16 - lift[0], 2, 1, outfit.shoes);
         fill(x + 1, top + 16 - lift[1], 2, 1, outfit.shoes);
       }
 
       // Shirt and arms
       fill(x - 3, top + 7, 7, 6, shirtColour);
-      if (!away) drawOutfitFront(x, top + 7, 3, 6, outfit);
-      if (pose.kind === 'wave') {
+      if (!away) drawOutfitFront(x, top + 7, 3, 6, outfit, look);
+      else if (parts && parts.back) parts.back(x, top + 7, outfit, look);
+      if (pose.kind === 'knock') {
+        // Back to us, knocking at the door
+        sleeve(x - 4, top + 8, 1, 4);
+        dot(x - 4, top + 12, look.skin);
+        sleeve(x + 4, top + 4 + pose.beat, 1, 4);
+        dot(x + 4, top + 3 + pose.beat, look.skin);
+      } else if (pose.kind === 'pockets') {
+        // Patting their pockets for a key that isn't there
+        const pat = Math.floor(now * 3 + look.phase * 3) % 2;
+        sleeve(x - 4, top + 8, 1, 4);
+        sleeve(x + 4, top + 8, 1, 4);
+        dot(x - 3 - pat, top + 12 + pat, look.skin);
+        dot(x + 3 + pat, top + 13 - pat, look.skin);
+      } else if (pose.kind === 'wallet') {
+        // Holding up an empty wallet, a moth fluttering out of it
+        sleeve(x - 4, top + 8, 1, 4);
+        dot(x - 4, top + 12, look.skin);
+        sleeve(x + 4, top + 6, 1, 4);
+        dot(x + 4, top + 5, look.skin);
+        fill(x + 3, top + 2, 4, 3, 0x6e4a2e);
+        fill(x + 4, top + 3, 2, 1, 0x3a2616);
+        const flutter = (now * 0.5 + look.phase) % 1, wing = Math.floor(now * 10) % 2;
+        if (flutter < 0.8) {
+          const mx = x + 5 + Math.round(Math.sin(flutter * 12) * 2), my = top - Math.round(flutter * 10);
+          dot(mx, my, 0xc8c4ba);
+          dot(mx - 1, my - wing, 0xe8e4da);
+          dot(mx + 1, my - wing, 0xe8e4da);
+        }
+      } else if (pose.kind === 'wave') {
         sleeve(x - 4, top + 8, 1, 4);
         dot(x - 4, top + 12, look.skin);
         sleeve(x + 4, top + 4, 1, 4);
@@ -5847,9 +6429,13 @@
       } else if (look.hairStyle === 'mohawk') {
         fill(x, top - 2, 1, 3, look.hair);
       }
-      drawHeadwear(x, top, look.extra, outfit.shirt, away);
+      // A hat that comes with the outfit takes the place of one of your own.
+      if (!(parts && parts.head && ['cap', 'beanie', 'headphones', 'bow'].includes(look.extra))) drawHeadwear(x, top, look.extra, outfit.shirt, away);
 
-      if (away) return;
+      if (away) {
+        if (parts && parts.head) parts.head(x, top, look, true, outfit);
+        return;
+      }
       drawFace(x, top, look);
       const blinking = (now + look.phase * 5) % 4.5 < 0.15;
       // While the mic is held its listener looks toward it, and when it goes
@@ -5876,6 +6462,8 @@
       }
       // Sunglasses stay on, whatever the eyes behind them do.
       if (look.extra === 'sunglasses') fill(x - 3, top + 4, 7, 1, SHADES);
+      // What the outfit puts on the head and face, over the eyes: a helmet, a hat, an eyepatch, dark glasses
+      if (parts && parts.head) parts.head(x, top, look, false, outfit);
     }
 
     /** What's worn on the head, seen from in front or behind: headphones, a cap, a beanie or a bow. */
@@ -5961,6 +6549,7 @@
       const monitor = !workspace.laptop && MONITORS[monitorAt(desk)];
       const screens = [].concat(monitor && monitor.screen ? monitor.screen(at.x, at.y) : { ...at, w: 13, h: 9 });
       const { x, y } = screens[0];
+      if (failureOf(session) === 'billing') return; // out of order, the screen is dark
       const blinkedOff = session.state === 'asking' && Math.floor(now * 2) % 2 === 1;
       // A command running turns the screen terminal-green.
       const shell = session.state === 'thinking' && toolKind(session.tool) === 'shell';
@@ -6041,6 +6630,9 @@
         return;
       }
 
+      // Watching a storm or out of order, the scene says it: no bubble over it.
+      if (['overloaded', 'billing'].includes(failureOf(person.session))) return;
+
       // Kept waiting, the bubble shakes and turns red, and steam rises.
       const agitation = state === 'asking' ? agitationOf(person, now) : 0;
       const bob = state === 'asking' && Math.floor(now * (3 + 6 * agitation)) % 2 === 0 ? -1 : 0;
@@ -6067,6 +6659,17 @@
       const cells = state === 'thinking'
         ? Array.from({ length: Math.floor(now * 3 + person.look.phase * 3) % 4 }, (_, i) => [-2 + i * 2, 2])
         : marks[state] || [];
+      if (failureOf(person.session) === 'auth') {
+        // A key, and a red mark: knocking, an exclamation; patting their pockets, a cross
+        const kx = x - 3, ky = bottom - 4;
+        fill(kx, ky + 1, 2, 2, PALETTE.brass);
+        dot(kx, ky, PALETTE.brass);
+        fill(kx + 2, ky + 1, 3, 1, PALETTE.brass);
+        dot(kx + 3, ky + 2, PALETTE.brass);
+        if (takeOf(person) === 0) for (const dy of [-1, 0, 2]) dot(x + 3, ky + dy, PALETTE.alarm);
+        else for (let k = 0; k < 4; k++) { dot(x - 2 + k, bottom - 6 + k, PALETTE.alarm); dot(x + 1 - k, bottom - 6 + k, PALETTE.alarm); }
+        return;
+      }
       for (const [column, row] of cells) dot(x + column, bottom - 5 + row, agitation ? PALETTE.alarm : colour(state));
     }
 
@@ -6165,12 +6768,211 @@
     }
 
     /**
+     * The fronts, backs and hats of the styles' outfits and the models'
+     * looks, each over a shirt 7 wide and 6 tall from `x`, `y`, in `o`, the
+     * outfit, its `accent` the agent's colour, its `shade` the model's size.
+     */
+    const OUTFIT_PARTS = {
+      /* The styles', each in the agent's colour */
+      astronaut: {
+        front(x, y, o) {
+          fill(x - 3, y, 7, 1, 0x9aa0a6); fill(x - 1, y + 2, 3, 2, 0x3a3f4a); dot(x - 1, y + 2, 0x6fd36f); dot(x + 1, y + 2, 0xd4140b);
+          dot(x - 3, y + 1, o.accent); dot(x - 4, y + 2, o.accent); dot(x + 4, y + 2, o.accent);
+        },
+        back(x, y, o) { fill(x - 3, y, 7, 5, 0xc8cdd6); fill(x - 2, y + 1, 5, 3, 0xb0b5be); dot(x, y + 2, o.accent); },
+        // The helmet's glass bubble
+        head(x, top) { disc(x, top + 4, 5, 0xcfe3ef, 0.18); ring(x, top + 4, 5.2, 0xdcebf4, 0.85); dot(x - 3, top + 1, WHITE, 0.8); dot(x - 2, top, WHITE, 0.6); },
+      },
+      flightsuit: {
+        front(x, y, o) { fill(x, y, 1, 5, 0xc8cdd6); fill(x - 2, y + 1, 2, 1, o.accent); dot(x + 2, y + 1, 0x3f6fc4); dot(x + 3, y + 1, 0xd4140b); fill(x - 3, y + 5, 7, 1, 0xa8582a); },
+      },
+      pirate: {
+        front(x, y, o) { for (const r of [1, 3, 5]) fill(x - 3, y + r, 7, 1, o.accent); fill(x - 3, y, 2, 6, 0x1a1a1f); fill(x + 2, y, 2, 6, 0x1a1a1f); dot(x, y + 5, PALETTE.brass); },
+        back(x, y, o) { for (const r of [1, 3, 5]) fill(x - 3, y + r, 7, 1, o.accent); fill(x - 3, y, 7, 4, 0x1a1a1f); },
+        // A tricorn with a skull, and an eyepatch
+        head(x, top, look, away) {
+          fill(x - 4, top - 1, 9, 2, 0x1a1a1f); fill(x - 3, top - 2, 7, 1, 0x1a1a1f); dot(x - 4, top - 2, 0x1a1a1f); dot(x + 4, top - 2, 0x1a1a1f);
+          fill(x - 4, top + 1, 9, 1, PALETTE.brass, 0.8);
+          if (away) return;
+          dot(x, top - 1, 0xeae6dc);
+          dot(x - 2, top + 4, 0x1a1a1f); dot(x - 3, top + 3, 0x1a1a1f); dot(x - 1, top + 3, 0x1a1a1f); dot(x + 1, top + 2, 0x1a1a1f, 0.6);
+        },
+      },
+      captain: {
+        front(x, y) { fill(x - 1, y, 3, 2, 0xf4f1ea); for (const r of [2, 4]) { dot(x - 2, y + r, PALETTE.brass); dot(x + 2, y + r, PALETTE.brass); } },
+        // A big hat with a white feather
+        head(x, top) {
+          fill(x - 5, top - 1, 11, 2, 0x1a1a1f); fill(x - 3, top - 3, 7, 2, 0x1a1a1f); fill(x - 5, top + 1, 11, 1, PALETTE.brass, 0.8);
+          fill(x + 1, top - 5, 3, 1, WHITE); fill(x + 3, top - 4, 2, 1, WHITE); dot(x + 4, top - 3, WHITE);
+        },
+      },
+      parka: {
+        front(x, y, o) { for (const r of [2, 4]) fill(x - 3, y + r, 7, 1, shaded(o.shirt, 0.8)); fill(x, y, 1, 6, shaded(o.shirt, 0.7)); },
+        back(x, y, o) { for (const r of [2, 4]) fill(x - 3, y + r, 7, 1, shaded(o.shirt, 0.8)); },
+        // Its hood up, a fur trim round the face
+        head(x, top, look, away, o) {
+          fill(x - 4, top - 1, 9, 2, o.shirt); fill(x - 4, top + 1, 1, 6, o.shirt); fill(x + 4, top + 1, 1, 6, o.shirt);
+          if (away) return fill(x - 3, top + 1, 7, 6, o.shirt);
+          const fur = 0xeae6dc;
+          fill(x - 3, top + 1, 7, 1, fur); fill(x - 3, top + 2, 1, 5, fur); fill(x + 3, top + 2, 1, 5, fur); dot(x - 2, top + 6, fur); dot(x + 2, top + 6, fur);
+        },
+      },
+      explorer: {
+        front(x, y) { fill(x - 3, y + 3, 7, 1, 0xdcebf4); fill(x, y, 1, 3, 0x9aa0a6); dot(x - 2, y + 1, 0x1a1a1f); },
+        back(x, y) { fill(x - 3, y + 3, 7, 1, 0xdcebf4); },
+        // A beanie in the agent's colour, snow goggles pushed up
+        head(x, top, look, away, o) {
+          fill(x - 3, top - 1, 7, 2, o.accent); dot(x, top - 2, WHITE);
+          if (!away) { fill(x - 3, top + 1, 7, 1, 0x2a2d35); dot(x - 2, top + 1, 0x8fc6f0); dot(x + 2, top + 1, 0x8fc6f0); }
+        },
+      },
+      robe: {
+        front(x, y) { fill(x - 3, y, 7, 2, 0xeae6dc); dot(x - 2, y + 1, 0x1a1a1f); dot(x + 1, y, 0x1a1a1f); dot(x + 3, y + 1, 0x1a1a1f); fill(x, y + 2, 1, 4, PALETTE.brass); },
+        back(x, y) { fill(x - 3, y, 7, 2, 0xeae6dc); dot(x - 1, y + 1, 0x1a1a1f); dot(x + 2, y, 0x1a1a1f); },
+        head(x, top) { fill(x - 2, top - 1, 5, 1, PALETTE.brass); for (const dx of [-2, 0, 2]) dot(x + dx, top - 2, PALETTE.brass); dot(x, top - 1, 0xd4140b); },
+      },
+      knight: {
+        front(x, y, o) {
+          fill(x - 2, y, 5, 6, o.accent); fill(x, y + 1, 1, 4, WHITE); fill(x - 1, y + 2, 3, 1, WHITE);
+          for (let r = 0; r < 6; r += 2) { dot(x - 3, y + r, 0xb8bec8); dot(x + 3, y + r, 0xb8bec8); }
+        },
+        back(x, y, o) { fill(x - 2, y, 5, 6, o.accent); },
+      },
+      wizard: {
+        front(x, y, o) { for (const [dx, dy] of [[-2, 1], [2, 3], [-1, 5]]) dot(x + dx, y + dy, PALETTE.brass); fill(x - 3, y, 7, 1, shaded(o.shirt, 1.4)); },
+        back(x, y) { for (const [dx, dy] of [[-1, 2], [2, 4]]) dot(x + dx, y + dy, PALETTE.brass); },
+        // A tall pointed hat, a star on it
+        head(x, top, look, away, o) {
+          fill(x - 4, top, 9, 1, o.shirt);
+          for (let r = 1; r <= 6; r++) { const half = Math.max(0, 3 - Math.floor(r / 2)); fill(x - half + (r > 4 ? 1 : 0), top - r, half * 2 + 1, 1, o.shirt); }
+          dot(x + 2, top - 7, o.shirt); dot(x, top - 3, PALETTE.brass);
+        },
+      },
+      gamer: {
+        front(x, y, o) { dot(x - 3, y, o.accent); dot(x + 3, y, o.accent); dot(x - 3, y + 1, o.accent); dot(x + 3, y + 1, o.accent); fill(x, y + 2, 1, 3, WHITE); dot(x - 1, y + 2, WHITE); },
+        back(x, y, o) { dot(x - 3, y, o.accent); dot(x + 3, y, o.accent); fill(x - 1, y + 1, 3, 1, WHITE); fill(x, y + 2, 1, 3, WHITE); },
+        // A headset, its boom mic lit
+        head(x, top, look, away, o) {
+          fill(x - 3, top - 1, 7, 1, 0x3a3d47); fill(x - 4, top + 2, 1, 3, 0x3a3d47); fill(x + 4, top + 2, 1, 3, 0x3a3d47);
+          dot(x - 4, top + 3, o.accent); dot(x + 4, top + 3, o.accent);
+          if (!away) { dot(x - 3, top + 5, 0x3a3d47); dot(x - 2, top + 6, 0x3a3d47); dot(x - 1, top + 6, 0x6fd36f, 0.6 + 0.4 * Math.sin(now * 3)); }
+        },
+      },
+      founder: {
+        front(x, y, o) {
+          fill(x - 1, y, 3, 6, 0xa8c8e8); dot(x - 1, y, 0xc8dcf0); dot(x + 1, y, 0xc8dcf0);
+          dot(x - 1, y + 1, 0x1d1f25); dot(x - 1, y + 2, 0x1d1f25); fill(x - 1, y + 3, 2, 2, o.accent);
+        },
+        back(x, y) { fill(x - 3, y, 7, 1, 0xa8c8e8); },
+      },
+      gymkit: {
+        front(x, y, o) { fill(x - 1, y, 3, 1, shaded(o.shirt, 0.7)); fill(x - 3, y + 5, 7, 1, shaded(o.shirt, 0.8)); },
+        // A sweatband, and wristbands
+        head(x, top, look, away, o) { fill(x - 3, top + 2, 7, 1, WHITE); dot(x - 4, top + 11, o.accent); dot(x + 4, top + 11, o.accent); },
+      },
+      safari: {
+        front(x, y) {
+          fill(x - 3, y + 1, 2, 2, 0xa8905a); fill(x + 2, y + 1, 2, 2, 0xa8905a); dot(x, y + 1, 0xa8905a); dot(x, y + 3, 0xa8905a);
+          fill(x - 3, y + 5, 7, 1, 0x5a3b25); dot(x, y + 5, PALETTE.brass);
+        },
+        // A pith helmet, its band in the agent's colour
+        head(x, top, look, away, o) { fill(x - 3, top - 2, 7, 2, 0xe0d0a0); fill(x - 2, top - 3, 5, 1, 0xe0d0a0); fill(x - 4, top, 9, 1, 0xc8b888); fill(x - 3, top - 1, 7, 1, o.accent); },
+      },
+      flannel: {
+        front(x, y, o) {
+          for (let r = 0; r < 6; r++) for (let c = -3; c <= 3; c++) if (r % 3 === 1 || (c + 3) % 3 === 1) dot(x + c, y + r, shaded(o.shirt, 0.6));
+          dot(x - 1, y, WHITE); dot(x + 1, y, WHITE);
+        },
+        back(x, y, o) { for (let r = 0; r < 6; r++) for (let c = -3; c <= 3; c++) if (r % 3 === 1 || (c + 3) % 3 === 1) dot(x + c, y + r, shaded(o.shirt, 0.6)); },
+        head(x, top) { fill(x - 3, top - 1, 7, 2, 0x3f6a4a); fill(x - 3, top + 1, 7, 1, 0x2f5a3a); dot(x, top - 2, WHITE); },
+      },
+
+      /* The models' looks, shaded for the model's size */
+      claude: {
+        // A spark on the chest, ribbing at the hem
+        front(x, y, o) {
+          const c = 0xf4e8dc;
+          dot(x, y + 1, c); dot(x, y + 3, c); fill(x - 1, y + 2, 3, 1, c);
+          for (const [dx, dy] of [[-1, 1], [1, 1], [-1, 3], [1, 3]]) dot(x + dx, y + dy, c, 0.5);
+          fill(x - 3, y + 5, 7, 1, shaded(o.shirt, 0.85));
+        },
+      },
+      gpt: {
+        // A ring of a knot on a hoodie, its hood round the neck, green cuffs
+        front(x, y, o) {
+          dot(x - 2, y, shaded(o.shirt, 0.7)); dot(x + 2, y, shaded(o.shirt, 0.7));
+          for (const [dx, dy] of [[0, 1], [-1, 2], [1, 2], [-1, 3], [1, 3], [0, 4]]) dot(x + dx, y + dy, WHITE);
+          dot(x - 4, y + 4, 0x10a37f); dot(x + 4, y + 4, 0x10a37f);
+        },
+      },
+      gemini: {
+        // Blue to violet to pink, a four-point sparkle
+        front(x, y, o) {
+          [0x4c8bf5, 0x5a7cf0, 0x7a6ae8, 0x9a5ad8, 0xb85ac8, 0xd06ab8].forEach((c, r) => fill(x - 3, y + r, 7, 1, shaded(c, o.shade ?? 1)));
+          fill(x, y + 1, 1, 3, WHITE); dot(x - 1, y + 2, WHITE); dot(x + 1, y + 2, WHITE);
+        },
+      },
+      grok: {
+        // A leather jacket over a white tee, and dark glasses
+        front(x, y) { fill(x - 1, y, 3, 6, 0xf4f1ea); dot(x - 2, y, 0x3a3d47); dot(x + 2, y, 0x3a3d47); dot(x + 2, y + 3, 0xc8cdd6); },
+        head(x, top, look, away) { if (!away) { fill(x - 3, top + 4, 7, 1, SHADES); dot(x - 2, top + 4, 0x3a3d47); } },
+      },
+      qwen: {
+        // A mandarin collar, gold frog buttons
+        front(x, y, o) { fill(x - 2, y, 5, 1, shaded(o.shirt, 1.25)); for (const r of [2, 4]) { fill(x - 1, y + r, 3, 1, PALETTE.brass); dot(x, y + r, 0xf2d38a); } },
+      },
+      llama: {
+        // A woollen poncho's zigzag band, and its fringe
+        front(x, y, o) {
+          for (let c = -3; c <= 3; c++) { dot(x + c, y + 2 + ((c + 3) % 2), 0x3f6fc4); dot(x + c, y + 4 - ((c + 3) % 2), 0xd96a5a); }
+          for (let c = -3; c <= 3; c += 2) dot(x + c, y + 5, shaded(o.shirt, 0.8));
+        },
+      },
+      mistral: {
+        // Stripes of orange, red and yellow, and a beret
+        front(x, y) { fill(x - 3, y + 1, 7, 1, 0xf08a3a); fill(x - 3, y + 3, 7, 1, 0xe0503a); fill(x - 3, y + 5, 7, 1, 0xf2c200); },
+        back(x, y) { fill(x - 3, y + 1, 7, 1, 0xf08a3a); fill(x - 3, y + 3, 7, 1, 0xe0503a); fill(x - 3, y + 5, 7, 1, 0xf2c200); },
+        head(x, top) { fill(x - 3, top - 1, 7, 2, 0x1a1a1f); dot(x + 4, top, 0x1a1a1f); dot(x + 1, top - 2, 0x1a1a1f); },
+      },
+      deepseek: {
+        // A turtleneck with a little whale, diving goggles pushed up
+        front(x, y, o) { fill(x - 2, y, 5, 1, shaded(o.shirt, 1.25)); fill(x - 2, y + 3, 3, 1, 0x6fa8f0); fill(x - 1, y + 2, 2, 1, 0x6fa8f0); dot(x + 1, y + 2, 0x6fa8f0); dot(x + 2, y + 1, 0x6fa8f0); },
+        head(x, top, look, away) { fill(x - 3, top + 2, 7, 1, 0x2a2d35); if (!away) { dot(x - 2, top + 2, 0x8fc6f0); dot(x + 2, top + 2, 0x8fc6f0); } },
+      },
+      kimi: {
+        // A crescent moon and a star, white at the hem
+        front(x, y) { for (const [dx, dy] of [[-1, 1], [-2, 2], [-2, 3], [-1, 4]]) dot(x + dx, y + dy, 0xf2d35b); dot(x + 1, y + 1, WHITE); fill(x - 3, y + 5, 7, 1, 0xd8d4c8); },
+      },
+      glm: {
+        // A circuit trace that glows
+        front(x, y) {
+          const a = 0.6 + 0.4 * Math.sin(now * 2);
+          for (const [dx, dy] of [[-2, 1], [-1, 1], [-1, 2], [-1, 3], [0, 3], [1, 3], [2, 3], [2, 4]]) dot(x + dx, y + dy, 0x4ad4e8, a);
+          dot(x - 2, y + 1, WHITE, a); dot(x + 2, y + 4, WHITE, a);
+        },
+      },
+      phi: {
+        // A polo's collar, and a Greek phi
+        front(x, y, o) {
+          dot(x - 1, y, shaded(o.shirt, 1.3)); dot(x + 1, y, shaded(o.shirt, 1.3));
+          fill(x, y + 1, 1, 4, WHITE); for (const [dx, dy] of [[-1, 2], [1, 2], [-1, 3], [1, 3]]) dot(x + dx, y + dy, WHITE);
+        },
+      },
+    };
+
+    /**
      * The front of an outfit, over a shirt `half` either side of `x` and
      * `rows` tall from `y`: a T-shirt's stripe, a shirt's collar and buttons,
      * the shirt under a jacket, or a suit's tie.
      */
-    function drawOutfitFront(x, y, half, rows, outfit) {
-      const white = PALETTE.paper;
+    function drawOutfitFront(x, y, half, rows, outfit, look) {
+      const white = PALETTE.paper, parts = OUTFIT_PARTS[outfit.style];
+      if (parts) {
+        // An intern's is too small for the whole of it: a touch of its colour.
+        if (half < 3) return dot(x, y + 1, outfit.accent !== outfit.shirt && outfit.accent ? outfit.accent : lighter(outfit.shirt));
+        if (parts.front) parts.front(x, y, outfit, look);
+        return;
+      }
       if (outfit.style === 'tee') {
         fill(x - half, y + 2, half * 2 + 1, 1, white);
       } else if (outfit.style === 'hoodie') {
@@ -6608,7 +7410,9 @@
     /* The frame, back to front */
 
     drawWall();
+    drawSeasonal('wall');
     drawFloor();
+    drawSeasonal('floor');
     drawSpotlight();
 
     // What stands on the floor, drawn in order of where it touches the
@@ -6647,7 +7451,9 @@
     }
     items.sort((a, b) => a[0] - b[0]).forEach(([, draw]) => draw());
 
+    drawSeasonal('air');
     if (isNight) fill(seen.left, seen.top, seen.width, seen.height, PALETTE.night, 0.3);
+    drawSeasonal('glow');
     drawSelectionCorners();
     drawDetonation();
     drawMicWaves();
@@ -8103,7 +8909,7 @@
    * shows it where the room held upright has it.
    */
   function preview(canvas, what, { room = null, now = 0, tall = false } = {}) {
-    const kept = { decor, spots, boardSpots, shape, DESKS, floor };
+    const kept = { decor, spots, boardSpots, stormSpots, shape, DESKS, floor };
     try {
       shape = tall ? TALL : WIDE;
       // Shown in the room as you furnished it, unless it's a style being shown.
@@ -8113,6 +8919,7 @@
       floor = null;
       spots = spotsOf(decor);
       boardSpots = boardSpotsOf(decor);
+      stormSpots = stormSpotsOf(decor);
       const office = new Office();
       office.apply(what.corner ? [] : [{ pin: null, session: PREVIEW_AGENT }], {}, now);
       if (what.corner) CORNER_SPOTS[decor.corner].forEach((_, i) => {
@@ -8140,7 +8947,7 @@
       ctx.drawImage(whole, crop.x * scale, crop.y * scale, w, h,
         Math.floor((canvas.width - w) / 2), Math.floor((canvas.height - h) / 2), w, h);
     } finally {
-      ({ decor, spots, boardSpots, shape, DESKS, floor } = kept);
+      ({ decor, spots, boardSpots, stormSpots, shape, DESKS, floor } = kept);
     }
   }
 
