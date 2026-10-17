@@ -336,7 +336,10 @@
   /** The colours of what can sit on a desk besides a plant, papers and a lamp. */
   const DESK_THINGS = { cactus: 0x5a9a4a, duck: 0xf2cf3a, beak: 0xe8823a, sky: 0x8fc0e8, coffee: 0x5a3a24 };
   /** What each of the back wall's five places can hold, and what it holds unless set up otherwise. */
-  const WALL_CHOICES = ['window', 'whiteboard', 'pinboard', 'poster', 'shelf', 'plant', 'bare'];
+  const WALL_CHOICES = ['window', 'whiteboard', 'pinboard', 'poster', 'shelf', 'plant', 'bare',
+    'viewport', 'porthole', 'panel', 'pipes', 'seaPorthole', 'map', 'flag', 'cutlasses', 'tapestry', 'portrait', 'stained',
+    'shield', 'frost', 'skis', 'weather', 'torch', 'arch', 'neon', 'tv', 'hex', 'pegboard', 'roller',
+    'bike', 'mirror', 'timer', 'climbing', 'vines', 'tiki', 'blind', 'cabin', 'trail', 'paddles'];
   const STANDARD_WALL = ['window', 'whiteboard', 'window', 'pinboard', 'window'];
   /** The middle of each of the back wall's places, left to right. */
   const WALL_SLOTS = [44, 77, 110, 143, 176];
@@ -2114,6 +2117,20 @@
       fill(x - 2, y + h + 1, w + 4, 1, decor.season === 'calendar' && SEASONS[month] === 'winter' ? 0xf2f4f8 : PALETTE.sill);
     }
 
+    /** A pane of sky, as the windows have it but without their frame: stars at night, a cloud by day. */
+    function skyPane(x, y, w, h) {
+      const [top, bottom] = sky();
+      fill(x, y, w, Math.ceil(h / 2), top);
+      fill(x, y + Math.ceil(h / 2), w, Math.floor(h / 2), bottom);
+      if (isNight) {
+        for (const [sx, sy] of [[3, 2], [11, 6], [20, 3], [26, 8], [7, 12], [17, 14]]) if (sx < w && sy < h) dot(x + sx, y + sy, WHITE, 0.75);
+      } else if (daylight >= 7 && daylight < 17 && w > 14) {
+        const drift = (x * 7) % (w - 12);
+        fill(x + 3 + drift, y + 4, 7, 2, WHITE, 0.85);
+        fill(x + 5 + drift, y + 3, 3, 1, WHITE, 0.85);
+      }
+    }
+
     /** What the season puts in a window: snow, falling leaves or blossom, or a bird crossing now and then in summer. */
     function drawSeason(x, y, w, h) {
       const season = SEASONS[month];
@@ -2490,7 +2507,398 @@
     }
 
     /** One of the back wall's places, as set up, around its middle `x`. */
+    /**
+     * The back wall's pieces besides a window, a whiteboard, a pinboard, a
+     * poster, a shelf and a plant: each around its middle `x`, between the
+     * wall's top and its rail at 30 unless it reaches the floor.
+     */
+    const WALL_PIECES = {
+      /** Viewport. Stars drift past a ringed planet. Space whatever the hour. */
+      viewport(x) {
+        const l = x - 16, t = 6, w = 32, h = 20;
+        fill(l - 2, t - 2, w + 4, h + 4, 0x5a6270); fill(l - 2, t - 2, w + 4, 1, 0x8a93a3); fill(l - 2, t + h + 1, w + 4, 1, 0x3a3f4a);
+        fill(l, t, w, h, 0x060a1a);
+        for (let k = 0; k < 12; k++) {
+          const sx = l + ((((k * 11 + 200 - now * ((k % 3) + 1) * 1.5) % w) + w) % w), sy = t + 1 + ((k * 7) % (h - 2));
+          dot(sx, sy, WHITE, k % 3 === 0 ? 0.9 : 0.45);
+        }
+        const cx = l + 22, cy = t + 10;
+        disc(cx, cy, 4.5, 0xb86a3a); disc(cx - 1, cy - 1, 3.2, 0xe0a060);
+        fill(cx - 8, cy, 17, 1, PALETTE.brass, 0.9); dot(cx - 9, cy - 1, PALETTE.brass, 0.9); dot(cx + 9, cy + 1, PALETTE.brass, 0.9);
+        for (const [dx, dy] of [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]]) dot(l + dx, t + dy, 0x5a6270);
+        for (const bx of [l + 4, l + w - 5]) { dot(bx, t - 1, 0xb8c0cc); dot(bx, t + h, 0xb8c0cc); }
+      },
+      /** Porthole onto Earth. The Earth turns slowly below, clouds over it. */
+      porthole(x) {
+        const cx = x, cy = 16;
+        disc(cx, cy, 10.5, 0x3a3f4a); disc(cx, cy, 9.5, 0x8a93a3); disc(cx, cy, 7.8, 0x060a1a);
+        for (const [sx, sy] of [[-4, -5], [3, -6], [-6, -1], [5, -3]]) dot(cx + sx, cy + sy, WHITE, 0.6);
+        const px = cx + 1, py = cy + 2, pr = 4.5;
+        disc(px, py, pr, 0x3f7fc0);
+        for (let k = 0; k < 6; k++) {
+          const lx = px - 5 + ((((k * 3.3 + now * 0.8) % 11) + 11) % 11), ly = py - 3 + ((k * 5) % 7);
+          if (Math.hypot(lx - px, ly - py) < pr - 0.5) { dot(Math.round(lx), ly, PALETTE.leaf); if (k % 2) dot(Math.round(lx) + 1, ly, PALETTE.leaf); }
+        }
+        const cl = px - 4 + ((((now * 1.3) % 9) + 9) % 9);
+        if (Math.hypot(cl - px, -1) < pr - 0.5) fill(Math.round(cl), py - 1, 2, 1, WHITE, 0.75);
+        for (let k = 0; k < 8; k++) { const a = (k * Math.PI) / 4; dot(cx + Math.round(Math.cos(a) * 9), cy + Math.round(Math.sin(a) * 9), 0xc8cdd6); }
+        for (const [dx, dy] of [[-5, -4], [-4, -5], [-3, -6]]) dot(cx + dx, cy + dy, WHITE, 0.3);
+      },
+      /** Control panel. A wave runs across the scope, buttons blink in turn, one slider drifts. */
+      panel(x) {
+        const l = x - 13, t = 8;
+        fill(l, t, 26, 19, 0x2a2e36); fill(l + 1, t + 1, 24, 17, 0x3a3f4a); fill(l + 1, t + 1, 24, 1, 0x5a6270);
+        fill(l + 3, t + 3, 11, 7, 0x0e2a1a);
+        for (let k = 0; k < 11; k++) dot(l + 3 + k, t + 6 + Math.round(Math.sin(k * 0.9 - now * 4) * 2), 0x6fd36f);
+        const colours = [0xd96a5a, 0xf2d35b, 0x6fd36f, 0x4ad4e8];
+        for (let i = 0; i < 9; i++) { const on = (Math.floor(now * 2.5) + i * 4) % 7 < 3; fill(l + 16 + (i % 3) * 3, t + 3 + Math.floor(i / 3) * 3, 2, 2, colours[i % 4], on ? 1 : 0.3); }
+        fill(l + 3, t + 12, 20, 5, 0x2a2e36);
+        [1, 3, Math.round(2 + 2 * Math.sin(now * 0.7)), 0, 4, 2].forEach((pos, k) => { fill(l + 4 + k * 3, t + 12, 1, 5, 0x1d1f25); fill(l + 3 + k * 3, t + 12 + pos, 3, 1, 0xc8cdd6); });
+      },
+      /** Pipes and gauge. The gauge needle twitches; steam puffs from a joint now and then. */
+      pipes(x) {
+        const steel = 0x6a7280, hi = 0x8a93a3, lo = 0x4a515e;
+        fill(x - 12, 2, 3, 28, steel); fill(x - 12, 2, 1, 28, hi); fill(x - 10, 2, 1, 28, lo);
+        fill(x - 9, 10, 20, 3, steel); fill(x - 9, 10, 20, 1, hi); fill(x - 9, 12, 20, 1, lo);
+        fill(x + 9, 10, 3, 20, steel); fill(x + 9, 10, 1, 20, hi); fill(x + 11, 10, 1, 20, lo);
+        fill(x - 13, 9, 5, 5, lo); fill(x + 8, 9, 5, 5, lo);
+        ring(x - 2, 11, 2.5, 0xc9443a); dot(x - 2, 11, 0x9a2a2a);
+        fill(x + 1, 13, 1, 4, steel);
+        disc(x + 1, 21, 4.5, 0x3a3f4a); disc(x + 1, 21, 3.5, 0xf4f1ea);
+        const a = -0.7 + 0.12 * Math.sin(now * 9) + 0.1 * Math.sin(now * 2.3);
+        for (let r = 1; r <= 3; r++) dot(x + 1 + Math.round(Math.sin(a) * r), 21 - Math.round(Math.cos(a) * r), 0xd4140b);
+        const t = ((now % 5) + 5) % 5;
+        if (t < 1.2) { const rise = t / 1.2; fill(x + 13 + Math.round(rise * 3), 8 - Math.round(rise * 6), 2 + Math.round(rise * 2), 2, WHITE, 0.5 * (1 - rise)); }
+      },
+      /** Porthole onto the sea. Waves roll by, the sky keeps the time, and a ship crosses the horizon now and then. */
+      seaPorthole(x) {
+        const cx = x, cy = 16;
+        disc(cx, cy, 10.5, 0x7a5a2a); disc(cx, cy, 9.5, PALETTE.brass); disc(cx, cy, 7.8, 0x9a7a3a);
+        const [top, bottom] = sky();
+        for (let row = -7; row <= 7; row++) { const half = Math.floor(Math.sqrt(49 - row * row)); fill(cx - half, cy + row, half * 2 + 1, 1, row <= 0 ? (row < -3 ? top : bottom) : 0x2f6a9a); }
+        fill(cx - 6, cy + 1, 13, 1, 0x3f7fc0);
+        for (let row = 2; row <= 6; row += 2) { const half = Math.floor(Math.sqrt(49 - row * row)); for (let k = -half; k <= half; k++) if ((((k + row * 3 + Math.floor(now * 3)) % 6) + 6) % 6 === 0) dot(cx + k, cy + row, WHITE, 0.55); }
+        const lap = (now / 24) % 1, sx = cx - 8 + Math.round(lap * 16);
+        if (sx > cx - 6 && sx < cx + 4) { fill(sx, cy, 3, 1, 0x2a1d16); fill(sx + 1, cy - 2, 1, 2, 0xeae6dc); }
+        if (isNight) { fill(cx + 2, cy - 4, 2, 2, 0xf1ead2); dot(cx + 2, cy + 3, 0xf1ead2, 0.5); }
+        for (let k = 0; k < 8; k++) { const a = (k * Math.PI) / 4 + Math.PI / 8; dot(cx + Math.round(Math.cos(a) * 9), cy + Math.round(Math.sin(a) * 9), 0x7a5a2a); }
+        for (const [dx, dy] of [[-4, -4], [-3, -5]]) dot(cx + dx, cy + dy, WHITE, 0.4);
+      },
+      /** Treasure map. A dotted trail to the red X. */
+      map(x) {
+        const l = x - 13, t = 8, w = 26, h = 16;
+        fill(l, t, w, h, 0xe0c890);
+        fill(l - 1, t - 1, w + 2, 2, 0xc4a86a); fill(l - 1, t - 1, w + 2, 1, 0xd8bc80); fill(l - 1, t + h - 1, w + 2, 2, 0xb8985a);
+        dot(l + w - 1, t + 2, 0xb8985a); dot(l, t + h - 3, 0xb8985a);
+        fill(l + 6, t + 5, 10, 6, 0x9ab06a); fill(l + 8, t + 4, 6, 1, 0x9ab06a); fill(l + 7, t + 11, 8, 1, 0x9ab06a); fill(l + 5, t + 7, 1, 3, 0x9ab06a);
+        fill(l + 9, t + 6, 3, 2, 0x6a8a4a);
+        for (const [dx, dy] of [[2, 3], [3, 12], [20, 4], [21, 12], [18, 9]]) { dot(l + dx, t + dy, 0x6a8ab0); dot(l + dx + 1, t + dy - 1, 0x6a8ab0); }
+        for (const [dx, dy] of [[2, 13], [4, 12], [6, 11], [8, 10], [10, 9], [12, 9]]) dot(l + dx, t + dy, 0xb8322a);
+        for (const [dx, dy] of [[13, 6], [15, 6], [14, 7], [13, 8], [15, 8]]) dot(l + dx, t + dy, 0xd4140b);
+        fill(l + 22, t + 2, 1, 5, 0x6e5233); fill(l + 20, t + 4, 5, 1, 0x6e5233); dot(l + 22, t + 2, 0xb8322a);
+        dot(l + 1, t, 0x3a3a40); dot(l + w - 2, t, 0x3a3a40);
+      },
+      /** Jolly Roger. Pinned at its corners, folds in the cloth. */
+      flag(x) {
+        const l = x - 12, t = 8;
+        fill(l, t, 24, 15, 0x1a1a1f); fill(l + 2, t + 15, 20, 1, 0x1a1a1f);
+        fill(l + 7, t, 1, 15, 0x26262c); fill(l + 17, t, 1, 15, 0x26262c);
+        fill(l + 10, t + 2, 5, 4, 0xeae6dc); fill(l + 11, t + 6, 3, 1, 0xeae6dc); dot(l + 11, t + 4, 0x1a1a1f); dot(l + 13, t + 4, 0x1a1a1f);
+        for (let k = 0; k <= 10; k++) { dot(l + 7 + k, t + 8 + Math.round(k * 0.5), 0xeae6dc); dot(l + 17 - k, t + 8 + Math.round(k * 0.5), 0xeae6dc); }
+        for (const [dx, dy] of [[6, 7], [6, 9], [18, 7], [18, 9], [6, 12], [6, 14], [18, 12], [18, 14]]) dot(l + dx, t + dy, 0xeae6dc);
+        for (const [dx, dy] of [[0, 0], [23, 0], [1, 15], [22, 15]]) dot(l + dx, t + dy, PALETTE.brass);
+      },
+      /** Crossed cutlasses. On a wooden shield. */
+      cutlasses(x) {
+        fill(x - 6, 8, 13, 13, 0x6b4a2e); fill(x - 5, 21, 11, 2, 0x6b4a2e); fill(x - 3, 23, 7, 1, 0x6b4a2e); fill(x - 6, 8, 13, 1, 0x8c6744); fill(x + 6, 9, 1, 12, 0x4a301e);
+        for (const dir of [1, -1]) {
+          for (let k = 0; k <= 15; k++) { const px = x - dir * 8 + dir * k + dir * Math.round(Math.sin((k / 15) * Math.PI) * 1.5), py = 6 + k; dot(px, py, 0xc8cdd6); dot(px + dir, py, 0x9aa0a6); }
+          const hx = x + dir * 8, hy = 22;
+          fill(hx - 1, hy, 3, 1, PALETTE.brass); dot(hx + dir * 2, hy - 1, PALETTE.brass); fill(hx + dir, hy + 1, 1, 3, 0x3a2616); dot(hx + dir, hy + 4, PALETTE.brass);
+        }
+      },
+      /** Royal banner. Hangs from a gilt rod and stirs slightly at its point. */
+      tapestry(x) {
+        fill(x - 11, 6, 23, 1, PALETTE.brass); fill(x - 12, 5, 2, 3, PALETTE.brass); fill(x + 11, 5, 2, 3, PALETTE.brass);
+        const sway = Math.round(Math.sin(now * 0.8) * 0.7);
+        for (let row = 7; row <= 27; row++) {
+          const taper = row > 21 ? row - 21 : 0, s = row > 17 ? sway : 0, l = x - 9 + taper + s, w = 19 - taper * 2;
+          if (w <= 0) continue;
+          fill(l, row, w, 1, 0x9a2a3a); dot(l, row, PALETTE.brass); dot(l + w - 1, row, PALETTE.brass);
+        }
+        fill(x - 3, 11, 7, 3, PALETTE.brass); for (const dx of [-3, 0, 3]) dot(x + dx, 10, PALETTE.brass); dot(x, 12, 0xd4140b);
+        fill(x - 3, 16, 7, 5, PALETTE.brass); fill(x - 2, 21, 5, 1, PALETTE.brass); dot(x, 22, PALETTE.brass); fill(x - 2, 17, 5, 3, 0x3f6fc4);
+        dot(x + sway, 28, PALETTE.brass); dot(x + sway, 29, 0x9a7a3a);
+      },
+      /** Royal portrait. A king in ermine, lit by a picture light. */
+      portrait(x) {
+        fill(x - 8, 4, 17, 8, 0xffe08a, 0.07); fill(x - 4, 3, 9, 1, PALETTE.brass);
+        fill(x - 9, 5, 19, 23, PALETTE.brass); fill(x + 9, 5, 1, 23, 0x9a7a3a); fill(x - 9, 27, 19, 1, 0x9a7a3a); fill(x - 9, 5, 19, 1, 0xf2d38a);
+        fill(x - 7, 7, 15, 19, 0x2f4a3a);
+        fill(x - 6, 20, 13, 6, 0x9a2a3a); fill(x - 5, 19, 11, 2, 0xeae6dc); dot(x - 3, 20, 0x1a1a1f); dot(x + 1, 19, 0x1a1a1f); dot(x + 4, 20, 0x1a1a1f);
+        fill(x - 2, 13, 5, 6, 0xe8b48a); fill(x - 2, 17, 5, 2, 0x8a5a2b); dot(x - 1, 15, PALETTE.eye); dot(x + 1, 15, PALETTE.eye);
+        fill(x - 2, 11, 5, 2, PALETTE.brass); for (const dx of [-2, 0, 2]) dot(x + dx, 10, PALETTE.brass); dot(x, 12, 0xd4140b);
+      },
+      /** Stained glass. Bright in daylight, dim at night. */
+      stained(x) {
+        const t = 5, h = 22, r = 9;
+        const halfAt = (row) => (row < t + r ? Math.round(Math.sqrt(Math.max(0, r * r - (t + r - row) ** 2))) : r);
+        for (let row = t - 1; row <= t + h + 1; row++) { const half = halfAt(Math.max(t, row)) + 2; fill(x - half, row, half * 2 + 1, 1, 0x6a6d72); }
+        const panes = [0x9a2a3a, 0x3f6fc4, PALETTE.brass, 0x3f8a5a, 0x7d5ab8];
+        const lit = isNight ? 0.45 : daylight >= 17 ? 0.8 : 1;
+        for (let row = t; row <= t + h; row++) {
+          const half = halfAt(row);
+          for (let dx = -half; dx <= half; dx++) {
+            const lead = ((dx + r) % 4 === 0) || ((row - t) % 5 === 0) || dx === -half || dx === half;
+            dot(x + dx, row, lead ? PALETTE.frame : shaded(panes[(Math.floor((dx + r) / 4) + Math.floor((row - t) / 5)) % 5], lit));
+          }
+        }
+        disc(x, t + 7, 2.5, shaded(PALETTE.brass, lit)); dot(x, t + 7, shaded(0xd4140b, lit));
+        fill(x - 12, t + h + 2, 25, 1, 0x8a8d92);
+      },
+      /** Shield and swords. A heater shield in blue and gold over crossed swords. */
+      shield(x) {
+        for (const dir of [1, -1]) { line(x - dir * 10, 6, x + dir * 9, 27, 0xc8cdd6); fill(x - dir * 10 - 1, 5, 3, 1, PALETTE.brass); dot(x - dir * 11, 4, 0x3a2616); }
+        for (let row = 9; row <= 26; row++) { const half = row < 20 ? 7 : 7 - Math.round((row - 20) * 1.15); if (half < 0) continue; fill(x - half, row, half * 2 + 1, 1, 0x3f6fc4); dot(x - half, row, PALETTE.brass); dot(x + half, row, PALETTE.brass); }
+        fill(x - 7, 9, 15, 1, PALETTE.brass);
+        for (let k = 0; k <= 6; k++) { dot(x - k, 13 + k, PALETTE.brass); dot(x + k, 13 + k, PALETTE.brass); dot(x - k, 14 + k, PALETTE.brass); dot(x + k, 14 + k, PALETTE.brass); }
+      },
+      /** Frosted window. Snowy hills by day, the aurora at night, snow always falling. */
+      frost(x) {
+        const l = x - 16, t = 6, w = 32, h = 20;
+        fill(l - 1, t - 1, w + 2, h + 2, 0xdcebf4);
+        skyPane(l, t, w, h);
+        if (isNight) {
+          for (let k = 0; k < w; k++) {
+            fill(l + k, t + 4 + Math.round(Math.sin(k * 0.3 + now * 0.7) * 2), 1, 4, 0x6fd3a0, 0.3 + 0.2 * Math.sin(k * 0.2 + now));
+            fill(l + k, t + 7 + Math.round(Math.sin(k * 0.25 + now * 0.5 + 1) * 2), 1, 2, 0x9a6ad0, 0.2);
+          }
+        }
+        for (let k = 0; k < w; k++) { const hh = 4 + Math.round(2 * Math.sin(k * 0.22) + 1.5 * Math.sin(k * 0.5 + 1)); fill(l + k, t + h - hh, 1, hh, isNight ? 0x8a9ab8 : 0xf2f6fa); if (Math.cos(k * 0.22) < -0.2) dot(l + k, t + h - hh, isNight ? 0x6a7a98 : 0xc8d8e6); }
+        for (let k = 0; k < 6; k++) { const px = l + ((k * 11 + l * 3) % w) + Math.round(Math.sin(now * 1.5 + k)), py = t + ((now * 5 + k * 7.3) % h); if (px >= l && px < l + w) dot(px, py, WHITE); }
+        fill(x, t, 1, h, 0xdcebf4); fill(l, t + 10, w, 1, 0xdcebf4);
+        for (let i = 0; i < 4; i++) { fill(l, t + i, 4 - i, 1, WHITE, 0.7); fill(l + w - 4 + i, t + i, 4 - i, 1, WHITE, 0.7); fill(l, t + h - 1 - i, 4 - i, 1, WHITE, 0.7); fill(l + w - 4 + i, t + h - 1 - i, 4 - i, 1, WHITE, 0.7); }
+        fill(l - 2, t + h + 1, w + 4, 2, 0xf2f4f8); fill(l + 3, t + h, 6, 1, 0xf2f4f8); fill(l + 20, t + h, 8, 1, 0xf2f4f8);
+        for (const [dx, len] of [[2, 2], [7, 1], [13, 3], [24, 2], [29, 1]]) fill(l + dx, t + h + 3, 1, len, 0xcfe3ef);
+      },
+      /** Skis and poles. A pair of skis on pegs, the poles crossed in front. */
+      skis(x) {
+        fill(x - 9, 13, 18, 1, 0x8c6744);
+        for (const sx of [x - 5, x + 2]) { fill(sx, 7, 3, 21, 0xc9443a); fill(sx, 6, 3, 1, 0xd96a5a); dot(sx + 1, 5, 0xd96a5a); fill(sx + 1, 9, 1, 16, 0xeae6dc); fill(sx, 17, 3, 2, 0x1d1f25); }
+        line(x - 9, 7, x + 8, 27, 0x9aa0a6); line(x + 8, 7, x - 9, 27, 0x9aa0a6);
+        fill(x - 10, 6, 2, 3, 0x1d1f25); fill(x + 8, 6, 2, 3, 0x1d1f25);
+        fill(x + 6, 25, 4, 1, 0x3a3d47); fill(x - 10, 25, 4, 1, 0x3a3d47);
+      },
+      /** Weather station. Thermometer, a wind dial that wanders, and the reading. */
+      weather(x) {
+        fill(x - 11, 7, 22, 21, 0x6e4a2e); fill(x - 10, 8, 20, 19, 0x8c6744);
+        fill(x - 8, 10, 3, 12, 0xf4f1ea); fill(x - 7, 18, 1, 4, 0xd4140b); disc(x - 7, 23, 1.5, 0xd4140b);
+        for (let k = 0; k < 5; k++) dot(x - 4, 11 + k * 2, 0x3a2616);
+        disc(x + 4, 13, 4.5, PALETTE.brass); disc(x + 4, 13, 3.5, 0xf4f1ea);
+        const a = 0.6 + 0.5 * Math.sin(now * 0.4) + 0.1 * Math.sin(now * 3);
+        for (let r = 1; r <= 3; r++) dot(x + 4 + Math.round(Math.sin(a) * r), 13 - Math.round(Math.cos(a) * r), 0x1d1f25);
+        fill(x - 2, 19, 12, 7, 0x1d1f25); pixelText('-27', x - 1, 20, 0x4ad4e8, false);
+      },
+      /** Wall torch. Flames flicker, light wavers on the wall, a wisp of smoke. */
+      torch(x) {
+        const flick = 0.5 + 0.5 * Math.sin(now * 13) * Math.sin(now * 7.3);
+        fill(x - 9, 3, 19, 24, 0xff8a3d, 0.05 + 0.03 * flick); fill(x - 6, 5, 13, 16, 0xff8a3d, 0.06 + 0.04 * flick);
+        fill(x - 3, 21, 7, 1, 0x3a3a40); fill(x - 2, 22, 5, 2, 0x2a2a2e); fill(x - 1, 24, 3, 4, 0x2a2a2e); dot(x, 28, 0x3a3a40);
+        fill(x - 1, 14, 3, 8, 0x6e4a2e); fill(x - 1, 14, 1, 8, 0x8a6a42); fill(x - 2, 13, 5, 2, 0x5a3b25);
+        for (let k = 0; k < 5; k++) {
+          const h = 3 + Math.round(3 * Math.abs(Math.sin(now * (6 + k) + k * 1.9))) - Math.abs(k - 2);
+          if (h <= 0) continue;
+          const fx = x - 2 + k;
+          fill(fx, 13 - h, 1, h, 0xd4140b); if (h > 1) fill(fx, 14 - h, 1, h - 1, 0xff8a3d); if (h > 3) fill(fx, 15 - h, 1, h - 2, 0xf2d35b);
+        }
+        const rise = (now * 0.5) % 1; dot(x + Math.round(Math.sin(rise * 6) * 1.5), 6 - Math.round(rise * 5), PALETTE.smoke, 0.4 * (1 - rise));
+      },
+      /** Arched stone window. A red moon at night with bats crossing it; clouds by day. */
+      arch(x) {
+        const t = 6, h = 20, r = 6;
+        const halfAt = (row) => (row < t + r ? Math.round(Math.sqrt(Math.max(0, r * r - (t + r - row) ** 2))) : r);
+        for (let row = t - 2; row <= t + h + 1; row++) { const half = halfAt(Math.max(t, row)) + 3; fill(x - half, row, half * 2 + 1, 1, 0x5a5d62); }
+        for (let row = t - 2; row <= t + h + 1; row += 3) { dot(x - halfAt(Math.max(t, row)) - 3, row, 0x44464b); dot(x + halfAt(Math.max(t, row)) + 3, row, 0x44464b); }
+        const [top, bottom] = sky();
+        for (let row = t; row <= t + h; row++) { const half = halfAt(row); fill(x - half, row, half * 2 + 1, 1, row < t + h / 2 ? top : bottom); }
+        if (isNight) {
+          disc(x + 1, t + 6, 2.5, 0xd9806a);
+          const lap = (now / 9) % 1, bx = x - 8 + Math.round(lap * 16), by = t + 9 + Math.round(Math.sin(lap * 12));
+          if (bx > x - 6 && bx < x + 5) { dot(bx, by, PALETTE.frame); dot(bx - 1, by - 1 + (Math.floor(now * 8) % 2), PALETTE.frame); dot(bx + 1, by - 1 + (Math.floor(now * 8) % 2), PALETTE.frame); }
+        } else { const cx = x - 5 + Math.round(((now * 0.6) % 14)); if (cx < x + 4) fill(cx, t + 7, 4, 1, WHITE, 0.8); }
+        fill(x - 2, t + 1, 1, h, 0x2a2a2e); fill(x + 2, t + 1, 1, h, 0x2a2a2e);
+        fill(x - 9, t + h + 2, 19, 1, 0x7a7d82);
+      },
+      /** Neon ghost. A pink arcade ghost and GG in cyan; it stutters off now and then. */
+      neon(x) {
+        const off = (now % 7) > 6.5 && Math.floor(now * 20) % 2 === 0;
+        const ghost = ['...XXX...', '.XX...XX.', 'X..X.X..X', 'X.......X', 'X.......X', 'X.......X', 'X.X...X.X', 'XX.X.X.XX'];
+        const tube = (px, py, colour) => { if (!off) fill(px - 1, py - 1, 3, 3, colour, 0.1); dot(px, py, off ? shaded(colour, 0.35) : lighter(colour)); };
+        ghost.forEach((row, r) => [...row].forEach((c, k) => { if (c === 'X') tube(x - 4 + k, 7 + r, 0xff5aa8); }));
+        for (const [gx] of [[x - 4], [x + 1]]) GLYPHS.G.forEach((row, r) => [...row].forEach((c, k) => { if (c === '1') tube(gx + k, 18 + r, 0x4ad4e8); }));
+        dot(x - 6, 6, 0x3a3d47); dot(x + 6, 6, 0x3a3d47);
+      },
+      /** Wall TV. A platformer plays: the hero runs, jumps the pipe, coins blink. */
+      tv(x) {
+        fill(x - 16, 5, 32, 21, 0x4c8bf5, 0.05);
+        fill(x - 14, 7, 28, 17, 0x14161b); fill(x - 13, 8, 26, 15, 0x5a8ad0);
+        fill(x - 13, 19, 26, 4, 0x8a5a2b); fill(x - 13, 19, 26, 1, 0x4f9a5a);
+        fill(x + 1, 15, 4, 4, 0x3f9a4a); fill(x, 14, 6, 1, 0x4fae6a);
+        fill(x - 9, 10, 5, 2, WHITE, 0.85);
+        for (const cx of [x - 6, x + 8]) if (Math.floor(now * 3) % 2) fill(cx, 13, 1, 2, 0xf2d35b); else fill(cx - 0, 13, 2, 2, 0xf2d35b);
+        const lap = (now * 0.25) % 1, hx = x - 12 + Math.round(lap * 22), jump = Math.max(0, 1 - Math.abs(hx - (x + 3)) / 6), hy = 16 - Math.round(jump * 5);
+        fill(hx, hy, 2, 3, 0xd4140b); dot(hx, hy, 0xe8b48a);
+        fill(x - 2, 24, 5, 1, 0x2a2a2e); dot(x + 12, 23, 0xd4140b);
+      },
+      /** Hex light panels. Each tile runs round the colour wheel a step behind the last. */
+      hex(x) {
+        const widths = [3, 5, 7, 7, 5, 3];
+        [[-8, 8], [0, 8], [-12, 14], [-4, 14], [4, 14], [-8, 20], [0, 20]].forEach(([dx, dy], i) => {
+          const c = rainbow((now * 0.12 + i * 0.13) % 1);
+          fill(x + dx - 1, 7 + dy - 9, 9, 8, c, 0.06);
+          widths.forEach((w, r) => fill(x + dx + 3 - (w - 1) / 2, dy + r - 1, w, 1, shaded(c, r < 2 ? 1 : 0.8)));
+        });
+      },
+      /** Pegboard of tools. Hammer, wrenches, screwdriver, pliers and a tape measure. */
+      pegboard(x) {
+        const l = x - 13, t = 7, w = 26, h = 20;
+        fill(l, t, w, h, 0xb08a5a); fill(l, t, w, 1, 0xc49a6c); fill(l, t + h - 1, w, 1, 0x8c6a40);
+        for (let py = t + 2; py < t + h - 1; py += 3) for (let px = l + 2; px < l + w - 1; px += 3) dot(px, py, 0x7a5a36);
+        fill(l + 3, t + 6, 1, 10, 0x8c6744); fill(l + 1, t + 4, 5, 2, 0x5a5f6c);
+        fill(l + 8, t + 5, 1, 11, 0x9aa0a6); fill(l + 7, t + 3, 3, 2, 0x9aa0a6); dot(l + 8, t + 3, 0xb08a5a); fill(l + 7, t + 16, 3, 1, 0x9aa0a6);
+        fill(l + 12, t + 3, 2, 5, 0xe8c04a); fill(l + 12, t + 8, 1, 7, 0xc8cdd6);
+        fill(l + 16, t + 3, 3, 3, 0x9aa0a6); fill(l + 16, t + 6, 1, 8, 0xc9443a); fill(l + 18, t + 6, 1, 8, 0xc9443a);
+        fill(l + 21, t + 4, 4, 4, 0xe8c04a); dot(l + 22, t + 5, 0x2a2a2e); fill(l + 21, t + 8, 1, 2, 0xe8c04a);
+        ring(l + 22, t + 14, 2.5, 0x2a2a2e);
+      },
+      /** Roller door, half up. Opens onto the drive, the sky as the hour has it, the founder's car outside. */
+      roller(x) {
+        const l = x - 15, w = 30;
+        skyPane(l, 19, w, 12);
+        fill(l, 28, w, 3, 0x2f5a3a); for (let k = 0; k < w; k += 3) dot(l + k + 1, 27, 0x2f5a3a);
+        fill(l, 31, w, 7, 0x8a8d92); fill(l, 31, w, 1, 0x9a9da2); fill(x - 1, 33, 2, 4, 0xeae6dc, 0.6);
+        fill(x + 3, 30, 10, 3, 0xc9443a); fill(x + 5, 28, 6, 2, 0xc9443a); fill(x + 6, 28, 4, 1, 0x9fd3e8); dot(x + 5, 33, 0x1d1f25); dot(x + 11, 33, 0x1d1f25);
+        fill(l, 6, w, 13, 0x9aa0a8); for (let y = 7; y < 19; y += 2) fill(l, y, w, 1, 0x7a7f88); fill(l, 18, w, 1, 0x5a5f6c); fill(x - 2, 17, 5, 1, 0x3a3f4a);
+        fill(l - 2, 4, 2, 34, 0x5a5f6c); fill(l + w, 4, 2, 34, 0x5a5f6c); fill(l - 2, 3, w + 4, 3, 0x4a4e56); fill(l - 2, 3, w + 4, 1, 0x6a6e76);
+        fill(l, 37, w, 1, 0x5a5f6c);
+      },
+      /** Bike on hooks. Hung on the wall; a wheel still turns slowly. */
+      bike(x) {
+        fill(x - 7, 7, 1, 2, 0x3a3f4a); fill(x + 6, 7, 1, 2, 0x3a3f4a);
+        for (const [cx, spin] of [[x - 7, 0.6], [x + 7, 0]]) {
+          ring(cx, 19, 5, 0x2a2a2e); ring(cx, 19, 4, 0x3a3d47, 0.6);
+          for (let k = 0; k < 4; k++) { const a = now * spin + (k * Math.PI) / 4; for (let r = 1; r <= 3; r++) { dot(cx + Math.round(Math.cos(a) * r), 19 + Math.round(Math.sin(a) * r), 0x9aa0a6); dot(cx - Math.round(Math.cos(a) * r), 19 - Math.round(Math.sin(a) * r), 0x9aa0a6); } }
+          dot(cx, 19, 0xc8cdd6);
+        }
+        const red = 0xc9443a;
+        line(x - 7, 19, x - 1, 19, red); line(x - 7, 19, x - 3, 12, red); line(x - 3, 12, x - 1, 19, red); line(x - 3, 12, x + 5, 12, red); line(x - 1, 19, x + 5, 12, red); line(x + 5, 12, x + 7, 19, red);
+        line(x - 3, 12, x - 4, 10, 0x5a5f6c); fill(x - 6, 9, 4, 1, 0x1d1f25);
+        line(x + 5, 12, x + 5, 9, 0x5a5f6c); fill(x + 3, 9, 4, 1, 0x1d1f25);
+        dot(x - 1, 19, 0xc8cdd6);
+      },
+      /** Gym mirror. A glint sweeps across it now and then. */
+      mirror(x) {
+        const l = x - 10, t = 5, w = 21, h = 25;
+        fill(l - 1, t - 1, w + 2, h + 1, 0x8a8f9c); fill(l, t, w, h - 1, 0xa8c0d0); fill(l, t, w, 8, 0xb8ccda); fill(l, t + h - 7, w, 6, 0x7a8a96);
+        fill(l + 2, t + 2, 1, 6, WHITE, 0.4); fill(l + 4, t + 2, 1, 3, WHITE, 0.3);
+        const pos = ((now * 8) % 80) - 20;
+        for (let row = 0; row < h - 1; row++) { const sx = Math.round(pos + row * 0.6); if (sx >= 0 && sx < w) dot(l + sx, t + row, WHITE, 0.45); if (sx + 2 >= 0 && sx + 2 < w) dot(l + sx + 2, t + row, WHITE, 0.2); }
+      },
+      /** Interval timer. Counts down the round in red, then the rest in green. */
+      timer(x) {
+        fill(x - 14, 9, 28, 13, 0x2a2c30); fill(x - 13, 10, 26, 11, 0x0e0f12);
+        const t = Math.floor(now) % 60, working = t < 45, left = working ? 45 - t : 60 - t;
+        const text = `0:${String(left).padStart(2, '0')}`;
+        const colour = working ? 0xff3a2a : 0x3ddc84;
+        pixelText(text, x - 7, 12, colour, false);
+        [0, 1, 2].forEach((k) => dot(x - 3 + k * 3, 19, k === Math.floor(now / 60) % 3 ? 0xf2d35b : 0x3a3d47));
+      },
+      /** Climbing holds. A panel of holds in every colour. */
+      climbing(x) {
+        const l = x - 13, t = 5;
+        fill(l, t, 26, 25, 0xc49a6c); fill(l, t, 26, 1, 0xd8b080); fill(l + 25, t, 1, 25, 0xa07a50);
+        for (let py = t + 2; py < t + 25; py += 4) for (let px = l + 2; px < l + 25; px += 4) dot(px, py, 0x8c6a40);
+        for (const [dx, dy, w, h, c] of [[3, 3, 3, 2, 0xd4140b], [12, 2, 2, 2, 0xf2d35b], [19, 5, 3, 3, 0x3f6fc4], [6, 9, 2, 2, 0x4f9a5a], [15, 10, 4, 2, 0xe07aa0], [3, 15, 3, 3, 0x7d5ab8], [11, 16, 2, 2, 0xe0703a], [20, 14, 2, 3, 0x3ddc84], [8, 21, 4, 2, 0x3f6fc4], [18, 20, 3, 2, 0xd4140b]]) {
+          fill(l + dx, t + dy, w, h, c); fill(l + dx, t + dy + h, w, 1, shaded(c, 0.55)); dot(l + dx, t + dy, lighter(c));
+        }
+      },
+      /** Hanging vines. They sway, most at their tips; a flower or two. */
+      vines(x) {
+        fill(x - 15, 2, 31, 1, 0x3b5a3a);
+        for (const [dx, len, ph] of [[-13, 18, 0], [-8, 24, 1.1], [-3, 14, 2.3], [2, 26, 0.6], [7, 16, 1.8], [12, 22, 2.9]]) {
+          let last = 0;
+          for (let k = 0; k < len; k++) {
+            const sway = k > 4 ? Math.round(Math.sin(now * 1.1 + ph + k * 0.25) * (k / len) * 1.8) : 0, vx = x + dx + sway, vy = 3 + k;
+            dot(vx, vy, 0x3b6a3a); last = vx;
+            if (k % 4 === 2) fill(vx + (k % 8 === 2 ? 1 : -2), vy, 2, 1, PALETTE.leaf);
+            if (k % 4 === 0 && k > 0) dot(vx + (k % 8 === 0 ? -1 : 1), vy, PALETTE.leafDark);
+          }
+          if (ph > 1.5) fill(last - 1, 3 + len, 2, 2, ph > 2.5 ? 0xf28fb0 : 0xf2d35b);
+        }
+      },
+      /** Tiki mask. Its eyes glow orange for a moment every so often. */
+      tiki(x) {
+        for (const [dx, h] of [[-5, 4], [-3, 6], [-1, 7], [1, 7], [3, 6], [5, 4]]) fill(x + dx, 9 - h, 1, h, dx % 4 === 1 || dx === -3 ? PALETTE.leafDark : PALETTE.leaf);
+        fill(x - 5, 8, 11, 19, 0x8a5a2b); fill(x - 4, 27, 9, 1, 0x8a5a2b); fill(x - 5, 8, 1, 19, 0xa87048); fill(x + 5, 8, 1, 19, 0x6e4a2e);
+        fill(x - 5, 12, 11, 1, 0x6e4a2e);
+        const glow = (now % 8) < 0.8 ? 1 : 0;
+        for (const ex of [x - 4, x + 2]) { fill(ex, 13, 3, 2, 0x1d1f25); if (glow) { fill(ex, 13, 3, 2, 0xff8a3d); fill(ex - 1, 12, 5, 4, 0xff8a3d, 0.2); } }
+        fill(x - 1, 15, 3, 4, 0x6e4a2e); dot(x - 1, 18, 0x5a3b25); dot(x + 1, 18, 0x5a3b25);
+        fill(x - 4, 20, 9, 4, 0x1d1f25); for (let k = 0; k < 9; k += 2) { dot(x - 4 + k, 20, 0xeae6dc); dot(x - 4 + k, 23, 0xeae6dc); }
+        fill(x - 5, 16, 2, 1, 0xc9443a); fill(x + 4, 16, 2, 1, 0xc9443a); fill(x - 5, 18, 2, 1, 0xc9443a); fill(x + 4, 18, 2, 1, 0xc9443a);
+      },
+      /** Bamboo blind window. A blind half down, palms outside, the sky as the hour has it. */
+      blind(x) {
+        const l = x - 16, t = 6, w = 32, h = 20;
+        fill(l - 1, t - 1, w + 2, h + 2, PALETTE.frame); skyPane(l, t, w, h);
+        const palm = isNight ? 0x1a2a20 : 0x2f5a3a;
+        fill(l + 3, t + 12, 2, 8, 0x5a3b25); for (const [dx, dy, w2] of [[-2, 11, 4], [4, 11, 4], [-3, 12, 2], [6, 12, 2], [0, 10, 5]]) fill(l + 3 + dx, t + dy, w2, 1, palm);
+        fill(l + w - 7, t + 14, 2, 6, 0x5a3b25); for (const [dx, dy, w2] of [[-3, 13, 4], [2, 13, 4], [-1, 12, 5]]) fill(l + w - 7 + dx, t + dy, w2, 1, palm);
+        for (let row = t; row < t + 9; row++) fill(l, row, w, 1, row % 2 ? 0xc9a06a : 0xb08a5a);
+        fill(l, t + 9, w, 1, 0x8a6a42);
+        fill(l - 2, t - 2, w + 4, 2, 0xc9a06a); fill(l - 2, t - 1, w + 4, 1, 0x8a6a42);
+        fill(l + w - 3, t + 10, 1, 9, 0xeae6dc); fill(l + w - 4, t + 19, 3, 2, 0xc9443a);
+        fill(l - 2, t + h + 1, w + 4, 1, PALETTE.sill);
+      },
+      /** Cabin window. Pines outside under the sky of the hour, gingham curtains tied back. */
+      cabin(x) {
+        const l = x - 14, t = 6, w = 28, h = 20;
+        fill(l - 2, t - 2, w + 4, h + 4, 0x8c6744); skyPane(l, t, w, h);
+        if (isNight) fill(l + w - 7, t + 3, 3, 3, 0xf1ead2);
+        const pine = isNight ? 0x14261a : 0x2f5a3a;
+        for (const [px, ph] of [[3, 9], [8, 12], [14, 8], [19, 11], [25, 9]]) for (let r = 0; r < ph; r++) { const half = Math.floor((r + 1) / 2); fill(l + px - half, t + h - ph + r, half * 2 + 1, 1, pine); }
+        fill(x, t, 1, h, 0x8c6744); fill(l, t + 10, w, 1, 0x8c6744);
+        for (const [cx, dir] of [[l - 3, 1], [l + w - 2, -1]]) for (let row = t - 2; row < t + h + 1; row++) {
+          const wide = row < t + 12 ? 5 : row < t + 14 ? 2 : 3 + Math.floor((row - t - 14) / 3);
+          for (let k = 0; k < wide; k++) { const px = dir > 0 ? cx + k : cx + 4 - k; dot(px, row, (Math.floor(px / 2) + Math.floor(row / 2)) % 2 ? 0xc9443a : 0xeae6dc); }
+        }
+        fill(l - 3, t + h + 2, w + 6, 1, 0xa87a56);
+      },
+      /** Trail map. Contours, a river, the trail, and a blinking "you are here". */
+      trail(x) {
+        const l = x - 13, t = 7, w = 26, h = 20;
+        fill(l, t, w, h, 0x6e4a2e); fill(l + 1, t + 1, w - 2, 3, 0x2f5a3a); fill(l + 3, t + 2, 10, 1, 0xd8e0b0, 0.8);
+        fill(l + 1, t + 4, w - 2, h - 5, 0xd8e0b0);
+        for (const r of [2, 4, 6]) ring(l + 17, t + 11, r, 0xa8b878);
+        dot(l + 17, t + 11, 0x6e4a2e);
+        for (let k = 0; k < w - 2; k++) dot(l + 1 + k, t + 15 + Math.round(Math.sin(k * 0.5) * 1.2), 0x6a9ac8);
+        for (const [dx, dy] of [[3, 17], [5, 15], [7, 13], [9, 12], [11, 11], [13, 11], [15, 11]]) dot(l + dx, t + dy, 0xc9443a);
+        if (Math.floor(now * 2) % 2) fill(l + 3, t + 17, 2, 2, 0xd4140b);
+        fill(l + 6, t + 6, 3, 2, 0xe0703a); dot(l + 7, t + 5, 0xe0703a);
+      },
+      /** Crossed paddles. Two canoe paddles, their blades painted. */
+      paddles(x) {
+        for (const [dir, tipColour] of [[1, 0xc9443a], [-1, 0x3f6fc4]]) {
+          line(x - dir * 9, 6, x + dir * 6, 22, 0xc49a6c);
+          fill(x - dir * 9 - 1, 5, 3, 1, 0x8a6a42);
+          const bx = x + dir * 7, by = 23;
+          fill(bx - 2, by - 2, 5, 6, 0xd8b080); fill(bx - 1, by + 4, 3, 1, 0xd8b080); fill(bx - 2, by + 2, 5, 2, tipColour); dot(bx, by + 4, tipColour);
+        }
+      },
+    };
+
     function drawWallPiece(piece, x) {
+      if (Object.hasOwn(WALL_PIECES, piece)) return WALL_PIECES[piece](x);
       switch (piece) {
         case 'window':
           return drawWindow(x - 16, 6, 32, 20, false);

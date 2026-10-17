@@ -145,7 +145,11 @@ struct Room: Codable, Equatable {
     /// team member's own, which can also be "auto".
     static let workspaces = ["desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
                              "greenhouse"]
-    static let wallChoices = ["window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare"]
+    static let wallChoices = ["window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare",
+                              "viewport", "porthole", "panel", "pipes", "seaPorthole", "map", "flag", "cutlasses", "tapestry",
+                              "portrait", "stained", "shield", "frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex",
+                              "pegboard", "roller", "bike", "mirror", "timer", "climbing", "vines", "tiki", "blind", "cabin", "trail",
+                              "paddles"]
     static let standardWall = ["window", "whiteboard", "window", "pinboard", "window"]
 
     init() {}

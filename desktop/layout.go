@@ -294,7 +294,10 @@ var (
 		"staff":     {"some", "none", "many"},
 		"preset":    roomStyles,
 	}
-	wallChoices  = []string{"window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare"}
+	wallChoices = []string{"window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare",
+		"viewport", "porthole", "panel", "pipes", "seaPorthole", "map", "flag", "cutlasses", "tapestry", "portrait", "stained", "shield",
+		"frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex", "pegboard", "roller", "bike", "mirror", "timer", "climbing",
+		"vines", "tiki", "blind", "cabin", "trail", "paddles"}
 	standardWall = []string{"window", "whiteboard", "window", "pinboard", "window"}
 )
 
