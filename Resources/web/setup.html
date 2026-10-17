@@ -150,6 +150,24 @@
   .tile.on { border-color: var(--ink); background: var(--cap-top); }
   .tile canvas, .member canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; border-radius: 6px; }
   .member canvas { max-width: 116px; }
+  /* Arranging the room: the office over the whole window, its tools beside it. */
+  .arranger { position: fixed; inset: 0; z-index: 10; background: var(--body); display: grid; grid-template-rows: auto minmax(0, 1fr);
+    padding: 16px 20px 20px; gap: 14px; }
+  .arranger[hidden] { display: none; }
+  .arranger .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .arranger .bar h2 { margin: 0 auto 0 0; font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--ink); }
+  .arranger .body { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 18px; min-height: 0; }
+  @media (max-width: 840px) { .arranger .body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; } }
+  .arranger .stage { min-height: 0; min-width: 0; display: grid; place-items: center; overflow: hidden; }
+  /* Sized from the stage, in fitStage: a canvas sized by itself would grow with each frame. */
+  .arranger .stage canvas { display: block; border-radius: 12px; background: var(--cap); touch-action: none; }
+  .arranger aside { display: grid; gap: 12px; align-content: start; overflow-y: auto; }
+  .arranger aside h3 { margin: 6px 0 0; font-size: 12px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+  .arranger aside .picked { font-weight: 600; }
+  .arranger aside .tools { display: flex; flex-wrap: wrap; gap: 6px; }
+  .arranger aside .tray { display: grid; gap: 6px; }
+  .arranger aside .btn { white-space: normal; }
+  .arranger aside .tray .btn { text-align: left; }
   /* Your team: a card for each project, its choices in a grid. */
   .team { display: grid; gap: 10px; }
   .member { border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; }
@@ -353,6 +371,7 @@
         <h3>Office</h3>
         <div class="field stacked"><span>Style</span><div class="tiles small" id="room-preset"></div></div>
         <p class="hint">A style furnishes the whole office for you, and the phone can switch it too, from the key in the room's corner. Yours is the office as you furnish it below: change anything there, and you're back to it. Your team, the daylight, the seasons and the sound stay as you set them.</p>
+        <div class="field"><span>Where everything goes</span><button class="btn" id="arrange-open">Arrange the room…</button></div>
         <div class="field"><span>Talk into</span><div class="choices" id="room-mic"></div></div>
         <div class="field stacked"><span>Back wall, left to right</span><div class="wall" id="room-wall"></div></div>
         <div class="field"><span>Floor</span><div class="choices" id="room-floor"></div></div>
@@ -415,6 +434,30 @@
     <p class="hint">Your phone updates as you pick.</p>
   </section>
 </main>
+
+<div class="arranger" id="arranger" role="dialog" aria-modal="true" aria-labelledby="arranger-title" hidden>
+  <div class="bar">
+    <h2 id="arranger-title">Arrange the room</h2>
+    <div class="choices" id="arrange-shape" role="group" aria-label="The room on its side or upright"></div>
+    <button class="btn" id="arrange-clear">Clear the room</button>
+    <button class="btn" id="arrange-reset">Back to standard</button>
+    <button class="btn primary" id="arrange-done">Done</button>
+  </div>
+  <div class="body">
+    <div class="stage" id="arrange-stage"><canvas id="arrange-canvas" aria-label="The office, to arrange"></canvas></div>
+    <aside>
+      <p class="picked" id="arrange-picked"></p>
+      <div class="tools" id="arrange-size" role="group" aria-label="Size"></div>
+      <div class="tools">
+        <button class="btn" id="arrange-hide">Put it away</button>
+        <button class="btn" id="arrange-back">Where it was</button>
+      </div>
+      <h3>Put away</h3>
+      <div class="tray" id="arrange-tray"></div>
+      <p class="hint">Click a piece in the room to pick it, and drag it where you want it. The room on its side and upright are arranged on their own. Desks only move: each is a key on your phone. Your phone follows as you go.</p>
+    </aside>
+  </div>
+</div>
 
 <script src="/office.js"></script>
 <script>
@@ -808,6 +851,7 @@
     drawRows();
     drawInspector();
     showPreview();
+    if (arranger && !$('arranger').hidden) showArranged();
   }
 
   function choice(label, on, onclick, swatch) {
@@ -1349,16 +1393,21 @@
   /* The preview: the phone's own page, sent what it would get from here,
      with sample sessions on its keys. */
 
+  /** The keys the preview shows: the samples, under your projects' names so they're dressed as your team. */
+  function sampleKeys() {
+    const count = layout.keys === 'auto' ? Math.max(1, samples) : layout.keys;
+    const projects = teamProjects();
+    return Array.from({ length: count }, (_, i) => {
+      const s = i < samples && { ...SAMPLES[i], name: projects[i] || SAMPLES[i].name };
+      return { pin: null, session: s && { id: s.name, project: s.name, dial: false, mic: false, effort: '', ...s } };
+    });
+  }
+
   function showPreview() {
     const page = $('preview-page').contentWindow;
     if (!page || !layout || !colours) return;
     const count = layout.keys === 'auto' ? Math.max(1, samples) : layout.keys;
-    // The samples take your projects' names, so they're dressed as your team.
-    const projects = teamProjects();
-    const keys = Array.from({ length: count }, (_, i) => {
-      const s = i < samples && { ...SAMPLES[i], name: projects[i] || SAMPLES[i].name };
-      return { pin: null, session: s && { id: s.name, project: s.name, dial: false, mic: false, effort: '', ...s } };
-    });
+    const keys = sampleKeys();
     page.postMessage({
       keys, overflow: Math.max(0, samples - count), theme: colours, scroll: true,
       layout: peekOffice ? { ...layout, office: true } : layout,
@@ -1367,6 +1416,137 @@
     $('fewer').disabled = samples === 0;
     $('more').disabled = samples === MOST_KEYS;
   }
+
+  /* Arranging the room: the office over the whole window, a piece picked in
+     it and dragged, its size and whether it's there beside it. Each shape
+     of the room is arranged on its own, in the layout's room.plan. */
+
+  let arranger = null;     // the office being arranged, once it's been opened
+  let arrangeShape = 'wide';
+  let arrangePicked = null;
+  const PIECE_SIZE_NAMES = { 1: 'Small', 1.5: 'Medium', 2: 'Large' };
+
+  /** The pieces of the room as arranged in the shape shown, by name. */
+  function arrangedPieces() {
+    const plan = layout.room && layout.room.plan;
+    return (plan && plan[arrangeShape]) || {};
+  }
+
+  function showArranged() {
+    if (!arranger || !layout) return;
+    arranger.show({ keys: sampleKeys(), overflow: 0, theme: colours || {}, layout: { ...layout, office: true } });
+  }
+
+  /** A piece moved, grown or put away in the room: kept in the layout, and sent on in a moment. */
+  function keepArranged(shape, part, piece) {
+    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
+    const plan = room.plan || (room.plan = { wide: {}, tall: {} });
+    plan[shape] = { ...plan[shape], [part]: piece };
+    clearTimeout(unsaved);
+    unsaved = setTimeout(() => { unsaved = null; sendLayout(); }, 250);
+    showPreview();
+    renderProfiles();
+    drawArrangeTools();
+  }
+
+  function drawArrangeTools() {
+    const kinds = AgentOffice.arrangeable;
+    const piece = arrangePicked && (arrangedPieces()[arrangePicked] || { x: 0, y: 0, size: 1, off: false });
+    const kind = arrangePicked && kinds[arrangePicked];
+    $('arrange-picked').textContent = kind ? kind.name : 'Pick a piece in the room.';
+    $('arrange-size').replaceChildren(...AgentOffice.sizes.map((size) => {
+      const b = choice(PIECE_SIZE_NAMES[size], !!piece && piece.size === size, () => arranger.arrange(arrangePicked, { size }));
+      b.disabled = !kind || !kind.grows;
+      return b;
+    }));
+    $('arrange-hide').disabled = !kind || !kind.hides;
+    $('arrange-back').disabled = !piece || (piece.x === 0 && piece.y === 0 && piece.size === 1);
+    const away = Object.entries(arrangedPieces()).filter(([, p]) => p.off).map(([part]) => part);
+    $('arrange-tray').replaceChildren(...(away.length ? away.map((part) => {
+      const b = document.createElement('button');
+      b.className = 'btn';
+      const name = kinds[part].name;
+      b.textContent = `Bring back ${name.charAt(0).toLowerCase()}${name.slice(1)}`;
+      b.onclick = () => {
+        arrangePicked = part;
+        arranger.pick(part);
+        arranger.arrange(part, { off: false });
+      };
+      return b;
+    }) : [Object.assign(document.createElement('p'), { className: 'hint', textContent: 'Nothing: everything is in the room.' })]));
+    $('arrange-shape').replaceChildren(
+      choice('On its side', arrangeShape === 'wide', () => setArrangeShape('wide')),
+      choice('Upright', arrangeShape === 'tall', () => setArrangeShape('tall')));
+  }
+
+  function setArrangeShape(shape) {
+    arrangeShape = shape;
+    arrangePicked = null;
+    arranger.pick(null);
+    fitStage();
+    drawArrangeTools();
+  }
+
+  /** The canvas as big as the stage allows, in the shape of the room shown: the room takes the shape of its canvas. */
+  function fitStage() {
+    const stage = $('arrange-stage').getBoundingClientRect();
+    const [w, h] = arrangeShape === 'tall' ? [224, 372] : [320, 180];
+    const fit = Math.min(stage.width / w, stage.height / h);
+    Object.assign($('arrange-canvas').style, { width: `${Math.floor(w * fit)}px`, height: `${Math.floor(h * fit)}px` });
+  }
+  new ResizeObserver(() => { if (!$('arranger').hidden) fitStage(); }).observe($('arrange-stage'));
+
+  $('arrange-open').onclick = () => {
+    if (!window.AgentOffice || !layout) return;
+    $('arranger').hidden = false;
+    fitStage();
+    if (!arranger) {
+      arranger = AgentOffice.create($('arrange-canvas'), {
+        picked(part) {
+          arrangePicked = part;
+          drawArrangeTools();
+        },
+        arranged: keepArranged,
+      });
+      arranger.setArranging(true);
+    }
+    arranger.setVisible(true);
+    showArranged();
+    drawArrangeTools();
+    $('arrange-done').focus();
+  };
+
+  function closeArranger() {
+    $('arranger').hidden = true;
+    arranger.setVisible(false);
+    drawLayout();
+  }
+  $('arrange-done').onclick = closeArranger;
+  $('arranger').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeArranger(); });
+  $('arrange-hide').onclick = () => {
+    const part = arrangePicked;
+    arrangePicked = null;
+    arranger.pick(null);
+    arranger.arrange(part, { off: true });
+  };
+  $('arrange-back').onclick = () => arranger.arrange(arrangePicked, { x: 0, y: 0, size: 1 });
+  $('arrange-clear').onclick = () => {
+    arrangePicked = null;
+    arranger.pick(null);
+    for (const [part, kind] of Object.entries(AgentOffice.arrangeable)) if (kind.hides) arranger.arrange(part, { off: true });
+  };
+  $('arrange-reset').onclick = () => {
+    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
+    room.plan = { ...(room.plan || { wide: {}, tall: {} }), [arrangeShape]: {} };
+    arrangePicked = null;
+    arranger.pick(null);
+    showArranged();
+    clearTimeout(unsaved);
+    unsaved = setTimeout(() => { unsaved = null; sendLayout(); }, 250);
+    showPreview();
+    renderProfiles();
+    drawArrangeTools();
+  };
 
   $('fewer').onclick = () => { samples--; showPreview(); };
   $('more').onclick = () => { samples++; showPreview(); };

@@ -3,6 +3,8 @@ package desktop
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
@@ -60,7 +62,7 @@ func (k *KeyCount) UnmarshalJSON(data []byte) error {
 // seasons, how loud it is, the desks' finish, what everyone works at (a desk,
 // a tent, a throne…) and the chairs' colour, how many of its own staff hang
 // about, the style it's in (Yours, or one that furnishes it for you), your
-// team, and the dress code, as the Mac app's
+// team, the dress code, and where everything goes, as the Mac app's
 // Room. office.js draws it, with the same choices. Anything unknown, or of the wrong kind, is
 // as standard: it only changes how the room looks.
 type Room struct {
@@ -84,6 +86,8 @@ type Room struct {
 	// What agents wear by their model's size and by agent. After the team, so
 	// it's written in the same place as the Mac app's Room has it.
 	Dress Dress `json:"dress"`
+	// Where each piece of the room is, as arranged on the setup page.
+	Plan Plan `json:"plan"`
 }
 
 // TeamMember is how one project's agent looks in the office: skin, hair, a
@@ -321,6 +325,7 @@ func (r *Room) UnmarshalJSON(data []byte) error {
 			Workspace: text(parts["workspace"]), Name: text(parts["name"])}
 	}
 	json.Unmarshal(raw["dress"], &r.Dress)
+	json.Unmarshal(raw["plan"], &r.Plan)
 	*r = r.checked()
 	return nil
 }
@@ -344,7 +349,8 @@ func (r Room) checked() Room {
 		Lounge: choose("lounge", r.Lounge), Corner: choose("corner", r.Corner), Sky: choose("sky", r.Sky),
 		Pet: choose("pet", r.Pet), Season: choose("season", r.Season), Sound: choose("sound", r.Sound),
 		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Chair: choose("chair", r.Chair),
-		Staff: choose("staff", r.Staff), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked()}
+		Staff: choose("staff", r.Staff), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked(),
+		Plan: r.Plan.checked()}
 	for i := range checked.Wall {
 		if i < len(r.Wall) && slices.Contains(wallChoices, r.Wall[i]) {
 			checked.Wall[i] = r.Wall[i]
@@ -513,4 +519,98 @@ func (l Layout) sameAs(other Layout) bool {
 	a, _ := json.Marshal(l)
 	b, _ := json.Marshal(other)
 	return string(a) == string(b)
+}
+
+// Plan is the room arranged your way, from the setup page's editor: for each
+// shape of the room, wide and tall, the pieces moved from where they stand,
+// made bigger, or put away, as the Mac app's Plan. office.js draws it, with
+// the same pieces and sizes. Anything unknown is left out, so the piece
+// stands as it comes.
+type Plan struct {
+	Wide map[string]Piece `json:"wide"`
+	Tall map[string]Piece `json:"tall"`
+}
+
+// Piece is how one piece is arranged: moved by X and Y, in the room's pixels,
+// grown to Size, or put away.
+type Piece struct {
+	X    int     `json:"x"`
+	Y    int     `json:"y"`
+	Size float64 `json:"size"`
+	Off  bool    `json:"off"`
+}
+
+var (
+	// What can be arranged: each desk, which only moves, and the lounge's
+	// pieces, which can grow, and be put away but for the red button and the
+	// mic, which are controls.
+	arrangeable = func() map[string]struct{ grows, hides bool } {
+		pieces := map[string]struct{ grows, hides bool }{}
+		for i := 1; i <= 9; i++ {
+			pieces[fmt.Sprintf("desk%d", i)] = struct{ grows, hides bool }{}
+		}
+		for _, part := range []string{"wall", "corner", "couch", "pong", "plant"} {
+			pieces[part] = struct{ grows, hides bool }{true, true}
+		}
+		for _, part := range []string{"button", "mic"} {
+			pieces[part] = struct{ grows, hides bool }{true, false}
+		}
+		return pieces
+	}()
+	pieceSizes = []float64{1, 1.5, 2}
+)
+
+// pieceReach is how far a piece can be moved, either way, in the room's pixels.
+const pieceReach = 400
+
+// UnmarshalJSON keeps what it knows of the arrangement it's given, each piece,
+// and each part of one, read on its own.
+func (p *Plan) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	json.Unmarshal(data, &raw)
+	arranged := func(data json.RawMessage) map[string]Piece {
+		var given map[string]json.RawMessage
+		json.Unmarshal(data, &given)
+		pieces := map[string]Piece{}
+		for part, fields := range given {
+			var parts map[string]json.RawMessage
+			if _, ok := arrangeable[part]; !ok || json.Unmarshal(fields, &parts) != nil || parts == nil {
+				continue
+			}
+			number := func(name string) float64 {
+				var n float64
+				json.Unmarshal(parts[name], &n)
+				return n
+			}
+			var off bool
+			json.Unmarshal(parts["off"], &off)
+			pieces[part] = Piece{X: int(math.Round(number("x"))), Y: int(math.Round(number("y"))), Size: number("size"), Off: off}
+		}
+		return pieces
+	}
+	*p = Plan{Wide: arranged(raw["wide"]), Tall: arranged(raw["tall"])}
+	return nil
+}
+
+// checked is the arrangement with every piece within reach, at a size it can
+// be, and put away only if it can be.
+func (p Plan) checked() Plan {
+	pieces := func(given map[string]Piece) map[string]Piece {
+		checked := map[string]Piece{}
+		for part, piece := range given {
+			kind, ok := arrangeable[part]
+			if !ok {
+				continue
+			}
+			piece.X = max(-pieceReach, min(pieceReach, piece.X))
+			piece.Y = max(-pieceReach, min(pieceReach, piece.Y))
+			if !kind.grows || !slices.Contains(pieceSizes, piece.Size) {
+				piece.Size = 1
+			}
+			piece.Off = piece.Off && kind.hides
+			checked[part] = piece
+		}
+		return checked
+	}
+	return Plan{Wide: pieces(p.Wide), Tall: pieces(p.Tall)}
 }

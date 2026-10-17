@@ -298,6 +298,15 @@ There's more to see while they work:
   and **the chairs** in teal, black, red, grey or green.
 - **Office staff:** a few, none, or lots of them in the lounge.
 
+**Arrange the room** puts everything where you want it. Click **Arrange the
+room…** under *Office*, and the office fills the window: click a piece to pick
+it and drag it anywhere. The desks move; the lounge's piece, the couch, the
+ping-pong table, the plant, the coffee counter, the red button and the mic
+also come in small, medium or large, and all but the button and the mic can
+be put away and brought back. **Clear the room** starts from an empty lounge,
+and **Back to standard** puts everything back. The room on its side and
+upright are arranged on their own, and your phone follows as you go.
+
 **Your team**, under the furnishing, has a card for each of your projects:
 choose its agent's skin, hair and hairstyle, something extra (glasses,
 sunglasses, headphones, a cap, a beanie, a beard, a moustache or a bow), an

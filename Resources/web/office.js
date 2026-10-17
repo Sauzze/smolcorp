@@ -43,14 +43,16 @@
   const DESK_WIDTH = 44;
   const DESK_COLUMNS = [22, 88, 154];
   const DESK_ROWS = [58, 102, 146];
-  /** The top-left corner of each desk's surface. */
-  const DESKS = DESK_ROWS.flatMap((y) => DESK_COLUMNS.map((x) => ({ x, y })));
+  /** The top-left corner of each desk's surface, as the room has them unless arranged otherwise… */
+  const STANDARD_DESKS = DESK_ROWS.flatMap((y) => DESK_COLUMNS.map((x) => ({ x, y })));
+  /** …and where they are now: see `desksOf`. */
+  let DESKS = STANDARD_DESKS;
 
   /** Where the person at a desk sits, feet hidden behind it. */
   const seat = (desk) => ({ x: DESKS[desk].x + 28, y: DESKS[desk].y + 4 });
   /** The walkway behind each row of desks. */
   const lane = (desk) => DESKS[desk].y - 5;
-  const laneNearest = (y) => DESK_ROWS.map((row) => row - 5).reduce((a, b) => (Math.abs(b - y) < Math.abs(a - y) ? b : a));
+  const laneNearest = (y) => DESKS.map((desk) => desk.y - 5).reduce((a, b) => (Math.abs(b - y) < Math.abs(a - y) ? b : a));
 
   /** Where idle people spend their time in the lounge, whatever its corner holds, and the part of the lounge each is by. */
   const LOUNGE_SPOTS = [
@@ -102,13 +104,94 @@
   /** Steps into the lounge, held upright, through the doorway at the corridor's foot. */
   const DOORWAY_STEP = 6;
 
-  /** `point`, as it is in the wide room, where `part` of the lounge puts it in the room's shape now. */
-  function placed(part, point) {
+  /**
+   * `point`, as it is in the wide room, where `part` of the lounge puts it in
+   * the room's shape now, and as the room is arranged (see ARRANGEABLE):
+   * moved with its piece, and spread out from the piece's anchor as far as
+   * it's grown. A point of a hidden piece says so, with `off`. `arranged`
+   * false leaves the arrangement out, for what stays put on a wall.
+   */
+  function placed(part, point, arranged = true) {
     const { x, y } = shape.offsets[part] || { x: 0, y: 0 };
-    const moved = { ...point, x: point.x + x, y: point.y + y };
-    if (point.depth !== undefined) moved.depth = point.depth + y;
+    const piece = arranged ? pieceOf(part) : STANDARD_PIECE;
+    const anchor = PIECE_ANCHORS[part] || { x: 0, y: 0 };
+    const grow = (value, from) => from + (value - from) * piece.size;
+    const moved = { ...point, x: grow(point.x, anchor.x) + x + piece.x, y: grow(point.y, anchor.y) + y + piece.y };
+    if (point.depth !== undefined) moved.depth = grow(point.depth, anchor.y) + y + piece.y;
+    if (piece.off) moved.off = true;
     return moved;
   }
+
+  /**
+   * The room arranged your way, from the setup page's editor: what can be
+   * moved, each by its name in the layout's `room.plan`, with what it's
+   * called there, and whether it can be made bigger or hidden. Desks only
+   * move: each is a key, and the people at them don't grow. The red button
+   * and the mic are controls, so they stay. Each shape of the room has an
+   * arrangement of its own, `wide` and `tall`.
+   */
+  const ARRANGEABLE = {
+    ...Object.fromEntries(STANDARD_DESKS.map((_, i) => [`desk${i + 1}`, { name: `Desk ${i + 1}`, grows: false, hides: false }])),
+    wall: { name: 'Coffee counter and water cooler', grows: true, hides: true },
+    corner: { name: "The lounge's piece", grows: true, hides: true },
+    couch: { name: 'The couch, its rug and table', grows: true, hides: true },
+    pong: { name: 'The ping-pong table', grows: true, hides: true },
+    plant: { name: 'The plant', grows: true, hides: true },
+    button: { name: 'The red button', grows: true, hides: false },
+    mic: { name: 'The mic', grows: true, hides: false },
+  };
+  /** How big a piece can be: as it comes, half as big again, or twice. */
+  const PIECE_SIZES = [1, 1.5, 2];
+  /** How far a piece can be moved from where it stands, either way, in art pixels. */
+  const PIECE_REACH = 400;
+  const STANDARD_PIECE = Object.freeze({ x: 0, y: 0, size: 1, off: false });
+  /**
+   * Where each part of the lounge stands on the floor, in the wide room: it
+   * grows from there. And the part of the room each takes up, for the
+   * editor to pick it by and outline it.
+   */
+  const PIECE_ANCHORS = {
+    wall: { x: 276, y: 50 }, corner: { x: 278, y: 100 }, couch: { x: 276, y: 144 }, pong: { x: 268, y: 166 },
+    plant: { x: 231, y: 168 }, button: { x: 214, y: 177 }, mic: { x: 311, y: 176 },
+  };
+  const PIECE_BOXES = {
+    wall: { x: 229, y: 17, w: 94, h: 34 }, corner: { x: 238, y: 49, w: 80, h: 52 }, couch: { x: 244, y: 100, w: 66, h: 45 },
+    pong: { x: 236, y: 146, w: 64, h: 22 }, plant: { x: 224, y: 152, w: 14, h: 26 }, button: { x: 206, y: 159, w: 17, h: 19 },
+    mic: { x: 301, y: 150, w: 14, h: 28 },
+  };
+
+  /** A room's arrangement, as given: anything unknown left out, positions within reach, sizes as offered. */
+  function planOf(given) {
+    const raw = given && typeof given === 'object' && !Array.isArray(given) ? given : {};
+    const shaped = (pieces) => {
+      const arranged = {};
+      if (!pieces || typeof pieces !== 'object' || Array.isArray(pieces)) return arranged;
+      for (const [part, piece] of Object.entries(pieces)) {
+        if (!Object.hasOwn(ARRANGEABLE, part) || !piece || typeof piece !== 'object') continue;
+        const { grows, hides } = ARRANGEABLE[part];
+        const at = (n) => (Number.isFinite(n) ? Math.max(-PIECE_REACH, Math.min(PIECE_REACH, Math.round(n))) : 0);
+        arranged[part] = {
+          x: at(piece.x), y: at(piece.y),
+          size: grows && PIECE_SIZES.includes(piece.size) ? piece.size : 1,
+          off: hides && piece.off === true,
+        };
+      }
+      return arranged;
+    };
+    return { wide: shaped(raw.wide), tall: shaped(raw.tall) };
+  }
+
+  /** How `part` is arranged in the room's shape now. */
+  function pieceOf(part, room = decor) {
+    const pieces = room && room.plan && room.plan[shape === TALL ? 'tall' : 'wide'];
+    return (pieces && pieces[part]) || STANDARD_PIECE;
+  }
+
+  /** Where each desk is, as the room's shape now and its arrangement put them. */
+  const desksOf = (room) => STANDARD_DESKS.map((desk, i) => {
+    const piece = pieceOf(`desk${i + 1}`, room);
+    return { x: desk.x + piece.x, y: desk.y + piece.y };
+  });
 
   /** Held upright, whether `point` is in the lounge, past its wall. */
   const inLounge = (point) => shape.loungeWall !== undefined && point.y > shape.loungeWall;
@@ -257,6 +340,7 @@
     room.wall = STANDARD_WALL.map((standard, i) => (Array.isArray(raw.wall) && WALL_CHOICES.includes(raw.wall[i]) ? raw.wall[i] : standard));
     room.team = teamOf(raw.team);
     room.dress = dressOf(raw.dress);
+    room.plan = planOf(raw.plan);
     // In a style, the style furnishes it, from the standard.
     const style = ROOM_STYLES[room.preset];
     if (style) {
@@ -791,21 +875,26 @@
     /**
      * Furnishes the office as the layout says. Anyone at a spot by a corner
      * piece that has gone, or at a whiteboard that has moved, goes elsewhere:
-     * an agent to their desk, staff to another spot, or home.
+     * an agent to their desk, staff to another spot, or home. Rearranged, the
+     * room is laid out again, `now`.
      */
-    furnish(given) {
+    furnish(given, now) {
       const next = roomOf(given);
       if (JSON.stringify(next) === JSON.stringify(decor)) return;
       const cornerGone = next.corner !== decor.corner;
       if (next.pet !== decor.pet) this.pet = next.pet === 'none' ? null : new Pet(next.pet);
       const boardGone = next.wall.indexOf('whiteboard') !== decor.wall.indexOf('whiteboard');
+      const rearranged = JSON.stringify(next.plan) !== JSON.stringify(decor.plan);
       decor = next;
       spots = spotsOf(decor);
       boardSpots = boardSpotsOf(decor);
+      // Moved furniture takes whoever is at it, or on their way, along with it.
+      if (rearranged) this.relayout(now);
       for (const person of this.people) {
         if (person.isLeaving) continue;
         const spot = spotOf(person.place);
-        const stranded = (cornerGone && spot !== null && spot >= LOUNGE_SPOTS.length) || (boardGone && person.place.startsWith('board:'));
+        const stranded = (cornerGone && spot !== null && spot >= LOUNGE_SPOTS.length) || (boardGone && person.place.startsWith('board:'))
+          || (spot !== null && spots[spot].off);
         if (!stranded) continue;
         if (!person.isStaff) {
           this.send(person, deskPlace(person.desk));
@@ -829,6 +918,16 @@
     reshape(next, now) {
       shape = next;
       spots = spotsOf(decor);
+      this.relayout(now);
+    }
+
+    /**
+     * The desks and the lounge's places have moved, with the room's shape or
+     * its arrangement: anyone on the way somewhere is there at once, everyone
+     * at their place as it is now, and the pet starts again from the door.
+     */
+    relayout(now) {
+      DESKS = desksOf(decor);
       for (const walker of [...this.people, ...this.interns]) {
         if (walker.isWalking) {
           walker.arrivedAt = now;
@@ -1062,7 +1161,8 @@
           if (tops[decor.corner]) places.push(placed('corner', { depth: 86.5, ...tops[decor.corner], pose: 'sit' }));
           break;
       }
-      return places;
+      // Nowhere on a piece that's been put away.
+      return places.filter((place) => !place.off);
     }
 
     movePet(pet, elapsed, now) {
@@ -1157,7 +1257,7 @@
     /** Lounge spots nobody else has taken. Agents don't count staff, who make way for them. */
     freeSpots(person) {
       const agent = person ? !person.isStaff : false;
-      return spots.map((_, spot) => spot).filter((spot) => !this.people.some((other) =>
+      return spots.map((_, spot) => spot).filter((spot) => !spots[spot].off && !this.people.some((other) =>
         other !== person && !other.isLeaving && other.place === spotPlace(spot) && !(agent && other.isStaff)));
     }
 
@@ -1609,8 +1709,8 @@
     const { now, hour, minute, month, width, height, ratio, selected, mic, framed, floating } = frame;
     const inset = floating ? FLOAT_MARGINS[floating] * ratio : 0;
     const room = fitRoom(width, height, inset);
-    const { scale } = room;
-    let { ox, oy } = room;
+    // The scale and the origin change for a while as a piece grown bigger is drawn: see `moved`.
+    let { scale, ox, oy } = room;
 
     // The room shakes for a moment when the button goes down.
     const blast = office.detonation;
@@ -1626,7 +1726,10 @@
       const [hex, a] = Array.isArray(color) ? color : [color, alpha];
       if (a <= 0) return;
       ctx.fillStyle = css(hex, a);
-      ctx.fillRect(ox + Math.round(x) * scale, oy + Math.round(y) * scale, Math.round(w) * scale, Math.round(h) * scale);
+      // Edges on whole screen pixels, so squares side by side meet, even half as big again
+      const left = Math.round(ox + Math.round(x) * scale), top = Math.round(oy + Math.round(y) * scale);
+      ctx.fillRect(left, top, Math.round(ox + (Math.round(x) + Math.round(w)) * scale) - left,
+        Math.round(oy + (Math.round(y) + Math.round(h)) * scale) - top);
     }
     const dot = (x, y, color, alpha) => fill(x, y, 1, 1, color, alpha);
     /** Where an art pixel lands on the canvas, for what's drawn at the screen's own resolution. */
@@ -1777,13 +1880,24 @@
      * Draws `part` of the lounge where the room's shape puts it: just as in
      * the wide room, moved.
      */
-    function moved(part, draw) {
-      const { x, y } = placed(part, { x: 0, y: 0 });
-      ox += x * scale;
-      oy += y * scale;
-      draw();
-      ox -= x * scale;
-      oy -= y * scale;
+    /**
+     * Draws `part` of the lounge where the room's shape puts it, and as it's
+     * arranged: moved, and bigger round its anchor, every art pixel of it so.
+     * `arranged` false leaves the arrangement out.
+     */
+    function moved(part, draw, arranged = true) {
+      const anchor = PIECE_ANCHORS[part] || { x: 0, y: 0 };
+      const at = placed(part, anchor, arranged);
+      const size = arranged ? pieceOf(part).size : 1;
+      const kept = { ox, oy, scale };
+      ox += (at.x - anchor.x * size) * scale;
+      oy += (at.y - anchor.y * size) * scale;
+      scale *= size;
+      try {
+        draw();
+      } finally {
+        ({ ox, oy, scale } = kept);
+      }
     }
 
     function drawWall() {
@@ -1948,10 +2062,12 @@
       } else {
         fill(left, officeBottom, right - left, bottom - officeBottom, carpet);
       }
-      moved('couch', () => {
-        fill(244, 124, 64, 20, PALETTE.rugEdge);
-        fill(246, 126, 60, 16, PALETTE.rug);
-      });
+      if (!pieceOf('couch').off) {
+        moved('couch', () => {
+          fill(244, 124, 64, 20, PALETTE.rugEdge);
+          fill(246, 126, 60, 16, PALETTE.rug);
+        });
+      }
       fill(207, 40, 14, 2, PALETTE.mat);
       fill(left, top, right - left, 1, SHADOW);
     }
@@ -1983,7 +2099,7 @@
       moved('wall', () => {
         drawWindow(260, 6, 30, 20, true);
         drawWallPiece('pinboard', 364); // between the cooler and the doorway
-      });
+      }, false); // on the wall, wherever the counter goes
     }
 
     /* Furniture */
@@ -4392,6 +4508,23 @@
       drawPixelKey(left, top, w, h, kind === 'fire' ? PALETTE.dome : 0x2f8f5b, label);
     }
 
+    /** Arranging the room: a dotted line round each piece that can be picked, and a solid one round the one picked. */
+    function drawArrangement({ pieces, picked }) {
+      for (const { part, box } of pieces) {
+        const chosen = part === picked;
+        const edge = chosen ? colour('thinking') : WHITE, alpha = chosen ? 1 : 0.4, step = chosen ? 1 : 2;
+        const l = Math.round(box.left), t = Math.round(box.top), r = Math.round(box.right), b = Math.round(box.bottom);
+        for (let x = l; x <= r; x += step) {
+          dot(x, t, edge, alpha);
+          dot(x, b, edge, alpha);
+        }
+        for (let y = t; y <= b; y += step) {
+          dot(l, y, edge, alpha);
+          dot(r, y, edge, alpha);
+        }
+      }
+    }
+
     /** The styles' key in the top-left corner, held down while its panel is up. Where it lands is kept on `key.at`, for taps. */
     function drawStyleKey(key) {
       const { open } = key;
@@ -4508,7 +4641,7 @@
     // What stands on the floor, drawn in order of where it touches the
     // floor, so that nearer things cover farther ones.
     /** A part of the lounge, at the depth it stands at in the wide room, where the room's shape puts it. */
-    const lounge = (part, depth, draw) => [placed(part, { x: 0, y: depth }).y, () => moved(part, draw)];
+    const lounge = (part, depth, draw) => [placed(part, { x: 0, y: depth }).y, () => { if (!pieceOf(part).off) moved(part, draw); }];
     const items = [
       lounge('wall', 46.5, drawCounter), lounge('wall', 50, drawCooler), lounge('couch', 110, drawCouchBack),
       lounge('couch', 117, drawCouchFront), lounge('couch', 134, drawCoffeeTable), lounge('pong', 157, drawPingPong),
@@ -4550,6 +4683,7 @@
     if (frame.chips) drawChips();
     if (frame.deskButton) drawDeskButton(frame.deskButton);
     if (frame.choices) drawChoices();
+    if (frame.arranging) drawArrangement(frame.arranging);
     if (frame.styleKey) drawStyleKey(frame.styleKey);
     if (frame.firing) drawFireDialog(frame.firing);
     if (frame.styles) drawStyleMenu(frame.styles);
@@ -5341,6 +5475,8 @@
     let firing = null;       // an agent about to be fired, while the question is up: { id, name }
     let carrying = null;     // an agent carried to another desk: { person, from, x, y, over }
     let styling = false;     // the styles' panel is up
+    // Arranging the room, on the setup page: the piece picked, and the one being dragged.
+    let arranging = null;    // { picked, drag: { part, x, y, from } }
     let styleKeyAt = null;   // where the styles' key was last drawn, in art pixels
     const stylePictures = new Map(); // a picture of each style, by its id, drawn as the panel opens
     let hiring = { fire: false, hire: false }; // what the computer lets a held desk offer
@@ -5432,7 +5568,7 @@
 
     /** The styles' key, where the deck's own controls are out of sight and the page can change the style. */
     function styleKey() {
-      if (framed || !on.style || !latest) return null;
+      if (framed || !on.style || !latest || arranging) return null;
       return { open: styling };
     }
 
@@ -5495,6 +5631,7 @@
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
         deskButton: heldButton(), firing: firing && { ...fireDialog(), name: firing.name }, carrying,
         styleKey: key, styles: styling && key && { ...styleMenu(), current: decor.preset, pictures: stylePictures },
+        arranging: arranging && { pieces: arrangeable(), picked: arranging.picked },
       });
       styleKeyAt = key && key.at;
     }
@@ -5585,9 +5722,13 @@
         const { x: kx, y: ky, w: kw, h: kh } = styleKeyAt;
         consider({ kind: 'styles' }, { left: kx, right: kx + kw, top: ky, bottom: ky + kh }, -1);
       }
-      const dome = placed('button', BUTTON), stand = placed('mic', MIC);
-      consider({ kind: 'button' }, { left: dome.x - 7, right: dome.x + 8, top: dome.y - 1, bottom: dome.y + 16 }, 1);
-      consider({ kind: 'mic' }, { left: stand.x - (decor.mic === 'megaphone' ? 9 : 5), right: stand.x + 6, top: stand.y - 25, bottom: stand.y + 1 }, 1);
+      // Each where it's arranged, as big as it's been made
+      const box = (part, left, top, right, bottom) => {
+        const a = placed(part, { x: left, y: top }), b = placed(part, { x: right, y: bottom });
+        return { left: a.x, top: a.y, right: b.x, bottom: b.y };
+      };
+      consider({ kind: 'button' }, box('button', BUTTON.x - 7, BUTTON.y - 1, BUTTON.x + 8, BUTTON.y + 16), 1);
+      consider({ kind: 'mic' }, box('mic', MIC.x - (decor.mic === 'megaphone' ? 9 : 5), MIC.y - 25, MIC.x + 6, MIC.y + 1), 1);
       DESKS.forEach((_, desk) => {
         const seat = office.seats[desk] || {};
         // An empty desk only matters where a hire would sit.
@@ -5725,7 +5866,60 @@
       on.mic?.('up');
     }
 
+    /* Arranging the room */
+
+    const shapeName = () => (shape === TALL ? 'tall' : 'wide');
+
+    /** The part of the room `part` takes up now, in art pixels: a desk with its workspace, or a piece as grown and moved. */
+    function pieceBox(part) {
+      if (part.startsWith('desk')) {
+        const desk = Number(part.slice(4)) - 1, { x, y } = DESKS[desk];
+        const seat = office.seats[desk] || {};
+        return { left: x - 2, top: y + WORKSPACES[workspaceOf(seat.session)].top, right: x + DESK_WIDTH + 2, bottom: y + 20 };
+      }
+      const { x, y, w, h } = PIECE_BOXES[part];
+      const a = placed(part, { x, y }), b = placed(part, { x: x + w, y: y + h });
+      return { left: a.x, top: a.y, right: b.x, bottom: b.y };
+    }
+
+    /** What can be arranged and is in the room, the smallest first, so a piece on a bigger one is picked first. */
+    function arrangeable() {
+      return Object.keys(ARRANGEABLE).filter((part) => !pieceOf(part).off)
+        .map((part) => ({ part, box: pieceBox(part) }))
+        .sort((a, b) => (a.box.right - a.box.left) * (a.box.bottom - a.box.top) - (b.box.right - b.box.left) * (b.box.bottom - b.box.top));
+    }
+
+    /**
+     * `part` arranged anew in the room's shape now, kept inside the room,
+     * here at once and then on the page, which keeps it in the layout.
+     */
+    function rearrange(part, change) {
+      const plan = structuredClone(decor.plan);
+      const pieces = plan[shapeName()];
+      const piece = { ...(pieces[part] || STANDARD_PIECE), ...change };
+      pieces[part] = piece;
+      decor = { ...decor, plan };
+      // Kept inside the room, however big it's grown
+      const box = pieceBox(part);
+      piece.x += Math.max(0, -box.left) - Math.max(0, box.right - shape.width);
+      piece.y += Math.max(0, -box.top) - Math.max(0, box.bottom - shape.height);
+      decor = { ...decor, plan: planOf(plan) };
+      spots = spotsOf(decor);
+      office.relayout(clock());
+      on.arranged?.(shapeName(), part, decor.plan[shapeName()][part]);
+    }
+
     canvas.addEventListener('pointerdown', (e) => {
+      if (arranging) {
+        const { x, y } = roomAt(e.clientX, e.clientY);
+        const hit = arrangeable().find(({ box }) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom);
+        arranging.picked = hit ? hit.part : null;
+        on.picked?.(arranging.picked);
+        if (!hit) return;
+        canvas.setPointerCapture(e.pointerId);
+        arranging.drag = { id: e.pointerId, part: hit.part, x, y, from: { ...pieceOf(hit.part) } };
+        return;
+      }
       if (finger) return; // one finger at a time
       const target = targetAt(e.clientX, e.clientY);
       // A tap on the floor, with nothing there, puts away whatever was held out.
@@ -5738,9 +5932,24 @@
       press(target);
     });
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      canvas.addEventListener(type, (e) => { if (arranging && arranging.drag && e.pointerId === arranging.drag.id) arranging.drag = null; });
+    }
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
       canvas.addEventListener(type, (e) => { if (finger && e.pointerId === finger.id) lift(type === 'pointerup'); });
     }
     canvas.addEventListener('pointermove', (e) => {
+      if (arranging) {
+        const { x, y } = roomAt(e.clientX, e.clientY);
+        const drag = arranging.drag;
+        if (drag && e.pointerId === drag.id) {
+          const moved = { x: drag.from.x + Math.round(x - drag.x), y: drag.from.y + Math.round(y - drag.y) };
+          const now = pieceOf(drag.part);
+          if (moved.x !== now.x || moved.y !== now.y) rearrange(drag.part, moved);
+        } else if (e.pointerType === 'mouse') {
+          canvas.style.cursor = arrangeable().some(({ box }) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) ? 'grab' : '';
+        }
+        return;
+      }
       if (finger && e.pointerId === finger.id) return carry(e);
       // A mouse shows what can be clicked.
       if (e.pointerType === 'mouse' && !finger) canvas.style.cursor = targetAt(e.clientX, e.clientY) ? 'pointer' : '';
@@ -5773,7 +5982,7 @@
         if (snapshot.now) gaps = [...gaps.slice(1 - CLOCK_SAMPLES), Date.now() - snapshot.now];
         ahead = gaps.length ? Math.min(...gaps) : 0;
         hiring = snapshot.hiring || { fire: false, hire: false };
-        office.furnish(snapshot.layout && snapshot.layout.room);
+        office.furnish(snapshot.layout && snapshot.layout.room, clock());
         office.apply(seatsOf(snapshot, ahead), snapshot.theme, clock());
         // The question and what's held out go with their agent; a hire, once its desk is taken.
         const there = (id) => office.deskOfSession(id) !== null;
@@ -5805,6 +6014,18 @@
       /** Floats the room's window in a 'window' of its own or a whole 'screen', fills it from 'edge' to edge, or stops, with null. */
       setFloating(how) { floating = how; },
       /**
+       * On the setup page, the room is for arranging: a tap picks a piece,
+       * `on.picked(part)`, and dragging moves it, `on.arranged(shape, part,
+       * piece)` as it goes. `arrange(change)` changes the piece picked, such
+       * as its size, and `pick(part)` picks one.
+       */
+      setArranging(shown) {
+        arranging = shown ? { picked: null, drag: null } : null;
+        if (shown) styling = false;
+      },
+      pick(part) { if (arranging) arranging.picked = part; },
+      arrange(part, change) { if (arranging) rearrange(part, change); },
+      /**
        * The canvas is in another window now, or back on its page. Moving it
        * takes the finger off without a word to the canvas, so the mic is let
        * go here, however the move came about.
@@ -5821,8 +6042,8 @@
   /** What a preview shows of the room, in the wide room's art pixels: round the corner piece, or round the first desk. */
   const PREVIEW_CROPS = {
     corner: { x: 238, y: 49, w: 80, h: 51 },
-    workspace: { x: DESKS[0].x - 6, y: DESKS[0].y - 27, w: DESK_WIDTH + 14, h: 45 },
-    preset: { x: DESKS[0].x - 10, y: DESKS[0].y - 24, w: STYLE_THUMB.w, h: STYLE_THUMB.h },
+    workspace: { x: STANDARD_DESKS[0].x - 6, y: STANDARD_DESKS[0].y - 27, w: DESK_WIDTH + 14, h: 45 },
+    preset: { x: STANDARD_DESKS[0].x - 10, y: STANDARD_DESKS[0].y - 24, w: STYLE_THUMB.w, h: STYLE_THUMB.h },
   };
   let previewRoom = null; // the canvas previews draw the whole room on
   /** Someone at a workspace in its preview, at ease, so no bubble hides it. */
@@ -5841,11 +6062,13 @@
    * shows it where the room held upright has it.
    */
   function preview(canvas, what, { room = null, now = 0, tall = false } = {}) {
-    const kept = { decor, spots, boardSpots, shape };
+    const kept = { decor, spots, boardSpots, shape, DESKS };
     try {
       shape = tall ? TALL : WIDE;
       // Shown in the room as you furnished it, unless it's a style being shown.
-      decor = { ...roomOf({ ...room, preset: 'yours', ...what, team: null }), staff: 'none', sky: 'day', pet: 'none' };
+      // As it comes, not as it's arranged: a picture of a piece, not of where it is.
+      decor = { ...roomOf({ ...room, preset: 'yours', ...what, team: null, plan: null }), staff: 'none', sky: 'day', pet: 'none' };
+      DESKS = STANDARD_DESKS;
       spots = spotsOf(decor);
       boardSpots = boardSpotsOf(decor);
       const office = new Office();
@@ -5875,7 +6098,7 @@
       ctx.drawImage(whole, crop.x * scale, crop.y * scale, w, h,
         Math.floor((canvas.width - w) / 2), Math.floor((canvas.height - h) / 2), w, h);
     } finally {
-      ({ decor, spots, boardSpots, shape } = kept);
+      ({ decor, spots, boardSpots, shape, DESKS } = kept);
     }
   }
 
@@ -5892,7 +6115,9 @@
     remindSound(new Chip(audio, soft), audio.currentTime + 0.02);
   }
 
-  // `preview` draws a piece for the setup page; `remind` is the deck's reminder; `Ambience` and `sounds` let
-  // each of the office's sounds be tried on its own.
-  window.AgentOffice = { create, popOutSize, preview, remind, Ambience, sounds: Object.keys(SOUNDS) };
+  // `preview` draws a piece for the setup page, and `arrangeable` and `sizes` are what its editor can arrange;
+  // `remind` is the deck's reminder; `Ambience` and `sounds` let each of the office's sounds be tried on its own.
+  window.AgentOffice = {
+    create, popOutSize, preview, arrangeable: ARRANGEABLE, sizes: PIECE_SIZES, remind, Ambience, sounds: Object.keys(SOUNDS),
+  };
 })();

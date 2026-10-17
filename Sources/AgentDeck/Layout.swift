@@ -87,7 +87,7 @@ struct Layout: Codable, Equatable {
 /// the seasons, how loud it is, the desks' finish, what everyone works at (a
 /// desk, a tent, a throne…) and the chairs' colour, how many of its own staff
 /// hang about, the style it's in (Yours, or one that furnishes it for you),
-/// your team, and the dress code. office.js
+/// your team, the dress code, and where everything goes. office.js
 /// draws it, with the same choices. Anything unknown, or of the wrong kind, is
 /// as standard: it only changes how the room looks.
 struct Room: Codable, Equatable {
@@ -111,6 +111,8 @@ struct Room: Codable, Equatable {
     /// What agents wear by their model's size and by agent. After the team,
     /// in the same place as the Windows and Linux app's Room has it.
     var dress = Dress()
+    /// Where each piece of the room is, as arranged on the setup page.
+    var plan = Plan()
 
     /// The most projects a team remembers.
     static let teamLimit = 50
@@ -174,6 +176,7 @@ struct Room: Codable, Equatable {
         team = Dictionary(uniqueKeysWithValues: members.filter { !$0.key.isEmpty }.sorted { $0.key < $1.key }
             .prefix(Room.teamLimit).map { ($0.key, $0.value) })
         dress = ((try? c?.decodeIfPresent(Dress.self, forKey: .dress)) ?? nil) ?? Dress()
+        plan = ((try? c?.decodeIfPresent(Plan.self, forKey: .plan)) ?? nil) ?? Plan()
     }
 
     /// One of the wall's places as given: text, or nothing for any other kind of value.
@@ -239,6 +242,68 @@ struct TeamMember: Codable, Equatable {
 /// set, so office.js never finds one missing. Anything unknown, or of the
 /// wrong kind, is as standard, as in the rest of the room. The Windows and
 /// Linux app's Dress matches.
+/// The room arranged your way, from the setup page's editor: for each shape
+/// of the room, `wide` and `tall`, the pieces moved from where they stand,
+/// made bigger, or put away. office.js draws it, with the same pieces and
+/// sizes. Anything unknown is left out, so the piece stands as it comes.
+struct Plan: Codable, Equatable {
+    var wide: [String: Piece] = [:]
+    var tall: [String: Piece] = [:]
+
+    struct Piece: Codable, Equatable {
+        var x = 0
+        var y = 0
+        var size = 1.0
+        var off = false
+    }
+
+    /// What can be arranged: each desk, which only moves, and the lounge's
+    /// pieces, which can grow, and be put away but for the red button and
+    /// the mic, which are controls.
+    static let pieces: [String: (grows: Bool, hides: Bool)] = {
+        var pieces = Dictionary(uniqueKeysWithValues: (1...9).map { ("desk\($0)", (grows: false, hides: false)) })
+        for part in ["wall", "corner", "couch", "pong", "plant"] { pieces[part] = (true, true) }
+        for part in ["button", "mic"] { pieces[part] = (true, false) }
+        return pieces
+    }()
+    static let sizes: [Double] = [1, 1.5, 2]
+    /// How far a piece can be moved, either way, in the room's pixels.
+    static let reach = 400
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        func arranged(_ key: CodingKeys) -> [String: Piece] {
+            let given = ((try? c?.decodeIfPresent([String: Loose].self, forKey: key)) ?? nil) ?? [:]
+            return given.reduce(into: [:]) { pieces, entry in
+                guard let kind = Plan.pieces[entry.key], let piece = entry.value.piece else { return }
+                let at = { (n: Double?) in min(Plan.reach, max(-Plan.reach, Int((n ?? 0).rounded()))) }
+                pieces[entry.key] = Piece(x: at(piece.x), y: at(piece.y),
+                                          size: kind.grows && Plan.sizes.contains(piece.size ?? 1) ? piece.size ?? 1 : 1,
+                                          off: kind.hides && piece.off == true)
+            }
+        }
+        wide = arranged(.wide)
+        tall = arranged(.tall)
+    }
+
+    /// A piece as given, each of its parts read on its own: one of the wrong
+    /// kind is as standard.
+    private struct Loose: Decodable {
+        let piece: (x: Double?, y: Double?, size: Double?, off: Bool?)?
+        private enum Keys: String, CodingKey { case x, y, size, off }
+        init(from decoder: Decoder) throws {
+            guard let c = try? decoder.container(keyedBy: Keys.self) else {
+                piece = nil
+                return
+            }
+            func number(_ key: Keys) -> Double? { (try? c.decodeIfPresent(Double.self, forKey: key)) ?? nil }
+            piece = (number(.x), number(.y), number(.size), (try? c.decodeIfPresent(Bool.self, forKey: .off)) ?? nil)
+        }
+    }
+}
+
 struct Dress: Codable, Equatable {
     /// By the size of the model: small, medium, large and top.
     var sizes = Dress.standard(Dress.sizeNames)
