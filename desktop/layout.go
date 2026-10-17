@@ -136,7 +136,7 @@ var roomStyles = []string{"yours", "classic", "campsite", "royal", "space", "pir
 	"jungle"}
 
 var workspaces = []string{"desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
-	"greenhouse"}
+	"greenhouse", "console", "hover", "chest", "gilded", "crates", "altar", "log", "bench", "bamboo", "rack", "drafting", "glass"}
 
 // checked is the member with anything unknown as standard, and the nickname
 // on one line, cut to its limit.

@@ -144,7 +144,8 @@ struct Room: Codable, Equatable {
     /// What an agent can work at: the office's choice for everyone, and a
     /// team member's own, which can also be "auto".
     static let workspaces = ["desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
-                             "greenhouse"]
+                             "greenhouse", "console", "hover", "chest", "gilded", "crates", "altar", "log", "bench", "bamboo", "rack",
+                             "drafting", "glass"]
     static let wallChoices = ["window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare",
                               "viewport", "porthole", "panel", "pipes", "seaPorthole", "map", "flag", "cutlasses", "tapestry",
                               "portrait", "stained", "shield", "frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex",

@@ -288,7 +288,8 @@
     season: ['calendar', 'off'],
     sound: ['off', 'quiet', 'normal'],
     desk: ['wood', 'walnut', 'white', 'black'],
-    workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse'],
+    workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse',
+      'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass'],
     chair: ['teal', 'black', 'red', 'grey', 'green'],
     staff: ['some', 'none', 'many'],
     preset: ['yours', ...Object.keys(ROOM_STYLES)],
@@ -332,6 +333,19 @@
     ship: { screen: { dx: 6, dy: -10 }, stands: false, chair: false, carry: [0x7a5232, 0x3a3a40], things: null, top: -24 },
     throne: { screen: { dx: 6, dy: -10 }, stands: false, chair: false, carry: [0xd6b25e, 0x9a2a3a], things: { dx: 0, dy: 0 }, top: -23 },
     greenhouse: { screen: { dx: 4, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -23 },
+    // Desks of other kinds, each with the office's chair and a monitor where a desk has it
+    console: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    hover: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    chest: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    gilded: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    crates: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    altar: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    log: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    bench: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    bamboo: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    rack: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    drafting: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    glass: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
   };
   /** The colours of what can sit on a desk besides a plant, papers and a lamp. */
   const DESK_THINGS = { cactus: 0x5a9a4a, duck: 0xf2cf3a, beak: 0xe8823a, sky: 0x8fc0e8, coffee: 0x5a3a24 };
@@ -3570,6 +3584,170 @@
           // Seedlings in a tray on the bench
           fill(x + 19, y + 1, 9, 2, 0x5a3b25);
           for (let k = 0; k < 4; k++) dot(x + 20 + k * 2, y, PALETTE.leaf);
+        },
+      },
+
+      /* Desks of other kinds: the office's chair at each, its monitor where a desk has it */
+
+      /** Console desk. Lights blink in rows, a readout rises and falls, a glowing strip along its lip. */
+      console: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          fill(x, y, 44, 1, tint(0xb8c0cc, 1)); fill(x, y + 1, 44, 4, tint(0x8a93a3, 0.9)); fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 11, tint(0x4a515e, 0.72)); fill(x, y + 5, 44, 1, tint(0x3a3f4a, 0.62)); fill(x, y + 6, 44, 1, 0x4ad4e8, 0.45);
+          fill(x + 3, y + 8, 22, 5, 0x1d1f25);
+          const lights = [0x6fd36f, 0xf2d35b, 0xd96a5a, 0x4ad4e8];
+          for (let i = 0; i < 10; i++) { const on = (Math.floor(now * 3) + i * 3) % 7 < 4; dot(x + 4 + (i % 5) * 2, y + 9 + Math.floor(i / 5) * 2, lights[i % 4], on ? 1 : 0.3); }
+          fill(x + 15, y + 9, 9, 3, 0x0e2a1a); fill(x + 16, y + 10, Math.round(4 + Math.sin(now * 1.7) * 3), 1, 0x6fd36f);
+          for (let k = 0; k < 3; k++) fill(x + 29, y + 8 + k * 2, 12, 1, 0x2a2e36);
+          fill(x, y + 14, 44, 2, 0x2a2e36); fill(x + 1, y + 16, 42, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
+      /** Hover desk. No legs: two thrusters underneath, their glow pulsing. */
+      hover: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          const glow = 0.5 + 0.5 * Math.sin(now * 5);
+          fill(x + 4, y + 16, 36, 1, SHADOW, 0.5); fill(x + 8, y + 16, 28, 1, SHADOW);
+          fill(x + 1, y, 42, 1, tint(0xdcebf4, 1)); fill(x, y + 1, 44, 4, tint(0xb8c4d0, 0.9)); fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 3, tint(0x6a7280, 0.72)); fill(x, y + 5, 44, 1, tint(0x5a6270, 0.62)); fill(x + 1, y + 8, 42, 1, tint(0x4a515e, 0.62));
+          for (const tx of [x + 5, x + 33]) { fill(tx, y + 9, 6, 2, 0x3a3f4a); fill(tx + 1, y + 11, 4, 1, 0x4ad4e8, 0.6 + 0.4 * glow); fill(tx + 1, y + 12, 4, 2, 0x4ad4e8, 0.1 + 0.25 * glow); fill(tx + 2, y + 14, 2, 1, 0x9fe6f2, 0.2); }
+          drawKeyboard(s, y + 2);
+        },
+      },
+      /** Sea-chest desk. Iron bands, brass corners and a brass lock, a rope handle at its end. */
+      chest: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          fill(x, y, 44, 1, tint(0xa87a56, 1)); fill(x, y + 1, 44, 4, tint(0x8c6744, 0.9)); fill(x + 14, y + 1, 1, 4, 0x6b4a2e); fill(x + 29, y + 1, 1, 4, 0x6b4a2e);
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 11, tint(0x6b4a2e, 0.72)); fill(x, y + 5, 44, 1, tint(0x4a301e, 0.62)); fill(x, y + 9, 44, 1, tint(0x4a301e, 0.62)); fill(x, y + 12, 44, 1, tint(0x4a301e, 0.62));
+          for (const bx of [x + 4, x + 38]) { fill(bx, y + 5, 2, 11, 0x3a3a40); for (const ry of [7, 10, 13]) dot(bx, y + ry, 0x6a6a72); }
+          fill(x + 19, y + 6, 6, 6, PALETTE.brass); fill(x + 19, y + 6, 6, 1, 0xf2d38a); dot(x + 21, y + 8, 0x1d1f25); fill(x + 21, y + 9, 1, 2, 0x1d1f25);
+          fill(x, y + 14, 2, 2, PALETTE.brass); fill(x + 42, y + 14, 2, 2, PALETTE.brass); fill(x - 1, y + 8, 1, 4, 0xc9a06a);
+          fill(x + 1, y + 16, 42, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
+      /** Gilded writing desk. Mahogany with a green leather top, gilt trim and curved legs. */
+      gilded: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          const gold = PALETTE.brass, front = 0x5a221c;
+          fill(x, y, 44, 1, tint(0x9a4a3a, 1)); fill(x, y + 1, 44, 4, tint(0x6a2a22, 0.9)); fill(x + 3, y + 1, 38, 3, 0x2f5a3a); fill(x + 3, y + 1, 38, 1, 0x3f7a4c);
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 6, tint(front, 0.72)); fill(x, y + 5, 44, 1, gold);
+          dot(x + 10, y + 8, gold); dot(x + 33, y + 8, gold); fill(x + 20, y + 7, 4, 3, gold); dot(x + 21, y + 8, 0xd4140b);
+          for (let k = 0; k < 44; k += 4) fill(x + k + 1, y + 11, 2, 1, tint(front, 0.72));
+          for (const [lx, dir] of [[x + 1, 1], [x + 40, -1]]) { fill(lx, y + 11, 3, 2, tint(front, 0.72)); fill(lx + (dir > 0 ? 1 : 0), y + 13, 2, 2, tint(front, 0.72)); fill(lx + (dir > 0 ? 0 : 1), y + 15, 3, 1, gold); }
+          fill(x + 1, y + 16, 42, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
+      /** Expedition cases. An aluminium top on two orange field cases, snow on their corners, a fuel can between. */
+      crates: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          fill(x, y, 44, 1, tint(0xe0e4ea, 1)); fill(x, y + 1, 44, 4, tint(0xb8bec8, 0.9)); for (let k = 4; k < 44; k += 8) dot(x + k, y + 4, 0x9aa0a8);
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand); fill(x, y + 5, 44, 1, tint(0x8a909a, 0.62));
+          fill(x + 14, y + 6, 16, 10, 0x1d1f25, 0.45);
+          for (const cx of [x + 1, x + 29]) {
+            fill(cx, y + 6, 14, 10, tint(0xe0703a, 0.85)); fill(cx, y + 6, 14, 1, tint(0xf08a50, 1)); fill(cx, y + 12, 14, 1, tint(0xb85a2a, 0.7));
+            fill(cx + 2, y + 11, 2, 2, 0x1d1f25); fill(cx + 10, y + 11, 2, 2, 0x1d1f25); fill(cx + 5, y + 8, 4, 1, 0x1d1f25);
+            dot(cx + 1, y + 6, WHITE, 0.8); dot(cx + 13, y + 6, WHITE, 0.6);
+          }
+          fill(x + 18, y + 11, 5, 5, 0xc9443a); fill(x + 19, y + 10, 2, 1, 0x3a3a40);
+          fill(x + 1, y + 16, 42, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
+      /** Stone altar. A slab on two pedestals, a rune glowing in the middle, a candle's drips. */
+      altar: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          fill(x - 1, y, 46, 1, tint(0x9a9da2, 1)); fill(x - 1, y + 1, 46, 4, tint(0x7a7d82, 0.9)); fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x - 1, y + 5, 46, 3, tint(0x62656a, 0.72)); fill(x - 1, y + 5, 46, 1, tint(0x4a4c52, 0.62));
+          for (const px of [x + 2, x + 31]) { fill(px, y + 8, 11, 8, tint(0x5a5d62, 0.8)); fill(px, y + 11, 11, 1, 0x44464b); fill(px + 5, y + 8, 1, 3, 0x44464b); fill(px + 3, y + 12, 1, 4, 0x44464b); }
+          fill(x + 13, y + 8, 18, 8, tint(0x4e5156, 0.75));
+          const glow = 0.45 + 0.4 * Math.sin(now * 1.6), rune = 0xc05aff;
+          fill(x + 18, y + 8, 9, 8, rune, glow * 0.12); fill(x + 21, y + 9, 1, 6, rune, glow); dot(x + 22, y + 10, rune, glow); dot(x + 23, y + 11, rune, glow); dot(x + 22, y + 12, rune, glow); dot(x + 20, y + 13, rune, glow);
+          dot(x - 1, y + 7, 0x3b5a3a); fill(x + 41, y + 5, 3, 1, 0x4f7a3a); dot(x + 2, y + 15, 0x3b5a3a);
+          fill(x + 2, y, 1, 3, 0xeae6dc); dot(x + 3, y + 1, 0xeae6dc);
+          fill(x, y + 16, 44, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
+      /** Split-log desk. A slab of log, bark on its edge, on two stumps. */
+      log: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          fill(x, y, 44, 1, tint(0xe8c89a, 1)); fill(x, y + 1, 44, 4, tint(0xc9a06a, 0.9));
+          for (const [gx, gy, gw] of [[3, 2, 10], [16, 3, 14], [30, 2, 9], [8, 4, 7]]) fill(x + gx, y + gy, gw, 1, tint(0xb08a5a, 0.85));
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 5, tint(0x6e4a2e, 0.72)); fill(x, y + 5, 44, 1, tint(0x5a3b25, 0.62)); for (let k = 1; k < 44; k += 3) fill(x + k, y + 6 + (k % 2), 1, 3, 0x5a3b25);
+          for (const lx of [x + 3, x + 34]) { fill(lx, y + 10, 7, 6, tint(0x6e4a2e, 0.72)); fill(lx + 1, y + 10, 1, 6, 0x5a3b25); fill(lx + 4, y + 11, 1, 4, 0x5a3b25); fill(lx, y + 10, 7, 1, tint(0xc9a06a, 0.85)); }
+          fill(x - 1, y + 1, 1, 8, 0xd8b07a); dot(x - 1, y + 4, 0xa87a50);
+          fill(x + 1, y + 16, 42, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
+      /** Workbench. Butcher-block top on steel legs, paint and a toolbox on the shelf, a vice at the end. */
+      bench: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          const steel = 0x5a5f6c;
+          fill(x, y, 44, 1, tint(0xdcb78c, 1)); fill(x, y + 1, 44, 4, tint(0xc49a6c, 0.9)); for (let k = 5; k < 44; k += 6) fill(x + k, y + 1, 1, 4, tint(0xb08a5a, 0.85));
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 2, tint(0x8c6744, 0.72)); fill(x + 1, y + 7, 2, 9, steel); fill(x + 41, y + 7, 2, 9, steel); fill(x + 1, y + 12, 42, 1, steel);
+          fill(x + 5, y + 9, 4, 3, 0x3f6fc4); fill(x + 5, y + 9, 4, 1, 0x9aa0a6); fill(x + 10, y + 10, 3, 2, 0xeae6dc);
+          fill(x + 28, y + 8, 9, 4, 0xc9443a); fill(x + 31, y + 7, 3, 1, 0x3a3a40); fill(x + 28, y + 9, 9, 1, 0x9a2a2a);
+          fill(x + 20, y + 7, 1, 4, 0x9aa0a6); fill(x + 19, y + 11, 3, 1, 0x9aa0a6);
+          fill(x, y - 2, 5, 3, 0x3f6fc4); fill(x, y - 2, 5, 1, 0x5a8ad0); fill(x - 2, y - 1, 2, 1, 0x9aa0a6);
+          fill(x + 1, y + 16, 42, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
+      /** Bamboo desk. Canes laid across for a top, more standing for its front, lashed at the corners. */
+      bamboo: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          fill(x, y, 44, 1, tint(0xd8d070, 1)); fill(x, y + 1, 44, 4, tint(0xb8b05a, 0.9)); fill(x, y + 2, 44, 1, tint(0x9a9248, 0.85)); fill(x, y + 4, 44, 1, tint(0x9a9248, 0.85));
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand); fill(x, y + 5, 44, 1, tint(0x6a6430, 0.62));
+          for (let k = 0; k < 44; k += 3) { const c = (k / 3) % 2 ? 0xa8a050 : 0x98904a; fill(x + k, y + 6, 2, 10, tint(c, 0.8)); fill(x + k + 2, y + 6, 1, 10, 0x3a3a20); fill(x + k, y + 9 + ((k / 3) % 3), 2, 1, tint(0x6a6430, 0.7)); }
+          for (const lx of [x + 1, x + 40]) { fill(lx, y + 5, 3, 3, 0xc9a06a); dot(lx + 1, y + 6, 0x8a6a42); }
+          fill(x + 1, y + 16, 42, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
+      /** Weight-rack desk. Rubber top on a red rack, plates stored on its peg, a kettlebell under. */
+      rack: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          const steel = 0x2a2c30;
+          fill(x, y, 44, 1, tint(0x5a5f6c, 1)); fill(x, y + 1, 44, 4, tint(0x3c404a, 0.9)); fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 2, tint(0xc9443a, 0.8)); fill(x, y + 5, 44, 1, tint(0x9a2a2a, 0.7));
+          fill(x + 1, y + 7, 3, 9, steel); fill(x + 40, y + 7, 3, 9, steel); fill(x + 4, y + 14, 36, 1, steel);
+          disc(x + 30, y + 12, 3, 0xe8c04a); disc(x + 30, y + 12, 1, 0x1d1f25);
+          disc(x + 35, y + 11, 4, 0x3f6fc4); disc(x + 35, y + 11, 2, 0x2a4a8a); dot(x + 35, y + 11, 0x9aa0a6);
+          fill(x + 10, y + 12, 5, 3, 0x3a3d47); fill(x + 11, y + 10, 3, 1, 0x3a3d47); dot(x + 10, y + 11, 0x3a3d47); dot(x + 14, y + 11, 0x3a3d47);
+          fill(x + 1, y + 16, 42, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
+      /** Drafting table. A blueprint taped down under a parallel rule, on crossed legs. */
+      drafting: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          fill(x, y, 44, 1, tint(0xdcb78c, 1)); fill(x, y + 1, 44, 4, tint(0xc49a6c, 0.9));
+          fill(x + 31, y + 1, 12, 4, 0x3f6fc4); fill(x + 33, y + 2, 6, 1, 0xa8c8f0); fill(x + 40, y + 2, 1, 2, 0xa8c8f0); for (const [dx, dy] of [[31, 1], [42, 1], [31, 4], [42, 4]]) dot(x + dx, y + dy, 0xe8e4d0);
+          fill(x + 29, y + 4, 15, 1, 0x2a2a2e);
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 2, tint(0x8c6744, 0.72)); fill(x, y + 5, 44, 1, tint(0x76573a, 0.62));
+          for (const lx of [x + 2, x + 31]) { line(lx, y + 7, lx + 10, y + 15, tint(0x76573a, 0.62)); line(lx + 10, y + 7, lx, y + 15, tint(0x76573a, 0.62)); }
+          fill(x + 1, y + 16, 42, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
+      /** Glass desk. A glass top on chrome legs, the floor showing through. */
+      glass: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          const chrome = 0xc8cdd6;
+          for (const lx of [x + 3, x + 39]) { fill(lx, y + 1, 2, 15, chrome); fill(lx, y + 1, 1, 15, WHITE, 0.4); fill(lx - 1, y + 15, 4, 1, 0x9aa0a6); }
+          fill(x, y, 44, 1, tint(0xeef6fa, 1), 0.9); fill(x, y + 1, 44, 4, tint(0xa8d0e0, 1), 0.45); fill(x, y + 5, 44, 1, tint(0x8ab8cc, 1), 0.8);
+          fill(x + 2, y + 1, 10, 1, WHITE, 0.35); fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x + 1, y + 16, 42, 1, SHADOW, 0.5); drawKeyboard(s, y + 2);
         },
       },
     };
