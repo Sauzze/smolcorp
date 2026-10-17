@@ -2,7 +2,7 @@ import Foundation
 
 /// What you set on the setup page: which project is pinned to which key, the
 /// deck's layout and colours, the profiles they're saved in, its logo,
-/// whether the stick scrolls, and whether the office hires and fires. Saved
+/// whether two fingers scroll, and whether the office hires and fires. Saved
 /// as JSON in Application Support.
 final class Config: Codable {
     static let shared = Config.load()
@@ -16,8 +16,8 @@ final class Config: Codable {
     var profiles: [Profile] = []
     var activeProfile = Profile.defaultName
     var logo = Logo.smolcorp
-    /// Whether the stick scrolls Terminal. Off until you turn it on, so a
-    /// newly paired phone can do no more than the deck's buttons do.
+    /// Whether two fingers on the office scroll Terminal. Off until you turn it on, so a
+    /// newly paired phone can do no more than the office's keys do.
     var scrollEnabled = false
     /// Whether the office may hire and fire: open a new Terminal window with
     /// an agent in it, and stop an agent and close its tab. Off until you

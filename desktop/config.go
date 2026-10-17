@@ -9,7 +9,7 @@ import (
 
 // Config is what you set on the setup page: which project is pinned to which
 // key, the deck's layout and colours, the profiles they're saved in, its logo,
-// whether the stick scrolls and whether the office hires and fires. Saved as
+// whether two fingers scroll and whether the office hires and fires. Saved as
 // JSON next to the paired phones, in the Mac app's format.
 type Config struct {
 	// A project folder per key, or nil for a key that takes any session.
@@ -21,8 +21,8 @@ type Config struct {
 	Profiles      []Profile `json:"profiles"`
 	ActiveProfile string    `json:"activeProfile"`
 	Logo          string    `json:"logo"`
-	// Whether the stick scrolls tmux and kitty panes. Off until you turn it
-	// on, so a newly paired phone can do no more than the deck's buttons do.
+	// Whether two fingers on the office scroll tmux and kitty panes. Off until you turn it
+	// on, so a newly paired phone can do no more than the office's keys do.
 	ScrollEnabled bool `json:"scrollEnabled"`
 	// Whether the office may fire: stop an agent and close its pane. Off until
 	// you turn it on, for the same reason. Hiring is the Mac app's for now,

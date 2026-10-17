@@ -334,10 +334,10 @@
       <div class="step" id="step-scroll">
         <div class="mark">✓</div>
         <div class="text">
-          <div class="title">Let the stick scroll Terminal</div>
-          <div class="detail" data-pending="Optional. Turns your phone's stick into a scroll wheel for the selected session's Terminal window." data-done="The stick scrolls the selected session's Terminal window."></div>
+          <div class="title">Let two fingers scroll Terminal</div>
+          <div class="detail" data-pending="Optional. Drag two fingers up or down on the office to scroll the picked agent's Terminal window, and tap with two to jump back to the bottom." data-done="Two fingers on the office scroll the picked agent's Terminal window."></div>
         </div>
-        <button class="switch" id="scroll" aria-label="Let the stick scroll Terminal"></button>
+        <button class="switch" id="scroll" aria-label="Let two fingers scroll Terminal"></button>
       </div>
       <div class="step" id="step-hiring">
         <div class="mark">✓</div>
@@ -439,11 +439,8 @@
     <h2>Layout</h2>
     <div class="layout-body">
       <div class="editor">
-        <div class="field"><span>Sessions</span><div class="choices" id="view"></div></div>
-        <div class="field"><span>Session keys</span><div class="choices" id="key-count"></div></div>
+        <div class="field"><span>Desks for sessions</span><div class="choices" id="key-count"></div></div>
         <p class="hint" id="key-hint"></p>
-        <div class="field"><span>Effort dial</span><button class="switch" id="show-dial" aria-label="Show the effort dial"></button></div>
-        <div class="field"><span>Stick</span><button class="switch" id="show-stick" aria-label="Show the stick"></button></div>
         <h3>Office</h3>
         <div class="field stacked"><span>Style</span><div class="tiles small" id="room-preset"></div></div>
         <p class="hint">A style furnishes the whole office for you, and the phone can switch it too, from the key in the room's corner. Yours is the office as you furnish it below: change anything there, and you're back to it. Your team, the daylight, the seasons and the sound stay as you set them.</p>
@@ -471,20 +468,18 @@
         <h3>Dress code</h3>
         <div class="dress" id="room-dress"></div>
         <p class="hint">What agents and their interns wear, by the size of the model they run: the bigger, the smarter, unless you say otherwise. The office tells a model's size from the words in its name; your own rules come first. While an agent's model isn't known, as for most agents but Claude Code, it dresses by agent. A project's own outfit on its team card comes before all of this.</p>
-        <h3>Buttons</h3>
+        <h3>Your buttons</h3>
         <div class="rows" id="rows"></div>
-        <p class="note" id="stick-note" hidden>Without the stick, add ▲ and ▼ to answer your agents' questions.</p>
-        <div><button class="btn" id="add-row">Add a Row</button></div>
+        <p class="hint">On your phone, tap an agent: along the foot of the room come esc, ⏎ send, /clear, ↑ and ↓, then these, in this order, for that agent. Hold its desk for the effort chips; the red button is ☢ Max, and the mic dictates.</p>
         <div class="inspector" id="inspector" hidden>
           <label class="field"><span>Does</span><select id="does"></select></label>
           <label class="field" id="field-text"><span>Types</span><input type="text" id="text" maxlength="200" spellcheck="false" placeholder="/compact"></label>
           <label class="field" id="field-key"><span>Presses</span><select id="key"></select></label>
           <label class="field" id="field-label"><span>Label</span><input type="text" id="label" maxlength="16" spellcheck="false"></label>
-          <div class="field"><span>Width</span><div class="choices" id="width"></div></div>
           <label class="check" id="field-free"><input type="checkbox" id="when-free">Only when the agent isn't busy</label>
           <label class="check" id="field-confirm"><input type="checkbox" id="confirm">Tap twice to confirm</label>
           <div class="field" id="field-agents"><span>Works with</span><div class="agents" id="agents"></div></div>
-          <div class="tools"><button class="btn" id="move-back" aria-label="Move left">←</button><button class="btn" id="move-on" aria-label="Move right">→</button><button class="btn" id="remove">Remove</button></div>
+          <div class="tools"><button class="btn" id="move-back" aria-label="Move earlier">←</button><button class="btn" id="move-on" aria-label="Move later">→</button><button class="btn" id="remove">Remove</button></div>
         </div>
       </div>
       <figure class="preview" id="preview">
@@ -727,9 +722,9 @@
     $('launch').textContent = `${state.launcher} claude`;
     $('step-launcher').classList.toggle('done', state.sessions.length > 0);
     const scroll = $('step-scroll');
-    scroll.querySelector('.title').textContent = 'Let the stick scroll tmux and kitty';
-    scroll.querySelector('.detail').dataset.pending = "Optional. Turns your phone's stick into a scroll wheel for sessions in tmux or kitty.";
-    scroll.querySelector('.detail').dataset.done = 'The stick scrolls the selected session in tmux or kitty.';
+    scroll.querySelector('.title').textContent = 'Let two fingers scroll tmux and kitty';
+    scroll.querySelector('.detail').dataset.pending = 'Optional. Drag two fingers up or down on the office to scroll the picked agent in tmux or kitty.';
+    scroll.querySelector('.detail').dataset.done = 'Two fingers on the office scroll the picked agent in tmux or kitty.';
   }
 
   function mark(id, done) {
@@ -924,7 +919,7 @@
   /** Auto: a key per running session, up to nine. Or always the same number. */
   const KEY_COUNTS = ['auto', 3, 6, 9];
   const MOST_KEYS = 9;
-  const MAX_ROWS = 4, MAX_PER_ROW = 4, WIDTHS = [1, 2, 3];
+  const MAX_ROWS = 4, MAX_PER_ROW = 4;
   /** The deck's own buttons, as the phone draws them, and what each does. */
   const BUILT_IN = {
     accept: ['✓', 'Accept'], reject: ['✕', 'Reject'], mic: ['🎙', 'Talk to Claude Code'],
@@ -973,13 +968,8 @@
     drawLayout();
   }
 
-  /**
-   * Makes a change, shows it here and on the preview, and sends it on. A
-   * change to the office's furnishing shows the office on the preview, even
-   * for a phone that shows keys, until something else changes.
-   */
-  function change(edit, furnishing = false) {
-    peekOffice = furnishing;
+  /** Makes a change, shows it here and on the preview, and sends it on. */
+  function change(edit) {
     const before = JSON.stringify(layout);
     edit();
     if (JSON.stringify(layout) === before) return; // already so, like Auto clicked again
@@ -999,19 +989,11 @@
   }
 
   function drawLayout() {
-    $('view').replaceChildren(
-      choice('Keys', !layout.office, () => change(() => { layout.office = false; })),
-      choice('Office', layout.office, () => change(() => { layout.office = true; })));
     $('key-count').replaceChildren(...KEY_COUNTS.map((n) =>
       choice(n === 'auto' ? 'Auto' : n, layout.keys === n, () => change(() => { layout.keys = n; }))));
-    $('key-hint').textContent = (layout.keys === 'auto'
-      ? 'A key for each running session, up to nine. The fewer there are, the bigger they get.'
-      : `Always ${layout.keys} keys, each in the same place.`)
-      + (layout.office ? ' In the office, each key is a desk, with its session at work there. Tap a desk to pick it.' : '');
-    $('show-dial').classList.toggle('on', layout.dial);
-    $('show-stick').classList.toggle('on', layout.stick);
-    $('stick-note').hidden = layout.stick || (uses('up') && uses('down'));
-    $('add-row').disabled = layout.rows.length >= MAX_ROWS;
+    $('key-hint').textContent = layout.keys === 'auto'
+      ? 'A desk for each running session, up to nine, with its agent at work there. Tap a desk to pick it.'
+      : `Always ${layout.keys} desks, each in the same place, with a pinned project's kept for it.`;
     drawRoom();
     drawRows();
     drawInspector();
@@ -1182,16 +1164,15 @@
   /** What a style furnishes, as office.js has it: changing one of these goes back to Yours. */
   const STYLED = new Set(['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair',
     'staff']);
-  let peekOffice = false; // the preview shows the office while it's being furnished
 
   /* Your team: how each project's agent looks, the choices office.js draws
      and the apps keep. The first of each is Auto. */
   const TEAM_CHOICES = {
     skin: ['Skin', [['auto', 'Auto'], ['porcelain', 'Porcelain'], ['fair', 'Fair'], ['light', 'Light'], ['tan', 'Tan'],
-      ['olive', 'Olive'], ['brown', 'Brown'], ['deep', 'Deep'], ['ebony', 'Ebony']]],
+      ['olive', 'Olive'], ['brown', 'Brown'], ['deep', 'Deep'], ['ebony', 'Ebony'], ['cream', 'Cream']]],
     hair: ['Hair', [['auto', 'Auto'], ['black', 'Black'], ['espresso', 'Espresso'], ['brown', 'Brown'], ['chestnut', 'Chestnut'],
       ['auburn', 'Auburn'], ['ginger', 'Ginger'], ['blond', 'Blond'], ['platinum', 'Platinum'], ['grey', 'Grey'], ['white', 'White'],
-      ['pink', 'Pink'], ['blue', 'Blue'], ['green', 'Green'], ['purple', 'Purple']]],
+      ['pink', 'Pink'], ['blue', 'Blue'], ['green', 'Green'], ['purple', 'Purple'], ['orange', 'Orange']]],
     hairstyle: ['Hairstyle', [['auto', 'Auto'], ['short', 'Short'], ['long', 'Long'], ['spiky', 'Spiky'], ['bun', 'Bun'],
       ['curly', 'Curly'], ['ponytail', 'Ponytail'], ['afro', 'Afro'], ['mohawk', 'Mohawk'], ['buzz', 'Buzz cut'], ['bald', 'Bald']]],
     extra: ['Extra', [['none', 'Nothing'], ['glasses', 'Glasses'], ['sunglasses', 'Sunglasses'], ['headphones', 'Headphones'],
@@ -1204,7 +1185,7 @@
       ['astronaut', 'Astronaut'], ['flightsuit', 'Launch suit'], ['pirate', 'Pirate'], ['captain', 'Pirate captain'],
       ['parka', 'Parka'], ['explorer', 'Polar explorer'], ['robe', 'Royal robe'], ['knight', 'Knight'], ['wizard', 'Wizard'],
       ['gamer', 'Team jersey and headset'], ['founder', "Founder's vest"], ['gymkit', 'Gym kit'], ['safari', 'Safari kit'],
-      ['flannel', 'Flannel and beanie'],
+      ['flannel', 'Flannel and beanie'], ['hire', 'The hire'],
       // Each model family's
       ['claude', "Claude's knit"], ['gpt', 'GPT hoodie'], ['gemini', 'Gemini top'], ['grok', "Grok's leather jacket"],
       ['qwen', 'Qwen jacket'], ['llama', 'Llama poncho'], ['mistral', 'Mistral stripes'], ['deepseek', 'DeepSeek turtleneck'],
@@ -1309,7 +1290,7 @@
 
   function drawDress(room) {
     const dress = room.dress || (room.dress = blankDress());
-    const furnish = (edit) => change(edit, true);
+    const furnish = (edit) => change(edit);
     const [, outfits] = TEAM_CHOICES.outfit, [, colours] = TEAM_CHOICES.colour;
     /** A row: what it's for, then its outfit (Auto saying what that is) and colour. */
     const row = (title, note, attire, auto) => {
@@ -1427,44 +1408,46 @@
     drawDress(room);
   }
 
-  /** Each row as the phone draws it, with its own tools. */
+  /**
+   * Your own buttons, in the order the office shows them under a picked
+   * agent. They're kept in the layout's rows, as they always were; the
+   * deck's own buttons there, from before the phone was the office, are
+   * left as they are and not shown, the office having its own.
+   */
+  function ownButtons() {
+    return layout.rows.flatMap((row, r) => row.buttons.map((b, p) => ({ b, r, p }))).filter(({ b }) => !BUILT_IN[b.id]);
+  }
+
   function drawRows() {
-    $('rows').replaceChildren(...layout.rows.map((row, r) => {
-      const el = document.createElement('div');
-      el.className = 'line';
-      const chips = document.createElement('div');
-      chips.className = 'chips' + (row.tall ? '' : ' short');
-      row.buttons.forEach((b, p) => {
-        const chip = document.createElement('button');
-        chip.className = 'chip' + (chosen && chosen[0] === r && chosen[1] === p ? ' on' : '');
-        chip.style.flexGrow = b.width;
-        chip.textContent = faceOf(b);
-        chip.title = whatItDoes(b);
-        chip.onclick = () => { chosen = [r, p]; drawLayout(); };
-        chips.append(chip);
-      });
-      if (row.buttons.length < MAX_PER_ROW) {
-        const add = document.createElement('button');
-        add.className = 'chip add';
-        add.textContent = '+';
-        add.title = 'Add a button';
-        add.onclick = () => change(() => {
-          row.buttons.push(newButton());
-          chosen = [r, row.buttons.length - 1];
-        });
-        chips.append(add);
-      }
-      const tools = document.createElement('div');
-      tools.className = 'tools';
-      tools.append(
-        tool(row.tall ? 'Tall' : 'Short', 'Make this row taller or shorter', () => change(() => { row.tall = !row.tall; })),
-        tool('↑', 'Move this row up', () => change(() => moveRow(r, -1)), r === 0),
-        tool('↓', 'Move this row down', () => change(() => moveRow(r, 1)), r === layout.rows.length - 1),
-        tool('✕', 'Remove this row', () => change(() => { layout.rows.splice(r, 1); chosen = null; })),
-      );
-      el.append(chips, tools);
-      return el;
+    const own = ownButtons();
+    const chips = document.createElement('div');
+    chips.className = 'chips own';
+    chips.append(...own.map(({ b, r, p }) => {
+      const chip = document.createElement('button');
+      chip.className = 'chip' + (chosen && chosen[0] === r && chosen[1] === p ? ' on' : '');
+      chip.textContent = faceOf(b);
+      chip.title = whatItDoes(b);
+      chip.onclick = () => { chosen = [r, p]; drawLayout(); };
+      return chip;
     }));
+    // A new one goes last: in the last row, or a new one after it
+    const last = layout.rows[layout.rows.length - 1];
+    const room = (last && last.buttons.length < MAX_PER_ROW) || layout.rows.length < MAX_ROWS;
+    if (room) {
+      const add = document.createElement('button');
+      add.className = 'chip add';
+      add.textContent = '+';
+      add.title = 'Add a button';
+      add.onclick = () => change(() => {
+        let r = layout.rows.length - 1;
+        if (r < 0 || layout.rows[r].buttons.length >= MAX_PER_ROW) r = layout.rows.push({ tall: false, buttons: [] }) - 1;
+        layout.rows[r].buttons.push(newButton());
+        chosen = [r, layout.rows[r].buttons.length - 1];
+      });
+      chips.append(add);
+    }
+    $('rows').replaceChildren(chips, ...(own.length ? [] : [Object.assign(document.createElement('p'),
+      { className: 'hint', textContent: 'None yet. Add one to type a command, such as /compact, or press a key.' })]));
   }
 
   function tool(label, title, onclick, disabled) {
@@ -1474,26 +1457,14 @@
     return b;
   }
 
-  function moveRow(r, by) {
-    const [row] = layout.rows.splice(r, 1);
-    layout.rows.splice(r + by, 0, row);
-    if (chosen && chosen[0] === r) chosen[0] = r + by;
-    else if (chosen && chosen[0] === r + by) chosen[0] = r;
-  }
-
-  /** A new button is the first of the deck's own not on it yet, else Shift+Tab. */
+  /** A new button types a command, to fill in. */
   function newButton() {
-    const free = Object.keys(BUILT_IN).find((id) => !uses(id));
-    return free ? { id: free, width: 1 } : made({ key: 'shift-tab' });
+    return made({ text: '/compact' });
   }
 
   /** A button made here, with an id the phone can name it by. */
   function made(fields) {
     return { id: `custom-${Math.random().toString(36).slice(2, 10)}`, label: '', width: 1, ...fields };
-  }
-
-  function uses(id) {
-    return layout.rows.some((row) => row.buttons.some((b) => b.id === id));
   }
 
   function faceOf(b) {
@@ -1509,7 +1480,6 @@
      are typing; a redraw only fills in the others. */
 
   $('does').replaceChildren(
-    ...Object.entries(BUILT_IN).map(([id, [, name]]) => new Option(name, id)),
     new Option('Type a command…', 'text'),
     new Option('Press a key…', 'key'),
   );
@@ -1530,29 +1500,23 @@
     const b = chosenButton();
     $('inspector').hidden = !b;
     if (!b) return;
-    const own = !!BUILT_IN[b.id];
-    const kind = own ? b.id : b.key ? 'key' : 'text';
+    const kind = b.key ? 'key' : 'text';
     $('does').value = kind;
-    // One of each of the deck's own buttons.
-    [...$('does').options].forEach((o) => { o.disabled = !!BUILT_IN[o.value] && o.value !== b.id && uses(o.value); });
     $('field-text').hidden = kind !== 'text';
     $('field-key').hidden = kind !== 'key';
-    for (const id of ['field-label', 'field-free', 'field-confirm', 'field-agents']) $(id).hidden = own;
     fill($('text'), b.text || '');
     $('key').value = b.key || 'enter';
     fill($('label'), b.label || '');
     $('label').placeholder = b.key ? KEY_NAMES[b.key] : b.text || '';
-    $('width').replaceChildren(...WIDTHS.map((w) =>
-      choice(`${w}×`, b.width === w, () => change(() => { b.width = w; }))));
     $('when-free').checked = !!b.whenFree;
     $('confirm').checked = !!b.confirm;
     // No agent ticked means every agent: the button never greys out.
     $('agents').querySelectorAll('input').forEach((box) => {
       box.checked = !b.agents || !b.agents.length || b.agents.includes(box.value);
     });
-    const [r, p] = chosen;
-    $('move-back').disabled = r === 0 && p === 0;
-    $('move-on').disabled = r === layout.rows.length - 1 && p === layout.rows[r].buttons.length - 1;
+    const own = ownButtons(), at = own.findIndex(({ r, p }) => r === chosen[0] && p === chosen[1]);
+    $('move-back').disabled = at <= 0;
+    $('move-on').disabled = at === own.length - 1;
   }
 
   function fill(input, value) {
@@ -1561,7 +1525,7 @@
 
   $('does').onchange = () => change(() => {
     const kind = $('does').value;
-    const next = BUILT_IN[kind] ? { id: kind } : made(kind === 'text' ? { text: '/compact' } : { key: 'shift-tab' });
+    const next = made(kind === 'text' ? { text: '/compact' } : { key: 'shift-tab' });
     layout.rows[chosen[0]].buttons[chosen[1]] = { ...next, width: chosenButton().width };
   });
   $('text').oninput = () => change(() => { chosenButton().text = $('text').value; });
@@ -1574,21 +1538,15 @@
     chosenButton().agents = ticked.length === Object.keys(AGENTS).length ? [] : ticked;
   });
 
-  /** Along the rows: off the end of one, onto the next, if it has room. */
+  /** Earlier or later among your own buttons: it swaps places with the one beside it. */
   function move(by) {
-    const [r, p] = chosen;
-    const row = layout.rows[r].buttons;
-    const [b] = row.splice(p, 1);
-    if (p + by >= 0 && p + by <= row.length) {
-      row.splice(p + by, 0, b);
-      chosen = [r, p + by];
-    } else {
-      const next = layout.rows[r + by];
-      if (!next || next.buttons.length >= MAX_PER_ROW) { row.splice(p, 0, b); return; }
-      if (by < 0) next.buttons.push(b); else next.buttons.unshift(b);
-      chosen = [r + by, by < 0 ? next.buttons.length - 1 : 0];
-    }
-    dropEmptyRows();
+    const own = ownButtons(), at = own.findIndex(({ r, p }) => r === chosen[0] && p === chosen[1]);
+    const other = own[at + by];
+    if (at < 0 || !other) return;
+    const here = own[at];
+    layout.rows[here.r].buttons[here.p] = other.b;
+    layout.rows[other.r].buttons[other.p] = here.b;
+    chosen = [other.r, other.p];
   }
 
   function dropEmptyRows() {
@@ -1606,12 +1564,7 @@
     dropEmptyRows();
   });
 
-  $('show-dial').onclick = () => change(() => { layout.dial = !layout.dial; });
-  $('show-stick').onclick = () => change(() => { layout.stick = !layout.stick; });
-  $('add-row').onclick = () => change(() => {
-    layout.rows.push({ tall: false, buttons: [newButton()] });
-    chosen = [layout.rows.length - 1, 0];
-  });
+
 
   /* The preview: the phone's own page, sent what it would get from here,
      with sample sessions on its keys. */
@@ -1633,7 +1586,7 @@
     const keys = sampleKeys();
     page.postMessage({
       keys, overflow: Math.max(0, samples - count), theme: colours, scroll: true,
-      layout: peekOffice ? { ...layout, office: true } : layout,
+      layout,
     }, location.origin);
     $('samples').textContent = `${samples} session${samples === 1 ? '' : 's'}`;
     $('fewer').disabled = samples === 0;

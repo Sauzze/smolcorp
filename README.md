@@ -14,11 +14,11 @@
 A control pad on your phone for the AI coding agents in your terminal: Claude
 Code, Codex, Gemini CLI, OpenCode and Grok.
 
-A key lights up for each of your agent sessions to show what it's doing. You
-can approve a permission request from across the room, interrupt an agent, turn
-a dial to change how hard Claude thinks, or hold a button and talk to it. Lay
-the deck out your way, with buttons of your own, or watch your agents at work
-as people in [a little pixel-art office](#the-office). Smolcorp runs in
+Your agent sessions are people in [a little pixel-art office](#the-office) on
+your phone, each at a desk, acting out what it's doing. From the office you can
+approve a permission request from across the room, interrupt an agent, change
+how hard Claude thinks, press buttons of your own, or hold the mic and talk to
+it. Smolcorp runs in
 your Mac's menu bar, or in the tray on [Windows and Linux](#windows-and-linux-preview).
 Your phone connects to it over your Wi-Fi, so there's nothing to install from
 an app store.
@@ -26,36 +26,34 @@ an app store.
 Smolcorp was called SauzzeDeck Pro up to version 1.6.1, and AgentDeck up to 1.0.1.
 
 <p align="center">
-  <img src="docs/deck-portrait.png" alt="The deck on a phone: six session keys, a dial and a stick" width="300">
+  <img src="docs/deck-portrait.png" alt="The deck on a phone held upright: the office, an agent picked, and its keys along the foot of the room" width="300">
 </p>
 
 > Smolcorp is an independent project. It is not made by or affiliated with Anthropic.
 
-## What's on the deck
+## On your phone
 
-| Control | What it does |
+The phone opens straight into the office, full screen, upright or sideways as
+you hold it. Each desk is one of your agent sessions, named after its project:
+the folder the agent started in, or the top of its git repository.
+
+| In the office | What it does |
 |---|---|
-| **Session keys** | One per agent session, up to nine, sharing the same space: one fills it, four make a 2×2. Each is named after its project: the folder the agent started in, or the top of its git repository. The colour shows its state, and the line underneath its agent, or Claude Code's thinking effort. Tap a key to select that session and bring its Terminal window to the front. |
-| **Dial** | Claude Code's thinking effort: low, medium, high, extra high, max. If Claude is mid-task, the change waits until it finishes. |
-| **Stick** | When the agent asks you something, slide up or down to choose an answer and tap to confirm. The rest of the time it's a scroll wheel for that session's Terminal window: roll it to scroll, tap to jump back to the bottom. Scrolling is off until you turn on **Let the stick scroll Terminal** on the setup page. Tap the stick's SCROLL / CHOICES label to switch by hand. |
-| **✓ and ✕** | Accept or reject a permission request. |
-| **🎙 (hold)** | Talk to Claude Code. Release, and Claude sends what you said once it's three words or more. |
-| **esc · send · /clear** | Interrupt the agent, press Return, or start a fresh conversation. `/clear` asks you to tap twice, and waits until the agent isn't busy. |
-| **☢ Max** and **effort steps** | Optional, from [Layout](#make-it-yours): one press sends Claude straight to max effort, or tap a level from low to max. |
+| **A desk, or its person** | Picks that session and brings its Terminal window to the front. |
+| **The keys along the foot of the room** | For the picked session: **esc** interrupts it, **⏎ send** presses Return, **/clear** starts a fresh conversation (tap twice), **↑ ↓** move through its menus, then [your own buttons](#make-it-yours). |
+| **▲ ▼ ✓ ✕ over an agent waiting on you** | Move through its options, accept or reject. |
+| **A desk, held** | On a Claude Code desk, paint chips for its thinking effort, from low to max. If Claude is mid-task, the change waits until it finishes. The coffee by the monitor shows the effort: one mug for low, up to four, and a steaming pot at max. |
+| **The red button** | ☢ Max effort for the picked session, in one press. |
+| **The mic, held** | Talk to Claude Code. Let go, and Claude sends what you said once it's three words or more. |
+| **Two fingers, dragged** | Scroll the picked session's Terminal window; tap with two to jump back to the bottom. Off until you turn on **Let two fingers scroll Terminal** on the setup page. |
 
-What the key colours mean:
+How the people show what their sessions are doing is under
+[The office](#the-office). The room's edge glows while an agent is waiting on
+you.
 
-| | |
-|---|---|
-| ⚪ White | Idle |
-| 🔵 Blue, pulsing | Working |
-| 🟠 Orange, blinking | Waiting on you: a permission request or a question |
-| 🟢 Green | Done, and you haven't looked yet |
-| 🔴 Red | Stopped on an error |
-
-Sessions keep their order on the keys; with a fixed number of keys, each
-keeps its own key until it ends. You can pin projects to specific keys, lay
-the deck out your way and change every colour:
+Sessions keep their order at the desks; with a fixed number of desks, each
+keeps its own until it ends. You can pin projects to specific desks, furnish
+the office your way and change every colour:
 
 <p align="center">
   <img src="docs/themes.png" alt="The deck in five colour schemes: Default, Midnight, Moonlight, Light and High contrast" width="100%">
@@ -77,8 +75,8 @@ deck presses that agent's own keys:
 | [OpenCode](https://opencode.ai) | Esc, twice | `/new` | – |
 | [Grok](https://github.com/xai-org/grok-build) | Ctrl+C | `/new` | – |
 
-The dial and the mic drive Claude Code's own `/effort` and `/voice`, so they
-switch off when another agent's key is selected. In Grok, ✕ declines with
+The effort chips, the red button and the mic drive Claude Code's own `/effort`
+and `/voice`, so they do nothing when another agent is picked. In Grok, ✕ declines with
 Ctrl+C, the key Grok uses to cancel a request.
 
 **Codex** asks you to approve new hooks before it runs them: after connecting,
@@ -153,8 +151,8 @@ The setup page walks you through these steps:
 2. **Allow Smolcorp to use your keyboard.** System Settings opens. Turn
    on **Smolcorp** in the list. The buttons, the mic and scrolling need
    this.
-3. **Let the stick scroll Terminal** (optional). Turns the stick into a scroll
-   wheel for the selected session's Terminal window.
+3. **Let two fingers scroll Terminal** (optional). Drag two fingers on the
+   office to scroll the picked session's Terminal window.
 4. **Let the office hire and fire** (optional). Lets you start and stop agents
    from [the office](#the-office): choose the folder new hires start in, and
    which agent they are.
@@ -193,26 +191,24 @@ more, pair it with a new code, then remove the old Home Screen icon and add
 the deck again: the icon keeps the old pairing.
 
 <p align="center">
-  <img src="docs/deck-landscape.png" alt="The deck sideways: keys on the left, controls on the right" width="640">
+  <img src="docs/deck-landscape.png" alt="The deck sideways: the office, with the picked agent's keys along the foot of the room" width="640">
 </p>
 
 ## Make it yours
 
 The setup page also has:
 
-- **Keys.** Drag a running session onto a key to keep that project on it.
-  Keys you don't pin go to the next session that starts.
+- **Keys.** Drag a running session onto a key to keep that project at its
+  desk. Desks you don't pin go to the next session that starts.
 - **Logo.** The Smolcorp hire or the original six keys, in the menu bar, on the
   setup page and on your phone's Home Screen. A phone picks up a new logo the
   next time you add the deck to its Home Screen.
-- **Layout.** Keys or [the office](#the-office), how many keys (Auto, one per
-  running session, or always 3, 6 or 9), whether the dial and stick show, and
-  up to four rows of buttons, tall or short, each button one to three widths
-  wide. Use the deck's own buttons, the ☢ Max button or the effort steps, or
-  make your own: a button that types a command, such as `/compact`, or presses
-  a key, such as Shift+Tab to switch Claude Code's mode. It can wait until the
-  agent isn't busy, ask for a second tap, or be for some agents only. A live
-  preview of your phone sits beside the editor.
+- **Layout.** How many desks for sessions (Auto, one per running session, or
+  always 3, 6 or 9), [the office](#the-office), and **Your buttons**: each
+  types a command, such as `/compact`, or presses a key, such as Shift+Tab to
+  switch Claude Code's mode, from the keys along the foot of the room. A button
+  can wait until the agent isn't busy, ask for a second tap, or be for some
+  agents only. A live preview of your phone sits beside the editor.
 - **Colours.** Pick any colour for the background, keys, text and each state,
   or start from a preset (Default, Midnight, High contrast, Light). Your
   phone updates as you pick.
@@ -223,7 +219,7 @@ The setup page also has:
   the setup page lists everything its buttons would type or press.
 
 <p align="center">
-  <img src="docs/layout.png" alt="Profiles and Layout on the setup page: the Couch profile, Auto keys, buttons ✓, ✕ and ☢ Max over esc, send and a /compact button, beside a live preview of the phone" width="720">
+  <img src="docs/layout.png" alt="Profiles and Layout on the setup page: desks for sessions, the office's styles and furnishing, beside a live preview of the phone" width="720">
 </p>
 
 Open the setup page any time from the menu bar (**Open Setup…**), or by opening
@@ -276,8 +272,8 @@ There's more to see while they work:
 
 - **A style** furnishes the whole office in one go: Classic, Campsite, Royal
   court, Space station, Pirate cove, Arctic base, Dragon's lair, Gamer den,
-  Startup garage, Fitness floor or Jungle. Switch it from your phone too: in
-  full screen, tap the key in the room's top-left corner and pick one. **Yours**
+  Startup garage, Fitness floor or Jungle. Switch it from your phone too: tap
+  the key in the room's top-left corner and pick one. **Yours**
   is the office as you furnish it below, and changing anything there takes you
   back to it. Your team, the daylight, the seasons and the sound stay as you
   set them.
@@ -321,18 +317,24 @@ There's more to see while they work:
 
 **Arrange the room** puts everything where you want it. Click **Arrange the
 room…** under *Office*, and the office fills the window: click a piece to pick
-it and drag it anywhere. The desks move; the lounge's piece, the couch, the
-ping-pong table, the plant, the coffee counter, the red button and the mic
-also come in small, medium or large, and all but the button and the mic can
-be put away and brought back. Pick a desk to make it what you like, a tent, a
-beanbag or a cardboard box, whoever sits at it; a project's own choice on its
-team card still comes first. **Add to the room** puts more pieces in the
-lounge, up to twelve, any of those its corner can hold and the same one more
-than once: two fish tanks, an arcade and the dragon, say. **Clear the room**
-starts from an empty lounge, and **Back to standard** puts everything back.
-The room on its side and upright are arranged on their own, and your phone
-follows as you go. People walk round whatever is in their way, wherever you
-put it.
+it and drag it anywhere, or nudge it with the arrow keys. The lounge's pieces,
+the couch, the ping-pong table, the plant, the coffee counter, the red button
+and the mic grow by the handle on their corner: small, medium or large. Pick a
+desk to make it what you like, a tent, a beanbag or a cardboard box, whoever
+sits at it; a project's own choice on its team card still comes first.
+
+**The drawer** beside the room holds whatever isn't in it: desks and furniture
+put away, any piece the lounge can hold, up to twelve and the same one more
+than once, and everything the back wall can hang, up to twelve, wherever you
+slide them along it. Drag a piece into the room, or click it to put it where
+it fits, and drag a piece back to the drawer to put it away. A session whose
+desk is put away waits in line along the back wall. **Start empty** leaves the
+floor, the walls, the door, the mic and the red button; **Back to standard**
+puts everything back; **Undo** and **Redo** (⌘Z, ⇧⌘Z) step through your
+changes. The room on its side and upright are arranged on their own, and
+**Copy from upright** or **Copy from sideways** starts one from the other.
+People walk round whatever is in their way, and a desk nobody can get to from
+the door is outlined in red. Your phone follows as you go.
 
 **Your team**, under the furnishing, has a card for each of your projects:
 choose its agent's skin, hair and hairstyle, something extra (glasses,
@@ -349,22 +351,13 @@ cards, from a T-shirt to a lab coat, overalls or a Hawaiian shirt.
 
 It's all kept with the layout, so each profile can have an office of its own.
 
-**On your phone**, choose **Office** under *Sessions* in the setup page's
-Layout, or tap **OFFICE** above the keys to switch on the phone itself (and
-**KEYS** to switch back). The dial, stick and buttons stay where they are, and
-the room works like the keys:
+**On your phone**, the office is the deck: see [On your phone](#on-your-phone).
+Two more things work there:
 
-| Tap | What it does |
+| In the office | What it does |
 |---|---|
-| A desk, or its person | Selects that session and brings its Terminal window to the front, like its key |
-| An agent's desk, held, then dragged | Picks the agent up, chair and all. Let go over another desk and the two swap. They stay that way: each project is pinned to its new key, as on the setup page's *Keys*, where you can undo it. |
-| The red button | ☢ Max for the selected session |
-| The microphone, held | Talks to the selected session, like 🎙 |
-| A desk, or its person, held* | On a Claude Code desk, puts paint chips along its front, from white for low to red for max: tap one to set its effort, like the dial, and they go away. Max is the red button's. With hiring and firing on, also **YOU'RE FIRED**, or **HIRE** on a desk a new hire would take (see below). |
-| ▲ ▼ ✓ ✕, over an agent waiting on you* | Move through its options, accept or reject, like the stick and ✓ ✕. Select the agent, and the keys appear over its desk. |
-
-\* Where the deck's own controls are out of sight: in full screen, on `/office`
-and in the pop-out window. Beside the dial and the stick, use those.
+| An agent's desk, held, then dragged | Picks the agent up, chair and all. Let go over another desk and the two swap. They stay that way: each project is pinned to its new desk, as on the setup page's *Keys*, where you can undo it. |
+| A desk, held | With hiring and firing on, also **YOU'RE FIRED**, or **HIRE** on a desk a new hire would take (see below). |
 
 **Hire and fire**, once you turn on **Let the office hire and fire** on the
 setup page (it's off until you do):
@@ -383,10 +376,8 @@ On Windows and Linux, firing closes the agent's pane in tmux, kitty and
 WezTerm, and stops an agent started with `smolcorp run`. Hiring needs the
 Mac app, for now.
 
-**Full screen:** tap **⛶** above the room, and the dial and buttons step aside
-for it. The desks, the red button and the microphone work as above, and the
-corner brings the controls back. Held upright, the room stands upright too: the
-lounge moves below the desks, through a doorway at the end of the corridor.
+**Held upright,** the room stands upright too: the lounge moves below the
+desks, through a doorway at the end of the corridor.
 
 **On a spare screen**, such as an old tablet, a TV or a second monitor, open the
 address your phone uses with `/office` at the end. It pairs like a phone, then
@@ -407,7 +398,7 @@ ends the screen saver as usual. When Smolcorp isn't running, or the screen
 saver was unpaired, it says what to do instead. After updating Smolcorp,
 choose **Install Screen Saver…** again.
 
-In full screen, on a spare screen and in the pop-out window, the office fills a
+On your phone, on a spare screen and in the pop-out window, the office fills a
 rounded window; the screen saver fills each display edge to edge. Either way,
 its edge glows while an agent is waiting on you.
 
@@ -564,8 +555,8 @@ that permission, because macOS treats each version as a new app. Click
 **Open Settings** on the setup page again afterwards, and turn Smolcorp
 back on.
 
-**The stick says SCROLL OFF.** Turn on **Let the stick scroll Terminal** on the
-setup page.
+**Two fingers don't scroll.** Turn on **Let two fingers scroll Terminal** on
+the setup page.
 
 **The phone shows the pairing page instead of the deck.** It was revoked, or
 it was paired with AgentDeck 1.0. Pair it again, then add it to your Home
