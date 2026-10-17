@@ -8,7 +8,7 @@
 [![CI](https://github.com/Sauzze/agentdeck/actions/workflows/ci.yml/badge.svg)](https://github.com/Sauzze/agentdeck/actions/workflows/ci.yml)
 
 <p align="center">
-  <img src="docs/demo.gif" alt="Smolcorp in use: an agent's outfit changes with its model from a T-shirt to a suit; the office is refurnished from the floor to the lounge, a pet and the seasons; a held desk shows paint chips for effort and the big red button sends another agent to max; then one agent is fired and walks out with a box, and a new hire walks in" width="800">
+  <img src="docs/demo.gif" alt="Smolcorp on a phone held sideways: the office fills the screen, and the new hire, in an orange tie, works at their desk while coffee mugs drop in as their effort rises; a finger held on their desk brings up their keys along the foot of the room; they wait for an answer, the phone's edge glows orange and ✓ is tapped; then the jukebox plays and heads bob to the beat" width="800">
 </p>
 
 A control pad on your phone for the AI coding agents in your terminal: Claude
