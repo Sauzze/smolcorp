@@ -126,7 +126,11 @@ var teamChoices = map[string][]string{
 	"hairstyle": {"auto", "short", "long", "spiky", "bun", "curly", "ponytail", "afro", "mohawk", "buzz", "bald"},
 	"extra":     {"none", "glasses", "sunglasses", "headphones", "cap", "beanie", "beard", "moustache", "bow"},
 	"outfit": {"auto", "tee", "hoodie", "collar", "sweater", "jacket", "suit", "labcoat", "polo", "cardigan", "hawaiian",
-		"tracksuit", "overalls", "waistcoat"},
+		"tracksuit", "overalls", "waistcoat",
+		// A style's own, and each model family's
+		"astronaut", "flightsuit", "pirate", "captain", "parka", "explorer", "robe", "knight", "wizard", "gamer",
+		"founder", "gymkit", "safari", "flannel", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
+		"deepseek", "kimi", "glm", "phi"},
 	"colour": {"auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"},
 	"desk": {"auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug",
 		"helmet", "rocket", "terrarium", "quill", "candelabra", "goblet", "rum", "compass", "skull", "snowglobe", "thermos", "penguin",
