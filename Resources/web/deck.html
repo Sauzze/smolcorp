@@ -103,16 +103,21 @@
   .away { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 16px; color: var(--dim); font-size: 15px; text-align: center; }
   .away button { padding: 12px 20px; color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
-  /* The phone's office alone, full screen: asked for above the room, at the
-     legend's height, and left from the screen's corner. */
-  .full-switch { position: absolute; bottom: 100%; right: -6px; padding: 4px 6px; background: none; border: 0;
-    line-height: 0; color: var(--faint); }
-  .full-switch svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.2;
-    stroke-linecap: round; stroke-linejoin: round; }
-  .full-switch .shrink, .full .full-switch .grow { display: none; }
+  /* The phone's office alone, full screen: a button above the room, at the
+     legend's height and said in words, so it's seen; and in full screen,
+     a round one in the screen's corner to leave, dark enough to stand out
+     on any room. */
+  .full-switch { position: absolute; bottom: 100%; right: 0; display: flex; align-items: center; gap: 6px; min-height: 28px;
+    padding: 5px 11px 5px 9px; background: var(--cap); border: 1px solid var(--edge); border-radius: 999px;
+    font-family: inherit; font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: .14em; color: var(--ink); }
+  .full-switch svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2.4;
+    stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .full-switch .shrink, .full .full-switch .grow, .full .full-switch .words { display: none; }
   .full .full-switch .shrink { display: inline; }
-  .full .full-switch { position: fixed; bottom: auto; top: calc(env(safe-area-inset-top) + 4px);
-    right: calc(env(safe-area-inset-right) + 4px); padding: 12px; color: var(--dim); }
+  .full .full-switch { position: fixed; bottom: auto; top: calc(env(safe-area-inset-top) + 8px);
+    right: calc(env(safe-area-inset-right) + 8px); width: 44px; height: 44px; padding: 0; justify-content: center;
+    background: rgb(0 0 0 / .5); border-color: rgb(255 255 255 / .25); color: #fff; }
+  .full .full-switch svg { width: 20px; height: 20px; }
 
   @keyframes pulse { 50% { background: linear-gradient(color-mix(in srgb, var(--c) 30%, var(--cap-top)), color-mix(in srgb, var(--c) 20%, var(--cap))); } }
   @keyframes blink { 50% { background: linear-gradient(color-mix(in srgb, var(--c) 38%, var(--cap-top)), color-mix(in srgb, var(--c) 28%, var(--cap))); } }
@@ -249,7 +254,7 @@
     <section class="keys" id="keys"></section>
     <section class="office" id="office" hidden>
       <canvas id="office-canvas"></canvas>
-      <button class="full-switch" id="full-switch" aria-label="Full screen" hidden><svg viewBox="0 0 24 24"><path class="grow" d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><path class="shrink" d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/></svg></button>
+      <button class="full-switch" id="full-switch" aria-label="Full screen" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path class="grow" d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><path class="shrink" d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/></svg><span class="words">FULL SCREEN</span></button>
       <button class="pop-out" id="pop-out" title="Keep the office on top of your other windows" hidden>POP OUT</button>
       <div class="away" id="away" hidden>The office is in its own window.<button class="cap" id="bring-back">Bring it back</button></div>
     </section>
