@@ -272,7 +272,7 @@
       wall: ['plant', 'window', 'plant', 'window', 'plant'] } },
   };
   /** What a style furnishes. The sky, the seasons, the sound and your team stay as you have them. */
-  const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'corner', 'pet', 'desk', 'workspace', 'chair', 'staff'];
+  const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff'];
 
   const ROOM_CHOICES = {
     mic: ['mic', 'megaphone'],
@@ -290,6 +290,7 @@
     desk: ['wood', 'walnut', 'white', 'black'],
     workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse',
       'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass'],
+    monitor: ['standard', 'crt', 'holo', 'brass', 'crystal', 'gilt', 'ice', 'ultrawide', 'dual', 'laptop', 'bamboo', 'tablet', 'portrait'],
     chair: ['teal', 'black', 'red', 'grey', 'green'],
     staff: ['some', 'none', 'many'],
     preset: ['yours', ...Object.keys(ROOM_STYLES)],
@@ -324,9 +325,9 @@
     desk: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
     standing: { screen: { dx: 6, dy: -12 }, stands: true, chair: false, carry: [0x5a5f6c, 0x737987], things: { dx: 0, dy: 0 }, top: -14 },
     gaming: { screen: { dx: 6, dy: -10 }, stands: false, chair: false, carry: [0x1d1f25, 0xd4140b], things: { dx: 0, dy: 0 }, top: -15 },
-    tent: { screen: { dx: 22, dy: -3 }, stands: false, chair: false, carry: [0x6f8a4a, 0x8aa65e], things: null, top: -24 },
-    box: { screen: { dx: 6, dy: -9 }, stands: false, chair: false, carry: [0xa07a4a, 0xc9a06a], things: { dx: 0, dy: 1 }, top: -14 },
-    beanbag: { screen: { dx: 22, dy: -4 }, stands: false, chair: false, carry: [0xc0584a, 0xd96a5a], things: { dx: 4, dy: 12 }, top: -14 },
+    tent: { screen: { dx: 22, dy: -3 }, laptop: true, stands: false, chair: false, carry: [0x6f8a4a, 0x8aa65e], things: null, top: -24 },
+    box: { screen: { dx: 6, dy: -9 }, laptop: true, stands: false, chair: false, carry: [0xa07a4a, 0xc9a06a], things: { dx: 0, dy: 1 }, top: -14 },
+    beanbag: { screen: { dx: 22, dy: -4 }, laptop: true, stands: false, chair: false, carry: [0xc0584a, 0xd96a5a], things: { dx: 4, dy: 12 }, top: -14 },
     igloo: { screen: { dx: 6, dy: -10 }, stands: false, chair: false, carry: [0xc4d2de, 0xeef4f8], things: { dx: 0, dy: 0 }, top: -22 },
     van: { screen: { dx: 11, dy: -10 }, stands: false, chair: true, things: { dx: -1, dy: 0 }, top: -21 },
     cockpit: { screen: { dx: 6, dy: -10 }, stands: false, chair: false, carry: [0x3a3f4a, 0x8a93a3], things: { dx: 0, dy: 0 }, top: -24 },
@@ -3083,8 +3084,126 @@
 
     /* Desks, and what else an agent can work at */
 
-    /** A monitor from behind, its top-left at `x`, `y`: its screen faces whoever sits at it. */
+    /**
+     * The office's monitors besides the standard one, from behind, each at
+     * the top-left `x`, `y` of where a standard one goes, and where its
+     * screen is, if it isn't there: for the screen's light.
+     */
+    const MONITORS = {
+      /** CRT monitor. A deep beige case, vents on its back. */
+      crt: {
+        draw(x, y) {
+          fill(x, y, 13, 9, 0xcfc8b4); fill(x, y, 13, 1, 0xe2dccb); fill(x + 12, y, 1, 9, 0xa8a08a);
+          fill(x + 2, y + 2, 9, 6, 0xb8b09a); fill(x + 2, y + 2, 9, 1, 0xc8c0aa); for (const r of [4, 6]) fill(x + 4, y + r, 5, 1, 0x8a846f);
+          fill(x + 4, y + 9, 5, 1, 0xb8b09a); fill(x + 3, y + 10, 7, 1, 0xa8a08a);
+        },
+      },
+      /** Hologram screen. A pane of light over a projector puck; a scan line runs down it and it flickers now and then. */
+      holo: {
+        draw(x, y) {
+          const cyan = 0x4ad4e8, flicker = (now % 6) < 0.15 ? 0.4 : 1;
+          fill(x + 3, y + 9, 7, 2, 0x3a3f4a); fill(x + 4, y + 9, 5, 1, cyan);
+          fill(x, y, 13, 9, cyan, 0.14 * flicker); fill(x, y, 13, 1, cyan, 0.6 * flicker); fill(x, y + 8, 13, 1, cyan, 0.4 * flicker); fill(x, y, 1, 9, cyan, 0.5 * flicker); fill(x + 12, y, 1, 9, cyan, 0.5 * flicker);
+          fill(x + 1, y + 1 + (Math.floor(now * 6) % 7), 11, 1, cyan, 0.35 * flicker);
+        },
+      },
+      /** Ship's monitor. A wooden case with brass corners and rivets, on a brass post. */
+      brass: {
+        draw(x, y) {
+          fill(x, y, 13, 9, 0x6b4a2e); fill(x + 1, y + 1, 11, 7, 0x5a3b25);
+          for (const [dx, dy] of [[0, 0], [11, 0], [0, 7], [11, 7]]) fill(x + dx, y + dy, 2, 2, PALETTE.brass);
+          for (let k = 3; k < 11; k += 3) { dot(x + k, y, 0xa8894a); dot(x + k, y + 8, 0xa8894a); }
+          fill(x + 6, y + 9, 1, 1, PALETTE.brass); fill(x + 4, y + 10, 5, 1, 0x9a7a3a);
+        },
+      },
+      /** Crystal ball. Purple mist swirls inside, on a claw stand. Its light is a ring round it. */
+      crystal: {
+        screen: (x, y) => ({ x: x + 2, y, w: 9, h: 9, round: true }),
+        draw(x, y) {
+          const cx = x + 6, cy = y + 4;
+          fill(cx - 5, cy - 5, 11, 11, 0x9a6ad0, 0.08);
+          disc(cx, cy, 4.3, 0x4a2a7a); disc(cx, cy, 3.3, 0x6a3fb5);
+          for (let k = 0; k < 3; k++) { const a = now * 1.4 + (k * Math.PI * 2) / 3; dot(cx + Math.round(Math.cos(a) * 2), cy + Math.round(Math.sin(a) * 1.5), 0xd0a0ff); }
+          dot(cx - 2, cy - 2, WHITE, 0.8); dot(cx - 1, cy - 3, WHITE, 0.4);
+          fill(x + 3, y + 8, 7, 2, 0x3a3a40); dot(x + 3, y + 7, 0x3a3a40); dot(x + 9, y + 7, 0x3a3a40); fill(x + 2, y + 10, 9, 1, 0x2a2a2e);
+        },
+      },
+      /** Gilt-framed screen. Gold frame, red velvet back, a crest. */
+      gilt: {
+        draw(x, y) {
+          fill(x, y, 13, 9, PALETTE.brass); fill(x + 12, y, 1, 9, 0x9a7a3a); fill(x, y + 8, 13, 1, 0x9a7a3a); fill(x, y, 13, 1, 0xf2d38a);
+          fill(x + 1, y + 1, 11, 7, 0x5a1e2a); fill(x + 5, y + 3, 3, 3, PALETTE.brass); dot(x + 6, y + 6, PALETTE.brass); dot(x + 6, y + 4, 0xd4140b);
+          fill(x + 6, y + 9, 1, 1, PALETTE.brass); fill(x + 4, y + 10, 5, 1, PALETTE.brass); dot(x + 3, y + 10, 0x9a7a3a); dot(x + 9, y + 10, 0x9a7a3a);
+        },
+      },
+      /** Frozen monitor. Frosted over, icicles hanging; a drop falls now and then. */
+      ice: {
+        draw(x, y) {
+          fill(x, y, 13, 9, 0x9ec4d8); fill(x + 1, y + 1, 11, 7, 0x7aa4bc); fill(x, y, 13, 1, 0xdcebf4);
+          for (const [dx, dy] of [[1, 1], [2, 2], [10, 1], [11, 2], [1, 6], [11, 6], [6, 3]]) dot(x + dx, y + dy, WHITE, 0.7);
+          for (const [dx, len] of [[1, 1], [3, 2], [9, 1], [11, 2]]) fill(x + dx, y + 9, 1, len, 0xcfe3ef, 0.85);
+          const drop = (now % 3) / 3; if (drop < 0.4) dot(x + 3, y + 11 + Math.round(drop * 5), 0xcfe3ef, 0.8);
+          fill(x + 5, y + 9, 3, 2, 0x8ab0c4);
+        },
+      },
+      /** Curved ultrawide. Wider than the desk's usual, its back lit round the colour wheel. */
+      ultrawide: {
+        screen: (x, y) => ({ x: x - 3, y: y + 1, w: 19, h: 8 }),
+        draw(x, y) {
+          fill(x - 2, y + 1, 17, 1, PALETTE.monitor); fill(x - 3, y + 2, 19, 7, PALETTE.monitor); fill(x - 2, y + 2, 17, 6, PALETTE.monitorPanel);
+          for (let k = 0; k < 15; k++) dot(x - 1 + k, y + 5, rainbow((now * 0.25 + k / 15) % 1));
+          fill(x + 5, y + 9, 3, 1, PALETTE.monitorStand); fill(x + 2, y + 10, 9, 1, PALETTE.monitorStand);
+        },
+      },
+      /** Two monitors. Side by side on one arm. */
+      dual: {
+        draw(x, y) {
+          for (const mx of [x - 5, x + 7]) { fill(mx, y + 1, 11, 8, PALETTE.monitor); fill(mx + 1, y + 2, 9, 6, PALETTE.monitorPanel); }
+          fill(x + 6, y + 4, 1, 6, PALETTE.monitorStand); fill(x + 4, y + 10, 5, 1, PALETTE.monitorStand);
+        },
+      },
+      /** Rugged laptop. Rubber corners and stickers on its lid. */
+      laptop: {
+        screen: (x, y) => ({ x, y: y + 1, w: 13, h: 8 }),
+        draw(x, y) {
+          fill(x, y + 1, 13, 8, 0x3a3f36); fill(x + 1, y + 2, 11, 6, 0x4a5240);
+          for (const [dx, dy] of [[0, 1], [11, 1], [0, 7], [11, 7]]) fill(x + dx, y + dy, 2, 2, 0xe0703a);
+          dot(x + 4, y + 3, 0xeae6dc); fill(x + 3, y + 4, 3, 1, 0xeae6dc); disc(x + 8, y + 5, 1, 0xf2d35b); fill(x + 3, y + 6, 2, 1, 0x4ad4e8);
+          fill(x - 1, y + 9, 15, 1, PALETTE.keys);
+        },
+      },
+      /** Bamboo-framed screen. Framed in cane, a vine curling round it, its leaves stirring. */
+      bamboo: {
+        draw(x, y) {
+          fill(x - 1, y - 1, 15, 11, 0xa8a050); fill(x - 1, y - 1, 15, 1, 0xc8c070); for (const [dx, dy] of [[-1, 4], [13, 4], [6, -1], [6, 9]]) dot(x + dx, y + dy, 0x6a6430);
+          fill(x, y, 13, 9, PALETTE.monitor); fill(x + 1, y + 1, 11, 7, PALETTE.monitorPanel);
+          const sway = Math.round(Math.sin(now * 1.2) * 0.6);
+          fill(x - 2, y - 1, 3, 1, PALETTE.leaf); dot(x - 1, y - 2, PALETTE.leafDark); dot(x + 13, y + 2 + sway, PALETTE.leaf); fill(x + 13, y + 5, 2, 1, PALETTE.leafDark); dot(x + 14 + sway, y + 7, PALETTE.leaf);
+          fill(x + 5, y + 10, 3, 1, 0x8a8440);
+        },
+      },
+      /** Tablet on an arm. On a gooseneck, a towel over its corner. */
+      tablet: {
+        screen: (x, y) => ({ x: x + 1, y: y + 1, w: 11, h: 7 }),
+        draw(x, y) {
+          for (const [dx, dy] of [[12, 10], [13, 9], [13, 8], [12, 7], [11, 6]]) dot(x + dx, y + dy, 0x5a5f6c);
+          fill(x + 11, y + 10, 3, 1, 0x3a3d47);
+          fill(x + 1, y + 1, 11, 7, 0x1d1f25); fill(x + 2, y + 2, 9, 5, 0x2a2d35);
+          fill(x + 8, y, 5, 2, 0xe8e4da); fill(x + 11, y + 2, 2, 3, 0xe8e4da); dot(x + 11, y + 2, 0xc8c4ba);
+        },
+      },
+      /** Portrait monitor. Turned on its side for long code. */
+      portrait: {
+        screen: (x, y) => ({ x: x + 2, y: y - 4, w: 9, h: 13 }),
+        draw(x, y) {
+          fill(x + 2, y - 4, 9, 13, PALETTE.monitor); fill(x + 3, y - 3, 7, 11, PALETTE.monitorPanel); fill(x + 5, y + 9, 3, 2, PALETTE.monitorStand);
+        },
+      },
+    };
+
+    /** A monitor from behind, its top-left at `x`, `y`: its screen faces whoever sits at it. The office's own, if it has one. */
     function drawMonitor(x, y) {
+      if (MONITORS[decor.monitor]) return MONITORS[decor.monitor].draw(x, y);
       fill(x, y, 13, 9, PALETTE.monitor);
       fill(x + 1, y + 1, 11, 7, PALETTE.monitorPanel);
       fill(x + 5, y + 9, 3, 2, PALETTE.monitorStand);
@@ -5163,19 +5282,31 @@
     function drawScreenLight(desk) {
       const session = sessionAt(desk);
       if (!session) return;
-      // The screen's top-left, wherever the desk has it
-      const { screen } = WORKSPACES[workspaceOf(session, desk)];
-      const x = DESKS[desk].x + screen.dx, y = DESKS[desk].y + screen.dy;
+      // The screen's top-left, wherever the desk has it, and its size: a laptop's, or the office's monitor's, or two of them
+      const workspace = WORKSPACES[workspaceOf(session, desk)];
+      const at = { x: DESKS[desk].x + workspace.screen.dx, y: DESKS[desk].y + workspace.screen.dy };
+      const monitor = !workspace.laptop && MONITORS[decor.monitor];
+      const screens = [].concat(monitor && monitor.screen ? monitor.screen(at.x, at.y) : { ...at, w: 13, h: 9 });
+      const { x, y } = screens[0];
       const blinkedOff = session.state === 'asking' && Math.floor(now * 2) % 2 === 1;
       // A command running turns the screen terminal-green.
       const shell = session.state === 'thinking' && toolKind(session.tool) === 'shell';
       const light = shell ? PALETTE.terminal
         : session.state === 'idle' || blinkedOff ? PALETTE.monitorOn : colour(session.state);
 
-      if (session.state !== 'idle') fill(x - 3, y - 3, 19, 14, light, 0.12);
-      fill(x - 1, y - 1, 15, 1, light);
-      fill(x - 1, y, 1, 9, light);
-      fill(x + 13, y, 1, 9, light);
+      for (const { x: left, y: top, w, h, round } of screens) {
+        if (round) {
+          // A ring round a round one
+          const cx = left + (w - 1) / 2, cy = top + (h - 1) / 2;
+          if (session.state !== 'idle') disc(cx, cy, w / 2 + 2, light, 0.12);
+          ring(cx, cy, w / 2 + 0.5, light);
+          continue;
+        }
+        if (session.state !== 'idle') fill(left - 3, top - 3, w + 6, h + 5, light, 0.12);
+        fill(left - 1, top - 1, w + 2, 1, light);
+        fill(left - 1, top, 1, h, light);
+        fill(left + w, top, 1, h, light);
+      }
 
       if (shell) {
         // Lines of output, scrolling up

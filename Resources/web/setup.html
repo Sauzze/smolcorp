@@ -395,6 +395,7 @@
         <div class="field"><span>Sound</span><div class="choices" id="room-sound"></div></div>
         <div class="field stacked"><span>Everyone works at</span><div class="tiles small" id="room-workspace"></div></div>
         <div class="field"><span>Desks</span><div class="choices" id="room-desk"></div></div>
+        <div class="field"><span>Monitors</span><div class="choices" id="room-monitor"></div></div>
         <div class="field"><span>Chairs</span><div class="choices" id="room-chair"></div></div>
         <div class="field"><span>Office staff</span><div class="choices" id="room-staff"></div></div>
         <p class="hint">How the office looks and sounds on your phone and on a screen of its own. Point at a piece to see it move. A project can work somewhere of its own, on its card under Your team. Sound starts with your first tap. The preview shows the office while you change it.</p>
@@ -1015,6 +1016,9 @@
       ['hover', 'A hover desk'], ['chest', 'A sea chest'], ['gilded', 'A gilded desk'], ['crates', 'Expedition cases'],
       ['altar', 'A stone altar'], ['log', 'A log desk'], ['bench', 'A workbench'], ['bamboo', 'A bamboo desk'], ['rack', 'A weight rack'],
       ['drafting', 'A drafting table'], ['glass', 'A glass desk']],
+    monitor: [['standard', 'Standard'], ['crt', 'CRT'], ['holo', 'Hologram'], ['brass', "Ship's monitor"], ['crystal', 'Crystal ball'],
+      ['gilt', 'Gilt frame'], ['ice', 'Frozen'], ['ultrawide', 'Curved ultrawide'], ['dual', 'Two monitors'], ['laptop', 'Rugged laptop'],
+      ['bamboo', 'Bamboo frame'], ['tablet', 'Tablet on an arm'], ['portrait', 'Turned on its side']],
     chair: [['teal', 'Teal', '#3f7080'], ['black', 'Black', '#353842'], ['red', 'Red', '#9a3c3a'], ['grey', 'Grey', '#737987'],
       ['green', 'Green', '#3f7a4c']],
     staff: [['some', 'A few'], ['none', 'None'], ['many', 'Lots']],
@@ -1034,9 +1038,9 @@
     ['blind', 'Bamboo blind window'], ['cabin', 'Cabin window'], ['trail', 'Trail map'], ['paddles', 'Crossed paddles']];
   const STANDARD_ROOM = { mic: 'mic', wall: ['window', 'whiteboard', 'window', 'pinboard', 'window'], floor: 'wood', paint: 'slate',
     lounge: 'navy', corner: 'arcade', sky: 'live', pet: 'none', season: 'calendar', sound: 'off', desk: 'wood', workspace: 'desk',
-    chair: 'teal', staff: 'some', preset: 'yours' };
+    monitor: 'standard', chair: 'teal', staff: 'some', preset: 'yours' };
   /** What a style furnishes, as office.js has it: changing one of these goes back to Yours. */
-  const STYLED = new Set(['mic', 'wall', 'floor', 'paint', 'lounge', 'corner', 'pet', 'desk', 'workspace', 'chair', 'staff']);
+  const STYLED = new Set(['mic', 'wall', 'floor', 'paint', 'lounge', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff']);
   let peekOffice = false; // the preview shows the office while it's being furnished
 
   /* Your team: how each project's agent looks, the choices office.js draws
@@ -1229,7 +1233,7 @@
       edit();
       if (STYLED.has(part)) room.preset = 'yours';
     }, true);
-    for (const part of ['mic', 'floor', 'paint', 'lounge', 'sky', 'season', 'pet', 'sound', 'desk', 'chair', 'staff']) {
+    for (const part of ['mic', 'floor', 'paint', 'lounge', 'sky', 'season', 'pet', 'sound', 'desk', 'monitor', 'chair', 'staff']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label, swatch]) =>
         choice(label, room[part] === id, () => furnish(() => { room[part] = id; }, part), swatch)));
     }

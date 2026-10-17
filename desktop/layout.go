@@ -60,10 +60,10 @@ func (k *KeyCount) UnmarshalJSON(data []byte) error {
 // lounge's carpet and the piece in its corner, whether the sky keeps the
 // computer's time or it's always day, its pet, whether the windows follow the
 // seasons, how loud it is, the desks' finish, what everyone works at (a desk,
-// a tent, a throne…) and the chairs' colour, how many of its own staff hang
-// about, the style it's in (Yours, or one that furnishes it for you), your
-// team, the dress code, and where everything goes, as the Mac app's
-// Room. office.js draws it, with the same choices. Anything unknown, or of the wrong kind, is
+// a tent, a throne…), the monitors and the chairs' colour, how many of its
+// own staff hang about, the style it's in (Yours, or one that furnishes it
+// for you), your team, the dress code, and where everything goes, as the Mac
+// app's Room. office.js draws it, with the same choices. Anything unknown, or of the wrong kind, is
 // as standard: it only changes how the room looks.
 type Room struct {
 	Mic       string   `json:"mic"`
@@ -78,6 +78,7 @@ type Room struct {
 	Sound     string   `json:"sound"`
 	Desk      string   `json:"desk"`
 	Workspace string   `json:"workspace"`
+	Monitor   string   `json:"monitor"`
 	Chair     string   `json:"chair"`
 	Staff     string   `json:"staff"`
 	Preset    string   `json:"preset"`
@@ -290,6 +291,7 @@ var (
 		"sound":     {"off", "quiet", "normal"},
 		"desk":      {"wood", "walnut", "white", "black"},
 		"workspace": workspaces,
+		"monitor":   {"standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet", "portrait"},
 		"chair":     {"teal", "black", "red", "grey", "green"},
 		"staff":     {"some", "none", "many"},
 		"preset":    roomStyles,
@@ -314,7 +316,8 @@ func (r *Room) UnmarshalJSON(data []byte) error {
 	json.Unmarshal(raw["wall"], &wall)
 	*r = Room{Mic: text(raw["mic"]), Floor: text(raw["floor"]), Paint: text(raw["paint"]), Lounge: text(raw["lounge"]),
 		Corner: text(raw["corner"]), Sky: text(raw["sky"]), Pet: text(raw["pet"]), Season: text(raw["season"]), Sound: text(raw["sound"]),
-		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Chair: text(raw["chair"]), Staff: text(raw["staff"]),
+		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Monitor: text(raw["monitor"]), Chair: text(raw["chair"]),
+		Staff:  text(raw["staff"]),
 		Preset: text(raw["preset"])}
 	for _, place := range wall {
 		r.Wall = append(r.Wall, text(place))
@@ -353,7 +356,8 @@ func (r Room) checked() Room {
 	checked := Room{Mic: choose("mic", r.Mic), Floor: choose("floor", r.Floor), Paint: choose("paint", r.Paint),
 		Lounge: choose("lounge", r.Lounge), Corner: choose("corner", r.Corner), Sky: choose("sky", r.Sky),
 		Pet: choose("pet", r.Pet), Season: choose("season", r.Season), Sound: choose("sound", r.Sound),
-		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Chair: choose("chair", r.Chair),
+		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Monitor: choose("monitor", r.Monitor),
+		Chair: choose("chair", r.Chair),
 		Staff: choose("staff", r.Staff), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked(),
 		Plan: r.Plan.checked()}
 	for i := range checked.Wall {

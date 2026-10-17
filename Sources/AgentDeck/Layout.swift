@@ -85,9 +85,9 @@ struct Layout: Codable, Equatable {
 /// lounge's carpet and the piece in its corner, whether the sky keeps the
 /// computer's time or it's always day, its pet, whether the windows follow
 /// the seasons, how loud it is, the desks' finish, what everyone works at (a
-/// desk, a tent, a throne…) and the chairs' colour, how many of its own staff
-/// hang about, the style it's in (Yours, or one that furnishes it for you),
-/// your team, the dress code, and where everything goes. office.js
+/// desk, a tent, a throne…), the monitors and the chairs' colour, how many of
+/// its own staff hang about, the style it's in (Yours, or one that furnishes
+/// it for you), your team, the dress code, and where everything goes. office.js
 /// draws it, with the same choices. Anything unknown, or of the wrong kind, is
 /// as standard: it only changes how the room looks.
 struct Room: Codable, Equatable {
@@ -103,6 +103,7 @@ struct Room: Codable, Equatable {
     var sound = "off"
     var desk = "wood"
     var workspace = "desk"
+    var monitor = "standard"
     var chair = "teal"
     var staff = "some"
     var preset = "yours"
@@ -134,6 +135,8 @@ struct Room: Codable, Equatable {
         "sound": ["off", "quiet", "normal"],
         "desk": ["wood", "walnut", "white", "black"],
         "workspace": Room.workspaces,
+        "monitor": ["standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet",
+                    "portrait"],
         "chair": ["teal", "black", "red", "grey", "green"],
         "staff": ["some", "none", "many"],
         "preset": Room.presets,
@@ -172,6 +175,7 @@ struct Room: Codable, Equatable {
         sound = choice(.sound) ?? sound
         desk = choice(.desk) ?? desk
         workspace = choice(.workspace) ?? workspace
+        monitor = choice(.monitor) ?? monitor
         chair = choice(.chair) ?? chair
         staff = choice(.staff) ?? staff
         preset = choice(.preset) ?? preset
