@@ -92,4 +92,13 @@ final class TerminalDriverTests: XCTestCase {
         XCTAssertFalse(DeckRouter.hasSmuggledHookHeader(hook(["accept"])), "only the hook's own headers matter")
         XCTAssertFalse(DeckRouter.hasSmuggledHookHeader(hook([])))
     }
+
+    func testASessionFoundByItsFolderMovesToTerminalsTabOnceListed() {
+        let sessions = Sessions()
+        sessions.apply(["session_id": "codex", "hook_event_name": "SessionStart", "source": "startup", "cwd": "/w"],
+                       agent: .codex, tab: "other:/dev/ttys007", startedIn: "/w", at: 1)
+        XCTAssertEqual(Terminals.abilities(of: sessions["codex"]!.tab), .none, "watched until Terminal lists the tab")
+        sessions.retag("other:/dev/ttys007", as: "tty:/dev/ttys007")
+        XCTAssertEqual(sessions["codex"]?.tab, "tty:/dev/ttys007")
+    }
 }

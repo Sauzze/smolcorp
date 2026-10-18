@@ -438,6 +438,16 @@ final class Sessions {
         if changed { onChange() }
     }
 
+    /// Moves the sessions known by `tab` to `address`, the same tab known better.
+    func retag(_ tab: String, as address: String) {
+        var changed = false
+        for session in byID.values where session.tab == tab {
+            session.tab = address
+            changed = true
+        }
+        if changed { onChange() }
+    }
+
     /// Drops sessions whose tab has closed. An agent killed along with its tab
     /// never sends SessionEnd. Each is remembered for a while, in case it's
     /// heard from again: see `revive(_:)`.

@@ -13,7 +13,8 @@
 #
 #   claude --settings build/test-support/claude-settings.json
 #
-# Quit it from its menu bar icon, or with: pkill -f "Smolcorp Test.app"
+# Quit it from its menu bar icon. Running this again replaces the copy on
+# the same port, and only that one.
 
 set -euo pipefail
 
@@ -48,7 +49,13 @@ settings = {"hooks": {event: [{"hooks": [handler]}] for event in events}}
 json.dump(settings, open(f"{support}/claude-settings.json", "w"), indent=2)
 PY
 
-pkill -f "Smolcorp Test.app/Contents/MacOS" 2>/dev/null || true
+# Only the test copy on this port, from this folder: another session's copy,
+# on its own port, is left alone.
+for pid in $(lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null); do
+  case "$(ps -o command= -p "$pid")" in
+    *"Smolcorp Test.app/Contents/MacOS/"*) kill "$pid" ;;
+  esac
+done
 open -n --env "SMOLCORP_TEST_PORT=$PORT" --env "SMOLCORP_TEST_SUPPORT_DIR=$SUPPORT" "$APP"
 echo "Smolcorp Test is opening on port $PORT, with its settings in $SUPPORT."
 echo "A Claude session that reports to it: claude --settings $SUPPORT/claude-settings.json"

@@ -140,7 +140,10 @@ final class Deck {
         guard let id = event["session_id"] as? String, sessions[id] == nil,
               let name = agent.processName, let folder = event["cwd"] as? String else { return "" }
         let taken = Set(sessions.all.compactMap { Terminals.ttyInAddress(of: $0.tab) })
-        return Processes.tty(of: name, in: folder, excluding: taken).map { TabAddress.terminalApp(tty: $0).text } ?? ""
+        guard let tty = Processes.tty(of: name, in: folder, excluding: taken) else { return "" }
+        // A Terminal.app tab only if Terminal listed it at its last look; any
+        // other is watched until it does (see `pruneClosedTabs`).
+        return terminalTTYs.contains(tty) ? TabAddress.terminalApp(tty: tty).text : "other:\(tty)"
     }
 
     private func changed() {
@@ -475,7 +478,10 @@ final class Deck {
         // selected now — and even if that session has since gone.
         if action == "mic" && query["phase"] != "down" { return releaseMic(done: done) }
         // A new hire has no session yet, and a swap is of two desks.
-        if action == "hire" { return hire(at: query["desk"], as: query["role"], done: done) }
+        if action == "hire" {
+            guard !TestCopy.isOn else { return done(.status(409, TestCopy.Refused.hiring.localizedDescription)) }
+            return hire(at: query["desk"], as: query["role"], done: done)
+        }
         if action == "swap" { return done(swapKeys(query)) }
         if action == "style" { return done(setStyle(query["preset"])) }
         if action == "music" { return done(playMusic(query["do"] ?? "playpause")) }
@@ -552,6 +558,8 @@ final class Deck {
             type(text, to: session, done: done)
         case "effort":
             guard agent.hasEffortDial else { return done(.status(400, "\(agent.name) has no effort setting")) }
+            // Set by typing /effort, which a terminal Smolcorp can only watch can't take.
+            guard terminal(of: session, for: .text) != nil else { return done(.status(409, Deck.notHere)) }
             guard let level = query["level"], Deck.effortLevels.contains(level) else { return done(.status(400, "Unknown level")) }
             // ☢ Max says so, where the dial reaching max doesn't: the office
             // only sends its agent to the button for a press.
@@ -920,6 +928,8 @@ final class Deck {
                 let closed = missing.intersection(self.missedOnce)
                 self.missedOnce = missing.subtracting(closed)
                 self.terminalTTYs = open.union(self.missedOnce)
+                // A session found by its folder before Terminal had listed its tab is on Terminal's tab after all.
+                for tty in open { self.sessions.retag("other:\(tty)", as: TabAddress.terminalApp(tty: tty).text) }
                 // Only Terminal.app's tabs are looked at here: its tab list is what says one has closed.
                 let terminalTTY = { (tab: String) -> String? in TabAddress(tab).flatMap { $0.kind == "tty" ? $0.id : nil } }
                 // A hire's tab closed, seen open before or not: no tty used again later takes its desk or role.
@@ -947,18 +957,25 @@ final class Deck {
         }
     }
 
-    /// Sessions in tabs of other terminals, as tmux panes and iTerm2 sessions,
-    /// whose terminal can say whether a tab is still there: gone at two looks
-    /// in a row, they go. Unknown is not the same as gone.
+    /// Sessions in tabs of other terminals: tmux panes and iTerm2 sessions,
+    /// whose terminal says whether a tab is still there, and those Smolcorp
+    /// can only watch, whose agent no longer running on their tty means it
+    /// has ended. Gone at two looks in a row, they go. Unknown is not the
+    /// same as gone.
     private func pruneClosedPanes() {
-        let tabs = sessions.all.compactMap { session -> (String, TabAddress, TerminalDriver)? in
-            guard let tab = TabAddress(session.tab), tab.kind != "tty", let driver = Terminals.driver(for: tab) else { return nil }
-            return (session.tab, tab, driver)
+        let tabs = sessions.all.compactMap { session -> (tab: String, isGone: () -> Bool)? in
+            guard let address = TabAddress(session.tab), address.kind != "tty" else { return nil }
+            if let driver = Terminals.driver(for: address) {
+                return (session.tab, { driver.isOpen(address) == false })
+            }
+            guard let tty = Terminals.ttyInAddress(of: session.tab) else { return nil }
+            let names = session.agent.runningNames
+            return (session.tab, { Terminal.isRunning(any: names, on: tty) == false })
         }
         guard !tabs.isEmpty, !checkingPanes else { return }
         checkingPanes = true
         Terminal.queue.async {
-            let gone = Set(tabs.filter { $0.2.isOpen($0.1) == false }.map(\.0))
+            let gone = Set(tabs.filter { $0.isGone() }.map(\.tab))
             DispatchQueue.main.async {
                 self.checkingPanes = false
                 let closed = gone.intersection(self.panesMissedOnce)

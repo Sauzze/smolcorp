@@ -84,6 +84,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     @objc private func installScreenSaver() {
         do {
+            // The installed screen saver is the copy in use's: a test copy would put its own over it.
+            guard !TestCopy.isOn else { throw TestCopy.Refused.screenSaver }
             try ScreenSaver.install()
         } catch {
             let alert = NSAlert()

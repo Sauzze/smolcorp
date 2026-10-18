@@ -17,6 +17,18 @@ enum TestCopy {
     static let support: URL? = ProcessInfo.processInfo.environment["SMOLCORP_TEST_SUPPORT_DIR"]
         .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
     static var isOn: Bool { port != nil }
+
+    /// What a test copy leaves to the copy in use.
+    enum Refused: LocalizedError {
+        case screenSaver, hiring
+
+        var errorDescription: String? {
+            switch self {
+            case .screenSaver: return "This is a test copy of Smolcorp: the screen saver installed is the real one's."
+            case .hiring: return "This is a test copy of Smolcorp: a hire's agent would report to the real one, so it doesn't hire."
+            }
+        }
+    }
 }
 
 enum Paths {
