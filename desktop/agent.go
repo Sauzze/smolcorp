@@ -90,6 +90,14 @@ func (a Agent) foregroundName() string {
 	return string(a)
 }
 
+// runningNames is what the agent may show as among its pane's processes,
+// for telling it still runs there: its own name, or the runtime it was
+// installed to run on, as Claude Code from npm shows as node and Grok CLI as
+// bun.
+func (a Agent) runningNames() []string {
+	return []string{a.foregroundName(), "node", "bun"}
+}
+
 // agentOf says which agent sent event. The hook names it, except for Grok:
 // it also runs Claude Code's hooks, and tells itself apart by its camelCase
 // envelope.

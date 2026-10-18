@@ -62,6 +62,11 @@ enum Agent: String, CaseIterable {
     /// which is enough inside the agent's own tab.
     var foregroundName: String { processName ?? "node" }
 
+    /// What the agent may show as among its tab's processes, for telling it
+    /// still runs there: its own name, or the runtime it was installed to run
+    /// on, as Claude Code from npm shows as node and Grok CLI as bun.
+    var runningNames: Set<String> { [foregroundName, "node", "bun"] }
+
     /// Which agent sent `event`. The hook script names it, except for Grok:
     /// it also runs Claude Code's hooks, and tells itself apart by its
     /// camelCase envelope.

@@ -564,7 +564,7 @@ var errAgentGone = errors.New("the agent no longer runs in its pane")
 func (d *Deck) toAgent(name string, agent Agent, op func(Tab) error) (int, string) {
 	return d.inTab(name, func(t Tab) error {
 		if pane, ok := t.(commandTab); ok {
-			if running, known := pane.runs(agent.foregroundName()); known && !running {
+			if running, known := pane.runs(agent.runningNames()...); known && !running {
 				return errAgentGone
 			}
 		}
@@ -883,7 +883,7 @@ func (d *Deck) applyQueuedEffort() {
 			d.work <- func() {
 				// Not into a pane its agent has left: see toAgent.
 				if pane, ok := tab.(commandTab); ok {
-					if running, known := pane.runs(agent.foregroundName()); known && !running {
+					if running, known := pane.runs(agent.runningNames()...); known && !running {
 						return
 					}
 				}

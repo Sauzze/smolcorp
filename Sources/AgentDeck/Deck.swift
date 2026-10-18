@@ -776,10 +776,10 @@ final class Deck {
     /// to the shell, where its keys would land and a button's text would run
     /// as a command, or to whatever runs there next: its session goes instead.
     private func toAgent(_ session: Session, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
-        let tty = session.tty, name = session.agent.foregroundName
+        let tty = session.tty, names = session.agent.runningNames
         Terminal.queue.async {
             // Unknown is not the same as gone: the keys go as they always did.
-            guard Terminal.isRunning(name, on: tty) != false else {
+            guard Terminal.isRunning(any: names, on: tty) != false else {
                 return DispatchQueue.main.async {
                     self.sessions.prune(closedTTYs: [tty])
                     done(.status(410, "That agent has ended."))
@@ -808,11 +808,11 @@ final class Deck {
     private func applyQueuedEffort() {
         for session in sessions.all where !session.pendingEffort.isEmpty && !session.isBusy {
             let level = session.pendingEffort
-            let tty = session.tty, name = session.agent.foregroundName
+            let tty = session.tty, names = session.agent.runningNames
             session.pendingEffort = ""
             Terminal.queue.async {
                 // Not into a tab its agent has left: see `toAgent`.
-                guard Terminal.isRunning(name, on: tty) != false, Terminal.type("/effort \(level)", tty: tty) else { return }
+                guard Terminal.isRunning(any: names, on: tty) != false, Terminal.type("/effort \(level)", tty: tty) else { return }
                 DispatchQueue.main.async {
                     session.effort = level
                     self.changed()

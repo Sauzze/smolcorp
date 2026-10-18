@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -101,12 +102,12 @@ func (t commandTab) output(args ...string) ([]byte, error) {
 	return output, nil
 }
 
-// runs says whether a process called name runs in the pane, as the Mac app
+// runs says whether a process called any of names runs in the pane, as the Mac app
 // asks of a Terminal tab, and whether that could be known at all: an agent
 // that crashed, or was killed, leaves its pane to the shell, which keys
 // meant for it must not reach. Unknown is not the same as gone.
-func (t commandTab) runs(name string) (running, known bool) {
-	var names []string
+func (t commandTab) runs(names ...string) (running, known bool) {
+	var found []string
 	switch t.kind {
 	case "tmux", "wezterm":
 		tty := t.tty()
@@ -120,7 +121,7 @@ func (t commandTab) runs(name string) (running, known bool) {
 		if err != nil && !(errors.As(err, &none) && none.Exited() && len(output) == 0) {
 			return false, false // ps exits 1 when nothing runs on the tty: that's an answer
 		}
-		names = strings.Fields(string(output))
+		found = strings.Fields(string(output))
 	case "kitty":
 		output, err := t.output("ls", "--match", "id:"+t.id)
 		if err != nil {
@@ -139,30 +140,30 @@ func (t commandTab) runs(name string) (running, known bool) {
 		if json.Unmarshal(output, &windows) != nil {
 			return false, false
 		}
-		found := false
+		seen := false
 		for _, w := range windows {
 			for _, tab := range w.Tabs {
 				for _, window := range tab.Windows {
 					if fmt.Sprint(window.ID) != t.id {
 						continue
 					}
-					found = true
+					seen = true
 					for _, p := range window.Processes {
 						if len(p.Cmdline) > 0 {
-							names = append(names, p.Cmdline[0])
+							found = append(found, p.Cmdline[0])
 						}
 					}
 				}
 			}
 		}
-		if !found {
+		if !seen {
 			return false, false
 		}
 	default:
 		return false, false
 	}
-	for _, n := range names {
-		if filepath.Base(n) == name {
+	for _, n := range found {
+		if slices.Contains(names, filepath.Base(n)) {
 			return true, true
 		}
 	}

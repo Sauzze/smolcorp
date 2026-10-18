@@ -73,6 +73,20 @@ func TestKeysGoToAPaneOnlyWhileItsAgentRunsThere(t *testing.T) {
 	}
 }
 
+func TestAnAgentRunningOnNodeIsStillThere(t *testing.T) {
+	// Claude Code installed from npm shows as node in its pane, Grok CLI as bun.
+	for _, shows := range []string{"bash\nnode\n", "bash\n/usr/local/bin/bun\n"} {
+		_, typed := fakePane(t, shows)
+		d := paneDeck(t)
+		if status, message := d.Perform("down", "p1", url.Values{}); status != http.StatusNoContent || !strings.Contains(typed(), "Down") {
+			t.Fatalf("with the agent showing as %q, a key gave %d %q", strings.Fields(shows)[1], status, message)
+		}
+		if d.sessions.Get("p1") == nil {
+			t.Fatalf("a live agent showing as %q was taken as ended", strings.Fields(shows)[1])
+		}
+	}
+}
+
 func TestAPaneThatCantBeAskedStillGetsItsKeys(t *testing.T) {
 	_, typed := fakePane(t, "bash\n")
 	d := paneDeck(t)
@@ -107,7 +121,7 @@ JSON
 		id             string
 		running, known bool
 	}{{"3", true, true}, {"4", false, true}, {"9", false, false}} {
-		running, known := commandTab{kind: "kitty", id: c.id, socket: "unix:/tmp/kitty"}.runs("claude")
+		running, known := commandTab{kind: "kitty", id: c.id, socket: "unix:/tmp/kitty"}.runs(Claude.runningNames()...)
 		if running != c.running || known != c.known {
 			t.Errorf("kitty window %s: running %v, known %v; want %v, %v", c.id, running, known, c.running, c.known)
 		}
