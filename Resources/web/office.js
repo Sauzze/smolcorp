@@ -2800,6 +2800,8 @@
    * scroll sends nothing.
    */
   const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired'];
+  /** How long the question before firing ignores taps, in seconds: a double tap that opened it doesn't answer it too. */
+  const FIRE_QUESTION_SETTLES = 0.5;
   const ROW_KEYS = [
     { action: 'esc', label: 'esc' }, { action: 'send', icon: 'send' }, { action: 'clear', label: '/clear', confirm: true },
     { action: 'up', icon: 'up' }, { action: 'down', icon: 'down' },
@@ -10414,7 +10416,7 @@
     let chipDown = null;     // the last paint chip tapped: { level, at, held }
     // A desk held down: { kind: 'session', id } for its agent, or { kind: 'empty', desk } for a hire
     let held = null;
-    let firing = null;       // an agent about to be fired, while the question is up: { id, name }
+    let firing = null;       // an agent about to be fired, while the question is up: { id, name, at }
     let carrying = null;     // an agent carried to another desk: { person, from, x, y, over }
     let styling = false;     // the styles' panel is up
     let music = null;        // what the computer says of its music, with the jukebox on: { playing: true | false | null }
@@ -10711,6 +10713,7 @@
       }
       // While the question is up, its keys are all there is; a tap anywhere else keeps them on.
       if (firing) {
+        if (clock() - firing.at < FIRE_QUESTION_SETTLES) return null;
         for (const key of fireDialog().keys) consider({ kind: key.action }, { left: key.x, right: key.x + key.w, top: key.y, bottom: key.y + key.h }, -1);
         return best ? best.target : { kind: 'keep' };
       }
@@ -10864,7 +10867,7 @@
       if (target.kind === 'fire') {
         const seat = office.seats.find((s) => s.session && s.session.id === holding.id);
         // Asked about by the name on their desk: a nickname, or their project's.
-        if (seat) firing = { id: holding.id, name: memberOf(seat.session)?.name || seat.session.name };
+        if (seat) firing = { id: holding.id, name: memberOf(seat.session)?.name || seat.session.name, at: clock() };
         return on.held?.();
       }
       if (target.kind === 'hire') return on.hire?.(holding.desk, null);
