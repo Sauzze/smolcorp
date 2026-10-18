@@ -125,13 +125,42 @@ project folder, as it does for Codex; with `opencode --standalone`, they run
 in your tab and it's found at once. Either way, run one OpenCode per project
 folder for the deck to tell them apart.
 
+## Terminals
+
+Smolcorp follows sessions in any terminal on your Mac, and drives these:
+
+| Terminal | Keys and mic | Needs |
+|---|---|---|
+| **Terminal** | ✓, also behind other windows and while the Mac is locked | Accessibility |
+| **iTerm2** | ✓ | Allow Smolcorp to control iTerm when macOS asks |
+| **Ghostty** 1.3 or later | ✓ | Allow Smolcorp to control Ghostty when macOS asks |
+| **tmux**, in any terminal | ✓ | nothing |
+| **WezTerm** | ✓ | nothing |
+| **kitty** | ✓ | `allow_remote_control socket-only` and `listen_on unix:/tmp/kitty` in kitty.conf |
+
+Keys, the mic and typed commands reach the agent without bringing its window
+forward, so the phone works while you're in another app, under the screen
+saver and with the Mac locked. In iTerm2, Ghostty, tmux, WezTerm and kitty
+that needs no Accessibility at all.
+
+- **Ghostty 1.3** can't tell Smolcorp which window a session is in, so
+  Smolcorp finds it by the session's folder: run one Ghostty window per
+  project folder, or hire into Ghostty from the office. Until it's found, the
+  desk shows what the agent is doing, without the controls.
+- **Other terminals** (VS Code, Cursor, Alacritty, Warp): their sessions get a
+  desk that shows what they're doing, with no controls. To control one of
+  these agents, run it inside tmux.
+- **Hiring** opens new hires in Terminal, iTerm2 or Ghostty, as you choose on
+  the setup page, and with **Start inside tmux**, in a tmux session of their own.
+
 ## What you need
 
 - A Mac running macOS 13 or later. On Windows or Linux, see
   [Windows and Linux](#windows-and-linux-preview).
-- One or more of the [supported agents](#supported-agents), running in the
-  **Terminal** app. Sessions in other terminal apps (iTerm, Ghostty, VS Code…)
-  don't appear on the deck, because its buttons can only reach Terminal.
+- One or more of the [supported agents](#supported-agents), running in
+  Terminal, iTerm2, Ghostty, WezTerm or kitty, or in tmux inside any terminal
+  (see [Terminals](#terminals)). Sessions in other terminals (VS Code,
+  Alacritty, Warp…) show on the deck, but can't be controlled from it.
 - A phone on the same Wi-Fi as your Mac
 
 ## Install
@@ -649,8 +678,12 @@ Read the key again after Smolcorp restarts.
 ## Troubleshooting
 
 **The desks stay empty.** Click **Connect** on the setup page, then restart your
-agent sessions. On a Mac, they need to run in the Terminal app. On Windows and
-Linux, start them with `smolcorp run`, or in tmux, WezTerm or kitty.
+agent sessions. On Windows and Linux, start them with `smolcorp run`, or in
+tmux, WezTerm or kitty.
+
+**A desk has no controls.** Its session runs in a terminal Smolcorp can only
+watch (see [Terminals](#terminals)), or in Ghostty in a folder where more than
+one Ghostty window is open. In kitty, check the two lines in kitty.conf.
 
 **Codex sessions don't appear.** Run `/hooks` in Codex and trust Smolcorp's
 hook. Codex skips new hooks until you do.
@@ -734,20 +767,25 @@ at each step of a session, through its hooks: Claude Code's
 [hooks](https://code.claude.com/docs/en/hooks), and the matching settings in
 Codex, Gemini CLI and Grok. OpenCode has no command hooks, so a small plugin
 ([`Resources/opencode-plugin.js`](Resources/opencode-plugin.js)) runs the same
-script. The script tells Smolcorp what happened and which Terminal tab it
-happened in. Smolcorp reads each agent's events in that agent's terms,
+script. The script tells Smolcorp what happened and which terminal tab it
+happened in: a Terminal tab, an iTerm2 session, a Ghostty window, or a tmux,
+WezTerm or kitty pane. Smolcorp reads each agent's events in that agent's terms,
 works out each session's state and streams it to your phone. On Windows and
 Linux, `smolcorp hook` does the script's job, and names the launcher, tmux
 pane or terminal window instead of a Terminal tab.
 
-On the Mac, controls work in one of three ways:
+On the Mac, each terminal is driven its own way: Terminal, iTerm2 and
+Ghostty through their scripting, tmux, WezTerm and kitty through their own
+command line tools. In Terminal:
 
 - **Typed commands** such as `/effort` and `/clear` are typed into the tab
   through Terminal's scripting.
-- **Keys and scrolling** are sent as ordinary keystrokes. Scrolling uses
+- **Keys** are sent to Terminal itself, after its tab is put first among
+  Terminal's windows without bringing Terminal forward. **Scrolling** uses
   Terminal's own View → Line Up and Line Down, so it moves the window's view
-  and the agent receives nothing.
-- **Hiring** opens a new Terminal window through Terminal's scripting, in the
+  and the agent receives nothing; it brings the window forward, and doesn't
+  work while the Mac is locked.
+- **Hiring** opens a new window of the terminal you chose, in the
   folder you chose, with the agent's own command. A role's hire runs a short
   script that removes itself, then starts the role's agent with its model,
   effort and first message, each quoted for the shell. **Firing** stops the agent's
