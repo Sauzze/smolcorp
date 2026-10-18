@@ -11,6 +11,15 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+# A release is built from what's committed, and nothing else: no changes
+# waiting, and no stray files, ignored or not, beside the pages it seals in.
+if [ -n "$(git status --porcelain)" ] || [ -n "$(git ls-files --others --ignored --exclude-standard Resources/web)" ]; then
+  echo "Commit or set aside these first: a release is built from what's committed."
+  git status --short
+  git ls-files --others --ignored --exclude-standard Resources/web
+  exit 1
+fi
 scripts/build-app.sh universal
 
 ZIP="build/Smolcorp.zip"
