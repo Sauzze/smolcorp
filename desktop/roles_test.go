@@ -200,9 +200,30 @@ func TestSetupKeepsTheRolesItIsGiven(t *testing.T) {
 }
 
 func TestCmdExeStartsAScriptWhosePathHasASpace(t *testing.T) {
+	// As cross-spawn escapes it for Node, checked against its own code.
 	got := cmdLine(`C:\Windows\System32\cmd.exe`, `C:\Users\Jean Dupont\AppData\Roaming\npm\codex.cmd`,
 		[]string{"--model", "o4", "Ask which folder to work in", ""})
-	want := `"C:\Windows\System32\cmd.exe" /s /c ""C:\Users\Jean Dupont\AppData\Roaming\npm\codex.cmd" --model o4 "Ask which folder to work in" """`
+	want := `"C:\Windows\System32\cmd.exe" /d /s /c "C:\Users\Jean^ Dupont\AppData\Roaming\npm\codex.cmd ` +
+		`^^^"--model^^^" ^^^"o4^^^" ^^^"Ask^^^ which^^^ folder^^^ to^^^ work^^^ in^^^" ^^^"^^^""`
+	if got != want {
+		t.Fatalf("the command line is\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestCmdExeActsOnNothingInAnArgument(t *testing.T) {
+	// Each of cmd.exe's characters is passed on, and quotes reach the agent as quotes.
+	got := cmdLine("cmd.exe", `C:\npm\claude.cmd`, []string{`say "hi" & exit`, "100%", "a|b<c>d^e"})
+	want := `"cmd.exe" /d /s /c "C:\npm\claude.cmd ^^^"say^^^ \^^^"hi\^^^"^^^ ^^^&^^^ exit^^^" ^^^"100^^^%^^^" ^^^"a^^^|b^^^<c^^^>d^^^^e^^^""`
+	if got != want {
+		t.Fatalf("the command line is\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestBackslashesBeforeAQuoteAreDoubled(t *testing.T) {
+	// Two backslashes, then a quote: four, then an escaped quote, so the argument
+	// reads as two backslashes and a quote rather than ending there.
+	got := cmdLine("cmd.exe", `C:\npm\gemini.bat`, []string{`two \\" end`, `ends \`})
+	want := `"cmd.exe" /d /s /c "C:\npm\gemini.bat ^"two^ \\\\\^"^ end^" ^"ends^ \\^""`
 	if got != want {
 		t.Fatalf("the command line is\n%s\nwant\n%s", got, want)
 	}

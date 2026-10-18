@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -140,24 +141,41 @@ func resolveProgram(name string, args []string) (string, []string, error) {
 }
 
 // cmdLine is the command line that has cmd.exe start a .cmd script with its
-// arguments. With /s, cmd.exe takes off just the quotes around all the rest,
-// so a script whose path has a space, as under C:\Users\Jean Dupont, and an
-// argument with one, as a role's message always has, both come through. The
-// usual quoting, with no /s, has cmd.exe take off the first and the last quote
-// on the line, which split the script's path at its space.
+// arguments, escaped as cross-spawn escapes them for Node on Windows
+// (github.com/moxystudio/node-cross-spawn, lib/util/escape.js):
+//
+//   - each argument is quoted, with its quotes and the backslashes before
+//     them escaped as programs' own parsing reads them;
+//   - cmd.exe's own characters, as & | < > ^ % and quotes, are each preceded
+//     by ^, so cmd.exe passes them on rather than acting on them; twice for a
+//     .cmd script, as npm's are, which hand %* to cmd.exe a second time;
+//   - /d skips AutoRun, and with /s cmd.exe takes off just the quotes
+//     around all the rest.
+//
+// So a script under a user folder with a space, as C:\Users\Jean Dupont, and
+// an argument with quotes or & in it both come through as they were.
 func cmdLine(shell, script string, args []string) string {
-	quoted := func(arg string) string {
-		if arg == "" || strings.ContainsAny(arg, " \t") {
-			return `"` + arg + `"`
-		}
-		return arg
-	}
-	line := quoted(script)
+	twice := strings.EqualFold(filepath.Ext(script), ".cmd")
+	line := cmdEscaped(script)
 	for _, arg := range args {
-		line += " " + quoted(arg)
+		arg = cmdQuotes.ReplaceAllString(arg, `$1$1\"`)
+		arg = cmdTrailingBackslashes.ReplaceAllString(arg, `$1$1`)
+		arg = cmdEscaped(`"` + arg + `"`)
+		if twice {
+			arg = cmdEscaped(arg)
+		}
+		line += " " + arg
 	}
-	return `"` + shell + `" /s /c "` + line + `"`
+	return `"` + shell + `" /d /s /c "` + line + `"`
 }
+
+var (
+	cmdMeta                = regexp.MustCompile(`([()\][%!^"` + "`" + `<>&|;, *?])`)
+	cmdQuotes              = regexp.MustCompile(`(\\*)"`)
+	cmdTrailingBackslashes = regexp.MustCompile(`(\\*)$`)
+)
+
+func cmdEscaped(s string) string { return cmdMeta.ReplaceAllString(s, "^$1") }
 
 // roleArguments are the agent and its arguments for the role with the id
 // given, as set up on the setup page.
