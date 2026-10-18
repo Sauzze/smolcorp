@@ -132,12 +132,32 @@ enum Terminal {
         withTab(tty, do: "do script (item 2 of argv) in t", extra: [text])
     }
 
-    /// Brings the tab forward and presses `key`, `times` times. Posting keys
-    /// needs Accessibility permission.
+    /// Presses `key`, `times` times, in the tab without bringing Terminal
+    /// forward: the tab is selected and its window put first among
+    /// Terminal's, which makes it the one Terminal gives keys to, and the keys
+    /// are posted to Terminal itself. So they reach the agent with Terminal
+    /// behind other apps, under the screen saver and with the Mac locked, and
+    /// never the app in front or the lock screen. Needs Accessibility.
     static func press(_ key: Key, modifiers: CGEventFlags = [], times: Int = 1, tty: String) -> Bool {
-        guard focus(tty: tty), waitUntilFrontmost() else { return false }
+        guard withTab(tty, do: "set selected of t to true\nset index of w to 1"),
+              let terminal = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else { return false }
+        Thread.sleep(forTimeInterval: settle)
+        post(key, modifiers: modifiers, times: times, to: terminal)
+        return true
+    }
+
+    /// Brings the tab forward and presses `key` in it, through the keyboard's
+    /// own path: for Terminal's menu shortcuts, as scrolling uses. Never while
+    /// the Mac is locked, when the app in front is the lock screen.
+    private static func pressInFront(_ key: Key, modifiers: CGEventFlags = [], times: Int = 1, tty: String) -> Bool {
+        guard !isLocked, focus(tty: tty), waitUntilFrontmost() else { return false }
         post(key, modifiers: modifiers, times: times)
         return true
+    }
+
+    /// Whether the Mac is locked, as under a screen saver that asks for the password.
+    static var isLocked: Bool {
+        (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] != nil
     }
 
     /// Scrolls the tab's window by `lines`, up when negative, with the View
@@ -152,10 +172,10 @@ enum Terminal {
         guard count > 0 else { return true }
         let key: Key = lines < 0 ? .pageUp : .pageDown
         let modifiers: CGEventFlags = [.maskCommand, .maskAlternate]
-        if let last = lastScroll, last.tty == tty, Date().timeIntervalSince(last.at) < scrollGesture, isFrontmost {
+        if let last = lastScroll, last.tty == tty, Date().timeIntervalSince(last.at) < scrollGesture, isFrontmost, !isLocked {
             post(key, modifiers: modifiers, times: count)
         } else {
-            guard press(key, modifiers: modifiers, times: count, tty: tty) else { return false }
+            guard pressInFront(key, modifiers: modifiers, times: count, tty: tty) else { return false }
         }
         lastScroll = (tty, Date())
         return true
@@ -163,7 +183,7 @@ enum Terminal {
 
     /// The View menu's Scroll to Bottom (⌘End): back to where the agent is.
     static func scrollToBottom(tty: String) -> Bool {
-        press(.end, modifiers: .maskCommand, tty: tty)
+        pressInFront(.end, modifiers: .maskCommand, tty: tty)
     }
 
     /// Opens a new window in `folder`, running `command`, and gives its
@@ -318,12 +338,13 @@ enum Terminal {
         NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID
     }
 
-    private static func post(_ key: Key, modifiers: CGEventFlags, times: Int) {
+    /// Posts `key` to the app in front, or, given `pid`, to that app alone.
+    private static func post(_ key: Key, modifiers: CGEventFlags, times: Int, to pid: pid_t? = nil) {
         for _ in 0..<times {
             for down in [true, false] {
                 let event = CGEvent(keyboardEventSource: nil, virtualKey: key.rawValue, keyDown: down)
                 if !modifiers.isEmpty { event?.flags = modifiers }
-                event?.post(tap: .cghidEventTap)
+                if let pid { event?.postToPid(pid) } else { event?.post(tap: .cghidEventTap) }
             }
         }
     }

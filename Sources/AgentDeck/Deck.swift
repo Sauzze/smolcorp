@@ -486,8 +486,9 @@ final class Deck {
 
     static let effortLevels = ["low", "medium", "high", "xhigh", "max"]
 
-    /// Runs one of the phone's controls on a session. Keys bring its tab
-    /// forward, since they need it focused; typed commands do not.
+    /// Runs one of the phone's controls on a session, through its terminal's
+    /// driver: none brings the tab forward but focusing and Terminal.app's
+    /// scrolling.
     func perform(_ action: String, on id: String, query: [String: String], done: @escaping (Response) -> Void) {
         // Releasing the mic stops recording where it started, whatever is
         // selected now — and even if that session has since gone.
