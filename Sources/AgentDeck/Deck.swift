@@ -958,18 +958,20 @@ final class Deck {
     }
 
     /// Sessions in tabs of other terminals: tmux panes and iTerm2 sessions,
-    /// whose terminal says whether a tab is still there, and those Smolcorp
-    /// can only watch, whose agent no longer running on their tty means it
-    /// has ended. Gone at two looks in a row, they go. Unknown is not the
+    /// closed or with their agent gone from them, and those Smolcorp can only
+    /// watch, whose agent no longer running on their tty means it has ended. Gone at two looks in a row, they go. Unknown is not the
     /// same as gone.
     private func pruneClosedPanes() {
         let tabs = sessions.all.compactMap { session -> (tab: String, isGone: () -> Bool)? in
             guard let address = TabAddress(session.tab), address.kind != "tty" else { return nil }
+            let names = session.agent.runningNames
             if let driver = Terminals.driver(for: address) {
-                return (session.tab, { driver.isOpen(address) == false })
+                // Closed, or open with its agent gone from it, as after a crash.
+                return (session.tab, {
+                    driver.isOpen(address) == false || driver.tty(of: address).flatMap { Terminal.isRunning(any: names, on: $0) } == false
+                })
             }
             guard let tty = Terminals.ttyInAddress(of: session.tab) else { return nil }
-            let names = session.agent.runningNames
             return (session.tab, { Terminal.isRunning(any: names, on: tty) == false })
         }
         guard !tabs.isEmpty, !checkingPanes else { return }

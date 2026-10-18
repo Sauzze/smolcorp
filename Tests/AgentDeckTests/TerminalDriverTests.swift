@@ -77,7 +77,8 @@ final class TerminalDriverTests: XCTestCase {
     func testOnlyAddressesInTheirOwnShape() {
         for bad in ["tty:/dev/ttys003\r\nX-AgentDeck-Tab: tty:/dev/ttys004", "tty:/etc/passwd", "tty:/dev/../ttys1", "/dev/ttys00 3",
                     "tmux:3@/tmp/s", "tmux:%3x@/tmp/s", "tmux:%3@/tmp/s\n", "kitty:3a@unix:/tmp/k", "wezterm:@/tmp/w",
-                    "iterm:BD22\")", "ghostty:/dev/../x", "other:ttys005"] {
+                    "iterm:BD22\")", "ghostty:/dev/../x", "other:ttys005",
+                    "tmux:%3", "tmux:%3@", "kitty:3", "iterm:\u{FF11}\u{FF12}"] {
             XCTAssertNil(TabAddress(bad), bad)
         }
     }

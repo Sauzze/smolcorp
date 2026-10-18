@@ -76,7 +76,8 @@ if [ -n "$tty" ]; then
   # own and point the session at another tab, isn't believed.
   if [ -n "$TMUX_PANE" ]; then
     socket="${TMUX%%,*}"
-    if [[ "$TMUX_PANE" =~ ^%[0-9]+$ ]] && clean "$socket"; then tab="tmux:$TMUX_PANE@$socket"; else tab="other:$tty"; fi
+    # Without its socket, a pane number could be another server's pane.
+    if [[ "$TMUX_PANE" =~ ^%[0-9]+$ ]] && [ -n "$socket" ] && clean "$socket"; then tab="tmux:$TMUX_PANE@$socket"; else tab="other:$tty"; fi
   elif [ -n "$WEZTERM_PANE" ]; then
     if [[ "$WEZTERM_PANE" =~ ^[0-9]+$ ]] && clean "$WEZTERM_UNIX_SOCKET"; then tab="wezterm:$WEZTERM_PANE@$WEZTERM_UNIX_SOCKET"; else tab="other:$tty"; fi
   elif [ -n "$KITTY_WINDOW_ID" ] && [ -n "$KITTY_LISTEN_ON" ]; then

@@ -39,7 +39,7 @@ struct TabAddress: Hashable {
             guard TabAddress.isTTY(String(rest)) else { return nil }
             self.init(kind: kind, id: String(rest))
         } else if kind == "iterm" {
-            guard rest.allSatisfy({ $0.isHexDigit || $0 == "-" }) else { return nil }
+            guard rest.allSatisfy({ $0.isASCII && ($0.isHexDigit || $0 == "-") }) else { return nil }
             self.init(kind: kind, id: String(rest))
         } else {
             let at = rest.firstIndex(of: "@")
@@ -48,6 +48,8 @@ struct TabAddress: Hashable {
             let digits = (kind == "tmux" ? id.dropFirst() : id[...])
             guard !digits.isEmpty, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber),
                   kind != "tmux" || id.hasPrefix("%") else { return nil }
+            // tmux's and kitty's panes are only known with their server's socket.
+            guard !["tmux", "kitty"].contains(kind) || !socket.isEmpty else { return nil }
             self.init(kind: kind, id: id, socket: socket)
         }
     }

@@ -49,8 +49,8 @@ settings = {"hooks": {event: [{"hooks": [handler]}] for event in events}}
 json.dump(settings, open(f"{support}/claude-settings.json", "w"), indent=2)
 PY
 
-# Only the test copy on this port, from this folder: another session's copy,
-# on its own port, is left alone.
+# Only the test copy on this port: another session's copy, on its own port,
+# is left alone.
 for pid in $(lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null); do
   case "$(ps -o command= -p "$pid")" in
     *"Smolcorp Test.app/Contents/MacOS/"*) kill "$pid" ;;

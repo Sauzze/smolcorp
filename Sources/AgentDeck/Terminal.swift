@@ -259,6 +259,12 @@ enum Terminal {
     /// Terminal starts each tab's shell under `login`, and a job is any
     /// process group in front of that shell.
     static func foreground(tty: String) -> Foreground? {
+        foreground(tty: tty, shell: nil)
+    }
+
+    /// As above, for a tab whose shell isn't started under `login`, as a tmux
+    /// pane's: `shell` is the process the pane was started with.
+    static func foreground(tty: String, shell given: pid_t?) -> Foreground? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", "pid=,ppid=,pgid=,tpgid=,comm="]
@@ -279,7 +285,8 @@ enum Terminal {
         let logins = Set(rows.filter { $0.name == "login" }.map(\.pid))
         // A tab with no shell of Terminal's own, such as a profile running a
         // command of its own, can't be told apart from what runs in it.
-        guard let shell = rows.first(where: { logins.contains($0.ppid) }) else { return nil }
+        let found = given.map { pid in rows.first { $0.pid == pid } } ?? rows.first { logins.contains($0.ppid) }
+        guard let shell = found else { return nil }
         guard tpgid > 0, tpgid != shell.pgid else { return .shell }
         return .job(tpgid, names: Set(rows.filter { $0.pgid == tpgid }.map(\.name)))
     }

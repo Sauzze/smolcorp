@@ -104,7 +104,10 @@ struct Tmux: TerminalDriver {
     /// deck can bring forward.
     func focus(_ tab: TabAddress) -> Bool {
         guard ran(tab, ["select-window", "-t", tab.id]), ran(tab, ["select-pane", "-t", tab.id]) else { return false }
-        if let client = run(tab, ["list-clients", "-F", "#{client_tty}"])?.output.split(separator: "\n").first.map(String.init) {
+        // The tab showing this pane's own session, not the server's first client.
+        if let session = run(tab, ["display-message", "-p", "-t", tab.id, "#{session_id}"]), session.status == 0,
+           let client = run(tab, ["list-clients", "-t", session.output, "-F", "#{client_tty}"])?.output
+               .split(separator: "\n").first.map(String.init) {
             _ = Terminal.focus(tty: client) || ITerm().focus(tty: client)
         }
         return true
@@ -120,11 +123,36 @@ struct Tmux: TerminalDriver {
         return true
     }
 
+    /// As in Terminal.app: the agent is stopped first, then the pane closed.
+    /// A pane that runs anything else in front, as a dev server or an editor
+    /// started there after the agent crashed, is left as it is, and so is one
+    /// that can't be looked at.
     func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired {
         guard let open = isOpen(tab) else { return .notStopped }
         guard open else { return .gone }
+        guard let info = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_tty} #{pane_pid}"]), info.status == 0 else { return .notStopped }
+        let parts = info.output.split(separator: " ")
+        guard parts.count == 2, let pane = pid_t(parts[1]) else { return .notStopped }
+        let tty = String(parts[0]), ours = Set(agent.runningNames.map { $0.lowercased() })
+        switch Terminal.foreground(tty: tty, shell: pane) {
+        case nil:
+            return .notStopped
+        case .job(let job, let names)?:
+            guard names.contains(where: { ours.contains($0.lowercased()) }), Terminal.stop(job) else { return .notStopped }
+            // The agent has gone, and if another job has taken its place, the pane is that job's now.
+            if case .job? = Terminal.foreground(tty: tty, shell: pane) { return .fired }
+        case .shell?:
+            // The pane's own process is in front: its shell, or the agent when
+            // the pane was started with it. Anything else is someone's work.
+            guard let name = Tool.run("/bin/ps", ["-p", String(pane), "-o", "comm="])?.output else { return .notStopped }
+            let process = (name as NSString).lastPathComponent.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            guard ours.contains(process) || Tmux.shells.contains(process) else { return .notStopped }
+        }
         return ran(tab, ["kill-pane", "-t", tab.id]) ? .fired : .notStopped
     }
+
+    /// What a pane's own process is when it's only a shell.
+    static let shells: Set<String> = ["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "login"]
 
     func tty(of tab: TabAddress) -> String? {
         guard let tty = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_tty}"]), tty.status == 0, !tty.output.isEmpty else { return nil }
@@ -212,9 +240,17 @@ struct ITerm: TerminalDriver {
     /// doesn't ask about a job still running, then the session is closed.
     func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired {
         guard let tty = tty(of: tab) else { return isOpen(tab) == false ? .gone : .notStopped }
-        if case .job(let job, let names)? = Terminal.foreground(tty: tty) {
+        switch Terminal.foreground(tty: tty) {
+        case nil:
+            // Unknown is not the same as none: nothing is touched.
+            return .notStopped
+        case .job(let job, let names)?:
             let ours = Set(agent.runningNames.map { $0.lowercased() })
             guard names.contains(where: { ours.contains($0.lowercased()) }), Terminal.stop(job) else { return .notStopped }
+            // The agent has gone, and if another job has taken its place, the session is that job's now.
+            if case .job? = Terminal.foreground(tty: tty) { return .fired }
+        case .shell?:
+            break
         }
         return withSession(tab.id, "close s\nreturn \"ok\"") == "ok" ? .fired : .notStopped
     }
