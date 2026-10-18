@@ -10,8 +10,10 @@ final class Deck {
     private static let seenCheckInterval: TimeInterval = 1.5
     /// How often to look for tabs that closed without their session ending.
     private static let closedTabCheckInterval: TimeInterval = 10
-    /// How often to ping idle event streams so they stay open.
-    private static let pingInterval: TimeInterval = 20
+    /// How often to ping event streams: often enough that an idle one stays
+    /// open, as a browser may drop one that's quiet for a minute, and that
+    /// the page can tell a stream that died quietly.
+    private static let pingInterval: TimeInterval = 40
     /// How often to look whether music is playing, with the jukebox on.
     private static let musicInterval: TimeInterval = 3
     /// How soon after a change the sessions are saved, so a burst of events
