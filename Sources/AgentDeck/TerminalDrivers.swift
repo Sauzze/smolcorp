@@ -333,6 +333,14 @@ struct Ghostty: TerminalDriver {
         if candidates.count == 1 { known[tty] = candidates[0] }
     }
 
+    /// Takes `id` for the terminal on `tty`, as a hire's own window, where no
+    /// other tty has it already.
+    static func teach(tty: String, id: String) {
+        lock.lock(); defer { lock.unlock() }
+        guard known[tty] == nil, !known.values.contains(id) else { return }
+        known[tty] = id
+    }
+
     /// Forgets the terminal once its session has gone, as its tty may be another's next.
     static func forget(tty: String) {
         lock.lock(); defer { lock.unlock() }
@@ -568,4 +576,81 @@ struct Kitty: TerminalDriver {
         guard let answer = run(tab, ["ls", "--match", "id:\(tab.id)"]) else { return nil }
         return answer.status == 0
     }
+}
+
+/// Where hires open: a new window of the terminal chosen in setup, in the
+/// hire folder, running the agent or its role's start script. With "Start
+/// hires inside tmux", the agent runs in a tmux session of its own, which
+/// that window shows, so its keys and mic work whatever the terminal.
+enum Openers {
+    struct Choice {
+        let id: String, name: String, bundle: String
+    }
+
+    static let choices = [
+        Choice(id: "terminal", name: "Terminal", bundle: "com.apple.Terminal"),
+        Choice(id: "iterm", name: "iTerm2", bundle: "com.googlecode.iterm2"),
+        Choice(id: "ghostty", name: "Ghostty", bundle: "com.mitchellh.ghostty"),
+    ]
+
+    static func isInstalled(_ id: String) -> Bool {
+        guard let choice = choices.first(where: { $0.id == id }) else { return false }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: choice.bundle) != nil
+    }
+
+    /// Opens the hire's window and gives its tab as the deck will know it,
+    /// or nil if it didn't open. A Ghostty terminal's tab is given as
+    /// ghostty-id:<terminal>, its tty being known only once its session
+    /// reports. Off the main thread.
+    static func open(_ command: String, in folder: String, terminal: String, inTmux: Bool) -> String? {
+        guard inTmux, let tmux = Tmux.path else { return window(command, in: folder, terminal: terminal) }
+        // The agent's own tmux session, through your login shell, so it finds
+        // what your PATH finds; then a window showing it.
+        let name = "smolcorp-\(UUID().uuidString.prefix(8).lowercased())"
+        let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
+        guard let made = Tool.run(tmux, ["new-session", "-d", "-P", "-F", "#{pane_id} #{socket_path}", "-s", name, "-c", folder,
+                                         shell, "-lic", command]), made.status == 0 else { return nil }
+        let parts = made.output.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.count == 2, let attach = script("exec \(quoted(tmux)) -S \(quoted(parts[1])) attach -t \(quoted(name))"),
+              window(attach, in: folder, terminal: terminal) != nil else {
+            _ = Tool.run(tmux, ["kill-session", "-t", name])
+            return nil
+        }
+        return "tmux:\(parts[0])@\(parts[1])"
+    }
+
+    private static func window(_ command: String, in folder: String, terminal: String) -> String? {
+        switch terminal {
+        case "iterm":
+            return Terminal.run("""
+                tell application "iTerm"
+                    activate
+                    set w to (create window with default profile)
+                    tell current session of w to write text "cd " & quoted form of (item 1 of argv) & " && " & quoted form of (item 2 of argv)
+                    return "iterm:" & (unique ID of current session of w)
+                end tell
+                """, arguments: [folder, command]).flatMap { $0.hasPrefix("iterm:") ? $0 : nil }
+        case "ghostty":
+            return Terminal.run("""
+                tell application "Ghostty"
+                    activate
+                    set w to new window with configuration {initial working directory:(item 1 of argv), initial input:(quoted form of (item 2 of argv)) & linefeed}
+                    return "ghostty-id:" & (id of focused terminal of selected tab of w)
+                end tell
+                """, arguments: [folder, command]).flatMap { $0.hasPrefix("ghostty-id:") ? $0 : nil }
+        default:
+            return Terminal.open(command, in: folder).map { TabAddress.terminalApp(tty: $0).text }
+        }
+    }
+
+    /// A few lines for a hire's window to run once, which remove themselves as they run.
+    private static func script(_ line: String) -> String? {
+        try? FileManager.default.createDirectory(at: Paths.hires, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let url = Paths.hires.appendingPathComponent("attach-\(UUID().uuidString).sh")
+        guard FileManager.default.createFile(atPath: url.path, contents: Data("#!/bin/sh\nrm -f -- \"$0\"\n\(line)\n".utf8),
+                                             attributes: [.posixPermissions: 0o700]) else { return nil }
+        return url.path
+    }
+
+    private static func quoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 }

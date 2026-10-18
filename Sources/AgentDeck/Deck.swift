@@ -50,7 +50,7 @@ final class Deck {
     /// The tabs hires opened, waiting for their agent to report: the first
     /// session in the tab takes the role it was hired for, if any, and the
     /// desk it was hired at, with a set number of desks.
-    private var hiredTabs: [(tab: String, role: String?, desk: Int?, at: Date)] = []
+    private var hiredTabs: [(tab: String, role: String?, desk: Int?, at: Date, folder: String)] = []
     /// The tab recording started in, and when. One Mac, one microphone.
     private var micPress: (tab: String, at: Date)?
     /// When each session was last sent Return from the phone, so a tap that
@@ -124,6 +124,12 @@ final class Deck {
     private var learningGhostty: [String: Date] = [:]
     private func learnGhostty(_ tab: String, folder: String) {
         guard let address = TabAddress(tab), address.kind == "ghostty", Ghostty.id(on: address.id) == nil, !folder.isEmpty else { return }
+        // A Ghostty hire waiting in this folder, alone: its own terminal.
+        let hires = hiredTabs.filter { $0.tab.hasPrefix("ghostty-id:") && $0.folder == folder }
+        if hires.count == 1 {
+            Ghostty.teach(tty: address.id, id: String(hires[0].tab.dropFirst("ghostty-id:".count)))
+            if Ghostty.id(on: address.id) != nil { return changed() }
+        }
         // At most every few seconds: each try asks Ghostty about all its terminals.
         if let last = learningGhostty[address.id], Date().timeIntervalSince(last) < 5 { return }
         learningGhostty[address.id] = Date()
@@ -351,7 +357,9 @@ final class Deck {
         // the meantime, the hire sits at the first free one, as anyone would.
         hiredTabs.removeAll { Date().timeIntervalSince($0.at) > Deck.hiredTabWait }
         for session in remaining where !session.tab.isEmpty {
-            guard let i = hiredTabs.firstIndex(where: { $0.tab == session.tab }) else { continue }
+            // A Ghostty hire is known by its terminal, its tty only once its session reports.
+            let ghostty = TabAddress(session.tab).flatMap { $0.kind == "ghostty" ? Ghostty.id(on: $0.id) : nil }.map { "ghostty-id:\($0)" }
+            guard let i = hiredTabs.firstIndex(where: { $0.tab == session.tab || $0.tab == ghostty }) else { continue }
             let hired = hiredTabs.remove(at: i)
             if let role = hired.role, roleOf[session.id] == nil { roleOf[session.id] = role }
             if let desk = hired.desk { keyOf[session.id] = desk }
@@ -724,17 +732,21 @@ final class Deck {
             }
             command = script.path
         }
+        let terminal = Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal"
+        let inTmux = config.hireInTmux && Tmux.path != nil
+        let name = Openers.choices.first { $0.id == terminal }?.name ?? "Terminal"
         Terminal.queue.async {
-            let tty = Terminal.open(command, in: folder)
+            let tab = Openers.open(command, in: folder, terminal: terminal, inTmux: inTmux)
             DispatchQueue.main.async {
                 // Nobody was hired, so the next try needn't wait.
-                guard let tty else {
+                guard let tab else {
                     self.lastHire = nil
                     if role != nil { try? FileManager.default.removeItem(atPath: command) }
-                    return done(.status(500, "Terminal didn't open"))
+                    return done(.status(500, "\(name) didn't open"))
                 }
-                if !tty.isEmpty && (role != nil || held != nil) {
-                    self.hiredTabs.append((TabAddress.terminalApp(tty: tty).text, role?.id, held, Date()))
+                // Kept for the role and desk, and for a Ghostty hire, to know its terminal by.
+                if role != nil || held != nil || tab.hasPrefix("ghostty-id:") {
+                    self.hiredTabs.append((tab, role?.id, held, Date(), folder))
                 }
                 done(.status(204))
             }

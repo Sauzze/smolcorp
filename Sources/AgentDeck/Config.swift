@@ -26,6 +26,10 @@ final class Config: Codable {
     /// The folder new hires start in, and the agent they are.
     var hireFolder = ""
     var hireAgent = Agent.claude.rawValue
+    /// The terminal hires open in (see `Openers.choices`), and whether the
+    /// agent runs in a tmux session of its own there.
+    var hireTerminal = "terminal"
+    var hireInTmux = false
     /// The roles the office can hire, in the order the phone offers them:
     /// those that come with the app until you change them, and your own.
     var roles = Role.shipped
@@ -41,6 +45,7 @@ final class Config: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles
+        case hireTerminal, hireInTmux
         case musicEnabled, webhook, hasCompletedSetup
     }
 
@@ -73,6 +78,8 @@ final class Config: Codable {
         hiringEnabled = field(Bool.self, .hiringEnabled) ?? false
         hireFolder = field(String.self, .hireFolder) ?? ""
         hireAgent = field(String.self, .hireAgent).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
+        hireTerminal = field(String.self, .hireTerminal).flatMap { id in Openers.choices.contains { $0.id == id } ? id : nil } ?? hireTerminal
+        hireInTmux = field(Bool.self, .hireInTmux) ?? false
         // Checked as they load: their instructions go to agents.
         roles = field([Role].self, .roles).map(Role.checked) ?? roles
         musicEnabled = field(Bool.self, .musicEnabled) ?? false

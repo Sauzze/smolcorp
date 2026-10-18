@@ -281,9 +281,15 @@ final class DeckRouter: Router {
             }
             let agent = request.query["agent"]
             if let agent, Agent(rawValue: agent) == nil { return respond(.status(400, "Unknown agent")) }
+            let terminal = request.query["terminal"]
+            if let terminal, !Openers.isInstalled(terminal) { return respond(.status(400, "That terminal isn't on this Mac")) }
+            let tmux = request.query["tmux"]
+            if tmux == "1", Tmux.path == nil { return respond(.status(400, "tmux isn't on this Mac")) }
             if let enabled = request.query["enabled"] { config.hiringEnabled = enabled == "1" }
             if let folder { config.hireFolder = folder }
             if let agent { config.hireAgent = agent }
+            if let terminal { config.hireTerminal = terminal }
+            if let tmux { config.hireInTmux = tmux == "1" }
             config.save()
             deck.refresh()
             respond(.json(setupState()))
@@ -372,6 +378,10 @@ final class DeckRouter: Router {
             "hiring": [
                 "enabled": config.hiringEnabled, "folder": config.hireFolder, "agent": config.hireAgent,
                 "canHire": true, "canChoose": true,
+                // Where hires open: the terminals on this Mac that can open them, and tmux if it's there.
+                "terminal": Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal",
+                "terminals": Openers.choices.filter { Openers.isInstalled($0.id) }.map { ["id": $0.id, "name": $0.name] },
+                "tmux": config.hireInTmux && Tmux.path != nil, "hasTmux": Tmux.path != nil,
             ],
             // The roles, those that come with the app to go back to, and what a
             // role can be: its agent, whether that agent has an effort and

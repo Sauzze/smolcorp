@@ -145,6 +145,7 @@
   .role .body .choices { flex-wrap: wrap; justify-content: flex-end; }
   .role .body .choices canvas { image-rendering: pixelated; vertical-align: -3px; }
   .role textarea.questions { min-height: 72px; }
+  .hire-tmux { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); }
   .role textarea { width: 100%; min-height: 96px; resize: vertical; background: var(--cap); color: var(--ink); border: 1px solid var(--edge);
     border-radius: 6px; padding: 8px; font: 13px/1.45 system-ui, sans-serif; box-sizing: border-box; }
   .role .tools { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
@@ -374,6 +375,8 @@
             <input type="text" id="hire-folder" spellcheck="false" placeholder="~/Projects" aria-label="The folder new hires start in">
             <button class="btn" id="hire-choose">Choose…</button>
             <select id="hire-agent" aria-label="The agent to hire"></select>
+            <select id="hire-terminal" aria-label="The terminal hires open in" hidden></select>
+            <label class="hire-tmux" id="hire-tmux-label" hidden><input type="checkbox" id="hire-tmux"> Start inside tmux</label>
           </div>
         </div>
         <button class="switch" id="hiring" aria-label="Let the office hire and fire"></button>
@@ -763,6 +766,13 @@
     if (document.activeElement !== $('hire-folder')) $('hire-folder').value = h.folder;
     const agents = state.agents.length ? state.agents : [{ id: 'claude', name: 'Claude Code' }];
     $('hire-agent').replaceChildren(...agents.map((a) => new Option(a.name, a.id, false, a.id === h.agent)));
+    // Where hires open, where there's more than one terminal to choose from; tmux, where it's there.
+    const terminals = h.terminals || [];
+    $('hire-terminal').hidden = terminals.length < 2;
+    $('hire-terminal').replaceChildren(...terminals.map((t) => new Option(`Opens in ${t.name}`, t.id, false, t.id === h.terminal)));
+    $('hire-tmux-label').hidden = !h.hasTmux;
+    $('hire-tmux').checked = !!h.tmux;
+    $('hire-tmux-label').title = "The agent runs in a tmux session of its own, so its keys and mic work from the phone in any terminal.";
   }
 
   /** Names the agents found on this computer, and what connecting them takes. */
@@ -828,6 +838,8 @@
   };
   $('hire-choose').onclick = () => post('/setup/hiring/choose');
   $('hire-agent').onchange = () => post(`/setup/hiring?agent=${$('hire-agent').value}`);
+  $('hire-terminal').onchange = () => post(`/setup/hiring?terminal=${$('hire-terminal').value}`);
+  $('hire-tmux').onchange = () => post(`/setup/hiring?tmux=${$('hire-tmux').checked ? 1 : 0}`);
 
   /* ----------------------------------------------------------------- roles */
 
