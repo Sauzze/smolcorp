@@ -38,9 +38,10 @@ final class Deck {
     private var keyOf: [String: Int] = [:]
     /// The role each session was hired for, by the role's id.
     private var roleOf: [String: String] = [:]
-    /// The tabs hires with a role opened, waiting for their agent to report:
-    /// the first session in the tab takes the role.
-    private var hiredTabs: [(tty: String, role: String, at: Date)] = []
+    /// The tabs hires opened, waiting for their agent to report: the first
+    /// session in the tab takes the role it was hired for, if any, and the
+    /// desk it was hired at, with a set number of desks.
+    private var hiredTabs: [(tty: String, role: String?, desk: Int?, at: Date)] = []
     /// The tab recording started in, and when. One Mac, one microphone.
     private var micPress: (tty: String, at: Date)?
     private var checkingFront = false
@@ -292,10 +293,15 @@ final class Deck {
             if keyOf[new] == nil, let key = keyOf[old] { keyOf[new] = key }
             if roleOf[new] == nil, let role = roleOf[old] { roleOf[new] = role }
         }
-        // A hire's role goes to the first session in the tab it opened.
+        // A hire's role and desk go to the first session in the tab it opened.
+        // The desk is kept for it below if it's still free; if it was taken in
+        // the meantime, the hire sits at the first free one, as anyone would.
         hiredTabs.removeAll { Date().timeIntervalSince($0.at) > Deck.hiredTabWait }
-        for session in remaining where roleOf[session.id] == nil && !session.tty.isEmpty {
-            if let i = hiredTabs.firstIndex(where: { $0.tty == session.tty }) { roleOf[session.id] = hiredTabs.remove(at: i).role }
+        for session in remaining where !session.tty.isEmpty {
+            guard let i = hiredTabs.firstIndex(where: { $0.tty == session.tty }) else { continue }
+            let hired = hiredTabs.remove(at: i)
+            if let role = hired.role, roleOf[session.id] == nil { roleOf[session.id] = role }
+            if let desk = hired.desk { keyOf[session.id] = desk }
         }
         // A session dropped as its tab seemed to close keeps its key and role, should it come back.
         keyOf = keyOf.filter { live.contains($0.key) || sessions.wasDropped($0.key) }
@@ -589,12 +595,19 @@ final class Deck {
         let config = Config.shared
         guard config.hiringEnabled else { return done(.status(403, Deck.hiringOff)) }
         var pinned: String?
+        // With a set number of desks, any free one can be hired at, and the
+        // hire sits there; with Auto they stay packed, so it takes the first free.
+        var held: Int?
         if let desk {
             let (keys, _) = layout()
             // With Auto, the office also offers the desk after the last: a hire adds it.
             let next = config.layout.keys == .auto && keys.count < KeyCount.most ? keys.count : nil
             guard let index = Int(desk), keys.indices.contains(index) || index == next else { return done(.status(400, "Unknown desk")) }
             pinned = keys.indices.contains(index) ? keys[index].pin.flatMap(Deck.folder) : nil
+            if case .fixed = config.layout.keys, keys[index].pin == nil {
+                guard keys[index].session == nil else { return done(.status(409, "Someone's at that desk already.")) }
+                held = index
+            }
         }
         guard let folder = pinned ?? Deck.folder(config.hireFolder) else {
             return done(.status(409, "Choose a folder for new hires in setup, on your Mac."))
@@ -627,7 +640,7 @@ final class Deck {
                     if role != nil { try? FileManager.default.removeItem(atPath: command) }
                     return done(.status(500, "Terminal didn't open"))
                 }
-                if let role, !tty.isEmpty { self.hiredTabs.append((tty, role.id, Date())) }
+                if !tty.isEmpty && (role != nil || held != nil) { self.hiredTabs.append((tty, role?.id, held, Date())) }
                 done(.status(204))
             }
         }
