@@ -586,6 +586,10 @@ final class Deck {
     /// and desk: long enough for a trust prompt left waiting a while. Its tab
     /// closing ends the wait sooner, so a tty used again later can't take them.
     private static let hiredTabWait: TimeInterval = 15 * 60
+    /// Long enough for Terminal to list a tab a hire has just opened: a hire
+    /// whose tab isn't among Terminal's after this has closed, even if no
+    /// look ever saw it open.
+    private static let hiredTabListed: TimeInterval = 15
     private var lastHire: Date?
 
     /// A new Terminal window with the agent set up for new hires at work in
@@ -793,7 +797,8 @@ final class Deck {
     }
 
     private func pruneClosedTabs() {
-        guard !sessions.all.isEmpty, !checkingTabs else { return }
+        // Hires waiting for their agent are looked at too, sessions or not.
+        guard !sessions.all.isEmpty || !hiredTabs.isEmpty, !checkingTabs else { return }
         checkingTabs = true
         Terminal.queue.async {
             let open = Terminal.openTTYs()
@@ -806,7 +811,10 @@ final class Deck {
                 let closed = missing.intersection(self.missedOnce)
                 self.missedOnce = missing.subtracting(closed)
                 self.terminalTTYs = open.union(self.missedOnce)
-                self.hiredTabs.removeAll { closed.contains($0.tty) }
+                // A hire's tab closed, seen open before or not: no tty used again later takes its desk or role.
+                self.hiredTabs.removeAll {
+                    closed.contains($0.tty) || !open.contains($0.tty) && Date().timeIntervalSince($0.at) > Deck.hiredTabListed
+                }
                 let suspects = self.sessions.all.filter { closed.contains($0.tty) }.map { (tty: $0.tty, agent: $0.agent) }
                 guard !suspects.isEmpty else {
                     self.checkingTabs = false
