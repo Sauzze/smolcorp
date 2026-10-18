@@ -81,6 +81,7 @@ type Room struct {
 	Pet       []string `json:"pet"`
 	Season    string   `json:"season"`
 	Sound     string   `json:"sound"`
+	Ambience  string   `json:"ambience"` // the recorded keyboards, and talk at a desk, under the rest of the sound
 	Desk      string   `json:"desk"`
 	Workspace string   `json:"workspace"`
 	Monitor   string   `json:"monitor"`
@@ -307,6 +308,7 @@ var (
 		"sky":       {"live", "day"},
 		"season":    {"calendar", "off"},
 		"sound":     {"off", "quiet", "normal"},
+		"ambience":  {"on", "off"},
 		"desk":      {"wood", "walnut", "white", "black"},
 		"workspace": workspaces,
 		"monitor":   {"standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet", "portrait"},
@@ -339,7 +341,7 @@ func (r *Room) UnmarshalJSON(data []byte) error {
 	var wall []json.RawMessage
 	json.Unmarshal(raw["wall"], &wall)
 	*r = Room{Mic: text(raw["mic"]), Floor: text(raw["floor"]), Paint: text(raw["paint"]), Lounge: text(raw["lounge"]), LoungePaint: text(raw["loungePaint"]),
-		Corner: text(raw["corner"]), Sky: text(raw["sky"]), Season: text(raw["season"]), Sound: text(raw["sound"]),
+		Corner: text(raw["corner"]), Sky: text(raw["sky"]), Season: text(raw["season"]), Sound: text(raw["sound"]), Ambience: text(raw["ambience"]),
 		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Monitor: text(raw["monitor"]), Chair: text(raw["chair"]),
 		Staff:  text(raw["staff"]),
 		Preset: text(raw["preset"])}
@@ -387,7 +389,7 @@ func (r Room) checked() Room {
 	}
 	checked := Room{Mic: choose("mic", r.Mic), Floor: choose("floor", r.Floor), Paint: choose("paint", r.Paint),
 		Lounge: choose("lounge", r.Lounge), LoungePaint: choose("loungePaint", r.LoungePaint), Corner: choose("corner", r.Corner), Sky: choose("sky", r.Sky),
-		Pet: checkedPets(r.Pet), Season: choose("season", r.Season), Sound: choose("sound", r.Sound),
+		Pet: checkedPets(r.Pet), Season: choose("season", r.Season), Sound: choose("sound", r.Sound), Ambience: choose("ambience", r.Ambience),
 		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Monitor: choose("monitor", r.Monitor),
 		Chair: choose("chair", r.Chair),
 		Staff: choose("staff", r.Staff), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked(),

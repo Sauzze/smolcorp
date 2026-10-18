@@ -438,6 +438,8 @@
       'robodog', 'bat', 'snail', 'fox', 'axolotl'],
     season: ['calendar', 'off'],
     sound: ['off', 'quiet', 'normal'],
+    // The recorded keyboards and talk under the rest, while there's any sound
+    ambience: ['on', 'off'],
     desk: ['wood', 'walnut', 'white', 'black'],
     workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse',
       'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass'],
@@ -10188,13 +10190,28 @@
   const PET_CHATTY = 0.35;
 
   /**
+   * The two sounds the office has recorded rather than made, each one small
+   * file of takes in its own slots, served beside this script: `keys`, a
+   * mechanical keyboard's keys one at a time, the last two the space bar and
+   * enter; `talk`, two passages of people talking, too muffled to make out.
+   */
+  const RECORDINGS = { keys: { slot: 0.25, press: 0.17, big: 2 }, talk: { slot: 5.5, length: 5 } };
+  const RECORDINGS_FROM = (document.currentScript && document.currentScript.src) || location.href;
+  /** How loud a key is, and a desk's talk: well under everything else, a bed for it to sit on. */
+  const KEY_LEVEL = dB(-26);
+  const TALK_LEVEL = dB(-10);
+  /** How far ahead the keys are lined up, so a slow frame doesn't leave a gap. */
+  const KEYS_AHEAD = 0.2;
+
+  /**
    * The office's sound, in the style of an old console: the door, the coffee
    * machine, the ping-pong ball, an agent getting to work on their keyboard,
    * the pets and the seasons, a fanfare for a long turn done, and the red
    * button's blast and siren, with silence in between. All of it is made on
-   * the spot, with nothing to download. Browsers only let a page play sound once
-   * it's been tapped, so it wakes with the first tap, and it sleeps while the
-   * office is out of sight.
+   * the spot, but for a bed of real keyboards while agents work, and the
+   * murmur of a message taken to a desk. Browsers only let a page play sound
+   * once it's been tapped, so it wakes with the first tap, and it sleeps while
+   * the office is out of sight.
    */
   class Ambience {
     constructor() {
@@ -10212,6 +10229,9 @@
       this.mic = null;        // when the mic was last held and let go, heard
       this.carried = null;    // where the agent being carried is, as it's heard
       this.heard = new WeakMap(); // what's been played for each person: { arrived, celebrated, fired, out, working }
+      this.recorded = null;   // the recordings, { keys: { buffer, at }, talk }, once fetched; false if they can't be
+      this.typists = new WeakMap(); // each agent at their keyboard: { next, left }, their next key and the word's keys left after it
+      this.talks = new Map(); // each visit to a desk being heard, and its murmur: { source, gain }
     }
 
     /**
@@ -10246,6 +10266,111 @@
       limiter.release.value = 0.25;
       soft.connect(this.master).connect(limiter).connect(audio.destination);
       this.chip = new Chip(audio, soft);
+      this.fetchRecordings(win, audio);
+    }
+
+    /**
+     * The recordings, as AAC where it plays, which is everywhere but some
+     * Linux browsers, and as Opus there. Each key's press is found in its
+     * slot, as some decoders start a file a little later than others. Until
+     * they're in, or if they never are, an agent gets to work on the chip.
+     */
+    fetchRecordings(win, audio) {
+      const kind = win.document.createElement('audio').canPlayType('audio/mp4; codecs="mp4a.40.2"') ? 'm4a' : 'webm';
+      const fetched = (name) => win.fetch(new URL(`sounds/${name}.${kind}`, RECORDINGS_FROM))
+        .then((reply) => { if (!reply.ok) throw new Error(reply.status); return reply.arrayBuffer(); })
+        .then((data) => new Promise((done, failed) => audio.decodeAudioData(data, done, failed)));
+      Promise.all([fetched('keys'), fetched('talk')]).then(([keys, talk]) => {
+        const data = keys.getChannelData(0), slot = Math.round(RECORDINGS.keys.slot * keys.sampleRate);
+        let loudest = 0;
+        for (const v of data) loudest = Math.max(loudest, Math.abs(v));
+        const at = [];
+        for (let start = 0; start + slot <= data.length; start += slot) {
+          let i = start;
+          while (i < start + slot && Math.abs(data[i]) < loudest * 0.05) i++;
+          if (i < start + slot) at.push(Math.max(start, i - Math.round(0.003 * keys.sampleRate)) / keys.sampleRate);
+        }
+        this.recorded = at.length > RECORDINGS.keys.big ? { keys: { buffer: keys, at }, talk } : false;
+      }).catch(() => { this.recorded = false; });
+    }
+
+    /** Whether the recorded bed plays: once it's in, unless the room has it off. */
+    get ambient() {
+      return !!this.recorded && decor.ambience === 'on';
+    }
+
+    /** One key of the recorded keyboard at `at`, the `which`th, a little higher or lower and louder or softer each time. */
+    key(at, pan, which) {
+      const { buffer, at: starts } = this.recorded.keys;
+      const source = this.audio.createBufferSource();
+      source.buffer = buffer;
+      source.playbackRate.value = random(0.95, 1.05);
+      const gain = this.audio.createGain();
+      gain.gain.value = KEY_LEVEL * random(0.7, 1.4);
+      this.chip.route(source.connect(gain), pan);
+      source.start(Math.max(at, this.audio.currentTime), starts[which], RECORDINGS.keys.press);
+    }
+
+    /**
+     * Everyone working at their desk, typing: each at their own pace, in words
+     * of a few keys with a space between, now and then enter, and pauses to
+     * think. The more there are, the more each one pauses, so a full office
+     * is busier, not louder. Each is heard a little towards their desk.
+     */
+    type(office, t) {
+      const typing = this.ambient ? office.people.filter((p) => p.isAtDesk && !p.isWalking && p.session.state === 'thinking') : [];
+      const pace = 1 / Math.sqrt(Math.max(1, typing.length));
+      const keys = this.recorded && this.recorded.keys.at.length - RECORDINGS.keys.big;
+      for (const person of typing) {
+        let typist = this.typists.get(person);
+        // Starting, or back after the sound slept: a moment, then the first word
+        if (!typist || typist.next < t - 0.5) this.typists.set(person, typist = { next: t + random(0.2, 1.2), left: Math.floor(random(2, 8)) });
+        const pan = panAt(person.position.x) * 0.5;
+        while (typist.next < t + KEYS_AHEAD) {
+          if (typist.left > 0) {
+            this.key(typist.next, pan, Math.floor(Math.random() * keys));
+            typist.left--;
+            typist.next += random(0.07, 0.16);
+            continue;
+          }
+          // The word's end: the space bar, or enter and a longer think, then a pause before the next
+          const enter = Math.random() < 0.06;
+          this.key(typist.next, pan, keys + (enter ? 1 : 0));
+          const thinks = enter || Math.random() < 1 - pace * 0.85;
+          typist.next += thinks ? random(1.2, 3.5) : random(0.15, 0.4);
+          typist.left = Math.floor(random(2, 8));
+        }
+      }
+    }
+
+    /**
+     * A message taken over to a desk: the two of them talking there, for as
+     * long as the visit, fading in as it starts and out as it ends.
+     */
+    talk(office, t) {
+      const visits = new Map();
+      if (this.ambient) for (const p of office.people) if (p.visiting && p.visiting.until !== null && !p.isWalking) visits.set(p.visiting, p);
+      for (const [visit, heard] of this.talks) {
+        if (visits.has(visit)) continue;
+        heard.gain.gain.setTargetAtTime(0, t, 0.25);
+        heard.source.stop(t + 1.5);
+        this.talks.delete(visit);
+      }
+      const { slot, length } = RECORDINGS.talk;
+      for (const [visit, person] of visits) {
+        if (this.talks.has(visit)) continue;
+        const talk = this.recorded.talk;
+        const source = this.audio.createBufferSource();
+        source.buffer = talk;
+        const gain = this.audio.createGain();
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(TALK_LEVEL, t + 0.8);
+        this.chip.route(source.connect(gain), panAt(person.position.x) * 0.7);
+        // One of the passages, from a little way in
+        const passages = Math.max(1, Math.floor(talk.duration / slot)), from = random(0, length - VISIT_STAY - 0.2);
+        source.start(t, Math.floor(Math.random() * passages) * slot + from, length - from);
+        this.talks.set(visit, { source, gain });
+      }
     }
 
     sleep() {
@@ -10342,7 +10467,8 @@
         if (state === 'idle' || state === 'unread') heard.working = false;
         else if (state === 'thinking' && person.isAtDesk && !heard.working) {
           heard.working = true;
-          this.play('typing', x);
+          // The chip's burst of keys, until the recorded ones take over
+          if (!this.ambient) this.play('typing', x);
         }
         if (person.isFired && !heard.fired) {
           heard.fired = true;
@@ -10361,6 +10487,9 @@
           this.play('fanfare', x);
         }
       }
+
+      this.type(office, t);
+      this.talk(office, t);
 
       // The corner piece, now and then, while someone's at it
       const cornering = office.people.find((p) => !p.isWalking && !p.isLeaving && spotOf(p.place) >= LOUNGE_SPOTS.length);

@@ -105,6 +105,8 @@ struct Room: Codable, Equatable {
     var pet: [String] = []
     var season = "calendar"
     var sound = "off"
+    /// The recorded keyboards while agents work, and talk at a desk a message is taken to, under the rest of the sound.
+    var ambience = "on"
     var desk = "wood"
     var workspace = "desk"
     var monitor = "standard"
@@ -136,6 +138,7 @@ struct Room: Codable, Equatable {
         "sky": ["live", "day"],
         "season": ["calendar", "off"],
         "sound": ["off", "quiet", "normal"],
+        "ambience": ["on", "off"],
         "desk": ["wood", "walnut", "white", "black"],
         "workspace": Room.workspaces,
         "monitor": ["standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet",
@@ -188,6 +191,7 @@ struct Room: Codable, Equatable {
         pet = Room.checkedPets(pets.compactMap { $0 })
         season = choice(.season) ?? season
         sound = choice(.sound) ?? sound
+        ambience = choice(.ambience) ?? ambience
         desk = choice(.desk) ?? desk
         workspace = choice(.workspace) ?? workspace
         monitor = choice(.monitor) ?? monitor

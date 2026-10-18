@@ -493,6 +493,7 @@
         <div class="field"><span>Pets, up to 3</span><div class="choices" id="room-pet"></div></div>
         <p class="hint" id="room-pet-hint" hidden></p>
         <div class="field"><span>Sound</span><div class="choices" id="room-sound"></div></div>
+        <div class="field"><span>Typing and chatter</span><div class="choices" id="room-ambience"></div></div>
         <div class="field"><span>Office staff</span><div class="choices" id="room-staff"></div></div>
         <h3>Your team</h3>
         <div class="team" id="room-team"></div>
@@ -1333,7 +1334,7 @@
 
   /** What a picture shows of the room besides its own piece: what it's drawn in. Pictures leave out where things stand. */
   const lookOf = (room) => JSON.stringify({ ...room, team: null, dress: null, corner: null, workspace: null, staff: null, pet: null,
-    sky: null, sound: null, mic: null, preset: null, plan: null });
+    sky: null, sound: null, ambience: null, mic: null, preset: null, plan: null });
 
   /** A picture of one of the office's choices, moving while the pointer, or the keyboard, is on `host`. */
   function picture(kind, id, room, host = null) {
@@ -1430,6 +1431,7 @@
       ['parrot', 'Parrot'], ['owl', 'Owl'], ['capybara', 'Capybara'], ['redpanda', 'Red panda'], ['corgi', 'Corgi'],
       ['hamster', 'Hamster in a ball'], ['robodog', 'Robot dog'], ['bat', 'Bat'], ['snail', 'Snail'], ['fox', 'Fox'], ['axolotl', 'Axolotl']],
     sound: [['off', 'Off'], ['quiet', 'Quiet'], ['normal', 'Normal']],
+    ambience: [['on', 'On'], ['off', 'Off']],
     desk: [['wood', 'Wood', '#c49a6c'], ['walnut', 'Walnut', '#7e5536'], ['white', 'White', '#e9e6de'], ['black', 'Black', '#3c404a']],
     workspace: [['desk', 'A desk'], ['standing', 'A standing desk'], ['gaming', 'A gaming desk'], ['tent', 'A tent'],
       ['box', 'A cardboard box'], ['beanbag', 'A beanbag'], ['igloo', 'An igloo'], ['van', 'A camper van'], ['cockpit', 'A spaceship'],
@@ -1460,7 +1462,7 @@
   ROOM_CHOICES.lounge.push(...ROOM_CHOICES.floor);
   ROOM_CHOICES.loungePaint = [['auto', 'Same as the walls'], ...ROOM_CHOICES.paint];
   const STANDARD_ROOM = { mic: 'mic', wall: ['window', 'whiteboard', 'window', 'pinboard', 'window'], floor: 'wood', paint: 'slate',
-    lounge: 'navy', loungePaint: 'auto', corner: 'arcade', sky: 'live', pet: [], season: 'calendar', sound: 'off', desk: 'wood', workspace: 'desk',
+    lounge: 'navy', loungePaint: 'auto', corner: 'arcade', sky: 'live', pet: [], season: 'calendar', sound: 'off', ambience: 'on', desk: 'wood', workspace: 'desk',
     monitor: 'standard', chair: 'teal', staff: 'some', preset: 'yours' };
   /** What a style furnishes, as office.js has it: changing one of these goes back to Yours. Its pet too, but picking pets
       doesn't: the ones you pick take the place of the style's own. */
@@ -1696,7 +1698,7 @@
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
     // What's picked in each row: in a style, as the style furnishes it.
     const shown = furnished(room);
-    for (const part of ['floor', 'paint', 'sky', 'season', 'sound', 'desk', 'monitor', 'chair', 'staff']) {
+    for (const part of ['floor', 'paint', 'sky', 'season', 'sound', 'ambience', 'desk', 'monitor', 'chair', 'staff']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label, swatch]) =>
         choice(label, (shown[part] || STANDARD_ROOM[part]) === id, () => furnish((r) => { r[part] = id; }, part), swatch)));
     }

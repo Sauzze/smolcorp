@@ -19,6 +19,8 @@ final class DeckRouter: Router {
     /// setup-key file; or as the page's cookie, from the menu's link.
     static let setupKeyHeader = "x-smolcorp-setup-key"
     static let setupCookie = "smolcorp-setup"
+    /// The office's recordings, in web/sounds, served as office.js is.
+    static let sounds: Set = ["/sounds/keys.m4a", "/sounds/keys.webm", "/sounds/talk.m4a", "/sounds/talk.webm"]
 
     /// What went wrong getting dictation's language ready, if anything, for setup to say.
     static var dictationProblem: String?
@@ -98,6 +100,10 @@ final class DeckRouter: Router {
         // It holds nothing of yours, so it needs no key.
         if request.method == "GET" && request.path == "/office.js" {
             return respond(.file(Paths.web.appendingPathComponent("office.js")))
+        }
+        // Its recordings, the keyboards and the talk, in either kind a browser plays.
+        if request.method == "GET" && DeckRouter.sounds.contains(request.path) {
+            return respond(.file(Paths.web.appendingPathComponent(String(request.path.dropFirst()))))
         }
 
         let key = request.query["t"] ?? request.headers["x-agentdeck-token"]
