@@ -102,6 +102,8 @@ struct Response {
     /// something over the page and trick you into pressing a button; the
     /// setup page's preview of the deck is the one page this deck frames.
     var framedBy = Framing.noOne
+    /// Any other headers, such as the setup page's cookie.
+    var headers: [String: String] = [:]
 
     enum Framing {
         case noOne, thisDeck
@@ -262,6 +264,7 @@ private final class HTTPConnection {
                 head += "X-Frame-Options: SAMEORIGIN\r\nContent-Security-Policy: frame-ancestors 'self'\r\n"
             }
         }
+        for (name, value) in response.headers { head += "\(name): \(value)\r\n" }
         head += "Connection: close\r\n\r\n"
         connection.send(content: Data(head.utf8) + response.body, completion: .contentProcessed { [connection] _ in
             connection.cancel()

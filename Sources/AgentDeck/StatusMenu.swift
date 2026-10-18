@@ -67,11 +67,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return entry
     }
 
-    @objc private func openSetup() { NSWorkspace.shared.open(Deck.setupURL) }
+    @objc private func openSetup() { NSWorkspace.shared.open(deck.setupURL()) }
 
-    @objc private func pairPhone() {
-        NSWorkspace.shared.open(URL(string: Deck.setupURL.absoluteString + "#pair")!)
-    }
+    @objc private func pairPhone() { NSWorkspace.shared.open(deck.setupURL(then: "pair")) }
 
     @objc private func unpairAll() {
         let alert = NSAlert()

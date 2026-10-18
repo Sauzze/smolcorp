@@ -24,14 +24,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server.start()
 
         if !Config.shared.hasCompletedSetup {
-            NSWorkspace.shared.open(Deck.setupURL)
+            NSWorkspace.shared.open(deck.setupURL())
         }
     }
 
     /// Opening the app while it runs — from Finder, Spotlight or Launchpad —
     /// would otherwise do nothing visible, since it has no windows.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        NSWorkspace.shared.open(Deck.setupURL)
+        NSWorkspace.shared.open(deck.setupURL())
         return false
     }
 }

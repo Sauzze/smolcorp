@@ -28,8 +28,11 @@ import (
 //   - /hook and /launcher need the hook's own key, and answer only to this
 //     computer.
 //   - Pairing is open, but useless without a code you asked for here.
-//   - The setup page has no key, so it answers only to this computer, and its
-//     actions need a header that other sites can't send without asking first.
+//   - The setup page answers only to this computer. The page itself holds
+//     nothing; what it reads and changes needs the setup key, new at every
+//     start, as the cookie the page gets when the tray opens it or as
+//     X-Smolcorp-Setup-Key from a tool of your own. Its actions also need a
+//     header that other sites can't send without asking first.
 
 const (
 	// Far more than a few phones, launchers and hooks ever open at once.
@@ -42,6 +45,10 @@ const (
 	// browser ask permission first for any cross-site request, which this
 	// server never grants.
 	setupHeader = "X-AgentDeck-Setup"
+	// The setup key, as a tool of your own sends it, read from the setup-key
+	// file; or as the page's cookie, from the tray's link.
+	setupKeyHeader = "X-Smolcorp-Setup-Key"
+	setupCookie    = "smolcorp-setup"
 )
 
 // Serve listens on the deck's port until it fails.
@@ -153,6 +160,18 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
+		if r.URL.Path != "/setup" && !d.isSetupKey(setupKeyOf(r.Request)) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// The tray's link carries the key after #k=. The page hands it over once,
+		// checked just above, for a cookie only this page's requests carry.
+		if r.Method == http.MethodPost && r.URL.Path == "/setup/session" {
+			http.SetCookie(w, &http.Cookie{Name: setupCookie, Value: d.access.SetupKey, Path: "/setup", HttpOnly: true,
+				SameSite: http.SameSiteStrictMode})
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		rt.setup(w, r)
 		return
 	case r.URL.Path == "/hook":
@@ -254,6 +273,22 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	default:
 		http.NotFound(w, r.Request)
 	}
+}
+
+func setupKeyOf(r *http.Request) string {
+	if key := r.Header.Get(setupKeyHeader); key != "" {
+		return key
+	}
+	if cookie, err := r.Cookie(setupCookie); err == nil {
+		return cookie.Value
+	}
+	return ""
+}
+
+func (d *Deck) isSetupKey(candidate string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.access.IsSetupKey(candidate)
 }
 
 func (d *Deck) isHookKey(candidate string) bool {

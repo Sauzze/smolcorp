@@ -21,6 +21,9 @@ enum Paths {
     static let hires = support.appendingPathComponent("hires", isDirectory: true)
     /// The hook's key, as the header curl sends: see `Access`.
     static let hookHeader = support.appendingPathComponent("hook-header")
+    /// The setup page's key, new at every launch, for tools of your own on
+    /// this Mac: see `DeckRouter`.
+    static let setupKey = support.appendingPathComponent("setup-key")
     /// 1.0's single key, shared by the phone and the hook. Deleted at launch.
     static let legacyToken = support.appendingPathComponent("token")
 

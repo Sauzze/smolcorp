@@ -215,7 +215,8 @@ The setup page also has:
 </p>
 
 Open the setup page any time from the menu bar (**Open Setup…**), or by opening
-Smolcorp again from Applications.
+Smolcorp again from Applications. A bookmark of the page won't open it: its
+link carries a key that changes each time Smolcorp starts.
 
 ## The office
 
@@ -563,10 +564,38 @@ automation:
   reach it. Without a key, all another device gets is the pairing page. Its
   pages can't be shown inside other websites, and it turns away connections
   beyond a fixed limit, so a misbehaving device can't swamp it.
-- **The setup page only opens on your computer.** Other devices can't reach it, and
-  other websites can't press its buttons.
+- **The setup page only opens on your computer, from Smolcorp's menu.** Other
+  devices can't reach it, and other websites can't press its buttons. The menu
+  opens it with a key that's new each time Smolcorp starts, so other programs
+  on your computer, and other people signed in to it, can't use it either.
+  Your own scripts can: the key is in a file only you can read, sent as the
+  `X-Smolcorp-Setup-Key` header (see [Use setup from a script](#use-setup-from-a-script)).
 - **Use a network you trust.** The connection is plain HTTP on your local
   network. Use Smolcorp on home or office Wi-Fi, not public hotspots.
+
+### Use setup from a script
+
+Everything the setup page does is an HTTP call to Smolcorp on this computer,
+and your own scripts can make the same calls. Each needs the setup key, which
+is new each time Smolcorp starts and kept in a file only you can read:
+
+| | The setup key |
+|---|---|
+| Mac | `~/Library/Application Support/AgentDeck/setup-key` |
+| Linux | `~/.config/sauzzedeck-pro/setup-key` |
+| Windows | `%APPDATA%\SauzzeDeck Pro\setup-key` |
+
+Send it as `X-Smolcorp-Setup-Key`. Calls that change something also need
+`X-AgentDeck-Setup: 1`. For example, on a Mac:
+
+```bash
+key=$(cat ~/Library/Application\ Support/AgentDeck/setup-key)
+curl -s -H "X-Smolcorp-Setup-Key: $key" http://localhost:7710/setup/state
+curl -s -X POST -H "X-Smolcorp-Setup-Key: $key" -H "X-AgentDeck-Setup: 1" \
+  http://localhost:7710/setup/pair
+```
+
+Read the key again after Smolcorp restarts.
 
 ## Troubleshooting
 
@@ -728,9 +757,12 @@ page opens in your browser.
 
 - On GNOME, the tray icon needs the AppIndicator extension, which Ubuntu
   includes. Without it, Smolcorp still runs: open
-  `http://localhost:7710/setup` yourself.
+  `http://localhost:7710/setup#k=` followed by the key in
+  `~/.config/sauzzedeck-pro/setup-key`.
 - On a machine without a desktop, such as one you reach over SSH, run
-  `smolcorp serve`.
+  `smolcorp serve`. It prints the setup page's link as it starts. Open it
+  through a tunnel: `ssh -L 7710:localhost:7710` to the machine, then the
+  link in your own browser.
 
 ### Windows
 

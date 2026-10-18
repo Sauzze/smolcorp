@@ -29,6 +29,10 @@ import (
 type Access struct {
 	Phones  *Phones
 	HookKey string
+	// SetupKey is the setup page's, new at every start: the tray opens the
+	// page with it, and it's kept in a file only you can read, for tools of
+	// your own on this computer.
+	SetupKey string
 
 	code        string
 	codeExpiry  time.Time
@@ -46,11 +50,15 @@ const (
 )
 
 func NewAccess() *Access {
-	return &Access{Phones: loadPhones(), HookKey: loadHookKey(), misses: map[string]int{}}
+	return &Access{Phones: loadPhones(), HookKey: loadHookKey(), SetupKey: newSetupKey(), misses: map[string]int{}}
 }
 
 func (a *Access) IsHookKey(candidate string) bool {
 	return candidate != "" && constantTimeEqual(candidate, a.HookKey)
+}
+
+func (a *Access) IsSetupKey(candidate string) bool {
+	return candidate != "" && constantTimeEqual(candidate, a.SetupKey)
 }
 
 // NewCode replaces any earlier code and lifts lockouts.
@@ -90,6 +98,12 @@ func (a *Access) Redeem(attempt, address, userAgent string) (string, bool) {
 		a.code = ""
 	}
 	return "", false
+}
+
+func newSetupKey() string {
+	key := randomKey()
+	_ = writePrivate(setupKeyFile, []byte(key+"\n"))
+	return key
 }
 
 func loadHookKey() string {

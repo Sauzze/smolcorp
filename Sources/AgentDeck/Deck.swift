@@ -4,7 +4,12 @@ import AppKit
 /// phone's controls do to them, and the live feed of all that to phones.
 final class Deck {
     static let port: UInt16 = 7710
-    static var setupURL: URL { URL(string: "http://localhost:\(port)/setup")! }
+    /// The setup page, with its key after #k=, which never leaves this Mac:
+    /// the page hands it over once for a cookie, and takes it out of the
+    /// address. `then` is what the page does on opening: "pair" or "unpair".
+    func setupURL(then: String? = nil) -> URL {
+        URL(string: "http://localhost:\(Deck.port)/setup#k=\(access.setupKey)" + (then.map { "&\($0)" } ?? ""))!
+    }
 
     /// How often to look for a green key's tab coming to the front.
     private static let seenCheckInterval: TimeInterval = 1.5
