@@ -10429,6 +10429,13 @@
    */
   const STALE_AFTER = 2000;
   /**
+   * A frame that fails, through a mistake of ours, starts the room over from
+   * the latest snapshot, as after STALE_AFTER, no more often than this: left
+   * failing, it would fail every frame from then on, the room stopped on its
+   * last picture.
+   */
+  const RESTART_EVERY = 1000;
+  /**
    * How many of the latest snapshots the computer's clock is judged by. Each
    * is a little late, so the smallest gap between the clocks is the truest:
    * a snapshot held up on its way can only make it seem bigger.
@@ -10469,6 +10476,7 @@
     let floating = null;  // floating in a 'window' of its own or a whole 'screen', from 'edge' to edge, or not
     let frame = null;
     let last = 0;
+    let failed = false, restartedAt = -Infinity; // a frame failing, and when the room last started over for it
     let selected = null; // the session the deck's controls act on
     let latest = null;   // the deck's last snapshot
     let ahead = 0;       // how far this device's clock is ahead of the computer's, in ms
@@ -10658,6 +10666,22 @@
         office.apply(seatsOf(latest, ahead), latest.theme, time / 1000);
       }
       last = time;
+      try {
+        draw(time);
+      } catch (error) {
+        // Said once; the room starts over, everyone in place, and carries on.
+        if (!failed) console.error('Smolcorp: the office failed to draw, and starts over.', error);
+        failed = true;
+        if (latest && time - restartedAt >= RESTART_EVERY) {
+          restartedAt = time;
+          office.close();
+          office.apply(seatsOf(latest, ahead), latest.theme, time / 1000);
+        }
+      }
+    }
+
+    /** The room at `time`, moved on and drawn. */
+    function draw(time) {
       const now = time / 1000, date = new Date();
       // Dimmed only for a picked session with no voice input: with none
       // picked, a tap wobbles it and asks for a desk.
