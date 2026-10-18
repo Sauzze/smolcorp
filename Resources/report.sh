@@ -59,9 +59,17 @@ in_terminal() {
 }
 
 # No tty at all means the hook runs outside the session's process tree, as
-# Codex's do, in a shared background service. The app finds the tab itself.
+# Codex's do, and OpenCode 2's, in a background service of their own. The app
+# finds the tab itself, by the session's folder. Any other agent without a tty
+# is running headless, as claude -p does, and is left out: found by its folder,
+# it would land on the tab of an interactive session there.
 if [ -n "$tty" ]; then
   in_terminal || exit 0
+else
+  case "$AGENT" in
+    codex|opencode) ;;
+    *) exit 0 ;;
+  esac
 fi
 
 # The app takes up to 1 MiB. A bigger event, such as a tool's whole output,

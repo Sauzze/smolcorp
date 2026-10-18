@@ -238,8 +238,7 @@ func disconnectAgents() error {
 		entries := entriesFor(agent)
 		switch {
 		case entries == nil:
-			_ = os.Remove(openCodePlugin())
-			_ = os.Remove(oldOpenCodePlugin())
+			forgetOpenCode()
 		case entries.isOwnFile:
 			_ = os.Remove(entries.file)
 			_ = os.Remove(oldGrokHooks())
@@ -298,18 +297,50 @@ func hasEntries(agent Agent) bool {
 }
 
 // writePlugin writes OpenCode's plugin, which runs the hook: OpenCode has no
-// command hooks.
+// command hooks. It's written for the OpenCode installed, see
+// openCodePluginTemplate, whole or not at all, and only when it changes, as
+// OpenCode loads it again each time it does.
 func writePlugin() error {
-	template, err := fs.ReadFile(agentdeck.Files, "Resources/opencode-plugin.js")
+	openCodeMu.Lock()
+	defer openCodeMu.Unlock()
+	return writePluginLocked()
+}
+
+// writePluginLocked is writePlugin, with openCodeMu held.
+func writePluginLocked() error {
+	stamp := openCodeStamp()
+	template, err := fs.ReadFile(agentdeck.Files, openCodePluginTemplate())
 	if err != nil {
 		return err
 	}
 	command, _ := json.Marshal([]string{commandLineProgram(), "hook", string(OpenCode)})
 	plugin := bytes.ReplaceAll(template, []byte(`["{{COMMAND}}"]`), command)
+	openCodeWrittenFor = stamp
+	if written, err := os.ReadFile(openCodePlugin()); err == nil && bytes.Equal(written, plugin) {
+		return nil
+	}
 	if err := os.MkdirAll(filepath.Dir(openCodePlugin()), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(openCodePlugin(), plugin, 0o644)
+	// Whole or not at all: OpenCode, watching the file, must never load half of it
+	temp, err := os.CreateTemp(filepath.Dir(openCodePlugin()), ".smolcorp-*.js.tmp")
+	if err != nil {
+		return err
+	}
+	_, err = temp.Write(plugin)
+	if closed := temp.Close(); err == nil {
+		err = closed
+	}
+	if err == nil {
+		err = os.Chmod(temp.Name(), 0o644)
+	}
+	if err == nil {
+		err = os.Rename(temp.Name(), openCodePlugin())
+	}
+	if err != nil {
+		_ = os.Remove(temp.Name())
+	}
+	return err
 }
 
 // isOurs recognises the deck's handler by its command, wherever the program

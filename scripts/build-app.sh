@@ -34,7 +34,7 @@ cp "$BIN" "$APP/Contents/MacOS/$EXECUTABLE"
 # business carrying. Stripping changes the binary, so it comes before signing.
 strip -S -no_code_signature_warning "$APP/Contents/MacOS/$EXECUTABLE"
 cp Resources/Info.plist "$APP/Contents/"
-cp Resources/AppIcon.icns Resources/report.sh Resources/opencode-plugin.js "$APP/Contents/Resources/"
+cp Resources/AppIcon.icns Resources/report.sh Resources/opencode-plugin.js Resources/opencode-plugin-v1.js "$APP/Contents/Resources/"
 cp -R Resources/web "$APP/Contents/Resources/"
 # Signed already, so the app's signature seals it as it is.
 cp -R "build/Smolcorp Office.saver" "$APP/Contents/Resources/"

@@ -119,6 +119,12 @@ run `/hooks` in Codex once and trust Smolcorp's. Codex runs its hooks in
 a background service rather than in your tab, so the deck finds each Codex
 session's tab by its project folder.
 
+**OpenCode** 1 and 2 both work. OpenCode 2 runs its plugins in a background
+service of its own, so the deck finds each OpenCode session's tab by its
+project folder, as it does for Codex; with `opencode --standalone`, they run
+in your tab and it's found at once. Either way, run one OpenCode per project
+folder for the deck to tell them apart.
+
 ## What you need
 
 - A Mac running macOS 13 or later. On Windows or Linux, see
@@ -648,6 +654,12 @@ Linux, start them with `smolcorp run`, or in tmux, WezTerm or kitty.
 
 **Codex sessions don't appear.** Run `/hooks` in Codex and trust Smolcorp's
 hook. Codex skips new hooks until you do.
+
+**OpenCode sessions don't appear.** Smolcorp before 1.8.0 had a plugin OpenCode 2
+can't load: open the new Smolcorp once, and it brings the plugin up to date,
+which OpenCode picks up by itself. Still nothing? Two OpenCode sessions in one
+project folder can't be told apart, so keep one per folder, or start them with
+`opencode --standalone`, which runs the plugin in the session's own tab.
 
 **Buttons, the mic or scrolling do nothing, or the phone says keyboard access
 is off.** Turn Smolcorp on in System

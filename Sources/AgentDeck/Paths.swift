@@ -46,5 +46,7 @@ enum Paths {
     static let web = Bundle.main.resourceURL!.appendingPathComponent("web", isDirectory: true)
     static let bundledHookScript = Bundle.main.resourceURL!.appendingPathComponent("report.sh")
     static let bundledOpenCodePlugin = Bundle.main.resourceURL!.appendingPathComponent("opencode-plugin.js")
+    /// 1.7.2's plugin, the one OpenCode 1 loads: see `OpenCodeInstall`.
+    static let bundledOpenCodePluginV1 = Bundle.main.resourceURL!.appendingPathComponent("opencode-plugin-v1.js")
     static let bundledScreenSaver = Bundle.main.resourceURL!.appendingPathComponent("Smolcorp Office.saver")
 }

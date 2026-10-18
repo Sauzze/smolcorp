@@ -18,6 +18,7 @@ var trayIcons embed.FS
 func RunApp() int {
 	deck := NewDeck()
 	refreshHooks()
+	watchOpenCode()
 	moveOpenAtLogin()
 	failed := make(chan error, 1)
 	go func() { failed <- Serve(deck) }()
@@ -41,6 +42,7 @@ func RunApp() int {
 func RunServer() int {
 	deck := NewDeck()
 	refreshHooks()
+	watchOpenCode()
 	printSetupLink(deck)
 	return reportFailure(Serve(deck))
 }

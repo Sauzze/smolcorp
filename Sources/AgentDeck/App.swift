@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         try? Hooks.refresh()
+        Hooks.watchOpenCode()
         LoginItem.refresh()
         server.onFailure = { [menu] _ in menu.showPortInUse() }
         server.onReady = { [menu] in menu.showListening() }
