@@ -133,7 +133,7 @@ Smolcorp follows sessions in any terminal on your Mac, and drives these:
 |---|---|---|
 | **Terminal** | ✓, also behind other windows and while the Mac is locked | Accessibility |
 | **iTerm2** | ✓ | Allow Smolcorp to control iTerm when macOS asks |
-| **Ghostty** 1.3 or later | ✓ | Allow Smolcorp to control Ghostty when macOS asks |
+| **Ghostty** 1.4 or later | ✓ | Allow Smolcorp to control Ghostty when macOS asks |
 | **tmux**, in any terminal | ✓ | nothing |
 | **WezTerm** | ✓ | nothing |
 | **kitty** | ✓ | `allow_remote_control socket-only` and `listen_on unix:/tmp/kitty` in kitty.conf |
@@ -143,10 +143,9 @@ forward, so the phone works while you're in another app, under the screen
 saver and with the Mac locked. In iTerm2, Ghostty, tmux, WezTerm and kitty
 that needs no Accessibility at all.
 
-- **Ghostty 1.3** can't tell Smolcorp which window a session is in, so
-  Smolcorp finds it by the session's folder: run one Ghostty window per
-  project folder, or hire into Ghostty from the office. Until it's found, the
-  desk shows what the agent is doing, without the controls.
+- **Ghostty 1.3** can't tell Smolcorp which window a session is in, so its
+  desks show what the agent is doing, without the controls. Update to 1.4, or
+  run the agent inside tmux.
 - **Other terminals** (VS Code, Cursor, Alacritty, Warp): their sessions get a
   desk that shows what they're doing, with no controls. To control one of
   these agents, run it inside tmux.
@@ -682,8 +681,8 @@ agent sessions. On Windows and Linux, start them with `smolcorp run`, or in
 tmux, WezTerm or kitty.
 
 **A desk has no controls.** Its session runs in a terminal Smolcorp can only
-watch (see [Terminals](#terminals)), or in Ghostty in a folder where more than
-one Ghostty window is open. In kitty, check the two lines in kitty.conf.
+watch (see [Terminals](#terminals)), or in Ghostty 1.3. In kitty, check the
+two lines in kitty.conf.
 
 **Codex sessions don't appear.** Run `/hooks` in Codex and trust Smolcorp's
 hook. Codex skips new hooks until you do.

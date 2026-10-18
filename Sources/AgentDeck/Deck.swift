@@ -115,26 +115,21 @@ final class Deck {
         guard let event = agent.canonical(event) else { return }
         let found = !tab.isEmpty ? tab : !tty.isEmpty ? TabAddress.terminalApp(tty: tty).text : self.tab(for: event, of: agent)
         sessions.apply(event, agent: agent, tab: found, startedIn: startedIn, at: time)
-        learnGhostty(found, folder: event["cwd"] as? String ?? "")
+        learnGhostty(found)
         noteMessage(event, from: agent)
     }
 
-    /// Which Ghostty terminal a session is in, learned from its folder until
-    /// Ghostty can say: see `Ghostty`. Its desk gets its controls once known.
+    /// Which Ghostty terminal a session is in, where Ghostty can say (1.4 and
+    /// later): see `Ghostty`. Its desk gets its controls once known; on Ghostty
+    /// 1.3 it stays watched.
     private var learningGhostty: [String: Date] = [:]
-    private func learnGhostty(_ tab: String, folder: String) {
-        guard let address = TabAddress(tab), address.kind == "ghostty", Ghostty.id(on: address.id) == nil, !folder.isEmpty else { return }
-        // A Ghostty hire waiting in this folder, alone: its own terminal.
-        let hires = hiredTabs.filter { $0.tab.hasPrefix("ghostty-id:") && $0.folder == folder }
-        if hires.count == 1 {
-            Ghostty.teach(tty: address.id, id: String(hires[0].tab.dropFirst("ghostty-id:".count)))
-            if Ghostty.id(on: address.id) != nil { return changed() }
-        }
-        // At most every few seconds: each try asks Ghostty about all its terminals.
+    private func learnGhostty(_ tab: String) {
+        guard let address = TabAddress(tab), address.kind == "ghostty", Ghostty.id(on: address.id) == nil else { return }
+        // At most every few seconds: each try asks Ghostty.
         if let last = learningGhostty[address.id], Date().timeIntervalSince(last) < 5 { return }
         learningGhostty[address.id] = Date()
         Terminal.queue.async {
-            Ghostty.learn(tty: address.id, folder: folder)
+            Ghostty.learn(tty: address.id)
             if Ghostty.id(on: address.id) != nil { DispatchQueue.main.async { self.changed() } }
         }
     }

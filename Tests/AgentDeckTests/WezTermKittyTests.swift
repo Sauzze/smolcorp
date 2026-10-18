@@ -27,7 +27,9 @@ final class WezTermKittyTests: XCTestCase {
             case "$*" in *list*) echo '[{"window_id":0,"tab_id":0,"pane_id":5,"tty_name":"/dev/ttys042"}]' ;; esac
             """)
         Kitty.path = try standIn("kitten", """
-            case "$*" in *"ls --match id:9"*) exit 1 ;; *ls*) echo '[{"tabs":[{"windows":[{"id":3,"pid":1}]}]}]' ;; esac
+            case "$*" in *"ls --match id:9"*) echo "No matching windows for expression: id:9" >&2; exit 1 ;;
+              *"ls --match id:8"*) echo "Failed to connect to unix:/tmp/kitty-99" >&2; exit 1 ;;
+              *ls*) echo '[{"tabs":[{"windows":[{"id":3,"pid":1}]}]}]' ;; esac
             """)
     }
 
@@ -73,6 +75,7 @@ final class WezTermKittyTests: XCTestCase {
     func testKittyKnowsAWindowThatIsntThere() {
         XCTAssertEqual(Kitty().isOpen(window), true)
         XCTAssertEqual(Kitty().isOpen(TabAddress("kitty:9@unix:/tmp/kitty-99")!), false)
+        XCTAssertNil(Kitty().isOpen(TabAddress("kitty:8@unix:/tmp/kitty-99")!), "kitty not answering is unknown, not closed")
         XCTAssertEqual(Kitty().fire(TabAddress("kitty:9@unix:/tmp/kitty-99")!, agent: .claude), .gone)
     }
 

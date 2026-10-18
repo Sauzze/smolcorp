@@ -43,13 +43,14 @@ enum Tool {
     static let timeout: TimeInterval = 5
 
     /// Its output and exit status, or nil if it couldn't be run or was stopped for taking too long.
-    static func run(_ path: String, _ arguments: [String]) -> (status: Int32, output: String)? {
+    /// With `errors`, what it says on its standard error comes in its output too.
+    static func run(_ path: String, _ arguments: [String], errors: Bool = false) -> (status: Int32, output: String)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
         let output = Pipe()
         process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
+        process.standardError = errors ? output : FileHandle.nullDevice
         do { try process.run() } catch { return nil }
         // Stopped when it overruns, which also ends the reading below.
         let overran = DispatchWorkItem { if process.isRunning { process.terminate() } }
@@ -298,18 +299,18 @@ struct ITerm: TerminalDriver {
     }
 }
 
-/// Ghostty, through its AppleScript (1.3 and later): keys and text go to the
-/// terminal without bringing it forward, with the Mac locked or the screen
-/// saver on, as the bytes its `text:` action types. Addressed by its tty,
-/// as ghostty:/dev/ttys004. Ghostty 1.3 can't say which terminal is on a
-/// tty, so each is learned from its session's folder, when exactly one
-/// terminal is there, and kept; Ghostty 1.4, which can, is asked directly.
-/// Until then its desk is only watched.
+/// Ghostty, through its AppleScript: keys and text go to the terminal without
+/// bringing it forward, with the Mac locked or the screen saver on, as the
+/// bytes its `text:` action types. Addressed by its tty, as
+/// ghostty:/dev/ttys004. Only a Ghostty that says which terminal is on a tty
+/// (1.4 and later) is driven, and that tty is asked again before each key,
+/// line or close; on Ghostty 1.3, which can't say, its sessions are watched,
+/// never controlled: a guess, by folder, could type into your own shell.
 struct Ghostty: TerminalDriver {
     var abilities: TerminalAbilities { [.keys, .text, .focus, .fire, .scroll] }
     var keysNeedAccessibility: Bool { false }
 
-    /// Which terminal is on each tty, as learned.
+    /// Which terminal is on each tty, as Ghostty said.
     private static var known: [String: String] = [:]
     private static let lock = NSLock()
 
@@ -318,10 +319,9 @@ struct Ghostty: TerminalDriver {
         return known[tty]
     }
 
-    /// Learns which terminal is on `tty`, the session there being in
-    /// `folder`: by its tty where Ghostty says it, else the one terminal in
-    /// that folder that isn't already another tty's. Off the main thread.
-    static func learn(tty: String, folder: String) {
+    /// Asks Ghostty which terminal is on `tty`, where it can say (1.4 and
+    /// later). Off the main thread.
+    static func learn(tty: String) {
         guard id(on: tty) == nil else { return }
         let answer = Terminal.run("""
             if application "Ghostty" is not running then return ""
@@ -329,26 +329,12 @@ struct Ghostty: TerminalDriver {
                 try
                     return id of first terminal whose tty is (item 1 of argv)
                 end try
-                set found to {}
-                repeat with t in terminals
-                    if working directory of t is (item 2 of argv) then set end of found to (id of t)
-                end repeat
-                set AppleScript's text item delimiters to linefeed
-                return found as text
             end tell
-            """, arguments: [tty, folder]) ?? ""
+            return ""
+            """, arguments: [tty]) ?? ""
+        guard !answer.isEmpty else { return }
         lock.lock(); defer { lock.unlock() }
-        let taken = Set(known.values)
-        let candidates = answer.split(separator: "\n").map(String.init).filter { !taken.contains($0) }
-        if candidates.count == 1 { known[tty] = candidates[0] }
-    }
-
-    /// Takes `id` for the terminal on `tty`, as a hire's own window, where no
-    /// other tty has it already.
-    static func teach(tty: String, id: String) {
-        lock.lock(); defer { lock.unlock() }
-        guard known[tty] == nil, !known.values.contains(id) else { return }
-        known[tty] = id
+        if !known.values.contains(answer) { known[tty] = answer }
     }
 
     /// Forgets the terminal once its session has gone, as its tty may be another's next.
@@ -358,6 +344,7 @@ struct Ghostty: TerminalDriver {
     }
 
     /// Runs `body` with `t` as the terminal, "gone" if it isn't there.
+    /// …and still on the session's tty, asked each time: if it isn't, nothing is done.
     private func withTerminal(_ tab: TabAddress, _ body: String, _ extra: [String] = []) -> String? {
         guard let id = Ghostty.id(on: tab.id) else { return nil }
         return Terminal.run("""
@@ -365,9 +352,14 @@ struct Ghostty: TerminalDriver {
             tell application "Ghostty"
                 if not (exists terminal id (item 1 of argv)) then return "gone"
                 set t to terminal id (item 1 of argv)
+                try
+                    if (tty of t) is not (item 2 of argv) then return "gone"
+                on error
+                    return "gone"
+                end try
                 \(body)
             end tell
-            """, arguments: [id] + extra)
+            """, arguments: [id, tab.id] + extra)
     }
 
     /// `text` as Ghostty's text: action reads it, its escapes being Zig's.
@@ -387,7 +379,7 @@ struct Ghostty: TerminalDriver {
     }
 
     private func typeBytes(_ bytes: String, in tab: TabAddress) -> Bool {
-        withTerminal(tab, "perform action (\"text:\" & (item 2 of argv)) on t\nreturn \"ok\"", [Ghostty.escaped(bytes)]) == "ok"
+        withTerminal(tab, "perform action (\"text:\" & (item 3 of argv)) on t\nreturn \"ok\"", [Ghostty.escaped(bytes)]) == "ok"
     }
 
     func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool {
@@ -403,13 +395,13 @@ struct Ghostty: TerminalDriver {
 
     /// As Ghostty pastes, without Return.
     func insert(_ text: String, in tab: TabAddress) -> Bool {
-        withTerminal(tab, "input text (item 2 of argv) to t\nreturn \"ok\"", [text]) == "ok"
+        withTerminal(tab, "input text (item 3 of argv) to t\nreturn \"ok\"", [text]) == "ok"
     }
 
     func focus(_ tab: TabAddress) -> Bool { withTerminal(tab, "focus t\nactivate\nreturn \"ok\"") == "ok" }
 
     func scroll(lines: Int, in tab: TabAddress) -> Bool {
-        withTerminal(tab, "perform action (\"scroll_page_lines:\" & (item 2 of argv)) on t\nreturn \"ok\"", [String(lines)]) == "ok"
+        withTerminal(tab, "perform action (\"scroll_page_lines:\" & (item 3 of argv)) on t\nreturn \"ok\"", [String(lines)]) == "ok"
     }
 
     func scrollToBottom(in tab: TabAddress) -> Bool { withTerminal(tab, "perform action \"scroll_to_bottom\" on t\nreturn \"ok\"") == "ok" }
@@ -523,9 +515,9 @@ struct Kitty: TerminalDriver {
     /// Settable for tests, which give a stand-in.
     static var path = Tool.find(["/Applications/kitty.app/Contents/MacOS/kitten", "/opt/homebrew/bin/kitten", "/usr/local/bin/kitten"])
 
-    private func run(_ tab: TabAddress, _ arguments: [String]) -> (status: Int32, output: String)? {
+    private func run(_ tab: TabAddress, _ arguments: [String], errors: Bool = false) -> (status: Int32, output: String)? {
         guard let path = Kitty.path else { return nil }
-        return Tool.run(path, ["@", "--to", tab.socket] + arguments)
+        return Tool.run(path, ["@", "--to", tab.socket] + arguments, errors: errors)
     }
 
     private func ran(_ tab: TabAddress, _ arguments: [String]) -> Bool { run(tab, arguments)?.status == 0 }
@@ -594,9 +586,12 @@ struct Kitty: TerminalDriver {
 
     func tty(of tab: TabAddress) -> String? { window(tab)?.tty }
 
+    /// Closed only when kitty says there's no such window: any other failure,
+    /// as kitty not answering on its socket, is unknown.
     func isOpen(_ tab: TabAddress) -> Bool? {
-        guard let answer = run(tab, ["ls", "--match", "id:\(tab.id)"]) else { return nil }
-        return answer.status == 0
+        guard let answer = run(tab, ["ls", "--match", "id:\(tab.id)"], errors: true) else { return nil }
+        if answer.status == 0 { return true }
+        return answer.output.contains("No matching windows") ? false : nil
     }
 }
 

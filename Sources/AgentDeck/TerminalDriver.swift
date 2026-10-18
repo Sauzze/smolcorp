@@ -48,8 +48,8 @@ struct TabAddress: Hashable {
             let digits = (kind == "tmux" ? id.dropFirst() : id[...])
             guard !digits.isEmpty, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber),
                   kind != "tmux" || id.hasPrefix("%") else { return nil }
-            // tmux's and kitty's panes are only known with their server's socket.
-            guard !["tmux", "kitty"].contains(kind) || !socket.isEmpty else { return nil }
+            // tmux's, WezTerm's and kitty's panes are only known with their server's socket.
+            guard !["tmux", "wezterm", "kitty"].contains(kind) || !socket.isEmpty else { return nil }
             self.init(kind: kind, id: id, socket: socket)
         }
     }
