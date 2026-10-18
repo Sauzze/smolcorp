@@ -34,7 +34,10 @@ enum LoginItem {
 
     static var isEnabled: Bool {
         get { FileManager.default.fileExists(atPath: Paths.launchAgent.path) }
-        set { newValue ? enable() : disable() }
+        set {
+            guard !TestCopy.isOn else { return } // the login item is the copy in use's
+            newValue ? enable() : disable()
+        }
     }
 
     /// Points the LaunchAgent at this copy of the app. An update can move or

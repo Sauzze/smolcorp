@@ -17,9 +17,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var server = HTTPServer(port: Deck.port, router: DeckRouter(deck: deck))
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        try? Hooks.refresh()
-        Hooks.watchOpenCode()
-        LoginItem.refresh()
+        // A test copy leaves your agents' hooks and your login item to the copy in use.
+        if !TestCopy.isOn {
+            try? Hooks.refresh()
+            Hooks.watchOpenCode()
+            LoginItem.refresh()
+        }
         server.onFailure = { [menu] _ in menu.showPortInUse() }
         server.onReady = { [menu] in menu.showListening() }
         server.start()

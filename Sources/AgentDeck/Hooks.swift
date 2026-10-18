@@ -97,6 +97,7 @@ enum Hooks {
     /// voice input is turned on in tap mode — which the mic key needs —
     /// unless voice is already set up some other way.
     static func connect() throws {
+        guard !TestCopy.isOn else { throw HookError.testCopy }
         let agents = found
         guard !agents.isEmpty else { throw HookError.noAgents }
         try updateFiles()
@@ -163,6 +164,7 @@ enum Hooks {
     }
 
     static func disconnect() throws {
+        guard !TestCopy.isOn else { throw HookError.testCopy }
         for agent in Agent.allCases {
             guard let entries = entries(for: agent) else {
                 for plugin in [Paths.openCodePlugin, Paths.oldOpenCodePlugin] { try? FileManager.default.removeItem(at: plugin) }
@@ -310,6 +312,8 @@ enum Hooks {
     enum HookError: LocalizedError {
         case noAgents
         case unreadableSettings([URL])
+        /// A test copy of the app leaves your agents' settings alone.
+        case testCopy
 
         var errorDescription: String? {
             switch self {
@@ -318,6 +322,8 @@ enum Hooks {
             case .unreadableSettings(let files):
                 let names = files.map { $0.path.replacingOccurrences(of: Paths.home.path, with: "~") }
                 return "\(names.joined(separator: " and ")) can't be read or isn't valid JSON. Fix it, then try again."
+            case .testCopy:
+                return "This is a test copy of Smolcorp: it doesn't change your agents' settings. Report to it with a hook of its own."
             }
         }
     }
