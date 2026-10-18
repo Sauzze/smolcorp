@@ -2793,6 +2793,13 @@
   /** Two fingers scroll a line for this many CSS pixels they move; down and up again within this many seconds, still, they're a tap. */
   const SCROLL_STEP = 4;
   const TWO_FINGER_TAP = 0.35;
+  /**
+   * What a touch sends only once the finger lifts, still, with no second
+   * finger come down: the keys, choices, chips and buttons that type into an
+   * agent, or fire one. A first finger landing on them for a two-finger
+   * scroll sends nothing.
+   */
+  const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired'];
   const ROW_KEYS = [
     { action: 'esc', label: 'esc' }, { action: 'send', icon: 'send' }, { action: 'clear', label: '/clear', confirm: true },
     { action: 'up', icon: 'up' }, { action: 'down', icon: 'down' },
@@ -10846,6 +10853,7 @@
       // They carry their things out in a box only once the computer says
       // they're fired; if it couldn't, the deck says why.
       if (target.kind === 'fired') {
+        if (!firing) return; // they left while the finger was down
         const { id } = firing;
         firing = null;
         return Promise.resolve(on.fire?.(id)).then((fired) => {
@@ -10894,6 +10902,11 @@
      * desks with it; taken away, they go back.
      */
     function lift(dropped = false) {
+      // A touch waiting to send goes now if it lifted where it landed; taken away, or joined by a second finger, it sends nothing.
+      if (finger && finger.waiting) {
+        finger.waiting = false;
+        if (dropped && !finger.moved) press(finger.target);
+      }
       if (carrying) {
         const { from, over } = carrying;
         carrying = null;
@@ -11204,6 +11217,10 @@
       }
       canvas.setPointerCapture(e.pointerId);
       finger = { id: e.pointerId, target, at: clock(), x: e.clientX, y: e.clientY };
+      if (e.pointerType === 'touch' && SENT_ON_LIFT.includes(target.kind)) {
+        finger.waiting = true;
+        return;
+      }
       press(target);
     });
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
@@ -11276,6 +11293,10 @@
           scrolling.carry -= lines * SCROLL_STEP;
           on.scroll?.(lines);
         }
+        return;
+      }
+      if (finger && e.pointerId === finger.id && finger.waiting) {
+        if (Math.hypot(e.clientX - finger.x, e.clientY - finger.y) >= CARRY_AFTER) finger.moved = true;
         return;
       }
       if (finger && e.pointerId === finger.id && finger.target.kind === 'role') return slide(e);
