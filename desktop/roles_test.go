@@ -198,3 +198,12 @@ func TestSetupKeepsTheRolesItIsGiven(t *testing.T) {
 		t.Errorf("something that isn't roles gave %d, roles %+v", response.Code, d.config.Roles)
 	}
 }
+
+func TestCmdExeStartsAScriptWhosePathHasASpace(t *testing.T) {
+	got := cmdLine(`C:\Windows\System32\cmd.exe`, `C:\Users\Jean Dupont\AppData\Roaming\npm\codex.cmd`,
+		[]string{"--model", "o4", "Ask which folder to work in", ""})
+	want := `"C:\Windows\System32\cmd.exe" /s /c ""C:\Users\Jean Dupont\AppData\Roaming\npm\codex.cmd" --model o4 "Ask which folder to work in" """`
+	if got != want {
+		t.Fatalf("the command line is\n%s\nwant\n%s", got, want)
+	}
+}

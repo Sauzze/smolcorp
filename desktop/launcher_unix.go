@@ -21,3 +21,6 @@ func followSize(terminal pty.Pty) {
 
 // prepareConsole: a Unix terminal already reads escape sequences.
 func prepareConsole() {}
+
+// useCmdLine: only Windows starts agents through cmd.exe.
+func useCmdLine(*pty.Cmd, string, []string) {}

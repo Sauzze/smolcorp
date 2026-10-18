@@ -86,6 +86,7 @@ func RunLauncher(args []string) int {
 	id := newID()
 	folder, _ := os.Getwd()
 	cmd := terminal.Command(program, programArgs...)
+	useCmdLine(cmd, program, programArgs)
 	cmd.Env = append(os.Environ(), "SMOLCORP_SESSION="+id)
 	cmd.Dir = folder
 	matchSize(terminal)
@@ -136,6 +137,26 @@ func resolveProgram(name string, args []string) (string, []string, error) {
 		}
 	}
 	return path, args, nil
+}
+
+// cmdLine is the command line that has cmd.exe start a .cmd script with its
+// arguments. With /s, cmd.exe takes off just the quotes around all the rest,
+// so a script whose path has a space, as under C:\Users\Jean Dupont, and an
+// argument with one, as a role's message always has, both come through. The
+// usual quoting, with no /s, has cmd.exe take off the first and the last quote
+// on the line, which split the script's path at its space.
+func cmdLine(shell, script string, args []string) string {
+	quoted := func(arg string) string {
+		if arg == "" || strings.ContainsAny(arg, " \t") {
+			return `"` + arg + `"`
+		}
+		return arg
+	}
+	line := quoted(script)
+	for _, arg := range args {
+		line += " " + quoted(arg)
+	}
+	return `"` + shell + `" /s /c "` + line + `"`
 }
 
 // roleArguments are the agent and its arguments for the role with the id
