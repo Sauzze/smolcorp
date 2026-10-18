@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -51,21 +52,36 @@ type commandTab struct {
 	kind, id, socket string
 }
 
+// terminalTimeout is as long as a terminal's command may take. Keys go one at
+// a time, so one that hung, as kitty asking on its own screen whether to
+// allow remote control, would hold up every phone's keys behind it.
+var terminalTimeout = 5 * time.Second
+
+// terminalCommand is a terminal's command line tool, stopped if it hangs.
+func terminalCommand(name string, args ...string) (*exec.Cmd, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), terminalTimeout)
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = time.Second // and not held open by anything it started
+	return cmd, cancel
+}
+
 func (t commandTab) run(args ...string) error {
 	var cmd *exec.Cmd
+	var cancel context.CancelFunc
 	switch t.kind {
 	case "tmux":
-		cmd = exec.Command("tmux", append([]string{"-S", t.socket}, args...)...)
+		cmd, cancel = terminalCommand("tmux", append([]string{"-S", t.socket}, args...)...)
 	case "wezterm":
-		cmd = exec.Command("wezterm", append([]string{"cli"}, args...)...)
+		cmd, cancel = terminalCommand("wezterm", append([]string{"cli"}, args...)...)
 		if t.socket != "" {
 			cmd.Env = append(cmd.Environ(), "WEZTERM_UNIX_SOCKET="+t.socket)
 		}
 	case "kitty":
-		cmd = exec.Command("kitty", append([]string{"@", "--to", t.socket}, args...)...)
+		cmd, cancel = terminalCommand("kitty", append([]string{"@", "--to", t.socket}, args...)...)
 	default:
 		return errUnsupported
 	}
+	defer cancel()
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%s: %s", t.kind, strings.TrimSpace(string(output)))
 	}
@@ -198,10 +214,12 @@ func (t commandTab) Close() error {
 func (t commandTab) alive() bool {
 	switch t.kind {
 	case "tmux":
-		output, err := exec.Command("tmux", "-S", t.socket, "display-message", "-p", "-t", t.id, "#{pane_id}").Output()
+		cmd, cancel := terminalCommand("tmux", "-S", t.socket, "display-message", "-p", "-t", t.id, "#{pane_id}")
+		defer cancel()
+		output, err := cmd.Output()
 		var answered *exec.ExitError
-		if errors.As(err, &answered) {
-			return false // tmux is there, and says the pane isn't
+		if errors.As(err, &answered) && answered.Exited() {
+			return false // tmux is there, and says the pane isn't; stopped for taking too long, it said nothing
 		}
 		return err != nil || strings.TrimSpace(string(output)) == t.id
 	}
