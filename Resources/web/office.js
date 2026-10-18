@@ -10428,7 +10428,7 @@
     let keysFor = null;      // the agent whose keys are out, by its session's id: from a finger held on them till a tap elsewhere
     let keyArmed = null;     // a key that wants a second tap, tapped once: { action, at }
     let keyDown = null;      // the key last pressed: { action, at, held }
-    let returnAt = null;     // when accept or send last went, so a tap landing twice sends Return once
+    const returnAt = new Map(); // when accept or send last went to each session, so a tap landing twice sends Return once
     let keysAt = null;       // where the keys were last drawn, in art pixels: { keys, box }
     let roleDown = null;     // the role last tapped, on a held empty desk: { id, at, held }
     let roleOffset = 0;      // how far the roles are slid along, in art pixels
@@ -10812,15 +10812,16 @@
       if (target.kind !== 'key' && target.kind !== 'chip') keysFor = null;
       if (target.kind !== 'key') keyArmed = null;
       if (target.kind === 'key') {
-        keyDown = { action: target.action, at: clock(), held: true };
         const wanted = rowKeysOf(latest && latest.layout).find((k) => k.action === target.action);
         // A key that wants to be sure acts on its second tap, while it says SURE?
-        if (wanted && wanted.confirm && !(keyArmed && keyArmed.action === target.action && clock() - keyArmed.at < KEY_ARMED_LENGTH)) {
+        const arming = wanted && wanted.confirm && !(keyArmed && keyArmed.action === target.action && clock() - keyArmed.at < KEY_ARMED_LENGTH);
+        if (!arming && isRepeatedReturn(target.action)) return; // ignored, so it isn't pressed in either
+        keyDown = { action: target.action, at: clock(), held: true };
+        if (arming) {
           keyArmed = { action: target.action, at: clock() };
           return on.held?.();
         }
         keyArmed = null;
-        if (isRepeatedReturn(target.action)) return;
         return on.key?.(target.action);
       }
       // A role hires once the finger lifts, if it hasn't slid them along instead (see `lift`).
@@ -10878,8 +10879,8 @@
       // An empty or pinned desk says something on a tap, once the finger lifts: holding it is something else.
       if (target.kind === 'empty' || target.kind === 'pinned') return;
       if (target.kind === 'choice') {
-        choiceDown = { action: target.action, at: clock(), held: true };
         if (isRepeatedReturn(target.action)) return;
+        choiceDown = { action: target.action, at: clock(), held: true };
         return on.choose?.(target.action);
       }
       // Max from a chip is the red button's: its agent runs to slam it.
@@ -10904,11 +10905,17 @@
       }
     }
 
-    /** Accept or send again a moment after the last: one tap landing twice. Up, down and the rest repeat as tapped. */
+    /**
+     * Accept or send to the picked session again a moment after the last: one
+     * tap landing twice. A Yes to one agent then another both go, and up, down
+     * and the rest repeat as tapped.
+     */
     function isRepeatedReturn(action) {
       if (action !== 'accept' && action !== 'send') return false;
-      if (returnAt !== null && clock() - returnAt < RETURN_REPEAT) return true;
-      returnAt = clock();
+      const now = clock();
+      for (const [id, at] of returnAt) if (now - at >= RETURN_REPEAT) returnAt.delete(id);
+      if (returnAt.has(selected)) return true;
+      returnAt.set(selected, now);
       return false;
     }
 
