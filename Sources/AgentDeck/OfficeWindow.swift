@@ -5,10 +5,12 @@ import WebKit
 /// The office in a window of its own on this Mac: no title bar and no frame,
 /// only the room, rounded, with the window's shadow under it. The menu bar's
 /// Show Office, or ⌥⌘O from anywhere, shows and hides it, and Esc hides it
-/// once you've clicked it. It's held with ⌘ and dragged anywhere, or by the bar
-/// along the middle of its top edge, and resized from its edges and corners,
-/// keeping the office's shape: drawn taller than wide, it turns upright, and
-/// wider than tall, sideways. Each screen remembers where it was.
+/// once you've clicked it. It's moved by the bar along the middle of its top
+/// edge, which shows while the pointer is over the office, or held with ⌘ and
+/// dragged anywhere, onto any screen; and resized from its edges and corners,
+/// as any window is, keeping the office's shape: drawn taller than wide, it
+/// turns upright, and wider than tall, sideways. Each screen remembers where
+/// it was.
 ///
 /// It reads the office as a phone does, with a key of its own that lives as
 /// long as the app and works only from this Mac: no pairing, and nothing
@@ -110,6 +112,7 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     private func makePanel() -> OfficePanel {
         let panel = OfficePanel(contentRect: NSRect(origin: .zero, size: OfficeWindow.firstSize),
                                 styleMask: [.borderless, .nonactivatingPanel, .resizable], backing: .buffered, defer: false)
+        panel.office = self
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -128,22 +131,20 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         web.autoresizingMask = [.width, .height]
         web.navigationDelegate = self
         content.addSubview(web)
-        content.addSubview(GrabBar(in: content.bounds))
-        for edges in ResizeHandle.all { content.addSubview(ResizeHandle(edges, in: content.bounds, office: self)) }
+        let bar = GrabBar(in: content.bounds, office: self)
+        content.addSubview(bar)
+        // The bar shows while the pointer is anywhere over the office, so it's there to be found.
+        content.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: bar))
         panel.contentView = content
         web.load(URLRequest(url: address))
 
-        // ⌘ held, a drag anywhere moves it; a click brings it forward, as only
-        // the window clicked takes it; Esc hides it once it has the keyboard.
+        // A click brings it forward, as only the window clicked takes it (⌘
+        // held, it's a move: see OfficePanel); Esc hides it once it has the keyboard.
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak panel] event in
-            guard let panel, event.window === panel else { return event }
-            guard event.modifierFlags.contains(.command) else {
-                panel.firstClickOnlyRaises = !panel.isKeyWindow && panel.isPartlyCovered
-                panel.orderFrontRegardless()
-                return event
-            }
-            panel.performDrag(with: event)
-            return nil
+            guard let panel, event.window === panel, !event.modifierFlags.contains(.command) else { return event }
+            panel.firstClickOnlyRaises = !panel.isKeyWindow && panel.isPartlyCovered
+            panel.orderFrontRegardless()
+            return event
         } as Any)
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak panel] event in
             guard let panel, panel.isKeyWindow, event.window === panel, event.keyCode == UInt16(kVK_Escape) else { return event }
@@ -172,28 +173,67 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         return NSSize(width: (height * aspect).rounded(), height: height.rounded())
     }
 
-    /// Resizes from `edges`, `start` being the frame when the drag began and
-    /// `moved` how far the pointer has gone since, in screen points.
-    func resize(from edges: ResizeHandle.Edges, start: NSRect, moved: NSPoint) {
-        guard let panel else { return }
-        var proposed = start.size
-        if edges.contains(.right) { proposed.width += moved.x }
-        if edges.contains(.left) { proposed.width -= moved.x }
-        if edges.contains(.top) { proposed.height += moved.y }
-        if edges.contains(.bottom) { proposed.height -= moved.y }
-        let horizontal = !edges.isDisjoint(with: [.left, .right]), vertical = !edges.isDisjoint(with: [.top, .bottom])
-        let drive: Drive = horizontal && !vertical ? .width : !horizontal ? .height
-            : abs(proposed.width - start.width) / start.width >= abs(proposed.height - start.height) / start.height ? .width : .height
-        let size = OfficeWindow.fit(proposed, by: drive)
-        // The edges not dragged stay where they were.
-        let x = edges.contains(.left) ? start.maxX - size.width : start.minX
-        let y = edges.contains(.bottom) ? start.maxY - size.height : start.minY
-        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+    /// A resize under way: the size it began at, and whether its width and
+    /// its height are being dragged.
+    private var resizing: (start: NSSize, width: Bool, height: Bool)?
+
+    func windowWillStartLiveResize(_ notification: Notification) {
+        resizing = panel.map { ($0.frame.size, false, false) }
     }
 
-    func resized() {
+    /// macOS resizes it, from any edge or corner, as it does any window, a
+    /// step at a time, and the office keeps its shape (see `fit`). The shape
+    /// is the one the pointer asks for: what's dragged follows it, what isn't
+    /// stays as it was when the drag began, since the office's proportions
+    /// move it meanwhile. So a bottom edge dragged down far enough turns it
+    /// upright.
+    func windowWillResize(_ sender: NSWindow, to proposed: NSSize) -> NSSize {
+        let now = sender.frame.size
+        var drag = resizing ?? (now, false, false)
+        drag.width = drag.width || proposed.width != now.width
+        drag.height = drag.height || proposed.height != now.height
+        resizing = drag
+        let wanted = NSSize(width: drag.width ? proposed.width : drag.start.width, height: drag.height ? proposed.height : drag.start.height)
+        return OfficeWindow.fit(wanted, by: OfficeWindow.drive(from: drag.start, to: wanted, width: drag.width, height: drag.height))
+    }
+
+    /// Which way a resize from `start` to `wanted` goes by: the dimension
+    /// dragged, or of both, the one that's changed the more.
+    static func drive(from start: NSSize, to wanted: NSSize, width: Bool, height: Bool) -> Drive {
+        guard width, height else { return width ? .width : .height }
+        return abs(wanted.width - start.width) / start.width >= abs(wanted.height - start.height) / start.height ? .width : .height
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        resizing = nil
         saveFrame()
         refreshShadow()
+    }
+
+    // MARK: Moving it
+
+    /// Where the window and the pointer were as a move began. It's moved by
+    /// hand: the window server's own drag doesn't take a panel that leaves
+    /// Smolcorp behind the app you're in.
+    private var moving: (frame: NSRect, pointer: NSPoint)?
+
+    var isMoving: Bool { moving != nil }
+
+    /// From the pointer at `pointer`, on the screen.
+    func beginMove(at pointer: NSPoint) {
+        guard let panel else { return }
+        moving = (panel.frame, pointer)
+    }
+
+    func move(to pointer: NSPoint) {
+        guard let panel, let moving else { return }
+        panel.setFrameOrigin(NSPoint(x: moving.frame.minX + pointer.x - moving.pointer.x, y: moving.frame.minY + pointer.y - moving.pointer.y))
+    }
+
+    func endMove() {
+        guard moving != nil else { return }
+        moving = nil
+        saveFrame()
     }
 
     /// The window's shadow follows what's drawn: it's worked out again once
@@ -259,6 +299,25 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
 final class OfficePanel: NSPanel {
     override var canBecomeKey: Bool { true }
 
+    weak var office: OfficeWindow?
+
+    /// ⌘ held, a drag anywhere moves it, and a move, begun here or on its bar,
+    /// follows the pointer until let go: taken here, before the page sees
+    /// any of it.
+    override func sendEvent(_ event: NSEvent) {
+        let pointer = convertPoint(toScreen: event.locationInWindow)
+        switch event.type {
+        case .leftMouseDown where event.modifierFlags.contains(.command):
+            office?.beginMove(at: pointer)
+        case .leftMouseDragged where office?.isMoving == true:
+            office?.move(to: pointer)
+        case .leftMouseUp where office?.isMoving == true:
+            office?.endMove()
+        default:
+            super.sendEvent(event)
+        }
+    }
+
     /// Whether the click being taken was only to bring the window forward.
     var firstClickOnlyRaises = false
 
@@ -294,14 +353,16 @@ final class OfficeWebView: WKWebView {
     override var needsPanelToBecomeKey: Bool { true }
 }
 
-/// A slim bar along the middle of the office's top edge that shows while the
-/// pointer is over it, to drag the window by without ⌘. It keeps clear of the
-/// corners, where the office has its style key.
+/// A bar along the middle of the office's top edge to move the window by,
+/// shown while the pointer is over the office. It keeps clear of the corners,
+/// where the office has its style key.
 final class GrabBar: NSView {
-    static let size = NSSize(width: 96, height: 12)
+    static let size = NSSize(width: 140, height: 18)
     private var showing = false { didSet { needsDisplay = true } }
+    private weak var office: OfficeWindow?
 
-    init(in bounds: NSRect) {
+    init(in bounds: NSRect, office: OfficeWindow) {
+        self.office = office
         super.init(frame: NSRect(x: (bounds.width - GrabBar.size.width) / 2, y: bounds.height - GrabBar.size.height,
                                  width: GrabBar.size.width, height: GrabBar.size.height))
         autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
@@ -309,79 +370,24 @@ final class GrabBar: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    override func updateTrackingAreas() {
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self))
-    }
-
+    /// Over the office, from its tracking area: see `OfficeWindow.makePanel`.
     override func mouseEntered(with event: NSEvent) { showing = true }
     override func mouseExited(with event: NSEvent) { showing = false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    /// The move follows the pointer from here: see OfficePanel.
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        office?.beginMove(at: window.convertPoint(toScreen: event.locationInWindow))
+    }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
 
     override func draw(_ dirtyRect: NSRect) {
         guard showing else { return }
-        NSColor(white: 1, alpha: 0.55).setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 24, dy: 4), xRadius: 2, yRadius: 2).fill()
-    }
-}
-
-/// An edge or corner of the office's window to resize it by.
-final class ResizeHandle: NSView {
-    struct Edges: OptionSet {
-        let rawValue: Int
-        static let left = Edges(rawValue: 1), right = Edges(rawValue: 2), top = Edges(rawValue: 4), bottom = Edges(rawValue: 8)
-    }
-
-    static let all: [Edges] = [.left, .right, .top, .bottom, [.left, .top], [.right, .top], [.left, .bottom], [.right, .bottom]]
-    /// How far in from the edge it can be taken, and along from a corner, in points.
-    static let thickness: CGFloat = 5, corner: CGFloat = 14
-
-    private let edges: Edges
-    private weak var office: OfficeWindow?
-    private var start: (frame: NSRect, pointer: NSPoint)?
-
-    init(_ edges: Edges, in bounds: NSRect, office: OfficeWindow) {
-        self.edges = edges
-        self.office = office
-        let (t, c) = (ResizeHandle.thickness, ResizeHandle.corner)
-        let isCorner = edges.rawValue.nonzeroBitCount == 2
-        let width = isCorner ? c : edges.isDisjoint(with: [.left, .right]) ? bounds.width - 2 * c : t
-        let height = isCorner ? c : edges.isDisjoint(with: [.top, .bottom]) ? bounds.height - 2 * c : t
-        let x = edges.contains(.left) ? 0 : edges.contains(.right) ? bounds.width - width : c
-        let y = edges.contains(.bottom) ? 0 : edges.contains(.top) ? bounds.height - height : c
-        super.init(frame: NSRect(x: x, y: y, width: width, height: height))
-        var mask: NSView.AutoresizingMask = []
-        mask.insert(edges.contains(.left) ? .maxXMargin : edges.contains(.right) ? .minXMargin : .width)
-        mask.insert(edges.contains(.bottom) ? .maxYMargin : edges.contains(.top) ? .minYMargin : .height)
-        autoresizingMask = mask
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func resetCursorRects() {
-        let cursor: NSCursor = edges == .left || edges == .right ? .resizeLeftRight
-            : edges == .top || edges == .bottom ? .resizeUpDown : .crosshair
-        addCursorRect(bounds, cursor: cursor)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        guard let frame = window?.frame else { return }
-        start = (frame, NSEvent.mouseLocation)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let start else { return }
-        let pointer = NSEvent.mouseLocation
-        office?.resize(from: edges, start: start.frame, moved: NSPoint(x: pointer.x - start.pointer.x, y: pointer.y - start.pointer.y))
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        start = nil
-        office?.resized()
+        let pill = NSBezierPath(roundedRect: bounds.insetBy(dx: 30, dy: 5), xRadius: 4, yRadius: 4)
+        NSColor(white: 1, alpha: 0.85).setFill()
+        pill.fill()
+        NSColor(white: 0, alpha: 0.35).setStroke()
+        pill.stroke()
     }
 }
 
