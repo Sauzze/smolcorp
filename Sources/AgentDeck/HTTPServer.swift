@@ -293,9 +293,24 @@ final class EventStream {
         watchForClose()
     }
 
+    /// One state is on its way at a time, and only the newest waits: each
+    /// carries the whole state. A phone that isn't reading, as Safari in the
+    /// background, would otherwise have every one kept for it in memory.
     func send(_ json: Data) {
-        write("data: " + String(decoding: json, as: UTF8.self) + "\n\n")
+        guard !sending else { return waiting = json }
+        sending = true
+        connection.send(content: Data(("data: " + String(decoding: json, as: UTF8.self) + "\n\n").utf8),
+                        completion: .contentProcessed { [weak self] _ in
+            guard let self else { return }
+            self.sending = false
+            if let next = self.waiting {
+                self.waiting = nil
+                self.send(next)
+            }
+        })
     }
+    private var sending = false
+    private var waiting: Data?
 
     /// A comment line, so Safari and anything in between keep an idle stream open.
     func ping() { write(": ping\n\n") }

@@ -351,12 +351,23 @@ func newEventStream() *eventStream {
 	return &eventStream{messages: make(chan []byte, 8), closed: make(chan struct{})}
 }
 
-// send never waits: a phone that isn't reading misses a message, and the
-// next carries the whole state anyway.
+// send never waits. For a phone that isn't keeping up, the oldest message
+// waiting makes way for the newest: each carries the whole state, so the
+// newest is the one that matters. A ping (nil) with no room is just dropped.
 func (s *eventStream) send(state []byte) {
-	select {
-	case s.messages <- state:
-	default:
+	for {
+		select {
+		case s.messages <- state:
+			return
+		default:
+		}
+		if state == nil {
+			return
+		}
+		select {
+		case <-s.messages:
+		default:
+		}
 	}
 }
 

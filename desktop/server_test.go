@@ -298,3 +298,18 @@ func TestOneDeviceCantTakeEveryConnection(t *testing.T) {
 		t.Fatalf("connections closed but still counted: %d open, %v", l.open, l.byAddress)
 	}
 }
+
+func TestAPhoneThatFallsBehindGetsTheNewestState(t *testing.T) {
+	s := newEventStream()
+	for i := range 20 {
+		s.send([]byte(fmt.Sprint(i)))
+	}
+	s.send(nil) // a ping with no room
+	var last []byte
+	for len(s.messages) > 0 {
+		last = <-s.messages
+	}
+	if string(last) != "19" {
+		t.Fatalf("the last state waiting is %q, want the newest, 19", last)
+	}
+}
