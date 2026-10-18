@@ -133,20 +133,21 @@ struct Tmux: TerminalDriver {
         guard let info = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_tty} #{pane_pid}"]), info.status == 0 else { return .notStopped }
         let parts = info.output.split(separator: " ")
         guard parts.count == 2, let pane = pid_t(parts[1]) else { return .notStopped }
-        let tty = String(parts[0]), ours = Set(agent.runningNames.map { $0.lowercased() })
+        let tty = String(parts[0])
         switch Terminal.foreground(tty: tty, shell: pane) {
         case nil:
             return .notStopped
-        case .job(let job, let names)?:
-            guard names.contains(where: { ours.contains($0.lowercased()) }), Terminal.stop(job) else { return .notStopped }
+        case .job(let job, _, let commandLines)?:
+            guard commandLines.contains(where: agent.isItself), Terminal.stop(job) else { return .notStopped }
             // The agent has gone, and if another job has taken its place, the pane is that job's now.
             if case .job? = Terminal.foreground(tty: tty, shell: pane) { return .fired }
         case .shell?:
             // The pane's own process is in front: its shell, or the agent when
             // the pane was started with it. Anything else is someone's work.
-            guard let name = Tool.run("/bin/ps", ["-p", String(pane), "-o", "comm="])?.output else { return .notStopped }
-            let process = (name as NSString).lastPathComponent.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-            guard ours.contains(process) || Tmux.shells.contains(process) else { return .notStopped }
+            guard let line = Tool.run("/bin/ps", ["-p", String(pane), "-o", "args="])?.output, !line.isEmpty else { return .notStopped }
+            let program = (String(line.split(separator: " ")[0]) as NSString).lastPathComponent.lowercased()
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            guard agent.isItself(commandLine: line) || Tmux.shells.contains(program) else { return .notStopped }
         }
         return ran(tab, ["kill-pane", "-t", tab.id]) ? .fired : .notStopped
     }
@@ -244,9 +245,8 @@ struct ITerm: TerminalDriver {
         case nil:
             // Unknown is not the same as none: nothing is touched.
             return .notStopped
-        case .job(let job, let names)?:
-            let ours = Set(agent.runningNames.map { $0.lowercased() })
-            guard names.contains(where: { ours.contains($0.lowercased()) }), Terminal.stop(job) else { return .notStopped }
+        case .job(let job, _, let commandLines)?:
+            guard commandLines.contains(where: agent.isItself), Terminal.stop(job) else { return .notStopped }
             // The agent has gone, and if another job has taken its place, the session is that job's now.
             if case .job? = Terminal.foreground(tty: tty) { return .fired }
         case .shell?:

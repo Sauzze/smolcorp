@@ -847,11 +847,11 @@ final class Deck {
     /// to the shell, where its keys would land and a button's text would run
     /// as a command, or to whatever runs there next: its session goes instead.
     private func toAgent(_ session: Session, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
-        let tab = session.tab, names = session.agent.runningNames
+        let tab = session.tab, agent = session.agent
         Terminal.queue.async {
             let tty = Terminals.tty(of: tab)
             // Unknown is not the same as gone: the keys go as they always did.
-            guard tty.flatMap({ Terminal.isRunning(any: names, on: $0) }) != false else {
+            guard tty.flatMap({ Terminal.isRunning(agent, on: $0) }) != false else {
                 return DispatchQueue.main.async {
                     self.sessions.prune(closedTabs: [tab])
                     done(.status(410, "That agent has ended."))
@@ -884,11 +884,11 @@ final class Deck {
             let level = session.pendingEffort
             session.pendingEffort = ""
             guard let (driver, tab) = terminal(of: session, for: .text) else { continue }
-            let address = session.tab, names = session.agent.runningNames
+            let address = session.tab, agent = session.agent
             Terminal.queue.async {
                 let tty = Terminals.tty(of: address)
                 // Not into a tab its agent has left: see `toAgent`.
-                guard tty.flatMap({ Terminal.isRunning(any: names, on: $0) }) != false, driver.type("/effort \(level)", in: tab) else { return }
+                guard tty.flatMap({ Terminal.isRunning(agent, on: $0) }) != false, driver.type("/effort \(level)", in: tab) else { return }
                 DispatchQueue.main.async {
                     session.effort = level
                     self.changed()
@@ -964,15 +964,15 @@ final class Deck {
     private func pruneClosedPanes() {
         let tabs = sessions.all.compactMap { session -> (tab: String, isGone: () -> Bool)? in
             guard let address = TabAddress(session.tab), address.kind != "tty" else { return nil }
-            let names = session.agent.runningNames
+            let agent = session.agent
             if let driver = Terminals.driver(for: address) {
                 // Closed, or open with its agent gone from it, as after a crash.
                 return (session.tab, {
-                    driver.isOpen(address) == false || driver.tty(of: address).flatMap { Terminal.isRunning(any: names, on: $0) } == false
+                    driver.isOpen(address) == false || driver.tty(of: address).flatMap { Terminal.isRunning(agent, on: $0) } == false
                 })
             }
             guard let tty = Terminals.ttyInAddress(of: session.tab) else { return nil }
-            return (session.tab, { Terminal.isRunning(any: names, on: tty) == false })
+            return (session.tab, { Terminal.isRunning(agent, on: tty) == false })
         }
         guard !tabs.isEmpty, !checkingPanes else { return }
         checkingPanes = true

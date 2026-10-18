@@ -73,14 +73,20 @@ enum Terminal {
     /// app: nil if that couldn't be looked at. A tab that has closed takes its
     /// processes with it.
     static func isRunning(_ name: String, on tty: String) -> Bool? {
-        isRunning(any: [name], on: tty)
+        commands(on: tty, "comm=").map { runs(any: [name], among: $0) }
     }
 
-    /// Whether a process called any of `names` is running on `tty`: see above.
-    static func isRunning(any names: Set<String>, on tty: String) -> Bool? {
+    /// Whether `agent` itself runs on `tty`, judged by each process's command
+    /// line: see `Agent.isItself(commandLine:)`. Nil if that couldn't be looked at.
+    static func isRunning(_ agent: Agent, on tty: String) -> Bool? {
+        commands(on: tty, "args=").map { $0.split(separator: "\n").contains { agent.isItself(commandLine: String($0)) } }
+    }
+
+    /// What `ps` says of each process on `tty`, one per line, in `format`.
+    private static func commands(on tty: String, _ format: String) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", "comm="]
+        process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", format]
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
@@ -88,7 +94,7 @@ enum Terminal {
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         // No such tty any more is an answer too: nothing runs on it.
-        return runs(any: names, among: String(decoding: data, as: UTF8.self))
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// Whether `ps -o comm=`'s lines, `commands`, name any of `names`.
@@ -202,7 +208,7 @@ enum Terminal {
         switch foreground(tty: tty) {
         case nil:
             return .notStopped
-        case .job(let job, let names)?:
+        case .job(let job, let names, _)?:
             guard names.contains(agent.foregroundName), stop(job) else { return .notStopped }
             // The agent has gone, and if another job has taken its place, the
             // tab is that job's now.
@@ -251,8 +257,8 @@ enum Terminal {
     enum Foreground {
         /// Nothing but the shell, or not even that once the shell has ended.
         case shell
-        /// A job: its process group, and the names of the processes in it.
-        case job(pid_t, names: Set<String>)
+        /// A job: its process group, and the names and command lines of the processes in it.
+        case job(pid_t, names: Set<String>, commandLines: [String] = [])
     }
 
     /// The foreground of the tab on `tty`, or nil if `ps` couldn't be asked.
@@ -267,18 +273,21 @@ enum Terminal {
     static func foreground(tty: String, shell given: pid_t?) -> Foreground? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", "pid=,ppid=,pgid=,tpgid=,comm="]
+        process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", "pid=,ppid=,pgid=,tpgid=,args="]
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { return nil }
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let rows = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { line -> (pid: Int32, ppid: Int32, pgid: Int32, tpgid: Int32, name: String)? in
+        let rows = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap {
+            line -> (pid: Int32, ppid: Int32, pgid: Int32, tpgid: Int32, name: String, args: String)? in
             let fields = line.split(separator: " ", maxSplits: 4, omittingEmptySubsequences: true)
             guard fields.count == 5, let pid = Int32(fields[0]), let ppid = Int32(fields[1]), let pgid = Int32(fields[2]),
                   let tpgid = Int32(fields[3]) else { return nil }
-            return (pid, ppid, pgid, tpgid, (String(fields[4]) as NSString).lastPathComponent)
+            // The program's name is the first word of its command line.
+            let program = fields[4].split(separator: " ").first.map(String.init) ?? ""
+            return (pid, ppid, pgid, tpgid, (program as NSString).lastPathComponent, String(fields[4]))
         }
         // Nothing left at all: the shell has ended too.
         guard let tpgid = rows.first?.tpgid else { return .shell }
@@ -288,7 +297,8 @@ enum Terminal {
         let found = given.map { pid in rows.first { $0.pid == pid } } ?? rows.first { logins.contains($0.ppid) }
         guard let shell = found else { return nil }
         guard tpgid > 0, tpgid != shell.pgid else { return .shell }
-        return .job(tpgid, names: Set(rows.filter { $0.pgid == tpgid }.map(\.name)))
+        let job = rows.filter { $0.pgid == tpgid }
+        return .job(tpgid, names: Set(job.map(\.name)), commandLines: job.map(\.args))
     }
 
     /// Keys go to whichever app is in front, so they wait until that is

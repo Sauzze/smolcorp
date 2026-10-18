@@ -146,20 +146,25 @@ final class TmuxFiringTests: XCTestCase {
 
     private func isThere(_ pane: TabAddress) -> Bool { Tmux().isOpen(pane) == true }
 
-    /// Whether a process called node runs in the pane: the agent is really there before it's fired.
+    /// Whether the stand-in runs in the pane: the agent is really there before it's fired.
     private func agentRuns(in pane: TabAddress) -> Bool {
         Tmux().tty(of: pane).flatMap { Terminal.isRunning("node", on: $0) } == true
     }
 
+    /// The stand-in as Claude Code from npm: node running the agent's own package.
+    private var claude: String { "\(folder.path)/node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js" }
+    /// The stand-in as a dev server: node too, running vite.
+    private var devServer: String { "\(folder.path)/node /Users/me/app/node_modules/.bin/vite" }
+
     func testTheAgentAsThePanesOwnProgramGoesWithThePane() throws {
-        let agent = try pane("\(folder.path)/node")
+        let agent = try pane(claude)
         XCTAssertTrue(agentRuns(in: agent))
         XCTAssertEqual(Tmux().fire(agent, agent: .claude), .fired)
         XCTAssertFalse(isThere(agent))
     }
 
     func testTheAgentAsAJobIsStoppedThenThePaneClosed() throws {
-        let agent = try pane("/bin/sh", typed: "\(folder.path)/node")
+        let agent = try pane("/bin/sh", typed: claude)
         XCTAssertTrue(agentRuns(in: agent))
         XCTAssertEqual(Tmux().fire(agent, agent: .claude), .fired)
         XCTAssertFalse(isThere(agent))
@@ -179,5 +184,22 @@ final class TmuxFiringTests: XCTestCase {
         let program = try pane("/bin/sleep 300")
         XCTAssertEqual(Tmux().fire(program, agent: .claude), .notStopped, "a pane started with someone else's program")
         XCTAssertTrue(isThere(program))
+    }
+
+    /// The agent crashed and `npm run dev` took its place: node, but not the agent.
+    func testANodeDevServerInTheAgentsPaneIsLeftAlone() throws {
+        let job = try pane("/bin/sh", typed: devServer)
+        XCTAssertTrue(agentRuns(in: job))
+        XCTAssertEqual(Tmux().fire(job, agent: .claude), .notStopped)
+        XCTAssertTrue(isThere(job))
+        XCTAssertEqual(Tmux().tty(of: job).flatMap { Terminal.isRunning(.claude, on: $0) }, false, "the desk is free to go")
+        let program = try pane(devServer)
+        XCTAssertEqual(Tmux().fire(program, agent: .claude), .notStopped, "a pane started with the dev server")
+        XCTAssertTrue(isThere(program))
+    }
+
+    func testTheAgentIsSeenRunning() throws {
+        let agent = try pane(claude)
+        XCTAssertEqual(Tmux().tty(of: agent).flatMap { Terminal.isRunning(.claude, on: $0) }, true)
     }
 }
