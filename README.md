@@ -377,19 +377,22 @@ setup page (it's off until you do):
 instructions, set under *Roles* on the setup page. Five come with Smolcorp,
 each reporting what it finds and asking before it changes anything:
 
-- **Reviewer** (glasses and a red pen): reviews the branch's changes against
-  main, most serious problems first.
-- **Tester** (a clipboard): runs the tests and explains each failure.
-- **Bug hunter** (a magnifying glass): looks for bugs, with how to reproduce
-  each one.
-- **Docs writer** (a quill and notebook): checks the README and docs against
-  the code.
-- **Refactorer** (a wrench): proposes one refactor at a time.
+- **Reviewer** (glasses and a red pen): reviews the changes you point it to,
+  most serious problems first.
+- **Tester** (a clipboard): runs the tests you pick and explains each failure.
+- **Bug hunter** (a magnifying glass): looks for bugs where you point it, with
+  how to reproduce each one.
+- **Docs writer** (a quill and notebook): checks the docs you pick against the
+  code.
+- **Refactorer** (a wrench): proposes one refactor at a time, within the limits
+  you give.
 
 Change any of them, put them in your order, or add up to twelve of your own.
-Every role first settles which folder it works in: hired into the folder for
-new hires, it asks you which project to work on; at a pinned project's desk,
-it asks you to confirm that one. Then it gets to work. Its desk shows the role,
+A role never assumes what to work on. Its first reply only asks you, all
+together, which project to work on (at a pinned project's desk, whether it's
+that one) and its own questions, such as the Reviewer's branch, base and what
+matters most. It's told to read nothing and run nothing until you've
+answered, then it gets to work. Each role's questions are yours to change, one per line. Its desk shows the role,
 as in *Reviewer · api-server*, and its badge, and it keeps the role after
 `/clear`. Roles stay on your computer, out of profiles: the phone only knows
 their names and badges.

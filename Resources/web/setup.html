@@ -144,6 +144,7 @@
   .role .body { display: grid; gap: 10px; padding: 0 12px 12px; }
   .role .body .choices { flex-wrap: wrap; justify-content: flex-end; }
   .role .body .choices canvas { image-rendering: pixelated; vertical-align: -3px; }
+  .role textarea.questions { min-height: 72px; }
   .role textarea { width: 100%; min-height: 96px; resize: vertical; background: var(--cap); color: var(--ink); border: 1px solid var(--edge);
     border-radius: 6px; padding: 8px; font: 13px/1.45 system-ui, sans-serif; box-sizing: border-box; }
   .role .tools { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
@@ -827,9 +828,10 @@
     const agentOf = (id) => r.agents.find((a) => a.id === id) || r.agents[0];
     const own = roles.filter((role) => !r.shipped.some((s) => s.id === role.id)).length;
     $('roles-hint').textContent = state.launcher
-      ? 'Start one in a terminal with the command on its card. It first confirms the folder you started it in, then works on its instructions.'
-      : 'Hold a free desk in the office and pick a role to hire it, or Anyone for a regular hire. Each first asks which folder '
-        + "to work in, or confirms the desk's project, then works on its instructions.";
+      ? 'Start one in a terminal with the command on its card. Its first reply only asks you its questions, starting with whether '
+        + "the folder you started it in is the one, and it waits for your answers before it works on its instructions."
+      : 'Hold a free desk in the office and pick a role to hire it, or Anyone for a regular hire. Its first reply only asks you '
+        + "which project to work on and its own questions, and it waits for your answers before it works on its instructions.";
     $('role-add').disabled = own >= r.limits.own;
     $('role-add').title = own >= r.limits.own ? `${r.limits.own} roles of your own is the most.` : '';
     $('role-shipped').hidden = r.shipped.every((s) => roles.some((role) => role.id === s.id));
@@ -910,13 +912,22 @@
       const said = document.createElement('p');
       said.className = 'hint';
       if (agent.starts) {
-        said.textContent = 'It first settles which folder it works in. Then it\'s told:';
+        said.textContent = 'Its first reply only asks you which project to work on, then these, one per line:';
+        const questions = document.createElement('textarea');
+        questions.className = 'questions';
+        questions.value = (role.questions || []).join('\n');
+        questions.placeholder = 'What it should ask before starting, one per line';
+        questions.onchange = () => change((edit) => ({ ...edit,
+          questions: questions.value.split('\n').map((q) => q.trim()).filter(Boolean).slice(0, r.limits.questions) }));
+        const then = document.createElement('p');
+        then.className = 'hint';
+        then.textContent = "Once you've answered, it works on:";
         const instructions = document.createElement('textarea');
         instructions.value = role.instructions;
         instructions.maxLength = r.limits.instructions;
-        instructions.placeholder = 'What this role does, and what it should ask you before doing.';
+        instructions.placeholder = "What it does once you've answered";
         instructions.onchange = () => change((edit) => ({ ...edit, instructions: instructions.value }));
-        body.append(said, instructions);
+        body.append(said, questions, then, instructions);
       } else {
         said.textContent = `${agent.name} starts as it is, without a model or instructions. Its desk still shows the role.`;
         body.append(said);
@@ -956,7 +967,8 @@
     let n = 1;
     while (roles.some((role) => role.id === `own-${n}`)) n++;
     openRoles.add(`own-${n}`);
-    saveRoles([...roles, { id: `own-${n}`, name: 'New role', agent: 'claude', model: '', effort: '', instructions: '', badge: 'star' }]);
+    saveRoles([...roles, { id: `own-${n}`, name: 'New role', agent: 'claude', model: '', effort: '', questions: [], instructions: '',
+      badge: 'star' }]);
   };
   $('role-shipped').onclick = () => {
     const roles = state.roles.roles;
