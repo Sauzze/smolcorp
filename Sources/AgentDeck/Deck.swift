@@ -591,8 +591,10 @@ final class Deck {
         var pinned: String?
         if let desk {
             let (keys, _) = layout()
-            guard let index = Int(desk), keys.indices.contains(index) else { return done(.status(400, "Unknown desk")) }
-            pinned = keys[index].pin.flatMap(Deck.folder)
+            // With Auto, the office also offers the desk after the last: a hire adds it.
+            let next = config.layout.keys == .auto && keys.count < KeyCount.most ? keys.count : nil
+            guard let index = Int(desk), keys.indices.contains(index) || index == next else { return done(.status(400, "Unknown desk")) }
+            pinned = keys.indices.contains(index) ? keys[index].pin.flatMap(Deck.folder) : nil
         }
         guard let folder = pinned ?? Deck.folder(config.hireFolder) else {
             return done(.status(409, "Choose a folder for new hires in setup, on your Mac."))

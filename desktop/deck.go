@@ -623,8 +623,14 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		if query.Has("desk") {
 			d.mu.Lock()
 			keys, _ := d.layout()
+			auto := d.config.Layout.Keys == Auto
 			d.mu.Unlock()
-			if desk, err := strconv.Atoi(query.Get("desk")); err != nil || desk < 0 || desk >= len(keys) {
+			// With Auto, the office also offers the desk after the last: a hire adds it.
+			next := -1
+			if auto && len(keys) < mostKeys {
+				next = len(keys)
+			}
+			if desk, err := strconv.Atoi(query.Get("desk")); err != nil || desk < 0 || desk >= len(keys) && desk != next {
 				return http.StatusBadRequest, "Unknown desk"
 			}
 		}
