@@ -309,7 +309,7 @@ final class Deck {
         DispatchQueue.global(qos: .utility).async {
             let running = saved.sessions.filter { entry in
                 guard let tty = Terminals.tty(of: entry.address), let agent = Agent(rawValue: entry.agent) else { return false }
-                return Terminal.isRunning(agent.foregroundName, on: tty) == true
+                return Terminal.isRunning(agent, on: tty) == true
             }
             DispatchQueue.main.async {
                 guard !running.isEmpty else { return }
@@ -852,7 +852,8 @@ final class Deck {
               driver.abilities.contains(.text) else { return }
         let agent = sessions.all.first { $0.tab == tab }?.agent
         Terminal.queue.async {
-            if let agent, let tty = Terminals.tty(of: tab), Terminal.isRunning(agent, on: tty) == false { return }
+            // Only where the agent is in front: behind the shell, the text would wait there to run as a command.
+            if let agent, let tty = Terminals.tty(of: tab), let place = Terminal.place(of: agent, on: tty), place != .front { return }
             _ = driver.insert(text, in: address)
         }
     }
@@ -915,20 +916,26 @@ final class Deck {
         toAgent(session, done: done) { driver.type(text, in: tab) }
     }
 
-    /// Runs `work` on the tab once its agent is known to run there still. An
-    /// agent that ended without saying so, crashed or killed, leaves its tab
-    /// to the shell, where its keys would land and a button's text would run
-    /// as a command, or to whatever runs there next: its session goes instead.
+    /// Runs `work` on the tab once its agent is known to be in front there
+    /// still. An agent that ended without saying so, crashed or killed, leaves
+    /// its tab to the shell, where its keys would land and a button's text
+    /// would run as a command, or to whatever runs there next: its session
+    /// goes instead. One stopped with Ctrl-Z or in the background stays, and
+    /// gets nothing until it's back in front.
     private func toAgent(_ session: Session, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
         let tab = session.tab, agent = session.agent
         Terminal.queue.async {
-            let tty = Terminals.tty(of: tab)
             // Unknown is not the same as gone: the keys go as they always did.
-            guard tty.flatMap({ Terminal.isRunning(agent, on: $0) }) != false else {
+            switch Terminals.tty(of: tab).flatMap({ Terminal.place(of: agent, on: $0) }) {
+            case .gone?:
                 return DispatchQueue.main.async {
                     self.sessions.prune(closedTabs: [tab])
                     done(.status(410, "That agent has ended."))
                 }
+            case .behind?:
+                return DispatchQueue.main.async { done(.status(409, "That agent isn't in front in its terminal: bring it back with fg.")) }
+            case .front?, nil:
+                break
             }
             let ok = work()
             DispatchQueue.main.async { done(ok ? .status(204) : .status(404, "Terminal tab not found")) }
@@ -960,8 +967,8 @@ final class Deck {
             let address = session.tab, agent = session.agent
             Terminal.queue.async {
                 let tty = Terminals.tty(of: address)
-                // Not into a tab its agent has left: see `toAgent`.
-                guard tty.flatMap({ Terminal.isRunning(agent, on: $0) }) != false, driver.type("/effort \(level)", in: tab) else { return }
+                // Only to the agent in front: see `toAgent`.
+                guard tty.flatMap({ Terminal.place(of: agent, on: $0) }).map({ $0 == .front }) != false, driver.type("/effort \(level)", in: tab) else { return }
                 DispatchQueue.main.async {
                     session.effort = level
                     self.changed()
@@ -1020,7 +1027,7 @@ final class Deck {
                 }
                 // The last word is the tab's own: its agent still running there means it's open.
                 DispatchQueue.global(qos: .utility).async {
-                    let gone = Set(suspects.filter { Terminal.isRunning($0.agent.foregroundName, on: $0.tty) == false }.map(\.tab))
+                    let gone = Set(suspects.filter { Terminal.isRunning($0.agent, on: $0.tty) == false }.map(\.tab))
                     DispatchQueue.main.async {
                         self.checkingTabs = false
                         self.sessions.prune(closedTabs: gone)
