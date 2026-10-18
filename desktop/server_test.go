@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Where requests come from: this computer, and a phone on the same Wi-Fi.
@@ -311,5 +312,44 @@ func TestAPhoneThatFallsBehindGetsTheNewestState(t *testing.T) {
 	}
 	if string(last) != "19" {
 		t.Fatalf("the last state waiting is %q, want the newest, 19", last)
+	}
+}
+
+func TestTheTraysLinkWorksOnceAndCarriesNoKey(t *testing.T) {
+	d := newTestDeck(t)
+	d.mu.Lock()
+	token := d.access.NewSetupToken()
+	d.mu.Unlock()
+	if link := setupAddress("o="+token, "pair"); strings.Contains(link, d.access.SetupKey) {
+		t.Fatal("the tray's link, on the browser's command line, carries the setup key")
+	}
+	handOver := func(token string) *httptest.ResponseRecorder {
+		return serve(t, d, call{method: "POST", target: "/setup/session", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
+			headers: map[string]string{setupHeader: "1", setupTokenHeader: token}})
+	}
+	first := handOver(token)
+	if first.Code != http.StatusNoContent || len(first.Result().Cookies()) != 1 || first.Result().Cookies()[0].Value != d.access.SetupKey {
+		t.Fatalf("the link's token gave %d, cookies %v", first.Code, first.Result().Cookies())
+	}
+	// Read from another user's view of the command line, it's used up already.
+	if again := handOver(token); again.Code != http.StatusUnauthorized {
+		t.Errorf("the token worked a second time: %d", again.Code)
+	}
+	// And one never used runs out.
+	d.mu.Lock()
+	late := d.access.NewSetupToken()
+	d.access.setupTokens[late] = time.Now().Add(-time.Second)
+	d.mu.Unlock()
+	if expired := handOver(late); expired.Code != http.StatusUnauthorized {
+		t.Errorf("a token that had run out worked: %d", expired.Code)
+	}
+	// A token opens only the handover, not setup itself.
+	d.mu.Lock()
+	other := d.access.NewSetupToken()
+	d.mu.Unlock()
+	state := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
+		headers: map[string]string{setupTokenHeader: other}})
+	if state.Code != http.StatusUnauthorized {
+		t.Errorf("a token read setup's state: %d", state.Code)
 	}
 }

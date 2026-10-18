@@ -611,15 +611,17 @@
   }
 
   /**
-   * Opened from the menu, the page's address carries the setup key after #k=.
+   * Opened from the menu, the page's address carries the setup key after #k=,
+   * or, from the Windows and Linux tray, a token that works once after #o=.
    * It's handed over once, for a cookie this page's requests carry from then
    * on, and taken out of the address and its history.
    */
   async function handOverKey() {
     const opened = new URLSearchParams(location.hash.slice(1));
-    const key = opened.get('k');
-    if (!key) return;
-    await fetch('/setup/session', { method: 'POST', headers: { ...setupHeaders(false), 'X-Smolcorp-Setup-Key': key } }).catch(() => {});
+    const key = opened.get('k'), token = opened.get('o');
+    if (!key && !token) return;
+    const given = key ? { 'X-Smolcorp-Setup-Key': key } : { 'X-Smolcorp-Setup-Once': token };
+    await fetch('/setup/session', { method: 'POST', headers: { ...setupHeaders(false), ...given } }).catch(() => {});
     const then = ['pair', 'unpair'].find((action) => opened.has(action));
     history.replaceState(null, '', location.pathname + (then ? `#${then}` : ''));
   }

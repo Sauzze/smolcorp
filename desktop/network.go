@@ -21,7 +21,22 @@ func pairingLink(code string) string { return phoneAddress() + "/?pair=" + code 
 // this computer: the page hands it over once for a cookie, and takes it out of
 // the address. then is what the page does on opening: "pair" or "unpair".
 func (d *Deck) setupLink(then string) string {
-	link := fmt.Sprintf("http://localhost:%d/setup#k=%s", Port, d.access.SetupKey)
+	return setupAddress("k="+d.access.SetupKey, then)
+}
+
+// openSetup opens the setup page in the browser. The browser is started
+// with the link on its command line, which other people signed in to this
+// computer can read, so the link carries a token that works once, for a
+// couple of minutes, instead of the key: the page swaps it for the cookie.
+func (d *Deck) openSetup(then string) {
+	d.mu.Lock()
+	token := d.access.NewSetupToken()
+	d.mu.Unlock()
+	openURL(setupAddress("o="+token, then))
+}
+
+func setupAddress(fragment, then string) string {
+	link := fmt.Sprintf("http://localhost:%d/setup#%s", Port, fragment)
 	if then != "" {
 		link += "&" + then
 	}

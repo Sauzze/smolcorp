@@ -56,6 +56,8 @@ const (
 	// file; or as the page's cookie, from the tray's link.
 	setupKeyHeader = "X-Smolcorp-Setup-Key"
 	setupCookie    = "smolcorp-setup"
+	// A tray link's one-time token, which the page swaps for the cookie.
+	setupTokenHeader = "X-Smolcorp-Setup-Once"
 )
 
 // Serve listens on the deck's port until it fails.
@@ -201,13 +203,16 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		if r.URL.Path != "/setup" && !d.isSetupKey(setupKeyOf(r.Request)) {
+		// The tray's link carries a token that works once, after #o=, and the
+		// link serve prints the key, after #k=. The page hands either over once
+		// for a cookie only this page's requests carry.
+		session := r.Method == http.MethodPost && r.URL.Path == "/setup/session"
+		redeemed := session && d.redeemSetupToken(r.Header.Get(setupTokenHeader))
+		if r.URL.Path != "/setup" && !redeemed && !d.isSetupKey(setupKeyOf(r.Request)) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		// The tray's link carries the key after #k=. The page hands it over once,
-		// checked just above, for a cookie only this page's requests carry.
-		if r.Method == http.MethodPost && r.URL.Path == "/setup/session" {
+		if session {
 			http.SetCookie(w, &http.Cookie{Name: setupCookie, Value: d.access.SetupKey, Path: "/setup", HttpOnly: true,
 				SameSite: http.SameSiteStrictMode})
 			w.WriteHeader(http.StatusNoContent)
@@ -324,6 +329,12 @@ func setupKeyOf(r *http.Request) string {
 		return cookie.Value
 	}
 	return ""
+}
+
+func (d *Deck) redeemSetupToken(candidate string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.access.RedeemSetupToken(candidate)
 }
 
 func (d *Deck) isSetupKey(candidate string) bool {

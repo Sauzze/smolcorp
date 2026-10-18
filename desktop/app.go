@@ -26,7 +26,7 @@ func RunApp() int {
 	firstRun := !deck.config.HasCompletedSetup
 	deck.mu.Unlock()
 	if firstRun {
-		openURL(deck.setupLink(""))
+		deck.openSetup("")
 	}
 	if !hasDesktop() {
 		printSetupLink(deck)
@@ -47,6 +47,7 @@ func RunServer() int {
 
 // printSetupLink says where setup is, with no tray to open it from: on this
 // computer, or through a tunnel to its port, as ssh -L 7710:localhost:7710.
+// Printed, not passed on a command line, it can carry the key itself.
 func printSetupLink(deck *Deck) {
 	fmt.Printf("Smolcorp's setup: %s\nIt works until Smolcorp restarts. Its key is also in %s.\n", deck.setupLink(""), setupKeyFile)
 }
@@ -133,13 +134,13 @@ func (t *tray) listen(failed <-chan error) {
 	for {
 		select {
 		case <-t.setup.ClickedCh:
-			openURL(t.deck.setupLink(""))
+			t.deck.openSetup("")
 		case <-t.pair.ClickedCh:
 			// The setup page has a code ready when it opens on #pair.
-			openURL(t.deck.setupLink("pair"))
+			t.deck.openSetup("pair")
 		case <-t.unpair.ClickedCh:
 			// The setup page asks you to confirm, then unpairs every phone.
-			openURL(t.deck.setupLink("unpair"))
+			t.deck.openSetup("unpair")
 		case <-t.login.ClickedCh:
 			setOpenAtLogin(!isOpenAtLogin())
 			if isOpenAtLogin() {

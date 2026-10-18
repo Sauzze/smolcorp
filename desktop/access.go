@@ -33,6 +33,9 @@ type Access struct {
 	// page with it, and it's kept in a file only you can read, for tools of
 	// your own on this computer.
 	SetupKey string
+	// Tokens the tray's links carry in place of the setup key, each good
+	// once, until it runs out.
+	setupTokens map[string]time.Time
 
 	code        string
 	codeExpiry  time.Time
@@ -59,6 +62,37 @@ func (a *Access) IsHookKey(candidate string) bool {
 
 func (a *Access) IsSetupKey(candidate string) bool {
 	return candidate != "" && constantTimeEqual(candidate, a.SetupKey)
+}
+
+// How long a tray link's token works: long enough for a browser to start.
+const setupTokenLifetime = 2 * time.Minute
+
+// NewSetupToken is a token for one link to the setup page.
+func (a *Access) NewSetupToken() string {
+	now := time.Now()
+	if a.setupTokens == nil {
+		a.setupTokens = map[string]time.Time{}
+	}
+	for token, expiry := range a.setupTokens {
+		if now.After(expiry) {
+			delete(a.setupTokens, token)
+		}
+	}
+	token := randomKey()
+	a.setupTokens[token] = now.Add(setupTokenLifetime)
+	return token
+}
+
+// RedeemSetupToken says whether candidate is a token not yet used and not
+// run out, and uses it up.
+func (a *Access) RedeemSetupToken(candidate string) bool {
+	for token, expiry := range a.setupTokens {
+		if candidate != "" && constantTimeEqual(candidate, token) {
+			delete(a.setupTokens, token)
+			return time.Now().Before(expiry)
+		}
+	}
+	return false
 }
 
 // NewCode replaces any earlier code and lifts lockouts.
