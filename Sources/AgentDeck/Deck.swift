@@ -582,8 +582,10 @@ final class Deck {
     /// phone, would otherwise open a second window before the first new hire
     /// has reached the deck.
     private static let hireCooldown: TimeInterval = 5
-    /// How long a hire's tab waits for its agent to report, to take its role.
-    private static let hiredTabWait: TimeInterval = 120
+    /// How long a hire's tab waits for its agent to report, to take its role
+    /// and desk: long enough for a trust prompt left waiting a while. Its tab
+    /// closing ends the wait sooner, so a tty used again later can't take them.
+    private static let hiredTabWait: TimeInterval = 15 * 60
     private var lastHire: Date?
 
     /// A new Terminal window with the agent set up for new hires at work in
@@ -804,6 +806,7 @@ final class Deck {
                 let closed = missing.intersection(self.missedOnce)
                 self.missedOnce = missing.subtracting(closed)
                 self.terminalTTYs = open.union(self.missedOnce)
+                self.hiredTabs.removeAll { closed.contains($0.tty) }
                 let suspects = self.sessions.all.filter { closed.contains($0.tty) }.map { (tty: $0.tty, agent: $0.agent) }
                 guard !suspects.isEmpty else {
                     self.checkingTabs = false
