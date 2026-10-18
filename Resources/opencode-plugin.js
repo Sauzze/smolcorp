@@ -15,7 +15,11 @@ export const Smolcorp = async ({ directory }) => {
   const report = (sessionID, name, extra = {}) => {
     if (!sessionID || children.has(sessionID)) return
     const event = JSON.stringify({ session_id: sessionID, hook_event_name: name, cwd: directory, ...extra })
-    Bun.spawn(COMMAND, { stdin: new TextEncoder().encode(event), stdout: "ignore", stderr: "ignore" })
+    // The hook gone, as when Smolcorp was moved or removed and this file left
+    // behind, must not fail OpenCode's events: the deck just doesn't hear them.
+    try {
+      Bun.spawn(COMMAND, { stdin: new TextEncoder().encode(event), stdout: "ignore", stderr: "ignore" })
+    } catch {}
   }
 
   return {
