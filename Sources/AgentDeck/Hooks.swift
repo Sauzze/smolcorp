@@ -222,21 +222,36 @@ enum Hooks {
         return result
     }
 
-    private static func read(_ file: URL) throws -> [String: Any] {
-        guard let data = try? Data(contentsOf: file) else { return [:] }
-        guard let settings = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+    /// Only a file that isn't there at all is empty. One that is there but
+    /// can't be read, a link to nothing, or one that isn't JSON is named in
+    /// the error, so it's never written over with the deck's entries alone.
+    static func read(_ file: URL) throws -> [String: Any] {
+        let data: Data
+        do {
+            data = try Data(contentsOf: file)
+        } catch CocoaError.fileReadNoSuchFile
+                    where (try? FileManager.default.destinationOfSymbolicLink(atPath: file.path)) == nil {
+            return [:]
+        } catch {
+            throw HookError.unreadableSettings([file])
+        }
+        guard let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             throw HookError.unreadableSettings([file])
         }
         return settings
     }
 
-    private static func write(_ settings: [String: Any], to file: URL, backup: Bool) throws {
+    /// A link is followed, so the file it points to, in a dotfiles folder
+    /// say, is the one that changes, and the link stays. The backup is made
+    /// first, or nothing is written.
+    static func write(_ settings: [String: Any], to file: URL, backup: Bool) throws {
         let fm = FileManager.default
+        let file = file.resolvingSymlinksInPath()
         try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         if backup && fm.fileExists(atPath: file.path) {
             let copy = file.appendingPathExtension("agentdeck.bak")
             try? fm.removeItem(at: copy)
-            try? fm.copyItem(at: file, to: copy)
+            try fm.copyItem(at: file, to: copy)
         }
         let options: JSONSerialization.WritingOptions = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try JSONSerialization.data(withJSONObject: settings, options: options)
@@ -253,7 +268,7 @@ enum Hooks {
                 return "No coding agent found on this Mac. Install one, open it once, then connect again."
             case .unreadableSettings(let files):
                 let names = files.map { $0.path.replacingOccurrences(of: Paths.home.path, with: "~") }
-                return "\(names.joined(separator: " and ")) isn't valid JSON. Fix it, then try again."
+                return "\(names.joined(separator: " and ")) can't be read or isn't valid JSON. Fix it, then try again."
             }
         }
     }

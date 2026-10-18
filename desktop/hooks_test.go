@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Where an installed copy lives, as its hooks name it.
@@ -171,6 +173,104 @@ func TestSettingsThatArentJSONAreLeftAlone(t *testing.T) {
 	}
 	if text, _ := os.ReadFile(settings); string(text) != broken {
 		t.Fatal("broken settings were rewritten")
+	}
+}
+
+func TestSettingsThatCantBeReadAreLeftAlone(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a file its owner can't read")
+	}
+	home := isolate(t)
+	settings := filepath.Join(home, ".claude", "settings.json")
+	original := `{"model": "opus", "permissions": {"allow": ["Bash(ls)"]}}`
+	writeFile(t, settings, original)
+	if err := os.Chmod(settings, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(settings, 0o644) })
+
+	if err := connectAgents(); err == nil || !strings.Contains(err.Error(), "can't be read") {
+		t.Fatalf("connecting gave %v, want it to name the unreadable file", err)
+	}
+	os.Chmod(settings, 0o644)
+	if text, _ := os.ReadFile(settings); string(text) != original {
+		t.Fatalf("settings that couldn't be read were written over: %s", text)
+	}
+}
+
+func TestALinkToNothingIsLeftAlone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("links need privileges on Windows")
+	}
+	home := isolate(t)
+	settings := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "dotfiles", "gone.json"), settings); err != nil {
+		t.Fatal(err)
+	}
+	if err := connectAgents(); err == nil {
+		t.Fatal("connected through a link to nothing")
+	}
+	if _, err := os.Readlink(settings); err != nil {
+		t.Fatalf("the link was replaced: %v", err)
+	}
+}
+
+func TestSettingsKeptInDotfilesStayLinked(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("links need privileges on Windows")
+	}
+	home := isolate(t)
+	kept := filepath.Join(home, "dotfiles", "claude-settings.json")
+	writeFile(t, kept, `{"model": "opus"}`)
+	settings := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(kept, settings); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := connect(Claude, true); err != nil {
+		t.Fatal(err)
+	}
+	if target, err := os.Readlink(settings); err != nil || target != kept {
+		t.Fatalf("settings.json is no longer a link to the dotfiles copy (%q, %v)", target, err)
+	}
+	saved := readJSON(t, kept)
+	if saved["model"] != "opus" || len(commands(saved, "Stop")) != 1 {
+		t.Fatalf("the dotfiles copy didn't get the hooks and keep the rest: %v", saved)
+	}
+}
+
+func TestAStartWithNothingToChangeLeavesTheFileAndItsBackup(t *testing.T) {
+	home := isolate(t)
+	// An installed copy, so the deck knows its own entries when it starts again.
+	saved := executable
+	t.Cleanup(func() { executable = saved })
+	executable = func() (string, error) { return filepath.Join(home, "bin", "smolcorp"), nil }
+	settings := filepath.Join(home, ".claude", "settings.json")
+	original := `{"model": "opus"}`
+	writeFile(t, settings, original)
+	if err := connect(Claude, true); err != nil {
+		t.Fatal(err)
+	}
+	connected, _ := os.ReadFile(settings)
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes(settings, old, old)
+
+	refreshHooks()
+
+	if backup, _ := os.ReadFile(settings + ".agentdeck.bak"); string(backup) != original {
+		t.Fatalf("the backup no longer holds the file from before connecting: %s", backup)
+	}
+	if text, _ := os.ReadFile(settings); string(text) != string(connected) {
+		t.Fatal("the settings changed on a start with nothing to change")
+	}
+	if info, _ := os.Stat(settings); !info.ModTime().Equal(old) {
+		t.Fatal("the settings were written on a start with nothing to change")
 	}
 }
 
