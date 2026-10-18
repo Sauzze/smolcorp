@@ -12,7 +12,7 @@ import (
 
 func TestRolesCometWithTheAppUntilYouChangeThem(t *testing.T) {
 	isolate(t)
-	if roles := loadConfig().Roles; !slices.Equal(roles, shippedRoles) {
+	if roles := loadConfig().Roles; !sameRoles(roles, shippedRoles) {
 		t.Fatalf("a new config has roles %v, want the shipped ones", roles)
 	}
 	writeFile(t, configFile, `{"roles": []}`)
@@ -20,7 +20,7 @@ func TestRolesCometWithTheAppUntilYouChangeThem(t *testing.T) {
 		t.Errorf("all roles taken out load as %v, want none", roles)
 	}
 	writeFile(t, configFile, `{"roles": "not a list"}`)
-	if roles := loadConfig().Roles; !slices.Equal(roles, shippedRoles) {
+	if roles := loadConfig().Roles; !sameRoles(roles, shippedRoles) {
 		t.Errorf("roles that can't be read load as %v, want the shipped ones", roles)
 	}
 }
@@ -40,7 +40,7 @@ func TestARoleKeepsOnlyWhatCanBeKept(t *testing.T) {
 		{ID: "own-2", Name: "Gemini one", Agent: "gemini", Model: "gemini-2.5-pro"},
 		{ID: "own-3", Name: "Long model", Agent: "claude", Model: "claude-opus-5-5[1m]"},
 	}
-	if got := checkedRoles(roles); !slices.Equal(got, want) {
+	if got := checkedRoles(roles); !sameRoles(got, want) {
 		t.Errorf("roles kept\n%+v\nwant\n%+v", got, want)
 	}
 	var many []Role
@@ -70,17 +70,47 @@ func TestEachAgentStartsOnTheRole(t *testing.T) {
 	}
 }
 
-func TestARoleFirstSettlesItsFolder(t *testing.T) {
+// sameRoles is whether two lists hold the same roles, in the same order.
+func sameRoles(a, b []Role) bool {
+	return slices.EqualFunc(a, b, Role.sameAs)
+}
+
+func TestARoleOnlyAsksBeforeItStarts(t *testing.T) {
 	isolate(t)
 	// In this system's own separators: ~\work\api on Windows.
 	homeDir = filepath.Join(string(filepath.Separator), "home", "someone")
 	message := shippedRoles[1].firstMessage(filepath.Join(homeDir, "work", "api"))
-	if !strings.HasPrefix(message, "You've started in "+filepath.Join("~", "work", "api")+". Before anything else, tell me that's where you'll work") ||
-		!strings.Contains(message, "\n\nThen, as my Tester: Run this project's tests.") {
-		t.Errorf("the tester is first told\n%s", message)
+	want := "Your first reply must only ask me the questions below, all together. Don't read code, run commands or start any " +
+		"work until I've answered them.\n\n" +
+		"1. You've started in " + filepath.Join("~", "work", "api") + ". Is that the one to work on?\n" +
+		"2. Which tests should you run: all of them, a folder, or a single file?\n" +
+		"3. Is there anything to set up or start first, such as a database, a server or environment variables?\n\n" +
+		"Once I've answered, as my Tester: Run the tests I point you to."
+	if !strings.HasPrefix(message, want) {
+		t.Errorf("the tester is first told\n%s\nwant it to start\n%s", message, want)
 	}
-	if message := (Role{Name: "Blank"}).firstMessage("/srv/app"); strings.Contains(message, "Then") {
-		t.Errorf("a role with no instructions is told %q, want only to settle its folder", message)
+	if message := (Role{Name: "Blank"}).firstMessage("/srv/app"); !strings.HasSuffix(message, "\n\nOnce I've answered, ask me what to do.") ||
+		!strings.Contains(message, "Is that the one to work on?") {
+		t.Errorf("a role with no questions or instructions is told %q, want it to ask about the folder, then what to do", message)
+	}
+}
+
+func TestRolesAsShippedIn171AreBroughtUpToDate(t *testing.T) {
+	isolate(t)
+	edited := shippedIn171[1]
+	edited.Model = "haiku"
+	saved, _ := json.Marshal(map[string]any{"roles": []any{shippedIn171[0], edited, shippedIn171[4],
+		map[string]any{"id": "own-1", "name": "Security", "questions": []any{"Which repo?", "", "  Any area?  ", 5}}}})
+	writeFile(t, configFile, string(saved))
+	roles := loadConfig().Roles
+	if len(roles) != 4 || !roles[0].sameAs(shippedRoles[0]) || !roles[2].sameAs(shippedRoles[4]) {
+		t.Errorf("1.7.1's reviewer and refactorer load as\n%+v\n%+v\nwant today's", roles[0], roles[2])
+	}
+	if !roles[1].sameAs(func() Role { r, _ := edited.checked(); return r }()) {
+		t.Errorf("a tester you'd changed loads as %+v, want it as you had it", roles[1])
+	}
+	if !slices.Equal(roles[3].Questions, []string{"Which repo?", "Any area?"}) {
+		t.Errorf("your own role's questions load as %q", roles[3].Questions)
 	}
 }
 
@@ -88,7 +118,7 @@ func TestARoleIsStartedFromSetupsRoles(t *testing.T) {
 	isolate(t)
 	writeFile(t, configFile, `{"roles": [{"id": "tester", "name": "Tester", "agent": "codex", "instructions": "Run the tests."}]}`)
 	args, err := roleArguments("tester")
-	if err != nil || len(args) != 3 || args[0] != "codex" || args[1] != "--" || !strings.HasSuffix(args[2], "Then, as my Tester: Run the tests.") {
+	if err != nil || len(args) != 3 || args[0] != "codex" || args[1] != "--" || !strings.HasSuffix(args[2], "Once I've answered, as my Tester: Run the tests.") {
 		t.Errorf("the tester starts as %q, %v", args, err)
 	}
 	if _, err := roleArguments("nobody"); err == nil || !strings.Contains(err.Error(), "Yours are: tester") {

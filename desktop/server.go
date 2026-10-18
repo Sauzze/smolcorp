@@ -729,7 +729,8 @@ func (rt *router) setupState() map[string]any {
 		// first message, its badge, and how long each part can be.
 		"roles": map[string]any{
 			"roles": d.config.Roles, "shipped": shippedRoles, "agents": roleAgents(), "efforts": effortLevels, "badges": roleBadges,
-			"limits": map[string]int{"name": roleNameLimit, "model": roleModelLimit, "instructions": roleInstructionsLimit, "own": ownRolesMost},
+			"limits": map[string]int{"name": roleNameLimit, "model": roleModelLimit, "instructions": roleInstructionsLimit, "own": ownRolesMost,
+				"questions": roleQuestionsMost, "question": roleQuestionLimit},
 		},
 		"music": map[string]any{"enabled": d.config.MusicEnabled},
 		"webhook": map[string]any{

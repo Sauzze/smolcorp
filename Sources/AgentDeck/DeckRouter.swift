@@ -349,7 +349,8 @@ final class DeckRouter: Router {
                 "agents": Agent.allCases.map { ["id": $0.rawValue, "name": $0.name, "effort": $0.hasEffortDial, "starts": $0 != .grok] },
                 "efforts": Deck.effortLevels,
                 "badges": Role.badges,
-                "limits": ["name": Role.nameLimit, "model": Role.modelLimit, "instructions": Role.instructionsLimit, "own": Role.ownMost],
+                "limits": ["name": Role.nameLimit, "model": Role.modelLimit, "instructions": Role.instructionsLimit, "own": Role.ownMost,
+                           "questions": Role.questionsMost, "question": Role.questionLimit],
             ] as [String: Any],
             "music": ["enabled": config.musicEnabled],
             "webhook": [
