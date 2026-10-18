@@ -10522,10 +10522,13 @@
       if (framed || !hiring.hire) return false;
       const seat = office.seats[desk];
       if (seat && seat.pin) return !seat.session;
+      // With a set number of desks, any free one: the hire sits at the one held
+      const fixed = FIXED_KEYS.includes(latest && latest.layout && latest.layout.keys);
+      if (fixed) return !!seat && !seat.session;
+      // With Auto, the desks stay packed: the first free one, or the next after the last
       const free = office.seats.findIndex((s) => !s.pin && !s.session);
       if (free >= 0) return desk === free;
-      const fixed = FIXED_KEYS.includes(latest && latest.layout && latest.layout.keys);
-      return !fixed && desk === office.seats.length && desk < DESKS.length;
+      return desk === office.seats.length && desk < DESKS.length;
     }
 
     /** The roles the computer can hire into, as you've set them up: none, and a hire is anyone. */
