@@ -401,9 +401,10 @@ func (rt *router) events(w http.ResponseWriter, r *request, phone string) {
 		select {
 		case state := <-stream.messages:
 			if state == nil {
-				// A comment line, so Safari and anything in between keep an
-				// idle stream open.
-				_, _ = io.WriteString(w, ": ping\n\n")
+				// A ping, so Safari and anything in between keep an idle
+				// stream open, and the page, hearing it, knows the stream is
+				// still alive. Without data, the browser wouldn't pass it on.
+				_, _ = io.WriteString(w, "event: ping\ndata: 1\n\n")
 			} else {
 				_, _ = fmt.Fprintf(w, "data: %s\n\n", state)
 			}

@@ -312,8 +312,10 @@ final class EventStream {
     private var sending = false
     private var waiting: Data?
 
-    /// A comment line, so Safari and anything in between keep an idle stream open.
-    func ping() { write(": ping\n\n") }
+    /// A ping, so Safari and anything in between keep an idle stream open,
+    /// and the page, hearing it, knows the stream is still alive. Without
+    /// data, the browser wouldn't pass it on.
+    func ping() { write("event: ping\ndata: 1\n\n") }
 
     /// Hangs up. The phone's next attempt to reconnect is answered afresh.
     func close() {

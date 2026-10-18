@@ -568,17 +568,41 @@
       if (e.source === parent && e.origin === location.origin) receive(e.data);
     });
   } else {
-    // EventSource reconnects by itself; this only says whether it is up.
-    const stream = new EventSource(`/events?t=${encodeURIComponent(token)}`);
-    stream.onmessage = (e) => receive(JSON.parse(e.data));
-    stream.onerror = () => {
-      // Closed for good means the computer answered, but not with the deck: it no
-      // longer knows this phone. Unreachable, the stream keeps retrying.
-      if (stream.readyState === EventSource.CLOSED) return unpaired();
-      office.close();
-      $('status').classList.add('off');
-      $('status').textContent = "Can't reach your computer. Is Smolcorp running?";
-    };
+    /*
+     * EventSource reconnects by itself after an error, but not when its
+     * connection dies quietly, as when the computer restarts while the phone
+     * is asleep: the office would stay as it last was. So the stream starts
+     * afresh whenever the page is back on screen, and when nothing, not even
+     * the computer's ping, has come for longer than two pings take. A new
+     * stream begins with everything.
+     */
+    const QUIET_FOR = 100_000; // ms: the computer pings every 40 s
+    let stream = null;
+    let heard = 0; // when the stream last said anything
+    function connect() {
+      if (stream) stream.close();
+      heard = Date.now();
+      const opened = new EventSource(`/events?t=${encodeURIComponent(token)}`);
+      stream = opened;
+      opened.onmessage = (e) => {
+        heard = Date.now();
+        receive(JSON.parse(e.data));
+      };
+      opened.addEventListener('ping', () => { heard = Date.now(); });
+      opened.onerror = () => {
+        // Closed for good means the computer answered, but not with the deck: it no
+        // longer knows this phone. Unreachable, the stream keeps retrying.
+        if (opened.readyState === EventSource.CLOSED) return unpaired();
+        office.close();
+        $('status').classList.add('off');
+        $('status').textContent = "Can't reach your computer. Is Smolcorp running?";
+      };
+    }
+    connect();
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) connect(); });
+    // Back from the browser's page cache, as a Home Screen app can be.
+    addEventListener('pageshow', (e) => { if (e.persisted) connect(); });
+    setInterval(() => { if (!document.hidden && Date.now() - heard > QUIET_FOR) connect(); }, 10_000);
     if (!whole) installHint();
   }
   render();

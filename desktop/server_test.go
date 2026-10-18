@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -351,5 +352,58 @@ func TestTheTraysLinkWorksOnceAndCarriesNoKey(t *testing.T) {
 		headers: map[string]string{setupTokenHeader: other}})
 	if state.Code != http.StatusUnauthorized {
 		t.Errorf("a token read setup's state: %d", state.Code)
+	}
+}
+
+// streamWriter is a response the test can read as it's written: each flush
+// passes on what came since the last.
+type streamWriter struct {
+	header  http.Header
+	pending strings.Builder
+	flushed chan string
+}
+
+func (w *streamWriter) Header() http.Header         { return w.header }
+func (w *streamWriter) WriteHeader(int)             {}
+func (w *streamWriter) Write(b []byte) (int, error) { return w.pending.Write(b) }
+func (w *streamWriter) Flush() {
+	w.flushed <- w.pending.String()
+	w.pending.Reset()
+}
+
+func TestAPhoneHearsThePingAsAnEvent(t *testing.T) {
+	d := newTestDeck(t)
+	key := pair(t, d)
+	r := httptest.NewRequest("GET", "/events?t="+key, nil)
+	r.Host, r.RemoteAddr = deckOnWiFi, aPhone
+	ctx, hangUp := context.WithCancel(r.Context())
+	defer hangUp()
+	w := &streamWriter{header: http.Header{}, flushed: make(chan string, 8)}
+	go (&router{deck: d}).ServeHTTP(w, r.WithContext(ctx))
+	// Once the phone's stream is open, ping it as the deck does every pingInterval.
+	for open := false; !open; time.Sleep(10 * time.Millisecond) {
+		d.mu.Lock()
+		open = len(d.streams) > 0
+		d.mu.Unlock()
+	}
+	d.mu.Lock()
+	for stream := range d.streams {
+		stream.send(nil)
+	}
+	d.mu.Unlock()
+	// The state comes first; then the ping, as a named event with data: a
+	// comment, or an event without data, never reaches the page.
+	for {
+		select {
+		case got := <-w.flushed:
+			if got == "event: ping\ndata: 1\n\n" {
+				return
+			}
+			if !strings.HasPrefix(got, "data: ") {
+				t.Fatalf("the ping came as %q, want a named event with data", got)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("no ping came")
+		}
 	}
 }

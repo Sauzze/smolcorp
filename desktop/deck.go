@@ -51,8 +51,10 @@ type micPress struct {
 }
 
 const (
-	// How often to ping idle event streams so they stay open.
-	pingInterval = 20 * time.Second
+	// How often to ping event streams: often enough that an idle one stays
+	// open, as a browser may drop one that's quiet for a minute, and that the
+	// page can tell a stream that died quietly.
+	pingInterval = 40 * time.Second
 	// How often to look for tabs that closed without their session ending.
 	pruneInterval = 10 * time.Second
 	// Claude stops listening by itself after two minutes.
