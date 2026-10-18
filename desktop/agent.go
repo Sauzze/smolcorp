@@ -1,5 +1,11 @@
 package desktop
 
+import (
+	"path/filepath"
+	"slices"
+	"strings"
+)
+
 // Agent is a coding agent the deck follows, as in the Mac app's Agent.swift.
 //
 // Every agent reports through the same hook, each in its own dialect.
@@ -90,12 +96,53 @@ func (a Agent) foregroundName() string {
 	return string(a)
 }
 
-// runningNames is what the agent may show as among its pane's processes,
-// for telling it still runs there: its own name, or the runtime it was
-// installed to run on, as Claude Code from npm shows as node and Grok CLI as
-// bun.
-func (a Agent) runningNames() []string {
-	return []string{a.foregroundName(), "node", "bun"}
+// isItself says whether commandLine, as `ps -o args=` gives it, is this
+// agent: its own program, or Node or Bun running the agent's own package, as
+// Claude Code from npm runs (node …/node_modules/@anthropic-ai/claude-code/cli.js)
+// and Grok CLI from Bun. Node or Bun running anything else, as `npm run dev`
+// or vite started in the pane after the agent crashed, is someone's work,
+// not the agent. As the Mac app's Agent.isItself.
+func (a Agent) isItself(commandLine string) bool {
+	commandLine = strings.TrimSpace(commandLine)
+	first, rest, _ := strings.Cut(commandLine, " ")
+	if first == "" {
+		return false
+	}
+	program := strings.Trim(strings.ToLower(baseName(first)), "-")
+	if program != "node" && program != "bun" {
+		return program == string(a) || program == a.foregroundName()
+	}
+	// The package the script is in, exactly: what follows the last
+	// node_modules, with its scope. claude-code-router, say, isn't Claude Code.
+	if i := strings.LastIndex(rest, "node_modules/"); i >= 0 {
+		parts := strings.SplitN(strings.ToLower(rest[i+len("node_modules/"):]), "/", 3)
+		pkg := parts[0]
+		if strings.HasPrefix(pkg, "@") && len(parts) > 1 {
+			pkg += "/" + parts[1]
+		}
+		return slices.Contains(a.packages(), pkg)
+	}
+	// A script of its own, outside any package: by its own name, exactly.
+	for _, word := range strings.Fields(rest) {
+		if !strings.HasPrefix(word, "-") {
+			script := strings.ToLower(baseName(word))
+			return strings.TrimSuffix(script, filepath.Ext(script)) == string(a)
+		}
+	}
+	return false
+}
+
+// packages are the npm packages the agent is installed as, run by Node or Bun.
+func (a Agent) packages() []string {
+	return map[Agent][]string{
+		Claude: {"@anthropic-ai/claude-code"}, Codex: {"@openai/codex"}, Gemini: {"@google/gemini-cli"},
+		OpenCode: {"opencode-ai", "opencode"}, Grok: {"@vibe-kit/grok-cli"},
+	}[a]
+}
+
+// baseName is the last part of a path, with either separator.
+func baseName(path string) string {
+	return path[strings.LastIndexAny(path, `/\`)+1:]
 }
 
 // agentOf says which agent sent event. The hook names it, except for Grok:

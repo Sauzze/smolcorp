@@ -360,7 +360,7 @@ func (t *launcherTab) Focus() error { return nil }
 
 // Close ends the agent. The window it runs in is the terminal's own, which
 // the launcher can't reach, so that stays open.
-func (t *launcherTab) Close() error { return t.send(launcherCommand{Stop: true}) }
+func (t *launcherTab) Close(Agent) error { return t.send(launcherCommand{Stop: true}) }
 
 // Scrolling belongs to the terminal around the launcher, which it can't reach.
 func (t *launcherTab) Scroll(int) error      { return errUnsupported }
