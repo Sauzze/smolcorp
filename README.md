@@ -23,6 +23,11 @@ your Mac's menu bar, or in the tray on [Windows and Linux](#windows-and-linux-pr
 Your phone connects to it over your Wi-Fi, so there's nothing to install from
 an app store.
 
+And it's not only one agent at a time: it's [a small company](#run-a-team).
+Hold an empty desk to hire a Reviewer, a Tester, a Bug hunter or a role of your
+own, and put a manager at the middle desk to brief the others and check on
+their work, while you watch the whole team from your phone.
+
 Smolcorp was called SauzzeDeck Pro up to version 1.6.1, and AgentDeck up to 1.0.1.
 
 <p align="center">
@@ -53,6 +58,44 @@ you.
 Sessions keep their order at the desks; with a fixed number of desks, each
 keeps its own until it ends. You can pin projects to specific desks and
 furnish the office your way.
+
+## Run a team
+
+The office has up to nine desks, so you can run it like a small company.
+
+**Hire by role.** Hold the desk a new hire would take, and pick who to hire:
+a **Reviewer**, a **Tester**, a **Bug hunter**, a **Docs writer**, a
+**Refactorer**, or one of up to twelve roles of your own. Each role has its own
+instructions, agent, model and effort, and comes in wearing its badge, like the
+Reviewer's glasses and red pen. A role never guesses what to work on: its first
+reply asks you which project, and its own questions, such as which branch to
+review. Hiring from the office needs the Mac app for now; on Windows and Linux,
+`smolcorp run --role reviewer` starts one from any terminal.
+[More about roles](#the-office).
+
+**Add a manager.** Give one session the job of running the others: opening
+new sessions, briefing them, checking on them every few minutes, passing your
+decisions along, and asking a second agent to review the first one's work. It
+works through whatever your agent can do from a terminal; recent versions of
+Claude Code can also list the other sessions on your computer and message
+them directly. Smolcorp doesn't do the managing. It puts the whole team in
+one room, so you see at a glance who's working, who's waiting for you and who's
+done, and you answer any of them from your phone.
+
+To set one up:
+
+1. Start the manager in your projects folder. On the setup page, set
+   [Desks](#make-it-yours) to 9 and drag the manager onto the middle desk, so
+   it sits among the team.
+2. Tell it its job, for example:
+
+   > You're the manager of this team. For each task I give you, open a new
+   > session in the right folder, brief it, and check on everyone every ten
+   > minutes. Have a second agent review any change before it's merged. Ask me
+   > before anything is pushed, released or deleted, and tell me when
+   > something needs me.
+
+3. Give it the work, and hire the rest of the team from the office.
 
 ## Supported agents
 
