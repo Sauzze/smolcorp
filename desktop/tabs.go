@@ -1,9 +1,13 @@
 package desktop
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -51,25 +55,144 @@ type commandTab struct {
 	kind, id, socket string
 }
 
+// terminalTimeout is as long as a terminal's command may take. Keys go one at
+// a time, so one that hung, as kitty asking on its own screen whether to
+// allow remote control, would hold up every phone's keys behind it.
+var terminalTimeout = 5 * time.Second
+
+// terminalCommand is a terminal's command line tool, stopped if it hangs.
+func terminalCommand(name string, args ...string) (*exec.Cmd, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), terminalTimeout)
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = time.Second // and not held open by anything it started
+	return cmd, cancel
+}
+
 func (t commandTab) run(args ...string) error {
+	_, err := t.output(args...)
+	return err
+}
+
+// output runs the terminal's command, and gives what it printed.
+func (t commandTab) output(args ...string) ([]byte, error) {
 	var cmd *exec.Cmd
+	var cancel context.CancelFunc
 	switch t.kind {
 	case "tmux":
-		cmd = exec.Command("tmux", append([]string{"-S", t.socket}, args...)...)
+		cmd, cancel = terminalCommand("tmux", append([]string{"-S", t.socket}, args...)...)
 	case "wezterm":
-		cmd = exec.Command("wezterm", append([]string{"cli"}, args...)...)
+		cmd, cancel = terminalCommand("wezterm", append([]string{"cli"}, args...)...)
 		if t.socket != "" {
 			cmd.Env = append(cmd.Environ(), "WEZTERM_UNIX_SOCKET="+t.socket)
 		}
 	case "kitty":
-		cmd = exec.Command("kitty", append([]string{"@", "--to", t.socket}, args...)...)
+		cmd, cancel = terminalCommand("kitty", append([]string{"@", "--to", t.socket}, args...)...)
 	default:
-		return errUnsupported
+		return nil, errUnsupported
 	}
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s: %s", t.kind, strings.TrimSpace(string(output)))
+	defer cancel()
+	output, err := cmd.Output()
+	if err != nil {
+		var failed *exec.ExitError
+		if errors.As(err, &failed) {
+			return nil, fmt.Errorf("%s: %s", t.kind, strings.TrimSpace(string(failed.Stderr)))
+		}
+		return nil, fmt.Errorf("%s: %v", t.kind, err)
 	}
-	return nil
+	return output, nil
+}
+
+// runs says whether a process called any of names runs in the pane, as the Mac app
+// asks of a Terminal tab, and whether that could be known at all: an agent
+// that crashed, or was killed, leaves its pane to the shell, which keys
+// meant for it must not reach. Unknown is not the same as gone.
+func (t commandTab) runs(names ...string) (running, known bool) {
+	var found []string
+	switch t.kind {
+	case "tmux", "wezterm":
+		tty := t.tty()
+		if tty == "" {
+			return false, false
+		}
+		cmd, cancel := terminalCommand("ps", "-t", strings.TrimPrefix(tty, "/dev/"), "-o", "comm=")
+		defer cancel()
+		output, err := cmd.Output()
+		var none *exec.ExitError
+		if err != nil && !(errors.As(err, &none) && none.Exited() && len(output) == 0) {
+			return false, false // ps exits 1 when nothing runs on the tty: that's an answer
+		}
+		found = strings.Fields(string(output))
+	case "kitty":
+		output, err := t.output("ls", "--match", "id:"+t.id)
+		if err != nil {
+			return false, false
+		}
+		var windows []struct {
+			Tabs []struct {
+				Windows []struct {
+					ID        int `json:"id"`
+					Processes []struct {
+						Cmdline []string `json:"cmdline"`
+					} `json:"foreground_processes"`
+				} `json:"windows"`
+			} `json:"tabs"`
+		}
+		if json.Unmarshal(output, &windows) != nil {
+			return false, false
+		}
+		seen := false
+		for _, w := range windows {
+			for _, tab := range w.Tabs {
+				for _, window := range tab.Windows {
+					if fmt.Sprint(window.ID) != t.id {
+						continue
+					}
+					seen = true
+					for _, p := range window.Processes {
+						if len(p.Cmdline) > 0 {
+							found = append(found, p.Cmdline[0])
+						}
+					}
+				}
+			}
+		}
+		if !seen {
+			return false, false
+		}
+	default:
+		return false, false
+	}
+	for _, n := range found {
+		if slices.Contains(names, filepath.Base(n)) {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+// tty is the pane's terminal device, as /dev/pts/3, or "" if unknown.
+func (t commandTab) tty() string {
+	switch t.kind {
+	case "tmux":
+		output, err := t.output("display-message", "-p", "-t", t.id, "#{pane_tty}")
+		if err == nil {
+			return strings.TrimSpace(string(output))
+		}
+	case "wezterm":
+		output, err := t.output("list", "--format", "json")
+		var panes []struct {
+			ID  int    `json:"pane_id"`
+			TTY string `json:"tty_name"`
+		}
+		if err == nil && json.Unmarshal(output, &panes) == nil {
+			for _, pane := range panes {
+				if fmt.Sprint(pane.ID) == t.id {
+					return pane.TTY
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // tmux names keys; WezTerm and kitty take the bytes the key sends.
@@ -198,10 +321,12 @@ func (t commandTab) Close() error {
 func (t commandTab) alive() bool {
 	switch t.kind {
 	case "tmux":
-		output, err := exec.Command("tmux", "-S", t.socket, "display-message", "-p", "-t", t.id, "#{pane_id}").Output()
+		cmd, cancel := terminalCommand("tmux", "-S", t.socket, "display-message", "-p", "-t", t.id, "#{pane_id}")
+		defer cancel()
+		output, err := cmd.Output()
 		var answered *exec.ExitError
-		if errors.As(err, &answered) {
-			return false // tmux is there, and says the pane isn't
+		if errors.As(err, &answered) && answered.Exited() {
+			return false // tmux is there, and says the pane isn't; stopped for taking too long, it said nothing
 		}
 		return err != nil || strings.TrimSpace(string(output)) == t.id
 	}

@@ -603,9 +603,38 @@
 
   async function load() {
     try {
-      state = await (await fetch('/setup/state', { cache: 'no-store' })).json();
+      const res = await fetch('/setup/state', { cache: 'no-store' });
+      if (res.status === 401) return locked();
+      state = await res.json();
       render();
     } catch {}
+  }
+
+  /**
+   * Opened from the menu, the page's address carries the setup key after #k=,
+   * or, from the Windows and Linux tray, a token that works once after #o=.
+   * It's handed over once, for a cookie this page's requests carry from then
+   * on, and taken out of the address and its history.
+   */
+  async function handOverKey() {
+    const opened = new URLSearchParams(location.hash.slice(1));
+    const key = opened.get('k'), token = opened.get('o');
+    if (!key && !token) return;
+    const given = key ? { 'X-Smolcorp-Setup-Key': key } : { 'X-Smolcorp-Setup-Once': token };
+    await fetch('/setup/session', { method: 'POST', headers: { ...setupHeaders(false), ...given } }).catch(() => {});
+    const then = ['pair', 'unpair'].find((action) => opened.has(action));
+    history.replaceState(null, '', location.pathname + (then ? `#${then}` : ''));
+  }
+
+  /** Without the key, as from an old bookmark or a link from before Smolcorp restarted: where to open the page from. */
+  function locked() {
+    if (document.body.dataset.locked) return;
+    document.body.dataset.locked = '1';
+    const note = document.createElement('p');
+    note.className = 'hint';
+    note.textContent = "This page opens from Smolcorp's menu, with Open Setup…. Without a menu, use the link smolcorp serve "
+      + 'prints as it starts. A link from before Smolcorp last started no longer works.';
+    document.querySelector('main').replaceChildren(note);
   }
 
   // Every action carries this header. Other sites can't send it, so a web
@@ -813,14 +842,16 @@
   /** Saves all the roles as given: the computer checks and keeps them, and the page redraws from what it kept. */
   async function saveRoles(roles) {
     const res = await post('/setup/roles', roles);
-    if (!res.ok) alert(await res.text());
+    if (!res.ok) return alert(await res.text());
+    // Saved, as on picking an agent or pressing Enter in a name: the card shows what was kept, field and all.
+    renderRoles(true);
   }
 
   /**
    * Who the office can hire: each role a card, closed to its name and how it
    * starts, open to change any of it. A change saves as you leave the field.
    */
-  function renderRoles() {
+  function renderRoles(saved = false) {
     const r = state.roles;
     $('roles-section').hidden = !r;
     if (!r) return;
@@ -835,6 +866,8 @@
     $('role-add').disabled = own >= r.limits.own;
     $('role-add').title = own >= r.limits.own ? `${r.limits.own} roles of your own is the most.` : '';
     $('role-shipped').hidden = r.shipped.every((s) => roles.some((role) => role.id === s.id));
+    // A field is saved as you leave it: redrawing the cards while you type would take it, and what's in it, away.
+    if (!saved && document.activeElement && document.activeElement.matches('#roles input, #roles textarea, #roles select')) return;
     $('roles').replaceChildren(...roles.map((role, i) => {
       const card = document.createElement('details');
       card.className = 'role';
@@ -2466,7 +2499,8 @@
 
   /* ------------------------------------------------------------------ start */
 
-  load().then(() => {
+  handOverKey().then(load).then(() => {
+    if (!state) return;
     // Arriving from "Pair a Phone…" in the menu: have a code ready.
     if (location.hash === '#pair' && !state.pairing.code) post('/setup/pair');
     // From "Unpair All Phones…" in the tray, which has no dialog of its own.

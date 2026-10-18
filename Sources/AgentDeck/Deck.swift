@@ -4,7 +4,12 @@ import AppKit
 /// phone's controls do to them, and the live feed of all that to phones.
 final class Deck {
     static let port: UInt16 = 7710
-    static var setupURL: URL { URL(string: "http://localhost:\(port)/setup")! }
+    /// The setup page, with its key after #k=, which never leaves this Mac:
+    /// the page hands it over once for a cookie, and takes it out of the
+    /// address. `then` is what the page does on opening: "pair" or "unpair".
+    func setupURL(then: String? = nil) -> URL {
+        URL(string: "http://localhost:\(Deck.port)/setup#k=\(access.setupKey)" + (then.map { "&\($0)" } ?? ""))!
+    }
 
     /// How often to look for a green key's tab coming to the front.
     private static let seenCheckInterval: TimeInterval = 1.5
@@ -22,6 +27,8 @@ final class Deck {
     private static let freshSave: Double = 120_000
     /// Claude stops listening by itself after two minutes.
     private static let voiceLimit: TimeInterval = 120
+    /// Two Returns to one session closer than this are one tap landing twice.
+    private static let returnRepeat: TimeInterval = 0.5
     /// Without Accessibility, posted keys vanish without a trace. The phone
     /// says so instead, since every update turns the permission off.
     private static let noKeyboard = "Keyboard access is off. Turn it on in setup, on your Mac."
@@ -43,6 +50,9 @@ final class Deck {
     private var hiredTabs: [(tty: String, role: String, at: Date)] = []
     /// The tab recording started in, and when. One Mac, one microphone.
     private var micPress: (tty: String, at: Date)?
+    /// When each session was last sent Return from the phone, so a tap that
+    /// lands twice sends it once.
+    private var lastReturn: [String: Date] = [:]
     private var checkingFront = false
     private var checkingTabs = false
     /// Ttys Terminal reported last time. Only these can be found closed:
@@ -441,18 +451,31 @@ final class Deck {
         // which are often both Escape but not in every agent.
         let agent = session.agent
         switch action {
-        case "accept", "send": press(.init(key: .returnKey), tty: tty, done: done)
-        case "reject": press(agent.reject, tty: tty, done: done)
-        case "esc": press(agent.interrupt, tty: tty, done: done)
-        case "up": press(.init(key: .up), tty: tty, done: done)
-        case "down": press(.init(key: .down), tty: tty, done: done)
+        case "accept", "send":
+            // A second Return this soon would answer whatever the agent asks next, before you've seen it.
+            let now = Date()
+            lastReturn = lastReturn.filter { now.timeIntervalSince($0.value) < Deck.returnRepeat }
+            guard lastReturn[id] == nil else { return done(.status(204)) }
+            lastReturn[id] = now
+            // A Return that didn't go doesn't count, so the next tap goes.
+            press(.init(key: .returnKey), to: session) { [weak self] response in
+                if response.status >= 400 { self?.lastReturn[id] = nil }
+                done(response)
+            }
+        case "reject": press(agent.reject, to: session, done: done)
+        case "esc": press(agent.interrupt, to: session, done: done)
+        case "up": press(.init(key: .up), to: session, done: done)
+        case "down": press(.init(key: .down), to: session, done: done)
         case "scroll":
             guard Config.shared.scrollEnabled else {
                 return done(.status(403, "Scrolling is off. Turn it on in setup, on your Mac."))
             }
             guard Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
             if query["to"] == "bottom" { return inTab(tty, done: done) { Terminal.scrollToBottom(tty: tty) } }
-            guard let lines = Int(query["lines"] ?? "") else { return done(.status(400, "Unknown amount")) }
+            // Kept within what a scroll can be first, as Go keeps it: an amount as large as an Int
+            // can hold would overflow below, which stops the app.
+            guard let asked = Int(query["lines"] ?? "") else { return done(.status(400, "Unknown amount")) }
+            let lines = max(-Terminal.maxScroll, min(Terminal.maxScroll, asked))
             // The phone counts the way natural scrolling does. With it turned
             // off on the Mac, the wheel turns the other way, as everything else does.
             let direction = Scrolling.isNatural ? 1 : -1
@@ -474,7 +497,7 @@ final class Deck {
             }
         case "clear":
             guard !session.isBusy else { return done(.status(409, "Busy — clear it when \(agent.name) is done")) }
-            onTerminal(done) { Terminal.type(agent.newConversation, tty: tty) }
+            type(agent.newConversation, to: session, done: done)
         case "button":
             guard let button = Config.shared.layout.madeButton(query["button"] ?? "") else {
                 return done(.status(404, "That button has gone. Your phone will catch up in a moment."))
@@ -485,11 +508,11 @@ final class Deck {
             if button.whenFree == true && session.isBusy {
                 return done(.status(409, "Busy — try again when \(agent.name) is done"))
             }
-            if let key = button.key, let keystroke = Button.keys[key] { return press(keystroke, tty: tty, done: done) }
+            if let key = button.key, let keystroke = Button.keys[key] { return press(keystroke, to: session, done: done) }
             guard let text = button.text, !text.isEmpty else {
                 return done(.status(400, "This button types nothing yet. Set it up in setup, on your Mac."))
             }
-            onTerminal(done) { Terminal.type(text, tty: tty) }
+            type(text, to: session, done: done)
         case "effort":
             guard agent.hasEffortDial else { return done(.status(400, "\(agent.name) has no effort setting")) }
             guard let level = query["level"], Deck.effortLevels.contains(level) else { return done(.status(400, "Unknown level")) }
@@ -731,6 +754,42 @@ final class Deck {
         }
     }
 
+    /// Presses `keystroke` in `session`'s tab, bringing it forward, once its agent is known to be there still.
+    private func press(_ keystroke: Terminal.Keystroke, to session: Session, done: @escaping (Response) -> Void) {
+        guard Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
+        let tty = session.tty
+        toAgent(session, done: done) {
+            let reached = Terminal.press(keystroke.key, modifiers: keystroke.modifiers, times: keystroke.times, tty: tty)
+            if reached { DispatchQueue.main.async { self.sessions.markSeen(tty: tty) } }
+            return reached
+        }
+    }
+
+    /// Types `text` and Return into `session`'s tab, once its agent is known to be there still.
+    private func type(_ text: String, to session: Session, done: @escaping (Response) -> Void) {
+        let tty = session.tty
+        toAgent(session, done: done) { Terminal.type(text, tty: tty) }
+    }
+
+    /// Runs `work` on the tab once its agent is known to run there still. An
+    /// agent that ended without saying so, crashed or killed, leaves its tab
+    /// to the shell, where its keys would land and a button's text would run
+    /// as a command, or to whatever runs there next: its session goes instead.
+    private func toAgent(_ session: Session, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
+        let tty = session.tty, names = session.agent.runningNames
+        Terminal.queue.async {
+            // Unknown is not the same as gone: the keys go as they always did.
+            guard Terminal.isRunning(any: names, on: tty) != false else {
+                return DispatchQueue.main.async {
+                    self.sessions.prune(closedTTYs: [tty])
+                    done(.status(410, "That agent has ended."))
+                }
+            }
+            let ok = work()
+            DispatchQueue.main.async { done(ok ? .status(204) : .status(404, "Terminal tab not found")) }
+        }
+    }
+
     private func onTerminal(_ done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
         Terminal.queue.async {
             let ok = work()
@@ -749,10 +808,11 @@ final class Deck {
     private func applyQueuedEffort() {
         for session in sessions.all where !session.pendingEffort.isEmpty && !session.isBusy {
             let level = session.pendingEffort
-            let tty = session.tty
+            let tty = session.tty, names = session.agent.runningNames
             session.pendingEffort = ""
             Terminal.queue.async {
-                guard Terminal.type("/effort \(level)", tty: tty) else { return }
+                // Not into a tab its agent has left: see `toAgent`.
+                guard Terminal.isRunning(any: names, on: tty) != false, Terminal.type("/effort \(level)", tty: tty) else { return }
                 DispatchQueue.main.async {
                     session.effort = level
                     self.changed()

@@ -66,17 +66,31 @@ func hookCommand(agent Agent) string {
 	return command + " " + string(agent)
 }
 
+// executable is this program, where tests name an installed copy instead.
+var executable = os.Executable
+
 // commandLineProgram is the program agents run: on Windows, the console
 // build next to the app's, since the app itself has no console.
 func commandLineProgram() string {
-	program, _ := os.Executable()
+	program, _ := executable()
 	if resolved, err := filepath.EvalSymlinks(program); err == nil {
 		program = resolved
 	}
 	if runtime.GOOS == "windows" {
-		return filepath.Join(filepath.Dir(program), "smolcorp-cli.exe")
+		return consoleBuildBeside(program)
 	}
 	return program
+}
+
+// consoleBuildBeside is smolcorp-cli.exe beside program, as the downloads
+// have it. A copy built by hand with go build alone has none, but is a
+// console program itself, so it runs the hooks.
+func consoleBuildBeside(program string) string {
+	console := filepath.Join(filepath.Dir(program), "smolcorp-cli.exe")
+	if _, err := os.Stat(console); err != nil {
+		return program
+	}
+	return console
 }
 
 func entriesFor(agent Agent) *hookEntries {
@@ -172,7 +186,7 @@ func connectAgents() error {
 	return nil
 }
 
-var errUnreadable = errors.New("settings aren't valid JSON")
+var errUnreadable = errors.New("settings can't be read or aren't valid JSON")
 
 // connect adds the deck's entries for agent, replacing any it had. With
 // turnOnVoice, Claude Code's voice input is turned on in tap mode — which the
@@ -191,12 +205,16 @@ func connect(agent Agent, turnOnVoice bool) error {
 		_ = os.Remove(oldGrokHooks())
 	}
 	settings := map[string]any{}
-	if !entries.isOwnFile {
+	var before []byte
+	if entries.isOwnFile {
+		before, _ = os.ReadFile(entries.file)
+	} else {
 		read, err := readSettings(entries.file)
 		if err != nil {
 			return errUnreadable
 		}
 		settings = read
+		before, _ = encodeSettings(read)
 	}
 	hooks := withoutOurs(settings["hooks"])
 	for _, event := range entries.events {
@@ -206,6 +224,11 @@ func connect(agent Agent, turnOnVoice bool) error {
 	settings["hooks"] = hooks
 	if _, set := settings["voice"]; turnOnVoice && agent == Claude && !set {
 		settings["voice"] = map[string]any{"enabled": true, "mode": "tap"}
+	}
+	// Already as they should be, as on most starts: left untouched, so the
+	// backup still holds the file from before the deck's last change.
+	if after, err := encodeSettings(settings); err == nil && bytes.Equal(after, before) {
+		return nil
 	}
 	return writeSettings(settings, entries.file, !entries.isOwnFile)
 }
@@ -350,10 +373,16 @@ func withoutOurs(hooks any) map[string]any {
 	return result
 }
 
+// readSettings reads an agent's settings. Only a file that isn't there at all
+// is empty: one that is there but can't be read, or a link to nothing, is an
+// error, so it's never written over with the deck's entries alone.
 func readSettings(file string) (map[string]any, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return map[string]any{}, nil
+		if _, missing := os.Lstat(file); errors.Is(err, fs.ErrNotExist) && errors.Is(missing, fs.ErrNotExist) {
+			return map[string]any{}, nil
+		}
+		return nil, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber() // numbers go back exactly as they were
@@ -364,25 +393,61 @@ func readSettings(file string) (map[string]any, error) {
 	return settings, nil
 }
 
+// writeSettings writes an agent's settings through a file beside them, so a
+// crash leaves the old file or the new one, never half of one. A link is
+// followed, so the file it points to, in a dotfiles folder say, is the one
+// that changes. The backup is made first, or nothing is written.
 func writeSettings(settings map[string]any, file string, backup bool) error {
+	if resolved, err := filepath.EvalSymlinks(file); err == nil {
+		file = resolved
+	}
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		return err
 	}
 	mode := fs.FileMode(0o644)
 	if info, err := os.Stat(file); err == nil {
 		mode = info.Mode().Perm()
-		if data, err := os.ReadFile(file); err == nil && backup {
-			_ = os.WriteFile(file+".agentdeck.bak", data, mode)
+		if backup {
+			data, err := os.ReadFile(file)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(file+".agentdeck.bak", data, mode); err != nil {
+				return err
+			}
 		}
 	}
+	out, err := encodeSettings(settings)
+	if err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(filepath.Dir(file), filepath.Base(file)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temp.Name()) // gone once renamed; left behind only by a failure
+	if _, err := temp.Write(out); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(temp.Name(), mode); err != nil {
+		return err
+	}
+	return os.Rename(temp.Name(), file)
+}
+
+func encodeSettings(settings map[string]any) ([]byte, error) {
 	var out bytes.Buffer
 	encoder := json.NewEncoder(&out)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(settings); err != nil {
-		return err
+		return nil, err
 	}
-	return os.WriteFile(file, out.Bytes(), mode)
+	return out.Bytes(), nil
 }
 
 func unreadableError(files []string) error {
@@ -390,5 +455,5 @@ func unreadableError(files []string) error {
 	for i, file := range files {
 		names[i] = trimmed(file)
 	}
-	return fmt.Errorf("%s isn't valid JSON. Fix it, then try again.", strings.Join(names, " and "))
+	return fmt.Errorf("%s can't be read or isn't valid JSON. Fix it, then try again.", strings.Join(names, " and "))
 }

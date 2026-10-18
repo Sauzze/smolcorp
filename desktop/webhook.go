@@ -34,7 +34,11 @@ var (
 	standardEvents = []string{"waiting", "done", "error"}
 	// How long a delivery may take.
 	webhookTimeout = 3 * time.Second
-	webhookClient  = &http.Client{Timeout: webhookTimeout}
+	// A redirect isn't followed: it could lead off your network, where only
+	// the address you gave was checked, and take the secret with it.
+	webhookClient = &http.Client{Timeout: webhookTimeout, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
 )
 
 func standardWebhook() Webhook {

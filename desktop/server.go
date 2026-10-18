@@ -28,13 +28,23 @@ import (
 //   - /hook and /launcher need the hook's own key, and answer only to this
 //     computer.
 //   - Pairing is open, but useless without a code you asked for here.
-//   - The setup page has no key, so it answers only to this computer, and its
-//     actions need a header that other sites can't send without asking first.
+//   - The setup page answers only to this computer. The page itself holds
+//     nothing; what it reads and changes needs the setup key, new at every
+//     start, as the cookie the page gets when the tray opens it or as
+//     X-Smolcorp-Setup-Key from a tool of your own. Its actions also need a
+//     header that other sites can't send without asking first.
 
 const (
 	// Far more than a few phones, launchers and hooks ever open at once.
 	// Beyond it, new connections are refused, so a flood can't exhaust the app.
 	maxConnections = 64
+	// No one other address may hold more than this many, and a few are kept
+	// for this computer, so a device on the network can't take them all and
+	// lock out the phones, or the hook.
+	mostPerAddress      = 16
+	keptForThisComputer = 8
+	// How long a connection kept open between requests is kept.
+	idleTimeout = 30 * time.Second
 	// Longer than any real request takes to arrive.
 	requestTimeout = 10 * time.Second
 	maxRequestSize = 1 << 20
@@ -42,6 +52,12 @@ const (
 	// browser ask permission first for any cross-site request, which this
 	// server never grants.
 	setupHeader = "X-AgentDeck-Setup"
+	// The setup key, as a tool of your own sends it, read from the setup-key
+	// file; or as the page's cookie, from the tray's link.
+	setupKeyHeader = "X-Smolcorp-Setup-Key"
+	setupCookie    = "smolcorp-setup"
+	// A tray link's one-time token, which the page swaps for the cookie.
+	setupTokenHeader = "X-Smolcorp-Setup-Once"
 )
 
 // Serve listens on the deck's port until it fails.
@@ -50,19 +66,25 @@ func Serve(deck *Deck) error {
 	if err != nil {
 		return err
 	}
+	// No ReadTimeout: it would end the event streams too. Each request's body
+	// gets its own deadline instead, in ServeHTTP.
 	server := &http.Server{
 		Handler:           &router{deck: deck},
 		ReadHeaderTimeout: requestTimeout,
+		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxRequestSize,
 	}
-	return server.Serve(&cappedListener{Listener: listener, slots: make(chan struct{}, maxConnections)})
+	return server.Serve(&cappedListener{Listener: listener, byAddress: map[string]int{}})
 }
 
-// cappedListener refuses connections beyond its slots rather than queueing
-// them.
+// cappedListener refuses connections beyond its limits rather than queueing
+// them: maxConnections in all, mostPerAddress from any one address but this
+// computer's, and keptForThisComputer that only this computer can have.
 type cappedListener struct {
 	net.Listener
-	slots chan struct{}
+	mu        sync.Mutex
+	open      int
+	byAddress map[string]int
 }
 
 func (l *cappedListener) Accept() (net.Conn, error) {
@@ -71,13 +93,36 @@ func (l *cappedListener) Accept() (net.Conn, error) {
 		if err != nil {
 			return nil, err
 		}
-		select {
-		case l.slots <- struct{}{}:
-			return &slotConn{Conn: conn, release: func() { <-l.slots }}, nil
-		default:
-			conn.Close()
+		address, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+		if release, ok := l.take(address); ok {
+			return &slotConn{Conn: conn, release: release}, nil
 		}
+		conn.Close()
 	}
+}
+
+func (l *cappedListener) take(address string) (release func(), ok bool) {
+	ip := net.ParseIP(address)
+	local := ip != nil && ip.IsLoopback()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	limit := maxConnections
+	if !local {
+		limit -= keptForThisComputer
+	}
+	if l.open >= limit || !local && l.byAddress[address] >= mostPerAddress {
+		return nil, false
+	}
+	l.open++
+	l.byAddress[address]++
+	return func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		l.open--
+		if l.byAddress[address]--; l.byAddress[address] == 0 {
+			delete(l.byAddress, address)
+		}
+	}, true
 }
 
 type slotConn struct {
@@ -110,6 +155,11 @@ var (
 
 func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestSize)
+	// A body sent a byte at a time would hold its connection for as long as
+	// it liked. The event streams and launchers stay open, and send nothing.
+	if r.URL.Path != "/events" && r.URL.Path != "/launcher" {
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(requestTimeout))
+	}
 	host := portSuffix.ReplaceAllString(r.Host, "")
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)
@@ -151,6 +201,21 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		}
 		if r.Method != http.MethodGet && r.Header.Get(setupHeader) != "1" {
 			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		// The tray's link carries a token that works once, after #o=, and the
+		// link serve prints the key, after #k=. The page hands either over once
+		// for a cookie only this page's requests carry.
+		session := r.Method == http.MethodPost && r.URL.Path == "/setup/session"
+		redeemed := session && d.redeemSetupToken(r.Header.Get(setupTokenHeader))
+		if r.URL.Path != "/setup" && !redeemed && !d.isSetupKey(setupKeyOf(r.Request)) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if session {
+			http.SetCookie(w, &http.Cookie{Name: setupCookie, Value: d.access.SetupKey, Path: "/setup", HttpOnly: true,
+				SameSite: http.SameSiteStrictMode})
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		rt.setup(w, r)
@@ -256,6 +321,28 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	}
 }
 
+func setupKeyOf(r *http.Request) string {
+	if key := r.Header.Get(setupKeyHeader); key != "" {
+		return key
+	}
+	if cookie, err := r.Cookie(setupCookie); err == nil {
+		return cookie.Value
+	}
+	return ""
+}
+
+func (d *Deck) redeemSetupToken(candidate string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.access.RedeemSetupToken(candidate)
+}
+
+func (d *Deck) isSetupKey(candidate string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.access.IsSetupKey(candidate)
+}
+
 func (d *Deck) isHookKey(candidate string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -275,12 +362,23 @@ func newEventStream() *eventStream {
 	return &eventStream{messages: make(chan []byte, 8), closed: make(chan struct{})}
 }
 
-// send never waits: a phone that isn't reading misses a message, and the
-// next carries the whole state anyway.
+// send never waits. For a phone that isn't keeping up, the oldest message
+// waiting makes way for the newest: each carries the whole state, so the
+// newest is the one that matters. A ping (nil) with no room is just dropped.
 func (s *eventStream) send(state []byte) {
-	select {
-	case s.messages <- state:
-	default:
+	for {
+		select {
+		case s.messages <- state:
+			return
+		default:
+		}
+		if state == nil {
+			return
+		}
+		select {
+		case <-s.messages:
+		default:
+		}
 	}
 }
 

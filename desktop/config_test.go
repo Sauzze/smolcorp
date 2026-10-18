@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"os"
 	"reflect"
 	"slices"
 	"testing"
@@ -80,5 +81,41 @@ func TestPetsKeptOneAtATimeStillLoadAndThreeComeBack(t *testing.T) {
 	config.save()
 	if pets := loadConfig().Layout.Room.Pet; !slices.Equal(pets, []string{"llama", "owl", "fox"}) {
 		t.Errorf("three pets saved come back as %q", pets)
+	}
+}
+
+func TestAConfigThatCantBeReadIsKeptAside(t *testing.T) {
+	isolate(t)
+	broken := `{"pins": ["/work/a"], "roles": [`
+	writeFile(t, configFile, broken)
+	config := loadConfig()
+	if config.Pins[0] != nil {
+		t.Fatal("a pin came out of a file that couldn't be read")
+	}
+	config.save()
+	if kept, err := os.ReadFile(configFile + ".broken"); err != nil || string(kept) != broken {
+		t.Fatalf("the config that couldn't be read wasn't kept: %q, %v", kept, err)
+	}
+}
+
+func TestAFieldOfTheWrongTypeLosesOnlyItself(t *testing.T) {
+	isolate(t)
+	writeFile(t, configFile, `{"pins": ["/work/a"], "scrollEnabled": "yes", "hireFolder": "/work"}`)
+	config := loadConfig()
+	if config.Pins[0] == nil || *config.Pins[0] != "/work/a" || config.HireFolder != "/work" {
+		t.Fatalf("one wrong field took the others with it: pins %v, hire folder %q", config.Pins, config.HireFolder)
+	}
+}
+
+func TestSavingLeavesNoHalfWrittenConfig(t *testing.T) {
+	isolate(t)
+	config := loadConfig()
+	config.HireFolder = "/work"
+	config.save()
+	if loadConfig().HireFolder != "/work" {
+		t.Fatal("the config didn't save")
+	}
+	if _, err := os.Stat(configFile + ".tmp"); err == nil {
+		t.Fatal("the file it was written through was left behind")
 	}
 }

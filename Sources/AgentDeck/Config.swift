@@ -35,6 +35,9 @@ final class Config: Codable {
     /// Where the deck's sessions are told to other tools, if anywhere.
     var webhook = Webhook()
     var hasCompletedSetup = false
+    /// Some of the file couldn't be read as this version reads it, and is
+    /// left out: a copy of the file is kept before it's saved over.
+    private(set) var lostOnLoad = false
 
     private enum CodingKeys: String, CodingKey {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles
@@ -43,33 +46,52 @@ final class Config: Codable {
 
     init() {}
 
-    /// Field by field, so a file from an older or newer version still loads.
+    /// Field by field, so a file from an older or newer version still loads:
+    /// a field it can't read loses only itself, and `lostOnLoad` says so.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        pins = try c.decodeIfPresent([String?].self, forKey: .pins) ?? pins
-        colours = try c.decodeIfPresent([String: String].self, forKey: .colours) ?? colours
+        var lost = false
+        func field<T: Decodable>(_ type: T.Type, _ key: CodingKeys) -> T? {
+            do { return try c.decodeIfPresent(type, forKey: key) } catch {
+                lost = true
+                return nil
+            }
+        }
+        pins = field([String?].self, .pins) ?? pins
+        colours = field([String: String].self, .colours) ?? colours
         // Layouts are checked again as they load: their buttons type into sessions.
-        layout = ((try? c.decodeIfPresent(Layout.self, forKey: .layout)) ?? layout).checked
+        layout = (field(Layout.self, .layout) ?? layout).checked
         // One by one, so a profile this version can't read loses only itself.
-        profiles = ((try? c.decodeIfPresent([Lossy<Profile>].self, forKey: .profiles)) ?? []).compactMap(\.value).map {
+        let lossy = field([Lossy<Profile>].self, .profiles) ?? []
+        if lossy.contains(where: { $0.value == nil }) { lost = true }
+        profiles = lossy.compactMap(\.value).map {
             Profile(name: $0.name, layout: $0.layout.checked, colours: $0.colours)
         }
-        activeProfile = (try? c.decodeIfPresent(String.self, forKey: .activeProfile)) ?? activeProfile
-        logo = ((try? c.decodeIfPresent(String.self, forKey: .logo)) ?? nil).flatMap(Logo.init(stored:)) ?? logo
-        scrollEnabled = try c.decodeIfPresent(Bool.self, forKey: .scrollEnabled) ?? false
-        hiringEnabled = try c.decodeIfPresent(Bool.self, forKey: .hiringEnabled) ?? false
-        hireFolder = try c.decodeIfPresent(String.self, forKey: .hireFolder) ?? ""
-        hireAgent = (try c.decodeIfPresent(String.self, forKey: .hireAgent)).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
+        activeProfile = field(String.self, .activeProfile) ?? activeProfile
+        logo = field(String.self, .logo).flatMap(Logo.init(stored:)) ?? logo
+        scrollEnabled = field(Bool.self, .scrollEnabled) ?? false
+        hiringEnabled = field(Bool.self, .hiringEnabled) ?? false
+        hireFolder = field(String.self, .hireFolder) ?? ""
+        hireAgent = field(String.self, .hireAgent).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
         // Checked as they load: their instructions go to agents.
-        roles = ((try? c.decodeIfPresent([Role].self, forKey: .roles)) ?? nil).map(Role.checked) ?? roles
-        musicEnabled = try c.decodeIfPresent(Bool.self, forKey: .musicEnabled) ?? false
-        webhook = (try? c.decodeIfPresent(Webhook.self, forKey: .webhook)) ?? Webhook()
-        hasCompletedSetup = try c.decodeIfPresent(Bool.self, forKey: .hasCompletedSetup) ?? false
+        roles = field([Role].self, .roles).map(Role.checked) ?? roles
+        musicEnabled = field(Bool.self, .musicEnabled) ?? false
+        webhook = field(Webhook.self, .webhook) ?? Webhook()
+        hasCompletedSetup = field(Bool.self, .hasCompletedSetup) ?? false
+        lostOnLoad = lost
     }
 
-    private static func load() -> Config {
-        guard let data = try? Data(contentsOf: Paths.config),
-              let config = try? JSONDecoder().decode(Config.self, from: data) else { return Config() }
+    /// A file it can't read at all starts from the defaults, and one it can
+    /// read only some of keeps the rest, but either way a copy is kept beside
+    /// it first, as config.json.broken, so the next save doesn't take what
+    /// was left out with it.
+    static func load(from file: URL = Paths.config) -> Config {
+        guard let data = try? Data(contentsOf: file) else { return Config() }
+        guard let config = try? JSONDecoder().decode(Config.self, from: data) else {
+            try? data.write(to: file.appendingPathExtension("broken"), options: .atomic)
+            return Config()
+        }
+        if config.lostOnLoad { try? data.write(to: file.appendingPathExtension("broken"), options: .atomic) }
         if config.pins.count != KeyCount.most {
             config.pins = Array((config.pins + Array(repeating: nil, count: KeyCount.most)).prefix(KeyCount.most))
         }

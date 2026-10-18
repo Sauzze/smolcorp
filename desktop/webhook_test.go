@@ -161,3 +161,25 @@ func TestADeckTellsTheWebhookAsSessionsChange(t *testing.T) {
 		t.Fatalf("the webhook heard %v", got)
 	}
 }
+
+func TestAWebhookDoesntFollowARedirectOffYourNetwork(t *testing.T) {
+	elsewhere := make(chan http.Header, 1)
+	outside := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		elsewhere <- r.Header
+	}))
+	defer outside.Close()
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, outside.URL, http.StatusTemporaryRedirect)
+	}))
+	defer local.Close()
+
+	result := Webhook{URL: local.URL, Secret: "s3cret"}.send(map[string]any{"state": "waiting"})
+	if result != "307" {
+		t.Errorf("a redirect gave %q, want the redirect's own status", result)
+	}
+	select {
+	case header := <-elsewhere:
+		t.Fatalf("the message followed the redirect, secret %q and all", header.Get("X-Smolcorp-Secret"))
+	default:
+	}
+}

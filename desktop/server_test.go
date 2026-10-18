@@ -2,11 +2,15 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Where requests come from: this computer, and a phone on the same Wi-Fi.
@@ -20,12 +24,17 @@ type call struct {
 	method, target, host, from string
 	headers                    map[string]string
 	body                       string
+	// Setup's calls carry the setup key, as the page does, unless this says not to.
+	withoutSetupKey bool
 }
 
 func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(c.method, c.target, strings.NewReader(c.body))
 	r.Host, r.RemoteAddr = c.host, c.from
+	if strings.HasPrefix(c.target, "/setup/") && !c.withoutSetupKey {
+		r.Header.Set(setupKeyHeader, d.access.SetupKey)
+	}
 	for name, value := range c.headers {
 		r.Header.Set(name, value)
 	}
@@ -186,5 +195,161 @@ func TestTheSetupPageNamesEachSessionsProject(t *testing.T) {
 	sessions := (&router{deck: d}).setupState()["sessions"].([]map[string]any)
 	if len(sessions) != 1 || sessions[0]["name"] != "api" {
 		t.Fatalf("sessions %v, want one named api", sessions)
+	}
+}
+
+func TestWhatSetupReadsAndChangesNeedsTheSetupKey(t *testing.T) {
+	d := newTestDeck(t)
+	local := func(c call) int {
+		c.host, c.from = "localhost:7710", thisComputer
+		return serve(t, d, c).Code
+	}
+	// Any program on this computer can send the page's header, and another person signed in to it can too.
+	if got := local(call{method: "GET", target: "/setup/state", withoutSetupKey: true}); got != http.StatusUnauthorized {
+		t.Errorf("setup's state without the key: %d, want %d", got, http.StatusUnauthorized)
+	}
+	if got := local(call{method: "POST", target: "/setup/pair", withoutSetupKey: true, headers: map[string]string{setupHeader: "1"}}); got != http.StatusUnauthorized {
+		t.Errorf("a pairing code asked for without the key: %d, want %d", got, http.StatusUnauthorized)
+	}
+	if got := local(call{method: "GET", target: "/setup/state", headers: map[string]string{setupKeyHeader: "a-made-up-key"}}); got != http.StatusUnauthorized {
+		t.Errorf("setup's state with a made-up key: %d, want %d", got, http.StatusUnauthorized)
+	}
+	// The page itself holds nothing, and opens to say where the key is.
+	if got := local(call{method: "GET", target: "/setup"}); got != http.StatusOK {
+		t.Errorf("the setup page: %d, want %d", got, http.StatusOK)
+	}
+	// A tool of your own sends the key from its file.
+	saved, err := os.ReadFile(setupKeyFile)
+	if err != nil || strings.TrimSpace(string(saved)) != d.access.SetupKey {
+		t.Fatalf("the setup-key file holds %q (%v), want the key", saved, err)
+	}
+	if runtime.GOOS != "windows" {
+		if info, _ := os.Stat(setupKeyFile); info.Mode().Perm() != 0o600 {
+			t.Errorf("the setup-key file can be read by others: %v", info.Mode().Perm())
+		}
+	}
+	if got := local(call{method: "GET", target: "/setup/state", withoutSetupKey: true,
+		headers: map[string]string{setupKeyHeader: strings.TrimSpace(string(saved))}}); got != http.StatusOK {
+		t.Errorf("setup's state with the key from its file: %d, want %d", got, http.StatusOK)
+	}
+}
+
+func TestTheTraysLinkGivesThePageACookie(t *testing.T) {
+	d := newTestDeck(t)
+	if link := d.setupLink("pair"); !strings.HasSuffix(link, "/setup#k="+d.access.SetupKey+"&pair") {
+		t.Fatalf("the tray's link is %s", link)
+	}
+	session := serve(t, d, call{method: "POST", target: "/setup/session", host: "localhost:7710", from: thisComputer,
+		headers: map[string]string{setupHeader: "1"}})
+	cookies := session.Result().Cookies()
+	if session.Code != http.StatusNoContent || len(cookies) != 1 {
+		t.Fatalf("handing the key over: %d, cookies %v", session.Code, cookies)
+	}
+	cookie := cookies[0]
+	if !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/setup" {
+		t.Errorf("the cookie can be read by scripts, sent by other sites or to other pages: %+v", cookie)
+	}
+	state := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
+		headers: map[string]string{"Cookie": cookie.Name + "=" + cookie.Value}})
+	if state.Code != http.StatusOK {
+		t.Errorf("setup's state with the page's cookie: %d, want %d", state.Code, http.StatusOK)
+	}
+	// Each start has a new key, so a link or cookie from before stops working.
+	if again := NewDeck(); again.access.SetupKey == d.access.SetupKey {
+		t.Error("a new start kept the setup key")
+	}
+}
+
+func TestOneDeviceCantTakeEveryConnection(t *testing.T) {
+	l := &cappedListener{byAddress: map[string]int{}}
+	var held []func()
+	for range mostPerAddress {
+		release, ok := l.take("192.168.1.66")
+		if !ok {
+			t.Fatal("a device was refused before it reached its share")
+		}
+		held = append(held, release)
+	}
+	if _, ok := l.take("192.168.1.66"); ok {
+		t.Fatalf("one device got more than %d connections", mostPerAddress)
+	}
+	// Other devices fill the rest, but never the ones kept for this computer.
+	for i := 0; ; i++ {
+		release, ok := l.take(fmt.Sprintf("192.168.1.%d", 100+i/mostPerAddress))
+		if !ok {
+			break
+		}
+		held = append(held, release)
+	}
+	if l.open != maxConnections-keptForThisComputer {
+		t.Fatalf("other devices hold %d connections, want %d", l.open, maxConnections-keptForThisComputer)
+	}
+	// The hook still gets in, more than once.
+	for range keptForThisComputer {
+		release, ok := l.take("127.0.0.1")
+		if !ok {
+			t.Fatal("the hook was locked out by other devices")
+		}
+		held = append(held, release)
+	}
+	for _, release := range held {
+		release()
+	}
+	if l.open != 0 || len(l.byAddress) != 0 {
+		t.Fatalf("connections closed but still counted: %d open, %v", l.open, l.byAddress)
+	}
+}
+
+func TestAPhoneThatFallsBehindGetsTheNewestState(t *testing.T) {
+	s := newEventStream()
+	for i := range 20 {
+		s.send([]byte(fmt.Sprint(i)))
+	}
+	s.send(nil) // a ping with no room
+	var last []byte
+	for len(s.messages) > 0 {
+		last = <-s.messages
+	}
+	if string(last) != "19" {
+		t.Fatalf("the last state waiting is %q, want the newest, 19", last)
+	}
+}
+
+func TestTheTraysLinkWorksOnceAndCarriesNoKey(t *testing.T) {
+	d := newTestDeck(t)
+	d.mu.Lock()
+	token := d.access.NewSetupToken()
+	d.mu.Unlock()
+	if link := setupAddress("o="+token, "pair"); strings.Contains(link, d.access.SetupKey) {
+		t.Fatal("the tray's link, on the browser's command line, carries the setup key")
+	}
+	handOver := func(token string) *httptest.ResponseRecorder {
+		return serve(t, d, call{method: "POST", target: "/setup/session", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
+			headers: map[string]string{setupHeader: "1", setupTokenHeader: token}})
+	}
+	first := handOver(token)
+	if first.Code != http.StatusNoContent || len(first.Result().Cookies()) != 1 || first.Result().Cookies()[0].Value != d.access.SetupKey {
+		t.Fatalf("the link's token gave %d, cookies %v", first.Code, first.Result().Cookies())
+	}
+	// Read from another user's view of the command line, it's used up already.
+	if again := handOver(token); again.Code != http.StatusUnauthorized {
+		t.Errorf("the token worked a second time: %d", again.Code)
+	}
+	// And one never used runs out.
+	d.mu.Lock()
+	late := d.access.NewSetupToken()
+	d.access.setupTokens[late] = time.Now().Add(-time.Second)
+	d.mu.Unlock()
+	if expired := handOver(late); expired.Code != http.StatusUnauthorized {
+		t.Errorf("a token that had run out worked: %d", expired.Code)
+	}
+	// A token opens only the handover, not setup itself.
+	d.mu.Lock()
+	other := d.access.NewSetupToken()
+	d.mu.Unlock()
+	state := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
+		headers: map[string]string{setupTokenHeader: other}})
+	if state.Code != http.StatusUnauthorized {
+		t.Errorf("a token read setup's state: %d", state.Code)
 	}
 }
