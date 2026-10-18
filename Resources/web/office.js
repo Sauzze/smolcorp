@@ -10482,7 +10482,8 @@
     let floating = null;  // floating in a 'window' of its own or a whole 'screen', from 'edge' to edge, or not
     let frame = null;
     let last = 0;
-    let failed = false, restartedAt = -Infinity; // a frame failing, and when the room last started over for it
+    const failures = new Set(); // the mistakes frames have failed with, each said once
+    let restartedAt = -Infinity; // when the room last started over for one
     let selected = null; // the session the deck's controls act on
     let latest = null;   // the deck's last snapshot
     let ahead = 0;       // how far this device's clock is ahead of the computer's, in ms
@@ -10685,17 +10686,18 @@
       // time from when it opened, and the room can move between them.
       const time = performance.now();
       if (time - last < FRAME_TIME - 1) return;
-      if (last && time - last > STALE_AFTER && latest) {
-        office.close();
-        office.apply(seatsOf(latest, ahead), latest.theme, time / 1000);
-      }
+      const stale = last && time - last > STALE_AFTER;
       last = time;
       try {
+        if (stale && latest) {
+          office.close();
+          office.apply(seatsOf(latest, ahead), latest.theme, time / 1000);
+        }
         draw(time);
       } catch (error) {
-        // Said once; the room starts over, everyone in place, and carries on.
-        if (!failed) console.error('Smolcorp: the office failed to draw, and starts over.', error);
-        failed = true;
+        // Each mistake said once; the room starts over, everyone in place, and carries on.
+        if (!failures.has(String(error))) console.error('Smolcorp: the office failed to draw, and starts over.', error);
+        failures.add(String(error));
         if (latest && time - restartedAt >= RESTART_EVERY) {
           restartedAt = time;
           office.close();
