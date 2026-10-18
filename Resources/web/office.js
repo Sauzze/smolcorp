@@ -1691,7 +1691,7 @@
           if (walker.place === 'door') walker.isLeaving = true;
         }
         // On their way, they go on from where they are, round the room as it is now; settled, they're at their place as it is now
-        if (wasWalking) walker.path = route(walker.position, walker.place);
+        if (wasWalking) Object.assign(walker, { path: route(walker.position, walker.place), refuge: null, roundFor: null });
         else walker.position = { ...pointOf(walker.place) };
         const spot = spotOf(walker.place);
         if (spot !== null && !wasWalking) walker.isFacingAway = facesAway(spots[spot].pose);
@@ -2093,6 +2093,11 @@
         pet.isWalking = false;
         pet.nextMove = now;
       }
+      // Settled too near another pet on the floor, the one later in the list moves on
+      if (!pet.isWalking && pet.isIn && now < pet.nextMove && !PETS[pet.kind].flies && !(pet.target && pet.target.depth !== undefined)) {
+        const mine = this.pets.indexOf(pet);
+        if (this.pets.some((o, i) => i < mine && o.isIn && !PETS[o.kind].flies && Math.hypot(o.position.x - pet.position.x, o.position.y - pet.position.y) < PET_GAP)) pet.nextMove = now;
+      }
       // Settled on the floor where someone has come to stand, or is about to walk: it moves on, out of their way
       if (!pet.isWalking && pet.isIn && pet.target && pet.target.depth === undefined && now < pet.nextMove && !PETS[pet.kind].flies
         && (this.people.some((p) => !p.isWalking && !p.isLeaving && Math.hypot(p.position.x - pet.position.x, p.position.y - pet.position.y) < PET_CLEAR.person - 2)
@@ -2106,11 +2111,22 @@
         pet.position = { x: DOOR.x, y: DOOR.y + 6 };
       }
       if (!pet.isWalking && now >= pet.nextMove) {
-        const others = this.petPlaces(pet).filter((p) => !pet.target || p.x !== pet.target.x || p.y !== pet.target.y);
+        let others = this.petPlaces(pet).filter((p) => !pet.target || p.x !== pet.target.x || p.y !== pet.target.y);
+        // Nowhere of its own to go, and in the way where it is: the nearest free spot out of everyone's way
+        if (!others.length && !pet.target?.depth && !this.petCanSettle({ x: pet.position.x, y: pet.position.y }, pet)) {
+          for (let r = 10; r <= 50 && !others.length; r += 8) {
+            for (let k = 0; k < 12; k++) {
+              const spot = { x: pet.position.x + Math.cos((k / 12) * Math.PI * 2) * r, y: pet.position.y + Math.sin((k / 12) * Math.PI * 2) * r * 0.7, pose: 'sit' };
+              if (this.petCanSettle(spot, pet)) others.push(spot);
+            }
+          }
+        }
         if (others.length) {
           // The monkey leaves the counter with a cup, and keeps it until it moves on again.
           pet.carrying = !!(pet.target && pet.target.grab);
+          if (pet.carrying) pet.tookCupAt = now;
           pet.target = pick(others);
+          if (pet.target.follow) pet.followAt = now;
           pet.isWalking = true;
           pet.arrivedAt = now;
           pet.path = pet.target.follow ? [] : this.petRoute(pet, pet.target);
@@ -2130,7 +2146,12 @@
         return;
       }
       // Up a wall, the lizard won't move while anyone is near; on the floor it gets out of the way like any pet.
-      if (pet.kind === 'lizard' && !standsFree(pet.position) && this.people.some((p) => Math.hypot(p.position.x - pet.position.x, p.position.y - pet.position.y) < LIZARD_SHY)) return;
+      if (pet.kind === 'lizard' && !standsFree(pet.position) && this.people.some((p) => Math.hypot(p.position.x - pet.position.x, p.position.y - pet.position.y) < LIZARD_SHY)) {
+        if (!pet.frozen) pet.frozeAt = now;
+        pet.frozen = true;
+        return;
+      }
+      pet.frozen = false;
       const following = pet.target.follow;
       const behind = following && { x: following.position.x - 7 * (following.position.x >= pet.position.x ? 1 : -1), y: following.position.y + 1 };
       if (following && (!pet.path.length || Math.hypot(behind.x - pet.followed.x, behind.y - pet.followed.y) > 6) && now - pet.rerouted > 0.4) {
@@ -2154,7 +2175,8 @@
         // Nor a step that would bring it closer than PET_GAP to a pet it gives way to
         const step = Math.min(d, speed * elapsed), next = { x: pet.position.x + (dx / d) * step, y: pet.position.y + (dy / d) * step };
         const pets = this.pets.filter((o) => o !== pet && o.isIn && !PETS[o.kind].flies && o.kind !== 'axolotl');
-        const tooClose = pets.find((o) => Math.hypot(o.position.x - next.x, o.position.y - next.y) < PET_GAP
+        // A pet on the move gets a little more room: both take their step in the same moment
+        const tooClose = pets.find((o) => Math.hypot(o.position.x - next.x, o.position.y - next.y) < PET_GAP + (o.isWalking ? 3 : 0)
           && Math.hypot(o.position.x - next.x, o.position.y - next.y) < Math.hypot(o.position.x - pet.position.x, o.position.y - pet.position.y));
         const blocker = inWay || tooClose;
         // Someone walking straight at it: it steps aside at once, the side that's free, then goes on
@@ -2184,6 +2206,20 @@
         }
       }
       const pace = speed * (pet.zoom ? 2.2 : 1) * elapsed;
+      // Too close to another pet already: first a step straight away from it, if there's floor there
+      if (!flies) {
+        const crowding = this.pets.find((o) => o !== pet && o.isIn && !PETS[o.kind].flies && o.kind !== 'axolotl'
+          && Math.hypot(o.position.x - pet.position.x, o.position.y - pet.position.y) < PET_GAP);
+        if (crowding) {
+          const ax = pet.position.x - crowding.position.x, ay = pet.position.y - crowding.position.y, ad = Math.hypot(ax, ay) || 1;
+          const away = { x: pet.position.x + (ax / ad) * pace, y: pet.position.y + (ay / ad) * pace };
+          if (standsFree(away)) {
+            pet.position = away;
+            if (Math.abs(ax) > 0.01) pet.facing = ax > 0 ? 1 : -1;
+            return;
+          }
+        }
+      }
       const { position, heading } = stepAlong(pet.position, pet.path, pace);
       pet.position = position;
       // It faces the way it goes, but not for every little step up or down
@@ -2380,6 +2416,8 @@
 
     send(person, place) {
       person.place = place;
+      person.refuge = null;
+      person.roundFor = null;
       person.path = route(person.position, place);
       person.nextMove = Infinity;
     }
@@ -2394,13 +2432,46 @@
       return this.people.indexOf(a) < this.people.indexOf(b);
     }
 
+    /** Where `person` will be `seconds` from now, going on along their way at their pace. */
+    ahead(person, seconds) {
+      if (!person.isWalking) return { ...person.position };
+      let left = WALKING_SPEED * (person.isGoingNuclear ? HURRY : 1) * seconds, { x, y } = person.position;
+      for (const to of person.path) {
+        const d = Math.hypot(to.x - x, to.y - y);
+        if (d >= left) return { x: x + ((to.x - x) / d) * left, y: y + ((to.y - y) / d) * left };
+        left -= d;
+        ({ x, y } = to);
+      }
+      return { x, y };
+    }
+
+    /** Whether `a` and `b`, going on as they are, come within PERSON_GAP of each other in the next PERSON_LOOKS steps. */
+    meeting(a, b) {
+      for (let k = 1; k <= PERSON_LOOKS; k++) {
+        const pa = this.ahead(a, k * PERSON_STEP), pb = this.ahead(b, k * PERSON_STEP);
+        if (Math.hypot(pa.x - pb.x, pa.y - pb.y) < PERSON_GAP) return true;
+      }
+      return false;
+    }
+
+    /** Whether `walker`'s way, the next stretch of it, passes within `reach` of `point`. */
+    passes(walker, point, reach) {
+      for (let k = 0; k <= PERSON_LOOKS * 2; k++) {
+        const p = this.ahead(walker, k * PERSON_STEP);
+        if (Math.hypot(p.x - point.x, p.y - point.y) < reach) return true;
+      }
+      return false;
+    }
+
     /**
-     * Before a step: whether to wait, or the way round someone. Coming in,
-     * one at a time through the door. Walking, a little gap kept from
-     * anyone up and about; someone walking just ahead that goes first is
-     * waited for, a moment, then gone round; someone coming straight at
-     * them that goes first, stepped aside for; anyone standing in the way,
-     * gone round. Near where they're going they can come close.
+     * Before a step: whether to wait, or a way round someone. Coming in,
+     * one at a time through the door. Then, looking a second ahead: anyone
+     * who goes first (see `goesFirst`) and would come too close, they wait
+     * for; and if that one's way goes right over where they are, as in the
+     * strip behind the back row of desks, they step out of it to the
+     * nearest free spot, wait there till they've gone by, and carry on.
+     * Going first, they go round anyone who's stopped or standing in their
+     * way. Near where they're going they can come close.
      */
     giveWay(person, elapsed) {
       const near = (a, b, reach) => Math.hypot(a.x - b.x, a.y - b.y) < reach;
@@ -2410,55 +2481,82 @@
         if (this.people.some((p) => up(p) && near(p.position, DOOR, PERSON_GAP + 2))) return true;
         person.entering = false;
       }
-      const ahead = person.path[0], end = person.path[person.path.length - 1];
-      if (near(person.position, end, PERSON_ROOM)) return false;
-      const dx = ahead.x - person.position.x, dy = ahead.y - person.position.y, d = Math.hypot(dx, dy) || 1;
-      const inWay = this.people.find((p) => {
-        if (!up(p)) return false;
-        const px = p.position.x - person.position.x, py = p.position.y - person.position.y, along = (px * dx + py * dy) / d;
-        return along > 0 && along < PERSON_AHEAD && Math.abs(px * dy - py * dx) / d < PERSON_GAP;
-      });
-      if (!inWay) {
-        person.waited = 0;
-        person.steppedAside = false;
-        person.roundFor = null;
-        return false;
+      // Stepped out of someone's way: waiting there till they've gone by, then on; they've gone, then on at once
+      if (person.refuge && (!this.people.includes(person.refuge.for) || !person.refuge.for.isWalking)) {
+        person.path = walkway(person.position, person.refuge.goal);
+        person.refuge = null;
       }
-      const goal = end;
-      if (!inWay.isWalking) {
-        // Standing in the way: round them, once
-        if (person.roundFor !== inWay) {
-          const round = walkway(person.position, goal, true, [inWay.position]);
-          if (round) person.path = round;
-          person.roundFor = inWay;
-        }
-        return false;
-      }
-      if (!this.goesFirst(inWay, person)) {
-        // Going first, but they've stopped for us: round them, not through them
-        if (inWay.waited > 0 && person.roundFor !== inWay) {
-          const round = walkway(person.position, goal, true, [inWay.position]);
-          if (round) person.path = round;
-          person.roundFor = inWay;
-        }
-        return false;
-      }
-      const coming = inWay.path[0] && Math.hypot(inWay.path[0].x - person.position.x, inWay.path[0].y - person.position.y) < Math.hypot(inWay.position.x - person.position.x, inWay.position.y - person.position.y);
-      if (coming && !person.steppedAside) {
-        for (const side of [1, -1]) {
-          const aside = { x: person.position.x - (dy / d) * 8 * side, y: person.position.y + (dx / d) * 8 * side };
-          if (!standsFree(aside)) continue;
-          person.path = [...walkway(person.position, aside), ...walkway(aside, goal, false, [inWay.position])];
-          person.steppedAside = true;
+      const refuge = person.refuge;
+      const end = refuge ? refuge.goal : person.path[person.path.length - 1];
+      if (refuge && near(person.position, refuge.at, 1)) {
+        // Someone else going first coming right through here: on to another spot
+        const coming = this.people.find((p) => up(p) && p.isWalking && p !== refuge.for && this.goesFirst(p, person) && this.passes(p, person.position, PERSON_GAP));
+        const spot = coming && this.clearOf(person, coming);
+        if (spot) {
+          person.refuge = { ...refuge, at: spot };
+          person.path = [...walkway(person.position, spot), ...walkway(spot, refuge.goal)];
           return false;
         }
+        const by = refuge.for;
+        if (coming || (this.people.includes(by) && by.isWalking && (near(by.position, person.position, PERSON_GAP + 4) || this.passes(by, person.position, PERSON_GAP + 1)))) return true;
+        person.refuge = null;
+        person.path = walkway(person.position, refuge.goal);
+        return false;
       }
-      person.waited = (person.waited || 0) + elapsed;
-      if (person.waited < GIVE_WAY_FOR) return true;
-      const round = walkway(person.position, goal, true, [inWay.position]);
-      if (round) person.path = round;
-      person.waited = 0;
+      if (!refuge && near(person.position, end, PERSON_ROOM)) return false;
+      // A pet sitting, or waiting, on the floor in the way: round it, again whenever it's moved
+      for (const pet of this.pets) {
+        if (!pet.isIn || PETS[pet.kind].flies || (pet.isWalking && !(pet.waited > 0)) || (pet.target && pet.target.depth !== undefined && !standsFree(pet.position))) continue;
+        if (!this.passes(person, pet.position, PERSON_GAP - 1)) continue;
+        if (person.roundFor === pet && person.roundAt && near(person.roundAt, pet.position, 3)) continue;
+        const round = walkway(person.position, end, true, [pet.position]);
+        if (round) person.path = round;
+        person.roundFor = pet;
+        person.roundAt = { ...pet.position };
+      }
+      for (const other of this.people) {
+        if (!up(other)) continue;
+        if (other.isWalking && this.goesFirst(other, person)) {
+          if (!this.meeting(person, other)) continue;
+          // Their way goes right over us: out of it, to the nearest spot clear of it, unless already on the way to one
+          if (!refuge && this.passes(other, person.position, PERSON_GAP + 1)) {
+            const spot = this.clearOf(person, other);
+            if (spot) {
+              person.refuge = { at: spot, for: other, goal: end };
+              person.path = [...walkway(person.position, spot), ...walkway(spot, end)];
+              return false;
+            }
+          }
+          return true;
+        }
+        // Going first: round anyone stopped or standing in our way, again whenever they've moved
+        const moved = person.roundFor !== other || !person.roundAt || !near(person.roundAt, other.position, 3);
+        if ((!other.isWalking || other.refuge) && moved && this.passes(person, other.position, PERSON_GAP)) {
+          const round = walkway(person.position, end, true, [other.position]);
+          if (round) person.path = round;
+          person.roundFor = other;
+          person.roundAt = { ...other.position };
+        }
+      }
       return false;
+    }
+
+    /** The nearest free spot to `person`, a little way off, clear of the way `by` is going and of everyone else. */
+    clearOf(person, by) {
+      let best = null;
+      for (let r = 6; r <= 22 && !best; r += 4) {
+        for (let k = 0; k < 16; k++) {
+          const a = (k / 16) * Math.PI * 2, spot = { x: person.position.x + Math.cos(a) * r, y: person.position.y + Math.sin(a) * r * 0.8 };
+          if (spot.x < 2 || spot.y < 2 || spot.x > shape.width - 2 || spot.y > shape.height - 2 || !standsFree(spot)) continue;
+          const { columns, clearance } = floorNow();
+          if (clearance[Math.floor(spot.y / CELL) * columns + Math.floor(spot.x / CELL)] < 2) continue;
+          // Clear of where anyone's walking, not just them, and of anyone standing
+          if (this.people.some((p) => p !== person && p.isWalking && this.passes(p, spot, PERSON_GAP + 2))) continue;
+          if (this.people.some((p) => p !== person && p !== by && Math.hypot(p.position.x - spot.x, p.position.y - spot.y) < PERSON_GAP + 1)) continue;
+          if (!best || Math.hypot(spot.x - person.position.x, spot.y - person.position.y) < Math.hypot(best.x - person.position.x, best.y - person.position.y)) best = spot;
+        }
+      }
+      return best;
     }
 
     walk(person, elapsed, now) {
@@ -2485,9 +2583,11 @@
   }
 
   /** People: the gap kept from anyone up and about, how far ahead they look, and how near where they're going they stop minding. */
-  const PERSON_GAP = 5;
-  const PERSON_AHEAD = 10;
-  const PERSON_ROOM = 9;
+  const PERSON_GAP = 6;
+  const PERSON_ROOM = 8;
+  /** How far ahead people look for each other: this many steps of this many seconds. */
+  const PERSON_LOOKS = 8;
+  const PERSON_STEP = 0.1;
   /** Art pixels a second: crossing the room takes about ten seconds. */
   const WALKING_SPEED = 28;
   /** Going nuclear is worth hurrying for. */
@@ -9035,6 +9135,34 @@
         });
       },
     },
+    // The first pets' habits: the monkey off with a cup, the dog after someone, the cat purring asleep, the lizard frozen on a wall
+    monkeyCup: {
+      gap: 20,
+      play(chip, at, pan) {
+        chip.note(at, { wave: 'pulse12', pitch: hz('E7'), length: 0.03, level: dB(-22), pan, curve: 2 });
+        chip.note(at + 0.05, { wave: 'pulse12', pitch: hz('B6'), length: 0.04, level: dB(-24), pan, curve: 2 });
+        for (const [after, from, to] of [[0.16, 'E4', 'A4'], [0.26, 'G4', 'D5']]) chip.note(at + after, { wave: 'triangle', pitch: hz(from), to: hz(to), length: 0.08, level: dB(-20), pan });
+      },
+    },
+    dogFollow: {
+      gap: 30,
+      play(chip, at, pan) {
+        for (const after of [0, 0.13]) chip.note(at + after, { wave: 'pulse25', pitch: hz('F5'), to: hz('C5'), length: 0.06, level: dB(-20), pan });
+      },
+    },
+    catPurr: {
+      gap: 60,
+      play(chip, at, pan) {
+        for (const after of [0, 0.42]) chip.note(at + after, { wave: 'triangle', pitch: hz('C3'), to: hz('D3'), length: 0.36, level: dB(-26), pan, curve: 0.6, vibrato: 0.04 });
+      },
+    },
+    lizardFreeze: {
+      gap: 60,
+      play(chip, at, pan) {
+        chip.noise(at, { rate: 1, length: 0.015, level: dB(-30), pan, curve: 3 });
+        chip.noise(at + 0.05, { rate: 1, length: 0.012, level: dB(-32), pan, curve: 3 });
+      },
+    },
     // The new pets, as they settle, -20 to -34; and their habits, as they happen, the llama's spit the boldest, -16.
     llama: {
       gap: 50,
@@ -9112,7 +9240,8 @@
     hamster: {
       gap: 40,
       play(chip, at, pan) {
-        chip.note(at, { wave: 'pulse12', pitch: hz('E7'), length: 0.025, level: dB(-26), pan, curve: 2 });
+        // A squeak, not a whistle: a fuller pulse, a little lower
+        chip.note(at, { wave: 'pulse25', pitch: hz('C7'), to: hz('D7'), length: 0.035, level: dB(-27), pan, curve: 2 });
       },
     },
     hamsterRoll: {
@@ -9136,7 +9265,7 @@
     bat: {
       gap: 50,
       play(chip, at, pan) {
-        for (const after of [0, 0.05, 0.1]) chip.note(at + after, { wave: 'pulse12', pitch: hz('D7'), length: 0.02, level: dB(-28), pan, curve: 2 });
+        for (const after of [0, 0.05, 0.1]) chip.note(at + after, { wave: 'pulse25', pitch: hz('B6'), length: 0.02, level: dB(-30), pan, curve: 2 });
       },
     },
     snail: {
@@ -9548,6 +9677,13 @@
         heard.spat = fired || heard.spat;
         if (pet.kind === 'corgi' && pet.zoom && heard.zoom !== pet.zoom.at) this.play('corgiLap', x);
         heard.zoom = pet.zoom && pet.zoom.at;
+        // The first pets' habits, as they happen
+        if (pet.tookCupAt !== undefined && heard.cup !== pet.tookCupAt && heard.cup !== undefined) this.play('monkeyCup', x);
+        heard.cup = pet.tookCupAt ?? null;
+        if (pet.kind === 'dog' && pet.followAt !== undefined && heard.follow !== pet.followAt && heard.follow !== undefined) this.murmur('dogFollow', x);
+        heard.follow = pet.followAt ?? null;
+        if (pet.frozeAt !== undefined && heard.froze !== pet.frozeAt && heard.froze !== undefined) this.murmur('lizardFreeze', x);
+        heard.froze = pet.frozeAt ?? null;
         if (pet.kind === 'axolotl' && Math.random() < 1 / (60 * 45)) this.murmur('axolotl', x);
         if (pet.isWalking) {
           // Setting off: the penguin on its belly, the hamster rolling
@@ -9566,7 +9702,8 @@
         // The fox lands its pounce every time; the rest now and then
         if (pet.kind === 'fox' && pet.target && pet.target.pose !== 'curl') { this.play('foxPounce', x); continue; }
         if (Math.random() >= PET_CHATTY) continue;
-        const name = pet.kind === 'robodog' && pet.target && pet.target.pose === 'charge' ? 'robodogCharge' : pet.kind;
+        const pose = pet.target && pet.target.pose;
+        const name = pet.kind === 'robodog' && pose === 'charge' ? 'robodogCharge' : pet.kind === 'cat' && pose === 'sleep' ? 'catPurr' : pet.kind;
         if (pet.kind === 'owl' && !night) continue;
         this.murmur(name, x);
       }
