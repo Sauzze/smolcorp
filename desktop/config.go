@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -32,10 +33,13 @@ type Config struct {
 	// computer's music. Off until you turn it on: it presses a media key.
 	MusicEnabled bool `json:"musicEnabled"`
 	// Where the deck's sessions are told to other tools, if anywhere.
-	Webhook           Webhook `json:"webhook"`
-	HireFolder        string  `json:"hireFolder"`
-	HireAgent         string  `json:"hireAgent"`
-	HasCompletedSetup bool    `json:"hasCompletedSetup"`
+	Webhook    Webhook `json:"webhook"`
+	HireFolder string  `json:"hireFolder"`
+	HireAgent  string  `json:"hireAgent"`
+	// The roles `smolcorp run --role` starts, as the Mac app's office hires
+	// them: those that come with the app until you change them, and your own.
+	Roles             []Role `json:"roles"`
+	HasCompletedSetup bool   `json:"hasCompletedSetup"`
 }
 
 // The logos to choose from: the hire, a little person in a suit, or the six
@@ -54,6 +58,12 @@ func loadConfig() *Config {
 	}
 	if config.Profiles == nil {
 		config.Profiles = []Profile{}
+	}
+	// Checked as they load: their instructions go to agents.
+	if config.Roles == nil {
+		config.Roles = slices.Clone(shippedRoles)
+	} else {
+		config.Roles = checkedRoles(config.Roles)
 	}
 	// The mark the app had before it was Smolcorp is now the hire.
 	if config.Logo == "sauzze" {

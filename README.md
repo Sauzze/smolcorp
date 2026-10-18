@@ -264,11 +264,15 @@ There's more to see while they work:
 
 - **A style** furnishes the whole office in one go: Classic, Campsite, Royal
   court, Space station, Pirate cove, Arctic base, Dragon's lair, Gamer den,
-  Startup garage, Fitness floor or Jungle. Switch it from your phone too: tap
-  the key in the room's top-left corner and pick one. **Yours**
-  is the office as you furnish it below, and changing anything there takes you
-  back to it. Your team, the daylight, the seasons and the sound stay as you
-  set them.
+  Startup garage, Fitness floor or Jungle. Most bring a pet of their own: a
+  fox at the Campsite, a corgi at the Royal court, a robot dog on the Space
+  station, a parrot in the Pirate cove, a penguin at the Arctic base, an owl in
+  the Dragon's lair, a hamster in a ball in the Gamer den and a monkey in the
+  Jungle. Switch it from your phone too: tap the key in the room's top-left
+  corner and pick one. **Yours** is the office as you furnish it below, and
+  changing anything there but the pets takes you back to it. Your team, the
+  daylight, the seasons and the sound stay as you set them, and so do the pets
+  you pick, in place of the style's own.
 - **The floor** in wood, tiles, concrete or carpet, and more, and **the walls**
   in slate, sage, clay or cream, and more.
 - **In the room editor** (below): the mic you talk into, from a microphone to a
@@ -281,7 +285,7 @@ There's more to see while they work:
   piano, a drum kit, a telescope, jellyfish, a bonsai, a jungle, a coffee bar,
   servers, a 3D printer, a punching bag, a treadmill, a hot tub, a ball pit or a
   campfire. Idle agents and staff go and play, grab a snack, or sit by the fire,
-  and the pet joins in.
+  and the pets join in.
 - **Where everyone works:** at a desk, or a standing desk, a gaming desk, a
   tent, a cardboard box, a beanbag, an igloo, a camper van, a spaceship, a
   pirate ship, a throne or a greenhouse. Each project can have its own on its
@@ -289,9 +293,11 @@ There's more to see while they work:
 - **Daylight** that follows the clock, with night falling at 8 pm, or always day.
 - **Seasons in the windows:** snow in winter, with lights strung along the wall
   through December, falling leaves in autumn, blossom in spring, birds in summer.
-- **A pet:** a cat that naps on the couch, a dog that follows people about, a
-  lizard that basks on the wall, or a monkey that climbs on things and steals
-  cups.
+- **Up to three pets:** a cat that naps on the couch, a dog that follows
+  people about, a lizard that basks on the wall, a monkey that climbs on things
+  and steals cups, or a llama, a penguin, a parrot, an owl, a capybara, a red
+  panda, a corgi, a hamster in a ball, a robot dog, a bat, a snail, a fox or an
+  axolotl. Pick them in any style, and they take the place of its own.
 - **Sound:** off, quiet or normal, in the style of an old games console, and
   mostly silence: a burst of typing as an agent gets to work, the door, the
   coffee machine, a ping-pong rally, the red button's siren, a hire, a firing,
@@ -350,7 +356,7 @@ Two more things work there:
 | In the office | What it does |
 |---|---|
 | An agent's desk, held, then dragged | Picks the agent up, chair and all. Let go over another desk and the two swap. They stay that way: each project is pinned to its new desk, as on the setup page's *Desks*, where you can undo it. |
-| A desk, held | With hiring and firing on, also **YOU'RE FIRED**, or **HIRE** on a desk a new hire would take (see below). |
+| A desk, held | With hiring and firing on, also **YOU'RE FIRED**, or the roles to hire on a desk a new hire would take (see below). |
 
 **Hire and fire**, once you turn on **Let the office hire and fire** on the
 setup page (it's off until you do):
@@ -359,15 +365,39 @@ setup page (it's off until you do):
   chips. Tap it, confirm, and its work stops and its Terminal tab closes. The
   agent packs a box and walks out. Claude Code keeps the conversation, so
   `claude --resume` can bring it back.
-- **Hold the desk a new hire would take**, the next free one, and **HIRE**
-  comes out. Tap it, and a new Terminal window opens in the folder you chose
-  on the setup page, with the agent you chose at work in it. The new hire walks
-  in through the door. On a pinned project's empty desk, HIRE starts the agent
-  in that project instead.
+- **Hold the desk a new hire would take**, the next free one, and the roles
+  come out along the foot of the room: **Anyone**, then each role with its
+  badge. Tap one, and a new Terminal window opens in the folder you chose on
+  the setup page. Anyone is a regular hire, with the agent you chose; a role
+  starts its own agent, at its model and effort, on its instructions. The new
+  hire walks in through the door. On a pinned project's empty desk, the hire
+  starts in that project instead.
+
+**Hire by role.** A role is a name, an agent, a model, an effort, a badge and
+instructions, set under *Roles* on the setup page. Five come with Smolcorp,
+each reporting what it finds and asking before it changes anything:
+
+- **Reviewer** (glasses and a red pen): reviews the branch's changes against
+  main, most serious problems first.
+- **Tester** (a clipboard): runs the tests and explains each failure.
+- **Bug hunter** (a magnifying glass): looks for bugs, with how to reproduce
+  each one.
+- **Docs writer** (a quill and notebook): checks the README and docs against
+  the code.
+- **Refactorer** (a wrench): proposes one refactor at a time.
+
+Change any of them, put them in your order, or add up to twelve of your own.
+Every role first settles which folder it works in: hired into the folder for
+new hires, it asks you which project to work on; at a pinned project's desk,
+it asks you to confirm that one. Then it gets to work. Its desk shows the role,
+as in *Reviewer · api-server*, and its badge, and it keeps the role after
+`/clear`. Roles stay on your computer, out of profiles: the phone only knows
+their names and badges.
 
 On Windows and Linux, firing closes the agent's pane in tmux, kitty and
-WezTerm, and stops an agent started with `smolcorp run`. Hiring needs the
-Mac app, for now.
+WezTerm, and stops an agent started with `smolcorp run`. Hiring from the
+office needs the Mac app, for now; `smolcorp run --role tester`, in the folder
+to work in, starts a role from any terminal, and its desk shows the role.
 
 **Held upright,** the room stands upright too: the lounge moves below the
 desks, through a doorway at the end of the corridor.
@@ -517,8 +547,10 @@ automation:
   box, a paired phone can only use the office's keys, effort chips and
   choices, and move desks around, which pins projects to desks as the setup
   page does. Even turned on, firing asks first, and only stops the agent
-  itself; hiring only starts the agent you chose, in the folder you chose or
-  in a pinned project's.
+  itself; hiring only starts the agent you chose, or a role's, in the folder you
+  chose or in a pinned project's. A role's instructions are the agent's first
+  message, there to read in its Terminal window, never a command, and a role
+  changes nothing about what its agent may do without asking.
 - **The screen saver pairs like a phone,** and keeps its key in its own
   settings, as a phone's browser does.
 - **The office says what your agents are doing in a few words.** They're made
@@ -563,10 +595,11 @@ empty, and voice has to be in tap mode: see [Voice](#voice).
 If macOS or Windows Firewall asked whether Smolcorp may accept incoming
 connections, allow it.
 
-**HIRE doesn't come out.** Turn on **Let the office hire and fire** on the
-setup page, and choose a folder for new hires. HIRE shows only on a desk a new
-hire would take: the next free one, or a pinned project's. Hiring needs the
-Mac app, for now.
+**The roles, or HIRE, don't come out.** Turn on **Let the office hire and fire**
+on the setup page, and choose a folder for new hires. They show only on a desk
+a new hire would take: the next free one, or a pinned project's. With no roles
+set up, it's a single **HIRE**. Hiring from the office needs the Mac app, for
+now.
 
 **The screen saver says to open Smolcorp, or to pair again.** Make sure
 Smolcorp is running. If it was unpaired, open System Settings → Screen
@@ -628,7 +661,9 @@ On the Mac, controls work in one of three ways:
   Terminal's own View → Line Up and Line Down, so it moves the window's view
   and the agent receives nothing.
 - **Hiring** opens a new Terminal window through Terminal's scripting, in the
-  folder you chose, with the agent's own command. **Firing** stops the agent's
+  folder you chose, with the agent's own command. A role's hire runs a short
+  script that removes itself, then starts the role's agent with its model,
+  effort and first message, each quoted for the shell. **Firing** stops the agent's
   process in its tab, only once it's sure that's the agent, then closes the
   tab.
 

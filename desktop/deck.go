@@ -352,14 +352,15 @@ func (d *Deck) snapshot() []byte {
 				"subagents":    append([]Subagent{}, s.Subagents...),
 				"maxPressedAt": millisOrNull(s.MaxPressedAt), "compacting": s.Compacting,
 				"turnStartedAt": millisOrNull(s.TurnStartedAt), "errorKind": orNull(s.ErrorKind),
+				"role": d.roleOf(s),
 			}
 		}
 		entries[i] = entry
 	}
 	state, _ := json.Marshal(map[string]any{
 		"keys": entries, "overflow": len(overflow), "theme": currentTheme(d.config), "scroll": d.config.ScrollEnabled,
-		// What the office's held desks offer: firing here; hiring is the Mac app's for now.
-		"hiring": map[string]bool{"fire": d.config.HiringEnabled, "hire": false},
+		// What the office's held desks offer: firing here; hiring, by role or not, is the Mac app's for now.
+		"hiring": map[string]any{"fire": d.config.HiringEnabled, "hire": false, "roles": []any{}},
 		"music":  d.musicState(),
 		"layout": d.config.Layout,
 		// This computer's clock, so the office can count turns on the phone's,
@@ -436,10 +437,24 @@ func (d *Deck) unpair(id string) {
 
 // MARK: Launchers
 
-func (d *Deck) launcherConnected(id string, agent Agent, folder string) *launcherTab {
+// roleOf is what the phone is told of the role a session's launcher was
+// started with, or nil: also nil once that role is gone from setup.
+func (d *Deck) roleOf(s *Session) map[string]any {
+	kind, id, _ := splitTab(s.Tab)
+	if tab, ok := d.launchers[id]; kind == "launcher" && ok && tab.role != "" {
+		for _, role := range d.config.Roles {
+			if role.ID == tab.role {
+				return role.forPhone()
+			}
+		}
+	}
+	return nil
+}
+
+func (d *Deck) launcherConnected(id string, agent Agent, folder, role string) *launcherTab {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	tab := &launcherTab{agent: agent, folder: folder, commands: make(chan launcherCommand, 32)}
+	tab := &launcherTab{agent: agent, folder: folder, role: role, commands: make(chan launcherCommand, 32)}
 	d.launchers[id] = tab
 	return tab
 }
@@ -608,8 +623,14 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		if query.Has("desk") {
 			d.mu.Lock()
 			keys, _ := d.layout()
+			auto := d.config.Layout.Keys == Auto
 			d.mu.Unlock()
-			if desk, err := strconv.Atoi(query.Get("desk")); err != nil || desk < 0 || desk >= len(keys) {
+			// With Auto, the office also offers the desk after the last: a hire adds it.
+			next := -1
+			if auto && len(keys) < mostKeys {
+				next = len(keys)
+			}
+			if desk, err := strconv.Atoi(query.Get("desk")); err != nil || desk < 0 || desk >= len(keys) && desk != next {
 				return http.StatusBadRequest, "Unknown desk"
 			}
 		}

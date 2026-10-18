@@ -233,7 +233,7 @@ func TestAProfileIsntOfferedWithNoRoomForIt(t *testing.T) {
 func madeButtonDeck(t *testing.T) (*Deck, *launcherTab) {
 	t.Helper()
 	d := newTestDeck(t)
-	tab := d.launcherConnected("L1", Claude, "/work/api")
+	tab := d.launcherConnected("L1", Claude, "/work/api", "")
 	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": "/work/api"},
 		Claude, "launcher:L1", "", 100)
 	layout, err := parseLayout([]byte(`{"rows": [{"buttons": [
@@ -438,8 +438,8 @@ func TestTheRoomKeepsOnlyChoicesItHas(t *testing.T) {
 		"web": "a person", "": {"hair": "pink"}}}`), &room); err != nil {
 		t.Fatal(err)
 	}
-	if room.Floor != "wood" || room.Pet != "cat" || room.Sky != "live" {
-		t.Errorf("floor %q, pet %q, sky %q; want wood, cat and live", room.Floor, room.Pet, room.Sky)
+	if room.Floor != "wood" || !slices.Equal(room.Pet, []string{"cat"}) || room.Sky != "live" {
+		t.Errorf("floor %q, pets %q, sky %q; want wood, [cat] and live", room.Floor, room.Pet, room.Sky)
 	}
 	want := TeamMember{Skin: "auto", Hair: "blue", Hairstyle: "auto", Extra: "none", Outfit: "auto", Colour: "auto", Desk: "auto",
 		Workspace: "auto", Name: "a nickname far l"}
@@ -455,6 +455,34 @@ func TestTheRoomKeepsOnlyChoicesItHas(t *testing.T) {
 		if err := json.Unmarshal([]byte(`{"team": `+team+`}`), &room); err != nil || room.Team == nil || len(room.Team) != 0 {
 			t.Errorf("a team of %s gave %v, %v; want an empty team", team, room.Team, err)
 		}
+	}
+}
+
+func TestAnOfficeHasUpToThreePetsEachOnce(t *testing.T) {
+	for _, c := range []struct{ given, want string }{
+		{`"dog"`, `["dog"]`}, // one pet, as an office had before it could have more
+		{`"none"`, `[]`},     // no pet, as before
+		{`"crab"`, `[]`},     // one it doesn't have
+		{`5`, `[]`},          // of the wrong kind
+		{`null`, `[]`},       // none given
+		{`[]`, `[]`},
+		{`["llama", "cat", "llama", "crab", 5, "none", "owl", "fox"]`, `["llama","cat","owl"]`},
+	} {
+		var room Room
+		if err := json.Unmarshal([]byte(`{"pet": `+c.given+`}`), &room); err != nil {
+			t.Fatal(err)
+		}
+		written := string(must(json.Marshal(room)))
+		if !strings.Contains(written, `"pet":`+c.want+`,`) {
+			t.Errorf("pets given as %s are written\n%s\nwant \"pet\":%s", c.given, written, c.want)
+		}
+		var again Room
+		if err := json.Unmarshal([]byte(written), &again); err != nil || !slices.Equal(again.Pet, room.Pet) {
+			t.Errorf("pets given as %s read back as %q, want %q", c.given, again.Pet, room.Pet)
+		}
+	}
+	if written := string(must(json.Marshal(Room{}))); !strings.Contains(written, `"pet":[],`) {
+		t.Errorf("a room with no pets is written\n%s\nwant \"pet\":[]", written)
 	}
 }
 

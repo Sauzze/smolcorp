@@ -83,7 +83,7 @@ struct Layout: Codable, Equatable {
 /// How the office is furnished: what's talked into, what each of
 /// the back wall's five places holds, the floor, the walls' paint, the
 /// lounge's carpet and the piece in its corner, whether the sky keeps the
-/// computer's time or it's always day, its pet, whether the windows follow
+/// computer's time or it's always day, its pets, whether the windows follow
 /// the seasons, how loud it is, the desks' finish, what everyone works at (a
 /// desk, a tent, a throne…), the monitors and the chairs' colour, how many of
 /// its own staff hang about, the style it's in (Yours, or one that furnishes
@@ -100,7 +100,9 @@ struct Room: Codable, Equatable {
     var loungePaint = "auto"
     var corner = "arcade"
     var sky = "live"
-    var pet = "none"
+    /// The office's pets, as many as `petsMost`, each once, in the order
+    /// they were picked. In a style, none picked is the style's own.
+    var pet: [String] = []
     var season = "calendar"
     var sound = "off"
     var desk = "wood"
@@ -132,7 +134,6 @@ struct Room: Codable, Equatable {
                    "telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub",
                    "ballpit", "campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth", "none"],
         "sky": ["live", "day"],
-        "pet": ["none", "cat", "dog", "lizard", "monkey"],
         "season": ["calendar", "off"],
         "sound": ["off", "quiet", "normal"],
         "desk": ["wood", "walnut", "white", "black"],
@@ -161,6 +162,10 @@ struct Room: Codable, Equatable {
                               "pegboard", "roller", "bike", "mirror", "timer", "climbing", "vines", "tiki", "blind", "cabin", "trail",
                               "paddles"]
     static let standardWall = ["window", "whiteboard", "window", "pinboard", "window"]
+    /// The pets an office can have, and the most it has at once.
+    static let pets = ["cat", "dog", "lizard", "monkey", "llama", "penguin", "parrot", "owl", "capybara", "redpanda", "corgi", "hamster",
+                       "robodog", "bat", "snail", "fox", "axolotl"]
+    static let petsMost = 3
 
     init() {}
 
@@ -177,7 +182,10 @@ struct Room: Codable, Equatable {
         loungePaint = choice(.loungePaint) ?? loungePaint
         corner = choice(.corner) ?? corner
         sky = choice(.sky) ?? sky
-        pet = choice(.pet) ?? pet
+        // The pets as a list, or one by its id, as an office had before it could have more
+        let pets = ((try? c?.decodeIfPresent([Loose].self, forKey: .pet)) ?? nil)?.map(\.text)
+            ?? [(try? c?.decodeIfPresent(String.self, forKey: .pet)) ?? nil]
+        pet = Room.checkedPets(pets.compactMap { $0 })
         season = choice(.season) ?? season
         sound = choice(.sound) ?? sound
         desk = choice(.desk) ?? desk
@@ -195,6 +203,16 @@ struct Room: Codable, Equatable {
             .prefix(Room.teamLimit).map { ($0.key, $0.value) })
         dress = ((try? c?.decodeIfPresent(Dress.self, forKey: .dress)) ?? nil) ?? Dress()
         plan = ((try? c?.decodeIfPresent(Plan.self, forKey: .plan)) ?? nil) ?? Plan()
+    }
+
+    /// The pets given that an office can have, each once and as many as it
+    /// has at once, in their order.
+    static func checkedPets(_ given: [String]) -> [String] {
+        var checked: [String] = []
+        for pet in given where Room.pets.contains(pet) && !checked.contains(pet) && checked.count < Room.petsMost {
+            checked.append(pet)
+        }
+        return checked
     }
 
     /// One of the wall's places as given: text, or nothing for any other kind of value.

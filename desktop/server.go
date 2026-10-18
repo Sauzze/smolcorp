@@ -327,7 +327,7 @@ func (rt *router) launcher(w http.ResponseWriter, r *request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	tab := rt.deck.launcherConnected(id, Agent(query.Get("agent")), query.Get("folder"))
+	tab := rt.deck.launcherConnected(id, Agent(query.Get("agent")), query.Get("folder"), query.Get("role"))
 	defer rt.deck.launcherGone(id, tab)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
@@ -566,6 +566,21 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupState())
 
+	// The roles as the page has them, all of them: checked as they're kept,
+	// since their instructions go to agents.
+	case r.Method == http.MethodPost && path == "/setup/roles":
+		var roles []Role
+		if json.NewDecoder(r.Body).Decode(&roles) != nil {
+			http.Error(w, "Those aren't roles this app can use.", http.StatusBadRequest)
+			return
+		}
+		d.mu.Lock()
+		config.Roles = checkedRoles(roles)
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupState())
+
 	case r.Method == http.MethodPost && path == "/setup/scroll":
 		d.mu.Lock()
 		config.ScrollEnabled = query.Get("enabled") == "1"
@@ -708,6 +723,13 @@ func (rt *router) setupState() map[string]any {
 		"hiring": map[string]any{
 			"enabled": d.config.HiringEnabled, "folder": d.config.HireFolder, "agent": d.config.HireAgent,
 			"canHire": false, "canChoose": false,
+		},
+		// The roles, those that come with the app to go back to, and what a
+		// role can be: its agent, whether that agent has an effort and takes a
+		// first message, its badge, and how long each part can be.
+		"roles": map[string]any{
+			"roles": d.config.Roles, "shipped": shippedRoles, "agents": roleAgents(), "efforts": effortLevels, "badges": roleBadges,
+			"limits": map[string]int{"name": roleNameLimit, "model": roleModelLimit, "instructions": roleInstructionsLimit, "own": ownRolesMost},
 		},
 		"music": map[string]any{"enabled": d.config.MusicEnabled},
 		"webhook": map[string]any{

@@ -148,17 +148,18 @@ enum Terminal {
         press(.end, modifiers: .maskCommand, tty: tty)
     }
 
-    /// Opens a new window in `folder`, running `command`. The folder goes
-    /// through `quoted form of`, so any name is taken as it is; the command
-    /// is one of the agents' own names.
-    static func open(_ command: String, in folder: String) -> Bool {
+    /// Opens a new window in `folder`, running `command`, and gives its
+    /// tab's tty, or nil if it didn't open. Both go through `quoted form of`,
+    /// so each is taken as it is: the command is one of the agents' own
+    /// names, or the path of a hire's start-up script.
+    static func open(_ command: String, in folder: String) -> String? {
         run("""
             tell application "Terminal"
                 activate
-                do script "cd " & quoted form of (item 1 of argv) & " && " & (item 2 of argv)
+                set opened to do script "cd " & quoted form of (item 1 of argv) & " && " & quoted form of (item 2 of argv)
+                return "tty:" & (tty of opened)
             end tell
-            return "yes"
-            """, arguments: [folder, command]) == "yes"
+            """, arguments: [folder, command]).flatMap { $0.hasPrefix("tty:") ? String($0.dropFirst(4)) : nil }
     }
 
     /// What firing came to: see `fire(tty:agent:)`.

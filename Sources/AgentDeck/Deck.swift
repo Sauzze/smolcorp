@@ -36,6 +36,11 @@ final class Deck {
     private var streams: [ObjectIdentifier: (phone: String, stream: EventStream)] = [:]
     /// The key each session was given, so it keeps it.
     private var keyOf: [String: Int] = [:]
+    /// The role each session was hired for, by the role's id.
+    private var roleOf: [String: String] = [:]
+    /// The tabs hires with a role opened, waiting for their agent to report:
+    /// the first session in the tab takes the role.
+    private var hiredTabs: [(tty: String, role: String, at: Date)] = []
     /// The tab recording started in, and when. One Mac, one microphone.
     private var micPress: (tty: String, at: Date)?
     private var checkingFront = false
@@ -222,6 +227,8 @@ final class Deck {
         let savedAt: Double
         let sessions: [Sessions.Saved]
         let keys: [String: Int]
+        /// Missing from a file written before roles.
+        var roles: [String: String]?
     }
 
     private func scheduleSave() {
@@ -230,7 +237,8 @@ final class Deck {
         DispatchQueue.main.asyncAfter(deadline: .now() + Deck.saveDelay) { [weak self] in
             guard let self else { return }
             self.savePending = false
-            let saved = SavedDeck(savedAt: Date().timeIntervalSince1970 * 1000, sessions: self.sessions.saved, keys: self.keyOf)
+            let saved = SavedDeck(savedAt: Date().timeIntervalSince1970 * 1000, sessions: self.sessions.saved, keys: self.keyOf,
+                                  roles: self.roleOf)
             guard let data = try? JSONEncoder().encode(saved) else { return }
             FileManager.default.createFile(atPath: Paths.sessions.path, contents: data, attributes: [.posixPermissions: 0o600])
         }
@@ -252,6 +260,9 @@ final class Deck {
                 guard !running.isEmpty else { return }
                 for entry in running where self.keyOf[entry.id] == nil {
                     if let key = saved.keys[entry.id] { self.keyOf[entry.id] = key }
+                }
+                for entry in running where self.roleOf[entry.id] == nil {
+                    if let role = saved.roles?[entry.id] { self.roleOf[entry.id] = role }
                 }
                 let fresh = Date().timeIntervalSince1970 * 1000 - saved.savedAt < Deck.freshSave
                 self.sessions.restore(running, fresh: fresh)
@@ -276,12 +287,19 @@ final class Deck {
         let config = Config.shared
         var remaining = sessions.all
         let live = Set(remaining.map(\.id))
-        // A session that took another's place in its tab, as after /clear, takes its key too.
-        for (new, old) in sessions.takeReplacements() where keyOf[new] == nil {
-            if let key = keyOf[old] { keyOf[new] = key }
+        // A session that took another's place in its tab, as after /clear, takes its key and role too.
+        for (new, old) in sessions.takeReplacements() {
+            if keyOf[new] == nil, let key = keyOf[old] { keyOf[new] = key }
+            if roleOf[new] == nil, let role = roleOf[old] { roleOf[new] = role }
         }
-        // A session dropped as its tab seemed to close keeps its key, should it come back.
+        // A hire's role goes to the first session in the tab it opened.
+        hiredTabs.removeAll { Date().timeIntervalSince($0.at) > Deck.hiredTabWait }
+        for session in remaining where roleOf[session.id] == nil && !session.tty.isEmpty {
+            if let i = hiredTabs.firstIndex(where: { $0.tty == session.tty }) { roleOf[session.id] = hiredTabs.remove(at: i).role }
+        }
+        // A session dropped as its tab seemed to close keeps its key and role, should it come back.
         keyOf = keyOf.filter { live.contains($0.key) || sessions.wasDropped($0.key) }
+        roleOf = roleOf.filter { live.contains($0.key) || sessions.wasDropped($0.key) }
 
         var fixed: Int?
         if case .fixed(let count) = config.layout.keys { fixed = count }
@@ -326,6 +344,7 @@ final class Deck {
     /// What the phone draws: the keys, the theme and the layout. No ttys or paths.
     func snapshotJSON() -> Data {
         let (keys, overflow) = layout()
+        let canHire = Config.shared.hiringEnabled && Deck.folder(Config.shared.hireFolder) != nil
         let state: [String: Any] = [
             "keys": keys.map { key -> [String: Any] in
                 var entry: [String: Any] = ["pin": key.pin.map { ($0 as NSString).lastPathComponent } ?? NSNull()]
@@ -346,6 +365,7 @@ final class Deck {
                         "compacting": s.compacting,
                         "turnStartedAt": s.turnStartedAt.map { Int64($0) } ?? NSNull(),
                         "errorKind": s.errorKind.isEmpty ? NSNull() : s.errorKind,
+                        "role": roleOf[s.id].flatMap { id in Config.shared.roles.first { $0.id == id } }?.forPhone ?? NSNull(),
                     ]
                 }
                 return entry
@@ -356,11 +376,12 @@ final class Deck {
             "now": Int64(Date().timeIntervalSince1970 * 1000),
             "theme": Theme.current(),
             "scroll": Config.shared.scrollEnabled,
-            // What the office's held desks offer: firing, and hiring once there's a folder to hire into.
+            // What the office's held desks offer: firing, and hiring once there's a folder to hire into, by role.
             "hiring": [
                 "fire": Config.shared.hiringEnabled,
-                "hire": Config.shared.hiringEnabled && Deck.folder(Config.shared.hireFolder) != nil,
-            ],
+                "hire": canHire,
+                "roles": canHire ? Config.shared.roles.map(\.forPhone) : [],
+            ] as [String: Any],
             // What the office's jukeboxes know: whether music is playing, null when that can't be told.
             "music": Config.shared.musicEnabled ? ["playing": playing.map { $0 as Any } ?? NSNull()] : NSNull(),
             "layout": Config.shared.layout.jsonObject,
@@ -408,7 +429,7 @@ final class Deck {
         // selected now — and even if that session has since gone.
         if action == "mic" && query["phase"] != "down" { return releaseMic(done: done) }
         // A new hire has no session yet, and a swap is of two desks.
-        if action == "hire" { return hire(at: query["desk"], done: done) }
+        if action == "hire" { return hire(at: query["desk"], as: query["role"], done: done) }
         if action == "swap" { return done(swapKeys(query)) }
         if action == "style" { return done(setStyle(query["preset"])) }
         if action == "music" { return done(playMusic(query["do"] ?? "playpause")) }
@@ -555,38 +576,72 @@ final class Deck {
     /// phone, would otherwise open a second window before the first new hire
     /// has reached the deck.
     private static let hireCooldown: TimeInterval = 5
+    /// How long a hire's tab waits for its agent to report, to take its role.
+    private static let hiredTabWait: TimeInterval = 120
     private var lastHire: Date?
 
     /// A new Terminal window with the agent set up for new hires at work in
-    /// it. Hired at a desk whose key is pinned to a project, it starts in that
-    /// project's folder, so it sits down at that desk; otherwise in the folder
-    /// set up for new hires. Its hooks bring it to the deck, and the office,
-    /// as for any session.
-    private func hire(at desk: String?, done: @escaping (Response) -> Void) {
+    /// it, or the role's agent, started on the role. Hired at a desk whose key
+    /// is pinned to a project, it starts in that project's folder, so it sits
+    /// down at that desk; otherwise in the folder set up for new hires. Its
+    /// hooks bring it to the deck, and the office, as for any session.
+    private func hire(at desk: String?, as roleID: String?, done: @escaping (Response) -> Void) {
         let config = Config.shared
         guard config.hiringEnabled else { return done(.status(403, Deck.hiringOff)) }
         var pinned: String?
         if let desk {
             let (keys, _) = layout()
-            guard let index = Int(desk), keys.indices.contains(index) else { return done(.status(400, "Unknown desk")) }
-            pinned = keys[index].pin.flatMap(Deck.folder)
+            // With Auto, the office also offers the desk after the last: a hire adds it.
+            let next = config.layout.keys == .auto && keys.count < KeyCount.most ? keys.count : nil
+            guard let index = Int(desk), keys.indices.contains(index) || index == next else { return done(.status(400, "Unknown desk")) }
+            pinned = keys.indices.contains(index) ? keys[index].pin.flatMap(Deck.folder) : nil
         }
         guard let folder = pinned ?? Deck.folder(config.hireFolder) else {
             return done(.status(409, "Choose a folder for new hires in setup, on your Mac."))
+        }
+        var role: Role?
+        if let roleID, !roleID.isEmpty {
+            guard let found = config.roles.first(where: { $0.id == roleID }) else {
+                return done(.status(404, "That role isn't there any more. Pick another."))
+            }
+            role = found
         }
         if let last = lastHire, Date().timeIntervalSince(last) < Deck.hireCooldown {
             return done(.status(429, "Hired a moment ago. Try again in a few seconds."))
         }
         lastHire = Date()
-        let agent = Agent(rawValue: config.hireAgent) ?? .claude
+        var command = config.hireAgent
+        if let role {
+            guard let script = Deck.startScript(for: role, in: folder, pinned: pinned != nil) else {
+                lastHire = nil
+                return done(.status(500, "Couldn't get the role ready to start"))
+            }
+            command = script.path
+        }
         Terminal.queue.async {
-            let ok = Terminal.open(agent.rawValue, in: folder)
+            let tty = Terminal.open(command, in: folder)
             DispatchQueue.main.async {
                 // Nobody was hired, so the next try needn't wait.
-                if !ok { self.lastHire = nil }
-                done(ok ? .status(204) : .status(500, "Terminal didn't open"))
+                guard let tty else {
+                    self.lastHire = nil
+                    if role != nil { try? FileManager.default.removeItem(atPath: command) }
+                    return done(.status(500, "Terminal didn't open"))
+                }
+                if let role, !tty.isEmpty { self.hiredTabs.append((tty, role.id, Date())) }
+                done(.status(204))
             }
         }
+    }
+
+    /// `role`'s start-up script, written for a hire's Terminal window to run
+    /// once. Only you can read or run it.
+    private static func startScript(for role: Role, in folder: String, pinned: Bool) -> URL? {
+        let script = role.startScript(in: folder, pinned: pinned)
+        let manager = FileManager.default
+        try? manager.createDirectory(at: Paths.hires, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let url = Paths.hires.appendingPathComponent("hire-\(UUID().uuidString).sh")
+        guard manager.createFile(atPath: url.path, contents: Data(script.utf8), attributes: [.posixPermissions: 0o700]) else { return nil }
+        return url
     }
 
     /// `path` as a folder that's there, with ~ for home, or nil.

@@ -16,6 +16,9 @@ enum Paths {
     /// The sessions running, and their keys, kept across a restart.
     static let sessions = support.appendingPathComponent("sessions.json")
     static let hookScript = support.appendingPathComponent("report.sh")
+    /// Where a hire with a role leaves the few lines that start its agent,
+    /// for its Terminal window to run once. Each removes itself as it runs.
+    static let hires = support.appendingPathComponent("hires", isDirectory: true)
     /// The hook's key, as the header curl sends: see `Access`.
     static let hookHeader = support.appendingPathComponent("hook-header")
     /// 1.0's single key, shared by the phone and the hook. Deleted at launch.

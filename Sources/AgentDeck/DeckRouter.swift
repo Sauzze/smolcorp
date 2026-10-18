@@ -255,6 +255,17 @@ final class DeckRouter: Router {
             deck.refresh()
             respond(.json(setupState()))
 
+        // The roles as the page has them, all of them: checked as they're kept,
+        // since their instructions go to agents.
+        case ("POST", "/setup/roles"):
+            guard let roles = try? JSONDecoder().decode([Role].self, from: request.body) else {
+                return respond(.status(400, "Those aren't roles this app can use."))
+            }
+            config.roles = Role.checked(roles)
+            config.save()
+            deck.refresh()
+            respond(.json(setupState()))
+
         // The Mac's own folder picker, which a web page can't open.
         case ("POST", "/setup/hiring/choose"):
             deck.chooseHireFolder { [self] in respond(.json(setupState())) }
@@ -329,6 +340,17 @@ final class DeckRouter: Router {
                 "enabled": config.hiringEnabled, "folder": config.hireFolder, "agent": config.hireAgent,
                 "canHire": true, "canChoose": true,
             ],
+            // The roles, those that come with the app to go back to, and what a
+            // role can be: its agent, whether that agent has an effort and
+            // takes a first message, its badge, and how long each part can be.
+            "roles": [
+                "roles": config.roles.map(\.jsonObject),
+                "shipped": Role.shipped.map(\.jsonObject),
+                "agents": Agent.allCases.map { ["id": $0.rawValue, "name": $0.name, "effort": $0.hasEffortDial, "starts": $0 != .grok] },
+                "efforts": Deck.effortLevels,
+                "badges": Role.badges,
+                "limits": ["name": Role.nameLimit, "model": Role.modelLimit, "instructions": Role.instructionsLimit, "own": Role.ownMost],
+            ] as [String: Any],
             "music": ["enabled": config.musicEnabled],
             "webhook": [
                 "enabled": config.webhook.enabled, "url": config.webhook.url, "secret": config.webhook.secret,

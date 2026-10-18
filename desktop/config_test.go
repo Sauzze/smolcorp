@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -62,5 +63,22 @@ func TestTheOldMarkBecomesTheHire(t *testing.T) {
 	writeFile(t, configFile, `{"logo": "keys"}`)
 	if logo := loadConfig().Logo; logo != "keys" {
 		t.Errorf("the six keys load as %q", logo)
+	}
+}
+
+func TestPetsKeptOneAtATimeStillLoadAndThreeComeBack(t *testing.T) {
+	isolate(t)
+	writeFile(t, configFile, `{"layout": {"room": {"pet": "dog"}},
+		"profiles": [{"name": "Old", "layout": {"room": {"pet": "cat", "preset": "campsite"}}, "colours": {}}]}`)
+	config := loadConfig()
+	if !slices.Equal(config.Layout.Room.Pet, []string{"dog"}) || len(config.Profiles) != 1 ||
+		!slices.Equal(config.Profiles[0].Layout.Room.Pet, []string{"cat"}) {
+		t.Fatalf("an office kept with one pet loads with %q, and its profiles %v; want [dog] and Old with [cat]",
+			config.Layout.Room.Pet, config.Profiles)
+	}
+	config.Layout.Room.Pet = []string{"llama", "owl", "fox"}
+	config.save()
+	if pets := loadConfig().Layout.Room.Pet; !slices.Equal(pets, []string{"llama", "owl", "fox"}) {
+		t.Errorf("three pets saved come back as %q", pets)
 	}
 }

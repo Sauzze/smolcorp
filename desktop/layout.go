@@ -58,7 +58,7 @@ func (k *KeyCount) UnmarshalJSON(data []byte) error {
 // Room is how the office is furnished: what's talked into, what
 // each of the back wall's five places holds, the floor, the walls' paint, the
 // lounge's carpet and the piece in its corner, whether the sky keeps the
-// computer's time or it's always day, its pet, whether the windows follow the
+// computer's time or it's always day, its pets, whether the windows follow the
 // seasons, how loud it is, the desks' finish, what everyone works at (a desk,
 // a tent, a throne…), the monitors and the chairs' colour, how many of its
 // own staff hang about, the style it's in (Yours, or one that furnishes it
@@ -76,15 +76,17 @@ type Room struct {
 	LoungePaint string `json:"loungePaint"`
 	Corner      string `json:"corner"`
 	Sky         string `json:"sky"`
-	Pet         string `json:"pet"`
-	Season      string `json:"season"`
-	Sound       string `json:"sound"`
-	Desk        string `json:"desk"`
-	Workspace   string `json:"workspace"`
-	Monitor     string `json:"monitor"`
-	Chair       string `json:"chair"`
-	Staff       string `json:"staff"`
-	Preset      string `json:"preset"`
+	// Pet is the office's pets, as many as petsMost, each once, in the order
+	// they were picked. In a style, none picked is the style's own.
+	Pet       []string `json:"pet"`
+	Season    string   `json:"season"`
+	Sound     string   `json:"sound"`
+	Desk      string   `json:"desk"`
+	Workspace string   `json:"workspace"`
+	Monitor   string   `json:"monitor"`
+	Chair     string   `json:"chair"`
+	Staff     string   `json:"staff"`
+	Preset    string   `json:"preset"`
 	// How each project's agent looks, by the project's name.
 	Team map[string]TeamMember `json:"team"`
 	// What agents wear by their model's size and by agent. After the team, so
@@ -303,7 +305,6 @@ var (
 			"telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub", "ballpit",
 			"campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth", "none"},
 		"sky":       {"live", "day"},
-		"pet":       {"none", "cat", "dog", "lizard", "monkey"},
 		"season":    {"calendar", "off"},
 		"sound":     {"off", "quiet", "normal"},
 		"desk":      {"wood", "walnut", "white", "black"},
@@ -318,7 +319,13 @@ var (
 		"frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex", "pegboard", "roller", "bike", "mirror", "timer", "climbing",
 		"vines", "tiki", "blind", "cabin", "trail", "paddles"}
 	standardWall = []string{"window", "whiteboard", "window", "pinboard", "window"}
+	// The pets an office can have.
+	pets = []string{"cat", "dog", "lizard", "monkey", "llama", "penguin", "parrot", "owl", "capybara", "redpanda", "corgi", "hamster",
+		"robodog", "bat", "snail", "fox", "axolotl"}
 )
+
+// The most pets an office has at once.
+const petsMost = 3
 
 // UnmarshalJSON keeps what it knows of the room it's given.
 func (r *Room) UnmarshalJSON(data []byte) error {
@@ -332,12 +339,20 @@ func (r *Room) UnmarshalJSON(data []byte) error {
 	var wall []json.RawMessage
 	json.Unmarshal(raw["wall"], &wall)
 	*r = Room{Mic: text(raw["mic"]), Floor: text(raw["floor"]), Paint: text(raw["paint"]), Lounge: text(raw["lounge"]), LoungePaint: text(raw["loungePaint"]),
-		Corner: text(raw["corner"]), Sky: text(raw["sky"]), Pet: text(raw["pet"]), Season: text(raw["season"]), Sound: text(raw["sound"]),
+		Corner: text(raw["corner"]), Sky: text(raw["sky"]), Season: text(raw["season"]), Sound: text(raw["sound"]),
 		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Monitor: text(raw["monitor"]), Chair: text(raw["chair"]),
 		Staff:  text(raw["staff"]),
 		Preset: text(raw["preset"])}
 	for _, place := range wall {
 		r.Wall = append(r.Wall, text(place))
+	}
+	// The pets as a list, or one by its id, as an office had before it could have more
+	var pets []json.RawMessage
+	if json.Unmarshal(raw["pet"], &pets) != nil {
+		pets = []json.RawMessage{raw["pet"]}
+	}
+	for _, pet := range pets {
+		r.Pet = append(r.Pet, text(pet))
 	}
 	var team map[string]json.RawMessage
 	json.Unmarshal(raw["team"], &team)
@@ -372,7 +387,7 @@ func (r Room) checked() Room {
 	}
 	checked := Room{Mic: choose("mic", r.Mic), Floor: choose("floor", r.Floor), Paint: choose("paint", r.Paint),
 		Lounge: choose("lounge", r.Lounge), LoungePaint: choose("loungePaint", r.LoungePaint), Corner: choose("corner", r.Corner), Sky: choose("sky", r.Sky),
-		Pet: choose("pet", r.Pet), Season: choose("season", r.Season), Sound: choose("sound", r.Sound),
+		Pet: checkedPets(r.Pet), Season: choose("season", r.Season), Sound: choose("sound", r.Sound),
 		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Monitor: choose("monitor", r.Monitor),
 		Chair: choose("chair", r.Chair),
 		Staff: choose("staff", r.Staff), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked(),
@@ -393,6 +408,18 @@ func (r Room) checked() Room {
 	slices.Sort(projects)
 	for _, project := range projects[:min(len(projects), teamLimit)] {
 		checked.Team[project] = r.Team[project].checked()
+	}
+	return checked
+}
+
+// checkedPets is the pets given that an office can have, each once and as
+// many as it has at once, in their order: none is an empty list, not null.
+func checkedPets(given []string) []string {
+	checked := []string{}
+	for _, pet := range given {
+		if slices.Contains(pets, pet) && !slices.Contains(checked, pet) && len(checked) < petsMost {
+			checked = append(checked, pet)
+		}
 	}
 	return checked
 }
