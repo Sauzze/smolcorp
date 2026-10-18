@@ -837,6 +837,11 @@
   /** The way from where someone stands to a place, round what's in the way. */
   function route(from, place) {
     const target = pointOf(place);
+    // A place gone with a change of layout, or a walker somewhere that isn't a
+    // number: straight there, or nowhere, rather than a search that never ends.
+    if (!target || ![from.x, from.y, target.x, target.y].every(Number.isFinite)) {
+      return target && Number.isFinite(target.x) && Number.isFinite(target.y) ? [{ x: target.x, y: target.y }] : [];
+    }
     const path = walkway(from, target);
     return path.filter((p, i) => i > 0 ? p.x !== path[i - 1].x || p.y !== path[i - 1].y : p.x !== from.x || p.y !== from.y);
   }
@@ -971,6 +976,9 @@
 
   /** A*, from cell to cell, straight and diagonally but never round a corner: the cells on the way, or null with none. */
   function search(start, goal, columns, rows, taken, clearance = null) {
+    // Only between cells of the floor: anything else, as NaN, would be searched for ever.
+    const isCell = (cell) => Number.isInteger(cell) && cell >= 0 && cell < columns * rows;
+    if (!isCell(start) || !isCell(goal)) return null;
     if (start === goal) return [start];
     const cost = new Float32Array(columns * rows).fill(Infinity);
     const from = new Int32Array(columns * rows).fill(-1);
@@ -11048,9 +11056,11 @@
      */
     function lift(dropped = false) {
       // A touch waiting to send goes now if it lifted where it landed; taken away, or joined by a second finger, it sends nothing.
+      // Nor if another agent has been picked meanwhile, as when the one it was for went: its Return
+      // would accept the other's question.
       if (finger && finger.waiting) {
         finger.waiting = false;
-        if (dropped && !finger.moved) press(finger.target);
+        if (dropped && !finger.moved && finger.selected === selected) press(finger.target);
       }
       if (carrying) {
         const { from, over } = carrying;
@@ -11365,7 +11375,8 @@
         return;
       }
       canvas.setPointerCapture(e.pointerId);
-      finger = { id: e.pointerId, target, at: clock(), x: e.clientX, y: e.clientY };
+      // With the agent picked as it touched down: see `lift`.
+      finger = { id: e.pointerId, target, at: clock(), x: e.clientX, y: e.clientY, selected };
       if (e.pointerType === 'touch' && SENT_ON_LIFT.includes(target.kind)) {
         finger.waiting = true;
         return;
