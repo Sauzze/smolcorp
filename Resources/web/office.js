@@ -10635,7 +10635,9 @@
             ? pieceBox(arranging.picked) : null,
         },
         music,
-        musicTap: musicTap && now - musicTap.at < MUSIC_TAP_LENGTH && { box: pieceBox(musicTap.part), was: musicTap.was, since: now - musicTap.at },
+        // Gone with its piece, if the room changed under it, rather than failing every frame until it would have
+        musicTap: musicTap && now - musicTap.at < MUSIC_TAP_LENGTH && pieceBox(musicTap.part)
+          && { box: pieceBox(musicTap.part), was: musicTap.was, since: now - musicTap.at },
         musicPanel: musicControl() && { ...musicControl(), playing: music.playing, down: musicDown },
         keyRow: keys,
         roleRow: hires,
@@ -10989,10 +10991,14 @@
         return { left: x - 2, top: y + WORKSPACES[workspaceOf(seat.session, desk)].top, right: x + DESK_WIDTH + 2, bottom: y + 20 };
       }
       if (isHung(part)) {
-        const piece = hungOf()[Number(part.slice(5))], half = wallWidthOf(piece.kind) / 2;
+        const piece = hungOf()[Number(part.slice(5))];
+        if (!piece) return null; // taken off the wall meanwhile
+        const half = wallWidthOf(piece.kind) / 2;
         return { left: piece.x - half, top: HUNG_SPAN.top, right: piece.x + half, bottom: HUNG_SPAN.bottom };
       }
-      const { x, y, w, h } = pieceRect(part);
+      const rect = pieceRect(part);
+      if (!rect) return null; // taken out of the room meanwhile
+      const { x, y, w, h } = rect;
       const a = placed(part, { x, y }), b = placed(part, { x: x + w, y: y + h });
       return { left: a.x, top: a.y, right: b.x, bottom: b.y };
     }
