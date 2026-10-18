@@ -100,7 +100,10 @@ final class DeckRouter: Router {
             return respond(.file(Paths.web.appendingPathComponent("office.js")))
         }
 
-        let phone = deck.access.phones.phone(withKey: request.query["t"] ?? request.headers["x-agentdeck-token"])
+        let key = request.query["t"] ?? request.headers["x-agentdeck-token"]
+        // The office's own window reads it as a phone does, from this Mac only.
+        let window = request.isLocal && key.map { constantTimeEqual($0, deck.windowKey) } == true
+        let phone = window ? PairedPhone.officeWindow : deck.access.phones.phone(withKey: key)
         if let phone { deck.access.phones.markSeen(phone.id) }
 
         // The deck, or the office on a screen of its own: the same page, and
