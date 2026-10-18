@@ -1696,7 +1696,7 @@
           if (walker.place === 'door') walker.isLeaving = true;
         }
         // On their way, they go on from where they are, round the room as it is now; settled, they're at their place as it is now
-        if (wasWalking) Object.assign(walker, { path: route(walker.position, walker.place), refuge: null, roundFor: null });
+        if (wasWalking) Object.assign(walker, { path: route(walker.position, walker.place), refuge: null, rounded: null });
         else walker.position = { ...pointOf(walker.place) };
         const spot = spotOf(walker.place);
         if (spot !== null && !wasWalking) walker.isFacingAway = facesAway(spots[spot].pose);
@@ -2423,7 +2423,7 @@
     send(person, place) {
       person.place = place;
       person.refuge = null;
-      person.roundFor = null;
+      person.rounded = null;
       person.path = route(person.position, place);
       person.nextMove = Infinity;
     }
@@ -2514,11 +2514,9 @@
       for (const pet of this.pets) {
         if (!pet.isIn || PETS[pet.kind].flies || (pet.isWalking && !(pet.waited > 0)) || (pet.target && pet.target.depth !== undefined && !standsFree(pet.position))) continue;
         if (!this.passes(person, pet.position, PERSON_GAP - 1)) continue;
-        if (person.roundFor === pet && person.roundAt && near(person.roundAt, pet.position, 3)) continue;
+        if (this.roundedAlready(person, pet)) continue;
         const round = walkway(person.position, end, true, [pet.position]);
         if (round) person.path = round;
-        person.roundFor = pet;
-        person.roundAt = { ...pet.position };
       }
       for (const other of this.people) {
         if (!up(other)) continue;
@@ -2536,14 +2534,26 @@
           return true;
         }
         // Going first: round anyone stopped or standing in our way, again whenever they've moved
-        const moved = person.roundFor !== other || !person.roundAt || !near(person.roundAt, other.position, 3);
-        if ((!other.isWalking || other.refuge) && moved && this.passes(person, other.position, PERSON_GAP)) {
+        if ((!other.isWalking || other.refuge) && this.passes(person, other.position, PERSON_GAP) && !this.roundedAlready(person, other)) {
           const round = walkway(person.position, end, true, [other.position]);
           if (round) person.path = round;
-          person.roundFor = other;
-          person.roundAt = { ...other.position };
         }
       }
+      return false;
+    }
+
+    /**
+     * Whether `person` has already looked for a way round `obstacle` where it
+     * is now, and if not, notes that they have. Kept for each obstacle, so two
+     * in the way don't take turns being forgotten and have the whole way
+     * worked out again every frame; and kept when no way round was found, so
+     * that isn't tried again until the obstacle moves.
+     */
+    roundedAlready(person, obstacle) {
+      person.rounded ??= new Map();
+      const at = person.rounded.get(obstacle);
+      if (at && near(at, obstacle.position, 3)) return true;
+      person.rounded.set(obstacle, { ...obstacle.position });
       return false;
     }
 
