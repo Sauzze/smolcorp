@@ -822,12 +822,15 @@ func (d *Deck) releaseMic() (int, string) {
 // Focus brings a session's tab forward, as far as its terminal allows.
 func (d *Deck) Focus(id string) (int, string) {
 	d.mu.Lock()
-	session := d.sessions.Get(id)
+	tab := ""
+	if session := d.sessions.Get(id); session != nil {
+		tab = session.Tab // read while locked: a hook can move the session meanwhile
+	}
 	d.mu.Unlock()
-	if session == nil || session.Tab == "" {
+	if tab == "" {
 		return http.StatusNotFound, ""
 	}
-	return d.inTab(session.Tab, func(t Tab) error { return t.Focus() })
+	return d.inTab(tab, func(t Tab) error { return t.Focus() })
 }
 
 // applyQueuedEffort: typed into a running turn, /effort would be queued as a

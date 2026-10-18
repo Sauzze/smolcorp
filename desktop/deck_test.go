@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
@@ -174,4 +175,24 @@ func TestAReturnThatDidntGoDoesntHoldBackTheNext(t *testing.T) {
 	if status, _ := d.Perform("accept", "s1", url.Values{}); status != http.StatusNoContent || *sent(t, tab).Press != press(Enter) {
 		t.Fatal("the accept straight after one that failed didn't press Return")
 	}
+}
+
+func TestFocusingWhileHooksArriveReadsTheTabSafely(t *testing.T) {
+	d, tab := madeButtonDeck(t)
+	go func() {
+		for range tab.commands {
+		}
+	}()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 200 {
+			d.Ingest(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": fmt.Sprintf("/work/api/%d", i)},
+				"claude", "launcher:L1", "", float64(1000+i))
+		}
+	}()
+	for range 200 {
+		d.Focus("s1")
+	}
+	<-done
 }
