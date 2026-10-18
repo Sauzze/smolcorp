@@ -10600,7 +10600,8 @@
       if (held.kind === 'empty') return hiresInto(held.desk) && !roles().length ? deskButton(held.desk, 'hire') : null;
       if (held.id !== selected || !hiring.fire) return null;
       const desk = office.seats.findIndex((s) => s.session && s.session.id === held.id);
-      return desk >= 0 ? deskButton(desk, 'fire') : null;
+      // An agent in a terminal Smolcorp can only watch can't be fired from here.
+      return desk >= 0 && office.seats[desk].session.fire !== false ? deskButton(desk, 'fire') : null;
     }
 
     /** The styles' key, where the deck's own controls are out of sight and the page can change the style. */
@@ -10636,13 +10637,16 @@
     /** The picked agent's keys, along the foot of the room, if a finger held on them put them out and nothing else is up in their place. */
     function keyRow() {
       if (framed || !keysFor || keysFor !== selected || !on.key || arranging || styling || firing || carrying || !selectedSession()) return null;
+      // Keys for an agent in a terminal Smolcorp can only watch would go nowhere.
+      if (selectedSession().keys === false) return null;
       return { keys: rowKeysOf(latest && latest.layout), armed: keyArmed, down: keyDown };
     }
 
     function choices() {
       if (framed) return null;
       const desk = office.seats.findIndex((s) => s.session && s.session.id === selected);
-      return desk >= 0 && office.seats[desk].session.state === 'asking' ? choicePanel(desk) : null;
+      const session = desk >= 0 && office.seats[desk].session;
+      return session && session.state === 'asking' && session.keys !== false ? choicePanel(desk) : null;
     }
 
     function tick() {
