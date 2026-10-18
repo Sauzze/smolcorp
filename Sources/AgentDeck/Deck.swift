@@ -37,6 +37,9 @@ final class Deck {
 
     let access = Access()
     let sessions = Sessions()
+    /// The key the office's own window on this Mac reads the office with:
+    /// new at each start, never saved, and taken only from this Mac.
+    let windowKey = randomKey()
     /// Called on every change, for the menu bar.
     var onChange: () -> Void = {}
 

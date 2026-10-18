@@ -7,6 +7,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var error: String?
 
+    /// The office's own window, for its menu items.
+    var office: OfficeWindow?
+
     init(deck: Deck) {
         self.deck = deck
         super.init()
@@ -53,6 +56,20 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             add(to: menu, "Unpair All Phones…", #selector(unpairAll))
         }
         menu.addItem(.separator())
+        if let office {
+            let show = add(to: menu, "Show Office", #selector(toggleOffice), key: "o")
+            show.keyEquivalentModifierMask = [.command, .option]
+            show.state = office.isShown ? .on : .off
+            let options = NSMenu()
+            let item = menu.addItem(withTitle: "Office Window", action: nil, keyEquivalent: "")
+            item.submenu = options
+            add(to: options, "Always on Top", #selector(toggleOnTop)).state = office.alwaysOnTop ? .on : .off
+            add(to: options, "Show on All Spaces", #selector(toggleAllSpaces)).state = office.onAllSpaces ? .on : .off
+            add(to: options, "Click-Through", #selector(toggleClickThrough)).state = office.clickThrough ? .on : .off
+            options.addItem(.separator())
+            add(to: options, "Sideways", #selector(officeSideways)).state = office.isUpright ? .off : .on
+            add(to: options, "Upright", #selector(officeUpright)).state = office.isUpright ? .on : .off
+        }
         add(to: menu, "Install Screen Saver…", #selector(installScreenSaver))
         let login = add(to: menu, "Open at Login", #selector(toggleLogin))
         login.state = LoginItem.isEnabled ? .on : .off
@@ -68,6 +85,13 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     @objc private func openSetup() { NSWorkspace.shared.open(deck.setupURL()) }
+
+    @objc private func toggleOffice() { office?.toggle() }
+    @objc private func toggleOnTop() { office?.alwaysOnTop.toggle() }
+    @objc private func toggleAllSpaces() { office?.onAllSpaces.toggle() }
+    @objc private func toggleClickThrough() { office?.clickThrough.toggle() }
+    @objc private func officeSideways() { office?.setUpright(false) }
+    @objc private func officeUpright() { office?.setUpright(true) }
 
     @objc private func pairPhone() { NSWorkspace.shared.open(deck.setupURL(then: "pair")) }
 

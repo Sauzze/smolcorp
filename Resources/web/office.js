@@ -3340,9 +3340,11 @@
    * past the room to the window's edges. The margin is wider in the pop-out
    * window, which has its own edge round it, than on a whole screen, where
    * every pixel counts, and there is none as the Mac's screen saver: the
-   * office goes from edge to edge, with square corners. In CSS pixels.
+   * office goes from edge to edge, with square corners. Bare, in the Mac
+   * app's own window, it goes from edge to edge with its round corners, and
+   * the window draws the shadow. In CSS pixels.
    */
-  const FLOAT_MARGINS = { window: 14, screen: 6, edge: 0 };
+  const FLOAT_MARGINS = { window: 14, screen: 6, edge: 0, bare: 0 };
   /**
    * How far the office goes on past the room, at most: half the room's
    * width or height each way. Beyond that, as on a phone held upright, it
@@ -3809,7 +3811,7 @@
     let glass = framed && { x: room.ox, y: room.oy, w: shape.width * scale, h: shape.height * scale, r: WINDOW_CORNER * ratio };
     if (floating) {
       // Edge to edge, bare wall and floor beat bands of nothing.
-      const edge = floating === 'edge', reach = edge ? Infinity : FLOAT_REACH;
+      const edge = floating === 'edge', reach = edge || floating === 'bare' ? Infinity : FLOAT_REACH;
       const w = Math.min(width - inset * 2, shape.width * scale * reach);
       const h = Math.min(height - inset * 2, shape.height * scale * reach);
       glass = { x: Math.round((width - w) / 2), y: Math.round((height - h) / 2), w, h, r: edge ? 0 : WINDOW_CORNER * ratio };
@@ -3825,7 +3827,7 @@
     // Floating, the window glows while anyone waits on you.
     const calling = floating && office.seats.some((s) => s.session && s.session.state === 'asking');
     const glow = calling ? 0.5 - 0.5 * Math.cos((now / GLOW_PERIOD) * 2 * Math.PI) : 0;
-    if (floating) drawFloat(glass);
+    if (floating && floating !== 'bare') drawFloat(glass);
     if (glass) {
       ctx.save();
       roundedRect(ctx, glass.x, glass.y, glass.w, glass.h, glass.r);

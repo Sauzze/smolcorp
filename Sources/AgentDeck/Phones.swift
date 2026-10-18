@@ -3,6 +3,11 @@ import Foundation
 
 /// A phone you paired, as phones.json keeps it.
 struct PairedPhone: Codable {
+    /// The office's own window on this Mac, as the deck sees it: a phone that
+    /// isn't paired, saved or listed. See `Deck.windowKey`.
+    static let officeWindow = PairedPhone(id: "office-window", name: "This Mac's office window", pairedAt: Date(), lastSeen: Date(),
+                                          keyHash: "")
+
     let id: String
     let name: String
     let pairedAt: Date
