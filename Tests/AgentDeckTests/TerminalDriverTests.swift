@@ -71,4 +71,25 @@ final class TerminalDriverTests: XCTestCase {
         XCTAssertEqual(saved?.tty, "", "a tab that isn't Terminal.app's has no tty to save for older versions")
         XCTAssertEqual(saved?.address, "iterm:ABC")
     }
+
+    /// Nothing smuggled in: an address carrying a line break, or not in its
+    /// terminal's own shape, isn't one.
+    func testOnlyAddressesInTheirOwnShape() {
+        for bad in ["tty:/dev/ttys003\r\nX-AgentDeck-Tab: tty:/dev/ttys004", "tty:/etc/passwd", "tty:/dev/../ttys1", "/dev/ttys00 3",
+                    "tmux:3@/tmp/s", "tmux:%3x@/tmp/s", "tmux:%3@/tmp/s\n", "kitty:3a@unix:/tmp/k", "wezterm:@/tmp/w",
+                    "iterm:BD22\")", "ghostty:/dev/../x", "other:ttys005"] {
+            XCTAssertNil(TabAddress(bad), bad)
+        }
+    }
+
+    func testAHookHeaderTwiceIsntBelieved() {
+        let hook = { (repeated: Set<String>) in
+            Request(method: "POST", path: "/hook", query: [:], headers: [:], body: Data(), isLocal: true,
+                    isAddressedDirectly: true, remoteAddress: "127.0.0.1", repeatedHeaders: repeated)
+        }
+        XCTAssertTrue(DeckRouter.hasSmuggledHookHeader(hook(["x-agentdeck-tab"])))
+        XCTAssertTrue(DeckRouter.hasSmuggledHookHeader(hook(["x-agentdeck-token"])))
+        XCTAssertFalse(DeckRouter.hasSmuggledHookHeader(hook(["accept"])), "only the hook's own headers matter")
+        XCTAssertFalse(DeckRouter.hasSmuggledHookHeader(hook([])))
+    }
 }

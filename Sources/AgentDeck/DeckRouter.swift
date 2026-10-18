@@ -20,6 +20,12 @@ final class DeckRouter: Router {
     static let setupKeyHeader = "x-smolcorp-setup-key"
     static let setupCookie = "smolcorp-setup"
 
+    /// A hook header twice is one smuggled in after another, as a line break
+    /// in a variable the hook was given would make it.
+    static func hasSmuggledHookHeader(_ request: Request) -> Bool {
+        request.repeatedHeaders.contains { $0.hasPrefix("x-agentdeck-") }
+    }
+
     static func cookie(_ name: String, in request: Request) -> String? {
         (request.headers["cookie"] ?? "").split(separator: ";").lazy
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -63,6 +69,9 @@ final class DeckRouter: Router {
         if request.path == "/hook" {
             guard request.isLocal, request.method == "POST" else { return respond(.status(404)) }
             guard deck.access.isHookKey(request.headers["x-agentdeck-token"]) else { return respond(.status(401)) }
+            guard !DeckRouter.hasSmuggledHookHeader(request) else {
+                return respond(.status(400, "A hook header came twice"))
+            }
             let time = Double(request.headers["x-agentdeck-at"] ?? "") ?? Date().timeIntervalSince1970 * 1000
             deck.ingest(request.json, reportedAs: request.headers["x-agentdeck-agent"] ?? "",
                         tab: request.headers["x-agentdeck-tab"] ?? "", tty: request.headers["x-agentdeck-tty"] ?? "",

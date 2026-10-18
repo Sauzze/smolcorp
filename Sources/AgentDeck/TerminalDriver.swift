@@ -23,25 +23,43 @@ struct TabAddress: Hashable {
     }
 
     init?(_ text: String) {
-        guard !text.isEmpty else { return nil }
+        // Nothing that could end a header line or a script's argument.
+        guard !text.isEmpty, text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else { return nil }
         if text.hasPrefix("/dev/") {
+            guard TabAddress.isTTY(text) else { return nil }
             self.init(kind: "tty", id: text)
             return
         }
         guard let colon = text.firstIndex(of: ":") else { return nil }
         let kind = String(text[..<colon]), rest = text[text.index(after: colon)...]
         guard !kind.isEmpty, !rest.isEmpty else { return nil }
-        // A tty has no socket, and Ghostty's and other's ids are ttys too.
-        if ["tty", "ghostty", "other", "iterm"].contains(kind) {
+        // A tty has no socket, and Ghostty's and other's ids are ttys too:
+        // only in a tty's own shape, as /dev/ttys003.
+        if ["tty", "ghostty", "other"].contains(kind) {
+            guard TabAddress.isTTY(String(rest)) else { return nil }
             self.init(kind: kind, id: String(rest))
-        } else if let at = rest.firstIndex(of: "@") {
-            self.init(kind: kind, id: String(rest[..<at]), socket: String(rest[rest.index(after: at)...]))
+        } else if kind == "iterm" {
+            guard rest.allSatisfy({ $0.isHexDigit || $0 == "-" }) else { return nil }
+            self.init(kind: kind, id: String(rest))
         } else {
-            self.init(kind: kind, id: String(rest))
+            let at = rest.firstIndex(of: "@")
+            let id = String(rest[..<(at ?? rest.endIndex)]), socket = at.map { String(rest[rest.index(after: $0)...]) } ?? ""
+            // A pane's id in its terminal's own shape: %3 in tmux, a number in WezTerm and kitty.
+            let digits = (kind == "tmux" ? id.dropFirst() : id[...])
+            guard !digits.isEmpty, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber),
+                  kind != "tmux" || id.hasPrefix("%") else { return nil }
+            self.init(kind: kind, id: id, socket: socket)
         }
     }
 
     var text: String { socket.isEmpty ? "\(kind):\(id)" : "\(kind):\(id)@\(socket)" }
+
+    /// A terminal device's path, as /dev/ttys003, and nothing else.
+    static func isTTY(_ path: String) -> Bool {
+        guard path.hasPrefix("/dev/tty") else { return false }
+        let name = path.dropFirst("/dev/tty".count)
+        return !name.isEmpty && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
+    }
 
     static func terminalApp(tty: String) -> TabAddress { TabAddress(kind: "tty", id: tty) }
 }

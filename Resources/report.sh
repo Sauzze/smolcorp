@@ -39,12 +39,15 @@ tab=""
 pid=$PPID
 while [ -n "$pid" ] && [ "$pid" -gt 1 ]; do
   t="$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')"
-  if [ -n "$t" ] && [ "$t" != "??" ]; then
+  if [[ "$t" =~ ^tty[A-Za-z0-9]+$ ]]; then
     tty="/dev/$t"
     break
   fi
   pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
 done
+
+# Whether $1 is free of control characters, which would end a header line.
+clean() { [[ "$1" != *[[:cntrl:]]* ]]; }
 
 # A session in another terminal says so in TERM_PROGRAM. Where an agent has
 # dropped that variable, Terminal itself is found further up the tree.
@@ -68,15 +71,19 @@ in_terminal_app() {
 if [ -n "$tty" ]; then
   # tmux first: it runs inside any of the others, whose variables it then
   # carries from whichever started it, stale. As the Windows and Linux hook's
-  # tabFromEnvironment.
+  # tabFromEnvironment. Each variable is taken only in its own shape: one
+  # carrying anything else, as a line break that would add a header of its
+  # own and point the session at another tab, isn't believed.
   if [ -n "$TMUX_PANE" ]; then
-    tab="tmux:$TMUX_PANE@${TMUX%%,*}"
+    socket="${TMUX%%,*}"
+    if [[ "$TMUX_PANE" =~ ^%[0-9]+$ ]] && clean "$socket"; then tab="tmux:$TMUX_PANE@$socket"; else tab="other:$tty"; fi
   elif [ -n "$WEZTERM_PANE" ]; then
-    tab="wezterm:$WEZTERM_PANE@$WEZTERM_UNIX_SOCKET"
+    if [[ "$WEZTERM_PANE" =~ ^[0-9]+$ ]] && clean "$WEZTERM_UNIX_SOCKET"; then tab="wezterm:$WEZTERM_PANE@$WEZTERM_UNIX_SOCKET"; else tab="other:$tty"; fi
   elif [ -n "$KITTY_WINDOW_ID" ] && [ -n "$KITTY_LISTEN_ON" ]; then
-    tab="kitty:$KITTY_WINDOW_ID@$KITTY_LISTEN_ON"
+    if [[ "$KITTY_WINDOW_ID" =~ ^[0-9]+$ ]] && clean "$KITTY_LISTEN_ON"; then tab="kitty:$KITTY_WINDOW_ID@$KITTY_LISTEN_ON"; else tab="other:$tty"; fi
   elif [ -n "$ITERM_SESSION_ID" ]; then
-    tab="iterm:${ITERM_SESSION_ID#*:}" # w0t1p0:<the session's unique ID>
+    session="${ITERM_SESSION_ID#*:}" # w0t1p0:<the session's unique ID>
+    if [[ "$session" =~ ^[0-9A-Fa-f-]+$ ]]; then tab="iterm:$session"; else tab="other:$tty"; fi
   elif [ "$TERM_PROGRAM" = "ghostty" ]; then
     tab="ghostty:$tty"
   elif in_terminal_app; then
@@ -116,13 +123,17 @@ TRIM='
   print $event;
 '
 
+# The folder the agent was started in, under the same rule as the tab.
+project="${CLAUDE_PROJECT_DIR:-$GEMINI_PROJECT_DIR}"
+clean "$project" || project=""
+
 perl -e "$TRIM" | curl -s -m 2 -o /dev/null \
   -H 'Content-Type: application/json' \
   -H @"$DIR/hook-header" \
   -H "X-AgentDeck-Agent: $AGENT" \
   -H "X-AgentDeck-TTY: $tty" \
   -H "X-AgentDeck-Tab: $tab" \
-  -H "X-AgentDeck-Project: ${CLAUDE_PROJECT_DIR:-$GEMINI_PROJECT_DIR}" \
+  -H "X-AgentDeck-Project: $project" \
   -H "X-AgentDeck-At: $AT" \
   --data-binary @- \
   "http://127.0.0.1:{{PORT}}/hook"
