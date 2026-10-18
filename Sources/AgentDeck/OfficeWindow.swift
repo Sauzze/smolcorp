@@ -110,6 +110,7 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     private func makePanel() -> OfficePanel {
         let panel = OfficePanel(contentRect: NSRect(origin: .zero, size: OfficeWindow.firstSize),
                                 styleMask: [.borderless, .nonactivatingPanel, .resizable], backing: .buffered, defer: false)
+        panel.office = self
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -128,22 +129,18 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         web.autoresizingMask = [.width, .height]
         web.navigationDelegate = self
         content.addSubview(web)
-        content.addSubview(GrabBar(in: content.bounds))
+        content.addSubview(GrabBar(in: content.bounds, office: self))
         for edges in ResizeHandle.all { content.addSubview(ResizeHandle(edges, in: content.bounds, office: self)) }
         panel.contentView = content
         web.load(URLRequest(url: address))
 
-        // ⌘ held, a drag anywhere moves it; a click brings it forward, as only
-        // the window clicked takes it; Esc hides it once it has the keyboard.
+        // A click brings it forward, as only the window clicked takes it (⌘
+        // held, it's a move: see OfficePanel); Esc hides it once it has the keyboard.
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak panel] event in
-            guard let panel, event.window === panel else { return event }
-            guard event.modifierFlags.contains(.command) else {
-                panel.firstClickOnlyRaises = !panel.isKeyWindow && panel.isPartlyCovered
-                panel.orderFrontRegardless()
-                return event
-            }
-            panel.performDrag(with: event)
-            return nil
+            guard let panel, event.window === panel, !event.modifierFlags.contains(.command) else { return event }
+            panel.firstClickOnlyRaises = !panel.isKeyWindow && panel.isPartlyCovered
+            panel.orderFrontRegardless()
+            return event
         } as Any)
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak panel] event in
             guard let panel, panel.isKeyWindow, event.window === panel, event.keyCode == UInt16(kVK_Escape) else { return event }
@@ -189,6 +186,32 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         let x = edges.contains(.left) ? start.maxX - size.width : start.minX
         let y = edges.contains(.bottom) ? start.maxY - size.height : start.minY
         panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+    }
+
+    // MARK: Moving it
+
+    /// Where the window and the pointer were as a move began. It's moved by
+    /// hand, as it's resized: the window server's own drag doesn't take a
+    /// panel that leaves Smolcorp behind the app you're in.
+    private var moving: (frame: NSRect, pointer: NSPoint)?
+
+    var isMoving: Bool { moving != nil }
+
+    /// From the pointer at `pointer`, on the screen.
+    func beginMove(at pointer: NSPoint) {
+        guard let panel else { return }
+        moving = (panel.frame, pointer)
+    }
+
+    func move(to pointer: NSPoint) {
+        guard let panel, let moving else { return }
+        panel.setFrameOrigin(NSPoint(x: moving.frame.minX + pointer.x - moving.pointer.x, y: moving.frame.minY + pointer.y - moving.pointer.y))
+    }
+
+    func endMove() {
+        guard moving != nil else { return }
+        moving = nil
+        saveFrame()
     }
 
     func resized() {
@@ -259,6 +282,25 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
 final class OfficePanel: NSPanel {
     override var canBecomeKey: Bool { true }
 
+    weak var office: OfficeWindow?
+
+    /// ⌘ held, a drag anywhere moves it, and a move, begun here or on its bar,
+    /// follows the pointer until let go: taken here, before the page sees
+    /// any of it.
+    override func sendEvent(_ event: NSEvent) {
+        let pointer = convertPoint(toScreen: event.locationInWindow)
+        switch event.type {
+        case .leftMouseDown where event.modifierFlags.contains(.command):
+            office?.beginMove(at: pointer)
+        case .leftMouseDragged where office?.isMoving == true:
+            office?.move(to: pointer)
+        case .leftMouseUp where office?.isMoving == true:
+            office?.endMove()
+        default:
+            super.sendEvent(event)
+        }
+    }
+
     /// Whether the click being taken was only to bring the window forward.
     var firstClickOnlyRaises = false
 
@@ -300,8 +342,10 @@ final class OfficeWebView: WKWebView {
 final class GrabBar: NSView {
     static let size = NSSize(width: 96, height: 12)
     private var showing = false { didSet { needsDisplay = true } }
+    private weak var office: OfficeWindow?
 
-    init(in bounds: NSRect) {
+    init(in bounds: NSRect, office: OfficeWindow) {
+        self.office = office
         super.init(frame: NSRect(x: (bounds.width - GrabBar.size.width) / 2, y: bounds.height - GrabBar.size.height,
                                  width: GrabBar.size.width, height: GrabBar.size.height))
         autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
@@ -317,7 +361,11 @@ final class GrabBar: NSView {
     override func mouseEntered(with event: NSEvent) { showing = true }
     override func mouseExited(with event: NSEvent) { showing = false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    /// The move follows the pointer from here: see OfficePanel.
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        office?.beginMove(at: window.convertPoint(toScreen: event.locationInWindow))
+    }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
 
     override func draw(_ dirtyRect: NSRect) {
