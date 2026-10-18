@@ -28,6 +28,9 @@
  * room, out from a finger held on the agent till a tap elsewhere, 'esc', 'send',
  * 'clear', 'up', 'down' or 'button:<id>' for one of the layout's own
  * buttons (/clear and a button marked `confirm` on a second tap),
+ * `on.hire(desk, role)` for an empty desk held and hired into: by the id
+ * of one of the snapshot's `hiring.roles`, along the foot of the room, or
+ * null for Anyone, or for its Hire button where there are no roles,
  * `on.scroll(lines | 'bottom')` for two fingers moving up and down the room,
  * or tapped together, and `on.hint(text)` for a word on the status line.
  *
@@ -1492,6 +1495,8 @@
       this.toolSince = 0; // when their session's current tool started
       this.askingSince = null;  // when they started waiting on you, as far as the office has seen
       this.celebratedAt = null; // when they finished a turn of an hour or more
+      this.isNew = false;       // just hired, on their way in to sit down for the first time
+      this.settledAt = null;    // when they first sat down, hired
     }
 
     get isWalking() { return this.path.length > 0; }
@@ -1735,6 +1740,7 @@
         person.askingSince = this.waiting.get(placement.session.id) ?? null;
         if (this.isOpen) {
           person.position = { ...DOOR };
+          person.isNew = true;
           this.send(person, this.home(person));
         } else {
           // Already in: at their desk, or in the line by the wall
@@ -2570,6 +2576,11 @@
       else if (heading.y > 0 || Math.abs(heading.x) > -heading.y * 1.2) person.isFacingAway = false;
       if (person.path.length) return;
       person.arrivedAt = now;
+      // Hired, they've come in and sat down: a role's hire shows what they're there for.
+      if (person.isNew && person.place === this.home(person)) {
+        person.isNew = false;
+        person.settledAt = now;
+      }
       const spot = spotOf(person.place);
       if (spot !== null) {
         person.isFacingAway = facesAway(spots[spot].pose);
@@ -2798,6 +2809,355 @@
       .map((b) => ({ action: `button:${b.id}`, label: String(b.label || b.text || KEY_NAMES[b.key] || b.key || b.id).slice(0, 16), confirm: b.confirm === true }));
     return [...ROW_KEYS, ...yours];
   }
+  /**
+   * The badges a role can give its agents, in the order setup offers them:
+   * the five roles' own props first, then eight for roles of your own, worn
+   * on a lanyard. Each has its colour, for its name on a desk, and its icon,
+   * 16 by 16, for the role's chip and its card in setup: a letter a pixel in
+   * BADGE_INKS' colours, '.' for none. A lanyard's card has a picture three
+   * by three, `pin`, the same way.
+   */
+  const BADGE_INKS = {
+    k: 0x1f2129, w: 0xf4f1ea, g: 0xc4c8d0, G: 0x7d838f, r: 0xe0483e, R: 0xa32a24, y: 0xffd23f, Y: 0xe8a33a,
+    b: 0x4c8ef7, B: 0x2f5fb3, c: 0xa8d8f0, n: 0xb07a46, N: 0x6e4a2e, p: 0xff8fb3, o: 0xff8a1f, e: 0x3fbf6b, t: 0x4fb8b0, T: 0x2e7d78,
+    s: 0xe0ac7e, m: 0xa0603a,
+  };
+  const BADGES = {
+    glasses: {
+      colour: 0xff7a6e,
+      icon: [
+        '................',
+        '................',
+        '.kkkkk....kkkkk.',
+        'kcccwck..kcccwck',
+        'kccwcckkkkccwcck',
+        'kcwccck..kcwccck',
+        '.kkkkk....kkkkk.',
+        '................',
+        '.............kk.',
+        '...........kkrRk',
+        '.........kkrrrRk',
+        '.......kkrrrRkk.',
+        '.....kkwwwRkk...',
+        '....kGwwkkk.....',
+        '...kGGkk........',
+        '...kk...........',
+      ],
+    },
+    clipboard: {
+      colour: 0x7ed49a,
+      icon: [
+        '......kkkk......',
+        '..kkkkgGGgkkkk..',
+        '.knnnkGggGknnnk.',
+        '.knnkkkkkkkknnk.',
+        '.knkwwwwwwwwknk.',
+        '.knkwGGGGGwwknk.',
+        '.knkwwwwwwwwknk.',
+        '.knkweGGGGwwknk.',
+        '.knkeewwwwwwknk.',
+        '.knkwGGGGGGwknk.',
+        '.knkwwwwwwwwknk.',
+        '.knkwGGGGwwwknk.',
+        '.knkwwwwwwwwknk.',
+        '.knkkkkkkkkkknk.',
+        '.kNnnnnnnnnnnNk.',
+        '..kkkkkkkkkkkk..',
+      ],
+    },
+    magnifier: {
+      colour: 0x8fd3ff,
+      icon: [
+        '....kkkkk.......',
+        '..kkgggggkk.....',
+        '.kgkcccccGgk....',
+        '.kgcwwcccccGk...',
+        'kgcwwcccccccGk..',
+        'kgcwccccccccGk..',
+        'kgcccccccccccGk.',
+        'kgcccccccccccGk.',
+        'kgccccccccccGk..',
+        '.kGcccccccccGk..',
+        '.kGGcccccccGGk..',
+        '..kkGGGGGGGkNNk.',
+        '....kkkkkkkNNNk.',
+        '...........kNNNk',
+        '............kNNk',
+        '.............kk.',
+      ],
+    },
+    quill: {
+      colour: 0x8fb3ff,
+      icon: [
+        '.............kk.',
+        '............kwwk',
+        '...........kwgwk',
+        '..........kwgwk.',
+        '.........kwgwk..',
+        '..kkkkkkkwgwkk..',
+        '.kBbbbbkwgwkwk..',
+        '.kBbbbkwgwkwwk..',
+        '.kBbbbkggkbwwk..',
+        '.kBbbkGkkbbwwk..',
+        '.kBbkGkbbbbwwk..',
+        '.kBbkkbbbbbwwk..',
+        '.kBbbbbbbbbwwk..',
+        '.kBbbbbbbbbwwk..',
+        '.kBBBBBBBBBkkk..',
+        '..kkkkkkkkkk....',
+      ],
+    },
+    wrench: {
+      colour: 0xc6ccd6,
+      icon: [
+        '..........kkk...',
+        '.........kgggk..',
+        '........kggGGk.k',
+        '........kgGk.kgk',
+        '........kgGkkggk',
+        '.......kggGGggGk',
+        '......kggGGGGGk.',
+        '.....kggGGkkkk..',
+        '....kggGGk......',
+        '...kggGGk.......',
+        '..kggGGk........',
+        '.kggGGk.........',
+        'kggGGk..........',
+        'kgGGk...........',
+        'kGGk............',
+        '.kk.............',
+      ],
+    },
+    star: {
+      colour: 0xffd23f,
+      pin: ['.y.', 'yyy', 'y.y'],
+      icon: [
+        '.......kk.......',
+        '......kyyk......',
+        '......kyyk......',
+        '.....kywyyk.....',
+        'kkkkkkywyyykkkkk',
+        'kyyyyywyyyyyyyyk',
+        '.kyyyyyyyyyyyyk.',
+        '..kyyyyyyyyyYk..',
+        '...kyyyyyyyYk...',
+        '...kyyyyyyyYk...',
+        '..kyyyyyyyyyYk..',
+        '..kyyyyYYyyyYk..',
+        '.kyyyyYkkYyyyYk.',
+        '.kyyYYk..kYYyYk.',
+        'kyYYkk....kkYYYk',
+        'kkkk........kkkk',
+      ],
+    },
+    bulb: {
+      colour: 0xfff08a,
+      pin: ['yyy', 'yyy', '.g.'],
+      icon: [
+        '.....kkkkkk.....',
+        '...kkyyyyyykk...',
+        '..kyywwyyyyyyk..',
+        '.kyywwyyyyyyyYk.',
+        '.kywwyyyyyyyyYk.',
+        '.kywyyyyyyyyyYk.',
+        '.kyyyyyyyyyyyYk.',
+        '..kyyyyyyyyyYk..',
+        '...kyyyyyyyYk...',
+        '....kyyYYyYk....',
+        '....kkkkkkkk....',
+        '....kggggGGk....',
+        '....kGGGGGGk....',
+        '....kggggGGk....',
+        '.....kGGGGk.....',
+        '......kkkk......',
+      ],
+    },
+    headset: {
+      colour: 0x6fd6cc,
+      pin: ['GGG', 'G.G', 't.t'],
+      icon: [
+        '.....kkkkkk.....',
+        '...kkGGGGGGkk...',
+        '..kGGkkkkkkGGk..',
+        '.kGkk......kkGk.',
+        '.kGk........kGk.',
+        'kGk..........kGk',
+        'kkkk........kkkk',
+        'kttTk......kTttk',
+        'kttTk......kTttk',
+        'kttTk......kTttk',
+        'kttTk......kTttk',
+        'kkkkk......kkkkk',
+        '.kGk.........kk.',
+        '..kGk.......kk..',
+        '...kGGGkkkkkrrk.',
+        '....kkkk...krrk.',
+      ],
+    },
+    flag: {
+      colour: 0xff6b5e,
+      pin: ['Nrr', 'Nrr', 'N..'],
+      icon: [
+        '.kk.............',
+        'kNNk............',
+        'kNNkkkkk...kkk..',
+        'kNNkrrrrkkkrrrk.',
+        'kNNkrwrrrrrrrrk.',
+        'kNNkrwrrrrrrrrk.',
+        'kNNkrrrrrrrrrRk.',
+        'kNNkrrrrrrrrRRk.',
+        'kNNkrrrrrrrRRk..',
+        'kNNkRRkkkkRRk...',
+        'kNNkkk....kk....',
+        'kNNk............',
+        'kNNk............',
+        'kNNk............',
+        'kNNk............',
+        '.kk.............',
+      ],
+    },
+    shield: {
+      colour: 0x7aa8ff,
+      pin: ['bwb', 'bbb', '.b.'],
+      icon: [
+        '.kkkkkkkkkkkkkk.',
+        'kbbbbbbwwbbbbbBk',
+        'kbwbbbbwwbbbbbBk',
+        'kbwbbbbwwbbbbbBk',
+        'kbbbbbbwwbbbbbBk',
+        'kwwwwwwwwwwwwwwk',
+        'kwwwwwwwwwwwwwwk',
+        'kbbbbbbwwbbbbbBk',
+        'kbbbbbbwwbbbbbBk',
+        '.kbbbbbwwbbbbBk.',
+        '.kbbbbbwwbbbbBk.',
+        '..kbbbbwwbbbBk..',
+        '...kbbbwwbbBk...',
+        '....kbbwwbBk....',
+        '.....kkBBkk.....',
+        '.......kk.......',
+      ],
+    },
+    rocket: {
+      colour: 0xff9a4a,
+      pin: ['.r.', 'www', 'r.r'],
+      icon: [
+        '.......kk.......',
+        '......krrk......',
+        '.....krrrRk.....',
+        '.....kkkkkk.....',
+        '.....kwwwgk.....',
+        '....kwwkkwgk....',
+        '....kwkcbkgk....',
+        '....kwkbBkgk....',
+        '....kwwkkwgk....',
+        '...kkwwwwwgkk...',
+        '..krkwwwwwgkrk..',
+        '.krrkwwwwwgkrRk.',
+        '.krkkkkkkkkkkRk.',
+        '.kk..kyoyok..kk.',
+        '......kyok......',
+        '.......kk.......',
+      ],
+    },
+    coffee: {
+      colour: 0xe0b07a,
+      pin: ['NNN', 'wwg', 'ww.'],
+      icon: [
+        '......g....g....',
+        '.....g....g.....',
+        '.....g....g.....',
+        '......g....g....',
+        '................',
+        '.kkkkkkkkkkk....',
+        'kwNNNNNNNNNwk...',
+        'kwwwwwwwwwwgkkk.',
+        'kwwwwwwwwwwgkGgk',
+        'kbbbbbbbbbbBk.gk',
+        'kBBBBBBBBBBBk.gk',
+        'kwwwwwwwwwwgkGgk',
+        'kwwwwwwwwwwgkkk.',
+        '.kwwwwwwwwgk....',
+        '..kggggggGk.....',
+        '...kkkkkkk......',
+      ],
+    },
+    heart: {
+      colour: 0xff8fb3,
+      pin: ['p.r', 'rrr', '.r.'],
+      icon: [
+        '................',
+        '..kkkk....kkkk..',
+        '.kpppRk..kRrrrk.',
+        'krwwrrRkkRrrrrRk',
+        'krwrrrrrrrrrrrRk',
+        'krrrrrrrrrrrrrRk',
+        'krrrrrrrrrrrrrRk',
+        '.krrrrrrrrrrrRk.',
+        '..krrrrrrrrrRk..',
+        '...krrrrrrrRk...',
+        '....krrrrrRk....',
+        '.....krrrRk.....',
+        '......krRk......',
+        '.......kk.......',
+        '................',
+        '................',
+      ],
+    },
+  };
+  const BADGE_IDS = Object.keys(BADGES);
+  /** The hire's own, for Anyone: a head and shoulders in its blue suit and orange tie. */
+  const ANYONE_ICON = [
+    '................',
+    '.....kkkkkk.....',
+    '....kNNNNNNk....',
+    '...kNNNNNNNNk...',
+    '...kNssssssNk...',
+    '...kssssssssk...',
+    '...kskssssksk...',
+    '...kssssssssk...',
+    '....kssmmssk....',
+    '.....kssssk.....',
+    '...kkkwwwwkkk...',
+    '..kbbbwoowbbbk..',
+    '.kbbbbwoowbbbbk.',
+    '.kbbbbbobbbbbbk.',
+    '.kbbbbbobbbbbbk.',
+    '.kkkkkkkkkkkkkk.',
+  ];
+  /**
+   * The roles a held empty desk offers, along the foot of the room where the
+   * keys go: each chip's height, the gaps, the strip's inset, and the space
+   * either side of a name.
+   */
+  const ROLE_ROW = { h: 20, gap: 2, inset: 3, pad: 4 };
+  /** A badge's icon, or Anyone's, on a canvas of its own, `scale` screen pixels to each of its pixels. */
+  function paintIcon(rows, scale) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 16 * scale;
+    const ctx = canvas.getContext('2d');
+    rows.forEach((row, r) => [...row].forEach((ch, c) => {
+      if (ch === '.') return;
+      ctx.fillStyle = css(BADGE_INKS[ch]);
+      ctx.fillRect(c * scale, r * scale, scale, scale);
+    }));
+    return canvas;
+  }
+  const iconsPainted = new Map();
+  /** A role's icon, painted once: its badge's, or the hire's for Anyone; none for a badge the office doesn't know. */
+  function roleIcon(role) {
+    const rows = role.id === null ? ANYONE_ICON : role.badge && Object.hasOwn(BADGES, role.badge) ? BADGES[role.badge].icon : null;
+    if (!rows) return null;
+    const key = role.id === null ? '' : role.badge;
+    if (!iconsPainted.has(key)) iconsPainted.set(key, paintIcon(rows, 1));
+    return iconsPainted.get(key);
+  }
+
+  /** How long someone just hired takes to get to what they're there for, once sat down, in seconds. */
+  const HIRE_MOMENT = 2.5;
+  /** A session's role's badge, if it has one the office knows. */
+  const badgeOf = (session) => (session && session.role && Object.hasOwn(BADGES, session.role.badge) ? session.role.badge : null);
+
   const MUSIC_ACTIONS = ['previous', 'playpause', 'next'];
   const MUSIC_PANEL_LENGTH = 6;
   /** Play, pause, previous and next, in pixels. */
@@ -7589,6 +7949,7 @@
 
       if (away) {
         if (parts && parts.head) parts.head(x, head, look, true, outfit);
+        drawRole(person, x, top, head, pose, true, look);
         return;
       }
       drawFace(x, head, look);
@@ -7619,6 +7980,162 @@
       if (look.extra === 'sunglasses') fill(x - 3, head + 4, 7, 1, SHADES);
       // What the outfit puts on the head and face, over the eyes: a helmet, a hat, an eyepatch, dark glasses
       if (parts && parts.head) parts.head(x, head, look, false, outfit);
+      drawRole(person, x, top, head, pose, false, look);
+    }
+
+    /**
+     * A role's badge, worn over whatever the dress code puts them in: the
+     * Reviewer's red glasses and a pen in the pocket, the Tester's clipboard,
+     * the Bug hunter's magnifying glass at one eye, the Docs writer's quill
+     * behind an ear and notebook, the Refactorer's wrench on a shoulder, or
+     * your own role's on a card on a lanyard. What's held is put down while the
+     * hands are busy. Just hired, they come in with it as their own: the
+     * Reviewer polishing the glasses, the Tester's clipboard under an arm,
+     * the Bug hunter searching the floor; sat down, they get to it a moment.
+     */
+    function drawRole(person, x, top, head, pose, away, look) {
+      const badge = person.isStaff ? null : badgeOf(person.session);
+      if (!badge) return;
+      const I = BADGE_INKS, free = ['walk', 'stand', 'sit', 'tap'].includes(pose.kind);
+      const arriving = person.isNew && person.isWalking;
+      const since = person.settledAt === null ? Infinity : now - person.settledAt;
+      const moment = !arriving && since < HIRE_MOMENT && free ? since / HIRE_MOMENT : null;
+      const tick = Math.floor(now * 6) % 2;
+      const twinkle = (tx, ty, strength = 1) => {
+        dot(tx, ty, WHITE, strength);
+        if (tick) for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) dot(tx + dx, ty + dy, WHITE, 0.5 * strength);
+      };
+      if (badge === 'glasses') {
+        const frames = I.R, worn = !arriving && !(moment !== null && moment < 0.4);
+        if (!away && worn) {
+          fill(x - 3, head + 3, 3, 1, frames);
+          fill(x + 1, head + 3, 3, 1, frames);
+          for (const dx of [-3, -1, 0, 1, 3]) dot(x + dx, head + 4, frames);
+          fill(x - 3, head + 5, 3, 1, frames);
+          fill(x + 1, head + 5, 3, 1, frames);
+          if (moment !== null && moment < 0.7) twinkle(x + 3, head + 3, 1 - moment);
+        } else if (!away && free) {
+          // Off, held up and polished on the shirt
+          const rub = tick;
+          for (const dx of [0, 2]) dot(x + dx, top + 9, frames);
+          dot(x + 1, top + 9, GLASS);
+          dot(x + 3, top + 9, GLASS);
+          fill(x + 1 + rub, top + 10, 2, 1, look.skin);
+        }
+        if (!away) {
+          dot(x + 2, top + 7, WHITE);
+          dot(x + 2, top + 8, I.r);
+        }
+      } else if (badge === 'clipboard') {
+        if (away || !free) return;
+        if (arriving) {
+          // Under an arm
+          fill(x - 6, top + 8, 2, 5, I.n);
+          fill(x - 6, top + 9, 1, 3, I.w);
+          return;
+        }
+        // Held up in front, high enough to show over a desk
+        fill(x - 3, top + 7, 4, 5, I.n);
+        fill(x - 2, top + 6, 2, 1, I.G);
+        fill(x - 2, top + 8, 2, 3, I.w);
+        dot(x - 2, top + 9, I.G);
+        dot(x - 4, top + 9, look.skin);
+        // Sat down, they tick something off.
+        if (moment !== null) {
+          if (moment > 0.35) dot(x - 1, top + 8, I.e);
+          if (moment > 0.5) dot(x - 2, top + 9, I.e);
+          if (moment < 0.6) dot(x + 1, top + 8 + tick, look.skin);
+        }
+      } else if (badge === 'magnifier') {
+        if (away || !free) return;
+        if (arriving) {
+          // Searching the floor ahead of them, side to side
+          const sweep = Math.round(Math.sin(now * 5));
+          const lx = x + 5 + sweep, ly = top + 13;
+          fill(lx - 1, ly - 1, 3, 1, I.g);
+          dot(lx - 1, ly, I.g);
+          dot(lx, ly, GLASS);
+          dot(lx + 1, ly, I.g);
+          fill(lx - 1, ly + 1, 3, 1, I.g);
+          dot(x + 4, top + 11, I.N);
+          dot(x + 4, top + 12, look.skin);
+          return;
+        }
+        fill(x + 1, head + 3, 3, 1, I.g);
+        dot(x + 1, head + 4, I.g);
+        dot(x + 3, head + 4, I.g);
+        fill(x + 1, head + 5, 3, 1, I.g);
+        dot(x + 4, head + 6, I.N);
+        dot(x + 4, head + 7, I.N);
+        dot(x + 4, head + 8, look.skin);
+        // Sat down, they find a bug on the desk, and it runs for it.
+        if (moment !== null) {
+          const run = Math.floor(moment * 10);
+          dot(x - 2 - run, top + 12, PALETTE.eye);
+          if (tick) dot(x - 1 - run, top + 12, PALETTE.eye, 0.5);
+        }
+      } else if (badge === 'quill') {
+        // Behind an ear
+        dot(x + 4, head + 3, I.w);
+        dot(x + 4, head + 2, I.g);
+        dot(x + 5, head + 1, I.w);
+        dot(x + 5, head, I.w);
+        dot(x + 6, head - 1, I.g);
+        if (away || !free) return;
+        if (arriving) {
+          fill(x - 6, top + 8, 2, 5, I.b);
+          fill(x - 6, top + 9, 1, 3, I.w);
+          return;
+        }
+        if (moment !== null) {
+          // Open, and written in
+          fill(x - 3, top + 9, 6, 3, I.w);
+          fill(x - 3, top + 12, 6, 1, I.B);
+          dot(x, top + 9, I.g);
+          const line = Math.floor(moment * 8);
+          for (let i = 0; i < Math.min(line, 4); i++) dot(x - 2 + (i % 2) + (i > 1 ? 3 : 0), top + 10 + (i % 2), I.G);
+          dot(x + 1 + tick, top + 8, look.skin);
+          return;
+        }
+        fill(x - 3, top + 8, 3, 4, I.b);
+        fill(x - 3, top + 8, 1, 4, I.B);
+        fill(x - 1, top + 9, 1, 3, I.w);
+      } else if (badge === 'wrench') {
+        if (!free) return;
+        if (arriving || (moment !== null && moment < 0.6)) {
+          // Swinging it in a hand, or giving it a twirl
+          const up = arriving ? tick : Math.floor(now * 10) % 2;
+          dot(x + 4, top + 12, look.skin);
+          if (up) {
+            fill(x + 5, top + 9, 1, 3, I.g);
+            dot(x + 4, top + 8, I.g);
+            dot(x + 6, top + 8, I.g);
+          } else {
+            fill(x + 5, top + 12, 3, 1, I.g);
+            dot(x + 8, top + 11, I.g);
+            dot(x + 8, top + 13, I.g);
+          }
+          return;
+        }
+        // Over a shoulder, its open end up
+        dot(x + 4, top + 8, look.skin);
+        dot(x + 4, top + 7, I.G);
+        dot(x + 5, top + 6, I.g);
+        dot(x + 5, top + 5, I.g);
+        fill(x + 4, top + 4, 3, 1, I.g);
+        dot(x + 4, top + 3, I.g);
+        dot(x + 6, top + 3, I.g);
+        if (moment !== null) twinkle(x + 5, top + 1, 1 - moment);
+      } else {
+        if (away) return;
+        // On a white card on a lanyard, high enough to show over a desk
+        const { pin } = BADGES[badge];
+        dot(x - 2, top + 7, I.k);
+        dot(x + 2, top + 7, I.k);
+        fill(x - 2, top + 8, 5, 4, I.w);
+        pin.forEach((row, r) => [...row].forEach((ch, c) => { if (ch !== '.') dot(x - 1 + c, top + 8 + r, I[ch]); }));
+        if (moment !== null) twinkle(x + 3, top + 7, 1 - moment);
+      }
     }
 
     /** What's worn on the head, seen from in front or behind: headphones, a cap, a beanie or a bow. */
@@ -7856,10 +8373,12 @@
     function drawLabel(desk) {
       if (desk >= office.seats.length) return;
       const s = office.seats[desk];
-      // A nickname you've given their agent, or their project's name.
+      // A nickname you've given their agent, or their project's name; a role's agent, its role first.
       const member = memberOf(s.session);
-      const name = s.session ? (member && member.name) || s.session.name : s.pin;
-      if (!name) return;
+      const project = s.session ? (member && member.name) || s.session.name : s.pin;
+      if (!project) return;
+      const role = s.session && s.session.role && s.session.role.name ? String(s.session.role.name).slice(0, 16) : null;
+      const name = role ? `${role} · ${project}` : project;
 
       const roomy = LABEL_SIZE * scale >= LABEL_SMALLEST * ratio;
       const size = roomy ? LABEL_SIZE * scale : LABEL_SMALLEST * ratio;
@@ -7905,7 +8424,17 @@
       }
       ctx.font = font(600, size);
       ctx.fillStyle = `rgba(255,255,255,${s.session ? 0.92 : 0.45})`;
-      ctx.fillText(shown, nameLeft + padding + dotSize + gap, center.y);
+      const nameAt = nameLeft + padding + dotSize + gap;
+      // The role in its badge's colour, where it's whole
+      const badge = badgeOf(s.session);
+      if (role && badge && shown.startsWith(`${role} ·`)) {
+        const rest = shown.slice(role.length);
+        ctx.fillText(rest, nameAt + ctx.measureText(role).width, center.y);
+        ctx.fillStyle = css(BADGES[badge].colour);
+        ctx.fillText(role, nameAt, center.y);
+      } else {
+        ctx.fillText(shown, nameAt, center.y);
+      }
       if (activity) {
         ctx.font = font(500, small);
         ctx.fillStyle = css(colour(s.session.state));
@@ -8303,21 +8832,24 @@
       }
     }
 
+    /** A desk marked as the picked desk is, blinking: where a carried agent would land, or where a hire would sit. */
+    function drawBlinkingCorners(desk) {
+      const d = DESKS[desk];
+      const left = d.x - 3, right = d.x + DESK_WIDTH + 2, top = d.y + reachOf(desk), bottom = d.y + 18;
+      const blink = 0.55 + 0.45 * Math.sin(now * 8);
+      for (const [cx, cy, dx, dy] of [[left, top, 1, 1], [right, top, -1, 1], [left, bottom, 1, -1], [right, bottom, -1, -1]]) {
+        fill(dx > 0 ? cx : cx - 3, cy, 4, 1, ink, blink);
+        fill(cx, dy > 0 ? cy : cy - 3, 1, 4, ink, blink);
+      }
+    }
+
     /**
      * An agent carried to another desk: lifted to just above the finger,
      * legs dangling, their chair held over their head, and the desk they'd
      * land at marked as the picked desk is.
      */
     function drawCarried({ person, x, y, over, from }) {
-      if (over !== null && over !== from) {
-        const d = DESKS[over];
-        const left = d.x - 3, right = d.x + DESK_WIDTH + 2, top = d.y + reachOf(over), bottom = d.y + 18;
-        const blink = 0.55 + 0.45 * Math.sin(now * 8);
-        for (const [cx, cy, dx, dy] of [[left, top, 1, 1], [right, top, -1, 1], [left, bottom, 1, -1], [right, bottom, -1, -1]]) {
-          fill(dx > 0 ? cx : cx - 3, cy, 4, 1, ink, blink);
-          fill(cx, dy > 0 ? cy : cy - 3, 1, 4, ink, blink);
-        }
-      }
+      if (over !== null && over !== from) drawBlinkingCorners(over);
       if (!person) return;
       // Feet a little above the finger, so the finger doesn't hide them
       const lifted = Object.create(person, {
@@ -8536,25 +9068,14 @@
         return rows;
       };
       const heightOf = (rows) => rows.length * (KEY_ROW.h + KEY_ROW.gap) - KEY_ROW.gap + KEY_ROW.inset * 2;
-      // The red button and the mic, where the strip would cover them: it stops short of them
-      let left = seen.left + 2, right = seen.right - 2;
-      let rows = wrap(right - left);
-      const { tap } = MIC_KINDS[decor.mic];
-      const controls = [['button', BUTTON.x - 7, BUTTON.y - 1, BUTTON.x + 8, BUTTON.y + 16], ['mic', MIC.x + tap.left, MIC.y + tap.top, MIC.x + tap.right, MIC.y + tap.bottom]]
-        .map(([part, l, tp, r, b]) => ({ a: placed(part, { x: l, y: tp }), b: placed(part, { x: r, y: b }) }));
+      let span = { left: seen.left + 2, right: seen.right - 2 };
+      let rows = wrap(span.right - span.left);
       for (let pass = 0; pass < 2; pass++) {
-        const top = seen.bottom - 2 - heightOf(rows);
-        for (const { a, b } of controls) {
-          if (b.y < top || b.x < left || a.x > right) continue;
-          if ((a.x + b.x) / 2 > (left + right) / 2) right = Math.min(right, Math.floor(a.x) - 3);
-          else left = Math.max(left, Math.ceil(b.x) + 3);
-        }
-        rows = wrap(right - left);
+        span = footSpan(heightOf(rows), span);
+        rows = wrap(span.right - span.left);
       }
-      const w = right - left, h = heightOf(rows), top = Math.round(seen.bottom - 2 - h);
-      fill(left + 1, top, w - 2, h, PALETTE.bubbleEdge);
-      fill(left, top + 1, w, h - 2, PALETTE.bubbleEdge);
-      fill(left + 1, top + 1, w - 2, h - 2, PALETTE.bubble);
+      const { left, right } = span, w = right - left, h = heightOf(rows), top = Math.round(seen.bottom - 2 - h);
+      drawFootStrip(left, top, w, h);
       row.box = { left, top, right: left + w, bottom: top + h };
       row.at = [];
       rows.forEach((r, i) => {
@@ -8585,6 +9106,101 @@
           x += kw + KEY_ROW.gap;
         }
       });
+    }
+
+    /**
+     * How far across the foot of what can be seen a strip `h` tall can go,
+     * within `span`: where the foot is the room's own, it stops short of the
+     * red button and the mic, so they can still be pressed.
+     */
+    function footSpan(h, span) {
+      let { left, right } = span;
+      const top = seen.bottom - 2 - h;
+      const { tap } = MIC_KINDS[decor.mic];
+      const controls = [['button', BUTTON.x - 7, BUTTON.y - 1, BUTTON.x + 8, BUTTON.y + 16], ['mic', MIC.x + tap.left, MIC.y + tap.top, MIC.x + tap.right, MIC.y + tap.bottom]]
+        .map(([part, l, tp, r, b]) => ({ a: placed(part, { x: l, y: tp }), b: placed(part, { x: r, y: b }) }));
+      for (const { a, b } of controls) {
+        if (b.y < top || b.x < left || a.x > right) continue;
+        if ((a.x + b.x) / 2 > (left + right) / 2) right = Math.min(right, Math.floor(a.x) - 3);
+        else left = Math.max(left, Math.ceil(b.x) + 3);
+      }
+      return { left, right };
+    }
+
+    /** A strip of a bubble's paper, for keys along the foot of the room. */
+    function drawFootStrip(left, top, w, h) {
+      fill(left + 1, top, w - 2, h, PALETTE.bubbleEdge);
+      fill(left, top + 1, w, h - 2, PALETTE.bubbleEdge);
+      fill(left + 1, top + 1, w - 2, h - 2, PALETTE.bubble);
+    }
+
+    /** A dark key, going down as it's pressed, as the picked agent's are. */
+    function drawDarkKey(x, y, w, h, sunk) {
+      const ky = y + sunk;
+      fill(x + 1, ky, w - 2, h - sunk, PALETTE.frame);
+      fill(x, ky + 1, w, h - 2 - sunk, PALETTE.frame);
+      fill(x + 1, ky + 1, w - 2, h - 2 - sunk, sunk ? 0x2a2d35 : 0x3a3d47);
+      if (!sunk) fill(x + 1, ky + h - 2, w - 2, 1, 0x2a2d35);
+      fill(x + 2, ky + 1, w - 4, 1, WHITE, sunk ? 0.1 : 0.25);
+    }
+
+    /**
+     * The roles an empty desk held down can hire into, Anyone first, along
+     * the foot of what can be seen where the picked agent's keys go: each a
+     * dark key with its badge's icon and its name, in one row that slides
+     * along under a finger, `row.offset` art pixels, a fade at either end
+     * with more past it. The desk held blinks as the picked desk's corners.
+     * Where each lands is kept on `row.at`, the strip on `row.box` and how
+     * far it can slide on `row.most`, for taps.
+     */
+    function drawRoleRow(row) {
+      const { roles, down } = row;
+      if (DESKS[row.desk]) drawBlinkingCorners(row.desk);
+      const font = `600 ${Math.max(KEY_ROW.text * scale, 7 * ratio)}px ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif`;
+      ctx.font = font;
+      const names = roles.map((role) => String(role.name).slice(0, 16));
+      const textOf = names.map((name) => Math.ceil(ctx.measureText(name).width / scale));
+      const icons = roles.map(roleIcon);
+      const widths = roles.map((_, i) => (icons[i] ? 2 + 16 + 3 : ROLE_ROW.pad) + textOf[i] + ROLE_ROW.pad);
+      const ch = ROLE_ROW.h, h = ch + ROLE_ROW.inset * 2;
+      const { left, right } = footSpan(h, { left: seen.left + 2, right: seen.right - 2 });
+      const w = right - left, top = Math.round(seen.bottom - 2 - h);
+      drawFootStrip(left, top, w, h);
+      row.box = { left, top, right: left + w, bottom: top + h };
+      row.at = [];
+      // The row goes no further than its last chip, and what's past the strip's ends is cut off.
+      const length = widths.reduce((a, b) => a + b + ROLE_ROW.gap, -ROLE_ROW.gap);
+      const most = Math.max(0, length - (w - ROLE_ROW.inset * 2));
+      const offset = Math.round(Math.max(0, Math.min(most, row.offset || 0)));
+      row.most = most;
+      ctx.save();
+      const a = screen(left + 1, top), b = screen(right - 1, top + h);
+      ctx.beginPath();
+      ctx.rect(a.x, a.y, b.x - a.x, b.y - a.y);
+      ctx.clip();
+      let x = left + ROLE_ROW.inset - offset;
+      const y = top + ROLE_ROW.inset;
+      roles.forEach((role, i) => {
+        const kw = widths[i];
+        const sunk = down && down.id === role.id && (down.held || now - down.at < CHOICE_PRESS_LENGTH) ? 1 : 0, ky = y + sunk;
+        drawDarkKey(x, y, kw, ch, sunk);
+        const p = screen(x + 2, ky + 1);
+        if (icons[i]) ctx.drawImage(icons[i], p.x, p.y, 16 * scale, 16 * scale);
+        const at = screen(x + (icons[i] ? 2 + 16 + 3 : ROLE_ROW.pad), ky + (ch - 2) / 2 + 0.5);
+        ctx.font = font;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = css(sunk ? PALETTE.terminal : PALETTE.bubble);
+        ctx.fillText(names[i], at.x, at.y);
+        if (x + kw > left && x < right) row.at.push({ id: role.id, left: Math.max(x, left), top: y, right: Math.min(x + kw, right), bottom: y + ch });
+        x += kw + ROLE_ROW.gap;
+      });
+      ctx.restore();
+      // A fade at either end that has more past it
+      for (let i = 0; i < 6; i++) {
+        if (offset > 0) fill(left + 1 + i, top + 1, 1, h - 2, PALETTE.bubble, 0.85 - i * 0.14);
+        if (offset < most) fill(right - 2 - i, top + 1, 1, h - 2, PALETTE.bubble, 0.85 - i * 0.14);
+      }
     }
 
     /** Arranging the room: a dotted line round each piece that can be picked, and a solid one round the one picked. */
@@ -8799,6 +9415,7 @@
     if (frame.musicTap) drawMusicTap(frame.musicTap);
     if (frame.musicPanel) drawMusicPanel(frame.musicPanel);
     if (frame.keyRow) drawKeyRow(frame.keyRow);
+    if (frame.roleRow) drawRoleRow(frame.roleRow);
     if (frame.styleKey) drawStyleKey(frame.styleKey);
     if (frame.firing) drawFireDialog(frame.firing);
     if (frame.styles) drawStyleMenu(frame.styles);
@@ -9801,6 +10418,9 @@
     let keyArmed = null;     // a key that wants a second tap, tapped once: { action, at }
     let keyDown = null;      // the key last pressed: { action, at, held }
     let keysAt = null;       // where the keys were last drawn, in art pixels: { keys, box }
+    let roleDown = null;     // the role last tapped, on a held empty desk: { id, at, held }
+    let roleOffset = 0;      // how far the roles are slid along, in art pixels
+    let rolesAt = null;      // where the roles were last drawn, in art pixels: { roles, box, most }
     // Two fingers on the room scroll the picked agent's Terminal: each finger by its id, where it is, in CSS pixels
     const touches = new Map();
     let scrolling = null;    // { y, at, moved, carry }, while two fingers are down
@@ -9886,10 +10506,19 @@
       return !fixed && desk === office.seats.length && desk < DESKS.length;
     }
 
-    /** The button on a held desk, if the computer allows it: fire its agent, or hire one into it. */
+    /** The roles the computer can hire into, as you've set them up: none, and a hire is anyone. */
+    const roles = () => (Array.isArray(hiring.roles) ? hiring.roles.filter((r) => r && typeof r.id === 'string' && r.name) : []);
+
+    /** The roles a held empty desk can hire into, along the foot of the room, Anyone first, if there are any to choose from. */
+    function roleRow() {
+      if (framed || !held || held.kind !== 'empty' || !hiresInto(held.desk) || !roles().length || arranging || styling || firing || carrying) return null;
+      return { desk: held.desk, roles: [{ id: null, name: 'Anyone' }, ...roles()], down: roleDown, offset: roleOffset };
+    }
+
+    /** The button on a held desk, if the computer allows it: fire its agent, or hire one into it, where there are no roles to choose from. */
     function heldButton() {
       if (framed || !held) return null;
-      if (held.kind === 'empty') return hiresInto(held.desk) ? deskButton(held.desk, 'hire') : null;
+      if (held.kind === 'empty') return hiresInto(held.desk) && !roles().length ? deskButton(held.desk, 'hire') : null;
       if (held.id !== selected || !hiring.fire) return null;
       const desk = office.seats.findIndex((s) => s.session && s.session.id === held.id);
       return desk >= 0 ? deskButton(desk, 'fire') : null;
@@ -9968,9 +10597,10 @@
         finger.held = true;
         const { kind, id, desk } = finger.target;
         held = kind === 'session' ? { kind, id } : hiresInto(desk) ? { kind: 'empty', desk } : null;
+        roleOffset = 0;
         // An agent held, at a desk or in the line, puts out their keys too, whether or not they have chips.
         if (kind === 'session') keysFor = id;
-        if (chips() || heldButton() || keyRow()) on.held?.();
+        if (chips() || heldButton() || keyRow() || roleRow()) on.held?.();
       }
       // The room takes its canvas's shape: tall on a screen held upright, where it comes out bigger.
       const fitting = canvas.height > canvas.width ? TALL : WIDE;
@@ -9979,7 +10609,7 @@
       ambience.follow(office, now, loudness(), { mic, carrying, music: music && music.playing === true });
       const key = styleKey();
       if (!key) styling = false;
-      const keys = keyRow();
+      const keys = keyRow(), hires = roleRow();
       drawOffice(ctx, office, {
         now, hour: date.getHours(), minute: date.getMinutes(), month: date.getMonth(),
         width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1,
@@ -9996,9 +10626,11 @@
         musicTap: musicTap && now - musicTap.at < MUSIC_TAP_LENGTH && { box: pieceBox(musicTap.part), was: musicTap.was, since: now - musicTap.at },
         musicPanel: musicControl() && { ...musicControl(), playing: music.playing, down: musicDown },
         keyRow: keys,
+        roleRow: hires,
       });
       styleKeyAt = key && key.at;
       keysAt = keys && keys.at ? { keys: keys.at, box: keys.box } : null;
+      rolesAt = hires && hires.at ? { roles: hires.at, box: hires.box, most: hires.most } : null;
     }
 
     function run() {
@@ -10134,6 +10766,12 @@
         const { box } = keysAt;
         if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return best && best.target.kind === 'key' ? best.target : null;
       }
+      // So do the roles a held empty desk offers: a finger on their strip is on a role, or slides them along.
+      if (rolesAt && roleRow()) {
+        for (const r of rolesAt.roles) consider({ kind: 'role', id: r.id, chip: true }, r, -1);
+        const { box } = rolesAt;
+        if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return best && best.target.kind === 'role' ? best.target : { kind: 'role', chip: false };
+      }
       // The music control covers what's under it: a tap on it goes to a key or nowhere.
       const control = musicControl();
       if (control) {
@@ -10170,6 +10808,11 @@
         }
         keyArmed = null;
         return on.key?.(target.action);
+      }
+      // A role hires once the finger lifts, if it hasn't slid them along instead (see `lift`).
+      if (target.kind === 'role') {
+        roleDown = target.chip ? { id: target.id, at: clock(), held: true } : null;
+        return;
       }
       // Anything else tapped puts the held desk's chips and button away.
       const holding = held;
@@ -10216,7 +10859,7 @@
         if (seat) firing = { id: holding.id, name: memberOf(seat.session)?.name || seat.session.name };
         return on.held?.();
       }
-      if (target.kind === 'hire') return on.hire?.(holding.desk);
+      if (target.kind === 'hire') return on.hire?.(holding.desk, null);
       // An empty or pinned desk says something on a tap, once the finger lifts: holding it is something else.
       if (target.kind === 'empty' || target.kind === 'pinned') return;
       if (target.kind === 'choice') {
@@ -10267,6 +10910,16 @@
       if (keyDown) keyDown.held = false;
       // A chip, once chosen, goes away with the rest.
       if (finger && finger.target.kind === 'chip') held = null;
+      // A role tapped, not slid along, hires into the held desk, and the roles go away.
+      if (finger && finger.target.kind === 'role') {
+        if (roleDown) roleDown.held = false;
+        const { chip, id } = finger.target;
+        if (dropped && chip && !finger.slid && held && held.kind === 'empty') {
+          const { desk } = held;
+          held = null;
+          on.hire?.(desk, id);
+        }
+      }
       if (finger && !finger.held) {
         const { kind, name, desk } = finger.target;
         const hold = hiresInto(desk) ? 'Hold the desk to hire someone' : '';
@@ -10625,10 +11278,23 @@
         }
         return;
       }
+      if (finger && e.pointerId === finger.id && finger.target.kind === 'role') return slide(e);
       if (finger && e.pointerId === finger.id) return carry(e);
       // A mouse shows what can be clicked.
       if (e.pointerType === 'mouse' && !finger) canvas.style.cursor = targetAt(e.clientX, e.clientY) ? 'pointer' : '';
     });
+
+    /** A finger on the roles, moved along them further than a tap would, slides them with it. */
+    function slide(e) {
+      if (!finger.slid) {
+        if (Math.abs(e.clientX - finger.x) < CARRY_AFTER) return;
+        finger.slid = true;
+        finger.from = roleOffset;
+        roleDown = null;
+      }
+      const a = roomAt(finger.x, finger.y), b = roomAt(e.clientX, e.clientY);
+      roleOffset = Math.max(0, Math.min(rolesAt ? rolesAt.most : 0, finger.from + a.x - b.x));
+    }
 
     /** A finger held on an agent's desk, then moved, picks the agent up and carries them. */
     function carry(e) {
@@ -10865,5 +11531,7 @@
     // What the back wall can hold, each piece's width, and where along the wall they can go, for the editor's drawer
     wallPieces: Object.fromEntries(WALL_CHOICES.filter((kind) => kind !== 'bare').map((kind) => [kind, { w: wallWidthOf(kind) }])),
     wallRange: WALL_RANGE, hungMost: HUNG_MOST, addedMost: ADDED_MOST,
+    // The badges a role can wear, in setup's order, and each one's icon on a canvas of its own for a role's card
+    badges: BADGE_IDS, badgeIcon: (id, scale = 1) => (Object.hasOwn(BADGES, id) ? paintIcon(BADGES[id].icon, Math.max(1, Math.round(scale))) : null),
   };
 })();
