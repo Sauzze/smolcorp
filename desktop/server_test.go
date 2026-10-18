@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -255,5 +256,45 @@ func TestTheTraysLinkGivesThePageACookie(t *testing.T) {
 	// Each start has a new key, so a link or cookie from before stops working.
 	if again := NewDeck(); again.access.SetupKey == d.access.SetupKey {
 		t.Error("a new start kept the setup key")
+	}
+}
+
+func TestOneDeviceCantTakeEveryConnection(t *testing.T) {
+	l := &cappedListener{byAddress: map[string]int{}}
+	var held []func()
+	for range mostPerAddress {
+		release, ok := l.take("192.168.1.66")
+		if !ok {
+			t.Fatal("a device was refused before it reached its share")
+		}
+		held = append(held, release)
+	}
+	if _, ok := l.take("192.168.1.66"); ok {
+		t.Fatalf("one device got more than %d connections", mostPerAddress)
+	}
+	// Other devices fill the rest, but never the ones kept for this computer.
+	for i := 0; ; i++ {
+		release, ok := l.take(fmt.Sprintf("192.168.1.%d", 100+i/mostPerAddress))
+		if !ok {
+			break
+		}
+		held = append(held, release)
+	}
+	if l.open != maxConnections-keptForThisComputer {
+		t.Fatalf("other devices hold %d connections, want %d", l.open, maxConnections-keptForThisComputer)
+	}
+	// The hook still gets in, more than once.
+	for range keptForThisComputer {
+		release, ok := l.take("127.0.0.1")
+		if !ok {
+			t.Fatal("the hook was locked out by other devices")
+		}
+		held = append(held, release)
+	}
+	for _, release := range held {
+		release()
+	}
+	if l.open != 0 || len(l.byAddress) != 0 {
+		t.Fatalf("connections closed but still counted: %d open, %v", l.open, l.byAddress)
 	}
 }

@@ -38,6 +38,13 @@ const (
 	// Far more than a few phones, launchers and hooks ever open at once.
 	// Beyond it, new connections are refused, so a flood can't exhaust the app.
 	maxConnections = 64
+	// No one other address may hold more than this many, and a few are kept
+	// for this computer, so a device on the network can't take them all and
+	// lock out the phones, or the hook.
+	mostPerAddress      = 16
+	keptForThisComputer = 8
+	// How long a connection kept open between requests is kept.
+	idleTimeout = 30 * time.Second
 	// Longer than any real request takes to arrive.
 	requestTimeout = 10 * time.Second
 	maxRequestSize = 1 << 20
@@ -57,19 +64,25 @@ func Serve(deck *Deck) error {
 	if err != nil {
 		return err
 	}
+	// No ReadTimeout: it would end the event streams too. Each request's body
+	// gets its own deadline instead, in ServeHTTP.
 	server := &http.Server{
 		Handler:           &router{deck: deck},
 		ReadHeaderTimeout: requestTimeout,
+		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxRequestSize,
 	}
-	return server.Serve(&cappedListener{Listener: listener, slots: make(chan struct{}, maxConnections)})
+	return server.Serve(&cappedListener{Listener: listener, byAddress: map[string]int{}})
 }
 
-// cappedListener refuses connections beyond its slots rather than queueing
-// them.
+// cappedListener refuses connections beyond its limits rather than queueing
+// them: maxConnections in all, mostPerAddress from any one address but this
+// computer's, and keptForThisComputer that only this computer can have.
 type cappedListener struct {
 	net.Listener
-	slots chan struct{}
+	mu        sync.Mutex
+	open      int
+	byAddress map[string]int
 }
 
 func (l *cappedListener) Accept() (net.Conn, error) {
@@ -78,13 +91,36 @@ func (l *cappedListener) Accept() (net.Conn, error) {
 		if err != nil {
 			return nil, err
 		}
-		select {
-		case l.slots <- struct{}{}:
-			return &slotConn{Conn: conn, release: func() { <-l.slots }}, nil
-		default:
-			conn.Close()
+		address, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+		if release, ok := l.take(address); ok {
+			return &slotConn{Conn: conn, release: release}, nil
 		}
+		conn.Close()
 	}
+}
+
+func (l *cappedListener) take(address string) (release func(), ok bool) {
+	ip := net.ParseIP(address)
+	local := ip != nil && ip.IsLoopback()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	limit := maxConnections
+	if !local {
+		limit -= keptForThisComputer
+	}
+	if l.open >= limit || !local && l.byAddress[address] >= mostPerAddress {
+		return nil, false
+	}
+	l.open++
+	l.byAddress[address]++
+	return func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		l.open--
+		if l.byAddress[address]--; l.byAddress[address] == 0 {
+			delete(l.byAddress, address)
+		}
+	}, true
 }
 
 type slotConn struct {
@@ -117,6 +153,11 @@ var (
 
 func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestSize)
+	// A body sent a byte at a time would hold its connection for as long as
+	// it liked. The event streams and launchers stay open, and send nothing.
+	if r.URL.Path != "/events" && r.URL.Path != "/launcher" {
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(requestTimeout))
+	}
 	host := portSuffix.ReplaceAllString(r.Host, "")
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)
