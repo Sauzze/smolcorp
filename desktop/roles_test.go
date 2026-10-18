@@ -72,9 +72,10 @@ func TestEachAgentStartsOnTheRole(t *testing.T) {
 
 func TestARoleFirstSettlesItsFolder(t *testing.T) {
 	isolate(t)
-	homeDir = "/home/someone"
-	message := shippedRoles[1].firstMessage("/home/someone/work/api")
-	if !strings.HasPrefix(message, "You've started in ~/work/api. Before anything else, tell me that's where you'll work") ||
+	// In this system's own separators: ~\work\api on Windows.
+	homeDir = filepath.Join(string(filepath.Separator), "home", "someone")
+	message := shippedRoles[1].firstMessage(filepath.Join(homeDir, "work", "api"))
+	if !strings.HasPrefix(message, "You've started in "+filepath.Join("~", "work", "api")+". Before anything else, tell me that's where you'll work") ||
 		!strings.Contains(message, "\n\nThen, as my Tester: Run this project's tests.") {
 		t.Errorf("the tester is first told\n%s", message)
 	}
