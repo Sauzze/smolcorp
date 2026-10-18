@@ -5,14 +5,14 @@ import WebKit
 /// The office in a window of its own on this Mac: no title bar and no frame,
 /// only the room, rounded, with the window's shadow under it. The menu bar's
 /// Show Office, or ⌥⌘O from anywhere, shows and hides it, and Esc hides it
-/// while it's in front. It's held with ⌘ and dragged anywhere, or by the bar
+/// once you've clicked it. It's held with ⌘ and dragged anywhere, or by the bar
 /// along the middle of its top edge, and resized from its edges and corners,
 /// keeping the office's shape: drawn taller than wide, it turns upright, and
 /// wider than tall, sideways. Each screen remembers where it was.
 ///
 /// It reads the office as a phone does, with a key of its own that lives as
 /// long as the app and works only from this Mac: no pairing, and nothing
-/// listed among your phones. Clicking it doesn't take the keyboard from the
+/// listed among your phones. Showing it doesn't take the keyboard from the
 /// window you're typing in.
 final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     /// The office's shapes, as office.js draws them: sideways and upright.
@@ -82,8 +82,8 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         let screen = screenUnderPointer()
         panel.setFrame(savedFrame(on: screen) ?? firstFrame(on: screen), display: false)
         applyOptions()
-        // In front and taking Esc, until you click back where you were typing
-        panel.makeKeyAndOrderFront(nil)
+        // In front, leaving the keyboard where you were typing: it takes Esc
+        // once you've clicked it.
         panel.orderFrontRegardless()
         refreshShadow()
     }
@@ -133,14 +133,20 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         panel.contentView = content
         web.load(URLRequest(url: address))
 
-        // ⌘ held, a drag anywhere moves it; Esc hides it while it's in front.
+        // ⌘ held, a drag anywhere moves it; a click brings it forward, as only
+        // the window clicked takes it; Esc hides it once it has the keyboard.
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak panel] event in
-            guard let panel, event.window === panel, event.modifierFlags.contains(.command) else { return event }
+            guard let panel, event.window === panel else { return event }
+            guard event.modifierFlags.contains(.command) else {
+                panel.firstClickOnlyRaises = !panel.isKeyWindow && panel.isPartlyCovered
+                panel.orderFrontRegardless()
+                return event
+            }
             panel.performDrag(with: event)
             return nil
         } as Any)
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak panel] event in
-            guard let panel, event.window === panel, event.keyCode == UInt16(kVK_Escape) else { return event }
+            guard let panel, panel.isKeyWindow, event.window === panel, event.keyCode == UInt16(kVK_Escape) else { return event }
             self?.hide()
             return nil
         } as Any)
@@ -198,6 +204,18 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { refreshShadow() }
 
+    /// Only the office's own pages, from this Mac's Smolcorp: the window's
+    /// address carries its key.
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(OfficeWindow.isOwnPage(action.request.url, of: address) ? .allow : .cancel)
+    }
+
+    static func isOwnPage(_ url: URL?, of address: URL) -> Bool {
+        guard let url else { return false }
+        return url.scheme == "http" && url.host == "127.0.0.1" && url.port == address.port
+    }
+
     func windowDidMove(_ notification: Notification) { saveFrame() }
 
     // MARK: Where it is, per screen
@@ -240,12 +258,40 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
 /// Smolcorp the app in front.
 final class OfficePanel: NSPanel {
     override var canBecomeKey: Bool { true }
+
+    /// Whether the click being taken was only to bring the window forward.
+    var firstClickOnlyRaises = false
+
+    /// Whether another window is over part of it: a click on it then is one
+    /// to bring it forward. Only windows at its own level or below count,
+    /// not the menu bar or the Dock.
+    var isPartlyCovered: Bool {
+        guard let above = CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow, .excludeDesktopElements],
+                                                     CGWindowID(windowNumber)) as? [[String: Any]],
+              let primary = NSScreen.screens.first else { return false }
+        // Window lists measure from the top of the main screen, downwards.
+        let mine = CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
+        return above.contains { window in
+            guard let layer = window[kCGWindowLayer as String] as? Int, (0...level.rawValue).contains(layer),
+                  (window[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let bounds = (window[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0 as CFDictionary) })
+            else { return false }
+            return bounds.intersects(mine)
+        }
+    }
 }
 
 /// The office's page, which takes the click that brings its window forward
-/// as a click, as a phone would.
+/// as a click, as a phone would, unless the window was partly hidden: that
+/// click only brings it forward, so it doesn't press whatever it lands on.
 final class OfficeWebView: WKWebView {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        !((window as? OfficePanel)?.firstClickOnlyRaises ?? false)
+    }
+
+    /// Clicked, the window takes the keyboard, for Esc, without bringing
+    /// Smolcorp forward.
+    override var needsPanelToBecomeKey: Bool { true }
 }
 
 /// A slim bar along the middle of the office's top edge that shows while the
