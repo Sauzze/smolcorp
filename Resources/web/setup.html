@@ -835,6 +835,8 @@
     $('role-add').disabled = own >= r.limits.own;
     $('role-add').title = own >= r.limits.own ? `${r.limits.own} roles of your own is the most.` : '';
     $('role-shipped').hidden = r.shipped.every((s) => roles.some((role) => role.id === s.id));
+    // A field is saved as you leave it: redrawing the cards while you type would take it, and what's in it, away.
+    if (document.activeElement && document.activeElement.matches('#roles input, #roles textarea, #roles select')) return;
     $('roles').replaceChildren(...roles.map((role, i) => {
       const card = document.createElement('details');
       card.className = 'role';
