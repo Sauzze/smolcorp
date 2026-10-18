@@ -32,6 +32,20 @@ enum TestCopy {
 }
 
 enum Paths {
+    /// Writes `data` to `url` readable by you alone, whole or not at all: to
+    /// a file beside it, then put in its place, so a crash or a full disk
+    /// midway leaves the old one as it was. Says whether it was written.
+    @discardableResult
+    static func writePrivately(_ data: Data, to url: URL) -> Bool {
+        let temporary = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: temporary.path, contents: data, attributes: [.posixPermissions: 0o600]) else { return false }
+        guard rename(temporary.path, url.path) == 0 else {
+            try? FileManager.default.removeItem(at: temporary)
+            return false
+        }
+        return true
+    }
+
     static let support: URL = {
         if TestCopy.isOn, let dir = TestCopy.support {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

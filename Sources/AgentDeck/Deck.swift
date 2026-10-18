@@ -298,7 +298,7 @@ final class Deck {
             let saved = SavedDeck(savedAt: Date().timeIntervalSince1970 * 1000, sessions: self.sessions.saved, keys: self.keyOf,
                                   roles: self.roleOf)
             guard let data = try? JSONEncoder().encode(saved) else { return }
-            FileManager.default.createFile(atPath: Paths.sessions.path, contents: data, attributes: [.posixPermissions: 0o600])
+            Paths.writePrivately(data, to: Paths.sessions)
         }
     }
 

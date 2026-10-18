@@ -94,7 +94,7 @@ final class Phones {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(all) else { return }
-        FileManager.default.createFile(atPath: Paths.phones.path, contents: data,
-                                       attributes: [.posixPermissions: 0o600])
+        // Whole or not at all: a file cut short would unpair every phone.
+        Paths.writePrivately(data, to: Paths.phones)
     }
 }
