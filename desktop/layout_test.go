@@ -233,7 +233,7 @@ func TestAProfileIsntOfferedWithNoRoomForIt(t *testing.T) {
 func madeButtonDeck(t *testing.T) (*Deck, *launcherTab) {
 	t.Helper()
 	d := newTestDeck(t)
-	tab := d.launcherConnected("L1", Claude, "/work/api")
+	tab := d.launcherConnected("L1", Claude, "/work/api", "")
 	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": "/work/api"},
 		Claude, "launcher:L1", "", 100)
 	layout, err := parseLayout([]byte(`{"rows": [{"buttons": [

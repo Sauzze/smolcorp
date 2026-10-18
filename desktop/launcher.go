@@ -47,16 +47,33 @@ const stopGrace = 3 * time.Second
 // How long the launcher waits before reaching for the app again.
 const reconnectDelay = 3 * time.Second
 
-// RunLauncher returns the agent's exit code.
+// RunLauncher returns the agent's exit code. `smolcorp run --role <id>`
+// starts the role's agent on the role, as the Mac app's office hires it.
 func RunLauncher(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: smolcorp run <agent> [arguments], for example: smolcorp run claude")
+	if len(args) == 0 || args[0] == "--role" && len(args) != 2 {
+		fmt.Fprintln(os.Stderr, "Usage: smolcorp run <agent> [arguments], for example: smolcorp run claude\n"+
+			"   or: smolcorp run --role <role>, for example: smolcorp run --role tester")
 		return 2
+	}
+	role := ""
+	if args[0] == "--role" {
+		found, err := roleArguments(args[1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
+			return 2
+		}
+		role, args = args[1], found
 	}
 	program, programArgs, err := resolveProgram(args[0], args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 		return 127
+	}
+	if role != "" && program != args[0] && len(programArgs) > 0 && programArgs[0] == "/c" {
+		if programArgs, err = forCmd(programArgs); err != nil {
+			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
+			return 2
+		}
 	}
 
 	terminal, err := pty.New()
@@ -90,7 +107,7 @@ func RunLauncher(args []string) int {
 	go func() { _, _ = io.Copy(input, os.Stdin) }()
 	go func() { _, _ = io.Copy(os.Stdout, io.TeeReader(terminal, cursor)) }()
 	go followSize(terminal)
-	go serveDeck(id, agentNamed(args[0]), folder, input, cursor, func() { stopProcess(cmd.Process) })
+	go serveDeck(id, agentNamed(args[0]), folder, role, input, cursor, func() { stopProcess(cmd.Process) })
 
 	if err := cmd.Wait(); err != nil {
 		var exit *exec.ExitError
@@ -119,6 +136,42 @@ func resolveProgram(name string, args []string) (string, []string, error) {
 		}
 	}
 	return path, args, nil
+}
+
+// roleArguments are the agent and its arguments for the role with the id
+// given, as set up on the setup page.
+func roleArguments(id string) ([]string, error) {
+	roles := loadConfig().Roles
+	for _, role := range roles {
+		if role.ID == id {
+			folder, _ := os.Getwd()
+			return append([]string{role.Agent}, role.arguments(role.firstMessage(folder))...), nil
+		}
+	}
+	names := []string{}
+	for _, role := range roles {
+		names = append(names, role.ID)
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("there's no role %q, and no roles at all: add some on the setup page", id)
+	}
+	return nil, fmt.Errorf("there's no role %q. Yours are: %s", id, strings.Join(names, ", "))
+}
+
+// forCmd readies a role's arguments for an agent npm installed as a .cmd
+// script, which only cmd.exe can start. cmd.exe reads the command line again,
+// so the message's lines become spaces, and characters it would act on, such
+// as & or %, are refused rather than passed to it.
+func forCmd(args []string) ([]string, error) {
+	ready := make([]string, len(args))
+	for i, arg := range args {
+		arg = strings.Join(strings.FieldsFunc(arg, func(c rune) bool { return c == '\n' || c == '\r' }), " ")
+		if strings.ContainsAny(arg, `"%&|<>^`) {
+			return nil, fmt.Errorf("this agent starts through cmd.exe, which would act on the role's \" %% & | < > or ^: take those out of its instructions on the setup page")
+		}
+		ready[i] = arg
+	}
+	return ready, nil
 }
 
 // agentNamed is the agent a program name is, so the app can find Codex's
@@ -188,8 +241,8 @@ func (c *cursorMode) bytesFor(key Key) string {
 
 // serveDeck connects to the app and carries out its commands until the
 // agent exits, reconnecting whenever the connection drops.
-func serveDeck(id string, agent Agent, folder string, input io.Writer, cursor *cursorMode, stop func()) {
-	query := url.Values{"id": {id}, "agent": {string(agent)}, "folder": {folder}}
+func serveDeck(id string, agent Agent, folder, role string, input io.Writer, cursor *cursorMode, stop func()) {
+	query := url.Values{"id": {id}, "agent": {string(agent)}, "folder": {folder}, "role": {role}}
 	address := fmt.Sprintf("http://127.0.0.1:%d/launcher?%s", Port, query.Encode())
 	for {
 		if key, err := os.ReadFile(hookKeyFile); err == nil {
@@ -243,8 +296,10 @@ func follow(commands io.Reader, input io.Writer, cursor *cursorMode, stop func()
 
 // launcherTab is the app's side: a launcher connected to it.
 type launcherTab struct {
-	agent    Agent
-	folder   string
+	agent  Agent
+	folder string
+	// The role it was started with, by its id, or none.
+	role     string
 	commands chan launcherCommand
 }
 

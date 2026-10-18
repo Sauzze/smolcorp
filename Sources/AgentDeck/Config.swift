@@ -26,6 +26,9 @@ final class Config: Codable {
     /// The folder new hires start in, and the agent they are.
     var hireFolder = ""
     var hireAgent = Agent.claude.rawValue
+    /// The roles the office can hire, in the order the phone offers them:
+    /// those that come with the app until you change them, and your own.
+    var roles = Role.shipped
     /// Whether a jukebox in the office may play and pause the Mac's music.
     /// Off until you turn it on: it presses a media key.
     var musicEnabled = false
@@ -34,7 +37,7 @@ final class Config: Codable {
     var hasCompletedSetup = false
 
     private enum CodingKeys: String, CodingKey {
-        case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent
+        case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles
         case musicEnabled, webhook, hasCompletedSetup
     }
 
@@ -57,6 +60,8 @@ final class Config: Codable {
         hiringEnabled = try c.decodeIfPresent(Bool.self, forKey: .hiringEnabled) ?? false
         hireFolder = try c.decodeIfPresent(String.self, forKey: .hireFolder) ?? ""
         hireAgent = (try c.decodeIfPresent(String.self, forKey: .hireAgent)).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
+        // Checked as they load: their instructions go to agents.
+        roles = ((try? c.decodeIfPresent([Role].self, forKey: .roles)) ?? nil).map(Role.checked) ?? roles
         musicEnabled = try c.decodeIfPresent(Bool.self, forKey: .musicEnabled) ?? false
         webhook = (try? c.decodeIfPresent(Webhook.self, forKey: .webhook)) ?? Webhook()
         hasCompletedSetup = try c.decodeIfPresent(Bool.self, forKey: .hasCompletedSetup) ?? false
