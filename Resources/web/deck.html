@@ -115,6 +115,7 @@
   let selected = null; // session id the office's controls act on
   let layout = null;   // as set up on the computer: the buttons made there, and the office's room
   let scrollEnabled = false; // whether two fingers may scroll Terminal, as set on the computer
+  let roles = [];      // the roles the office can hire, by id, name and badge
 
   /* ------------------------------------------------------------- office */
 
@@ -145,14 +146,15 @@
       tick();
     },
     // Firing, once the office has asked: whether the agent was let go,
-    // which only a plain yes means. And hiring, into the desk held.
+    // which only a plain yes means. And hiring, into the desk held, as one of
+    // the roles set up on the computer, or a regular hire without one.
     async fire(id) {
       tick();
       return (await send('/act', { session: id, action: 'fire' })) === 204;
     },
-    hire(desk) {
+    hire(desk, role) {
       tick();
-      send('/act', { action: 'hire', desk });
+      send('/act', { action: 'hire', desk, ...(role ? { role } : {}) });
     },
     // An agent carried from one desk to another: the two swap, and stay so.
     swap(from, to) {
@@ -508,6 +510,7 @@
   /** What the computer streams: the sessions at their desks and the layout. */
   function receive(data) {
     sessions = (data.keys || []).filter((k) => k.session).map((k) => k.session);
+    roles = (data.hiring && data.hiring.roles) || [];
     noteWaits();
     overflow = data.overflow;
     scrollEnabled = data.scroll;
@@ -533,7 +536,7 @@
       clear: 'starts a fresh conversation', up: 'moves up', down: 'moves down',
       mic: params.phase === 'down' ? 'starts listening' : 'stops listening',
       effort: `sets effort to ${params.level}`, scroll: 'scrolls',
-      fire: 'fires', hire: 'hires a new agent', swap: 'swaps two desks', style: 'changes the office\'s style',
+      fire: 'fires', hire: params.role ? `hires a ${(roles.find((r) => r.id === params.role) || { name: 'role' }).name}` : 'hires a new agent', swap: 'swaps two desks', style: 'changes the office\'s style',
       music: { previous: 'goes back a song', next: 'skips to the next song' }[params.do] || 'plays or pauses your music',
     };
     return `${words[params.action] || params.action}${name}`;

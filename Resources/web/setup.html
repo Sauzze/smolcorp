@@ -23,10 +23,10 @@
     /* The phone panel runs beside two rows; the keys' row takes up whatever
        height it has to spare, rather than a gap opening above the keys. */
     grid-template-rows: auto auto 1fr;
-    grid-template-areas: "head head" "start phone" "keys phone" "profiles profiles" "layout layout" "logo logo" "more more"; }
+    grid-template-areas: "head head" "start phone" "keys phone" "roles roles" "profiles profiles" "layout layout" "logo logo" "more more"; }
   @media (max-width: 840px) {
     main { grid-template-columns: minmax(0, 1fr); grid-template-rows: none;
-      grid-template-areas: "head" "start" "phone" "keys" "profiles" "layout" "logo" "more"; }
+      grid-template-areas: "head" "start" "phone" "keys" "roles" "profiles" "layout" "logo" "more"; }
   }
   header { grid-area: head; display: flex; gap: 16px; align-items: center; }
   header img { width: 52px; height: 52px; border-radius: 12px; }
@@ -130,6 +130,26 @@
   .empty { color: var(--dim); padding: 16px; border: 1px dashed var(--edge); border-radius: 10px; }
 
   /* Profiles: an office and its buttons, saved under a name to switch back to. */
+  /* Roles: who the office can hire, each a card that opens onto how it starts. */
+  .roles { grid-area: roles; display: grid; gap: 12px; }
+  .roles[hidden] { display: none; }
+  .role-list { display: grid; gap: 8px; }
+  .role { background: var(--panel); border: 1px solid var(--edge); border-radius: 10px; }
+  .role[open] { border-color: var(--dim); }
+  .role summary { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; list-style: none; }
+  .role summary::-webkit-details-marker { display: none; }
+  .role summary canvas { image-rendering: pixelated; flex: none; }
+  .role .name { font-weight: 600; }
+  .role .how { font-size: 12px; color: var(--dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .role .body { display: grid; gap: 10px; padding: 0 12px 12px; }
+  .role .body .choices { flex-wrap: wrap; justify-content: flex-end; }
+  .role .body .choices canvas { image-rendering: pixelated; vertical-align: -3px; }
+  .role textarea { width: 100%; min-height: 96px; resize: vertical; background: var(--cap); color: var(--ink); border: 1px solid var(--edge);
+    border-radius: 6px; padding: 8px; font: 13px/1.45 system-ui, sans-serif; box-sizing: border-box; }
+  .role .tools { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .role .tools .btn { padding: 4px 10px; font-size: 13px; }
+  .role code { font-size: 12px; }
+
   .profiles { grid-area: profiles; display: grid; gap: 12px; }
   .profiles[hidden] { display: none; }
   .profiles .choices { flex-wrap: wrap; }
@@ -408,6 +428,17 @@
     <div class="list" id="list"></div>
   </section>
 
+  <section class="roles" id="roles-section" hidden>
+    <h2>Roles</h2>
+    <p class="hint" id="roles-hint"></p>
+    <div class="role-list" id="roles"></div>
+    <datalist id="role-models"><option value="opus"><option value="sonnet"><option value="haiku"></datalist>
+    <div class="tools">
+      <button class="btn" id="role-add">Add a role</button>
+      <button class="btn" id="role-shipped">Bring back Smolcorp's roles</button>
+    </div>
+  </section>
+
   <section class="profiles" id="profiles-section" hidden>
     <h2>Profiles</h2>
     <div class="choices" id="profiles"></div>
@@ -603,6 +634,7 @@
     renderLogo();
     renderKeys();
     renderSessions();
+    renderRoles();
     renderProfiles();
     renderLayout();
     showInvite();
@@ -766,6 +798,170 @@
   };
   $('hire-choose').onclick = () => post('/setup/hiring/choose');
   $('hire-agent').onchange = () => post(`/setup/hiring?agent=${$('hire-agent').value}`);
+
+  /* ----------------------------------------------------------------- roles */
+
+  /** Claude Code's efforts as the office names them, and the agent's own. */
+  const EFFORT_NAMES = { '': 'Its own', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
+  /** The roles' cards that are open, by id, to stay open as the page redraws. */
+  const openRoles = new Set();
+
+  /** A role's badge as the office draws it, at `scale`, or nothing until office.js has one. */
+  const badgeOf = (id, scale) => (id && window.AgentOffice && AgentOffice.badgeIcon ? AgentOffice.badgeIcon(id, scale) : null);
+
+  /** Saves all the roles as given: the computer checks and keeps them, and the page redraws from what it kept. */
+  async function saveRoles(roles) {
+    const res = await post('/setup/roles', roles);
+    if (!res.ok) alert(await res.text());
+  }
+
+  /**
+   * Who the office can hire: each role a card, closed to its name and how it
+   * starts, open to change any of it. A change saves as you leave the field.
+   */
+  function renderRoles() {
+    const r = state.roles;
+    $('roles-section').hidden = !r;
+    if (!r) return;
+    const roles = r.roles;
+    const agentOf = (id) => r.agents.find((a) => a.id === id) || r.agents[0];
+    const own = roles.filter((role) => !r.shipped.some((s) => s.id === role.id)).length;
+    $('roles-hint').textContent = state.launcher
+      ? 'Start one in a terminal with the command on its card. It first confirms the folder you started it in, then works on its instructions.'
+      : 'Hold a free desk in the office and pick a role to hire it, or Anyone for a regular hire. Each first asks which folder '
+        + "to work in, or confirms the desk's project, then works on its instructions.";
+    $('role-add').disabled = own >= r.limits.own;
+    $('role-add').title = own >= r.limits.own ? `${r.limits.own} roles of your own is the most.` : '';
+    $('role-shipped').hidden = r.shipped.every((s) => roles.some((role) => role.id === s.id));
+    $('roles').replaceChildren(...roles.map((role, i) => {
+      const card = document.createElement('details');
+      card.className = 'role';
+      card.open = openRoles.has(role.id);
+      card.ontoggle = () => { if (card.open) openRoles.add(role.id); else openRoles.delete(role.id); };
+      const change = (edit) => saveRoles(roles.map((other) => (other.id === role.id ? edit({ ...other }) : other)));
+      const agent = agentOf(role.agent);
+
+      const summary = document.createElement('summary');
+      const icon = badgeOf(role.badge, 2);
+      if (icon) summary.append(icon);
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = role.name;
+      const how = document.createElement('span');
+      how.className = 'how';
+      how.textContent = state.launcher ? `smolcorp run --role ${role.id}`
+        : [agent.name, role.model, agent.effort && role.effort].filter(Boolean).join(' · ');
+      summary.append(name, how);
+
+      const body = document.createElement('div');
+      body.className = 'body';
+      const field = (label, control) => {
+        const row = document.createElement('div');
+        row.className = 'field';
+        const span = document.createElement('span');
+        span.textContent = label;
+        row.append(span, control);
+        return row;
+      };
+      const text = (value, limit, placeholder, onchange) => {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = value;
+        input.maxLength = limit;
+        input.placeholder = placeholder;
+        input.spellcheck = false;
+        input.onchange = () => onchange(input.value);
+        return input;
+      };
+
+      const agents = document.createElement('select');
+      agents.replaceChildren(...r.agents.map((a) => new Option(a.name, a.id, false, a.id === agent.id)));
+      agents.onchange = () => change((edit) => ({ ...edit, agent: agents.value }));
+      body.append(field('Name', text(role.name, r.limits.name, 'Reviewer', (value) => {
+        if (value.trim()) change((edit) => ({ ...edit, name: value }));
+        else render();
+      })), field('Agent', agents));
+      if (agent.starts) {
+        const model = text(role.model, r.limits.model, "The agent's own", (value) => change((edit) => ({ ...edit, model: value })));
+        if (agent.id === 'claude') {
+          model.setAttribute('list', 'role-models');
+        }
+        body.append(field('Model', model));
+      }
+      if (agent.effort) {
+        const efforts = document.createElement('div');
+        efforts.className = 'choices';
+        efforts.append(...['', ...r.efforts].map((level) => choice(EFFORT_NAMES[level] || level, role.effort === level,
+          () => change((edit) => ({ ...edit, effort: level })))));
+        body.append(field('Effort', efforts));
+      }
+      const badges = document.createElement('div');
+      badges.className = 'choices';
+      badges.append(...['', ...r.badges].map((badge) => {
+        const b = choice(badge ? '' : 'None', role.badge === badge, () => change((edit) => ({ ...edit, badge })));
+        const art = badgeOf(badge, 2);
+        if (art) b.append(art);
+        else if (badge) b.textContent = badge;
+        b.title = badge || 'No badge';
+        return b;
+      }));
+      body.append(field('Badge', badges));
+
+      const said = document.createElement('p');
+      said.className = 'hint';
+      if (agent.starts) {
+        said.textContent = 'It first settles which folder it works in. Then it\'s told:';
+        const instructions = document.createElement('textarea');
+        instructions.value = role.instructions;
+        instructions.maxLength = r.limits.instructions;
+        instructions.placeholder = 'What this role does, and what it should ask you before doing.';
+        instructions.onchange = () => change((edit) => ({ ...edit, instructions: instructions.value }));
+        body.append(said, instructions);
+      } else {
+        said.textContent = `${agent.name} starts as it is, without a model or instructions. Its desk still shows the role.`;
+        body.append(said);
+      }
+
+      const tools = document.createElement('div');
+      tools.className = 'tools';
+      const tool = (label, enabled, onclick) => {
+        const b = document.createElement('button');
+        b.className = 'btn';
+        b.textContent = label;
+        b.disabled = !enabled;
+        b.onclick = onclick;
+        return b;
+      };
+      const move = (by) => {
+        const moved = [...roles];
+        moved.splice(i + by, 0, ...moved.splice(i, 1));
+        saveRoles(moved);
+      };
+      const shipped = r.shipped.find((s) => s.id === role.id);
+      tools.append(tool('Up', i > 0, () => move(-1)), tool('Down', i < roles.length - 1, () => move(1)));
+      if (shipped) {
+        tools.append(tool('Back to how it came', JSON.stringify(shipped) !== JSON.stringify(role), () => change(() => ({ ...shipped }))));
+      }
+      tools.append(tool('Delete', true, () => {
+        if (confirm(`Delete the role ${role.name}?`)) saveRoles(roles.filter((other) => other.id !== role.id));
+      }));
+      body.append(tools);
+      card.append(summary, body);
+      return card;
+    }));
+  }
+
+  $('role-add').onclick = () => {
+    const roles = state.roles.roles;
+    let n = 1;
+    while (roles.some((role) => role.id === `own-${n}`)) n++;
+    openRoles.add(`own-${n}`);
+    saveRoles([...roles, { id: `own-${n}`, name: 'New role', agent: 'claude', model: '', effort: '', instructions: '', badge: 'star' }]);
+  };
+  $('role-shipped').onclick = () => {
+    const roles = state.roles.roles;
+    saveRoles([...roles, ...state.roles.shipped.filter((s) => !roles.some((role) => role.id === s.id))]);
+  };
 
   /* ----------------------------------------------------------------- phone */
 
