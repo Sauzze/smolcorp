@@ -115,7 +115,22 @@ final class Deck {
         guard let event = agent.canonical(event) else { return }
         let found = !tab.isEmpty ? tab : !tty.isEmpty ? TabAddress.terminalApp(tty: tty).text : self.tab(for: event, of: agent)
         sessions.apply(event, agent: agent, tab: found, startedIn: startedIn, at: time)
+        learnGhostty(found, folder: event["cwd"] as? String ?? "")
         noteMessage(event, from: agent)
+    }
+
+    /// Which Ghostty terminal a session is in, learned from its folder until
+    /// Ghostty can say: see `Ghostty`. Its desk gets its controls once known.
+    private var learningGhostty: [String: Date] = [:]
+    private func learnGhostty(_ tab: String, folder: String) {
+        guard let address = TabAddress(tab), address.kind == "ghostty", Ghostty.id(on: address.id) == nil, !folder.isEmpty else { return }
+        // At most every few seconds: each try asks Ghostty about all its terminals.
+        if let last = learningGhostty[address.id], Date().timeIntervalSince(last) < 5 { return }
+        learningGhostty[address.id] = Date()
+        Terminal.queue.async {
+            Ghostty.learn(tty: address.id, folder: folder)
+            if Ghostty.id(on: address.id) != nil { DispatchQueue.main.async { self.changed() } }
+        }
     }
 
     /// A Claude Code session sending another a message, as its SendMessage
@@ -982,6 +997,8 @@ final class Deck {
                 self.checkingPanes = false
                 let closed = gone.intersection(self.panesMissedOnce)
                 self.panesMissedOnce = gone.subtracting(closed)
+                // A Ghostty terminal's tty may be another's next.
+                for tab in closed { if let address = TabAddress(tab), address.kind == "ghostty" { Ghostty.forget(tty: address.id) } }
                 if !closed.isEmpty { self.sessions.prune(closedTabs: closed) }
             }
         }

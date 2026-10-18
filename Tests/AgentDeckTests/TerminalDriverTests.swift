@@ -32,6 +32,7 @@ final class TerminalDriverTests: XCTestCase {
         XCTAssertEqual(Terminals.abilities(of: "tty:/dev/ttys003"), [.keys, .text, .focus, .fire, .scroll])
         XCTAssertEqual(Terminals.abilities(of: "iterm:BD22"), [.keys, .text, .focus, .fire], "no scrolling through iTerm2's AppleScript")
         if Tmux.path != nil { XCTAssertEqual(Terminals.abilities(of: "tmux:%3@/tmp/s"), [.keys, .text, .focus, .fire, .scroll]) }
+        // Ghostty: only watched until its terminal on that tty has been learned.
         for watched in ["other:/dev/ttys005", "ghostty:/dev/ttys004", ""] {
             XCTAssertEqual(Terminals.abilities(of: watched), .none, watched)
         }
@@ -101,5 +102,14 @@ final class TerminalDriverTests: XCTestCase {
         XCTAssertEqual(Terminals.abilities(of: sessions["codex"]!.tab), .none, "watched until Terminal lists the tab")
         sessions.retag("other:/dev/ttys007", as: "tty:/dev/ttys007")
         XCTAssertEqual(sessions["codex"]?.tab, "tty:/dev/ttys007")
+    }
+
+    func testGhosttysTextIsTypedAsItsTextActionReadsIt() {
+        XCTAssertEqual(Ghostty.escaped("/clear\r"), "/clear\\r")
+        XCTAssertEqual(Ghostty.escaped("\u{1b}[A"), "\\x1b[A")
+        XCTAssertEqual(Ghostty.escaped("a\\b"), "a\\\\b", "a backslash typed as one")
+        XCTAssertEqual(Ghostty.escaped("\u{03}"), "\\x03")
+        XCTAssertEqual(Ghostty.escaped("café ✓"), "café ✓")
+        XCTAssertFalse(Ghostty().keysNeedAccessibility)
     }
 }

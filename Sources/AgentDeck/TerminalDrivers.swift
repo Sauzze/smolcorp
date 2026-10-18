@@ -265,3 +265,132 @@ struct ITerm: TerminalDriver {
         return answer == "open"
     }
 }
+
+/// Ghostty, through its AppleScript (1.3 and later): keys and text go to the
+/// terminal without bringing it forward, with the Mac locked or the screen
+/// saver on, as the bytes its `text:` action types. Addressed by its tty,
+/// as ghostty:/dev/ttys004. Ghostty 1.3 can't say which terminal is on a
+/// tty, so each is learned from its session's folder, when exactly one
+/// terminal is there, and kept; Ghostty 1.4, which can, is asked directly.
+/// Until then its desk is only watched.
+struct Ghostty: TerminalDriver {
+    var abilities: TerminalAbilities { [.keys, .text, .focus, .fire, .scroll] }
+    var keysNeedAccessibility: Bool { false }
+
+    /// Which terminal is on each tty, as learned.
+    private static var known: [String: String] = [:]
+    private static let lock = NSLock()
+
+    static func id(on tty: String) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return known[tty]
+    }
+
+    /// Learns which terminal is on `tty`, the session there being in
+    /// `folder`: by its tty where Ghostty says it, else the one terminal in
+    /// that folder that isn't already another tty's. Off the main thread.
+    static func learn(tty: String, folder: String) {
+        guard id(on: tty) == nil else { return }
+        let answer = Terminal.run("""
+            if application "Ghostty" is not running then return ""
+            tell application "Ghostty"
+                try
+                    return id of first terminal whose tty is (item 1 of argv)
+                end try
+                set found to {}
+                repeat with t in terminals
+                    if working directory of t is (item 2 of argv) then set end of found to (id of t)
+                end repeat
+                set AppleScript's text item delimiters to linefeed
+                return found as text
+            end tell
+            """, arguments: [tty, folder]) ?? ""
+        lock.lock(); defer { lock.unlock() }
+        let taken = Set(known.values)
+        let candidates = answer.split(separator: "\n").map(String.init).filter { !taken.contains($0) }
+        if candidates.count == 1 { known[tty] = candidates[0] }
+    }
+
+    /// Forgets the terminal once its session has gone, as its tty may be another's next.
+    static func forget(tty: String) {
+        lock.lock(); defer { lock.unlock() }
+        known[tty] = nil
+    }
+
+    /// Runs `body` with `t` as the terminal, "gone" if it isn't there.
+    private func withTerminal(_ tab: TabAddress, _ body: String, _ extra: [String] = []) -> String? {
+        guard let id = Ghostty.id(on: tab.id) else { return nil }
+        return Terminal.run("""
+            if application "Ghostty" is not running then return "gone"
+            tell application "Ghostty"
+                if not (exists terminal id (item 1 of argv)) then return "gone"
+                set t to terminal id (item 1 of argv)
+                \(body)
+            end tell
+            """, arguments: [id] + extra)
+    }
+
+    /// `text` as Ghostty's text: action reads it, its escapes being Zig's.
+    static func escaped(_ text: String) -> String {
+        var out = ""
+        for scalar in text.unicodeScalars {
+            switch scalar {
+            case "\\": out += "\\\\"
+            case "\r": out += "\\r"
+            case "\n": out += "\\n"
+            case "\t": out += "\\t"
+            default:
+                if scalar.value < 0x20 || scalar.value == 0x7f { out += String(format: "\\x%02x", scalar.value) } else { out.unicodeScalars.append(scalar) }
+            }
+        }
+        return out
+    }
+
+    private func typeBytes(_ bytes: String, in tab: TabAddress) -> Bool {
+        withTerminal(tab, "perform action (\"text:\" & (item 2 of argv)) on t\nreturn \"ok\"", [Ghostty.escaped(bytes)]) == "ok"
+    }
+
+    func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool {
+        guard let bytes = keystroke.bytes else { return false }
+        for i in 0..<max(keystroke.times, 1) {
+            if i > 0 { Thread.sleep(forTimeInterval: Terminal.Keystroke.gap) }
+            guard typeBytes(bytes, in: tab) else { return false }
+        }
+        return true
+    }
+
+    func type(_ text: String, in tab: TabAddress) -> Bool { typeBytes(text + "\r", in: tab) }
+
+    func focus(_ tab: TabAddress) -> Bool { withTerminal(tab, "focus t\nactivate\nreturn \"ok\"") == "ok" }
+
+    func scroll(lines: Int, in tab: TabAddress) -> Bool {
+        withTerminal(tab, "perform action (\"scroll_page_lines:\" & (item 2 of argv)) on t\nreturn \"ok\"", [String(lines)]) == "ok"
+    }
+
+    func scrollToBottom(in tab: TabAddress) -> Bool { withTerminal(tab, "perform action \"scroll_to_bottom\" on t\nreturn \"ok\"") == "ok" }
+
+    /// As in Terminal.app, whose way of starting shells Ghostty shares: the
+    /// agent is stopped first, then the terminal closed; anything else in
+    /// front is left as it is.
+    func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired {
+        guard let open = isOpen(tab) else { return .notStopped }
+        guard open else { return .gone }
+        switch Terminal.foreground(tty: tab.id) {
+        case nil:
+            return .notStopped
+        case .job(let job, _, let commandLines)?:
+            guard commandLines.contains(where: agent.isItself), Terminal.stop(job) else { return .notStopped }
+            if case .job? = Terminal.foreground(tty: tab.id) { return .fired }
+        case .shell?:
+            break
+        }
+        return withTerminal(tab, "close t\nreturn \"ok\"") == "ok" ? .fired : .notStopped
+    }
+
+    func tty(of tab: TabAddress) -> String? { tab.id }
+
+    func isOpen(_ tab: TabAddress) -> Bool? {
+        guard let answer = withTerminal(tab, "return \"open\"") else { return nil }
+        return answer == "open"
+    }
+}

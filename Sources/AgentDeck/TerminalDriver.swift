@@ -111,6 +111,8 @@ enum Terminals {
         case "tty": return TerminalApp()
         case "tmux": return Tmux.path == nil ? nil : Tmux()
         case "iterm": return ITerm()
+        // Ghostty's terminal on this tty, once learned: until then, only watched.
+        case "ghostty": return Ghostty.id(on: tab.id) == nil ? nil : Ghostty()
         default: return nil
         }
     }
