@@ -166,6 +166,11 @@
       tick();
       send('/act', { action: 'music', do: key });
     },
+    // The mic's quick switch: the language dictation listens for, for every phone.
+    language(lang) {
+      tick();
+      send('/act', { action: 'language', lang });
+    },
     // One of the office's styles, from its key in the room's corner, for every screen it's on.
     style(preset) {
       tick();

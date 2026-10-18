@@ -73,14 +73,20 @@ enum Terminal {
     /// app: nil if that couldn't be looked at. A tab that has closed takes its
     /// processes with it.
     static func isRunning(_ name: String, on tty: String) -> Bool? {
-        isRunning(any: [name], on: tty)
+        commands(on: tty, "comm=").map { runs(any: [name], among: $0) }
     }
 
-    /// Whether a process called any of `names` is running on `tty`: see above.
-    static func isRunning(any names: Set<String>, on tty: String) -> Bool? {
+    /// Whether `agent` itself runs on `tty`, judged by each process's command
+    /// line: see `Agent.isItself(commandLine:)`. Nil if that couldn't be looked at.
+    static func isRunning(_ agent: Agent, on tty: String) -> Bool? {
+        commands(on: tty, "args=").map { $0.split(separator: "\n").contains { agent.isItself(commandLine: String($0)) } }
+    }
+
+    /// What `ps` says of each process on `tty`, one per line, in `format`.
+    private static func commands(on tty: String, _ format: String) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", "comm="]
+        process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", format]
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
@@ -88,12 +94,15 @@ enum Terminal {
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         // No such tty any more is an answer too: nothing runs on it.
-        return runs(any: names, among: String(decoding: data, as: UTF8.self))
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// Whether `ps -o comm=`'s lines, `commands`, name any of `names`.
     static func runs(any names: Set<String>, among commands: String) -> Bool {
-        commands.split(separator: "\n").contains { names.contains(($0.trimmingCharacters(in: .whitespaces) as NSString).lastPathComponent) }
+        let wanted = Set(names.map { $0.lowercased() })
+        return commands.split(separator: "\n").contains {
+            wanted.contains(($0.trimmingCharacters(in: .whitespaces) as NSString).lastPathComponent.lowercased())
+        }
     }
 
     /// The tab you are looking at, if Terminal is the active app.
@@ -123,12 +132,52 @@ enum Terminal {
         withTab(tty, do: "do script (item 2 of argv) in t", extra: [text])
     }
 
-    /// Brings the tab forward and presses `key`, `times` times. Posting keys
-    /// needs Accessibility permission.
+    /// Presses `key`, `times` times, in the tab without bringing Terminal
+    /// forward: the tab is selected and its window put first among
+    /// Terminal's, which makes it the one Terminal gives keys to, and the keys
+    /// are posted to Terminal itself. So they reach the agent with Terminal
+    /// behind other apps, under the screen saver and with the Mac locked, and
+    /// never the app in front or the lock screen. Needs Accessibility.
     static func press(_ key: Key, modifiers: CGEventFlags = [], times: Int = 1, tty: String) -> Bool {
-        guard focus(tty: tty), waitUntilFrontmost() else { return false }
+        guard withTab(tty, do: "set selected of t to true\nset index of w to 1"),
+              let terminal = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else { return false }
+        Thread.sleep(forTimeInterval: settle)
+        post(key, modifiers: modifiers, times: times, to: terminal)
+        return true
+    }
+
+    /// Puts `text` in the tab without Return, as typed characters: `do script`
+    /// always ends with Return, so the characters go as key events carrying
+    /// them, to Terminal itself, as `press` sends keys. Needs Accessibility.
+    static func insert(_ text: String, tty: String) -> Bool {
+        guard withTab(tty, do: "set selected of t to true\nset index of w to 1"),
+              let terminal = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else { return false }
+        Thread.sleep(forTimeInterval: settle)
+        let units = Array(text.utf16)
+        // A key event carries a few characters at most: the text goes in pieces.
+        for start in stride(from: 0, to: units.count, by: 16) {
+            let piece = Array(units[start..<min(start + 16, units.count)])
+            for down in [true, false] {
+                let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
+                event?.keyboardSetUnicodeString(stringLength: piece.count, unicodeString: piece)
+                event?.postToPid(terminal)
+            }
+        }
+        return true
+    }
+
+    /// Brings the tab forward and presses `key` in it, through the keyboard's
+    /// own path: for Terminal's menu shortcuts, as scrolling uses. Never while
+    /// the Mac is locked, when the app in front is the lock screen.
+    private static func pressInFront(_ key: Key, modifiers: CGEventFlags = [], times: Int = 1, tty: String) -> Bool {
+        guard !isLocked, focus(tty: tty), waitUntilFrontmost() else { return false }
         post(key, modifiers: modifiers, times: times)
         return true
+    }
+
+    /// Whether the Mac is locked, as under a screen saver that asks for the password.
+    static var isLocked: Bool {
+        (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] != nil
     }
 
     /// Scrolls the tab's window by `lines`, up when negative, with the View
@@ -143,10 +192,10 @@ enum Terminal {
         guard count > 0 else { return true }
         let key: Key = lines < 0 ? .pageUp : .pageDown
         let modifiers: CGEventFlags = [.maskCommand, .maskAlternate]
-        if let last = lastScroll, last.tty == tty, Date().timeIntervalSince(last.at) < scrollGesture, isFrontmost {
+        if let last = lastScroll, last.tty == tty, Date().timeIntervalSince(last.at) < scrollGesture, isFrontmost, !isLocked {
             post(key, modifiers: modifiers, times: count)
         } else {
-            guard press(key, modifiers: modifiers, times: count, tty: tty) else { return false }
+            guard pressInFront(key, modifiers: modifiers, times: count, tty: tty) else { return false }
         }
         lastScroll = (tty, Date())
         return true
@@ -154,7 +203,7 @@ enum Terminal {
 
     /// The View menu's Scroll to Bottom (⌘End): back to where the agent is.
     static func scrollToBottom(tty: String) -> Bool {
-        press(.end, modifiers: .maskCommand, tty: tty)
+        pressInFront(.end, modifiers: .maskCommand, tty: tty)
     }
 
     /// Opens a new window in `folder`, running `command`, and gives its
@@ -199,7 +248,7 @@ enum Terminal {
         switch foreground(tty: tty) {
         case nil:
             return .notStopped
-        case .job(let job, let names)?:
+        case .job(let job, let names, _)?:
             guard names.contains(agent.foregroundName), stop(job) else { return .notStopped }
             // The agent has gone, and if another job has taken its place, the
             // tab is that job's now.
@@ -231,7 +280,7 @@ enum Terminal {
     private static let stopGrace: [(signal: Int32, wait: TimeInterval)] = [(SIGTERM, 3), (SIGKILL, 1)]
 
     /// Stops the process group `job`, and whether none of it is left.
-    private static func stop(_ job: pid_t) -> Bool {
+    static func stop(_ job: pid_t) -> Bool {
         let isGone = { kill(-job, 0) == -1 && errno == ESRCH }
         for (signal, wait) in stopGrace {
             kill(-job, signal)
@@ -245,40 +294,51 @@ enum Terminal {
     }
 
     /// What runs in the foreground of a tab.
-    private enum Foreground {
+    enum Foreground {
         /// Nothing but the shell, or not even that once the shell has ended.
         case shell
-        /// A job: its process group, and the names of the processes in it.
-        case job(pid_t, names: Set<String>)
+        /// A job: its process group, and the names and command lines of the processes in it.
+        case job(pid_t, names: Set<String>, commandLines: [String] = [])
     }
 
     /// The foreground of the tab on `tty`, or nil if `ps` couldn't be asked.
     /// Terminal starts each tab's shell under `login`, and a job is any
     /// process group in front of that shell.
-    private static func foreground(tty: String) -> Foreground? {
+    static func foreground(tty: String) -> Foreground? {
+        foreground(tty: tty, shell: nil)
+    }
+
+    /// As above, for a tab whose shell isn't started under `login`, as a tmux
+    /// pane's: `shell` is the process the pane was started with.
+    static func foreground(tty: String, shell given: pid_t?) -> Foreground? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", "pid=,ppid=,pgid=,tpgid=,comm="]
+        process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", "pid=,ppid=,pgid=,tpgid=,args="]
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { return nil }
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let rows = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { line -> (pid: Int32, ppid: Int32, pgid: Int32, tpgid: Int32, name: String)? in
+        let rows = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap {
+            line -> (pid: Int32, ppid: Int32, pgid: Int32, tpgid: Int32, name: String, args: String)? in
             let fields = line.split(separator: " ", maxSplits: 4, omittingEmptySubsequences: true)
             guard fields.count == 5, let pid = Int32(fields[0]), let ppid = Int32(fields[1]), let pgid = Int32(fields[2]),
                   let tpgid = Int32(fields[3]) else { return nil }
-            return (pid, ppid, pgid, tpgid, (String(fields[4]) as NSString).lastPathComponent)
+            // The program's name is the first word of its command line.
+            let program = fields[4].split(separator: " ").first.map(String.init) ?? ""
+            return (pid, ppid, pgid, tpgid, (program as NSString).lastPathComponent, String(fields[4]))
         }
         // Nothing left at all: the shell has ended too.
         guard let tpgid = rows.first?.tpgid else { return .shell }
         let logins = Set(rows.filter { $0.name == "login" }.map(\.pid))
         // A tab with no shell of Terminal's own, such as a profile running a
         // command of its own, can't be told apart from what runs in it.
-        guard let shell = rows.first(where: { logins.contains($0.ppid) }) else { return nil }
+        let found = given.map { pid in rows.first { $0.pid == pid } } ?? rows.first { logins.contains($0.ppid) }
+        guard let shell = found else { return nil }
         guard tpgid > 0, tpgid != shell.pgid else { return .shell }
-        return .job(tpgid, names: Set(rows.filter { $0.pgid == tpgid }.map(\.name)))
+        let job = rows.filter { $0.pgid == tpgid }
+        return .job(tpgid, names: Set(job.map(\.name)), commandLines: job.map(\.args))
     }
 
     /// Keys go to whichever app is in front, so they wait until that is
@@ -298,12 +358,13 @@ enum Terminal {
         NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID
     }
 
-    private static func post(_ key: Key, modifiers: CGEventFlags, times: Int) {
+    /// Posts `key` to the app in front, or, given `pid`, to that app alone.
+    private static func post(_ key: Key, modifiers: CGEventFlags, times: Int, to pid: pid_t? = nil) {
         for _ in 0..<times {
             for down in [true, false] {
                 let event = CGEvent(keyboardEventSource: nil, virtualKey: key.rawValue, keyDown: down)
                 if !modifiers.isEmpty { event?.flags = modifiers }
-                event?.post(tap: .cghidEventTap)
+                if let pid { event?.postToPid(pid) } else { event?.post(tap: .cghidEventTap) }
             }
         }
     }
@@ -330,7 +391,7 @@ enum Terminal {
 
     /// Runs an AppleScript, passing `arguments` as argv rather than splicing
     /// them into the source. Nil if it failed.
-    private static func run(_ source: String, arguments: [String] = []) -> String? {
+    static func run(_ source: String, arguments: [String] = []) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "on run argv\n\(source)\nend run"] + arguments

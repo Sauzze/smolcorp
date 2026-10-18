@@ -103,6 +103,9 @@ struct Request {
     let isAddressedDirectly: Bool
     /// The address the request came from, to count wrong pairing codes by.
     let remoteAddress: String
+    /// Headers that came more than once, by their lowercased names: where
+    /// it matters, as for the hook's, the request isn't believed.
+    var repeatedHeaders: Set<String> = []
 
     var json: [String: Any] {
         (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
@@ -208,10 +211,13 @@ private final class HTTPConnection {
         }
 
         var headers: [String: String] = [:]
+        var repeated: Set<String> = []
         for line in lines {
             guard let colon = line.firstIndex(of: ":") else { continue }
             let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-            headers[line[..<colon].lowercased()] = value
+            let name = line[..<colon].lowercased()
+            if headers[name] != nil { repeated.insert(name) }
+            headers[name] = value
         }
 
         let length = headers["content-length"].map { Int($0) ?? -1 } ?? 0
@@ -231,7 +237,7 @@ private final class HTTPConnection {
                        headers: headers, body: body,
                        isLocal: isLoopback && ["localhost", "127.0.0.1", "[::1]"].contains(host),
                        isAddressedDirectly: HTTPConnection.isDirectAddress(host),
-                       remoteAddress: remoteAddress)
+                       remoteAddress: remoteAddress, repeatedHeaders: repeated)
     }
 
     private var remoteAddress: String { connection.remoteAddress }
