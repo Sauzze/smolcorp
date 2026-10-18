@@ -43,11 +43,12 @@ final class Config: Codable {
 
     init() {}
 
-    /// Field by field, so a file from an older or newer version still loads.
+    /// Field by field, so a file from an older or newer version still loads:
+    /// a field it can't read loses only itself.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        pins = try c.decodeIfPresent([String?].self, forKey: .pins) ?? pins
-        colours = try c.decodeIfPresent([String: String].self, forKey: .colours) ?? colours
+        pins = (try? c.decodeIfPresent([String?].self, forKey: .pins)) ?? pins
+        colours = (try? c.decodeIfPresent([String: String].self, forKey: .colours)) ?? colours
         // Layouts are checked again as they load: their buttons type into sessions.
         layout = ((try? c.decodeIfPresent(Layout.self, forKey: .layout)) ?? layout).checked
         // One by one, so a profile this version can't read loses only itself.
@@ -56,20 +57,26 @@ final class Config: Codable {
         }
         activeProfile = (try? c.decodeIfPresent(String.self, forKey: .activeProfile)) ?? activeProfile
         logo = ((try? c.decodeIfPresent(String.self, forKey: .logo)) ?? nil).flatMap(Logo.init(stored:)) ?? logo
-        scrollEnabled = try c.decodeIfPresent(Bool.self, forKey: .scrollEnabled) ?? false
-        hiringEnabled = try c.decodeIfPresent(Bool.self, forKey: .hiringEnabled) ?? false
-        hireFolder = try c.decodeIfPresent(String.self, forKey: .hireFolder) ?? ""
-        hireAgent = (try c.decodeIfPresent(String.self, forKey: .hireAgent)).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
+        scrollEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .scrollEnabled)) ?? false
+        hiringEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .hiringEnabled)) ?? false
+        hireFolder = (try? c.decodeIfPresent(String.self, forKey: .hireFolder)) ?? ""
+        hireAgent = (try? c.decodeIfPresent(String.self, forKey: .hireAgent)).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
         // Checked as they load: their instructions go to agents.
         roles = ((try? c.decodeIfPresent([Role].self, forKey: .roles)) ?? nil).map(Role.checked) ?? roles
-        musicEnabled = try c.decodeIfPresent(Bool.self, forKey: .musicEnabled) ?? false
+        musicEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .musicEnabled)) ?? false
         webhook = (try? c.decodeIfPresent(Webhook.self, forKey: .webhook)) ?? Webhook()
-        hasCompletedSetup = try c.decodeIfPresent(Bool.self, forKey: .hasCompletedSetup) ?? false
+        hasCompletedSetup = (try? c.decodeIfPresent(Bool.self, forKey: .hasCompletedSetup)) ?? false
     }
 
-    private static func load() -> Config {
-        guard let data = try? Data(contentsOf: Paths.config),
-              let config = try? JSONDecoder().decode(Config.self, from: data) else { return Config() }
+    /// A file it can't read at all starts from the defaults, but a copy is
+    /// kept beside it first, so the next save doesn't take your pins,
+    /// layouts, profiles and roles with it.
+    static func load(from file: URL = Paths.config) -> Config {
+        guard let data = try? Data(contentsOf: file) else { return Config() }
+        guard let config = try? JSONDecoder().decode(Config.self, from: data) else {
+            try? data.write(to: file.appendingPathExtension("broken"), options: .atomic)
+            return Config()
+        }
         if config.pins.count != KeyCount.most {
             config.pins = Array((config.pins + Array(repeating: nil, count: KeyCount.most)).prefix(KeyCount.most))
         }
