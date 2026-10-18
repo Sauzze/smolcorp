@@ -30,6 +30,12 @@ final class Config: Codable {
     /// agent runs in a tmux session of its own there.
     var hireTerminal = "terminal"
     var hireInTmux = false
+    /// Dictation for agents with no voice mode of their own (see `Dictation`):
+    /// whether it's on, its language, and whether Claude Code uses it too
+    /// rather than its own voice mode.
+    var dictationEnabled = false
+    var dictationLanguage = Dictation.suggestedLanguage
+    var dictationForClaude = false
     /// The roles the office can hire, in the order the phone offers them:
     /// those that come with the app until you change them, and your own.
     var roles = Role.shipped
@@ -45,7 +51,7 @@ final class Config: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles
-        case hireTerminal, hireInTmux
+        case hireTerminal, hireInTmux, dictationEnabled, dictationLanguage, dictationForClaude
         case musicEnabled, webhook, hasCompletedSetup
     }
 
@@ -80,6 +86,9 @@ final class Config: Codable {
         hireAgent = field(String.self, .hireAgent).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
         hireTerminal = field(String.self, .hireTerminal).flatMap { id in Openers.choices.contains { $0.id == id } ? id : nil } ?? hireTerminal
         hireInTmux = field(Bool.self, .hireInTmux) ?? false
+        dictationEnabled = field(Bool.self, .dictationEnabled) ?? false
+        dictationLanguage = field(String.self, .dictationLanguage).flatMap { Dictation.languages.contains($0) ? $0 : nil } ?? dictationLanguage
+        dictationForClaude = field(Bool.self, .dictationForClaude) ?? false
         // Checked as they load: their instructions go to agents.
         roles = field([Role].self, .roles).map(Role.checked) ?? roles
         musicEnabled = field(Bool.self, .musicEnabled) ?? false

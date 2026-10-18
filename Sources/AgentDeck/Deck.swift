@@ -423,7 +423,10 @@ final class Deck {
                         "effort": s.pendingEffort.isEmpty ? s.effort : s.pendingEffort,
                         "pending": !s.pendingEffort.isEmpty,
                         "agent": s.agent.rawValue, "agentName": s.agent.name,
-                        "dial": s.agent.hasEffortDial && can.contains(.text), "mic": s.agent.hasVoice && can.contains(.keys),
+                        "dial": s.agent.hasEffortDial && can.contains(.text),
+                        // Claude Code's own voice mode through Space, or dictation through the text it types.
+                        "mic": Deck.dictates(s.agent) ? can.contains(.text) : s.agent.hasVoice && can.contains(.keys),
+                        "dictates": Deck.dictates(s.agent) && can.contains(.text),
                         "keys": can.contains(.keys), "fire": can.contains(.fire),
                         "activity": s.activity ?? NSNull(),
                         "tool": s.tool.isEmpty ? NSNull() : s.tool,
@@ -448,6 +451,8 @@ final class Deck {
             "now": Int64(Date().timeIntervalSince1970 * 1000),
             "theme": Theme.current(),
             "scroll": Config.shared.scrollEnabled,
+            // Dictation's language, for the mic's quick switch.
+            "dictation": ["on": Dictation.isOn, "language": Config.shared.dictationLanguage] as [String: Any],
             // What the office's held desks offer: firing, and hiring once there's a folder to hire into, by role.
             "hiring": [
                 "fire": Config.shared.hiringEnabled,
@@ -508,6 +513,14 @@ final class Deck {
         }
         if action == "swap" { return done(swapKeys(query)) }
         if action == "style" { return done(setStyle(query["preset"])) }
+        // The mic's quick switch: dictation's language, for every phone.
+        if action == "language" {
+            guard let language = query["lang"], Dictation.languages.contains(language) else { return done(.status(400, "Unknown language")) }
+            Config.shared.dictationLanguage = language
+            Config.shared.save()
+            changed()
+            return done(.status(204))
+        }
         if action == "music" { return done(playMusic(query["do"] ?? "playpause")) }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
 
@@ -547,8 +560,15 @@ final class Deck {
             let direction = Scrolling.isNatural ? 1 : -1
             inTab(session.tab, done: done) { driver.scroll(lines: lines * direction, in: tab) }
         case "mic":
-            guard agent.hasVoice else { return done(.status(400, "\(agent.name) has no voice input")) }
-            pressMic(session, done: done)
+            guard Deck.dictates(agent) else {
+                guard agent.hasVoice else { return done(.status(400, "\(agent.name) has no voice input")) }
+                return pressMic(session, done: done)
+            }
+            guard let (driver, _) = terminal(of: session, for: .text) else { return done(.status(409, Deck.notHere)) }
+            guard !driver.keysNeedAccessibility || Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
+            Dictation.start(language: Config.shared.dictationLanguage, for: session.tab) { started in
+                done(started ? .status(204) : .status(409, "Dictation couldn't start. Look at it in setup, on your Mac."))
+            }
         case "fire":
             guard Config.shared.hiringEnabled else { return done(.status(403, Deck.hiringOff)) }
             guard let (driver, tab) = terminal(of: session, for: .fire) else { return done(.status(409, Deck.notHere)) }
@@ -824,7 +844,22 @@ final class Deck {
         }
     }
 
+    /// Whether the mic dictates for `agent`, rather than pressing Space for its
+    /// own voice mode: for every agent without one, and for Claude Code too if
+    /// setup says so.
+    static func dictates(_ agent: Agent) -> Bool {
+        Dictation.isOn && (!agent.hasVoice || Config.shared.dictationForClaude)
+    }
+
     private func releaseMic(done: @escaping (Response) -> Void) {
+        // Dictating: the text goes into the tab it was for, without Return.
+        if Dictation.isRecording {
+            Dictation.stop { text, tab in
+                guard !text.isEmpty, let address = TabAddress(tab), let driver = Terminals.driver(for: address) else { return }
+                Terminal.queue.async { _ = driver.insert(text, in: address) }
+            }
+            return done(.status(204))
+        }
         defer { micPress = nil }
         // After the limit Claude has stopped by itself, and a Space would
         // start it again.

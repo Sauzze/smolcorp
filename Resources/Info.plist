@@ -24,6 +24,10 @@
   <true/>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Smolcorp turns what you say into text, on this Mac only, while you hold the mic on your phone, for agents without a voice mode of their own. Nothing is recorded or sent anywhere.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Smolcorp turns what you say into text on this Mac, for agents without a voice mode of their own.</string>
   <key>NSAppleEventsUsageDescription</key>
   <string>Smolcorp brings your coding agents' tabs forward in Terminal and types commands into them, and with the office's jukebox on, asks Spotify and Music whether they're playing.</string>
 </dict>

@@ -58,6 +58,15 @@ final class TmuxTests: XCTestCase {
         ])
     }
 
+    /// Dictation's text: a bracketed paste, without Return.
+    func testDictatedTextIsPastedWithoutReturn() {
+        XCTAssertTrue(Tmux().insert("ajoute un test; puis lance-le", in: pane))
+        XCTAssertEqual(asked.count, 2)
+        XCTAssertTrue(asked[0].hasPrefix("-S /tmp/tmux-501/default set-buffer -b smolcorp-") && asked[0].hasSuffix(" -- ajoute un test; puis lance-le"))
+        XCTAssertTrue(asked[1].contains("paste-buffer -p -d -b smolcorp-") && asked[1].hasSuffix("-t %3"))
+        XCTAssertFalse(asked.contains { $0.hasSuffix(" Enter") })
+    }
+
     func testThePaneIsAskedAbout() {
         XCTAssertEqual(Tmux().isOpen(pane), true)
         XCTAssertEqual(Tmux().isOpen(TabAddress("tmux:%9@/tmp/tmux-501/default")!), false)

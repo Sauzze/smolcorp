@@ -9485,6 +9485,10 @@
     if (selectedDesk >= 0) drawLabel(selectedDesk);
     if (frame.chips) drawChips();
     if (frame.deskButton) drawDeskButton(frame.deskButton);
+    if (frame.micLanguage) {
+      const { left, top, w, h, label } = frame.micLanguage;
+      drawPixelKey(left, top, w, h, 0x3b6ea5, label);
+    }
     if (frame.choices) drawChoices();
     if (frame.arranging) drawArrangement(frame.arranging);
     if (frame.musicTap) drawMusicTap(frame.musicTap);
@@ -10487,6 +10491,7 @@
     let styling = false;     // the styles' panel is up
     let music = null;        // what the computer says of its music, with the jukebox on: { playing: true | false | null }
     let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
+    let dictation = null;    // the Mac's dictation, from the snapshot: { on, language }
     let musicPanel = null;   // a music piece's control, held open: { part, at }, `at` when it was last used
     let musicDown = null;    // the music control's key last pressed: { action, at, held }
     let keysFor = null;      // the agent whose keys are out, by its session's id: from a finger held on them till a tap elsewhere
@@ -10551,6 +10556,19 @@
       host.window.document.removeEventListener('visibilitychange', host.seen);
       host.window.document.removeEventListener('pointerdown', host.tapped, { capture: true });
       host = null;
+    }
+
+    /**
+     * The mic's quick switch, over its head while the picked agent dictates
+     * (see the Mac's Dictation): FR or EN, the language it listens for; a
+     * tap switches it.
+     */
+    function micLanguageKey() {
+      const session = selectedSession();
+      if (framed || arranging || styling || !dictation || !dictation.on || !session || !session.dictates) return null;
+      const french = (dictation.language || '').startsWith('fr');
+      const at = placed('mic', { x: MIC.x - 17, y: MIC.y - 26 });
+      return { left: Math.round(at.x), top: Math.round(at.y), w: 13, h: 9, label: french ? 'FR' : 'EN', next: french ? 'en_US' : 'fr_FR' };
     }
 
     function selectedSession() {
@@ -10697,7 +10715,7 @@
         now, hour: date.getHours(), minute: date.getMinutes(), month: date.getMonth(),
         width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1,
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
-        deskButton: heldButton(), firing: firing && { ...fireDialog(), name: firing.name }, carrying,
+        deskButton: heldButton(), firing: firing && { ...fireDialog(), name: firing.name }, carrying, micLanguage: micLanguageKey(),
         styleKey: key, styles: styling && key && { ...styleMenu(), current: decor.preset, pictures: stylePictures },
         arranging: arranging && {
           pieces: arrangeable(), picked: arranging.picked, blocked: arranging.blocked || [],
@@ -10816,6 +10834,8 @@
       };
       consider({ kind: 'button' }, box('button', BUTTON.x - 7, BUTTON.y - 1, BUTTON.x + 8, BUTTON.y + 16), 1);
       const { tap } = MIC_KINDS[decor.mic];
+      const language = micLanguageKey();
+      if (language) consider({ kind: 'micLanguage', next: language.next }, { left: language.left, top: language.top, right: language.left + language.w, bottom: language.top + language.h }, -1);
       consider({ kind: 'mic' }, box('mic', MIC.x + tap.left, MIC.y + tap.top, MIC.x + tap.right, MIC.y + tap.bottom), 1);
       DESKS.forEach((d, desk) => {
         // A desk put away isn't there to tap: its agent, in the line, is.
@@ -10949,6 +10969,7 @@
         return on.held?.();
       }
       if (target.kind === 'hire') return on.hire?.(holding.desk, null);
+      if (target.kind === 'micLanguage') return on.language?.(target.next);
       // An empty or pinned desk says something on a tap, once the finger lifts: holding it is something else.
       if (target.kind === 'empty' || target.kind === 'pinned') return;
       if (target.kind === 'choice') {
@@ -11448,6 +11469,7 @@
         ahead = gaps.length ? Math.min(...gaps) : 0;
         hiring = snapshot.hiring || { fire: false, hire: false };
         music = snapshot.music || null;
+        dictation = snapshot.dictation || null;
         office.furnish(snapshot.layout && snapshot.layout.room, clock());
         office.apply(seatsOf(snapshot, ahead), snapshot.theme, clock());
         // The question and what's held out go with their agent; a hire, once its desk is taken.

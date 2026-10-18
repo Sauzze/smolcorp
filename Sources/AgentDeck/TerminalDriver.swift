@@ -93,6 +93,9 @@ protocol TerminalDriver {
     func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool
     /// Types `text` and Return into the tab.
     func type(_ text: String, in tab: TabAddress) -> Bool
+    /// Puts `text` in the tab without Return, as dictation does, for you to
+    /// read before sending.
+    func insert(_ text: String, in tab: TabAddress) -> Bool
     func focus(_ tab: TabAddress) -> Bool
     func scroll(lines: Int, in tab: TabAddress) -> Bool
     func scrollToBottom(in tab: TabAddress) -> Bool
@@ -149,6 +152,7 @@ struct TerminalApp: TerminalDriver {
     }
 
     func type(_ text: String, in tab: TabAddress) -> Bool { Terminal.type(text, tty: tab.id) }
+    func insert(_ text: String, in tab: TabAddress) -> Bool { Terminal.insert(text, tty: tab.id) }
     func focus(_ tab: TabAddress) -> Bool { Terminal.focus(tty: tab.id) }
     func scroll(lines: Int, in tab: TabAddress) -> Bool { Terminal.scroll(lines: lines, tty: tab.id) }
     func scrollToBottom(in tab: TabAddress) -> Bool { Terminal.scrollToBottom(tty: tab.id) }

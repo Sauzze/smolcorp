@@ -141,6 +141,12 @@ struct Tmux: TerminalDriver {
         return ran(tab, ["send-keys", "-t", tab.id, "-l", "--", literal]) && ran(tab, ["send-keys", "-t", tab.id, "Enter"])
     }
 
+    /// As a bracketed paste, so the agent takes it as one piece of text.
+    func insert(_ text: String, in tab: TabAddress) -> Bool {
+        let buffer = "smolcorp-\(UUID().uuidString.prefix(8))"
+        return ran(tab, ["set-buffer", "-b", buffer, "--", text]) && ran(tab, ["paste-buffer", "-p", "-d", "-b", buffer, "-t", tab.id])
+    }
+
     /// The pane, and the terminal tab tmux is shown in, when that's one the
     /// deck can bring forward.
     func focus(_ tab: TabAddress) -> Bool {
@@ -227,6 +233,10 @@ struct ITerm: TerminalDriver {
 
     func type(_ text: String, in tab: TabAddress) -> Bool {
         withSession(tab.id, "tell s to write text (item 2 of argv)\nreturn \"ok\"", [text]) == "ok"
+    }
+
+    func insert(_ text: String, in tab: TabAddress) -> Bool {
+        withSession(tab.id, "tell s to write text (item 2 of argv) newline NO\nreturn \"ok\"", [text]) == "ok"
     }
 
     func focus(_ tab: TabAddress) -> Bool {
@@ -391,6 +401,11 @@ struct Ghostty: TerminalDriver {
 
     func type(_ text: String, in tab: TabAddress) -> Bool { typeBytes(text + "\r", in: tab) }
 
+    /// As Ghostty pastes, without Return.
+    func insert(_ text: String, in tab: TabAddress) -> Bool {
+        withTerminal(tab, "input text (item 2 of argv) to t\nreturn \"ok\"", [text]) == "ok"
+    }
+
     func focus(_ tab: TabAddress) -> Bool { withTerminal(tab, "focus t\nactivate\nreturn \"ok\"") == "ok" }
 
     func scroll(lines: Int, in tab: TabAddress) -> Bool {
@@ -466,6 +481,9 @@ struct WezTerm: TerminalDriver {
         ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", "--", text]) && ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", "\r"])
     }
 
+    /// As a paste, which is send-text's own way, without Return.
+    func insert(_ text: String, in tab: TabAddress) -> Bool { ran(tab, ["send-text", "--pane-id", tab.id, "--", text]) }
+
     func focus(_ tab: TabAddress) -> Bool {
         guard ran(tab, ["activate-pane", "--pane-id", tab.id]) else { return false }
         activate(bundle: "com.github.wez.wezterm")
@@ -532,6 +550,10 @@ struct Kitty: TerminalDriver {
 
     func type(_ text: String, in tab: TabAddress) -> Bool {
         ran(tab, ["send-text", "--match", "id:\(tab.id)", "--", Kitty.escaped(text + "\r")])
+    }
+
+    func insert(_ text: String, in tab: TabAddress) -> Bool {
+        ran(tab, ["send-text", "--match", "id:\(tab.id)", "--", Kitty.escaped(text)])
     }
 
     func focus(_ tab: TabAddress) -> Bool {

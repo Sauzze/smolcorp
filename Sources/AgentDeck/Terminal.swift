@@ -146,6 +146,26 @@ enum Terminal {
         return true
     }
 
+    /// Puts `text` in the tab without Return, as typed characters: `do script`
+    /// always ends with Return, so the characters go as key events carrying
+    /// them, to Terminal itself, as `press` sends keys. Needs Accessibility.
+    static func insert(_ text: String, tty: String) -> Bool {
+        guard withTab(tty, do: "set selected of t to true\nset index of w to 1"),
+              let terminal = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else { return false }
+        Thread.sleep(forTimeInterval: settle)
+        let units = Array(text.utf16)
+        // A key event carries a few characters at most: the text goes in pieces.
+        for start in stride(from: 0, to: units.count, by: 16) {
+            let piece = Array(units[start..<min(start + 16, units.count)])
+            for down in [true, false] {
+                let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
+                event?.keyboardSetUnicodeString(stringLength: piece.count, unicodeString: piece)
+                event?.postToPid(terminal)
+            }
+        }
+        return true
+    }
+
     /// Brings the tab forward and presses `key` in it, through the keyboard's
     /// own path: for Terminal's menu shortcuts, as scrolling uses. Never while
     /// the Mac is locked, when the app in front is the lock screen.

@@ -20,6 +20,9 @@ final class DeckRouter: Router {
     static let setupKeyHeader = "x-smolcorp-setup-key"
     static let setupCookie = "smolcorp-setup"
 
+    /// What went wrong getting dictation's language ready, if anything, for setup to say.
+    static var dictationProblem: String?
+
     /// A hook header twice is one smuggled in after another, as a line break
     /// in a variable the hook was given would make it.
     static func hasSmuggledHookHeader(_ request: Request) -> Bool {
@@ -294,6 +297,26 @@ final class DeckRouter: Router {
             deck.refresh()
             respond(.json(setupState()))
 
+        // Dictation: turned on, its language, and whether Claude Code uses it. Turning it on
+        // asks for the microphone, here on the Mac, and gets the language's model ready.
+        case ("POST", "/setup/dictation"):
+            if let language = request.query["language"] {
+                guard Dictation.languages.contains(language) else { return respond(.status(400, "Unknown language")) }
+                config.dictationLanguage = language
+            }
+            if let claude = request.query["claude"] { config.dictationForClaude = claude == "1" }
+            if let enabled = request.query["enabled"] { config.dictationEnabled = enabled == "1" && Dictation.isAvailable }
+            config.save()
+            deck.refresh()
+            guard config.dictationEnabled else { return respond(.json(setupState())) }
+            Dictation.askForMicrophone { [self] _ in
+                Dictation.prepare(config.dictationLanguage) { [self] problem in
+                    DeckRouter.dictationProblem = problem
+                    deck.refresh()
+                    respond(.json(setupState()))
+                }
+            }
+
         // The roles as the page has them, all of them: checked as they're kept,
         // since their instructions go to agents.
         case ("POST", "/setup/roles"):
@@ -383,6 +406,11 @@ final class DeckRouter: Router {
                 "terminals": Openers.choices.filter { Openers.isInstalled($0.id) }.map { ["id": $0.id, "name": $0.name] },
                 "tmux": config.hireInTmux && Tmux.path != nil, "hasTmux": Tmux.path != nil,
             ],
+            "dictation": [
+                "available": Dictation.isAvailable, "enabled": config.dictationEnabled, "allowed": Dictation.microphoneAllowed,
+                "language": config.dictationLanguage, "claude": config.dictationForClaude,
+                "problem": DeckRouter.dictationProblem ?? NSNull(),
+            ] as [String: Any],
             // The roles, those that come with the app to go back to, and what a
             // role can be: its agent, whether that agent has an effort and
             // takes a first message, its badge, and how long each part can be.

@@ -381,6 +381,21 @@
         </div>
         <button class="switch" id="hiring" aria-label="Let the office hire and fire"></button>
       </div>
+      <div class="step" id="step-dictation" hidden>
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Dictate to agents without a voice mode</div>
+          <div class="detail" id="dictation-detail"></div>
+          <div class="hire-setup" id="dictation-setup" hidden>
+            <select id="dictation-language" aria-label="The language you dictate in">
+              <option value="fr_FR">Français</option>
+              <option value="en_US">English</option>
+            </select>
+            <label class="hire-tmux"><input type="checkbox" id="dictation-claude"> Claude Code too</label>
+          </div>
+        </div>
+        <button class="switch" id="dictation" aria-label="Dictate to agents without a voice mode"></button>
+      </div>
       <div class="step" id="step-music" hidden>
         <div class="mark">✓</div>
         <div class="text">
@@ -688,6 +703,7 @@
     $('scroll').classList.toggle('on', c.scroll);
     $('login').classList.toggle('on', c.openAtLogin);
     renderHiring();
+    renderDictation();
     renderMusic();
     renderWebhook();
   }
@@ -775,6 +791,25 @@
     $('hire-tmux-label').title = "The agent runs in a tmux session of its own, so its keys and mic work from the phone in any terminal.";
   }
 
+  /**
+   * Dictation, on Macs that have it: hold the phone's mic on OpenCode, Codex,
+   * Gemini or Grok, and what you say is typed into its tab, without Return.
+   */
+  function renderDictation() {
+    const d = state.dictation;
+    $('step-dictation').hidden = !d || !d.available;
+    if (!d || !d.available) return;
+    mark('step-dictation', d.enabled && d.allowed && !d.problem);
+    $('dictation').classList.toggle('on', d.enabled);
+    $('dictation-setup').hidden = !d.enabled;
+    if (document.activeElement !== $('dictation-language')) $('dictation-language').value = d.language;
+    $('dictation-claude').checked = !!d.claude;
+    $('dictation-detail').textContent = d.problem
+      || (d.enabled && !d.allowed ? 'Smolcorp needs the microphone: allow it in System Settings → Privacy & Security → Microphone.'
+        : 'Optional. Hold the mic on your phone, speak, and let go: the text goes into the agent\'s tab without Return, '
+          + 'for you to read before sending. On this Mac only: nothing is recorded or sent anywhere. Tap FR or EN over the mic to switch.');
+  }
+
   /** Names the agents found on this computer, and what connecting them takes. */
   function describeAgents() {
     const detail = $('step-hooks').querySelector('.detail');
@@ -840,6 +875,9 @@
   $('hire-agent').onchange = () => post(`/setup/hiring?agent=${$('hire-agent').value}`);
   $('hire-terminal').onchange = () => post(`/setup/hiring?terminal=${$('hire-terminal').value}`);
   $('hire-tmux').onchange = () => post(`/setup/hiring?tmux=${$('hire-tmux').checked ? 1 : 0}`);
+  $('dictation').onclick = () => post(`/setup/dictation?enabled=${$('dictation').classList.contains('on') ? 0 : 1}`);
+  $('dictation-language').onchange = () => post(`/setup/dictation?language=${$('dictation-language').value}`);
+  $('dictation-claude').onchange = () => post(`/setup/dictation?claude=${$('dictation-claude').checked ? 1 : 0}`);
 
   /* ----------------------------------------------------------------- roles */
 
