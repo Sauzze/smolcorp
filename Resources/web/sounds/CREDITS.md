@@ -10,9 +10,9 @@ though CC0 doesn't ask for it.
 Twelve key presses, then a space bar and an enter, each isolated, evened
 out and faded, in a quarter-second slot of its own.
 
-- "Mechanical Keyboard Typing (Treble Version)" by stu556: a Leopold
-  FC660M with Cherry MX Brown switches.
-  https://freesound.org/people/stu556/sounds/450282/ (CC0 1.0)
+- "Typing on a keyboard" by SamsterBirdies: a keyboard with Cherry MX
+  Blue switches.
+  https://freesound.org/people/SamsterBirdies/sounds/489424/ (CC0 1.0)
 
 ## talk.m4a, talk.webm
 
