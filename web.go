@@ -7,5 +7,5 @@ import "embed"
 
 // Files is Resources/web and Resources/opencode-plugin.js.
 //
-//go:embed Resources/web Resources/opencode-plugin.js
+//go:embed Resources/web Resources/opencode-plugin.js Resources/opencode-plugin-v1.js
 var Files embed.FS

@@ -119,6 +119,12 @@ run `/hooks` in Codex once and trust Smolcorp's. Codex runs its hooks in
 a background service rather than in your tab, so the deck finds each Codex
 session's tab by its project folder.
 
+**OpenCode** 1 and 2 both work. OpenCode 2 runs its plugins in a background
+service of its own, so the deck finds each OpenCode session's tab by its
+project folder, as it does for Codex; with `opencode --standalone`, they run
+in your tab and it's found at once. Either way, run one OpenCode per project
+folder for the deck to tell them apart.
+
 ## What you need
 
 - A Mac running macOS 13 or later. On Windows or Linux, see
@@ -258,7 +264,8 @@ The setup page also has:
 </p>
 
 Open the setup page any time from the menu bar (**Open Setup…**), or by opening
-Smolcorp again from Applications.
+Smolcorp again from Applications. A bookmark of the page won't open it: its
+link carries a key that changes each time Smolcorp starts.
 
 ## The office
 
@@ -606,10 +613,38 @@ automation:
   reach it. Without a key, all another device gets is the pairing page. Its
   pages can't be shown inside other websites, and it turns away connections
   beyond a fixed limit, so a misbehaving device can't swamp it.
-- **The setup page only opens on your computer.** Other devices can't reach it, and
-  other websites can't press its buttons.
+- **The setup page only opens on your computer, from Smolcorp's menu.** Other
+  devices can't reach it, and other websites can't press its buttons. The menu
+  opens it with a key that's new each time Smolcorp starts, so other programs
+  on your computer, and other people signed in to it, can't use it either.
+  Your own scripts can: the key is in a file only you can read, sent as the
+  `X-Smolcorp-Setup-Key` header (see [Use setup from a script](#use-setup-from-a-script)).
 - **Use a network you trust.** The connection is plain HTTP on your local
   network. Use Smolcorp on home or office Wi-Fi, not public hotspots.
+
+### Use setup from a script
+
+Everything the setup page does is an HTTP call to Smolcorp on this computer,
+and your own scripts can make the same calls. Each needs the setup key, which
+is new each time Smolcorp starts and kept in a file only you can read:
+
+| | The setup key |
+|---|---|
+| Mac | `~/Library/Application Support/AgentDeck/setup-key` |
+| Linux | `~/.config/sauzzedeck-pro/setup-key` |
+| Windows | `%APPDATA%\SauzzeDeck Pro\setup-key` |
+
+Send it as `X-Smolcorp-Setup-Key`. Calls that change something also need
+`X-AgentDeck-Setup: 1`. For example, on a Mac:
+
+```bash
+key=$(cat ~/Library/Application\ Support/AgentDeck/setup-key)
+curl -s -H "X-Smolcorp-Setup-Key: $key" http://localhost:7710/setup/state
+curl -s -X POST -H "X-Smolcorp-Setup-Key: $key" -H "X-AgentDeck-Setup: 1" \
+  http://localhost:7710/setup/pair
+```
+
+Read the key again after Smolcorp restarts.
 
 ## Troubleshooting
 
@@ -619,6 +654,12 @@ Linux, start them with `smolcorp run`, or in tmux, WezTerm or kitty.
 
 **Codex sessions don't appear.** Run `/hooks` in Codex and trust Smolcorp's
 hook. Codex skips new hooks until you do.
+
+**OpenCode sessions don't appear.** Smolcorp before 1.8.0 had a plugin OpenCode 2
+can't load: open the new Smolcorp once, and it brings the plugin up to date,
+which OpenCode picks up by itself. Still nothing? Two OpenCode sessions in one
+project folder can't be told apart, so keep one per folder, or start them with
+`opencode --standalone`, which runs the plugin in the session's own tab.
 
 **Buttons, the mic or scrolling do nothing, or the phone says keyboard access
 is off.** Turn Smolcorp on in System
@@ -771,9 +812,12 @@ page opens in your browser.
 
 - On GNOME, the tray icon needs the AppIndicator extension, which Ubuntu
   includes. Without it, Smolcorp still runs: open
-  `http://localhost:7710/setup` yourself.
+  `http://localhost:7710/setup#k=` followed by the key in
+  `~/.config/sauzzedeck-pro/setup-key`.
 - On a machine without a desktop, such as one you reach over SSH, run
-  `smolcorp serve`.
+  `smolcorp serve`. It prints the setup page's link as it starts. Open it
+  through a tunnel: `ssh -L 7710:localhost:7710` to the machine, then the
+  link in your own browser.
 
 ### Windows
 
@@ -795,6 +839,15 @@ You need [Go](https://go.dev) 1.26 or later:
 
 ```bash
 go build ./cmd/smolcorp
+```
+
+On Windows, that one program runs everything, in a console window of its
+own. To build it as the downloads have it, with no console window, build
+both:
+
+```bash
+go build -ldflags "-H windowsgui" -o Smolcorp.exe ./cmd/smolcorp
+go build -o smolcorp-cli.exe ./cmd/smolcorp
 ```
 
 `go test ./...` runs the tests, and `scripts/release-desktop.sh` builds the

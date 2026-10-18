@@ -146,7 +146,10 @@ enum Hooks {
 
     /// Adds the deck's entries for `agent`, replacing any it had.
     private static func add(_ agent: Agent, turningOnVoice: Bool) throws {
-        guard let entries = entries(for: agent) else { return try writePlugin() }
+        guard let entries = entries(for: agent) else {
+            try writePlugin()
+            return lookAtOpenCode(always: true)
+        }
         var settings = entries.isOwnFile ? [:] : try read(entries.file)
         var hooks = withoutOurs(settings["hooks"] as? [String: Any] ?? [:])
         for event in entries.events {
@@ -188,19 +191,65 @@ enum Hooks {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: Paths.hookScript.path)
         // Under the name the app had before, it moves to the new one
         if isConnected(.opencode) {
-            try writePlugin()
-            try? FileManager.default.removeItem(at: Paths.oldOpenCodePlugin)
+            // Under the old name, it's written under the new one first, so it stays connected
+            if FileManager.default.fileExists(atPath: Paths.oldOpenCodePlugin.path) {
+                try writePlugin()
+                try? FileManager.default.removeItem(at: Paths.oldOpenCodePlugin)
+            }
+            // For the OpenCode found: what's there now stays until it's known which
+            lookAtOpenCode(always: true)
         }
     }
 
+    /// The OpenCode the plugin was last written for, by where it is and when
+    /// it last changed, and its major version: see `lookAtOpenCode()`. Only
+    /// touched on the main thread.
+    private static var openCodeStamp: String?
+    private static var openCodeMajor: Int?
+
+    /// OpenCode's plugin, which runs the hook: OpenCode has no command hooks.
+    /// It's written for the OpenCode last found, OpenCode 1's own for 1, the
+    /// default for 2 or one whose version can't be told, and only when it
+    /// changes, as OpenCode loads it again each time it does. Written at once,
+    /// so connecting says if it can't be; `lookAtOpenCode(always:)` then
+    /// finds which OpenCode it's for.
     private static func writePlugin() throws {
-        let template = try String(contentsOf: Paths.bundledOpenCodePlugin, encoding: .utf8)
+        let bundled = openCodeMajor == 1 ? Paths.bundledOpenCodePluginV1 : Paths.bundledOpenCodePlugin
+        let template = try String(contentsOf: bundled, encoding: .utf8)
         let command = try JSONSerialization.data(withJSONObject: [Paths.hookScript.path, Agent.opencode.rawValue],
                                                  options: .withoutEscapingSlashes)
         let plugin = template.replacingOccurrences(of: #"["{{COMMAND}}"]"#, with: String(decoding: command, as: UTF8.self))
+        guard (try? String(contentsOf: Paths.openCodePlugin, encoding: .utf8)) != plugin else { return }
         try FileManager.default.createDirectory(at: Paths.openCodePlugin.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         try plugin.write(to: Paths.openCodePlugin, atomically: true, encoding: .utf8)
+    }
+
+    /// Finds which OpenCode is installed and writes its plugin again if it's
+    /// changed: its version is asked off the main thread, so the deck's
+    /// server never waits on it, and the plugin written on it. `always` asks
+    /// even when the program looks unchanged, as when connecting.
+    static func lookAtOpenCode(always: Bool = false) {
+        DispatchQueue.global(qos: .utility).async {
+            let stamp = OpenCodeInstall.stamp()
+            DispatchQueue.main.async {
+                guard isConnected(.opencode), always || stamp != openCodeStamp else { return }
+                DispatchQueue.global(qos: .utility).async {
+                    let major = OpenCodeInstall.major()
+                    DispatchQueue.main.async {
+                        guard isConnected(.opencode) else { return }
+                        (openCodeStamp, openCodeMajor) = (stamp, major)
+                        try? writePlugin()
+                    }
+                }
+            }
+        }
+    }
+
+    /// Looks about once a minute whether OpenCode was updated, as it updates
+    /// itself, and if so writes its plugin again for the version it is now.
+    static func watchOpenCode() {
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in lookAtOpenCode() }
     }
 
     private static func isOurs(_ hook: [String: Any]) -> Bool {
@@ -222,21 +271,36 @@ enum Hooks {
         return result
     }
 
-    private static func read(_ file: URL) throws -> [String: Any] {
-        guard let data = try? Data(contentsOf: file) else { return [:] }
-        guard let settings = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+    /// Only a file that isn't there at all is empty. One that is there but
+    /// can't be read, a link to nothing, or one that isn't JSON is named in
+    /// the error, so it's never written over with the deck's entries alone.
+    static func read(_ file: URL) throws -> [String: Any] {
+        let data: Data
+        do {
+            data = try Data(contentsOf: file)
+        } catch CocoaError.fileReadNoSuchFile
+                    where (try? FileManager.default.destinationOfSymbolicLink(atPath: file.path)) == nil {
+            return [:]
+        } catch {
+            throw HookError.unreadableSettings([file])
+        }
+        guard let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             throw HookError.unreadableSettings([file])
         }
         return settings
     }
 
-    private static func write(_ settings: [String: Any], to file: URL, backup: Bool) throws {
+    /// A link is followed, so the file it points to, in a dotfiles folder
+    /// say, is the one that changes, and the link stays. The backup is made
+    /// first, or nothing is written.
+    static func write(_ settings: [String: Any], to file: URL, backup: Bool) throws {
         let fm = FileManager.default
+        let file = file.resolvingSymlinksInPath()
         try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         if backup && fm.fileExists(atPath: file.path) {
             let copy = file.appendingPathExtension("agentdeck.bak")
             try? fm.removeItem(at: copy)
-            try? fm.copyItem(at: file, to: copy)
+            try fm.copyItem(at: file, to: copy)
         }
         let options: JSONSerialization.WritingOptions = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try JSONSerialization.data(withJSONObject: settings, options: options)
@@ -253,7 +317,7 @@ enum Hooks {
                 return "No coding agent found on this Mac. Install one, open it once, then connect again."
             case .unreadableSettings(let files):
                 let names = files.map { $0.path.replacingOccurrences(of: Paths.home.path, with: "~") }
-                return "\(names.joined(separator: " and ")) isn't valid JSON. Fix it, then try again."
+                return "\(names.joined(separator: " and ")) can't be read or isn't valid JSON. Fix it, then try again."
             }
         }
     }

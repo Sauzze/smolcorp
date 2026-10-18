@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
@@ -130,4 +131,68 @@ func TestAStyleFromThePhoneIsKeptAndAnUnknownOneIsNot(t *testing.T) {
 	if d.config.Layout.Room.Preset != "campsite" {
 		t.Fatalf("an unknown style changed the room to %q", d.config.Layout.Room.Preset)
 	}
+}
+
+func TestATapThatLandsTwiceSendsReturnOnce(t *testing.T) {
+	d, tab := madeButtonDeck(t)
+	if status, _ := d.Perform("accept", "s1", url.Values{}); status != http.StatusNoContent || *sent(t, tab).Press != press(Enter) {
+		t.Fatal("accept didn't press Return")
+	}
+	if status, _ := d.Perform("accept", "s1", url.Values{}); status != http.StatusNoContent {
+		t.Fatalf("a second accept gave %d", status)
+	}
+	if status, _ := d.Perform("send", "s1", url.Values{}); status != http.StatusNoContent {
+		t.Fatalf("a send straight after gave %d", status)
+	}
+	select {
+	case command := <-tab.commands:
+		t.Fatalf("a second Return reached the session: %+v", command)
+	case <-time.After(100 * time.Millisecond):
+	}
+	// Down, down is two moves through a list, as the phone means it.
+	for range 2 {
+		if status, _ := d.Perform("down", "s1", url.Values{}); status != http.StatusNoContent || *sent(t, tab).Press != press(Down) {
+			t.Fatal("down twice didn't press Down twice")
+		}
+	}
+	time.Sleep(returnRepeat)
+	if status, _ := d.Perform("accept", "s1", url.Values{}); status != http.StatusNoContent || *sent(t, tab).Press != press(Enter) {
+		t.Fatal("accept a moment later didn't press Return")
+	}
+}
+
+func TestAReturnThatDidntGoDoesntHoldBackTheNext(t *testing.T) {
+	d, tab := madeButtonDeck(t)
+	d.mu.Lock()
+	delete(d.launchers, "L1") // its tab gone, for a moment
+	d.mu.Unlock()
+	if status, _ := d.Perform("accept", "s1", url.Values{}); status != http.StatusNotFound {
+		t.Fatalf("accept with the tab gone gave %d", status)
+	}
+	d.mu.Lock()
+	d.launchers["L1"] = tab
+	d.mu.Unlock()
+	if status, _ := d.Perform("accept", "s1", url.Values{}); status != http.StatusNoContent || *sent(t, tab).Press != press(Enter) {
+		t.Fatal("the accept straight after one that failed didn't press Return")
+	}
+}
+
+func TestFocusingWhileHooksArriveReadsTheTabSafely(t *testing.T) {
+	d, tab := madeButtonDeck(t)
+	go func() {
+		for range tab.commands {
+		}
+	}()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 200 {
+			d.Ingest(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": fmt.Sprintf("/work/api/%d", i)},
+				"claude", "launcher:L1", "", float64(1000+i))
+		}
+	}()
+	for range 200 {
+		d.Focus("s1")
+	}
+	<-done
 }

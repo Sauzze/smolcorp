@@ -4,14 +4,21 @@ import AppKit
 /// phone's controls do to them, and the live feed of all that to phones.
 final class Deck {
     static let port: UInt16 = 7710
-    static var setupURL: URL { URL(string: "http://localhost:\(port)/setup")! }
+    /// The setup page, with its key after #k=, which never leaves this Mac:
+    /// the page hands it over once for a cookie, and takes it out of the
+    /// address. `then` is what the page does on opening: "pair" or "unpair".
+    func setupURL(then: String? = nil) -> URL {
+        URL(string: "http://localhost:\(Deck.port)/setup#k=\(access.setupKey)" + (then.map { "&\($0)" } ?? ""))!
+    }
 
     /// How often to look for a green key's tab coming to the front.
     private static let seenCheckInterval: TimeInterval = 1.5
     /// How often to look for tabs that closed without their session ending.
     private static let closedTabCheckInterval: TimeInterval = 10
-    /// How often to ping idle event streams so they stay open.
-    private static let pingInterval: TimeInterval = 20
+    /// How often to ping event streams: often enough that an idle one stays
+    /// open, as a browser may drop one that's quiet for a minute, and that
+    /// the page can tell a stream that died quietly.
+    private static let pingInterval: TimeInterval = 40
     /// How often to look whether music is playing, with the jukebox on.
     private static let musicInterval: TimeInterval = 3
     /// How soon after a change the sessions are saved, so a burst of events
@@ -22,6 +29,8 @@ final class Deck {
     private static let freshSave: Double = 120_000
     /// Claude stops listening by itself after two minutes.
     private static let voiceLimit: TimeInterval = 120
+    /// Two Returns to one session closer than this are one tap landing twice.
+    private static let returnRepeat: TimeInterval = 0.5
     /// Without Accessibility, posted keys vanish without a trace. The phone
     /// says so instead, since every update turns the permission off.
     private static let noKeyboard = "Keyboard access is off. Turn it on in setup, on your Mac."
@@ -38,11 +47,15 @@ final class Deck {
     private var keyOf: [String: Int] = [:]
     /// The role each session was hired for, by the role's id.
     private var roleOf: [String: String] = [:]
-    /// The tabs hires with a role opened, waiting for their agent to report:
-    /// the first session in the tab takes the role.
-    private var hiredTabs: [(tty: String, role: String, at: Date)] = []
+    /// The tabs hires opened, waiting for their agent to report: the first
+    /// session in the tab takes the role it was hired for, if any, and the
+    /// desk it was hired at, with a set number of desks.
+    private var hiredTabs: [(tty: String, role: String?, desk: Int?, at: Date)] = []
     /// The tab recording started in, and when. One Mac, one microphone.
     private var micPress: (tty: String, at: Date)?
+    /// When each session was last sent Return from the phone, so a tap that
+    /// lands twice sends it once.
+    private var lastReturn: [String: Date] = [:]
     private var checkingFront = false
     private var checkingTabs = false
     /// Ttys Terminal reported last time. Only these can be found closed:
@@ -95,6 +108,21 @@ final class Deck {
         guard let event = agent.canonical(event) else { return }
         sessions.apply(event, agent: agent, tty: tty.isEmpty ? tab(for: event, of: agent) : tty,
                        startedIn: startedIn, at: time)
+        noteMessage(event, from: agent)
+    }
+
+    /// A Claude Code session sending another a message, as its SendMessage
+    /// tool is about to: the sender is marked with when and to whom, for the
+    /// office to walk it over. A recipient that isn't at a desk, or can't be
+    /// told apart, is left out. It changes nothing else.
+    private func noteMessage(_ event: [String: Any], from agent: Agent) {
+        guard agent == .claude, event["hook_event_name"] as? String == "PreToolUse", event["tool_name"] as? String == "SendMessage",
+              let id = event["session_id"] as? String, let sender = sessions[id],
+              let to = (event["tool_input"] as? [String: Any])?["to"] as? String,
+              let recipient = ClaudePeers.sessionID(for: to), recipient != id, sessions[recipient] != nil else { return }
+        sender.messagedAt = Date().timeIntervalSince1970 * 1000
+        sender.messaged = recipient
+        changed()
     }
 
     /// Codex runs its hooks in a shared background service, so its events
@@ -292,10 +320,15 @@ final class Deck {
             if keyOf[new] == nil, let key = keyOf[old] { keyOf[new] = key }
             if roleOf[new] == nil, let role = roleOf[old] { roleOf[new] = role }
         }
-        // A hire's role goes to the first session in the tab it opened.
+        // A hire's role and desk go to the first session in the tab it opened.
+        // The desk is kept for it below if it's still free; if it was taken in
+        // the meantime, the hire sits at the first free one, as anyone would.
         hiredTabs.removeAll { Date().timeIntervalSince($0.at) > Deck.hiredTabWait }
-        for session in remaining where roleOf[session.id] == nil && !session.tty.isEmpty {
-            if let i = hiredTabs.firstIndex(where: { $0.tty == session.tty }) { roleOf[session.id] = hiredTabs.remove(at: i).role }
+        for session in remaining where !session.tty.isEmpty {
+            guard let i = hiredTabs.firstIndex(where: { $0.tty == session.tty }) else { continue }
+            let hired = hiredTabs.remove(at: i)
+            if let role = hired.role, roleOf[session.id] == nil { roleOf[session.id] = role }
+            if let desk = hired.desk { keyOf[session.id] = desk }
         }
         // A session dropped as its tab seemed to close keeps its key and role, should it come back.
         keyOf = keyOf.filter { live.contains($0.key) || sessions.wasDropped($0.key) }
@@ -362,6 +395,8 @@ final class Deck {
                             ["id": subagent.id, "type": subagent.type, "model": subagent.model.isEmpty ? NSNull() : subagent.model]
                         },
                         "maxPressedAt": s.maxPressedAt.map { Int64($0) } ?? NSNull(),
+                        "messagedAt": s.messagedAt.map { Int64($0) } ?? NSNull(),
+                        "messaged": s.messaged.isEmpty ? NSNull() : s.messaged,
                         "compacting": s.compacting,
                         "turnStartedAt": s.turnStartedAt.map { Int64($0) } ?? NSNull(),
                         "errorKind": s.errorKind.isEmpty ? NSNull() : s.errorKind,
@@ -441,18 +476,31 @@ final class Deck {
         // which are often both Escape but not in every agent.
         let agent = session.agent
         switch action {
-        case "accept", "send": press(.init(key: .returnKey), tty: tty, done: done)
-        case "reject": press(agent.reject, tty: tty, done: done)
-        case "esc": press(agent.interrupt, tty: tty, done: done)
-        case "up": press(.init(key: .up), tty: tty, done: done)
-        case "down": press(.init(key: .down), tty: tty, done: done)
+        case "accept", "send":
+            // A second Return this soon would answer whatever the agent asks next, before you've seen it.
+            let now = Date()
+            lastReturn = lastReturn.filter { now.timeIntervalSince($0.value) < Deck.returnRepeat }
+            guard lastReturn[id] == nil else { return done(.status(204)) }
+            lastReturn[id] = now
+            // A Return that didn't go doesn't count, so the next tap goes.
+            press(.init(key: .returnKey), to: session) { [weak self] response in
+                if response.status >= 400 { self?.lastReturn[id] = nil }
+                done(response)
+            }
+        case "reject": press(agent.reject, to: session, done: done)
+        case "esc": press(agent.interrupt, to: session, done: done)
+        case "up": press(.init(key: .up), to: session, done: done)
+        case "down": press(.init(key: .down), to: session, done: done)
         case "scroll":
             guard Config.shared.scrollEnabled else {
                 return done(.status(403, "Scrolling is off. Turn it on in setup, on your Mac."))
             }
             guard Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
             if query["to"] == "bottom" { return inTab(tty, done: done) { Terminal.scrollToBottom(tty: tty) } }
-            guard let lines = Int(query["lines"] ?? "") else { return done(.status(400, "Unknown amount")) }
+            // Kept within what a scroll can be first, as Go keeps it: an amount as large as an Int
+            // can hold would overflow below, which stops the app.
+            guard let asked = Int(query["lines"] ?? "") else { return done(.status(400, "Unknown amount")) }
+            let lines = max(-Terminal.maxScroll, min(Terminal.maxScroll, asked))
             // The phone counts the way natural scrolling does. With it turned
             // off on the Mac, the wheel turns the other way, as everything else does.
             let direction = Scrolling.isNatural ? 1 : -1
@@ -474,7 +522,7 @@ final class Deck {
             }
         case "clear":
             guard !session.isBusy else { return done(.status(409, "Busy — clear it when \(agent.name) is done")) }
-            onTerminal(done) { Terminal.type(agent.newConversation, tty: tty) }
+            type(agent.newConversation, to: session, done: done)
         case "button":
             guard let button = Config.shared.layout.madeButton(query["button"] ?? "") else {
                 return done(.status(404, "That button has gone. Your phone will catch up in a moment."))
@@ -485,11 +533,11 @@ final class Deck {
             if button.whenFree == true && session.isBusy {
                 return done(.status(409, "Busy — try again when \(agent.name) is done"))
             }
-            if let key = button.key, let keystroke = Button.keys[key] { return press(keystroke, tty: tty, done: done) }
+            if let key = button.key, let keystroke = Button.keys[key] { return press(keystroke, to: session, done: done) }
             guard let text = button.text, !text.isEmpty else {
                 return done(.status(400, "This button types nothing yet. Set it up in setup, on your Mac."))
             }
-            onTerminal(done) { Terminal.type(text, tty: tty) }
+            type(text, to: session, done: done)
         case "effort":
             guard agent.hasEffortDial else { return done(.status(400, "\(agent.name) has no effort setting")) }
             guard let level = query["level"], Deck.effortLevels.contains(level) else { return done(.status(400, "Unknown level")) }
@@ -576,8 +624,14 @@ final class Deck {
     /// phone, would otherwise open a second window before the first new hire
     /// has reached the deck.
     private static let hireCooldown: TimeInterval = 5
-    /// How long a hire's tab waits for its agent to report, to take its role.
-    private static let hiredTabWait: TimeInterval = 120
+    /// How long a hire's tab waits for its agent to report, to take its role
+    /// and desk: long enough for a trust prompt left waiting a while. Its tab
+    /// closing ends the wait sooner, so a tty used again later can't take them.
+    private static let hiredTabWait: TimeInterval = 15 * 60
+    /// Long enough for Terminal to list a tab a hire has just opened: a hire
+    /// whose tab isn't among Terminal's after this has closed, even if no
+    /// look ever saw it open.
+    private static let hiredTabListed: TimeInterval = 15
     private var lastHire: Date?
 
     /// A new Terminal window with the agent set up for new hires at work in
@@ -589,12 +643,19 @@ final class Deck {
         let config = Config.shared
         guard config.hiringEnabled else { return done(.status(403, Deck.hiringOff)) }
         var pinned: String?
+        // With a set number of desks, any free one can be hired at, and the
+        // hire sits there; with Auto they stay packed, so it takes the first free.
+        var held: Int?
         if let desk {
             let (keys, _) = layout()
             // With Auto, the office also offers the desk after the last: a hire adds it.
             let next = config.layout.keys == .auto && keys.count < KeyCount.most ? keys.count : nil
             guard let index = Int(desk), keys.indices.contains(index) || index == next else { return done(.status(400, "Unknown desk")) }
             pinned = keys.indices.contains(index) ? keys[index].pin.flatMap(Deck.folder) : nil
+            if case .fixed = config.layout.keys, keys[index].pin == nil {
+                guard keys[index].session == nil else { return done(.status(409, "Someone's at that desk already.")) }
+                held = index
+            }
         }
         guard let folder = pinned ?? Deck.folder(config.hireFolder) else {
             return done(.status(409, "Choose a folder for new hires in setup, on your Mac."))
@@ -627,7 +688,7 @@ final class Deck {
                     if role != nil { try? FileManager.default.removeItem(atPath: command) }
                     return done(.status(500, "Terminal didn't open"))
                 }
-                if let role, !tty.isEmpty { self.hiredTabs.append((tty, role.id, Date())) }
+                if !tty.isEmpty && (role != nil || held != nil) { self.hiredTabs.append((tty, role?.id, held, Date())) }
                 done(.status(204))
             }
         }
@@ -731,6 +792,42 @@ final class Deck {
         }
     }
 
+    /// Presses `keystroke` in `session`'s tab, bringing it forward, once its agent is known to be there still.
+    private func press(_ keystroke: Terminal.Keystroke, to session: Session, done: @escaping (Response) -> Void) {
+        guard Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
+        let tty = session.tty
+        toAgent(session, done: done) {
+            let reached = Terminal.press(keystroke.key, modifiers: keystroke.modifiers, times: keystroke.times, tty: tty)
+            if reached { DispatchQueue.main.async { self.sessions.markSeen(tty: tty) } }
+            return reached
+        }
+    }
+
+    /// Types `text` and Return into `session`'s tab, once its agent is known to be there still.
+    private func type(_ text: String, to session: Session, done: @escaping (Response) -> Void) {
+        let tty = session.tty
+        toAgent(session, done: done) { Terminal.type(text, tty: tty) }
+    }
+
+    /// Runs `work` on the tab once its agent is known to run there still. An
+    /// agent that ended without saying so, crashed or killed, leaves its tab
+    /// to the shell, where its keys would land and a button's text would run
+    /// as a command, or to whatever runs there next: its session goes instead.
+    private func toAgent(_ session: Session, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
+        let tty = session.tty, names = session.agent.runningNames
+        Terminal.queue.async {
+            // Unknown is not the same as gone: the keys go as they always did.
+            guard Terminal.isRunning(any: names, on: tty) != false else {
+                return DispatchQueue.main.async {
+                    self.sessions.prune(closedTTYs: [tty])
+                    done(.status(410, "That agent has ended."))
+                }
+            }
+            let ok = work()
+            DispatchQueue.main.async { done(ok ? .status(204) : .status(404, "Terminal tab not found")) }
+        }
+    }
+
     private func onTerminal(_ done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
         Terminal.queue.async {
             let ok = work()
@@ -749,10 +846,11 @@ final class Deck {
     private func applyQueuedEffort() {
         for session in sessions.all where !session.pendingEffort.isEmpty && !session.isBusy {
             let level = session.pendingEffort
-            let tty = session.tty
+            let tty = session.tty, names = session.agent.runningNames
             session.pendingEffort = ""
             Terminal.queue.async {
-                guard Terminal.type("/effort \(level)", tty: tty) else { return }
+                // Not into a tab its agent has left: see `toAgent`.
+                guard Terminal.isRunning(any: names, on: tty) != false, Terminal.type("/effort \(level)", tty: tty) else { return }
                 DispatchQueue.main.async {
                     session.effort = level
                     self.changed()
@@ -778,7 +876,8 @@ final class Deck {
     }
 
     private func pruneClosedTabs() {
-        guard !sessions.all.isEmpty, !checkingTabs else { return }
+        // Hires waiting for their agent are looked at too, sessions or not.
+        guard !sessions.all.isEmpty || !hiredTabs.isEmpty, !checkingTabs else { return }
         checkingTabs = true
         Terminal.queue.async {
             let open = Terminal.openTTYs()
@@ -791,6 +890,10 @@ final class Deck {
                 let closed = missing.intersection(self.missedOnce)
                 self.missedOnce = missing.subtracting(closed)
                 self.terminalTTYs = open.union(self.missedOnce)
+                // A hire's tab closed, seen open before or not: no tty used again later takes its desk or role.
+                self.hiredTabs.removeAll {
+                    closed.contains($0.tty) || !open.contains($0.tty) && Date().timeIntervalSince($0.at) > Deck.hiredTabListed
+                }
                 let suspects = self.sessions.all.filter { closed.contains($0.tty) }.map { (tty: $0.tty, agent: $0.agent) }
                 guard !suspects.isEmpty else {
                     self.checkingTabs = false

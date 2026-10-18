@@ -29,6 +29,9 @@ type Deck struct {
 	keyOf map[string]int
 	// The tab recording started in, and when. One computer, one microphone.
 	micPress *micPress
+	// When each session was last sent Return from the phone, so a tap that
+	// lands twice sends it once.
+	lastReturn map[string]time.Time
 	// Whether music is playing, for the office's jukebox, when it can be told.
 	playing *bool
 	// What each session was when the webhook was last told, nil until the
@@ -48,12 +51,16 @@ type micPress struct {
 }
 
 const (
-	// How often to ping idle event streams so they stay open.
-	pingInterval = 20 * time.Second
+	// How often to ping event streams: often enough that an idle one stays
+	// open, as a browser may drop one that's quiet for a minute, and that the
+	// page can tell a stream that died quietly.
+	pingInterval = 40 * time.Second
 	// How often to look for tabs that closed without their session ending.
 	pruneInterval = 10 * time.Second
 	// Claude stops listening by itself after two minutes.
 	voiceLimit = 120 * time.Second
+	// Two Returns to one session closer than this are one tap landing twice.
+	returnRepeat = 500 * time.Millisecond
 	// How often to end the sessions ended for /clear or /resume that nothing took the place of.
 	handOnInterval = 1500 * time.Millisecond
 	// How often to look whether music is playing, with the jukebox on.
@@ -66,7 +73,7 @@ func NewDeck() *Deck {
 	d := &Deck{
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
-		keyOf: map[string]int{}, work: make(chan func(), 64), OnChange: func() {},
+		keyOf: map[string]int{}, lastReturn: map[string]time.Time{}, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue),
 	}
 	go d.sendWebhooks()
@@ -170,9 +177,30 @@ func (d *Deck) Ingest(event map[string]any, reported, tab, startedIn string, at 
 	if tab == "" {
 		tab = d.launcherFor(canonical, agent)
 	}
-	if d.sessions.Apply(canonical, agent, tab, startedIn, at) {
+	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
+	if d.noteMessage(canonical, agent) || changed {
 		d.changed()
 	}
+}
+
+// noteMessage marks a Claude Code session sending another a message, as its
+// SendMessage tool is about to, with when and to whom, for the office to walk
+// it over, and says whether it did. A recipient that isn't at a desk, or
+// can't be told apart, is left out. It changes nothing else. With the lock held.
+func (d *Deck) noteMessage(event map[string]any, agent Agent) bool {
+	if agent != Claude || event["hook_event_name"] != "PreToolUse" || event["tool_name"] != "SendMessage" {
+		return false
+	}
+	id, _ := event["session_id"].(string)
+	input, _ := event["tool_input"].(map[string]any)
+	to, _ := input["to"].(string)
+	sender := d.sessions.Get(id)
+	recipient := claudePeer(to)
+	if sender == nil || recipient == "" || recipient == id || d.sessions.Get(recipient) == nil {
+		return false
+	}
+	sender.MessagedAt, sender.Messaged = nowMillis(), recipient
+	return true
 }
 
 // launcherFor finds a session's launcher when its hook couldn't say: Codex
@@ -351,6 +379,7 @@ func (d *Deck) snapshot() []byte {
 				"activity": orNull(s.Activity()), "tool": orNull(s.Tool), "model": orNull(s.Model),
 				"subagents":    append([]Subagent{}, s.Subagents...),
 				"maxPressedAt": millisOrNull(s.MaxPressedAt), "compacting": s.Compacting,
+				"messagedAt": millisOrNull(s.MessagedAt), "messaged": orNull(s.Messaged),
 				"turnStartedAt": millisOrNull(s.TurnStartedAt), "errorKind": orNull(s.ErrorKind),
 				"role": d.roleOf(s),
 			}
@@ -527,6 +556,13 @@ func (d *Deck) inTab(name string, op func(Tab) error) (int, string) {
 	result := make(chan error, 1)
 	d.work <- func() { result <- op(tab) }
 	switch err := <-result; {
+	case errors.Is(err, errAgentGone):
+		d.mu.Lock()
+		if d.sessions.Prune(func(tab string) bool { return tab != name }, nowMillis()) {
+			d.changed()
+		}
+		d.mu.Unlock()
+		return http.StatusGone, "That agent has ended."
 	case errors.Is(err, errUnsupported):
 		return http.StatusNotFound, "This terminal can't do that"
 	case err != nil:
@@ -541,6 +577,29 @@ func (d *Deck) inTab(name string, op func(Tab) error) (int, string) {
 }
 
 const hiringOff = "Hiring and firing are off. Turn them on in setup, on your computer."
+
+var errAgentGone = errors.New("the agent no longer runs in its pane")
+
+// toAgent runs op on the session's tab once its agent is known to run there
+// still. An agent that ended without saying so, crashed or killed, leaves its
+// pane to the shell, where its keys would land and a button's text would run
+// as a command: its session goes instead. Launchers end with their agent,
+// so only panes are asked.
+func (d *Deck) toAgent(name string, agent Agent, op func(Tab) error) (int, string) {
+	return d.inTab(name, func(t Tab) error {
+		if pane, ok := t.(commandTab); ok {
+			if running, known := pane.runs(agent.runningNames()...); known && !running {
+				return errAgentGone
+			}
+		}
+		return op(t)
+	})
+}
+
+// pressTo presses keystroke for agent, in its tab: see toAgent.
+func (d *Deck) pressTo(name string, agent Agent, keystroke Keystroke) (int, string) {
+	return d.toAgent(name, agent, func(t Tab) error { return t.Press(keystroke) })
+}
 
 // swapKeys swaps two keys' projects, for a person carried from one desk to
 // another in the office: each is pinned where the other was, so the order
@@ -650,15 +709,25 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	// often both Escape but not in every agent.
 	switch action {
 	case "accept", "send":
-		return d.press(tab, press(Enter))
+		if d.isRepeatedReturn(id) {
+			return http.StatusNoContent, ""
+		}
+		status, message := d.pressTo(tab, agent, press(Enter))
+		if status >= http.StatusBadRequest {
+			// A Return that didn't go doesn't count, so the next tap goes.
+			d.mu.Lock()
+			delete(d.lastReturn, id)
+			d.mu.Unlock()
+		}
+		return status, message
 	case "reject":
-		return d.press(tab, agent.Reject())
+		return d.pressTo(tab, agent, agent.Reject())
 	case "esc":
-		return d.press(tab, agent.Interrupt())
+		return d.pressTo(tab, agent, agent.Interrupt())
 	case "up":
-		return d.press(tab, press(Up))
+		return d.pressTo(tab, agent, press(Up))
 	case "down":
-		return d.press(tab, press(Down))
+		return d.pressTo(tab, agent, press(Down))
 	case "scroll":
 		d.mu.Lock()
 		enabled := d.config.ScrollEnabled
@@ -691,7 +760,7 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		if busy {
 			return http.StatusConflict, "Busy — clear it when " + agent.Name() + " is done"
 		}
-		return d.inTab(tab, func(t Tab) error { return t.Type(agent.NewConversation()) })
+		return d.toAgent(tab, agent, func(t Tab) error { return t.Type(agent.NewConversation()) })
 	case "button":
 		d.mu.Lock()
 		button, found := d.config.Layout.madeButton(query.Get("button"))
@@ -704,11 +773,11 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		case button.WhenFree && busy:
 			return http.StatusConflict, "Busy — try again when " + agent.Name() + " is done"
 		case button.Key != "":
-			return d.press(tab, buttonKeys[button.Key])
+			return d.pressTo(tab, agent, buttonKeys[button.Key])
 		case button.Text == "":
 			return http.StatusBadRequest, "This button types nothing yet. Set it up in setup, on your computer."
 		}
-		return d.inTab(tab, func(t Tab) error { return t.Type(button.Text) })
+		return d.toAgent(tab, agent, func(t Tab) error { return t.Type(button.Text) })
 	case "effort":
 		if !agent.HasEffortDial() {
 			return http.StatusBadRequest, agent.Name() + " has no effort setting"
@@ -744,6 +813,25 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 // The most lines one request may scroll. A notch of the phone's wheel is a
 // few; anything beyond is clamped, not obeyed.
 const maxScroll = 200
+
+// isRepeatedReturn: Return was sent to this session a moment ago. A second
+// one this soon is a tap landing twice, and let through it would answer
+// whatever the agent asks next before you've seen it.
+func (d *Deck) isRepeatedReturn(id string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now := time.Now()
+	for session, at := range d.lastReturn {
+		if now.Sub(at) >= returnRepeat {
+			delete(d.lastReturn, session)
+		}
+	}
+	if _, recent := d.lastReturn[id]; recent {
+		return true
+	}
+	d.lastReturn[id] = now
+	return false
+}
 
 func (d *Deck) press(tab string, keystroke Keystroke) (int, string) {
 	return d.inTab(tab, func(t Tab) error { return t.Press(keystroke) })
@@ -788,12 +876,15 @@ func (d *Deck) releaseMic() (int, string) {
 // Focus brings a session's tab forward, as far as its terminal allows.
 func (d *Deck) Focus(id string) (int, string) {
 	d.mu.Lock()
-	session := d.sessions.Get(id)
+	tab := ""
+	if session := d.sessions.Get(id); session != nil {
+		tab = session.Tab // read while locked: a hook can move the session meanwhile
+	}
 	d.mu.Unlock()
-	if session == nil || session.Tab == "" {
+	if tab == "" {
 		return http.StatusNotFound, ""
 	}
-	return d.inTab(session.Tab, func(t Tab) error { return t.Focus() })
+	return d.inTab(tab, func(t Tab) error { return t.Focus() })
 }
 
 // applyQueuedEffort: typed into a running turn, /effort would be queued as a
@@ -805,7 +896,7 @@ func (d *Deck) applyQueuedEffort() {
 		if session.PendingEffort == "" || session.IsBusy() {
 			continue
 		}
-		level, tab := session.PendingEffort, d.tab(session.Tab)
+		level, tab, agent := session.PendingEffort, d.tab(session.Tab), session.Agent
 		session.PendingEffort = ""
 		if tab == nil {
 			continue
@@ -814,6 +905,12 @@ func (d *Deck) applyQueuedEffort() {
 		// job takes it once done.
 		go func() {
 			d.work <- func() {
+				// Not into a pane its agent has left: see toAgent.
+				if pane, ok := tab.(commandTab); ok {
+					if running, known := pane.runs(agent.runningNames()...); known && !running {
+						return
+					}
+				}
 				if tab.Type("/effort "+level) != nil {
 					return
 				}

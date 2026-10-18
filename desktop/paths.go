@@ -26,7 +26,9 @@ var (
 	phonesFile  = filepath.Join(supportDir, "phones.json")
 	configFile  = filepath.Join(supportDir, "config.json")
 	hookKeyFile = filepath.Join(supportDir, "hook-key")
-	homeDir, _  = os.UserHomeDir()
+	// The setup page's key, new at every start, for tools of your own on this computer.
+	setupKeyFile = filepath.Join(supportDir, "setup-key")
+	homeDir, _   = os.UserHomeDir()
 )
 
 func makeSupportDir() string {

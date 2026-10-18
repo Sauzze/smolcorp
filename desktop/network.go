@@ -17,7 +17,31 @@ func phoneAddress() string { return fmt.Sprintf("http://%s:%d", localAddress(), 
 // pairingLink is what the QR code opens: the pairing page with code filled in.
 func pairingLink(code string) string { return phoneAddress() + "/?pair=" + code }
 
-var setupURL = fmt.Sprintf("http://localhost:%d/setup", Port)
+// setupLink is the setup page, with its key after #k=, which never leaves
+// this computer: the page hands it over once for a cookie, and takes it out of
+// the address. then is what the page does on opening: "pair" or "unpair".
+func (d *Deck) setupLink(then string) string {
+	return setupAddress("k="+d.access.SetupKey, then)
+}
+
+// openSetup opens the setup page in the browser. The browser is started
+// with the link on its command line, which other people signed in to this
+// computer can read, so the link carries a token that works once, for a
+// couple of minutes, instead of the key: the page swaps it for the cookie.
+func (d *Deck) openSetup(then string) {
+	d.mu.Lock()
+	token := d.access.NewSetupToken()
+	d.mu.Unlock()
+	openURL(setupAddress("o="+token, then))
+}
+
+func setupAddress(fragment, then string) string {
+	link := fmt.Sprintf("http://localhost:%d/setup#%s", Port, fragment)
+	if then != "" {
+		link += "&" + then
+	}
+	return link
+}
 
 // Adapters a phone can't reach: containers, virtual machines, VPN tunnels.
 var virtualAdapter = regexp.MustCompile(`(?i)^(docker|br-|veth|virbr|vethernet|vmnet|vbox|tun|tap|utun|wg|tailscale|zt)`)

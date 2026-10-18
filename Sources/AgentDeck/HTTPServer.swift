@@ -7,6 +7,11 @@ final class HTTPServer {
     /// Far more than a few phones and the hook ever open at once. Beyond it,
     /// new connections are refused, so a flood can't exhaust the app.
     static let maxConnections = 64
+    /// No one other address may hold more than this many, and a few are kept
+    /// for this Mac, so a device on the network can't take them all and lock
+    /// out the phones, or the hook.
+    static let mostPerAddress = 16
+    static let keptForThisMac = 8
     /// How long to wait before listening again when the port is taken: by
     /// the app as it quits, say, while this one starts.
     static let retryDelay: TimeInterval = 2
@@ -15,6 +20,7 @@ final class HTTPServer {
     private let router: Router
     private var listener: NWListener?
     private var openConnections = 0
+    private var openByAddress: [String: Int] = [:]
     /// Called each time listening fails, before trying again, and once it works.
     var onFailure: (Error) -> Void = { _ in }
     var onReady: () -> Void = {}
@@ -62,12 +68,21 @@ final class HTTPServer {
     }
 
     private func accept(_ connection: NWConnection) {
-        guard openConnections < HTTPServer.maxConnections else { return connection.cancel() }
+        let address = connection.remoteAddress, local = connection.isLoopback
+        let limit = local ? HTTPServer.maxConnections : HTTPServer.maxConnections - HTTPServer.keptForThisMac
+        guard openConnections < limit, local || openByAddress[address, default: 0] < HTTPServer.mostPerAddress else {
+            return connection.cancel()
+        }
         openConnections += 1
+        openByAddress[address, default: 0] += 1
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .failed: connection.cancel()
-            case .cancelled: self?.openConnections -= 1
+            case .cancelled:
+                guard let self else { return }
+                self.openConnections -= 1
+                self.openByAddress[address, default: 1] -= 1
+                if self.openByAddress[address] == 0 { self.openByAddress[address] = nil }
             default: break
             }
         }
@@ -102,6 +117,8 @@ struct Response {
     /// something over the page and trick you into pressing a button; the
     /// setup page's preview of the deck is the one page this deck frames.
     var framedBy = Framing.noOne
+    /// Any other headers, such as the setup page's cookie.
+    var headers: [String: String] = [:]
 
     enum Framing {
         case noOne, thisDeck
@@ -217,19 +234,9 @@ private final class HTTPConnection {
                        remoteAddress: remoteAddress)
     }
 
-    private var remoteAddress: String {
-        guard case .hostPort(let address, _) = connection.endpoint else { return "" }
-        return "\(address)"
-    }
+    private var remoteAddress: String { connection.remoteAddress }
 
-    private var isLoopback: Bool {
-        guard case .hostPort(let address, _) = connection.endpoint else { return false }
-        switch address {
-        case .ipv4(let ip): return ip.isLoopback
-        case .ipv6(let ip): return ip.isLoopback || (ip.asIPv4?.isLoopback ?? false)
-        default: return false
-        }
-    }
+    private var isLoopback: Bool { connection.isLoopback }
 
     /// An IP address, localhost, or a Bonjour name — never someone's domain.
     private static func isDirectAddress(_ host: String) -> Bool {
@@ -262,6 +269,7 @@ private final class HTTPConnection {
                 head += "X-Frame-Options: SAMEORIGIN\r\nContent-Security-Policy: frame-ancestors 'self'\r\n"
             }
         }
+        for (name, value) in response.headers { head += "\(name): \(value)\r\n" }
         head += "Connection: close\r\n\r\n"
         connection.send(content: Data(head.utf8) + response.body, completion: .contentProcessed { [connection] _ in
             connection.cancel()
@@ -285,12 +293,29 @@ final class EventStream {
         watchForClose()
     }
 
+    /// One state is on its way at a time, and only the newest waits: each
+    /// carries the whole state. A phone that isn't reading, as Safari in the
+    /// background, would otherwise have every one kept for it in memory.
     func send(_ json: Data) {
-        write("data: " + String(decoding: json, as: UTF8.self) + "\n\n")
+        guard !sending else { return waiting = json }
+        sending = true
+        connection.send(content: Data(("data: " + String(decoding: json, as: UTF8.self) + "\n\n").utf8),
+                        completion: .contentProcessed { [weak self] _ in
+            guard let self else { return }
+            self.sending = false
+            if let next = self.waiting {
+                self.waiting = nil
+                self.send(next)
+            }
+        })
     }
+    private var sending = false
+    private var waiting: Data?
 
-    /// A comment line, so Safari and anything in between keep an idle stream open.
-    func ping() { write(": ping\n\n") }
+    /// A ping, so Safari and anything in between keep an idle stream open,
+    /// and the page, hearing it, knows the stream is still alive. Without
+    /// data, the browser wouldn't pass it on.
+    func ping() { write("event: ping\ndata: 1\n\n") }
 
     /// Hangs up. The phone's next attempt to reconnect is answered afresh.
     func close() {
@@ -311,6 +336,23 @@ final class EventStream {
             } else {
                 watchForClose()
             }
+        }
+    }
+}
+
+extension NWConnection {
+    /// The address a connection came from, without its port.
+    var remoteAddress: String {
+        guard case .hostPort(let address, _) = endpoint else { return "" }
+        return "\(address)"
+    }
+
+    var isLoopback: Bool {
+        guard case .hostPort(let address, _) = endpoint else { return false }
+        switch address {
+        case .ipv4(let ip): return ip.isLoopback
+        case .ipv6(let ip): return ip.isLoopback || (ip.asIPv4?.isLoopback ?? false)
+        default: return false
         }
     }
 }

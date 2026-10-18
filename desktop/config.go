@@ -49,7 +49,12 @@ var logos = []string{"smolcorp", "keys"}
 func loadConfig() *Config {
 	config := &Config{Colours: map[string]string{}, Logo: "smolcorp", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook()}
 	if data, err := os.ReadFile(configFile); err == nil {
-		_ = json.Unmarshal(data, config)
+		// A field it can't read loses only itself. A file it can't read at all
+		// starts from the defaults, but a copy is kept beside it first, so the
+		// next save doesn't take your pins, layouts, profiles and roles with it.
+		if err := json.Unmarshal(data, config); err != nil {
+			_ = writePrivate(configFile+".broken", data)
+		}
 	}
 	// Layouts are checked again as they load: their buttons type into sessions.
 	config.Layout = config.Layout.checked()
@@ -81,9 +86,11 @@ func loadConfig() *Config {
 	return config
 }
 
+// save writes through a file beside the config and renames it, so a crash or
+// a full disk leaves the last config whole rather than half of the new one.
 func (c *Config) save() {
 	if data, err := json.MarshalIndent(c, "", "  "); err == nil {
-		_ = os.WriteFile(configFile, data, 0o600)
+		_ = writePrivate(configFile, data)
 	}
 }
 

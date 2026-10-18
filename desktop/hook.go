@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,7 +27,11 @@ const (
 	hookKeyHeader = "X-AgentDeck-Token"
 	hookTimeout   = 2 * time.Second
 	// Far more than any event; a runaway stdin is cut off here.
-	maxEventSize = 4 << 20
+	maxEventSize = 64 << 20
+	// Under the deck's limit on a request, 1 MiB. A bigger event, such as a
+	// tool's whole output, is trimmed to fit rather than lost: see trimmedEvent.
+	mostSent    = 900 << 10
+	longestText = 4096
 )
 
 // RunHook always returns 0: a hook that fails would hold up the agent.
@@ -36,6 +41,7 @@ func RunHook(args []string) int {
 		agent = args[0]
 	}
 	event, _ := io.ReadAll(io.LimitReader(os.Stdin, maxEventSize))
+	event = trimmedEvent(event)
 	key, err := os.ReadFile(hookKeyFile)
 	if err != nil {
 		return 0
@@ -94,4 +100,44 @@ func tabFromEnvironment(agent Agent) string {
 		}
 	}
 	return ""
+}
+
+// trimmedEvent is an event small enough for the deck to take. One over mostSent
+// loses the tool's output, which the deck never shows, and has each text
+// longer than longestText shortened: what the office shows, as the file a
+// tool reads or the command it runs, is in the first of it.
+func trimmedEvent(event []byte) []byte {
+	if len(event) <= mostSent {
+		return event
+	}
+	decoder := json.NewDecoder(bytes.NewReader(event))
+	decoder.UseNumber()
+	var fields map[string]any
+	if decoder.Decode(&fields) != nil {
+		return event
+	}
+	delete(fields, "tool_response")
+	out, err := json.Marshal(shortened(fields))
+	if err != nil {
+		return event
+	}
+	return out
+}
+
+func shortened(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, inner := range v {
+			v[key] = shortened(inner)
+		}
+	case []any:
+		for i, inner := range v {
+			v[i] = shortened(inner)
+		}
+	case string:
+		if runes := []rune(v); len(runes) > longestText {
+			return string(runes[:longestText]) + "..."
+		}
+	}
+	return value
 }

@@ -15,6 +15,17 @@ final class DeckRouter: Router {
     /// browser ask permission first for any cross-site request, which this
     /// server never grants — so a web page you visit cannot press these buttons.
     static let setupHeader = "x-agentdeck-setup"
+    /// The setup page's key, as a tool of your own sends it, read from the
+    /// setup-key file; or as the page's cookie, from the menu's link.
+    static let setupKeyHeader = "x-smolcorp-setup-key"
+    static let setupCookie = "smolcorp-setup"
+
+    static func cookie(_ name: String, in request: Request) -> String? {
+        (request.headers["cookie"] ?? "").split(separator: ";").lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { $0.hasPrefix("\(name)=") }
+            .map { String($0.dropFirst(name.count + 1)) }
+    }
 
     private let deck: Deck
 
@@ -39,6 +50,12 @@ final class DeckRouter: Router {
             guard request.isLocal else { return respond(.status(404)) }
             guard request.method == "GET" || request.headers[DeckRouter.setupHeader] == "1" else {
                 return respond(.status(403))
+            }
+            // The page itself holds nothing. What it reads and changes needs the setup key: the
+            // cookie the page is given as the menu opens it, or the header a tool of your own sends.
+            if request.path != "/setup" {
+                let key = request.headers[DeckRouter.setupKeyHeader] ?? DeckRouter.cookie(DeckRouter.setupCookie, in: request)
+                guard deck.access.isSetupKey(key) else { return respond(.status(401)) }
             }
             return setup(request, respond: respond)
         }
@@ -109,6 +126,13 @@ final class DeckRouter: Router {
                 config.save()
             }
             respond(.file(Paths.web.appendingPathComponent("setup.html")))
+
+        // The menu's link carries the key after #k=. The page hands it over once,
+        // already checked above, for a cookie only this page's requests carry.
+        case ("POST", "/setup/session"):
+            var session = Response.status(204)
+            session.headers["Set-Cookie"] = "\(DeckRouter.setupCookie)=\(deck.access.setupKey); Path=/setup; HttpOnly; SameSite=Strict"
+            respond(session)
 
         case ("GET", "/setup/state"):
             respond(.json(setupState()))

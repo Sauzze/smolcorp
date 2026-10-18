@@ -99,3 +99,33 @@ func TestEachAgentsOwnKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestOpenCode2sEventsGiveADeskAndItsStates replays what Smolcorp's plugin
+// reported from a real OpenCode 2.0.32 session, in the order its hooks
+// arrived: the session, a turn, a question, its answer and the turn's end.
+func TestOpenCode2sEventsGiveADeskAndItsStates(t *testing.T) {
+	d := newTestDeck(t)
+	d.launcherConnected("L1", OpenCode, "/work/qwen", "")
+	steps := []struct {
+		event string
+		want  SessionState
+	}{
+		{"SessionStart", Idle},
+		{"UserPromptSubmit", Thinking},
+		{"PermissionRequest", Asking},
+		{"PostToolUse", Thinking},
+		{"Stop", Unread},
+	}
+	for i, step := range steps {
+		d.Ingest(map[string]any{"session_id": "ses_eb1b8fa4dffeeHImBCiKnaPODQ", "hook_event_name": step.event, "cwd": "/work/qwen",
+			"source": "startup"}, "opencode", "launcher:L1", "", float64(100+i))
+		s := d.sessions.Get("ses_eb1b8fa4dffeeHImBCiKnaPODQ")
+		if s == nil || s.State != step.want {
+			t.Fatalf("after %s the session is %+v, want it %s", step.event, s, step.want)
+		}
+	}
+	keys, _ := d.layout()
+	if keys[0].session == nil || keys[0].session.Agent != OpenCode {
+		t.Fatalf("the OpenCode session has no desk: %+v", keys[0])
+	}
+}

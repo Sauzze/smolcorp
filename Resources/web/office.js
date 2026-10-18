@@ -1484,6 +1484,10 @@
       // The last ☢ Max press they've answered, so only a new one sends them.
       this.answeredPress = session.maxPressedAt;
       this.isGoingNuclear = false;
+      // The last message to another agent they've taken over, and the visit
+      // they're on with one: whose desk, the spot by it, and till when.
+      this.answeredMessage = session.messagedAt ?? null;
+      this.visiting = null;
       // Their session has shown max since the press. Until it does, the
       // press is still on its way to the agent, and an old effort means
       // nothing.
@@ -1696,7 +1700,7 @@
           if (walker.place === 'door') walker.isLeaving = true;
         }
         // On their way, they go on from where they are, round the room as it is now; settled, they're at their place as it is now
-        if (wasWalking) Object.assign(walker, { path: route(walker.position, walker.place), refuge: null, roundFor: null });
+        if (wasWalking) Object.assign(walker, { path: route(walker.position, walker.place), refuge: null, rounded: null });
         else walker.position = { ...pointOf(walker.place) };
         const spot = spotOf(walker.place);
         if (spot !== null && !wasWalking) walker.isFacingAway = facesAway(spots[spot].pose);
@@ -1727,6 +1731,7 @@
           // same person, carrying on.
           newcomers.delete(successor[0]);
           person.answeredPress = successor[1].session.maxPressedAt;
+          person.answeredMessage = successor[1].session.messagedAt ?? null;
           this.update(person, successor[1], now);
         } else {
           this.standDown(person);
@@ -2295,6 +2300,8 @@
     }
 
     standDown(person) {
+      // A visit cut short by the button isn't taken up again afterwards.
+      person.visiting = null;
       person.isGoingNuclear = false;
       person.pressedAt = null;
       person.deskEffort = person.session.effort;
@@ -2320,6 +2327,7 @@
       const pressed = session.maxPressedAt;
       if (pressed && pressed !== person.answeredPress && !person.isGoingNuclear) {
         person.isGoingNuclear = true;
+        person.visiting = null;
         person.sawMax = false;
         this.nuclearQueue.push(person);
       }
@@ -2329,6 +2337,13 @@
         this.send(person, this.home(person));
       }
       person.answeredPress = pressed;
+      // A message to another agent here: they take it over to their desk.
+      const sent = session.messagedAt ?? null;
+      if (sent && sent !== person.answeredMessage && !person.isGoingNuclear) {
+        const to = this.people.find((p) => p !== person && !p.isStaff && !p.isLeaving && p.session.id === session.messaged);
+        if (to && DESKS[to.desk] && !DESKS[to.desk].off) person.visiting = { desk: to.desk, place: this.visitPlace(person, to.desk), until: null };
+      }
+      person.answeredMessage = sent;
       if (!person.isGoingNuclear) {
         if (EFFORTS.indexOf(session.effort) > EFFORTS.indexOf(person.deskEffort)) person.effortRoseAt = now;
         person.deskEffort = session.effort;
@@ -2356,6 +2371,17 @@
       if (person.isGoingNuclear) {
         const place = this.nuclearQueue[0] === person ? 'button' : 'queue';
         if (person.place !== place) this.send(person, place);
+        return;
+      }
+      // Taking a message over: to the spot by their desk, a moment there, then back.
+      if (person.visiting) {
+        const visit = person.visiting;
+        if (person.place !== visit.place) return this.send(person, visit.place);
+        if (person.isWalking) return;
+        if (visit.until === null) visit.until = now + VISIT_STAY;
+        if (now < visit.until) return;
+        person.visiting = null;
+        this.send(person, desk);
         return;
       }
       const duty = this.dutyOf(person, now);
@@ -2404,6 +2430,15 @@
       return s.state === 'idle' ? null : desk;
     }
 
+    /** A spot by `desk` for a visitor: one its interns and other visitors haven't taken. */
+    visitPlace(person, desk) {
+      const taken = new Set([
+        ...this.interns.filter((i) => !i.isLeaving && i.desk === desk && i.slot !== null).map((i) => `near:${desk}:${i.slot}`),
+        ...this.people.filter((p) => p !== person && p.visiting).map((p) => p.visiting.place),
+      ]);
+      return INTERN_SLOTS.map((_, i) => `near:${desk}:${i}`).find((place) => !taken.has(place)) || `near:${desk}:0`;
+    }
+
     /** One of the spots along the back wall nobody else has taken. */
     wallSpot(person, kind, count) {
       if (person.place.startsWith(`${kind}:`)) return person.place;
@@ -2423,7 +2458,7 @@
     send(person, place) {
       person.place = place;
       person.refuge = null;
-      person.roundFor = null;
+      person.rounded = null;
       person.path = route(person.position, place);
       person.nextMove = Infinity;
     }
@@ -2514,11 +2549,9 @@
       for (const pet of this.pets) {
         if (!pet.isIn || PETS[pet.kind].flies || (pet.isWalking && !(pet.waited > 0)) || (pet.target && pet.target.depth !== undefined && !standsFree(pet.position))) continue;
         if (!this.passes(person, pet.position, PERSON_GAP - 1)) continue;
-        if (person.roundFor === pet && person.roundAt && near(person.roundAt, pet.position, 3)) continue;
+        if (this.roundedAlready(person, pet)) continue;
         const round = walkway(person.position, end, true, [pet.position]);
         if (round) person.path = round;
-        person.roundFor = pet;
-        person.roundAt = { ...pet.position };
       }
       for (const other of this.people) {
         if (!up(other)) continue;
@@ -2536,14 +2569,26 @@
           return true;
         }
         // Going first: round anyone stopped or standing in our way, again whenever they've moved
-        const moved = person.roundFor !== other || !person.roundAt || !near(person.roundAt, other.position, 3);
-        if ((!other.isWalking || other.refuge) && moved && this.passes(person, other.position, PERSON_GAP)) {
+        if ((!other.isWalking || other.refuge) && this.passes(person, other.position, PERSON_GAP) && !this.roundedAlready(person, other)) {
           const round = walkway(person.position, end, true, [other.position]);
           if (round) person.path = round;
-          person.roundFor = other;
-          person.roundAt = { ...other.position };
         }
       }
+      return false;
+    }
+
+    /**
+     * Whether `person` has already looked for a way round `obstacle` where it
+     * is now, and if not, notes that they have. Kept for each obstacle, so two
+     * in the way don't take turns being forgotten and have the whole way
+     * worked out again every frame; and kept when no way round was found, so
+     * that isn't tried again until the obstacle moves.
+     */
+    roundedAlready(person, obstacle) {
+      person.rounded ??= new Map();
+      const at = person.rounded.get(obstacle);
+      if (at && near(at, obstacle.position, 3)) return true;
+      person.rounded.set(obstacle, { ...obstacle.position });
       return false;
     }
 
@@ -2611,6 +2656,8 @@
   const STAFF_INTERVAL = [3, 6];
   /** Only a tool that's been running this long gets its agent up from the desk, so nobody jitters back and forth. */
   const LONG_TOOL = 1.5;
+  /** How long an agent stays at the desk of one it has sent a message to, in seconds. */
+  const VISIT_STAY = 4;
 
   /* ------------------------------------------------------------ drawing */
 
@@ -2793,6 +2840,17 @@
   /** Two fingers scroll a line for this many CSS pixels they move; down and up again within this many seconds, still, they're a tap. */
   const SCROLL_STEP = 4;
   const TWO_FINGER_TAP = 0.35;
+  /**
+   * What a touch sends only once the finger lifts, still, with no second
+   * finger come down: the keys, choices, chips and buttons that type into an
+   * agent, or fire one. A first finger landing on them for a two-finger
+   * scroll sends nothing.
+   */
+  const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired'];
+  /** How long the question before firing ignores taps, in seconds: a double tap that opened it doesn't answer it too. */
+  const FIRE_QUESTION_SETTLES = 0.5;
+  /** Return again this soon, by accept or send, is one tap landing twice, in seconds. */
+  const RETURN_REPEAT = 0.6;
   const ROW_KEYS = [
     { action: 'esc', label: 'esc' }, { action: 'send', icon: 'send' }, { action: 'clear', label: '/clear', confirm: true },
     { action: 'up', icon: 'up' }, { action: 'down', icon: 'down' },
@@ -8267,11 +8325,28 @@
       // Going nuclear says enough on its own, and the choice keys stand in
       // for the bubble of the agent they answer.
       if (person.isLeaving || person.isGoingNuclear) return;
-      if (frame.choices && !person.isStaff && person.session.id === selected) return;
-      const state = person.session.state;
       const pose = poseOf(person, now);
       const top = topOf(person, pose);
       let x = Math.round(person.position.x);
+
+      if (person.visiting && person.visiting.until !== null) {
+        // At the desk they've brought a message to: an envelope, held out, picked or not.
+        const bottom = top - 3 - (Math.floor(now * 2) % 2);
+        fill(x - 4, bottom - 7, 9, 9, PALETTE.bubbleEdge);
+        fill(x - 5, bottom - 6, 11, 7, PALETTE.bubbleEdge);
+        fill(x - 4, bottom - 6, 9, 7, PALETTE.bubble);
+        dot(x - 1, bottom + 1, PALETTE.bubble);
+        dot(x - 1, bottom + 2, PALETTE.bubbleEdge);
+        fill(x - 3, bottom - 5, 7, 5, PALETTE.bubbleEdge);
+        fill(x - 2, bottom - 4, 5, 3, WHITE);
+        for (let k = 0; k < 3; k++) {
+          dot(x - 2 + k, bottom - 4 + k, PALETTE.bubbleEdge);
+          dot(x + 2 - k, bottom - 4 + k, PALETTE.bubbleEdge);
+        }
+        return;
+      }
+      if (frame.choices && !person.isStaff && person.session.id === selected) return;
+      const state = person.session.state;
 
       if (mic.held && isListener(person)) {
         // Listening: sound lines coming in from the right.
@@ -10407,8 +10482,8 @@
     let chipDown = null;     // the last paint chip tapped: { level, at, held }
     // A desk held down: { kind: 'session', id } for its agent, or { kind: 'empty', desk } for a hire
     let held = null;
-    let firing = null;       // an agent about to be fired, while the question is up: { id, name }
-    let carrying = null;     // an agent carried to another desk: { person, from, x, y, over }
+    let firing = null;       // an agent about to be fired, while the question is up: { id, name, at }
+    let carrying = null;     // an agent carried to another desk: { person, from, x, y, over, desks }
     let styling = false;     // the styles' panel is up
     let music = null;        // what the computer says of its music, with the jukebox on: { playing: true | false | null }
     let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
@@ -10417,6 +10492,7 @@
     let keysFor = null;      // the agent whose keys are out, by its session's id: from a finger held on them till a tap elsewhere
     let keyArmed = null;     // a key that wants a second tap, tapped once: { action, at }
     let keyDown = null;      // the key last pressed: { action, at, held }
+    const returnAt = new Map(); // when accept or send last went to each session, so a tap landing twice sends Return once
     let keysAt = null;       // where the keys were last drawn, in art pixels: { keys, box }
     let roleDown = null;     // the role last tapped, on a held empty desk: { id, at, held }
     let roleOffset = 0;      // how far the roles are slid along, in art pixels
@@ -10500,10 +10576,13 @@
       if (framed || !hiring.hire) return false;
       const seat = office.seats[desk];
       if (seat && seat.pin) return !seat.session;
+      // With a set number of desks, any free one: the hire sits at the one held
+      const fixed = FIXED_KEYS.includes(latest && latest.layout && latest.layout.keys);
+      if (fixed) return !!seat && !seat.session;
+      // With Auto, the desks stay packed: the first free one, or the next after the last
       const free = office.seats.findIndex((s) => !s.pin && !s.session);
       if (free >= 0) return desk === free;
-      const fixed = FIXED_KEYS.includes(latest && latest.layout && latest.layout.keys);
-      return !fixed && desk === office.seats.length && desk < DESKS.length;
+      return desk === office.seats.length && desk < DESKS.length;
     }
 
     /** The roles the computer can hire into, as you've set them up: none, and a hire is anyone. */
@@ -10623,7 +10702,9 @@
             ? pieceBox(arranging.picked) : null,
         },
         music,
-        musicTap: musicTap && now - musicTap.at < MUSIC_TAP_LENGTH && { box: pieceBox(musicTap.part), was: musicTap.was, since: now - musicTap.at },
+        // Gone with its piece, if the room changed under it, rather than failing every frame until it would have
+        musicTap: musicTap && now - musicTap.at < MUSIC_TAP_LENGTH && pieceBox(musicTap.part)
+          && { box: pieceBox(musicTap.part), was: musicTap.was, since: now - musicTap.at },
         musicPanel: musicControl() && { ...musicControl(), playing: music.playing, down: musicDown },
         keyRow: keys,
         roleRow: hires,
@@ -10704,6 +10785,7 @@
       }
       // While the question is up, its keys are all there is; a tap anywhere else keeps them on.
       if (firing) {
+        if (clock() - firing.at < FIRE_QUESTION_SETTLES) return null;
         for (const key of fireDialog().keys) consider({ kind: key.action }, { left: key.x, right: key.x + key.w, top: key.y, bottom: key.y + key.h }, -1);
         return best ? best.target : { kind: 'keep' };
       }
@@ -10799,10 +10881,12 @@
       if (target.kind !== 'key' && target.kind !== 'chip') keysFor = null;
       if (target.kind !== 'key') keyArmed = null;
       if (target.kind === 'key') {
-        keyDown = { action: target.action, at: clock(), held: true };
         const wanted = rowKeysOf(latest && latest.layout).find((k) => k.action === target.action);
         // A key that wants to be sure acts on its second tap, while it says SURE?
-        if (wanted && wanted.confirm && !(keyArmed && keyArmed.action === target.action && clock() - keyArmed.at < KEY_ARMED_LENGTH)) {
+        const arming = wanted && wanted.confirm && !(keyArmed && keyArmed.action === target.action && clock() - keyArmed.at < KEY_ARMED_LENGTH);
+        if (!arming && isRepeatedReturn(target.action)) return; // ignored, so it isn't pressed in either
+        keyDown = { action: target.action, at: clock(), held: true };
+        if (arming) {
           keyArmed = { action: target.action, at: clock() };
           return on.held?.();
         }
@@ -10846,6 +10930,7 @@
       // They carry their things out in a box only once the computer says
       // they're fired; if it couldn't, the deck says why.
       if (target.kind === 'fired') {
+        if (!firing) return; // they left while the finger was down
         const { id } = firing;
         firing = null;
         return Promise.resolve(on.fire?.(id)).then((fired) => {
@@ -10856,13 +10941,14 @@
       if (target.kind === 'fire') {
         const seat = office.seats.find((s) => s.session && s.session.id === holding.id);
         // Asked about by the name on their desk: a nickname, or their project's.
-        if (seat) firing = { id: holding.id, name: memberOf(seat.session)?.name || seat.session.name };
+        if (seat) firing = { id: holding.id, name: memberOf(seat.session)?.name || seat.session.name, at: clock() };
         return on.held?.();
       }
       if (target.kind === 'hire') return on.hire?.(holding.desk, null);
       // An empty or pinned desk says something on a tap, once the finger lifts: holding it is something else.
       if (target.kind === 'empty' || target.kind === 'pinned') return;
       if (target.kind === 'choice') {
+        if (isRepeatedReturn(target.action)) return;
         choiceDown = { action: target.action, at: clock(), held: true };
         return on.choose?.(target.action);
       }
@@ -10889,11 +10975,30 @@
     }
 
     /**
+     * Accept or send to the picked session again a moment after the last: one
+     * tap landing twice. A Yes to one agent then another both go, and up, down
+     * and the rest repeat as tapped.
+     */
+    function isRepeatedReturn(action) {
+      if (action !== 'accept' && action !== 'send') return false;
+      const now = clock();
+      for (const [id, at] of returnAt) if (now - at >= RETURN_REPEAT) returnAt.delete(id);
+      if (returnAt.has(selected)) return true;
+      returnAt.set(selected, now);
+      return false;
+    }
+
+    /**
      * The finger lifts, or is taken away: the mic must always hear about it,
      * or it keeps listening. Lifted over another desk, a carried agent swaps
      * desks with it; taken away, they go back.
      */
     function lift(dropped = false) {
+      // A touch waiting to send goes now if it lifted where it landed; taken away, or joined by a second finger, it sends nothing.
+      if (finger && finger.waiting) {
+        finger.waiting = false;
+        if (dropped && !finger.moved) press(finger.target);
+      }
       if (carrying) {
         const { from, over } = carrying;
         carrying = null;
@@ -10953,10 +11058,14 @@
         return { left: x - 2, top: y + WORKSPACES[workspaceOf(seat.session, desk)].top, right: x + DESK_WIDTH + 2, bottom: y + 20 };
       }
       if (isHung(part)) {
-        const piece = hungOf()[Number(part.slice(5))], half = wallWidthOf(piece.kind) / 2;
+        const piece = hungOf()[Number(part.slice(5))];
+        if (!piece) return null; // taken off the wall meanwhile
+        const half = wallWidthOf(piece.kind) / 2;
         return { left: piece.x - half, top: HUNG_SPAN.top, right: piece.x + half, bottom: HUNG_SPAN.bottom };
       }
-      const { x, y, w, h } = pieceRect(part);
+      const rect = pieceRect(part);
+      if (!rect) return null; // taken out of the room meanwhile
+      const { x, y, w, h } = rect;
       const a = placed(part, { x, y }), b = placed(part, { x: x + w, y: y + h });
       return { left: a.x, top: a.y, right: b.x, bottom: b.y };
     }
@@ -11204,6 +11313,10 @@
       }
       canvas.setPointerCapture(e.pointerId);
       finger = { id: e.pointerId, target, at: clock(), x: e.clientX, y: e.clientY };
+      if (e.pointerType === 'touch' && SENT_ON_LIFT.includes(target.kind)) {
+        finger.waiting = true;
+        return;
+      }
       press(target);
     });
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
@@ -11278,6 +11391,10 @@
         }
         return;
       }
+      if (finger && e.pointerId === finger.id && finger.waiting) {
+        if (Math.hypot(e.clientX - finger.x, e.clientY - finger.y) >= CARRY_AFTER) finger.moved = true;
+        return;
+      }
       if (finger && e.pointerId === finger.id && finger.target.kind === 'role') return slide(e);
       if (finger && e.pointerId === finger.id) return carry(e);
       // A mouse shows what can be clicked.
@@ -11297,6 +11414,9 @@
     }
 
     /** A finger held on an agent's desk, then moved, picks the agent up and carries them. */
+    /** Who is at each desk, and which are pinned: the desks a swap is counted by, by number. */
+    const desksNow = () => office.seats.map((s) => `${s.session ? s.session.id : ''} ${s.pin || ''}`).join('\n');
+
     function carry(e) {
       const { x, y } = roomAt(e.clientX, e.clientY);
       if (!carrying) {
@@ -11306,7 +11426,7 @@
         if (from < 0) return;
         held = null;
         const person = office.people.find((p) => !p.isStaff && !p.isLeaving && p.session.id === finger.target.id) || null;
-        carrying = { person, from, x, y, over: from };
+        carrying = { person, from, x, y, over: from, desks: desksNow() };
         on.held?.();
       }
       const over = deskAt(x, y);
@@ -11330,6 +11450,10 @@
         const there = (id) => office.deskOfSession(id) !== null;
         if (firing && (!hiring.fire || !there(firing.id))) firing = null;
         if (held && (held.kind === 'session' ? !there(held.id) : !hiresInto(held.desk))) held = null;
+        // A swap is sent as two desks' numbers. With someone gone or come, or a desk pinned, meanwhile, they'd
+        // be other desks, and the wrong two would swap and stay so. The carry is let go, and the finger, still
+        // down, picks the agent up again as it moves, counted from the desks as they are now.
+        if (carrying && carrying.desks !== desksNow()) carrying = null;
       },
       close() {
         latest = null;

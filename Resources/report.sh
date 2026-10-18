@@ -59,12 +59,45 @@ in_terminal() {
 }
 
 # No tty at all means the hook runs outside the session's process tree, as
-# Codex's do, in a shared background service. The app finds the tab itself.
+# Codex's do, and OpenCode 2's, in a background service of their own. The app
+# finds the tab itself, by the session's folder. Any other agent without a tty
+# is running headless, as claude -p does, and is left out: found by its folder,
+# it would land on the tab of an interactive session there.
 if [ -n "$tty" ]; then
   in_terminal || exit 0
+else
+  case "$AGENT" in
+    codex|opencode) ;;
+    *) exit 0 ;;
+  esac
 fi
 
-curl -s -m 2 -o /dev/null \
+# The app takes up to 1 MiB. A bigger event, such as a tool's whole output,
+# loses that output, which the app never shows, and has each text longer than
+# 4096 characters shortened, rather than being lost: what the office shows,
+# as the file a tool reads or the command it runs, is in the first of it.
+# Smaller events pass as they are. As the Windows and Linux hook's trimmedEvent.
+TRIM='
+  local $/; my $event = <STDIN>;
+  if (length $event > 900 * 1024) {
+    require JSON::PP;
+    my $json = JSON::PP->new->utf8;
+    my $fields = eval { $json->decode($event) };
+    if (ref $fields eq "HASH") {
+      delete $fields->{tool_response};
+      my $shorten; $shorten = sub {
+        my $v = shift;
+        if (ref $v eq "HASH") { $v->{$_} = $shorten->($v->{$_}) for keys %$v; return $v }
+        if (ref $v eq "ARRAY") { return [map { $shorten->($_) } @$v] }
+        return (defined $v && !ref $v && length $v > 4096 && !JSON::PP::is_bool($v)) ? substr($v, 0, 4096) . "..." : $v;
+      };
+      $event = $json->encode($shorten->($fields));
+    }
+  }
+  print $event;
+'
+
+perl -e "$TRIM" | curl -s -m 2 -o /dev/null \
   -H 'Content-Type: application/json' \
   -H @"$DIR/hook-header" \
   -H "X-AgentDeck-Agent: $AGENT" \

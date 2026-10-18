@@ -28,6 +28,10 @@ final class Access {
 
     let phones = Phones()
     let hookKey: String
+    /// The setup page's key, new at every launch: the menu opens the page
+    /// with it, and it's kept in a file only you can read, for tools of your
+    /// own on this Mac.
+    let setupKey: String
     private(set) var code: String?
     private(set) var codeExpiry = Date.distantPast
     /// Wrong codes since the current one was issued, by address.
@@ -39,11 +43,17 @@ final class Access {
         // rather than reused: the hook gets a fresh key and phones pair again.
         try? FileManager.default.removeItem(at: Paths.legacyToken)
         hookKey = Access.loadHookKey() ?? Access.createHookKey()
+        setupKey = Access.createSetupKey()
     }
 
     func isHookKey(_ candidate: String?) -> Bool {
         guard let candidate else { return false }
         return constantTimeEqual(candidate, hookKey)
+    }
+
+    func isSetupKey(_ candidate: String?) -> Bool {
+        guard let candidate, !candidate.isEmpty else { return false }
+        return constantTimeEqual(candidate, setupKey)
     }
 
     /// A fresh pairing code, replacing any earlier one and lifting lockouts.
@@ -90,6 +100,14 @@ final class Access {
         FileManager.default.createFile(atPath: Paths.hookHeader.path,
                                        contents: Data("\(hookHeaderName): \(key)\n".utf8),
                                        attributes: [.posixPermissions: 0o600])
+        return key
+    }
+
+    private static func createSetupKey() -> String {
+        let key = randomKey()
+        FileManager.default.createFile(atPath: Paths.setupKey.path, contents: Data("\(key)\n".utf8),
+                                       attributes: [.posixPermissions: 0o600])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Paths.setupKey.path)
         return key
     }
 }

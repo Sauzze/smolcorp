@@ -42,6 +42,10 @@ final class Session {
     /// When ☢ Max was last pressed for this session, in ms. Only the button
     /// sets it, never the dial, so the office knows which one was used.
     var maxPressedAt: Double?
+    /// When this session last sent another a message, in ms, and to which,
+    /// by its id: the office walks it over. Only for show.
+    var messagedAt: Double?
+    var messaged = ""
     /// Ended for /clear or /resume, when: the session waits for the one
     /// taking its place in its tab. See `Sessions.endHandOns(now:)`.
     var handingOnSince: Double?

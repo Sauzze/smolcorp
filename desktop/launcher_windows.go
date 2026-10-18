@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
@@ -34,5 +35,13 @@ func prepareConsole() {
 	var mode uint32
 	if windows.GetConsoleMode(console, &mode) == nil {
 		_ = windows.SetConsoleMode(console, mode|windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING|windows.DISABLE_NEWLINE_AUTO_RETURN)
+	}
+}
+
+// useCmdLine gives cmd.exe, starting a .cmd script, a command line it reads
+// as meant: see cmdLine.
+func useCmdLine(cmd *pty.Cmd, program string, args []string) {
+	if len(args) >= 2 && args[0] == "/c" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: cmdLine(program, args[1], args[2:])}
 	}
 }

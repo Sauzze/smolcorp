@@ -73,6 +73,11 @@ enum Terminal {
     /// app: nil if that couldn't be looked at. A tab that has closed takes its
     /// processes with it.
     static func isRunning(_ name: String, on tty: String) -> Bool? {
+        isRunning(any: [name], on: tty)
+    }
+
+    /// Whether a process called any of `names` is running on `tty`: see above.
+    static func isRunning(any names: Set<String>, on tty: String) -> Bool? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", "comm="]
@@ -83,8 +88,12 @@ enum Terminal {
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         // No such tty any more is an answer too: nothing runs on it.
-        return String(decoding: data, as: UTF8.self).split(separator: "\n")
-            .contains { ($0.trimmingCharacters(in: .whitespaces) as NSString).lastPathComponent == name }
+        return runs(any: names, among: String(decoding: data, as: UTF8.self))
+    }
+
+    /// Whether `ps -o comm=`'s lines, `commands`, name any of `names`.
+    static func runs(any names: Set<String>, among commands: String) -> Bool {
+        commands.split(separator: "\n").contains { names.contains(($0.trimmingCharacters(in: .whitespaces) as NSString).lastPathComponent) }
     }
 
     /// The tab you are looking at, if Terminal is the active app.

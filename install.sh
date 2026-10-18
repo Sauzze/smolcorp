@@ -25,14 +25,32 @@ fi
 
 scripts/build-app.sh
 
+# Whether the app at $1 is Smolcorp under any of its names: another app
+# called AgentDeck is someone else's, and stays.
+is_ours() {
+  [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null)" = "$BUNDLE_ID" ]
+}
+
 if pgrep -x AgentDeck >/dev/null; then # the executable kept the old name
   echo "Closing the running copy…"
   osascript -e "quit app id \"$BUNDLE_ID\"" >/dev/null 2>&1 || true
-  sleep 1
+  # Replaced while it still runs, the old copy would carry on, and the new
+  # one wouldn't open: wait for it to quit, or stop here.
+  for _ in $(seq 20); do
+    pgrep -x AgentDeck >/dev/null || break
+    sleep 0.5
+  done
+  if pgrep -x AgentDeck >/dev/null; then
+    echo "Smolcorp is still running. Quit it from its menu bar icon, then run ./install.sh again."
+    exit 1
+  fi
 fi
 
 echo "Installing in /Applications…"
-rm -rf "$DEST" "${OLD_DESTS[@]}"
+rm -rf "$DEST"
+for old in "${OLD_DESTS[@]}"; do
+  if [ -e "$old" ] && is_ours "$old"; then rm -rf "$old"; fi
+done
 cp -R "$BUILD" "$DEST"
 
 # macOS ties the Accessibility permission to this exact build. Clear the

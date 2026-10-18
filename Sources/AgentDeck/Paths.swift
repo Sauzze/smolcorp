@@ -21,6 +21,9 @@ enum Paths {
     static let hires = support.appendingPathComponent("hires", isDirectory: true)
     /// The hook's key, as the header curl sends: see `Access`.
     static let hookHeader = support.appendingPathComponent("hook-header")
+    /// The setup page's key, new at every launch, for tools of your own on
+    /// this Mac: see `DeckRouter`.
+    static let setupKey = support.appendingPathComponent("setup-key")
     /// 1.0's single key, shared by the phone and the hook. Deleted at launch.
     static let legacyToken = support.appendingPathComponent("token")
 
@@ -43,5 +46,7 @@ enum Paths {
     static let web = Bundle.main.resourceURL!.appendingPathComponent("web", isDirectory: true)
     static let bundledHookScript = Bundle.main.resourceURL!.appendingPathComponent("report.sh")
     static let bundledOpenCodePlugin = Bundle.main.resourceURL!.appendingPathComponent("opencode-plugin.js")
+    /// 1.7.2's plugin, the one OpenCode 1 loads: see `OpenCodeInstall`.
+    static let bundledOpenCodePluginV1 = Bundle.main.resourceURL!.appendingPathComponent("opencode-plugin-v1.js")
     static let bundledScreenSaver = Bundle.main.resourceURL!.appendingPathComponent("Smolcorp Office.saver")
 }
