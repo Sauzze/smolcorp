@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 @main
 enum AgentDeckApp {
@@ -15,14 +16,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let deck = Deck()
     private lazy var menu = StatusMenu(deck: deck)
     private lazy var server = HTTPServer(port: Deck.port, router: DeckRouter(deck: deck))
+    private lazy var office = OfficeWindow(address: URL(string: "http://127.0.0.1:\(Deck.port)/office?window&t=\(deck.windowKey)")!)
+    private var officeKey: HotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        try? Hooks.refresh()
-        Hooks.watchOpenCode()
-        LoginItem.refresh()
+        // A test copy leaves your agents' hooks and your login item to the copy in use.
+        if !TestCopy.isOn {
+            try? Hooks.refresh()
+            Hooks.watchOpenCode()
+            LoginItem.refresh()
+        }
         server.onFailure = { [menu] _ in menu.showPortInUse() }
         server.onReady = { [menu] in menu.showListening() }
         server.start()
+        menu.office = office
+        // ⌥⌘O, from anywhere, shows and hides the office's window.
+        officeKey = HotKey(keyCode: UInt32(kVK_ANSI_O), modifiers: UInt32(cmdKey | optionKey), id: 1) { [office] in office.toggle() }
 
         if !Config.shared.hasCompletedSetup {
             NSWorkspace.shared.open(deck.setupURL())

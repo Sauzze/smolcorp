@@ -3,8 +3,54 @@ import Foundation
 /// Where AgentDeck reads and writes. Its own state lives in
 /// ~/Library/Application Support/AgentDeck, so the app can be moved or
 /// replaced without losing the paired phones or the deck's layout.
+/// A test copy of the app, for trying a build beside the one in use: started
+/// with SMOLCORP_TEST_PORT and SMOLCORP_TEST_SUPPORT_DIR (scripts/test-copy.sh),
+/// it listens on its own port, keeps its own settings and keys, and changes
+/// nothing outside its folder: no hooks in your agents' settings, no login
+/// item. Without both, the app is itself.
+enum TestCopy {
+    static let port: UInt16? = {
+        guard support != nil, let text = ProcessInfo.processInfo.environment["SMOLCORP_TEST_PORT"],
+              let port = UInt16(text), port != 7710 else { return nil }
+        return port
+    }()
+    static let support: URL? = ProcessInfo.processInfo.environment["SMOLCORP_TEST_SUPPORT_DIR"]
+        .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+    static var isOn: Bool { port != nil }
+
+    /// What a test copy leaves to the copy in use.
+    enum Refused: LocalizedError {
+        case screenSaver, hiring
+
+        var errorDescription: String? {
+            switch self {
+            case .screenSaver: return "This is a test copy of Smolcorp: the screen saver installed is the real one's."
+            case .hiring: return "This is a test copy of Smolcorp: a hire's agent would report to the real one, so it doesn't hire."
+            }
+        }
+    }
+}
+
 enum Paths {
+    /// Writes `data` to `url` readable by you alone, whole or not at all: to
+    /// a file beside it, then put in its place, so a crash or a full disk
+    /// midway leaves the old one as it was. Says whether it was written.
+    @discardableResult
+    static func writePrivately(_ data: Data, to url: URL) -> Bool {
+        let temporary = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: temporary.path, contents: data, attributes: [.posixPermissions: 0o600]) else { return false }
+        guard rename(temporary.path, url.path) == 0 else {
+            try? FileManager.default.removeItem(at: temporary)
+            return false
+        }
+        return true
+    }
+
     static let support: URL = {
+        if TestCopy.isOn, let dir = TestCopy.support {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("AgentDeck", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

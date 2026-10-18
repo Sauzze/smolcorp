@@ -20,6 +20,15 @@ final class DeckRouter: Router {
     static let setupKeyHeader = "x-smolcorp-setup-key"
     static let setupCookie = "smolcorp-setup"
 
+    /// What went wrong getting dictation's language ready, if anything, for setup to say.
+    static var dictationProblem: String?
+
+    /// A hook header twice is one smuggled in after another, as a line break
+    /// in a variable the hook was given would make it.
+    static func hasSmuggledHookHeader(_ request: Request) -> Bool {
+        request.repeatedHeaders.contains { $0.hasPrefix("x-agentdeck-") }
+    }
+
     static func cookie(_ name: String, in request: Request) -> String? {
         (request.headers["cookie"] ?? "").split(separator: ";").lazy
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -63,9 +72,12 @@ final class DeckRouter: Router {
         if request.path == "/hook" {
             guard request.isLocal, request.method == "POST" else { return respond(.status(404)) }
             guard deck.access.isHookKey(request.headers["x-agentdeck-token"]) else { return respond(.status(401)) }
+            guard !DeckRouter.hasSmuggledHookHeader(request) else {
+                return respond(.status(400, "A hook header came twice"))
+            }
             let time = Double(request.headers["x-agentdeck-at"] ?? "") ?? Date().timeIntervalSince1970 * 1000
             deck.ingest(request.json, reportedAs: request.headers["x-agentdeck-agent"] ?? "",
-                        tty: request.headers["x-agentdeck-tty"] ?? "",
+                        tab: request.headers["x-agentdeck-tab"] ?? "", tty: request.headers["x-agentdeck-tty"] ?? "",
                         startedIn: request.headers["x-agentdeck-project"] ?? "", at: time)
             return respond(.status(204))
         }
@@ -88,7 +100,10 @@ final class DeckRouter: Router {
             return respond(.file(Paths.web.appendingPathComponent("office.js")))
         }
 
-        let phone = deck.access.phones.phone(withKey: request.query["t"] ?? request.headers["x-agentdeck-token"])
+        let key = request.query["t"] ?? request.headers["x-agentdeck-token"]
+        // The office's own window reads it as a phone does, from this Mac only.
+        let window = request.isLocal && key.map { constantTimeEqual($0, deck.windowKey) } == true
+        let phone = window ? PairedPhone.officeWindow : deck.access.phones.phone(withKey: key)
         if let phone { deck.access.phones.markSeen(phone.id) }
 
         // The deck, or the office on a screen of its own: the same page, and
@@ -107,7 +122,7 @@ final class DeckRouter: Router {
             deck.focus(session, done: respond)
 
         case ("POST", "/act"):
-            deck.perform(request.query["action"] ?? "", on: session, query: request.query, done: respond)
+            deck.perform(request.query["action"] ?? "", on: session, query: request.query, phone: phone.id, done: respond)
 
         default:
             respond(.status(404))
@@ -272,12 +287,38 @@ final class DeckRouter: Router {
             }
             let agent = request.query["agent"]
             if let agent, Agent(rawValue: agent) == nil { return respond(.status(400, "Unknown agent")) }
+            let terminal = request.query["terminal"]
+            if let terminal, !Openers.isInstalled(terminal) { return respond(.status(400, "That terminal isn't on this Mac")) }
+            let tmux = request.query["tmux"]
+            if tmux == "1", Tmux.path == nil { return respond(.status(400, "tmux isn't on this Mac")) }
             if let enabled = request.query["enabled"] { config.hiringEnabled = enabled == "1" }
             if let folder { config.hireFolder = folder }
             if let agent { config.hireAgent = agent }
+            if let terminal { config.hireTerminal = terminal }
+            if let tmux { config.hireInTmux = tmux == "1" }
             config.save()
             deck.refresh()
             respond(.json(setupState()))
+
+        // Dictation: turned on, its language, and whether Claude Code uses it. Turning it on
+        // asks for the microphone, here on the Mac, and gets the language's model ready.
+        case ("POST", "/setup/dictation"):
+            if let language = request.query["language"] {
+                guard Dictation.languages.contains(language) else { return respond(.status(400, "Unknown language")) }
+                config.dictationLanguage = language
+            }
+            if let claude = request.query["claude"] { config.dictationForClaude = claude == "1" }
+            if let enabled = request.query["enabled"] { config.dictationEnabled = enabled == "1" && Dictation.isAvailable }
+            config.save()
+            deck.refresh()
+            guard config.dictationEnabled else { return respond(.json(setupState())) }
+            Dictation.askForMicrophone { [self] _ in
+                Dictation.prepare(config.dictationLanguage) { [self] problem in
+                    DeckRouter.dictationProblem = problem
+                    deck.refresh()
+                    respond(.json(setupState()))
+                }
+            }
 
         // The roles as the page has them, all of them: checked as they're kept,
         // since their instructions go to agents.
@@ -363,7 +404,16 @@ final class DeckRouter: Router {
             "hiring": [
                 "enabled": config.hiringEnabled, "folder": config.hireFolder, "agent": config.hireAgent,
                 "canHire": true, "canChoose": true,
+                // Where hires open: the terminals on this Mac that can open them, and tmux if it's there.
+                "terminal": Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal",
+                "terminals": Openers.choices.filter { Openers.isInstalled($0.id) }.map { ["id": $0.id, "name": $0.name] },
+                "tmux": config.hireInTmux && Tmux.path != nil, "hasTmux": Tmux.path != nil,
             ],
+            "dictation": [
+                "available": Dictation.isAvailable, "enabled": config.dictationEnabled, "allowed": Dictation.microphoneAllowed,
+                "language": config.dictationLanguage, "claude": config.dictationForClaude,
+                "problem": DeckRouter.dictationProblem ?? NSNull(),
+            ] as [String: Any],
             // The roles, those that come with the app to go back to, and what a
             // role can be: its agent, whether that agent has an effort and
             // takes a first message, its badge, and how long each part can be.

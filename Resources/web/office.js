@@ -837,6 +837,11 @@
   /** The way from where someone stands to a place, round what's in the way. */
   function route(from, place) {
     const target = pointOf(place);
+    // A place gone with a change of layout, or a walker somewhere that isn't a
+    // number: straight there, or nowhere, rather than a search that never ends.
+    if (!target || ![from.x, from.y, target.x, target.y].every(Number.isFinite)) {
+      return target && Number.isFinite(target.x) && Number.isFinite(target.y) ? [{ x: target.x, y: target.y }] : [];
+    }
     const path = walkway(from, target);
     return path.filter((p, i) => i > 0 ? p.x !== path[i - 1].x || p.y !== path[i - 1].y : p.x !== from.x || p.y !== from.y);
   }
@@ -971,6 +976,9 @@
 
   /** A*, from cell to cell, straight and diagonally but never round a corner: the cells on the way, or null with none. */
   function search(start, goal, columns, rows, taken, clearance = null) {
+    // Only between cells of the floor: anything else, as NaN, would be searched for ever.
+    const isCell = (cell) => Number.isInteger(cell) && cell >= 0 && cell < columns * rows;
+    if (!isCell(start) || !isCell(goal)) return null;
     if (start === goal) return [start];
     const cost = new Float32Array(columns * rows).fill(Infinity);
     const from = new Int32Array(columns * rows).fill(-1);
@@ -3340,9 +3348,11 @@
    * past the room to the window's edges. The margin is wider in the pop-out
    * window, which has its own edge round it, than on a whole screen, where
    * every pixel counts, and there is none as the Mac's screen saver: the
-   * office goes from edge to edge, with square corners. In CSS pixels.
+   * office goes from edge to edge, with square corners. Bare, in the Mac
+   * app's own window, it goes from edge to edge with its round corners, and
+   * the window draws the shadow. In CSS pixels.
    */
-  const FLOAT_MARGINS = { window: 14, screen: 6, edge: 0 };
+  const FLOAT_MARGINS = { window: 14, screen: 6, edge: 0, bare: 0 };
   /**
    * How far the office goes on past the room, at most: half the room's
    * width or height each way. Beyond that, as on a phone held upright, it
@@ -3809,7 +3819,7 @@
     let glass = framed && { x: room.ox, y: room.oy, w: shape.width * scale, h: shape.height * scale, r: WINDOW_CORNER * ratio };
     if (floating) {
       // Edge to edge, bare wall and floor beat bands of nothing.
-      const edge = floating === 'edge', reach = edge ? Infinity : FLOAT_REACH;
+      const edge = floating === 'edge', reach = edge || floating === 'bare' ? Infinity : FLOAT_REACH;
       const w = Math.min(width - inset * 2, shape.width * scale * reach);
       const h = Math.min(height - inset * 2, shape.height * scale * reach);
       glass = { x: Math.round((width - w) / 2), y: Math.round((height - h) / 2), w, h, r: edge ? 0 : WINDOW_CORNER * ratio };
@@ -3825,7 +3835,7 @@
     // Floating, the window glows while anyone waits on you.
     const calling = floating && office.seats.some((s) => s.session && s.session.state === 'asking');
     const glow = calling ? 0.5 - 0.5 * Math.cos((now / GLOW_PERIOD) * 2 * Math.PI) : 0;
-    if (floating) drawFloat(glass);
+    if (floating && floating !== 'bare') drawFloat(glass);
     if (glass) {
       ctx.save();
       roundedRect(ctx, glass.x, glass.y, glass.w, glass.h, glass.r);
@@ -9485,6 +9495,10 @@
     if (selectedDesk >= 0) drawLabel(selectedDesk);
     if (frame.chips) drawChips();
     if (frame.deskButton) drawDeskButton(frame.deskButton);
+    if (frame.micLanguage) {
+      const { left, top, w, h, label } = frame.micLanguage;
+      drawPixelKey(left, top, w, h, 0x3b6ea5, label);
+    }
     if (frame.choices) drawChoices();
     if (frame.arranging) drawArrangement(frame.arranging);
     if (frame.musicTap) drawMusicTap(frame.musicTap);
@@ -10476,7 +10490,8 @@
     let floating = null;  // floating in a 'window' of its own or a whole 'screen', from 'edge' to edge, or not
     let frame = null;
     let last = 0;
-    let failed = false, restartedAt = -Infinity; // a frame failing, and when the room last started over for it
+    const failures = new Set(); // the mistakes frames have failed with, each said once
+    let restartedAt = -Infinity; // when the room last started over for one
     let selected = null; // the session the deck's controls act on
     let latest = null;   // the deck's last snapshot
     let ahead = 0;       // how far this device's clock is ahead of the computer's, in ms
@@ -10495,6 +10510,7 @@
     let styling = false;     // the styles' panel is up
     let music = null;        // what the computer says of its music, with the jukebox on: { playing: true | false | null }
     let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
+    let dictation = null;    // the Mac's dictation, from the snapshot: { on, language }
     let musicPanel = null;   // a music piece's control, held open: { part, at }, `at` when it was last used
     let musicDown = null;    // the music control's key last pressed: { action, at, held }
     let keysFor = null;      // the agent whose keys are out, by its session's id: from a finger held on them till a tap elsewhere
@@ -10561,6 +10577,19 @@
       host = null;
     }
 
+    /**
+     * The mic's quick switch, over its head while the picked agent dictates
+     * (see the Mac's Dictation): FR or EN, the language it listens for; a
+     * tap switches it.
+     */
+    function micLanguageKey() {
+      const session = selectedSession();
+      if (framed || arranging || styling || !dictation || !dictation.on || !session || !session.dictates) return null;
+      const french = (dictation.language || '').startsWith('fr');
+      const at = placed('mic', { x: MIC.x - 17, y: MIC.y - 26 });
+      return { left: Math.round(at.x), top: Math.round(at.y), w: 13, h: 9, label: french ? 'FR' : 'EN', next: french ? 'en_US' : 'fr_FR' };
+    }
+
     function selectedSession() {
       const seat = office.seats.find((s) => s.session && s.session.id === selected);
       return seat ? seat.session : null;
@@ -10608,7 +10637,8 @@
       if (held.kind === 'empty') return hiresInto(held.desk) && !roles().length ? deskButton(held.desk, 'hire') : null;
       if (held.id !== selected || !hiring.fire) return null;
       const desk = office.seats.findIndex((s) => s.session && s.session.id === held.id);
-      return desk >= 0 ? deskButton(desk, 'fire') : null;
+      // An agent in a terminal Smolcorp can only watch can't be fired from here.
+      return desk >= 0 && office.seats[desk].session.fire !== false ? deskButton(desk, 'fire') : null;
     }
 
     /** The styles' key, where the deck's own controls are out of sight and the page can change the style. */
@@ -10644,13 +10674,16 @@
     /** The picked agent's keys, along the foot of the room, if a finger held on them put them out and nothing else is up in their place. */
     function keyRow() {
       if (framed || !keysFor || keysFor !== selected || !on.key || arranging || styling || firing || carrying || !selectedSession()) return null;
+      // Keys for an agent in a terminal Smolcorp can only watch would go nowhere.
+      if (selectedSession().keys === false) return null;
       return { keys: rowKeysOf(latest && latest.layout), armed: keyArmed, down: keyDown };
     }
 
     function choices() {
       if (framed) return null;
       const desk = office.seats.findIndex((s) => s.session && s.session.id === selected);
-      return desk >= 0 && office.seats[desk].session.state === 'asking' ? choicePanel(desk) : null;
+      const session = desk >= 0 && office.seats[desk].session;
+      return session && session.state === 'asking' && session.keys !== false ? choicePanel(desk) : null;
     }
 
     function tick() {
@@ -10661,17 +10694,18 @@
       // time from when it opened, and the room can move between them.
       const time = performance.now();
       if (time - last < FRAME_TIME - 1) return;
-      if (last && time - last > STALE_AFTER && latest) {
-        office.close();
-        office.apply(seatsOf(latest, ahead), latest.theme, time / 1000);
-      }
+      const stale = last && time - last > STALE_AFTER;
       last = time;
       try {
+        if (stale && latest) {
+          office.close();
+          office.apply(seatsOf(latest, ahead), latest.theme, time / 1000);
+        }
         draw(time);
       } catch (error) {
-        // Said once; the room starts over, everyone in place, and carries on.
-        if (!failed) console.error('Smolcorp: the office failed to draw, and starts over.', error);
-        failed = true;
+        // Each mistake said once; the room starts over, everyone in place, and carries on.
+        if (!failures.has(String(error))) console.error('Smolcorp: the office failed to draw, and starts over.', error);
+        failures.add(String(error));
         if (latest && time - restartedAt >= RESTART_EVERY) {
           restartedAt = time;
           office.close();
@@ -10717,7 +10751,7 @@
         now, hour: date.getHours(), minute: date.getMinutes(), month: date.getMonth(),
         width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1,
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
-        deskButton: heldButton(), firing: firing && { ...fireDialog(), name: firing.name }, carrying,
+        deskButton: heldButton(), firing: firing && { ...fireDialog(), name: firing.name }, carrying, micLanguage: micLanguageKey(),
         styleKey: key, styles: styling && key && { ...styleMenu(), current: decor.preset, pictures: stylePictures },
         arranging: arranging && {
           pieces: arrangeable(), picked: arranging.picked, blocked: arranging.blocked || [],
@@ -10836,6 +10870,8 @@
       };
       consider({ kind: 'button' }, box('button', BUTTON.x - 7, BUTTON.y - 1, BUTTON.x + 8, BUTTON.y + 16), 1);
       const { tap } = MIC_KINDS[decor.mic];
+      const language = micLanguageKey();
+      if (language) consider({ kind: 'micLanguage', next: language.next }, { left: language.left, top: language.top, right: language.left + language.w, bottom: language.top + language.h }, -1);
       consider({ kind: 'mic' }, box('mic', MIC.x + tap.left, MIC.y + tap.top, MIC.x + tap.right, MIC.y + tap.bottom), 1);
       DESKS.forEach((d, desk) => {
         // A desk put away isn't there to tap: its agent, in the line, is.
@@ -10969,6 +11005,7 @@
         return on.held?.();
       }
       if (target.kind === 'hire') return on.hire?.(holding.desk, null);
+      if (target.kind === 'micLanguage') return on.language?.(target.next);
       // An empty or pinned desk says something on a tap, once the finger lifts: holding it is something else.
       if (target.kind === 'empty' || target.kind === 'pinned') return;
       if (target.kind === 'choice') {
@@ -11019,9 +11056,11 @@
      */
     function lift(dropped = false) {
       // A touch waiting to send goes now if it lifted where it landed; taken away, or joined by a second finger, it sends nothing.
+      // Nor if another agent has been picked meanwhile, as when the one it was for went: its Return
+      // would accept the other's question.
       if (finger && finger.waiting) {
         finger.waiting = false;
-        if (dropped && !finger.moved) press(finger.target);
+        if (dropped && !finger.moved && finger.selected === selected) press(finger.target);
       }
       if (carrying) {
         const { from, over } = carrying;
@@ -11336,7 +11375,8 @@
         return;
       }
       canvas.setPointerCapture(e.pointerId);
-      finger = { id: e.pointerId, target, at: clock(), x: e.clientX, y: e.clientY };
+      // With the agent picked as it touched down: see `lift`.
+      finger = { id: e.pointerId, target, at: clock(), x: e.clientX, y: e.clientY, selected };
       if (e.pointerType === 'touch' && SENT_ON_LIFT.includes(target.kind)) {
         finger.waiting = true;
         return;
@@ -11468,6 +11508,7 @@
         ahead = gaps.length ? Math.min(...gaps) : 0;
         hiring = snapshot.hiring || { fire: false, hire: false };
         music = snapshot.music || null;
+        dictation = snapshot.dictation || null;
         office.furnish(snapshot.layout && snapshot.layout.room, clock());
         office.apply(seatsOf(snapshot, ahead), snapshot.theme, clock());
         // The question and what's held out go with their agent; a hire, once its desk is taken.

@@ -31,6 +31,8 @@
     --sheen: color-mix(in srgb, var(--ink) 4%, transparent);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  /* In the Mac app's own window, only the room is drawn: round it, the desktop shows through. */
+  html.bare, html.bare body { background: transparent; }
   /* Nothing moves but the room: no bounce, no zoom, no text to select. */
   html, body { margin: 0; height: 100%; background: var(--body); color: var(--ink);
     font: 500 14px/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
@@ -105,9 +107,12 @@
   // On the setup page, the deck is a preview: that page sends it what to
   // draw, and its controls say what they would do instead of doing it.
   const preview = location.pathname === '/setup/preview';
-  // /office: the office alone, for a spare screen; /office?saver, the Mac's screen saver.
+  // /office: the office alone, for a spare screen; /office?saver, the Mac's screen saver;
+  // /office?window, the Mac app's own window, with nothing round the room.
   const whole = location.pathname === '/office';
   const saver = whole && new URLSearchParams(location.search).has('saver');
+  const bare = whole && new URLSearchParams(location.search).has('window');
+  if (bare) document.documentElement.classList.add('bare');
   const $ = (id) => document.getElementById(id);
 
   let sessions = [];   // the sessions at desks
@@ -166,6 +171,11 @@
       tick();
       send('/act', { action: 'music', do: key });
     },
+    // The mic's quick switch: the language dictation listens for, for every phone.
+    language(lang) {
+      tick();
+      send('/act', { action: 'language', lang });
+    },
     // One of the office's styles, from its key in the room's corner, for every screen it's on.
     style(preset) {
       tick();
@@ -216,7 +226,7 @@
    * there being nothing on it to tap.
    */
   office.setFramed(false);
-  office.setFloating(saver ? 'edge' : 'screen');
+  office.setFloating(saver ? 'edge' : bare ? 'bare' : 'screen');
   office.setVisible(true);
 
   /*
@@ -315,7 +325,7 @@
   // only for a secure page, such as localhost on the computer. The button
   // shows only where that works: never on a phone, which reaches the
   // computer over plain http.
-  if (whole && window.documentPictureInPicture && window.AgentOffice) $('pop-out').hidden = false;
+  if (whole && !bare && window.documentPictureInPicture && window.AgentOffice) $('pop-out').hidden = false;
 
   $('pop-out').addEventListener('click', async () => {
     $('pop-out').hidden = true;

@@ -3,6 +3,11 @@ import Foundation
 
 /// A phone you paired, as phones.json keeps it.
 struct PairedPhone: Codable {
+    /// The office's own window on this Mac, as the deck sees it: a phone that
+    /// isn't paired, saved or listed. See `Deck.windowKey`.
+    static let officeWindow = PairedPhone(id: "office-window", name: "This Mac's office window", pairedAt: Date(), lastSeen: Date(),
+                                          keyHash: "")
+
     let id: String
     let name: String
     let pairedAt: Date
@@ -89,7 +94,7 @@ final class Phones {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(all) else { return }
-        FileManager.default.createFile(atPath: Paths.phones.path, contents: data,
-                                       attributes: [.posixPermissions: 0o600])
+        // Whole or not at all: a file cut short would unpair every phone.
+        Paths.writePrivately(data, to: Paths.phones)
     }
 }

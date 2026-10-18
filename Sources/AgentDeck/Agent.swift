@@ -62,10 +62,40 @@ enum Agent: String, CaseIterable {
     /// which is enough inside the agent's own tab.
     var foregroundName: String { processName ?? "node" }
 
-    /// What the agent may show as among its tab's processes, for telling it
-    /// still runs there: its own name, or the runtime it was installed to run
-    /// on, as Claude Code from npm shows as node and Grok CLI as bun.
-    var runningNames: Set<String> { [foregroundName, "node", "bun"] }
+    /// Whether `commandLine`, as `ps -o args=` gives it, is this agent: its
+    /// own program, or Node or Bun running the agent's own package, as Claude
+    /// Code from npm runs (node …/node_modules/@anthropic-ai/claude-code/cli.js)
+    /// and Grok CLI from Bun. Node or Bun running anything else, as `npm run
+    /// dev` or vite started in the tab after the agent crashed, is someone's
+    /// work, not the agent.
+    func isItself(commandLine: String) -> Bool {
+        guard let first = commandLine.split(separator: " ").first else { return false }
+        let program = (String(first) as NSString).lastPathComponent.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let name = rawValue
+        guard program == "node" || program == "bun" else { return program == name || program == foregroundName.lowercased() }
+        let rest = commandLine.dropFirst(first.count)
+        // The package the script is in, exactly: what follows the last
+        // node_modules, with its scope. claude-code-router, say, isn't Claude Code.
+        if let modules = rest.range(of: "node_modules/", options: .backwards) {
+            let parts = rest[modules.upperBound...].split(separator: "/", maxSplits: 2).map { $0.lowercased() }
+            let package = (parts.first?.hasPrefix("@") == true ? parts.prefix(2) : parts.prefix(1)).joined(separator: "/")
+            return packages.contains(package)
+        }
+        // A script of its own, outside any package: by its own name, exactly.
+        guard let script = rest.split(separator: " ").first(where: { !$0.hasPrefix("-") }) else { return false }
+        return ((String(script) as NSString).lastPathComponent as NSString).deletingPathExtension.lowercased() == name
+    }
+
+    /// The npm packages the agent is installed as, run by Node or Bun.
+    var packages: Set<String> {
+        switch self {
+        case .claude: return ["@anthropic-ai/claude-code"]
+        case .codex: return ["@openai/codex"]
+        case .gemini: return ["@google/gemini-cli"]
+        case .opencode: return ["opencode-ai", "opencode"]
+        case .grok: return ["@vibe-kit/grok-cli"]
+        }
+    }
 
     /// Which agent sent `event`. The hook script names it, except for Grok:
     /// it also runs Claude Code's hooks, and tells itself apart by its

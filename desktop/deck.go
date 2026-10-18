@@ -565,6 +565,8 @@ func (d *Deck) inTab(name string, op func(Tab) error) (int, string) {
 		return http.StatusGone, "That agent has ended."
 	case errors.Is(err, errUnsupported):
 		return http.StatusNotFound, "This terminal can't do that"
+	case errors.Is(err, errNotStopped):
+		return http.StatusConflict, "Couldn't stop the agent, so its tab is left open."
 	case err != nil:
 		return http.StatusNotFound, "Tab not found"
 	}
@@ -588,7 +590,7 @@ var errAgentGone = errors.New("the agent no longer runs in its pane")
 func (d *Deck) toAgent(name string, agent Agent, op func(Tab) error) (int, string) {
 	return d.inTab(name, func(t Tab) error {
 		if pane, ok := t.(commandTab); ok {
-			if running, known := pane.runs(agent.runningNames()...); known && !running {
+			if running, known := pane.runs(agent); known && !running {
 				return errAgentGone
 			}
 		}
@@ -752,7 +754,7 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		if !hiring {
 			return http.StatusForbidden, hiringOff
 		}
-		if status, message := d.inTab(tab, func(t Tab) error { return t.Close() }); status != http.StatusNotFound {
+		if status, message := d.inTab(tab, func(t Tab) error { return t.Close(agent) }); status != http.StatusNotFound {
 			return status, message
 		}
 		return http.StatusNotFound, "That agent's tab has gone."
@@ -907,7 +909,7 @@ func (d *Deck) applyQueuedEffort() {
 			d.work <- func() {
 				// Not into a pane its agent has left: see toAgent.
 				if pane, ok := tab.(commandTab); ok {
-					if running, known := pane.runs(agent.runningNames()...); known && !running {
+					if running, known := pane.runs(agent); known && !running {
 						return
 					}
 				}
