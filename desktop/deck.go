@@ -177,9 +177,30 @@ func (d *Deck) Ingest(event map[string]any, reported, tab, startedIn string, at 
 	if tab == "" {
 		tab = d.launcherFor(canonical, agent)
 	}
-	if d.sessions.Apply(canonical, agent, tab, startedIn, at) {
+	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
+	if d.noteMessage(canonical, agent) || changed {
 		d.changed()
 	}
+}
+
+// noteMessage marks a Claude Code session sending another a message, as its
+// SendMessage tool is about to, with when and to whom, for the office to walk
+// it over, and says whether it did. A recipient that isn't at a desk, or
+// can't be told apart, is left out. It changes nothing else. With the lock held.
+func (d *Deck) noteMessage(event map[string]any, agent Agent) bool {
+	if agent != Claude || event["hook_event_name"] != "PreToolUse" || event["tool_name"] != "SendMessage" {
+		return false
+	}
+	id, _ := event["session_id"].(string)
+	input, _ := event["tool_input"].(map[string]any)
+	to, _ := input["to"].(string)
+	sender := d.sessions.Get(id)
+	recipient := claudePeer(to)
+	if sender == nil || recipient == "" || recipient == id || d.sessions.Get(recipient) == nil {
+		return false
+	}
+	sender.MessagedAt, sender.Messaged = nowMillis(), recipient
+	return true
 }
 
 // launcherFor finds a session's launcher when its hook couldn't say: Codex
@@ -358,6 +379,7 @@ func (d *Deck) snapshot() []byte {
 				"activity": orNull(s.Activity()), "tool": orNull(s.Tool), "model": orNull(s.Model),
 				"subagents":    append([]Subagent{}, s.Subagents...),
 				"maxPressedAt": millisOrNull(s.MaxPressedAt), "compacting": s.Compacting,
+				"messagedAt": millisOrNull(s.MessagedAt), "messaged": orNull(s.Messaged),
 				"turnStartedAt": millisOrNull(s.TurnStartedAt), "errorKind": orNull(s.ErrorKind),
 				"role": d.roleOf(s),
 			}

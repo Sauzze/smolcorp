@@ -1484,6 +1484,10 @@
       // The last ☢ Max press they've answered, so only a new one sends them.
       this.answeredPress = session.maxPressedAt;
       this.isGoingNuclear = false;
+      // The last message to another agent they've taken over, and the visit
+      // they're on with one: whose desk, the spot by it, and till when.
+      this.answeredMessage = session.messagedAt ?? null;
+      this.visiting = null;
       // Their session has shown max since the press. Until it does, the
       // press is still on its way to the agent, and an old effort means
       // nothing.
@@ -1727,6 +1731,7 @@
           // same person, carrying on.
           newcomers.delete(successor[0]);
           person.answeredPress = successor[1].session.maxPressedAt;
+          person.answeredMessage = successor[1].session.messagedAt ?? null;
           this.update(person, successor[1], now);
         } else {
           this.standDown(person);
@@ -2295,6 +2300,8 @@
     }
 
     standDown(person) {
+      // A visit cut short by the button isn't taken up again afterwards.
+      person.visiting = null;
       person.isGoingNuclear = false;
       person.pressedAt = null;
       person.deskEffort = person.session.effort;
@@ -2320,6 +2327,7 @@
       const pressed = session.maxPressedAt;
       if (pressed && pressed !== person.answeredPress && !person.isGoingNuclear) {
         person.isGoingNuclear = true;
+        person.visiting = null;
         person.sawMax = false;
         this.nuclearQueue.push(person);
       }
@@ -2329,6 +2337,13 @@
         this.send(person, this.home(person));
       }
       person.answeredPress = pressed;
+      // A message to another agent here: they take it over to their desk.
+      const sent = session.messagedAt ?? null;
+      if (sent && sent !== person.answeredMessage && !person.isGoingNuclear) {
+        const to = this.people.find((p) => p !== person && !p.isStaff && !p.isLeaving && p.session.id === session.messaged);
+        if (to && DESKS[to.desk] && !DESKS[to.desk].off) person.visiting = { desk: to.desk, place: this.visitPlace(person, to.desk), until: null };
+      }
+      person.answeredMessage = sent;
       if (!person.isGoingNuclear) {
         if (EFFORTS.indexOf(session.effort) > EFFORTS.indexOf(person.deskEffort)) person.effortRoseAt = now;
         person.deskEffort = session.effort;
@@ -2356,6 +2371,17 @@
       if (person.isGoingNuclear) {
         const place = this.nuclearQueue[0] === person ? 'button' : 'queue';
         if (person.place !== place) this.send(person, place);
+        return;
+      }
+      // Taking a message over: to the spot by their desk, a moment there, then back.
+      if (person.visiting) {
+        const visit = person.visiting;
+        if (person.place !== visit.place) return this.send(person, visit.place);
+        if (person.isWalking) return;
+        if (visit.until === null) visit.until = now + VISIT_STAY;
+        if (now < visit.until) return;
+        person.visiting = null;
+        this.send(person, desk);
         return;
       }
       const duty = this.dutyOf(person, now);
@@ -2402,6 +2428,15 @@
         return this.wallSpot(person, 'board', boardSpots.length) || desk;
       }
       return s.state === 'idle' ? null : desk;
+    }
+
+    /** A spot by `desk` for a visitor: one its interns and other visitors haven't taken. */
+    visitPlace(person, desk) {
+      const taken = new Set([
+        ...this.interns.filter((i) => !i.isLeaving && i.desk === desk && i.slot !== null).map((i) => `near:${desk}:${i.slot}`),
+        ...this.people.filter((p) => p !== person && p.visiting).map((p) => p.visiting.place),
+      ]);
+      return INTERN_SLOTS.map((_, i) => `near:${desk}:${i}`).find((place) => !taken.has(place)) || `near:${desk}:0`;
     }
 
     /** One of the spots along the back wall nobody else has taken. */
@@ -2621,6 +2656,8 @@
   const STAFF_INTERVAL = [3, 6];
   /** Only a tool that's been running this long gets its agent up from the desk, so nobody jitters back and forth. */
   const LONG_TOOL = 1.5;
+  /** How long an agent stays at the desk of one it has sent a message to, in seconds. */
+  const VISIT_STAY = 4;
 
   /* ------------------------------------------------------------ drawing */
 
@@ -8288,11 +8325,28 @@
       // Going nuclear says enough on its own, and the choice keys stand in
       // for the bubble of the agent they answer.
       if (person.isLeaving || person.isGoingNuclear) return;
-      if (frame.choices && !person.isStaff && person.session.id === selected) return;
-      const state = person.session.state;
       const pose = poseOf(person, now);
       const top = topOf(person, pose);
       let x = Math.round(person.position.x);
+
+      if (person.visiting && person.visiting.until !== null) {
+        // At the desk they've brought a message to: an envelope, held out, picked or not.
+        const bottom = top - 3 - (Math.floor(now * 2) % 2);
+        fill(x - 4, bottom - 7, 9, 9, PALETTE.bubbleEdge);
+        fill(x - 5, bottom - 6, 11, 7, PALETTE.bubbleEdge);
+        fill(x - 4, bottom - 6, 9, 7, PALETTE.bubble);
+        dot(x - 1, bottom + 1, PALETTE.bubble);
+        dot(x - 1, bottom + 2, PALETTE.bubbleEdge);
+        fill(x - 3, bottom - 5, 7, 5, PALETTE.bubbleEdge);
+        fill(x - 2, bottom - 4, 5, 3, WHITE);
+        for (let k = 0; k < 3; k++) {
+          dot(x - 2 + k, bottom - 4 + k, PALETTE.bubbleEdge);
+          dot(x + 2 - k, bottom - 4 + k, PALETTE.bubbleEdge);
+        }
+        return;
+      }
+      if (frame.choices && !person.isStaff && person.session.id === selected) return;
+      const state = person.session.state;
 
       if (mic.held && isListener(person)) {
         // Listening: sound lines coming in from the right.

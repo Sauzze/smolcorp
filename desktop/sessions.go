@@ -56,6 +56,10 @@ type Session struct {
 	// When ☢ Max was last pressed for this session, in ms. Only the button
 	// sets it, never the dial, so the office knows which one was used.
 	MaxPressedAt float64
+	// When this session last sent another a message, in ms, and to which, by
+	// its id: the office walks it over. Only for show.
+	MessagedAt float64
+	Messaged   string
 	// Ended for /clear or /resume, when: the session waits for the one
 	// taking its place in its tab. See EndHandOns.
 	HandingOnSince float64

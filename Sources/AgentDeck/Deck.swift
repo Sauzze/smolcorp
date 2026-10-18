@@ -108,6 +108,21 @@ final class Deck {
         guard let event = agent.canonical(event) else { return }
         sessions.apply(event, agent: agent, tty: tty.isEmpty ? tab(for: event, of: agent) : tty,
                        startedIn: startedIn, at: time)
+        noteMessage(event, from: agent)
+    }
+
+    /// A Claude Code session sending another a message, as its SendMessage
+    /// tool is about to: the sender is marked with when and to whom, for the
+    /// office to walk it over. A recipient that isn't at a desk, or can't be
+    /// told apart, is left out. It changes nothing else.
+    private func noteMessage(_ event: [String: Any], from agent: Agent) {
+        guard agent == .claude, event["hook_event_name"] as? String == "PreToolUse", event["tool_name"] as? String == "SendMessage",
+              let id = event["session_id"] as? String, let sender = sessions[id],
+              let to = (event["tool_input"] as? [String: Any])?["to"] as? String,
+              let recipient = ClaudePeers.sessionID(for: to), recipient != id, sessions[recipient] != nil else { return }
+        sender.messagedAt = Date().timeIntervalSince1970 * 1000
+        sender.messaged = recipient
+        changed()
     }
 
     /// Codex runs its hooks in a shared background service, so its events
@@ -380,6 +395,8 @@ final class Deck {
                             ["id": subagent.id, "type": subagent.type, "model": subagent.model.isEmpty ? NSNull() : subagent.model]
                         },
                         "maxPressedAt": s.maxPressedAt.map { Int64($0) } ?? NSNull(),
+                        "messagedAt": s.messagedAt.map { Int64($0) } ?? NSNull(),
+                        "messaged": s.messaged.isEmpty ? NSNull() : s.messaged,
                         "compacting": s.compacting,
                         "turnStartedAt": s.turnStartedAt.map { Int64($0) } ?? NSNull(),
                         "errorKind": s.errorKind.isEmpty ? NSNull() : s.errorKind,
