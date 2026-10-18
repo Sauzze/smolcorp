@@ -850,13 +850,15 @@
       taken = taken.slice();
       clearance = clearance.slice();
       const reach = Math.ceil(AVOID_REACH / CELL);
-      const ends = [from, to].map((p) => Math.floor(p.y / CELL) * columns + Math.floor(p.x / CELL));
+      // Never near where the way starts or ends: those stay open, so it can always set off and arrive
+      const open = (c, r) => [from, to].some((p) => Math.hypot(c * CELL + CELL / 2 - p.x, r * CELL + CELL / 2 - p.y) < AVOID_REACH);
       for (const p of avoid) {
         const pc = Math.floor(p.x / CELL), pr = Math.floor(p.y / CELL);
         for (let r = pr - reach; r <= pr + reach; r++) for (let c = pc - reach; c <= pc + reach; c++) {
-          if (c < 0 || r < 0 || c >= columns || r >= rows || (c - pc) ** 2 + (r - pr) ** 2 > reach * reach) continue;
+          if (c < 0 || r < 0 || c >= columns || r >= rows || (c - pc) ** 2 + (r - pr) ** 2 > reach * reach || open(c, r)) continue;
           const cell = r * columns + c;
-          if (!ends.includes(cell)) { taken[cell] = 1; clearance[cell] = 0; }
+          taken[cell] = 1;
+          clearance[cell] = 0;
         }
       }
     }
@@ -2382,8 +2384,86 @@
       person.nextMove = Infinity;
     }
 
+    /**
+     * Who goes first when two meet: anyone hurrying to the button, then
+     * anyone leaving, then whoever came in first. The other gives way.
+     */
+    goesFirst(a, b) {
+      const rank = (p) => (p.isGoingNuclear ? 0 : p.isLeaving ? 1 : 2);
+      if (rank(a) !== rank(b)) return rank(a) < rank(b);
+      return this.people.indexOf(a) < this.people.indexOf(b);
+    }
+
+    /**
+     * Before a step: whether to wait, or the way round someone. Coming in,
+     * one at a time through the door. Walking, a little gap kept from
+     * anyone up and about; someone walking just ahead that goes first is
+     * waited for, a moment, then gone round; someone coming straight at
+     * them that goes first, stepped aside for; anyone standing in the way,
+     * gone round. Near where they're going they can come close.
+     */
+    giveWay(person, elapsed) {
+      const near = (a, b, reach) => Math.hypot(a.x - b.x, a.y - b.y) < reach;
+      const up = (p) => p !== person && !p.entering && !(p.isAtDesk && !p.isWalking);
+      if (person.entering === undefined) person.entering = near(person.position, DOOR, 0.5) && !person.isLeaving;
+      if (person.entering) {
+        if (this.people.some((p) => up(p) && near(p.position, DOOR, PERSON_GAP + 2))) return true;
+        person.entering = false;
+      }
+      const ahead = person.path[0], end = person.path[person.path.length - 1];
+      if (near(person.position, end, PERSON_ROOM)) return false;
+      const dx = ahead.x - person.position.x, dy = ahead.y - person.position.y, d = Math.hypot(dx, dy) || 1;
+      const inWay = this.people.find((p) => {
+        if (!up(p)) return false;
+        const px = p.position.x - person.position.x, py = p.position.y - person.position.y, along = (px * dx + py * dy) / d;
+        return along > 0 && along < PERSON_AHEAD && Math.abs(px * dy - py * dx) / d < PERSON_GAP;
+      });
+      if (!inWay) {
+        person.waited = 0;
+        person.steppedAside = false;
+        person.roundFor = null;
+        return false;
+      }
+      const goal = end;
+      if (!inWay.isWalking) {
+        // Standing in the way: round them, once
+        if (person.roundFor !== inWay) {
+          const round = walkway(person.position, goal, true, [inWay.position]);
+          if (round) person.path = round;
+          person.roundFor = inWay;
+        }
+        return false;
+      }
+      if (!this.goesFirst(inWay, person)) {
+        // Going first, but they've stopped for us: round them, not through them
+        if (inWay.waited > 0 && person.roundFor !== inWay) {
+          const round = walkway(person.position, goal, true, [inWay.position]);
+          if (round) person.path = round;
+          person.roundFor = inWay;
+        }
+        return false;
+      }
+      const coming = inWay.path[0] && Math.hypot(inWay.path[0].x - person.position.x, inWay.path[0].y - person.position.y) < Math.hypot(inWay.position.x - person.position.x, inWay.position.y - person.position.y);
+      if (coming && !person.steppedAside) {
+        for (const side of [1, -1]) {
+          const aside = { x: person.position.x - (dy / d) * 8 * side, y: person.position.y + (dx / d) * 8 * side };
+          if (!standsFree(aside)) continue;
+          person.path = [...walkway(person.position, aside), ...walkway(aside, goal, false, [inWay.position])];
+          person.steppedAside = true;
+          return false;
+        }
+      }
+      person.waited = (person.waited || 0) + elapsed;
+      if (person.waited < GIVE_WAY_FOR) return true;
+      const round = walkway(person.position, goal, true, [inWay.position]);
+      if (round) person.path = round;
+      person.waited = 0;
+      return false;
+    }
+
     walk(person, elapsed, now) {
       if (!person.path.length) return;
+      if (this.giveWay(person, elapsed)) return;
       const stride = WALKING_SPEED * (person.isGoingNuclear ? HURRY : 1) * elapsed;
       const { position, heading } = stepAlong(person.position, person.path, stride);
       person.position = position;
@@ -2404,6 +2484,10 @@
     }
   }
 
+  /** People: the gap kept from anyone up and about, how far ahead they look, and how near where they're going they stop minding. */
+  const PERSON_GAP = 5;
+  const PERSON_AHEAD = 10;
+  const PERSON_ROOM = 9;
   /** Art pixels a second: crossing the room takes about ten seconds. */
   const WALKING_SPEED = 28;
   /** Going nuclear is worth hurrying for. */
@@ -8572,7 +8656,7 @@
         const { x, y } = person.position;
         crowdAnchors.set(person.desk, { x: Math.round(x) - DESK_WIDTH / 2, y: Math.round(y) - 3, feet: { x: Math.round(x), y: Math.round(y) } });
       }
-      if (person !== carried) items.push([atWall(person) ? DESKS[0].y + 5.5 : person.position.y, () => drawPerson(person)]);
+      if (person !== carried && !person.entering) items.push([atWall(person) ? DESKS[0].y + 5.5 : person.position.y, () => drawPerson(person)]);
     }
     office.seats.forEach((s, desk) => { if (s.session && s.session.compacting && !DESKS[desk].off) items.push([DESKS[desk].y + 16, () => drawShredder(desk)]); });
     for (const intern of office.interns) {
@@ -8603,7 +8687,7 @@
     if (inLine.length) ctx.restore();
     DESKS.forEach((_, desk) => drawTimer(desk));
     if (frame.carrying) drawCarried(frame.carrying);
-    office.people.forEach(drawBubble);
+    office.people.forEach((person) => { if (!person.entering) drawBubble(person); });
     office.people.forEach(drawConfetti);
     // The picked one's last, over those beside it in the line
     DESKS.forEach((_, desk) => { if (desk !== selectedDesk) drawLabel(desk); });
@@ -8951,6 +9035,136 @@
         });
       },
     },
+    // The new pets, as they settle, -20 to -34; and their habits, as they happen, the llama's spit the boldest, -16.
+    llama: {
+      gap: 50,
+      play(chip, at, pan) {
+        // A slow chew: low, soft, twice
+        for (const after of [0, 0.32]) chip.note(at + after, { wave: 'triangle', pitch: hz('G3'), to: hz('E3'), length: 0.2, level: dB(-22), pan, curve: 0.8 });
+      },
+    },
+    llamaSpit: {
+      gap: 8,
+      play(chip, at, pan) {
+        // Ptoo: a puff, a little whistle down as it flies, and the splat
+        chip.noise(at, { rate: 1, to: 0.6, length: 0.05, level: dB(-16), pan, curve: 2 });
+        chip.note(at + 0.04, { wave: 'pulse12', pitch: hz('C6'), to: hz('E5'), length: 0.22, level: dB(-20), pan, curve: 0.8 });
+        chip.noise(at + 0.3, { rate: 0.5, to: 0.3, length: 0.09, level: dB(-18), pan, lowpass: 1800 });
+      },
+    },
+    penguin: {
+      gap: 45,
+      play(chip, at, pan) {
+        for (const after of [0, 0.16]) chip.note(at + after, { wave: 'pulse25', pitch: hz('E5'), to: hz('C5'), length: 0.1, level: dB(-20), pan, curve: 0.6 });
+      },
+    },
+    penguinSlide: {
+      gap: 20,
+      play(chip, at, pan) {
+        chip.noise(at, { rate: 0.5, to: 0.25, length: 0.7, level: dB(-26), pan, curve: 0.6, lowpass: 2600 });
+      },
+    },
+    parrot: {
+      gap: 40,
+      play(chip, at, pan) {
+        chip.note(at, { wave: 'pulse12', pitch: hz('A6'), to: hz('E6'), length: 0.07, level: dB(-20), pan, curve: 0.5 });
+        chip.note(at + 0.09, { wave: 'pulse12', pitch: hz('C7'), to: hz('G6'), length: 0.11, level: dB(-20), pan, curve: 0.5 });
+      },
+    },
+    owl: {
+      gap: 60,
+      play(chip, at, pan) {
+        // Hoo, hoooo: only at night
+        chip.note(at, { wave: 'triangle', pitch: hz('G4'), to: hz('F4'), length: 0.22, level: dB(-22), pan, curve: 0.7 });
+        chip.note(at + 0.34, { wave: 'triangle', pitch: hz('G4'), to: hz('E4'), length: 0.5, level: dB(-22), pan, curve: 0.5, vibrato: 0.012 });
+      },
+    },
+    capybara: {
+      gap: 60,
+      play(chip, at, pan) {
+        for (const after of [0, 0.08, 0.16]) chip.note(at + after, { wave: 'triangle', pitch: hz('E5'), length: 0.05, level: dB(-24), pan, curve: 1.5 });
+      },
+    },
+    redpanda: {
+      gap: 45,
+      play(chip, at, pan) {
+        for (const after of [0, 0.1]) chip.note(at + after, { wave: 'pulse12', pitch: hz('B5'), to: hz('D6'), length: 0.05, level: dB(-22), pan });
+      },
+    },
+    redpandaStartle: {
+      gap: 6,
+      play(chip, at, pan) {
+        chip.note(at, { wave: 'pulse25', pitch: hz('C5'), to: hz('C6'), length: 0.16, level: dB(-18), pan, curve: 0.4 });
+      },
+    },
+    corgi: {
+      gap: 40,
+      play(chip, at, pan) {
+        chip.note(at, { wave: 'pulse25', pitch: hz('C6'), to: hz('A5'), length: 0.06, level: dB(-20), pan });
+      },
+    },
+    corgiLap: {
+      gap: 6,
+      play(chip, at, pan) {
+        for (const after of [0, 0.14, 0.28]) chip.note(at + after, { wave: 'pulse25', pitch: hz('B5'), to: hz('F5'), length: 0.07, level: dB(-18), pan });
+      },
+    },
+    hamster: {
+      gap: 40,
+      play(chip, at, pan) {
+        chip.note(at, { wave: 'pulse12', pitch: hz('E7'), length: 0.025, level: dB(-26), pan, curve: 2 });
+      },
+    },
+    hamsterRoll: {
+      gap: 25,
+      play(chip, at, pan) {
+        chip.noise(at, { rate: 0.28, to: 0.22, length: 0.8, level: dB(-28), pan, curve: 0.5, lowpass: 900 });
+      },
+    },
+    robodog: {
+      gap: 40,
+      play(chip, at, pan) {
+        [['C6', 0], ['E6', 0.07], ['G6', 0.14]].forEach(([name, after]) => chip.note(at + after, { wave: 'pulse50', pitch: hz(name), length: 0.045, level: dB(-22), pan, curve: 1 }));
+      },
+    },
+    robodogCharge: {
+      gap: 40,
+      play(chip, at, pan) {
+        chip.note(at, { wave: 'triangle', pitch: hz('C4'), to: hz('C5'), length: 0.6, level: dB(-26), pan, curve: 0.3 });
+      },
+    },
+    bat: {
+      gap: 50,
+      play(chip, at, pan) {
+        for (const after of [0, 0.05, 0.1]) chip.note(at + after, { wave: 'pulse12', pitch: hz('D7'), length: 0.02, level: dB(-28), pan, curve: 2 });
+      },
+    },
+    snail: {
+      gap: 90,
+      play(chip, at, pan) {
+        chip.noise(at, { rate: 0.2, length: 0.5, level: dB(-34), pan, curve: 0.5, lowpass: 600 });
+      },
+    },
+    fox: {
+      gap: 45,
+      play(chip, at, pan) {
+        for (const after of [0, 0.12]) chip.note(at + after, { wave: 'pulse25', pitch: hz('E6'), to: hz('B5'), length: 0.08, level: dB(-20), pan, curve: 0.6 });
+      },
+    },
+    foxPounce: {
+      gap: 20,
+      play(chip, at, pan) {
+        chip.noise(at, { rate: 0.4, to: 0.25, length: 0.07, level: dB(-22), pan, lowpass: 1400 });
+        chip.note(at, { wave: 'triangle', pitch: hz('E4'), to: hz('C4'), length: 0.08, level: dB(-22), pan });
+      },
+    },
+    axolotl: {
+      gap: 30,
+      play(chip, at, pan) {
+        // Bubbles, rising
+        [['C6', 0], ['E6', 0.09], ['A6', 0.2]].forEach(([name, after]) => chip.note(at + after, { wave: 'triangle', pitch: hz(name), to: hz(name) * 1.2, length: 0.03, level: dB(-28), pan, curve: 1.2 }));
+      },
+    },
     // The seasons in the windows, now and then: the wind whistling in winter, -30, a bird in spring and summer, -26.
     wind: {
       play(chip, at) {
@@ -9159,7 +9373,7 @@
       this.nextCorner = null;
       this.rally = { players: null, bounce: null, table: null, hits: 0 };
       this.blast = null;      // the red button's last press, heard
-      this.petSettled = new WeakMap(); // when each pet last settled, heard
+      this.petSettled = new WeakMap(); // what's been heard of each pet: { settled, set, zoom, spat, first }
       this.mic = null;        // when the mic was last held and let go, heard
       this.carried = null;    // where the agent being carried is, as it's heard
       this.heard = new WeakMap(); // what's been played for each person: { arrived, celebrated, fired, out, working }
@@ -9260,9 +9474,13 @@
         Object.assign(rally, { bounce, table });
       }
 
-      // The red button going down
+      // The red button going down; a red panda, if there is one, startled by it
       const blast = office.detonation && office.detonation.at;
-      if (blast && blast !== this.blast && !settling) this.play('blast', pointOf('button').x);
+      if (blast && blast !== this.blast && !settling) {
+        this.play('blast', pointOf('button').x);
+        const panda = office.pets.find((p) => p.isIn && p.kind === 'redpanda');
+        if (panda) this.play('redpandaStartle', panda.position.x, 0.35);
+      }
       this.blast = blast || this.blast;
 
       for (const person of office.people) {
@@ -9318,11 +9536,39 @@
       else if (this.nextCorner === null) this.nextCorner = t + random(1, 4);
       else if (t >= this.nextCorner) this.nextCorner = t + (this.murmur(cornerSound, cornering.position.x) ? random(...CORNER_EVERY) : 1);
 
-      // Each pet, sometimes, as it settles somewhere new
+      // Each pet: its habits as they happen; now and then as it settles somewhere new, or sets off; the owl only at night
+      const hour = new Date().getHours(), night = decor.sky !== 'day' && (hour >= 20 || hour < 5);
+      const fired = office.people.find((p) => p.isFired && p.isLeaving);
       for (const pet of office.pets) {
-        if (!pet.isIn || pet.isWalking || pet.arrivedAt === this.petSettled.get(pet)) continue;
-        if (this.petSettled.has(pet) && Math.random() < PET_CHATTY) this.murmur(pet.kind, pet.position.x);
-        this.petSettled.set(pet, pet.arrivedAt);
+        if (!pet.isIn) continue;
+        const x = pet.position.x;
+        let heard = this.petSettled.get(pet);
+        if (!heard) this.petSettled.set(pet, heard = { settled: pet.arrivedAt, set: pet.isWalking ? pet.arrivedAt : null, zoom: pet.zoom && pet.zoom.at, spat: fired || null, first: true });
+        if (pet.kind === 'llama' && fired && heard.spat !== fired && Math.hypot(fired.position.x - x, fired.position.y - pet.position.y) < 120) this.play('llamaSpit', x, 0.2);
+        heard.spat = fired || heard.spat;
+        if (pet.kind === 'corgi' && pet.zoom && heard.zoom !== pet.zoom.at) this.play('corgiLap', x);
+        heard.zoom = pet.zoom && pet.zoom.at;
+        if (pet.kind === 'axolotl' && Math.random() < 1 / (60 * 45)) this.murmur('axolotl', x);
+        if (pet.isWalking) {
+          // Setting off: the penguin on its belly, the hamster rolling
+          if (heard.set !== pet.arrivedAt) {
+            if (heard.set !== null && Math.random() < PET_CHATTY) {
+              if (pet.kind === 'penguin' && pet.leg > 50) this.murmur('penguinSlide', x);
+              else if (pet.kind === 'hamster') this.murmur('hamsterRoll', x);
+            }
+            heard.set = pet.arrivedAt;
+          }
+          continue;
+        }
+        if (pet.arrivedAt === heard.settled) continue;
+        heard.settled = pet.arrivedAt;
+        if (heard.first) { heard.first = false; continue; }
+        // The fox lands its pounce every time; the rest now and then
+        if (pet.kind === 'fox' && pet.target && pet.target.pose !== 'curl') { this.play('foxPounce', x); continue; }
+        if (Math.random() >= PET_CHATTY) continue;
+        const name = pet.kind === 'robodog' && pet.target && pet.target.pose === 'charge' ? 'robodogCharge' : pet.kind;
+        if (pet.kind === 'owl' && !night) continue;
+        this.murmur(name, x);
       }
 
       // The season in the windows, once in a while; autumn's leaves fall without a sound
@@ -9694,7 +9940,7 @@
       }
 
       for (const person of office.people) {
-        if (person.isStaff || person.isLeaving) continue;
+        if (person.isStaff || person.isLeaving || person.entering) continue;
         const px = Math.round(person.position.x), top = topOf(person, poseOf(person, now));
         // The sprite, its arms, and the bubble over its head
         consider({ kind: 'session', id: person.session.id },
