@@ -840,14 +840,16 @@
   /** Saves all the roles as given: the computer checks and keeps them, and the page redraws from what it kept. */
   async function saveRoles(roles) {
     const res = await post('/setup/roles', roles);
-    if (!res.ok) alert(await res.text());
+    if (!res.ok) return alert(await res.text());
+    // Saved, as on picking an agent or pressing Enter in a name: the card shows what was kept, field and all.
+    renderRoles(true);
   }
 
   /**
    * Who the office can hire: each role a card, closed to its name and how it
    * starts, open to change any of it. A change saves as you leave the field.
    */
-  function renderRoles() {
+  function renderRoles(saved = false) {
     const r = state.roles;
     $('roles-section').hidden = !r;
     if (!r) return;
@@ -863,7 +865,7 @@
     $('role-add').title = own >= r.limits.own ? `${r.limits.own} roles of your own is the most.` : '';
     $('role-shipped').hidden = r.shipped.every((s) => roles.some((role) => role.id === s.id));
     // A field is saved as you leave it: redrawing the cards while you type would take it, and what's in it, away.
-    if (document.activeElement && document.activeElement.matches('#roles input, #roles textarea, #roles select')) return;
+    if (!saved && document.activeElement && document.activeElement.matches('#roles input, #roles textarea, #roles select')) return;
     $('roles').replaceChildren(...roles.map((role, i) => {
       const card = document.createElement('details');
       card.className = 'role';
