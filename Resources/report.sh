@@ -64,7 +64,32 @@ if [ -n "$tty" ]; then
   in_terminal || exit 0
 fi
 
-curl -s -m 2 -o /dev/null \
+# The app takes up to 1 MiB. A bigger event, such as a tool's whole output,
+# loses that output, which the app never shows, and has each text longer than
+# 4096 characters shortened, rather than being lost: what the office shows,
+# as the file a tool reads or the command it runs, is in the first of it.
+# Smaller events pass as they are. As the Windows and Linux hook's trimmedEvent.
+TRIM='
+  local $/; my $event = <STDIN>;
+  if (length $event > 900 * 1024) {
+    require JSON::PP;
+    my $json = JSON::PP->new->utf8;
+    my $fields = eval { $json->decode($event) };
+    if (ref $fields eq "HASH") {
+      delete $fields->{tool_response};
+      my $shorten; $shorten = sub {
+        my $v = shift;
+        if (ref $v eq "HASH") { $v->{$_} = $shorten->($v->{$_}) for keys %$v; return $v }
+        if (ref $v eq "ARRAY") { return [map { $shorten->($_) } @$v] }
+        return (defined $v && !ref $v && length $v > 4096 && !JSON::PP::is_bool($v)) ? substr($v, 0, 4096) . "..." : $v;
+      };
+      $event = $json->encode($shorten->($fields));
+    }
+  }
+  print $event;
+'
+
+perl -e "$TRIM" | curl -s -m 2 -o /dev/null \
   -H 'Content-Type: application/json' \
   -H @"$DIR/hook-header" \
   -H "X-AgentDeck-Agent: $AGENT" \
