@@ -80,6 +80,16 @@ func (a Agent) NewConversation() string {
 func (a Agent) HasEffortDial() bool { return a == Claude }
 func (a Agent) HasVoice() bool      { return a == Claude }
 
+// foregroundName is what the agent is called among the processes in its
+// pane, as the Mac app's Agent.foregroundName: Gemini CLI says only node,
+// which is enough inside the agent's own pane.
+func (a Agent) foregroundName() string {
+	if a == Gemini {
+		return "node"
+	}
+	return string(a)
+}
+
 // agentOf says which agent sent event. The hook names it, except for Grok:
 // it also runs Claude Code's hooks, and tells itself apart by its camelCase
 // envelope.
