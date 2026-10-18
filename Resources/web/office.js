@@ -2802,6 +2802,8 @@
   const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired'];
   /** How long the question before firing ignores taps, in seconds: a double tap that opened it doesn't answer it too. */
   const FIRE_QUESTION_SETTLES = 0.5;
+  /** Return again this soon, by accept or send, is one tap landing twice, in seconds. */
+  const RETURN_REPEAT = 0.6;
   const ROW_KEYS = [
     { action: 'esc', label: 'esc' }, { action: 'send', icon: 'send' }, { action: 'clear', label: '/clear', confirm: true },
     { action: 'up', icon: 'up' }, { action: 'down', icon: 'down' },
@@ -10426,6 +10428,7 @@
     let keysFor = null;      // the agent whose keys are out, by its session's id: from a finger held on them till a tap elsewhere
     let keyArmed = null;     // a key that wants a second tap, tapped once: { action, at }
     let keyDown = null;      // the key last pressed: { action, at, held }
+    let returnAt = null;     // when accept or send last went, so a tap landing twice sends Return once
     let keysAt = null;       // where the keys were last drawn, in art pixels: { keys, box }
     let roleDown = null;     // the role last tapped, on a held empty desk: { id, at, held }
     let roleOffset = 0;      // how far the roles are slid along, in art pixels
@@ -10817,6 +10820,7 @@
           return on.held?.();
         }
         keyArmed = null;
+        if (isRepeatedReturn(target.action)) return;
         return on.key?.(target.action);
       }
       // A role hires once the finger lifts, if it hasn't slid them along instead (see `lift`).
@@ -10875,6 +10879,7 @@
       if (target.kind === 'empty' || target.kind === 'pinned') return;
       if (target.kind === 'choice') {
         choiceDown = { action: target.action, at: clock(), held: true };
+        if (isRepeatedReturn(target.action)) return;
         return on.choose?.(target.action);
       }
       // Max from a chip is the red button's: its agent runs to slam it.
@@ -10897,6 +10902,14 @@
         Object.assign(mic, { held: true, heldAt: clock(), releasedAt: null, listener: session.id });
         on.mic?.('down');
       }
+    }
+
+    /** Accept or send again a moment after the last: one tap landing twice. Up, down and the rest repeat as tapped. */
+    function isRepeatedReturn(action) {
+      if (action !== 'accept' && action !== 'send') return false;
+      if (returnAt !== null && clock() - returnAt < RETURN_REPEAT) return true;
+      returnAt = clock();
+      return false;
     }
 
     /**

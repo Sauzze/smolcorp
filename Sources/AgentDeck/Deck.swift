@@ -22,6 +22,8 @@ final class Deck {
     private static let freshSave: Double = 120_000
     /// Claude stops listening by itself after two minutes.
     private static let voiceLimit: TimeInterval = 120
+    /// Two Returns to one session closer than this are one tap landing twice.
+    private static let returnRepeat: TimeInterval = 0.5
     /// Without Accessibility, posted keys vanish without a trace. The phone
     /// says so instead, since every update turns the permission off.
     private static let noKeyboard = "Keyboard access is off. Turn it on in setup, on your Mac."
@@ -43,6 +45,9 @@ final class Deck {
     private var hiredTabs: [(tty: String, role: String, at: Date)] = []
     /// The tab recording started in, and when. One Mac, one microphone.
     private var micPress: (tty: String, at: Date)?
+    /// When each session was last sent Return from the phone, so a tap that
+    /// lands twice sends it once.
+    private var lastReturn: [String: Date] = [:]
     private var checkingFront = false
     private var checkingTabs = false
     /// Ttys Terminal reported last time. Only these can be found closed:
@@ -441,7 +446,13 @@ final class Deck {
         // which are often both Escape but not in every agent.
         let agent = session.agent
         switch action {
-        case "accept", "send": press(.init(key: .returnKey), tty: tty, done: done)
+        case "accept", "send":
+            // A second Return this soon would answer whatever the agent asks next, before you've seen it.
+            let now = Date()
+            lastReturn = lastReturn.filter { now.timeIntervalSince($0.value) < Deck.returnRepeat }
+            guard lastReturn[id] == nil else { return done(.status(204)) }
+            lastReturn[id] = now
+            press(.init(key: .returnKey), tty: tty, done: done)
         case "reject": press(agent.reject, tty: tty, done: done)
         case "esc": press(agent.interrupt, tty: tty, done: done)
         case "up": press(.init(key: .up), tty: tty, done: done)

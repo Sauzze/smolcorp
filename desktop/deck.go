@@ -29,6 +29,9 @@ type Deck struct {
 	keyOf map[string]int
 	// The tab recording started in, and when. One computer, one microphone.
 	micPress *micPress
+	// When each session was last sent Return from the phone, so a tap that
+	// lands twice sends it once.
+	lastReturn map[string]time.Time
 	// Whether music is playing, for the office's jukebox, when it can be told.
 	playing *bool
 	// What each session was when the webhook was last told, nil until the
@@ -54,6 +57,8 @@ const (
 	pruneInterval = 10 * time.Second
 	// Claude stops listening by itself after two minutes.
 	voiceLimit = 120 * time.Second
+	// Two Returns to one session closer than this are one tap landing twice.
+	returnRepeat = 500 * time.Millisecond
 	// How often to end the sessions ended for /clear or /resume that nothing took the place of.
 	handOnInterval = 1500 * time.Millisecond
 	// How often to look whether music is playing, with the jukebox on.
@@ -66,7 +71,7 @@ func NewDeck() *Deck {
 	d := &Deck{
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
-		keyOf: map[string]int{}, work: make(chan func(), 64), OnChange: func() {},
+		keyOf: map[string]int{}, lastReturn: map[string]time.Time{}, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue),
 	}
 	go d.sendWebhooks()
@@ -650,6 +655,9 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	// often both Escape but not in every agent.
 	switch action {
 	case "accept", "send":
+		if d.isRepeatedReturn(id) {
+			return http.StatusNoContent, ""
+		}
 		return d.press(tab, press(Enter))
 	case "reject":
 		return d.press(tab, agent.Reject())
@@ -744,6 +752,25 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 // The most lines one request may scroll. A notch of the phone's wheel is a
 // few; anything beyond is clamped, not obeyed.
 const maxScroll = 200
+
+// isRepeatedReturn: Return was sent to this session a moment ago. A second
+// one this soon is a tap landing twice, and let through it would answer
+// whatever the agent asks next before you've seen it.
+func (d *Deck) isRepeatedReturn(id string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now := time.Now()
+	for session, at := range d.lastReturn {
+		if now.Sub(at) >= returnRepeat {
+			delete(d.lastReturn, session)
+		}
+	}
+	if _, recent := d.lastReturn[id]; recent {
+		return true
+	}
+	d.lastReturn[id] = now
+	return false
+}
 
 func (d *Deck) press(tab string, keystroke Keystroke) (int, string) {
 	return d.inTab(tab, func(t Tab) error { return t.Press(keystroke) })
