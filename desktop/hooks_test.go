@@ -337,3 +337,17 @@ func TestAnUpdateMovesGrokAndOpenCodeToTheNewName(t *testing.T) {
 		}
 	}
 }
+
+func TestAWindowsCopyBuiltByHandRunsItsOwnHooks(t *testing.T) {
+	folder := t.TempDir()
+	app := filepath.Join(folder, "smolcorp.exe")
+	writeFile(t, app, "")
+	if got := consoleBuildBeside(app); got != app {
+		t.Errorf("with no smolcorp-cli.exe beside it, the hooks run %s, want the app itself", got)
+	}
+	console := filepath.Join(folder, "smolcorp-cli.exe")
+	writeFile(t, console, "")
+	if got := consoleBuildBeside(app); got != console {
+		t.Errorf("with smolcorp-cli.exe beside it, the hooks run %s, want it", got)
+	}
+}

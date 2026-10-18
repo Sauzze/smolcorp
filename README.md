@@ -786,6 +786,15 @@ You need [Go](https://go.dev) 1.26 or later:
 go build ./cmd/smolcorp
 ```
 
+On Windows, that one program runs everything, in a console window of its
+own. To build it as the downloads have it, with no console window, build
+both:
+
+```bash
+go build -ldflags "-H windowsgui" -o Smolcorp.exe ./cmd/smolcorp
+go build -o smolcorp-cli.exe ./cmd/smolcorp
+```
+
 `go test ./...` runs the tests, and `scripts/release-desktop.sh` builds the
 downloads for both systems.
 

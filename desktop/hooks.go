@@ -77,9 +77,20 @@ func commandLineProgram() string {
 		program = resolved
 	}
 	if runtime.GOOS == "windows" {
-		return filepath.Join(filepath.Dir(program), "smolcorp-cli.exe")
+		return consoleBuildBeside(program)
 	}
 	return program
+}
+
+// consoleBuildBeside is smolcorp-cli.exe beside program, as the downloads
+// have it. A copy built by hand with go build alone has none, but is a
+// console program itself, so it runs the hooks.
+func consoleBuildBeside(program string) string {
+	console := filepath.Join(filepath.Dir(program), "smolcorp-cli.exe")
+	if _, err := os.Stat(console); err != nil {
+		return program
+	}
+	return console
 }
 
 func entriesFor(agent Agent) *hookEntries {
