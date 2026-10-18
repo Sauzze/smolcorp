@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -33,8 +33,9 @@ type Tab interface {
 	Scroll(lines int) error
 	ScrollToBottom() error
 	// Close stops the agent in the tab, and closes the tab where the
-	// terminal lets it: the office's firing.
-	Close() error
+	// terminal lets it: the office's firing. Anything else in front of the
+	// tab is left alone.
+	Close(agent Agent) error
 }
 
 var errUnsupported = errors.New("not possible in this terminal")
@@ -102,11 +103,12 @@ func (t commandTab) output(args ...string) ([]byte, error) {
 	return output, nil
 }
 
-// runs says whether a process called any of names runs in the pane, as the Mac app
-// asks of a Terminal tab, and whether that could be known at all: an agent
-// that crashed, or was killed, leaves its pane to the shell, which keys
-// meant for it must not reach. Unknown is not the same as gone.
-func (t commandTab) runs(names ...string) (running, known bool) {
+// runs says whether the agent itself runs in the pane, as the Mac app asks
+// of a tab, and whether that could be known at all: an agent that crashed,
+// or was killed, leaves its pane to the shell, or to whatever was started
+// there next, which keys meant for it must not reach. Unknown is not the
+// same as gone.
+func (t commandTab) runs(agent Agent) (running, known bool) {
 	var found []string
 	switch t.kind {
 	case "tmux", "wezterm":
@@ -114,63 +116,66 @@ func (t commandTab) runs(names ...string) (running, known bool) {
 		if tty == "" {
 			return false, false
 		}
-		cmd, cancel := terminalCommand("ps", "-t", strings.TrimPrefix(tty, "/dev/"), "-o", "comm=")
+		cmd, cancel := terminalCommand("ps", "-t", strings.TrimPrefix(tty, "/dev/"), "-o", "args=")
 		defer cancel()
 		output, err := cmd.Output()
 		var none *exec.ExitError
 		if err != nil && !(errors.As(err, &none) && none.Exited() && len(output) == 0) {
 			return false, false // ps exits 1 when nothing runs on the tty: that's an answer
 		}
-		found = strings.Fields(string(output))
+		found = strings.Split(string(output), "\n")
 	case "kitty":
-		output, err := t.output("ls", "--match", "id:"+t.id)
-		if err != nil {
+		window, err := t.kittyWindow()
+		if err != nil || window == nil {
 			return false, false
 		}
-		var windows []struct {
-			Tabs []struct {
-				Windows []struct {
-					ID        int `json:"id"`
-					Processes []struct {
-						Cmdline []string `json:"cmdline"`
-					} `json:"foreground_processes"`
-				} `json:"windows"`
-			} `json:"tabs"`
-		}
-		if json.Unmarshal(output, &windows) != nil {
-			return false, false
-		}
-		seen := false
-		for _, w := range windows {
-			for _, tab := range w.Tabs {
-				for _, window := range tab.Windows {
-					if fmt.Sprint(window.ID) != t.id {
-						continue
-					}
-					seen = true
-					for _, p := range window.Processes {
-						if len(p.Cmdline) > 0 {
-							found = append(found, p.Cmdline[0])
-						}
-					}
-				}
-			}
-		}
-		if !seen {
-			return false, false
+		for _, p := range window.Foreground {
+			found = append(found, strings.Join(p.Cmdline, " "))
 		}
 	default:
 		return false, false
 	}
-	for _, n := range found {
-		if slices.Contains(names, filepath.Base(n)) {
-			return true, true
-		}
-	}
-	return false, true
+	return slices.ContainsFunc(found, agent.isItself), true
 }
 
-// tty is the pane's terminal device, as /dev/pts/3, or "" if unknown.
+// kittyWindow is what kitty says of the window: its own process, and those
+// in front of it. Nil if kitty answered without it.
+func (t commandTab) kittyWindow() (*kittyWindow, error) {
+	output, err := t.output("ls", "--match", "id:"+t.id)
+	if err != nil {
+		return nil, err
+	}
+	var windows []struct {
+		Tabs []struct {
+			Windows []kittyWindow `json:"windows"`
+		} `json:"tabs"`
+	}
+	if err := json.Unmarshal(output, &windows); err != nil {
+		return nil, err
+	}
+	for _, w := range windows {
+		for _, tab := range w.Tabs {
+			for _, window := range tab.Windows {
+				if fmt.Sprint(window.ID) == t.id {
+					return &window, nil
+				}
+			}
+		}
+	}
+	return nil, nil
+}
+
+// kittyWindow is a window as kitty's `ls` lists it.
+type kittyWindow struct {
+	ID         int      `json:"id"`
+	PID        int      `json:"pid"`
+	Cmdline    []string `json:"cmdline"`
+	Foreground []struct {
+		PID     int      `json:"pid"`
+		Cmdline []string `json:"cmdline"`
+	} `json:"foreground_processes"`
+}
+
 func (t commandTab) tty() string {
 	switch t.kind {
 	case "tmux":
@@ -303,17 +308,176 @@ func (t commandTab) ScrollToBottom() error {
 	return errUnsupported
 }
 
-// Close closes the pane, and with it the agent in it.
-func (t commandTab) Close() error {
+// Close fires the agent, as the Mac app does: the agent in front of the
+// pane is stopped, then the pane closed, and a pane left to its shell is
+// closed. A pane with anything else in front, as a dev server or an editor
+// started there after the agent crashed, is left as it is, and so is one
+// that can't be looked at: errNotStopped. If, once the agent has stopped,
+// another job is in front, the pane is that job's now, and stays.
+func (t commandTab) Close(agent Agent) error {
+	if t.kind != "tmux" && t.kind != "wezterm" && t.kind != "kitty" {
+		return errUnsupported
+	}
+	if !t.alive() {
+		return errors.New("the pane has closed")
+	}
+	front := t.front()
+	switch front.is {
+	case inFrontJob:
+		if !slices.ContainsFunc(front.job, agent.isItself) || !stopGroup(front.group) {
+			return errNotStopped
+		}
+		if t.front().is == inFrontJob {
+			return nil
+		}
+	case inFrontShell:
+		// The pane's own process: its shell, or the agent when the pane was
+		// started with it. Anything else is someone's work.
+		program := strings.Trim(strings.ToLower(baseName(strings.Fields(front.own + " ")[0])), "-")
+		if !slices.Contains(shells, program) && !agent.isItself(front.own) {
+			return errNotStopped
+		}
+	default:
+		return errNotStopped
+	}
 	switch t.kind {
 	case "tmux":
 		return t.run("kill-pane", "-t", t.id)
 	case "wezterm":
 		return t.run("kill-pane", "--pane-id", t.id)
-	case "kitty":
+	default:
 		return t.run("close-window", "--match", "id:"+t.id)
 	}
-	return errUnsupported
+}
+
+// errNotStopped is a pane firing leaves open: see Close.
+var errNotStopped = errors.New("couldn't stop the agent")
+
+// shells are what a pane's own process is when it's only a shell.
+var shells = []string{"zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "login"}
+
+const (
+	inFrontUnknown = iota
+	inFrontShell
+	inFrontJob
+)
+
+// inFront is what's in front of a pane: its own process, or a job of others
+// in front of it, and their command lines; or that it couldn't be told.
+type inFront struct {
+	is    int
+	own   string   // the pane's own process's command line
+	group int      // the job's process group
+	job   []string // its processes' command lines
+}
+
+// front says what's in front of the pane. tmux and kitty say which process
+// is the pane's own; WezTerm doesn't, and it's the one on the pane's tty
+// that none of the others started.
+func (t commandTab) front() inFront {
+	switch t.kind {
+	case "tmux":
+		output, err := t.output("display-message", "-p", "-t", t.id, "#{pane_tty} #{pane_pid}")
+		tty, pid, _ := strings.Cut(strings.TrimSpace(string(output)), " ")
+		own, bad := strconv.Atoi(pid)
+		if err != nil || bad != nil || tty == "" {
+			return inFront{}
+		}
+		return frontOn(tty, own)
+	case "wezterm":
+		if tty := t.tty(); tty != "" {
+			return frontOn(tty, 0)
+		}
+	case "kitty":
+		window, err := t.kittyWindow()
+		if err != nil || window == nil || window.PID == 0 {
+			return inFront{}
+		}
+		front := inFront{is: inFrontShell, own: strings.Join(window.Cmdline, " ")}
+		for _, p := range window.Foreground {
+			if p.PID == window.PID {
+				continue
+			}
+			group, err := processGroup(p.PID)
+			if err != nil {
+				return inFront{}
+			}
+			front.is, front.group = inFrontJob, group
+			front.job = append(front.job, strings.Join(p.Cmdline, " "))
+		}
+		return front
+	}
+	return inFront{}
+}
+
+// frontOn says what's in front on tty, whose pane's own process is own, or
+// for 0, the one there that none of the others started.
+func frontOn(tty string, own int) inFront {
+	cmd, cancel := terminalCommand("ps", "-t", strings.TrimPrefix(tty, "/dev/"), "-o", "pid=,ppid=,pgid=,tpgid=,args=")
+	defer cancel()
+	output, err := cmd.Output()
+	if err != nil {
+		return inFront{}
+	}
+	return frontOf(string(output), own)
+}
+
+// frontOf reads ps's lines, as frontOn asks for them.
+func frontOf(lines string, own int) inFront {
+	type row struct {
+		pid, ppid, pgid, tpgid int
+		args                   string
+	}
+	var rows []row
+	pids := map[int]bool{}
+	for _, line := range strings.Split(lines, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+		var r row
+		numbers := []*int{&r.pid, &r.ppid, &r.pgid, &r.tpgid}
+		ok := true
+		for i, n := range numbers {
+			var err error
+			if *n, err = strconv.Atoi(fields[i]); err != nil {
+				ok = false
+			}
+		}
+		if !ok {
+			continue
+		}
+		r.args = strings.Join(fields[4:], " ")
+		rows = append(rows, r)
+		pids[r.pid] = true
+	}
+	var shell *row
+	for i := range rows {
+		mine := rows[i].pid == own
+		if own == 0 {
+			mine = !pids[rows[i].ppid]
+		}
+		if mine {
+			if shell != nil {
+				return inFront{} // two, and no telling which is the pane's
+			}
+			shell = &rows[i]
+		}
+	}
+	if shell == nil {
+		return inFront{}
+	}
+	front := inFront{is: inFrontShell, own: shell.args}
+	if shell.tpgid <= 0 || shell.tpgid == shell.pgid {
+		return front
+	}
+	front.is, front.group = inFrontJob, shell.tpgid
+	for _, r := range rows {
+		if r.pgid == shell.tpgid {
+			front.job = append(front.job, r.args)
+		}
+	}
+	return front
 }
 
 // alive asks the terminal whether the pane is still there. Unknown counts as

@@ -74,16 +74,28 @@ func TestKeysGoToAPaneOnlyWhileItsAgentRunsThere(t *testing.T) {
 }
 
 func TestAnAgentRunningOnNodeIsStillThere(t *testing.T) {
-	// Claude Code installed from npm shows as node in its pane, Grok CLI as bun.
-	for _, shows := range []string{"bash\nnode\n", "bash\n/usr/local/bin/bun\n"} {
+	// Claude Code installed from npm shows as node running its package, or bun.
+	for _, shows := range []string{
+		"-bash\nnode /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js\n",
+		"-bash\n/usr/local/bin/bun /home/someone/.bun/install/global/node_modules/@anthropic-ai/claude-code/cli.js\n",
+	} {
 		_, typed := fakePane(t, shows)
 		d := paneDeck(t)
 		if status, message := d.Perform("down", "p1", url.Values{}); status != http.StatusNoContent || !strings.Contains(typed(), "Down") {
-			t.Fatalf("with the agent showing as %q, a key gave %d %q", strings.Fields(shows)[1], status, message)
+			t.Fatalf("with the agent showing as %q, a key gave %d %q", strings.Split(shows, "\n")[1], status, message)
 		}
 		if d.sessions.Get("p1") == nil {
-			t.Fatalf("a live agent showing as %q was taken as ended", strings.Fields(shows)[1])
+			t.Fatalf("a live agent showing as %q was taken as ended", strings.Split(shows, "\n")[1])
 		}
+	}
+}
+
+func TestNodeRunningSomethingElseIsntTheAgent(t *testing.T) {
+	// It crashed, and a dev server was started in its pane: keys meant for it mustn't reach that.
+	_, typed := fakePane(t, "-bash\nnode /work/app/node_modules/vite/bin/vite.js\n")
+	d := paneDeck(t)
+	if status, message := d.Perform("down", "p1", url.Values{}); status != http.StatusGone || strings.Contains(typed(), "Down") {
+		t.Fatalf("a key with vite in the agent's pane gave %d %q, typed %q", status, message, typed())
 	}
 }
 
@@ -121,7 +133,7 @@ JSON
 		id             string
 		running, known bool
 	}{{"3", true, true}, {"4", false, true}, {"9", false, false}} {
-		running, known := commandTab{kind: "kitty", id: c.id, socket: "unix:/tmp/kitty"}.runs(Claude.runningNames()...)
+		running, known := commandTab{kind: "kitty", id: c.id, socket: "unix:/tmp/kitty"}.runs(Claude)
 		if running != c.running || known != c.known {
 			t.Errorf("kitty window %s: running %v, known %v; want %v, %v", c.id, running, known, c.running, c.known)
 		}
