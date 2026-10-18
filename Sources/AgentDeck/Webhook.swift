@@ -68,6 +68,17 @@ struct Webhook: Codable, Equatable {
         return false
     }
 
+    /// A redirect isn't followed: it could lead off your network, where only
+    /// the address you gave was checked, and take the secret with it.
+    private static let session = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
+
+    private final class NoRedirects: NSObject, URLSessionTaskDelegate {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
+    }
+
     /// Sends `message`, and says how it went, on the main queue: "204", or what went wrong.
     func send(_ message: [String: Any], done: @escaping (String) -> Void) {
         guard let address = URL(string: url), let body = try? JSONSerialization.data(withJSONObject: message, options: [.sortedKeys]) else {
@@ -79,7 +90,7 @@ struct Webhook: Codable, Equatable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Smolcorp", forHTTPHeaderField: "User-Agent")
         if !secret.isEmpty { request.setValue(secret, forHTTPHeaderField: "X-Smolcorp-Secret") }
-        URLSession.shared.dataTask(with: request) { _, response, error in
+        Webhook.session.dataTask(with: request) { _, response, error in
             let result: String
             if let status = (response as? HTTPURLResponse)?.statusCode {
                 result = "\(status)"
