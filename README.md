@@ -264,11 +264,15 @@ There's more to see while they work:
 
 - **A style** furnishes the whole office in one go: Classic, Campsite, Royal
   court, Space station, Pirate cove, Arctic base, Dragon's lair, Gamer den,
-  Startup garage, Fitness floor or Jungle. Switch it from your phone too: tap
-  the key in the room's top-left corner and pick one. **Yours**
-  is the office as you furnish it below, and changing anything there takes you
-  back to it. Your team, the daylight, the seasons and the sound stay as you
-  set them.
+  Startup garage, Fitness floor or Jungle. Most bring a pet of their own: a
+  fox at the Campsite, a corgi at the Royal court, a robot dog on the Space
+  station, a parrot in the Pirate cove, a penguin at the Arctic base, an owl in
+  the Dragon's lair, a hamster in a ball in the Gamer den and a monkey in the
+  Jungle. Switch it from your phone too: tap the key in the room's top-left
+  corner and pick one. **Yours** is the office as you furnish it below, and
+  changing anything there but the pets takes you back to it. Your team, the
+  daylight, the seasons and the sound stay as you set them, and so do the pets
+  you pick, in place of the style's own.
 - **The floor** in wood, tiles, concrete or carpet, and more, and **the walls**
   in slate, sage, clay or cream, and more.
 - **In the room editor** (below): the mic you talk into, from a microphone to a
@@ -281,7 +285,7 @@ There's more to see while they work:
   piano, a drum kit, a telescope, jellyfish, a bonsai, a jungle, a coffee bar,
   servers, a 3D printer, a punching bag, a treadmill, a hot tub, a ball pit or a
   campfire. Idle agents and staff go and play, grab a snack, or sit by the fire,
-  and the pet joins in.
+  and the pets join in.
 - **Where everyone works:** at a desk, or a standing desk, a gaming desk, a
   tent, a cardboard box, a beanbag, an igloo, a camper van, a spaceship, a
   pirate ship, a throne or a greenhouse. Each project can have its own on its
@@ -289,9 +293,11 @@ There's more to see while they work:
 - **Daylight** that follows the clock, with night falling at 8 pm, or always day.
 - **Seasons in the windows:** snow in winter, with lights strung along the wall
   through December, falling leaves in autumn, blossom in spring, birds in summer.
-- **A pet:** a cat that naps on the couch, a dog that follows people about, a
-  lizard that basks on the wall, or a monkey that climbs on things and steals
-  cups.
+- **Up to three pets:** a cat that naps on the couch, a dog that follows
+  people about, a lizard that basks on the wall, a monkey that climbs on things
+  and steals cups, or a llama, a penguin, a parrot, an owl, a capybara, a red
+  panda, a corgi, a hamster in a ball, a robot dog, a bat, a snail, a fox or an
+  axolotl. Pick them in any style, and they take the place of its own.
 - **Sound:** off, quiet or normal, in the style of an old games console, and
   mostly silence: a burst of typing as an agent gets to work, the door, the
   coffee machine, a ping-pong rally, the red button's siren, a hire, a firing,
