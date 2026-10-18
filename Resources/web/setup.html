@@ -440,7 +440,8 @@
         <h3>Life</h3>
         <div class="field"><span>Daylight</span><div class="choices" id="room-sky"></div></div>
         <div class="field"><span>Seasons in the windows</span><div class="choices" id="room-season"></div></div>
-        <div class="field"><span>Pet</span><div class="choices" id="room-pet"></div></div>
+        <div class="field"><span>Pets, up to 3</span><div class="choices" id="room-pet"></div></div>
+        <p class="hint" id="room-pet-hint" hidden></p>
         <div class="field"><span>Sound</span><div class="choices" id="room-sound"></div></div>
         <div class="field"><span>Office staff</span><div class="choices" id="room-staff"></div></div>
         <h3>Your team</h3>
@@ -1134,7 +1135,9 @@
       ['hifi', 'A hi-fi'], ['synth', 'A synth rig'], ['none', 'Nothing']],
     sky: [['live', 'Follows the clock'], ['day', 'Always day']],
     season: [['calendar', 'Follow the calendar'], ['off', 'Off']],
-    pet: [['none', 'None'], ['cat', 'Cat'], ['dog', 'Dog'], ['lizard', 'Lizard'], ['monkey', 'Monkey']],
+    pet: [['cat', 'Cat'], ['dog', 'Dog'], ['lizard', 'Lizard'], ['monkey', 'Monkey'], ['llama', 'Llama'], ['penguin', 'Penguin'],
+      ['parrot', 'Parrot'], ['owl', 'Owl'], ['capybara', 'Capybara'], ['redpanda', 'Red panda'], ['corgi', 'Corgi'],
+      ['hamster', 'Hamster in a ball'], ['robodog', 'Robot dog'], ['bat', 'Bat'], ['snail', 'Snail'], ['fox', 'Fox'], ['axolotl', 'Axolotl']],
     sound: [['off', 'Off'], ['quiet', 'Quiet'], ['normal', 'Normal']],
     desk: [['wood', 'Wood', '#c49a6c'], ['walnut', 'Walnut', '#7e5536'], ['white', 'White', '#e9e6de'], ['black', 'Black', '#3c404a']],
     workspace: [['desk', 'A desk'], ['standing', 'A standing desk'], ['gaming', 'A gaming desk'], ['tent', 'A tent'],
@@ -1166,11 +1169,17 @@
   ROOM_CHOICES.lounge.push(...ROOM_CHOICES.floor);
   ROOM_CHOICES.loungePaint = [['auto', 'Same as the walls'], ...ROOM_CHOICES.paint];
   const STANDARD_ROOM = { mic: 'mic', wall: ['window', 'whiteboard', 'window', 'pinboard', 'window'], floor: 'wood', paint: 'slate',
-    lounge: 'navy', loungePaint: 'auto', corner: 'arcade', sky: 'live', pet: 'none', season: 'calendar', sound: 'off', desk: 'wood', workspace: 'desk',
+    lounge: 'navy', loungePaint: 'auto', corner: 'arcade', sky: 'live', pet: [], season: 'calendar', sound: 'off', desk: 'wood', workspace: 'desk',
     monitor: 'standard', chair: 'teal', staff: 'some', preset: 'yours' };
-  /** What a style furnishes, as office.js has it: changing one of these goes back to Yours. */
-  const STYLED = new Set(['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair',
+  /** What a style furnishes, as office.js has it: changing one of these goes back to Yours. Its pet too, but picking pets
+      doesn't: the ones you pick take the place of the style's own. */
+  const STYLED = new Set(['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'desk', 'workspace', 'monitor', 'chair',
     'staff']);
+  /** The most pets the office has at once. */
+  const PETS_MOST = 3;
+  /** The pets as kept: a list, or one by its id as before, of ones the office can have, each once, as many as it has at once. */
+  const petsOf = (given) => (Array.isArray(given) ? given : [given])
+    .filter((pet, i, all) => ROOM_CHOICES.pet.some(([id]) => id === pet) && all.indexOf(pet) === i).slice(0, PETS_MOST);
 
   /* Your team: how each project's agent looks, the choices office.js draws
      and the apps keep. The first of each is Auto. */
@@ -1382,7 +1391,12 @@
    */
   function furnish(edit, part = null) {
     change(() => {
-      if (STYLED.has(part) && layout.room.preset !== 'yours') layout.room = furnished(layout.room);
+      if (STYLED.has(part) && layout.room.preset !== 'yours') {
+        // The pets you picked stay; with none picked, the style's own come along
+        const pets = petsOf(layout.room.pet);
+        layout.room = furnished(layout.room);
+        layout.room.pet = pets.length ? pets : petsOf(layout.room.pet);
+      }
       edit(layout.room);
     }, true);
   }
@@ -1391,7 +1405,7 @@
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
     // What's picked in each row: in a style, as the style furnishes it.
     const shown = furnished(room);
-    for (const part of ['floor', 'paint', 'sky', 'season', 'pet', 'sound', 'desk', 'monitor', 'chair', 'staff']) {
+    for (const part of ['floor', 'paint', 'sky', 'season', 'sound', 'desk', 'monitor', 'chair', 'staff']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label, swatch]) =>
         choice(label, (shown[part] || STANDARD_ROOM[part]) === id, () => furnish((r) => { r[part] = id; }, part), swatch)));
     }
@@ -1405,8 +1419,35 @@
       refocus = null;
       if (picked) picked.focus();
     }
+    drawPets(room, shown);
     drawTeam(room);
     drawDress(room);
+  }
+
+  /**
+   * The pets: each on or off, as many as the office has at once. In a style,
+   * the style's own is on until you pick some, and the first choice brings
+   * it back; elsewhere, the first is none.
+   */
+  function drawPets(room, shown) {
+    const picked = petsOf(room.pet);
+    const styled = room.preset !== 'yours';
+    const on = picked.length || !styled ? picked : petsOf(shown.pet);
+    const full = picked.length >= PETS_MOST;
+    const pick = (id) => furnish((r) => {
+      const pets = petsOf(r.pet);
+      r.pet = pets.includes(id) ? pets.filter((pet) => pet !== id) : [...pets, id];
+    });
+    $('room-pet').replaceChildren(
+      choice(styled ? "Style's pet" : 'None', !picked.length, () => furnish((r) => { r.pet = []; })),
+      ...ROOM_CHOICES.pet.map(([id, label]) => {
+        const b = choice(label, on.includes(id), () => pick(id));
+        b.disabled = full && !picked.includes(id);
+        return b;
+      }));
+    const hint = full ? 'Three is the most. Take one off to pick another.' : styled ? "Pick pets to replace the style's pet." : '';
+    $('room-pet-hint').textContent = hint;
+    $('room-pet-hint').hidden = !hint;
   }
 
   /**
