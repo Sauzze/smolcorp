@@ -3,7 +3,7 @@ import AppKit
 /// The deck itself: the sessions, how they sit on the six keys, what the
 /// phone's controls do to them, and the live feed of all that to phones.
 final class Deck {
-    static let port: UInt16 = 7710
+    static let port: UInt16 = TestCopy.port ?? 7710
     /// The setup page, with its key after #k=, which never leaves this Mac:
     /// the page hands it over once for a cookie, and takes it out of the
     /// address. `then` is what the page does on opening: "pair" or "unpair".
@@ -50,9 +50,9 @@ final class Deck {
     /// The tabs hires opened, waiting for their agent to report: the first
     /// session in the tab takes the role it was hired for, if any, and the
     /// desk it was hired at, with a set number of desks.
-    private var hiredTabs: [(tty: String, role: String?, desk: Int?, at: Date)] = []
+    private var hiredTabs: [(tab: String, role: String?, desk: Int?, at: Date)] = []
     /// The tab recording started in, and when. One Mac, one microphone.
-    private var micPress: (tty: String, at: Date)?
+    private var micPress: (tab: String, at: Date)?
     /// When each session was last sent Return from the phone, so a tap that
     /// lands twice sends it once.
     private var lastReturn: [String: Date] = [:]
@@ -103,11 +103,13 @@ final class Deck {
 
     /// `reported` is the agent the hook script was set up for; see
     /// `Agent.of(_:reportedAs:)` for why that isn't always the sender.
-    func ingest(_ event: [String: Any], reportedAs reported: String, tty: String, startedIn: String, at time: Double) {
+    /// `tab` is the tab the hook found, as a `TabAddress`; `tty` the tty it
+    /// ran on, which a hook from before 1.9 sends alone.
+    func ingest(_ event: [String: Any], reportedAs reported: String, tab: String, tty: String, startedIn: String, at time: Double) {
         let agent = Agent.of(event, reportedAs: reported)
         guard let event = agent.canonical(event) else { return }
-        sessions.apply(event, agent: agent, tty: tty.isEmpty ? tab(for: event, of: agent) : tty,
-                       startedIn: startedIn, at: time)
+        let found = !tab.isEmpty ? tab : !tty.isEmpty ? TabAddress.terminalApp(tty: tty).text : self.tab(for: event, of: agent)
+        sessions.apply(event, agent: agent, tab: found, startedIn: startedIn, at: time)
         noteMessage(event, from: agent)
     }
 
@@ -132,7 +134,8 @@ final class Deck {
     private func tab(for event: [String: Any], of agent: Agent) -> String {
         guard let id = event["session_id"] as? String, sessions[id] == nil,
               let name = agent.processName, let folder = event["cwd"] as? String else { return "" }
-        return Processes.tty(of: name, in: folder, excluding: Set(sessions.all.map(\.tty))) ?? ""
+        let taken = Set(sessions.all.compactMap { Terminals.tty(of: $0.tab) })
+        return Processes.tty(of: name, in: folder, excluding: taken).map { TabAddress.terminalApp(tty: $0).text } ?? ""
     }
 
     private func changed() {
@@ -281,8 +284,8 @@ final class Deck {
               let saved = try? JSONDecoder().decode(SavedDeck.self, from: data), !saved.sessions.isEmpty else { return }
         DispatchQueue.global(qos: .utility).async {
             let running = saved.sessions.filter { entry in
-                guard !entry.tty.isEmpty, let agent = Agent(rawValue: entry.agent) else { return false }
-                return Terminal.isRunning(agent.foregroundName, on: entry.tty) == true
+                guard let tty = Terminals.tty(of: entry.address), let agent = Agent(rawValue: entry.agent) else { return false }
+                return Terminal.isRunning(agent.foregroundName, on: tty) == true
             }
             DispatchQueue.main.async {
                 guard !running.isEmpty else { return }
@@ -324,8 +327,8 @@ final class Deck {
         // The desk is kept for it below if it's still free; if it was taken in
         // the meantime, the hire sits at the first free one, as anyone would.
         hiredTabs.removeAll { Date().timeIntervalSince($0.at) > Deck.hiredTabWait }
-        for session in remaining where !session.tty.isEmpty {
-            guard let i = hiredTabs.firstIndex(where: { $0.tty == session.tty }) else { continue }
+        for session in remaining where !session.tab.isEmpty {
+            guard let i = hiredTabs.firstIndex(where: { $0.tab == session.tab }) else { continue }
             let hired = hiredTabs.remove(at: i)
             if let role = hired.role, roleOf[session.id] == nil { roleOf[session.id] = role }
             if let desk = hired.desk { keyOf[session.id] = desk }
@@ -382,12 +385,15 @@ final class Deck {
             "keys": keys.map { key -> [String: Any] in
                 var entry: [String: Any] = ["pin": key.pin.map { ($0 as NSString).lastPathComponent } ?? NSNull()]
                 if let s = key.session {
+                    // What its terminal lets the deck do: one Smolcorp can only watch shows the desk, not the controls.
+                    let can = Terminals.abilities(of: s.tab)
                     entry["session"] = [
                         "id": s.id, "name": s.name, "project": s.projectName, "state": s.state.rawValue,
                         "effort": s.pendingEffort.isEmpty ? s.effort : s.pendingEffort,
                         "pending": !s.pendingEffort.isEmpty,
                         "agent": s.agent.rawValue, "agentName": s.agent.name,
-                        "dial": s.agent.hasEffortDial, "mic": s.agent.hasVoice,
+                        "dial": s.agent.hasEffortDial && can.contains(.text), "mic": s.agent.hasVoice && can.contains(.keys),
+                        "keys": can.contains(.keys), "fire": can.contains(.fire),
                         "activity": s.activity ?? NSNull(),
                         "tool": s.tool.isEmpty ? NSNull() : s.tool,
                         "model": s.model.isEmpty ? NSNull() : s.model,
@@ -468,8 +474,7 @@ final class Deck {
         if action == "swap" { return done(swapKeys(query)) }
         if action == "style" { return done(setStyle(query["preset"])) }
         if action == "music" { return done(playMusic(query["do"] ?? "playpause")) }
-        guard let session = sessions[id], !session.tty.isEmpty else { return done(.status(404, "Session not found")) }
-        let tty = session.tty
+        guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
 
         // Accept and send are both Return. They are separate controls on the
         // phone because they mean different things, as do reject and esc,
@@ -495,8 +500,9 @@ final class Deck {
             guard Config.shared.scrollEnabled else {
                 return done(.status(403, "Scrolling is off. Turn it on in setup, on your Mac."))
             }
-            guard Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
-            if query["to"] == "bottom" { return inTab(tty, done: done) { Terminal.scrollToBottom(tty: tty) } }
+            guard let (driver, tab) = terminal(of: session, for: .scroll) else { return done(.status(409, Deck.notHere)) }
+            guard !driver.keysNeedAccessibility || Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
+            if query["to"] == "bottom" { return inTab(session.tab, done: done) { driver.scrollToBottom(in: tab) } }
             // Kept within what a scroll can be first, as Go keeps it: an amount as large as an Int
             // can hold would overflow below, which stops the app.
             guard let asked = Int(query["lines"] ?? "") else { return done(.status(400, "Unknown amount")) }
@@ -504,14 +510,15 @@ final class Deck {
             // The phone counts the way natural scrolling does. With it turned
             // off on the Mac, the wheel turns the other way, as everything else does.
             let direction = Scrolling.isNatural ? 1 : -1
-            inTab(tty, done: done) { Terminal.scroll(lines: lines * direction, tty: tty) }
+            inTab(session.tab, done: done) { driver.scroll(lines: lines * direction, in: tab) }
         case "mic":
             guard agent.hasVoice else { return done(.status(400, "\(agent.name) has no voice input")) }
             pressMic(session, done: done)
         case "fire":
             guard Config.shared.hiringEnabled else { return done(.status(403, Deck.hiringOff)) }
+            guard let (driver, tab) = terminal(of: session, for: .fire) else { return done(.status(409, Deck.notHere)) }
             Terminal.queue.async {
-                let fired = Terminal.fire(tty: tty, agent: agent)
+                let fired = driver.fire(tab, agent: agent)
                 DispatchQueue.main.async {
                     switch fired {
                     case .fired: done(.status(204))
@@ -554,6 +561,15 @@ final class Deck {
     }
 
     static let hiringOff = "Hiring and firing are off. Turn them on in setup, on your Mac."
+    /// For a session in a terminal Smolcorp can only watch, or can't do this in.
+    static let notHere = "Smolcorp can't do that in this terminal yet."
+
+    /// `session`'s tab and the driver for its terminal, if that terminal lets
+    /// the deck do `what` there.
+    private func terminal(of session: Session, for what: TerminalAbilities) -> (TerminalDriver, TabAddress)? {
+        guard let tab = TabAddress(session.tab), let driver = Terminals.driver(for: tab), driver.abilities.contains(what) else { return nil }
+        return (driver, tab)
+    }
 
     /// Swaps two keys' projects, for a person carried from one desk to
     /// another in the office: each is pinned where the other was, so the
@@ -688,7 +704,9 @@ final class Deck {
                     if role != nil { try? FileManager.default.removeItem(atPath: command) }
                     return done(.status(500, "Terminal didn't open"))
                 }
-                if !tty.isEmpty && (role != nil || held != nil) { self.hiredTabs.append((tty, role?.id, held, Date())) }
+                if !tty.isEmpty && (role != nil || held != nil) {
+                    self.hiredTabs.append((TabAddress.terminalApp(tty: tty).text, role?.id, held, Date()))
+                }
                 done(.status(204))
             }
         }
@@ -757,8 +775,8 @@ final class Deck {
         if let current = micPress, Date().timeIntervalSince(current.at) < Deck.voiceLimit {
             return done(.status(204))
         }
-        micPress = (session.tty, Date())
-        press(.init(key: .space), tty: session.tty) { [weak self] response in
+        micPress = (session.tab, Date())
+        press(.init(key: .space), tab: session.tab) { [weak self] response in
             // Nothing started, so the release must not send a Space either.
             if response.status >= 400 { self?.micPress = nil }
             done(response)
@@ -772,41 +790,43 @@ final class Deck {
         guard let started = micPress, Date().timeIntervalSince(started.at) < Deck.voiceLimit else {
             return done(.status(204))
         }
-        press(.init(key: .space), tty: started.tty, done: done)
+        press(.init(key: .space), tab: started.tab, done: done)
     }
 
-    private func press(_ keystroke: Terminal.Keystroke, tty: String, done: @escaping (Response) -> Void) {
-        guard Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
-        inTab(tty, done: done) {
-            Terminal.press(keystroke.key, modifiers: keystroke.modifiers, times: keystroke.times, tty: tty)
+    private func press(_ keystroke: Terminal.Keystroke, tab: String, done: @escaping (Response) -> Void) {
+        guard let address = TabAddress(tab), let driver = Terminals.driver(for: address), driver.abilities.contains(.keys) else {
+            return done(.status(409, Deck.notHere))
         }
+        guard !driver.keysNeedAccessibility || Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
+        inTab(tab, done: done) { driver.press(keystroke, in: address) }
     }
 
-    /// Runs `work`, which brings the tab on `tty` forward. A tab you have
-    /// been shown counts as seen.
-    private func inTab(_ tty: String, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
+    /// Runs `work`, which may bring `tab` forward. A tab you have been shown
+    /// counts as seen.
+    private func inTab(_ tab: String, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
         onTerminal(done) {
             let reached = work()
-            if reached { DispatchQueue.main.async { self.sessions.markSeen(tty: tty) } }
+            if reached { DispatchQueue.main.async { self.sessions.markSeen(tab: tab) } }
             return reached
         }
     }
 
-    /// Presses `keystroke` in `session`'s tab, bringing it forward, once its agent is known to be there still.
+    /// Presses `keystroke` in `session`'s tab, once its agent is known to be there still.
     private func press(_ keystroke: Terminal.Keystroke, to session: Session, done: @escaping (Response) -> Void) {
-        guard Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
-        let tty = session.tty
+        guard let (driver, tab) = terminal(of: session, for: .keys) else { return done(.status(409, Deck.notHere)) }
+        guard !driver.keysNeedAccessibility || Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
+        let address = session.tab
         toAgent(session, done: done) {
-            let reached = Terminal.press(keystroke.key, modifiers: keystroke.modifiers, times: keystroke.times, tty: tty)
-            if reached { DispatchQueue.main.async { self.sessions.markSeen(tty: tty) } }
+            let reached = driver.press(keystroke, in: tab)
+            if reached { DispatchQueue.main.async { self.sessions.markSeen(tab: address) } }
             return reached
         }
     }
 
     /// Types `text` and Return into `session`'s tab, once its agent is known to be there still.
     private func type(_ text: String, to session: Session, done: @escaping (Response) -> Void) {
-        let tty = session.tty
-        toAgent(session, done: done) { Terminal.type(text, tty: tty) }
+        guard let (driver, tab) = terminal(of: session, for: .text) else { return done(.status(409, Deck.notHere)) }
+        toAgent(session, done: done) { driver.type(text, in: tab) }
     }
 
     /// Runs `work` on the tab once its agent is known to run there still. An
@@ -814,12 +834,12 @@ final class Deck {
     /// to the shell, where its keys would land and a button's text would run
     /// as a command, or to whatever runs there next: its session goes instead.
     private func toAgent(_ session: Session, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
-        let tty = session.tty, names = session.agent.runningNames
+        let tab = session.tab, tty = Terminals.tty(of: tab), names = session.agent.runningNames
         Terminal.queue.async {
             // Unknown is not the same as gone: the keys go as they always did.
-            guard Terminal.isRunning(any: names, on: tty) != false else {
+            guard tty.flatMap({ Terminal.isRunning(any: names, on: $0) }) != false else {
                 return DispatchQueue.main.async {
-                    self.sessions.prune(closedTTYs: [tty])
+                    self.sessions.prune(closedTabs: [tab])
                     done(.status(410, "That agent has ended."))
                 }
             }
@@ -836,8 +856,10 @@ final class Deck {
     }
 
     func focus(_ id: String, done: @escaping (Response) -> Void) {
-        guard let tty = sessions[id]?.tty, !tty.isEmpty else { return done(.status(404)) }
-        inTab(tty, done: done) { Terminal.focus(tty: tty) }
+        guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404)) }
+        // A terminal Smolcorp can only watch has nothing to bring forward: the tap only picks the desk.
+        guard let (driver, tab) = terminal(of: session, for: .focus) else { return done(.status(204)) }
+        inTab(session.tab, done: done) { driver.focus(tab) }
     }
 
     /// Typed into a running turn, /effort would be queued as a message, so it
@@ -846,11 +868,12 @@ final class Deck {
     private func applyQueuedEffort() {
         for session in sessions.all where !session.pendingEffort.isEmpty && !session.isBusy {
             let level = session.pendingEffort
-            let tty = session.tty, names = session.agent.runningNames
             session.pendingEffort = ""
+            guard let (driver, tab) = terminal(of: session, for: .text) else { continue }
+            let tty = Terminals.tty(of: session.tab), names = session.agent.runningNames
             Terminal.queue.async {
                 // Not into a tab its agent has left: see `toAgent`.
-                guard Terminal.isRunning(any: names, on: tty) != false, Terminal.type("/effort \(level)", tty: tty) else { return }
+                guard tty.flatMap({ Terminal.isRunning(any: names, on: $0) }) != false, driver.type("/effort \(level)", in: tab) else { return }
                 DispatchQueue.main.async {
                     session.effort = level
                     self.changed()
@@ -870,7 +893,7 @@ final class Deck {
             let tty = Terminal.frontTTY()
             DispatchQueue.main.async {
                 self.checkingFront = false
-                if let tty { self.sessions.markSeen(tty: tty) }
+                if let tty { self.sessions.markSeen(tab: TabAddress.terminalApp(tty: tty).text) }
             }
         }
     }
@@ -890,21 +913,27 @@ final class Deck {
                 let closed = missing.intersection(self.missedOnce)
                 self.missedOnce = missing.subtracting(closed)
                 self.terminalTTYs = open.union(self.missedOnce)
+                // Only Terminal.app's tabs are looked at here: its tab list is what says one has closed.
+                let terminalTTY = { (tab: String) -> String? in TabAddress(tab).flatMap { $0.kind == "tty" ? $0.id : nil } }
                 // A hire's tab closed, seen open before or not: no tty used again later takes its desk or role.
-                self.hiredTabs.removeAll {
-                    closed.contains($0.tty) || !open.contains($0.tty) && Date().timeIntervalSince($0.at) > Deck.hiredTabListed
+                self.hiredTabs.removeAll { hired in
+                    guard let tty = terminalTTY(hired.tab) else { return false }
+                    return closed.contains(tty) || !open.contains(tty) && Date().timeIntervalSince(hired.at) > Deck.hiredTabListed
                 }
-                let suspects = self.sessions.all.filter { closed.contains($0.tty) }.map { (tty: $0.tty, agent: $0.agent) }
+                let suspects = self.sessions.all.compactMap { session -> (tab: String, tty: String, agent: Agent)? in
+                    guard let tty = terminalTTY(session.tab), closed.contains(tty) else { return nil }
+                    return (session.tab, tty, session.agent)
+                }
                 guard !suspects.isEmpty else {
                     self.checkingTabs = false
                     return
                 }
                 // The last word is the tab's own: its agent still running there means it's open.
                 DispatchQueue.global(qos: .utility).async {
-                    let gone = Set(suspects.filter { Terminal.isRunning($0.agent.foregroundName, on: $0.tty) == false }.map(\.tty))
+                    let gone = Set(suspects.filter { Terminal.isRunning($0.agent.foregroundName, on: $0.tty) == false }.map(\.tab))
                     DispatchQueue.main.async {
                         self.checkingTabs = false
-                        self.sessions.prune(closedTTYs: gone)
+                        self.sessions.prune(closedTabs: gone)
                     }
                 }
             }

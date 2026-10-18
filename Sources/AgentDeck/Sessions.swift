@@ -18,7 +18,9 @@ final class Session {
     /// `Sessions.project(startedIn:)`. Keys show its name and pins match it,
     /// so neither changes as the agent moves into a subfolder.
     var project: String
-    var tty = ""
+    /// The tab the agent runs in, as a `TabAddress`: tty:/dev/ttys003 for a
+    /// Terminal.app tab. Empty until a hook or the deck finds it.
+    var tab = ""
     var state = SessionState.idle
     var effort = ""
     /// An effort change waiting for the session to be free.
@@ -158,7 +160,7 @@ final class Sessions {
 
     /// `startedIn` is the folder the agent was started in, when the hook
     /// knows it: an event's cwd is wherever the agent is now.
-    func apply(_ event: [String: Any], agent: Agent, tty: String, startedIn: String, at time: Double) {
+    func apply(_ event: [String: Any], agent: Agent, tab: String, startedIn: String, at time: Double) {
         guard let id = event["session_id"] as? String, let name = event["hook_event_name"] as? String else { return }
         let folder = event["cwd"] as? String ?? ""
 
@@ -166,7 +168,7 @@ final class Sessions {
         if name == "SessionEnd" {
             // Ended by /clear or /resume, a session waits a moment for the one
             // taking its place in the same tab, which then keeps its key.
-            if let session = byID[id], !session.tty.isEmpty, Sessions.handedOn.contains(event["reason"] as? String ?? "") {
+            if let session = byID[id], !session.tab.isEmpty, Sessions.handedOn.contains(event["reason"] as? String ?? "") {
                 session.handingOnSince = time
                 return
             }
@@ -175,10 +177,10 @@ final class Sessions {
             return
         }
 
-        // A session the deck can't find a Terminal tab for would be a key
-        // that lights up but can't be controlled.
-        guard byID[id] != nil || dropped[id] != nil || !tty.isEmpty else { return }
-        let session = byID[id] ?? revive(id) ?? adopt(id: id, agent: agent, folder: folder, startedIn: startedIn, tty: tty, at: time)
+        // A session the deck can't find a tab for would be a key that lights
+        // up but can't be found.
+        guard byID[id] != nil || dropped[id] != nil || !tab.isEmpty else { return }
+        let session = byID[id] ?? revive(id) ?? adopt(id: id, agent: agent, folder: folder, startedIn: startedIn, tab: tab, at: time)
         // Subagents come and go by id, so the order their events arrive in
         // doesn't matter.
         let tracked = trackSubagents(name, event, of: session)
@@ -190,7 +192,7 @@ final class Sessions {
         }
         session.lastEventAt = time
         if !folder.isEmpty { session.folder = folder }
-        if !tty.isEmpty { session.tty = tty }
+        if !tab.isEmpty { session.tab = tab }
         if let effort = event["effort"] as? [String: Any], let level = effort["level"] as? String {
             session.effort = level
         }
@@ -203,14 +205,14 @@ final class Sessions {
         onChange()
     }
 
-    /// A new session. One tab runs one agent, so a new session on a tty that
+    /// A new session. One tab runs one agent, so a new session in a tab that
     /// already has one is that agent after /clear, or a fresh one in the same
     /// tab: it replaces the old session and inherits its place on the deck,
     /// and its project when the hook doesn't say.
-    private func adopt(id: String, agent: Agent, folder: String, startedIn: String, tty: String, at time: Double) -> Session {
+    private func adopt(id: String, agent: Agent, folder: String, startedIn: String, tab: String, at time: Double) -> Session {
         // A new agent in a dropped session's tab means that one really did end.
-        if !tty.isEmpty { dropped = dropped.filter { $0.value.session.tty != tty } }
-        let previous = tty.isEmpty ? nil : byID.values.first(where: { $0.tty == tty })
+        if !tab.isEmpty { dropped = dropped.filter { $0.value.session.tab != tab } }
+        let previous = tab.isEmpty ? nil : byID.values.first(where: { $0.tab == tab })
         let project = startedIn.isEmpty ? previous?.project ?? Sessions.project(startedIn: folder)
                                         : Sessions.project(startedIn: startedIn)
         let session = Session(id: id, agent: agent, folder: folder, project: project, startedAt: time)
@@ -427,20 +429,20 @@ final class Sessions {
     }
 
     /// Looking at a finished session's tab turns it from green back to white.
-    func markSeen(tty: String) {
+    func markSeen(tab: String) {
         var changed = false
-        for session in byID.values where session.tty == tty && session.state == .unread {
+        for session in byID.values where session.tab == tab && session.state == .unread {
             session.state = .idle
             changed = true
         }
         if changed { onChange() }
     }
 
-    /// Drops sessions on ttys whose tab has closed. An agent killed along
-    /// with its tab never sends SessionEnd. Each is remembered for a while, in
-    /// case it's heard from again: see `revive(_:)`.
-    func prune(closedTTYs: Set<String>) {
-        let gone = byID.values.filter { closedTTYs.contains($0.tty) }
+    /// Drops sessions whose tab has closed. An agent killed along with its tab
+    /// never sends SessionEnd. Each is remembered for a while, in case it's
+    /// heard from again: see `revive(_:)`.
+    func prune(closedTabs: Set<String>) {
+        let gone = byID.values.filter { closedTabs.contains($0.tab) }
         guard !gone.isEmpty else { return }
         let now = Date().timeIntervalSince1970 * 1000
         for session in gone {
@@ -459,7 +461,11 @@ final class Sessions {
         let agent: String
         let folder: String
         let project: String
+        /// A Terminal.app tab's tty, as decks saved before 1.9 kept it; empty
+        /// for a tab of another terminal.
         let tty: String
+        /// The tab, from 1.9: see `TabAddress`.
+        var tab: String?
         let state: String
         let effort: String
         let model: String
@@ -467,11 +473,15 @@ final class Sessions {
         let startedAt: Double
         let lastEventAt: Double
         let turnStartedAt: Double?
+
+        /// The tab, from whichever of the two the deck was saved with.
+        var address: String { tab ?? (tty.isEmpty ? "" : TabAddress.terminalApp(tty: tty).text) }
     }
 
     var saved: [Saved] {
         all.map {
-            Saved(id: $0.id, agent: $0.agent.rawValue, folder: $0.folder, project: $0.project, tty: $0.tty, state: $0.state.rawValue,
+            Saved(id: $0.id, agent: $0.agent.rawValue, folder: $0.folder, project: $0.project,
+                  tty: TabAddress($0.tab).map { $0.kind == "tty" ? $0.id : "" } ?? "", tab: $0.tab, state: $0.state.rawValue,
                   effort: $0.effort, model: $0.model, transcript: $0.transcript, startedAt: $0.startedAt, lastEventAt: $0.lastEventAt,
                   turnStartedAt: $0.turnStartedAt)
         }
@@ -484,7 +494,7 @@ final class Sessions {
         for entry in saved where byID[entry.id] == nil && endedAt[entry.id] == nil {
             guard let agent = Agent(rawValue: entry.agent) else { continue }
             let session = Session(id: entry.id, agent: agent, folder: entry.folder, project: entry.project, startedAt: entry.startedAt)
-            session.tty = entry.tty
+            session.tab = entry.address
             session.effort = entry.effort
             session.model = entry.model
             session.transcript = entry.transcript

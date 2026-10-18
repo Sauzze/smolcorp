@@ -65,7 +65,7 @@ final class DeckRouter: Router {
             guard deck.access.isHookKey(request.headers["x-agentdeck-token"]) else { return respond(.status(401)) }
             let time = Double(request.headers["x-agentdeck-at"] ?? "") ?? Date().timeIntervalSince1970 * 1000
             deck.ingest(request.json, reportedAs: request.headers["x-agentdeck-agent"] ?? "",
-                        tty: request.headers["x-agentdeck-tty"] ?? "",
+                        tab: request.headers["x-agentdeck-tab"] ?? "", tty: request.headers["x-agentdeck-tty"] ?? "",
                         startedIn: request.headers["x-agentdeck-project"] ?? "", at: time)
             return respond(.status(204))
         }

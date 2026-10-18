@@ -1,0 +1,121 @@
+import Foundation
+
+/// Where a session's agent runs: a terminal's tab, as `kind:id`, or
+/// `kind:id@socket` for a terminal reached through a socket, the form the
+/// Windows and Linux app gives its tabs (desktop/tabs.go):
+///
+///   tty:/dev/ttys003                    a Terminal.app tab, by its tty
+///   tmux:%3@/private/tmp/tmux-501/default
+///   iterm:BD2206F6-EE01-476F-A6D9-3061679BD8B0
+///   ghostty:/dev/ttys004                Ghostty, by tty until it names its tabs
+///   other:/dev/ttys005                  a terminal Smolcorp can't drive: shown, not controlled
+///
+/// A bare tty, as a deck saved before 1.9 kept, reads as a Terminal.app tab.
+struct TabAddress: Hashable {
+    let kind: String
+    let id: String
+    let socket: String
+
+    init(kind: String, id: String, socket: String = "") {
+        self.kind = kind
+        self.id = id
+        self.socket = socket
+    }
+
+    init?(_ text: String) {
+        guard !text.isEmpty else { return nil }
+        if text.hasPrefix("/dev/") {
+            self.init(kind: "tty", id: text)
+            return
+        }
+        guard let colon = text.firstIndex(of: ":") else { return nil }
+        let kind = String(text[..<colon]), rest = text[text.index(after: colon)...]
+        guard !kind.isEmpty, !rest.isEmpty else { return nil }
+        // A tty has no socket, and Ghostty's and other's ids are ttys too.
+        if ["tty", "ghostty", "other", "iterm"].contains(kind) {
+            self.init(kind: kind, id: String(rest))
+        } else if let at = rest.firstIndex(of: "@") {
+            self.init(kind: kind, id: String(rest[..<at]), socket: String(rest[rest.index(after: at)...]))
+        } else {
+            self.init(kind: kind, id: String(rest))
+        }
+    }
+
+    var text: String { socket.isEmpty ? "\(kind):\(id)" : "\(kind):\(id)@\(socket)" }
+
+    static func terminalApp(tty: String) -> TabAddress { TabAddress(kind: "tty", id: tty) }
+}
+
+/// What a terminal lets the deck do with one of its tabs.
+struct TerminalAbilities: OptionSet {
+    let rawValue: Int
+    /// Press keys: Return, Escape, arrows, Space for the mic.
+    static let keys = TerminalAbilities(rawValue: 1 << 0)
+    /// Type a line: a made button's text, /clear, /effort.
+    static let text = TerminalAbilities(rawValue: 1 << 1)
+    /// Bring the tab forward.
+    static let focus = TerminalAbilities(rawValue: 1 << 2)
+    /// Stop the agent and close its tab.
+    static let fire = TerminalAbilities(rawValue: 1 << 3)
+    /// Move the view of its scrollback.
+    static let scroll = TerminalAbilities(rawValue: 1 << 4)
+
+    static let none: TerminalAbilities = []
+}
+
+/// One terminal app, as the deck drives it. Each call is made on
+/// `Terminal.queue`, and may take a moment; none is made on the main thread.
+protocol TerminalDriver {
+    var abilities: TerminalAbilities { get }
+    /// Whether pressing keys needs Smolcorp's Accessibility permission.
+    var keysNeedAccessibility: Bool { get }
+    /// Presses `key` in the tab, as the phone's keys and mic do.
+    func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool
+    /// Types `text` and Return into the tab.
+    func type(_ text: String, in tab: TabAddress) -> Bool
+    func focus(_ tab: TabAddress) -> Bool
+    func scroll(lines: Int, in tab: TabAddress) -> Bool
+    func scrollToBottom(in tab: TabAddress) -> Bool
+    func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired
+    /// The tab's tty, for looking at what runs there, if it has one.
+    func tty(of tab: TabAddress) -> String?
+}
+
+enum Terminals {
+    /// The driver for `tab`'s terminal, or nil for one the deck can only watch.
+    static func driver(for tab: TabAddress) -> TerminalDriver? {
+        switch tab.kind {
+        case "tty": return TerminalApp()
+        default: return nil
+        }
+    }
+
+    static func abilities(of tab: String) -> TerminalAbilities {
+        TabAddress(tab).flatMap(driver(for:))?.abilities ?? .none
+    }
+
+    /// The tab's tty, whatever its terminal, when it has one: for `ps` to say
+    /// what runs there.
+    static func tty(of tab: String) -> String? {
+        guard let address = TabAddress(tab) else { return nil }
+        if let driver = driver(for: address) { return driver.tty(of: address) }
+        return address.id.hasPrefix("/dev/") ? address.id : nil
+    }
+}
+
+/// Terminal.app, through AppleScript and posted keys: see `Terminal`.
+struct TerminalApp: TerminalDriver {
+    var abilities: TerminalAbilities { [.keys, .text, .focus, .fire, .scroll] }
+    var keysNeedAccessibility: Bool { true }
+
+    func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool {
+        Terminal.press(keystroke.key, modifiers: keystroke.modifiers, times: keystroke.times, tty: tab.id)
+    }
+
+    func type(_ text: String, in tab: TabAddress) -> Bool { Terminal.type(text, tty: tab.id) }
+    func focus(_ tab: TabAddress) -> Bool { Terminal.focus(tty: tab.id) }
+    func scroll(lines: Int, in tab: TabAddress) -> Bool { Terminal.scroll(lines: lines, tty: tab.id) }
+    func scrollToBottom(in tab: TabAddress) -> Bool { Terminal.scrollToBottom(tty: tab.id) }
+    func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired { Terminal.fire(tty: tab.id, agent: agent) }
+    func tty(of tab: TabAddress) -> String? { tab.id }
+}
