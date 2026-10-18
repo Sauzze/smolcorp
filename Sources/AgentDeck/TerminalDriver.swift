@@ -113,6 +113,8 @@ enum Terminals {
         case "iterm": return ITerm()
         // Ghostty's terminal on this tty, once learned: until then, only watched.
         case "ghostty": return Ghostty.id(on: tab.id) == nil ? nil : Ghostty()
+        case "wezterm": return WezTerm.path == nil ? nil : WezTerm()
+        case "kitty": return Kitty.path == nil ? nil : Kitty()
         default: return nil
         }
     }

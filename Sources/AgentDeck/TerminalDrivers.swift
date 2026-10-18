@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// The keys the phone presses, as tmux names them and as the bytes a
 /// terminal sends for them: for terminals that take input directly, with no
@@ -68,6 +68,47 @@ enum Tool {
     }
 }
 
+/// Firing as Terminal.app does, for a tab whose own process, `root`, isn't
+/// started under login, as a tmux pane's, a WezTerm pane's or a kitty
+/// window's: the agent in front is stopped, then the tab closed; the tab's
+/// own process alone in front is closed with it if it's a shell or the agent
+/// itself; anything else in front, or a tab that can't be looked at, is left
+/// as it is. If, once the agent has stopped, another job is in front, the tab
+/// is left to it.
+enum Firing {
+    /// What a tab's own process is when it's only a shell.
+    static let shells: Set<String> = ["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "login"]
+
+    static func fire(tty: String, root: pid_t, agent: Agent, close: () -> Bool) -> Terminal.Fired {
+        switch Terminal.foreground(tty: tty, shell: root) {
+        case nil:
+            return .notStopped
+        case .job(let job, _, let commandLines)?:
+            guard commandLines.contains(where: agent.isItself), Terminal.stop(job) else { return .notStopped }
+            if case .job? = Terminal.foreground(tty: tty, shell: root) { return .fired }
+        case .shell?:
+            guard let line = Tool.run("/bin/ps", ["-p", String(root), "-o", "args="])?.output, !line.isEmpty else { return .notStopped }
+            let program = (String(line.split(separator: " ")[0]) as NSString).lastPathComponent.lowercased()
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            guard agent.isItself(commandLine: line) || shells.contains(program) else { return .notStopped }
+        }
+        return close() ? .fired : .notStopped
+    }
+
+    /// The tab's own process on `tty`: the one whose parent isn't on it.
+    static func root(on tty: String) -> pid_t? {
+        guard let rows = Tool.run("/bin/ps", ["-t", (tty as NSString).lastPathComponent, "-o", "pid=,ppid="])?.output else { return nil }
+        let pairs = rows.split(separator: "\n").compactMap { line -> (pid_t, pid_t)? in
+            let fields = line.split(separator: " ")
+            guard fields.count == 2, let pid = pid_t(fields[0]), let ppid = pid_t(fields[1]) else { return nil }
+            return (pid, ppid)
+        }
+        let pids = Set(pairs.map(\.0))
+        let roots = pairs.filter { !pids.contains($0.1) }.map(\.0)
+        return roots.count == 1 ? roots[0] : nil
+    }
+}
+
 /// tmux, in whichever terminal it runs: its server owns the pane, so keys
 /// and text reach the agent without its window, with the Mac locked or the
 /// screen saver on. Addressed as tmux:%3@<socket>.
@@ -133,27 +174,8 @@ struct Tmux: TerminalDriver {
         guard let info = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_tty} #{pane_pid}"]), info.status == 0 else { return .notStopped }
         let parts = info.output.split(separator: " ")
         guard parts.count == 2, let pane = pid_t(parts[1]) else { return .notStopped }
-        let tty = String(parts[0])
-        switch Terminal.foreground(tty: tty, shell: pane) {
-        case nil:
-            return .notStopped
-        case .job(let job, _, let commandLines)?:
-            guard commandLines.contains(where: agent.isItself), Terminal.stop(job) else { return .notStopped }
-            // The agent has gone, and if another job has taken its place, the pane is that job's now.
-            if case .job? = Terminal.foreground(tty: tty, shell: pane) { return .fired }
-        case .shell?:
-            // The pane's own process is in front: its shell, or the agent when
-            // the pane was started with it. Anything else is someone's work.
-            guard let line = Tool.run("/bin/ps", ["-p", String(pane), "-o", "args="])?.output, !line.isEmpty else { return .notStopped }
-            let program = (String(line.split(separator: " ")[0]) as NSString).lastPathComponent.lowercased()
-                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-            guard agent.isItself(commandLine: line) || Tmux.shells.contains(program) else { return .notStopped }
-        }
-        return ran(tab, ["kill-pane", "-t", tab.id]) ? .fired : .notStopped
+        return Firing.fire(tty: String(parts[0]), root: pane, agent: agent) { ran(tab, ["kill-pane", "-t", tab.id]) }
     }
-
-    /// What a pane's own process is when it's only a shell.
-    static let shells: Set<String> = ["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "login"]
 
     func tty(of tab: TabAddress) -> String? {
         guard let tty = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_tty}"]), tty.status == 0, !tty.output.isEmpty else { return nil }
@@ -392,5 +414,158 @@ struct Ghostty: TerminalDriver {
     func isOpen(_ tab: TabAddress) -> Bool? {
         guard let answer = withTerminal(tab, "return \"open\"") else { return nil }
         return answer == "open"
+    }
+}
+
+/// Brings a terminal app forward by its bundle id, after its own command
+/// line has picked the pane.
+private func activate(bundle: String) {
+    DispatchQueue.main.async {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first?.activate()
+    }
+}
+
+/// WezTerm, through `wezterm cli`, which needs no setting: keys and text go
+/// to the pane as bytes, without bringing it forward. Addressed as
+/// wezterm:<pane>@<socket>, the socket being the GUI's, from the hook.
+/// As the Windows and Linux app's (desktop/tabs.go).
+struct WezTerm: TerminalDriver {
+    var abilities: TerminalAbilities { [.keys, .text, .focus, .fire] }
+    var keysNeedAccessibility: Bool { false }
+
+    /// Settable for tests, which give a stand-in.
+    static var path = Tool.find(["/Applications/WezTerm.app/Contents/MacOS/wezterm", "/opt/homebrew/bin/wezterm", "/usr/local/bin/wezterm"])
+
+    private func run(_ tab: TabAddress, _ arguments: [String]) -> (status: Int32, output: String)? {
+        guard let path = WezTerm.path else { return nil }
+        // The GUI's socket, where the hook gave it; otherwise wezterm finds the running GUI itself.
+        let socket = tab.socket.isEmpty ? [] : ["WEZTERM_UNIX_SOCKET=\(tab.socket)"]
+        return Tool.run("/usr/bin/env", socket + [path, "cli"] + arguments)
+    }
+
+    private func ran(_ tab: TabAddress, _ arguments: [String]) -> Bool { run(tab, arguments)?.status == 0 }
+
+    func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool {
+        guard let bytes = keystroke.bytes else { return false }
+        for i in 0..<max(keystroke.times, 1) {
+            if i > 0 { Thread.sleep(forTimeInterval: Terminal.Keystroke.gap) }
+            guard ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", bytes]) else { return false }
+        }
+        return true
+    }
+
+    func type(_ text: String, in tab: TabAddress) -> Bool {
+        ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", "--", text]) && ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", "\r"])
+    }
+
+    func focus(_ tab: TabAddress) -> Bool {
+        guard ran(tab, ["activate-pane", "--pane-id", tab.id]) else { return false }
+        activate(bundle: "com.github.wez.wezterm")
+        return true
+    }
+
+    func scroll(lines: Int, in tab: TabAddress) -> Bool { false }
+    func scrollToBottom(in tab: TabAddress) -> Bool { false }
+
+    func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired {
+        guard let open = isOpen(tab) else { return .notStopped }
+        guard open else { return .gone }
+        guard let tty = tty(of: tab), let root = Firing.root(on: tty) else { return .notStopped }
+        return Firing.fire(tty: tty, root: root, agent: agent) { ran(tab, ["kill-pane", "--pane-id", tab.id]) }
+    }
+
+    /// The pane as `cli list` describes it, or nil if WezTerm couldn't be asked.
+    private func pane(_ tab: TabAddress) -> (open: Bool, tty: String?)? {
+        guard let answer = run(tab, ["list", "--format", "json"]), answer.status == 0,
+              let panes = try? JSONSerialization.jsonObject(with: Data(answer.output.utf8)) as? [[String: Any]] else { return nil }
+        guard let found = panes.first(where: { ($0["pane_id"] as? Int).map(String.init) == tab.id }) else { return (false, nil) }
+        return (true, found["tty_name"] as? String)
+    }
+
+    func tty(of tab: TabAddress) -> String? { pane(tab)?.tty }
+    func isOpen(_ tab: TabAddress) -> Bool? { pane(tab)?.open }
+}
+
+/// kitty, through its remote control, which needs `allow_remote_control` and
+/// `listen_on` in kitty.conf: keys and text go to the window without bringing
+/// it forward. Addressed as kitty:<window>@<socket>, the socket from the
+/// hook's KITTY_LISTEN_ON. As the Windows and Linux app's (desktop/tabs.go).
+struct Kitty: TerminalDriver {
+    var abilities: TerminalAbilities { [.keys, .text, .focus, .fire, .scroll] }
+    var keysNeedAccessibility: Bool { false }
+
+    /// Settable for tests, which give a stand-in.
+    static var path = Tool.find(["/Applications/kitty.app/Contents/MacOS/kitten", "/opt/homebrew/bin/kitten", "/usr/local/bin/kitten"])
+
+    private func run(_ tab: TabAddress, _ arguments: [String]) -> (status: Int32, output: String)? {
+        guard let path = Kitty.path else { return nil }
+        return Tool.run(path, ["@", "--to", tab.socket] + arguments)
+    }
+
+    private func ran(_ tab: TabAddress, _ arguments: [String]) -> Bool { run(tab, arguments)?.status == 0 }
+
+    /// Text as kitty's send-text reads it: Python escapes, so a backslash itself is doubled.
+    static func escaped(_ text: String) -> String {
+        var out = ""
+        for scalar in text.unicodeScalars {
+            if scalar == "\\" { out += "\\\\" } else if scalar.value < 0x20 { out += String(format: "\\x%02x", scalar.value) } else { out.unicodeScalars.append(scalar) }
+        }
+        return out
+    }
+
+    func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool {
+        guard let bytes = keystroke.bytes else { return false }
+        for i in 0..<max(keystroke.times, 1) {
+            if i > 0 { Thread.sleep(forTimeInterval: Terminal.Keystroke.gap) }
+            guard ran(tab, ["send-text", "--match", "id:\(tab.id)", Kitty.escaped(bytes)]) else { return false }
+        }
+        return true
+    }
+
+    func type(_ text: String, in tab: TabAddress) -> Bool {
+        ran(tab, ["send-text", "--match", "id:\(tab.id)", "--", Kitty.escaped(text + "\r")])
+    }
+
+    func focus(_ tab: TabAddress) -> Bool {
+        guard ran(tab, ["focus-window", "--match", "id:\(tab.id)"]) else { return false }
+        activate(bundle: "net.kovidgoyal.kitty")
+        return true
+    }
+
+    func scroll(lines: Int, in tab: TabAddress) -> Bool {
+        ran(tab, ["scroll-window", "--match", "id:\(tab.id)", "\(abs(lines))l" + (lines < 0 ? "-" : "")])
+    }
+
+    func scrollToBottom(in tab: TabAddress) -> Bool { ran(tab, ["scroll-window", "--match", "id:\(tab.id)", "end"]) }
+
+    func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired {
+        guard let open = isOpen(tab) else { return .notStopped }
+        guard open else { return .gone }
+        guard let (root, tty) = window(tab), let root, let tty else { return .notStopped }
+        return Firing.fire(tty: tty, root: root, agent: agent) { ran(tab, ["close-window", "--match", "id:\(tab.id)"]) }
+    }
+
+    /// The window's own process and its tty, from `ls`.
+    private func window(_ tab: TabAddress) -> (root: pid_t?, tty: String?)? {
+        guard let answer = run(tab, ["ls", "--match", "id:\(tab.id)"]), answer.status == 0,
+              let windows = try? JSONSerialization.jsonObject(with: Data(answer.output.utf8)) as? [[String: Any]] else { return nil }
+        for os in windows {
+            for t in os["tabs"] as? [[String: Any]] ?? [] {
+                for w in t["windows"] as? [[String: Any]] ?? [] where (w["id"] as? Int).map(String.init) == tab.id {
+                    let pid = (w["pid"] as? Int).map { pid_t($0) }
+                    let tty = pid.flatMap { Tool.run("/bin/ps", ["-p", String($0), "-o", "tty="])?.output }
+                        .flatMap { $0.isEmpty || $0 == "??" ? nil : "/dev/\($0)" }
+                    return (pid, tty)
+                }
+            }
+        }
+        return (nil, nil)
+    }
+
+    func tty(of tab: TabAddress) -> String? { window(tab)?.tty }
+
+    func isOpen(_ tab: TabAddress) -> Bool? {
+        guard let answer = run(tab, ["ls", "--match", "id:\(tab.id)"]) else { return nil }
+        return answer.status == 0
     }
 }
