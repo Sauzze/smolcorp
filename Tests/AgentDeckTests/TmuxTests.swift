@@ -211,4 +211,39 @@ final class TmuxFiringTests: XCTestCase {
         let agent = try pane(claude)
         XCTAssertEqual(Tmux().tty(of: agent).flatMap { Terminal.isRunning(.claude, on: $0) }, true)
     }
+
+    private func place(in pane: TabAddress) -> Terminal.Place? {
+        Tmux().tty(of: pane).flatMap { Terminal.place(of: .claude, on: $0) }
+    }
+
+    func testTheAgentStoppedWithCtrlZIsBehindAndKeepsItsPane() throws {
+        let agent = try pane(claude)
+        XCTAssertEqual(place(in: agent), .front, "the pane's own program")
+        let job = try pane("/bin/sh", typed: claude)
+        XCTAssertEqual(place(in: job), .front, "a job in front")
+        _ = Tool.run(tmux, ["-S", socket, "send-keys", "-t", job.id, "C-z"])
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertEqual(place(in: job), .behind, "its text would run in the shell")
+        XCTAssertEqual(Tmux().fire(job, agent: .claude), .notStopped, "closing the pane would hang it up")
+        XCTAssertTrue(isThere(job))
+    }
+
+    func testAShellWithAJobInTheBackgroundIsLeftOpen() throws {
+        let shell = try pane("/bin/sh", typed: "/bin/sleep 300 &")
+        XCTAssertEqual(Tmux().fire(shell, agent: .claude), .notStopped)
+        XCTAssertTrue(isThere(shell))
+    }
+
+    /// A hire's script lives in Application Support: its path has a space.
+    func testAHireInTmuxStartsFromAPathWithASpace() throws {
+        let place = folder.appendingPathComponent("Application Support", isDirectory: true)
+        try FileManager.default.createDirectory(at: place, withIntermediateDirectories: true)
+        let script = place.appendingPathComponent("hire.sh"), started = folder.appendingPathComponent("started")
+        try "#!/bin/sh\ntouch '\(started.path)'\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+        let made = try XCTUnwrap(Tool.run(tmux, ["-S", socket] + Openers.session("hire", in: folder.path, shell: "/bin/sh", running: script.path)))
+        XCTAssertEqual(made.status, 0)
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: started.path))
+    }
 }

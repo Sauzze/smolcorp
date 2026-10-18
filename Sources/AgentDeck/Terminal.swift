@@ -82,6 +82,36 @@ enum Terminal {
         commands(on: tty, "args=").map { $0.split(separator: "\n").contains { agent.isItself(commandLine: String($0)) } }
     }
 
+    /// Where an agent is in its tab, for its keys and text.
+    enum Place {
+        /// In front, where they land.
+        case front
+        /// Stopped with Ctrl-Z or sent to the background: they'd go to the
+        /// shell, and run as a command, or to the job in front.
+        case behind
+        /// Not running there any more.
+        case gone
+    }
+
+    /// Where `agent` is on `tty`, whatever its terminal: nil if that couldn't be looked at.
+    static func place(of agent: Agent, on tty: String) -> Place? {
+        guard let running = isRunning(agent, on: tty) else { return nil }
+        guard running else { return .gone }
+        // A tab's shell is started under `login`, a pane's isn't: its own process is the one to go by.
+        let underLogin = foreground(tty: tty)
+        let root = underLogin == nil ? Firing.root(on: tty) : nil
+        switch underLogin ?? root.flatMap({ foreground(tty: tty, shell: $0) }) {
+        case nil:
+            return nil
+        case .job(_, _, let commandLines)?:
+            return commandLines.contains(where: agent.isItself) ? .front : .behind
+        case .shell?:
+            // A pane started with the agent itself has it as its own process.
+            guard let root, let line = Tool.run("/bin/ps", ["-p", String(root), "-o", "args="])?.output else { return .behind }
+            return agent.isItself(commandLine: line) ? .front : .behind
+        }
+    }
+
     /// What `ps` says of each process on `tty`, one per line, in `format`.
     private static func commands(on tty: String, _ format: String) -> String? {
         let process = Process()
@@ -248,13 +278,15 @@ enum Terminal {
         switch foreground(tty: tty) {
         case nil:
             return .notStopped
-        case .job(let job, let names, _)?:
-            guard names.contains(agent.foregroundName), stop(job) else { return .notStopped }
-            // The agent has gone, and if another job has taken its place, the
-            // tab is that job's now.
+        case .job(let job, _, let commandLines)?:
+            guard commandLines.contains(where: agent.isItself), stop(job) else { return .notStopped }
+            // The agent has gone, and if another job has taken its place, or
+            // one runs in the background, the tab is that job's now.
             if case .job? = foreground(tty: tty) { return .fired }
+            if hasOtherJobs(tty: tty) != false { return .fired }
         case .shell?:
-            break
+            // A job in the background would be hung up with its tab.
+            guard hasOtherJobs(tty: tty) == false else { return .notStopped }
         }
         closeTab(tty: tty)
         return .fired
@@ -311,6 +343,39 @@ enum Terminal {
     /// As above, for a tab whose shell isn't started under `login`, as a tmux
     /// pane's: `shell` is the process the pane was started with.
     static func foreground(tty: String, shell given: pid_t?) -> Foreground? {
+        guard let rows = processes(on: tty) else { return nil }
+        // Nothing left at all: the shell has ended too.
+        guard let tpgid = rows.first?.tpgid else { return .shell }
+        guard let shell = shell(among: rows, given: given) else { return nil }
+        guard tpgid > 0, tpgid != shell.pgid else { return .shell }
+        let job = rows.filter { $0.pgid == tpgid }
+        return .job(tpgid, names: Set(job.map(\.name)), commandLines: job.map(\.args))
+    }
+
+    /// Whether a job other than the shell runs on `tty`, as one sent to the
+    /// background with `&` or stopped with Ctrl-Z: closing the tab would hang
+    /// it up. `shell` as for `foreground`. Nil if that couldn't be looked at.
+    static func hasOtherJobs(tty: String, shell given: pid_t? = nil) -> Bool? {
+        guard let rows = processes(on: tty) else { return nil }
+        guard !rows.isEmpty else { return false }
+        guard let shell = shell(among: rows, given: given) else { return nil }
+        return rows.contains { $0.pgid != shell.pgid && $0.name != "login" }
+    }
+
+    /// A process on a tty, as `ps` gives it.
+    private typealias Row = (pid: Int32, ppid: Int32, pgid: Int32, tpgid: Int32, name: String, args: String)
+
+    /// The tab's shell among its processes: `given`, or the one Terminal
+    /// started under `login`. A tab with no shell of Terminal's own, such as
+    /// a profile running a command of its own, can't be told apart from what
+    /// runs in it.
+    private static func shell(among rows: [Row], given: pid_t?) -> Row? {
+        let logins = Set(rows.filter { $0.name == "login" }.map(\.pid))
+        return given.map { pid in rows.first { $0.pid == pid } } ?? rows.first { logins.contains($0.ppid) }
+    }
+
+    /// The processes on `tty`, or nil if `ps` couldn't be asked.
+    private static func processes(on tty: String) -> [Row]? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", "pid=,ppid=,pgid=,tpgid=,args="]
@@ -320,8 +385,8 @@ enum Terminal {
         do { try process.run() } catch { return nil }
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let rows = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap {
-            line -> (pid: Int32, ppid: Int32, pgid: Int32, tpgid: Int32, name: String, args: String)? in
+        return String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap {
+            line -> Row? in
             let fields = line.split(separator: " ", maxSplits: 4, omittingEmptySubsequences: true)
             guard fields.count == 5, let pid = Int32(fields[0]), let ppid = Int32(fields[1]), let pgid = Int32(fields[2]),
                   let tpgid = Int32(fields[3]) else { return nil }
@@ -329,16 +394,6 @@ enum Terminal {
             let program = fields[4].split(separator: " ").first.map(String.init) ?? ""
             return (pid, ppid, pgid, tpgid, (program as NSString).lastPathComponent, String(fields[4]))
         }
-        // Nothing left at all: the shell has ended too.
-        guard let tpgid = rows.first?.tpgid else { return .shell }
-        let logins = Set(rows.filter { $0.name == "login" }.map(\.pid))
-        // A tab with no shell of Terminal's own, such as a profile running a
-        // command of its own, can't be told apart from what runs in it.
-        let found = given.map { pid in rows.first { $0.pid == pid } } ?? rows.first { logins.contains($0.ppid) }
-        guard let shell = found else { return nil }
-        guard tpgid > 0, tpgid != shell.pgid else { return .shell }
-        let job = rows.filter { $0.pgid == tpgid }
-        return .job(tpgid, names: Set(job.map(\.name)), commandLines: job.map(\.args))
     }
 
     /// Keys go to whichever app is in front, so they wait until that is

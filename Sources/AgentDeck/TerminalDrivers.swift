@@ -73,9 +73,9 @@ enum Tool {
 /// started under login, as a tmux pane's, a WezTerm pane's or a kitty
 /// window's: the agent in front is stopped, then the tab closed; the tab's
 /// own process alone in front is closed with it if it's a shell or the agent
-/// itself; anything else in front, or a tab that can't be looked at, is left
-/// as it is. If, once the agent has stopped, another job is in front, the tab
-/// is left to it.
+/// itself; anything else in front, a job in the background, or a tab that
+/// can't be looked at, is left as it is. If, once the agent has stopped,
+/// another job is in front or in the background, the tab is left to it.
 enum Firing {
     /// What a tab's own process is when it's only a shell.
     static let shells: Set<String> = ["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "login"]
@@ -87,7 +87,10 @@ enum Firing {
         case .job(let job, _, let commandLines)?:
             guard commandLines.contains(where: agent.isItself), Terminal.stop(job) else { return .notStopped }
             if case .job? = Terminal.foreground(tty: tty, shell: root) { return .fired }
+            if Terminal.hasOtherJobs(tty: tty, shell: root) != false { return .fired }
         case .shell?:
+            // A job in the background would be hung up with the tab.
+            guard Terminal.hasOtherJobs(tty: tty, shell: root) == false else { return .notStopped }
             guard let line = Tool.run("/bin/ps", ["-p", String(root), "-o", "args="])?.output, !line.isEmpty else { return .notStopped }
             let program = (String(line.split(separator: " ")[0]) as NSString).lastPathComponent.lowercased()
                 .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
@@ -625,8 +628,7 @@ enum Openers {
         // what your PATH finds; then a window showing it.
         let name = "smolcorp-\(UUID().uuidString.prefix(8).lowercased())"
         let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
-        guard let made = Tool.run(tmux, ["new-session", "-d", "-P", "-F", "#{pane_id} #{socket_path}", "-s", name, "-c", folder,
-                                         shell, "-lic", command]), made.status == 0 else { return nil }
+        guard let made = Tool.run(tmux, session(name, in: folder, shell: shell, running: command)), made.status == 0 else { return nil }
         let parts = made.output.split(separator: " ", maxSplits: 1).map(String.init)
         guard parts.count == 2, let attach = script("exec \(quoted(tmux)) -S \(quoted(parts[1])) attach -t \(quoted(name))"),
               window(attach, in: folder, terminal: terminal) != nil else {
@@ -634,6 +636,11 @@ enum Openers {
             return nil
         }
         return "tmux:\(parts[0])@\(parts[1])"
+    }
+
+    /// tmux's arguments for a hire's session, `command` run by your login shell, which prints its pane and socket.
+    static func session(_ name: String, in folder: String, shell: String, running command: String) -> [String] {
+        ["new-session", "-d", "-P", "-F", "#{pane_id} #{socket_path}", "-s", name, "-c", folder, shell, "-lic", quoted(command)]
     }
 
     private static func window(_ command: String, in folder: String, terminal: String) -> String? {
@@ -669,5 +676,6 @@ enum Openers {
         return url.path
     }
 
-    private static func quoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+    /// `text` as one word to a shell, whatever it holds: a hire's path has a space, in Application Support.
+    static func quoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 }
