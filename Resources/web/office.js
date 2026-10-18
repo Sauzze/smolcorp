@@ -368,23 +368,23 @@
    */
   const ROOM_STYLES = {
     classic: { name: 'Classic', room: {} },
-    campsite: { name: 'Campsite', room: { workspace: 'tent', floor: 'forest', paint: 'logs', lounge: 'teal', corner: 'campfire', pet: 'dog',
+    campsite: { name: 'Campsite', room: { workspace: 'tent', floor: 'forest', paint: 'logs', lounge: 'teal', corner: 'campfire', pet: 'fox',
       chair: 'green', monitor: 'laptop', wall: ['cabin', 'trail', 'cabin', 'paddles', 'cabin'] }, things: ['lantern', 'enamel', 'pinecone'] },
     royal: { name: 'Royal court', room: { workspace: 'throne', floor: 'marble', paint: 'damask', lounge: 'plum', corner: 'piano', desk: 'walnut',
-      chair: 'red', pet: 'cat', monitor: 'gilt', wall: ['stained', 'tapestry', 'portrait', 'shield', 'stained'] },
+      chair: 'red', pet: 'corgi', monitor: 'gilt', wall: ['stained', 'tapestry', 'portrait', 'shield', 'stained'] },
       things: ['candelabra', 'quill', 'goblet'] },
-    space: { name: 'Space station', room: { workspace: 'cockpit', floor: 'plating', paint: 'hull', lounge: 'navy', corner: 'telescope',
+    space: { name: 'Space station', room: { workspace: 'cockpit', floor: 'plating', paint: 'hull', lounge: 'navy', corner: 'telescope', pet: 'robodog',
       desk: 'black', chair: 'grey', staff: 'none', monitor: 'holo', wall: ['viewport', 'panel', 'whiteboard', 'pipes', 'porthole'] },
       things: ['helmet', 'rocket', 'terrarium'] },
     pirates: { name: 'Pirate cove', room: { workspace: 'ship', floor: 'deck', paint: 'timber', lounge: 'sand', corner: 'jukebox', desk: 'walnut',
-      pet: 'monkey', monitor: 'brass', wall: ['seaPorthole', 'map', 'seaPorthole', 'cutlasses', 'flag'] }, things: ['compass', 'rum', 'skull'] },
+      pet: 'parrot', monitor: 'brass', wall: ['seaPorthole', 'map', 'seaPorthole', 'cutlasses', 'flag'] }, things: ['compass', 'rum', 'skull'] },
     arctic: { name: 'Arctic base', room: { workspace: 'igloo', floor: 'snow', paint: 'ice', lounge: 'teal', corner: 'hottub', desk: 'white',
-      chair: 'grey', pet: 'cat', monitor: 'ice', wall: ['frost', 'skis', 'frost', 'weather', 'frost'] },
+      chair: 'grey', pet: 'penguin', monitor: 'ice', wall: ['frost', 'skis', 'frost', 'weather', 'frost'] },
       things: ['snowglobe', 'thermos', 'penguin'] },
     lair: { name: "Dragon's lair", room: { workspace: 'greenhouse', floor: 'flagstone', paint: 'stone', lounge: 'plum', corner: 'dragon',
-      pet: 'lizard', chair: 'green', monitor: 'crystal', wall: ['torch', 'arch', 'torch', 'arch', 'torch'] },
+      pet: 'owl', chair: 'green', monitor: 'crystal', wall: ['torch', 'arch', 'torch', 'arch', 'torch'] },
       things: ['potions', 'egg', 'spellbook'] },
-    gamers: { name: 'Gamer den', room: { workspace: 'gaming', floor: 'arcade', paint: 'foam', lounge: 'navy', corner: 'pinball', desk: 'black',
+    gamers: { name: 'Gamer den', room: { workspace: 'gaming', floor: 'arcade', paint: 'foam', lounge: 'navy', corner: 'pinball', desk: 'black', pet: 'hamster',
       chair: 'black', monitor: 'ultrawide', wall: ['neon', 'tv', 'hex', 'tv', 'neon'] }, things: ['controller', 'energy', 'headset'] },
     garage: { name: 'Startup garage', room: { workspace: 'box', floor: 'epoxy', paint: 'brick', lounge: 'sand', corner: 'servers',
       chair: 'grey', staff: 'many', monitor: 'dual', wall: ['whiteboard', 'roller', 'pegboard', 'whiteboard', 'bike'] },
@@ -431,7 +431,8 @@
       'telescope', 'jellyfish', 'bonsai', 'jungle', 'coffee', 'servers', 'printer', 'boxing', 'treadmill', 'hottub', 'ballpit',
       'campfire', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'none'],
     sky: ['live', 'day'],
-    pet: ['none', 'cat', 'dog', 'lizard', 'monkey'],
+    pet: ['none', 'cat', 'dog', 'lizard', 'monkey', 'llama', 'penguin', 'parrot', 'owl', 'capybara', 'redpanda', 'corgi', 'hamster',
+      'robodog', 'bat', 'snail', 'fox', 'axolotl'],
     season: ['calendar', 'off'],
     sound: ['off', 'quiet', 'normal'],
     desk: ['wood', 'walnut', 'white', 'black'],
@@ -534,6 +535,9 @@
   const DRESS_WORDS_LIMIT = 32;
   const AUTO_ATTIRE = { outfit: 'auto', colour: 'auto' };
 
+  /** How many pets the office can have at once. */
+  const PETS_MOST = 3;
+
   /** A dress code as given: anything unknown is Auto, and a rule that can't be read is left out. */
   function dressOf(given) {
     const raw = given && typeof given === 'object' && !Array.isArray(given) ? given : {};
@@ -571,6 +575,11 @@
         room[part] = Object.hasOwn(style.room, part) ? structuredClone(style.room[part]) : standard;
       }
     }
+    // The pets: up to PETS_MOST of them, each once, given as a list, or one by its id as before. In a style, the ones you've
+    // picked take the place of its own; with none picked, it has its own.
+    const picked = (Array.isArray(raw.pet) ? raw.pet : [raw.pet]).filter((kind, i, all) => kind !== 'none' && ROOM_CHOICES.pet.includes(kind) && all.indexOf(kind) === i).slice(0, PETS_MOST);
+    room.pets = style && !picked.length ? (room.pet === 'none' ? [] : [room.pet]) : picked;
+    room.pet = room.pets[0] || 'none';
     return room;
   }
 
@@ -788,9 +797,32 @@
         take(a.x, a.y, b.x, b.y);
       }
     }
-    floor = { columns, rows, taken };
+    // How far each free cell is from anything taken, in cells, up to CLEARANCE_MOST: routes keep off the edges
+    const clearance = new Uint8Array(columns * rows);
+    const queue = [];
+    for (let cell = 0; cell < taken.length; cell++) if (taken[cell]) queue.push(cell); else clearance[cell] = CLEARANCE_MOST;
+    for (let i = 0; i < queue.length; i++) {
+      const at = queue[i], column = at % columns, row = Math.floor(at / columns), d = taken[at] ? 0 : clearance[at];
+      if (d + 1 >= CLEARANCE_MOST) continue;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const c = column + dx, r = row + dy;
+          if ((!dx && !dy) || c < 0 || r < 0 || c >= columns || r >= rows) continue;
+          const next = r * columns + c;
+          if (taken[next] || clearance[next] <= d + 1) continue;
+          clearance[next] = d + 1;
+          queue.push(next);
+        }
+      }
+    }
+    floor = { columns, rows, taken, clearance };
     return floor;
   }
+  /** How far a route keeps from a point it's asked to avoid, in art pixels. */
+  const AVOID_REACH = 6;
+  /** How far, in cells, routes care to keep from an edge, and what it costs to go nearer, by how near: next to it, one off, two off. */
+  const CLEARANCE_MOST = 4;
+  const EDGE_COST = [0, 3, 0.9, 0.25];
 
   /** Whether nothing stands on the floor at `point`. */
   function standsFree(point) {
@@ -806,9 +838,28 @@
     return path.filter((p, i) => i > 0 ? p.x !== path[i - 1].x || p.y !== path[i - 1].y : p.x !== from.x || p.y !== from.y);
   }
 
-  /** The points to walk through from `from` to `to`, `to` last; with `strict`, null when there's no way through. */
-  function walkway(from, to, strict = false) {
-    const { columns, rows, taken } = floorNow();
+  /**
+   * The points to walk through from `from` to `to`, `to` last; with
+   * `strict`, null when there's no way through. `avoid` are points to keep
+   * `AVOID_REACH` from as well, such as a pet sitting where it's going.
+   */
+  function walkway(from, to, strict = false, avoid = []) {
+    const floorHere = floorNow(), { columns, rows } = floorHere;
+    let { taken, clearance } = floorHere;
+    if (avoid.length) {
+      taken = taken.slice();
+      clearance = clearance.slice();
+      const reach = Math.ceil(AVOID_REACH / CELL);
+      const ends = [from, to].map((p) => Math.floor(p.y / CELL) * columns + Math.floor(p.x / CELL));
+      for (const p of avoid) {
+        const pc = Math.floor(p.x / CELL), pr = Math.floor(p.y / CELL);
+        for (let r = pr - reach; r <= pr + reach; r++) for (let c = pc - reach; c <= pc + reach; c++) {
+          if (c < 0 || r < 0 || c >= columns || r >= rows || (c - pc) ** 2 + (r - pr) ** 2 > reach * reach) continue;
+          const cell = r * columns + c;
+          if (!ends.includes(cell)) { taken[cell] = 1; clearance[cell] = 0; }
+        }
+      }
+    }
     const cellOf = (p) => {
       const column = Math.max(0, Math.min(columns - 1, Math.floor(p.x / CELL)));
       const row = Math.max(0, Math.min(rows - 1, Math.floor(p.y / CELL)));
@@ -836,14 +887,17 @@
       return cell;
     };
     const start = nearestFree(cellOf(from)), goal = nearestFree(cellOf(to));
-    const cells = search(start, goal, columns, rows, taken);
+    const cells = search(start, goal, columns, rows, taken, clearance);
     if (!cells) return strict ? null : [{ x: to.x, y: to.y }]; // walled in: straight there, as before there were walls
-    // Pulled straight: from each point, on to the farthest one in plain sight
+    // Pulled straight: from each point, on to the farthest one in plain sight, as far off the edges as the two ends are
+    const room = (p) => clearance[cellOf(p)];
     const clear = (pa, pb) => {
+      const need = Math.min(2, room(pa), room(pb));
       // Every half pixel, so a line that only grazes a corner of something still counts
       const steps = Math.ceil(Math.hypot(pb.x - pa.x, pb.y - pa.y) / 0.5);
       for (let k = 1; k < steps; k++) {
-        if (taken[cellOf({ x: pa.x + ((pb.x - pa.x) * k) / steps, y: pa.y + ((pb.y - pa.y) * k) / steps })]) return false;
+        const cell = cellOf({ x: pa.x + ((pb.x - pa.x) * k) / steps, y: pa.y + ((pb.y - pa.y) * k) / steps });
+        if (taken[cell] || clearance[cell] < need) return false;
       }
       return true;
     };
@@ -860,12 +914,58 @@
       points.push(here);
       at = next;
     }
+    // The corners rounded, where there's room: each cut a quarter of the way along both its sides
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = points.length - 2; i >= (start === cellOf(from) ? 0 : 1); i--) {
+        const before = i === 0 ? { x: from.x, y: from.y } : points[i - 1], corner = points[i], after = points[i + 1];
+        const a = { x: corner.x + (before.x - corner.x) * 0.25, y: corner.y + (before.y - corner.y) * 0.25 };
+        const b = { x: corner.x + (after.x - corner.x) * 0.25, y: corner.y + (after.y - corner.y) * 0.25 };
+        if (Math.hypot(a.x - b.x, a.y - b.y) > 1.5 && clear(before, a) && clear(a, b) && clear(b, after)) points.splice(i, 1, a, b);
+      }
+    }
     points.push({ x: to.x, y: to.y });
     return points;
   }
 
+  /**
+   * One step along `path` for a walker at `position`, `stride` far: what's
+   * left over at a turn carries on round it, so the pace holds. Returns
+   * where it got to and the way it was heading, and shortens `path`.
+   */
+  function stepAlong(position, path, stride) {
+    let { x, y } = position, heading = { x: 0, y: 0 };
+    while (path.length && stride > 0) {
+      const to = path[0], dx = to.x - x, dy = to.y - y, distance = Math.hypot(dx, dy);
+      if (distance > stride) {
+        x += (dx / distance) * stride;
+        y += (dy / distance) * stride;
+        heading = { x: dx, y: dy };
+        stride = 0;
+      } else {
+        x = to.x;
+        y = to.y;
+        if (distance > 0.01) heading = { x: dx, y: dy };
+        stride -= distance;
+        path.shift();
+      }
+    }
+    return { position: { x, y }, heading };
+  }
+  /** A flier's way: a gentle arc up and over from `from` to `to`, as points. */
+  function flightOf(from, to) {
+    const d = Math.hypot(to.x - from.x, to.y - from.y), lift = Math.min(28, d * 0.35);
+    const control = { x: (from.x + to.x) / 2, y: Math.min(from.y, to.y) - lift };
+    const points = [];
+    const count = Math.max(2, Math.ceil(d / 8));
+    for (let k = 1; k <= count; k++) {
+      const s = k / count;
+      points.push({ x: (1 - s) ** 2 * from.x + 2 * (1 - s) * s * control.x + s * s * to.x, y: Math.max(1, (1 - s) ** 2 * from.y + 2 * (1 - s) * s * control.y + s * s * to.y) });
+    }
+    return points;
+  }
+
   /** A*, from cell to cell, straight and diagonally but never round a corner: the cells on the way, or null with none. */
-  function search(start, goal, columns, rows, taken) {
+  function search(start, goal, columns, rows, taken, clearance = null) {
     if (start === goal) return [start];
     const cost = new Float32Array(columns * rows).fill(Infinity);
     const from = new Int32Array(columns * rows).fill(-1);
@@ -923,7 +1023,7 @@
           const next = r * columns + c;
           if (taken[next] || done[next]) continue;
           if (dx && dy && (taken[row * columns + c] || taken[r * columns + column])) continue; // no cutting corners
-          const through = cost[cell] + (dx && dy ? Math.SQRT2 : 1);
+          const through = cost[cell] + (dx && dy ? Math.SQRT2 : 1) + (clearance ? EDGE_COST[clearance[next]] || 0 : 0);
           if (through >= cost[next]) continue;
           cost[next] = through;
           from[next] = cell;
@@ -1415,6 +1515,14 @@
       this.nextMove = 0;
       this.arrivedAt = 0;
       this.carrying = false;   // a cup the monkey took from the counter
+      this.path = [];          // the points still to go through, round what's in its way
+      this.rerouted = 0;       // when its way after someone it follows was last worked out
+      this.followed = { x: 0, y: 0 }; // where it was making for, behind them, then
+      this.waited = 0;         // how long it's waited for someone in its way
+      this.isIn = false;       // in the office yet: pets come in through the door one after another
+      this.leg = 0;            // how far it set off to go, for the penguin to slide a long way
+      this.zoom = null;        // the corgi's laps of the rug: { at, c }
+      this.trail = [];         // the snail's, fading: { x, y, at }
     }
   }
 
@@ -1424,7 +1532,37 @@
     dog: { speed: 30, stay: [5, 14] },
     lizard: { speed: 6, stay: [15, 40] },
     monkey: { speed: 38, stay: [5, 12] },
+    llama: { speed: 14, stay: [10, 24] },
+    penguin: { speed: 16, stay: [6, 16] },
+    parrot: { speed: 46, stay: [6, 16], flies: true },
+    owl: { speed: 34, stay: [20, 50], flies: true },
+    capybara: { speed: 10, stay: [20, 45] },
+    redpanda: { speed: 22, stay: [8, 18] },
+    corgi: { speed: 32, stay: [5, 14] },
+    hamster: { speed: 26, stay: [4, 10] },
+    robodog: { speed: 24, stay: [8, 18] },
+    bat: { speed: 40, stay: [25, 60], flies: true },
+    snail: { speed: 2.5, stay: [20, 40] },
+    fox: { speed: 28, stay: [10, 24] },
+    axolotl: { speed: 0, stay: [999, 999] },
   };
+  /** The corgi's laps of the rug, once an agent has finished, in seconds; the snail's trail, how long it shines. */
+  const ZOOMIES = 3.2;
+  const TRAIL_FOR = 24;
+  /**
+   * How far, in art pixels, a pet settles from where people come and go or
+   * press things: the door, the red button and its queue, the mic, the
+   * corridor down from the door; and from anyone standing still, so they
+   * don't end up on top of each other.
+   */
+  const PET_CLEAR = { door: 14, button: 14, mic: 12, corridor: 6, person: 8, pet: 10 };
+  /** On foot, a pet waits for anyone this far ahead in its way, up to this long, in seconds, then goes round them. */
+  const GIVE_WAY = 9;
+  const GIVE_WAY_FOR = 0.8;
+  /** The least gap a pet leaves between itself and another, in art pixels. */
+  const PET_GAP = 7;
+  /** A settled pet turns to watch anyone walking by this close. */
+  const PET_WATCHES = 40;
   /** The lizard freezes while anyone is this close, in art pixels. */
   const LIZARD_SHY = 14;
   /** The dog follows someone walking for this long at most, in seconds. */
@@ -1454,7 +1592,7 @@
       this.nextStaffChange = 0;
       this.staffHired = 0; // numbers each new member of staff, for a face of their own
       this.interns = [];
-      this.pet = null;
+      this.pets = [];
       // When each session started waiting on you, by its id. It outlasts
       // close(), so a room started over after being out of sight still
       // knows who has been kept waiting.
@@ -1480,7 +1618,10 @@
       // Pieces added or taken out of the lounge move the spots round them: anyone there goes elsewhere.
       const kinds = (room) => JSON.stringify(['wide', 'tall'].map((side) => room.plan.added[side].map((piece) => piece.kind)));
       const piecesChanged = kinds(next) !== kinds(decor);
-      if (next.pet !== decor.pet) this.pet = next.pet === 'none' ? null : new Pet(next.pet);
+      // The pets as listed now: those staying stay where they are, a new one comes in at the door, a while after the last
+      if (JSON.stringify(next.pets) !== JSON.stringify(decor.pets)) {
+        this.pets = next.pets.map((kind, i) => this.pets.find((p) => p.kind === kind) || Object.assign(new Pet(kind), { nextMove: now + i * 2 }));
+      }
       const boardGone = JSON.stringify(boardOf(next)) !== JSON.stringify(boardOf(decor));
       const rearranged = JSON.stringify(next.plan) !== JSON.stringify(decor.plan);
       decor = next;
@@ -1525,7 +1666,7 @@
       boardSpots = boardSpotsOf(decor);
       stormSpots = stormSpotsOf(decor);
       this.relayout(now);
-      if (this.pet) this.pet = new Pet(this.pet.kind);
+      this.pets = this.pets.map((pet, i) => Object.assign(new Pet(pet.kind), { nextMove: now + i * 2 }));
     }
 
     /**
@@ -1536,11 +1677,10 @@
     relayout(now) {
       DESKS = desksOf(decor);
       floorChanged();
+      // The pet finds somewhere else at once, its places having moved, or gone
+      for (const pet of this.pets) if (pet.kind !== 'axolotl') Object.assign(pet, { path: [], isWalking: false, nextMove: now, zoom: null });
       for (const walker of [...this.people, ...this.interns]) {
-        if (walker.isWalking) {
-          walker.arrivedAt = now;
-          walker.nextMove = now + random(8, 20);
-        }
+        const wasWalking = walker.isWalking;
         walker.path = [];
         // At a whiteboard or a window taken down: an agent to where they belong, staff to a spot free, or home
         if (!pointOf(walker.place)) {
@@ -1548,9 +1688,11 @@
           walker.place = !walker.isStaff ? this.home(walker) : free.length ? spotPlace(pick(free)) : 'door';
           if (walker.place === 'door') walker.isLeaving = true;
         }
-        walker.position = { ...pointOf(walker.place) };
+        // On their way, they go on from where they are, round the room as it is now; settled, they're at their place as it is now
+        if (wasWalking) walker.path = route(walker.position, walker.place);
+        else walker.position = { ...pointOf(walker.place) };
         const spot = spotOf(walker.place);
-        if (spot !== null) walker.isFacingAway = facesAway(spots[spot].pose);
+        if (spot !== null && !wasWalking) walker.isFacingAway = facesAway(spots[spot].pose);
       }
     }
 
@@ -1721,7 +1863,7 @@
       this.press(now);
       this.people = this.people.filter((p) => !(p.isLeaving && !p.isWalking));
       this.placeInterns(now);
-      if (this.pet) this.movePet(this.pet, this.elapsed, now);
+      for (const pet of this.pets) this.movePet(pet, this.elapsed, now);
     }
 
     /** The agent who has been working longest, at their desk, if anyone is. */
@@ -1766,8 +1908,8 @@
         case 'dog': {
           places.push(placed('couch', { x: 276, y: 138, pose: 'lie' }), { x: CORRIDOR_X, y: 72, pose: 'sit' }, placed('corner', { x: 290, y: 62, pose: 'sit' }));
           if (desk) places.push({ x: desk.x + DESK_WIDTH + 6, y: desk.y + 15, pose: 'lie' });
-          const walker = this.people.find((p) => p.isWalking && !p.isLeaving);
-          if (walker) places.push({ follow: walker, pose: 'stand' });
+          const someone = this.people.find((p) => p.isWalking && !p.isLeaving && !this.pets.some((o) => o !== pet && o.target && o.target.follow === p));
+          if (someone) places.push({ follow: someone, pose: 'stand' });
           break;
         }
         case 'lizard':
@@ -1784,17 +1926,182 @@
           for (const { part, kind } of loungePieces()) if (tops[kind]) places.push(placed(part, { depth: 86.5, ...tops[kind], pose: 'sit' }));
           break;
       }
-      // Nowhere on a piece that's been put away.
-      return places.filter((place) => !place.off);
+      const seatOf = (person) => seat(person.desk);
+      // Someone walking about that no other pet is following already
+      const walker = this.people.find((p) => p.isWalking && !p.isLeaving && !this.pets.some((o) => o !== pet && o.target && o.target.follow === p));
+      switch (pet.kind) {
+        case 'llama':
+          // Chewing by the plant, by the cooler or a desk; lying down on the rug
+          places.push(placed('plant', { x: 243, y: 170, pose: 'chew' }), placed('wall', { x: 290, y: 57, pose: 'chew' }),
+            placed('couch', { x: 290, y: 141, pose: 'lie' }), { x: CORRIDOR_X, y: 92, pose: 'stand' });
+          if (desk) places.push({ x: desk.x + DESK_WIDTH + 8, y: desk.y + 16, pose: 'chew' });
+          break;
+        case 'penguin':
+          places.push(placed('wall', { x: 296, y: 57, pose: 'stand' }), placed('wall', { x: 270, y: 54, pose: 'stand' }),
+            placed('couch', { x: 262, y: 141, pose: 'stand' }), { x: CORRIDOR_X, y: 120, pose: 'stand' });
+          if (desk) places.push({ x: desk.x - 5, y: desk.y + 16, pose: 'stand' });
+          break;
+        case 'parrot':
+          // On the busiest agent's shoulder, on a monitor, on the windows' tops, on the couch's back
+          if (worker) places.push({ x: seatOf(worker).x + 4, y: desk.y - 3, depth: desk.y + 5.8, pose: 'perch' },
+            { x: desk.x + 12, y: desk.y - 10, depth: desk.y + 5.7, pose: 'perch' });
+          hungOf().forEach((piece) => { if (STORM_PANES[piece.kind]) places.push({ x: piece.x, y: 5, depth: 41.5, pose: 'perch' }); });
+          places.push(placed('couch', { x: 300, y: 103, depth: 110.5, pose: 'perch' }));
+          for (const { part, kind } of loungePieces()) if (tops[kind]) places.push(placed(part, { depth: 86.5, ...tops[kind], pose: 'perch' }));
+          break;
+        case 'owl':
+          hungOf().forEach((piece) => places.push({ x: piece.x, y: 5, depth: 41.5, pose: 'perch' }));
+          places.push(placed('wall', { x: 308, y: 18, depth: 50.5, pose: 'perch' }));
+          for (const { part, kind } of loungePieces()) if (tops[kind]) places.push(placed(part, { depth: 86.5, ...tops[kind], pose: 'perch' }));
+          break;
+        case 'capybara':
+          places.push(placed('couch', { x: 270, y: 140, pose: 'sit' }), placed('wall', { x: 286, y: 58, pose: 'sit' }),
+            placed('plant', { x: 245, y: 171, pose: 'sit' }));
+          for (const { part, kind } of loungePieces()) if (kind === 'hottub') places.push(placed(part, { x: 270, y: 82, depth: 88.5, pose: 'soak' }));
+          break;
+        case 'redpanda':
+          places.push(placed('couch', { x: 286, y: 104, depth: 110.5, pose: 'sit' }), placed('plant', { x: 231, y: 157, depth: 178, pose: 'sit' }),
+            { x: CORRIDOR_X, y: 80, pose: 'sit' });
+          for (const { part, kind } of loungePieces()) if (tops[kind]) places.push(placed(part, { depth: 86.5, ...tops[kind], pose: 'sit' }));
+          if (desk) places.push({ x: desk.x - 5, y: desk.y + 16, pose: 'sit' });
+          break;
+        case 'corgi':
+          places.push(placed('couch', { x: 276, y: 140, pose: 'lie' }), { x: CORRIDOR_X, y: 72, pose: 'sit' }, placed('wall', { x: 284, y: 58, pose: 'sit' }));
+          if (desk) places.push({ x: desk.x + DESK_WIDTH + 6, y: desk.y + 15, pose: 'lie' });
+          if (walker) places.push({ follow: walker, pose: 'stand' });
+          break;
+        case 'hamster':
+          // Rolling about the floor: between the desks, down the corridor, round the lounge
+          DESKS.forEach((d) => { if (!d.off) places.push({ x: d.x + DESK_WIDTH + 11, y: d.y + 18, pose: 'sit' }); });
+          places.push({ x: CORRIDOR_X, y: 110, pose: 'sit' }, placed('couch', { x: 250, y: 141, pose: 'sit' }), placed('pong', { x: 268, y: 168, pose: 'sit' }));
+          break;
+        case 'robodog':
+          places.push(placed('wall', { x: 234, y: 57, pose: 'charge' }), { x: CORRIDOR_X, y: 72, pose: 'sit' }, placed('couch', { x: 296, y: 141, pose: 'sit' }));
+          if (desk) places.push({ x: desk.x + DESK_WIDTH + 6, y: desk.y + 15, pose: 'sit' });
+          if (walker) places.push({ follow: walker, pose: 'stand' });
+          break;
+        case 'bat':
+          // Hanging from the ceiling, over the desks and in the lounge
+          for (const x of [44, 110, 176]) places.push({ x, y: 1, depth: 41.5, pose: 'hang' });
+          places.push(placed('wall', { x: 262, y: 1, depth: 41.5, pose: 'hang' }), placed('wall', { x: 300, y: 1, depth: 41.5, pose: 'hang' }));
+          break;
+        case 'snail':
+          hungOf().forEach((piece) => { if (STORM_PANES[piece.kind]) places.push({ x: piece.x + 6, y: 22, depth: 41.5, pose: 'still' }); });
+          places.push(placed('plant', { x: 236, y: 172, pose: 'still' }), placed('wall', { x: 300, y: 58, pose: 'still' }));
+          break;
+        case 'fox':
+          places.push(placed('couch', { x: 300, y: 141, pose: 'curl' }), { x: CORRIDOR_X, y: 100, pose: 'sit' });
+          for (const { part, kind } of loungePieces()) if (watches[kind]) places.push(placed(part, { ...watches[kind], pose: 'curl' }));
+          if (desk) places.push({ x: desk.x - 6, y: desk.y + 17, pose: 'curl' });
+          break;
+      }
+      // Nowhere on a piece that's been put away, nor on the floor where something stands or someone needs to get by.
+      return places.filter((place) => !place.off && this.petCanSettle(place, pet));
+    }
+
+    /**
+     * Whether the pet can settle at `place`: up on something (it has a
+     * depth) wherever that is now; on the floor only where it's free, out of
+     * the way of the door, the button, the mic and the corridor, and not on
+     * top of anyone.
+     */
+    petCanSettle(place, pet) {
+      if (place.follow) return true;
+      // Not where another pet is, or is going
+      const others = this.pets.filter((other) => other !== pet && other.isIn);
+      if (others.some((other) => [other.position, other.target].some((p) => p && !p.follow && Math.hypot(p.x - place.x, p.y - place.y) < PET_CLEAR.pet))) return false;
+      if (place.depth !== undefined) return true;
+      if (place.x < 2 || place.x > shape.width - 2 || place.y > shape.height - 2 || !standsFree(place)) return false;
+      const near = (point, reach) => point && Math.hypot(point.x - place.x, point.y - place.y) < reach;
+      if (near(DOOR, PET_CLEAR.door) || near(placed('button', PRESSER), PET_CLEAR.button) || near(placed('button', NEXT_IN_LINE), PET_CLEAR.button)
+        || near(placed('mic', MIC), PET_CLEAR.mic)) return false;
+      if (Math.abs(place.x - CORRIDOR_X) < PET_CLEAR.corridor || this.inSomeonesWay(place, PET_CLEAR.person)) return false;
+      return !this.people.some((p) => !p.isWalking && !p.isLeaving && near(p.position, PET_CLEAR.person));
+    }
+
+    /** Whether anyone walking is about to pass within `reach` of `point`, on the next few legs of their way. */
+    inSomeonesWay(point, reach) {
+      const near = (a, b) => {
+        const dx = b.x - a.x, dy = b.y - a.y, len = dx * dx + dy * dy;
+        const s = len ? Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / len)) : 0;
+        return Math.hypot(a.x + dx * s - point.x, a.y + dy * s - point.y) < reach;
+      };
+      return this.people.some((p) => {
+        if (!p.isWalking) return false;
+        let from = p.position;
+        for (const to of p.path.slice(0, 4)) {
+          if (near(from, to)) return true;
+          from = to;
+        }
+        return false;
+      });
+    }
+
+    /**
+     * The way to `place`: flying, straight there; on foot, round what's in
+     * its way as people go, to the floor below where it's going, then a
+     * hop or a climb up onto it.
+     */
+    petRoute(pet, place) {
+      if (PETS[pet.kind].flies) return flightOf(pet.position, place);
+      const up = place.depth !== undefined && !standsFree(place);
+      const ground = up ? { x: place.x, y: Math.min(shape.height - 2, place.depth + 3) } : place;
+      const settled = this.pets.filter((o) => o !== pet && o.isIn && !o.isWalking && !(o.target && o.target.depth !== undefined)).map((o) => o.position);
+      // Up on something, it gets down first, straight down to the floor in front of it
+      const down = !standsFree(pet.position) && pet.target && pet.target.depth !== undefined
+        ? { x: pet.position.x, y: Math.min(shape.height - 2, pet.target.depth + 3) } : null;
+      const way = down ? [down, ...walkway(down, ground, false, settled)] : walkway(pet.position, ground, false, settled);
+      if (up) way.push({ x: place.x, y: place.y });
+      return way;
     }
 
     movePet(pet, elapsed, now) {
       const { speed, stay } = PETS[pet.kind];
+      // The axolotl swims in its tank on the counter, and never leaves it.
+      if (pet.kind === 'axolotl') {
+        pet.position = placed('wall', { x: 238, y: 33 });
+        pet.target = { ...pet.position, depth: 47, pose: 'swim' };
+        pet.isWalking = false;
+        pet.isIn = true;
+        return;
+      }
+      // The corgi does laps of the rug when an agent finishes: round the coffee table, fast, and back where it was
+      if (pet.kind === 'corgi' && this.finishedAt !== undefined && now - this.finishedAt < 0.2 && !pet.zoom) {
+        const lap = [{ x: 248, y: 142 }, { x: 304, y: 142 }, { x: 304, y: 124 }, { x: 248, y: 124 }, { x: 248, y: 142 }].map((p) => placed('couch', p));
+        if (lap.every((p) => standsFree(p))) {
+          let from = pet.position;
+          const path = [];
+          for (const p of [...lap, ...lap]) { path.push(...walkway(from, p)); from = p; }
+          pet.zoom = { at: now };
+          pet.target = { x: from.x, y: from.y, pose: 'stand' };
+          pet.path = path;
+          pet.isWalking = true;
+        }
+      }
+      if (pet.zoom && !pet.path.length) pet.zoom = null;
+      // The snail leaves a trail, shining for a while
+      if (pet.kind === 'snail') {
+        const last = pet.trail[pet.trail.length - 1];
+        if (pet.isWalking && (!last || Math.hypot(last.x - pet.position.x, last.y - pet.position.y) >= 1)) pet.trail.push({ x: Math.round(pet.position.x), y: Math.round(pet.position.y), at: now });
+        pet.trail = pet.trail.filter((p) => now - p.at < TRAIL_FOR);
+      }
       const follow = pet.target && pet.target.follow;
       if (follow && (follow.isLeaving || !follow.isWalking || now - pet.arrivedAt > FOLLOW_FOR)) {
         pet.target = null;
         pet.isWalking = false;
         pet.nextMove = now;
+      }
+      // Settled on the floor where someone has come to stand, or is about to walk: it moves on, out of their way
+      if (!pet.isWalking && pet.isIn && pet.target && pet.target.depth === undefined && now < pet.nextMove && !PETS[pet.kind].flies
+        && (this.people.some((p) => !p.isWalking && !p.isLeaving && Math.hypot(p.position.x - pet.position.x, p.position.y - pet.position.y) < PET_CLEAR.person - 2)
+          || this.inSomeonesWay(pet.position, 5))) {
+        pet.nextMove = now;
+      }
+      // Not in yet: it comes in when its turn comes, and the door is clear of the other pets
+      if (!pet.isIn) {
+        if (now < pet.nextMove || this.pets.some((o) => o !== pet && o.isIn && Math.hypot(o.position.x - DOOR.x, o.position.y - DOOR.y - 6) < PET_CLEAR.pet)) return;
+        pet.isIn = true;
+        pet.position = { x: DOOR.x, y: DOOR.y + 6 };
       }
       if (!pet.isWalking && now >= pet.nextMove) {
         const others = this.petPlaces(pet).filter((p) => !pet.target || p.x !== pet.target.x || p.y !== pet.target.y);
@@ -1804,25 +2111,84 @@
           pet.target = pick(others);
           pet.isWalking = true;
           pet.arrivedAt = now;
+          pet.path = pet.target.follow ? [] : this.petRoute(pet, pet.target);
+          pet.rerouted = 0;
+          pet.waited = 0;
+          pet.leg = pet.path.reduce((sum, p, i) => sum + Math.hypot(p.x - (i ? pet.path[i - 1] : pet.position).x, p.y - (i ? pet.path[i - 1] : pet.position).y), 0);
         } else {
           pet.nextMove = now + random(...stay);
         }
       }
-      if (!pet.isWalking) return;
-      // The lizard won't move while anyone is near.
-      if (pet.kind === 'lizard' && this.people.some((p) => Math.hypot(p.position.x - pet.position.x, p.position.y - pet.position.y) < LIZARD_SHY)) return;
-      const following = pet.target.follow;
-      const to = following ? { x: following.position.x - 7, y: following.position.y + 1 } : pet.target;
-      const dx = to.x - pet.position.x, dy = to.y - pet.position.y, distance = Math.hypot(dx, dy);
-      if (Math.abs(dx) > 0.5) pet.facing = dx > 0 ? 1 : -1;
-      const stride = speed * elapsed;
-      if (distance > stride) {
-        pet.position.x += (dx / distance) * stride;
-        pet.position.y += (dy / distance) * stride;
+      if (!pet.isWalking) {
+        // Settled, it turns to watch whoever walks by: in, out, fired or hired; or another pet; the cat takes no notice of dogs
+        const ignores = pet.kind === 'cat' ? ['dog', 'corgi', 'robodog'] : [];
+        const by = [...this.people, ...this.pets.filter((o) => o !== pet && !ignores.includes(o.kind))]
+          .find((p) => p.isWalking && Math.hypot(p.position.x - pet.position.x, p.position.y - pet.position.y) < PET_WATCHES);
+        if (by && Math.abs(by.position.x - pet.position.x) > 3) pet.facing = by.position.x > pet.position.x ? 1 : -1;
         return;
       }
-      pet.position = { x: to.x, y: to.y };
+      // Up a wall, the lizard won't move while anyone is near; on the floor it gets out of the way like any pet.
+      if (pet.kind === 'lizard' && !standsFree(pet.position) && this.people.some((p) => Math.hypot(p.position.x - pet.position.x, p.position.y - pet.position.y) < LIZARD_SHY)) return;
+      const following = pet.target.follow;
+      const behind = following && { x: following.position.x - 7 * (following.position.x >= pet.position.x ? 1 : -1), y: following.position.y + 1 };
+      if (following && (!pet.path.length || Math.hypot(behind.x - pet.followed.x, behind.y - pet.followed.y) > 6) && now - pet.rerouted > 0.4) {
+        // After someone, a little behind them, its way worked out again once they've gone on a bit
+        pet.path = PETS[pet.kind].flies ? flightOf(pet.position, behind) : walkway(pet.position, behind);
+        if (!PETS[pet.kind].flies && !standsFree(behind)) pet.path.pop(); // as near as it can get
+        pet.followed = behind;
+        pet.rerouted = now;
+      }
+      const flies = PETS[pet.kind].flies;
+      // On foot, it gives way: anyone just ahead, it waits for, a moment, then goes round them
+      if (!flies && pet.path.length) {
+        const ahead = pet.path[0], dx = ahead.x - pet.position.x, dy = ahead.y - pet.position.y, d = Math.hypot(dx, dy) || 1;
+        // People, and other pets: one settled, or ahead of it in the list, so two never wait for each other
+        const mine = this.pets.indexOf(pet);
+        const others = [...this.people, ...this.pets.filter((o, i) => o !== pet && o.isIn && !PETS[o.kind].flies && o.kind !== 'axolotl' && (!o.isWalking || o.waited > 0 || i < mine))];
+        const inWay = others.find((p) => {
+          const px = p.position.x - pet.position.x, py = p.position.y - pet.position.y, along = (px * dx + py * dy) / d;
+          return p !== following && along > 0 && along < GIVE_WAY && Math.abs(px * dy - py * dx) / d < 5;
+        });
+        // Nor a step that would bring it closer than PET_GAP to a pet it gives way to
+        const step = Math.min(d, speed * elapsed), next = { x: pet.position.x + (dx / d) * step, y: pet.position.y + (dy / d) * step };
+        const pets = this.pets.filter((o) => o !== pet && o.isIn && !PETS[o.kind].flies && o.kind !== 'axolotl');
+        const tooClose = pets.find((o) => Math.hypot(o.position.x - next.x, o.position.y - next.y) < PET_GAP
+          && Math.hypot(o.position.x - next.x, o.position.y - next.y) < Math.hypot(o.position.x - pet.position.x, o.position.y - pet.position.y));
+        const blocker = inWay || tooClose;
+        // Someone walking straight at it: it steps aside at once, the side that's free, then goes on
+        const coming = blocker && blocker.isWalking && blocker.path && blocker.path[0]
+          && Math.hypot(blocker.path[0].x - pet.position.x, blocker.path[0].y - pet.position.y) < Math.hypot(blocker.position.x - pet.position.x, blocker.position.y - pet.position.y);
+        if (coming && !pet.steppedAside) {
+          const goal = pet.target.follow ? behind : (pet.path[pet.path.length - 1] || pet.target);
+          for (const side of [1, -1]) {
+            const aside = { x: pet.position.x - (dy / d) * 8 * side, y: pet.position.y + (dx / d) * 8 * side };
+            if (!standsFree(aside)) continue;
+            pet.path = [...walkway(pet.position, aside), ...walkway(aside, goal, false, [blocker.position])];
+            pet.steppedAside = true;
+            break;
+          }
+        }
+        if (!blocker) pet.steppedAside = false;
+        if (blocker && !coming) {
+          pet.waited += elapsed;
+          if (pet.waited < GIVE_WAY_FOR) return;
+          // Round them, the way worked out again keeping clear of them, then on
+          const goal = pet.target.follow ? behind : (pet.path[pet.path.length - 1] || pet.target);
+          const round = walkway(pet.position, goal, true, [blocker.position]);
+          if (round) pet.path = round;
+          pet.waited = 0;
+        } else {
+          pet.waited = 0;
+        }
+      }
+      const pace = speed * (pet.zoom ? 2.2 : 1) * elapsed;
+      const { position, heading } = stepAlong(pet.position, pet.path, pace);
+      pet.position = position;
+      // It faces the way it goes, but not for every little step up or down
+      if (Math.abs(heading.x) > Math.abs(heading.y) * 0.35 && Math.abs(heading.x) > 0.01) pet.facing = heading.x > 0 ? 1 : -1;
+      if (pet.path.length) return;
       if (following) return; // keeps up until the person stops
+      pet.position = { x: pet.target.x, y: pet.target.y };
       pet.isWalking = false;
       pet.arrivedAt = now;
       pet.nextMove = now + random(...stay);
@@ -1902,6 +2268,7 @@
       // A turn of an hour or more, finished: a little party.
       const finished = before.state === 'thinking' && (session.state === 'unread' || session.state === 'idle');
       if (finished && before.turnStartedAt && Date.now() - before.turnStartedAt >= LONG_HAUL * 1000) person.celebratedAt = now;
+      if (finished) this.finishedAt = now;
 
       // Only a press of ☢ Max sends them to the button; the dial reaching max
       // just repaints the desk. Turned back down before they get there, they
@@ -2016,19 +2383,13 @@
     }
 
     walk(person, elapsed, now) {
-      const target = person.path[0];
-      if (!target) return;
-      const dx = target.x - person.position.x, dy = target.y - person.position.y;
-      const distance = Math.hypot(dx, dy);
+      if (!person.path.length) return;
       const stride = WALKING_SPEED * (person.isGoingNuclear ? HURRY : 1) * elapsed;
-      if (distance > stride) {
-        person.position.x += (dx / distance) * stride;
-        person.position.y += (dy / distance) * stride;
-        person.isFacingAway = dy < 0 && Math.abs(dy) >= Math.abs(dx);
-        return;
-      }
-      person.position = { x: target.x, y: target.y };
-      person.path.shift();
+      const { position, heading } = stepAlong(person.position, person.path, stride);
+      person.position = position;
+      // Back to the room going up the room, and only then: a little sideways doesn't turn them round
+      if (heading.y < 0 && -heading.y > Math.abs(heading.x) * 1.2) person.isFacingAway = true;
+      else if (heading.y > 0 || Math.abs(heading.x) > -heading.y * 1.2) person.isFacingAway = false;
       if (person.path.length) return;
       person.arrivedAt = now;
       const spot = spotOf(person.place);
@@ -6237,14 +6598,14 @@
      * The pet, a few pixels high, facing the way it's going: walking, or
      * settled the way its place has it (sitting, lying, asleep, clinging).
      */
-    function drawPet() {
-      const pet = office.pet;
+    function drawPet(pet) {
       const x = Math.round(pet.position.x), y = Math.round(pet.position.y);
       // Drawn facing right; facing left mirrors it about x.
       const p = (dx, dy, w, h, colour, alpha) => fill(pet.facing > 0 ? x + dx : x - dx - w + 1, y + dy, w, h, colour, alpha);
       const step = pet.isWalking ? Math.floor(now * 8) % 2 : 0;
       const pose = pet.isWalking ? 'walk' : pet.target ? pet.target.pose : 'sit';
-      const grounded = !pet.target || !pet.target.depth || pet.isWalking;
+      const flying = PETS[pet.kind].flies && pet.isWalking;
+      const grounded = (!pet.target || !pet.target.depth || pet.isWalking) && !flying && !['axolotl', 'hamster'].includes(pet.kind);
       if (grounded) p(-4, 0, 9, 1, SHADOW);
       switch (pet.kind) {
         case 'cat': {
@@ -6335,6 +6696,346 @@
             p(-2, -1, 4, 1, fur);
           }
           if (pet.carrying) p(2, -5, 2, 2, PALETTE.mug);
+          break;
+        }
+        case 'llama': {
+          const wool = 0xeee3cf, shade = 0xcfc2a8, hoof = 0x6b5a48, face = 0xe2d4b8;
+          // Spitting after an agent who's been fired, on their way out
+          const fired = office.people.find((q) => q.isFired && q.isLeaving);
+          const spits = fired && Math.hypot(fired.position.x - x, fired.position.y - y) < 120;
+          if (spits) pet.facing = fired.position.x > x ? 1 : -1;
+          const chew = pose === 'chew' || spits ? Math.floor(now * 2.5) % 2 : 0;
+          if (pose === 'lie') {
+            // Kushed: legs folded under, neck up
+            p(-4, -4, 9, 4, wool);
+            p(-4, -1, 9, 1, shade);
+            p(-5, -4, 1, 2, wool);
+          } else {
+            p(-4, -7, 9, 4, wool);
+            p(-4, -4, 9, 1, shade);
+            p(-5, -7, 1, 2, wool);
+            // Legs, stepping as it walks
+            for (const [lx, k] of [[-3, 0], [-1, 1], [2, 0], [4, 1]]) p(lx, -3, 1, 3 - (step && k ? 1 : 0), shade);
+            for (const lx of [-3, -1, 2, 4]) p(lx, -1, 1, 1, hoof);
+          }
+          const up = pose === 'lie' ? 3 : 0;
+          // A blanket on its back, in stripes
+          p(-2, -8 + up, 4, 1, 0xd4140b);
+          p(-2, -7 + up, 4, 1, 0x2f9a92);
+          // The long neck and the head, its ears up, chewing
+          p(3, -12 + up, 2, 5, wool);
+          p(3, -14 + up, 3, 3, wool);
+          p(5, -13 + up, 2, 2 - chew, face);
+          p(3, -16 + up, 1, 2, shade);
+          p(5, -16 + up, 1, 2, shade);
+          p(5, -14 + up, 1, 1, PALETTE.eye);
+          if (spits) {
+            const mouth = { x: x + pet.facing * 6, y: y - 12 + up }, to = { x: fired.position.x, y: fired.position.y - 10 };
+            for (const lag of [0, 0.12]) {
+              const f = (now * 1.1 + lag) % 1;
+              dot(Math.round(mouth.x + (to.x - mouth.x) * f), Math.round(mouth.y + (to.y - mouth.y) * f - Math.sin(f * Math.PI) * 10), 0xdfe8ea, 1 - f * 0.4);
+            }
+          }
+          break;
+        }
+        case 'penguin': {
+          const black = 0x1e2433, white = 0xf4f1ea, beak = 0xff8a1f;
+          // A long way, on its belly
+          if (pose === 'walk' && pet.leg > 50) {
+            p(-4, -3, 8, 2, black);
+            p(-3, -1, 7, 1, white);
+            p(4, -3, 1, 1, beak);
+            p(2, -3, 1, 1, PALETTE.eye);
+            p(-6, -2, 2, 1, beak);
+            break;
+          }
+          const sway = pose === 'walk' ? (step ? 1 : -1) : 0;
+          p(-2 + sway, -8, 5, 8, black);
+          p(0 + sway, -6, 2, 5, white);
+          p(3 + sway, -7, 1, 1, beak);
+          p(1 + sway, -7, 1, 1, Math.floor(now * 0.8) % 7 === 0 ? black : white);
+          p(1 + sway, -7, 1, 1, PALETTE.eye);
+          p(-3 + sway, -6, 1, 3, black);
+          p(-1, 0, 2, 1, beak);
+          p(2, 0, 2, 1, beak);
+          break;
+        }
+        case 'parrot': {
+          const red = 0xd4140b, blue = 0x3f6fc4, yellow = 0xf2d35b;
+          if (flying) {
+            const flap = Math.floor(now * 10) % 2;
+            p(-2, -5, 5, 2, red);
+            p(3, -6, 2, 2, red);
+            p(5, -6, 1, 1, yellow);
+            p(4, -6, 1, 1, PALETTE.eye);
+            p(-1, flap ? -8 : -3, 3, 3, blue);
+            p(0, flap ? -9 : -2, 1, 1, yellow);
+            p(-5, -5, 3, 1, blue);
+            break;
+          }
+          p(-1, -6, 3, 4, red);
+          p(0, -8, 3, 2, red);
+          p(3, -8, 1, 2, yellow);
+          p(2, -7, 1, 1, PALETTE.eye);
+          p(-1, -5, 2, 3, blue);
+          p(-1, -3, 1, 1, yellow);
+          p(-2, -2, 1, 3, blue);
+          p(0, -2, 1, 1, 0x3a3a40);
+          p(1, -2, 1, 1, 0x3a3a40);
+          break;
+        }
+        case 'owl': {
+          const feather = 0x8a6a4a, disc = 0xe8dcc4, yellow = 0xf2d35b;
+          if (flying) {
+            const flap = Math.floor(now * 7) % 2;
+            p(-2, -6, 5, 3, feather);
+            p(-6, flap ? -8 : -4, 4, 2, feather);
+            p(3, flap ? -8 : -4, 4, 2, feather);
+            p(-1, -6, 3, 1, disc);
+            break;
+          }
+          // Asleep by day; at night wide awake, its head turning
+          const turn = isNight ? [0, 0, 1, 0, 0, -1][Math.floor(now * 0.8) % 6] : 0;
+          fill(x - 3, y - 8, 7, 8, feather);
+          fill(x - 3, y - 9, 1, 1, feather);
+          fill(x + 3, y - 9, 1, 1, feather);
+          fill(x - 2 + turn, y - 7, 5, 3, disc);
+          if (isNight) {
+            fill(x - 2 + turn, y - 7, 2, 2, yellow);
+            fill(x + 1 + turn, y - 7, 2, 2, yellow);
+            dot(x - 1 + turn, y - 6, PALETTE.eye);
+            dot(x + 2 + turn, y - 6, PALETTE.eye);
+          } else {
+            fill(x - 2, y - 6, 2, 1, PALETTE.eye);
+            fill(x + 1, y - 6, 2, 1, PALETTE.eye);
+            const rise = (now * 0.35) % 1;
+            fill(x + 4 + Math.round(rise * 2), y - 10 - Math.round(rise * 5), 2, 1, WHITE, 1 - rise);
+          }
+          dot(x + turn, y - 5, 0xd9a03a);
+          fill(x - 1, y - 3, 3, 2, shaded(feather, 1.2));
+          fill(x - 1, y, 1, 1, 0xd9a03a);
+          fill(x + 1, y, 1, 1, 0xd9a03a);
+          break;
+        }
+        case 'capybara': {
+          const fur = 0x9a6a3a, dark = 0x7a5230;
+          if (pose === 'soak') {
+            // In the hot tub to the chin, the orange still on its head
+            p(-2, -4, 6, 3, fur);
+            p(3, -3, 1, 1, 0x4a3020);
+            p(1, -4, 1, 1, PALETTE.eye);
+            p(0, -6, 2, 2, 0xff8a1f);
+            p(1, -7, 1, 1, PALETTE.leaf);
+            break;
+          }
+          p(-4, -5, 9, 4, fur);
+          p(-4, -5, 9, 1, shaded(fur, 1.1));
+          p(3, -6, 4, 4, fur);
+          p(6, -4, 1, 1, 0x4a3020);
+          p(4, -5, 1, 1, PALETTE.eye);
+          p(3, -7, 1, 1, dark);
+          if (pose === 'walk') {
+            for (const [lx, k] of [[-3, 0], [-1, 1], [2, 0], [4, 1]]) p(lx, -1, 1, 1 - (step && k ? 1 : 0), dark);
+          } else {
+            p(-3, -1, 8, 1, dark);
+          }
+          // A little orange on its head, and its leaf
+          p(4, -9, 2, 2, 0xff8a1f);
+          p(5, -10, 1, 1, PALETTE.leaf);
+          break;
+        }
+        case 'redpanda': {
+          const rust = 0xc0582a, dark = 0x3a2616, light = 0xe08a5a;
+          // The red button gone off: up on its hind legs, arms in the air
+          const startled = office.detonation && now - office.detonation.at < 2.5;
+          if (startled) {
+            p(-1, -9, 3, 8, rust);
+            p(-1, -4, 3, 3, dark);
+            p(-2, -12, 1, 3, dark);
+            p(2, -12, 1, 3, dark);
+            p(-1, -12, 3, 3, rust);
+            p(-1, -11, 3, 1, WHITE);
+            p(0, -11, 1, 1, PALETTE.eye);
+            p(-3, -3, 2, 2, light);
+            break;
+          }
+          p(-3, -5, 6, 3, rust);
+          p(-3, -2, 6, 1, dark);
+          p(2, -7, 4, 4, rust);
+          p(4, -5, 2, 1, WHITE);
+          p(3, -6, 1, 1, PALETTE.eye);
+          p(2, -8, 1, 1, WHITE);
+          p(5, -8, 1, 1, WHITE);
+          // The ringed tail
+          for (let k = 0; k < 4; k++) p(-7 + k, -5 + (pose === 'walk' ? 0 : 1), 1, 2, k % 2 ? light : rust);
+          if (pose === 'walk') {
+            p(-2, -1, 1, 1 + step, dark);
+            p(1, -1, 1, 2 - step, dark);
+          } else {
+            p(-2, -1, 4, 1, dark);
+          }
+          break;
+        }
+        case 'corgi': {
+          const fur = 0xd9893a, white = 0xf4f1ea;
+          if (pose === 'lie') {
+            p(-4, -3, 8, 3, fur);
+            p(-4, -1, 8, 1, white);
+            p(3, -5, 3, 3, fur);
+            p(3, -7, 1, 2, fur);
+            p(5, -7, 1, 2, fur);
+            p(5, -4, 1, 1, white);
+            p(4, -5, 1, 1, PALETTE.eye);
+            break;
+          }
+          const zoom = pet.zoom ? 1 : 0;
+          p(-4, -5 - zoom * (Math.floor(now * 12) % 2), 8, 3, fur);
+          p(-4, -3, 8, 1, white);
+          p(-5, -5, 1, 2, white);
+          p(3, -8, 4, 4, fur);
+          p(3, -10, 1, 2, fur);
+          p(5, -10, 1, 2, fur);
+          p(6, -6, 1, 1, white);
+          p(5, -7, 1, 1, PALETTE.eye);
+          if (pose === 'walk') {
+            p(-3, -2, 1, 2 - step, white);
+            p(2, -2, 1, 1 + step, white);
+          } else {
+            p(-3, -2, 1, 2, white);
+            p(2, -2, 1, 2, white);
+          }
+          break;
+        }
+        case 'hamster': {
+          // In its ball, rolling: the hamster running inside it
+          const cx = x, cy = y - 4;
+          for (let k = 0; k < 16; k++) {
+            const a = (k / 16) * Math.PI * 2;
+            dot(Math.round(cx + Math.cos(a) * 4), Math.round(cy + Math.sin(a) * 4), 0xcfe3ef, 0.75);
+          }
+          fill(cx - 3, cy - 3, 7, 7, 0xcfe3ef, 0.18);
+          const roll = (pet.position.x * 0.5) % (Math.PI * 2);
+          dot(Math.round(cx + Math.cos(roll) * 4), Math.round(cy + Math.sin(roll) * 4), WHITE);
+          const run = pose === 'walk' ? step : 0;
+          p(-1, -4, 3, 2, 0xd9a066);
+          p(-1, -3, 3, 1, WHITE);
+          p(1, -5, 1, 1, 0xd9a066);
+          p(1, -4, 1, 1, PALETTE.eye);
+          p(-1 + run, -2, 1, 1, 0xd96a8a);
+          fill(cx - 3, y, 7, 1, SHADOW);
+          break;
+        }
+        case 'robodog': {
+          const metal = 0x9aa0a6, dark = 0x5a5f6c, glow = 0x4ad4e8;
+          if (pose === 'charge') {
+            // On its pad, charging, the bolt pulsing
+            const pulse = 0.5 + 0.5 * Math.sin(now * 3);
+            fill(x - 6, y - 1, 13, 2, 0x2a2d35);
+            fill(x - 5, y - 1, 11, 1, glow, 0.4 + 0.4 * pulse);
+            p(-4, -4, 8, 3, metal);
+            p(3, -6, 4, 3, metal);
+            p(5, -5, 2, 1, glow);
+            fill(x - 1, y - 10, 2, 1, 0xf2d35b, pulse);
+            fill(x, y - 9, 2, 1, 0xf2d35b, pulse);
+            break;
+          }
+          p(-4, -6, 8, 3, metal);
+          p(-4, -6, 8, 1, shaded(metal, 1.15));
+          p(3, -9, 4, 4, metal);
+          p(5, -8, 2, 1, glow);
+          p(4, -11, 1, 2, dark);
+          p(4, -12, 1, 1, Math.floor(now * 2) % 2 ? 0xd4140b : 0x3ddc84);
+          p(-5, -7, 1, 1, dark);
+          for (const [lx, k] of [[-3, 0], [-1, 1], [1, 0], [3, 1]]) p(lx, -3, 1, 3 - (pose === 'walk' && step === k ? 1 : 0), dark);
+          break;
+        }
+        case 'bat': {
+          const fur = 0x3a2e4a, wing = 0x2a2236;
+          if (pose === 'hang' && !pet.isWalking) {
+            // Upside down from the ceiling, wrapped in its wings
+            fill(x, y, 1, 1, wing);
+            fill(x - 1, y + 1, 3, 5, wing);
+            fill(x, y + 2, 1, 3, fur);
+            dot(x - 1, y + 6, fur);
+            dot(x + 1, y + 6, fur);
+            dot(x, y + 5, 0xd4140b);
+            break;
+          }
+          const flap = Math.floor(now * 12) % 2;
+          p(-1, -5, 3, 3, fur);
+          p(-5, flap ? -7 : -4, 4, 2, wing);
+          p(2, flap ? -7 : -4, 4, 2, wing);
+          p(0, -6, 1, 1, fur);
+          p(2, -6, 1, 1, fur);
+          break;
+        }
+        case 'snail': {
+          for (const tr of pet.trail) dot(tr.x, tr.y, 0xdfe8ea, 0.5 * (1 - (now - tr.at) / TRAIL_FOR));
+          const body = 0xc8c4a0, shell = 0xb8763a;
+          const stretch = pose === 'walk' ? Math.floor(now * 1.5) % 2 : 0;
+          p(-3, -1, 7 + stretch, 1, body);
+          p(3 + stretch, -2, 2, 1, body);
+          p(4 + stretch, -4, 1, 2, body);
+          dot(pet.facing > 0 ? x + 4 + stretch : x - 4 - stretch, y - 5, PALETTE.eye);
+          p(-2, -5, 4, 4, shell);
+          p(-1, -6, 2, 1, shell);
+          p(-1, -4, 2, 2, 0xe0a060);
+          p(0, -4, 1, 1, shell);
+          break;
+        }
+        case 'fox': {
+          const fur = 0xe0703a, white = 0xf4f1ea, dark = 0x3a2616;
+          if (pose === 'curl') {
+            // Curled up, its tail round it, asleep
+            p(-4, -3, 8, 3, fur);
+            p(-4, -3, 8, 1, shaded(fur, 1.1));
+            p(2, -4, 3, 2, fur);
+            p(3, -3, 1, 1, PALETTE.eye);
+            p(-5, -2, 2, 2, fur);
+            p(4, -1, 2, 1, white);
+            const rise = (now * 0.4) % 1;
+            fill(x + 3 + Math.round(rise * 2), y - 6 - Math.round(rise * 5), 2, 1, WHITE, 1 - rise);
+            break;
+          }
+          // A pounce, once it gets where it's going
+          const to = pet.target && !pet.target.follow ? Math.hypot(pet.target.x - pet.position.x, pet.target.y - pet.position.y) : Infinity;
+          const hop = pose === 'walk' && to < 8 ? Math.round(Math.sin((1 - to / 8) * Math.PI) * 5) : 0;
+          const lift = (dx, dy, w, h, c) => p(dx, dy - hop, w, h, c);
+          lift(-3, -5, 6, 3, fur);
+          lift(-2, -3, 4, 1, white);
+          lift(2, -8, 4, 4, fur);
+          lift(6, -6, 1, 1, dark);
+          lift(4, -5, 2, 1, white);
+          lift(4, -7, 1, 1, PALETTE.eye);
+          lift(2, -9, 1, 1, dark);
+          lift(4, -9, 1, 1, dark);
+          lift(-7, -6, 4, 2, fur);
+          lift(-8, -6, 1, 2, white);
+          if (pose === 'walk') {
+            lift(-2, -2, 1, 2 - step, dark);
+            lift(1, -2, 1, 1 + step, dark);
+          } else {
+            lift(-2, -2, 1, 2, dark);
+            lift(1, -2, 1, 2, dark);
+          }
+          break;
+        }
+        case 'axolotl': {
+          // In a tank on the counter, swimming from end to end
+          const water = 0x7ab8d8, pink = 0xf2a0b8, gill = 0xd96a8a;
+          fill(x - 7, y - 8, 14, 8, PALETTE.frame);
+          fill(x - 6, y - 7, 12, 7, water, 0.55);
+          fill(x - 6, y - 7, 12, 1, WHITE, 0.3);
+          fill(x - 6, y - 1, 12, 1, 0xd8c8a0);
+          const swim = Math.sin(now * 0.6), ax = Math.round(x + swim * 3), dir = Math.cos(now * 0.6) > 0 ? 1 : -1;
+          const q = (dx, dy, w, h, c) => fill(dir > 0 ? ax + dx : ax - dx - w + 1, y + dy, w, h, c);
+          q(-2, -4, 4, 2, pink);
+          q(2, -5, 2, 2, pink);
+          q(3, -6, 1, 1, gill);
+          q(3, -3, 1, 1, gill);
+          q(-4, -4, 2, 1, pink);
+          q(3, -5, 1, 1, PALETTE.eye);
+          if (Math.floor(now * 0.7) % 5 === 0) dot(ax + dir * 4, y - 7 - (Math.floor(now * 4) % 3), WHITE);
           break;
         }
       }
@@ -7855,8 +8556,7 @@
       }))),
     ];
     if (shape.loungeWall !== undefined) items.push([shape.loungeWall, drawLoungeWall]);
-    const pet = office.pet;
-    if (pet) items.push([!pet.isWalking && pet.target && pet.target.depth ? pet.target.depth : pet.position.y, drawPet]);
+    for (const pet of office.pets) if (pet.isIn) items.push([!pet.isWalking && pet.target && pet.target.depth ? pet.target.depth : pet.position.y, () => drawPet(pet)]);
     DESKS.forEach((d, desk) => {
       if (d.off) return;
       items.push([d.y + 5, () => drawDesk(desk)]);
@@ -8459,7 +9159,7 @@
       this.nextCorner = null;
       this.rally = { players: null, bounce: null, table: null, hits: 0 };
       this.blast = null;      // the red button's last press, heard
-      this.petSettled = null; // when the pet last settled, heard
+      this.petSettled = new WeakMap(); // when each pet last settled, heard
       this.mic = null;        // when the mic was last held and let go, heard
       this.carried = null;    // where the agent being carried is, as it's heard
       this.heard = new WeakMap(); // what's been played for each person: { arrived, celebrated, fired, out, working }
@@ -8618,11 +9318,11 @@
       else if (this.nextCorner === null) this.nextCorner = t + random(1, 4);
       else if (t >= this.nextCorner) this.nextCorner = t + (this.murmur(cornerSound, cornering.position.x) ? random(...CORNER_EVERY) : 1);
 
-      // The pet, sometimes, as it settles somewhere new
-      const pet = office.pet;
-      if (pet && !pet.isWalking && pet.arrivedAt !== this.petSettled) {
-        if (this.petSettled !== null && Math.random() < PET_CHATTY) this.murmur(pet.kind, pet.position.x);
-        this.petSettled = pet.arrivedAt;
+      // Each pet, sometimes, as it settles somewhere new
+      for (const pet of office.pets) {
+        if (!pet.isIn || pet.isWalking || pet.arrivedAt === this.petSettled.get(pet)) continue;
+        if (this.petSettled.has(pet) && Math.random() < PET_CHATTY) this.murmur(pet.kind, pet.position.x);
+        this.petSettled.set(pet, pet.arrivedAt);
       }
 
       // The season in the windows, once in a while; autumn's leaves fall without a sound
