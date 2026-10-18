@@ -472,7 +472,10 @@ final class Deck {
             }
             guard Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
             if query["to"] == "bottom" { return inTab(tty, done: done) { Terminal.scrollToBottom(tty: tty) } }
-            guard let lines = Int(query["lines"] ?? "") else { return done(.status(400, "Unknown amount")) }
+            // Kept within what a scroll can be first, as Go keeps it: an amount as large as an Int
+            // can hold would overflow below, which stops the app.
+            guard let asked = Int(query["lines"] ?? "") else { return done(.status(400, "Unknown amount")) }
+            let lines = max(-Terminal.maxScroll, min(Terminal.maxScroll, asked))
             // The phone counts the way natural scrolling does. With it turned
             // off on the Mac, the wheel turns the other way, as everything else does.
             let direction = Scrolling.isNatural ? 1 : -1
