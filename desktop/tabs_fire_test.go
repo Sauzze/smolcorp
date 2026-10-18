@@ -59,8 +59,14 @@ func TestWhatsInFrontOfAPane(t *testing.T) {
 	if f := frontOf("  100   90  100  100 -zsh\n  300   80  300  100 sleep 9\n", 0); f.is != inFrontUnknown {
 		t.Errorf("two processes nobody on the tty started can't be told apart: %+v", f)
 	}
-	if f := frontOf("", 100); f.is != inFrontUnknown {
-		t.Errorf("nothing listed: %+v", f)
+	if f := frontOf("", 100); f.is != inFrontShell || f.own != "" {
+		t.Errorf("nothing at all on the tty, the shell ended too: %+v", f)
+	}
+	if f := frontOf("  100   90  100  100 -zsh\n  300  100  300  100 node server.js\n", 100); f.is != inFrontShell || !f.behind {
+		t.Errorf("a job in the background: %+v", f)
+	}
+	if f := frontOf("  100   90  100  100 -zsh\n", 100); f.behind {
+		t.Errorf("nothing in the background: %+v", f)
 	}
 }
 
@@ -173,21 +179,70 @@ func TestFiringInKittyLooksFirst(t *testing.T) {
 	fakeTool(t, "kitty", `case "$4" in
 ls) cat <<'JSON'
 [{"id": 1, "tabs": [{"id": 1, "windows": [
-  {"id": 3, "pid": 40, "cmdline": ["/bin/zsh"], "foreground_processes": [{"pid": 40, "cmdline": ["/bin/zsh"]}]},
-  {"id": 4, "pid": 41, "cmdline": ["/bin/zsh"], "foreground_processes": [{"pid": 999999, "cmdline": ["node", "/x/node_modules/vite/bin/vite.js"]}]}
+  {"id": 3, "pid": 40, "cmdline": ["/bin/zsh"]},
+  {"id": 4, "pid": 41, "cmdline": ["/bin/zsh"]},
+  {"id": 5, "pid": 42, "cmdline": ["/bin/zsh"]}
 ]}]}]
 JSON
 ;;
 close-window) echo "$6" >> `+closed+` ;;
 esac
 `)
+	fakePS(t, map[string]string{
+		"40": "ttys900", "41": "ttys901", "42": "ttys902",
+		"ttys900": "40 1 40 40 /bin/zsh\n",
+		"ttys901": "41 1 41 60 /bin/zsh\n60 41 60 60 node /x/node_modules/vite/bin/vite.js\n",
+		"ttys902": "42 1 42 42 /bin/zsh\n70 42 70 42 node server.js\n",
+	})
 	if err := (commandTab{kind: "kitty", id: "4", socket: "unix:/tmp/kitty"}).Close(Claude); !errors.Is(err, errNotStopped) {
 		t.Errorf("a window with someone's work in front: %v, want errNotStopped", err)
+	}
+	if err := (commandTab{kind: "kitty", id: "5", socket: "unix:/tmp/kitty"}).Close(Claude); !errors.Is(err, errNotStopped) {
+		t.Errorf("a window whose shell runs something in the background: %v, want errNotStopped", err)
 	}
 	if err := (commandTab{kind: "kitty", id: "3", socket: "unix:/tmp/kitty"}).Close(Claude); err != nil {
 		t.Errorf("a window left to its shell: %v", err)
 	}
 	if got, _ := os.ReadFile(closed); strings.TrimSpace(string(got)) != "id:3" {
 		t.Errorf("closed %q, want only id:3", got)
+	}
+}
+
+func TestFiringInTmuxLeavesAShellsBackgroundJobsAlone(t *testing.T) {
+	pane := tmuxPane(t)
+	if err := pane.run("send-keys", "-t", pane.id, "-l", "env -i /usr/bin/perl -e '$0 = q{node server.js}; sleep 300' &"); err != nil {
+		t.Fatal(err)
+	}
+	_ = pane.run("send-keys", "-t", pane.id, "Enter")
+	for deadline := time.Now().Add(5 * time.Second); !pane.front().behind; time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the background job never showed: %+v", pane.front())
+		}
+	}
+	if err := pane.Close(Claude); !errors.Is(err, errNotStopped) {
+		t.Errorf("firing: %v, want errNotStopped", err)
+	}
+	if !pane.alive() {
+		t.Error("the pane, and the job in its background, were closed")
+	}
+}
+
+func TestAnAgentStoppedWithCtrlZIsntThereForKeys(t *testing.T) {
+	pane := tmuxPane(t)
+	startJob(t, pane, "node /x/node_modules/@anthropic-ai/claude-code/cli.js")
+	if is, known := pane.runs(Claude); !is || !known {
+		t.Fatalf("in front: %v, %v", is, known)
+	}
+	_ = pane.run("send-keys", "-t", pane.id, "C-z")
+	for deadline := time.Now().Add(5 * time.Second); pane.front().is != inFrontShell; time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the shell never came back in front: %+v", pane.front())
+		}
+	}
+	if is, known := pane.runs(Claude); is || !known {
+		t.Errorf("stopped, with the shell in front, it still took keys: %v, %v", is, known)
+	}
+	if f := pane.front(); !f.behind {
+		t.Errorf("the stopped agent isn't seen behind the shell: %+v", f)
 	}
 }

@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,7 +13,8 @@ import (
 )
 
 // fakePane puts tmux and ps on PATH that show a pane on /dev/pts/7 running
-// what the file ps-says holds, and keep every tmux command they're given.
+// what's given, one command line each: the pane's own process first, the
+// job in front after it. They keep every tmux command they're given.
 func fakePane(t *testing.T, running string) (setRunning func(string), typed func() string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -21,6 +23,7 @@ func fakePane(t *testing.T, running string) (setRunning func(string), typed func
 		"tmux": `#!/bin/sh
 case "$*" in
   *%2*pane_tty*) ;;
+  *pane_pid*) echo /dev/pts/7 100 ;;
   *pane_tty*) echo /dev/pts/7 ;;
   *pane_id*) echo %1 ;;
   *) echo "$*" >> "` + sent + `" ;;
@@ -37,8 +40,8 @@ cat "` + says + `"
 		}
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	setRunning = func(names string) {
-		if err := os.WriteFile(says, []byte(names), 0o644); err != nil {
+	setRunning = func(lines string) {
+		if err := os.WriteFile(says, []byte(psRows(lines)), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -121,14 +124,19 @@ func fakeTool(t *testing.T, name, script string) {
 }
 
 func TestKittySaysWhatRunsInItsWindow(t *testing.T) {
-	// As kitty @ ls answers: OS windows, their tabs, and each window's foreground processes.
+	// As kitty @ ls answers: OS windows, their tabs, and each window's own process.
 	fakeTool(t, "kitty", `cat <<'JSON'
 [{"id": 1, "tabs": [{"id": 1, "windows": [
-  {"id": 3, "cmdline": ["/bin/zsh"], "foreground_processes": [{"pid": 40, "cmdline": ["/home/someone/.local/bin/claude", "--resume"]}]},
-  {"id": 4, "cmdline": ["/bin/zsh"], "foreground_processes": [{"pid": 41, "cmdline": ["/bin/zsh"]}]}
+  {"id": 3, "pid": 40, "cmdline": ["/bin/zsh"]},
+  {"id": 4, "pid": 41, "cmdline": ["/bin/zsh"]}
 ]}]}]
 JSON
 `)
+	fakePS(t, map[string]string{
+		"40": "ttys900", "41": "ttys901",
+		"ttys900": "40 1 40 50 /bin/zsh\n50 40 50 50 /home/someone/.local/bin/claude --resume\n",
+		"ttys901": "41 1 41 41 /bin/zsh\n",
+	})
 	for _, c := range []struct {
 		id             string
 		running, known bool
@@ -152,4 +160,37 @@ JSON
 	if tty := (commandTab{kind: "wezterm", id: "7"}).tty(); tty != "" {
 		t.Errorf("a WezTerm pane that isn't there is on %q", tty)
 	}
+}
+
+// psRows are ps's lines for a tty running lines, as frontOn asks for them:
+// the first the pane's own process, pid 100, and any others the job in
+// front of it, process group 200.
+func psRows(lines string) string {
+	var rows strings.Builder
+	commands := strings.Split(strings.TrimSpace(lines), "\n")
+	front := 100
+	if len(commands) > 1 {
+		front = 200
+	}
+	for i, command := range commands {
+		if i == 0 {
+			fmt.Fprintf(&rows, "100 1 100 %d %s\n", front, command)
+		} else {
+			fmt.Fprintf(&rows, "%d 100 200 %d %s\n", 200+i, front, command)
+		}
+	}
+	return rows.String()
+}
+
+// fakePS puts a ps on PATH that answers -p <pid> -o tty= and -t <tty> -o …
+// from says, by the pid or the tty.
+func fakePS(t *testing.T, says map[string]string) {
+	t.Helper()
+	var script strings.Builder
+	script.WriteString("case \"$2\" in\n")
+	for key, answer := range says {
+		fmt.Fprintf(&script, "  %s) printf '%%s' '%s' ;;\n", key, answer)
+	}
+	script.WriteString("  *) exit 1 ;;\nesac\n")
+	fakeTool(t, "ps", script.String())
 }

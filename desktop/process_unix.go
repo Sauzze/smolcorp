@@ -31,8 +31,3 @@ func stopGroup(group int) bool {
 	}
 	return gone()
 }
-
-// processGroup is the process group pid is in.
-func processGroup(pid int) (int, error) {
-	return syscall.Getpgid(pid)
-}
