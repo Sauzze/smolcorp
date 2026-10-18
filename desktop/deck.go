@@ -658,7 +658,14 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		if d.isRepeatedReturn(id) {
 			return http.StatusNoContent, ""
 		}
-		return d.press(tab, press(Enter))
+		status, message := d.press(tab, press(Enter))
+		if status >= http.StatusBadRequest {
+			// A Return that didn't go doesn't count, so the next tap goes.
+			d.mu.Lock()
+			delete(d.lastReturn, id)
+			d.mu.Unlock()
+		}
+		return status, message
 	case "reject":
 		return d.press(tab, agent.Reject())
 	case "esc":

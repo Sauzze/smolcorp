@@ -457,7 +457,11 @@ final class Deck {
             lastReturn = lastReturn.filter { now.timeIntervalSince($0.value) < Deck.returnRepeat }
             guard lastReturn[id] == nil else { return done(.status(204)) }
             lastReturn[id] = now
-            press(.init(key: .returnKey), to: session, done: done)
+            // A Return that didn't go doesn't count, so the next tap goes.
+            press(.init(key: .returnKey), to: session) { [weak self] response in
+                if response.status >= 400 { self?.lastReturn[id] = nil }
+                done(response)
+            }
         case "reject": press(agent.reject, to: session, done: done)
         case "esc": press(agent.interrupt, to: session, done: done)
         case "up": press(.init(key: .up), to: session, done: done)

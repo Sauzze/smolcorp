@@ -159,3 +159,19 @@ func TestATapThatLandsTwiceSendsReturnOnce(t *testing.T) {
 		t.Fatal("accept a moment later didn't press Return")
 	}
 }
+
+func TestAReturnThatDidntGoDoesntHoldBackTheNext(t *testing.T) {
+	d, tab := madeButtonDeck(t)
+	d.mu.Lock()
+	delete(d.launchers, "L1") // its tab gone, for a moment
+	d.mu.Unlock()
+	if status, _ := d.Perform("accept", "s1", url.Values{}); status != http.StatusNotFound {
+		t.Fatalf("accept with the tab gone gave %d", status)
+	}
+	d.mu.Lock()
+	d.launchers["L1"] = tab
+	d.mu.Unlock()
+	if status, _ := d.Perform("accept", "s1", url.Values{}); status != http.StatusNoContent || *sent(t, tab).Press != press(Enter) {
+		t.Fatal("the accept straight after one that failed didn't press Return")
+	}
+}
