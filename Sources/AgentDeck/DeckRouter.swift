@@ -119,7 +119,7 @@ final class DeckRouter: Router {
             deck.focus(session, done: respond)
 
         case ("POST", "/act"):
-            deck.perform(request.query["action"] ?? "", on: session, query: request.query, done: respond)
+            deck.perform(request.query["action"] ?? "", on: session, query: request.query, phone: phone.id, done: respond)
 
         default:
             respond(.status(404))

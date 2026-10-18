@@ -471,7 +471,12 @@ final class Deck {
     func attach(_ stream: EventStream, phone: String) {
         let id = ObjectIdentifier(stream)
         streams[id] = (phone, stream)
-        stream.onClose = { [weak self] in self?.streams[id] = nil }
+        stream.onClose = { [weak self] in
+            guard let self else { return }
+            self.streams[id] = nil
+            // Its last stream gone, as it sleeps or leaves the Wi-Fi: dictation it started stops.
+            if !self.streams.values.contains(where: { $0.phone == phone }) { Dictation.phoneLeft(phone) }
+        }
         stream.send(snapshotJSON())
     }
 
@@ -502,7 +507,7 @@ final class Deck {
     /// Runs one of the phone's controls on a session, through its terminal's
     /// driver: none brings the tab forward but focusing and Terminal.app's
     /// scrolling.
-    func perform(_ action: String, on id: String, query: [String: String], done: @escaping (Response) -> Void) {
+    func perform(_ action: String, on id: String, query: [String: String], phone: String = "", done: @escaping (Response) -> Void) {
         // Releasing the mic stops recording where it started, whatever is
         // selected now — and even if that session has since gone.
         if action == "mic" && query["phase"] != "down" { return releaseMic(done: done) }
@@ -566,7 +571,8 @@ final class Deck {
             }
             guard let (driver, _) = terminal(of: session, for: .text) else { return done(.status(409, Deck.notHere)) }
             guard !driver.keysNeedAccessibility || Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
-            Dictation.start(language: Config.shared.dictationLanguage, for: session.tab) { started in
+            Dictation.start(language: Config.shared.dictationLanguage, for: session.tab, phone: phone,
+                            deliver: { [weak self] text, tab in self?.insertDictation(text, into: tab) }) { started in
                 done(started ? .status(204) : .status(409, "Dictation couldn't start. Look at it in setup, on your Mac."))
             }
         case "fire":
@@ -844,6 +850,18 @@ final class Deck {
         }
     }
 
+    /// Dictation's text, into the tab it was for, without Return: only while
+    /// that tab's agent still runs there, as for keys (see `toAgent`).
+    private func insertDictation(_ text: String, into tab: String) {
+        guard !text.isEmpty, let address = TabAddress(tab), let driver = Terminals.driver(for: address),
+              driver.abilities.contains(.text) else { return }
+        let agent = sessions.all.first { $0.tab == tab }?.agent
+        Terminal.queue.async {
+            if let agent, let tty = Terminals.tty(of: tab), Terminal.isRunning(agent, on: tty) == false { return }
+            _ = driver.insert(text, in: address)
+        }
+    }
+
     /// Whether the mic dictates for `agent`, rather than pressing Space for its
     /// own voice mode: for every agent without one, and for Claude Code too if
     /// setup says so.
@@ -852,12 +870,9 @@ final class Deck {
     }
 
     private func releaseMic(done: @escaping (Response) -> Void) {
-        // Dictating: the text goes into the tab it was for, without Return.
-        if Dictation.isRecording {
-            Dictation.stop { text, tab in
-                guard !text.isEmpty, let address = TabAddress(tab), let driver = Terminals.driver(for: address) else { return }
-                Terminal.queue.async { _ = driver.insert(text, in: address) }
-            }
+        // Dictating, or getting ready to: the text goes into the tab it was for, without Return.
+        if Dictation.isActive {
+            Dictation.stop { [weak self] text, tab in self?.insertDictation(text, into: tab) }
             return done(.status(204))
         }
         defer { micPress = nil }

@@ -43,37 +43,102 @@ enum Dictation {
         }
     }
 
-    /// The recording under way, if any, and the tab its text goes to.
-    private static var current: (recorder: AnyObject, tab: String)?
+    /// The longest a recording runs: held longer, it stops and its text goes in.
+    static var longest: TimeInterval = 60
 
-    /// Starts recording for the agent in `tab`. False if it couldn't start.
-    static func start(language: String, for tab: String, done: @escaping (Bool) -> Void) {
-        guard #available(macOS 26, *), isOn, current == nil else { return done(false) }
+    /// A recording, as Dictation drives it: Apple's own, or a stand-in in tests.
+    typealias Recording = AnyObject & DictationRecording
+
+    /// Makes the recording for a language. Settable for tests.
+    static var makeRecording: (String) async throws -> Recording = { language in
+        guard #available(macOS 26, *) else { throw CocoaError(.featureUnsupported) }
+        return try await Recorder(language: language)
+    }
+
+    private enum State {
+        case idle
+        /// Getting the microphone and the model ready. Let go meanwhile, it stops as soon as it's up, with nothing typed.
+        case starting(tab: String, phone: String, cancelled: Bool)
+        case recording(Recording, tab: String, phone: String)
+    }
+
+    private static var state = State.idle
+    /// Where the text goes when the recording stops by itself: at the cap, or as its phone goes away.
+    private static var deliver: (String, String) -> Void = { _, _ in }
+    private static var cap: DispatchWorkItem?
+
+    /// Starts recording for the agent in `tab`, pressed on `phone`; `deliver`
+    /// takes the text and tab if it stops by itself. `done` says whether it's
+    /// starting: false if a recording is already under way. Main thread.
+    static func start(language: String, for tab: String, phone: String, deliver: @escaping (String, String) -> Void,
+                      done: @escaping (Bool) -> Void) {
+        guard case .idle = state else { return done(false) }
+        state = .starting(tab: tab, phone: phone, cancelled: false)
+        Dictation.deliver = deliver
         Task {
-            let recorder = try? await Recorder(language: language)
+            let recording = try? await makeRecording(language)
             await MainActor.run {
-                if let recorder { current = (recorder, tab) }
-                done(recorder != nil)
+                guard case .starting(let tab, let phone, let cancelled) = state else { return }
+                guard let recording, !cancelled else {
+                    // Let go before it was up, or it couldn't start: nothing is typed.
+                    state = .idle
+                    if let recording { Task { _ = await recording.finish() } }
+                    return
+                }
+                state = .recording(recording, tab: tab, phone: phone)
+                let stop = DispatchWorkItem { Dictation.stop(done: Dictation.deliver) }
+                cap = stop
+                DispatchQueue.main.asyncAfter(deadline: .now() + longest, execute: stop)
+            }
+            await MainActor.run { done(recording != nil) }
+        }
+    }
+
+    /// Stops recording and gives what was said and the tab it's for: always,
+    /// with "" when nothing was, or it was let go before it was up. Main thread.
+    static func stop(done: @escaping (_ text: String, _ tab: String) -> Void) {
+        cap?.cancel()
+        cap = nil
+        switch state {
+        case .idle:
+            done("", "")
+        case .starting(let tab, let phone, _):
+            state = .starting(tab: tab, phone: phone, cancelled: true)
+            done("", tab)
+        case .recording(let recording, let tab, _):
+            state = .idle
+            Task {
+                let text = await recording.finish()
+                await MainActor.run { done(text, tab) }
             }
         }
     }
 
-    /// Stops recording and gives what was said, and the tab it's for.
-    static func stop(done: @escaping (_ text: String, _ tab: String) -> Void) {
-        guard #available(macOS 26, *), let (recorder, tab) = current, let recording = recorder as? Recorder else { return }
-        current = nil
-        Task {
-            let text = await recording.finish()
-            await MainActor.run { done(text, tab) }
+    /// The phone that pressed has gone, asleep or off the Wi-Fi: what it said goes in, and the microphone stops.
+    static func phoneLeft(_ phone: String) {
+        switch state {
+        case .starting(_, let pressed, _) where pressed == phone, .recording(_, _, let pressed) where pressed == phone:
+            stop(done: deliver)
+        default:
+            break
         }
     }
 
-    static var isRecording: Bool { current != nil }
+    /// Whether a recording is starting or under way.
+    static var isActive: Bool {
+        if case .idle = state { return false }
+        return true
+    }
+}
+
+/// What Dictation needs of a recording: to stop, and give the text.
+protocol DictationRecording {
+    func finish() async -> String
 }
 
 /// One recording: the Mac's microphone into Apple's on-device transcriber.
 @available(macOS 26, *)
-private final class Recorder {
+private final class Recorder: DictationRecording {
     private let engine = AVAudioEngine()
     private let analyzer: SpeechAnalyzer
     private let feed: AsyncStream<AnalyzerInput>.Continuation
