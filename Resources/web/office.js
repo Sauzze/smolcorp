@@ -10419,7 +10419,7 @@
     // A desk held down: { kind: 'session', id } for its agent, or { kind: 'empty', desk } for a hire
     let held = null;
     let firing = null;       // an agent about to be fired, while the question is up: { id, name, at }
-    let carrying = null;     // an agent carried to another desk: { person, from, x, y, over }
+    let carrying = null;     // an agent carried to another desk: { person, from, x, y, over, desks }
     let styling = false;     // the styles' panel is up
     let music = null;        // what the computer says of its music, with the jukebox on: { playing: true | false | null }
     let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
@@ -11334,6 +11334,9 @@
     }
 
     /** A finger held on an agent's desk, then moved, picks the agent up and carries them. */
+    /** Who is at each desk, and which are pinned: the desks a swap is counted by, by number. */
+    const desksNow = () => office.seats.map((s) => `${s.session ? s.session.id : ''} ${s.pin || ''}`).join('\n');
+
     function carry(e) {
       const { x, y } = roomAt(e.clientX, e.clientY);
       if (!carrying) {
@@ -11343,7 +11346,7 @@
         if (from < 0) return;
         held = null;
         const person = office.people.find((p) => !p.isStaff && !p.isLeaving && p.session.id === finger.target.id) || null;
-        carrying = { person, from, x, y, over: from };
+        carrying = { person, from, x, y, over: from, desks: desksNow() };
         on.held?.();
       }
       const over = deskAt(x, y);
@@ -11367,6 +11370,10 @@
         const there = (id) => office.deskOfSession(id) !== null;
         if (firing && (!hiring.fire || !there(firing.id))) firing = null;
         if (held && (held.kind === 'session' ? !there(held.id) : !hiresInto(held.desk))) held = null;
+        // A swap is sent as two desks' numbers. With someone gone or come, or a desk pinned, meanwhile, they'd
+        // be other desks, and the wrong two would swap and stay so. The carry is let go, and the finger, still
+        // down, picks the agent up again as it moves, counted from the desks as they are now.
+        if (carrying && carrying.desks !== desksNow()) carrying = null;
       },
       close() {
         latest = null;
