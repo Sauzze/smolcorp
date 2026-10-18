@@ -79,6 +79,9 @@ protocol TerminalDriver {
     func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired
     /// The tab's tty, for looking at what runs there, if it has one.
     func tty(of tab: TabAddress) -> String?
+    /// Whether the tab is still there: nil when that can't be told, as for
+    /// Terminal.app, whose closed tabs the deck finds from its list of tabs.
+    func isOpen(_ tab: TabAddress) -> Bool?
 }
 
 enum Terminals {
@@ -86,6 +89,8 @@ enum Terminals {
     static func driver(for tab: TabAddress) -> TerminalDriver? {
         switch tab.kind {
         case "tty": return TerminalApp()
+        case "tmux": return Tmux.path == nil ? nil : Tmux()
+        case "iterm": return ITerm()
         default: return nil
         }
     }
@@ -94,8 +99,15 @@ enum Terminals {
         TabAddress(tab).flatMap(driver(for:))?.abilities ?? .none
     }
 
+    /// The tab's tty, when its address says it, asking nothing: for the main
+    /// thread.
+    static func ttyInAddress(of tab: String) -> String? {
+        guard let address = TabAddress(tab) else { return nil }
+        return address.id.hasPrefix("/dev/") ? address.id : nil
+    }
+
     /// The tab's tty, whatever its terminal, when it has one: for `ps` to say
-    /// what runs there.
+    /// what runs there. It may ask the terminal, so never on the main thread.
     static func tty(of tab: String) -> String? {
         guard let address = TabAddress(tab) else { return nil }
         if let driver = driver(for: address) { return driver.tty(of: address) }
@@ -118,4 +130,5 @@ struct TerminalApp: TerminalDriver {
     func scrollToBottom(in tab: TabAddress) -> Bool { Terminal.scrollToBottom(tty: tab.id) }
     func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired { Terminal.fire(tty: tab.id, agent: agent) }
     func tty(of tab: TabAddress) -> String? { tab.id }
+    func isOpen(_ tab: TabAddress) -> Bool? { nil }
 }

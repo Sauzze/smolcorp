@@ -65,6 +65,10 @@ final class Deck {
     /// no agent left running on them, their tabs have closed: one look alone
     /// can catch Terminal in the middle of opening or closing a window.
     private var missedOnce = Set<String>()
+    /// Tabs of other terminals found gone at the last look: gone again at the
+    /// next, their sessions go too.
+    private var panesMissedOnce = Set<String>()
+    private var checkingPanes = false
     private var savePending = false
     /// Whether music is playing, for the office's jukeboxes: true, or nil when it can't be told.
     private var playing: Bool?
@@ -82,6 +86,7 @@ final class Deck {
         }
         Timer.scheduledTimer(withTimeInterval: Deck.closedTabCheckInterval, repeats: true) { [weak self] _ in
             self?.pruneClosedTabs()
+            self?.pruneClosedPanes()
         }
         Timer.scheduledTimer(withTimeInterval: Deck.pingInterval, repeats: true) { [weak self] _ in
             self?.streams.values.forEach { $0.stream.ping() }
@@ -134,7 +139,7 @@ final class Deck {
     private func tab(for event: [String: Any], of agent: Agent) -> String {
         guard let id = event["session_id"] as? String, sessions[id] == nil,
               let name = agent.processName, let folder = event["cwd"] as? String else { return "" }
-        let taken = Set(sessions.all.compactMap { Terminals.tty(of: $0.tab) })
+        let taken = Set(sessions.all.compactMap { Terminals.ttyInAddress(of: $0.tab) })
         return Processes.tty(of: name, in: folder, excluding: taken).map { TabAddress.terminalApp(tty: $0).text } ?? ""
     }
 
@@ -834,8 +839,9 @@ final class Deck {
     /// to the shell, where its keys would land and a button's text would run
     /// as a command, or to whatever runs there next: its session goes instead.
     private func toAgent(_ session: Session, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
-        let tab = session.tab, tty = Terminals.tty(of: tab), names = session.agent.runningNames
+        let tab = session.tab, names = session.agent.runningNames
         Terminal.queue.async {
+            let tty = Terminals.tty(of: tab)
             // Unknown is not the same as gone: the keys go as they always did.
             guard tty.flatMap({ Terminal.isRunning(any: names, on: $0) }) != false else {
                 return DispatchQueue.main.async {
@@ -870,8 +876,9 @@ final class Deck {
             let level = session.pendingEffort
             session.pendingEffort = ""
             guard let (driver, tab) = terminal(of: session, for: .text) else { continue }
-            let tty = Terminals.tty(of: session.tab), names = session.agent.runningNames
+            let address = session.tab, names = session.agent.runningNames
             Terminal.queue.async {
+                let tty = Terminals.tty(of: address)
                 // Not into a tab its agent has left: see `toAgent`.
                 guard tty.flatMap({ Terminal.isRunning(any: names, on: $0) }) != false, driver.type("/effort \(level)", in: tab) else { return }
                 DispatchQueue.main.async {
@@ -936,6 +943,27 @@ final class Deck {
                         self.sessions.prune(closedTabs: gone)
                     }
                 }
+            }
+        }
+    }
+
+    /// Sessions in tabs of other terminals, as tmux panes and iTerm2 sessions,
+    /// whose terminal can say whether a tab is still there: gone at two looks
+    /// in a row, they go. Unknown is not the same as gone.
+    private func pruneClosedPanes() {
+        let tabs = sessions.all.compactMap { session -> (String, TabAddress, TerminalDriver)? in
+            guard let tab = TabAddress(session.tab), tab.kind != "tty", let driver = Terminals.driver(for: tab) else { return nil }
+            return (session.tab, tab, driver)
+        }
+        guard !tabs.isEmpty, !checkingPanes else { return }
+        checkingPanes = true
+        Terminal.queue.async {
+            let gone = Set(tabs.filter { $0.2.isOpen($0.1) == false }.map(\.0))
+            DispatchQueue.main.async {
+                self.checkingPanes = false
+                let closed = gone.intersection(self.panesMissedOnce)
+                self.panesMissedOnce = gone.subtracting(closed)
+                if !closed.isEmpty { self.sessions.prune(closedTabs: closed) }
             }
         }
     }

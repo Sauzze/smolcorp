@@ -28,18 +28,26 @@ final class TerminalDriverTests: XCTestCase {
         XCTAssertEqual(TabAddress("/dev/ttys003"), TabAddress(kind: "tty", id: "/dev/ttys003"))
     }
 
-    func testOnlyTerminalAppIsDrivenForNow() {
+    func testWhatEachTerminalLetsTheDeckDo() {
         XCTAssertEqual(Terminals.abilities(of: "tty:/dev/ttys003"), [.keys, .text, .focus, .fire, .scroll])
-        for watched in ["other:/dev/ttys005", "ghostty:/dev/ttys004", "iterm:BD22", "tmux:%3@/tmp/s", ""] {
+        XCTAssertEqual(Terminals.abilities(of: "iterm:BD22"), [.keys, .text, .focus, .fire], "no scrolling through iTerm2's AppleScript")
+        if Tmux.path != nil { XCTAssertEqual(Terminals.abilities(of: "tmux:%3@/tmp/s"), [.keys, .text, .focus, .fire, .scroll]) }
+        for watched in ["other:/dev/ttys005", "ghostty:/dev/ttys004", ""] {
             XCTAssertEqual(Terminals.abilities(of: watched), .none, watched)
         }
+    }
+
+    func testOnlyTerminalAppsKeysNeedAccessibility() {
+        XCTAssertTrue(TerminalApp().keysNeedAccessibility)
+        XCTAssertFalse(Tmux().keysNeedAccessibility)
+        XCTAssertFalse(ITerm().keysNeedAccessibility)
     }
 
     func testATabsTTYIsKnownWhereItHasOne() {
         XCTAssertEqual(Terminals.tty(of: "tty:/dev/ttys003"), "/dev/ttys003")
         XCTAssertEqual(Terminals.tty(of: "other:/dev/ttys005"), "/dev/ttys005")
-        XCTAssertNil(Terminals.tty(of: "iterm:BD2206F6"))
-        XCTAssertNil(Terminals.tty(of: "tmux:%3@/tmp/s"))
+        XCTAssertNil(Terminals.ttyInAddress(of: "iterm:BD2206F6"), "asked of iTerm2, not read from the address")
+        XCTAssertNil(Terminals.ttyInAddress(of: "tmux:%3@/tmp/s"))
     }
 
     func testADeckSavedBefore19StillLoadsItsTabs() throws {

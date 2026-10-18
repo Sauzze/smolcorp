@@ -93,7 +93,10 @@ enum Terminal {
 
     /// Whether `ps -o comm=`'s lines, `commands`, name any of `names`.
     static func runs(any names: Set<String>, among commands: String) -> Bool {
-        commands.split(separator: "\n").contains { names.contains(($0.trimmingCharacters(in: .whitespaces) as NSString).lastPathComponent) }
+        let wanted = Set(names.map { $0.lowercased() })
+        return commands.split(separator: "\n").contains {
+            wanted.contains(($0.trimmingCharacters(in: .whitespaces) as NSString).lastPathComponent.lowercased())
+        }
     }
 
     /// The tab you are looking at, if Terminal is the active app.
@@ -231,7 +234,7 @@ enum Terminal {
     private static let stopGrace: [(signal: Int32, wait: TimeInterval)] = [(SIGTERM, 3), (SIGKILL, 1)]
 
     /// Stops the process group `job`, and whether none of it is left.
-    private static func stop(_ job: pid_t) -> Bool {
+    static func stop(_ job: pid_t) -> Bool {
         let isGone = { kill(-job, 0) == -1 && errno == ESRCH }
         for (signal, wait) in stopGrace {
             kill(-job, signal)
@@ -245,7 +248,7 @@ enum Terminal {
     }
 
     /// What runs in the foreground of a tab.
-    private enum Foreground {
+    enum Foreground {
         /// Nothing but the shell, or not even that once the shell has ended.
         case shell
         /// A job: its process group, and the names of the processes in it.
@@ -255,7 +258,7 @@ enum Terminal {
     /// The foreground of the tab on `tty`, or nil if `ps` couldn't be asked.
     /// Terminal starts each tab's shell under `login`, and a job is any
     /// process group in front of that shell.
-    private static func foreground(tty: String) -> Foreground? {
+    static func foreground(tty: String) -> Foreground? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["-t", (tty as NSString).lastPathComponent, "-o", "pid=,ppid=,pgid=,tpgid=,comm="]
@@ -330,7 +333,7 @@ enum Terminal {
 
     /// Runs an AppleScript, passing `arguments` as argv rather than splicing
     /// them into the source. Nil if it failed.
-    private static func run(_ source: String, arguments: [String] = []) -> String? {
+    static func run(_ source: String, arguments: [String] = []) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "on run argv\n\(source)\nend run"] + arguments
