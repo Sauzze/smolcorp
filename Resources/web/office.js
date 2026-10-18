@@ -2587,7 +2587,7 @@
     roundedAlready(person, obstacle) {
       person.rounded ??= new Map();
       const at = person.rounded.get(obstacle);
-      if (at && near(at, obstacle.position, 3)) return true;
+      if (at && Math.hypot(at.x - obstacle.position.x, at.y - obstacle.position.y) < 3) return true;
       person.rounded.set(obstacle, { ...obstacle.position });
       return false;
     }
