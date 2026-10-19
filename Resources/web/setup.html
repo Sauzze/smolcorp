@@ -487,6 +487,7 @@
         <div class="field"><span>Desks</span><div class="choices" id="room-desk"></div></div>
         <div class="field"><span>Monitors</span><div class="choices" id="room-monitor"></div></div>
         <div class="field"><span>Door</span><div class="choices" id="room-door"></div></div>
+        <div class="field"><span>Drift</span><div class="choices" id="room-drift"></div></div>
         <div class="field"><span>Chairs</span><div class="choices" id="room-chair"></div></div>
         <h3>Life</h3>
         <div class="field"><span>Daylight</span><div class="choices" id="room-sky"></div></div>
@@ -1431,13 +1432,16 @@
       ['hifi', 'A hi-fi'], ['synth', 'A synth rig'], ['cauldron', 'A bubbling cauldron'], ['graveyard', 'A little graveyard'],
       ['lanterns', 'Lanterns and pumpkins'], ['pumpkinrack', 'A ball rack with a pumpkin'], ['halfcourt', 'A half-court hoop'],
       ['arcadehoop', 'An arcade hoop'], ['ballrack', 'A ball rack'], ['studiodesk', 'A studio desk'], ['bench', 'A team bench'],
-      ['coffinbox', 'A coffin jukebox'], ['skeletonmodel', 'A skeleton on a stand'], ['none', 'Nothing']],
+      ['coffinbox', 'A coffin jukebox'], ['skeletonmodel', 'A skeleton on a stand'],
+      ['xmastree', 'A Christmas tree'], ['fireplace', 'A fireplace with stockings'], ['sleigh', 'A sleigh to sit in'],
+      ['carolbox', 'A carols jukebox'], ['none', 'Nothing']],
     sky: [['live', 'Follows the clock'], ['day', 'Always day']],
     season: [['calendar', 'Follow the calendar'], ['off', 'Off']],
     pet: [['cat', 'Cat'], ['dog', 'Dog'], ['lizard', 'Lizard'], ['monkey', 'Monkey'], ['llama', 'Llama'], ['penguin', 'Penguin'],
       ['parrot', 'Parrot'], ['owl', 'Owl'], ['capybara', 'Capybara'], ['redpanda', 'Red panda'], ['corgi', 'Corgi'],
       ['hamster', 'Hamster in a ball'], ['robodog', 'Robot dog'], ['bat', 'Bat'], ['snail', 'Snail'], ['fox', 'Fox'], ['axolotl', 'Axolotl'],
-      ['blackcat', 'Black cat'], ['goat', 'Goat'], ['raven', 'Raven'], ['ghost', 'Little ghost'], ['spider', 'Spider on a thread']],
+      ['blackcat', 'Black cat'], ['goat', 'Goat'], ['raven', 'Raven'], ['ghost', 'Little ghost'], ['spider', 'Spider on a thread'],
+      ['reindeer', 'Reindeer'], ['snowman', 'Little snowman']],
     sound: [['off', 'Off'], ['quiet', 'Quiet'], ['normal', 'Normal']],
     ambience: [['on', 'On'], ['off', 'Off']],
     desk: [['wood', 'Wood', '#c49a6c'], ['walnut', 'Walnut', '#7e5536'], ['white', 'White', '#e9e6de'], ['black', 'Black', '#3c404a']],
@@ -1447,12 +1451,15 @@
       ['hover', 'A hover desk'], ['chest', 'A sea chest'], ['gilded', 'A gilded desk'], ['crates', 'Expedition cases'],
       ['altar', 'A stone altar'], ['log', 'A log desk'], ['bench', 'A workbench'], ['bamboo', 'A bamboo desk'], ['rack', 'A weight rack'],
       ['drafting', 'A drafting table'], ['glass', 'A glass desk'], ['scorer', "A scorer's table"],
-      ['anchor', 'An anchor desk'], ['coffin', 'A coffin desk'], ['waxdesk', 'A candle-wax desk'], ['clawdesk', 'A haunted-wood desk']],
+      ['anchor', 'An anchor desk'], ['coffin', 'A coffin desk'], ['waxdesk', 'A candle-wax desk'], ['clawdesk', 'A haunted-wood desk'],
+      ['gingerdesk', 'A gingerbread desk'], ['workbench', "Santa's workbench"]],
     monitor: [['standard', 'Standard'], ['crt', 'CRT'], ['holo', 'Hologram'], ['brass', "Ship's monitor"], ['crystal', 'Crystal ball'],
       ['gilt', 'Gilt frame'], ['ice', 'Frozen'], ['ultrawide', 'Curved ultrawide'], ['dual', 'Two monitors'], ['laptop', 'Rugged laptop'],
       ['bamboo', 'Bamboo frame'], ['tablet', 'Tablet on an arm'], ['portrait', 'Turned on its side'], ['broadcast', 'Broadcast monitor'],
-      ['ghostcrt', 'Haunted CRT'], ['ouija', 'Ouija frame'], ['tombstone', 'Tombstone']],
-    door: [['standard', 'As it comes'], ['haunted', 'Haunted']],
+      ['ghostcrt', 'Haunted CRT'], ['ouija', 'Ouija frame'], ['tombstone', 'Tombstone'], ['candycane', 'Candy-cane frame'],
+      ['giftwrap', 'Wrapped like a present']],
+    door: [['standard', 'As it comes'], ['haunted', 'Haunted'], ['wreathdoor', 'With a wreath']],
+    drift: [['none', 'Nothing'], ['snow', 'Snow']],
     chair: [['teal', 'Teal', '#3f7080'], ['black', 'Black', '#353842'], ['red', 'Red', '#9a3c3a'], ['grey', 'Grey', '#737987'],
       ['green', 'Green', '#3f7a4c']],
     staff: [['some', 'A few'], ['none', 'None'], ['many', 'Lots']],
@@ -1474,12 +1481,13 @@
     ['ghosts', 'Hanging ghosts'], ['broom', "Witch's broom and hat"], ['leafgarland', 'Autumn garland'],
     ['hauntedhoop', 'Haunted hoop'], ['spookyboard', 'Spooky scoreboard'], ['candycorn', 'Candy-corn pennants'],
     ['hoop', 'Basketball hoop'], ['scorebug', 'Score bug'], ['lowerthird', 'Lower third'], ['onair', 'On-air sign'],
-    ['schedule', 'Week strip'], ['pennants', 'Pennants'], ['retired', 'Framed jersey'], ['playboard', 'Play board']];
+    ['schedule', 'Week strip'], ['pennants', 'Pennants'], ['retired', 'Framed jersey'], ['playboard', 'Play board'],
+    ['garland', 'Christmas garland']];
   ROOM_CHOICES.lounge.push(...ROOM_CHOICES.floor);
   ROOM_CHOICES.loungePaint = [['auto', 'Same as the walls'], ...ROOM_CHOICES.paint];
   const STANDARD_ROOM = { mic: 'mic', wall: ['window', 'whiteboard', 'window', 'pinboard', 'window'], floor: 'wood', paint: 'slate',
     lounge: 'navy', loungePaint: 'auto', corner: 'arcade', sky: 'live', pet: [], season: 'calendar', sound: 'off', ambience: 'on', desk: 'wood', workspace: 'desk',
-    monitor: 'standard', door: 'standard', chair: 'teal', staff: 'some', preset: 'yours' };
+    monitor: 'standard', door: 'standard', drift: 'none', chair: 'teal', staff: 'some', preset: 'yours' };
   /** What a style furnishes, as office.js has it: changing one of these goes back to Yours. Its pet too, but picking pets
       doesn't: the ones you pick take the place of the style's own. */
   const STYLED = new Set(['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'desk', 'workspace', 'monitor', 'chair',
@@ -1522,7 +1530,9 @@
       ['jersey', 'Team jersey'], ['warmup', 'Warm-up suit'], ['referee', 'Referee'], ['coachpolo', "Coach's polo"],
       ['blazer', "Presenter's blazer"],
       // Halloween's, again
-      ['werewolf', 'Werewolf']]],
+      ['werewolf', 'Werewolf'],
+      // Christmas's
+      ['santa', 'Santa suit'], ['xmasjumper', 'Christmas jumper']]],
     colour: ['Colour', [['auto', 'Auto'], ['orange', 'Orange'], ['red', 'Red'], ['pink', 'Pink'], ['purple', 'Purple'], ['blue', 'Blue'],
       ['teal', 'Teal'], ['green', 'Green'], ['yellow', 'Yellow'], ['grey', 'Grey'], ['black', 'Black'], ['white', 'White']]],
     desk: ['On the desk', [['auto', 'Auto'], ['plant', 'A plant'], ['papers', 'Papers'], ['lamp', 'A lamp'], ['cactus', 'A cactus'],
@@ -1538,7 +1548,7 @@
       ['candy', 'Candy corn'], ['pumpkinball', "A jack-o'-lantern ball"], ['batfinger', 'A bat-wing foam finger'],
       ['basketball', 'A basketball'], ['whistle', 'A whistle'], ['stopwatch', 'A stopwatch'],
       ['sneaker', 'A sneaker'], ['foamfinger', 'A foam finger'], ['cup', 'A championship cup'], ['clipboard', 'A clipboard'],
-      ['none', 'Nothing']]],
+      ['cocoa', 'A mug of cocoa'], ['none', 'Nothing']]],
     workspace: ['Works at', [['auto', 'Where everyone does'], ...ROOM_CHOICES.workspace]],
   };
   const NICKNAME_LIMIT = 16;
@@ -1726,7 +1736,7 @@
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
     // What's picked in each row: in a style, as the style furnishes it.
     const shown = furnished(room);
-    for (const part of ['floor', 'paint', 'sky', 'season', 'sound', 'ambience', 'desk', 'monitor', 'door', 'chair', 'staff']) {
+    for (const part of ['floor', 'paint', 'sky', 'season', 'sound', 'ambience', 'desk', 'monitor', 'door', 'drift', 'chair', 'staff']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label, swatch]) =>
         choice(label, (shown[part] || STANDARD_ROOM[part]) === id, () => furnish((r) => { r[part] = id; }, part), swatch)));
     }
