@@ -135,7 +135,7 @@ struct Room: Codable, Equatable {
         "corner": ["arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
                    "telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub",
                    "ballpit", "campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth",
-                   "cauldron", "graveyard", "lanterns", "none"],
+                   "cauldron", "graveyard", "lanterns", "pumpkinrack", "none"],
         "sky": ["live", "day"],
         "season": ["calendar", "off"],
         "sound": ["off", "quiet", "normal"],
@@ -149,7 +149,7 @@ struct Room: Codable, Equatable {
         "preset": Room.presets,
     ]
     static let floors = ["wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest",
-                         "rubber", "epoxy", "arcade"]
+                         "rubber", "epoxy", "arcade", "hauntedcourt"]
     static let paints = ["slate", "sage", "clay", "cream", "hull", "timber", "damask", "stone", "ice", "logs", "brick", "bamboo",
                          "block", "foam"]
     /// The office's styles: Yours, as you furnished it, then each that
@@ -164,7 +164,8 @@ struct Room: Codable, Equatable {
                               "viewport", "porthole", "panel", "pipes", "seaPorthole", "map", "flag", "cutlasses", "tapestry",
                               "portrait", "stained", "shield", "frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex",
                               "pegboard", "roller", "bike", "mirror", "timer", "climbing", "vines", "tiki", "blind", "cabin", "trail",
-                              "paddles", "pumpkins", "lanternhang", "cobweb", "ghosts", "broom", "leafgarland"]
+                              "paddles", "pumpkins", "lanternhang", "cobweb", "ghosts", "broom", "leafgarland", "hauntedhoop", "spookyboard",
+                              "candycorn"]
     static let standardWall = ["window", "whiteboard", "window", "pinboard", "window"]
     /// The pets an office can have, and the most it has at once.
     static let pets = ["cat", "dog", "lizard", "monkey", "llama", "penguin", "parrot", "owl", "capybara", "redpanda", "corgi", "hamster",
@@ -255,13 +256,13 @@ struct TeamMember: Codable, Equatable {
                    // A style's own, and each model family's
                    "astronaut", "flightsuit", "pirate", "captain", "parka", "explorer", "robe", "knight", "wizard", "gamer",
                    "founder", "gymkit", "safari", "flannel", "hire", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
-                   "deepseek", "kimi", "glm", "phi", "witch", "skeleton", "mummy"],
+                   "deepseek", "kimi", "glm", "phi", "witch", "skeleton", "mummy", "refskeleton", "mummyjersey"],
         "colour": ["auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"],
         "desk": ["auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug",
                  "helmet", "rocket", "terrarium", "quill", "candelabra", "goblet", "rum", "compass", "skull", "snowglobe", "thermos",
                  "penguin", "potions", "egg", "spellbook", "controller", "energy", "headset", "circuit", "pizza", "coffeepot",
                  "dumbbell", "shaker", "kettlebell", "coconut", "pineapple", "tikimug", "enamel", "lantern", "pinecone",
-                 "jackolantern", "candles", "candy", "none"],
+                 "jackolantern", "candles", "candy", "pumpkinball", "batfinger", "none"],
         "workspace": ["auto"] + Room.workspaces,
     ]
     /// The most a nickname can be, in characters.

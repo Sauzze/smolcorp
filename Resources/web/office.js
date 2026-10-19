@@ -213,6 +213,7 @@
     djtable: { x: 244, y: 55, w: 64, h: 43 }, turntable: { x: 259, y: 54, w: 45, h: 39 }, boombox: { x: 257, y: 55, w: 36, h: 38 },
     hifi: { x: 250, y: 50, w: 52, h: 43 }, synth: { x: 257, y: 49, w: 40, h: 44 },
     cauldron: { x: 258, y: 58, w: 38, h: 36 }, graveyard: { x: 244, y: 66, w: 64, h: 28 }, lanterns: { x: 258, y: 72, w: 40, h: 22 },
+    pumpkinrack: { x: 258, y: 62, w: 40, h: 32 },
   };
   /** What `part` takes up, in the wide room as it comes: the corner's by what's in it, null with nothing there. */
   const pieceRect = (part) => (part === 'corner' ? CORNER_BOXES[decor.corner] || null
@@ -424,17 +425,17 @@
   const ROOM_CHOICES = {
     mic: ['mic', 'megaphone', 'studio', 'podcast', 'karaoke', 'headset', 'walkie', 'tincan', 'radio'],
     floor: ['wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass', 'forest', 'rubber',
-      'epoxy', 'arcade'],
+      'epoxy', 'arcade', 'hauntedcourt'],
     paint: ['slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block', 'foam'],
     // The lounge's floor: a carpet, or any of the office's floors; and its wall, as the office's unless it has its own
     lounge: ['navy', 'teal', 'plum', 'sand', 'wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass',
-      'forest', 'rubber', 'epoxy', 'arcade'],
+      'forest', 'rubber', 'epoxy', 'arcade', 'hauntedcourt'],
     loungePaint: ['auto', 'slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block',
       'foam'],
     corner: ['arcade', 'vending', 'foosball', 'fishtank', 'books', 'dragon', 'pinball', 'jukebox', 'pool', 'piano', 'drums',
       'telescope', 'jellyfish', 'bonsai', 'jungle', 'coffee', 'servers', 'printer', 'boxing', 'treadmill', 'hottub', 'ballpit',
       'campfire', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'cauldron', 'graveyard',
-      'lanterns', 'none'],
+      'lanterns', 'pumpkinrack', 'none'],
     sky: ['live', 'day'],
     pet: ['none', 'cat', 'dog', 'lizard', 'monkey', 'llama', 'penguin', 'parrot', 'owl', 'capybara', 'redpanda', 'corgi', 'hamster',
       'robodog', 'bat', 'snail', 'fox', 'axolotl', 'blackcat'],
@@ -510,7 +511,7 @@
     'viewport', 'porthole', 'panel', 'pipes', 'seaPorthole', 'map', 'flag', 'cutlasses', 'tapestry', 'portrait', 'stained',
     'shield', 'frost', 'skis', 'weather', 'torch', 'arch', 'neon', 'tv', 'hex', 'pegboard', 'roller',
     'bike', 'mirror', 'timer', 'climbing', 'vines', 'tiki', 'blind', 'cabin', 'trail', 'paddles',
-    'pumpkins', 'lanternhang', 'cobweb', 'ghosts', 'broom', 'leafgarland'];
+    'pumpkins', 'lanternhang', 'cobweb', 'ghosts', 'broom', 'leafgarland', 'hauntedhoop', 'spookyboard', 'candycorn'];
   const STANDARD_WALL = ['window', 'whiteboard', 'window', 'pinboard', 'window'];
   /** The middle of each of the back wall's places, left to right. */
   const WALL_SLOTS = [44, 77, 110, 143, 176];
@@ -524,7 +525,7 @@
     pipes: 40, seaPorthole: 22, map: 28, flag: 24, cutlasses: 22, tapestry: 26, portrait: 20, stained: 26, shield: 24,
     frost: 36, skis: 20, weather: 22, torch: 20, arch: 20, neon: 14, tv: 32, hex: 26, pegboard: 26, roller: 34,
     bike: 26, mirror: 24, timer: 28, climbing: 26, vines: 32, tiki: 12, blind: 36, cabin: 34, trail: 26, paddles: 22,
-    pumpkins: 32, lanternhang: 20, cobweb: 26, ghosts: 34, broom: 28, leafgarland: 36,
+    pumpkins: 32, lanternhang: 20, cobweb: 26, ghosts: 34, broom: 28, leafgarland: 36, hauntedhoop: 30, spookyboard: 40, candycorn: 36,
   };
   const wallWidthOf = (kind) => WALL_WIDTHS[kind] || 32;
   /** Where along the back wall a piece can hang, edge to edge, in each shape: clear of the doorway. */
@@ -635,6 +636,7 @@
     cauldron: [{ x: 262, y: 92, pose: 'stand' }, { x: 293, y: 92, pose: 'stand' }],
     graveyard: [{ x: 276, y: 96, pose: 'away' }],
     lanterns: [],
+    pumpkinrack: [{ x: 276, y: 96, pose: 'away' }],
     none: [],
   };
 
@@ -1164,6 +1166,9 @@
     witch: { style: 'witch', tint: 0.35, robe: true, shoes: 0x1a1a1f },
     skeleton: { style: 'skeleton', shirt: 0x1d1d22, pants: 0x1d1d22, shoes: 0x1d1d22, sleeves: 0x1d1d22 },
     mummy: { style: 'mummy', shirt: 0xe2dcc6, pants: 0xd6cfb6, shoes: 0xb8b098, sleeves: 0xe2dcc6 },
+    // Sport's Halloween: a referee's stripes on a skeleton, a team jersey in the agent's colour over a mummy's wraps
+    refskeleton: { style: 'refskeleton', shirt: 0xf4f1ea, pants: 0x1d1d22, shoes: 0x1d1d22, sleeves: 0x1d1d22 },
+    mummyjersey: { style: 'mummyjersey', tint: 1, pants: 0xd6cfb6, shoes: 0xb8b098, sleeves: 0xe2dcc6 },
   };
   /**
    * What an agent left on Auto wears for the workspace they're at, in their
@@ -1341,12 +1346,13 @@
     outfit: ['auto', 'tee', 'hoodie', 'collar', 'sweater', 'jacket', 'suit', 'labcoat', 'polo', 'cardigan', 'hawaiian', 'tracksuit',
       'overalls', 'waistcoat', 'astronaut', 'flightsuit', 'pirate', 'captain', 'parka', 'explorer', 'robe', 'knight', 'wizard', 'gamer',
       'founder', 'gymkit', 'safari', 'flannel', 'hire', 'claude', 'gpt', 'gemini', 'grok', 'qwen', 'llama', 'mistral', 'deepseek', 'kimi', 'glm',
-      'phi', 'witch', 'skeleton', 'mummy'],
+      'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
       'potions', 'egg', 'spellbook', 'controller', 'energy', 'headset', 'circuit', 'pizza', 'coffeepot', 'dumbbell', 'shaker',
-      'kettlebell', 'coconut', 'pineapple', 'tikimug', 'enamel', 'lantern', 'pinecone', 'jackolantern', 'candles', 'candy', 'none'],
+      'kettlebell', 'coconut', 'pineapple', 'tikimug', 'enamel', 'lantern', 'pinecone', 'jackolantern', 'candles', 'candy', 'pumpkinball', 'batfinger',
+      'none'],
     workspace: ['auto', ...ROOM_CHOICES.workspace],
   };
   /** The most a nickname can be, in characters, and the most projects a team remembers. */
@@ -2745,7 +2751,7 @@
     U: ['101', '101', '101', '101', '111'], Y: ['101', '101', '010', '010', '010'], "'": ['1', '1', '0', '0', '0'],
     A: ['010', '101', '111', '101', '101'], C: ['011', '100', '100', '100', '011'], L: ['100', '100', '100', '100', '111'],
     N: ['101', '111', '111', '101', '101'], S: ['011', '100', '010', '001', '110'], T: ['111', '010', '010', '010', '010'],
-    W: ['101', '101', '111', '111', '101'],
+    W: ['101', '101', '111', '111', '101'], M: ['10001', '11011', '10101', '10001', '10001'],
     ' ': ['00', '00', '00', '00', '00'],
   };
   /** How wide `text` is in the pixel font. */
@@ -4149,6 +4155,17 @@
       },
     };
 
+    /** What drifts over a floor each frame, over it as it's kept, from `L`, `T` to `R`, `B`: the haunted court's fog, thicker at night. */
+    const FLOOR_AIRS = {
+      hauntedcourt(L, T, R, B) {
+        const w = R - L + 40, h = B - T - 10, count = Math.min(10, Math.max(3, Math.round(((R - L) * (B - T)) / 3000)));
+        for (let k = 0; k < count; k++) {
+          const fx = L - 20 + ((now * (3 + (k % 3)) + k * 53) % w), fy = T + 8 + ((k * 37) % h);
+          glowAt(Math.round(fx), fy, 13, 2, 0xc8d8d0, isNight ? 0.18 : 0.09);
+        }
+      },
+    };
+
     /** The office's floors besides wood, tiles, concrete and carpet, each from `L`, `T` to `R`, `B`, lined up from the room's corner. */
     const FLOOR_FINISHES = {
       /** Deck plating. Riveted plates with a grille every so often. */
@@ -4237,6 +4254,15 @@
         for (let x = from(L, 120, 60); x < R; x += 120) fill(x, T, 2, B - T, 0xe8c04a);
         for (let x = from(L, 120, 20); x < R; x += 120) { const y = T + 14; fill(x, y, 7, 3, 0x3e4148, 0.7); fill(x + 1, y - 1, 5, 5, 0x3e4148, 0.7); dot(x + 2, y, 0x8a7ab0, 0.4); }
         for (let x = from(L, 40, 10); x < R; x += 40) fill(x, T + 3, 1, B - T - 3, WHITE, 0.05);
+      },
+      /** Haunted court. Old dark boards, cracked, the lines worn pale, the key painted purple. Fog creeps over it: see FLOOR_AIRS. */
+      hauntedcourt(L, T, R, B) {
+        drawCourt(L, T, R, B, { board: 0x5e4a38, alt: 0x665140, seam: 0x4e3c2e, line: 0xc8d8c0, lineAlpha: 0.5, paint: 0x4a2e62, paintAlpha: 0.6 });
+        for (let y = T, r = 0; y < B; y += 9, r++) for (let x = from(L, 13, (r % 2) * 6); x < R; x += 13) {
+          const h = hash(x, r);
+          if (h % 7 === 0) { dot(x + 2, y + 3, 0x2a1e16); dot(x + 3, y + 4, 0x2a1e16); dot(x + 4, y + 4, 0x2a1e16); }
+          if ((h >>> 5) % 9 === 0) dot(x + ((h >>> 9) % 11), y + ((h >>> 3) % 8), 0x8a8f7c);
+        }
       },
       /** Arcade carpet. The dark carpet with neon squiggles every arcade had. */
       arcade(L, T, R, B) {
@@ -4358,6 +4384,63 @@
       if (face === null) return;
       const mid = t + (big ? 3 : 2);
       for (const [dx, dy] of PUMPKIN_FACES[big ? 'big' : 'small'][face % 4]) dot(cx + dx, mid + dy, shaded(0xffd85a, 0.7 + 0.3 * lit));
+    }
+
+    /** A basketball round `cx`, `cy`, `r` across: its seams, or carved as a jack-o'-lantern and lit at `lit`. */
+    function drawBall(cx, cy, r = 3, carved = false, lit = 1) {
+      disc(cx, cy, r + 0.4, 0xd9692a);
+      for (const [dx, dy] of [[1, 3], [2, 2], [3, 1]]) dot(cx + dx, cy + dy, 0xb04e1a);
+      dot(cx - 1, cy - 2, 0xf0a060);
+      dot(cx - 2, cy - 1, 0xf0a060);
+      const seam = 0x6a2e12;
+      if (carved) {
+        for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [0, 1], [1, 1]]) dot(cx + dx, cy + dy, shaded(0xffd85a, 0.7 + 0.3 * lit));
+        dot(cx, cy - r - 1, 0x3f8a4a);
+        return;
+      }
+      fill(cx, cy - r + 1, 1, r * 2 - 1, seam);
+      fill(cx - r + 1, cy, r * 2 - 1, 1, seam);
+    }
+
+    /**
+     * A basketball court's boards and lines from `L`, `T` to `R`, `B`, in
+     * `c`'s colours: the baseline along `T`, the key and its circle and the
+     * three-point arc under the back wall's middle place (or the middle of
+     * a floor that doesn't reach it), and the half-court line and its circle.
+     */
+    function drawCourt(L, T, R, B, c) {
+      fill(L, T, R - L, B - T, c.board);
+      for (let y = T + 3, row = 0; y < B + 3; y += 3, row++) {
+        if (row % 3 === 1) fill(L, y - 2, R - L, 2, c.alt);
+        fill(L, y, R - L, 1, c.seam);
+        for (let x = from(L, 56, (row % 4) * 14); x < R; x += 56) fill(x, y - 2, 1, 2, c.seam);
+      }
+      const cx = L < WALL_SLOTS[2] && R > WALL_SLOTS[2] ? WALL_SLOTS[2] : Math.round((L + R) / 2), base = T + 1;
+      const mark = (x, y) => { if (x >= L && x < R && y >= T && y < B) dot(x, y, c.line, c.lineAlpha); };
+      fill(cx - 12, base, 25, 36, c.paint, c.paintAlpha);
+      fill(L, base, R - L, 1, c.line, c.lineAlpha);
+      fill(cx - 12, base + 1, 1, 35, c.line, c.lineAlpha);
+      fill(cx + 12, base + 1, 1, 35, c.line, c.lineAlpha);
+      fill(cx - 12, base + 36, 25, 1, c.line, c.lineAlpha);
+      for (let k = 0; k < 64; k++) {
+        const a = (k / 64) * Math.PI * 2, y = Math.round(base + 36 + Math.sin(a) * 11);
+        if (y < base + 36 && k % 4 > 1) continue; // inside the key, dashed
+        mark(cx + Math.round(Math.cos(a) * 12), y);
+      }
+      // The arc, straight down from the baseline at its ends
+      for (const side of [-1, 1]) for (let y = base + 1; y <= base + 6; y++) mark(cx + side * 50, y);
+      for (let k = 0; k <= 160; k++) {
+        const a = (k / 160) * Math.PI;
+        mark(cx + Math.round(Math.cos(a) * 50), base + 6 + Math.round(Math.sin(a) * 44));
+      }
+      const half = base + 100;
+      if (half < B) {
+        fill(L, half, R - L, 1, c.line, c.lineAlpha);
+        for (let k = 0; k < 80; k++) {
+          const a = (k / 80) * Math.PI * 2;
+          mark(cx + Math.round(Math.cos(a) * 12), half + Math.round(Math.sin(a) * 11));
+        }
+      }
     }
 
     /** A candle's or a lantern's light, wavering softly: from 0.6 to 1, `k` keeping each in its own time. */
@@ -4851,6 +4934,66 @@
           }
         }
       },
+      /**
+       * Haunted hoop. Cobwebs on the backboard, a sheet ghost for a net; every
+       * so often a jack-o'-lantern ball drops through it and the ghost bounces.
+       */
+      hauntedhoop(x) {
+        const t = now % 20, dropping = t < 1.4, by = 4 + Math.round((t / 1.4) * 34);
+        fill(x - 13, 2, 27, 15, 0x6a6e76);
+        fill(x - 12, 3, 25, 13, 0xd8d4c8);
+        fill(x - 12, 3, 25, 1, 0xe8e4d8);
+        for (const [l, t2, w, h] of [[-5, 8, 11, 1], [-5, 8, 1, 7], [5, 8, 1, 7]]) fill(x + l, t2, w, h, 0x9a3a32, 0.7);
+        // Cobwebs in its corners, and a spider let down from one
+        for (const [cx, dir] of [[x - 12, 1], [x + 12, -1]]) {
+          for (const r of [3, 6]) for (let a = 0; a <= 6; a++) {
+            const angle = (a / 6) * (Math.PI / 2);
+            dot(cx + dir * Math.round(Math.cos(angle) * r), 3 + Math.round(Math.sin(angle) * r), WHITE, 0.5);
+          }
+          line(cx, 3, cx + dir * 6, 9, WHITE, 0.4);
+        }
+        const sy = 21 + Math.round((Math.sin(now * 0.7) + 1) * 2);
+        line(x + 10, 16, x + 10, sy - 1, WHITE, 0.4);
+        fill(x + 9, sy, 3, 2, 0x1a1a1f);
+        for (const [dx, dy] of [[-1, 0], [3, 0], [-1, 2], [3, 2]]) dot(x + 9 + dx, sy + dy, 0x3a3d47);
+        if (dropping && by < 22) drawBall(x, by, 3, true);
+        fill(x - 1, 16, 3, 3, 0x5a5f6c);
+        fill(x - 6, 19, 13, 2, 0xe0602a);
+        fill(x - 6, 19, 13, 1, 0xf08a4a);
+        // The net, a ghost hung from the rim, its hem fluttering
+        const bob = dropping && by >= 18 && by < 30 ? 1 : 0;
+        const ghost = ['XXXXXXXXX', 'XXXXXXXXX', 'XXEXXXEXX', 'XXXXXXXXX', '.XXXOXXX.', '.XXXXXXX.', '..XXXXX..'];
+        const hem = Math.floor(now * 1.5) % 2 ? '..X.X.X..' : '...X.X...';
+        [...ghost, hem].forEach((row, r) => [...row].forEach((c, k) => {
+          if (c !== '.') dot(x - 4 + k, 21 + r + bob, c === 'X' ? (k === 8 ? 0xd8d4c8 : 0xf4f1ea) : 0x1a1a1f, c === 'X' ? 0.92 : 1);
+        }));
+        if (dropping && by >= 30) drawBall(x, Math.min(by, 35), 3, true, 1 - (by - 30) / 10);
+      },
+      /** Spooky scoreboard. HOME 13, GHOSTS 31; every so often it flickers and the ghosts' score jumps. */
+      spookyboard(x) {
+        const flicker = (now % 9) < 0.35, dim = flicker && Math.floor(now * 20) % 2 === 0 ? 0.35 : 1;
+        fill(x - 19, 5, 39, 21, 0x3a3d47);
+        fill(x - 18, 6, 37, 19, 0x0e0e12);
+        for (const [rx, ry] of [[-18, 6], [18, 6], [-18, 24], [18, 24]]) dot(x + rx, ry, 0x6a6e76);
+        const amber = shaded(0xffb04a, dim), slime = shaded(0x6fe08a, dim);
+        pixelText('HOME', x - 16, 9, amber, false);
+        pixelText('13', x + 10, 9, amber, false);
+        pixelText('GHOSTS', x - 16, 17, slime, false);
+        pixelText(flicker ? '32' : '31', x + 10, 17, slime, false);
+        fill(x - 16, 15, 33, 1, 0x26262c);
+        // A bat on each top corner
+        for (const bx of [x - 19, x + 17]) { fill(bx, 4, 3, 1, 0x1a1a1f); dot(bx - 1, 3, 0x1a1a1f); dot(bx + 3, 3, 0x1a1a1f); dot(bx + 1, 5, 0x1a1a1f); }
+      },
+      /** Candy-corn pennants. Pennants in candy corn's yellow, orange and white, along a swag of string. */
+      candycorn(x) {
+        const sag = (dx) => 5 + Math.round(Math.sin(((dx + 17) / 34) * Math.PI) * 3);
+        for (let dx = -17; dx <= 17; dx++) dot(x + dx, sag(dx), 0x5a3b25);
+        for (let dx = -16; dx <= 11; dx += 9) {
+          const top = sag(dx + 3) + 1;
+          [[7, 0xf2c43a], [7, 0xf2c43a], [5, 0xe8823a], [5, 0xe8823a], [3, 0xe8823a], [3, 0xf4f1ea], [1, 0xf4f1ea]]
+            .forEach(([w, c], r) => fill(x + dx + (7 - w) / 2, top + r, w, 1, c));
+        }
+      },
       /** Crossed paddles. Two canoe paddles, their blades painted. */
       paddles(x) {
         for (const [dir, tipColour] of [[1, 0xc9443a], [-1, 0x3f6fc4]]) {
@@ -4982,6 +5125,7 @@
       if (!Number.isInteger(scale) || !Number.isInteger(ox) || !Number.isInteger(oy)) {
         drawFloorOf(kind, L, T, R, B);
         if (FLOOR_GLINTS[kind]) drawGlints(FLOOR_GLINTS[kind](L, T, R, B));
+        if (FLOOR_AIRS[kind]) FLOOR_AIRS[kind](L, T, R, B);
         return;
       }
       const doc = ctx.canvas.ownerDocument || document;
@@ -5009,6 +5153,7 @@
       kept.set(key, floor);
       ctx.drawImage(floor.canvas, ox + L * scale, oy + T * scale);
       if (floor.glints) drawGlints(floor.glints);
+      if (FLOOR_AIRS[kind]) FLOOR_AIRS[kind](L, T, R, B);
     }
 
     /** Glints on a floor, each twinkling in its own time. */
@@ -6122,6 +6267,25 @@
         fill(x + 35, y - 2, 9, 2, 0x3a2a4a);
         fill(x + 35, y - 2, 9, 1, 0x5a4a6a);
         fill(x + 36, y, 7, 1, 0x2a1e36);
+      },
+      /** A jack-o'-lantern basketball on a little stand. */
+      pumpkinball(x, y) {
+        fill(x + 37, y, 5, 1, 0x5a5f6c);
+        drawBall(x + 39, y - 4, 3, true, candlelight(x));
+      },
+      /** A bat-wing foam finger, its wings flapping now and then. */
+      batfinger(x, y) {
+        const foam = 0x2a2433, flap = (now % 4) < 0.6 && Math.floor(now * 6) % 2 ? -1 : 0;
+        fill(x + 38, y - 4, 4, 4, foam);
+        fill(x + 39, y - 8, 2, 4, foam);
+        dot(x + 37, y - 3, foam);
+        dot(x + 39, y - 2, 0x9a6ad0);
+        dot(x + 40, y - 2, 0x9a6ad0);
+        for (const [wx, dir] of [[x + 37, -1], [x + 42, 1]]) {
+          fill(wx + (dir < 0 ? -2 : 0), y - 6 + flap, 3, 1, 0x3e3650);
+          dot(wx + dir * 2, y - 5 + flap, 0x3e3650);
+          dot(wx, y - 5, 0x3e3650);
+        }
       },
     };
 
@@ -7296,6 +7460,22 @@
       dot(283, 89, 0x3f8a4a);
     }
 
+    /** A rack of basketballs on wheels, three to a shelf, a jack-o'-lantern in the top one's middle. */
+    function drawPumpkinRack() {
+      const steel = 0x5a5f6c, light = 0x8a8f9c;
+      fill(262, 93, 34, 1, SHADOW);
+      for (const px of [263, 293]) { fill(px, 66, 2, 26, steel); fill(px, 66, 1, 26, light); }
+      for (const [rail, i] of [[75, 0], [83, 1], [91, 2]]) {
+        fill(263, rail, 32, 1, steel);
+        fill(263, rail, 32, 1, light, 0.5);
+        [270, 279, 288].forEach((bx, k) => {
+          if (i === 0 && k === 1) drawPumpkin(bx, rail, false, 0, candlelight(5));
+          else drawBall(bx, rail - 4, 3);
+        });
+      }
+      for (const wx of [264, 294]) { fill(wx - 1, 92, 3, 2, 0x2a2a2e); dot(wx, 92, 0x6a6e76); }
+    }
+
     /** Bubbler jukebox. A chrome arch round a glowing tube, bubbles rising in the side tubes. Playing, the tube runs round the colours and the bubbles rise faster. */
     function drawBubbler() {
       // Playing: the computer's music, with the control on, or someone at it
@@ -7977,6 +8157,7 @@
       djtable: [[90, drawDjBooth]], turntable: [[90, drawRecordPlayer], [92, drawRecordCrate]], boombox: [[92, drawBoombox]],
       hifi: [[92, drawHifi]], synth: [[88, drawSynth]],
       cauldron: [[91, drawCauldron]], graveyard: [[93, drawGraveyard]], lanterns: [[92, drawLanterns]],
+      pumpkinrack: [[92, drawPumpkinRack]],
       none: [],
     };
 
@@ -9098,6 +9279,29 @@
           for (const [dx, dy] of [[-2, 1], [1, 2], [3, 1], [-1, 5], [2, 6], [-3, 6]]) dot(x + dx, top + dy, seam);
           if (!away) dot(x + 4, top + 6, o.shirt);
         },
+      },
+      refskeleton: {
+        // A referee's stripes, a whistle on its cord, and the skeleton's skull
+        front(x, y) {
+          for (const dx of [-2, 0, 2]) fill(x + dx, y, 1, 6, 0x1d1d22);
+          fill(x - 3, y, 7, 1, 0x1d1d22);
+          dot(x - 1, y + 1, 0xc8cdd6); dot(x - 1, y + 2, 0xc8cdd6); fill(x - 1, y + 3, 2, 1, 0xc8cdd6);
+        },
+        back(x, y) { for (const dx of [-2, 0, 2]) fill(x + dx, y, 1, 6, 0x1d1d22); },
+        head(x, top, look, away, o) { OUTFIT_PARTS.skeleton.head(x, top, look, away, o); },
+      },
+      mummyjersey: {
+        // A team jersey in the agent's colour, its number 13, the wraps showing round it and coming loose
+        front(x, y, o) {
+          fill(x - 1, y, 3, 1, 0xe2dcc6);
+          dot(x, y + 1, 0xe2dcc6);
+          fill(x - 2, y + 2, 1, 3, WHITE);
+          fill(x, y + 2, 2, 1, WHITE); dot(x + 1, y + 3, WHITE); fill(x, y + 4, 2, 1, WHITE);
+          for (const [dx, dy] of [[-3, 1], [-3, 4], [3, 2], [3, 5], [-2, 5]]) dot(x + dx, y + dy, 0xe2dcc6);
+          dot(x + 4, y + 4, 0xe2dcc6);
+        },
+        back(x, y) { fill(x - 1, y + 1, 3, 3, WHITE); dot(x, y + 2, 0xe2dcc6); dot(x - 3, y + 3, 0xe2dcc6); },
+        head(x, top, look, away, o) { OUTFIT_PARTS.mummy.head(x, top, look, away, { ...o, shirt: 0xe2dcc6 }); },
       },
     };
 
