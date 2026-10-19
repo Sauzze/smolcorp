@@ -99,6 +99,7 @@
     walkie: { pole: 15, tap: { left: -4, top: -31, right: 6, bottom: 1 }, mouth: { dx: 0, dy: -22 }, sound: 'mic-on' },
     tincan: { pole: 15, tap: { left: -5, top: -23, right: 9, bottom: 1 }, mouth: { dx: -3, dy: -19 }, sound: 'mic-on' },
     radio: { pole: 15, tap: { left: -6, top: -28, right: 6, bottom: 1 }, mouth: { dx: 0, dy: -22 }, sound: 'mic-on' },
+    reporter: { pole: 15, tap: { left: -5, top: -30, right: 6, bottom: 1 }, mouth: { dx: 0, dy: -26 }, sound: 'mic-on' },
   };
   /** The plant, moved to the lounge's bottom-left to make room for it: its leaves' left edge. */
   const PLANT_X = 226;
@@ -214,6 +215,8 @@
     hifi: { x: 250, y: 50, w: 52, h: 43 }, synth: { x: 257, y: 49, w: 40, h: 44 },
     cauldron: { x: 258, y: 58, w: 38, h: 36 }, graveyard: { x: 244, y: 66, w: 64, h: 28 }, lanterns: { x: 258, y: 72, w: 40, h: 22 },
     pumpkinrack: { x: 258, y: 62, w: 40, h: 32 }, halfcourt: { x: 262, y: 42, w: 32, h: 52 },
+    arcadehoop: { x: 264, y: 46, w: 28, h: 48 }, ballrack: { x: 258, y: 62, w: 40, h: 32 }, studiodesk: { x: 244, y: 56, w: 64, h: 40 },
+    bench: { x: 254, y: 68, w: 54, h: 26 },
   };
   /** What `part` takes up, in the wide room as it comes: the corner's by what's in it, null with nothing there. */
   const pieceRect = (part) => (part === 'corner' ? CORNER_BOXES[decor.corner] || null
@@ -423,30 +426,30 @@
   const DESK_OWN = ['workspace', 'monitor', 'finish', 'chair', 'thing'];
 
   const ROOM_CHOICES = {
-    mic: ['mic', 'megaphone', 'studio', 'podcast', 'karaoke', 'headset', 'walkie', 'tincan', 'radio'],
+    mic: ['mic', 'megaphone', 'studio', 'podcast', 'karaoke', 'headset', 'walkie', 'tincan', 'radio', 'reporter'],
     floor: ['wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass', 'forest', 'rubber',
-      'epoxy', 'arcade', 'hauntedcourt', 'court'],
+      'epoxy', 'arcade', 'hauntedcourt', 'court', 'studio'],
     paint: ['slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block', 'foam',
-      'primetime'],
+      'primetime', 'bleachers'],
     // The lounge's floor: a carpet, or any of the office's floors; and its wall, as the office's unless it has its own
     lounge: ['navy', 'teal', 'plum', 'sand', 'wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass',
-      'forest', 'rubber', 'epoxy', 'arcade', 'hauntedcourt', 'court'],
+      'forest', 'rubber', 'epoxy', 'arcade', 'hauntedcourt', 'court', 'studio'],
     loungePaint: ['auto', 'slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block',
-      'foam', 'primetime'],
+      'foam', 'primetime', 'bleachers'],
     corner: ['arcade', 'vending', 'foosball', 'fishtank', 'books', 'dragon', 'pinball', 'jukebox', 'pool', 'piano', 'drums',
       'telescope', 'jellyfish', 'bonsai', 'jungle', 'coffee', 'servers', 'printer', 'boxing', 'treadmill', 'hottub', 'ballpit',
       'campfire', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'cauldron', 'graveyard',
-      'lanterns', 'pumpkinrack', 'halfcourt', 'none'],
+      'lanterns', 'pumpkinrack', 'halfcourt', 'arcadehoop', 'ballrack', 'studiodesk', 'bench', 'none'],
     sky: ['live', 'day'],
     pet: ['none', 'cat', 'dog', 'lizard', 'monkey', 'llama', 'penguin', 'parrot', 'owl', 'capybara', 'redpanda', 'corgi', 'hamster',
-      'robodog', 'bat', 'snail', 'fox', 'axolotl', 'blackcat'],
+      'robodog', 'bat', 'snail', 'fox', 'axolotl', 'blackcat', 'goat'],
     season: ['calendar', 'off'],
     sound: ['off', 'quiet', 'normal'],
     // The recorded keyboards and talk under the rest, while there's any sound
     ambience: ['on', 'off'],
     desk: ['wood', 'walnut', 'white', 'black'],
     workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse',
-      'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass', 'scorer'],
+      'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass', 'scorer', 'anchor'],
     monitor: ['standard', 'crt', 'holo', 'brass', 'crystal', 'gilt', 'ice', 'ultrawide', 'dual', 'laptop', 'bamboo', 'tablet', 'portrait',
       'broadcast'],
     chair: ['teal', 'black', 'red', 'grey', 'green'],
@@ -506,6 +509,7 @@
     drafting: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
     glass: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
     scorer: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    anchor: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
   };
   /** The colours of what can sit on a desk besides a plant, papers and a lamp. */
   const DESK_THINGS = { cactus: 0x5a9a4a, duck: 0xf2cf3a, beak: 0xe8823a, sky: 0x8fc0e8, coffee: 0x5a3a24 };
@@ -515,7 +519,7 @@
     'shield', 'frost', 'skis', 'weather', 'torch', 'arch', 'neon', 'tv', 'hex', 'pegboard', 'roller',
     'bike', 'mirror', 'timer', 'climbing', 'vines', 'tiki', 'blind', 'cabin', 'trail', 'paddles',
     'pumpkins', 'lanternhang', 'cobweb', 'ghosts', 'broom', 'leafgarland', 'hauntedhoop', 'spookyboard', 'candycorn',
-    'hoop', 'scorebug', 'lowerthird', 'onair'];
+    'hoop', 'scorebug', 'lowerthird', 'onair', 'schedule', 'pennants', 'retired', 'playboard'];
   const STANDARD_WALL = ['window', 'whiteboard', 'window', 'pinboard', 'window'];
   /** The middle of each of the back wall's places, left to right. */
   const WALL_SLOTS = [44, 77, 110, 143, 176];
@@ -530,7 +534,7 @@
     frost: 36, skis: 20, weather: 22, torch: 20, arch: 20, neon: 14, tv: 32, hex: 26, pegboard: 26, roller: 34,
     bike: 26, mirror: 24, timer: 28, climbing: 26, vines: 32, tiki: 12, blind: 36, cabin: 34, trail: 26, paddles: 22,
     pumpkins: 32, lanternhang: 20, cobweb: 26, ghosts: 34, broom: 28, leafgarland: 36, hauntedhoop: 30, spookyboard: 40, candycorn: 36,
-    hoop: 28, scorebug: 42, lowerthird: 38, onair: 26,
+    hoop: 28, scorebug: 42, lowerthird: 38, onair: 26, schedule: 42, pennants: 32, retired: 24, playboard: 24,
   };
   const wallWidthOf = (kind) => WALL_WIDTHS[kind] || 32;
   /** Where along the back wall a piece can hang, edge to edge, in each shape: clear of the doorway. */
@@ -643,6 +647,10 @@
     lanterns: [],
     pumpkinrack: [{ x: 276, y: 96, pose: 'away' }],
     halfcourt: [{ x: 278, y: 96, pose: 'away' }],
+    arcadehoop: [{ x: 278, y: 96, pose: 'away' }],
+    ballrack: [{ x: 276, y: 96, pose: 'away' }],
+    studiodesk: [{ x: 269, y: 84, pose: 'sit' }, { x: 287, y: 84, pose: 'sit' }],
+    bench: [{ x: 266, y: 90, pose: 'sit' }, { x: 282, y: 90, pose: 'sit' }],
     none: [],
   };
 
@@ -1104,6 +1112,7 @@
     block: { wall: 0x9aa0a8, top: 0x6a7078, wainscot: 0x2a2c30, rail: 0x3a3d42, lounge: 0x9aa0a8 },
     foam: { wall: 0x16171c, top: 0x0e0f13, wainscot: 0x16171c, rail: 0x24262e, lounge: 0x16171c },
     primetime: { wall: 0x0e0e0e, top: 0x080808, wainscot: 0x1a1a1a, rail: 0xf5f5f5, lounge: 0x0e0e0e },
+    bleachers: { wall: 0x2a2a2a, top: 0x111111, wainscot: 0x1a1a1a, rail: 0xf5f5f5, lounge: 0x2a2a2a },
   };
   /** The lounge's carpet, and its edge along the office's floor. */
   const LOUNGES = {
@@ -1180,6 +1189,9 @@
     jersey: { style: 'jersey', tint: 1, matching: true, shoes: TRAINERS, sleeves: 'skin', legs: 'skin' },
     warmup: { style: 'warmup', tint: 1, matching: true, shoes: TRAINERS },
     referee: { style: 'referee', shirt: 0xf4f1ea, pants: 0x1d1d22, shoes: 0x1d1d22 },
+    // The sideline's and the studio's: a coach's polo, a presenter's blazer over a white shirt
+    coachpolo: { style: 'coachpolo', pants: 0x3a3d47, shoes: TRAINERS },
+    blazer: { style: 'blazer', tint: 0.5, pants: 0x1d1d22, shoes: 0x1a1a1f },
   };
   /**
    * What an agent left on Auto wears for the workspace they're at, in their
@@ -1191,7 +1203,7 @@
   const WORKSPACE_DRESS = {
     cockpit: 'astronaut', console: 'astronaut', hover: 'astronaut', ship: 'pirate', chest: 'pirate', throne: 'robe', gilded: 'robe',
     igloo: 'parka', crates: 'parka', greenhouse: 'wizard', altar: 'wizard', tent: 'flannel', log: 'flannel', van: 'flannel',
-    box: 'founder', bench: 'founder', bamboo: 'safari', rack: 'gymkit', gaming: 'gamer', scorer: 'warmup',
+    box: 'founder', bench: 'founder', bamboo: 'safari', rack: 'gymkit', gaming: 'gamer', scorer: 'warmup', anchor: 'blazer',
   };
   const STAFF_DRESS = { astronaut: 'flightsuit', pirate: 'captain', parka: 'explorer', robe: 'knight', warmup: 'referee' };
   /**
@@ -1357,13 +1369,13 @@
     outfit: ['auto', 'tee', 'hoodie', 'collar', 'sweater', 'jacket', 'suit', 'labcoat', 'polo', 'cardigan', 'hawaiian', 'tracksuit',
       'overalls', 'waistcoat', 'astronaut', 'flightsuit', 'pirate', 'captain', 'parka', 'explorer', 'robe', 'knight', 'wizard', 'gamer',
       'founder', 'gymkit', 'safari', 'flannel', 'hire', 'claude', 'gpt', 'gemini', 'grok', 'qwen', 'llama', 'mistral', 'deepseek', 'kimi', 'glm',
-      'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee'],
+      'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee', 'coachpolo', 'blazer'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
       'potions', 'egg', 'spellbook', 'controller', 'energy', 'headset', 'circuit', 'pizza', 'coffeepot', 'dumbbell', 'shaker',
       'kettlebell', 'coconut', 'pineapple', 'tikimug', 'enamel', 'lantern', 'pinecone', 'jackolantern', 'candles', 'candy', 'pumpkinball', 'batfinger',
-      'basketball', 'whistle', 'stopwatch', 'none'],
+      'basketball', 'whistle', 'stopwatch', 'sneaker', 'foamfinger', 'cup', 'clipboard', 'none'],
     workspace: ['auto', ...ROOM_CHOICES.workspace],
   };
   /** The most a nickname can be, in characters, and the most projects a team remembers. */
@@ -1595,6 +1607,7 @@
     fox: { speed: 28, stay: [10, 24] },
     axolotl: { speed: 0, stay: [999, 999] },
     blackcat: { speed: 20, stay: [8, 20] },
+    goat: { speed: 16, stay: [8, 22] },
   };
   /** The corgi's laps of the rug, once an agent has finished, in seconds; the snail's trail, how long it shines. */
   const ZOOMIES = 3.2;
@@ -2042,6 +2055,12 @@
         case 'snail':
           hungOf().forEach((piece) => { if (STORM_PANES[piece.kind]) places.push({ x: piece.x + 6, y: 22, depth: 41.5, pose: 'still' }); });
           places.push(placed('plant', { x: 236, y: 172, pose: 'still' }), placed('wall', { x: 300, y: 58, pose: 'still' }));
+          break;
+        case 'goat':
+          // Up on anything in the lounge with a top to climb, by the couch, out in the corridor, beside the hardest worker
+          for (const { part, kind } of loungePieces()) if (tops[kind]) places.push(placed(part, { ...tops[kind], pose: 'stand' }));
+          places.push(placed('couch', { x: 250, y: 140, pose: 'lie' }), { x: CORRIDOR_X, y: 130, pose: 'stand' });
+          if (desk) places.push({ x: desk.x - 6, y: desk.y + 16, pose: 'stand' });
           break;
         case 'fox':
           places.push(placed('couch', { x: 300, y: 141, pose: 'curl' }), { x: CORRIDOR_X, y: 100, pose: 'sit' });
@@ -4170,6 +4189,34 @@
         }
         fill(L, 38, w, 2, PALETTE.baseboard);
       },
+      /** Arena seating. Tiers of seats, a crowd in them, a wave going round every so often; ad boards along the rail. */
+      bleachers(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 30, 0x1a1a1a);
+        fill(L, 0, w, 2, 0x111111);
+        const wave = (now % 45) / 3, crest = L - 10 + wave * (w + 20);
+        const shirts = [0x3558ce, 0xf5f5f5, 0x8a8a8a, 0x3558ce, 0x45c285, 0x2e2e2e];
+        for (let row = 0; row < 5; row++) {
+          const y = 4 + row * 5;
+          fill(L, y + 3, w, 2, row % 2 ? 0x2e2e2e : 0x363636);
+          for (let x = from(L, 4, (row % 2) * 2); x < R; x += 4) {
+            const h = hash(x, row);
+            if (h % 5 === 0) continue;
+            const up = wave < 1 && Math.abs(x - crest) < 4 ? 1 : 0, skin = SKINS[(h >>> 6) % SKINS.length];
+            fill(x, y + 1 - up, 2, 2, shirts[(h >>> 3) % shirts.length]);
+            dot(x, y - up, skin);
+            if (up) { dot(x - 1, y - 2, skin); dot(x + 2, y - 2, skin); }
+          }
+        }
+        fill(L, 30, w, 8, 0x0e0e0e);
+        fill(L, 30, w, 1, 0x333333);
+        for (let x = from(L, 64, 4); x < R; x += 64) {
+          fill(x, 32, 8, 4, 0x3558ce);
+          fill(x + 8, 32, 24, 4, 0xf5f5f5);
+          fill(x + 10, 33, 14, 1, 0x0e0e0e);
+        }
+        fill(L, 38, w, 2, PALETTE.baseboard);
+      },
     };
 
     /** What moves on a floor, over it as it's kept: where the snow glints, each `h` setting when, from `L`, `T` to `R`, `B`. */
@@ -4296,6 +4343,21 @@
       /** Hardwood court. Pale maple boards, white lines, the key painted the move's blue. */
       court(L, T, R, B) {
         drawCourt(L, T, R, B, { board: 0xc89a62, alt: 0xcea26b, seam: 0xb68856, line: 0xf5f5f5, lineAlpha: 0.9, paint: 0x3558ce, paintAlpha: 0.85 });
+      },
+      /** Studio floor. Polished black squares, the lights caught in them, spike tape where people are to stand. */
+      studio(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0x151515);
+        for (let y = T, r = 0; y < B; y += 24, r++) for (let x = from(L, 24); x < R; x += 24) {
+          fill(x, y, 24, 1, 0x1f1f1f);
+          fill(x, y, 1, 24, 0x1f1f1f);
+          const h = hash(x, r);
+          if (h % 3 === 0) { line(x + 4, y + 19, x + 13, y + 10, WHITE, 0.05); line(x + 6, y + 19, x + 15, y + 10, WHITE, 0.03); }
+          if (h % 17 === 0) {
+            const tape = (h >>> 4) % 2 ? 0xf5f5f5 : 0x3558ce, tx = x + 6 + ((h >>> 6) % 10), ty = y + 6 + ((h >>> 9) % 10);
+            fill(tx, ty, 3, 1, tape, 0.6);
+            dot(tx + 1, ty + 1, tape, 0.6);
+          }
+        }
       },
       /** Arcade carpet. The dark carpet with neon squiggles every arcade had. */
       arcade(L, T, R, B) {
@@ -5085,6 +5147,65 @@
         fill(x - 13, 10, 27, 11, 0x1a1a1a);
         fill(x - 12, 11, 25, 9, on ? 0xd4140b : 0x2a1010);
         pixelText('ON AIR', x - 11, 13, on ? WHITE : 0x5a2a2a, false);
+      },
+      /** Week strip. Monday to Sunday, tonight's cell inverted, a connector dropping from it into the move's lower third. */
+      schedule(x) {
+        const today = (new Date().getDay() + 6) % 7, l = x - 20;
+        fill(l - 1, 6, 43, 10, 0x333333);
+        for (let d = 0; d < 7; d++) {
+          const cx = l + d * 6, on = d === today;
+          fill(cx, 7, 5, 8, on ? 0xf5f5f5 : 0x1a1a1a);
+          fill(cx + 1, 9, 3, 1, on ? 0x0e0e0e : 0xa3a3a3);
+          fill(cx + 1, 12, 2, 1, on ? 0x555555 : 0x8a8a8a);
+        }
+        const lt = Math.min(l + today * 6, l + 41 - 18);
+        fill(l + today * 6, 16, 1, 3, 0xf5f5f5);
+        fill(lt, 19, 4, 5, 0x3558ce);
+        fill(lt + 4, 19, 14, 5, 0xf5f5f5);
+        fill(lt + 6, 21, 8, 1, 0x0e0e0e);
+      },
+      /** Pennants. Three felt pennants pinned one above another: the move's blue, the win's green, the loss's red. */
+      pennants(x) {
+        [[0x3558ce, 7], [0x177a4e, 15], [0xc22f26, 23]].forEach(([c, y], i) => {
+          const l = x - 14 + i * 2;
+          fill(l - 1, y - 3, 2, 7, 0xf5f5f5);
+          for (let k = 0; k < 24; k++) { const half = Math.round(3 * (1 - k / 24)); fill(l + 1 + k, y - half, 1, half * 2 + 1, c); }
+          fill(l + 3, y, 9, 1, 0xf5f5f5, 0.8);
+          dot(l - 1, y - 3, 0x8a8f9c);
+        });
+      },
+      /** Framed jersey. A team jersey in the move's blue, its number in white, behind glass. */
+      retired(x) {
+        const mat = 0xeceae4;
+        fill(x - 11, 5, 23, 24, 0x2a2a2a);
+        fill(x - 10, 6, 21, 22, mat);
+        fill(x - 6, 9, 13, 16, 0x3558ce);
+        fill(x - 6, 9, 3, 4, mat);
+        fill(x + 4, 9, 3, 4, mat);
+        fill(x - 2, 9, 5, 2, mat);
+        fill(x - 3, 9, 1, 4, WHITE);
+        fill(x + 3, 9, 1, 4, WHITE);
+        fill(x - 2, 11, 5, 1, WHITE);
+        pixelText('12', x - 3, 15, WHITE, false);
+        fill(x + 5, 7, 4, 1, WHITE, 0.4);
+        fill(x + 7, 8, 2, 1, WHITE, 0.25);
+      },
+      /** Play board. X's and O's on the Sidelines board, the move's cut drawn in blue a dot at a time, wiped clean each minute. */
+      playboard(x) {
+        const l = x - 12, t = now % 60, ink = 0x15161a;
+        fill(l, 8, 24, 17, 0xb8bfcc);
+        fill(l + 1, 9, 22, 15, 0xf4f5f7);
+        for (let gx = l + 4; gx < l + 23; gx += 4) for (let gy = 11; gy < 24; gy += 4) dot(gx, gy, 0xdde1e8);
+        fill(l, 25, 24, 1, PALETTE.frame);
+        ring(l + 20, 11, 1.5, 0xe0602a);
+        if (t >= 56) return;
+        const o = (cx, cy) => { dot(cx, cy - 1, ink); dot(cx - 1, cy, ink); dot(cx + 1, cy, ink); dot(cx, cy + 1, ink); };
+        const cross = (cx, cy) => { for (const [dx, dy] of [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]]) dot(cx + dx, cy + dy, ink); };
+        o(l + 5, 20); o(l + 11, 21); o(l + 17, 19);
+        cross(l + 8, 16); cross(l + 15, 15);
+        const steps = 14, shown = Math.floor(Math.min(1, t / 6) * steps);
+        for (let k = 0; k <= shown; k++) if (k % 3 !== 2) dot(Math.round(l + 5 + (k / steps) * 13), Math.round(18 - (k / steps) * 6), 0x3558ce);
+        if (shown === steps) { dot(l + 17, 12, 0x3558ce); dot(l + 18, 13, 0x3558ce); dot(l + 17, 13, 0x3558ce); }
       },
       /** Crossed paddles. Two canoe paddles, their blades painted. */
       paddles(x) {
@@ -6171,6 +6292,17 @@
           fill(x + 1, y + 16, 42, 1, SHADOW); drawKeyboard(s, y + 2);
         },
       },
+      /** Anchor desk. A studio desk in black, rounding in below, its edge lit in the move's blue, a lower third on its front. */
+      anchor: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          fill(x, y, 44, 1, tint(0x3a3a3a, 1)); fill(x, y + 1, 44, 4, tint(0x1a1a1a, 0.9)); fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 1, 0x4a6be0);
+          fill(x + 1, y + 6, 42, 8, tint(0x0e0e0e, 1)); fill(x + 3, y + 14, 38, 2, tint(0x0e0e0e, 1));
+          fill(x + 14, y + 8, 4, 4, 0x3558ce); fill(x + 18, y + 8, 12, 4, 0xf5f5f5); fill(x + 20, y + 9, 7, 1, 0x0e0e0e); fill(x + 20, y + 10, 5, 1, 0x8a8a8a);
+          fill(x + 3, y + 16, 38, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
     };
 
     /** The back of a desk's workspace, behind whoever is at it. */
@@ -6405,6 +6537,30 @@
         const a = ((now % 60) / 60) * Math.PI * 2;
         dot(x + 39 + Math.round(Math.sin(a) * 2), y - 4 - Math.round(Math.cos(a) * 2), 0xd4140b);
         dot(x + 39, y - 4, 0x1a1a1a);
+      },
+      /** A high-top sneaker, white with a stripe in the move's blue. */
+      sneaker(x, y) {
+        fill(x + 36, y - 1, 7, 1, 0x1a1a1a); fill(x + 36, y - 3, 7, 2, 0xf5f5f5); fill(x + 37, y - 6, 3, 3, 0xf5f5f5);
+        fill(x + 37, y - 2, 4, 1, 0x3558ce); dot(x + 38, y - 5, 0x8a8a8a); dot(x + 38, y - 4, 0x8a8a8a); dot(x + 42, y - 2, 0xd8d8d8);
+      },
+      /** A foam finger in the move's blue, a white 1 on it. */
+      foamfinger(x, y) {
+        fill(x + 37, y - 4, 5, 4, 0x3558ce); fill(x + 39, y - 9, 2, 5, 0x3558ce); dot(x + 36, y - 3, 0x3558ce);
+        fill(x + 41, y - 4, 1, 4, 0x2a45a8); fill(x + 40, y - 9, 1, 5, 0x2a45a8);
+        fill(x + 38, y - 3, 1, 2, WHITE);
+      },
+      /** A championship cup, a blue ribbon round it. */
+      cup(x, y) {
+        const gold = PALETTE.brass;
+        fill(x + 37, y, 5, 1, 0x3a2616); fill(x + 39, y - 2, 1, 2, gold); fill(x + 38, y - 3, 3, 1, gold);
+        fill(x + 37, y - 7, 5, 4, gold); fill(x + 36, y - 8, 7, 1, 0xf2d38a); fill(x + 41, y - 7, 1, 4, darker(gold));
+        dot(x + 35, y - 7, gold); dot(x + 35, y - 6, gold); dot(x + 43, y - 7, gold); dot(x + 43, y - 6, gold);
+        fill(x + 37, y - 5, 5, 1, 0x3558ce);
+      },
+      /** A clipboard with a play on it. */
+      clipboard(x, y) {
+        fill(x + 36, y - 8, 7, 8, 0x8a6040); fill(x + 38, y - 9, 3, 1, 0x9aa0a6); fill(x + 37, y - 7, 5, 6, 0xf4f5f7);
+        dot(x + 38, y - 3, 0x15161a); dot(x + 40, y - 5, 0x15161a); dot(x + 39, y - 4, 0x3558ce); dot(x + 40, y - 6, 0x3558ce);
       },
       /** A bat-wing foam finger, its wings flapping now and then. */
       batfinger(x, y) {
@@ -7628,8 +7784,94 @@
       if (ball.y >= 60) drawBall(ball.x, ball.y, 3);
     }
 
-    /** A rack of basketballs on wheels, three to a shelf, a jack-o'-lantern in the top one's middle. */
-    function drawPumpkinRack() {
+    /** An arcade basketball machine: a ramp of balls under a little hoop and its score, the balls going in and the score counting while someone plays. */
+    function drawArcadeHoop() {
+      const playing = atCorner(0), cabinet = 0x1a1a1a;
+      fill(266, 93, 26, 1, SHADOW);
+      fill(268, 48, 22, 10, 0x0e0e0e);
+      fill(268, 48, 22, 1, 0x333333);
+      pixelText(String(playing ? Math.floor((now % 60) * 1.5) : 42).padStart(2, '0'), 275, 50, 0xff5a3a, false);
+      fill(272, 58, 14, 8, 0xf5f5f5);
+      for (const [l, t, w, h] of [[276, 61, 7, 1], [276, 61, 1, 4], [282, 61, 1, 4]]) fill(l, t, w, h, 0x3558ce);
+      fill(266, 58, 3, 35, cabinet); fill(289, 58, 3, 35, cabinet);
+      fill(266, 58, 1, 35, 0x3558ce); fill(291, 58, 1, 35, 0x3558ce);
+      for (let y = 60; y < 78; y += 2) { dot(269, y, 0x8a8a8a, 0.6); dot(288, y, 0x8a8a8a, 0.6); }
+      fill(269, 78, 20, 8, 0x26262a);
+      for (let r = 0; r < 3; r++) fill(269, 79 + r * 3, 20, 1, 0x333333);
+      const p = (now % 0.8) / 0.8;
+      for (const bx of [273, 279, 285]) if (!playing || bx !== 279 || p > 0.9) drawBall(bx, 82, 2);
+      fill(275, 66, 8, 1, 0xe0602a);
+      for (let r = 0; r < 3; r++) for (let k = -3 + r; k <= 3 - r; k++) if ((k + r) % 2 === 0) dot(279 + k, 67 + r, 0xf4f1ea, 0.9);
+      fill(268, 86, 22, 7, 0x0e0e0e);
+      fill(268, 86, 22, 1, 0x333333);
+      fill(271, 88, 4, 3, 0x3558ce);
+      fill(275, 88, 12, 3, 0xf5f5f5);
+      if (playing && p <= 0.9) drawBall(279, Math.round(82 - 16 * (p / 0.9) - 7 * Math.sin(Math.PI * (p / 0.9))), 2);
+    }
+
+    /** A studio desk for two, behind it: a light on its stand, a backdrop with a lower third, the chairs' backs. */
+    function drawStudioBack() {
+      fill(248, 64, 1, 28, 0x3a3d47);
+      line(248, 86, 245, 92, 0x3a3d47);
+      line(248, 86, 251, 92, 0x3a3d47);
+      fill(244, 57, 9, 8, 0x2a2a2e);
+      fill(245, 58, 7, 6, 0xf5f5f5);
+      glowAt(256, 66, 8, 6, WHITE, 0.06);
+      fill(258, 60, 40, 14, 0x0e0e0e);
+      fill(258, 60, 40, 1, 0x333333);
+      fill(262, 64, 6, 5, 0x3558ce);
+      fill(268, 64, 20, 5, 0xf5f5f5);
+      fill(270, 66, 12, 1, 0x0e0e0e);
+      for (const cx of [269, 287]) { fill(cx - 3, 72, 7, 8, 0x1a1a1a); fill(cx - 3, 72, 7, 1, 0x333333); }
+    }
+
+    /** The studio desk itself, over whoever sits at it, and the camera on its tripod: its tally lit while both seats are taken. */
+    function drawStudioFront() {
+      fill(258, 80, 40, 1, 0x3a3a3a);
+      fill(258, 81, 40, 3, 0x1a1a1a);
+      fill(258, 84, 40, 1, 0x4a6be0);
+      fill(259, 85, 38, 7, 0x0e0e0e);
+      fill(261, 92, 34, 1, 0x0e0e0e);
+      fill(262, 87, 4, 3, 0x3558ce);
+      fill(266, 87, 14, 3, 0xf5f5f5);
+      fill(260, 93, 36, 1, SHADOW);
+      for (const fx of [301, 304, 307]) line(304, 82, fx, 93, 0x3a3d47);
+      fill(300, 76, 8, 6, 0x2a2a2e);
+      fill(298, 77, 2, 4, 0x1a1a1a);
+      dot(298, 78, 0x4a6be0, 0.7);
+      fill(306, 74, 2, 2, 0x2a2a2e);
+      const live = atCorner(0) && atCorner(1);
+      if (live) glowAt(306, 77, 2, 2, 0xff2a1a, 0.3);
+      dot(306, 77, live ? 0xff2a1a : 0x4a1a1a);
+    }
+
+    /** A team bench: towels over it, a water cooler in the move's blue at its end, cups stacked by it. */
+    function drawBench() {
+      fill(258, 93, 50, 1, SHADOW);
+      fill(258, 86, 36, 2, 0x5a5f6c);
+      fill(258, 86, 36, 1, 0x8a8f9c);
+      fill(260, 88, 2, 5, 0x3a3d47);
+      fill(290, 88, 2, 5, 0x3a3d47);
+      fill(259, 85, 4, 5, 0xf5f5f5);
+      fill(259, 85, 4, 1, WHITE);
+      fill(276, 86, 3, 4, 0xe8e8e8);
+      fill(297, 85, 8, 8, 0x3a3d47);
+      fill(297, 74, 8, 11, 0x3558ce);
+      fill(297, 74, 1, 11, 0x4a6be0);
+      fill(297, 73, 8, 2, 0xf5f5f5);
+      fill(304, 75, 1, 9, 0x2a45a8);
+      dot(298, 82, WHITE);
+      fill(306, 84, 2, 9, 0xf5f5f5);
+      fill(306, 84, 2, 1, WHITE);
+    }
+
+    /** A rack of basketballs on wheels, three to a shelf. */
+    function drawBallRack() { drawRack(false); }
+    /** The same, a jack-o'-lantern in the top shelf's middle. */
+    function drawPumpkinRack() { drawRack(true); }
+
+    /** A rack of basketballs on wheels, three to a shelf, a jack-o'-lantern in the top one's middle when it has a `pumpkin`. */
+    function drawRack(pumpkin) {
       const steel = 0x5a5f6c, light = 0x8a8f9c;
       fill(262, 93, 34, 1, SHADOW);
       for (const px of [263, 293]) { fill(px, 66, 2, 26, steel); fill(px, 66, 1, 26, light); }
@@ -7637,7 +7879,7 @@
         fill(263, rail, 32, 1, steel);
         fill(263, rail, 32, 1, light, 0.5);
         [270, 279, 288].forEach((bx, k) => {
-          if (i === 0 && k === 1) drawPumpkin(bx, rail, false, 0, candlelight(5));
+          if (pumpkin && i === 0 && k === 1) drawPumpkin(bx, rail, false, 0, candlelight(5));
           else drawBall(bx, rail - 4, 3);
         });
       }
@@ -7875,6 +8117,38 @@
       const grounded = (!pet.target || !pet.target.depth || pet.isWalking) && !flying && !['axolotl', 'hamster'].includes(pet.kind);
       if (grounded) p(-4, 0, 9, 1, SHADOW);
       switch (pet.kind) {
+        case 'goat': {
+          // White, with horns and a beard; standing, it hops now and then
+          const fur = 0xe8e4da, dark = 0xa8a294, horn = 0x7a6e5a, beard = 0xc8c0b0;
+          if (pose === 'lie' || pose === 'sleep') {
+            p(-4, -3, 9, 3, fur);
+            p(-4, -1, 9, 1, dark);
+            p(4, -6, 3, 3, fur);
+            p(4, -8, 1, 2, horn);
+            p(3, -9, 1, 1, horn);
+            p(7, -5, 1, 1, fur);
+            p(6, -5, 1, 1, PALETTE.eye);
+            p(6, -3, 1, 1, beard);
+            break;
+          }
+          const up = pose !== 'walk' && (now % 7) < 0.25 ? -1 : 0;
+          p(-4, -7 + up, 8, 4, fur);
+          p(-4, -4 + up, 8, 1, dark);
+          if (pose === 'walk') {
+            p(-3, -3, 1, 3 - step, dark); p(-1, -3, 1, 2 + step, dark); p(1, -3, 1, 3 - step, dark); p(3, -3, 1, 2 + step, dark);
+          } else {
+            for (const dx of [-3, -1, 1, 3]) p(dx, -3 + up, 1, 3 + up, dark);
+          }
+          p(3, -10 + up, 3, 3, fur);
+          p(6, -9 + up, 1, 2, fur);
+          p(3, -12 + up, 1, 2, horn);
+          p(2, -13 + up, 1, 1, horn);
+          p(2, -9 + up, 1, 1, dark);
+          p(5, -9 + up, 1, 1, PALETTE.eye);
+          p(5, -7 + up, 1, 2, beard);
+          p(-5, -8 + up, 1, 2, fur);
+          break;
+        }
         case 'cat':
         case 'blackcat': {
           // The black cat's yellow eyes, and a sheen on its tail and back to show it on a dark floor
@@ -8326,6 +8600,8 @@
       hifi: [[92, drawHifi]], synth: [[88, drawSynth]],
       cauldron: [[91, drawCauldron]], graveyard: [[93, drawGraveyard]], lanterns: [[92, drawLanterns]],
       pumpkinrack: [[92, drawPumpkinRack]], halfcourt: [[72, drawHalfCourt], [97, drawHalfCourtHoop]],
+      arcadehoop: [[90, drawArcadeHoop]], ballrack: [[92, drawBallRack]], studiodesk: [[76, drawStudioBack], [86, drawStudioFront]],
+      bench: [[85, drawBench]],
       none: [],
     };
 
@@ -8443,6 +8719,12 @@
         ring(x, y - 22, 4.5, 0xc8cdd6, a);
         for (const [dx, dy] of [[-2, -25], [-3, -26], [2, -25], [3, -26], [-2, -19], [-3, -18], [2, -19], [3, -18]]) dot(x + dx, y + dy, 0x9aa0a6, a);
         fill(x - 1, y - 24, 3, 4, 0x2a2c30, a); fill(x - 1, y - 24, 3, 1, 0x5a5f6c, a); dot(x, y - 22, 0x5a5f6c, a);
+      },
+      /** Reporter's mic. A handheld mic in the stand's clip, a square flag on it, white with the move's blue down one side. */
+      reporter(x, y, a) {
+        fill(x, y - 21, 1, 6, 0x2a2a2e, a);
+        fill(x - 2, y - 25, 5, 4, 0xf5f5f5, a); fill(x - 2, y - 25, 1, 4, 0x3558ce, a); fill(x + 2, y - 25, 1, 4, 0xd8d8d8, a);
+        disc(x, y - 27, 2, 0x3a3d47, a); dot(x - 1, y - 28, 0x6a7080, a);
       },
     };
 
@@ -9495,6 +9777,24 @@
         // The stripes and the whistle, as the skeleton referee's
         front(x, y) { OUTFIT_PARTS.refskeleton.front(x, y); },
         back(x, y) { OUTFIT_PARTS.refskeleton.back(x, y); },
+      },
+      coachpolo: {
+        // A polo's collar, and a whistle on a lanyard in the move's blue
+        front(x, y, o) {
+          dot(x - 2, y, shaded(o.shirt, 1.3)); dot(x + 2, y, shaded(o.shirt, 1.3)); fill(x - 1, y, 3, 1, shaded(o.shirt, 0.7));
+          for (const [dx, dy] of [[-2, 1], [-1, 2], [1, 2], [2, 1]]) dot(x + dx, y + dy, 0x3558ce);
+          fill(x, y + 3, 2, 1, 0xc8cdd6);
+        },
+      },
+      blazer: {
+        // A white shirt and a dark tie between the lapels, a mic clipped to one, a white pocket square
+        front(x, y, o) {
+          fill(x - 1, y, 3, 4, 0xf4f1ea);
+          fill(x, y + 1, 1, 3, 0x1a1a1f);
+          for (const dy of [0, 1]) { dot(x - 2, y + dy, shaded(o.shirt, 1.4)); dot(x + 2, y + dy, shaded(o.shirt, 1.4)); }
+          dot(x + 2, y + 2, 0x1a1a1a);
+          dot(x - 3, y + 2, WHITE);
+        },
       },
     };
 
@@ -10750,6 +11050,13 @@
         for (const after of [0, 0.12]) chip.note(at + after, { wave: 'pulse25', pitch: hz('E6'), to: hz('B5'), length: 0.08, level: dB(-20), pan, curve: 0.6 });
       },
     },
+    goat: {
+      gap: 45,
+      play(chip, at, pan) {
+        // A bleat that wavers, -22.
+        for (let k = 0; k < 3; k++) chip.note(at + k * 0.06, { wave: 'pulse25', pitch: hz(k % 2 ? 'G4' : 'A4'), length: 0.06, level: dB(-22), pan, curve: 0.8 });
+      },
+    },
     foxPounce: {
       gap: 20,
       play(chip, at, pan) {
@@ -10909,6 +11216,14 @@
         for (let k = 0; k < 5; k++) chip.note(at + k * random(0.04, 0.09), { wave: 'pulse12', pitch: hz(pick(['G5', 'A5', 'C6', 'D6'])), length: 0.02, level: dB(-28), pan, curve: 3 });
       },
     },
+    hoops: {
+      play(chip, at, pan) {
+        // Two bounces, then the ball through the net or off the rim, -24.
+        for (const after of [0, 0.32]) chip.note(at + after, { wave: 'triangle', pitch: hz('E3'), to: hz('B2'), length: 0.07, level: dB(-24), pan, curve: 2.5 });
+        if (Math.random() < 0.7) chip.noise(at + 1.1, { rate: 0.9, to: 0.5, length: 0.16, level: dB(-30), pan, lowpass: 5000 });
+        else chip.note(at + 1.1, { wave: 'pulse25', pitch: hz('G5'), to: hz('D5'), length: 0.06, level: dB(-28), pan, curve: 3 });
+      },
+    },
     crackle: {
       play(chip, at, pan) {
         // The fire popping, now and then, -28.
@@ -10943,7 +11258,7 @@
     jukebox: 'jukebox', pool: 'pool', piano: 'piano', drums: 'drums', telescope: 'twinkle', jungle: 'bird', coffee: 'coffee',
     servers: 'hum', printer: 'printer', boxing: 'boxing', treadmill: 'treadmill', hottub: 'splash', ballpit: 'rustle', campfire: 'crackle',
     bubbler: 'jukebox', neonbox: 'jukebox', wallbox: 'jukebox', djtable: 'jukebox', turntable: 'jukebox', boombox: 'jukebox',
-    hifi: 'jukebox', synth: 'piano', cauldron: 'crackle',
+    hifi: 'jukebox', synth: 'piano', cauldron: 'crackle', halfcourt: 'hoops', arcadehoop: 'hoops',
   };
   /** How often the weather in the windows, or the corner piece being played, makes itself heard, in seconds. */
   const WEATHER_EVERY = [50, 120];
