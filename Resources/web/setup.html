@@ -1411,11 +1411,12 @@
       ['plating', 'Deck plating', '#50565f'], ['deck', "Ship's deck", '#8a6440'], ['marble', 'Marble', '#e4e0d8'],
       ['flagstone', 'Flagstones', '#5a5d5a'], ['snow', 'Snow', '#dbe6ef'], ['grass', 'Grass', '#4a7a3a'], ['forest', 'Forest floor', '#5a4632'],
       ['rubber', 'Gym mats', '#26282d'], ['epoxy', 'Garage epoxy', '#5f646c'], ['arcade', 'Arcade carpet', '#1c1a33'],
-      ['hauntedcourt', 'Haunted court', '#4a3a2e']],
+      ['hauntedcourt', 'Haunted court', '#5e4a38'], ['court', 'Hardwood court', '#c89a62']],
     paint: [['slate', 'Slate', '#2f3446'], ['sage', 'Sage', '#34463d'], ['clay', 'Clay', '#4b3631'], ['cream', 'Cream', '#b5ad98'],
       ['hull', 'Hull panels', '#3a404c'], ['timber', "Ship's timbers", '#5a3b25'], ['damask', 'Damask', '#6a1e2a'],
       ['stone', 'Castle stone', '#4d5056'], ['ice', 'Ice blocks', '#b4d0e2'], ['logs', 'Log cabin', '#7a5232'], ['brick', 'Brick', '#8a3a2a'],
-      ['bamboo', 'Bamboo', '#a8a050'], ['block', 'Blockwork', '#9aa0a8'], ['foam', 'Acoustic foam', '#16171c']],
+      ['bamboo', 'Bamboo', '#a8a050'], ['block', 'Blockwork', '#9aa0a8'], ['foam', 'Acoustic foam', '#16171c'],
+      ['primetime', 'Broadcast set', '#0e0e0e']],
     lounge: [['navy', 'Navy', '#3f4a5c'], ['teal', 'Teal', '#2f5656'], ['plum', 'Plum', '#513d50'], ['sand', 'Sand', '#7b6e58']],
     // filled in below: the lounge's floor can be any of the office's too, and its wall any paint
     corner: [['arcade', 'An arcade machine'], ['vending', 'A vending machine'], ['foosball', 'A foosball table'],
@@ -1426,7 +1427,8 @@
       ['ballpit', 'A ball pit'], ['campfire', 'A campfire'], ['bubbler', 'A bubbler jukebox'], ['neonbox', 'A neon jukebox'],
       ['wallbox', 'A diner booth'], ['djtable', 'A DJ booth'], ['turntable', 'A record player'], ['boombox', 'A boombox'],
       ['hifi', 'A hi-fi'], ['synth', 'A synth rig'], ['cauldron', 'A bubbling cauldron'], ['graveyard', 'A little graveyard'],
-      ['lanterns', 'Lanterns and pumpkins'], ['pumpkinrack', 'A ball rack with a pumpkin'], ['none', 'Nothing']],
+      ['lanterns', 'Lanterns and pumpkins'], ['pumpkinrack', 'A ball rack with a pumpkin'], ['halfcourt', 'A half-court hoop'],
+      ['none', 'Nothing']],
     sky: [['live', 'Follows the clock'], ['day', 'Always day']],
     season: [['calendar', 'Follow the calendar'], ['off', 'Off']],
     pet: [['cat', 'Cat'], ['dog', 'Dog'], ['lizard', 'Lizard'], ['monkey', 'Monkey'], ['llama', 'Llama'], ['penguin', 'Penguin'],
@@ -1441,10 +1443,10 @@
       ['ship', 'A pirate ship'], ['throne', 'A throne'], ['greenhouse', 'A greenhouse'], ['console', 'A console desk'],
       ['hover', 'A hover desk'], ['chest', 'A sea chest'], ['gilded', 'A gilded desk'], ['crates', 'Expedition cases'],
       ['altar', 'A stone altar'], ['log', 'A log desk'], ['bench', 'A workbench'], ['bamboo', 'A bamboo desk'], ['rack', 'A weight rack'],
-      ['drafting', 'A drafting table'], ['glass', 'A glass desk']],
+      ['drafting', 'A drafting table'], ['glass', 'A glass desk'], ['scorer', "A scorer's table"]],
     monitor: [['standard', 'Standard'], ['crt', 'CRT'], ['holo', 'Hologram'], ['brass', "Ship's monitor"], ['crystal', 'Crystal ball'],
       ['gilt', 'Gilt frame'], ['ice', 'Frozen'], ['ultrawide', 'Curved ultrawide'], ['dual', 'Two monitors'], ['laptop', 'Rugged laptop'],
-      ['bamboo', 'Bamboo frame'], ['tablet', 'Tablet on an arm'], ['portrait', 'Turned on its side']],
+      ['bamboo', 'Bamboo frame'], ['tablet', 'Tablet on an arm'], ['portrait', 'Turned on its side'], ['broadcast', 'Broadcast monitor']],
     chair: [['teal', 'Teal', '#3f7080'], ['black', 'Black', '#353842'], ['red', 'Red', '#9a3c3a'], ['grey', 'Grey', '#737987'],
       ['green', 'Green', '#3f7a4c']],
     staff: [['some', 'A few'], ['none', 'None'], ['many', 'Lots']],
@@ -1464,7 +1466,8 @@
     ['blind', 'Bamboo blind window'], ['cabin', 'Cabin window'], ['trail', 'Trail map'], ['paddles', 'Crossed paddles'],
     ['pumpkins', "Jack-o'-lantern shelf"], ['lanternhang', 'Hanging lantern'], ['cobweb', 'Cobweb and spider'],
     ['ghosts', 'Hanging ghosts'], ['broom', "Witch's broom and hat"], ['leafgarland', 'Autumn garland'],
-    ['hauntedhoop', 'Haunted hoop'], ['spookyboard', 'Spooky scoreboard'], ['candycorn', 'Candy-corn pennants']];
+    ['hauntedhoop', 'Haunted hoop'], ['spookyboard', 'Spooky scoreboard'], ['candycorn', 'Candy-corn pennants'],
+    ['hoop', 'Basketball hoop'], ['scorebug', 'Score bug'], ['lowerthird', 'Lower third'], ['onair', 'On-air sign']];
   ROOM_CHOICES.lounge.push(...ROOM_CHOICES.floor);
   ROOM_CHOICES.loungePaint = [['auto', 'Same as the walls'], ...ROOM_CHOICES.paint];
   const STANDARD_ROOM = { mic: 'mic', wall: ['window', 'whiteboard', 'window', 'pinboard', 'window'], floor: 'wood', paint: 'slate',
@@ -1507,7 +1510,9 @@
       ['kimi', 'Kimi bomber'], ['glm', 'GLM vest'], ['phi', 'Phi polo'],
       // Halloween's
       ['witch', 'Witch'], ['skeleton', 'Skeleton'], ['mummy', 'Mummy'], ['refskeleton', 'Skeleton referee'],
-      ['mummyjersey', 'Mummy in a jersey']]],
+      ['mummyjersey', 'Mummy in a jersey'],
+      // The court's
+      ['jersey', 'Team jersey'], ['warmup', 'Warm-up suit'], ['referee', 'Referee']]],
     colour: ['Colour', [['auto', 'Auto'], ['orange', 'Orange'], ['red', 'Red'], ['pink', 'Pink'], ['purple', 'Purple'], ['blue', 'Blue'],
       ['teal', 'Teal'], ['green', 'Green'], ['yellow', 'Yellow'], ['grey', 'Grey'], ['black', 'Black'], ['white', 'White']]],
     desk: ['On the desk', [['auto', 'Auto'], ['plant', 'A plant'], ['papers', 'Papers'], ['lamp', 'A lamp'], ['cactus', 'A cactus'],
@@ -1521,7 +1526,7 @@
       ['coconut', 'A coconut drink'], ['pineapple', 'A pineapple'], ['tikimug', 'A tiki mug'], ['enamel', 'A camp mug'],
       ['lantern', 'A lantern'], ['pinecone', 'A pinecone'], ['jackolantern', "A jack-o'-lantern"], ['candles', 'Candles'],
       ['candy', 'Candy corn'], ['pumpkinball', "A jack-o'-lantern ball"], ['batfinger', 'A bat-wing foam finger'],
-      ['none', 'Nothing']]],
+      ['basketball', 'A basketball'], ['whistle', 'A whistle'], ['stopwatch', 'A stopwatch'], ['none', 'Nothing']]],
     workspace: ['Works at', [['auto', 'Where everyone does'], ...ROOM_CHOICES.workspace]],
   };
   const NICKNAME_LIMIT = 16;

@@ -133,13 +133,14 @@ var teamChoices = map[string][]string{
 		// A style's own, and each model family's
 		"astronaut", "flightsuit", "pirate", "captain", "parka", "explorer", "robe", "knight", "wizard", "gamer",
 		"founder", "gymkit", "safari", "flannel", "hire", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
-		"deepseek", "kimi", "glm", "phi", "witch", "skeleton", "mummy", "refskeleton", "mummyjersey"},
+		"deepseek", "kimi", "glm", "phi", "witch", "skeleton", "mummy", "refskeleton", "mummyjersey",
+		"jersey", "warmup", "referee"},
 	"colour": {"auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"},
 	"desk": {"auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug",
 		"helmet", "rocket", "terrarium", "quill", "candelabra", "goblet", "rum", "compass", "skull", "snowglobe", "thermos", "penguin",
 		"potions", "egg", "spellbook", "controller", "energy", "headset", "circuit", "pizza", "coffeepot", "dumbbell", "shaker", "kettlebell",
 		"coconut", "pineapple", "tikimug", "enamel", "lantern", "pinecone", "jackolantern", "candles", "candy", "pumpkinball", "batfinger",
-		"none"},
+		"basketball", "whistle", "stopwatch", "none"},
 	"workspace": append([]string{"auto"}, workspaces...),
 }
 
@@ -147,9 +148,9 @@ var teamChoices = map[string][]string{
 // being standard, and a team member's own, which can also be "auto".
 var (
 	floors = []string{"wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest",
-		"rubber", "epoxy", "arcade", "hauntedcourt"}
+		"rubber", "epoxy", "arcade", "hauntedcourt", "court"}
 	paints = []string{"slate", "sage", "clay", "cream", "hull", "timber", "damask", "stone", "ice", "logs", "brick", "bamboo",
-		"block", "foam"}
+		"block", "foam", "primetime"}
 )
 
 // roomStyles are the office's styles: Yours, as you furnished it, then each that
@@ -158,7 +159,8 @@ var roomStyles = []string{"yours", "classic", "campsite", "royal", "space", "pir
 	"jungle"}
 
 var workspaces = []string{"desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
-	"greenhouse", "console", "hover", "chest", "gilded", "crates", "altar", "log", "bench", "bamboo", "rack", "drafting", "glass"}
+	"greenhouse", "console", "hover", "chest", "gilded", "crates", "altar", "log", "bench", "bamboo", "rack", "drafting", "glass",
+	"scorer"}
 
 // checked is the member with anything unknown as standard, and the nickname
 // on one line, cut to its limit.
@@ -306,14 +308,14 @@ var (
 		"corner": {"arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
 			"telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub", "ballpit",
 			"campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth", "cauldron", "graveyard",
-			"lanterns", "pumpkinrack", "none"},
+			"lanterns", "pumpkinrack", "halfcourt", "none"},
 		"sky":       {"live", "day"},
 		"season":    {"calendar", "off"},
 		"sound":     {"off", "quiet", "normal"},
 		"ambience":  {"on", "off"},
 		"desk":      {"wood", "walnut", "white", "black"},
 		"workspace": workspaces,
-		"monitor":   {"standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet", "portrait"},
+		"monitor":   {"standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet", "portrait", "broadcast"},
 		"chair":     {"teal", "black", "red", "grey", "green"},
 		"staff":     {"some", "none", "many"},
 		"preset":    roomStyles,
@@ -322,7 +324,7 @@ var (
 		"viewport", "porthole", "panel", "pipes", "seaPorthole", "map", "flag", "cutlasses", "tapestry", "portrait", "stained", "shield",
 		"frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex", "pegboard", "roller", "bike", "mirror", "timer", "climbing",
 		"vines", "tiki", "blind", "cabin", "trail", "paddles", "pumpkins", "lanternhang", "cobweb", "ghosts", "broom", "leafgarland",
-		"hauntedhoop", "spookyboard", "candycorn"}
+		"hauntedhoop", "spookyboard", "candycorn", "hoop", "scorebug", "lowerthird", "onair"}
 	standardWall = []string{"window", "whiteboard", "window", "pinboard", "window"}
 	// The pets an office can have.
 	pets = []string{"cat", "dog", "lizard", "monkey", "llama", "penguin", "parrot", "owl", "capybara", "redpanda", "corgi", "hamster",

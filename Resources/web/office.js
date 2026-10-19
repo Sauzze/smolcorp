@@ -213,7 +213,7 @@
     djtable: { x: 244, y: 55, w: 64, h: 43 }, turntable: { x: 259, y: 54, w: 45, h: 39 }, boombox: { x: 257, y: 55, w: 36, h: 38 },
     hifi: { x: 250, y: 50, w: 52, h: 43 }, synth: { x: 257, y: 49, w: 40, h: 44 },
     cauldron: { x: 258, y: 58, w: 38, h: 36 }, graveyard: { x: 244, y: 66, w: 64, h: 28 }, lanterns: { x: 258, y: 72, w: 40, h: 22 },
-    pumpkinrack: { x: 258, y: 62, w: 40, h: 32 },
+    pumpkinrack: { x: 258, y: 62, w: 40, h: 32 }, halfcourt: { x: 262, y: 42, w: 32, h: 52 },
   };
   /** What `part` takes up, in the wide room as it comes: the corner's by what's in it, null with nothing there. */
   const pieceRect = (part) => (part === 'corner' ? CORNER_BOXES[decor.corner] || null
@@ -425,17 +425,18 @@
   const ROOM_CHOICES = {
     mic: ['mic', 'megaphone', 'studio', 'podcast', 'karaoke', 'headset', 'walkie', 'tincan', 'radio'],
     floor: ['wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass', 'forest', 'rubber',
-      'epoxy', 'arcade', 'hauntedcourt'],
-    paint: ['slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block', 'foam'],
+      'epoxy', 'arcade', 'hauntedcourt', 'court'],
+    paint: ['slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block', 'foam',
+      'primetime'],
     // The lounge's floor: a carpet, or any of the office's floors; and its wall, as the office's unless it has its own
     lounge: ['navy', 'teal', 'plum', 'sand', 'wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass',
-      'forest', 'rubber', 'epoxy', 'arcade', 'hauntedcourt'],
+      'forest', 'rubber', 'epoxy', 'arcade', 'hauntedcourt', 'court'],
     loungePaint: ['auto', 'slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block',
-      'foam'],
+      'foam', 'primetime'],
     corner: ['arcade', 'vending', 'foosball', 'fishtank', 'books', 'dragon', 'pinball', 'jukebox', 'pool', 'piano', 'drums',
       'telescope', 'jellyfish', 'bonsai', 'jungle', 'coffee', 'servers', 'printer', 'boxing', 'treadmill', 'hottub', 'ballpit',
       'campfire', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'cauldron', 'graveyard',
-      'lanterns', 'pumpkinrack', 'none'],
+      'lanterns', 'pumpkinrack', 'halfcourt', 'none'],
     sky: ['live', 'day'],
     pet: ['none', 'cat', 'dog', 'lizard', 'monkey', 'llama', 'penguin', 'parrot', 'owl', 'capybara', 'redpanda', 'corgi', 'hamster',
       'robodog', 'bat', 'snail', 'fox', 'axolotl', 'blackcat'],
@@ -445,8 +446,9 @@
     ambience: ['on', 'off'],
     desk: ['wood', 'walnut', 'white', 'black'],
     workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse',
-      'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass'],
-    monitor: ['standard', 'crt', 'holo', 'brass', 'crystal', 'gilt', 'ice', 'ultrawide', 'dual', 'laptop', 'bamboo', 'tablet', 'portrait'],
+      'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass', 'scorer'],
+    monitor: ['standard', 'crt', 'holo', 'brass', 'crystal', 'gilt', 'ice', 'ultrawide', 'dual', 'laptop', 'bamboo', 'tablet', 'portrait',
+      'broadcast'],
     chair: ['teal', 'black', 'red', 'grey', 'green'],
     staff: ['some', 'none', 'many'],
     preset: ['yours', ...Object.keys(ROOM_STYLES)],
@@ -503,6 +505,7 @@
     rack: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
     drafting: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
     glass: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    scorer: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
   };
   /** The colours of what can sit on a desk besides a plant, papers and a lamp. */
   const DESK_THINGS = { cactus: 0x5a9a4a, duck: 0xf2cf3a, beak: 0xe8823a, sky: 0x8fc0e8, coffee: 0x5a3a24 };
@@ -511,7 +514,8 @@
     'viewport', 'porthole', 'panel', 'pipes', 'seaPorthole', 'map', 'flag', 'cutlasses', 'tapestry', 'portrait', 'stained',
     'shield', 'frost', 'skis', 'weather', 'torch', 'arch', 'neon', 'tv', 'hex', 'pegboard', 'roller',
     'bike', 'mirror', 'timer', 'climbing', 'vines', 'tiki', 'blind', 'cabin', 'trail', 'paddles',
-    'pumpkins', 'lanternhang', 'cobweb', 'ghosts', 'broom', 'leafgarland', 'hauntedhoop', 'spookyboard', 'candycorn'];
+    'pumpkins', 'lanternhang', 'cobweb', 'ghosts', 'broom', 'leafgarland', 'hauntedhoop', 'spookyboard', 'candycorn',
+    'hoop', 'scorebug', 'lowerthird', 'onair'];
   const STANDARD_WALL = ['window', 'whiteboard', 'window', 'pinboard', 'window'];
   /** The middle of each of the back wall's places, left to right. */
   const WALL_SLOTS = [44, 77, 110, 143, 176];
@@ -526,6 +530,7 @@
     frost: 36, skis: 20, weather: 22, torch: 20, arch: 20, neon: 14, tv: 32, hex: 26, pegboard: 26, roller: 34,
     bike: 26, mirror: 24, timer: 28, climbing: 26, vines: 32, tiki: 12, blind: 36, cabin: 34, trail: 26, paddles: 22,
     pumpkins: 32, lanternhang: 20, cobweb: 26, ghosts: 34, broom: 28, leafgarland: 36, hauntedhoop: 30, spookyboard: 40, candycorn: 36,
+    hoop: 28, scorebug: 42, lowerthird: 38, onair: 26,
   };
   const wallWidthOf = (kind) => WALL_WIDTHS[kind] || 32;
   /** Where along the back wall a piece can hang, edge to edge, in each shape: clear of the doorway. */
@@ -637,6 +642,7 @@
     graveyard: [{ x: 276, y: 96, pose: 'away' }],
     lanterns: [],
     pumpkinrack: [{ x: 276, y: 96, pose: 'away' }],
+    halfcourt: [{ x: 278, y: 96, pose: 'away' }],
     none: [],
   };
 
@@ -1097,6 +1103,7 @@
     bamboo: { wall: 0xa8a050, top: 0x2a2a18, wainscot: 0x8a8440, rail: 0xb8b05a, lounge: 0xa8a050 },
     block: { wall: 0x9aa0a8, top: 0x6a7078, wainscot: 0x2a2c30, rail: 0x3a3d42, lounge: 0x9aa0a8 },
     foam: { wall: 0x16171c, top: 0x0e0f13, wainscot: 0x16171c, rail: 0x24262e, lounge: 0x16171c },
+    primetime: { wall: 0x0e0e0e, top: 0x080808, wainscot: 0x1a1a1a, rail: 0xf5f5f5, lounge: 0x0e0e0e },
   };
   /** The lounge's carpet, and its edge along the office's floor. */
   const LOUNGES = {
@@ -1169,6 +1176,10 @@
     // Sport's Halloween: a referee's stripes on a skeleton, a team jersey in the agent's colour over a mummy's wraps
     refskeleton: { style: 'refskeleton', shirt: 0xf4f1ea, pants: 0x1d1d22, shoes: 0x1d1d22, sleeves: 0x1d1d22 },
     mummyjersey: { style: 'mummyjersey', tint: 1, pants: 0xd6cfb6, shoes: 0xb8b098, sleeves: 0xe2dcc6 },
+    // The court's: a team jersey and its shorts, a warm-up suit, a referee's stripes
+    jersey: { style: 'jersey', tint: 1, matching: true, shoes: TRAINERS, sleeves: 'skin', legs: 'skin' },
+    warmup: { style: 'warmup', tint: 1, matching: true, shoes: TRAINERS },
+    referee: { style: 'referee', shirt: 0xf4f1ea, pants: 0x1d1d22, shoes: 0x1d1d22 },
   };
   /**
    * What an agent left on Auto wears for the workspace they're at, in their
@@ -1180,9 +1191,9 @@
   const WORKSPACE_DRESS = {
     cockpit: 'astronaut', console: 'astronaut', hover: 'astronaut', ship: 'pirate', chest: 'pirate', throne: 'robe', gilded: 'robe',
     igloo: 'parka', crates: 'parka', greenhouse: 'wizard', altar: 'wizard', tent: 'flannel', log: 'flannel', van: 'flannel',
-    box: 'founder', bench: 'founder', bamboo: 'safari', rack: 'gymkit', gaming: 'gamer',
+    box: 'founder', bench: 'founder', bamboo: 'safari', rack: 'gymkit', gaming: 'gamer', scorer: 'warmup',
   };
-  const STAFF_DRESS = { astronaut: 'flightsuit', pirate: 'captain', parka: 'explorer', robe: 'knight' };
+  const STAFF_DRESS = { astronaut: 'flightsuit', pirate: 'captain', parka: 'explorer', robe: 'knight', warmup: 'referee' };
   /**
    * Each family of models by the words in its models' names, as their own
    * words or with a version after them (`qwen3`, `llama4`), and the family
@@ -1346,13 +1357,13 @@
     outfit: ['auto', 'tee', 'hoodie', 'collar', 'sweater', 'jacket', 'suit', 'labcoat', 'polo', 'cardigan', 'hawaiian', 'tracksuit',
       'overalls', 'waistcoat', 'astronaut', 'flightsuit', 'pirate', 'captain', 'parka', 'explorer', 'robe', 'knight', 'wizard', 'gamer',
       'founder', 'gymkit', 'safari', 'flannel', 'hire', 'claude', 'gpt', 'gemini', 'grok', 'qwen', 'llama', 'mistral', 'deepseek', 'kimi', 'glm',
-      'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey'],
+      'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
       'potions', 'egg', 'spellbook', 'controller', 'energy', 'headset', 'circuit', 'pizza', 'coffeepot', 'dumbbell', 'shaker',
       'kettlebell', 'coconut', 'pineapple', 'tikimug', 'enamel', 'lantern', 'pinecone', 'jackolantern', 'candles', 'candy', 'pumpkinball', 'batfinger',
-      'none'],
+      'basketball', 'whistle', 'stopwatch', 'none'],
     workspace: ['auto', ...ROOM_CHOICES.workspace],
   };
   /** The most a nickname can be, in characters, and the most projects a team remembers. */
@@ -2752,6 +2763,7 @@
     A: ['010', '101', '111', '101', '101'], C: ['011', '100', '100', '100', '011'], L: ['100', '100', '100', '100', '111'],
     N: ['101', '111', '111', '101', '101'], S: ['011', '100', '010', '001', '110'], T: ['111', '010', '010', '010', '010'],
     W: ['101', '101', '111', '111', '101'], M: ['10001', '11011', '10101', '10001', '10001'],
+    V: ['101', '101', '101', '101', '010'],
     ' ': ['00', '00', '00', '00', '00'],
   };
   /** How wide `text` is in the pixel font. */
@@ -4141,6 +4153,23 @@
         for (let x = L; x < R; x++) { const c = rainbow((((now * 0.15) + x / 120) % 1 + 1) % 1); dot(x, 2, c); dot(x, 3, c, 0.25); dot(x, 4, c, 0.1); }
         fill(L, 38, w, 2, PALETTE.baseboard);
       },
+      /** Broadcast set. Black studio panels between thin rules; along the rail, lower thirds: the move's blue tag, a white slab. */
+      primetime(L, R) {
+        const w = R - L;
+        fill(L, 0, w, 40, 0x0e0e0e);
+        fill(L, 0, w, 2, 0x080808);
+        for (let x = from(L, 32); x < R; x += 32) fill(x, 2, 1, 28, 0x222222);
+        fill(L, 15, w, 1, 0x1a1a1a);
+        fill(L, 30, w, 8, 0x1a1a1a);
+        fill(L, 30, w, 1, 0x333333);
+        for (let x = from(L, 96, 8); x < R; x += 96) {
+          fill(x, 32, 6, 4, 0x3558ce);
+          fill(x + 6, 32, 22, 4, 0xf5f5f5);
+          fill(x + 8, 33, 12, 1, 0x0e0e0e);
+          fill(x + 8, 34, 8, 1, 0x8a8a8a);
+        }
+        fill(L, 38, w, 2, PALETTE.baseboard);
+      },
     };
 
     /** What moves on a floor, over it as it's kept: where the snow glints, each `h` setting when, from `L`, `T` to `R`, `B`. */
@@ -4263,6 +4292,10 @@
           if (h % 7 === 0) { dot(x + 2, y + 3, 0x2a1e16); dot(x + 3, y + 4, 0x2a1e16); dot(x + 4, y + 4, 0x2a1e16); }
           if ((h >>> 5) % 9 === 0) dot(x + ((h >>> 9) % 11), y + ((h >>> 3) % 8), 0x8a8f7c);
         }
+      },
+      /** Hardwood court. Pale maple boards, white lines, the key painted the move's blue. */
+      court(L, T, R, B) {
+        drawCourt(L, T, R, B, { board: 0xc89a62, alt: 0xcea26b, seam: 0xb68856, line: 0xf5f5f5, lineAlpha: 0.9, paint: 0x3558ce, paintAlpha: 0.85 });
       },
       /** Arcade carpet. The dark carpet with neon squiggles every arcade had. */
       arcade(L, T, R, B) {
@@ -4994,6 +5027,65 @@
             .forEach(([w, c], r) => fill(x + dx + (7 - w) / 2, top + r, w, 1, c));
         }
       },
+      /** Hoop. A backboard with the move's blue square, an orange rim and a white net; now and then a ball drops through and the net swishes. */
+      hoop(x) {
+        const t = now % 20, dropping = t < 1.2, by = 4 + Math.round((t / 1.2) * 30);
+        fill(x - 13, 2, 27, 15, 0x8a8f9c);
+        fill(x - 12, 3, 25, 13, 0xf5f5f5);
+        fill(x - 12, 3, 25, 1, WHITE);
+        for (const [l, t2, w, h] of [[-5, 8, 11, 1], [-5, 8, 1, 7], [5, 8, 1, 7]]) fill(x + l, t2, w, h, 0x3558ce);
+        if (dropping && by < 30) drawBall(x, by, 3);
+        fill(x - 1, 16, 3, 3, 0x5a5f6c);
+        fill(x - 6, 19, 13, 2, 0xe0602a);
+        fill(x - 6, 19, 13, 1, 0xf08a4a);
+        // The net, a mesh narrowing as it hangs, stretched for a moment by a ball through it
+        const stretch = dropping && by >= 18 && by < 30 ? 1 : 0;
+        for (let r = 0; r < 7 + stretch; r++) {
+          const half = 5 - Math.floor(r / 2);
+          for (let k = -half; k <= half; k++) if ((k + r) % 2 === 0) dot(x + k, 21 + r, 0xf4f1ea, 0.9);
+        }
+        if (dropping && by >= 30) drawBall(x, by, 3);
+      },
+      /** Score bug. The header bar in the move's blue, the night's time on it; the record under it, which settles digit by digit every so often. */
+      scorebug(x) {
+        const l = x - 20, t = now % 30, wipe = Math.min(1, t / 0.25);
+        fill(l - 1, 5, 43, 22, 0x333333);
+        fill(l, 6, Math.max(1, Math.round(41 * wipe)), 7, 0x3558ce);
+        if (wipe >= 1) pixelText('WED 9:40', l + 2, 7, WHITE, false);
+        fill(l, 13, 41, 13, 0x1a1a1a);
+        // The record at twice the size, each digit dropping into place
+        let at = l + 2;
+        [...'5-3-1'].forEach((c, k) => {
+          const land = Math.min(1, Math.max(0, (t - 0.3 - k * 0.09) / 0.09)), drop = Math.round((1 - land) * 3);
+          if (land > 0) GLYPHS[c].forEach((row, r) => [...row].forEach((on, column) => { if (on === '1') fill(at + column * 2, 15 + r * 2 - drop, 2, 2, 0xf5f5f5); }));
+          at += GLYPHS[c][0].length * 2 + 2;
+        });
+      },
+      /** Lower third. The move's blue tag, MOVE on it, and the body beside it: wiped in left to right, held, wiped out. */
+      lowerthird(x) {
+        const l = x - 18, t = now % 24;
+        const out = t < 22 ? 1 : Math.max(0, 1 - (t - 22) / 0.25);
+        const tag = Math.min(1, t / 0.18) * out, body = Math.min(1, Math.max(0, (t - 0.18) / 0.26)) * out;
+        if (tag <= 0) return;
+        fill(l, 14, Math.max(1, Math.round(18 * tag)), 9, 0x3558ce);
+        if (tag >= 1) pixelText('MOVE', l + 1, 16, WHITE, false);
+        if (body <= 0) return;
+        fill(l + 18, 14, Math.max(1, Math.round(19 * body)), 9, 0x1a1a1a);
+        if (body < 1) return;
+        fill(l + 18, 14, 19, 1, 0x333333);
+        fill(l + 20, 16, 12, 1, 0xf5f5f5);
+        fill(l + 20, 18, 15, 1, 0xa3a3a3);
+        fill(l + 20, 20, 9, 1, 0x8a8a8a);
+      },
+      /** On-air sign. Lit red only while the mic is held: on air, for real. */
+      onair(x) {
+        const on = mic.held;
+        if (on) glowAt(x, 15, 18, 9, 0xff2a1a, 0.14);
+        fill(x - 1, 7, 3, 3, 0x333333);
+        fill(x - 13, 10, 27, 11, 0x1a1a1a);
+        fill(x - 12, 11, 25, 9, on ? 0xd4140b : 0x2a1010);
+        pixelText('ON AIR', x - 11, 13, on ? WHITE : 0x5a2a2a, false);
+      },
       /** Crossed paddles. Two canoe paddles, their blades painted. */
       paddles(x) {
         for (const [dir, tipColour] of [[1, 0xc9443a], [-1, 0x3f6fc4]]) {
@@ -5275,6 +5367,14 @@
      * screen is, if it isn't there: for the screen's light.
      */
     const MONITORS = {
+      /** Broadcast monitor. Flat and black, a rule round it, a lower third's blue tag and white slab on its bezel. */
+      broadcast: {
+        draw(x, y) {
+          fill(x - 1, y - 1, 15, 11, 0x333333); fill(x, y, 13, 9, 0x0e0e0e); fill(x + 1, y + 1, 11, 6, 0x1a1a1a);
+          fill(x + 1, y + 8, 2, 1, 0x4a6be0); fill(x + 3, y + 8, 4, 1, 0xf5f5f5);
+          fill(x + 5, y + 10, 3, 1, 0x1a1a1a); fill(x + 3, y + 11, 7, 1, 0x333333);
+        },
+      },
       /** CRT monitor. A deep beige case, vents on its back. */
       crt: {
         draw(x, y) {
@@ -6057,6 +6157,20 @@
           fill(x + 1, y + 16, 42, 1, SHADOW, 0.5); drawKeyboard(s, y + 2);
         },
       },
+      /** Scorer's table. A black skirt carrying a lower third, and a shot clock on its front counting down from 24. */
+      scorer: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          fill(x, y, 44, 1, tint(0x3a3a3a, 1)); fill(x, y + 1, 44, 4, tint(0x1a1a1a, 0.9)); fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 11, tint(0x0e0e0e, 1)); fill(x, y + 5, 44, 1, tint(0x333333, 1));
+          fill(x + 3, y + 9, 3, 3, 0x3558ce); fill(x + 6, y + 9, 12, 3, 0xf5f5f5);
+          fill(x + 8, y + 10, 7, 1, 0x555555);
+          fill(x + 27, y + 7, 13, 7, 0x1a1a1a); fill(x + 27, y + 7, 13, 1, 0x333333);
+          // Each table's clock in its own time
+          pixelText(String(24 - ((Math.floor(now) + x * 7 + y * 3) % 25)).padStart(2, '0'), x + 30, y + 8, 0xe0503a, false);
+          fill(x + 1, y + 16, 42, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
     };
 
     /** The back of a desk's workspace, behind whoever is at it. */
@@ -6272,6 +6386,25 @@
       pumpkinball(x, y) {
         fill(x + 37, y, 5, 1, 0x5a5f6c);
         drawBall(x + 39, y - 4, 3, true, candlelight(x));
+      },
+      /** A basketball on a little stand. */
+      basketball(x, y) {
+        fill(x + 37, y, 5, 1, 0x5a5f6c);
+        drawBall(x + 39, y - 4, 3);
+      },
+      /** A whistle on its lanyard, the lanyard in the move's blue. */
+      whistle(x, y) {
+        for (const [dx, dy] of [[35, 0], [34, -1], [34, -2], [35, -3], [36, -4], [38, -4], [39, -3]]) dot(x + dx, y + dy, 0x3558ce);
+        fill(x + 37, y - 2, 4, 2, 0xc8cdd6); fill(x + 41, y - 2, 2, 1, 0xc8cdd6);
+        dot(x + 37, y - 2, WHITE); dot(x + 38, y - 1, 0x8a8f9c);
+      },
+      /** A stopwatch, its hand going round. */
+      stopwatch(x, y) {
+        disc(x + 39, y - 4, 3, 0x9aa0a6); disc(x + 39, y - 4, 2, 0xf4f1ea);
+        fill(x + 38, y - 9, 3, 1, 0x9aa0a6); dot(x + 39, y - 8, 0x9aa0a6);
+        const a = ((now % 60) / 60) * Math.PI * 2;
+        dot(x + 39 + Math.round(Math.sin(a) * 2), y - 4 - Math.round(Math.cos(a) * 2), 0xd4140b);
+        dot(x + 39, y - 4, 0x1a1a1a);
       },
       /** A bat-wing foam finger, its wings flapping now and then. */
       batfinger(x, y) {
@@ -7460,6 +7593,41 @@
       dot(283, 89, 0x3f8a4a);
     }
 
+    /** A hoop on a pole over a key painted on the floor: its pole, its pad and its backboard, behind whoever shoots. */
+    function drawHalfCourt() {
+      fill(264, 70, 29, 22, 0x3558ce, 0.55);
+      for (const [l, t, w, h] of [[264, 70, 1, 22], [292, 70, 1, 22], [264, 91, 29, 1], [258, 70, 41, 1]]) fill(l, t, w, h, 0xf5f5f5, 0.9);
+      fill(277, 54, 3, 16, 0x3a3d47);
+      fill(277, 54, 1, 16, 0x5a5f6c);
+      fill(271, 67, 15, 4, 0x1a1a1a);
+      fill(271, 67, 15, 1, 0x333333);
+      fill(272, 69, 13, 1, 0xf5f5f5);
+      fill(266, 42, 25, 14, 0x8a8f9c);
+      fill(267, 43, 23, 12, 0xf5f5f5);
+      for (const [l, t, w, h] of [[273, 48, 11, 1], [273, 48, 1, 6], [283, 48, 1, 6]]) fill(l, t, w, h, 0x3558ce);
+      fill(277, 55, 3, 2, 0x5a5f6c);
+    }
+
+    /** The half-court's rim and net, and its ball: shot in an arc by whoever stands at the line, through the net, bounced back to them; or waiting on the floor. */
+    function drawHalfCourtHoop() {
+      let ball = { x: 292, y: 89 }, through = false;
+      if (atCorner(0)) {
+        const p = (now % 2.4) / 2.4;
+        if (p < 0.4) { const s = p / 0.4; ball = { x: 278, y: Math.round(78 - 21 * s - 9 * Math.sin(Math.PI * s)) }; }
+        else if (p < 0.55) { ball = { x: 278, y: Math.round(57 + ((p - 0.4) / 0.15) * 9) }; through = true; }
+        else if (p < 0.8) { const s = (p - 0.55) / 0.25; ball = { x: 278, y: Math.round(66 + 5 * s - 4 * Math.sin(Math.PI * s)) }; }
+        else { const s = (p - 0.8) / 0.2; ball = { x: 278, y: Math.round(71 + 8 * s) }; }
+      }
+      if (ball.y < 60) drawBall(ball.x, ball.y, 3);
+      fill(272, 57, 13, 2, 0xe0602a);
+      fill(272, 57, 13, 1, 0xf08a4a);
+      for (let r = 0; r < 6 + (through ? 1 : 0); r++) {
+        const half = 5 - Math.floor(r / 2);
+        for (let k = -half; k <= half; k++) if ((k + r) % 2 === 0) dot(278 + k, 59 + r, 0xf4f1ea, 0.9);
+      }
+      if (ball.y >= 60) drawBall(ball.x, ball.y, 3);
+    }
+
     /** A rack of basketballs on wheels, three to a shelf, a jack-o'-lantern in the top one's middle. */
     function drawPumpkinRack() {
       const steel = 0x5a5f6c, light = 0x8a8f9c;
@@ -8157,7 +8325,7 @@
       djtable: [[90, drawDjBooth]], turntable: [[90, drawRecordPlayer], [92, drawRecordCrate]], boombox: [[92, drawBoombox]],
       hifi: [[92, drawHifi]], synth: [[88, drawSynth]],
       cauldron: [[91, drawCauldron]], graveyard: [[93, drawGraveyard]], lanterns: [[92, drawLanterns]],
-      pumpkinrack: [[92, drawPumpkinRack]],
+      pumpkinrack: [[92, drawPumpkinRack]], halfcourt: [[72, drawHalfCourt], [97, drawHalfCourtHoop]],
       none: [],
     };
 
@@ -9302,6 +9470,31 @@
         },
         back(x, y) { fill(x - 1, y + 1, 3, 3, WHITE); dot(x, y + 2, 0xe2dcc6); dot(x - 3, y + 3, 0xe2dcc6); },
         head(x, top, look, away, o) { OUTFIT_PARTS.mummy.head(x, top, look, away, { ...o, shirt: 0xe2dcc6 }); },
+      },
+
+      /* The court's */
+      jersey: {
+        // A trimmed neck, piping down the sides and a 7 on the chest, in white
+        front(x, y) {
+          fill(x - 1, y, 3, 1, WHITE);
+          GLYPHS[7].forEach((row, r) => [...row].forEach((on, c) => { if (on === '1') dot(x - 1 + c, y + 1 + r, WHITE); }));
+          for (const side of [-3, 3]) { dot(x + side, y + 1, WHITE); dot(x + side, y + 3, WHITE); }
+        },
+        back(x, y) { GLYPHS[7].forEach((row, r) => [...row].forEach((on, c) => { if (on === '1') dot(x - 1 + c, y + r, WHITE); })); },
+      },
+      warmup: {
+        // A zip up the middle, a stand-up collar, white stripes down the sides
+        front(x, y, o) {
+          fill(x - 2, y, 5, 1, shaded(o.shirt, 1.3));
+          fill(x, y, 1, 6, 0xe8e4da);
+          for (const side of [-3, 3]) fill(x + side, y + 1, 1, 5, WHITE);
+        },
+        back(x, y, o) { fill(x - 2, y, 5, 1, shaded(o.shirt, 1.3)); for (const side of [-3, 3]) fill(x + side, y + 1, 1, 5, WHITE); },
+      },
+      referee: {
+        // The stripes and the whistle, as the skeleton referee's
+        front(x, y) { OUTFIT_PARTS.refskeleton.front(x, y); },
+        back(x, y) { OUTFIT_PARTS.refskeleton.back(x, y); },
       },
     };
 

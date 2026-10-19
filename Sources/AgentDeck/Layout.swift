@@ -135,7 +135,7 @@ struct Room: Codable, Equatable {
         "corner": ["arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
                    "telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub",
                    "ballpit", "campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth",
-                   "cauldron", "graveyard", "lanterns", "pumpkinrack", "none"],
+                   "cauldron", "graveyard", "lanterns", "pumpkinrack", "halfcourt", "none"],
         "sky": ["live", "day"],
         "season": ["calendar", "off"],
         "sound": ["off", "quiet", "normal"],
@@ -143,15 +143,15 @@ struct Room: Codable, Equatable {
         "desk": ["wood", "walnut", "white", "black"],
         "workspace": Room.workspaces,
         "monitor": ["standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet",
-                    "portrait"],
+                    "portrait", "broadcast"],
         "chair": ["teal", "black", "red", "grey", "green"],
         "staff": ["some", "none", "many"],
         "preset": Room.presets,
     ]
     static let floors = ["wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest",
-                         "rubber", "epoxy", "arcade", "hauntedcourt"]
+                         "rubber", "epoxy", "arcade", "hauntedcourt", "court"]
     static let paints = ["slate", "sage", "clay", "cream", "hull", "timber", "damask", "stone", "ice", "logs", "brick", "bamboo",
-                         "block", "foam"]
+                         "block", "foam", "primetime"]
     /// The office's styles: Yours, as you furnished it, then each that
     /// furnishes it for you. office.js keeps what each one is.
     static let presets = ["yours", "classic", "campsite", "royal", "space", "pirates", "arctic", "lair", "gamers", "garage", "gym", "jungle"]
@@ -159,13 +159,13 @@ struct Room: Codable, Equatable {
     /// team member's own, which can also be "auto".
     static let workspaces = ["desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
                              "greenhouse", "console", "hover", "chest", "gilded", "crates", "altar", "log", "bench", "bamboo", "rack",
-                             "drafting", "glass"]
+                             "drafting", "glass", "scorer"]
     static let wallChoices = ["window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare",
                               "viewport", "porthole", "panel", "pipes", "seaPorthole", "map", "flag", "cutlasses", "tapestry",
                               "portrait", "stained", "shield", "frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex",
                               "pegboard", "roller", "bike", "mirror", "timer", "climbing", "vines", "tiki", "blind", "cabin", "trail",
                               "paddles", "pumpkins", "lanternhang", "cobweb", "ghosts", "broom", "leafgarland", "hauntedhoop", "spookyboard",
-                              "candycorn"]
+                              "candycorn", "hoop", "scorebug", "lowerthird", "onair"]
     static let standardWall = ["window", "whiteboard", "window", "pinboard", "window"]
     /// The pets an office can have, and the most it has at once.
     static let pets = ["cat", "dog", "lizard", "monkey", "llama", "penguin", "parrot", "owl", "capybara", "redpanda", "corgi", "hamster",
@@ -256,13 +256,15 @@ struct TeamMember: Codable, Equatable {
                    // A style's own, and each model family's
                    "astronaut", "flightsuit", "pirate", "captain", "parka", "explorer", "robe", "knight", "wizard", "gamer",
                    "founder", "gymkit", "safari", "flannel", "hire", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
-                   "deepseek", "kimi", "glm", "phi", "witch", "skeleton", "mummy", "refskeleton", "mummyjersey"],
+                   "deepseek", "kimi", "glm", "phi", "witch", "skeleton", "mummy", "refskeleton", "mummyjersey",
+                   "jersey", "warmup", "referee"],
         "colour": ["auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"],
         "desk": ["auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug",
                  "helmet", "rocket", "terrarium", "quill", "candelabra", "goblet", "rum", "compass", "skull", "snowglobe", "thermos",
                  "penguin", "potions", "egg", "spellbook", "controller", "energy", "headset", "circuit", "pizza", "coffeepot",
                  "dumbbell", "shaker", "kettlebell", "coconut", "pineapple", "tikimug", "enamel", "lantern", "pinecone",
-                 "jackolantern", "candles", "candy", "pumpkinball", "batfinger", "none"],
+                 "jackolantern", "candles", "candy", "pumpkinball", "batfinger", "basketball",
+                 "whistle", "stopwatch", "none"],
         "workspace": ["auto"] + Room.workspaces,
     ]
     /// The most a nickname can be, in characters.
