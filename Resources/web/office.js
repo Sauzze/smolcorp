@@ -212,6 +212,7 @@
     bubbler: { x: 261, y: 45, w: 27, h: 44 }, neonbox: { x: 263, y: 46, w: 23, h: 43 }, wallbox: { x: 256, y: 61, w: 41, h: 33 },
     djtable: { x: 244, y: 55, w: 64, h: 43 }, turntable: { x: 259, y: 54, w: 45, h: 39 }, boombox: { x: 257, y: 55, w: 36, h: 38 },
     hifi: { x: 250, y: 50, w: 52, h: 43 }, synth: { x: 257, y: 49, w: 40, h: 44 },
+    cauldron: { x: 258, y: 58, w: 38, h: 36 }, graveyard: { x: 244, y: 66, w: 64, h: 28 }, lanterns: { x: 258, y: 72, w: 40, h: 22 },
   };
   /** What `part` takes up, in the wide room as it comes: the corner's by what's in it, null with nothing there. */
   const pieceRect = (part) => (part === 'corner' ? CORNER_BOXES[decor.corner] || null
@@ -432,10 +433,11 @@
       'foam'],
     corner: ['arcade', 'vending', 'foosball', 'fishtank', 'books', 'dragon', 'pinball', 'jukebox', 'pool', 'piano', 'drums',
       'telescope', 'jellyfish', 'bonsai', 'jungle', 'coffee', 'servers', 'printer', 'boxing', 'treadmill', 'hottub', 'ballpit',
-      'campfire', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'none'],
+      'campfire', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'cauldron', 'graveyard',
+      'lanterns', 'none'],
     sky: ['live', 'day'],
     pet: ['none', 'cat', 'dog', 'lizard', 'monkey', 'llama', 'penguin', 'parrot', 'owl', 'capybara', 'redpanda', 'corgi', 'hamster',
-      'robodog', 'bat', 'snail', 'fox', 'axolotl'],
+      'robodog', 'bat', 'snail', 'fox', 'axolotl', 'blackcat'],
     season: ['calendar', 'off'],
     sound: ['off', 'quiet', 'normal'],
     // The recorded keyboards and talk under the rest, while there's any sound
@@ -507,7 +509,8 @@
   const WALL_CHOICES = ['window', 'whiteboard', 'pinboard', 'poster', 'shelf', 'plant', 'bare',
     'viewport', 'porthole', 'panel', 'pipes', 'seaPorthole', 'map', 'flag', 'cutlasses', 'tapestry', 'portrait', 'stained',
     'shield', 'frost', 'skis', 'weather', 'torch', 'arch', 'neon', 'tv', 'hex', 'pegboard', 'roller',
-    'bike', 'mirror', 'timer', 'climbing', 'vines', 'tiki', 'blind', 'cabin', 'trail', 'paddles'];
+    'bike', 'mirror', 'timer', 'climbing', 'vines', 'tiki', 'blind', 'cabin', 'trail', 'paddles',
+    'pumpkins', 'lanternhang', 'cobweb', 'ghosts', 'broom', 'leafgarland'];
   const STANDARD_WALL = ['window', 'whiteboard', 'window', 'pinboard', 'window'];
   /** The middle of each of the back wall's places, left to right. */
   const WALL_SLOTS = [44, 77, 110, 143, 176];
@@ -521,6 +524,7 @@
     pipes: 40, seaPorthole: 22, map: 28, flag: 24, cutlasses: 22, tapestry: 26, portrait: 20, stained: 26, shield: 24,
     frost: 36, skis: 20, weather: 22, torch: 20, arch: 20, neon: 14, tv: 32, hex: 26, pegboard: 26, roller: 34,
     bike: 26, mirror: 24, timer: 28, climbing: 26, vines: 32, tiki: 12, blind: 36, cabin: 34, trail: 26, paddles: 22,
+    pumpkins: 32, lanternhang: 20, cobweb: 26, ghosts: 34, broom: 28, leafgarland: 36,
   };
   const wallWidthOf = (kind) => WALL_WIDTHS[kind] || 32;
   /** Where along the back wall a piece can hang, edge to edge, in each shape: clear of the doorway. */
@@ -628,6 +632,9 @@
     boombox: [{ x: 296, y: 93, pose: 'stand' }],
     hifi: [{ x: 276, y: 96, pose: 'away' }],
     synth: [{ x: 277, y: 93, pose: 'away' }],
+    cauldron: [{ x: 262, y: 92, pose: 'stand' }, { x: 293, y: 92, pose: 'stand' }],
+    graveyard: [{ x: 276, y: 96, pose: 'away' }],
+    lanterns: [],
     none: [],
   };
 
@@ -1153,6 +1160,10 @@
     kimi: { style: 'kimi', shirt: 0x23252c },
     glm: { style: 'glm', shirt: 0x2f4a9a },
     phi: { style: 'phi', shirt: 0x2f9a92 },
+    // Halloween's: a witch's cloak, a skeleton suit, a mummy's wraps
+    witch: { style: 'witch', tint: 0.35, robe: true, shoes: 0x1a1a1f },
+    skeleton: { style: 'skeleton', shirt: 0x1d1d22, pants: 0x1d1d22, shoes: 0x1d1d22, sleeves: 0x1d1d22 },
+    mummy: { style: 'mummy', shirt: 0xe2dcc6, pants: 0xd6cfb6, shoes: 0xb8b098, sleeves: 0xe2dcc6 },
   };
   /**
    * What an agent left on Auto wears for the workspace they're at, in their
@@ -1330,12 +1341,12 @@
     outfit: ['auto', 'tee', 'hoodie', 'collar', 'sweater', 'jacket', 'suit', 'labcoat', 'polo', 'cardigan', 'hawaiian', 'tracksuit',
       'overalls', 'waistcoat', 'astronaut', 'flightsuit', 'pirate', 'captain', 'parka', 'explorer', 'robe', 'knight', 'wizard', 'gamer',
       'founder', 'gymkit', 'safari', 'flannel', 'hire', 'claude', 'gpt', 'gemini', 'grok', 'qwen', 'llama', 'mistral', 'deepseek', 'kimi', 'glm',
-      'phi'],
+      'phi', 'witch', 'skeleton', 'mummy'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
       'potions', 'egg', 'spellbook', 'controller', 'energy', 'headset', 'circuit', 'pizza', 'coffeepot', 'dumbbell', 'shaker',
-      'kettlebell', 'coconut', 'pineapple', 'tikimug', 'enamel', 'lantern', 'pinecone', 'none'],
+      'kettlebell', 'coconut', 'pineapple', 'tikimug', 'enamel', 'lantern', 'pinecone', 'jackolantern', 'candles', 'candy', 'none'],
     workspace: ['auto', ...ROOM_CHOICES.workspace],
   };
   /** The most a nickname can be, in characters, and the most projects a team remembers. */
@@ -1566,6 +1577,7 @@
     snail: { speed: 2.5, stay: [20, 40] },
     fox: { speed: 28, stay: [10, 24] },
     axolotl: { speed: 0, stay: [999, 999] },
+    blackcat: { speed: 20, stay: [8, 20] },
   };
   /** The corgi's laps of the rug, once an agent has finished, in seconds; the snail's trail, how long it shines. */
   const ZOOMIES = 3.2;
@@ -1913,9 +1925,11 @@
       const watches = {
         fishtank: { x: 262, y: 95, pose: 'sit' }, jellyfish: { x: 262, y: 95, pose: 'sit' },
         campfire: { x: 276, y: 99, pose: 'sleep' }, dragon: { x: 284, y: 97, pose: 'sleep' },
+        cauldron: { x: 277, y: 97, pose: 'sleep' }, lanterns: { x: 296, y: 95, pose: 'sit' },
       };
       switch (pet.kind) {
         case 'cat':
+        case 'blackcat':
           [3, 4, 5].forEach((spot) => { if (!taken(spot)) places.push(placed('couch', { x: LOUNGE_SPOTS[spot].x, y: 113, pose: 'sleep' })); });
           for (const p of this.people) {
             if (p.isStaff || !p.isAtDesk) continue;
@@ -2160,7 +2174,7 @@
       }
       if (!pet.isWalking) {
         // Settled, it turns to watch whoever walks by: in, out, fired or hired; or another pet; the cat takes no notice of dogs
-        const ignores = pet.kind === 'cat' ? ['dog', 'corgi', 'robodog'] : [];
+        const ignores = pet.kind === 'cat' || pet.kind === 'blackcat' ? ['dog', 'corgi', 'robodog'] : [];
         const by = [...this.people, ...this.pets.filter((o) => o !== pet && !ignores.includes(o.kind))]
           .find((p) => p.isWalking && Math.hypot(p.position.x - pet.position.x, p.position.y - pet.position.y) < PET_WATCHES);
         if (by && Math.abs(by.position.x - pet.position.x) > 3) pet.facing = by.position.x > pet.position.x ? 1 : -1;
@@ -4305,6 +4319,60 @@
       fill(l, y + 6, w, 1, PALETTE.deskEdge);
     }
 
+    /**
+     * Jack-o'-lantern faces, each its carved pixels from the middle of the
+     * face, for a big pumpkin and a small one: a grin, a scowl, a gasp and a wink.
+     */
+    const PUMPKIN_FACES = {
+      big: [
+        [[-3, -1], [-2, -1], [-1, -1], [-2, -2], [1, -1], [2, -1], [3, -1], [2, -2], [-3, 1], [3, 1], [-2, 2], [-1, 2], [1, 2], [2, 2]],
+        [[-3, -2], [-2, -1], [-1, -1], [3, -2], [2, -1], [1, -1], [-3, 2], [-2, 1], [-1, 2], [0, 1], [1, 2], [2, 1], [3, 2]],
+        [[-2, -2], [-2, -1], [2, -2], [2, -1], [-1, 1], [0, 1], [1, 1], [-1, 2], [0, 2], [1, 2]],
+        [[-3, -1], [-2, -1], [-1, -1], [2, -2], [1, -1], [2, -1], [3, -1], [-3, 1], [-2, 2], [-1, 2], [0, 2], [1, 2], [2, 1]],
+      ],
+      small: [
+        [[-2, -1], [2, -1], [-2, 1], [-1, 1], [1, 1], [2, 1]],
+        [[-2, -1], [-1, -1], [1, -1], [2, -1], [-2, 1], [0, 1], [2, 1]],
+        [[-2, -2], [-2, -1], [2, -2], [2, -1], [0, 1]],
+        [[-2, -1], [-1, -1], [2, -1], [-1, 1], [0, 1], [1, 1]],
+      ],
+    };
+
+    /**
+     * A pumpkin standing on `bottom`, round its middle `cx`: big or small,
+     * carved with one of PUMPKIN_FACES (none for a plain one), lit from
+     * inside at `lit`, which flickers.
+     */
+    function drawPumpkin(cx, bottom, big, face = null, lit = 1) {
+      const w = big ? 9 : 7, h = big ? 7 : 5, l = cx - (w - 1) / 2, t = bottom - h;
+      if (face !== null) glowAt(cx, t + h / 2, w / 2 + 3, h / 2 + 2, 0xff8a3d, 0.1 * lit);
+      fill(l + 1, t, w - 2, h, 0xe0702a);
+      fill(l, t + 1, w, h - 2, 0xe0702a);
+      for (const dx of big ? [2, 6] : [2, 4]) fill(l + dx, t + 1, 1, h - 2, 0xc85e22);
+      fill(l + 1, t, w - 2, 1, 0xf0883a);
+      dot(l + 1, t + 1, 0xf6a050);
+      fill(l + w - 1, t + 1, 1, h - 2, 0xb04e1a);
+      fill(l + 1, t + h - 1, w - 2, 1, 0xb04e1a);
+      fill(cx, t - 2, 1, 2, 0x5a3b25);
+      dot(cx + 1, t - 2, 0x3f8a4a);
+      if (face === null) return;
+      const mid = t + (big ? 3 : 2);
+      for (const [dx, dy] of PUMPKIN_FACES[big ? 'big' : 'small'][face % 4]) dot(cx + dx, mid + dy, shaded(0xffd85a, 0.7 + 0.3 * lit));
+    }
+
+    /** A candle's or a lantern's light, wavering softly: from 0.6 to 1, `k` keeping each in its own time. */
+    const candlelight = (k) => 0.8 + 0.2 * Math.sin(now * 4.3 + k * 1.7) * Math.sin(now * 1.9 + k);
+
+    /** A pool of light round `cx`, `cy`, `rx` either side and `ry` above and below, brighter in the middle: a lamp's on the wall, a fire's on the floor. */
+    function glowAt(cx, cy, rx, ry, colour, alpha) {
+      for (const [sx, sy] of [[rx, ry], [rx / 2, ry / 2]]) {
+        for (let row = -Math.floor(sy); row <= Math.floor(sy); row++) {
+          const half = Math.round(sx * Math.sqrt(Math.max(0, 1 - (row / (sy + 0.5)) ** 2)));
+          fill(cx - half, cy + row, half * 2 + 1, 1, colour, alpha * 0.6);
+        }
+      }
+    }
+
     /** One of the back wall's places, as set up, around its middle `x`. */
     /**
      * The back wall's pieces besides a window, a whiteboard, a pinboard, a
@@ -4684,6 +4752,104 @@
         for (const [dx, dy] of [[3, 17], [5, 15], [7, 13], [9, 12], [11, 11], [13, 11], [15, 11]]) dot(l + dx, t + dy, 0xc9443a);
         if (Math.floor(now * 2) % 2) fill(l + 3, t + 17, 2, 2, 0xd4140b);
         fill(l + 6, t + 6, 3, 2, 0xe0703a); dot(l + 7, t + 5, 0xe0703a);
+      },
+      /** Jack-o'-lantern shelf. Three carved pumpkins on a shelf, each a different face, candles flickering in them. */
+      pumpkins(x) {
+        fill(x - 15, 22, 30, 1, 0x7a5232);
+        fill(x - 15, 23, 30, 1, 0x5a3b25);
+        for (const bx of [x - 11, x + 10]) { fill(bx, 24, 1, 3, 0x3a2616); dot(bx - 1, 24, 0x3a2616); }
+        drawPumpkin(x - 9, 22, false, 2, candlelight(0));
+        drawPumpkin(x, 22, true, 0, candlelight(1));
+        drawPumpkin(x + 9, 22, false, 1, candlelight(2));
+        for (const [lx, c] of [[x - 14, LEAVES[0]], [x + 13, LEAVES[2]]]) fill(lx, 21, 2, 1, c);
+      },
+      /** Hanging lantern. An iron lantern on a chain from a wall bracket, its candle wavering, its light on the wall. */
+      lanternhang(x) {
+        const iron = 0x2a2a2e, glow = candlelight(x);
+        glowAt(x, 14, 10, 9, 0xffb04a, (isNight ? 0.14 : 0.07) * glow);
+        fill(x - 5, 2, 9, 1, iron);
+        dot(x - 5, 3, iron);
+        for (let cy = 3; cy < 8; cy++) dot(x, cy, cy % 2 ? 0x5a5f6c : iron);
+        fill(x - 1, 8, 3, 1, iron);
+        fill(x - 3, 9, 7, 1, iron);
+        fill(x - 2, 10, 5, 7, 0xffc860, glow);
+        fill(x, 12, 1, 3, 0xfff0b0);
+        dot(x, 11, 0xffe08a, glow);
+        fill(x - 3, 10, 1, 7, iron);
+        fill(x + 3, 10, 1, 7, iron);
+        fill(x - 3, 17, 7, 1, iron);
+        fill(x - 2, 18, 5, 1, iron);
+        dot(x, 19, iron);
+      },
+      /** Cobweb. A big web strung across the wall, a spider going up and down its thread. */
+      cobweb(x) {
+        const cy = 14;
+        const at = (k, r) => [x + Math.round(Math.cos((k / 8) * Math.PI * 2 + 0.2) * r), cy + Math.round(Math.sin((k / 8) * Math.PI * 2 + 0.2) * r * 0.9)];
+        for (let k = 0; k < 8; k++) line(x, cy, ...at(k, 12), WHITE, 0.35);
+        for (const r of [4, 8, 12]) for (let k = 0; k < 8; k++) line(...at(k, r), ...at(k + 1, r), WHITE, 0.3);
+        const sx = x + 5, sy = 22 + Math.round((Math.sin(now * 0.6) + 1) * 2.5);
+        line(sx, cy + 4, sx, sy - 1, WHITE, 0.4);
+        fill(sx - 1, sy, 3, 2, 0x1a1a1f);
+        for (const [dx, dy] of [[-2, 0], [2, 0], [-2, 2], [2, 2], [-3, 1], [3, 1]]) dot(sx + dx, sy + dy, 0x3a3d47);
+        dot(sx, sy + 1, 0xd4140b, 0.8);
+      },
+      /** Hanging ghosts. Three sheet ghosts pegged to a string, their hems fluttering. */
+      ghosts(x) {
+        const sag = (dx) => 5 + Math.round(Math.sin(((dx + 15) / 30) * Math.PI) * 3);
+        for (let dx = -15; dx <= 15; dx++) dot(x + dx, sag(dx), 0x8a8f9c, 0.8);
+        dot(x - 16, 4, PALETTE.frame);
+        dot(x + 16, 4, PALETTE.frame);
+        const ghost = ['..XXX..', '.XXXXX.', 'XXXXXXX', 'XXEXEXX', 'XXXXXXX', 'XXXMXXX', 'XXXXXXX', 'XXXXXXX'];
+        [-9, 0, 9].forEach((gx, i) => {
+          const top = sag(gx) + 1 + (i === 1 ? 2 : 0), l = x + gx - 3;
+          const hem = (Math.floor(now * 1.5) + i) % 2 ? 'X.X.X.X' : '.X.X.X.';
+          [...ghost, hem].forEach((row, r) => [...row].forEach((c, k) => {
+            if (c === '.') return;
+            dot(l + k, top + r, c === 'X' ? (k === 6 ? 0xd8d4c8 : 0xf4f1ea) : 0x1a1a1f);
+          }));
+          dot(x + gx, sag(gx), 0xc9443a);
+        });
+      },
+      /** Witch's broom. A broom across two pegs, a pointed hat hung under it. */
+      broom(x) {
+        const wood = 0x6e4a2e;
+        for (const px of [x - 8, x + 2]) fill(px, 9, 1, 2, 0x3a2616);
+        fill(x - 13, 8, 19, 1, wood);
+        fill(x - 13, 7, 19, 1, 0x8a6040);
+        for (let k = 0; k < 7; k++) {
+          const half = 1 + Math.floor(k / 2);
+          fill(x + 7 + k, 8 - half, 1, half * 2 + 1, k % 2 ? 0xc9a06a : 0xa8803a);
+        }
+        fill(x + 5, 6, 2, 4, 0x5a3b25);
+        // The hat, hung by its tip
+        const hat = 0x2a2433, edge = 0x3e3650;
+        dot(x - 2, 10, 0x3a2616);
+        dot(x - 2, 11, hat);
+        dot(x - 3, 12, hat);
+        for (const [y, l, w] of [[13, -5, 3], [14, -5, 3], [15, -6, 5], [16, -6, 5], [17, -7, 7], [18, -7, 7]]) {
+          fill(x + l, y, w, 1, hat);
+          dot(x + l, y, edge);
+        }
+        fill(x - 7, 19, 7, 1, 0x7d5ab8);
+        dot(x - 4, 19, PALETTE.brass);
+        fill(x - 9, 20, 11, 1, hat);
+        fill(x - 9, 20, 11, 1, edge, 0.5);
+      },
+      /** Autumn garland. A swag of leaves along a string, a little pumpkin every so often. */
+      leafgarland(x) {
+        const sag = (dx) => 5 + Math.round(Math.sin(((dx + 17) / 34) * Math.PI) * 4);
+        for (let dx = -17; dx <= 17; dx++) {
+          const y = sag(dx);
+          dot(x + dx, y, 0x5a3b25);
+          if (((dx + 17) % 11) === 5) {
+            fill(x + dx - 1, y + 1, 3, 3, 0xe0702a);
+            dot(x + dx + 1, y + 2, 0xb04e1a);
+            dot(x + dx, y, 0x3f8a4a);
+          } else if (dx % 2 === 0) {
+            fill(x + dx, y + 1, 2, 2, LEAVES[Math.floor((dx + 17) / 2) % 4]);
+            dot(x + dx + 1, y + 3, LEAVES[Math.floor((dx + 19) / 2) % 4]);
+          }
+        }
       },
       /** Crossed paddles. Two canoe paddles, their blades painted. */
       paddles(x) {
@@ -5929,6 +6095,34 @@
       pinecone(x, y) {
         fill(x + 37, y - 4, 4, 4, 0x8a5a2b); fill(x + 38, y - 5, 2, 1, 0x8a5a2b); for (const [dx, dy] of [[0, 1], [2, 1], [1, 2], [3, 2], [0, 3], [2, 3]]) dot(x + 37 + dx, y - dy, 0xa87048);
       },
+      /** Jack-o'-lantern, a different face from desk to desk. */
+      jackolantern(x, y) {
+        drawPumpkin(x + 39, y, false, Math.floor(x / 66 + y / 44) % 4, candlelight(x + y));
+      },
+      /** Three candles, dripping, their flames wavering. */
+      candles(x, y) {
+        glowAt(x + 39, y - 6, 6, 5, 0xffd36b, 0.08 * candlelight(x));
+        fill(x + 35, y, 9, 1, 0x5a5f6c);
+        [[35, 5], [38, 7], [41, 4]].forEach(([dx, h], k) => {
+          fill(x + dx, y - h, 2, h, 0xf6efdc);
+          fill(x + dx + 1, y - h, 1, h, 0xd6cbad);
+          dot(x + dx, y - h + 2, 0xd6cbad);
+          dot(x + dx + 1, y - h - 1, 0x2a2a2e);
+          dot(x + dx + 1, y - h - 2, 0xffd36b, candlelight(x + k));
+          dot(x + dx + 1, y - h - 3, 0xff8a3d, 0.5 * candlelight(x + k));
+        });
+      },
+      /** A bowl of candy corn. */
+      candy(x, y) {
+        for (const [dx, dy] of [[36, -3], [38, -4], [40, -3], [42, -3], [39, -3]]) {
+          dot(x + dx, y + dy, 0xf2d35b);
+          dot(x + dx, y + dy - 1, 0xe8823a);
+          dot(x + dx, y + dy - 2, 0xf4f1ea);
+        }
+        fill(x + 35, y - 2, 9, 2, 0x3a2a4a);
+        fill(x + 35, y - 2, 9, 1, 0x5a4a6a);
+        fill(x + 36, y, 7, 1, 0x2a1e36);
+      },
     };
 
     /** Something on a desk whose corner is at `x`, `y`: a plant, papers, a lamp, or what you've put on it. */
@@ -6991,6 +7185,117 @@
     /** Records' sleeves, seen edge on in a crate or a cabinet. */
     const RECORDS = [0xd96a5a, 0x4c8bf5, 0xf2d35b, 0x4f9a5a, 0xeae6dc, 0x9a6ad0, 0xe08a3a];
 
+    /** A cauldron on a little fire: its green brew bubbling, steam rising, the ladle going round while someone stirs. */
+    function drawCauldron() {
+      const iron = 0x26262c, flick = candlelight(3);
+      glowAt(277, 91, 20, 5, 0xffc070, 0.1 * flick);
+      fill(262, 92, 30, 1, SHADOW);
+      fill(268, 91, 18, 1, 0x5a3b25);
+      for (const [fx, h] of [[270, 3], [273, 4], [277, 5], [281, 4], [284, 3]]) {
+        const tall = h + Math.round(Math.sin(now * 5 + fx) * 0.8);
+        fill(fx, 91 - tall, 2, tall, 0xe0602a);
+        fill(fx, 91 - Math.max(1, tall - 2), 1, Math.max(1, tall - 2), 0xf2b03a, flick);
+      }
+      fill(266, 87, 2, 5, iron);
+      fill(287, 87, 2, 5, iron);
+      [8, 9, 9, 9, 9, 9, 9, 8, 8, 7, 6, 4].forEach((half, row) => {
+        fill(277 - half, 75 + row, half * 2 + 1, 1, iron);
+        dot(277 - half + 1, 75 + row, 0x4a4e56);
+      });
+      fill(267, 74, 21, 2, 0x3a3d47);
+      fill(267, 74, 21, 1, 0x5a5f6c);
+      fill(269, 75, 17, 1, 0x5ad46a);
+      fill(268, 76, 19, 1, 0x3f9a4a, 0.6);
+      glowAt(277, 72, 11, 3, 0x5ad46a, 0.08);
+      for (let k = 0; k < 3; k++) {
+        const rise = (now * 0.7 + k / 3) % 1, bx = 271 + k * 6;
+        if (rise < 0.2) dot(bx, 75, 0xb8f0c0);
+        else dot(bx + Math.round(Math.sin(rise * 6 + k)), 75 - Math.round(rise * 7), 0xb8f0c0, 1 - rise);
+      }
+      for (let k = 0; k < 2; k++) {
+        const rise = (now * 0.25 + k / 2) % 1;
+        fill(273 + k * 6 + Math.round(Math.sin(rise * 5 + k) * 2), 72 - Math.round(rise * 12), 2, 1, 0xdcf0dc, 0.3 * (1 - rise));
+      }
+      const turn = atCorner(0) || atCorner(1) ? now * 2.5 : 0.6, lx = 279 + Math.round(Math.cos(turn) * 3);
+      line(lx, 75, lx + 4, 67, 0x8a6a42);
+      dot(lx + 4, 66, 0x6e4a2e);
+    }
+
+    /** A little graveyard behind an iron fence: three stones, fog drifting through, and a ghost that peeks out now and then. */
+    function drawGraveyard() {
+      const iron = 0x2a2a2e;
+      fill(246, 72, 60, 1, iron);
+      fill(246, 76, 60, 1, iron);
+      for (let x = 247; x < 306; x += 4) { fill(x, 70, 1, 9, iron); dot(x, 69, 0x4a4e56); }
+      glowAt(276, 91, 30, 2, 0x2e2620, 0.7);
+      // The ghost, up from behind the cross and back down
+      const t = now % 17, rise = t < 3 ? Math.sin((t / 3) * Math.PI) : 0;
+      if (rise > 0) {
+        within([[268, 60, 18, 30]], () => {
+          const gy = 90 - Math.round(rise * 14);
+          fill(275, gy, 5, 1, 0xf4f1ea, 0.85);
+          fill(274, gy + 1, 7, 8, 0xf4f1ea, 0.85);
+          dot(276, gy + 3, 0x1a1a1f);
+          dot(278, gy + 3, 0x1a1a1f);
+          dot(277, gy + 5, 0x1a1a1f);
+        });
+      }
+      const stone = (cx, base, h, w) => {
+        const l = cx - (w - 1) / 2, top = base - h;
+        fill(l + 2, top, w - 4, 1, 0x8a8f9c);
+        fill(l + 1, top + 1, w - 2, 1, 0x8a8f9c);
+        fill(l, top + 2, w, h - 2, 0x8a8f9c);
+        fill(l + 2, top, w - 4, 1, 0xa8adb6);
+        fill(l + w - 1, top + 2, 1, h - 2, 0x6a6f7a);
+        fill(l - 1, base, w + 2, 1, 0x3b5a3a);
+      };
+      stone(256, 90, 13, 13);
+      pixelText('RIP', 251, 81, 0x55585e, false);
+      dot(253, 88, 0x4f7a3a);
+      dot(260, 87, 0x4f7a3a);
+      fill(276, 76, 2, 14, 0x6e4a2e);
+      fill(273, 79, 8, 2, 0x6e4a2e);
+      fill(276, 76, 1, 14, 0x8a6040);
+      fill(274, 90, 6, 1, 0x3b5a3a);
+      // A tall stone, leaning
+      for (let row = 0; row < 15; row++) {
+        const lean = Math.floor(row / 6), w = row === 0 ? 5 : 9;
+        fill(292 - lean + (row === 0 ? 2 : 0), 75 + row, w, 1, 0x7a7f8a);
+        dot(300 - lean, 75 + row, 0x5a5f6a);
+      }
+      fill(289, 90, 11, 1, 0x3b5a3a);
+      dot(294, 84, 0x4f7a3a);
+      // Fog, drifting through
+      for (let k = 0; k < 5; k++) {
+        const fx = 252 + ((now * 3 + k * 13) % 50), fy = 86 + (k % 3) * 3;
+        glowAt(fx, fy, 8, 1, WHITE, 0.12);
+      }
+    }
+
+    /** Two lanterns standing on the floor round a pile of pumpkins, the biggest carved and lit. */
+    function drawLanterns() {
+      glowAt(278, 90, 22, 6, 0xffc070, 0.09 * candlelight(0));
+      fill(262, 92, 32, 1, SHADOW);
+      const iron = 0x2a2a2e;
+      [266, 290].forEach((cx, k) => {
+        dot(cx - 1, 80, iron);
+        dot(cx + 1, 80, iron);
+        dot(cx, 79, iron);
+        fill(cx - 2, 81, 5, 1, iron);
+        fill(cx - 3, 82, 7, 1, iron);
+        fill(cx - 2, 83, 5, 7, 0xffc860, candlelight(k + 1));
+        fill(cx, 85, 1, 3, 0xfff0b0);
+        fill(cx - 3, 83, 1, 7, iron);
+        fill(cx + 3, 83, 1, 7, iron);
+        fill(cx - 3, 90, 7, 2, iron);
+      });
+      drawPumpkin(272, 92, false);
+      drawPumpkin(285, 92, false);
+      drawPumpkin(278, 93, true, 3, candlelight(4));
+      fill(282, 90, 3, 3, 0xe8c04a);
+      dot(283, 89, 0x3f8a4a);
+    }
+
     /** Bubbler jukebox. A chrome arch round a glowing tube, bubbles rising in the side tubes. Playing, the tube runs round the colours and the bubbles rise faster. */
     function drawBubbler() {
       // Playing: the computer's music, with the control on, or someone at it
@@ -7222,8 +7527,11 @@
       const grounded = (!pet.target || !pet.target.depth || pet.isWalking) && !flying && !['axolotl', 'hamster'].includes(pet.kind);
       if (grounded) p(-4, 0, 9, 1, SHADOW);
       switch (pet.kind) {
-        case 'cat': {
-          const fur = 0xb8b3a8, dark = 0x77726b;
+        case 'cat':
+        case 'blackcat': {
+          // The black cat's yellow eyes, and a sheen on its tail and back to show it on a dark floor
+          const black = pet.kind === 'blackcat';
+          const fur = black ? 0x23232b : 0xb8b3a8, dark = black ? 0x3a3a46 : 0x77726b, eye = black ? 0xf2d35b : PALETTE.eye;
           if (pose === 'sleep') {
             p(-3, -3, 7, 3, fur);
             p(-3, -3, 7, 1, dark);
@@ -7240,14 +7548,14 @@
             p(-4, -7, 1, 3, dark);
             p(-3, -1, 1, 1, dark);
             p(1 + step, -1, 1, 1, dark);
-            p(4, -5, 1, 1, PALETTE.eye);
+            p(4, -5, 1, 1, eye);
             break;
           }
           p(-2, -5, 4, 5, fur);
           p(-1, -8, 4, 3, fur);
           p(-1, -9, 1, 1, fur);
           p(2, -9, 1, 1, fur);
-          p(2, -7, 1, 1, PALETTE.eye);
+          p(2, -7, 1, 1, eye);
           p(-4, -1, 3, 1, dark);
           p(-4, -2 - (Math.floor(now * 1.2) % 2), 1, 1, dark);
           break;
@@ -7668,6 +7976,7 @@
       bubbler: [[88.5, drawBubbler]], neonbox: [[88, drawNeonJukebox]], wallbox: [[78, drawBoothBench], [88, drawBoothTable]],
       djtable: [[90, drawDjBooth]], turntable: [[90, drawRecordPlayer], [92, drawRecordCrate]], boombox: [[92, drawBoombox]],
       hifi: [[92, drawHifi]], synth: [[88, drawSynth]],
+      cauldron: [[91, drawCauldron]], graveyard: [[93, drawGraveyard]], lanterns: [[92, drawLanterns]],
       none: [],
     };
 
@@ -8732,6 +9041,62 @@
         front(x, y, o) {
           dot(x - 1, y, shaded(o.shirt, 1.3)); dot(x + 1, y, shaded(o.shirt, 1.3));
           fill(x, y + 1, 1, 4, WHITE); for (const [dx, dy] of [[-1, 2], [1, 2], [-1, 3], [1, 3]]) dot(x + dx, y + dy, WHITE);
+        },
+      },
+
+      /* Halloween's */
+      witch: {
+        // A cloak over the robe, a brass clasp at the neck
+        front(x, y, o) { fill(x - 3, y, 2, 6, shaded(o.shirt, 0.7)); fill(x + 2, y, 2, 6, shaded(o.shirt, 0.7)); dot(x, y, PALETTE.brass); },
+        back(x, y, o) { fill(x - 3, y, 7, 1, shaded(o.shirt, 0.7)); },
+        // A wide-brimmed pointed hat, its band in the agent's colour, its tip bent over
+        head(x, top, look, away, o) {
+          const hat = 0x2a2433;
+          fill(x - 5, top, 11, 1, hat);
+          fill(x - 3, top - 1, 7, 1, o.accent);
+          if (!away) dot(x, top - 1, PALETTE.brass);
+          for (const [dy, l, w] of [[2, -2, 5], [3, -2, 5], [4, -1, 3], [5, 0, 3], [6, 1, 2]]) fill(x + l, top - dy, w, 1, hat);
+          dot(x + 3, top - 6, hat);
+          dot(x + 4, top - 5, hat);
+        },
+      },
+      skeleton: {
+        // Bones on black, and a skull for a face
+        front(x, y) {
+          const bone = 0xeae6dc;
+          fill(x, y, 1, 4, bone);
+          for (const r of [1, 3]) { fill(x - 2, y + r, 2, 1, bone); fill(x + 1, y + r, 2, 1, bone); }
+          dot(x - 2, y, bone); dot(x + 2, y, bone);
+          fill(x - 2, y + 5, 5, 1, bone); dot(x, y + 5, 0x1d1d22);
+        },
+        back(x, y) { fill(x, y, 1, 6, 0xeae6dc); dot(x - 2, y + 1, 0xeae6dc); dot(x + 2, y + 1, 0xeae6dc); },
+        head(x, top, look, away) {
+          if (away) return;
+          fill(x - 3, top + 2, 7, 5, 0xeae6dc);
+          fill(x - 2, top + 3, 2, 2, 0x1a1a1f);
+          fill(x + 1, top + 3, 2, 2, 0x1a1a1f);
+          dot(x, top + 5, 0x6a6a70);
+          fill(x - 2, top + 6, 5, 1, 0x1a1a1f);
+          dot(x - 1, top + 6, 0xeae6dc);
+          dot(x + 1, top + 6, 0xeae6dc);
+        },
+      },
+      mummy: {
+        // Wrapped from head to toe, a loose end hanging
+        front(x, y, o) {
+          for (let r = 0; r < 6; r++) for (let c = -3; c <= 3; c++) if ((c + r + 9) % 3 === 0) dot(x + c, y + r, 0xb8b098);
+          dot(x + 4, y + 4, o.shirt);
+          dot(x + 4, y + 5, 0xb8b098);
+        },
+        back(x, y) { for (let r = 0; r < 6; r++) for (let c = -3; c <= 3; c++) if ((c - r + 9) % 3 === 0) dot(x + c, y + r, 0xb8b098); },
+        // Over the hair and the face, the eyes peeking out
+        head(x, top, look, away, o) {
+          const seam = 0xb8b098;
+          fill(x - 2, top, 5, 1, o.shirt);
+          fill(x - 3, top + 1, 7, 2, o.shirt);
+          fill(x - 3, top + (away ? 3 : 5), 7, away ? 4 : 2, o.shirt);
+          for (const [dx, dy] of [[-2, 1], [1, 2], [3, 1], [-1, 5], [2, 6], [-3, 6]]) dot(x + dx, top + dy, seam);
+          if (!away) dot(x + 4, top + 6, o.shirt);
         },
       },
     };
@@ -10181,7 +10546,7 @@
     jukebox: 'jukebox', pool: 'pool', piano: 'piano', drums: 'drums', telescope: 'twinkle', jungle: 'bird', coffee: 'coffee',
     servers: 'hum', printer: 'printer', boxing: 'boxing', treadmill: 'treadmill', hottub: 'splash', ballpit: 'rustle', campfire: 'crackle',
     bubbler: 'jukebox', neonbox: 'jukebox', wallbox: 'jukebox', djtable: 'jukebox', turntable: 'jukebox', boombox: 'jukebox',
-    hifi: 'jukebox', synth: 'piano',
+    hifi: 'jukebox', synth: 'piano', cauldron: 'crackle',
   };
   /** How often the weather in the windows, or the corner piece being played, makes itself heard, in seconds. */
   const WEATHER_EVERY = [50, 120];
@@ -10538,7 +10903,9 @@
         if (pet.kind === 'fox' && pet.target && pet.target.pose !== 'curl') { this.play('foxPounce', x); continue; }
         if (Math.random() >= PET_CHATTY) continue;
         const pose = pet.target && pet.target.pose;
-        const name = pet.kind === 'robodog' && pose === 'charge' ? 'robodogCharge' : pet.kind === 'cat' && pose === 'sleep' ? 'catPurr' : pet.kind;
+        // The black cat sounds as the cat does
+        const kind = pet.kind === 'blackcat' ? 'cat' : pet.kind;
+        const name = kind === 'robodog' && pose === 'charge' ? 'robodogCharge' : kind === 'cat' && pose === 'sleep' ? 'catPurr' : kind;
         if (pet.kind === 'owl' && !night) continue;
         this.murmur(name, x);
       }

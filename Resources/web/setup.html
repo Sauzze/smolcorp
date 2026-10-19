@@ -1424,12 +1424,14 @@
       ['printer', 'A 3D printer'], ['boxing', 'A punching bag'], ['treadmill', 'A treadmill'], ['hottub', 'A hot tub'],
       ['ballpit', 'A ball pit'], ['campfire', 'A campfire'], ['bubbler', 'A bubbler jukebox'], ['neonbox', 'A neon jukebox'],
       ['wallbox', 'A diner booth'], ['djtable', 'A DJ booth'], ['turntable', 'A record player'], ['boombox', 'A boombox'],
-      ['hifi', 'A hi-fi'], ['synth', 'A synth rig'], ['none', 'Nothing']],
+      ['hifi', 'A hi-fi'], ['synth', 'A synth rig'], ['cauldron', 'A bubbling cauldron'], ['graveyard', 'A little graveyard'],
+      ['lanterns', 'Lanterns and pumpkins'], ['none', 'Nothing']],
     sky: [['live', 'Follows the clock'], ['day', 'Always day']],
     season: [['calendar', 'Follow the calendar'], ['off', 'Off']],
     pet: [['cat', 'Cat'], ['dog', 'Dog'], ['lizard', 'Lizard'], ['monkey', 'Monkey'], ['llama', 'Llama'], ['penguin', 'Penguin'],
       ['parrot', 'Parrot'], ['owl', 'Owl'], ['capybara', 'Capybara'], ['redpanda', 'Red panda'], ['corgi', 'Corgi'],
-      ['hamster', 'Hamster in a ball'], ['robodog', 'Robot dog'], ['bat', 'Bat'], ['snail', 'Snail'], ['fox', 'Fox'], ['axolotl', 'Axolotl']],
+      ['hamster', 'Hamster in a ball'], ['robodog', 'Robot dog'], ['bat', 'Bat'], ['snail', 'Snail'], ['fox', 'Fox'], ['axolotl', 'Axolotl'],
+      ['blackcat', 'Black cat']],
     sound: [['off', 'Off'], ['quiet', 'Quiet'], ['normal', 'Normal']],
     ambience: [['on', 'On'], ['off', 'Off']],
     desk: [['wood', 'Wood', '#c49a6c'], ['walnut', 'Walnut', '#7e5536'], ['white', 'White', '#e9e6de'], ['black', 'Black', '#3c404a']],
@@ -1458,7 +1460,9 @@
     ['torch', 'Wall torch'], ['arch', 'Arched stone window'], ['neon', 'Neon sign'], ['tv', 'Wall TV'], ['hex', 'Hex light panels'],
     ['pegboard', 'Pegboard of tools'], ['roller', 'Roller door'], ['bike', 'Bike on hooks'], ['mirror', 'Gym mirror'],
     ['timer', 'Interval timer'], ['climbing', 'Climbing holds'], ['vines', 'Hanging vines'], ['tiki', 'Tiki mask'],
-    ['blind', 'Bamboo blind window'], ['cabin', 'Cabin window'], ['trail', 'Trail map'], ['paddles', 'Crossed paddles']];
+    ['blind', 'Bamboo blind window'], ['cabin', 'Cabin window'], ['trail', 'Trail map'], ['paddles', 'Crossed paddles'],
+    ['pumpkins', "Jack-o'-lantern shelf"], ['lanternhang', 'Hanging lantern'], ['cobweb', 'Cobweb and spider'],
+    ['ghosts', 'Hanging ghosts'], ['broom', "Witch's broom and hat"], ['leafgarland', 'Autumn garland']];
   ROOM_CHOICES.lounge.push(...ROOM_CHOICES.floor);
   ROOM_CHOICES.loungePaint = [['auto', 'Same as the walls'], ...ROOM_CHOICES.paint];
   const STANDARD_ROOM = { mic: 'mic', wall: ['window', 'whiteboard', 'window', 'pinboard', 'window'], floor: 'wood', paint: 'slate',
@@ -1498,7 +1502,9 @@
       // Each model family's
       ['claude', "Claude's knit"], ['gpt', 'GPT hoodie'], ['gemini', 'Gemini top'], ['grok', "Grok's leather jacket"],
       ['qwen', 'Qwen jacket'], ['llama', 'Llama poncho'], ['mistral', 'Mistral stripes'], ['deepseek', 'DeepSeek turtleneck'],
-      ['kimi', 'Kimi bomber'], ['glm', 'GLM vest'], ['phi', 'Phi polo']]],
+      ['kimi', 'Kimi bomber'], ['glm', 'GLM vest'], ['phi', 'Phi polo'],
+      // Halloween's
+      ['witch', 'Witch'], ['skeleton', 'Skeleton'], ['mummy', 'Mummy']]],
     colour: ['Colour', [['auto', 'Auto'], ['orange', 'Orange'], ['red', 'Red'], ['pink', 'Pink'], ['purple', 'Purple'], ['blue', 'Blue'],
       ['teal', 'Teal'], ['green', 'Green'], ['yellow', 'Yellow'], ['grey', 'Grey'], ['black', 'Black'], ['white', 'White']]],
     desk: ['On the desk', [['auto', 'Auto'], ['plant', 'A plant'], ['papers', 'Papers'], ['lamp', 'A lamp'], ['cactus', 'A cactus'],
@@ -1510,7 +1516,8 @@
       ['energy', 'Energy drinks'], ['headset', 'A headset'], ['circuit', 'A circuit board'], ['pizza', 'A pizza'],
       ['coffeepot', 'A coffee machine'], ['dumbbell', 'A dumbbell'], ['shaker', 'A protein shaker'], ['kettlebell', 'A kettlebell'],
       ['coconut', 'A coconut drink'], ['pineapple', 'A pineapple'], ['tikimug', 'A tiki mug'], ['enamel', 'A camp mug'],
-      ['lantern', 'A lantern'], ['pinecone', 'A pinecone'], ['none', 'Nothing']]],
+      ['lantern', 'A lantern'], ['pinecone', 'A pinecone'], ['jackolantern', "A jack-o'-lantern"], ['candles', 'Candles'],
+      ['candy', 'Candy corn'], ['none', 'Nothing']]],
     workspace: ['Works at', [['auto', 'Where everyone does'], ...ROOM_CHOICES.workspace]],
   };
   const NICKNAME_LIMIT = 16;
