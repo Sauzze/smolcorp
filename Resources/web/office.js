@@ -2104,9 +2104,9 @@
           if (desk) places.push({ x: desk.x - 6, y: desk.y + 16, pose: 'stand' });
           break;
         case 'reindeer':
-          // By the couch, nibbling by the plant or the cooler, out in the corridor, by the tree, the fire or the sleigh, by the hardest worker
+          // By the couch, nibbling by the plant or the rug, out in the corridor, by the tree, the fire or the sleigh, by the hardest worker
           places.push(placed('couch', { x: 296, y: 141, pose: 'stand' }), placed('plant', { x: 243, y: 171, pose: 'nibble' }),
-            placed('wall', { x: 290, y: 57, pose: 'nibble' }), { x: CORRIDOR_X, y: 110, pose: 'stand' });
+            placed('couch', { x: 252, y: 146, pose: 'nibble' }), { x: CORRIDOR_X, y: 110, pose: 'stand' });
           for (const { part, kind } of loungePieces()) {
             if (['xmastree', 'fireplace', 'sleigh'].includes(kind)) places.push(placed(part, { x: 249, y: 97, pose: 'stand' }));
           }
@@ -8751,7 +8751,7 @@
       // The hearth, stone, before it; the fire's light on the floor
       fill(254, 92, 44, 3, 0x8a8f9c); fill(254, 92, 44, 1, 0xa8adb6);
       glowAt(cx, 97, 20, 3, 0xffa04a, 0.06 * flick);
-      if (isNight) glowLate(() => { glowAt(cx, 98, 24, 5, 0xffa04a, 0.12 * flick); glowAt(cx, 82, 10, 8, 0xff8a3d, 0.1 * flick); });
+      if (isNight) glowLate(() => { glowAt(cx, 97, 20, 3, 0xffc04a, 0.32 * flick); glowAt(cx, 82, 10, 8, 0xff8a3d, 0.14 * flick); });
       // The mantel, a sprig of holly on it
       fill(254, 55, 44, 3, 0x6e4a2e); fill(254, 55, 44, 1, 0x8c6744); fill(254, 58, 44, 1, 0x4a301e);
       fill(256, 53, 4, 2, 0x2f6a3c); dot(255, 54, 0x3f8a4c); dot(258, 52, 0x3f8a4c); dot(257, 53, 0xe0302a); dot(259, 54, 0xe0302a);
