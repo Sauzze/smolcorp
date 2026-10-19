@@ -51,6 +51,12 @@
   const LOUNGE_LEFT = 224;  // the lounge's carpet starts here
   const CORRIDOR_X = 214;
   const DOOR = { x: CORRIDOR_X, y: 37 }; // just inside the doorway
+  /** How often the haunted door creaks open a crack on its own, and for how long, in seconds; and how far open it is at `t`, 0 to 1. */
+  const CREAK_EVERY = 41, CREAK_FOR = 3.2;
+  const creakOf = (t) => {
+    const c = t % CREAK_EVERY;
+    return c < CREAK_FOR ? Math.sin((c / CREAK_FOR) * Math.PI) : 0;
+  };
   const DESK_WIDTH = 44;
   const DESK_COLUMNS = [22, 88, 154];
   const DESK_ROWS = [58, 102, 146];
@@ -178,7 +184,7 @@
    * on any of them plays or pauses the computer's music, and they show
    * whether it's playing, where the computer can tell.
    */
-  const MUSIC_KINDS = ['jukebox', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth'];
+  const MUSIC_KINDS = ['jukebox', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'coffinbox'];
   const isAdded = (part) => part.startsWith('added:');
   /** How big a piece can be: as it comes, half as big again, or twice. */
   const PIECE_SIZES = [1, 1.5, 2];
@@ -217,6 +223,7 @@
     pumpkinrack: { x: 258, y: 62, w: 40, h: 32 }, halfcourt: { x: 262, y: 42, w: 32, h: 52 },
     arcadehoop: { x: 264, y: 46, w: 28, h: 48 }, ballrack: { x: 258, y: 62, w: 40, h: 32 }, studiodesk: { x: 244, y: 56, w: 64, h: 40 },
     bench: { x: 254, y: 68, w: 54, h: 26 },
+    coffinbox: { x: 262, y: 44, w: 25, h: 45 }, skeletonmodel: { x: 264, y: 50, w: 28, h: 45 },
   };
   /** What `part` takes up, in the wide room as it comes: the corner's by what's in it, null with nothing there. */
   const pieceRect = (part) => (part === 'corner' ? CORNER_BOXES[decor.corner] || null
@@ -439,19 +446,22 @@
     corner: ['arcade', 'vending', 'foosball', 'fishtank', 'books', 'dragon', 'pinball', 'jukebox', 'pool', 'piano', 'drums',
       'telescope', 'jellyfish', 'bonsai', 'jungle', 'coffee', 'servers', 'printer', 'boxing', 'treadmill', 'hottub', 'ballpit',
       'campfire', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'cauldron', 'graveyard',
-      'lanterns', 'pumpkinrack', 'halfcourt', 'arcadehoop', 'ballrack', 'studiodesk', 'bench', 'none'],
+      'lanterns', 'pumpkinrack', 'halfcourt', 'arcadehoop', 'ballrack', 'studiodesk', 'bench', 'coffinbox', 'skeletonmodel', 'none'],
     sky: ['live', 'day'],
     pet: ['none', 'cat', 'dog', 'lizard', 'monkey', 'llama', 'penguin', 'parrot', 'owl', 'capybara', 'redpanda', 'corgi', 'hamster',
-      'robodog', 'bat', 'snail', 'fox', 'axolotl', 'blackcat', 'goat'],
+      'robodog', 'bat', 'snail', 'fox', 'axolotl', 'blackcat', 'goat', 'raven', 'ghost', 'spider'],
     season: ['calendar', 'off'],
     sound: ['off', 'quiet', 'normal'],
     // The recorded keyboards and talk under the rest, while there's any sound
     ambience: ['on', 'off'],
     desk: ['wood', 'walnut', 'white', 'black'],
     workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse',
-      'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass', 'scorer', 'anchor'],
+      'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass', 'scorer', 'anchor',
+      'coffin', 'waxdesk', 'clawdesk'],
     monitor: ['standard', 'crt', 'holo', 'brass', 'crystal', 'gilt', 'ice', 'ultrawide', 'dual', 'laptop', 'bamboo', 'tablet', 'portrait',
-      'broadcast'],
+      'broadcast', 'ghostcrt', 'ouija', 'tombstone'],
+    // The door onto the corridor: as it comes, or haunted
+    door: ['standard', 'haunted'],
     chair: ['teal', 'black', 'red', 'grey', 'green'],
     staff: ['some', 'none', 'many'],
     preset: ['yours', ...Object.keys(ROOM_STYLES)],
@@ -510,6 +520,9 @@
     glass: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
     scorer: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
     anchor: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    coffin: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    waxdesk: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    clawdesk: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
   };
   /** The colours of what can sit on a desk besides a plant, papers and a lamp. */
   const DESK_THINGS = { cactus: 0x5a9a4a, duck: 0xf2cf3a, beak: 0xe8823a, sky: 0x8fc0e8, coffee: 0x5a3a24 };
@@ -651,6 +664,9 @@
     ballrack: [{ x: 276, y: 96, pose: 'away' }],
     studiodesk: [{ x: 269, y: 84, pose: 'sit' }, { x: 287, y: 84, pose: 'sit' }],
     bench: [{ x: 266, y: 90, pose: 'sit' }, { x: 282, y: 90, pose: 'sit' }],
+    coffinbox: [{ x: 274, y: 94, pose: 'away' }],
+    // Beside the skeleton, not in front of it: it waves to whoever stands there
+    skeletonmodel: [{ x: 294, y: 95, pose: 'stand' }],
     none: [],
   };
 
@@ -1185,6 +1201,8 @@
     // Sport's Halloween: a referee's stripes on a skeleton, a team jersey in the agent's colour over a mummy's wraps
     refskeleton: { style: 'refskeleton', shirt: 0xf4f1ea, pants: 0x1d1d22, shoes: 0x1d1d22, sleeves: 0x1d1d22 },
     mummyjersey: { style: 'mummyjersey', tint: 1, pants: 0xd6cfb6, shoes: 0xb8b098, sleeves: 0xe2dcc6 },
+    // A werewolf: a flannel shirt, in the agent's colour if it has one, torn at the hem; frayed jeans, furry arms and bare paws
+    werewolf: { style: 'werewolf', shirt: 0x9a3a2e, pants: 0x3f5a86, shoes: 0x6e5038, sleeves: 0x6e5038 },
     // The court's: a team jersey and its shorts, a warm-up suit, a referee's stripes
     jersey: { style: 'jersey', tint: 1, matching: true, shoes: TRAINERS, sleeves: 'skin', legs: 'skin' },
     warmup: { style: 'warmup', tint: 1, matching: true, shoes: TRAINERS },
@@ -1369,7 +1387,7 @@
     outfit: ['auto', 'tee', 'hoodie', 'collar', 'sweater', 'jacket', 'suit', 'labcoat', 'polo', 'cardigan', 'hawaiian', 'tracksuit',
       'overalls', 'waistcoat', 'astronaut', 'flightsuit', 'pirate', 'captain', 'parka', 'explorer', 'robe', 'knight', 'wizard', 'gamer',
       'founder', 'gymkit', 'safari', 'flannel', 'hire', 'claude', 'gpt', 'gemini', 'grok', 'qwen', 'llama', 'mistral', 'deepseek', 'kimi', 'glm',
-      'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee', 'coachpolo', 'blazer'],
+      'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee', 'coachpolo', 'blazer', 'werewolf'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
@@ -1608,6 +1626,9 @@
     axolotl: { speed: 0, stay: [999, 999] },
     blackcat: { speed: 20, stay: [8, 20] },
     goat: { speed: 16, stay: [8, 22] },
+    raven: { speed: 38, stay: [15, 35], flies: true },
+    ghost: { speed: 12, stay: [10, 24], flies: true },
+    spider: { speed: 9, stay: [18, 40], flies: true },
   };
   /** The corgi's laps of the rug, once an agent has finished, in seconds; the snail's trail, how long it shines. */
   const ZOOMIES = 3.2;
@@ -1949,7 +1970,7 @@
         pinball: { x: 274, y: 51, depth: 90.5 }, jukebox: { x: 274, y: 56, depth: 88.5 }, piano: { x: 268, y: 58 },
         jellyfish: { x: 276, y: 51, depth: 91.5 }, servers: { x: 283, y: 50, depth: 89.5 }, printer: { x: 270, y: 56, depth: 91.5 },
         coffee: { x: 289, y: 63, depth: 93.5 }, bubbler: { x: 274, y: 53, depth: 89 }, neonbox: { x: 274, y: 55, depth: 88.5 },
-        hifi: { x: 257, y: 59, depth: 92.5 },
+        hifi: { x: 257, y: 59, depth: 92.5 }, coffinbox: { x: 274, y: 46, depth: 88.5 },
       };
       /** Beside the corner piece, where the cat likes to be: watching the fish, warm by the fire, on the dragon's gold. */
       const watches = {
@@ -2061,6 +2082,35 @@
           for (const { part, kind } of loungePieces()) if (tops[kind]) places.push(placed(part, { ...tops[kind], pose: 'stand' }));
           places.push(placed('couch', { x: 250, y: 140, pose: 'lie' }), { x: CORRIDOR_X, y: 130, pose: 'stand' });
           if (desk) places.push({ x: desk.x - 6, y: desk.y + 16, pose: 'stand' });
+          break;
+        case 'raven':
+          // Above the door, on the back wall's pieces, on the lounge's tops, the skeleton's skull, or the busiest agent's monitor
+          places.push({ x: CORRIDOR_X - 3, y: 13, depth: 41.5, pose: 'perch' });
+          hungOf().forEach((piece) => places.push({ x: piece.x + 3, y: 5, depth: 41.5, pose: 'perch' }));
+          for (const { part, kind } of loungePieces()) {
+            if (tops[kind]) places.push(placed(part, { depth: 86.5, ...tops[kind], pose: 'perch' }));
+            if (kind === 'skeletonmodel') places.push(placed(part, { x: 278, y: 49, depth: 90.5, pose: 'perch' }));
+          }
+          if (desk) places.push({ x: desk.x + 12, y: desk.y - 10, depth: desk.y + 5.7, pose: 'perch' });
+          break;
+        case 'ghost': {
+          // Floating at a window, over the couch, by whatever spooky thing the lounge has, or peeking over the busiest agent's monitor
+          hungOf().forEach((piece) => { if (STORM_PANES[piece.kind]) places.push({ x: piece.x, y: 36, depth: 41.6, pose: 'float' }); });
+          places.push(placed('couch', { x: 262, y: 118, depth: 120, pose: 'float' }), placed('wall', { x: 244, y: 44, depth: 47, pose: 'float' }));
+          const haunts = { graveyard: { x: 292, y: 84 }, cauldron: { x: 297, y: 82 }, lanterns: { x: 300, y: 86 }, skeletonmodel: { x: 265, y: 80 },
+            coffinbox: { x: 292, y: 72 }, pumpkinrack: { x: 300, y: 80 } };
+          for (const { part, kind } of loungePieces()) if (haunts[kind]) places.push(placed(part, { ...haunts[kind], depth: haunts[kind].y + 3, pose: 'float' }));
+          if (desk) places.push({ x: desk.x + 3, y: desk.y - 1, depth: desk.y + 5.7, pose: 'float' });
+          break;
+        }
+        case 'spider':
+          // On its thread: from the ceiling between the back wall's pieces, in the lounge's corner, or off the busiest agent's monitor
+          hungOf().forEach((piece) => places.push({ x: piece.x + Math.round(wallWidthOf(piece.kind) / 2) + 2, y: 20, depth: 41.5, pose: 'dangle', drop: 20 }));
+          places.push(placed('wall', { x: 239, y: 22, depth: 41.5, pose: 'dangle', drop: 22 }), placed('wall', { x: 310, y: 30, depth: 50.5, pose: 'dangle', drop: 30 }));
+          if (desk) {
+            const { screen } = WORKSPACES[workspaceOf(worker.session, worker.desk)];
+            places.push({ x: desk.x + screen.dx + 14, y: desk.y + screen.dy + 9, depth: desk.y + 5.7, pose: 'dangle', drop: 8 });
+          }
           break;
         case 'fox':
           places.push(placed('couch', { x: 300, y: 141, pose: 'curl' }), { x: CORRIDOR_X, y: 100, pose: 'sit' });
@@ -3962,7 +4012,8 @@
       const lockedOut = (p) => !p.isWalking && !p.isLeaving && p.place.startsWith('locked:');
       const open = office.people.some((p) => !lockedOut(p) && Math.hypot(p.position.x - DOOR.x, p.position.y - DOOR.y) < 14);
       fill(205, 13, 18, 27, PALETTE.frame);
-      if (open) {
+      if (decor.door === 'haunted') drawHauntedDoor(open);
+      else if (open) {
         fill(207, 15, 14, 25, PALETTE.doorway);
         fill(207, 15, 3, 25, PALETTE.door);
       } else {
@@ -3986,6 +4037,49 @@
       if (!open && locked.some((p) => takeOf(p) === 0) && Math.floor(now * 5) % 4 === 1) {
         for (const [kx, ky] of [[219, 30], [220, 32], [219, 34]]) dot(kx, ky, WHITE, 0.8);
       }
+    }
+
+    /**
+     * The haunted door: weathered boards in plum-grey, a wreath of dead leaves, a cobweb in the frame's corner and a
+     * slot under the wreath where yellow eyes look out now and then (more often at night). Every so often it creaks open
+     * a crack on its own, the dark showing at its edge, and swings shut again. Open while someone passes, as any door is.
+     */
+    function drawHauntedDoor(open) {
+      const wood = 0x4a3c48, plank = 0x3a2e38, light = 0x5e4e5c, iron = 0x26232a;
+      fill(205, 13, 18, 2, 0x2e262e);
+      for (const [dx, dy] of [[0, 0], [1, 0], [2, 0], [0, 1], [0, 2], [1, 1], [3, 0], [0, 3]]) dot(207 + dx, 15 + dy, 0xd8d8e0, 0.4);
+      if (open) {
+        fill(207, 15, 14, 25, PALETTE.doorway);
+        fill(207, 15, 3, 25, wood);
+        fill(209, 15, 1, 25, plank);
+        return;
+      }
+      const ajar = Math.round(creakOf(now) * 3), right = 221 - ajar;
+      fill(207, 15, right - 207, 25, wood);
+      if (ajar) { fill(right, 15, ajar, 25, PALETTE.doorway); glowAt(right, 30, 2, 8, 0x7ae0a8, 0.08); }
+      for (const px of [210, 214, 218]) if (px < right) fill(px, 15, 1, 25, plank);
+      fill(207, 15, right - 207, 1, light);
+      // A crack in one board, and a board's end sprung
+      dot(212, 33, plank); dot(212, 34, plank); dot(213, 35, plank); dot(208, 38, light);
+      for (const hy of [18, 35]) fill(207, hy, 3, 1, iron);
+      // The wreath of dead leaves, a black bow at its foot
+      const leaves = [0x8a5a2a, 0xa86a2a, 0x6e4a2e, 0x9a3a22, 0x7a6a3a];
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2, lx = Math.round(214 + Math.cos(a) * 4), ly = Math.round(21 + Math.sin(a) * 3.6);
+        if (lx < right) dot(lx, ly, leaves[(k * 3) % leaves.length]);
+        if (k % 3 === 0 && lx + 1 < right) dot(lx + (Math.cos(a) > 0 ? 1 : -1), ly, leaves[(k + 2) % leaves.length]);
+      }
+      fill(213, 25, 3, 1, 0x1a1a1f); dot(212, 26, 0x1a1a1f); dot(216, 26, 0x1a1a1f);
+      // The slot, and the eyes in it now and then
+      fill(211, 28, 6, 2, 0x161219); fill(211, 30, 6, 1, light);
+      const t = (now + 3) % (isNight ? 8 : 15), blink = t > 1.1 && t < 1.25, look = t > 1.5 ? 1 : 0;
+      if (t < 2.4 && !blink) {
+        glowAt(214, 28, 3, 1, 0xf2d35b, 0.15);
+        dot(212 + look, 28, 0xf2d35b); dot(215 + look, 28, 0xf2d35b);
+      }
+      // The handle, iron, and a few leaves blown in at its foot
+      if (right > 219) { fill(218, 32, 1, 2, iron); dot(218, 32, 0x5a5662); }
+      for (const [lx, c] of [[206, 0x8a5a2a], [209, 0x9a3a22], [221, 0xa86a2a]]) dot(lx, 39, c);
     }
 
     /** A clock above the door, keeping the computer's time. */
@@ -5496,6 +5590,69 @@
           fill(x + 5, y + 10, 3, 1, 0x1a1a1a); fill(x + 3, y + 11, 7, 1, 0x333333);
         },
       },
+      /**
+       * Haunted CRT. An old set in plum-grey, a cobweb in its corner, the static inside glinting green through its vents;
+       * now and then a little ghost drifts up out of it, looks round and sinks back in, each desk's in its own time.
+       */
+      ghostcrt: {
+        draw(x, y) {
+          const flicker = (now + x * 0.21) % 6 < 0.12 ? 0.45 : 1, fizz = Math.floor(now * 3);
+          fill(x - 1, y - 1, 15, 11, 0x8af0b0, 0.06 * flicker);
+          fill(x, y, 13, 9, 0x3e3844); fill(x, y, 13, 1, 0x5a5262); fill(x + 12, y, 1, 9, 0x2a2630);
+          fill(x + 2, y + 2, 9, 6, 0x322d38); fill(x + 2, y + 2, 9, 1, 0x463f4e);
+          for (const r of [4, 6]) for (let k = 0; k < 5; k++) dot(x + 4 + k, y + r, (k * 7 + r + fizz) % 4 ? 0x2c4a3c : 0x7ae0a8, flicker);
+          for (const [dx, dy] of [[1, 1], [2, 1], [3, 1], [1, 2], [1, 3], [2, 2]]) dot(x + dx, y + dy, 0xd8d8e0, 0.45);
+          fill(x + 4, y + 9, 5, 1, 0x322d38); fill(x + 3, y + 10, 7, 1, 0x2a2630);
+          // The ghost, up from behind the set and back down, only above its top
+          const t = (now + x * 0.37) % 13;
+          if (t >= 3.2) return;
+          const rise = Math.sin((t / 3.2) * Math.PI), gy = y + 3 - Math.round(rise * 9), look = t > 1.2 && t < 2 ? 1 : 0;
+          within([[x - 2, y - 12, 17, 12]], () => {
+            const sheet = 0xf4f1ea;
+            fill(x + 5, gy, 3, 1, sheet, 0.9); fill(x + 4, gy + 1, 5, 6, sheet, 0.9);
+            dot(x + 5 + look, gy + 2, 0x1a1a1f); dot(x + 7 + look, gy + 2, 0x1a1a1f); dot(x + 6 + look, gy + 4, 0x1a1a1f, 0.7);
+            glowAt(x + 6, gy + 3, 4, 4, 0xc8f0d8, 0.08);
+          });
+        },
+      },
+      /**
+       * Ouija frame. The screen set in a talking board: a sun and a moon in its top corners, its letters in two arcs and
+       * GOODBYE along the foot; the planchette on top slides across it every so often, as if someone were asking.
+       */
+      ouija: {
+        draw(x, y) {
+          const board = 0xc89a62, rim = 0x7a5232, ink = 0x3a2616;
+          fill(x - 1, y - 1, 15, 11, rim); fill(x, y, 13, 9, board); fill(x, y, 13, 1, 0xdcb47c);
+          dot(x + 1, y + 1, 0xf2b03a); dot(x + 11, y + 1, 0xeae6dc); dot(x + 12, y + 1, board);
+          for (let k = 0; k < 9; k++) {
+            dot(x + 2 + k, y + 3 - (k > 1 && k < 7 ? 1 : 0), ink, k % 2 ? 0.55 : 0.85);
+            dot(x + 2 + k, y + 5 - (k > 2 && k < 6 ? 1 : 0), ink, k % 2 ? 0.85 : 0.55);
+          }
+          fill(x + 3, y + 7, 7, 1, ink, 0.6);
+          fill(x + 5, y + 10, 3, 1, rim); fill(x + 3, y + 11, 7, 1, ink);
+          // The planchette: still at YES, then across to NO and back, now and then
+          const t = (now + x * 0.29) % 17, glide = t < 4 ? Math.sin((t / 4) * Math.PI) : 0, px = x + 1 + Math.round(glide * 8);
+          fill(px, y - 3, 3, 2, 0xeae0c8); dot(px + 1, y - 4, 0xeae0c8); dot(px + 1, y - 3, 0x5a3b25);
+        },
+      },
+      /** Tombstone monitor. A headstone for a back, rounded at the top, RIP cut in it, moss at its foot; fog drifts by now and then. */
+      tombstone: {
+        draw(x, y) {
+          const stone = 0x8a8f9c, light = 0xa8adb6, dark = 0x6a6f7a;
+          fill(x + 3, y - 2, 7, 1, stone); fill(x + 1, y - 1, 11, 1, stone); fill(x, y, 13, 10, stone);
+          fill(x + 3, y - 2, 7, 1, light); fill(x + 1, y - 1, 2, 1, light); fill(x, y, 1, 10, light);
+          fill(x + 12, y, 1, 10, dark); dot(x + 11, y - 1, dark);
+          pixelText('RIP', x + 1, y + 1, 0x55585e, false);
+          fill(x - 1, y + 10, 15, 1, 0x5a5f6c);
+          for (const dx of [0, 1, 4, 10, 12]) dot(x + dx, y + 9, 0x4f7a3a);
+          dot(x + 2, y + 8, 0x4f7a3a);
+          const t = (now + x * 0.17) % 14;
+          if (t < 5) {
+            const drift = Math.round(-6 + (t / 5) * 20), a = 0.28 * Math.sin((t / 5) * Math.PI);
+            fill(x + drift, y + 7, 9, 1, 0xdfe6ea, a); fill(x + drift + 2, y + 6, 5, 1, 0xdfe6ea, a * 0.7);
+          }
+        },
+      },
       /** CRT monitor. A deep beige case, vents on its back. */
       crt: {
         draw(x, y) {
@@ -6301,6 +6458,110 @@
           fill(x + 1, y + 6, 42, 8, tint(0x0e0e0e, 1)); fill(x + 3, y + 14, 38, 2, tint(0x0e0e0e, 1));
           fill(x + 14, y + 8, 4, 4, 0x3558ce); fill(x + 18, y + 8, 12, 4, 0xf5f5f5); fill(x + 20, y + 9, 7, 1, 0x0e0e0e); fill(x + 20, y + 10, 5, 1, 0x8a8a8a);
           fill(x + 3, y + 16, 38, 1, SHADOW); drawKeyboard(s, y + 2);
+        },
+      },
+      /**
+       * Coffin desk. A coffin on two trestles, its lid the desk's top, a sliver of purple satin showing under it, brass
+       * handles along its side and a plate in the middle; now and then a bony hand pokes out from under the lid and waves.
+       */
+      coffin: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          const lid = 0x5e3a34, side = 0x42282a, seam = 0x241618;
+          // The trestles, under it
+          for (const tx of [x + 6, x + 33]) {
+            for (let k = 0; k < 6; k++) { dot(tx + k, y + 10 + k, 0x6e4a2e); dot(tx + 5 - k, y + 10 + k, 0x5a3b25); }
+          }
+          // The lid, its ends cut in, and its edge
+          fill(x + 2, y, 40, 1, tint(0x7a4e44, 1)); fill(x + 1, y + 1, 42, 1, tint(lid, 0.9)); fill(x, y + 2, 44, 3, tint(lid, 0.9));
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 1, seam); fill(x + 3, y + 5, 30, 1, 0x7a4aa0); fill(x + 5, y + 5, 6, 1, 0x9a6ac0);
+          // Its side, narrowing toward the foot
+          fill(x + 1, y + 6, 43, 5, tint(side, 0.72)); fill(x + 2, y + 11, 40, 1, tint(side, 0.62));
+          fill(x + 1, y + 6, 43, 1, tint(0x5a3836, 0.72)); fill(x + 1, y + 10, 43, 1, seam, 0.5);
+          for (const hx of [x + 5, x + 16, x + 31]) { fill(hx, y + 8, 5, 1, PALETTE.brass); dot(hx, y + 7, 0x9a7a3a); dot(hx + 4, y + 7, 0x9a7a3a); }
+          fill(x + 24, y + 7, 4, 3, 0xc8cdd6); dot(x + 25, y + 8, 0x8a8f9c);
+          fill(x + 3, y + 16, 38, 1, SHADOW);
+          // The hand, from under the lid at the foot end, its fingers waggling
+          const t = (now + x * 0.31) % 19;
+          if (t < 1.6) {
+            const out = Math.min(1, t / 0.3, (1.6 - t) / 0.3), wag = Math.floor(now * 6) % 2, bone = 0xeae6dc;
+            if (out > 0.5) {
+              fill(x + 38, y + 5, 3, 2, bone);
+              for (let f = 0; f < 3; f++) dot(x + 38 + f, y + 7 + ((f + wag) % 2), bone);
+            } else {
+              fill(x + 38, y + 5, 3, 1, bone);
+            }
+          }
+          drawKeyboard(s, y + 2);
+        },
+      },
+      /**
+       * Candle-wax desk. Dark old wood, three candles burning at its back corner, and years of their wax run down its
+       * front in long drips; a drop gathers at the end of one and falls, every so often.
+       */
+      waxdesk: {
+        front({ x, y, s, tint }) {
+          const wax = 0xeee4c8, waxShade = 0xcfc2a0, flick = candlelight(x * 0.1);
+          glowAt(x + 3, y - 4, 9, 5, 0xffb04a, 0.08 * flick);
+          drawMonitor(x + 6, y - 10);
+          fill(x, y, 44, 1, tint(0x7e5a46, 1)); fill(x, y + 1, 44, 4, tint(0x5a3b2e, 0.9));
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 11, tint(0x4a2e24, 0.72)); fill(x, y + 5, 44, 1, tint(0x3a2218, 0.62));
+          for (const lx of [x + 1, x + 40]) fill(lx, y + 6, 3, 10, tint(0x3a2218, 0.7));
+          // The candles, short and tall, their flames wavering
+          for (const [cx, h, k] of [[x + 1, 6, 0], [x + 3, 4, 1], [x + 41, 3, 2]]) {
+            fill(cx, y + 2 - h, 2, h, wax); fill(cx + 1, y + 2 - h, 1, h, waxShade);
+            const lit = candlelight(k + x * 0.1);
+            dot(cx, y + 1 - h, 0xffd85a, lit); dot(cx, y - h, 0xff8a3d, 0.6 * lit);
+          }
+          // Wax pooled on the top and run down the front
+          fill(x, y + 3, 6, 2, wax); fill(x + 39, y + 3, 5, 2, wax);
+          fill(x, y + 5, 7, 1, wax); fill(x + 38, y + 5, 6, 1, wax);
+          for (const [dx, len] of [[1, 4], [3, 2], [5, 7], [13, 1], [20, 2], [39, 5], [42, 3]]) {
+            fill(x + dx, y + 5, 1, len, wax); fill(x + dx, y + 5 + len, 2, 1, waxShade); dot(x + dx, y + 5 + len, wax);
+          }
+          // A drop, gathering at the end of the longest drip, then falling to the floor
+          const t = (now + x * 0.23) % 7;
+          if (t < 2) dot(x + 5, y + 13, wax, t / 2);
+          else if (t < 2.4) dot(x + 5, y + 13 + Math.round(((t - 2) / 0.4) * 3), wax);
+          fill(x + 1, y + 16, 42, 1, SHADOW); fill(x + 4, y + 16, 3, 1, wax, 0.7);
+          drawKeyboard(s, y + 2);
+        },
+      },
+      /**
+       * Haunted-wood desk. Grey warped boards, claw marks raked across its front, and a knot in the wood that, every so
+       * often, opens a yellow eye, looks left and right, and shuts it again.
+       */
+      clawdesk: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          const board = 0x6a6058, groove = 0x3e3630, light = 0x8a8078;
+          fill(x, y, 44, 1, tint(0x9a9088, 1)); fill(x, y + 1, 44, 4, tint(0x7a7068, 0.9));
+          for (const [gx, gy, gw] of [[2, 2, 9], [18, 3, 12], [33, 2, 8], [8, 4, 6]]) fill(x + gx, y + gy, gw, 1, tint(0x6a6058, 0.85));
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 10, tint(board, 0.72)); fill(x, y + 5, 44, 1, tint(groove, 0.62));
+          for (const py of [8, 11]) fill(x, y + py, 44, 1, tint(groove, 0.7));
+          // Warped: a board's end lifting, a nail standing proud
+          dot(x + 43, y + 7, light); dot(x + 43, y + 8, groove); dot(x + 21, y + 6, 0x9aa0a6);
+          // Two sets of claw marks, three scratches each
+          for (const [cx, cy] of [[x + 4, y + 6], [x + 22, y + 7]]) {
+            for (let k = 0; k < 3; k++) {
+              for (let d = 0; d < 6; d++) { dot(cx + k * 3 + d, cy + d, 0x241e1a); if (d < 5) dot(cx + k * 3 + d, cy + d + 1, light, 0.35); }
+            }
+          }
+          // The knot, and its eye
+          fill(x + 34, y + 9, 5, 3, 0x4a4038); fill(x + 35, y + 10, 3, 1, 0x2a2420);
+          const t = (now + x * 0.41) % 11;
+          if (t < 1.8) {
+            const look = t < 0.6 ? 0 : t < 1.2 ? -1 : 1;
+            fill(x + 35, y + 10, 3, 1, 0xf2d35b); dot(x + 36 + look, y + 10, 0x1a1a1f);
+            glowAt(x + 36, y + 10, 3, 1, 0xf2d35b, 0.12);
+          }
+          // Its legs, carved and twisted
+          for (const lx of [x + 2, x + 39]) { fill(lx, y + 15, 3, 1, tint(board, 0.72)); dot(lx + 1, y + 15, groove); }
+          fill(x + 1, y + 16, 42, 1, SHADOW);
+          drawKeyboard(s, y + 2);
         },
       },
     };
@@ -8101,6 +8362,115 @@
       if (playing) notes(266, 56, 8);
     }
 
+    /**
+     * A coffin jukebox, stood on its end: an arch of pumpkin lights round its window, a record behind the glass and a
+     * ribcage for a grille. Playing (the computer's music, with the jukebox on, or someone at it), the lights chase, the
+     * record spins and notes rise; at rest the pumpkins glow softly.
+     */
+    function drawCoffinJukebox() {
+      const playing = frame.music?.playing === true || atCorner(0), wood = 0x3a2430, edge = 0x5a3a48, dark = 0x241620, cx = 274;
+      // Its outline: narrow at the head, widest at the shoulders, narrowing to the foot
+      const half = (row) => (row < 10 ? 6 + Math.floor(row * 0.45) : 10 - Math.floor((row - 10) * 0.12));
+      fill(263, 89, 23, 1, SHADOW);
+      if (playing) glowAt(cx, 68, 14, 18, 0xff8a3d, 0.04);
+      for (let row = 0; row < 43; row++) {
+        const h = half(row), y = 46 + row;
+        fill(cx - h, y, h * 2 + 1, 1, wood);
+        dot(cx - h, y, edge);
+        dot(cx + h, y, dark);
+      }
+      fill(cx - 5, 46, 11, 1, edge);
+      // A bat on its head
+      fill(cx - 1, 48, 3, 2, 0x1a1a1f); dot(cx - 2, 47, 0x1a1a1f); dot(cx + 2, 47, 0x1a1a1f); dot(cx - 3, 48, 0x1a1a1f); dot(cx + 3, 48, 0x1a1a1f);
+      // The arch of pumpkin lights round the window, chasing while it plays
+      const arch = [];
+      for (let k = 0; k < 6; k++) arch.push([cx - 7, 67 - k * 2]);
+      for (let k = 0; k < 5; k++) arch.push([cx - 5 + k * 2 + (k > 2 ? 1 : 0), k === 2 ? 53 : 54]);
+      for (let k = 0; k < 6; k++) arch.push([cx + 7, 57 + k * 2]);
+      arch.forEach(([ax, ay], k) => {
+        const on = playing ? (k + Math.floor(now * 6)) % 3 !== 0 : true;
+        const lit = playing ? 1 : 0.55 + 0.25 * candlelight(k);
+        fill(ax, ay, 1, 1, on ? (k % 2 ? 0xff8a3d : 0xf2b03a) : 0x7a3a1a, on ? lit : 1);
+      });
+      // The window, a record turning behind it
+      fill(cx - 5, 56, 11, 12, PALETTE.doorway);
+      fill(cx - 5, 56, 11, 1, WHITE, 0.2);
+      disc(cx, 62, 3.4, 0x1a1a1f);
+      dot(cx, 62, 0xe0702a);
+      const spin = playing ? Math.floor(now * 8) % 4 : 0;
+      dot(cx + [2, 0, -2, 0][spin], 62 + [0, 2, 0, -2][spin], 0x5a5a66);
+      // The buttons, and the ribcage grille
+      for (let k = 0; k < 5; k++) dot(cx - 4 + k * 2, 70, playing && k === 2 ? 0x7ae0a8 : 0xd8d0bc);
+      fill(cx, 72, 1, 11, 0xd8d0bc);
+      for (let r = 0; r < 5; r++) {
+        const w = 6 - Math.floor(r / 2), ry = 73 + r * 2;
+        fill(cx - w, ry, w, 1, 0xd8d0bc); fill(cx + 1, ry, w, 1, 0xd8d0bc);
+        dot(cx - w, ry + 1, 0xb8b09c); dot(cx + w, ry + 1, 0xb8b09c);
+      }
+      // Brass handles down its sides, a plate at its foot
+      for (const hy of [60, 72]) { dot(cx - 10, hy, PALETTE.brass); dot(cx + 10, hy, PALETTE.brass); }
+      fill(cx - 2, 85, 5, 2, PALETTE.brass); fill(cx - 2, 85, 5, 1, 0xf2d38a);
+      if (!playing) return;
+      for (let k = 0; k < 3; k++) {
+        const rise = (now * 0.45 + k / 3) % 1;
+        const nx = 268 + k * 5 + Math.round(Math.sin(rise * 6 + k) * 2), ny = 45 - Math.round(rise * 5);
+        const colour = [0xff8a3d, 0xb08ae0, 0x7ae0a8][k];
+        fill(nx, ny, 2, 1, colour, 1 - rise);
+        fill(nx + 1, ny - 3, 1, 3, colour, 1 - rise);
+      }
+    }
+
+    /**
+     * A full-size anatomy skeleton, hung from the hook of its stand on castors. Every so often it waves, and turns its
+     * head; more often while someone stands beside it. At night its eyes glow, just faintly.
+     */
+    function drawSkeletonModel() {
+      const bone = 0xeae6dc, shade = 0xc8c2b0, hole = 0x1a1a1f, steel = 0x5a5f6c, cx = 278;
+      const company = atCorner(0), every = company ? 7 : 16, t = now % every;
+      const waving = t < 2.4, turn = !waving && t > 4 && t < 5.6 ? (company ? 1 : -1) : 0;
+      fill(266, 94, 25, 1, SHADOW);
+      // The stand: a post up its back to a hook over its head, and a foot on four castors
+      fill(cx, 47, 1, 46, steel);
+      fill(cx - 9, 92, 19, 1, steel); fill(cx - 9, 92, 19, 1, 0x8a8f9c, 0.4);
+      for (const wx of [cx - 9, cx - 3, cx + 3, cx + 9]) dot(wx, 93, 0x2a2a2e);
+      fill(cx, 47, 3, 1, steel); dot(cx + 2, 48, steel);
+      // Legs, from the hips to the feet just off the stand's foot
+      for (const side of [-1, 1]) {
+        line(cx + side * 2, 77, cx + side * 3, 84, bone);
+        dot(cx + side * 3, 84, shade);
+        line(cx + side * 3, 85, cx + side * 3, 90, bone);
+        fill(side < 0 ? cx - 5 : cx + 3, 91, 3, 1, bone);
+      }
+      // The spine, the pelvis, the ribs
+      for (let y = 58; y < 77; y++) dot(cx, y, y % 2 ? bone : shade);
+      fill(cx - 4, 73, 9, 1, bone); fill(cx - 4, 74, 2, 2, bone); fill(cx + 3, 74, 2, 2, bone); fill(cx - 2, 76, 5, 1, bone); dot(cx, 75, hole);
+      fill(cx - 5, 59, 11, 1, bone);
+      for (let r = 0; r < 4; r++) {
+        const ry = 61 + r * 2, w = r === 3 ? 3 : 4;
+        fill(cx - w, ry, w, 1, bone); fill(cx + 1, ry, w, 1, bone);
+        dot(cx - w, ry + 1, shade); dot(cx + w, ry + 1, shade);
+      }
+      // Its left arm hanging, its right hanging or up and waving
+      line(cx - 5, 60, cx - 6, 66, bone); line(cx - 6, 67, cx - 6, 72, bone); fill(cx - 7, 73, 2, 2, bone); dot(cx - 7, 75, shade);
+      if (waving) {
+        const sway = Math.round(Math.sin(now * 9));
+        line(cx + 5, 60, cx + 8, 56, bone); line(cx + 8, 55, cx + 8 + sway, 50, bone);
+        fill(cx + 7 + sway, 48, 3, 2, bone); dot(cx + 7 + sway, 47, shade); dot(cx + 9 + sway, 47, shade);
+      } else {
+        line(cx + 5, 60, cx + 6, 66, bone); line(cx + 6, 67, cx + 6, 72, bone); fill(cx + 6, 73, 2, 2, bone); dot(cx + 7, 75, shade);
+      }
+      // The skull, turned a little now and then, its jaw dropping as it waves
+      const sx = cx + turn, jaw = waving && Math.floor(now * 3) % 2 ? 1 : 0;
+      fill(sx - 2, 49, 5, 1, bone); fill(sx - 3, 50, 7, 5, bone); fill(sx + 3, 51, 1, 3, shade);
+      const eyes = isNight ? 0x7ae0a8 : hole;
+      fill(sx - 2 + turn, 51, 2, 2, hole); fill(sx + 1 + turn, 51, 2, 2, hole);
+      if (isNight) { dot(sx - 2 + turn, 52, eyes, 0.7); dot(sx + 1 + turn, 52, eyes, 0.7); }
+      dot(sx + turn, 54, 0x6a6a70);
+      fill(sx - 2, 55 + jaw, 5, 1, bone); fill(sx - 1, 56 + jaw, 3, 1, bone);
+      for (const dx of [-1, 1]) dot(sx + dx, 55 + jaw, hole, 0.6);
+      if (jaw) fill(sx - 1, 55, 3, 1, hole);
+    }
+
     /* The pet */
 
     /**
@@ -8147,6 +8517,69 @@
           p(5, -9 + up, 1, 1, PALETTE.eye);
           p(5, -7 + up, 1, 2, beard);
           p(-5, -8 + up, 1, 2, fur);
+          break;
+        }
+        case 'raven': {
+          // Glossy black, a blue sheen on its wing; perched, it cocks its head now and then, and caws with its beak open
+          const black = 0x1d1a24, sheen = 0x3e4466, beak = 0x55525e, eye = 0xb8bcc8;
+          if (flying) {
+            const flap = Math.floor(now * 9) % 2;
+            p(-2, -6, 5, 3, black);
+            p(3, -6, 2, 1, beak);
+            p(-6, flap ? -8 : -4, 4, 2, black);
+            p(2, flap ? -8 : -4, 4, 2, black);
+            p(-4, -5, 2, 1, black);
+            p(-1, -6, 2, 1, sheen);
+            break;
+          }
+          const t = (now + x * 0.11) % 9, tilt = t > 3 && t < 4.2 ? -1 : 0, caw = t > 6 && t < 6.6 && Math.floor(now * 6) % 2;
+          p(-2, -6, 4, 5, black);
+          p(-1, -5, 3, 2, sheen);
+          p(-4, -3, 2, 1, black);
+          p(-5, -2, 1, 1, black);
+          p(0, -9 + tilt, 3, 3, black);
+          p(1, -8 + tilt, 1, 1, eye);
+          p(3, -8 + tilt, 2, 1, beak);
+          if (caw) p(3, -6 + tilt, 2, 1, beak);
+          p(0, 0, 1, 1, beak);
+          p(1, 0, 1, 1, beak);
+          break;
+        }
+        case 'ghost': {
+          // A little sheet ghost, floating off the floor: it bobs, its hem ripples, it blushes, and it fades a little now and then
+          const bob = Math.round(Math.sin(now * 1.6 + x * 0.1) * 1.5), fade = 0.78 + 0.14 * Math.sin(now * 0.7 + x * 0.05);
+          const gy = y - 5 + bob, sheet = 0xf4f1ea, f = pet.facing > 0 ? 1 : 0;
+          if (isNight) glowAt(x, gy - 4, 6, 5, 0xc8e0ff, 0.07);
+          fill(x - 2, gy - 9, 5, 1, sheet, fade);
+          fill(x - 3, gy - 8, 7, 7, sheet, fade);
+          const wave = Math.floor(now * 3) % 2;
+          for (let k = 0; k < 7; k++) if ((k + wave) % 2 === 0) dot(x - 3 + k, gy - 1, sheet, fade);
+          dot(x - 2 + f, gy - 6, 0x1a1a1f);
+          dot(x + f, gy - 6, 0x1a1a1f);
+          dot(x - 1 + f, gy - 4, 0x1a1a1f, 0.7);
+          dot(x - 3 + f, gy - 5, 0xf2a0b8, 0.5);
+          dot(x + 1 + f, gy - 5, 0xf2a0b8, 0.5);
+          break;
+        }
+        case 'spider': {
+          // A little round spider with big eyes. Settled, it hangs on its thread, letting itself down and climbing back up a
+          // little; on its way somewhere, its legs scuttle.
+          const body = 0x2a2236, leg = 0x3a3046, wiggle = pet.isWalking ? Math.floor(now * 10) % 2 : 0;
+          const dangling = !pet.isWalking && pose === 'dangle';
+          const sy = dangling ? y + Math.round(Math.sin(now * 0.5 + x * 0.3) * 2) : y;
+          if (dangling) fill(x, y - (pet.target.drop || 12), 1, (pet.target.drop || 12) + (sy - y) - 3, 0xd8d8e0, 0.55);
+          else if (pet.isWalking) fill(x, sy - 8, 1, 5, 0xd8d8e0, 0.35);
+          fill(x - 1, sy - 4, 3, 3, body);
+          dot(x, sy - 5, body);
+          dot(x, sy - 4, 0xe0702a);
+          for (const side of [-1, 1]) {
+            dot(x + side * 2, sy - 4 + (side > 0 ? wiggle : 0), leg);
+            dot(x + side * 3, sy - 5 + (side > 0 ? wiggle : 0), leg);
+            dot(x + side * 2, sy - 2 + (side < 0 ? wiggle : 0), leg);
+            dot(x + side * 3, sy - 1 + (side < 0 ? wiggle : 0), leg);
+          }
+          dot(x - 1, sy - 3, 0xf4f1ea);
+          dot(x + 1, sy - 3, 0xf4f1ea);
           break;
         }
         case 'cat':
@@ -8602,6 +9035,7 @@
       pumpkinrack: [[92, drawPumpkinRack]], halfcourt: [[72, drawHalfCourt], [97, drawHalfCourtHoop]],
       arcadehoop: [[90, drawArcadeHoop]], ballrack: [[92, drawBallRack]], studiodesk: [[76, drawStudioBack], [86, drawStudioFront]],
       bench: [[85, drawBench]],
+      coffinbox: [[88, drawCoffinJukebox]], skeletonmodel: [[90, drawSkeletonModel]],
       none: [],
     };
 
@@ -9752,6 +10186,50 @@
         },
         back(x, y) { fill(x - 1, y + 1, 3, 3, WHITE); dot(x, y + 2, 0xe2dcc6); dot(x - 3, y + 3, 0xe2dcc6); },
         head(x, top, look, away, o) { OUTFIT_PARTS.mummy.head(x, top, look, away, { ...o, shirt: 0xe2dcc6 }); },
+      },
+      werewolf: {
+        // A flannel's checks, fur at its open collar and showing through its torn hem
+        front(x, y, o) {
+          const check = shaded(o.shirt, 0.65), fur = 0x6e5038;
+          for (const dx of [-2, 1]) fill(x + dx, y, 1, 6, check);
+          for (const dy of [2, 4]) fill(x - 3, y + dy, 7, 1, check);
+          fill(x - 1, y, 3, 1, fur); dot(x, y + 1, fur); dot(x - 1, y + 1, 0x9a7a58);
+          for (const [dx, dy] of [[-3, 5], [-1, 5], [2, 5], [3, 4]]) dot(x + dx, y + dy, fur);
+        },
+        back(x, y, o) {
+          const check = shaded(o.shirt, 0.65);
+          for (const dx of [-2, 1]) fill(x + dx, y, 1, 6, check);
+          for (const dy of [2, 4]) fill(x - 3, y + dy, 7, 1, check);
+          dot(x - 2, y + 5, 0x6e5038); dot(x + 1, y + 5, 0x6e5038);
+        },
+        // A furry head with pointed ears and tufted cheeks, a pale muzzle and yellow eyes; every so often it throws its head back and howls
+        head(x, top, look, away) {
+          const fur = 0x6e5038, light = 0x9a7a58, dark = 0x4a3424, ear = 0xc88a7a;
+          fill(x - 2, top, 5, 1, fur); fill(x - 3, top + 1, 7, 6, fur);
+          for (const side of [-1, 1]) {
+            dot(x + side * 3, top - 2, fur); fill(side < 0 ? x - 3 : x + 2, top - 1, 2, 1, fur);
+            if (!away) dot(x + side * 2, top - 1, ear);
+            dot(x + side * 4, top + 4, fur); dot(x + side * 4, top + 5, dark);
+          }
+          if (away) { fill(x - 1, top + 2, 3, 3, dark); return; }
+          const t = (now + look.phase * 23) % 26, howl = t < 1.8;
+          if (howl) {
+            // Head back, eyes shut, muzzle up, and the howl rising off it
+            fill(x - 1, top + 3, 3, 2, light); dot(x, top + 3, 0x1a1a1f);
+            dot(x - 2, top + 3, dark); dot(x + 2, top + 3, dark);
+            dot(x, top + 5, 0x3a1a1a); dot(x, top + 6, light);
+            for (let k = 0; k < 3; k++) {
+              const rise = (t / 1.8 + k / 3) % 1;
+              dot(x + 2 + k + Math.round(Math.sin(rise * 8)), top - 2 - Math.round(rise * 6), WHITE, 0.7 * (1 - rise));
+            }
+            return;
+          }
+          fill(x - 1, top + 4, 3, 3, light); dot(x, top + 4, 0x1a1a1f);
+          const blinking = (now + look.phase * 5) % 4.5 < 0.15;
+          if (!blinking) { dot(x - 2, top + 3, 0xf2d35b); dot(x + 2, top + 3, 0xf2d35b); }
+          else { dot(x - 2, top + 3, dark); dot(x + 2, top + 3, dark); }
+          dot(x - 1, top + 6, WHITE); dot(x + 1, top + 6, WHITE);
+        },
       },
 
       /* The court's */
@@ -11038,6 +11516,33 @@
         for (const after of [0, 0.05, 0.1]) chip.note(at + after, { wave: 'pulse25', pitch: hz('B6'), length: 0.02, level: dB(-30), pan, curve: 2 });
       },
     },
+    raven: {
+      gap: 45,
+      play(chip, at, pan) {
+        // Caw, caw: two rasps falling, -24.
+        for (const after of [0, 0.28]) {
+          chip.note(at + after, { wave: 'pulse25', pitch: hz('F4'), to: hz('C4'), length: 0.16, level: dB(-24), pan, curve: 0.8 });
+          chip.noise(at + after, { rate: 0.6, length: 0.12, level: dB(-34), pan, lowpass: 2500 });
+        }
+      },
+    },
+    ghost: {
+      gap: 60,
+      play(chip, at, pan) {
+        // A soft, wavering oooo, falling, -28.
+        chip.note(at, { wave: 'triangle', pitch: hz('A4'), to: hz('E4'), length: 0.9, level: dB(-28), pan, curve: 0.4, vibrato: 0.02 });
+      },
+    },
+    // The haunted door, opening on its own or for whoever comes or goes: a creak rising, -26.
+    creak: {
+      gap: 2,
+      play(chip, at, pan) {
+        const base = hz('E3');
+        for (let k = 0; k < 6; k++) {
+          chip.note(at + k * 0.06, { wave: 'pulse12', pitch: base * (1 + 0.05 * k), to: base * (1.03 + 0.05 * k), length: 0.05, level: dB(-26), pan, curve: 1 });
+        }
+      },
+    },
     snail: {
       gap: 90,
       play(chip, at, pan) {
@@ -11258,7 +11763,7 @@
     jukebox: 'jukebox', pool: 'pool', piano: 'piano', drums: 'drums', telescope: 'twinkle', jungle: 'bird', coffee: 'coffee',
     servers: 'hum', printer: 'printer', boxing: 'boxing', treadmill: 'treadmill', hottub: 'splash', ballpit: 'rustle', campfire: 'crackle',
     bubbler: 'jukebox', neonbox: 'jukebox', wallbox: 'jukebox', djtable: 'jukebox', turntable: 'jukebox', boombox: 'jukebox',
-    hifi: 'jukebox', synth: 'piano', cauldron: 'crackle', halfcourt: 'hoops', arcadehoop: 'hoops',
+    hifi: 'jukebox', synth: 'piano', cauldron: 'crackle', halfcourt: 'hoops', arcadehoop: 'hoops', coffinbox: 'jukebox',
   };
   /** How often the weather in the windows, or the corner piece being played, makes itself heard, in seconds. */
   const WEATHER_EVERY = [50, 120];
@@ -11529,7 +12034,7 @@
           // Someone new, coming in at the door: an agent hired, or staff
           const atDoor = Math.hypot(x - DOOR.x, person.position.y - DOOR.y) < 14;
           if (!settling && person.isWalking && atDoor) {
-            this.play('door', DOOR.x);
+            this.play(decor.door === 'haunted' ? 'creak' : 'door', DOOR.x);
             if (!person.isStaff) this.play('hire', x);
           }
           continue;
@@ -11537,7 +12042,7 @@
         // Out through the door
         if (person.isLeaving && !heard.out && Math.hypot(x - DOOR.x, person.position.y - DOOR.y) < 10) {
           heard.out = true;
-          this.play('door', DOOR.x);
+          this.play(decor.door === 'haunted' ? 'creak' : 'door', DOOR.x);
         }
         // Getting to work, once a turn: a turn waiting on you isn't over yet
         const state = person.session.state;
@@ -11572,10 +12077,15 @@
       const cornering = office.people.find((p) => !p.isWalking && !p.isLeaving && spotOf(p.place) >= LOUNGE_SPOTS.length);
       // The jukebox keeps quiet while the computer's own music plays.
       const cornerKind = cornering && spots[spotOf(cornering.place)].kind;
-      const cornerSound = cornering && !(held.music && cornerKind === 'jukebox') && CORNER_SOUNDS[cornerKind];
+      const cornerSound = cornering && !(held.music && (cornerKind === 'jukebox' || cornerKind === 'coffinbox')) && CORNER_SOUNDS[cornerKind];
       if (!cornering || !cornerSound) this.nextCorner = null;
       else if (this.nextCorner === null) this.nextCorner = t + random(1, 4);
       else if (t >= this.nextCorner) this.nextCorner = t + (this.murmur(cornerSound, cornering.position.x) ? random(...CORNER_EVERY) : 1);
+
+      // The haunted door, as it creaks open on its own
+      const creaking = decor.door === 'haunted' && creakOf(now) > 0;
+      if (creaking && !this.creaking) this.murmur('creak', DOOR.x);
+      this.creaking = creaking;
 
       // Each pet: its habits as they happen; now and then as it settles somewhere new, or sets off; the owl only at night
       const hour = new Date().getHours(), night = decor.sky !== 'day' && (hour >= 20 || hour < 5);

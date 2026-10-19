@@ -60,7 +60,7 @@ func (k *KeyCount) UnmarshalJSON(data []byte) error {
 // lounge's carpet and the piece in its corner, whether the sky keeps the
 // computer's time or it's always day, its pets, whether the windows follow the
 // seasons, how loud it is, the desks' finish, what everyone works at (a desk,
-// a tent, a throne…), the monitors and the chairs' colour, how many of its
+// a tent, a throne…), the monitors, the door and the chairs' colour, how many of its
 // own staff hang about, the style it's in (Yours, or one that furnishes it
 // for you), your team, the dress code, and where everything goes, as the Mac
 // app's Room. office.js draws it, with the same choices. Anything unknown, or of the wrong kind, is
@@ -85,6 +85,7 @@ type Room struct {
 	Desk      string   `json:"desk"`
 	Workspace string   `json:"workspace"`
 	Monitor   string   `json:"monitor"`
+	Door      string   `json:"door"` // the door onto the corridor: as it comes, or haunted
 	Chair     string   `json:"chair"`
 	Staff     string   `json:"staff"`
 	Preset    string   `json:"preset"`
@@ -134,7 +135,7 @@ var teamChoices = map[string][]string{
 		"astronaut", "flightsuit", "pirate", "captain", "parka", "explorer", "robe", "knight", "wizard", "gamer",
 		"founder", "gymkit", "safari", "flannel", "hire", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
 		"deepseek", "kimi", "glm", "phi", "witch", "skeleton", "mummy", "refskeleton", "mummyjersey",
-		"jersey", "warmup", "referee", "coachpolo", "blazer"},
+		"jersey", "warmup", "referee", "coachpolo", "blazer", "werewolf"},
 	"colour": {"auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"},
 	"desk": {"auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug",
 		"helmet", "rocket", "terrarium", "quill", "candelabra", "goblet", "rum", "compass", "skull", "snowglobe", "thermos", "penguin",
@@ -160,7 +161,7 @@ var roomStyles = []string{"yours", "classic", "campsite", "royal", "space", "pir
 
 var workspaces = []string{"desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
 	"greenhouse", "console", "hover", "chest", "gilded", "crates", "altar", "log", "bench", "bamboo", "rack", "drafting", "glass",
-	"scorer", "anchor"}
+	"scorer", "anchor", "coffin", "waxdesk", "clawdesk"}
 
 // checked is the member with anything unknown as standard, and the nickname
 // on one line, cut to its limit.
@@ -308,14 +309,15 @@ var (
 		"corner": {"arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
 			"telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub", "ballpit",
 			"campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth", "cauldron", "graveyard",
-			"lanterns", "pumpkinrack", "halfcourt", "arcadehoop", "ballrack", "studiodesk", "bench", "none"},
+			"lanterns", "pumpkinrack", "halfcourt", "arcadehoop", "ballrack", "studiodesk", "bench", "coffinbox", "skeletonmodel", "none"},
 		"sky":       {"live", "day"},
 		"season":    {"calendar", "off"},
 		"sound":     {"off", "quiet", "normal"},
 		"ambience":  {"on", "off"},
 		"desk":      {"wood", "walnut", "white", "black"},
 		"workspace": workspaces,
-		"monitor":   {"standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet", "portrait", "broadcast"},
+		"monitor":   {"standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet", "portrait", "broadcast", "ghostcrt", "ouija", "tombstone"},
+		"door":      {"standard", "haunted"},
 		"chair":     {"teal", "black", "red", "grey", "green"},
 		"staff":     {"some", "none", "many"},
 		"preset":    roomStyles,
@@ -329,7 +331,7 @@ var (
 	standardWall = []string{"window", "whiteboard", "window", "pinboard", "window"}
 	// The pets an office can have.
 	pets = []string{"cat", "dog", "lizard", "monkey", "llama", "penguin", "parrot", "owl", "capybara", "redpanda", "corgi", "hamster",
-		"robodog", "bat", "snail", "fox", "axolotl", "blackcat", "goat"}
+		"robodog", "bat", "snail", "fox", "axolotl", "blackcat", "goat", "raven", "ghost", "spider"}
 )
 
 // The most pets an office has at once.
@@ -348,7 +350,7 @@ func (r *Room) UnmarshalJSON(data []byte) error {
 	json.Unmarshal(raw["wall"], &wall)
 	*r = Room{Mic: text(raw["mic"]), Floor: text(raw["floor"]), Paint: text(raw["paint"]), Lounge: text(raw["lounge"]), LoungePaint: text(raw["loungePaint"]),
 		Corner: text(raw["corner"]), Sky: text(raw["sky"]), Season: text(raw["season"]), Sound: text(raw["sound"]), Ambience: text(raw["ambience"]),
-		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Monitor: text(raw["monitor"]), Chair: text(raw["chair"]),
+		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Monitor: text(raw["monitor"]), Door: text(raw["door"]), Chair: text(raw["chair"]),
 		Staff:  text(raw["staff"]),
 		Preset: text(raw["preset"])}
 	for _, place := range wall {
@@ -397,7 +399,7 @@ func (r Room) checked() Room {
 		Lounge: choose("lounge", r.Lounge), LoungePaint: choose("loungePaint", r.LoungePaint), Corner: choose("corner", r.Corner), Sky: choose("sky", r.Sky),
 		Pet: checkedPets(r.Pet), Season: choose("season", r.Season), Sound: choose("sound", r.Sound), Ambience: choose("ambience", r.Ambience),
 		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Monitor: choose("monitor", r.Monitor),
-		Chair: choose("chair", r.Chair),
+		Door: choose("door", r.Door), Chair: choose("chair", r.Chair),
 		Staff: choose("staff", r.Staff), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked(),
 		Plan: r.Plan.checked()}
 	for i := range checked.Wall {
