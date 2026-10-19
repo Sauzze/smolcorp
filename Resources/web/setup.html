@@ -1434,14 +1434,15 @@
       ['arcadehoop', 'An arcade hoop'], ['ballrack', 'A ball rack'], ['studiodesk', 'A studio desk'], ['bench', 'A team bench'],
       ['coffinbox', 'A coffin jukebox'], ['skeletonmodel', 'A skeleton on a stand'],
       ['xmastree', 'A Christmas tree'], ['fireplace', 'A fireplace with stockings'], ['sleigh', 'A sleigh to sit in'],
-      ['carolbox', 'A carols jukebox'], ['none', 'Nothing']],
+      ['carolbox', 'A carols jukebox'],
+      ['woodstove', 'A wood stove'], ['cocoabar', 'A cocoa bar'], ['none', 'Nothing']],
     sky: [['live', 'Follows the clock'], ['day', 'Always day']],
     season: [['calendar', 'Follow the calendar'], ['off', 'Off']],
     pet: [['cat', 'Cat'], ['dog', 'Dog'], ['lizard', 'Lizard'], ['monkey', 'Monkey'], ['llama', 'Llama'], ['penguin', 'Penguin'],
       ['parrot', 'Parrot'], ['owl', 'Owl'], ['capybara', 'Capybara'], ['redpanda', 'Red panda'], ['corgi', 'Corgi'],
       ['hamster', 'Hamster in a ball'], ['robodog', 'Robot dog'], ['bat', 'Bat'], ['snail', 'Snail'], ['fox', 'Fox'], ['axolotl', 'Axolotl'],
       ['blackcat', 'Black cat'], ['goat', 'Goat'], ['raven', 'Raven'], ['ghost', 'Little ghost'], ['spider', 'Spider on a thread'],
-      ['reindeer', 'Reindeer'], ['snowman', 'Little snowman']],
+      ['reindeer', 'Reindeer'], ['snowman', 'Little snowman'], ['snowhare', 'Snow hare']],
     sound: [['off', 'Off'], ['quiet', 'Quiet'], ['normal', 'Normal']],
     ambience: [['on', 'On'], ['off', 'Off']],
     desk: [['wood', 'Wood', '#c49a6c'], ['walnut', 'Walnut', '#7e5536'], ['white', 'White', '#e9e6de'], ['black', 'Black', '#3c404a']],
@@ -1452,12 +1453,13 @@
       ['altar', 'A stone altar'], ['log', 'A log desk'], ['bench', 'A workbench'], ['bamboo', 'A bamboo desk'], ['rack', 'A weight rack'],
       ['drafting', 'A drafting table'], ['glass', 'A glass desk'], ['scorer', "A scorer's table"],
       ['anchor', 'An anchor desk'], ['coffin', 'A coffin desk'], ['waxdesk', 'A candle-wax desk'], ['clawdesk', 'A haunted-wood desk'],
-      ['gingerdesk', 'A gingerbread desk'], ['workbench', "Santa's workbench"]],
+      ['gingerdesk', 'A gingerbread desk'], ['workbench', "Santa's workbench"],
+      ['plaiddesk', 'A plaid-runner desk']],
     monitor: [['standard', 'Standard'], ['crt', 'CRT'], ['holo', 'Hologram'], ['brass', "Ship's monitor"], ['crystal', 'Crystal ball'],
       ['gilt', 'Gilt frame'], ['ice', 'Frozen'], ['ultrawide', 'Curved ultrawide'], ['dual', 'Two monitors'], ['laptop', 'Rugged laptop'],
       ['bamboo', 'Bamboo frame'], ['tablet', 'Tablet on an arm'], ['portrait', 'Turned on its side'], ['broadcast', 'Broadcast monitor'],
       ['ghostcrt', 'Haunted CRT'], ['ouija', 'Ouija frame'], ['tombstone', 'Tombstone'], ['candycane', 'Candy-cane frame'],
-      ['giftwrap', 'Wrapped like a present']],
+      ['giftwrap', 'Wrapped like a present'], ['knitmon', 'In a knitted cover']],
     door: [['standard', 'As it comes'], ['haunted', 'Haunted'], ['wreathdoor', 'With a wreath']],
     drift: [['none', 'Nothing'], ['snow', 'Snow']],
     chair: [['teal', 'Teal', '#3f7080'], ['black', 'Black', '#353842'], ['red', 'Red', '#9a3c3a'], ['grey', 'Grey', '#737987'],
@@ -1482,7 +1484,7 @@
     ['hauntedhoop', 'Haunted hoop'], ['spookyboard', 'Spooky scoreboard'], ['candycorn', 'Candy-corn pennants'],
     ['hoop', 'Basketball hoop'], ['scorebug', 'Score bug'], ['lowerthird', 'Lower third'], ['onair', 'On-air sign'],
     ['schedule', 'Week strip'], ['pennants', 'Pennants'], ['retired', 'Framed jersey'], ['playboard', 'Play board'],
-    ['garland', 'Christmas garland']];
+    ['garland', 'Christmas garland'], ['scarfhooks', 'Scarves drying on hooks']];
   ROOM_CHOICES.lounge.push(...ROOM_CHOICES.floor);
   ROOM_CHOICES.loungePaint = [['auto', 'Same as the walls'], ...ROOM_CHOICES.paint];
   const STANDARD_ROOM = { mic: 'mic', wall: ['window', 'whiteboard', 'window', 'pinboard', 'window'], floor: 'wood', paint: 'slate',
@@ -1532,7 +1534,9 @@
       // Halloween's, again
       ['werewolf', 'Werewolf'],
       // Christmas's
-      ['santa', 'Santa suit'], ['xmasjumper', 'Christmas jumper']]],
+      ['santa', 'Santa suit'], ['xmasjumper', 'Christmas jumper'],
+      // Winter's
+      ['beanie', 'Beanie, scarf and puffer'], ['cableknit', 'Cable-knit and earmuffs']]],
     colour: ['Colour', [['auto', 'Auto'], ['orange', 'Orange'], ['red', 'Red'], ['pink', 'Pink'], ['purple', 'Purple'], ['blue', 'Blue'],
       ['teal', 'Teal'], ['green', 'Green'], ['yellow', 'Yellow'], ['grey', 'Grey'], ['black', 'Black'], ['white', 'White']]],
     desk: ['On the desk', [['auto', 'Auto'], ['plant', 'A plant'], ['papers', 'Papers'], ['lamp', 'A lamp'], ['cactus', 'A cactus'],
@@ -1548,7 +1552,7 @@
       ['candy', 'Candy corn'], ['pumpkinball', "A jack-o'-lantern ball"], ['batfinger', 'A bat-wing foam finger'],
       ['basketball', 'A basketball'], ['whistle', 'A whistle'], ['stopwatch', 'A stopwatch'],
       ['sneaker', 'A sneaker'], ['foamfinger', 'A foam finger'], ['cup', 'A championship cup'], ['clipboard', 'A clipboard'],
-      ['cocoa', 'A mug of cocoa'], ['none', 'Nothing']]],
+      ['cocoa', 'A mug of cocoa'], ['teapot', 'A teapot in a cosy'], ['none', 'Nothing']]],
     workspace: ['Works at', [['auto', 'Where everyone does'], ...ROOM_CHOICES.workspace]],
   };
   const NICKNAME_LIMIT = 16;

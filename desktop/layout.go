@@ -136,13 +136,13 @@ var teamChoices = map[string][]string{
 		"astronaut", "flightsuit", "pirate", "captain", "parka", "explorer", "robe", "knight", "wizard", "gamer",
 		"founder", "gymkit", "safari", "flannel", "hire", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
 		"deepseek", "kimi", "glm", "phi", "witch", "skeleton", "mummy", "refskeleton", "mummyjersey",
-		"jersey", "warmup", "referee", "coachpolo", "blazer", "werewolf", "santa", "xmasjumper"},
+		"jersey", "warmup", "referee", "coachpolo", "blazer", "werewolf", "santa", "xmasjumper", "beanie", "cableknit"},
 	"colour": {"auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"},
 	"desk": {"auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug",
 		"helmet", "rocket", "terrarium", "quill", "candelabra", "goblet", "rum", "compass", "skull", "snowglobe", "thermos", "penguin",
 		"potions", "egg", "spellbook", "controller", "energy", "headset", "circuit", "pizza", "coffeepot", "dumbbell", "shaker", "kettlebell",
 		"coconut", "pineapple", "tikimug", "enamel", "lantern", "pinecone", "jackolantern", "candles", "candy", "pumpkinball", "batfinger",
-		"basketball", "whistle", "stopwatch", "sneaker", "foamfinger", "cup", "clipboard", "cocoa", "none"},
+		"basketball", "whistle", "stopwatch", "sneaker", "foamfinger", "cup", "clipboard", "cocoa", "teapot", "none"},
 	"workspace": append([]string{"auto"}, workspaces...),
 }
 
@@ -162,7 +162,7 @@ var roomStyles = []string{"yours", "classic", "campsite", "royal", "space", "pir
 
 var workspaces = []string{"desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
 	"greenhouse", "console", "hover", "chest", "gilded", "crates", "altar", "log", "bench", "bamboo", "rack", "drafting", "glass",
-	"scorer", "anchor", "coffin", "waxdesk", "clawdesk", "gingerdesk", "workbench"}
+	"scorer", "anchor", "coffin", "waxdesk", "clawdesk", "gingerdesk", "workbench", "plaiddesk"}
 
 // checked is the member with anything unknown as standard, and the nickname
 // on one line, cut to its limit.
@@ -310,14 +310,14 @@ var (
 		"corner": {"arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
 			"telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub", "ballpit",
 			"campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth", "cauldron", "graveyard",
-			"lanterns", "pumpkinrack", "halfcourt", "arcadehoop", "ballrack", "studiodesk", "bench", "coffinbox", "skeletonmodel", "xmastree", "fireplace", "sleigh", "carolbox", "none"},
+			"lanterns", "pumpkinrack", "halfcourt", "arcadehoop", "ballrack", "studiodesk", "bench", "coffinbox", "skeletonmodel", "xmastree", "fireplace", "sleigh", "carolbox", "woodstove", "cocoabar", "none"},
 		"sky":       {"live", "day"},
 		"season":    {"calendar", "off"},
 		"sound":     {"off", "quiet", "normal"},
 		"ambience":  {"on", "off"},
 		"desk":      {"wood", "walnut", "white", "black"},
 		"workspace": workspaces,
-		"monitor":   {"standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet", "portrait", "broadcast", "ghostcrt", "ouija", "tombstone", "candycane", "giftwrap"},
+		"monitor":   {"standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet", "portrait", "broadcast", "ghostcrt", "ouija", "tombstone", "candycane", "giftwrap", "knitmon"},
 		"door":      {"standard", "haunted", "wreathdoor"},
 		"drift":     {"none", "snow"},
 		"chair":     {"teal", "black", "red", "grey", "green"},
@@ -329,11 +329,11 @@ var (
 		"frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex", "pegboard", "roller", "bike", "mirror", "timer", "climbing",
 		"vines", "tiki", "blind", "cabin", "trail", "paddles", "pumpkins", "lanternhang", "cobweb", "ghosts", "broom", "leafgarland",
 		"hauntedhoop", "spookyboard", "candycorn", "hoop", "scorebug", "lowerthird", "onair", "schedule", "pennants", "retired",
-		"playboard", "garland"}
+		"playboard", "garland", "scarfhooks"}
 	standardWall = []string{"window", "whiteboard", "window", "pinboard", "window"}
 	// The pets an office can have.
 	pets = []string{"cat", "dog", "lizard", "monkey", "llama", "penguin", "parrot", "owl", "capybara", "redpanda", "corgi", "hamster",
-		"robodog", "bat", "snail", "fox", "axolotl", "blackcat", "goat", "raven", "ghost", "spider", "reindeer", "snowman"}
+		"robodog", "bat", "snail", "fox", "axolotl", "blackcat", "goat", "raven", "ghost", "spider", "reindeer", "snowman", "snowhare"}
 )
 
 // The most pets an office has at once.

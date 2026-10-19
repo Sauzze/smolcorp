@@ -226,6 +226,7 @@
     coffinbox: { x: 262, y: 44, w: 25, h: 45 }, skeletonmodel: { x: 264, y: 50, w: 28, h: 45 },
     xmastree: { x: 258, y: 45, w: 36, h: 49 }, fireplace: { x: 252, y: 44, w: 48, h: 52 }, sleigh: { x: 250, y: 64, w: 56, h: 32 },
     carolbox: { x: 262, y: 43, w: 25, h: 47 },
+    woodstove: { x: 254, y: 44, w: 46, h: 52 }, cocoabar: { x: 254, y: 54, w: 46, h: 41 },
   };
   /** What `part` takes up, in the wide room as it comes: the corner's by what's in it, null with nothing there. */
   const pieceRect = (part) => (part === 'corner' ? CORNER_BOXES[decor.corner] || null
@@ -449,10 +450,10 @@
       'telescope', 'jellyfish', 'bonsai', 'jungle', 'coffee', 'servers', 'printer', 'boxing', 'treadmill', 'hottub', 'ballpit',
       'campfire', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'cauldron', 'graveyard',
       'lanterns', 'pumpkinrack', 'halfcourt', 'arcadehoop', 'ballrack', 'studiodesk', 'bench', 'coffinbox', 'skeletonmodel', 'xmastree',
-      'fireplace', 'sleigh', 'carolbox', 'none'],
+      'fireplace', 'sleigh', 'carolbox', 'woodstove', 'cocoabar', 'none'],
     sky: ['live', 'day'],
     pet: ['none', 'cat', 'dog', 'lizard', 'monkey', 'llama', 'penguin', 'parrot', 'owl', 'capybara', 'redpanda', 'corgi', 'hamster',
-      'robodog', 'bat', 'snail', 'fox', 'axolotl', 'blackcat', 'goat', 'raven', 'ghost', 'spider', 'reindeer', 'snowman'],
+      'robodog', 'bat', 'snail', 'fox', 'axolotl', 'blackcat', 'goat', 'raven', 'ghost', 'spider', 'reindeer', 'snowman', 'snowhare'],
     season: ['calendar', 'off'],
     sound: ['off', 'quiet', 'normal'],
     // The recorded keyboards and talk under the rest, while there's any sound
@@ -460,9 +461,9 @@
     desk: ['wood', 'walnut', 'white', 'black'],
     workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse',
       'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass', 'scorer', 'anchor',
-      'coffin', 'waxdesk', 'clawdesk', 'gingerdesk', 'workbench'],
+      'coffin', 'waxdesk', 'clawdesk', 'gingerdesk', 'workbench', 'plaiddesk'],
     monitor: ['standard', 'crt', 'holo', 'brass', 'crystal', 'gilt', 'ice', 'ultrawide', 'dual', 'laptop', 'bamboo', 'tablet', 'portrait',
-      'broadcast', 'ghostcrt', 'ouija', 'tombstone', 'candycane', 'giftwrap'],
+      'broadcast', 'ghostcrt', 'ouija', 'tombstone', 'candycane', 'giftwrap', 'knitmon'],
     // The door onto the corridor: as it comes, haunted, or with a wreath
     door: ['standard', 'haunted', 'wreathdoor'],
     // What drifts down over the whole room: nothing, or snow
@@ -530,6 +531,7 @@
     clawdesk: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
     gingerdesk: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
     workbench: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    plaiddesk: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
   };
   /** The colours of what can sit on a desk besides a plant, papers and a lamp. */
   const DESK_THINGS = { cactus: 0x5a9a4a, duck: 0xf2cf3a, beak: 0xe8823a, sky: 0x8fc0e8, coffee: 0x5a3a24 };
@@ -539,7 +541,7 @@
     'shield', 'frost', 'skis', 'weather', 'torch', 'arch', 'neon', 'tv', 'hex', 'pegboard', 'roller',
     'bike', 'mirror', 'timer', 'climbing', 'vines', 'tiki', 'blind', 'cabin', 'trail', 'paddles',
     'pumpkins', 'lanternhang', 'cobweb', 'ghosts', 'broom', 'leafgarland', 'hauntedhoop', 'spookyboard', 'candycorn',
-    'hoop', 'scorebug', 'lowerthird', 'onair', 'schedule', 'pennants', 'retired', 'playboard', 'garland'];
+    'hoop', 'scorebug', 'lowerthird', 'onair', 'schedule', 'pennants', 'retired', 'playboard', 'garland', 'scarfhooks'];
   const STANDARD_WALL = ['window', 'whiteboard', 'window', 'pinboard', 'window'];
   /** The middle of each of the back wall's places, left to right. */
   const WALL_SLOTS = [44, 77, 110, 143, 176];
@@ -554,7 +556,7 @@
     frost: 36, skis: 20, weather: 22, torch: 20, arch: 20, neon: 14, tv: 32, hex: 26, pegboard: 26, roller: 34,
     bike: 26, mirror: 24, timer: 28, climbing: 26, vines: 32, tiki: 12, blind: 36, cabin: 34, trail: 26, paddles: 22,
     pumpkins: 32, lanternhang: 20, cobweb: 26, ghosts: 34, broom: 28, leafgarland: 36, hauntedhoop: 30, spookyboard: 40, candycorn: 36,
-    hoop: 28, scorebug: 42, lowerthird: 38, onair: 26, schedule: 42, pennants: 32, retired: 24, playboard: 24, garland: 40,
+    hoop: 28, scorebug: 42, lowerthird: 38, onair: 26, schedule: 42, pennants: 32, retired: 24, playboard: 24, garland: 40, scarfhooks: 34,
   };
   const wallWidthOf = (kind) => WALL_WIDTHS[kind] || 32;
   /** Where along the back wall a piece can hang, edge to edge, in each shape: clear of the doorway. */
@@ -679,6 +681,9 @@
     fireplace: [{ x: 262, y: 99, pose: 'away' }, { x: 290, y: 99, pose: 'away' }],
     sleigh: [{ x: 267, y: 90, pose: 'sit' }, { x: 281, y: 90, pose: 'sit' }],
     carolbox: [{ x: 274, y: 94, pose: 'away' }],
+    // Warming their hands at the stove, either side of its kettle; at the cocoa bar, filling a mug from the urn
+    woodstove: [{ x: 258, y: 99, pose: 'away' }, { x: 280, y: 99, pose: 'away' }],
+    cocoabar: [{ x: 266, y: 97, pose: 'away' }],
     none: [],
   };
 
@@ -1218,6 +1223,10 @@
     // Christmas's: a Santa suit, red whatever the agent's colour, black boots; an ugly jumper, in the agent's colour if it has one
     santa: { style: 'santa', shirt: 0xc8302a, pants: 0xc8302a, shoes: 0x1a1a1f, sleeves: 0xc8302a, fixed: true },
     xmasjumper: { style: 'xmasjumper', shirt: 0x2f7a46, pants: DENIM, shoes: 0x5a3b25 },
+    // Winter's: a puffer jacket, pine green or the agent's colour, under a berry scarf and beanie; a chunky cable-knit
+    // jumper, cream or the agent's colour, and earmuffs
+    beanie: { style: 'beanie', shirt: 0x2f6a4a, pants: 0x3a3f4a, shoes: 0x5a3b25 },
+    cableknit: { style: 'cableknit', shirt: 0xe8dcc0, pants: DENIM, shoes: 0x5a3b25 },
     // The court's: a team jersey and its shorts, a warm-up suit, a referee's stripes
     jersey: { style: 'jersey', tint: 1, matching: true, shoes: TRAINERS, sleeves: 'skin', legs: 'skin' },
     warmup: { style: 'warmup', tint: 1, matching: true, shoes: TRAINERS },
@@ -1402,13 +1411,14 @@
     outfit: ['auto', 'tee', 'hoodie', 'collar', 'sweater', 'jacket', 'suit', 'labcoat', 'polo', 'cardigan', 'hawaiian', 'tracksuit',
       'overalls', 'waistcoat', 'astronaut', 'flightsuit', 'pirate', 'captain', 'parka', 'explorer', 'robe', 'knight', 'wizard', 'gamer',
       'founder', 'gymkit', 'safari', 'flannel', 'hire', 'claude', 'gpt', 'gemini', 'grok', 'qwen', 'llama', 'mistral', 'deepseek', 'kimi', 'glm',
-      'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee', 'coachpolo', 'blazer', 'werewolf', 'santa', 'xmasjumper'],
+      'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee', 'coachpolo', 'blazer', 'werewolf', 'santa', 'xmasjumper',
+      'beanie', 'cableknit'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
       'potions', 'egg', 'spellbook', 'controller', 'energy', 'headset', 'circuit', 'pizza', 'coffeepot', 'dumbbell', 'shaker',
       'kettlebell', 'coconut', 'pineapple', 'tikimug', 'enamel', 'lantern', 'pinecone', 'jackolantern', 'candles', 'candy', 'pumpkinball', 'batfinger',
-      'basketball', 'whistle', 'stopwatch', 'sneaker', 'foamfinger', 'cup', 'clipboard', 'cocoa', 'none'],
+      'basketball', 'whistle', 'stopwatch', 'sneaker', 'foamfinger', 'cup', 'clipboard', 'cocoa', 'teapot', 'none'],
     workspace: ['auto', ...ROOM_CHOICES.workspace],
   };
   /** The most a nickname can be, in characters, and the most projects a team remembers. */
@@ -1646,10 +1656,13 @@
     spider: { speed: 9, stay: [18, 40], flies: true },
     reindeer: { speed: 22, stay: [8, 20] },
     snowman: { speed: 12, stay: [10, 24] },
+    snowhare: { speed: 26, stay: [8, 20] },
   };
   /** The corgi's laps of the rug, once an agent has finished, in seconds; the snail's trail, how long it shines. */
   const ZOOMIES = 3.2;
   const TRAIL_FOR = 24;
+  /** How long the snow hare's footprints last in the snow, in seconds. */
+  const PRINTS_FOR = 10;
   /**
    * How far, in art pixels, a pet settles from where people come and go or
    * press things: the door, the red button and its queue, the mic, the
@@ -1991,12 +2004,15 @@
         // The big gift under the tree, the fireplace's mantel, the sleigh's sack, the carols jukebox's bow
         xmastree: { x: 288, y: 84, depth: 93.5 }, fireplace: { x: 293, y: 55, depth: 86.5 }, sleigh: { x: 291, y: 67, depth: 84.5 },
         carolbox: { x: 274, y: 46, depth: 88.5 },
+        // The cocoa bar's counter, beside the marshmallows
+        cocoabar: { x: 294, y: 73, depth: 92.5 },
       };
       /** Beside the corner piece, where the cat likes to be: watching the fish, warm by the fire, on the dragon's gold. */
       const watches = {
         fishtank: { x: 262, y: 95, pose: 'sit' }, jellyfish: { x: 262, y: 95, pose: 'sit' },
         campfire: { x: 276, y: 99, pose: 'sleep' }, dragon: { x: 284, y: 97, pose: 'sleep' },
         cauldron: { x: 277, y: 97, pose: 'sleep' }, lanterns: { x: 296, y: 95, pose: 'sit' }, fireplace: { x: 276, y: 99, pose: 'sleep' },
+        woodstove: { x: 270, y: 99, pose: 'sleep' },
       };
       switch (pet.kind) {
         case 'cat':
@@ -2118,6 +2134,15 @@
           places.push(placed('couch', { x: 300, y: 104, depth: 110.5, pose: 'stand' }), placed('couch', { x: 258, y: 141, pose: 'stand' }),
             { x: CORRIDOR_X, y: 70, pose: 'stand' });
           if (desk) places.push({ x: desk.x - 6, y: desk.y + 16, pose: 'stand' });
+          break;
+        case 'snowhare':
+          // By the couch, by the plant, out in the corridor, warm by the stove, the fire or the cocoa bar, beside the hardest worker
+          places.push(placed('couch', { x: 252, y: 141, pose: 'sit' }), placed('plant', { x: 243, y: 171, pose: 'sit' }),
+            { x: CORRIDOR_X, y: 120, pose: 'sit' });
+          for (const { part, kind } of loungePieces()) {
+            if (['woodstove', 'cocoabar', 'fireplace'].includes(kind)) places.push(placed(part, { x: 249, y: 98, pose: 'sit' }));
+          }
+          if (desk) places.push({ x: desk.x - 6, y: desk.y + 16, pose: 'sit' });
           break;
         case 'raven':
           // Above the door, on the back wall's pieces, on the lounge's tops, the skeleton's skull, or the busiest agent's monitor
@@ -2243,6 +2268,14 @@
         const last = pet.trail[pet.trail.length - 1];
         if (pet.isWalking && (!last || Math.hypot(last.x - pet.position.x, last.y - pet.position.y) >= 1)) pet.trail.push({ x: Math.round(pet.position.x), y: Math.round(pet.position.y), at: now });
         pet.trail = pet.trail.filter((p) => now - p.at < TRAIL_FOR);
+      }
+      // The snow hare, with snow drifting, leaves footprints that fade
+      if (pet.kind === 'snowhare') {
+        const last = pet.trail[pet.trail.length - 1];
+        if (decor.drift === 'snow' && pet.isWalking && (!last || Math.hypot(last.x - pet.position.x, last.y - pet.position.y) >= 5)) {
+          pet.trail.push({ x: Math.round(pet.position.x), y: Math.round(pet.position.y), at: now });
+        }
+        pet.trail = pet.trail.filter((p) => now - p.at < PRINTS_FOR);
       }
       const follow = pet.target && pet.target.follow;
       if (follow && (follow.isLeaving || !follow.isWalking || now - pet.arrivedAt > FOLLOW_FOR)) {
@@ -5224,6 +5257,41 @@
         fill(x - 9, 20, 11, 1, hat);
         fill(x - 9, 20, 11, 1, edge, 0.5);
       },
+      /**
+       * Scarf hooks. A peg rail with a striped scarf, a beanie, a pair of mittens on a string and a long scarf hung up to
+       * dry; now and then a drip gathers on a mitten and falls.
+       */
+      scarfhooks(x) {
+        const berry = 0xb8303a, rib = 0x8a2430, cream = 0xf2ead8, pine = 0x2f6a4a, pineDark = 0x245a3c;
+        fill(x - 16, 7, 33, 3, 0x8a6040); fill(x - 16, 7, 33, 1, 0xa8804e); fill(x - 16, 10, 33, 1, SHADOW);
+        for (const px of [-12, -4, 4, 12]) fill(x + px, 8, 2, 2, 0x4a301e);
+        // A berry scarf over the first peg, both ends hanging, cream stripes and a fringe
+        fill(x - 14, 9, 6, 2, berry);
+        for (const [tx, len] of [[-14, 13], [-10, 11]]) {
+          for (let r = 0; r < len; r++) fill(x + tx, 11 + r, 2, 1, r % 4 === 2 ? cream : berry);
+          dot(x + tx, 11 + len, cream); dot(x + tx + 1, 12 + len, cream);
+        }
+        // A pine beanie by its brim, ribbed, a cream bobble
+        fill(x - 6, 10, 7, 2, cream); fill(x - 6, 12, 7, 4, pine); fill(x - 5, 16, 5, 1, pine);
+        for (const dx of [-5, -3, -1]) fill(x + dx, 12, 1, 4, pineDark);
+        fill(x - 4, 17, 3, 2, cream); dot(x - 4, 17, WHITE);
+        // Mittens on a string, cream cuffs
+        dot(x + 4, 10, cream); dot(x + 3, 11, cream); dot(x + 6, 11, cream); dot(x + 2, 12, cream); dot(x + 7, 12, cream);
+        for (const mx of [1, 7]) {
+          fill(x + mx - 1, 13, 3, 1, cream); fill(x + mx - 1, 14, 3, 4, berry); fill(x + mx, 18, 2, 1, berry);
+          dot(x + mx + (mx < 4 ? -2 : 2), 15, berry); dot(x + mx + 1, 14, rib);
+        }
+        // A long pine scarf on the last peg, cream bands, a fringe
+        for (let r = 0; r < 17; r++) fill(x + 11, 10 + r, 3, 1, r % 6 === 3 || r % 6 === 4 ? cream : r % 2 ? pine : pineDark);
+        for (const dx of [11, 13]) dot(x + dx, 27, cream);
+        // The drip: gathering on a mitten's tip, then falling
+        const t = (now + x * 0.13) % 9;
+        if (t < 0.7) dot(x + 8, 19, 0xbfe0f0, 0.5 + t * 0.5);
+        else if (t < 1.5) {
+          const fall = (t - 0.7) / 0.8;
+          dot(x + 8, 19 + Math.round(fall * 12), 0xbfe0f0, 0.85 * (1 - fall * 0.6));
+        }
+      },
       /** Autumn garland. A swag of leaves along a string, a little pumpkin every so often. */
       /** Christmas garland. A swag of pine along the wall, red bows at its ends, its coloured lights blinking slowly in turn. */
       garland(x) {
@@ -5800,6 +5868,23 @@
           const t = (now + x * 0.27) % 12, flap = t < 1.2 ? Math.floor(now * 8) % 2 : 0;
           dot(x + 13, y + 5, 0xf6f2ea, 0.7);
           fill(x + 13 + flap, y + 6 - flap, 3, 3, 0xf4ecd8); dot(x + 14 + flap, y + 7 - flap, 0xc8302a);
+        },
+      },
+      /** Knitted cover. The monitor's back in a ribbed pine cosy with a cream band of berry zigzags; its bobble nods now and then. */
+      knitmon: {
+        draw(x, y) {
+          const pine = 0x2f6a4a, rib = 0x245a3c, cream = 0xf2ead8, berry = 0xb8303a;
+          fill(x - 1, y - 1, 15, 11, pine);
+          for (let i = 1; i < 15; i += 2) fill(x - 1 + i, y - 1, 1, 11, rib);
+          fill(x - 1, y + 2, 15, 3, cream);
+          for (let i = 0; i < 15; i++) dot(x - 1 + i, y + 3 + [0, -1, 0, 1][i % 4], berry);
+          fill(x - 1, y + 8, 15, 2, rib); fill(x - 1, y - 1, 15, 1, 0x3f7a5a);
+          dot(x - 1, y - 1, rib); dot(x + 13, y - 1, rib);
+          fill(x + 5, y + 10, 3, 1, PALETTE.monitorStand); fill(x + 3, y + 11, 7, 1, PALETTE.monitorStand);
+          // The bobble, on a knot of yarn
+          const t = (now + x * 0.21) % 14, nod = t < 1.2 ? (Math.floor(now * 6) % 2 ? 1 : -1) : 0;
+          dot(x + 6, y - 2, cream);
+          fill(x + 5 + nod, y - 5, 3, 3, cream); dot(x + 5 + nod, y - 5, WHITE); dot(x + 7 + nod, y - 3, 0xc8bca0);
         },
       },
       /** Tombstone monitor. A headstone for a back, rounded at the top, RIP cut in it, moss at its foot; fog drifts by now and then. */
@@ -6628,6 +6713,33 @@
         },
       },
       /**
+       * Plaid desk. Honey wood, a red-and-black plaid runner laid along its top and hanging over both ends with a cream
+       * fringe, and a mug in a knitted cosy by the monitor.
+       */
+      plaiddesk: {
+        front({ x, y, s, tint }) {
+          drawMonitor(x + 6, y - 10);
+          const red = 0xb8302a, black = 0x1f1a1c, cross = 0x6a1e20, cream = 0xf2ead8;
+          fill(x, y, 44, 1, tint(0xdcb078, 1)); fill(x, y + 1, 44, 4, tint(0xc48e56, 0.9));
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          fill(x, y + 5, 44, 11, tint(0x9a6a3e, 0.72)); fill(x, y + 5, 44, 1, tint(0x7a5232, 0.62));
+          for (const gx of [14, 29]) fill(x + gx, y + 6, 1, 10, tint(0x7a5232, 0.62));
+          fill(x + 1, y + 16, 42, 1, SHADOW);
+          // The runner: along the top, and down over each end
+          const plaid = (px, py) => { const a = px % 4 === 0, b = py % 3 === 0; return a && b ? black : a || b ? cross : red; };
+          for (let dx = 1; dx < 43; dx++) for (let dy = 2; dy <= 4; dy++) dot(x + dx, y + dy, plaid(dx, dy));
+          for (const ex of [1, 37]) {
+            for (let dx = 0; dx < 6; dx++) for (let dy = 5; dy <= 11; dy++) dot(x + ex + dx, y + dy, plaid(ex + dx, dy));
+            for (let dx = 0; dx < 6; dx += 2) dot(x + ex + dx, y + 12, cream);
+          }
+          // The mug, in a berry cosy with cream stripes
+          fill(x + 1, y - 5, 4, 1, WHITE); fill(x + 2, y - 5, 2, 1, 0x6a3a22);
+          fill(x + 1, y - 4, 4, 4, red); fill(x + 1, y - 3, 4, 1, cream); fill(x + 1, y - 1, 4, 1, cream);
+          dot(x, y - 3, WHITE); dot(x, y - 2, WHITE);
+          drawKeyboard(s, y + 2);
+        },
+      },
+      /**
        * Gingerbread desk. Biscuit-brown, white icing piped along its edge in scallops and in a zigzag round its front, and a
        * row of gumdrops; now and then one of them wobbles.
        */
@@ -6882,6 +6994,23 @@
           for (let k = 0; k < 2; k++) {
             const rise = (t / 3 + k * 0.5) % 1;
             dot(x + 38 + Math.round(Math.sin(rise * 6 + k * 2)), y - 6 - Math.round(rise * 5), WHITE, 0.5 * (1 - rise));
+          }
+        }
+      },
+      /** A round berry teapot under a cream knitted tea cosy with a pine band and bobble; steam from its spout now and then. */
+      teapot(x, y) {
+        const cream = 0xf2ead8, shade = 0xd0c4a8, pine = 0x2f6a4a, pot = 0xb8303a;
+        fill(x + 35, y - 1, 9, 1, 0x8a2430);
+        fill(x + 38, y - 8, 3, 1, cream); fill(x + 37, y - 7, 5, 1, cream); fill(x + 36, y - 6, 7, 5, cream);
+        for (const dx of [38, 40]) fill(x + dx, y - 6, 1, 5, shade);
+        fill(x + 42, y - 6, 1, 5, shade); fill(x + 36, y - 4, 7, 1, pine);
+        fill(x + 38, y - 10, 3, 2, pine); dot(x + 38, y - 10, 0x4a8a64);
+        for (const [dx, dy] of [[35, -2], [34, -3], [33, -4], [32, -5], [43, -4], [44, -3], [44, -2], [43, -2]]) dot(x + dx, y + dy, pot);
+        const t = (now + x * 0.09) % 10;
+        if (t < 3) {
+          for (let k = 0; k < 2; k++) {
+            const rise = (t / 3 + k * 0.5) % 1;
+            dot(x + 32 + Math.round(Math.sin(rise * 6 + k * 2)), y - 6 - Math.round(rise * 5), WHITE, 0.5 * (1 - rise));
           }
         }
       },
@@ -8671,6 +8800,104 @@
     }
 
     /**
+     * A cast-iron wood stove on curled feet and a slate hearth, its flue up the wall, a fire flickering behind its little
+     * glass door as candles do, a kettle on top that puffs steam now and then, and logs stacked beside it. Its warm light
+     * falls on the floor, more at night.
+     */
+    function drawWoodStove() {
+      const iron = 0x2e3036, edge = 0x4e525c, dark = 0x1c1d22, brass = 0xc8a050, cx = 272, flick = candlelight(5);
+      fill(254, 95, 46, 1, SHADOW);
+      // The flue, up the wall, its collar
+      fill(270, 44, 5, 22, iron); fill(270, 44, 1, 22, edge); fill(274, 44, 1, 22, dark); fill(269, 50, 7, 2, edge);
+      // The hearth it stands on
+      fill(256, 91, 32, 4, 0x5e626c); fill(256, 91, 32, 1, 0x8a8f9c);
+      // Its top plate, its body, the firebox door with glass, the ash drawer, its feet
+      fill(259, 65, 27, 2, edge); fill(260, 64, 25, 1, 0x6a6e78);
+      fill(261, 67, 23, 18, iron); fill(261, 67, 1, 18, edge); fill(283, 67, 1, 18, dark);
+      fill(264, 69, 17, 13, dark); fill(265, 70, 15, 11, 0x3a3d45); fill(267, 72, 11, 8, 0x1a1214);
+      fill(267, 79, 11, 1, 0x8a2a14);
+      for (let k = 0; k < 9; k++) {
+        const h = Math.round(7 * candlelight(k * 1.3 + 5)) - Math.abs(k - 4);
+        if (h <= 0) continue;
+        const fx = cx - 4 + k + 1;
+        fill(fx, 80 - h, 1, h, 0xd4140b);
+        if (h > 2) fill(fx, 81 - h, 1, h - 1, 0xff8a3d);
+        if (h > 4) fill(fx, 83 - h, 1, h - 3, 0xf2d35b);
+      }
+      glowAt(cx + 1, 76, 6, 4, 0xff8a3d, 0.12 * flick);
+      dot(267, 72, WHITE, 0.3); dot(268, 72, WHITE, 0.2);
+      fill(281, 74, 1, 3, brass); dot(282, 75, brass);
+      fill(264, 83, 17, 1, 0x3a3d45); fill(271, 83, 3, 1, brass);
+      for (const fx of [262, 281]) { fill(fx, 85, 2, 6, iron); dot(fx + (fx < 270 ? -1 : 2), 90, iron); }
+      // The kettle: berry enamel, a cream lid, its handle over the top and its spout out to the left
+      const berry = 0xb8303a, cream = 0xf2ead8;
+      fill(262, 59, 7, 5, berry); fill(263, 58, 5, 1, berry); fill(263, 59, 1, 3, 0xe0606a); fill(268, 59, 1, 5, 0x8a2430);
+      fill(264, 57, 3, 1, cream); dot(265, 56, cream);
+      for (const [hx, hy] of [[262, 57], [263, 55], [264, 54], [265, 54], [266, 54], [267, 55], [268, 57]]) dot(hx, hy, dark);
+      dot(262, 56, dark); dot(268, 56, dark);
+      dot(261, 61, berry); dot(260, 60, berry); dot(259, 59, berry);
+      const t = now % 12;
+      if (t < 2.5) {
+        for (let k = 0; k < 3; k++) {
+          const rise = (t / 2.5 + k / 3) % 1;
+          const sx = 258 - Math.round(rise * 3) + Math.round(Math.sin(rise * 7 + k) * 1.5), sy = 57 - Math.round(rise * 8);
+          fill(sx, sy, rise > 0.4 ? 2 : 1, 1, WHITE, 0.6 * (1 - rise));
+        }
+      }
+      // The logs, stacked end on
+      for (const [lx, ly] of [[290, 92], [295, 92], [299, 92], [292, 88], [297, 88], [294, 84]]) {
+        fill(lx - 2, ly - 1, 5, 3, 0x5a3b25); fill(lx - 1, ly - 2, 3, 5, 0x5a3b25);
+        fill(lx - 1, ly - 1, 3, 3, 0xd8b07a); dot(lx, ly, 0xa8804e);
+      }
+      glowAt(cx, 97, 18, 3, 0xffa04a, 0.05 * flick);
+      if (isNight) glowLate(() => { glowAt(cx, 98, 24, 5, 0xffa04a, 0.12 * flick); glowAt(cx + 1, 76, 10, 8, 0xff8a3d, 0.12 * flick); });
+    }
+
+    /**
+     * A hot-drinks bar: a wooden counter with a steaming mug marked on its front, a big berry urn with a tap, mugs hung on
+     * hooks along a rail above, two mugs out and a jar of marshmallows; now and then steam rises from the urn.
+     */
+    function drawCocoaBar() {
+      const wood = 0x9a6a3e, light = 0xc48e56, dark = 0x6e4a2e, cream = 0xf2ead8, berry = 0xb8303a, pine = 0x2f6a4a, steel = 0xa8adb6;
+      fill(254, 94, 46, 1, SHADOW);
+      // The rail of hooks on the wall, a mug hung on each
+      fill(258, 56, 38, 2, dark); fill(258, 56, 38, 1, light);
+      [[262, cream], [270, berry], [278, pine], [286, cream], [292, berry]].forEach(([mx, c]) => {
+        dot(mx + 1, 58, 0x5a5f6c);
+        fill(mx, 59, 3, 4, c); fill(mx + 2, 59, 1, 4, darker(c)); dot(mx + 3, 60, c); dot(mx + 3, 61, c);
+      });
+      // The counter
+      fill(256, 74, 42, 2, light); fill(256, 76, 42, 1, dark);
+      fill(257, 77, 40, 16, wood);
+      for (const gx of [265, 273, 281, 289]) fill(gx, 77, 1, 16, dark);
+      fill(257, 92, 40, 1, dark);
+      fill(274, 83, 5, 4, cream); dot(279, 84, cream); dot(279, 85, cream); dot(275, 81, cream, 0.7); dot(277, 80, cream, 0.7);
+      // The urn, berry enamel on a steel stand, a tap at its front
+      fill(259, 72, 11, 2, steel); dot(260, 74, steel); dot(268, 74, steel);
+      fill(260, 60, 9, 12, berry); fill(260, 60, 9, 1, 0xd8505a); fill(261, 61, 1, 10, 0xd8505a); fill(268, 61, 1, 11, 0x8a2430);
+      fill(260, 66, 9, 1, cream);
+      fill(261, 58, 7, 2, steel); fill(261, 58, 7, 1, 0xc8ccd4); dot(264, 57, steel);
+      fill(263, 69, 3, 1, steel); dot(264, 70, steel); dot(264, 71, 0x5a5f6c);
+      // Two mugs out, and the jar of marshmallows
+      fill(272, 70, 4, 4, pine); dot(276, 71, pine); dot(276, 72, pine); fill(272, 70, 4, 1, 0x6a3a22);
+      fill(278, 70, 4, 4, cream); dot(282, 71, cream); dot(282, 72, cream); fill(278, 70, 4, 1, 0x6a3a22); dot(279, 69, WHITE); dot(281, 69, WHITE);
+      fill(285, 64, 7, 2, 0x8a6040); fill(285, 64, 7, 1, 0xa8804e);
+      fill(285, 66, 7, 8, 0xdcebf4, 0.4);
+      for (const [mx, my, c] of [[286, 72, WHITE], [289, 72, 0xf2c8d0], [287, 70, cream], [290, 70, WHITE], [286, 68, 0xf2c8d0], [289, 67, WHITE]]) {
+        fill(mx, my, 2, 2, c);
+      }
+      fill(285, 66, 1, 8, 0xc8d8e4); fill(291, 66, 1, 8, 0x9ab0c0); dot(286, 67, WHITE, 0.6);
+      // Steam from the urn's lid, now and then
+      const t = (now + 3) % 9;
+      if (t < 3) {
+        for (let k = 0; k < 3; k++) {
+          const rise = (t / 3 + k / 3) % 1;
+          dot(264 + Math.round(Math.sin(rise * 6 + k * 2) * 1.5), 56 - Math.round(rise * 8), WHITE, 0.55 * (1 - rise));
+        }
+      }
+    }
+
+    /**
      * A Christmas tree in a red pot: three tiers of pine, a gold star on top, tinsel, and coloured lights that twinkle a
      * few at a time. At night the lights and the star glow over the dark.
      */
@@ -8997,6 +9224,41 @@
           p(-4, -5 + b, 1, 1, stick); p(-5, -6 + b, 1, 1, stick);
           if (waving) { p(4, -6 + b, 1, 1, stick); p(5, -7 + b, 1, 1, stick); p(5 + flick, -8 + b, 1, 1, stick); }
           else { p(4, -5 + b, 1, 1, stick); p(5, -6 + b, 1, 1, stick); p(6, -6 + b, 1, 1, stick); }
+          break;
+        }
+        case 'snowhare': {
+          // White, dark tips to its long ears, a pink nose; it hops, and sat, it washes its face now and then. With snow
+          // drifting, its footprints fade behind it
+          const fur = 0xf4f6f8, shade = 0xc8d2dc, tip = 0x2a2a30, nose = 0xe89aa8;
+          for (const tr of pet.trail) {
+            const a = 0.6 * (1 - (now - tr.at) / PRINTS_FOR);
+            dot(tr.x - 1, tr.y, 0x9fb4c8, a); dot(tr.x + 1, tr.y, 0x9fb4c8, a);
+          }
+          if (pose === 'lie' || pose === 'sleep') {
+            p(-4, -4, 8, 4, fur); p(-4, -1, 8, 1, shade); p(2, -6, 4, 3, fur); p(-2, -6, 4, 1, fur); p(-3, -6, 1, 1, tip);
+            p(-5, -3, 1, 2, WHITE); p(6, -4, 1, 1, nose); p(4, -5, 1, 1, PALETTE.eye, pose === 'sleep' ? 0.4 : 1);
+            break;
+          }
+          if (pose === 'walk') {
+            const hop = Math.abs(Math.sin(now * 9)), b = -Math.round(hop * 3), st = hop > 0.5 ? 1 : 0;
+            p(-4, -5 + b, 8 + st, 4, fur); p(-4, -2 + b, 8, 1, shade); p(-6, -5 + b, 2, 2, WHITE);
+            p(3 + st, -8 + b, 4, 4, fur); p(7 + st, -6 + b, 1, 1, nose); p(5 + st, -7 + b, 1, 1, PALETTE.eye);
+            p(2 + st, -12 + b, 1, 4, fur); p(4 + st, -12 + b, 1, 4, fur); p(1 + st, -13 + b, 1, 2, tip); p(3 + st, -13 + b, 1, 2, tip);
+            p(-4, -1 + b, 3, 1, shade);
+            if (!st) p(4, -1 + b, 2, 1, fur);
+            break;
+          }
+          const wash = (now + x * 0.17) % 9 < 2, rub = Math.floor(now * 6) % 2;
+          p(-4, -6, 7, 6, fur); p(-3, -7, 5, 1, fur); p(-5, -4, 1, 3, fur); p(-4, -1, 7, 1, shade); p(-6, -4, 1, 2, shade);
+          p(1, -11, 5, 4, fur); p(2, -12, 3, 1, fur); p(6, -10, 1, 2, fur); p(7, -10, 1, 1, nose); p(5, -8, 2, 1, shade);
+          p(1, -16, 1, 5, fur); p(3, -16, 1, 5, fur); p(1, -16, 1, 2, tip); p(3, -16, 1, 2, tip);
+          if (wash) {
+            p(4, -10, 1, 1, PALETTE.eye, 0.5);
+            p(6, -9 + rub, 2, 2, shade); p(5, -7, 1, 3, shade);
+          } else {
+            p(4, -10, 1, 1, PALETTE.eye);
+            p(3, -3, 1, 3, shade); p(5, -3, 1, 3, shade);
+          }
           break;
         }
         case 'raven': {
@@ -9518,6 +9780,7 @@
       coffinbox: [[88, drawCoffinJukebox]], skeletonmodel: [[90, drawSkeletonModel]],
       xmastree: [[88, drawXmasTree], [93, drawXmasGifts]], fireplace: [[86, drawFireplace]],
       sleigh: [[84, drawSleighBack], [93, drawSleighFront]], carolbox: [[88, drawCarolJukebox]],
+      woodstove: [[88, drawWoodStove]], cocoabar: [[91, drawCocoaBar]],
       none: [],
     };
 
@@ -10700,6 +10963,63 @@
         },
         back(x, y) {
           for (let dx = -3; dx <= 3; dx++) { if (dx % 2) dot(x + dx, y + 1, 0xf6f2ea); dot(x + dx, y + 5, dx % 2 ? 0xf6f2ea : 0xc8302a); }
+        },
+      },
+      beanie: {
+        // A puffer's quilted rows and its zip, a berry scarf round the neck, its long end down the front, striped, fringed
+        front(x, y, o) {
+          const berry = 0xb8303a, cream = 0xf2ead8;
+          for (const r of [2, 4]) fill(x - 3, y + r, 7, 1, shaded(o.shirt, 0.72));
+          fill(x + 1, y + 1, 1, 5, lighter(o.shirt));
+          fill(x - 3, y, 7, 1, berry); fill(x - 2, y + 1, 2, 4, berry); fill(x - 2, y + 3, 2, 1, cream);
+          dot(x - 2, y + 5, cream); dot(x - 1, y + 5, cream, 0.7);
+        },
+        back(x, y, o) {
+          for (const r of [2, 4]) fill(x - 3, y + r, 7, 1, shaded(o.shirt, 0.72));
+          fill(x - 3, y, 7, 1, 0xb8303a); fill(x + 1, y + 1, 2, 3, 0xb8303a); fill(x + 1, y + 2, 2, 1, 0xf2ead8);
+        },
+        // A ribbed berry beanie, its brim turned up in cream, a big bobble; now and then they blow on their mittened hands
+        head(x, top, look, away) {
+          const berry = 0xb8303a, rib = 0x8a2430, cream = 0xf2ead8;
+          fill(x - 3, top - 2, 7, 3, berry); fill(x - 2, top - 3, 5, 1, berry);
+          for (const dx of [-2, 0, 2]) fill(x + dx, top - 2, 1, 3, rib);
+          fill(x - 4, top + 1, 9, 1, cream);
+          fill(x - 1, top - 5, 3, 2, cream); dot(x, top - 6, cream); dot(x - 1, top - 5, WHITE);
+          if (away) return;
+          const t = (now + look.phase * 19) % 21;
+          if (t < 1.8) {
+            fill(x - 3, top + 5, 3, 2, berry); fill(x + 1, top + 5, 3, 2, berry); dot(x - 3, top + 5, 0xe0606a); dot(x + 3, top + 5, 0xe0606a);
+            for (let k = 0; k < 3; k++) {
+              const rise = (t / 1.8 + k / 3) % 1;
+              dot(x + 5 + Math.round(Math.sin(rise * 7 + k)), top + 4 - Math.round(rise * 6), WHITE, 0.75 * (1 - rise));
+            }
+          }
+        },
+      },
+      cableknit: {
+        // Two cables twisting down the front either side of a rib, a rolled collar, ribbing at the hem
+        front(x, y, o) {
+          const dark = shaded(o.shirt, 0.72), light = lighter(o.shirt);
+          fill(x - 2, y, 5, 1, light);
+          for (const cx of [-2, 2]) {
+            for (let r = 1; r < 5; r++) {
+              if (r % 2) dot(x + cx, y + r, dark);
+              else { dot(x + cx - 1, y + r, dark); dot(x + cx + 1, y + r, dark); }
+            }
+          }
+          fill(x, y + 1, 1, 4, light);
+          fill(x - 3, y + 5, 7, 1, dark);
+        },
+        back(x, y, o) {
+          const dark = shaded(o.shirt, 0.72);
+          for (const cx of [-2, 2]) for (let r = 1; r < 5; r += 2) dot(x + cx, y + r, dark);
+          fill(x - 3, y + 5, 7, 1, dark);
+        },
+        // Earmuffs: a dark band over the head, fluffy berry muffs over the ears
+        head(x, top) {
+          const band = 0x3a3d45, muff = 0xc8303a, fluff = 0xe8707a;
+          fill(x - 3, top - 1, 7, 1, band); dot(x - 4, top, band); dot(x + 4, top, band); dot(x - 4, top + 1, band); dot(x + 4, top + 1, band);
+          for (const mx of [x - 5, x + 4]) { fill(mx, top + 2, 2, 3, muff); dot(mx, top + 2, fluff); }
         },
       },
       werewolf: {
@@ -12308,7 +12628,7 @@
     servers: 'hum', printer: 'printer', boxing: 'boxing', treadmill: 'treadmill', hottub: 'splash', ballpit: 'rustle', campfire: 'crackle',
     bubbler: 'jukebox', neonbox: 'jukebox', wallbox: 'jukebox', djtable: 'jukebox', turntable: 'jukebox', boombox: 'jukebox',
     hifi: 'jukebox', synth: 'piano', cauldron: 'crackle', halfcourt: 'hoops', arcadehoop: 'hoops', coffinbox: 'jukebox',
-    xmastree: 'twinkle', fireplace: 'crackle', sleigh: 'jingle', carolbox: 'jukebox',
+    xmastree: 'twinkle', fireplace: 'crackle', sleigh: 'jingle', carolbox: 'jukebox', woodstove: 'crackle', cocoabar: 'coffee',
   };
   /** How often the weather in the windows, or the corner piece being played, makes itself heard, in seconds. */
   const WEATHER_EVERY = [50, 120];
