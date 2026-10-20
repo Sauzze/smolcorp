@@ -418,6 +418,9 @@ There's more to see while they work:
 - **The desks** in wood, walnut, white or black, and **the chairs** in teal,
   black, red, grey or green.
 - **Office staff:** a few, none, or lots of them in the lounge.
+- **A calm office**, under *Life*: nobody wanders off, the staff and pets stay
+  put and nothing drifts by the windows, so the office moves only for the work,
+  and draws less often, for less power. Agents still work, type, come and go.
 - **A jukebox that plays your music**, once you turn it on under *Getting
   started*: tap any jukebox in the office to play or pause whatever this
   computer is playing, Spotify, Apple Music or a video in your browser. It
