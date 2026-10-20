@@ -9,7 +9,11 @@ import Foundation
 ///   iterm:BD2206F6-EE01-476F-A6D9-3061679BD8B0
 ///   ghostty:/dev/ttys004                Ghostty, by tty until it names its tabs
 ///   other:/dev/ttys005                  a terminal Smolcorp can't drive: shown, not controlled
+///   headless:3f2a9c1e-…                 a headless claude run, by its session ID: no terminal at all
 ///
+/// A headless run is named so that it can't be mistaken for a tab: it has no
+/// driver, nothing is watched or pressed there, and it is never matched to a
+/// terminal's tab.
 /// A bare tty, as a deck saved before 1.9 kept, reads as a Terminal.app tab.
 struct TabAddress: Hashable {
     let kind: String
@@ -38,6 +42,9 @@ struct TabAddress: Hashable {
         if ["tty", "ghostty", "other"].contains(kind) {
             guard TabAddress.isTTY(String(rest)) else { return nil }
             self.init(kind: kind, id: String(rest))
+        } else if kind == "headless" {
+            guard rest.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) else { return nil }
+            self.init(kind: kind, id: String(rest))
         } else if kind == "iterm" {
             guard rest.allSatisfy({ $0.isASCII && ($0.isHexDigit || $0 == "-") }) else { return nil }
             self.init(kind: kind, id: String(rest))
@@ -53,6 +60,12 @@ struct TabAddress: Hashable {
             self.init(kind: kind, id: id, socket: socket)
         }
     }
+
+    /// Whether this is a headless run rather than a terminal's tab.
+    var isHeadless: Bool { kind == "headless" }
+
+    /// Whether `tab` names a headless run.
+    static func isHeadless(_ tab: String) -> Bool { TabAddress(tab)?.isHeadless ?? false }
 
     var text: String { socket.isEmpty ? "\(kind):\(id)" : "\(kind):\(id)@\(socket)" }
 
@@ -118,6 +131,8 @@ enum Terminals {
         case "ghostty": return Ghostty.id(on: tab.id) == nil ? nil : Ghostty()
         case "wezterm": return WezTerm.path == nil ? nil : WezTerm()
         case "kitty": return Kitty.path == nil ? nil : Kitty()
+        // A headless run has nothing to drive.
+        case "headless": return nil
         default: return nil
         }
     }

@@ -76,6 +76,10 @@ final class Deck {
     /// Whether music is playing, for the office's jukeboxes: true, or nil when it can't be told.
     private var playing: Bool?
     private var checkingMusic = false
+    /// The Mac's output volume and mute, for the jukebox's volume bar: nil
+    /// where the output has no volume to set. Kept by CoreAudio's listeners.
+    private var volume: (level: Int, muted: Bool)?
+    private var watchingVolume = false
 
     init() {
         sessions.onChange = { [weak self] in self?.changed() }
@@ -90,6 +94,8 @@ final class Deck {
         Timer.scheduledTimer(withTimeInterval: Deck.closedTabCheckInterval, repeats: true) { [weak self] _ in
             self?.pruneClosedTabs()
             self?.pruneClosedPanes()
+            // Agents that exited unheard, and headless runs long quiet.
+            self?.sessions.prune(now: Date().timeIntervalSince1970 * 1000)
         }
         Timer.scheduledTimer(withTimeInterval: Deck.pingInterval, repeats: true) { [weak self] _ in
             self?.streams.values.forEach { $0.stream.ping() }
@@ -113,11 +119,14 @@ final class Deck {
     /// `Agent.of(_:reportedAs:)` for why that isn't always the sender.
     /// `tab` is the tab the hook found, as a `TabAddress`; `tty` the tty it
     /// ran on, which a hook from before 1.9 sends alone.
-    func ingest(_ event: [String: Any], reportedAs reported: String, tab: String, tty: String, startedIn: String, at time: Double) {
+    /// `pid` is the agent's process, which a headless run's hook sends, and
+    /// `parent` the folder it was launched from, where its launcher said.
+    func ingest(_ event: [String: Any], reportedAs reported: String, tab: String, tty: String, startedIn: String,
+                pid: Int32? = nil, parent: String = "", at time: Double) {
         let agent = Agent.of(event, reportedAs: reported)
         guard let event = agent.canonical(event) else { return }
         let found = !tab.isEmpty ? tab : !tty.isEmpty ? TabAddress.terminalApp(tty: tty).text : self.tab(for: event, of: agent)
-        sessions.apply(event, agent: agent, tab: found, startedIn: startedIn, at: time)
+        sessions.apply(event, agent: agent, tab: found, startedIn: startedIn, pid: pid, parent: parent, at: time)
         learnGhostty(found)
         noteMessage(event, from: agent)
     }
@@ -340,10 +349,11 @@ final class Deck {
     /// number of keys, a session keeps its key until it ends, so keys don't
     /// shuffle as sessions come and go. With Auto, the keys grow and shrink with
     /// the sessions, and those still running keep their order when one ends.
-    /// Sessions beyond the last key have none until one frees up.
+    /// Sessions beyond the last key have none until one frees up. Headless
+    /// runs have no keys: they sit upstairs (see `upstairs()`).
     func layout() -> (keys: [Key], overflow: [Session]) {
         let config = Config.shared
-        var remaining = sessions.all
+        var remaining = Deck.downstairs(sessions.all)
         let live = Set(remaining.map(\.id))
         // A session that took another's place in its tab, as after /clear, takes its key and role too.
         for (new, old) in sessions.takeReplacements() {
@@ -406,44 +416,93 @@ final class Deck {
         return (keys, remaining)
     }
 
+    /// What the phone is told of a session at a desk.
+    private func sessionEntry(_ s: Session) -> [String: Any] {
+        // What its terminal lets the deck do: one Smolcorp can only watch shows the desk, not the controls.
+        let can = Terminals.abilities(of: s.tab)
+        return [
+            "id": s.id, "name": s.name, "project": s.projectName, "state": s.state.rawValue,
+            "effort": s.pendingEffort.isEmpty ? s.effort : s.pendingEffort,
+            "pending": !s.pendingEffort.isEmpty,
+            "agent": s.agent.rawValue, "agentName": s.agent.name,
+            "dial": s.agent.hasEffortDial && can.contains(.text),
+            // Claude Code's own voice mode through Space, or dictation through the text it types.
+            "mic": Deck.dictates(s.agent) ? can.contains(.text) : s.agent.hasVoice && can.contains(.keys),
+            "dictates": Deck.dictates(s.agent) && can.contains(.text),
+            "keys": can.contains(.keys), "fire": can.contains(.fire),
+            "activity": s.activity ?? NSNull(),
+            "tool": s.tool.isEmpty ? NSNull() : s.tool,
+            "model": s.model.isEmpty ? NSNull() : s.model,
+            "subagents": s.subagents.map { subagent -> [String: Any] in
+                ["id": subagent.id, "type": subagent.type, "model": subagent.model.isEmpty ? NSNull() : subagent.model]
+            },
+            "maxPressedAt": s.maxPressedAt.map { Int64($0) } ?? NSNull(),
+            "messagedAt": s.messagedAt.map { Int64($0) } ?? NSNull(),
+            "messaged": s.messaged.isEmpty ? NSNull() : s.messaged,
+            "compacting": s.compacting,
+            "turnStartedAt": s.turnStartedAt.map { Int64($0) } ?? NSNull(),
+            "errorKind": s.errorKind.isEmpty ? NSNull() : s.errorKind,
+            "role": roleOf[s.id].flatMap { id in Config.shared.roles.first { $0.id == id } }?.forPhone ?? NSNull(),
+        ]
+    }
+
+    /// A headless run's desk upstairs: what it's doing, with every control
+    /// off, as there's nothing to type into.
+    private func upstairsEntry(_ s: Session) -> [String: Any] {
+        var entry = sessionEntry(s)
+        for control in ["keys", "fire", "mic", "dial", "dictates"] { entry[control] = false }
+        entry["role"] = NSNull()
+        entry["headless"] = true
+        entry["startedAt"] = Int64(s.startedAt)
+        entry["hiredBy"] = Deck.hiredBy(s, among: sessions.all).map { parent -> [String: Any] in
+            ["id": parent.session?.id ?? NSNull(), "name": parent.name]
+        } ?? NSNull()
+        return entry
+    }
+
+    /// Who started a headless run, for its card upstairs: the ground-floor
+    /// session working in the folder it was launched from, the oldest, under
+    /// its project's name; else that folder's name, with no session; else
+    /// nil, when its launcher didn't say. Only the name leaves the Mac.
+    static func hiredBy(_ s: Session, among all: [Session]) -> (session: Session?, name: String)? {
+        let trimmed = { (path: String) in path.hasSuffix("/") ? String(path.dropLast()) : path }
+        let parent = trimmed(s.parentFolder)
+        guard !parent.isEmpty else { return nil }
+        if let hirer = downstairs(all).first(where: { trimmed($0.project) == parent || trimmed($0.folder) == parent }) {
+            return (hirer, hirer.projectName)
+        }
+        return (nil, Session.lastPart(of: parent))
+    }
+
+    /// As many desks as the second floor has.
+    static let upstairsDesks = 12
+
+    /// The second floor: a desk for each headless run, oldest first, up to
+    /// `upstairsDesks`, and how many more there are. They never have keys.
+    func upstairs() -> (desks: [Session], overflow: Int) { Deck.upstairs(of: sessions.all) }
+
+    static func upstairs(of all: [Session]) -> (desks: [Session], overflow: Int) {
+        let headless = all.filter(\.isHeadless)
+        return (Array(headless.prefix(upstairsDesks)), max(0, headless.count - upstairsDesks))
+    }
+
+    /// The sessions that may have keys: every one but the headless runs.
+    static func downstairs(_ all: [Session]) -> [Session] { all.filter { !$0.isHeadless } }
+
     /// What the phone draws: the keys, the theme and the layout. No ttys or paths.
     func snapshotJSON() -> Data {
         let (keys, overflow) = layout()
+        let upstairs = self.upstairs()
         let canHire = Config.shared.hiringEnabled && Deck.folder(Config.shared.hireFolder) != nil
         let state: [String: Any] = [
             "keys": keys.map { key -> [String: Any] in
                 var entry: [String: Any] = ["pin": key.pin.map { ($0 as NSString).lastPathComponent } ?? NSNull()]
-                if let s = key.session {
-                    // What its terminal lets the deck do: one Smolcorp can only watch shows the desk, not the controls.
-                    let can = Terminals.abilities(of: s.tab)
-                    entry["session"] = [
-                        "id": s.id, "name": s.name, "project": s.projectName, "state": s.state.rawValue,
-                        "effort": s.pendingEffort.isEmpty ? s.effort : s.pendingEffort,
-                        "pending": !s.pendingEffort.isEmpty,
-                        "agent": s.agent.rawValue, "agentName": s.agent.name,
-                        "dial": s.agent.hasEffortDial && can.contains(.text),
-                        // Claude Code's own voice mode through Space, or dictation through the text it types.
-                        "mic": Deck.dictates(s.agent) ? can.contains(.text) : s.agent.hasVoice && can.contains(.keys),
-                        "dictates": Deck.dictates(s.agent) && can.contains(.text),
-                        "keys": can.contains(.keys), "fire": can.contains(.fire),
-                        "activity": s.activity ?? NSNull(),
-                        "tool": s.tool.isEmpty ? NSNull() : s.tool,
-                        "model": s.model.isEmpty ? NSNull() : s.model,
-                        "subagents": s.subagents.map { subagent -> [String: Any] in
-                            ["id": subagent.id, "type": subagent.type, "model": subagent.model.isEmpty ? NSNull() : subagent.model]
-                        },
-                        "maxPressedAt": s.maxPressedAt.map { Int64($0) } ?? NSNull(),
-                        "messagedAt": s.messagedAt.map { Int64($0) } ?? NSNull(),
-                        "messaged": s.messaged.isEmpty ? NSNull() : s.messaged,
-                        "compacting": s.compacting,
-                        "turnStartedAt": s.turnStartedAt.map { Int64($0) } ?? NSNull(),
-                        "errorKind": s.errorKind.isEmpty ? NSNull() : s.errorKind,
-                        "role": roleOf[s.id].flatMap { id in Config.shared.roles.first { $0.id == id } }?.forPhone ?? NSNull(),
-                    ]
-                }
+                if let s = key.session { entry["session"] = sessionEntry(s) }
                 return entry
             },
             "overflow": overflow.count,
+            // The second floor: headless runs, at desks of their own.
+            "upstairs": ["desks": upstairs.desks.map(upstairsEntry), "overflow": upstairs.overflow] as [String: Any],
             // The Mac's clock, so the office can count turns on the phone's,
             // whichever of the two is right.
             "now": Int64(Date().timeIntervalSince1970 * 1000),
@@ -458,7 +517,12 @@ final class Deck {
                 "roles": canHire ? Config.shared.roles.map(\.forPhone) : [],
             ] as [String: Any],
             // What the office's jukeboxes know: whether music is playing, null when that can't be told.
-            "music": Config.shared.musicEnabled ? ["playing": playing.map { $0 as Any } ?? NSNull()] : NSNull(),
+            // And the Mac's volume for the hold menu's bar, null where it can't be set.
+            "music": Config.shared.musicEnabled ? [
+                "playing": playing.map { $0 as Any } ?? NSNull(),
+                "volume": volume.map { $0.level as Any } ?? NSNull(),
+                "muted": volume?.muted ?? false,
+            ] as [String: Any] : NSNull(),
             "layout": Config.shared.layout.jsonObject,
         ]
         // Keys in order: unsorted, the same layout can come out differently
@@ -524,8 +588,12 @@ final class Deck {
             changed()
             return done(.status(204))
         }
-        if action == "music" { return done(playMusic(query["do"] ?? "playpause")) }
+        if action == "music" {
+            if query["do"] == "volume" { return done(setVolume(query["level"])) }
+            return done(playMusic(query["do"] ?? "playpause"))
+        }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
+        guard !session.isHeadless else { return done(.status(409, Deck.headless)) }
 
         // Accept and send are both Return. They are separate controls on the
         // phone because they mean different things, as do reject and esc,
@@ -624,6 +692,8 @@ final class Deck {
     static let hiringOff = "Hiring and firing are off. Turn them on in setup, on your Mac."
     /// For a session in a terminal Smolcorp can only watch, or can't do this in.
     static let notHere = "Smolcorp can't do that in this terminal yet."
+    /// For a headless run's desk, which has no terminal at all.
+    static let headless = "Nothing to type into: it runs headless."
 
     /// `session`'s tab and the driver for its terminal, if that terminal lets
     /// the deck do `what` there.
@@ -675,8 +745,33 @@ final class Deck {
         return .status(204)
     }
 
+    /// Sets the Mac's output volume from the jukebox's bar: `level` is 0 to
+    /// 100. Unlike the keys it needs no Accessibility.
+    private func setVolume(_ level: String?) -> Response {
+        guard let level = Music.volumeLevel(level) else { return .status(400, "The volume goes from 0 to 100.") }
+        guard Config.shared.musicEnabled else { return .status(403, Deck.musicOff) }
+        Music.setVolume(level)
+        followVolume()
+        return .status(204)
+    }
+
+    /// Reads the volume and mute, and tells the phones when either changed:
+    /// from the bar, the keyboard's volume keys, or another output device.
+    private func followVolume() {
+        let now = Music.volume()
+        guard now?.level != volume?.level || now?.muted != volume?.muted else { return }
+        volume = now
+        changed()
+    }
+
     /// Looks whether music is playing, with the jukebox on, and tells the phones when that changes.
     func followMusic() {
+        // The volume needs no looking: CoreAudio says when it changes.
+        if !watchingVolume {
+            watchingVolume = true
+            Music.watchVolume { [weak self] in self?.followVolume() }
+            followVolume()
+        }
         guard !checkingMusic else { return }
         guard Config.shared.musicEnabled else {
             if playing != nil {

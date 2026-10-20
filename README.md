@@ -98,6 +98,19 @@ To set one up:
 
 3. Give it the work, and hire the rest of the team from the office.
 
+**Agents without a terminal work upstairs.** A manager, or a script of your
+own, can run Claude Code without a terminal, as `claude -p` does. Started with
+`SMOLCORP_HEADLESS=1` in its environment, such a run gets a desk on the second
+floor, away from your keys: take the elevator by the entrance to see it. There's
+nothing to press there, as there's no terminal to type into. Set
+`SMOLCORP_PARENT_FOLDER` to the folder of whoever started it, and holding its
+desk says who hired it, what it's doing and for how long; tap the hirer to go
+down to their desk. A run that ends, or stops being heard from, leaves.
+
+```sh
+SMOLCORP_HEADLESS=1 SMOLCORP_PARENT_FOLDER="$PWD" claude -p "Write the changelog for this release"
+```
+
 ## Supported agents
 
 Each agent tells Smolcorp what it's doing through its own hooks, and the
@@ -409,7 +422,8 @@ There's more to see while they work:
   started*: tap any jukebox in the office to play or pause whatever this
   computer is playing, Spotify, Apple Music or a video in your browser. It
   lights up while Spotify or Apple Music plays; macOS asks once whether
-  Smolcorp may ask them.
+  Smolcorp may ask them. Hold a jukebox for its controls: back, play or
+  pause, next, and a bar for this computer's volume.
 
 **Arrange the room** puts everything where you want it. Click **Arrange the
 room…** under *Office*, and the office fills the window: click a piece to pick

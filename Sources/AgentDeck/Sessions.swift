@@ -21,6 +21,13 @@ final class Session {
     /// The tab the agent runs in, as a `TabAddress`: tty:/dev/ttys003 for a
     /// Terminal.app tab. Empty until a hook or the deck finds it.
     var tab = ""
+    /// The agent's process, where the hook said, as it does for a headless
+    /// run: one has no tab that could close, so this is how its going is
+    /// noticed.
+    var pid: Int32?
+    /// The folder a headless run was launched from, where the hook said:
+    /// the working folder of the employee who hired it. See `Deck.hiredBy`.
+    var parentFolder = ""
     var state = SessionState.idle
     var effort = ""
     /// An effort change waiting for the session to be free.
@@ -81,9 +88,11 @@ final class Session {
     }
 
     var name: String { Session.lastPart(of: folder) }
+    /// A headless run's, with no terminal: it sits upstairs, away from the keys.
+    var isHeadless: Bool { TabAddress.isHeadless(tab) }
     var projectName: String { Session.lastPart(of: project) }
 
-    private static func lastPart(of path: String) -> String {
+    static func lastPart(of path: String) -> String {
         let last = (path as NSString).lastPathComponent
         return last.isEmpty ? path : last
     }
@@ -159,8 +168,11 @@ final class Sessions {
     func contains(_ state: SessionState) -> Bool { byID.values.contains { $0.state == state } }
 
     /// `startedIn` is the folder the agent was started in, when the hook
-    /// knows it: an event's cwd is wherever the agent is now.
-    func apply(_ event: [String: Any], agent: Agent, tab: String, startedIn: String, at time: Double) {
+    /// knows it: an event's cwd is wherever the agent is now. `pid` is the
+    /// agent's process, where the hook sent it; `parent` the folder a
+    /// headless run was launched from.
+    func apply(_ event: [String: Any], agent: Agent, tab: String, startedIn: String, pid: Int32? = nil, parent: String = "",
+               at time: Double) {
         guard let id = event["session_id"] as? String, let name = event["hook_event_name"] as? String else { return }
         let folder = event["cwd"] as? String ?? ""
 
@@ -181,6 +193,8 @@ final class Sessions {
         // up but can't be found.
         guard byID[id] != nil || dropped[id] != nil || !tab.isEmpty else { return }
         let session = byID[id] ?? revive(id) ?? adopt(id: id, agent: agent, folder: folder, startedIn: startedIn, tab: tab, at: time)
+        if let pid { session.pid = pid }
+        if !parent.isEmpty { session.parentFolder = parent }
         // Subagents come and go by id, so the order their events arrive in
         // doesn't matter.
         let tracked = trackSubagents(name, event, of: session)
@@ -451,8 +465,36 @@ final class Sessions {
     /// Drops sessions whose tab has closed. An agent killed along with its tab
     /// never sends SessionEnd. Each is remembered for a while, in case it's
     /// heard from again: see `revive(_:)`.
+    /// A headless run has no tab to close, and is never dropped here: see
+    /// `prune(now:)`.
     func prune(closedTabs: Set<String>) {
-        let gone = byID.values.filter { closedTabs.contains($0.tab) }
+        drop(byID.values.filter { !$0.isHeadless && closedTabs.contains($0.tab) })
+    }
+
+    /// How long a headless run whose process isn't known may go without an
+    /// event before it counts as gone, in ms; `headlessQuietWithPID`, one
+    /// whose process is known and still there, in case that process is
+    /// something else's that outlives it.
+    static let headlessQuiet: Double = 10 * 60_000
+    static let headlessQuietWithPID: Double = 60 * 60_000
+
+    /// Drops sessions whose process has gone, where the hook said which it
+    /// was, and headless runs once they've been quiet for `headlessQuiet`, or
+    /// `headlessQuietWithPID` where their process is known: either may have
+    /// been killed before SessionEnd. Each is remembered for a while, as for
+    /// a closed tab, and comes back if it's heard from again.
+    func prune(now: Double, isGone: (Int32) -> Bool = Sessions.processGone) {
+        drop(byID.values.filter {
+            if let pid = $0.pid, isGone(pid) { return true }
+            guard $0.isHeadless else { return false }
+            return now - $0.lastEventAt > ($0.pid == nil ? Sessions.headlessQuiet : Sessions.headlessQuietWithPID)
+        })
+    }
+
+    /// Whether no process has `pid`.
+    static func processGone(_ pid: Int32) -> Bool { pid > 0 && kill(pid, 0) == -1 && errno == ESRCH }
+
+    private func drop(_ gone: [Session]) {
         guard !gone.isEmpty else { return }
         let now = Date().timeIntervalSince1970 * 1000
         for session in gone {
@@ -483,6 +525,12 @@ final class Sessions {
         let startedAt: Double
         let lastEventAt: Double
         let turnStartedAt: Double?
+        /// The agent's process, where known: missing from decks saved before
+        /// headless runs were followed.
+        var pid: Int32?
+        /// A headless run's `parentFolder`: missing from decks saved before
+        /// the card upstairs said who hired it.
+        var parent: String?
 
         /// The tab, from whichever of the two the deck was saved with.
         var address: String { tab ?? (tty.isEmpty ? "" : TabAddress.terminalApp(tty: tty).text) }
@@ -493,7 +541,7 @@ final class Sessions {
             Saved(id: $0.id, agent: $0.agent.rawValue, folder: $0.folder, project: $0.project,
                   tty: TabAddress($0.tab).map { $0.kind == "tty" ? $0.id : "" } ?? "", tab: $0.tab, state: $0.state.rawValue,
                   effort: $0.effort, model: $0.model, transcript: $0.transcript, startedAt: $0.startedAt, lastEventAt: $0.lastEventAt,
-                  turnStartedAt: $0.turnStartedAt)
+                  turnStartedAt: $0.turnStartedAt, pid: $0.pid, parent: $0.parentFolder.isEmpty ? nil : $0.parentFolder)
         }
     }
 
@@ -505,6 +553,8 @@ final class Sessions {
             guard let agent = Agent(rawValue: entry.agent) else { continue }
             let session = Session(id: entry.id, agent: agent, folder: entry.folder, project: entry.project, startedAt: entry.startedAt)
             session.tab = entry.address
+            session.pid = entry.pid
+            session.parentFolder = entry.parent ?? ""
             session.effort = entry.effort
             session.model = entry.model
             session.transcript = entry.transcript

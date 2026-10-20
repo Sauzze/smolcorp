@@ -15,6 +15,13 @@ final class DeckRouter: Router {
     /// browser ask permission first for any cross-site request, which this
     /// server never grants — so a web page you visit cannot press these buttons.
     static let setupHeader = "x-agentdeck-setup"
+
+    /// The agent's pid from a hook's header: digits only, anything else is
+    /// ignored.
+    static func pid(_ text: String?) -> Int32? {
+        guard let text, !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isNumber }), let pid = Int32(text), pid > 0 else { return nil }
+        return pid
+    }
     /// The setup page's key, as a tool of your own sends it, read from the
     /// setup-key file; or as the page's cookie, from the menu's link.
     static let setupKeyHeader = "x-smolcorp-setup-key"
@@ -80,7 +87,9 @@ final class DeckRouter: Router {
             let time = Double(request.headers["x-agentdeck-at"] ?? "") ?? Date().timeIntervalSince1970 * 1000
             deck.ingest(request.json, reportedAs: request.headers["x-agentdeck-agent"] ?? "",
                         tab: request.headers["x-agentdeck-tab"] ?? "", tty: request.headers["x-agentdeck-tty"] ?? "",
-                        startedIn: request.headers["x-agentdeck-project"] ?? "", at: time)
+                        startedIn: request.headers["x-agentdeck-project"] ?? "",
+                        pid: DeckRouter.pid(request.headers["x-agentdeck-pid"]),
+                        parent: request.headers["x-agentdeck-parent"] ?? "", at: time)
             return respond(.status(204))
         }
 

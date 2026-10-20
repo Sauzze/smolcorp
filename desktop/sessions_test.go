@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -378,5 +379,69 @@ func TestASessionClearedWithNothingAfterItEnds(t *testing.T) {
 	s.Apply(another("SessionEnd", "reason", "prompt_input_exit"), Claude, tab, "", 9100)
 	if s.Get("s3") != nil {
 		t.Fatal("a session quit for good waited at the door")
+	}
+}
+
+const headlessTab = "headless:abc-123"
+
+func TestAHeadlessRunIsNeverPrunedForATab(t *testing.T) {
+	s := NewSessions()
+	s.Apply(event("UserPromptSubmit"), Claude, headlessTab, "", 100)
+	if s.Prune(func(string) bool { return false }, 200) || s.Get("s1") == nil {
+		t.Fatal("a headless run was pruned as if its tab had closed")
+	}
+}
+
+func TestASessionWhoseAgentExitedIsPruned(t *testing.T) {
+	s := NewSessions()
+	s.Apply(event("UserPromptSubmit"), Claude, headlessTab, "", 100)
+	s.Get("s1").PID = os.Getpid()
+	if s.PruneGone(processGone, 200) || s.Get("s1") == nil {
+		t.Fatal("a session whose agent is running was pruned")
+	}
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Skip("can't run a process to wait for:", err)
+	}
+	s.Get("s1").PID = cmd.Process.Pid
+	if !s.PruneGone(processGone, 300) || s.Get("s1") != nil {
+		t.Fatal("a session whose agent exited is still on the deck")
+	}
+}
+
+func TestAQuietHeadlessRunWithoutAPIDIsPrunedAfterTenMinutes(t *testing.T) {
+	s := NewSessions()
+	s.Apply(event("UserPromptSubmit"), Claude, headlessTab, "", 100)
+	s.Apply(event("UserPromptSubmit", "session_id", "s2"), Claude, tab, "", 100)
+	gone := func(int) bool { return true }
+	if s.PruneGone(gone, 100+headlessQuiet) || s.Get("s1") == nil {
+		t.Fatal("a headless run was pruned before ten quiet minutes")
+	}
+	if !s.PruneGone(gone, 101+headlessQuiet) || s.Get("s1") != nil {
+		t.Fatal("a headless run quiet for ten minutes is still on the deck")
+	}
+	if s.Get("s2") == nil {
+		t.Fatal("a session in a tab was pruned for being quiet")
+	}
+}
+
+func TestSessionEndEndsAHeadlessRun(t *testing.T) {
+	s := NewSessions()
+	s.Apply(event("UserPromptSubmit"), Claude, headlessTab, "", 100)
+	if !s.Apply(event("SessionEnd", "reason", "other"), Claude, headlessTab, "", 200) || s.Get("s1") != nil {
+		t.Fatal("a headless run is still on the deck after SessionEnd")
+	}
+}
+
+func TestAQuietHeadlessRunWithAPIDStillThereIsPrunedAfterAnHour(t *testing.T) {
+	s := NewSessions()
+	s.Apply(event("UserPromptSubmit"), Claude, headlessTab, "", 100)
+	s.Get("s1").PID = 4242
+	there := func(int) bool { return false }
+	if s.PruneGone(there, 101+headlessQuiet) || s.PruneGone(there, 100+headlessQuietWithPID) || s.Get("s1") == nil {
+		t.Fatal("a headless run whose process is there was pruned before an hour's quiet")
+	}
+	if !s.PruneGone(there, 101+headlessQuietWithPID) || s.Get("s1") != nil {
+		t.Fatal("a headless run quiet for an hour is still on the deck")
 	}
 }

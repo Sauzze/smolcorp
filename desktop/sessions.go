@@ -32,9 +32,15 @@ type Session struct {
 	// the agent moves into a subfolder.
 	Project string
 	// Where it runs: see Tabs.
-	Tab    string
-	State  SessionState
-	Effort string
+	Tab string
+	// The agent's process, where the hook said: a headless run has no tab
+	// that could close, so this is how its going is noticed. 0 when unknown.
+	PID int
+	// The folder a headless run was launched from, where the hook said: the
+	// working folder of the employee who hired it. See Deck.hiredBy.
+	ParentFolder string
+	State        SessionState
+	Effort       string
 	// An effort change waiting for the session to be free.
 	PendingEffort string
 	StartedAt     float64
@@ -608,12 +614,43 @@ func (s *Sessions) MarkSeen(tab string) bool {
 	return changed
 }
 
+// Headless reports whether the session is a headless run's, which has no
+// tab: it sits upstairs, away from the keys.
+func (s *Session) Headless() bool { return isHeadless(s.Tab) }
+
+// headlessQuiet is how long a headless run whose process is unknown may go
+// without an event before it counts as gone, in ms; headlessQuietWithPID, one
+// whose process is known and still there, in case that process is something
+// else's that outlives it. Either, heard from again, comes back.
+const (
+	headlessQuiet        = 10 * 60_000
+	headlessQuietWithPID = 60 * 60_000
+)
+
 // Prune drops sessions whose tab has gone: an agent killed along with its
-// tab never sends SessionEnd.
+// tab never sends SessionEnd. A headless run has no tab to close, and is
+// never dropped here: see PruneGone.
 func (s *Sessions) Prune(alive func(tab string) bool, now float64) bool {
 	changed := false
 	for _, session := range s.All() {
-		if !alive(session.Tab) {
+		if !session.Headless() && !alive(session.Tab) {
+			s.end(session.ID, now)
+			changed = true
+		}
+	}
+	return changed
+}
+
+// PruneGone drops sessions whose process has gone, where the hook said which
+// it was, and headless runs once they have been quiet for headlessQuiet, or
+// headlessQuietWithPID where their process is known: either may have been
+// killed before SessionEnd.
+func (s *Sessions) PruneGone(gone func(pid int) bool, now float64) bool {
+	changed := false
+	for _, session := range s.All() {
+		quiet := now - session.LastEventAt
+		if session.PID > 0 && gone(session.PID) ||
+			session.Headless() && (session.PID <= 0 && quiet > headlessQuiet || session.PID > 0 && quiet > headlessQuietWithPID) {
 			s.end(session.ID, now)
 			changed = true
 		}
