@@ -6,6 +6,7 @@
 #   build/Smolcorp.zip   the same app, for the Homebrew cask and older links
 #
 #   scripts/release.sh
+#   scripts/release.sh --check-signing   says how it would sign, and signs and builds nothing
 #
 # By default the app is signed ad hoc, not notarised, so macOS asks people to
 # approve it once in System Settings → Privacy & Security. The README explains
@@ -30,6 +31,31 @@ NOTARY_PROFILE="${SMOLCORP_NOTARY_PROFILE:-}"
 if [ -n "$NOTARY_PROFILE" ] && [ -z "$DEVELOPER_ID" ]; then
   echo "SMOLCORP_NOTARY_PROFILE is set but SMOLCORP_DEVELOPER_ID isn't: Apple only notarises a Developer ID app."
   exit 1
+fi
+
+# A dry run, before the real one: what's set, and whether this Mac has it.
+# Nothing is signed, built or sent to Apple.
+if [ "${1:-}" = "--check-signing" ]; then
+  ready=1
+  if [ -z "$DEVELOPER_ID" ]; then
+    echo "Signing: ad hoc (SMOLCORP_DEVELOPER_ID isn't set). macOS will ask people to approve the app once."
+  elif security find-identity -v -p codesigning | grep -qF "\"$DEVELOPER_ID\""; then
+    echo "Signing: $DEVELOPER_ID, found in the keychain, with the hardened runtime and packaging/macos/Smolcorp.entitlements."
+  else
+    echo "Signing: $DEVELOPER_ID is NOT in the keychain. security find-identity -v -p codesigning lists what is."
+    ready=0
+  fi
+  if [ -z "$NOTARY_PROFILE" ]; then
+    echo "Notarising: no (SMOLCORP_NOTARY_PROFILE isn't set)."
+  elif xcrun --find notarytool >/dev/null 2>&1 && xcrun --find stapler >/dev/null 2>&1; then
+    echo "Notarising: with the keychain profile \"$NOTARY_PROFILE\" (docs/RELEASING.md says how it's made; it's checked when used)."
+  else
+    echo "Notarising: notarytool or stapler isn't installed (Xcode's command line tools have them)."
+    ready=0
+  fi
+  [ -f packaging/macos/Smolcorp.entitlements ] || { echo "packaging/macos/Smolcorp.entitlements is missing."; ready=0; }
+  [ "$ready" = 1 ] && echo "Ready." || { echo "Not ready."; exit 1; }
+  exit 0
 fi
 
 # A release is built from what's committed, and nothing else: no changes

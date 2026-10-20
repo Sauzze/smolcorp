@@ -100,6 +100,17 @@ and stay in your login keychain. Nothing about them goes in this repository.
 
 ### Releasing with them
 
+First, a dry run: it says which identity and notary profile it would use and
+whether this Mac has the identity, and signs, builds and sends nothing.
+
+```bash
+SMOLCORP_DEVELOPER_ID="Developer ID Application: Your Name (AB12CD34EF)" \
+SMOLCORP_NOTARY_PROFILE=smolcorp-notary \
+scripts/release.sh --check-signing
+```
+
+Then the release itself:
+
 ```bash
 SMOLCORP_DEVELOPER_ID="Developer ID Application: Your Name (AB12CD34EF)" \
 SMOLCORP_NOTARY_PROFILE=smolcorp-notary \
