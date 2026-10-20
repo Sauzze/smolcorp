@@ -168,17 +168,22 @@ There are two ways. Both give you the same app.
 
 ### Download the app
 
-1. Download **Smolcorp.zip** from the
+1. Download **Smolcorp.dmg** from the
    [latest release](https://github.com/Sauzze/smolcorp/releases/latest) and open it.
-2. Drag **Smolcorp** into your Applications folder, then open it.
+2. In the window that opens, drag **Smolcorp** onto the **Applications**
+   folder beside it. Then open Smolcorp from your Applications folder, and
+   eject the **Smolcorp** disk in Finder's sidebar.
 3. macOS will say it can't check Smolcorp for malicious software, because
    the app isn't notarised by Apple. Click **Done**, then go to
    **System Settings → Privacy & Security**, scroll down, and click
    **Open Anyway** next to Smolcorp. You only do this once.
 
+The release also has **Smolcorp.zip**, the same app in a zip: open it and
+drag **Smolcorp** into your Applications folder.
+
 To check that your download is the one that was published, run
-`shasum -a 256 Smolcorp.zip` in Terminal and compare the result with the
-SHA-256 in the release notes.
+`shasum -a 256 Smolcorp.dmg` (or `Smolcorp.zip`) in Terminal and compare the
+result with the SHA-256 in the release notes.
 
 Updating from SauzzeDeck Pro? Quit it, delete **SauzzeDeck Pro** from
 Applications and install as above. Your settings and paired phones carry over;
