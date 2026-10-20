@@ -57,7 +57,7 @@ function sampleOffice(step) {
     session: {
       id: `v${n}`, name, project: name, state, effort: '', pending: false, agent, agentName,
       compacting: false, turnStartedAt: null, errorKind: null, subagents: [], role: null,
-      dial: false, mic: false, dictates: false, keys: false, fire: false, summary: false, ...extra,
+      dial: false, mic: false, dictates: false, keys: false, fire: false, ...extra,
     },
   });
   const docs = ['unread', 'idle', 'thinking'][Math.floor(step / 3) % 3];
@@ -84,7 +84,7 @@ function sampleOffice(step) {
 
 if (flag('--seal')) {
   const age = Number(option('--age', 0));
-  // --hour H: as if the Mac's clock said H:00 now, shifted as sandbox/tools/shoot.mjs shifts the phone's, for night shots.
+  // --hour H: as if the Mac's clock said H:00 now, for night shots.
   const d = new Date();
   const shift = args.includes('--hour') ? ((Number(option('--hour', 0)) - d.getHours()) * 60 - d.getMinutes()) * 60000 : 0;
   const at = Date.now() + shift - age * 1000;

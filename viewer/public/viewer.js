@@ -144,7 +144,7 @@
     return {
       ...snapshot,
       keys: keys.map((k) => (k && k.session && typeof k.session === 'object'
-        ? { ...k, session: { ...k.session, dial: false, mic: false, dictates: false, keys: false, fire: false, summary: false } }
+        ? { ...k, session: { ...k.session, dial: false, mic: false, dictates: false, keys: false, fire: false } }
         : k)),
       // As deck.html does: the office's own colours.
       upstairs: upstairsOf(snapshot.upstairs),
