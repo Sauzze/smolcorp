@@ -58,10 +58,10 @@ struct ViewerSettings: Codable, Equatable {
 // MARK: Keychain
 
 /// The viewer's id, key and write secret: generic passwords under one
-/// service, as `ClaudeKey` keeps Claude's key. Never in config.json, logs
-/// or the snapshot.
+/// service. Never in config.json, logs or the snapshot. A test copy keeps
+/// its own, so trying one out never reads or replaces the real app's.
 enum ViewerKeychain {
-    static let service = "smolcorp-viewer"
+    static let service = TestCopy.isOn ? "smolcorp-viewer-test" : "smolcorp-viewer"
 
     enum Account: String { case id, key, writeSecret = "write-secret" }
 
