@@ -25,6 +25,19 @@ final class ConfigTests: XCTestCase {
         XCTAssertFalse(config.scrollEnabled)
     }
 
+    /// The calm office is a choice of the room's, so it's kept with the layout, in the config and in its profiles.
+    func testACalmOfficeIsOffUntilChosenAndKeptInAProfile() throws {
+        XCTAssertEqual(Room().calm, "off")
+        let room = { (json: String) in try JSONDecoder().decode(Room.self, from: Data(json.utf8)) }
+        XCTAssertEqual(try room(#"{"calm": "on"}"#).calm, "on")
+        XCTAssertEqual(try room(#"{"calm": "very"}"#).calm, "off")
+        XCTAssertEqual(try room(#"{"floor": "tiles"}"#).calm, "off")
+        let profile = try Config.checkedProfile(Data(#"{"name": "Quiet", "layout": {"room": {"calm": "on"}}}"#.utf8))
+        XCTAssertEqual(profile.layout.room.calm, "on")
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(profile.layout.room)) as? [String: Any]
+        XCTAssertEqual(encoded?["calm"] as? String, "on")
+    }
+
     func testAConfigThatCantBeReadIsKeptAside() throws {
         let broken = #"{"pins": ["/work/a"], "roles": ["#
         try broken.write(to: file, atomically: true, encoding: .utf8)

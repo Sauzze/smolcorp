@@ -91,6 +91,7 @@ type Room struct {
 	Chair     string   `json:"chair"`
 	Staff     string   `json:"staff"`
 	Arrivals  string   `json:"arrivals"` // how a new session comes in and an ended one goes: with a coffee or a box ("animated"), or just walking ("plain")
+	Calm      string   `json:"calm"`     // a calm office ("on"): nobody wanders off, the pets rest, nothing drifts by, and it's drawn less often
 	Preset    string   `json:"preset"`
 	// How each project's agent looks, by the project's name.
 	Team map[string]TeamMember `json:"team"`
@@ -328,6 +329,7 @@ var (
 		"chair":     {"teal", "black", "red", "grey", "green"},
 		"staff":     {"some", "none", "many"},
 		"arrivals":  {"animated", "plain"},
+		"calm":      {"off", "on"},
 		"preset":    roomStyles,
 	}
 	wallChoices = []string{"window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare",
@@ -359,7 +361,7 @@ func (r *Room) UnmarshalJSON(data []byte) error {
 	*r = Room{Mic: text(raw["mic"]), Floor: text(raw["floor"]), Paint: text(raw["paint"]), Lounge: text(raw["lounge"]), LoungePaint: text(raw["loungePaint"]),
 		Corner: text(raw["corner"]), Sky: text(raw["sky"]), Season: text(raw["season"]), Sound: text(raw["sound"]), Ambience: text(raw["ambience"]),
 		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Monitor: text(raw["monitor"]), Door: text(raw["door"]), Drift: text(raw["drift"]), Fireworks: text(raw["fireworks"]), Chair: text(raw["chair"]),
-		Staff: text(raw["staff"]), Arrivals: text(raw["arrivals"]),
+		Staff: text(raw["staff"]), Arrivals: text(raw["arrivals"]), Calm: text(raw["calm"]),
 		Preset: text(raw["preset"])}
 	for _, place := range wall {
 		r.Wall = append(r.Wall, text(place))
@@ -408,7 +410,7 @@ func (r Room) checked() Room {
 		Pet: checkedPets(r.Pet), Season: choose("season", r.Season), Sound: choose("sound", r.Sound), Ambience: choose("ambience", r.Ambience),
 		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Monitor: choose("monitor", r.Monitor),
 		Door: choose("door", r.Door), Drift: choose("drift", r.Drift), Fireworks: choose("fireworks", r.Fireworks), Chair: choose("chair", r.Chair),
-		Staff: choose("staff", r.Staff), Arrivals: choose("arrivals", r.Arrivals), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked(),
+		Staff: choose("staff", r.Staff), Arrivals: choose("arrivals", r.Arrivals), Calm: choose("calm", r.Calm), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked(),
 		Plan: r.Plan.checked()}
 	for i := range checked.Wall {
 		if i < len(r.Wall) && slices.Contains(wallChoices, r.Wall[i]) {

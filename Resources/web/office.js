@@ -62,13 +62,14 @@
   /** How often the haunted door creaks open a crack on its own, and for how long, in seconds; and how far open it is at `t`, 0 to 1. */
   const CREAK_EVERY = 41, CREAK_FOR = 3.2;
   const creakOf = (t) => {
+    if (decor.calm === 'on') return 0; // a calm office's door stays shut
     const c = t % CREAK_EVERY;
     return c < CREAK_FOR ? Math.sin((c / CREAK_FOR) * Math.PI) : 0;
   };
 
   /** How often a love letter drops through the love-letter door's slot, in seconds, and where in that it is at `t`. */
   const LETTER_EVERY = 30;
-  const letterOf = (t) => (t + 11) % LETTER_EVERY;
+  const letterOf = (t) => (decor.calm === 'on' ? LETTER_EVERY - 1 : (t + 11) % LETTER_EVERY); // calm: no letter comes
   /**
    * A heart `w` wide (odd) and `h` tall, worked out once and kept: for each row, its runs as [from, to] about the middle
    * column, and the pixels round its edge as [dx, dy], for outlines and lights.
@@ -542,6 +543,8 @@
     sound: ['off', 'quiet', 'normal'],
     // The recorded keyboards and talk under the rest, while there's any sound
     ambience: ['on', 'off'],
+    // A calm office: nobody wanders, the pets rest, nothing drifts by, and it's drawn less often; work still shows
+    calm: ['off', 'on'],
     desk: ['wood', 'walnut', 'white', 'black'],
     workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse',
       'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass', 'scorer', 'anchor',
@@ -2721,7 +2724,8 @@
         pet.isIn = true;
         pet.position = { x: DOOR.x, y: DOOR.y + 6 };
       }
-      if (!pet.isWalking && now >= pet.nextMove) {
+      // Settled in a calm office, a pet stays put.
+      if (!pet.isWalking && now >= pet.nextMove && !(decor.calm === 'on' && pet.target)) {
         let others = this.petPlaces(pet).filter((p) => !pet.target || p.x !== pet.target.x || p.y !== pet.target.y);
         // Nowhere of its own to go, and in the way where it is: the nearest free spot out of everyone's way
         if (!others.length && !pet.target?.depth && !this.petCanSettle({ x: pet.position.x, y: pet.position.y }, pet)) {
@@ -2877,7 +2881,7 @@
 
     /** One arrives or one leaves, then a pause before the next. */
     changeStaff(now) {
-      if (!this.isOpen || now < this.nextStaffChange) return;
+      if (!this.isOpen || now < this.nextStaffChange || decor.calm === 'on') return;
       const present = this.people.filter((p) => p.isStaff && !p.isLeaving);
       const free = this.freeSpots(null);
       if (present.length < this.staffWanted && free.length) {
@@ -2960,8 +2964,8 @@
     decide(person, now) {
       if (person.isLeaving) return;
       if (person.isStaff) {
-        // Staff only ever move between lounge spots.
-        if (person.isWalking || now < person.nextMove) return;
+        // Staff only ever move between lounge spots; in a calm office, they stay where they are.
+        if (person.isWalking || now < person.nextMove || decor.calm === 'on') return;
         const free = this.freeSpots(person);
         if (free.length) this.send(person, spotPlace(pick(free)));
         else person.nextMove = now + random(5, 10);
@@ -2992,6 +2996,11 @@
       // Nothing to do any more, away from the desk on a job: back to it first.
       if (/^(board|clock|shred|locked|storm):/.test(person.place) && person.place !== desk) {
         this.send(person, desk);
+        return;
+      }
+      // A calm office's agents stay at their desks when there's nothing to do.
+      if (decor.calm === 'on') {
+        if (person.place !== desk && !person.isWalking) this.send(person, desk);
         return;
       }
       if (person.isWalking || now < person.nextMove) return;
@@ -4302,6 +4311,241 @@
    * from back to front, then what floats above it: the screens' light, the
    * speech bubbles and the name on each desk.
    */
+  /*
+   * The room at its own resolution. Its pixel art (everything under the labels) is drawn one pixel to an art pixel
+   * into a small layer of its own, scaled up at the room's whole-number scale, nearest-neighbour, so it comes out
+   * pixel for pixel as it would drawn big. On a page, the layer is an element of its own just under the canvas, and
+   * the browser scales it; elsewhere (a canvas off the page, one with a background of its own, a screen whose pixels
+   * aren't a whole number to the page's), it's drawn onto the canvas, and only its tiles that changed are.
+   * The text, labels, keys and dialogs over it are drawn on the canvas at the screen's resolution as before, but
+   * recorded first, and drawn again only when they change. Where the layer wouldn't match pixel for pixel (a scale
+   * that isn't whole, a piece grown 1.5×), or for `frame.direct`, the room is drawn straight onto the canvas as before.
+   */
+  const ART_TILE = 16;
+  const artLayers = new WeakMap();
+  /** The whole of `canvas` drawn next time, its art layer or not: something else has drawn on it, or emptied it. */
+  const repaint = (canvas) => {
+    const layer = artLayers.get(canvas);
+    if (layer) Object.assign(layer, { sig: null, placed: '', looked: false });
+  };
+  /** The layer shown on the page under `canvas` put away, while something else is drawn on the canvas, as the ride. */
+  const hideArt = (canvas) => {
+    const layer = artLayers.get(canvas);
+    if (layer && layer.view) layer.view.style.display = 'none';
+    repaint(canvas);
+  };
+  /** The canvas's art layer let go, its pixels with it: an office closed keeps nothing of the room it showed. */
+  const dropArt = (canvas) => {
+    const layer = artLayers.get(canvas);
+    if (!layer) return;
+    for (const bitmap of [layer.art, layer.view]) {
+      if (bitmap) Object.assign(bitmap, { width: 0, height: 0 });
+    }
+    if (layer.view) layer.view.remove();
+    artLayers.delete(canvas);
+  };
+  /** How the office has drawn lately, for measuring: frames drawn whole, in part, and not at all. */
+  const drawStats = { whole: 0, part: 0, none: 0, direct: 0 };
+
+  /** Whether any piece of the room is grown to 1.5×, which only drawing big gets right. */
+  function halfGrown() {
+    const plan = decor.plan || {}, side = plan[shape === TALL ? 'tall' : 'wide'] || {};
+    return Object.values(side).some((piece) => piece && piece.size === 1.5) || addedOf(decor).some((piece) => piece.size === 1.5);
+  }
+
+  /** The art layer for drawing onto `screen` at `scale`, or null where the room is drawn straight onto it. */
+  function artLayerOf(screen, scale, frame) {
+    if (frame.direct || !Number.isInteger(scale) || scale < 2 || halfGrown()) {
+      const kept = artLayers.get(screen.canvas);
+      if (kept) kept.sig = null;
+      if (kept && kept.view) kept.view.style.display = 'none';
+      return null;
+    }
+    const canvas = screen.canvas, doc = canvas.ownerDocument || document;
+    let layer = artLayers.get(canvas);
+    if (!layer) {
+      const art = doc.createElement('canvas');
+      layer = { art, artCtx: art.getContext('2d', { willReadFrequently: true }), last: null, sig: null, ops: [], images: new WeakMap(), nextImage: 1 };
+      layer.recorder = recorderOf(screen, layer.ops);
+      artLayers.set(canvas, layer);
+    }
+    layer.ops.length = 0;
+    // Whether the page can show it under the canvas: looked at again whenever the canvas is resized or moved
+    if (!layer.looked) {
+      const style = canvas.isConnected && canvas.parentNode ? doc.defaultView.getComputedStyle(canvas) : null;
+      layer.showable = !!style && /^(transparent|rgba\(0, 0, 0, 0\))$/.test(style.backgroundColor) && style.display !== 'none';
+      layer.looked = true;
+    }
+    layer.shown = layer.showable && Number.isInteger(frame.ratio) && canvas.isConnected;
+    if (layer.shown) {
+      if (!layer.view || layer.view.ownerDocument !== doc) {
+        if (layer.view) layer.view.remove();
+        layer.view = doc.createElement('canvas');
+        layer.view.setAttribute('aria-hidden', 'true');
+        Object.assign(layer.view.style, { position: 'absolute', pointerEvents: 'none', imageRendering: 'pixelated', margin: '0', inset: 'auto' });
+        layer.viewCtx = layer.view.getContext('2d');
+        layer.placed = '';
+      }
+      if (layer.view.nextSibling !== canvas) canvas.parentNode.insertBefore(layer.view, canvas);
+      layer.view.style.display = '';
+    } else if (layer.view) layer.view.style.display = 'none';
+    layer.into = layer.shown ? layer.view : layer.art;
+    layer.actx = layer.shown ? layer.viewCtx : layer.artCtx;
+    return layer;
+  }
+
+  /** The layer shown on the page where the canvas would have drawn it, and cut to the window the room is seen through. */
+  function placeArt(screen, layer, at, edge) {
+    const r = at.ratio, w = layer.into.width * at.scale, h = layer.into.height * at.scale, canvas = screen.canvas;
+    const px = (v) => `${v / r}px`;
+    const cut = edge ? `inset(${px(edge.glass.y - at.y)} ${px(at.x + w - edge.glass.x - edge.glass.w)} ${px(at.y + h - edge.glass.y - edge.glass.h)} `
+      + `${px(edge.glass.x - at.x)} round ${px(edge.glass.r)})` : 'none';
+    const placed = `${canvas.offsetLeft}|${canvas.offsetTop}|${at.x}|${at.y}|${w}|${h}|${cut}`;
+    if (placed === layer.placed) return;
+    layer.placed = placed;
+    Object.assign(layer.view.style, {
+      left: `${canvas.offsetLeft + at.x / r}px`, top: `${canvas.offsetTop + at.y / r}px`, width: px(w), height: px(h), clipPath: cut,
+    });
+  }
+
+  /**
+   * A stand-in for `real` that keeps what's drawn on it in `ops`, to be drawn later or not at all. What it's asked
+   * about, as a text's width, it answers at once; what's set on it is set on `real` too, so the answers are right.
+   */
+  function recorderOf(real, ops) {
+    const asked = new Set(['measureText', 'isPointInPath', 'getTransform', 'getLineDash']);
+    return new Proxy(real, {
+      get(target, name) {
+        const value = target[name];
+        if (typeof value !== 'function') return value;
+        if (asked.has(name)) return value.bind(target);
+        return (...args) => { ops.push([name, args]); };
+      },
+      set(target, name, value) {
+        ops.push(['=', [name, value]]);
+        target[name] = value;
+        return true;
+      },
+    });
+  }
+
+  /**
+   * A context as it comes, but for smoothing, off as the office keeps it: where a recorded frame is drawn from, as
+   * recording it has left whatever it set on the context.
+   */
+  function freshState(c) {
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    Object.assign(c, {
+      fillStyle: '#000', strokeStyle: '#000', globalAlpha: 1, globalCompositeOperation: 'source-over', lineWidth: 1,
+      lineCap: 'butt', lineJoin: 'miter', miterLimit: 10, font: '10px sans-serif', textAlign: 'start', textBaseline: 'alphabetic',
+      shadowBlur: 0, shadowColor: 'rgba(0, 0, 0, 0)', shadowOffsetX: 0, shadowOffsetY: 0, imageSmoothingEnabled: false,
+    });
+    c.setLineDash([]);
+  }
+
+  /**
+   * What a frame's recorded drawing comes to, as text, in three parts: under the room (the floating window's shadow
+   * and glow), in it (the room and what's over it), and round it (the window's frame). Equal for two frames that
+   * would draw the same.
+   */
+  function signatureOf(layer) {
+    const part = (arg) => {
+      if (arg === null || typeof arg !== 'object') return String(arg);
+      if (Array.isArray(arg)) return `[${arg.map(part).join(',')}]`;
+      if (!layer.images.has(arg)) layer.images.set(arg, layer.nextImage++);
+      return `#${layer.images.get(arg)}:${arg.width}x${arg.height}:${arg.complete === false ? 0 : 1}`;
+    };
+    const parts = [[]];
+    for (const [name, args] of layer.ops) {
+      if (name === 'mark') parts.push([]);
+      else parts[parts.length - 1].push(`${name}(${args.map(part).join(',')})`);
+    }
+    return parts.map((ops) => ops.join(';'));
+  }
+
+  /** The layer's tiles that changed since the last frame drawn, [column, row] each, or null for all of them. */
+  function changedTiles(layer) {
+    const { art, artCtx: actx } = layer, w = art.width, h = art.height;
+    const now = new Uint32Array(actx.getImageData(0, 0, w, h).data.buffer), last = layer.last;
+    layer.last = now;
+    if (!last || last.length !== now.length) return null;
+    const tiles = [];
+    for (let ty = 0; ty * ART_TILE < h; ty++) {
+      for (let tx = 0; tx * ART_TILE < w; tx++) {
+        let changed = false;
+        for (let y = ty * ART_TILE, yEnd = Math.min(h, y + ART_TILE); y < yEnd && !changed; y++) {
+          for (let i = y * w + tx * ART_TILE, iEnd = y * w + Math.min(w, tx * ART_TILE + ART_TILE); i < iEnd; i++) {
+            if (now[i] !== last[i]) { changed = true; break; }
+          }
+        }
+        if (changed) tiles.push([tx, ty]);
+      }
+    }
+    return tiles;
+  }
+
+  /**
+   * Puts the frame on screen: as much of it as changed, if anything did. `at` is where the layer goes, in screen
+   * pixels; `edge`, the window the room is seen through, if any, and how far in from its edge its frame reaches.
+   */
+  function composeArt(screen, layer, at, edge) {
+    const [under, room, round] = signatureOf(layer);
+    const sig = { size: `${screen.canvas.width}x${screen.canvas.height}`, under, room, round: round ?? '', shown: layer.shown };
+    if (layer.shown) placeArt(screen, layer, at, edge);
+    Object.assign(layer, { at, edge });
+    // Shown on the page, the layer is on screen as it's drawn: the canvas has only what's over and round it to draw
+    const last = layer.sig && layer.sig.shown === layer.shown ? layer.sig : null, tiles = layer.shown ? [] : changedTiles(layer);
+    // The room and what's over it as they were: only changed tiles, and the window's edge if its shadow, glow or
+    // frame changed, as its glow does while someone waits on you
+    const edged = !!last && (last.under !== sig.under || last.round !== sig.round);
+    const partly = last && tiles && last.size === sig.size && last.room === sig.room && (!edged || !!edge);
+    layer.sig = sig;
+    if (partly && !edged && !tiles.length) {
+      drawStats.none++;
+      return;
+    }
+    screen.save();
+    freshState(screen);
+    if (partly) {
+      screen.beginPath();
+      if (edged) {
+        // The band round the window, from the canvas's edge to past the frame's rings and its rounded corners
+        const { width: W, height: H } = screen.canvas, { x, y, w, h } = edge.glass, d = edge.reach;
+        screen.rect(0, 0, W, Math.max(0, y + d));
+        screen.rect(0, y + h - d, W, Math.max(0, H - (y + h - d)));
+        screen.rect(0, 0, Math.max(0, x + d), H);
+        screen.rect(x + w - d, 0, Math.max(0, W - (x + w - d)), H);
+      }
+      // Each row's run of changed tiles as one piece
+      const size = ART_TILE * at.scale;
+      tiles.forEach(([tx, ty], i) => {
+        const prev = tiles[i - 1];
+        if (prev && prev[1] === ty && prev[0] === tx - 1) return;
+        let end = tx;
+        while (tiles.some(([x, y]) => y === ty && x === end + 1)) end++;
+        screen.rect(at.x + tx * size, at.y + ty * size, (end - tx + 1) * size, size);
+      });
+      screen.clip();
+      drawStats.part++;
+    } else {
+      drawStats.whole++;
+    }
+    for (const [name, args] of layer.ops) {
+      if (name === 'mark') continue;
+      if (name === '=') screen[args[0]] = args[1];
+      else if (name === 'art') {
+        // Shown on the page, it shows through here; or else it's drawn here
+        const { into } = layer, w = into.width * at.scale, h = into.height * at.scale;
+        if (layer.shown) screen.clearRect(at.x, at.y, w, h);
+        else {
+          screen.imageSmoothingEnabled = false;
+          screen.drawImage(into, 0, 0, into.width, into.height, at.x, at.y, w, h);
+        }
+      } else screen[name](...args);
+    }
+    screen.restore();
+  }
+
   function drawOffice(ctx, office, frame) {
     const { now, hour, minute, month, width, height, ratio, selected, mic, framed, floating } = frame;
     const inset = floating ? FLOAT_MARGINS[floating] * ratio : 0;
@@ -4836,6 +5080,10 @@
       ? Math.round(Math.sin((now - frame.wobble.at) * 50)) : 0);
     const lookingUp = mic.heldAt !== null && now - mic.heldAt < LOOK_UP_LENGTH;
 
+    // At its own resolution where it can be: see artLayerOf. From here, what goes on the screen is recorded.
+    const screenCtx = ctx, layer = artLayerOf(screenCtx, scale, frame);
+    if (layer) ctx = layer.recorder;
+    else drawStats.direct++;
     ctx.clearRect(0, 0, width, height);
 
     // Through a window, the room stays inside it, even while it shakes.
@@ -4863,6 +5111,20 @@
       ctx.save();
       roundedRect(ctx, glass.x, glass.y, glass.w, glass.h, glass.r);
       ctx.clip();
+    }
+    if (layer) layer.ops.push(['mark', []]); // what's under the room ends here: see signatureOf
+    // The room's art, into the layer, one pixel to an art pixel, what's seen of it from its top-left corner
+    const onScreen = { ox, oy, scale, ctx };
+    const artAt = layer && { x: ox + seen.left * scale, y: oy + seen.top * scale, scale, ratio };
+    if (layer) {
+      if (layer.into.width !== seen.width || layer.into.height !== seen.height) {
+        layer.into.width = seen.width;
+        layer.into.height = seen.height;
+        layer.last = null;
+      }
+      ctx = layer.actx;
+      ctx.clearRect(0, 0, seen.width, seen.height);
+      ({ ox, oy, scale } = { ox: -seen.left, oy: -seen.top, scale: 1 });
     }
 
     /* The room */
@@ -5976,7 +6238,7 @@
      * while, most at 00:00; nightly, after dark, one burst now and then (every 20 to 40 s). Off, nothing.
      */
     function drawFireworks(x, y, w, h) {
-      const mode = decor.fireworks, bursts = [];
+      const mode = decor.calm === 'on' ? 'off' : decor.fireworks, bursts = [];
       if (mode === 'midnight') {
         if (!((hour === 23 && minute >= 55) || (hour === 0 && minute < 15))) return;
         const away = hour === 23 ? 60 - minute : minute, lanes = away === 0 ? 4 : away <= 2 ? 3 : away <= 5 ? 2 : 1;
@@ -16367,17 +16629,19 @@
       // One still waiting for room hasn't come in yet.
       if (intern.slot !== null || intern.isLeaving) items.push([intern.position.y, () => drawIntern(intern)]);
     }
-    if (decor.drift === 'lunar') dragonDance(items);
+    // A calm office has nothing drifting or crossing it, and nothing in the air
+    const calm = decor.calm === 'on', drift = calm ? 'none' : decor.drift;
+    if (drift === 'lunar') dragonDance(items);
     items.sort((a, b) => a[0] - b[0]).forEach(([, draw]) => draw());
 
-    if (decor.drift === 'lunar') drawPlumPetals();
-    drawSeasonal('air');
-    if (decor.drift === 'snow') drawSnowDrift();
+    if (drift === 'lunar') drawPlumPetals();
+    if (!calm) drawSeasonal('air');
+    if (drift === 'snow') drawSnowDrift();
     if (isNight) fill(seen.left, seen.top, seen.width, seen.height, PALETTE.night, 0.3);
     lateGlows.splice(0).forEach((draw) => draw());
     drawSeasonal('glow');
-    if (decor.drift === 'hearts') drawHeartDrift();
-    if (decor.drift === 'confetti') drawConfettiDrift();
+    if (drift === 'hearts') drawHeartDrift();
+    if (drift === 'confetti') drawConfettiDrift();
     if (isNight) drawPendantLight();
     drawSelectionCorners();
     drawDetonation();
@@ -16400,6 +16664,11 @@
     if (frame.carrying) drawCarried(frame.carrying);
     office.people.forEach((person) => { if (!person.entering) drawBubble(person); });
     office.people.forEach(drawConfetti);
+    // The room's art done, it goes on the screen, and what's over it is drawn there at the screen's resolution
+    if (layer) {
+      ({ ox, oy, scale, ctx } = onScreen);
+      layer.ops.push(['art', [artAt.x, artAt.y, layer.into.width, layer.into.height]]);
+    }
     // The picked one's last, over those beside it in the line
     DESKS.forEach((_, desk) => { if (desk !== selectedDesk) drawLabel(desk); });
     if (selectedDesk >= 0) drawLabel(selectedDesk);
@@ -16421,10 +16690,13 @@
     if (frame.hiredCard) drawHiredCard(frame.hiredCard);
     if (frame.styles) drawStyleMenu(frame.styles);
 
+    if (layer) layer.ops.push(['mark', []]); // and what's round it starts
     if (glass) {
       ctx.restore();
       drawWindowFrame(glass);
     }
+    // The frame's rings reach WINDOW_SHADOW in, and its rounded corners a third of their radius further
+    if (layer) composeArt(screenCtx, layer, artAt, glass && { glass, reach: Math.ceil((WINDOW_SHADOW + 2) * ratio + glass.r * 0.35) });
   }
 
   /** `text`, cut with an ellipsis to fit `room` pixels in the context's font. */
@@ -17657,8 +17929,14 @@
 
   /* --------------------------------------------------------- on the page */
 
-  /** At most 30 frames a second: the art moves in whole pixels, and more would only spend battery. */
-  const FRAME_TIME = 1000 / 30;
+  /**
+   * At most 24 frames a second: the art moves in whole pixels, and more would only spend battery. Motion goes by
+   * the clock, so it's no slower. A calm office (see ROOM_CHOICES), with nothing wandering, needs half that.
+   */
+  const FRAME_TIME = 1000 / 24;
+  const CALM_FRAME_TIME = 1000 / 12;
+  /** How long before a frame is due its wait ends, in ms: about a refresh, so the frame isn't one late. */
+  const WAKE_EARLY = 12;
   /**
    * Out of sight this long, the room starts over from the latest snapshot
    * when it's seen again, everyone in place: nobody replays a press of ☢ Max
@@ -17711,13 +17989,91 @@
     let visible = true;
     let framed = false;  // seen through a window, beside the phone's controls
     let floating = null;  // floating in a 'window' of its own or a whole 'screen', from 'edge' to edge, or not
-    let frame = null;
+    let frame = null;    // the animation frame asked for, and the timer waiting to ask for it
+    let waiting = null;
     let last = 0;
     const failures = new Set(); // the mistakes frames have failed with, each said once
     let restartedAt = -Infinity; // when the room last started over for one
     let selected = null; // the session the deck's controls act on
     let latest = null;   // the deck's last snapshot
     let ahead = 0;       // how far this device's clock is ahead of the computer's, in ms
+    // For comparing, `direct` in the page's address draws the room straight onto the screen, as before its art layer.
+    // And `compare` draws each frame the direct way too, off screen, and counts the frames that came out differently,
+    // pixel for pixel, in window.officeCompare: a check that the art layer changes nothing. Only on a page this
+    // computer serves itself, as the office's own window: a link to the phone's deck or the viewer can't slow them.
+    let drawsDirect = false, comparing = false, frameRate = 0;
+    try {
+      const page = canvas.ownerDocument.defaultView.location;
+      if (['localhost', '127.0.0.1', '[::1]'].includes(page.hostname)) {
+        const asked = new URLSearchParams(page.search);
+        drawsDirect = asked.has('direct');
+        // and `fps=` a rate of its own, for measuring, from 1 to 60
+        const fps = Math.round(Number(asked.get('fps')));
+        frameRate = Number.isFinite(fps) && fps > 0 ? Math.min(60, fps) : 0;
+        comparing = asked.has('compare');
+      }
+    } catch {}
+    function compareDirect(storey, frames) {
+      const doc = canvas.ownerDocument, check = compareDirect.canvas || (compareDirect.canvas = doc.createElement('canvas'));
+      check.width = canvas.width;
+      check.height = canvas.height;
+      const context = check.getContext('2d'); // drawn as the screen's is, on the GPU, blurs and all
+      context.imageSmoothingEnabled = false;
+      drawStorey(context, storey, { ...frames, [storey]: { ...frames[storey], direct: true } });
+      // What the page shows: the layer under the canvas, where it's shown, cut to the window, and the canvas over it
+      const shown = compareDirect.shown || (compareDirect.shown = doc.createElement('canvas'));
+      shown.width = canvas.width;
+      shown.height = canvas.height;
+      // Over the same grey, as a page's background, so that half-clear pixels compare as they're seen
+      const page = shown.getContext('2d');
+      page.imageSmoothingEnabled = false;
+      page.fillStyle = '#7a7f8a';
+      page.fillRect(0, 0, canvas.width, canvas.height);
+      const layer = artLayers.get(canvas);
+      if (layer && layer.shown && layer.view.style.display !== 'none') {
+        const { at, edge, view } = layer;
+        page.save();
+        if (edge) {
+          roundedRect(page, edge.glass.x, edge.glass.y, edge.glass.w, edge.glass.h, edge.glass.r);
+          page.clip();
+        }
+        page.drawImage(view, at.x, at.y, view.width * at.scale, view.height * at.scale);
+        page.restore();
+      }
+      page.drawImage(canvas, 0, 0);
+      const a = new Uint32Array(page.getImageData(0, 0, canvas.width, canvas.height).data.buffer);
+      const direct = compareDirect.direct || (compareDirect.direct = doc.createElement('canvas'));
+      direct.width = canvas.width;
+      direct.height = canvas.height;
+      const under = direct.getContext('2d');
+      under.fillStyle = '#7a7f8a';
+      under.fillRect(0, 0, canvas.width, canvas.height);
+      under.drawImage(check, 0, 0);
+      const b = new Uint32Array(under.getImageData(0, 0, canvas.width, canvas.height).data.buffer);
+      // Exactly, and as an eye could tell: more than 2 in 255 on a channel. The GPU and the CPU round blends a shade
+      // apart, and the screen's canvas is drawn on one and the art layer on the other.
+      let differ = 0, visible = 0, box = null, sample = null;
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] === b[i]) continue;
+        differ++;
+        let far = false;
+        for (let shift = 0; shift < 32 && !far; shift += 8) far = Math.abs(((a[i] >>> shift) & 255) - ((b[i] >>> shift) & 255)) > 2;
+        if (!far) continue;
+        visible++;
+        const x = i % canvas.width, y = Math.floor(i / canvas.width);
+        if (!box) box = [x, y, x, y];
+        else box = [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x), Math.max(box[3], y)];
+        if (!sample && y > canvas.height * 0.3) sample = [x, y, a[i].toString(16), b[i].toString(16)];
+      }
+      const seen = doc.defaultView.officeCompare
+        || (doc.defaultView.officeCompare = { frames: 0, differing: 0, most: 0, visiblyDiffering: 0, mostVisible: 0 });
+      if (visible) Object.assign(seen, { box, sample });
+      seen.frames++;
+      if (differ) seen.differing++;
+      if (visible) seen.visiblyDiffering++;
+      seen.most = Math.max(seen.most, differ);
+      seen.mostVisible = Math.max(seen.mostVisible, visible);
+    }
     let gaps = [];       // how far ahead it seemed as each of the latest snapshots came, in ms
     // The mic: whether a finger holds it, when it last went on and off, and
     // who it talks to.
@@ -17924,6 +18280,7 @@
       canvas.width = Math.max(1, Math.round(rect.width * ratio));
       canvas.height = Math.max(1, Math.round(rect.height * ratio));
       ctx.imageSmoothingEnabled = false;
+      repaint(canvas); // emptied, even at the same size
     }
 
     /** Follows the window the canvas is in now: its size, and whether it can be seen. */
@@ -17949,7 +18306,8 @@
     function unbind() {
       if (!host) return;
       if (frame !== null) host.window.cancelAnimationFrame(frame);
-      frame = null;
+      if (waiting !== null) host.window.clearTimeout(waiting);
+      frame = waiting = null;
       host.resizing.disconnect();
       host.window.document.removeEventListener('visibilitychange', host.seen);
       host.window.document.removeEventListener('pointerdown', host.tapped, { capture: true });
@@ -18096,14 +18454,25 @@
       return session && session.state === 'asking' && session.keys !== false ? choicePanel(desk) : null;
     }
 
+    /**
+     * The next frame, `ms` from now: asleep till nearly then, and drawn at the screen's next refresh after, rather
+     * than woken at every refresh till one is due.
+     */
+    function wake(ms) {
+      waiting = host.window.setTimeout(() => {
+        waiting = null;
+        frame = host.window.requestAnimationFrame(tick);
+      }, Math.max(0, ms - WAKE_EARLY));
+    }
+
     function tick() {
       frame = null;
       if (!visible || host.window.document.hidden) return;
-      frame = host.window.requestAnimationFrame(tick);
       // The page's clock, not the frame's: each window counts its frames'
       // time from when it opened, and the room can move between them.
-      const time = performance.now();
-      if (time - last < FRAME_TIME - 1) return;
+      const time = performance.now(), every = frameRate ? 1000 / frameRate : decor.calm === 'on' ? CALM_FRAME_TIME : FRAME_TIME;
+      if (time - last < every - 1) return wake(every - (time - last));
+      wake(every);
       const stale = last && time - last > STALE_AFTER;
       last = time;
       try {
@@ -18183,7 +18552,7 @@
       const keys = keyRow(), hires = roleRow();
       const room = {
         now, hour: date.getHours(), minute: date.getMinutes(), month: date.getMonth(),
-        width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1, framed, floating,
+        width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1, framed, floating, direct: drawsDirect,
       };
       // Upstairs, nothing is picked, held or waiting on a key.
       const frames = {
@@ -18225,8 +18594,10 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(from.canvas, 0, Math.round(dir * eased * canvas.height));
         ctx.drawImage(to.canvas, 0, Math.round(dir * (eased - 1) * canvas.height));
+        hideArt(canvas);
       } else {
         drawStorey(ctx, storey, frames);
+        if (comparing) compareDirect(storey, frames);
       }
       styleKeyAt = key && key.at;
       keysAt = keys && keys.at ? { keys: keys.at, box: keys.box } : null;
@@ -18234,7 +18605,7 @@
     }
 
     function run() {
-      if (frame === null && visible && !host.window.document.hidden) frame = host.window.requestAnimationFrame(tick);
+      if (frame === null && waiting === null && visible && !host.window.document.hidden) frame = host.window.requestAnimationFrame(tick);
     }
 
     /**
@@ -19046,6 +19417,7 @@
         gaps = [];
         office.close();
         upper.close();
+        dropArt(canvas);
       },
       select(id) {
         // Another agent picked: what was held out for the last one goes away.
@@ -19234,7 +19606,7 @@
       whole.width = shape.width * scale; // clears it, too
       whole.height = shape.height * scale;
       drawOffice(whole.getContext('2d'), office, {
-        now, hour: 12, minute: 0, month: 5, width: whole.width, height: whole.height, ratio: 1, selected: null,
+        now, hour: 12, minute: 0, month: 5, width: whole.width, height: whole.height, ratio: 1, selected: null, direct: true,
         mic: { held: false, heldAt: null, releasedAt: null, listener: null, usable: true }, framed: false, floating: null,
       });
       const ctx = canvas.getContext('2d');
@@ -19265,7 +19637,7 @@
   // `furnishingOf` writes a room in a style out as your own, for the setup page to change one piece of it;
   // `remind` is the deck's reminder; `Ambience` and `sounds` let each of the office's sounds be tried on its own.
   window.AgentOffice = {
-    create, popOutSize, preview, arrangeable: ARRANGEABLE, sizes: PIECE_SIZES, remind, Ambience, sounds: Object.keys(SOUNDS), furnishingOf,
+    create, popOutSize, preview, drawStats, arrangeable: ARRANGEABLE, sizes: PIECE_SIZES, remind, Ambience, sounds: Object.keys(SOUNDS), furnishingOf,
     // What the back wall can hold, each piece's width, and where along the wall they can go, for the editor's drawer
     wallPieces: Object.fromEntries(WALL_CHOICES.filter((kind) => kind !== 'bare').map((kind) => [kind, { w: wallWidthOf(kind) }])),
     wallRange: WALL_RANGE, hungMost: HUNG_MOST, addedMost: ADDED_MOST,
