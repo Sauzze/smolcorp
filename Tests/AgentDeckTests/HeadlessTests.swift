@@ -114,6 +114,19 @@ final class HeadlessTests: XCTestCase {
         XCTAssertNil(sessions["abc-123"])
     }
 
+    /// After a restart, a headless run comes back upstairs while its process is there: it has no tab to look in.
+    func testAHeadlessRunIsBackAfterARestartWhileItsProcessIs() throws {
+        let withPID = try XCTUnwrap(running(pid: 4242).saved.first)
+        XCTAssertTrue(Deck.isStillRunning(withPID, isGone: { _ in false }))
+        XCTAssertFalse(Deck.isStillRunning(withPID, isGone: { _ in true }))
+        let withoutPID = try XCTUnwrap(running().saved.first)
+        XCTAssertFalse(Deck.isStillRunning(withoutPID, isGone: { _ in false }), "no process to look at: back at its next event")
+        let restored = Sessions()
+        restored.restore([withPID], fresh: true)
+        XCTAssertEqual(restored["abc-123"]?.isHeadless, true)
+        XCTAssertEqual(restored["abc-123"]?.pid, 4242)
+    }
+
     func testSessionEndEndsAHeadlessRun() {
         let sessions = running()
         sessions.apply(event("SessionEnd", "abc-123", ["reason": "other"]), agent: .claude, tab: "headless:abc-123",

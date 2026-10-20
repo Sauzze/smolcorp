@@ -317,17 +317,15 @@ final class Deck {
     }
 
     /// The sessions running when the app last stopped, back on their keys:
-    /// those whose agent is still running in its tab. Sessions only report
-    /// as something happens, so an idle one would otherwise stay away until
-    /// it's next used.
+    /// those whose agent is still running in its tab, and the headless runs
+    /// upstairs whose process is still there. Sessions only report as
+    /// something happens, so an idle one would otherwise stay away until it's
+    /// next used.
     private func restoreSessions() {
         guard let data = try? Data(contentsOf: Paths.sessions),
               let saved = try? JSONDecoder().decode(SavedDeck.self, from: data), !saved.sessions.isEmpty else { return }
         DispatchQueue.global(qos: .utility).async {
-            let running = saved.sessions.filter { entry in
-                guard let tty = Terminals.tty(of: entry.address), let agent = Agent(rawValue: entry.agent) else { return false }
-                return Terminal.isRunning(agent, on: tty) == true
-            }
+            let running = saved.sessions.filter { Deck.isStillRunning($0) }
             DispatchQueue.main.async {
                 guard !running.isEmpty else { return }
                 for entry in running where self.keyOf[entry.id] == nil {
@@ -340,6 +338,14 @@ final class Deck {
                 self.sessions.restore(running, fresh: fresh)
             }
         }
+    }
+
+    /// Whether a session saved before a restart is still running: its agent in
+    /// its tab, or for a headless run, which has none, its process.
+    static func isStillRunning(_ entry: Sessions.Saved, isGone: (Int32) -> Bool = Sessions.processGone) -> Bool {
+        if TabAddress.isHeadless(entry.address) { return entry.pid.map { !isGone($0) } ?? false }
+        guard let tty = Terminals.tty(of: entry.address), let agent = Agent(rawValue: entry.agent) else { return false }
+        return Terminal.isRunning(agent, on: tty) == true
     }
 
     // MARK: Keys
