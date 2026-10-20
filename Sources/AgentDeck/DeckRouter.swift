@@ -25,7 +25,9 @@ final class DeckRouter: Router {
     /// The setup page's key, as a tool of your own sends it, read from the
     /// setup-key file; or as the page's cookie, from the menu's link.
     static let setupKeyHeader = "x-smolcorp-setup-key"
-    static let setupCookie = "smolcorp-setup"
+    /// A browser sends localhost's cookies to every port, so a test copy's has
+    /// a name of its own: each app's setup page would otherwise sign the other out.
+    static let setupCookie = Deck.port == 7710 ? "smolcorp-setup" : "smolcorp-setup-\(Deck.port)"
     /// The office's recordings, in web/sounds, served as office.js is.
     static let sounds: Set = ["/sounds/keys.m4a", "/sounds/keys.webm", "/sounds/talk.m4a", "/sounds/talk.webm"]
 
