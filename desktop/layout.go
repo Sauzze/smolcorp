@@ -85,10 +85,12 @@ type Room struct {
 	Desk      string   `json:"desk"`
 	Workspace string   `json:"workspace"`
 	Monitor   string   `json:"monitor"`
-	Door      string   `json:"door"`  // the door onto the corridor: as it comes, haunted, or with a wreath
-	Drift     string   `json:"drift"` // what drifts down over the whole room: nothing, or snow
+	Door      string   `json:"door"`      // the door onto the corridor: as it comes, haunted, with a wreath, a love-letter door, painted for the Lunar New Year, a locker room's, or a saloon's swinging half-doors
+	Drift     string   `json:"drift"`     // what drifts, floats or crosses the room now and then: nothing, snow, hearts, the Lunar New Year's dragon dance, or confetti
+	Fireworks string   `json:"fireworks"` // what the windows show after dark: nothing, fireworks round midnight, or a burst now and then every night
 	Chair     string   `json:"chair"`
 	Staff     string   `json:"staff"`
+	Arrivals  string   `json:"arrivals"` // how a new session comes in and an ended one goes: with a coffee or a box ("animated"), or just walking ("plain")
 	Preset    string   `json:"preset"`
 	// How each project's agent looks, by the project's name.
 	Team map[string]TeamMember `json:"team"`
@@ -136,13 +138,15 @@ var teamChoices = map[string][]string{
 		"astronaut", "flightsuit", "pirate", "captain", "parka", "explorer", "robe", "knight", "wizard", "gamer",
 		"founder", "gymkit", "safari", "flannel", "hire", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
 		"deepseek", "kimi", "glm", "phi", "witch", "skeleton", "mummy", "refskeleton", "mummyjersey",
-		"jersey", "warmup", "referee", "coachpolo", "blazer", "werewolf", "santa", "xmasjumper", "beanie", "cableknit"},
+		"jersey", "warmup", "referee", "coachpolo", "blazer", "werewolf", "santa", "xmasjumper", "beanie", "cableknit", "redsuit", "heartsweater", "tangsuit", "playoffjersey", "superfan", "techwear", "submariner", "barista", "cowboy", "partyhat", "sequin",
+		"artdirector", "lawyer", "therapist", "plumber", "gmexec", "gmcoach", "gmtycoon",
+		"detective", "hardhat", "librarian", "janitor", "firefighter", "pilot", "postman", "accountant", "marketer", "securityguard", "chef", "spacesuit", "kimono"},
 	"colour": {"auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"},
 	"desk": {"auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug",
 		"helmet", "rocket", "terrarium", "quill", "candelabra", "goblet", "rum", "compass", "skull", "snowglobe", "thermos", "penguin",
 		"potions", "egg", "spellbook", "controller", "energy", "headset", "circuit", "pizza", "coffeepot", "dumbbell", "shaker", "kettlebell",
 		"coconut", "pineapple", "tikimug", "enamel", "lantern", "pinecone", "jackolantern", "candles", "candy", "pumpkinball", "batfinger",
-		"basketball", "whistle", "stopwatch", "sneaker", "foamfinger", "cup", "clipboard", "cocoa", "teapot", "none"},
+		"basketball", "whistle", "stopwatch", "sneaker", "foamfinger", "cup", "clipboard", "cocoa", "teapot", "roses", "chocolates", "redenvelopes", "tangerines", "nachos", "latte", "champagne", "noisemaker", "floatmug", "floatplant", "none"},
 	"workspace": append([]string{"auto"}, workspaces...),
 }
 
@@ -150,19 +154,19 @@ var teamChoices = map[string][]string{
 // being standard, and a team member's own, which can also be "auto".
 var (
 	floors = []string{"wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest",
-		"rubber", "epoxy", "arcade", "hauntedcourt", "court", "studio"}
+		"rubber", "epoxy", "arcade", "hauntedcourt", "court", "studio", "stationfloor", "zensand", "planks"}
 	paints = []string{"slate", "sage", "clay", "cream", "hull", "timber", "damask", "stone", "ice", "logs", "brick", "bamboo",
-		"block", "foam", "primetime", "bleachers"}
+		"block", "foam", "primetime", "bleachers", "stationwall", "shoji", "plankwall"}
 )
 
 // roomStyles are the office's styles: Yours, as you furnished it, then each that
 // furnishes it for you. office.js keeps what each one is.
 var roomStyles = []string{"yours", "classic", "campsite", "royal", "space", "pirates", "arctic", "lair", "gamers", "garage", "gym",
-	"jungle"}
+	"jungle", "neoncity", "submarine", "lofi", "saloon", "zen", "treehouse"}
 
 var workspaces = []string{"desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
 	"greenhouse", "console", "hover", "chest", "gilded", "crates", "altar", "log", "bench", "bamboo", "rack", "drafting", "glass",
-	"scorer", "anchor", "coffin", "waxdesk", "clawdesk", "gingerdesk", "workbench", "plaiddesk"}
+	"scorer", "anchor", "coffin", "waxdesk", "clawdesk", "gingerdesk", "workbench", "plaiddesk", "pinkdesk", "lacedesk", "lacquerdesk", "courtdesk", "cyberdesk", "subconsole", "cafetable", "barreldesk", "discodesk", "lowtable", "cratedesk"}
 
 // checked is the member with anything unknown as standard, and the nickname
 // on one line, cut to its limit.
@@ -310,18 +314,20 @@ var (
 		"corner": {"arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
 			"telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub", "ballpit",
 			"campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth", "cauldron", "graveyard",
-			"lanterns", "pumpkinrack", "halfcourt", "arcadehoop", "ballrack", "studiodesk", "bench", "coffinbox", "skeletonmodel", "xmastree", "fireplace", "sleigh", "carolbox", "woodstove", "cocoabar", "none"},
+			"lanterns", "pumpkinrack", "halfcourt", "arcadehoop", "ballrack", "studiodesk", "bench", "coffinbox", "skeletonmodel", "xmastree", "fireplace", "sleigh", "carolbox", "woodstove", "cocoabar", "heartbox", "candledinner", "plumtree", "lionhead", "watchparty", "noodlebar", "periscope", "sonar", "espressobar", "saloonbar", "pianola", "discobooth", "stadiumorgan", "valveradio", "guzheng", "holobooth", "gramophone", "cosmicsynth", "koipond", "singingbowls", "guitarhook", "none"},
 		"sky":       {"live", "day"},
 		"season":    {"calendar", "off"},
 		"sound":     {"off", "quiet", "normal"},
 		"ambience":  {"on", "off"},
 		"desk":      {"wood", "walnut", "white", "black"},
 		"workspace": workspaces,
-		"monitor":   {"standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet", "portrait", "broadcast", "ghostcrt", "ouija", "tombstone", "candycane", "giftwrap", "knitmon"},
-		"door":      {"standard", "haunted", "wreathdoor"},
-		"drift":     {"none", "snow"},
+		"monitor":   {"standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet", "portrait", "broadcast", "ghostcrt", "ouija", "tombstone", "candycane", "giftwrap", "knitmon", "heartframe", "locket", "lanternmon", "scoreboard", "catnap"},
+		"door":      {"standard", "haunted", "wreathdoor", "mailboxdoor", "lunardoor", "lockerdoor", "saloondoor"},
+		"drift":     {"none", "snow", "hearts", "lunar", "confetti"},
+		"fireworks": {"off", "midnight", "nightly"},
 		"chair":     {"teal", "black", "red", "grey", "green"},
 		"staff":     {"some", "none", "many"},
+		"arrivals":  {"animated", "plain"},
 		"preset":    roomStyles,
 	}
 	wallChoices = []string{"window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare",
@@ -329,11 +335,11 @@ var (
 		"frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex", "pegboard", "roller", "bike", "mirror", "timer", "climbing",
 		"vines", "tiki", "blind", "cabin", "trail", "paddles", "pumpkins", "lanternhang", "cobweb", "ghosts", "broom", "leafgarland",
 		"hauntedhoop", "spookyboard", "candycorn", "hoop", "scorebug", "lowerthird", "onair", "schedule", "pennants", "retired",
-		"playboard", "garland", "scarfhooks"}
+		"playboard", "garland", "scarfhooks", "heartgarland", "bemine", "lunarlanterns", "pennantline", "scarfwall", "rainwindow", "neonsign", "fishporthole", "chalkmenu", "pendantlamps", "wanted", "countdown", "streamers", "balloons", "earthwindow", "paperscreen", "leafwindow", "ropeladder"}
 	standardWall = []string{"window", "whiteboard", "window", "pinboard", "window"}
 	// The pets an office can have.
 	pets = []string{"cat", "dog", "lizard", "monkey", "llama", "penguin", "parrot", "owl", "capybara", "redpanda", "corgi", "hamster",
-		"robodog", "bat", "snail", "fox", "axolotl", "blackcat", "goat", "raven", "ghost", "spider", "reindeer", "snowman", "snowhare"}
+		"robodog", "bat", "snail", "fox", "axolotl", "blackcat", "goat", "raven", "ghost", "spider", "reindeer", "snowman", "snowhare", "cupid", "lovebirds", "drone", "tumbleweed"}
 )
 
 // The most pets an office has at once.
@@ -352,8 +358,8 @@ func (r *Room) UnmarshalJSON(data []byte) error {
 	json.Unmarshal(raw["wall"], &wall)
 	*r = Room{Mic: text(raw["mic"]), Floor: text(raw["floor"]), Paint: text(raw["paint"]), Lounge: text(raw["lounge"]), LoungePaint: text(raw["loungePaint"]),
 		Corner: text(raw["corner"]), Sky: text(raw["sky"]), Season: text(raw["season"]), Sound: text(raw["sound"]), Ambience: text(raw["ambience"]),
-		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Monitor: text(raw["monitor"]), Door: text(raw["door"]), Drift: text(raw["drift"]), Chair: text(raw["chair"]),
-		Staff:  text(raw["staff"]),
+		Desk: text(raw["desk"]), Workspace: text(raw["workspace"]), Monitor: text(raw["monitor"]), Door: text(raw["door"]), Drift: text(raw["drift"]), Fireworks: text(raw["fireworks"]), Chair: text(raw["chair"]),
+		Staff: text(raw["staff"]), Arrivals: text(raw["arrivals"]),
 		Preset: text(raw["preset"])}
 	for _, place := range wall {
 		r.Wall = append(r.Wall, text(place))
@@ -401,8 +407,8 @@ func (r Room) checked() Room {
 		Lounge: choose("lounge", r.Lounge), LoungePaint: choose("loungePaint", r.LoungePaint), Corner: choose("corner", r.Corner), Sky: choose("sky", r.Sky),
 		Pet: checkedPets(r.Pet), Season: choose("season", r.Season), Sound: choose("sound", r.Sound), Ambience: choose("ambience", r.Ambience),
 		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Monitor: choose("monitor", r.Monitor),
-		Door: choose("door", r.Door), Drift: choose("drift", r.Drift), Chair: choose("chair", r.Chair),
-		Staff: choose("staff", r.Staff), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked(),
+		Door: choose("door", r.Door), Drift: choose("drift", r.Drift), Fireworks: choose("fireworks", r.Fireworks), Chair: choose("chair", r.Chair),
+		Staff: choose("staff", r.Staff), Arrivals: choose("arrivals", r.Arrivals), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked(),
 		Plan: r.Plan.checked()}
 	for i := range checked.Wall {
 		if i < len(r.Wall) && slices.Contains(wallChoices, r.Wall[i]) {

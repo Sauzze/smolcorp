@@ -487,7 +487,8 @@
         <div class="field"><span>Desks</span><div class="choices" id="room-desk"></div></div>
         <div class="field"><span>Monitors</span><div class="choices" id="room-monitor"></div></div>
         <div class="field"><span>Door</span><div class="choices" id="room-door"></div></div>
-        <div class="field"><span>Drift</span><div class="choices" id="room-drift"></div></div>
+        <div class="field"><span>In the air</span><div class="choices" id="room-drift"></div></div>
+        <div class="field"><span>In the windows</span><div class="choices" id="room-fireworks"></div></div>
         <div class="field"><span>Chairs</span><div class="choices" id="room-chair"></div></div>
         <h3>Life</h3>
         <div class="field"><span>Daylight</span><div class="choices" id="room-sky"></div></div>
@@ -497,6 +498,7 @@
         <div class="field"><span>Sound</span><div class="choices" id="room-sound"></div></div>
         <div class="field"><span>Typing and chatter</span><div class="choices" id="room-ambience"></div></div>
         <div class="field"><span>Office staff</span><div class="choices" id="room-staff"></div></div>
+        <div class="field"><span>Comings and goings</span><div class="choices" id="room-arrivals"></div></div>
         <h3>Your team</h3>
         <div class="team" id="room-team"></div>
         <p class="hint">Each project's agent, your way. Clothes on Auto follow the dress code.</p>
@@ -994,6 +996,12 @@
         return b;
       }));
       body.append(field('Badge', badges));
+      // What its agents wear in the office, unless their project's team card gives them an outfit of its own
+      const outfits = document.createElement('select');
+      outfits.replaceChildren(new Option('None', '', false, !role.outfit),
+        ...TEAM_CHOICES.outfit[1].filter(([id]) => id !== 'auto').map(([id, label]) => new Option(label, id, false, id === role.outfit)));
+      outfits.onchange = () => change((edit) => ({ ...edit, outfit: outfits.value }));
+      body.append(field('Outfit', outfits));
 
       const said = document.createElement('p');
       said.className = 'hint';
@@ -1054,7 +1062,7 @@
     while (roles.some((role) => role.id === `own-${n}`)) n++;
     openRoles.add(`own-${n}`);
     saveRoles([...roles, { id: `own-${n}`, name: 'New role', agent: 'claude', model: '', effort: '', questions: [], instructions: '',
-      badge: 'star' }]);
+      badge: 'star', outfit: '' }]);
   };
   $('role-shipped').onclick = () => {
     const roles = state.roles.roles;
@@ -1335,7 +1343,7 @@
   let refocus = null; // the picture picked from the keyboard, to keep it focused as the page redraws
 
   /** What a picture shows of the room besides its own piece: what it's drawn in. Pictures leave out where things stand. */
-  const lookOf = (room) => JSON.stringify({ ...room, team: null, dress: null, corner: null, workspace: null, staff: null, pet: null,
+  const lookOf = (room) => JSON.stringify({ ...room, team: null, dress: null, corner: null, workspace: null, staff: null, arrivals: null, pet: null,
     sky: null, sound: null, ambience: null, mic: null, preset: null, plan: null });
 
   /** A picture of one of the office's choices, moving while the pointer, or the keyboard, is on `host`. */
@@ -1414,12 +1422,16 @@
       ['plating', 'Deck plating', '#50565f'], ['deck', "Ship's deck", '#8a6440'], ['marble', 'Marble', '#e4e0d8'],
       ['flagstone', 'Flagstones', '#5a5d5a'], ['snow', 'Snow', '#dbe6ef'], ['grass', 'Grass', '#4a7a3a'], ['forest', 'Forest floor', '#5a4632'],
       ['rubber', 'Gym mats', '#26282d'], ['epoxy', 'Garage epoxy', '#5f646c'], ['arcade', 'Arcade carpet', '#1c1a33'],
-      ['hauntedcourt', 'Haunted court', '#5e4a38'], ['court', 'Hardwood court', '#c89a62'], ['studio', 'Studio floor', '#151515']],
+      ['hauntedcourt', 'Haunted court', '#5e4a38'], ['court', 'Hardwood court', '#c89a62'], ['studio', 'Studio floor', '#151515'],
+      ['stationfloor', 'Station floor', '#c4c8ce'],
+      ['zensand', 'Raked sand', '#d8d0b8'], ['planks', 'Rough planks', '#a07444']],
     paint: [['slate', 'Slate', '#2f3446'], ['sage', 'Sage', '#34463d'], ['clay', 'Clay', '#4b3631'], ['cream', 'Cream', '#b5ad98'],
       ['hull', 'Hull panels', '#3a404c'], ['timber', "Ship's timbers", '#5a3b25'], ['damask', 'Damask', '#6a1e2a'],
       ['stone', 'Castle stone', '#4d5056'], ['ice', 'Ice blocks', '#b4d0e2'], ['logs', 'Log cabin', '#7a5232'], ['brick', 'Brick', '#8a3a2a'],
       ['bamboo', 'Bamboo', '#a8a050'], ['block', 'Blockwork', '#9aa0a8'], ['foam', 'Acoustic foam', '#16171c'],
-      ['primetime', 'Broadcast set', '#0e0e0e'], ['bleachers', 'Arena seating', '#2a2a2a']],
+      ['primetime', 'Broadcast set', '#0e0e0e'], ['bleachers', 'Arena seating', '#2a2a2a'],
+      ['stationwall', 'Padded station panels', '#e2e5ea'],
+      ['shoji', 'Paper screens', '#e8e0cc'], ['plankwall', 'Plank walls', '#a87a4a']],
     lounge: [['navy', 'Navy', '#3f4a5c'], ['teal', 'Teal', '#2f5656'], ['plum', 'Plum', '#513d50'], ['sand', 'Sand', '#7b6e58']],
     // filled in below: the lounge's floor can be any of the office's too, and its wall any paint
     corner: [['arcade', 'An arcade machine'], ['vending', 'A vending machine'], ['foosball', 'A foosball table'],
@@ -1435,14 +1447,26 @@
       ['coffinbox', 'A coffin jukebox'], ['skeletonmodel', 'A skeleton on a stand'],
       ['xmastree', 'A Christmas tree'], ['fireplace', 'A fireplace with stockings'], ['sleigh', 'A sleigh to sit in'],
       ['carolbox', 'A carols jukebox'],
-      ['woodstove', 'A wood stove'], ['cocoabar', 'A cocoa bar'], ['none', 'Nothing']],
+      ['woodstove', 'A wood stove'], ['cocoabar', 'A cocoa bar'],
+      ['heartbox', 'A heart jukebox'], ['candledinner', 'A candlelit dinner for two'],
+      ['plumtree', 'A plum-blossom tree'], ['lionhead', 'A lion-dance head'],
+      ['watchparty', 'A watch party'],
+      ['noodlebar', 'A noodle bar'], ['periscope', 'A periscope'], ['sonar', 'A sonar console'],
+      ['espressobar', 'An espresso bar'], ['saloonbar', 'A saloon bar'], ['pianola', 'A player piano'],
+      ['stadiumorgan', 'A stadium organ'], ['valveradio', 'A valve radio'], ['guzheng', 'A guzheng'],
+      ['holobooth', 'A holo DJ booth'], ['gramophone', 'A gramophone'], ['discobooth', 'A disco booth'],
+      ['cosmicsynth', 'A cosmic synth'],
+      ['koipond', 'A koi pond'], ['singingbowls', 'Singing bowls'], ['guitarhook', 'A guitar and radio'], ['none', 'Nothing']],
     sky: [['live', 'Follows the clock'], ['day', 'Always day']],
     season: [['calendar', 'Follow the calendar'], ['off', 'Off']],
     pet: [['cat', 'Cat'], ['dog', 'Dog'], ['lizard', 'Lizard'], ['monkey', 'Monkey'], ['llama', 'Llama'], ['penguin', 'Penguin'],
       ['parrot', 'Parrot'], ['owl', 'Owl'], ['capybara', 'Capybara'], ['redpanda', 'Red panda'], ['corgi', 'Corgi'],
       ['hamster', 'Hamster in a ball'], ['robodog', 'Robot dog'], ['bat', 'Bat'], ['snail', 'Snail'], ['fox', 'Fox'], ['axolotl', 'Axolotl'],
       ['blackcat', 'Black cat'], ['goat', 'Goat'], ['raven', 'Raven'], ['ghost', 'Little ghost'], ['spider', 'Spider on a thread'],
-      ['reindeer', 'Reindeer'], ['snowman', 'Little snowman'], ['snowhare', 'Snow hare']],
+      ['reindeer', 'Reindeer'], ['snowman', 'Little snowman'], ['snowhare', 'Snow hare'],
+      ['cupid', 'Little cupid'], ['lovebirds', 'Lovebirds'],
+      ['drone', 'Hover drone'],
+      ['tumbleweed', 'Tumbleweed']],
     sound: [['off', 'Off'], ['quiet', 'Quiet'], ['normal', 'Normal']],
     ambience: [['on', 'On'], ['off', 'Off']],
     desk: [['wood', 'Wood', '#c49a6c'], ['walnut', 'Walnut', '#7e5536'], ['white', 'White', '#e9e6de'], ['black', 'Black', '#3c404a']],
@@ -1454,20 +1478,33 @@
       ['drafting', 'A drafting table'], ['glass', 'A glass desk'], ['scorer', "A scorer's table"],
       ['anchor', 'An anchor desk'], ['coffin', 'A coffin desk'], ['waxdesk', 'A candle-wax desk'], ['clawdesk', 'A haunted-wood desk'],
       ['gingerdesk', 'A gingerbread desk'], ['workbench', "Santa's workbench"],
-      ['plaiddesk', 'A plaid-runner desk']],
+      ['plaiddesk', 'A plaid-runner desk'],
+      ['pinkdesk', 'A pastel pink desk'], ['lacedesk', 'A love-letter desk'],
+      ['lacquerdesk', 'A red lacquer desk'], ['courtdesk', 'A court desk'],
+      ['cyberdesk', 'A cyber desk'], ['subconsole', 'A submarine console'],
+      ['cafetable', 'A café table'], ['barreldesk', 'A barrel desk'], ['discodesk', 'A disco desk'],
+      ['lowtable', 'A low table and cushion'], ['cratedesk', 'A crate desk']],
     monitor: [['standard', 'Standard'], ['crt', 'CRT'], ['holo', 'Hologram'], ['brass', "Ship's monitor"], ['crystal', 'Crystal ball'],
       ['gilt', 'Gilt frame'], ['ice', 'Frozen'], ['ultrawide', 'Curved ultrawide'], ['dual', 'Two monitors'], ['laptop', 'Rugged laptop'],
       ['bamboo', 'Bamboo frame'], ['tablet', 'Tablet on an arm'], ['portrait', 'Turned on its side'], ['broadcast', 'Broadcast monitor'],
       ['ghostcrt', 'Haunted CRT'], ['ouija', 'Ouija frame'], ['tombstone', 'Tombstone'], ['candycane', 'Candy-cane frame'],
-      ['giftwrap', 'Wrapped like a present'], ['knitmon', 'In a knitted cover']],
-    door: [['standard', 'As it comes'], ['haunted', 'Haunted'], ['wreathdoor', 'With a wreath']],
-    drift: [['none', 'Nothing'], ['snow', 'Snow']],
+      ['giftwrap', 'Wrapped like a present'], ['knitmon', 'In a knitted cover'],
+      ['heartframe', 'Heart frame'], ['locket', 'Heart locket'], ['lanternmon', 'Red lantern'],
+      ['scoreboard', 'Mini scoreboard'], ['catnap', 'Cat asleep on top']],
+    door: [['standard', 'As it comes'], ['haunted', 'Haunted'], ['wreathdoor', 'With a wreath'], ['mailboxdoor', 'Love-letter door'],
+      ['lunardoor', 'Lunar New Year'], ['lockerdoor', 'Locker-room door'],
+      ['saloondoor', 'Saloon doors']],
+    drift: [['none', 'Nothing'], ['snow', 'Snow'], ['hearts', 'Floating hearts'], ['lunar', 'A dragon dance'], ['confetti', 'Confetti']],
+    fireworks: [['off', 'Nothing'], ['midnight', 'Fireworks at midnight'], ['nightly', 'Fireworks every night']],
     chair: [['teal', 'Teal', '#3f7080'], ['black', 'Black', '#353842'], ['red', 'Red', '#9a3c3a'], ['grey', 'Grey', '#737987'],
       ['green', 'Green', '#3f7a4c']],
     staff: [['some', 'A few'], ['none', 'None'], ['many', 'Lots']],
+    arrivals: [['animated', 'With a coffee or a box'], ['plain', 'Just walk']],
     preset: [['yours', 'Yours'], ['classic', 'Classic'], ['campsite', 'Campsite'], ['royal', 'Royal court'], ['space', 'Space station'],
       ['pirates', 'Pirate cove'], ['arctic', 'Arctic base'], ['lair', "Dragon's lair"], ['gamers', 'Gamer den'], ['garage', 'Startup garage'],
-      ['gym', 'Fitness floor'], ['jungle', 'Jungle']],
+      ['gym', 'Fitness floor'], ['jungle', 'Jungle'], ['neoncity', 'Neon city'], ['submarine', 'Submarine'],
+      ['lofi', 'Lo-fi café'], ['saloon', 'Wild West saloon'],
+      ['zen', 'Zen garden'], ['treehouse', 'Treehouse']],
   };
   const WALL_CHOICES = [['window', 'Window'], ['whiteboard', 'Whiteboard'], ['pinboard', 'Pinboard'], ['poster', 'Poster'],
     ['shelf', 'Bookshelf'], ['plant', 'Plant'], ['bare', 'Bare wall'],
@@ -1484,12 +1521,20 @@
     ['hauntedhoop', 'Haunted hoop'], ['spookyboard', 'Spooky scoreboard'], ['candycorn', 'Candy-corn pennants'],
     ['hoop', 'Basketball hoop'], ['scorebug', 'Score bug'], ['lowerthird', 'Lower third'], ['onair', 'On-air sign'],
     ['schedule', 'Week strip'], ['pennants', 'Pennants'], ['retired', 'Framed jersey'], ['playboard', 'Play board'],
-    ['garland', 'Christmas garland'], ['scarfhooks', 'Scarves drying on hooks']];
+    ['garland', 'Christmas garland'], ['scarfhooks', 'Scarves drying on hooks'],
+    ['heartgarland', 'Paper-heart garland'], ['bemine', '"Be mine" neon sign'],
+    ['lunarlanterns', 'Red paper lanterns'],
+    ['pennantline', 'A string of pennants'], ['scarfwall', "Supporters' scarves"],
+    ['rainwindow', 'Rainy city window'], ['neonsign', 'Noodle-and-cat neon'], ['fishporthole', 'Porthole onto the deep'],
+    ['chalkmenu', 'Chalkboard menu'], ['pendantlamps', 'Pendant lamps'], ['wanted', 'Wanted posters'],
+    ['countdown', 'Countdown clock'], ['streamers', 'Streamers and stars'], ['balloons', 'Balloons'],
+    ['earthwindow', 'Big window onto the Earth'],
+    ['paperscreen', 'Paper screen onto a garden'], ['leafwindow', 'Leafy window'], ['ropeladder', 'Rope ladder']];
   ROOM_CHOICES.lounge.push(...ROOM_CHOICES.floor);
   ROOM_CHOICES.loungePaint = [['auto', 'Same as the walls'], ...ROOM_CHOICES.paint];
   const STANDARD_ROOM = { mic: 'mic', wall: ['window', 'whiteboard', 'window', 'pinboard', 'window'], floor: 'wood', paint: 'slate',
     lounge: 'navy', loungePaint: 'auto', corner: 'arcade', sky: 'live', pet: [], season: 'calendar', sound: 'off', ambience: 'on', desk: 'wood', workspace: 'desk',
-    monitor: 'standard', door: 'standard', drift: 'none', chair: 'teal', staff: 'some', preset: 'yours' };
+    monitor: 'standard', door: 'standard', drift: 'none', fireworks: 'off', chair: 'teal', staff: 'some', arrivals: 'animated', preset: 'yours' };
   /** What a style furnishes, as office.js has it: changing one of these goes back to Yours. Its pet too, but picking pets
       doesn't: the ones you pick take the place of the style's own. */
   const STYLED = new Set(['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'desk', 'workspace', 'monitor', 'chair',
@@ -1536,7 +1581,32 @@
       // Christmas's
       ['santa', 'Santa suit'], ['xmasjumper', 'Christmas jumper'],
       // Winter's
-      ['beanie', 'Beanie, scarf and puffer'], ['cableknit', 'Cable-knit and earmuffs']]],
+      ['beanie', 'Beanie, scarf and puffer'], ['cableknit', 'Cable-knit and earmuffs'],
+      // Saint Valentine's
+      ['redsuit', 'Red suit and rose'], ['heartsweater', 'Heart sweater'],
+      // The Lunar New Year's
+      ['tangsuit', 'Tang jacket'],
+      // The playoffs'
+      ['playoffjersey', 'Playoff jersey'], ['superfan', 'Superfan'],
+      // The themes'
+      ['techwear', 'Techwear'], ['submariner', 'Submariner'],
+      // The café's and the saloon's
+      ['barista', 'Barista'], ['cowboy', 'Cowboy'],
+      // New Year's Eve's
+      ['partyhat', 'Party hat'], ['sequin', 'Sequin jacket'],
+      // The roles'
+      ['artdirector', 'Art director'], ['lawyer', "Lawyer's pinstripes"], ['therapist', "Therapist's cardigan"],
+      ['plumber', "Plumber's overalls"], ['gmexec', 'General manager: executive'], ['gmcoach', 'General manager: coach'],
+      ['gmtycoon', 'General manager: tycoon'],
+      // The roles', batch 2
+      ['detective', "Detective's trench coat"], ['hardhat', 'Hard hat and hi-vis'], ['librarian', "Librarian's cardigan"],
+      ['janitor', "Janitor's coveralls"], ['firefighter', "Firefighter's jacket"], ['pilot', "Pilot's jacket"],
+      ['postman', 'Postal jacket'], ['accountant', "Accountant's visor"], ['marketer', "Marketer's blazer"],
+      ['securityguard', "Security guard's uniform"], ['chef', "Chef's whites"],
+      // Space pieces
+      ['spacesuit', 'EVA spacesuit'],
+      // The Zen garden's
+      ['kimono', 'Wrap jacket']]],
     colour: ['Colour', [['auto', 'Auto'], ['orange', 'Orange'], ['red', 'Red'], ['pink', 'Pink'], ['purple', 'Purple'], ['blue', 'Blue'],
       ['teal', 'Teal'], ['green', 'Green'], ['yellow', 'Yellow'], ['grey', 'Grey'], ['black', 'Black'], ['white', 'White']]],
     desk: ['On the desk', [['auto', 'Auto'], ['plant', 'A plant'], ['papers', 'Papers'], ['lamp', 'A lamp'], ['cactus', 'A cactus'],
@@ -1552,7 +1622,12 @@
       ['candy', 'Candy corn'], ['pumpkinball', "A jack-o'-lantern ball"], ['batfinger', 'A bat-wing foam finger'],
       ['basketball', 'A basketball'], ['whistle', 'A whistle'], ['stopwatch', 'A stopwatch'],
       ['sneaker', 'A sneaker'], ['foamfinger', 'A foam finger'], ['cup', 'A championship cup'], ['clipboard', 'A clipboard'],
-      ['cocoa', 'A mug of cocoa'], ['teapot', 'A teapot in a cosy'], ['none', 'Nothing']]],
+      ['cocoa', 'A mug of cocoa'], ['teapot', 'A teapot in a cosy'],
+      ['roses', 'Red roses'], ['chocolates', 'A box of chocolates'],
+      ['redenvelopes', 'Red envelopes'], ['tangerines', 'A bowl of mandarins'],
+      ['nachos', 'Nachos'],
+      ['latte', 'A latte'], ['champagne', 'Champagne on ice'], ['noisemaker', 'A party horn'],
+      ['floatmug', 'A floating zero-g mug'], ['floatplant', 'A plant in a floating sphere'], ['none', 'Nothing']]],
     workspace: ['Works at', [['auto', 'Where everyone does'], ...ROOM_CHOICES.workspace]],
   };
   const NICKNAME_LIMIT = 16;
@@ -1740,7 +1815,7 @@
     const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
     // What's picked in each row: in a style, as the style furnishes it.
     const shown = furnished(room);
-    for (const part of ['floor', 'paint', 'sky', 'season', 'sound', 'ambience', 'desk', 'monitor', 'door', 'drift', 'chair', 'staff']) {
+    for (const part of ['floor', 'paint', 'sky', 'season', 'sound', 'ambience', 'desk', 'monitor', 'door', 'drift', 'fireworks', 'chair', 'staff', 'arrivals']) {
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label, swatch]) =>
         choice(label, (shown[part] || STANDARD_ROOM[part]) === id, () => furnish((r) => { r[part] = id; }, part), swatch)));
     }

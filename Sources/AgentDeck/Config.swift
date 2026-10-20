@@ -39,6 +39,10 @@ final class Config: Codable {
     /// The roles the office can hire, in the order the phone offers them:
     /// those that come with the app until you change them, and your own.
     var roles = Role.shipped
+    /// The ids of the shipped roles this config has been given: a role that
+    /// comes with a later version is added to your roles once, at the end,
+    /// and one you've deleted isn't given back.
+    var rolesOffered = Role.shipped.map(\.id)
     /// Whether a jukebox in the office may play and pause the Mac's music.
     /// Off until you turn it on: it presses a media key.
     var musicEnabled = false
@@ -50,7 +54,7 @@ final class Config: Codable {
     private(set) var lostOnLoad = false
 
     private enum CodingKeys: String, CodingKey {
-        case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles
+        case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles, rolesOffered
         case hireTerminal, hireInTmux, dictationEnabled, dictationLanguage, dictationForClaude
         case musicEnabled, webhook, hasCompletedSetup
     }
@@ -90,7 +94,14 @@ final class Config: Codable {
         dictationLanguage = field(String.self, .dictationLanguage).flatMap { Dictation.languages.contains($0) ? $0 : nil } ?? dictationLanguage
         dictationForClaude = field(Bool.self, .dictationForClaude) ?? false
         // Checked as they load: their instructions go to agents.
-        roles = field([Role].self, .roles).map(Role.checked) ?? roles
+        let savedRoles = field([Role].self, .roles)
+        roles = savedRoles.map(Role.checked) ?? roles
+        // Shipped roles this file hasn't been given are added once, at the end: a file from before rolesOffered
+        // was given the first five. rolesOffered is then every shipped role, as it's saved.
+        if savedRoles != nil {
+            let offered = field([String].self, .rolesOffered) ?? Role.offeredBefore
+            roles = Role.checked(roles + Role.shipped.filter { role in !offered.contains(role.id) && !roles.contains { $0.id == role.id } })
+        }
         musicEnabled = field(Bool.self, .musicEnabled) ?? false
         webhook = field(Webhook.self, .webhook) ?? Webhook()
         hasCompletedSetup = field(Bool.self, .hasCompletedSetup) ?? false
