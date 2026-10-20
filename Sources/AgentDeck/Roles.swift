@@ -130,7 +130,8 @@ struct Role: Codable, Equatable {
             "Is there a release checklist or a deploy script you should follow?",
         ], instructions: """
             Prepare the release I point you to and run through the checklist: tests, version, changelog, migrations, \
-            config. Report each item as ready or not, with what's missing. Never deploy or publish unless I tell you to.
+            config. Report each item as ready or not, with what's missing, and wait for my OK before changing anything. \
+            Never deploy or publish unless I tell you to.
             """, badge: "plane", outfit: "pilot"),
         Role(id: "postman", name: "Postman", agent: "claude", model: "sonnet", effort: "medium", questions: [
             "Which notifications or webhooks should you look at: sending, receiving, or both?",
