@@ -4171,6 +4171,8 @@
   };
   const STYLE_MARK = ['1111110', '1111110', '0000010', '0011110', '0010000', '0010000', '0010000'];
   const STYLE_THUMB = { w: 62, h: 34 };
+  // Six to a row in the room held sideways, smaller, so all the styles fit its height
+  const STYLE_THUMB_WIDE = { w: 46, h: 25 };
   const STYLE_GAP = 4;
   const STYLE_LABEL = 8;
   const STYLE_INSET = 6;
@@ -4178,20 +4180,21 @@
   const STYLE_IDS = ['yours', ...Object.keys(ROOM_STYLES)];
   const styleName = (id) => (id === 'yours' ? 'Yours' : ROOM_STYLES[id].name);
 
-  /** The styles' panel, in the middle of the room: four pictures to a row, or three held upright. */
+  /** The styles' panel, in the middle of the room: six smaller pictures to a row, or three held upright. */
   function styleMenu() {
-    const columns = shape === TALL ? 3 : 4;
+    const columns = shape === TALL ? 3 : 6;
+    const thumb = shape === TALL ? STYLE_THUMB : STYLE_THUMB_WIDE;
     const rows = Math.ceil(STYLE_IDS.length / columns);
-    const w = STYLE_INSET * 2 + columns * STYLE_THUMB.w + (columns - 1) * STYLE_GAP;
-    const h = STYLE_TITLE + STYLE_INSET + rows * (STYLE_THUMB.h + STYLE_LABEL) + (rows - 1) * STYLE_GAP;
+    const w = STYLE_INSET * 2 + columns * thumb.w + (columns - 1) * STYLE_GAP;
+    const h = STYLE_TITLE + STYLE_INSET + rows * (thumb.h + STYLE_LABEL) + (rows - 1) * STYLE_GAP;
     const left = Math.round(shape.width / 2 - w / 2), top = Math.round(shape.height / 2 - h / 2);
     return {
       left, top, w, h,
       tiles: STYLE_IDS.map((id, i) => ({
         id,
-        x: left + STYLE_INSET + (i % columns) * (STYLE_THUMB.w + STYLE_GAP),
-        y: top + STYLE_TITLE + Math.floor(i / columns) * (STYLE_THUMB.h + STYLE_LABEL + STYLE_GAP),
-        w: STYLE_THUMB.w, h: STYLE_THUMB.h + STYLE_LABEL,
+        x: left + STYLE_INSET + (i % columns) * (thumb.w + STYLE_GAP),
+        y: top + STYLE_TITLE + Math.floor(i / columns) * (thumb.h + STYLE_LABEL + STYLE_GAP),
+        w: thumb.w, h: thumb.h + STYLE_LABEL,
       })),
     };
   }
@@ -16284,17 +16287,19 @@
       ctx.font = font(600, size * 0.9);
       for (const tile of tiles) {
         const on = tile.id === current;
-        if (on) fill(tile.x - 2, tile.y - 2, tile.w + 4, STYLE_THUMB.h + 4, colour('thinking'));
-        fill(tile.x - 1, tile.y - 1, tile.w + 2, STYLE_THUMB.h + 2, PALETTE.bubbleEdge);
+        // The picture's height: the tile is the picture and its label below
+        const thumbH = tile.h - STYLE_LABEL;
+        if (on) fill(tile.x - 2, tile.y - 2, tile.w + 4, thumbH + 4, colour('thinking'));
+        fill(tile.x - 1, tile.y - 1, tile.w + 2, thumbH + 2, PALETTE.bubbleEdge);
         const picture = pictures.get(tile.id);
         if (picture) {
           const at = screen(tile.x, tile.y);
           ctx.imageSmoothingEnabled = false;
-          ctx.drawImage(picture, at.x, at.y, STYLE_THUMB.w * scale, STYLE_THUMB.h * scale);
+          ctx.drawImage(picture, at.x, at.y, tile.w * scale, thumbH * scale);
         }
         ctx.fillStyle = css(PALETTE.bubbleEdge, on ? 1 : 0.75);
         ctx.fillText(fitText(ctx, styleName(tile.id), (tile.w + STYLE_GAP) * scale),
-          screen(tile.x + tile.w / 2, 0).x, screen(0, tile.y + STYLE_THUMB.h + STYLE_LABEL / 2 + 1).y);
+          screen(tile.x + tile.w / 2, 0).x, screen(0, tile.y + thumbH + STYLE_LABEL / 2 + 1).y);
       }
     }
 
