@@ -135,6 +135,21 @@ final class HeadlessTests: XCTestCase {
         XCTAssertEqual(Deck.upstairs(of: []).overflow, 0)
     }
 
+    func testTheViewerSeesOnlyAName() {
+        let sessions = running()
+        let shown = ViewerSnapshot.upstairs(sessions.all, overflow: 3, hideNames: false)
+        let hidden = ViewerSnapshot.upstairs(sessions.all, overflow: 3, hideNames: true)
+        XCTAssertEqual(shown["overflow"] as? Int, 3)
+        XCTAssertEqual(shown["desks"] as? [[String: String]], [["name": "api", "state": "thinking"]])
+        XCTAssertEqual(hidden["desks"] as? [[String: String]], [["name": "Upstairs 1", "state": "thinking"]])
+        // And who hired it, by name only, as the deck hands it over.
+        let hired = ViewerSnapshot.upstairs(sessions.all, overflow: 0, hideNames: true) { _ in "Desk 2" }
+        XCTAssertEqual((hired["desks"] as? [[String: Any]])?.first?["hiredBy"] as? [String: String], ["name": "Desk 2"])
+        // The viewer's own check, which now looks upstairs too, finds nothing that mustn't leave.
+        XCTAssertEqual(ViewerSelfTest.redactionProblems(hideNames: true), [])
+        XCTAssertEqual(ViewerSelfTest.redactionProblems(hideNames: false), [])
+    }
+
     func testAHooksPIDIsDigitsOnly() {
         XCTAssertEqual(DeckRouter.pid("4242"), 4242)
         for bad in [nil, "", "42a", "-5", "0", " 42", "99999999999", "٤٢"] { XCTAssertNil(DeckRouter.pid(bad), bad ?? "nil") }

@@ -42,6 +42,10 @@ final class Deck {
     let windowKey = randomKey()
     /// Called on every change, for the menu bar.
     var onChange: () -> Void = {}
+    /// The portable office (beta): the office on a phone from anywhere, view only. Off at every start.
+    private(set) lazy var portable = PortableOffice { [unowned self] hideNames, alias in
+        self.viewerSnapshot(hideNames: hideNames, alias: alias)
+    }
 
     /// Each open stream, with the phone that opened it, so unpairing a phone
     /// can hang up on it at once.
@@ -181,6 +185,7 @@ final class Deck {
         onChange()
         scheduleSave()
         tellWebhook()
+        portable.changed()
     }
 
     // MARK: Webhook
@@ -528,6 +533,28 @@ final class Deck {
         // Keys in order: unsorted, the same layout can come out differently
         // each time, and the phone would take it for a new one.
         return (try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys])) ?? Data()
+    }
+
+    /// What the portable office's viewer draws: built field by field from
+    /// what may leave this Mac (see `ViewerSnapshot`), never from
+    /// `snapshotJSON()`. No session ids, paths, activity, models or buttons.
+    func viewerSnapshot(hideNames: Bool, alias: (String) -> String) -> [String: Any] {
+        let (keys, overflow) = layout()
+        let config = Config.shared
+        let desks = keys.map { key in
+            ViewerSnapshot.Desk(pin: key.pin, session: key.session,
+                                role: key.session.flatMap { roleOf[$0.id] }.flatMap { id in config.roles.first { $0.id == id } })
+        }
+        var snapshot = ViewerSnapshot.build(desks: desks, overflow: overflow.count, theme: Theme.current(),
+                                            music: (config.musicEnabled, playing), layout: config.layout, hideNames: hideNames,
+                                            now: Int64(Date().timeIntervalSince1970 * 1000), alias: alias)
+        let upstairs = self.upstairs()
+        // Who hired each, by name only: with names hidden, the hiring desk's number, as its desk shows it.
+        let all = sessions.all
+        snapshot["upstairs"] = ViewerSnapshot.upstairs(upstairs.desks, overflow: upstairs.overflow, hideNames: hideNames) { s in
+            ViewerSnapshot.hirer(Deck.hiredBy(s, among: all), desks: keys.map(\.session), hideNames: hideNames)
+        }
+        return snapshot
     }
 
     func attach(_ stream: EventStream, phone: String) {

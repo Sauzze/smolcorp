@@ -565,6 +565,71 @@ Voice input needs Claude Code signed in with a Claude.ai account. Claude Code
 sends your audio to Anthropic to be transcribed. Smolcorp itself never
 hears it.
 
+## Portable office (beta)
+
+See the office on your phone from anywhere, over 4G, while you're away. It's
+view only: nothing on the phone can press a key or type into a session. It's
+off until you launch it, and off again each time Smolcorp starts.
+
+While it's on, Smolcorp locks a trimmed-down copy of the office on your Mac
+(AES-256-GCM) and puts it on a small viewer you run on your own Vercel. The
+key is only in your Mac's Keychain and in your link, after the `#`, which
+browsers never send to any server, so the viewer only ever holds locked data.
+
+### Set it up on Vercel
+
+1. On Vercel, make a project from your fork of this repository. Set its Root
+   Directory to `viewer/`, its Framework to "Other", and leave the build
+   command empty.
+2. Add **Upstash Redis** to it from the Vercel Marketplace (the free plan is
+   enough). It adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` for you.
+3. On Smolcorp's setup page, under **Viewer link**, press **Make a write
+   secret** and copy it. It's shown once. In the Vercel project, add it as
+   the environment variable `VIEWER_WRITE_SECRET` (Production).
+4. Deploy to production. Paste the production address
+   (`https://office-viewer-xxxx.vercel.app`) into **Viewer address**, press
+   **Save**, then **Check the viewer**. It says **Viewer ready ✓** or what's
+   wrong.
+5. Scan the QR code with your phone and add the page to your Home Screen.
+
+A custom domain works too. Vercel Authentication doesn't, since the phone has
+no Vercel login. To keep strangers from using up your free Upstash allowance,
+add the firewall rule in [viewer/README.md](viewer/README.md), which also has
+the relay's protocol, if you'd rather host the viewer elsewhere.
+
+### Start and stop it
+
+- **Start:** menu bar → **Going away: launch portable office**. The phone shows
+  the office within a few seconds. While it's on, the menu bar icon has a small
+  dot, and the menu says **Portable office: ON** with when it last sent.
+- **Stop:** menu bar → **Stop portable office**, or quit Smolcorp. The viewer
+  forgets the office straight away, and the phone says "Not active". It also
+  stops by itself when you're back at your Mac (you unlock it, or wake it and
+  use it, but not in the first two minutes, so you can launch it and then
+  lock), and after 8 hours. Both can be changed on the setup page.
+- **Lost your phone, or shared the link by mistake:** setup → **Rotate key…**.
+  Every old link stops working for good; scan the new QR code. The link holds
+  the key, so keep it to yourself: **Copy viewer link** in the menu copies it
+  for this Mac only, never to your other devices.
+- **Wipe the viewer** empties it of everything it holds.
+
+### What's sent, and what never is
+
+Sent, locked: each desk's state (working, waiting, done, failed), its agent and
+effort, whether it's compacting, its subagents' kinds, its role's name, badge
+and outfit, the theme, and how the room is furnished. Project names too,
+unless you turn on **Hide project names**, which shows "Desk 1", "Desk 2"…
+instead, upstairs too, where a run's hirer becomes the hiring desk's number.
+
+Never: transcripts, prompts, what an agent or you wrote, dictation,
+file names, folders and paths, commands, models, your buttons, session ids,
+your Mac's name, addresses, phone ids, and any key or token. Your write
+secret, the viewer's id and its key are kept in the Keychain, never in
+`config.json`.
+
+The viewer sees when the office is on and roughly how big it is, nothing
+else. The Windows and Linux app doesn't have the portable office.
+
 ## Tell other tools
 
 Smolcorp can tell another tool what your agents are doing, so a lamp

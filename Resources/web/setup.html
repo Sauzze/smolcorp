@@ -23,10 +23,10 @@
     /* The phone panel runs beside two rows; the keys' row takes up whatever
        height it has to spare, rather than a gap opening above the keys. */
     grid-template-rows: auto auto 1fr;
-    grid-template-areas: "head head" "start phone" "keys phone" "roles roles" "profiles profiles" "layout layout" "logo logo" "more more"; }
+    grid-template-areas: "head head" "start phone" "keys phone" "viewer viewer" "roles roles" "profiles profiles" "layout layout" "logo logo" "more more"; }
   @media (max-width: 840px) {
     main { grid-template-columns: minmax(0, 1fr); grid-template-rows: none;
-      grid-template-areas: "head" "start" "phone" "keys" "roles" "profiles" "layout" "logo" "more"; }
+      grid-template-areas: "head" "start" "phone" "viewer" "keys" "roles" "profiles" "layout" "logo" "more"; }
   }
   header { grid-area: head; display: flex; gap: 16px; align-items: center; }
   header img { width: 52px; height: 52px; border-radius: 12px; }
@@ -74,6 +74,26 @@
   .webhook-setup .events { display: flex; flex-wrap: wrap; gap: 4px 12px; width: 100%; }
   .webhook-setup .last { color: var(--dim); font-size: 13px; align-self: center; }
   .webhook-setup .last.wrong { color: var(--error); }
+  /* The portable office's viewer (beta) */
+  .viewer { grid-area: viewer; }
+  .viewer h2 .beta { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
+    border: 1px solid var(--edge); border-radius: 6px; padding: 1px 6px; vertical-align: 3px; }
+  .viewer > .hint { margin: 0 0 12px; max-width: 720px; }
+  .viewer .hire-setup input { flex: 3 1 260px; }
+  .viewer .switch:disabled { opacity: .35; cursor: default; }
+  .viewer .result { color: var(--dim); font-size: 13px; align-self: center; }
+  .viewer .result.good { color: var(--unread); }
+  .viewer .result.wrong { color: var(--error); }
+  .viewer .secret { display: grid; gap: 8px; margin-top: 10px; padding: 12px; border: 1px solid var(--asking); border-radius: 10px; }
+  .viewer .secret[hidden], .viewer .link-box[hidden] { display: none; }
+  .viewer .secret code, .viewer .link-box code { font: 12px ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); white-space: normal; word-break: break-all; }
+  .viewer .link-box { display: flex; gap: 16px; align-items: center; margin-top: 10px; }
+  .viewer .link-box .qr { margin: 0; flex: none; width: 150px; height: 150px; }
+  .viewer .link-box .tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .viewer .options { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 8px; color: var(--dim); font-size: 13px; }
+  .viewer .options label { display: flex; align-items: center; gap: 6px; }
+  .viewer .options select { background: var(--cap); color: var(--ink); border: 1px solid var(--edge); border-radius: 6px; padding: 3px 6px; font: inherit; }
+  @media (max-width: 600px) { .viewer .link-box { flex-direction: column; align-items: flex-start; } }
   .switch { position: relative; width: 42px; height: 24px; border-radius: 12px; background: var(--faint); border: 0; flex: none; transition: background .15s; }
   .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; }
   .switch.on { background: var(--unread); }
@@ -437,6 +457,88 @@
     </div>
   </aside>
 
+  <section class="viewer" id="viewer">
+    <h2>Viewer link <span class="beta">beta</span></h2>
+    <p class="hint">See the office on your phone from anywhere, view only, while you're away. It's locked on this computer with a key
+      only your link holds, so the viewer on your Vercel never sees what's in it. It's off until you launch it, and off again each
+      time Smolcorp starts.</p>
+    <div class="steps">
+      <div class="step" id="step-viewer-address">
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Viewer address</div>
+          <div class="detail" data-pending="The address Vercel gives your viewer project. The README says how to make one." data-done="Where the office is sent, locked, while it's on."></div>
+          <div class="hire-setup">
+            <input type="url" id="viewer-url" spellcheck="false" placeholder="https://office-viewer-xxxx.vercel.app" aria-label="The viewer's address">
+            <button class="btn" id="viewer-save">Save</button>
+            <span class="result" id="viewer-url-result"></span>
+          </div>
+        </div>
+      </div>
+      <div class="step" id="step-viewer-secret">
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Write secret</div>
+          <div class="detail" data-pending="Lets this computer, and only it, write to your viewer. Kept in your Keychain." data-done="Set ✓ Kept in your Keychain. Vercel has a copy as VIEWER_WRITE_SECRET."></div>
+          <div class="secret" id="viewer-secret-box" hidden>
+            <div>Paste this into Vercel as <b>VIEWER_WRITE_SECRET</b>, then redeploy. It's shown only this once.</div>
+            <code id="viewer-secret"></code>
+            <div><button class="btn" id="viewer-secret-copy">Copy</button> <span class="result" id="viewer-secret-copied"></span></div>
+          </div>
+        </div>
+        <button class="btn" id="viewer-make-secret">Make a write secret</button>
+      </div>
+      <div class="step" id="step-viewer-check">
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Check the viewer</div>
+          <div class="detail" data-pending="Asks your viewer whether it's ready: its settings, its storage and the write secret." data-done="Your viewer answered, and took the write secret."></div>
+          <div class="hire-setup"><span class="result" id="viewer-checked"></span></div>
+        </div>
+        <button class="btn" id="viewer-check">Check the viewer</button>
+      </div>
+      <div class="step" id="step-viewer-link">
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Your link</div>
+          <div class="detail" data-pending="Once the address and the write secret are set, scan this with your phone and keep it on your Home Screen." data-done="Scan it with your phone and keep it on your Home Screen. The link holds the key: anyone with it sees the office while it's on, so keep it to yourself, and rotate the key if it gets out."></div>
+          <div class="link-box" id="viewer-link-box" hidden>
+            <img class="qr" id="viewer-qr" alt="QR code of your viewer link">
+            <div>
+              <code id="viewer-link"></code>
+              <div class="tools">
+                <button class="btn" id="viewer-link-copy">Copy</button>
+                <button class="btn" id="viewer-rotate">Rotate key…</button>
+                <span class="result" id="viewer-link-copied"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="step" id="step-viewer-on">
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Portable office</div>
+          <div class="detail" id="viewer-on-detail"></div>
+          <div class="options">
+            <label><input type="checkbox" id="viewer-hide"> Hide project names</label>
+            <label><input type="checkbox" id="viewer-return"> Stop when I'm back</label>
+            <label>Stop after <select id="viewer-hours"></select></label>
+          </div>
+        </div>
+        <button class="switch" id="viewer-switch" aria-label="Portable office"></button>
+      </div>
+      <div class="step" id="step-viewer-wipe">
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Wipe the viewer</div>
+          <div class="detail" id="viewer-wipe-detail">Turns the portable office off and empties your viewer, for every link.</div>
+        </div>
+        <button class="btn" id="viewer-wipe">Wipe the viewer</button>
+      </div>
+    </div>
+  </section>
+
   <section class="keys">
     <h2>Desks</h2>
     <div class="field"><span>Desks for sessions</span><div class="choices" id="key-count"></div></div>
@@ -648,7 +750,7 @@
     if (!key && !token) return;
     const given = key ? { 'X-Smolcorp-Setup-Key': key } : { 'X-Smolcorp-Setup-Once': token };
     await fetch('/setup/session', { method: 'POST', headers: { ...setupHeaders(false), ...given } }).catch(() => {});
-    const then = ['pair', 'unpair'].find((action) => opened.has(action));
+    const then = ['pair', 'unpair', 'viewer'].find((action) => opened.has(action));
     history.replaceState(null, '', location.pathname + (then ? `#${then}` : ''));
   }
 
@@ -1144,6 +1246,164 @@
     const hours = Math.round(minutes / 60);
     return hours < 24 ? `${hours} h ago` : `on ${day(ms)}`;
   }
+
+  /* ----------------------------------------------------------- viewer link */
+
+  /**
+   * The portable office's viewer (beta). Its own state, apart from
+   * the rest of the page's: it holds the link, with its key, and the write
+   * secret comes back only once, as it's made.
+   */
+  let viewer = null;
+  /** The write secret just made, shown until the page is left. */
+  let viewerSecret = '';
+  let viewerProblem = '';
+  const VIEWER_HOURS = { 2: '2 hours', 4: '4 hours', 8: '8 hours', 12: '12 hours', 0: 'Never' };
+
+  async function loadViewer() {
+    try {
+      const res = await fetch('/setup/viewer', { cache: 'no-store' });
+      if (res.ok) { viewer = await res.json(); renderViewer(); return true; }
+    } catch {}
+    return false;
+  }
+
+  /** An action's reply: it never carries the link (which holds the key), only whether
+   *  there is one, so the page asks GET /setup/viewer for it before redrawing. */
+  async function takeViewer(reply) {
+    viewer = reply;
+    if (!reply.hasLink || !(await loadViewer())) renderViewer();
+  }
+
+  async function viewerPost(path, body) {
+    let res;
+    try {
+      res = await fetch(path, { method: 'POST', headers: setupHeaders(!!body), body: body ? JSON.stringify(body) : undefined });
+    } catch {
+      viewerProblem = "Can't reach Smolcorp.";
+      return renderViewer();
+    }
+    if (res.ok) {
+      viewerProblem = '';
+      await takeViewer(await res.json());
+    } else {
+      viewerProblem = res.status === 400 ? await res.text() : "That didn't work.";
+      renderViewer();
+    }
+    return res.ok;
+  }
+
+  function said(id, text, how) {
+    $(id).textContent = text || '';
+    $(id).classList.toggle('good', how === 'good');
+    $(id).classList.toggle('wrong', how === 'wrong');
+  }
+
+  function clock(ms) {
+    return new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function renderViewer() {
+    const v = viewer;
+    if (!v) return;
+    if (document.activeElement !== $('viewer-url')) $('viewer-url').value = v.baseURL;
+    mark('step-viewer-address', !!v.baseURL);
+    said('viewer-url-result', viewerProblem, 'wrong');
+
+    mark('step-viewer-secret', v.hasSecret);
+    if (viewerSecret) $('step-viewer-secret').querySelector('.detail').textContent = 'Made ✓ Kept in your Keychain. Now give Vercel a copy.';
+    $('viewer-secret-box').hidden = !viewerSecret;
+    $('viewer-secret').textContent = viewerSecret;
+    $('viewer-make-secret').textContent = v.hasSecret ? 'New write secret…' : 'Make a write secret';
+
+    const ready = !!v.checked && v.checked.endsWith('✓') && !v.checked.startsWith('Viewer wiped');
+    mark('step-viewer-check', ready);
+    $('viewer-check').disabled = !v.setUp;
+    const checked = v.checked && !v.checked.startsWith('Viewer wiped') ? v.checked : '';
+    said('viewer-checked', checked, ready ? 'good' : 'wrong');
+
+    mark('step-viewer-link', !!v.link);
+    $('viewer-link-box').hidden = !v.link;
+    if (v.link) {
+      $('viewer-link').textContent = v.link;
+      const qr = `/setup/viewer/qr.png?r=${v.revision}`;
+      if ($('viewer-qr').getAttribute('src') !== qr) $('viewer-qr').src = qr;
+    }
+
+    $('step-viewer-on').classList.toggle('done', v.on);
+    $('viewer-switch').classList.toggle('on', v.on);
+    $('viewer-switch').disabled = !v.on && !v.setUp;
+    let detail;
+    if (v.on) {
+      detail = `On since ${clock(v.since)}` + (v.problem ? ` · ${v.problem}` : v.lastSent ? ` · last sent ${secondsAgo(v.lastSent)}` : '');
+    } else if (!v.setUp) {
+      detail = 'Not set up yet. Set the address and the write secret first.';
+    } else {
+      detail = v.problem || "Off. Turn it on here, or with Going away: launch portable office in the menu bar.";
+    }
+    $('viewer-on-detail').textContent = detail;
+    $('viewer-hide').checked = v.hideNames;
+    $('viewer-return').checked = v.stopOnReturn;
+    if (!$('viewer-hours').options.length) {
+      $('viewer-hours').replaceChildren(...v.hourChoices.map((h) => new Option(VIEWER_HOURS[h] || `${h} hours`, h)));
+    }
+    $('viewer-hours').value = String(v.stopAfterHours);
+
+    $('viewer-wipe').disabled = !v.setUp;
+    const wiped = v.checked && v.checked.startsWith('Viewer wiped');
+    $('step-viewer-wipe').classList.toggle('done', !!wiped);
+    $('viewer-wipe-detail').textContent = wiped ? 'Wiped ✓ Your viewer is empty.'
+      : 'Turns the portable office off and empties your viewer, for every link.';
+  }
+
+  function secondsAgo(ms) {
+    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    return s < 60 ? `${s} s ago` : ago(ms);
+  }
+
+  async function copyText(text, note) {
+    try {
+      await navigator.clipboard.writeText(text);
+      said(note, 'Copied', 'good');
+    } catch {
+      said(note, 'Select it and copy it by hand.', 'wrong');
+    }
+    setTimeout(() => said(note, ''), 2500);
+  }
+
+  $('viewer-save').onclick = () => viewerPost('/setup/viewer', { baseURL: $('viewer-url').value });
+  $('viewer-url').onkeydown = (e) => { if (e.key === 'Enter') $('viewer-save').click(); };
+  $('viewer-make-secret').onclick = async () => {
+    if (viewer && viewer.hasSecret
+      && !confirm('Make a new write secret? The one in Vercel stops working until you paste the new one there and redeploy.')) return;
+    const res = await fetch('/setup/viewer/secret', { method: 'POST', headers: setupHeaders(false) }).catch(() => null);
+    if (res && res.ok) {
+      const reply = await res.json();
+      viewerSecret = reply.secret || '';
+      delete reply.secret;
+      viewerProblem = '';
+      await takeViewer(reply);
+    } else {
+      viewerProblem = "Couldn't make a write secret.";
+      renderViewer();
+    }
+  };
+  $('viewer-secret-copy').onclick = () => copyText(viewerSecret, 'viewer-secret-copied');
+  $('viewer-check').onclick = () => {
+    said('viewer-checked', 'Checking…');
+    viewerPost('/setup/viewer/check');
+  };
+  $('viewer-link-copy').onclick = () => viewer && viewer.link && copyText(viewer.link, 'viewer-link-copied');
+  $('viewer-rotate').onclick = () => {
+    if (confirm("Rotate the key? Every link you've shared stops working, and you scan the new one.")) viewerPost('/setup/viewer/rotate');
+  };
+  $('viewer-switch').onclick = () => viewerPost(`/setup/viewer/switch?on=${viewer && viewer.on ? 0 : 1}`);
+  $('viewer-hide').onchange = () => viewerPost('/setup/viewer', { hideNames: $('viewer-hide').checked });
+  $('viewer-return').onchange = () => viewerPost('/setup/viewer', { stopOnReturn: $('viewer-return').checked });
+  $('viewer-hours').onchange = () => viewerPost('/setup/viewer', { stopAfterHours: Number($('viewer-hours').value) });
+  $('viewer-wipe').onclick = () => {
+    if (confirm('Wipe the viewer? The portable office turns off, and your viewer forgets every office it holds.')) viewerPost('/setup/viewer/wipe');
+  };
 
   /* ------------------------------------------------------------------ logo */
 
@@ -2678,8 +2938,12 @@
     if (location.hash === '#pair' && !state.pairing.code) post('/setup/pair');
     // From "Unpair All Phones…" in the tray, which has no dialog of its own.
     if (location.hash === '#unpair' && state.phones.length) $('unpair-all').click();
-  });
+    // From "Set up the viewer on the setup page" in the menu.
+    if (location.hash === '#viewer') $('viewer').scrollIntoView();
+  }).then(loadViewer);
   setInterval(() => { if (!document.querySelector('.over')) load(); }, 1500);
+  // The viewer's state, for its switch and "last sent": often while it's on.
+  setInterval(() => { if (viewer && (viewer.on || document.hasFocus())) loadViewer(); }, 5000);
 </script>
 </body>
 </html>

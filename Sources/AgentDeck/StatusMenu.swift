@@ -17,6 +17,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         item.menu = NSMenu()
         item.menu?.delegate = self
         deck.onChange = { [weak self] in self?.update() }
+        deck.portable.onChange = { [weak self] in self?.update() }
         update()
     }
 
@@ -35,7 +36,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     private func update() {
         guard error == nil else { return }
-        item.button?.image = StatusMenu.icon(for: Config.shared.logo)
+        // A small dot while the portable office is on, so it's seen at a glance.
+        item.button?.image = deck.portable.isOn ? StatusMenu.dotted(Config.shared.logo) : StatusMenu.icon(for: Config.shared.logo)
         let waiting = deck.sessions.all.filter { $0.state == .asking }.count
         item.button?.title = waiting > 0 ? " \(waiting)" : ""
     }
@@ -55,6 +57,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         if !deck.access.phones.all.isEmpty {
             add(to: menu, "Unpair All Phones…", #selector(unpairAll))
         }
+        menu.addItem(.separator())
+        addPortableOffice(to: menu)
         menu.addItem(.separator())
         if let office {
             let show = add(to: menu, "Show Office", #selector(toggleOffice), key: "o")
@@ -93,6 +97,43 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func officeSideways() { office?.setUpright(false) }
     @objc private func officeUpright() { office?.setUpright(true) }
 
+    /// The portable office (beta): the office on a phone from anywhere, view only.
+    private func addPortableOffice(to menu: NSMenu) {
+        let portable = deck.portable
+        if portable.isOn {
+            menu.addItem(withTitle: "Portable office: ON · \(portable.status)", action: nil, keyEquivalent: "").isEnabled = false
+            add(to: menu, "Stop portable office", #selector(stopPortable))
+            add(to: menu, "Copy viewer link", #selector(copyViewerLink))
+        } else {
+            let launch = add(to: menu, "Going away: launch portable office", #selector(startPortable))
+            if !portable.isSetUp {
+                launch.action = nil
+                launch.isEnabled = false
+                add(to: menu, "Set up the viewer on the setup page", #selector(setUpViewer)).indentationLevel = 1
+            } else if let problem = portable.problem {
+                menu.addItem(withTitle: problem, action: nil, keyEquivalent: "").isEnabled = false
+            }
+        }
+    }
+
+    @objc private func startPortable() { deck.portable.start() }
+    @objc private func stopPortable() { deck.portable.stop() }
+    @objc private func setUpViewer() { NSWorkspace.shared.open(deck.setupURL(then: "viewer")) }
+
+    /// The link holds the key: copied for this Mac only, not to your other devices
+    /// over Universal Clipboard, and marked so clipboard managers leave it out.
+    @objc private func copyViewerLink() {
+        guard let link = deck.portable.link else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.prepareForNewContents(with: .currentHostOnly)
+        let item = NSPasteboardItem()
+        item.setString(link, forType: .string)
+        for marker in ["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType"] {
+            item.setString("", forType: NSPasteboard.PasteboardType(marker))
+        }
+        pasteboard.writeObjects([item])
+    }
+
     @objc private func pairPhone() { NSWorkspace.shared.open(deck.setupURL(then: "pair")) }
 
     @objc private func unpairAll() {
@@ -130,6 +171,29 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         case .smolcorp: return smolcorpIcon
         case .keys: return keysIcon
         }
+    }
+
+    private static var dottedIcons: [Logo: NSImage] = [:]
+
+    /// The logo with a small dot in its corner, a hole cut around it so it
+    /// reads on the logo too. Still a template.
+    private static func dotted(_ logo: Logo) -> NSImage {
+        if let made = dottedIcons[logo] { return made }
+        let base = icon(for: logo)
+        let size = base.size
+        let image = NSImage(size: size, flipped: false) { rect in
+            base.draw(in: rect)
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            let dot = CGRect(x: size.width - 6, y: 0, width: 6, height: 6)
+            context.setBlendMode(.clear)
+            context.fillEllipse(in: dot.insetBy(dx: -1.5, dy: -1.5))
+            context.setBlendMode(.normal)
+            context.fillEllipse(in: dot)
+            return true
+        }
+        image.isTemplate = true
+        dottedIcons[logo] = image
+        return image
     }
 
     /// The hire, a little person in a suit and tie, a point to each cell of

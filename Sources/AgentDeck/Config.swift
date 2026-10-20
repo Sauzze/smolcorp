@@ -48,6 +48,9 @@ final class Config: Codable {
     var musicEnabled = false
     /// Where the deck's sessions are told to other tools, if anywhere.
     var webhook = Webhook()
+    /// The portable office's viewer: its address and options. Never its id,
+    /// key or write secret, which are in the Keychain.
+    var viewer = ViewerSettings()
     var hasCompletedSetup = false
     /// Some of the file couldn't be read as this version reads it, and is
     /// left out: a copy of the file is kept before it's saved over.
@@ -61,7 +64,7 @@ final class Config: Codable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles, rolesOffered
         case hireTerminal, hireInTmux, dictationEnabled, dictationLanguage, dictationForClaude
-        case musicEnabled, webhook, hasCompletedSetup
+        case musicEnabled, webhook, viewer, hasCompletedSetup
     }
 
     init() {}
@@ -109,6 +112,7 @@ final class Config: Codable {
         }
         musicEnabled = field(Bool.self, .musicEnabled) ?? false
         webhook = field(Webhook.self, .webhook) ?? Webhook()
+        viewer = field(ViewerSettings.self, .viewer) ?? ViewerSettings()
         hasCompletedSetup = field(Bool.self, .hasCompletedSetup) ?? false
         lostOnLoad = lost
     }
