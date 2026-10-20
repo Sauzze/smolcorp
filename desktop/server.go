@@ -151,6 +151,8 @@ type request struct {
 var (
 	portSuffix  = regexp.MustCompile(`:\d+$`)
 	ipv4Address = regexp.MustCompile(`^\d{1,3}(\.\d{1,3}){3}$`)
+	// The office's recordings, in Resources/web/sounds, served as office.js is.
+	sounds = []string{"/sounds/keys.m4a", "/sounds/keys.webm", "/sounds/talk.m4a", "/sounds/talk.webm"}
 )
 
 func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -277,6 +279,11 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// holds nothing of yours, so it needs no key.
 	if r.Method == http.MethodGet && r.URL.Path == "/office.js" {
 		serveFile(w, "Resources/web/office.js")
+		return
+	}
+	// Its recordings, the keyboards and the talk, in either kind a browser plays.
+	if r.Method == http.MethodGet && slices.Contains(sounds, r.URL.Path) {
+		serveFile(w, "Resources/web"+r.URL.Path)
 		return
 	}
 
@@ -877,6 +884,10 @@ func serveFramedBy(w http.ResponseWriter, name, frameOptions, frameAncestors str
 		w.Header().Set("Content-Type", "image/png")
 	case strings.HasSuffix(name, ".js"):
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	case strings.HasSuffix(name, ".m4a"):
+		w.Header().Set("Content-Type", "audio/mp4")
+	case strings.HasSuffix(name, ".webm"):
+		w.Header().Set("Content-Type", "audio/webm")
 	default:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("X-Frame-Options", frameOptions)

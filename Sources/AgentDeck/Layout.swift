@@ -85,7 +85,7 @@ struct Layout: Codable, Equatable {
 /// lounge's carpet and the piece in its corner, whether the sky keeps the
 /// computer's time or it's always day, its pets, whether the windows follow
 /// the seasons, how loud it is, the desks' finish, what everyone works at (a
-/// desk, a tent, a throne…), the monitors and the chairs' colour, how many of
+/// desk, a tent, a throne…), the monitors, the door, what drifts over the room and the chairs' colour, how many of
 /// its own staff hang about, the style it's in (Yours, or one that furnishes
 /// it for you), your team, the dress code, and where everything goes. office.js
 /// draws it, with the same choices. Anything unknown, or of the wrong kind, is
@@ -105,11 +105,21 @@ struct Room: Codable, Equatable {
     var pet: [String] = []
     var season = "calendar"
     var sound = "off"
+    /// The recorded keyboards while agents work, and talk at a desk a message is taken to, under the rest of the sound.
+    var ambience = "on"
     var desk = "wood"
     var workspace = "desk"
     var monitor = "standard"
+    /// The door onto the corridor: as it comes, haunted, with a wreath, a love-letter door, painted for the Lunar New Year, a locker room's, or a saloon's swinging half-doors.
+    var door = "standard"
+    /// What drifts, floats or crosses the room now and then: nothing, snow, hearts, the Lunar New Year's dragon dance, or confetti.
+    var drift = "none"
+    /// What the windows show after dark: nothing, fireworks round midnight, or a burst now and then every night.
+    var fireworks = "off"
     var chair = "teal"
     var staff = "some"
+    /// How a new session comes in and an ended one goes: "animated", with a coffee or a box, or "plain", just walking.
+    var arrivals = "animated"
     var preset = "yours"
     /// How each project's agent looks, by the project's name.
     var team: [String: TeamMember] = [:]
@@ -124,7 +134,7 @@ struct Room: Codable, Equatable {
 
     /// Each part's choices; the first is the standard one.
     static let choices = [
-        "mic": ["mic", "megaphone", "studio", "podcast", "karaoke", "headset", "walkie", "tincan", "radio"],
+        "mic": ["mic", "megaphone", "studio", "podcast", "karaoke", "headset", "walkie", "tincan", "radio", "reporter"],
         "floor": Room.floors,
         "paint": Room.paints,
         // The lounge's carpets, or any of the office's floors
@@ -132,39 +142,52 @@ struct Room: Codable, Equatable {
         "loungePaint": ["auto"] + Room.paints,
         "corner": ["arcade", "vending", "foosball", "fishtank", "books", "dragon", "pinball", "jukebox", "pool", "piano", "drums",
                    "telescope", "jellyfish", "bonsai", "jungle", "coffee", "servers", "printer", "boxing", "treadmill", "hottub",
-                   "ballpit", "campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth", "none"],
+                   "ballpit", "campfire", "bubbler", "neonbox", "wallbox", "djtable", "turntable", "boombox", "hifi", "synth",
+                   "cauldron", "graveyard", "lanterns", "pumpkinrack", "halfcourt", "arcadehoop", "ballrack", "studiodesk", "bench",
+                   "coffinbox", "skeletonmodel", "xmastree", "fireplace", "sleigh", "carolbox", "woodstove",
+                   "cocoabar", "heartbox", "candledinner", "plumtree", "lionhead", "watchparty", "noodlebar", "periscope", "sonar", "espressobar", "saloonbar", "pianola",
+                   "stadiumorgan", "valveradio", "guzheng", "holobooth", "gramophone", "discobooth", "cosmicsynth", "koipond", "singingbowls", "guitarhook", "none"],
         "sky": ["live", "day"],
         "season": ["calendar", "off"],
         "sound": ["off", "quiet", "normal"],
+        "ambience": ["on", "off"],
         "desk": ["wood", "walnut", "white", "black"],
         "workspace": Room.workspaces,
         "monitor": ["standard", "crt", "holo", "brass", "crystal", "gilt", "ice", "ultrawide", "dual", "laptop", "bamboo", "tablet",
-                    "portrait"],
+                    "portrait", "broadcast", "ghostcrt", "ouija", "tombstone", "candycane", "giftwrap", "knitmon", "heartframe", "locket", "lanternmon", "scoreboard", "catnap"],
+        "door": ["standard", "haunted", "wreathdoor", "mailboxdoor", "lunardoor", "lockerdoor", "saloondoor"],
+        "drift": ["none", "snow", "hearts", "lunar", "confetti"],
+        "fireworks": ["off", "midnight", "nightly"],
         "chair": ["teal", "black", "red", "grey", "green"],
         "staff": ["some", "none", "many"],
+        "arrivals": ["animated", "plain"],
         "preset": Room.presets,
     ]
     static let floors = ["wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest",
-                         "rubber", "epoxy", "arcade"]
+                         "rubber", "epoxy", "arcade", "hauntedcourt", "court", "studio", "stationfloor", "zensand", "planks"]
     static let paints = ["slate", "sage", "clay", "cream", "hull", "timber", "damask", "stone", "ice", "logs", "brick", "bamboo",
-                         "block", "foam"]
+                         "block", "foam", "primetime", "bleachers", "stationwall", "shoji", "plankwall"]
     /// The office's styles: Yours, as you furnished it, then each that
     /// furnishes it for you. office.js keeps what each one is.
-    static let presets = ["yours", "classic", "campsite", "royal", "space", "pirates", "arctic", "lair", "gamers", "garage", "gym", "jungle"]
+    static let presets = ["yours", "classic", "campsite", "royal", "space", "pirates", "arctic", "lair", "gamers", "garage", "gym", "jungle",
+                          "neoncity", "submarine", "lofi", "saloon", "zen", "treehouse"]
     /// What an agent can work at: the office's choice for everyone, and a
     /// team member's own, which can also be "auto".
     static let workspaces = ["desk", "standing", "gaming", "tent", "box", "beanbag", "igloo", "van", "cockpit", "ship", "throne",
                              "greenhouse", "console", "hover", "chest", "gilded", "crates", "altar", "log", "bench", "bamboo", "rack",
-                             "drafting", "glass"]
+                             "drafting", "glass", "scorer", "anchor", "coffin", "waxdesk", "clawdesk", "gingerdesk", "workbench", "plaiddesk", "pinkdesk", "lacedesk", "lacquerdesk", "courtdesk", "cyberdesk", "subconsole", "cafetable", "barreldesk", "discodesk", "lowtable", "cratedesk"]
     static let wallChoices = ["window", "whiteboard", "pinboard", "poster", "shelf", "plant", "bare",
                               "viewport", "porthole", "panel", "pipes", "seaPorthole", "map", "flag", "cutlasses", "tapestry",
                               "portrait", "stained", "shield", "frost", "skis", "weather", "torch", "arch", "neon", "tv", "hex",
                               "pegboard", "roller", "bike", "mirror", "timer", "climbing", "vines", "tiki", "blind", "cabin", "trail",
-                              "paddles"]
+                              "paddles", "pumpkins", "lanternhang", "cobweb", "ghosts", "broom", "leafgarland", "hauntedhoop", "spookyboard",
+                              "candycorn", "hoop", "scorebug", "lowerthird", "onair", "schedule", "pennants", "retired",
+                              "playboard", "garland", "scarfhooks", "heartgarland", "bemine", "lunarlanterns", "pennantline", "scarfwall", "rainwindow", "neonsign", "fishporthole", "chalkmenu", "pendantlamps", "wanted", "countdown", "streamers", "balloons", "earthwindow", "paperscreen", "leafwindow", "ropeladder"]
     static let standardWall = ["window", "whiteboard", "window", "pinboard", "window"]
     /// The pets an office can have, and the most it has at once.
     static let pets = ["cat", "dog", "lizard", "monkey", "llama", "penguin", "parrot", "owl", "capybara", "redpanda", "corgi", "hamster",
-                       "robodog", "bat", "snail", "fox", "axolotl"]
+                       "robodog", "bat", "snail", "fox", "axolotl", "blackcat", "goat", "raven", "ghost", "spider", "reindeer", "snowman",
+                       "snowhare", "cupid", "lovebirds", "drone", "tumbleweed"]
     static let petsMost = 3
 
     init() {}
@@ -188,11 +211,16 @@ struct Room: Codable, Equatable {
         pet = Room.checkedPets(pets.compactMap { $0 })
         season = choice(.season) ?? season
         sound = choice(.sound) ?? sound
+        ambience = choice(.ambience) ?? ambience
         desk = choice(.desk) ?? desk
         workspace = choice(.workspace) ?? workspace
         monitor = choice(.monitor) ?? monitor
+        door = choice(.door) ?? door
+        drift = choice(.drift) ?? drift
+        fireworks = choice(.fireworks) ?? fireworks
         chair = choice(.chair) ?? chair
         staff = choice(.staff) ?? staff
+        arrivals = choice(.arrivals) ?? arrivals
         preset = choice(.preset) ?? preset
         let given = ((try? c?.decodeIfPresent([Loose].self, forKey: .wall)) ?? nil) ?? []
         wall = Room.standardWall.enumerated().map { i, standard in
@@ -250,12 +278,19 @@ struct TeamMember: Codable, Equatable {
                    // A style's own, and each model family's
                    "astronaut", "flightsuit", "pirate", "captain", "parka", "explorer", "robe", "knight", "wizard", "gamer",
                    "founder", "gymkit", "safari", "flannel", "hire", "claude", "gpt", "gemini", "grok", "qwen", "llama", "mistral",
-                   "deepseek", "kimi", "glm", "phi"],
+                   "deepseek", "kimi", "glm", "phi", "witch", "skeleton", "mummy", "refskeleton", "mummyjersey",
+                   "jersey", "warmup", "referee", "coachpolo", "blazer", "werewolf", "santa", "xmasjumper", "beanie", "cableknit", "redsuit", "heartsweater", "tangsuit", "playoffjersey", "superfan", "techwear", "submariner", "barista", "cowboy", "partyhat", "sequin",
+                   // The roles'
+                   "artdirector", "lawyer", "therapist", "plumber", "gmexec", "gmcoach", "gmtycoon",
+                   "detective", "hardhat", "librarian", "janitor", "firefighter", "pilot", "postman", "accountant", "marketer",
+                   "securityguard", "chef", "spacesuit", "kimono"],
         "colour": ["auto", "orange", "red", "pink", "purple", "blue", "teal", "green", "yellow", "grey", "black", "white"],
         "desk": ["auto", "plant", "papers", "lamp", "cactus", "duck", "trophy", "photo", "mug",
                  "helmet", "rocket", "terrarium", "quill", "candelabra", "goblet", "rum", "compass", "skull", "snowglobe", "thermos",
                  "penguin", "potions", "egg", "spellbook", "controller", "energy", "headset", "circuit", "pizza", "coffeepot",
-                 "dumbbell", "shaker", "kettlebell", "coconut", "pineapple", "tikimug", "enamel", "lantern", "pinecone", "none"],
+                 "dumbbell", "shaker", "kettlebell", "coconut", "pineapple", "tikimug", "enamel", "lantern", "pinecone",
+                 "jackolantern", "candles", "candy", "pumpkinball", "batfinger", "basketball",
+                 "whistle", "stopwatch", "sneaker", "foamfinger", "cup", "clipboard", "cocoa", "teapot", "roses", "chocolates", "redenvelopes", "tangerines", "nachos", "latte", "champagne", "noisemaker", "floatmug", "floatplant", "none"],
         "workspace": ["auto"] + Room.workspaces,
     ]
     /// The most a nickname can be, in characters.
