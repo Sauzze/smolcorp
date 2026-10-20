@@ -15,8 +15,9 @@ app = defines.get("app", "build/Smolcorp.app")  # noqa: F821, defined by dmgbuil
 here = "packaging/macos/dmg"
 app_name = os.path.basename(app)
 
-# The volume: compressed, read-only, and named like the app.
-format = "UDZO"
+# The volume, named like the app. make-dmg.sh asks for a writable image
+# (UDRW), takes the FinderInfo off the app, then compresses it to UDZO.
+format = defines.get("format", "UDZO")  # noqa: F821, defined by dmgbuild
 compression_level = 9
 filesystem = "HFS+"
 size = None  # worked out from the app

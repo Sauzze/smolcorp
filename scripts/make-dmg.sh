@@ -40,13 +40,28 @@ if ! "$VENV/bin/python" -c "import dmgbuild" 2>/dev/null; then
 fi
 
 echo "Making the DMG…"
-rm -f "$DMG"
-"$VENV/bin/dmgbuild" -s packaging/macos/dmg/settings.py -D app="$APP" "Smolcorp" "$DMG" >build/dmg.log 2>&1 || {
+RW="build/Smolcorp-rw.dmg"
+rm -f "$DMG" "$RW"
+"$VENV/bin/dmgbuild" -s packaging/macos/dmg/settings.py -D app="$APP" -D format=UDRW "Smolcorp" "$RW" >build/dmg.log 2>&1 || {
   cat build/dmg.log
   echo
   echo "The DMG wasn't made. The messages above say why."
   exit 1
 }
+
+# dmgbuild leaves com.apple.FinderInfo on the app it copies in, and
+# codesign --verify --strict refuses an app with it. Take it off in the
+# writable image, check the signature there, then compress.
+MOUNT="$(mktemp -d build/dmg-mount.XXXX)"
+hdiutil attach -quiet -nobrowse -noautoopen -readwrite -mountpoint "$MOUNT" "$RW"
+trap 'hdiutil detach -quiet "$MOUNT" 2>/dev/null || true' EXIT
+xattr -d com.apple.FinderInfo "$MOUNT/Smolcorp.app" 2>/dev/null || true
+codesign --verify --deep --strict "$MOUNT/Smolcorp.app"
+hdiutil detach -quiet "$MOUNT"
+trap - EXIT
+rmdir "$MOUNT"
+hdiutil convert -quiet "$RW" -format UDZO -imagekey zlib-level=9 -o "$DMG"
+rm -f "$RW"
 hdiutil verify -quiet "$DMG"
 
 if [ -n "${SMOLCORP_DEVELOPER_ID:-}" ]; then
