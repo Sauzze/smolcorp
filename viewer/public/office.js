@@ -18274,13 +18274,23 @@
 
     // The canvas holds the screen's own pixels, so the art can be scaled by
     // a whole number of them.
+    // Sizing the canvas empties it, so it's sized only when its size changes, and the room is drawn again at once,
+    // before the page next shows: left to the next frame, a window being resized would show it empty at most steps.
     function resize() {
       const ratio = host.window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.round(rect.width * ratio));
-      canvas.height = Math.max(1, Math.round(rect.height * ratio));
+      const width = Math.max(1, Math.round(rect.width * ratio)), height = Math.max(1, Math.round(rect.height * ratio));
+      if (canvas.width === width && canvas.height === height) return;
+      canvas.width = width;
+      canvas.height = height;
       ctx.imageSmoothingEnabled = false;
-      repaint(canvas); // emptied, even at the same size
+      repaint(canvas);
+      if (!visible || host.window.document.hidden || !latest) return;
+      try {
+        draw(performance.now());
+      } catch {
+        // Drawn again at the next frame, which says what went wrong if it does again
+      }
     }
 
     /** Follows the window the canvas is in now: its size, and whether it can be seen. */
@@ -19527,6 +19537,7 @@
       moved() {
         if (finger) lift();
         bind();
+        repaint(canvas); // in another window: its layer goes there too
         resize();
         run();
       },
