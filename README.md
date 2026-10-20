@@ -65,9 +65,10 @@ The office has up to nine desks, so you can run it like a small company.
 
 **Hire by role.** Hold the desk a new hire would take, and pick who to hire:
 a **Reviewer**, a **Tester**, a **Bug hunter**, a **Docs writer**, a
-**Refactorer**, or one of up to twelve roles of your own. Each role has its own
-instructions, agent, model and effort, and comes in wearing its badge, like the
-Reviewer's glasses and red pen. A role never guesses what to work on: its first
+**Refactorer**, thirteen more from an Art Director to a Chef, or one of up to
+twelve roles of your own. Each role has its own instructions, agent, model and
+effort, and comes in wearing its badge, like the Reviewer's glasses and red pen,
+and many dress for the job. A role never guesses what to work on: its first
 reply asks you which project, and its own questions, such as which branch to
 review. Hiring from the office needs the Mac app for now; on Windows and Linux,
 `smolcorp run --role reviewer` starts one from any terminal.
@@ -347,11 +348,14 @@ There's more to see while they work:
 
 - **A style** furnishes the whole office in one go: Classic, Campsite, Royal
   court, Space station, Pirate cove, Arctic base, Dragon's lair, Gamer den,
-  Startup garage, Fitness floor or Jungle. Most bring a pet of their own: a
+  Startup garage, Fitness floor, Jungle, Neon city, Submarine, Lo-fi café, Wild
+  West saloon, Zen garden or Treehouse. Most bring a pet of their own: a
   fox at the Campsite, a corgi at the Royal court, a robot dog on the Space
   station, a parrot in the Pirate cove, a penguin at the Arctic base, an owl in
-  the Dragon's lair, a hamster in a ball in the Gamer den and a monkey in the
-  Jungle. Switch it from your phone too: tap the key in the room's top-left
+  the Dragon's lair, a hamster in a ball in the Gamer den, a monkey in the
+  Jungle, a hover drone in Neon city, a cat in the Submarine and the Lo-fi café,
+  a tumbleweed in the saloon, a snail in the Zen garden and a red panda in the
+  Treehouse. Switch it from your phone too: tap the key in the room's top-left
   corner and pick one. **Yours** is the office as you furnish it below, and
   changing anything there but the pets takes you back to it. Your team, the
   daylight, the seasons and the sound stay as you set them, and so do the pets
@@ -379,14 +383,25 @@ There's more to see while they work:
 - **Up to three pets:** a cat that naps on the couch, a dog that follows
   people about, a lizard that basks on the wall, a monkey that climbs on things
   and steals cups, or a llama, a penguin, a parrot, an owl, a capybara, a red
-  panda, a corgi, a hamster in a ball, a robot dog, a bat, a snail, a fox or an
-  axolotl. Pick them in any style, and they take the place of its own.
+  panda, a corgi, a hamster in a ball, a robot dog, a bat, a snail, a fox, an
+  axolotl, a black cat, a goat, a raven, a little ghost, a spider on a thread, a
+  reindeer, a little snowman, a snow hare, a little cupid, lovebirds, a hover
+  drone or a tumbleweed. Pick them in any style, and they take the place of its
+  own.
+- **In the air:** nothing, snow, floating hearts, a dragon dance or confetti,
+  and **in the windows**, fireworks at night.
+- **The seasons' pieces**, each its own choice in the room editor: Halloween,
+  Christmas, winter, Saint Valentine, Lunar New Year, New Year's Eve and a
+  sport season, a basketball court and a broadcast set, with outfits to match.
 - **Sound:** off, quiet or normal, in the style of an old games console, and
   mostly silence: a burst of typing as an agent gets to work, the door, the
   coffee machine, a ping-pong rally, the red button's siren, a hire, a firing,
   the pets, the wind in winter, and now and then the lounge's piece while
   someone's at it. The one sound that asks for you is the reminder after five
   minutes of waiting. It starts with your first tap, as browsers require.
+  Under it, softly, real keyboards while agents work, each at its own pace, and
+  a muffled chat at a desk while a message is taken there; turn that off under
+  *Typing and chatter*. The recordings are public domain (CC0), from Freesound.
 - **The desks** in wood, walnut, white or black, and **the chairs** in teal,
   black, red, grey or green.
 - **Office staff:** a few, none, or lots of them in the lounge.
@@ -453,24 +468,35 @@ setup page (it's off until you do):
   badge. Tap one, and a new Terminal window opens in the folder you chose on
   the setup page. Anyone is a regular hire, with the agent you chose; a role
   starts its own agent, at its model and effort, on its instructions. The new
-  hire walks in through the door. On a pinned project's empty desk, the hire
-  starts in that project instead.
+  hire walks in through the door with a coffee or a box. On a pinned project's
+  empty desk, the hire starts in that project instead.
+- **Comings and goings**, on the setup page: as above, with the coffee, the box
+  and the packing up, or **Plain**, where people just walk in and out.
 
 **Hire by role.** A role is a name, an agent, a model, an effort, a badge and
-instructions, set under *Roles* on the setup page. Five come with Smolcorp,
-each reporting what it finds and asking before it changes anything:
+instructions, set under *Roles* on the setup page. Eighteen come with
+Smolcorp, each reporting what it finds and asking before it changes anything:
 
 - **Reviewer** (glasses and a red pen): reviews the changes you point it to,
   most serious problems first.
 - **Tester** (a clipboard): runs the tests you pick and explains each failure.
-- **Bug hunter** (a magnifying glass): looks for bugs where you point it, with
-  how to reproduce each one.
-- **Docs writer** (a quill and notebook): checks the docs you pick against the
-  code.
-- **Refactorer** (a wrench): proposes one refactor at a time, within the limits
-  you give.
+- **Bug hunter** (a magnifying glass, dressed as a detective): looks for bugs
+  where you point it, with how to reproduce each one.
+- **Docs writer** (a quill and notebook, dressed as a librarian): checks the
+  docs you pick against the code.
+- **Refactorer** (a wrench, in a hard hat): proposes one refactor at a time,
+  within the limits you give.
+- And thirteen more, each dressed for the job: an **Art Director**, a
+  **Lawyer** (who says it isn't legal advice), a **Therapist** for when you're
+  stuck, a **Plumber** for pipelines, a **General Manager** to run the team, a
+  **Janitor** for clean-ups, a **Firefighter** for outages, a **Pilot** for
+  releases, a **Postman** for notifications and webhooks, an **Accountant**, a
+  **Marketer**, a **Security guard** and a **Chef** for scaffolds and
+  prototypes.
 
-Change any of them, put them in your order, or add up to twelve of your own.
+New roles that come with an update are added once, at the end of yours; one
+you've deleted isn't brought back. Change any of them, put them in your order,
+or add up to twelve of your own.
 A role never assumes what to work on. Its first reply only asks you, all
 together, which project to work on (at a pinned project's desk, whether it's
 that one) and its own questions, such as the Reviewer's branch, base and what
