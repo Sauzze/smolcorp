@@ -48,4 +48,31 @@ final class ConfigTests: XCTestCase {
         _ = Config.load(from: file)
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.appendingPathExtension("broken").path))
     }
+
+    /// A setting another version wrote, older, newer or a build of your own, is saved back as it was.
+    func testWhatThisVersionDoesntReadIsSavedBack() throws {
+        try #"{"hireFolder": "/work", "someLaterSetting": true, "someLaterList": ["a", "b"], "someLaterObject": {"x": 1}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        let config = Config.load(from: file)
+        config.hireFolder = "/elsewhere"
+        config.save(to: file)
+        let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        XCTAssertEqual(saved["hireFolder"] as? String, "/elsewhere", "this version's own settings win")
+        XCTAssertEqual(saved["someLaterSetting"] as? Bool, true)
+        XCTAssertEqual(saved["someLaterList"] as? [String], ["a", "b"])
+        XCTAssertEqual((saved["someLaterObject"] as? [String: Any])?["x"] as? Int, 1)
+        XCTAssertEqual(Config.load(from: file).hireFolder, "/elsewhere")
+    }
+
+    /// It holds the webhook's secret, so only you can read it, and its copy kept aside too.
+    func testItIsSavedReadableByYouAlone() throws {
+        Config().save(to: file)
+        try "{".write(to: file, atomically: true, encoding: .utf8)
+        _ = Config.load(from: file)
+        Config().save(to: file)
+        for saved in [file!, file.appendingPathExtension("broken")] {
+            let permissions = try FileManager.default.attributesOfItem(atPath: saved.path)[.posixPermissions] as? Int
+            XCTAssertEqual(permissions, 0o600, saved.lastPathComponent)
+        }
+    }
 }

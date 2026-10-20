@@ -53,7 +53,12 @@ final class Config: Codable {
     /// left out: a copy of the file is kept before it's saved over.
     private(set) var lostOnLoad = false
 
-    private enum CodingKeys: String, CodingKey {
+    /// What the file held that this version doesn't read, as it was: saved
+    /// back with the rest, so a setting from another version, older, newer
+    /// or a build of your own, isn't lost at the next save.
+    private var unknown: [String: Any] = [:]
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles, rolesOffered
         case hireTerminal, hireInTmux, dictationEnabled, dictationLanguage, dictationForClaude
         case musicEnabled, webhook, hasCompletedSetup
@@ -115,21 +120,33 @@ final class Config: Codable {
     static func load(from file: URL = Paths.config) -> Config {
         guard let data = try? Data(contentsOf: file) else { return Config() }
         guard let config = try? JSONDecoder().decode(Config.self, from: data) else {
-            try? data.write(to: file.appendingPathExtension("broken"), options: .atomic)
+            Paths.writePrivately(data, to: file.appendingPathExtension("broken"))
             return Config()
         }
-        if config.lostOnLoad { try? data.write(to: file.appendingPathExtension("broken"), options: .atomic) }
+        if config.lostOnLoad { Paths.writePrivately(data, to: file.appendingPathExtension("broken")) }
         if config.pins.count != KeyCount.most {
             config.pins = Array((config.pins + Array(repeating: nil, count: KeyCount.most)).prefix(KeyCount.most))
         }
+        let known = Set(CodingKeys.allCases.map(\.stringValue))
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        config.unknown = object.filter { !known.contains($0.key) }
         return config
     }
 
-    func save() {
+    func save(to file: URL = Paths.config) {
+        guard let data = encoded() else { return }
+        // Readable by you alone: it holds the webhook's secret.
+        Paths.writePrivately(data, to: file)
+    }
+
+    /// The file as it's saved: this version's settings, and what it didn't read, as it was.
+    func encoded() -> Data? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(self) else { return }
-        try? data.write(to: Paths.config, options: .atomic)
+        guard let data = try? encoder.encode(self) else { return nil }
+        guard !unknown.isEmpty, var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return data }
+        for (key, value) in unknown where object[key] == nil { object[key] = value }
+        return try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
     }
 
     /// Pin `folder` to key `index`, taking it off any other key it was on.
