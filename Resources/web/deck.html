@@ -152,7 +152,7 @@
    * and press the buttons made in setup; two fingers scroll its Terminal;
    * the red button is ☢ Max, the mic dictates, and a jukebox plays music.
    */
-  const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, moved() {} } : AgentOffice.create($('office-canvas'), {
+  const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, setSaving() {}, moved() {} } : AgentOffice.create($('office-canvas'), {
     select(id) {
       tick();
       selected = id;
@@ -250,6 +250,9 @@
    */
   office.setFramed(false);
   office.setFloating(saver ? 'edge' : bare ? 'bare' : 'screen');
+  // Only the Mac app's own window spares the battery, drawing less often; on the phone, the room is all there is
+  // to see, and goes at the screen's own rate.
+  office.setSaving(bare);
   office.setVisible(true);
 
   /*

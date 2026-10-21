@@ -8,7 +8,7 @@
  * whole number of the screen's pixels so every edge stays sharp.
  *
  *   AgentOffice.create(canvas, on) → { show(snapshot), close(), select(id), setVisible(shown), setFramed(framed), moved(),
- *                                      onElevator(clientX, clientY), ride() }
+ *                                      setSaving(on), onElevator(clientX, clientY), ride() }
  *
  * `show` takes what the deck streams; `close` empties the office when the
  * stream drops, and whoever is there when it's back is already at work.
@@ -17938,8 +17938,11 @@
   /* --------------------------------------------------------- on the page */
 
   /**
-   * At most 24 frames a second: the art moves in whole pixels, and more would only spend battery. Motion goes by
-   * the clock, so it's no slower. A calm office (see ROOM_CHOICES), with nothing wandering, needs half that.
+   * The room is drawn at each of the screen's refreshes, as smooth as the screen can show it: on a phone, it's all
+   * there is to see. Sparing a battery (see setSaving), as the Mac app's own window does, it's drawn at most 24
+   * times a second instead: the art moves in whole pixels, and more would only spend battery. Motion goes by the
+   * clock, so it's no slower either way. A calm office (see ROOM_CHOICES), with nothing wandering, needs half that,
+   * wherever it's seen.
    */
   const FRAME_TIME = 1000 / 24;
   const CALM_FRAME_TIME = 1000 / 12;
@@ -17997,6 +18000,7 @@
     let visible = true;
     let framed = false;  // seen through a window, beside the phone's controls
     let floating = null;  // floating in a 'window' of its own or a whole 'screen', from 'edge' to edge, or not
+    let saving = false;  // drawn less often, to spare a battery: see FRAME_TIME
     let frame = null;    // the animation frame asked for, and the timer waiting to ask for it
     let waiting = null;
     let last = 0;
@@ -18488,9 +18492,11 @@
       if (!visible || host.window.document.hidden) return;
       // The page's clock, not the frame's: each window counts its frames'
       // time from when it opened, and the room can move between them.
-      const time = performance.now(), every = frameRate ? 1000 / frameRate : decor.calm === 'on' ? CALM_FRAME_TIME : FRAME_TIME;
-      if (time - last < every - 1) return wake(every - (time - last));
-      wake(every);
+      const time = performance.now();
+      const every = frameRate ? 1000 / frameRate : decor.calm === 'on' ? CALM_FRAME_TIME : saving ? FRAME_TIME : 0;
+      if (!every) frame = host.window.requestAnimationFrame(tick); // at every refresh
+      else if (time - last < every - 1) return wake(every - (time - last));
+      else wake(every);
       const stale = last && time - last > STALE_AFTER;
       last = time;
       try {
@@ -19454,6 +19460,8 @@
         }
       },
       setFramed(shown) { framed = shown; },
+      /** Draws the room less often, to spare a battery, as the Mac app's own window does; or, with false, at every refresh. */
+      setSaving(on) { saving = !!on; },
       /**
        * Whether a point on the page is on the elevator, as a finger finds it,
        * for a page that takes the room's taps itself, as the portable viewer
