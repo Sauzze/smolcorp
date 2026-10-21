@@ -43,8 +43,12 @@ type Config struct {
 	HireAgent    string `json:"hireAgent"`
 	// The roles `smolcorp run --role` starts, as the Mac app's office hires
 	// them: those that come with the app until you change them, and your own.
-	Roles             []Role `json:"roles"`
-	HasCompletedSetup bool   `json:"hasCompletedSetup"`
+	Roles []Role `json:"roles"`
+	// The ids of the shipped roles this config has been given: a role that
+	// comes with a later version is added to your roles once, at the end, and
+	// one you've deleted isn't given back. Saved as every shipped role.
+	RolesOffered      []string `json:"rolesOffered"`
+	HasCompletedSetup bool     `json:"hasCompletedSetup"`
 	// What the file held that this version doesn't read, as it was: saved
 	// back with the rest, so a setting from another version, older or newer,
 	// or the Mac app's, isn't lost at the next save.
@@ -101,8 +105,21 @@ func loadConfig() *Config {
 	if config.Roles == nil {
 		config.Roles = slices.Clone(shippedRoles)
 	} else {
-		config.Roles = checkedRoles(config.Roles)
+		// Shipped roles this file hasn't been given are added once, at the
+		// end: a file from before rolesOffered was given the first five.
+		offered := config.RolesOffered
+		if offered == nil {
+			offered = rolesOfferedBefore
+		}
+		roles := checkedRoles(config.Roles)
+		for _, role := range shippedRoles {
+			if !slices.Contains(offered, role.ID) && !slices.ContainsFunc(roles, func(r Role) bool { return r.ID == role.ID }) {
+				roles = append(roles, role)
+			}
+		}
+		config.Roles = checkedRoles(roles)
 	}
+	config.RolesOffered = shippedRoleIDs()
 	// The mark the app had before it was Smolcorp is now the hire.
 	if config.Logo == "sauzze" {
 		config.Logo = "smolcorp"

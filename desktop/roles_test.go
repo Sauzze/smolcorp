@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -15,7 +16,8 @@ func TestRolesCometWithTheAppUntilYouChangeThem(t *testing.T) {
 	if roles := loadConfig().Roles; !sameRoles(roles, shippedRoles) {
 		t.Fatalf("a new config has roles %v, want the shipped ones", roles)
 	}
-	writeFile(t, configFile, `{"roles": []}`)
+	offered, _ := json.Marshal(shippedRoleIDs())
+	writeFile(t, configFile, `{"roles": [], "rolesOffered": `+string(offered)+`}`)
 	if roles := loadConfig().Roles; roles == nil || len(roles) != 0 {
 		t.Errorf("all roles taken out load as %v, want none", roles)
 	}
@@ -102,8 +104,9 @@ func TestRolesAsShippedIn171AreBroughtUpToDate(t *testing.T) {
 	saved, _ := json.Marshal(map[string]any{"roles": []any{shippedIn171[0], edited, shippedIn171[4],
 		map[string]any{"id": "own-1", "name": "Security", "questions": []any{"Which repo?", "", "  Any area?  ", 5}}}})
 	writeFile(t, configFile, string(saved))
+	// From before rolesOffered: the roles that came after the first five are added, at the end.
 	roles := loadConfig().Roles
-	if len(roles) != 4 || !roles[0].sameAs(shippedRoles[0]) || !roles[2].sameAs(shippedRoles[4]) {
+	if len(roles) != 4+len(shippedRoles)-5 || !roles[0].sameAs(shippedRoles[0]) || !roles[2].sameAs(shippedRoles[4]) {
 		t.Errorf("1.7.1's reviewer and refactorer load as\n%+v\n%+v\nwant today's", roles[0], roles[2])
 	}
 	if !roles[1].sameAs(func() Role { r, _ := edited.checked(); return r }()) {
@@ -226,5 +229,113 @@ func TestBackslashesBeforeAQuoteAreDoubled(t *testing.T) {
 	want := `"cmd.exe" /d /s /c "C:\npm\gemini.bat ^"two^ \\\\\^"^ end^" ^"ends^ \\^""`
 	if got != want {
 		t.Fatalf("the command line is\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestRolesThatComeWithAnUpdateAreAddedOnce(t *testing.T) {
+	isolate(t)
+	// A config from before the Art Director and the rest: given them once, at the end of yours.
+	writeFile(t, configFile, `{"roles": [{"id": "own-1", "name": "Mine"}, {"id": "tester", "name": "Tester"}]}`)
+	config := loadConfig()
+	ids := []string{}
+	for _, role := range config.Roles {
+		ids = append(ids, role.ID)
+	}
+	want := append([]string{"own-1", "tester"}, shippedRoleIDs()[5:]...)
+	if !slices.Equal(ids, want) {
+		t.Errorf("an older config's roles load as %v, want %v", ids, want)
+	}
+	if !slices.Equal(config.RolesOffered, shippedRoleIDs()) {
+		t.Errorf("it's saved as offered %v, want every shipped role", config.RolesOffered)
+	}
+	// One you then delete isn't given back.
+	config.Roles = config.Roles[:1]
+	config.save()
+	if roles := loadConfig().Roles; len(roles) != 1 || roles[0].ID != "own-1" {
+		t.Errorf("after deleting the shipped roles, roles load as %+v", roles)
+	}
+}
+
+func TestARoleDressesItsAgents(t *testing.T) {
+	var roles []Role
+	if err := json.Unmarshal([]byte(`[{"id": "a", "name": "A", "outfit": "chef"}, {"id": "b", "name": "B", "outfit": "auto"},
+		{"id": "c", "name": "C", "outfit": "ballgown"}, {"id": "d", "name": "D", "outfit": 3}, {"id": "e", "name": "E", "badge": "toque"}]`), &roles); err != nil {
+		t.Fatal(err)
+	}
+	kept := checkedRoles(roles)
+	for i, want := range []string{"chef", "", "", "", ""} {
+		if kept[i].Outfit != want {
+			t.Errorf("role %s wears %q, want %q", kept[i].ID, kept[i].Outfit, want)
+		}
+	}
+	if kept[4].Badge != "toque" {
+		t.Errorf("the Chef's badge became %q", kept[4].Badge)
+	}
+	if phone := kept[0].forPhone(); phone["outfit"] != "chef" || phone["instructions"] != nil {
+		t.Errorf("the phone is told %v", phone)
+	}
+	for _, role := range shippedRoles {
+		if role.Badge == "" || !slices.Contains(roleBadges, role.Badge) {
+			t.Errorf("%s has badge %q, which isn't one a role can wear", role.ID, role.Badge)
+		}
+		if role.Outfit != "" && !slices.Contains(teamChoices["outfit"], role.Outfit) {
+			t.Errorf("%s wears %q, which the office doesn't know", role.ID, role.Outfit)
+		}
+		if checked, ok := role.checked(); !ok || !checked.sameAs(role) {
+			t.Errorf("%s isn't kept as it comes", role.ID)
+		}
+	}
+}
+
+func TestShippedRolesKeptFromBeforeOutfitsGetTheirs(t *testing.T) {
+	isolate(t)
+	old := shippedBeforeOutfits()
+	edited := old[1]
+	edited.Name = "Docs"
+	saved, _ := json.Marshal(map[string]any{"roles": []any{old[0], edited, old[2]}, "rolesOffered": shippedRoleIDs()})
+	writeFile(t, configFile, string(saved))
+	roles := loadConfig().Roles
+	if roles[0].Outfit != "detective" || roles[2].Outfit != "hardhat" {
+		t.Errorf("the Bug hunter and the Refactorer wear %q and %q, want detective and hardhat", roles[0].Outfit, roles[2].Outfit)
+	}
+	if roles[1].Outfit != "" || roles[1].Name != "Docs" {
+		t.Errorf("a Docs writer you'd changed loads as %+v, want it as you had it", roles[1])
+	}
+}
+
+func TestTheRolesAreTheMacApps(t *testing.T) {
+	// The Mac app's Roles.swift is the source: each shipped role, its badge and outfit, word for word.
+	source, err := os.ReadFile(filepath.Join("..", "Sources", "AgentDeck", "Roles.swift"))
+	if err != nil {
+		t.Skip("the Mac app's source isn't here")
+	}
+	text := string(source)
+	// The instructions are Swift's lines, joined by their trailing backslashes.
+	joined := regexp.MustCompile(` \\\n\s*`).ReplaceAllString(text, " ")
+	for _, role := range shippedRoles {
+		head := fmt.Sprintf(`Role(id: %q, name: %q, agent: %q, model: %q, effort: %q`, role.ID, role.Name, role.Agent, role.Model, role.Effort)
+		if !strings.Contains(text, head) {
+			t.Errorf("%s isn't as the Mac app has it", role.ID)
+		}
+		for _, question := range role.Questions {
+			if !strings.Contains(text, fmt.Sprintf("%q", question)) {
+				t.Errorf("%s asks %q, which the Mac app's doesn't", role.ID, question)
+			}
+		}
+		tail := fmt.Sprintf(`badge: %q`, role.Badge)
+		if role.Outfit != "" {
+			tail += fmt.Sprintf(`, outfit: %q`, role.Outfit)
+		}
+		if !strings.Contains(text, tail+")") {
+			t.Errorf("%s's badge and outfit aren't the Mac app's", role.ID)
+		}
+		if !strings.Contains(joined, role.Instructions) {
+			t.Errorf("%s's instructions aren't the Mac app's", role.ID)
+		}
+	}
+	for _, badge := range roleBadges {
+		if !strings.Contains(text, fmt.Sprintf("%q", badge)) {
+			t.Errorf("badge %s isn't the Mac app's", badge)
+		}
 	}
 }

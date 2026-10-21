@@ -47,8 +47,8 @@ subsystem of its own. "–" where there is nothing to port.
 | pins, colours, layout, profiles, activeProfile, logo | ✓ | ✓ | none | – |
 | scrollEnabled, hiringEnabled, hireFolder, hireAgent, musicEnabled | ✓ | ✓ | none | – |
 | webhook, summaryOptIn, hasCompletedSetup | ✓ | ✓ | none | – |
-| roles | ✓ | ✓ | Go loses `outfit` and the 13 newer roles' badges | S |
-| rolesOffered | ✓ | – | Go never adds a role that comes with an update | S |
+| roles | ✓ | ✓ | **done**: outfits and every badge kept | – |
+| rolesOffered | ✓ | ✓ | **done** | – |
 | hireTerminal, hireInTmux | ✓ | – | with hiring | with hiring |
 | dictationEnabled, dictationLanguage, dictationForClaude | ✓ | kept, not read | Mac only | – |
 | viewer | ✓ | kept, not read | with the portable office | XL |
@@ -58,10 +58,10 @@ subsystem of its own. "–" where there is nothing to port.
 
 | Feature | Mac | Go | Gap | Effort |
 |---|---|---|---|---|
-| Shipped roles | 18 | 5 | Art Director to Chef missing | S |
-| Badges | 26 | 13 | 13 badges refused as roles are checked | S |
-| `Role.outfit` (what its agents wear) | ✓ | – | dropped as roles load, so a Mac config saved by Go loses it | S |
-| Outfit given to the shipped roles kept from before outfits | ✓ | – | migration | S |
+| Shipped roles | 18 | 18 | **done**, checked word for word against Roles.swift | – |
+| Badges | 26 | 26 | **done** | – |
+| `Role.outfit` (what its agents wear) | ✓ | ✓ | **done**, and sent to the phone | – |
+| Outfit given to the shipped roles kept from before outfits | ✓ | ✓ | **done** | – |
 | A role on its desk (`role` in the snapshot) | by hire, kept across `/clear` and restarts | by `smolcorp run --role` | Go's comes only from the launcher | with hiring |
 | `hiring.roles` / `hiring.hire` in the snapshot | ✓ | always empty / false | with hiring | with hiring |
 | Hire by role from the office | ✓ | – | **hiring** | L |
@@ -103,8 +103,8 @@ subsystem of its own. "–" where there is nothing to port.
 The page is shared and reads what each app's `/setup/state` holds. On Go it
 shows the launcher step, hides Accessibility and Dictation, says hiring "needs
 the Mac app", shows each role's `smolcorp run --role` command, and hides the
-viewer link (GET `/setup/viewer` is a 404). Its role editor already offers
-every badge and outfit the state lists; Go lists only 13 badges.
+viewer link (GET `/setup/viewer` is a 404). Its role editor offers every
+badge and outfit the state lists.
 
 ## Ranked: what to port
 
@@ -132,4 +132,10 @@ Not ported, and why:
 
 ## Progress
 
-Nothing ported yet.
+Done:
+
+1. **Roles, whole**: the eighteen shipped roles, word for word as the Mac
+   has them (a test reads `Roles.swift` to check), all 26 badges,
+   `Role.outfit` kept, checked and sent to the phone, the outfit given to a
+   shipped role kept from before outfits, and `rolesOffered`, so a role that
+   comes with an update is added once and one you deleted stays deleted.
