@@ -38,6 +38,10 @@ type Deck struct {
 	// when the last hire was made: see hire.go.
 	hires    map[string]*pendingHire
 	lastHire time.Time
+	// Whether a save of the sessions is coming, and the sessions from before
+	// a restart still waiting for their launcher: see saved.go.
+	savePending bool
+	restoring   *pendingRestore
 	// Whether music is playing, for the office's jukebox, when it can be told.
 	playing *bool
 	// This computer's output volume, for the jukebox's volume bar, nil where
@@ -93,6 +97,7 @@ func NewDeck() *Deck {
 	d.summaryKeys = newSummaryKeys(keyringStore, os.Getenv)
 	d.summaries = newSummaries(d.summaryKeys.Read)
 	go d.sendWebhooks()
+	d.restoreSessions()
 	// What's running as it starts is where the webhook starts from, so the first change after it is news
 	d.tellWebhook()
 	go func() {
@@ -307,6 +312,7 @@ func (d *Deck) changed() {
 		stream.send(state)
 	}
 	go d.OnChange()
+	d.scheduleSave()
 	d.tellWebhook()
 }
 
@@ -692,6 +698,8 @@ func (d *Deck) launcherConnected(id string, agent Agent, folder, role, hire stri
 		tab.desk = d.hiredDesk(hire)
 	}
 	d.launchers[id] = tab
+	// Back after a restart: the sessions it held are back too.
+	d.restoreLauncher(id)
 	return tab
 }
 

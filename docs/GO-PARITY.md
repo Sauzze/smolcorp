@@ -78,7 +78,7 @@ subsystem of its own. "–" where there is nothing to port.
 | Hand-on after `/clear` and `/resume` | ✓ | ✓ | none | – |
 | Messages between sessions (SendMessage) | ✓ | ✓ | none | – |
 | Floor 2: headless runs, hired-by card, pid and quiet pruning | ✓ | ✓ | none | – |
-| Sessions saved and restored across a restart | ✓ | – | after a restart the desks are empty until each agent next reports | M |
+| Sessions saved and restored across a restart | ✓ | ✓ | **done** | – |
 | A dropped session heard from again comes back, with its desk | ✓ | ✓ | **done** | – |
 
 ### The computer's side
@@ -162,3 +162,12 @@ Done:
    close, or its agent's process to go, is remembered for an hour, as on the
    Mac: heard from again, it takes back its desk and what it knew, rather
    than coming in as new; a new agent in its tab ends it for good.
+4. **Sessions across a restart.** As the Mac: `sessions.json`, written a
+   second after a change, readable by you alone, in the Mac's field names;
+   at start, the sessions still running are back on their keys, as they were
+   if saved in the last two minutes, at rest if older. Still running is,
+   for a tmux, WezTerm or kitty pane, its agent still in front there; for a
+   headless run, its process still there; and for a launcher, which the Mac
+   doesn't have, the launcher connecting again, as it does by itself a few
+   seconds after the app is back. One that doesn't within 30 seconds ended
+   while the app was away.

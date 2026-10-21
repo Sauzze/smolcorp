@@ -26,6 +26,8 @@ var (
 	phonesFile  = filepath.Join(supportDir, "phones.json")
 	configFile  = filepath.Join(supportDir, "config.json")
 	hookKeyFile = filepath.Join(supportDir, "hook-key")
+	// The sessions running, and their keys, kept across a restart.
+	sessionsFile = filepath.Join(supportDir, "sessions.json")
 	// The setup page's key, new at every start, for tools of your own on this computer.
 	setupKeyFile = filepath.Join(supportDir, "setup-key")
 	homeDir, _   = os.UserHomeDir()
