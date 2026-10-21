@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 )
@@ -44,6 +45,22 @@ type Config struct {
 	// them: those that come with the app until you change them, and your own.
 	Roles             []Role `json:"roles"`
 	HasCompletedSetup bool   `json:"hasCompletedSetup"`
+	// What the file held that this version doesn't read, as it was: saved
+	// back with the rest, so a setting from another version, older or newer,
+	// or the Mac app's, isn't lost at the next save.
+	unknown map[string]json.RawMessage
+}
+
+// knownConfigKeys are the names this version reads, from its fields' tags.
+func knownConfigKeys() map[string]bool {
+	known := map[string]bool{}
+	kind := reflect.TypeOf(Config{})
+	for i := 0; i < kind.NumField(); i++ {
+		if name, _, _ := strings.Cut(kind.Field(i).Tag.Get("json"), ","); name != "" && name != "-" {
+			known[name] = true
+		}
+	}
+	return known
 }
 
 // The logos to choose from: the hire, a little person in a suit, or the six
@@ -58,6 +75,18 @@ func loadConfig() *Config {
 		// next save doesn't take your pins, layouts, profiles and roles with it.
 		if err := json.Unmarshal(data, config); err != nil {
 			_ = writePrivate(configFile+".broken", data)
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(data, &fields) == nil {
+			known := knownConfigKeys()
+			for name, value := range fields {
+				if !known[name] {
+					if config.unknown == nil {
+						config.unknown = map[string]json.RawMessage{}
+					}
+					config.unknown[name] = value
+				}
+			}
 		}
 	}
 	// Layouts are checked again as they load: their buttons type into sessions.
@@ -93,9 +122,24 @@ func loadConfig() *Config {
 // save writes through a file beside the config and renames it, so a crash or
 // a full disk leaves the last config whole rather than half of the new one.
 func (c *Config) save() {
-	if data, err := json.MarshalIndent(c, "", "  "); err == nil {
-		_ = writePrivate(configFile, data)
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return
 	}
+	if len(c.unknown) > 0 {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(data, &fields) == nil {
+			for name, value := range c.unknown {
+				if _, ours := fields[name]; !ours {
+					fields[name] = value
+				}
+			}
+			if merged, err := json.MarshalIndent(fields, "", "  "); err == nil {
+				data = merged
+			}
+		}
+	}
+	_ = writePrivate(configFile, data)
 }
 
 // Pin pins folder to key index, taking it off any other key it was on.
