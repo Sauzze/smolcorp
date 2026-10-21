@@ -15,10 +15,19 @@ final class DeckRouter: Router {
     /// browser ask permission first for any cross-site request, which this
     /// server never grants — so a web page you visit cannot press these buttons.
     static let setupHeader = "x-agentdeck-setup"
+
+    /// The agent's pid from a hook's header: digits only, anything else is
+    /// ignored.
+    static func pid(_ text: String?) -> Int32? {
+        guard let text, !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isNumber }), let pid = Int32(text), pid > 0 else { return nil }
+        return pid
+    }
     /// The setup page's key, as a tool of your own sends it, read from the
     /// setup-key file; or as the page's cookie, from the menu's link.
     static let setupKeyHeader = "x-smolcorp-setup-key"
-    static let setupCookie = "smolcorp-setup"
+    /// A browser sends localhost's cookies to every port, so a test copy's has
+    /// a name of its own: each app's setup page would otherwise sign the other out.
+    static let setupCookie = Deck.port == 7710 ? "smolcorp-setup" : "smolcorp-setup-\(Deck.port)"
     /// The office's recordings, in web/sounds, served as office.js is.
     static let sounds: Set = ["/sounds/keys.m4a", "/sounds/keys.webm", "/sounds/talk.m4a", "/sounds/talk.webm"]
 
@@ -80,7 +89,9 @@ final class DeckRouter: Router {
             let time = Double(request.headers["x-agentdeck-at"] ?? "") ?? Date().timeIntervalSince1970 * 1000
             deck.ingest(request.json, reportedAs: request.headers["x-agentdeck-agent"] ?? "",
                         tab: request.headers["x-agentdeck-tab"] ?? "", tty: request.headers["x-agentdeck-tty"] ?? "",
-                        startedIn: request.headers["x-agentdeck-project"] ?? "", at: time)
+                        startedIn: request.headers["x-agentdeck-project"] ?? "",
+                        pid: DeckRouter.pid(request.headers["x-agentdeck-pid"]),
+                        parent: request.headers["x-agentdeck-parent"] ?? "", at: time)
             return respond(.status(204))
         }
 
@@ -200,6 +211,62 @@ final class DeckRouter: Router {
         case ("GET", "/setup/qr.png"):
             guard let code = deck.access.activeCode else { return respond(.status(404)) }
             respond(Response(contentType: "image/png", body: QRCode.png(for: deck.pairingLink(for: code)) ?? Data()))
+
+        // The portable office's viewer (beta). Only this reply carries the link,
+        // which holds the key; the write secret is in a reply only once, as it's made.
+        case ("GET", "/setup/viewer"):
+            respond(.json(deck.portable.setupState(withLink: true)))
+
+        case ("POST", "/setup/viewer"):
+            guard let given = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any] else {
+                return respond(.status(400, "That isn't a viewer setting."))
+            }
+            var viewer = config.viewer
+            if let address = given["baseURL"] as? String {
+                let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    viewer.baseURL = ""
+                } else {
+                    guard let origin = ViewerSettings.origin(of: trimmed) else { return respond(.status(400, ViewerSettings.addressProblem)) }
+                    viewer.baseURL = origin
+                }
+            }
+            if let hide = given["hideNames"] as? Bool { viewer.hideNames = hide }
+            if let stop = given["stopOnReturn"] as? Bool { viewer.stopOnReturn = stop }
+            if let hours = given["stopAfterHours"] as? Int, ViewerSettings.hourChoices.contains(hours) { viewer.stopAfterHours = hours }
+            let moved = viewer.baseURL != config.viewer.baseURL
+            config.viewer = viewer
+            config.save()
+            // A new address while it's on: the old viewer is told to forget it, and nothing more goes there.
+            if moved { deck.portable.stop() }
+            deck.portable.changed()
+            respond(.json(deck.portable.setupState()))
+
+        case ("POST", "/setup/viewer/secret"):
+            guard let secret = deck.portable.makeWriteSecret() else {
+                return respond(.status(500, "Couldn't keep the write secret in the Keychain."))
+            }
+            var state = deck.portable.setupState()
+            state["secret"] = secret
+            respond(.json(state))
+
+        case ("POST", "/setup/viewer/check"):
+            deck.portable.check { [deck] in respond(.json(deck.portable.setupState())) }
+
+        case ("POST", "/setup/viewer/switch"):
+            if request.query["on"] == "1" { deck.portable.start() } else { deck.portable.stop() }
+            respond(.json(deck.portable.setupState()))
+
+        case ("POST", "/setup/viewer/rotate"):
+            deck.portable.rotateKey()
+            respond(.json(deck.portable.setupState()))
+
+        case ("POST", "/setup/viewer/wipe"):
+            deck.portable.wipe { [deck] in respond(.json(deck.portable.setupState())) }
+
+        case ("GET", "/setup/viewer/qr.png"):
+            guard deck.portable.isSetUp, let link = deck.portable.link else { return respond(.status(404)) }
+            respond(Response(contentType: "image/png", body: QRCode.png(for: link) ?? Data()))
 
         case ("GET", let path) where path.hasPrefix("/setup/logo/"):
             guard let logo = Logo(rawValue: (path as NSString).lastPathComponent) else { return respond(.status(404)) }

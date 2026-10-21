@@ -166,10 +166,11 @@
       tick();
       send('/act', { action: 'swap', from, to });
     },
-    // A jukebox's keys: the computer's music plays or pauses, or skips a song either way.
-    music(key = 'playpause') {
-      tick();
-      send('/act', { action: 'music', do: key });
+    // A jukebox's keys: the computer's music plays or pauses, or skips a song
+    // either way; and its volume bar, dragged, with no tick for every step.
+    music(key = 'playpause', level) {
+      if (key !== 'volume') tick();
+      send('/act', { action: 'music', do: key, ...(key === 'volume' ? { level } : {}) });
     },
     // The mic's quick switch: the language dictation listens for, for every phone.
     language(lang) {
@@ -547,7 +548,8 @@
       mic: params.phase === 'down' ? 'starts listening' : 'stops listening',
       effort: `sets effort to ${params.level}`, scroll: 'scrolls',
       fire: 'fires', hire: params.role ? `hires a ${(roles.find((r) => r.id === params.role) || { name: 'role' }).name}` : 'hires a new agent', swap: 'swaps two desks', style: 'changes the office\'s style',
-      music: { previous: 'goes back a song', next: 'skips to the next song' }[params.do] || 'plays or pauses your music',
+      music: params.do === 'volume' ? `sets the volume to ${params.level}`
+        : { previous: 'goes back a song', next: 'skips to the next song' }[params.do] || 'plays or pauses your music',
     };
     return `${words[params.action] || params.action}${name}`;
   }

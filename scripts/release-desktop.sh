@@ -22,6 +22,8 @@ if [ -n "$(git status --porcelain)" ] || [ -n "$(git ls-files --others --ignored
   git ls-files --others --ignored --exclude-standard Resources/web
   exit 1
 fi
+# Nothing of the maintainer's own goes out in a download.
+scripts/check-public.sh
 VERSION="$(sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
 STAGE="build/desktop"
 rm -rf "$STAGE"

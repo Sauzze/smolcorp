@@ -458,6 +458,21 @@ func TestTheRoomKeepsOnlyChoicesItHas(t *testing.T) {
 	}
 }
 
+// The calm office is a choice of the room's, so it's kept with the layout, in the config and in its profiles.
+func TestACalmOfficeIsOffUntilChosen(t *testing.T) {
+	for given, want := range map[string]string{`{"calm": "on"}`: "on", `{"calm": "very"}`: "off", `{"floor": "tiles"}`: "off", `{"calm": 1}`: "off"} {
+		var room Room
+		if err := json.Unmarshal([]byte(given), &room); err != nil || room.Calm != want {
+			t.Errorf("%s gave calm %q, %v; want %q", given, room.Calm, err, want)
+		}
+	}
+	var room Room
+	json.Unmarshal([]byte(`{"calm": "on"}`), &room)
+	if written, _ := json.Marshal(room); !strings.Contains(string(written), `"calm":"on"`) {
+		t.Errorf("a calm room is written as %s", written)
+	}
+}
+
 func TestAnOfficeHasUpToThreePetsEachOnce(t *testing.T) {
 	for _, c := range []struct{ given, want string }{
 		{`"dog"`, `["dog"]`}, // one pet, as an office had before it could have more

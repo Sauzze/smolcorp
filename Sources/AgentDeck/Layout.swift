@@ -120,6 +120,9 @@ struct Room: Codable, Equatable {
     var staff = "some"
     /// How a new session comes in and an ended one goes: "animated", with a coffee or a box, or "plain", just walking.
     var arrivals = "animated"
+    /// A calm office: nobody wanders off, the pets rest, nothing drifts by, and it's drawn less often, for less power.
+    /// Agents still work, type and come and go.
+    var calm = "off"
     var preset = "yours"
     /// How each project's agent looks, by the project's name.
     var team: [String: TeamMember] = [:]
@@ -161,6 +164,7 @@ struct Room: Codable, Equatable {
         "chair": ["teal", "black", "red", "grey", "green"],
         "staff": ["some", "none", "many"],
         "arrivals": ["animated", "plain"],
+        "calm": ["off", "on"],
         "preset": Room.presets,
     ]
     static let floors = ["wood", "tiles", "concrete", "carpet", "plating", "deck", "marble", "flagstone", "snow", "grass", "forest",
@@ -221,6 +225,7 @@ struct Room: Codable, Equatable {
         chair = choice(.chair) ?? chair
         staff = choice(.staff) ?? staff
         arrivals = choice(.arrivals) ?? arrivals
+        calm = choice(.calm) ?? calm
         preset = choice(.preset) ?? preset
         let given = ((try? c?.decodeIfPresent([Loose].self, forKey: .wall)) ?? nil) ?? []
         wall = Room.standardWall.enumerated().map { i, standard in

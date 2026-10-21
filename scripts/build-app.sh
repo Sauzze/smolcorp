@@ -16,6 +16,10 @@ APP="build/$APP_NAME.app"
 ARCHS=()
 [ "${1:-}" = "universal" ] && ARCHS=(--arch arm64 --arch x86_64)
 
+# The phone's viewer draws with a copy of the office: an app whose office has
+# moved on without it would show the phone another room.
+viewer/scripts/sync-office.sh --check
+
 echo "Building…"
 mkdir -p build
 if ! swift build -c release ${ARCHS[@]+"${ARCHS[@]}"} >build/build.log 2>&1; then

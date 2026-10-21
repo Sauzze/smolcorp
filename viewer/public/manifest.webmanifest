@@ -1,0 +1,13 @@
+{
+  "name": "Office",
+  "short_name": "Office",
+  "display": "standalone",
+  "background_color": "#0e0e0e",
+  "theme_color": "#0e0e0e",
+  "icons": [
+    { "src": "/icon-v3-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-v3-167.png", "sizes": "167x167", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-v3-152.png", "sizes": "152x152", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-v3-120.png", "sizes": "120x120", "type": "image/png", "purpose": "any" }
+  ]
+}

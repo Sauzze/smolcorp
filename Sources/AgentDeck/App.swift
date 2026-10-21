@@ -4,6 +4,12 @@ import Carbon.HIToolbox
 @main
 enum AgentDeckApp {
     static func main() {
+        #if DEBUG
+        // The portable office's crypto and redaction, checked without starting the app.
+        if CommandLine.arguments.contains("--viewer-selftest") {
+            exit(ViewerSelfTest.run(arguments: CommandLine.arguments))
+        }
+        #endif
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
@@ -36,6 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !Config.shared.hasCompletedSetup {
             NSWorkspace.shared.open(deck.setupURL())
         }
+    }
+
+    /// The portable office stops on quit, and the viewer is asked to forget it, for up to 5 s.
+    func applicationWillTerminate(_ notification: Notification) {
+        deck.portable.stop(waitingUpTo: PortableOffice.quitWait)
     }
 
     /// Opening the app while it runs — from Finder, Spotlight or Launchpad —

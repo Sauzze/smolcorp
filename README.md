@@ -98,6 +98,19 @@ To set one up:
 
 3. Give it the work, and hire the rest of the team from the office.
 
+**Agents without a terminal work upstairs.** A manager, or a script of your
+own, can run Claude Code without a terminal, as `claude -p` does. Started with
+`SMOLCORP_HEADLESS=1` in its environment, such a run gets a desk on the second
+floor, away from your keys: take the elevator by the entrance to see it. There's
+nothing to press there, as there's no terminal to type into. Set
+`SMOLCORP_PARENT_FOLDER` to the folder of whoever started it, and holding its
+desk says who hired it, what it's doing and for how long; tap the hirer to go
+down to their desk. A run that ends, or stops being heard from, leaves.
+
+```sh
+SMOLCORP_HEADLESS=1 SMOLCORP_PARENT_FOLDER="$PWD" claude -p "Write the changelog for this release"
+```
+
 ## Supported agents
 
 Each agent tells Smolcorp what it's doing through its own hooks, and the
@@ -165,7 +178,12 @@ that needs no Accessibility at all.
 
 ## Install
 
-There are two ways. Both give you the same app.
+Smolcorp is in **alpha**. It works day to day, but it isn't signed with an
+Apple Developer ID or notarised yet, so macOS warns you before it opens it
+the first time, and again after each update. The steps below get past that
+warning; they're needed until a signed release.
+
+There are three ways. All give you the same app.
 
 ### Download the app
 
@@ -174,10 +192,14 @@ There are two ways. Both give you the same app.
 2. In the window that opens, drag **Smolcorp** onto the **Applications**
    folder beside it. Then open Smolcorp from your Applications folder, and
    eject the **Smolcorp** disk in Finder's sidebar.
-3. macOS will say it can't check Smolcorp for malicious software, because
-   the app isn't notarised by Apple. Click **Done**, then go to
-   **System Settings → Privacy & Security**, scroll down, and click
-   **Open Anyway** next to Smolcorp. You only do this once.
+3. macOS says *"Smolcorp" Not Opened*, as Apple can't check it for
+   malicious software. Click **Done**. Then:
+   1. Open **System Settings → Privacy & Security** and scroll down to
+      *Security*, where it says Smolcorp was blocked.
+   2. Click **Open Anyway**, and confirm with your password or Touch ID.
+   3. Open Smolcorp again, and click **Open Anyway** in the dialog.
+
+   You do this the first time, and after each update.
 
 The release also has **Smolcorp.zip**, the same app in a zip: open it and
 drag **Smolcorp** into your Applications folder.
@@ -194,6 +216,15 @@ deck to your phone's Home Screen again for the new name and icon.
 Updating from AgentDeck? Quit it, delete **AgentDeck** from Applications and
 install as above. Your settings carry over, but pair your phone again, add it
 to your Home Screen again, and turn the app back on under Accessibility.
+
+### Or with Homebrew
+
+```sh
+brew install --cask sauzze/tap/smolcorp
+```
+
+Update with `brew upgrade --cask smolcorp`. The first time it opens, and after
+each update, macOS asks as above: follow step 3.
 
 ### Or build it yourself
 
@@ -405,11 +436,15 @@ There's more to see while they work:
 - **The desks** in wood, walnut, white or black, and **the chairs** in teal,
   black, red, grey or green.
 - **Office staff:** a few, none, or lots of them in the lounge.
+- **A calm office**, under *Life*: nobody wanders off, the staff and pets stay
+  put and nothing drifts by the windows, so the office moves only for the work,
+  and draws less often, for less power. Agents still work, type, come and go.
 - **A jukebox that plays your music**, once you turn it on under *Getting
   started*: tap any jukebox in the office to play or pause whatever this
   computer is playing, Spotify, Apple Music or a video in your browser. It
   lights up while Spotify or Apple Music plays; macOS asks once whether
-  Smolcorp may ask them.
+  Smolcorp may ask them. Hold a jukebox for its controls: back, play or
+  pause, next, and a bar for this computer's volume.
 
 **Arrange the room** puts everything where you want it. Click **Arrange the
 room…** under *Office*, and the office fills the window: click a piece to pick
@@ -550,6 +585,71 @@ yourself. In that case, make sure `~/.claude/settings.json` contains:
 Voice input needs Claude Code signed in with a Claude.ai account. Claude Code
 sends your audio to Anthropic to be transcribed. Smolcorp itself never
 hears it.
+
+## Portable office (beta)
+
+See the office on your phone from anywhere, over 4G, while you're away. It's
+view only: nothing on the phone can press a key or type into a session. It's
+off until you launch it, and off again each time Smolcorp starts.
+
+While it's on, Smolcorp locks a trimmed-down copy of the office on your Mac
+(AES-256-GCM) and puts it on a small viewer you run on your own Vercel. The
+key is only in your Mac's Keychain and in your link, after the `#`, which
+browsers never send to any server, so the viewer only ever holds locked data.
+
+### Set it up on Vercel
+
+1. On Vercel, make a project from your fork of this repository. Set its Root
+   Directory to `viewer/`, its Framework to "Other", and leave the build
+   command empty.
+2. Add **Upstash Redis** to it from the Vercel Marketplace (the free plan is
+   enough). It adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` for you.
+3. On Smolcorp's setup page, under **Viewer link**, press **Make a write
+   secret** and copy it. It's shown once. In the Vercel project, add it as
+   the environment variable `VIEWER_WRITE_SECRET` (Production).
+4. Deploy to production. Paste the production address
+   (`https://office-viewer-xxxx.vercel.app`) into **Viewer address**, press
+   **Save**, then **Check the viewer**. It says **Viewer ready ✓** or what's
+   wrong.
+5. Scan the QR code with your phone and add the page to your Home Screen.
+
+A custom domain works too. Vercel Authentication doesn't, since the phone has
+no Vercel login. To keep strangers from using up your free Upstash allowance,
+add the firewall rule in [viewer/README.md](viewer/README.md), which also has
+the relay's protocol, if you'd rather host the viewer elsewhere.
+
+### Start and stop it
+
+- **Start:** menu bar → **Going away: launch portable office**. The phone shows
+  the office within a few seconds. While it's on, the menu bar icon has a small
+  dot, and the menu says **Portable office: ON** with when it last sent.
+- **Stop:** menu bar → **Stop portable office**, or quit Smolcorp. The viewer
+  forgets the office straight away, and the phone says "Not active". It also
+  stops by itself when you're back at your Mac (you unlock it, or wake it and
+  use it, but not in the first two minutes, so you can launch it and then
+  lock), and after 8 hours. Both can be changed on the setup page.
+- **Lost your phone, or shared the link by mistake:** setup → **Rotate key…**.
+  Every old link stops working for good; scan the new QR code. The link holds
+  the key, so keep it to yourself: **Copy viewer link** in the menu copies it
+  for this Mac only, never to your other devices.
+- **Wipe the viewer** empties it of everything it holds.
+
+### What's sent, and what never is
+
+Sent, locked: each desk's state (working, waiting, done, failed), its agent and
+effort, whether it's compacting, its subagents' kinds, its role's name, badge
+and outfit, the theme, and how the room is furnished. Project names too,
+unless you turn on **Hide project names**, which shows "Desk 1", "Desk 2"…
+instead, upstairs too, where a run's hirer becomes the hiring desk's number.
+
+Never: transcripts, prompts, what an agent or you wrote, dictation,
+file names, folders and paths, commands, models, your buttons, session ids,
+your Mac's name, addresses, phone ids, and any key or token. Your write
+secret, the viewer's id and its key are kept in the Keychain, never in
+`config.json`.
+
+The viewer sees when the office is on and roughly how big it is, nothing
+else. The Windows and Linux app doesn't have the portable office.
 
 ## Tell other tools
 

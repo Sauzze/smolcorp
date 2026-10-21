@@ -196,3 +196,67 @@ func TestFocusingWhileHooksArriveReadsTheTabSafely(t *testing.T) {
 	}
 	<-done
 }
+
+// headless starts count headless runs, oldest first.
+func headless(d *Deck, count int) {
+	for i := range count {
+		id := fmt.Sprintf("h%d", i)
+		e := map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": id, "cwd": "/work/api"}
+		d.sessions.Apply(e, Claude, "headless:"+id, "", float64(1000+i))
+	}
+}
+
+func TestHeadlessRunsSitUpstairsAwayFromTheKeys(t *testing.T) {
+	d := newTestDeck(t)
+	running(d, 2)
+	headless(d, 14)
+	keys, overflow := d.layout()
+	for i, key := range keys {
+		if key.session != nil && key.session.Headless() {
+			t.Fatalf("key %d holds a headless run", i+1)
+		}
+	}
+	if len(keys) != 2 || len(overflow) != 0 {
+		t.Fatalf("%d keys and %d over, want 2 and none", len(keys), len(overflow))
+	}
+	var snapshot struct {
+		Overflow int
+		Upstairs struct {
+			Desks    []map[string]any
+			Overflow int
+		}
+	}
+	if err := json.Unmarshal(d.snapshot(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Overflow != 0 || len(snapshot.Upstairs.Desks) != 12 || snapshot.Upstairs.Overflow != 2 {
+		t.Fatalf("downstairs over %d, upstairs %d desks and %d over; want 0, 12 and 2",
+			snapshot.Overflow, len(snapshot.Upstairs.Desks), snapshot.Upstairs.Overflow)
+	}
+	first := snapshot.Upstairs.Desks[0]
+	if first["id"] != "h0" || first["headless"] != true || first["role"] != nil {
+		t.Fatalf("the first desk upstairs is %v", first)
+	}
+	for _, control := range []string{"keys", "fire", "mic", "dictates"} {
+		if first[control] != false {
+			t.Errorf("a headless desk has %s %v", control, first[control])
+		}
+	}
+	if status, message := d.Perform("accept", "h0", url.Values{}); status != http.StatusConflict || message != headlessNoControls {
+		t.Errorf("accepting on a headless run gave %d %q", status, message)
+	}
+	if status, _ := d.Focus("h0"); status != http.StatusConflict {
+		t.Errorf("focusing a headless run gave %d", status)
+	}
+}
+
+func TestNobodyUpstairs(t *testing.T) {
+	d := newTestDeck(t)
+	var snapshot struct{ Upstairs json.RawMessage }
+	if err := json.Unmarshal(d.snapshot(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if string(snapshot.Upstairs) != `{"desks":[],"overflow":0}` {
+		t.Fatalf("upstairs with nobody there is %s", snapshot.Upstairs)
+	}
+}

@@ -7,8 +7,8 @@
 # The event JSON arrives on stdin and is passed on as it is. The hook's key
 # comes from hook-header, which the app writes next to this script: curl
 # reads it from the file, so it never appears on a command line, where any
-# process on the Mac could see it with `ps`. Five more things are added as
-# headers:
+# process on the Mac could see it with `ps`. Five more things, and two more for a
+# headless run, are added as headers:
 #   - the agent, so the app reads the event in that agent's terms.
 #   - the time the event was raised. Hooks run in the background, so two events
 #     a few milliseconds apart can arrive in either order.
@@ -20,12 +20,19 @@
 #   - the folder the agent was started in, where the agent says. The event's
 #     cwd follows the agent into subfolders; the app names the session's
 #     project from this instead.
+#   - for a headless run (see below), the pid of the agent's process, so the
+#     app can tell when it has gone without waiting for an event;
+#   - and the folder it was launched from, where the launcher says in
+#     SMOLCORP_PARENT_FOLDER: the working folder of the employee who hired it.
 #
 # It never blocks or fails the session. If the app isn't running, the event
 # is simply dropped.
 #
 # Sessions in every terminal report in. One the app can't drive yet gets a
-# desk that shows what it's doing, without the controls.
+# desk that shows what it's doing, without the controls. A headless claude
+# run, one with no terminal at all, reports in only when whoever started it
+# sets SMOLCORP_HEADLESS=1: its tab is then headless:<session id>, which the
+# app never matches to a terminal tab, and it gets a desk upstairs.
 
 # Some agents run hooks with a pared-down environment.
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
@@ -36,6 +43,8 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 
 tty=""
 tab=""
+agent_pid=""
+parent=""
 pid=$PPID
 while [ -n "$pid" ] && [ "$pid" -gt 1 ]; do
   t="$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')"
@@ -67,7 +76,9 @@ in_terminal_app() {
 # Codex's do, and OpenCode 2's, in a background service of their own. The app
 # finds the tab itself, by the session's folder. Any other agent without a tty
 # is running headless, as claude -p does, and is left out: found by its folder,
-# it would land on the tab of an interactive session there.
+# it would land on the tab of an interactive session there. Unless it says it
+# is headless, with SMOLCORP_HEADLESS=1: then it is named by its session ID,
+# which can't be mistaken for any tab. A tty wins over the flag.
 if [ -n "$tty" ]; then
   # tmux first: it runs inside any of the others, whose variables it then
   # carries from whichever started it, stale. As the Windows and Linux hook's
@@ -92,6 +103,32 @@ if [ -n "$tty" ]; then
   else
     tab="other:$tty"
   fi
+elif [ "$SMOLCORP_HEADLESS" = "1" ] && [ "$AGENT" = "claude" ]; then
+  # The session ID is read from the event, which is then handed on as it is.
+  # Only its own shape is believed, as with the variables above.
+  event="$(cat)"
+  id="$(printf '%s' "$event" | perl -0777 -ne 'print $1 if /"session_id"\s*:\s*"([^"\\]*)"/')"
+  [[ "$id" =~ ^[A-Za-z0-9-]+$ ]] || exit 0
+  tab="headless:$id"
+  exec 0< <(printf '%s' "$event")
+  # The agent itself is the nearest claude up the tree; with none, the
+  # nearest node, running it. A node further up may be whatever started the
+  # run, and outlive it. Failing both, the process that ran this hook stands
+  # in for it.
+  agent_pid=$PPID
+  node_pid=""
+  p=$PPID
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+    c="$(ps -o comm= -p "$p" 2>/dev/null)"
+    case "${c##*/}" in
+      claude) agent_pid=$p; node_pid=""; break ;;
+      node) [ -n "$node_pid" ] || node_pid=$p ;;
+    esac
+    p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')"
+  done
+  [ -z "$node_pid" ] || agent_pid=$node_pid
+  parent="$SMOLCORP_PARENT_FOLDER"
+  clean "$parent" || parent=""
 else
   case "$AGENT" in
     codex|opencode) ;;
@@ -136,6 +173,8 @@ perl -e "$TRIM" | curl -s -m 2 -o /dev/null \
   -H "X-AgentDeck-Tab: $tab" \
   -H "X-AgentDeck-Project: $project" \
   -H "X-AgentDeck-At: $AT" \
+  ${agent_pid:+-H "X-AgentDeck-PID: $agent_pid"} \
+  ${parent:+-H "X-AgentDeck-Parent: $parent"} \
   --data-binary @- \
   "http://127.0.0.1:{{PORT}}/hook"
 

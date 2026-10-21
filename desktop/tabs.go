@@ -20,6 +20,10 @@ import (
 //	tmux:<pane>@<socket>       a tmux pane: $TMUX_PANE and $TMUX
 //	wezterm:<pane>@<socket>    a WezTerm pane: $WEZTERM_PANE and $WEZTERM_UNIX_SOCKET
 //	kitty:<window>@<socket>    a kitty window: $KITTY_WINDOW_ID and $KITTY_LISTEN_ON
+//	headless:<session id>      a headless claude run, started with SMOLCORP_HEADLESS=1
+//
+// A headless run has no tab at all: it is named so that it can't be mistaken
+// for one, and nothing is ever pressed, typed or watched there.
 //
 // The tab commands run the terminal's own program with arguments, never
 // through a shell, so nothing from an event is ever read as a command.
@@ -43,6 +47,13 @@ var errUnsupported = errors.New("not possible in this terminal")
 // keyGap separates repeated keys. Two Escapes sent back to back read as one
 // Alt+Escape; OpenCode's double Esc needs a beat between them.
 const keyGap = 120 * time.Millisecond
+
+// isHeadless is whether a tab's name is a headless run's, in the one shape
+// the hook sends.
+func isHeadless(name string) bool {
+	kind, id, _ := strings.Cut(name, ":")
+	return kind == "headless" && headlessID.MatchString(id)
+}
 
 // splitTab is a tab's name in parts.
 func splitTab(name string) (kind, id, socket string) {

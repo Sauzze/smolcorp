@@ -13,6 +13,13 @@ permissions:
   contents: read
 
 jobs:
+  public:
+    name: Nothing personal committed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/check-public.sh
+
   mac:
     name: Mac app
     runs-on: macos-latest

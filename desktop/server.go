@@ -235,8 +235,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		if err != nil {
 			at = nowMillis()
 		}
-		d.Ingest(decodeJSON(r.Body), r.Header.Get("X-AgentDeck-Agent"), r.Header.Get("X-AgentDeck-Tab"),
-			r.Header.Get("X-AgentDeck-Project"), at)
+		// The agent's pid, sent for a headless run: digits only, else ignored.
+		pid := 0
+		if text := r.Header.Get("X-AgentDeck-PID"); text != "" && strings.Trim(text, "0123456789") == "" && len(text) < 10 {
+			pid, _ = strconv.Atoi(text)
+		}
+		d.IngestFrom(decodeJSON(r.Body), r.Header.Get("X-AgentDeck-Agent"), r.Header.Get("X-AgentDeck-Tab"),
+			r.Header.Get("X-AgentDeck-Project"), pid, r.Header.Get("X-AgentDeck-Parent"), at)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	case r.URL.Path == "/launcher":

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -34,6 +35,9 @@ type Deck struct {
 	lastReturn map[string]time.Time
 	// Whether music is playing, for the office's jukebox, when it can be told.
 	playing *bool
+	// This computer's output volume, for the jukebox's volume bar, nil where
+	// it can't be read or set.
+	volume *musicVolume
 	// What each session was when the webhook was last told, nil until the
 	// deck first looks; and how the last delivery went, for the setup page.
 	told         map[string]told
@@ -55,7 +59,8 @@ const (
 	// open, as a browser may drop one that's quiet for a minute, and that the
 	// page can tell a stream that died quietly.
 	pingInterval = 40 * time.Second
-	// How often to look for tabs that closed without their session ending.
+	// How often to look for tabs that closed, and agents that exited, without
+	// their session ending.
 	pruneInterval = 10 * time.Second
 	// Claude stops listening by itself after two minutes.
 	voiceLimit = 120 * time.Second
@@ -96,6 +101,7 @@ func NewDeck() *Deck {
 	go func() {
 		for range time.Tick(pruneInterval) {
 			d.pruneClosedTabs()
+			d.pruneGoneAgents()
 		}
 	}()
 	go func() {
@@ -125,10 +131,14 @@ func (d *Deck) followMusic() {
 		return
 	}
 	playing := musicPlaying()
+	// The volume is looked at as often, to follow the keyboard's volume keys.
+	volume := readMusicVolume()
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if (playing == nil) != (d.playing == nil) || (playing != nil && *playing != *d.playing) {
+	if (playing == nil) != (d.playing == nil) || (playing != nil && *playing != *d.playing) ||
+		(volume == nil) != (d.volume == nil) || (volume != nil && *volume != *d.volume) {
 		d.playing = playing
+		d.volume = volume
 		d.changed()
 	}
 }
@@ -159,6 +169,37 @@ func (d *Deck) playMusic(key string) (int, string) {
 	return http.StatusNoContent, ""
 }
 
+// readMusicVolume and setMusicVolume read and set the output volume:
+// variables, for the tests.
+var (
+	readMusicVolume = getVolume
+	setMusicVolume  = setVolume
+)
+
+// setMusicLevel sets this computer's output volume from the jukebox's bar:
+// level is 0 to 100.
+func (d *Deck) setMusicLevel(text string) (int, string) {
+	level, ok := volumeLevel(text)
+	if !ok {
+		return http.StatusBadRequest, "The volume goes from 0 to 100."
+	}
+	d.mu.Lock()
+	enabled := d.config.MusicEnabled
+	d.mu.Unlock()
+	if !enabled {
+		return http.StatusForbidden, musicOff
+	}
+	if err := setMusicVolume(level); err != nil {
+		return http.StatusInternalServerError, "Couldn't reach the volume here."
+	}
+	go d.followMusic()
+	return http.StatusNoContent, ""
+}
+
+// headlessNoControls is what the phone says when a control is tried on a
+// headless run's desk.
+const headlessNoControls = "Nothing to type into: it runs headless."
+
 // musicOff is what the phone says when a jukebox is tapped with the control off.
 const musicOff = "The jukebox can't play your music: turn it on in setup."
 
@@ -167,6 +208,12 @@ const musicOff = "The jukebox can't play your music: turn it on in setup."
 // Ingest takes an event from the hook. reported is the agent the hook was
 // set up for; see agentOf for why that isn't always the sender.
 func (d *Deck) Ingest(event map[string]any, reported, tab, startedIn string, at float64) {
+	d.IngestFrom(event, reported, tab, startedIn, 0, "", at)
+}
+
+// IngestFrom is Ingest with the pid of the agent's process, where the hook
+// sent it, or 0.
+func (d *Deck) IngestFrom(event map[string]any, reported, tab, startedIn string, pid int, parent string, at float64) {
 	agent := agentOf(event, reported)
 	canonical := agent.canonical(event)
 	if canonical == nil {
@@ -178,6 +225,16 @@ func (d *Deck) Ingest(event map[string]any, reported, tab, startedIn string, at 
 		tab = d.launcherFor(canonical, agent)
 	}
 	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
+	if id, _ := canonical["session_id"].(string); pid > 0 || parent != "" {
+		if session := d.sessions.Get(id); session != nil {
+			if pid > 0 {
+				session.PID = pid
+			}
+			if parent != "" {
+				session.ParentFolder = parent
+			}
+		}
+	}
 	if d.noteMessage(canonical, agent) || changed {
 		d.changed()
 	}
@@ -262,9 +319,10 @@ type deckKey struct {
 // fixed number of keys, a session keeps its key until it ends, so keys don't
 // shuffle as sessions come and go. With Auto, the keys grow and shrink with
 // the sessions, and those still running keep their order when one ends.
-// Sessions beyond the last key have none until one frees up.
+// Sessions beyond the last key have none until one frees up. Headless runs
+// have no keys: they sit upstairs (see upstairs).
 func (d *Deck) layout() ([]deckKey, []*Session) {
-	remaining := d.sessions.All()
+	remaining := slices.DeleteFunc(d.sessions.All(), (*Session).Headless)
 	// A session that took another's place in its tab, as after /clear, takes its key too.
 	for new, old := range d.sessions.TakeReplacements() {
 		if index, ok := d.keyOf[old]; ok {
@@ -368,26 +426,13 @@ func (d *Deck) snapshot() []byte {
 			entry["pin"] = lastPathComponent(*key.pin)
 		}
 		if s := key.session; s != nil {
-			effort := s.Effort
-			if s.PendingEffort != "" {
-				effort = s.PendingEffort
-			}
-			entry["session"] = map[string]any{
-				"id": s.ID, "name": s.Name(), "project": s.ProjectName(), "state": s.State, "effort": effort,
-				"pending": s.PendingEffort != "", "agent": s.Agent, "agentName": s.Agent.Name(),
-				"dial": s.Agent.HasEffortDial(), "mic": s.Agent.HasVoice(),
-				"activity": orNull(s.Activity()), "tool": orNull(s.Tool), "model": orNull(s.Model),
-				"subagents":    append([]Subagent{}, s.Subagents...),
-				"maxPressedAt": millisOrNull(s.MaxPressedAt), "compacting": s.Compacting,
-				"messagedAt": millisOrNull(s.MessagedAt), "messaged": orNull(s.Messaged),
-				"turnStartedAt": millisOrNull(s.TurnStartedAt), "errorKind": orNull(s.ErrorKind),
-				"role": d.roleOf(s),
-			}
+			entry["session"] = d.sessionEntry(s)
 		}
 		entries[i] = entry
 	}
 	state, _ := json.Marshal(map[string]any{
-		"keys": entries, "overflow": len(overflow), "theme": currentTheme(d.config), "scroll": d.config.ScrollEnabled,
+		"keys": entries, "overflow": len(overflow), "upstairs": d.upstairs(),
+		"theme": currentTheme(d.config), "scroll": d.config.ScrollEnabled,
 		// What the office's held desks offer: firing here; hiring, by role or not, is the Mac app's for now.
 		"hiring": map[string]any{"fire": d.config.HiringEnabled, "hire": false, "roles": []any{}},
 		"music":  d.musicState(),
@@ -399,13 +444,85 @@ func (d *Deck) snapshot() []byte {
 	return state
 }
 
+// sessionEntry is what the phone is told of a session at a desk.
+func (d *Deck) sessionEntry(s *Session) map[string]any {
+	effort := s.Effort
+	if s.PendingEffort != "" {
+		effort = s.PendingEffort
+	}
+	return map[string]any{
+		"id": s.ID, "name": s.Name(), "project": s.ProjectName(), "state": s.State, "effort": effort,
+		"pending": s.PendingEffort != "", "agent": s.Agent, "agentName": s.Agent.Name(),
+		"dial": s.Agent.HasEffortDial(), "mic": s.Agent.HasVoice(),
+		"activity": orNull(s.Activity()), "tool": orNull(s.Tool), "model": orNull(s.Model),
+		"subagents":    append([]Subagent{}, s.Subagents...),
+		"maxPressedAt": millisOrNull(s.MaxPressedAt), "compacting": s.Compacting,
+		"messagedAt": millisOrNull(s.MessagedAt), "messaged": orNull(s.Messaged),
+		"turnStartedAt": millisOrNull(s.TurnStartedAt), "errorKind": orNull(s.ErrorKind),
+		"role": d.roleOf(s),
+	}
+}
+
+// hiredBy is who started a headless run, for its card upstairs: the
+// ground-floor session working in the folder it was launched from, the
+// oldest, by its id and name; else that folder's name with no id; else nil,
+// when the launcher didn't say. Only names leave the computer, never the
+// folder. With the lock held.
+func (d *Deck) hiredBy(s *Session) map[string]any {
+	parent := strings.TrimSuffix(s.ParentFolder, "/")
+	if parent == "" {
+		return nil
+	}
+	for _, other := range d.sessions.All() {
+		if !other.Headless() && (strings.TrimSuffix(other.Project, "/") == parent || strings.TrimSuffix(other.Folder, "/") == parent) {
+			return map[string]any{"id": other.ID, "name": other.ProjectName()}
+		}
+	}
+	return map[string]any{"id": nil, "name": lastPart(parent)}
+}
+
+// mostUpstairs is as many desks as the second floor has.
+const mostUpstairs = 12
+
+// upstairs is the second floor: a desk for each headless run, oldest first,
+// up to mostUpstairs, and how many more there are. Its desks show what each
+// is doing, with every control off: there is nothing to type into.
+func (d *Deck) upstairs() map[string]any {
+	desks := []map[string]any{}
+	overflow := 0
+	for _, s := range d.sessions.All() {
+		if !s.Headless() {
+			continue
+		}
+		if len(desks) == mostUpstairs {
+			overflow++
+			continue
+		}
+		entry := d.sessionEntry(s)
+		entry["headless"] = true
+		for _, control := range []string{"keys", "fire", "mic", "dial", "dictates"} {
+			entry[control] = false
+		}
+		entry["role"] = nil
+		entry["startedAt"] = int64(s.StartedAt)
+		entry["hiredBy"] = d.hiredBy(s)
+		desks = append(desks, entry)
+	}
+	return map[string]any{"desks": desks, "overflow": overflow}
+}
+
 // musicState is what the office's jukeboxes know: whether music is playing,
-// null when that can't be told, or nothing at all with the control off.
+// null when that can't be told, and the volume, null where it can't be set;
+// or nothing at all with the control off.
 func (d *Deck) musicState() any {
 	if !d.config.MusicEnabled {
 		return nil
 	}
-	return map[string]any{"playing": d.playing}
+	state := map[string]any{"playing": d.playing, "volume": nil, "muted": false}
+	if d.volume != nil {
+		state["volume"], state["muted"] = d.volume.level, d.volume.muted
+	}
+	return state
 }
 
 // orNull and millisOrNull write nothing as null, as the Mac app does.
@@ -505,6 +622,9 @@ func (d *Deck) launcherGone(id string, tab *launcherTab) {
 // tab is the Tab a session's tab name stands for, with the lock held.
 func (d *Deck) tab(name string) Tab {
 	kind, id, socket := splitTab(name)
+	if kind == "headless" {
+		return nil // nothing to press, type into or watch
+	}
 	if kind == "launcher" {
 		if tab, ok := d.launchers[id]; ok {
 			return tab
@@ -538,6 +658,16 @@ func (d *Deck) pruneClosedTabs() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.sessions.Prune(func(name string) bool { return !gone[name] }, nowMillis()) {
+		d.changed()
+	}
+}
+
+// pruneGoneAgents drops sessions whose agent has exited, and headless runs
+// long quiet: see Sessions.PruneGone.
+func (d *Deck) pruneGoneAgents() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.sessions.PruneGone(processGone, nowMillis()) {
 		d.changed()
 	}
 }
@@ -671,6 +801,9 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	}
 	if action == "music" {
 		key := query.Get("do")
+		if key == "volume" {
+			return d.setMusicLevel(query.Get("level"))
+		}
 		if key == "" {
 			key = "playpause"
 		}
@@ -702,6 +835,10 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	if session == nil || session.Tab == "" {
 		d.mu.Unlock()
 		return http.StatusNotFound, "Session not found"
+	}
+	if session.Headless() {
+		d.mu.Unlock()
+		return http.StatusConflict, headlessNoControls
 	}
 	tab, agent, busy := session.Tab, session.Agent, session.IsBusy()
 	d.mu.Unlock()
@@ -885,6 +1022,9 @@ func (d *Deck) Focus(id string) (int, string) {
 	d.mu.Unlock()
 	if tab == "" {
 		return http.StatusNotFound, ""
+	}
+	if isHeadless(tab) {
+		return http.StatusConflict, headlessNoControls
 	}
 	return d.inTab(tab, func(t Tab) error { return t.Focus() })
 }

@@ -7,7 +7,8 @@
  * grid of art pixels, or 224 × 372 on a screen held upright, scaled by a
  * whole number of the screen's pixels so every edge stays sharp.
  *
- *   AgentOffice.create(canvas, on) → { show(snapshot), close(), select(id), setVisible(shown), setFramed(framed), moved() }
+ *   AgentOffice.create(canvas, on) → { show(snapshot), close(), select(id), setVisible(shown), setFramed(framed), moved(),
+ *                                      onElevator(clientX, clientY), ride() }
  *
  * `show` takes what the deck streams; `close` empties the office when the
  * stream drops, and whoever is there when it's back is already at work.
@@ -34,6 +35,11 @@
  * `on.scroll(lines | 'bottom')` for two fingers moving up and down the room,
  * or tapped together, and `on.hint(text)` for a word on the status line.
  *
+ * The snapshot's `upstairs` desks, headless runs, work on a second floor,
+ * the server room: a tap on the elevator rides there and back, each viewer's
+ * floor kept on its device. A page that takes taps itself, as the portable
+ * viewer does, asks `onElevator` whether a point is on it, and `ride()`s.
+ *
  * Its sound, once set up and tapped, is in the style of an old console. A
  * piece of the room asks for one of its sounds by name with
  * `office.cue(name, x)`; see SOUNDS.
@@ -56,13 +62,14 @@
   /** How often the haunted door creaks open a crack on its own, and for how long, in seconds; and how far open it is at `t`, 0 to 1. */
   const CREAK_EVERY = 41, CREAK_FOR = 3.2;
   const creakOf = (t) => {
+    if (decor.calm === 'on') return 0; // a calm office's door stays shut
     const c = t % CREAK_EVERY;
     return c < CREAK_FOR ? Math.sin((c / CREAK_FOR) * Math.PI) : 0;
   };
 
   /** How often a love letter drops through the love-letter door's slot, in seconds, and where in that it is at `t`. */
   const LETTER_EVERY = 30;
-  const letterOf = (t) => (t + 11) % LETTER_EVERY;
+  const letterOf = (t) => (decor.calm === 'on' ? LETTER_EVERY - 1 : (t + 11) % LETTER_EVERY); // calm: no letter comes
   /**
    * A heart `w` wide (odd) and `h` tall, worked out once and kept: for each row, its runs as [from, to] about the middle
    * column, and the pixels round its edge as [dx, dy], for outlines and lights.
@@ -400,11 +407,11 @@
   /** The pieces added to the lounge in the room's shape now. */
   const addedOf = (room) => (room && room.plan && room.plan.added && room.plan.added[shape === TALL ? 'tall' : 'wide']) || [];
 
-  /** Where each desk is, as the room's shape now and its arrangement put them, and whether it's been put away. */
-  const desksOf = (room) => STANDARD_DESKS.map((desk, i) => {
+  /** Where each desk is, as the room's shape now and its arrangement put them, and whether it's been put away; upstairs, where its own are. */
+  const desksOf = (room) => (room.upstairs ? UPSTAIRS_DESKS[shape === TALL ? 'tall' : 'wide'].map((desk) => ({ ...desk })) : STANDARD_DESKS.map((desk, i) => {
     const piece = pieceOf(`desk${i + 1}`, room);
     return { x: desk.x + piece.x, y: desk.y + piece.y, off: piece.off };
-  });
+  }));
 
   /**
    * What hangs on the back wall in the room's shape now, each round its
@@ -412,9 +419,16 @@
    * style, the style's pieces go where yours are, in turn.
    */
   function hungOf(room = decor) {
-    const placed = room && room.plan && room.plan.hung && room.plan.hung[shape === TALL ? 'tall' : 'wide'];
+    const side = shape === TALL ? 'tall' : 'wide';
+    const placed = room && room.plan && room.plan.hung && room.plan.hung[side];
     if (!Array.isArray(placed)) return room.wall.map((kind, i) => ({ kind, x: WALL_SLOTS[i] }));
-    return ROOM_STYLES[room.preset] ? placed.map((piece, i) => ({ ...piece, kind: room.wall[i % room.wall.length] })) : placed;
+    const pieces = ROOM_STYLES[room.preset] ? placed.map((piece, i) => ({ ...piece, kind: room.wall[i % room.wall.length] })) : placed;
+    // Each on the wall's stretch, clear of the elevator, wherever a wall hung before it moved put it.
+    const [from, to] = WALL_RANGE[side];
+    return pieces.map((piece) => {
+      const half = wallWidthOf(piece.kind) / 2, x = Math.max(from + half, Math.min(to - half, piece.x));
+      return x === piece.x ? piece : { ...piece, x };
+    });
   }
 
   /** Held upright, whether `point` is in the lounge, past its wall. */
@@ -529,6 +543,8 @@
     sound: ['off', 'quiet', 'normal'],
     // The recorded keyboards and talk under the rest, while there's any sound
     ambience: ['on', 'off'],
+    // A calm office: nobody wanders, the pets rest, nothing drifts by, and it's drawn less often; work still shows
+    calm: ['off', 'on'],
     desk: ['wood', 'walnut', 'white', 'black'],
     workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse',
       'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass', 'scorer', 'anchor',
@@ -638,7 +654,7 @@
     'countdown', 'streamers', 'balloons', 'earthwindow', 'paperscreen', 'leafwindow', 'ropeladder'];
   const STANDARD_WALL = ['window', 'whiteboard', 'window', 'pinboard', 'window'];
   /** The middle of each of the back wall's places, left to right. */
-  const WALL_SLOTS = [44, 77, 110, 143, 176];
+  const WALL_SLOTS = [42, 69, 97, 124, 151];
   /**
    * How wide each piece on the back wall is drawn, in art pixels, sills,
    * shadows and whatever moves on it included, as far each way from its
@@ -660,8 +676,127 @@
     paperscreen: 34, leafwindow: 40, ropeladder: 20,
   };
   const wallWidthOf = (kind) => WALL_WIDTHS[kind] || 32;
-  /** Where along the back wall a piece can hang, edge to edge, in each shape: clear of the doorway. */
-  const WALL_RANGE = { wide: [0, 194], tall: [0, 194] };
+
+  /* ---------------------------------------------- the floor upstairs */
+
+  /*
+   * Claude runs with no Terminal to sit in, started by a script or another
+   * app, have desks of their own on a second floor: the server room, up the
+   * elevator at the left end of the back wall. Nothing there takes keys,
+   * holds or hires; the people at its desks just work, as they do downstairs.
+   */
+  /**
+   * The elevator, on the back wall of both floors, by the entrance: its frame's left edge, width and top, just left of
+   * the door's frame (205) and clear of its clock. Over its lamp, the alarm's warning light downstairs and the 2F
+   * plate upstairs; its badge on its doors, reaching left as far as `side` where it's long, on a phone, so the wall's
+   * pieces stop short of that.
+   */
+  const ELEVATOR = { x: 182, w: 20, top: 14, side: 171 };
+  /** How long the ride between the floors takes, in seconds: the room slides by in that time. */
+  const RIDE_LENGTH = 0.4;
+  /** How long the doors stay open after the ding, in seconds, from when the ride ends. */
+  const DOORS_OPEN_FOR = 1.3;
+  /** The most desks upstairs; anyone past them is counted on the elevator's badge. */
+  const UPSTAIRS_MOST = 12;
+  /**
+   * The desks upstairs, oldest first in reading order. On its side, four to
+   * a row, the fourth row's desks past the corridor where the lounge would
+   * be; upright, three to a row, a fourth row under the others, where the
+   * lounge's wall would be: there's none upstairs.
+   */
+  const UPSTAIRS_DESKS = {
+    wide: DESK_ROWS.flatMap((y) => [...DESK_COLUMNS, 232].map((x) => ({ x, y, off: false }))),
+    tall: [...DESK_ROWS, 190].flatMap((y) => DESK_COLUMNS.map((x) => ({ x, y, off: false }))),
+  };
+  /** The corner of racks: the first rack's left edge, the floor they stand on, how many, and the cable tray's height above the floor. */
+  const RACKS = { wide: { x: 284, base: 60, count: 3, tray: 46 }, tall: { x: 8, base: 290, count: 5, tray: 48 } };
+  /** Where this device keeps the floor its viewer was last on. */
+  const FLOOR_KEY = 'office-floor';
+  /** The server room's colours: its cool paint and raised floor, its racks, and the elevator's brushed steel and lamp. */
+  const SERVER_ROOM = {
+    wall: 0x3e4f5c, top: 0x2b3843, wallSeam: 0x35444f, vent: 0x2a3640, wainscot: 0x2e3b46, rail: 0x6b7f8d,
+    tile: 0x7f8c96, tileLight: 0x8d9aa4, tileSeam: 0x66727b, holes: 0x5a656e,
+    rack: 0x1c2026, rackFace: 0x272c34, unit: 0x353b45, unitTop: 0x434a56, plinth: 0x14171c,
+    tray: 0x9aa3ad, trayShade: 0x5d6670, cables: [0x3f7fd0, 0xe0b040, 0x8a93a0],
+    leds: [0x3fdc6f, 0x3fdc6f, 0xffb648, 0x4c9cff],
+    steel: 0x8d97a1, steelLight: 0xbcc5cd, steelDark: 0x57616b, leaf: 0xa4aeb8, leafLight: 0xc6cfd7, seam: 0x3c444d,
+    car: 0x2b3038, carLight: 0xffe6a8, lampOn: 0xffb648, lampOff: 0x4a3c30,
+  };
+  /** The headless desks' badge, a little robot, on the front of each desk upstairs: its antenna's light blinks. */
+  const ROBOT_BADGE = ['...a...', '.GGGGG.', 'GgggggG', 'GgcgcgG', 'GgkkkgG', '.GGGGG.'];
+  const ROBOT_INKS = { G: 0x7d838f, g: 0xc4c8d0, c: 0x6fe0ff, k: 0x1f2129 };
+  /** What the floor upstairs puts away, in either shape: the whole lounge, with its button and mic. */
+  const UPSTAIRS_AWAY = ['wall', 'corner', 'couch', 'pong', 'plant', 'button', 'mic'];
+
+  /**
+   * The floor upstairs, furnished from the room downstairs: your team's
+   * looks and the sky stay as they are, the rest is the server room's own.
+   * Its floor and paint are drawn by drawOffice's drawUpstairs parts; those
+   * named here are only what other parts read.
+   */
+  function upstairsRoomOf(room) {
+    const away = Object.fromEntries(UPSTAIRS_AWAY.map((part) => [part, { ...STANDARD_PIECE, off: true }]));
+    return {
+      ...room, upstairs: true, preset: 'yours',
+      floor: 'tiles', lounge: 'tiles', paint: 'slate', loungePaint: 'auto', wall: ['bare', 'bare', 'bare', 'bare', 'bare'],
+      corner: 'none', pet: 'none', pets: [], staff: 'none', door: 'standard', drift: 'none', season: 'off', fireworks: 'off',
+      workspace: 'desk', monitor: 'standard', desk: 'black', chair: 'grey',
+      plan: { wide: away, tall: away, added: { wide: [], tall: [] }, hung: { wide: null, tall: null } },
+    };
+  }
+
+  /**
+   * Runs `fn` with the room swapped for `world`'s, the floor upstairs: its
+   * furnishing, desks, spots and walking grid, so an Office and drawOffice
+   * work there just as they do downstairs. Laid out again for the room's
+   * shape whenever that has changed, saying so with `world.moved`.
+   * Everything is as it was afterwards.
+   */
+  function onFloor(world, fn) {
+    const kept = { decor, DESKS, spots, boardSpots, stormSpots, floor };
+    decor = world.decor;
+    if (world.shape !== shape) {
+      Object.assign(world, {
+        shape, moved: true, floor: null,
+        DESKS: desksOf(decor), spots: spotsOf(decor), boardSpots: boardSpotsOf(decor), stormSpots: stormSpotsOf(decor),
+      });
+    }
+    ({ DESKS, spots, boardSpots, stormSpots, floor } = world);
+    try {
+      return fn();
+    } finally {
+      // The walking grid, once built, is kept for next time.
+      Object.assign(world, { DESKS, floor });
+      ({ decor, DESKS, spots, boardSpots, stormSpots, floor } = kept);
+    }
+  }
+
+  /** The words on the elevator's badge for `count` agents. */
+  const agentsWord = (count) => `${count} agent${count === 1 ? '' : 's'}`;
+
+  /**
+   * The snapshot's headless sessions, as seats upstairs: each with an id of
+   * its own (the portable viewer's have only a name and a state), named
+   * after its folder, and with nothing to press.
+   */
+  function upstairsSeatsOf(snapshot, ahead) {
+    const given = snapshot && snapshot.upstairs && Array.isArray(snapshot.upstairs.desks) ? snapshot.upstairs.desks : [];
+    const named = new Map();
+    const keys = given.filter((entry) => entry && typeof entry === 'object').slice(0, UPSTAIRS_MOST).map((entry) => {
+      const name = String(entry.project || entry.name || '');
+      const n = (named.get(name) || 0) + 1;
+      named.set(name, n);
+      const id = typeof entry.id === 'string' && entry.id ? entry.id : `upstairs:${name}:${n}`;
+      return { session: { ...entry, id, name, project: name, state: STANDARD_STATES[entry.state] ? entry.state : 'idle' } };
+    });
+    return seatsOf({ keys }, ahead).map((seat) => ({
+      pin: null,
+      session: { ...seat.session, maxPressedAt: null, messagedAt: null, role: null, keys: false, fire: false, mic: false, dial: false },
+    }));
+  }
+
+  /** Where along the back wall a piece can hang, edge to edge, in each shape: clear of the elevator and the doorway. */
+  const WALL_RANGE = { wide: [24, ELEVATOR.side - 2], tall: [24, ELEVATOR.side - 2] };
 
   /** A room as the layout gives it: anything unknown or left out is as standard. */
   /**
@@ -970,8 +1105,8 @@
     take(0, 0, DOORWAY.left - 1, WALL_BOTTOM - 1);
     take(DOORWAY.right + 1, 0, shape.width, WALL_BOTTOM - 1);
     take(DOORWAY.left, 0, DOORWAY.right, DOOR.y - 3);
-    // Held upright, the lounge's wall, but for its doorway
-    if (shape.loungeWall !== undefined) {
+    // Held upright, the lounge's wall, but for its doorway. Upstairs has no lounge, so no wall.
+    if (shape.loungeWall !== undefined && !decor.upstairs) {
       take(0, shape.loungeWall - WALL_BOTTOM, DOORWAY.left - 1, shape.loungeWall - 1);
       take(DOORWAY.right + 1, shape.loungeWall - WALL_BOTTOM, shape.width, shape.loungeWall - 1);
     }
@@ -2589,7 +2724,8 @@
         pet.isIn = true;
         pet.position = { x: DOOR.x, y: DOOR.y + 6 };
       }
-      if (!pet.isWalking && now >= pet.nextMove) {
+      // Settled in a calm office, a pet stays put.
+      if (!pet.isWalking && now >= pet.nextMove && !(decor.calm === 'on' && pet.target)) {
         let others = this.petPlaces(pet).filter((p) => !pet.target || p.x !== pet.target.x || p.y !== pet.target.y);
         // Nowhere of its own to go, and in the way where it is: the nearest free spot out of everyone's way
         if (!others.length && !pet.target?.depth && !this.petCanSettle({ x: pet.position.x, y: pet.position.y }, pet)) {
@@ -2745,7 +2881,7 @@
 
     /** One arrives or one leaves, then a pause before the next. */
     changeStaff(now) {
-      if (!this.isOpen || now < this.nextStaffChange) return;
+      if (!this.isOpen || now < this.nextStaffChange || decor.calm === 'on') return;
       const present = this.people.filter((p) => p.isStaff && !p.isLeaving);
       const free = this.freeSpots(null);
       if (present.length < this.staffWanted && free.length) {
@@ -2828,8 +2964,8 @@
     decide(person, now) {
       if (person.isLeaving) return;
       if (person.isStaff) {
-        // Staff only ever move between lounge spots.
-        if (person.isWalking || now < person.nextMove) return;
+        // Staff only ever move between lounge spots; in a calm office, they stay where they are.
+        if (person.isWalking || now < person.nextMove || decor.calm === 'on') return;
         const free = this.freeSpots(person);
         if (free.length) this.send(person, spotPlace(pick(free)));
         else person.nextMove = now + random(5, 10);
@@ -2860,6 +2996,11 @@
       // Nothing to do any more, away from the desk on a job: back to it first.
       if (/^(board|clock|shred|locked|storm):/.test(person.place) && person.place !== desk) {
         this.send(person, desk);
+        return;
+      }
+      // A calm office's agents stay at their desks when there's nothing to do.
+      if (decor.calm === 'on') {
+        if (person.place !== desk && !person.isWalking) this.send(person, desk);
         return;
       }
       if (person.isWalking || now < person.nextMove) return;
@@ -3270,6 +3411,24 @@
     const left = Math.max(1, Math.min(shape.width - 1 - w, Math.round(x + DESK_WIDTH / 2 - w / 2)));
     return { kind, label, left, top: kind === 'fire' ? y - 8 : y + 4, w, h };
   }
+
+  /**
+   * The card a desk upstairs opens when held, in the middle of the room: its
+   * agent, what it's doing and for how long, and below, who hired it, with
+   * the tile they're drawn in and the row a tap visits them from.
+   */
+  const HIRED_CARD = { w: 140, h: 62, tile: 16 };
+  function hiredCardBox() {
+    const { w, h, tile } = HIRED_CARD;
+    const left = Math.round(shape.width / 2 - w / 2), top = Math.round(shape.height / 2 - h / 2);
+    return {
+      left, top, w, h,
+      tile: { x: left + 6, y: top + 35, w: tile, h: h - 39 },
+      row: { left: left + 3, right: left + w - 3, top: top + 33, bottom: top + h - 2 },
+    };
+  }
+  /** What a headless agent is doing, by its state, where its tool doesn't say. */
+  const HEADLESS_DOING = { thinking: 'Working', asking: 'Waiting on you', unread: 'Finished', idle: 'Idle', error: 'Stopped on an error' };
 
   /** The question before anyone is fired: a panel in the middle of the room, with its two keys. */
   const FIRE_DIALOG = { w: 132, h: 52 };
@@ -3994,12 +4153,21 @@
 
   const MUSIC_ACTIONS = ['previous', 'playpause', 'next'];
   const MUSIC_PANEL_LENGTH = 6;
+  /**
+   * The music control's volume bar, over its keys, where the computer can
+   * say its volume: its height, the speaker mark's width at its left, and at
+   * least how long between levels sent while a finger drags it, in seconds.
+   */
+  const MUSIC_VOLUME = { h: 7, mark: 9, every: 0.1 };
   /** Play, pause, previous and next, in pixels. */
   const MUSIC_ICONS = {
     play: ['100', '110', '111', '110', '100'],
     pause: ['101', '101', '101', '101', '101'],
     previous: ['1..1..1', '1.11.11', '1111111', '1.11.11', '1..1..1'],
     next: ['1..1..1', '11.11.1', '1111111', '11.11.1', '1..1..1'],
+    speaker: ['0001', '0111', '1111', '0111', '0001'],
+    sound: ['100', '010', '001', '010', '100'],
+    muted: ['000', '101', '010', '101', '000'],
   };
   const STYLE_MARK = ['1111110', '1111110', '0000010', '0011110', '0010000', '0010000', '0010000'];
   const STYLE_THUMB = { w: 62, h: 34 };
@@ -4146,6 +4314,241 @@
    * from back to front, then what floats above it: the screens' light, the
    * speech bubbles and the name on each desk.
    */
+  /*
+   * The room at its own resolution. Its pixel art (everything under the labels) is drawn one pixel to an art pixel
+   * into a small layer of its own, scaled up at the room's whole-number scale, nearest-neighbour, so it comes out
+   * pixel for pixel as it would drawn big. On a page, the layer is an element of its own just under the canvas, and
+   * the browser scales it; elsewhere (a canvas off the page, one with a background of its own, a screen whose pixels
+   * aren't a whole number to the page's), it's drawn onto the canvas, and only its tiles that changed are.
+   * The text, labels, keys and dialogs over it are drawn on the canvas at the screen's resolution as before, but
+   * recorded first, and drawn again only when they change. Where the layer wouldn't match pixel for pixel (a scale
+   * that isn't whole, a piece grown 1.5×), or for `frame.direct`, the room is drawn straight onto the canvas as before.
+   */
+  const ART_TILE = 16;
+  const artLayers = new WeakMap();
+  /** The whole of `canvas` drawn next time, its art layer or not: something else has drawn on it, or emptied it. */
+  const repaint = (canvas) => {
+    const layer = artLayers.get(canvas);
+    if (layer) Object.assign(layer, { sig: null, placed: '', looked: false });
+  };
+  /** The layer shown on the page under `canvas` put away, while something else is drawn on the canvas, as the ride. */
+  const hideArt = (canvas) => {
+    const layer = artLayers.get(canvas);
+    if (layer && layer.view) layer.view.style.display = 'none';
+    repaint(canvas);
+  };
+  /** The canvas's art layer let go, its pixels with it: an office closed keeps nothing of the room it showed. */
+  const dropArt = (canvas) => {
+    const layer = artLayers.get(canvas);
+    if (!layer) return;
+    for (const bitmap of [layer.art, layer.view]) {
+      if (bitmap) Object.assign(bitmap, { width: 0, height: 0 });
+    }
+    if (layer.view) layer.view.remove();
+    artLayers.delete(canvas);
+  };
+  /** How the office has drawn lately, for measuring: frames drawn whole, in part, and not at all. */
+  const drawStats = { whole: 0, part: 0, none: 0, direct: 0 };
+
+  /** Whether any piece of the room is grown to 1.5×, which only drawing big gets right. */
+  function halfGrown() {
+    const plan = decor.plan || {}, side = plan[shape === TALL ? 'tall' : 'wide'] || {};
+    return Object.values(side).some((piece) => piece && piece.size === 1.5) || addedOf(decor).some((piece) => piece.size === 1.5);
+  }
+
+  /** The art layer for drawing onto `screen` at `scale`, or null where the room is drawn straight onto it. */
+  function artLayerOf(screen, scale, frame) {
+    if (frame.direct || !Number.isInteger(scale) || scale < 2 || halfGrown()) {
+      const kept = artLayers.get(screen.canvas);
+      if (kept) kept.sig = null;
+      if (kept && kept.view) kept.view.style.display = 'none';
+      return null;
+    }
+    const canvas = screen.canvas, doc = canvas.ownerDocument || document;
+    let layer = artLayers.get(canvas);
+    if (!layer) {
+      const art = doc.createElement('canvas');
+      layer = { art, artCtx: art.getContext('2d', { willReadFrequently: true }), last: null, sig: null, ops: [], images: new WeakMap(), nextImage: 1 };
+      layer.recorder = recorderOf(screen, layer.ops);
+      artLayers.set(canvas, layer);
+    }
+    layer.ops.length = 0;
+    // Whether the page can show it under the canvas: looked at again whenever the canvas is resized or moved
+    if (!layer.looked) {
+      const style = canvas.isConnected && canvas.parentNode ? doc.defaultView.getComputedStyle(canvas) : null;
+      layer.showable = !!style && /^(transparent|rgba\(0, 0, 0, 0\))$/.test(style.backgroundColor) && style.display !== 'none';
+      layer.looked = true;
+    }
+    layer.shown = layer.showable && Number.isInteger(frame.ratio) && canvas.isConnected;
+    if (layer.shown) {
+      if (!layer.view || layer.view.ownerDocument !== doc) {
+        if (layer.view) layer.view.remove();
+        layer.view = doc.createElement('canvas');
+        layer.view.setAttribute('aria-hidden', 'true');
+        Object.assign(layer.view.style, { position: 'absolute', pointerEvents: 'none', imageRendering: 'pixelated', margin: '0', inset: 'auto' });
+        layer.viewCtx = layer.view.getContext('2d');
+        layer.placed = '';
+      }
+      if (layer.view.nextSibling !== canvas) canvas.parentNode.insertBefore(layer.view, canvas);
+      layer.view.style.display = '';
+    } else if (layer.view) layer.view.style.display = 'none';
+    layer.into = layer.shown ? layer.view : layer.art;
+    layer.actx = layer.shown ? layer.viewCtx : layer.artCtx;
+    return layer;
+  }
+
+  /** The layer shown on the page where the canvas would have drawn it, and cut to the window the room is seen through. */
+  function placeArt(screen, layer, at, edge) {
+    const r = at.ratio, w = layer.into.width * at.scale, h = layer.into.height * at.scale, canvas = screen.canvas;
+    const px = (v) => `${v / r}px`;
+    const cut = edge ? `inset(${px(edge.glass.y - at.y)} ${px(at.x + w - edge.glass.x - edge.glass.w)} ${px(at.y + h - edge.glass.y - edge.glass.h)} `
+      + `${px(edge.glass.x - at.x)} round ${px(edge.glass.r)})` : 'none';
+    const placed = `${canvas.offsetLeft}|${canvas.offsetTop}|${at.x}|${at.y}|${w}|${h}|${cut}`;
+    if (placed === layer.placed) return;
+    layer.placed = placed;
+    Object.assign(layer.view.style, {
+      left: `${canvas.offsetLeft + at.x / r}px`, top: `${canvas.offsetTop + at.y / r}px`, width: px(w), height: px(h), clipPath: cut,
+    });
+  }
+
+  /**
+   * A stand-in for `real` that keeps what's drawn on it in `ops`, to be drawn later or not at all. What it's asked
+   * about, as a text's width, it answers at once; what's set on it is set on `real` too, so the answers are right.
+   */
+  function recorderOf(real, ops) {
+    const asked = new Set(['measureText', 'isPointInPath', 'getTransform', 'getLineDash']);
+    return new Proxy(real, {
+      get(target, name) {
+        const value = target[name];
+        if (typeof value !== 'function') return value;
+        if (asked.has(name)) return value.bind(target);
+        return (...args) => { ops.push([name, args]); };
+      },
+      set(target, name, value) {
+        ops.push(['=', [name, value]]);
+        target[name] = value;
+        return true;
+      },
+    });
+  }
+
+  /**
+   * A context as it comes, but for smoothing, off as the office keeps it: where a recorded frame is drawn from, as
+   * recording it has left whatever it set on the context.
+   */
+  function freshState(c) {
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    Object.assign(c, {
+      fillStyle: '#000', strokeStyle: '#000', globalAlpha: 1, globalCompositeOperation: 'source-over', lineWidth: 1,
+      lineCap: 'butt', lineJoin: 'miter', miterLimit: 10, font: '10px sans-serif', textAlign: 'start', textBaseline: 'alphabetic',
+      shadowBlur: 0, shadowColor: 'rgba(0, 0, 0, 0)', shadowOffsetX: 0, shadowOffsetY: 0, imageSmoothingEnabled: false,
+    });
+    c.setLineDash([]);
+  }
+
+  /**
+   * What a frame's recorded drawing comes to, as text, in three parts: under the room (the floating window's shadow
+   * and glow), in it (the room and what's over it), and round it (the window's frame). Equal for two frames that
+   * would draw the same.
+   */
+  function signatureOf(layer) {
+    const part = (arg) => {
+      if (arg === null || typeof arg !== 'object') return String(arg);
+      if (Array.isArray(arg)) return `[${arg.map(part).join(',')}]`;
+      if (!layer.images.has(arg)) layer.images.set(arg, layer.nextImage++);
+      return `#${layer.images.get(arg)}:${arg.width}x${arg.height}:${arg.complete === false ? 0 : 1}`;
+    };
+    const parts = [[]];
+    for (const [name, args] of layer.ops) {
+      if (name === 'mark') parts.push([]);
+      else parts[parts.length - 1].push(`${name}(${args.map(part).join(',')})`);
+    }
+    return parts.map((ops) => ops.join(';'));
+  }
+
+  /** The layer's tiles that changed since the last frame drawn, [column, row] each, or null for all of them. */
+  function changedTiles(layer) {
+    const { art, artCtx: actx } = layer, w = art.width, h = art.height;
+    const now = new Uint32Array(actx.getImageData(0, 0, w, h).data.buffer), last = layer.last;
+    layer.last = now;
+    if (!last || last.length !== now.length) return null;
+    const tiles = [];
+    for (let ty = 0; ty * ART_TILE < h; ty++) {
+      for (let tx = 0; tx * ART_TILE < w; tx++) {
+        let changed = false;
+        for (let y = ty * ART_TILE, yEnd = Math.min(h, y + ART_TILE); y < yEnd && !changed; y++) {
+          for (let i = y * w + tx * ART_TILE, iEnd = y * w + Math.min(w, tx * ART_TILE + ART_TILE); i < iEnd; i++) {
+            if (now[i] !== last[i]) { changed = true; break; }
+          }
+        }
+        if (changed) tiles.push([tx, ty]);
+      }
+    }
+    return tiles;
+  }
+
+  /**
+   * Puts the frame on screen: as much of it as changed, if anything did. `at` is where the layer goes, in screen
+   * pixels; `edge`, the window the room is seen through, if any, and how far in from its edge its frame reaches.
+   */
+  function composeArt(screen, layer, at, edge) {
+    const [under, room, round] = signatureOf(layer);
+    const sig = { size: `${screen.canvas.width}x${screen.canvas.height}`, under, room, round: round ?? '', shown: layer.shown };
+    if (layer.shown) placeArt(screen, layer, at, edge);
+    Object.assign(layer, { at, edge });
+    // Shown on the page, the layer is on screen as it's drawn: the canvas has only what's over and round it to draw
+    const last = layer.sig && layer.sig.shown === layer.shown ? layer.sig : null, tiles = layer.shown ? [] : changedTiles(layer);
+    // The room and what's over it as they were: only changed tiles, and the window's edge if its shadow, glow or
+    // frame changed, as its glow does while someone waits on you
+    const edged = !!last && (last.under !== sig.under || last.round !== sig.round);
+    const partly = last && tiles && last.size === sig.size && last.room === sig.room && (!edged || !!edge);
+    layer.sig = sig;
+    if (partly && !edged && !tiles.length) {
+      drawStats.none++;
+      return;
+    }
+    screen.save();
+    freshState(screen);
+    if (partly) {
+      screen.beginPath();
+      if (edged) {
+        // The band round the window, from the canvas's edge to past the frame's rings and its rounded corners
+        const { width: W, height: H } = screen.canvas, { x, y, w, h } = edge.glass, d = edge.reach;
+        screen.rect(0, 0, W, Math.max(0, y + d));
+        screen.rect(0, y + h - d, W, Math.max(0, H - (y + h - d)));
+        screen.rect(0, 0, Math.max(0, x + d), H);
+        screen.rect(x + w - d, 0, Math.max(0, W - (x + w - d)), H);
+      }
+      // Each row's run of changed tiles as one piece
+      const size = ART_TILE * at.scale;
+      tiles.forEach(([tx, ty], i) => {
+        const prev = tiles[i - 1];
+        if (prev && prev[1] === ty && prev[0] === tx - 1) return;
+        let end = tx;
+        while (tiles.some(([x, y]) => y === ty && x === end + 1)) end++;
+        screen.rect(at.x + tx * size, at.y + ty * size, (end - tx + 1) * size, size);
+      });
+      screen.clip();
+      drawStats.part++;
+    } else {
+      drawStats.whole++;
+    }
+    for (const [name, args] of layer.ops) {
+      if (name === 'mark') continue;
+      if (name === '=') screen[args[0]] = args[1];
+      else if (name === 'art') {
+        // Shown on the page, it shows through here; or else it's drawn here
+        const { into } = layer, w = into.width * at.scale, h = into.height * at.scale;
+        if (layer.shown) screen.clearRect(at.x, at.y, w, h);
+        else {
+          screen.imageSmoothingEnabled = false;
+          screen.drawImage(into, 0, 0, into.width, into.height, at.x, at.y, w, h);
+        }
+      } else screen[name](...args);
+    }
+    screen.restore();
+  }
+
   function drawOffice(ctx, office, frame) {
     const { now, hour, minute, month, width, height, ratio, selected, mic, framed, floating } = frame;
     const inset = floating ? FLOAT_MARGINS[floating] * ratio : 0;
@@ -4680,6 +5083,10 @@
       ? Math.round(Math.sin((now - frame.wobble.at) * 50)) : 0);
     const lookingUp = mic.heldAt !== null && now - mic.heldAt < LOOK_UP_LENGTH;
 
+    // At its own resolution where it can be: see artLayerOf. From here, what goes on the screen is recorded.
+    const screenCtx = ctx, layer = artLayerOf(screenCtx, scale, frame);
+    if (layer) ctx = layer.recorder;
+    else drawStats.direct++;
     ctx.clearRect(0, 0, width, height);
 
     // Through a window, the room stays inside it, even while it shakes.
@@ -4707,6 +5114,20 @@
       ctx.save();
       roundedRect(ctx, glass.x, glass.y, glass.w, glass.h, glass.r);
       ctx.clip();
+    }
+    if (layer) layer.ops.push(['mark', []]); // what's under the room ends here: see signatureOf
+    // The room's art, into the layer, one pixel to an art pixel, what's seen of it from its top-left corner
+    const onScreen = { ox, oy, scale, ctx };
+    const artAt = layer && { x: ox + seen.left * scale, y: oy + seen.top * scale, scale, ratio };
+    if (layer) {
+      if (layer.into.width !== seen.width || layer.into.height !== seen.height) {
+        layer.into.width = seen.width;
+        layer.into.height = seen.height;
+        layer.last = null;
+      }
+      ctx = layer.actx;
+      ctx.clearRect(0, 0, seen.width, seen.height);
+      ({ ox, oy, scale } = { ox: -seen.left, oy: -seen.top, scale: 1 });
     }
 
     /* The room */
@@ -5627,10 +6048,11 @@
       drawDoor();
       drawClock(CORRIDOR_X, 6);
 
-      // The warning light beside the door, lit while the alarm sounds
-      fill(195, 27, 7, 2, PALETTE.frame);
-      if (alarm === null) fill(196, 23, 5, 4, PALETTE.alarmOff);
-      else fill(196, 23, 5, 4, PALETTE.alarm, 0.75 + 0.25 * Math.sin(alarm * 20));
+      // The warning light by the entrance, over the elevator's lamp, lit while the alarm sounds
+      const lx = ELEVATOR.x + ELEVATOR.w / 2 - 3;
+      fill(lx, 10, 7, 2, PALETTE.frame);
+      if (alarm === null) fill(lx + 1, 6, 5, 4, PALETTE.alarmOff);
+      else fill(lx + 1, 6, 5, 4, PALETTE.alarm, 0.75 + 0.25 * Math.sin(alarm * 20));
       fill(197, 23, 2, 1, WHITE, alarm === null ? 0.15 : 0.6);
     }
 
@@ -5819,7 +6241,7 @@
      * while, most at 00:00; nightly, after dark, one burst now and then (every 20 to 40 s). Off, nothing.
      */
     function drawFireworks(x, y, w, h) {
-      const mode = decor.fireworks, bursts = [];
+      const mode = decor.calm === 'on' ? 'off' : decor.fireworks, bursts = [];
       if (mode === 'midnight') {
         if (!((hour === 23 && minute >= 55) || (hour === 0 && minute < 15))) return;
         const away = hour === 23 ? 60 - minute : minute, lanes = away === 0 ? 4 : away <= 2 ? 3 : away <= 5 ? 2 : 1;
@@ -15609,7 +16031,7 @@
      * on a speech bubble's paper over the piece, each going down as it's
      * pressed and lit while it is.
      */
-    function drawMusicPanel({ left, top, w, h, tip, keys, playing, down }) {
+    function drawMusicPanel({ left, top, w, h, tip, keys, bar, playing, down, volume, muted }) {
       fill(left + 1, top, w - 2, h, PALETTE.bubbleEdge);
       fill(left, top + 1, w, h - 2, PALETTE.bubbleEdge);
       fill(left + 1, top + 1, w - 2, h - 2, PALETTE.bubble);
@@ -15629,6 +16051,26 @@
         if (action === 'playpause') drawPlayPause(x + 5, ky + 2, playing, ink);
         else drawMusicIcon(action, x + 2, ky + 2, ink);
       }
+      if (bar && typeof volume === 'number') drawVolumeBar(bar, volume, muted);
+    }
+
+    /**
+     * The volume bar: a speaker, crossed out while the computer is muted,
+     * then a sunk track filled green as far as the volume goes, grey while
+     * muted, with a paper knob at its end.
+     */
+    function drawVolumeBar({ x, y, track }, volume, muted) {
+      drawMusicIcon('speaker', x, y + 1, PALETTE.frame);
+      drawMusicIcon(muted ? 'muted' : 'sound', x + 5, y + 1, PALETTE.frame);
+      const { left, w } = track, h = MUSIC_VOLUME.h;
+      fill(left + 1, y + 1, w - 2, h - 2, PALETTE.frame);
+      fill(left, y + 2, w, h - 4, PALETTE.frame);
+      fill(left + 1, y + 2, w - 2, h - 4, 0x2a2d35);
+      const reach = Math.round((volume / 100) * (w - 4));
+      if (reach > 0) fill(left + 2, y + 3, reach, h - 6, muted ? 0x6b6f7a : PALETTE.terminal);
+      const knob = left + 1 + reach;
+      fill(knob, y, 2, h, PALETTE.frame);
+      fill(knob, y + 1, 2, h - 2, PALETTE.bubble);
     }
 
     /**
@@ -15882,6 +16324,53 @@
     }
 
     /**
+     * A desk upstairs held: its agent, what it's doing and for how long, and
+     * who hired it, drawn in their tile as they are downstairs, in the room
+     * downstairs (`below`), whose team and desks dress them. Unknown where
+     * its launcher didn't say.
+     */
+    function drawHiredCard({ left, top, w, h, tile, name, doing, ran, hirer, person, visits, below }) {
+      fill(seen.left, seen.top, seen.width, seen.height, BLACK, 0.3);
+      fill(left + 1, top, w - 2, h, PALETTE.bubbleEdge);
+      fill(left, top + 1, w, h - 2, PALETTE.bubbleEdge);
+      fill(left + 1, top + 1, w - 2, h - 2, PALETTE.bubble);
+      fill(left + 5, top + 32, w - 10, 1, PALETTE.bubbleEdge, 0.15);
+      const size = Math.max(LABEL_SIZE * scale, LABEL_SMALLEST * ratio);
+      const font = (weight, px) => `${weight} ${px}px ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif`;
+      ctx.save();
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      // Each line fits what's left of the card to its right, or `room` art pixels.
+      const write = (words, x, y, weight, px, alpha, room = left + w - 7 - x) => {
+        ctx.font = font(weight, px);
+        ctx.fillStyle = css(PALETTE.bubbleEdge, alpha);
+        const at = screen(x, y);
+        ctx.fillText(fitText(ctx, words, room * scale), at.x, at.y);
+      };
+      write(name, left + 7, top + 9, 700, size * 1.2, 1);
+      if (doing) write(doing, left + 7, top + 18, 500, size, 0.75);
+      if (ran) write(`Running for ${ran}`, left + 7, top + 26, 500, size * 0.9, 0.55);
+      let from = left + 7;
+      if (person) {
+        fill(tile.x, tile.y, tile.w, tile.h, PALETTE.bubbleEdge, 0.08);
+        person.position = { x: tile.x + tile.w / 2 - 1, y: tile.y + tile.h - 2 };
+        ctx.restore();
+        onFloor(below, () => drawPerson(person));
+        ctx.save();
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        from = tile.x + tile.w + 5;
+      }
+      write('Hired by', from, top + 41, 500, size * 0.9, 0.55);
+      write(hirer || 'unknown', from, top + 51, 700, size, hirer ? 1 : 0.55, left + w - (visits ? 16 : 7) - from);
+      if (visits) {
+        ctx.textAlign = 'right';
+        write('›', left + w - 6, top + 46, 700, size * 1.4, 0.55, 10);
+      }
+      ctx.restore();
+    }
+
+    /**
      * The window onto the room: rings of shadow from its edge inwards, each
      * fainter than the last, then the edge in the keys' colour.
      */
@@ -15927,15 +16416,182 @@
       ctx.restore();
     }
 
+    /* The elevator, and the floor upstairs: the server room */
+
+    /**
+     * The elevator on the back wall, on either floor: a steel frame round
+     * two doors that slide apart for a moment after the ding, and over them
+     * a lamp with ▲ and ▼, lit for where a tap takes you; on the way, the
+     * way it's going, blinking.
+     */
+    function drawElevator() {
+      const { x, w, top } = ELEVATOR, c = SERVER_ROOM, e = frame.elevator || { floor: 1, open: 0, riding: null };
+      const doorTop = top + 7, l = x + 2, inner = w - 4, half = inner / 2, tall = WALL_BOTTOM - doorTop;
+      // The surround, its head under the lamp
+      fill(x, doorTop - 2, w, tall + 2, c.steelDark);
+      fill(x, doorTop - 2, w, 1, c.steelLight);
+      fill(x + 1, doorTop - 1, w - 2, 1, c.steel);
+      fill(x, doorTop - 1, 1, tall + 1, c.steel);
+      // The car, as the doors open: lit from above, its floor below
+      const open = Math.round(Math.max(0, Math.min(1, e.open)) * half);
+      if (open > 0) {
+        fill(l, doorTop, inner, tall, c.car);
+        fill(l, doorTop, inner, 1, c.carLight);
+        fill(l, doorTop + 1, inner, 2, c.carLight, 0.25);
+        fill(l, WALL_BOTTOM - 2, inner, 2, c.steelDark);
+      }
+      // The doors, each half sliding into the wall
+      for (const [lx, lw] of [[l, half - open], [l + half + open, half - open]]) {
+        if (lw <= 0) continue;
+        fill(lx, doorTop, lw, tall - 1, c.leaf);
+        fill(lx, doorTop, 1, tall - 1, c.leafLight);
+        fill(lx + lw - 1, doorTop, 1, tall - 1, c.seam, 0.5);
+      }
+      fill(x + 1, WALL_BOTTOM - 1, w - 2, 1, c.steelLight); // the sill
+      // The lamp: ▲ on the left, ▼ on the right
+      const blink = Math.floor(now * 6) % 2 === 0;
+      const up = e.riding ? e.riding.to === 2 && blink : e.floor !== 2;
+      const down = e.riding ? e.riding.to === 1 && blink : e.floor === 2;
+      fill(x + 3, top, w - 6, 5, PALETTE.frame);
+      const arrows = () => {
+        const u = up ? c.lampOn : c.lampOff, d = down ? c.lampOn : c.lampOff;
+        dot(x + 7, top + 1, u); fill(x + 6, top + 2, 3, 1, u); fill(x + 5, top + 3, 5, 1, u);
+        fill(x + 11, top + 1, 5, 1, d); fill(x + 12, top + 2, 3, 1, d); dot(x + 13, top + 3, d);
+      };
+      arrows();
+      // After dark, the lit arrow shines over the night as it does by day
+      if (isNight) glowLate(arrows);
+    }
+
+    /** The elevator's badge, on its doors: who is on the other floor, as a desk's name is shown. */
+    function drawElevatorBadge() {
+      const full = frame.elevator && frame.elevator.label;
+      if (!full) return;
+      const roomy = LABEL_SIZE * scale >= LABEL_SMALLEST * ratio;
+      const size = roomy ? LABEL_SIZE * scale : LABEL_SMALLEST * ratio;
+      ctx.font = `600 ${size}px ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      const padding = size * 0.5, h = size * 1.25;
+      // Wider than the elevator, as on a phone, it says only the floor and the count: 2F · 3, or full · +2.
+      const fits = (text) => ctx.measureText(text).width + padding * 2 <= (ELEVATOR.w + 6) * scale;
+      const label = fits(full) ? full : full.replace(/ agents?$/, '').replace('elevator full', 'full');
+      const w = ctx.measureText(label).width + padding * 2;
+      // On its doors, its right edge the elevator's: clear of the door and its clock, the wall's pieces, and the
+      // bubbles over the desks below
+      const corner = screen(ELEVATOR.x + ELEVATOR.w, ELEVATOR.top + 9), at = { x: corner.x - w, y: corner.y };
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      roundedRect(ctx, at.x, at.y, w, h, h / 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.fillText(label, at.x + padding, at.y + h / 2);
+    }
+
+    /** The server room's wall: cool panels, vent grilles, the door and its clock, and a 2F plate by the door. */
+    function drawUpstairsWall() {
+      const { left, top, right } = seen, c = SERVER_ROOM;
+      fill(left, top, right - left, WALL_BOTTOM - top, c.wall);
+      fill(left, top, right - left, 2, c.top);
+      for (let x = from(left, 24); x < right; x += 24) {
+        fill(x, 2, 1, 28, c.wallSeam);
+        // A grille in every other panel, clear of the elevator, its badge and plate, and the door
+        if ((x + 16 < ELEVATOR.side || x + 8 > 224) && (x / 24) % 2 === 0) for (let r = 0; r < 3; r++) fill(x + 8, 8 + r * 2, 8, 1, c.vent);
+      }
+      fill(left, 30, right - left, 8, c.wainscot);
+      fill(left, 30, right - left, 1, c.rail);
+      fill(left, 38, right - left, 2, PALETTE.baseboard);
+      pixelText('2F', ELEVATOR.x + ELEVATOR.w / 2 - 3, 6, c.steelLight);
+      drawDoor();
+      drawClock(CORRIDOR_X, 6);
+    }
+
+    /** The server room's raised floor: square tiles, every few of them holed for the cold air coming up. */
+    FLOOR_FINISHES.raised = (L, T, R, B) => {
+      const c = SERVER_ROOM, size = 12;
+      fill(L, T, R - L, B - T, c.tile);
+      for (let y = T, row = 0; y < B; y += size, row++) {
+        fill(L, y, R - L, 1, c.tileSeam);
+        for (let x = from(L, size), column = Math.floor(x / size); x < R; x += size, column++) {
+          fill(x, y, 1, size, c.tileSeam);
+          fill(x + 1, y + 1, size - 2, 1, c.tileLight);
+          if (hash(column, row) % 6 !== 0) continue;
+          for (let dy = 3; dy < size - 1; dy += 2) for (let dx = 3; dx < size - 1; dx += 2) dot(x + dx, y + dy, c.holes);
+        }
+      }
+    };
+    function drawUpstairsFloor() {
+      const { left, right, bottom } = seen;
+      paintFloor('raised', left, WALL_BOTTOM, right, bottom);
+      fill(207, 40, 14, 2, SERVER_ROOM.tileSeam);
+      fill(left, WALL_BOTTOM, right - left, 1, SHADOW);
+    }
+
+    /**
+     * The corner of racks: a row of server cabinets, their units' lights
+     * blinking each in its own time, and over them a cable tray, its cables
+     * dropping into each one. On its side, the tray runs along the back wall.
+     */
+    function drawRacks() {
+      const r = RACKS[shape === TALL ? 'tall' : 'wide'], c = SERVER_ROOM, w = 10, h = 34, top = r.base - h;
+      const trayY = r.base - r.tray, trayL = shape === TALL ? Math.max(seen.left, r.x - 6) : CORRIDOR_X + 10;
+      const trayR = shape === TALL ? r.x + r.count * (w + 1) + 4 : seen.right;
+      if (shape === TALL) for (const x of [trayL + 2, trayR - 3]) fill(x, trayY - 6, 1, 6, c.trayShade); // hung from the ceiling
+      for (let i = 0; i < r.count; i++) {
+        const x = r.x + i * (w + 1);
+        c.cables.forEach((colour, k) => fill(x + 3 + k * 2, trayY + 2, 1, top - trayY - 2, colour));
+        fill(x, top, w, h, c.rack);
+        fill(x + 1, top + 1, w - 2, h - 3, c.rackFace);
+        for (let y = top + 2; y < r.base - 5; y += 4) {
+          fill(x + 1, y, w - 2, 3, c.unit);
+          fill(x + 1, y, w - 2, 1, c.unitTop);
+          fill(x + 5, y + 1, 3, 1, c.rack);
+        }
+        fill(x, r.base - 2, w, 2, c.plinth);
+      }
+      fill(trayL, trayY, trayR - trayL, 2, c.tray);
+      for (let x = trayL + 1; x < trayR; x += 3) dot(x, trayY + 2, c.trayShade);
+      fill(r.x - 1, r.base, r.count * (w + 1) + 1, 1, SHADOW);
+      // The lights, over the night's dark, since they're what's lit in a server room after hours
+      glowLate(() => {
+        for (let i = 0; i < r.count; i++) {
+          const x = r.x + i * (w + 1);
+          for (let y = top + 2, u = 0; y < r.base - 5; y += 4, u++) {
+            const k = hash(i, u), on = Math.sin(now * (2 + (k % 5)) + k) > -0.3;
+            dot(x + 2, y + 1, c.leds[k % c.leds.length], on ? 1 : 0.25);
+            dot(x + 3, y + 1, c.leds[0], Math.sin(now * 9 + k * 2) > 0 ? 0.9 : 0.2);
+          }
+        }
+      });
+    }
+
+    /** The robot badge on the front of a headless desk, its antenna's light blinking now and then. */
+    function drawRobotBadge(desk) {
+      const { x, y } = DESKS[desk], bx = x + 4, by = y + 8;
+      const lit = Math.sin(now * 2 + desk) > 0.6;
+      ROBOT_BADGE.forEach((row, r) => [...row].forEach((ink, column) => {
+        if (ink === '.') return;
+        dot(bx + column, by + r, ink === 'a' ? (lit ? 0xe0483e : 0x7d838f) : ROBOT_INKS[ink]);
+      }));
+    }
+
+    /** What stands on the floor upstairs besides the desks and the people: the racks, and each headless desk's badge. */
+    function upstairsItems(items) {
+      items.push([RACKS[shape === TALL ? 'tall' : 'wide'].base, drawRacks]);
+      office.seats.forEach((s, desk) => { if (s.session && DESKS[desk]) items.push([DESKS[desk].y + 5.1, () => drawRobotBadge(desk)]); });
+    }
+
     /* The frame, back to front */
 
-    drawWall();
+    if (frame.upstairs) drawUpstairsWall();
+    else drawWall();
     drawSeasonal('wall');
     if (decor.drift === 'snow') drawFrost();
-    drawFloor();
+    if (frame.upstairs) drawUpstairsFloor();
+    else drawFloor();
     if (decor.door === 'mailboxdoor') drawLetterOnMat();
     drawSeasonal('floor');
     drawSpotlight();
+    drawElevator();
 
     // What stands on the floor, drawn in order of where it touches the
     // floor, so that nearer things cover farther ones.
@@ -15951,7 +16607,7 @@
         draw();
       }))),
     ];
-    if (shape.loungeWall !== undefined) items.push([shape.loungeWall, drawLoungeWall]);
+    if (shape.loungeWall !== undefined && !frame.upstairs) items.push([shape.loungeWall, drawLoungeWall]);
     for (const pet of office.pets) if (pet.isIn) items.push([!pet.isWalking && pet.target && pet.target.depth ? pet.target.depth : pet.position.y, () => drawPet(pet)]);
     DESKS.forEach((d, desk) => {
       if (d.off) return;
@@ -15959,6 +16615,7 @@
       items.push([d.y + 3.5, () => drawChair(desk)]); // just behind whoever sits in it
       items.push([d.y + 3, () => drawWorkspaceBack(desk)]);
     });
+    if (frame.upstairs) upstairsItems(items);
     // Someone being carried is drawn on top, where the finger has them, not at their desk. Someone at
     // the clock or the whiteboard is in front of the first row's workspaces, the tallest of which reach
     // the wall: they're there to be seen.
@@ -15977,17 +16634,19 @@
       // One still waiting for room hasn't come in yet.
       if (intern.slot !== null || intern.isLeaving) items.push([intern.position.y, () => drawIntern(intern)]);
     }
-    if (decor.drift === 'lunar') dragonDance(items);
+    // A calm office has nothing drifting or crossing it, and nothing in the air
+    const calm = decor.calm === 'on', drift = calm ? 'none' : decor.drift;
+    if (drift === 'lunar') dragonDance(items);
     items.sort((a, b) => a[0] - b[0]).forEach(([, draw]) => draw());
 
-    if (decor.drift === 'lunar') drawPlumPetals();
-    drawSeasonal('air');
-    if (decor.drift === 'snow') drawSnowDrift();
+    if (drift === 'lunar') drawPlumPetals();
+    if (!calm) drawSeasonal('air');
+    if (drift === 'snow') drawSnowDrift();
     if (isNight) fill(seen.left, seen.top, seen.width, seen.height, PALETTE.night, 0.3);
     lateGlows.splice(0).forEach((draw) => draw());
     drawSeasonal('glow');
-    if (decor.drift === 'hearts') drawHeartDrift();
-    if (decor.drift === 'confetti') drawConfettiDrift();
+    if (drift === 'hearts') drawHeartDrift();
+    if (drift === 'confetti') drawConfettiDrift();
     if (isNight) drawPendantLight();
     drawSelectionCorners();
     drawDetonation();
@@ -16010,9 +16669,15 @@
     if (frame.carrying) drawCarried(frame.carrying);
     office.people.forEach((person) => { if (!person.entering) drawBubble(person); });
     office.people.forEach(drawConfetti);
+    // The room's art done, it goes on the screen, and what's over it is drawn there at the screen's resolution
+    if (layer) {
+      ({ ox, oy, scale, ctx } = onScreen);
+      layer.ops.push(['art', [artAt.x, artAt.y, layer.into.width, layer.into.height]]);
+    }
     // The picked one's last, over those beside it in the line
     DESKS.forEach((_, desk) => { if (desk !== selectedDesk) drawLabel(desk); });
     if (selectedDesk >= 0) drawLabel(selectedDesk);
+    drawElevatorBadge();
     if (frame.chips) drawChips();
     if (frame.deskButton) drawDeskButton(frame.deskButton);
     if (frame.micLanguage) {
@@ -16027,12 +16692,16 @@
     if (frame.roleRow) drawRoleRow(frame.roleRow);
     if (frame.styleKey) drawStyleKey(frame.styleKey);
     if (frame.firing) drawFireDialog(frame.firing);
+    if (frame.hiredCard) drawHiredCard(frame.hiredCard);
     if (frame.styles) drawStyleMenu(frame.styles);
 
+    if (layer) layer.ops.push(['mark', []]); // and what's round it starts
     if (glass) {
       ctx.restore();
       drawWindowFrame(glass);
     }
+    // The frame's rings reach WINDOW_SHADOW in, and its rounded corners a third of their radius further
+    if (layer) composeArt(screenCtx, layer, artAt, glass && { glass, reach: Math.ceil((WINDOW_SHADOW + 2) * ratio + glass.r * 0.35) });
   }
 
   /** `text`, cut with an ellipsis to fit `room` pixels in the context's font. */
@@ -16833,6 +17502,16 @@
     remind: { play: remindSound },
   };
 
+  // The elevator arriving at a floor: a small two-tone ding, a bell's, high then a third below, -16.
+  SOUNDS.ding = {
+    gap: 0.5,
+    play(chip, at, pan) {
+      chip.note(at, { wave: 'triangle', pitch: hz('E6'), length: 0.5, level: dB(-16), pan, curve: 0.8 });
+      chip.note(at, { wave: 'pulse12', pitch: hz('E7'), length: 0.06, level: dB(-28), pan, curve: 2 });
+      chip.note(at + 0.16, { wave: 'triangle', pitch: hz('C6'), length: 0.8, level: dB(-17), pan, curve: 0.7 });
+    },
+  };
+
   /** Sounds that are only the room getting on with its day: no more than one of them in this many seconds. */
   const BACKGROUND_GAP = 4;
   /** A rally's hits are heard for its first few: after that, the players carry on in silence. */
@@ -17255,8 +17934,14 @@
 
   /* --------------------------------------------------------- on the page */
 
-  /** At most 30 frames a second: the art moves in whole pixels, and more would only spend battery. */
-  const FRAME_TIME = 1000 / 30;
+  /**
+   * At most 24 frames a second: the art moves in whole pixels, and more would only spend battery. Motion goes by
+   * the clock, so it's no slower. A calm office (see ROOM_CHOICES), with nothing wandering, needs half that.
+   */
+  const FRAME_TIME = 1000 / 24;
+  const CALM_FRAME_TIME = 1000 / 12;
+  /** How long before a frame is due its wait ends, in ms: about a refresh, so the frame isn't one late. */
+  const WAKE_EARLY = 12;
   /**
    * Out of sight this long, the room starts over from the latest snapshot
    * when it's seen again, everyone in place: nobody replays a press of ☢ Max
@@ -17309,13 +17994,91 @@
     let visible = true;
     let framed = false;  // seen through a window, beside the phone's controls
     let floating = null;  // floating in a 'window' of its own or a whole 'screen', from 'edge' to edge, or not
-    let frame = null;
+    let frame = null;    // the animation frame asked for, and the timer waiting to ask for it
+    let waiting = null;
     let last = 0;
     const failures = new Set(); // the mistakes frames have failed with, each said once
     let restartedAt = -Infinity; // when the room last started over for one
     let selected = null; // the session the deck's controls act on
     let latest = null;   // the deck's last snapshot
     let ahead = 0;       // how far this device's clock is ahead of the computer's, in ms
+    // For comparing, `direct` in the page's address draws the room straight onto the screen, as before its art layer.
+    // And `compare` draws each frame the direct way too, off screen, and counts the frames that came out differently,
+    // pixel for pixel, in window.officeCompare: a check that the art layer changes nothing. Only on a page this
+    // computer serves itself, as the office's own window: a link to the phone's deck or the viewer can't slow them.
+    let drawsDirect = false, comparing = false, frameRate = 0;
+    try {
+      const page = canvas.ownerDocument.defaultView.location;
+      if (['localhost', '127.0.0.1', '[::1]'].includes(page.hostname)) {
+        const asked = new URLSearchParams(page.search);
+        drawsDirect = asked.has('direct');
+        // and `fps=` a rate of its own, for measuring, from 1 to 60
+        const fps = Math.round(Number(asked.get('fps')));
+        frameRate = Number.isFinite(fps) && fps > 0 ? Math.min(60, fps) : 0;
+        comparing = asked.has('compare');
+      }
+    } catch {}
+    function compareDirect(storey, frames) {
+      const doc = canvas.ownerDocument, check = compareDirect.canvas || (compareDirect.canvas = doc.createElement('canvas'));
+      check.width = canvas.width;
+      check.height = canvas.height;
+      const context = check.getContext('2d'); // drawn as the screen's is, on the GPU, blurs and all
+      context.imageSmoothingEnabled = false;
+      drawStorey(context, storey, { ...frames, [storey]: { ...frames[storey], direct: true } });
+      // What the page shows: the layer under the canvas, where it's shown, cut to the window, and the canvas over it
+      const shown = compareDirect.shown || (compareDirect.shown = doc.createElement('canvas'));
+      shown.width = canvas.width;
+      shown.height = canvas.height;
+      // Over the same grey, as a page's background, so that half-clear pixels compare as they're seen
+      const page = shown.getContext('2d');
+      page.imageSmoothingEnabled = false;
+      page.fillStyle = '#7a7f8a';
+      page.fillRect(0, 0, canvas.width, canvas.height);
+      const layer = artLayers.get(canvas);
+      if (layer && layer.shown && layer.view.style.display !== 'none') {
+        const { at, edge, view } = layer;
+        page.save();
+        if (edge) {
+          roundedRect(page, edge.glass.x, edge.glass.y, edge.glass.w, edge.glass.h, edge.glass.r);
+          page.clip();
+        }
+        page.drawImage(view, at.x, at.y, view.width * at.scale, view.height * at.scale);
+        page.restore();
+      }
+      page.drawImage(canvas, 0, 0);
+      const a = new Uint32Array(page.getImageData(0, 0, canvas.width, canvas.height).data.buffer);
+      const direct = compareDirect.direct || (compareDirect.direct = doc.createElement('canvas'));
+      direct.width = canvas.width;
+      direct.height = canvas.height;
+      const under = direct.getContext('2d');
+      under.fillStyle = '#7a7f8a';
+      under.fillRect(0, 0, canvas.width, canvas.height);
+      under.drawImage(check, 0, 0);
+      const b = new Uint32Array(under.getImageData(0, 0, canvas.width, canvas.height).data.buffer);
+      // Exactly, and as an eye could tell: more than 2 in 255 on a channel. The GPU and the CPU round blends a shade
+      // apart, and the screen's canvas is drawn on one and the art layer on the other.
+      let differ = 0, visible = 0, box = null, sample = null;
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] === b[i]) continue;
+        differ++;
+        let far = false;
+        for (let shift = 0; shift < 32 && !far; shift += 8) far = Math.abs(((a[i] >>> shift) & 255) - ((b[i] >>> shift) & 255)) > 2;
+        if (!far) continue;
+        visible++;
+        const x = i % canvas.width, y = Math.floor(i / canvas.width);
+        if (!box) box = [x, y, x, y];
+        else box = [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x), Math.max(box[3], y)];
+        if (!sample && y > canvas.height * 0.3) sample = [x, y, a[i].toString(16), b[i].toString(16)];
+      }
+      const seen = doc.defaultView.officeCompare
+        || (doc.defaultView.officeCompare = { frames: 0, differing: 0, most: 0, visiblyDiffering: 0, mostVisible: 0 });
+      if (visible) Object.assign(seen, { box, sample });
+      seen.frames++;
+      if (differ) seen.differing++;
+      if (visible) seen.visiblyDiffering++;
+      seen.most = Math.max(seen.most, differ);
+      seen.mostVisible = Math.max(seen.mostVisible, visible);
+    }
     let gaps = [];       // how far ahead it seemed as each of the latest snapshots came, in ms
     // The mic: whether a finger holds it, when it last went on and off, and
     // who it talks to.
@@ -17326,6 +18089,7 @@
     let chipDown = null;     // the last paint chip tapped: { level, at, held }
     // A desk held down: { kind: 'session', id } for its agent, or { kind: 'empty', desk } for a hire
     let held = null;
+    let hiredCard = null;    // a desk upstairs held, its card out till a tap: { id }, its session's
     let firing = null;       // an agent about to be fired, while the question is up: { id, name, at }
     let carrying = null;     // an agent carried to another desk: { person, from, x, y, over, desks }
     let styling = false;     // the styles' panel is up
@@ -17334,6 +18098,7 @@
     let dictation = null;    // the Mac's dictation, from the snapshot: { on, language }
     let musicPanel = null;   // a music piece's control, held open: { part, at }, `at` when it was last used
     let musicDown = null;    // the music control's key last pressed: { action, at, held }
+    let musicDrag = null;    // a finger on the volume bar: { level, sent, at, timer }, the computer's volume ignored meanwhile
     let keysFor = null;      // the agent whose keys are out, by its session's id: from a finger held on them till a tap elsewhere
     let keyArmed = null;     // a key that wants a second tap, tapped once: { action, at }
     let keyDown = null;      // the key last pressed: { action, at, held }
@@ -17358,14 +18123,179 @@
     // it's hidden. The page can be out of sight while that window is on top.
     let host = null;         // { window, resizing, seen }
 
+    /*
+     * The floor upstairs: an office of its own, for the snapshot's headless
+     * sessions, in a room of its own (see onFloor). The floor shown is kept
+     * on this device, for whoever looks at it here next.
+     */
+    const upper = new Office();
+    const upstairsWorld = { base: null, decor: null, shape: null };
+    let floorShown = 1;
+    try { floorShown = localStorage.getItem(FLOOR_KEY) === '2' ? 2 : 1; } catch {}
+    let ride = null;           // the elevator on its way: { from, to, at }
+    let arrivedAt = -Infinity; // when it last got to a floor, for its ding and its doors
+    const spares = [];         // the two floors, drawn apart for the ride to slide them by
+    /** The mic as the floor upstairs has it: there's none, so never held. */
+    const QUIET_MIC = { held: false, heldAt: null, releasedAt: null, listener: null, usable: false };
+
+    /** Runs `fn` upstairs, in the room upstairs furnished from the one downstairs as it is now, laid out for the room's shape. */
+    function upstairs(fn) {
+      if (upstairsWorld.base !== decor) Object.assign(upstairsWorld, { base: decor, decor: upstairsRoomOf(decor), shape: null });
+      return onFloor(upstairsWorld, () => {
+        if (upstairsWorld.moved) {
+          upstairsWorld.moved = false;
+          upper.relayout(clock());
+        }
+        return fn();
+      });
+    }
+
+    /** The headless sessions in the snapshot, at their desks upstairs. */
+    function applyUpstairs(snapshot, now) {
+      upstairs(() => upper.apply(upstairsSeatsOf(snapshot, ahead), snapshot.theme, now));
+    }
+
+    /** The desks upstairs with someone at them, to a finger, by their session's id: as deskBoxes has a desk downstairs. */
+    function upstairsDeskBoxes() {
+      return upstairs(() => upper.seats.flatMap((seat, desk) => {
+        if (!seat || !seat.session || !DESKS[desk] || DESKS[desk].off) return [];
+        const { x, y } = DESKS[desk];
+        const top = y + WORKSPACES[workspaceOf(seat.session, desk)].top;
+        return [{ id: seat.session.id, box: { left: x - 2, right: x + DESK_WIDTH + 2, top, bottom: y + 27 } }];
+      }));
+    }
+
+    /**
+     * The held desk's card, as drawn: see drawHiredCard. Whoever hired its
+     * agent is found downstairs by their session's id, and drawn standing,
+     * as they look there; the portable viewer's say only a name. Gone with
+     * the agent, or once the floor is left.
+     */
+    function hiredCardFrame(now) {
+      if (!hiredCard || floorShown !== 2 || ride) return null;
+      const seat = upstairs(() => upper.seats.find((s) => s && s.session && s.session.id === hiredCard.id));
+      if (!seat) {
+        hiredCard = null;
+        return null;
+      }
+      const s = seat.session, by = s.hiredBy && typeof s.hiredBy === 'object' ? s.hiredBy : null;
+      const found = by && typeof by.id === 'string'
+        ? office.people.find((p) => !p.isStaff && !p.isLeaving && p.session && p.session.id === by.id) : null;
+      const person = found && Object.assign(Object.create(Person.prototype), found, {
+        path: [], place: 'storm:card', packing: null, isGoingNuclear: false, celebratedAt: null, arrivedAt: now,
+        isFacingAway: false, carrying: null, putDown: null, visiting: null,
+      });
+      const started = Number(s.startedAt);
+      return {
+        ...hiredCardBox(),
+        name: String(s.project || s.name || 'Agent'),
+        doing: String(s.activity || s.tool || HEADLESS_DOING[s.state] || ''),
+        ran: started > 0 ? turnLength(Math.max(0, Math.floor((Date.now() - (started + ahead)) / 1000))) : null,
+        hirer: by && by.name ? String(by.name) : null,
+        person,
+        visits: !!(found && on.select) && found.session.id,
+        below: { decor, shape, DESKS, spots, boardSpots, stormSpots, floor },
+      };
+    }
+
+    /** The elevator, to a finger: its frame, and its badge on it. None while the room is being arranged. */
+    function elevatorBox() {
+      if (arranging) return null;
+      return { left: ELEVATOR.x, right: ELEVATOR.x + ELEVATOR.w, top: ELEVATOR.top, bottom: WALL_BOTTOM };
+    }
+
+    /**
+     * The elevator tapped: the view rides to the other floor, sliding by in
+     * RIDE_LENGTH, or there at once for someone who'd rather things didn't
+     * move. What was held out downstairs goes away.
+     */
+    function rideElevator() {
+      if (arranging) return;
+      const to = floorShown === 2 ? 1 : 2;
+      let still = false;
+      try { still = host.window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch {}
+      ride = still ? null : { from: floorShown, to, at: clock() };
+      floorShown = to;
+      if (still) arrive(clock());
+      held = null;
+      hiredCard = null;
+      keysFor = null;
+      keyArmed = null;
+      musicPanel = null;
+      styling = false;
+      try { localStorage.setItem(FLOOR_KEY, String(to)); } catch {}
+    }
+
+    /** The elevator gets to its floor: a ding, and its doors open a moment. */
+    function arrive(now) {
+      arrivedAt = now;
+      ambience.play('ding', ELEVATOR.x + ELEVATOR.w / 2);
+    }
+
+    /**
+     * What the elevator's badge says on `floor`: downstairs, how many are
+     * upstairs, if anyone is, or that it's full; upstairs, 1F, and how many
+     * are downstairs.
+     */
+    function elevatorLabel(floor) {
+      if (floor === 2) {
+        const below = latest ? (latest.keys || []).filter((key) => key && key.session).length + (Number(latest.overflow) || 0) : 0;
+        return below ? `1F · ${agentsWord(below)}` : '1F';
+      }
+      const up = latest && latest.upstairs;
+      const desks = up && Array.isArray(up.desks) ? Math.min(UPSTAIRS_MOST, up.desks.length) : 0;
+      const beyond = up && Number(up.overflow) > 0 ? Math.round(Number(up.overflow)) : 0;
+      if (beyond) return `elevator full · +${beyond}`;
+      return desks ? `2F · ${agentsWord(desks)}` : null;
+    }
+
+    /** The elevator as drawn on `floor`: its doors, open 0 to 1 just after it gets there, its lamp, and its badge. */
+    function elevatorOf(now, floor) {
+      const since = now - arrivedAt;
+      const open = since < 0.1 ? 0 : since < 0.35 ? (since - 0.1) / 0.25 : since < DOORS_OPEN_FOR ? 1
+        : since < DOORS_OPEN_FOR + 0.3 ? 1 - (since - DOORS_OPEN_FOR) / 0.3 : 0;
+      return { floor, open: floor === floorShown && !ride ? open : 0, riding: ride && { to: ride.to }, label: elevatorLabel(floor) };
+    }
+
+    /** A canvas the size of the room's, to draw one floor on for the ride. */
+    function spare(i) {
+      const doc = canvas.ownerDocument;
+      if (!spares[i] || spares[i].ownerDocument !== doc) spares[i] = doc.createElement('canvas');
+      const picture = spares[i];
+      if (picture.width !== canvas.width || picture.height !== canvas.height) {
+        picture.width = canvas.width;
+        picture.height = canvas.height;
+      }
+      const context = picture.getContext('2d');
+      context.imageSmoothingEnabled = false;
+      return context;
+    }
+
+    /** One floor, drawn on `context`: downstairs as ever, or upstairs in its own room. */
+    function drawStorey(context, floor, frames) {
+      if (floor === 2) upstairs(() => drawOffice(context, upper, frames[2]));
+      else drawOffice(context, office, frames[1]);
+    }
+
     // The canvas holds the screen's own pixels, so the art can be scaled by
     // a whole number of them.
+    // Sizing the canvas empties it, so it's sized only when its size changes, and the room is drawn again at once,
+    // before the page next shows: left to the next frame, a window being resized would show it empty at most steps.
     function resize() {
       const ratio = host.window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.round(rect.width * ratio));
-      canvas.height = Math.max(1, Math.round(rect.height * ratio));
+      const width = Math.max(1, Math.round(rect.width * ratio)), height = Math.max(1, Math.round(rect.height * ratio));
+      if (canvas.width === width && canvas.height === height) return;
+      canvas.width = width;
+      canvas.height = height;
       ctx.imageSmoothingEnabled = false;
+      repaint(canvas);
+      if (!visible || host.window.document.hidden || !latest) return;
+      try {
+        draw(performance.now());
+      } catch {
+        // Drawn again at the next frame, which says what went wrong if it does again
+      }
     }
 
     /** Follows the window the canvas is in now: its size, and whether it can be seen. */
@@ -17391,7 +18321,8 @@
     function unbind() {
       if (!host) return;
       if (frame !== null) host.window.cancelAnimationFrame(frame);
-      frame = null;
+      if (waiting !== null) host.window.clearTimeout(waiting);
+      frame = waiting = null;
       host.resizing.disconnect();
       host.window.document.removeEventListener('visibilitychange', host.seen);
       host.window.document.removeEventListener('pointerdown', host.tapped, { capture: true });
@@ -17464,7 +18395,7 @@
 
     /** The styles' key, where the deck's own controls are out of sight and the page can change the style. */
     function styleKey() {
-      if (framed || !on.style || !latest || arranging) return null;
+      if (framed || !on.style || !latest || arranging || floorShown === 2) return null;
       return { open: styling };
     }
 
@@ -17485,11 +18416,42 @@
     function musicControl() {
       if (!musicPanel || !music || !on.music || !loungePieces().some(({ part }) => part === musicPanel.part)) return null;
       const box = pieceBox(musicPanel.part);
-      const w = 2 + MUSIC_KEY.w * 3 + MUSIC_KEY.gap * 2 + 2, h = MUSIC_KEY.h + 4;
+      // The volume bar only where the computer says its volume: never in the portable viewer, whose snapshot has none.
+      const volume = typeof music.volume === 'number', above = volume ? MUSIC_VOLUME.h + 2 : 0;
+      const w = 2 + MUSIC_KEY.w * 3 + MUSIC_KEY.gap * 2 + 2, h = MUSIC_KEY.h + 4 + above;
       const tip = { x: Math.round((box.left + box.right) / 2), y: Math.round(box.top) - 2 };
       const left = Math.max(1, Math.min(shape.width - w - 1, tip.x - Math.floor(w / 2))), top = Math.max(1, tip.y - h - 2);
       tip.x = Math.max(left + 2, Math.min(left + w - 3, tip.x));
-      return { left, top, w, h, tip, keys: MUSIC_ACTIONS.map((action, i) => ({ action, x: left + 2 + i * (MUSIC_KEY.w + MUSIC_KEY.gap), y: top + 2 })) };
+      const bar = volume && { x: left + 2, y: top + 2, w: w - 4, track: { left: left + 2 + MUSIC_VOLUME.mark, w: w - 4 - MUSIC_VOLUME.mark } };
+      return { left, top, w, h, tip, bar, keys: MUSIC_ACTIONS.map((action, i) => ({ action, x: left + 2 + i * (MUSIC_KEY.w + MUSIC_KEY.gap), y: top + 2 + above })) };
+    }
+
+    /** The volume, 0 to 100, a finger at `x` on the bar asks for: anywhere left of the track is 0, right of it 100. */
+    function volumeAt(bar, x) {
+      const { left, w } = bar.track;
+      return Math.max(0, Math.min(100, Math.round(((x - left - 2) / (w - 4)) * 100)));
+    }
+
+    /**
+     * The volume bar dragged to `level`: shown at once, and sent to the
+     * computer at most every MUSIC_VOLUME.every, the latest level going once
+     * the wait is up; `last`, as the finger lifts, sends it now.
+     */
+    function dragVolume(level, last = false) {
+      if (!musicDrag) return;
+      musicDrag.level = level;
+      if (musicPanel) musicPanel.at = clock();
+      const send = () => {
+        clearTimeout(musicDrag.timer);
+        musicDrag.timer = null;
+        if (musicDrag.level === musicDrag.sent) return;
+        musicDrag.sent = musicDrag.level;
+        musicDrag.at = clock();
+        on.music?.('volume', musicDrag.level);
+      };
+      const wait = MUSIC_VOLUME.every - (clock() - musicDrag.at);
+      if (last || wait <= 0) send();
+      else if (!musicDrag.timer) musicDrag.timer = setTimeout(send, wait * 1000);
     }
 
     /** The picked agent's keys, along the foot of the room, if a finger held on them put them out and nothing else is up in their place. */
@@ -17507,20 +18469,33 @@
       return session && session.state === 'asking' && session.keys !== false ? choicePanel(desk) : null;
     }
 
+    /**
+     * The next frame, `ms` from now: asleep till nearly then, and drawn at the screen's next refresh after, rather
+     * than woken at every refresh till one is due.
+     */
+    function wake(ms) {
+      waiting = host.window.setTimeout(() => {
+        waiting = null;
+        frame = host.window.requestAnimationFrame(tick);
+      }, Math.max(0, ms - WAKE_EARLY));
+    }
+
     function tick() {
       frame = null;
       if (!visible || host.window.document.hidden) return;
-      frame = host.window.requestAnimationFrame(tick);
       // The page's clock, not the frame's: each window counts its frames'
       // time from when it opened, and the room can move between them.
-      const time = performance.now();
-      if (time - last < FRAME_TIME - 1) return;
+      const time = performance.now(), every = frameRate ? 1000 / frameRate : decor.calm === 'on' ? CALM_FRAME_TIME : FRAME_TIME;
+      if (time - last < every - 1) return wake(every - (time - last));
+      wake(every);
       const stale = last && time - last > STALE_AFTER;
       last = time;
       try {
         if (stale && latest) {
           office.close();
           office.apply(seatsOf(latest, ahead), latest.theme, time / 1000);
+          upper.close();
+          applyUpstairs(latest, time / 1000);
         }
         draw(time);
       } catch (error) {
@@ -17531,6 +18506,8 @@
           restartedAt = time;
           office.close();
           office.apply(seatsOf(latest, ahead), latest.theme, time / 1000);
+          upper.close();
+          applyUpstairs(latest, time / 1000);
         }
       }
     }
@@ -17549,7 +18526,13 @@
         finger.held = true;
         musicPanel = { part: finger.target.part, at: now };
       }
-      if (musicPanel && now - musicPanel.at > MUSIC_PANEL_LENGTH && !(musicDown && musicDown.held)) musicPanel = null;
+      if (musicPanel && now - musicPanel.at > MUSIC_PANEL_LENGTH && !(musicDown && musicDown.held) && !musicDrag) musicPanel = null;
+      // Held on a desk upstairs, its card opens: who its agent is, and who hired it.
+      if (finger && !finger.held && finger.target.kind === 'upstairsDesk' && now - finger.at >= HOLD_FOR_CHIPS) {
+        finger.held = true;
+        hiredCard = { id: finger.target.id };
+        on.held?.();
+      }
       const holding = finger && !finger.held && ['session', 'pinned', 'empty'].includes(finger.target.kind);
       if (holding && now - finger.at >= HOLD_FOR_CHIPS) {
         finger.held = true;
@@ -17564,13 +18547,37 @@
       const fitting = canvas.height > canvas.width ? TALL : WIDE;
       if (fitting !== shape) office.reshape(fitting, now);
       office.step(now);
-      ambience.follow(office, now, loudness(), { mic, carrying, music: music && music.playing === true });
+      upstairs(() => upper.step(now));
+      if (ride && now - ride.at >= RIDE_LENGTH) {
+        ride = null;
+        arrive(now);
+      }
+      // The floor in view, and the sound of it; the other's cues go unheard.
+      const storey = arranging ? 1 : floorShown;
+      const heldNow = { mic, carrying, music: music && music.playing === true };
+      if (storey === 2) {
+        office.cues.length = 0;
+        upstairs(() => ambience.follow(upper, now, loudness(), heldNow));
+      } else {
+        upper.cues.length = 0;
+        ambience.follow(office, now, loudness(), heldNow);
+      }
       const key = styleKey();
       if (!key) styling = false;
       const keys = keyRow(), hires = roleRow();
-      drawOffice(ctx, office, {
+      const room = {
         now, hour: date.getHours(), minute: date.getMinutes(), month: date.getMonth(),
-        width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1,
+        width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1, framed, floating, direct: drawsDirect,
+      };
+      // Upstairs, nothing is picked, held or waiting on a key.
+      const frames = {
+        2: {
+          ...room, selected: null, mic: QUIET_MIC, wobble: null, buttonDown: false, upstairs: true, elevator: elevatorOf(now, 2),
+          hiredCard: hiredCardFrame(now),
+        },
+      };
+      frames[1] = {
+        ...room, elevator: elevatorOf(now, 1),
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
         deskButton: heldButton(), firing: firing && { ...fireDialog(), name: firing.name }, carrying, micLanguage: micLanguageKey(),
         styleKey: key, styles: styling && key && { ...styleMenu(), current: decor.preset, pictures: stylePictures },
@@ -17584,17 +18591,36 @@
         // Gone with its piece, if the room changed under it, rather than failing every frame until it would have
         musicTap: musicTap && now - musicTap.at < MUSIC_TAP_LENGTH && pieceBox(musicTap.part)
           && { box: pieceBox(musicTap.part), was: musicTap.was, since: now - musicTap.at },
-        musicPanel: musicControl() && { ...musicControl(), playing: music.playing, down: musicDown },
+        musicPanel: musicControl() && {
+          ...musicControl(), playing: music.playing, down: musicDown,
+          // While a finger drags the bar, it shows where the finger is, not what the computer last said;
+          // and any level above 0 unmutes, as it will on the computer.
+          volume: musicDrag ? musicDrag.level : music.volume, muted: music.muted === true && !(musicDrag && musicDrag.level > 0),
+        },
         keyRow: keys,
         roleRow: hires,
-      });
+      };
+      if (ride) {
+        // The ride: the floor left slides away as the one arrived at comes in, up from below or down from above.
+        const k = Math.min(1, (now - ride.at) / RIDE_LENGTH), eased = k * k * (3 - 2 * k), dir = ride.to === 2 ? 1 : -1;
+        const from = spare(0), to = spare(1);
+        drawStorey(from, ride.from, frames);
+        drawStorey(to, ride.to, frames);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(from.canvas, 0, Math.round(dir * eased * canvas.height));
+        ctx.drawImage(to.canvas, 0, Math.round(dir * (eased - 1) * canvas.height));
+        hideArt(canvas);
+      } else {
+        drawStorey(ctx, storey, frames);
+        if (comparing) compareDirect(storey, frames);
+      }
       styleKeyAt = key && key.at;
       keysAt = keys && keys.at ? { keys: keys.at, box: keys.box } : null;
       rolesAt = hires && hires.at ? { roles: hires.at, box: hires.box, most: hires.most } : null;
     }
 
     function run() {
-      if (frame === null && visible && !host.window.document.hidden) frame = host.window.requestAnimationFrame(tick);
+      if (frame === null && waiting === null && visible && !host.window.document.hidden) frame = host.window.requestAnimationFrame(tick);
     }
 
     /**
@@ -17686,6 +18712,19 @@
         for (const key of fireDialog().keys) consider({ kind: key.action }, { left: key.x, right: key.x + key.w, top: key.y, bottom: key.y + key.h }, -1);
         return best ? best.target : { kind: 'keep' };
       }
+      // Upstairs, and on the way, the elevator is all there is to tap: nothing there takes keys or hires. A desk
+      // there held opens its card, which a tap anywhere then puts away, or on its Hired by row visits whoever hired it.
+      const lift = elevatorBox();
+      if (lift) consider({ kind: 'elevator' }, lift, 1);
+      if (floorShown === 2 && !ride) {
+        const card = hiredCard && hiredCardFrame(now);
+        if (card) {
+          if (card.visits) consider({ kind: 'visit', id: card.visits }, card.row, -1);
+          return best ? best.target : { kind: 'uncard' };
+        }
+        for (const { id, box } of upstairsDeskBoxes()) consider({ kind: 'upstairsDesk', id }, box, 3);
+      }
+      if (floorShown === 2 || ride) return best && best.target;
 
       for (const person of office.people) {
         if (person.isStaff || person.isLeaving || person.entering) continue;
@@ -17759,8 +18798,10 @@
         for (const key of control.keys) {
           consider({ kind: 'musicKey', action: key.action }, { left: key.x, right: key.x + MUSIC_KEY.w, top: key.y, bottom: key.y + MUSIC_KEY.h }, -1);
         }
+        const { bar } = control;
+        if (bar) consider({ kind: 'musicVolume', level: volumeAt(bar, x) }, { left: bar.x, right: bar.x + bar.w, top: bar.y, bottom: bar.y + MUSIC_VOLUME.h }, -1);
         const onControl = x >= control.left && x <= control.left + control.w && y >= control.top && y <= control.tip.y;
-        if (onControl) return best && best.target.kind === 'musicKey' ? best.target : null;
+        if (onControl) return best && ['musicKey', 'musicVolume'].includes(best.target.kind) ? best.target : null;
       }
       const panel = choices();
       if (panel) {
@@ -17779,6 +18820,15 @@
       // Anything tapped but the keys out and the chips puts the keys away; a finger held on an agent puts theirs out (see `tick`).
       if (target.kind !== 'key' && target.kind !== 'chip') keysFor = null;
       if (target.kind !== 'key') keyArmed = null;
+      if (target.kind === 'elevator') return rideElevator();
+      // A desk upstairs does nothing till it's held (see `draw`); its card, tapped, goes away, or down to who hired it.
+      if (target.kind === 'upstairsDesk') return;
+      if (target.kind === 'uncard' || target.kind === 'visit') hiredCard = null;
+      if (target.kind === 'uncard') return;
+      if (target.kind === 'visit') {
+        rideElevator();
+        return on.select?.(target.id);
+      }
       if (target.kind === 'key') {
         const wanted = rowKeysOf(latest && latest.layout).find((k) => k.action === target.action);
         // A key that wants to be sure acts on its second tap, while it says SURE?
@@ -17801,7 +18851,7 @@
       const holding = held;
       if (target.kind !== 'chip') held = null;
       // Anything but its keys puts the music control away.
-      if (target.kind !== 'musicKey') musicPanel = null;
+      if (target.kind !== 'musicKey' && target.kind !== 'musicVolume') musicPanel = null;
       if (target.kind === 'keep') {
         firing = null;
         return;
@@ -17817,6 +18867,12 @@
         musicDown = { action: target.action, at: clock(), held: true };
         if (musicPanel) musicPanel.at = clock();
         return on.music?.(target.action);
+      }
+      // The volume bar follows the finger from where it lands until it lifts.
+      if (target.kind === 'musicVolume') {
+        clearTimeout(musicDrag?.timer);
+        musicDrag = { level: target.level, sent: null, at: -Infinity, timer: null };
+        return dragVolume(target.level);
       }
       if (target.kind === 'unstyle') {
         styling = false;
@@ -17914,6 +18970,11 @@
         on.music?.('playpause');
       }
       if (musicDown) musicDown.held = false;
+      // The bar's last level goes as the finger lifts, and the computer's volume is shown again.
+      if (musicDrag) {
+        dragVolume(musicDrag.level, true);
+        musicDrag = null;
+      }
       if (keyDown) keyDown.held = false;
       // A chip, once chosen, goes away with the rest.
       if (finger && finger.target.kind === 'chip') held = null;
@@ -18204,7 +19265,7 @@
       }
       if (scrolling) return;
       if (finger) return; // one finger at a time
-      if (skipComingAt(e.clientX, e.clientY)) return;
+      if (floorShown === 1 && !ride && skipComingAt(e.clientX, e.clientY)) return;
       const target = targetAt(e.clientX, e.clientY);
       // A tap on the floor, with nothing there, puts away whatever was held out.
       if (!target) {
@@ -18300,6 +19361,11 @@
         return;
       }
       if (finger && e.pointerId === finger.id && finger.target.kind === 'role') return slide(e);
+      if (finger && e.pointerId === finger.id && finger.target.kind === 'musicVolume') {
+        const bar = musicControl()?.bar;
+        if (bar) dragVolume(volumeAt(bar, roomAt(e.clientX, e.clientY).x));
+        return;
+      }
       if (finger && e.pointerId === finger.id) return carry(e);
       // A mouse shows what can be clicked.
       if (e.pointerType === 'mouse' && !finger) canvas.style.cursor = targetAt(e.clientX, e.clientY) ? 'pointer' : '';
@@ -18351,6 +19417,7 @@
         dictation = snapshot.dictation || null;
         office.furnish(snapshot.layout && snapshot.layout.room, clock());
         office.apply(seatsOf(snapshot, ahead), snapshot.theme, clock());
+        applyUpstairs(snapshot, clock());
         // The question and what's held out go with their agent; a hire, once its desk is taken.
         const there = (id) => office.deskOfSession(id) !== null;
         if (firing && (!hiring.fire || !there(firing.id))) firing = null;
@@ -18364,6 +19431,8 @@
         latest = null;
         gaps = [];
         office.close();
+        upper.close();
+        dropArt(canvas);
       },
       select(id) {
         // Another agent picked: what was held out for the last one goes away.
@@ -18382,6 +19451,33 @@
         }
       },
       setFramed(shown) { framed = shown; },
+      /**
+       * Whether a point on the page is on the elevator, as a finger finds it,
+       * for a page that takes the room's taps itself, as the portable viewer
+       * does; and `ride()`, the elevator tapped.
+       */
+      /**
+       * For the same page: the desk upstairs under a point, by its id, with
+       * the floor upstairs in view; and `hold(id)`, that desk held, opening
+       * its card, or null, putting it away.
+       */
+      upstairsDeskAt(clientX, clientY) {
+        if (floorShown !== 2 || ride || !latest) return null;
+        const { x, y } = roomAt(clientX, clientY);
+        const desk = upstairsDeskBoxes().find(({ box }) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom);
+        return desk ? desk.id : null;
+      },
+      hold(id) { hiredCard = id ? { id } : null; },
+      onElevator(clientX, clientY) {
+        const box = elevatorBox();
+        if (!box || !latest) return false;
+        const { x, y, scale, ratio } = roomAt(clientX, clientY);
+        const reach = (SMALLEST_TARGET * ratio) / scale;
+        const grow = (low, high) => Math.max(0, reach - (high - low)) / 2;
+        const dx = grow(box.left, box.right), dy = grow(box.top, box.bottom);
+        return x >= box.left - dx && x <= box.right + dx && y >= box.top - dy && y <= box.bottom + dy;
+      },
+      ride() { rideElevator(); },
       /** Floats the room's window in a 'window' of its own or a whole 'screen', fills it from 'edge' to edge, or stops, with null. */
       setFloating(how) { floating = how; },
       /**
@@ -18446,6 +19542,7 @@
       moved() {
         if (finger) lift();
         bind();
+        repaint(canvas); // in another window: its layer goes there too
         resize();
         run();
       },
@@ -18525,7 +19622,7 @@
       whole.width = shape.width * scale; // clears it, too
       whole.height = shape.height * scale;
       drawOffice(whole.getContext('2d'), office, {
-        now, hour: 12, minute: 0, month: 5, width: whole.width, height: whole.height, ratio: 1, selected: null,
+        now, hour: 12, minute: 0, month: 5, width: whole.width, height: whole.height, ratio: 1, selected: null, direct: true,
         mic: { held: false, heldAt: null, releasedAt: null, listener: null, usable: true }, framed: false, floating: null,
       });
       const ctx = canvas.getContext('2d');
@@ -18556,7 +19653,7 @@
   // `furnishingOf` writes a room in a style out as your own, for the setup page to change one piece of it;
   // `remind` is the deck's reminder; `Ambience` and `sounds` let each of the office's sounds be tried on its own.
   window.AgentOffice = {
-    create, popOutSize, preview, arrangeable: ARRANGEABLE, sizes: PIECE_SIZES, remind, Ambience, sounds: Object.keys(SOUNDS), furnishingOf,
+    create, popOutSize, preview, drawStats, arrangeable: ARRANGEABLE, sizes: PIECE_SIZES, remind, Ambience, sounds: Object.keys(SOUNDS), furnishingOf,
     // What the back wall can hold, each piece's width, and where along the wall they can go, for the editor's drawer
     wallPieces: Object.fromEntries(WALL_CHOICES.filter((kind) => kind !== 'bare').map((kind) => [kind, { w: wallWidthOf(kind) }])),
     wallRange: WALL_RANGE, hungMost: HUNG_MOST, addedMost: ADDED_MOST,
