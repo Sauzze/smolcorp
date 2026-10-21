@@ -37,6 +37,8 @@ final class Deck {
 
     let access = Access()
     let sessions = Sessions()
+    /// ✨ Summary: what each session has been doing, from Claude, with your own key.
+    let summaries = Summaries()
     /// The key the office's own window on this Mac reads the office with:
     /// new at each start, never saved, and taken only from this Mac.
     let windowKey = randomKey()
@@ -453,6 +455,8 @@ final class Deck {
             "compacting": s.compacting,
             "turnStartedAt": s.turnStartedAt.map { Int64($0) } ?? NSNull(),
             "errorKind": s.errorKind.isEmpty ? NSNull() : s.errorKind,
+            // ✨ Summary: offered only when it's on, with a key, and a transcript to read.
+            "summary": Deck.summaryOffered && !s.transcript.isEmpty,
             "role": roleOf[s.id].flatMap { id in Config.shared.roles.first { $0.id == id } }?.forPhone ?? NSNull(),
         ]
     }
@@ -461,7 +465,7 @@ final class Deck {
     /// off, as there's nothing to type into.
     private func upstairsEntry(_ s: Session) -> [String: Any] {
         var entry = sessionEntry(s)
-        for control in ["keys", "fire", "mic", "dial", "dictates"] { entry[control] = false }
+        for control in ["keys", "fire", "mic", "dial", "dictates", "summary"] { entry[control] = false }
         entry["role"] = NSNull()
         entry["headless"] = true
         entry["startedAt"] = Int64(s.startedAt)
@@ -1078,6 +1082,19 @@ final class Deck {
             let ok = work()
             DispatchQueue.main.async { done(ok ? .status(204) : .status(404, "Terminal tab not found")) }
         }
+    }
+
+    /// Whether ✨ summary is offered at all: turned on, and with a key.
+    static var summaryOffered: Bool { Config.shared.summaryOptIn && SummaryKey.isPresent }
+
+    /// ✨ Summary: a few lines on what session `id` has been doing, from the end
+    /// of its transcript. Nothing is sent with it off, or without a key.
+    func summarize(_ id: String, done: @escaping (Result<String, SummaryError>) -> Void) {
+        guard Config.shared.summaryOptIn else { return done(.failure(.off)) }
+        guard SummaryKey.isPresent else { return done(.failure(.noKey)) }
+        guard let session = sessions[id], !session.isHeadless else { return done(.failure(.noSession)) }
+        guard !session.transcript.isEmpty else { return done(.failure(.noHistory)) }
+        summaries.summarize(id, transcript: session.transcript, project: session.projectName, done: done)
     }
 
     func focus(_ id: String, done: @escaping (Response) -> Void) {

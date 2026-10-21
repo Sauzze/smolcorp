@@ -27,7 +27,8 @@
  * control a finger held on it opens, 'previous', 'playpause' or 'next',
  * `on.key(action)` for one of the picked agent's keys along the foot of the
  * room, out from a finger held on the agent till a tap elsewhere, 'esc', 'send',
- * 'clear', 'up', 'down' or 'button:<id>' for one of the layout's own
+ * 'clear', 'up', 'down', 'summary' (✨, where the computer offers one: Summary
+ * on, with a key, and a transcript to read) or 'button:<id>' for one of the layout's own
  * buttons (/clear and a button marked `confirm` on a second tap),
  * `on.hire(desk, role)` for an empty desk held and hired into: by the id
  * of one of the snapshot's `hiring.roles`, along the foot of the room, or
@@ -3493,12 +3494,14 @@
   const KEY_NAMES = { enter: '⏎', escape: 'esc', tab: '⇥', 'shift-tab': '⇤', up: '↑', down: '↓', 'ctrl-c': '^C' };
   /** ⏎, in pixels. */
   const SEND_MARK = ['0000001', '0000001', '0100001', '1111111', '0100000'];
-  /** The keys for the picked agent: the office's own, then your buttons from the layout, each by its label, its text or the key it presses. */
-  function rowKeysOf(layout) {
+  /** ✨ Summary, for an agent whose session the computer offers one for. */
+  const SUMMARY_KEY = { action: 'summary', label: '✨ summary' };
+  /** The keys for the picked agent: the office's own, ✨ summary where offered, then your buttons from the layout, each by its label, its text or the key it presses. */
+  function rowKeysOf(layout, session) {
     const yours = (layout && Array.isArray(layout.rows) ? layout.rows : []).flatMap((row) => (row && Array.isArray(row.buttons) ? row.buttons : []))
       .filter((b) => b && typeof b.id === 'string' && !BUILT_IN_BUTTONS.includes(b.id))
       .map((b) => ({ action: `button:${b.id}`, label: String(b.label || b.text || KEY_NAMES[b.key] || b.key || b.id).slice(0, 16), confirm: b.confirm === true }));
-    return [...ROW_KEYS, ...yours];
+    return [...ROW_KEYS, ...(session && session.summary === true ? [SUMMARY_KEY] : []), ...yours];
   }
   /**
    * The badges a role can give its agents, in the order setup offers them:
@@ -18459,7 +18462,7 @@
       if (framed || !keysFor || keysFor !== selected || !on.key || arranging || styling || firing || carrying || !selectedSession()) return null;
       // Keys for an agent in a terminal Smolcorp can only watch would go nowhere.
       if (selectedSession().keys === false) return null;
-      return { keys: rowKeysOf(latest && latest.layout), armed: keyArmed, down: keyDown };
+      return { keys: rowKeysOf(latest && latest.layout, selectedSession()), armed: keyArmed, down: keyDown };
     }
 
     function choices() {
@@ -18830,7 +18833,7 @@
         return on.select?.(target.id);
       }
       if (target.kind === 'key') {
-        const wanted = rowKeysOf(latest && latest.layout).find((k) => k.action === target.action);
+        const wanted = rowKeysOf(latest && latest.layout, selectedSession()).find((k) => k.action === target.action);
         // A key that wants to be sure acts on its second tap, while it says SURE?
         const arming = wanted && wanted.confirm && !(keyArmed && keyArmed.action === target.action && clock() - keyArmed.at < KEY_ARMED_LENGTH);
         if (!arming && isRepeatedReturn(target.action)) return; // ignored, so it isn't pressed in either

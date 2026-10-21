@@ -141,6 +141,15 @@ final class DeckRouter: Router {
         case ("POST", "/act"):
             deck.perform(request.query["action"] ?? "", on: session, query: request.query, phone: phone.id, done: respond)
 
+        // ✨ Summary: a few lines on what the session has been doing, or why there are none.
+        case ("POST", "/summary"):
+            deck.summarize(session) { result in
+                switch result {
+                case let .success(text): respond(.json(["summary": text]))
+                case let .failure(error): respond(.json(["error": error.message], status: error.status))
+                }
+            }
+
         default:
             respond(.status(404))
         }
@@ -339,6 +348,39 @@ final class DeckRouter: Router {
         case ("POST", "/setup/webhook/test"):
             deck.testWebhook { [self] in respond(.json(setupState())) }
 
+        // ✨ Summary on only once the page's dialog has said what it sends where,
+        // and only with a key; off at any time.
+        case ("POST", "/setup/summaries"):
+            if request.query["enabled"] == "1" {
+                guard request.query["confirmed"] == "1" else {
+                    return respond(.status(400, "Turn Summary on from its dialog, which says what it sends where."))
+                }
+                guard SummaryKey.isPresent else { return respond(.status(400, "Add your Anthropic API key first.")) }
+                config.summaryOptIn = true
+            } else {
+                config.summaryOptIn = false
+                deck.summaries.forget()
+            }
+            config.save()
+            deck.refresh()
+            respond(.json(setupState()))
+
+        // The key Summary uses: kept in the Keychain, and answered only as its hint.
+        case ("POST", "/setup/summary/key"):
+            if request.query["remove"] == "1" {
+                SummaryKey.remove()
+                // With no key left, Summary is off: no key, nothing to send with.
+                if !SummaryKey.isPresent { config.summaryOptIn = false; config.save() }
+            } else {
+                let given = (try? JSONSerialization.jsonObject(with: request.body) as? [String: Any])?["key"] as? String ?? ""
+                guard SummaryKey.save(given) else {
+                    return respond(.status(400, "That isn't an Anthropic API key. It starts with sk-ant-."))
+                }
+            }
+            deck.summaries.forget()
+            deck.refresh()
+            respond(.json(setupState()))
+
         case ("POST", "/setup/music"):
             config.musicEnabled = request.query["enabled"] == "1"
             config.save()
@@ -452,6 +494,17 @@ final class DeckRouter: Router {
         return index
     }
 
+    /// ✨ Summary for the setup page: on or off, the key's hint and where it's
+    /// from (never the key), and the model, for the dialog.
+    static func summaryState(optIn: Bool, environment: [String: String] = ProcessInfo.processInfo.environment) -> [String: Any] {
+        let shown = SummaryKey.shown(environment: environment)
+        return [
+            "enabled": optIn && shown != nil,
+            "key": shown.map { ["source": $0.source.rawValue, "hint": $0.hint] as [String: Any] } ?? NSNull(),
+            "model": SummaryRequest.modelName,
+        ]
+    }
+
     private func setupState() -> [String: Any] {
         let config = Config.shared
         let (keys, _) = deck.layout()
@@ -500,6 +553,7 @@ final class DeckRouter: Router {
                            "questions": Role.questionsMost, "question": Role.questionLimit],
             ] as [String: Any],
             "music": ["enabled": config.musicEnabled],
+            "summary": DeckRouter.summaryState(optIn: config.summaryOptIn),
             "webhook": [
                 "enabled": config.webhook.enabled, "url": config.webhook.url, "secret": config.webhook.secret,
                 "outside": config.webhook.outside, "events": config.webhook.events, "last": deck.webhookLast ?? NSNull(),

@@ -248,7 +248,7 @@ enum ViewerSnapshot {
                     },
                     "role": desk.role.map { hideNames ? shownRole($0) : $0.forPhone } ?? NSNull(),
                     // Nothing to press
-                    "dial": false, "mic": false, "dictates": false, "keys": false, "fire": false,
+                    "dial": false, "mic": false, "dictates": false, "keys": false, "fire": false, "summary": false,
                 ] as [String: Any]
             }
             return entry
@@ -939,7 +939,7 @@ enum ViewerSelfTest {
         // The session's own model key must be gone; subagents keep theirs as null.
         if let keys = office["keys"] as? [[String: Any]], let s = keys.last?["session"] as? [String: Any] {
             if s["model"] != nil { problems.append("session.model present") }
-            for control in ["dial", "mic", "dictates", "keys", "fire"] where s[control] as? Bool != false {
+            for control in ["dial", "mic", "dictates", "keys", "fire", "summary"] where s[control] as? Bool != false {
                 problems.append("control \(control) not false")
             }
         } else {

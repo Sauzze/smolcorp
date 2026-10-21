@@ -68,6 +68,16 @@
   .hire-setup input, .hire-setup select { background: var(--cap); color: var(--ink); border: 1px solid var(--edge); border-radius: 6px;
     padding: 5px 8px; font: 13px ui-monospace, "SF Mono", Menlo, monospace; }
   .hire-setup input { flex: 1; min-width: 160px; }
+  /* ✨ Summary: the key's field, and the dialog that turns it on */
+  .summary-key .result { color: var(--dim); font-size: 13px; align-self: center; }
+  .summary-key .result.wrong { color: var(--error); }
+  .summary-dialog { max-width: 520px; padding: 22px 24px; border: 1px solid var(--edge); border-radius: 14px;
+    background: var(--cap); color: var(--ink); box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+  .summary-dialog::backdrop { background: rgba(0,0,0,.6); }
+  .summary-dialog h3 { margin: 0 0 10px; font-size: 18px; }
+  .summary-dialog p { margin: 0 0 10px; line-height: 1.45; }
+  .summary-dialog ul { margin: 0 0 18px; padding-left: 20px; line-height: 1.5; }
+  .summary-dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
   .webhook-setup #webhook-url { flex: 3 1 260px; }
   .webhook-setup label { display: flex; align-items: center; gap: 5px; color: var(--dim); font-size: 13px; }
   .webhook-setup input[type="checkbox"] { flex: none; min-width: 0; margin: 0; }
@@ -424,6 +434,23 @@
         </div>
         <button class="switch" id="music" aria-label="Let the jukebox play your music"></button>
       </div>
+      <div class="step" id="step-summary" hidden>
+        <div class="mark">✓</div>
+        <div class="text">
+          <div class="title">Summaries with Claude</div>
+          <div class="detail" id="summary-detail"></div>
+          <div class="hire-setup summary-key" id="summary-key-setup">
+            <input type="password" id="summary-key" spellcheck="false" autocomplete="off" placeholder="Your Anthropic API key, sk-ant-…" aria-label="Your Anthropic API key">
+            <button class="btn" id="summary-key-save">Save key</button>
+            <span class="result" id="summary-key-result"></span>
+          </div>
+          <div class="hire-setup summary-key" id="summary-key-saved" hidden>
+            <span class="result" id="summary-key-hint"></span>
+            <button class="btn" id="summary-key-remove">Remove</button>
+          </div>
+        </div>
+        <button class="switch" id="summary" aria-label="Summaries with Claude"></button>
+      </div>
       <div class="step" id="step-login">
         <div class="mark">✓</div>
         <div class="text">
@@ -667,6 +694,22 @@
   </section>
 </main>
 
+<dialog class="summary-dialog" id="summary-dialog" aria-labelledby="summary-dialog-title">
+  <h3 id="summary-dialog-title">Turn on summaries?</h3>
+  <p>When you tap ✨ summary on an agent's desk, Smolcorp sends the end of that agent's Claude Code transcript to
+    Anthropic's API: your recent requests, its replies and the tools it ran, each cut short, with lines that look like
+    secrets taken out, and the project's folder name.</p>
+  <ul>
+    <li>It uses <b>your own API key</b> (<span id="summary-dialog-key"></span>), and <b>Anthropic bills it to you</b>.</li>
+    <li>The model is <b id="summary-dialog-model">Claude Haiku 5.5</b>.</li>
+    <li>Nothing is sent until you tap ✨ summary, and you can turn this off here at any time.</li>
+  </ul>
+  <div class="actions">
+    <button class="btn" id="summary-cancel">Cancel</button>
+    <button class="btn primary" id="summary-confirm">Turn on</button>
+  </div>
+</dialog>
+
 <div class="arranger" id="arranger" role="dialog" aria-modal="true" aria-labelledby="arranger-title" hidden>
   <div class="bar">
     <h2 id="arranger-title">Arrange the room</h2>
@@ -815,6 +858,7 @@
     renderHiring();
     renderDictation();
     renderMusic();
+    renderSummary();
     renderWebhook();
   }
 
@@ -829,6 +873,26 @@
     if (!m) return;
     mark('step-music', m.enabled);
     $('music').classList.toggle('on', m.enabled);
+  }
+
+  /** ✨ Summary: on or off, and the key it uses, shown only by its hint. */
+  function renderSummary() {
+    const s = state.summary;
+    $('step-summary').hidden = !s;
+    if (!s) return;
+    mark('step-summary', s.enabled);
+    $('summary').classList.toggle('on', s.enabled);
+    const key = s.key;
+    // A key from ANTHROPIC_API_KEY can still be replaced by one pasted here, which comes first.
+    $('summary-key-setup').hidden = !!key && key.source === 'keychain';
+    $('summary-key-saved').hidden = !key;
+    $('summary-key-hint').textContent = !key ? ''
+      : key.source === 'keychain' ? `Key saved (${key.hint}), in your Keychain.` : `Using ANTHROPIC_API_KEY (${key.hint}).`;
+    $('summary-key-remove').hidden = !key || key.source !== 'keychain';
+    $('summary-detail').textContent = s.enabled
+      ? `On: ✨ summary on a held desk sends the end of that agent's transcript to Anthropic with your key, billed to you. Model: ${s.model}.`
+      : key ? 'Off. Turn it on to add ✨ summary to a held desk: Claude says what that agent has been doing, with your key.'
+        : 'Optional, and off. Paste your Anthropic API key, then turn this on: ✨ summary on a held desk says what that agent has been doing.';
   }
 
   /** What each event the webhook can send is called here. */
@@ -968,6 +1032,33 @@
   $('login').onclick = () => post(`/setup/login?enabled=${state.checklist.openAtLogin ? 0 : 1}`);
   $('hiring').onclick = () => post(`/setup/hiring?enabled=${state.hiring.enabled ? 0 : 1}`);
   $('music').onclick = () => post(`/setup/music?enabled=${state.music.enabled ? 0 : 1}`);
+  // On only from the dialog, which says what's sent where; off at once.
+  $('summary').onclick = () => {
+    const s = state.summary;
+    if (s.enabled) return post('/setup/summaries?enabled=0');
+    if (!s.key) {
+      said('summary-key-result', 'Add your Anthropic API key first.', 'wrong');
+      return $('summary-key').focus();
+    }
+    $('summary-dialog-key').textContent = s.key.hint;
+    $('summary-dialog-model').textContent = s.model;
+    $('summary-dialog').showModal();
+    $('summary-cancel').focus();
+  };
+  $('summary-cancel').onclick = () => $('summary-dialog').close();
+  $('summary-confirm').onclick = async () => {
+    $('summary-dialog').close();
+    await post('/setup/summaries?enabled=1&confirmed=1');
+  };
+  $('summary-key-save').onclick = async () => {
+    const field = $('summary-key');
+    const res = await post('/setup/summary/key', { key: field.value });
+    // Gone from the page either way: kept, it's in the Keychain; refused, it's typed again.
+    field.value = '';
+    said('summary-key-result', res.ok ? '' : await res.text(), res.ok ? '' : 'wrong');
+  };
+  $('summary-key').onkeydown = (e) => { if (e.key === 'Enter') $('summary-key-save').click(); };
+  $('summary-key-remove').onclick = () => post('/setup/summary/key?remove=1');
   $('webhook').onclick = () => setWebhook({ enabled: !state.webhook.enabled });
   $('webhook-url').onchange = () => setWebhook({ url: $('webhook-url').value });
   $('webhook-secret').onchange = () => setWebhook({ secret: $('webhook-secret').value });

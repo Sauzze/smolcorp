@@ -44,9 +44,8 @@ API_KEY = re.compile(rb"sk-ant-[A-Za-z0-9_-]{8,}")
 KEPT_OUT = ("notes-out/", ".team/", "security/")
 
 problems = []
-for name in sys.stdin.buffer.read().decode("utf-8").split("\0"):
-    if not name:
-        continue
+all_names = [name for name in sys.stdin.buffer.read().decode("utf-8").split("\0") if name]
+for name in all_names:
     if name.startswith(KEPT_OUT):
         problems.append(f"{name}: this folder is never committed")
         continue
@@ -68,6 +67,22 @@ for name in sys.stdin.buffer.read().decode("utf-8").split("\0"):
                 break
         if found:
             break
+
+# The Mac app logs nothing, so nothing it holds, as the Summary key, can end up
+# in a log: no print, NSLog, os_log or Logger outside #if DEBUG.
+LOGGING = re.compile(r"\b(print|NSLog|os_log|Logger)\(")
+for name in [n for n in all_names if n.startswith("Sources/") and n.endswith(".swift")]:
+    depth = 0
+    for number, line in enumerate(open(name, encoding="utf-8"), 1):
+        code = line.split("//", 1)[0]
+        if re.match(r"\s*#if\s+DEBUG\b", code):
+            depth += 1
+        elif re.match(r"\s*#if\b", code) and depth:
+            depth += 1
+        elif re.match(r"\s*#endif\b", code) and depth:
+            depth -= 1
+        elif not depth and LOGGING.search(code):
+            problems.append(f"{name}:{number}: logging outside #if DEBUG")
 
 if problems:
     print("Not for a public repository:")
