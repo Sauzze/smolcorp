@@ -72,16 +72,22 @@ for name in all_names:
 # in a log: no print, NSLog, os_log or Logger outside #if DEBUG.
 LOGGING = re.compile(r"\b(print|NSLog|os_log|Logger)\(")
 for name in [n for n in all_names if n.startswith("Sources/") and n.endswith(".swift")]:
-    depth = 0
+    # Each open #if: "debug" (only a debug build compiles what follows), "release" (only
+    # another), or "other". What a #else follows flips debug and release.
+    stack = []
     for number, line in enumerate(open(name, encoding="utf-8"), 1):
         code = line.split("//", 1)[0]
         if re.match(r"\s*#if\s+DEBUG\b", code):
-            depth += 1
-        elif re.match(r"\s*#if\b", code) and depth:
-            depth += 1
-        elif re.match(r"\s*#endif\b", code) and depth:
-            depth -= 1
-        elif not depth and LOGGING.search(code):
+            stack.append("debug")
+        elif re.match(r"\s*#if\s+!\s*DEBUG\b", code):
+            stack.append("release")
+        elif re.match(r"\s*#if\b", code):
+            stack.append("other")
+        elif re.match(r"\s*#(else|elseif)\b", code) and stack:
+            stack[-1] = {"debug": "release", "release": "debug"}.get(stack[-1], "other")
+        elif re.match(r"\s*#endif\b", code) and stack:
+            stack.pop()
+        elif "debug" not in stack and LOGGING.search(code):
             problems.append(f"{name}:{number}: logging outside #if DEBUG")
 
 # Nor does the Windows and Linux app log anything from Summary, which holds the key.

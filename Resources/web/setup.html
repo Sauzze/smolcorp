@@ -884,11 +884,15 @@
     $('summary').classList.toggle('on', s.enabled);
     const key = s.key;
     // A key from ANTHROPIC_API_KEY can still be replaced by one pasted here, which comes first.
-    $('summary-key-setup').hidden = !!key && key.source === 'keychain';
+    // Pasted, it's in the Mac's Keychain ('keychain') or the computer's own secret store ('store').
+    const pasted = !!key && key.source !== 'environment';
+    $('summary-key-setup').hidden = pasted;
     $('summary-key-saved').hidden = !key;
     $('summary-key-hint').textContent = !key ? ''
-      : key.source === 'keychain' ? `Key saved (${key.hint}), in your Keychain.` : `Using ANTHROPIC_API_KEY (${key.hint}).`;
-    $('summary-key-remove').hidden = !key || key.source !== 'keychain';
+      : key.source === 'keychain' ? `Key saved (${key.hint}), in your Keychain.`
+        : key.source === 'store' ? `Key saved (${key.hint}), in your computer's secret store.`
+          : `Using ANTHROPIC_API_KEY (${key.hint}).`;
+    $('summary-key-remove').hidden = !pasted;
     $('summary-detail').textContent = s.enabled
       ? `On: ✨ summary on a held desk sends the end of that agent's transcript to Anthropic with your key, billed to you. Model: ${s.model}.`
       : key ? 'Off. Turn it on to add ✨ summary to a held desk: Claude says what that agent has been doing, with your key.'
