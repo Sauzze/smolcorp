@@ -297,7 +297,7 @@ func (d *Deck) hireState() map[string]any {
 	chosen, _ := hireTerminal(d.config.HireTerminal, terminals)
 	return map[string]any{
 		"enabled": d.config.HiringEnabled, "folder": d.config.HireFolder, "agent": d.config.HireAgent,
-		"canHire": len(terminals) > 0 || tmux, "canChoose": false,
+		"canHire": len(terminals) > 0 || tmux, "canChoose": hasFolderPicker(),
 		"terminal": chosen.id, "terminals": choices,
 		"tmux": d.config.HireInTmux && tmux, "hasTmux": tmux,
 	}

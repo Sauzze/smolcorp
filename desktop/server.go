@@ -765,6 +765,18 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupState())
 
+	// The system's own folder picker, which a web page can't open.
+	case r.Method == http.MethodPost && path == "/setup/hiring/choose":
+		if !hasFolderPicker() {
+			http.Error(w, "There's no folder picker here: type the folder's path.", http.StatusNotFound)
+			return
+		}
+		if err := d.chooseHireFolder(); err != nil {
+			http.Error(w, "The folder picker didn't open.", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, rt.setupState())
+
 	// The roles as the page has them, all of them: checked as they're kept,
 	// since their instructions go to agents.
 	case r.Method == http.MethodPost && path == "/setup/roles":

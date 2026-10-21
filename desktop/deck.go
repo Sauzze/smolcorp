@@ -42,6 +42,8 @@ type Deck struct {
 	// a restart still waiting for their launcher: see saved.go.
 	savePending bool
 	restoring   *pendingRestore
+	// Whether the folder picker is open, from setup.
+	picking bool
 	// Whether music is playing, for the office's jukebox, when it can be told.
 	playing *bool
 	// This computer's output volume, for the jukebox's volume bar, nil where

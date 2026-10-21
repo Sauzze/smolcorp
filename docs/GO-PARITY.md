@@ -35,7 +35,7 @@ subsystem of its own. "–" where there is nothing to port.
 | `/setup/roles` | ✓ | ✓ | the roles themselves differ (below) | – |
 | `/setup/hiring` enabled, folder, agent | ✓ | ✓ | none | – |
 | `/setup/hiring` terminal, tmux | ✓ | ✓ | **done**, with this system's terminals | – |
-| `/setup/hiring/choose` (the system's folder picker) | ✓ | – | no folder picker | S |
+| `/setup/hiring/choose` (the system's folder picker) | ✓ | ✓ | **done** | – |
 | `/setup/dictation` | ✓ | – | Mac only (Apple's speech recognition) | – |
 | `/setup/accessibility` | ✓ | – | not needed off the Mac | – |
 | `/setup/viewer*` (portable office) | ✓ | – | **portable office** | XL |
@@ -181,3 +181,10 @@ Done:
    until the app restarts, readable by you alone. Chrome and Edge can POP OUT
    the page to stay on top: the Mac's window options (always on top, on all
    Spaces, click-through) have no counterpart.
+6. **The folder picker** for new hires, from the setup page's Choose…:
+   zenity or kdialog on Linux, the Windows folder dialog through PowerShell,
+   started in the folder chosen before, or your home. As the Mac, asked
+   again while it's open it answers at once rather than opening another; the
+   start folder and title are the picker's own arguments, or on Windows its
+   environment, never in a script. With no picker, or no desktop, the button
+   isn't shown and the path is typed, as before.
