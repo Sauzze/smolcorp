@@ -5088,6 +5088,10 @@
 
     // At its own resolution where it can be: see artLayerOf. From here, what goes on the screen is recorded.
     const screenCtx = ctx, layer = artLayerOf(screenCtx, scale, frame);
+    // From a clean context, whichever way the last frame went: recording one sets its shadows, alpha and the like
+    // on the screen's context too, without its save and restore, and the room drawn straight onto the canvas after
+    // that would be drawn through them, a glow round every object
+    freshState(screenCtx);
     if (layer) ctx = layer.recorder;
     else drawStats.direct++;
     ctx.clearRect(0, 0, width, height);
@@ -18615,6 +18619,7 @@
         const from = spare(0), to = spare(1);
         drawStorey(from, ride.from, frames);
         drawStorey(to, ride.to, frames);
+        freshState(ctx); // as drawOffice starts, whatever the floor drawn last left on it
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(from.canvas, 0, Math.round(dir * eased * canvas.height));
         ctx.drawImage(to.canvas, 0, Math.round(dir * (eased - 1) * canvas.height));
