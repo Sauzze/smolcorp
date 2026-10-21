@@ -44,9 +44,8 @@ API_KEY = re.compile(rb"sk-ant-[A-Za-z0-9_-]{8,}")
 KEPT_OUT = ("notes-out/", ".team/", "security/")
 
 problems = []
-for name in sys.stdin.buffer.read().decode("utf-8").split("\0"):
-    if not name:
-        continue
+all_names = [name for name in sys.stdin.buffer.read().decode("utf-8").split("\0") if name]
+for name in all_names:
     if name.startswith(KEPT_OUT):
         problems.append(f"{name}: this folder is never committed")
         continue
@@ -68,6 +67,35 @@ for name in sys.stdin.buffer.read().decode("utf-8").split("\0"):
                 break
         if found:
             break
+
+# The Mac app logs nothing, so nothing it holds, as the Summary key, can end up
+# in a log: no print, NSLog, os_log or Logger outside #if DEBUG.
+LOGGING = re.compile(r"\b(print|NSLog|os_log|Logger)\(")
+for name in [n for n in all_names if n.startswith("Sources/") and n.endswith(".swift")]:
+    # Each open #if: "debug" (only a debug build compiles what follows), "release" (only
+    # another), or "other". What a #else follows flips debug and release.
+    stack = []
+    for number, line in enumerate(open(name, encoding="utf-8"), 1):
+        code = line.split("//", 1)[0]
+        if re.match(r"\s*#if\s+DEBUG\b", code):
+            stack.append("debug")
+        elif re.match(r"\s*#if\s+!\s*DEBUG\b", code):
+            stack.append("release")
+        elif re.match(r"\s*#if\b", code):
+            stack.append("other")
+        elif re.match(r"\s*#(else|elseif)\b", code) and stack:
+            stack[-1] = {"debug": "release", "release": "debug"}.get(stack[-1], "other")
+        elif re.match(r"\s*#endif\b", code) and stack:
+            stack.pop()
+        elif "debug" not in stack and LOGGING.search(code):
+            problems.append(f"{name}:{number}: logging outside #if DEBUG")
+
+# Nor does the Windows and Linux app log anything from Summary, which holds the key.
+GO_LOGGING = re.compile(r"\b(log\.|fmt\.(Print|Fprint))")
+for name in [n for n in all_names if re.match(r"desktop/summary[^/]*\.go$", n) and not n.endswith("_test.go")]:
+    for number, line in enumerate(open(name, encoding="utf-8"), 1):
+        if GO_LOGGING.search(line.split("//", 1)[0]):
+            problems.append(f"{name}:{number}: logging in Summary")
 
 if problems:
     print("Not for a public repository:")

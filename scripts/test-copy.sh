@@ -9,6 +9,11 @@
 # nothing outside it: no hooks in your agents' settings, no login item (see
 # TestCopy in Sources/AgentDeck/Paths.swift).
 #
+# For ✨ Summary without a key or a bill, point it at a stand-in for
+# Anthropic's API on this computer, which only a test copy ever uses:
+#
+#   SMOLCORP_TEST_ANTHROPIC_URL=http://127.0.0.1:7781/v1/messages scripts/test-copy.sh
+#
 # Sessions report to it only when started with its own hook, as:
 #
 #   claude --settings build/test-support/claude-settings.json
@@ -56,6 +61,7 @@ for pid in $(lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null); do
     *"Smolcorp Test.app/Contents/MacOS/"*) kill "$pid" ;;
   esac
 done
-open -n --env "SMOLCORP_TEST_PORT=$PORT" --env "SMOLCORP_TEST_SUPPORT_DIR=$SUPPORT" "$APP"
+open -n --env "SMOLCORP_TEST_PORT=$PORT" --env "SMOLCORP_TEST_SUPPORT_DIR=$SUPPORT" \
+  ${SMOLCORP_TEST_ANTHROPIC_URL:+--env "SMOLCORP_TEST_ANTHROPIC_URL=$SMOLCORP_TEST_ANTHROPIC_URL"} "$APP"
 echo "Smolcorp Test is opening on port $PORT, with its settings in $SUPPORT."
 echo "A Claude session that reports to it: claude --settings $SUPPORT/claude-settings.json"

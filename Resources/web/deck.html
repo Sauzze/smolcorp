@@ -79,6 +79,23 @@
   .status.off { color: var(--error); }
   .status.flash { color: var(--ink); }
   .status:not(.flash):not(.off) { visibility: hidden; }
+
+  /* ✨ Summary: what an agent has been doing, on a card over the room until tapped away. */
+  /* Just above the keys along the foot of the room, beside the key that asked, clear of the desks and their choices. */
+  .summary { position: fixed; z-index: 8; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 64px); transform: translateX(-50%);
+    width: min(92vw, 420px); max-height: 55vh; overflow: auto; padding: 12px 14px 14px; cursor: pointer;
+    background: #f4f1ea; color: #1f2129; border: 2px solid #1f2129; border-radius: 12px;
+    box-shadow: 0 4px 0 #1f2129, 0 10px 30px rgba(0,0,0,.45); touch-action: manipulation; }
+  .summary[hidden] { display: none; }
+  .summary-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+    font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #6e6a62; }
+  .summary-head b { color: #1f2129; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .summary-head span:last-child { margin-left: auto; font-size: 14px; letter-spacing: 0; }
+  .summary-text { font-size: 15px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .summary.loading .summary-text { color: #6e6a62; }
+  .summary.loading .summary-text::after { content: ''; animation: summary-dots 1.2s steps(4) infinite; }
+  @keyframes summary-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  .summary.failed .summary-text { color: #a32a24; }
 </style>
 </head>
 <body>
@@ -95,6 +112,10 @@
 <div class="install" id="install" hidden>
   <div><b>Add Smolcorp to your Home Screen.</b><br><span id="install-how">Tap Share, then “Add to Home Screen”.</span> It opens full screen and stays paired.</div>
   <button id="install-close" aria-label="Dismiss">✕</button>
+</div>
+<div class="summary" id="summary" role="status" aria-live="polite" hidden>
+  <div class="summary-head"><span>✨</span><b id="summary-name"></b><span aria-label="Close">✕</span></div>
+  <div class="summary-text" id="summary-text"></div>
 </div>
 <label id="haptic" aria-hidden="true"><input type="checkbox" switch></label>
 
@@ -204,6 +225,7 @@
       if (action === 'up' || action === 'down') return choose(action);
       if (action.startsWith('button:')) return send('/act', { session: selected, action: 'button', button: action.slice(7) });
       if (['esc', 'send', 'clear'].includes(action)) send('/act', { session: selected, action });
+      if (action === 'summary') summarize(selected);
     },
     /** Two fingers on the room: lines to scroll the picked agent's Terminal, or 'bottom'. */
     scroll(by) {
@@ -497,6 +519,52 @@
   }
 
   function current() { return sessions.find((s) => s.id === selected); }
+
+  /* ----------------------------------------------- ✨ summary */
+
+  /*
+   * What an agent has been doing, from its transcript, in a few lines Claude
+   * writes on the computer, with your own key, only when you ask: a card over the room, thinking… while it comes,
+   * and there until tapped away. A card tapped away before its answer stays away.
+   */
+  let summaryAsked = 0;
+  async function summarize(id) {
+    const session = sessions.find((s) => s.id === id);
+    const name = session ? session.project || session.name : '';
+    const asked = ++summaryAsked;
+    if (!session || !session.summary) return showSummary(name, 'No history for this agent.', 'failed');
+    showSummary(name, 'thinking', 'loading');
+    let text, failed = false;
+    if (preview) {
+      text = 'Asked: what the summary key does.\nDid: shows this card, as a preview.\nNot waiting on you.';
+    } else {
+      const res = await post('/summary', { session: id });
+      if (asked !== summaryAsked) return;
+      if (!res) {
+        text = "Can't reach your computer.";
+        failed = true;
+      } else if (res.status === 401) {
+        return unpaired();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        failed = !res.ok || !body.summary;
+        text = body.summary || body.error || `Summary failed (${res.status}).`;
+      }
+    }
+    if (asked !== summaryAsked) return;
+    showSummary(name, text, failed ? 'failed' : '');
+  }
+  function showSummary(name, text, kind) {
+    const card = $('summary');
+    $('summary-name').textContent = name;
+    $('summary-text').textContent = text;
+    card.className = `summary ${kind}`;
+    card.hidden = false;
+  }
+  $('summary').addEventListener('click', () => {
+    summaryAsked++;
+    $('summary').hidden = true;
+  });
 
   /* ------------------------------------------------------------ render */
 

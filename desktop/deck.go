@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -45,6 +46,10 @@ type Deck struct {
 	webhookLast  string
 	webhookSends chan func() // the webhook's messages, sent in turn by sendWebhooks
 	work         chan func()
+	// ✨ Summary: its key, from the system's secret store or ANTHROPIC_API_KEY,
+	// and the summaries made with it.
+	summaryKeys *summaryKeys
+	summaries   *summaries
 	// OnChange is called on every change, for the tray.
 	OnChange func()
 }
@@ -81,6 +86,8 @@ func NewDeck() *Deck {
 		keyOf: map[string]int{}, lastReturn: map[string]time.Time{}, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue),
 	}
+	d.summaryKeys = newSummaryKeys(keyringStore, os.Getenv)
+	d.summaries = newSummaries(d.summaryKeys.Read)
 	go d.sendWebhooks()
 	// What's running as it starts is where the webhook starts from, so the first change after it is news
 	d.tellWebhook()
@@ -459,8 +466,56 @@ func (d *Deck) sessionEntry(s *Session) map[string]any {
 		"maxPressedAt": millisOrNull(s.MaxPressedAt), "compacting": s.Compacting,
 		"messagedAt": millisOrNull(s.MessagedAt), "messaged": orNull(s.Messaged),
 		"turnStartedAt": millisOrNull(s.TurnStartedAt), "errorKind": orNull(s.ErrorKind),
-		"role": d.roleOf(s),
+		// ✨ Summary: offered only when it's on, with a key, and a transcript to read.
+		"summary": s.Transcript != "" && d.summaryOffered(),
+		"role":    d.roleOf(s),
 	}
+}
+
+// summaryState is ✨ Summary for the setup page: on or off, the key's hint and
+// where it's from (never the key), whether there's a secret store to keep one
+// in, and the model, for the dialog. With the lock held.
+func (d *Deck) summaryState() map[string]any {
+	source, hint := d.summaryKeys.Shown()
+	var key any
+	if source != "" {
+		key = map[string]any{"source": source, "hint": hint}
+	}
+	return map[string]any{
+		"enabled": d.config.SummaryOptIn && source != "", "key": key, "model": summaryModelName,
+		"noStore": d.summaryKeys.NoStore(),
+	}
+}
+
+// summaryOffered is whether ✨ summary is offered at all: turned on, and with
+// a key. With the lock held.
+func (d *Deck) summaryOffered() bool {
+	return d.config.SummaryOptIn && d.summaryKeys.Present()
+}
+
+// Summarize is a few lines on what session id has been doing, from the end of
+// its transcript. Nothing is sent with Summary off, or without a key.
+func (d *Deck) Summarize(id string) (string, *SummaryError) {
+	d.mu.Lock()
+	if !d.config.SummaryOptIn {
+		d.mu.Unlock()
+		return "", errSummaryOff
+	}
+	if !d.summaryKeys.Present() {
+		d.mu.Unlock()
+		return "", errSummaryNoKey
+	}
+	s := d.sessions.Get(id)
+	if s == nil || s.Headless() {
+		d.mu.Unlock()
+		return "", errSummaryNoSession
+	}
+	path, project := s.Transcript, s.ProjectName()
+	d.mu.Unlock()
+	if path == "" {
+		return "", errSummaryNoHistory
+	}
+	return d.summaries.Summarize(id, path, project)
 }
 
 // hiredBy is who started a headless run, for its card upstairs: the
@@ -500,7 +555,7 @@ func (d *Deck) upstairs() map[string]any {
 		}
 		entry := d.sessionEntry(s)
 		entry["headless"] = true
-		for _, control := range []string{"keys", "fire", "mic", "dial", "dictates"} {
+		for _, control := range []string{"keys", "fire", "mic", "dial", "dictates", "summary"} {
 			entry[control] = false
 		}
 		entry["role"] = nil

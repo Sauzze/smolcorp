@@ -328,6 +328,14 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		writeStatus(w)(d.Focus(session))
 	case r.Method == http.MethodPost && r.URL.Path == "/act":
 		writeStatus(w)(d.Perform(r.URL.Query().Get("action"), session, r.URL.Query()))
+	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
+	case r.Method == http.MethodPost && r.URL.Path == "/summary":
+		text, err := d.Summarize(session)
+		if err != nil {
+			writeJSON(w, err.Status, map[string]any{"error": err.Message})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"summary": text})
 	default:
 		http.NotFound(w, r.Request)
 	}
@@ -635,6 +643,52 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.testWebhook(webhook)
 		writeJSON(w, http.StatusOK, rt.setupState())
 
+	// ✨ Summary on only once the page's dialog has said what it sends where,
+	// and only with a key; off at any time.
+	case r.Method == http.MethodPost && path == "/setup/summaries":
+		if query.Get("enabled") == "1" {
+			if query.Get("confirmed") != "1" {
+				http.Error(w, "Turn Summary on from its dialog, which says what it sends where.", http.StatusBadRequest)
+				return
+			}
+			if !d.summaryKeys.Present() {
+				http.Error(w, "Add your Anthropic API key first.", http.StatusBadRequest)
+				return
+			}
+		}
+		d.mu.Lock()
+		config.SummaryOptIn = query.Get("enabled") == "1"
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		d.summaries.Forget()
+		writeJSON(w, http.StatusOK, rt.setupState())
+
+	// The key Summary uses: kept in the system's secret store, and answered only as its hint.
+	case r.Method == http.MethodPost && path == "/setup/summary/key":
+		if query.Get("remove") == "1" {
+			d.summaryKeys.Remove()
+		} else {
+			var given struct {
+				Key string `json:"key"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&given)
+			if err := d.summaryKeys.Save(given.Key); err != nil {
+				http.Error(w, err.Message, err.Status)
+				return
+			}
+		}
+		d.summaries.Forget()
+		d.mu.Lock()
+		// With no key left, Summary is off: no key, nothing to send with.
+		if !d.summaryKeys.Present() && config.SummaryOptIn {
+			config.SummaryOptIn = false
+			config.save()
+		}
+		d.changed()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupState())
+
 	case r.Method == http.MethodPost && path == "/setup/music":
 		d.mu.Lock()
 		config.MusicEnabled = query.Get("enabled") == "1"
@@ -843,7 +897,8 @@ func (rt *router) setupState() map[string]any {
 			"limits": map[string]int{"name": roleNameLimit, "model": roleModelLimit, "instructions": roleInstructionsLimit, "own": ownRolesMost,
 				"questions": roleQuestionsMost, "question": roleQuestionLimit},
 		},
-		"music": map[string]any{"enabled": d.config.MusicEnabled},
+		"music":   map[string]any{"enabled": d.config.MusicEnabled},
+		"summary": d.summaryState(),
 		"webhook": map[string]any{
 			"enabled": d.config.Webhook.Enabled, "url": d.config.Webhook.URL, "secret": d.config.Webhook.Secret,
 			"outside": d.config.Webhook.Outside, "events": d.config.Webhook.Events, "last": d.lastDelivery(),

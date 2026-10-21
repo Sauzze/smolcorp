@@ -1,8 +1,10 @@
 package desktop
 
 import (
+	"encoding/json"
 	"os"
 	"reflect"
+	"runtime"
 	"slices"
 	"testing"
 )
@@ -117,5 +119,34 @@ func TestSavingLeavesNoHalfWrittenConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(configFile + ".tmp"); err == nil {
 		t.Fatal("the file it was written through was left behind")
+	}
+}
+
+// A setting another version wrote, or the Mac app's, is saved back as it was.
+func TestWhatThisVersionDoesntReadIsSavedBack(t *testing.T) {
+	isolate(t)
+	written := `{"hireFolder": "/work", "someLaterSetting": true, "viewer": {"baseURL": "https://v.example"}, "someList": ["a", "b"]}`
+	if err := os.WriteFile(configFile, []byte(written), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := loadConfig()
+	config.HireFolder = "/elsewhere"
+	config.save()
+	data, _ := os.ReadFile(configFile)
+	var saved map[string]any
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved["hireFolder"] != "/elsewhere" {
+		t.Errorf("this version's own setting: %v", saved["hireFolder"])
+	}
+	if saved["someLaterSetting"] != true || !reflect.DeepEqual(saved["someList"], []any{"a", "b"}) {
+		t.Errorf("unknown settings lost: %s", data)
+	}
+	if viewer, _ := saved["viewer"].(map[string]any); viewer["baseURL"] != "https://v.example" {
+		t.Errorf("the Mac app's viewer setting lost: %s", data)
+	}
+	if info, err := os.Stat(configFile); err != nil || info.Mode().Perm() != 0o600 && runtime.GOOS != "windows" {
+		t.Errorf("config.json isn't yours alone: %v", info.Mode().Perm())
 	}
 }
