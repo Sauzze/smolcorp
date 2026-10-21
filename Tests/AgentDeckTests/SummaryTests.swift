@@ -137,7 +137,8 @@ final class SummaryTests: XCTestCase {
 
     func testSecretsAreRedactedLineByLine() {
         let text = TranscriptTail.extract(lines([
-            user("Use this key sk-ant-api03-abcdef please"),
+            // Put together here, so no file holds a key-shaped string whole.
+            user("Use this key " + "sk-" + "ant-api03-abcdef please"),
             toolUse("Bash", ["command": "export RESEND_API_KEY=re_123abc && npm run send"]),
             toolResult("re_9aZ live key"),
             claude("Set the password to hunter2.\nThen deploy."),

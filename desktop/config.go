@@ -33,9 +33,13 @@ type Config struct {
 	// computer's music. Off until you turn it on: it presses a media key.
 	MusicEnabled bool `json:"musicEnabled"`
 	// Where the deck's sessions are told to other tools, if anywhere.
-	Webhook    Webhook `json:"webhook"`
-	HireFolder string  `json:"hireFolder"`
-	HireAgent  string  `json:"hireAgent"`
+	Webhook Webhook `json:"webhook"`
+	// ✨ Summary: whether a held desk offers a summary of its agent's
+	// transcript, written by Claude with your own API key. Off until you turn
+	// it on in setup and confirm what it sends where; and only with a key.
+	SummaryOptIn bool   `json:"summaryOptIn"`
+	HireFolder   string `json:"hireFolder"`
+	HireAgent    string `json:"hireAgent"`
 	// The roles `smolcorp run --role` starts, as the Mac app's office hires
 	// them: those that come with the app until you change them, and your own.
 	Roles             []Role `json:"roles"`
