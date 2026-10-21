@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -415,39 +415,40 @@ func summaryParams(extract transcriptExtract, project string) anthropic.MessageN
 	}
 }
 
-// summaryClientOptions are the client's: only the key given, no retries, and
-// none of the SDK's own lookups (ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN,
-// profiles), so the key goes nowhere but Anthropic, or a test copy's stand-in.
-func summaryClientOptions(key string) []option.RequestOption {
+// summaryHTTPClient never follows a redirect: one could take the key's
+// header elsewhere. A redirect comes back as it is, and is answered as a refusal.
+var summaryHTTPClient = &http.Client{
+	Timeout:       summaryTimeout,
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
+
+// summaryClientOptions are the client's: only the key given, no retries, no
+// redirects, and none of the SDK's own lookups (ANTHROPIC_BASE_URL,
+// ANTHROPIC_AUTH_TOKEN, profiles), so the key goes nowhere but Anthropic.
+// base is "" for Anthropic: only tests give another, in code; nothing a
+// user's environment says can change it.
+func summaryClientOptions(key, base string) []option.RequestOption {
 	opts := []option.RequestOption{
 		option.WithoutEnvironmentDefaults(),
+		option.WithHTTPClient(summaryHTTPClient),
 		option.WithAPIKey(key),
 		option.WithMaxRetries(0),
 		option.WithRequestTimeout(summaryTimeout),
 	}
-	if base := summaryTestBaseURL(os.Getenv); base != "" {
+	if base != "" {
 		opts = append(opts, option.WithBaseURL(base))
 	}
 	return opts
 }
 
-// summaryTestBaseURL is, for a test copy only (SMOLCORP_TEST_SUPPORT_DIR set),
-// a stand-in for Anthropic's API on this computer, from
-// SMOLCORP_TEST_ANTHROPIC_URL; "" for the app in use.
-func summaryTestBaseURL(getenv func(string) string) string {
-	if getenv("SMOLCORP_TEST_SUPPORT_DIR") == "" {
-		return ""
-	}
-	parsed, err := url.Parse(getenv("SMOLCORP_TEST_ANTHROPIC_URL"))
-	if err != nil || parsed.Scheme != "http" || (parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost") {
-		return ""
-	}
-	return parsed.String()
+// askClaude makes the one call to Anthropic, and answers its text or a plain error.
+func askClaude(ctx context.Context, key string, params anthropic.MessageNewParams) (string, *SummaryError) {
+	return askClaudeAt(ctx, "", key, params)
 }
 
-// askClaude makes the one call, and answers its text or a plain error.
-func askClaude(ctx context.Context, key string, params anthropic.MessageNewParams) (string, *SummaryError) {
-	client := anthropic.NewClient(summaryClientOptions(key)...)
+// askClaudeAt is askClaude, at base: "" for Anthropic, a stand-in in tests.
+func askClaudeAt(ctx context.Context, base, key string, params anthropic.MessageNewParams) (string, *SummaryError) {
+	client := anthropic.NewClient(summaryClientOptions(key, base)...)
 	message, err := client.Messages.New(ctx, params)
 	if err != nil {
 		var apiErr *anthropic.Error

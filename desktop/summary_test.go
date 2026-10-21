@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 // ✨ Summary, on Windows and Linux: the transcript's tail, the opt-in, the
@@ -133,19 +134,17 @@ func newStandIn(t *testing.T, status int, reply string) (*standIn, string) {
 	return s, server.URL
 }
 
-// The call: only the key given, in its header, to the stand-in a test copy
-// names; never the SDK's own lookups, and never retried.
+// The call: only the key given, in its header; never the SDK's own lookups,
+// and never retried.
 func TestTheCallUsesOnlyTheKeyGivenAndIsNeverRetried(t *testing.T) {
 	stand, base := newStandIn(t, http.StatusUnauthorized,
 		`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key `+testSummaryKey+`"}}`)
-	t.Setenv("SMOLCORP_TEST_SUPPORT_DIR", t.TempDir())
-	t.Setenv("SMOLCORP_TEST_ANTHROPIC_URL", base)
 	// What the SDK would otherwise pick up by itself: none of it may be used.
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "a-token-the-user-never-gave-smolcorp")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
-	text, err := askClaude(context.Background(), testSummaryKey, summaryParams(transcriptExtract{Text: "USER: hi", Language: "English"}, "api"))
+	text, err := askClaudeAt(context.Background(), base, testSummaryKey, summaryParams(transcriptExtract{Text: "USER: hi", Language: "English"}, "api"))
 	if text != "" || err != errSummaryBadKey {
 		t.Fatalf("a refused key gave %q, %v", text, err)
 	}
@@ -165,7 +164,7 @@ func TestTheCallUsesOnlyTheKeyGivenAndIsNeverRetried(t *testing.T) {
 
 	for status, want := range map[int]*SummaryError{403: errSummaryBadKey, 429: errSummaryBusy, 529: errSummaryBusy} {
 		stand.status = status
-		if _, err := askClaude(context.Background(), testSummaryKey, summaryParams(transcriptExtract{Text: "x"}, "api")); err != want {
+		if _, err := askClaudeAt(context.Background(), base, testSummaryKey, summaryParams(transcriptExtract{Text: "x"}, "api")); err != want {
 			t.Errorf("%d gave %v", status, err)
 		}
 	}
@@ -174,23 +173,43 @@ func TestTheCallUsesOnlyTheKeyGivenAndIsNeverRetried(t *testing.T) {
 	}
 }
 
-func TestTheAppInUseNeverTalksToAStandIn(t *testing.T) {
-	env := map[string]string{"SMOLCORP_TEST_ANTHROPIC_URL": "http://127.0.0.1:7781"}
-	getenv := func(name string) string { return env[name] }
-	if summaryTestBaseURL(getenv) != "" {
-		t.Fatal("the app in use used a stand-in")
+// A redirect is never followed: the key's header would go with it.
+func TestARedirectIsRefusedAndTheKeyGoesNowhereElse(t *testing.T) {
+	elsewhere, elsewhereURL := newStandIn(t, http.StatusOK, `{"content":[{"type":"text","text":"stolen"}]}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhereURL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(server.Close)
+	text, err := askClaudeAt(context.Background(), server.URL, testSummaryKey, summaryParams(transcriptExtract{Text: "x"}, "api"))
+	if text != "" || err == nil {
+		t.Fatalf("a redirect was followed: %q", text)
 	}
-	env["SMOLCORP_TEST_SUPPORT_DIR"] = "/tmp/test-support"
-	if summaryTestBaseURL(getenv) != "http://127.0.0.1:7781" {
-		t.Fatal("a test copy didn't use its stand-in")
+	if len(elsewhere.requests) != 0 {
+		t.Fatal("the request, and its key, went where the redirect pointed")
 	}
-	for _, elsewhere := range []string{"https://example.com", "http://192.168.1.4:80", "not a url"} {
-		env["SMOLCORP_TEST_ANTHROPIC_URL"] = elsewhere
-		if summaryTestBaseURL(getenv) != "" {
-			t.Errorf("a test copy used %s", elsewhere)
-		}
+	assertNoPartOfTheKey(t, err.Message, "the redirect's error")
+}
+
+// Nothing in the app's environment can point Summary anywhere but Anthropic.
+func TestNothingInTheEnvironmentChangesWhereTheKeyGoes(t *testing.T) {
+	t.Setenv("SMOLCORP_TEST_SUPPORT_DIR", t.TempDir())
+	t.Setenv("SMOLCORP_TEST_ANTHROPIC_URL", "http://127.0.0.1:7781")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:7782")
+	var host string
+	recorder := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		host = r.URL.Host
+		return nil, errNoSecretStore // nothing leaves this computer
+	})}
+	client := anthropic.NewClient(append(summaryClientOptions(testSummaryKey, ""), option.WithHTTPClient(recorder))...)
+	_, _ = client.Messages.New(context.Background(), summaryParams(transcriptExtract{Text: "x"}, "api"))
+	if host != "api.anthropic.com" {
+		t.Fatalf("the request went to %q", host)
 	}
 }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestNoMoreThanTwentySummariesInTenMinutes(t *testing.T) {
 	path := transcriptFile(t, jsonLine(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": "hello"}}))

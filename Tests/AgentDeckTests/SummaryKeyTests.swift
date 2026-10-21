@@ -137,6 +137,39 @@ final class SummaryKeyTests: XCTestCase {
         }
     }
 
+    /// A test copy's run uses only a key pasted into it: never the environment's.
+    func testATestCopyNeverUsesTheEnvironmentsKey() {
+        let environment = ["ANTHROPIC_API_KEY": key]
+        XCTAssertNil(SummaryKey.read(environment: environment, testMode: true))
+        XCTAssertNil(SummaryKey.shown(environment: environment, testMode: true))
+        XCTAssertEqual(SummaryKey.read(environment: environment, testMode: false), key)
+    }
+
+    /// Only the test copy's own build, by its bundle id, ever talks to a stand-in: never a release, whatever its variables.
+    func testAReleaseIgnoresTheStandInsAddress() {
+        let local = ["SMOLCORP_TEST_ANTHROPIC_URL": "http://127.0.0.1:7781/v1/messages"]
+        XCTAssertNil(SummaryRequest.testEndpoint(local), "this build isn't the test copy's")
+        XCTAssertNotEqual(Bundle.main.bundleIdentifier, SummaryRequest.testCopyBundle)
+    }
+
+    /// A redirect is never followed: the key's header would go with it.
+    func testARedirectIsRefusedAndTheKeyGoesNowhereElse() throws {
+        RedirectingProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RedirectingProtocol.self]
+        let transport = Summaries.transport(using: configuration)
+        let request = SummaryRequest.request(.init(text: "USER: hi", language: "English"), project: "api", key: key)
+        let done = expectation(description: "answered")
+        var status: Int?
+        transport(request) { _, code, _ in status = code; done.fulfill() }
+        wait(for: [done], timeout: 5)
+        XCTAssertEqual(status, 307, "the redirect comes back as it is")
+        XCTAssertEqual(RedirectingProtocol.hosts, ["api.anthropic.com"], "nothing was sent to where it pointed")
+        XCTAssertFalse(RedirectingProtocol.keysElsewhere)
+        guard case let .failure(error) = SummaryRequest.answer(nil, status: status, error: nil) else { return XCTFail() }
+        assertNoPartOfTheKey(error.message, "the redirect's error")
+    }
+
     /// The key goes in its header and nowhere else in the request.
     func testTheKeyIsOnlyInItsHeader() throws {
         let request = SummaryRequest.request(.init(text: "USER: hi", language: "English"), project: "api", key: key)
@@ -147,4 +180,43 @@ final class SummaryKeyTests: XCTestCase {
             assertNoPartOfTheKey(value, "the \(name) header")
         }
     }
+}
+
+/// Answers Anthropic's address with a redirect elsewhere, and keeps where requests went.
+final class RedirectingProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var seen: [String] = []
+    private static var keyElsewhere = false
+
+    static func reset() { lock.lock(); seen = []; keyElsewhere = false; lock.unlock() }
+    static var hosts: [String] { lock.lock(); defer { lock.unlock() }; return seen }
+    static var keysElsewhere: Bool { lock.lock(); defer { lock.unlock() }; return keyElsewhere }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let host = request.url?.host ?? ""
+        RedirectingProtocol.lock.lock()
+        RedirectingProtocol.seen.append(host)
+        if host != "api.anthropic.com" && request.value(forHTTPHeaderField: "x-api-key") != nil { RedirectingProtocol.keyElsewhere = true }
+        RedirectingProtocol.lock.unlock()
+        if host == "api.anthropic.com" {
+            let elsewhere = URL(string: "https://elsewhere.example/steal")!
+            let response = HTTPURLResponse(url: request.url!, statusCode: 307, httpVersion: "HTTP/1.1",
+                                           headerFields: ["Location": elsewhere.absoluteString])!
+            var next = request
+            next.url = elsewhere
+            client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: response)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocolDidFinishLoading(self)
+        } else {
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [:])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(#"{"content":[{"type":"text","text":"stolen"}]}"#.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
 }

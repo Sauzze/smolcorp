@@ -269,8 +269,11 @@ struct SummaryError: Error, Equatable {
 /// hint is kept as the item's comment, so drawing setup never asks the
 /// Keychain for the secret, and only a summary being made does.
 enum SummaryKey {
+    /// Whether this is a test copy's run (scripts/test-copy.sh's variables):
+    /// then the key is its own, never the real store's or the environment's.
+    static let testMode = TestCopy.isOn
     /// A test copy keeps its own, as it does the viewer's.
-    static let service = TestCopy.isOn ? "smolcorp-summary-test" : "smolcorp-summary"
+    static let service = testMode ? "smolcorp-summary-test" : "smolcorp-summary"
     static let account = "anthropic-api-key"
     static let environmentName = "ANTHROPIC_API_KEY"
 
@@ -292,15 +295,18 @@ enum SummaryKey {
     static func hint(_ key: String) -> String { "sk-ant-…" + key.suffix(4) }
 
     /// The key a summary is made with, read as it's made.
-    static func read(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+    static func read(environment: [String: String] = ProcessInfo.processInfo.environment, testMode: Bool = testMode) -> String? {
         if let stored = store.read() { return stored }
+        // A test copy uses only a key pasted into it, never the one in the environment.
+        guard !testMode else { return nil }
         return environment[environmentName].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { isKey($0) ? $0 : nil }
     }
 
     /// What setup shows, without reading the key from the Keychain.
-    static func shown(environment: [String: String] = ProcessInfo.processInfo.environment) -> Shown? {
+    static func shown(environment: [String: String] = ProcessInfo.processInfo.environment, testMode: Bool = testMode) -> Shown? {
         if knownHint == nil { knownHint = .some(store.hint()) }
         if let hint = knownHint ?? nil { return Shown(source: .keychain, hint: hint) }
+        guard !testMode else { return nil }
         guard let key = environment[environmentName]?.trimmingCharacters(in: .whitespacesAndNewlines), isKey(key) else { return nil }
         return Shown(source: .environment, hint: hint(key))
     }
@@ -401,9 +407,12 @@ enum SummaryRequest {
 
     /// For a test copy only (scripts/test-copy.sh): a stand-in for Anthropic's
     /// API on this computer, from SMOLCORP_TEST_ANTHROPIC_URL, so a summary can
-    /// be tried without a key or a bill. The app in use never reads it.
+    /// be tried without a key or a bill. Only the test copy's own build, by its
+    /// bundle id, which the app in use never has, and only with its variables.
+    static let testCopyBundle = "io.github.sauzze.agentdeck.test"
+
     static func testEndpoint(_ environment: [String: String] = ProcessInfo.processInfo.environment,
-                             testCopy: Bool = TestCopy.isOn) -> URL? {
+                             testCopy: Bool = TestCopy.isOn && Bundle.main.bundleIdentifier == testCopyBundle) -> URL? {
         guard testCopy, let text = environment["SMOLCORP_TEST_ANTHROPIC_URL"], let url = URL(string: text),
               url.scheme == "http", ["127.0.0.1", "localhost"].contains(url.host ?? "") else { return nil }
         return url
@@ -494,17 +503,31 @@ final class Summaries {
         self.now = now
     }
 
-    static let urlSession: Transport = { request, done in
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieStorage = nil
-        configuration.timeoutIntervalForRequest = SummaryRequest.timeout
-        configuration.timeoutIntervalForResource = SummaryRequest.timeout
-        configuration.urlCache = nil
-        let session = URLSession(configuration: configuration)
-        session.dataTask(with: request) { data, response, error in
-            done(data, (response as? HTTPURLResponse)?.statusCode, error)
-            session.finishTasksAndInvalidate()
-        }.resume()
+    static let urlSession: Transport = transport(using: .ephemeral)
+
+    /// Sends through a session of its own that never follows a redirect: one
+    /// could take the key's header elsewhere. A redirect comes back as it is,
+    /// and is answered as a refusal.
+    static func transport(using base: URLSessionConfiguration) -> Transport {
+        { request, done in
+            let configuration = base.copy() as! URLSessionConfiguration
+            configuration.httpCookieStorage = nil
+            configuration.timeoutIntervalForRequest = SummaryRequest.timeout
+            configuration.timeoutIntervalForResource = SummaryRequest.timeout
+            configuration.urlCache = nil
+            let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
+            session.dataTask(with: request) { data, response, error in
+                done(data, (response as? HTTPURLResponse)?.statusCode, error)
+                session.finishTasksAndInvalidate()
+            }.resume()
+        }
+    }
+
+    final class NoRedirects: NSObject, URLSessionTaskDelegate {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
     }
 
     /// The summary of session `id`, from its transcript at `transcript`.
