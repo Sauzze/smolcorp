@@ -36,6 +36,12 @@ type Access struct {
 	// Tokens the tray's links carry in place of the setup key, each good
 	// once, until it runs out.
 	setupTokens map[string]time.Time
+	// WindowKey is the key the office in a browser on this computer reads the
+	// office with, as the Mac app's office window does: new at each start,
+	// never saved, and taken only from this computer. The tray's Show Office
+	// carries a token of officeTokens, which the deck swaps for it.
+	WindowKey    string
+	officeTokens map[string]time.Time
 
 	code        string
 	codeExpiry  time.Time
@@ -53,7 +59,8 @@ const (
 )
 
 func NewAccess() *Access {
-	return &Access{Phones: loadPhones(), HookKey: loadHookKey(), SetupKey: newSetupKey(), misses: map[string]int{}}
+	return &Access{Phones: loadPhones(), HookKey: loadHookKey(), SetupKey: newSetupKey(), WindowKey: randomKey(),
+		misses: map[string]int{}}
 }
 
 func (a *Access) IsHookKey(candidate string) bool {
@@ -68,27 +75,46 @@ func (a *Access) IsSetupKey(candidate string) bool {
 const setupTokenLifetime = 2 * time.Minute
 
 // NewSetupToken is a token for one link to the setup page.
-func (a *Access) NewSetupToken() string {
-	now := time.Now()
-	if a.setupTokens == nil {
-		a.setupTokens = map[string]time.Time{}
-	}
-	for token, expiry := range a.setupTokens {
-		if now.After(expiry) {
-			delete(a.setupTokens, token)
-		}
-	}
-	token := randomKey()
-	a.setupTokens[token] = now.Add(setupTokenLifetime)
-	return token
-}
+func (a *Access) NewSetupToken() string { return newToken(&a.setupTokens) }
 
 // RedeemSetupToken says whether candidate is a token not yet used and not
 // run out, and uses it up.
 func (a *Access) RedeemSetupToken(candidate string) bool {
-	for token, expiry := range a.setupTokens {
+	return redeemToken(a.setupTokens, candidate)
+}
+
+// NewOfficeToken is a token for one link to the office, from the tray.
+func (a *Access) NewOfficeToken() string { return newToken(&a.officeTokens) }
+
+// RedeemOfficeToken is RedeemSetupToken for the office's links.
+func (a *Access) RedeemOfficeToken(candidate string) bool {
+	return redeemToken(a.officeTokens, candidate)
+}
+
+// IsWindowKey is whether candidate is the office's own key on this computer.
+func (a *Access) IsWindowKey(candidate string) bool {
+	return candidate != "" && a.WindowKey != "" && constantTimeEqual(candidate, a.WindowKey)
+}
+
+func newToken(tokens *map[string]time.Time) string {
+	now := time.Now()
+	if *tokens == nil {
+		*tokens = map[string]time.Time{}
+	}
+	for token, expiry := range *tokens {
+		if now.After(expiry) {
+			delete(*tokens, token)
+		}
+	}
+	token := randomKey()
+	(*tokens)[token] = now.Add(setupTokenLifetime)
+	return token
+}
+
+func redeemToken(tokens map[string]time.Time, candidate string) bool {
+	for token, expiry := range tokens {
 		if candidate != "" && constantTimeEqual(candidate, token) {
-			delete(a.setupTokens, token)
+			delete(tokens, token)
 			return time.Now().Before(expiry)
 		}
 	}

@@ -1041,6 +1041,8 @@ What's different from the Mac:
   launcher it only selects the session, because the launcher can't tell which
   window it's in.
 - **Two-finger scrolling** works in tmux and kitty.
+- **Show Office**, in the tray menu, opens the office in your browser, where
+  Chrome and Edge can **POP OUT** it on top of your other windows.
 - **No Accessibility step.** Nothing here needs that permission.
 
 ### Linux

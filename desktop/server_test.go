@@ -407,3 +407,43 @@ func TestAPhoneHearsThePingAsAnEvent(t *testing.T) {
 		}
 	}
 }
+
+func TestTheTraysOfficeIsTheOfficeOnThisComputerOnly(t *testing.T) {
+	d := newTestDeck(t)
+	d.mu.Lock()
+	token := d.access.NewOfficeToken()
+	d.mu.Unlock()
+	opened := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer})
+	if opened.Code != http.StatusSeeOther || opened.Header().Get("Location") != "/office?t="+d.access.WindowKey {
+		t.Fatalf("the tray's link gave %d to %q, want the office with its own key", opened.Code, opened.Header().Get("Location"))
+	}
+	if again := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer}); again.Code == http.StatusSeeOther {
+		t.Error("the tray's token worked twice")
+	}
+	office := serve(t, d, call{method: "GET", target: "/office?t=" + d.access.WindowKey, host: "localhost:7710", from: thisComputer})
+	if office.Code != http.StatusOK || !strings.Contains(office.Body.String(), "/events") {
+		t.Errorf("the office with its own key gave %d, want the deck's page", office.Code)
+	}
+	if focus := serve(t, d, call{method: "POST", target: "/focus?session=none&t=" + d.access.WindowKey, host: "localhost:7710",
+		from: thisComputer}); focus.Code != http.StatusNotFound {
+		t.Errorf("the office's own key on this computer: %d, want it to reach the deck (404 for no session)", focus.Code)
+	}
+	// From the network, it's no key at all, and nor is a token.
+	for _, c := range []call{
+		{method: "POST", target: "/focus?session=none&t=" + d.access.WindowKey, host: deckOnWiFi, from: aPhone},
+		{method: "POST", target: "/focus?session=none&t=" + d.access.WindowKey, host: deckOnWiFi, from: thisComputer},
+	} {
+		if response := serve(t, d, c); response.Code != http.StatusUnauthorized {
+			t.Errorf("the office's own key from %s to %s: %d, want 401", c.from, c.host, response.Code)
+		}
+	}
+	d.mu.Lock()
+	token = d.access.NewOfficeToken()
+	d.mu.Unlock()
+	if response := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: deckOnWiFi, from: aPhone}); response.Code == http.StatusSeeOther {
+		t.Error("a phone swapped the tray's token for the office's key")
+	}
+	if len(d.access.Phones.All) != 0 {
+		t.Error("the office on this computer was listed as a phone")
+	}
+}

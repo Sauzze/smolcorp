@@ -35,6 +35,16 @@ func (d *Deck) openSetup(then string) {
 	openURL(setupAddress("o="+token, then))
 }
 
+// openOffice opens the office in the browser, as the Mac app's Show Office
+// opens its window: with a token that works once, as for setup, which the
+// deck swaps for the office's own key on this computer.
+func (d *Deck) openOffice() {
+	d.mu.Lock()
+	token := d.access.NewOfficeToken()
+	d.mu.Unlock()
+	openURL(fmt.Sprintf("http://localhost:%d/office?o=%s", Port, token))
+}
+
 func setupAddress(fragment, then string) string {
 	link := fmt.Sprintf("http://localhost:%d/setup#%s", Port, fragment)
 	if then != "" {

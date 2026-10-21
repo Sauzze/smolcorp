@@ -92,7 +92,7 @@ subsystem of its own. "–" where there is nothing to port.
 | Tell other tools (webhook) | ✓ | ✓ | none | – |
 | Open at login | ✓ | ✓ | none | – |
 | Menu: Open Setup, Pair, Unpair All, Open at Login, Quit | ✓ | ✓ | none | – |
-| Menu: Show Office (the office in a window) | native window | – | could open the office in the browser | S |
+| Menu: Show Office (the office in a window) | native window | in the browser | **done** | – |
 | Portable office (beta) | ✓ | – | AES-GCM viewer on your own Vercel | XL |
 | Screen saver | ✓ | – | a macOS `.saver` | – |
 | Dictation for agents without a voice mode | ✓ | – | Apple's on-device speech recognition | – |
@@ -171,3 +171,13 @@ Done:
    doesn't have, the launcher connecting again, as it does by itself a few
    seconds after the app is back. One that doesn't within 30 seconds ended
    while the app was away.
+5. **Show Office** in the tray opens the office in the browser, as the Mac's
+   menu opens its office window. That window reads the office with a key of
+   its own, new at each start, taken from this computer only, and listed as
+   no phone; so does the browser's page here. The browser is started with a
+   token good once, for two minutes, as setup's links are, so no key is on a
+   command line other people signed in here could read; the deck swaps it
+   for the key with a redirect. The key then sits in the browser's history
+   until the app restarts, readable by you alone. Chrome and Edge can POP OUT
+   the page to stay on top: the Mac's window options (always on top, on all
+   Spaces, click-through) have no counterpart.

@@ -65,10 +65,10 @@ func hasDesktop() bool {
 }
 
 type tray struct {
-	deck                              *Deck
-	count, setup, pair, unpair, login *systray.MenuItem
-	quit                              *systray.MenuItem
-	logo                              string
+	deck                                      *Deck
+	count, setup, pair, unpair, office, login *systray.MenuItem
+	quit                                      *systray.MenuItem
+	logo                                      string
 }
 
 func newTray(deck *Deck, failed <-chan error) {
@@ -80,6 +80,8 @@ func newTray(deck *Deck, failed <-chan error) {
 	t.setup = systray.AddMenuItem("Open Setup…", "")
 	t.pair = systray.AddMenuItem("Pair a Phone…", "")
 	t.unpair = systray.AddMenuItem("Unpair All Phones…", "")
+	systray.AddSeparator()
+	t.office = systray.AddMenuItem("Show Office", "The office in your browser, as on a phone")
 	systray.AddSeparator()
 	t.login = systray.AddMenuItemCheckbox("Open at Login", "", isOpenAtLogin())
 	systray.AddSeparator()
@@ -143,6 +145,8 @@ func (t *tray) listen(failed <-chan error) {
 		case <-t.unpair.ClickedCh:
 			// The setup page asks you to confirm, then unpairs every phone.
 			t.deck.openSetup("unpair")
+		case <-t.office.ClickedCh:
+			t.deck.openOffice()
 		case <-t.login.ClickedCh:
 			setOpenAtLogin(!isOpenAtLogin())
 			if isOpenAtLogin() {

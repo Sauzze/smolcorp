@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -58,6 +59,9 @@ const (
 	setupCookie    = "smolcorp-setup"
 	// A tray link's one-time token, which the page swaps for the cookie.
 	setupTokenHeader = "X-Smolcorp-Setup-Once"
+	// The office in a browser on this computer, as the deck sees it: see
+	// Access.WindowKey.
+	officeWindow = "office-window"
 )
 
 // Serve listens on the deck's port until it fails.
@@ -292,14 +296,29 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	}
 
+	// The tray's Show Office: its token, good once, swapped for the office's
+	// own key on this computer, which the page then reads the office with.
+	if r.Method == http.MethodGet && r.URL.Path == "/office" && r.isLocal && r.URL.Query().Has("o") {
+		d.mu.Lock()
+		redeemed, windowKey := d.access.RedeemOfficeToken(r.URL.Query().Get("o")), d.access.WindowKey
+		d.mu.Unlock()
+		if redeemed {
+			http.Redirect(w, r.Request, "/office?t="+url.QueryEscape(windowKey), http.StatusSeeOther)
+			return
+		}
+	}
+
 	key := r.URL.Query().Get("t")
 	if key == "" {
 		key = r.Header.Get(hookKeyHeader)
 	}
 	d.mu.Lock()
-	phone := d.access.Phones.WithKey(key)
 	phoneID := ""
-	if phone != nil {
+	// The office in a browser on this computer reads it as a phone does,
+	// from this computer only: a phone that isn't paired, saved or listed.
+	if r.isLocal && d.access.IsWindowKey(key) {
+		phoneID = officeWindow
+	} else if phone := d.access.Phones.WithKey(key); phone != nil {
 		d.access.Phones.MarkSeen(phone)
 		phoneID = phone.ID
 	}
