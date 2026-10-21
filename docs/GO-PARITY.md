@@ -110,6 +110,9 @@ working in it: its routes were 404s.
 
 ## Ranked: what to port
 
+All six are done: see Progress, below.
+
+
 1. **Roles, whole.** The 13 shipped roles, their badges and `Role.outfit`,
    the outfit migration, and `rolesOffered`. Small, and the most visible: the
    shared setup page and office already draw them, and today a config the Mac
@@ -131,8 +134,31 @@ Not ported, and why:
 - **The screen saver**: a macOS `.saver` bundle. A spare screen showing
   `/office` does the same job anywhere.
 - **Accessibility**: nothing off the Mac needs it.
+- **The office window's options** (always on top, on all Spaces,
+  click-through, sideways or upright): they're a native window's. Show Office
+  opens the browser instead, where Chrome and Edge can pop the office out on
+  top.
+
+Left:
+
+- **The jukebox lit while music plays, on Windows** (M). Windows only says
+  what's playing through its media session API, a WinRT interface that Go
+  can't reach without a WinRT binding or a PowerShell run every three
+  seconds; neither is worth it for a light on the jukebox. Play, pause, skip
+  and the volume all work.
+- **Windows has been built and vetted, never run**, as before this work:
+  hiring's Windows Terminal and console windows, the folder dialog and
+  GetLastInputInfo are untested on a real PC.
 
 ## Progress
+
+Every commit passes `go vet ./...` and `go test ./...`, builds for Windows and
+Linux on amd64 and arm64, and passes `scripts/check-public.sh`. The Swift side
+is unchanged. The shared setup page changed in four places, each only where
+the state says it's the Windows and Linux app (`state.launcher`), so the Mac
+sees the page as before: the roles' hint names both ways to start a role,
+tmux's hint says what it's for here, and the viewer's steps say "secret
+store" and "tray".
 
 Done:
 
