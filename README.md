@@ -651,6 +651,63 @@ secret, the viewer's id and its key are kept in the Keychain, never in
 The viewer sees when the office is on and roughly how big it is, nothing
 else. The Windows and Linux app doesn't have the portable office.
 
+## Summaries with Claude
+
+Away from the computer, a desk on the phone shows *what* an agent is doing,
+not why. Hold a desk and tap **✨ summary**: Claude Haiku 5.5 reads the end of
+that agent's Claude Code transcript and answers in a few lines what you asked,
+what it's doing, whether it's waiting on you, and its last result.
+
+It's off until you turn it on, and it uses **your own Anthropic API key**,
+billed to you by Anthropic. Haiku is Anthropic's least expensive model, and a
+summary is one short request.
+
+### Turn it on
+
+1. On the setup page, under *Getting started*, paste your API key into
+   **Summaries with Claude** and click **Save key**. Make a key in the
+   [Anthropic Console](https://console.anthropic.com/settings/keys).
+2. Turn the switch on. A dialog says what's sent and where; it turns on only
+   when you click **Turn on**.
+
+Turn it off with the same switch, at any time. **Remove** forgets the key.
+
+### What's sent, and where your key is kept
+
+- **Sent, to Anthropic's API, only when you tap ✨ summary:** the end of that
+  agent's transcript, at most 16,000 characters. That's your recent requests,
+  its replies and the tools it ran, each cut short, never a file's contents.
+  Lines that look like they hold a secret (keys, tokens, passwords) are taken
+  out first. The project's folder name is sent with it.
+- **Your key** is kept by your system:
+  - in the Keychain on a Mac;
+  - in Credential Manager on Windows;
+  - in the Secret Service (GNOME Keyring or KWallet) on Linux.
+
+  It's never in `config.json`, the phone, the portable office or a log, and the
+  setup page shows only its last four characters.
+- **Limits:** a summary is kept for 30 seconds, so a second tap doesn't pay
+  twice. At most 20 summaries go to Anthropic in any 10 minutes. A failed one
+  is never retried by itself.
+
+### Or use `ANTHROPIC_API_KEY`
+
+With no key saved, Smolcorp uses `ANTHROPIC_API_KEY` from its own environment.
+On a Linux computer with no secret store, this is the only way.
+
+An app you open from the Dock, the Start menu or at login doesn't see what you
+`export` in a terminal. To give it the key:
+
+- **Mac:** run `launchctl setenv ANTHROPIC_API_KEY sk-ant-…`, then quit and
+  reopen Smolcorp. Every app you open after that can read it too, so the
+  setup page is the better place.
+- **Windows:** run `setx ANTHROPIC_API_KEY sk-ant-…` in a terminal, then
+  restart Smolcorp.
+- **Linux:** add `ANTHROPIC_API_KEY=sk-ant-…` to `~/.config/environment.d/smolcorp.conf`,
+  then log out and back in.
+
+Smolcorp never reads a project's `.env` file, or any other file, for a key.
+
 ## Tell other tools
 
 Smolcorp can tell another tool what your agents are doing, so a lamp
@@ -733,11 +790,17 @@ automation:
 
 ## Privacy and security
 
-- **Smolcorp sends nothing off your network.** It talks only to your
-  phone, to the coding agents on your computer and, if you turn it on, to the
-  address you gave [Tell other tools](#tell-other-tools), which is on your
-  network unless you allow otherwise. It has no accounts, no analytics and no
-  cloud service.
+- **Smolcorp sends nothing off your network unless you turn it on.** It talks
+  to your phone and to the coding agents on your computer. Only these, each off
+  until you turn it on, go further:
+  - the address you gave [Tell other tools](#tell-other-tools), which is on
+    your network unless you allow otherwise;
+  - the [portable office](#portable-office-beta)'s viewer, on your own Vercel,
+    which only ever holds locked data;
+  - Anthropic's API, with your own key, when you ask for a
+    [summary](#summaries-with-claude).
+
+  It has no accounts, no analytics and no cloud service of its own.
 - **Each phone has its own key.** Every request carries a long random key that
   only that phone has. The key is never typed: pairing hands it over. Your
   computer keeps only a fingerprint of each key (a SHA-256 hash), so you can revoke one
