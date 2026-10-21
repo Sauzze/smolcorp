@@ -178,7 +178,12 @@ that needs no Accessibility at all.
 
 ## Install
 
-There are two ways. Both give you the same app.
+Smolcorp is in **alpha**. It works day to day, but it isn't signed with an
+Apple Developer ID or notarised yet, so macOS warns you before it opens it
+the first time, and again after each update. The steps below get past that
+warning; they're needed until a signed release.
+
+There are three ways. All give you the same app.
 
 ### Download the app
 
@@ -187,10 +192,14 @@ There are two ways. Both give you the same app.
 2. In the window that opens, drag **Smolcorp** onto the **Applications**
    folder beside it. Then open Smolcorp from your Applications folder, and
    eject the **Smolcorp** disk in Finder's sidebar.
-3. macOS will say it can't check Smolcorp for malicious software, because
-   the app isn't notarised by Apple. Click **Done**, then go to
-   **System Settings → Privacy & Security**, scroll down, and click
-   **Open Anyway** next to Smolcorp. You only do this once.
+3. macOS says *"Smolcorp" Not Opened*, as Apple can't check it for
+   malicious software. Click **Done**. Then:
+   1. Open **System Settings → Privacy & Security** and scroll down to
+      *Security*, where it says Smolcorp was blocked.
+   2. Click **Open Anyway**, and confirm with your password or Touch ID.
+   3. Open Smolcorp again, and click **Open Anyway** in the dialog.
+
+   You do this the first time, and after each update.
 
 The release also has **Smolcorp.zip**, the same app in a zip: open it and
 drag **Smolcorp** into your Applications folder.
@@ -207,6 +216,15 @@ deck to your phone's Home Screen again for the new name and icon.
 Updating from AgentDeck? Quit it, delete **AgentDeck** from Applications and
 install as above. Your settings carry over, but pair your phone again, add it
 to your Home Screen again, and turn the app back on under Accessibility.
+
+### Or with Homebrew
+
+```sh
+brew install --cask sauzze/tap/smolcorp
+```
+
+Update with `brew upgrade --cask smolcorp`. The first time it opens, and after
+each update, macOS asks as above: follow step 3.
 
 ### Or build it yourself
 
