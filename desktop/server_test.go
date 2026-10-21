@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -404,6 +405,30 @@ func TestAPhoneHearsThePingAsAnEvent(t *testing.T) {
 			}
 		case <-time.After(2 * time.Second):
 			t.Fatal("no ping came")
+		}
+	}
+}
+
+func TestTheHomeScreenIconIsInThePageItself(t *testing.T) {
+	d := newTestDeck(t)
+	key := pair(t, d)
+	for _, logo := range []string{"smolcorp", "keys"} {
+		d.mu.Lock()
+		d.config.Logo = logo
+		d.mu.Unlock()
+		png, err := os.ReadFile(filepath.Join("..", "Resources", "web", "icon-"+logo+".png"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := `<link rel="apple-touch-icon" sizes="180x180" href="data:image/png;base64,` + base64.StdEncoding.EncodeToString(png) + `">`
+		for _, target := range []string{"/", "/?t=" + key} {
+			page := serve(t, d, call{method: "GET", target: target, host: deckOnWiFi, from: aPhone}).Body.String()
+			if !strings.Contains(page, want) {
+				t.Errorf("%s with the %s logo: no icon in the page", target, logo)
+			}
+			if strings.Contains(page, `rel="apple-touch-icon" href="/icon.png"`) {
+				t.Errorf("%s with the %s logo: an icon left for iOS to fetch", target, logo)
+			}
 		}
 	}
 }

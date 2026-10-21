@@ -219,7 +219,9 @@ func said(text, kind string) []rendered {
 }
 
 // toolLine is a tool's call in a line: its name and the one part of its input
-// that says what it did. Paths, commands and searches; never a file's contents.
+// that says what it did. From its input, only paths, commands and searches,
+// never text it was given to write. What it gave back goes as its first line
+// (see above): for a file it read, that file's first line.
 func toolLine(block map[string]any) string {
 	name, _ := block["name"].(string)
 	if name == "" {

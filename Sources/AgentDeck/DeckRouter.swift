@@ -22,6 +22,19 @@ final class DeckRouter: Router {
         guard let text, !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isNumber }), let pid = Int32(text), pid > 0 else { return nil }
         return pid
     }
+
+    /// The page with its Home Screen icon in it, as a data: URL, from `icon`, the logo's 180 px PNG. iOS fetches a
+    /// linked touch icon itself, outside the page and without its browser, and where that fetch fails the Home Screen
+    /// shows a letter instead of the logo.
+    static func withIcon(_ page: Response, icon: URL) -> Response {
+        guard page.status == 200, let html = String(data: page.body, encoding: .utf8),
+              let png = try? Data(contentsOf: icon) else { return page }
+        var inlined = page
+        inlined.body = Data(html.replacingOccurrences(of: #"<link rel="apple-touch-icon" href="/icon.png">"#,
+            with: #"<link rel="apple-touch-icon" sizes="180x180" href="data:image/png;base64,\#(png.base64EncodedString())">"#).utf8)
+        return inlined
+    }
+
     /// The setup page's key, as a tool of your own sends it, read from the
     /// setup-key file; or as the page's cookie, from the menu's link.
     static let setupKeyHeader = "x-smolcorp-setup-key"
@@ -126,7 +139,8 @@ final class DeckRouter: Router {
         // The deck, or the office on a screen of its own: the same page, and
         // the same pairing first.
         if request.method == "GET" && (request.path == "/" || request.path == "/office") {
-            return respond(.file(Paths.web.appendingPathComponent(phone == nil ? "pair.html" : "deck.html")))
+            return respond(DeckRouter.withIcon(.file(Paths.web.appendingPathComponent(phone == nil ? "pair.html" : "deck.html")),
+                                               icon: Config.shared.logo.icon))
         }
         guard let phone else { return respond(.status(401)) }
 

@@ -152,7 +152,19 @@
    * and press the buttons made in setup; two fingers scroll its Terminal;
    * the red button is ☢ Max, the mic dictates, and a jukebox plays music.
    */
-  const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, moved() {} } : AgentOffice.create($('office-canvas'), {
+  /*
+   * On a phone, the office is lite unless the phone has said otherwise: it goes as a calm office does, at 30 frames
+   * a second, which spares the phone's battery and keeps it cool. Its switch is in the office's style panel. It's
+   * this phone's own choice, and changes nothing for the room's other screens.
+   */
+  const LITE_KEY = 'office-lite';
+  const onPhone = !preview && !whole && matchMedia('(pointer: coarse)').matches;
+  function liteChosen() {
+    let kept = null;
+    try { kept = localStorage.getItem(LITE_KEY); } catch {}
+    return kept ? kept === 'on' : true;
+  }
+  const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, setSaving() {}, setLite() {}, moved() {} } : AgentOffice.create($('office-canvas'), {
     select(id) {
       tick();
       selected = id;
@@ -240,6 +252,14 @@
       tick();
       flash(text);
     },
+    // A phone's own lite office, switched in the office's style panel: kept on this phone only.
+    ...(onPhone ? {
+      lite(on) {
+        tick();
+        try { localStorage.setItem(LITE_KEY, on ? 'on' : 'off'); } catch {}
+        office.setLite(on);
+      },
+    } : {}),
   });
 
   /*
@@ -250,6 +270,10 @@
    */
   office.setFramed(false);
   office.setFloating(saver ? 'edge' : bare ? 'bare' : 'screen');
+  // Only the Mac app's own window and its screen saver spare the battery, drawing less often; on the phone, the
+  // room is all there is to see, and goes at the screen's own rate.
+  office.setSaving(bare || saver);
+  office.setLite(onPhone && liteChosen());
   office.setVisible(true);
 
   /*

@@ -8,7 +8,7 @@
  * whole number of the screen's pixels so every edge stays sharp.
  *
  *   AgentOffice.create(canvas, on) → { show(snapshot), close(), select(id), setVisible(shown), setFramed(framed), moved(),
- *                                      onElevator(clientX, clientY), ride() }
+ *                                      setSaving(on), setLite(on), onElevator(clientX, clientY), ride() }
  *
  * `show` takes what the deck streams; `close` empties the office when the
  * stream drops, and whoever is there when it's back is already at work.
@@ -22,7 +22,8 @@
  * page to do what its keys and buttons would: `on.select(id)` for a desk or
  * its person, `on.max()` for the nuclear button, `on.mic('down' | 'up')` for
  * the microphone, held, `on.style(id)` for one of the office's styles, from
- * its key in the corner, `on.music(action)` for a piece that plays music, to
+ * its key in the corner, `on.lite(on)` for the lite office's switch in its
+ * panel, shown only to a page that gives this (see setLite), `on.music(action)` for a piece that plays music, to
  * play or pause the computer's music, 'playpause', from a tap, or from the
  * control a finger held on it opens, 'previous', 'playpause' or 'next',
  * `on.key(action)` for one of the picked agent's keys along the foot of the
@@ -63,14 +64,14 @@
   /** How often the haunted door creaks open a crack on its own, and for how long, in seconds; and how far open it is at `t`, 0 to 1. */
   const CREAK_EVERY = 41, CREAK_FOR = 3.2;
   const creakOf = (t) => {
-    if (decor.calm === 'on') return 0; // a calm office's door stays shut
+    if (isCalm()) return 0; // a calm office's door stays shut
     const c = t % CREAK_EVERY;
     return c < CREAK_FOR ? Math.sin((c / CREAK_FOR) * Math.PI) : 0;
   };
 
   /** How often a love letter drops through the love-letter door's slot, in seconds, and where in that it is at `t`. */
   const LETTER_EVERY = 30;
-  const letterOf = (t) => (decor.calm === 'on' ? LETTER_EVERY - 1 : (t + 11) % LETTER_EVERY); // calm: no letter comes
+  const letterOf = (t) => (isCalm() ? LETTER_EVERY - 1 : (t + 11) % LETTER_EVERY); // calm: no letter comes
   /**
    * A heart `w` wide (odd) and `h` tall, worked out once and kept: for each row, its runs as [from, to] about the middle
    * column, and the pixels round its edge as [dx, dy], for outlines and lights.
@@ -964,6 +965,13 @@
   // The office as it's furnished now. There is one to a page, so the
   // drawing and the people's comings and goings read it from here.
   let decor = roomOf(null);
+  /**
+   * A lite office (see setLite): this page's own choice, as a phone's, to go as a calm office does, but drawn at
+   * LITE_FRAME_TIME. It leaves the room's own calm setting as it is, for every other screen.
+   */
+  let liteOffice = false;
+  /** Whether the office goes calmly: the room's calm setting, or this page's lite office. */
+  const isCalm = () => decor.calm === 'on' || liteOffice;
   /** The lounge's spots, and those round its corner piece, where the room's shape puts them. */
   const spotsOf = (room) => [
     ...LOUNGE_SPOTS.map((spot) => placed(spot.part, spot)),
@@ -2726,7 +2734,7 @@
         pet.position = { x: DOOR.x, y: DOOR.y + 6 };
       }
       // Settled in a calm office, a pet stays put.
-      if (!pet.isWalking && now >= pet.nextMove && !(decor.calm === 'on' && pet.target)) {
+      if (!pet.isWalking && now >= pet.nextMove && !(isCalm() && pet.target)) {
         let others = this.petPlaces(pet).filter((p) => !pet.target || p.x !== pet.target.x || p.y !== pet.target.y);
         // Nowhere of its own to go, and in the way where it is: the nearest free spot out of everyone's way
         if (!others.length && !pet.target?.depth && !this.petCanSettle({ x: pet.position.x, y: pet.position.y }, pet)) {
@@ -2882,7 +2890,7 @@
 
     /** One arrives or one leaves, then a pause before the next. */
     changeStaff(now) {
-      if (!this.isOpen || now < this.nextStaffChange || decor.calm === 'on') return;
+      if (!this.isOpen || now < this.nextStaffChange || isCalm()) return;
       const present = this.people.filter((p) => p.isStaff && !p.isLeaving);
       const free = this.freeSpots(null);
       if (present.length < this.staffWanted && free.length) {
@@ -2966,7 +2974,7 @@
       if (person.isLeaving) return;
       if (person.isStaff) {
         // Staff only ever move between lounge spots; in a calm office, they stay where they are.
-        if (person.isWalking || now < person.nextMove || decor.calm === 'on') return;
+        if (person.isWalking || now < person.nextMove || isCalm()) return;
         const free = this.freeSpots(person);
         if (free.length) this.send(person, spotPlace(pick(free)));
         else person.nextMove = now + random(5, 10);
@@ -3000,7 +3008,7 @@
         return;
       }
       // A calm office's agents stay at their desks when there's nothing to do.
-      if (decor.calm === 'on') {
+      if (isCalm()) {
         if (person.place !== desk && !person.isWalking) this.send(person, desk);
         return;
       }
@@ -4182,6 +4190,10 @@
   const STYLE_TITLE = 14;
   const STYLE_IDS = ['yours', ...Object.keys(ROOM_STYLES)];
   const styleName = (id) => (id === 'yours' ? 'Yours' : ROOM_STYLES[id].name);
+  /** The lite office's switch, along the foot of the styles' panel where the page offers it (see setLite): its height. */
+  const STYLE_LITE = 14;
+  /** Whether this page offers a lite office, for the styles' panel to have its switch. */
+  let liteOffered = false;
 
   /** The styles' panel, in the middle of the room: six smaller pictures to a row, or three held upright. */
   function styleMenu() {
@@ -4189,10 +4201,12 @@
     const thumb = shape === TALL ? STYLE_THUMB : STYLE_THUMB_WIDE;
     const rows = Math.ceil(STYLE_IDS.length / columns);
     const w = STYLE_INSET * 2 + columns * thumb.w + (columns - 1) * STYLE_GAP;
-    const h = STYLE_TITLE + STYLE_INSET + rows * (thumb.h + STYLE_LABEL) + (rows - 1) * STYLE_GAP;
+    const lite = liteOffered ? STYLE_LITE : 0;
+    const h = STYLE_TITLE + STYLE_INSET + rows * (thumb.h + STYLE_LABEL) + (rows - 1) * STYLE_GAP + lite;
     const left = Math.round(shape.width / 2 - w / 2), top = Math.round(shape.height / 2 - h / 2);
     return {
       left, top, w, h,
+      lite: lite ? { x: left + STYLE_INSET, y: top + h - STYLE_INSET - (STYLE_LITE - 4), w: w - STYLE_INSET * 2, h: STYLE_LITE - 4 } : null,
       tiles: STYLE_IDS.map((id, i) => ({
         id,
         x: left + STYLE_INSET + (i % columns) * (thumb.w + STYLE_GAP),
@@ -5088,6 +5102,10 @@
 
     // At its own resolution where it can be: see artLayerOf. From here, what goes on the screen is recorded.
     const screenCtx = ctx, layer = artLayerOf(screenCtx, scale, frame);
+    // From a clean context, whichever way the last frame went: recording one sets its shadows, alpha and the like
+    // on the screen's context too, without its save and restore, and the room drawn straight onto the canvas after
+    // that would be drawn through them, a glow round every object
+    freshState(screenCtx);
     if (layer) ctx = layer.recorder;
     else drawStats.direct++;
     ctx.clearRect(0, 0, width, height);
@@ -6244,7 +6262,7 @@
      * while, most at 00:00; nightly, after dark, one burst now and then (every 20 to 40 s). Off, nothing.
      */
     function drawFireworks(x, y, w, h) {
-      const mode = decor.calm === 'on' ? 'off' : decor.fireworks, bursts = [];
+      const mode = isCalm() ? 'off' : decor.fireworks, bursts = [];
       if (mode === 'midnight') {
         if (!((hour === 23 && minute >= 55) || (hour === 0 && minute < 15))) return;
         const away = hour === 23 ? 60 - minute : minute, lanes = away === 0 ? 4 : away <= 2 ? 3 : away <= 5 ? 2 : 1;
@@ -16275,7 +16293,7 @@
     }
 
     /** The styles over a dimmed room: a picture of each, the one in use outlined. */
-    function drawStyleMenu({ left, top, w, h, tiles, current, pictures }) {
+    function drawStyleMenu({ left, top, w, h, tiles, current, pictures, lite, liteOn }) {
       fill(seen.left, seen.top, seen.width, seen.height, BLACK, 0.45);
       fill(left + 1, top, w - 2, h, PALETTE.bubbleEdge);
       fill(left, top + 1, w, h - 2, PALETTE.bubbleEdge);
@@ -16304,6 +16322,18 @@
         ctx.fillText(fitText(ctx, styleName(tile.id), (tile.w + STYLE_GAP) * scale),
           screen(tile.x + tile.w / 2, 0).x, screen(0, tile.y + thumbH + STYLE_LABEL / 2 + 1).y);
       }
+      if (!lite) return;
+      // The lite office's switch: a line across, then its label, and the switch at the end, lit while it's on
+      fill(lite.x, lite.y - 3, lite.w, 1, PALETTE.bubbleEdge, 0.15);
+      const knob = { x: lite.x + lite.w - 15, y: lite.y + 1, w: 14, h: lite.h - 2 };
+      fill(knob.x + 1, knob.y, knob.w - 2, knob.h, PALETTE.bubbleEdge);
+      fill(knob.x, knob.y + 1, knob.w, knob.h - 2, PALETTE.bubbleEdge);
+      fill(knob.x + 1, knob.y + 1, knob.w - 2, knob.h - 2, liteOn ? colour('thinking') : PALETTE.rail);
+      fill(liteOn ? knob.x + knob.w - 7 : knob.x + 2, knob.y + 2, 5, knob.h - 4, WHITE);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = css(PALETTE.bubbleEdge);
+      ctx.font = font(600, size);
+      ctx.fillText(fitText(ctx, 'Lite office on this phone', (lite.w - 20) * scale), screen(lite.x + 1, 0).x, screen(0, lite.y + lite.h / 2).y);
     }
 
     /** The question before firing, over a dimmed room. */
@@ -16638,7 +16668,7 @@
       if (intern.slot !== null || intern.isLeaving) items.push([intern.position.y, () => drawIntern(intern)]);
     }
     // A calm office has nothing drifting or crossing it, and nothing in the air
-    const calm = decor.calm === 'on', drift = calm ? 'none' : decor.drift;
+    const calm = isCalm(), drift = calm ? 'none' : decor.drift;
     if (drift === 'lunar') dragonDance(items);
     items.sort((a, b) => a[0] - b[0]).forEach(([, draw]) => draw());
 
@@ -17938,11 +17968,18 @@
   /* --------------------------------------------------------- on the page */
 
   /**
-   * At most 24 frames a second: the art moves in whole pixels, and more would only spend battery. Motion goes by
-   * the clock, so it's no slower. A calm office (see ROOM_CHOICES), with nothing wandering, needs half that.
+   * The room is drawn at the screen's refreshes, up to 60 a second, as smooth as pixel art moving in whole pixels
+   * can look: on a phone, it's all there is to see, and a 120 Hz screen's every refresh would only warm it. Sparing
+   * a battery (see setSaving), as the Mac app's own window does, it's drawn at most 24 times a second instead. A lite
+   * office (see setLite), as a phone's, goes at 30, and a calm one (see ROOM_CHOICES), with nothing wandering, at 12,
+   * wherever it's seen. Motion goes by the clock, so it's no slower at any of them.
    */
+  const FULL_FRAME_TIME = 1000 / 60;
   const FRAME_TIME = 1000 / 24;
+  const LITE_FRAME_TIME = 1000 / 30;
   const CALM_FRAME_TIME = 1000 / 12;
+  /** Frames this close together are waited for at every refresh, rather than on a timer, which can't keep time so finely. */
+  const TIMED_FROM = 25;
   /** How long before a frame is due its wait ends, in ms: about a refresh, so the frame isn't one late. */
   const WAKE_EARLY = 12;
   /**
@@ -17992,11 +18029,13 @@
 
   function create(canvas, on = {}) {
     const ctx = canvas.getContext('2d');
+    liteOffered = !!on.lite;
     const office = new Office();
     const clock = () => performance.now() / 1000;
     let visible = true;
     let framed = false;  // seen through a window, beside the phone's controls
     let floating = null;  // floating in a 'window' of its own or a whole 'screen', from 'edge' to edge, or not
+    let saving = false;  // drawn less often, to spare a battery: see FRAME_TIME
     let frame = null;    // the animation frame asked for, and the timer waiting to ask for it
     let waiting = null;
     let last = 0;
@@ -18488,9 +18527,14 @@
       if (!visible || host.window.document.hidden) return;
       // The page's clock, not the frame's: each window counts its frames'
       // time from when it opened, and the room can move between them.
-      const time = performance.now(), every = frameRate ? 1000 / frameRate : decor.calm === 'on' ? CALM_FRAME_TIME : FRAME_TIME;
-      if (time - last < every - 1) return wake(every - (time - last));
-      wake(every);
+      const time = performance.now();
+      const every = frameRate ? 1000 / frameRate : decor.calm === 'on' ? CALM_FRAME_TIME : liteOffice ? LITE_FRAME_TIME
+        : saving ? FRAME_TIME : FULL_FRAME_TIME;
+      if (every < TIMED_FROM) {
+        frame = host.window.requestAnimationFrame(tick);
+        if (time - last < every - 1) return;
+      } else if (time - last < every - 1) return wake(every - (time - last));
+      else wake(every);
       const stale = last && time - last > STALE_AFTER;
       last = time;
       try {
@@ -18583,7 +18627,7 @@
         ...room, elevator: elevatorOf(now, 1),
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
         deskButton: heldButton(), firing: firing && { ...fireDialog(), name: firing.name }, carrying, micLanguage: micLanguageKey(),
-        styleKey: key, styles: styling && key && { ...styleMenu(), current: decor.preset, pictures: stylePictures },
+        styleKey: key, styles: styling && key && { ...styleMenu(), current: decor.preset, pictures: stylePictures, liteOn: liteOffice },
         arranging: arranging && {
           pieces: arrangeable(), picked: arranging.picked, blocked: arranging.blocked || [],
           // The picked piece's handle, if it can grow
@@ -18609,6 +18653,7 @@
         const from = spare(0), to = spare(1);
         drawStorey(from, ride.from, frames);
         drawStorey(to, ride.to, frames);
+        freshState(ctx); // as drawOffice starts, whatever the floor drawn last left on it
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(from.canvas, 0, Math.round(dir * eased * canvas.height));
         ctx.drawImage(to.canvas, 0, Math.round(dir * (eased - 1) * canvas.height));
@@ -18704,9 +18749,11 @@
 
       // While the styles are up, they're all there is; a tap anywhere else puts them away.
       if (styling && styleKey()) {
-        for (const tile of styleMenu().tiles) {
+        const menu = styleMenu();
+        for (const tile of menu.tiles) {
           consider({ kind: 'style', id: tile.id }, { left: tile.x, right: tile.x + tile.w, top: tile.y, bottom: tile.y + tile.h }, -1);
         }
+        if (menu.lite) consider({ kind: 'lite' }, { left: menu.lite.x, right: menu.lite.x + menu.lite.w, top: menu.lite.y, bottom: menu.lite.y + menu.lite.h }, -1);
         return best ? best.target : { kind: 'unstyle' };
       }
       // While the question is up, its keys are all there is; a tap anywhere else keeps them on.
@@ -18885,6 +18932,8 @@
         styling = false;
         return on.style?.(target.id);
       }
+      // The lite office's switch: the page keeps the choice, and says so with setLite; the panel stays open
+      if (target.kind === 'lite') return on.lite?.(!liteOffice);
       // They carry their things out in a box only once the computer says
       // they're fired; if it couldn't, the deck says why.
       if (target.kind === 'fired') {
@@ -19454,6 +19503,13 @@
         }
       },
       setFramed(shown) { framed = shown; },
+      /** Draws the room less often, to spare a battery, as the Mac app's own window does; or, with false, at up to 60 a second. */
+      setSaving(on) { saving = !!on; },
+      /**
+       * A lite office on this page, or not: it goes as a calm office does, nobody wandering and nothing drifting by,
+       * and is drawn at most 30 times a second, while the room's own calm setting stays as it is for other screens.
+       */
+      setLite(on) { liteOffice = !!on; },
       /**
        * Whether a point on the page is on the elevator, as a finger finds it,
        * for a page that takes the room's taps itself, as the portable viewer

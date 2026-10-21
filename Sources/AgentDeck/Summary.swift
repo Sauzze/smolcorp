@@ -140,7 +140,8 @@ enum TranscriptTail {
     private static func tool(_ block: [String: Any]) -> String {
         let name = block["name"] as? String ?? "tool"
         let input = block["input"] as? [String: Any] ?? [:]
-        // Paths, commands and searches; never a file's contents.
+        // From its input, only paths, commands and searches, never text it was given to write. What it gave back goes
+        // as its first line (see above): for a file it read, that file's first line.
         for field in ["file_path", "notebook_path", "path", "command", "pattern", "url", "query", "description", "subject", "skill"] {
             if let value = input[field] as? String, !value.isEmpty {
                 return "\(name): " + clip(firstLine(value), toolMost)
