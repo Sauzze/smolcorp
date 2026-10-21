@@ -81,7 +81,7 @@ func TestARoleOnlyAsksBeforeItStarts(t *testing.T) {
 	isolate(t)
 	// In this system's own separators: ~\work\api on Windows.
 	homeDir = filepath.Join(string(filepath.Separator), "home", "someone")
-	message := shippedRoles[1].firstMessage(filepath.Join(homeDir, "work", "api"))
+	message := shippedRoles[1].firstMessage(filepath.Join(homeDir, "work", "api"), startedHere)
 	want := "Your first reply must only ask me the questions below, all together. Don't read code, run commands or start any " +
 		"work until I've answered them.\n\n" +
 		"1. You've started in " + filepath.Join("~", "work", "api") + ". Is that the one to work on?\n" +
@@ -91,7 +91,7 @@ func TestARoleOnlyAsksBeforeItStarts(t *testing.T) {
 	if !strings.HasPrefix(message, want) {
 		t.Errorf("the tester is first told\n%s\nwant it to start\n%s", message, want)
 	}
-	if message := (Role{Name: "Blank"}).firstMessage("/srv/app"); !strings.HasSuffix(message, "\n\nOnce I've answered, ask me what to do.") ||
+	if message := (Role{Name: "Blank"}).firstMessage("/srv/app", startedHere); !strings.HasSuffix(message, "\n\nOnce I've answered, ask me what to do.") ||
 		!strings.Contains(message, "Is that the one to work on?") {
 		t.Errorf("a role with no questions or instructions is told %q, want it to ask about the folder, then what to do", message)
 	}
@@ -120,11 +120,11 @@ func TestRolesAsShippedIn171AreBroughtUpToDate(t *testing.T) {
 func TestARoleIsStartedFromSetupsRoles(t *testing.T) {
 	isolate(t)
 	writeFile(t, configFile, `{"roles": [{"id": "tester", "name": "Tester", "agent": "codex", "instructions": "Run the tests."}]}`)
-	args, err := roleArguments("tester")
+	args, err := roleArguments("tester", "/work", startedHere)
 	if err != nil || len(args) != 3 || args[0] != "codex" || args[1] != "--" || !strings.HasSuffix(args[2], "Once I've answered, as my Tester: Run the tests.") {
 		t.Errorf("the tester starts as %q, %v", args, err)
 	}
-	if _, err := roleArguments("nobody"); err == nil || !strings.Contains(err.Error(), "Yours are: tester") {
+	if _, err := roleArguments("nobody", "/work", startedHere); err == nil || !strings.Contains(err.Error(), "Yours are: tester") {
 		t.Errorf("an unknown role gave %v, want the ones there are", err)
 	}
 }
@@ -144,8 +144,8 @@ func TestCmdIsNeverHandedWhatItWouldActOn(t *testing.T) {
 func TestADeskShowsTheRoleItsLauncherWasStartedWith(t *testing.T) {
 	d := newTestDeck(t)
 	d.config.Roles = slices.Clone(shippedRoles)
-	d.launcherConnected("L1", Claude, "/work/api", "tester")
-	d.launcherConnected("L2", Claude, "/work/web", "")
+	d.launcherConnected("L1", Claude, "/work/api", "tester", "")
+	d.launcherConnected("L2", Claude, "/work/web", "", "")
 	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": "/work/api"},
 		Claude, "launcher:L1", "", 100)
 	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s2", "cwd": "/work/web"},

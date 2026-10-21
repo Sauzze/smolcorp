@@ -26,9 +26,9 @@ type Config struct {
 	// Whether two fingers on the office scroll tmux and kitty panes. Off until you turn it
 	// on, so a newly paired phone can do no more than the office's keys do.
 	ScrollEnabled bool `json:"scrollEnabled"`
-	// Whether the office may fire: stop an agent and close its pane. Off until
-	// you turn it on, for the same reason. Hiring is the Mac app's for now,
-	// but the folder and agent are kept as it keeps them.
+	// Whether the office may hire and fire: open a new terminal with an agent
+	// in it, and stop an agent and close its pane. Off until you turn it on,
+	// for the same reason.
 	HiringEnabled bool `json:"hiringEnabled"`
 	// MusicEnabled lets a jukebox in the office play and pause this
 	// computer's music. Off until you turn it on: it presses a media key.
@@ -38,9 +38,16 @@ type Config struct {
 	// ✨ Summary: whether a held desk offers a summary of its agent's
 	// transcript, written by Claude with your own API key. Off until you turn
 	// it on in setup and confirm what it sends where; and only with a key.
-	SummaryOptIn bool   `json:"summaryOptIn"`
-	HireFolder   string `json:"hireFolder"`
-	HireAgent    string `json:"hireAgent"`
+	SummaryOptIn bool `json:"summaryOptIn"`
+	// The folder new hires start in, and the agent they are.
+	HireFolder string `json:"hireFolder"`
+	HireAgent  string `json:"hireAgent"`
+	// The terminal hires open in (see hireOpeners), the first installed when
+	// it's empty or not here, and whether the agent runs in a tmux session of
+	// its own there. The Mac app's choices aren't this system's, and are
+	// passed over as uninstalled.
+	HireTerminal string `json:"hireTerminal"`
+	HireInTmux   bool   `json:"hireInTmux"`
 	// The roles `smolcorp run --role` starts, as the Mac app's office hires
 	// them: those that come with the app until you change them, and your own.
 	Roles []Role `json:"roles"`

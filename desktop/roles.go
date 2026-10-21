@@ -354,18 +354,36 @@ func (r Role) sameAs(other Role) bool {
 		r.Outfit == other.Outfit
 }
 
+// roleStart is how a role's agent came to start where it is.
+type roleStart int
+
+const (
+	// From a terminal with `smolcorp run --role`, in the folder you started it in.
+	startedHere roleStart = iota
+	// Hired from the office at a desk pinned to a project, in that project.
+	hiredAtPinnedDesk
+	// Hired from the office into the folder set up for new hires, such as
+	// ~/Projects, rather than a project.
+	hiredIntoGeneralFolder
+)
+
 // firstMessage is what the agent is first told: to only ask, in its first
-// reply, whether this is the project to work on and the role's own
-// questions, and to wait for the answers; then the role's instructions.
-// Started from a terminal with `smolcorp run --role`, it's in the folder you
-// started it in, so it asks you to confirm that one.
-func (r Role) firstMessage(folder string) string {
+// reply, which project to work on and the role's own questions, and to wait
+// for the answers; then the role's instructions. Started where you chose,
+// from a terminal, or at a pinned project's desk, it asks you to confirm
+// that folder instead. A hire's words are the Mac app's.
+func (r Role) firstMessage(folder string, how roleStart) string {
 	if homeDir != "" {
 		if rest, err := filepath.Rel(homeDir, folder); err == nil && !strings.HasPrefix(rest, "..") {
 			folder = filepath.Join("~", rest)
 		}
 	}
-	asked := []string{"1. You've started in " + folder + ". Is that the one to work on?"}
+	project := map[roleStart]string{
+		startedHere:            "You've started in " + folder + ". Is that the one to work on?",
+		hiredAtPinnedDesk:      "You've started in " + folder + ", this desk's project. Is that the one to work on?",
+		hiredIntoGeneralFolder: "Which project should you work on: a folder on this computer, or a GitHub repository?",
+	}[how]
+	asked := []string{"1. " + project}
 	for i, question := range r.Questions {
 		asked = append(asked, fmt.Sprintf("%d. %s", i+2, question))
 	}
@@ -373,7 +391,11 @@ func (r Role) firstMessage(folder string) string {
 	if r.Instructions != "" {
 		then = "Once I've answered, as my " + r.Name + ": " + r.Instructions
 	}
-	return "Your first reply must only ask me the questions below, all together. Don't read code, run commands or start any " +
+	general := ""
+	if how == hiredIntoGeneralFolder {
+		general = "You've started in " + folder + ", a general folder, not a project. "
+	}
+	return general + "Your first reply must only ask me the questions below, all together. Don't read code, run commands or start any " +
 		"work until I've answered them.\n\n" + strings.Join(asked, "\n") + "\n\n" + then
 }
 

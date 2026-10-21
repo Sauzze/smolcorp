@@ -865,7 +865,7 @@
 
   /**
    * Hiring and firing from the office: the switch, and where new hires
-   * start. Only the Mac app hires, for now; the others can fire.
+   * start, and, where it can, where they open. An app that can't hire can still fire.
    */
   /** The jukebox's switch: whether a tap on one plays and pauses this computer's music. */
   function renderMusic() {
@@ -969,7 +969,9 @@
     $('hire-terminal').replaceChildren(...terminals.map((t) => new Option(`Opens in ${t.name}`, t.id, false, t.id === h.terminal)));
     $('hire-tmux-label').hidden = !h.hasTmux;
     $('hire-tmux').checked = !!h.tmux;
-    $('hire-tmux-label').title = "The agent runs in a tmux session of its own, so its keys and mic work from the phone in any terminal.";
+    $('hire-tmux-label').title = state.launcher
+      ? 'The agent runs in a tmux session of its own, which carries on when its window closes: tmux attach shows it again.'
+      : "The agent runs in a tmux session of its own, so its keys and mic work from the phone in any terminal.";
   }
 
   /**
@@ -1116,9 +1118,13 @@
     const roles = r.roles;
     const agentOf = (id) => r.agents.find((a) => a.id === id) || r.agents[0];
     const own = roles.filter((role) => !r.shipped.some((s) => s.id === role.id)).length;
-    $('roles-hint').textContent = state.launcher
+    $('roles-hint').textContent = state.launcher && !(state.hiring && state.hiring.canHire)
       ? 'Start one in a terminal with the command on its card. Its first reply only asks you its questions, starting with whether '
         + "the folder you started it in is the one, and it waits for your answers before it works on its instructions."
+      : state.launcher
+      ? 'Hold a free desk in the office and pick a role to hire it, or start one in a terminal with the command on its card. '
+        + 'Its first reply only asks you which project to work on and its own questions, and it waits for your answers before '
+        + 'it works on its instructions.'
       : 'Hold a free desk in the office and pick a role to hire it, or Anyone for a regular hire. Its first reply only asks you '
         + "which project to work on and its own questions, and it waits for your answers before it works on its instructions.";
     $('role-add').disabled = own >= r.limits.own;

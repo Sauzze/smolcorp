@@ -79,8 +79,9 @@ func TestHiringAndFiringAreOffUntilTurnedOn(t *testing.T) {
 	}
 
 	d.config.HiringEnabled = true
-	// With Auto and one session, desk 1 is the one after the last, which a hire adds.
-	for desk, want := range map[string]int{"": http.StatusNotImplemented, "0": http.StatusNotImplemented, "1": http.StatusNotImplemented,
+	// With Auto and one session, desk 1 is the one after the last, which a hire adds. No folder
+	// for new hires is chosen, so none is hired.
+	for desk, want := range map[string]int{"": http.StatusConflict, "0": http.StatusConflict, "1": http.StatusConflict,
 		"2": http.StatusBadRequest, "8": http.StatusBadRequest, "x": http.StatusBadRequest} {
 		query := url.Values{}
 		if desk != "" {

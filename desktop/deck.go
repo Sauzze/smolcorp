@@ -34,6 +34,10 @@ type Deck struct {
 	// When each session was last sent Return from the phone, so a tap that
 	// lands twice sends it once.
 	lastReturn map[string]time.Time
+	// The hires whose launcher hasn't connected yet, by their token, and
+	// when the last hire was made: see hire.go.
+	hires    map[string]*pendingHire
+	lastHire time.Time
 	// Whether music is playing, for the office's jukebox, when it can be told.
 	playing *bool
 	// This computer's output volume, for the jukebox's volume bar, nil where
@@ -83,7 +87,7 @@ func NewDeck() *Deck {
 	d := &Deck{
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
-		keyOf: map[string]int{}, lastReturn: map[string]time.Time{}, work: make(chan func(), 64), OnChange: func() {},
+		keyOf: map[string]int{}, lastReturn: map[string]time.Time{}, hires: map[string]*pendingHire{}, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue),
 	}
 	d.summaryKeys = newSummaryKeys(keyringStore, os.Getenv)
@@ -338,6 +342,16 @@ func (d *Deck) layout() ([]deckKey, []*Session) {
 			}
 		}
 	}
+	// A hire's desk goes to the first session in the launcher it opened. It's
+	// kept for it below if it's still free; if it was taken in the meantime,
+	// the hire sits at the first free one, as anyone would.
+	for _, s := range remaining {
+		kind, id, _ := splitTab(s.Tab)
+		if tab, ok := d.launchers[id]; kind == "launcher" && ok && tab.desk >= 0 {
+			d.keyOf[s.ID] = tab.desk
+			tab.desk = -1
+		}
+	}
 	live := map[string]bool{}
 	for _, s := range remaining {
 		live[s.ID] = true
@@ -440,8 +454,8 @@ func (d *Deck) snapshot() []byte {
 	state, _ := json.Marshal(map[string]any{
 		"keys": entries, "overflow": len(overflow), "upstairs": d.upstairs(),
 		"theme": currentTheme(d.config), "scroll": d.config.ScrollEnabled,
-		// What the office's held desks offer: firing here; hiring, by role or not, is the Mac app's for now.
-		"hiring": map[string]any{"fire": d.config.HiringEnabled, "hire": false, "roles": []any{}},
+		// What the office's held desks offer: firing, and hiring once there's a folder to hire into, by role.
+		"hiring": d.hiringState(),
 		"music":  d.musicState(),
 		"layout": d.config.Layout,
 		// This computer's clock, so the office can count turns on the phone's,
@@ -621,6 +635,21 @@ func (d *Deck) isConnected(phone string) bool {
 	return false
 }
 
+// hiringState is what the office's held desks offer: firing, and hiring
+// once there's a folder to hire into and somewhere to open it, by role. With
+// the lock held.
+func (d *Deck) hiringState() map[string]any {
+	_, folder := existingFolder(d.config.HireFolder)
+	hire := d.config.HiringEnabled && folder && canHireHere()
+	roles := []map[string]any{}
+	if hire {
+		for _, role := range d.config.Roles {
+			roles = append(roles, role.forPhone())
+		}
+	}
+	return map[string]any{"fire": d.config.HiringEnabled, "hire": hire, "roles": roles}
+}
+
 // unpair forgets a phone, or every phone when id is "", and hangs up on it
 // now rather than at its next request. The lock is held.
 func (d *Deck) unpair(id string) {
@@ -652,10 +681,15 @@ func (d *Deck) roleOf(s *Session) map[string]any {
 	return nil
 }
 
-func (d *Deck) launcherConnected(id string, agent Agent, folder, role string) *launcherTab {
+// launcherConnected keeps a launcher that has connected. hire is the token it
+// was hired with, if the office hired it, which brings the desk it was hired at.
+func (d *Deck) launcherConnected(id string, agent Agent, folder, role, hire string) *launcherTab {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	tab := &launcherTab{agent: agent, folder: folder, role: role, commands: make(chan launcherCommand, 32)}
+	tab := &launcherTab{agent: agent, folder: folder, role: role, desk: -1, commands: make(chan launcherCommand, 32)}
+	if hire != "" {
+		tab.desk = d.hiredDesk(hire)
+	}
 	d.launchers[id] = tab
 	return tab
 }
@@ -865,25 +899,11 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		return d.playMusic(key)
 	}
 	if action == "hire" {
-		if !hiring {
-			return http.StatusForbidden, hiringOff
+		// A new hire has no session yet.
+		if query.Has("desk") && query.Get("desk") == "" {
+			return http.StatusBadRequest, "Unknown desk"
 		}
-		// The desk is read as the Mac app reads it, though nobody is hired here.
-		if query.Has("desk") {
-			d.mu.Lock()
-			keys, _ := d.layout()
-			auto := d.config.Layout.Keys == Auto
-			d.mu.Unlock()
-			// With Auto, the office also offers the desk after the last: a hire adds it.
-			next := -1
-			if auto && len(keys) < mostKeys {
-				next = len(keys)
-			}
-			if desk, err := strconv.Atoi(query.Get("desk")); err != nil || desk < 0 || desk >= len(keys) && desk != next {
-				return http.StatusBadRequest, "Unknown desk"
-			}
-		}
-		return http.StatusNotImplemented, "Hiring from the office needs the Mac app, for now."
+		return d.hire(query.Get("desk"), query.Get("role"))
 	}
 	d.mu.Lock()
 	session := d.sessions.Get(id)

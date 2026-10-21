@@ -446,7 +446,7 @@ func (rt *router) launcher(w http.ResponseWriter, r *request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	tab := rt.deck.launcherConnected(id, Agent(query.Get("agent")), query.Get("folder"), query.Get("role"))
+	tab := rt.deck.launcherConnected(id, Agent(query.Get("agent")), query.Get("folder"), query.Get("role"), query.Get("hire"))
 	defer rt.deck.launcherGone(id, tab)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
@@ -716,6 +716,15 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			http.Error(w, "Unknown agent", http.StatusBadRequest)
 			return
 		}
+		terminals, tmux := hireWays()
+		if query.Has("terminal") && !slices.ContainsFunc(terminals, func(o hireOpener) bool { return o.id == query.Get("terminal") }) {
+			http.Error(w, "That terminal isn't on this computer", http.StatusBadRequest)
+			return
+		}
+		if query.Get("tmux") == "1" && !tmux {
+			http.Error(w, "tmux isn't on this computer", http.StatusBadRequest)
+			return
+		}
 		d.mu.Lock()
 		if query.Has("enabled") {
 			config.HiringEnabled = query.Get("enabled") == "1"
@@ -725,6 +734,12 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		if query.Has("agent") {
 			config.HireAgent = query.Get("agent")
+		}
+		if query.Has("terminal") {
+			config.HireTerminal = query.Get("terminal")
+		}
+		if query.Has("tmux") {
+			config.HireInTmux = query.Get("tmux") == "1"
 		}
 		config.save()
 		d.changed()
@@ -884,11 +899,8 @@ func (rt *router) setupState() map[string]any {
 		// No accessibility step: nothing here needs that permission.
 		"checklist": map[string]any{"hooks": connected, "scroll": d.config.ScrollEnabled, "openAtLogin": openAtLogin},
 		"agents":    agentList,
-		// Firing works here; hiring, which opens a terminal, is the Mac app's for now.
-		"hiring": map[string]any{
-			"enabled": d.config.HiringEnabled, "folder": d.config.HireFolder, "agent": d.config.HireAgent,
-			"canHire": false, "canChoose": false,
-		},
+		// Where hires open: the terminals here that can open them, and tmux if it's there.
+		"hiring": d.hireState(),
 		// The roles, those that come with the app to go back to, and what a
 		// role can be: its agent, whether that agent has an effort and takes a
 		// first message, its badge, and how long each part can be.

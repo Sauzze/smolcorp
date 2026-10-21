@@ -70,8 +70,8 @@ twelve roles of your own. Each role has its own instructions, agent, model and
 effort, and comes in wearing its badge, like the Reviewer's glasses and red pen,
 and many dress for the job. A role never guesses what to work on: its first
 reply asks you which project, and its own questions, such as which branch to
-review. Hiring from the office needs the Mac app for now; on Windows and Linux,
-`smolcorp run --role reviewer` starts one from any terminal.
+review. On Windows and Linux, `smolcorp run --role reviewer` also starts one
+from any terminal.
 [More about roles](#the-office).
 
 **Add a manager.** Give one session the job of running the others: opening
@@ -542,9 +542,14 @@ as in *Reviewer · api-server*, and its badge, and it keeps the role after
 their names and badges.
 
 On Windows and Linux, firing closes the agent's pane in tmux, kitty and
-WezTerm, and stops an agent started with `smolcorp run`. Hiring from the
-office needs the Mac app, for now; `smolcorp run --role tester`, in the folder
-to work in, starts a role from any terminal, and its desk shows the role.
+WezTerm, and stops an agent started with `smolcorp run`. A hire opens a window
+of the terminal you choose on the setup page (GNOME Terminal, Konsole, kitty,
+WezTerm and others on Linux; Windows Terminal or a console window on Windows),
+running the agent through `smolcorp run`, so its keys work from the phone. On
+Linux it can run in a tmux session of its own instead; on a computer with no
+desktop, as over SSH, it always does, for `tmux attach` to show it.
+`smolcorp run --role tester`, in the folder to work in, also starts a role from
+any terminal, and its desk shows the role.
 
 **Held upright,** the room stands upright too: the lounge moves below the
 desks, through a doorway at the end of the corridor.
@@ -922,8 +927,8 @@ connections, allow it.
 **The roles, or HIRE, don't come out.** Turn on **Let the office hire and fire**
 on the setup page, and choose a folder for new hires. They show only on a desk
 a new hire would take: the next free one, or a pinned project's. With no roles
-set up, it's a single **HIRE**. Hiring from the office needs the Mac app, for
-now.
+set up, it's a single **HIRE**. On Linux, a hire needs a terminal the setup
+page lists, or tmux.
 
 **The screen saver says to open Smolcorp, or to pair again.** Make sure
 Smolcorp is running. If it was unpaired, open System Settings → Screen

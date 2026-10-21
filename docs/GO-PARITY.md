@@ -20,7 +20,7 @@ subsystem of its own. "–" where there is nothing to port.
 | `/focus` | ✓ | ✓ | launcher tabs can't be brought forward (no window to find) | – |
 | `/act` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap, style, music, volume | ✓ | ✓ | none; scroll only where the terminal can (tmux, kitty) | – |
 | `/act?action=fire` | ✓ | ✓ | none | – |
-| `/act?action=hire` (Anyone, or a role, at a desk) | ✓ | answers 501 | **hiring from the office** | L |
+| `/act?action=hire` (Anyone, or a role, at a desk) | ✓ | ✓ | **done** | – |
 | `/act?action=language` (dictation's language) | ✓ | – | dictation is the Mac's (see below) | – |
 | `/summary` | ✓ | ✓ | none | – |
 | `/hook` with agent, tab, project, pid, parent headers | ✓ | ✓ | none; Go also has `/launcher` | – |
@@ -34,7 +34,7 @@ subsystem of its own. "–" where there is nothing to port.
 | `/setup/summaries`, `/setup/summary/key` | ✓ | ✓ | none | – |
 | `/setup/roles` | ✓ | ✓ | the roles themselves differ (below) | – |
 | `/setup/hiring` enabled, folder, agent | ✓ | ✓ | none | – |
-| `/setup/hiring` terminal, tmux | ✓ | – | where hires open | with hiring |
+| `/setup/hiring` terminal, tmux | ✓ | ✓ | **done**, with this system's terminals | – |
 | `/setup/hiring/choose` (the system's folder picker) | ✓ | – | no folder picker | S |
 | `/setup/dictation` | ✓ | – | Mac only (Apple's speech recognition) | – |
 | `/setup/accessibility` | ✓ | – | not needed off the Mac | – |
@@ -49,7 +49,7 @@ subsystem of its own. "–" where there is nothing to port.
 | webhook, summaryOptIn, hasCompletedSetup | ✓ | ✓ | none | – |
 | roles | ✓ | ✓ | **done**: outfits and every badge kept | – |
 | rolesOffered | ✓ | ✓ | **done** | – |
-| hireTerminal, hireInTmux | ✓ | – | with hiring | with hiring |
+| hireTerminal, hireInTmux | ✓ | ✓ | **done**; a Mac terminal's id reads as not installed | – |
 | dictationEnabled, dictationLanguage, dictationForClaude | ✓ | kept, not read | Mac only | – |
 | viewer | ✓ | kept, not read | with the portable office | XL |
 | unknown keys kept on save | ✓ | ✓ | none | – |
@@ -62,9 +62,9 @@ subsystem of its own. "–" where there is nothing to port.
 | Badges | 26 | 26 | **done** | – |
 | `Role.outfit` (what its agents wear) | ✓ | ✓ | **done**, and sent to the phone | – |
 | Outfit given to the shipped roles kept from before outfits | ✓ | ✓ | **done** | – |
-| A role on its desk (`role` in the snapshot) | by hire, kept across `/clear` and restarts | by `smolcorp run --role` | Go's comes only from the launcher | with hiring |
-| `hiring.roles` / `hiring.hire` in the snapshot | ✓ | always empty / false | with hiring | with hiring |
-| Hire by role from the office | ✓ | – | **hiring** | L |
+| A role on its desk (`role` in the snapshot) | by hire, kept across `/clear` and restarts | by hire or `smolcorp run --role` | **done**: the launcher keeps it, across `/clear` too | – |
+| `hiring.roles` / `hiring.hire` in the snapshot | ✓ | ✓ | **done** | – |
+| Hire by role from the office | ✓ | ✓ | **done** | – |
 | `smolcorp run --role` | – | ✓ | Go only | – |
 | Layout and room fields (style, pets, wall, plan, hung, added, team, dress code, calm) | ✓ | ✓ | none: the choices are the same lists | – |
 | Calm office | ✓ | ✓ | a room choice in both; the drawing is office.js | – |
@@ -101,9 +101,8 @@ subsystem of its own. "–" where there is nothing to port.
 ### Setup page
 
 The page is shared and reads what each app's `/setup/state` holds. On Go it
-shows the launcher step, hides Accessibility and Dictation, says hiring "needs
-the Mac app", shows each role's `smolcorp run --role` command, and hides the
-viewer link (GET `/setup/viewer` is a 404). Its role editor offers every
+shows the launcher step, hides Accessibility and Dictation, shows each role's
+`smolcorp run --role` command, and hides the viewer link (GET `/setup/viewer` is a 404). Its role editor offers every
 badge and outfit the state lists.
 
 ## Ranked: what to port
@@ -139,3 +138,23 @@ Done:
    `Role.outfit` kept, checked and sent to the phone, the outfit given to a
    shipped role kept from before outfits, and `rolesOffered`, so a role that
    comes with an update is added once and one you deleted stays deleted.
+2. **Hiring from the office**, as Anyone or by role, at the held desk, in the
+   folder for new hires or a pinned project's, with the Mac's cooldown, checks
+   and words. The window runs `smolcorp run --hire <token>`: the token, made
+   by the deck for that hire, ties the launcher to the desk it was hired at,
+   and only ids and folders are on its command line, never a role's
+   instructions, which the launcher reads from setup. A role's first message
+   is the Mac's, for a general folder or a pinned desk. Where it opens:
+   - Linux: GNOME Terminal, Konsole, Xfce Terminal, kitty, WezTerm,
+     Alacritty, foot or XTerm, the first installed until you choose, through
+     your login shell, as the Mac's hires, so it finds what your PATH finds;
+     or a tmux session of its own, shown in that terminal. With no desktop,
+     as over SSH, always the tmux session alone (`tmux attach` shows it):
+     the Mac has nothing like that.
+   - Windows: Windows Terminal where it's installed, else a console window.
+   - A hire whose agent can't start says why and waits for Enter, where the
+     Mac's tab would stay open showing the shell's error.
+
+   Tested end to end on Linux: a phone's hire through `smolcorp serve`
+   opened tmux, the launcher started the Tester with the Mac's wording, and
+   its desk showed the role. Not run on Windows: built only.
