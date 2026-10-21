@@ -36,6 +36,35 @@ final class HeadlessTests: XCTestCase {
         XCTAssertEqual(restored["h1"]?.parentFolder, "/elsewhere/tool")
     }
 
+    /// Nobody can answer a headless run, its runner deciding its permissions: it never waits on you, and is at work.
+    func testAHeadlessRunNeverWaitsOnYou() {
+        let asks: [(String, [String: Any])] = [
+            ("PermissionRequest", ["tool_name": "Bash"]),
+            ("Notification", ["notification_type": "permission_prompt"]),
+            ("Notification", ["notification_type": "elicitation_dialog"]),
+            ("Notification", ["message": "Claude needs your permission to use Bash"]),
+            ("PreToolUse", ["tool_name": "AskUserQuestion"]),
+        ]
+        for (name, fields) in asks {
+            let sessions = running()
+            sessions.apply(event(name, "abc-123", fields), agent: .claude, tab: "headless:abc-123", startedIn: "", at: 110)
+            XCTAssertEqual(sessions["abc-123"]?.state, .thinking, "\(name) \(fields)")
+            XCTAssertEqual(sessions["abc-123"]?.waitingFor, "", "\(name) \(fields)")
+        }
+        // Its other states are as ever
+        let sessions = running()
+        sessions.apply(event("Stop"), agent: .claude, tab: "headless:abc-123", startedIn: "", at: 120)
+        XCTAssertEqual(sessions["abc-123"]?.state, .unread)
+        sessions.apply(event("StopFailure", "abc-123", ["error": "rate_limit"]), agent: .claude, tab: "headless:abc-123", startedIn: "", at: 130)
+        XCTAssertEqual(sessions["abc-123"]?.state, .error)
+        // And an agent in a terminal still waits on you
+        let terminal = Sessions()
+        terminal.apply(event("UserPromptSubmit", "t-1"), agent: .claude, tab: "tty:/dev/ttys004", startedIn: "", at: 100)
+        terminal.apply(event("PermissionRequest", "t-1", ["tool_name": "Bash"]), agent: .claude, tab: "tty:/dev/ttys004", startedIn: "", at: 110)
+        XCTAssertEqual(terminal["t-1"]?.state, .asking)
+        XCTAssertEqual(terminal["t-1"]?.waitingFor, "Bash")
+    }
+
     func testAHeadlessAddressIsReadInItsOwnShapeOnly() {
         let address = TabAddress("headless:abc-123")
         XCTAssertEqual(address?.kind, "headless")

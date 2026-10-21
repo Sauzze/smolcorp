@@ -331,7 +331,8 @@ final class Sessions {
                 session.clearTool()
             }
         case "PermissionRequest":
-            session.waitingFor = event["tool_name"] as? String ?? ""
+            // Nothing a headless run's runner decides waits on you.
+            if !session.isHeadless { session.waitingFor = event["tool_name"] as? String ?? "" }
         case "PreCompact":
             session.compacting = true
         case "PostCompact":
@@ -387,7 +388,14 @@ final class Sessions {
     /// is kept for it.
     func wasDropped(_ id: String) -> Bool { dropped[id] != nil }
 
+    /// What `name` turns the session into, if anything. Nobody can answer a headless run: its runner decides its
+    /// permissions, so what would have it wait on you only means it's still at work.
     private func transition(for name: String, event: [String: Any], in session: Session) -> SessionState? {
+        let next = transition(for: name, event: event, from: session.state)
+        return next == .asking && session.isHeadless ? .thinking : next
+    }
+
+    private func transition(for name: String, event: [String: Any], from state: SessionState) -> SessionState? {
         switch name {
         case "SessionStart":
             // A resume or compaction is the same conversation carrying on.
@@ -404,7 +412,7 @@ final class Sessions {
         case "Notification":
             switch event["notification_type"] as? String {
             // Waiting for a prompt a while after Esc, which no hook reports: the turn was over.
-            case "idle_prompt": return session.state == .thinking ? .idle : nil
+            case "idle_prompt": return state == .thinking ? .idle : nil
             // A usage limit has reset and the task carries on by itself.
             case "quota_auto_resume_fired": return .thinking
             default: return Sessions.isWaitingOnUser(event) ? .asking : nil

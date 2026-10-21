@@ -445,3 +445,40 @@ func TestAQuietHeadlessRunWithAPIDStillThereIsPrunedAfterAnHour(t *testing.T) {
 		t.Fatal("a headless run quiet for an hour is still on the deck")
 	}
 }
+
+// Nobody can answer a headless run, its runner deciding its permissions: it
+// never waits on you, and is at work.
+func TestAHeadlessRunNeverWaitsOnYou(t *testing.T) {
+	for _, ask := range []map[string]any{
+		event("PermissionRequest", "tool_name", "Bash"),
+		event("Notification", "notification_type", "permission_prompt"),
+		event("Notification", "notification_type", "elicitation_dialog"),
+		event("Notification", "message", "Claude needs your permission to use Bash"),
+		event("PreToolUse", "tool_name", "AskUserQuestion"),
+	} {
+		s := NewSessions()
+		s.Apply(event("UserPromptSubmit"), Claude, headlessTab, "", 100)
+		s.Apply(ask, Claude, headlessTab, "", 110)
+		if got := s.Get("s1"); got.State != Thinking || got.WaitingFor != "" {
+			t.Errorf("%v: %s, waiting for %q", ask, got.State, got.WaitingFor)
+		}
+	}
+	// Its other states are as ever
+	s := NewSessions()
+	s.Apply(event("UserPromptSubmit"), Claude, headlessTab, "", 100)
+	s.Apply(event("Stop"), Claude, headlessTab, "", 120)
+	if got := s.Get("s1").State; got != Unread {
+		t.Errorf("a headless run that stopped is %s", got)
+	}
+	s.Apply(event("StopFailure", "error", "rate_limit"), Claude, headlessTab, "", 130)
+	if got := s.Get("s1").State; got != Failed {
+		t.Errorf("a headless run that failed is %s", got)
+	}
+	// And an agent in a terminal still waits on you
+	terminal := NewSessions()
+	terminal.Apply(event("UserPromptSubmit"), Claude, "tty:/dev/ttys004", "", 100)
+	terminal.Apply(event("PermissionRequest", "tool_name", "Bash"), Claude, "tty:/dev/ttys004", "", 110)
+	if got := terminal.Get("s1"); got.State != Asking || got.WaitingFor != "Bash" {
+		t.Errorf("an agent in a terminal asking is %s, waiting for %q", got.State, got.WaitingFor)
+	}
+}

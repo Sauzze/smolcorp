@@ -509,7 +509,10 @@ func followDetails(name string, event map[string]any, session *Session, at float
 			session.clearTool()
 		}
 	case "PermissionRequest":
-		session.WaitingFor, _ = event["tool_name"].(string)
+		// Nothing a headless run's runner decides waits on you.
+		if !session.Headless() {
+			session.WaitingFor, _ = event["tool_name"].(string)
+		}
 	case "PreCompact":
 		session.Compacting = true
 	case "PostCompact":
@@ -553,7 +556,18 @@ func (s *Sessions) end(id string, at float64) {
 	}
 }
 
+// transition is what the event turns the session into, if anything. Nobody
+// can answer a headless run: its runner decides its permissions, so what
+// would have it wait on you only means it's still at work.
 func transition(name string, event map[string]any, session *Session) (SessionState, bool) {
+	next, ok := nextState(name, event, session)
+	if next == Asking && session.Headless() {
+		return Thinking, ok
+	}
+	return next, ok
+}
+
+func nextState(name string, event map[string]any, session *Session) (SessionState, bool) {
 	switch name {
 	case "SessionStart":
 		// A resume or compaction is the same conversation carrying on.
