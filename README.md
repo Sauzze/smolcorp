@@ -439,6 +439,11 @@ There's more to see while they work:
 - **A calm office**, under *Life*: nobody wanders off, the staff and pets stay
   put and nothing drifts by the windows, so the office moves only for the work,
   and draws less often, for less power. Agents still work, type, come and go.
+- **A lite office on your phone**, on by default: it goes as a calm office
+  does, at 30 frames a second, so the phone stays cool. It's that phone's own
+  choice, and changes nothing on your other screens. To turn it off, tap the
+  paint roller in the room's corner, then the switch at the foot of *Office
+  style*.
 - **A jukebox that plays your music**, once you turn it on under *Getting
   started*: tap any jukebox in the office to play or pause whatever this
   computer is playing, Spotify, Apple Music or a video in your browser. It
