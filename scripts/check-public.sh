@@ -84,6 +84,13 @@ for name in [n for n in all_names if n.startswith("Sources/") and n.endswith(".s
         elif not depth and LOGGING.search(code):
             problems.append(f"{name}:{number}: logging outside #if DEBUG")
 
+# Nor does the Windows and Linux app log anything from Summary, which holds the key.
+GO_LOGGING = re.compile(r"\b(log\.|fmt\.(Print|Fprint))")
+for name in [n for n in all_names if re.match(r"desktop/summary[^/]*\.go$", n) and not n.endswith("_test.go")]:
+    for number, line in enumerate(open(name, encoding="utf-8"), 1):
+        if GO_LOGGING.search(line.split("//", 1)[0]):
+            problems.append(f"{name}:{number}: logging in Summary")
+
 if problems:
     print("Not for a public repository:")
     for problem in problems:

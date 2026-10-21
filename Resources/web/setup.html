@@ -892,7 +892,9 @@
     $('summary-detail').textContent = s.enabled
       ? `On: ✨ summary on a held desk sends the end of that agent's transcript to Anthropic with your key, billed to you. Model: ${s.model}.`
       : key ? 'Off. Turn it on to add ✨ summary to a held desk: Claude says what that agent has been doing, with your key.'
-        : 'Optional, and off. Paste your Anthropic API key, then turn this on: ✨ summary on a held desk says what that agent has been doing.';
+        : s.noStore ? 'Optional, and off. This computer has no secret store to keep a key in, so set ANTHROPIC_API_KEY for Smolcorp, then turn this on.'
+          : 'Optional, and off. Paste your Anthropic API key, then turn this on: ✨ summary on a held desk says what that agent has been doing.';
+    $('summary-key-setup').hidden = $('summary-key-setup').hidden || !!s.noStore;
   }
 
   /** What each event the webhook can send is called here. */
