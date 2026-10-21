@@ -445,3 +445,54 @@ func TestAQuietHeadlessRunWithAPIDStillThereIsPrunedAfterAnHour(t *testing.T) {
 		t.Fatal("a headless run quiet for an hour is still on the deck")
 	}
 }
+
+func TestAPrunedSessionHeardFromAgainComesBackAsItWas(t *testing.T) {
+	s := NewSessions()
+	s.Apply(event("SessionStart", "source", "startup", "model", "claude-opus-5-5"), Claude, tab, "", 100)
+	s.Apply(event("UserPromptSubmit"), Claude, tab, "", 150)
+	s.Prune(func(string) bool { return false }, 200)
+	if s.Get("s1") != nil || !s.WasDropped("s1") {
+		t.Fatal("a session whose tab seemed to close isn't dropped and remembered")
+	}
+	// A straggler from before it was dropped doesn't bring it back.
+	if s.Apply(event("PreToolUse", "tool_name", "Read"), Claude, "", "", 190); s.Get("s1") != nil {
+		t.Fatal("an event from before the drop brought it back")
+	}
+	// Heard from again, it was running all along: back with what it knew, even with no tab sent.
+	s.Apply(event("PreToolUse", "tool_name", "Bash"), Claude, "", "", 300)
+	session := s.Get("s1")
+	if session == nil || session.Model != "claude-opus-5-5" || session.StartedAt != 100 || session.Tab != tab || session.State != Thinking {
+		t.Fatalf("the session came back as %+v", session)
+	}
+	if s.WasDropped("s1") {
+		t.Error("a session back on the deck is still counted as dropped")
+	}
+}
+
+func TestADroppedSessionsTabTakenByAnotherEndsIt(t *testing.T) {
+	s := NewSessions()
+	s.Apply(event("UserPromptSubmit"), Claude, tab, "", 100)
+	s.Prune(func(string) bool { return false }, 200)
+	other := event("SessionStart", "source", "startup")
+	other["session_id"] = "s2"
+	s.Apply(other, Claude, tab, "", 300)
+	if s.WasDropped("s1") {
+		t.Fatal("a new agent in the tab left the old one waiting to come back")
+	}
+	if s.Apply(event("Stop"), Claude, "", "", 400); s.Get("s1") != nil {
+		t.Error("the old session came back after another took its tab")
+	}
+}
+
+func TestAPrunedSessionKeepsItsDeskForWhenItComesBack(t *testing.T) {
+	d := newTestDeck(t)
+	running(d, 3)
+	d.layout()
+	d.sessions.Prune(func(tab string) bool { return !strings.HasPrefix(tab, "tmux:%1@") }, nowMillis())
+	d.layout()
+	d.sessions.Apply(map[string]any{"hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/p1"}, Claude, "", "", nowMillis()+1000)
+	keys, _ := d.layout()
+	if len(keys) != 3 || keys[1].session == nil || keys[1].session.ID != "s1" {
+		t.Errorf("the session back from a drop isn't at its desk: %+v", keys)
+	}
+}

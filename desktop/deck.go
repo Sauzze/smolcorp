@@ -356,8 +356,9 @@ func (d *Deck) layout() ([]deckKey, []*Session) {
 	for _, s := range remaining {
 		live[s.ID] = true
 	}
+	// A session dropped as its tab seemed to close keeps its key, should it come back.
 	for id := range d.keyOf {
-		if !live[id] {
+		if !live[id] && !d.sessions.WasDropped(id) {
 			delete(d.keyOf, id)
 		}
 	}

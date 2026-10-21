@@ -79,7 +79,7 @@ subsystem of its own. "–" where there is nothing to port.
 | Messages between sessions (SendMessage) | ✓ | ✓ | none | – |
 | Floor 2: headless runs, hired-by card, pid and quiet pruning | ✓ | ✓ | none | – |
 | Sessions saved and restored across a restart | ✓ | – | after a restart the desks are empty until each agent next reports | M |
-| A dropped session heard from again comes back, with its desk | ✓ | – | it comes back as new, and loses its desk | S |
+| A dropped session heard from again comes back, with its desk | ✓ | ✓ | **done** | – |
 
 ### The computer's side
 
@@ -158,3 +158,7 @@ Done:
    Tested end to end on Linux: a phone's hire through `smolcorp serve`
    opened tmux, the launcher started the Tester with the Mac's wording, and
    its desk showed the role. Not run on Windows: built only.
+3. **A dropped session comes back.** One dropped as its pane seemed to
+   close, or its agent's process to go, is remembered for an hour, as on the
+   Mac: heard from again, it takes back its desk and what it knew, rather
+   than coming in as new; a new agent in its tab ends it for good.
