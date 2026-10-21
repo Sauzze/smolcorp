@@ -40,8 +40,9 @@ type Deck struct {
 	lastHire time.Time
 	// Whether a save of the sessions is coming, and the sessions from before
 	// a restart still waiting for their launcher: see saved.go.
-	savePending bool
-	restoring   *pendingRestore
+	savePending  bool
+	restoring    *pendingRestore
+	sessionsFile string
 	// Whether the folder picker is open, from setup.
 	picking bool
 	// Whether music is playing, for the office's jukebox, when it can be told.
@@ -93,15 +94,17 @@ func NewDeck() *Deck {
 	d := &Deck{
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
-		keyOf: map[string]int{}, lastReturn: map[string]time.Time{}, hires: map[string]*pendingHire{}, work: make(chan func(), 64), OnChange: func() {},
+		keyOf: map[string]int{}, lastReturn: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue),
 	}
 	d.summaryKeys = newSummaryKeys(keyringStore, os.Getenv)
 	d.summaries = newSummaries(d.summaryKeys.Read)
 	go d.sendWebhooks()
-	d.restoreSessions()
 	// What's running as it starts is where the webhook starts from, so the first change after it is news
+	d.mu.Lock()
 	d.tellWebhook()
+	d.mu.Unlock()
+	d.restoreSessions()
 	go func() {
 		for job := range d.work {
 			job()

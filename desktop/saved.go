@@ -116,12 +116,10 @@ func (d *Deck) scheduleSave() {
 		return
 	}
 	d.savePending = true
-	// To the file as it is now: a test's is gone by the time a late save would come.
-	file := sessionsFile
-	time.AfterFunc(saveDelay, func() { d.saveSessions(file) })
+	time.AfterFunc(saveDelay, d.saveSessions)
 }
 
-func (d *Deck) saveSessions(file string) {
+func (d *Deck) saveSessions() {
 	d.mu.Lock()
 	d.savePending = false
 	saved := savedDeck{SavedAt: nowMillis(), Sessions: d.sessions.Saved(), Keys: map[string]int{}}
@@ -139,6 +137,7 @@ func (d *Deck) saveSessions(file string) {
 			}
 		}
 	}
+	file := d.sessionsFile
 	d.mu.Unlock()
 	if data, err := json.Marshal(saved); err == nil {
 		_ = writePrivate(file, data)
@@ -149,7 +148,7 @@ func (d *Deck) saveSessions(file string) {
 // launcher's wait for it to connect, and the others are looked at in the
 // background, the panes' terminals asked whether their agent still runs.
 func (d *Deck) restoreSessions() {
-	data, err := os.ReadFile(sessionsFile)
+	data, err := os.ReadFile(d.sessionsFile)
 	if err != nil {
 		return
 	}
