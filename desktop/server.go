@@ -537,14 +537,98 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			http.NotFound(w, r.Request)
 			return
 		}
-		image, err := qr.Encode(pairingLink(code), qr.M)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+		writeQR(w, pairingLink(code))
+
+	// The portable office's viewer (beta). Only this reply carries the link,
+	// which holds the key; the write secret is in a reply only once, as it's made.
+	case r.Method == http.MethodGet && path == "/setup/viewer":
+		writeJSON(w, http.StatusOK, d.portable.SetupState(true))
+
+	case r.Method == http.MethodPost && path == "/setup/viewer":
+		var given struct {
+			BaseURL        *string `json:"baseURL"`
+			HideNames      *bool   `json:"hideNames"`
+			StopOnReturn   *bool   `json:"stopOnReturn"`
+			StopAfterHours *int    `json:"stopAfterHours"`
+		}
+		if data, _ := io.ReadAll(r.Body); json.Unmarshal(data, &given) != nil {
+			writeStatus(w)(http.StatusBadRequest, "That isn't a viewer setting.")
 			return
 		}
-		image.Scale = 8
-		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write(image.PNG())
+		d.mu.Lock()
+		viewer := config.Viewer
+		if given.BaseURL != nil {
+			if strings.TrimSpace(*given.BaseURL) == "" {
+				viewer.BaseURL = ""
+			} else if origin, ok := viewerOrigin(*given.BaseURL); ok {
+				viewer.BaseURL = origin
+			} else {
+				d.mu.Unlock()
+				writeStatus(w)(http.StatusBadRequest, viewerAddressProblem)
+				return
+			}
+		}
+		if given.HideNames != nil {
+			viewer.HideNames = *given.HideNames
+		}
+		if given.StopOnReturn != nil {
+			viewer.StopOnReturn = *given.StopOnReturn
+		}
+		if given.StopAfterHours != nil && slices.Contains(viewerHourChoices, *given.StopAfterHours) {
+			viewer.StopAfterHours = *given.StopAfterHours
+		}
+		moved := viewer.BaseURL != config.Viewer.BaseURL
+		config.Viewer = viewer
+		config.save()
+		d.mu.Unlock()
+		// A new address while it's on: the old viewer is told to forget it, and nothing more goes there.
+		if moved {
+			d.portable.Stop(0)
+		}
+		d.portable.setSettings(viewer)
+		d.portable.Changed()
+		writeJSON(w, http.StatusOK, d.portable.SetupState(false))
+
+	case r.Method == http.MethodPost && path == "/setup/viewer/secret":
+		secret, err := d.portable.MakeWriteSecret()
+		if err != nil {
+			writeStatus(w)(http.StatusInternalServerError, viewerNoStoreProblem)
+			return
+		}
+		state := d.portable.SetupState(false)
+		state["secret"] = secret
+		writeJSON(w, http.StatusOK, state)
+
+	case r.Method == http.MethodPost && path == "/setup/viewer/check":
+		d.portable.Check()
+		writeJSON(w, http.StatusOK, d.portable.SetupState(false))
+
+	case r.Method == http.MethodPost && path == "/setup/viewer/switch":
+		if query.Get("on") == "1" {
+			d.portable.Start()
+		} else {
+			d.portable.Stop(0)
+		}
+		writeJSON(w, http.StatusOK, d.portable.SetupState(false))
+
+	case r.Method == http.MethodPost && path == "/setup/viewer/rotate":
+		d.portable.RotateKey()
+		writeJSON(w, http.StatusOK, d.portable.SetupState(false))
+
+	case r.Method == http.MethodPost && path == "/setup/viewer/wipe":
+		d.portable.Wipe()
+		writeJSON(w, http.StatusOK, d.portable.SetupState(false))
+
+	case r.Method == http.MethodGet && path == "/setup/viewer/qr.png":
+		link := ""
+		if d.portable.IsSetUp() {
+			link = d.portable.Link()
+		}
+		if link == "" {
+			http.NotFound(w, r.Request)
+			return
+		}
+		writeQR(w, link)
 
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/setup/logo/"):
 		logo := strings.TrimPrefix(path, "/setup/logo/")
@@ -967,6 +1051,18 @@ func (rt *router) setupState() map[string]any {
 }
 
 // MARK: Helpers
+
+// writeQR answers with a QR code of text.
+func writeQR(w http.ResponseWriter, text string) {
+	image, err := qr.Encode(text, qr.M)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	image.Scale = 8
+	w.Header().Set("Content-Type", "image/png")
+	_, _ = w.Write(image.PNG())
+}
 
 // serveFile serves a page no other page may show in a frame, where it could
 // lay something over it and trick you into pressing a button.

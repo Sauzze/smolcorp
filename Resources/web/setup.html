@@ -1410,12 +1410,16 @@
   function renderViewer() {
     const v = viewer;
     if (!v) return;
+    // Where the Windows and Linux app keeps the write secret, and where its switch is.
+    const kept = state && state.launcher ? "your computer's secret store" : 'your Keychain';
+    $('step-viewer-secret').querySelector('.detail').dataset.pending = `Lets this computer, and only it, write to your viewer. Kept in ${kept}.`;
+    $('step-viewer-secret').querySelector('.detail').dataset.done = `Set ✓ Kept in ${kept}. Vercel has a copy as VIEWER_WRITE_SECRET.`;
     if (document.activeElement !== $('viewer-url')) $('viewer-url').value = v.baseURL;
     mark('step-viewer-address', !!v.baseURL);
     said('viewer-url-result', viewerProblem, 'wrong');
 
     mark('step-viewer-secret', v.hasSecret);
-    if (viewerSecret) $('step-viewer-secret').querySelector('.detail').textContent = 'Made ✓ Kept in your Keychain. Now give Vercel a copy.';
+    if (viewerSecret) $('step-viewer-secret').querySelector('.detail').textContent = `Made ✓ Kept in ${kept}. Now give Vercel a copy.`;
     $('viewer-secret-box').hidden = !viewerSecret;
     $('viewer-secret').textContent = viewerSecret;
     $('viewer-make-secret').textContent = v.hasSecret ? 'New write secret…' : 'Make a write secret';
@@ -1443,7 +1447,7 @@
     } else if (!v.setUp) {
       detail = 'Not set up yet. Set the address and the write secret first.';
     } else {
-      detail = v.problem || "Off. Turn it on here, or with Going away: launch portable office in the menu bar.";
+      detail = v.problem || `Off. Turn it on here, or with Going away: launch portable office in the ${state && state.launcher ? 'tray' : 'menu bar'}.`;
     }
     $('viewer-on-detail').textContent = detail;
     $('viewer-hide').checked = v.hideNames;

@@ -654,7 +654,22 @@ secret, the viewer's id and its key are kept in the Keychain, never in
 `config.json`.
 
 The viewer sees when the office is on and roughly how big it is, nothing
-else. The Windows and Linux app doesn't have the portable office.
+else.
+
+### On Windows and Linux
+
+The portable office works the same way, from the tray: **Going away: launch
+portable office** and **Stop portable office**. The write secret, the viewer's
+id and its key are kept in Credential Manager on Windows, or in the Secret
+Service (GNOME Keyring or KWallet) on Linux; a Linux computer with no secret
+store can't keep them, so it can't use the portable office. There's no **Copy
+viewer link** in the tray: copy it from the setup page.
+
+**Stop when I'm back** works where the system says you're back: on Linux, the
+screen unlocking after it was locked, or the keyboard or mouse used after a
+while away, where your desktop tells logind (GNOME and KDE do); on Windows,
+the keyboard or mouse used after ten minutes without. Elsewhere,
+it stops after the hours you set, or when you stop it.
 
 ## Summaries with Claude
 

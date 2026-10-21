@@ -61,6 +61,8 @@ type Deck struct {
 	// and the summaries made with it.
 	summaryKeys *summaryKeys
 	summaries   *summaries
+	// The portable office (beta): the office on a phone from anywhere, view only. Off at every start.
+	portable *portableOffice
 	// OnChange is called on every change, for the tray.
 	OnChange func()
 }
@@ -99,6 +101,11 @@ func NewDeck() *Deck {
 	}
 	d.summaryKeys = newSummaryKeys(keyringStore, os.Getenv)
 	d.summaries = newSummaries(d.summaryKeys.Read)
+	d.portable = newPortableOffice(viewerStore, d.config.Viewer, func(hideNames bool, alias func(string) string) map[string]any {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.viewerSnapshot(hideNames, alias)
+	})
 	go d.sendWebhooks()
 	// What's running as it starts is where the webhook starts from, so the first change after it is news
 	d.mu.Lock()
@@ -319,6 +326,7 @@ func (d *Deck) changed() {
 	go d.OnChange()
 	d.scheduleSave()
 	d.tellWebhook()
+	d.portable.Changed()
 }
 
 // Refresh re-sends the state, for changes the sessions don't see (the setup
@@ -682,15 +690,24 @@ func (d *Deck) unpair(id string) {
 // roleOf is what the phone is told of the role a session's launcher was
 // started with, or nil: also nil once that role is gone from setup.
 func (d *Deck) roleOf(s *Session) map[string]any {
+	if role, ok := d.sessionRole(s); ok {
+		return role.forPhone()
+	}
+	return nil
+}
+
+// sessionRole is the role a session's launcher was started with, while
+// setup has it.
+func (d *Deck) sessionRole(s *Session) (Role, bool) {
 	kind, id, _ := splitTab(s.Tab)
 	if tab, ok := d.launchers[id]; kind == "launcher" && ok && tab.role != "" {
 		for _, role := range d.config.Roles {
 			if role.ID == tab.role {
-				return role.forPhone()
+				return role, true
 			}
 		}
 	}
-	return nil
+	return Role{}, false
 }
 
 // launcherConnected keeps a launcher that has connected. hire is the token it

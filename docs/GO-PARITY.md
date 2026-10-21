@@ -38,7 +38,7 @@ subsystem of its own. "–" where there is nothing to port.
 | `/setup/hiring/choose` (the system's folder picker) | ✓ | ✓ | **done** | – |
 | `/setup/dictation` | ✓ | – | Mac only (Apple's speech recognition) | – |
 | `/setup/accessibility` | ✓ | – | not needed off the Mac | – |
-| `/setup/viewer*` (portable office) | ✓ | – | **portable office** | XL |
+| `/setup/viewer*` (portable office) | ✓ | ✓ | **done** | – |
 
 ### Config keys (`config.json`)
 
@@ -51,7 +51,7 @@ subsystem of its own. "–" where there is nothing to port.
 | rolesOffered | ✓ | ✓ | **done** | – |
 | hireTerminal, hireInTmux | ✓ | ✓ | **done**; a Mac terminal's id reads as not installed | – |
 | dictationEnabled, dictationLanguage, dictationForClaude | ✓ | kept, not read | Mac only | – |
-| viewer | ✓ | kept, not read | with the portable office | XL |
+| viewer | ✓ | ✓ | **done** | – |
 | unknown keys kept on save | ✓ | ✓ | none | – |
 
 ### Roles and the office
@@ -93,7 +93,7 @@ subsystem of its own. "–" where there is nothing to port.
 | Open at login | ✓ | ✓ | none | – |
 | Menu: Open Setup, Pair, Unpair All, Open at Login, Quit | ✓ | ✓ | none | – |
 | Menu: Show Office (the office in a window) | native window | in the browser | **done** | – |
-| Portable office (beta) | ✓ | – | AES-GCM viewer on your own Vercel | XL |
+| Portable office (beta) | ✓ | ✓ | **done**, but for Copy viewer link, and stop-when-back where the system can't say | – |
 | Screen saver | ✓ | – | a macOS `.saver` | – |
 | Dictation for agents without a voice mode | ✓ | – | Apple's on-device speech recognition | – |
 | Accessibility step | ✓ | – | not needed | – |
@@ -102,8 +102,11 @@ subsystem of its own. "–" where there is nothing to port.
 
 The page is shared and reads what each app's `/setup/state` holds. On Go it
 shows the launcher step, hides Accessibility and Dictation, shows each role's
-`smolcorp run --role` command, and hides the viewer link (GET `/setup/viewer` is a 404). Its role editor offers every
-badge and outfit the state lists.
+`smolcorp run --role` command, and its Viewer link section says "secret
+store" and "tray" where the Mac's says Keychain and menu bar. Its role editor
+offers every badge and outfit the state lists. Before the portable office was
+ported, the Viewer link section showed on Windows and Linux with nothing
+working in it: its routes were 404s.
 
 ## Ranked: what to port
 
@@ -188,3 +191,30 @@ Done:
    start folder and title are the picker's own arguments, or on Windows its
    environment, never in a script. With no picker, or no desktop, the button
    isn't shown and the path is typed, as before.
+7. **The portable office** (beta), as `Viewer.swift`: the viewer's settings
+   in config.json; the id, key and write secret in Credential Manager or the
+   Secret Service; AES-256-GCM bound to the id (the spec's test vector
+   matches the Mac's hash byte for byte); the snapshot built field by field
+   with the Mac's redaction (its self-test is ported as a Go test, with a
+   secret in every field that must never leave, and checked to fail when
+   one leaks); the uploads with the Mac's debounce, heartbeat, backoff,
+   hours, stand-in ids and DELETE again after a late PUT, no redirect
+   followed; every setup route; and the tray's launch and stop. Tested end to
+   end against the viewer's own relay handlers
+   (`viewer/scripts/dev-relay.mjs`): the page's own `viewer-crypto.js` opened
+   what Go sealed, and after Stop the relay held nothing.
+
+   Different from the Mac, and why:
+   - **Stop when I'm back** can't watch for a wake or an unlock as macOS
+     announces them. It looks every five seconds instead: on Linux at
+     logind's LockedHint and IdleHint, which GNOME and KDE set; on Windows at
+     GetLastInputInfo. Back is the screen unlocked after it was locked, or
+     input after ten minutes without, with the Mac's two-minute grace. Where
+     neither can be told, it stops after its hours, or by hand.
+   - **No Copy viewer link** in the tray: the Mac copies it for that Mac
+     only, hidden from clipboard managers, which no clipboard here can
+     promise. The setup page shows and copies it.
+   - **No dot on the tray icon** while it's on: the tray menu's first line
+     says so instead.
+   - A Linux computer with no secret store can't keep the viewer's keys,
+     and says so as the write secret is made.

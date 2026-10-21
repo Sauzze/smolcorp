@@ -39,6 +39,9 @@ type Config struct {
 	// transcript, written by Claude with your own API key. Off until you turn
 	// it on in setup and confirm what it sends where; and only with a key.
 	SummaryOptIn bool `json:"summaryOptIn"`
+	// The portable office's viewer: its address and options. Never its id,
+	// key or write secret, which are in the system's secret store.
+	Viewer ViewerSettings `json:"viewer"`
 	// The folder new hires start in, and the agent they are.
 	HireFolder string `json:"hireFolder"`
 	HireAgent  string `json:"hireAgent"`
@@ -79,7 +82,8 @@ func knownConfigKeys() map[string]bool {
 var logos = []string{"smolcorp", "keys"}
 
 func loadConfig() *Config {
-	config := &Config{Colours: map[string]string{}, Logo: "smolcorp", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook()}
+	config := &Config{Colours: map[string]string{}, Logo: "smolcorp", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook(),
+		Viewer: standardViewerSettings()}
 	if data, err := os.ReadFile(configFile); err == nil {
 		// A field it can't read loses only itself. A file it can't read at all
 		// starts from the defaults, but a copy is kept beside it first, so the

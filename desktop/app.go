@@ -4,8 +4,10 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"fyne.io/systray"
 )
@@ -31,6 +33,7 @@ func RunApp() int {
 	}
 	if !hasDesktop() {
 		printSetupLink(deck)
+		stopPortableOnSignal(deck)
 		return reportFailure(<-failed)
 	}
 	systray.Run(func() { newTray(deck, failed) }, nil)
@@ -44,7 +47,20 @@ func RunServer() int {
 	refreshHooks()
 	watchOpenCode()
 	printSetupLink(deck)
+	stopPortableOnSignal(deck)
 	return reportFailure(Serve(deck))
+}
+
+// stopPortableOnSignal: stopped from its terminal, the portable office stops
+// too, as on quit, and the viewer is asked to forget it.
+func stopPortableOnSignal(deck *Deck) {
+	stopped := make(chan os.Signal, 1)
+	signal.Notify(stopped, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-stopped
+		deck.portable.Stop(viewerQuitWait)
+		os.Exit(1)
+	}()
 }
 
 // printSetupLink says where setup is, with no tray to open it from: on this
@@ -67,8 +83,10 @@ func hasDesktop() bool {
 type tray struct {
 	deck                                      *Deck
 	count, setup, pair, unpair, office, login *systray.MenuItem
-	quit                                      *systray.MenuItem
-	logo                                      string
+	// The portable office: how it is, the switch, and where to set it up.
+	portableStatus, portable, viewerSetup *systray.MenuItem
+	quit                                  *systray.MenuItem
+	logo                                  string
 }
 
 func newTray(deck *Deck, failed <-chan error) {
@@ -83,6 +101,11 @@ func newTray(deck *Deck, failed <-chan error) {
 	systray.AddSeparator()
 	t.office = systray.AddMenuItem("Show Office", "The office in your browser, as on a phone")
 	systray.AddSeparator()
+	t.portableStatus = systray.AddMenuItem("", "")
+	t.portableStatus.Disable()
+	t.portable = systray.AddMenuItem("Going away: launch portable office", "The office on your phone from anywhere, view only")
+	t.viewerSetup = systray.AddMenuItem("    Set up the viewer on the setup page", "")
+	systray.AddSeparator()
 	t.login = systray.AddMenuItemCheckbox("Open at Login", "", isOpenAtLogin())
 	systray.AddSeparator()
 	t.quit = systray.AddMenuItem("Quit Smolcorp", "")
@@ -90,6 +113,9 @@ func newTray(deck *Deck, failed <-chan error) {
 	deck.mu.Lock()
 	deck.OnChange = t.update
 	deck.mu.Unlock()
+	deck.portable.mu.Lock()
+	deck.portable.onChange = t.update
+	deck.portable.mu.Unlock()
 	t.update()
 	go t.listen(failed)
 }
@@ -126,11 +152,41 @@ func (t *tray) update() {
 	} else {
 		t.unpair.Hide()
 	}
+	t.updatePortable()
 	if logo != t.logo {
 		if icon, err := trayIcons.ReadFile("tray-" + logo + ".png"); err == nil {
 			systray.SetIcon(trayIcon(icon))
 			t.logo = logo
 		}
+	}
+}
+
+// updatePortable shows the portable office as the Mac's menu does: on, with
+// how it's going, and its switch; or off, with what it needs.
+func (t *tray) updatePortable() {
+	portable := t.deck.portable
+	on, setUp := portable.IsOn(), portable.IsSetUp()
+	status, problem := portable.Status()
+	switch {
+	case on:
+		t.portableStatus.SetTitle("Portable office: ON · " + status)
+		t.portableStatus.Show()
+		t.portable.SetTitle("Stop portable office")
+	case setUp && problem != "":
+		t.portableStatus.SetTitle(problem)
+		t.portableStatus.Show()
+	default:
+		t.portableStatus.Hide()
+	}
+	if !on {
+		t.portable.SetTitle("Going away: launch portable office")
+	}
+	if on || setUp {
+		t.portable.Enable()
+		t.viewerSetup.Hide()
+	} else {
+		t.portable.Disable()
+		t.viewerSetup.Show()
 	}
 }
 
@@ -147,6 +203,14 @@ func (t *tray) listen(failed <-chan error) {
 			t.deck.openSetup("unpair")
 		case <-t.office.ClickedCh:
 			t.deck.openOffice()
+		case <-t.portable.ClickedCh:
+			if t.deck.portable.IsOn() {
+				t.deck.portable.Stop(0)
+			} else {
+				t.deck.portable.Start()
+			}
+		case <-t.viewerSetup.ClickedCh:
+			t.deck.openSetup("viewer")
 		case <-t.login.ClickedCh:
 			setOpenAtLogin(!isOpenAtLogin())
 			if isOpenAtLogin() {
@@ -155,6 +219,8 @@ func (t *tray) listen(failed <-chan error) {
 				t.login.Uncheck()
 			}
 		case <-t.quit.ClickedCh:
+			// The portable office stops on quit, and the viewer is asked to forget it, for up to 5 s.
+			t.deck.portable.Stop(viewerQuitWait)
 			systray.Quit()
 			return
 		case <-failed:
