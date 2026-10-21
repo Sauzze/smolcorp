@@ -675,10 +675,16 @@ Turn it off with the same switch, at any time. **Remove** forgets the key.
 ### What's sent, and where your key is kept
 
 - **Sent, to Anthropic's API, only when you tap ✨ summary:** the end of that
-  agent's transcript, at most 16,000 characters. That's your recent requests,
-  its replies and the tools it ran, each cut short, never a file's contents.
-  Lines that look like they hold a secret (keys, tokens, passwords) are taken
-  out first. The project's folder name is sent with it.
+  agent's transcript, at most 16,000 characters. That's:
+  - your recent requests and its replies, each cut short;
+  - each tool it ran, with the one file path, command or search that says
+    what it did;
+  - each tool's output, cut to its first line. For a file it read, that's the
+    file's first line.
+
+  Lines that look like they hold a secret (keys, tokens, passwords, private
+  keys, passwords in URLs) are taken out first. The project's folder name is
+  sent with it.
 - **Your key** is kept by your system:
   - in the Keychain on a Mac;
   - in Credential Manager on Windows;
@@ -690,21 +696,26 @@ Turn it off with the same switch, at any time. **Remove** forgets the key.
   twice. At most 20 summaries go to Anthropic in any 10 minutes. A failed one
   is never retried by itself.
 
-### Or use `ANTHROPIC_API_KEY`
+### Or, as a fallback, `ANTHROPIC_API_KEY`
 
-With no key saved, Smolcorp uses `ANTHROPIC_API_KEY` from its own environment.
-On a Linux computer with no secret store, this is the only way.
+**Paste your key on the setup page if you can:** it's then kept in your
+system's secret store, and only Smolcorp reads it. With no key saved there,
+Smolcorp uses `ANTHROPIC_API_KEY` from its own environment instead. On a Linux
+computer with no secret store, this is the only way.
 
-An app you open from the Dock, the Start menu or at login doesn't see what you
-`export` in a terminal. To give it the key:
+The ways below give the key to **every app you start** after setting it, not
+just Smolcorp. On Windows and Linux they also keep it in a plain text setting
+or file, so use them only where that's acceptable. An app you open from the
+Dock, the Start menu or at login doesn't see what you `export` in a terminal,
+so:
 
 - **Mac:** run `launchctl setenv ANTHROPIC_API_KEY sk-ant-…`, then quit and
-  reopen Smolcorp. Every app you open after that can read it too, so the
-  setup page is the better place.
+  reopen Smolcorp. It lasts until you restart the Mac.
 - **Windows:** run `setx ANTHROPIC_API_KEY sk-ant-…` in a terminal, then
-  restart Smolcorp.
-- **Linux:** add `ANTHROPIC_API_KEY=sk-ant-…` to `~/.config/environment.d/smolcorp.conf`,
-  then log out and back in.
+  restart Smolcorp. It's kept in your user's environment settings.
+- **Linux:** add `ANTHROPIC_API_KEY=sk-ant-…` to
+  `~/.config/environment.d/smolcorp.conf`, then log out and back in. It's
+  kept in that file.
 
 Smolcorp never reads a project's `.env` file, or any other file, for a key.
 

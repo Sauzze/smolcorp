@@ -697,8 +697,9 @@
 <dialog class="summary-dialog" id="summary-dialog" aria-labelledby="summary-dialog-title">
   <h3 id="summary-dialog-title">Turn on summaries?</h3>
   <p>When you tap ✨ summary on an agent's desk, Smolcorp sends the end of that agent's Claude Code transcript to
-    Anthropic's API: your recent requests, its replies and the tools it ran, each cut short, with lines that look like
-    secrets taken out, and the project's folder name.</p>
+    Anthropic's API: your recent requests and its replies, each cut short; the tools it ran; and the first line of each
+    tool's output (for a file it read, that's the file's first line). Lines that look like secrets are taken out first.
+    The project's folder name goes with it.</p>
   <ul>
     <li>It uses <b>your own API key</b> (<span id="summary-dialog-key"></span>), and <b>Anthropic bills it to you</b>.</li>
     <li>The model is <b id="summary-dialog-model">Claude Haiku 5.5</b>.</li>
