@@ -1,6 +1,8 @@
 package desktop
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -312,7 +314,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		if phoneID == "" {
 			page = "pair.html"
 		}
-		serveFile(w, "Resources/web/"+page)
+		d.mu.Lock()
+		logo := d.config.Logo
+		d.mu.Unlock()
+		servePageWithIcon(w, "Resources/web/"+page, "Resources/web/icon-"+logo+".png")
 		return
 	}
 	if phoneID == "" {
@@ -929,6 +934,33 @@ func (rt *router) setupState() map[string]any {
 // lay something over it and trick you into pressing a button.
 func serveFile(w http.ResponseWriter, name string) {
 	serveFramedBy(w, name, "DENY", "'none'")
+}
+
+// servePageWithIcon serves a page as serveFile does, with its Home Screen
+// icon in it (see withIcon).
+func servePageWithIcon(w http.ResponseWriter, name, icon string) {
+	data, err := fs.ReadFile(agentdeck.Files, name)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	png, _ := fs.ReadFile(agentdeck.Files, icon)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+	_, _ = w.Write(withIcon(data, png))
+}
+
+// withIcon puts the page's Home Screen icon in it, as a data: URL of the
+// logo's 180 px PNG. iOS fetches a linked touch icon itself, outside the page
+// and without its browser, and where that fetch fails the Home Screen shows a
+// letter instead of the logo.
+func withIcon(page, png []byte) []byte {
+	if len(png) == 0 {
+		return page
+	}
+	return bytes.Replace(page, []byte(`<link rel="apple-touch-icon" href="/icon.png">`),
+		[]byte(`<link rel="apple-touch-icon" sizes="180x180" href="data:image/png;base64,`+base64.StdEncoding.EncodeToString(png)+`">`), 1)
 }
 
 // serveFramedBy serves a page with who may frame it, as X-Frame-Options and
