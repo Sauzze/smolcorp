@@ -250,9 +250,9 @@
    */
   office.setFramed(false);
   office.setFloating(saver ? 'edge' : bare ? 'bare' : 'screen');
-  // Only the Mac app's own window spares the battery, drawing less often; on the phone, the room is all there is
-  // to see, and goes at the screen's own rate.
-  office.setSaving(bare);
+  // Only the Mac app's own window and its screen saver spare the battery, drawing less often; on the phone, the
+  // room is all there is to see, and goes at the screen's own rate.
+  office.setSaving(bare || saver);
   office.setVisible(true);
 
   /*
