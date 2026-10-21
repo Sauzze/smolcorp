@@ -330,3 +330,28 @@ func TestWithNoSecretStoreOnlyTheEnvironmentsKeyWorks(t *testing.T) {
 
 // keyringNotFound is the keyring's own "no such item", as a store with nothing in it answers.
 func keyringNotFound() error { return keyringErrNotFound }
+
+// The review's additions: Stripe keys, JWTs, a URL's password, a bare AWS
+// secret key, and a private key from its BEGIN through its END. Each made up
+// and put together here, so no file holds one whole.
+func TestMoreKindsOfSecretAreRedacted(t *testing.T) {
+	lines := []string{
+		"STRIPE=" + "sk_" + "live_" + "4eC39HqLyjWDarjtT1zdp7dc",
+		"the restricted one " + "rk_" + "live_" + "51H8abcDEF",
+		"Authorization header " + "eyJ" + "hbGciOiJIUzI1NiJ9" + "." + "eyJzdWIiOiIxMjM0In0" + "." + "abc123",
+		"DATABASE_URL=postgres://app:" + "hunter2" + "@db.local:5432/app",
+		"aws " + "wJalrXUtnFEMI/" + "K7MDENG/bPxRfiCY" + "EXAMPLEKEY",
+		"-----BEGIN " + "OPENSSH PRIVATE KEY-----", "b3BlbnNzaC1rZXktdjEAAAAA", "AAAABG5vbmUAAAAEbm9uZQ",
+		"-----END " + "OPENSSH PRIVATE KEY-----", "after the key",
+		"commit 8d2f1c9a4b7e6d5c3b2a1f0e9d8c7b6a5f4e3d2c",
+	}
+	got := strings.Split(redactText(strings.Join(lines, "\n")), "\n")
+	for i := 0; i < 9; i++ {
+		if got[i] != redactedPlaceholder {
+			t.Errorf("line %d kept: %q", i, got[i])
+		}
+	}
+	if got[9] != "after the key" || got[10] != lines[10] {
+		t.Errorf("redacted too much: %q, %q (a git commit's hash isn't a secret)", got[9], got[10])
+	}
+}

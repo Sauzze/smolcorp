@@ -277,7 +277,28 @@ var secretLine = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)secret`),
 	regexp.MustCompile(`(?i)bearer\s`),
 	regexp.MustCompile(`(^|[^A-Za-z0-9])(ghp|gho|github_pat|xox[abpr]|AKIA)[A-Za-z0-9_-]`),
+	regexp.MustCompile(`(^|[^A-Za-z0-9_])(sk|rk|pk)_(live|test)_[A-Za-z0-9]`), // Stripe
+	regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.`),           // a JWT
+	regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@`),       // postgres://user:password@…
 	regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY`),
+}
+
+var (
+	pemEnd = regexp.MustCompile(`-----END [A-Z ]*PRIVATE KEY`)
+	// Runs of the characters an AWS secret key is made of; hasAWSSecret looks at each whole one.
+	keyChars = regexp.MustCompile(`[A-Za-z0-9/+=]+`)
+)
+
+// hasAWSSecret is whether line holds a bare AWS secret key: 40 characters with
+// capitals, small letters and digits, which a git commit's 40 lowercase hex never has.
+func hasAWSSecret(line string) bool {
+	for _, token := range keyChars.FindAllString(line, -1) {
+		if len(token) == 40 && strings.ContainsAny(token, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") &&
+			strings.ContainsAny(token, "abcdefghijklmnopqrstuvwxyz") && strings.ContainsAny(token, "0123456789") {
+			return true
+		}
+	}
+	return false
 }
 
 const redactedPlaceholder = "[redacted]"
@@ -288,15 +309,25 @@ func isSecretLine(line string) bool {
 			return true
 		}
 	}
-	return false
+	return hasAWSSecret(line)
 }
 
-// redactText is text with each line that looks like a secret replaced, keeping its label.
+// redactText is text with each line that looks like a secret replaced, keeping
+// its label, and a private key's every line, from its BEGIN through its END.
 func redactText(text string) string {
 	lines := strings.Split(text, "\n")
+	inKey := false
 	for i, line := range lines {
+		if inKey {
+			inKey = !pemEnd.MatchString(line)
+			lines[i] = redactedPlaceholder
+			continue
+		}
 		if !isSecretLine(line) {
 			continue
+		}
+		if strings.Contains(line, "-----BEGIN") && strings.Contains(line, "PRIVATE KEY") && !pemEnd.MatchString(line) {
+			inKey = true
 		}
 		lines[i] = redactedPlaceholder
 		for _, label := range []string{"USER: ", "CLAUDE: ", "RESULT: ", "ERROR: "} {
@@ -537,7 +568,8 @@ func (k *summaryKeys) Read() string {
 	return ""
 }
 
-// Shown is what setup may show: where the key comes from and its hint, never the key.
+// Shown is what setup may show: where the key comes from ("store", the
+// system's secret store, or "environment") and its hint, never the key.
 func (k *summaryKeys) Shown() (source, hint string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -551,7 +583,7 @@ func (k *summaryKeys) Shown() (source, hint string) {
 		k.known = true
 	}
 	if k.hint != "" {
-		return "keychain", k.hint
+		return "store", k.hint
 	}
 	if key := strings.TrimSpace(k.getenv(summaryKeyEnv)); isAnthropicKey(key) {
 		return "environment", keyHint(key)

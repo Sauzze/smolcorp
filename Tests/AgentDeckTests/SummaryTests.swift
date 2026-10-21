@@ -163,6 +163,26 @@ final class SummaryTests: XCTestCase {
         }
     }
 
+    /// The review's additions: Stripe keys, JWTs, a URL's password, a bare AWS
+    /// secret key, and a private key from its BEGIN through its END. Each made
+    /// up and put together here, so no file holds one whole.
+    func testMoreKindsOfSecretAreRedacted() {
+        let stripe = "sk_" + "live_" + "4eC39HqLyjWDarjtT1zdp7dc"
+        let restricted = "rk_" + "live_" + "51H8abcDEF"
+        let jwt = "eyJ" + "hbGciOiJIUzI1NiJ9" + "." + "eyJzdWIiOiIxMjM0In0" + "." + "abc123"
+        let aws = "wJalrXUtnFEMI/" + "K7MDENG/bPxRfiCY" + "EXAMPLEKEY"
+        let lines = [
+            "STRIPE=" + stripe, "the restricted one " + restricted, "Authorization header " + jwt,
+            "DATABASE_URL=postgres://app:" + "hunter2" + "@db.local:5432/app", "aws " + aws,
+            "-----BEGIN " + "OPENSSH PRIVATE KEY-----", "b3BlbnNzaC1rZXktdjEAAAAA", "AAAABG5vbmUAAAAEbm9uZQ",
+            "-----END " + "OPENSSH PRIVATE KEY-----", "after the key",
+            "commit 8d2f1c9a4b7e6d5c3b2a1f0e9d8c7b6a5f4e3d2c",
+        ]
+        let redacted = Redact.text(lines.joined(separator: "\n")).split(separator: "\n").map(String.init)
+        XCTAssertEqual(redacted, Array(repeating: Redact.placeholder, count: 9) + ["after the key", lines.last!],
+                       "a git commit's hash isn't a secret")
+    }
+
     func testWhatLooksLikeASecret() {
         for line in ["OPENAI sk-proj-xyz", "API_KEY=abc", "\"apiKey\": \"x\"", "my Password is", "access_token", "client secret",
                      "AKIAIOSFODNN7EXAMPLE", "xoxb-123", "-----BEGIN RSA PRIVATE KEY-----", "re_AbC123"] {

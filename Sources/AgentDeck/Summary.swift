@@ -182,19 +182,43 @@ enum Redact {
         #"(?i)secret"#,
         #"(?i)bearer\s"#,
         #"(?<![A-Za-z0-9])(ghp|gho|github_pat|xox[abpr]|AKIA)[A-Za-z0-9_-]"#,
+        #"(?<![A-Za-z0-9_])(sk|rk|pk)_(live|test)_[A-Za-z0-9]"#,  // Stripe
+        #"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\."#,              // a JWT
+        #"[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@"#,          // postgres://user:password@…
         #"-----BEGIN [A-Z ]*PRIVATE KEY"#,
     ].map { try! NSRegularExpression(pattern: $0) }
 
+    private static let pemEnd = try! NSRegularExpression(pattern: #"-----END [A-Z ]*PRIVATE KEY"#)
+    private static let token40 = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])"#)
+
     static func isSecret(_ line: String) -> Bool {
         let range = NSRange(line.startIndex..., in: line)
-        return patterns.contains { $0.firstMatch(in: line, range: range) != nil }
+        return patterns.contains { $0.firstMatch(in: line, range: range) != nil } || hasAWSSecret(line)
     }
 
-    /// `text` with each line that looks like a secret replaced, keeping its label.
+    /// A bare AWS secret key: 40 characters with capitals, small letters and
+    /// digits, which a git commit's 40 lowercase hex never has.
+    static func hasAWSSecret(_ line: String) -> Bool {
+        token40.matches(in: line, range: NSRange(line.startIndex..., in: line)).contains { match in
+            guard let range = Range(match.range, in: line) else { return false }
+            let token = line[range]
+            return token.contains(where: \.isUppercase) && token.contains(where: \.isLowercase) && token.contains(where: \.isNumber)
+        }
+    }
+
+    /// `text` with each line that looks like a secret replaced, keeping its
+    /// label, and a private key's every line, from its BEGIN through its END.
     static func text(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+        var inKey = false
+        return text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
             let line = String(line)
+            let range = NSRange(line.startIndex..., in: line)
+            if inKey {
+                if pemEnd.firstMatch(in: line, range: range) != nil { inKey = false }
+                return placeholder
+            }
             guard isSecret(line) else { return line }
+            if line.contains("-----BEGIN"), line.contains("PRIVATE KEY"), pemEnd.firstMatch(in: line, range: range) == nil { inKey = true }
             // "TOOL Bash: export X=…" keeps "TOOL Bash:", so the summary still knows a command ran.
             for label in ["USER: ", "CLAUDE: ", "RESULT: ", "ERROR: "] where line.hasPrefix(label) {
                 return label + placeholder
