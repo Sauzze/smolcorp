@@ -865,7 +865,11 @@ final class DeckRouter: Router {
 
         // The self-test: Start here's checklist, and --setup's.
         case ("GET", "/setup/selftest"):
-            respond(.json(SelfTest.report(SelfTest.checks(deck: deck))))
+            // Tailscale's answer first, if the last one is old or there's none,
+            // so the network line is right the first time it's asked.
+            Tailnet.whenFresh(changed: { [deck] in deck.refresh() }) { [deck] in
+                respond(.json(SelfTest.report(SelfTest.checks(deck: deck))))
+            }
 
         // One of its fixes, by name, and the checklist after it.
         case ("POST", "/setup/fix"):

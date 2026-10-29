@@ -189,6 +189,74 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertEqual(Tailnet.url(fromStatus: status), "https://my-mac.tail1234.ts.net")
     }
 
+    func testTailscaleRunsWithATerm() {
+        // Opened from Finder, the app has no TERM, and the Mac app's Tailscale
+        // then starts its window instead of answering.
+        let fromFinder = Tailnet.environment(["HOME": "/Users/me", "PATH": "/usr/bin:/bin"])
+        XCTAssertEqual(fromFinder["TERM"], "dumb")
+        XCTAssertEqual(fromFinder["HOME"], "/Users/me")
+        XCTAssertEqual(fromFinder["PATH"], "/usr/bin:/bin")
+        XCTAssertEqual(Tailnet.environment(["TERM": ""])["TERM"], "dumb")
+        // From a terminal, its own TERM is kept.
+        XCTAssertEqual(Tailnet.environment(["TERM": "xterm-256color"])["TERM"], "xterm-256color")
+    }
+
+    /// The setup check waits for Tailscale's first answer, so it's right on its first run.
+    func testTheFirstSetupCheckWaitsForTailscale() {
+        let real = Tailnet.ask
+        defer { Tailnet.ask = real; Tailnet.forget() }
+        Tailnet.forget()
+        var asked = 0
+        Tailnet.ask = {
+            asked += 1
+            Thread.sleep(forTimeInterval: 0.1)
+            return ("https://my-mac.tail1234.ts.net", true)
+        }
+        var changed = 0
+        let first = expectation(description: "answered")
+        Tailnet.whenFresh(within: 2, changed: { changed += 1 }) {
+            XCTAssertEqual(Tailnet.url, "https://my-mac.tail1234.ts.net")
+            XCTAssertEqual(Tailnet.serving, true)
+            first.fulfill()
+        }
+        wait(for: [first], timeout: 3)
+        XCTAssertEqual(changed, 1)
+
+        // Fresh: answered at once, and Tailscale isn't asked again.
+        var now = false
+        Tailnet.whenFresh(within: 2, changed: {}) { now = true }
+        XCTAssertTrue(now)
+        XCTAssertEqual(asked, 1)
+    }
+
+    /// A Tailscale that doesn't answer holds the check up only as long as it's given, and once.
+    func testASlowTailscaleHoldsTheCheckUpNoLongerThanItsWait() {
+        let real = Tailnet.ask
+        defer { Tailnet.ask = real }
+        Tailnet.forget()
+        Tailnet.ask = {
+            Thread.sleep(forTimeInterval: 1)
+            return ("https://my-mac.tail1234.ts.net", nil)
+        }
+        var answers = 0
+        let started = Date()
+        let answered = expectation(description: "answered without it")
+        Tailnet.whenFresh(within: 0.2, changed: {}) {
+            answers += 1
+            XCTAssertNil(Tailnet.url)
+            XCTAssertLessThan(Date().timeIntervalSince(started), 0.9)
+            answered.fulfill()
+        }
+        wait(for: [answered], timeout: 2)
+        // Its late answer is kept for next time, and `then` isn't called again.
+        let late = expectation(description: "the late answer")
+        Tailnet.refresh(changed: {}) { late.fulfill() }
+        wait(for: [late], timeout: 3)
+        XCTAssertEqual(Tailnet.url, "https://my-mac.tail1234.ts.net")
+        XCTAssertEqual(answers, 1)
+        Tailnet.forget()
+    }
+
     func testNoAddressWithoutAName() {
         XCTAssertNil(Tailnet.url(fromStatus: Data(#"{"Self":{"DNSName":""}}"#.utf8)))
         XCTAssertNil(Tailnet.url(fromStatus: Data(#"{"BackendState":"NeedsLogin"}"#.utf8)))

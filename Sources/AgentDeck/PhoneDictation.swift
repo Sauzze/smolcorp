@@ -85,6 +85,21 @@ enum Tailnet {
     private(set) static var serving: Bool?
     private static var lookedAt: Date?
     private static var looking = false
+    /// Who waits for the look under way to end.
+    private static var waiting: [() -> Void] = []
+
+    /// How Tailscale is asked: its address and whether it serves the deck,
+    /// or nil if it isn't installed. Off the main queue. A test answers here.
+    static var ask: () -> (url: String?, serving: Bool?)? = {
+        guard let tool = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return nil }
+        return (run(tool, ["status", "--json"]).flatMap(url(fromStatus:)),
+                run(tool, ["serve", "status", "--json"]).flatMap(servesDeck(fromServeStatus:)))
+    }
+
+    /// Whether the last answer is too old to go by, or there's none yet.
+    static var isStale: Bool {
+        lookedAt.map { Date().timeIntervalSince($0) >= lookAgainAfter } ?? true
+    }
 
     /// The address `tailscale serve` gives this Mac, from `tailscale status
     /// --json`: `https://` and its MagicDNS name. Nil if it isn't there.
@@ -119,26 +134,64 @@ enum Tailnet {
     }
 
     /// Looks again in the background if it's been a while, then calls
-    /// `changed` on the main queue if the answer is different.
-    static func refresh(changed: @escaping () -> Void) {
-        if looking || lookedAt.map({ Date().timeIntervalSince($0) < lookAgainAfter }) == true { return }
-        guard let tool = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            lookedAt = Date()
-            return
-        }
+    /// `changed` on the main queue if the answer is different, and `then`
+    /// once the answer is as fresh as it gets. On the main queue.
+    static func refresh(changed: @escaping () -> Void, then: (() -> Void)? = nil) {
+        if let then { waiting.append(then) }
+        if looking { return }
+        guard isStale else { return finish() }
         looking = true
+        let ask = self.ask
         DispatchQueue.global(qos: .utility).async {
-            let found = run(tool, ["status", "--json"]).flatMap(url(fromStatus:))
-            let serves = run(tool, ["serve", "status", "--json"]).flatMap(servesDeck(fromServeStatus:))
+            let answer = ask()
             DispatchQueue.main.async {
                 looking = false
                 lookedAt = Date()
-                guard found != url || serves != serving else { return }
-                url = found
-                serving = serves
-                changed()
+                if let answer, answer.url != url || answer.serving != serving {
+                    url = answer.url
+                    serving = answer.serving
+                    changed()
+                }
+                finish()
             }
         }
+    }
+
+    /// Calls `then` on the main queue once the answer is fresh, or after
+    /// `wait` with the one there is, whichever comes first: the setup check
+    /// is right on its first run, and never waits long.
+    static func whenFresh(within wait: TimeInterval = timeout, changed: @escaping () -> Void, _ then: @escaping () -> Void) {
+        var answered = false
+        let once = {
+            guard !answered else { return }
+            answered = true
+            then()
+        }
+        refresh(changed: changed, then: once)
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: once)
+    }
+
+    private static func finish() {
+        let done = waiting
+        waiting = []
+        done.forEach { $0() }
+    }
+
+    /// Back to the start, with nothing known: for tests.
+    static func forget() {
+        url = nil
+        serving = nil
+        lookedAt = nil
+    }
+
+    /// The environment Tailscale's command line runs in: this app's, with a
+    /// TERM. The Mac app's binary is its command line only when TERM is set;
+    /// without it, as from an app opened in Finder, it tries to start its
+    /// window instead, fails, and prints no status.
+    static func environment(_ inherited: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
+        var environment = inherited
+        if environment["TERM", default: ""].isEmpty { environment["TERM"] = "dumb" }
+        return environment
     }
 
     /// Runs the tool, read-only, and gives what it printed, or nil if it
@@ -147,6 +200,7 @@ enum Tailnet {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments
+        process.environment = environment()
         let out = Pipe()
         process.standardOutput = out
         process.standardError = FileHandle.nullDevice
