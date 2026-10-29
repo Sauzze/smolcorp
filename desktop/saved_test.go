@@ -3,6 +3,7 @@ package desktop
 import (
 	"encoding/json"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -142,7 +143,9 @@ func TestTheSessionsAreSavedAMomentAfterAChange(t *testing.T) {
 			if json.Unmarshal(data, &saved) != nil || len(saved.Sessions) != 1 || saved.Sessions[0].ID != "s1" || saved.Keys["s1"] != 0 {
 				t.Errorf("saved %s", data)
 			}
-			if info, _ := os.Stat(file); info.Mode().Perm()&0o077 != 0 {
+			// Windows has no Unix modes: Go reports any writable file as 0666 there,
+			// and what keeps the file yours is your profile folder's own permissions.
+			if info, _ := os.Stat(file); runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 				t.Errorf("the saved sessions can be read by others: %v", info.Mode())
 			}
 			return
