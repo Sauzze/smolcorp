@@ -79,8 +79,9 @@ func TestHiringAndFiringAreOffUntilTurnedOn(t *testing.T) {
 	}
 
 	d.config.HiringEnabled = true
-	// With Auto and one session, desk 1 is the one after the last, which a hire adds.
-	for desk, want := range map[string]int{"": http.StatusNotImplemented, "0": http.StatusNotImplemented, "1": http.StatusNotImplemented,
+	// With Auto and one session, desk 1 is the one after the last, which a hire adds. No folder
+	// for new hires is chosen, so none is hired.
+	for desk, want := range map[string]int{"": http.StatusConflict, "0": http.StatusConflict, "1": http.StatusConflict,
 		"2": http.StatusBadRequest, "8": http.StatusBadRequest, "x": http.StatusBadRequest} {
 		query := url.Values{}
 		if desk != "" {
@@ -237,7 +238,7 @@ func TestHeadlessRunsSitUpstairsAwayFromTheKeys(t *testing.T) {
 	if first["id"] != "h0" || first["headless"] != true || first["role"] != nil {
 		t.Fatalf("the first desk upstairs is %v", first)
 	}
-	for _, control := range []string{"keys", "fire", "mic", "dictates"} {
+	for _, control := range []string{"keys", "fire", "mic", "dictates", "summary"} {
 		if first[control] != false {
 			t.Errorf("a headless desk has %s %v", control, first[control])
 		}
@@ -258,5 +259,35 @@ func TestNobodyUpstairs(t *testing.T) {
 	}
 	if string(snapshot.Upstairs) != `{"desks":[],"overflow":0}` {
 		t.Fatalf("upstairs with nobody there is %s", snapshot.Upstairs)
+	}
+}
+
+// A desk's name tag counts from when its session started, which /clear
+// doesn't move, so the phone is told it beside when the turn started.
+func TestADeskSaysWhenItsSessionStartedThroughClear(t *testing.T) {
+	d := newTestDeck(t)
+	start := func(id, source string, at float64) {
+		d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": source, "session_id": id, "cwd": "/work/api"},
+			Claude, tab, "/work/api", at)
+	}
+	prompt := func(id string, at float64) {
+		d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": id, "cwd": "/work/api"}, Claude, tab, "/work/api", at)
+	}
+	start("s1", "startup", 1_000)
+	prompt("s1", 5_000)
+	start("s2", "clear", 9_000)
+	prompt("s2", 9_500)
+	var snapshot struct {
+		Keys []struct{ Session map[string]any }
+	}
+	if err := json.Unmarshal(d.snapshot(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Keys) == 0 || snapshot.Keys[0].Session == nil {
+		t.Fatalf("no session at the first desk: %v", snapshot.Keys)
+	}
+	desk := snapshot.Keys[0].Session
+	if desk["id"] != "s2" || desk["startedAt"] != float64(1_000) || desk["turnStartedAt"] != float64(9_500) {
+		t.Fatalf("the desk after /clear is %v %v started, turn %v; want s2, 1000 and 9500", desk["id"], desk["startedAt"], desk["turnStartedAt"])
 	}
 }

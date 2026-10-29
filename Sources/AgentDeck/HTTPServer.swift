@@ -21,9 +21,13 @@ final class HTTPServer {
     private var listener: NWListener?
     private var openConnections = 0
     private var openByAddress: [String: Int] = [:]
+    private var stopped = false
     /// Called each time listening fails, before trying again, and once it works.
     var onFailure: (Error) -> Void = { _ in }
     var onReady: () -> Void = {}
+    /// Personal build: how the deck is found on the Wi-Fi by Bonjour, as the
+    /// iPhone app looks for it. Set before `start`.
+    var service: NWListener.Service?
 
     init(port: UInt16, router: Router) {
         self.port = port
@@ -39,6 +43,7 @@ final class HTTPServer {
             let parameters = NWParameters.tcp
             parameters.allowLocalEndpointReuse = true
             let listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
+            listener.service = service
             listener.newConnectionHandler = { [weak self] connection in
                 self?.accept(connection)
             }
@@ -58,11 +63,18 @@ final class HTTPServer {
         }
     }
 
+    /// Stops listening for good, as a stand-in server in a test does once it's done.
+    func stop() {
+        stopped = true
+        listener?.cancel()
+        listener = nil
+    }
+
     private func failed(_ error: Error) {
         listener = nil
         onFailure(error)
         DispatchQueue.main.asyncAfter(deadline: .now() + HTTPServer.retryDelay) { [weak self] in
-            guard let self, self.listener == nil else { return }
+            guard let self, !self.stopped, self.listener == nil else { return }
             self.start()
         }
     }
@@ -106,9 +118,33 @@ struct Request {
     /// Headers that came more than once, by their lowercased names: where
     /// it matters, as for the hook's, the request isn't believed.
     var repeatedHeaders: Set<String> = []
+    /// Personal build: addressed to a Tailscale name (`*.ts.net`) and come
+    /// from this Mac, or passed on by a proxy on this Mac whatever its Host,
+    /// as `tailscale serve` passes on a phone's request from the tailnet.
+    /// DeckRouter lets it in only with the phone mic setting on.
+    var isTailnet = false
 
     var json: [String: Any] {
         (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+    }
+
+    /// A request as the server reads it: who it's for, from its Host and
+    /// headers and whether it came from this Mac. Pure, for tests.
+    static func addressed(method: String, path: String, query: [String: String], headers: [String: String], body: Data,
+                          fromLoopback: Bool, remoteAddress: String, repeatedHeaders: Set<String> = []) -> Request {
+        let host = Addressing.host(headers["host"])
+        // Passed on by a proxy on this Mac (tailscale serve): from this Mac's
+        // loopback, but for someone else, so never "this Mac" for setup or the hook.
+        let proxied = Addressing.isProxied(headers)
+        // And `tailscale serve` passes on whatever Host the device sent, so
+        // such a request is the tailnet's even as `localhost` or an IP: only
+        // let in with the phone mic on, its wrong codes counted as its own.
+        let fromProxy = fromLoopback && proxied
+        return Request(method: method, path: path, query: query, headers: headers, body: body,
+                       isLocal: fromLoopback && !proxied && ["localhost", "127.0.0.1", "[::1]"].contains(host),
+                       isAddressedDirectly: !fromProxy && Addressing.isDirectAddress(host),
+                       remoteAddress: remoteAddress, repeatedHeaders: repeatedHeaders,
+                       isTailnet: fromProxy || Addressing.isTailnet(host, fromLoopback: fromLoopback))
     }
 }
 
@@ -157,6 +193,37 @@ enum Reply {
 
 protocol Router: AnyObject {
     func handle(_ request: Request, reply: @escaping (Reply) -> Void)
+}
+
+/// What a request's Host header says about who it's for. Pure, for tests.
+enum Addressing {
+    /// The Host header's name, lowercased, without its port.
+    static func host(_ header: String?) -> String {
+        (header ?? "").lowercased().replacingOccurrences(of: #":\d+$"#, with: "", options: .regularExpression)
+    }
+
+    /// An IP address, localhost, or a Bonjour name — never someone's domain.
+    static func isDirectAddress(_ host: String) -> Bool {
+        host == "localhost" || host.hasSuffix(".local") || host.hasPrefix("[")
+            || host.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil
+    }
+
+    /// Personal build: a MagicDNS name in a tailnet, such as
+    /// `my-mac.tail1234.ts.net`, reaching this server from this Mac's own
+    /// loopback: how `tailscale serve` hands on a request from the tailnet.
+    /// A web page can't use DNS rebinding with it: Tailscale, not the page,
+    /// says where `ts.net` names point. The same name from anywhere else
+    /// isn't believed.
+    static func isTailnet(_ host: String, fromLoopback: Bool) -> Bool {
+        fromLoopback && host.range(of: #"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.){2}ts\.net$"#, options: .regularExpression) != nil
+    }
+
+    /// Whether a proxy passed the request on, as `tailscale serve` does: it
+    /// says whom for in these headers, and sets them over any the sender put in.
+    static func isProxied(_ headers: [String: String]) -> Bool {
+        ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded", "tailscale-user-login"]
+            .contains { headers[$0] != nil }
+    }
 }
 
 // MARK: - Connections
@@ -232,23 +299,14 @@ private final class HTTPConnection {
         var query: [String: String] = [:]
         for item in components?.queryItems ?? [] { query[item.name] = item.value ?? "" }
 
-        let host = (headers["host"] ?? "").replacingOccurrences(of: #":\d+$"#, with: "", options: .regularExpression)
-        return Request(method: String(requestLine[0]), path: components?.path ?? "/", query: query,
-                       headers: headers, body: body,
-                       isLocal: isLoopback && ["localhost", "127.0.0.1", "[::1]"].contains(host),
-                       isAddressedDirectly: HTTPConnection.isDirectAddress(host),
-                       remoteAddress: remoteAddress, repeatedHeaders: repeated)
+        return Request.addressed(method: String(requestLine[0]), path: components?.path ?? "/", query: query,
+                                 headers: headers, body: body, fromLoopback: isLoopback,
+                                 remoteAddress: remoteAddress, repeatedHeaders: repeated)
     }
 
     private var remoteAddress: String { connection.remoteAddress }
 
     private var isLoopback: Bool { connection.isLoopback }
-
-    /// An IP address, localhost, or a Bonjour name — never someone's domain.
-    private static func isDirectAddress(_ host: String) -> Bool {
-        host == "localhost" || host.hasSuffix(".local") || host.hasPrefix("[")
-            || host.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil
-    }
 
     private func route(_ request: Request) {
         router.handle(request) { [self] reply in

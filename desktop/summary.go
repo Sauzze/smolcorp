@@ -38,17 +38,75 @@ const (
 	// How many characters are sent at most, and how much of the file is read from its end.
 	summaryBudget = 16_000
 	summaryReach  = 1024 * 1024
+	// How much further back the latest request is looked for, when it's not in summaryReach.
+	summaryLookBack = 16 * 1024 * 1024
 	// Each message's text, a tool's input and a tool's result, at most.
 	summaryTextMost   = 1_500
 	summaryToolMost   = 140
 	summaryResultMost = 160
+	// What comes just before the latest request, at most: enough to tell what a short answer answers.
+	summaryLeadIn = 500
+	// The latest request, when what follows it is too long to send whole.
+	summaryLatestMost = 600
+	// How what the user last asked is marked, so the summary is about it.
+	summaryLatest = "LATEST REQUEST"
+	// How a later message from another session is marked: it may give the agent its task now.
+	summaryLatestPeer = "LATEST PEER MESSAGE"
 )
 
 // transcriptExtract is the transcript's tail as short lines, oldest first,
-// already redacted, and the language the user writes in.
+// already redacted, the language the user writes in, and which messages the
+// latest request and any later peer message are (their ids in the
+// transcript), to tell new ones from them.
 type transcriptExtract struct {
 	Text     string
 	Language string
+	Latest   string
+}
+
+// transcriptMessage is a message to the agent: what the user typed, or what
+// another session sent it, From its name: a message, or a report it hands back.
+type transcriptMessage struct {
+	Kind           messageKind
+	Text, ID, From string
+}
+
+type messageKind int
+
+const (
+	fromUser messageKind = iota
+	fromPeer
+	reportFromPeer
+)
+
+func (m transcriptMessage) label() string {
+	switch m.Kind {
+	case fromPeer:
+		return "PEER " + m.From + ": "
+	case reportFromPeer:
+		return "REPORT from " + m.From + ": "
+	}
+	return "USER: "
+}
+
+// mark is how it's marked as the latest of its kind.
+func (m transcriptMessage) mark() string {
+	if m.Kind == fromUser {
+		return summaryLatest + ": "
+	}
+	return summaryLatestPeer + " (from " + m.From + "): "
+}
+
+// line is its line: redacted before it's cut.
+func (m transcriptMessage) line() string {
+	return m.label() + clip(redactText(m.Text), summaryTextMost)
+}
+
+// latestMessage is a latest message and where it is in the lines, -1 when
+// it's from before them.
+type latestMessage struct {
+	index   int
+	message transcriptMessage
 }
 
 // readTranscriptTail is the tail of the transcript at path, or false if
@@ -78,73 +136,225 @@ func readTranscriptTail(path string) (transcriptExtract, bool) {
 		return transcriptExtract{}, false
 	}
 	lines := bytes.Split(data, []byte("\n"))
-	// A line cut off where the reading starts is no use.
+	// A line cut off where the reading starts is no use here; it's the end of one looked at further back.
+	var cut []byte
 	if start > 0 && len(lines) > 0 {
-		lines = lines[1:]
+		cut, lines = lines[0], lines[1:]
 	}
-	extract := extractTranscript(lines, summaryBudget)
+	extract, asked := buildExtract(lines, summaryBudget, nil, nil)
+	// Tool results are kept whole in a transcript, so the latest request is often further back than summaryReach.
+	if !asked && start > 0 {
+		if request, peer := lastMessagesBefore(file, start, cut); request != nil || peer != nil {
+			extract, _ = buildExtract(lines, summaryBudget, request, peer)
+		}
+	}
 	return extract, extract.Text != ""
 }
 
-// extractTranscript turns JSONL lines into the summary's excerpt, cut down to budget.
-func extractTranscript(jsonl [][]byte, budget int) transcriptExtract {
-	var items, asked []string
-	lastAsk, lastAskLine := -1, ""
+// lastMessagesBefore is the last request in file before end, and the last
+// peer message after it, looked for backwards a chunk at a time, at most
+// summaryLookBack. cut is the end of the line end falls in.
+func lastMessagesBefore(file *os.File, end int64, cut []byte) (request, peer *transcriptMessage) {
+	stop := max(0, end-summaryLookBack)
+	for end > stop {
+		start := end - min(end-stop, summaryReach)
+		chunk := make([]byte, end-start)
+		if _, err := file.ReadAt(chunk, start); err != nil {
+			break
+		}
+		lines := bytes.Split(append(chunk, cut...), []byte("\n"))
+		cut = nil
+		if start > 0 && len(lines) > 0 {
+			cut, lines = lines[0], lines[1:]
+		}
+		for i := len(lines) - 1; i >= 0; i-- {
+			var entry map[string]any
+			if json.Unmarshal(lines[i], &entry) != nil {
+				continue
+			}
+			message, ok := messageOf(entry)
+			switch {
+			case !ok:
+			case message.Kind == fromUser:
+				return &message, peer
+			case message.Kind == fromPeer && peer == nil:
+				peer = &message
+			}
+		}
+		end = start
+	}
+	return nil, peer
+}
+
+// extractTranscript turns JSONL lines into the summary's excerpt, cut down to
+// budget: from the latest request on, marked, with a short lead-in before it,
+// and a later peer message marked too; or, if that's too long, those and the
+// end of what came after them. earlier and earlierPeer are what's latest when
+// it's before these lines.
+func extractTranscript(jsonl [][]byte, budget int, earlier, earlierPeer *transcriptMessage) transcriptExtract {
+	extract, _ := buildExtract(jsonl, budget, earlier, earlierPeer)
+	return extract
+}
+
+// buildExtract is extractTranscript, and whether the user asked anything in jsonl.
+func buildExtract(jsonl [][]byte, budget int, earlier, earlierPeer *transcriptMessage) (transcriptExtract, bool) {
+	var items []string
+	var messages []latestMessage
 	for _, line := range jsonl {
 		var entry map[string]any
 		if json.Unmarshal(line, &entry) != nil {
+			continue
+		}
+		if message, ok := messageOf(entry); ok {
+			messages = append(messages, latestMessage{len(items), message})
+			items = append(items, message.line())
 			continue
 		}
 		kind, _ := entry["type"].(string)
 		if (kind != "user" && kind != "assistant") || entry["isSidechain"] == true {
 			continue
 		}
-		message, ok := entry["message"].(map[string]any)
-		if !ok {
-			continue
-		}
-		meta := entry["isMeta"] == true
-		for _, r := range renderMessage(message, kind) {
-			if r.asked {
-				if meta {
-					continue
-				}
-				asked = append(asked, r.text)
-				line := "USER: " + clip(r.text, summaryTextMost)
-				lastAsk, lastAskLine = len(items), line
-				items = append(items, line)
-			} else {
-				items = append(items, r.text)
-			}
+		if message, ok := entry["message"].(map[string]any); ok {
+			items = append(items, renderMessage(message, kind)...)
 		}
 	}
 	for i := range items {
-		items[i] = redactText(items[i])
+		items[i] = preparedLine(items[i])
 	}
 
-	// From the end, as many lines as the budget takes.
+	var request, peer *latestMessage
+	for i := len(messages) - 1; i >= 0 && request == nil; i-- {
+		if messages[i].message.Kind == fromUser {
+			request = &messages[i]
+		}
+	}
+	if request == nil && earlier != nil {
+		request = &latestMessage{-1, *earlier}
+	}
+	after := -1
+	if request != nil {
+		after = request.index
+	}
+	for i := len(messages) - 1; i >= 0 && peer == nil && messages[i].index > after; i-- {
+		if messages[i].message.Kind == fromPeer {
+			peer = &messages[i]
+		}
+	}
+	if peer == nil && after < 0 && earlierPeer != nil {
+		peer = &latestMessage{-1, *earlierPeer}
+	}
+
+	// The user's language, from their latest words if those lean either way: only what's sent of them.
+	var words []string
+	if earlier != nil {
+		words = append(words, clip(redactText(earlier.Text), summaryTextMost))
+	}
+	for _, m := range messages {
+		if m.message.Kind == fromUser {
+			words = append(words, clip(redactText(m.message.Text), summaryTextMost))
+		}
+	}
+	language := ""
+	if len(words) > 0 {
+		language = languageLean(words[len(words)-1:])
+	}
+	if language == "" {
+		language = languageOf(words[max(0, len(words)-8):])
+	}
+	var ids []string
+	var marks []latestMessage
+	for _, m := range []*latestMessage{request, peer} {
+		if m != nil {
+			ids, marks = append(ids, m.message.ID), append(marks, *m)
+		}
+	}
+	extract := transcriptExtract{Text: strings.Join(excerptLines(items, marks, budget), "\n"), Language: language, Latest: strings.Join(ids, " ")}
+	return extract, request != nil && request.index >= 0
+}
+
+// excerptLines is items cut down to budget around marks, what's latest, marked.
+func excerptLines(items []string, marks []latestMessage, budget int) []string {
+	if len(marks) == 0 {
+		return tailLines(items, budget)
+	}
+	items = append([]string(nil), items...)
+	for _, m := range marks {
+		if m.index >= 0 {
+			items[m.index] = markedLine(items[m.index], m.message)
+		}
+	}
+	// All of it from the first marked line on, if that's among items and fits, with a lead-in.
+	if first := marks[0].index; first >= 0 {
+		if used := runeCount(items[first:]); used <= budget {
+			return append(leadLines(items[:first], min(summaryLeadIn, budget-used)), items[first:]...)
+		}
+	}
+	// Or each marked line first, cut short, then the end that fits: a later
+	// peer's message stays where it is when the end from it fits.
+	var head []string
+	from := 0
+	most := max(2, min(summaryLatestMost, budget/len(marks)-3)) // each with its "…", within budget
+	for _, m := range marks {
+		if m.index >= 0 && m.message.Kind == fromPeer && runeCount(items[m.index:]) <= budget-runeCount(head) {
+			break
+		}
+		line := markedLine(preparedLine(m.message.line()), m.message)
+		if m.index >= 0 {
+			line, from = items[m.index], m.index+1
+		}
+		head = append(head, clip(line, most), "…")
+	}
+	return append(head, tailLines(items[from:], budget-runeCount(head))...)
+}
+
+// preparedLine is item redacted, and with no line of its own starting as a
+// mark does: only the latest messages' may.
+func preparedLine(item string) string {
+	return strings.ReplaceAll(redactText(item), "\nLATEST ", "\n LATEST ")
+}
+
+// markedLine is a latest message's line, item, with its mark for its label.
+func markedLine(item string, message transcriptMessage) string {
+	return message.mark() + strings.TrimPrefix(item, message.label())
+}
+
+// tailLines is as many of items, from the end, as budget takes.
+func tailLines(items []string, budget int) []string {
 	var kept []string
-	used, firstKept := 0, len(items)
+	used := 0
 	for i := len(items) - 1; i >= 0; i-- {
 		if used+len([]rune(items[i]))+1 > budget {
 			break
 		}
 		kept = append([]string{items[i]}, kept...)
 		used += len([]rune(items[i])) + 1
-		firstKept = i
 	}
-	// What the user last asked, even from before the tail, so it's known what the agent is on.
-	if lastAsk >= 0 && lastAsk < firstKept {
-		kept = append([]string{redactText(clip(lastAskLine, 600)) + "\n…"}, kept...)
-		for len(kept) > 1 && runeCount(kept) > budget {
-			kept = append(kept[:1], kept[2:]...)
+	return kept
+}
+
+// leadLines is the end of what came before the latest request, in at most
+// most characters, "…" first if there was more: whole lines, or the end of
+// the last one alone, where a question is asked.
+func leadLines(before []string, most int) []string {
+	most -= 2 // for "…"
+	var kept []string
+	used := 0
+	for i := len(before) - 1; i >= 0; i-- {
+		if n := len([]rune(before[i])); used+n+1 <= most {
+			kept = append([]string{before[i]}, kept...)
+			used += n + 1
+			continue
 		}
+		// The line is redacted already; again after the cut, as a line cut mid-word can start to look like a secret.
+		if len(kept) == 0 && most > 40 {
+			kept = []string{redactText(clipStart(before[i], most-1))}
+		}
+		break
 	}
-	recent := asked
-	if len(recent) > 8 {
-		recent = recent[len(recent)-8:]
+	if len(kept) < len(before) && most > 0 {
+		kept = append([]string{"…"}, kept...)
 	}
-	return transcriptExtract{Text: strings.Join(kept, "\n"), Language: languageOf(recent)}
+	return kept
 }
 
 func runeCount(lines []string) int {
@@ -155,17 +365,103 @@ func runeCount(lines []string) int {
 	return n
 }
 
-type rendered struct {
-	text  string
-	asked bool
+// messageOf is the entry as a message to the agent, if it is one: what the
+// user typed, or what another session sent it. One sent while the agent
+// works is an attachment, queued into its turn.
+func messageOf(entry map[string]any) (transcriptMessage, bool) {
+	// A compaction's summary of the conversation so far is in the user's turn, but no one asked it.
+	if entry["isSidechain"] == true || entry["isCompactSummary"] == true || entry["isVisibleInTranscriptOnly"] == true {
+		return transcriptMessage{}, false
+	}
+	var content any
+	var origin map[string]any
+	var meta bool
+	switch entry["type"] {
+	case "user":
+		message, ok := entry["message"].(map[string]any)
+		if !ok {
+			return transcriptMessage{}, false
+		}
+		content, meta = message["content"], entry["isMeta"] == true
+		origin, _ = entry["origin"].(map[string]any)
+	case "attachment":
+		queued, _ := entry["attachment"].(map[string]any)
+		if queued["type"] != "queued_command" || queued["commandMode"] != "prompt" {
+			return transcriptMessage{}, false
+		}
+		content, meta = queued["prompt"], queued["isMeta"] == true
+		origin, _ = queued["origin"].(map[string]any)
+	default:
+		return transcriptMessage{}, false
+	}
+	text := strings.TrimSpace(wordsOf(content))
+	id := entryID(entry, text)
+	switch kind, _ := origin["kind"].(string); kind {
+	case "human":
+		return transcriptMessage{Kind: fromUser, Text: text, ID: id}, text != "" && !isNote(text)
+	case "peer":
+		// A report handed back is what its body says around it.
+		report := origin["handback"] == true
+		said := text
+		if body, ok := origin["body"].(string); ok {
+			said = body
+		}
+		if body, ok := origin["handbackReportText"].(string); ok && report {
+			said = body
+		}
+		said = strings.TrimSpace(said)
+		// Its name is redacted too: it's shown as given.
+		name, _ := origin["name"].(string)
+		if name = clip(redactText(firstLine(name)), 60); name == "" {
+			name = "another session"
+		}
+		kind := fromPeer
+		if report {
+			kind = reportFromPeer
+		}
+		return transcriptMessage{Kind: kind, Text: said, ID: id, From: name}, said != ""
+	case "":
+		// Where Claude Code didn't write who a message came from: the user's words, but not its own notes.
+		ok := entry["type"] == "user" && !meta && text != "" && !strings.HasPrefix(text, "<") &&
+			!strings.HasPrefix(text, "Caveat:") && !isNote(text)
+		return transcriptMessage{Kind: fromUser, Text: text, ID: id}, ok
+	default: // a task's notification, and anything new
+		return transcriptMessage{}, false
+	}
 }
 
-func renderMessage(message map[string]any, kind string) []rendered {
+// isNote is a command run or an interruption, in the user's turn: shown as
+// what it is, not as a request.
+func isNote(text string) bool {
+	return strings.HasPrefix(text, "<command-name>") || strings.HasPrefix(text, "[Request interrupted")
+}
+
+// wordsOf is what a message says in words: its text, or its text blocks together.
+func wordsOf(content any) string {
+	if text, ok := content.(string); ok {
+		return text
+	}
+	return resultText(content)
+}
+
+// entryID is which message a transcript entry is: its uuid, or failing that
+// its time, or failing that what it says.
+func entryID(entry map[string]any, text string) string {
+	for _, field := range []string{"uuid", "timestamp"} {
+		if id, _ := entry[field].(string); id != "" {
+			return id
+		}
+	}
+	return text
+}
+
+// renderMessage is a message's lines, each redacted before it's cut.
+func renderMessage(message map[string]any, kind string) []string {
 	if text, ok := message["content"].(string); ok {
 		return said(text, kind)
 	}
 	blocks, _ := message["content"].([]any)
-	var out []rendered
+	var out []string
 	for _, b := range blocks {
 		block, _ := b.(map[string]any)
 		switch block["type"] {
@@ -173,9 +469,9 @@ func renderMessage(message map[string]any, kind string) []rendered {
 			text, _ := block["text"].(string)
 			out = append(out, said(text, kind)...)
 		case "tool_use":
-			out = append(out, rendered{text: "TOOL " + toolLine(block)})
+			out = append(out, "TOOL "+toolLine(block))
 		case "tool_result":
-			first := firstLine(resultText(block["content"]))
+			first := redactText(firstLine(resultText(block["content"])))
 			if first == "" {
 				first = "(nothing)"
 			}
@@ -183,22 +479,22 @@ func renderMessage(message map[string]any, kind string) []rendered {
 			if block["is_error"] == true {
 				label = "ERROR: "
 			}
-			out = append(out, rendered{text: label + clip(first, summaryResultMost)})
+			out = append(out, label+clip(first, summaryResultMost))
 		}
 		// Thinking, images, and anything new: left out.
 	}
 	return out
 }
 
-func said(text, kind string) []rendered {
+func said(text, kind string) []string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
 	}
 	if kind != "user" {
-		return []rendered{{text: "CLAUDE: " + clip(text, summaryTextMost)}}
+		return []string{"CLAUDE: " + clip(redactText(text), summaryTextMost)}
 	}
-	// Claude Code's own notes in the user's turn: a command's output, a reminder, an interruption.
+	// What was asked is a message; what's left in the user's turn is Claude Code's own: a command, an interruption.
 	if strings.HasPrefix(text, "<command-name>") {
 		name := ""
 		if end := strings.Index(text, "</command-name>"); end > len("<command-name>") {
@@ -207,15 +503,12 @@ func said(text, kind string) []rendered {
 		if name == "" {
 			return nil
 		}
-		return []rendered{{text: "USER ran " + clip(name, 60)}}
-	}
-	if strings.HasPrefix(text, "<") || strings.HasPrefix(text, "Caveat:") {
-		return nil
+		return []string{"USER ran " + clip(redactText(name), 60)}
 	}
 	if strings.HasPrefix(text, "[Request interrupted") {
-		return []rendered{{text: "(the user interrupted)"}}
+		return []string{"(the user interrupted)"}
 	}
-	return []rendered{{text: text, asked: true}}
+	return nil
 }
 
 // toolLine is a tool's call in a line: its name and the one part of its input
@@ -230,7 +523,7 @@ func toolLine(block map[string]any) string {
 	input, _ := block["input"].(map[string]any)
 	for _, field := range []string{"file_path", "notebook_path", "path", "command", "pattern", "url", "query", "description", "subject", "skill"} {
 		if value, ok := input[field].(string); ok && value != "" {
-			return name + ": " + clip(firstLine(value), summaryToolMost)
+			return name + ": " + clip(redactText(firstLine(value)), summaryToolMost)
 		}
 	}
 	return name
@@ -269,6 +562,26 @@ func clip(text string, most int) string {
 	return string(runes[:most-1]) + "…"
 }
 
+// clipStart is text's end, in at most most characters, keeping its label.
+func clipStart(text string, most int) string {
+	runes := []rune(text)
+	if len(runes) <= most {
+		return text
+	}
+	label := ""
+	for _, l := range []string{"USER: ", "CLAUDE: ", "RESULT: ", "ERROR: "} {
+		if strings.HasPrefix(text, l) {
+			label = l
+			break
+		}
+	}
+	if colon := strings.Index(text, ": "); label == "" && (strings.HasPrefix(text, "PEER ") || strings.HasPrefix(text, "REPORT from ")) && colon > 0 {
+		label = text[:colon+2]
+	}
+	keep := max(0, most-len([]rune(label))-1)
+	return label + "…" + string(runes[len(runes)-keep:])
+}
+
 // Lines that look like they hold a secret, taken out before anything is sent.
 var secretLine = []*regexp.Regexp{
 	regexp.MustCompile(`(^|[^A-Za-z0-9_-])sk-[A-Za-z0-9]`), // Anthropic, OpenAI and others' keys
@@ -281,7 +594,7 @@ var secretLine = []*regexp.Regexp{
 	regexp.MustCompile(`(^|[^A-Za-z0-9])(ghp|gho|github_pat|xox[abpr]|AKIA)[A-Za-z0-9_-]`),
 	regexp.MustCompile(`(^|[^A-Za-z0-9_])(sk|rk|pk)_(live|test)_[A-Za-z0-9]`), // Stripe
 	regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.`),           // a JWT
-	regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@`),       // postgres://user:password@…
+	regexp.MustCompile(`[A-Za-z0-9+.-]://[^/\s:@]*:[^/\s@]+@`),                // postgres://user:password@… or redis://:password@…, found from its "://", as in Summary.swift
 	regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY`),
 }
 
@@ -363,6 +676,14 @@ func wordSet(words string) map[string]bool {
 
 // languageOf is French or English, from the words the user wrote.
 func languageOf(texts []string) string {
+	if language := languageLean(texts); language != "" {
+		return language
+	}
+	return "English"
+}
+
+// languageLean is French or English, or "" if texts lean neither way.
+func languageLean(texts []string) string {
 	fr, en := 0, 0
 	for _, text := range texts {
 		for _, word := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && r != '\'' }) {
@@ -377,10 +698,13 @@ func languageOf(texts []string) string {
 			fr++
 		}
 	}
-	if fr > en {
+	switch {
+	case fr > en:
 		return "French"
+	case en > fr:
+		return "English"
 	}
-	return "English"
+	return ""
 }
 
 // MARK: Asking Claude
@@ -426,8 +750,14 @@ const (
 
 func summarySystem(language string) string {
 	return "You summarise a coding agent's session for its owner, who is away from the computer and reads on a phone. " +
+		"If a line starts with LATEST REQUEST, it is what the user last asked: summarise that request and the work " +
+		"since. Lines before it are background only: mention older work only if it is still in progress. " +
+		"If no line starts with LATEST REQUEST, summarise the most recent work in the excerpt. " +
+		"A line starting LATEST PEER MESSAGE is a newer message from another session: if it gives the agent its " +
+		"current task, say what that task is in one line. Lines starting REPORT are reports other sessions handed " +
+		"back, not requests. " +
 		"From the transcript excerpt, write 3 to 5 short lines, plain text, no markdown, no bullets, no preamble:\n" +
-		"1. what the user asked for;\n2. what the agent did or is doing now;\n" +
+		"1. what the user last asked for;\n2. what the agent did or is doing about it now;\n" +
 		"3. whether it is waiting on the user, and for what (say plainly if it isn't);\n4. the last result or error.\n" +
 		"Write in " + language + ", the language the user writes in. Each line under 100 characters. " +
 		"Lines marked [redacted] held secrets: never guess them."
@@ -632,7 +962,8 @@ func (k *summaryKeys) Remove() {
 // MARK: Summaries
 
 // summaries are by session: one call at a time for each, kept for
-// summaryKeepFor so a second tap doesn't pay twice, and at most summaryMost
+// summaryKeepFor so a second tap doesn't pay twice unless the user has asked
+// something since, and at most summaryMost
 // calls in summaryWindow for the whole computer, so no phone can run up your
 // bill. Never retried: a tap is one call at most.
 type summaries struct {
@@ -652,8 +983,9 @@ const (
 )
 
 type keptSummary struct {
-	text string
-	at   time.Time
+	text   string
+	latest string // the latest request it covered
+	at     time.Time
 }
 
 type summaryResult struct {
@@ -667,8 +999,10 @@ func newSummaries(key func() string) *summaries {
 
 // Summarize answers the summary of session id from its transcript at path.
 func (s *summaries) Summarize(id, path, project string) (string, *SummaryError) {
+	// Read first: a summary kept is served only while the user's latest request is still the one it covered.
+	extract, ok := readTranscriptTail(path)
 	s.mu.Lock()
-	if hit, ok := s.kept[id]; ok && s.now().Sub(hit.at) < summaryKeepFor {
+	if hit, found := s.kept[id]; found && ok && hit.latest == extract.Latest && s.now().Sub(hit.at) < summaryKeepFor {
 		s.mu.Unlock()
 		return hit.text, nil
 	}
@@ -694,10 +1028,10 @@ func (s *summaries) Summarize(id, path, project string) (string, *SummaryError) 
 	s.waiting[id] = []chan summaryResult{done}
 	s.mu.Unlock()
 
-	result := s.request(path, project)
+	result := s.request(extract, ok, project)
 	s.mu.Lock()
 	if result.err == nil {
-		s.kept[id] = keptSummary{result.text, s.now()}
+		s.kept[id] = keptSummary{result.text, extract.Latest, s.now()}
 	}
 	waiters := s.waiting[id]
 	delete(s.waiting, id)
@@ -708,8 +1042,7 @@ func (s *summaries) Summarize(id, path, project string) (string, *SummaryError) 
 	return result.text, result.err
 }
 
-func (s *summaries) request(path, project string) summaryResult {
-	extract, ok := readTranscriptTail(path)
+func (s *summaries) request(extract transcriptExtract, ok bool, project string) summaryResult {
 	if !ok {
 		return summaryResult{err: errSummaryNoHistory}
 	}

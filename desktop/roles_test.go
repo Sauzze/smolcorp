@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -15,7 +16,8 @@ func TestRolesCometWithTheAppUntilYouChangeThem(t *testing.T) {
 	if roles := loadConfig().Roles; !sameRoles(roles, shippedRoles) {
 		t.Fatalf("a new config has roles %v, want the shipped ones", roles)
 	}
-	writeFile(t, configFile, `{"roles": []}`)
+	offered, _ := json.Marshal(shippedRoleIDs())
+	writeFile(t, configFile, `{"roles": [], "rolesOffered": `+string(offered)+`}`)
 	if roles := loadConfig().Roles; roles == nil || len(roles) != 0 {
 		t.Errorf("all roles taken out load as %v, want none", roles)
 	}
@@ -47,8 +49,9 @@ func TestARoleKeepsOnlyWhatCanBeKept(t *testing.T) {
 	for i := range 20 {
 		many = append(many, Role{ID: fmt.Sprintf("own-%d", i), Name: "Own"})
 	}
-	if kept := checkedRoles(append(many, shippedRoles...)); len(kept) != ownRolesMost+len(shippedRoles) {
-		t.Errorf("20 of your own and the shipped ones keep %d, want %d", len(kept), ownRolesMost+len(shippedRoles))
+	// As many of your own as you make: there's no most.
+	if kept := checkedRoles(append(many, shippedRoles...)); len(kept) != len(many)+len(shippedRoles) {
+		t.Errorf("20 of your own and the shipped ones keep %d, want %d", len(kept), len(many)+len(shippedRoles))
 	}
 }
 
@@ -79,7 +82,7 @@ func TestARoleOnlyAsksBeforeItStarts(t *testing.T) {
 	isolate(t)
 	// In this system's own separators: ~\work\api on Windows.
 	homeDir = filepath.Join(string(filepath.Separator), "home", "someone")
-	message := shippedRoles[1].firstMessage(filepath.Join(homeDir, "work", "api"))
+	message := shippedRoles[1].firstMessage(filepath.Join(homeDir, "work", "api"), startedHere)
 	want := "Your first reply must only ask me the questions below, all together. Don't read code, run commands or start any " +
 		"work until I've answered them.\n\n" +
 		"1. You've started in " + filepath.Join("~", "work", "api") + ". Is that the one to work on?\n" +
@@ -89,7 +92,7 @@ func TestARoleOnlyAsksBeforeItStarts(t *testing.T) {
 	if !strings.HasPrefix(message, want) {
 		t.Errorf("the tester is first told\n%s\nwant it to start\n%s", message, want)
 	}
-	if message := (Role{Name: "Blank"}).firstMessage("/srv/app"); !strings.HasSuffix(message, "\n\nOnce I've answered, ask me what to do.") ||
+	if message := (Role{Name: "Blank"}).firstMessage("/srv/app", startedHere); !strings.HasSuffix(message, "\n\nOnce I've answered, ask me what to do.") ||
 		!strings.Contains(message, "Is that the one to work on?") {
 		t.Errorf("a role with no questions or instructions is told %q, want it to ask about the folder, then what to do", message)
 	}
@@ -102,8 +105,9 @@ func TestRolesAsShippedIn171AreBroughtUpToDate(t *testing.T) {
 	saved, _ := json.Marshal(map[string]any{"roles": []any{shippedIn171[0], edited, shippedIn171[4],
 		map[string]any{"id": "own-1", "name": "Security", "questions": []any{"Which repo?", "", "  Any area?  ", 5}}}})
 	writeFile(t, configFile, string(saved))
+	// From before rolesOffered: the roles that came after the first five are added, at the end.
 	roles := loadConfig().Roles
-	if len(roles) != 4 || !roles[0].sameAs(shippedRoles[0]) || !roles[2].sameAs(shippedRoles[4]) {
+	if len(roles) != 4+len(shippedRoles)-5 || !roles[0].sameAs(shippedRoles[0]) || !roles[2].sameAs(shippedRoles[4]) {
 		t.Errorf("1.7.1's reviewer and refactorer load as\n%+v\n%+v\nwant today's", roles[0], roles[2])
 	}
 	if !roles[1].sameAs(func() Role { r, _ := edited.checked(); return r }()) {
@@ -117,11 +121,11 @@ func TestRolesAsShippedIn171AreBroughtUpToDate(t *testing.T) {
 func TestARoleIsStartedFromSetupsRoles(t *testing.T) {
 	isolate(t)
 	writeFile(t, configFile, `{"roles": [{"id": "tester", "name": "Tester", "agent": "codex", "instructions": "Run the tests."}]}`)
-	args, err := roleArguments("tester")
+	args, err := roleArguments("tester", "/work", startedHere)
 	if err != nil || len(args) != 3 || args[0] != "codex" || args[1] != "--" || !strings.HasSuffix(args[2], "Once I've answered, as my Tester: Run the tests.") {
 		t.Errorf("the tester starts as %q, %v", args, err)
 	}
-	if _, err := roleArguments("nobody"); err == nil || !strings.Contains(err.Error(), "Yours are: tester") {
+	if _, err := roleArguments("nobody", "/work", startedHere); err == nil || !strings.Contains(err.Error(), "Yours are: tester") {
 		t.Errorf("an unknown role gave %v, want the ones there are", err)
 	}
 }
@@ -141,8 +145,8 @@ func TestCmdIsNeverHandedWhatItWouldActOn(t *testing.T) {
 func TestADeskShowsTheRoleItsLauncherWasStartedWith(t *testing.T) {
 	d := newTestDeck(t)
 	d.config.Roles = slices.Clone(shippedRoles)
-	d.launcherConnected("L1", Claude, "/work/api", "tester")
-	d.launcherConnected("L2", Claude, "/work/web", "")
+	d.launcherConnected("L1", Claude, "/work/api", "tester", "")
+	d.launcherConnected("L2", Claude, "/work/web", "", "")
 	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": "/work/api"},
 		Claude, "launcher:L1", "", 100)
 	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s2", "cwd": "/work/web"},
@@ -226,5 +230,244 @@ func TestBackslashesBeforeAQuoteAreDoubled(t *testing.T) {
 	want := `"cmd.exe" /d /s /c "C:\npm\gemini.bat ^"two^ \\\\\^"^ end^" ^"ends^ \\^""`
 	if got != want {
 		t.Fatalf("the command line is\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestRolesKeptBeforeBriefsAreGivenOne(t *testing.T) {
+	isolate(t)
+	edited := shippedRoles[2]
+	edited.Instructions = "Hunt my way."
+	saved, _ := json.Marshal(map[string]any{"roles": []any{shippedRoles[0], edited, shippedIn171[1],
+		Role{ID: "own-1", Name: "Mine", Instructions: "Do it."}}})
+	writeFile(t, configFile, string(saved))
+	roles := loadConfig().Roles
+	want := []RoleBrief{{Kind: "library", ID: "reviewer"}, {Kind: "text", Text: "Hunt my way."}, {Kind: "library", ID: "tester"},
+		{Kind: "text", Text: "Do it."}}
+	for i, brief := range want {
+		if roles[i].Brief == nil || *roles[i].Brief != brief {
+			t.Errorf("%s has the brief %+v, want %+v", roles[i].ID, roles[i].Brief, brief)
+		}
+	}
+	if !roles[2].sameAs(shippedRoles[1]) {
+		t.Errorf("1.7.1's tester loads as %+v, want today's", roles[2])
+	}
+	if fresh := checkedRoles(slices.Clone(shippedRoles)); fresh[0].Brief == nil || fresh[0].Brief.Kind != "library" {
+		t.Errorf("a new config's reviewer has the brief %+v", fresh[0].Brief)
+	}
+}
+
+// A config written by the Mac app keeps its briefs here, read and saved again.
+func TestBriefsGoBackAndForthWithoutLoss(t *testing.T) {
+	isolate(t)
+	writeFile(t, configFile, `{"roles": [
+		{"id": "reviewer", "name": "Reviewer", "instructions": "x", "brief": {"kind": "file", "text": "# Mine {{role}}\n", "fileName": "mine.md"}},
+		{"id": "own-1", "name": "Mine", "instructions": "", "brief": {"kind": "library", "id": "security-auditor"}},
+		{"id": "own-2", "name": "Two", "instructions": "", "brief": {"kind": "text", "text": "From the brief."}},
+		{"id": "own-3", "name": "Three", "instructions": "Kept.", "brief": {"kind": "library", "id": "nope"}},
+		{"id": "own-4", "name": "Four", "instructions": "Kept.", "brief": {"kind": "file", "text": "bin\u0000ary", "fileName": "a.md"}},
+		{"id": "own-5", "name": "Five", "instructions": "Kept.", "brief": {"kind": "teleport"}}]}`)
+	config := loadConfig()
+	saved, err := json.Marshal(config.Roles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back []Role
+	json.Unmarshal(saved, &back)
+	want := []RoleBrief{{Kind: "file", Text: "# Mine {{role}}\n", FileName: "mine.md"}, {Kind: "library", ID: "security-auditor"},
+		{Kind: "text", Text: "From the brief."}, {Kind: "text", Text: "Kept."}, {Kind: "text", Text: "Kept."}, {Kind: "text", Text: "Kept."}}
+	for i, brief := range want {
+		if back[i].Brief == nil || *back[i].Brief != brief {
+			t.Errorf("%s comes back with the brief %+v, want %+v", back[i].ID, back[i].Brief, brief)
+		}
+	}
+	if back[2].Instructions != "From the brief." {
+		t.Errorf("a text brief's role has the instructions %q", back[2].Instructions)
+	}
+	if !strings.Contains(string(saved), `"brief":{"kind":"file","text":"# Mine {{role}}\n","fileName":"mine.md"}`) {
+		t.Errorf("the file brief is saved as\n%s", saved)
+	}
+}
+
+func TestAPickedBriefFileIsCheckedAsTheMacAppChecksIt(t *testing.T) {
+	if brief, ok := checkedBriefFile("\uFEFF# Mine\r\nLine\u0007\n", `C:\Briefs\mine.MD`); !ok || brief.Text != "# Mine\nLine\n" || brief.FileName != "mine.MD" {
+		t.Errorf("a picked file is kept as %+v, %v", brief, ok)
+	}
+	for _, c := range []struct{ text, name string }{
+		{" \n", "a.md"}, {strings.Repeat("x", roleBriefFileLimit+1), "a.md"}, {"bad \uFFFD", "a.md"}, {"# Mine", "a.pdf"}, {"# Mine", ""},
+	} {
+		if _, ok := checkedBriefFile(c.text, c.name); ok {
+			t.Errorf("%q named %q is kept", c.text[:min(len(c.text), 10)], c.name)
+		}
+	}
+}
+
+func TestRolesThatComeWithAnUpdateAreAddedOnce(t *testing.T) {
+	isolate(t)
+	// A config from before the Art Director and the rest: given them once, at the end of yours.
+	writeFile(t, configFile, `{"roles": [{"id": "own-1", "name": "Mine"}, {"id": "tester", "name": "Tester"}]}`)
+	config := loadConfig()
+	ids := []string{}
+	for _, role := range config.Roles {
+		ids = append(ids, role.ID)
+	}
+	want := append([]string{"own-1", "tester"}, shippedRoleIDs()[5:]...)
+	if !slices.Equal(ids, want) {
+		t.Errorf("an older config's roles load as %v, want %v", ids, want)
+	}
+	if !slices.Equal(config.RolesOffered, shippedRoleIDs()) {
+		t.Errorf("it's saved as offered %v, want every shipped role", config.RolesOffered)
+	}
+	// One you then delete isn't given back.
+	config.Roles = config.Roles[:1]
+	config.save()
+	if roles := loadConfig().Roles; len(roles) != 1 || roles[0].ID != "own-1" {
+		t.Errorf("after deleting the shipped roles, roles load as %+v", roles)
+	}
+}
+
+func TestARoleDressesItsAgents(t *testing.T) {
+	var roles []Role
+	if err := json.Unmarshal([]byte(`[{"id": "a", "name": "A", "outfit": "chef"}, {"id": "b", "name": "B", "outfit": "auto"},
+		{"id": "c", "name": "C", "outfit": "ballgown"}, {"id": "d", "name": "D", "outfit": 3}, {"id": "e", "name": "E", "badge": "toque"}]`), &roles); err != nil {
+		t.Fatal(err)
+	}
+	kept := checkedRoles(roles)
+	for i, want := range []string{"chef", "", "", "", ""} {
+		if kept[i].Outfit != want {
+			t.Errorf("role %s wears %q, want %q", kept[i].ID, kept[i].Outfit, want)
+		}
+	}
+	if kept[4].Badge != "toque" {
+		t.Errorf("the Chef's badge became %q", kept[4].Badge)
+	}
+	if phone := kept[0].forPhone(); phone["outfit"] != "chef" || phone["instructions"] != nil {
+		t.Errorf("the phone is told %v", phone)
+	}
+	for _, role := range shippedRoles {
+		if role.Badge == "" || !slices.Contains(roleBadges, role.Badge) {
+			t.Errorf("%s has badge %q, which isn't one a role can wear", role.ID, role.Badge)
+		}
+		if role.Outfit != "" && !slices.Contains(teamChoices["outfit"], role.Outfit) {
+			t.Errorf("%s wears %q, which the office doesn't know", role.ID, role.Outfit)
+		}
+		if checked, ok := role.checked(); !ok || !checked.sameAs(role) {
+			t.Errorf("%s isn't kept as it comes", role.ID)
+		}
+	}
+}
+
+func TestABriefsTextAndItsInstructionsStayTheSame(t *testing.T) {
+	saved := []Role{{ID: "own-1", Name: "Mine", Instructions: "Old.", Brief: &RoleBrief{Kind: "text", Text: "Old."}}}
+	oldPage := Role{ID: "own-1", Name: "Mine", Instructions: "Edited on the old page.", Brief: &RoleBrief{Kind: "text", Text: "Old."}}
+	if got := syncedRoles([]Role{oldPage}, saved)[0]; got.Brief.Text != "Edited on the old page." {
+		t.Errorf("an edit of the instructions gives the brief %+v", got.Brief)
+	}
+	newPage := Role{ID: "own-1", Name: "Mine", Instructions: "Old.", Brief: &RoleBrief{Kind: "text", Text: "Edited on the new page."}}
+	if got := syncedRoles([]Role{newPage}, saved)[0]; got.Instructions != "Edited on the new page." {
+		t.Errorf("an edit of the brief gives the instructions %q", got.Instructions)
+	}
+	if saved[0].Instructions != "Old." {
+		t.Error("the saved roles changed")
+	}
+}
+
+func TestEditingALibraryRolesInstructionsPutsItOnThem(t *testing.T) {
+	saved := checkedRoles(slices.Clone(shippedRoles))
+	edited := saved[0]
+	edited.Instructions = "Review only the docs."
+	if got := syncedRoles([]Role{edited}, saved)[0]; got.Brief == nil || *got.Brief != (RoleBrief{Kind: "text", Text: "Review only the docs."}) {
+		t.Errorf("an edited library role has the brief %+v", got.Brief)
+	}
+	if got := syncedRoles([]Role{saved[1]}, saved)[0]; got.Brief.Kind != "library" {
+		t.Errorf("an unchanged library role has the brief %+v", got.Brief)
+	}
+}
+
+func TestShippedRolesKeptFromBeforeOutfitsGetTheirs(t *testing.T) {
+	isolate(t)
+	old := shippedBeforeOutfits()
+	edited := old[1]
+	edited.Name = "Docs"
+	saved, _ := json.Marshal(map[string]any{"roles": []any{old[0], edited, old[2]}, "rolesOffered": shippedRoleIDs()})
+	writeFile(t, configFile, string(saved))
+	roles := loadConfig().Roles
+	if roles[0].Outfit != "detective" || roles[2].Outfit != "hardhat" {
+		t.Errorf("the Bug hunter and the Refactorer wear %q and %q, want detective and hardhat", roles[0].Outfit, roles[2].Outfit)
+	}
+	if roles[1].Outfit != "" || roles[1].Name != "Docs" {
+		t.Errorf("a Docs writer you'd changed loads as %+v, want it as you had it", roles[1])
+	}
+}
+
+func TestTheRolesAreTheMacApps(t *testing.T) {
+	// The Mac app's Roles.swift is the source: each shipped role, its badge and outfit, word for word.
+	source, err := os.ReadFile(filepath.Join("..", "Sources", "AgentDeck", "Roles.swift"))
+	if err != nil {
+		t.Skip("the Mac app's source isn't here")
+	}
+	text := string(source)
+	// The instructions are Swift's lines, joined by their trailing backslashes.
+	joined := regexp.MustCompile(` \\\n\s*`).ReplaceAllString(text, " ")
+	for _, role := range shippedRoles {
+		head := fmt.Sprintf(`Role(id: %q, name: %q, agent: %q, model: %q, effort: %q`, role.ID, role.Name, role.Agent, role.Model, role.Effort)
+		if !strings.Contains(text, head) {
+			t.Errorf("%s isn't as the Mac app has it", role.ID)
+		}
+		for _, question := range role.Questions {
+			if !strings.Contains(text, fmt.Sprintf("%q", question)) {
+				t.Errorf("%s asks %q, which the Mac app's doesn't", role.ID, question)
+			}
+		}
+		tail := fmt.Sprintf(`badge: %q`, role.Badge)
+		if role.Outfit != "" {
+			tail += fmt.Sprintf(`, outfit: %q`, role.Outfit)
+		}
+		if !strings.Contains(text, tail+")") {
+			t.Errorf("%s's badge and outfit aren't the Mac app's", role.ID)
+		}
+		if !strings.Contains(joined, role.Instructions) {
+			t.Errorf("%s's instructions aren't the Mac app's", role.ID)
+		}
+	}
+	for _, badge := range roleBadges {
+		if !strings.Contains(text, fmt.Sprintf("%q", badge)) {
+			t.Errorf("badge %s isn't the Mac app's", badge)
+		}
+	}
+}
+
+// The General Manager as it was saved before it ran a team, with its brief,
+// comes up to date as it loads; one you changed doesn't.
+func TestTheGeneralManagerFromBeforeTeamsIsBroughtUpToDate(t *testing.T) {
+	saved := shippedBeforeTeams()[0]
+	saved.Brief = &RoleBrief{Kind: "library", ID: "gm"}
+	now := checkedRoles([]Role{saved})[0]
+	gm := shippedRoles[slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == "gm" })]
+	if !slices.Equal(now.Questions, gm.Questions) || now.Instructions != gm.Instructions {
+		t.Errorf("the old General Manager loads as %+v", now)
+	}
+	edited := saved
+	edited.Instructions = "Plan only."
+	if got := checkedRoles([]Role{edited})[0].Instructions; got != "Plan only." {
+		t.Errorf("an edited General Manager loads with %q", got)
+	}
+}
+
+// Every role the Mac app ships, Windows and Linux ship too, in its order:
+// TestTheRolesAreTheMacApps checks each one here is the Mac's, this that none is missing.
+func TestEveryRoleTheMacShipsShipsHere(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "Sources", "AgentDeck", "Roles.swift"))
+	if err != nil {
+		t.Skip("the Mac app's source isn't here")
+	}
+	text := string(source)
+	start := strings.Index(text, "static let shipped = [")
+	end := strings.Index(text[start:], "\n    ]\n")
+	var mac []string
+	for _, found := range regexp.MustCompile(`Role\(id: "([a-z-]+)"`).FindAllStringSubmatch(text[start:start+end], -1) {
+		mac = append(mac, found[1])
+	}
+	if here := shippedRoleIDs(); !slices.Equal(here, mac) {
+		t.Errorf("Windows and Linux ship %v, the Mac %v", here, mac)
 	}
 }

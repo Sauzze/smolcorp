@@ -36,6 +36,13 @@ final class TmuxTests: XCTestCase {
 
     private let pane = TabAddress("tmux:%3@/tmp/tmux-501/default")!
 
+    /// The phone mic's peek reads the visible pane only: no `-S`, which
+    /// would reach into the history, and no `-e` escapes.
+    func testTheScreenIsTheVisiblePaneOnly() {
+        XCTAssertNotNil(Tmux().screen(of: pane))
+        XCTAssertEqual(asked, ["-S /tmp/tmux-501/default capture-pane -p -t %3"])
+    }
+
     func testEachKeyByTmuxsName() {
         XCTAssertTrue(Tmux().press(.init(key: .returnKey), in: pane))
         XCTAssertTrue(Tmux().press(.init(key: .tab, modifiers: .maskShift), in: pane))

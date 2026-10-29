@@ -48,6 +48,23 @@ final class Session {
     var toolActivity = ""
     /// The tool a permission prompt is asking about.
     var waitingFor = ""
+    /// iPhone app (personal build): the options of what it's asking you, while it is.
+    var choice: PendingChoice?
+    /// What it's asking, while it asks: see `Sessions.asked`.
+    var asked = Asked()
+    /// When it last stopped asking, as its hook raised it: a prompt's event raised before then is over.
+    var leftAskingAt: Double = 0
+    /// Its tool calls under way, by who makes them, tool and input, with their ids: see `Sessions.trackCalls`.
+    var calls: [String: String] = [:]
+
+    struct Asked: Equatable {
+        /// Who asked: its subagent's id, or "" for the session itself, or while no event has said.
+        var by = ""
+        /// The tool call it waits on, where an event has said: its id, tool and input.
+        var toolUseID = ""
+        var tool = ""
+        var input = ""
+    }
     /// When ☢ Max was last pressed for this session, in ms. Only the button
     /// sets it, never the dial, so the office knows which one was used.
     var maxPressedAt: Double?
@@ -198,10 +215,12 @@ final class Sessions {
         // Subagents come and go by id, so the order their events arrive in
         // doesn't matter.
         let tracked = trackSubagents(name, event, of: session)
+        trackCalls(name, event, of: session)
         let dressed = dressSubagent(event, of: session)
         let subagentsChanged = tracked || dressed
         guard time >= session.lastEventAt else {
-            if subagentsChanged { onChange() }
+            let filled = fillAsking(name, event, of: session, raisedAt: time)
+            if subagentsChanged || filled { onChange() }
             return
         }
         session.lastEventAt = time
@@ -212,9 +231,16 @@ final class Sessions {
         }
         followModel(name, event, of: session)
         follow(name, event, in: session, at: time)
+        let wasAsking = session.state == .asking
         if let next = transition(for: name, event: event, in: session) {
             session.state = next
             if next != .error { session.errorKind = "" }
+        }
+        // Answered, or no longer asked: its options go.
+        if session.state != .asking {
+            if wasAsking { session.leftAskingAt = time }
+            session.choice = nil
+            session.asked = .init()
         }
         onChange()
     }
@@ -324,6 +350,9 @@ final class Sessions {
             session.toolUseID = event["tool_use_id"] as? String ?? ""
             session.toolActivity = Activity.of(tool: tool, input: event["tool_input"] as? [String: Any] ?? [:])
             session.waitingFor = ""
+            if tool == "AskUserQuestion", session.agent == .claude {
+                session.choice = PendingChoice.question(event["tool_input"] as? [String: Any] ?? [:])
+            }
         case "PostToolUse", "PostToolUseFailure":
             session.waitingFor = ""
             let call = event["tool_use_id"] as? String ?? ""
@@ -333,6 +362,12 @@ final class Sessions {
         case "PermissionRequest":
             // Nothing a headless run's runner decides waits on you.
             if !session.isHeadless { session.waitingFor = event["tool_name"] as? String ?? "" }
+            // AskUserQuestion's own menu is kept: it's the question, not a permission.
+            let tool = event["tool_name"] as? String ?? ""
+            if !session.isHeadless, session.agent == .claude, tool != "AskUserQuestion" {
+                session.choice = PendingChoice.permission(tool: tool, input: event["tool_input"] as? [String: Any] ?? [:],
+                                                          suggests: !(event["permission_suggestions"] as? [Any] ?? []).isEmpty)
+            }
         case "PreCompact":
             session.compacting = true
         case "PostCompact":
@@ -390,9 +425,139 @@ final class Sessions {
 
     /// What `name` turns the session into, if anything. Nobody can answer a headless run: its runner decides its
     /// permissions, so what would have it wait on you only means it's still at work.
+    /// While it asks, other subagents' tools carrying on don't end the question. The asked tool's own end does,
+    /// whoever sends it, and so do its asker's tools and its asker stopping, a denied prompt's only end.
+    ///
+    /// What this can't tell, where the hooks don't say, and drops rather than keeps:
+    /// - A background subagent's prompt while the session itself works: the session's own tool events, which
+    ///   carry no `agent_id`, end the question at once. The prompt stays on the Mac; the phone loses its options.
+    /// - Two prompts queued, one subagent's then another's: the second's PermissionRequest comes while the
+    ///   first is open and is taken as more of it. Once the first ends, the session isn't asking though the
+    ///   second is on the screen, until Claude Code says so again.
+    /// - An asker no event names, with several subagents running, its prompt denied: no tool end, and no stop
+    ///   known to be its asker's. The question stays until the session's own next event.
     private func transition(for name: String, event: [String: Any], in session: Session) -> SessionState? {
+        let subagent = event["agent_id"] as? String
+        if session.state == .asking, let subagent {
+            if name == "SubagentStop" { return subagent == session.asked.by ? .thinking : nil }
+            if Sessions.toolEvents.contains(name), subagent != session.asked.by, !Sessions.ends(session.asked, name, event) { return nil }
+        }
         let next = transition(for: name, event: event, from: session.state)
+        if next == .asking {
+            session.asked = Sessions.asked(session.state == .asking ? session.asked : nil, by: subagent ?? Sessions.lone(in: session), event,
+                                           calls: session.calls)
+        }
         return next == .asking && session.isHeadless ? .thinking : next
+    }
+
+    /// The tools that run a subagent, as Claude Code has named them.
+    static let subagentTools: Set = ["Task", "Agent"]
+
+    /// The one subagent that can be asking, where an event that has the
+    /// session ask doesn't say who: the only one running, while the session
+    /// itself waits on its subagents rather than on a tool of its own. Nil
+    /// with several running, where any could be.
+    static func lone(in session: Session) -> String? {
+        guard session.subagents.count == 1, session.tool.isEmpty || subagentTools.contains(session.tool) else { return nil }
+        return session.subagents[0].id
+    }
+
+    /// A prompt's own event, the PermissionRequest or the AskUserQuestion,
+    /// arriving after the Notification that has it ask: raised first, the
+    /// dialog then shown, and the hooks go async. Too old for the state, it
+    /// still says what's asked, and the phone's options, while the session
+    /// asks and if raised since it last stopped asking. Whether it did.
+    private func fillAsking(_ name: String, _ event: [String: Any], of session: Session, raisedAt time: Double) -> Bool {
+        guard session.state == .asking, time > session.leftAskingAt, !session.isHeadless, session.agent == .claude else { return false }
+        let tool = event["tool_name"] as? String ?? ""
+        let subagent = event["agent_id"] as? String
+        switch name {
+        case "PermissionRequest":
+            if session.choice == nil, tool != "AskUserQuestion" {
+                session.choice = PendingChoice.permission(tool: tool, input: event["tool_input"] as? [String: Any] ?? [:],
+                                                          suggests: !(event["permission_suggestions"] as? [Any] ?? []).isEmpty)
+            }
+            if session.waitingFor.isEmpty { session.waitingFor = tool }
+        case "PreToolUse" where tool == "AskUserQuestion" && subagent == nil:
+            if session.choice?.kind != .question { session.choice = PendingChoice.question(event["tool_input"] as? [String: Any] ?? [:]) }
+        default:
+            return false
+        }
+        session.asked = Sessions.asked(session.asked, by: subagent ?? Sessions.lone(in: session), event, calls: session.calls)
+        return true
+    }
+
+    private static let toolEvents: Set = ["PreToolUse", "PostToolUse", "PostToolUseFailure"]
+
+    /// What it's asking, from an event that has it ask, `was` while it
+    /// already did. Hooks arrive in any order, and a subagent's prompt may
+    /// come first as a Notification that names neither the subagent nor the
+    /// tool: what a later event says fills them in. The session's own
+    /// question stays its own. A PermissionRequest has no call id: its
+    /// asker's call under way with that tool and input, from `calls`, gives
+    /// it, so two subagents making the same call don't end each other's.
+    static func asked(_ was: Session.Asked?, by subagent: String?, _ event: [String: Any], calls: [String: String] = [:]) -> Session.Asked {
+        var asked = was ?? Session.Asked(by: subagent ?? "")
+        if was != nil, asked.by.isEmpty, asked.tool == "AskUserQuestion" { return asked }
+        // Another call's prompt meanwhile is another question: the subagent is taken only for this one.
+        if asked.by.isEmpty, let subagent, asked.tool.isEmpty || isCall(asked, event) { asked.by = subagent }
+        if asked.tool.isEmpty, let tool = event["tool_name"] as? String, !tool.isEmpty {
+            asked.tool = tool
+            asked.toolUseID = event["tool_use_id"] as? String ?? ""
+            asked.input = canonical(event["tool_input"])
+        }
+        if asked.toolUseID.isEmpty, !asked.tool.isEmpty, let id = calls[call(by: asked.by, asked.tool, asked.input)] { asked.toolUseID = id }
+        return asked
+    }
+
+    /// Whether `name` is the end of the asked tool's call: by its id where
+    /// both say it, or else its tool and input.
+    static func ends(_ asked: Session.Asked, _ name: String, _ event: [String: Any]) -> Bool {
+        (name == "PostToolUse" || name == "PostToolUseFailure") && isCall(asked, event)
+    }
+
+    /// Whether `event` is about the asked tool's call.
+    private static func isCall(_ asked: Session.Asked, _ event: [String: Any]) -> Bool {
+        guard !asked.tool.isEmpty else { return false }
+        if let id = event["tool_use_id"] as? String, !id.isEmpty, !asked.toolUseID.isEmpty { return id == asked.toolUseID }
+        return event["tool_name"] as? String == asked.tool && canonical(event["tool_input"]) == asked.input
+    }
+
+    private static func canonical(_ input: Any?) -> String {
+        guard let input, JSONSerialization.isValidJSONObject(input),
+              let data = try? JSONSerialization.data(withJSONObject: input, options: [.sortedKeys]) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// A call under way, as `Session.calls` keys it: who makes it, "" for the session itself, its tool and input.
+    private static func call(by agent: String, _ tool: String, _ input: String) -> String {
+        [agent, tool, input].joined(separator: "\u{1F}")
+    }
+
+    /// The tool calls under way, by their PreToolUse, whatever order the
+    /// hooks arrive in: their ids, for the asked call's (see `asked`), and
+    /// the asked call's own once its PreToolUse comes after its prompt.
+    private func trackCalls(_ name: String, _ event: [String: Any], of session: Session) {
+        let agent = event["agent_id"] as? String ?? ""
+        switch name {
+        case "PreToolUse":
+            guard let id = event["tool_use_id"] as? String, !id.isEmpty, let tool = event["tool_name"] as? String else { return }
+            let input = Sessions.canonical(event["tool_input"])
+            session.calls[Sessions.call(by: agent, tool, input)] = id
+            if session.state == .asking, session.asked.toolUseID.isEmpty, session.asked.by == agent,
+               session.asked.tool == tool, session.asked.input == input {
+                session.asked.toolUseID = id
+            }
+        case "PostToolUse", "PostToolUseFailure":
+            guard let id = event["tool_use_id"] as? String, !id.isEmpty else { return }
+            session.calls = session.calls.filter { $0.value != id }
+        case "SubagentStop", "Stop":
+            // A denied call never ends: its maker's are gone with it.
+            let prefix = agent + "\u{1F}"
+            session.calls = session.calls.filter { !$0.key.hasPrefix(prefix) }
+        default:
+            break
+        }
     }
 
     private func transition(for name: String, event: [String: Any], from state: SessionState) -> SessionState? {

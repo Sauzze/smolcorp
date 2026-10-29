@@ -12,10 +12,19 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 )
 
-// Port is where the deck listens on every platform.
-const Port = 7710
+// Port is where the deck listens on every platform: 7710, unless SMOLCORP_PORT
+// says otherwise (1024 to 65535), to try a build beside the one you use.
+var Port = portFromEnvironment(os.Getenv("SMOLCORP_PORT"))
+
+func portFromEnvironment(text string) int {
+	if n, err := strconv.Atoi(text); err == nil && n >= 1024 && n <= 65535 {
+		return n
+	}
+	return 7710
+}
 
 // Where the app keeps its state, outside the program itself, so it can be
 // moved or updated without losing the paired phones: ~/.config/sauzzedeck-pro
@@ -26,9 +35,13 @@ var (
 	phonesFile  = filepath.Join(supportDir, "phones.json")
 	configFile  = filepath.Join(supportDir, "config.json")
 	hookKeyFile = filepath.Join(supportDir, "hook-key")
+	// The sessions running, and their keys, kept across a restart.
+	sessionsFile = filepath.Join(supportDir, "sessions.json")
 	// The setup page's key, new at every start, for tools of your own on this computer.
 	setupKeyFile = filepath.Join(supportDir, "setup-key")
-	homeDir, _   = os.UserHomeDir()
+	// The key of the office window's own paired device, private like the hook's.
+	windowKeyFile = filepath.Join(supportDir, "window-key")
+	homeDir, _    = os.UserHomeDir()
 )
 
 func makeSupportDir() string {

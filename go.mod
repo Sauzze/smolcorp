@@ -6,6 +6,7 @@ require (
 	fyne.io/systray v1.12.2
 	github.com/anthropics/anthropic-sdk-go v1.78.0
 	github.com/aymanbagabas/go-pty v0.2.3
+	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
@@ -19,6 +20,7 @@ require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
+	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect

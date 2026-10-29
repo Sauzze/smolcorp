@@ -171,10 +171,79 @@ final class HeadlessTests: XCTestCase {
         }
         sessions.apply(event("UserPromptSubmit", "s-tty"), agent: .claude, tab: "tty:/dev/ttys003", startedIn: "", at: 50)
         XCTAssertEqual(Deck.downstairs(sessions.all).map(\.id), ["s-tty"])
-        let upstairs = Deck.upstairs(of: sessions.all)
+        let building = Deck.floors(cloud: [], headless: sessions.all.filter(\.isHeadless), overflow: [])
+        let upstairs = Deck.upstairs(building)
         XCTAssertEqual(upstairs.desks.map(\.id), (0..<12).map { "h\($0)" })
+        // Those on 3F are past the second floor, for a phone that knows only that one.
+        XCTAssertEqual(building.floors[2].map(\.id), ["h12", "h13"])
         XCTAssertEqual(upstairs.overflow, 2)
-        XCTAssertEqual(Deck.upstairs(of: []).overflow, 0)
+        XCTAssertEqual(Deck.upstairs(Deck.floors(cloud: [Session](), headless: [], overflow: [])).overflow, 0)
+    }
+
+    // MARK: Floors
+
+    private func people(_ prefix: String, _ count: Int) -> [String] { (0..<count).map { "\(prefix)\($0)" } }
+
+    func testANewBuildingHasNobodyAboveTheGroundFloor() {
+        let building = Deck.floors(cloud: [String](), headless: [], overflow: [])
+        XCTAssertEqual(building.floors.count, 6)
+        XCTAssertTrue(building.floors.allSatisfy(\.isEmpty))
+        XCTAssertEqual(building.overflow, 0)
+    }
+
+    func testTwelveFillTheSecondFloorAndNoMore() {
+        let building = Deck.floors(cloud: [], headless: people("h", 12), overflow: [])
+        XCTAssertEqual(building.floors[1], people("h", 12))
+        XCTAssertEqual(building.floors[2], [])
+        XCTAssertEqual(building.overflow, 0)
+    }
+
+    func testTheThirteenthGoesUpToTheThirdFloor() {
+        let building = Deck.floors(cloud: [], headless: people("h", 13), overflow: [])
+        XCTAssertEqual(building.floors[1].count, 12)
+        XCTAssertEqual(building.floors[2], ["h12"])
+        XCTAssertEqual(Deck.upstairs(building).overflow, 1)
+        XCTAssertEqual(building.overflow, 0)
+    }
+
+    func testSixtyFillFiveFloorsAndTheSixtyFirstHasNone() {
+        let full = Deck.floors(cloud: [], headless: people("h", 60), overflow: [])
+        XCTAssertEqual(full.floors.dropFirst().map(\.count), [12, 12, 12, 12, 12])
+        XCTAssertEqual(full.floors[5].last, "h59")
+        XCTAssertEqual(full.overflow, 0)
+        let over = Deck.floors(cloud: [], headless: people("h", 61), overflow: [])
+        XCTAssertEqual(over.floors.dropFirst().map(\.count), [12, 12, 12, 12, 12])
+        XCTAssertEqual(over.overflow, 1)
+        XCTAssertEqual(Deck.upstairs(over).overflow, 49)
+    }
+
+    /// Cloud bots first, then headless runs, then the agents with no desk downstairs, whatever the order they're given in.
+    func testCloudBotsGoUpFirstThenRunsThenThoseWithNoDesk() {
+        let building = Deck.floors(cloud: people("c", 2), headless: people("h", 11), overflow: people("o", 3))
+        XCTAssertEqual(building.floors[0], [], "the ground floor's desks are its keys")
+        XCTAssertEqual(building.floors[1], people("c", 2) + people("h", 10))
+        XCTAssertEqual(building.floors[2], ["h10"] + people("o", 3))
+        XCTAssertEqual(building.overflow, 0)
+    }
+
+    func testTheViewerNumbersHiddenDesksAcrossTheFloors() {
+        let sessions = Sessions()
+        for i in 0..<13 {
+            sessions.apply(event("UserPromptSubmit", "h\(i)"), agent: .claude, tab: "headless:h\(i)", startedIn: "", at: Double(100 + i))
+        }
+        let building = Deck.floors(cloud: [], headless: sessions.all, overflow: [])
+        var named = Floor.standard
+        named[2].name = "Secret lab"
+        for hideNames in [false, true] {
+            let floors = ViewerSnapshot.floors(building.floors, named: named, hideNames: hideNames) {
+                ViewerSnapshot.upstairs($0, overflow: 0, hideNames: hideNames, first: $1)
+            }
+            XCTAssertEqual(floors.map { $0["n"] as? Int }, [1, 2, 3, 4, 5, 6])
+            XCTAssertEqual(floors[2]["name"] as? String, hideNames ? "3F" : "Secret lab")
+            let third = (floors[2]["desks"] as? [[String: Any]])?.first?["name"] as? String
+            XCTAssertEqual(third, hideNames ? "Upstairs 13" : "api")
+            XCTAssertEqual((floors[0]["desks"] as? [Any])?.count, 0)
+        }
     }
 
     func testTheViewerSeesOnlyAName() {

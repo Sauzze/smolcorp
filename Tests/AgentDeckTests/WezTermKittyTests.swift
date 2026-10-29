@@ -51,6 +51,17 @@ final class WezTermKittyTests: XCTestCase {
         ])
     }
 
+    /// The phone mic's peek reads the visible screen only: get-text at its
+    /// own extent, never `--start-line` into the scrollback.
+    func testTheScreenIsTheVisibleOneOnly() {
+        XCTAssertNotNil(WezTerm().screen(of: pane))
+        XCTAssertNotNil(Kitty().screen(of: window))
+        XCTAssertEqual(asked, [
+            "socket=/tmp/wezterm-gui-sock cli get-text --pane-id 5",
+            "@ --to unix:/tmp/kitty-99 get-text --match id:3",
+        ])
+    }
+
     func testWezTermKnowsThePaneFromItsList() {
         XCTAssertEqual(WezTerm().isOpen(pane), true)
         XCTAssertEqual(WezTerm().tty(of: pane), "/dev/ttys042")

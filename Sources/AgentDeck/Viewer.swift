@@ -318,15 +318,44 @@ extension ViewerSnapshot {
     /// The second floor's headless runs, as the viewer may see them: each
     /// desk's name, under the same rule as the desks downstairs, and its
     /// state, and the name of whoever hired it, where `hiredBy` knows,
-    /// already under that rule. Nothing else of them leaves this Mac.
-    static func upstairs(_ sessions: [Session], overflow: Int, hideNames: Bool,
+    /// already under that rule; for a cloud bot's, that it is one, and what
+    /// it last did; for an agent with no desk downstairs, that it has none.
+    /// Nothing else of them leaves this Mac. With names hidden, the desks are
+    /// numbered from `first`, so a floor further up goes on from the one below.
+    static func upstairs(_ sessions: [Session], overflow: Int, hideNames: Bool, first: Int = 1,
+                         isCloud: (Session) -> Bool = { _ in false }, isOverflow: (Session) -> Bool = { _ in false },
+                         last: (Session) -> CloudAction? = { _ in nil },
                          hiredBy: (Session) -> String? = { _ in nil }) -> [String: Any] {
         let desks = sessions.enumerated().map { index, s -> [String: Any] in
-            var desk: [String: Any] = ["name": hideNames ? "Upstairs \(index + 1)" : s.name, "state": s.state.rawValue]
+            var desk: [String: Any] = ["name": hideNames ? "Upstairs \(first + index)" : s.name, "state": s.state.rawValue]
             if let name = hiredBy(s) { desk["hiredBy"] = ["name": name] }
+            if isOverflow(s) { desk["overflow"] = true }
+            // A cloud bot's desk, and what it last did: with names hidden, not in its own words.
+            if isCloud(s) {
+                desk["cloud"] = true
+                desk["last"] = last(s).map { last -> [String: Any] in
+                    var json = last.json
+                    if hideNames { json["text"] = CloudAction.report }
+                    return json
+                } ?? NSNull()
+            }
             return desk
         }
         return ["desks": desks, "overflow": overflow]
+    }
+
+    /// The six floors, as the viewer may see them: each floor's desks as
+    /// `upstairs` shows them, numbered on from the floor below with names
+    /// hidden, and its style. Its name is your own words, so with names
+    /// hidden it's only 1F, 2F…
+    static func floors(_ floors: [[Session]], named: [Floor], hideNames: Bool, desk: ([Session], Int) -> [String: Any]) -> [[String: Any]] {
+        var first = 1
+        return named.enumerated().map { index, floor -> [String: Any] in
+            let sessions = index < floors.count ? floors[index] : []
+            let shown = desk(sessions, first)["desks"] ?? []
+            first += sessions.count
+            return ["n": index + 1, "name": hideNames ? Floor.defaultName(index) : floor.name, "preset": floor.preset, "desks": shown]
+        }
     }
 }
 
@@ -921,6 +950,14 @@ enum ViewerSelfTest {
         office["upstairs"] = ViewerSnapshot.upstairs([hiredHere, hiredElsewhere], overflow: 1, hideNames: hideNames) { s in
             ViewerSnapshot.hirer(Deck.hiredBy(s, among: all), desks: [nil, session, other], hideNames: hideNames)
         }
+        // The floors, one of them named in your own words.
+        var named = Floor.standard
+        named[2].name = "secret-floor-name"
+        office["floors"] = ViewerSnapshot.floors([[], [hiredHere], [hiredElsewhere]], named: named, hideNames: hideNames) { desks, first in
+            ViewerSnapshot.upstairs(desks, overflow: 0, hideNames: hideNames, first: first) { s in
+                ViewerSnapshot.hirer(Deck.hiredBy(s, among: all), desks: [nil, session, other], hideNames: hideNames)
+            }
+        }
         guard let plain = ViewerCrypto.plaintext(office: office, at: 1), let text = String(data: plain, encoding: .utf8) else {
             return ["couldn't serialise the snapshot"]
         }
@@ -933,7 +970,7 @@ enum ViewerSelfTest {
                              "secret-question", "secret-button", "other-secret-project", "secret-rule"]
         if hideNames {
             forbiddenText += ["secret-folder", "secret-project", "secret-nickname", "other-nickname", "pinned-secret", "secret-hirer", "up-folder",
-                              "secret-error-kind", "secret-agent-type", "secret-role-id", "secret-role-name"]
+                              "secret-error-kind", "secret-agent-type", "secret-role-id", "secret-role-name", "secret-floor-name"]
         }
         for needle in forbiddenText where text.contains(needle) { problems.append("text \(needle)") }
         // The session's own model key must be gone; subagents keep theirs as null.

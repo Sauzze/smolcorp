@@ -164,13 +164,23 @@ type Sessions struct {
 	// When each ended or replaced session ended. A resumed session raises
 	// events after that time and is welcome back; a late one does not.
 	endedAt map[string]float64
+	// Sessions dropped by Prune or PruneGone, and when. A tab can only be
+	// judged closed from the outside, so one heard from again was running all
+	// along, and takes back its place, its key and what it knew.
+	dropped map[string]droppedSession
 	// Sessions that took another's place in its tab since the deck last
 	// looked, new id to old: the deck gives each the key the old one had.
 	replacements map[string]string
 }
 
 func NewSessions() *Sessions {
-	return &Sessions{byID: map[string]*Session{}, endedAt: map[string]float64{}, replacements: map[string]string{}}
+	return &Sessions{byID: map[string]*Session{}, endedAt: map[string]float64{}, dropped: map[string]droppedSession{},
+		replacements: map[string]string{}}
+}
+
+type droppedSession struct {
+	session *Session
+	at      float64
 }
 
 // All is oldest first, so a session keeps its place as others come and go.
@@ -212,6 +222,9 @@ func (s *Sessions) Apply(event map[string]any, agent Agent, tab, startedIn strin
 	}
 
 	session := s.byID[id]
+	if session == nil {
+		session = s.revive(id)
+	}
 	if session == nil {
 		// A session the deck can't find a tab for would be a key that
 		// lights up but can't be controlled.
@@ -257,6 +270,12 @@ func (s *Sessions) Apply(event map[string]any, agent Agent, tab, startedIn strin
 // the old session and inherits its place on the deck, and its project when
 // the hook doesn't say.
 func (s *Sessions) adopt(id string, agent Agent, folder, startedIn, tab string, at float64) *Session {
+	// A new agent in a dropped session's tab means that one really did end.
+	for other, gone := range s.dropped {
+		if gone.session.Tab == tab {
+			delete(s.dropped, other)
+		}
+	}
 	session := &Session{ID: id, Agent: agent, Folder: folder, Tab: tab, State: Idle, StartedAt: at}
 	var previous *Session
 	for _, other := range s.byID {
@@ -546,14 +565,48 @@ func followDetails(name string, event map[string]any, session *Session, at float
 
 func (s *Sessions) end(id string, at float64) {
 	delete(s.byID, id)
+	delete(s.dropped, id)
 	s.endedAt[id] = at
 	// Stragglers arrive within seconds; an hour is plenty to remember.
-	cutoff := at - 3_600_000
+	cutoff := at - remembered
 	for other, when := range s.endedAt {
 		if when <= cutoff {
 			delete(s.endedAt, other)
 		}
 	}
+	for other, gone := range s.dropped {
+		if gone.at <= cutoff {
+			delete(s.dropped, other)
+		}
+	}
+}
+
+// remembered is how long an ended or dropped session is remembered, in ms.
+const remembered = 3_600_000
+
+// revive brings back a session dropped by Prune or PruneGone, as it was.
+func (s *Sessions) revive(id string) *Session {
+	gone, ok := s.dropped[id]
+	if !ok {
+		return nil
+	}
+	delete(s.dropped, id)
+	s.byID[id] = gone.session
+	return gone.session
+}
+
+// WasDropped is whether id was dropped by Prune or PruneGone and may yet come
+// back, so its key is kept for it.
+func (s *Sessions) WasDropped(id string) bool {
+	_, ok := s.dropped[id]
+	return ok
+}
+
+// drop ends a session found gone, remembering it for a while, in case it's
+// heard from again: see revive.
+func (s *Sessions) drop(session *Session, now float64) {
+	s.end(session.ID, now)
+	s.dropped[session.ID] = droppedSession{session, now}
 }
 
 // transition is what the event turns the session into, if anything. Nobody
@@ -642,13 +695,14 @@ const (
 )
 
 // Prune drops sessions whose tab has gone: an agent killed along with its
-// tab never sends SessionEnd. A headless run has no tab to close, and is
+// tab never sends SessionEnd. Each is remembered for a while, in case it's
+// heard from again: see revive. A headless run has no tab to close, and is
 // never dropped here: see PruneGone.
 func (s *Sessions) Prune(alive func(tab string) bool, now float64) bool {
 	changed := false
 	for _, session := range s.All() {
 		if !session.Headless() && !alive(session.Tab) {
-			s.end(session.ID, now)
+			s.drop(session, now)
 			changed = true
 		}
 	}
@@ -658,14 +712,15 @@ func (s *Sessions) Prune(alive func(tab string) bool, now float64) bool {
 // PruneGone drops sessions whose process has gone, where the hook said which
 // it was, and headless runs once they have been quiet for headlessQuiet, or
 // headlessQuietWithPID where their process is known: either may have been
-// killed before SessionEnd.
+// killed before SessionEnd. Each is remembered for a while, as for a closed
+// tab, and comes back if it's heard from again.
 func (s *Sessions) PruneGone(gone func(pid int) bool, now float64) bool {
 	changed := false
 	for _, session := range s.All() {
 		quiet := now - session.LastEventAt
 		if session.PID > 0 && gone(session.PID) ||
 			session.Headless() && (session.PID <= 0 && quiet > headlessQuiet || session.PID > 0 && quiet > headlessQuietWithPID) {
-			s.end(session.ID, now)
+			s.drop(session, now)
 			changed = true
 		}
 	}

@@ -47,7 +47,7 @@ func TestASessionMessagingAnotherIsWalkedOver(t *testing.T) {
 	d := newTestDeck(t)
 	// Each in a launcher of its own, as sessions run on Windows and Linux.
 	start := func(id, folder, launcher string) {
-		d.launcherConnected(launcher, Claude, folder, "")
+		d.launcherConnected(launcher, Claude, folder, "", "")
 		d.Ingest(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": id, "cwd": folder},
 			"claude", "launcher:"+launcher, "", 100)
 	}

@@ -24,6 +24,9 @@
 #     app can tell when it has gone without waiting for an event;
 #   - and the folder it was launched from, where the launcher says in
 #     SMOLCORP_PARENT_FOLDER: the working folder of the employee who hired it.
+# And, for the Info card, how the agent pays, where its environment says:
+# api-key with ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN set, cloud with Bedrock,
+# Vertex or Foundry turned on. Only whether they're set: never their values.
 #
 # It never blocks or fails the session. If the app isn't running, the event
 # is simply dropped.
@@ -161,6 +164,13 @@ TRIM='
   print $event;
 '
 
+billing=""
+if [ -n "$CLAUDE_CODE_USE_BEDROCK$CLAUDE_CODE_USE_VERTEX$CLAUDE_CODE_USE_FOUNDRY" ]; then
+  billing="cloud"
+elif [ -n "$ANTHROPIC_API_KEY$ANTHROPIC_AUTH_TOKEN" ]; then
+  billing="api-key"
+fi
+
 # The folder the agent was started in, under the same rule as the tab.
 project="${CLAUDE_PROJECT_DIR:-$GEMINI_PROJECT_DIR}"
 clean "$project" || project=""
@@ -175,6 +185,7 @@ perl -e "$TRIM" | curl -s -m 2 -o /dev/null \
   -H "X-AgentDeck-At: $AT" \
   ${agent_pid:+-H "X-AgentDeck-PID: $agent_pid"} \
   ${parent:+-H "X-AgentDeck-Parent: $parent"} \
+  ${billing:+-H "X-AgentDeck-Billing: $billing"} \
   --data-binary @- \
   "http://127.0.0.1:{{PORT}}/hook"
 

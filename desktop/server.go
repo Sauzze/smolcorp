@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -60,11 +61,19 @@ const (
 	setupCookie    = "smolcorp-setup"
 	// A tray link's one-time token, which the page swaps for the cookie.
 	setupTokenHeader = "X-Smolcorp-Setup-Once"
+	// The office in a browser on this computer, as the deck sees it: see
+	// Access.WindowKey.
+	officeWindowID = "office-window"
 )
 
-// Serve listens on the deck's port until it fails.
+// Serve listens on the deck's port until it fails: on every interface, or on
+// this computer and Tailscale only (see listen.go).
 func Serve(deck *Deck) error {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", Port))
+	deck.mu.Lock()
+	scope := scopeOf(deck.config)
+	deck.mu.Unlock()
+	listenScope = scope
+	listener, err := listenerFor(scope, Port)
 	if err != nil {
 		return err
 	}
@@ -224,6 +233,22 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		}
 		rt.setup(w, r)
 		return
+	// A cloud bot's news, from a tool of yours: guarded as setup's actions are.
+	case strings.HasPrefix(r.URL.Path, "/bots/"):
+		if !r.isLocal {
+			http.NotFound(w, r.Request)
+			return
+		}
+		if r.Method != http.MethodGet && r.Header.Get(setupHeader) != "1" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if !d.isSetupKey(setupKeyOf(r.Request)) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		writeStatus(w)(d.cloudBotEvent(r.Method, r.URL.Path, r.URL.Query(), decodeJSON(r.Body)))
+		return
 	case r.URL.Path == "/hook":
 		if !r.isLocal || r.Method != http.MethodPost {
 			http.NotFound(w, r.Request)
@@ -244,6 +269,19 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		}
 		d.IngestFrom(decodeJSON(r.Body), r.Header.Get("X-AgentDeck-Agent"), r.Header.Get("X-AgentDeck-Tab"),
 			r.Header.Get("X-AgentDeck-Project"), pid, r.Header.Get("X-AgentDeck-Parent"), at)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	// A second Smolcorp asking this one to show the office instead of staying.
+	case r.URL.Path == raisePath:
+		if !r.isLocal || r.Method != http.MethodPost {
+			http.NotFound(w, r.Request)
+			return
+		}
+		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		showOffice(d)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	case r.URL.Path == "/launcher":
@@ -294,14 +332,29 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	}
 
+	// The tray's Show Office: its token, good once, swapped for the office's
+	// own key on this computer, which the page then reads the office with.
+	if r.Method == http.MethodGet && r.URL.Path == "/office" && r.isLocal && r.URL.Query().Has("o") {
+		d.mu.Lock()
+		redeemed, windowKey := d.access.RedeemOfficeToken(r.URL.Query().Get("o")), d.access.WindowKey
+		d.mu.Unlock()
+		if redeemed {
+			http.Redirect(w, r.Request, "/office?t="+url.QueryEscape(windowKey), http.StatusSeeOther)
+			return
+		}
+	}
+
 	key := r.URL.Query().Get("t")
 	if key == "" {
 		key = r.Header.Get(hookKeyHeader)
 	}
 	d.mu.Lock()
-	phone := d.access.Phones.WithKey(key)
 	phoneID := ""
-	if phone != nil {
+	// The office in a browser on this computer reads it as a phone does,
+	// from this computer only: a phone that isn't paired, saved or listed.
+	if r.isLocal && d.access.IsWindowKey(key) {
+		phoneID = officeWindowID
+	} else if phone := d.access.Phones.WithKey(key); phone != nil {
 		d.access.Phones.MarkSeen(phone)
 		phoneID = phone.ID
 	}
@@ -451,7 +504,7 @@ func (rt *router) launcher(w http.ResponseWriter, r *request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	tab := rt.deck.launcherConnected(id, Agent(query.Get("agent")), query.Get("folder"), query.Get("role"))
+	tab := rt.deck.launcherConnected(id, Agent(query.Get("agent")), query.Get("folder"), query.Get("role"), query.Get("hire"))
 	defer rt.deck.launcherGone(id, tab)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
@@ -523,14 +576,98 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			http.NotFound(w, r.Request)
 			return
 		}
-		image, err := qr.Encode(pairingLink(code), qr.M)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+		writeQR(w, pairingLink(code))
+
+	// The portable office's viewer (beta). Only this reply carries the link,
+	// which holds the key; the write secret is in a reply only once, as it's made.
+	case r.Method == http.MethodGet && path == "/setup/viewer":
+		writeJSON(w, http.StatusOK, d.portable.SetupState(true))
+
+	case r.Method == http.MethodPost && path == "/setup/viewer":
+		var given struct {
+			BaseURL        *string `json:"baseURL"`
+			HideNames      *bool   `json:"hideNames"`
+			StopOnReturn   *bool   `json:"stopOnReturn"`
+			StopAfterHours *int    `json:"stopAfterHours"`
+		}
+		if data, _ := io.ReadAll(r.Body); json.Unmarshal(data, &given) != nil {
+			writeStatus(w)(http.StatusBadRequest, "That isn't a viewer setting.")
 			return
 		}
-		image.Scale = 8
-		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write(image.PNG())
+		d.mu.Lock()
+		viewer := config.Viewer
+		if given.BaseURL != nil {
+			if strings.TrimSpace(*given.BaseURL) == "" {
+				viewer.BaseURL = ""
+			} else if origin, ok := viewerOrigin(*given.BaseURL); ok {
+				viewer.BaseURL = origin
+			} else {
+				d.mu.Unlock()
+				writeStatus(w)(http.StatusBadRequest, viewerAddressProblem)
+				return
+			}
+		}
+		if given.HideNames != nil {
+			viewer.HideNames = *given.HideNames
+		}
+		if given.StopOnReturn != nil {
+			viewer.StopOnReturn = *given.StopOnReturn
+		}
+		if given.StopAfterHours != nil && slices.Contains(viewerHourChoices, *given.StopAfterHours) {
+			viewer.StopAfterHours = *given.StopAfterHours
+		}
+		moved := viewer.BaseURL != config.Viewer.BaseURL
+		config.Viewer = viewer
+		config.save()
+		d.mu.Unlock()
+		// A new address while it's on: the old viewer is told to forget it, and nothing more goes there.
+		if moved {
+			d.portable.Stop(0)
+		}
+		d.portable.setSettings(viewer)
+		d.portable.Changed()
+		writeJSON(w, http.StatusOK, d.portable.SetupState(false))
+
+	case r.Method == http.MethodPost && path == "/setup/viewer/secret":
+		secret, err := d.portable.MakeWriteSecret()
+		if err != nil {
+			writeStatus(w)(http.StatusInternalServerError, viewerNoStoreProblem)
+			return
+		}
+		state := d.portable.SetupState(false)
+		state["secret"] = secret
+		writeJSON(w, http.StatusOK, state)
+
+	case r.Method == http.MethodPost && path == "/setup/viewer/check":
+		d.portable.Check()
+		writeJSON(w, http.StatusOK, d.portable.SetupState(false))
+
+	case r.Method == http.MethodPost && path == "/setup/viewer/switch":
+		if query.Get("on") == "1" {
+			d.portable.Start()
+		} else {
+			d.portable.Stop(0)
+		}
+		writeJSON(w, http.StatusOK, d.portable.SetupState(false))
+
+	case r.Method == http.MethodPost && path == "/setup/viewer/rotate":
+		d.portable.RotateKey()
+		writeJSON(w, http.StatusOK, d.portable.SetupState(false))
+
+	case r.Method == http.MethodPost && path == "/setup/viewer/wipe":
+		d.portable.Wipe()
+		writeJSON(w, http.StatusOK, d.portable.SetupState(false))
+
+	case r.Method == http.MethodGet && path == "/setup/viewer/qr.png":
+		link := ""
+		if d.portable.IsSetUp() {
+			link = d.portable.Link()
+		}
+		if link == "" {
+			http.NotFound(w, r.Request)
+			return
+		}
+		writeQR(w, link)
 
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/setup/logo/"):
 		logo := strings.TrimPrefix(path, "/setup/logo/")
@@ -721,6 +858,15 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			http.Error(w, "Unknown agent", http.StatusBadRequest)
 			return
 		}
+		terminals, tmux := hireWays()
+		if query.Has("terminal") && !slices.ContainsFunc(terminals, func(o hireOpener) bool { return o.id == query.Get("terminal") }) {
+			http.Error(w, "That terminal isn't on this computer", http.StatusBadRequest)
+			return
+		}
+		if query.Get("tmux") == "1" && !tmux {
+			http.Error(w, "tmux isn't on this computer", http.StatusBadRequest)
+			return
+		}
 		d.mu.Lock()
 		if query.Has("enabled") {
 			config.HiringEnabled = query.Get("enabled") == "1"
@@ -731,9 +877,27 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		if query.Has("agent") {
 			config.HireAgent = query.Get("agent")
 		}
+		if query.Has("terminal") {
+			config.HireTerminal = query.Get("terminal")
+		}
+		if query.Has("tmux") {
+			config.HireInTmux = query.Get("tmux") == "1"
+		}
 		config.save()
 		d.changed()
 		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupState())
+
+	// The system's own folder picker, which a web page can't open.
+	case r.Method == http.MethodPost && path == "/setup/hiring/choose":
+		if !hasFolderPicker() {
+			http.Error(w, "There's no folder picker here: type the folder's path.", http.StatusNotFound)
+			return
+		}
+		if err := d.chooseHireFolder(); err != nil {
+			http.Error(w, "The folder picker didn't open.", http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, http.StatusOK, rt.setupState())
 
 	// The roles as the page has them, all of them: checked as they're kept,
@@ -745,7 +909,52 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			return
 		}
 		d.mu.Lock()
-		config.Roles = checkedRoles(roles)
+		config.Roles = checkedRoles(syncedRoles(roles, config.Roles))
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupState())
+
+	// The cloud bots, each at a desk of its own: all of them, as a list, replaced at once.
+	case r.Method == http.MethodGet && path == "/setup/bots":
+		d.mu.Lock()
+		bots := config.CloudBots
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"bots": bots})
+
+	case r.Method == http.MethodPost && path == "/setup/bots":
+		given, ok := cloudBotsSent(r.Body)
+		if !ok {
+			writeStatus(w)(http.StatusBadRequest, `Send the bots as a list: {"bots": [{"id": …, "name": …}]}.`)
+			return
+		}
+		d.mu.Lock()
+		config.CloudBots = checkedCloudBots(given)
+		config.save()
+		d.cloud.configure(config.CloudBots)
+		d.changed()
+		bots := config.CloudBots
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"bots": bots})
+
+	// The six floors' names and styles, all of them, replaced at once and checked as they're kept.
+	case r.Method == http.MethodPost && path == "/setup/floors":
+		floors, ok := floorsSent(r.Body)
+		if !ok {
+			writeStatus(w)(http.StatusBadRequest, `Send the floors as a list: {"floors": [{"name": …, "preset": …}]}.`)
+			return
+		}
+		d.mu.Lock()
+		config.Floors = floors
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupState())
+
+	// Whether the office asks before max effort: the phones are told, as it's theirs to ask.
+	case r.Method == http.MethodPost && path == "/setup/maxconfirm":
+		d.mu.Lock()
+		config.MaxConfirm = query.Get("enabled") == "1"
 		config.save()
 		d.changed()
 		d.mu.Unlock()
@@ -776,6 +985,28 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && path == "/setup/login":
 		setOpenAtLogin(query.Get("enabled") == "1")
 		writeJSON(w, http.StatusOK, rt.setupState())
+
+	// The self-test: Start here's checklist, and `smolcorp setup`'s.
+	case r.Method == http.MethodGet && path == "/setup/selftest":
+		writeJSON(w, http.StatusOK, selfTestReport(d.selfTest()))
+
+	// One of its fixes, by name, and the checklist after it.
+	case r.Method == http.MethodPost && path == "/setup/fix":
+		if status, message := d.fix(query.Get("fix")); status >= 400 {
+			writeStatus(w)(status, message)
+			return
+		}
+		writeJSON(w, http.StatusOK, selfTestReport(d.selfTest()))
+
+	// The office, from the page: the tray's Show Office.
+	case r.Method == http.MethodPost && path == "/setup/office":
+		d.openOffice()
+		w.WriteHeader(http.StatusNoContent)
+
+	// Start here's Hire your General Manager: the GM role, in the folder for
+	// new hires or your home folder, its questions asked in its terminal.
+	case r.Method == http.MethodPost && path == "/setup/hire/gm":
+		writeStatus(w)(d.hireFromSetup("gm"))
 
 	default:
 		http.NotFound(w, r.Request)
@@ -883,27 +1114,27 @@ func (rt *router) setupState() map[string]any {
 		sessions = append(sessions, map[string]any{
 			"id": s.ID, "folder": s.Project, "name": s.ProjectName(), "agentName": s.Agent.Name(),
 			"state": s.State, "key": key,
+			// What the setup page's outfit maker dresses them by: their agent, model and role
+			"agent": s.Agent, "model": nilIfEmpty(s.Model), "role": roleID(d.roleOf(s)),
 		})
 	}
 	return map[string]any{
 		// No accessibility step: nothing here needs that permission.
 		"checklist": map[string]any{"hooks": connected, "scroll": d.config.ScrollEnabled, "openAtLogin": openAtLogin},
 		"agents":    agentList,
-		// Firing works here; hiring, which opens a terminal, is the Mac app's for now.
-		"hiring": map[string]any{
-			"enabled": d.config.HiringEnabled, "folder": d.config.HireFolder, "agent": d.config.HireAgent,
-			"canHire": false, "canChoose": false,
-		},
+		// Where hires open: the terminals here that can open them, and tmux if it's there.
+		"hiring": d.hireState(),
 		// The roles, those that come with the app to go back to, and what a
 		// role can be: its agent, whether that agent has an effort and takes a
 		// first message, its badge, and how long each part can be.
 		"roles": map[string]any{
 			"roles": d.config.Roles, "shipped": shippedRoles, "agents": roleAgents(), "efforts": effortLevels, "badges": roleBadges,
-			"limits": map[string]int{"name": roleNameLimit, "model": roleModelLimit, "instructions": roleInstructionsLimit, "own": ownRolesMost,
+			"limits": map[string]int{"name": roleNameLimit, "model": roleModelLimit, "instructions": roleInstructionsLimit,
 				"questions": roleQuestionsMost, "question": roleQuestionLimit},
 		},
-		"music":   map[string]any{"enabled": d.config.MusicEnabled},
-		"summary": d.summaryState(),
+		"music":      map[string]any{"enabled": d.config.MusicEnabled},
+		"maxConfirm": map[string]any{"enabled": d.config.MaxConfirm},
+		"summary":    d.summaryState(),
 		"webhook": map[string]any{
 			"enabled": d.config.Webhook.Enabled, "url": d.config.Webhook.URL, "secret": d.config.Webhook.Secret,
 			"outside": d.config.Webhook.Outside, "events": d.config.Webhook.Events, "last": d.lastDelivery(),
@@ -919,6 +1150,9 @@ func (rt *router) setupState() map[string]any {
 		"sessions":  sessions,
 		"theme":     themeEditor(d.config),
 		"layout":    d.config.Layout,
+		// The building's floors, the ground floor first, and the styles a floor above it can have.
+		"floors":  checkedFloors(d.config.Floors),
+		"presets": floorStyles(),
 		// Saved looks, besides Default, the one the deck was last switched
 		// to, and whether it has changed since.
 		// A copy: the reply is written after the lock is let go.
@@ -929,6 +1163,18 @@ func (rt *router) setupState() map[string]any {
 }
 
 // MARK: Helpers
+
+// writeQR answers with a QR code of text.
+func writeQR(w http.ResponseWriter, text string) {
+	image, err := qr.Encode(text, qr.M)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	image.Scale = 8
+	w.Header().Set("Content-Type", "image/png")
+	_, _ = w.Write(image.PNG())
+}
 
 // serveFile serves a page no other page may show in a frame, where it could
 // lay something over it and trick you into pressing a button.
@@ -1013,4 +1259,20 @@ func decodeJSON(body io.Reader) map[string]any {
 func stringValue(value any) string {
 	text, _ := value.(string)
 	return text
+}
+
+// nilIfEmpty is text, or nil for none, as JSON's null.
+func nilIfEmpty(text string) any {
+	if text == "" {
+		return nil
+	}
+	return text
+}
+
+// roleID is the id of a role as the phone is told of it, or nil.
+func roleID(role map[string]any) any {
+	if role == nil {
+		return nil
+	}
+	return role["id"]
 }

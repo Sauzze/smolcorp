@@ -188,6 +188,44 @@ func TestHiringIsSetUpOnlyWhenEveryPartIsRight(t *testing.T) {
 	}
 }
 
+// The office asks before max effort until setup turns that off: kept in the
+// config, said in setup's state, and told to the phones in the snapshot.
+func TestAskingBeforeMaxEffortIsOnUntilTurnedOff(t *testing.T) {
+	d := newTestDeck(t)
+	asks := func() (setup, snapshot bool) {
+		var state struct{ MaxConfirm struct{ Enabled bool } }
+		var shown struct{ MaxConfirm bool }
+		got := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer})
+		if json.Unmarshal(got.Body.Bytes(), &state) != nil || json.Unmarshal(d.snapshot(), &shown) != nil {
+			t.Fatalf("setup's state %q, or the snapshot, isn't JSON", got.Body.String())
+		}
+		return state.MaxConfirm.Enabled, shown.MaxConfirm
+	}
+	turn := func(enabled string) {
+		got := serve(t, d, call{method: "POST", target: "/setup/maxconfirm?enabled=" + enabled, host: "localhost:7710", from: thisComputer,
+			headers: map[string]string{setupHeader: "1"}})
+		if got.Code != http.StatusOK {
+			t.Fatalf("enabled=%s: %d %s", enabled, got.Code, got.Body.String())
+		}
+	}
+	if setup, snapshot := asks(); !setup || !snapshot || !d.config.MaxConfirm {
+		t.Fatalf("a new config: setup says %v, the snapshot %v; want both on", setup, snapshot)
+	}
+	turn("0")
+	if setup, snapshot := asks(); setup || snapshot || loadConfig().MaxConfirm {
+		t.Fatalf("turned off: setup says %v, the snapshot %v, the saved config %v", setup, snapshot, loadConfig().MaxConfirm)
+	}
+	turn("1")
+	if setup, snapshot := asks(); !setup || !snapshot || !loadConfig().MaxConfirm {
+		t.Fatalf("turned on again: setup says %v, the snapshot %v, the saved config %v", setup, snapshot, loadConfig().MaxConfirm)
+	}
+	// Only from this computer, as every setting is.
+	if got := serve(t, d, call{method: "POST", target: "/setup/maxconfirm?enabled=0", host: deckOnWiFi, from: aPhone,
+		headers: map[string]string{setupHeader: "1"}}); got.Code == http.StatusOK || !d.config.MaxConfirm {
+		t.Fatalf("a phone turned it off: %d", got.Code)
+	}
+}
+
 // The team cards in setup go by the project's name, which stays put as the
 // agent moves into a subfolder.
 func TestTheSetupPageNamesEachSessionsProject(t *testing.T) {
@@ -430,5 +468,45 @@ func TestTheHomeScreenIconIsInThePageItself(t *testing.T) {
 				t.Errorf("%s with the %s logo: an icon left for iOS to fetch", target, logo)
 			}
 		}
+	}
+}
+
+func TestTheTraysOfficeIsTheOfficeOnThisComputerOnly(t *testing.T) {
+	d := newTestDeck(t)
+	d.mu.Lock()
+	token := d.access.NewOfficeToken()
+	d.mu.Unlock()
+	opened := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer})
+	if opened.Code != http.StatusSeeOther || opened.Header().Get("Location") != "/office?t="+d.access.WindowKey {
+		t.Fatalf("the tray's link gave %d to %q, want the office with its own key", opened.Code, opened.Header().Get("Location"))
+	}
+	if again := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer}); again.Code == http.StatusSeeOther {
+		t.Error("the tray's token worked twice")
+	}
+	office := serve(t, d, call{method: "GET", target: "/office?t=" + d.access.WindowKey, host: "localhost:7710", from: thisComputer})
+	if office.Code != http.StatusOK || !strings.Contains(office.Body.String(), "/events") {
+		t.Errorf("the office with its own key gave %d, want the deck's page", office.Code)
+	}
+	if focus := serve(t, d, call{method: "POST", target: "/focus?session=none&t=" + d.access.WindowKey, host: "localhost:7710",
+		from: thisComputer}); focus.Code != http.StatusNotFound {
+		t.Errorf("the office's own key on this computer: %d, want it to reach the deck (404 for no session)", focus.Code)
+	}
+	// From the network, it's no key at all, and nor is a token.
+	for _, c := range []call{
+		{method: "POST", target: "/focus?session=none&t=" + d.access.WindowKey, host: deckOnWiFi, from: aPhone},
+		{method: "POST", target: "/focus?session=none&t=" + d.access.WindowKey, host: deckOnWiFi, from: thisComputer},
+	} {
+		if response := serve(t, d, c); response.Code != http.StatusUnauthorized {
+			t.Errorf("the office's own key from %s to %s: %d, want 401", c.from, c.host, response.Code)
+		}
+	}
+	d.mu.Lock()
+	token = d.access.NewOfficeToken()
+	d.mu.Unlock()
+	if response := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: deckOnWiFi, from: aPhone}); response.Code == http.StatusSeeOther {
+		t.Error("a phone swapped the tray's token for the office's key")
+	}
+	if len(d.access.Phones.All) != 0 {
+		t.Error("the office on this computer was listed as a phone")
 	}
 }

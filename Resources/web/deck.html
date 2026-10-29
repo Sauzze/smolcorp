@@ -96,6 +96,101 @@
   .summary.loading .summary-text::after { content: ''; animation: summary-dots 1.2s steps(4) infinite; }
   @keyframes summary-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
   .summary.failed .summary-text { color: #a32a24; }
+
+  /* 🎙 Phone mic (personal build): once, over plain http, why the mic is still the computer's. */
+  .mic-hint { position: fixed; z-index: 9; left: 50%; top: calc(env(safe-area-inset-top) + 10px); transform: translateX(-50%);
+    max-width: 92vw; padding: 7px 12px; border-radius: 999px; background: rgba(37,99,235,.92); color: #fff;
+    font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 4px 16px var(--shadow); }
+  .mic-hint[hidden] { display: none; }
+  /* 🎙 Phone mic (personal build): what was heard, to send, type only or cancel. At the top of the room, where
+     the phone's keyboard can't cover it while the words are edited. */
+  .confirm { position: fixed; z-index: 9; left: 50%; top: calc(env(safe-area-inset-top) + 34px); transform: translateX(-50%);
+    width: min(92vw, 420px); padding: 12px 14px 14px;
+    background: #f4f1ea; color: #1f2129; border: 2px solid #1f2129; border-radius: 12px;
+    box-shadow: 0 4px 0 #1f2129, 0 10px 30px rgba(0,0,0,.45); touch-action: manipulation; }
+  .confirm[hidden] { display: none; }
+  .confirm textarea { display: block; width: 100%; min-height: 84px; max-height: 40vh; margin: 0 0 10px; padding: 8px 10px;
+    font: 400 16px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: #1f2129;
+    background: #fff; border: 1.5px solid #c9c3b6; border-radius: 8px; resize: none;
+    -webkit-user-select: text; user-select: text; touch-action: manipulation; }
+  .confirm textarea:focus { outline: none; border-color: #2563eb; }
+  .confirm-keys { display: flex; gap: 8px; }
+  .confirm-keys button { flex: 1; min-height: 44px; padding: 0 6px; border-radius: 10px; cursor: pointer;
+    font: 600 15px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: #1f2129; background: #fff; border: 2px solid #1f2129; box-shadow: 0 2px 0 #1f2129; }
+  .confirm-keys button:active { transform: translateY(2px); box-shadow: none; }
+  .confirm-keys .confirm-send { flex: 1.2; color: #fff; background: #2563eb; border-color: #1f2129; }
+  .confirm-keys .confirm-cancel { color: #6e6a62; }
+  .confirm-keys button:disabled { opacity: .35; transform: none; box-shadow: none; }
+  .confirm-why { margin: -2px 0 10px; font-size: 13px; line-height: 1.35; color: #a3540f; }
+  .confirm-why[hidden] { display: none; }
+  /* What the agent's tab shows once the words are in: its last lines, read on the computer, as they are. */
+  .peek { position: fixed; z-index: 8; left: 50%; top: calc(env(safe-area-inset-top) + 34px); transform: translateX(-50%);
+    width: min(94vw, 460px); padding: 10px 12px 12px; cursor: pointer;
+    background: #111418; color: #d8dde3; border: 2px solid #3a414b; border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.55); touch-action: manipulation; }
+  .peek[hidden] { display: none; }
+  .peek .summary-head { color: #8b949e; }
+  .peek .summary-head b { color: #d8dde3; }
+  .peek pre { margin: 0; font: 400 11px/1.35 ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .peek.failed pre { color: #f2a19b; white-space: pre-wrap; font-family: inherit; font-size: 13px; }
+  /* ▤ Conversation (personal build, the Mac app's window): the picked agent's conversation on a slate over the room,
+     as the iPhone app's blackboard shows it, but as it was written: it never leaves the Mac. Your words on paper,
+     the agent's in chalk, each tool in a dim line, a question in yellow chalk and its answer under it. */
+  .board { position: fixed; z-index: 8; inset: 8px; display: flex; flex-direction: column; overflow: hidden;
+    background: #1f2b26; color: #eef0ea; border: 3px solid #6b4a2b; border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.55); }
+  .board[hidden] { display: none; }
+  .board-head { display: flex; align-items: center; gap: 8px; padding: 7px 8px 5px 12px; color: #9fb0a6;
+    font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .board-head b { color: #eef0ea; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .board-head button, .board-top button { margin-left: auto; padding: 3px 10px; cursor: pointer; color: #1f2129;
+    font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; letter-spacing: 0; text-transform: none;
+    background: #f4f1ea; border: 2px solid #1f2129; border-radius: 6px; box-shadow: 0 2px 0 #1f2129; }
+  .board-head button:active, .board-top button:active { transform: translateY(2px); box-shadow: none; }
+  .board-body { flex: 1; overflow-y: auto; padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 7px;
+    font-size: 13px; line-height: 1.4; -webkit-user-select: text; user-select: text; }
+  .board-body > * { flex-shrink: 0; }
+  .board-row { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .board-row.user, .board-row.answer { align-self: flex-end; max-width: 85%; padding: 5px 9px; border-radius: 7px;
+    background: #f4f1ea; color: #1f2129; }
+  .board-row.answer { background: #f2d16b; }
+  .board-row.question { color: #f2d16b; }
+  .board-row.peer { color: #9cc7f0; }
+  .board-row .from { display: block; font-size: 11px; font-weight: 700; opacity: .8; }
+  .board-row.tool, .board-row.result { font: 11px/1.35 ui-monospace, Menlo, monospace; color: #9fb0a6;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .board-row.result { padding-left: 1.6em; opacity: .75; }
+  .board-row.note { align-self: center; font-size: 12px; font-style: italic; color: #9fb0a6; }
+  .board-row .more { opacity: .55; }
+  .board-top { align-self: center; display: flex; padding: 4px 0; font-size: 12px; color: #9fb0a6; }
+  .board-top button { margin: 0; }
+  .board-problem { margin: 0 8px 8px; padding: 5px 10px; border-radius: 6px; font-size: 12px; background: #f4f1ea; color: #1f2129; }
+  .board-problem[hidden] { display: none; }
+  /* ⓘ Info (personal build, the Mac app's window): what the agent runs on and what it has used, on a card as
+     ✨ summary's is, until clicked away. */
+  .info-rows { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; line-height: 1.35; }
+  .info-rows dt { color: #6e6a62; white-space: nowrap; }
+  .info-rows dd { margin: 0; overflow-wrap: anywhere; }
+  .info-meter { display: inline-block; vertical-align: middle; width: 64px; height: 8px; margin-right: 7px;
+    border: 1.5px solid #1f2129; border-radius: 3px; background: #fff; overflow: hidden; }
+  .info-meter i { display: block; height: 100%; background: #2563eb; }
+  .info-meter.high i { background: #e0483e; }
+  .info-note { margin-top: 8px; font-size: 11px; color: #6e6a62; }
+  .info-note[hidden] { display: none; }
+  /* The Mac's window can be small: the card as tall as it has room for, its rows closer. */
+  #info { max-height: calc(100vh - 76px); }
+  html.bare #info { padding: 9px 12px 10px; }
+  html.bare .info-rows { gap: 1px 12px; font-size: 12px; }
+  html.bare #info .summary-head { margin-bottom: 4px; }
+  html.bare .info-note { margin-top: 5px; }
+  /* Served at the Tailscale address: marked, so it's never mistaken for the Wi-Fi's deck. Where the http hint
+     sits, which never shows here. */
+  .tail-mark { display: none; }
+  [data-tail] .tail-mark { display: block; position: fixed; z-index: 6; pointer-events: none;
+    top: calc(env(safe-area-inset-top) + 8px); left: 50%; transform: translateX(-50%); white-space: nowrap;
+    padding: 3px 8px; border-radius: 999px; background: rgba(37,99,235,.92); color: #fff;
+    font-size: 10px; font-weight: 700; letter-spacing: .08em; }
 </style>
 </head>
 <body>
@@ -117,6 +212,32 @@
   <div class="summary-head"><span>✨</span><b id="summary-name"></b><span aria-label="Close">✕</span></div>
   <div class="summary-text" id="summary-text"></div>
 </div>
+<div class="confirm" id="confirm" role="dialog" aria-label="What the phone heard" hidden>
+  <div class="summary-head"><span>🎙</span><b id="confirm-name"></b></div>
+  <textarea id="confirm-text" rows="3" autocapitalize="sentences" spellcheck="true" aria-label="What the phone heard"></textarea>
+  <div class="confirm-why" id="confirm-why" role="status" hidden>It's asking you something: answer it on the deck first. Your words wait here.</div>
+  <div class="confirm-keys">
+    <button class="confirm-send" id="confirm-send">Send ⏎</button>
+    <button id="confirm-type">Type only</button>
+    <button class="confirm-cancel" id="confirm-cancel">Cancel</button>
+  </div>
+</div>
+<div class="peek" id="peek" role="status" aria-live="polite" hidden>
+  <div class="summary-head"><span>⌨</span><b id="peek-name"></b><span aria-label="Close">✕</span></div>
+  <pre id="peek-text"></pre>
+</div>
+<div class="board" id="board" role="dialog" aria-label="Conversation" hidden>
+  <div class="board-head"><span>▤</span><b id="board-name"></b><button id="board-close">Close</button></div>
+  <div class="board-body" id="board-body"></div>
+  <div class="board-problem" id="board-problem" role="status" hidden></div>
+</div>
+<div class="summary" id="info" role="status" aria-live="polite" hidden>
+  <div class="summary-head"><span>ⓘ</span><b id="info-name"></b><span aria-label="Close">✕</span></div>
+  <dl class="info-rows" id="info-rows"></dl>
+  <div class="info-note" id="info-note" hidden></div>
+</div>
+<div class="tail-mark" aria-hidden="true">TAIL · phone mic</div>
+<div class="mic-hint" id="mic-hint" role="status" hidden>🎙 Phone mic needs HTTPS: see Tailscale in setup</div>
 <label id="haptic" aria-hidden="true"><input type="checkbox" switch></label>
 
 <script src="/office.js"></script>
@@ -177,11 +298,17 @@
     },
     mic(phase) {
       if (phase === 'down') tick();
+      // Personal build: over HTTPS, the phone's own mic; otherwise the computer's, as before.
+      if (phoneMicHere()) return hear(phase);
       talk(phase);
     },
     // A finger held on a desk until its paint chips came out.
     held() {
       tick();
+    },
+    // A cloud bot's card opened upstairs, its desk green: its news is seen, and it goes back to blue.
+    seen(id) {
+      send('/act', { session: id, action: 'seen' });
     },
     // Firing, once the office has asked: whether the agent was let go,
     // which only a plain yes means. And hiring, into the desk held, as one of
@@ -210,6 +337,11 @@
       tick();
       send('/act', { action: 'language', lang });
     },
+    // Personal build: the mic's other quick switch, Claude's clean-up of dictation, on or off for every phone.
+    cleanup(on) {
+      tick();
+      send('/act', { action: 'cleanup', on: on ? 1 : 0 });
+    },
     // One of the office's styles, from its key in the room's corner, for every screen it's on.
     style(preset) {
       tick();
@@ -235,6 +367,10 @@
       tick();
       if (!selected) return;
       if (action === 'up' || action === 'down') return choose(action);
+      // The Mac app's own two, which the computer has no button for. Only in its window: the iPhone app has the
+      // same two keys, and answers them itself from what reaches it as /act.
+      if (bare && action === `button:${BOARD_BUTTON}`) return openBoard(selected);
+      if (bare && action === `button:${INFO_BUTTON}`) return openInfo(selected);
       if (action.startsWith('button:')) return send('/act', { session: selected, action: 'button', button: action.slice(7) });
       if (['esc', 'send', 'clear'].includes(action)) send('/act', { session: selected, action });
       if (action === 'summary') summarize(selected);
@@ -456,6 +592,233 @@
     return listening;
   }
 
+  /* --------------------------------------------- 🎙 phone mic (personal) */
+
+  /*
+   * Over HTTPS (Tailscale's), held, the mic listens here on the phone with
+   * the browser's own speech recognition, in the language of the mic's FR/EN
+   * switch, and shows what it hears over the desk as you speak. Let go, and
+   * what it heard shows in a box to correct, then Send ⏎, Type only or
+   * Cancel: only the text you confirm goes to the computer, to be typed into
+   * that agent's tab. With "Send automatically" on in setup, there's no box:
+   * it goes as heard, sent once it's three words or more. Once typed, the
+   * agent's tab's last lines show here, read on the computer, to see what's
+   * really in its input. No audio leaves the phone through Smolcorp, and
+   * nothing is kept. Over plain http, iPhones give a page no mic, so the
+   * computer's mic works as before.
+   */
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let phoneMic = { on: false, autoSend: false }; // from the computer's snapshot
+  let micLanguage = 'en_US';                    // the mic's FR/EN switch, from the snapshot
+  let hearing = null; // while the phone listens: { rec, session, before, finals, interim, held, sent, failed }
+  const HEAR_LONGEST = 60_000;  // ms: as the computer's dictation, held longer it stops and its text goes
+  const HEAR_SETTLE = 1500;     // ms: after letting go, how long the last words may take to come
+  const PEEK_AFTER = 700;       // ms: after typing, for the computer to press Return and the agent to redraw
+
+  /** Whether the mic is the phone's here: set on, over HTTPS (not localhost on the computer), in a browser that hears. */
+  function phoneMicHere() {
+    return !preview && !whole && phoneMic.on && !!Recognition && window.isSecureContext && location.protocol === 'https:';
+  }
+
+  function heardText(h) {
+    return [h.before, h.finals, h.interim].join(' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function hear(phase) {
+    if (phase === 'down') return startHearing();
+    if (!hearing || hearing.sent) return;
+    hearing.held = false;
+    const h = hearing;
+    try { h.rec.stop(); } catch {}
+    // Its last words come with its end; if that's slow, what's heard so far goes.
+    setTimeout(() => finishHearing(h), HEAR_SETTLE);
+  }
+
+  function startHearing() {
+    if (!selected) return;
+    if (hearing) dropHearing();
+    closeConfirm();
+    closePeek();
+    const h = { rec: null, session: selected, before: '', finals: '', interim: '', held: true, sent: false, failed: null };
+    hearing = h;
+    office.hearing({ id: h.session, text: '' });
+    h.cap = setTimeout(() => { if (hearing === h && h.held) hear('up'); }, HEAR_LONGEST);
+    listen(h);
+  }
+
+  /** Starts the browser listening for `h`: again, keeping what it had, if it stops by itself while still held. */
+  function listen(h) {
+    const rec = new Recognition();
+    h.rec = rec;
+    rec.lang = micLanguage.replace('_', '-');
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e) => {
+      let finals = '', interim = '';
+      for (let i = 0; i < e.results.length; i++) {
+        const result = e.results[i];
+        if (result.isFinal) finals += ` ${result[0].transcript}`;
+        else interim += ` ${result[0].transcript}`;
+      }
+      h.finals = finals;
+      h.interim = interim;
+      if (hearing === h) office.hearing({ id: h.session, text: heardText(h) });
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      h.failed = e.error;
+    };
+    rec.onend = () => {
+      if (hearing !== h || h.sent) return;
+      if (h.held && !h.failed) {
+        // Stopped by itself, as after a pause: listen on, keeping what was heard.
+        h.before = heardText(h);
+        h.finals = h.interim = '';
+        try { return listen(h); } catch {}
+      }
+      finishHearing(h);
+    };
+    try {
+      rec.start();
+    } catch {
+      h.failed = 'start';
+      finishHearing(h);
+    }
+  }
+
+  /** Sends what `h` heard, once, and puts the bubble away. */
+  function finishHearing(h) {
+    if (h.sent || hearing !== h) return;
+    h.sent = true;
+    clearTimeout(h.cap);
+    hearing = null;
+    office.hearing(null);
+    try { h.rec.abort(); } catch {}
+    const text = heardText(h);
+    if (h.failed === 'not-allowed' || h.failed === 'service-not-allowed') {
+      return flash('The phone mic isn\'t allowed: allow the microphone for this site in Settings › Apps › Safari');
+    }
+    if (!text) return flash(h.failed ? `The phone mic stopped (${h.failed})` : 'Heard nothing');
+    if (phoneMic.autoSend) return dictate(h.session, text);
+    confirmDictation(h.session, text);
+  }
+
+  /** Let go of without sending: the page went out of sight, or another hold began. */
+  function dropHearing() {
+    if (!hearing) return;
+    const h = hearing;
+    h.sent = true;
+    clearTimeout(h.cap);
+    hearing = null;
+    office.hearing(null);
+    try { h.rec.abort(); } catch {}
+  }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) dropHearing(); });
+
+  /**
+   * Only the words, to the computer, for the session that was listening:
+   * with Return if `send` (the box's Send ⏎), without it if false (Type
+   * only). Without the box, the computer decides by the setting, as before.
+   */
+  async function dictate(session, text, send) {
+    const res = await post('/dictate', { session }, undefined, send === undefined ? { text } : { text, send });
+    if (!res) return flash("Can't reach your computer");
+    if (res.status === 401) return unpaired();
+    if (!res.ok) return flash((await res.text()) || `failed (${res.status})`);
+    const sent = send === undefined ? phoneMic.autoSend && text.split(/\s+/).length >= 3 : send;
+    flash(sent ? `sent: ${text}` : `typed: ${text}`);
+    setTimeout(() => peek(session), PEEK_AFTER);
+  }
+
+  /** The box over the room: what was heard, to correct, for the session that was listening. */
+  let confirming = null; // the session id the box is for
+  function confirmDictation(session, text) {
+    confirming = session;
+    const s = sessions.find((x) => x.id === session);
+    $('confirm-name').textContent = s ? s.project || s.name : '';
+    $('confirm-text').value = text;
+    $('confirm').hidden = false;
+    confirmable();
+  }
+  /**
+   * Nothing goes while that agent asks you something: its menu would take
+   * the words, a digit picking an option and Return the one highlighted.
+   * Kept up to date as the computer says; the words wait in the box.
+   */
+  function confirmable() {
+    if (!confirming) return;
+    const s = sessions.find((x) => x.id === confirming);
+    const asking = !!s && s.state === 'asking';
+    $('confirm-send').disabled = asking;
+    $('confirm-type').disabled = asking;
+    $('confirm-why').hidden = !asking;
+  }
+  function closeConfirm() {
+    confirming = null;
+    $('confirm').hidden = true;
+    $('confirm-text').blur();
+  }
+  function confirmed(send) {
+    const session = confirming;
+    const text = $('confirm-text').value.replace(/\s+/g, ' ').trim();
+    if (!session || $('confirm-send').disabled) return;
+    tick();
+    if (!text) return flash('Nothing to type');
+    closeConfirm();
+    dictate(session, text, send);
+  }
+  $('confirm-send').addEventListener('click', () => confirmed(true));
+  $('confirm-type').addEventListener('click', () => confirmed(false));
+  $('confirm-cancel').addEventListener('click', () => {
+    tick();
+    closeConfirm();
+    flash('Cancelled: nothing typed');
+  });
+
+  /** What the agent's tab shows now: its last lines, read on the computer, until tapped away. */
+  let peekAsked = 0;
+  async function peek(session) {
+    const asked = ++peekAsked;
+    const res = await post('/peek', { session });
+    if (asked !== peekAsked || !res) return;
+    if (res.status === 401) return unpaired();
+    const body = res.ok ? await res.json().catch(() => ({})) : { error: await res.text() };
+    if (asked !== peekAsked) return;
+    const s = sessions.find((x) => x.id === session);
+    // Every line whole, wrapped; only the box's rules, as wide as the terminal, are cut to the card's width.
+    const lines = body.lines && body.lines.map((line) => line.replace(/^([─━═]{36})[─━═]+$/, '$1'));
+    showPeek(s ? s.project || s.name : '', lines ? lines.join('\n') : body.error || `failed (${res.status})`, !lines);
+  }
+  function showPeek(name, text, failed) {
+    $('peek-name').textContent = name;
+    $('peek-text').textContent = text;
+    $('peek').className = failed ? 'peek failed' : 'peek';
+    $('peek').hidden = false;
+  }
+  function closePeek() {
+    peekAsked++;
+    $('peek').hidden = true;
+  }
+  $('peek').addEventListener('click', closePeek);
+
+  /**
+   * Over plain http, once: why the mic is still the computer's. The phone's
+   * own needs HTTPS, which Tailscale gives (setup explains).
+   */
+  function phoneMicHint() {
+    if (preview || whole || !phoneMic.on || window.isSecureContext) return;
+    let shown = false;
+    try { shown = localStorage.getItem('phone-mic-hint') === 'shown'; } catch {}
+    if (shown) return;
+    try { localStorage.setItem('phone-mic-hint', 'shown'); } catch {}
+    const hint = $('mic-hint');
+    hint.hidden = false;
+    const hide = () => { hint.hidden = true; };
+    hint.onclick = hide;
+    setTimeout(hide, 8000);
+  }
+
   /** Claude Code's thinking effort, from the red button or the chips.
    *  ☢ Max names itself as the source, so the office can tell a press from the chips. */
   function setEffort(level, source) {
@@ -530,7 +893,8 @@
     el.textContent = text;
     el.classList.add('flash');
     clearTimeout(flashTimer);
-    flashTimer = setTimeout(() => { el.classList.remove('flash'); render(); }, 2500);
+    // Long enough to read a reason, as why a tap on the phone didn't answer the Mac's menu.
+    flashTimer = setTimeout(() => { el.classList.remove('flash'); render(); }, 4000);
   }
 
   /**
@@ -584,11 +948,292 @@
     $('summary-text').textContent = text;
     card.className = `summary ${kind}`;
     card.hidden = false;
+    closeInfo();
   }
   $('summary').addEventListener('click', () => {
     summaryAsked++;
     $('summary').hidden = true;
   });
+
+  /* --------------------------- ▤ conversation and ⓘ info (personal, the Mac app's window) */
+
+  /*
+   * In the Mac app's own window, two more keys in the picked agent's row, right after ✨ summary, as the iPhone app
+   * adds its own: ▤ conversation, its conversation on a slate over the room, and ⓘ info, a card of what it runs on
+   * and what it has used. The computer has no buttons by these ids; the deck answers them itself.
+   */
+  const BOARD_BUTTON = 'smolcorp-conversation';
+  const INFO_BUTTON = 'smolcorp-info';
+  /** How often the newest page of the conversation, and the card, are looked at again while they're up, in ms. */
+  const BOARD_EVERY = 3000;
+  const INFO_EVERY = 5000;
+
+  function withMacKeys(data) {
+    if (!bare) return data;
+    const rows = data.layout && Array.isArray(data.layout.rows) ? data.layout.rows : [];
+    const keys = { buttons: [{ id: BOARD_BUTTON, label: '▤ conversation' }, { id: INFO_BUTTON, label: 'ⓘ info' }] };
+    return { ...data, layout: { ...(data.layout || {}), rows: [keys, ...rows] } };
+  }
+
+  function get(pathname, params = {}) {
+    if (preview) return Promise.resolve();
+    return fetch(`${pathname}?${new URLSearchParams({ t: token, ...params })}`).catch(() => {});
+  }
+
+  async function problemText(res) {
+    const text = (await res.text().catch(() => '')).trim();
+    return text && text.length <= 200 ? text : `Your computer answered ${res.status}.`;
+  }
+
+  /*
+   * The conversation: the newest page first, then older ones on request; while it's up, the newest page again every
+   * few seconds, which costs the computer nothing while the transcript hasn't grown. It follows new messages down
+   * only while its foot is in sight.
+   */
+  let board = null; // { session, items, before, size, timer }
+  const byOrder = (a, b) => a.offset - b.offset || a.n - b.n;
+
+  function openBoard(id) {
+    const session = sessions.find((s) => s.id === id);
+    if (!session || !session.conversation) return flash('No conversation for this agent');
+    if (!board || board.session !== id) {
+      closeBoard();
+      board = { session: id, items: [], before: null, size: null, timer: 0 };
+      drawBoard(true);
+    }
+    $('board-name').textContent = session.project || session.name;
+    $('board').hidden = false;
+    clearInterval(board.timer);
+    board.timer = setInterval(newestPage, BOARD_EVERY);
+    newestPage();
+  }
+
+  function closeBoard() {
+    if (board) clearInterval(board.timer);
+    board = null;
+    $('board').hidden = true;
+    $('board-body').replaceChildren();
+  }
+  $('board-close').addEventListener('click', closeBoard);
+
+  function boardProblem(text) {
+    $('board-problem').textContent = text;
+    $('board-problem').hidden = !text;
+  }
+
+  async function newestPage() {
+    const shown = board;
+    if (!shown) return;
+    const params = { session: shown.session };
+    if (shown.size !== null && shown.items.length) params.size = shown.size;
+    const res = await get('/conversation', params);
+    if (board !== shown) return;
+    if (!res) return boardProblem("Can't reach your computer.");
+    if (res.status === 401) return unpaired();
+    if (res.status === 204) return boardProblem('');
+    if (!res.ok) return boardProblem(await problemText(res));
+    const page = await res.json().catch(() => null);
+    if (!page || board !== shown) return;
+    boardProblem('');
+    shown.size = page.size;
+    const known = new Set(shown.items.map((i) => i.id));
+    const fresh = page.items.filter((i) => !known.has(i.id));
+    const first = page.items[0];
+    const last = shown.items[shown.items.length - 1];
+    if (!shown.items.length) shown.before = page.before;
+    // A gap after a long time away: the newest page in place of what was here.
+    if (first && last && byOrder(first, last) > 0 && page.before !== null && !known.has(first.id)) {
+      shown.items = page.items;
+      shown.before = page.before;
+    } else if (fresh.length) {
+      shown.items = [...shown.items, ...fresh].sort(byOrder);
+    } else if (shown.drawn) {
+      return;
+    }
+    drawBoard(false);
+  }
+
+  async function olderPage() {
+    const shown = board;
+    if (!shown || shown.before === null || shown.loadingOlder) return;
+    shown.loadingOlder = true;
+    drawBoard(false);
+    const res = await get('/conversation', { session: shown.session, before: shown.before });
+    shown.loadingOlder = false;
+    if (board !== shown) return;
+    if (!res) return boardProblem("Can't reach your computer.");
+    if (!res.ok) return boardProblem(await problemText(res));
+    const page = await res.json().catch(() => null);
+    if (!page || board !== shown) return;
+    const known = new Set(shown.items.map((i) => i.id));
+    shown.items = [...page.items.filter((i) => !known.has(i.id)), ...shown.items].sort(byOrder);
+    shown.before = page.before;
+    // Where you were stays in sight as the older ones come in above it.
+    const body = $('board-body');
+    const fromFoot = body.scrollHeight - body.scrollTop;
+    drawBoard(false);
+    body.scrollTop = body.scrollHeight - fromFoot;
+  }
+
+  function drawBoard(empty) {
+    const body = $('board-body');
+    const atFoot = body.scrollTop + body.clientHeight >= body.scrollHeight - 40;
+    const shown = board;
+    const top = document.createElement('div');
+    top.className = 'board-top';
+    if (!shown || (empty && !shown.items.length)) {
+      top.textContent = 'Loading…';
+    } else if (shown.before !== null) {
+      const older = document.createElement('button');
+      older.textContent = shown.loadingOlder ? 'Loading…' : 'Older messages';
+      older.disabled = !!shown.loadingOlder;
+      older.addEventListener('click', olderPage);
+      top.append(older);
+    } else {
+      top.textContent = shown.items.length ? 'The start of the conversation' : 'Nothing written yet';
+    }
+    body.replaceChildren(top, ...(shown ? shown.items.map(boardRow) : []));
+    // The first page straight to its foot; newer messages after it, only while the foot is in sight.
+    if (shown && (!shown.drawn || atFoot)) body.scrollTop = body.scrollHeight;
+    if (shown && !empty) shown.drawn = true;
+  }
+
+  function boardRow(item) {
+    const row = document.createElement('div');
+    row.className = `board-row ${item.kind}`;
+    if (item.kind === 'peer' || item.kind === 'question') {
+      const from = document.createElement('span');
+      from.className = 'from';
+      from.textContent = item.kind === 'question' ? 'Asked you' : item.from || 'Another session';
+      row.append(from);
+    }
+    const prefix = { tool: '⚙︎ ', result: '↳ ', answer: '→ ' }[item.kind] || '';
+    row.append(prefix + item.text);
+    if (item.kind === 'tool' || item.kind === 'result') row.title = item.text;
+    if (item.more) {
+      const more = document.createElement('span');
+      more.className = 'more';
+      more.textContent = ' … more';
+      row.append(more);
+    }
+    return row;
+  }
+
+  /*
+   * The card: who pays, the model actually running, the session's time, its tokens and what they cost at the API's
+   * prices, and a subscription's 5-hour and weekly use where Claude Code has fetched it. Only what the computer
+   * reported: anything it has no source for isn't there.
+   */
+  let info = null; // { session, timer }
+
+  function openInfo(id) {
+    const session = sessions.find((s) => s.id === id);
+    if (!session) return;
+    summaryAsked++;
+    $('summary').hidden = true;
+    if (info) clearInterval(info.timer);
+    info = { session: id, timer: setInterval(refreshInfo, INFO_EVERY) };
+    $('info-name').textContent = session.project || session.name;
+    if (!$('info').hidden && $('info').dataset.session === id) return refreshInfo();
+    $('info').dataset.session = id;
+    $('info-rows').replaceChildren();
+    $('info-note').hidden = true;
+    $('info').className = 'summary loading';
+    $('info').hidden = false;
+    refreshInfo();
+  }
+
+  function closeInfo() {
+    if (info) clearInterval(info.timer);
+    info = null;
+    $('info').hidden = true;
+  }
+  $('info').addEventListener('click', closeInfo);
+
+  async function refreshInfo() {
+    const shown = info;
+    if (!shown) return;
+    const res = await get('/session/info', { id: shown.session });
+    if (info !== shown) return;
+    if (res && res.status === 401) return unpaired();
+    if (!res || !res.ok) {
+      $('info').className = 'summary failed';
+      $('info-rows').replaceChildren(infoRow('', res ? await problemText(res) : "Can't reach your computer."));
+      return;
+    }
+    const facts = await res.json().catch(() => null);
+    if (!facts || info !== shown) return;
+    $('info').className = 'summary';
+    showInfo(facts);
+  }
+
+  function infoRow(name, value) {
+    const term = document.createElement('dt');
+    term.textContent = name;
+    const shown = document.createElement('dd');
+    shown.append(value);
+    return [term, shown];
+  }
+
+  function showInfo(facts) {
+    const rows = [];
+    const add = (name, value) => rows.push(...infoRow(name, value));
+    const account = facts.account;
+    if (account) {
+      const kind = { 'api-key': 'API key', cloud: 'Cloud provider' }[account.kind];
+      add('Account', kind || [account.plan ? `Claude ${account.plan}` : 'Subscription', account.name].filter(Boolean).join(' · '));
+    }
+    const model = facts.model;
+    if (model) add('Model', [model.name, model.effort && `${model.effort} effort`, model.fast && 'fast'].filter(Boolean).join(' · '));
+    const time = facts.time || {};
+    if (time.sessionMs != null) add('Session', duration(time.sessionMs));
+    if (time.activeMs != null) add('Working', duration(time.activeMs));
+    if (time.deskMs != null) add('On this desk', duration(time.deskMs));
+    const tokens = facts.tokens;
+    if (tokens) {
+      add('Tokens', `${count(tokens.input + tokens.cacheRead + tokens.cacheWrite)} in · ${count(tokens.output)} out`);
+      if (tokens.cacheRead || tokens.cacheWrite) add('Cache', `${count(tokens.cacheRead)} read · ${count(tokens.cacheWrite)} written`);
+    }
+    const cost = facts.cost;
+    if (cost) add(cost.basis === 'api' ? 'Cost' : 'At API prices', `${money(cost.usd)} (estimate)`);
+    const limits = facts.limits;
+    if (limits && limits.fiveHour) add('5-hour limit', meter(limits.fiveHour));
+    if (limits && limits.weekly) add('Weekly limit', meter(limits.weekly));
+    $('info-rows').replaceChildren(...rows);
+    $('info-note').hidden = !limits;
+    if (limits) $('info-note').textContent = `Use as Claude Code last fetched it, ${limits.ageMs < 60_000 ? 'just now' : `${duration(limits.ageMs)} ago`}.`;
+  }
+
+  function meter(window) {
+    const shown = document.createElement('span');
+    const bar = document.createElement('span');
+    bar.className = `info-meter${window.percent >= 80 ? ' high' : ''}`;
+    const fill = document.createElement('i');
+    fill.style.width = `${Math.max(0, Math.min(100, window.percent))}%`;
+    bar.append(fill);
+    shown.append(bar, `${Math.round(window.percent)}%${window.resetsInMs != null ? ` · resets in ${duration(window.resetsInMs)}` : ''}`);
+    return shown;
+  }
+
+  function duration(ms) {
+    const s = Math.max(0, Math.round(ms / 1000));
+    if (s < 60) return `${s} s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h} h ${String(m % 60).padStart(2, '0')}`;
+    return `${Math.floor(h / 24)} d ${h % 24} h`;
+  }
+
+  function count(n) {
+    if (n < 1000) return String(n);
+    if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+    return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 2 : 1)}M`;
+  }
+
+  function money(usd) {
+    return usd < 0.01 ? 'under $0.01' : `$${usd.toFixed(2)}`;
+  }
 
   /* ------------------------------------------------------------ render */
 
@@ -597,6 +1242,9 @@
     // Nothing chosen: whoever is waiting on you, else the first.
     if (!selected && sessions.length) selected = (sessions.find((s) => s.state === 'asking') || sessions[0]).id;
     office.select(selected);
+    // An agent gone: its conversation and its card go with it.
+    if (board && !sessions.some((s) => s.id === board.session)) closeBoard();
+    if (info && !sessions.some((s) => s.id === info.session)) closeInfo();
     if (!$('status').classList.contains('off') && !$('status').classList.contains('flash')) {
       $('status').textContent = overflow > 0 ? `${overflow} more session${overflow > 1 ? 's' : ''} without a desk` : '';
     }
@@ -604,10 +1252,11 @@
 
   /* ----------------------------------------------------------- plumbing */
 
-  function post(pathname, params = {}, signal) {
+  function post(pathname, params = {}, signal, json) {
     if (preview) return Promise.resolve();
     const q = new URLSearchParams({ t: token, ...params });
-    return fetch(`${pathname}?${q}`, { method: 'POST', signal }).catch(() => {});
+    const body = json === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(json) };
+    return fetch(`${pathname}?${q}`, { method: 'POST', signal, ...body }).catch(() => {});
   }
 
   /** What the computer streams: the sessions at their desks and the layout. */
@@ -618,8 +1267,28 @@
     overflow = data.overflow;
     scrollEnabled = data.scroll;
     layout = data.layout || null;
+    // Personal build: the phone's own mic. Where it's the phone's, every desk the computer can type into has
+    // a mic, with the FR/EN switch over it, and without the computer's clean-up switch, which it doesn't use.
+    const wasOn = phoneMic.on;
+    phoneMic = { on: !!(data.phoneMic && data.phoneMic.on), autoSend: !!(data.phoneMic && data.phoneMic.autoSend === true) };
+    micLanguage = (data.dictation && data.dictation.language) || micLanguage;
+    if (phoneMic.on && !wasOn) phoneMicHint();
+    if (!phoneMicHere()) {
+      dropHearing();
+      closeConfirm();
+      closePeek();
+    }
+    confirmable();
+    if (phoneMicHere()) {
+      data = {
+        ...data,
+        keys: (data.keys || []).map((k) => (!k.session || !k.session.phoneMic ? k
+          : { ...k, session: { ...k.session, mic: true, dictates: true } })),
+        dictation: { ...(data.dictation || {}), on: true, cleanup: undefined },
+      };
+    }
     // The office's own colours: a theme saved by an older setup page is left out.
-    office.show({ ...data, theme: {} });
+    office.show({ ...withMacKeys(data), theme: {} });
     $('status').classList.remove('off');
     render();
   }
@@ -627,7 +1296,7 @@
   /** In the preview, what a control would have done to the selected session. */
   function rehearse(params) {
     // A hire is for no session yet; firing names the one the office asked about.
-    const target = ['hire', 'swap', 'style', 'music'].includes(params.action) ? null : sessions.find((s) => s.id === params.session) || current();
+    const target = ['hire', 'swap', 'style', 'music', 'cleanup'].includes(params.action) ? null : sessions.find((s) => s.id === params.session) || current();
     const name = target ? ` · ${target.project}` : '';
     if (params.action === 'button') {
       const b = ((layout && layout.rows) || []).flatMap((row) => row.buttons).find((x) => x.id === params.button);
@@ -640,6 +1309,8 @@
       mic: params.phase === 'down' ? 'starts listening' : 'stops listening',
       effort: `sets effort to ${params.level}`, scroll: 'scrolls',
       fire: 'fires', hire: params.role ? `hires a ${(roles.find((r) => r.id === params.role) || { name: 'role' }).name}` : 'hires a new agent', swap: 'swaps two desks', style: 'changes the office\'s style',
+      seen: 'marks its news seen',
+      cleanup: `turns dictation's clean-up ${String(params.on) === '1' ? 'on' : 'off'}`,
       music: params.do === 'volume' ? `sets the volume to ${params.level}`
         : { previous: 'goes back a song', next: 'skips to the next song' }[params.do] || 'plays or pauses your music',
     };

@@ -15,6 +15,7 @@ extension Terminal.Keystroke {
         case (.tab, false, false): return "Tab"
         case (.tab, true, false): return "BTab"
         case (.c, false, true): return "C-c"
+        case (let key, false, false) where key.character != nil: return key.character
         default: return nil
         }
     }
@@ -29,6 +30,7 @@ extension Terminal.Keystroke {
         case (.tab, false, false): return "\t"
         case (.tab, true, false): return "\u{1b}[Z"
         case (.c, false, true): return "\u{03}"
+        case (let key, false, false) where key.character != nil: return key.character
         default: return nil
         }
     }
@@ -151,6 +153,9 @@ struct Tmux: TerminalDriver {
         return ran(tab, ["set-buffer", "-b", buffer, "--", text]) && ran(tab, ["paste-buffer", "-p", "-d", "-b", buffer, "-t", tab.id])
     }
 
+    /// As keys, where `insert` pastes.
+    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { ran(tab, ["send-keys", "-t", tab.id, "-l", "--", text]) }
+
     /// The pane, and the terminal tab tmux is shown in, when that's one the
     /// deck can bring forward.
     func focus(_ tab: TabAddress) -> Bool {
@@ -197,6 +202,12 @@ struct Tmux: TerminalDriver {
         guard let answer = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_id}"]) else { return nil }
         return answer.status == 0 && answer.output == tab.id
     }
+
+    /// The pane's visible lines, as text, without its colours.
+    func screen(of tab: TabAddress) -> String? {
+        guard let answer = run(tab, ["capture-pane", "-p", "-t", tab.id]), answer.status == 0 else { return nil }
+        return answer.output
+    }
 }
 
 /// iTerm2, through its AppleScript: `write text` reaches the session
@@ -241,6 +252,12 @@ struct ITerm: TerminalDriver {
 
     func insert(_ text: String, in tab: TabAddress) -> Bool {
         withSession(tab.id, "tell s to write text (item 2 of argv) newline NO\nreturn \"ok\"", [text]) == "ok"
+    }
+
+    /// The session's visible lines, as text: its `contents`.
+    func screen(of tab: TabAddress) -> String? {
+        guard let answer = withSession(tab.id, "return \"ok\" & (contents of s)"), answer.hasPrefix("ok") else { return nil }
+        return String(answer.dropFirst(2))
     }
 
     func focus(_ tab: TabAddress) -> Bool {
@@ -433,6 +450,13 @@ struct Ghostty: TerminalDriver {
         guard let answer = withTerminal(tab, "return \"open\"") else { return nil }
         return answer == "open"
     }
+
+    /// Not read for Ghostty: the phone's peek says it can't show the input line.
+    func screen(of tab: TabAddress) -> String? { nil }
+    var showsScreen: Bool { false }
+
+    /// As keys, where `insert` pastes: as `press` types them.
+    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { typeBytes(text, in: tab) }
 }
 
 /// Brings a terminal app forward by its bundle id, after its own command
@@ -479,6 +503,9 @@ struct WezTerm: TerminalDriver {
     /// As a paste, which is send-text's own way, without Return.
     func insert(_ text: String, in tab: TabAddress) -> Bool { ran(tab, ["send-text", "--pane-id", tab.id, "--", text]) }
 
+    /// As keys, where `insert` pastes.
+    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", "--", text]) }
+
     func focus(_ tab: TabAddress) -> Bool {
         guard ran(tab, ["activate-pane", "--pane-id", tab.id]) else { return false }
         activate(bundle: "com.github.wez.wezterm")
@@ -505,6 +532,12 @@ struct WezTerm: TerminalDriver {
 
     func tty(of tab: TabAddress) -> String? { pane(tab)?.tty }
     func isOpen(_ tab: TabAddress) -> Bool? { pane(tab)?.open }
+
+    /// The pane's visible lines, as text, without its colours.
+    func screen(of tab: TabAddress) -> String? {
+        guard let answer = run(tab, ["get-text", "--pane-id", tab.id]), answer.status == 0 else { return nil }
+        return answer.output
+    }
 }
 
 /// kitty, through its remote control, which needs `allow_remote_control` and
@@ -595,6 +628,12 @@ struct Kitty: TerminalDriver {
         guard let answer = run(tab, ["ls", "--match", "id:\(tab.id)"], errors: true) else { return nil }
         if answer.status == 0 { return true }
         return answer.output.contains("No matching windows") ? false : nil
+    }
+
+    /// The window's visible lines, as text, without its colours.
+    func screen(of tab: TabAddress) -> String? {
+        guard let answer = run(tab, ["get-text", "--match", "id:\(tab.id)"]), answer.status == 0 else { return nil }
+        return answer.output
     }
 }
 

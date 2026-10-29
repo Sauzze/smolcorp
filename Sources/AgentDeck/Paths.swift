@@ -65,6 +65,9 @@ enum Paths {
     /// Where a hire with a role leaves the few lines that start its agent,
     /// for its Terminal window to run once. Each removes itself as it runs.
     static let hires = support.appendingPathComponent("hires", isDirectory: true)
+    /// Where a hire's brief is written when its desk isn't pinned to its own
+    /// project, so a shared folder such as ~/Projects stays clean: see `BriefFiles`.
+    static let hireBriefs = support.appendingPathComponent("briefs", isDirectory: true)
     /// The hook's key, as the header curl sends: see `Access`.
     static let hookHeader = support.appendingPathComponent("hook-header")
     /// The setup page's key, new at every launch, for tools of your own on
@@ -90,6 +93,8 @@ enum Paths {
 
     /// The phone and setup pages, bundled inside the app.
     static let web = Bundle.main.resourceURL!.appendingPathComponent("web", isDirectory: true)
+    /// The briefs that come with the app: see `BriefLibrary`.
+    static let briefs = Bundle.main.resourceURL!.appendingPathComponent("briefs", isDirectory: true)
     static let bundledHookScript = Bundle.main.resourceURL!.appendingPathComponent("report.sh")
     static let bundledOpenCodePlugin = Bundle.main.resourceURL!.appendingPathComponent("opencode-plugin.js")
     /// 1.7.2's plugin, the one OpenCode 1 loads: see `OpenCodeInstall`.
