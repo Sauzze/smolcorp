@@ -43,6 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server.onReady = { [menu] in menu.showListening() }
         server.service = PhoneApp.service
         server.start()
+        // Tailscale's address, looked up from the start, for setup and the phone mic.
+        Tailnet.refresh { [deck] in deck.refresh() }
         menu.office = office
         menu.settings = settings
         router.showOffice = { [office] in office.show() }

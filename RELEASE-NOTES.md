@@ -1,4 +1,13 @@
-# Smolcorp 1.22.0 (beta)
+# Smolcorp 1.22.1 (beta)
+
+## Fixed in 1.22.1
+
+- **Tailscale is found on the Mac again.** Setup said "Get Tailscale" while
+  Tailscale was running, so the phone's address through Tailscale, and the
+  phone mic over HTTPS, weren't offered. Smolcorp now asks Tailscale's Mac app
+  the way a terminal does, and gets its answer.
+
+## New in 1.22
 
 Smolcorp is one app, open source, on the Mac, Windows and Linux: your coding
 agents as little people in a pixel office, on your computer and on your
