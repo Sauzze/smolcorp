@@ -105,7 +105,7 @@ func TestEachAgentsOwnKeys(t *testing.T) {
 // arrived: the session, a turn, a question, its answer and the turn's end.
 func TestOpenCode2sEventsGiveADeskAndItsStates(t *testing.T) {
 	d := newTestDeck(t)
-	d.launcherConnected("L1", OpenCode, "/work/qwen", "")
+	d.launcherConnected("L1", OpenCode, "/work/qwen", "", "")
 	steps := []struct {
 		event string
 		want  SessionState

@@ -6,7 +6,8 @@ import Foundation
 /// the badge it wears in the office. Plain text you own, kept on this Mac:
 /// nothing runs until the office hires one, which hiring has to be on for.
 /// All of it is the agent's first message, there to read in its Terminal
-/// window, and nothing changes what the agent may do without asking.
+/// window, or with a brief from the library or a file, in the BRIEF.md it's
+/// sent to; and nothing changes what the agent may do without asking.
 struct Role: Codable, Equatable {
     var id = ""
     var name = ""
@@ -23,6 +24,9 @@ struct Role: Codable, Equatable {
     /// What its agents wear in the office, one of `Layout.TeamMember`'s
     /// outfits, or empty for none: a team member's own outfit still comes first.
     var outfit = ""
+    /// Where its brief comes from, or nil as kept before roles had briefs:
+    /// then `source` is what it's hired on.
+    var brief: Brief?
 
     static let nameLimit = 24
     static let modelLimit = 64
@@ -30,8 +34,6 @@ struct Role: Codable, Equatable {
     /// The most questions a role asks, and the longest each can be.
     static let questionsMost = 8
     static let questionLimit = 200
-    /// The most roles of your own, besides the ones that come with the app.
-    static let ownMost = 12
     /// What a role can wear in the office: the shipped roles' own, then some
     /// for yours. office.js draws them.
     static let badges = ["glasses", "clipboard", "magnifier", "quill", "wrench", "star", "bulb", "headset", "flag", "shield",
@@ -106,10 +108,16 @@ struct Role: Codable, Equatable {
             """, badge: "pipe", outfit: "plumber"),
         Role(id: "gm", name: "General Manager", agent: "claude", model: "opus", effort: "high", questions: [
             "What's the goal, and which project or projects does it cover?",
-            "Who or what should do the work: other agents, roles, or you alone?",
+            "What may the team spend (plans, API keys, cloud time), and which agents and accounts may it use?",
+            "What do you want to approve yourself, beyond push, publish, deploy, spending and deleting?",
         ], instructions: """
-            Plan the work toward the goal: split it into tasks small enough for one agent each, say who should take each, and \
-            keep a list of what's done and what's left. Ask before starting, handing out or merging anything.
+            Run a team of agents toward the goal. First plan it: tasks one agent can finish and prove in one sitting, and \
+            wait for my OK on the plan. Then hire one agent per task, each in its own worktree or folder, branch and port \
+            range, with a brief that says what done means and what proof to show. Check that each hire really started, check \
+            their proof yourself, and have a second agent review any change before it merges. Decide the team and process \
+            calls yourself; ask me before anything is pushed, merged to main, published, deployed, released, deleted or paid \
+            for, or reaches a real person. Never type into another window, never ask an employee to do what your own checks \
+            refused, and when an employee is done, end its session, make sure it's gone, and close its window.
             """, badge: "crown", outfit: "gmexec"),
         Role(id: "janitor", name: "Janitor", agent: "claude", model: "sonnet", effort: "medium", questions: [
             "Which project or area should you tidy up?",
@@ -170,6 +178,16 @@ struct Role: Codable, Equatable {
             Follow the recipe I give you to cook up a scaffold or prototype. First list what you'll make, file by file, \
             and wait for my OK. Then build it in small steps, and keep it out of the way of existing code.
             """, badge: "toque", outfit: "chef"),
+        Role(id: "thinker", name: "Thinker", agent: "claude", model: "opus", effort: "max", questions: [
+            "What should you think about: a question about this project, or a broader one?",
+            "What should your answer help me decide or do?",
+            "Anything to read first, any limits, or ideas already ruled out?",
+        ], instructions: """
+            Think the question I give you through before doing anything else. Read what matters in this project, and \
+            on the web if it helps. Write your thinking to a file: the options, their trade-offs, what you recommend \
+            and why, the open questions, and your sources. Don't change any code: report, and wait for my OK on any \
+            next step.
+            """, badge: "bulb", outfit: "professor"),
     ]
 
     /// The shipped roles each version came with, by id, in order: a config
@@ -186,6 +204,19 @@ struct Role: Codable, Equatable {
         old.outfit = ""
         return old
     }
+
+    /// The General Manager as it came before it ran a team, when it only
+    /// planned. Still exactly so, its brief aside, it's brought up to date as
+    /// it loads; one you've changed is left as you have it.
+    static let shippedBeforeTeams = [
+        Role(id: "gm", name: "General Manager", agent: "claude", model: "opus", effort: "high", questions: [
+            "What's the goal, and which project or projects does it cover?",
+            "Who or what should do the work: other agents, roles, or you alone?",
+        ], instructions: """
+            Plan the work toward the goal: split it into tasks small enough for one agent each, say who should take each, and \
+            keep a list of what's done and what's left. Ask before starting, handing out or merging anything.
+            """, badge: "crown", outfit: "gmexec"),
+    ]
 
     /// The shipped roles as 1.7.1 had them, which assumed what to work on. A
     /// role still exactly so is brought up to date as it loads; one you've
@@ -214,9 +245,10 @@ struct Role: Codable, Equatable {
     ]
 
     init(id: String, name: String, agent: String, model: String, effort: String, questions: [String] = [], instructions: String,
-         badge: String, outfit: String = "") {
+         badge: String, outfit: String = "", brief: Brief? = nil) {
         (self.id, self.name, self.agent, self.model, self.effort, self.questions, self.instructions, self.badge, self.outfit) =
             (id, name, agent, model, effort, questions, instructions, badge, outfit)
+        self.brief = brief
     }
 
     /// Field by field: anything missing or of the wrong kind is empty, and
@@ -228,6 +260,8 @@ struct Role: Codable, Equatable {
             (text(.id), text(.name), text(.agent), text(.model), text(.effort), text(.instructions), text(.badge), text(.outfit))
         // Missing from a role kept before roles asked questions; text among them is kept.
         questions = (((try? c?.decodeIfPresent([Loose].self, forKey: .questions)) ?? nil) ?? []).compactMap(\.text)
+        // Missing from a role kept before roles had briefs, which `Role.checked` gives one.
+        brief = (try? c?.decodeIfPresent(Brief.self, forKey: .brief)) ?? nil
     }
 
     /// One of the questions as given: text, or nothing for any other kind of value.
@@ -251,32 +285,61 @@ struct Role: Codable, Equatable {
         let modelCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._/:[]"))
         let keptModel = model.count <= Role.modelLimit && model.unicodeScalars.allSatisfy { $0.isASCII && modelCharacters.contains($0) }
             ? model : ""
-        // Lines and tabs stay; other control characters go.
-        let instructions = String(String.UnicodeScalarView(instructions.unicodeScalars.filter {
-            $0 == "\n" || $0 == "\t" || !CharacterSet.controlCharacters.contains($0)
-        })).trimmingCharacters(in: .whitespacesAndNewlines)
         // Each question one line, without control characters; empty ones go.
         let questions = questions.map { question in
             String(String(String.UnicodeScalarView(question.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }))
                 .trimmingCharacters(in: .whitespaces).prefix(Role.questionLimit)).trimmingCharacters(in: .whitespaces)
         }.filter { !$0.isEmpty }
+        // Lines and tabs stay; other control characters go.
+        func cleaned(_ text: String) -> String {
+            String(String(String.UnicodeScalarView(text.unicodeScalars.filter {
+                $0 == "\n" || $0 == "\t" || !CharacterSet.controlCharacters.contains($0)
+            })).trimmingCharacters(in: .whitespacesAndNewlines).prefix(Role.instructionsLimit))
+        }
+        var kept = cleaned(instructions)
+        // A brief that can't be one is none. One on its own instructions has them as its text, or gives them its own.
+        var brief = brief
+        switch brief?.kind {
+        case .library: if !Brief.libraryIDs.contains(brief!.id) { brief = nil }
+        case .file: brief = try? Brief.file(brief!.text, named: brief!.fileName)
+        case .text:
+            if kept.isEmpty { kept = cleaned(brief!.text) }
+            brief = .text(kept)
+        case nil: break
+        }
         return Role(id: id, name: name, agent: agent.rawValue, model: keptModel,
                     effort: agent.hasEffortDial && Deck.effortLevels.contains(effort) ? effort : "",
                     questions: Array(questions.prefix(Role.questionsMost)),
-                    instructions: String(instructions.prefix(Role.instructionsLimit)),
+                    instructions: kept,
                     badge: Role.badges.contains(badge) ? badge : "",
-                    outfit: outfit != "auto" && TeamMember.choices["outfit"]?.contains(outfit) == true ? outfit : "")
+                    outfit: outfit != "auto" && TeamMember.choices["outfit"]?.contains(outfit) == true ? outfit : "", brief: brief)
     }
 
-    /// Roles as kept: each checked, each id once, and as many of your own as
-    /// there's room for, in their order. A shipped role still as 1.7.1 had it
-    /// is brought up to date, and one still as it was before it had an outfit gets it.
+    /// The brief a role kept without one is hired on: a shipped role still
+    /// on its shipped instructions, its own from the library; any other, its
+    /// instructions, as it has always started, so an edit of yours stays yours.
+    var defaultBrief: Brief {
+        guard let library = Brief.libraryID(ofRole: id), Role.shipped.contains(where: { $0.id == id && $0.instructions == instructions })
+        else { return .text(instructions) }
+        return .library(library)
+    }
+
+    /// What it's hired on.
+    var source: Brief { brief ?? defaultBrief }
+
+    /// Roles as kept: each checked, each id once, and every one of your own,
+    /// in their order. A shipped role still as 1.7.1 had it
+    /// is brought up to date, and one still as it was before it had an outfit
+    /// gets it. Each has a brief: one kept without is given its `defaultBrief`.
     static func checked(_ roles: [Role]) -> [Role] {
         let shippedIDs = Set(Role.shipped.map(\.id))
         var kept: [Role] = []
         for given in roles.compactMap(\.checked) where !kept.contains(where: { $0.id == given.id }) {
-            let role = Role.shippedIn171.contains(given) || Role.shippedBeforeOutfits.contains(given) ? Role.shipped.first { $0.id == given.id } ?? given : given
-            if !shippedIDs.contains(role.id) && kept.filter({ !shippedIDs.contains($0.id) }).count == Role.ownMost { continue }
+            var plain = given
+            plain.brief = nil
+            let old = Role.shippedIn171.contains(given) || Role.shippedBeforeOutfits.contains(given) || Role.shippedBeforeTeams.contains(plain)
+            var role = old ? Role.shipped.first { $0.id == given.id } ?? given : given
+            role.brief = role.source
             kept.append(role)
         }
         return kept
@@ -298,6 +361,20 @@ struct Role: Codable, Equatable {
         return (pinned ? "" : "You've started in \(shown), a general folder, not a project. ")
             + "Your first reply must only ask me the questions below, all together. Don't read code, run commands or start any "
             + "work until I've answered them.\n\n\(asked)\n\n\(then)"
+    }
+
+    /// What the agent is first told when setup hired it with your answers
+    /// already: the folder it's in, the answers, then the role's instructions.
+    func firstMessage(in folder: String, answers: [String]) -> String {
+        let shown = (folder as NSString).abbreviatingWithTildeInPath
+        let answered = questions.enumerated().map { i, question in
+            let answer = i < answers.count ? BriefContext.answer(answers[i]) : ""
+            return "- \(question) \(answer.isEmpty ? "(No answer: use your judgement.)" : answer)"
+        }
+        let then = instructions.isEmpty ? "Ask me what to do." : "As my \(name): \(instructions)"
+        return "You've started in \(shown), the project to work on."
+            + (answered.isEmpty ? "" : " I've answered your questions already:\n\n" + answered.joined(separator: "\n"))
+            + "\n\n\(then)"
     }
 
     /// How the role's agent starts: its model, its effort, and `message` as
@@ -326,7 +403,11 @@ struct Role: Codable, Equatable {
     /// words is quoted for the shell, so the instructions are only ever the
     /// agent's message, never a command.
     func startScript(in folder: String, pinned: Bool) -> String {
-        let words = [(Agent(rawValue: agent) ?? .claude).rawValue] + arguments(firstMessage: firstMessage(in: folder, pinned: pinned))
+        startScript(firstMessage: firstMessage(in: folder, pinned: pinned))
+    }
+
+    func startScript(firstMessage message: String) -> String {
+        let words = [(Agent(rawValue: agent) ?? .claude).rawValue] + arguments(firstMessage: message)
         let quoted = words.map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " ")
         return "#!/bin/sh\n# A hire from Smolcorp's office, as a \(name): runs once.\nrm -f \"$0\"\nexec \(quoted)\n"
     }
@@ -336,6 +417,30 @@ struct Role: Codable, Equatable {
     /// All of it, for the setup page.
     var jsonObject: [String: Any] {
         ["id": id, "name": name, "agent": agent, "model": model, "effort": effort, "questions": questions, "instructions": instructions,
-         "badge": badge, "outfit": outfit]
+         "badge": badge, "outfit": outfit, "brief": source.jsonObject]
+    }
+
+    /// Roles as setup sends them, with a brief on their own instructions
+    /// kept the same text as those: whichever of the two changed from
+    /// `saved` wins, the brief's text if both did. (A page from before
+    /// briefs sends the brief's text as it was, and changes the instructions.)
+    /// A library role whose instructions changed is on them from then on,
+    /// so an edit is never ignored, whatever page made it.
+    static func synced(_ given: [Role], saved: [Role]) -> [Role] {
+        given.map { role in
+            let before = saved.first { $0.id == role.id }?.instructions
+            var role = role
+            if role.brief?.kind == .library, let before, role.instructions != before {
+                role.brief = .text(role.instructions)
+                return role
+            }
+            guard var brief = role.brief, brief.kind == .text else { return role }
+            if !brief.text.isEmpty && brief.text != (before ?? role.instructions) {
+                role.instructions = brief.text
+            }
+            brief.text = role.instructions
+            role.brief = brief
+            return role
+        }
     }
 }

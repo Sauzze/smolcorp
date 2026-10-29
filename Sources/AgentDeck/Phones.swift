@@ -14,6 +14,8 @@ struct PairedPhone: Codable {
     var lastSeen: Date
     /// SHA-256 of the phone's key, in hex. The key itself is never stored.
     let keyHash: String
+    /// iPhone app (personal build): where its notifications go, and which it wants. See `Pushes`.
+    var push: PushTarget? = nil
 }
 
 /// Every paired phone. Each has its own key, so one can be revoked and the
@@ -25,9 +27,12 @@ final class Phones {
     private static let seenResolution: TimeInterval = 60
 
     private(set) var all: [PairedPhone]
+    /// phones.json; another file in tests.
+    private let file: URL
 
-    init() {
-        all = Phones.load()
+    init(file: URL = Paths.phones) {
+        self.file = file
+        all = Phones.load(file)
     }
 
     /// Adds a phone and returns its key: the only time the key exists here.
@@ -54,6 +59,23 @@ final class Phones {
         save()
     }
 
+    /// iPhone app (personal build): the phone's device token and the notifications it wants, or nil for none.
+    func setPush(_ push: PushTarget?, for id: String) {
+        guard let index = all.firstIndex(where: { $0.id == id }), all[index].push != push else { return }
+        // One phone, one token: one handed on to a phone paired again is the newest pairing's only.
+        if let token = push?.token {
+            for other in all.indices where other != index && all[other].push?.token == token { all[other].push = nil }
+        }
+        all[index].push = push
+        save()
+    }
+
+    /// A token Apple no longer takes, forgotten: only if it's still the phone's, as a new one may have come since.
+    func forgetPush(token: String, for id: String) {
+        guard let push = all.first(where: { $0.id == id })?.push, push.token == token else { return }
+        setPush(nil, for: id)
+    }
+
     func remove(_ id: String) {
         all.removeAll { $0.id == id }
         save()
@@ -72,6 +94,8 @@ final class Phones {
         if userAgent.contains("AgentOffice") || userAgent.contains("Agent%20Office") { return "Agent Office" }
         // So does the screen saver, from its Options: see ScreenSaver/Pairing.swift.
         if userAgent.contains("SauzzeDeckScreenSaver") { return "Screen saver" }
+        // Personal build: the iPhone app, which says so: see ios/.
+        if userAgent.hasPrefix(PhoneApp.userAgent) { return "iPhone app" }
         if userAgent.contains("iPhone") { return "iPhone" }
         if userAgent.contains("iPad") { return "iPad" }
         if userAgent.contains("Android") { return "Android phone" }
@@ -82,8 +106,8 @@ final class Phones {
         SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func load() -> [PairedPhone] {
-        guard let data = try? Data(contentsOf: Paths.phones) else { return [] }
+    private static func load(_ file: URL) -> [PairedPhone] {
+        guard let data = try? Data(contentsOf: file) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return (try? decoder.decode([PairedPhone].self, from: data)) ?? []
@@ -95,6 +119,6 @@ final class Phones {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(all) else { return }
         // Whole or not at all: a file cut short would unpair every phone.
-        Paths.writePrivately(data, to: Paths.phones)
+        Paths.writePrivately(data, to: file)
     }
 }

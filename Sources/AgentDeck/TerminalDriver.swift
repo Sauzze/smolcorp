@@ -15,6 +15,11 @@ import Foundation
 /// driver, nothing is watched or pressed there, and it is never matched to a
 /// terminal's tab.
 /// A bare tty, as a deck saved before 1.9 kept, reads as a Terminal.app tab.
+extension TerminalDriver {
+    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { insert(text, in: tab) }
+    var showsScreen: Bool { true }
+}
+
 struct TabAddress: Hashable {
     let kind: String
     let id: String
@@ -109,6 +114,14 @@ protocol TerminalDriver {
     /// Puts `text` in the tab without Return, as dictation does, for you to
     /// read before sending.
     func insert(_ text: String, in tab: TabAddress) -> Bool
+    /// iPhone app (personal build): `text` typed as keys, never as a paste,
+    /// without Return: into a menu's own text field, as Claude Code's "Type
+    /// something", which a paste may not reach. `insert` where that already
+    /// types keys.
+    func typeKeys(_ text: String, in tab: TabAddress) -> Bool
+    /// iPhone app (personal build): whether `screen` can say what the tab
+    /// shows, for a menu to be seen before a choice's key goes.
+    var showsScreen: Bool { get }
     func focus(_ tab: TabAddress) -> Bool
     func scroll(lines: Int, in tab: TabAddress) -> Bool
     func scrollToBottom(in tab: TabAddress) -> Bool
@@ -118,6 +131,9 @@ protocol TerminalDriver {
     /// Whether the tab is still there: nil when that can't be told, as for
     /// Terminal.app, whose closed tabs the deck finds from its list of tabs.
     func isOpen(_ tab: TabAddress) -> Bool?
+    /// What the tab shows now, as text, for the phone mic's peek at the
+    /// input line; nil where the terminal can't say.
+    func screen(of tab: TabAddress) -> String?
 }
 
 enum Terminals {
@@ -174,4 +190,5 @@ struct TerminalApp: TerminalDriver {
     func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired { Terminal.fire(tty: tab.id, agent: agent) }
     func tty(of tab: TabAddress) -> String? { tab.id }
     func isOpen(_ tab: TabAddress) -> Bool? { nil }
+    func screen(of tab: TabAddress) -> String? { Terminal.contents(tty: tab.id) }
 }

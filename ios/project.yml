@@ -1,0 +1,68 @@
+name: Smolcorp
+options:
+  bundleIdPrefix: com.sauzze
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+targets:
+  Smolcorp:
+    type: application
+    platform: iOS
+    sources:
+      - path: Smolcorp
+      - path: Spike
+      # The deck's page, the office and its sounds, as the Mac serves them:
+      # by reference, so the phone's office is the one in this checkout.
+      - path: ../Resources/web
+        type: folder
+        buildPhase: resources
+    info:
+      path: Smolcorp/Info.plist
+      properties:
+        CFBundleDisplayName: Smolcorp
+        CFBundleShortVersionString: "0.3"
+        CFBundleVersion: "3"
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        # Plain http to the Mac on the Wi-Fi only: local names and addresses.
+        # Never arbitrary loads.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Smolcorp finds your Mac on this Wi-Fi and talks to its deck.
+        NSBonjourServices:
+          - _smolcorp._tcp
+        NSMicrophoneUsageDescription: Smolcorp listens while you hold the office's mic, to type what you say into an agent.
+        NSSpeechRecognitionUsageDescription: Smolcorp turns what you say into text on this iPhone.
+        ITSAppUsesNonExemptEncryption: false
+        # Your Mac, offered first when pairing: blank unless you set
+        # SMOLCORP_MAC_LAN (http://your-mac.local:7710) and
+        # SMOLCORP_MAC_TAILNET (https://your-mac.your-tailnet.ts.net).
+        SmolcorpMacLAN: $(SMOLCORP_MAC_LAN)
+        SmolcorpMacTailnet: $(SMOLCORP_MAC_TAILNET)
+    # Notifications from the Mac, through Apple's sandbox in a development build.
+    entitlements:
+      path: Smolcorp/Smolcorp.entitlements
+      properties:
+        aps-environment: development
+    settings:
+      base:
+        # Your own: SMOLCORP_TEAM_ID (your Apple team) and SMOLCORP_BUNDLE_ID,
+        # set when running xcodegen or passed to xcodebuild. See README.
+        PRODUCT_BUNDLE_IDENTIFIER: ${SMOLCORP_BUNDLE_ID}
+        DEVELOPMENT_TEAM: ${SMOLCORP_TEAM_ID}
+        SMOLCORP_MAC_LAN: ${SMOLCORP_MAC_LAN}
+        SMOLCORP_MAC_TAILNET: ${SMOLCORP_MAC_TAILNET}
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SWIFT_EMIT_LOC_STRINGS: NO
+        GENERATE_INFOPLIST_FILE: NO

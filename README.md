@@ -8,6 +8,10 @@
 [![CI](https://github.com/Sauzze/smolcorp/actions/workflows/ci.yml/badge.svg)](https://github.com/Sauzze/smolcorp/actions/workflows/ci.yml)
 
 <p align="center">
+  <img src="docs/office-reel.gif" alt="The office at work: on a busy ground floor, agents dressed for their roles sit at desks each furnished its own way; the general manager, crown on its badge, plans a release at the middle desk, one agent waits on you with its keys up, and a new hire walks in to take the last desk; the tester's desk turns green when all its tests pass. The elevator's call button opens a list of the floors with how many are on each, and the elevator rides up to a server room of headless runs with robot badges, then a floor of cloud bots whose desks turn green as their reports come in, then a research floor dressed as a space station, and back down" width="800">
+</p>
+
+<p align="center">
   <img src="docs/demo.gif" alt="Smolcorp on a phone held sideways: the office fills the screen, and the new hire, in an orange tie, works at their desk while coffee mugs drop in as their effort rises; a finger held on their desk brings up their keys along the foot of the room; they wait for an answer, the phone's edge glows orange and ✓ is tapped; then the jukebox plays and heads bob to the beat" width="800">
 </p>
 
@@ -17,9 +21,9 @@ Code, Codex, Gemini CLI, OpenCode and Grok.
 Your agent sessions are people in [a little pixel-art office](#the-office) on
 your phone, each at a desk, acting out what it's doing. From the office you can
 approve a permission request from across the room, interrupt an agent, change
-how hard Claude thinks, press buttons of your own, or hold the mic and talk to
+how hard Claude Code thinks, press buttons of your own, or hold the mic and talk to
 it. Smolcorp runs in
-your Mac's menu bar, or in the tray on [Windows and Linux](#windows-and-linux-preview).
+your Mac's menu bar, or in the tray on [Windows and Linux](#windows-and-linux).
 Your phone connects to it over your Wi-Fi, so there's nothing to install from
 an app store.
 
@@ -61,48 +65,52 @@ furnish the office your way.
 
 ## Run a team
 
-The office has up to nine desks, so you can run it like a small company.
+The office has nine desks on the ground floor and five floors above it, with
+twelve desks to a floor, so you can run it like a small company of dozens of
+agents.
 
 **Hire by role.** Hold the desk a new hire would take, and pick who to hire:
 a **Reviewer**, a **Tester**, a **Bug hunter**, a **Docs writer**, a
-**Refactorer**, thirteen more from an Art Director to a Chef, or one of up to
-twelve roles of your own. Each role has its own instructions, agent, model and
+**Refactorer**, fourteen more from an Art Director to a Thinker, or any role
+of your own, as many as you like. Each role has its own instructions, agent, model and
 effort, and comes in wearing its badge, like the Reviewer's glasses and red pen,
 and many dress for the job. A role never guesses what to work on: its first
 reply asks you which project, and its own questions, such as which branch to
-review. Hiring from the office needs the Mac app for now; on Windows and Linux,
-`smolcorp run --role reviewer` starts one from any terminal.
+review. On Windows and Linux, `smolcorp run --role reviewer` also starts one
+from any terminal.
 [More about roles](#the-office).
 
-**Add a manager.** Give one session the job of running the others: opening
-new sessions, briefing them, checking on them every few minutes, passing your
-decisions along, and asking a second agent to review the first one's work. It
-works through whatever your agent can do from a terminal; recent versions of
-Claude Code can also list the other sessions on your computer and message
-them directly. Smolcorp doesn't do the managing. It puts the whole team in
-one room, so you see at a glance who's working, who's waiting for you and who's
-done, and you answer any of them from your phone.
+**Hire a General Manager.** On the setup page, **Hire your General Manager**
+on Start here (or hire the role from a free desk) starts one in its own
+terminal. It asks you the goal, what the team may spend and use, and what you
+want to approve yourself. Then it:
 
-To set one up:
+- **plans** the work as tasks one agent can finish and prove in one sitting,
+  and waits for your OK on the plan;
+- **hires one agent per task**, each with a brief of its own, in its own folder
+  or worktree, branch and port range;
+- **checks** that each hire really started, and checks its proof itself;
+- has **a second agent review** any change before it's merged;
+- makes the team's day-to-day calls itself, and **asks you** before anything is
+  pushed, merged to main, published, deployed, released, deleted or paid for,
+  or reaches a real person;
+- keeps its board of what's done and what's left next to its brief.
 
-1. Start the manager in your projects folder. On the setup page, set
-   [Desks](#make-it-yours) to 9 and drag the manager onto the middle desk, so
-   it sits among the team.
-2. Tell it its job, for example:
+Smolcorp puts the whole team in one room, so you see at a glance who's
+working, who's waiting for you and who's done, and you answer any of them from
+your phone.
 
-   > You're the manager of this team. For each task I give you, open a new
-   > session in the right folder, brief it, and check on everyone every ten
-   > minutes. Have a second agent review any change before it's merged. Ask me
-   > before anything is pushed, released or deleted, and tell me when
-   > something needs me.
-
-3. Give it the work, and hire the rest of the team from the office.
+**Or a manager of your own:** start any session in your projects folder and
+tell it its job, for example: *"You're the manager of this team. For each task
+I give you, open a new session in the right folder, brief it, and check on
+everyone every ten minutes. Have a second agent review any change before it's
+merged. Ask me before anything is pushed, released or deleted."*
 
 **Agents without a terminal work upstairs.** A manager, or a script of your
 own, can run Claude Code without a terminal, as `claude -p` does. Started with
-`SMOLCORP_HEADLESS=1` in its environment, such a run gets a desk on the second
-floor, away from your keys: take the elevator by the entrance to see it. There's
-nothing to press there, as there's no terminal to type into. Set
+`SMOLCORP_HEADLESS=1` in its environment, such a run gets a desk upstairs,
+away from your keys. There's nothing to press there, as there's no terminal to
+type into. Set
 `SMOLCORP_PARENT_FOLDER` to the folder of whoever started it, and holding its
 desk says who hired it, what it's doing and for how long; tap the hirer to go
 down to their desk. A run that ends, or stops being heard from, leaves.
@@ -110,6 +118,14 @@ down to their desk. A run that ends, or stops being heard from, leaves.
 ```sh
 SMOLCORP_HEADLESS=1 SMOLCORP_PARENT_FOLDER="$PWD" claude -p "Write the changelog for this release"
 ```
+
+**Six floors.** Over the ground floor there are five more, twelve desks to a
+floor, filled in order: cloud bots such as Grok Bots, then runs without a
+terminal, then anyone with no desk free downstairs (their keys are still on
+your phone's list). Press the call button beside the elevator, by the entrance,
+for a list of the floors and how many are on each; pick one and the elevator
+takes you there. In setup, under Office → Floors, give each floor a name and a
+style: the office's own, the server room, or any of the styles.
 
 ## Supported agents
 
@@ -168,22 +184,46 @@ that needs no Accessibility at all.
 
 ## What you need
 
-- A Mac running macOS 13 or later. On Windows or Linux, see
-  [Windows and Linux](#windows-and-linux-preview).
+- A Mac running macOS 13 or later, a Windows 10 or 11 PC, or a Linux
+  computer. See [Windows and Linux](#windows-and-linux) for what differs.
 - One or more of the [supported agents](#supported-agents), running in
   Terminal, iTerm2, Ghostty, WezTerm or kitty, or in tmux inside any terminal
   (see [Terminals](#terminals)). Sessions in other terminals (VS Code,
   Alacritty, Warp…) show on the deck, but can't be controlled from it.
-- A phone on the same Wi-Fi as your Mac
+- A phone, on the same Wi-Fi as your computer, or anywhere with
+  [Tailscale](https://tailscale.com) on both.
 
 ## Install
 
-Smolcorp is in **alpha**. It works day to day, but it isn't signed with an
-Apple Developer ID or notarised yet, so macOS warns you before it opens it
-the first time, and again after each update. The steps below get past that
-warning; they're needed until a signed release.
+On the Mac, Smolcorp is in **beta**: signed with a Developer ID and notarised
+by Apple, so it opens with no warning. On Windows and Linux it's an **alpha**,
+still in testing: the Windows build isn't signed yet, so SmartScreen warns you
+the first time.
 
-There are three ways. All give you the same app.
+**The quickest way: let your coding agent do it.** Download
+[**FIRST-SETUP.md**](https://github.com/Sauzze/smolcorp/releases/latest/download/FIRST-SETUP.md) from the latest release (the Windows and Linux
+downloads have it inside too). Open your coding agent (Claude Code, Codex,
+Gemini CLI, OpenCode or Grok) in the folder you downloaded to, and paste what's
+in that file. It installs Smolcorp,
+connects your agents, checks everything, and tells you what only you can do:
+an OK for Windows Firewall or macOS, and pairing your phone.
+
+**Or from a terminal:** `smolcorp setup` on Windows (`smolcorp-cli setup`) and
+Linux, `/Applications/Smolcorp.app/Contents/MacOS/AgentDeck --setup` on a Mac.
+It does the same, prints a checklist, and ends with 0 when nothing is in the
+way.
+
+**On Windows (alpha, in testing):** download **Smolcorp-Windows-x86_64.zip** (or `-arm64`) from the
+[latest release](https://github.com/Sauzze/smolcorp/releases/latest), extract
+it and open **Smolcorp.exe**. SmartScreen warns about an unsigned app: click
+**More info**, then **Run anyway**. Smolcorp installs itself in
+`%LOCALAPPDATA%\Smolcorp`, puts `smolcorp-cli` on your PATH, and starts from
+there: the folder you extracted can go. Its setup opens on **Start here**.
+
+**On Linux (alpha, in testing):** download **Smolcorp-Linux-x86_64.tar.gz** (or `-arm64`), then
+`tar -xzf Smolcorp-Linux-x86_64.tar.gz && ./Smolcorp-Linux-x86_64/install.sh`.
+
+**On a Mac**, three ways, all giving the same app:
 
 ### Download the app
 
@@ -192,14 +232,10 @@ There are three ways. All give you the same app.
 2. In the window that opens, drag **Smolcorp** onto the **Applications**
    folder beside it. Then open Smolcorp from your Applications folder, and
    eject the **Smolcorp** disk in Finder's sidebar.
-3. macOS says *"Smolcorp" Not Opened*, as Apple can't check it for
-   malicious software. Click **Done**. Then:
-   1. Open **System Settings → Privacy & Security** and scroll down to
-      *Security*, where it says Smolcorp was blocked.
-   2. Click **Open Anyway**, and confirm with your password or Touch ID.
-   3. Open Smolcorp again, and click **Open Anyway** in the dialog.
 
-   You do this the first time, and after each update.
+   macOS asks once whether to open an app downloaded from the internet: click
+   **Open**. Releases before 1.22.0 weren't notarised and needed **Open
+   Anyway** in System Settings → Privacy & Security instead.
 
 The release also has **Smolcorp.zip**, the same app in a zip: open it and
 drag **Smolcorp** into your Applications folder.
@@ -223,8 +259,7 @@ to your Home Screen again, and turn the app back on under Accessibility.
 brew install --cask sauzze/tap/smolcorp
 ```
 
-Update with `brew upgrade --cask smolcorp`. The first time it opens, and after
-each update, macOS asks as above: follow step 3.
+Update with `brew upgrade --cask smolcorp`.
 
 ### Or build it yourself
 
@@ -245,32 +280,38 @@ opens in your browser.
 
 ## Set up
 
-The setup page walks you through these steps:
+Setup opens by itself the first time, on **Start here**: a checklist your
+computer runs, each line with the button that puts it right.
 
 <p align="center">
   <img src="docs/setup.png" alt="The setup page: getting started, the desks, and a pairing code with its QR code for your phone" width="720">
 </p>
 
-1. **Connect your coding agents.** This lets every supported agent on your Mac
-   tell Smolcorp what it's doing. Restart any sessions that were already
-   open. Install another agent later? Click **Connect** again.
-2. **Allow Smolcorp to use your keyboard.** System Settings opens. Turn
-   on **Smolcorp** in the list. The buttons, the mic and scrolling need
-   this.
-3. **Let two fingers scroll Terminal** (optional). Drag two fingers on the
-   office to scroll the picked session's Terminal window.
-4. **Let the office hire and fire** (optional). Lets you start and stop agents
-   from [the office](#the-office): choose the folder new hires start in, and
-   which agent they are.
-5. **Let the jukebox play your music** (optional). Tap a jukebox in the
-   office to play or pause whatever your Mac is playing: Spotify, Apple
-   Music, a video in your browser. It presses the keyboard's play/pause key.
-6. **Open at login** (optional). Keeps the deck ready whenever your Mac is on.
+- **Smolcorp is installed**: in Applications on a Mac (opened from
+  Downloads or a disk image, **Move to Applications** puts it there), in
+  `%LOCALAPPDATA%\Smolcorp` on Windows (it does that itself), in `~/.local`
+  on Linux.
+- **Your agents report to Smolcorp**: every supported agent on your
+  computer tells Smolcorp what it's doing. **Connect them** sets it up, and
+  puts right hooks left by another copy of Smolcorp. Restart any sessions
+  that were already open.
+- **Your phone's keys reach your agents** (Mac): System Settings opens;
+  turn on **Smolcorp**. The buttons, the mic and scrolling need this.
+- **Your phone can reach this computer**: on your Wi-Fi, and with
+  [Tailscale](https://tailscale.com), free, from anywhere.
+- **Windows Firewall lets in only your devices** (Windows): **Set the
+  rules**, and Windows asks once for your OK.
+- **A phone is paired** (see below), and **Smolcorp opens at login**.
 
-Under **More**, at the foot of the page: [Tell other tools](#tell-other-tools),
-for sending what your agents do to Home Assistant or another tool of yours.
+**Fix everything** does every line it can at once. Beside them, **Open the
+office**, and **Hire your General Manager**: one click starts the GM role in
+its own terminal, where it asks you what the goal is.
 
-The first time you press a button, macOS asks whether Smolcorp may
+Further down: the [roles](#run-a-team) you can hire, the office's style,
+pets and mic, and under Advanced everything else, from the desks to
+[Tell other tools](#tell-other-tools).
+
+The first time you press a button on a Mac, macOS asks whether Smolcorp may
 control Terminal. Click **Allow**.
 
 ## Pair your phone
@@ -514,7 +555,7 @@ setup page (it's off until you do):
   and the packing up, or **Plain**, where people just walk in and out.
 
 **Hire by role.** A role is a name, an agent, a model, an effort, a badge and
-instructions, set under *Roles* on the setup page. Eighteen come with
+instructions, set under *Roles* on the setup page. Nineteen come with
 Smolcorp, each reporting what it finds and asking before it changes anything:
 
 - **Reviewer** (glasses and a red pen): reviews the changes you point it to,
@@ -526,17 +567,24 @@ Smolcorp, each reporting what it finds and asking before it changes anything:
   docs you pick against the code.
 - **Refactorer** (a wrench, in a hard hat): proposes one refactor at a time,
   within the limits you give.
-- And thirteen more, each dressed for the job: an **Art Director**, a
+- And fourteen more, each dressed for the job: an **Art Director**, a
   **Lawyer** (who says it isn't legal advice), a **Therapist** for when you're
-  stuck, a **Plumber** for pipelines, a **General Manager** to run the team, a
-  **Janitor** for clean-ups, a **Firefighter** for outages, a **Pilot** for
-  releases, a **Postman** for notifications and webhooks, an **Accountant**, a
-  **Marketer**, a **Security guard** and a **Chef** for scaffolds and
-  prototypes.
+  stuck, a **Plumber** for pipelines, a **General Manager** to run a team of
+  agents (see [Run a team](#run-a-team)), a **Janitor** for clean-ups, a
+  **Firefighter** for outages, a **Pilot** for releases, a **Postman** for
+  notifications and webhooks, an **Accountant**, a **Marketer**, a **Security
+  guard**, a **Chef** for scaffolds and prototypes, and a **Thinker**, who
+  thinks a question through and writes it up.
+
+Setup's brief library also has briefs to start a role of your own from: a
+**Builder**, a **Designer**, a **Pixel artist**, a **Planner**, a **Fixer**, a
+**Study**, and **Security** and **Performance auditors**. On the Mac, each role
+starts from its brief, written into its folder; on Windows and Linux, from its
+instructions.
 
 New roles that come with an update are added once, at the end of yours; one
 you've deleted isn't brought back. Change any of them, put them in your order,
-or add up to twelve of your own.
+or add as many of your own as you like.
 A role never assumes what to work on. Its first reply only asks you, all
 together, which project to work on (at a pinned project's desk, whether it's
 that one) and its own questions, such as the Reviewer's branch, base and what
@@ -547,9 +595,14 @@ as in *Reviewer · api-server*, and its badge, and it keeps the role after
 their names and badges.
 
 On Windows and Linux, firing closes the agent's pane in tmux, kitty and
-WezTerm, and stops an agent started with `smolcorp run`. Hiring from the
-office needs the Mac app, for now; `smolcorp run --role tester`, in the folder
-to work in, starts a role from any terminal, and its desk shows the role.
+WezTerm, and stops an agent started with `smolcorp run`. A hire opens a window
+of the terminal you choose on the setup page (GNOME Terminal, Konsole, kitty,
+WezTerm and others on Linux; Windows Terminal or a console window on Windows),
+running the agent through `smolcorp run`, so its keys work from the phone. On
+Linux it can run in a tmux session of its own instead; on a computer with no
+desktop, as over SSH, it always does, for `tmux attach` to show it.
+`smolcorp run --role tester`, in the folder to work in, also starts a role from
+any terminal, and its desk shows the role.
 
 **Held upright,** the room stands upright too: the lounge moves below the
 desks, through a doorway at the end of the corridor.
@@ -590,6 +643,13 @@ yourself. In that case, make sure `~/.claude/settings.json` contains:
 Voice input needs Claude Code signed in with a Claude.ai account. Claude Code
 sends your audio to Anthropic to be transcribed. Smolcorp itself never
 hears it.
+
+**Clean up dictation with Claude** (Mac, setup → Phone and voice; off until
+you turn it on): with the Mac's own dictation on, the dictated *text*, never
+the audio, goes to Claude Haiku before it's typed, with
+[your own API key](#summaries-with-claude): fillers and stutters go, and
+misheard names come back as the glossary beside it spells them. If that
+fails, there's no key, or it takes over 2.5 s, the text goes in as heard.
 
 ## Portable office (beta)
 
@@ -654,7 +714,22 @@ secret, the viewer's id and its key are kept in the Keychain, never in
 `config.json`.
 
 The viewer sees when the office is on and roughly how big it is, nothing
-else. The Windows and Linux app doesn't have the portable office.
+else.
+
+### On Windows and Linux
+
+The portable office works the same way, from the tray: **Going away: launch
+portable office** and **Stop portable office**. The write secret, the viewer's
+id and its key are kept in Credential Manager on Windows, or in the Secret
+Service (GNOME Keyring or KWallet) on Linux; a Linux computer with no secret
+store can't keep them, so it can't use the portable office. There's no **Copy
+viewer link** in the tray: copy it from the setup page.
+
+**Stop when I'm back** works where the system says you're back: on Linux, the
+screen unlocking after it was locked, or the keyboard or mouse used after a
+while away, where your desktop tells logind (GNOME and KDE do); on Windows,
+the keyboard or mouse used after ten minutes without. Elsewhere,
+it stops after the hours you set, or when you stop it.
 
 ## Summaries with Claude
 
@@ -922,13 +997,16 @@ empty, and voice has to be in tap mode: see [Voice](#voice).
 
 **The phone can't connect.** Check that both devices are on the same Wi-Fi.
 If macOS or Windows Firewall asked whether Smolcorp may accept incoming
-connections, allow it.
+connections, allow it. On Windows the server answers only on this PC and on
+Tailscale's address, so the phone must be on Tailscale too: see
+[Who can reach Smolcorp](#who-can-reach-smolcorp-windows).
 
 **The roles, or HIRE, don't come out.** Turn on **Let the office hire and fire**
 on the setup page, and choose a folder for new hires. They show only on a desk
 a new hire would take: the next free one, or a pinned project's. With no roles
-set up, it's a single **HIRE**. Hiring from the office needs the Mac app, for
-now.
+set up, it's a single **HIRE**. Hiring works on the Mac, on Windows (a new
+Windows Terminal tab) and on Linux, where a hire needs a terminal the setup
+page lists, or tmux.
 
 **The screen saver says to open Smolcorp, or to pair again.** Make sure
 Smolcorp is running. If it was unpaired, open System Settings → Screen
@@ -959,8 +1037,13 @@ quit Smolcorp from its tray menu, then delete:
   and the folders
   `~/.local/share/smolcorp` and `~/.config/sauzzedeck-pro`. The settings folder
   kept the name the app had before.
-- **Windows:** the folder you extracted, and `%APPDATA%\SauzzeDeck Pro`, which
-  kept the name the app had before.
+- **Windows:** `%LOCALAPPDATA%\Smolcorp`, where it installed itself (and the
+  folder you extracted, if it's still there), and `%APPDATA%\SauzzeDeck Pro`,
+  which kept the name the app had before. Then take
+  `%LOCALAPPDATA%\Smolcorp` out of your PATH (Settings → System → About →
+  Advanced system settings → Environment Variables), and, in **Windows
+  Defender Firewall with Advanced Security**, delete the inbound rules in the
+  group **Smolcorp**.
 
 Connecting left a backup of each settings file it changed next to it, ending
 in `.agentdeck.bak`: Claude Code's `~/.claude/settings.json`, Codex's
@@ -1018,21 +1101,18 @@ scripts/             the builds, and the release downloads
 docs/                screenshots for this page
 ```
 
-## Windows and Linux (preview)
+## Windows and Linux
 
-Smolcorp also runs on Windows and Linux, with the same phone deck, the
-same pairing and the same agents. It's a preview: the Linux version is
-tested, the Windows version is built but hasn't been run on a real PC yet.
-Please report how it goes in [the issues](https://github.com/Sauzze/smolcorp/issues).
-
-What's different from the Mac:
+Smolcorp runs on Windows and Linux too, with the same phone deck, the same
+pairing, the same agents, roles and hiring. What's different from the Mac:
 
 - **Start agents through Smolcorp**, in any terminal:
   `smolcorp run claude` (on Windows, `smolcorp-cli run claude`), or `codex`,
-  `gemini`, `opencode` or `grok`. The
-  agent runs exactly as usual, and the deck can press its keys, with no
+  `gemini`, `opencode` or `grok`, or `smolcorp run --role tester` for a role.
+  The agent runs exactly as usual, and the deck can press its keys, with no
   permission to grant. Windows and Linux have no equivalent of Terminal's
-  scripting, so this is how the deck reaches a session.
+  scripting, so this is how the deck reaches a session. A hire from the office
+  opens this way, in Windows Terminal or a terminal the setup page lists.
 - **In tmux, WezTerm or kitty**, agents started the usual way work too: the
   deck sends keys through the terminal's own commands. kitty needs its remote
   control turned on (`allow_remote_control yes` and `listen_on` in
@@ -1041,7 +1121,72 @@ What's different from the Mac:
   launcher it only selects the session, because the launcher can't tell which
   window it's in.
 - **Two-finger scrolling** works in tmux and kitty.
+- **Show Office**, in the tray menu: on Windows, the office in a window of its
+  own; on Linux, in your browser, where Chrome and Edge can **POP OUT** it on
+  top of your other windows.
 - **No Accessibility step.** Nothing here needs that permission.
+- **Grok Bots** sit at their desks too, but their news comes only through
+  `POST /bots/<id>/event`: the Grok Bot app that the Mac reads is the Mac's
+  only.
+
+### Windows: the office in its own window
+
+**Show Office**, in the tray menu, opens the office in a window titled
+Smolcorp, with its icon. It uses WebView2, the Edge engine that comes with
+Windows 10 and 11. If it's missing, a message says so and the office opens in
+your browser instead.
+
+- A second click on **Show Office** brings the open window to the front, and
+  restores it if minimised. There is never a second window.
+- **Always on Top** keeps the window above the others.
+- Size and position are remembered (`window` in `config.json`); if the screen
+  changed and the place is out of reach, it opens centred.
+- The window pairs itself, as a device named "Smolcorp (window)", its key in
+  `window-key` beside `hook-key`. Phones still pair with the six-digit code,
+  and **Unpair All Phones** leaves the window's device alone.
+
+### Who can reach Smolcorp (Windows)
+
+On Windows the server listens on this computer (`127.0.0.1` and `::1`: the
+setup page, the hooks, the launcher and the office window are all local) **and
+on the address Tailscale gave this computer** (`100.64.0.0/10`, on the adapter
+named *Tailscale*). The home network, a Wi-Fi hotspot or anything else cannot open
+port 7710 at all. If Tailscale starts after Smolcorp, Smolcorp joins its address
+within about 15 seconds, with no restart; if it stops, the address is let go.
+
+- The phone's pairing address (the QR code and the address on the setup page) is
+  the Tailscale one. With no Tailscale on this computer it reads `localhost`, which a
+  phone cannot open: Start here says to get Tailscale, or to let in your home Wi-Fi.
+- Every other protection is unchanged: the 6-digit pairing code, the check of the
+  host name, the connection limits, and the setup page, hooks and launcher answering
+  only to this computer.
+- **Windows Firewall** matches it: until setup's **Set the rules** has run,
+  with your OK, Smolcorp doesn't open Tailscale's address at all, so Windows
+  never asks and never makes rules of its own. The rules let TCP in from
+  `100.64.0.0/10` only, and remove any older rule for a copy of Smolcorp, as
+  one in `Downloads`, or one Windows made that let anyone in on a public
+  network.
+- **Also on my home Wi-Fi**, on Start here, lets phones on your home network
+  in too: it sets `"listen": "all"` in `config.json`, adds a firewall rule for
+  your local network on private networks only, and starts Smolcorp again.
+  By hand, `"listen": "all"` in `config.json` (in `%APPDATA%\SauzzeDeck Pro`)
+  does the same once Smolcorp starts again, without the firewall's rule;
+  `"listen": "tailscale"` asks for the limited behaviour on Linux too, where
+  the default is every interface, as on the Mac.
+- `SMOLCORP_PORT` (1024-65535) replaces port 7710, to try a build next to the one
+  you use. It is for tests: the hooks and the launcher read it too, so set it for
+  everything that should talk to that copy.
+
+### One Smolcorp at a time
+
+Starting `Smolcorp.exe` while Smolcorp is already running does not start another
+tray icon. The second launch asks the running one to open the office window (or
+bring it to the front) and exits at once with code 0. If the running one is an
+older Smolcorp that cannot be asked, a message says that Smolcorp is already
+running. On Windows the lock is a named mutex of the session
+(`Local\Smolcorp-single-instance`); on Linux, a lock on `instance.lock` next to
+the keys. If the port is taken by something else, Smolcorp says so and exits,
+rather than stay in the tray without a server.
 
 ### Linux
 
@@ -1068,17 +1213,12 @@ page opens in your browser.
 
 ### Windows
 
-1. Download **Smolcorp-Windows-x86_64.zip** (or `-arm64` for an ARM
-   PC) from the [latest release](https://github.com/Sauzze/smolcorp/releases/latest),
-   and extract it.
-2. Open **Smolcorp.exe**. Windows SmartScreen warns about an unsigned
-   app: click **More info**, then **Run anyway**.
-3. When Windows Firewall asks, allow Smolcorp on private networks, so
-   your phone can reach it.
-
-To type `smolcorp-cli run claude` in a terminal, add the extracted folder to
-your PATH: on Windows the command is `smolcorp-cli.exe`, beside the app's
-`Smolcorp.exe`, as Windows doesn't tell their names apart by case. The setup page also shows the full command for where it is.
+Download **Smolcorp-Windows-x86_64.zip** (or `-arm64` for an ARM PC), extract
+it and open **Smolcorp.exe** (see [Install](#install)). It installs itself in
+`%LOCALAPPDATA%\Smolcorp` and starts from there, so your agents' hooks and the
+firewall's rules never name the folder you downloaded to. Opening a newer
+download later updates it the same way: quit Smolcorp from its tray icon
+first.
 
 ### Build it yourself
 
@@ -1099,6 +1239,15 @@ go build -o smolcorp-cli.exe ./cmd/smolcorp
 
 `go test ./...` runs the tests, and `scripts/release-desktop.sh` builds the
 downloads for both systems.
+
+The version shown by `smolcorp-cli version` is `dev` unless the build sets it:
+
+```bash
+go build -ldflags "-X main.version=1.2.3" -o smolcorp-cli ./cmd/smolcorp
+```
+
+(on Windows, add `-s -w -H windowsgui` for `Smolcorp.exe`, as above;
+`scripts/release-desktop.sh` passes its own version.)
 
 ## Support the project
 

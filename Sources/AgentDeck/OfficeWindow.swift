@@ -126,6 +126,9 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         let configuration = WKWebViewConfiguration()
         // Nothing kept on disk: the page holds no state of its own.
         configuration.websiteDataStore = .nonPersistent()
+        // Behind other windows, minimised or on another Space, the page is hidden, and WebKit would slow or stop its
+        // timers: the office's sound plays on there (see soundWhen in office.js), and the page draws nothing meanwhile.
+        if #available(macOS 14.0, *) { configuration.preferences.inactiveSchedulingPolicy = .none }
         let web = OfficeWebView(frame: content.bounds, configuration: configuration)
         web.setValue(false, forKey: "drawsBackground")
         web.autoresizingMask = [.width, .height]

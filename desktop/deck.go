@@ -21,10 +21,12 @@ import (
 // their own, outside the lock, so a slow terminal never holds up the server
 // and two quick notches arrive in the order they were turned.
 type Deck struct {
-	mu        sync.Mutex
-	access    *Access
-	config    *Config
-	sessions  *Sessions
+	mu       sync.Mutex
+	access   *Access
+	config   *Config
+	sessions *Sessions
+	// Bots working in a cloud, each at a desk of its own (see cloudDesks).
+	cloud     *cloudDesks
 	streams   map[*eventStream]string // each open stream, with the phone that opened it
 	launchers map[string]*launcherTab
 	// The key each session was given, so it keeps it.
@@ -34,6 +36,17 @@ type Deck struct {
 	// When each session was last sent Return from the phone, so a tap that
 	// lands twice sends it once.
 	lastReturn map[string]time.Time
+	// The hires whose launcher hasn't connected yet, by their token, and
+	// when the last hire was made: see hire.go.
+	hires    map[string]*pendingHire
+	lastHire time.Time
+	// Whether a save of the sessions is coming, and the sessions from before
+	// a restart still waiting for their launcher: see saved.go.
+	savePending  bool
+	restoring    *pendingRestore
+	sessionsFile string
+	// Whether the folder picker is open, from setup.
+	picking bool
 	// Whether music is playing, for the office's jukebox, when it can be told.
 	playing *bool
 	// This computer's output volume, for the jukebox's volume bar, nil where
@@ -50,6 +63,8 @@ type Deck struct {
 	// and the summaries made with it.
 	summaryKeys *summaryKeys
 	summaries   *summaries
+	// The portable office (beta): the office on a phone from anywhere, view only. Off at every start.
+	portable *portableOffice
 	// OnChange is called on every change, for the tray.
 	OnChange func()
 }
@@ -83,14 +98,24 @@ func NewDeck() *Deck {
 	d := &Deck{
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
-		keyOf: map[string]int{}, lastReturn: map[string]time.Time{}, work: make(chan func(), 64), OnChange: func() {},
+		keyOf: map[string]int{}, lastReturn: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue),
 	}
+	d.cloud = newCloudDesks(d.config.CloudBots, &d.mu)
+	d.cloud.onChange = d.changed
 	d.summaryKeys = newSummaryKeys(keyringStore, os.Getenv)
 	d.summaries = newSummaries(d.summaryKeys.Read)
+	d.portable = newPortableOffice(viewerStore, d.config.Viewer, func(hideNames bool, alias func(string) string) map[string]any {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.viewerSnapshot(hideNames, alias)
+	})
 	go d.sendWebhooks()
 	// What's running as it starts is where the webhook starts from, so the first change after it is news
+	d.mu.Lock()
 	d.tellWebhook()
+	d.mu.Unlock()
+	d.restoreSessions()
 	go func() {
 		for job := range d.work {
 			job()
@@ -303,7 +328,9 @@ func (d *Deck) changed() {
 		stream.send(state)
 	}
 	go d.OnChange()
+	d.scheduleSave()
 	d.tellWebhook()
+	d.portable.Changed()
 }
 
 // Refresh re-sends the state, for changes the sessions don't see (the setup
@@ -327,9 +354,10 @@ type deckKey struct {
 // shuffle as sessions come and go. With Auto, the keys grow and shrink with
 // the sessions, and those still running keep their order when one ends.
 // Sessions beyond the last key have none until one frees up. Headless runs
-// have no keys: they sit upstairs (see upstairs).
+// have no keys: they sit upstairs (see upstairs). Cloud bots on the ground
+// floor take free desks as any new session does.
 func (d *Deck) layout() ([]deckKey, []*Session) {
-	remaining := slices.DeleteFunc(d.sessions.All(), (*Session).Headless)
+	remaining := append(slices.DeleteFunc(d.sessions.All(), (*Session).Headless), d.cloud.seated("ground")...)
 	// A session that took another's place in its tab, as after /clear, takes its key too.
 	for new, old := range d.sessions.TakeReplacements() {
 		if index, ok := d.keyOf[old]; ok {
@@ -338,12 +366,23 @@ func (d *Deck) layout() ([]deckKey, []*Session) {
 			}
 		}
 	}
+	// A hire's desk goes to the first session in the launcher it opened. It's
+	// kept for it below if it's still free; if it was taken in the meantime,
+	// the hire sits at the first free one, as anyone would.
+	for _, s := range remaining {
+		kind, id, _ := splitTab(s.Tab)
+		if tab, ok := d.launchers[id]; kind == "launcher" && ok && tab.desk >= 0 {
+			d.keyOf[s.ID] = tab.desk
+			tab.desk = -1
+		}
+	}
 	live := map[string]bool{}
 	for _, s := range remaining {
 		live[s.ID] = true
 	}
+	// A session dropped as its tab seemed to close keeps its key, should it come back.
 	for id := range d.keyOf {
-		if !live[id] {
+		if !live[id] && !d.sessions.WasDropped(id) {
 			delete(d.keyOf, id)
 		}
 	}
@@ -433,15 +472,25 @@ func (d *Deck) snapshot() []byte {
 			entry["pin"] = lastPathComponent(*key.pin)
 		}
 		if s := key.session; s != nil {
-			entry["session"] = d.sessionEntry(s)
+			if bot, ok := d.cloud.botOf(s.ID); ok {
+				entry["session"] = d.cloudEntry(s, bot)
+			} else {
+				entry["session"] = d.sessionEntry(s)
+			}
 		}
 		entries[i] = entry
 	}
+	// The six floors, the ground floor's desks being the keys, and how many
+	// there's no floor for; and the second floor alone, for phones from before the others.
+	floors, floorsOverflow, upstairs := d.floorsState(overflow)
 	state, _ := json.Marshal(map[string]any{
-		"keys": entries, "overflow": len(overflow), "upstairs": d.upstairs(),
+		"keys": entries, "overflow": len(overflow), "upstairs": upstairs,
+		"floors": floors, "floorsOverflow": floorsOverflow,
 		"theme": currentTheme(d.config), "scroll": d.config.ScrollEnabled,
-		// What the office's held desks offer: firing here; hiring, by role or not, is the Mac app's for now.
-		"hiring": map[string]any{"fire": d.config.HiringEnabled, "hire": false, "roles": []any{}},
+		// Whether the office asks before max effort.
+		"maxConfirm": d.config.MaxConfirm,
+		// What the office's held desks offer: firing, and hiring once there's a folder to hire into, by role.
+		"hiring": d.hiringState(),
 		"music":  d.musicState(),
 		"layout": d.config.Layout,
 		// This computer's clock, so the office can count turns on the phone's,
@@ -466,6 +515,8 @@ func (d *Deck) sessionEntry(s *Session) map[string]any {
 		"maxPressedAt": millisOrNull(s.MaxPressedAt), "compacting": s.Compacting,
 		"messagedAt": millisOrNull(s.MessagedAt), "messaged": orNull(s.Messaged),
 		"turnStartedAt": millisOrNull(s.TurnStartedAt), "errorKind": orNull(s.ErrorKind),
+		// When the session started, kept through /clear: its name tag counts from it.
+		"startedAt": int64(s.StartedAt),
 		// ✨ Summary: offered only when it's on, with a key, and a transcript to read.
 		"summary": s.Transcript != "" && d.summaryOffered(),
 		"role":    d.roleOf(s),
@@ -536,34 +587,16 @@ func (d *Deck) hiredBy(s *Session) map[string]any {
 	return map[string]any{"id": nil, "name": lastPart(parent)}
 }
 
-// mostUpstairs is as many desks as the second floor has.
+// mostUpstairs is as many desks as each floor above the ground floor has.
 const mostUpstairs = 12
 
-// upstairs is the second floor: a desk for each headless run, oldest first,
-// up to mostUpstairs, and how many more there are. Its desks show what each
-// is doing, with every control off: there is nothing to type into.
+// upstairs is the second floor: its desks (see floorsState), and how many sit
+// above it or have no floor. Its desks show what each is doing, with every
+// control off: there is nothing to type into. With the lock held.
 func (d *Deck) upstairs() map[string]any {
-	desks := []map[string]any{}
-	overflow := 0
-	for _, s := range d.sessions.All() {
-		if !s.Headless() {
-			continue
-		}
-		if len(desks) == mostUpstairs {
-			overflow++
-			continue
-		}
-		entry := d.sessionEntry(s)
-		entry["headless"] = true
-		for _, control := range []string{"keys", "fire", "mic", "dial", "dictates", "summary"} {
-			entry[control] = false
-		}
-		entry["role"] = nil
-		entry["startedAt"] = int64(s.StartedAt)
-		entry["hiredBy"] = d.hiredBy(s)
-		desks = append(desks, entry)
-	}
-	return map[string]any{"desks": desks, "overflow": overflow}
+	_, overflow := d.layout()
+	_, _, upstairs := d.floorsState(overflow)
+	return upstairs
 }
 
 // musicState is what the office's jukeboxes know: whether music is playing,
@@ -621,6 +654,21 @@ func (d *Deck) isConnected(phone string) bool {
 	return false
 }
 
+// hiringState is what the office's held desks offer: firing, and hiring
+// once there's a folder to hire into and somewhere to open it, by role. With
+// the lock held.
+func (d *Deck) hiringState() map[string]any {
+	_, folder := existingFolder(d.config.HireFolder)
+	hire := d.config.HiringEnabled && folder && canHireHere()
+	roles := []map[string]any{}
+	if hire {
+		for _, role := range d.config.Roles {
+			roles = append(roles, role.forPhone())
+		}
+	}
+	return map[string]any{"fire": d.config.HiringEnabled, "hire": hire, "roles": roles}
+}
+
 // unpair forgets a phone, or every phone when id is "", and hangs up on it
 // now rather than at its next request. The lock is held.
 func (d *Deck) unpair(id string) {
@@ -641,22 +689,38 @@ func (d *Deck) unpair(id string) {
 // roleOf is what the phone is told of the role a session's launcher was
 // started with, or nil: also nil once that role is gone from setup.
 func (d *Deck) roleOf(s *Session) map[string]any {
-	kind, id, _ := splitTab(s.Tab)
-	if tab, ok := d.launchers[id]; kind == "launcher" && ok && tab.role != "" {
-		for _, role := range d.config.Roles {
-			if role.ID == tab.role {
-				return role.forPhone()
-			}
-		}
+	if role, ok := d.sessionRole(s); ok {
+		return role.forPhone()
 	}
 	return nil
 }
 
-func (d *Deck) launcherConnected(id string, agent Agent, folder, role string) *launcherTab {
+// sessionRole is the role a session's launcher was started with, while
+// setup has it.
+func (d *Deck) sessionRole(s *Session) (Role, bool) {
+	kind, id, _ := splitTab(s.Tab)
+	if tab, ok := d.launchers[id]; kind == "launcher" && ok && tab.role != "" {
+		for _, role := range d.config.Roles {
+			if role.ID == tab.role {
+				return role, true
+			}
+		}
+	}
+	return Role{}, false
+}
+
+// launcherConnected keeps a launcher that has connected. hire is the token it
+// was hired with, if the office hired it, which brings the desk it was hired at.
+func (d *Deck) launcherConnected(id string, agent Agent, folder, role, hire string) *launcherTab {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	tab := &launcherTab{agent: agent, folder: folder, role: role, commands: make(chan launcherCommand, 32)}
+	tab := &launcherTab{agent: agent, folder: folder, role: role, desk: -1, commands: make(chan launcherCommand, 32)}
+	if hire != "" {
+		tab.desk = d.hiredDesk(hire)
+	}
 	d.launchers[id] = tab
+	// Back after a restart: the sessions it held are back too.
+	d.restoreLauncher(id)
 	return tab
 }
 
@@ -851,6 +915,15 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	if action == "swap" {
 		return d.swapKeys(query)
 	}
+	// A cloud bot's card opened: its news seen.
+	if action == "seen" {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if d.cloud.seen(id) {
+			return http.StatusNoContent, ""
+		}
+		return http.StatusNotFound, ""
+	}
 	if action == "style" {
 		return d.setStyle(query.Get("preset"))
 	}
@@ -865,25 +938,11 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		return d.playMusic(key)
 	}
 	if action == "hire" {
-		if !hiring {
-			return http.StatusForbidden, hiringOff
+		// A new hire has no session yet.
+		if query.Has("desk") && query.Get("desk") == "" {
+			return http.StatusBadRequest, "Unknown desk"
 		}
-		// The desk is read as the Mac app reads it, though nobody is hired here.
-		if query.Has("desk") {
-			d.mu.Lock()
-			keys, _ := d.layout()
-			auto := d.config.Layout.Keys == Auto
-			d.mu.Unlock()
-			// With Auto, the office also offers the desk after the last: a hire adds it.
-			next := -1
-			if auto && len(keys) < mostKeys {
-				next = len(keys)
-			}
-			if desk, err := strconv.Atoi(query.Get("desk")); err != nil || desk < 0 || desk >= len(keys) && desk != next {
-				return http.StatusBadRequest, "Unknown desk"
-			}
-		}
-		return http.StatusNotImplemented, "Hiring from the office needs the Mac app, for now."
+		return d.hire(query.Get("desk"), query.Get("role"))
 	}
 	d.mu.Lock()
 	session := d.sessions.Get(id)
@@ -1070,6 +1129,12 @@ func (d *Deck) releaseMic() (int, string) {
 // Focus brings a session's tab forward, as far as its terminal allows.
 func (d *Deck) Focus(id string) (int, string) {
 	d.mu.Lock()
+	// A cloud bot's desk: its news seen. (The Mac app also brings forward
+	// the app it works in, which is the Mac's only.)
+	if d.cloud.seen(id) {
+		d.mu.Unlock()
+		return http.StatusNoContent, ""
+	}
 	tab := ""
 	if session := d.sessions.Get(id); session != nil {
 		tab = session.Tab // read while locked: a hook can move the session meanwhile

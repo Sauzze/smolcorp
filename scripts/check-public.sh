@@ -39,6 +39,11 @@ c055bd4fc4d84f1284c8b400788c2eeeb4f5418ebc67681987640f6a3609bb97
 0e5eafde6f171f96179c699df4f700e758ba7b36eb43d4978da2bfea9042b612
 e290a13d9b0938cdb13f608e06d05dfa56e2aa5b65b9ceee28c17289d241227d
 ac01e98442e2a52ac7f4447bd031d3ad97562aba7a6b22a85ad378f41e18843d
+8d2771434ff75671e3fb3cf45057f631715badc93a3274675ec9a7449f6282e5
+be749ba2d8f48610a3c3367bff24e9b260d3b8393e73a2c5b6804562e598f1bb
+910c9a93fab838619c264becbef6d189e8304d541718355fb76b33466e15e7d5
+51bd3863dcd03c134a31cd60c13f179934a3fc1c8c25b47a9e85cd19b62c34cb
+6828a5f9092bab4d80dfb88766d987e614eca27181e8d2e7bbd943fcadeab7c0
 """.split())
 API_KEY = re.compile(rb"sk-ant-[A-Za-z0-9_-]{8,}")
 KEPT_OUT = ("notes-out/", ".team/", "security/")
@@ -71,7 +76,10 @@ for name in all_names:
 # The Mac app logs nothing, so nothing it holds, as the Summary key, can end up
 # in a log: no print, NSLog, os_log or Logger outside #if DEBUG.
 LOGGING = re.compile(r"\b(print|NSLog|os_log|Logger)\(")
-for name in [n for n in all_names if n.startswith("Sources/") and n.endswith(".swift")]:
+# The answer of --setup is its checklist, printed on the terminal that ran it:
+# not a log, and it holds no key (Sources/AgentDeck/SetupCommand.swift, only).
+TERMINAL = ("Sources/AgentDeck/SetupCommand.swift",)
+for name in [n for n in all_names if n.startswith("Sources/") and n.endswith(".swift") and n not in TERMINAL]:
     # Each open #if: "debug" (only a debug build compiles what follows), "release" (only
     # another), or "other". What a #else follows flips debug and release.
     stack = []

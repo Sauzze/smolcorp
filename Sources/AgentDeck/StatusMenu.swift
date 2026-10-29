@@ -9,6 +9,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     /// The office's own window, for its menu items.
     var office: OfficeWindow?
+    /// The setup page's window, Smolcorp Settings.
+    var settings: SettingsWindow?
 
     init(deck: Deck) {
         self.deck = deck
@@ -52,7 +54,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             menu.addItem(withTitle: count == 1 ? "1 agent session" : "\(count) agent sessions", action: nil, keyEquivalent: "")
         }
         menu.addItem(.separator())
-        add(to: menu, "Open Setup…", #selector(openSetup))
+        add(to: menu, "Settings…", #selector(openSettings), key: ",")
+        add(to: menu, "Open Settings in Browser", #selector(openSetup))
         add(to: menu, "Pair a Phone…", #selector(pairPhone))
         if !deck.access.phones.all.isEmpty {
             add(to: menu, "Unpair All Phones…", #selector(unpairAll))
@@ -88,6 +91,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return entry
     }
 
+    /// In the app's own window, or, without one, in the browser.
+    private func showSettings(then: String? = nil) {
+        guard let settings else {
+            NSWorkspace.shared.open(deck.setupURL(then: then))
+            return
+        }
+        settings.show(then: then)
+    }
+
+    @objc private func openSettings() { showSettings() }
     @objc private func openSetup() { NSWorkspace.shared.open(deck.setupURL()) }
 
     @objc private func toggleOffice() { office?.toggle() }
@@ -118,7 +131,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     @objc private func startPortable() { deck.portable.start() }
     @objc private func stopPortable() { deck.portable.stop() }
-    @objc private func setUpViewer() { NSWorkspace.shared.open(deck.setupURL(then: "viewer")) }
+    @objc private func setUpViewer() { showSettings(then: "viewer") }
 
     /// The link holds the key: copied for this Mac only, not to your other devices
     /// over Universal Clipboard, and marked so clipboard managers leave it out.
@@ -134,7 +147,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         pasteboard.writeObjects([item])
     }
 
-    @objc private func pairPhone() { NSWorkspace.shared.open(deck.setupURL(then: "pair")) }
+    @objc private func pairPhone() { showSettings(then: "pair") }
 
     @objc private func unpairAll() {
         let alert = NSAlert()

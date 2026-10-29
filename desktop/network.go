@@ -11,8 +11,9 @@ import (
 	"strings"
 )
 
-// phoneAddress is what a phone on the same network opens to pair.
-func phoneAddress() string { return fmt.Sprintf("http://%s:%d", localAddress(), Port) }
+// phoneAddress is what a phone opens to pair: this computer on the local network,
+// or on Tailscale when that is the only way in (see phoneHost).
+func phoneAddress() string { return fmt.Sprintf("http://%s:%d", phoneHost(), Port) }
 
 // pairingLink is what the QR code opens: the pairing page with code filled in.
 func pairingLink(code string) string { return phoneAddress() + "/?pair=" + code }
@@ -47,7 +48,7 @@ func setupAddress(fragment, then string) string {
 var virtualAdapter = regexp.MustCompile(`(?i)^(docker|br-|veth|virbr|vethernet|vmnet|vbox|tun|tap|utun|wg|tailscale|zt)`)
 
 // localAddress is the address a phone on the same network can reach this
-// computer at: a private IPv4 address on an adapter that's up, preferring Wi-Fi
+// computer at (Tailscale's own is left to phoneHost, as it isn't this network): a private IPv4 address on an adapter that's up, preferring Wi-Fi
 // and Ethernet, which have hardware addresses, over anything virtual.
 func localAddress() string {
 	adapters, _ := net.Interfaces()

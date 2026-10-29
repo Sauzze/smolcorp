@@ -26,25 +26,57 @@ type Config struct {
 	// Whether two fingers on the office scroll tmux and kitty panes. Off until you turn it
 	// on, so a newly paired phone can do no more than the office's keys do.
 	ScrollEnabled bool `json:"scrollEnabled"`
-	// Whether the office may fire: stop an agent and close its pane. Off until
-	// you turn it on, for the same reason. Hiring is the Mac app's for now,
-	// but the folder and agent are kept as it keeps them.
+	// Whether the office may hire and fire: open a new terminal with an agent
+	// in it, and stop an agent and close its pane. Off until you turn it on,
+	// for the same reason.
 	HiringEnabled bool `json:"hiringEnabled"`
 	// MusicEnabled lets a jukebox in the office play and pause this
 	// computer's music. Off until you turn it on: it presses a media key.
 	MusicEnabled bool `json:"musicEnabled"`
+	// MaxConfirm has the office ask before max effort: the red button and a
+	// chip's max bring up a question first. On until you turn it off, as max
+	// uses much more of your usage; off, one tap sets it, as it always did.
+	MaxConfirm bool `json:"maxConfirm"`
 	// Where the deck's sessions are told to other tools, if anywhere.
 	Webhook Webhook `json:"webhook"`
 	// ✨ Summary: whether a held desk offers a summary of its agent's
 	// transcript, written by Claude with your own API key. Off until you turn
 	// it on in setup and confirm what it sends where; and only with a key.
-	SummaryOptIn bool   `json:"summaryOptIn"`
-	HireFolder   string `json:"hireFolder"`
-	HireAgent    string `json:"hireAgent"`
+	SummaryOptIn bool `json:"summaryOptIn"`
+	// The portable office's viewer: its address and options. Never its id,
+	// key or write secret, which are in the system's secret store.
+	Viewer ViewerSettings `json:"viewer"`
+	// The folder new hires start in, and the agent they are.
+	HireFolder string `json:"hireFolder"`
+	HireAgent  string `json:"hireAgent"`
+	// The terminal hires open in (see hireOpeners), the first installed when
+	// it's empty or not here, and whether the agent runs in a tmux session of
+	// its own there. The Mac app's choices aren't this system's, and are
+	// passed over as uninstalled.
+	HireTerminal string `json:"hireTerminal"`
+	HireInTmux   bool   `json:"hireInTmux"`
 	// The roles `smolcorp run --role` starts, as the Mac app's office hires
 	// them: those that come with the app until you change them, and your own.
-	Roles             []Role `json:"roles"`
-	HasCompletedSetup bool   `json:"hasCompletedSetup"`
+	Roles []Role `json:"roles"`
+	// The ids of the shipped roles this config has been given: a role that
+	// comes with a later version is added to your roles once, at the end, and
+	// one you've deleted isn't given back. Saved as every shipped role.
+	RolesOffered      []string `json:"rolesOffered"`
+	HasCompletedSetup bool     `json:"hasCompletedSetup"`
+	// Window is where the office window was left, and whether it stays above the others (Windows).
+	Window      *WindowState `json:"window"`
+	AlwaysOnTop bool         `json:"alwaysOnTop"`
+	// Listen is who can reach the server: "tailscale" (this computer and the
+	// Tailscale address only; the default on Windows) or "all" (every interface;
+	// the default elsewhere). Read at start. See listen.go.
+	Listen string `json:"listen,omitempty"`
+	// Bots that work in a cloud, not in a terminal here, each at a desk of
+	// its own (see CloudBot). None until you set some; one that can't be
+	// read loses only itself.
+	CloudBots cloudBotList `json:"cloudBots"`
+	// The building's six floors, the ground floor first: each one's name, and
+	// the style of those above it (see Floor).
+	Floors floorList `json:"floors"`
 	// What the file held that this version doesn't read, as it was: saved
 	// back with the rest, so a setting from another version, older or newer,
 	// or the Mac app's, isn't lost at the next save.
@@ -68,7 +100,8 @@ func knownConfigKeys() map[string]bool {
 var logos = []string{"smolcorp", "keys"}
 
 func loadConfig() *Config {
-	config := &Config{Colours: map[string]string{}, Logo: "smolcorp", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook()}
+	config := &Config{Colours: map[string]string{}, Logo: "smolcorp", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook(),
+		MaxConfirm: true, Viewer: standardViewerSettings()}
 	if data, err := os.ReadFile(configFile); err == nil {
 		// A field it can't read loses only itself. A file it can't read at all
 		// starts from the defaults, but a copy is kept beside it first, so the
@@ -99,17 +132,29 @@ func loadConfig() *Config {
 	}
 	// Checked as they load: their instructions go to agents.
 	if config.Roles == nil {
-		config.Roles = slices.Clone(shippedRoles)
+		config.Roles = checkedRoles(slices.Clone(shippedRoles))
 	} else {
-		config.Roles = checkedRoles(config.Roles)
+		// Shipped roles this file hasn't been given are added once, at the
+		// end: a file from before rolesOffered was given the first five.
+		offered := config.RolesOffered
+		if offered == nil {
+			offered = rolesOfferedBefore
+		}
+		roles := checkedRoles(config.Roles)
+		for _, role := range shippedRoles {
+			if !slices.Contains(offered, role.ID) && !slices.ContainsFunc(roles, func(r Role) bool { return r.ID == role.ID }) {
+				roles = append(roles, role)
+			}
+		}
+		config.Roles = checkedRoles(roles)
 	}
-	// The mark the app had before it was Smolcorp is now the hire.
-	if config.Logo == "sauzze" {
-		config.Logo = "smolcorp"
-	}
-	if !contains(logos, config.Logo) {
-		config.Logo = "smolcorp"
-	}
+	config.RolesOffered = shippedRoleIDs()
+	// Checked as they load: their names are drawn in the office.
+	config.CloudBots = checkedCloudBots(config.CloudBots)
+	// Checked as they load, for the same reason.
+	config.Floors = checkedFloors(config.Floors)
+	// Only the regular logo since setup lost the choice: an older pick is read but not kept.
+	config.Logo = "smolcorp"
 	if config.Colours == nil {
 		config.Colours = map[string]string{}
 	}

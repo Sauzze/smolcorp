@@ -35,8 +35,13 @@ Icon=$DATA/smolcorp/icon.png
 Categories=Development;
 ENTRY
 
-echo "Installed. Open Smolcorp from your app menu, or run: smolcorp"
+echo "Installed as $BIN/smolcorp, and in your app menu."
 case ":$PATH:" in
   *":$BIN:"*) ;;
   *) echo "Add $BIN to your PATH to start agents with: smolcorp run claude" ;;
 esac
+
+# Started from where it now lives, it connects your agents and says what's
+# left: pairing your phone, Tailscale. Run it again any time: smolcorp setup
+echo
+"$BIN/smolcorp" setup || true

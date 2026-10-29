@@ -29,9 +29,11 @@ STAGE="build/desktop"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 
-# -trimpath keeps the paths of this machine out of the programs.
+# -trimpath keeps the paths of this machine out of the programs, and
+# -buildvcs=false the commit they were built from, which may be one of this
+# machine's own that the published repository doesn't have.
 build() { # GOOS GOARCH OUTPUT [extra linker flags]
-  CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath \
+  CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath -buildvcs=false \
     -ldflags "-s -w -X main.version=$VERSION ${4:-}" -o "$3" ./cmd/smolcorp
 }
 
@@ -46,6 +48,8 @@ for arch in amd64 arm64; do
   build windows "$arch" "$dir/Smolcorp.exe" "-H windowsgui"
   build windows "$arch" "$dir/smolcorp-cli.exe"
   cp LICENSE "$dir/LICENSE.txt"
+  # One prompt to paste into a coding agent, which then sets it all up.
+  cp packaging/FIRST-SETUP.md "$dir/"
   rm -f "build/Smolcorp-Windows-$name.zip"
   # -X leaves out this machine's user and group ids.
   (cd "$STAGE" && zip -qrX "../Smolcorp-Windows-$name.zip" "Smolcorp-Windows-$name")
@@ -54,7 +58,7 @@ for arch in amd64 arm64; do
   dir="$STAGE/Smolcorp-Linux-$name"
   mkdir -p "$dir"
   build linux "$arch" "$dir/smolcorp"
-  cp packaging/linux/install.sh LICENSE "$dir/"
+  cp packaging/linux/install.sh LICENSE packaging/FIRST-SETUP.md "$dir/"
   cp packaging/linux/smolcorp.png "$dir/smolcorp.png"
   # Owned by root, without the Mac's extended attributes: an archive made
   # here would otherwise carry this machine's user name and metadata.

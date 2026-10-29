@@ -50,27 +50,85 @@ const reconnectDelay = 3 * time.Second
 
 // RunLauncher returns the agent's exit code. `smolcorp run --role <id>`
 // starts the role's agent on the role, as the Mac app's office hires it.
+//
+// The office's hires start it with `--hire <token>` first, and `--pinned` at
+// a pinned project's desk: see hire.go. Those aren't for typing.
 func RunLauncher(args []string) int {
-	if len(args) == 0 || args[0] == "--role" && len(args) != 2 {
+	run, err := parseRun(args)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Usage: smolcorp run <agent> [arguments], for example: smolcorp run claude\n"+
 			"   or: smolcorp run --role <role>, for example: smolcorp run --role tester")
 		return 2
 	}
-	role := ""
-	if args[0] == "--role" {
-		found, err := roleArguments(args[1])
+	code := launch(run)
+	// A hire's window closes with its agent: one that never started says why first.
+	if run.hire != "" && code != 0 && !run.started {
+		fmt.Fprint(os.Stderr, "Press Enter to close this window.")
+		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+	}
+	return code
+}
+
+// launcherRun is what `smolcorp run` was asked to start.
+type launcherRun struct {
+	// The agent and its arguments, or nothing for a role.
+	command []string
+	role    string
+	// The office's token, for a hire, and whether it was at a pinned project's desk.
+	hire   string
+	pinned bool
+	// Whether the agent got as far as starting.
+	started bool
+}
+
+// parseRun reads `smolcorp run`'s arguments: [--hire <token> [--pinned]]
+// then <agent> [arguments], or --role <id>.
+func parseRun(args []string) (*launcherRun, error) {
+	run := &launcherRun{}
+	if len(args) >= 2 && args[0] == "--hire" {
+		if !hireToken.MatchString(args[1]) {
+			return nil, errors.New("not a hire's token")
+		}
+		run.hire, args = args[1], args[2:]
+		if len(args) > 0 && args[0] == "--pinned" {
+			run.pinned, args = true, args[1:]
+		}
+	}
+	switch {
+	case len(args) == 0, args[0] == "--hire", args[0] == "--pinned":
+		return nil, errors.New("nothing to run")
+	case args[0] == "--role":
+		if len(args) != 2 {
+			return nil, errors.New("a role, and nothing else")
+		}
+		run.role = args[1]
+	default:
+		run.command = args
+	}
+	return run, nil
+}
+
+func launch(run *launcherRun) int {
+	args := run.command
+	folder, _ := os.Getwd()
+	if run.role != "" {
+		how := startedHere
+		if run.hire != "" {
+			how = map[bool]roleStart{true: hiredAtPinnedDesk, false: hiredIntoGeneralFolder}[run.pinned]
+		}
+		found, err := roleArguments(run.role, folder, how)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 			return 2
 		}
-		role, args = args[1], found
+		args = found
 	}
 	program, programArgs, err := resolveProgram(args[0], args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 		return 127
 	}
-	if role != "" && program != args[0] && len(programArgs) > 0 && programArgs[0] == "/c" {
+	if run.role != "" && program != args[0] && len(programArgs) > 0 && programArgs[0] == "/c" {
 		if programArgs, err = forCmd(programArgs); err != nil {
 			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 			return 2
@@ -85,7 +143,6 @@ func RunLauncher(args []string) int {
 	defer terminal.Close()
 
 	id := newID()
-	folder, _ := os.Getwd()
 	cmd := terminal.Command(program, programArgs...)
 	useCmdLine(cmd, program, programArgs)
 	cmd.Env = append(os.Environ(), "SMOLCORP_SESSION="+id)
@@ -95,6 +152,7 @@ func RunLauncher(args []string) int {
 		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 		return 127
 	}
+	run.started = true
 
 	stdin := int(os.Stdin.Fd())
 	if term.IsTerminal(stdin) {
@@ -109,7 +167,7 @@ func RunLauncher(args []string) int {
 	go func() { _, _ = io.Copy(input, os.Stdin) }()
 	go func() { _, _ = io.Copy(os.Stdout, io.TeeReader(terminal, cursor)) }()
 	go followSize(terminal)
-	go serveDeck(id, agentNamed(args[0]), folder, role, input, cursor, func() { stopProcess(cmd.Process) })
+	go serveDeck(id, agentNamed(args[0]), folder, run.role, run.hire, input, cursor, func() { stopProcess(cmd.Process) })
 
 	if err := cmd.Wait(); err != nil {
 		var exit *exec.ExitError
@@ -178,13 +236,12 @@ var (
 func cmdEscaped(s string) string { return cmdMeta.ReplaceAllString(s, "^$1") }
 
 // roleArguments are the agent and its arguments for the role with the id
-// given, as set up on the setup page.
-func roleArguments(id string) ([]string, error) {
+// given, as set up on the setup page, started in folder as how says.
+func roleArguments(id, folder string, how roleStart) ([]string, error) {
 	roles := loadConfig().Roles
 	for _, role := range roles {
 		if role.ID == id {
-			folder, _ := os.Getwd()
-			return append([]string{role.Agent}, role.arguments(role.firstMessage(folder))...), nil
+			return append([]string{role.Agent}, role.arguments(role.firstMessage(folder, how))...), nil
 		}
 	}
 	names := []string{}
@@ -280,8 +337,8 @@ func (c *cursorMode) bytesFor(key Key) string {
 
 // serveDeck connects to the app and carries out its commands until the
 // agent exits, reconnecting whenever the connection drops.
-func serveDeck(id string, agent Agent, folder, role string, input io.Writer, cursor *cursorMode, stop func()) {
-	query := url.Values{"id": {id}, "agent": {string(agent)}, "folder": {folder}, "role": {role}}
+func serveDeck(id string, agent Agent, folder, role, hire string, input io.Writer, cursor *cursorMode, stop func()) {
+	query := url.Values{"id": {id}, "agent": {string(agent)}, "folder": {folder}, "role": {role}, "hire": {hire}}
 	address := fmt.Sprintf("http://127.0.0.1:%d/launcher?%s", Port, query.Encode())
 	for {
 		if key, err := os.ReadFile(hookKeyFile); err == nil {
@@ -338,7 +395,9 @@ type launcherTab struct {
 	agent  Agent
 	folder string
 	// The role it was started with, by its id, or none.
-	role     string
+	role string
+	// The desk the office hired it at, for the first session in it, or -1.
+	desk     int
 	commands chan launcherCommand
 }
 

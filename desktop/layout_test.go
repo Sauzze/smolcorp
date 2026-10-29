@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -233,7 +234,7 @@ func TestAProfileIsntOfferedWithNoRoomForIt(t *testing.T) {
 func madeButtonDeck(t *testing.T) (*Deck, *launcherTab) {
 	t.Helper()
 	d := newTestDeck(t)
-	tab := d.launcherConnected("L1", Claude, "/work/api", "")
+	tab := d.launcherConnected("L1", Claude, "/work/api", "", "")
 	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": "/work/api"},
 		Claude, "launcher:L1", "", 100)
 	layout, err := parseLayout([]byte(`{"rows": [{"buttons": [
@@ -473,6 +474,22 @@ func TestACalmOfficeIsOffUntilChosen(t *testing.T) {
 	}
 }
 
+// The sound plays on behind other windows unless it's to be heard only in front, a choice kept with the room.
+func TestTheSoundPlaysBehindOtherWindowsUntilKeptToTheFront(t *testing.T) {
+	for given, want := range map[string]string{`{"soundWhen": "front"}`: "front", `{"soundWhen": "sometimes"}`: "always", `{"sound": "quiet"}`: "always", `{"soundWhen": 1}`: "always"} {
+		var room Room
+		if err := json.Unmarshal([]byte(given), &room); err != nil || room.SoundWhen != want {
+			t.Errorf("%s gave soundWhen %q, %v; want %q", given, room.SoundWhen, err, want)
+		}
+	}
+	var room, again Room
+	json.Unmarshal([]byte(`{"soundWhen": "front"}`), &room)
+	written, _ := json.Marshal(room)
+	if json.Unmarshal(written, &again); !strings.Contains(string(written), `"soundWhen":"front"`) || again.SoundWhen != "front" {
+		t.Errorf("a room heard only in front is written as %s and read back as %q", written, again.SoundWhen)
+	}
+}
+
 func TestAnOfficeHasUpToThreePetsEachOnce(t *testing.T) {
 	for _, c := range []struct{ given, want string }{
 		{`"dog"`, `["dog"]`}, // one pet, as an office had before it could have more
@@ -669,16 +686,16 @@ func TestAnArrangementKeepsWhatCanBeArrangedAsItCanBe(t *testing.T) {
 	var room Room
 	if err := json.Unmarshal([]byte(`{"plan": {"wide": {
 		"desk1": {"x": 12, "y": -4.6, "size": 2, "off": true, "workspace": "tent", "monitor": "crt", "finish": "walnut",
-			"chair": "red", "thing": "duck"},
-		"desk2": {"workspace": "hammock"},
-		"mic": {"x": -3, "y": 0, "size": 1.5, "off": true, "workspace": "tent", "monitor": "crt"},
+			"chair": "red", "thing": "duck", "outfit": "pirate", "colour": "teal"},
+		"desk2": {"workspace": "hammock", "outfit": "ballgown"},
+		"mic": {"x": -3, "y": 0, "size": 1.5, "off": true, "workspace": "tent", "monitor": "crt", "outfit": "pirate"},
 		"corner": {"x": 9999, "size": 3, "off": true},
 		"sofa": {"x": 1},
 		"plant": "here"}, "tall": 5}}`), &room); err != nil {
 		t.Fatal(err)
 	}
 	with := func(p Piece) Piece {
-		for _, field := range []*string{&p.Workspace, &p.Monitor, &p.Finish, &p.Chair, &p.Thing} {
+		for _, field := range []*string{&p.Workspace, &p.Monitor, &p.Finish, &p.Chair, &p.Thing, &p.Outfit, &p.Colour} {
 			if *field == "" {
 				*field = "auto"
 			}
@@ -686,7 +703,7 @@ func TestAnArrangementKeepsWhatCanBeArrangedAsItCanBe(t *testing.T) {
 		return p
 	}
 	want := map[string]Piece{
-		"desk1":  {X: 12, Y: -5, Size: 1, Off: true, Workspace: "tent", Monitor: "crt", Finish: "walnut", Chair: "red", Thing: "duck"},
+		"desk1":  {X: 12, Y: -5, Size: 1, Off: true, Workspace: "tent", Monitor: "crt", Finish: "walnut", Chair: "red", Thing: "duck", Outfit: "pirate", Colour: "teal"},
 		"desk2":  with(Piece{Size: 1}),
 		"mic":    with(Piece{X: -3, Size: 1.5}),
 		"corner": with(Piece{X: pieceReach, Size: 1, Off: true}),
@@ -801,6 +818,37 @@ func TestTheBackWallKeepsWhereItsPiecesHang(t *testing.T) {
 	}
 	if again.Hung.Wide != nil || again.Hung.Tall == nil {
 		t.Errorf("after saving: wide %v, tall %v; want nil and bare", again.Hung.Wide, again.Hung.Tall)
+	}
+}
+
+func TestTheDoorAndTheElevatorMoveOnlyAlongTheWallAndComeBackAsSaved(t *testing.T) {
+	var plan Plan
+	given := `{"wide": {"door": {"x": -40, "y": 12, "size": 2, "off": true, "thing": "duck"}, "elevator": {"x": -90.4}},
+		"tall": {"door": {"x": -12}}, "hung": {"tall": [{"kind": "poster", "x": 300}, {"kind": "cuckoo", "x": 446}]}}`
+	if err := json.Unmarshal([]byte(given), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan = plan.checked()
+	// Moved along the wall, never grown or put away, and nothing of a desk's own
+	door, elevator := plan.Wide["door"], plan.Wide["elevator"]
+	if door.X != -40 || door.Size != 1 || door.Off || door.Thing != "auto" || elevator.X != -90 || elevator.Off {
+		t.Errorf("the door is %+v, the elevator %+v", door, elevator)
+	}
+	if plan.Tall["door"].X != -12 {
+		t.Errorf("the upright door is at %d, want -12", plan.Tall["door"].X)
+	}
+	// Upright, the lounge's wall carries on past the back wall's end: its pieces are kept there
+	want := []HungPiece{{"poster", 300}, {"cuckoo", 446}}
+	if plan.Hung.Tall == nil || !slices.Equal(*plan.Hung.Tall, want) {
+		t.Errorf("the tall wall is %v, want %v", plan.Hung.Tall, want)
+	}
+	// Saved and read again, as it was
+	var again Plan
+	if err := json.Unmarshal(must(json.Marshal(plan)), &again); err != nil {
+		t.Fatal(err)
+	}
+	if again = again.checked(); !reflect.DeepEqual(again, plan) {
+		t.Errorf("after saving: %+v, want %+v", again, plan)
 	}
 }
 

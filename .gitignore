@@ -2,3 +2,6 @@
 .build/
 build/
 .swiftpm/
+
+# Notes and screenshots a personal build keeps beside the code: never committed (see scripts/check-public.sh).
+notes-out/

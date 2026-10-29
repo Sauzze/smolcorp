@@ -44,13 +44,14 @@
       && typeof office.onElevator === 'function' && office.onElevator(e.clientX, e.clientY);
     if (e.type === 'pointerdown' && lift) office.ride();
     if (e.type === 'pointermove') root.style.cursor = lift ? 'pointer' : '';
-    // And upstairs, a desk held: its card says who hired its agent, till the next press anywhere.
+    // And upstairs, a desk held: its card says who hired its agent, till the next press anywhere. A cloud bot's opens
+    // on a press too, saying what it last did; its green clears only where its office is.
     if (!office || !lastAt || e.isPrimary === false || typeof office.hold !== 'function') return;
     if (e.type === 'pointerdown') {
       clearTimeout(holding);
       office.hold(null);
       const desk = lift ? null : office.upstairsDeskAt(e.clientX, e.clientY);
-      holding = desk ? setTimeout(() => office.hold(desk), HOLD_MS) : null;
+      holding = desk && !(typeof office.tap === 'function' && office.tap(desk)) ? setTimeout(() => office.hold(desk), HOLD_MS) : null;
     } else if (e.type === 'pointerup' || e.type === 'pointercancel') {
       clearTimeout(holding);
       holding = null;

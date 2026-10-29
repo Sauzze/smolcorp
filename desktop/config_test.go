@@ -57,15 +57,31 @@ func TestSettingsFromAnotherVersionStillLoad(t *testing.T) {
 	}
 }
 
-func TestTheOldMarkBecomesTheHire(t *testing.T) {
+// A config from before the setting asks before max effort; one that said no keeps it.
+func TestMaxEffortIsAskedAboutUnlessTurnedOff(t *testing.T) {
 	isolate(t)
-	writeFile(t, configFile, `{"logo": "sauzze"}`)
-	if logo := loadConfig().Logo; logo != "smolcorp" {
-		t.Errorf("a saved sauzze logo loads as %q, want smolcorp", logo)
+	writeFile(t, configFile, `{"hireFolder": "/work"}`)
+	if !loadConfig().MaxConfirm {
+		t.Error("an older config doesn't ask before max effort")
 	}
-	writeFile(t, configFile, `{"logo": "keys"}`)
-	if logo := loadConfig().Logo; logo != "keys" {
-		t.Errorf("the six keys load as %q", logo)
+	writeFile(t, configFile, `{"maxConfirm": false}`)
+	config := loadConfig()
+	if config.MaxConfirm {
+		t.Fatal("maxConfirm false loads as on")
+	}
+	config.save()
+	if loadConfig().MaxConfirm {
+		t.Error("turned off, saved and loaded again, it asks")
+	}
+}
+
+func TestOnlyTheRegularLogoLoads(t *testing.T) {
+	isolate(t)
+	for _, saved := range []string{"sauzze", "keys", "smolcorp"} {
+		writeFile(t, configFile, `{"logo": "`+saved+`"}`)
+		if logo := loadConfig().Logo; logo != "smolcorp" {
+			t.Errorf("a saved %s logo loads as %q, want smolcorp", saved, logo)
+		}
 	}
 }
 
