@@ -399,13 +399,20 @@ func TestShippedRolesKeptFromBeforeOutfitsGetTheirs(t *testing.T) {
 	}
 }
 
-func TestTheRolesAreTheMacApps(t *testing.T) {
-	// The Mac app's Roles.swift is the source: each shipped role, its badge and outfit, word for word.
+// macRoles is the Mac app's Roles.swift, with Unix line ends: a Windows
+// checkout may have turned them into \r\n.
+func macRoles(t *testing.T) string {
+	t.Helper()
 	source, err := os.ReadFile(filepath.Join("..", "Sources", "AgentDeck", "Roles.swift"))
 	if err != nil {
 		t.Skip("the Mac app's source isn't here")
 	}
-	text := string(source)
+	return strings.ReplaceAll(string(source), "\r\n", "\n")
+}
+
+func TestTheRolesAreTheMacApps(t *testing.T) {
+	// The Mac app's Roles.swift is the source: each shipped role, its badge and outfit, word for word.
+	text := macRoles(t)
 	// The instructions are Swift's lines, joined by their trailing backslashes.
 	joined := regexp.MustCompile(` \\\n\s*`).ReplaceAllString(text, " ")
 	for _, role := range shippedRoles {
@@ -456,13 +463,15 @@ func TestTheGeneralManagerFromBeforeTeamsIsBroughtUpToDate(t *testing.T) {
 // Every role the Mac app ships, Windows and Linux ship too, in its order:
 // TestTheRolesAreTheMacApps checks each one here is the Mac's, this that none is missing.
 func TestEveryRoleTheMacShipsShipsHere(t *testing.T) {
-	source, err := os.ReadFile(filepath.Join("..", "Sources", "AgentDeck", "Roles.swift"))
-	if err != nil {
-		t.Skip("the Mac app's source isn't here")
-	}
-	text := string(source)
+	text := macRoles(t)
 	start := strings.Index(text, "static let shipped = [")
+	if start < 0 {
+		t.Fatal("Roles.swift has no \"static let shipped = [\": the test needs to learn its new shape")
+	}
 	end := strings.Index(text[start:], "\n    ]\n")
+	if end < 0 {
+		t.Fatal("Roles.swift's shipped roles have no closing \"    ]\" line: the test needs to learn its new shape")
+	}
 	var mac []string
 	for _, found := range regexp.MustCompile(`Role\(id: "([a-z-]+)"`).FindAllStringSubmatch(text[start:start+end], -1) {
 		mac = append(mac, found[1])

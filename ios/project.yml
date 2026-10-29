@@ -22,7 +22,7 @@ targets:
       properties:
         CFBundleDisplayName: Smolcorp
         CFBundleShortVersionString: "0.3"
-        CFBundleVersion: "3"
+        CFBundleVersion: "4"
         UILaunchScreen:
           UIColorName: ""
         UISupportedInterfaceOrientations:
