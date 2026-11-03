@@ -41,8 +41,31 @@ cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns Resources/report.sh Resources/opencode-plugin.js Resources/opencode-plugin-v1.js "$APP/Contents/Resources/"
 cp -R Resources/web "$APP/Contents/Resources/"
 cp -R Resources/briefs "$APP/Contents/Resources/"
+cp -R Resources/gm "$APP/Contents/Resources/"
 # Signed already, so the app's signature seals it as it is.
 cp -R "build/Smolcorp Office.saver" "$APP/Contents/Resources/"
+# The `smolcorp` command (the GM's hands and the guard), for Apple silicon and
+# Intel in one file. Setup can link it into Terminal. Signed with the app below.
+# cgo is on because the tray the other computers use needs it to build; on the Mac
+# the app is Smolcorp.app, so the command refuses to start another (cmd/smolcorp/start_darwin.go).
+mkdir -p "$APP/Contents/Resources/bin"
+if command -v go >/dev/null 2>&1; then
+  CLI_VERSION="$(sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
+  CLI_TMP="$(mktemp -d)"
+  for goarch in arm64 amd64; do
+    CGO_ENABLED=1 MACOSX_DEPLOYMENT_TARGET=13.0 GOOS=darwin GOARCH="$goarch" go build -trimpath -buildvcs=false \
+      -ldflags "-s -w -X main.version=$CLI_VERSION" -o "$CLI_TMP/smolcorp-$goarch" ./cmd/smolcorp
+  done
+  lipo -create "$CLI_TMP/smolcorp-arm64" "$CLI_TMP/smolcorp-amd64" -output "$APP/Contents/Resources/bin/smolcorp"
+  chmod 755 "$APP/Contents/Resources/bin/smolcorp"
+  rm -rf "$CLI_TMP"
+elif [ "${1:-}" = "universal" ]; then
+  echo "A release needs Go (to build the smolcorp command inside the app)."
+  exit 1
+else
+  echo "Go isn't installed: this build has no smolcorp command inside it (brew install go)."
+  rmdir "$APP/Contents/Resources/bin"
+fi
 # With a code-signing identity of your own in your keychain, the app is signed
 # with it: the Keychain then knows each rebuild as the same app, and an "Always
 # Allow" lasts. Which one: $SMOLCORP_SIGN_IDENTITY, else the name in
@@ -52,8 +75,12 @@ SAVED_IDENTITY="$(head -1 "$HOME/.config/smolcorp/sign-identity" 2>/dev/null || 
 IDENTITY="${SMOLCORP_SIGN_IDENTITY:-${SAVED_IDENTITY:-Smolcorp Local}}"
 # Read whole, then searched: a grep -q stopping at its first match would fail the pipe under pipefail.
 IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+# The command is code of its own that macOS runs from the app's Resources, so it
+# is signed first, with the same identity, and the app's signature then seals it.
 if grep -qF "\"$IDENTITY\"" <<<"$IDENTITIES"; then
+  [ -f "$APP/Contents/Resources/bin/smolcorp" ] && codesign --force --sign "$IDENTITY" --identifier io.github.sauzze.smolcorp-cli "$APP/Contents/Resources/bin/smolcorp"
   codesign --force --sign "$IDENTITY" --identifier io.github.sauzze.agentdeck "$APP"
 else
+  [ -f "$APP/Contents/Resources/bin/smolcorp" ] && codesign --force --sign - "$APP/Contents/Resources/bin/smolcorp"
   codesign --force --sign - "$APP"
 fi

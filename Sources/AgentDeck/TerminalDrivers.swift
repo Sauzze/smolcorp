@@ -46,7 +46,8 @@ enum Tool {
 
     /// Its output and exit status, or nil if it couldn't be run or was stopped for taking too long.
     /// With `errors`, what it says on its standard error comes in its output too.
-    static func run(_ path: String, _ arguments: [String], errors: Bool = false) -> (status: Int32, output: String)? {
+    /// `timeout` is how long it has, `Tool.timeout` unless a slow one (a checkout) is given longer.
+    static func run(_ path: String, _ arguments: [String], errors: Bool = false, timeout limit: TimeInterval = Tool.timeout) -> (status: Int32, output: String)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
@@ -56,7 +57,7 @@ enum Tool {
         do { try process.run() } catch { return nil }
         // Stopped when it overruns, which also ends the reading below.
         let overran = DispatchWorkItem { if process.isRunning { process.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: overran)
+        DispatchQueue.global().asyncAfter(deadline: .now() + limit, execute: overran)
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         overran.cancel()
@@ -149,6 +150,8 @@ struct Tmux: TerminalDriver {
 
     /// As a bracketed paste, so the agent takes it as one piece of text.
     func insert(_ text: String, in tab: TabAddress) -> Bool {
+        // Escape could end the bracket early and Return would press Enter: refused, as a hire's paste does.
+        guard HireTmux.canPaste(text) else { return false }
         let buffer = "smolcorp-\(UUID().uuidString.prefix(8))"
         return ran(tab, ["set-buffer", "-b", buffer, "--", text]) && ran(tab, ["paste-buffer", "-p", "-d", "-b", buffer, "-t", tab.id])
     }
@@ -165,6 +168,12 @@ struct Tmux: TerminalDriver {
            let client = run(tab, ["list-clients", "-t", session.output, "-F", "#{client_tty}"])?.output
                .split(separator: "\n").first.map(String.init) {
             _ = Terminal.focus(tty: client) || ITerm().focus(tty: client)
+        } else if HireTmux.owns(tab.socket) {
+            // A hire's own server with no window showing it: "open" shows it again.
+            let config = Config.shared
+            let terminal = Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal"
+            let folder = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_current_path}"]).flatMap { $0.status == 0 ? $0.output : nil }
+            _ = Openers.reattach(socket: tab.socket, in: folder ?? NSHomeDirectory(), terminal: terminal)
         }
         return true
     }
@@ -661,20 +670,34 @@ enum Openers {
     /// or nil if it didn't open. A Ghostty terminal's tab is given as
     /// ghostty-id:<terminal>, its tty being known only once its session
     /// reports. Off the main thread.
-    static func open(_ command: String, in folder: String, terminal: String, inTmux: Bool) -> String? {
-        guard inTmux, let tmux = Tmux.path else { return window(command, in: folder, terminal: terminal) }
-        // The agent's own tmux session, through your login shell, so it finds
-        // what your PATH finds; then a window showing it.
-        let name = "smolcorp-\(UUID().uuidString.prefix(8).lowercased())"
+    static func open(_ command: String, in folder: String, terminal: String, inTmux: Bool, hireID: String) -> String? {
+        guard inTmux, let tmux = Tmux.path, let desk = HireTmux(hireID: hireID) else { return window(command, in: folder, terminal: terminal) }
+        // The agent's own tmux server and session, through your login shell, so
+        // it finds what your PATH finds; then a window showing it.
         let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
-        guard let made = Tool.run(tmux, session(name, in: folder, shell: shell, running: command)), made.status == 0 else { return nil }
-        let parts = made.output.split(separator: " ", maxSplits: 1).map(String.init)
-        guard parts.count == 2, let attach = script("exec \(quoted(tmux)) -S \(quoted(parts[1])) attach -t \(quoted(name))"),
+        guard let made = desk.start(in: folder, shell: shell, running: command),
+              let attach = script(desk.attachLine(tmuxPath: tmux)),
               window(attach, in: folder, terminal: terminal) != nil else {
-            _ = Tool.run(tmux, ["kill-session", "-t", name])
+            // Not hired: its server goes, and nothing else's.
+            if desk.isAlive() == true { _ = desk.kill() }
             return nil
         }
-        return "tmux:\(parts[0])@\(parts[1])"
+        return "tmux:\(made.pane)@\(made.socket)"
+    }
+
+    /// Shows a running tmux hire again in a new window of `terminal`, after its
+    /// window was closed. The hire was never stopped; this only attaches.
+    /// False for a socket that isn't one of ours, or a hire no longer there.
+    static func reattach(socket: String, in folder: String, terminal: String) -> Bool {
+        guard HireTmux.owns(socket), let tmux = Tmux.path, let desk = HireTmux(socketName: URL(fileURLWithPath: socket).lastPathComponent),
+              desk.isAlive() == true, let attach = script(desk.attachLine(tmuxPath: tmux)) else { return false }
+        return window(attach, in: folder, terminal: terminal) != nil
+    }
+
+    /// Shows `line` (a shell line, as `TeamGrid.attachLine`) in a new window of `terminal`.
+    static func show(line: String, terminal: String) -> Bool {
+        guard let attach = script(line) else { return false }
+        return window(attach, in: NSHomeDirectory(), terminal: terminal) != nil
     }
 
     /// tmux's arguments for a hire's session, `command` run by your login shell, which prints its pane and socket.

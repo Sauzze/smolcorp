@@ -43,7 +43,7 @@ final class TailnetRouteTests: XCTestCase {
     // MARK: Local-only routes
 
     func testNoSetupRouteIsLocalThroughTailscaleEvenWithItsKeys() {
-        let keys = [DeckRouter.setupHeader: "1", DeckRouter.setupKeyHeader: "the-real-setup-key", "cookie": "smolcorp-setup=the-real-setup-key"]
+        let keys = [DeckRouter.setupHeader: "1", DeckRouter.setupKeyHeader: "the-real-setup-key", "cookie": "smolcorp-setup=a-page-session"]
         for (method, path) in Self.setupRoutes {
             XCTAssertTrue(DeckRouter.isSetupPath(path), path)
             XCTAssertFalse(throughTailscale(method, path, extra: keys).isLocal, path)
@@ -86,7 +86,7 @@ final class TailnetRouteTests: XCTestCase {
         }
         XCTAssertGreaterThan(routes.count, 30)
         let paired: Set = ["/events", "/focus", "/act", "/dictate", "/peek", "/summary", "/glossary", "/choice", "/choose",
-                           "/conversation", "/notifications", "/session/info"]
+                           "/conversation", "/notifications", "/session/info", "/approvals", "/reviews"]
         for route in routes {
             XCTAssertTrue(DeckRouter.isSetupPath(route) || paired.contains(route), "\(route) is neither setup's nor behind a paired key")
         }
@@ -94,11 +94,15 @@ final class TailnetRouteTests: XCTestCase {
 
         // The order that makes it so.
         func at(_ text: String) throws -> String.Index { try XCTUnwrap(router.range(of: text)?.lowerBound, text) }
-        XCTAssertNotNil(router.range(of: "if DeckRouter.isSetupPath(request.path) {\n            if let refused = DeckRouter.setupRefusal("
-                                     + "request, isKey: deck.access.isSetupKey) { return respond(refused) }\n            return setup(request, respond: respond)"))
-        XCTAssertLessThan(try at("guard request.isLocal else { return .status(404) }"), try at("guard isKey(key) else { return .status(401) }"))
-        XCTAssertLessThan(try at("guard request.method == \"GET\" || request.headers[setupHeader] == \"1\" else"), try at("guard isKey(key)"))
-        XCTAssertEqual(router.components(separatedBy: "setup(request, respond:").count, 2, "setup is reached one way only")
+        let gate = try at("let gate = DeckRouter.setupGate(request, sessions: deck.access.setupSessions, isSetupKey: deck.access.isSetupKey, isGMToken: deck.access.isGMToken,")
+        // Setup's gate first (this Mac, the header, then a page session or the file's key: see
+        // SetupSessionsTests.testTheSetupGate); the page's one-time link inside it; then setup.
+        let refused = try at("if let refusal = gate.refusal { return respond(refusal) }")
+        XCTAssertLessThan(gate, refused)
+        XCTAssertLessThan(refused, try at("let answer = DeckRouter.sessionReply(link: request.headers[DeckRouter.setupKeyHeader], sessions: deck.access.setupSessions)"))
+        XCTAssertLessThan(refused, try at("return setup(request, caller: gate.caller, respond: respond)"))
+        XCTAssertEqual(router.components(separatedBy: "setup(request, caller:").count, 2, "setup is reached one way only")
+        XCTAssertFalse(router.contains("setupRefusal"), "one setup gate, no second copy")
         XCTAssertLessThan(try at(#"if request.path == "/hook" {"#), try at(#"guard request.isLocal, request.method == "POST" else"#))
         XCTAssertLessThan(try at("guard request.isLocal, request.method == \"POST\" else"), try at("deck.ingest("))
         let phoneGate = try at("guard let phone else { return respond(.status(401)) }")

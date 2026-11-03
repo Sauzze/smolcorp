@@ -37,12 +37,22 @@ type Config struct {
 	// chip's max bring up a question first. On until you turn it off, as max
 	// uses much more of your usage; off, one tap sets it, as it always did.
 	MaxConfirm bool `json:"maxConfirm"`
+	// ManagerEnabled is the front desk (manager) switch, the Mac app's
+	// managerEnabled: off until you turn it on. See manager.go.
+	ManagerEnabled bool `json:"managerEnabled"`
+	// HooksDisconnected: you disconnected the agents on purpose, so smolcorp
+	// setup leaves them be. Connecting, on the setup page, clears it.
+	HooksDisconnected bool `json:"hooksDisconnected,omitempty"`
 	// Where the deck's sessions are told to other tools, if anywhere.
 	Webhook Webhook `json:"webhook"`
 	// ✨ Summary: whether a held desk offers a summary of its agent's
 	// transcript, written by Claude with your own API key. Off until you turn
 	// it on in setup and confirm what it sends where; and only with a key.
 	SummaryOptIn bool `json:"summaryOptIn"`
+	// SummaryProvider is what makes summaries: a coding agent's id ("claude",
+	// "codex", …) or "apikey"; "" until one is picked or summaries are turned
+	// on (see chosenSummaryProvider).
+	SummaryProvider string `json:"summaryProvider,omitempty"`
 	// The portable office's viewer: its address and options. Never its id,
 	// key or write secret, which are in the system's secret store.
 	Viewer ViewerSettings `json:"viewer"`
@@ -55,6 +65,9 @@ type Config struct {
 	// passed over as uninstalled.
 	HireTerminal string `json:"hireTerminal"`
 	HireInTmux   bool   `json:"hireInTmux"`
+	// Beta, Windows only: a role's Claude hire made by the hire engine in a window run by
+	// the launcher (hirelauncher.go), as the tmux engine does on Linux. Off unless switched on.
+	HireManagedWindows bool `json:"hireManagedWindows"`
 	// The roles `smolcorp run --role` starts, as the Mac app's office hires
 	// them: those that come with the app until you change them, and your own.
 	Roles []Role `json:"roles"`
@@ -67,16 +80,32 @@ type Config struct {
 	Window      *WindowState `json:"window"`
 	AlwaysOnTop bool         `json:"alwaysOnTop"`
 	// Listen is who can reach the server: "tailscale" (this computer and the
-	// Tailscale address only; the default on Windows) or "all" (every interface;
-	// the default elsewhere). Read at start. See listen.go.
+	// Tailscale address only; the default on Windows and Linux) or "all" (every
+	// interface; the default elsewhere). Read at start. See listen.go.
 	Listen string `json:"listen,omitempty"`
 	// Bots that work in a cloud, not in a terminal here, each at a desk of
 	// its own (see CloudBot). None until you set some; one that can't be
 	// read loses only itself.
 	CloudBots cloudBotList `json:"cloudBots"`
+	// Whether the Mac app gives the Grok Bot app's bots desks by themselves,
+	// unset for on; and the app's ids of those you hid. Kept as set: nothing
+	// here looks in that app, which is the Mac's alone.
+	BotsAutoDetect *bool    `json:"botsAutoDetect,omitempty"`
+	HiddenBots     []string `json:"hiddenBots,omitempty"`
 	// The building's six floors, the ground floor first: each one's name, and
 	// the style of those above it (see Floor).
 	Floors floorList `json:"floors"`
+	// The folders whose sessions sit on a floor of their own (see FloorRule).
+	FloorRules floorRuleList `json:"floorRules"`
+	// The GM's mail (mail_outbox.go): the longest message in bytes, the most one
+	// sender may send in an hour, and the hours a message waits for a busy hire
+	// before it is left. Each at least 1.
+	MailMaxBytes  int     `json:"mailMaxBytes"`
+	MailPerHour   int     `json:"mailPerHour"`
+	MailWaitHours float64 `json:"mailWaitHours"`
+	// Whether the app keeps its own watches on the hires (watchers_builtin.go),
+	// while the manager is on; unset for on. No page setting: the file only.
+	BuiltinWatches bool `json:"builtinWatches"`
 	// What the file held that this version doesn't read, as it was: saved
 	// back with the rest, so a setting from another version, older or newer,
 	// or the Mac app's, isn't lost at the next save.
@@ -101,7 +130,8 @@ var logos = []string{"smolcorp", "keys"}
 
 func loadConfig() *Config {
 	config := &Config{Colours: map[string]string{}, Logo: "smolcorp", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook(),
-		MaxConfirm: true, Viewer: standardViewerSettings()}
+		MaxConfirm: true, Viewer: standardViewerSettings(),
+		MailMaxBytes: mailDefaultMaxBytes, MailPerHour: mailDefaultPerHour, MailWaitHours: mailDefaultWaitHours, BuiltinWatches: true}
 	if data, err := os.ReadFile(configFile); err == nil {
 		// A field it can't read loses only itself. A file it can't read at all
 		// starts from the defaults, but a copy is kept beside it first, so the
@@ -122,6 +152,10 @@ func loadConfig() *Config {
 			}
 		}
 	}
+	// At least 1 each, as on the Mac (Config.swift).
+	config.MailMaxBytes = max(1, config.MailMaxBytes)
+	config.MailPerHour = max(1, config.MailPerHour)
+	config.MailWaitHours = max(1, config.MailWaitHours)
 	// Layouts are checked again as they load: their buttons type into sessions.
 	config.Layout = config.Layout.checked()
 	for i := range config.Profiles {
@@ -153,6 +187,7 @@ func loadConfig() *Config {
 	config.CloudBots = checkedCloudBots(config.CloudBots)
 	// Checked as they load, for the same reason.
 	config.Floors = checkedFloors(config.Floors)
+	config.FloorRules = checkedFloorRules(config.FloorRules)
 	// Only the regular logo since setup lost the choice: an older pick is read but not kept.
 	config.Logo = "smolcorp"
 	if config.Colours == nil {

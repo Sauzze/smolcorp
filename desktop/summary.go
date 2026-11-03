@@ -721,6 +721,7 @@ func (e *SummaryError) Error() string { return e.Message }
 var (
 	errSummaryOff       = &SummaryError{"Summaries are off: turn them on in setup, on your computer.", 403}
 	errSummaryNoKey     = &SummaryError{"No Anthropic API key: add yours in setup, on your computer.", 403}
+	errSummaryNoWay     = &SummaryError{"Nothing to make summaries with: pick a coding agent or add a key in setup, on your computer.", 403}
 	errSummaryNoSession = &SummaryError{"That agent has gone.", 404}
 	errSummaryNoHistory = &SummaryError{"No history for this agent.", 404}
 	errSummaryTooMany   = &SummaryError{"Too many summaries just now: try again in a few minutes.", 429}
@@ -763,6 +764,11 @@ func summarySystem(language string) string {
 		"Lines marked [redacted] held secrets: never guess them."
 }
 
+// summaryPrompt is what's summarised, as the API key and each coding agent get it.
+func summaryPrompt(extract transcriptExtract, project string) string {
+	return "Project: " + project + "\n\nTranscript excerpt, oldest first:\n" + extract.Text
+}
+
 // summaryParams is the one request a summary makes, with what it needs and nothing more.
 func summaryParams(extract transcriptExtract, project string) anthropic.MessageNewParams {
 	return anthropic.MessageNewParams{
@@ -773,7 +779,7 @@ func summaryParams(extract transcriptExtract, project string) anthropic.MessageN
 		Thinking: anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}},
 		System:   []anthropic.TextBlockParam{{Text: summarySystem(extract.Language)}},
 		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock("Project: " + project + "\n\nTranscript excerpt, oldest first:\n" + extract.Text)),
+			anthropic.NewUserMessage(anthropic.NewTextBlock(summaryPrompt(extract, project))),
 		},
 	}
 }
@@ -870,18 +876,15 @@ func isAnthropicKey(text string) bool {
 	return true
 }
 
-// keyHint is "sk-ant-…ab12": enough to tell which key, nothing to use.
-func keyHint(key string) string { return "sk-ant-…" + key[len(key)-4:] }
-
 // summaryKeys finds the key and remembers what setup may show of it.
 type summaryKeys struct {
 	mu     sync.Mutex
 	store  secretStore
 	getenv func(string) string
-	// known: the pasted key's hint once looked at ("" for none), so setup,
-	// asking every second or so, doesn't go to the keyring each time.
+	// known: whether a key was pasted, once looked at, so setup, asking
+	// every second or so, doesn't go to the keyring each time.
 	known     bool
-	hint      string
+	pasted    bool
 	storeDown bool
 }
 
@@ -901,32 +904,36 @@ func (k *summaryKeys) Read() string {
 }
 
 // Shown is what setup may show: where the key comes from ("store", the
-// system's secret store, or "environment") and its hint, never the key.
-func (k *summaryKeys) Shown() (source, hint string) {
+// system's secret store, or "environment"), never any part of the key.
+func (k *summaryKeys) Shown() string {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if !k.known {
 		key, err := k.store.get()
 		k.storeDown = err != nil && !errors.Is(err, keyring.ErrNotFound)
-		k.hint = ""
-		if err == nil && isAnthropicKey(key) {
-			k.hint = keyHint(key)
-		}
+		k.pasted = err == nil && isAnthropicKey(key)
 		k.known = true
 	}
-	if k.hint != "" {
-		return "store", k.hint
+	if k.pasted {
+		return "store"
 	}
 	if key := strings.TrimSpace(k.getenv(summaryKeyEnv)); isAnthropicKey(key) {
-		return "environment", keyHint(key)
+		return "environment"
 	}
-	return "", ""
+	return ""
+}
+
+// Saved is the key pasted in setup and kept in the secret store, or "": never ANTHROPIC_API_KEY.
+func (k *summaryKeys) Saved() string {
+	if key, err := k.store.get(); err == nil && isAnthropicKey(key) {
+		return key
+	}
+	return ""
 }
 
 // Present is whether there's a key, from either place.
 func (k *summaryKeys) Present() bool {
-	source, _ := k.Shown()
-	return source != ""
+	return k.Shown() != ""
 }
 
 // NoStore is whether this computer has no secret store to keep a pasted key in.
@@ -947,7 +954,7 @@ func (k *summaryKeys) Save(text string) *SummaryError {
 		return &SummaryError{"There's no secret store on this computer to keep it in. Set ANTHROPIC_API_KEY for Smolcorp instead.", 400}
 	}
 	k.mu.Lock()
-	k.known, k.hint, k.storeDown = true, keyHint(key), false
+	k.known, k.pasted, k.storeDown = true, true, false
 	k.mu.Unlock()
 	return nil
 }
@@ -955,7 +962,7 @@ func (k *summaryKeys) Save(text string) *SummaryError {
 func (k *summaryKeys) Remove() {
 	_ = k.store.delete()
 	k.mu.Lock()
-	k.known, k.hint = true, ""
+	k.known, k.pasted = true, false
 	k.mu.Unlock()
 }
 
@@ -965,15 +972,23 @@ func (k *summaryKeys) Remove() {
 // summaryKeepFor so a second tap doesn't pay twice unless the user has asked
 // something since, and at most summaryMost
 // calls in summaryWindow for the whole computer, so no phone can run up your
-// bill. Never retried: a tap is one call at most.
+// bill or use up your plan. Never retried: a tap is one call at most, and a
+// second, with your key, only when the coding agent chosen fails, which the
+// summary then says.
 type summaries struct {
 	mu      sync.Mutex
 	kept    map[string]keptSummary
 	waiting map[string][]chan summaryResult
 	calls   []time.Time
 	key     func() string
+	// savedKey is a key pasted in setup, never one from Smolcorp's environment: the only one a summary falls back to.
+	savedKey func() string
 	ask     func(ctx context.Context, key string, params anthropic.MessageNewParams) (string, *SummaryError)
-	now     func() time.Time
+	// agent runs a coding agent for a summary, with the instructions and the excerpt.
+	agent func(p summaryProvider, system, prompt string) (string, cliFailure)
+	now   func() time.Time
+	// lastFallback is why the last summary was made with the key instead, for setup: "" once one isn't.
+	lastFallback string
 }
 
 const (
@@ -994,11 +1009,25 @@ type summaryResult struct {
 }
 
 func newSummaries(key func() string) *summaries {
-	return &summaries{kept: map[string]keptSummary{}, waiting: map[string][]chan summaryResult{}, key: key, ask: askClaude, now: time.Now}
+	return &summaries{kept: map[string]keptSummary{}, waiting: map[string][]chan summaryResult{}, key: key, ask: askClaude,
+		savedKey: func() string { return "" },
+		agent:    func(summaryProvider, string, string) (string, cliFailure) { return "", cliMissing }, now: time.Now}
 }
 
-// Summarize answers the summary of session id from its transcript at path.
+// Summarize answers the summary of session id from its transcript at path, made with the key.
 func (s *summaries) Summarize(id, path, project string) (string, *SummaryError) {
+	return s.SummarizeWith(id, path, project, providerAPIKey)
+}
+
+// LastFallback is why the last summary was made with the key instead, or "".
+func (s *summaries) LastFallback() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastFallback
+}
+
+// SummarizeWith answers the summary of session id from its transcript at path, made by provider.
+func (s *summaries) SummarizeWith(id, path, project string, provider summaryProvider) (string, *SummaryError) {
 	// Read first: a summary kept is served only while the user's latest request is still the one it covered.
 	extract, ok := readTranscriptTail(path)
 	s.mu.Lock()
@@ -1028,7 +1057,7 @@ func (s *summaries) Summarize(id, path, project string) (string, *SummaryError) 
 	s.waiting[id] = []chan summaryResult{done}
 	s.mu.Unlock()
 
-	result := s.request(extract, ok, project)
+	result := s.request(extract, ok, project, provider)
 	s.mu.Lock()
 	if result.err == nil {
 		s.kept[id] = keptSummary{result.text, extract.Latest, s.now()}
@@ -1042,18 +1071,66 @@ func (s *summaries) Summarize(id, path, project string) (string, *SummaryError) 
 	return result.text, result.err
 }
 
-func (s *summaries) request(extract transcriptExtract, ok bool, project string) summaryResult {
+func (s *summaries) request(extract transcriptExtract, ok bool, project string, provider summaryProvider) summaryResult {
 	if !ok {
 		return summaryResult{err: errSummaryNoHistory}
 	}
-	key := s.key()
+	note := ""
+	if provider != providerAPIKey {
+		text, failure := s.agent(provider, summarySystem(extract.Language), summaryPrompt(extract, project))
+		if failure == cliOK {
+			s.setFallback("")
+			return summaryResult{text: text}
+		}
+		// With a key pasted in setup, it's made with that instead, and says so: a call of its own, within the limit.
+		saved := s.savedKey()
+		if saved == "" || !s.takeCall() {
+			return summaryResult{err: failure.err(provider)}
+		}
+		note = summaryFallbackNote(failure, provider)
+		s.setFallback(note)
+		return s.askKey(extract, project, saved, note)
+	}
+	s.setFallback("")
+	return s.askKey(extract, project, s.key(), "")
+}
+
+// takeCall counts a call, if there's room for one in summaryWindow.
+func (s *summaries) takeCall() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	recent := s.calls[:0]
+	for _, at := range s.calls {
+		if s.now().Sub(at) < summaryWindow {
+			recent = append(recent, at)
+		}
+	}
+	s.calls = recent
+	if len(s.calls) >= summaryMost {
+		return false
+	}
+	s.calls = append(s.calls, s.now())
+	return true
+}
+
+// askKey makes the summary with key, note ending it when it's a fallback.
+func (s *summaries) askKey(extract transcriptExtract, project, key, note string) summaryResult {
 	if key == "" {
 		return summaryResult{err: errSummaryNoKey}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), summaryTimeout)
 	defer cancel()
 	text, err := s.ask(ctx, key, summaryParams(extract, project))
+	if err == nil && note != "" {
+		text += "\n" + note
+	}
 	return summaryResult{text, err}
+}
+
+func (s *summaries) setFallback(note string) {
+	s.mu.Lock()
+	s.lastFallback = note
+	s.mu.Unlock()
 }
 
 // Forget drops every summary kept, as the setting goes off or the key changes.

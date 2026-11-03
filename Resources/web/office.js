@@ -32,9 +32,15 @@
  * 'clear', 'up', 'down', 'summary' (personal build: what the agent has been
  * doing, where its session has a transcript to read) or 'button:<id>' for one of the layout's own
  * buttons (/clear and a button marked `confirm` on a second tap),
- * `on.hire(desk, role)` for an empty desk held and hired into: by the id
+ * `on.hire(desk, role, floor)` for an empty desk held and hired into: by the id
  * of one of the snapshot's `hiring.roles`, along the foot of the room, or
- * null for Anyone, or for its Hire button where there are no roles,
+ * null for Anyone, or for its Hire button where there are no roles; `floor`
+ * is 0 on the ground floor, whose desks are the keys, and 1 to 5 upstairs,
+ * `on.move(id, floor, remember)` for someone put on another floor, 0 to 5,
+ * their folder's next sessions too if `remember`, true if they went,
+ * `on.settings()` for the cog in the room's corner, where the page opens its
+ * settings: given, it takes the styles' key's place, and the page opens the
+ * styles' panel from its settings with `openStyles()`,
  * `on.scroll(lines | 'bottom')` for two fingers moving up and down the room,
  * or tapped together, and `on.hint(text)` for a word on the status line.
  *
@@ -2261,7 +2267,9 @@
       return given.map((floor, i) => {
         const f = floor && typeof floor === 'object' ? floor : {};
         const name = typeof f.name === 'string' ? f.name.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 24) : '';
-        return { n: i + 1, name: name || `${i + 1}F`, preset: typeof f.preset === 'string' ? f.preset : '', desks: Array.isArray(f.desks) ? f.desks : [] };
+        // How many there wait on you, as the computer counts them: none from one from before it did
+        const asking = Number(f.asking) > 0 ? Math.round(Number(f.asking)) : 0;
+        return { n: i + 1, name: name || `${i + 1}F`, preset: typeof f.preset === 'string' ? f.preset : '', desks: Array.isArray(f.desks) ? f.desks : [], asking };
       });
     }
     const up = snapshot && snapshot.upstairs && Array.isArray(snapshot.upstairs.desks) ? snapshot.upstairs.desks : [];
@@ -2303,20 +2311,37 @@
   /**
    * A floor's desks from the snapshot (see floorsOf), as seats upstairs: each
    * with an id of its own (the portable viewer's have only a name and a
-   * state), named after its folder, and with nothing to press.
+   * state), named after its folder, at the desk the computer says it has, or
+   * the first free one. An agent the computer says can be driven there keeps
+   * its controls and its role, as on the ground floor; anyone else, a
+   * headless run, a cloud bot or the viewer's, has nothing to press.
    */
   function upstairsSeatsOf(given, ahead) {
     const named = new Map();
-    const keys = given.filter((entry) => entry && typeof entry === 'object').slice(0, UPSTAIRS_MOST).map((entry) => {
+    const entries = given.filter((entry) => entry && typeof entry === 'object').slice(0, UPSTAIRS_MOST).map((entry) => {
       const name = String(entry.project || entry.name || '');
       const n = (named.get(name) || 0) + 1;
       named.set(name, n);
       const id = typeof entry.id === 'string' && entry.id ? entry.id : `upstairs:${name}:${n}`;
       return { session: { ...entry, id, name, project: name, state: STANDARD_STATES[entry.state] ? entry.state : 'idle' } };
     });
-    return seatsOf({ keys }, ahead).map((seat) => ({
+    // At the desks they have, so nobody moves as someone else comes or goes; then the rest at the first free ones.
+    const keys = [];
+    const rest = entries.filter((entry) => {
+      const desk = entry.session.desk;
+      if (!Number.isInteger(desk) || desk < 0 || desk >= UPSTAIRS_MOST || keys[desk]) return true;
+      keys[desk] = entry;
+      return false;
+    });
+    for (const entry of rest) {
+      let free = 0;
+      while (keys[free]) free += 1;
+      keys[free] = entry;
+    }
+    return seatsOf({ keys: Array.from(keys, (k) => k || {}) }, ahead).map((seat) => ({
       pin: null,
-      session: { ...seat.session, maxPressedAt: null, messagedAt: null, role: null, keys: false, fire: false, mic: false, dial: false },
+      session: !seat.session ? seat.session : seat.session.drivable === true ? seat.session
+        : { ...seat.session, maxPressedAt: null, messagedAt: null, role: null, keys: false, fire: false, mic: false, dial: false },
     }));
   }
 
@@ -7947,6 +7972,8 @@
       left, top, w, h,
       tile: { x: left + 6, y: top + 35, w: tile, h: h - 39 },
       row: { left: left + 3, right: left + w - 3, top: top + 33, bottom: top + h - 2 },
+      // Its key to put it on another floor, in the card's top corner
+      move: { left: left + w - 30, right: left + w - 4, top: top + 3, bottom: top + 13 },
     };
   }
   /**
@@ -8035,6 +8062,8 @@
   const SEND_MARK = ['0000001', '0000001', '0100001', '1111111', '0100000'];
   /** ✨ Summary (personal build): for an agent whose session has a transcript to read, with the setting on. */
   const SUMMARY_KEY = { action: 'summary', label: '✨ summary' };
+  /** The picked agent's key to put them on another floor, where the page can and there's a floor to go to. */
+  const MOVE_KEY = { action: 'floor', label: '⇅ floor' };
   /** The keys for the picked agent: the office's own, then your buttons from the layout, each by its label, its text or the key it presses. */
   function rowKeysOf(layout, session) {
     const yours = (layout && Array.isArray(layout.rows) ? layout.rows : []).flatMap((row) => (row && Array.isArray(row.buttons) ? row.buttons : []))
@@ -8650,7 +8679,7 @@
    * keys go: each chip's height, the gaps, the strip's inset, and the space
    * either side of a name.
    */
-  const ROLE_ROW = { h: 20, gap: 2, inset: 3, pad: 4 };
+  const ROLE_ROW = { h: 20, gap: 2, inset: 3, pad: 4, arrow: 9 };
   /** A badge's icon, or Anyone's, on a canvas of its own, `scale` screen pixels to each of its pixels. */
   function paintIcon(rows, scale) {
     const canvas = document.createElement('canvas');
@@ -8712,6 +8741,8 @@
     muted: ['000', '101', '010', '101', '000'],
   };
   const STYLE_MARK = ['1111110', '1111110', '0000010', '0011110', '0010000', '0010000', '0010000'];
+  /** The settings' key's mark, a cog, where the page opens its settings from the corner (see `on.settings`). */
+  const SETTINGS_MARK = ['0010100', '0111110', '1100011', '0100010', '1100011', '0111110', '0010100'];
   const STYLE_THUMB = { w: 62, h: 34 };
   const STYLE_GAP = 4;
   const STYLE_LABEL = 8;
@@ -56894,6 +56925,19 @@
         ctx.fillStyle = css(colour(s.session.state));
         ctx.fillText(doing, center.x - doingWidth / 2 + padding, center.y + h / 2 + extra / 2 - small * 0.2);
       }
+      // Waiting on you: a small tag over the label's right end, in the label's own pill shape and the asking colour.
+      if (s.session && s.session.state === 'asking' && !DESKS[desk].off) {
+        const tiny = Math.max(size * 0.72, 7 * ratio), tagH = tiny * 1.4;
+        ctx.font = font(700, tiny);
+        ctx.textAlign = 'center';
+        const tagW = ctx.measureText('WAITING').width + tiny * 1.2;
+        const tagLeft = Math.min(ctx.canvas.width - tagW - 2, Math.max(2, left + w - tagW));
+        ctx.fillStyle = css(colour('asking'));
+        roundedRect(ctx, tagLeft, center.y - h / 2 - tagH - 1, tagW, tagH, tagH / 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(20,20,24,0.92)';
+        ctx.fillText('WAITING', tagLeft + tagW / 2, center.y - h / 2 - tagH / 2 - 1);
+      }
     }
 
     /** The shredder a compacting session's agent feeds, beside its desk. */
@@ -62631,15 +62675,19 @@
       row.at = [];
       // The row goes no further than its last chip, and what's past the strip's ends is cut off.
       const length = widths.reduce((a, b) => a + b + ROLE_ROW.gap, -ROLE_ROW.gap);
-      const most = Math.max(0, length - (w - ROLE_ROW.inset * 2));
+      // Too long for the strip: an arrow at each end steps along it (for a mouse with no wheel or a pad that can't slide), and the roles keep between them.
+      const long = length > w - ROLE_ROW.inset * 2;
+      // A strip too narrow to keep a role between the gutters shows no arrows at all.
+      const gutter = long && w - ROLE_ROW.inset * 2 - ROLE_ROW.arrow * 2 >= 24 ? ROLE_ROW.arrow : 0;
+      const most = Math.max(0, length - (w - ROLE_ROW.inset * 2 - gutter * 2));
       const offset = Math.round(Math.max(0, Math.min(most, row.offset || 0)));
       row.most = most;
       ctx.save();
-      const a = screen(left + 1, top), b = screen(right - 1, top + h);
+      const a = screen(left + 1 + gutter, top), b = screen(right - 1 - gutter, top + h);
       ctx.beginPath();
       ctx.rect(a.x, a.y, b.x - a.x, b.y - a.y);
       ctx.clip();
-      let x = left + ROLE_ROW.inset - offset;
+      let x = left + ROLE_ROW.inset + gutter - offset;
       const y = top + ROLE_ROW.inset;
       roles.forEach((role, i) => {
         const kw = widths[i];
@@ -62653,14 +62701,27 @@
         ctx.textBaseline = 'middle';
         ctx.fillStyle = css(sunk ? PALETTE.terminal : PALETTE.bubble);
         ctx.fillText(names[i], at.x, at.y);
-        if (x + kw > left && x < right) row.at.push({ id: role.id, left: Math.max(x, left), top: y, right: Math.min(x + kw, right), bottom: y + ch });
+        if (x + kw > left + gutter && x < right - gutter) row.at.push({ id: role.id, left: Math.max(x, left + gutter), top: y, right: Math.min(x + kw, right - gutter), bottom: y + ch });
         x += kw + ROLE_ROW.gap;
       });
       ctx.restore();
       // A fade at either end that has more past it
       for (let i = 0; i < 6; i++) {
-        if (offset > 0) fill(left + 1 + i, top + 1, 1, h - 2, PALETTE.bubble, 0.85 - i * 0.14);
-        if (offset < most) fill(right - 2 - i, top + 1, 1, h - 2, PALETTE.bubble, 0.85 - i * 0.14);
+        if (offset > 0) fill(left + 1 + gutter + i, top + 1, 1, h - 2, PALETTE.bubble, 0.85 - i * 0.14);
+        if (offset < most) fill(right - 2 - gutter - i, top + 1, 1, h - 2, PALETTE.bubble, 0.85 - i * 0.14);
+      }
+      // The arrows, in the gutters: dim at an end there is nothing past. Where each lands is kept on `row.arrows`, for taps.
+      row.arrows = [];
+      if (long && gutter) {
+        for (const step of [-1, 1]) {
+          const l = step < 0 ? left + 1 : right - 1 - gutter, live = step < 0 ? offset > 0 : offset < most;
+          const mid = Math.round(top + h / 2), x0 = l + Math.floor((gutter - 4) / 2);
+          for (let k = 0; k < 4; k++) {
+            const reach = step < 0 ? k : 3 - k; // how far each column of the triangle goes either side of the middle
+            fill(x0 + k, mid - reach, 1, 1 + reach * 2, PALETTE.frame, live ? 1 : 0.25);
+          }
+          row.arrows.push({ step, left: l, top: top + 1, right: l + gutter, bottom: top + h - 1 });
+        }
       }
     }
 
@@ -62689,13 +62750,14 @@
 
     /** The styles' key in the top-left corner, held down while its panel is up. Where it lands is kept on `key.at`, for taps. */
     function drawStyleKey(key) {
-      const { open } = key;
+      const { open, settings } = key;
+      const MARK = settings ? SETTINGS_MARK : STYLE_MARK;
       const inset = floating && floating !== 'edge' ? STYLE_KEY.rounded : STYLE_KEY.inset;
       const { w, h } = STYLE_KEY, x = seen.left + inset, y = seen.top + inset;
       key.at = { x, y, w, h };
       drawPixelKey(x, y + (open ? 1 : 0), w, h - (open ? 1 : 0), open ? darker(PALETTE.rail) : PALETTE.rail, '');
-      const mx = x + Math.floor((w - STYLE_MARK[0].length) / 2), my = y + Math.floor((h - 2 - STYLE_MARK.length) / 2) + (open ? 1 : 0);
-      STYLE_MARK.forEach((row, r) => [...row].forEach((on, c) => { if (on === '1') dot(mx + c, my + r, WHITE); }));
+      const mx = x + Math.floor((w - MARK[0].length) / 2), my = y + Math.floor((h - 2 - MARK.length) / 2) + (open ? 1 : 0);
+      MARK.forEach((row, r) => [...row].forEach((on, c) => { if (on === '1') dot(mx + c, my + r, WHITE); }));
     }
 
     /**
@@ -62798,7 +62860,7 @@
      * downstairs (`below`), whose team and desks dress them. Unknown where
      * its launcher didn't say.
      */
-    function drawHiredCard({ left, top, w, h, tile, name, doing, ran, note, hirer, person, visits, below }) {
+    function drawHiredCard({ left, top, w, h, tile, name, doing, ran, note, hirer, person, visits, below, moves, move }) {
       fill(seen.left, seen.top, seen.width, seen.height, BLACK, 0.3);
       fill(left + 1, top, w - 2, h, PALETTE.bubbleEdge);
       fill(left, top + 1, w, h - 2, PALETTE.bubbleEdge);
@@ -62816,7 +62878,16 @@
         const at = screen(x, y);
         ctx.fillText(fitText(ctx, words, room * scale), at.x, at.y);
       };
-      write(name, left + 7, top + 9, 700, size * 1.2, 1);
+      if (moves) {
+        drawPixelKey(move.left, move.top, move.right - move.left, move.bottom - move.top, PALETTE.rail, '');
+        ctx.textAlign = 'center';
+        ctx.font = font(700, size * 0.85);
+        ctx.fillStyle = css(WHITE);
+        const at = screen((move.left + move.right) / 2, (move.top + move.bottom) / 2 - 0.5);
+        ctx.fillText('⇅ floor', at.x, at.y);
+        ctx.textAlign = 'left';
+      }
+      write(name, left + 7, top + 9, 700, size * 1.2, 1, left + w - (moves ? 32 : 7) - (left + 7));
       if (doing) write(doing, left + 7, top + 18, 500, size, 0.75);
       if (ran) write(`Running for ${ran}`, left + 7, top + 26, 500, size * 0.9, 0.55);
       else if (note) write(note, left + 7, top + 26, 500, size * 0.9, 0.55);
@@ -62952,8 +63023,7 @@
      * The elevator's floor list, opened by its call button: each floor, the top one first, its name and who's on it;
      * the floor in view marked, the one the keys are on outlined. A tap on a floor rides there.
      */
-    function drawFloorPicker({ left, top, w, rows, focus }) {
-      const h = rows.length * PICKER.row + PICKER.pad * 2;
+    function drawFloorPicker({ left, top, w, h, rows, focus, title, remember }) {
       fill(seen.left, seen.top, seen.width, seen.height, BLACK, 0.25);
       fill(left + 1, top, w - 2, h, PALETTE.bubbleEdge);
       fill(left, top + 1, w, h - 2, PALETTE.bubbleEdge);
@@ -62962,6 +63032,12 @@
       const font = (weight, px) => `${weight} ${px}px ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif`;
       for (const row of rows) {
         if (row.here) fill(left + 2, row.y, w - 4, PICKER.row, PALETTE.bubbleEdge, 0.12);
+        // Someone there waits on you: an orange dot by the name
+        if (row.asking) {
+          const my = row.y + PICKER.row / 2 - 1;
+          fill(left + w - 5, my - 1, 2, 4, 0xff8a1f);
+          fill(left + w - 6, my, 4, 2, 0xff8a1f);
+        }
         // The keys' floor: a little pointer before its name
         if (row.n === focus) {
           const my = row.y + PICKER.row / 2 - 2;
@@ -62978,12 +63054,27 @@
         ctx.textAlign = 'right';
         ctx.font = font(600, size * 0.9);
         ctx.fillStyle = css(PALETTE.bubbleEdge, 0.6);
-        ctx.fillText(count, screen(left + w - 6, 0).x, middle);
+        ctx.fillText(count, screen(left + w - (row.asking ? 9 : 6), 0).x, middle);
         const room = w - 12 - (count ? ctx.measureText(count).width / scale + 4 : 0);
         ctx.textAlign = 'left';
         ctx.font = font(row.here ? 700 : 500, size);
         ctx.fillStyle = css(PALETTE.bubbleEdge, row.here ? 1 : 0.85);
         ctx.fillText(fitText(ctx, row.name, (room - 2) * scale), screen(left + 8, 0).x, middle);
+      }
+      // Putting someone on another floor: who, above the floors, and below them, whether their folder's next go there too
+      if (title) {
+        ctx.font = font(700, size);
+        ctx.fillStyle = css(PALETTE.bubbleEdge);
+        ctx.fillText(fitText(ctx, title.text, (w - 12) * scale), screen(left + 6, 0).x, screen(0, title.y + PICKER.row / 2).y);
+      }
+      if (remember) {
+        const middle = remember.y + PICKER.row / 2;
+        fill(left + 6, remember.y + 1, w - 12, 1, PALETTE.bubbleEdge, 0.15);
+        fill(left + 6, Math.round(middle - 3), 6, 6, PALETTE.bubbleEdge, 0.8);
+        fill(left + 7, Math.round(middle - 2), 4, 4, remember.on ? 0xff8a1f : PALETTE.bubble);
+        ctx.font = font(500, size * 0.9);
+        ctx.fillStyle = css(PALETTE.bubbleEdge, 0.85);
+        ctx.fillText(fitText(ctx, remember.text, (w - 22) * scale), screen(left + 15, 0).x, screen(0, middle).y);
       }
       ctx.restore();
     }
@@ -64847,7 +64938,7 @@
    */
   const CLOCK_SAMPLES = 5;
   /** The numbers of keys a layout can fix; anything else is Auto, a key for each agent. */
-  const FIXED_KEYS = [3, 6, 9];
+  const MOST_KEYS = 9; // as many desks as the keys can be
 
   /**
    * The deck's snapshot, as the office reads it: a seat per key, its session
@@ -65001,6 +65092,12 @@
     let roleDown = null;     // the role last tapped, on a held empty desk: { id, at, held }
     let roleOffset = 0;      // how far the roles are slid along, in art pixels
     let rolesAt = null;      // where the roles were last drawn, in art pixels: { roles, box, most }
+    // Slides the held desk's roles one step along (+1 or -1): most of what is in view, kept between the ends. Arrows and keys both use it.
+    const stepRoles = (dir) => {
+      if (!rolesAt) return;
+      const view = rolesAt.box.right - rolesAt.box.left - ROLE_ROW.inset * 2 - (rolesAt.arrows.length ? ROLE_ROW.arrow * 2 : 0);
+      roleOffset = Math.max(0, Math.min(rolesAt.most, roleOffset + dir * Math.max(1, Math.round(view * 0.7))));
+    };
     // Two fingers on the room scroll the picked agent's Terminal: each finger by its id, where it is, in CSS pixels
     const touches = new Map();
     let scrolling = null;    // { y, at, moved, carry }, while two fingers are down
@@ -65094,7 +65191,7 @@
         if (!seat || !seat.session || !DESKS[desk] || DESKS[desk].off) return [];
         const { x, y } = DESKS[desk];
         const top = y + WORKSPACES[workspaceOf(seat.session, desk)].top;
-        return [{ id: seat.session.id, box: { left: x - 2, right: x + DESK_WIDTH + 2, top, bottom: y + 27 } }];
+        return [{ id: seat.session.id, drivable: seat.session.drivable === true, box: { left: x - 2, right: x + DESK_WIDTH + 2, top, bottom: y + 27 } }];
       }));
     }
 
@@ -65142,6 +65239,8 @@
         hirer: by && by.name ? String(by.name) : null,
         person,
         visits: !!(found && on.select) && found.session.id,
+        // A headless run or a cloud bot can be put on another floor too, from its card
+        moves: on.move && floorList().length > 1 ? s.id : null,
         below: { decor, shape, DESKS, spots, boardSpots, stormSpots, floor },
       };
     }
@@ -65158,15 +65257,46 @@
      */
     function floorPicker() {
       if (!picker || arranging) return null;
-      const floors = floorList(), w = PICKER.w;
+      // Putting someone on another floor: the list says who, on the floor they're on, and offers to remember it.
+      const moving = picker.moving && floorOf(picker.moving.id) ? picker.moving : null;
+      const floors = floorList(), w = moving ? PICKER.w + 34 : PICKER.w;
       const left = Math.max(2, ELEVATOR.x + CALL_PLATE.dx - 2 - w), top = ELEVATOR.top;
-      const downstairs = latest ? (latest.keys || []).filter((key) => key && key.session).length : 0;
+      const first = top + PICKER.pad + (moving ? PICKER.row : 0);
+      const downstairs = latest ? (latest.keys || []).filter((key) => key && key.session) : [];
       const rows = [...floors].reverse().map((floor, i) => ({
-        n: floor.n, name: floor.name, y: top + PICKER.pad + i * PICKER.row, here: floor.n === floorShown,
-        count: floor.n === 1 ? downstairs : Math.min(UPSTAIRS_MOST, floor.desks.length),
+        n: floor.n, name: floor.name, y: first + i * PICKER.row, here: floor.n === (moving ? floorOf(moving.id) : floorShown),
+        count: floor.n === 1 ? downstairs.length : Math.min(UPSTAIRS_MOST, floor.desks.length),
         past: floor.n === floors.length ? pastTheTop(latest) : 0,
+        // Someone there waiting on you: an orange dot, so a question upstairs isn't missed
+        asking: floor.n === 1 ? downstairs.some((key) => key.session.state === 'asking') : floor.asking > 0,
       }));
-      return { left, top, w, h: rows.length * PICKER.row + PICKER.pad * 2, rows, focus: picker.focus };
+      // Moving someone: a row for who above the floors, and one below them to remember it, for a session's folder
+      const h = (rows.length + (moving ? 1 : 0) + (moving && moving.project ? 1 : 0)) * PICKER.row + PICKER.pad * 2;
+      if (!moving) return { left, top, w, h, rows, focus: picker.focus };
+      return {
+        left, top, w, h, rows, focus: null,
+        title: { text: `Move ${moving.name} to…`, y: top + PICKER.pad },
+        remember: moving.project && { text: `Always put agents from ${moving.project} here`, on: !!picker.remember, y: first + rows.length * PICKER.row },
+      };
+    }
+
+    /** The floor agent `id` sits on, 1 for the ground floor; null for one gone. */
+    function floorOf(id) {
+      if (office.seats.some((s) => s && s.session && s.session.id === id)) return 1;
+      for (const [n, { office: there }] of uppers) if (there.seats.some((s) => s && s.session && s.session.id === id)) return n;
+      return null;
+    }
+
+    /** The floor list opened to put agent `id` on another floor: on a tap of their ⇅ key, their card's, or a drop on the elevator. */
+    function openMoving(id) {
+      const session = sessionOf(id);
+      if (!session || !on.move) return;
+      picker = { focus: null, moving: { id, name: memberOf(session)?.name || session.name, project: session.cloud ? '' : session.project }, remember: false };
+      held = null;
+      keysFor = null;
+      hiredCard = null;
+      musicPanel = null;
+      styling = false;
     }
 
     /** The call button pressed: the floor list opens, its keys on the floor in view; pressed again, it closes. */
@@ -65285,7 +65415,15 @@
           e.preventDefault();
           return;
         }
+        // With the roles cut off under a held desk, the left and right arrows slide them along, as the arrows on screen do.
+        if (held && rolesAt && rolesAt.most && roleRow() && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+            && !(e.target && (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable)) && !e.altKey && !e.ctrlKey && !e.metaKey) {
+          stepRoles(e.key === 'ArrowRight' ? 1 : -1);
+          e.preventDefault();
+          return;
+        }
         if (e.key === 'Escape' && maxing) maxing = null;
+        else if (e.key === 'Escape' && (keysFor || held)) { keysFor = null; held = null; } // as a tap elsewhere puts away the keys and chips
       };
       win.document.addEventListener('visibilitychange', seen);
       win.document.addEventListener('pointerdown', tapped, { capture: true });
@@ -65316,7 +65454,7 @@
      * tap switches it.
      */
     function micLanguageKey() {
-      const session = selectedSession();
+      const session = pickedHere();
       if (framed || arranging || styling || !dictation || !dictation.on || !session || !session.dictates) return null;
       const french = (dictation.language || '').startsWith('fr');
       const at = placed('mic', { x: MIC.x - 17, y: MIC.y - 26 });
@@ -65330,7 +65468,7 @@
      * back on its own /voice can turn it on again.
      */
     function micCleanupKey() {
-      const session = selectedSession();
+      const session = pickedHere();
       if (framed || arranging || styling || !dictation || !dictation.on || typeof dictation.cleanup !== 'boolean') return null;
       if (!session || !session.mic) return null;
       const label = dictation.cleanup ? 'AI' : 'RAW';
@@ -65344,8 +65482,10 @@
       const shown = [];
       for (const [id, note] of voiceNotes) {
         const age = now - note.from;
-        const desk = office.deskOfSession(id);
-        if (age >= VOICE_NOTE_FOR || desk === null) { voiceNotes.delete(id); continue; }
+        // Over its desk on the floor in view; kept while its agent is on another, gone with it
+        const desk = deskInView(id);
+        if (age >= VOICE_NOTE_FOR || sessionOf(id) === null) { voiceNotes.delete(id); continue; }
+        if (desk < 0) continue;
         const fade = Math.min(1, (VOICE_NOTE_FOR - age) / VOICE_NOTE_FADE, age / 0.2);
         shown.push({ desk, text: note.text, cleaned: note.cleaned, alpha: fade });
       }
@@ -65355,40 +65495,79 @@
     /** Personal build: the phone mic's live words, over the desk they're for, while it's there. */
     function hearingShown() {
       if (!hearing) return null;
-      const desk = office.deskOfSession(hearing.id);
-      return desk === null ? null : { desk, text: hearing.text };
+      const desk = deskInView(hearing.id);
+      return desk < 0 ? null : { desk, text: hearing.text };
     }
 
     function selectedSession() {
-      const seat = office.seats.find((s) => s.session && s.session.id === selected);
-      return seat ? seat.session : null;
+      return sessionOf(selected);
     }
+
+    /**
+     * The picked agent, if it sits on the floor in view: what the room's own controls act on (the red button, the
+     * mic and its switches, two fingers' scroll). One picked on another floor isn't in sight, so they leave it alone.
+     */
+    function pickedHere() {
+      return selected && !ride && deskInView(selected) >= 0 ? selectedSession() : null;
+    }
+
+    /** Agent `id`'s session, on whichever floor it sits: the picked one can be upstairs. */
+    function sessionOf(id) {
+      if (!id) return null;
+      for (const there of [office, ...[...uppers.values()].map((u) => u.office)]) {
+        const seat = there.seats.find((s) => s && s.session && s.session.id === id);
+        if (seat) return seat.session;
+      }
+      return null;
+    }
+
+    /** Runs `fn(office)` on the floor in view: the ground floor's, or upstairs, in its room. */
+    const inView = (fn) => (floorShown >= 2 ? upstairs(fn) : fn(office));
+
+    /** The desk agent `id` sits at on the floor in view, or -1. */
+    const deskInView = (id) => inView((there) => there.seats.findIndex((s) => s && s.session && s.session.id === id));
 
     /** The paint chips, once held out on the picked desk of an agent with an effort setting, while the dial is out of sight. */
     function chips() {
       if (framed || !held || held.kind !== 'session' || held.id !== selected) return null;
-      const desk = office.seats.findIndex((s) => s.session && s.session.id === selected);
-      return desk >= 0 && office.seats[desk].session.dial ? effortChips(desk) : null;
+      return inView((there) => {
+        const desk = there.seats.findIndex((s) => s && s.session && s.session.id === selected);
+        return desk >= 0 && there.seats[desk].session.dial ? effortChips(desk) : null;
+      });
     }
 
     /**
      * Whether a hire on `desk` would sit at it: a pinned desk with nothing
      * running, whose project the new agent starts in, or the one desk an
-     * agent hired into no project lands on. That's the first free key's;
-     * with none free, Auto adds a key after the last, while there's room
-     * for one, and a fixed number of keys has nowhere to put them.
+     * agent hired into no project lands on. Any free key will do, and the
+     * hire sits at the one held; past the last, Auto adds the key while
+     * there's room for one.
      */
     function hiresInto(desk) {
-      if (framed || !hiring.hire) return false;
+      if (framed || !hiring.hire || (DESKS[desk] && DESKS[desk].off)) return false;
       const seat = office.seats[desk];
       if (seat && seat.pin) return !seat.session;
-      // With a set number of desks, any free one: the hire sits at the one held
-      const fixed = FIXED_KEYS.includes(latest && latest.layout && latest.layout.keys);
-      if (fixed) return !!seat && !seat.session;
-      // With Auto, the desks stay packed: the first free one, or the next after the last
-      const free = office.seats.findIndex((s) => !s.pin && !s.session);
-      if (free >= 0) return desk === free;
-      return desk === office.seats.length && desk < DESKS.length;
+      // Any free desk, and the hire sits at the one held; past the last, Auto adds the desk
+      if (seat) return !seat.session;
+      return desk >= office.seats.length && desk < Math.min(DESKS.length, MOST_KEYS);
+    }
+
+    /** Whether the held empty desk takes a hire: upstairs, on the floor in view, any free one; downstairs, see hiresInto. */
+    function hiresHere(desk) {
+      if (!desk.floor) return hiresInto(desk.desk);
+      if (framed || !hiring.hire || desk.floor !== floorShown || ride || !on.hire) return false;
+      // Still empty: someone who sat down there meanwhile has it
+      return upstairs((upper) => !(upper.seats[desk.desk] && upper.seats[desk.desk].session));
+    }
+
+    /** The empty desks upstairs on the floor in view, to a finger, where a hire would sit. */
+    function upstairsEmptyBoxes() {
+      if (framed || !hiring.hire || !on.hire) return [];
+      return upstairs((upper) => DESKS.slice(0, UPSTAIRS_MOST).flatMap((d, desk) => {
+        const seat = upper.seats[desk];
+        if (!d || d.off || (seat && seat.session)) return [];
+        return [{ desk, box: { left: d.x - 2, right: d.x + DESK_WIDTH + 2, top: d.y, bottom: d.y + 27 } }];
+      }));
     }
 
     /** The roles the computer can hire into, as you've set them up: none, and a hire is anyone. */
@@ -65396,24 +65575,30 @@
 
     /** The roles a held empty desk can hire into, along the foot of the room, Anyone first, if there are any to choose from. */
     function roleRow() {
-      if (framed || !held || held.kind !== 'empty' || !hiresInto(held.desk) || !roles().length || arranging || styling || firing || maxing || carrying) return null;
+      if (framed || !held || held.kind !== 'empty' || !hiresHere(held) || !roles().length || arranging || styling || firing || maxing || carrying) return null;
       return { desk: held.desk, roles: [{ id: null, name: 'Anyone' }, ...roles()], down: roleDown, offset: roleOffset };
     }
 
     /** The button on a held desk, if the computer allows it: fire its agent, or hire one into it, where there are no roles to choose from. */
     function heldButton() {
       if (framed || !held) return null;
-      if (held.kind === 'empty') return hiresInto(held.desk) && !roles().length ? deskButton(held.desk, 'hire') : null;
+      if (held.kind === 'empty') return hiresHere(held) && !roles().length ? inView(() => deskButton(held.desk, 'hire')) : null;
       if (held.id !== selected || !hiring.fire) return null;
-      const desk = office.seats.findIndex((s) => s.session && s.session.id === held.id);
       // An agent in a terminal Smolcorp can only watch can't be fired from here.
-      return desk >= 0 && office.seats[desk].session.fire !== false ? deskButton(desk, 'fire') : null;
+      return inView((there) => {
+        const desk = there.seats.findIndex((s) => s && s.session && s.session.id === held.id);
+        return desk >= 0 && there.seats[desk].session.fire !== false ? deskButton(desk, 'fire') : null;
+      });
     }
 
-    /** The styles' key, where the deck's own controls are out of sight and the page can change the style. */
+    /**
+     * The key in the room's corner, where the deck's own controls are out of sight: the settings' cog, on every
+     * floor, where the page opens its settings (the styles are among them); else, on the ground floor, the styles'.
+     */
     function styleKey() {
-      if (framed || !on.style || !latest || arranging || floorShown >= 2) return null;
-      return { open: styling };
+      if (framed || !(on.settings || on.style) || !latest || arranging) return null;
+      if (!on.settings && floorShown >= 2) return null;
+      return { open: styling, settings: !!on.settings };
     }
 
     /** The page of the styles' group shown with the style in use on it, or its first. */
@@ -65485,17 +65670,21 @@
 
     /** The picked agent's keys, along the foot of the room, if a finger held on them put them out and nothing else is up in their place. */
     function keyRow() {
-      if (framed || !keysFor || keysFor !== selected || !on.key || arranging || styling || firing || maxing || carrying || !selectedSession()) return null;
+      // Only for an agent on the floor in view: its keys go nowhere you can see from another
+      if (framed || !keysFor || keysFor !== selected || !on.key || arranging || styling || firing || maxing || carrying || !pickedHere()) return null;
       // Keys for an agent in a terminal Smolcorp can only watch would go nowhere.
       if (selectedSession().keys === false) return null;
-      return { keys: rowKeysOf(latest && latest.layout, selectedSession()), armed: keyArmed, down: keyDown };
+      const moves = on.move && floorList().length > 1 ? [MOVE_KEY] : [];
+      return { keys: [...rowKeysOf(latest && latest.layout, selectedSession()), ...moves], armed: keyArmed, down: keyDown };
     }
 
     function choices() {
       if (framed) return null;
-      const desk = office.seats.findIndex((s) => s.session && s.session.id === selected);
-      const session = desk >= 0 && office.seats[desk].session;
-      return session && session.state === 'asking' && session.keys !== false ? choicePanel(desk) : null;
+      return inView((there) => {
+        const desk = there.seats.findIndex((s) => s && s.session && s.session.id === selected);
+        const session = desk >= 0 && there.seats[desk].session;
+        return session && session.state === 'asking' && session.keys !== false ? choicePanel(desk) : null;
+      });
     }
 
     /**
@@ -65586,7 +65775,7 @@
       const now = time / 1000, date = new Date();
       // Dimmed only for a picked session with no voice input: with none
       // picked, a tap wobbles it and asks for a desk.
-      const session = selectedSession();
+      const session = pickedHere();
       mic.usable = !session || !!session.mic;
       // A finger held on a desk, or its person, puts out its chips and
       // button; on a desk a hire would sit at, the button to hire.
@@ -65606,7 +65795,9 @@
       if (holding && now - finger.at >= HOLD_FOR_CHIPS) {
         finger.held = true;
         const { kind, id, desk } = finger.target;
-        held = kind === 'session' ? { kind, id } : hiresInto(desk) ? { kind: 'empty', desk } : null;
+        // Upstairs, an empty desk is hired into where it is: there are no keys to keep in order there.
+        held = kind === 'session' ? { kind, id } : finger.target.floor ? { kind: 'empty', desk, floor: finger.target.floor }
+          : hiresInto(desk) ? { kind: 'empty', desk } : null;
         roleOffset = 0;
         // An agent held, at a desk or in the line, puts out their keys too, whether or not they have chips.
         if (kind === 'session') keysFor = id;
@@ -65633,6 +65824,15 @@
           ...room, selected: null, mic: QUIET_MIC, wobble: null, buttonDown: false, upstairs: true, elevator: elevatorOf(now, n),
           hiredCard: n === floorShown ? hiredCardFrame(now) : null, floorPicker: picked,
         };
+        // The floor in view, with an agent there picked: its keys, chips and button, as on the ground floor.
+        if (n === floorShown && !ride) {
+          Object.assign(frames[n], {
+            selected, choices: choices(), choiceDown, chips: chips(), chipDown, deskButton: heldButton(),
+            firing: firing && { ...fireDialog(), title: `Fire ${firing.name}?`, detail: 'Its agent stops, and its tab closes.' },
+            maxing: maxing && { ...maxDialog(), title: `Max effort for ${maxing.name}?`, detail: 'It uses much more of your usage.' },
+            keyRow: keys, roleRow: hires, styleKey: key, voiceNotes: voiceNotesShown(now), hearing: hearingShown(),
+          });
+        }
       }
       frames[1] = {
         ...room, elevator: elevatorOf(now, 1), floorPicker: picked,
@@ -65640,7 +65840,8 @@
         deskButton: heldButton(), carrying, micLanguage: micLanguageKey(),
         firing: firing && { ...fireDialog(), title: `Fire ${firing.name}?`, detail: 'Its agent stops, and its tab closes.' },
         maxing: maxing && { ...maxDialog(), title: `Max effort for ${maxing.name}?`, detail: 'It uses much more of your usage.' },
-        micCleanup: micCleanupKey(), voiceNotes: voiceNotesShown(now), hearing: hearingShown(),
+        // Over the desks on the floor in view: downstairs only while it's the ground floor
+        micCleanup: micCleanupKey(), voiceNotes: floorShown < 2 ? voiceNotesShown(now) : [], hearing: floorShown < 2 ? hearingShown() : null,
         styleKey: key, styles: styling && key && { ...styleMenu(styleGroup, stylePage), current: decor.preset, pictures: stylePictures, liteOn: liteOffice },
         arranging: arranging && {
           pieces: arrangeable(), picked: arranging.picked,
@@ -65689,7 +65890,7 @@
       }
       styleKeyAt = key && key.at;
       keysAt = keys && keys.at ? { keys: keys.at, box: keys.box } : null;
-      rolesAt = hires && hires.at ? { roles: hires.at, box: hires.box, most: hires.most } : null;
+      rolesAt = hires && hires.at ? { roles: hires.at, box: hires.box, most: hires.most, arrows: hires.arrows || [] } : null;
     }
 
     function run() {
@@ -65807,7 +66008,9 @@
       const list = floorPicker();
       if (list) {
         for (const row of list.rows) consider({ kind: 'floor', n: row.n }, { left: list.left, right: list.left + list.w, top: row.y, bottom: row.y + PICKER.row }, -1);
-        return best ? best.target : { kind: 'unpick' };
+        if (list.remember) consider({ kind: 'remember' }, { left: list.left, right: list.left + list.w, top: list.remember.y, bottom: list.remember.y + PICKER.row }, -1);
+        const inside = x >= list.left && x <= list.left + list.w && y >= list.top && y <= list.top + list.h;
+        return best ? best.target : inside ? null : { kind: 'unpick' };
       }
       // Upstairs, and on the way, the elevator is all there is to tap: nothing there takes keys or hires. A desk
       // there held opens its card, which a tap anywhere then puts away, or on its Hired by row visits whoever hired it.
@@ -65817,11 +66020,21 @@
         const card = hiredCard && hiredCardFrame(now);
         if (card) {
           if (card.visits) consider({ kind: 'visit', id: card.visits }, card.row, -1);
+          if (card.moves) consider({ kind: 'moveCard', id: card.moves }, card.move, -2);
           return best ? best.target : { kind: 'uncard' };
         }
-        for (const { id, box } of upstairsDeskBoxes()) consider({ kind: 'upstairsDesk', id }, box, 3);
+        for (const { id, box, drivable } of upstairsDeskBoxes()) consider(drivable ? { kind: 'session', id } : { kind: 'upstairsDesk', id }, box, 3);
+        // An empty desk here, held, hires someone into it, by role, as downstairs.
+        for (const { desk, box } of upstairsEmptyBoxes()) consider({ kind: 'empty', desk, floor: floorShown }, box, 4);
+        // The settings' cog, in the corner here too
+        if (styleKey() && styleKeyAt) {
+          const { x: kx, y: ky, w: kw, h: kh } = styleKeyAt;
+          consider({ kind: 'styles' }, { left: kx, right: kx + kw, top: ky, bottom: ky + kh }, -1);
+        }
+        // The picked agent's keys, chips, button and choices, as on the ground floor
+        return overlaid();
       }
-      if (floorShown >= 2 || ride) return best && best.target;
+      if (ride) return best && best.target;
 
       for (const person of office.people) {
         if (person.isStaff || person.isLeaving || person.entering) continue;
@@ -65864,54 +66077,60 @@
         consider(target, workspace, 2);
         consider(target, label, 3);
       });
-      const button = heldButton();
-      if (button) {
-        consider({ kind: button.kind }, { left: button.left, right: button.left + button.w, top: button.top, bottom: button.top + button.h }, -1);
-        const onButton = x >= button.left - 1 && x <= button.left + button.w + 1 && y >= button.top - 1 && y <= button.top + button.h + 1;
-        if (onButton) return best && best.target.kind === button.kind ? best.target : null;
-      }
-      const strip = chips();
-      if (strip) {
-        for (const chip of strip.chips) {
-          consider({ kind: 'chip', level: chip.level }, { left: chip.x, right: chip.x + CHIP.w, top: chip.y, bottom: chip.y + CHIP.h }, -1);
+      return overlaid();
+
+      /** What's out over the room for the picked agent or the held desk, which covers what's under it. */
+      function overlaid() {
+        const button = heldButton();
+        if (button) {
+          consider({ kind: button.kind }, { left: button.left, right: button.left + button.w, top: button.top, bottom: button.top + button.h }, -1);
+          const onButton = x >= button.left - 1 && x <= button.left + button.w + 1 && y >= button.top - 1 && y <= button.top + button.h + 1;
+          if (onButton) return best && best.target.kind === button.kind ? best.target : null;
         }
-        // A tap on the strip goes to a chip or nowhere, never to what's under it.
-        const onStrip = x >= strip.left - 1 && x <= strip.left + strip.w + 1 && y >= strip.top - 1 && y <= strip.top + strip.h + 2;
-        if (onStrip) return best && best.target.kind === 'chip' ? best.target : null;
-      }
-      // The picked agent's keys cover what's under them: a tap on their strip goes to a key or nowhere.
-      if (keysAt && keyRow()) {
-        for (const k of keysAt.keys) consider({ kind: 'key', action: k.action }, k, -1);
-        const { box } = keysAt;
-        if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return best && best.target.kind === 'key' ? best.target : null;
-      }
-      // So do the roles a held empty desk offers: a finger on their strip is on a role, or slides them along.
-      if (rolesAt && roleRow()) {
-        for (const r of rolesAt.roles) consider({ kind: 'role', id: r.id, chip: true }, r, -1);
-        const { box } = rolesAt;
-        if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return best && best.target.kind === 'role' ? best.target : { kind: 'role', chip: false };
-      }
-      // The music control covers what's under it: a tap on it goes to a key or nowhere.
-      const control = musicControl();
-      if (control) {
-        for (const key of control.keys) {
-          consider({ kind: 'musicKey', action: key.action }, { left: key.x, right: key.x + MUSIC_KEY.w, top: key.y, bottom: key.y + MUSIC_KEY.h }, -1);
+        const strip = chips();
+        if (strip) {
+          for (const chip of strip.chips) {
+            consider({ kind: 'chip', level: chip.level }, { left: chip.x, right: chip.x + CHIP.w, top: chip.y, bottom: chip.y + CHIP.h }, -1);
+          }
+          // A tap on the strip goes to a chip or nowhere, never to what's under it.
+          const onStrip = x >= strip.left - 1 && x <= strip.left + strip.w + 1 && y >= strip.top - 1 && y <= strip.top + strip.h + 2;
+          if (onStrip) return best && best.target.kind === 'chip' ? best.target : null;
         }
-        const { bar } = control;
-        if (bar) consider({ kind: 'musicVolume', level: volumeAt(bar, x) }, { left: bar.x, right: bar.x + bar.w, top: bar.y, bottom: bar.y + MUSIC_VOLUME.h }, -1);
-        const onControl = x >= control.left && x <= control.left + control.w && y >= control.top && y <= control.tip.y;
-        if (onControl) return best && ['musicKey', 'musicVolume'].includes(best.target.kind) ? best.target : null;
-      }
-      const panel = choices();
-      if (panel) {
-        for (const key of panel.keys) {
-          consider({ kind: 'choice', action: key.action },
-            { left: key.x, right: key.x + CHOICE_KEY.w, top: key.y, bottom: key.y + CHOICE_KEY.h }, -1);
+        // The picked agent's keys cover what's under them: a tap on their strip goes to a key or nowhere.
+        if (keysAt && keyRow()) {
+          for (const k of keysAt.keys) consider({ kind: 'key', action: k.action }, k, -1);
+          const { box } = keysAt;
+          if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return best && best.target.kind === 'key' ? best.target : null;
         }
-        const onPanel = x >= panel.left && x <= panel.left + panel.w && y >= panel.top && y <= panel.tip.y;
-        if (onPanel) return best && best.target.kind === 'choice' ? best.target : null;
+        // So do the roles a held empty desk offers: a finger on their strip is on a role, or slides them along.
+        if (rolesAt && roleRow()) {
+          for (const r of rolesAt.roles) consider({ kind: 'role', id: r.id, chip: true }, r, -1);
+          for (const r of rolesAt.arrows) consider({ kind: 'role', chip: false, step: r.step }, r, -1);
+          const { box } = rolesAt;
+          if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return best && best.target.kind === 'role' ? best.target : { kind: 'role', chip: false };
+        }
+        // The music control covers what's under it: a tap on it goes to a key or nowhere.
+        const control = musicControl();
+        if (control) {
+          for (const key of control.keys) {
+            consider({ kind: 'musicKey', action: key.action }, { left: key.x, right: key.x + MUSIC_KEY.w, top: key.y, bottom: key.y + MUSIC_KEY.h }, -1);
+          }
+          const { bar } = control;
+          if (bar) consider({ kind: 'musicVolume', level: volumeAt(bar, x) }, { left: bar.x, right: bar.x + bar.w, top: bar.y, bottom: bar.y + MUSIC_VOLUME.h }, -1);
+          const onControl = x >= control.left && x <= control.left + control.w && y >= control.top && y <= control.tip.y;
+          if (onControl) return best && ['musicKey', 'musicVolume'].includes(best.target.kind) ? best.target : null;
+        }
+        const panel = choices();
+        if (panel) {
+          for (const key of panel.keys) {
+            consider({ kind: 'choice', action: key.action },
+              { left: key.x, right: key.x + CHOICE_KEY.w, top: key.y, bottom: key.y + CHOICE_KEY.h }, -1);
+          }
+          const onPanel = x >= panel.left && x <= panel.left + panel.w && y >= panel.top && y <= panel.tip.y;
+          if (onPanel) return best && best.target.kind === 'choice' ? best.target : null;
+        }
+        return best && best.target;
       }
-      return best && best.target;
     }
 
     /** Everything a key or button does on the deck, done by tapping the room. */
@@ -65920,7 +66139,20 @@
       if (target.kind !== 'key' && target.kind !== 'chip') keysFor = null;
       if (target.kind !== 'key') keyArmed = null;
       if (target.kind === 'elevator') return callElevator();
+      if (target.kind === 'floor' && picker && picker.moving) {
+        const { id, name } = picker.moving, remember = !!picker.remember, to = floorList()[target.n - 1];
+        picker = null;
+        if (target.n === floorOf(id) && !remember) return;
+        return Promise.resolve(on.move?.(id, target.n - 1, remember)).then((moved) => {
+          if (moved && to) on.hint?.(`${name} → ${to.name}`);
+        });
+      }
       if (target.kind === 'floor') return rideTo(target.n);
+      if (target.kind === 'remember') {
+        if (picker) picker.remember = !picker.remember;
+        return;
+      }
+      if (target.kind === 'moveCard') return openMoving(target.id);
       if (target.kind === 'unpick') {
         picker = null;
         return;
@@ -65937,6 +66169,7 @@
         rideTo(1);
         return on.select?.(target.id);
       }
+      if (target.kind === 'key' && target.action === 'floor') return openMoving(selected);
       if (target.kind === 'key') {
         const wanted = rowKeysOf(latest && latest.layout, selectedSession()).find((k) => k.action === target.action);
         // A key that wants to be sure acts on its second tap, while it says SURE?
@@ -65952,6 +66185,8 @@
       }
       // A role hires once the finger lifts, if it hasn't slid them along instead (see `lift`).
       if (target.kind === 'role') {
+        // An arrow steps along by most of what's in view, and stays at the end it reaches.
+        if (target.step && rolesAt) stepRoles(target.step);
         roleDown = target.chip ? { id: target.id, at: clock(), held: true } : null;
         return;
       }
@@ -65976,6 +66211,7 @@
         return on.max?.();
       }
       if (target.kind === 'styles') {
+        if (on.settings) return on.settings();
         styling = !styling;
         if (styling) {
           drawStylePictures();
@@ -66022,17 +66258,18 @@
         const { id } = firing;
         firing = null;
         return Promise.resolve(on.fire?.(id)).then((fired) => {
-          const person = office.people.find((p) => !p.isStaff && p.session.id === id);
+          const person = [office, ...[...uppers.values()].map((u) => u.office)].flatMap((there) => there.people)
+            .find((p) => !p.isStaff && p.session && p.session.id === id);
           if (fired && person) person.isFired = true;
         });
       }
       if (target.kind === 'fire') {
-        const seat = office.seats.find((s) => s.session && s.session.id === holding.id);
+        const session = sessionOf(holding.id);
         // Asked about by the name on their desk: a nickname, or their project's.
-        if (seat) firing = { id: holding.id, name: memberOf(seat.session)?.name || seat.session.name, at: clock() };
+        if (session) firing = { id: holding.id, name: memberOf(session)?.name || session.name, at: clock() };
         return on.held?.();
       }
-      if (target.kind === 'hire') return on.hire?.(holding.desk, null);
+      if (target.kind === 'hire') return on.hire?.(holding.desk, null, holding.floor ? holding.floor - 1 : 0);
       if (target.kind === 'micLanguage') return on.language?.(target.next);
       if (target.kind === 'micCleanup') return on.cleanup?.(target.next);
       // An empty or pinned desk says something on a tap, once the finger lifts: holding it is something else.
@@ -66048,7 +66285,7 @@
         return target.level === 'max' ? maxOrAsk(selectedSession()) : on.effort?.(target.level);
       }
       if (target.kind === 'session') return on.select?.(target.id);
-      const session = selectedSession();
+      const session = pickedHere();
       if (!session) {
         wobbling = { what: target.kind, at: clock() };
         return on.hint?.('Pick a desk first');
@@ -66109,9 +66346,10 @@
         }
       }
       if (carrying) {
-        const { from, over } = carrying;
+        const { from, over, toLift, person } = carrying;
         carrying = null;
         finger = null;
+        if (dropped && toLift && person && person.session) return openMoving(person.session.id);
         if (dropped && over !== null && over !== from) on.swap?.(from, over);
         return;
       }
@@ -66134,16 +66372,16 @@
         if (roleDown) roleDown.held = false;
         const { chip, id } = finger.target;
         if (dropped && chip && !finger.slid && held && held.kind === 'empty') {
-          const { desk } = held;
+          const { desk, floor } = held;
           held = null;
-          on.hire?.(desk, id);
+          on.hire?.(desk, id, floor ? floor - 1 : 0);
         }
       }
       if (finger && !finger.held) {
         const { kind, name, desk } = finger.target;
         const hold = hiresInto(desk) ? 'Hold the desk to hire someone' : '';
         if (kind === 'pinned') on.hint?.(`Nothing running in ${name}${hold ? `. ${hold}` : ''}`);
-        else if (kind === 'empty') on.hint?.(hold);
+        else if (kind === 'empty') on.hint?.(hold || (typeof hiring.reason === 'string' ? hiring.reason : ''));
       }
       finger = null;
       buttonDown = false;
@@ -66567,7 +66805,7 @@
         if (finger && e.pointerId === finger.id) lift(type === 'pointerup');
         if (!touches.delete(e.pointerId) || !scrolling || touches.size) return;
         // Both up: a quick tap of two fingers, still, goes to the bottom
-        if (type === 'pointerup' && !scrolling.moved && clock() - scrolling.at < TWO_FINGER_TAP) on.scroll?.('bottom');
+        if (type === 'pointerup' && !scrolling.moved && clock() - scrolling.at < TWO_FINGER_TAP && pickedHere()) on.scroll?.('bottom');
         scrolling = null;
       });
     }
@@ -66618,7 +66856,8 @@
         const lines = Math.trunc(scrolling.carry / SCROLL_STEP);
         if (lines) {
           scrolling.carry -= lines * SCROLL_STEP;
-          on.scroll?.(lines);
+          // Only the picked agent's Terminal in sight: one on another floor isn't scrolled unseen
+          if (pickedHere()) on.scroll?.(lines);
         }
         return;
       }
@@ -66653,6 +66892,16 @@
       turnStyles(styleWheel.carry > 0 ? 1 : -1);
     }, { passive: false });
 
+    // A mouse wheel (or shift-wheel, or a trackpad's sideways scroll) over the roles strip slides them along, as a finger does
+    canvas.addEventListener('wheel', (e) => {
+      if (!rolesAt || !rolesAt.most || !roleRow()) return;
+      const { x, y, scale, ratio } = roomAt(e.clientX, e.clientY), { box } = rolesAt;
+      if (x < box.left || x > box.right || y < box.top || y > box.bottom) return;
+      e.preventDefault();
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1; // lines and pages, as pixels
+      roleOffset = Math.max(0, Math.min(rolesAt.most, roleOffset + (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * unit * ratio / scale));
+    }, { passive: false });
+
     /** A finger on the roles, moved along them further than a tap would, slides them with it. */
     function slide(e) {
       if (!finger.slid) {
@@ -66683,7 +66932,11 @@
       }
       const over = deskAt(x, y);
       if (over !== null && over !== carrying.over && over !== carrying.from) on.held?.(); // a tick for each desk passed over
-      Object.assign(carrying, { x, y, over });
+      // Over the elevator, with another floor to go to: let go there, the floor list opens for them.
+      const lift = on.move && floorList().length > 1 && elevatorBox();
+      const toLift = !!lift && x >= lift.left && x <= lift.right && y >= lift.top && y <= lift.bottom;
+      if (toLift && !carrying.toLift) on.held?.();
+      Object.assign(carrying, { x, y, over: toLift ? null : over, toLift });
     }
     bind();
     resize();
@@ -66699,21 +66952,24 @@
         music = snapshot.music || null;
         dictation = snapshot.dictation || null;
         // Personal build: a dictation note new since the last snapshot, and only while it's fresh on the computer's clock.
-        for (const key of snapshot.keys || []) {
-          const note = key.session && key.session.voiceNote;
-          if (!note || voiceNotesSeen.get(key.session.id) === note.id) continue;
-          voiceNotesSeen.set(key.session.id, note.id);
+        // The keys' agents, and those driven upstairs, whose desks are the floors' own.
+        const upstairsSessions = floorsOf(snapshot).slice(1).flatMap((f) => f.desks).filter((s) => s && typeof s === 'object');
+        for (const session of [...(snapshot.keys || []).map((key) => key.session), ...upstairsSessions]) {
+          const note = session && session.voiceNote;
+          if (!note || voiceNotesSeen.get(session.id) === note.id) continue;
+          voiceNotesSeen.set(session.id, note.id);
           const age = (Date.now() - ahead - note.at) / 1000;
-          if (age < VOICE_NOTE_FOR - VOICE_NOTE_FADE) voiceNotes.set(key.session.id, { text: String(note.text), cleaned: !!note.cleaned, from: clock() - Math.max(0, age) });
+          if (age < VOICE_NOTE_FOR - VOICE_NOTE_FADE) voiceNotes.set(session.id, { text: String(note.text), cleaned: !!note.cleaned, from: clock() - Math.max(0, age) });
         }
         office.furnish(snapshot.layout && snapshot.layout.room, clock());
         office.apply(seatsOf(snapshot, ahead), snapshot.theme, clock());
         applyUpstairs(snapshot, clock());
         // The question and what's held out go with their agent; a hire, once its desk is taken.
-        const there = (id) => office.deskOfSession(id) !== null;
+        // On whichever floor they sit: one held upstairs is still there.
+        const there = (id) => sessionOf(id) !== null;
         if (firing && (!hiring.fire || !there(firing.id))) firing = null;
         if (maxing && (!askMax || !there(maxing.id))) maxing = null;
-        if (held && (held.kind === 'session' ? !there(held.id) : !hiresInto(held.desk))) held = null;
+        if (held && (held.kind === 'session' ? !there(held.id) : !hiresHere(held))) held = null;
         // A swap is sent as two desks' numbers. With someone gone or come, or a desk pinned, meanwhile, they'd
         // be other desks, and the wrong two would swap and stay so. The carry is let go, and the finger, still
         // down, picks the agent up again as it moves, counted from the desks as they are now.
@@ -66770,6 +67026,17 @@
       hold(id) {
         if (id) openCard(id);
         else hiredCard = null;
+      },
+      /** The office's styles' panel opened, from the page's settings: on the ground floor, whose style it is. */
+      openStyles() {
+        if (!on.style || framed || arranging) return;
+        if (floorShown >= 2) rideTo(1);
+        picker = null;
+        held = null;
+        keysFor = null;
+        styling = true;
+        drawStylePictures();
+        stylePage = pageWithStyle();
       },
       /** That desk tapped: a cloud bot's opens its card; true if it did. */
       tap(id) {

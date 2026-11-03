@@ -5,11 +5,11 @@ import os
 /// phone's controls do to them, and the live feed of all that to phones.
 final class Deck {
     static let port: UInt16 = TestCopy.port ?? 7710
-    /// The setup page, with its key after #k=, which never leaves this Mac:
-    /// the page hands it over once for a cookie, and takes it out of the
-    /// address. `then` is what the page does on opening: "pair" or "unpair".
+    /// The setup page, with a key after #k= that works once, which never
+    /// leaves this Mac: the page hands it over for a cookie, and takes it out
+    /// of the address. Not the setup-key file's: see `SetupSessions`. `then` is what the page does on opening: "pair" or "unpair".
     func setupURL(then: String? = nil) -> URL {
-        URL(string: "http://localhost:\(Deck.port)/setup#k=\(access.setupKey)" + (then.map { "&\($0)" } ?? ""))!
+        URL(string: "http://localhost:\(Deck.port)/setup#k=\(access.setupSessions.newLink())" + (then.map { "&\($0)" } ?? ""))!
     }
 
     /// How often to look for a green key's tab coming to the front.
@@ -38,6 +38,36 @@ final class Deck {
 
     let access = Access()
     let sessions = Sessions()
+    /// What the app remembers of its team: the registry of hires, in the support folder.
+    private(set) lazy var frontDesk = FrontDesk(folder: Paths.support)
+    /// The GM's mail and its outbox, in the support folder; the limits are settings.
+    private(set) lazy var mail = MailRouter(folder: Paths.support,
+        limits: { MailRouter.Limits(maxBytes: Config.shared.mailMaxBytes, perHour: Config.shared.mailPerHour, waitHours: Config.shared.mailWaitHours) },
+        hires: { [unowned self] in self.frontDesk.hires },
+        mayWrite: { [unowned self] in self.frontDesk.mayWrite(from: $0, to: $1) },
+        bots: { Config.shared.cloudBots },
+        barred: { [unowned self] in self.mailboxBarred })
+    /// Where a cloud bot's mailbox may not be: in or around the app's own folder or any hire's worktree.
+    var mailboxBarred: [URL] {
+        [Paths.support] + frontDesk.hires.map(\.worktree).filter { !$0.isEmpty }.map { URL(fileURLWithPath: $0) }
+    }
+    /// What the sessions did, kept in the support folder for the GM to read.
+    lazy var events: EventLog = {
+        let log = EventLog(folder: Paths.support)
+        log.onAppend = { [weak self] entry in self?.noteReview(entry) }
+        return log
+    }()
+    /// What the GM asked to be told of (T405), kept in the support folder (a test copy's own), so a test
+    /// copy never wakes the real GM. A firing goes in the event log, which `gm inbox` reads.
+    private(set) lazy var watchers = Watchers(folder: Paths.support,
+        roots: { [unowned self] in
+            self.frontDesk.hires.filter { $0.role != "gm" && $0.state != .fired && $0.state != .failed }
+                .map { $0.worktree.isEmpty ? $0.folder : $0.worktree } + [Paths.hires.path]
+        },
+        hires: { [unowned self] in self.frontDesk.hires },
+        log: { [unowned self] in self.events.append($0) },
+        seed: events.entries(since: 0, limit: EventLog.recentMost).entries,
+        asking: { [unowned self] in self.sessions.all.filter { $0.state == .asking && !$0.folder.isEmpty }.map { HireDesk.physical($0.folder) } })
     /// Bots working in a cloud, each at a desk of its own (see `CloudDesks`).
     let cloud = CloudDesks()
     /// ✨ Summary: what each session has been doing, from Claude, with your own key.
@@ -61,14 +91,49 @@ final class Deck {
     private var streams: [ObjectIdentifier: (phone: String, stream: EventStream)] = [:]
     /// The key each session was given, so it keeps it.
     private var keyOf: [String: Int] = [:]
+    /// The sessions hired at a desk the owner chose: with Auto they keep that
+    /// desk, even with free ones before it, as long as it is free of a pin.
+    private var chosenDesk: Set<String> = []
     /// The role each session was hired for, by the role's id.
     private var roleOf: [String: String] = [:]
+    /// The floor each session was put on, from the office or hired there: 0
+    /// for the ground floor, 1 for 2F up to 5 for 6F. It goes before its
+    /// folder's rule (see `FloorRule`), until the session ends.
+    private var floorOf: [String: Int] = [:]
+    /// The desk each session has above the ground floor, so it keeps it.
+    private var seatOf: [String: Seat] = [:]
     /// The id of the role a session works in, if it was hired in one that setup still has.
-    func roleID(of session: String) -> String? { roleOf[session].flatMap { id in Config.shared.roles.first { $0.id == id }?.id } }
+    /// A GM started by hand has the gm role too, though it was never hired: see `byHandGMSession`.
+    func roleID(of session: String) -> String? {
+        if let id = roleOf[session].flatMap({ id in Config.shared.roles.first { $0.id == id }?.id }) { return id }
+        return session == byHandGMSession ? Deck.gmRole : nil
+    }
+
+    /// The live session of a General Manager started by hand, known by its token and the session id it sent
+    /// (see `GMIdentity.session`); nil with a hired GM, which wins, or when that session has ended.
+    /// Kept in memory beside the GM's token flag and never saved with the roles.
+    var byHandGMSession: String? {
+        Deck.byHandGM(remembered: access.gm.session, hires: frontDesk.hires, live: Set(sessions.all.map(\.id)))
+    }
+
+    static func byHandGM(remembered: String?, hires: [FrontDesk.Hire], live: Set<String>) -> String? {
+        guard let remembered, live.contains(remembered), !BriefRoutes.gmIsHired(among: hires) else { return nil }
+        return remembered
+    }
+
+    /// A request the GM's token signed: if it names a live session, that is the GM started by hand.
+    /// A header that names no live session, or any other caller, changes nothing.
+    func noteGM(session header: String?) {
+        guard let id = GMIdentity.validSession(header), sessions.all.contains(where: { $0.id == id }) else { return }
+        access.gm.rememberSession(id)
+    }
     /// The tabs hires opened, waiting for their agent to report: the first
     /// session in the tab takes the role it was hired for, if any, and the
-    /// desk it was hired at, with a set number of desks.
-    private var hiredTabs: [(tab: String, role: String?, desk: Int?, at: Date, folder: String)] = []
+    /// desk it was hired at, with a set number of desks, or upstairs, the
+    /// floor and desk it was hired at.
+    /// The folders of hires made with the manager on: new on a floor above, they sit by whole rows.
+    private var managerHireFolders: Set<String> = []
+    var hiredTabs: [(tab: String, role: String?, desk: Int?, at: Date, folder: String, floor: Int?)] = []
     /// The tab recording started in, and when. One Mac, one microphone.
     private var micPress: (tab: String, at: Date)?
     /// Personal build: how each desk's last dictation went, by session id,
@@ -110,7 +175,16 @@ final class Deck {
     private var volume: (level: Int, muted: Bool)?
     private var watchingVolume = false
 
-    init() {
+    /// The settings the keys are laid out by: the owner's, unless a test gives its own.
+    var layoutConfig = Config.shared
+
+    /// `quiet`, for the tests: a deck that restores nothing and runs no timers, bot
+    /// search or mail, so its keys can be looked at alone.
+    init(quiet: Bool = false) {
+        // After a restart the by-hand GM's remembered session counts again once a session with exactly that id is live.
+        access.gm.isLive = { [weak self] id in self?.sessions.all.contains { $0.id == id } ?? false }
+        // Nothing is told or saved when it changes either: a test's deck leaves the owner's files alone.
+        if quiet { return }
         sessions.onChange = { [weak self] in self?.changed() }
         cloud.onChange = { [weak self] in self?.changed() }
         restoreSessions()
@@ -132,6 +206,51 @@ final class Deck {
         }
         Timer.scheduledTimer(withTimeInterval: Deck.musicInterval, repeats: true) { [weak self] _ in
             self?.followMusic()
+        }
+        // The Grok Bot app's bots, at their desks: found at launch, and looked for again every minute.
+        discoverBots()
+        Timer.scheduledTimer(withTimeInterval: Deck.discoverInterval, repeats: true) { [weak self] _ in
+            self?.discoverBots()
+        }
+        startMail()
+    }
+
+    // MARK: Grok Bot app
+
+    /// How often the Grok Bot app's bots are looked for: also at launch, and as setup opens.
+    static let discoverInterval: TimeInterval = 60
+    private var discovering = false
+    /// The bots last found in the app that there was no room for, to say so
+    /// in setup; and all of them, for setup to name those you hid.
+    private(set) var botsWithNoRoom: [GrokBotApp.Row] = []
+    private(set) var lastRoster: [GrokBotApp.Row] = []
+
+    private var lastDiscovery: Date?
+
+    /// Looks for the bots in the Grok Bot app, off the main queue, and sets
+    /// the cloud bots to match (see `CloudBot.discover`), with auto-detect on.
+    /// From setup, which asks as it opens and then every moment it's open,
+    /// at most once a minute, as the app is looked in anyway.
+    func discoverBots(fromSetup: Bool = false) {
+        guard Config.shared.botsAutoDetect, !discovering else { return }
+        if fromSetup, let last = lastDiscovery, Date().timeIntervalSince(last) < Deck.discoverInterval { return }
+        lastDiscovery = Date()
+        discovering = true
+        DispatchQueue.global(qos: .utility).async {
+            let rows = GrokBotApp.rows()
+            DispatchQueue.main.async {
+                self.discovering = false
+                let config = Config.shared
+                guard config.botsAutoDetect else { return }
+                let found = CloudBot.discover(rows, in: config.cloudBots, hidden: Set(config.hiddenBots))
+                self.botsWithNoRoom = found.noRoom
+                if let rows { self.lastRoster = rows }
+                guard found.bots != config.cloudBots else { return }
+                config.cloudBots = found.bots
+                config.save()
+                self.cloud.configure(config.cloudBots)
+                self.changed()
+            }
         }
     }
 
@@ -157,6 +276,14 @@ final class Deck {
         guard let event = agent.canonical(event) else { return }
         let found = !tab.isEmpty ? tab : !tty.isEmpty ? TabAddress.terminalApp(tty: tty).text : self.tab(for: event, of: agent)
         sessions.apply(event, agent: agent, tab: found, startedIn: startedIn, pid: pid, parent: parent, at: time)
+        // The first word from a hire still starting: it is working now.
+        if let id = event["session_id"] as? String, let folder = sessions[id]?.folder,
+           let hire = HireDesk.startingHire(folder: folder, tab: found, among: frontDesk.hires) { frontDesk.move(hire.id, to: .working) }
+        if let id = event["session_id"] as? String,
+           let line = EventLog.entry(for: event, agent: agent.rawValue,
+                                     folder: sessions[id]?.folder ?? event["cwd"] as? String ?? "", at: time) {
+            watchers.observe(events.append(line))
+        }
         learnGhostty(found)
         noteMessage(event, from: agent)
     }
@@ -365,12 +492,23 @@ final class Deck {
 
     /// What's written to keep the deck across a restart: the sessions, their
     /// keys, and when.
-    private struct SavedDeck: Codable {
+    struct SavedDeck: Codable {
         let savedAt: Double
         let sessions: [Sessions.Saved]
         let keys: [String: Int]
         /// Missing from a file written before roles.
         var roles: [String: String]?
+        /// Missing from a file written before every floor had people of its own.
+        var floors: [String: Int]?
+        var seats: [String: Seat]?
+        /// Missing from a file written before a hire could keep the desk chosen with Auto.
+        var chosen: [String]?
+    }
+
+    /// The deck as it is, to be written.
+    func savedDeck() -> SavedDeck {
+        SavedDeck(savedAt: Date().timeIntervalSince1970 * 1000, sessions: sessions.saved, keys: keyOf,
+                  roles: roleOf, floors: floorOf, seats: seatOf, chosen: chosenDesk.sorted())
     }
 
     private func scheduleSave() {
@@ -379,9 +517,7 @@ final class Deck {
         DispatchQueue.main.asyncAfter(deadline: .now() + Deck.saveDelay) { [weak self] in
             guard let self else { return }
             self.savePending = false
-            let saved = SavedDeck(savedAt: Date().timeIntervalSince1970 * 1000, sessions: self.sessions.saved, keys: self.keyOf,
-                                  roles: self.roleOf)
-            guard let data = try? JSONEncoder().encode(saved) else { return }
+            guard let data = try? JSONEncoder().encode(self.savedDeck()) else { return }
             Paths.writePrivately(data, to: Paths.sessions)
         }
     }
@@ -397,17 +533,29 @@ final class Deck {
         DispatchQueue.global(qos: .utility).async {
             let running = saved.sessions.filter { Deck.isStillRunning($0) }
             DispatchQueue.main.async {
-                guard !running.isEmpty else { return }
-                for entry in running where self.keyOf[entry.id] == nil {
-                    if let key = saved.keys[entry.id] { self.keyOf[entry.id] = key }
-                }
-                for entry in running where self.roleOf[entry.id] == nil {
-                    if let role = saved.roles?[entry.id] { self.roleOf[entry.id] = role }
-                }
-                let fresh = Date().timeIntervalSince1970 * 1000 - saved.savedAt < Deck.freshSave
-                self.sessions.restore(running, fresh: fresh)
+                self.putBack(saved, running: running)
             }
         }
+    }
+
+    /// The `running` sessions of a saved deck, back on the keys, roles, floors and desks they had.
+    func putBack(_ saved: SavedDeck, running: [Sessions.Saved]) {
+        guard !running.isEmpty else { return }
+        for entry in running where keyOf[entry.id] == nil {
+            if let key = saved.keys[entry.id] { keyOf[entry.id] = key }
+        }
+        for entry in running where roleOf[entry.id] == nil {
+            if let role = saved.roles?[entry.id] { roleOf[entry.id] = role }
+        }
+        for entry in running where floorOf[entry.id] == nil {
+            if let floor = saved.floors?[entry.id] { floorOf[entry.id] = floor }
+        }
+        for entry in running where saved.chosen?.contains(entry.id) == true { chosenDesk.insert(entry.id) }
+        for entry in running where seatOf[entry.id] == nil {
+            if let seat = saved.seats?[entry.id] { seatOf[entry.id] = seat }
+        }
+        let fresh = Date().timeIntervalSince1970 * 1000 - saved.savedAt < Deck.freshSave
+        sessions.restore(running, fresh: fresh)
     }
 
     /// Whether a session saved before a restart is still running: its agent in
@@ -425,6 +573,38 @@ final class Deck {
         var session: Session?
     }
 
+    /// With Auto, the keys: the pinned ones, a free one for each session, and
+    /// enough to reach the highest desk a hire was given by choice, which
+    /// those hires sit at (those whose desk is free, and no pin's). `keys` are
+    /// the pinned keys in place. The sessions sit where `seated` says.
+    static func autoGrid(_ keys: [Key], chosen: [(key: Int, session: Session)], others: Int) -> (keys: [Key], seated: [(Int, Session)]) {
+        let pinned = keys.filter { $0.pin != nil }.count
+        let last = (keys.lastIndex { $0.pin != nil } ?? -1) + 1
+        let reach = (chosen.map(\.key).max() ?? -1) + 1
+        let grid = Array(keys.prefix(min(max(1, last, reach, pinned + others), KeyCount.most)))
+        var taken = Set<Int>()
+        let seated = chosen.filter { grid.indices.contains($0.key) && grid[$0.key].pin == nil && taken.insert($0.key).inserted }
+            .map { ($0.key, $0.session) }
+        return (grid, seated)
+    }
+
+    /// What a hire asked for at ground-floor desk `desk` comes to: the desk it
+    /// sits at (any free one; none for a pinned desk, which has its project),
+    /// and the pinned folder, or why it is refused. A desk past the last is
+    /// the one Auto adds. The first free desk is not held: it is where a hire
+    /// with no desk goes, so Auto still packs.
+    static func groundHire(desk: String, keys: [Key]) -> (held: Int?, pin: String?, refusal: Response?) {
+        guard let index = Int(desk), (0..<KeyCount.most).contains(index) else { return (nil, nil, .status(400, "Unknown desk")) }
+        let pin = keys.indices.contains(index) ? keys[index].pin : nil
+        if keys.indices.contains(index), pin == nil, keys[index].session != nil {
+            return (nil, nil, .status(409, "Someone's at that desk already."))
+        }
+        // The first free desk is where a hire with no desk goes anyway, so it is not held:
+        // Auto still packs, as it does for the Go app.
+        let first = keys.firstIndex { $0.pin == nil && $0.session == nil } ?? keys.count
+        return (pin == nil && index != first ? index : nil, pin, nil)
+    }
+
     /// A pinned key shows its project's session when one is running and stays
     /// reserved when none is. Every other session gets a free key. With a fixed
     /// number of keys, a session keeps its key until it ends, so keys don't
@@ -433,14 +613,18 @@ final class Deck {
     /// Sessions beyond the last key have none until one frees up. Headless
     /// runs have no keys: they sit upstairs (see `upstairs()`).
     func layout() -> (keys: [Key], overflow: [Session]) {
-        let config = Config.shared
+        let config = layoutConfig
         // Cloud bots take free desks as any new session does.
         var remaining = Deck.downstairs(sessions.all) + cloud.seated(on: "ground")
         let live = Set(remaining.map(\.id))
-        // A session that took another's place in its tab, as after /clear, takes its key and role too.
+        // A session that took another's place in its tab, as after /clear, takes its key, role and floor too.
         for (new, old) in sessions.takeReplacements() {
             if keyOf[new] == nil, let key = keyOf[old] { keyOf[new] = key }
+            if chosenDesk.contains(old) { chosenDesk.insert(new) }
             if roleOf[new] == nil, let role = roleOf[old] { roleOf[new] = role }
+            access.gm.moveSession(from: old, to: new)
+            if floorOf[new] == nil, let floor = floorOf[old] { floorOf[new] = floor }
+            if seatOf[new] == nil, let seat = seatOf[old] { seatOf[new] = seat }
         }
         // A hire's role and desk go to the first session in the tab it opened.
         // The desk is kept for it below if it's still free; if it was taken in
@@ -452,11 +636,27 @@ final class Deck {
             guard let i = hiredTabs.firstIndex(where: { $0.tab == session.tab || $0.tab == ghostty }) else { continue }
             let hired = hiredTabs.remove(at: i)
             if let role = hired.role, roleOf[session.id] == nil { roleOf[session.id] = role }
-            if let desk = hired.desk { keyOf[session.id] = desk }
+            if let floor = hired.floor, floor > 0 {
+                // Hired upstairs: on that floor, at that desk if it's still free.
+                floorOf[session.id] = floor
+                if let desk = hired.desk { seatOf[session.id] = Seat(floor: floor, desk: desk) }
+            } else {
+                // Hired on the ground floor, it stays there, whatever its folder's rule says.
+                floorOf[session.id] = 0
+                if let desk = hired.desk { keyOf[session.id] = desk; chosenDesk.insert(session.id) }
+            }
         }
-        // A session dropped as its tab seemed to close keeps its key and role, should it come back.
+        // A session dropped as its tab seemed to close keeps its key, role and floor, should it come back.
+        let kept = { (id: String) in live.contains(id) || self.sessions.wasDropped(id) || self.sessions[id]?.isHeadless == true }
         keyOf = keyOf.filter { live.contains($0.key) || sessions.wasDropped($0.key) }
         roleOf = roleOf.filter { live.contains($0.key) || sessions.wasDropped($0.key) }
+        chosenDesk = chosenDesk.filter { live.contains($0) || sessions.wasDropped($0) }
+        floorOf = floorOf.filter { kept($0.key) }
+        seatOf = seatOf.filter { kept($0.key) || cloud.bot(ofSession: $0.key) != nil }
+        // Those put upstairs, by the office or by their folder's rule, have no key. A pinned key whose
+        // project went upstairs stays theirs, empty, as it does while the project has no session.
+        for session in remaining where (aboveGround(of: session) ?? 0) > 0 { keyOf[session.id] = nil; chosenDesk.remove(session.id) }
+        remaining.removeAll { (aboveGround(of: $0) ?? 0) > 0 }
 
         var fixed: Int?
         if case .fixed(let count) = config.layout.keys { fixed = count }
@@ -479,9 +679,12 @@ final class Deck {
             }
         } else {
             // Every pinned key, and a free one for each other session.
-            let pinned = keys.filter { $0.pin != nil }.count
-            let last = (keys.lastIndex { $0.pin != nil } ?? -1) + 1
-            keys = Array(keys.prefix(min(max(1, last, pinned + remaining.count), KeyCount.most)))
+            // A hire at a desk the owner chose keeps it, so the grid reaches it, free desks before it or not.
+            let chosen = remaining.filter { chosenDesk.contains($0.id) }
+                .compactMap { session in keyOf[session.id].map { (key: $0, session: session) } }
+            let grid = Deck.autoGrid(keys, chosen: chosen, others: remaining.count)
+            keys = grid.keys
+            for (i, session) in grid.seated { place(session, at: i) }
             // In the order their keys had, so the grid shrinks without shuffling.
             let previous = { (session: Session) in self.keyOf[session.id] ?? KeyCount.most }
             remaining = remaining.enumerated()
@@ -588,20 +791,60 @@ final class Deck {
     /// As many desks as each floor above the ground floor has.
     static let upstairsDesks = 12
 
-    /// An agent at a desk with no key: one with none left for it downstairs.
-    /// Watched, never driven, as a headless run is.
-    private func overflowEntry(_ s: Session) -> [String: Any] {
-        var entry = upstairsEntry(s)
+    /// An agent at a desk upstairs, with no key: put there, by the office or
+    /// its folder's rule, or with none left for it downstairs. Driven there as
+    /// on the ground floor, by a tap on its desk; only it has no key.
+    private func drivenEntry(_ s: Session) -> [String: Any] {
+        var entry = sessionEntry(s)
         entry["headless"] = false
-        entry["overflow"] = true
+        entry["drivable"] = true
+        // Up there only for want of a desk downstairs, rather than put there.
+        entry["overflow"] = (aboveGround(of: s) ?? 0) == 0
         return entry
     }
 
-    /// Who sits above the ground floor, floor by floor (see `floors(cloud:headless:overflow:)`):
-    /// the cloud bots seated upstairs, the headless runs, then `overflow`,
-    /// the sessions the ground floor had no desk for.
-    func building(overflow: [Session]) -> (floors: [[Session]], overflow: Int) {
-        Deck.floors(cloud: cloud.seated(on: "upstairs"), headless: sessions.all.filter(\.isHeadless), overflow: overflow)
+    /// `team` with a hire's nickname on its desk: the office shows a team member's name, found by its folder's name.
+    /// What was already chosen for it (clothes, desk things) stays.
+    static func nicknamed(_ team: [String: TeamMember], folder: String, nickname: String) -> [String: TeamMember] {
+        let name = nickname.oneLine(TeamMember.nicknameLimit)
+        guard !name.isEmpty else { return team }
+        var member = team[Session.lastPart(of: folder)] ?? TeamMember()
+        member.name = name
+        var team = team
+        team[Session.lastPart(of: folder)] = member
+        return team
+    }
+
+    /// The floor `session` was put on, by the office, by its folder's rule,
+    /// or, for a cloud bot, in setup: 0 for the ground floor, 1 to 5 above
+    /// it. Nil for one that sits where there's room.
+    func aboveGround(of session: Session) -> Int? {
+        if let bot = cloud.bot(ofSession: session.id) { return bot.floorIndex }
+        return Deck.floor(of: session.project, put: floorOf[session.id], rules: layoutConfig.floorRules)
+    }
+
+    /// Who sits above the ground floor, floor by floor (see `seat(placed:rest:)`):
+    /// first those put on a floor, then, where there's room, the cloud bots
+    /// seated upstairs, the headless runs, then `overflow`, the sessions the
+    /// ground floor had no desk for. Each with the desk it has on its floor.
+    func building(overflow: [Session]) -> (floors: [[Session]], desks: [String: Int], overflow: Int) {
+        let headless = sessions.all.filter(\.isHeadless)
+        let bots = cloud.seatedAbove()
+        let up = { (s: Session, floor: Int?) in
+            Upstairs(person: s, id: s.id, floor: floor, had: self.seatOf[s.id], byRow: self.managerHireFolders.contains(s.project)) }
+        // Sessions put upstairs are left out of the keys (see `layout()`), so they're found here.
+        let put = Deck.downstairs(sessions.all).filter { (aboveGround(of: $0) ?? 0) > 0 }
+        let placed = bots.filter { $0.floor != nil }.map { up($0.session, $0.floor) }
+            + headless.compactMap { s in aboveGround(of: s).flatMap { $0 > 0 ? up(s, $0) : nil } }
+            + put.map { up($0, aboveGround(of: $0)) }
+        let placedIDs = Set(placed.map(\.id))
+        let rest = (bots.filter { $0.floor == nil }.map(\.session) + headless + overflow)
+            .filter { !placedIDs.contains($0.id) }.map { up($0, nil) }
+        let seated = Deck.seat(placed: placed, rest: rest)
+        for (id, seat) in seated.seats { seatOf[id] = seat }
+        var desks: [String: Int] = [:]
+        for floor in seated.floors { for one in floor { desks[one.person.id] = one.desk } }
+        return (seated.floors.map { $0.map(\.person) }, desks, seated.overflow)
     }
 
     /// The building's floors, the ground floor first and always empty here,
@@ -610,13 +853,9 @@ final class Deck {
     /// come and go, then headless runs, oldest first, then the agents with no
     /// desk downstairs. And how many there's no floor for. None of them has a key.
     static func floors<Person>(cloud: [Person], headless: [Person], overflow: [Person]) -> (floors: [[Person]], overflow: Int) {
-        let people = cloud + headless + overflow
-        let floors = (0..<Floor.count).map { floor -> [Person] in
-            guard floor > 0 else { return [] }
-            let start = (floor - 1) * upstairsDesks
-            return start < people.count ? Array(people[start..<min(start + upstairsDesks, people.count)]) : []
-        }
-        return (floors, max(0, people.count - (Floor.count - 1) * upstairsDesks))
+        let people = (cloud + headless + overflow).enumerated().map { Upstairs(person: $0.element, id: String($0.offset)) }
+        let seated = seat(placed: [], rest: people)
+        return (seated.floors.map { $0.map(\.person) }, seated.overflow)
     }
 
     /// The second floor alone, as phones from before the other floors see it:
@@ -633,14 +872,20 @@ final class Deck {
         let (keys, overflow) = layout()
         let building = self.building(overflow: overflow)
         let entry = { (s: Session) -> [String: Any] in
-            if let bot = self.cloud.bot(ofSession: s.id) { return self.cloudEntry(s, of: bot) }
-            return s.isHeadless ? self.upstairsEntry(s) : self.overflowEntry(s)
+            var shown: [String: Any]
+            if let bot = self.cloud.bot(ofSession: s.id) { shown = self.cloudEntry(s, of: bot) }
+            else { shown = s.isHeadless ? self.upstairsEntry(s) : self.drivenEntry(s) }
+            // The desk it has on its floor, so it stays there as others come and go.
+            shown["desk"] = building.desks[s.id] ?? NSNull()
+            return shown
         }
         let floors = Config.shared.floors.enumerated().map { index, floor -> [String: Any] in
-            ["n": index + 1, "name": floor.name, "preset": floor.preset, "desks": building.floors[index].map(entry)]
+            ["n": index + 1, "name": floor.name, "preset": floor.preset, "desks": building.floors[index].map(entry),
+             // How many there wait on you, for the elevator's list to say so.
+             "asking": building.floors[index].filter { $0.state == .asking && !$0.isHeadless && self.cloud.bot(ofSession: $0.id) == nil }.count]
         }
-        let upstairs = Deck.upstairs(building)
-        let canHire = Config.shared.hiringEnabled && Deck.folder(Config.shared.hireFolder) != nil
+        let upstairs = Deck.upstairs((building.floors, building.overflow))
+        let canHire = Deck.canHire(Config.shared)
         let state: [String: Any] = [
             "keys": keys.map { key -> [String: Any] in
                 var entry: [String: Any] = ["pin": key.pin.map { ($0 as NSString).lastPathComponent } ?? NSNull()]
@@ -667,11 +912,15 @@ final class Deck {
             // Personal build: the phone's own mic, used only where the page is secure (HTTPS).
             "phoneMic": ["on": Config.shared.phoneMicEnabled, "autoSend": Config.shared.phoneMicAutoSend],
             // What the office's held desks offer: firing, and hiring once there's a folder to hire into, by role.
-            "hiring": [
-                "fire": Config.shared.hiringEnabled,
-                "hire": canHire,
-                "roles": canHire ? Config.shared.roles.map(\.forPhone) : [],
-            ] as [String: Any],
+            "hiring": {
+                var hiring: [String: Any] = [
+                    "fire": Config.shared.hiringEnabled,
+                    "hire": canHire,
+                    "roles": canHire ? Config.shared.roles.map(\.forPhone) : [],
+                ]
+                if let reason = Deck.hiringReason(Config.shared, canHireHere: Deck.canHireHere()) { hiring["reason"] = reason }
+                return hiring
+            }(),
             // What the office's jukeboxes know: whether music is playing, null when that can't be told.
             // And the Mac's volume for the hold menu's bar, null where it can't be set.
             "music": Config.shared.musicEnabled ? [
@@ -701,14 +950,15 @@ final class Deck {
                                             music: (config.musicEnabled, playing), layout: config.layout, hideNames: hideNames,
                                             now: Int64(Date().timeIntervalSince1970 * 1000), alias: alias)
         let building = self.building(overflow: overflow)
-        let upstairs = Deck.upstairs(building)
+        let upstairs = Deck.upstairs((building.floors, building.overflow))
         // Who hired each, by name only: with names hidden, the hiring desk's number, as its desk shows it.
         let all = sessions.all
         let shown = { (desks: [Session], overflow: Int, first: Int) in
             ViewerSnapshot.upstairs(desks, overflow: overflow, hideNames: hideNames, first: first,
                                     isCloud: { self.cloud.bot(ofSession: $0.id) != nil },
                                     isOverflow: { !$0.isHeadless && self.cloud.bot(ofSession: $0.id) == nil },
-                                    last: { self.cloud.last(ofSession: $0.id) }) { s in
+                                    last: { self.cloud.last(ofSession: $0.id) },
+                                    seat: { building.desks[$0.id] }) { s in
                 if let bot = self.cloud.bot(ofSession: s.id) { return bot.hirer }
                 guard let parent = Deck.hiredBy(s, among: all) else { return nil }
                 guard hideNames else { return parent.name }
@@ -766,10 +1016,21 @@ final class Deck {
         if action == "mic" && query["phase"] != "down" { return releaseMic(done: done) }
         // A new hire has no session yet, and a swap is of two desks.
         if action == "hire" {
-            guard !TestCopy.isOn else { return done(.status(409, TestCopy.Refused.hiring.localizedDescription)) }
+            // Upstairs, at an empty desk on a floor above.
+            if let floor = query["floor"], floor != "0" {
+                guard let n = Int(floor), (1..<Floor.count).contains(n) else { return done(.status(400, "Unknown floor")) }
+                return hire(at: query["desk"], as: query["role"], floor: n) { response, _ in done(response) }
+            }
             return hire(at: query["desk"], as: query["role"]) { response, _ in done(response) }
         }
         if action == "swap" { return done(swapKeys(query)) }
+        // ⚙︎ in the office's corner, from its own window on this Mac: setup opens, as from the menu bar.
+        if action == "settings" {
+            guard phone == PairedPhone.officeWindow.id else { return done(.status(403, "Settings open on your Mac.")) }
+            return done(Deck.settingsAnswer(opened: NSWorkspace.shared.open(setupURL())))
+        }
+        // Someone put on another floor, from the office: any session, a headless run or a cloud bot.
+        if action == "move" { return done(move(id, to: query["floor"], remember: query["remember"] == "1")) }
         // A cloud bot's card opened: its news seen.
         if action == "seen" { return done(cloud.seen(session: id) ? .status(204) : .status(404)) }
         if action == "style" { return done(setStyle(query["preset"])) }
@@ -855,17 +1116,8 @@ final class Deck {
             }
         case "fire":
             guard Config.shared.hiringEnabled else { return done(.status(403, Deck.hiringOff)) }
-            guard let (driver, tab) = terminal(of: session, for: .fire) else { return done(.status(409, Deck.notHere)) }
-            Terminal.queue.async {
-                let fired = driver.fire(tab, agent: agent)
-                DispatchQueue.main.async {
-                    switch fired {
-                    case .fired: done(.status(204))
-                    case .notStopped: done(.status(409, "Couldn't stop the agent, so its tab is left open."))
-                    case .gone: done(.status(404, "That agent's tab has gone."))
-                    }
-                }
-            }
+            let options = HireDesk.FireOptions(force: query["force"] == "1", removeWorktree: query["remove"] == "1")
+            fire(session, agent: agent, options: options, done: done)
         case "clear":
             guard !session.isBusy else { return done(.status(409, "Busy — clear it when \(agent.name) is done")) }
             type(agent.newConversation, to: session, done: done)
@@ -907,6 +1159,122 @@ final class Deck {
     /// For a headless run's desk, which has no terminal at all.
     static let headless = "Nothing to type into: it runs headless."
 
+    /// Fires `session`, for every way in (the office, the phone, setup): a hire the registry knows
+    /// goes through `HireDesk.fire` (its refusals, `/exit`, its own tmux server, its recap); then, or
+    /// for a hire it doesn't know, the terminal's tab is closed as in 1.23.
+    func fire(_ session: Session, agent: Agent, options: HireDesk.FireOptions, done: @escaping (Response) -> Void) {
+        let hire = HireDesk.hire(ofTab: session.tab, folder: session.folder, project: session.project, among: frontDesk.hires)
+        fire(hire, session: session, agent: agent, options: options, done: done)
+    }
+
+    private func fire(_ hire: FrontDesk.Hire?, session: Session?, agent: Agent?, options: HireDesk.FireOptions, done: @escaping (Response) -> Void) {
+        let route = session.flatMap { s in terminal(of: s, for: .fire) }
+        let tmux = hire.flatMap { $0.tmuxSocket.isEmpty ? nil : HireTmux(socketName: URL(fileURLWithPath: $0.tmuxSocket).lastPathComponent) }
+        if hire == nil, route == nil { return done(.status(409, Deck.notHere)) }
+        if let hire, hire.tmuxSocket.isEmpty == false, tmux == nil { return done(.status(409, "tmux isn't here, so \(HireDesk.called(hire))'s session can't be ended.")) }
+        // Not on the terminal's queue: waiting for /exit to take can last seconds.
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            var closed: Terminal.Fired?
+            var kept = ""
+            if let hire {
+                if let tmux {
+                    switch HireDesk.fire(hire, options: options, tmux: tmux, desk: frontDesk) {
+                    case .failure(let refusal): return DispatchQueue.main.async { done(.status(refusal.status, refusal.message)) }
+                    case .success(let fired): kept = options.removeWorktree ? fired.kept : ""
+                    }
+                    // Its window only showed the session: it closes now, if the terminal keeps it open.
+                    if let (driver, address) = route, let agent { closed = Terminal.queue.sync { driver.fire(address, agent: agent) } }
+                } else {
+                    // A hire from 1.23's way: the refusals that can be asked without a window, then the tab.
+                    if let refusal = HireDesk.fireRefusal(hire, force: options.force, capture: nil) {
+                        return DispatchQueue.main.async { done(.status(refusal.status, refusal.message)) }
+                    }
+                    guard let (driver, address) = route, let agent else { return DispatchQueue.main.async { done(.status(409, Deck.notHere)) } }
+                    closed = Terminal.queue.sync { driver.fire(address, agent: agent) }
+                    if closed == .fired {
+                        let fired = HireDesk.settle(hire, options: options, desk: frontDesk)
+                        kept = options.removeWorktree ? fired.kept : ""
+                    }
+                }
+            } else if let (driver, address) = route, let agent {
+                closed = Terminal.queue.sync { driver.fire(address, agent: agent) }
+            }
+            DispatchQueue.main.async {
+                self.changed()
+                let answer = Deck.fireAnswer(hireHasTmux: hire.map { !$0.tmuxSocket.isEmpty }, closed: closed, kept: hire.flatMap { kept.isEmpty ? nil : (why: kept, hire: $0) })
+                // A fired GM is gone, so Settings no longer says one was started by hand.
+                if Deck.firedGM(hire, answer: answer) { self.access.gm.forgetStartedByHand() }
+                done(answer)
+            }
+        }
+    }
+
+    /// The answer once a fire has run. A hire on its own tmux server was ended by `HireDesk.fire`, so the
+    /// close of its viewer tab doesn't matter. Everyone else is answered by the tab, as in 1.23.
+    /// `hireHasTmux` is nil when no hire is known.
+    /// `kept` is set when the worktree was asked to go and stayed: the answer then says so (200, `kept`, `worktree`, `branch`)
+    /// instead of an empty 204, so `gm fire` can tell the owner; callers that only look for success see one either way.
+    static func fireAnswer(hireHasTmux: Bool?, closed: Terminal.Fired?, kept: (why: String, hire: FrontDesk.Hire)? = nil) -> Response {
+        let fired: Response = kept.map { .json(["ok": true, "kept": $0.why, "worktree": $0.hire.worktree, "branch": $0.hire.branch]) } ?? .status(204)
+        guard let closed, hireHasTmux != true else { return fired }
+        switch closed {
+        case .fired: return fired
+        case .notStopped: return .status(409, "Couldn't stop the agent, so its tab is left open.")
+        case .gone: return .status(404, "That agent's tab has gone.")
+        }
+    }
+
+    /// Whether this fire ended the General Manager's hire (it answered with success).
+    static func firedGM(_ hire: FrontDesk.Hire?, answer: Response) -> Bool {
+        guard hire?.role == gmRole else { return false }
+        return answer.status < 300
+    }
+
+    /// What `POST /setup/gm/fire` sends: nil unless there is an `id`.
+    static func fireRequest(_ body: Data) -> (id: String, options: HireDesk.FireOptions)? {
+        guard let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any], let id = json["id"] as? String, !id.isEmpty else { return nil }
+        return (id, HireDesk.FireOptions(force: json["force"] as? Bool == true, removeWorktree: json["removeWorktree"] as? Bool == true))
+    }
+
+    /// `POST /setup/gm/fire`, with `{id, force?, removeWorktree?}`: `id` is a hire's id in the registry,
+    /// or `live:<session id>` for a session no hire matches. Goes the same way the office's fire does.
+    func fire(body: Data, done: @escaping (Response) -> Void) {
+        guard let (id, options) = Deck.fireRequest(body) else { return done(.status(400, "Send {id, force, removeWorktree}.")) }
+        guard Config.shared.hiringEnabled else { return done(.status(403, Deck.hiringOff)) }
+        if id.hasPrefix("live:") {
+            guard let session = sessions[String(id.dropFirst(5))] else { return done(.status(404, "There's no session with that id.")) }
+            return fire(nil, session: session, agent: session.agent, options: options, done: done)
+        }
+        guard let hire = frontDesk.hires.first(where: { $0.id == id }) else { return done(.status(404, "There's no hire with that id.")) }
+        // Its session, if it is still there: matched by its socket and where it works, as the team is.
+        let session = sessions.all.first { HireDesk.hire(ofTab: $0.tab, folder: $0.folder, project: $0.project, among: [hire])?.id == hire.id }
+        fire(hire, session: session, agent: session?.agent, options: options, done: done)
+    }
+
+    /// `POST /setup/gm/brief`, with `{id, text}`: the text, dated, goes at the end of the hire's BRIEF file, then the hire
+    /// is mailed (through the mail gate, so never over a question) to read it. Refuses a hire that is gone, an empty text,
+    /// or one over the mail size setting.
+    func briefMore(body: Data, from sender: MailRouter.Sender, hiresFolder: URL = Paths.hires) -> Response {
+        switch BriefMore.add(body: body, hires: frontDesk.hires, maxBytes: Config.shared.mailMaxBytes, folder: hiresFolder) {
+        case .failure(let refusal): return refusal.response
+        case .success(let (hire, added)):
+            // Named as the hire can reach it: by its file name when that is in the folder it works in, else its whole path
+            // (a managed hire's brief is outside its worktree, and an unpinned hire's is kept in Smolcorp's folder).
+            let inFolder = added.file.deletingLastPathComponent().standardizedFileURL.path == URL(fileURLWithPath: hire.folder).standardizedFileURL.path
+            let name = inFolder ? added.file.lastPathComponent : added.file.path
+            let mailed = mail.send(from: sender, body: (try? JSONSerialization.data(withJSONObject: [
+                "to": hire.id, "text": BriefMore.note(name), "id": "brief-" + UUID().uuidString.lowercased().prefix(12)])) ?? Data())
+            var answer: [String: Any] = ["ok": true, "file": added.file.path]
+            if mailed.status == 200, let sent = (try? JSONSerialization.jsonObject(with: mailed.body)) as? [String: Any] {
+                answer["mail"] = sent
+            } else {
+                // The part is in the file already; the hire reads it when it next looks, so only the note is missing.
+                answer["note"] = "The new part is in the brief, but the hire couldn't be mailed: " + String(decoding: mailed.body, as: UTF8.self)
+            }
+            return .json(answer)
+        }
+    }
+
     /// `session`'s tab and the driver for its terminal, if that terminal lets
     /// the deck do `what` there.
     private func terminal(of session: Session, for what: TerminalAbilities) -> (TerminalDriver, TabAddress)? {
@@ -929,6 +1297,67 @@ final class Deck {
         Config.shared.swapPins(first, at: a, with: second, at: b)
         changed()
         return .status(204)
+    }
+
+    /// Session `id` put on floor `to`, 0 for the ground floor up to 5 for 6F,
+    /// from the office: until it ends, before its folder's rule; and with
+    /// `remember`, its folder's rule too, so its next sessions go there. A
+    /// cloud bot's floor is kept in setup's list, as it never ends. Refused
+    /// when there's no desk for it there: the ground floor with every key
+    /// taken, or a floor above with all its desks.
+    func move(_ id: String, to given: String?, remember: Bool) -> Response {
+        guard let floor = given.flatMap(Int.init), (0..<Floor.count).contains(floor) else { return .status(400, "Unknown floor") }
+        let config = Config.shared
+        let name = config.floors[floor].name
+        if let bot = cloud.bot(ofSession: id) {
+            guard bot.floorIndex != floor else { return .status(204) }
+            guard floor == 0 || hasRoom(on: floor, besides: id) else { return .status(409, "\(name) is full.") }
+            guard floor > 0 || hasFreeKey() else { return .status(409, "Every desk is taken. Fire someone, or add a desk, first.") }
+            config.cloudBots = config.cloudBots.map { var b = $0; if b.id == bot.id { b.floor = CloudBot.floor(at: floor) }; return b }
+            config.save()
+            seatOf[id] = nil
+            cloud.configure(config.cloudBots)
+            changed()
+            return .status(204)
+        }
+        guard let session = sessions[id] else { return .status(404, "Session not found") }
+        let before = (floorOf[id], seatOf[id])
+        guard aboveGround(of: session) != floor || remember else { return .status(204) }
+        if floor > 0 {
+            guard hasRoom(on: floor, besides: id) else { return .status(409, "\(name) is full.") }
+        } else if !session.isHeadless {
+            // Down on the ground floor, it needs a key: tried as it would sit, and put back if there's none.
+            floorOf[id] = 0
+            guard layout().keys.contains(where: { $0.session?.id == id }) else {
+                (floorOf[id], seatOf[id]) = before
+                return .status(409, "Every desk is taken. Fire someone, or add a desk, first.")
+            }
+        }
+        floorOf[id] = floor
+        if seatOf[id]?.floor != floor { seatOf[id] = nil }
+        if remember, !session.project.isEmpty {
+            // That folder alone: from a session in a folder above others, a rule for all of them would take them up too.
+            config.floorRules = FloorRule.checked(config.floorRules + [FloorRule(folder: session.project, floor: floor, exact: true)])
+            config.save()
+        }
+        changed()
+        return .status(204)
+    }
+
+    /// Whether the ground floor has a key for someone new: a free one, or
+    /// with Auto, room for one more.
+    private func hasFreeKey() -> Bool {
+        let keys = layout().keys
+        return keys.contains { $0.pin == nil && $0.session == nil } || Config.shared.layout.keys == .auto && keys.count < KeyCount.most
+    }
+
+    /// Whether floor `floor`, above the ground floor, has a desk for `id`:
+    /// fewer than its desks are taken by others put there. Those seated there
+    /// only for want of room elsewhere make way, to the floors with room.
+    private func hasRoom(on floor: Int, besides id: String) -> Bool {
+        let put = sessions.all.filter { $0.id != id && aboveGround(of: $0) == floor }.count
+            + cloud.seatedAbove().filter { $0.session.id != id && $0.floor == floor }.count
+        return put < Deck.upstairsDesks
     }
 
     /// The office in one of its styles, from the phone, on every screen it's
@@ -1017,13 +1446,23 @@ final class Deck {
     /// look ever saw it open.
     private static let hiredTabListed: TimeInterval = 15
     private var lastHire: Date?
+    /// A GM hire is under way (set before its async part, cleared when it is answered), so two presses can't both pass.
+    private var gmHiring = false
+    private let gmHiringLock = NSLock()
 
     /// A hire from setup, in `folder`, with the answers to its role's
     /// questions: as the phone hires, at the desk pinned to that folder if
     /// there's one, or at a free one. Answers with the desk it sits at, or,
     /// with Auto, the one it's expected to take as its agent reports.
-    func hire(as roleID: String, in folder: String, answers: [String]?, done: @escaping (Response) -> Void) {
-        guard !TestCopy.isOn else { return done(.status(409, TestCopy.Refused.hiring.localizedDescription)) }
+    func hire(as roleID: String, in folder: String, answers: [String]?, floor: Int = 0, account: String = "", options: HireDesk.HireOptions = .init(),
+              task: String = "", done: @escaping (Response) -> Void) {
+        // On a floor above, at its first free desk: it has no key to name.
+        if floor > 0 {
+            return hire(at: nil, as: roleID, in: folder, answers: answers, floor: floor, account: account, options: options, task: task) { response, _ in
+                guard response.status == 204 else { return done(response) }
+                done(.json(["ok": true, "desk": NSNull(), "floor": floor, "session": NSNull()]))
+            }
+        }
         let (keys, _) = layout()
         let free = keys.indices.first { keys[$0].pin == nil && keys[$0].session == nil }
         var desk = keys.indices.first { keys[$0].pin.flatMap(Deck.folder) == folder }
@@ -1038,7 +1477,7 @@ final class Deck {
             }
         }
         // With Auto, the desk it's expected to take, which names its brief.
-        hire(at: (desk ?? expected).map(String.init), as: roleID, in: folder, answers: answers) { response, _ in
+        hire(at: (desk ?? expected).map(String.init), as: roleID, in: folder, answers: answers, account: account, options: options, task: task) { response, _ in
             guard response.status == 204 else { return done(response) }
             done(.json(["ok": true, "desk": expected.map { $0 as Any } ?? NSNull(), "session": NSNull()]))
         }
@@ -1053,29 +1492,45 @@ final class Deck {
     /// questions to ask first: into the project at a pinned desk, otherwise
     /// into Smolcorp's own briefs folder (see `BriefFiles`). Its hooks bring it to the deck,
     /// and the office, as for any session. `hired` is also told the desk held for it.
-    private func hire(at desk: String?, as roleID: String?, in given: String? = nil, answers: [String]? = nil,
+    private func hire(at desk: String?, as roleID: String?, in given: String? = nil, answers: [String]? = nil, floor: Int = 0,
+                      account: String = "", options: HireDesk.HireOptions = .init(), task: String = "",
                       done hired: @escaping (Response, Int?) -> Void) {
+        // Read by `done` when it runs, so a GM hire's place is given back at every way out.
+        var hired = hired
         let done = { (response: Response) in hired(response, nil) }
         let config = Config.shared
         guard config.hiringEnabled else { return done(.status(403, Deck.hiringOff)) }
         var pinned: String?
-        // With a set number of desks, any free one can be hired at, and the
-        // hire sits there; with Auto they stay packed, so it takes the first free.
+        // Any free desk can be hired at, and the hire sits there; with no desk
+        // chosen, it takes the first free one.
         var held: Int?
-        if let desk {
+        // Upstairs, the floor's own folder, when it has one rule (see `FloorRule.folder(of:in:)`).
+        var floorFolder: String?
+        if floor > 0 {
+            // At the desk held, if nobody's there, or from setup, at the floor's first free one.
+            let building = self.building(overflow: layout().overflow)
+            let taken = Set(building.floors[floor].compactMap { building.desks[$0.id] })
+            // A manager's hire takes the next desk of the row its team sits in; anyone else, the first free one.
+            let managed = config.managerEnabled || options.worktree
+            let next = managed ? Deck.rowDesk(taken: taken) : (0..<Deck.upstairsDesks).first(where: { !taken.contains($0) })
+            guard let index = desk.map({ Int($0) ?? -1 }) ?? next,
+                  (0..<Deck.upstairsDesks).contains(index) else { return done(.status(400, "Unknown desk")) }
+            guard !taken.contains(index) else { return done(.status(409, "Someone's at that desk already.")) }
+            guard hasRoom(on: floor, besides: "") else { return done(.status(409, "\(config.floors[floor].name) is full.")) }
+            held = index
+            floorFolder = FloorRule.folder(of: floor, in: config.floorRules).flatMap(Deck.folder)
+        } else if let desk {
             let (keys, _) = layout()
-            // With Auto, the office also offers the desk after the last: a hire adds it.
-            let next = config.layout.keys == .auto && keys.count < KeyCount.most ? keys.count : nil
-            guard let index = Int(desk), keys.indices.contains(index) || index == next else { return done(.status(400, "Unknown desk")) }
-            pinned = keys.indices.contains(index) ? keys[index].pin.flatMap(Deck.folder) : nil
-            if case .fixed = config.layout.keys, keys[index].pin == nil {
-                guard keys[index].session == nil else { return done(.status(409, "Someone's at that desk already.")) }
-                held = index
-            }
+            // With Auto, the office also offers the desks after the last: a hire adds them.
+            let choice = Deck.groundHire(desk: desk, keys: keys)
+            if let refusal = choice.refusal { return done(refusal) }
+            pinned = choice.pin.flatMap(Deck.folder)
+            held = choice.held
         }
-        guard let folder = given ?? pinned ?? Deck.folder(config.hireFolder) else {
+        guard let chosen = given ?? pinned ?? floorFolder ?? Deck.folder(config.hireFolder) else {
             return done(.status(409, "Choose a folder for new hires in setup, on your Mac."))
         }
+        let folder = chosen
         var role: Role?
         if let roleID, !roleID.isEmpty {
             guard let found = config.roles.first(where: { $0.id == roleID }) else {
@@ -1083,73 +1538,347 @@ final class Deck {
             }
             role = found
         }
+        if !options.model.isEmpty { role?.model = options.model }
+        // Only one General Manager at a time, by whichever way it is hired.
+        if role?.id == Deck.gmRole {
+            if let why = claimGMHire() { return done(.status(why.status, why.message)) }
+            let answer = hired
+            hired = { [weak self] response, held in
+                self?.releaseGMHire()
+                answer(response, held)
+            }
+        }
+        // A session only exists once a hook reports it: a hire whose agent's hooks don't
+        // reach this Mac's Smolcorp would never come to a desk.
+        // The Claude account it works on, when one is named: its hooks must report here too.
+        // With several accounts, every way in must name one (C05), unless it is on the API-key account.
+        let accounts = ClaudeProfiles.current
+        let claude = Deck.hiredAgent(role: role, hireAgent: config.hireAgent) == .claude
+        if claude, !options.apiKey || !account.isEmpty, let why = ClaudeProfiles.hireRefusal(account: account, among: accounts) {
+            return done(.status(why.status, why.message))
+        }
+        if options.apiKey {
+            guard claude else { return done(.status(400, "The API-key account is for Claude Code hires.")) }
+            if let why = HireDesk.apiKeyRefusal(picked: true, offered: HireDesk.apiKeyOffered()) { return done(.status(why.status, why.message)) }
+        }
+        let profile = account.isEmpty ? nil : ClaudeProfiles.profile(named: account, among: accounts)
+        if !account.isEmpty && profile == nil { return done(.status(404, "There's no Claude account called \(account).")) }
+        // A test copy never hires on the default account: its trust would be written to the real ~/.claude.json.
+        if claude, let why = Deck.testCopyAccountRefusal(account: profile ?? accounts.first ?? ClaudeProfiles.defaultProfile()) { return done(.status(why.status, why.message)) }
+        // A test copy hires Claude Code only: its hire reports through its own settings file, which no other agent takes.
+        if let why = Deck.testCopyRefusal(for: Deck.hiredAgent(role: role, hireAgent: config.hireAgent)) { return done(.status(409, why)) }
+        // A test copy's hire doesn't read the account's hooks, so it needn't find them connected.
+        if let why = Deck.hooksRefusal(for: Deck.hiredAgent(role: role, hireAgent: config.hireAgent), found: TestCopy.isOn ? [] : Hooks.found,
+                                       connected: { agent in agent == .claude ? profile.map(Hooks.isConnected) ?? Hooks.isConnected(agent) : Hooks.isConnected(agent) }) {
+            return done(.status(409, why))
+        }
         if let last = lastHire, Date().timeIntervalSince(last) < Deck.hireCooldown {
             return done(.status(429, "Hired a moment ago. Try again in a few seconds."))
         }
         lastHire = Date()
+        let hireID = UUID().uuidString.lowercased()
+        let hireAccount = profile ?? accounts.first ?? ClaudeProfiles.defaultProfile()
+        // Without the manager (or a worktree asked for) a hire is as in 1.23: in its folder, nothing else touched.
+        // The General Manager is always a managed hire, but works in its folder as it is unless a worktree was asked for.
+        let isGM = role?.id == Deck.gmRole
+        let managed = config.managerEnabled || options.worktree || isGM
+        let request = HireDesk.Request(hireID: hireID, name: options.nickname.isEmpty ? (role?.id ?? "hire") : options.nickname, folder: folder,
+                                       claude: claude, account: hireAccount, apiKey: options.apiKey, worktree: !isGM || options.worktree)
+        let worktrees = config.hireWorktrees, taken = frontDesk.portsInUse
+        // Git can take a while on a big repo, so the place is made off the main thread.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let made: Result<HireDesk.Ready, FrontDesk.Refusal>
+            do { made = .success(try HireDesk.place(request, managed: managed, worktrees: worktrees, taken: taken)) } catch let refusal as FrontDesk.Refusal {
+                made = .failure(refusal)
+            } catch {
+                made = .failure(FrontDesk.Refusal(status: 500, message: error.localizedDescription))
+            }
+            DispatchQueue.main.async {
+                switch made {
+                case .failure(let refusal):
+                    self.lastHire = nil
+                    done(.status(refusal.status, refusal.message))
+                case .success(let ready):
+                    self.open(ready, managed: managed, hireID: hireID, role: role, original: folder, pinned: pinned, desk: desk, held: held, floor: floor,
+                              answers: answers, options: options, task: task, profile: profile, hireAccount: hireAccount, done: hired)
+                }
+            }
+        }
+    }
+
+    /// The General Manager's role.
+    static let gmRole = "gm"
+
+    /// A new hire's key for sending mail. None for a hire with no role (no start script to hold it), and none
+    /// for the GM, which signs with its token: with both set, the CLI would take the GM for a hire.
+    static func sendKey(for role: Role?) -> String {
+        guard let role, role.id != gmRole else { return "" }
+        return randomKey()
+    }
+
+    /// What the GM is told besides its brief: its role, its folder, and its tool.
+    static func gmIntroduction(folder: String, plugin: GMPlugin.Launch? = GMPlugin.Launch.bundled()) -> String {
+        "You are the General Manager of this team. Your folder is \(folder). Your tool for the team is the command `smolcorp gm`; "
+            + "it is already set up to reach Smolcorp, so don't look for a token or a key." + (plugin?.note ?? "")
+    }
+
+    /// Why a General Manager can't be hired now, or nil: one is working already, or is being hired this moment.
+    func gmRefusal() -> FrontDesk.Refusal? {
+        gmHiringLock.lock(); defer { gmHiringLock.unlock() }
+        return gmRefusalLocked()
+    }
+
+    private func gmRefusalLocked() -> FrontDesk.Refusal? {
+        if gmHiring { return FrontDesk.Refusal(status: 409, message: "A General Manager is being hired right now. Give it a moment.") }
+        return FrontDesk.gmRefusal(among: frontDesk.hires, live: frontDeskLive())
+    }
+
+    /// Takes the one place for a GM hire, or says why it can't be had. Whoever takes it gives it back when the hire is answered.
+    private func claimGMHire() -> FrontDesk.Refusal? {
+        gmHiringLock.lock(); defer { gmHiringLock.unlock() }
+        if let why = gmRefusalLocked() { return why }
+        gmHiring = true
+        return nil
+    }
+
+    private func releaseGMHire() {
+        gmHiringLock.lock(); defer { gmHiringLock.unlock() }
+        gmHiring = false
+    }
+
+    /// Takes back a brief written for a hire that didn't start: with a managed hire, its whole folder.
+    static func discard(_ brief: URL, hireID: String, managed: Bool) {
+        try? FileManager.default.removeItem(at: managed ? BriefBuilder.hireFolder(hireID) : brief)
+    }
+
+    /// The rest of a hire, once its place is ready: the brief and start script, the window, the registry.
+    private func open(_ ready: HireDesk.Ready, managed: Bool, hireID: String, role: Role?, original: String, pinned: String?, desk: String?, held: Int?,
+                      floor: Int, answers: [String]?, options: HireDesk.HireOptions, task: String, profile: ClaudeProfile?, hireAccount: ClaudeProfile,
+                      done hired: @escaping (Response, Int?) -> Void) {
+        let done = { (response: Response) in hired(response, nil) }
+        let config = Config.shared
+        let folder = ready.folder
+        let undo = { if !ready.worktree.isEmpty { HireDesk.removeWorkspace(repo: ready.repo, worktree: ready.worktree, branch: ready.branch) } }
         var command = config.hireAgent
         var brief: URL?
+        // A managed hire on Claude Code starts with its own settings (deny rules, the guard), or not at all.
+        var settings: String?
+        let claudeHire = Deck.hiredAgent(role: role, hireAgent: config.hireAgent) == .claude
+        // In a test copy the hire's settings also carry the hooks, to the copy's own script and port (its script is made first).
+        var reporting: [String: Any]?
+        if TestCopy.isOn, claudeHire {
+            do {
+                try Hooks.writeScript()
+                reporting = Hooks.hireHooks()
+            } catch {
+                lastHire = nil
+                undo()
+                return done(.status(500, "The test copy couldn't write its report script, so a hire would not report to it."))
+            }
+        }
+        if managed, claudeHire {
+            do { settings = try HireSettings.write(hireID: hireID, profile: role?.id == Deck.gmRole ? .gm : .hire, reporting: reporting).path } catch {
+                lastHire = nil
+                undo()
+                return done(.status((error as? FrontDesk.Refusal)?.status ?? 500, (error as? FrontDesk.Refusal)?.message ?? error.localizedDescription))
+            }
+        }
+        if settings == nil, let reporting {
+            do { settings = try HireSettings.writeReportingOnly(hireID: hireID, hooks: reporting).path } catch {
+                lastHire = nil
+                undo()
+                return done(.status(500, "Couldn't write the hire's settings."))
+            }
+        }
+        // This hire's own key for sending mail: in its start script's environment (the script removes itself
+        // as it starts), and in the registry only as a hash. A hire with no start script can't send.
+        // The GM has none: it signs with its token, and a hire key would make the CLI treat it as a hire.
+        let sendKey = Deck.sendKey(for: role)
         if let role {
             var message = answers.map { role.firstMessage(in: folder, answers: $0) } ?? role.firstMessage(in: folder, pinned: pinned != nil)
             // An agent that takes no first message is never told of a brief, so it isn't given one.
             if Agent(rawValue: role.agent) != .grok {
                 do {
-                    if let template = try role.briefTemplate(in: .bundled) {
-                        let place = BriefFiles.place(for: role.id, in: folder, pinned: pinned != nil, desk: desk.flatMap { Int($0) })
-                        let names = try BriefFiles.write(place, report: Role.reportName(of: template)) { names in
-                            try role.renderBrief(template, BriefContext(folder: folder, pinned: pinned != nil, answers: answers,
-                                                                        briefFile: names.brief.path, statusFile: names.status.path,
-                                                                        reportFile: names.report?.path))
-                        }
-                        brief = names.brief
-                        message = role.briefMessage(at: names.brief.path, asks: answers == nil)
+                    // A managed hire (it has a worktree) keeps its brief outside it, in a folder of its own in Smolcorp's.
+                    if let made = try BriefBuilder.make(role, library: .editable(), folder: folder, pinned: pinned != nil,
+                                                        desk: floor > 0 ? nil : desk.flatMap { Int($0) }, answers: answers, task: task.isEmpty ? nil : task,
+                                                        managed: ready.worktree.isEmpty ? nil : BriefBuilder.hireFolder(hireID), write: true) {
+                        brief = made.names.brief
+                        message = made.firstMessage
                     }
                 } catch {
                     lastHire = nil
+                    undo()
                     return done(.status(500, error.localizedDescription))
                 }
             }
-            guard let script = Deck.startScript(for: role, firstMessage: message) else {
+            // The GM's token is made new at its hire and goes into its start script alone: its environment, nobody else's.
+            var gmToken: String?
+            if role.id == Deck.gmRole {
+                guard let fresh = access.gm.rotate() else {
+                    lastHire = nil
+                    undo()
+                    if let brief { Deck.discard(brief, hireID: hireID, managed: !ready.worktree.isEmpty) }
+                    return done(.status(500, "The GM's token couldn't be saved in the Keychain. Allow Smolcorp to use your Keychain, then try again."))
+                }
+                gmToken = fresh
+                message += "\n\n" + Deck.gmIntroduction(folder: folder)
+            }
+            guard let script = Deck.startScript(for: role, firstMessage: message, account: profile ?? (options.apiKey ? hireAccount : nil),
+                                                environment: HireDesk.scriptLines(ports: ready.ports, apiKey: options.apiKey, gmToken: gmToken, sendKey: sendKey), settings: settings) else {
                 lastHire = nil
-                if let brief { try? FileManager.default.removeItem(at: brief) }
+                undo()
+                if let brief { Deck.discard(brief, hireID: hireID, managed: !ready.worktree.isEmpty) }
                 return done(.status(500, "Couldn't get the role ready to start"))
             }
             command = script.path
+        } else if let settings {
+            // No role, so no start script: the agent's command line takes the settings.
+            command = "\(config.hireAgent) --settings=\(Openers.quoted(settings))"
+            // In a copy: no user settings, and the `smolcorp` command (if it's on the PATH) talks to the copy.
+            if let copyPort = TestCopy.port {
+                command = HireDesk.copyPrefix(port: copyPort, support: TestCopy.support) + command + " " + Role.testCopySources
+            }
         }
         let terminal = Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal"
         let inTmux = config.hireInTmux && Tmux.path != nil
         let name = Openers.choices.first { $0.id == terminal }?.name ?? "Terminal"
         Terminal.queue.async {
-            let tab = Openers.open(command, in: folder, terminal: terminal, inTmux: inTmux)
+            let tab = Openers.open(command, in: folder, terminal: terminal, inTmux: inTmux, hireID: hireID)
             DispatchQueue.main.async {
                 // Nobody was hired, so the next try needn't wait.
                 guard let tab else {
                     self.lastHire = nil
+                    undo()
                     if role != nil { try? FileManager.default.removeItem(atPath: command) }
                     // Written for this hire a moment ago, and read by no one.
-                    if let brief { try? FileManager.default.removeItem(at: brief) }
+                    if let brief { Deck.discard(brief, hireID: hireID, managed: !ready.worktree.isEmpty) }
                     return done(.status(500, "\(name) didn't open"))
                 }
                 config.noteHire(in: folder)
-                config.save()
-                // Kept for the role and desk, and for a Ghostty hire, to know its terminal by.
-                if role != nil || held != nil || tab.hasPrefix("ghostty-id:") {
-                    self.hiredTabs.append((tab, role?.id, held, Date(), folder))
+                // Only a hire in its own worktree: a shared folder's desk is someone else's, and keeps its seat and its name.
+                if managed, !ready.worktree.isEmpty {
+                    self.managerHireFolders.insert(folder)
+                    // Its nickname on its desk: the office shows a team member's name, by its folder's name.
+                    config.layout.room.team = Deck.nicknamed(config.layout.room.team, folder: folder, nickname: options.nickname)
                 }
+                config.save()
+                // Kept for the role, the desk and the floor it's hired on, and for a Ghostty hire, to know its terminal by.
+                self.hiredTabs.append((tab, role?.id, held, Date(), folder, floor > 0 ? floor : nil))
+                // A hire on its own tmux server is written down with the socket it runs on, and the account it runs on.
+                let socket = TabAddress(tab).flatMap { HireTmux.owns($0.socket) ? $0.socket : nil } ?? ""
+                let record = FrontDesk.Hire(id: hireID, name: role?.name ?? "Agent", nickname: options.nickname, role: role?.id ?? "", folder: original,
+                                            branch: ready.branch, worktree: ready.worktree, repo: ready.repo, tmuxSocket: socket,
+                                            account: options.apiKey ? "api-key" : profile?.name ?? "", model: role?.model ?? "", ports: ready.ports, brief: brief?.path ?? "",
+                                            started: (Date().timeIntervalSince1970 * 1000).rounded())
+                self.frontDesk.register(record, sendKey: sendKey)
+                self.watchers.sync() // its own watches start with it
+                if managed, !socket.isEmpty { self.confirmStart(record) }
                 hired(.status(204), held)
+            }
+        }
+    }
+
+    /// A hire on its own tmux server counts as started when its session is alive and a hook from it has
+    /// arrived (C06). Otherwise it is cleaned up (C16): its server ended, its worktree removed if new and clean.
+    private func confirmStart(_ hire: FrontDesk.Hire) {
+        guard let desk = HireTmux(socketName: URL(fileURLWithPath: hire.tmuxSocket).lastPathComponent) else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let result = HireDesk.waitForStart(alive: { desk.isAlive() }, heardFrom: {
+                DispatchQueue.main.sync { self.frontDesk.hires.first { $0.id == hire.id }?.state != .starting }
+            })
+            guard case .failed(let reason) = result else { return }
+            DispatchQueue.main.async {
+                guard self.frontDesk.hires.first(where: { $0.id == hire.id })?.state == .starting else { return }
+                HireDesk.cleanUp(hire, reason: reason, tmux: desk, desk: self.frontDesk)
+                self.changed()
             }
         }
     }
 
     /// `role`'s start-up script, written for a hire's Terminal window to run
     /// once. Only you can read or run it.
-    private static func startScript(for role: Role, firstMessage message: String) -> URL? {
-        let script = role.startScript(firstMessage: message)
+    private static func startScript(for role: Role, firstMessage message: String, account: ClaudeProfile?, environment: String, settings: String? = nil) -> URL? {
+        let script = role.startScript(firstMessage: message, account: account, environment: environment, settings: settings)
         let manager = FileManager.default
         try? manager.createDirectory(at: Paths.hires, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let url = Paths.hires.appendingPathComponent("hire-\(UUID().uuidString).sh")
         guard manager.createFile(atPath: url.path, contents: Data(script.utf8), attributes: [.posixPermissions: 0o700]) else { return nil }
         return url
+    }
+
+    /// The agent a hire starts: the role's, which launches as Claude Code when it
+    /// isn't one Smolcorp knows (as `Role.checked` does), or the one set for new
+    /// hires, which nil means Smolcorp has no hooks to check for.
+    static func hiredAgent(role: Role?, hireAgent: String) -> Agent? {
+        guard let role else { return Agent(rawValue: hireAgent) }
+        return Agent(rawValue: role.agent) ?? .claude
+    }
+
+    /// Why a test copy won't hire on `account`, or nil: the default account keeps its trusted folders in the real
+    /// ~/.claude.json, which a test copy leaves alone. Every hire route passes `Deck.hire`, so none skips this.
+    static func testCopyAccountRefusal(account: ClaudeProfile, testCopy: Bool = TestCopy.isOn) -> (status: Int, message: String)? {
+        guard testCopy, account.isDefault else { return nil }
+        return (409, "This is a test copy of Smolcorp: it won't hire on the default Claude account, which would change your real ~/.claude.json. Choose a test account.")
+    }
+
+    /// Why a test copy won't hire `agent`, or nil: only Claude Code can be kept from the real app's hooks (see `Hooks.hireHooks`).
+    static func testCopyRefusal(for agent: Agent?, testCopy: Bool = TestCopy.isOn) -> String? {
+        testCopy && agent != .claude ? TestCopy.Refused.hiring.localizedDescription : nil
+    }
+
+    /// Why a hire of `agent` can't go ahead, or nil: its agent is on this Mac
+    /// (it has a settings folder) but its hooks don't report here. Other
+    /// agents' hooks don't matter to this hire, and an agent not found is
+    /// left to its terminal to say so.
+    static func hooksRefusal(for agent: Agent?, found: [Agent], connected: (Agent) -> Bool) -> String? {
+        guard let agent, found.contains(agent), !connected(agent) else { return nil }
+        return "Connect your agents first: \(agent.name) doesn't report to Smolcorp yet, so a hire would never reach a desk. "
+            + "Press Connect in Smolcorp's Settings."
+    }
+
+    /// Whether the office's held desks offer hiring: on, and with a folder to
+    /// hire into, the one for new hires or a floor upstairs with a folder of
+    /// its own, which is where a hire there starts.
+    static func canHire(_ config: Config) -> Bool {
+        config.hiringEnabled && hasHireFolder(config)
+    }
+
+    /// Whether there's a folder to hire into: the one for new hires, or a
+    /// floor upstairs with a folder of its own.
+    /// `hireFolder` stands in for the config's own, to ask about a change before it's kept.
+    static func hasHireFolder(_ config: Config, hireFolder: String? = nil) -> Bool {
+        if folder(hireFolder ?? config.hireFolder) != nil { return true }
+        return (1..<max(config.floors.count, 1)).contains { FloorRule.folder(of: $0, in: config.floorRules).flatMap(folder) != nil }
+    }
+
+    /// Whether hiring could open a hire at all on this Mac: a terminal that
+    /// can open one, or tmux.
+    static func canHireHere() -> Bool {
+        Tmux.path != nil || Openers.choices.contains { Openers.isInstalled($0.id) }
+    }
+
+    /// Why a free desk offers no hiring when it's on but there's no folder to
+    /// hire into, where hiring could open at all.
+    static let hiringNeedsFolder = "Hiring needs a folder: choose one in setup."
+
+    /// Why hiring can't be switched on with this config, or nil: no folder to
+    /// hire into, where hiring could open at all. Where it can't, the switch
+    /// is still free to turn on, for firing.
+    static func hiringRefusal(enabled: Bool, hireFolder: String, config: Config, canHireHere: Bool) -> String? {
+        guard enabled, canHireHere, !hasHireFolder(config, hireFolder: hireFolder) else { return nil }
+        return hiringNeedsFolder
+    }
+
+    /// What a free desk says when hiring is on but has no folder, or nil.
+    static func hiringReason(_ config: Config, canHireHere: Bool) -> String? {
+        config.hiringEnabled && canHireHere && !hasHireFolder(config) ? hiringNeedsFolder : nil
+    }
+
+    /// What the office's ⚙︎ is told: nothing to say when setup opened in the
+    /// browser, or, when it wouldn't, the way in that works, for the page to show.
+    static func settingsAnswer(opened: Bool) -> Response {
+        opened ? .status(204) : .status(502, "Couldn't open your browser. Instead, choose Settings… from Smolcorp's menu bar icon.")
     }
 
     /// `path` as a folder that's there, with ~ for home, or nil.
@@ -1675,17 +2404,23 @@ final class Deck {
         }
     }
 
-    /// Whether ✨ summary is offered at all: turned on, and with a key.
-    static var summaryOffered: Bool { Config.shared.summaryOptIn && SummaryKey.isPresent }
+    /// What makes summaries now, if anything (see `SummaryChoice`).
+    static var summaryProvider: SummaryProvider? {
+        SummaryChoice.chosen(saved: Config.shared.summaryProvider, optIn: Config.shared.summaryOptIn,
+                             states: SummaryProviders.shared.states ?? [:], hasKey: SummaryKey.isPresent)
+    }
+
+    /// Whether ✨ summary is offered at all: turned on, and with something to make it.
+    static var summaryOffered: Bool { Config.shared.summaryOptIn && summaryProvider != nil }
 
     /// ✨ Summary: a few lines on what session `id` has been doing, from the end
-    /// of its transcript. Nothing is sent with it off, or without a key.
+    /// of its transcript. Nothing is sent with it off, or with nothing to make it.
     func summarize(_ id: String, done: @escaping (Result<String, SummaryError>) -> Void) {
         guard Config.shared.summaryOptIn else { return done(.failure(.off)) }
-        guard SummaryKey.isPresent else { return done(.failure(.noKey)) }
+        guard let provider = Deck.summaryProvider else { return done(.failure(.noProvider)) }
         guard let session = sessions[id], !session.isHeadless else { return done(.failure(.noSession)) }
         guard !session.transcript.isEmpty else { return done(.failure(.noHistory)) }
-        summaries.summarize(id, transcript: session.transcript, project: session.projectName, done: done)
+        summaries.summarize(id, transcript: session.transcript, project: session.projectName, provider: provider, done: done)
     }
 
     func focus(_ id: String, done: @escaping (Response) -> Void) {

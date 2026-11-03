@@ -1,0 +1,14 @@
+{
+  "route": "GET /setup/gm/outbox?limit=100",
+  "callers": ["gm", "page", "tool"],
+  "note": "text is given to the gm and the page only; a tool is not given it. Oldest first. outbox.json in the support folder is {version, messages} with the same fields and text always.",
+  "answer": {
+    "messages": [
+      {"id": "gm-001", "from": "gm", "to": "abcdef123456", "toName": "Rev", "at": 1761000000000, "state": "delivered", "size": 38, "attempts": 0, "text": "Please look at the login change first."},
+      {"id": "gm-002", "from": "gm", "to": "abcdef123456", "toName": "Rev", "at": 1761000060000, "state": "queued", "size": 9, "attempts": 2, "note": "It is waiting for an answer in its window. Answer it there first; nothing was sent.", "text": "Status?"},
+      {"id": "gm-003", "from": "owner", "to": "abcdef123456", "toName": "Rev", "at": 1761000120000, "state": "left", "size": 6, "attempts": 6, "note": "Left after 6 tries, not sent again: It is at work.", "text": "Hello."},
+      {"id": "gm-004", "from": "gm", "to": "abcdef123456", "toName": "Rev", "at": 1761000180000, "state": "failed", "size": 4, "attempts": 0, "note": "Rev is gone.", "text": "Stop"},
+      {"id": "h-001", "from": "hire", "fromID": "abcdef123456", "fromName": "Rev", "to": "gm", "toName": "the GM", "at": 1761000240000, "state": "delivered", "size": 12, "attempts": 0, "note": "Kept for the GM to read; not typed into its session.", "text": "Review done."}
+    ]
+  }
+}

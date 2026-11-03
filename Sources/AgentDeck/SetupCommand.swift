@@ -31,7 +31,7 @@ enum SetupCommand {
         if !checkOnly, let hooks = report.checks.first(where: { $0["id"] as? String == "hooks" }),
            hooks["fix"] as? String == SelfTest.repair {
             print("Fixing: connecting your agents…")
-            if let problem = send(base, "POST", "/setup/fix?fix=\(SelfTest.repair)").problem { print("  \(problem)") }
+            if let problem = send(base, "POST", "/setup/fix?fix=\(SelfTest.repair)&auto=1").problem { print("  \(problem)") }
             report = selfTest(base) ?? report
         }
         let marks = ["ok": "✓", "fix": "✗", "todo": "•", "info": "i"]

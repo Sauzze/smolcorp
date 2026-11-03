@@ -352,7 +352,11 @@ struct Snapshot {
     init?(_ json: String) {
         guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return nil }
         let keys = object["keys"] as? [[String: Any]] ?? []
-        let upstairs = (object["upstairs"] as? [String: Any])?["desks"] as? [[String: Any]] ?? []
+        // Every floor above the ground floor, but only the agents driven there: a headless run or a cloud bot asks
+        // nothing this phone can answer, so it isn't counted as waiting. From a Mac before floors, the second alone.
+        let floors = (object["floors"] as? [[String: Any]] ?? []).dropFirst().flatMap { $0["desks"] as? [[String: Any]] ?? [] }
+            .filter { $0["drivable"] as? Bool == true }
+        let upstairs = object["floors"] == nil ? (object["upstairs"] as? [String: Any])?["desks"] as? [[String: Any]] ?? [] : Array(floors)
         desks = (keys.compactMap { $0["session"] as? [String: Any] } + upstairs).map { s in
             Desk(id: s["id"] as? String ?? "", project: s["project"] as? String ?? "", state: s["state"] as? String ?? "",
                  agentName: s["agentName"] as? String ?? "", errorKind: s["errorKind"] as? String,

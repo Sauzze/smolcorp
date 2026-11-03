@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,10 +36,19 @@ type CloudBot struct {
 	// Always at its desk, or only between "start" and "stop".
 	Permanent bool `json:"permanent"`
 	// Where its desk is: "upstairs", the floor above, by the headless runs,
-	// as it never has a terminal; or "ground", at a free key.
+	// as it never has a terminal; "ground", at a free key; or "2" to "6", a
+	// floor of its own choosing, as it was put there from the office.
 	Floor string `json:"floor"`
 	// Where its reports are seen, besides the event route.
 	Source CloudSource `json:"source"`
+	// Found in the Grok Bot app by the Mac app rather than set by you, and
+	// whether it's kept whatever that app says: kept here as set, for the
+	// Mac app's config, as nothing here looks in that app.
+	Discovered bool `json:"discovered,omitempty"`
+	Pinned     bool `json:"pinned,omitempty"`
+	// The folder mail to this bot goes through (see botmailbox.go), chosen on the setup page and
+	// nowhere else; "" for none. POST /setup/bots never changes it.
+	Mailbox string `json:"mailbox,omitempty"`
 }
 
 // safeGrokBotID is whether id can be a Grok Bot app's bot id, as the Mac
@@ -85,7 +95,7 @@ const (
 )
 
 var (
-	cloudFloors  = []string{"upstairs", "ground"}
+	cloudFloors  = []string{"upstairs", "ground", "2", "3", "4", "5", "6"}
 	cloudKinds   = []string{"none", "grokBotApp"}
 	cloudCounts  = []string{"unprompted", "any"}
 	cloudEvents  = []string{cloudReport, cloudSeen, cloudStart, cloudStop}
@@ -116,7 +126,8 @@ func (b *CloudBot) UnmarshalJSON(data []byte) error {
 		key  string
 		into any
 	}{{"id", &bot.ID}, {"name", &bot.Name}, {"agent", &bot.Agent}, {"outfit", &bot.Outfit}, {"badge", &bot.Badge},
-		{"permanent", &bot.Permanent}, {"floor", &bot.Floor}, {"source", &bot.Source}} {
+		{"permanent", &bot.Permanent}, {"floor", &bot.Floor}, {"source", &bot.Source},
+		{"discovered", &bot.Discovered}, {"pinned", &bot.Pinned}, {"mailbox", &bot.Mailbox}} {
 		if err := readPart(raw, part.key, part.into); err != nil {
 			return err
 		}
@@ -212,7 +223,8 @@ func (b CloudBot) checked() (CloudBot, bool) {
 	if slices.Contains(cloudFloors, b.Floor) {
 		floor = b.Floor
 	}
-	return CloudBot{ID: id, Name: name, Agent: agent, Outfit: outfit, Badge: badge, Permanent: b.Permanent, Floor: floor, Source: source}, true
+	return CloudBot{ID: id, Name: name, Agent: agent, Outfit: outfit, Badge: badge, Permanent: b.Permanent, Floor: floor, Source: source,
+		Discovered: b.Discovered, Pinned: b.Pinned, Mailbox: strings.TrimSpace(b.Mailbox)}, true
 }
 
 // checkedCloudBots is the bots as kept: each checked, each id once, at most cloudBotsMost.
@@ -467,6 +479,40 @@ func (c *cloudDesks) configure(given []CloudBot) {
 }
 
 // seated is the desks to seat on floor, in the order the bots were set.
+// seatedAbove is the desks to seat above the ground floor, in the order the
+// bots were set, each with the floor it was put on, or -1 for upstairs, where
+// there's room.
+func (c *cloudDesks) seatedAbove() ([]*Session, []int) {
+	seated, floors := []*Session{}, []int{}
+	for _, bot := range c.bots {
+		if s := c.sessions[bot.sessionID()]; bot.Floor != "ground" && s != nil && s.State != Idle {
+			seated = append(seated, s)
+			floors = append(floors, bot.floorIndex())
+		}
+	}
+	return seated, floors
+}
+
+// floorIndex is the bot's floor as the building counts them: 0 for the
+// ground floor, 1 to 5 for 2F to 6F; -1 upstairs, where there's room.
+func (b CloudBot) floorIndex() int {
+	if b.Floor == "ground" {
+		return 0
+	}
+	if n, err := strconv.Atoi(b.Floor); err == nil && n >= 2 && n <= floorCount {
+		return n - 1
+	}
+	return -1
+}
+
+// cloudFloorAt is a floor index as a bot's floor is kept: "ground", or "2" to "6".
+func cloudFloorAt(index int) string {
+	if index == 0 {
+		return "ground"
+	}
+	return strconv.Itoa(index + 1)
+}
+
 func (c *cloudDesks) seated(floor string) []*Session {
 	seated := []*Session{}
 	for _, bot := range c.bots {
@@ -651,4 +697,14 @@ func cloudBotsSent(body io.Reader) ([]CloudBot, bool) {
 		return nil, false
 	}
 	return bots, true
+}
+
+// cloudBotsForSetup is the bots as setup's list shows them.
+func cloudBotsForSetup(bots []CloudBot) []map[string]any {
+	list := []map[string]any{}
+	for _, b := range bots {
+		list = append(list, map[string]any{"id": b.ID, "name": b.Name, "floor": b.Floor, "pinned": b.Pinned,
+			"discovered": b.Discovered, "fromApp": b.Source.Kind == "grokBotApp", "botId": b.Source.BotID, "mailbox": b.Mailbox})
+	}
+	return list
 }

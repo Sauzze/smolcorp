@@ -173,3 +173,36 @@ func TestPhoneNames(t *testing.T) {
 		}
 	}
 }
+
+func TestSetupSessionsAreRandomKeptToTwentyAndNotTheKey(t *testing.T) {
+	a := &Access{SetupKey: "fake-setup-key"}
+	first := a.NewSetupSession()
+	if first == "" || first == a.SetupKey || !a.IsSetupSession(first) {
+		t.Fatalf("a session is %q: empty, the key, or not open", first)
+	}
+	if a.IsSetupSession(a.SetupKey) || a.IsSetupSession("") || a.IsSetupSession("made-up") {
+		t.Error("the key, nothing or a made-up id counted as a session")
+	}
+	for i := 0; i < maxSetupSessions; i++ {
+		a.NewSetupSession()
+	}
+	if len(a.setupSessions) != maxSetupSessions || a.IsSetupSession(first) {
+		t.Errorf("%d sessions kept, the oldest still open: %v; want %d and the oldest gone", len(a.setupSessions), a.IsSetupSession(first), maxSetupSessions)
+	}
+}
+
+func TestSetupTokensWorkOnceForFiveMinutes(t *testing.T) {
+	a := &Access{}
+	token := a.NewSetupToken()
+	if left := time.Until(a.setupTokens[token]); left < 4*time.Minute+50*time.Second || left > 5*time.Minute {
+		t.Errorf("a setup token lasts %v, want five minutes", left)
+	}
+	if !a.RedeemSetupToken(token) || a.RedeemSetupToken(token) {
+		t.Error("a setup token did not work exactly once")
+	}
+	late := a.NewSetupToken()
+	a.setupTokens[late] = time.Now().Add(-time.Second)
+	if a.RedeemSetupToken(late) {
+		t.Error("a setup token that had run out worked")
+	}
+}

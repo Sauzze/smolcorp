@@ -118,3 +118,32 @@ func TestDisconnectingOpenCodeStaysDisconnected(t *testing.T) {
 		t.Errorf("connecting again wrote it for %s, and left %v", writtenFor(t), left)
 	}
 }
+
+// At start-up the look at OpenCode, like the refresh, leaves another office's
+// plugin on its port, and still refreshes one with no port or this office's.
+func TestLookAtOpenCodeKeepsAnotherOfficesPort(t *testing.T) {
+	isolate(t)
+	setVersion, update := fakeOpenCode(t)
+	setVersion("opencode v2.0.32")
+	onPort(t, 4322)
+	if err := writePlugin(); err != nil {
+		t.Fatal(err)
+	}
+	other, _ := os.ReadFile(openCodePlugin())
+	onPort(t, 4323)
+	update()
+	refreshHooks()
+	lookAtOpenCode()
+	if after, _ := os.ReadFile(openCodePlugin()); string(after) != string(other) {
+		t.Fatal("the start-up look moved another office's OpenCode plugin")
+	}
+	// A plugin with no port, or on this office's port, is rewritten for the update.
+	for name, old := range map[string]string{"no port": "// old plugin\n", "own port": "// old\n\"--port\", \"4323\"\n"} {
+		writeFile(t, openCodePlugin(), old)
+		update()
+		lookAtOpenCode()
+		if after, _ := os.ReadFile(openCodePlugin()); string(after) == old || !strings.Contains(string(after), "4323") {
+			t.Errorf("%s: the plugin was not refreshed", name)
+		}
+	}
+}

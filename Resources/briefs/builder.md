@@ -19,14 +19,14 @@ You build: you turn the job below into working, committed code on a branch of yo
 
 <!-- slot: deliver -->
 - The work committed on your branch, with a README section on how to build, run and serve it.
-- In `{{status_file}}`: what's done, the commands that prove it, and anything left as `NEEDS-REVIEW:`.
+- In `{{status_file}}`: what's done, the commands that prove it, and anything left as `QUESTION:`.
 - Screenshots of every screen you touched, in a `shots/` folder next to this brief, named `<page>-<width>x<height>[-dark].png`.
 
 <!-- slot: bar -->
-- Real content only: never invent facts, prices, testimonials, quotes or numbers, and no placeholder text. If something real is missing, leave a clean gap and write `NEEDS-REVIEW:`.
+- Real content only: never invent facts, prices, testimonials, quotes or numbers, and no placeholder text. If something real is missing, leave a clean gap and write `QUESTION:`.
 - Every screen looks finished at every size you shot: no broken layouts, no console errors. Basic accessibility: contrast, focus states, alt texts, a sane heading order.
 - Small, clear commits; nothing half-done left uncommitted at the end.
-- No secrets in the code, and nothing that needs a key you don't have: build around it and write `NEEDS-REVIEW:`.
+- No secrets in the code, and nothing that needs a key you don't have: build around it and write `QUESTION:`.
 
 <!-- slot: verify -->
 - Build it, start it, use it. For a fix, show it failing before and passing after.

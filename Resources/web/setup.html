@@ -148,6 +148,12 @@
   .field.floor > span:first-child { flex: 1; }
   .field.floor input[type=text] { max-width: 160px; }
   .field.floor select { max-width: 220px; }
+  /* Under a floor: the folders whose agents sit there, each with ✕, and a field to add one. */
+  .floor-rules { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 10px; font-size: 12px; }
+  .floor-rules .rule { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: 10px;
+    background: rgb(128 128 128 / .15); max-width: 100%; overflow-wrap: anywhere; }
+  .floor-rules .rule button { border: 0; background: none; padding: 0 4px; cursor: pointer; color: inherit; opacity: .6; }
+  .floor-rules input[type=text] { flex: 1; min-width: 140px; max-width: 280px; font-size: 12px; }
   .field.stacked { flex-direction: column; align-items: stretch; gap: 8px; }
   .field.stacked > .choices, .field.stacked .picker > .choices { justify-content: flex-start; }
   .field.stacked > span:first-child small, .field > span:first-child small { color: var(--dim); font-size: 12px; margin-left: 4px; }
@@ -200,6 +206,16 @@
   /* A long description, two lines until it's opened. */
   .step:not(.expanded) .lead { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .more-toggle { font-size: 12px; margin-top: 2px; }
+  /* Claude accounts: one row each, and a row to add one */
+  .accounts { display: grid; gap: 6px; margin-top: 8px; }
+  .accounts .row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12.5px; }
+  .accounts .row .dir { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; font: 12px ui-monospace, "SF Mono", Menlo, monospace; color: var(--dim); }
+  .accounts input[type=text] { flex: 1 1 140px; }
+  /* Guard: one row a group, then your own patterns */
+  .guard-warning { color: var(--error); }
+  .guard-extra { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 10px 14px; }
+  .guard-extra .pattern { display: inline-flex; align-items: center; gap: 4px; font: 12px ui-monospace, "SF Mono", Menlo, monospace; }
+  .guard-extra input[type=text] { flex: 1 1 220px; font: 12px ui-monospace, "SF Mono", Menlo, monospace; }
   .hire-setup { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin-top: 8px; }
   .hire-setup input[type=text], .hire-setup input[type=url], .hire-setup input[type=password] { flex: 1 1 200px; }
   #hire-folder, #webhook-url, #viewer-url, .mono { font: 12px ui-monospace, "SF Mono", Menlo, monospace; }
@@ -214,6 +230,16 @@
   .summary-dialog p { margin: 0 0 10px; line-height: 1.45; }
   .summary-dialog ul { margin: 0 0 18px; padding-left: 20px; line-height: 1.5; }
   .summary-dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  /* What makes summaries: one row each, with why it can't when it can't. */
+  .summary-providers { border: 0; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+  .summary-providers legend { padding: 0; margin-bottom: 4px; font-size: 12.5px; font-weight: 500; }
+  .summary-providers label { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
+  .summary-providers label .why { color: var(--dim); font-size: 12px; }
+  .summary-providers label.off { color: var(--dim); }
+  .summary-providers label.broken .why { color: var(--error); }
+  .summary-notes { display: grid; gap: 3px; margin-top: 8px; }
+  .summary-notes .warn { color: var(--error); }
+  .summary-key-note { width: 100%; color: var(--dim); font-size: 12px; }
   .glossary { width: 100%; display: grid; gap: 6px; }
   .glossary textarea { width: 100%; min-height: 100px; resize: vertical; font: 12px/1.4 ui-monospace, Menlo, monospace; }
   .webhook-setup #webhook-url { flex: 3 1 260px; }
@@ -328,6 +354,7 @@
   .tailnet ol { margin: 0; padding-left: 18px; color: var(--dim); display: grid; gap: 6px; }
   .tailnet code.address { display: inline-block; margin-top: 4px; font-size: 12px; white-space: normal; word-break: break-all; user-select: all; }
   .tailnet #tailnet-url { white-space: normal; word-break: break-all; }
+  .tailnet #tailnet-found { overflow-wrap: anywhere; }
   .tailnet .pad { display: grid; gap: 10px; }
   .device { display: flex; align-items: center; gap: 10px; padding: 9px 14px; }
   #phones > * + * { border-top: 1px solid var(--sep); }
@@ -603,7 +630,9 @@
         <div class="tools">
           <button class="btn primary" id="start-fix-all" hidden>Fix everything</button>
           <button class="btn" id="start-office">Open the office</button>
+          <select id="start-gm-account" aria-label="The Claude account your General Manager works on" hidden></select>
           <button class="btn" id="start-gm">Hire your General Manager</button>
+          <span class="text" id="start-gm-byhand" hidden>Your General Manager was started by hand.</span>
         </div>
       </div>
       <div class="box" id="start-checks"></div>
@@ -696,6 +725,33 @@
           <button class="btn primary" data-pending-only id="hooks">Connect</button>
           <button class="btn" data-done-only id="unhook">Disconnect</button>
         </div>
+        <p class="note" id="hooks-problem" role="alert" hidden></p>
+        <div class="step" id="step-terminal" data-keywords="terminal command line smolcorp path cli" hidden>
+          <div class="mark">✓</div>
+          <div class="text">
+            <div class="title">Add smolcorp to Terminal</div>
+            <div class="detail" data-pending="Lets you type smolcorp in Terminal. It adds a link in ~/.local/bin to the command inside this app, and nothing else on your Mac changes." data-done="smolcorp works in Terminal through a link in ~/.local/bin."></div>
+            <div class="detail" id="terminal-path" hidden>~/.local/bin isn't on your PATH yet, so Terminal won't find it until you add that folder to your shell's PATH. Smolcorp doesn't touch your shell files: paste this line in Terminal<span id="terminal-path-file"></span>, then open a new Terminal window.
+              <div><code id="terminal-path-line" style="user-select:all"></code> <button class="btn" id="terminal-path-copy">Copy</button> <span class="result" id="terminal-path-copied"></span></div>
+            </div>
+          </div>
+          <button class="btn primary" data-pending-only id="terminal-add">Add</button>
+          <button class="btn" data-done-only id="terminal-remove">Remove</button>
+        </div>
+        <p class="note" id="terminal-problem" role="alert" hidden></p>
+        <div class="step" id="step-accounts" hidden>
+          <div class="text">
+            <div class="title">Claude accounts</div>
+            <div class="detail">Claude Code signed in to more than one account, each in a folder of its own (CLAUDE_CONFIG_DIR). Connect puts Smolcorp's hooks in every account listed, and a hire says which one it works on.</div>
+            <div class="accounts" id="accounts-list"></div>
+            <div class="accounts"><div class="row" id="accounts-add">
+              <input type="text" id="account-name" spellcheck="false" placeholder="Name, such as work" aria-label="The account's name">
+              <input type="text" id="account-dir" class="mono" spellcheck="false" placeholder="Folder, such as ~/.claude-work" aria-label="The account's folder">
+              <button class="btn" id="account-add">Add</button>
+            </div></div>
+            <p class="note" id="accounts-problem" role="alert" hidden></p>
+          </div>
+        </div>
         <div class="step" id="step-launcher" hidden>
           <div class="mark">✓</div>
           <div class="text">
@@ -753,14 +809,81 @@
           </div>
           <button class="switch" id="maxconfirm" aria-label="Ask before max effort"></button>
         </div>
+        <div class="step" id="step-keystrokes" data-keywords="keys keystrokes typing accessibility click apps" hidden>
+          <div class="mark">✓</div>
+          <div class="text">
+            <div class="title">Let features press keys in other apps</div>
+            <div class="detail" data-pending="Off. When on, a feature may type or press a key in an app you name, one key at a time. It stops if you click elsewhere or use the keyboard or mouse, and never types into a file dialog. Turning it on also needs macOS's Accessibility permission for Smolcorp, which macOS will ask you for." data-done="On. A feature may type or press a key in an app it names. It stops at once if you click elsewhere or use the keyboard or mouse, and never types into a file dialog. It also needs macOS's Accessibility permission for Smolcorp."></div>
+            <div class="detail" id="keystrokes-apps-note"></div>
+            <div id="keystrokes-apps"></div>
+            <div class="detail" style="display:flex;gap:6px;align-items:center;margin-top:6px">
+              <select id="keystrokes-pick" aria-label="An open app to allow"></select>
+              <button class="btn" id="keystrokes-add">Add</button>
+            </div>
+            <div class="detail" id="keystrokes-problem" hidden></div>
+            <div class="detail" id="keystrokes-access" hidden>Turn Smolcorp on in System Settings → Privacy &amp; Security → Accessibility, or nothing will be pressed.</div>
+          </div>
+          <button class="switch" id="keystrokes" aria-label="Let features press keys in other apps"></button>
+        </div>
       </div>
     </div>
+    <div class="group">
+      <h2>Manager</h2>
+      <div class="box steps switches">
+        <div class="step" id="step-manager" data-keywords="manager general manager gm team front desk" hidden>
+          <div class="mark">✓</div>
+          <div class="text">
+            <div class="title">Let a General Manager run your team</div>
+            <div class="detail" data-pending="Off: Smolcorp works as before. Your team's events are still noted, so turning this on shows what happened lately." data-done="On: a General Manager can see your team on this computer and hire, brief and tile it. Turning it off fires no one."></div>
+            <div class="detail" id="manager-team"></div>
+            <div class="detail" id="manager-screens" hidden>
+              <span>Which screen holds the team?</span>
+              <span class="choices" id="manager-screen-list"></span>
+            </div>
+          </div>
+          <button class="switch" id="manager" aria-label="Let a General Manager run your team"></button>
+        </div>
+      </div>
+      <div id="manager-tools" hidden>
+        <h3 class="hint">General Manager</h3>
+        <div class="box">
+          <div class="field pad" id="gm-row" data-search="General Manager" data-keywords="gm general manager fire token rotate by hand file">
+            <span class="text" id="gm-status"></span>
+            <button class="btn" id="gm-fire" hidden>Fire the General Manager</button>
+          </div>
+          <div class="field pad">
+            <span class="text">A new General Manager token<br><small class="hint">The old token stops working. Fire the General Manager and hire it again to give it the new one.</small></span>
+            <button class="btn" id="gm-rotate">New GM token</button>
+          </div>
+          <div class="field pad">
+            <span class="text">Allow a General Manager started by hand<br><small class="hint">This writes the General Manager's token to a file on this computer, so a General Manager you start yourself can find it. Anything that can read your files can read it. Off keeps the token out of every file.</small></span>
+            <button class="switch" id="gm-byhand" aria-label="Allow a General Manager started by hand"></button>
+          </div>
+        </div>
+        <p class="hint" id="gm-problem" hidden></p>
+        <h3 class="hint">Team</h3>
+        <div class="box" id="team-list"></div>
+        <p class="hint" id="team-problem" hidden></p>
+      </div>
+      <div id="guard-section" hidden>
+        <h3 class="hint">Guard</h3>
+        <p class="hint">Commands every hire is refused, whatever it is asked. Each group is on until you switch it off. A group you switch off is dropped from Claude's own deny rules too, not only from the guard: you allowed it, so Smolcorp no longer blocks it.</p>
+        <div class="box steps switches" id="guard-groups"></div>
+        <div class="box guard-extra" id="guard-extra" data-search="Guard" data-keywords="guard refuse block hire push deploy publish command pattern">
+          <input type="text" id="guard-pattern" spellcheck="false" placeholder="Another command to refuse, such as terraform import" aria-label="Another command to refuse">
+          <button class="btn" id="guard-add">Add</button>
+        </div>
+        <p class="hint" id="guard-problem" hidden></p>
+        <p class="hint" id="guard-limits"></p>
+      </div>
+    </div>
+    <p class="detail" id="app-version" style="text-align:right"></p>
   </section>
 
   <!-- ============================================================== Office -->
 
   <section class="pane layout" id="layout" data-pane="office" data-title="Office" hidden>
-    <header class="pane-head"><h1>Office</h1><p>How the office looks and lives, on your phone, the Mac and the viewer.</p></header>
+    <header class="pane-head"><h1>Office</h1><p>How the office looks and lives, on your phone, this computer and the viewer.</p></header>
     <div class="group">
       <h2>Style</h2>
       <div class="box">
@@ -774,10 +897,35 @@
         </div>
       </div>
     </div>
+    <div class="group" id="window-group" hidden>
+      <h2>Window</h2>
+      <div class="box steps switches">
+        <div class="step" id="step-ontop" data-keywords="always on top float floating above other windows spaces full screen pin">
+          <div class="mark">✓</div>
+          <div class="text">
+            <div class="title">Keep the office on top of other windows</div>
+            <div class="detail" data-pending="Off: the office's window goes behind the window you click." data-done=""></div>
+          </div>
+          <button class="switch" id="ontop" aria-label="Keep the office on top of other windows"></button>
+        </div>
+        <div class="step" id="ontop-none" hidden>
+          <div class="mark">✓</div>
+          <div class="text">
+            <div class="title">Keep the office on top of other windows</div>
+            <div class="detail">Not here: the office opens in your browser on this computer, so there's no window of its own to keep on top.</div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="group" id="floors-group" hidden>
       <h2>Floors</h2>
-      <p class="hint">Agents with no desk on the ground floor go upstairs, 12 to a floor. Name each floor, and pick a style for the ones above.</p>
+      <p class="hint">Agents with no desk on the ground floor go upstairs, 12 to a floor. Name each floor, and pick a style for the ones above. Add a project's folder under a floor, and its agents sit there: put anyone on any floor from the office too, with ⇅ floor.</p>
       <div class="box" id="floors" data-search="Floors" data-keywords="floor upstairs building storey server room name"></div>
+    </div>
+    <div class="group" id="bots-group" hidden>
+      <h2>Cloud bots</h2>
+      <p class="hint" id="bots-hint"></p>
+      <div class="box" id="bots" data-search="Cloud bots" data-keywords="grok bot cloud bots desk pin hide find detect"></div>
     </div>
     <div class="group">
       <h2>The room</h2>
@@ -833,6 +981,7 @@
               <select id="hire-terminal" aria-label="The terminal hires open in" hidden></select>
               <label class="hire-tmux" id="hire-tmux-label" hidden><input type="checkbox" id="hire-tmux"> Start inside tmux</label>
             </div>
+            <p class="note" id="hiring-problem" role="alert" hidden></p>
           </div>
           <button class="switch" id="hiring" aria-label="Let the office hire and fire"></button>
         </div>
@@ -846,6 +995,7 @@
       <div class="tools">
         <button class="btn" id="role-add">Add a role</button>
         <button class="btn" id="role-shipped">Bring back Smolcorp's roles</button>
+        <button class="btn" id="briefs-restore" title="Put the briefs in Application Support/AgentDeck/briefs/templates back to the ones that came with the app. Your edits there are lost.">Restore default briefs</button>
       </div>
     </section>
     <div class="group">
@@ -964,8 +1114,8 @@
         <ol>
           <li>Install Tailscale on this computer and on the phone, and sign in to both with the same account.</li>
           <li>In Tailscale's admin console, under DNS, check that MagicDNS and HTTPS Certificates are on.</li>
-          <li>In Terminal on this computer, run:<br><code class="address" id="tailnet-command">tailscale serve --bg --https=443 http://127.0.0.1:7710</code></li>
-          <li>On the phone, open <span class="address" id="tailnet-url">https://&lt;this-mac&gt;.&lt;your-tailnet&gt;.ts.net</span> and pair with a code, as usual.</li>
+          <li>In Terminal on this computer, run:<br><code class="address" id="tailnet-command">tailscale serve --bg --https=443 http://127.0.0.1:&lt;port&gt;</code></li>
+          <li>On the phone, open <span class="address" id="tailnet-url">https://&lt;this-computer&gt;.&lt;your-tailnet&gt;.ts.net</span> and pair with a code, as usual.</li>
         </ol>
         <p class="hint" id="tailnet-found"></p>
         <div id="tailnet-scan" hidden>
@@ -1014,10 +1164,28 @@
         <div class="step" id="step-summary" hidden>
           <div class="mark">✓</div>
           <div class="text">
-            <div class="title">Summaries with Claude</div>
+            <div class="title">Summaries</div>
             <div class="detail" id="summary-detail"></div>
+            <fieldset class="summary-providers" id="summary-providers">
+              <legend>Summaries use</legend>
+            </fieldset>
+            <div class="summary-notes">
+              <div class="detail" id="summary-privacy"></div>
+              <div class="detail" id="summary-scope">Only Smolcorp's summary call runs on your plan; your terminals and agents keep their own keys and logins.</div>
+              <div class="detail" id="summary-cleanup" hidden>Dictation clean-up uses the API key only: a coding agent is too slow to clean up text before it's typed.</div>
+              <div class="detail warn" id="summary-fallback" hidden></div>
+            </div>
+            <div class="hire-setup summary-key">
+              <button class="btn" id="summary-check">Check again</button>
+              <span class="result" id="summary-provider-result"></span>
+            </div>
+            <div class="hire-setup summary-key">
+              <div class="summary-key-note" id="summary-key-note"></div>
+              <div class="summary-key-note">Use a key from a dedicated workspace with a spending limit.
+                <a href="https://console.anthropic.com/settings/limits" target="_blank" rel="noopener noreferrer">Set limits in the Anthropic console</a></div>
+            </div>
             <div class="hire-setup summary-key" id="summary-key-setup">
-              <input type="password" id="summary-key" spellcheck="false" autocomplete="off" placeholder="Your Anthropic API key, sk-ant-…" aria-label="Your Anthropic API key">
+              <input type="password" id="summary-key" spellcheck="false" autocomplete="new-password" placeholder="Your Anthropic API key, sk-ant-…" aria-label="Your Anthropic API key">
               <button class="btn" id="summary-key-save">Save key</button>
               <span class="result" id="summary-key-result"></span>
             </div>
@@ -1026,7 +1194,7 @@
               <button class="btn" id="summary-key-remove">Remove</button>
             </div>
           </div>
-          <button class="switch" id="summary" aria-label="Summaries with Claude"></button>
+          <button class="switch" id="summary" aria-label="Summaries"></button>
         </div>
         <div class="step" id="step-webhook" hidden>
           <div class="mark">✓</div>
@@ -1140,7 +1308,7 @@
     </div>
     <div class="wstep" data-step="1">
       <h2 id="welcome-title">Make the office your own</h2>
-      <p class="hint">Your sessions work in a little office on your phone. Pick a style to start: your phone shows it straight away, and you can change it any time.</p>
+      <p class="hint">Your sessions work in a little office, on this computer and on a paired phone. Pick a style to start: it shows straight away, and you can change it any time.</p>
       <div class="catalog" id="welcome-style"></div>
     </div>
     <div class="wstep" data-step="2" hidden>
@@ -1153,7 +1321,7 @@
     </div>
     <div class="wstep" data-step="3" hidden>
       <h2>All set</h2>
-      <p>Your office is ready, and your phone already shows it. Want desks somewhere else, a jukebox, or pictures on the wall? Arrange the room, on its side and upright.</p>
+      <p>Your office is ready: open it on this computer, or on a paired phone. Want desks somewhere else, a jukebox, or pictures on the wall? Arrange the room, on its side and upright.</p>
       <div class="tools">
         <button class="btn" id="invite-standard">Arrange the room…</button>
         <button class="btn" id="invite-empty">Start from an empty room…</button>
@@ -1177,6 +1345,23 @@
           <input type="text" id="hs-folder" class="mono" spellcheck="false" placeholder="or type a folder, such as ~/Projects/app" aria-label="The folder it works in">
         </div>
       </label>
+      <label id="hs-account-row" hidden><span>Which Claude account it works on</span>
+        <select id="hs-account" aria-label="The Claude account it works on"></select>
+      </label>
+      <label id="hs-floor-row" hidden><span>Which floor it sits on</span>
+        <select id="hs-floor" aria-label="The floor it sits on"></select>
+      </label>
+      <details id="hs-options"><summary>Options</summary>
+        <div style="display:grid;gap:10px;margin-top:8px">
+          <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="hs-worktree"><span>Work in a worktree of its own, a copy of the repo on a branch of its own</span></label>
+          <label><span>Model</span><input type="text" id="hs-model" class="mono" spellcheck="false" placeholder="The role's own, or a name such as claude-sonnet-5-5" aria-label="The model it works on"></label>
+          <label><span>Nickname</span><input type="text" id="hs-nickname" spellcheck="false" maxlength="40" placeholder="What the General Manager calls it" aria-label="Its nickname"></label>
+          <div id="hs-apikey-row" hidden>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="hs-apikey"><span>Work on your API key</span></label>
+            <p class="hint" id="hs-apikey-notice" style="margin:4px 0 0"></p>
+          </div>
+        </div>
+      </details>
       <div id="hs-questions" style="display:grid;gap:10px"></div>
       <details id="hs-brief"><summary>The brief it gets</summary><div class="md" id="hs-brief-md"></div></details>
       <p class="note" id="hs-problem" hidden></p>
@@ -1271,12 +1456,15 @@
 <dialog class="summary-dialog" id="summary-dialog" aria-labelledby="summary-dialog-title">
   <h3 id="summary-dialog-title">Turn on summaries?</h3>
   <p>When you tap ✨ summary on an agent's desk, Smolcorp sends the end of that agent's Claude Code transcript to
-    Anthropic's API: your recent requests and its replies, each cut short; the tools it ran; and the first line of each
+    <b id="summary-dialog-to">Anthropic's API</b>: your recent requests and its replies, each cut short; the tools it ran; and the first line of each
     tool's output (for a file it read, that's the file's first line). Lines that look like secrets are taken out first.
     The project's folder name goes with it.</p>
   <ul>
-    <li>It uses <b>your own API key</b> (<span id="summary-dialog-key"></span>), and <b>Anthropic bills it to you</b>.</li>
-    <li>The model is <b id="summary-dialog-model">Claude Haiku 5.5</b>.</li>
+    <li id="summary-dialog-key-line">It uses <b>your own API key</b> (<span id="summary-dialog-key"></span>), and <b>Anthropic bills it to you</b>.</li>
+    <li id="summary-dialog-model-line">The model is <b id="summary-dialog-model">Claude Haiku 5.5</b>.</li>
+    <li id="summary-dialog-plan-line" hidden>It <b id="summary-dialog-plan"></b>, with no tools, in an empty folder.
+      Only that one call does: your terminals and agents keep their own keys and logins.</li>
+    <li id="summary-dialog-fallback-line" hidden>If it fails, the summary is made with your API key instead, and says so.</li>
     <li>Nothing is sent until you tap ✨ summary, and you can turn this off here at any time.</li>
   </ul>
   <div class="actions">
@@ -1290,13 +1478,36 @@
   const $ = (id) => document.getElementById(id);
   let state = null;
 
+  /** One request for the state at a time: one asked for while another is on its way is made once that one is back. */
+  let loading = false, loadAgain = false;
   async function load() {
+    if (loading) { loadAgain = true; return; }
+    loading = true;
+    // A request that never comes back is given up on after 10 s, in every browser, so the refresh isn't held for good.
+    const giveUp = new AbortController();
+    const timer = setTimeout(() => giveUp.abort(), 10000);
     try {
-      const res = await fetch('/setup/state', { cache: 'no-store' });
-      if (res.status === 401) return locked();
+      const res = await fetch('/setup/state', { cache: 'no-store', signal: giveUp.signal });
+      if (res.status === 401) return locked(res.headers.get('X-Smolcorp-App'));
       state = await res.json();
       render();
-    } catch {}
+    } catch {} finally {
+      clearTimeout(timer);
+      loading = false;
+      if (loadAgain) { loadAgain = false; load(); }
+    }
+  }
+
+  /**
+   * Draws `host` only when what it's drawn from has changed since it was last
+   * drawn: a refresh with the same data leaves its elements, and what reads
+   * them aloud, as they were.
+   */
+  function changed(host, from) {
+    const key = JSON.stringify(from);
+    if (host.dataset.drawnFrom === key) return false;
+    host.dataset.drawnFrom = key;
+    return true;
   }
 
   /**
@@ -1316,13 +1527,17 @@
   }
 
   /** Without the key, as from an old bookmark or a link from before Smolcorp restarted: where to open the page from. */
-  function locked() {
+  function locked(app) {
     if (document.body.dataset.locked) return;
     document.body.dataset.locked = '1';
     const note = document.createElement('p');
     note.className = 'hint';
-    note.textContent = "This page opens from Smolcorp's menu: Settings… (or Open Setup… in a browser). Without a menu, use the link "
-      + 'smolcorp serve prints as it starts. A link from before Smolcorp last started no longer works.';
+    // The app that served the page says what it is; no header (an older app) gets the Linux/Windows text.
+    note.textContent = (app === 'mac'
+      ? "This page opens from Smolcorp's menu bar: choose Open Settings in Browser. "
+      : "This page opens from Smolcorp's menu: Settings… (or Open Setup… in a browser). With no tray, use the link Smolcorp prints as it starts; "
+        + 'for a new one, run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again. ')
+      + 'A link from before Smolcorp last started, as for the home Wi-Fi, no longer works.';
     document.querySelector('main').replaceChildren(note);
   }
 
@@ -1355,7 +1570,37 @@
     new MutationObserver(say).observe(sw, { attributes: true, attributeFilter: ['class'] });
   });
 
+  /** The Mac app's own setup: its office is a window of the app, and the page says Mac where it means this computer. */
+  function onMac() { return !!(state.officeWindow && state.officeWindow.mac); }
+  /** A line of copy as the Mac says it: "this Mac" where Linux and Windows say "this computer". */
+  function wording(text) {
+    return onMac() ? text.replace(/\bthis computer\b/g, 'this Mac').replace(/\byour computer\b/g, 'your Mac').replace(/\bthe computer's\b/g, "the Mac's").replace(/\bthis computer's\b/g, "this Mac's") : text;
+  }
+  /** The page's own words, said once the Mac is known: its text and its pending/done lines. */
+  let macWorded = false;
+  function wordForMac() {
+    if (macWorded || !onMac()) return;
+    macWorded = true;
+    const walker = document.createTreeWalker(document.querySelector('main') || document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.parentElement.closest('script, style, code')) continue;
+      node.nodeValue = wording(node.nodeValue);
+    }
+    document.querySelectorAll('[data-pending], [data-done]').forEach((el) => {
+      if (el.dataset.pending) el.dataset.pending = wording(el.dataset.pending);
+      if (el.dataset.done) el.dataset.done = wording(el.dataset.done);
+    });
+  }
+  /** Where the office is, besides the phone. */
+  function officeWhere() {
+    if (onMac()) return 'on your phone or in its window on this Mac';
+    return state.officeWindow && state.officeWindow.available ? 'on your phone or in its window' : 'on your phone or in the browser';
+  }
+
   function render() {
+    $('app-version').textContent = state.version ? `Smolcorp ${state.version}` : '';
+    wordForMac();
+    if (onMac()) $('layout').querySelector('.pane-head p').textContent = 'How the office looks and lives, on your phone, the Mac and the viewer.';
     renderChecklist();
     renderPhone();
     renderLogo();
@@ -1363,6 +1608,7 @@
     renderProfiles();
     renderLayout();
     renderFloors();
+    renderBots();
     renderAttention();
     showInvite();
     hideEmptyGroups();
@@ -1382,6 +1628,7 @@
   function renderChecklist() {
     const c = state.checklist;
     describeAgents();
+    renderAccounts();
     mark('step-hooks', c.hooks);
     // Only the Mac app needs Accessibility to press keys.
     $('step-accessibility').hidden = !('accessibility' in c);
@@ -1395,7 +1642,11 @@
     renderDictation();
     renderMusic();
     renderMaxConfirm();
+    renderKeystrokes();
+    renderManager();
+    renderTerminalCommand();
     renderDock();
+    renderOnTop();
     renderSummary();
     renderPhoneMic();
     renderWebhook();
@@ -1414,6 +1665,204 @@
     $('music').classList.toggle('on', m.enabled);
   }
 
+  /** "Add smolcorp to Terminal": shown where the app has its command (not a test copy). */
+  function renderTerminalCommand() {
+    const t = state.terminalCommand;
+    $('step-terminal').hidden = !t || !t.available || t.testCopy;
+    if ($('step-terminal').hidden) return;
+    mark('step-terminal', t.state === 'linked');
+    $('terminal-add').hidden = t.state === 'linked';
+    $('terminal-add').disabled = t.state === 'occupied';
+    $('terminal-path').hidden = t.state !== 'linked' || t.onPath;
+    $('terminal-path-line').textContent = t.pathLine || '';
+    $('terminal-path-file').textContent = t.pathFile ? ` (it adds the line to ${t.pathFile})` : '';
+    if (t.state === 'occupied') {
+      $('terminal-problem').textContent = 'A file called smolcorp is already in ~/.local/bin and it isn\'t Smolcorp\'s, so it is left as it is.';
+      $('terminal-problem').hidden = false;
+    }
+  }
+  async function changeTerminalCommand(remove) {
+    $('terminal-problem').hidden = true;
+    if (!remove && !confirm('Add a link named smolcorp in ~/.local/bin, pointing at the command inside this app? Nothing else on your Mac changes.')) return;
+    const res = await post(`/setup/terminal-command${remove ? '?remove=1' : ''}`);
+    if (!res.ok) {
+      $('terminal-problem').textContent = await res.text();
+      $('terminal-problem').hidden = false;
+    }
+  }
+  $('terminal-path-copy').onclick = () => copyText($('terminal-path-line').textContent, 'terminal-path-copied');
+  $('terminal-add').onclick = () => changeTerminalCommand(false);
+  $('terminal-remove').onclick = () => changeTerminalCommand(true);
+
+  /** The Manager panel: the switch, and, once it is on, whether a General Manager is hired and how big the team is. */
+  function renderManager() {
+    const m = state.manager;
+    $('step-manager').hidden = !m;
+    $('step-manager').closest('.group').hidden = !m;
+    if (!m) return;
+    showStartGM(!!m.gmStartedByHand); // the flag alone for now; the team below knows if a hired GM is there
+    mark('step-manager', m.enabled);
+    $('manager').classList.toggle('on', m.enabled);
+    const line = $('manager-team');
+    line.textContent = '';
+    $('manager-screens').hidden = true;
+    $('manager-tools').hidden = true;
+    if (!m.enabled) return;
+    renderScreens();
+    fetch('/setup/gm/team', { cache: 'no-store', headers: setupHeaders() }).then((res) => (res.ok ? res.json() : null)).then((team) => {
+      if (!team || !state.manager || !state.manager.enabled) return;
+      const rows = (team.team || []).filter((r) => r.state !== 'fired' && r.state !== 'failed');
+      const hired = rows.some((r) => r.role === 'gm' && r.registered);
+      // A GM started by hand: the app names its session (a live row with the gm role and no hire), or, from
+      // an older command that doesn't say which session it is, only the flag says so.
+      const byHand = !hired && (rows.some((r) => r.role === 'gm') || !!state.manager.gmStartedByHand);
+      const others = rows.filter((r) => r.role !== 'gm').length;
+      line.textContent = `${hired ? 'Your General Manager is hired.' : byHand ? 'Your General Manager was started by hand.' : 'No General Manager yet: use Hire your General Manager on Easy setup.'} `
+        + (others === 1 ? '1 employee on the team.' : `${others} employees on the team.`);
+      showStartGM(byHand);
+      renderManagerTools(team.team || []);
+    }).catch(() => {});
+  }
+
+  /** Easy setup's hire button gives way to the by-hand line while a General Manager started by hand is there. */
+  function showStartGM(byHand) {
+    $('start-gm').hidden = byHand;
+    $('start-gm-byhand').hidden = !byHand;
+    if (byHand) $('start-gm-account').hidden = true;
+    else renderGmAccount();
+  }
+
+  /** Says a refusal in place, under the control that met it. Never an alert. */
+  function tell(id, text) {
+    $(id).textContent = text || '';
+    $(id).hidden = !text;
+  }
+  async function refusal(res, fallback) {
+    return (res && (await res.text().catch(() => ''))) || (res ? fallback : wording("Can't reach Smolcorp on this computer."));
+  }
+
+  /** The General Manager's controls and the team, with a fire (and its options) on each row. */
+  function renderManagerTools(rows) {
+    const open = rows.filter((r) => r.state !== 'fired' && r.state !== 'failed');
+    const gm = open.find((r) => r.role === 'gm' && r.registered);
+    $('manager-tools').hidden = false;
+    $('gm-status').textContent = gm ? 'Your General Manager is hired.'
+      : (state.manager.gmStartedByHand || open.some((r) => r.role === 'gm')) ? 'Your General Manager was started by hand.' : 'No General Manager is hired.';
+    $('gm-fire').hidden = !gm;
+    $('gm-fire').onclick = async () => {
+      $('gm-fire').disabled = true;
+      const res = await fetch('/setup/gm/fire', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify({ id: gm.id }) }).catch(() => null);
+      $('gm-fire').disabled = false;
+      if (res && res.ok) { tell('gm-problem', ''); load(); } else tell('gm-problem', await refusal(res, "The General Manager couldn't be fired."));
+    };
+    if (!$('gm-rotate').dataset.sure) resetRotate(); // the 1.5 s refresh must not undo an armed button
+    $('gm-byhand').classList.toggle('on', !!state.manager.gmByHand);
+    $('gm-byhand').onclick = async () => {
+      const res = await fetch(`/setup/gm/by-hand?enabled=${state.manager.gmByHand ? 0 : 1}`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
+      if (res && res.ok) { tell('gm-problem', ''); load(); } else tell('gm-problem', await refusal(res, "That couldn't be changed."));
+    };
+    const list = $('team-list');
+    if (list.contains(document.activeElement)) return;
+    const rest = open.filter((r) => r !== gm && r.registered);
+    list.replaceChildren(...(rest.length ? rest.map(teamRow)
+      : [Object.assign(document.createElement('p'), { className: 'hint', textContent: 'No one is hired besides the General Manager.', style: 'padding:10px 14px;margin:0' })]));
+  }
+
+  /** "New GM token" asks once more on the button itself before it rotates. */
+  function resetRotate() {
+    const button = $('gm-rotate');
+    button.textContent = 'New GM token';
+    button.dataset.sure = '';
+    button.onclick = async () => {
+      if (!button.dataset.sure) {
+        button.dataset.sure = '1';
+        button.textContent = 'Yes, make a new token';
+        setTimeout(() => { if (button.dataset.sure && !button.disabled) resetRotate(); }, 8000);
+        return;
+      }
+      button.disabled = true;
+      const res = await fetch('/setup/gm/token/rotate', { method: 'POST', headers: setupHeaders() }).catch(() => null);
+      button.disabled = false;
+      resetRotate();
+      if (res && res.ok) {
+        const done = await res.json().catch(() => ({}));
+        tell('gm-problem', done.message || 'The old token no longer works. Fire the General Manager and hire it again to give it the new one.');
+      } else tell('gm-problem', await refusal(res, "The new token couldn't be made; the old one still works."));
+    };
+  }
+
+  /** One hire on the team: who, where, and Fire… with the two options a fire has. */
+  function teamRow(r) {
+    const row = document.createElement('div');
+    row.className = 'pad';
+    const head = document.createElement('div');
+    head.className = 'field';
+    const label = document.createElement('span');
+    label.className = 'text';
+    label.textContent = r.nickname || r.name;
+    label.append(Object.assign(document.createElement('small'), { className: 'hint', textContent: ` · ${r.role || 'hire'}${r.branch ? ` · ${r.branch}` : ''}` }));
+    const fire = document.createElement('details');
+    fire.className = 'menu';
+    const open = Object.assign(document.createElement('summary'), { className: 'btn', textContent: 'Fire…' });
+    const body = document.createElement('div');
+    body.style.cssText = 'display:grid;gap:6px;padding:8px 0 0';
+    const force = document.createElement('input');
+    force.type = 'checkbox';
+    const forceLabel = document.createElement('label');
+    forceLabel.style.cssText = 'display:flex;gap:8px;align-items:flex-start;font-size:12.5px';
+    forceLabel.append(force, Object.assign(document.createElement('span'), {
+      textContent: 'Fire even with unsaved work or a question open. Whatever it has not saved is lost, and so is a question nobody answered.' }));
+    body.append(forceLabel);
+    let remove = null;
+    if (r.worktree) {
+      remove = document.createElement('input');
+      remove.type = 'checkbox';
+      const removeLabel = document.createElement('label');
+      removeLabel.style.cssText = 'display:flex;gap:8px;align-items:flex-start;font-size:12.5px';
+      removeLabel.append(remove, Object.assign(document.createElement('span'), {
+        textContent: 'Remove its worktree too. It is kept if it holds changes.' }));
+      body.append(removeLabel);
+    }
+    const problem = Object.assign(document.createElement('p'), { className: 'note', hidden: true });
+    const go = Object.assign(document.createElement('button'), { className: 'btn', textContent: `Fire ${r.nickname || r.name}` });
+    go.onclick = async () => {
+      go.disabled = true;
+      const res = await fetch('/setup/gm/fire', { method: 'POST', headers: setupHeaders(true),
+        body: JSON.stringify({ id: r.id, ...(force.checked ? { force: true } : {}), ...(remove && remove.checked ? { removeWorktree: true } : {}) }) }).catch(() => null);
+      go.disabled = false;
+      if (res && res.ok) { load(); return; }
+      problem.textContent = await refusal(res, "That hire couldn't be fired.");
+      problem.hidden = false;
+    };
+    body.append(go, problem);
+    fire.append(open, body);
+    head.append(label, fire);
+    row.append(head);
+    return row;
+  }
+
+  /** "Which screen holds the team?", only where the Mac has two or more screens. */
+  function renderScreens() {
+    fetch('/setup/gm/screens', { cache: 'no-store', headers: setupHeaders() }).then((res) => (res.ok ? res.json() : null)).then((info) => {
+      const box = $('manager-screens');
+      if (!info || !state.manager || !state.manager.enabled || !info.ask) { box.hidden = true; return; }
+      const list = $('manager-screen-list');
+      list.textContent = '';
+      for (const screen of info.screens) {
+        const button = document.createElement('button');
+        button.className = 'btn' + (screen.team ? ' on' : '');
+        button.textContent = screen.name + (screen.main ? ' (main)' : '');
+        button.setAttribute('aria-pressed', screen.team ? 'true' : 'false');
+        button.onclick = async () => {
+          await fetch(`/setup/gm/screen?id=${encodeURIComponent(screen.id)}`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
+          renderScreens();
+        };
+        list.appendChild(button);
+      }
+      box.hidden = false;
+    }).catch(() => {});
+  }
+
   /** Whether the office asks before max effort: the red button's and a chip's max. */
   function renderMaxConfirm() {
     const m = state.maxConfirm;
@@ -1424,6 +1873,51 @@
     $('maxconfirm').classList.toggle('on', m.enabled);
   }
 
+  /** Letting features press keys in other apps: Mac only, off until chosen here. */
+  function renderKeystrokes() {
+    const k = state.keystrokes;
+    $('step-keystrokes').hidden = !k;
+    if (!k) return;
+    mark('step-keystrokes', k.enabled);
+    $('keystrokes').classList.toggle('on', k.enabled);
+    $('keystrokes-access').hidden = !(k.enabled && !k.accessibility);
+    const apps = k.apps || [];
+    $('keystrokes-apps-note').textContent = apps.length
+      ? 'Keys may go to these apps only:'
+      : 'No app is allowed yet, so nothing is pressed anywhere. Add the apps a feature may use. Terminals, editors with a terminal and Smolcorp itself can never be added.';
+    const list = $('keystrokes-apps');
+    list.replaceChildren(...apps.map((id) => {
+      const row = document.createElement('div');
+      row.className = 'detail';
+      row.style.cssText = 'display:flex;gap:6px;align-items:center';
+      const name = document.createElement('span');
+      name.textContent = id;
+      const remove = document.createElement('button');
+      remove.className = 'btn';
+      remove.textContent = 'Remove';
+      remove.setAttribute('aria-label', `Stop allowing ${id}`);
+      remove.onclick = () => changeKeystrokeApp('remove', id);
+      row.append(name, remove);
+      return row;
+    }));
+    const pick = $('keystrokes-pick');
+    pick.replaceChildren(...(k.running || []).map((a) => {
+      const option = document.createElement('option');
+      option.value = a.id;
+      option.textContent = `${a.name} (${a.id})`;
+      return option;
+    }));
+    $('keystrokes-add').disabled = !pick.value;
+  }
+  async function changeKeystrokeApp(what, id) {
+    $('keystrokes-problem').hidden = true;
+    const res = await post(`/setup/keystrokes/apps?${what}=${encodeURIComponent(id)}`);
+    if (!res.ok) {
+      $('keystrokes-problem').textContent = await res.text();
+      $('keystrokes-problem').hidden = false;
+    }
+  }
+
   /** The Mac app's icon in the Dock, where the app can say. */
   function renderDock() {
     const d = state.dock;
@@ -1431,6 +1925,26 @@
     if (!d) return;
     mark('step-dock', d.enabled);
     $('dock').classList.toggle('on', d.enabled);
+  }
+
+  /**
+   * The office's own window kept on top: on the Mac, also on every Space and
+   * beside apps in full screen. Where the office opens in the browser, there's
+   * no window to keep on top, and setup says so.
+   */
+  function renderOnTop() {
+    const w = state.officeWindow;
+    $('window-group').hidden = !w;
+    if (!w) return;
+    // Set only when it differs, so a refresh with nothing new touches nothing.
+    if ($('step-ontop').hidden === w.available) $('step-ontop').hidden = !w.available;
+    if ($('ontop-none').hidden !== w.available) $('ontop-none').hidden = w.available;
+    if (!w.available) return;
+    $('step-ontop').querySelector('.detail').dataset.done = w.mac
+      ? 'Above other windows, on every Space and beside apps in full screen.'
+      : 'Above other windows, even the one you\'re typing in.';
+    mark('step-ontop', w.onTop);
+    $('ontop').classList.toggle('on', w.onTop);
   }
 
   function renderSummary() {
@@ -1446,16 +1960,70 @@
     $('summary-key-setup').hidden = pasted;
     $('summary-key-saved').hidden = !key;
     $('summary-key-hint').textContent = !key ? ''
-      : key.source === 'keychain' ? `Key saved (${key.hint}), in your Keychain.`
-        : key.source === 'store' ? `Key saved (${key.hint}), in your computer's secret store.`
-          : `Using ANTHROPIC_API_KEY (${key.hint}).`;
+      : key.source === 'keychain' ? 'Key saved, in your Keychain.'
+        : key.source === 'store' ? "Key saved, in your computer's secret store."
+          : 'Using the key in ANTHROPIC_API_KEY.';
     $('summary-key-remove').hidden = !pasted;
+    const p = s.provider;
     $('summary-detail').textContent = s.enabled
-      ? `On: ✨ summary on a held desk sends the end of that agent's transcript to Anthropic with your key, billed to you. Model: ${s.model}.`
-      : key ? 'Off. Turn it on to add ✨ summary to a held desk: Claude says what that agent has been doing, with your key.'
-        : s.noStore ? 'Optional, and off. This computer has no secret store to keep a key in, so set ANTHROPIC_API_KEY for Smolcorp, then turn this on.'
-          : 'Optional, and off. Paste your Anthropic API key, then turn this on: ✨ summary on a held desk says what that agent has been doing.';
+      ? (p.id === 'apikey'
+        ? `On: ✨ summary on a held desk sends the end of that agent's transcript to Anthropic with your key, billed to you. Model: ${s.model}.`
+        : `On: ✨ summary on a held desk is made by ${p.name}, which ${p.plan}.`)
+      : p ? `Off. Turn it on to add ✨ summary to a held desk: ${p.name} says what that agent has been doing.`
+        : unsupportedPick(s) ? "Your chosen provider isn't supported yet; pick Claude Code, OpenCode or the API key."
+          : s.checking ? wording('Optional, and off. Looking for the coding agents on this computer…')
+            : 'Optional, and off. Sign in to a coding agent below, or paste an Anthropic API key, then turn this on.';
+    renderSummaryProviders(s);
+    $('summary-privacy').textContent = p
+      ? `Your agent's recent activity is sent to ${p.destination}. Lines that look like secrets are taken out first.`
+      : '';
+    $('summary-scope').hidden = !p || p.id === 'apikey';
+    $('summary-cleanup').hidden = !p || p.id === 'apikey' || !(state.dictation && state.dictation.available);
+    $('summary-fallback').hidden = !s.fallback;
+    $('summary-fallback').textContent = s.fallback ? `Last summary: ${s.fallback.replace(/^\(|\)$/g, '')}` : '';
+    $('summary-check').disabled = !!s.checking;
+    $('summary-check').textContent = s.checking ? 'Checking…' : 'Check again';
+    $('summary-key-note').textContent = !p || p.id === 'apikey'
+      ? 'Your Anthropic API key, for summaries made with it.'
+      : `Optional with ${p.name}: a key saved here makes the summary instead when ${p.name} fails (the summary says so)`
+        + (state.dictation && state.dictation.available ? ', and cleans up dictation.' : '.');
     $('summary-key-setup').hidden = $('summary-key-setup').hidden || !!s.noStore;
+  }
+
+  /** Whether what was picked, as an older version could, is a provider that isn't supported now. */
+  function unsupportedPick(s) {
+    return !!s.saved && s.providers.some((p) => p.id === s.saved && p.state === 'unsupported');
+  }
+
+  /** One row for each way to make summaries: those that can't, greyed, with why. */
+  function renderSummaryProviders(s) {
+    const box = $('summary-providers');
+    const chosen = s.provider ? s.provider.id : '';
+    const rows = s.providers.map((p) => {
+      const label = document.createElement('label');
+      const usable = p.state === 'ready';
+      label.className = usable ? '' : (p.id === chosen ? 'broken' : 'off');
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'summary-provider';
+      radio.value = p.id;
+      radio.checked = p.id === chosen;
+      radio.disabled = !usable && p.id !== chosen;
+      radio.onchange = () => pickSummaryProvider(p.id);
+      const name = document.createElement('span');
+      name.textContent = p.name;
+      const why = document.createElement('span');
+      why.className = 'why';
+      why.textContent = `— ${p.reason}`;
+      label.append(radio, name, why);
+      return label;
+    });
+    // Rebuilt only when something changed, so a radio being clicked isn't replaced under the pointer.
+    const key = JSON.stringify([chosen, s.providers]);
+    if (box.dataset.key === key) return;
+    box.dataset.key = key;
+    box.querySelectorAll('label').forEach((l) => l.remove());
+    box.append(...rows);
   }
 
   /** Phone microphone (personal build): its switch, whether its text is sent, and the Tailscale section. */
@@ -1477,8 +2045,10 @@
       ? 'Tailscale still hands the deck on to your tailnet. Smolcorp refuses it while this is off; to stop it too, run <code>tailscale serve --https=443 off</code> in Terminal.'
       : 'If you set up Tailscale for it, stop that too: <code>tailscale serve --https=443 off</code> in Terminal.';
     const url = m.enabled && m.tailnet;
-    $('tailnet-url').textContent = url || 'https://<this-mac>.<your-tailnet>.ts.net';
-    $('tailnet-found').textContent = url ? `Tailscale says this computer is ${url}` : '';
+    $('tailnet-url').textContent = url || `https://<${onMac() ? 'this-mac' : 'this-computer'}>.<your-tailnet>.ts.net`;
+    // The port this page was served from is the one the server listens on, so the command names it.
+    $('tailnet-command').textContent = `tailscale serve --bg --https=443 http://127.0.0.1:${location.port || 80}`;
+    $('tailnet-found').textContent = url ? wording(`Tailscale says this computer is ${url}`) : '';
     // The same pairing code, at the tailnet address: only while there's a code and an address.
     const code = state.pairing && state.pairing.code;
     $('tailnet-scan').hidden = !(url && code);
@@ -1527,6 +2097,12 @@
     renderWebhook();
   }
 
+  /** What the hiring step's request answered: a refusal is said under the step, and cleared when the next one is accepted. */
+  async function showHiringProblem(res) {
+    $('hiring-problem').textContent = res.ok ? '' : await res.text();
+    $('hiring-problem').hidden = res.ok;
+  }
+
   function renderHiring() {
     const h = state.hiring;
     $('step-hiring').hidden = !h;
@@ -1542,7 +2118,7 @@
     }
     mark('step-hiring', h.enabled);
     $('hiring').classList.toggle('on', h.enabled);
-    $('hire-setup').hidden = !h.enabled || !h.canHire;
+    $('hire-setup').hidden = !h.canHire;
     $('hire-choose').hidden = !h.canChoose;
     if (document.activeElement !== $('hire-folder')) $('hire-folder').value = h.folder;
     const agents = state.agents.length ? state.agents : [{ id: 'claude', name: 'Claude Code' }];
@@ -1560,7 +2136,7 @@
     $('easy-hire').hidden = false;
     $('easy-hiring').classList.toggle('on', h.enabled);
     const agent = agents.find((a) => a.id === h.agent);
-    $('easy-hire-detail').textContent = !h.enabled ? 'Off. Turn it on to hire a role from a free desk on your phone, and fire from a busy one.'
+    $('easy-hire-detail').textContent = !h.enabled ? 'Off. Turn it on to hire a role from a free desk in the office, and fire from a busy one.'
       : !h.canHire ? "Hold an agent's desk in the office to fire it."
       : h.folder ? `New hires: ${agent ? agent.name : h.agent}, in ${h.folder}.` : 'Choose the folder new hires start in.';
   }
@@ -1622,6 +2198,7 @@
     $('step-launcher').classList.toggle('done', state.sessions.length > 0);
     const scroll = $('step-scroll');
     scroll.querySelector('.title').textContent = 'Let two fingers scroll tmux and kitty';
+    $('scroll').setAttribute('aria-label', 'Let two fingers scroll tmux and kitty');
     scroll.querySelector('.detail').dataset.pending = 'Optional. Drag two fingers up or down on the office to scroll the picked agent in tmux or kitty.';
     scroll.querySelector('.detail').dataset.done = 'Two fingers on the office scroll the picked agent in tmux or kitty.';
   }
@@ -1635,42 +2212,151 @@
     step.querySelectorAll('[data-done-only]').forEach((el) => { el.hidden = !done; });
   }
 
-  $('hooks').onclick = async () => {
-    const res = await post('/setup/hooks');
-    if (!res.ok) alert(await res.text());
-  };
-  $('unhook').onclick = () => post('/setup/hooks?remove=1');
+  // Connect and Disconnect: a refusal (a test copy's) or a failure shows under the step, not in a dialog
+  async function changeHooks(path) {
+    $('hooks-problem').hidden = true;
+    const res = await post(path);
+    if (!res.ok) {
+      $('hooks-problem').textContent = await res.text();
+      $('hooks-problem').hidden = false;
+    } else if (state.notice) alert(state.notice);
+  }
+  /** With more than one Claude account, the General Manager's hire says which, as a role card's hire does: the first choice is empty, so it's a choice made. */
+  function renderGmAccount() {
+    const profiles = (state.claudeAccounts && state.claudeAccounts.profiles) || [];
+    const pick = $('start-gm-account'), kept = pick.value;
+    pick.hidden = profiles.length < 2 || !state.agents.some((a) => a.id === 'claude') || $('start-gm').hidden;
+    pick.replaceChildren(new Option('Choose an account…', ''), ...profiles.map((p) => new Option(p.name, p.name)));
+    if (profiles.some((p) => p.name === kept)) pick.value = kept;
+  }
+  /** The Claude accounts besides the default, as the page lists them; changes go to the app whole. */
+  function renderAccounts() {
+    const accounts = state.claudeAccounts;
+    renderGmAccount();
+    $('step-accounts').hidden = !accounts || !state.agents.some((a) => a.id === 'claude');
+    if ($('step-accounts').hidden) return;
+    const rows = accounts.profiles.map((p) => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const name = Object.assign(document.createElement('strong'), { textContent: p.name });
+      const dir = Object.assign(document.createElement('span'), { className: 'dir', textContent: p.dir });
+      const status = Object.assign(document.createElement('span'), { textContent: p.connected ? 'Connected' : 'Not connected' });
+      row.append(name, dir, status);
+      if (!p.default) {
+        const remove = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Remove' });
+        remove.setAttribute('aria-label', `Remove ${p.name}`);
+        remove.onclick = () => saveAccounts(accounts.profiles.filter((q) => q !== p && !q.default));
+        row.append(remove);
+      }
+      return row;
+    });
+    for (const f of accounts.found) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const add = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Add' });
+      add.setAttribute('aria-label', `Add ${f.name}`);
+      add.onclick = () => saveAccounts([...accounts.profiles.filter((q) => !q.default), f]);
+      row.append(Object.assign(document.createElement('span'), { textContent: 'Found:' }), Object.assign(document.createElement('strong'), { textContent: f.name }),
+        Object.assign(document.createElement('span'), { className: 'dir', textContent: f.dir }), add);
+      rows.push(row);
+    }
+    $('accounts-list').replaceChildren(...rows);
+  }
+  async function saveAccounts(profiles) {
+    $('accounts-problem').hidden = true;
+    const res = await fetch('/setup/claude-accounts', { method: 'POST', headers: setupHeaders(true),
+      body: JSON.stringify({ profiles: profiles.map((p) => ({ name: p.name, dir: p.dir })) }) }).catch(() => null);
+    if (res && res.ok) {
+      $('account-name').value = '';
+      $('account-dir').value = '';
+      return load();
+    }
+    $('accounts-problem').textContent = res ? await res.text() : "Can't reach Smolcorp.";
+    $('accounts-problem').hidden = false;
+  }
+  $('account-add').onclick = () => saveAccounts([...state.claudeAccounts.profiles.filter((p) => !p.default),
+    { name: $('account-name').value.trim(), dir: $('account-dir').value.trim() }]);
+  $('hooks').onclick = () => changeHooks('/setup/hooks');
+  $('unhook').onclick = () => changeHooks('/setup/hooks?remove=1');
   $('accessibility').onclick = () => post('/setup/accessibility');
   $('scroll').onclick = () => post(`/setup/scroll?enabled=${state.checklist.scroll ? 0 : 1}`);
   $('login').onclick = () => post(`/setup/login?enabled=${state.checklist.openAtLogin ? 0 : 1}`);
-  $('hiring').onclick = () => post(`/setup/hiring?enabled=${state.hiring.enabled ? 0 : 1}`);
+  $('hiring').onclick = async () => showHiringProblem(await post(`/setup/hiring?enabled=${state.hiring.enabled ? 0 : 1}`));
   $('music').onclick = () => post(`/setup/music?enabled=${state.music.enabled ? 0 : 1}`);
+  $('manager').onclick = async () => {
+    await fetch(`/setup/gm/manager?enabled=${state.manager.enabled ? 0 : 1}`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
+    load();
+  };
   $('maxconfirm').onclick = () => post(`/setup/maxconfirm?enabled=${state.maxConfirm.enabled ? 0 : 1}`);
+  $('keystrokes-add').onclick = () => { if ($('keystrokes-pick').value) changeKeystrokeApp('add', $('keystrokes-pick').value); };
+  $('keystrokes').onclick = () => post(`/setup/keystrokes?enabled=${state.keystrokes.enabled ? 0 : 1}`);
   $('dock').onclick = () => post(`/setup/dock?enabled=${state.dock.enabled ? 0 : 1}`);
+  $('ontop').onclick = () => post(`/setup/ontop?enabled=${state.officeWindow.onTop ? 0 : 1}`);
   // On only from the dialog, which says what's sent where; off at once.
+  // The dialog says where summaries go, for turning them on, or for changing where while they're on.
+  let summaryDialogFor = null;
+  function openSummaryDialog(id, switching) {
+    const s = state.summary;
+    const p = s.providers.find((x) => x.id === id);
+    const viaKey = id === 'apikey';
+    summaryDialogFor = { id, switching };
+    $('summary-dialog-title').textContent = switching ? `Make summaries with ${p.name}?` : 'Turn on summaries?';
+    $('summary-dialog-to').textContent = viaKey ? "Anthropic's API" : `${p.name}, under your own account`;
+    $('summary-dialog-key-line').hidden = !viaKey;
+    $('summary-dialog-model-line').hidden = !viaKey;
+    $('summary-dialog-plan-line').hidden = viaKey;
+    $('summary-dialog-fallback-line').hidden = viaKey || !s.savedKey;
+    if (s.key) $('summary-dialog-key').textContent = s.key.source === 'environment' ? 'from ANTHROPIC_API_KEY' : 'the key you saved';
+    $('summary-dialog-model').textContent = s.model;
+    $('summary-dialog-plan').textContent = p.reason;
+    $('summary-confirm').textContent = switching ? 'Switch' : 'Turn on';
+    $('summary-dialog').showModal();
+    $('summary-cancel').focus();
+  }
+  async function pickSummaryProvider(id) {
+    if (state.summary.enabled) {
+      // Back to the one in use until the dialog says yes.
+      $('summary-providers').dataset.key = '';
+      renderSummaryProviders(state.summary);
+      return openSummaryDialog(id, true);
+    }
+    const res = await post(`/setup/summary/provider?id=${encodeURIComponent(id)}`);
+    said('summary-provider-result', res && !res.ok ? await res.text() : '', res && !res.ok ? 'wrong' : '');
+  }
   $('summary').onclick = () => {
     const s = state.summary;
     if (s.enabled) return post('/setup/summaries?enabled=0');
-    if (!s.key) {
-      said('summary-key-result', 'Add your Anthropic API key first.', 'wrong');
-      return $('summary-key').focus();
+    if (!s.provider) {
+      said('summary-provider-result', 'Sign in to a coding agent, or add your Anthropic API key, first.', 'wrong');
+      return;
     }
-    $('summary-dialog-key').textContent = s.key.hint;
-    $('summary-dialog-model').textContent = s.model;
-    $('summary-dialog').showModal();
-    $('summary-cancel').focus();
+    if (!s.provider.works) {
+      said('summary-provider-result', `${s.provider.name} can't make summaries now: pick another.`, 'wrong');
+      return;
+    }
+    openSummaryDialog(s.provider.id, false);
   };
   $('summary-cancel').onclick = () => $('summary-dialog').close();
   $('summary-confirm').onclick = async () => {
     $('summary-dialog').close();
-    await post('/setup/summaries?enabled=1&confirmed=1');
+    const pick = summaryDialogFor;
+    if (!pick) return;
+    const res = pick.switching
+      ? await post(`/setup/summary/provider?id=${encodeURIComponent(pick.id)}&confirmed=1`)
+      : await post(`/setup/summaries?enabled=1&confirmed=1&provider=${encodeURIComponent(pick.id)}`);
+    said('summary-provider-result', res && !res.ok ? await res.text() : '', res && !res.ok ? 'wrong' : '');
   };
+  $('summary-check').onclick = () => post('/setup/summary/check');
   $('summary-key-save').onclick = async () => {
     const field = $('summary-key');
     const res = await post('/setup/summary/key', { key: field.value });
     // Gone from the page either way: kept, it's in the Keychain; refused, it's typed again.
     field.value = '';
-    said('summary-key-result', res.ok ? '' : await res.text(), res.ok ? '' : 'wrong');
+    // Saved while a coding agent makes summaries: from now on it's their fallback, which is said here, once.
+    const s = state.summary, p = s && s.provider;
+    const fallback = res.ok && s.enabled && p && p.id !== 'apikey'
+      ? `Saved. When ${p.name} fails, summaries are now made with this key instead, billed to it, and say so.` : '';
+    said('summary-key-result', res.ok ? fallback : await res.text(), res.ok ? (fallback ? 'good' : '') : 'wrong');
   };
   $('summary-key').onkeydown = (e) => { if (e.key === 'Enter') $('summary-key-save').click(); };
   $('summary-key-remove').onclick = () => post('/setup/summary/key?remove=1');
@@ -1685,10 +2371,7 @@
     webhookProblem = '';
     await post('/setup/webhook/test');
   };
-  $('hire-folder').onchange = async () => {
-    const res = await post(`/setup/hiring?folder=${encodeURIComponent($('hire-folder').value)}`);
-    if (!res.ok) alert(await res.text());
-  };
+  $('hire-folder').onchange = async () => showHiringProblem(await post(`/setup/hiring?folder=${encodeURIComponent($('hire-folder').value)}`));
   $('hire-choose').onclick = () => post('/setup/hiring/choose');
   $('hire-agent').onchange = () => post(`/setup/hiring?agent=${$('hire-agent').value}`);
   $('hire-terminal').onchange = () => post(`/setup/hiring?terminal=${$('hire-terminal').value}`);
@@ -2051,12 +2734,12 @@
       const copied = Object.assign(document.createElement('span'), { className: 'result', id: 'easy-hire-copied' });
       tools.push(choice('Copy', null, () => copyText(command, 'easy-hire-copied')), copied);
     } else if (!state.hiring || !state.hiring.enabled) {
-      text.textContent = `Hiring is off. Turn it on, then on your phone hold a free desk in the office and pick ${role.name}.`;
+      text.textContent = `Hiring is off. Turn it on, then in the office, ${officeWhere()}, hold a free desk and pick ${role.name}.`;
       const on = choice('Turn on hiring', null, () => $('hiring').click());
       on.classList.add('primary');
       tools.push(on);
     } else {
-      text.textContent = `On your phone, hold a free desk in the office and pick ${role.name}. Its first reply asks you its questions, then it gets to work.`;
+      text.textContent = `In the office, ${officeWhere()}, hold a free desk and pick ${role.name}. Its first reply asks you its questions, then it gets to work.`;
     }
     tools.push(choice('OK', null, () => { hireShown = null; how.hidden = true; drawEasyRoles(state.roles); }));
     how.replaceChildren(text, ...tools);
@@ -2077,6 +2760,82 @@
   const previews = new Map();
   /** A file's brief, at most this long. */
   const BRIEF_MOST = 32 * 1024;
+
+  /** The hire guard's groups and your own patterns, where this app has them (the Mac's). */
+  let guard = null;
+  async function loadGuard() {
+    try {
+      const res = await fetch('/setup/guard', { cache: 'no-store' });
+      guard = res.ok ? await res.json() : null;
+    } catch { guard = null; }
+    renderGuard();
+  }
+  async function saveGuard(change) {
+    const res = await fetch('/setup/guard', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify(change) });
+    if (res.ok) {
+      guard = await res.json();
+      $('guard-problem').hidden = true;
+    } else {
+      $('guard-problem').textContent = (await res.text()) || "The guard couldn't be saved.";
+      $('guard-problem').hidden = false;
+    }
+    renderGuard();
+    return res.ok;
+  }
+  function renderGuard() {
+    $('guard-section').hidden = !guard;
+    if (!guard) return;
+    $('guard-limits').textContent = guard.limits || '';
+    if (guard.problem) { $('guard-problem').textContent = guard.problem; $('guard-problem').hidden = false; }
+    $('guard-groups').replaceChildren(...guard.groups.map((g) => {
+      const row = document.createElement('div');
+      row.className = 'step';
+      const text = document.createElement('div');
+      text.className = 'text';
+      const title = document.createElement('div');
+      title.className = 'title';
+      title.textContent = g.name[0].toUpperCase() + g.name.slice(1);
+      const detail = document.createElement('div');
+      detail.className = 'detail';
+      detail.textContent = g.about;
+      text.append(title, detail);
+      if (!g.on) {
+        // Off means allowed, for the guard and for Claude's deny rules alike: say what hires can now do.
+        const warning = document.createElement('div');
+        warning.className = 'detail guard-warning';
+        warning.textContent = `Off: hires will be able to ${g.allows || 'do what this group refuses.'} Neither the guard nor Claude's deny rules will stop it.`;
+        text.append(warning);
+      }
+      const sw = document.createElement('button');
+      sw.className = 'switch' + (g.on ? ' on' : '');
+      sw.setAttribute('role', 'switch');
+      sw.setAttribute('aria-checked', String(g.on));
+      sw.setAttribute('aria-label', `Refuse ${g.name} commands`);
+      sw.onclick = () => saveGuard({ groups: [{ name: g.name, on: !g.on }] });
+      row.append(text, sw);
+      return row;
+    }));
+    $('guard-extra').querySelectorAll('.pattern').forEach((n) => n.remove());
+    $('guard-extra').prepend(...guard.extra.map((pattern) => {
+      const chip = document.createElement('span');
+      chip.className = 'pattern';
+      chip.append(pattern + ' ');
+      const remove = document.createElement('button');
+      remove.className = 'link';
+      remove.textContent = 'Remove';
+      remove.setAttribute('aria-label', `Stop refusing ${pattern}`);
+      remove.onclick = () => saveGuard({ extra: guard.extra.filter((p) => p !== pattern) });
+      chip.append(remove);
+      return chip;
+    }));
+  }
+  async function addGuardPattern() {
+    const pattern = $('guard-pattern').value.trim();
+    if (!pattern) return;
+    if (await saveGuard({ extra: [...guard.extra, pattern] })) $('guard-pattern').value = '';
+  }
+  $('guard-add').onclick = addGuardPattern;
+  $('guard-pattern').onkeydown = (e) => { if (e.key === 'Enter') addGuardPattern(); };
 
   async function loadBriefs() {
     try {
@@ -2269,6 +3028,24 @@
     $('hs-folders').replaceChildren(...all.map((f) => new Option(f, f)));
     $('hs-folders').hidden = !all.length;
     $('hs-folder').value = '';
+    // Which floor: the ground floor, with its keys, unless you pick one above; one with its own folder offers it.
+    const floors = Array.isArray(state.floors) ? state.floors : [];
+    $('hs-floor-row').hidden = floors.length < 2;
+    $('hs-floor').replaceChildren(...floors.map((floor, i) => new Option(i === 0 ? `${floor.name} (ground floor)` : floor.name, String(i))));
+    $('hs-floor').value = '0';
+    // With more than one Claude account, a hire on Claude Code says which; the first choice is empty, so it's a choice made.
+    const accounts = (state.claudeAccounts && state.claudeAccounts.profiles) || [];
+    $('hs-account-row').hidden = accounts.length < 2 || (role.agent && role.agent !== 'claude');
+    $('hs-account').replaceChildren(new Option('Choose an account…', ''), ...accounts.map((p) => new Option(p.name, p.name)));
+    // Options: a worktree is on for a hire under a manager; an API-key choice only with a key in the Keychain.
+    $('hs-options').open = false;
+    $('hs-worktree').checked = !!(state.manager && state.manager.enabled);
+    $('hs-model').value = '';
+    $('hs-nickname').value = '';
+    const key = state.hiring && state.hiring.apiKey;
+    $('hs-apikey-row').hidden = !(key && key.available) || (!!role.agent && role.agent !== 'claude');
+    $('hs-apikey').checked = false;
+    $('hs-apikey-notice').textContent = 'Billed to your API key. The hire can read this key.';
     $('hs-questions').replaceChildren(...(role.questions || []).map((q, i) => {
       const label = document.createElement('label');
       const answer = document.createElement('textarea');
@@ -2313,6 +3090,13 @@
       $('hs-brief-md').textContent = e.message;
     }
   });
+  // A floor with one folder of its own: that's where a hire there works, unless you say otherwise.
+  $('hs-floor').onchange = () => {
+    const floor = Number($('hs-floor').value) || 0;
+    // By folder: a folder's rule for itself and its rule for the folders in it are still one folder.
+    const own = [...new Set((state.floorRules || []).filter((r) => r.floor === floor).map((r) => r.folder))];
+    if (floor > 0 && own.length === 1 && !$('hs-folder').value.trim()) $('hs-folder').value = own[0];
+  };
   $('hs-hire').onclick = async () => {
     if (!hiring) return;
     const folder = hireFolder();
@@ -2323,7 +3107,12 @@
     }
     $('hs-hire').disabled = true;
     const res = await fetch('/setup/hire', { method: 'POST', headers: setupHeaders(true),
-      body: JSON.stringify({ role: hiring.id, folder, answers: hireAnswers() }) }).catch(() => null);
+      body: JSON.stringify({ role: hiring.id, folder, answers: hireAnswers(), floor: Number($('hs-floor').value) || 0,
+        worktree: $('hs-worktree').checked,
+        ...($('hs-model').value.trim() ? { model: $('hs-model').value.trim() } : {}),
+        ...($('hs-nickname').value.trim() ? { nickname: $('hs-nickname').value.trim() } : {}),
+        ...(!$('hs-apikey-row').hidden && $('hs-apikey').checked ? { apiKey: true } : {}),
+        ...($('hs-account-row').hidden || (!$('hs-apikey-row').hidden && $('hs-apikey').checked) ? {} : { account: $('hs-account').value }) }) }).catch(() => null);
     $('hs-hire').disabled = false;
     if (!res || !res.ok) {
       $('hs-problem').textContent = res ? await res.text() : "Can't reach Smolcorp.";
@@ -2335,7 +3124,8 @@
     const name = hiring.name, onText = !hiring.brief || hiring.brief.kind === 'text';
     closeHireSheet();
     $('easy-hire-how').replaceChildren(Object.assign(document.createElement('span'), {
-      textContent: `${name} is hired, in ${folder}${Number.isInteger(desk) ? `, at desk ${desk + 1}` : ''}. `
+      textContent: `${name} is hired, in ${folder}${Number.isInteger(desk) ? `, at desk ${desk + 1}` : ''}`
+        + `${Number($('hs-floor').value) > 0 ? `, on ${$('hs-floor').selectedOptions[0].text}` : ''}. `
         + (onText ? 'It starts on its instructions, with your answers.' : 'It starts by reading its brief.') }),
       choice('OK', null, () => { $('easy-hire-how').hidden = true; }));
     $('easy-hire-how').hidden = false;
@@ -2364,6 +3154,19 @@
     saveRoles([...roles, { id: `own-${n}`, name: 'New role', agent: 'claude', model: '', effort: '', questions: [], instructions: '',
       badge: 'star', outfit: '' }]);
   };
+  $('briefs-restore').onclick = async () => {
+    const button = $('briefs-restore');
+    if (!confirm('Put the briefs back to the ones that came with Smolcorp? Changes you made to them are lost.')) return;
+    button.disabled = true;
+    try {
+      const res = await fetch('/setup/briefs/restore', { method: 'POST', headers: setupHeaders(true), body: '{}' });
+      button.textContent = res.ok ? 'Briefs restored' : 'Couldn\u2019t restore the briefs';
+      if (res.ok) previews.clear();
+    } catch {
+      button.textContent = 'Couldn\u2019t restore the briefs';
+    }
+    setTimeout(() => { button.textContent = 'Restore default briefs'; button.disabled = false; }, 2500);
+  };
   $('role-shipped').onclick = () => {
     const roles = state.roles.roles;
     saveRoles([...roles, ...state.roles.shipped.filter((s) => !roles.some((role) => role.id === s.id))]);
@@ -2375,12 +3178,15 @@
 
   function renderPhone() {
     const p = state.pairing;
-    $('address').textContent = p.address.replace(/^http:\/\//, '');
+    // No address a phone can open yet, as on Tailscale only, with no Tailscale: Start here says what to do.
+    $('address').textContent = p.address
+      ? p.address.replace(/^http:\/\//, '')
+      : '(none yet: let in your home Wi-Fi, or get Tailscale, under Start here)';
     renderPhones();
 
     // The QR code holds the pairing code, so it exists only while the code
-    // does. The code in the image's address makes a new code load afresh.
-    $('scan').hidden = !p.code;
+    // does, and the address. The code in the image's address makes a new code load afresh.
+    $('scan').hidden = !p.code || !p.address;
     if (p.code && $('qr').getAttribute('src') !== `/setup/qr.png?code=${p.code}`) {
       $('qr').src = `/setup/qr.png?code=${p.code}`;
     }
@@ -2521,7 +3327,7 @@
     if (!v) return;
     // Where the Windows and Linux app keeps the write secret, and where its switch is.
     const kept = state && state.launcher ? "your computer's secret store" : 'your Keychain';
-    $('step-viewer-secret').querySelector('.detail').dataset.pending = `Lets this computer, and only it, write to your viewer. Kept in ${kept}.`;
+    $('step-viewer-secret').querySelector('.detail').dataset.pending = wording(`Lets this computer, and only it, write to your viewer. Kept in ${kept}.`);
     $('step-viewer-secret').querySelector('.detail').dataset.done = `Set ✓ Kept in ${kept}. Vercel has a copy as VIEWER_WRITE_SECRET.`;
     if (document.activeElement !== $('viewer-url')) $('viewer-url').value = v.baseURL;
     mark('step-viewer-address', !!v.baseURL);
@@ -2556,7 +3362,10 @@
     } else if (!v.setUp) {
       detail = 'Not set up yet. Set the address and the write secret first.';
     } else {
-      detail = v.problem || `Off. Turn it on here, or with Going away: launch portable office in the ${state && state.launcher ? 'tray' : 'menu bar'}.`;
+      // A Mac has its menu bar; elsewhere the tray may be missing, so the tray is named as one way, not the way.
+      detail = v.problem || (state && state.launcher
+        ? 'Off. Turn it on here, or, with a tray, with Going away: launch portable office in the tray.'
+        : 'Off. Turn it on here, or with Going away: launch portable office in the menu bar.');
     }
     $('viewer-on-detail').textContent = detail;
     $('viewer-hide').checked = v.hideNames;
@@ -2753,6 +3562,18 @@
   const lookOf = (room) => JSON.stringify({ ...room, team: null, dress: null, corner: null, workspace: null, staff: null, arrivals: null, pet: null,
     sky: null, sound: null, ambience: null, soundWhen: null, calm: null, mic: null, preset: null, plan: null });
 
+  /** The pictures not drawn yet, each with how to draw it, and what draws them as they come into view (a little before). */
+  const waitingToShow = new WeakMap();
+  const seen = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      seen.unobserve(entry.target);
+      const draw = waitingToShow.get(entry.target);
+      waitingToShow.delete(entry.target);
+      if (draw && entry.target.isConnected) draw();
+    }
+  }, { rootMargin: '200px' }) : null;
+
   /** A picture of one of the office's choices, moving while the pointer, or the keyboard, is on `host`. */
   function picture(kind, id, room, host = null) {
     const canvas = document.createElement('canvas');
@@ -2776,7 +3597,8 @@
       kept.getContext('2d').drawImage(canvas, 0, 0);
       if (stillsFor === look) stills.set(key, kept);
     };
-    still();
+    // Drawn once it comes into view, and kept: a picture in a closed pane, a shut shelf or far down a list costs nothing until it's seen.
+    if (seen) { waitingToShow.set(canvas, still); seen.observe(canvas); } else still();
     const over = host || canvas;
     over.onpointerenter = over.onfocus = () => {
       moving = { canvas, what, room, start: performance.now() / 1000 - PICTURE_STILL };
@@ -2810,7 +3632,10 @@
     b.dataset.pick = `${kind}:${id}`;
     const name = document.createElement('span');
     name.textContent = label;
-    b.append(picture(kind, id, room, b), name);
+    const shown = picture(kind, id, room, b);
+    // The name under it is the button's name; the picture is only to look at.
+    shown.setAttribute('aria-hidden', 'true');
+    b.append(shown, name);
     b.onclick = () => {
       // Picked with the keyboard, the redrawn tile keeps the focus.
       refocus = b.matches(':focus-visible') ? b.dataset.pick : null;
@@ -3222,7 +4047,7 @@
       // Space pieces
       ['spacesuit', 'EVA spacesuit'],
       // The Zen garden's
-      ['kimono', 'Wrap jacket'], ['cultistrobe', 'Hooded cultist robe'], ['investigator', '1920s investigator'], ['deepone', 'A Deep One'], ['professor', 'Miskatonic professor'], ['divingsuit', 'Old diving suit'], ['fleecevest', 'A fleece vest'], ['bullparty', 'A party blazer'], ['blanketcape', 'A hoodie and blanket'], ['denhoodie', 'A den hoodie'], ['homejersey', 'Home jersey'], ['lakersjersey', 'Lakers jersey'], ['celticsjersey', 'Celtics jersey'], ['warriorsjersey', 'Warriors jersey'], ['knicksjersey', 'Knicks jersey'], ['bullsjersey', 'Bulls jersey'], ['heatjersey', 'Heat jersey'], ['spursjersey', 'Spurs jersey'], ['thunderjersey', 'Thunder jersey'], ['wolvesjersey', 'Timberwolves jersey'], ['nuggetsjersey', 'Nuggets jersey'], ['hawksjersey', 'Hawks jersey'], ['netsjersey', 'Nets jersey'], ['hornetsjersey', 'Hornets jersey'], ['cavsjersey', 'Cavaliers jersey'], ['mavsjersey', 'Mavericks jersey'], ['pistonsjersey', 'Pistons jersey'], ['rocketsjersey', 'Rockets jersey'], ['pacersjersey', 'Pacers jersey'], ['clippersjersey', 'Clippers jersey'], ['grizzliesjersey', 'Grizzlies jersey'], ['bucksjersey', 'Bucks jersey'], ['pelicansjersey', 'Pelicans jersey'], ['magicjersey', 'Magic jersey'], ['sixersjersey', '76ers jersey'], ['sunsjersey', 'Suns jersey'], ['blazersjersey', 'Trail Blazers jersey'], ['kingsjersey', 'Kings jersey'], ['raptorsjersey', 'Raptors jersey'], ['jazzjersey', 'Jazz jersey'], ['wizardsjersey', 'Wizards jersey'], ['marvel1cap', 'Captain America'], ['marvel1spidey', 'Spider-Man suit'], ['marvel1thor', "Thor's armour"], ['marvel1widow', 'Black Widow'], ['marvel2starlord', 'Star-Lord'], ['marvel2strange', 'Doctor Strange'], ['marvel2panther', 'Black Panther'], ['marvel2loki', 'Loki'], ['ironmanmk3', 'Iron Man, red and gold'], ['ironmanmk2', 'Iron Man, silver Mark II'], ['ironmanwarmachine', 'War Machine'], ['ironmantony', 'Tony Stark (classic)'], ['batcavebatsuit', 'Batman'], ['batcaverobin', 'Robin'], ['batcavealfred', 'Alfred'], ['batcavecatwoman', 'Catwoman'], ['dcmixsuperman', 'Superman'], ['dcmixwonder', 'Wonder Woman'], ['dcmixflash', 'The Flash'], ['dcmixgreenlantern', 'Green Lantern'], ['pokemontrainer', 'Pokémon trainer'], ['pokemonrocket', 'Team Rocket'], ['pokemonnurse', 'Nurse Joy'], ['pokemonoak', 'Professor Oak'], ['loljinx', 'Jinx'], ['lolahri', 'Ahri'], ['lolgaren', 'Demacian armour'], ['lollux', 'Lux'], ['wowpaladin', 'Alliance paladin'], ['wowgrunt', 'Horde grunt'], ['wowmage', 'Kirin Tor mage'], ['wowelf', 'Night elf druid'], ['gtatommy', 'Vice City Hawaiian shirt'], ['gtacj', 'Grove Street'], ['gtacop', 'Police uniform'], ['gtaheist', 'Heist crew'], ['destinyhunterwear', 'Hunter cloak'], ['destinytitanwear', 'Titan armour'], ['destinywarlockwear', 'Warlock robes'], ['destinyexo', 'Exo Hunter'], ['starwarsjedi', 'Jedi robe'], ['starwarsvader', 'Dark lord armour'], ['starwarsstormtrooper', 'Trooper armour'], ['starwarsprincess', 'Princess gown'], ['girly1gingham', 'Pink gingham dress'], ['girly1cowgirl', 'Pink cowgirl'], ['girly1tracksuit', 'Velour tracksuit'], ['girly1gown', 'Ball gown'], ['girly2kittyhood', 'Kitty hoodie'], ['girly2bunnyhood', 'Bunny hood'], ['girly2sailor', 'Pastel sailor'], ['girly2overalls', 'Lilac overalls'], ['narcosboss', "The boss's polo"], ['narcosdea', "Agent's windbreaker"], ['narcosmiami', 'Miami white jacket'], ['narcoshawaiian', 'Hawaiian shirt'], ['apple1turtleneck', 'Black turtleneck'], ['apple1genius', 'Blue staff tee'], ['apple1headset', 'Headset and knit'], ['apple1hoodie', 'Space grey hoodie'], ['apple2bowtie', '1984 suit and bow tie'], ['apple2woz', 'Polo and beard'], ['apple2rainbowtee', 'Rainbow apple tee'], ['apple2runner', "The runner's kit"], ['jewishkippah', 'Shirt and kippah'], ['jewishtichel', 'Blouse and tichel'], ['jewishknit', 'Knit sweater and kippah'], ['jewishdress', 'Midi dress'], ['muslimhijab', 'Hijab and cardigan'], ['muslimabaya', 'Embroidered abaya'], ['muslimthobe', 'Thobe and kufi'], ['muslimkurta', 'Kurta and waistcoat'], ['christianpendant', 'Sweater and cross'], ['christianchoir', 'Choir robe'], ['christiansuit', 'Sunday suit'], ['christianlace', 'Dress and lace veil'], ['buddhistrobe', 'Saffron robe'], ['buddhistmaroonrobe', 'Maroon robe'], ['buddhistlinen', 'Linen wrap'], ['buddhistmala', 'Cardigan and mala'], ['ironmantony2', 'Tony Stark (tee)'], ['ironmantony2b', 'Tony Stark (shades)'], ['ironmantony2c', 'Tony Stark'], ['ironmanmk1', 'Iron Man Mark I (cave-built)'], ['ironmanmk4', 'Iron Man Mark IV'], ['ironmanmk5', 'Iron Man Mark V (suitcase suit)'], ['ironmanmk6', 'Iron Man Mark VI (triangle reactor)'], ['ironmanmk7', 'Iron Man Mark VII (Avengers)'], ['ironmanmk15', 'Mark XV "Sneaky" (stealth)'], ['ironmanmk16', 'Mark XVI "Nightclub"'], ['ironmanmk17', 'Mark XVII "Heartbreaker"'], ['ironmanmk33', 'Mark XXXIII "Silver Centurion"'], ['ironmanmk38', 'Mark XXXVIII "Igor"'], ['ironmanmk42', 'Iron Man Mark XLII'], ['ironmanmk43', 'Iron Man Mark XLIII'], ['ironmanmk45', 'Iron Man Mark XLV'], ['ironmanmk46', 'Iron Man Mark XLVI (Civil War)'], ['ironmanmk47', 'Iron Man Mark XLVII (Homecoming)'], ['ironmanmk50', 'Mark L "Bleeding Edge"'], ['ironmanmk85', 'Iron Man Mark LXXXV (Endgame)'], ['ironmanpatriot', 'Iron Patriot'], ['ironmanironspider', 'Iron Spider'], ['ironmanrescue', "Rescue (Pepper's suit)"], ['volcanojumpsuit', 'Henchman jumpsuit'], ['volcanovillain', "Villain's suit"], ['volcanoheatsuit', 'Heat suit'], ['volcanoguard', 'Lair guard'], ['kitchenchef', 'Head chef'], ['kitchensous', 'Sous-chef'], ['kitchenpartie', 'Chef de partie'], ['kitchencommis', 'Commis'], ['hospitalscrubs', 'Teal scrubs'], ['hospitaldoctor', 'White coat'], ['hospitalnurse', "Nurse's scrubs"], ['hospitalsurgeon', 'Surgical gown'], ['noirtrench', 'Trench coat'], ['noiruniform', 'Beat cop'], ['noirsuspenders', 'Shirtsleeves'], ['noirreporter', 'Crime reporter'], ['madlabcoat', 'Stained lab coat'], ['madlabapron', 'Rubber apron'], ['madlabassistant', 'Hunchbacked cloak'], ['madlabhazmat', 'Hazmat suit'], ['casinodealer', "Dealer's vest"], ['casinotux', 'Tuxedo'], ['casinohighroller', 'High roller'], ['casinoshowman', "Showman's jacket"], ['orientconductor', 'Conductor'], ['orientattendant', 'Carriage attendant'], ['orienttraveller', 'Tweed traveller'], ['orientpearls', 'Pearls and headband'], ['halloweendxvampire', 'Vampire cape'], ['halloweendxplague', 'Plague doctor'], ['halloweendxscarecrow', 'Scarecrow'], ['halloweendxspider', 'Spider lace'], ['catcafebarista', 'Paw apron'], ['catcafeears', 'Cat-ear hoodie'], ['catcafejumper', 'Cat jumper'], ['catcafeoveralls', 'Fish dungarees'], ['spiderversemiles', 'Miles suit'], ['spiderversegwensuit', 'Ghost-Spider suit'], ['spiderversepeterb', 'Peter B. suit'], ['spiderversepunk', 'Spider-Punk vest'], ['xmenwolverine', 'Wolverine suit'], ['xmencyclops', 'Cyclops suit'], ['xmengambit', 'Gambit coat'], ['xmenstormsuit', 'Storm suit'], ['f1racesuit', 'Red race suit'], ['f1silversuit', 'Silver race suit'], ['f1pitcrew', 'Papaya pit crew'], ['f1teampolo', 'Team polo'], ['ufcrashguard', 'Rashguard'], ['ufcreferee', 'Referee shirt'], ['ufccornerhoodie', 'Corner hoodie'], ['ufcwalkout', 'Walkout robe'], ['nyloftpeacoat', 'Peacoat'], ['nyloftflannel', 'Flannel shirt'], ['nyloftturtleneck', 'Turtleneck'], ['nyloftleather', 'Leather jacket'], ['pariscafemariniere', 'Striped top'], ['pariscafegarcon', "Waiter's apron"], ['pariscafetrench', 'Trench coat'], ['pariscafepearls', 'Little black dress'], ['muertoscatrinadress', 'Catrina dress'], ['muertoscharro', 'Charro jacket'], ['muertosblouse', 'Embroidered blouse'], ['muertosbones', 'Skeleton print'], ['submarinedeepcoverall', 'Orange coveralls'], ['submarinedeepwetsuit', 'Wetsuit'], ['submarinedeeplabcoat', 'Lab coat'], ['submarinedeepsweater', "Captain's sweater"], ['arcticbaseparka', 'Expedition parka'], ['arcticbasefleece', 'Fleece jacket'], ['arcticbasecoldsuit', 'Cold-weather suit'], ['arcticbaseknit', 'Nordic jumper'], ['sakurayukata', 'Blossom yukata'], ['sakuracardigan', 'Pastel cardigan'], ['sakurasailor', 'Sailor collar'], ['sakuraflorist', 'Florist apron'], ['pottergryffindor', 'Gryffindor uniform'], ['potterslytherin', 'Slytherin uniform'], ['potterquidditch', 'Quidditch robes'], ['potterheadmaster', "Headmaster's robes"], ['lotrgandalf', 'Gandalf the Grey'], ['lotrhobbit', 'Hobbit'], ['lotrelf', 'Elf of Mirkwood'], ['lotrranger', 'Ranger of the North'], ['breakingbadhazmat', 'Yellow hazmat suit'], ['breakingbadheisenberg', 'Heisenberg'], ['breakingbadjesse', "Jesse's hoodie"], ['breakingbadsaul', "Saul's suit"], ['strangereleven', 'Eleven'], ['strangerhellfiretee', 'Hellfire Club tee'], ['strangerscoopsuniform', 'Scoops Ahoy uniform'], ['strangerhopper', 'Chief Hopper'], ['gotnightswatch', "Night's Watch blacks"], ['gotlannisterred', 'Lannister red'], ['gotdaenerys', 'Mother of Dragons'], ['gotwhitewalker', 'White Walker'], ['simpsonshomer', 'Homer'], ['simpsonsmarge', 'Marge'], ['simpsonsbart', 'Bart'], ['simpsonslisa', 'Lisa'], ['bondtux', "Bond's dinner suit"], ['bondwhitejacket', 'White dinner jacket'], ['bondmoneypenny', 'Moneypenny'], ['bondoddjob', 'Oddjob'], ['dunestillsuit', 'Stillsuit'], ['dunefremen', 'Fremen robes'], ['dunebenegesserit', 'Bene Gesserit robes'], ['duneharkonnenblack', 'Harkonnen black'], ['onepieceluffy', 'Straw Hat captain'], ['onepiecezoro', 'Pirate swordsman'], ['onepiecenami', 'Navigator'], ['onepiecesanji', "Ship's cook"], ['eldenringtarnished', 'Tarnished knight'], ['eldenringmaiden', 'Hooded maiden'], ['eldenringvalkyrie', 'Blade of Miquella'], ['eldenringwitch', 'Moon witch'], ['sevmdr', 'MDR shirt & tie'], ['sevmanager', 'Milchick blazer'], ['sevwellness', 'Wellness green'], ['sevsecurity', 'Security suit'], ['offdwight', 'Dwight shirt & tie'], ['offjim', "Jim's grey suit"], ['offmichael', 'Boss suit'], ['offpam', 'Reception cardigan'], ['peakytommy', 'Three-piece suit'], ['peakyarthur', 'Rough suit'], ['peakypolly', '1920s dress'], ['peakybarman', "Barman's waistcoat"], ['madmdon', 'Grey skinny-tie suit'], ['madmroger', 'Pinstripe suit'], ['madmjoan', 'Red dress'], ['madmpeggy', 'Olive work dress'], ['squidplayer', 'Player tracksuit'], ['squidguard', 'Guard jumpsuit'], ['squidfrontman', 'Front Man cloak'], ['squidvip', 'VIP jacket'], ['boyshomelander', 'Caped hero suit'], ['boysstarlight', 'White hero suit'], ['boysbutcher', 'Black trench coat'], ['boysexec', 'Vought exec suit'], ['falloutvaultsuit', 'Vault jumpsuit'], ['falloutranger', 'Wasteland duster'], ['falloutraider', 'Raider armour'], ['falloutscientist', 'Vault-Tec lab coat'], ['rickcoat', 'Lab coat'], ['rickmorty', 'Yellow tee'], ['ricksummer', 'Teal top'], ['rickbirdperson', 'Feathered coat'], ['mirrorsuit', 'Minimalist suit'], ['mirrorjumpsuit', 'Grey jumpsuit'], ['mirrortech', 'Tech hoodie'], ['mirrorgown', 'White gown'], ['westcowboy', 'Cowboy outfit'], ['westhost', 'Host bodysuit'], ['westtech', 'QA jumpsuit'], ['westgunslinger', 'Man in Black'], ['bttfmarty', "Marty's vest"], ['bttfdoc', "Doc's lab coat"], ['bttffuture', 'Self-lacing jacket'], ['bttfsodajerk', 'A soda jerk'], ['jpranger', 'A park ranger'], ['jpscientist', 'A geneticist'], ['jpvisitor', 'A park visitor'], ['jpnedry', 'A messy hacker'], ['wicksuit', 'A black suit'], ['wickconciergeoutfit', 'A concierge coat'], ['wicksommelier', "A tailor's apron"], ['wickadjudicator', 'High-table black'], ['kingsmangalahad', 'A bespoke suit'], ['kingsmanmerlin', 'A tech jumper'], ['kingsmantailor', "A tailor's apron"], ['kingsmanagent', 'A field agent'], ['wonkawonka', "Wonka's tailcoat"], ['wonkaoompa', 'An Oompa-Loompa'], ['wonkacharlie', 'A ticket winner'], ['wonkaguide', 'A factory guide'], ['wesgustave', 'A concierge uniform'], ['weszero', 'A lobby boy'], ['wesagatha', 'A baker'], ['wesguest', 'A hotel guest'], ['mibsuit', 'A black MIB suit'], ['mibzed', 'A senior agent'], ['mibalien', 'An alien in disguise'], ['mibworm', 'A worm guy'], ['tronblue', 'A blue program'], ['tronorange', 'An orange program'], ['tronflynn', 'The Creator'], ['tronsiren', 'A grid siren'], ['dbzgoku', 'An orange gi'], ['dbzvegeta', 'Saiyan armor'], ['dbzpiccolo', 'A Namekian gi'], ['dbzstudent', 'A student gi'], ['amongusred', 'A red crewmate'], ['amonguscyan', 'A cyan crewmate'], ['amongusyellow', 'A yellow crewmate'], ['amongusimposter', 'An imposter'], ['tokyohappi', 'Happi coat'], ['tokyokimono', 'Kimono'], ['tokyosalaryman', 'Salaryman suit'], ['tokyostreet', 'Harajuku streetwear'], ['egyptking', "Pharaoh's nemes"], ['egyptpriest', "Priest's leopard skin"], ['egyptqueen', "Queen's gown"], ['egyptworker', "Scribe's linen"], ['vikingwarrior', "Warrior's mail"], ['vikingmaiden', 'Shieldmaiden'], ['vikingjarl', "Jarl's cloak"], ['vikingseer', 'Seeress robe'], ['aztecjaguarw', 'Jaguar warrior'], ['azteceaglew', 'Eagle warrior'], ['aztecpriest', 'Feathered priest'], ['aztecnoble', "Noble's cloak"], ['obsastronomer', "Astronomer's coat"], ['obsprofessor', 'Tweed professor'], ['obsastronaut', 'Space suit'], ['obsstargazer', "Stargazer's knit"], ['tikibartender', 'Bartender shirt'], ['tikisurfer', 'Surfer boardshorts'], ['tikiluau', 'Luau grass skirt'], ['tikitourist', 'Tourist shirt'], ['dinerwaitress', 'Waitress uniform'], ['dinercook', 'Short-order cook'], ['dinergreaser', 'Greaser jacket'], ['dinerpoodle', 'Poodle skirt'], ['courtjudge', "Judge's robe"], ['courtlawyer', "Counsel's suit"], ['courtbailiff', 'Bailiff uniform'], ['courtclerk', "Clerk's blazer"], ['artsmock', "Painter's smock"], ['artberet', 'Beret and stripes'], ['artsculptor', "Sculptor's apron"], ['artstudent', 'Art student'], ['aquariumwetsuit', 'Wetsuit'], ['aquariumkeeper', 'Aquarist polo'], ['aquariumbiologist', 'Marine biologist'], ['aquariumscuba', 'Scuba gear'], ['circusringmaster', 'Ringmaster'], ['circusclown', 'Clown'], ['circusacrobat', 'Acrobat'], ['circusstrongman', 'Strongman'], ['museumcurator', 'museumcurator'], ['museumpaleo', 'museumpaleo'], ['museumdocent', 'museumdocent'], ['museumprofessor', 'museumprofessor'], ['northpolesanta', 'northpolesanta'], ['northpoleelf', 'northpoleelf'], ['northpolemrsclaus', 'northpolemrsclaus'], ['northpolesweater', 'northpolesweater'], ['soundstagedirector', 'soundstagedirector'], ['soundstagestarlet', 'soundstagestarlet'], ['soundstagecrew', 'soundstagecrew'], ['soundstagetux', 'soundstagetux'], ['cultrobe', 'cultrobe'], ['cultleader', 'cultleader'], ['cultelder', 'cultelder'], ['cultinitiate', 'cultinitiate'], ['esportsjersey', 'esportsjersey'], ['esportshoodie', 'esportshoodie'], ['esportscaster', 'esportscaster'], ['esportspro', 'esportspro'], ['cavemanfur', 'cavemanfur'], ['cavemanhunter', 'cavemanhunter'], ['cavemanshaman', 'cavemanshaman'], ['cavemanchief', 'cavemanchief'], ['lodgerobe', 'lodgerobe'], ['lodgemaster', 'lodgemaster'], ['lodgeapron', 'lodgeapron'], ['lodgeguard', 'lodgeguard'], ['prepperhazmat', 'prepperhazmat'], ['prepperfatigues', 'prepperfatigues'], ['prepperbugout', 'prepperbugout'], ['prepperranger', 'prepperranger'], ['paradisepresident', 'President'], ['paradisesecret', 'Secret Service'], ['paradiseaide', 'Bunker aide'], ['paradisehazmat', 'Hazmat engineer'], ['startrekgold', 'Command gold'], ['startrekblue', 'Science blue'], ['startrekred', 'Operations red'], ['startrekcaptain', 'Captain'], ['gentlementweedsuit', 'Tweed three-piece'], ['gentlemengamekeeper', 'Gamekeeper'], ['gentlemengangster', 'Gangster suit'], ['gentlementracksuit', 'Tracksuit']]],
+      ['kimono', 'Wrap jacket'], ['cultistrobe', 'Hooded cultist robe'], ['investigator', '1920s investigator'], ['deepone', 'A Deep One'], ['professor', 'Miskatonic professor'], ['divingsuit', 'Old diving suit'], ['fleecevest', 'A fleece vest'], ['bullparty', 'A party blazer'], ['blanketcape', 'A hoodie and blanket'], ['denhoodie', 'A den hoodie'], ['homejersey', 'Home jersey'], ['lakersjersey', 'Lakers jersey'], ['celticsjersey', 'Celtics jersey'], ['warriorsjersey', 'Warriors jersey'], ['knicksjersey', 'Knicks jersey'], ['bullsjersey', 'Bulls jersey'], ['heatjersey', 'Heat jersey'], ['spursjersey', 'Spurs jersey'], ['thunderjersey', 'Thunder jersey'], ['wolvesjersey', 'Timberwolves jersey'], ['nuggetsjersey', 'Nuggets jersey'], ['hawksjersey', 'Hawks jersey'], ['netsjersey', 'Nets jersey'], ['hornetsjersey', 'Hornets jersey'], ['cavsjersey', 'Cavaliers jersey'], ['mavsjersey', 'Mavericks jersey'], ['pistonsjersey', 'Pistons jersey'], ['rocketsjersey', 'Rockets jersey'], ['pacersjersey', 'Pacers jersey'], ['clippersjersey', 'Clippers jersey'], ['grizzliesjersey', 'Grizzlies jersey'], ['bucksjersey', 'Bucks jersey'], ['pelicansjersey', 'Pelicans jersey'], ['magicjersey', 'Magic jersey'], ['sixersjersey', '76ers jersey'], ['sunsjersey', 'Suns jersey'], ['blazersjersey', 'Trail Blazers jersey'], ['kingsjersey', 'Kings jersey'], ['raptorsjersey', 'Raptors jersey'], ['jazzjersey', 'Jazz jersey'], ['wizardsjersey', 'Wizards jersey'], ['marvel1cap', 'Captain America'], ['marvel1spidey', 'Spider-Man suit'], ['marvel1thor', "Thor's armour"], ['marvel1widow', 'Black Widow'], ['marvel2starlord', 'Star-Lord'], ['marvel2strange', 'Doctor Strange'], ['marvel2panther', 'Black Panther'], ['marvel2loki', 'Loki'], ['ironmanmk3', 'Iron Man, red and gold'], ['ironmanmk2', 'Iron Man, silver Mark II'], ['ironmanwarmachine', 'War Machine'], ['batcavebatsuit', 'Batman'], ['batcaverobin', 'Robin'], ['batcavealfred', 'Alfred'], ['batcavecatwoman', 'Catwoman'], ['dcmixsuperman', 'Superman'], ['dcmixwonder', 'Wonder Woman'], ['dcmixflash', 'The Flash'], ['dcmixgreenlantern', 'Green Lantern'], ['pokemontrainer', 'Pokémon trainer'], ['pokemonrocket', 'Team Rocket'], ['pokemonnurse', 'Nurse Joy'], ['pokemonoak', 'Professor Oak'], ['loljinx', 'Jinx'], ['lolahri', 'Ahri'], ['lolgaren', 'Demacian armour'], ['lollux', 'Lux'], ['wowpaladin', 'Alliance paladin'], ['wowgrunt', 'Horde grunt'], ['wowmage', 'Kirin Tor mage'], ['wowelf', 'Night elf druid'], ['gtatommy', 'Vice City Hawaiian shirt'], ['gtacj', 'Grove Street'], ['gtacop', 'Police uniform'], ['gtaheist', 'Heist crew'], ['destinyhunterwear', 'Hunter cloak'], ['destinytitanwear', 'Titan armour'], ['destinywarlockwear', 'Warlock robes'], ['destinyexo', 'Exo Hunter'], ['starwarsjedi', 'Jedi robe'], ['starwarsvader', 'Dark lord armour'], ['starwarsstormtrooper', 'Trooper armour'], ['starwarsprincess', 'Princess gown'], ['girly1gingham', 'Pink gingham dress'], ['girly1cowgirl', 'Pink cowgirl'], ['girly1tracksuit', 'Velour tracksuit'], ['girly1gown', 'Ball gown'], ['girly2kittyhood', 'Kitty hoodie'], ['girly2bunnyhood', 'Bunny hood'], ['girly2sailor', 'Pastel sailor'], ['girly2overalls', 'Lilac overalls'], ['narcosboss', "The boss's polo"], ['narcosdea', "Agent's windbreaker"], ['narcosmiami', 'Miami white jacket'], ['narcoshawaiian', 'Hawaiian shirt'], ['apple1turtleneck', 'Black turtleneck'], ['apple1genius', 'Blue staff tee'], ['apple1headset', 'Headset and knit'], ['apple1hoodie', 'Space grey hoodie'], ['apple2bowtie', '1984 suit and bow tie'], ['apple2woz', 'Polo and beard'], ['apple2rainbowtee', 'Rainbow apple tee'], ['apple2runner', "The runner's kit"], ['jewishkippah', 'Shirt and kippah'], ['jewishtichel', 'Blouse and tichel'], ['jewishknit', 'Knit sweater and kippah'], ['jewishdress', 'Midi dress'], ['muslimhijab', 'Hijab and cardigan'], ['muslimabaya', 'Embroidered abaya'], ['muslimthobe', 'Thobe and kufi'], ['muslimkurta', 'Kurta and waistcoat'], ['christianpendant', 'Sweater and cross'], ['christianchoir', 'Choir robe'], ['christiansuit', 'Sunday suit'], ['christianlace', 'Dress and lace veil'], ['buddhistrobe', 'Saffron robe'], ['buddhistmaroonrobe', 'Maroon robe'], ['buddhistlinen', 'Linen wrap'], ['buddhistmala', 'Cardigan and mala'], ['ironmantony2', 'Tony Stark (tee)'], ['ironmantony2b', 'Tony Stark (shades)'], ['ironmantony2c', 'Tony Stark'], ['ironmanmk1', 'Iron Man Mark I (cave-built)'], ['ironmanmk4', 'Iron Man Mark IV'], ['ironmanmk5', 'Iron Man Mark V (suitcase suit)'], ['ironmanmk6', 'Iron Man Mark VI (triangle reactor)'], ['ironmanmk7', 'Iron Man Mark VII (Avengers)'], ['ironmanmk15', 'Mark XV "Sneaky" (stealth)'], ['ironmanmk16', 'Mark XVI "Nightclub"'], ['ironmanmk17', 'Mark XVII "Heartbreaker"'], ['ironmanmk33', 'Mark XXXIII "Silver Centurion"'], ['ironmanmk38', 'Mark XXXVIII "Igor"'], ['ironmanmk42', 'Iron Man Mark XLII'], ['ironmanmk43', 'Iron Man Mark XLIII'], ['ironmanmk45', 'Iron Man Mark XLV'], ['ironmanmk46', 'Iron Man Mark XLVI (Civil War)'], ['ironmanmk47', 'Iron Man Mark XLVII (Homecoming)'], ['ironmanmk50', 'Mark L "Bleeding Edge"'], ['ironmanmk85', 'Iron Man Mark LXXXV (Endgame)'], ['ironmanpatriot', 'Iron Patriot'], ['ironmanironspider', 'Iron Spider'], ['ironmanrescue', "Rescue (Pepper's suit)"], ['volcanojumpsuit', 'Henchman jumpsuit'], ['volcanovillain', "Villain's suit"], ['volcanoheatsuit', 'Heat suit'], ['volcanoguard', 'Lair guard'], ['kitchenchef', 'Head chef'], ['kitchensous', 'Sous-chef'], ['kitchenpartie', 'Chef de partie'], ['kitchencommis', 'Commis'], ['hospitalscrubs', 'Teal scrubs'], ['hospitaldoctor', 'White coat'], ['hospitalnurse', "Nurse's scrubs"], ['hospitalsurgeon', 'Surgical gown'], ['noirtrench', 'Trench coat'], ['noiruniform', 'Beat cop'], ['noirsuspenders', 'Shirtsleeves'], ['noirreporter', 'Crime reporter'], ['madlabcoat', 'Stained lab coat'], ['madlabapron', 'Rubber apron'], ['madlabassistant', 'Hunchbacked cloak'], ['madlabhazmat', 'Hazmat suit'], ['casinodealer', "Dealer's vest"], ['casinotux', 'Tuxedo'], ['casinohighroller', 'High roller'], ['casinoshowman', "Showman's jacket"], ['orientconductor', 'Conductor'], ['orientattendant', 'Carriage attendant'], ['orienttraveller', 'Tweed traveller'], ['orientpearls', 'Pearls and headband'], ['halloweendxvampire', 'Vampire cape'], ['halloweendxplague', 'Plague doctor'], ['halloweendxscarecrow', 'Scarecrow'], ['halloweendxspider', 'Spider lace'], ['catcafebarista', 'Paw apron'], ['catcafeears', 'Cat-ear hoodie'], ['catcafejumper', 'Cat jumper'], ['catcafeoveralls', 'Fish dungarees'], ['spiderversemiles', 'Miles suit'], ['spiderversegwensuit', 'Ghost-Spider suit'], ['spiderversepeterb', 'Peter B. suit'], ['spiderversepunk', 'Spider-Punk vest'], ['xmenwolverine', 'Wolverine suit'], ['xmencyclops', 'Cyclops suit'], ['xmengambit', 'Gambit coat'], ['xmenstormsuit', 'Storm suit'], ['f1racesuit', 'Red race suit'], ['f1silversuit', 'Silver race suit'], ['f1pitcrew', 'Papaya pit crew'], ['f1teampolo', 'Team polo'], ['ufcrashguard', 'Rashguard'], ['ufcreferee', 'Referee shirt'], ['ufccornerhoodie', 'Corner hoodie'], ['ufcwalkout', 'Walkout robe'], ['nyloftpeacoat', 'Peacoat'], ['nyloftflannel', 'Flannel shirt'], ['nyloftturtleneck', 'Turtleneck'], ['nyloftleather', 'Leather jacket'], ['pariscafemariniere', 'Striped top'], ['pariscafegarcon', "Waiter's apron"], ['pariscafetrench', 'Trench coat'], ['pariscafepearls', 'Little black dress'], ['muertoscatrinadress', 'Catrina dress'], ['muertoscharro', 'Charro jacket'], ['muertosblouse', 'Embroidered blouse'], ['muertosbones', 'Skeleton print'], ['submarinedeepcoverall', 'Orange coveralls'], ['submarinedeepwetsuit', 'Wetsuit'], ['submarinedeeplabcoat', 'Lab coat'], ['submarinedeepsweater', "Captain's sweater"], ['arcticbaseparka', 'Expedition parka'], ['arcticbasefleece', 'Fleece jacket'], ['arcticbasecoldsuit', 'Cold-weather suit'], ['arcticbaseknit', 'Nordic jumper'], ['sakurayukata', 'Blossom yukata'], ['sakuracardigan', 'Pastel cardigan'], ['sakurasailor', 'Sailor collar'], ['sakuraflorist', 'Florist apron'], ['pottergryffindor', 'Gryffindor uniform'], ['potterslytherin', 'Slytherin uniform'], ['potterquidditch', 'Quidditch robes'], ['potterheadmaster', "Headmaster's robes"], ['lotrgandalf', 'Gandalf the Grey'], ['lotrhobbit', 'Hobbit'], ['lotrelf', 'Elf of Mirkwood'], ['lotrranger', 'Ranger of the North'], ['breakingbadhazmat', 'Yellow hazmat suit'], ['breakingbadheisenberg', 'Heisenberg'], ['breakingbadjesse', "Jesse's hoodie"], ['breakingbadsaul', "Saul's suit"], ['strangereleven', 'Eleven'], ['strangerhellfiretee', 'Hellfire Club tee'], ['strangerscoopsuniform', 'Scoops Ahoy uniform'], ['strangerhopper', 'Chief Hopper'], ['gotnightswatch', "Night's Watch blacks"], ['gotlannisterred', 'Lannister red'], ['gotdaenerys', 'Mother of Dragons'], ['gotwhitewalker', 'White Walker'], ['simpsonshomer', 'Homer'], ['simpsonsmarge', 'Marge'], ['simpsonsbart', 'Bart'], ['simpsonslisa', 'Lisa'], ['bondtux', "Bond's dinner suit"], ['bondwhitejacket', 'White dinner jacket'], ['bondmoneypenny', 'Moneypenny'], ['bondoddjob', 'Oddjob'], ['dunestillsuit', 'Stillsuit'], ['dunefremen', 'Fremen robes'], ['dunebenegesserit', 'Bene Gesserit robes'], ['duneharkonnenblack', 'Harkonnen black'], ['onepieceluffy', 'Straw Hat captain'], ['onepiecezoro', 'Pirate swordsman'], ['onepiecenami', 'Navigator'], ['onepiecesanji', "Ship's cook"], ['eldenringtarnished', 'Tarnished knight'], ['eldenringmaiden', 'Hooded maiden'], ['eldenringvalkyrie', 'Blade of Miquella'], ['eldenringwitch', 'Moon witch'], ['sevmdr', 'MDR shirt & tie'], ['sevmanager', 'Milchick blazer'], ['sevwellness', 'Wellness green'], ['sevsecurity', 'Security suit'], ['offdwight', 'Dwight shirt & tie'], ['offjim', "Jim's grey suit"], ['offmichael', 'Boss suit'], ['offpam', 'Reception cardigan'], ['peakytommy', 'Three-piece suit'], ['peakyarthur', 'Rough suit'], ['peakypolly', '1920s dress'], ['peakybarman', "Barman's waistcoat"], ['madmdon', 'Grey skinny-tie suit'], ['madmroger', 'Pinstripe suit'], ['madmjoan', 'Red dress'], ['madmpeggy', 'Olive work dress'], ['squidplayer', 'Player tracksuit'], ['squidguard', 'Guard jumpsuit'], ['squidfrontman', 'Front Man cloak'], ['squidvip', 'VIP jacket'], ['boyshomelander', 'Caped hero suit'], ['boysstarlight', 'White hero suit'], ['boysbutcher', 'Black trench coat'], ['boysexec', 'Vought exec suit'], ['falloutvaultsuit', 'Vault jumpsuit'], ['falloutranger', 'Wasteland duster'], ['falloutraider', 'Raider armour'], ['falloutscientist', 'Vault-Tec lab coat'], ['rickcoat', 'Lab coat'], ['rickmorty', 'Yellow tee'], ['ricksummer', 'Teal top'], ['rickbirdperson', 'Feathered coat'], ['mirrorsuit', 'Minimalist suit'], ['mirrorjumpsuit', 'Grey jumpsuit'], ['mirrortech', 'Tech hoodie'], ['mirrorgown', 'White gown'], ['westcowboy', 'Cowboy outfit'], ['westhost', 'Host bodysuit'], ['westtech', 'QA jumpsuit'], ['westgunslinger', 'Man in Black'], ['bttfmarty', "Marty's vest"], ['bttfdoc', "Doc's lab coat"], ['bttffuture', 'Self-lacing jacket'], ['bttfsodajerk', 'A soda jerk'], ['jpranger', 'A park ranger'], ['jpscientist', 'A geneticist'], ['jpvisitor', 'A park visitor'], ['jpnedry', 'A messy hacker'], ['wicksuit', 'A black suit'], ['wickconciergeoutfit', 'A concierge coat'], ['wicksommelier', "A tailor's apron"], ['wickadjudicator', 'High-table black'], ['kingsmangalahad', 'A bespoke suit'], ['kingsmanmerlin', 'A tech jumper'], ['kingsmantailor', "A tailor's apron"], ['kingsmanagent', 'A field agent'], ['wonkawonka', "Wonka's tailcoat"], ['wonkaoompa', 'An Oompa-Loompa'], ['wonkacharlie', 'A ticket winner'], ['wonkaguide', 'A factory guide'], ['wesgustave', 'A concierge uniform'], ['weszero', 'A lobby boy'], ['wesagatha', 'A baker'], ['wesguest', 'A hotel guest'], ['mibsuit', 'A black MIB suit'], ['mibzed', 'A senior agent'], ['mibalien', 'An alien in disguise'], ['mibworm', 'A worm guy'], ['tronblue', 'A blue program'], ['tronorange', 'An orange program'], ['tronflynn', 'The Creator'], ['tronsiren', 'A grid siren'], ['dbzgoku', 'An orange gi'], ['dbzvegeta', 'Saiyan armor'], ['dbzpiccolo', 'A Namekian gi'], ['dbzstudent', 'A student gi'], ['amongusred', 'A red crewmate'], ['amonguscyan', 'A cyan crewmate'], ['amongusyellow', 'A yellow crewmate'], ['amongusimposter', 'An imposter'], ['tokyohappi', 'Happi coat'], ['tokyokimono', 'Kimono'], ['tokyosalaryman', 'Salaryman suit'], ['tokyostreet', 'Harajuku streetwear'], ['egyptking', "Pharaoh's nemes"], ['egyptpriest', "Priest's leopard skin"], ['egyptqueen', "Queen's gown"], ['egyptworker', "Scribe's linen"], ['vikingwarrior', "Warrior's mail"], ['vikingmaiden', 'Shieldmaiden'], ['vikingjarl', "Jarl's cloak"], ['vikingseer', 'Seeress robe'], ['aztecjaguarw', 'Jaguar warrior'], ['azteceaglew', 'Eagle warrior'], ['aztecpriest', 'Feathered priest'], ['aztecnoble', "Noble's cloak"], ['obsastronomer', "Astronomer's coat"], ['obsprofessor', 'Tweed professor'], ['obsastronaut', 'Space suit'], ['obsstargazer', "Stargazer's knit"], ['tikibartender', 'Bartender shirt'], ['tikisurfer', 'Surfer boardshorts'], ['tikiluau', 'Luau grass skirt'], ['tikitourist', 'Tourist shirt'], ['dinerwaitress', 'Waitress uniform'], ['dinercook', 'Short-order cook'], ['dinergreaser', 'Greaser jacket'], ['dinerpoodle', 'Poodle skirt'], ['courtjudge', "Judge's robe"], ['courtlawyer', "Counsel's suit"], ['courtbailiff', 'Bailiff uniform'], ['courtclerk', "Clerk's blazer"], ['artsmock', "Painter's smock"], ['artberet', 'Beret and stripes'], ['artsculptor', "Sculptor's apron"], ['artstudent', 'Art student'], ['aquariumwetsuit', 'Wetsuit'], ['aquariumkeeper', 'Aquarist polo'], ['aquariumbiologist', 'Marine biologist'], ['aquariumscuba', 'Scuba gear'], ['circusringmaster', 'Ringmaster'], ['circusclown', 'Clown'], ['circusacrobat', 'Acrobat'], ['circusstrongman', 'Strongman'], ['museumcurator', 'museumcurator'], ['museumpaleo', 'museumpaleo'], ['museumdocent', 'museumdocent'], ['museumprofessor', 'museumprofessor'], ['northpolesanta', 'northpolesanta'], ['northpoleelf', 'northpoleelf'], ['northpolemrsclaus', 'northpolemrsclaus'], ['northpolesweater', 'northpolesweater'], ['soundstagedirector', 'soundstagedirector'], ['soundstagestarlet', 'soundstagestarlet'], ['soundstagecrew', 'soundstagecrew'], ['soundstagetux', 'soundstagetux'], ['cultrobe', 'cultrobe'], ['cultleader', 'cultleader'], ['cultelder', 'cultelder'], ['cultinitiate', 'cultinitiate'], ['esportsjersey', 'esportsjersey'], ['esportshoodie', 'esportshoodie'], ['esportscaster', 'esportscaster'], ['esportspro', 'esportspro'], ['cavemanfur', 'cavemanfur'], ['cavemanhunter', 'cavemanhunter'], ['cavemanshaman', 'cavemanshaman'], ['cavemanchief', 'cavemanchief'], ['lodgerobe', 'lodgerobe'], ['lodgemaster', 'lodgemaster'], ['lodgeapron', 'lodgeapron'], ['lodgeguard', 'lodgeguard'], ['prepperhazmat', 'prepperhazmat'], ['prepperfatigues', 'prepperfatigues'], ['prepperbugout', 'prepperbugout'], ['prepperranger', 'prepperranger'], ['paradisepresident', 'President'], ['paradisesecret', 'Secret Service'], ['paradiseaide', 'Bunker aide'], ['paradisehazmat', 'Hazmat engineer'], ['startrekgold', 'Command gold'], ['startrekblue', 'Science blue'], ['startrekred', 'Operations red'], ['startrekcaptain', 'Captain'], ['gentlementweedsuit', 'Tweed three-piece'], ['gentlemengamekeeper', 'Gamekeeper'], ['gentlemengangster', 'Gangster suit'], ['gentlementracksuit', 'Tracksuit']]],
     colour: ['Colour', [['auto', 'Auto'], ['orange', 'Orange'], ['red', 'Red'], ['pink', 'Pink'], ['purple', 'Purple'], ['blue', 'Blue'],
       ['teal', 'Teal'], ['green', 'Green'], ['yellow', 'Yellow'], ['grey', 'Grey'], ['black', 'Black'], ['white', 'White']]],
     desk: ['On the desk', [['auto', 'Auto'], ['plant', 'A plant'], ['papers', 'Papers'], ['lamp', 'A lamp'], ['cactus', 'A cactus'],
@@ -3829,7 +4654,7 @@
     }
     const mics = () => roomCatalog('mic', room, shown.mic || STANDARD_ROOM.mic, (id) => furnish((r) => { r.mic = id; }, 'mic'));
     catalog('easy-mic', mics());
-    catalog('welcome-mic', mics());
+    if (!$('invite').hidden) catalog('welcome-mic', mics());
     // Sound waves, once the office has a choice of them
     $('easy-wave-box').hidden = !ROOM_CHOICES.wave;
     if (ROOM_CHOICES.wave) {
@@ -4716,9 +5541,10 @@
     if (!state.floors) return;
     // Not while you're in one of its rows: what you typed would be put back.
     if ($('floors').contains(document.activeElement)) return;
+    if (!changed($('floors'), [state.floors, state.presets, state.floorRules, state.platform])) return;
     const styleName = (id) => (ROOM_CHOICES.preset.find(([other]) => other === id) || [id, id])[1];
     const styles = [['', 'Same as the office'], ['server', 'Server room'], ...(state.presets || []).map((id) => [id, styleName(id)])];
-    $('floors').replaceChildren(...state.floors.map((floor, i) => {
+    $('floors').replaceChildren(...state.floors.flatMap((floor, i) => {
       const row = document.createElement('div');
       row.className = 'field floor';
       const label = document.createElement('span');
@@ -4737,15 +5563,158 @@
         style.onchange = sendFloors;
         row.append(style);
       }
-      return row;
+      return [row, floorRulesRow(i, label.textContent)];
     }));
   }
 
-  /** All six at once, as the page has them. */
-  function sendFloors() {
+  /**
+   * The cloud bots, each at its desk: on which floor, kept (📌) whatever the Grok Bot app says, or hidden. On a Mac,
+   * whether the app's bots get desks by themselves, the ones you hid, to show again, and any found with no room.
+   */
+  function renderBots() {
+    const bots = state.cloudBots;
+    $('bots-group').hidden = !bots;
+    if (!bots) return;
+    if ($('bots').contains(document.activeElement)) return;
+    if (!changed($('bots'), [bots, state.floors, state.platform])) return;
+    $('bots-hint').textContent = bots.detects
+      ? 'A bot in the Grok Bot app gets a desk by itself, and goes when it leaves there. 📌 keeps one whatever the app says; Hide sends it away for good.'
+      : 'Bots set in config.json or by a tool of yours, each at a desk of its own. 📌 marks one as yours on a Mac, where they are found in the Grok Bot app.';
+    const send = (body) => post('/setup/bots/override', body);
+    const rows = [];
+    if (bots.detects) {
+      const row = document.createElement('div');
+      row.className = 'field';
+      const label = Object.assign(document.createElement('span'), { textContent: 'Find the Grok Bot app’s bots' });
+      const sw = document.createElement('button');
+      sw.className = 'switch';
+      sw.classList.toggle('on', !!bots.autoDetect);
+      sw.setAttribute('aria-pressed', String(!!bots.autoDetect));
+      sw.setAttribute('aria-label', 'Find the Grok Bot app’s bots by themselves');
+      sw.onclick = () => send({ autoDetect: !bots.autoDetect });
+      row.append(label, sw);
+      rows.push(row);
+    }
+    const floors = Array.isArray(state.floors) ? state.floors : [];
+    const places = [['upstairs', 'Upstairs, where there’s room'], ['ground', `${(floors[0] || {}).name || '1F'} (ground floor)`],
+      ...floors.slice(1).map((floor, i) => [String(i + 2), floor.name])];
+    for (const bot of bots.bots || []) {
+      const row = document.createElement('div');
+      row.className = 'field floor';
+      const label = document.createElement('span');
+      label.textContent = bot.name;
+      const from = Object.assign(document.createElement('small'), { textContent: bot.discovered ? ' · found in the Grok Bot app' : ' · yours' });
+      from.style.opacity = '.6';
+      label.append(from);
+      const where = document.createElement('select');
+      where.setAttribute('aria-label', `${bot.name}'s floor`);
+      where.replaceChildren(...places.map(([id, text]) => new Option(text, id, false, id === bot.floor)));
+      where.onchange = () => { where.blur(); send({ id: bot.id, floor: where.value }); };
+      const pin = document.createElement('button');
+      pin.className = 'btn';
+      pin.textContent = bot.pinned ? '📌 Kept' : '📌 Keep';
+      pin.setAttribute('aria-pressed', String(!!bot.pinned));
+      pin.title = 'Kept whatever the Grok Bot app says';
+      pin.onclick = () => { pin.blur(); send({ id: bot.id, pinned: !bot.pinned }); };
+      const hide = document.createElement('button');
+      hide.className = 'btn';
+      hide.textContent = bots.detects && bot.fromApp ? 'Hide' : 'Remove';
+      hide.onclick = () => { hide.blur(); send({ id: bot.id, hidden: true }); };
+      row.append(label, where, pin, hide);
+      rows.push(row);
+      rows.push(mailboxRow(bot));
+    }
+    for (const gone of bots.hidden || []) {
+      const row = document.createElement('div');
+      row.className = 'field';
+      const label = Object.assign(document.createElement('span'), { textContent: `Hidden: ${gone.name || gone.botId}` });
+      label.style.opacity = '.6';
+      const show = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Show again' });
+      show.onclick = () => { show.blur(); send({ show: gone.botId }); };
+      row.append(label, show);
+      rows.push(row);
+    }
+    if ((bots.noRoom || []).length) {
+      rows.push(Object.assign(document.createElement('p'), { className: 'hint',
+        textContent: `No desk for ${bots.noRoom.join(', ')}: there can be 9 cloud bots. Hide or remove one to make room.` }));
+    }
+    if (!rows.length) rows.push(Object.assign(document.createElement('p'), { className: 'hint', textContent: 'No cloud bots yet.' }));
+    $('bots').replaceChildren(...rows);
+  }
+
+  /** A bot's mailbox folder: where its mail goes through. Typed for now; the app checks it and says why when it won't do. */
+  function mailboxRow(bot) {
+    const row = document.createElement('div');
+    row.className = 'field';
+    const label = Object.assign(document.createElement('span'), { textContent: `${bot.name}'s mailbox folder` });
+    label.style.opacity = '.8';
+    const input = Object.assign(document.createElement('input'), { type: 'text', className: 'mono', value: bot.mailbox || '', spellcheck: false,
+      placeholder: 'A folder such as ~/Mail/bot, or empty for none' });
+    input.setAttribute('aria-label', `${bot.name}'s mailbox folder`);
+    const problem = Object.assign(document.createElement('small'), { className: 'note', hidden: true });
+    const save = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Save folder' });
+    save.onclick = async () => {
+      save.disabled = true;
+      const res = await fetch('/setup/bots/mailbox', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify({ id: bot.id, folder: input.value.trim() }) }).catch(() => null);
+      save.disabled = false;
+      if (res && res.ok) { problem.hidden = true; input.blur(); save.blur(); load(); return; }
+      problem.textContent = await refusal(res, "That folder couldn't be kept.");
+      problem.hidden = false;
+    };
+    input.onkeydown = (e) => { if (e.key === 'Enter') save.click(); };
+    row.append(label, input, save, problem);
+    return row;
+  }
+
+  // An example folder in this computer's own style, by the platform the app that serves this page reports.
+  function exampleFolder() {
+    if (state.platform === 'windows') return 'C:\\Users\\you\\project';
+    if (state.platform === 'linux') return '/home/you/project';
+    return '/Users/you/project';
+  }
+
+  /** The folders whose agents sit on floor `i`, each taken off with ✕, and a field to add one: a computer from before rules has none. */
+  function floorRulesRow(i, floorLabel) {
+    const box = document.createElement('div');
+    box.className = 'floor-rules';
+    if (!Array.isArray(state.floorRules)) return box;
+    for (const rule of state.floorRules.filter((r) => r.floor === i)) {
+      const chip = document.createElement('span');
+      chip.className = 'rule';
+      // One remembered from the office is that folder alone; one added here holds the folders in it too.
+      chip.title = rule.exact ? `${rule.folder}, this folder alone` : `${rule.folder}, and the folders in it`;
+      chip.textContent = (rule.folder.split(/[\\/]/).filter(Boolean).pop() || rule.folder) + (rule.exact ? '' : '/…');
+      const off = document.createElement('button');
+      off.type = 'button';
+      off.textContent = '✕';
+      off.setAttribute('aria-label', `Stop putting ${chip.textContent} on ${floorLabel}`);
+      // Out of the floors' rows first, or the list wouldn't be drawn again with it gone (see renderFloors).
+      off.onclick = () => {
+        off.blur();
+        sendFloors(state.floorRules.filter((r) => r !== rule));
+      };
+      chip.append(off);
+      box.append(chip);
+    }
+    const add = document.createElement('input');
+    Object.assign(add, { type: 'text', spellcheck: false, placeholder: `Add a project folder, as ${exampleFolder()}` });
+    add.setAttribute('aria-label', `A project folder whose agents sit on ${floorLabel}`);
+    add.onchange = () => {
+      const folder = add.value.trim();
+      if (!folder) return;
+      add.blur();
+      // Setup's rule for that folder and the ones in it: one remembered from the office for it alone stays beside it.
+      sendFloors([...state.floorRules.filter((r) => r.folder !== folder || r.exact), { folder, floor: i }]);
+    };
+    box.append(add);
+    return box;
+  }
+
+  /** All six at once, as the page has them, and the folders' rules, as given or as they are. */
+  function sendFloors(rules) {
     const floors = [...$('floors').querySelectorAll('.floor')].map((row) =>
       ({ name: row.querySelector('input').value, preset: row.querySelector('select')?.value || '' }));
-    post('/setup/floors', { floors });
+    post('/setup/floors', { floors, ...(Array.isArray(state.floorRules) ? { rules: Array.isArray(rules) ? rules : state.floorRules } : {}) });
   }
 
   /* -------------------------------------------------------------- profiles */
@@ -4914,17 +5883,57 @@
   let startTimer = 0;
   const startMarks = { ok: '✓', fix: '!', todo: '', info: '' };
 
+  // A failed or slow check is tried again a few times, then Start here says so, with a Retry.
+  const startRetries = [1000, 3000, 8000];
+  let startTries = 0;
+  let startFailed = false;
+  let startRunning = false;
+  // A healthy self-test can take a while (the Windows firewall check), so the wait is long.
+  const startWait = 45000;
+
   async function loadStartHere() {
+    if (startRunning) return;
+    startRunning = true;
+    try {
+      await checkStartHere();
+    } finally {
+      startRunning = false;
+    }
+  }
+
+  async function checkStartHere() {
     clearTimeout(startTimer);
-    const res = await fetch('/setup/selftest', { cache: 'no-store', headers: setupHeaders(false) }).catch(() => null);
+    const res = await fetch('/setup/selftest', { cache: 'no-store', headers: setupHeaders(false), signal: AbortSignal.timeout && AbortSignal.timeout(startWait) }).catch(() => null);
     // An app from before the self-test has no checklist: Easy setup is as it was.
-    if (!res || !res.ok) return;
-    const report = await res.json().catch(() => null);
-    if (!report) return;
+    if (res && res.status === 404) return;
+    const report = res && res.ok ? await res.json().catch(() => null) : null;
+    if (!report || !report.checks) {
+      if (startTries < startRetries.length) startTimer = setTimeout(loadStartHere, startRetries[startTries++]);
+      else showStartHereFailed();
+      return;
+    }
+    startTries = 0;
+    if (startFailed) startSaid('');
+    startFailed = false;
     startChecks = report.checks;
     renderStartHere(report);
     renderAttention();
     if (report.checks.some((c) => c.status !== 'ok' && c.status !== 'info')) startTimer = setTimeout(loadStartHere, 15000);
+  }
+
+  function showStartHereFailed() {
+    startFailed = true;
+    $('start-here').hidden = false;
+    $('start-now').textContent = "Couldn't check";
+    $('start-fix-all').hidden = true;
+    $('start-checks').replaceChildren();
+    startSaid(`Couldn't check ${onMac() ? 'this Mac' : 'this computer'}. Smolcorp didn't answer the self-test.`, true);
+    $('start-checks').append(startButton('Retry', () => {
+      if (startRunning) return;
+      startTries = 0;
+      $('start-now').textContent = 'Checking…';
+      loadStartHere();
+    }, true));
   }
 
   function renderStartHere(report) {
@@ -4971,17 +5980,21 @@
 
   function startSaid(text, wrong = false) {
     $('start-said').hidden = !text;
-    $('start-said').textContent = text || '';
+    $('start-said').textContent = wording(text || '');
     $('start-said').classList.toggle('wrong', wrong);
   }
 
   const startFixSays = {
     firewall: 'Windows asks for your OK: choose Yes.',
-    homewifi: 'Windows asks for your OK: choose Yes. Then Smolcorp starts again, on your home Wi-Fi too.',
+    homewifi: 'Smolcorp starts again, on your home Wi-Fi too. On Windows, it asks for your OK first: choose Yes.',
     install: 'Installing, then Smolcorp starts again from where it lives. This page reloads.',
   };
 
   async function startFix(fix) {
+    // The restart makes a new setup key, so every setup page already open stops working: say so before it happens.
+    if (fix === 'homewifi' && !confirm('Let in your home Wi-Fi? Smolcorp restarts, and every setup page already open stops working. '
+      + "For the new link, choose Open Setup… from Smolcorp's tray icon; with no tray, "
+      + "run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again.")) return;
     startSaid(startFixSays[fix] || 'Working…');
     const res = await fetch(`/setup/fix?fix=${encodeURIComponent(fix)}`, { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
     // An install, or the home Wi-Fi, starts Smolcorp again: the page comes back with it.
@@ -5000,13 +6013,38 @@
       if (c.fix === 'install') return;
     }
   };
-  $('start-office').onclick = () => fetch('/setup/office', { method: 'POST', headers: setupHeaders(true) }).catch(() => {});
+  $('start-office').onclick = async () => {
+    const res = await fetch('/setup/office', { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
+    if (!res) return startSaid("Can't reach Smolcorp on this computer.", true);
+    if (!res.ok) return startSaid(`${await res.text()} Open the office from ${onMac() ? "Smolcorp's menu bar icon" : "Smolcorp's menu in the tray"}: Show Office, or open ${location.origin}/office in a browser on this computer and enter the code from Pair a phone.`, true);
+    startSaid('The office is opening.');
+  };
+  /** The General Manager sessions at a desk now, by id: the desk comes once the hire's hook has posted. */
+  async function seatedGms() {
+    const res = await fetch('/setup/state', { cache: 'no-store' }).catch(() => null);
+    if (!res || !res.ok) return null;
+    const sessions = (await res.json()).sessions || [];
+    return sessions.filter((s) => s.role === 'gm' && s.key != null).map((s) => s.id);
+  }
+
   $('start-gm').onclick = async () => {
+    if (!$('start-gm-account').hidden && !$('start-gm-account').value) return startSaid('Choose the Claude account your General Manager works on.', true);
+    const before = (await seatedGms()) || [];
     startSaid('Hiring your General Manager: its terminal opens, and it asks you what the goal is.');
-    const res = await fetch('/setup/hire/gm', { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
+    const res = await fetch(`/setup/hire/gm${$('start-gm-account').hidden ? '' : `?account=${encodeURIComponent($('start-gm-account').value)}`}`, { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
     if (!res) return startSaid("Can't reach Smolcorp on this computer.", true);
     if (!res.ok) return startSaid(await res.text(), true);
-    startSaid('Hired: your General Manager is at a desk in the office, asking what the goal is.');
+    const advice = 'Claude Code may first ask to trust the folder and, if an API key is in the environment, whether to use it: answer Yes to both.';
+    startSaid(`Your General Manager is starting: its terminal is opening. ${advice}`);
+    // Only a session at a desk says it's there. Wait up to a minute for it.
+    for (let i = 0; i < 30; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const now = await seatedGms();
+      if (now && now.some((id) => !before.includes(id))) {
+        return startSaid(`Hired: your General Manager is at a desk in the office, asking what the goal is. ${advice}`);
+      }
+    }
+    startSaid(`Your General Manager is still starting. Look at its terminal window: it may be waiting for you. ${advice}`);
   };
 
   /** What still needs doing before anything works, at the top of Easy setup. */
@@ -5041,8 +6079,10 @@
   function fitDetails() {
     document.querySelectorAll('.pane.current .lead').forEach((lead) => {
       const more = lead.nextElementSibling, open = lead.closest('.step').classList.contains('expanded');
-      more.textContent = open ? 'Less' : 'More';
-      more.hidden = !open && lead.scrollHeight <= lead.clientHeight + 1;
+      // Set only when it differs, so a refresh with nothing new touches nothing.
+      const word = open ? 'Less' : 'More', hide = !open && lead.scrollHeight <= lead.clientHeight + 1;
+      if (more.textContent !== word) more.textContent = word;
+      if (more.hidden !== hide) more.hidden = hide;
     });
   }
   window.addEventListener('resize', fitDetails);
@@ -5266,7 +6306,7 @@
     }
     // From "Set up the viewer on the setup page" in the menu.
     if (location.hash === '#viewer') go('extras', $('viewer'));
-  }).then(loadStartHere).then(loadViewer).then(loadBriefs);
+  }).then(loadStartHere).then(loadViewer).then(loadBriefs).then(loadGuard);
   setInterval(() => { if (!document.querySelector('.over')) load(); }, 1500);
   // The viewer's state, for its switch and "last sent": often while it's on.
   setInterval(() => { if (viewer && (viewer.on || document.hasFocus())) loadViewer(); }, 5000);

@@ -1,0 +1,26 @@
+{
+  "route": "POST /setup/gm/contacts",
+  "callers": ["gm", "page"],
+  "note": "from and to are hires' ids, nicknames or names. By default the pair may write to each other; oneWay: true allows only from to to; remove: true takes the pair away (with oneWay, only that direction). The answer is the pairs now; gm team answers the same list as contacts. A hire with no pair may write only to the GM.",
+  "request-shape": {"from": "Rev", "to": "Janitor", "oneWay": false, "remove": false},
+  "file": "registry.json keeps them as contacts: [{from, to}] (left out while empty), beside hires.",
+  "steps": [
+    {"request": {"from": "Rev", "to": "Janitor"}, "status": 200,
+     "answer": {"contacts": [{"from": "a1b2c3", "to": "d4e5f6"}, {"from": "d4e5f6", "to": "a1b2c3"}]}},
+    {"request": {"from": "Rev", "to": "Janitor"}, "status": 200,
+     "answer": {"contacts": [{"from": "a1b2c3", "to": "d4e5f6"}, {"from": "d4e5f6", "to": "a1b2c3"}]}},
+    {"request": {"from": "a1b2c3", "to": "d4e5f6", "oneWay": true, "remove": true}, "status": 200,
+     "answer": {"contacts": [{"from": "d4e5f6", "to": "a1b2c3"}]}},
+    {"request": {"from": "Janitor", "to": "Rev", "remove": true}, "status": 200, "answer": {"contacts": []}},
+    {"request": {"from": "Rev", "to": "Janitor", "oneWay": true}, "status": 200,
+     "answer": {"contacts": [{"from": "a1b2c3", "to": "d4e5f6"}]}},
+    {"request": {"from": "Rev", "to": "Rev"}, "status": 400},
+    {"request": {"from": "Rev", "to": "nobody"}, "status": 404},
+    {"request": {"from": "Rev", "to": "Builder"}, "status": 409},
+    {"request": {"from": "Rev"}, "status": 400}
+  ],
+  "refusals-for-a-hire-writing": {
+    "status": 403,
+    "why": "a hire writes to a hire only for an allowed pair; an unknown name and a name not allowed get the same refusal. The words name the rule: A hire may write to the GM, and to another hire only when the GM or the owner has allowed that pair."
+  }
+}

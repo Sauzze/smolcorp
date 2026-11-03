@@ -246,6 +246,26 @@ final class HeadlessTests: XCTestCase {
         }
     }
 
+    func testTheViewerSeatsPeopleAtTheDesksTheMacGivesThem() {
+        // One run, whose desk on 2F was desk 1 (someone left desk 0): the Mac's snapshot says desk 1,
+        // and so must the viewer's, or a screen that packs people from the first desk draws them elsewhere.
+        let sessions = running("a")
+        let run = sessions.all[0]
+        let seated = Deck.seat(placed: [], rest: [Upstairs(person: run, id: run.id, had: Seat(floor: 1, desk: 1))])
+        var desks: [String: Int] = [:]
+        for floor in seated.floors { for one in floor { desks[one.person.id] = one.desk } }
+        XCTAssertEqual(desks[run.id], 1)
+        for hideNames in [false, true] {
+            let floors = ViewerSnapshot.floors(seated.floors.map { $0.map(\.person) }, named: Floor.standard, hideNames: hideNames) {
+                ViewerSnapshot.upstairs($0, overflow: 0, hideNames: hideNames, first: $1, seat: { desks[$0.id] })
+            }
+            let second = floors[1]["desks"] as? [[String: Any]]
+            XCTAssertEqual(second?.first?["desk"] as? Int, 1)
+            // The ground floor and anyone with no seat say nothing of one.
+            XCTAssertNil(ViewerSnapshot.upstairs([run], overflow: 0, hideNames: hideNames)["desks"].flatMap { ($0 as? [[String: Any]])?.first?["desk"] })
+        }
+    }
+
     func testTheViewerSeesOnlyAName() {
         let sessions = running()
         let shown = ViewerSnapshot.upstairs(sessions.all, overflow: 3, hideNames: false)

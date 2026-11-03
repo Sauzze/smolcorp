@@ -18,14 +18,35 @@ struct PushTarget: Codable, Equatable {
     var token: String
     /// A development build's token, for Apple's sandbox.
     var sandbox = true
-    /// (a) an agent finished its turn, (b) one needs you, (c) the GM's messages.
+    /// (a) an agent finished its turn (a hire ready for review follows it), (b) one needs you, (c) the GM's messages.
     var finished = true
     var waiting = true
     var gm = true
+    /// The phone's label for this Mac, and the id it keeps this office by (a UUID), when the phone sent them: they
+    /// go into each push so the phone can say which office it came from. Nil from an older app; an older saved
+    /// target without them still loads.
+    var office: String? = nil
+    var officeID: String? = nil
+
+    /// Longest office label kept.
+    static let officeMost = 40
+
+    /// A phone's label for this Mac, trimmed: one line of 1 to 40 characters, else nil.
+    static func officeLabel(_ given: Any?) -> String? {
+        guard let text = (given as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              (1...officeMost).contains(text.count), !text.contains(where: \.isNewline) else { return nil }
+        return text
+    }
+
+    /// An office id as the phone sent it, if it is a UUID, else nil.
+    static func officeIdentifier(_ given: Any?) -> String? {
+        guard let text = given as? String, UUID(uuidString: text) != nil else { return nil }
+        return text
+    }
 
     func wants(_ event: PushEvent) -> Bool {
         switch event {
-        case .finished: return finished
+        case .finished, .review: return finished
         case .waiting: return waiting
         case .gm: return gm
         }
@@ -37,7 +58,7 @@ struct PushTarget: Codable, Equatable {
     }
 }
 
-enum PushEvent: String { case finished, waiting, gm }
+enum PushEvent: String { case finished, waiting, gm, review }
 
 /// One notification: what it's about, and its only words.
 struct PushNote: Equatable {
@@ -68,11 +89,18 @@ struct PushNote: Equatable {
     }
 
     /// The notification as Apple takes it.
-    var payload: Data {
-        var aps: [String: Any] = ["alert": ["title": title, "body": body], "sound": "default"]
-        if let session { aps["thread-id"] = session }
+    var payload: Data { payload(for: nil) }
+
+    /// The notification for `target`: with the office's name as the alert's subtitle, and its id beside the session
+    /// and in front of the thread, when the phone gave them. Without them, exactly the notification as it always was.
+    func payload(for target: PushTarget?) -> Data {
+        var alert = ["title": title, "body": body]
+        if let office = target?.office { alert["subtitle"] = office }
+        var aps: [String: Any] = ["alert": alert, "sound": "default"]
+        if let session { aps["thread-id"] = target?.officeID.map { "\($0):\(session)" } ?? session }
         var object: [String: Any] = ["aps": aps, "event": event.rawValue]
         if let session { object["session"] = session }
+        if let officeID = target?.officeID { object["office"] = officeID }
         return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
     }
 }
@@ -125,7 +153,9 @@ enum PushKey {
     }
 
     /// The key's account, from the item's attributes, without reading the key: nil without all three.
-    static func account() -> Account? {
+    /// A test copy never asks the Keychain: it has no push key, and the router says so.
+    static func account(testCopy: Bool = TestCopy.isOn) -> Account? {
+        guard !testCopy else { return nil }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
             kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitOne,
@@ -155,7 +185,8 @@ enum PushKey {
     static func topic() -> String? { account()?.topic }
 
     /// A provider token signed now with the key `keyID`, or nil without it.
-    static func token(keyID: String, now: Date) -> String? {
+    static func token(keyID: String, now: Date, testCopy: Bool = TestCopy.isOn) -> String? {
+        guard !testCopy else { return nil }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
             kSecAttrAccount as String: keyID, kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne,
@@ -184,6 +215,8 @@ final class Pushes {
     private var told: [String: SessionState]?
     /// When each session's news was last sent, by "<session> <event>".
     private var sent: [String: Date] = [:]
+    /// When a "waiting on you" note was last made for each session still waiting: the approvals list says whether a phone was told.
+    private var toldWaiting: [String: Date] = [:]
     /// The provider token, one for every push, signed at most once in `tokenLife`: kept and used on `queue` only, so
     /// pushes sent together share it. Apple refuses a new one more often than every 20 minutes.
     private var provider: (token: String, keyID: String, at: Date)?
@@ -202,9 +235,9 @@ final class Pushes {
     /// How long the last look holds before another is asked for.
     static let keyLookEvery: TimeInterval = 60
 
-    init(transport: @escaping Transport = Pushes.urlSession, keyID: @escaping () -> String? = PushKey.keyID,
-         topic: @escaping () -> String? = PushKey.topic,
-         sign: @escaping (String, Date) -> String? = PushKey.token, now: @escaping () -> Date = Date.init) {
+    init(transport: @escaping Transport = Pushes.urlSession, keyID: @escaping () -> String? = { PushKey.keyID() },
+         topic: @escaping () -> String? = { PushKey.topic() },
+         sign: @escaping (String, Date) -> String? = { PushKey.token(keyID: $0, now: $1) }, now: @escaping () -> Date = Date.init) {
         self.transport = transport
         self.keyID = keyID
         self.topic = topic
@@ -253,6 +286,7 @@ final class Pushes {
         defer { told = Dictionary(desks.map { ($0.id, $0.state) }) { a, _ in a } }
         guard let before = told else { return [] }
         var notes: [PushNote] = []
+        toldWaiting = toldWaiting.filter { id, _ in desks.contains { $0.id == id && $0.state == .asking } }
         for desk in desks {
             let event: PushEvent
             switch desk.state {
@@ -263,11 +297,15 @@ final class Pushes {
             let id = "\(desk.id) \(event.rawValue)"
             if let last = sent[id], now.timeIntervalSince(last) < Pushes.quiet { continue }
             sent[id] = now
+            if event == .waiting { toldWaiting[desk.id] = now }
             notes.append(.desk(desk.name, event, session: desk.id))
         }
         sent = sent.filter { now.timeIntervalSince($0.value) < Pushes.quiet }
         return notes
     }
+
+    /// When a note that `session` waits on you was last made, while it still waits; nil if none was.
+    func toldWaiting(_ session: String) -> Date? { toldWaiting[session] }
 
     /// The request for `note` to the device `target`.
     static func request(_ note: PushNote, to target: PushTarget, provider: String, topic: String) -> URLRequest? {
@@ -275,7 +313,7 @@ final class Pushes {
         guard PushTarget.isToken(target.token), let url = URL(string: "https://\(host)/3/device/\(target.token)") else { return nil }
         var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "POST"
-        request.httpBody = note.payload
+        request.httpBody = note.payload(for: target)
         request.setValue("bearer \(provider)", forHTTPHeaderField: "authorization")
         request.setValue(topic, forHTTPHeaderField: "apns-topic")
         request.setValue("alert", forHTTPHeaderField: "apns-push-type")
@@ -284,10 +322,20 @@ final class Pushes {
         request.setValue(String(Int(Date().timeIntervalSince1970) + 3600), forHTTPHeaderField: "apns-expiration")
         if let session = note.session {
             // A newer one about the same desk replaces it on the phone. Apple allows 64 bytes.
-            request.setValue(String("\(note.event.rawValue)-\(session)".prefix(64)), forHTTPHeaderField: "apns-collapse-id")
+            request.setValue(collapseID("\(note.event.rawValue)-\(session)", office: target.officeID), forHTTPHeaderField: "apns-collapse-id")
         }
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         return request
+    }
+
+    /// The collapse id: `kind` as it always was, or behind the office's id and a colon when there is one. Within Apple's
+    /// 64 bytes: if the two don't fit, `kind` is cut short, never the office's id.
+    static func collapseID(_ kind: String, office: String?) -> String {
+        let most = 64
+        guard let office else { return String(kind.prefix(most)) }
+        var rest = kind
+        while office.utf8.count + 1 + rest.utf8.count > most, !rest.isEmpty { rest.removeLast() }
+        return office + ":" + rest
     }
 
     /// Whether Apple's answer says the token is no good any more, to forget it.

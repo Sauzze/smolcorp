@@ -1,0 +1,670 @@
+{
+  "routes" : [
+    {
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/gm\/team",
+      "why" : "the team: registry merged with live sessions"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/gm\/events",
+      "why" : "the event log, since a time, long-polling"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/gm\/version",
+      "why" : "the app's version and features"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/gm\/outbox",
+      "why" : "the GM's messages and their states"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/gm\/watches",
+      "why" : "what the GM asked the app to watch"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/gm\/approvals",
+      "why" : "the waits for you"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/gm\/screens",
+      "why" : "the screens the team can be tiled on"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/hire",
+      "why" : "hire an employee"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/fire",
+      "why" : "fire one"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/brief",
+      "why" : "change an employee's brief"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/tile",
+      "why" : "tile the team's windows"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/screen",
+      "why" : "choose the screen that holds the team"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page",
+        "hire"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/send",
+      "why" : "send a message: signed as the GM, the owner, or (with its own send key) the hire; a hire only to the GM or an allowed contact"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/contacts",
+      "why" : "allow or remove a pair of hires who may write to each other"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/registry",
+      "why" : "edit a registry entry's notes and state"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/nickname",
+      "why" : "name one person in the office (a nickname)"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "GET",
+      "path" : "\/setup\/gm\/registry",
+      "why" : "the registry file as kept; the GM reads the team instead"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/watch",
+      "why" : "set a watch"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/unwatch",
+      "why" : "take a watch away"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "DELETE",
+      "path" : "\/setup\/gm\/unwatch",
+      "why" : "take a watch away"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/manager",
+      "why" : "the front desk (manager) switch"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/token\/rotate",
+      "why" : "a new GM token; the old one stops working"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/by-hand",
+      "why" : "whether the GM's token is also kept in a file, for a GM started by hand"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "*",
+      "path" : "\/setup\/gm\/*",
+      "why" : "a \/setup\/gm route not listed above starts closed"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/hire",
+      "why" : "a hire hiring more hires"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/hire\/gm",
+      "why" : "starting a GM"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/hiring",
+      "why" : "how and where hires start"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/hiring\/choose",
+      "why" : "the folder for new hires"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/roles",
+      "why" : "the roles, and so the briefs future hires get"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/hooks",
+      "why" : "connecting or disconnecting the agents' hooks"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/unpair",
+      "why" : "cutting off your phone"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/notify",
+      "why" : "a push to your phone, signed as the GM"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/webhook",
+      "why" : "where events are sent"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/webhook\/test",
+      "why" : "sending to that address"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/bots",
+      "why" : "cloud bots' addresses and keys"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/bots\/override",
+      "why" : "a cloud bot's settings"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/bots\/resolve",
+      "why" : "a cloud bot's settings"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/bots\/mailbox",
+      "why" : "the folder a cloud bot's mail goes through: only you choose it"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/maxconfirm",
+      "why" : "whether the office asks before max effort"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/phonemic",
+      "why" : "the phone microphone, and whether its text is sent"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/dictation",
+      "why" : "dictation, its language, and Claude's clean-up"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/login",
+      "why" : "opening Smolcorp when you log in"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/layout",
+      "why" : "where the keys sit"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/profiles",
+      "why" : "switching, importing or deleting a Claude profile"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/claude-accounts",
+      "why" : "the Claude accounts, and whether Smolcorp's hooks are in each"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/guard",
+      "why" : "which commands every hire is refused, and your own patterns"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/pin",
+      "why" : "pinning a desk"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/unpin",
+      "why" : "unpinning a desk"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/floors",
+      "why" : "the floors the desks sit on"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/summaries",
+      "why" : "Summary on or off, only from its dialog"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/summary\/provider",
+      "why" : "where summaries are sent"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/summary\/key",
+      "why" : "the summaries' API key"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/viewer",
+      "why" : "where the viewer is, and what it hides"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/viewer\/switch",
+      "why" : "the viewer on or off"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/viewer\/wipe",
+      "why" : "forget the viewer"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/briefs\/restore",
+      "why" : "the briefs you edited, put back to the app's own"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/claude-accounts",
+      "why" : "the Claude accounts Smolcorp's hooks are written into"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/terminal-command",
+      "why" : "the smolcorp command linked into ~\/.local\/bin, or taken out"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/guard",
+      "why" : "the hire guard's groups: a hire or the GM must never loosen its own fence"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/keystrokes",
+      "why" : "letting features press keys in other apps, only from its switch"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/keystrokes\/apps",
+      "why" : "the apps keys may go to: added or removed, only from the page"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/pair",
+      "why" : "a pairing code"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "GET",
+      "path" : "\/setup\/qr.png",
+      "why" : "the code as a picture"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "GET",
+      "path" : "\/setup\/viewer\/qr.png",
+      "why" : "the viewer's key as a picture"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/viewer\/secret",
+      "why" : "the viewer's key"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/viewer\/rotate",
+      "why" : "a new viewer key"
+    },
+    {
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "kind" : "action",
+      "method" : "*",
+      "path" : "\/bots\/*",
+      "why" : "a cloud bot's news, from a tool of yours"
+    }
+  ],
+  "unlisted" : {
+    "callers" : [
+      "page",
+      "tool"
+    ],
+    "note" : "a \/setup route not in the table keeps 1.23's rule"
+  }
+}

@@ -14,7 +14,8 @@ func savedFrom(t *testing.T, d *Deck, ago float64) {
 	t.Helper()
 	d.mu.Lock()
 	d.layout()
-	saved := savedDeck{SavedAt: nowMillis() - ago, Sessions: d.sessions.Saved(), Keys: map[string]int{}}
+	saved := savedDeck{SavedAt: nowMillis() - ago, Sessions: d.sessions.Saved(), Keys: map[string]int{},
+		Floors: d.floorOf, Seats: d.seatOf}
 	for id, key := range d.keyOf {
 		saved.Keys[id] = key
 	}

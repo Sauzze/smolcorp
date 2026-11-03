@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A pretend Smolcorp deck for building the iPhone app, never the real one.
 
-    ios/scripts/mock-deck.py [--port 7791] [--tls-port 7792] [--dir DIR]
+    ios/scripts/mock-deck.py [--port 7791] [--tls-port 7792] [--dir DIR] [--old]
 
 - Plain HTTP on --port, as the Mac's deck on the Wi-Fi; HTTPS on --tls-port with
   a self-signed certificate made in DIR, as the phone will pin it. The
@@ -10,6 +10,8 @@
   but /pair and /ping wants it in X-AgentDeck-Token.
 - /events streams a snapshot as the Mac's does, a desk changing every few
   seconds, and a ping every 20 s.
+- /approvals (who waits for you, as the Mac's does: a short label, never the command) and /reviews (NEEDS-REVIEW
+  lines from the event log) answer only over HTTPS. Start with --old to answer 404 to both, as a Mac before 1.24.
 - /dictate answers only over HTTPS, as the Mac answers only over Tailscale's.
 - Advertised over Bonjour as _smolcorp._tcp with `dns-sd`, while it runs.
 
@@ -89,6 +91,40 @@ def _conversation():
         out.append({"id": f"{i * 100}.0", "offset": i * 100, "n": 0, "kind": kind, "text": text, "more": i == len(items) - 1})
     return out
 CONVERSATION = _conversation()
+OLD_MAC = False
+# NEEDS-REVIEW lines as the event log keeps them: agent "needs-review", detail "<hire>: <file>: <line>".
+REVIEWS = [
+    {"id": 41, "at": int(time.time() * 1000) - 600_000, "session": "s2", "folder": "/mock/acmebill", "agent": "needs-review",
+     "kind": "notification", "detail": "Mia: review.md: the invoice export is ready, please read before I merge"},
+    {"id": 44, "at": int(time.time() * 1000) - 90_000, "session": "", "folder": "/mock/moonbase", "agent": "needs-review",
+     "kind": "notification", "detail": "Leo: handoff.md: onboarding copy, French and English"},
+]
+
+
+ASKED = {}  # when each session began asking, as the Mac keeps it: set once, so a wait keeps its id
+
+
+def approvals():
+    """The sessions asking now, longest first, as Approvals.answer gives them."""
+    now = int(time.time() * 1000)
+    out = []
+    asking = set()
+    for key in snapshot()["keys"]:
+        s = key.get("session")
+        if not s or s["state"] != "asking":
+            continue
+        asking.add(s["id"])
+        since = ASKED.setdefault(s["id"], now - 40_000 * int(s["id"][1:]))
+        question = s["choice"] and s["choice"]["kind"] == "question"
+        out.append({"session": s["id"], "hire": f"hire-{s['id']}", "name": s["name"], "nickname": "", "agent": s["agent"],
+                    "floor": 0, "desk": int(s["id"][1:]), "kind": "question" if question else "permission",
+                    "tool": "AskUserQuestion" if question else "Bash", "label": "AskUserQuestion" if question else "Bash: swift",
+                    "since": since, "waitingSeconds": (now - since) // 1000, "notified": False})
+    for gone in set(ASKED) - asking:
+        del ASKED[gone]
+    return {"at": now, "approvals": sorted(out, key=lambda a: a["since"])}
+
+
 NOTIFY = {"registered": False, "finished": True, "waiting": True, "gm": True}
 
 
@@ -172,6 +208,12 @@ class Handler(BaseHTTPRequestHandler):
             older = [item for item in CONVERSATION if item["offset"] < before][-60:]
             first = older[0]["offset"] if older else 0
             return self.reply(200, {"items": older, "before": first or None, "size": len(CONVERSATION) * 100})
+        if url.path in ("/approvals", "/reviews"):
+            if OLD_MAC:
+                return self.reply(404)
+            if not self.secure:
+                return self.reply(403, "The approvals show only over Tailscale's HTTPS address.")
+            return self.reply(200, approvals() if url.path == "/approvals" else {"reviews": REVIEWS})
         if url.path == "/notifications":
             return self.reply(200, {"key": os.environ.get("MOCK_PUSH_KEY", "1") == "1", **NOTIFY})
         if url.path == "/choice":
@@ -269,8 +311,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=7791)
     parser.add_argument("--tls-port", type=int, default=7792)
+    parser.add_argument("--old", action="store_true", help="answer 404 to /approvals and /reviews, as a Mac before 1.24")
     parser.add_argument("--dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "mock"))
     args = parser.parse_args()
+    global OLD_MAC
+    OLD_MAC = args.old
     if 7710 in (args.port, args.tls_port):
         raise SystemExit("7710 is the real Smolcorp's port.")
     os.makedirs(args.dir, exist_ok=True)

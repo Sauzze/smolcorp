@@ -30,6 +30,8 @@ final class Config: Codable {
     /// agent runs in a tmux session of its own there.
     var hireTerminal = "terminal"
     var hireInTmux = false
+    /// Where hires' git worktrees go; empty puts them beside the repo (see `HireDesk`).
+    var hireWorktrees = ""
     /// Dictation for agents with no voice mode of their own (see `Dictation`):
     /// whether it's on, its language, and whether Claude Code uses it too
     /// rather than its own voice mode.
@@ -70,6 +72,10 @@ final class Config: Codable {
     /// Saved under its own name: a personal build's "summariesEnabled" never
     /// turns it on.
     var summaryOptIn = false
+    /// What makes summaries: a coding agent's id ("claude", "codex", …) or
+    /// "apikey"; empty until one is picked or summaries are turned on (see
+    /// `SummaryChoice`).
+    var summaryProvider = ""
     /// The portable office's viewer: its address and options. Never its id,
     /// key or write secret, which are in the Keychain.
     var viewer = ViewerSettings()
@@ -85,15 +91,60 @@ final class Config: Codable {
     /// default: the box shows what was heard, to send, type or cancel.
     var phoneMicAutoSend = false
     var hasCompletedSetup = false
+    /// You disconnected the agents on purpose, so `--setup` leaves them be.
+    /// Connecting, in Settings or Start here, clears it.
+    var hooksDisconnected = false
+    /// The Claude Code accounts you confirmed in setup besides ~/.claude (the
+    /// "default"): see `ClaudeProfiles`. A folder is only ever written to once it's here.
+    var claudeProfiles: [ClaudeProfile] = []
+    /// Whether the manager (the GM's front desk) is on. Off until you hire a General
+    /// Manager or switch it on in setup, so 1.23's behaviour is what an existing user
+    /// keeps. Off, the GM's routes say so; events are still logged. Turning it off never fires anyone.
+    var managerEnabled = false
+    /// "Allow a GM started by hand": also keep the GM's token in a file (`Paths.gmToken`) for a
+    /// General Manager you start yourself. Off, the token is in memory and the Keychain only, and
+    /// reaches the GM Smolcorp starts through its environment.
+    var gmByHand = false
+    /// The GM's mail (`MailRouter`): the longest message in bytes, and the most one sender may send in an hour.
+    var mailMaxBytes = MailRouter.defaultMaxBytes
+    var mailPerHour = MailRouter.defaultPerHour
+    /// Hours a message waits for a busy hire before it is left.
+    var mailWaitHours = MailRouter.defaultWaitHours
+    /// Whether mail may go to a hire's Claude Code inbox socket first. Off: only tmux (see `MailDelivery`).
+    var mailInboxSocket = false
+    /// The app's own watches for every hire (DONE, NEEDS-REVIEW, STOP, BLOCKED, BUDGET REQUEST, a limit, a refusal,
+    /// a long wait) and the hourly digest for the GM: see `Watchers.sync`. On with the manager; this switches them off alone.
+    var builtinWatches = true
+    /// The screen that holds the team (`Tiler.Screen.id`), where you chose one;
+    /// none means the Mac's own pick. Only asked about when there are two or more.
+    var teamScreen: String?
+    /// Whether features may press keys in other apps for you (`Keystrokes`). Off until you turn it on
+    /// in setup, which is the only place it changes. macOS also asks for Accessibility.
+    var keystrokesAllowed = false
+    /// The apps (bundle ids) keystrokes may go to: empty until you add one in setup, which is the only
+    /// place it changes. Nothing is pressed in an app that isn't here, switch or no switch.
+    var keystrokeApps: [String] = []
     /// Smolcorp in the Dock and ⌘-Tab, as a full app, with its menus; off,
     /// in the menu bar only, as before. On unless you turn it off.
     var showInDock = true
+    /// The office's window kept on top of other windows, on every Space and
+    /// beside apps in full screen (see `OfficeWindow.alwaysOnTop`). Unset
+    /// until it's settled once at launch: off on a new Mac, and on one that
+    /// had it before as it was.
+    var officeOnTop: Bool?
     /// Bots that work in a cloud, not in a terminal here, each at a desk of
     /// its own (see `CloudBot`). None until you set some.
     var cloudBots: [CloudBot] = []
+    /// Whether the Grok Bot app's bots get desks by themselves (see
+    /// `Deck.discoverBots`); on until you turn it off. And the app's ids of
+    /// those you hid, never given a desk again until you show them.
+    var botsAutoDetect = true
+    var hiddenBots: [String] = []
     /// The building's six floors, the ground floor first: each one's name,
     /// and the style of those above it (see `Floor`).
     var floors = Floor.standard
+    /// The folders whose sessions sit on a floor of their own (see `FloorRule`).
+    var floorRules: [FloorRule] = []
     /// Some of the file couldn't be read as this version reads it, and is
     /// left out: a copy of the file is kept before it's saved over.
     private(set) var lostOnLoad = false
@@ -105,13 +156,16 @@ final class Config: Codable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles, rolesOffered
-        case hireTerminal, hireInTmux, recentHireFolders, dictationEnabled, dictationLanguage, dictationForClaude
+        case hireTerminal, hireInTmux, hireWorktrees, recentHireFolders, dictationEnabled, dictationLanguage, dictationForClaude
         case dictationCleanup, dictationGlossary
-        case musicEnabled, maxConfirm, webhook, summaryOptIn, viewer, hasCompletedSetup
-        case phoneMicEnabled, showInDock, cloudBots, floors
+        case musicEnabled, maxConfirm, webhook, summaryOptIn, summaryProvider, viewer, hasCompletedSetup, hooksDisconnected, claudeProfiles, managerEnabled, gmByHand
+        case mailMaxBytes, mailPerHour, mailWaitHours, mailInboxSocket, builtinWatches, teamScreen, keystrokesAllowed, keystrokeApps
+        case phoneMicEnabled, showInDock, cloudBots, floors, floorRules, botsAutoDetect, hiddenBots
         // Under a name of its own since the confirm box: the old one, saved as
         // true by every earlier build, meant no box had been offered yet.
         case phoneMicAutoSend = "phoneMicSkipsConfirm"
+        // As the Windows app names it, for the one switch in setup.
+        case officeOnTop = "alwaysOnTop"
     }
 
     init() {}
@@ -146,6 +200,7 @@ final class Config: Codable {
         hireAgent = field(String.self, .hireAgent).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
         hireTerminal = field(String.self, .hireTerminal).flatMap { id in Openers.choices.contains { $0.id == id } ? id : nil } ?? hireTerminal
         hireInTmux = field(Bool.self, .hireInTmux) ?? false
+        hireWorktrees = field(String.self, .hireWorktrees).flatMap { $0.hasPrefix("/") ? $0 : nil } ?? ""
         recentHireFolders = Array((field([String].self, .recentHireFolders) ?? []).filter { $0.hasPrefix("/") }.prefix(Config.recentHireFoldersMost))
         dictationEnabled = field(Bool.self, .dictationEnabled) ?? false
         dictationLanguage = field(String.self, .dictationLanguage).flatMap { Dictation.languages.contains($0) ? $0 : nil } ?? dictationLanguage
@@ -165,14 +220,36 @@ final class Config: Codable {
         maxConfirm = field(Bool.self, .maxConfirm) ?? true
         webhook = field(Webhook.self, .webhook) ?? Webhook()
         summaryOptIn = field(Bool.self, .summaryOptIn) ?? false
+        summaryProvider = field(String.self, .summaryProvider).flatMap { SummaryProvider(rawValue: $0)?.rawValue } ?? ""
         viewer = field(ViewerSettings.self, .viewer) ?? ViewerSettings()
         hasCompletedSetup = field(Bool.self, .hasCompletedSetup) ?? false
+        hooksDisconnected = field(Bool.self, .hooksDisconnected) ?? false
+        // Checked as they load: their folders get Smolcorp's hooks written into them.
+        claudeProfiles = (field([Lossy<ClaudeProfile>].self, .claudeProfiles)?.compactMap(\.value) ?? []).compactMap {
+            try? ClaudeProfiles.check($0).get()
+        }
+        managerEnabled = field(Bool.self, .managerEnabled) ?? false
+        gmByHand = field(Bool.self, .gmByHand) ?? false
+        // At least 1, so a bad value can't shut the mail off without saying so.
+        mailMaxBytes = max(1, field(Int.self, .mailMaxBytes) ?? MailRouter.defaultMaxBytes)
+        mailPerHour = max(1, field(Int.self, .mailPerHour) ?? MailRouter.defaultPerHour)
+        mailWaitHours = max(1, field(Double.self, .mailWaitHours) ?? MailRouter.defaultWaitHours)
+        mailInboxSocket = field(Bool.self, .mailInboxSocket) ?? false
+        builtinWatches = field(Bool.self, .builtinWatches) ?? true
+        teamScreen = field(String.self, .teamScreen)
+        keystrokesAllowed = field(Bool.self, .keystrokesAllowed) ?? false
+        // Checked as they load, so a hand-edited file can't put a terminal or an odd id on the list.
+        keystrokeApps = Keystrokes.AppList.checked(field([Lossy<String>].self, .keystrokeApps)?.compactMap(\.value) ?? [])
         phoneMicEnabled = field(Bool.self, .phoneMicEnabled) ?? true
         phoneMicAutoSend = field(Bool.self, .phoneMicAutoSend) ?? false
         showInDock = field(Bool.self, .showInDock) ?? true
+        officeOnTop = field(Bool.self, .officeOnTop)
         cloudBots = CloudBot.checked(field([Lossy<CloudBot>].self, .cloudBots)?.compactMap(\.value) ?? [])
+        botsAutoDetect = field(Bool.self, .botsAutoDetect) ?? true
+        hiddenBots = (field([String].self, .hiddenBots) ?? []).compactMap(GrokBotApp.safeID)
         // Checked as they load: their names are drawn in the office.
         floors = Floor.checked(field([Lossy<Floor>].self, .floors)?.map(\.value) ?? [])
+        floorRules = FloorRule.checked(field([Lossy<FloorRule>].self, .floorRules)?.compactMap(\.value) ?? [])
         lostOnLoad = lost
     }
 
@@ -297,6 +374,15 @@ struct Floor: Codable, Equatable {
         }
     }
 
+    /// The floors' rules setup sends, as `{"rules": [...]}`, checked; nil
+    /// when there's no list of them, as from a setup page from before rules.
+    static func rules(_ body: Data) -> [FloorRule]? {
+        guard let list = ((try? JSONSerialization.jsonObject(with: body)) as? [String: Any])?["rules"] as? [Any],
+              let data = try? JSONSerialization.data(withJSONObject: list),
+              let rules = try? JSONDecoder().decode([Lossy<FloorRule>].self, from: data) else { return nil }
+        return FloorRule.checked(rules.compactMap(\.value))
+    }
+
     /// The floors setup sends, as `{"floors": [...]}` or the list alone,
     /// checked; nil unless it's a list.
     static func sent(_ body: Data) -> [Floor]? {
@@ -317,6 +403,7 @@ struct ProfileError: Error {
     let message: String
 
     static let name = ProfileError(message: "Give the profile a name of its own, up to 24 characters.")
+    static let reserved = ProfileError(message: "“Default” is Smolcorp's own profile and can't be overwritten. Give the backup another name.")
     static let missing = ProfileError(message: "There's no profile by that name.")
     static let tooMany = ProfileError(message: "That's the most profiles there can be. Delete one first.")
 }
@@ -343,6 +430,7 @@ extension Config {
 
     /// Keeps the deck as it is under `name`, replacing a profile of that name.
     func saveProfile(as name: String) throws {
+        if Profile.isDefaultName(name) { throw ProfileError.reserved }
         guard let name = Profile.checkedName(name) else { throw ProfileError.name }
         let kept = Profile(name: name, layout: layout, colours: colours)
         if let i = profiles.firstIndex(where: { $0.name == name }) {
@@ -357,6 +445,7 @@ extension Config {
 
     func renameProfile(_ name: String, to newName: String) throws {
         guard let i = profiles.firstIndex(where: { $0.name == name }) else { throw ProfileError.missing }
+        if Profile.isDefaultName(newName) { throw ProfileError.reserved }
         guard let newName = Profile.checkedName(newName) else { throw ProfileError.name }
         if newName != name && profiles.contains(where: { $0.name == newName }) {
             throw ProfileError(message: "Another profile already has that name.")

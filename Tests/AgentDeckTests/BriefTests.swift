@@ -494,4 +494,93 @@ final class BriefTests: XCTestCase {
         fresh.instructions = "Something else."
         XCTAssertEqual(Role.synced([fresh], saved: saved).first?.brief, .library("thinker"))
     }
+
+    // MARK: One builder, the base rules, editable templates, managed hires
+
+    func testEveryBriefCarriesTheBaseRules() throws {
+        for id in Brief.libraryIDs {
+            let text = try render(Role(id: "x", name: "X", agent: "claude", model: "", effort: "", questions: [], instructions: "", badge: "star", brief: .library(id)))
+            for rule in ["`NEEDS-REVIEW: <what to look at>`", "If `STOP` appears in", "Don't push, deploy or publish",
+                         "Don't read, write, print or commit secrets", "never `git add -A`", "Work only in your folder or worktree"] {
+                XCTAssertTrue(text.contains(rule), "\(id) lacks: \(rule)")
+            }
+        }
+    }
+
+    func testTheBuilderMakesAndPlacesOneBriefWithATask() throws {
+        let hires = folder.appendingPathComponent("hires")
+        let managed = BriefBuilder.hireFolder("abc123", in: hires)
+        let made = try XCTUnwrap(BriefBuilder.make(role("reviewer"), library: library, folder: folder.path, pinned: false, desk: 2, answers: nil,
+                                                   task: "Review the login change.\u{7}", managed: managed, write: true))
+        XCTAssertEqual(made.names.brief, managed.appendingPathComponent("BRIEF.md"))
+        XCTAssertEqual(made.names.status, managed.appendingPathComponent("STATUS.md"))
+        XCTAssertEqual(try String(contentsOf: made.names.brief, encoding: .utf8), made.markdown)
+        XCTAssertTrue(made.markdown.contains("The task, from whoever hired you:\n\nReview the login change."))
+        XCTAssertFalse(made.markdown.contains("\u{7}"))
+        XCTAssertTrue(made.markdown.contains("`NEEDS-REVIEW: <what to look at>`"))
+        XCTAssertTrue(made.firstMessage.hasPrefix("Read `"))
+        XCTAssertTrue(made.firstMessage.contains(managed.path) || made.firstMessage.contains("hires/abc123/BRIEF.md"))
+        XCTAssertFalse(made.firstMessage.contains("first reply must only ask"), "a task is not questions to ask")
+        // Nothing of it in the folder the hire works in.
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(), ["hires"])
+        // A second brief for the same hire is not written over the first.
+        let again = try XCTUnwrap(BriefBuilder.make(role("reviewer"), library: library, folder: folder.path, pinned: false, desk: nil, answers: nil,
+                                                    managed: managed, write: true))
+        XCTAssertEqual(again.names.brief.lastPathComponent, "BRIEF-2.md")
+    }
+
+    /// An empty task is no task: a hire with no answers still first asks its role's questions.
+    func testAnEmptyTaskStillAsksTheRolesQuestions() throws {
+        let asked = try XCTUnwrap(BriefBuilder.make(role("reviewer"), library: library, folder: folder.path, pinned: false, desk: nil, answers: nil,
+                                                    task: "", write: false))
+        XCTAssertTrue(asked.firstMessage.contains("first reply must only ask"), asked.firstMessage)
+        let tasked = try XCTUnwrap(BriefBuilder.make(role("reviewer"), library: library, folder: folder.path, pinned: false, desk: nil, answers: nil,
+                                                     task: "Review the importer.", write: false))
+        XCTAssertFalse(tasked.firstMessage.contains("first reply must only ask"), tasked.firstMessage)
+    }
+
+    func testPreviewingWritesNothingAndIsWhatAHireGets() throws {
+        let kept = folder.appendingPathComponent("kept")
+        let date = Date(timeIntervalSince1970: 1_792_713_600)
+        let args = (folder.path, false, Optional(3))
+        let preview = try XCTUnwrap(BriefBuilder.make(role("tester"), library: library, folder: args.0, pinned: args.1, desk: args.2, answers: ["a"],
+                                                      date: date, kept: kept, write: false))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: kept.path))
+        let real = try XCTUnwrap(BriefBuilder.make(role("tester"), library: library, folder: args.0, pinned: args.1, desk: args.2, answers: ["a"],
+                                                   date: date, kept: kept, write: true))
+        XCTAssertEqual(preview.markdown, real.markdown)
+        XCTAssertEqual(preview.firstMessage, real.firstMessage)
+        let own = Role(id: "own-1", name: "Own", agent: "claude", model: "", effort: "", instructions: "Do it.", badge: "star", brief: .text("Do it."))
+        XCTAssertNil(try BriefBuilder.make(own, library: library, folder: args.0, pinned: false, desk: nil, answers: nil, write: false), "no brief to build")
+    }
+
+    func testTemplatesAreCopiedOnFirstUseAndYourEditsStay() throws {
+        let mine = folder.appendingPathComponent("templates")
+        let source = library.folder
+        let first = BriefLibrary.editable(from: source, in: mine)
+        XCTAssertEqual(first.folder, mine)
+        for name in BriefLibrary.fileNames { XCTAssertTrue(FileManager.default.fileExists(atPath: mine.appendingPathComponent(name).path), name) }
+        try "Edited base: {{role}} {{> about}}\n".write(to: mine.appendingPathComponent("_base.md"), atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: mine.appendingPathComponent("tester.md"))
+        _ = BriefLibrary.editable(from: source, in: mine)
+        XCTAssertTrue(try String(contentsOf: mine.appendingPathComponent("_base.md"), encoding: .utf8).hasPrefix("Edited base"), "not replaced")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mine.appendingPathComponent("tester.md").path), "a missing one comes back")
+        // Your edit is the brief the next hire gets.
+        XCTAssertTrue(try XCTUnwrap(BriefLibrary(folder: mine).template("tester")).contains("Edited base"))
+    }
+
+    func testRestoreDefaultsReplacesOnlyTheLibraryFiles() throws {
+        let mine = folder.appendingPathComponent("templates")
+        _ = BriefLibrary.editable(from: library.folder, in: mine)
+        try "edited".write(to: mine.appendingPathComponent("_base.md"), atomically: true, encoding: .utf8)
+        try "edited".write(to: mine.appendingPathComponent("reviewer.md"), atomically: true, encoding: .utf8)
+        try "keep".write(to: mine.appendingPathComponent("mine.md"), atomically: true, encoding: .utf8)
+        let count = BriefLibrary.restoreDefaults(from: library.folder, in: mine)
+        XCTAssertEqual(count, BriefLibrary.fileNames.count)
+        for name in ["_base.md", "reviewer.md"] {
+            XCTAssertEqual(try String(contentsOf: mine.appendingPathComponent(name), encoding: .utf8),
+                           try String(contentsOf: library.folder.appendingPathComponent(name), encoding: .utf8), name)
+        }
+        XCTAssertEqual(try String(contentsOf: mine.appendingPathComponent("mine.md"), encoding: .utf8), "keep")
+    }
 }

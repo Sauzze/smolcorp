@@ -1,0 +1,59 @@
+{
+  "hires": [
+    {
+      "account": "work",
+      "branch": "feat/x",
+      "brief": "/support/hires/a1b2c3/BRIEF.md",
+      "folder": "/work/app",
+      "id": "a1b2c3",
+      "model": "claude-sonnet-5-5",
+      "name": "Reviewer",
+      "nickname": "Rev",
+      "notes": "Checks pull requests.",
+      "ports": "4100-4103",
+      "repo": "/work/app",
+      "role": "reviewer",
+      "started": 1761000000000,
+      "state": "working",
+      "tmuxSocket": "smolcorp-rev",
+      "worktree": "/work/app-wt/rev"
+    },
+    {
+      "account": "",
+      "branch": "",
+      "brief": "",
+      "folder": "/work/api",
+      "id": "d4e5f6",
+      "model": "",
+      "name": "Janitor",
+      "nickname": "",
+      "notes": "",
+      "ports": "",
+      "repo": "",
+      "role": "janitor",
+      "started": 1761000100000,
+      "state": "idle",
+      "tmuxSocket": "",
+      "worktree": ""
+    },
+    {
+      "account": "",
+      "branch": "main",
+      "brief": "",
+      "folder": "/work/old",
+      "id": "0a0b0c",
+      "model": "",
+      "name": "Builder",
+      "nickname": "Bob",
+      "notes": "Left after the move.",
+      "ports": "",
+      "repo": "",
+      "role": "builder",
+      "started": 1760000000000,
+      "state": "fired",
+      "tmuxSocket": "",
+      "worktree": ""
+    }
+  ],
+  "version": 1
+}

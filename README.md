@@ -59,9 +59,8 @@ How the people show what their sessions are doing is under
 [The office](#the-office). The room's edge glows while an agent is waiting on
 you.
 
-Sessions keep their order at the desks; with a fixed number of desks, each
-keeps its own until it ends. You can pin projects to specific desks and
-furnish the office your way.
+Sessions keep their order at the desks, and each keeps its own until it ends.
+You can pin projects to specific desks and furnish the office your way.
 
 ## Run a team
 
@@ -69,7 +68,7 @@ The office has nine desks on the ground floor and five floors above it, with
 twelve desks to a floor, so you can run it like a small company of dozens of
 agents.
 
-**Hire by role.** Hold the desk a new hire would take, and pick who to hire:
+**Hire by role.** Hold any free desk, and pick who to hire:
 a **Reviewer**, a **Tester**, a **Bug hunter**, a **Docs writer**, a
 **Refactorer**, fourteen more from an Art Director to a Thinker, or any role
 of your own, as many as you like. Each role has its own instructions, agent, model and
@@ -95,6 +94,33 @@ want to approve yourself. Then it:
   pushed, merged to main, published, deployed, released, deleted or paid for,
   or reaches a real person;
 - keeps its board of what's done and what's left next to its brief.
+
+Each hire works on a branch of its own, in its own git worktree. The GM can
+pin a project to a desk and give a person a nickname: `smolcorp gm pin`,
+`smolcorp gm unpin --desk N` and `smolcorp gm nickname <name>`, with desks
+counted from 1, as in the office.
+
+**A General Manager you start yourself** is recognised too. Turn on **Allow a
+General Manager started by hand** in setup's Manager pane and start one with
+its token: Settings then says "Your General Manager was started by hand.", and
+it isn't counted as an employee. Smolcorp remembers which session it is, the
+session id only, so this survives a restart. It's a label: the GM gets no new
+power. Its `smolcorp` has to be from 1.24 or later.
+
+Only you answer a permission prompt: neither the GM nor any hire can. Claude
+Code hires and the GM are also set up to refuse `git push`, deploy, publish and
+cloud commands, and to keep out of your `.env` files and keys. That is a fence
+against mistakes, not a wall: everyone still runs as you. You can see and extend
+the list in setup's Manager pane, and `docs/manager` says more.
+
+That is the Mac. On Windows and Linux, `smolcorp gm`, `smolcorp guard` and
+`smolcorp mcp` are installed, but the app answers the GM only for its version and
+the manager switch in setup, and, once the manager is on, for the team, the log
+of events and who is waiting for your answer; `gm pin`, `unpin` and `nickname`
+work there too. Hiring and firing for you, briefs, messages, watches, tiling,
+the fence and a General Manager started by hand are the Mac's for now, and the
+General Manager role there is the plain one from 1.22: you hire it, but it
+doesn't run a team for you.
 
 Smolcorp puts the whole team in one room, so you see at a glance who's
 working, who's waiting for you and who's done, and you answer any of them from
@@ -122,7 +148,10 @@ SMOLCORP_HEADLESS=1 SMOLCORP_PARENT_FOLDER="$PWD" claude -p "Write the changelog
 **Six floors.** Over the ground floor there are five more, twelve desks to a
 floor, filled in order: cloud bots such as Grok Bots, then runs without a
 terminal, then anyone with no desk free downstairs (their keys are still on
-your phone's list). Press the call button beside the elevator, by the entrance,
+your phone's list). You can put anyone on any floor: tap the **⇅ floor** key
+on an agent, or drop them on the elevator. In setup's Office pane, you can also
+give a folder a floor, and its agents sit there from then on, each keeping their
+desk. Press the call button beside the elevator, by the entrance,
 for a list of the floors and how many are on each; pick one and the elevator
 takes you there. In setup, under Office → Floors, give each floor a name and a
 style: the office's own, the server room, or any of the styles.
@@ -195,8 +224,9 @@ that needs no Accessibility at all.
 
 ## Install
 
-On the Mac, Smolcorp is in **beta**: signed with a Developer ID and notarised
-by Apple, so it opens with no warning. On Windows and Linux it's an **alpha**,
+On the Mac, Smolcorp is in **beta**, signed with a Developer ID. If macOS says
+it can't check the app the first time you open it, see
+[Download the app](#download-the-app). On Windows and Linux it's an **alpha**,
 still in testing: the Windows build isn't signed yet, so SmartScreen warns you
 the first time.
 
@@ -222,6 +252,8 @@ there: the folder you extracted can go. Its setup opens on **Start here**.
 
 **On Linux (alpha, in testing):** download **Smolcorp-Linux-x86_64.tar.gz** (or `-arm64`), then
 `tar -xzf Smolcorp-Linux-x86_64.tar.gz && ./Smolcorp-Linux-x86_64/install.sh`.
+If `~/.local/bin` isn't on your PATH, the installer prints the line to add
+(zsh `~/.zshrc`, bash `~/.bashrc`) and changes no shell file.
 
 **On a Mac**, three ways, all giving the same app:
 
@@ -233,9 +265,19 @@ there: the folder you extracted can go. Its setup opens on **Start here**.
    folder beside it. Then open Smolcorp from your Applications folder, and
    eject the **Smolcorp** disk in Finder's sidebar.
 
-   macOS asks once whether to open an app downloaded from the internet: click
-   **Open**. Releases before 1.22.0 weren't notarised and needed **Open
-   Anyway** in System Settings → Privacy & Security instead.
+   The first time, macOS may say it can't check the app. Open **System
+   Settings → Privacy & Security** and click **Open Anyway**, once. If macOS
+   only asks whether to open an app downloaded from the internet, click
+   **Open**.
+
+   If setup then says macOS is opening a temporary copy of Smolcorp, even
+   though it is in Applications, the download's mark is still on it. Smolcorp
+   never removes it for you. Quit Smolcorp, run this in Terminal, and open it
+   again. Then allow Accessibility.
+
+   ```sh
+   xattr -d com.apple.quarantine '/Applications/Smolcorp.app'
+   ```
 
 The release also has **Smolcorp.zip**, the same app in a zip: open it and
 drag **Smolcorp** into your Applications folder.
@@ -243,6 +285,12 @@ drag **Smolcorp** into your Applications folder.
 To check that your download is the one that was published, run
 `shasum -a 256 Smolcorp.dmg` (or `Smolcorp.zip`) in Terminal and compare the
 result with the SHA-256 in the release notes.
+
+To use `smolcorp` in Terminal, setup can add the command to `~/.local/bin`. If
+that folder isn't on your PATH, setup shows the exact line for your shell, with
+a **Copy** button: for zsh it goes in `~/.zprofile`, for bash in
+`~/.bash_profile`. Smolcorp writes no shell file itself. Open a new Terminal
+window after you add it.
 
 Updating from SauzzeDeck Pro? Quit it, delete **SauzzeDeck Pro** from
 Applications and install as above. Your settings and paired phones carry over;
@@ -284,7 +332,7 @@ Setup opens by itself the first time, on **Start here**: a checklist your
 computer runs, each line with the button that puts it right.
 
 <p align="center">
-  <img src="docs/setup.png" alt="The setup page: getting started, the desks, and a pairing code with its QR code for your phone" width="720">
+  <img src="docs/setup.png" alt="The setup page: getting started, and a pairing code with its QR code for your phone" width="720">
 </p>
 
 - **Smolcorp is installed**: in Applications on a Mac (opened from
@@ -345,9 +393,9 @@ the deck again: the icon keeps the old pairing.
 
 The setup page also has:
 
-- **Desks.** How many desks for sessions: Auto, one per running session, or
-  always 3, 6 or 9. Drag a running session onto a desk to keep that project
-  there; desks you don't pin go to the next session that starts.
+- **Desks.** There is one desk for each running session. Drag a running
+  session onto a desk to keep that project there; desks you don't pin go to
+  the next session that starts.
 - **Profiles.** Save your office and your buttons under a name, and switch
   between them in a click: one for the couch, one for the desk. Default is
   always the standard office. Export a profile to back it up or share it.
@@ -369,9 +417,15 @@ The setup page also has:
   <img src="docs/layout.png" alt="Profiles and the Office on the setup page: its styles, Arrange the room, and its look, beside a live preview of the phone" width="720">
 </p>
 
-Open the setup page any time from the menu bar (**Open Setup…**), or by opening
-Smolcorp again from Applications. A bookmark of the page won't open it: its
-link carries a key that changes each time Smolcorp starts.
+Open the setup page any time from the menu bar (**Settings…** on a Mac, **Open
+Setup…** in the tray on Windows and Linux), or by opening Smolcorp again from
+Applications. A bookmark of the page won't open it: the menu opens it with a
+link that works once, for five minutes.
+
+On a Mac, **Keep the office on top of other windows** is a switch in the Office
+pane, and the office's corner key is **⚙︎ Settings**. **Let features press
+keys in other apps** (Mac) is off until you turn it on and name the apps it may
+use.
 
 ## The office
 
@@ -535,7 +589,7 @@ Two more things work there:
 | In the office | What it does |
 |---|---|
 | An agent's desk, held, then dragged | Picks the agent up, chair and all. Let go over another desk and the two swap. They stay that way: each project is pinned to its new desk, as on the setup page's *Desks*, where you can undo it. |
-| A desk, held | With hiring and firing on, also **YOU'RE FIRED**, or the roles to hire on a desk a new hire would take (see below). |
+| A desk, held | With hiring and firing on, also **YOU'RE FIRED**, or the roles to hire on any free desk (see below). |
 
 **Hire and fire**, once you turn on **Let the office hire and fire** on the
 setup page (it's off until you do):
@@ -544,13 +598,14 @@ setup page (it's off until you do):
   chips. Tap it, confirm, and its work stops and its Terminal tab closes. The
   agent packs a box and walks out. Claude Code keeps the conversation, so
   `claude --resume` can bring it back.
-- **Hold the desk a new hire would take**, the next free one, and the roles
-  come out along the foot of the room: **Anyone**, then each role with its
-  badge. Tap one, and a new Terminal window opens in the folder you chose on
-  the setup page. Anyone is a regular hire, with the agent you chose; a role
+- **Hold any free desk**, and the roles come out along the foot of the room:
+  **Anyone**, then each role with its badge. Tap one, and a new Terminal
+  window opens in the folder you chose on the setup page. Anyone is a regular hire, with the agent you chose; a role
   starts its own agent, at its model and effort, on its instructions. The new
-  hire walks in through the door with a coffee or a box. On a pinned project's
-  empty desk, the hire starts in that project instead.
+  hire walks in through the door with a coffee or a box, and sits at the desk
+  you held. It stays there after a refresh, `/clear` and a restart; a desk
+  that's taken can't be hired onto. On a pinned project's empty desk, the hire
+  starts in that project instead.
 - **Comings and goings**, on the setup page: as above, with the coffee, the box
   and the packing up, or **Plain**, where people just walk in and out.
 
@@ -738,9 +793,12 @@ not why. Hold a desk and tap **✨ summary**: Claude Haiku 5.5 reads the end of
 that agent's Claude Code transcript and answers in a few lines what you asked,
 what it's doing, whether it's waiting on you, and its last result.
 
-It's off until you turn it on, and it uses **your own Anthropic API key**,
-billed to you by Anthropic. Haiku is Anthropic's least expensive model, and a
-summary is one short request.
+It's off until you turn it on. It uses **your own Anthropic API key**, billed to
+you by Anthropic: Haiku is Anthropic's least expensive model, and a summary is
+one short request. You can use your own plan instead: Claude Code or OpenCode
+can write the summary. Setup's Summaries card lists the others too, and says
+which can on this computer and why one can't. The rest of this section is
+about the API key.
 
 ### Turn it on
 
@@ -771,7 +829,7 @@ Turn it off with the same switch, at any time. **Remove** forgets the key.
   - in the Secret Service (GNOME Keyring or KWallet) on Linux.
 
   It's never in `config.json`, the phone, the portable office or a log, and the
-  setup page shows only its last four characters.
+  setup page doesn't show any of it again.
 - **Limits:** a summary is kept for 30 seconds, so a second tap doesn't pay
   twice. At most 20 summaries go to Anthropic in any 10 minutes. A failed one
   is never retried by itself.
@@ -928,18 +986,25 @@ automation:
   beyond a fixed limit, so a misbehaving device can't swamp it.
 - **The setup page only opens on your computer, from Smolcorp's menu.** Other
   devices can't reach it, and other websites can't press its buttons. The menu
-  opens it with a key that's new each time Smolcorp starts, so other programs
-  on your computer, and other people signed in to it, can't use it either.
-  Your own scripts can: the key is in a file only you can read, sent as the
-  `X-Smolcorp-Setup-Key` header (see [Use setup from a script](#use-setup-from-a-script)).
+  opens it with a link that works once, for five minutes, so other programs on
+  your computer, and other people signed in to it, can't use it either. The
+  setup key, which is in a file only you can read, is no longer a cookie, and a
+  saved link with the key in it no longer opens setup. Your own scripts can
+  still send the key as the `X-Smolcorp-Setup-Key` header, for what's listed
+  under [Use setup from a script](#use-setup-from-a-script).
+- **Employees are fenced, not walled.** Claude Code hires and the General
+  Manager refuse `git push`, deploy, publish and cloud commands, stay out of
+  your `.env` files and keys, and leave Smolcorp's own settings alone. Only you
+  answer a permission prompt. A script an employee writes and runs can get past
+  the fence, other agents get none, and everyone still runs as you.
 - **Use a network you trust.** The connection is plain HTTP on your local
   network. Use Smolcorp on home or office Wi-Fi, not public hotspots.
 
 ### Use setup from a script
 
-Everything the setup page does is an HTTP call to Smolcorp on this computer,
-and your own scripts can make the same calls. Each needs the setup key, which
-is new each time Smolcorp starts and kept in a file only you can read:
+The setup page is a set of HTTP calls to Smolcorp on this computer, and your
+own scripts can make some of them. Each needs the setup key, which is new each
+time Smolcorp starts and kept in a file only you can read:
 
 | | The setup key |
 |---|---|
@@ -958,6 +1023,15 @@ curl -s -X POST -H "X-Smolcorp-Setup-Key: $key" -H "X-AgentDeck-Setup: 1" \
 ```
 
 Read the key again after Smolcorp restarts.
+
+On a Mac, the key reads setup state, runs the check and repair that `smolcorp
+setup` does, and flips the plain look-and-feel switches (theme, music, dock,
+keep on top). It can't pair or unpair a phone, show a pairing code, hire,
+connect or disconnect agents, change the webhook, bots or layout, or turn on
+anything that spends money or sends data elsewhere. Those are for the setup
+page. On Windows and Linux the same limits apply, except that a tool of yours
+can also install this copy and open the firewall for how Smolcorp already
+listens.
 
 ## Troubleshooting
 
@@ -999,11 +1073,11 @@ empty, and voice has to be in tap mode: see [Voice](#voice).
 If macOS or Windows Firewall asked whether Smolcorp may accept incoming
 connections, allow it. On Windows the server answers only on this PC and on
 Tailscale's address, so the phone must be on Tailscale too: see
-[Who can reach Smolcorp](#who-can-reach-smolcorp-windows).
+[Who can reach Smolcorp](#who-can-reach-smolcorp-windows-and-linux).
 
 **The roles, or HIRE, don't come out.** Turn on **Let the office hire and fire**
-on the setup page, and choose a folder for new hires. They show only on a desk
-a new hire would take: the next free one, or a pinned project's. With no roles
+on the setup page, and choose a folder for new hires. They show only on a free
+desk, or a pinned project's. With no roles
 set up, it's a single **HIRE**. Hiring works on the Mac, on Windows (a new
 Windows Terminal tab) and on Linux, where a hire needs a terminal the setup
 page lists, or tmux.
@@ -1030,7 +1104,8 @@ using that port. Quit it and open Smolcorp again.
    `~/Library/Containers/com.apple.ScreenSaver.Engine.legacyScreenSaver/Data/Library/Preferences/ByHost`.
 
 On Windows and Linux, disconnect and turn off **Open at login** the same way,
-quit Smolcorp from its tray menu, then delete:
+quit Smolcorp (from its tray menu; on Linux also `smolcorp quit`, or Ctrl+C in
+its terminal if your desktop has no tray), then delete:
 
 - **Linux:** `~/.local/bin/smolcorp` (and `~/.local/bin/sauzzedeck`, if you
   updated from SauzzeDeck Pro), `~/.local/share/applications/smolcorp.desktop`,
@@ -1045,10 +1120,12 @@ quit Smolcorp from its tray menu, then delete:
   Defender Firewall with Advanced Security**, delete the inbound rules in the
   group **Smolcorp**.
 
-Connecting left a backup of each settings file it changed next to it, ending
-in `.agentdeck.bak`: Claude Code's `~/.claude/settings.json`, Codex's
-`~/.codex/hooks.json` and Gemini CLI's `~/.gemini/settings.json`. Delete them
-once you no longer need them. Connecting Claude Code also turned on its voice
+Connecting left two backups of each settings file it changed next to it:
+Claude Code's `~/.claude/settings.json`, Codex's `~/.codex/hooks.json` and
+Gemini CLI's `~/.gemini/settings.json`. The one ending in `.agentdeck.bak` is
+the file as it was before Smolcorp first changed it, and is never replaced;
+the one ending in `.agentdeck-last.bak` is the file as it was before the latest
+change. Delete them once you no longer need them. Connecting Claude Code also turned on its voice
 input, if it was off. Disconnecting leaves voice as it is: remove the `voice`
 entry from `~/.claude/settings.json` if you don't want it.
 
@@ -1125,6 +1202,9 @@ pairing, the same agents, roles and hiring. What's different from the Mac:
   own; on Linux, in your browser, where Chrome and Edge can **POP OUT** it on
   top of your other windows.
 - **No Accessibility step.** Nothing here needs that permission.
+- **Hook commands name the office's port**, so two offices on one computer
+  don't mix. Agents set up by an older Smolcorp are moved over the first time
+  1.24 starts.
 - **Grok Bots** sit at their desks too, but their news comes only through
   `POST /bots/<id>/event`: the Grok Bot app that the Mac reads is the Mac's
   only.
@@ -1145,9 +1225,9 @@ your browser instead.
   `window-key` beside `hook-key`. Phones still pair with the six-digit code,
   and **Unpair All Phones** leaves the window's device alone.
 
-### Who can reach Smolcorp (Windows)
+### Who can reach Smolcorp (Windows and Linux)
 
-On Windows the server listens on this computer (`127.0.0.1` and `::1`: the
+On Windows and Linux the server listens on this computer (`127.0.0.1` and `::1`: the
 setup page, the hooks, the launcher and the office window are all local) **and
 on the address Tailscale gave this computer** (`100.64.0.0/10`, on the adapter
 named *Tailscale*). The home network, a Wi-Fi hotspot or anything else cannot open
@@ -1155,8 +1235,12 @@ port 7710 at all. If Tailscale starts after Smolcorp, Smolcorp joins its address
 within about 15 seconds, with no restart; if it stops, the address is let go.
 
 - The phone's pairing address (the QR code and the address on the setup page) is
-  the Tailscale one. With no Tailscale on this computer it reads `localhost`, which a
-  phone cannot open: Start here says to get Tailscale, or to let in your home Wi-Fi.
+  the Tailscale one. With no Tailscale on this computer there's none, and no QR code:
+  Start here's button lets in your home Wi-Fi, or you get Tailscale.
+- On Linux, which listened on every interface before 1.24.0, an install with a phone
+  paired already keeps doing so: its first start of 1.24.0 writes `"listen": "all"`
+  in `config.json`, as the phone most likely reaches it on the home Wi-Fi. Otherwise
+  it writes `"listen": "tailscale"`, so pairing a phone later changes nothing.
 - Every other protection is unchanged: the 6-digit pairing code, the check of the
   host name, the connection limits, and the setup page, hooks and launcher answering
   only to this computer.
@@ -1169,10 +1253,13 @@ within about 15 seconds, with no restart; if it stops, the address is let go.
 - **Also on my home Wi-Fi**, on Start here, lets phones on your home network
   in too: it sets `"listen": "all"` in `config.json`, adds a firewall rule for
   your local network on private networks only, and starts Smolcorp again.
-  By hand, `"listen": "all"` in `config.json` (in `%APPDATA%\SauzzeDeck Pro`)
-  does the same once Smolcorp starts again, without the firewall's rule;
-  `"listen": "tailscale"` asks for the limited behaviour on Linux too, where
-  the default is every interface, as on the Mac.
+  On Linux there's no firewall rule to add: it sets `"listen": "all"` and starts
+  Smolcorp again. Run as `smolcorp serve`, under systemd say, or with no display,
+  it starts again in place: the same process, which prints its new setup link
+  in its terminal or log, and stops as before. By hand, `"listen": "all"` in `config.json` (in
+  `%APPDATA%\SauzzeDeck Pro`, or `~/.config/sauzzedeck-pro` on Linux) does the
+  same once Smolcorp starts again, without the firewall's rule. The Mac listens
+  on every interface.
 - `SMOLCORP_PORT` (1024-65535) replaces port 7710, to try a build next to the one
   you use. It is for tests: the hooks and the launcher read it too, so set it for
   everything that should talk to that copy.
@@ -1181,9 +1268,10 @@ within about 15 seconds, with no restart; if it stops, the address is let go.
 
 Starting `Smolcorp.exe` while Smolcorp is already running does not start another
 tray icon. The second launch asks the running one to open the office window (or
-bring it to the front) and exits at once with code 0. If the running one is an
-older Smolcorp that cannot be asked, a message says that Smolcorp is already
-running. On Windows the lock is a named mutex of the session
+bring it to the front) and exits at once, with code 0, or code 1 if no browser
+could open the office (it then prints the office address to open by hand). If
+the running one is an older Smolcorp that cannot be asked, a message says that
+Smolcorp is already running. On Windows the lock is a named mutex of the session
 (`Local\Smolcorp-single-instance`); on Linux, a lock on `instance.lock` next to
 the keys. If the port is taken by something else, Smolcorp says so and exits,
 rather than stay in the tray without a server.
@@ -1202,10 +1290,14 @@ This installs it for you alone, in `~/.local`, with an entry in your app
 menu. Open **Smolcorp** from the menu, or run `smolcorp`. The setup
 page opens in your browser.
 
+- To update, run the new `install.sh`: from 1.24 on it stops the running
+  Smolcorp itself first. `smolcorp quit` stops it by hand. (1.22 can't be
+  stopped this way: quit it from its tray, or press Ctrl+C in its terminal,
+  before you run the new installer.)
 - On GNOME, the tray icon needs the AppIndicator extension, which Ubuntu
-  includes. Without it, Smolcorp still runs: open
-  `http://localhost:7710/setup#k=` followed by the key in
-  `~/.config/sauzzedeck-pro/setup-key`.
+  includes. Without it, Smolcorp still runs, and prints a setup link as it
+  starts. The link works once, for five minutes; for a new one, run
+  `smolcorp quit` (or press Ctrl+C in its terminal) and start Smolcorp again.
 - On a machine without a desktop, such as one you reach over SSH, run
   `smolcorp serve`. It prints the setup page's link as it starts. Open it
   through a tunnel: `ssh -L 7710:localhost:7710` to the machine, then the

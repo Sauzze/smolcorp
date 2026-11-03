@@ -39,3 +39,128 @@ final class OfficeWindowTests: XCTestCase {
         XCTAssertEqual(OfficeWindow.drive(from: start, to: NSSize(width: 700, height: 600), width: true, height: true), .height)
     }
 }
+
+/// The app opened again, or its Dock icon clicked: the one office, in front.
+final class OfficeReopenTests: XCTestCase {
+    private var defaults: UserDefaults!
+    private let suite = "OfficeReopenTests-\(UUID().uuidString)"
+
+    override func setUp() {
+        defaults = UserDefaults(suiteName: suite)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    private var panels: [NSWindow] { NSApp.windows.filter { $0 is OfficePanel && $0.isVisible } }
+
+    func testHiddenItShowsAndShownItComesForwardWhereItIs() throws {
+        _ = NSApplication.shared
+        let office = OfficeWindow(address: URL(string: "http://127.0.0.1:9/office?window&t=test")!, defaults: defaults)
+        let before = panels.count
+        office.bringForward()
+        XCTAssertTrue(office.isShown)
+        let panel = try XCTUnwrap(panels.last)
+        // Moved by hand, then the app opened again: in front, where it was, and still the one window.
+        let moved = panel.frame.offsetBy(dx: -50, dy: -40)
+        panel.setFrame(moved, display: false)
+        office.bringForward()
+        office.bringForward()
+        XCTAssertEqual(panels.count, before + 1)
+        XCTAssertEqual(panel.frame, moved)
+        office.hide()
+        XCTAssertFalse(office.isShown)
+        office.bringForward()
+        XCTAssertTrue(office.isShown)
+        XCTAssertEqual(panels.count, before + 1)
+        office.hide()
+    }
+}
+
+/// Keep the office on top of other windows: setup's switch and the menu's
+/// Always on Top, one setting, off on a new Mac.
+final class OfficeOnTopTests: XCTestCase {
+    private var defaults: UserDefaults!
+    private let suite = "OfficeOnTopTests-\(UUID().uuidString)"
+    private var file: URL!
+
+    override func setUpWithError() throws {
+        defaults = UserDefaults(suiteName: suite)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        file = folder.appendingPathComponent("config.json")
+    }
+
+    override func tearDownWithError() throws {
+        defaults.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+    }
+
+    func testANewMacStartsWithItOff() {
+        let config = Config()
+        OfficeWindow.settle(config, defaults: defaults, file: file)
+        XCTAssertEqual(config.officeOnTop, false)
+        XCTAssertEqual(Config.load(from: file).officeOnTop, false)
+    }
+
+    func testAMacThatHadTheWindowKeepsWhatItHad() {
+        // Never touched in the menu, where it was on by default: on.
+        let set = Config()
+        set.hasCompletedSetup = true
+        OfficeWindow.settle(set, defaults: defaults, file: file)
+        XCTAssertEqual(set.officeOnTop, true)
+        // Turned off in the menu: off.
+        defaults.set(false, forKey: "officeWindow.alwaysOnTop")
+        let off = Config()
+        off.hasCompletedSetup = true
+        OfficeWindow.settle(off, defaults: defaults, file: file)
+        XCTAssertEqual(off.officeOnTop, false)
+    }
+
+    func testSettledOnceItsLeftAsSet() {
+        defaults.set(true, forKey: "officeWindow.alwaysOnTop")
+        let config = Config()
+        config.officeOnTop = false
+        OfficeWindow.settle(config, defaults: defaults, file: file)
+        XCTAssertEqual(config.officeOnTop, false)
+    }
+
+    func testItsTheWindowsAppsKeyInTheFile() throws {
+        try #"{"alwaysOnTop": true}"#.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(Config.load(from: file).officeOnTop, true)
+        let config = Config()
+        config.officeOnTop = false
+        config.save(to: file)
+        let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        XCTAssertEqual(saved["alwaysOnTop"] as? Bool, false)
+        // Unset, it isn't in the file, to be settled at launch.
+        Config().save(to: file)
+        XCTAssertNil(Config.load(from: file).officeOnTop)
+    }
+
+    func testOnTopItFloatsOnEverySpaceAndBesideFullScreen() {
+        let top = OfficeWindow.placement(onTop: true, onAllSpaces: false)
+        XCTAssertEqual(top.level, .floating)
+        XCTAssertEqual(top.spaces, [.canJoinAllSpaces, .fullScreenAuxiliary])
+        let off = OfficeWindow.placement(onTop: false, onAllSpaces: false)
+        XCTAssertEqual(off.level, .normal)
+        XCTAssertEqual(off.spaces, [.fullScreenAuxiliary])
+        // On every Space on its own, not on top.
+        XCTAssertEqual(OfficeWindow.placement(onTop: false, onAllSpaces: true).level, .normal)
+        XCTAssertEqual(OfficeWindow.placement(onTop: false, onAllSpaces: true).spaces, [.canJoinAllSpaces, .fullScreenAuxiliary])
+    }
+
+    func testTheWindowTakesItAtOnce() {
+        let config = Config()
+        config.officeOnTop = true
+        let office = OfficeWindow(address: URL(string: "http://127.0.0.1:9/office?window&t=test")!, defaults: defaults, config: config)
+        office.show()
+        let panel = NSApp.windows.last { $0 is OfficePanel && $0.isVisible }
+        XCTAssertEqual(panel?.level, .floating)
+        config.officeOnTop = false
+        office.applyOptions()
+        XCTAssertEqual(panel?.level, .normal)
+        office.hide()
+    }
+}

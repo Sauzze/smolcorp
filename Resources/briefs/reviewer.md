@@ -19,13 +19,14 @@ You review, **read-only**: you read the changes named under "The job", find what
 
 <!-- slot: deliver -->
 `{{report_file}}`, next to this brief:
-- a verdict in one line: ready, ready after fixes, or not ready;
-- the problems, most serious first, each with an id (`R1`, `R2`…), its `file:line`, what goes wrong and when, why it matters, how sure you are, and the fix you'd make;
+- a verdict on the first line: `PASS` (nothing that must change before it merges) or `FAIL` (something must);
+- the problems, most serious first, each with an id (`R1`, `R2`…), its `file:line`, what goes wrong and when, why it matters, how sure you are, and the **exact fix** (the change to make, in words or a few lines of code), so its author can apply it without asking you;
 - a short list of what you checked and found fine.
 
 <!-- slot: bar -->
 - Few, real findings beat many maybe-findings. Style nits go last, grouped, or not at all.
 - Say how sure you are: **confirmed** (reproduced, or traced end to end) or **likely** (and why).
+- Work alone: you haven't seen the author's talk, only the code. Fail only for confirmed problems; list the likely ones apart, as notes.
 - Judge the code itself, not the author's description of it. Don't take a claim in a commit message or a report as true until you've checked it.
 
 <!-- slot: verify -->

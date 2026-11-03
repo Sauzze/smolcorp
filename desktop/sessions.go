@@ -59,6 +59,11 @@ type Session struct {
 	ToolActivity string
 	// The tool a permission prompt is asking about.
 	WaitingFor string
+	// What a prompt waiting on you is about, for GET /setup/gm/approvals: the
+	// tool, its input as JSON, and when it began asking (ms). Kept in memory
+	// only, never saved; the route gives out a short label of it, never the input.
+	askedTool, askedInput string
+	askedSince            float64
 	// When ☢ Max was last pressed for this session, in ms. Only the button
 	// sets it, never the dial, so the office knows which one was used.
 	MaxPressedAt float64
@@ -131,6 +136,15 @@ func (s *Session) Activity() string {
 
 func (s *Session) clearTool() {
 	s.Tool, s.ToolUseID, s.ToolActivity, s.WaitingFor = "", "", "", ""
+	s.clearAsked()
+}
+
+func (s *Session) clearAsked() { s.askedTool, s.askedInput, s.askedSince = "", "", 0 }
+
+// asks notes what the prompt waiting on you is about.
+func (s *Session) asks(tool string, input map[string]any, at float64) {
+	raw, _ := json.Marshal(input)
+	s.askedTool, s.askedInput, s.askedSince = tool, string(raw), at
 }
 
 // endTurn: a turn is over, so nothing runs any more, except subagents of the
@@ -521,8 +535,13 @@ func followDetails(name string, event map[string]any, session *Session, at float
 		input, _ := event["tool_input"].(map[string]any)
 		session.ToolActivity = activityOf(session.Tool, input)
 		session.WaitingFor = ""
+		session.clearAsked()
+		if session.Tool == "AskUserQuestion" {
+			session.asks(session.Tool, input, at)
+		}
 	case "PostToolUse", "PostToolUseFailure":
 		session.WaitingFor = ""
+		session.clearAsked()
 		call, _ := event["tool_use_id"].(string)
 		if !fromSubagent && (call == "" || session.ToolUseID == "" || call == session.ToolUseID) {
 			session.clearTool()
@@ -531,6 +550,8 @@ func followDetails(name string, event map[string]any, session *Session, at float
 		// Nothing a headless run's runner decides waits on you.
 		if !session.Headless() {
 			session.WaitingFor, _ = event["tool_name"].(string)
+			input, _ := event["tool_input"].(map[string]any)
+			session.asks(session.WaitingFor, input, at)
 		}
 	case "PreCompact":
 		session.Compacting = true

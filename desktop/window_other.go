@@ -8,12 +8,13 @@ const hasNativeWindow = false
 
 // openOffice opens the office in the browser, as the Mac app's Show Office
 // opens its window: with a token that works once, as for setup, which the
-// deck swaps for the office's own key on this computer.
-func (d *Deck) openOffice() {
+// deck swaps for the office's own key on this computer. It says if the
+// browser could not be started.
+func (d *Deck) openOffice() error {
 	d.mu.Lock()
 	token := d.access.NewOfficeToken()
 	d.mu.Unlock()
-	openURL(localBase() + "/office?o=" + token)
+	return openURL(localBase() + "/office?o=" + token)
 }
 
 func (d *Deck) setAlwaysOnTop(bool) {}

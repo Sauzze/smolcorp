@@ -21,8 +21,8 @@ targets:
       path: Smolcorp/Info.plist
       properties:
         CFBundleDisplayName: Smolcorp
-        CFBundleShortVersionString: "0.3"
-        CFBundleVersion: "4"
+        CFBundleShortVersionString: "0.4"
+        CFBundleVersion: "6"
         UILaunchScreen:
           UIColorName: ""
         UISupportedInterfaceOrientations:

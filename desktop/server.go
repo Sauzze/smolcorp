@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -55,6 +57,8 @@ const (
 	// browser ask permission first for any cross-site request, which this
 	// server never grants.
 	setupHeader = "X-AgentDeck-Setup"
+	// Names the app on the 401 of /setup/state, so the locked page tells how to get in.
+	appHeader = "X-Smolcorp-App"
 	// The setup key, as a tool of your own sends it, read from the setup-key
 	// file; or as the page's cookie, from the tray's link.
 	setupKeyHeader = "X-Smolcorp-Setup-Key"
@@ -157,7 +161,23 @@ type request struct {
 	isLocal             bool // sent from this computer to a local name
 	isAddressedDirectly bool // to an IP address or a local name, as a phone would
 	remoteAddress       string
+	caller              caller // who is asking setup: set only for /setup and /bots
 }
+
+// caller is who is asking for setup: the page, a tool of yours, or no one.
+type caller int
+
+const (
+	callerNobody caller = iota
+	// A tool on this computer sending the setup key from its file in a header.
+	callerTool
+	// The setup page, with a session cookie a one-time link gave it.
+	callerPage
+	// The General Manager, with its token in a header (gmTokenHeader).
+	callerGM
+	// A hire the app started, with its own send key in a header (hireKeyHeader).
+	callerHire
+)
 
 var (
 	portSuffix  = regexp.MustCompile(`:\d+$`)
@@ -216,19 +236,44 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		// The tray's link carries a token that works once, after #o=, and the
-		// link serve prints the key, after #k=. The page hands either over once
-		// for a cookie only this page's requests carry.
+		// A link carries a token that works once, after #o=. The page hands it
+		// over once for a session cookie only this page's requests carry. The
+		// setup key never opens a session, and the cookie is never the key.
 		session := r.Method == http.MethodPost && r.URL.Path == "/setup/session"
 		redeemed := session && d.redeemSetupToken(r.Header.Get(setupTokenHeader))
-		if r.URL.Path != "/setup" && !redeemed && !d.isSetupKey(setupKeyOf(r.Request)) {
+		r.caller = d.routeCallerOf(r.Request, r.Method, r.URL.Path)
+		if r.URL.Path != "/setup" && !redeemed && r.caller == callerNobody {
+			// The locked page says which app it came from, so its note names this app's own way in.
+			if r.URL.Path == "/setup/state" {
+				w.Header().Set(appHeader, runtime.GOOS)
+			}
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		if session {
-			http.SetCookie(w, &http.Cookie{Name: setupCookie, Value: d.access.SetupKey, Path: "/setup", HttpOnly: true,
+			if !redeemed {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			d.completeSetup()
+			http.SetCookie(w, &http.Cookie{Name: setupCookie, Value: d.newSetupSession(), Path: "/setup", HttpOnly: true,
 				SameSite: http.SameSiteStrictMode})
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		// What each caller may use is the route table's (routes.go): pairing a
+		// phone, and what a hire holding the setup-key file could misuse, are
+		// the page's. A tool with the key can see whether pairing is open,
+		// never the code. /setup itself is the page.
+		if r.URL.Path != "/setup" && !routeAllows(r.caller, r.Method, r.URL.Path) {
+			writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
+			return
+		}
+		d.mu.Lock()
+		managerOn := d.config.ManagerEnabled
+		d.mu.Unlock()
+		if managerRefuses(r.Method, r.URL.Path, managerOn) {
+			writeStatus(w)(http.StatusConflict, managerOffAnswer)
 			return
 		}
 		rt.setup(w, r)
@@ -243,7 +288,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		if !d.isSetupKey(setupKeyOf(r.Request)) {
+		who := d.routeCallerOf(r.Request, r.Method, r.URL.Path)
+		// The GM and a hire are known, and the table keeps them out (403), as the Mac's gate does.
+		if (who == callerGM || who == callerHire) && !routeAllows(who, r.Method, r.URL.Path) {
+			writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
+			return
+		}
+		if who != callerTool {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -281,7 +332,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		showOffice(d)
+		if err := showOffice(d); err != nil {
+			http.Error(w, "The browser could not be started: "+err.Error(), http.StatusBadGateway)
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	case r.URL.Path == "/launcher":
@@ -294,6 +348,45 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		rt.launcher(w, r)
+		return
+	// An engine hire's launcher asks for its start environment, once (hirestartenv.go).
+	case r.URL.Path == hireStartPath:
+		if !r.isLocal || r.Method != http.MethodGet {
+			http.NotFound(w, r.Request)
+			return
+		}
+		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		d.startEnvRoute(w, r.URL.Query())
+		return
+	// A launcher's answer to a look at its window: the state only.
+	case r.URL.Path == screenAnswerPath:
+		if !r.isLocal || r.Method != http.MethodPost {
+			http.NotFound(w, r.Request)
+			return
+		}
+		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// The hook key is every agent's; the answer must also carry the
+		// secret only that id's launcher was sent.
+		if !d.isLauncherSecret(r.URL.Query().Get("id"), r.Header.Get(lookSecretHeader)) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		var answer screenAnswer
+		if json.NewDecoder(r.Body).Decode(&answer) != nil || answer.Look == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if !d.launcherScreenAnswered(r.URL.Query().Get("id"), r.Header.Get(lookSecretHeader), answer) {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
@@ -384,6 +477,17 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		rt.events(w, r, phoneID)
 	case r.Method == http.MethodPost && r.URL.Path == "/focus":
 		writeStatus(w)(d.Focus(session))
+	// ⚙︎ in the office's corner, from its own window on this computer: setup opens, as from the tray.
+	case r.Method == http.MethodPost && r.URL.Path == "/act" && r.URL.Query().Get("action") == "settings":
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, "Settings open on your computer.")
+			return
+		}
+		if err := openSetupPage(d); err != nil {
+			writeStatus(w)(http.StatusBadGateway, "Couldn't open your browser ("+err.Error()+"). Instead: "+setupAdvice(runtime.GOOS))
+			return
+		}
+		writeStatus(w)(http.StatusNoContent, "")
 	case r.Method == http.MethodPost && r.URL.Path == "/act":
 		writeStatus(w)(d.Perform(r.URL.Query().Get("action"), session, r.URL.Query()))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
@@ -399,26 +503,77 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	}
 }
 
-func setupKeyOf(r *http.Request) string {
-	if key := r.Header.Get(setupKeyHeader); key != "" {
-		return key
+// callerOf says who is asking, one caller per request, in this order (the same
+// as SetupSessions.caller): the page by its session cookie, a hire by its send
+// key, a tool by the setup key in its header, the GM by its token. A valid setup
+// key wins over the GM's token, so a GM that also holds the owner's key is
+// acting as the owner; a wrong key or token never changes what the other one
+// gets alone. The cookie is only ever a session id, never the key. A request
+// with a valid hire key is never taken as the GM (a wrong one carries no weight,
+// as on the Mac), and the setup key never passes for the GM's token, nor for a
+// hire's key.
+func (d *Deck) callerOf(r *http.Request) caller {
+	who, _ := d.callerAndGM(r)
+	return who
+}
+
+// callerAndGM is callerOf, and whether the request also carries the GM's valid
+// token, read under the deck's lock with the rest (the token changes under it).
+func (d *Deck) callerAndGM(r *http.Request) (caller, bool) {
+	hireKey := r.Header.Get(hireKeyHeader)
+	d.mu.Lock()
+	page := func() bool { c, err := r.Cookie(setupCookie); return err == nil && d.access.IsSetupSession(c.Value) }()
+	isTool := d.access.IsSetupKey(r.Header.Get(setupKeyHeader))
+	isGM := d.isGMToken(r.Header.Get(gmTokenHeader))
+	d.mu.Unlock()
+	if page {
+		return callerPage, isGM
 	}
-	if cookie, err := r.Cookie(setupCookie); err == nil {
-		return cookie.Value
+	// The registry is read with the deck's lock let go.
+	switch {
+	case isHireKey(registryPath(), hireKey):
+		return callerHire, isGM
+	case isTool:
+		return callerTool, isGM
+	case isGM:
+		return callerGM, true
 	}
-	return ""
+	return callerNobody, false
+}
+
+// routeCallerOf is callerOf, with one step more for a route a tool may not use:
+// a request with the setup key and the GM's token is the owner's tool for what a
+// tool may do (a read-only request with both acts as the owner), but for a route
+// the table keeps from a tool, the token makes it the GM, as on the Mac.
+func (d *Deck) routeCallerOf(r *http.Request, method, path string) caller {
+	who, isGM := d.callerAndGM(r)
+	if who == callerTool && isGM && !routeAllows(callerTool, method, path) {
+		return callerGM
+	}
+	return who
+}
+
+func (d *Deck) newSetupSession() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.access.NewSetupSession()
+}
+
+// completeSetup marks setup complete: what a setup page that got in with a
+// token or the key does, as the tray's link never reloads /setup with a key.
+func (d *Deck) completeSetup() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.config.HasCompletedSetup {
+		d.config.HasCompletedSetup = true
+		d.config.save()
+	}
 }
 
 func (d *Deck) redeemSetupToken(candidate string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.access.RedeemSetupToken(candidate)
-}
-
-func (d *Deck) isSetupKey(candidate string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.access.IsSetupKey(candidate)
 }
 
 func (d *Deck) isHookKey(candidate string) bool {
@@ -505,11 +660,18 @@ func (rt *router) launcher(w http.ResponseWriter, r *request) {
 		return
 	}
 	tab := rt.deck.launcherConnected(id, Agent(query.Get("agent")), query.Get("folder"), query.Get("role"), query.Get("hire"))
+	if tab == nil {
+		w.WriteHeader(http.StatusConflict) // that id's launcher is still connected
+		return
+	}
 	defer rt.deck.launcherGone(id, tab)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
 	encoder := json.NewEncoder(w)
+	if encoder.Encode(launcherCommand{Secret: tab.screenSecret}) != nil {
+		return
+	}
+	flusher.Flush()
 	for {
 		select {
 		case command := <-tab.commands:
@@ -535,16 +697,27 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 
 	switch {
 	case r.Method == http.MethodGet && path == "/setup":
+		// Only the page or the setup key counts as setup; a GM token or a hire's key
+		// doesn't (DeckRouter.swift: completeSetup for .page and .tool).
+		keyed := r.caller == callerPage || r.caller == callerTool
 		d.mu.Lock()
-		if !config.HasCompletedSetup {
+		if keyed && !config.HasCompletedSetup {
 			config.HasCompletedSetup = true
 			config.save()
 		}
 		d.mu.Unlock()
 		serveFile(w, "Resources/web/setup.html")
 
+	// The GM's feed: the events after since, at once if there are any, or as soon
+	// as one comes, or none after wait seconds (30 at most). Its row in the route
+	// table is GET /setup/gm/events (read: gm, page, tool).
+	case r.Method == http.MethodGet && path == "/setup/gm/events":
+		since, wait, limit := eventQuestion(query)
+		found := d.events.wait(r.Context(), since, limit, wait)
+		writeJSON(w, http.StatusOK, d.events.answer(found, since))
+
 	case r.Method == http.MethodGet && path == "/setup/state":
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The deck, for the preview beside the layout editor: the one page a
 	// frame may show, and only one of this deck's own.
@@ -572,7 +745,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		code := d.access.ActiveCode()
 		d.mu.Unlock()
-		if code == "" {
+		// No code, or no address a phone could open: no QR code to scan.
+		if code == "" || phoneAddress() == "" {
 			http.NotFound(w, r.Request)
 			return
 		}
@@ -581,7 +755,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// The portable office's viewer (beta). Only this reply carries the link,
 	// which holds the key; the write secret is in a reply only once, as it's made.
 	case r.Method == http.MethodGet && path == "/setup/viewer":
-		writeJSON(w, http.StatusOK, d.portable.SetupState(true))
+		// The link holds the key: the page gets it, a tool with the setup-key file doesn't.
+		writeJSON(w, http.StatusOK, d.portable.SetupState(r.caller == callerPage))
 
 	case r.Method == http.MethodPost && path == "/setup/viewer":
 		var given struct {
@@ -681,7 +856,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		d.access.NewCode()
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	case r.Method == http.MethodPost && path == "/setup/unpair":
 		id := query.Get("phone")
@@ -692,7 +867,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		d.unpair(id)
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	case r.Method == http.MethodPost && (path == "/setup/pin" || path == "/setup/unpin"):
 		index, err := strconv.Atoi(query.Get("key"))
@@ -733,7 +908,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		config.save()
 		d.changed()
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// Every part is checked before any is kept, so a wrong one changes
 	// nothing. In the body, not the address, as it carries the secret.
@@ -776,35 +951,75 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		config.Webhook = webhook
 		config.save()
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	case r.Method == http.MethodPost && path == "/setup/webhook/test":
 		d.mu.Lock()
 		webhook := config.Webhook
 		d.mu.Unlock()
 		d.testWebhook(webhook)
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// ✨ Summary on only once the page's dialog has said what it sends where,
-	// and only with a key; off at any time.
+	// and only with what it names working; off at any time.
 	case r.Method == http.MethodPost && path == "/setup/summaries":
+		provider, _ := validSummaryProvider(query.Get("provider"))
 		if query.Get("enabled") == "1" {
 			if query.Get("confirmed") != "1" {
 				http.Error(w, "Turn Summary on from its dialog, which says what it sends where.", http.StatusBadRequest)
 				return
 			}
-			if !d.summaryKeys.Present() {
-				http.Error(w, "Add your Anthropic API key first.", http.StatusBadRequest)
+			if _, ok := validSummaryProvider(query.Get("provider")); !ok {
+				http.Error(w, "Pick what makes summaries first.", http.StatusBadRequest)
+				return
+			}
+			if refusal := d.summaryRefusal(provider); refusal != "" {
+				http.Error(w, refusal, http.StatusBadRequest)
 				return
 			}
 		}
 		d.mu.Lock()
+		if query.Get("enabled") == "1" {
+			config.SummaryProvider = string(provider)
+		}
 		config.SummaryOptIn = query.Get("enabled") == "1"
 		config.save()
 		d.changed()
 		d.mu.Unlock()
 		d.summaries.Forget()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
+	// What makes summaries: picked while they're on, only from the dialog,
+	// as it changes where they're sent; and only one that works.
+	case r.Method == http.MethodPost && path == "/setup/summary/provider":
+		provider, ok := validSummaryProvider(query.Get("id"))
+		if !ok {
+			http.Error(w, "No such way to make summaries.", http.StatusBadRequest)
+			return
+		}
+		d.mu.Lock()
+		on := config.SummaryOptIn
+		d.mu.Unlock()
+		if on && query.Get("confirmed") != "1" {
+			http.Error(w, "Change it from its dialog, which says where summaries are sent.", http.StatusBadRequest)
+			return
+		}
+		if refusal := d.summaryRefusal(provider); refusal != "" {
+			http.Error(w, refusal, http.StatusBadRequest)
+			return
+		}
+		d.mu.Lock()
+		config.SummaryProvider = string(provider)
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		d.summaries.Forget()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
+	// The coding agents looked for again, as setup's Check again asks.
+	case r.Method == http.MethodPost && path == "/setup/summary/check":
+		d.summaryProviders.Refresh(true)
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The key Summary uses: kept in the system's secret store, and answered only as its hint.
 	case r.Method == http.MethodPost && path == "/setup/summary/key":
@@ -822,14 +1037,14 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		d.summaries.Forget()
 		d.mu.Lock()
-		// With no key left, Summary is off: no key, nothing to send with.
-		if !d.summaryKeys.Present() && config.SummaryOptIn {
+		// With no key left, summaries made with it are off: nothing to send with, and never sent elsewhere instead.
+		if !d.summaryKeys.Present() && config.SummaryOptIn && (config.SummaryProvider == "" || config.SummaryProvider == string(providerAPIKey)) {
 			config.SummaryOptIn = false
 			config.save()
 		}
 		d.changed()
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	case r.Method == http.MethodPost && path == "/setup/music":
 		d.mu.Lock()
@@ -840,7 +1055,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		config.save()
 		d.changed()
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// Every part is checked before any is kept, so a wrong one changes
 	// nothing. An empty folder clears it.
@@ -868,6 +1083,19 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			return
 		}
 		d.mu.Lock()
+		enabled, hireFolder := config.HiringEnabled, config.HireFolder
+		if query.Has("enabled") {
+			enabled = query.Get("enabled") == "1"
+		}
+		if query.Has("folder") {
+			hireFolder = folder
+		}
+		if enabled && (query.Has("enabled") || query.Has("folder")) && canHireHere() &&
+			!hasHireFolder(&Config{HireFolder: hireFolder, FloorRules: config.FloorRules}) {
+			d.mu.Unlock()
+			http.Error(w, hiringNeedsFolder, http.StatusBadRequest)
+			return
+		}
 		if query.Has("enabled") {
 			config.HiringEnabled = query.Get("enabled") == "1"
 		}
@@ -883,10 +1111,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		if query.Has("tmux") {
 			config.HireInTmux = query.Get("tmux") == "1"
 		}
+		if query.Has("managedWindows") {
+			config.HireManagedWindows = query.Get("managedWindows") == "1"
+		}
 		config.save()
 		d.changed()
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The system's own folder picker, which a web page can't open.
 	case r.Method == http.MethodPost && path == "/setup/hiring/choose":
@@ -898,7 +1129,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			http.Error(w, "The folder picker didn't open.", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The roles as the page has them, all of them: checked as they're kept,
 	// since their instructions go to agents.
@@ -913,7 +1144,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		config.save()
 		d.changed()
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The cloud bots, each at a desk of its own: all of them, as a list, replaced at once.
 	case r.Method == http.MethodGet && path == "/setup/bots":
@@ -929,7 +1160,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			return
 		}
 		d.mu.Lock()
-		config.CloudBots = checkedCloudBots(given)
+		// The mailbox is the page's to choose (POST /setup/bots/mailbox): what is sent here never sets or changes it.
+		config.CloudBots = keepMailboxes(checkedCloudBots(given), config.CloudBots)
 		config.save()
 		d.cloud.configure(config.CloudBots)
 		d.changed()
@@ -937,19 +1169,74 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"bots": bots})
 
-	// The six floors' names and styles, all of them, replaced at once and checked as they're kept.
+	// A bot's mailbox folder, page only (routes.json).
+	case r.Method == http.MethodPost && path == "/setup/bots/mailbox":
+		rt.botMailboxChoose(w, r)
+
+	// One bot pinned or not, or put on a floor, from setup's list.
+	case r.Method == http.MethodPost && path == "/setup/bots/override":
+		var given struct {
+			ID     string  `json:"id"`
+			Pinned *bool   `json:"pinned"`
+			Floor  *string `json:"floor"`
+			Hidden bool    `json:"hidden"`
+		}
+		if json.NewDecoder(r.Body).Decode(&given) != nil || given.ID == "" {
+			writeStatus(w)(http.StatusBadRequest, `Send {"id": …} with "pinned" or "floor".`)
+			return
+		}
+		d.mu.Lock()
+		bots := slices.Clone(config.CloudBots)
+		found := false
+		for i := range bots {
+			if bots[i].ID != given.ID {
+				continue
+			}
+			found = true
+			if given.Pinned != nil {
+				bots[i].Pinned = *given.Pinned
+			}
+			if given.Floor != nil && slices.Contains(cloudFloors, *given.Floor) {
+				bots[i].Floor = *given.Floor
+			}
+		}
+		if given.Hidden {
+			// Here, hiding a bot is taking it off: there's no app to find it again in.
+			bots = slices.DeleteFunc(bots, func(b CloudBot) bool { return b.ID == given.ID })
+		}
+		if !found {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusNotFound, "That bot isn't there any more.")
+			return
+		}
+		config.CloudBots = bots
+		config.save()
+		d.cloud.configure(config.CloudBots)
+		d.changed()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
+	// The six floors' names and styles, all of them, replaced at once and checked as they're kept;
+	// and the folders whose sessions sit on each, with "rules", which a setup page from before them leaves out.
 	case r.Method == http.MethodPost && path == "/setup/floors":
-		floors, ok := floorsSent(r.Body)
-		if !ok {
+		body := floorRulesBody(r.Body)
+		floors, ok := floorsSent(bytes.NewReader(body))
+		rules, haveRules := floorRulesSent(body)
+		if !ok && !haveRules {
 			writeStatus(w)(http.StatusBadRequest, `Send the floors as a list: {"floors": [{"name": …, "preset": …}]}.`)
 			return
 		}
 		d.mu.Lock()
-		config.Floors = floors
+		if ok {
+			config.Floors = floors
+		}
+		if haveRules {
+			config.FloorRules = rules
+		}
 		config.save()
 		d.changed()
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// Whether the office asks before max effort: the phones are told, as it's theirs to ask.
 	case r.Method == http.MethodPost && path == "/setup/maxconfirm":
@@ -958,7 +1245,20 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		config.save()
 		d.changed()
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
+	// The office's window kept on top of other windows, where it has one:
+	// the tray's Always on Top, and applied at once.
+	case r.Method == http.MethodPost && path == "/setup/ontop":
+		if !hasNativeWindow {
+			http.Error(w, "The office opens in the browser here: there's no window to keep on top.", http.StatusNotFound)
+			return
+		}
+		d.setAlwaysOnTop(query.Get("enabled") == "1")
+		d.mu.Lock()
+		d.changed()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	case r.Method == http.MethodPost && path == "/setup/scroll":
 		d.mu.Lock()
@@ -966,25 +1266,36 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		config.save()
 		d.changed()
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	case r.Method == http.MethodPost && path == "/setup/hooks":
 		var err error
+		notice := ""
 		if query.Get("remove") == "" {
-			err = connectAgents()
+			notice, err = connectAgents(true)
 		} else {
 			err = disconnectAgents()
 		}
 		if err != nil {
+			said := err.Error()
+			if notice != "" {
+				// Connecting partly failed after turning voice on: the notice still reaches the page
+				said += "\n\n" + notice
+			}
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = io.WriteString(w, err.Error())
+			_, _ = io.WriteString(w, said)
 			return
 		}
-		writeJSON(w, http.StatusOK, rt.setupState())
+		d.setHooksDisconnected(query.Get("remove") != "")
+		state := rt.setupStateFor(r.caller)
+		if notice != "" {
+			state["notice"] = notice
+		}
+		writeJSON(w, http.StatusOK, state)
 
 	case r.Method == http.MethodPost && path == "/setup/login":
 		setOpenAtLogin(query.Get("enabled") == "1")
-		writeJSON(w, http.StatusOK, rt.setupState())
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The self-test: Start here's checklist, and `smolcorp setup`'s.
 	case r.Method == http.MethodGet && path == "/setup/selftest":
@@ -992,6 +1303,15 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 
 	// One of its fixes, by name, and the checklist after it.
 	case r.Method == http.MethodPost && path == "/setup/fix":
+		// A tool (smolcorp setup) only repairs, and with auto=1: its repair leaves agents you disconnected.
+		if !fixAllowed(r.caller, query.Get("fix"), query.Get("auto")) {
+			writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
+			return
+		}
+		if query.Get("fix") == fixRepair && query.Get("auto") == "1" && d.hooksDisconnected() {
+			writeStatus(w)(http.StatusConflict, errHooksDisconnected.Error())
+			return
+		}
 		if status, message := d.fix(query.Get("fix")); status >= 400 {
 			writeStatus(w)(status, message)
 			return
@@ -1000,13 +1320,138 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 
 	// The office, from the page: the tray's Show Office.
 	case r.Method == http.MethodPost && path == "/setup/office":
-		d.openOffice()
+		if err := d.openOffice(); err != nil {
+			writeStatus(w)(http.StatusBadGateway, "The browser could not be started: "+err.Error())
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
+
+	// The front desk: the app's version and features, and the manager switch (see manager.go).
+	case r.Method == http.MethodGet && path == "/setup/gm/version":
+		d.mu.Lock()
+		enabled := config.ManagerEnabled
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, versionAnswer(Version, enabled))
+
+	case r.Method == http.MethodPost && path == "/setup/gm/manager":
+		// Routes table: the page only (routes.json lists the GM too, but no GM caller exists here yet).
+		if r.caller != callerPage {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		enabled := query.Get("enabled")
+		if enabled != "1" && enabled != "0" {
+			writeStatus(w)(http.StatusBadRequest, "Say enabled=1 or enabled=0.")
+			return
+		}
+		d.mu.Lock()
+		config.ManagerEnabled = enabled == "1"
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"managerEnabled": enabled == "1"})
 
 	// Start here's Hire your General Manager: the GM role, in the folder for
 	// new hires or your home folder, its questions asked in its terminal.
 	case r.Method == http.MethodPost && path == "/setup/hire/gm":
-		writeStatus(w)(d.hireFromSetup("gm"))
+		// One GM per office: the GM's token never hires the gm role. Checked before anything is saved
+		// (DeckRouter.swift: the same refusal before the hire).
+		if status, text, refused := gmHireRefusal(gmRole, r.caller, readRegistry(registryPath(), false).gmIsHired()); refused {
+			writeStatus(w)(status, text)
+			return
+		}
+		// The manager is switched on before the hire (the GM is a managed hire) and back if the hire
+		// fails, as the Mac does (DeckRouter.swift). d.mu is not held across the hire.
+		d.mu.Lock()
+		before := d.config.ManagerEnabled
+		d.config.ManagerEnabled = true
+		d.config.save()
+		d.changed()
+		d.mu.Unlock()
+		status, text := d.hireFromSetup("gm")
+		if status >= http.StatusBadRequest {
+			d.mu.Lock()
+			d.config.ManagerEnabled = before
+			d.config.save()
+			d.changed()
+			d.mu.Unlock()
+		}
+		writeStatus(w)(status, text)
+
+	// The front desk. routes.json: GET /setup/gm/team is read for gm, page and tool.
+	case r.Method == http.MethodGet && path == "/setup/gm/team":
+		rt.team(w)
+
+	// Who waits for you, read only (routes.json: read for gm, page and tool). A prompt
+	// is answered by the owner's tap alone: no method but GET is served here.
+	case path == "/setup/gm/approvals":
+		rt.approvals(w, r)
+
+	// routes.json: POST /setup/gm/registry is an action for gm and page, never a
+	// tool. The table has let in only those two by here; this keeps it so.
+	case r.Method == http.MethodPost && path == "/setup/gm/registry":
+		if r.caller != callerPage && r.caller != callerGM {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		hire, refused := editHire(registryPath(), body)
+		if refused != nil {
+			writeStatus(w)(refused.status, refused.message)
+			return
+		}
+		writeJSON(w, http.StatusOK, hire)
+
+	// routes.json: POST /setup/gm/nickname is an action for gm and page, never a tool or a hire.
+	case r.Method == http.MethodPost && path == "/setup/gm/nickname":
+		if r.caller != callerPage && r.caller != callerGM {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		d.mu.Lock()
+		var places []namePlace
+		for _, s := range d.sessions.All() {
+			places = append(places, namePlace{project: s.Project, folder: s.Folder})
+		}
+		layout := config.Layout
+		layout.Room.Team = maps.Clone(layout.Room.Team)
+		project, name, refused := setNickname(&layout, body, places, config.Pins)
+		if refused == nil {
+			config.Layout = layout
+			config.save()
+			d.changed()
+		}
+		d.mu.Unlock()
+		if refused != nil {
+			writeStatus(w)(refused.status, refused.message)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"project": project, "nickname": name})
+
+	// Mail (routes.json): send is for gm, page and hire; the outbox is read by gm, page and tool, and a tool is not given the texts.
+	case r.Method == http.MethodPost && path == "/setup/gm/send":
+		rt.mailSend(w, r)
+
+	case r.Method == http.MethodGet && path == "/setup/gm/outbox":
+		rt.mailOutboxList(w, r)
+
+	// Who may write to whom (routes.json: gm and page).
+	case r.Method == http.MethodPost && path == "/setup/gm/contacts":
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		pairs, refused := setContacts(registryPath(), body)
+		if refused != nil {
+			writeStatus(w)(refused.status, refused.message)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"contacts": pairs})
+
+	// What the GM asks the app to watch: firings come to its inbox, the event log (watchers.go).
+	// The table has let in only gm and page for the POSTs; the list is read for tool too.
+	case r.Method == http.MethodGet && path == "/setup/gm/watches",
+		r.Method == http.MethodPost && path == "/setup/gm/watch",
+		(r.Method == http.MethodPost || r.Method == http.MethodDelete) && path == "/setup/gm/unwatch":
+		rt.watchRoutes(w, r, path)
 
 	default:
 		http.NotFound(w, r.Request)
@@ -1061,10 +1506,21 @@ func (rt *router) profiles(w http.ResponseWriter, r *request) {
 		writeStatus(w)(http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, rt.setupState())
+	writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 }
 
-func (rt *router) setupState() map[string]any {
+// Version is the build's version, set by the command before it starts
+// anything, and shown on the setup page.
+var Version = "dev"
+
+// setupState is the page's view, with the pairing code. It defaults to the page
+// on purpose, for the app's own code and the tests: a request handler must pass
+// its caller to setupStateFor, or a tool would be handed the code.
+func (rt *router) setupState() map[string]any { return rt.setupStateFor(callerPage) }
+
+// setupStateFor is the state a caller may see: a tool sees the pairing
+// address and whether pairing is open, never the code.
+func (rt *router) setupStateFor(who caller) map[string]any {
 	d := rt.deck
 	found := foundAgents()
 	agentList := make([]map[string]any, len(found))
@@ -1083,10 +1539,13 @@ func (rt *router) setupState() map[string]any {
 			keyOf[key.session.ID] = i
 		}
 	}
-	pairing := map[string]any{"address": phoneAddress(), "codeExpiresIn": 0}
+	pairing := map[string]any{"address": phoneAddress(), "open": false, "codeExpiresIn": 0}
 	if code := d.access.ActiveCode(); code != "" {
-		pairing["code"] = code
+		pairing["open"] = true
 		pairing["codeExpiresIn"] = int(d.access.CodeExpiresIn().Seconds())
+		if who == callerPage {
+			pairing["code"] = code
+		}
 	}
 	phones := make([]map[string]any, len(d.access.Phones.All))
 	for i, phone := range d.access.Phones.All {
@@ -1119,6 +1578,11 @@ func (rt *router) setupState() map[string]any {
 		})
 	}
 	return map[string]any{
+		"version": Version,
+		// Which computer this is, so the page shows its own kind of folder path.
+		"platform": runtime.GOOS,
+		// Mail to a hire is beta on Windows, where it is typed through the launcher.
+		"mailBeta": runtime.GOOS == "windows",
 		// No accessibility step: nothing here needs that permission.
 		"checklist": map[string]any{"hooks": connected, "scroll": d.config.ScrollEnabled, "openAtLogin": openAtLogin},
 		"agents":    agentList,
@@ -1134,9 +1598,11 @@ func (rt *router) setupState() map[string]any {
 		},
 		"music":      map[string]any{"enabled": d.config.MusicEnabled},
 		"maxConfirm": map[string]any{"enabled": d.config.MaxConfirm},
-		"summary":    d.summaryState(),
+		// Without a window of its own, setup says why there's no switch.
+		"officeWindow": map[string]any{"available": hasNativeWindow, "mac": false, "onTop": hasNativeWindow && d.config.AlwaysOnTop},
+		"summary":      d.summaryState(),
 		"webhook": map[string]any{
-			"enabled": d.config.Webhook.Enabled, "url": d.config.Webhook.URL, "secret": d.config.Webhook.Secret,
+			"enabled": d.config.Webhook.Enabled, "url": d.config.Webhook.URL, "secret": webhookSecretFor(who, d.config.Webhook.Secret),
 			"outside": d.config.Webhook.Outside, "events": d.config.Webhook.Events, "last": d.lastDelivery(),
 		},
 		// What to type to start an agent through the launcher.
@@ -1151,8 +1617,13 @@ func (rt *router) setupState() map[string]any {
 		"theme":     themeEditor(d.config),
 		"layout":    d.config.Layout,
 		// The building's floors, the ground floor first, and the styles a floor above it can have.
-		"floors":  checkedFloors(d.config.Floors),
-		"presets": floorStyles(),
+		"floors": checkedFloors(d.config.Floors),
+		// The folders whose sessions sit on a floor of their own.
+		"floorRules": checkedFloorRules(d.config.FloorRules),
+		// The cloud bots, for setup's list, each pinned or not and on its floor. Nothing here looks in the Grok
+		// Bot app, the Mac's alone, so none are found and none can be hidden from there.
+		"cloudBots": map[string]any{"detects": false, "bots": cloudBotsForSetup(d.config.CloudBots), "hidden": []any{}, "noRoom": []any{}},
+		"presets":   floorStyles(),
 		// Saved looks, besides Default, the one the deck was last switched
 		// to, and whether it has changed since.
 		// A copy: the reply is written after the lock is let go.

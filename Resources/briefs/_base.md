@@ -45,12 +45,21 @@ Nothing is done until you've checked it yourself in the real thing (the command'
 
 {{> verify}}
 
+## Base rules
+1. Work only in your folder or worktree; the one place you also write is `{{status_file}}`. `{{brief_file}}` is your task.
+2. Add one line to `{{status_file}}` for every step you finish.
+3. When the job is done, write `NEEDS-REVIEW: <what to look at>` as the last line of `{{status_file}}`, then stop.
+4. If `STOP` appears in `{{status_file}}`, stop at once, whatever you are doing.
+5. Don't push, deploy or publish anything.
+6. Don't read, write, print or commit secrets.
+7. Stage and commit only your own files, never `git add -A` or `git add .`.
+
 ## Report
 - **`{{status_file}}`** is your logbook, read by the user at any time: your plan at the top, then one dated line per step with its proof (commands and their results, screenshot paths, commit hashes).
-- **Markers,** at the start of a line: `NEEDS-REVIEW: <question>` (only the user can decide; carry on with your best default), `BLOCKED: <why>` (say what would unblock you), and as its last line, `{{done_signal}}: <one-line summary>` when the whole job is done. Say the same in your terminal, with where things are and what needs the user.
+- **Markers,** at the start of a line: `QUESTION: <question>` (only the user can decide; carry on with your best default), `BLOCKED: <why>` (say what would unblock you), and, when the whole job is done, `{{done_signal}}: <one-line summary>`, then the `NEEDS-REVIEW:` line from the base rules as the last line. Say the same in your terminal, with where things are and what needs the user.
 
 ## Stop and ask
-Write `NEEDS-REVIEW:` and ask before you push, merge, tag, deploy, publish, post or release anything; delete a file or branch; spend money, create an account, contact a person or submit a form on a live site; or go beyond this brief. If your agent's safety checks refuse an action, don't retry or work around it: note it and carry on.
+Write `QUESTION:` and ask before you push, merge, tag, deploy, publish, post or release anything; delete a file or branch; spend money, create an account, contact a person or submit a form on a live site; or go beyond this brief. If your agent's safety checks refuse an action, don't retry or work around it: note it and carry on.
 
 ## Never
 - Open, write, print or commit `.env` files, keys or tokens (noting where one is is fine).

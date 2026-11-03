@@ -38,8 +38,19 @@ import (
 type launcherCommand struct {
 	Press *Keystroke `json:"press,omitempty"`
 	Type  string     `json:"type,omitempty"`
+	// Paste writes the text and nothing else: no Enter. It is for mail only (the
+	// phone's own sends use Type and Press), so the launcher refuses text that
+	// isn't safe to paste, and multi-line text when the agent didn't ask for
+	// bracketed paste. See pasteBytes.
+	Paste string `json:"paste,omitempty"`
 	// Stop ends the agent: the office's firing.
 	Stop bool `json:"stop,omitempty"`
+	// Look asks for the state of the window, answered at /launcher/screen
+	// with this number: see launcherlook.go.
+	Look string `json:"look,omitempty"`
+	// Secret is the first line of the stream, never a command: the launcher
+	// keeps it to prove its answers are its own. See launcherlook.go.
+	Secret string `json:"secret,omitempty"`
 }
 
 // How long a fired agent is given to end before it's made to.
@@ -77,12 +88,19 @@ type launcherRun struct {
 	// The office's token, for a hire, and whether it was at a pinned project's desk.
 	hire   string
 	pinned bool
+	// For an engine hire (hirelauncher.go): its id, and its own settings file. The
+	// launcher then asks the app for the hire's environment before it starts anything.
+	hireID   string
+	settings string
+	// For a hire of a role, its agent as the office checked it could start: the
+	// role must still have it.
+	agent string
 	// Whether the agent got as far as starting.
 	started bool
 }
 
-// parseRun reads `smolcorp run`'s arguments: [--hire <token> [--pinned]]
-// then <agent> [arguments], or --role <id>.
+// parseRun reads `smolcorp run`'s arguments: [--hire <token> [--pinned]
+// [--agent <agent>]] then <agent> [arguments], or --role <id>.
 func parseRun(args []string) (*launcherRun, error) {
 	run := &launcherRun{}
 	if len(args) >= 2 && args[0] == "--hire" {
@@ -90,15 +108,34 @@ func parseRun(args []string) (*launcherRun, error) {
 			return nil, errors.New("not a hire's token")
 		}
 		run.hire, args = args[1], args[2:]
+		if len(args) >= 2 && args[0] == "--hire-id" {
+			if !plainHireID(args[1]) {
+				return nil, errors.New("not a hire's id")
+			}
+			run.hireID, args = args[1], args[2:]
+		}
 		if len(args) > 0 && args[0] == "--pinned" {
 			run.pinned, args = true, args[1:]
 		}
+		if len(args) > 0 && args[0] == "--agent" {
+			if len(args) < 3 || args[2] != "--role" || args[1] == "" {
+				return nil, errors.New("--agent is for a role's hire")
+			}
+			run.agent, args = args[1], args[2:]
+		}
+	}
+	if run.hireID != "" && (len(args) == 0 || args[0] != "--role") {
+		return nil, errors.New("an engine hire is a role's")
 	}
 	switch {
 	case len(args) == 0, args[0] == "--hire", args[0] == "--pinned":
 		return nil, errors.New("nothing to run")
 	case args[0] == "--role":
-		if len(args) != 2 {
+		switch {
+		case len(args) == 2:
+		case run.hireID != "" && len(args) == 3 && settingsArgument(args[2]):
+			run.settings = args[2]
+		default:
 			return nil, errors.New("a role, and nothing else")
 		}
 		run.role = args[1]
@@ -121,7 +158,19 @@ func launch(run *launcherRun) int {
 			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 			return 2
 		}
+		if err := sameAgentAsHired(run, found[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
+			return 2
+		}
 		args = found
+		if run.settings != "" {
+			// The engine hire's own settings, for Claude Code only, right after the agent.
+			if agentNamed(found[0]) != Claude {
+				fmt.Fprintln(os.Stderr, "smolcorp: a hire's settings are for Claude Code, and this role's agent is another")
+				return 2
+			}
+			args = append([]string{found[0], run.settings}, found[1:]...)
+		}
 	}
 	program, programArgs, err := resolveProgram(args[0], args[1:])
 	if err != nil {
@@ -135,6 +184,19 @@ func launch(run *launcherRun) int {
 		}
 	}
 
+	// An engine hire's secrets come from the app, before anything starts: if they
+	// can't be had, nothing is started and the window says why.
+	var startEnv *hireStartEnv
+	if run.hireID != "" {
+		key, _ := os.ReadFile(hookKeyFile)
+		got, err := fetchHireStartEnv(hireStartClient(), fmt.Sprintf("http://127.0.0.1:%d", Port), string(key), run.hire, run.hireID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "smolcorp: couldn't get this hire's start settings, so nothing was started: %v\n", err)
+			return 1
+		}
+		startEnv = &got
+	}
+
 	terminal, err := pty.New()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: no pseudo-terminal: %v\n", err)
@@ -146,8 +208,14 @@ func launch(run *launcherRun) int {
 	cmd := terminal.Command(program, programArgs...)
 	useCmdLine(cmd, program, programArgs)
 	cmd.Env = append(os.Environ(), "SMOLCORP_SESSION="+id)
+	if startEnv != nil {
+		// On the agent's process alone.
+		cmd.Env = startEnvironment(cmd.Env, *startEnv, runtime.GOOS == "windows")
+	}
 	cmd.Dir = folder
-	matchSize(terminal)
+	rows, cols, sized := consoleSize()
+	screen := newLauncherScreen(rows, cols, sized)
+	matchSize(terminal, screen)
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 		return 127
@@ -163,11 +231,11 @@ func launch(run *launcherRun) int {
 	prepareConsole()
 
 	input := &lockedWriter{w: terminal}
-	cursor := &cursorMode{}
+	cursor := &cursorMode{bracketed: screen.Bracketed}
 	go func() { _, _ = io.Copy(input, os.Stdin) }()
-	go func() { _, _ = io.Copy(os.Stdout, io.TeeReader(terminal, cursor)) }()
-	go followSize(terminal)
-	go serveDeck(id, agentNamed(args[0]), folder, run.role, run.hire, input, cursor, func() { stopProcess(cmd.Process) })
+	go func() { _, _ = io.Copy(os.Stdout, io.TeeReader(terminal, io.MultiWriter(cursor, screen))) }()
+	go followSize(terminal, screen)
+	go serveDeck(id, agentNamed(args[0]), folder, run.role, run.hire, input, cursor, screen, func() { stopProcess(cmd.Process) })
 
 	if err := cmd.Wait(); err != nil {
 		var exit *exec.ExitError
@@ -235,6 +303,15 @@ var (
 
 func cmdEscaped(s string) string { return cmdMeta.ReplaceAllString(s, "^$1") }
 
+// sameAgentAsHired is an error when a role's agent is no longer the one its
+// hire checked could start: the role was changed in setup meanwhile.
+func sameAgentAsHired(run *launcherRun, agent string) error {
+	if run.agent == "" || run.agent == agent {
+		return nil
+	}
+	return fmt.Errorf("the role's agent was changed to %s after it was hired, and only %s was checked. Hire it again", agent, run.agent)
+}
+
 // roleArguments are the agent and its arguments for the role with the id
 // given, as set up on the setup page, started in folder as how says.
 func roleArguments(id, folder string, how roleStart) ([]string, error) {
@@ -283,9 +360,22 @@ func agentNamed(program string) Agent {
 	return ""
 }
 
-func matchSize(terminal pty.Pty) {
-	if width, height, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
-		_ = terminal.Resize(width, height)
+// consoleSize is the console's rows and columns, and whether they could be read.
+func consoleSize() (rows, cols int, ok bool) {
+	width, height, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || width <= 0 || height <= 0 {
+		return 24, 80, false
+	}
+	return height, width, true
+}
+
+// matchSize gives the agent's terminal the console's size, and the screen the
+// launcher reads the same one, first, so what the agent draws next lands at
+// the new size.
+func matchSize(terminal pty.Pty, screen *launcherScreen) {
+	if rows, cols, ok := consoleSize(); ok {
+		screen.Resize(rows, cols)
+		_ = terminal.Resize(cols, rows)
 	}
 }
 
@@ -305,6 +395,10 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 // a terminal sends arrow keys (DECCKM). An agent in application mode expects
 // ESC O A for Up, not ESC [ A.
 type cursorMode struct {
+	// bracketed says whether the agent has bracketed paste on, now (the screen's
+	// mode 2004). Nil reads as off.
+	bracketed func() bool
+
 	mu          sync.Mutex
 	application bool
 	tail        []byte // the end of the last chunk, for a switch split across two
@@ -335,17 +429,47 @@ func (c *cursorMode) bytesFor(key Key) string {
 	return keyBytes[key]
 }
 
+// Bracketed paste's start and end.
+const (
+	pasteStart = "\x1b[200~"
+	pasteEnd   = "\x1b[201~"
+)
+
+// pasteBytes is what a mail paste writes to the agent: the text, inside a
+// bracketed paste when the agent turned that on. No Enter, ever. Text with a
+// control character other than a line feed or tab is refused (Escape could end
+// the bracket early), and so is a line feed when the agent isn't taking
+// bracketed paste, where it would be read as Enter. ok is false for a refusal.
+func (c *cursorMode) pasteBytes(text string) (string, bool) {
+	if text == "" || !mailPastable(text) {
+		return "", false
+	}
+	on := c.bracketed != nil && c.bracketed()
+	if on {
+		return pasteStart + text + pasteEnd, true
+	}
+	if strings.ContainsAny(text, "\n\t") {
+		return "", false // a Tab or a line feed would arrive as a key
+	}
+	return text, true
+}
+
 // serveDeck connects to the app and carries out its commands until the
 // agent exits, reconnecting whenever the connection drops.
-func serveDeck(id string, agent Agent, folder, role, hire string, input io.Writer, cursor *cursorMode, stop func()) {
+func serveDeck(id string, agent Agent, folder, role, hire string, input io.Writer, cursor *cursorMode, screen *launcherScreen, stop func()) {
 	query := url.Values{"id": {id}, "agent": {string(agent)}, "folder": {folder}, "role": {role}, "hire": {hire}}
-	address := fmt.Sprintf("http://127.0.0.1:%d/launcher?%s", Port, query.Encode())
+	base := fmt.Sprintf("http://127.0.0.1:%d", Port)
+	address := base + "/launcher?" + query.Encode()
 	for {
 		if key, err := os.ReadFile(hookKeyFile); err == nil {
 			request, _ := http.NewRequest(http.MethodGet, address, nil)
-			request.Header.Set(hookKeyHeader, strings.TrimSpace(string(key)))
+			secret := strings.TrimSpace(string(key))
+			request.Header.Set(hookKeyHeader, secret)
 			if response, err := http.DefaultClient.Do(request); err == nil {
-				follow(response.Body, input, cursor, stop)
+				look := func(proof, number string) {
+					postScreenAnswer(http.DefaultClient, base, secret, proof, id, number, screen)
+				}
+				follow(response.Body, input, cursor, look, stop)
 				response.Body.Close()
 			}
 		}
@@ -363,14 +487,23 @@ func stopProcess(process *os.Process) {
 	time.AfterFunc(stopGrace, func() { _ = process.Kill() })
 }
 
-func follow(commands io.Reader, input io.Writer, cursor *cursorMode, stop func()) {
+// follow carries out the app's commands. look answers a look at the window;
+// it runs on its own, so a slow answer never holds up the keys.
+func follow(commands io.Reader, input io.Writer, cursor *cursorMode, look func(proof, number string), stop func()) {
 	lines := bufio.NewScanner(commands)
+	proof := "" // the secret from the stream's first line
 	for lines.Scan() {
 		var command launcherCommand
 		if json.Unmarshal(lines.Bytes(), &command) != nil {
 			continue
 		}
 		switch {
+		case command.Secret != "":
+			proof = command.Secret // not a command
+		case command.Look != "":
+			if look != nil {
+				go look(proof, command.Look)
+			}
 		case command.Stop:
 			stop()
 		case command.Press != nil:
@@ -379,6 +512,10 @@ func follow(commands io.Reader, input io.Writer, cursor *cursorMode, stop func()
 					time.Sleep(keyGap)
 				}
 				_, _ = io.WriteString(input, cursor.bytesFor(command.Press.Key))
+			}
+		case command.Paste != "":
+			if text, ok := cursor.pasteBytes(command.Paste); ok {
+				_, _ = io.WriteString(input, text)
 			}
 		case command.Type != "":
 			_, _ = io.WriteString(input, command.Type)
@@ -396,9 +533,23 @@ type launcherTab struct {
 	folder string
 	// The role it was started with, by its id, or none.
 	role string
-	// The desk the office hired it at, for the first session in it, or -1.
-	desk     int
+	// The desk the office hired it at, for the first session in it, or -1;
+	// and its floor, 0 for the ground floor, whose desks are the keys.
+	desk  int
+	floor int
+	// Whether the office hired it, so its first session sits where it was hired.
+	hired bool
+	// Whether it was started by the office with a hire token (the "hire" query of its own
+	// stream). Only such a launcher can be a hire's window for mail; set once, never shown.
+	office bool
+	// The engine hire this launcher is the window of (hirelauncher.go), from the
+	// hire's one-time token and nothing the launcher says; "" for any other.
+	hireID   string
 	commands chan launcherCommand
+	// The secret the launcher proves its screen answers with, sent down its own
+	// stream only; and a channel closed when the launcher is gone.
+	screenSecret string
+	gone         chan struct{}
 }
 
 func (t *launcherTab) send(command launcherCommand) error {
@@ -412,6 +563,9 @@ func (t *launcherTab) send(command launcherCommand) error {
 
 func (t *launcherTab) Press(k Keystroke) error { return t.send(launcherCommand{Press: &k}) }
 func (t *launcherTab) Type(text string) error  { return t.send(launcherCommand{Type: text}) }
+
+// Paste puts text in the agent's box without sending it. Only mail uses it.
+func (t *launcherTab) Paste(text string) error { return t.send(launcherCommand{Paste: text}) }
 
 // Focus does nothing: the launcher can't tell which window it runs in, so
 // selecting the key on the phone is all a tap can do.

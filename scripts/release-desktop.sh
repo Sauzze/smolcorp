@@ -9,6 +9,11 @@
 #
 # Needs Go. The version is the Mac app's, from Resources/Info.plist, so the
 # three platforms are released together.
+#
+# The Windows programs get their version info, icon and manifest from a .syso
+# that scripts/mkwinres writes beside the code just before each build. It is
+# never committed (it is ignored), and it is deleted when the script ends,
+# done or failed.
 
 set -euo pipefail
 
@@ -22,10 +27,22 @@ if [ -n "$(git status --porcelain)" ] || [ -n "$(git ls-files --others --ignored
   git ls-files --others --ignored --exclude-standard Resources/web
   exit 1
 fi
+# A .syso beside the code is linked into the Windows programs, and git ignores
+# them now (scripts/mkwinres writes one for each Windows build below, and this
+# script deletes it), so one left from elsewhere would slip in unseen.
+stray="$( (git ls-files --others --ignored --exclude-standard -- '*.syso'; git ls-files -- '*.syso') | grep -v -e '^build/' -e '^\.build/' || true)"
+if [ -n "$stray" ]; then
+  echo "Remove these .syso files first: they would be linked into the Windows programs."
+  echo "$stray"
+  exit 1
+fi
 # Nothing of the maintainer's own goes out in a download.
 scripts/check-public.sh
 VERSION="$(sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
+BUILD="$(sed -n '/<key>CFBundleVersion<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
 STAGE="build/desktop"
+# Only after the checks above: from here on a .syso may sit in cmd/smolcorp.
+trap 'rm -f cmd/smolcorp/rsrc_windows_*.syso' EXIT
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 
@@ -37,6 +54,15 @@ build() { # GOOS GOARCH OUTPUT [extra linker flags]
     -ldflags "-s -w -X main.version=$VERSION ${4:-}" -o "$3" ./cmd/smolcorp
 }
 
+# The version info, icon and manifest of a Windows program, as a .syso the
+# next go build links in: ARCH FILE-DESCRIPTION ORIGINAL-FILE-NAME INTERNAL-NAME.
+# The icon is made at 16, 32, 48 and 256 pixels from the 256-pixel Linux one.
+windows_resources() {
+  go run ./scripts/mkwinres -arch "$1" -version "$VERSION" -build "$BUILD" \
+    -description "$2" -original "$3" -internal "$4" -icon packaging/linux/smolcorp.png \
+    -license LICENSE -o "cmd/smolcorp/rsrc_windows_$1.syso"
+}
+
 for arch in amd64 arm64; do
   name="${arch/amd64/x86_64}"
 
@@ -45,8 +71,11 @@ for arch in amd64 arm64; do
   # Smolcorp.exe and smolcorp.exe.
   dir="$STAGE/Smolcorp-Windows-$name"
   mkdir -p "$dir"
+  windows_resources "$arch" "Smolcorp" "Smolcorp.exe" "smolcorp"
   build windows "$arch" "$dir/Smolcorp.exe" "-H windowsgui"
+  windows_resources "$arch" "Smolcorp command line" "smolcorp-cli.exe" "smolcorp-cli"
   build windows "$arch" "$dir/smolcorp-cli.exe"
+  rm -f "cmd/smolcorp/rsrc_windows_$arch.syso"
   cp LICENSE "$dir/LICENSE.txt"
   # One prompt to paste into a coding agent, which then sets it all up.
   cp packaging/FIRST-SETUP.md "$dir/"

@@ -192,9 +192,16 @@ func TestTheSnapshotSaysWhoIsOnEachFloor(t *testing.T) {
 	if len(third) != 1 || third[0]["id"] != fmt.Sprintf("s%d", mostKeys) || third[0]["headless"] != false || third[0]["overflow"] != true {
 		t.Fatalf("3F is %v, want the session with no desk downstairs", third)
 	}
+	// It has no key, but it's driven there as it would be downstairs: everything its desk would have.
+	d.mu.Lock()
+	downstairs := d.sessionEntry(d.sessions.Get(fmt.Sprintf("s%d", mostKeys)))
+	d.mu.Unlock()
+	if third[0]["drivable"] != true || third[0]["desk"] != 0.0 {
+		t.Errorf("a desk with no key is %v, want it driven, at the first desk", third[0])
+	}
 	for _, control := range []string{"keys", "fire", "mic", "dial", "dictates", "summary"} {
-		if third[0][control] != false {
-			t.Errorf("a desk with no key has %s %v", control, third[0][control])
+		if fmt.Sprint(third[0][control]) != fmt.Sprint(downstairs[control]) {
+			t.Errorf("a desk with no key has %s %v, want %v as downstairs", control, third[0][control], downstairs[control])
 		}
 	}
 	if state.Overflow != 1 || state.FloorsOverflow != 0 || len(state.Upstairs.Desks) != 12 || state.Upstairs.Overflow != 1 {

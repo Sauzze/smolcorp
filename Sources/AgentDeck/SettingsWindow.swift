@@ -7,9 +7,9 @@ import WebKit
 /// where you left it.
 ///
 /// It reads the page as the browser does after the menu's link, with the
-/// setup key's cookie, but no link carries the key: the cookie is put
-/// straight into the window's own cookie store, which lives in memory only,
-/// as long as the app. Nothing on the server changes, and the browser's way
+/// page session's cookie, but no link carries a key: a session is opened
+/// in memory and its cookie is put straight into the window's own cookie
+/// store, which lives in memory only, as long as the app. The browser's way
 /// in keeps all its checks.
 ///
 /// Only the setup page opens in it. A link elsewhere opens in your browser.
@@ -19,7 +19,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     static let frameName = "SmolcorpSettings"
 
     private let port: UInt16
-    private let setupKey: String
+    /// A new page session, from a one-time link (`SetupSessions`), as the window opens.
+    private let newSession: () -> String?
     private var window: SettingsPanel?
     private var web: WKWebView?
     /// Cookies and the page's own storage, for as long as the app runs, and never on disk.
@@ -30,9 +31,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     /// Where each download goes, to show it in the Finder once it's saved.
     private var saving: [ObjectIdentifier: URL] = [:]
 
-    init(port: UInt16 = Deck.port, setupKey: String) {
+    init(port: UInt16 = Deck.port, newSession: @escaping () -> String?) {
         self.port = port
-        self.setupKey = setupKey
+        self.newSession = newSession
     }
 
     var isShown: Bool { window?.isVisible == true }
@@ -46,9 +47,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     }
 
     /// The cookie the page is given in the browser, for the window's store.
-    static func sessionCookie(key: String) -> HTTPCookie? {
+    static func sessionCookie(session: String) -> HTTPCookie? {
         HTTPCookie(properties: [
-            .name: DeckRouter.setupCookie, .value: key, .domain: "localhost", .path: "/setup",
+            .name: DeckRouter.setupCookie, .value: session, .domain: "localhost", .path: "/setup",
             .sameSitePolicy: HTTPCookieStringPolicy.sameSiteStrict, HTTPCookiePropertyKey("HttpOnly"): "TRUE",
         ])
     }
@@ -89,8 +90,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
         let window = self.window ?? makeWindow()
         if web == nil {
             open(in: window, then: then)
-        } else if then != nil {
-            web?.load(URLRequest(url: SettingsWindow.address(port: port, then: then)))
+        } else if let web, then != nil {
+            load(SettingsWindow.address(port: port, then: then), in: web)
         }
         // A menu bar app is never active by itself, and the window would open behind others.
         NSApp.activate(ignoringOtherApps: true)
@@ -131,13 +132,19 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
         web.navigationDelegate = self
         web.uiDelegate = self
 
-        let address = SettingsWindow.address(port: port, then: then)
-        guard let cookie = SettingsWindow.sessionCookie(key: setupKey) else {
+        load(SettingsWindow.address(port: port, then: then), in: web)
+        return web
+    }
+
+    /// `address` in `web`, with a new session's cookie put in the store first:
+    /// every load opens its own session from a new one-time link, so none
+    /// runs on one that later ones pushed out. Without one, the page shows itself locked.
+    private func load(_ address: URL, in web: WKWebView) {
+        guard let session = newSession(), let cookie = SettingsWindow.sessionCookie(session: session) else {
             web.load(URLRequest(url: address))
-            return web
+            return
         }
         store.httpCookieStore.setCookie(cookie) { [weak web] in web?.load(URLRequest(url: address)) }
-        return web
     }
 
     /// `window.smolcorpApp`, and `data-smolcorp-app` on the page's <html>.
@@ -146,7 +153,19 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
         document.documentElement.dataset.smolcorpApp = 'mac';
         """
 
-    func reload() { web?.reload() }
+    /// The page again where it is (its #pair too), on a new session: the
+    /// cookie is replaced first, then the page reloads.
+    func reload() {
+        if let web { reload(web) }
+    }
+
+    func reload(_ web: WKWebView) {
+        guard let session = newSession(), let cookie = SettingsWindow.sessionCookie(session: session) else {
+            web.reload()
+            return
+        }
+        store.httpCookieStore.setCookie(cookie) { [weak web] in web?.reload() }
+    }
 
     func windowWillClose(_ notification: Notification) {
         web?.stopLoading()
@@ -186,7 +205,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     }
 
     /// If the page's process stops, it starts again rather than leaving the window blank.
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { webView.reload() }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { reload() }
 
     // MARK: The page's alert, confirm and prompt, as sheets
 

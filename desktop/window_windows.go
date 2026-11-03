@@ -86,7 +86,7 @@ type windowRun struct {
 
 // openOffice is the tray's Show Office: the window, or the one that is
 // already open brought to the front.
-func (d *Deck) openOffice() {
+func (d *Deck) openOffice() error {
 	officeWindow.mu.Lock()
 	if officeWindow.busy {
 		hwnd := officeWindow.hwnd
@@ -94,7 +94,7 @@ func (d *Deck) openOffice() {
 		if hwnd != 0 {
 			raiseWindow(hwnd)
 		}
-		return
+		return nil
 	}
 	officeWindow.busy = true
 	officeWindow.mu.Unlock()
@@ -110,6 +110,7 @@ func (d *Deck) openOffice() {
 		}()
 		runOfficeWindow(run)
 	}()
+	return nil
 }
 
 // setAlwaysOnTop is the menu's check box: kept in the config, and applied to the
@@ -256,7 +257,7 @@ func missingWebView2(r windowRun, why string) {
 	title, _ := windows.UTF16PtrFromString("Smolcorp")
 	body, _ := windows.UTF16PtrFromString(text)
 	_, _ = windows.MessageBox(0, body, title, windows.MB_OK|windows.MB_ICONINFORMATION|windows.MB_SETFOREGROUND)
-	openURL(r.fallback)
+	_ = openURL(r.fallback)
 }
 
 // webview2Installed: the runtime registers its version where the Edge updater

@@ -39,10 +39,14 @@ var (
 // openCodeProgram is the opencode program, with every link resolved, or ""
 // if there's none: on the PATH, the one your login shell sets, or where its
 // own installer, npm, pnpm, Bun or a Node version manager put it.
-func openCodeProgram() string {
-	names := []string{"opencode"}
+func openCodeProgram() string { return programNamed("opencode") }
+
+// programNamed is any program by name, looked for where OpenCode is: the
+// coding agents ✨ Summary can use are installed the same ways.
+func programNamed(name string) string {
+	names := []string{name}
 	if runtime.GOOS == "windows" {
-		names = []string{"opencode.exe", "opencode.cmd"}
+		names = []string{name + ".exe", name + ".cmd"}
 	}
 	for _, folder := range append(filepath.SplitList(os.Getenv("PATH")), openCodePlaces()...) {
 		for _, name := range names {
@@ -145,10 +149,12 @@ func openCodePluginTemplate() string {
 
 // lookAtOpenCode writes the plugin again if OpenCode has changed since it
 // was last written, for the version it is now, while it's still connected.
+// A plugin that names another office's port is left alone, as refreshHooks
+// leaves it: only connecting replaces it.
 func lookAtOpenCode() {
 	openCodeMu.Lock()
 	defer openCodeMu.Unlock()
-	if isConnected(OpenCode) && openCodeStamp() != openCodeWrittenFor {
+	if isConnected(OpenCode) && !namesAnotherOffice(OpenCode) && openCodeStamp() != openCodeWrittenFor {
 		_ = writePluginLocked()
 	}
 }

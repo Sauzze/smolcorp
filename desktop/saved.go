@@ -37,6 +37,11 @@ type savedDeck struct {
 	SavedAt  float64        `json:"savedAt"`
 	Sessions []savedSession `json:"sessions"`
 	Keys     map[string]int `json:"keys"`
+	// Missing from a file written before every floor had people of its own.
+	Floors map[string]int  `json:"floors,omitempty"`
+	Seats  map[string]Seat `json:"seats,omitempty"`
+	// Missing from a file written before a hire could keep the desk chosen with Auto.
+	Chosen []string `json:"chosen,omitempty"`
 }
 
 // savedSession is what's kept of a session while the app restarts, in the
@@ -105,7 +110,7 @@ func (s *Sessions) Restore(saved []savedSession, fresh bool) bool {
 // restart: their sessions, by launcher, until the deadline.
 type pendingRestore struct {
 	byLauncher map[string][]savedSession
-	keys       map[string]int
+	places     savedDeck
 	fresh      bool
 	until      time.Time
 }
@@ -122,17 +127,37 @@ func (d *Deck) scheduleSave() {
 func (d *Deck) saveSessions() {
 	d.mu.Lock()
 	d.savePending = false
-	saved := savedDeck{SavedAt: nowMillis(), Sessions: d.sessions.Saved(), Keys: map[string]int{}}
+	saved := savedDeck{SavedAt: nowMillis(), Sessions: d.sessions.Saved(), Keys: map[string]int{},
+		Floors: map[string]int{}, Seats: map[string]Seat{}}
 	for id, key := range d.keyOf {
 		saved.Keys[id] = key
 	}
+	for id, floor := range d.floorOf {
+		saved.Floors[id] = floor
+	}
+	for id, seat := range d.seatOf {
+		saved.Seats[id] = seat
+	}
+	for id := range d.chosenDesk {
+		saved.Chosen = append(saved.Chosen, id)
+	}
+	slices.Sort(saved.Chosen)
 	// Those still waiting for their launcher are kept too, should the app stop again before it's back.
 	if d.restoring != nil && time.Now().Before(d.restoring.until) {
 		for _, entries := range d.restoring.byLauncher {
 			saved.Sessions = append(saved.Sessions, entries...)
 			for _, entry := range entries {
-				if key, ok := d.restoring.keys[entry.ID]; ok {
+				if key, ok := d.restoring.places.Keys[entry.ID]; ok {
 					saved.Keys[entry.ID] = key
+				}
+				if floor, ok := d.restoring.places.Floors[entry.ID]; ok {
+					saved.Floors[entry.ID] = floor
+				}
+				if seat, ok := d.restoring.places.Seats[entry.ID]; ok {
+					saved.Seats[entry.ID] = seat
+				}
+				if slices.Contains(d.restoring.places.Chosen, entry.ID) && !slices.Contains(saved.Chosen, entry.ID) {
+					saved.Chosen = append(saved.Chosen, entry.ID)
 				}
 			}
 		}
@@ -157,7 +182,8 @@ func (d *Deck) restoreSessions() {
 		return
 	}
 	fresh := nowMillis()-saved.SavedAt < freshSave
-	waiting := &pendingRestore{byLauncher: map[string][]savedSession{}, keys: saved.Keys, fresh: fresh,
+	places := savedDeck{Keys: saved.Keys, Floors: saved.Floors, Seats: saved.Seats, Chosen: saved.Chosen}
+	waiting := &pendingRestore{byLauncher: map[string][]savedSession{}, places: places, fresh: fresh,
 		until: time.Now().Add(launcherRestoreWait)}
 	var others []savedSession
 	for _, entry := range saved.Sessions {
@@ -174,20 +200,33 @@ func (d *Deck) restoreSessions() {
 		running := slices.DeleteFunc(others, func(entry savedSession) bool { return !stillRunning(entry, processGone) })
 		d.mu.Lock()
 		defer d.mu.Unlock()
-		d.restore(running, saved.Keys, fresh)
+		d.restore(running, places, fresh)
 	}()
 }
 
-// restore puts back sessions found still running, on the keys they had.
-// With the lock held.
-func (d *Deck) restore(running []savedSession, keys map[string]int, fresh bool) {
+// restore puts back sessions found still running, on the keys, floors and
+// desks they had. With the lock held.
+func (d *Deck) restore(running []savedSession, places savedDeck, fresh bool) {
 	if len(running) == 0 {
 		return
 	}
 	for _, entry := range running {
-		if key, ok := keys[entry.ID]; ok && key >= 0 && key < mostKeys {
+		if key, ok := places.Keys[entry.ID]; ok && key >= 0 && key < mostKeys {
 			if _, has := d.keyOf[entry.ID]; !has {
 				d.keyOf[entry.ID] = key
+			}
+		}
+		if slices.Contains(places.Chosen, entry.ID) {
+			d.setChosen(entry.ID)
+		}
+		if floor, ok := places.Floors[entry.ID]; ok && floor >= 0 && floor < floorCount {
+			if _, has := d.floorOf[entry.ID]; !has {
+				d.floorOf[entry.ID] = floor
+			}
+		}
+		if seat, ok := places.Seats[entry.ID]; ok {
+			if _, has := d.seatOf[entry.ID]; !has {
+				d.seatOf[entry.ID] = seat
 			}
 		}
 	}
@@ -208,7 +247,7 @@ func (d *Deck) restoreLauncher(id string) {
 	if time.Now().After(waiting.until) {
 		return
 	}
-	d.restore(entries, waiting.keys, waiting.fresh)
+	d.restore(entries, waiting.places, waiting.fresh)
 }
 
 // paneRunsAgent is whether a pane is still open with agent in front in it: a

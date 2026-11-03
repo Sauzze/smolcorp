@@ -38,7 +38,7 @@ func installCheck() *check {
 			return &c
 		}
 	}
-	c.Status = checkFix
+	c.Status, c.Title = checkFix, "Install Smolcorp"
 	c.Detail = "Running from " + filepath.Dir(program) + ". Run ./install.sh from the download, then open Smolcorp " +
 		"from your app menu: your agents then report to the installed copy, which stays put."
 	return &c

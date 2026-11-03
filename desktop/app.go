@@ -3,11 +3,14 @@ package desktop
 import (
 	"embed"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"fyne.io/systray"
 )
@@ -35,6 +38,8 @@ func RunApp() int {
 	} else if err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: no instance lock (%v), going on without\n", err)
 	}
+	recordPid()
+	defer forgetPid()
 	deck := NewDeck()
 	refreshHooks()
 	deck.mu.Lock()
@@ -52,27 +57,55 @@ func RunApp() int {
 		deck.openSetup("")
 	}
 	if !hasDesktop() {
-		printSetupLink(deck)
+		printSetupLink(os.Stdout, deck)
 		stopPortableOnSignal(deck)
 		return reportFailure(<-failed)
 	}
+	return runWithTray(deck, failed, firstRun)
+}
+
+// systrayRun starts the tray. A variable, for the tests.
+var systrayRun = systray.Run
+
+// runWithTray shows the tray and returns when you quit. With no session bus
+// there is nothing to register it on, and systray would have godbus start
+// dbus-launch, whose daemon outlives Smolcorp (SIERRA 1.23.0 m-8): the
+// setup link is printed instead, as on a desktop with no tray.
+func runWithTray(deck *Deck, failed chan error, firstRun bool) int {
+	if sessionBusMissing() {
+		withoutTray(deck, os.Stdout, firstRun)
+		stopPortableOnSignal(deck)
+		return reportFailure(<-failed)
+	}
+	// The tray starts even on a desktop with nowhere to show it, for a panel
+	// that comes later; meanwhile, setup opens, and the ways back in are printed.
+	go lookForTrayHost(deck, os.Stdout, firstRun)
+	// smolcorp quit asks with SIGTERM, which must end this copy as the tray's Quit does.
+	stopPortableOnSignal(deck)
 	code := 0
-	systray.Run(func() { newTray(deck, failed, &code) }, nil)
+	systrayRun(func() { newTray(deck, failed, &code) }, nil)
 	return code
 }
 
 // RunServer is the server alone, for a computer without a desktop to show a
 // tray on, such as a Linux machine you reach over SSH.
 func RunServer() int {
-	if running, err := acquireInstance(); running {
+	// Started to take another's place, as for the home Wi-Fi: it waits for that one.
+	acquire := acquireInstance
+	if takeStartNotes() {
+		acquire = waitForInstance
+	}
+	if running, err := acquire(); running {
 		return handOverToRunning(true)
 	} else if err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: no instance lock (%v), going on without\n", err)
 	}
+	recordPid()
+	defer forgetPid()
 	deck := NewDeck()
 	refreshHooks()
 	watchOpenCode()
-	printSetupLink(deck)
+	printSetupLink(os.Stdout, deck)
 	stopPortableOnSignal(deck)
 	return reportFailure(Serve(deck))
 }
@@ -80,20 +113,65 @@ func RunServer() int {
 // stopPortableOnSignal: stopped from its terminal, the portable office stops
 // too, as on quit, and the viewer is asked to forget it.
 func stopPortableOnSignal(deck *Deck) {
+	signalOnce.Do(func() { stopPortableOnSignalNow(deck) })
+}
+
+// signalOnce: the handler is set once, whichever way in comes first.
+var signalOnce sync.Once
+
+func stopPortableOnSignalNow(deck *Deck) {
 	stopped := make(chan os.Signal, 1)
 	signal.Notify(stopped, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-stopped
 		deck.portable.Stop(viewerQuitWait)
+		forgetPid()
 		os.Exit(1)
 	}()
 }
 
+// noTrayNewLink is the one way to a new setup link with no tray: no command
+// makes one, and a second start only raises the office, so Smolcorp is
+// stopped and started again, which prints a new link.
+const noTrayNewLink = "run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again"
+
 // printSetupLink says where setup is, with no tray to open it from: on this
 // computer, or through a tunnel to its port, as ssh -L 7710:localhost:7710.
-// Printed, not passed on a command line, it can carry the key itself.
-func printSetupLink(deck *Deck) {
-	fmt.Printf("Smolcorp's setup: %s\nIt works until Smolcorp restarts. Its key is also in %s.\n", deck.setupLink(""), setupKeyFile)
+// The link works once, for five minutes, and never carries the setup key.
+func printSetupLink(out io.Writer, deck *Deck) {
+	fmt.Fprintf(out, "Smolcorp's setup: %s\nIt works once, for five minutes. For a new one, choose Open Setup… from the tray icon; with no tray, "+noTrayNewLink+".\n", deck.setupLink(""))
+}
+
+// trayHostWait is how long a desktop has to start the panel the tray's icon
+// sits in, as one just signed in to may still be doing: a variable, for the tests.
+var trayHostWait = 10 * time.Second
+
+// lookForTrayHost waits a while for somewhere to show the tray's icon, and
+// with none, says so, prints the ways in, and opens setup, unless it was
+// open already, as on the first run.
+func lookForTrayHost(deck *Deck, out io.Writer, setupOpen bool) {
+	for deadline := time.Now().Add(trayHostWait); !hasTrayHost(); time.Sleep(time.Second) {
+		if time.Now().After(deadline) {
+			// With no Quit Smolcorp in a menu, it's stopped from its terminal, or by the system.
+			stopPortableOnSignal(deck)
+			withoutTray(deck, out, setupOpen)
+			return
+		}
+	}
+}
+
+// noTrayMessage is what Smolcorp prints on a desktop with no tray.
+const noTrayMessage = `This desktop has no tray for Smolcorp's icon (on GNOME, the AppIndicator extension adds one).
+Smolcorp is running, and its setup opens in your browser. For a new setup link, run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again.
+To open the office, start Smolcorp again from your apps, or run: smolcorp
+`
+
+func withoutTray(deck *Deck, out io.Writer, setupOpen bool) {
+	fmt.Fprint(out, noTrayMessage)
+	printSetupLink(out, deck)
+	if !setupOpen {
+		deck.openSetup("")
+	}
 }
 
 func reportFailure(err error) int {
@@ -119,6 +197,9 @@ type tray struct {
 
 func newTray(deck *Deck, failed <-chan error, code *int) {
 	t := &tray{deck: deck, code: code}
+	// Restarting, the tray quits, and RunApp returns.
+	trayStarted.Store(true)
+	leave = systray.Quit
 	systray.SetTooltip("Smolcorp")
 	t.count = systray.AddMenuItem("", "")
 	t.count.Disable()
@@ -171,6 +252,7 @@ func (t *tray) update() {
 	// The office window's own device is not a phone to unpair.
 	phones := phonesOnly(d.access.Phones)
 	logo := d.config.Logo
+	onTop := d.config.AlwaysOnTop
 	d.mu.Unlock()
 
 	if len(all) == 1 {
@@ -190,6 +272,14 @@ func (t *tray) update() {
 		t.unpair.Hide()
 	}
 	t.updatePortable()
+	// Set from setup too: the check box follows.
+	if hasNativeWindow && onTop != t.onTop.Checked() {
+		if onTop {
+			t.onTop.Check()
+		} else {
+			t.onTop.Uncheck()
+		}
+	}
 	if logo != t.logo {
 		if icon, err := trayIcons.ReadFile("tray-" + logo + ".png"); err == nil {
 			systray.SetIcon(trayIcon(icon))

@@ -13,7 +13,7 @@ You fight fires: **triage first.** You find out what's broken, how badly, and th
 <!-- slot: method -->
 - **Write what you know in the first minutes** at the top of `{{report_file}}`: what's broken, since when, who's affected, how badly. Update it as you learn.
 - **Find the cause:** read the errors and logs you were given, the recent changes (`git log`, recent deploys), and reproduce the failure locally if you safely can.
-- **Propose the smallest safe fix:** the change, why it works, its risk, and exactly how to undo it. Write it as `NEEDS-REVIEW:` and ask the user in your terminal.
+- **Propose the smallest safe fix:** the change, why it works, its risk, and exactly how to undo it. Write it as `QUESTION:` and ask the user in your terminal.
 - **Once the user says go,** make that fix only, on a branch, check it the way the failure showed, and commit it.
 
 <!-- slot: deliver -->

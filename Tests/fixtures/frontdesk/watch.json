@@ -1,0 +1,35 @@
+{
+  "route": "POST /setup/gm/watch",
+  "callers": ["gm", "page"],
+  "note": "$ROOT stands for a hire's folder. A file watch reads only NEW lines of a file inside a hire's folder (or its worktree) or the support hires folder; what is there when it is set never fires. A firing is a line in the event log (kind watcherFired), which smolcorp gm inbox reads. Take one away with POST or DELETE /setup/gm/unwatch (id in the query or the body).",
+  "requests": {
+    "file": {"kind": "file", "target": "$ROOT/STATUS.md", "pattern": "\\bDONE\\b"},
+    "file-in-a-hire": {"kind": "file", "hire": "Rev", "target": "STATUS.md", "pattern": "NEEDS-REVIEW", "repeat": true},
+    "event": {"kind": "event", "target": "permissionDenied", "folder": "$ROOT", "repeat": true},
+    "idle": {"kind": "idle", "target": "Rev", "minutes": 10},
+    "exit": {"kind": "exit", "target": "Rev"},
+    "time": {"kind": "time", "target": "check the build", "minutes": 30, "repeat": true}
+  },
+  "answer-to-file": {
+    "id": "w-0001",
+    "kind": "file",
+    "target": "$ROOT/STATUS.md",
+    "pattern": "\\bDONE\\b",
+    "repeat": false,
+    "by": "gm",
+    "createdAt": 1761000000000,
+    "fired": 0,
+    "active": true
+  },
+  "unwatch-answer": {"id": "w-0001", "removed": true},
+  "event-kinds": ["sessionStart", "sessionStop", "prompt", "permissionAsked", "permissionDenied", "notification", "idle", "mail", "keystroke"],
+  "fired-line-in-the-event-log": {"kind": "watcherFired", "detail": "watch w-0001 (file): STATUS.md: DONE T405", "folder": "$ROOT"},
+  "refusals": [
+    {"request": {"kind": "nothing"}, "status": 400, "why": "unknown kind"},
+    {"request": {"kind": "file", "target": "/etc/hosts", "pattern": "x"}, "status": 403, "why": "outside the folders the app manages"},
+    {"request": {"kind": "file", "target": "$ROOT/.env", "pattern": "x"}, "status": 403, "why": "a secrets file, never"},
+    {"request": {"kind": "file", "target": "$ROOT/STATUS.md", "pattern": "("}, "status": 400, "why": "not a regular expression"},
+    {"request": {"kind": "idle", "target": "Rev"}, "status": 400, "why": "minutes missing"},
+    {"request": {"kind": "exit", "target": "nobody"}, "status": 404, "why": "no such hire"}
+  ]
+}

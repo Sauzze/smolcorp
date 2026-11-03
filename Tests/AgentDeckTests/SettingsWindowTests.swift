@@ -13,7 +13,7 @@ final class SettingsWindowTests: XCTestCase {
     }
 
     func testItsCookieIsTheOneTheBrowserIsGiven() throws {
-        let cookie = try XCTUnwrap(SettingsWindow.sessionCookie(key: "abc_DEF-123"))
+        let cookie = try XCTUnwrap(SettingsWindow.sessionCookie(session: "abc_DEF-123"))
         XCTAssertEqual(cookie.name, DeckRouter.setupCookie)
         XCTAssertEqual(cookie.value, "abc_DEF-123")
         XCTAssertEqual(cookie.domain, "localhost")
@@ -78,28 +78,53 @@ final class SettingsWindowTests: XCTestCase {
         XCTAssertNil(SettingsPanel.editing("q", .command))
     }
 
-    /// The window's own page, in WebKit, against a server standing in for the
-    /// deck on a port of its own, never the app's: the setup key reaches it as
-    /// the cookie, only under /setup, and no address ever carries it.
-    func testThePageReadsSetupWithTheKeyInNoAddress() throws {
-        let key = randomKey()
-        let (stub, web) = try open(serverKey: key, windowKey: key)
-        XCTAssertEqual(web.title, "done 200 mac mac #pair")
-        XCTAssertEqual(stub.keyAt["/setup/state"], true, "the key came as the cookie")
-        XCTAssertEqual(stub.keyAt["/elsewhere"], false, "not sent outside /setup")
-        XCTAssertFalse(stub.addresses.isEmpty)
-        XCTAssertFalse(stub.addresses.contains { $0.contains(key) }, "no address carries the key")
-        XCTAssertFalse((web.url?.absoluteString ?? "").contains(key))
+    /// The setup-key file's key is no cookie at the gate; the window's is a
+    /// page session, a new one from a one-time link each time.
+    func testTheWindowsCookieIsAPageSessionNotTheSetupKey() throws {
+        let sessions = SetupSessions(), setupKey = randomKey()
+        let isKey = { (given: String?) in given.map { constantTimeEqual($0, setupKey) } ?? false }
+        let newSession = { sessions.open(link: sessions.newLink()) }
+        XCTAssertEqual(sessions.caller(header: nil, cookie: setupKey, isSetupKey: isKey), .nobody, "the file's key as a cookie is no one")
+        let session = try XCTUnwrap(newSession())
+        XCTAssertNotEqual(session, setupKey)
+        XCTAssertEqual(sessions.caller(header: nil, cookie: session, isSetupKey: isKey), .page)
+        XCTAssertNotEqual(newSession(), session, "a new one each time")
     }
 
-    func testAWrongKeyIsRefused() throws {
-        let (_, web) = try open(serverKey: randomKey(), windowKey: randomKey())
+    /// The window's own page, in WebKit, against a server standing in for the
+    /// deck on a port of its own, with the deck's gate: a page session reaches
+    /// it as the cookie, only under /setup, and no address carries it.
+    func testThePageReadsSetupWithASessionAndNoKeyInAnyAddress() throws {
+        let sessions = SetupSessions()
+        let (stub, web, _) = try open(server: sessions, window: sessions)
+        XCTAssertEqual(web.title, "done 200 mac mac #pair")
+        XCTAssertEqual(stub.callerAt["/setup/state"], .page, "the session came as the cookie")
+        XCTAssertEqual(stub.callerAt["/elsewhere"], .nobody, "not sent outside /setup")
+        XCTAssertFalse(stub.addresses.isEmpty)
+        XCTAssertFalse(stub.addresses.contains { $0.contains(stub.cookies.first ?? "-") }, "no address carries the session")
+        XCTAssertFalse(stub.cookies.contains(stub.setupKey), "never the setup key")
+    }
+
+    func testAnotherDecksSessionIsRefused() throws {
+        let (_, web, _) = try open(server: SetupSessions(), window: SetupSessions())
         XCTAssertEqual(web.title, "done 401 mac mac #pair")
     }
 
+    /// Opening again at #pair and reloading each take a new session.
+    func testEveryLoadTakesANewSession() throws {
+        let sessions = SetupSessions()
+        let (stub, web, settings) = try open(server: sessions, window: sessions)
+        XCTAssertEqual(Set(stub.cookies).count, 1)
+        web.evaluateJavaScript("document.title = 'loading'")
+        settings.reload(web)
+        XCTAssertTrue(wait(15) { web.title?.hasPrefix("done") == true && Set(stub.cookies).count == 2 }, "reload used a second session")
+        XCTAssertEqual(web.title, "done 200 mac mac #pair", "still at #pair")
+        XCTAssertFalse(stub.cookies.contains(stub.setupKey))
+    }
+
     /// The window's page, at #pair, against a stand-in server on a port of its own.
-    private func open(serverKey: String, windowKey: String) throws -> (SetupStub, WKWebView) {
-        let stub = SetupStub(key: serverKey)
+    private func open(server sessions: SetupSessions, window: SetupSessions) throws -> (SetupStub, WKWebView, SettingsWindow) {
+        let stub = SetupStub(sessions: sessions, setupKey: randomKey())
         let port = UInt16.random(in: 47_100...47_900)
         let server = HTTPServer(port: port, router: stub)
         var listening = false
@@ -108,10 +133,10 @@ final class SettingsWindowTests: XCTestCase {
         servers.append(server)
         XCTAssertTrue(wait(10) { listening }, "the stand-in server listens")
 
-        let settings = SettingsWindow(port: port, setupKey: windowKey)
+        let settings = SettingsWindow(port: port, newSession: { window.open(link: window.newLink()) })
         let web = settings.page(frame: NSRect(x: 0, y: 0, width: 900, height: 640), then: "pair")
         XCTAssertTrue(wait(15) { web.title?.hasPrefix("done") == true }, "the page loaded and read setup: \(web.title ?? "nothing")")
-        return (stub, web)
+        return (stub, web, settings)
     }
 
     private var servers: [HTTPServer] = []
@@ -124,14 +149,19 @@ final class SettingsWindowTests: XCTestCase {
     }
 }
 
-/// The deck's setup check, as DeckRouter makes it, and a page that reads
-/// through it and puts what it got in its title.
+/// The deck's setup check, as DeckRouter makes it (`SetupSessions.caller`),
+/// and a page that reads through it and puts what it got in its title.
 private final class SetupStub: Router {
-    let key: String
+    let sessions: SetupSessions
+    let setupKey: String
     private(set) var addresses: [String] = []
-    private(set) var keyAt: [String: Bool] = [:]
+    private(set) var cookies: [String] = []
+    private(set) var callerAt: [String: SetupSessions.Caller] = [:]
 
-    init(key: String) { self.key = key }
+    init(sessions: SetupSessions, setupKey: String) {
+        self.sessions = sessions
+        self.setupKey = setupKey
+    }
 
     static let page = """
         <!doctype html><title>loading</title><script>
@@ -146,12 +176,15 @@ private final class SetupStub: Router {
 
     func handle(_ request: Request, reply: @escaping (Reply) -> Void) {
         addresses.append(request.path + "?" + request.query.map { "\($0)=\($1)" }.joined(separator: "&"))
-        let sent = request.headers[DeckRouter.setupKeyHeader] ?? DeckRouter.cookie(DeckRouter.setupCookie, in: request)
-        let given = sent.map { constantTimeEqual($0, key) } ?? false
-        keyAt[request.path] = given
+        let cookie = DeckRouter.cookie(DeckRouter.setupCookie, in: request)
+        // One per page load: the page's /setup request
+        if let cookie, request.path == "/setup" { cookies.append(cookie) }
+        let caller = sessions.caller(header: request.headers[DeckRouter.setupKeyHeader], cookie: cookie,
+                                     isSetupKey: { [setupKey] in $0.map { constantTimeEqual($0, setupKey) } ?? false })
+        callerAt[request.path] = caller
         switch request.path {
         case "/setup": reply(.response(Response(contentType: "text/html; charset=utf-8", body: Data(SetupStub.page.utf8))))
-        case "/setup/state": reply(.response(given && request.headers[DeckRouter.setupHeader] == "1" ? .json([:]) : .status(401)))
+        case "/setup/state": reply(.response(caller != .nobody && request.headers[DeckRouter.setupHeader] == "1" ? .json([:]) : .status(401)))
         default: reply(.response(.status(404)))
         }
     }
