@@ -1,0 +1,15 @@
+{
+  "route": "POST /setup/gm/brief",
+  "callers": ["gm", "page"],
+  "note": "`smolcorp gm brief <hire> --text/--file` adds the text, dated, to the end of the working hire's BRIEF file (a managed hire's is in <support>/hires/<id>/), then mails the hire to read it. The text is never typed into its window.",
+  "request": {"id": "abcdef123456", "text": "Also check the exporter."},
+  "answer": {"ok": true, "file": "<path of the BRIEF file>", "mail": {"id": "brief-<12 letters and digits>", "state": "queued or delivered", "to": "abcdef123456", "size": 0}},
+  "mail-the-hire-gets": "Your brief has a new part: read BRIEF.md",
+  "refusals": [
+    {"request": {}, "status": 400, "why": "no id or no text"},
+    {"request": {"id": "abcdef123456", "text": "  "}, "status": 400, "why": "the text is empty"},
+    {"request": {"id": "nobody", "text": "x"}, "status": 404, "why": "not in the registry"},
+    {"request": {"id": "abcdef123456", "text": "x"}, "status": 409, "why": "the hire is fired or failed, is the GM, or has no BRIEF file"},
+    {"request": {"id": "abcdef123456", "text": "<over the limit>"}, "status": 413, "why": "over the mail size setting (mailMaxBytes)"}
+  ]
+}

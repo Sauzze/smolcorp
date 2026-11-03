@@ -1,0 +1,123 @@
+{
+  "groups" : [
+    {
+      "commands" : [
+        "git push|send-pack",
+        "git subtree push",
+        "git svn dcommit",
+        "git lfs push"
+      ],
+      "name" : "push",
+      "on" : true
+    },
+    {
+      "commands" : [
+        "vercel",
+        "netlify",
+        "wrangler",
+        "firebase deploy|hosting|functions|apphosting|firestore|database|extensions|appdistribution|remoteconfig|dataconnect",
+        "fly",
+        "railway",
+        "heroku",
+        "render",
+        "eas build|submit|update",
+        "supabase db push",
+        "supabase functions deploy",
+        "kubectl apply|delete",
+        "terraform apply|destroy",
+        "pulumi up|destroy",
+        "docker push",
+        "docker image push",
+        "docker compose push",
+        "docker-compose push",
+        "docker manifest push",
+        "docker buildx build|bake --push",
+        "docker build --push",
+        "docker builder build --push",
+        "podman push",
+        "podman image push",
+        "podman manifest push",
+        "podman compose push"
+      ],
+      "name" : "deploy",
+      "on" : true
+    },
+    {
+      "commands" : [
+        "npm publish|publis|publi|publ|pub|pu",
+        "pnpm publish",
+        "yarn publish",
+        "bun publish",
+        "cargo publish",
+        "twine upload",
+        "gem push",
+        "fastlane",
+        "xcrun altool|notarytool",
+        "gh pr create|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
+        "gh issue create|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
+        "gh release",
+        "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink",
+        "gh gist create|edit|delete",
+        "gh label create|delete|edit|clone",
+        "gh ssh-key add|delete",
+        "gh gpg-key add|delete",
+        "gh codespace create|delete|ssh",
+        "gh extension install",
+        "gh cache delete",
+        "gh auth token|refresh|login|logout|setup-git",
+        "gh auth status -t|--show-token",
+        "npm unpublish|deprecate|dist-tag|access|owner|token|login|adduser|team|org",
+        "gh workflow run|enable|disable",
+        "gh run rerun|cancel|delete",
+        "gh secret",
+        "gh variable",
+        "gh api -X|--method|-f|-F|--field|--raw-field|--input"
+      ],
+      "name" : "publish",
+      "on" : true
+    },
+    {
+      "commands" : [
+        "aws",
+        "gcloud",
+        "az",
+        "gsutil",
+        "bq",
+        "cdk"
+      ],
+      "name" : "cloud",
+      "on" : false
+    },
+    {
+      "commands" : [
+        "ssh",
+        "scp",
+        "sftp",
+        "rsync @remote"
+      ],
+      "name" : "remote",
+      "on" : true
+    },
+    {
+      "commands" : [
+        "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
+        "smolcorp gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+        "security",
+        "osascript",
+        "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
+        "op read|item|inject|signin",
+        "bw",
+        "pass"
+      ],
+      "name" : "local",
+      "on" : true
+    },
+    {
+      "commands" : [
+        "terraform import"
+      ],
+      "name" : "extra",
+      "on" : true
+    }
+  ]
+}

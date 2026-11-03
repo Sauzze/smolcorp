@@ -1,0 +1,28 @@
+{
+  "route": "POST /setup/gm/hire",
+  "callers": ["gm", "page"],
+  "request": {
+    "role": "reviewer",
+    "folder": "/Users/someone/Projects/app",
+    "account": "work",
+    "model": "opus",
+    "nickname": "Ada",
+    "floor": 2,
+    "worktree": true,
+    "apiKey": false,
+    "task": "Review the importer change and write the findings in STATUS.md."
+  },
+  "optional": ["folder", "account", "model", "nickname", "floor", "worktree", "apiKey", "task", "answers"],
+  "answer": {
+    "status": 200,
+    "body": {"ok": true, "desk": 3, "session": null}
+  },
+  "refusals": [
+    {"request": {}, "status": 400, "why": "no role"},
+    {"request": {"role": "nobody"}, "status": 404, "why": "that role isn't there"},
+    {"request": {"role": "reviewer", "folder": "/etc"}, "status": 400, "why": "outside the home folder"},
+    {"request": {"role": "reviewer", "task": 5}, "status": 400, "why": "the task is text"},
+    {"request": {"role": "reviewer"}, "status": 409, "why": "no folder set up for new hires and none given; every desk taken; hooks not connected"}
+  ],
+  "note": "folder left out means the folder set up for new hires. task reaches the brief builder as BriefContext.task; the {{task}} placeholder is T304's."
+}

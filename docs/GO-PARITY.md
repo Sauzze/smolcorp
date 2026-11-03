@@ -20,7 +20,7 @@ subsystem of its own. "–" where there is nothing to port.
 | `/focus` | ✓ | ✓ | launcher tabs can't be brought forward (no window to find) | – |
 | `/act` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap, style, music, volume | ✓ | ✓ | none; scroll only where the terminal can (tmux, kitty) | – |
 | `/act?action=fire` | ✓ | ✓ | none | – |
-| `/act?action=hire` (Anyone, or a role, at a desk) | ✓ | ✓ | **done** | – |
+| `/act?action=hire` (Anyone, or a role, at a desk) | ✓ | ✓ | on Linux, a role's Claude hire in tmux at a desk that isn't held or pinned goes through the hire engine (its own tmux server, worktree and ports); every other hire opens as before. A hire of the gm role here is refused (409) while a GM is working, as the Mac does: "A General Manager is already working. Fire it first, then hire another."; with none working it hires as before | – |
 | `/act?action=language` (dictation's language) | ✓ | – | dictation is the Mac's (see below) | – |
 | `/summary` | ✓ | ✓ | none | – |
 | `/hook` with agent, tab, project, pid, parent headers | ✓ | ✓ | none; Go also has `/launcher` | – |
@@ -39,6 +39,14 @@ subsystem of its own. "–" where there is nothing to port.
 | `/setup/dictation` | ✓ | – | Mac only (Apple's speech recognition) | – |
 | `/setup/accessibility` | ✓ | – | not needed off the Mac | – |
 | `/setup/viewer*` (portable office) | ✓ | ✓ | **done** | – |
+| `GET /setup/gm/version`, `GET /setup/gm/events`, `GET /setup/gm/team`, `GET /setup/gm/approvals` | ✓ | ✓ | none (the Go app lists only the features `events` and `team`); all but `version` answer 409 while the manager is off; approvals only list, nothing answers a prompt | – |
+| `POST /setup/gm/manager` (the manager switch) | ✓ | ✓ | the page only; no GM caller exists here yet | – |
+| `POST /setup/gm/registry` | ✓ | ✓ | the page only, for the same reason | – |
+| `/setup/hire/gm` (Start here's Hire your General Manager) | ✓ | ✓ | the Go app hires the plain GM role (through the hire engine only on Linux when tmux is the chosen or only way and the agent is Claude, otherwise as before); the Mac's also gives it its token, rules and tools. It refuses (409) while a GM is working, as the Mac does: "A General Manager is already working. Fire it first, then hire another." Nothing is fired for it | L |
+| `GET /setup/gm/outbox`, `watches`, `screens` | ✓ | – | not served: 404 | M |
+| `POST /setup/gm/hire`, `fire`, `brief`, `send`, `contacts`, `watch`, `unwatch`, `tile`, `screen` | ✓ | – | not served: 404; the team's work (worktrees, mail, watches, tiling) is the Mac's | XL |
+| `POST /setup/gm/token/rotate`, `POST /setup/gm/by-hand` | ✓ | – | no GM token here | – |
+| `smolcorp gm`, `guard`, `mcp` | ✓ | ✓ | the same commands on all three; on Go they can ask only what is served above | – |
 
 ### Config keys (`config.json`)
 

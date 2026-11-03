@@ -313,6 +313,29 @@ func TestAKeyThatCantBeReadIsNeverReplaced(t *testing.T) {
 	}
 }
 
+// The link holds the key: a tool with the setup-key file is let read the viewer's state, not the link.
+func TestOnlyThePageGetsTheViewerLink(t *testing.T) {
+	d, _, _ := portableDeck(t)
+	if w := serve(t, d, call{method: "POST", target: "/setup/viewer/secret", host: "localhost:7710", from: thisComputer,
+		headers: map[string]string{setupHeader: "1"}}); w.Code != 200 {
+		t.Fatalf("setting the viewer up: %d %s", w.Code, w.Body)
+	}
+	link := d.portable.Link()
+	if link == "" {
+		t.Fatal("the viewer has no link once set up")
+	}
+	get := func(tool bool) *httptest.ResponseRecorder {
+		return serve(t, d, call{method: "GET", target: "/setup/viewer", host: "localhost:7710", from: thisComputer, asTool: tool,
+			headers: map[string]string{setupHeader: "1"}})
+	}
+	if w := get(false); w.Code != 200 || !strings.Contains(w.Body.String(), link) {
+		t.Errorf("the page's GET /setup/viewer: %d, link missing: %s", w.Code, w.Body)
+	}
+	if w := get(true); w.Code != 200 || strings.Contains(w.Body.String(), link) || strings.Contains(w.Body.String(), "/v/") {
+		t.Errorf("a tool's GET /setup/viewer: %d, carries the link: %s", w.Code, w.Body)
+	}
+}
+
 func TestSetupKeepsTheViewersSettings(t *testing.T) {
 	d, _, _ := portableDeck(t)
 	post := func(target, body string) *httptest.ResponseRecorder {

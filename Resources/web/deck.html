@@ -80,6 +80,23 @@
   .status.flash { color: var(--ink); }
   .status:not(.flash):not(.off) { visibility: hidden; }
 
+  /* Waiting for you: who is stopped at a question, over the room's top edge. Shown only when the Mac says someone is. */
+  .waiting { position: fixed; z-index: 7; left: 50%; top: calc(env(safe-area-inset-top) + 34px); transform: translateX(-50%);
+    width: min(92vw, 420px); max-height: 45vh; overflow: auto; padding: 10px 12px 8px;
+    background: #f4f1ea; color: #1f2129; border: 2px solid #1f2129; border-radius: 12px;
+    box-shadow: 0 4px 0 #1f2129, 0 10px 30px rgba(0,0,0,.45); touch-action: manipulation; }
+  .waiting[hidden] { display: none; }
+  .waiting-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid rgba(31,33,41,.12); }
+  .waiting-row:first-of-type { border-top: 0; }
+  .waiting-who { flex: 1; min-width: 0; font-size: 13px; line-height: 1.3; }
+  .waiting-who b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .waiting-who span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6e6a62; font-size: 12px; }
+  .waiting-row button { min-height: 36px; padding: 0 10px; border-radius: 8px; cursor: pointer;
+    font: 600 13px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: #1f2129; background: #fff; border: 2px solid #1f2129; box-shadow: 0 2px 0 #1f2129; }
+  .waiting-row button:active { transform: translateY(2px); box-shadow: none; }
+  .waiting-row .yes { color: #fff; background: #2563eb; }
+
   /* ✨ Summary: what an agent has been doing, on a card over the room until tapped away. */
   /* Just above the keys along the foot of the room, beside the key that asked, clear of the desks and their choices. */
   .summary { position: fixed; z-index: 8; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 64px); transform: translateX(-50%);
@@ -87,6 +104,14 @@
     background: #f4f1ea; color: #1f2129; border: 2px solid #1f2129; border-radius: 12px;
     box-shadow: 0 4px 0 #1f2129, 0 10px 30px rgba(0,0,0,.45); touch-action: manipulation; }
   .summary[hidden] { display: none; }
+  /* ⚙︎ Settings, on a phone: the office's own, each a row with its control at the right. */
+  #settings { cursor: default; }
+  .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0;
+    border-top: 1px solid rgba(31,33,41,.12); font-size: 14px; }
+  .settings-row:first-of-type { border-top: 0; }
+  .settings-row button { font: inherit; font-weight: 700; padding: 5px 12px; border-radius: 8px; border: 2px solid #1f2129;
+    background: #fff; color: #1f2129; box-shadow: 0 2px 0 #1f2129; }
+  .settings-row button[aria-pressed="true"] { background: #1f2129; color: #f4f1ea; }
   .summary-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
     font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #6e6a62; }
   .summary-head b { color: #1f2129; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -208,6 +233,10 @@
   <div><b>Add Smolcorp to your Home Screen.</b><br><span id="install-how">Tap Share, then “Add to Home Screen”.</span> It opens full screen and stays paired.</div>
   <button id="install-close" aria-label="Dismiss">✕</button>
 </div>
+<div class="waiting" id="waiting" role="status" aria-label="Waiting for you" hidden>
+  <div class="summary-head"><span>⏳</span><b>Waiting for you</b></div>
+  <div id="waiting-rows"></div>
+</div>
 <div class="summary" id="summary" role="status" aria-live="polite" hidden>
   <div class="summary-head"><span>✨</span><b id="summary-name"></b><span aria-label="Close">✕</span></div>
   <div class="summary-text" id="summary-text"></div>
@@ -230,6 +259,11 @@
   <div class="board-head"><span>▤</span><b id="board-name"></b><button id="board-close">Close</button></div>
   <div class="board-body" id="board-body"></div>
   <div class="board-problem" id="board-problem" role="status" hidden></div>
+</div>
+<div class="summary" id="settings" role="dialog" aria-label="Settings" hidden>
+  <div class="summary-head"><span>⚙︎</span><b>Settings</b><span id="settings-close" role="button" aria-label="Close" style="margin-left:auto;cursor:pointer">✕</span></div>
+  <div id="settings-rows"></div>
+  <div class="info-note">Everything else, hiring and roles first, is in setup, on your computer.</div>
 </div>
 <div class="summary" id="info" role="status" aria-live="polite" hidden>
   <div class="summary-head"><span>ⓘ</span><b id="info-name"></b><span aria-label="Close">✕</span></div>
@@ -257,7 +291,8 @@
   if (bare) document.documentElement.classList.add('bare');
   const $ = (id) => document.getElementById(id);
 
-  let sessions = [];   // the sessions at desks
+  let sessions = [];   // the sessions at desks: the ground floor's keys, then those driven upstairs
+  let keyed = [];      // the ground floor's alone: what's picked for you when nothing is, as they're in sight
   let overflow = 0;    // sessions running with no desk to show them
   let selected = null; // session id the office's controls act on
   let layout = null;   // as set up on the computer: the buttons made there, and the office's room
@@ -285,7 +320,7 @@
     try { kept = localStorage.getItem(LITE_KEY); } catch {}
     return kept ? kept === 'on' : true;
   }
-  const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, setSaving() {}, setLite() {}, moved() {} } : AgentOffice.create($('office-canvas'), {
+  const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, setSaving() {}, setLite() {}, moved() {}, openStyles() {} } : AgentOffice.create($('office-canvas'), {
     select(id) {
       tick();
       selected = id;
@@ -317,9 +352,15 @@
       tick();
       return (await send('/act', { session: id, action: 'fire' })) === 204;
     },
-    hire(desk, role) {
+    hire(desk, role, floor) {
       tick();
-      send('/act', { action: 'hire', desk, ...(role ? { role } : {}) });
+      send('/act', { action: 'hire', desk, ...(role ? { role } : {}), ...(floor ? { floor } : {}) });
+    },
+    // Someone put on another floor: `floor` is 0 for the ground floor up to 5 for 6F; remembered, their folder's
+    // sessions go there from now on. Whether they went.
+    async move(id, floor, remember) {
+      tick();
+      return (await send('/act', { session: id, action: 'move', floor, ...(remember ? { remember: 1 } : {}) })) === 204;
     },
     // An agent carried from one desk to another: the two swap, and stay so.
     swap(from, to) {
@@ -341,6 +382,18 @@
     cleanup(on) {
       tick();
       send('/act', { action: 'cleanup', on: on ? 1 : 0 });
+    },
+    // ⚙︎ in the room's corner: on the computer's own office window, setup opens there, as from the menu bar or the
+    // tray; anywhere else, as on a phone, the office's own settings, the styles among them.
+    async settings() {
+      tick();
+      if (whole && !preview) {
+        const res = await post('/act', { action: 'settings' });
+        if (res && res.status === 204) return;
+        // The computer's browser wouldn't start: say so, with the way that works, not the phone's settings.
+        if (res && res.status === 502) return flash((await res.text()) || 'Could not open your browser');
+      }
+      openSettings();
     },
     // One of the office's styles, from its key in the room's corner, for every screen it's on.
     style(preset) {
@@ -1143,6 +1196,53 @@
     refreshInfo();
   }
 
+  /* ------------------------------------------------------------ ⚙︎ settings, on a phone */
+
+  let dictationNow = null; // the computer's dictation, as last streamed: its clean-up, where the build has it
+
+  /** The office's settings on a phone: its style, for every screen; its lite office, this phone's; and clean-up. */
+  function openSettings() {
+    const rows = [];
+    const row = (label, button) => {
+      const div = document.createElement('div');
+      div.className = 'settings-row';
+      div.append(Object.assign(document.createElement('span'), { textContent: label }), button);
+      rows.push(div);
+    };
+    const button = (text, pressed, onclick) => {
+      const b = Object.assign(document.createElement('button'), { type: 'button', textContent: text, onclick });
+      if (pressed !== null) b.setAttribute('aria-pressed', String(pressed));
+      return b;
+    };
+    row('Office style, on every screen', button('Choose…', null, () => {
+      closeSettings();
+      office.openStyles();
+    }));
+    if (onPhone) {
+      const lite = liteChosen();
+      row('Lite office, on this phone', button(lite ? 'On' : 'Off', lite, () => {
+        try { localStorage.setItem(LITE_KEY, lite ? 'off' : 'on'); } catch {}
+        office.setLite(!lite);
+        openSettings();
+      }));
+    }
+    if (dictationNow && typeof dictationNow.cleanup === 'boolean') {
+      const on = dictationNow.cleanup;
+      row('Clean up dictation', button(on ? 'On' : 'Off', on, () => {
+        send('/act', { action: 'cleanup', on: on ? 0 : 1 });
+        dictationNow = { ...dictationNow, cleanup: !on };
+        openSettings();
+      }));
+    }
+    $('settings-rows').replaceChildren(...rows);
+    $('settings').hidden = false;
+  }
+
+  function closeSettings() {
+    $('settings').hidden = true;
+  }
+  $('settings-close').addEventListener('click', closeSettings);
+
   function closeInfo() {
     if (info) clearInterval(info.timer);
     info = null;
@@ -1239,8 +1339,9 @@
 
   function render() {
     if (selected && !sessions.some((s) => s.id === selected)) selected = null;
-    // Nothing chosen: whoever is waiting on you, else the first.
-    if (!selected && sessions.length) selected = (sessions.find((s) => s.state === 'asking') || sessions[0]).id;
+    // Nothing chosen: whoever is waiting on you, else the first, on the ground floor's keys. Upstairs, an agent is
+    // picked only by a tap, where it can be seen: the elevator's list dots a floor where someone waits.
+    if (!selected && keyed.length) selected = (keyed.find((s) => s.state === 'asking') || keyed[0]).id;
     office.select(selected);
     // An agent gone: its conversation and its card go with it.
     if (board && !sessions.some((s) => s.id === board.session)) closeBoard();
@@ -1261,10 +1362,15 @@
 
   /** What the computer streams: the sessions at their desks and the layout. */
   function receive(data) {
-    sessions = (data.keys || []).filter((k) => k.session).map((k) => k.session);
+    // Upstairs too, an agent there can be picked and driven as on the ground floor: only it has no key.
+    const upstairs = (Array.isArray(data.floors) ? data.floors.slice(1) : [])
+      .flatMap((floor) => (floor && Array.isArray(floor.desks) ? floor.desks : [])).filter((s) => s && s.drivable === true);
+    keyed = (data.keys || []).filter((k) => k.session).map((k) => k.session);
+    sessions = [...keyed, ...upstairs];
     roles = (data.hiring && data.hiring.roles) || [];
     noteWaits();
-    overflow = data.overflow;
+    // Only those with no desk on any floor: an agent with no key sits upstairs, and is driven there.
+    overflow = Array.isArray(data.floors) ? data.floorsOverflow || 0 : data.overflow;
     scrollEnabled = data.scroll;
     layout = data.layout || null;
     // Personal build: the phone's own mic. Where it's the phone's, every desk the computer can type into has
@@ -1272,6 +1378,7 @@
     const wasOn = phoneMic.on;
     phoneMic = { on: !!(data.phoneMic && data.phoneMic.on), autoSend: !!(data.phoneMic && data.phoneMic.autoSend === true) };
     micLanguage = (data.dictation && data.dictation.language) || micLanguage;
+    dictationNow = data.dictation || null;
     if (phoneMic.on && !wasOn) phoneMicHint();
     if (!phoneMicHere()) {
       dropHearing();
@@ -1284,6 +1391,9 @@
         ...data,
         keys: (data.keys || []).map((k) => (!k.session || !k.session.phoneMic ? k
           : { ...k, session: { ...k.session, mic: true, dictates: true } })),
+        floors: Array.isArray(data.floors) ? data.floors.map((floor) => (!floor || !Array.isArray(floor.desks) ? floor : {
+          ...floor, desks: floor.desks.map((s) => (s && s.drivable === true && s.phoneMic ? { ...s, mic: true, dictates: true } : s)),
+        })) : data.floors,
         dictation: { ...(data.dictation || {}), on: true, cleanup: undefined },
       };
     }
@@ -1315,6 +1425,79 @@
         : { previous: 'goes back a song', next: 'skips to the next song' }[params.do] || 'plays or pauses your music',
     };
     return `${words[params.action] || params.action}${name}`;
+  }
+
+  /* ------------------------------------------------------- waiting list */
+
+  /*
+   * Who is stopped at a question, from the Mac's GET /approvals. It only lists: a tap on Yes or No is the same
+   * /act the room's own accept and reject keys send, and a question (a menu) is answered at its desk. A Mac
+   * without the route, the Linux and Windows app, or the Wi-Fi's address (it answers over Tailscale only) says
+   * 404 or 403: the list stays hidden and is not asked for again.
+   */
+  const WAITING_EVERY = 5_000;
+  let waitingTimer = null;
+
+  function waitingWhere(item) {
+    return Number.isInteger(item.desk) ? `desk ${item.desk + 1}${item.floor ? `, floor ${item.floor + 1}` : ''}` : 'no desk';
+  }
+
+  function drawWaiting(items) {
+    const rows = $('waiting-rows');
+    rows.textContent = '';
+    for (const item of items) {
+      const row = document.createElement('div');
+      row.className = 'waiting-row';
+      const who = document.createElement('div');
+      who.className = 'waiting-who';
+      const name = document.createElement('b');
+      name.textContent = item.nickname || item.name || item.session;
+      const what = document.createElement('span');
+      const since = typeof item.waitingSeconds === 'number' ? ` · for ${duration(item.waitingSeconds * 1000)}` : '';
+      what.textContent = `${waitingWhere(item)} · ${item.label || item.tool || 'a question'}${since}`;
+      who.append(name, what);
+      row.append(who);
+      if (item.kind === 'question') {
+        // A menu has its own keys at the desk: take you there.
+        const open = document.createElement('button');
+        open.textContent = 'Open';
+        open.onclick = () => { tick(); selected = item.session; render(); };
+        row.append(open);
+      } else {
+        for (const [action, text] of [['reject', 'No'], ['accept', 'Yes']]) {
+          const button = document.createElement('button');
+          button.textContent = text;
+          if (action === 'accept') button.className = 'yes';
+          button.onclick = async () => {
+            tick();
+            await send('/act', { session: item.session, action });
+            checkWaiting();
+          };
+          row.append(button);
+        }
+      }
+      rows.append(row);
+    }
+    $('waiting').hidden = items.length === 0;
+  }
+
+  async function checkWaiting() {
+    if (preview || document.hidden) return;
+    const res = await get('/approvals');
+    if (!res) { $('waiting').hidden = true; return; } // out of reach: try again later
+    if (res.status === 401) return unpaired();
+    if (!res.ok) {
+      // No such route here, or not at this address: hide it for good.
+      $('waiting').hidden = true;
+      clearInterval(waitingTimer);
+      return;
+    }
+    try {
+      const data = await res.json();
+      drawWaiting(Array.isArray(data.approvals) ? data.approvals : []);
+    } catch {
+      $('waiting').hidden = true;
+    }
   }
 
   /** Unpaired on the computer: the pairing page takes over, without the old key. */
@@ -1379,6 +1562,10 @@
     addEventListener('pageshow', (e) => { if (e.persisted) connect(); });
     setInterval(() => { if (!document.hidden && Date.now() - heard > QUIET_FOR) connect(); }, 10_000);
     if (!whole) installHint();
+    if (!whole && !bare) {
+      checkWaiting();
+      waitingTimer = setInterval(checkWaiting, WAITING_EVERY);
+    }
   }
   render();
 </script>

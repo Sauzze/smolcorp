@@ -1,0 +1,85 @@
+{
+  "answer" : {
+    "approvals" : [
+      {
+        "agent" : "claude",
+        "desk" : 0,
+        "floor" : 0,
+        "hire" : "a1b2c3",
+        "kind" : "permission",
+        "label" : "Bash: git",
+        "name" : "Reviewer",
+        "nickname" : "Rev",
+        "notified" : true,
+        "session" : "s1",
+        "since" : 1761000540000,
+        "tool" : "Bash",
+        "waitingSeconds" : 60
+      },
+      {
+        "agent" : "claude",
+        "desk" : 2,
+        "floor" : 1,
+        "hire" : "",
+        "kind" : "question",
+        "label" : "AskUserQuestion",
+        "name" : "api",
+        "nickname" : "",
+        "notified" : false,
+        "session" : "s2",
+        "since" : 1761000570000,
+        "tool" : "AskUserQuestion",
+        "waitingSeconds" : 30
+      },
+      {
+        "agent" : "claude",
+        "desk" : null,
+        "floor" : null,
+        "hire" : "",
+        "kind" : "permission",
+        "label" : "Edit: Deck.swift",
+        "name" : "app",
+        "nickname" : "",
+        "notified" : false,
+        "session" : "s3",
+        "since" : null,
+        "tool" : "Edit",
+        "waitingSeconds" : null
+      }
+    ],
+    "at" : 1761000600000
+  },
+  "items" : [
+    {
+      "agent" : "claude",
+      "input" : "{\"file_path\":\"\/work\/app\/Sources\/Deck.swift\",\"old_string\":\"secret text\"}",
+      "name" : "app",
+      "session" : "s3",
+      "tool" : "Edit"
+    },
+    {
+      "agent" : "claude",
+      "desk" : 2,
+      "floor" : 1,
+      "input" : "{\"questions\":[{\"question\":\"Which database?\"}]}",
+      "kind" : "question",
+      "name" : "api",
+      "session" : "s2",
+      "since" : 1761000570000,
+      "tool" : "AskUserQuestion"
+    },
+    {
+      "agent" : "claude",
+      "desk" : 0,
+      "floor" : 0,
+      "hire" : "a1b2c3",
+      "input" : "{\"command\":\"TOKEN=abc git push --force origin main\"}",
+      "name" : "Reviewer",
+      "nickname" : "Rev",
+      "notified" : true,
+      "session" : "s1",
+      "since" : 1761000540000,
+      "tool" : "Bash"
+    }
+  ]
+}

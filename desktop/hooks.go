@@ -8,7 +8,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 
 	agentdeck "github.com/Sauzze/smolcorp"
@@ -23,7 +27,7 @@ import (
 // later is picked up by connecting again. Claude Code, Codex and Gemini CLI
 // read hooks from a settings file they share with everything else: the
 // deck's entries are added to it, the rest is kept as it was, and the file is
-// backed up to <file>.agentdeck.bak before each change. Grok and OpenCode
+// backed up before each change (see writeSettings). Grok and OpenCode
 // load whole files from a folder, so the deck has one of its own there.
 
 // hookEntries are the deck's entries in an agent's settings, in the layout
@@ -57,9 +61,10 @@ func oldGrokHooks() string {
 
 // hookCommand is the command an agent runs. Grok's entries match Claude
 // Code's to the letter: Grok also reads Claude Code's hooks, and runs a
-// handler it finds twice only once.
+// handler it finds twice only once. It names this office's port, so two
+// offices on one computer never mix, whatever their agents inherit.
 func hookCommand(agent Agent) string {
-	command := shellPath(commandLineProgram()) + " hook"
+	command := fmt.Sprintf("%s hook --port %d", shellPath(commandLineProgram()), Port)
 	if agent == Claude || agent == Grok {
 		return command
 	}
@@ -167,23 +172,41 @@ var errNoAgents = errors.New("No coding agent found on this computer. Install on
 
 // connectAgents connects every agent found. One whose settings can't be read
 // is left alone, and named in the error once the others are done.
-func connectAgents() error {
+// The notice returned says so when connecting turned Claude Code's voice on;
+// with turnOnVoice false (the repair) it never does.
+func connectAgents(turnOnVoice bool) (string, error) {
 	found := foundAgents()
 	if len(found) == 0 {
-		return errNoAgents
+		return "", errNoAgents
 	}
 	var unreadable []string
+	notice := ""
 	for _, agent := range found {
-		if err := connect(agent, true); errors.Is(err, errUnreadable) {
+		voice, err := connectVoice(agent, turnOnVoice)
+		if errors.Is(err, errUnreadable) {
 			unreadable = append(unreadable, entriesFor(agent).file)
 		} else if err != nil {
-			return err
+			return notice, err
+		} else if voice {
+			notice = voiceNotice
 		}
 	}
 	if len(unreadable) > 0 {
-		return unreadableError(unreadable)
+		return notice, unreadableError(unreadable)
 	}
-	return nil
+	return notice, nil
+}
+
+// voiceNotice is what the setup page tells you when connecting turned voice on.
+const voiceNotice = "Claude Code's voice input is now on, in tap mode, for the phone's mic. Disconnecting turns it off again; a voice setting of your own is never changed."
+
+// voiceMarker is the file in Smolcorp's own folder that says Smolcorp turned
+// Claude Code's voice on, so removing the hooks knows it may turn it off.
+func voiceMarker() string { return filepath.Join(supportDir, "voice-set-by-smolcorp") }
+
+// smolcorpVoice is the voice entry connecting writes.
+func smolcorpVoice() map[string]any {
+	return map[string]any{"enabled": true, "mode": "tap"}
 }
 
 var errUnreadable = errors.New("settings can't be read or aren't valid JSON")
@@ -192,14 +215,20 @@ var errUnreadable = errors.New("settings can't be read or aren't valid JSON")
 // turnOnVoice, Claude Code's voice input is turned on in tap mode — which the
 // mic key needs — unless voice is already set up some other way.
 func connect(agent Agent, turnOnVoice bool) error {
+	_, err := connectVoice(agent, turnOnVoice)
+	return err
+}
+
+// connectVoice is connect, and says whether it turned voice on.
+func connectVoice(agent Agent, turnOnVoice bool) (bool, error) {
 	entries := entriesFor(agent)
 	if entries == nil {
 		if err := writePlugin(); err != nil {
-			return err
+			return false, err
 		}
 		// Under the name the app had before, it's gone now, so each event is reported once
 		_ = os.Remove(oldOpenCodePlugin())
-		return nil
+		return false, nil
 	}
 	if agent == Grok {
 		_ = os.Remove(oldGrokHooks())
@@ -211,7 +240,7 @@ func connect(agent Agent, turnOnVoice bool) error {
 	} else {
 		read, err := readSettings(entries.file)
 		if err != nil {
-			return errUnreadable
+			return false, errUnreadable
 		}
 		settings = read
 		before, _ = encodeSettings(read)
@@ -222,15 +251,29 @@ func connect(agent Agent, turnOnVoice bool) error {
 		hooks[event] = append(groups, map[string]any{"hooks": []any{entries.handler}})
 	}
 	settings["hooks"] = hooks
-	if _, set := settings["voice"]; turnOnVoice && agent == Claude && !set {
-		settings["voice"] = map[string]any{"enabled": true, "mode": "tap"}
+	voiceOn := false
+	if _, set := settings["voice"]; turnOnVoice && agent == Claude {
+		if !set {
+			settings["voice"] = smolcorpVoice()
+			voiceOn = true
+		} else {
+			// A voice setting Smolcorp didn't just write: an old marker can't vouch for it
+			_ = os.Remove(voiceMarker())
+		}
 	}
 	// Already as they should be, as on most starts: left untouched, so the
 	// backup still holds the file from before the deck's last change.
 	if after, err := encodeSettings(settings); err == nil && bytes.Equal(after, before) {
-		return nil
+		return false, nil
 	}
-	return writeSettings(settings, entries.file, !entries.isOwnFile)
+	if err := writeSettings(settings, entries.file, !entries.isOwnFile); err != nil {
+		return false, err
+	}
+	if voiceOn {
+		// Settings first, then the marker: a failed marker leaves voice on, never turns off one that was yours
+		_ = writePrivate(voiceMarker(), []byte("1"))
+	}
+	return voiceOn, nil
 }
 
 func disconnectAgents() error {
@@ -255,8 +298,17 @@ func disconnectAgents() error {
 			} else {
 				delete(settings, "hooks")
 			}
+			// Voice goes off only if Smolcorp turned it on and it's still as written
+			_, marked := os.Stat(voiceMarker())
+			if marked == nil && agent == Claude && reflect.DeepEqual(settings["voice"], any(smolcorpVoice())) {
+				delete(settings, "voice")
+			}
 			if err := writeSettings(settings, entries.file, true); err != nil {
 				return err
+			}
+			// Only once the settings are written: a failed write keeps the marker
+			if marked == nil && agent == Claude {
+				_ = os.Remove(voiceMarker())
 			}
 		}
 	}
@@ -266,15 +318,71 @@ func disconnectAgents() error {
 // refreshHooks rewrites the entries of the agents already connected, so they
 // point at this copy of the program wherever it has been moved or updated to,
 // and follow every event this version does, even those an earlier version
-// didn't. Voice is left alone: only connecting turns it on.
+// didn't. Voice is left alone: only connecting turns it on. An agent whose
+// entries name another office's port is left as it is, so two offices on one
+// computer never move each other's hooks: only connecting replaces them.
 func refreshHooks() {
 	for _, agent := range foundAgents() {
+		if namesAnotherOffice(agent) {
+			continue
+		}
 		// Grok's hooks in their own file under the name the app had before count too
 		_, old := os.Stat(oldGrokHooks())
 		if hasEntries(agent) || (agent == Grok && old == nil) {
 			_ = connect(agent, false)
 		}
 	}
+}
+
+// namesAnotherOffice: one of the deck's entries for agent names an explicit,
+// valid port other than this office's.
+func namesAnotherOffice(agent Agent) bool {
+	entries := entriesFor(agent)
+	if entries == nil {
+		plugin, _ := os.ReadFile(openCodePlugin())
+		match := openCodePortPattern.FindSubmatch(plugin)
+		if match == nil {
+			return false
+		}
+		port := portInCommand(" hook --port " + string(match[1]))
+		return port != 0 && port != Port
+	}
+	settings, err := readSettings(entries.file)
+	if err != nil {
+		return false
+	}
+	hooks, _ := settings["hooks"].(map[string]any)
+	for _, groups := range hooks {
+		list, _ := groups.([]any)
+		for _, group := range list {
+			g, _ := group.(map[string]any)
+			handlers, _ := g["hooks"].([]any)
+			for _, handler := range handlers {
+				h, _ := handler.(map[string]any)
+				command, _ := h["command"].(string)
+				if port := portInCommand(command); isOurs(handler) && port != 0 && port != Port {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// openCodePortPattern finds the port in the command of OpenCode's plugin.
+var openCodePortPattern = regexp.MustCompile(`"--port",\s*"(\d+)"`)
+
+// portInCommand is the valid port a hook command names after hook --port, or 0.
+func portInCommand(command string) int {
+	i := strings.LastIndex(command, " hook --port ")
+	if i < 0 {
+		return 0
+	}
+	number, _, _ := strings.Cut(command[i+len(" hook --port "):], " ")
+	if n, err := strconv.Atoi(number); err == nil && n >= 1024 && n <= 65535 {
+		return n
+	}
+	return 0
 }
 
 // hasEntries: the deck is in agent's hooks for at least one event.
@@ -313,7 +421,7 @@ func writePluginLocked() error {
 	if err != nil {
 		return err
 	}
-	command, _ := json.Marshal([]string{commandLineProgram(), "hook", string(OpenCode)})
+	command, _ := json.Marshal([]string{commandLineProgram(), "hook", "--port", fmt.Sprint(Port), string(OpenCode)})
 	plugin := bytes.ReplaceAll(template, []byte(`["{{COMMAND}}"]`), command)
 	openCodeWrittenFor = stamp
 	if written, err := os.ReadFile(openCodePlugin()); err == nil && bytes.Equal(written, plugin) {
@@ -343,16 +451,153 @@ func writePluginLocked() error {
 	return err
 }
 
-// isOurs recognises the deck's handler by its command, wherever the program
-// was when it was written, under this name or the one it had before, so an
-// update replaces the old entries rather than adding to them. On Windows that
-// path is in its short form, where smolcorp-cli.exe reads SMOLCO~1.EXE and
-// sauzzedeck.exe SAUZZE~1.EXE.
+// isOurs recognises the deck's handler by its command, as the deck writes
+// it: a program of the deck's, quoted or not, then hook, then at most an
+// agent's name. The program is this copy, or one by the deck's name,
+// wherever it was when it was written, under this name or the one it had
+// before, so an update replaces the old entries rather than adding to them.
+// On Windows that path may be in its short form, where smolcorp-cli.exe reads
+// SMOLCO~1.EXE and sauzzedeck.exe SAUZZE~1.EXE. A hook of your own that only
+// mentions Smolcorp, as notify-send "smolcorp hook done", is yours.
 func isOurs(handler any) bool {
 	h, _ := handler.(map[string]any)
 	command, _ := h["command"].(string)
-	command = strings.ToLower(command)
-	return (strings.Contains(command, "smolco") || strings.Contains(command, "sauzze")) && strings.Contains(command, " hook")
+	program, found := strings.CutSuffix(command, " hook")
+	if !found {
+		i := strings.LastIndex(command, " hook ")
+		if i < 0 || !isHookArguments(command[i+len(" hook "):]) {
+			return false
+		}
+		program = command[:i]
+	}
+	if inside, found := strings.CutPrefix(program, `'`); found {
+		// Single-quoted, as shellPath writes it elsewhere than Windows.
+		path, ok := unquoteSingle(inside)
+		return ok && strings.HasPrefix(path, "/") && (path == thisCopysPath() || isDecksProgram(path))
+	}
+	quoted := false
+	if inside, found := strings.CutPrefix(program, `"`); found {
+		if program, quoted = strings.CutSuffix(inside, `"`); !quoted {
+			return false
+		}
+	}
+	if !isAProgramsPath(program, quoted) {
+		return false
+	}
+	// Unquoted with a & in it, as only an earlier version wrote a Windows path,
+	// and only this copy's own: nothing else can tell a & in a folder's name
+	// from a & before a program of the deck's, relative or not.
+	if !quoted && strings.Contains(program, "&") {
+		return program == thisCopysPath()
+	}
+	return program == thisCopysPath() || isDecksProgram(program)
+}
+
+// isHookArguments is what follows hook in the deck's command: at most
+// --port and a port, then at most an agent's name. The port is any valid one,
+// not only this office's: the program is what makes a hook the deck's, and an
+// agent's settings hold one office's hook per event, so connecting from
+// another office replaces it, as it replaced one with another path before.
+func isHookArguments(rest string) bool {
+	if after, found := strings.CutPrefix(rest, "--port "); found {
+		number, agent, _ := strings.Cut(after, " ")
+		if _, err := strconv.Atoi(number); err != nil || number != fmt.Sprint(portFromEnvironment(number)) {
+			return false
+		}
+		rest = agent
+		if rest == "" && !strings.HasSuffix(after, " ") {
+			return true
+		}
+	}
+	return slices.Contains(agents, Agent(rest))
+}
+
+// thisCopysPath is this copy's path as its hooks name it, unquoted: on
+// Windows in its short form, with forward slashes (see shellPath).
+func thisCopysPath() string {
+	if inside, found := strings.CutPrefix(shellPath(commandLineProgram()), `'`); found {
+		path, _ := unquoteSingle(inside)
+		return path
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(shellPath(commandLineProgram()), `"`), `"`)
+}
+
+// unquoteSingle undoes shellPath's single quotes on what follows the opening
+// one: it reads up to the closing quote, taking quote, backslash, quote, quote as a quote of the path, and
+// is false if anything but that closing quote ends it.
+func unquoteSingle(inside string) (string, bool) {
+	var path strings.Builder
+	for {
+		i := strings.IndexByte(inside, '\'')
+		if i < 0 {
+			return "", false
+		}
+		path.WriteString(inside[:i])
+		inside = inside[i+1:]
+		if inside == "" {
+			return path.String(), true
+		}
+		rest, found := strings.CutPrefix(inside, `\''`)
+		if !found {
+			return "", false
+		}
+		path.WriteByte('\'')
+		inside = rest
+	}
+}
+
+// isAProgramsPath is whether path is a program's whole path, as the deck
+// writes it: from the root or a drive, with nothing a shell would read as
+// more than a path. On Windows the path is quoted for a space or & ( ) '
+// (see shellPath); unquoted, from an earlier version, it may hold ( ) ' ! as
+// any folder's name may, but ; | < > or a second program's path chain
+// another command to it (a & is isOurs's to judge). Elsewhere it's quoted,
+// and unquoted only in entries from before, with no space and none of a
+// shell's own characters.
+func isAProgramsPath(path string, quoted bool) bool {
+	if strings.ContainsAny(path, "\"\n") {
+		return false
+	}
+	switch {
+	case quoted:
+		// Between double quotes, only $ and ` are a shell's own.
+		return (strings.HasPrefix(path, "/") || windowsDrivePath.MatchString(path)) && !strings.ContainsAny(path, "$`")
+	case windowsDrivePath.MatchString(path):
+		// No Windows name holds a colon: one past the drive's is another path's.
+		return !strings.ContainsAny(path, ";|<>`") && !strings.Contains(path[2:], ":") && !secondDrivePath.MatchString(path)
+	case strings.HasPrefix(path, "/"):
+		return !strings.ContainsAny(path, " '#;&|<>(){}*?!$`")
+	}
+	return false
+}
+
+// windowsDrivePath is a path from a Windows drive, with either slash.
+var windowsDrivePath = regexp.MustCompile(`^[A-Za-z]:[/\\]`)
+
+// secondDrivePath is another path from a drive, past the first: an argument,
+// or a program after one.
+var secondDrivePath = regexp.MustCompile(`\s[A-Za-z]:[/\\]`)
+
+// windowsPathNeedsQuotes is whether a Windows hook's path, in its short form,
+// must be quoted to run through cmd (Codex) and Git Bash (Claude Code): a
+// drive with short names turned off keeps its spaces, and a short name keeps
+// & ( ) ', which both read as their own, and ^, which cmd takes out. A lone !
+// is safe unquoted in both.
+// PowerShell (Gemini CLI, Grok) runs neither a quoted path nor one with
+// those in it: see STATUS, a later item.
+func windowsPathNeedsQuotes(path string) bool { return strings.ContainsAny(path, " &()'^") }
+
+// decksShortName is a Windows short name of the deck's programs, by either name.
+var decksShortName = regexp.MustCompile(`^(smolco|sauzze)~\d+$`)
+
+// isDecksProgram is whether path names one of the deck's programs, now or
+// under the name it had before: smolcorp, smolcorp-cli.exe, Smolcorp.exe,
+// sauzzedeck, SauzzeDeck Pro.exe, or a short name of one.
+func isDecksProgram(path string) bool {
+	name := strings.ToLower(path[strings.LastIndexAny(path, `/\`)+1:])
+	name = strings.TrimSuffix(name, ".exe")
+	return slices.Contains([]string{"smolcorp", "smolcorp-cli", "sauzzedeck", "sauzzedeck-cli", "sauzzedeck pro"}, name) ||
+		decksShortName.MatchString(name)
 }
 
 func hasOurs(groups any) bool {
@@ -424,10 +669,18 @@ func readSettings(file string) (map[string]any, error) {
 	return settings, nil
 }
 
+// The backups of a settings file, beside it: the file as it was before the
+// deck first changed it, kept from then on, and as it was before the latest
+// change.
+const (
+	firstBackup = ".agentdeck.bak"
+	lastBackup  = ".agentdeck-last.bak"
+)
+
 // writeSettings writes an agent's settings through a file beside them, so a
 // crash leaves the old file or the new one, never half of one. A link is
 // followed, so the file it points to, in a dotfiles folder say, is the one
-// that changes. The backup is made first, or nothing is written.
+// that changes. The backups are made first, or nothing is written.
 func writeSettings(settings map[string]any, file string, backup bool) error {
 	if resolved, err := filepath.EvalSymlinks(file); err == nil {
 		file = resolved
@@ -443,7 +696,10 @@ func writeSettings(settings map[string]any, file string, backup bool) error {
 			if err != nil {
 				return err
 			}
-			if err := os.WriteFile(file+".agentdeck.bak", data, mode); err != nil {
+			if err := keepFirst(file+firstBackup, data, mode); err != nil {
+				return err
+			}
+			if err := os.WriteFile(file+lastBackup, data, mode); err != nil {
 				return err
 			}
 		}
@@ -468,6 +724,29 @@ func writeSettings(settings map[string]any, file string, backup bool) error {
 		return err
 	}
 	return os.Rename(temp.Name(), file)
+}
+
+// keepFirst writes data to backup, whole, unless there's one there already.
+func keepFirst(backup string, data []byte, mode fs.FileMode) error {
+	if _, err := os.Lstat(backup); !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	temp, err := os.CreateTemp(filepath.Dir(backup), filepath.Base(backup)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temp.Name()) // gone once renamed
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(temp.Name(), mode); err != nil {
+		return err
+	}
+	return os.Rename(temp.Name(), backup)
 }
 
 func encodeSettings(settings map[string]any) ([]byte, error) {

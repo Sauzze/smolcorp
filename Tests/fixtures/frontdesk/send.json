@@ -1,0 +1,47 @@
+{
+  "route": "POST /setup/gm/send",
+  "callers": ["gm", "page", "hire"],
+  "request": {
+    "to": "Rev",
+    "text": "Please look at the login change first.",
+    "id": "gm-2026-11-01-001"
+  },
+  "note": "to is a hire's id, nickname or name. id is yours: the same id twice delivers once. Without one, the app makes one and answers it.",
+  "answer": {
+    "id": "gm-2026-11-01-001",
+    "state": "delivered",
+    "to": "abcdef123456",
+    "size": 38
+  },
+  "states": ["queued", "delivered", "left", "failed"],
+  "same-id-again": {
+    "id": "gm-2026-11-01-001",
+    "state": "delivered",
+    "to": "abcdef123456",
+    "size": 38,
+    "duplicate": true
+  },
+  "text-the-hire-gets": "— from the GM (Smolcorp), message gm-2026-11-01-001\n\nPlease look at the login change first.",
+  "text-from-the-page": "— from the owner (Smolcorp), message <id>",
+  "from-a-hire": {
+    "how": "the hire sends its own key, from its environment SMOLCORP_HIRE_KEY, in the header x-smolcorp-hire-key (never the GM token). The app finds the hire from the key; nothing in the body can name another sender.",
+    "to-the-gm": {"request": {"to": "gm", "text": "Review done.", "id": "h-001"}, "answer": {"id": "h-001", "state": "delivered", "to": "gm", "size": 12, "note": "Kept for the GM to read; not typed into its session."}},
+    "to-another-hire": "403 unless the pair was allowed with POST /setup/gm/contacts; an unknown name gets the same 403",
+    "text-the-other-hire-gets": "— from hire Rev [abcdef123456] (Smolcorp), message <id>\n\n<text>",
+    "limit": "mailPerHour counts each hire's messages on their own"
+  },
+  "limits": {
+    "maxBytes": {"setting": "mailMaxBytes", "default": 16384, "status": 413},
+    "perHour": {"setting": "mailPerHour", "default": 200, "per": "sender", "status": 429}
+  },
+  "refusals": [
+    {"request": {}, "status": 400, "why": "no to or text"},
+    {"request": {"to": "Rev", "text": "x", "id": "a b"}, "status": 400, "why": "the id uses letters, digits, - _ and . only, 64 at most"},
+    {"request": {"to": "gm", "text": "x"}, "status": 403, "why": "mail is never put into the GM's own session; the GM reads smolcorp gm inbox"},
+    {"request": {"to": "nobody", "text": "x"}, "status": 404, "why": "no such hire"},
+    {"request": {"to": "Rev", "text": "x"}, "status": 409, "why": "the name is used twice, or the hire is fired or failed"},
+    {"request": {"to": "Rev", "text": "<over the limit>"}, "status": 413, "why": "over mailMaxBytes, naming the limit"},
+    {"request": {"to": "Rev", "text": "x"}, "status": 429, "why": "over mailPerHour for this sender, naming the limit"}
+  ],
+  "waiting": "a window at a question, a menu, a draft or at work is never written into: the message stays queued and is looked at again on every pump, which is not a try, until the hire is free or mailWaitHours (default 24) have passed since it was sent, and then it is left; real trouble (tmux, a dead session) is tried every 30 seconds and counts, and the message is left after 6 tries; a left message is never sent again by itself"
+}

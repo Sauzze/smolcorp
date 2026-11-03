@@ -664,11 +664,13 @@ func TestNoMoreThanTwentySummariesInTenMinutes(t *testing.T) {
 }
 
 // The setup page and the phone, end to end: off by default, on only from the
-// dialog and with a key, the key shown only by its hint, and nowhere else.
+// dialog and with a key, the key's source shown but no part of it, and nowhere else.
 func TestSummaryIsOffUntilTurnedOnWithAKeyAndTheKeyGoesNowhere(t *testing.T) {
 	d := newTestDeck(t)
 	d.summaryKeys = newSummaryKeys(memoryStore(false), func(string) string { return "" })
 	d.summaries = newSummaries(d.summaryKeys.Read)
+	// No coding agent here: summaries are made with the key.
+	d.summaryProviders.set(map[summaryProvider]providerState{})
 	d.summaries.ask = func(_ context.Context, key string, _ anthropic.MessageNewParams) (string, *SummaryError) {
 		if key != testSummaryKey {
 			t.Errorf("the summary was made with another key")
@@ -682,21 +684,24 @@ func TestSummaryIsOffUntilTurnedOnWithAKeyAndTheKeyGoesNowhere(t *testing.T) {
 	if d.config.SummaryOptIn {
 		t.Fatal("on by default")
 	}
-	if w := setup("/setup/summaries?enabled=1&confirmed=1", ""); w.Code != http.StatusBadRequest {
+	if w := setup("/setup/summaries?enabled=1&confirmed=1&provider=apikey", ""); w.Code != http.StatusBadRequest {
 		t.Fatalf("turned on without a key: %d", w.Code)
 	}
 	if w := setup("/setup/summary/key", `{"key":"not a key"}`); w.Code != http.StatusBadRequest {
 		t.Fatalf("kept something that isn't a key: %d", w.Code)
 	}
 	saved := setup("/setup/summary/key", `{"key":"`+testSummaryKey+`"}`)
-	if saved.Code != http.StatusOK || !strings.Contains(saved.Body.String(), "sk-ant-…xY9z") {
+	if saved.Code != http.StatusOK || !strings.Contains(saved.Body.String(), `"key":{"source":"store"}`) || strings.Contains(saved.Body.String(), "xY9z") {
 		t.Fatalf("saving the key gave %d %s", saved.Code, saved.Body)
 	}
 	assertNoPartOfTheKey(t, saved.Body.String(), "setup's state")
 	if w := setup("/setup/summaries?enabled=1", ""); w.Code != http.StatusBadRequest || d.config.SummaryOptIn {
 		t.Fatalf("turned on without the dialog: %d", w.Code)
 	}
-	on := setup("/setup/summaries?enabled=1&confirmed=1", "")
+	if w := setup("/setup/summaries?enabled=1&confirmed=1", ""); w.Code != http.StatusBadRequest || d.config.SummaryOptIn {
+		t.Fatalf("turned on without saying what makes them: %d", w.Code)
+	}
+	on := setup("/setup/summaries?enabled=1&confirmed=1&provider=apikey", "")
 	if on.Code != http.StatusOK || !d.config.SummaryOptIn {
 		t.Fatalf("turning on from the dialog gave %d", on.Code)
 	}
@@ -751,8 +756,8 @@ func TestWithNoSecretStoreOnlyTheEnvironmentsKeyWorks(t *testing.T) {
 		t.Fatal("a missing store isn't said, or a key is said to be there")
 	}
 	env[summaryKeyEnv] = testSummaryKey
-	if source, hint := keys.Shown(); source != "environment" || hint != "sk-ant-…xY9z" || keys.Read() != testSummaryKey {
-		t.Fatalf("the environment's key: %s %s", source, hint)
+	if source := keys.Shown(); source != "environment" || keys.Read() != testSummaryKey {
+		t.Fatalf("the environment's key: %s", source)
 	}
 }
 
@@ -781,5 +786,54 @@ func TestMoreKindsOfSecretAreRedacted(t *testing.T) {
 	}
 	if got[9] != "after the key" || got[10] != lines[10] {
 		t.Errorf("redacted too much: %q, %q (a git commit's hash isn't a secret)", got[9], got[10])
+	}
+}
+
+// Setup never shows any part of the API key, with Summaries off or on: its
+// state and the hooks answer say where the key was found, not what it ends in.
+func TestSetupShowsNoPartOfTheKeyOnlyWhereItWasFound(t *testing.T) {
+	d := newTestDeck(t)
+	d.summaryKeys = newSummaryKeys(memoryStore(false), func(name string) string {
+		if name == summaryKeyEnv {
+			return testSummaryKey
+		}
+		return ""
+	})
+	for _, c := range []call{
+		{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer},
+		{method: "POST", target: "/setup/hooks?remove=1", host: "localhost:7710", from: thisComputer, headers: map[string]string{setupHeader: "1"}},
+	} {
+		got := serve(t, d, c)
+		if got.Code != http.StatusOK {
+			t.Fatalf("%s %s: %d %s", c.method, c.target, got.Code, got.Body.String())
+		}
+		for _, part := range []string{testSummaryKey[len(testSummaryKey)-4:], "xY9z", "sk-ant-…", "hint"} {
+			if strings.Contains(got.Body.String(), part) {
+				t.Errorf("%s %s shows %q of the key", c.method, c.target, part)
+			}
+		}
+		var state struct {
+			Summary struct {
+				Enabled bool
+				Key     map[string]any
+			}
+		}
+		if err := json.Unmarshal(got.Body.Bytes(), &state); err != nil {
+			t.Fatalf("%s %s isn't JSON: %v", c.method, c.target, err)
+		}
+		if state.Summary.Enabled || state.Summary.Key["source"] != "environment" {
+			t.Errorf("%s %s: the key's source: %v", c.method, c.target, state.Summary)
+		}
+	}
+}
+
+// The page asks the state for where the key is from, never for key.hint.
+func TestTheSetupPageNoLongerReadsTheKeyHint(t *testing.T) {
+	page := serve(t, newTestDeck(t), call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer})
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "summary-dialog-key") {
+		t.Fatalf("the setup page: %d", page.Code)
+	}
+	if strings.Contains(page.Body.String(), "key.hint") {
+		t.Error("the setup page still reads key.hint")
 	}
 }

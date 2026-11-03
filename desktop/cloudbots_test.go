@@ -3,6 +3,8 @@ package desktop
 import (
 	"encoding/json"
 	"os"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -376,16 +378,33 @@ func TestACloudBotSitsUpstairsFirstOrAtAFreeKey(t *testing.T) {
 		t.Errorf("an auto outfit is %v, want its agent's own", role["outfit"])
 	}
 
-	// A visitor sits down to report; its card says what it did.
+	// A visitor sits down to report, where there's room, and nobody upstairs moves for it; its card says what it did.
 	replied := newCloudAction("Replied", 2, time.Now())
 	reported(d, "visitor", &replied)
 	_, desks, _ = deckState(t, d)
-	if desks[1]["id"] != "cloud-visitor" || desks[1]["state"] != "unread" {
-		t.Fatalf("after its report, the second desk upstairs is %v", desks[1])
+	if desks[1]["id"] != "h0" {
+		t.Errorf("after the visitor came, the second desk upstairs is %v, want the run that sat there", desks[1]["id"])
 	}
-	if last, _ := desks[1]["last"].(map[string]any); last["text"] != "Replied" || last["count"] != 2.0 || last["at"] == nil {
-		t.Errorf("its card says %v", desks[1]["last"])
+	third := floorDesks(t, d, 2)
+	if len(third) != 2 || third[1]["id"] != "cloud-visitor" || third[1]["state"] != "unread" {
+		t.Fatalf("after its report, 3F is %v", third)
 	}
+	if last, _ := third[1]["last"].(map[string]any); last["text"] != "Replied" || last["count"] != 2.0 || last["at"] == nil {
+		t.Errorf("its card says %v", third[1]["last"])
+	}
+}
+
+// floorDesks is the desks the phone is told of on floor n, 0 for the ground floor.
+func floorDesks(t *testing.T, d *Deck, n int) []map[string]any {
+	t.Helper()
+	d.mu.Lock()
+	data := d.snapshot()
+	d.mu.Unlock()
+	var state struct{ Floors []struct{ Desks []map[string]any } }
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	return state.Floors[n].Desks
 }
 
 // The portable office's viewer sees a cloud bot's desk first upstairs, as the
@@ -550,5 +569,52 @@ func TestSetupSetsTheCloudBotsAllAtOnce(t *testing.T) {
 	}
 	if w := serve(t, d, call{method: "GET", target: "/setup/bots", host: "localhost:7710", from: thisComputer, withoutSetupKey: true}); w.Code != 401 {
 		t.Errorf("the bots without the setup key: %d, want 401", w.Code)
+	}
+}
+
+func TestTheLockedStateAnswerNamesThisApp(t *testing.T) {
+	d := newTestDeck(t)
+	w := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer, withoutSetupKey: true})
+	if w.Code != 401 || w.Body.Len() != 0 {
+		t.Errorf("the state without the setup key: %d %q, want 401 and no body", w.Code, w.Body)
+	}
+	if got := w.Header().Get(appHeader); got != runtime.GOOS {
+		t.Errorf("the app header: %q, want %q", got, runtime.GOOS)
+	}
+	other := serve(t, d, call{method: "GET", target: "/setup/bots", host: "localhost:7710", from: thisComputer, withoutSetupKey: true})
+	if other.Code != 401 || other.Header().Get(appHeader) != "" {
+		t.Errorf("another locked path: %d %q, want 401 and no header", other.Code, other.Header().Get(appHeader))
+	}
+}
+
+func TestSetupPinsABotOrPutsItOnAFloorAndKeepsTheMacAppsFields(t *testing.T) {
+	d := newTestDeck(t)
+	found := standardCloudBotNamed("mini", "Smolcorp mini")
+	found.Discovered = true
+	withCloudBots(d, found)
+	override := func(body string) int {
+		return serve(t, d, call{method: "POST", target: "/setup/bots/override", host: "localhost:7710", from: thisComputer,
+			headers: map[string]string{setupHeader: "1"}, body: body}).Code
+	}
+	if code := override(`{"id": "mini", "pinned": true, "floor": "4"}`); code != 200 {
+		t.Fatalf("override gave %d", code)
+	}
+	if bot := d.config.CloudBots[0]; !bot.Pinned || !bot.Discovered || bot.Floor != "4" {
+		t.Errorf("the bot is %+v", bot)
+	}
+	if code := override(`{"id": "nobody", "pinned": true}`); code != 404 {
+		t.Errorf("a bot there isn't gave %d", code)
+	}
+	// The Mac app's own fields, kept through a save here.
+	on := false
+	d.config.BotsAutoDetect, d.config.HiddenBots = &on, []string{"aa11"}
+	d.config.save()
+	loaded := loadConfig()
+	if loaded.BotsAutoDetect == nil || *loaded.BotsAutoDetect || !slices.Equal(loaded.HiddenBots, []string{"aa11"}) ||
+		!loaded.CloudBots[0].Pinned || !loaded.CloudBots[0].Discovered {
+		t.Errorf("loaded %+v %v %+v", loaded.BotsAutoDetect, loaded.HiddenBots, loaded.CloudBots)
+	}
+	if code := override(`{"id": "mini", "hidden": true}`); code != 200 || len(d.config.CloudBots) != 0 {
+		t.Errorf("hidden gave %d, bots %v", code, d.config.CloudBots)
 	}
 }

@@ -21,7 +21,7 @@ You write and fix docs. The code is the truth: every sentence you write must mat
 <!-- slot: bar -->
 - Short, plain sentences, and examples that work when pasted.
 - Never document a feature that doesn't exist yet, or behaviour you haven't checked.
-- Docs in another language are written natively in it, not translated word for word. If the right term is unclear, write `NEEDS-REVIEW:`.
+- Docs in another language are written natively in it, not translated word for word. If the right term is unclear, write `QUESTION:`.
 
 <!-- slot: verify -->
 - Each command or example you documented, run, with its output; or the code line that shows it, when it isn't safe to run.

@@ -23,10 +23,19 @@ struct CloudBot: Codable, Equatable {
     /// Always at its desk, or only between "start" and "stop".
     var permanent = true
     /// Where its desk is: "upstairs", the floor above, by the headless runs,
-    /// as it never has a terminal; or "ground", at a free key.
+    /// as it never has a terminal; "ground", at a free key; or "2" to "6",
+    /// a floor of its own choosing, as it was put there from the office.
     var floor = "upstairs"
     /// Where its reports are seen, besides the event route.
     var source = Source()
+    /// Found in the Grok Bot app rather than set by you (see `discover`):
+    /// it goes when the app no longer has it, unless it's pinned.
+    var discovered = false
+    /// Kept whatever the app says: set in setup, or edited there.
+    var pinned = false
+    /// The folder mail to this bot goes through (see `BotMailbox`), chosen on the setup page and
+    /// nowhere else; "" for none. `POST /setup/bots` never changes it.
+    var mailbox = ""
 
     struct Source: Codable, Equatable {
         /// "grokBotApp", the Grok Bot app's own copy of its chats on this Mac
@@ -64,7 +73,7 @@ struct CloudBot: Codable, Equatable {
     }
 
     init(id: String, name: String, agent: String = Agent.grok.rawValue, outfit: String = "grok", badge: String = "",
-         permanent: Bool = true, floor: String = "upstairs", source: Source = Source()) {
+         permanent: Bool = true, floor: String = "upstairs", source: Source = Source(), discovered: Bool = false, pinned: Bool = false, mailbox: String = "") {
         self.id = id
         self.name = name
         self.agent = agent
@@ -73,6 +82,9 @@ struct CloudBot: Codable, Equatable {
         self.permanent = permanent
         self.floor = floor
         self.source = source
+        self.discovered = discovered
+        self.pinned = pinned
+        self.mailbox = mailbox
     }
 
     /// Any part left out is the default's, as setup or a tool of yours may send only some.
@@ -86,9 +98,22 @@ struct CloudBot: Codable, Equatable {
         permanent = try c.decodeIfPresent(Bool.self, forKey: .permanent) ?? permanent
         floor = try c.decodeIfPresent(String.self, forKey: .floor) ?? floor
         source = try c.decodeIfPresent(Source.self, forKey: .source) ?? source
+        discovered = try c.decodeIfPresent(Bool.self, forKey: .discovered) ?? discovered
+        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? pinned
+        mailbox = try c.decodeIfPresent(String.self, forKey: .mailbox) ?? mailbox
     }
 
-    static let floors = ["upstairs", "ground"]
+    static let floors = ["upstairs", "ground"] + (2...Floor.count).map(String.init)
+
+    /// Its floor as the building counts them: 0 for the ground floor, 1 to 5
+    /// for 2F to 6F; nil upstairs, where there's room.
+    var floorIndex: Int? {
+        if floor == "ground" { return 0 }
+        return Int(floor).flatMap { (2...Floor.count).contains($0) ? $0 - 1 : nil }
+    }
+
+    /// `floorIndex` as it's kept: "ground", or "2" to "6".
+    static func floor(at index: Int) -> String { index == 0 ? "ground" : String(index + 1) }
     static let idLimit = 32
     static let most = 9
 
@@ -107,7 +132,8 @@ struct CloudBot: Codable, Equatable {
         return CloudBot(id: id, name: name, agent: Agent(rawValue: agent)?.rawValue ?? Agent.grok.rawValue,
                         outfit: TeamMember.choices["outfit"]?.contains(outfit) == true && outfit != "auto" ? outfit : "",
                         badge: Role.badges.contains(badge) ? badge : "", permanent: permanent,
-                        floor: CloudBot.floors.contains(floor) ? floor : "upstairs", source: source)
+                        floor: CloudBot.floors.contains(floor) ? floor : "upstairs", source: source,
+                        discovered: discovered, pinned: pinned, mailbox: mailbox.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// Bots as kept: each checked, each id once, at most `most`.
@@ -117,6 +143,87 @@ struct CloudBot: Codable, Equatable {
             kept.append(bot)
         }
         return kept
+    }
+
+    /// What finding the Grok Bot app's bots made of `bots`: one for each bot
+    /// there that none is set for yet and that isn't `hidden`, found, at the
+    /// end, while there's room; and found ones gone from there, or hidden
+    /// since, left out, unless pinned. A bot you set yourself is never left
+    /// out. With `rows` nil, as when the app's roster can't be read, nothing
+    /// changes: an app moved or locked isn't an app with no bots.
+    static func discover(_ rows: [GrokBotApp.Row]?, in bots: [CloudBot], hidden: Set<String>)
+        -> (bots: [CloudBot], noRoom: [GrokBotApp.Row]) {
+        guard let rows else { return (bots, []) }
+        let here = Set(rows.map { $0.id.lowercased() })
+        let hiddenIDs = Set(hidden.map { $0.lowercased() })
+        // A bot set by its name in the app is given its id there while the name is the same, so a rename there
+        // later doesn't lose it, nor give it a second desk. Only an exact name: a guess, by a name like it, is
+        // looked at again each time, as setup's warning says, never kept.
+        let named = bots.map { bot -> CloudBot in
+            guard bot.source.kind == "grokBotApp", bot.source.botId.isEmpty,
+                  let found = GrokBotApp.resolve(botId: "", name: bot.source.bot.isEmpty ? bot.name : bot.source.bot, in: rows),
+                  found.by == "name" else { return bot }
+            var bot = bot
+            bot.source.botId = found.botId
+            return bot
+        }
+        var kept = named.filter { bot in
+            let id = bot.source.botId.lowercased()
+            return !bot.discovered || bot.pinned || bot.source.kind != "grokBotApp" || here.contains(id) && !hiddenIDs.contains(id)
+        }
+        var noRoom: [GrokBotApp.Row] = []
+        for row in rows where !hiddenIDs.contains(row.id.lowercased()) {
+            // Already at a desk: a bot that is this one in the app, by its id or found by its name, whatever its
+            // source. Its name alone counts only for a bot the app has none for: two bots there may share a name,
+            // and one renamed there leaves its old name free for a new one.
+            let known = kept.contains { bot in
+                if let app = bot.appID(in: rows) { return app.lowercased() == row.id.lowercased() }
+                guard bot.source.botId.isEmpty else { return false }
+                return [bot.name, bot.source.bot].contains { $0.lowercased() == CloudBot.deskName(row.name).lowercased() || $0.lowercased() == row.name.lowercased() }
+            }
+            guard !known else { continue }
+            guard kept.count < most else { noRoom.append(row); continue }
+            let id = freeID(for: row, among: kept.map(\.id))
+            guard let bot = CloudBot(id: id, name: row.name, source: Source(kind: "grokBotApp", bot: row.name, botId: row.id),
+                                     discovered: true).checked else { continue }
+            kept.append(bot)
+        }
+        return (kept, noRoom)
+    }
+
+    /// Its id in the Grok Bot app: the one it was given, else the bot there
+    /// by its name (or the one like it), for one set before ids, or set with
+    /// no source at all, by the name its desk says. Nil when the app has none.
+    func appID(in rows: [GrokBotApp.Row]) -> String? {
+        if !source.botId.isEmpty { return source.botId }
+        let names = [source.bot, name].filter { !$0.isEmpty }
+        return names.lazy.compactMap { GrokBotApp.resolve(botId: "", name: $0, in: rows)?.botId }.first
+    }
+
+    /// Whether `other` is this bot as you'd set it, whether it's pinned and
+    /// was found aside: setup sending it back unchanged doesn't pin it.
+    func sameAsSet(_ other: CloudBot) -> Bool {
+        var a = self, b = other
+        (a.pinned, a.discovered, b.pinned, b.discovered) = (false, false, false, false)
+        return a == b
+    }
+
+    /// The bot as setup's list shows it.
+    var setupJSON: [String: Any] {
+        ["id": id, "name": name, "floor": floor, "pinned": pinned, "discovered": discovered,
+         "fromApp": source.kind == "grokBotApp", "botId": source.botId, "mailbox": mailbox]
+    }
+
+    /// An id for a bot found in the app: its name in letters, digits and
+    /// dashes, or "grok" with its app id's start, made unique with a number.
+    static func freeID(for row: GrokBotApp.Row, among taken: [String]) -> String {
+        let words = row.name.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" }
+        var base = String(words).split(separator: "-").joined(separator: "-")
+        if base.isEmpty { base = "grok-" + row.id.lowercased().prefix(8) }
+        base = String(base.prefix(idLimit - 3))
+        var id = base, n = 2
+        while taken.contains(id) { id = "\(base)-\(n)"; n += 1 }
+        return id
     }
 
     /// What it wears, through the role path office.js already draws: no
@@ -399,6 +506,12 @@ final class GrokBotApp: CloudBotSource {
         return resolve(botId: source.botId, name: source.bot, in: rows)
     }
 
+    /// The bots in the app now, read afresh; nil when its roster can't be read.
+    static func rows(folder: URL = GrokBotApp.folder) -> [Row]? {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return nil }
+        return roster(in: folder, keys: keys(of: names))
+    }
+
     /// The folder's files by their key.
     static func keys(of names: [String]) -> [String: String] {
         Dictionary(names.compactMap { name in key(ofFile: name).map { ($0, name) } }, uniquingKeysWith: { a, _ in a })
@@ -573,6 +686,15 @@ final class CloudDesks {
         bots.compactMap { bot in
             guard bot.floor == floor, let session = sessionsByID[bot.sessionID], session.state != .idle else { return nil }
             return session
+        }
+    }
+
+    /// The desks to seat above the ground floor, in the order the bots were
+    /// set, each with the floor it was put on, or nil for upstairs, where there's room.
+    func seatedAbove() -> [(session: Session, floor: Int?)] {
+        bots.compactMap { bot in
+            guard bot.floor != "ground", let session = sessionsByID[bot.sessionID], session.state != .idle else { return nil }
+            return (session, bot.floorIndex)
         }
     }
 

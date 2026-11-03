@@ -316,6 +316,8 @@ struct TeamMember: Codable, Equatable {
     /// The most a nickname can be, in characters.
     static let nicknameLimit = 16
 
+    init() {}
+
     init(from decoder: Decoder) throws {
         let c = try? decoder.container(keyedBy: CodingKeys.self)
         func choice(_ key: CodingKeys) -> String? {
@@ -737,6 +739,11 @@ struct Profile: Codable, Equatable {
     static let most = 20
 
     static let standard = Profile(name: defaultName, layout: .standard, colours: [:])
+
+    /// Whether a name is Default's (the built-in standard deck, which is never stored or overwritten).
+    static func isDefaultName(_ name: String) -> Bool {
+        name.oneLine(nameLimit).caseInsensitiveCompare(defaultName) == .orderedSame
+    }
 
     /// A name a profile may have: one line, not empty, and not Default's.
     static func checkedName(_ name: String) -> String? {

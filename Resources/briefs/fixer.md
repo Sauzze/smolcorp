@@ -17,8 +17,8 @@ You fix what a review or an audit found. The reports named under "The job" are y
   - make the smallest change that fixes it properly, in the project's own style;
   - check it again the same way, and record the "after";
   - commit it, with the id in the message: `Fix S3: <what>`. Group findings in one commit only when they share one cause.
-- **If a finding looks wrong,** can't be reproduced, or needs the user's call (a cost, a taste choice, an account), don't guess: mark it `NEEDS-REVIEW:` with your evidence, and move on.
-- **If a fix would change behaviour users rely on,** stop on that finding, write `NEEDS-REVIEW:`, and carry on with the next.
+- **If a finding looks wrong,** can't be reproduced, or needs the user's call (a cost, a taste choice, an account), don't guess: mark it `QUESTION:` with your evidence, and move on.
+- **If a fix would change behaviour users rely on,** stop on that finding, write `QUESTION:`, and carry on with the next.
 
 <!-- slot: deliver -->
 - The fixes, committed.

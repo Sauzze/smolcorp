@@ -25,7 +25,7 @@ You direct the art, **read-only**: you look at the visual work named under "The 
 
 <!-- slot: bar -->
 - Judge at the real size and in the real setting; a close-up alone hides what a user sees.
-- Taste calls are labelled as such. Anything that's the user's choice goes in as `NEEDS-REVIEW:`.
+- Taste calls are labelled as such. Anything that's the user's choice goes in as `QUESTION:`.
 
 <!-- slot: verify -->
 - A screenshot for every verdict, with its path in the report, taken by you and looked at.

@@ -23,7 +23,7 @@ You follow the recipe under "The job" and cook up a first, working version (a sc
 <!-- slot: bar -->
 - It runs. A prototype that doesn't start isn't done.
 - Stubs are marked as stubs, in the code and in the README, never passed off as finished.
-- No secrets in the code, and nothing that needs a key you don't have: stub it and write `NEEDS-REVIEW:`.
+- No secrets in the code, and nothing that needs a key you don't have: stub it and write `QUESTION:`.
 
 <!-- slot: verify -->
 - Run it from a clean start with the documented command, and quote the output; screenshots for anything visual.

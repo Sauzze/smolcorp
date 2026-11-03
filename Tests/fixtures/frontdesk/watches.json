@@ -1,0 +1,11 @@
+{
+  "route": "GET /setup/gm/watches",
+  "callers": ["gm", "page", "tool"],
+  "note": "watchers.json in the support folder is {version, watches} with the same fields plus where each file watch has read to (offset, inode). The answer leaves those out. $ROOT stands for a hire's folder.",
+  "answer": {
+    "watches": [
+      {"id": "w-0001", "kind": "file", "target": "$ROOT/STATUS.md", "pattern": "\\bDONE\\b", "repeat": false, "by": "gm", "createdAt": 1761000000000, "fired": 0, "active": true},
+      {"id": "w-0002", "kind": "time", "target": "check the build", "pattern": "", "repeat": true, "by": "owner", "createdAt": 1761000000000, "fired": 0, "active": true, "minutes": 30, "due": 1761001800000}
+    ]
+  }
+}

@@ -42,10 +42,14 @@ enum OpenCodeInstall {
 
     /// The opencode program, with every link resolved, or nil if there's none.
     /// It reads the login shell's PATH the first time: never on the main thread.
-    static func program() -> URL? {
+    static func program() -> URL? { program(named: "opencode") }
+
+    /// Any program by `name`, looked for where OpenCode is: the coding agents
+    /// ✨ Summary can use are installed the same ways.
+    static func program(named name: String) -> URL? {
         let path = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
         for folder in path + places {
-            let candidate = URL(fileURLWithPath: folder).appendingPathComponent("opencode")
+            let candidate = URL(fileURLWithPath: folder).appendingPathComponent(name)
             if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate.resolvingSymlinksInPath() }
         }
         return nil

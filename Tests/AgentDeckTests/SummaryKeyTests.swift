@@ -82,14 +82,20 @@ final class SummaryKeyTests: XCTestCase {
 
     // MARK: Where it never goes
 
-    func testSetupShowsOnlyTheHint() {
+    /// Setup says where the key is, and no part of it: not even its last four, on or off (SIERRA 1.23 m-1).
+    func testSetupShowsOnlyWhereTheKeyIs() {
         SummaryKey.save(key)
-        let state = text(DeckRouter.summaryState(optIn: true, environment: [:]))
-        XCTAssertTrue(state.contains("sk-ant-…xY9z"))
-        XCTAssertTrue(state.contains("\"enabled\":true"))
-        assertNoPartOfTheKey(state, "setup's state")
+        for optIn in [true, false] {
+            let state = text(DeckRouter.summaryState(optIn: optIn, environment: [:]))
+            XCTAssertTrue(state.contains("\"source\":\"keychain\""), state)
+            XCTAssertFalse(state.contains("xY9z") || state.contains("sk-ant-…") || state.contains("hint"), state)
+            assertNoPartOfTheKey(state, "setup's state")
+        }
+        XCTAssertTrue(text(DeckRouter.summaryState(optIn: true, environment: [:])).contains("\"enabled\":true"))
         SummaryKey.remove()
-        let fromEnvironment = text(DeckRouter.summaryState(optIn: true, environment: ["ANTHROPIC_API_KEY": key]))
+        let fromEnvironment = text(DeckRouter.summaryState(optIn: false, environment: ["ANTHROPIC_API_KEY": key]))
+        XCTAssertTrue(fromEnvironment.contains("\"source\":\"environment\""), fromEnvironment)
+        XCTAssertFalse(fromEnvironment.contains(String(key.suffix(4))) || fromEnvironment.contains("hint"), fromEnvironment)
         assertNoPartOfTheKey(fromEnvironment, "setup's state with the environment's key")
         XCTAssertTrue(text(DeckRouter.summaryState(optIn: true, environment: [:])).contains("\"enabled\":false"), "no key, not on")
     }
@@ -179,6 +185,131 @@ final class SummaryKeyTests: XCTestCase {
         for (name, value) in request.allHTTPHeaderFields ?? [:] where name.lowercased() != "x-api-key" {
             assertNoPartOfTheKey(value, "the \(name) header")
         }
+    }
+
+    // MARK: Off the main queue
+
+    /// A Keychain stuck on its dialog (the write waits) doesn't hold up the main queue, where other routes answer.
+    func testSavingWhileTheKeychainWaitsDoesNotBlockMain() {
+        let release = DispatchSemaphore(value: 0)
+        let started = expectation(description: "the write began")
+        let memory = self.memory
+        SummaryKey.store = SummaryKey.Store(
+            read: { memory.key }, hint: { memory.hint },
+            write: { key, hint in
+                started.fulfill()
+                release.wait()
+                memory.key = key; memory.hint = hint
+                return true
+            },
+            delete: { memory.key = nil; memory.hint = nil })
+
+        let saved = expectation(description: "saved")
+        var kept: Bool?
+        SummaryKey.save(key) { kept = $0; saved.fulfill() }
+        wait(for: [started], timeout: 2)
+
+        // Another route's reply, on the main queue, while the write still waits.
+        let answered = expectation(description: "another route answered")
+        DispatchQueue.main.async { answered.fulfill() }
+        wait(for: [answered], timeout: 2)
+        XCTAssertNil(kept, "the save is still waiting")
+
+        release.signal()
+        wait(for: [saved], timeout: 2)
+        XCTAssertEqual(kept, true)
+        XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: "sk-ant-…xY9z"))
+    }
+
+    /// The first look for the hint isn't on the main queue: shown() answers at once, then the hint is learned.
+    func testTheFirstHintReadWaitsOffMain() {
+        let release = DispatchSemaphore(value: 0)
+        let started = DispatchSemaphore(value: 0)
+        let memory = self.memory
+        memory.hint = "sk-ant-…xY9z"
+        SummaryKey.store = SummaryKey.Store(
+            read: { nil }, hint: { started.signal(); release.wait(); return memory.hint }, write: { _, _ in true }, delete: {})
+        SummaryKey.forgetKnown()
+        let learned = expectation(description: "learned")
+        SummaryKey.onLearned = { learned.fulfill() }
+        defer { SummaryKey.onLearned = {} }
+
+        XCTAssertNil(SummaryKey.shown(environment: [:]), "nothing known yet, and not waited for")
+        XCTAssertEqual(started.wait(timeout: .now() + 2), .success)
+        let answered = expectation(description: "main answered")
+        DispatchQueue.main.async { answered.fulfill() }
+        wait(for: [answered], timeout: 2)
+
+        release.signal()
+        wait(for: [learned], timeout: 2)
+        XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: "sk-ant-…xY9z"))
+    }
+
+    func testRemovingOffMainDropsTheKeyAndTellsMain() {
+        SummaryKey.save(key)
+        let removed = expectation(description: "removed")
+        SummaryKey.remove {
+            XCTAssertTrue(Thread.isMainThread)
+            removed.fulfill()
+        }
+        wait(for: [removed], timeout: 2)
+        XCTAssertNil(SummaryKey.shown(environment: [:]))
+        XCTAssertNil(memory.key)
+    }
+
+    func testAKeyThatIsntOneIsRefusedOffMainToo() {
+        let refused = expectation(description: "refused")
+        SummaryKey.save("hello") { kept in
+            XCTAssertFalse(kept)
+            refused.fulfill()
+        }
+        wait(for: [refused], timeout: 2)
+        XCTAssertNil(memory.key)
+    }
+
+    // MARK: A test copy's key file is read again
+
+    func testATestCopySeesAKeyFileWrittenAfterTheFirstLook() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("key-file-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent(TestCopySecrets.apiKeyName)
+        SummaryKey.store = .file(file)
+        SummaryKey.forgetKnown()
+        XCTAssertNil(SummaryKey.shown(environment: [:], testMode: true), "no file yet: no key")
+        XCTAssertTrue(TestCopySecrets.write(key, to: file))
+        XCTAssertEqual(SummaryKey.shown(environment: [:], testMode: true), SummaryKey.Shown(source: .keychain, hint: SummaryKey.hint(key)),
+                       "written while the copy runs: seen at once")
+        TestCopySecrets.remove(file)
+        XCTAssertNil(SummaryKey.shown(environment: [:], testMode: true), "a removed file is no key")
+    }
+
+    func testTheRealAppKeepsWhatItLearned() throws {
+        memory.key = key
+        memory.hint = SummaryKey.hint(key)
+        let learned = expectation(description: "learned")
+        SummaryKey.onLearned = { learned.fulfill() }
+        defer { SummaryKey.onLearned = {} }
+        _ = SummaryKey.shown(environment: [:], testMode: false)
+        wait(for: [learned], timeout: 5)
+        memory.key = nil
+        memory.hint = nil
+        XCTAssertEqual(SummaryKey.shown(environment: [:], testMode: false)?.hint, SummaryKey.hint(key), "the real app's cache is unchanged")
+    }
+
+    func testTheTestCopyRefusalNamesTheFileNotTheKeychain() {
+        let file = URL(fileURLWithPath: "/tmp/copy/test-api-key")
+        let copy = HireDesk.apiKeyRefusal(picked: true, offered: false, testCopy: true, file: file)
+        XCTAssertEqual(copy?.status, 409)
+        XCTAssertTrue(copy?.message.contains("/tmp/copy/test-api-key") == true)
+        XCTAssertTrue(copy?.message.contains("fake key") == true)
+        XCTAssertFalse(copy?.message.contains("Keychain") == true)
+        XCTAssertFalse(HireDesk.keyRefusalText(testCopy: true, file: file).message.contains("Keychain"))
+        XCTAssertFalse(HireDesk.apiKeyNoticeText(testCopy: true).contains("Keychain"))
+        XCTAssertTrue(HireDesk.apiKeyNoticeText(testCopy: true).contains("test-api-key"))
+        let real = HireDesk.apiKeyRefusal(picked: true, offered: false, testCopy: false)
+        XCTAssertEqual(real?.message, "There's no Anthropic API key in your Keychain. Save one under Summaries, or hire on a Claude account.")
+        XCTAssertEqual(HireDesk.keyRefusalText(testCopy: false).message, HireDesk.keyRefusal.message)
+        XCTAssertEqual(HireDesk.apiKeyNoticeText(testCopy: false), HireDesk.apiKeyNotice)
     }
 }
 

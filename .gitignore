@@ -5,3 +5,6 @@ build/
 
 # Notes and screenshots a personal build keeps beside the code: never committed (see scripts/check-public.sh).
 notes-out/
+
+# Windows resources, written by scripts/mkwinres at release time (see scripts/release-desktop.sh): never committed.
+*.syso

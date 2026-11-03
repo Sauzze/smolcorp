@@ -20,8 +20,9 @@ import (
 //     Tailscale gave this computer. The home network, the Wi-Fi of a cafe, the
 //     other side of the box: none of them can open the port at all.
 //
-// The default is "tailscale" on Windows and "all" elsewhere. The setting is
-// "listen" in config.json ("all" or "tailscale"), read at start.
+// The default is "tailscale" on Windows and Linux, and "all" elsewhere. The
+// setting is "listen" in config.json ("all" or "tailscale"), read at start:
+// setup's Also on my home Wi-Fi sets "all".
 const (
 	listenAll       = "all"
 	listenTailscale = "tailscale"
@@ -31,11 +32,32 @@ const (
 // phoneHost to give the phone an address that works.
 var listenScope = defaultListenScope()
 
-func defaultListenScope() string {
-	if runtime.GOOS == "windows" {
+func defaultListenScope() string { return defaultScopeOn(runtime.GOOS) }
+
+// defaultScopeOn is the default on a system, by Go's name for it.
+func defaultScopeOn(system string) string {
+	if system == "windows" || system == "linux" {
 		return listenTailscale
 	}
 	return listenAll
+}
+
+// settleListenScope writes the scope down on Linux, the first time a version
+// with Tailscale's scope as its default starts, so the change of default
+// can't lock you out: before it, Linux listened on every interface, and a
+// phone already paired most likely reaches this computer on the home Wi-Fi,
+// so it stays "all". With no phone yet, it's the default, "tailscale". A
+// value that's neither, as "lan", counted as unset before, and does here. It
+// says whether it changed c.
+func settleListenScope(c *Config, phones int, system string) bool {
+	if listen := strings.ToLower(strings.TrimSpace(c.Listen)); system != "linux" || listen == listenAll || listen == listenTailscale {
+		return false
+	}
+	c.Listen = listenTailscale
+	if phones > 0 {
+		c.Listen = listenAll
+	}
+	return true
 }
 
 // scopeOf is the scope a config asks for: its own if valid, else the default.
@@ -92,16 +114,17 @@ func tailscaleFrom(name string, up bool, ips []net.IP) []string {
 }
 
 // phoneHost is the host a phone opens to reach this computer. With the server
-// on Tailscale only, that is the Tailscale address, since nothing else answers;
-// otherwise the address on the local network, as before, and Tailscale's only if
-// there is no other.
+// on Tailscale only, that is the Tailscale address, since nothing else answers,
+// or "" with no Tailscale here: no phone could open any other; otherwise the
+// address on the local network, as before, and Tailscale's only if there is no
+// other.
 func phoneHost() string {
 	tailscale := tailscaleAddresses()
 	if listenScope == listenTailscale {
 		if len(tailscale) > 0 {
 			return tailscale[0]
 		}
-		return "localhost"
+		return ""
 	}
 	if lan := localAddress(); lan != "localhost" || len(tailscale) == 0 {
 		return lan

@@ -331,6 +331,13 @@ func TestDefaultCantBeTakenOver(t *testing.T) {
 			t.Errorf("a profile was saved as %q", name)
 		}
 	}
+	// Default's refusal says why and what to do; an empty name is told to give one.
+	if err := c.SaveProfile(" DEFAULT "); err == nil || !strings.Contains(err.Error(), "Smolcorp's own profile") || !strings.Contains(err.Error(), "another name") {
+		t.Errorf("Default's refusal: %v", err)
+	}
+	if err := c.SaveProfile(""); err != errProfileName {
+		t.Errorf("an empty name: %v", err)
+	}
 	if c.RenameProfile(defaultProfile, "Mine") == nil {
 		t.Error("Default was renamed")
 	}

@@ -20,7 +20,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="1.22.1"
+VERSION="1.24.0"
 BRANCH="release-next"
 TAG="v$VERSION"
 RELEASE_BRANCH="release/$VERSION"

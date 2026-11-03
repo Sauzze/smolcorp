@@ -40,6 +40,9 @@
 # Some agents run hooks with a pared-down environment.
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
+# A coding agent Smolcorp runs for a ✨ summary is no session of a desk's.
+if [ "$SMOLCORP_SUMMARY" = "1" ]; then cat >/dev/null; exit 0; fi
+
 AGENT="${1:-claude}"
 AT="$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')"
 DIR="$(cd "$(dirname "$0")" && pwd)"

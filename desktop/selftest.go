@@ -45,6 +45,9 @@ const (
 // selfTest is the checklist, in the order it's done in. Without the lock.
 func (d *Deck) selfTest() []check {
 	checks := []check{}
+	if restart := restartCheck(); restart != nil {
+		checks = append(checks, *restart)
+	}
 	if install := installCheck(); install != nil {
 		checks = append(checks, *install)
 	}
@@ -57,7 +60,7 @@ func (d *Deck) selfTest() []check {
 	if firewall := firewallCheck(scope); firewall != nil {
 		checks = append(checks, *firewall)
 	}
-	checks = append(checks, phoneCheck(phones), loginCheck(isOpenAtLogin()))
+	checks = append(checks, phoneCheck(phones), loginCheck(isOpenAtLogin(), hasTray()))
 	return checks
 }
 
@@ -139,10 +142,11 @@ func networkCheck(scope string, tailscale []string) check {
 		c.Status = checkOK
 		c.Detail = fmt.Sprintf("On this network, and through Tailscale at %s from anywhere.", tailscale[0])
 	case scope == listenTailscale:
-		c.Status, c.Fix, c.Label = checkTodo, fixTailscale, "Get Tailscale"
-		c.Detail = "Smolcorp waits for Tailscale, a free private network between your own devices: install it here and on " +
-			"your phone, signed in to the same account, and your phone reaches this computer from anywhere. " +
-			"Or let phones on your home Wi-Fi in."
+		// No phone can reach this computer yet: the home Wi-Fi is the button, as it works at once.
+		c.Status, c.Fix, c.Label = checkTodo, fixHomeWiFi, "Let in my home Wi-Fi"
+		c.Detail = "No phone can reach this computer yet. Let phones on your home Wi-Fi in, or get Tailscale " +
+			"(tailscale.com/download), a free private network between your own devices: installed here and on your phone, " +
+			"signed in to the same account, your phone reaches this computer from anywhere, and the Wi-Fi needn't be let in."
 	default:
 		c.Status, c.Fix, c.Label = checkInfo, fixTailscale, "Get Tailscale"
 		c.Detail = "On this network only. With Tailscale, free, on this computer and your phone, it reaches you from anywhere."
@@ -162,16 +166,39 @@ func phoneCheck(phones int) check {
 }
 
 // loginCheck is whether Smolcorp opens at login, so desks are there from
-// the first session of the day.
-func loginCheck(on bool) check {
+// the first session of the day. tray is whether there's a tray to see it in.
+func loginCheck(on, tray bool) check {
 	c := check{ID: "login", Title: "Smolcorp opens at login"}
 	if on {
 		c.Status, c.Detail = checkOK, "It's in the tray from the moment you sign in."
+		if !tray {
+			c.Detail = "It starts when you sign in."
+		}
 		return c
 	}
 	c.Status, c.Fix, c.Label = checkTodo, fixLogin, "Open at login"
 	c.Detail = "Otherwise, sessions started before you open Smolcorp aren't at a desk until their next turn."
 	return c
+}
+
+// errHooksDisconnected is what setup's own repair says when you disconnected
+// the agents: it doesn't connect them again behind your back.
+var errHooksDisconnected = errors.New("Your agents are disconnected, as you left them, so setup didn't connect them. To connect them again, press Connect on the setup page.")
+
+// hooksDisconnected: you disconnected the agents, and haven't connected them since.
+func (d *Deck) hooksDisconnected() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.config.HooksDisconnected
+}
+
+func (d *Deck) setHooksDisconnected(off bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.config.HooksDisconnected != off {
+		d.config.HooksDisconnected = off
+		d.config.save()
+	}
 }
 
 var errUnknownFix = errors.New("There's no fix by that name.")
@@ -181,9 +208,11 @@ var errUnknownFix = errors.New("There's no fix by that name.")
 func (d *Deck) fix(name string) (int, string) {
 	switch name {
 	case fixRepair:
-		if err := connectAgents(); err != nil {
+		// Repair connects what was connected; it never turns voice on, so there's nothing to tell
+		if _, err := connectAgents(false); err != nil {
 			return http.StatusConflict, err.Error()
 		}
+		d.setHooksDisconnected(false)
 	case fixInstall:
 		if err := installNow(); err != nil {
 			return http.StatusConflict, err.Error()

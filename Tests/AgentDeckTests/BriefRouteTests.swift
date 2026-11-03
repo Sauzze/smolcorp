@@ -31,6 +31,21 @@ final class BriefRouteTests: XCTestCase {
 
     // MARK: Each route
 
+    func testRestoreDefaultsPutsTheAppsBriefsBackAndIsForThePageAlone() throws {
+        let mine = home.appendingPathComponent("templates")
+        _ = BriefLibrary.editable(from: library.folder, in: mine)
+        try "edited".write(to: mine.appendingPathComponent("_base.md"), atomically: true, encoding: .utf8)
+        let answered = BriefRoutes.restore(from: library.folder, in: mine)
+        XCTAssertEqual(answered.status, 200)
+        XCTAssertEqual(json(answered)["restored"] as? Int, BriefLibrary.fileNames.count)
+        XCTAssertNotEqual(try String(contentsOf: mine.appendingPathComponent("_base.md"), encoding: .utf8), "edited")
+        XCTAssertTrue(BriefRoutes.handles("POST", "/setup/briefs/restore"))
+        XCTAssertEqual(SetupRoutes.row("POST", "/setup/briefs/restore")?.callers, [.page])
+        XCTAssertFalse(SetupRoutes.allows(.gm, "POST", "/setup/briefs/restore"))
+        XCTAssertFalse(SetupRoutes.allows(.tool, "POST", "/setup/briefs/restore"))
+        XCTAssertEqual(BriefRoutes.restore(from: home.appendingPathComponent("none"), in: mine.appendingPathComponent("x")).status, 500)
+    }
+
     func testTheLibraryIsListed() throws {
         let briefs = try XCTUnwrap(json(BriefRoutes.list(library))["briefs"] as? [[String: Any]])
         XCTAssertEqual(briefs.map { $0["id"] as? String }, Brief.libraryIDs)
@@ -138,6 +153,10 @@ final class BriefRouteTests: XCTestCase {
         XCTAssertEqual(try request(["role": "janitor", "folder": app, "answers": ["the importer", "public APIs"]]).get(),
                        BriefRoutes.HireRequest(role: "janitor", folder: app, answers: ["the importer", "public APIs"]))
         XCTAssertEqual(try request(["role": "janitor", "folder": app]).get().answers, [])
+        // A floor above, from setup's picker; none, or one there isn't, is the ground floor.
+        XCTAssertEqual(try request(["role": "janitor", "folder": app, "floor": 3]).get().floor, 3)
+        XCTAssertEqual(try request(["role": "janitor", "folder": app, "floor": 9]).get().floor, 0)
+        XCTAssertEqual(try request(["role": "janitor", "folder": app]).get().floor, 0)
         let refusals: [([String: Any], Int, String)] = [
             (["folder": app], 400, "Say which role to hire."),
             (["role": "nope", "folder": app], 404, "That role isn't there any more. Pick another."),
@@ -151,6 +170,127 @@ final class BriefRouteTests: XCTestCase {
                 XCTAssertEqual(($0 as? BriefRoutes.Refusal).map { self.text($0.response) }, message)
             }
         }
+    }
+
+    func testOnlyTheSetupPageHiresTheGM() throws {
+        let refused = try XCTUnwrap(BriefRoutes.gmHireRefusal(role: "gm", caller: .gm, gmHired: true))
+        XCTAssertEqual(refused.response.status, 409)
+        XCTAssertEqual(String(decoding: refused.response.body, as: UTF8.self),
+                       "This office already has a General Manager. The owner can replace it from Setup.")
+        // No GM yet: still refused, and the text says the hire is the owner's.
+        let none = try XCTUnwrap(BriefRoutes.gmHireRefusal(role: "gm", caller: .gm, gmHired: false))
+        XCTAssertEqual(none.response.status, 409)
+        XCTAssertEqual(String(decoding: none.response.body, as: UTF8.self), "Only the owner hires the General Manager, from Setup.")
+        XCTAssertNil(BriefRoutes.gmHireRefusal(role: "gm", caller: .page, gmHired: true), "the page hires and replaces the GM")
+        XCTAssertNil(BriefRoutes.gmHireRefusal(role: "janitor", caller: .gm, gmHired: false))
+        XCTAssertNil(BriefRoutes.gmHireRefusal(role: nil, caller: .gm, gmHired: true))
+    }
+
+    /// "A GM is hired" means one in the registry that is not fired or failed.
+    func testAGMIsHiredWhileItIsNotFiredOrFailed() {
+        func hire(_ role: String, _ state: FrontDesk.State) -> FrontDesk.Hire {
+            var made = FrontDesk.Hire(id: role + state.rawValue, name: role, role: role, folder: "/x")
+            made.state = state
+            return made
+        }
+        XCTAssertFalse(BriefRoutes.gmIsHired(among: []))
+        XCTAssertFalse(BriefRoutes.gmIsHired(among: [hire("janitor", .starting)]))
+        XCTAssertFalse(BriefRoutes.gmIsHired(among: [hire("gm", .fired), hire("gm", .failed)]))
+        XCTAssertTrue(BriefRoutes.gmIsHired(among: [hire("gm", .fired), hire("gm", .starting)]))
+    }
+
+    /// `setup` is private to DeckRouter and needs a live Deck, so this reads the source: the page's own
+    /// GM hire route must open with the helper, before it saves or hires anything.
+    func testTheSetupPageGMRouteAsksTheSameHelperFirst() throws {
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: repo.appendingPathComponent("Sources/AgentDeck/DeckRouter.swift"), encoding: .utf8)
+        let route = try XCTUnwrap(source.range(of: #"case ("POST", "/setup/hire/gm"):"#))
+        let body = source[route.upperBound...].prefix(800)
+        let helper = try XCTUnwrap(body.range(of: "BriefRoutes.gmHireRefusal(role: GMPlugin.role, caller: caller, gmHired: BriefRoutes.gmIsHired(among: deck.frontDesk.hires))"))
+        let save = try XCTUnwrap(body.range(of: "config.managerEnabled = true"))
+        XCTAssertLessThan(helper.lowerBound, save.lowerBound, "refused before the manager switch is saved")
+    }
+
+    private func source(_ path: String) throws -> String {
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return try String(contentsOf: repo.appendingPathComponent(path), encoding: .utf8)
+    }
+
+    func testTheSetupPageGMRoutePassesTheChosenAccountToTheHire() throws {
+        let router = try source("Sources/AgentDeck/DeckRouter.swift")
+        let route = try XCTUnwrap(router.range(of: #"case ("POST", "/setup/hire/gm"):"#))
+        let body = router.suffix(from: route.upperBound).prefix(900)
+        XCTAssertNotNil(body.range(of: #"deck.hire(as: "gm", in: folder, answers: nil, account: request.query["account"] ?? """#))
+        let helper = try XCTUnwrap(body.range(of: "BriefRoutes.gmHireRefusal(role: GMPlugin.role, caller: caller"))
+        let hire = try XCTUnwrap(body.range(of: "deck.hire("))
+        XCTAssertLessThan(helper.lowerBound, hire.lowerBound, "the GM token is still refused first")
+        // The page sends the choice, and shows the picker only with more than one account.
+        let page = try source("Resources/web/setup.html")
+        XCTAssertNotNil(page.range(of: "/setup/hire/gm${$('start-gm-account').hidden ? '' : `?account="))
+        XCTAssertNotNil(page.range(of: "pick.hidden = profiles.length < 2"))
+    }
+
+    func testATestCopyNeverHiresOnTheDefaultAccount() {
+        let real = ClaudeProfiles.defaultProfile(home: home)
+        let test = ClaudeProfile(name: "t124", dir: home.appendingPathComponent(".claude-t124").path)
+        let refused = Deck.testCopyAccountRefusal(account: real, testCopy: true)
+        XCTAssertEqual(refused?.status, 409)
+        XCTAssertTrue(refused?.message.contains("Choose a test account") ?? false)
+        XCTAssertNil(Deck.testCopyAccountRefusal(account: test, testCopy: true), "a test account is fine")
+        XCTAssertNil(Deck.testCopyAccountRefusal(account: real, testCopy: false), "the real app hires on the default account")
+    }
+
+    /// Every hire route ends in `Deck.hire`; its refusal comes before the place is made and the folder trusted.
+    func testEveryHireRoutePassesTheTestCopyAccountRefusalBeforeAnythingIsWritten() throws {
+        let deck = try source("Sources/AgentDeck/Deck.swift")
+        let refusal = try XCTUnwrap(deck.range(of: "Deck.testCopyAccountRefusal(account:"))
+        let place = try XCTUnwrap(deck.range(of: "HireDesk.place(request"))
+        XCTAssertLessThan(refusal.lowerBound, place.lowerBound)
+        // The only callers of Deck.hire are the routes; none reaches HireDesk.place another way.
+        let callers = try ["DeckRouter", "BriefRoutes", "MailRouter", "SetupRoutes", "FrontDesk"].map { try source("Sources/AgentDeck/\($0).swift") }
+        for text in callers { XCTAssertNil(text.range(of: "HireDesk.place(")) }
+    }
+
+    func testTheGMsHireCarriesItsTaskAndMayLeaveTheFolderOut() throws {
+        let roles = Role.checked(Role.shipped)
+        let app = home.appendingPathComponent("Projects/app").path
+        let fixture = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("fixtures/frontdesk/hire.json"))) as? [String: Any] ?? [:]
+        XCTAssertEqual(fixture["route"] as? String, "POST /setup/gm/hire")
+        XCTAssertTrue(BriefRoutes.handles("POST", "/setup/gm/hire"))
+        var asked = try XCTUnwrap(fixture["request"] as? [String: Any])
+        asked["folder"] = app
+        asked["role"] = "janitor"
+        asked["account"] = nil // no accounts to choose among here
+        asked["floor"] = 1
+        let checked = try BriefRoutes.hireRequest(body(asked), roles: roles, home: home, accounts: []).get()
+        XCTAssertEqual(checked.task, "Review the importer change and write the findings in STATUS.md.")
+        XCTAssertEqual(checked.floor, 1)
+        XCTAssertTrue(checked.options.worktree)
+        XCTAssertEqual(checked.options.nickname, "Ada")
+        // Left out, the folder is the one set up for new hires.
+        let filled = BriefRoutes.withDefaultFolder(body(["role": "janitor"]), app)
+        XCTAssertEqual(try BriefRoutes.hireRequest(filled, roles: roles, home: home, accounts: []).get().folder, app)
+        let named = BriefRoutes.withDefaultFolder(body(["role": "janitor", "folder": "/etc"]), app)
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: named) as? [String: Any])?["folder"] as? String, "/etc")
+        // The task is text, and not without end; control characters go.
+        XCTAssertThrowsError(try BriefRoutes.hireRequest(body(["role": "janitor", "folder": app, "task": 5]), roles: roles, home: home, accounts: []).get())
+        XCTAssertThrowsError(try BriefRoutes.hireRequest(body(["role": "janitor", "folder": app, "task": String(repeating: "x", count: 8001)]),
+                                                         roles: roles, home: home, accounts: []).get())
+        XCTAssertEqual(try BriefRoutes.hireRequest(body(["role": "janitor", "folder": app, "task": "a\u{7}b\n"]), roles: roles, home: home, accounts: []).get().task, "ab")
+        XCTAssertEqual(try BriefRoutes.hireRequest(body(["role": "janitor", "folder": app]), roles: roles, home: home, accounts: []).get().task, "")
+    }
+
+    /// T304's brief and T309's hire route meet: the task a GM sends is the job in the brief the hire reads.
+    func testTheTaskOfAGMsHireIsTheJobInItsBrief() throws {
+        let roles = Role.checked(Role.shipped)
+        let app = home.appendingPathComponent("Projects/app").path
+        let checked = try BriefRoutes.hireRequest(body(["role": "reviewer", "folder": app, "task": "Review the importer.\u{7}"]), roles: roles, home: home, accounts: []).get()
+        let role = try XCTUnwrap(roles.first { $0.id == "reviewer" })
+        let made = try XCTUnwrap(BriefBuilder.make(role, library: library, folder: app, pinned: false, desk: nil, answers: checked.answers,
+                                                   task: checked.task, write: false))
+        XCTAssertTrue(made.markdown.contains("The task, from whoever hired you:\n\nReview the importer."), made.markdown)
+        XCTAssertFalse(made.markdown.contains("{{task}}"))
     }
 
     func testTheFoldersToOfferAreThoseStillThere() {
@@ -171,10 +311,14 @@ final class BriefRouteTests: XCTestCase {
     /// Setup's gate and these routes, as DeckRouter has them, without the deck.
     private final class StandIn: Router {
         let key = "stand-in-key"
+        let gmToken = "stand-in-gm-token"
+        let sessions = SetupSessions()
         let config = Config()
         let library: BriefLibrary
         let home: URL
         var hired: [BriefRoutes.HireRequest] = []
+        /// Whether the registry holds a GM; the refusal's text follows.
+        var gmHired = true
 
         init(library: BriefLibrary, home: URL) {
             (self.library, self.home) = (library, home)
@@ -184,9 +328,11 @@ final class BriefRouteTests: XCTestCase {
         func handle(_ request: Request, reply: @escaping (Reply) -> Void) {
             let respond = { reply(.response($0)) }
             guard DeckRouter.isSetupPath(request.path) else { return respond(.status(404)) }
-            if let refused = DeckRouter.setupRefusal(request, isKey: { $0 == self.key }) { return respond(refused) }
+            let gate = DeckRouter.setupGate(request, sessions: sessions, isSetupKey: { $0 == self.key },
+                                            isGMToken: { $0 == self.gmToken })
+            if let refused = gate.refusal { return respond(refused) }
             guard BriefRoutes.handles(request.method, request.path) else { return respond(.status(404)) }
-            BriefRoutes.handle(request, config: config, library: library, home: home, hire: { hire, done in
+            BriefRoutes.handle(request, config: config, library: library, home: home, caller: gate.caller, gmHired: gmHired, hire: { hire, done in
                 self.hired.append(hire)
                 done(.json(["ok": true, "desk": 2, "session": NSNull()]))
             }, respond: respond)
@@ -210,10 +356,11 @@ final class BriefRouteTests: XCTestCase {
         return port
     }
 
-    private func send(_ method: String, _ path: String, port: UInt16, key: String?, action: Bool = true, json: Any? = nil) -> (Int, Data) {
+    private func send(_ method: String, _ path: String, port: UInt16, key: String?, gm: String? = nil, action: Bool = true, json: Any? = nil) -> (Int, Data) {
         var request = URLRequest(url: URL(string: "http://localhost:\(port)\(path)")!)
         request.httpMethod = method
         if let key { request.setValue(key, forHTTPHeaderField: DeckRouter.setupKeyHeader) }
+        if let gm { request.setValue(gm, forHTTPHeaderField: GMIdentity.header) }
         if action { request.setValue("1", forHTTPHeaderField: DeckRouter.setupHeader) }
         if let json { request.httpBody = body(json) }
         let done = expectation(description: "\(method) \(path)")
@@ -238,7 +385,8 @@ final class BriefRouteTests: XCTestCase {
 
         XCTAssertEqual(send("GET", "/setup/briefs", port: port, key: nil).0, 401, "no key")
         XCTAssertEqual(send("GET", "/setup/briefs", port: port, key: "wrong").0, 401)
-        XCTAssertEqual(send("POST", "/setup/hire", port: port, key: standIn.key, action: false, json: [:]).0, 403, "no setup header")
+        XCTAssertEqual(send("POST", "/setup/hire", port: port, key: standIn.key, gm: standIn.gmToken, action: false, json: [:]).0, 403, "no setup header")
+        XCTAssertEqual(send("POST", "/setup/hire", port: port, key: standIn.key, json: [:]).0, 403, "the setup-key file alone can't hire")
         let (status, list) = send("GET", "/setup/briefs", port: port, key: standIn.key, action: false)
         XCTAssertEqual(status, 200)
         XCTAssertEqual(((try JSONSerialization.jsonObject(with: list) as? [String: Any])?["briefs"] as? [Any])?.count, Brief.libraryIDs.count)
@@ -249,14 +397,34 @@ final class BriefRouteTests: XCTestCase {
         XCTAssertEqual((try JSONSerialization.jsonObject(with: folders.1) as? [String: Any])?["default"] as? String,
                        home.appendingPathComponent("Projects").path)
 
-        let (refused, reason) = send("POST", "/setup/hire", port: port, key: standIn.key, json: ["role": "janitor", "folder": "/etc"])
+        let (refused, reason) = send("POST", "/setup/hire", port: port, key: nil, gm: standIn.gmToken, json: ["role": "janitor", "folder": "/etc"])
         XCTAssertEqual(refused, 400)
         XCTAssertEqual(String(decoding: reason, as: UTF8.self), "Hire into a folder inside your home folder.")
         XCTAssertTrue(standIn.hired.isEmpty)
         let app = home.appendingPathComponent("Projects/app").path
-        let (hired, answer) = send("POST", "/setup/hire", port: port, key: standIn.key, json: ["role": "janitor", "folder": app, "answers": ["all"]])
+        let (hired, answer) = send("POST", "/setup/hire", port: port, key: nil, gm: standIn.gmToken, json: ["role": "janitor", "folder": app, "answers": ["all"]])
         XCTAssertEqual(hired, 200)
         XCTAssertEqual((try JSONSerialization.jsonObject(with: answer) as? [String: Any])?["ok"] as? Bool, true)
         XCTAssertEqual(standIn.hired, [BriefRoutes.HireRequest(role: "janitor", folder: app, answers: ["all"])])
+
+        // One GM per office: the GM's token can't hire the gm role, on either route, and nothing is added.
+        for path in ["/setup/gm/hire", "/setup/hire"] {
+            let (second, why) = send("POST", path, port: port, key: nil, gm: standIn.gmToken, json: ["role": "gm", "folder": app])
+            XCTAssertEqual(second, 409, path)
+            XCTAssertEqual(String(decoding: why, as: UTF8.self), "This office already has a General Manager. The owner can replace it from Setup.")
+        }
+        XCTAssertEqual(standIn.hired.count, 1, "no second GM was started")
+        // With no GM in the registry the GM's token is still refused, with the owner's-hire text.
+        standIn.gmHired = false
+        for path in ["/setup/gm/hire", "/setup/hire"] {
+            let (first, why) = send("POST", path, port: port, key: nil, gm: standIn.gmToken, json: ["role": "gm", "folder": app])
+            XCTAssertEqual(first, 409, path)
+            XCTAssertEqual(String(decoding: why, as: UTF8.self), "Only the owner hires the General Manager, from Setup.")
+        }
+        standIn.gmHired = true
+        XCTAssertEqual(standIn.hired.count, 1, "no GM was started")
+        let (other, _) = send("POST", "/setup/gm/hire", port: port, key: nil, gm: standIn.gmToken, json: ["role": "janitor", "folder": app])
+        XCTAssertEqual(other, 200, "another role still hires")
+        XCTAssertEqual(standIn.hired.count, 2)
     }
 }

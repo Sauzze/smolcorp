@@ -25,6 +25,7 @@ const (
 
 var (
 	errProfileName = errors.New("Give the profile a name of its own, up to 24 characters.")
+	errReserved    = errors.New("“Default” is Smolcorp's own profile and can't be overwritten. Give the backup another name.")
 	errNoProfile   = errors.New("There's no profile by that name.")
 	errTooMany     = errors.New("That's the most profiles there can be. Delete one first.")
 	errNotAProfile = errors.New("That isn't a profile this deck can add.")
@@ -34,7 +35,10 @@ var (
 // Default's.
 func profileName(name string) (string, error) {
 	name = oneLine(name, nameLimit)
-	if name == "" || strings.EqualFold(name, defaultProfile) {
+	if strings.EqualFold(name, defaultProfile) {
+		return "", errReserved
+	}
+	if name == "" {
 		return "", errProfileName
 	}
 	return name, nil

@@ -26,8 +26,10 @@ type call struct {
 	method, target, host, from string
 	headers                    map[string]string
 	body                       string
-	// Setup's calls carry the setup key, as the page does, unless this says not to.
+	// Setup's calls carry a page session's cookie, as the page does, unless this
+	// says not to, or asTool: then they carry the setup key in a header, as a tool does.
 	withoutSetupKey bool
+	asTool          bool
 }
 
 func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
@@ -35,7 +37,13 @@ func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(c.method, c.target, strings.NewReader(c.body))
 	r.Host, r.RemoteAddr = c.host, c.from
 	if strings.HasPrefix(c.target, "/setup/") && !c.withoutSetupKey {
-		r.Header.Set(setupKeyHeader, d.access.SetupKey)
+		if c.asTool {
+			r.Header.Set(setupKeyHeader, d.access.SetupKey)
+		} else {
+			d.mu.Lock()
+			r.AddCookie(&http.Cookie{Name: setupCookie, Value: d.access.NewSetupSession()})
+			d.mu.Unlock()
+		}
 	}
 	for name, value := range c.headers {
 		r.Header.Set(name, value)
@@ -48,7 +56,11 @@ func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
 func newTestDeck(t *testing.T) *Deck {
 	t.Helper()
 	isolate(t)
-	return NewDeck()
+	d := NewDeck()
+	t.Cleanup(d.stopWatchers)
+	// No coding agent is looked for: the tests' own say which are here.
+	d.summaryProviders.set(map[summaryProvider]providerState{})
+	return d
 }
 
 // pair asks for a code on this computer and pairs a phone with it, as the
@@ -87,6 +99,23 @@ func TestTheSetupPageOpensOnlyOnThisComputer(t *testing.T) {
 	}
 }
 
+// The Tailscale instructions name the port the page was served from (the server may run on another
+// SMOLCORP_PORT) and a neutral machine name, not a fixed 7710 or "this-mac".
+func TestTheTailscaleInstructionsDoNotHardcodeThePortOrTheMac(t *testing.T) {
+	d := newTestDeck(t)
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7799", from: thisComputer}).Body.String()
+	// Only the Mac app's own page says this-mac (see TestTheSetupPageSaysMacOnlyOnTheMac).
+	if strings.Contains(strings.ReplaceAll(page, "onMac() ? 'this-mac' : 'this-computer'", ""), "this-mac") {
+		t.Error("the setup page says this-mac outside the Mac")
+	}
+	if strings.Contains(page, "127.0.0.1:7710") {
+		t.Error("the setup page still hardcodes 127.0.0.1:7710 in the tailscale serve command")
+	}
+	if !strings.Contains(page, "127.0.0.1:${location.port") {
+		t.Error("the tailscale serve command does not use the port the page was served from")
+	}
+}
+
 func TestSetupButtonsNeedTheSetupPagesHeader(t *testing.T) {
 	d := newTestDeck(t)
 	// What a form on another website could send: the browser adds no custom header.
@@ -117,6 +146,11 @@ func TestAPhoneWithoutAKeyGetsOnlyThePairingPage(t *testing.T) {
 	pair(t, d)
 	if page := serve(t, d, call{method: "GET", target: "/", host: deckOnWiFi, from: aPhone}); !strings.Contains(page.Body.String(), "Pair with your computer") {
 		t.Error("a phone without a key didn't get the pairing page")
+	}
+	// On a computer with no tray, as a cloud VM's desktop, the page also says how to pair.
+	if page := serve(t, d, call{method: "GET", target: "/", host: "localhost:7710", from: thisComputer}); !strings.Contains(page.Body.String(), "With no tray, open the setup link Smolcorp printed as it started") ||
+		strings.Contains(page.Body.String(), "setup --open") {
+		t.Error("the pairing page asks for the tray, and names no true way in without one")
 	}
 	for _, target := range []string{"/act?action=send&session=s1", "/act?action=send&session=s1&t=a-made-up-key", "/focus?session=s1"} {
 		if got := serve(t, d, call{method: "POST", target: target, host: deckOnWiFi, from: aPhone}).Code; got != http.StatusUnauthorized {
@@ -183,8 +217,89 @@ func TestHiringIsSetUpOnlyWhenEveryPartIsRight(t *testing.T) {
 		!d.config.HiringEnabled || d.config.HireAgent != "codex" {
 		t.Fatalf("~/work: %d, and hiring is %+v", got, d.config)
 	}
-	if got := setUp("folder="); got != http.StatusOK || d.config.HireFolder != "" || d.config.HireAgent != "codex" {
+	if got := setUp("folder="); got != http.StatusBadRequest || d.config.HireFolder == "" {
+		t.Fatalf("clearing the folder with hiring on: %d, and the folder is %q; want it refused and kept", got, d.config.HireFolder)
+	}
+	if got := setUp("enabled=0&folder="); got != http.StatusOK || d.config.HireFolder != "" || d.config.HireAgent != "codex" {
 		t.Fatalf("an empty folder: %d, and the folder is %q, the agent %q; want it cleared and the agent kept", got, d.config.HireFolder, d.config.HireAgent)
+	}
+}
+
+func TestHiringCantBeTurnedOnWithNoFolderAndTheOfficeSaysWhy(t *testing.T) {
+	d := newTestDeck(t)
+	fakeHiring(t, "") // hiring can open here
+	setUp := func(query string) int {
+		return serve(t, d, call{method: "POST", target: "/setup/hiring?" + query, host: "localhost:7710", from: thisComputer,
+			headers: map[string]string{setupHeader: "1"}}).Code
+	}
+	state := func() map[string]any {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.hiringState()
+	}
+	for _, query := range []string{"enabled=1", "enabled=1&folder=", "enabled=1&folder=~/nowhere"} {
+		if got := setUp(query); got != http.StatusBadRequest || d.config.HiringEnabled {
+			t.Errorf("%s with no folder: %d, hiring on %v; want it refused", query, got, d.config.HiringEnabled)
+		}
+	}
+	// A config that has hiring on with no folder (saved by an older version) says why.
+	d.config.HiringEnabled = true
+	if s := state(); s["hire"] != false || s["reason"] != hiringNeedsFolder {
+		t.Errorf("hiring on with no folder: %v, want no hire and the reason", s)
+	}
+	d.config.HiringEnabled = false
+	if s := state(); s["reason"] != nil {
+		t.Errorf("hiring off: %v, want no reason", s)
+	}
+	// A floor's own folder is enough, as is the global one.
+	d.config.FloorRules = floorRuleList{{t.TempDir(), 2, false}}
+	if got := setUp("enabled=1"); got != http.StatusOK || !d.config.HiringEnabled || state()["reason"] != nil {
+		t.Errorf("hiring with a floor's folder: %d, %v", got, state())
+	}
+	d.config.FloorRules = nil
+	d.config.HiringEnabled = false
+	if got := setUp("enabled=1&folder=" + t.TempDir()); got != http.StatusOK || !d.config.HiringEnabled || state()["reason"] != nil {
+		t.Errorf("hiring with a global folder: %d, %v", got, state())
+	}
+}
+
+// Where hiring can't open at all, the folder isn't what blocks it: the switch
+// can still be turned on, for firing, and nothing says to choose a folder.
+func TestWhereHiringCantOpenTheSwitchNeedsNoFolder(t *testing.T) {
+	d := newTestDeck(t)
+	fakeHiring(t, "")
+	installedOpeners = func() []hireOpener { return nil }
+	if canHireHere() {
+		t.Fatal("canHireHere is true with no terminal and no tmux")
+	}
+	setUp := func(query string) int {
+		return serve(t, d, call{method: "POST", target: "/setup/hiring?" + query, host: "localhost:7710", from: thisComputer,
+			headers: map[string]string{setupHeader: "1"}}).Code
+	}
+	if got := setUp("enabled=1"); got != http.StatusOK || !d.config.HiringEnabled {
+		t.Fatalf("enabling with no folder and nowhere to hire: %d, hiring on %v; want it allowed", got, d.config.HiringEnabled)
+	}
+	d.mu.Lock()
+	state := d.hiringState()
+	d.mu.Unlock()
+	if state["fire"] != true || state["hire"] != false {
+		t.Errorf("state %v, want firing on and no hiring", state)
+	}
+	if reason, _ := state["reason"].(string); strings.Contains(strings.ToLower(reason), "folder") {
+		t.Errorf("reason %q blames the folder, which isn't what blocks hiring", reason)
+	}
+	// With somewhere to open, the refusal and the reason are back.
+	installedOpeners = func() []hireOpener { return []hireOpener{{id: "term", name: "Term"}} }
+	d.config.HiringEnabled = false
+	if got := setUp("enabled=1"); got != http.StatusBadRequest || d.config.HiringEnabled {
+		t.Errorf("enabling with no folder where hiring can open: %d, hiring on %v; want it refused", got, d.config.HiringEnabled)
+	}
+	d.config.HiringEnabled = true
+	d.mu.Lock()
+	state = d.hiringState()
+	d.mu.Unlock()
+	if state["reason"] != hiringNeedsFolder {
+		t.Errorf("state %v, want the folder reason", state)
 	}
 }
 
@@ -251,7 +366,7 @@ func TestWhatSetupReadsAndChangesNeedsTheSetupKey(t *testing.T) {
 	if got := local(call{method: "POST", target: "/setup/pair", withoutSetupKey: true, headers: map[string]string{setupHeader: "1"}}); got != http.StatusUnauthorized {
 		t.Errorf("a pairing code asked for without the key: %d, want %d", got, http.StatusUnauthorized)
 	}
-	if got := local(call{method: "GET", target: "/setup/state", headers: map[string]string{setupKeyHeader: "a-made-up-key"}}); got != http.StatusUnauthorized {
+	if got := local(call{method: "GET", target: "/setup/state", withoutSetupKey: true, headers: map[string]string{setupKeyHeader: "a-made-up-key"}}); got != http.StatusUnauthorized {
 		t.Errorf("setup's state with a made-up key: %d, want %d", got, http.StatusUnauthorized)
 	}
 	// The page itself holds nothing, and opens to say where the key is.
@@ -272,31 +387,103 @@ func TestWhatSetupReadsAndChangesNeedsTheSetupKey(t *testing.T) {
 		headers: map[string]string{setupKeyHeader: strings.TrimSpace(string(saved))}}); got != http.StatusOK {
 		t.Errorf("setup's state with the key from its file: %d, want %d", got, http.StatusOK)
 	}
+	// The key is for the header only: as a cookie, it opens nothing.
+	if got := local(call{method: "GET", target: "/setup/state", withoutSetupKey: true,
+		headers: map[string]string{"Cookie": setupCookie + "=" + d.access.SetupKey}}); got != http.StatusUnauthorized {
+		t.Errorf("setup's state with the key as a cookie: %d, want %d", got, http.StatusUnauthorized)
+	}
+	// Nor does the key open a session at /setup/session: only a token does.
+	session := serve(t, d, call{method: "POST", target: "/setup/session", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
+		headers: map[string]string{setupHeader: "1", setupKeyHeader: d.access.SetupKey}})
+	if session.Code != http.StatusUnauthorized || len(session.Result().Cookies()) != 0 {
+		t.Errorf("the key at /setup/session: %d, cookies %v; want %d and none", session.Code, session.Result().Cookies(), http.StatusUnauthorized)
+	}
 }
 
-func TestTheTraysLinkGivesThePageACookie(t *testing.T) {
+func TestAToolSeesPairingButOnlyThePageMakesIt(t *testing.T) {
 	d := newTestDeck(t)
-	if link := d.setupLink("pair"); !strings.HasSuffix(link, "/setup#k="+d.access.SetupKey+"&pair") {
-		t.Fatalf("the tray's link is %s", link)
+	local := func(c call) *httptest.ResponseRecorder {
+		c.host, c.from = "localhost:7710", thisComputer
+		if c.method == "POST" {
+			c.headers = map[string]string{setupHeader: "1"}
+		}
+		return serve(t, d, c)
 	}
-	session := serve(t, d, call{method: "POST", target: "/setup/session", host: "localhost:7710", from: thisComputer,
-		headers: map[string]string{setupHeader: "1"}})
+	// A tool with the key refuses to pair, unpair or show a code, and shows the rest.
+	for _, target := range []string{"/setup/pair", "/setup/unpair?all=1"} {
+		if got := local(call{method: "POST", target: target, asTool: true}).Code; got != http.StatusForbidden {
+			t.Errorf("%s from a tool with the key: %d, want %d", target, got, http.StatusForbidden)
+		}
+	}
+	if got := local(call{method: "GET", target: "/setup/qr.png", asTool: true}).Code; got != http.StatusForbidden {
+		t.Errorf("the pairing QR code for a tool with the key: %d, want %d", got, http.StatusForbidden)
+	}
+	if code := d.access.ActiveCode(); code != "" {
+		t.Fatalf("a tool got a pairing code: %q", code)
+	}
+	// The page asks for a code and sees it. The tool sees that pairing is open, not the code.
+	type pairingOf struct{ Pairing map[string]any }
+	var page, tool pairingOf
+	if w := local(call{method: "POST", target: "/setup/pair"}); w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &page) != nil || page.Pairing["code"] == nil || page.Pairing["code"] == "" {
+		t.Fatalf("the page asking for a code: %d %s", w.Code, w.Body)
+	}
+	state := local(call{method: "GET", target: "/setup/state", asTool: true})
+	if state.Code != http.StatusOK || json.Unmarshal(state.Body.Bytes(), &tool) != nil {
+		t.Fatalf("a tool reading setup's state: %d %s", state.Code, state.Body)
+	}
+	if _, has := tool.Pairing["code"]; has || tool.Pairing["open"] != true || strings.Contains(state.Body.String(), page.Pairing["code"].(string)) {
+		t.Errorf("a tool saw the pairing as %v, want open and no code", tool.Pairing)
+	}
+	// And a tool's other changes don't hand the code over in their answers.
+	if w := local(call{method: "POST", target: "/setup/music?enabled=0", asTool: true}); w.Code != http.StatusOK || strings.Contains(w.Body.String(), page.Pairing["code"].(string)) {
+		t.Errorf("a tool's change: %d, or it answered with the pairing code", w.Code)
+	}
+	// Unpairing is the page's too.
+	pair(t, d)
+	if got := local(call{method: "POST", target: "/setup/unpair?all=1", asTool: true}).Code; got != http.StatusForbidden || len(d.access.Phones.All) != 1 {
+		t.Errorf("a tool unpairing: %d, %d phones; want %d and the phone kept", got, len(d.access.Phones.All), http.StatusForbidden)
+	}
+	if got := local(call{method: "POST", target: "/setup/unpair?all=1"}).Code; got != http.StatusOK || len(d.access.Phones.All) != 0 {
+		t.Errorf("the page unpairing: %d, %d phones; want %d and none", got, len(d.access.Phones.All), http.StatusOK)
+	}
+}
+
+func TestTheLinkGivesThePageASessionCookieThatIsNotTheKey(t *testing.T) {
+	d := newTestDeck(t)
+	link := d.setupLink("pair")
+	_, rest, found := strings.Cut(link, "/setup#o=")
+	token, then, _ := strings.Cut(rest, "&")
+	if !found || then != "pair" || strings.Contains(link, d.access.SetupKey) {
+		t.Fatalf("the link is %s, want a one-time token and no key", link)
+	}
+	session := serve(t, d, call{method: "POST", target: "/setup/session", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
+		headers: map[string]string{setupHeader: "1", setupTokenHeader: token}})
 	cookies := session.Result().Cookies()
 	if session.Code != http.StatusNoContent || len(cookies) != 1 {
-		t.Fatalf("handing the key over: %d, cookies %v", session.Code, cookies)
+		t.Fatalf("handing the token over: %d, cookies %v", session.Code, cookies)
 	}
 	cookie := cookies[0]
 	if !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/setup" {
 		t.Errorf("the cookie can be read by scripts, sent by other sites or to other pages: %+v", cookie)
+	}
+	if cookie.Value == "" || cookie.Value == d.access.SetupKey {
+		t.Errorf("the cookie is %q, which is empty or the setup key", cookie.Value)
 	}
 	state := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
 		headers: map[string]string{"Cookie": cookie.Name + "=" + cookie.Value}})
 	if state.Code != http.StatusOK {
 		t.Errorf("setup's state with the page's cookie: %d, want %d", state.Code, http.StatusOK)
 	}
-	// Each start has a new key, so a link or cookie from before stops working.
-	if again := NewDeck(); again.access.SetupKey == d.access.SetupKey {
-		t.Error("a new start kept the setup key")
+	// The page can pair a phone.
+	paired := serve(t, d, call{method: "POST", target: "/setup/pair", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
+		headers: map[string]string{setupHeader: "1", "Cookie": cookie.Name + "=" + cookie.Value}})
+	if paired.Code != http.StatusOK {
+		t.Errorf("the page asking for a pairing code: %d, want %d", paired.Code, http.StatusOK)
+	}
+	// Each start has a new key and no sessions, so a link or cookie from before stops working.
+	again := NewDeck()
+	if again.access.SetupKey == d.access.SetupKey || again.access.IsSetupSession(cookie.Value) {
+		t.Error("a new start kept the setup key or a session")
 	}
 }
 
@@ -368,7 +555,7 @@ func TestTheTraysLinkWorksOnceAndCarriesNoKey(t *testing.T) {
 			headers: map[string]string{setupHeader: "1", setupTokenHeader: token}})
 	}
 	first := handOver(token)
-	if first.Code != http.StatusNoContent || len(first.Result().Cookies()) != 1 || first.Result().Cookies()[0].Value != d.access.SetupKey {
+	if first.Code != http.StatusNoContent || len(first.Result().Cookies()) != 1 || first.Result().Cookies()[0].Value == d.access.SetupKey {
 		t.Fatalf("the link's token gave %d, cookies %v", first.Code, first.Result().Cookies())
 	}
 	// Read from another user's view of the command line, it's used up already.
@@ -508,5 +695,169 @@ func TestTheTraysOfficeIsTheOfficeOnThisComputerOnly(t *testing.T) {
 	}
 	if len(d.access.Phones.All) != 0 {
 		t.Error("the office on this computer was listed as a phone")
+	}
+}
+
+func TestOpeningSetupMarksItCompleteOnlyWithTheSetupKey(t *testing.T) {
+	d := newTestDeck(t)
+	d.config.HasCompletedSetup = false
+	open := func(headers map[string]string) {
+		t.Helper()
+		if w := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer, headers: headers}); w.Code != http.StatusOK {
+			t.Fatalf("opening /setup gave %d", w.Code)
+		}
+	}
+	open(nil)
+	open(map[string]string{setupKeyHeader: "sk-ant-test0"})
+	if d.config.HasCompletedSetup {
+		t.Fatal("opening /setup without a valid setup key marked setup complete")
+	}
+	open(map[string]string{setupKeyHeader: d.access.SetupKey})
+	if !d.config.HasCompletedSetup {
+		t.Fatal("opening /setup with the setup key left setup incomplete")
+	}
+}
+
+func TestSetupSessionMarksSetupCompleteOnlyWhenItIsLetIn(t *testing.T) {
+	d := newTestDeck(t)
+	d.config.HasCompletedSetup = false
+	session := func(token string) int {
+		t.Helper()
+		return serve(t, d, call{method: "POST", target: "/setup/session", host: "localhost:7710", from: thisComputer,
+			withoutSetupKey: true, headers: map[string]string{setupHeader: "1", setupTokenHeader: token}}).Code
+	}
+	if code := session("not-a-token"); code != http.StatusUnauthorized || d.config.HasCompletedSetup {
+		t.Fatalf("a bad token gave %d, complete %v", code, d.config.HasCompletedSetup)
+	}
+	if code := session(d.access.NewSetupToken()); code != http.StatusNoContent || !d.config.HasCompletedSetup {
+		t.Fatalf("a good token gave %d, complete %v", code, d.config.HasCompletedSetup)
+	}
+}
+
+// Setup says which Smolcorp this is, and its page has the place that shows it.
+func TestSetupShowsTheVersion(t *testing.T) {
+	was := Version
+	t.Cleanup(func() { Version = was })
+	Version = "9.8.7-test"
+	d := newTestDeck(t)
+	var state struct{ Version string }
+	got := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer})
+	if json.Unmarshal(got.Body.Bytes(), &state) != nil || state.Version != "9.8.7-test" {
+		t.Fatalf("setup's state says version %q (%s); want 9.8.7-test", state.Version, got.Body.String())
+	}
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer})
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `id="app-version"`) ||
+		!strings.Contains(page.Body.String(), "state.version") {
+		t.Fatalf("setup.html (%d) has no element or code that shows the version", page.Code)
+	}
+}
+
+func TestSetupStateNamesThePlatform(t *testing.T) {
+	d := newTestDeck(t)
+	var state struct{ Platform string }
+	got := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer})
+	if json.Unmarshal(got.Body.Bytes(), &state) != nil || state.Platform != runtime.GOOS {
+		t.Fatalf("setup's state says platform %q (%s); want %s", state.Platform, got.Body.String(), runtime.GOOS)
+	}
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
+	if !strings.Contains(page, "return '/home/you/project'") || !strings.Contains(page, "state.platform === 'windows'") {
+		t.Fatal("setup.html doesn't pick the example folder by the platform")
+	}
+}
+
+func TestTheOfficePaneHeaderDoesNotNameTheMac(t *testing.T) {
+	d := newTestDeck(t)
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
+	const head = "<h1>Office</h1><p>"
+	i := strings.Index(page, head)
+	if i < 0 {
+		t.Fatal("the setup page has no Office pane header")
+	}
+	text, _, _ := strings.Cut(page[i+len(head):], "</p>")
+	if strings.Contains(text, "Mac") {
+		t.Errorf("the Office pane header names the Mac on every platform: %q", text)
+	}
+}
+
+func TestTheRoleHintDoesNotLimitHoldingADeskToThePhone(t *testing.T) {
+	d := newTestDeck(t)
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
+	for _, phoneOnly := range []string{"On your phone, hold a free desk", "on your phone hold a free desk"} {
+		if strings.Contains(page, phoneOnly) {
+			t.Errorf("the setup page still says %q, though the browser office can hire too", phoneOnly)
+		}
+	}
+	if strings.Contains(page, "hire a role from a free desk on your phone") {
+		t.Error("the Hire switch hint still limits hiring to the phone")
+	}
+	for _, line := range strings.Split(page, "\n") {
+		hint := strings.Contains(line, "free desk") || strings.Contains(line, "hire a role")
+		if hint && strings.Contains(line, "phone") && !strings.Contains(line, "browser") {
+			t.Errorf("a hold-a-free-desk or hire hint is phone-only: %q", strings.TrimSpace(line))
+		}
+	}
+}
+
+// The Tailscale line on the setup page names a long address with no spaces in
+// it: its card has to wrap it, not stretch past the card.
+func TestTheSetupPageWrapsTheTailscaleLines(t *testing.T) {
+	d := newTestDeck(t)
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
+	for _, selector := range []string{".tailnet code.address", ".tailnet #tailnet-url", ".tailnet #tailnet-found"} {
+		start := strings.Index(page, "  "+selector+" {")
+		if start < 0 {
+			t.Errorf("the setup page has no rule for %s", selector)
+			continue
+		}
+		rule := page[start : start+strings.Index(page[start:], "}")]
+		if !strings.Contains(rule, "word-break: break-all") && !strings.Contains(rule, "overflow-wrap: anywhere") {
+			t.Errorf("the rule for %s doesn't wrap long addresses: %s", selector, rule)
+		}
+	}
+}
+
+// The Mac app serves this page too: there it says the Mac, and that its office is a window, where
+// Windows and Linux say this computer and the browser (SIERRA 1.22.1 m6 and 1.23 m-10, kept native on each).
+func TestTheSetupPageSaysMacOnlyOnTheMac(t *testing.T) {
+	d := newTestDeck(t)
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
+	for _, want := range []string{
+		"function onMac() { return !!(state.officeWindow && state.officeWindow.mac); }",
+		"if (onMac()) return 'on your phone or in its window on this Mac';",
+		"state.officeWindow.available ? 'on your phone or in its window' : 'on your phone or in the browser'",
+		"`https://<${onMac() ? 'this-mac' : 'this-computer'}>.<your-tailnet>.ts.net`",
+		"`Couldn't check ${onMac() ? 'this Mac' : 'this computer'}.",
+		"if (onMac()) $('layout').querySelector('.pane-head p').textContent = 'How the office looks and lives, on your phone, the Mac and the viewer.';",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the setup page lacks %q", want)
+		}
+	}
+	var state struct{ OfficeWindow struct{ Mac bool } }
+	got := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer})
+	if json.Unmarshal(got.Body.Bytes(), &state) != nil || state.OfficeWindow.Mac {
+		t.Errorf("Windows and Linux say they're the Mac: %s", got.Body.String())
+	}
+}
+
+func TestTheWelcomeTextDoesNotAssumeAPairedPhone(t *testing.T) {
+	d := newTestDeck(t)
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
+	for _, c := range []struct{ start, bad string }{
+		{"Your sessions work in a little office", "your phone shows it"},
+		{"Your office is ready", "your phone already shows it"},
+	} {
+		i := strings.Index(page, c.start)
+		if i < 0 {
+			t.Fatalf("the setup page has no %q sentence", c.start)
+		}
+		text, _, _ := strings.Cut(page[i:], "</p>")
+		if strings.Contains(text, c.bad) || strings.Contains(text, "on your phone") {
+			t.Errorf("setup text assumes a paired phone: %q", text)
+		}
+		// "this computer" is said "this Mac" on the Mac, where the office has a window of its own.
+		if !strings.Contains(text, "this computer") {
+			t.Errorf("setup text does not say the office is on this computer: %q", text)
+		}
 	}
 }

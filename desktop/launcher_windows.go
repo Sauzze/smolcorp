@@ -17,12 +17,13 @@ import (
 const sizePoll = 300 * time.Millisecond
 
 // followSize passes each change in the console's size on to the agent's.
-func followSize(terminal pty.Pty) {
+func followSize(terminal pty.Pty, screen *launcherScreen) {
 	width, height, _ := term.GetSize(int(os.Stdout.Fd()))
 	for range time.Tick(sizePoll) {
 		w, h, err := term.GetSize(int(os.Stdout.Fd()))
 		if err == nil && (w != width || h != height) {
 			width, height = w, h
+			screen.Resize(h, w)
 			_ = terminal.Resize(w, h)
 		}
 	}

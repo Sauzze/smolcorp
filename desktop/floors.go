@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 )
 
 // Floor is a floor of the building: the name its sign says, and its style.
@@ -103,15 +104,24 @@ func floorStyles() []string {
 // runs come and go, then headless runs, oldest first, then the agents with no
 // desk downstairs. And how many there's no floor for. None of them has a key.
 func buildingFloors[Person any](cloud, headless, overflow []Person) ([][]Person, int) {
-	people := slices.Concat(cloud, headless, overflow)
-	floors := make([][]Person, floorCount)
-	for i := range floors {
+	var rest []upstairsPerson[Person]
+	for i, p := range slices.Concat(cloud, headless, overflow) {
+		rest = append(rest, upstairsPerson[Person]{person: p, id: strconv.Itoa(i), floor: -1})
+	}
+	seated, over, _ := seatBuilding(nil, rest)
+	return peopleOf(seated), over
+}
+
+// peopleOf is each floor's people, without their desks.
+func peopleOf[Person any](seated [][]seatedPerson[Person]) [][]Person {
+	floors := make([][]Person, len(seated))
+	for i, floor := range seated {
 		floors[i] = []Person{}
-		if start := (i - 1) * mostUpstairs; i > 0 && start < len(people) {
-			floors[i] = people[start:min(start+mostUpstairs, len(people))]
+		for _, one := range floor {
+			floors[i] = append(floors[i], one.person)
 		}
 	}
-	return floors, max(0, len(people)-(floorCount-1)*mostUpstairs)
+	return floors
 }
 
 // secondFloor is the second floor alone, as phones from before the other
@@ -123,31 +133,97 @@ func secondFloor[Person any](floors [][]Person, over int) ([]Person, int) {
 	return floors[1], over
 }
 
+// aboveGround is the floor s was put on, by the office, by its folder's
+// rule, or, for a cloud bot, in setup: 0 for the ground floor, 1 to 5 above
+// it. False for one that sits where there's room. With the lock held.
+func (d *Deck) aboveGround(s *Session) (int, bool) {
+	if bot, ok := d.cloud.botOf(s.ID); ok {
+		floor := bot.floorIndex()
+		return floor, floor >= 0
+	}
+	put, ok := d.floorOf[s.ID]
+	if !ok {
+		put = -1
+	}
+	return floorOfProject(s.Project, put, d.config.FloorRules)
+}
+
 // building is who sits above the ground floor, floor by floor (see
-// buildingFloors): the cloud bots seated upstairs, the headless runs, then
-// overflow, the sessions the ground floor had no desk for. With the lock held.
+// seatBuilding): first those put on a floor, then, where there's room, the
+// cloud bots seated upstairs, the headless runs, then overflow, the sessions
+// the ground floor had no desk for. And the desk each has on its floor. With
+// the lock held.
 func (d *Deck) building(overflow []*Session) ([][]*Session, int) {
-	headless := slices.DeleteFunc(d.sessions.All(), func(s *Session) bool { return !s.Headless() })
-	return buildingFloors(d.cloud.seated("upstairs"), headless, overflow)
+	seated, over := d.seatedBuilding(overflow)
+	return peopleOf(seated), over
+}
+
+// seatedBuilding is building, with each one's desk. With the lock held.
+func (d *Deck) seatedBuilding(overflow []*Session) ([][]seatedPerson[*Session], int) {
+	all := d.sessions.All()
+	headless := slices.DeleteFunc(slices.Clone(all), func(s *Session) bool { return !s.Headless() })
+	up := func(s *Session, floor int) upstairsPerson[*Session] {
+		p := upstairsPerson[*Session]{person: s, id: s.ID, floor: floor}
+		if seat, ok := d.seatOf[s.ID]; ok {
+			p.had = &seat
+		}
+		return p
+	}
+	var placed, rest []upstairsPerson[*Session]
+	isPlaced := map[string]bool{}
+	put := func(s *Session) {
+		if floor, ok := d.aboveGround(s); ok && floor > 0 && !isPlaced[s.ID] {
+			placed = append(placed, up(s, floor))
+			isPlaced[s.ID] = true
+		}
+	}
+	bots, _ := d.cloud.seatedAbove()
+	for _, s := range bots {
+		put(s)
+	}
+	for _, s := range headless {
+		put(s)
+	}
+	// Sessions put upstairs are left out of the keys (see layout), so they're found here.
+	for _, s := range all {
+		if !s.Headless() {
+			put(s)
+		}
+	}
+	for _, s := range slices.Concat(bots, headless, overflow) {
+		if !isPlaced[s.ID] {
+			rest = append(rest, up(s, -1))
+		}
+	}
+	seated, over, seats := seatBuilding(placed, rest)
+	for id, seat := range seats {
+		d.seatOf[id] = seat
+	}
+	return seated, over
 }
 
 // upperEntry is a desk above the ground floor, as the phone is told of it: a
-// cloud bot's, a headless run's, or an agent's with no desk downstairs, which
-// is watched, never driven, as a headless run is. With the lock held.
+// cloud bot's or a headless run's, watched, as there's nothing to type into;
+// or an agent's with no key, put there or with no desk left downstairs, which
+// is driven there as on the ground floor. With the lock held.
 func (d *Deck) upperEntry(s *Session) map[string]any {
 	if bot, ok := d.cloud.botOf(s.ID); ok {
 		return d.cloudEntry(s, bot)
 	}
 	entry := d.sessionEntry(s)
+	if !s.Headless() {
+		floor, put := d.aboveGround(s)
+		entry["headless"], entry["drivable"] = false, true
+		// Up there only for want of a desk downstairs, rather than put there.
+		entry["overflow"] = !put || floor == 0
+		return entry
+	}
 	entry["headless"] = true
 	for _, control := range []string{"keys", "fire", "mic", "dial", "dictates", "summary"} {
 		entry[control] = false
 	}
 	entry["role"] = nil
 	entry["hiredBy"] = d.hiredBy(s)
-	if !s.Headless() {
-		entry["headless"], entry["overflow"] = false, true
-	}
 	return entry
 }
 
@@ -156,17 +232,38 @@ func (d *Deck) upperEntry(s *Session) map[string]any {
 // second floor alone, for phones from before the other floors. With the lock
 // held.
 func (d *Deck) floorsState(overflow []*Session) ([]map[string]any, int, map[string]any) {
-	floors, over := d.building(overflow)
+	seated, over := d.seatedBuilding(overflow)
+	floors := peopleOf(seated)
+	deskOf := map[string]int{}
+	for _, floor := range seated {
+		for _, one := range floor {
+			deskOf[one.person.ID] = one.desk
+		}
+	}
 	entries := func(people []*Session) []map[string]any {
 		desks := []map[string]any{}
 		for _, s := range people {
-			desks = append(desks, d.upperEntry(s))
+			entry := d.upperEntry(s)
+			// The desk it has on its floor, so it stays there as others come and go.
+			entry["desk"] = deskOf[s.ID]
+			desks = append(desks, entry)
 		}
 		return desks
 	}
+	asking := func(people []*Session) int {
+		count := 0
+		for _, s := range people {
+			if _, cloud := d.cloud.botOf(s.ID); s.State == Asking && !s.Headless() && !cloud {
+				count++
+			}
+		}
+		return count
+	}
 	shown := make([]map[string]any, floorCount)
 	for i, floor := range checkedFloors(d.config.Floors) {
-		shown[i] = map[string]any{"n": i + 1, "name": floor.Name, "preset": floor.Preset, "desks": entries(floors[i])}
+		// How many there wait on you, for the elevator's list to say so.
+		shown[i] = map[string]any{"n": i + 1, "name": floor.Name, "preset": floor.Preset, "desks": entries(floors[i]),
+			"asking": asking(floors[i])}
 	}
 	second, past := secondFloor(floors, over)
 	return shown, over, map[string]any{"desks": entries(second), "overflow": past}

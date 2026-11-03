@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -23,7 +24,27 @@ import (
 //
 //	smolcorp setup           as above
 //	smolcorp setup --check   the checklist only, changing nothing
-//	smolcorp setup --open    and then the setup page, to pair a phone
+//	smolcorp setup --open    and then where to get a link to the setup page, to pair a phone (it makes none)
+//
+// On a Mac it always only checks, but opens Smolcorp.app first if it is closed
+// (only when setup is aimed at the app's own port).
+
+// setupSystem is the system setup runs on; the tests change it.
+var setupSystem = runtime.GOOS
+
+// How long setup waits for the app it started to answer; the tests shorten it.
+var setupStartWait = 30 * time.Second
+
+// macNotRunning is what a Mac says when the app can't be opened or doesn't answer.
+const macNotRunning = "Smolcorp isn't running. Open Smolcorp from Applications or Spotlight."
+
+// setupAimedAtDefaultPort is true when SMOLCORP_PORT isn't set to another port.
+func setupAimedAtDefaultPort() bool { return Port == portFromEnvironment("") }
+
+// setupMayOpenApp says whether setup may open the installed Mac app. On
+// another port it is a test copy, and opening the installed app would not
+// help it; the tests change this.
+var setupMayOpenApp = setupAimedAtDefaultPort
 
 // The fixes setup makes by itself: none is a choice of yours.
 var setupFixes = []string{fixInstall, fixRepair, fixFirewall}
@@ -31,19 +52,38 @@ var setupFixes = []string{fixInstall, fixRepair, fixFirewall}
 // RunSetup is `smolcorp setup`.
 func RunSetup(args []string) int {
 	checkOnly, open := slices.Contains(args, "--check"), slices.Contains(args, "--open")
+	if setupSystem == "darwin" && !checkOnly {
+		// On a Mac, setup is in Smolcorp's Settings: this only looks.
+		checkOnly = true
+		fmt.Println("On a Mac, setup is in Smolcorp's Settings. This only checks, and changes nothing.")
+	}
 	client := setupClient{base: localBase(), http: &http.Client{Timeout: 2 * time.Minute}}
 	if !client.answers() {
-		if checkOnly {
+		mac := setupSystem == "darwin"
+		if checkOnly && !mac {
 			fmt.Println("Smolcorp isn't running. Open it, or run smolcorp setup without --check to start it.")
+			return 1
+		}
+		if mac && !setupMayOpenApp() {
+			fmt.Println(macNotRunning)
 			return 1
 		}
 		fmt.Println("Starting Smolcorp…")
 		if err := startApp(); err != nil {
-			fmt.Fprintf(os.Stderr, "Smolcorp couldn't start: %v\n", err)
+			if mac {
+				fmt.Fprintf(os.Stderr, "Smolcorp couldn't be opened: %v\n", err)
+				fmt.Println(macNotRunning)
+			} else {
+				fmt.Fprintf(os.Stderr, "Smolcorp couldn't start: %v\n", err)
+			}
 			return 1
 		}
-		if !client.waitUntilItAnswers(30 * time.Second) {
-			fmt.Fprintln(os.Stderr, "Smolcorp didn't answer on its port within 30 s. Open it from the app menu, then try again.")
+		if !client.waitUntilItAnswers(setupStartWait) {
+			if mac {
+				fmt.Println(macNotRunning)
+			} else {
+				fmt.Fprintln(os.Stderr, "Smolcorp didn't answer on its port within 30 s. Open it from the app menu, then try again.")
+			}
 			return 1
 		}
 	}
@@ -76,7 +116,7 @@ func RunSetup(args []string) int {
 	}
 	printChecklist(os.Stdout, report.Checks)
 	if open {
-		openURL(localBase() + "/setup")
+		client.openSetup(os.Stdout)
 	}
 	if !report.Ready {
 		return 1
@@ -96,7 +136,7 @@ func printChecklist(out io.Writer, checks []check) {
 		}
 	}
 	if ready(checks) {
-		fmt.Fprintln(out, "\nReady. Steps marked • are on the setup page: smolcorp setup --open.")
+		fmt.Fprintf(out, "\nReady. Steps marked • are on the setup page: %s.\n", setupMenuWords())
 	} else {
 		fmt.Fprintln(out, "\nNot ready: see the lines marked ✗.")
 	}
@@ -162,8 +202,41 @@ func (c setupClient) selfTest() (selfTestAnswer, error) {
 	return answer, err
 }
 
+// openSetup says where to get a link to the setup page. It makes none: a
+// link that opens setup, and so pairing, must come from the app itself (the
+// tray's Open Setup…), never from a program that only holds the setup key.
+func (c setupClient) openSetup(out io.Writer) {
+	if setupSystem == "darwin" {
+		fmt.Fprintln(out, "\nTo open setup, choose Open Settings in Browser from Smolcorp's icon in the menu bar.")
+		return
+	}
+	if setupSystem == "windows" { // the tray is always there
+		fmt.Fprintln(out, "\nTo open setup, choose Open Setup… from the Smolcorp icon in the tray, or use the link smolcorp prints as it starts.")
+		return
+	}
+	fmt.Fprintln(out, "\nTo open setup, choose Open Setup… from the Smolcorp icon in the tray. With no tray, use the link smolcorp prints as it starts; for a new one, "+noTrayNewLink+".")
+	if !setupHasDesktop() { // no browser to open anything: the office's address is what's left
+		fmt.Fprintln(out, "\nThis computer has no desktop to open a browser on. "+officeByHand(c.base))
+	}
+}
+
+// setupHasDesktop says if there is a desktop to open a browser on: a variable, for the tests.
+var setupHasDesktop = hasDesktop
+
+// setupMenuWords is the menu item that opens the setup page, in the words of this system: the Mac's menu bar
+// icon says Open Settings in Browser, the tray on Linux and Windows says Open Setup….
+func setupMenuWords() string {
+	if setupSystem == "darwin" {
+		return "choose Open Settings in Browser from the menu bar icon"
+	}
+	if setupSystem == "windows" {
+		return "choose Open Setup… from the tray icon"
+	}
+	return "choose Open Setup… from the tray icon; with no tray, use the link Smolcorp prints as it starts (for a new one, " + noTrayNewLink + ")"
+}
+
 func (c setupClient) fix(name string) error {
-	response, err := c.send(http.MethodPost, "/setup/fix?fix="+name)
+	response, err := c.send(http.MethodPost, "/setup/fix?fix="+name+"&auto=1")
 	if err != nil {
 		// The install's own copy took over before answering.
 		if name == fixInstall {
@@ -179,12 +252,16 @@ func (c setupClient) fix(name string) error {
 	return nil
 }
 
-// startApp starts Smolcorp's app, left running: on Windows the program with
+// startApp starts Smolcorp's app, left running: on a Mac it opens Smolcorp.app
+// (this program is only the command inside it), on Windows the program with
 // the tray beside this console one, elsewhere this program with no command.
 func startApp() error {
 	program, err := executable()
 	if err != nil {
 		return err
+	}
+	if setupSystem == "darwin" {
+		return openMacApp(program)
 	}
 	if runtime.GOOS == "windows" {
 		if app := filepath.Join(filepath.Dir(program), "Smolcorp.exe"); fileExists(app) {
@@ -192,6 +269,36 @@ func startApp() error {
 		}
 	}
 	return startProgram(program)
+}
+
+// macBundleID is Smolcorp.app's identifier, used when the bundle can't be read.
+const macBundleID = "io.github.sauzze.agentdeck"
+
+var bundleIDPattern = regexp.MustCompile(`<key>CFBundleIdentifier</key>\s*<string>([^<]+)</string>`)
+
+// openMacApp opens the app this program sits in, by its bundle identifier.
+var openMacApp = func(program string) error {
+	return startProgramWith("/usr/bin/open", []string{"-b", macBundleIdentifier(program)})
+}
+
+// macBundleIdentifier reads the identifier from the .app that holds program,
+// and falls back to the known one.
+func macBundleIdentifier(program string) string {
+	if resolved, err := filepath.EvalSymlinks(program); err == nil {
+		program = resolved
+	}
+	for dir := filepath.Dir(program); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		if !strings.HasSuffix(dir, ".app") {
+			continue
+		}
+		if plist, err := os.ReadFile(filepath.Join(dir, "Contents", "Info.plist")); err == nil {
+			if m := bundleIDPattern.FindSubmatch(plist); m != nil {
+				return strings.TrimSpace(string(m[1]))
+			}
+		}
+		break
+	}
+	return macBundleID
 }
 
 func fileExists(path string) bool {

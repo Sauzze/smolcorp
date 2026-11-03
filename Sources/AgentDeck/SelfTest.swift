@@ -51,15 +51,41 @@ enum SelfTest {
     /// Whether the app is in Applications: not where a download opens it from,
     /// a disk image, or the copy macOS makes of an app it hasn't let out of
     /// Downloads yet (App Translocation), which changes at every launch.
+    ///
+    /// A translocated launch hides where the app really is (finding out takes
+    /// a private macOS call), so the two usual homes are looked at instead:
+    /// if the app sits in Applications and still carries the download's
+    /// quarantine mark, that may be why it's translocated, and the owner is told
+    /// the one command that ends it, beside the move (a launch from Downloads
+    /// looks the same). `quarantined` says whether a path has
+    /// that mark; it's read from the disk only by default.
     static func installCheck(bundle: URL = Bundle.main.bundleURL, testCopy: Bool = TestCopy.isOn,
-                             home: String = NSHomeDirectory()) -> Check {
+                             home: String = NSHomeDirectory(),
+                             quarantined: (String) -> Bool = SelfTest.hasQuarantine) -> Check {
         var check = Check(id: "install", status: .ok, title: "Smolcorp is in Applications", detail: "")
         let path = bundle.standardizedFileURL.path
+        let translocated = path.contains("/AppTranslocation/")
         if testCopy {
             check.detail = "A test copy, beside the Smolcorp you use: it stays where it was built."
-        } else if !path.contains("/AppTranslocation/"),
+        } else if !translocated,
                   path.hasPrefix("/Applications/") || path.hasPrefix(home + "/Applications/") {
             check.detail = "As \(path)."
+        } else if translocated {
+            check.status = .fix
+            let name = bundle.lastPathComponent
+            let original = ["/Applications/\(name)", "\(home)/Applications/\(name)"].first(where: quarantined)
+            check.fix = install
+            check.label = "Move to Applications"
+            if let original {
+                check.detail = "macOS is opening a temporary copy of Smolcorp because it was just downloaded. "
+                    + "If this is the copy you just downloaded, move it to Applications. "
+                    + "If Smolcorp is already there, quit it, run this in Terminal, then open it again: "
+                    + "xattr -d com.apple.quarantine '\(original)'. After that, allow Accessibility."
+            } else {
+                check.detail = "macOS is opening a temporary copy of Smolcorp because it was just downloaded. If it is not in Applications yet, "
+                    + "move it there. If it is, quit Smolcorp, run this in Terminal, then open it again: "
+                    + "xattr -d com.apple.quarantine '/Applications/\(name)'. After that, allow Accessibility."
+            }
         } else {
             check.status = .fix
             check.fix = install
@@ -68,6 +94,11 @@ enum SelfTest {
                 + "In Applications it stays put, and opens at login."
         }
         return check
+    }
+
+    /// Whether the file or app at `path` carries the mark macOS puts on downloads.
+    static func hasQuarantine(_ path: String) -> Bool {
+        getxattr(path, "com.apple.quarantine", nil, 0, 0, XATTR_NOFOLLOW) >= 0
     }
 
     /// Whether every agent found is hooked up. Their hooks run report.sh in
@@ -148,20 +179,37 @@ enum SelfTest {
     }
 
     enum FixError: LocalizedError, Equatable {
-        case unknown, testCopy, notMoved(String)
+        case unknown, testCopy, notMoved(String), disconnected
         var errorDescription: String? {
             switch self {
             case .unknown: return "There's no fix by that name."
+            case .disconnected:
+                return "Your agents are disconnected, as you left them, so setup didn't connect them. "
+                    + "To connect them again, press Connect in Smolcorp's Settings."
             case .testCopy: return "A test copy stays where it was built."
             case .notMoved(let why): return "Smolcorp couldn't be moved to Applications: \(why)"
             }
         }
     }
 
+    /// Whether a fix asked for leaves the agents as they are: `--setup`'s own
+    /// repair (`auto`), after you disconnected them. Pressing a fix yourself
+    /// always runs it.
+    static func leavesDisconnected(fix: String, auto: Bool, disconnected: Bool) -> Bool {
+        fix == repair && auto && disconnected
+    }
+
     /// Runs the fix named `name`. On the main queue.
     static func fix(_ name: String) throws {
         switch name {
-        case repair: try Hooks.connect()
+        case repair:
+            // Repair connects what was connected; it never turns voice on, so there's nothing to tell
+            var notice: String?
+            try Hooks.connect(turningOnVoice: false, notice: &notice)
+            if Config.shared.hooksDisconnected {
+                Config.shared.hooksDisconnected = false
+                Config.shared.save()
+            }
         case install: try moveToApplications()
         case accessibility: Permissions.requestAccessibility()
         case login: LoginItem.isEnabled = true

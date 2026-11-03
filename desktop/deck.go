@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,14 +25,32 @@ import (
 type Deck struct {
 	mu       sync.Mutex
 	access   *Access
+	gmToken  string // the GM's token, in memory only (see newGMToken)
 	config   *Config
 	sessions *Sessions
 	// Bots working in a cloud, each at a desk of its own (see cloudDesks).
 	cloud     *cloudDesks
 	streams   map[*eventStream]string // each open stream, with the phone that opened it
 	launchers map[string]*launcherTab
+	// The looks at a launcher's window waiting for an answer, by launcher and
+	// look number: see launcherlook.go.
+	looks map[string]chan PaneState
+	// Whether the answer to each of those said bracketed paste is on, by the same key.
+	lookBracketed map[string]bool
 	// The key each session was given, so it keeps it.
 	keyOf map[string]int
+	// The sessions hired at a desk the owner chose: with Auto they keep it,
+	// even with free desks before it.
+	chosenDesk map[string]bool
+	// The desk and floor chosen for an engine hire in tmux, by its tmux socket,
+	// until its session appears and is seated there.
+	engineSeats map[string]engineSeat
+	// The floor each session was put on, from the office or hired there: 0
+	// for the ground floor, 1 for 2F up to 5 for 6F. It goes before its
+	// folder's rule (see FloorRule), until the session ends.
+	floorOf map[string]int
+	// The desk each session has above the ground floor, so it keeps it.
+	seatOf map[string]Seat
 	// The tab recording started in, and when. One computer, one microphone.
 	micPress *micPress
 	// When each session was last sent Return from the phone, so a tap that
@@ -40,6 +60,14 @@ type Deck struct {
 	// when the last hire was made: see hire.go.
 	hires    map[string]*pendingHire
 	lastHire time.Time
+	// A hire is under way: its agent being looked for, or its terminal opening,
+	// with the lock let go. No other starts until it's done.
+	hiring bool
+	// The engine's stand-ins, for the tests, and the hires it is still watching: see hireengine.go.
+	engine engineOptions
+	// The same for the launcher's way (hirelauncher.go).
+	launcherEngine launcherEngineOptions
+	watching       sync.WaitGroup
 	// Whether a save of the sessions is coming, and the sessions from before
 	// a restart still waiting for their launcher: see saved.go.
 	savePending  bool
@@ -63,8 +91,20 @@ type Deck struct {
 	// and the summaries made with it.
 	summaryKeys *summaryKeys
 	summaries   *summaries
+	// The coding agents a summary can be made by instead, and whether each is here and signed in.
+	summaryProviders *summaryProviders
 	// The portable office (beta): the office on a phone from anywhere, view only. Off at every start.
 	portable *portableOffice
+	// What the sessions did, kept in the support folder for the GM to read.
+	events *eventLog
+	// The mail outbox, one per Deck (see mail_routes.go).
+	mail *mailOutbox
+	// A look in the bots' mailboxes is out (see botmailbox.go).
+	looking sync.Mutex
+	// What the GM asked the app to watch, kept in the support folder (see watchers.go).
+	watchers *watchers
+	// stopWatchers ends the watchers' two loops; the app lets them run as long as the process does, the tests' deck helper calls it.
+	stopWatchers func()
 	// OnChange is called on every change, for the tray.
 	OnChange func()
 }
@@ -98,13 +138,45 @@ func NewDeck() *Deck {
 	d := &Deck{
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
-		keyOf: map[string]int{}, lastReturn: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
-		webhookSends: make(chan func(), webhookQueue),
+		keyOf: map[string]int{}, floorOf: map[string]int{}, seatOf: map[string]Seat{}, lastReturn: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
+		webhookSends: make(chan func(), webhookQueue), events: newEventLog(supportDir, eventsFileMost),
 	}
+	if settleListenScope(d.config, phonesOnly(d.access.Phones), runtime.GOOS) {
+		d.config.save()
+	}
+	d.mail = d.newDeckOutbox()
+	// The folders are taken now, not at each look, so a look never reads a variable a test changes.
+	registry, support := registryPath(), supportDir
+	d.watchers = newWatchers(support, homeDir,
+		func() []string {
+			return watchRoots(readRegistry(registry, false).hires, filepath.Join(support, "hires"))
+		},
+		func() []Hire { return readRegistry(registry, false).hires },
+		d.events.append, d.events.snapshot())
+	// The app's own watches: wanted while the manager and the setting are on; a question is a session asking in a folder.
+	d.watchers.setBuiltins(func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.config.ManagerEnabled && d.config.BuiltinWatches
+	}, func() []string {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		var folders []string
+		for _, s := range d.sessions.All() {
+			if s.State == Asking && s.Folder != "" {
+				folders = append(folders, plainPath(s.Folder))
+			}
+		}
+		return folders
+	})
+	d.stopWatchers = d.startWatchers()
 	d.cloud = newCloudDesks(d.config.CloudBots, &d.mu)
 	d.cloud.onChange = d.changed
 	d.summaryKeys = newSummaryKeys(keyringStore, os.Getenv)
 	d.summaries = newSummaries(d.summaryKeys.Read)
+	d.summaryProviders = newSummaryProviders()
+	d.summaries.agent = d.runSummaryAgent
+	d.summaries.savedKey = d.summaryKeys.Saved
 	d.portable = newPortableOffice(viewerStore, d.config.Viewer, func(hideNames bool, alias func(string) string) map[string]any {
 		d.mu.Lock()
 		defer d.mu.Unlock()
@@ -150,6 +222,9 @@ func NewDeck() *Deck {
 			d.followMusic()
 		}
 	}()
+	// The mail pump, after d.cloud is set; the watchers' stop ends it too.
+	stopWatching, stopMail := d.stopWatchers, d.startMailPump()
+	d.stopWatchers = func() { stopMail(); stopWatching() }
 	return d
 }
 
@@ -257,6 +332,7 @@ func (d *Deck) IngestFrom(event map[string]any, reported, tab, startedIn string,
 		tab = d.launcherFor(canonical, agent)
 	}
 	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
+	d.logEvent(canonical, agent, at)
 	if id, _ := canonical["session_id"].(string); pid > 0 || parent != "" {
 		if session := d.sessions.Get(id); session != nil {
 			if pid > 0 {
@@ -269,6 +345,22 @@ func (d *Deck) IngestFrom(event map[string]any, reported, tab, startedIn string,
 	}
 	if d.noteMessage(canonical, agent) || changed {
 		d.changed()
+	}
+}
+
+// logEvent keeps a line of the event log for a hook event of a session, where it
+// is one of the kinds kept. With the lock held.
+func (d *Deck) logEvent(event map[string]any, agent Agent, at float64) {
+	id, _ := event["session_id"].(string)
+	if id == "" {
+		return
+	}
+	folder, _ := event["cwd"].(string)
+	if session := d.sessions.Get(id); session != nil && session.Folder != "" {
+		folder = session.Folder
+	}
+	if line, ok := eventFor(event, string(agent), folder, at); ok {
+		d.events.append(line)
 	}
 }
 
@@ -358,11 +450,24 @@ type deckKey struct {
 // floor take free desks as any new session does.
 func (d *Deck) layout() ([]deckKey, []*Session) {
 	remaining := append(slices.DeleteFunc(d.sessions.All(), (*Session).Headless), d.cloud.seated("ground")...)
-	// A session that took another's place in its tab, as after /clear, takes its key too.
+	// A session that took another's place in its tab, as after /clear, takes its key and floor too.
 	for new, old := range d.sessions.TakeReplacements() {
 		if index, ok := d.keyOf[old]; ok {
 			if _, has := d.keyOf[new]; !has {
 				d.keyOf[new] = index
+			}
+		}
+		if d.chosenDesk[old] {
+			d.setChosen(new)
+		}
+		if floor, ok := d.floorOf[old]; ok {
+			if _, has := d.floorOf[new]; !has {
+				d.floorOf[new] = floor
+			}
+		}
+		if seat, ok := d.seatOf[old]; ok {
+			if _, has := d.seatOf[new]; !has {
+				d.seatOf[new] = seat
 			}
 		}
 	}
@@ -370,22 +475,78 @@ func (d *Deck) layout() ([]deckKey, []*Session) {
 	// kept for it below if it's still free; if it was taken in the meantime,
 	// the hire sits at the first free one, as anyone would.
 	for _, s := range remaining {
-		kind, id, _ := splitTab(s.Tab)
-		if tab, ok := d.launchers[id]; kind == "launcher" && ok && tab.desk >= 0 {
-			d.keyOf[s.ID] = tab.desk
-			tab.desk = -1
+		kind, id, socket := splitTab(s.Tab)
+		if tab, ok := d.launchers[id]; kind == "launcher" && ok && tab.hired {
+			if tab.floor > 0 {
+				// Hired upstairs: on that floor, at that desk if it's still free.
+				d.floorOf[s.ID] = tab.floor
+				d.seatOf[s.ID] = Seat{tab.floor, tab.desk}
+			} else {
+				// Hired on the ground floor, it stays there, whatever its folder's rule says.
+				d.floorOf[s.ID] = 0
+				if tab.desk >= 0 {
+					d.keyOf[s.ID] = tab.desk
+					d.setChosen(s.ID)
+				}
+			}
+			tab.desk, tab.hired = -1, false
+		} else if _, put := d.floorOf[s.ID]; kind == "tmux" && d.hiredRoleAt(socket) != "" {
+			// A hire the engine made has no launcher, and is hired on the ground
+			// floor unless the office chose another: it stays there, whatever its
+			// folder's rule says, until the office moves it.
+			if seat, chosen := d.takeEngineSeat(socket); chosen {
+				if seat.floor > 0 {
+					d.floorOf[s.ID] = seat.floor
+					d.seatOf[s.ID] = Seat{seat.floor, seat.desk}
+				} else {
+					d.floorOf[s.ID] = 0
+					d.keyOf[s.ID] = seat.desk
+					d.setChosen(s.ID)
+				}
+			} else if !put {
+				d.floorOf[s.ID] = 0
+			}
 		}
 	}
 	live := map[string]bool{}
 	for _, s := range remaining {
 		live[s.ID] = true
 	}
-	// A session dropped as its tab seemed to close keeps its key, should it come back.
+	// A session dropped as its tab seemed to close keeps its key and floor, should it come back.
 	for id := range d.keyOf {
 		if !live[id] && !d.sessions.WasDropped(id) {
 			delete(d.keyOf, id)
 		}
 	}
+	kept := func(id string) bool {
+		s := d.sessions.Get(id)
+		return live[id] || d.sessions.WasDropped(id) || s != nil && s.Headless()
+	}
+	for id := range d.chosenDesk {
+		if !live[id] && !d.sessions.WasDropped(id) {
+			delete(d.chosenDesk, id)
+		}
+	}
+	for id := range d.floorOf {
+		if !kept(id) {
+			delete(d.floorOf, id)
+		}
+	}
+	for id := range d.seatOf {
+		if _, cloud := d.cloud.botOf(id); !kept(id) && !cloud {
+			delete(d.seatOf, id)
+		}
+	}
+	// Those put upstairs, by the office or by their folder's rule, have no key. A pinned key whose
+	// project went upstairs stays theirs, empty, as it does while the project has no session.
+	remaining = slices.DeleteFunc(remaining, func(s *Session) bool {
+		if floor, ok := d.aboveGround(s); ok && floor > 0 {
+			delete(d.keyOf, s.ID)
+			delete(d.chosenDesk, s.ID)
+			return true
+		}
+		return false
+	})
 	fixed := d.config.Layout.Keys != Auto
 	keys := make([]deckKey, mostKeys)
 	if fixed {
@@ -433,7 +594,21 @@ func (d *Deck) layout() ([]deckKey, []*Session) {
 				pinned, last = pinned+1, i+1
 			}
 		}
-		keys = keys[:min(max(1, last, pinned+len(remaining)), mostKeys)]
+		// A hire at a desk the owner chose keeps it, so the grid reaches it, free desks before it or not.
+		var chosen []*Session
+		reach := 0
+		for _, s := range remaining {
+			if i, ok := d.keyOf[s.ID]; ok && d.chosenDesk[s.ID] && i < mostKeys {
+				chosen = append(chosen, s)
+				reach = max(reach, i+1)
+			}
+		}
+		keys = keys[:min(max(1, last, reach, pinned+len(remaining)), mostKeys)]
+		for _, s := range chosen {
+			if i := d.keyOf[s.ID]; i < len(keys) && keys[i].pin == nil && keys[i].session == nil {
+				place(s, i)
+			}
+		}
 		// In the order their keys had, so the grid shrinks without shuffling.
 		slices.SortStableFunc(remaining, func(a, b *Session) int { return d.previousKey(a) - d.previousKey(b) })
 	}
@@ -450,6 +625,50 @@ func (d *Deck) layout() ([]deckKey, []*Session) {
 		delete(d.keyOf, s.ID)
 	}
 	return keys, remaining
+}
+
+// setChosen records that a session sits at a desk the owner chose. With the
+// lock held.
+func (d *Deck) setChosen(id string) {
+	if d.chosenDesk == nil {
+		d.chosenDesk = map[string]bool{}
+	}
+	d.chosenDesk[id] = true
+}
+
+// engineSeat is the desk (and floor) an engine hire in tmux was hired at.
+type engineSeat struct {
+	desk, floor int
+	at          time.Time
+}
+
+// seatEngineHire keeps the desk chosen for the engine hire whose tmux server is
+// socket, for its session to take when it appears. held is -1 for no choice.
+// With the lock held.
+func (d *Deck) seatEngineHire(socket string, held, floor int) {
+	if held < 0 || socket == "" {
+		return
+	}
+	if d.engineSeats == nil {
+		d.engineSeats = map[string]engineSeat{}
+	}
+	for kept, seat := range d.engineSeats {
+		if time.Since(seat.at) > hiredTabWait {
+			delete(d.engineSeats, kept)
+		}
+	}
+	d.engineSeats[filepath.Clean(socket)] = engineSeat{desk: held, floor: floor, at: time.Now()}
+}
+
+// takeEngineSeat gives, once, the desk chosen for the engine hire at socket.
+// With the lock held.
+func (d *Deck) takeEngineSeat(socket string) (engineSeat, bool) {
+	key := filepath.Clean(socket)
+	seat, ok := d.engineSeats[key]
+	if ok {
+		delete(d.engineSeats, key)
+	}
+	return seat, ok
 }
 
 // previousKey is the key a session last had, or one past the last for a
@@ -523,38 +742,139 @@ func (d *Deck) sessionEntry(s *Session) map[string]any {
 	}
 }
 
-// summaryState is ✨ Summary for the setup page: on or off, the key's hint and
-// where it's from (never the key), whether there's a secret store to keep one
-// in, and the model, for the dialog. With the lock held.
+// summaryState is ✨ Summary for the setup page: on or off, what makes
+// summaries and each way there is, with why it can't when it can't; the
+// key's source (never any part of the key), whether there's a secret
+// store to keep one in, and the model, for the dialog. With the lock held.
 func (d *Deck) summaryState() map[string]any {
-	source, hint := d.summaryKeys.Shown()
+	d.summaryProviders.Refresh(false)
+	return summaryStateOf(d.config.SummaryOptIn, d.config.SummaryProvider, d.summaryKeys, d.summaryProviders.States(),
+		d.summaryProviders.Checking(), d.summaries.LastFallback())
+}
+
+func summaryStateOf(optIn bool, saved string, keys *summaryKeys, states map[summaryProvider]providerState, checking bool,
+	fallback string) map[string]any {
+	source := keys.Shown()
+	hasKey := source != ""
 	var key any
-	if source != "" {
-		key = map[string]any{"source": source, "hint": hint}
+	if hasKey {
+		key = map[string]any{"source": source}
+	}
+	var providers []map[string]any
+	for _, agent := range summaryAgents(runtime.GOOS) {
+		state, known := states[agent]
+		kind, reason := string(state.kind), state.reason
+		if agent.supported() && state.works() {
+			kind = string(providerReady)
+		}
+		if !known {
+			kind, reason = "checking", "checking…"
+		}
+		providers = append(providers, map[string]any{"id": agent, "name": agent.name(), "state": kind, "reason": reason})
+	}
+	keyState, keyReason := "missing", "add a key below"
+	if hasKey {
+		keyState, keyReason = "ready", providerAPIKey.plan()
+	} else if keys.NoStore() {
+		keyReason = "no secret store here: set ANTHROPIC_API_KEY in Smolcorp's environment instead"
+	}
+	providers = append(providers, map[string]any{"id": providerAPIKey, "name": providerAPIKey.name(), "state": keyState, "reason": keyReason})
+	var provider any
+	chosen := chosenSummaryProvider(saved, optIn, states, hasKey)
+	if chosen != "" {
+		plan := chosen.plan()
+		if state, ok := states[chosen]; ok && state.reason != "" {
+			plan = state.reason
+		}
+		provider = map[string]any{"id": chosen, "name": chosen.name(), "plan": plan, "destination": chosen.destination(),
+			"works": summaryProviderWorks(chosen, states, hasKey)}
+	}
+	var lastFallback any
+	if fallback != "" {
+		lastFallback = fallback
 	}
 	return map[string]any{
-		"enabled": d.config.SummaryOptIn && source != "", "key": key, "model": summaryModelName,
-		"noStore": d.summaryKeys.NoStore(),
+		"enabled": optIn && chosen != "", "provider": provider, "providers": providers, "checking": checking,
+		"fallback": lastFallback, "key": key, "model": summaryModelName, "noStore": keys.NoStore(),
+		// Only a key pasted here is a fallback: never one from Smolcorp's environment.
+		"savedKey": source == "store",
+		// What was picked, for saying when it's one that isn't supported any more.
+		"saved": saved,
 	}
+}
+
+// summaryProvider is what makes summaries now, or "". With the lock held.
+func (d *Deck) summaryProvider() summaryProvider {
+	return chosenSummaryProvider(d.config.SummaryProvider, d.config.SummaryOptIn, d.summaryProviders.States(), d.summaryKeys.Present())
+}
+
+// summaryRefusal is why provider can't make summaries now, or "" when it can.
+func (d *Deck) summaryRefusal(provider summaryProvider) string {
+	if provider == providerAPIKey {
+		if d.summaryKeys.Present() {
+			return ""
+		}
+		return "Add your Anthropic API key first."
+	}
+	state, known := d.summaryProviders.States()[provider]
+	switch {
+	case !known:
+		return "Still looking for " + provider.name() + ". Try again in a moment."
+	case !provider.supported() || !state.works():
+		return provider.name() + ": " + state.reason + "."
+	}
+	return ""
+}
+
+// runSummaryAgent is the coding agent's run, unless it's known not to take Smolcorp's flags any more.
+func (d *Deck) runSummaryAgent(provider summaryProvider, system, prompt string) (string, cliFailure) {
+	if !provider.supported() {
+		return "", cliUnsupported
+	}
+	state := d.summaryProviders.StatesNow()[provider]
+	switch state.kind {
+	case providerChanged:
+		return "", cliChanged
+	case providerUnsupported:
+		return "", cliUnsupported
+	}
+	program := state.program
+	if program == "" {
+		program = summaryProgram(provider)
+	}
+	if program == "" {
+		return "", cliMissing
+	}
+	expected := state.kind
+	if expected == "" {
+		expected = providerReady
+	}
+	text, failure := runSummaryCLI(provider, program, system, prompt, os.Environ(), expected)
+	// What setup shows is looked at again, as it may be out of date.
+	if failure == cliLoginChanged || failure == cliUnsupported || failure == cliSignedOut {
+		d.summaryProviders.Refresh(true)
+	}
+	return text, failure
 }
 
 // summaryOffered is whether ✨ summary is offered at all: turned on, and with
-// a key. With the lock held.
+// something to make it. With the lock held.
 func (d *Deck) summaryOffered() bool {
-	return d.config.SummaryOptIn && d.summaryKeys.Present()
+	return d.config.SummaryOptIn && d.summaryProvider() != ""
 }
 
 // Summarize is a few lines on what session id has been doing, from the end of
-// its transcript. Nothing is sent with Summary off, or without a key.
+// its transcript. Nothing is sent with Summary off, or with nothing to make it.
 func (d *Deck) Summarize(id string) (string, *SummaryError) {
 	d.mu.Lock()
 	if !d.config.SummaryOptIn {
 		d.mu.Unlock()
 		return "", errSummaryOff
 	}
-	if !d.summaryKeys.Present() {
+	provider := d.summaryProvider()
+	if provider == "" {
 		d.mu.Unlock()
-		return "", errSummaryNoKey
+		return "", errSummaryNoWay
 	}
 	s := d.sessions.Get(id)
 	if s == nil || s.Headless() {
@@ -566,7 +886,7 @@ func (d *Deck) Summarize(id string) (string, *SummaryError) {
 	if path == "" {
 		return "", errSummaryNoHistory
 	}
-	return d.summaries.Summarize(id, path, project)
+	return d.summaries.SummarizeWith(id, path, project, provider)
 }
 
 // hiredBy is who started a headless run, for its card upstairs: the
@@ -655,18 +975,38 @@ func (d *Deck) isConnected(phone string) bool {
 }
 
 // hiringState is what the office's held desks offer: firing, and hiring
-// once there's a folder to hire into and somewhere to open it, by role. With
-// the lock held.
+// once there's a folder to hire into and somewhere to open it, by role: the
+// folder for new hires, or a floor upstairs with a folder of its own, which
+// is where a hire there starts. With the lock held.
 func (d *Deck) hiringState() map[string]any {
-	_, folder := existingFolder(d.config.HireFolder)
-	hire := d.config.HiringEnabled && folder && canHireHere()
+	folder := hasHireFolder(d.config)
+	canHire := canHireHere()
+	hire := d.config.HiringEnabled && folder && canHire
 	roles := []map[string]any{}
 	if hire {
 		for _, role := range d.config.Roles {
 			roles = append(roles, role.forPhone())
 		}
 	}
-	return map[string]any{"fire": d.config.HiringEnabled, "hire": hire, "roles": roles}
+	state := map[string]any{"fire": d.config.HiringEnabled, "hire": hire, "roles": roles}
+	if d.config.HiringEnabled && !folder && canHire {
+		state["reason"] = hiringNeedsFolder
+	}
+	return state
+}
+
+// hiringNeedsFolder is why a free desk offers no hiring when it's on but
+// there's no folder to hire into, where hiring could open at all.
+const hiringNeedsFolder = "Hiring needs a folder: choose one in setup."
+
+// hasHireFolder says whether there's a folder to hire into: the one for
+// new hires, or a floor upstairs with a folder of its own.
+func hasHireFolder(config *Config) bool {
+	_, folder := existingFolder(config.HireFolder)
+	for floor := 1; !folder && floor < floorCount; floor++ {
+		_, folder = existingFolder(floorFolder(config.FloorRules, floor))
+	}
+	return folder
 }
 
 // unpair forgets a phone, or every phone when id is "", and hangs up on it
@@ -698,10 +1038,16 @@ func (d *Deck) roleOf(s *Session) map[string]any {
 // sessionRole is the role a session's launcher was started with, while
 // setup has it.
 func (d *Deck) sessionRole(s *Session) (Role, bool) {
-	kind, id, _ := splitTab(s.Tab)
-	if tab, ok := d.launchers[id]; kind == "launcher" && ok && tab.role != "" {
+	kind, id, socket := splitTab(s.Tab)
+	roleID := ""
+	if tab, ok := d.launchers[id]; kind == "launcher" && ok {
+		roleID = tab.role
+	} else if kind == "tmux" {
+		roleID = d.hiredRoleAt(socket) // a hire the engine made: no launcher, its registry row has the role
+	}
+	if roleID != "" {
 		for _, role := range d.config.Roles {
-			if role.ID == tab.role {
+			if role.ID == roleID {
 				return role, true
 			}
 		}
@@ -711,12 +1057,20 @@ func (d *Deck) sessionRole(s *Session) (Role, bool) {
 
 // launcherConnected keeps a launcher that has connected. hire is the token it
 // was hired with, if the office hired it, which brings the desk it was hired at.
+// An id whose launcher is still connected is not given to a second one: it
+// gets nil, and neither replaces the tab nor learns its secret. The id is free
+// again when launcherGone has run.
 func (d *Deck) launcherConnected(id string, agent Agent, folder, role, hire string) *launcherTab {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	tab := &launcherTab{agent: agent, folder: folder, role: role, desk: -1, commands: make(chan launcherCommand, 32)}
+	if _, taken := d.launchers[id]; taken {
+		return nil
+	}
+	tab := &launcherTab{agent: agent, folder: folder, role: role, desk: -1, commands: make(chan launcherCommand, 32),
+		screenSecret: randomHex(16), gone: make(chan struct{})}
 	if hire != "" {
-		tab.desk = d.hiredDesk(hire)
+		tab.office = true
+		tab.desk, tab.floor, tab.hireID, tab.hired = d.hiredPending(hire)
 	}
 	d.launchers[id] = tab
 	// Back after a restart: the sessions it held are back too.
@@ -733,6 +1087,7 @@ func (d *Deck) launcherGone(id string, tab *launcherTab) {
 		return // a newer connection from the same launcher has taken over
 	}
 	delete(d.launchers, id)
+	close(tab.gone) // a look still waiting on it stops waiting
 	if d.sessions.Prune(func(name string) bool { return name != "launcher:"+id }, nowMillis()) {
 		d.changed()
 	}
@@ -915,6 +1270,10 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	if action == "swap" {
 		return d.swapKeys(query)
 	}
+	// Someone put on another floor, from the office: any session, a headless run or a cloud bot.
+	if action == "move" {
+		return d.move(id, query.Get("floor"), query.Get("remember") == "1")
+	}
 	// A cloud bot's card opened: its news seen.
 	if action == "seen" {
 		d.mu.Lock()
@@ -941,6 +1300,9 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		// A new hire has no session yet.
 		if query.Has("desk") && query.Get("desk") == "" {
 			return http.StatusBadRequest, "Unknown desk"
+		}
+		if floor := query.Get("floor"); floor != "" && floor != "0" {
+			return d.hireUpstairs(floor, query.Get("desk"), query.Get("role"))
 		}
 		return d.hire(query.Get("desk"), query.Get("role"))
 	}
@@ -1004,6 +1366,9 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	case "fire":
 		if !hiring {
 			return http.StatusForbidden, hiringOff
+		}
+		if status, message, handled := d.fireTab(tab, query.Get("force") == "1"); handled {
+			return status, message
 		}
 		if status, message := d.inTab(tab, func(t Tab) error { return t.Close(agent) }); status != http.StatusNotFound {
 			return status, message

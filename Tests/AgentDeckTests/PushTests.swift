@@ -340,4 +340,94 @@ final class PushTests: XCTestCase {
         XCTAssertEqual(state["finished"] as? Bool, true)
         XCTAssertNil(state["token"], "the token never goes back")
     }
+
+    // MARK: The office's name
+
+    private let officeID = "5F3C2A10-1B2C-4D3E-8F40-0123456789AB"
+
+    func testTheOfficeNameAndIDAreTakenOnlyWhenGoodAndNeverFailTheToken() throws {
+        let good = try XCTUnwrap(DeckRouter.pushTarget(["token": token, "office": "  Home Mac ", "officeID": officeID]))
+        XCTAssertEqual(good.office, "Home Mac")
+        XCTAssertEqual(good.officeID, officeID)
+        for bad in ["", "   ", String(repeating: "x", count: 41), "Home\nMac", "Home\r\nMac"] {
+            let target = try XCTUnwrap(DeckRouter.pushTarget(["token": token, "office": bad]), "the token is still taken")
+            XCTAssertNil(target.office, "\(bad.debugDescription) is ignored")
+        }
+        XCTAssertEqual(DeckRouter.pushTarget(["token": token, "office": String(repeating: "x", count: 40)])?.office?.count, 40)
+        XCTAssertEqual(DeckRouter.pushTarget(["token": token, "office": "Home\n"])?.office, "Home", "a trailing newline is trimmed")
+        for bad in ["not-a-uuid", "", "5F3C2A10"] as [Any] {
+            let target = try XCTUnwrap(DeckRouter.pushTarget(["token": token, "officeID": bad]))
+            XCTAssertNil(target.officeID)
+        }
+        let wrongKinds = try XCTUnwrap(DeckRouter.pushTarget(["token": token, "office": 7, "officeID": ["x"]]))
+        XCTAssertNil(wrongKinds.office)
+        XCTAssertNil(wrongKinds.officeID)
+        let none = try XCTUnwrap(DeckRouter.pushTarget(["token": token]))
+        XCTAssertEqual(none, PushTarget(token: token))
+    }
+
+    func testTheOfficeIsSavedWithTheTokenAndAnOldSavedTargetStillLoads() throws {
+        var target = PushTarget(token: token)
+        target.office = "Home Mac"
+        target.officeID = officeID
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let back = try decoder.decode([PairedPhone].self, from: encoder.encode([phone("p1", target)]))
+        XCTAssertEqual(back[0].push, target)
+        let old = #"{"token":"\#(token)","sandbox":false,"finished":true,"waiting":false,"gm":true}"#
+        let loaded = try JSONDecoder().decode(PushTarget.self, from: Data(old.utf8))
+        XCTAssertNil(loaded.office)
+        XCTAssertNil(loaded.officeID)
+        XCTAssertFalse(loaded.waiting)
+        let plain = try JSONSerialization.jsonObject(with: JSONEncoder().encode(PushTarget(token: token))) as? [String: Any]
+        XCTAssertNil(plain?["office"], "a target without them is saved as it always was")
+    }
+
+    func testAPushCarriesTheOfficeWhenTheTargetHasItAndIsExactlyAsBeforeWhenNot() throws {
+        let note = PushNote.desk("acmebill", .finished, session: "s-1")
+        var target = PushTarget(token: token)
+        let plain = try XCTUnwrap(Pushes.request(note, to: target, provider: "jwt", topic: "com.example.smolcorp"))
+        XCTAssertEqual(plain.httpBody, note.payload, "no office: the same bytes as before")
+        XCTAssertEqual(String(decoding: note.payload, as: UTF8.self),
+                       #"{"aps":{"alert":{"body":"finished","title":"acmebill"},"sound":"default","thread-id":"s-1"},"event":"finished","session":"s-1"}"#)
+        XCTAssertEqual(plain.value(forHTTPHeaderField: "apns-collapse-id"), "finished-s-1")
+        target.office = "Home Mac"
+        target.officeID = officeID
+        let request = try XCTUnwrap(Pushes.request(note, to: target, provider: "jwt", topic: "com.example.smolcorp"))
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(request.httpBody)) as? [String: Any])
+        XCTAssertEqual(Set(payload.keys), ["aps", "event", "session", "office"])
+        XCTAssertEqual(payload["office"] as? String, officeID)
+        XCTAssertEqual(payload["session"] as? String, "s-1")
+        let aps = try XCTUnwrap(payload["aps"] as? [String: Any])
+        XCTAssertEqual(aps["thread-id"] as? String, "\(officeID):s-1")
+        XCTAssertEqual(aps["alert"] as? [String: String], ["title": "acmebill", "body": "finished", "subtitle": "Home Mac"])
+        XCTAssertEqual(request.value(forHTTPHeaderField: "apns-collapse-id"), "\(officeID):finished-s-1")
+    }
+
+    func testAnOfficeInTheCollapseIDStaysWithinApplesSixtyFourBytesByCuttingTheDeskPart() throws {
+        let long = String(repeating: "s", count: 80)
+        var target = PushTarget(token: token)
+        target.officeID = officeID
+        let request = try XCTUnwrap(Pushes.request(.desk("acmebill", .waiting, session: long), to: target, provider: "jwt", topic: "com.example.smolcorp"))
+        let id = try XCTUnwrap(request.value(forHTTPHeaderField: "apns-collapse-id"))
+        XCTAssertEqual(id.utf8.count, 64)
+        XCTAssertTrue(id.hasPrefix(officeID + ":waiting-"), "the office id is never cut")
+        XCTAssertEqual(Pushes.collapseID(String(repeating: "é", count: 40), office: officeID).utf8.count <= 64, true)
+        let without = try XCTUnwrap(Pushes.request(.desk("acmebill", .waiting, session: long), to: PushTarget(token: token), provider: "jwt", topic: "t"))
+        XCTAssertEqual(without.value(forHTTPHeaderField: "apns-collapse-id"), String("waiting-\(long)".prefix(64)), "as before")
+    }
+
+    func testAGMNoteWithAnOfficeHasTheSubtitleAndTheOfficeButNoThread() throws {
+        let note = try XCTUnwrap(PushNote.gm(title: "Audit", body: "done"))
+        var target = PushTarget(token: token)
+        target.office = "Home Mac"
+        target.officeID = officeID
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: note.payload(for: target)) as? [String: Any])
+        XCTAssertEqual(payload["office"] as? String, officeID)
+        let aps = try XCTUnwrap(payload["aps"] as? [String: Any])
+        XCTAssertNil(aps["thread-id"])
+        XCTAssertEqual((aps["alert"] as? [String: String])?["subtitle"], "Home Mac")
+    }
 }

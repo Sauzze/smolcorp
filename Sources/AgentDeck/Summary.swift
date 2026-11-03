@@ -1,10 +1,11 @@
 import Foundation
 import Security
 
-/// ✨ Summary: what an agent has been doing, in a few lines written by Claude
-/// Haiku from the end of its Claude Code transcript, for a phone that can't
-/// see the Terminal. Off until you turn it on in setup, and made with your own
-/// Anthropic API key, billed to you.
+/// ✨ Summary: what an agent has been doing, in a few lines written from the
+/// end of its Claude Code transcript, for a phone that can't see the Terminal.
+/// Off until you turn it on in setup, and made either by a coding agent you
+/// already have, on your own plan (see `SummaryProviders`), or by Claude Haiku
+/// with your own Anthropic API key, billed to you.
 ///
 /// Only the tail of the transcript is read, tool output cut down to a line,
 /// lines that look like secrets taken out, and at most `TranscriptTail.budget`
@@ -482,6 +483,7 @@ struct SummaryError: Error, Equatable {
 
     static let off = SummaryError(message: "Summaries are off: turn them on in setup, on your computer.", status: 403)
     static let noKey = SummaryError(message: "No Anthropic API key: add yours in setup, on your computer.", status: 403)
+    static let noProvider = SummaryError(message: "Nothing to make summaries with: pick a coding agent or add a key in setup, on your computer.", status: 403)
     static let noSession = SummaryError(message: "That agent has gone.", status: 404)
     static let noHistory = SummaryError(message: "No history for this agent.", status: 404)
     static let tooMany = SummaryError(message: "Too many summaries just now: try again in a few minutes.", status: 429)
@@ -541,8 +543,15 @@ enum SummaryKey {
 
     /// What setup shows, without reading the key from the Keychain.
     static func shown(environment: [String: String] = ProcessInfo.processInfo.environment, testMode: Bool = testMode) -> Shown? {
-        if knownHint == nil { knownHint = .some(store.hint()) }
-        if let hint = knownHint ?? nil { return Shown(source: .keychain, hint: hint) }
+        // Not known yet: the Keychain is asked off the main queue (see `learnHint`), and until it answers
+        // this goes by the environment alone. Whoever must have the answer first uses `whenKnown`.
+        // A test copy's key is a file, which can be written or removed while the copy runs: it is read again each time
+        // (a few bytes, and no Keychain to wait on), rather than trusted by its modification time, which a quick
+        // rewrite within the same tick can leave unchanged. The real app keeps what it learned.
+        if testMode { knownHint = .some(store.hint()) }
+        let known = knownHint
+        if known == nil { learnHint() }
+        if let hint = known ?? nil { return Shown(source: .keychain, hint: hint) }
         guard !testMode else { return nil }
         guard let key = environment[environmentName]?.trimmingCharacters(in: .whitespacesAndNewlines), isKey(key) else { return nil }
         return Shown(source: .environment, hint: hint(key))
@@ -564,6 +573,22 @@ enum SummaryKey {
         knownHint = .some(nil)
     }
 
+    /// `save` off the main queue: `done` is told on it, once the Keychain has answered.
+    static func save(_ text: String, done: @escaping (Bool) -> Void) {
+        queue.async {
+            let kept = save(text)
+            DispatchQueue.main.async { done(kept) }
+        }
+    }
+
+    /// `remove` off the main queue: `done` is told on it, once the Keychain has finished.
+    static func remove(done: @escaping () -> Void) {
+        queue.async {
+            remove()
+            DispatchQueue.main.async(execute: done)
+        }
+    }
+
     /// Where a pasted key is kept: the Keychain, or a stand-in in tests.
     struct Store {
         var read: () -> String?
@@ -572,14 +597,69 @@ enum SummaryKey {
         var delete: () -> Void
     }
 
-    static var store = Store.keychain
+    static var store = defaultStore()
+
+    /// The Keychain, or in a test copy a file in its own support folder (the Keychain is never asked there).
+    static func defaultStore(testCopy: Bool = TestCopy.isOn, support: URL? = TestCopy.support,
+                             keychain: Store = .keychain) -> Store {
+        if testCopy, let support { return .file(support.appendingPathComponent(TestCopySecrets.apiKeyName)) }
+        return keychain
+    }
 
     /// The hint, from memory once known (nil inside: known to be none), so
     /// setup, asking every second or so, doesn't go to the Keychain each time.
-    private static var knownHint: String??
+    /// Guarded by `lock`: `save` and `remove` can finish on `queue` while the main queue asks.
+    private static var knownHintValue: String??
+    private static let lock = NSLock()
+    private static var knownHint: String?? {
+        get { lock.lock(); defer { lock.unlock() }; return knownHintValue }
+        set { lock.lock(); defer { lock.unlock() }; knownHintValue = newValue }
+    }
+
+    private static var learning = false
+    /// Told on the main queue when the hint has been learned from the Keychain, so what shows it can redraw.
+    static var onLearned: () -> Void = {}
+
+    /// Asks the Keychain for the hint on `queue`, once at a time, and keeps it unless a save or remove got there first.
+    static func learnHint() {
+        lock.lock()
+        let begin = !learning && knownHintValue == nil
+        if begin { learning = true }
+        lock.unlock()
+        guard begin else { return }
+        queue.async {
+            let hint = store.hint()
+            DispatchQueue.main.async {
+                lock.lock()
+                if knownHintValue == nil { knownHintValue = .some(hint) }
+                learning = false
+                lock.unlock()
+                onLearned()
+            }
+        }
+    }
+
+    /// Runs `then` on the main queue once the hint is known (at once if it is).
+    static func whenKnown(_ then: @escaping () -> Void) {
+        if knownHint != nil { return then() }
+        queue.async {
+            let hint = store.hint()
+            DispatchQueue.main.async {
+                lock.lock()
+                if knownHintValue == nil { knownHintValue = .some(hint) }
+                lock.unlock()
+                then()
+            }
+        }
+    }
+
+    /// Where the Keychain is asked to keep or drop the key. macOS may show a
+    /// dialog and wait for an answer, so this is never the main queue, which
+    /// answers setup, the office, phones and hooks.
+    static let queue = DispatchQueue(label: "smolcorp.summary-key")
 
     /// Asks the store again next time, as after the store is swapped in a test.
-    static func forgetKnown() { knownHint = nil }
+    static func forgetKnown() { lock.lock(); knownHintValue = nil; learning = false; lock.unlock() }
 }
 
 extension SummaryKey.Store {
@@ -676,6 +756,11 @@ enum SummaryRequest {
         """
     }
 
+    /// What's summarised, as the API key and each coding agent get it.
+    static func prompt(_ extract: TranscriptTail.Extract, project: String) -> String {
+        "Project: \(project)\n\nTranscript excerpt, oldest first:\n\(extract.text)"
+    }
+
     static func body(_ extract: TranscriptTail.Extract, project: String) -> Data {
         let object: [String: Any] = [
             "model": model,
@@ -686,7 +771,7 @@ enum SummaryRequest {
             "system": system(language: extract.language),
             "messages": [[
                 "role": "user",
-                "content": "Project: \(project)\n\nTranscript excerpt, oldest first:\n\(extract.text)",
+                "content": prompt(extract, project: project),
             ]],
         ]
         return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
@@ -721,8 +806,9 @@ enum SummaryRequest {
 /// Summaries by session: one call at a time for each, kept for `keepFor` so a
 /// second tap doesn't pay twice unless the user has asked something since, and
 /// at most `most` calls in `window` for the whole computer, so no phone can run
-/// up your bill. Never retried: a tap is one call at most. Runs on the main
-/// queue, as the deck does.
+/// up your bill or use up your plan. Never retried: a tap is one call at
+/// most, and a second, with your key, only when the coding agent chosen
+/// fails, which the summary then says. Runs on the main queue, as the deck does.
 final class Summaries {
     static let keepFor: TimeInterval = 30
     static let most = 20
@@ -731,6 +817,8 @@ final class Summaries {
     typealias Done = (Result<String, SummaryError>) -> Void
     /// Sends a request and hands back what came, on any queue. Swapped in tests.
     typealias Transport = (URLRequest, @escaping (Data?, Int?, Error?) -> Void) -> Void
+    /// Runs a coding agent for a summary, with the instructions and the excerpt, on any queue. Swapped in tests.
+    typealias Agent = (SummaryProvider, _ system: String, _ prompt: String) -> Result<String, SummaryCLIFailure>
 
     private var kept: [String: (text: String, latest: String?, at: Date)] = [:]
     private var waiting: [String: [Done]] = [:]
@@ -738,13 +826,42 @@ final class Summaries {
     private var calls: [Date] = []
     private let transport: Transport
     private let key: () -> String?
+    /// A key pasted in setup, never one from Smolcorp's environment: the only one a summary falls back to.
+    private let savedKey: () -> String?
+    private let agent: Agent
     private let now: () -> Date
+    /// Why the last summary was made with the key instead, for setup: nil once one isn't.
+    private(set) var lastFallback: String?
 
     init(transport: @escaping Transport = Summaries.urlSession, key: @escaping () -> String? = { SummaryKey.read() },
-         now: @escaping () -> Date = Date.init) {
+         savedKey: @escaping () -> String? = { SummaryKey.store.read() },
+         agent: @escaping Agent = Summaries.runAgent, now: @escaping () -> Date = Date.init) {
         self.transport = transport
         self.key = key
+        self.savedKey = savedKey
+        self.agent = agent
         self.now = now
+    }
+
+    /// The coding agent's run, unless it's known not to take Smolcorp's flags any more.
+    static let runAgent: Agent = { provider, system, prompt in
+        guard provider.isSupported else { return .failure(.unsupported) }
+        let state = SummaryProviders.shared.statesNow()[provider]
+        if state?.kind == .changed { return .failure(.changed) }
+        if state?.kind == .unsupported { return .failure(.unsupported) }
+        guard let program = state?.program ?? SummaryProviders.program(provider) else { return .failure(.missing) }
+        let result = SummaryCLI.run(provider, program: program, system: system, prompt: prompt, expected: state?.kind ?? .ready)
+        // What setup shows is looked at again, as it may be out of date.
+        if case .failure(let why) = result, [.loginChanged, .unsupported, .signedOut].contains(why) {
+            SummaryProviders.shared.refresh(force: true)
+        }
+        return result
+    }
+
+    /// The line a summary made with the key instead ends with.
+    static func fallbackNote(_ failure: SummaryCLIFailure, _ provider: SummaryProvider) -> String {
+        let why = failure.short(provider)
+        return "(" + why.prefix(1).uppercased() + why.dropFirst() + ", so this was made with your API key.)"
     }
 
     static let urlSession: Transport = transport(using: .ephemeral)
@@ -775,7 +892,7 @@ final class Summaries {
     }
 
     /// The summary of session `id`, from its transcript at `transcript`.
-    func summarize(_ id: String, transcript: String, project: String, done: @escaping Done) {
+    func summarize(_ id: String, transcript: String, project: String, provider: SummaryProvider = .apiKey, done: @escaping Done) {
         // A summary kept is served only while the user's latest request is still the one it covered,
         // which only the file can tell; it's read off the main queue, and a call made only if it isn't.
         if let hit = kept[id], now().timeIntervalSince(hit.at) < Summaries.keepFor {
@@ -783,16 +900,16 @@ final class Summaries {
                 let latest = TranscriptTail.read(transcript)?.latest
                 DispatchQueue.main.async { [weak self] in
                     if latest == hit.latest { return done(.success(hit.text)) }
-                    self?.call(id, transcript: transcript, project: project, done: done)
+                    self?.call(id, transcript: transcript, project: project, provider: provider, done: done)
                 }
             }
             return
         }
-        call(id, transcript: transcript, project: project, done: done)
+        call(id, transcript: transcript, project: project, provider: provider, done: done)
     }
 
-    /// A call to Anthropic for session `id`, or a wait on the one already going.
-    private func call(_ id: String, transcript: String, project: String, done: @escaping Done) {
+    /// A call for session `id`, to Anthropic or a coding agent, or a wait on the one already going.
+    private func call(_ id: String, transcript: String, project: String, provider: SummaryProvider, done: @escaping Done) {
         if waiting[id] != nil { waiting[id]!.append(done); return }
         calls.removeAll { now().timeIntervalSince($0) >= Summaries.window }
         guard calls.count < Summaries.most else { return done(.failure(.tooMany)) }
@@ -807,13 +924,38 @@ final class Summaries {
             }
         }
         // The file and the Keychain are read off the main queue, so the deck never waits on them.
-        let key = key, transport = transport
-        DispatchQueue.global(qos: .userInitiated).async {
+        let key = key, savedKey = savedKey, transport = transport, agent = agent, now = now
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let extract = TranscriptTail.read(transcript) else { return finish(.failure(.noHistory), nil) }
-            guard let secret = key() else { return finish(.failure(.noKey), nil) }
-            let request = SummaryRequest.request(extract, project: project, key: secret)
-            transport(request) { data, status, error in
-                finish(SummaryRequest.answer(data, status: status, error: error), extract.latest)
+            if provider == .apiKey {
+                guard let secret = key() else { return finish(.failure(.noKey), nil) }
+                DispatchQueue.main.async { self?.lastFallback = nil }
+                let request = SummaryRequest.request(extract, project: project, key: secret)
+                return transport(request) { data, status, error in
+                    finish(SummaryRequest.answer(data, status: status, error: error), extract.latest)
+                }
+            }
+            let system = SummaryRequest.system(language: extract.language)
+            let failure: SummaryCLIFailure
+            switch agent(provider, system, SummaryRequest.prompt(extract, project: project)) {
+            case let .success(text):
+                DispatchQueue.main.async { self?.lastFallback = nil }
+                return finish(.success(text), extract.latest)
+            case let .failure(why):
+                failure = why
+            }
+            // With a key pasted in setup, it's made with that instead, and says so: a call of its own, within the limit.
+            guard let secret = savedKey() else { return finish(.failure(failure.error(provider)), nil) }
+            let note = Summaries.fallbackNote(failure, provider)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.calls.removeAll { now().timeIntervalSince($0) >= Summaries.window }
+                guard self.calls.count < Summaries.most else { return finish(.failure(failure.error(provider)), nil) }
+                self.calls.append(now())
+                self.lastFallback = note
+                transport(SummaryRequest.request(extract, project: project, key: secret)) { data, status, error in
+                    finish(SummaryRequest.answer(data, status: status, error: error).map { $0 + "\n" + note }, extract.latest)
+                }
             }
         }
     }

@@ -15,6 +15,16 @@ final class DeckRouter: Router {
     /// browser ask permission first for any cross-site request, which this
     /// server never grants — so a web page you visit cannot press these buttons.
     static let setupHeader = "x-agentdeck-setup"
+    /// Names the app on the 401 of /setup/state, so the locked page tells how to get in.
+    static let appHeader = "X-Smolcorp-App"
+
+    /// Remembers in config.json that you disconnected the agents (or connected
+    /// them again), so --setup's repair leaves them be. Saved only when it changes.
+    static func keepDisconnected(_ disconnected: Bool, in config: Config, to file: URL? = nil) {
+        guard config.hooksDisconnected != disconnected else { return }
+        config.hooksDisconnected = disconnected
+        if let file { config.save(to: file) } else { config.save() }
+    }
 
     /// The agent's pid from a hook's header: digits only, anything else is
     /// ignored.
@@ -27,19 +37,49 @@ final class DeckRouter: Router {
         path == "/setup" || path.hasPrefix("/setup/")
     }
 
-    /// Why a request for setup is refused, or nil to let it in: it must
-    /// come from this Mac, an action must carry the setup header, and
-    /// anything but the page itself needs the setup key: the cookie the page
-    /// is given as the menu opens it, or the header a tool of your own sends.
-    /// The page itself holds nothing.
-    static func setupRefusal(_ request: Request, isKey: (String?) -> Bool) -> Response? {
-        guard request.isLocal else { return .status(404) }
-        guard request.method == "GET" || request.headers[setupHeader] == "1" else { return .status(403) }
-        if request.path != "/setup" {
-            let key = request.headers[setupKeyHeader] ?? cookie(setupCookie, in: request)
-            guard isKey(key) else { return .status(401) }
+    /// Setup's gate, as `handle` runs it: who is asking, or why they're
+    /// refused. It must come from this Mac (404), and an action must carry
+    /// the setup header (403). Past the page itself, it needs the page's
+    /// session cookie, from the menu's one-time link, or the setup-key
+    /// file's key in a tool's header (401); the file's key is never taken as
+    /// the cookie. The GM is whoever sends its token in its header. Each
+    /// caller is refused (403) what the route table doesn't give it: see
+    /// `SetupRoutes`. The page itself holds nothing, and /setup/session is
+    /// where a link's key is handed over for a session.
+    static func setupGate(_ request: Request, sessions: SetupSessions, isSetupKey: (String?) -> Bool,
+                          isGMToken: (String?) -> Bool = { _ in false }, isHireKey: (String?) -> Bool = { _ in false }) -> (refusal: Response?, caller: SetupSessions.Caller) {
+        guard request.isLocal else { return (.status(404), .nobody) }
+        guard request.method == "GET" || request.headers[setupHeader] == "1" else { return (.status(403), .nobody) }
+        var caller = sessions.caller(header: request.headers[setupKeyHeader], cookie: cookie(setupCookie, in: request), isSetupKey: isSetupKey,
+                                     gmHeader: request.headers[GMIdentity.header], isGMToken: isGMToken,
+                                     hireKey: request.headers[FrontDesk.sendKeyHeader], isHireKey: isHireKey)
+        // A request with the setup key and the GM's token is the owner's tool for what a tool may do
+        // (a read-only request with both acts as the owner and doesn't mark the GM as started by hand).
+        // For a route a tool may not use, the token makes it the GM: its action, signed as the GM.
+        if caller == .tool, !SetupRoutes.allows(.tool, request.method, request.path), isGMToken(request.headers[GMIdentity.header]) { caller = .gm }
+        let open = request.path == "/setup" || (request.path == "/setup/session" && request.method == "POST")
+        if caller == .nobody && !open {
+            // The locked page says which app it came from, so its note names this app's own way in.
+            var locked = Response.status(401)
+            if request.path == "/setup/state" { locked.headers[appHeader] = "mac" }
+            return (locked, caller)
         }
-        return nil
+        if caller != .nobody && !open && !SetupRoutes.allows(caller, request.method, request.path) {
+            return (.status(403, SetupRoutes.refusal(request.method, request.path)), caller)
+        }
+        return (nil, caller)
+    }
+
+    /// A tool with the setup-key file may only run `--setup`'s own repair (auto=1),
+    /// which leaves agents you disconnected alone: installing the app, the login
+    /// and accessibility fixes, and a repair that reconnects are for the setup page (or the GM).
+    static func fixRefusal(caller: SetupSessions.Caller, fix: String?, auto: String? = nil) -> Response? {
+        caller == .tool && !(fix == SelfTest.repair && auto == "1") ? .status(403, "This is for the setup page the menu opens.") : nil
+    }
+
+    /// The webhook's secret goes to the setup page only: with it, anyone could sign as the owner.
+    static func webhookSecret(_ secret: String, for caller: SetupSessions.Caller) -> String {
+        caller == .page ? secret : ""
     }
 
     /// Whom the deck answers past setup and the hook: an IP address or a
@@ -63,6 +103,12 @@ final class DeckRouter: Router {
     /// network could otherwise read a terminal.
     static func showsTerminal(_ request: Request) -> Bool {
         request.isTailnet
+    }
+
+    /// The approvals list (who waits for you, and on what, as a short label): to a paired phone through `tailscale serve`
+    /// only, never over the Wi-Fi's plain http nor to the office's window. It only shows; answering is `/act` and `/choose`.
+    static func showsApprovals(_ request: Request, phone: PairedPhone) -> Bool {
+        request.isTailnet && phone.id != PairedPhone.officeWindow.id
     }
 
     /// iPhone app (personal build): an agent's conversation, read from its
@@ -100,11 +146,13 @@ final class DeckRouter: Router {
     }
 
     /// What a phone's POST /notifications asks for: its token and switches, or
-    /// nil, for no more notifications, when there's no token that could be one.
+    /// nil, for no more notifications, when there's no token that could be one. Its office's name and id are kept
+    /// only if they're good ones; a bad one is left out and the token is taken all the same.
     static func pushTarget(_ given: [String: Any]) -> PushTarget? {
         guard let token = given["token"] as? String, PushTarget.isToken(token) else { return nil }
         return PushTarget(token: token, sandbox: given["sandbox"] as? Bool ?? true, finished: given["finished"] as? Bool ?? true,
-                          waiting: given["waiting"] as? Bool ?? true, gm: given["gm"] as? Bool ?? true)
+                          waiting: given["waiting"] as? Bool ?? true, gm: given["gm"] as? Bool ?? true,
+                          office: PushTarget.officeLabel(given["office"]), officeID: PushTarget.officeIdentifier(given["officeID"]))
     }
 
     /// A page's end in the transcript, as an earlier page gave it: digits only.
@@ -137,6 +185,20 @@ final class DeckRouter: Router {
         return inlined
     }
 
+    /// The pairing page as the Mac says it: "Mac" and the menu bar, without the
+    /// tray and the no-tray hint (`smolcorp quit`, Ctrl+C), which the Mac has no use for.
+    /// The same file serves Linux and Windows, which keep their own words.
+    static func macPairing(_ page: Response) -> Response {
+        guard page.status == 200, let html = String(data: page.body, encoding: .utf8) else { return page }
+        var worded = page
+        worded.body = Data(html
+            .replacingOccurrences(of: "Pair with your computer", with: "Pair with your Mac")
+            .replacingOccurrences(of: "On your computer, click the Smolcorp icon in the menu bar or tray and choose <b>Pair a Phone…</b>. With no tray, open the setup link Smolcorp printed as it started (for a new one, run <code>smolcorp quit</code> or press Ctrl+C in its terminal, then start Smolcorp again) and choose <b>Pair a phone</b>. Enter",
+                                  with: "On your Mac, click the Smolcorp icon in the menu bar and choose <b>Pair a Phone…</b>. Enter")
+            .replacingOccurrences(of: "Could not reach your computer.", with: "Could not reach your Mac.").utf8)
+        return worded
+    }
+
     /// Personal build: the deck and pairing pages as the Tailscale address
     /// serves them, told apart from the Wi-Fi's at a glance and on the Home
     /// Screen: "Smolcorp Tail", and the deck's TAIL mark shown.
@@ -152,8 +214,19 @@ final class DeckRouter: Router {
         return marked
     }
 
-    /// The setup page's key, as a tool of your own sends it, read from the
-    /// setup-key file; or as the page's cookie, from the menu's link.
+    /// POST /setup/session: a menu link's key, once, for the page's session cookie.
+    /// The setup-key file's key, or a link already used, opens nothing.
+    static func sessionReply(link: String?, sessions: SetupSessions) -> Response {
+        guard let session = sessions.open(link: link) else {
+            return .status(401, "Only the menu's link opens a setup page.")
+        }
+        var answer = Response.status(204)
+        answer.headers["Set-Cookie"] = "\(setupCookie)=\(session); Path=/setup; HttpOnly; SameSite=Strict"
+        return answer
+    }
+
+    /// The setup-key file's key, as a tool of your own sends it; and, on the
+    /// page's one call to /setup/session, the menu's one-time link key.
     static let setupKeyHeader = "x-smolcorp-setup-key"
     /// A browser sends localhost's cookies to every port, so a test copy's has
     /// a name of its own: each app's setup page would otherwise sign the other out.
@@ -180,6 +253,10 @@ final class DeckRouter: Router {
     private let deck: Deck
     /// Shows the office's window, for setup's Open the office.
     var showOffice: () -> Void = {}
+    /// The office's window takes its options again, as setup changed one.
+    var officeOptionsChanged: () -> Void = {}
+    /// The office's window goes to a rect (AppleScript's coordinates, from the main screen's top-left) when it is shown, as tiling places it.
+    var placeOffice: (CGRect, CGFloat) -> Void = { _, _ in }
 
     init(deck: Deck) {
         self.deck = deck
@@ -199,13 +276,24 @@ final class DeckRouter: Router {
         }
 
         if DeckRouter.isSetupPath(request.path) {
-            if let refused = DeckRouter.setupRefusal(request, isKey: deck.access.isSetupKey) { return respond(refused) }
-            return setup(request, respond: respond)
+            let gate = DeckRouter.setupGate(request, sessions: deck.access.setupSessions, isSetupKey: deck.access.isSetupKey, isGMToken: deck.access.isGMToken,
+                                         isHireKey: { deck.frontDesk.hire(forSendKey: $0) != nil })
+            if let refusal = gate.refusal { return respond(refusal) }
+            // The GM's token, with the id of the session it runs in: that session is a GM started by hand.
+            if gate.caller == .gm { deck.noteGM(session: request.headers[GMIdentity.sessionHeader]) }
+            if request.path == "/setup/session", request.method == "POST" {
+                let answer = DeckRouter.sessionReply(link: request.headers[DeckRouter.setupKeyHeader], sessions: deck.access.setupSessions)
+                if answer.status == 204 { completeSetup() }
+                return respond(answer)
+            }
+            return setup(request, caller: gate.caller, respond: respond)
         }
 
         // A cloud bot's news, from a tool of yours: guarded as setup's actions are.
         if request.path.hasPrefix("/bots/") {
-            if let refused = DeckRouter.setupRefusal(request, isKey: deck.access.isSetupKey) { return respond(refused) }
+            let gate = DeckRouter.setupGate(request, sessions: deck.access.setupSessions, isSetupKey: deck.access.isSetupKey, isGMToken: deck.access.isGMToken,
+                                         isHireKey: { deck.frontDesk.hire(forSendKey: $0) != nil })
+            if let refusal = gate.refusal { return respond(refusal) }
             return respond(botEvent(request))
         }
 
@@ -262,8 +350,9 @@ final class DeckRouter: Router {
         // The deck, or the office on a screen of its own: the same page, and
         // the same pairing first.
         if request.method == "GET" && (request.path == "/" || request.path == "/office") {
-            let page = DeckRouter.withIcon(Response.file(Paths.web.appendingPathComponent(phone == nil ? "pair.html" : "deck.html")),
-                                           icon: request.isTailnet ? Config.shared.logo.tailIcon : Config.shared.logo.icon)
+            var file = Response.file(Paths.web.appendingPathComponent(phone == nil ? "pair.html" : "deck.html"))
+            if phone == nil { file = DeckRouter.macPairing(file) }
+            let page = DeckRouter.withIcon(file, icon: request.isTailnet ? Config.shared.logo.tailIcon : Config.shared.logo.icon)
             return respond(request.isTailnet ? DeckRouter.markedForTailnet(page) : page)
         }
         guard let phone else { return respond(.status(401)) }
@@ -309,6 +398,20 @@ final class DeckRouter: Router {
                 return respond(.status(403, "The details show only over Tailscale's HTTPS address."))
             }
             deck.choiceDetail(session, done: respond)
+
+        // The approvals list: who waits for you, read only. Answering is the paired phone's /act and /choose.
+        case ("GET", "/approvals"):
+            guard DeckRouter.showsApprovals(request, phone: phone) else {
+                return respond(.status(403, "The approvals show only over Tailscale's HTTPS address."))
+            }
+            respond(.json(Approvals.answer(deck.approvalItems())))
+
+        // The reviews list: hires that wrote NEEDS-REVIEW, the newest, read only, tailnet only like the approvals.
+        case ("GET", "/reviews"):
+            guard DeckRouter.showsApprovals(request, phone: phone) else {
+                return respond(.status(403, "The reviews show only over Tailscale's HTTPS address."))
+            }
+            respond(.json(Reviews.answer(deck.reviewItems())))
 
         // iPhone app (personal build): the names its speech recognition listens for, and in which language.
         case ("GET", "/glossary"):
@@ -385,29 +488,39 @@ final class DeckRouter: Router {
         return .status(204)
     }
 
-    private func setup(_ request: Request, respond: @escaping (Response) -> Void) {
+    /// The app's version, as its Info.plist says: "dev" for a build without one.
+    static func version(of bundle: Bundle = .main) -> String {
+        bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
+
+    /// Setup is marked complete once a page that got in with the setup key opened it.
+    private func completeSetup() {
         let config = Config.shared
+        guard !config.hasCompletedSetup else { return }
+        config.hasCompletedSetup = true
+        config.save()
+    }
+
+    private func setup(_ request: Request, caller: SetupSessions.Caller, respond: @escaping (Response) -> Void) {
+        let config = Config.shared
+
+        // With the manager off, the GM's routes say so (the version and the switch itself stay open).
+        if let refusal = ManagerSwitch.refusal(request.method, request.path, enabled: config.managerEnabled) { return respond(refusal) }
 
         switch (request.method, request.path) {
         case ("GET", "/setup"):
-            if !config.hasCompletedSetup {
-                config.hasCompletedSetup = true
-                config.save()
-            }
+            // Only a visit that carries the setup key counts as setup: the page
+            // opened from the menu hands its key over at /setup/session.
+            if caller == .page || caller == .tool { completeSetup() }
             respond(.file(Paths.web.appendingPathComponent("setup.html")))
 
-        // The menu's link carries the key after #k=. The page hands it over once,
-        // already checked above, for a cookie only this page's requests carry.
-        case ("POST", "/setup/session"):
-            var session = Response.status(204)
-            session.headers["Set-Cookie"] = "\(DeckRouter.setupCookie)=\(deck.access.setupKey); Path=/setup; HttpOnly; SameSite=Strict"
-            respond(session)
-
         case ("GET", "/setup/state"):
+            // The Grok Bot app's bots looked for again as setup opens, so a bot made there a moment ago is there.
+            deck.discoverBots(fromSetup: true)
             // Personal build: Tailscale's address for this Mac, looked up now and then, read-only.
             // With the setting off, to warn if `tailscale serve` still hands the deck on.
             Tailnet.refresh { [deck] in deck.refresh() }
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         // The deck, for the preview beside the layout editor: the one page a
         // frame may show, and only one of this deck's own.
@@ -441,7 +554,7 @@ final class DeckRouter: Router {
             do {
                 try profiles(request)
                 deck.refresh()
-                respond(.json(setupState()))
+                respond(.json(setupState(caller)))
             } catch let error as ProfileError {
                 respond(.status(400, error.message))
             } catch {
@@ -461,7 +574,7 @@ final class DeckRouter: Router {
         // The portable office's viewer (private build). Only this reply carries the link,
         // which holds the key; the write secret is in a reply only once, as it's made.
         case ("GET", "/setup/viewer"):
-            respond(.json(deck.portable.setupState(withLink: true)))
+            deck.portable.setupState(withLink: caller == .page) { respond(.json($0)) }
 
         case ("POST", "/setup/viewer"):
             guard let given = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any] else {
@@ -486,38 +599,45 @@ final class DeckRouter: Router {
             // A new address while it's on: the old viewer is told to forget it, and nothing more goes there.
             if moved { deck.portable.stop() }
             deck.portable.changed()
-            respond(.json(deck.portable.setupState()))
+            deck.portable.whenKeychainKnown { [deck] in respond(.json(deck.portable.setupState())) }
 
         case ("POST", "/setup/viewer/secret"):
-            guard let secret = deck.portable.makeWriteSecret() else {
-                return respond(.status(500, "Couldn't keep the write secret in the Keychain."))
+            deck.portable.makeWriteSecret { [deck] secret in
+                guard let secret else {
+                    return respond(.status(500, "Couldn't keep the write secret in the Keychain."))
+                }
+                var state = deck.portable.setupState()
+                state["secret"] = secret
+                respond(.json(state))
             }
-            var state = deck.portable.setupState()
-            state["secret"] = secret
-            respond(.json(state))
 
         case ("POST", "/setup/viewer/check"):
             deck.portable.check { [deck] in respond(.json(deck.portable.setupState())) }
 
         case ("POST", "/setup/viewer/switch"):
-            if request.query["on"] == "1" { deck.portable.start() } else { deck.portable.stop() }
-            respond(.json(deck.portable.setupState()))
+            if request.query["on"] == "1" {
+                deck.portable.start { [deck] in respond(.json(deck.portable.setupState())) }
+            } else {
+                deck.portable.stop()
+                deck.portable.whenKeychainKnown { [deck] in respond(.json(deck.portable.setupState())) }
+            }
 
         case ("POST", "/setup/viewer/rotate"):
-            deck.portable.rotateKey()
-            respond(.json(deck.portable.setupState()))
+            deck.portable.rotateKey { [deck] in respond(.json(deck.portable.setupState())) }
 
         case ("POST", "/setup/viewer/wipe"):
             deck.portable.wipe { [deck] in respond(.json(deck.portable.setupState())) }
 
         case ("GET", "/setup/viewer/qr.png"):
-            guard deck.portable.isSetUp, let link = deck.portable.link else { return respond(.status(404)) }
-            respond(Response(contentType: "image/png", body: QRCode.png(for: link) ?? Data()))
+            deck.portable.currentLink { link in
+                guard let link else { return respond(.status(404)) }
+                respond(Response(contentType: "image/png", body: QRCode.png(for: link) ?? Data()))
+            }
 
         // The portable office's viewer (beta). Only this reply carries the link,
         // which holds the key; the write secret is in a reply only once, as it's made.
         case ("GET", "/setup/viewer"):
-            respond(.json(deck.portable.setupState(withLink: true)))
+            deck.portable.setupState(withLink: caller == .page) { respond(.json($0)) }
 
         case ("POST", "/setup/viewer"):
             guard let given = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any] else {
@@ -542,33 +662,40 @@ final class DeckRouter: Router {
             // A new address while it's on: the old viewer is told to forget it, and nothing more goes there.
             if moved { deck.portable.stop() }
             deck.portable.changed()
-            respond(.json(deck.portable.setupState()))
+            deck.portable.whenKeychainKnown { [deck] in respond(.json(deck.portable.setupState())) }
 
         case ("POST", "/setup/viewer/secret"):
-            guard let secret = deck.portable.makeWriteSecret() else {
-                return respond(.status(500, "Couldn't keep the write secret in the Keychain."))
+            deck.portable.makeWriteSecret { [deck] secret in
+                guard let secret else {
+                    return respond(.status(500, "Couldn't keep the write secret in the Keychain."))
+                }
+                var state = deck.portable.setupState()
+                state["secret"] = secret
+                respond(.json(state))
             }
-            var state = deck.portable.setupState()
-            state["secret"] = secret
-            respond(.json(state))
 
         case ("POST", "/setup/viewer/check"):
             deck.portable.check { [deck] in respond(.json(deck.portable.setupState())) }
 
         case ("POST", "/setup/viewer/switch"):
-            if request.query["on"] == "1" { deck.portable.start() } else { deck.portable.stop() }
-            respond(.json(deck.portable.setupState()))
+            if request.query["on"] == "1" {
+                deck.portable.start { [deck] in respond(.json(deck.portable.setupState())) }
+            } else {
+                deck.portable.stop()
+                deck.portable.whenKeychainKnown { [deck] in respond(.json(deck.portable.setupState())) }
+            }
 
         case ("POST", "/setup/viewer/rotate"):
-            deck.portable.rotateKey()
-            respond(.json(deck.portable.setupState()))
+            deck.portable.rotateKey { [deck] in respond(.json(deck.portable.setupState())) }
 
         case ("POST", "/setup/viewer/wipe"):
             deck.portable.wipe { [deck] in respond(.json(deck.portable.setupState())) }
 
         case ("GET", "/setup/viewer/qr.png"):
-            guard deck.portable.isSetUp, let link = deck.portable.link else { return respond(.status(404)) }
-            respond(Response(contentType: "image/png", body: QRCode.png(for: link) ?? Data()))
+            deck.portable.currentLink { link in
+                guard let link else { return respond(.status(404)) }
+                respond(Response(contentType: "image/png", body: QRCode.png(for: link) ?? Data()))
+            }
 
         case ("GET", let path) where path.hasPrefix("/setup/logo/"):
             guard let logo = Logo(rawValue: (path as NSString).lastPathComponent) else { return respond(.status(404)) }
@@ -576,7 +703,7 @@ final class DeckRouter: Router {
 
         case ("POST", "/setup/pair"):
             deck.access.newCode()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         case ("POST", "/setup/unpair"):
             if request.query["all"] == "1" {
@@ -585,7 +712,7 @@ final class DeckRouter: Router {
                 guard let id = request.query["phone"], !id.isEmpty else { return respond(.status(400)) }
                 deck.unpair(id)
             }
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         // The cloud bots, each at a desk of its own: all of them, as a list, replaced at once.
         case ("GET", "/setup/bots"):
@@ -598,7 +725,73 @@ final class DeckRouter: Router {
                   let given = try? JSONDecoder().decode([CloudBot].self, from: data) else {
                 return respond(.status(400, "Send the bots as a list: {\"bots\": [{\"id\": …, \"name\": …}]}."))
             }
-            config.cloudBots = CloudBot.checked(given)
+            // A bot set or changed here is yours: kept whatever the Grok Bot app says.
+            let before = config.cloudBots
+            config.cloudBots = CloudBot.checked(given).map { bot in
+                // The mailbox is the page's to choose (/setup/bots/mailbox): what is sent here never sets or changes it.
+                var bot = bot
+                bot.mailbox = before.first(where: { $0.id == bot.id })?.mailbox ?? ""
+                guard let old = before.first(where: { $0.id == bot.id }) else { return bot }
+                if !bot.pinned && !old.sameAsSet(bot) { bot.pinned = true }
+                return bot
+            }
+            config.save()
+            deck.cloud.configure(config.cloudBots)
+            deck.refresh()
+            respond(.json(["bots": cloudBotsJSON()]))
+
+        // One bot pinned or not, put on a floor, or hidden, from setup's list; or a hidden one shown again, by its
+        // app id; or the Grok Bot app's bots found by themselves, or not.
+        case ("POST", "/setup/bots/override"):
+            let given = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any] ?? [:]
+            if let on = given["autoDetect"] as? Bool {
+                config.botsAutoDetect = on
+            }
+            if let shown = (given["show"] as? String).flatMap(GrokBotApp.safeID) {
+                config.hiddenBots.removeAll { $0.lowercased() == shown.lowercased() }
+            }
+            if let id = given["id"] as? String {
+                guard let bot = config.cloudBots.first(where: { $0.id == id }) else { return respond(.status(404, "That bot isn't there any more.")) }
+                if given["hidden"] as? Bool == true {
+                    // By its app id, found by its name for one set before ids, or the app would give it back at the next look.
+                    if let app = bot.appID(in: GrokBotApp.rows() ?? deck.lastRoster), !config.hiddenBots.contains(where: { $0.lowercased() == app.lowercased() }) {
+                        config.hiddenBots.append(app)
+                    }
+                    config.cloudBots.removeAll { $0.id == id }
+                }
+                config.cloudBots = config.cloudBots.map { b in
+                    guard b.id == id else { return b }
+                    var b = b
+                    if let pinned = given["pinned"] as? Bool { b.pinned = pinned }
+                    if let floor = given["floor"] as? String, CloudBot.floors.contains(floor) { b.floor = floor }
+                    return b
+                }
+            }
+            config.save()
+            deck.cloud.configure(config.cloudBots)
+            deck.discoverBots()
+            deck.refresh()
+            respond(.json(setupState(caller)))
+
+        // A bot's mailbox folder (T404), page only: {id, folder}; an empty folder takes it away.
+        case ("POST", "/setup/bots/mailbox"):
+            let given = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any] ?? [:]
+            guard let id = given["id"] as? String, config.cloudBots.contains(where: { $0.id == id }), let folder = given["folder"] as? String else {
+                return respond(.status(400, "Send {id, folder}: the bot, and the folder its mail goes through (empty for none)."))
+            }
+            var kept = ""
+            if !folder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                switch BotMailbox.chosen(folder, barred: deck.mailboxBarred) {
+                case .failure(let why): return respond(.status(400, why.message))
+                case .success(let path): kept = path
+                }
+            }
+            config.cloudBots = config.cloudBots.map { bot in
+                guard bot.id == id else { return bot }
+                var bot = bot
+                bot.mailbox = kept
+                return bot
+            }
             config.save()
             deck.cloud.configure(config.cloudBots)
             deck.refresh()
@@ -627,15 +820,19 @@ final class DeckRouter: Router {
             }
             respond(.json(["bots": cloudBotsJSON(), "filled": filled, "unresolved": unresolved]))
 
-        // The six floors' names and styles, all of them, replaced at once and checked as they're kept.
+        // The six floors' names and styles, all of them, replaced at once and checked as they're kept;
+        // and the folders whose sessions sit on each, with "rules", which a setup page from before them leaves out.
         case ("POST", "/setup/floors"):
-            guard let floors = Floor.sent(request.body) else {
+            let rules = Floor.rules(request.body)
+            let floors = Floor.sent(request.body)
+            guard floors != nil || rules != nil else {
                 return respond(.status(400, "Send the floors as a list: {\"floors\": [{\"name\": …, \"preset\": …}]}."))
             }
-            config.floors = floors
+            if let floors { config.floors = floors }
+            if let rules { config.floorRules = rules }
             config.save()
             deck.refresh()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         case ("POST", "/setup/pin"):
             guard let index = keyIndex(request), let folder = request.query["folder"], !folder.isEmpty else {
@@ -662,13 +859,13 @@ final class DeckRouter: Router {
             config.logo = logo
             config.save()
             deck.refresh()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         case ("POST", "/setup/scroll"):
             config.scrollEnabled = request.query["enabled"] == "1"
             config.save()
             deck.refresh()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         // Every part is checked before any is kept, so a wrong one changes nothing.
         case ("POST", "/setup/webhook"):
@@ -686,10 +883,10 @@ final class DeckRouter: Router {
             }
             config.webhook = webhook
             config.save()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         case ("POST", "/setup/webhook/test"):
-            deck.testWebhook { [self] in respond(.json(setupState())) }
+            deck.testWebhook { [self] in respond(.json(setupState(caller))) }
 
         // iPhone app (personal build): the GM session's own short message, to the phones that want it.
         // Only its title and body go, on a line each; nothing is sent without the push key.
@@ -703,21 +900,36 @@ final class DeckRouter: Router {
             deck.push(note) { sent in respond(.json(["sent": sent])) }
 
         // ✨ Summary on only once the page's dialog has said what it sends where,
-        // and only with a key; off at any time.
+        // and only with what it names working; off at any time.
         case ("POST", "/setup/summaries"):
             if request.query["enabled"] == "1" {
                 guard request.query["confirmed"] == "1" else {
                     return respond(.status(400, "Turn Summary on from its dialog, which says what it sends where."))
                 }
-                guard SummaryKey.isPresent else { return respond(.status(400, "Add your Anthropic API key first.")) }
+                guard let provider = request.query["provider"].flatMap(SummaryProvider.init(rawValue:)) else {
+                    return respond(.status(400, "Pick what makes summaries first."))
+                }
+                if let refusal = DeckRouter.summaryRefusal(provider) { return respond(.status(400, refusal)) }
+                config.summaryProvider = provider.rawValue
                 config.summaryOptIn = true
+                deck.summaries.forget()
             } else {
                 config.summaryOptIn = false
                 deck.summaries.forget()
             }
             config.save()
             deck.refresh()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
+
+        // The GM's feed: the events after `since`, at once if there are any, or as
+        // soon as one comes, or none after `wait` seconds (30 at most). The page
+        // and a tool may both read it for now.
+        case ("GET", "/setup/gm/events"):
+            let ask = EventLog.question(request.query)
+            let log = deck.events
+            log.wait(since: ask.since, limit: ask.limit, timeout: ask.wait) { found in
+                respond(.json(log.answer(found, since: ask.since)))
+            }
 
         // Phone microphone (personal build): on or off, and whether its text is sent.
         case ("POST", "/setup/phonemic"):
@@ -725,44 +937,87 @@ final class DeckRouter: Router {
             if let send = request.query["autosend"] { config.phoneMicAutoSend = send == "1" }
             config.save()
             deck.refresh()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         // Whether the office asks before max effort: the phones are told, as it's theirs to ask.
         case ("POST", "/setup/maxconfirm"):
             config.maxConfirm = request.query["enabled"] == "1"
             config.save()
             deck.refresh()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         // In the Dock and ⌘-Tab, or the menu bar only: at once, and kept.
         case ("POST", "/setup/dock"):
             config.showInDock = request.query["enabled"] == "1"
             config.save()
             Dock.show(config.showInDock)
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
-        // The key Summary uses: kept in the Keychain, and answered only as its hint.
+        // The office's window kept on top of other windows: at once, and kept.
+        case ("POST", "/setup/ontop"):
+            config.officeOnTop = request.query["enabled"] == "1"
+            config.save()
+            officeOptionsChanged()
+            respond(.json(setupState(caller)))
+
+        // What makes summaries: picked while they're on, only from the dialog,
+        // as it changes where they're sent; and only one that works.
+        case ("POST", "/setup/summary/provider"):
+            guard let provider = request.query["id"].flatMap(SummaryProvider.init(rawValue:)) else {
+                return respond(.status(400, "No such way to make summaries."))
+            }
+            if config.summaryOptIn, request.query["confirmed"] != "1" {
+                return respond(.status(400, "Change it from its dialog, which says where summaries are sent."))
+            }
+            // Whether there's a key is asked of the Keychain off the main queue first.
+            SummaryKey.whenKnown { [self, deck] in
+                if let refusal = DeckRouter.summaryRefusal(provider) { return respond(.status(400, refusal)) }
+                config.summaryProvider = provider.rawValue
+                config.save()
+                deck.summaries.forget()
+                deck.refresh()
+                respond(.json(setupState(caller)))
+            }
+
+        // The coding agents looked for again, as setup's Check again asks.
+        case ("POST", "/setup/summary/check"):
+            SummaryProviders.shared.refresh(force: true)
+            respond(.json(setupState(caller)))
+
+        // The key Summary uses: kept in the Keychain, and answered only as where it is.
         case ("POST", "/setup/summary/key"):
+            // The Keychain may stop to ask, so it's asked off the main queue and the reply waits for it;
+            // everything else keeps answering meanwhile.
+            let finish = { [self, deck] in
+                deck.summaries.forget()
+                deck.refresh()
+                respond(.json(setupState(caller)))
+            }
             if request.query["remove"] == "1" {
-                SummaryKey.remove()
-                // With no key left, Summary is off: no key, nothing to send with.
-                if !SummaryKey.isPresent { config.summaryOptIn = false; config.save() }
+                SummaryKey.remove {
+                    // With no key left, summaries made with it are off: nothing to send with, and never sent elsewhere instead.
+                    if !SummaryKey.isPresent, ["", SummaryProvider.apiKey.rawValue].contains(config.summaryProvider) {
+                        config.summaryOptIn = false
+                        config.save()
+                    }
+                    finish()
+                }
             } else {
                 let given = (try? JSONSerialization.jsonObject(with: request.body) as? [String: Any])?["key"] as? String ?? ""
-                guard SummaryKey.save(given) else {
-                    return respond(.status(400, "That isn't an Anthropic API key. It starts with sk-ant-."))
+                SummaryKey.save(given) { saved in
+                    guard saved else {
+                        return respond(.status(400, "That isn't an Anthropic API key. It starts with sk-ant-."))
+                    }
+                    finish()
                 }
             }
-            deck.summaries.forget()
-            deck.refresh()
-            respond(.json(setupState()))
 
         case ("POST", "/setup/music"):
             config.musicEnabled = request.query["enabled"] == "1"
             config.save()
             deck.followMusic()
             deck.refresh()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         // Every part is checked before any is kept, so a wrong one changes
         // nothing. An empty folder clears it.
@@ -782,6 +1037,14 @@ final class DeckRouter: Router {
             if let terminal, !Openers.isInstalled(terminal) { return respond(.status(400, "That terminal isn't on this Mac")) }
             let tmux = request.query["tmux"]
             if tmux == "1", Tmux.path == nil { return respond(.status(400, "tmux isn't on this Mac")) }
+            // Turning hiring on, or changing the folder while it's on, needs a folder to hire into.
+            if request.query["enabled"] != nil || folder != nil {
+                let enabled = request.query["enabled"].map { $0 == "1" } ?? config.hiringEnabled
+                if let refusal = Deck.hiringRefusal(enabled: enabled, hireFolder: folder ?? config.hireFolder, config: config,
+                                                    canHireHere: Deck.canHireHere()) {
+                    return respond(.status(400, refusal))
+                }
+            }
             if let enabled = request.query["enabled"] { config.hiringEnabled = enabled == "1" }
             if let folder { config.hireFolder = folder }
             if let agent { config.hireAgent = agent }
@@ -789,7 +1052,7 @@ final class DeckRouter: Router {
             if let tmux { config.hireInTmux = tmux == "1" }
             config.save()
             deck.refresh()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         // Dictation: turned on, its language, and whether Claude Code uses it. Turning it on
         // asks for the microphone, here on the Mac, and gets the language's model ready.
@@ -804,12 +1067,12 @@ final class DeckRouter: Router {
             if let enabled = request.query["enabled"] { config.dictationEnabled = enabled == "1" && Dictation.isAvailable }
             config.save()
             deck.refresh()
-            guard config.dictationEnabled else { return respond(.json(setupState())) }
+            guard config.dictationEnabled else { return respond(.json(setupState(caller))) }
             Dictation.askForMicrophone { [self] _ in
                 Dictation.prepare(config.dictationLanguage) { [self] problem in
                     DeckRouter.dictationProblem = problem
                     deck.refresh()
-                    respond(.json(setupState()))
+                    respond(.json(setupState(caller)))
                 }
             }
 
@@ -820,7 +1083,7 @@ final class DeckRouter: Router {
             }
             config.dictationGlossary = DictationCleanup.checked(lines)
             config.save()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         // The roles as the page has them, all of them: checked as they're kept,
         // since their instructions go to agents.
@@ -831,28 +1094,236 @@ final class DeckRouter: Router {
             }
             config.save()
             deck.refresh()
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         // The briefs, and hiring from setup as from the phone.
         case (_, let path) where BriefRoutes.handles(request.method, path):
-            BriefRoutes.handle(request, config: config, library: .bundled, hire: { [deck] hire, done in
-                deck.hire(as: hire.role, in: hire.folder, answers: hire.answers, done: done)
+            BriefRoutes.handle(request, config: config, library: .editable(), caller: caller,
+                                gmHired: BriefRoutes.gmIsHired(among: deck.frontDesk.hires), hire: { [deck] hire, done in
+                deck.hire(as: hire.role, in: hire.folder, answers: hire.answers, floor: hire.floor, account: hire.account, options: hire.options,
+                           task: hire.task, done: done)
             }, respond: respond)
+
+        // The front desk: the team, and a hire's nickname, state and notes. The page or a tool may ask (T204 narrows it).
+        case ("GET", "/setup/gm/team"):
+            respond(.json(deck.frontDesk.teamJSON(live: deck.frontDeskLive(), byHandGM: deck.byHandGMSession)))
+
+        // Who waits for you, and on what. Read only: a prompt is answered by your tap alone (the phone's /act and /choose).
+        case ("GET", "/setup/gm/approvals"):
+            respond(.json(Approvals.answer(deck.approvalItems())))
+
+        case ("GET", "/setup/gm/version"):
+            respond(.json(ManagerSwitch.versionJSON(version: DeckRouter.version(), enabled: config.managerEnabled)))
+
+        // The manager's switch, from the GM or the page. Off never fires anyone.
+        case ("POST", "/setup/gm/manager"):
+            guard let enabled = request.query["enabled"], enabled == "1" || enabled == "0" else {
+                return respond(.status(400, "Say enabled=1 or enabled=0."))
+            }
+            config.managerEnabled = enabled == "1"
+            config.save()
+            respond(.json(ManagerSwitch.stateJSON(enabled: config.managerEnabled)))
+
+        // Fire: refuses unsaved work or an open question, as the office's fire does (see `HireDesk.fire`).
+        case ("POST", "/setup/gm/fire"):
+            deck.fire(body: request.body, done: respond)
+
+        // A later part of a brief for a hire already working: added to its BRIEF file, and the hire is mailed to read it.
+        case ("POST", "/setup/gm/brief"):
+            respond(deck.briefMore(body: request.body, from: caller == .gm ? .gm : .owner))
+
+        // Mail: from the GM or the page, to a hire. The outbox's texts go to those two only.
+        case ("POST", "/setup/gm/send"):
+            // A hire is whoever its send key was made for, found again here, never by anything it says.
+            let signer = caller == .hire ? deck.frontDesk.hire(forSendKey: request.headers[FrontDesk.sendKeyHeader]) : nil
+            respond(deck.mail.send(from: caller == .gm ? .gm : caller == .hire ? .hire : .owner, signer: signer, body: request.body))
+
+        // Which hires may write to which: the GM or the page sets it.
+        case ("POST", "/setup/gm/contacts"):
+            respond(deck.frontDesk.setContacts(body: request.body))
+
+        case ("GET", "/setup/gm/outbox"):
+            respond(.json(deck.mail.outboxJSON(limit: Int(request.query["limit"] ?? "") ?? 100, includeText: caller != .tool)))
+
+        // Watches: what the GM asks the app to keep an eye on. Firings come to its inbox (the event log).
+        case ("GET", "/setup/gm/watches"):
+            respond(.json(["watches": deck.watchers.json]))
+
+        case ("POST", "/setup/gm/watch"):
+            guard let json = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any] else {
+                return respond(.status(400, "Send {kind, target, pattern?, minutes?, repeat?}. Kinds: file, event, idle, exit, time."))
+            }
+            do {
+                let watch = try deck.watchers.add(json, by: caller == .gm ? "gm" : "owner")
+                respond(.json(deck.watchers.json.first { $0["id"] as? String == watch.id } ?? [:]))
+            } catch let refusal as FrontDesk.Refusal {
+                respond(.status(refusal.status, refusal.message))
+            } catch {
+                respond(.status(500, "That watch couldn't be set."))
+            }
+
+        case ("POST", "/setup/gm/unwatch"), ("DELETE", "/setup/gm/unwatch"):
+            let given = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any]
+            guard let id = request.query["id"] ?? given?["id"] as? String, !id.isEmpty else {
+                return respond(.status(400, "Say which watch, as id."))
+            }
+            do {
+                try deck.watchers.remove(id)
+                respond(.json(["id": id, "removed": true]))
+            } catch let refusal as FrontDesk.Refusal {
+                respond(.status(refusal.status, refusal.message))
+            } catch {
+                respond(.status(500, "That watch couldn't be taken away."))
+            }
+
+        // The screens, and which one holds the team (asked about only where there are two or more).
+        case ("GET", "/setup/gm/screens"):
+            respond(.json(Tiler.screensJSON(Tiler.screens(), chosen: config.teamScreen)))
+
+        case ("POST", "/setup/gm/screen"):
+            guard let id = request.query["id"], !id.isEmpty else { return respond(.status(400, "Say which screen: id=<id> from /setup/gm/screens.")) }
+            let screens = Tiler.screens()
+            guard screens.contains(where: { $0.id == id }) else { return respond(.status(409, "No screen has that id; read /setup/gm/screens.")) }
+            config.teamScreen = id
+            config.save()
+            respond(.json(Tiler.screensJSON(screens, chosen: id)))
+
+        // Tiling: each hire's viewer window over its desk, or a read-only tmux grid where a terminal can't place windows.
+        case ("POST", "/setup/gm/tile"):
+            let seats = Tiler.seats(fromTeam: deck.frontDesk.teamJSON(live: deck.frontDeskLive())["team"] as? [[String: Any]] ?? [])
+            let screens = Tiler.screens()
+            guard let screen = Tiler.teamScreen(among: screens, chosen: config.teamScreen) else { return respond(.status(409, "No screen was found to tile on.")) }
+            let mainHeight = Tiler.mainHeight(of: screens)
+            let grid = Tiler.grid(on: screen, mainHeight: mainHeight)
+            let terminal = config.hireTerminal
+            Terminal.queue.async { [placeOffice] in
+                let tmuxPath = Tmux.path
+                let report = Tiler.tile(
+                    seats: seats, terminal: terminal, grid: grid, tmux: { HireTmux(socketName: URL(fileURLWithPath: $0).lastPathComponent) },
+                    script: Tiler.osascript,
+                    teamGrid: { hires in
+                        guard let tmuxPath else { return false }
+                        return TeamGrid.show(hires: hires, terminal: terminal, tmuxPath: tmuxPath, run: { Tool.run(tmuxPath, $0) },
+                                             open: { Openers.show(line: $0, terminal: terminal) })
+                    })
+                DispatchQueue.main.async {
+                    if let office = report.office, !report.placed.isEmpty { placeOffice(office, mainHeight) }
+                    respond(.json(report.json))
+                }
+            }
+
+        case ("POST", "/setup/gm/registry"):
+            respond(deck.frontDesk.edit(body: request.body))
+
+        // The GM names one person in the office: only that project's nickname in the layout changes.
+        case ("POST", "/setup/gm/nickname"):
+            var layout = config.layout
+            let answer = GMNickname.apply(body: request.body, layout: &layout,
+                                          places: deck.sessions.all.map { GMNickname.Place(project: $0.project, folder: $0.folder) },
+                                          pins: config.pins)
+            if answer.status == 200 {
+                config.layout = layout
+                config.save()
+                deck.refresh()
+            }
+            respond(answer)
+
+        // The Claude accounts Smolcorp follows: a tool may read them, only the page changes them (see `SetupRoutes`).
+        case ("GET", "/setup/claude-accounts"):
+            respond(.json(ClaudeProfiles.json(ClaudeProfiles.current)))
+
+        case ("POST", "/setup/claude-accounts"):
+            respond(setClaudeAccounts(request.body))
+
+        // "Add smolcorp to Terminal": the link to the app's command, made or removed (the page alone).
+        case ("POST", "/setup/terminal-command"):
+            guard !TestCopy.isOn else { return respond(.status(409, TerminalCommand.Problem.testCopy.localizedDescription)) }
+            do {
+                if request.query["remove"] != nil { try TerminalCommand.remove() } else { try TerminalCommand.add() }
+                respond(.json(setupState(caller)))
+            } catch {
+                respond(.status(409, error.localizedDescription))
+            }
+
+        // The hire guard's groups and your own patterns: a tool may read them, only the page changes them (see `SetupRoutes`).
+        case ("GET", "/setup/guard"):
+            respond(.json(GuardFile.state(Paths.hireGuard)))
+
+        case ("POST", "/setup/guard"):
+            switch GuardFile.save(request.body, to: Paths.hireGuard) {
+            case .success(let state): respond(.json(state))
+            case .failure(.bad(let why)): respond(.status(400, why))
+            case .failure(.notWritten): respond(.status(500, "Couldn't write the guard file."))
+            }
+
+        // Pressing keys in other apps: on or off from the page alone, and on asks macOS for Accessibility.
+        case ("POST", "/setup/keystrokes"):
+            guard let enabled = request.query["enabled"], enabled == "1" || enabled == "0" else {
+                return respond(.status(400, "Say enabled=1 or enabled=0."))
+            }
+            let changed = config.keystrokesAllowed != (enabled == "1")
+            config.keystrokesAllowed = enabled == "1"
+            config.save()
+            let on = config.keystrokesAllowed
+            // On the main thread: the event log and the Accessibility prompt both belong there.
+            DispatchQueue.main.async { [self] in
+                if changed {
+                    _ = deck.events.append(EventLog.Entry(at: Date().timeIntervalSince1970 * 1000, kind: .keystroke,
+                                                          detail: on ? "switched on" : "switched off"))
+                }
+                if on, !TestCopy.isOn, !Permissions.hasAccessibility { Permissions.requestAccessibility() }
+            }
+            respond(.json(setupState(caller)))
+
+        // The apps keys may go to: one added (?add=id) or taken off (?remove=id), from the page alone.
+        case ("POST", "/setup/keystrokes/apps"):
+            let adding = request.query["add"], removing = request.query["remove"]
+            guard (adding == nil) != (removing == nil), let id = adding ?? removing else {
+                return respond(.status(400, "Say add=<app id> or remove=<app id>."))
+            }
+            let before = config.keystrokeApps
+            if adding != nil {
+                switch Keystrokes.AppList.adding(id, to: before) {
+                case .success(let list): config.keystrokeApps = list
+                case .failure(let problem): return respond(.status(409, problem.reason))
+                }
+            } else {
+                config.keystrokeApps = Keystrokes.AppList.removing(id, from: before)
+            }
+            if config.keystrokeApps != before {
+                config.save()
+                let line = Keystrokes.appListChange(added: adding != nil, id: id)
+                DispatchQueue.main.async { [self] in
+                    _ = deck.events.append(EventLog.Entry(at: Date().timeIntervalSince1970 * 1000, kind: .keystroke, detail: line))
+                }
+            }
+            respond(.json(setupState(caller)))
 
         // The Mac's own folder picker, which a web page can't open.
         case ("POST", "/setup/hiring/choose"):
-            deck.chooseHireFolder { [self] in respond(.json(setupState())) }
+            deck.chooseHireFolder { [self] in respond(.json(setupState(caller))) }
 
         case ("POST", "/setup/hooks"):
+            var notice: String?
+            let disconnecting = request.query["remove"] != nil
             do {
-                if request.query["remove"] == nil {
-                    try Hooks.connect()
-                } else {
+                if disconnecting {
                     try Hooks.disconnect()
+                } else {
+                    try Hooks.connect(notice: &notice)
                 }
-                respond(.json(setupState()))
+                DeckRouter.keepDisconnected(disconnecting, in: config)
+                var state = setupState(caller)
+                // Connecting turned Claude Code's voice on: the page says so.
+                if let notice { state["notice"] = notice }
+                respond(.json(state))
             } catch {
-                respond(.status(500, error.localizedDescription))
+                // Some agents were disconnected: that is what was asked, so --setup leaves them be
+                if case Hooks.HookError.partlyDisconnected = error { DeckRouter.keepDisconnected(true, in: config) }
+                // A test copy refuses, like a hire does; the page shows it inline
+                if case Hooks.HookError.testCopy = error { return respond(.status(409, error.localizedDescription)) }
+                // Connecting partly failed after turning voice on: the notice still reaches the page
+                respond(.status(500, error.localizedDescription + (notice.map { "\n\n" + $0 } ?? "")))
             }
 
         case ("POST", "/setup/accessibility"):
@@ -861,7 +1332,7 @@ final class DeckRouter: Router {
 
         case ("POST", "/setup/login"):
             LoginItem.isEnabled = request.query["enabled"] == "1"
-            respond(.json(setupState()))
+            respond(.json(setupState(caller)))
 
         // The self-test: Start here's checklist, and --setup's.
         case ("GET", "/setup/selftest"):
@@ -873,6 +1344,13 @@ final class DeckRouter: Router {
 
         // One of its fixes, by name, and the checklist after it.
         case ("POST", "/setup/fix"):
+            // A tool (the --setup command) only repairs; the rest is the page's.
+            if let refusal = DeckRouter.fixRefusal(caller: caller, fix: request.query["fix"], auto: request.query["auto"]) { return respond(refusal) }
+            // --setup asks with auto=1: its repair leaves agents you disconnected.
+            if SelfTest.leavesDisconnected(fix: request.query["fix"] ?? "", auto: request.query["auto"] == "1",
+                                           disconnected: config.hooksDisconnected) {
+                return respond(.status(409, SelfTest.FixError.disconnected.localizedDescription))
+            }
             do {
                 try SelfTest.fix(request.query["fix"] ?? "")
                 respond(.json(SelfTest.report(SelfTest.checks(deck: deck))))
@@ -887,17 +1365,69 @@ final class DeckRouter: Router {
             showOffice()
             respond(.status(204))
 
-        // Start here's Hire your General Manager: the GM role, in the folder for
-        // new hires or your home folder, its questions asked in its terminal.
+        // Start here's Hire your General Manager: the GM role, in the folder for new hires or your home
+        // folder, started by the app with its token in its own environment. `worktree=1` gives it a worktree.
+        // The manager is switched on before the hire (the GM is a managed hire) and back if the hire fails.
+        // `account=` names the Claude account, as a role card's hire does; with one account it is left out.
         case ("POST", "/setup/hire/gm"):
+            // One GM per office: the GM's token never hires the gm role, whatever the registry holds. Checked before anything is saved.
+            if let refused = BriefRoutes.gmHireRefusal(role: GMPlugin.role, caller: caller, gmHired: BriefRoutes.gmIsHired(among: deck.frontDesk.hires)) { return respond(refused.response) }
             let folder = config.hireFolder.isEmpty ? NSHomeDirectory() : config.hireFolder
-            deck.hire(as: "gm", in: folder, answers: nil) { response in
+            if let refusal = deck.gmRefusal() { return respond(.status(refusal.status, refusal.message)) }
+            let before = config.managerEnabled
+            config.managerEnabled = true
+            config.save()
+            deck.hire(as: "gm", in: folder, answers: nil, account: request.query["account"] ?? "", options: HireDesk.HireOptions(worktree: request.query["worktree"] == "1")) { response in
+                if response.status >= 400 { config.managerEnabled = before; config.save() }
                 respond(response.status < 400 ? .status(204) : response)
             }
+
+        // Whether the GM's token is also kept in a file, for a GM started by hand: the page alone, off by default.
+        case ("POST", "/setup/gm/by-hand"):
+            guard let enabled = request.query["enabled"], enabled == "1" || enabled == "0" else {
+                return respond(.status(400, "Say enabled=1 or enabled=0."))
+            }
+            config.gmByHand = enabled == "1"
+            config.save()
+            deck.access.gm.applySetting()
+            respond(.json(["gmByHand": config.gmByHand]))
+
+        // A new GM token, in place of the old: the page only. No answer carries the token: it is
+        // given to a GM hired afterwards, in its environment, and a running GM can't be given another.
+        case ("POST", "/setup/gm/token/rotate"):
+            guard deck.access.gm.rotate() != nil else { return respond(.status(500, "The new token couldn't be saved; the old one still works.")) }
+            respond(.json(DeckRouter.rotated()))
 
         default:
             respond(.status(404))
         }
+    }
+
+    /// `POST /setup/claude-accounts` with `{profiles: [{name, dir}]}`: the
+    /// accounts besides ~/.claude, whole, checked before anything is kept. One
+    /// added while Smolcorp is connected is connected too; one taken out has
+    /// Smolcorp's hooks taken out of it, and nothing else.
+    func setClaudeAccounts(_ body: Data) -> Response {
+        guard let given = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any], let list = given["profiles"] as? [[String: Any]]
+        else { return .status(400, "Send {profiles: [{name, dir}]}.") }
+        let asked = list.map { ClaudeProfile(name: $0["name"] as? String ?? "", dir: $0["dir"] as? String ?? "") }
+        switch ClaudeProfiles.checked(asked) {
+        case .failure(let refused): return .status(400, refused.message)
+        case .success(let profiles):
+            let config = Config.shared
+            guard !TestCopy.isOn else { return .status(409, Hooks.HookError.testCopy.localizedDescription) }
+            let before = config.claudeProfiles
+            config.claudeProfiles = profiles
+            config.save()
+            if !config.hooksDisconnected { Hooks.connectAdded(profiles.filter { !before.contains($0) }) }
+            for gone in before where !profiles.contains(where: { $0.dir == gone.dir }) { _ = try? Hooks.removeClaude(from: gone) } // writes nothing if none of ours is in it
+            return .json(ClaudeProfiles.json(ClaudeProfiles.current))
+        }
+    }
+
+    /// What `POST /setup/gm/token/rotate` answers: that it was made, never the token, and what to do next.
+    static func rotated() -> [String: Any] {
+        ["rotated": true, "message": "The old token no longer works. Fire the General Manager and hire it again to give it the new one."]
     }
 
     /// Switches to, saves, renames, deletes or imports a profile.
@@ -932,18 +1462,53 @@ final class DeckRouter: Router {
         }
     }
 
-    /// ✨ Summary for the setup page: on or off, the key's hint and where it's
-    /// from (never the key), and the model, for the dialog.
-    static func summaryState(optIn: Bool, environment: [String: String] = ProcessInfo.processInfo.environment) -> [String: Any] {
+    /// Why `provider` can't make summaries now, or nil when it can.
+    static func summaryRefusal(_ provider: SummaryProvider) -> String? {
+        if provider == .apiKey { return SummaryKey.isPresent ? nil : "Add your Anthropic API key first." }
+        guard let state = SummaryProviders.shared.states?[provider] else { return "Still looking for \(provider.name). Try again in a moment." }
+        return provider.isSupported && state.works ? nil : "\(provider.name): \(state.reason)."
+    }
+
+    /// ✨ Summary for the setup page: on or off, what makes summaries and
+    /// each way there is, with why it can't when it can't; where the key is
+    /// from (never any part of it), and the model, for the dialog.
+    static func summaryState(optIn: Bool, saved: String = "", environment: [String: String] = ProcessInfo.processInfo.environment,
+                             states: [SummaryProvider: SummaryProviderState] = [:], checking: Bool = false,
+                             fallback: String? = nil) -> [String: Any] {
         let shown = SummaryKey.shown(environment: environment)
+        let provider = SummaryChoice.chosen(saved: saved, optIn: optIn, states: states, hasKey: shown != nil)
+        let providers: [[String: Any]] = SummaryProvider.agents.map { agent in
+            let state = states[agent]
+            return ["id": agent.rawValue, "name": agent.name,
+                    "state": state.map { $0.works && agent.isSupported ? "ready" : $0.kind.rawValue } ?? "checking",
+                    "reason": state?.reason ?? "checking…"]
+        } + [["id": SummaryProvider.apiKey.rawValue, "name": SummaryProvider.apiKey.name,
+              "state": shown != nil ? "ready" : "missing",
+              "reason": shown != nil ? SummaryProvider.apiKey.plan : "add a key below"]]
         return [
-            "enabled": optIn && shown != nil,
-            "key": shown.map { ["source": $0.source.rawValue, "hint": $0.hint] as [String: Any] } ?? NSNull(),
+            "enabled": optIn && provider != nil,
+            "provider": provider.map { ["id": $0.rawValue, "name": $0.name, "plan": states[$0]?.reason ?? $0.plan, "destination": $0.destination,
+                                        "works": SummaryChoice.works($0, states: states, hasKey: shown != nil)] as [String: Any] } ?? NSNull(),
+            "providers": providers,
+            "checking": checking,
+            "fallback": fallback ?? NSNull(),
+            // Where the key is from, never any part of it, with Summaries on or off.
+            "key": shown.map { ["source": $0.source.rawValue] as [String: Any] } ?? NSNull(),
+            // Only a key pasted here is a fallback: never one from Smolcorp's environment.
+            "savedKey": shown?.source == .keychain,
+            // What was picked, for saying when it's one that isn't supported any more.
+            "saved": saved,
             "model": SummaryRequest.modelName,
         ]
     }
 
-    private func setupState() -> [String: Any] {
+    /// The manager's part of the setup state. `gmStartedByHand` is true only with the
+    /// setting on and a GM that has used the token (see `GMIdentity.startedByHand`).
+    static func managerState(enabled: Bool, byHand: Bool, startedByHand: Bool) -> [String: Any] {
+        ["enabled": enabled, "gmByHand": byHand, "gmStartedByHand": byHand && startedByHand]
+    }
+
+    private func setupState(_ caller: SetupSessions.Caller) -> [String: Any] {
         let config = Config.shared
         let (keys, _) = deck.layout()
         var keyOf: [String: Int] = [:]
@@ -951,27 +1516,33 @@ final class DeckRouter: Router {
             if let session = key.session { keyOf[session.id] = index }
         }
 
-        var pairing: [String: Any] = ["address": deck.phoneAddress, "codeExpiresIn": 0]
-        if let code = deck.access.activeCode {
-            pairing["code"] = code
-            pairing["codeExpiresIn"] = Int(deck.access.codeExpiry.timeIntervalSinceNow)
-        }
+        let pairing = SetupSessions.pairing(code: deck.access.activeCode, expiresIn: Int(deck.access.codeExpiry.timeIntervalSinceNow),
+                                            address: deck.phoneAddress, for: caller)
 
         return [
+            // Which Smolcorp this is, shown at the foot of setup's first pane.
+            "version": DeckRouter.version(),
+            // Which computer this is, so the page shows its own kind of folder path.
+            "platform": "darwin",
             "checklist": [
                 "hooks": Hooks.isConnected,
                 "accessibility": Permissions.hasAccessibility,
                 "scroll": Config.shared.scrollEnabled,
                 "openAtLogin": LoginItem.isEnabled,
             ],
+            "claudeAccounts": ClaudeProfiles.json(ClaudeProfiles.current),
+            "terminalCommand": TerminalCommand.json(),
             "agents": Hooks.found.map { ["id": $0.rawValue, "name": $0.name, "connected": Hooks.isConnected($0)] },
             "hiring": [
                 "enabled": config.hiringEnabled, "folder": config.hireFolder, "agent": config.hireAgent,
-                "canHire": true, "canChoose": true,
+                // "The default agent can hire here". A role with its own agent can still be refused in a copy (another agent than Claude Code).
+                "canHire": Deck.testCopyRefusal(for: Deck.hiredAgent(role: nil, hireAgent: config.hireAgent)) == nil, "canChoose": true,
                 // Where hires open: the terminals on this Mac that can open them, and tmux if it's there.
                 "terminal": Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal",
                 "terminals": Openers.choices.filter { Openers.isInstalled($0.id) }.map { ["id": $0.id, "name": $0.name] },
                 "tmux": config.hireInTmux && Tmux.path != nil, "hasTmux": Tmux.path != nil,
+                // The API-key account for a hire: offered only with a key in the Keychain, and picked per hire.
+                "apiKey": ["available": HireDesk.apiKeyOffered(), "notice": HireDesk.apiKeyNoticeText()],
             ],
             "dictation": [
                 "available": Dictation.isAvailable, "enabled": config.dictationEnabled, "allowed": Dictation.microphoneAllowed,
@@ -995,8 +1566,17 @@ final class DeckRouter: Router {
             ] as [String: Any],
             "music": ["enabled": config.musicEnabled],
             "maxConfirm": ["enabled": config.maxConfirm],
+            "manager": DeckRouter.managerState(enabled: config.managerEnabled, byHand: config.gmByHand, startedByHand: deck.access.gm.startedByHand),
+            "keystrokes": ["enabled": config.keystrokesAllowed, "accessibility": Permissions.hasAccessibility,
+                           "apps": config.keystrokeApps, "running": Keystrokes.runningApps(except: config.keystrokeApps)] as [String: Any],
             "dock": ["enabled": config.showInDock],
-            "summary": DeckRouter.summaryState(optIn: config.summaryOptIn),
+            "officeWindow": ["available": true, "mac": true, "onTop": config.officeOnTop ?? false],
+            "summary": { () -> [String: Any] in
+                SummaryProviders.shared.refresh()
+                return DeckRouter.summaryState(optIn: config.summaryOptIn, saved: config.summaryProvider,
+                                               states: SummaryProviders.shared.states ?? [:], checking: SummaryProviders.shared.isChecking,
+                                               fallback: deck.summaries.lastFallback)
+            }(),
             // Phone microphone (personal build), and this Mac's tailnet address if Tailscale says it.
             "phoneMic": [
                 "enabled": config.phoneMicEnabled, "autoSend": config.phoneMicAutoSend,
@@ -1004,7 +1584,7 @@ final class DeckRouter: Router {
                 "serving": Tailnet.serving.map { $0 as Any } ?? NSNull(),
             ] as [String: Any],
             "webhook": [
-                "enabled": config.webhook.enabled, "url": config.webhook.url, "secret": config.webhook.secret,
+                "enabled": config.webhook.enabled, "url": config.webhook.url, "secret": DeckRouter.webhookSecret(config.webhook.secret, for: caller),
                 "outside": config.webhook.outside, "events": config.webhook.events, "last": deck.webhookLast ?? NSNull(),
             ],
             "pairing": pairing,
@@ -1041,6 +1621,19 @@ final class DeckRouter: Router {
             // The building's floors, the ground floor first, and the office's styles a floor above it can have,
             // besides the office's own ("") and the server room ("server").
             "floors": Config.shared.floors.map(\.jsonObject),
+            // The folders whose sessions sit on a floor of their own.
+            "floorRules": Config.shared.floorRules.map(\.jsonObject),
+            // The cloud bots, for setup's list: each pinned or found in the Grok Bot app, which this Mac looks in;
+            // those you hid, by name where the app still has them; and those found with no room for them.
+            "cloudBots": [
+                "detects": true,
+                "autoDetect": Config.shared.botsAutoDetect,
+                "bots": Config.shared.cloudBots.map(\.setupJSON),
+                "hidden": Config.shared.hiddenBots.map { id in
+                    ["botId": id, "name": deck.lastRoster.first { $0.id.lowercased() == id.lowercased() }?.name ?? NSNull()] as [String: Any]
+                },
+                "noRoom": deck.botsWithNoRoom.map(\.name),
+            ] as [String: Any],
             "presets": Room.presets.filter { $0 != "yours" },
             // Saved looks, besides Default, the one the deck was last switched
             // to, and whether it has changed since.

@@ -33,9 +33,12 @@ type Access struct {
 	// page with it, and it's kept in a file only you can read, for tools of
 	// your own on this computer.
 	SetupKey string
-	// Tokens the tray's links carry in place of the setup key, each good
-	// once, until it runs out.
+	// Tokens the setup links carry, each good once, until it runs out. The
+	// key itself is never in a link.
 	setupTokens map[string]time.Time
+	// The setup page's sessions: random ids, kept in memory only, each opened
+	// by a token. A cookie holds one of these, never the setup key.
+	setupSessions []string
 	// WindowKey is the key the office in a browser on this computer reads the
 	// office with, as the Mac app's office window does: new at each start,
 	// never saved, and taken only from this computer. The tray's Show Office
@@ -71,11 +74,41 @@ func (a *Access) IsSetupKey(candidate string) bool {
 	return candidate != "" && constantTimeEqual(candidate, a.SetupKey)
 }
 
-// How long a tray link's token works: long enough for a browser to start.
-const setupTokenLifetime = 2 * time.Minute
+// How long a setup link's token works: long enough to open it from a terminal.
+const setupTokenLifetime = 5 * time.Minute
+
+// How long an office link's token works: long enough for a browser to start.
+const officeTokenLifetime = 2 * time.Minute
+
+// The most setup sessions kept; a new one makes the oldest make way.
+const maxSetupSessions = 20
 
 // NewSetupToken is a token for one link to the setup page.
-func (a *Access) NewSetupToken() string { return newToken(&a.setupTokens) }
+func (a *Access) NewSetupToken() string { return newToken(&a.setupTokens, setupTokenLifetime) }
+
+// NewSetupSession opens a session for the setup page, for a cookie to hold.
+func (a *Access) NewSetupSession() string {
+	id := randomKey()
+	a.setupSessions = append(a.setupSessions, id)
+	if len(a.setupSessions) > maxSetupSessions {
+		a.setupSessions = a.setupSessions[len(a.setupSessions)-maxSetupSessions:]
+	}
+	return id
+}
+
+// IsSetupSession says whether candidate is an open session. It is never
+// compared with the setup key, and the key never opens one.
+func (a *Access) IsSetupSession(candidate string) bool {
+	if candidate == "" {
+		return false
+	}
+	for _, id := range a.setupSessions {
+		if constantTimeEqual(candidate, id) {
+			return true
+		}
+	}
+	return false
+}
 
 // RedeemSetupToken says whether candidate is a token not yet used and not
 // run out, and uses it up.
@@ -84,7 +117,7 @@ func (a *Access) RedeemSetupToken(candidate string) bool {
 }
 
 // NewOfficeToken is a token for one link to the office, from the tray.
-func (a *Access) NewOfficeToken() string { return newToken(&a.officeTokens) }
+func (a *Access) NewOfficeToken() string { return newToken(&a.officeTokens, officeTokenLifetime) }
 
 // RedeemOfficeToken is RedeemSetupToken for the office's links.
 func (a *Access) RedeemOfficeToken(candidate string) bool {
@@ -96,7 +129,7 @@ func (a *Access) IsWindowKey(candidate string) bool {
 	return candidate != "" && a.WindowKey != "" && constantTimeEqual(candidate, a.WindowKey)
 }
 
-func newToken(tokens *map[string]time.Time) string {
+func newToken(tokens *map[string]time.Time, lifetime time.Duration) string {
 	now := time.Now()
 	if *tokens == nil {
 		*tokens = map[string]time.Time{}
@@ -107,7 +140,7 @@ func newToken(tokens *map[string]time.Time) string {
 		}
 	}
 	token := randomKey()
-	(*tokens)[token] = now.Add(setupTokenLifetime)
+	(*tokens)[token] = now.Add(lifetime)
 	return token
 }
 

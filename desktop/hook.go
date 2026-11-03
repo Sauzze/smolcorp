@@ -14,7 +14,7 @@ import (
 	"unicode"
 )
 
-// The hook is `smolcorp hook [agent]`, which every agent runs at each step
+// The hook is `smolcorp hook [--port N] [agent]`, which every agent runs at each step
 // of a session: the counterpart of the Mac app's report.sh, built in because
 // Windows has no bash or curl. The event JSON arrives on stdin and is passed
 // on as it is, with headers for the agent, the time the event was raised,
@@ -47,16 +47,28 @@ const (
 // RunHook always returns 0: a hook that fails would hold up the agent.
 func RunHook(args []string) int {
 	agent := string(Claude)
+	port := Port
+	// The port the command names, else SMOLCORP_PORT and the default, as Port
+	if len(args) >= 2 && args[0] == "--port" {
+		if n, err := strconv.Atoi(args[1]); err == nil && n >= 1024 && n <= 65535 {
+			port = n
+		}
+		args = args[2:]
+	}
 	if len(args) > 0 {
 		agent = args[0]
 	}
 	event, _ := io.ReadAll(io.LimitReader(os.Stdin, maxEventSize))
+	// A coding agent Smolcorp runs for a ✨ summary is no session of a desk's.
+	if os.Getenv(summaryRunVariable) == "1" {
+		return 0
+	}
 	event = trimmedEvent(event)
 	key, err := os.ReadFile(hookKeyFile)
 	if err != nil {
 		return 0
 	}
-	request, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/hook", Port), bytes.NewReader(event))
+	request, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/hook", port), bytes.NewReader(event))
 	if err != nil {
 		return 0
 	}

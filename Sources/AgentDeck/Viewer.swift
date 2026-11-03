@@ -132,6 +132,32 @@ enum ViewerKeychain {
     }
 }
 
+/// What the portable office needs of the Keychain: the real one, or a stand-in in tests.
+/// Every call may stop on a dialog, so only `PortableOffice.keychainQueue` makes them.
+struct ViewerStore {
+    var read: (ViewerKeychain.Account) -> String?
+    var absent: (ViewerKeychain.Account) -> Bool
+    var write: (String, ViewerKeychain.Account) -> Bool
+
+    static let keychain = ViewerStore(
+        read: { ViewerKeychain.read($0) }, absent: { ViewerKeychain.absent($0) }, write: { ViewerKeychain.write($0, for: $1) })
+}
+
+/// What the Keychain held when last asked, kept in memory so the main queue never asks.
+/// Only whether each is there, never the id, key or write secret themselves: those are read
+/// when setup or Start needs them, and dropped again.
+struct ViewerKept: Equatable {
+    /// There is a write secret, readable or not.
+    var secretPresent: Bool
+    /// There is an id and a key, readable or not.
+    var linkPresent: Bool
+
+    /// Asks the Keychain about each, attributes only (no data, so no dialog); on `keychainQueue` only.
+    static func load(_ store: ViewerStore) -> ViewerKept {
+        ViewerKept(secretPresent: !store.absent(.writeSecret), linkPresent: !store.absent(.id) && !store.absent(.key))
+    }
+}
+
 // MARK: Crypto
 
 /// The body the viewer stores and the phone opens: [0x01] + nonce + ciphertext
@@ -325,11 +351,14 @@ extension ViewerSnapshot {
     static func upstairs(_ sessions: [Session], overflow: Int, hideNames: Bool, first: Int = 1,
                          isCloud: (Session) -> Bool = { _ in false }, isOverflow: (Session) -> Bool = { _ in false },
                          last: (Session) -> CloudAction? = { _ in nil },
+                         seat: (Session) -> Int? = { _ in nil },
                          hiredBy: (Session) -> String? = { _ in nil }) -> [String: Any] {
         let desks = sessions.enumerated().map { index, s -> [String: Any] in
             var desk: [String: Any] = ["name": hideNames ? "Upstairs \(first + index)" : s.name, "state": s.state.rawValue]
             if let name = hiredBy(s) { desk["hiredBy"] = ["name": name] }
             if isOverflow(s) { desk["overflow"] = true }
+            // The desk it has on its floor, as the Mac's own office has it, so nobody sits somewhere else on a screen that packs them.
+            if let seat = seat(s) { desk["desk"] = seat }
             // A cloud bot's desk, and what it last did: with names hidden, not in its own words.
             if isCloud(s) {
                 desk["cloud"] = true
@@ -396,6 +425,8 @@ final class PortableOffice {
     private var credentials: (base: String, id: String, key: Data, secret: String)?
     /// Changes at each start and stop, so a reply from before is ignored.
     private var run = 0
+    /// Changes at each stop, so a Start still waiting on the Keychain finds it was cancelled.
+    private var startTicket = 0
     private var inFlight = false
     private var pending = false
     private var failures = 0
@@ -416,25 +447,71 @@ final class PortableOffice {
     private var forgotten: [String: (base: String, secret: String)] = [:]
     /// Every PUT and DELETE still out, so a quit can wait for them.
     private let outstanding = DispatchGroup()
-    private lazy var secretKnown = ViewerKeychain.has(.writeSecret)
+    /// Where the Keychain is asked, one call at a time. macOS may show a dialog and wait for an
+    /// answer, so never the main queue, which answers setup, the office, phones and hooks.
+    static let keychainQueue = DispatchQueue(label: "smolcorp.viewer-keychain")
+    private let store: ViewerStore
+    /// What the Keychain held when last asked; nil until the first answer. Main queue only.
+    private var kept: ViewerKept?
+    private var loading = false
+    private var waiting: [() -> Void] = []
 
-    init(snapshot: @escaping (_ hideNames: Bool, _ alias: (String) -> String) -> [String: Any]) {
+    init(store: ViewerStore = .defaultStore(), snapshot: @escaping (_ hideNames: Bool, _ alias: (String) -> String) -> [String: Any]) {
+        self.store = store
         self.snapshot = snapshot
+        // Asked at once, so the menu and setup know soon after launch.
+        whenKeychainKnown { [weak self] in self?.onChange() }
+    }
+
+    /// Runs `then` on the main queue once the Keychain has been asked (at once if it has). Asks once for any number waiting.
+    func whenKeychainKnown(_ then: @escaping () -> Void) {
+        if kept != nil { return then() }
+        waiting.append(then)
+        guard !loading else { return }
+        loading = true
+        let store = store
+        PortableOffice.keychainQueue.async {
+            let found = ViewerKept.load(store)
+            DispatchQueue.main.async { [self] in
+                kept = found
+                loading = false
+                let ready = waiting
+                waiting = []
+                ready.forEach { $0() }
+            }
+        }
     }
 
     // MARK: State
 
     var origin: String? { ViewerSettings.origin(of: Config.shared.viewer.baseURL) }
-    var hasWriteSecret: Bool { secretKnown }
+    var hasWriteSecret: Bool { kept?.secretPresent ?? false }
     /// A viewer address and a write secret: enough to turn it on.
     var isSetUp: Bool { origin != nil && hasWriteSecret }
 
     /// The link to open on the phone, with the key after #k=, which browsers never send.
+    /// Only while it's on, when the id and key are in memory; `currentLink` reads them otherwise.
     var link: String? {
-        if let c = credentials { return "\(c.base)/v/\(c.id)#k=\(ViewerCrypto.base64URL(c.key))" }
-        guard let base = origin, let id = ViewerKeychain.read(.id), ViewerCrypto.isID(id),
-              let key = ViewerKeychain.read(.key), ViewerCrypto.data(base64URL: key)?.count == 32 else { return nil }
-        return "\(base)/v/\(id)#k=\(key)"
+        guard let c = credentials else { return nil }
+        return "\(c.base)/v/\(c.id)#k=\(ViewerCrypto.base64URL(c.key))"
+    }
+
+    /// The link, read from the Keychain if it's off (off the main queue); nil if not set up or unreadable.
+    /// `done` is told on the main queue.
+    func currentLink(done: @escaping (String?) -> Void) {
+        whenKeychainKnown { [self] in
+            guard isSetUp, let base = origin else { return done(nil) }
+            if let link { return done(link) }
+            guard kept?.linkPresent == true else { return done(nil) }
+            let store = store
+            PortableOffice.keychainQueue.async {
+                let id = store.read(.id), key = store.read(.key)
+                DispatchQueue.main.async {
+                    guard let id, ViewerCrypto.isID(id), let key, ViewerCrypto.data(base64URL: key)?.count == 32 else { return done(nil) }
+                    done("\(base)/v/\(id)#k=\(key)")
+                }
+            }
+        }
     }
 
     /// The menu's header, after "Portable office: ON".
@@ -458,33 +535,61 @@ final class PortableOffice {
     /// For the setup page. The link (which holds the key) is the only secret
     /// in it, and only in the reply to `GET /setup/viewer` (spec §7): every
     /// other reply says whether there is one, and the page asks for it.
-    func setupState(withLink: Bool = false) -> [String: Any] {
+    /// `given` is the link, when the caller has read it (see `currentLink`); without it the reply says only whether there is one.
+    func setupState(link given: String? = nil) -> [String: Any] {
         let settings = Config.shared.viewer
         let ms = { (date: Date?) -> Any in date.map { Int64($0.timeIntervalSince1970 * 1000) } ?? NSNull() }
-        let current = isSetUp ? link : nil
+        let hasLink = given != nil || (isSetUp && (credentials != nil || kept?.linkPresent == true))
         return [
             "baseURL": settings.baseURL, "hasSecret": hasWriteSecret, "setUp": isSetUp,
             "on": isOn, "since": ms(since), "lastSent": ms(lastSent),
             "problem": problem ?? NSNull(), "checked": checked ?? NSNull(),
-            "hasLink": current != nil, "link": withLink ? current.map { $0 as Any } ?? NSNull() : NSNull(), "revision": linkRevision,
+            "hasLink": hasLink, "link": given.map { $0 as Any } ?? NSNull(), "revision": linkRevision,
             "hideNames": settings.hideNames, "stopOnReturn": settings.stopOnReturn,
             "stopAfterHours": settings.stopAfterHours, "hourChoices": ViewerSettings.hourChoices,
         ]
     }
 
+    /// The setup state once the Keychain has been asked, with the link in it if `withLink` (read on demand).
+    func setupState(withLink: Bool, done: @escaping ([String: Any]) -> Void) {
+        guard withLink else { return whenKeychainKnown { [self] in done(setupState()) } }
+        currentLink { [self] link in done(setupState(link: link)) }
+    }
+
     // MARK: On and off
 
-    func start() {
-        guard !isOn else { return }
-        guard let base = origin, let secret = ViewerKeychain.read(.writeSecret) else {
-            problem = "Not set up yet"
-            return onChange()
+    /// `done` is told on the main queue once it's on, or once it's clear it can't be.
+    func start(done: @escaping () -> Void = {}) {
+        guard !isOn else { return done() }
+        let ticket = startTicket
+        whenKeychainKnown { [self] in
+            guard ticket == startTicket, !isOn else { return done() }
+            guard let base = origin, kept?.secretPresent == true else {
+                problem = "Not set up yet"
+                onChange()
+                return done()
+            }
+            withIdentity { [self] secret, found in
+                // A Stop while the Keychain was answering cancels this Start.
+                guard ticket == startTicket, !isOn else { return done() }
+                guard let secret else {
+                    problem = "Not set up yet"
+                    onChange()
+                    return done()
+                }
+                guard let (id, key) = found else {
+                    // withIdentity says why when the key is there but unreadable
+                    if problem != PortableOffice.keychainProblem { problem = "Couldn't keep the viewer's key in the Keychain" }
+                    onChange()
+                    return done()
+                }
+                begin(base: base, id: id, key: key, secret: secret)
+                done()
+            }
         }
-        guard let (id, key) = identity() else {
-            // identity() says why when the key is there but unreadable
-            if problem != PortableOffice.keychainProblem { problem = "Couldn't keep the viewer's key in the Keychain" }
-            return onChange()
-        }
+    }
+
+    private func begin(base: String, id: String, key: Data, secret: String) {
         credentials = (base, id, key, secret)
         lock.lock(); forgotten[id] = nil; lock.unlock()
         run += 1
@@ -505,6 +610,7 @@ final class PortableOffice {
     /// if that fails: the viewer forgets it by itself after 10 minutes.
     /// `wait` is how long to wait for the viewer's reply, on quit.
     func stop(waitingUpTo wait: TimeInterval = 0) {
+        startTicket += 1
         guard isOn else { return }
         let c = credentials
         isOn = false
@@ -712,48 +818,103 @@ final class PortableOffice {
     /// neither. One that's there but can't be read (a denied prompt after
     /// the app is re-signed, a damaged item) is never overwritten, as every
     /// link given out would stop working without a word.
-    private func identity() -> (String, Data)? {
-        if let id = ViewerKeychain.read(.id), ViewerCrypto.isID(id),
-           let text = ViewerKeychain.read(.key), let key = ViewerCrypto.data(base64URL: text), key.count == 32 {
-            return (id, key)
+    /// The write secret is read first, and where it can't be, nothing is made.
+    /// The Keychain is asked on `keychainQueue` and `done` is told on the main queue.
+    private func withIdentity(_ done: @escaping (_ secret: String?, _ found: (String, Data)?) -> Void) {
+        let store = store
+        PortableOffice.keychainQueue.async {
+            guard let secret = store.read(.writeSecret) else {
+                return DispatchQueue.main.async { done(nil, nil) }
+            }
+            let (found, made, unreadable) = PortableOffice.identity(in: store)
+            let now = ViewerKept.load(store)
+            DispatchQueue.main.async { [self] in
+                kept = now
+                if unreadable { problem = PortableOffice.keychainProblem }
+                if made { linkRevision += 1 }
+                done(secret, found)
+            }
         }
-        guard ViewerKeychain.absent(.id), ViewerKeychain.absent(.key) else {
-            problem = PortableOffice.keychainProblem
-            return nil
-        }
-        return newIdentity()
     }
 
-    private func newIdentity() -> (String, Data)? {
+    /// The write secret, read on demand (off the main queue) and not kept; nil if there is none or it can't be read.
+    private func withSecret(_ done: @escaping (String?) -> Void) {
+        whenKeychainKnown { [self] in
+            guard kept?.secretPresent == true else { return done(nil) }
+            let store = store
+            PortableOffice.keychainQueue.async {
+                let secret = store.read(.writeSecret)
+                DispatchQueue.main.async { done(secret) }
+            }
+        }
+    }
+
+    /// Reads the id and key, or makes them where there are neither; `keychainQueue` only.
+    private static func identity(in store: ViewerStore) -> (found: (String, Data)?, made: Bool, unreadable: Bool) {
+        if let id = store.read(.id), ViewerCrypto.isID(id),
+           let text = store.read(.key), let key = ViewerCrypto.data(base64URL: text), key.count == 32 {
+            return ((id, key), false, false)
+        }
+        guard store.absent(.id), store.absent(.key) else { return (nil, false, true) }
+        guard let made = newIdentity(in: store) else { return (nil, false, false) }
+        return (made, true, false)
+    }
+
+    private static func newIdentity(in store: ViewerStore) -> (String, Data)? {
         guard let idBytes = ViewerCrypto.random(16), let key = ViewerCrypto.random(32) else { return nil }
         let id = ViewerCrypto.base64URL(idBytes)
-        guard ViewerKeychain.write(id, for: .id), ViewerKeychain.write(ViewerCrypto.base64URL(key), for: .key) else { return nil }
-        linkRevision += 1
+        guard store.write(id, .id), store.write(ViewerCrypto.base64URL(key), .key) else { return nil }
         return (id, key)
     }
 
-    /// A new write secret, kept in the Keychain and returned this once, to paste into Vercel.
-    func makeWriteSecret() -> String? {
-        guard let bytes = ViewerCrypto.random(32) else { return nil }
+    /// A new write secret, kept in the Keychain and given to `done` this once (nil if it couldn't be kept),
+    /// to paste into Vercel. The Keychain is asked off the main queue; `done` is told on it.
+    func makeWriteSecret(done: @escaping (String?) -> Void) {
+        guard let bytes = ViewerCrypto.random(32) else { return done(nil) }
         let secret = ViewerCrypto.base64URL(bytes)
-        guard ViewerKeychain.write(secret, for: .writeSecret) else { return nil }
-        secretKnown = true
-        _ = identity()
-        if let c = credentials { credentials = (c.base, c.id, c.key, secret) }
-        checked = nil
-        return secret
+        let store = store
+        PortableOffice.keychainQueue.async {
+            guard store.write(secret, .writeSecret) else {
+                return DispatchQueue.main.async { done(nil) }
+            }
+            let (_, made, unreadable) = PortableOffice.identity(in: store)
+            let now = ViewerKept.load(store)
+            DispatchQueue.main.async { [self] in
+                kept = now
+                if unreadable { problem = PortableOffice.keychainProblem }
+                if made { linkRevision += 1 }
+                if let c = credentials { credentials = (c.base, c.id, c.key, secret) }
+                checked = nil
+                done(secret)
+            }
+        }
     }
 
     /// A new id and key, so every link given out stops working; the old id is forgotten on the viewer.
-    func rotateKey() {
-        let old = credentials.map { ($0.base, $0.id, $0.secret) }
-            ?? origin.flatMap { base in ViewerKeychain.read(.id).flatMap { id in ViewerKeychain.read(.writeSecret).map { (base, id, $0) } } }
-        guard let (id, key) = newIdentity() else {
-            problem = "Couldn't make a new key in the Keychain"
-            return onChange()
+    /// The Keychain is asked off the main queue; `done` is told on it.
+    func rotateKey(done: @escaping () -> Void = {}) {
+        let store = store
+        PortableOffice.keychainQueue.async {
+            let oldID = store.read(.id), oldSecret = store.read(.writeSecret)
+            let made = PortableOffice.newIdentity(in: store)
+            let now = ViewerKept.load(store)
+            DispatchQueue.main.async { [self] in
+                kept = now
+                guard let (id, key) = made else {
+                    problem = "Couldn't make a new key in the Keychain"
+                    onChange()
+                    return done()
+                }
+                linkRevision += 1
+                afterRotation(oldID: credentials?.id ?? oldID, oldSecret: credentials?.secret ?? oldSecret, id: id, key: key)
+                done()
+            }
         }
+    }
+
+    private func afterRotation(oldID: String?, oldSecret: String?, id: String, key: Data) {
         checked = nil
-        if let (base, oldID, secret) = old, ViewerCrypto.isID(oldID) {
+        if let base = credentials?.base ?? origin, let oldID, let secret = oldSecret, ViewerCrypto.isID(oldID) {
             let rotatedAt = linkRevision
             forget(oldID, at: base, secret: secret) { [weak self] status in
                 guard !PortableOffice.isSuccess(status) else { return }
@@ -779,7 +940,11 @@ final class PortableOffice {
     /// The viewer forgets every office it holds. This one is turned off first.
     func wipe(done: @escaping () -> Void) {
         stop()
-        guard let base = origin, let secret = ViewerKeychain.read(.writeSecret) else {
+        withSecret { [self] secret in wipeNow(secret: secret, done: done) }
+    }
+
+    private func wipeNow(secret: String?, done: @escaping () -> Void) {
+        guard let base = origin, let secret else {
             checked = "Not set up yet"
             return done()
         }
@@ -793,7 +958,11 @@ final class PortableOffice {
 
     /// Asks the viewer whether it's ready: its settings, its storage and the write secret.
     func check(done: @escaping () -> Void) {
-        guard let base = origin, let secret = ViewerKeychain.read(.writeSecret) else {
+        withSecret { [self] secret in checkNow(secret: secret, done: done) }
+    }
+
+    private func checkNow(secret: String?, done: @escaping () -> Void) {
+        guard let base = origin, let secret else {
             checked = "Not set up yet"
             return done()
         }

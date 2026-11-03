@@ -1,0 +1,119 @@
+{
+  "config": {
+    "claudeProfiles": [
+      {
+        "dir": "{home}/.claude-work",
+        "name": "work"
+      }
+    ]
+  },
+  "answer": {
+    "found": [
+      {
+        "dir": "{home}/.claude-spare",
+        "name": "spare"
+      }
+    ],
+    "most": 8,
+    "profiles": [
+      {
+        "connected": true,
+        "default": true,
+        "dir": "{home}/.claude",
+        "name": "default"
+      },
+      {
+        "connected": false,
+        "default": false,
+        "dir": "{home}/.claude-work",
+        "name": "work"
+      }
+    ]
+  },
+  "set": {
+    "request": {
+      "profiles": [
+        {
+          "dir": "{home}/.claude-work",
+          "name": "work"
+        }
+      ]
+    },
+    "refusals": [
+      {
+        "request": {
+          "profiles": [
+            {
+              "dir": "{home}/.claude-work",
+              "name": "default"
+            }
+          ]
+        },
+        "status": 400
+      },
+      {
+        "request": {
+          "profiles": [
+            {
+              "dir": "{home}/.claude-work",
+              "name": "work"
+            },
+            {
+              "dir": "{home}/.claude-spare",
+              "name": "work"
+            }
+          ]
+        },
+        "status": 400
+      },
+      {
+        "request": {
+          "profiles": [
+            {
+              "dir": "{home}/.claude-missing",
+              "name": "gone"
+            }
+          ]
+        },
+        "status": 400
+      },
+      {
+        "request": {
+          "profiles": [
+            {
+              "dir": ".claude-work",
+              "name": "work"
+            }
+          ]
+        },
+        "status": 400
+      },
+      {
+        "request": {
+          "folders": []
+        },
+        "status": 400
+      }
+    ]
+  },
+  "hireRefusals": [
+    {
+      "account": "",
+      "accounts": [
+        "default",
+        "work"
+      ],
+      "message": "Say which Claude account to hire on: default, work.",
+      "status": 400
+    },
+    {
+      "account": "nope",
+      "accounts": [
+        "default",
+        "work"
+      ],
+      "message": "There's no Claude account called nope. Pick one of: default, work.",
+      "status": 404
+    }
+  ]
+}

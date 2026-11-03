@@ -32,6 +32,10 @@ final class Access {
     /// with it, and it's kept in a file only you can read, for tools of your
     /// own on this Mac.
     let setupKey: String
+    /// The setup page's own sessions, from the menu's links: see `SetupSessions`.
+    let setupSessions = SetupSessions()
+    /// The General Manager's token: see `GMIdentity`.
+    let gm = GMIdentity()
     private(set) var code: String?
     private(set) var codeExpiry = Date.distantPast
     /// Wrong codes since the current one was issued, by address.
@@ -55,6 +59,8 @@ final class Access {
         guard let candidate, !candidate.isEmpty else { return false }
         return constantTimeEqual(candidate, setupKey)
     }
+
+    func isGMToken(_ candidate: String?) -> Bool { gm.isToken(candidate) }
 
     /// A fresh pairing code, replacing any earlier one and lifting lockouts.
     @discardableResult

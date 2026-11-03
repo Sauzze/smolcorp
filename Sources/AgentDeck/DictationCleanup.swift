@@ -48,7 +48,9 @@ enum DictationCleanup {
 
     /// What last stopped a clean-up, for the setup page: nil once one works.
     static var problem: String?
-    static let noKey = "No Anthropic API key: add yours under Summaries with Claude. Dictation is typed as heard."
+    /// Even when summaries are made by a coding agent: one is too slow to answer within `deadline`.
+    static let noKey = "No Anthropic API key: add yours under Summaries. Clean-up needs one, as a coding agent is too slow "
+        + "to clean up text before it's typed. Dictation is typed as heard."
 
     /// The work happens here, off the main thread: a Keychain prompt waits on it, not the app.
     private static let queue = DispatchQueue(label: "smolcorp.dictation-cleanup")

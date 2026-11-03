@@ -1,0 +1,345 @@
+[
+ {
+  "case": "a Bash permission keeps the program only",
+  "hook": {
+   "hook_event_name": "PermissionRequest",
+   "tool_name": "Bash",
+   "tool_input": {
+    "command": "curl -H 'Authorization: Bearer abc123' https://example.com/api",
+    "description": "Call the API"
+   },
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "Bash: curl",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "permissionAsked",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "a denied Bash call, with a NAME=value set before it",
+  "hook": {
+   "hook_event_name": "PermissionDenied",
+   "tool_name": "Bash",
+   "tool_input": {
+    "command": "API_KEY=abc123 rm -rf build"
+   },
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "Bash: rm",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "permissionDenied",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "a long Bash command is cut to its first word",
+  "hook": {
+   "hook_event_name": "PermissionRequest",
+   "tool_name": "Bash",
+   "tool_input": {
+    "command": "npm run build -- --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name --flag-with-a-long-name "
+   },
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "Bash: npm",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "permissionAsked",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "a file tool keeps the file path",
+  "hook": {
+   "hook_event_name": "PermissionRequest",
+   "tool_name": "Write",
+   "tool_input": {
+    "file_path": "/Users/me/Projects/shop/src/app.ts",
+    "content": "secret contents"
+   },
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "Write: /Users/me/Projects/shop/src/app.ts",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "permissionAsked",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "a Write with only content is the tool alone",
+  "hook": {
+   "hook_event_name": "PermissionRequest",
+   "tool_name": "Write",
+   "tool_input": {
+    "content": "a whole file"
+   },
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "Write",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "permissionAsked",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "a very long file path is cut to 200 characters",
+  "hook": {
+   "hook_event_name": "PermissionRequest",
+   "tool_name": "Edit",
+   "tool_input": {
+    "file_path": "/Users/me/Projects/shop/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/file.txt",
+    "old_string": "a",
+    "new_string": "b"
+   },
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "Edit: /Users/me/Projects/shop/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep…",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "permissionAsked",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "a tool with a url keeps the tool alone",
+  "hook": {
+   "hook_event_name": "PermissionRequest",
+   "tool_name": "WebFetch",
+   "tool_input": {
+    "url": "https://example.com/?token=abc123"
+   },
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "WebFetch",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "permissionAsked",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "a permission with no input",
+  "hook": {
+   "hook_event_name": "PermissionRequest",
+   "tool_name": "ExitPlanMode",
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "ExitPlanMode",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "permissionAsked",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "Claude Code's own permission notification is kept",
+  "hook": {
+   "hook_event_name": "Notification",
+   "notification_type": "permission_prompt",
+   "message": "Claude needs your permission to use Bash",
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "Claude needs your permission to use Bash",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "notification",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "Claude Code's own idle notification is kept",
+  "hook": {
+   "hook_event_name": "Notification",
+   "notification_type": "idle_prompt",
+   "message": "Claude is waiting for your input",
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "Claude is waiting for your input",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "notification",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "any other notification text is not kept",
+  "hook": {
+   "hook_event_name": "Notification",
+   "message": "Deploy token abc123 expired, see https://example.com",
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "notification",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "notification",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "a session starting",
+  "hook": {
+   "hook_event_name": "SessionStart",
+   "source": "startup",
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "startup",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "sessionStart",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "a session ending",
+  "hook": {
+   "hook_event_name": "SessionEnd",
+   "reason": "prompt_input_exit",
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "prompt_input_exit",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "sessionStop",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "a prompt is never kept",
+  "hook": {
+   "hook_event_name": "UserPromptSubmit",
+   "prompt": "my secret plan",
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "prompt",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "a turn ending",
+  "hook": {
+   "hook_event_name": "Stop",
+   "last_assistant_message": "all done",
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": {
+   "agent": "claude",
+   "at": 1793500000000,
+   "detail": "",
+   "folder": "/Users/me/Projects/shop",
+   "kind": "idle",
+   "session": "s-1f3a"
+  }
+ },
+ {
+  "case": "an event that isn't kept",
+  "hook": {
+   "hook_event_name": "PreToolUse",
+   "tool_name": "Bash",
+   "tool_input": {
+    "command": "ls"
+   },
+   "session_id": "s-1f3a",
+   "cwd": "/Users/me/Projects/shop"
+  },
+  "agent": "claude",
+  "folder": "/Users/me/Projects/shop",
+  "at": 1793500000000,
+  "entry": null
+ }
+]

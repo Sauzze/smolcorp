@@ -43,7 +43,7 @@ func TestAHookForAnotherCopyIsFoundAndConnectingPutsItRight(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := connectAgents(); err != nil {
+	if _, err := connectAgents(true); err != nil {
 		t.Fatal(err)
 	}
 	if here, _ := hooksPointHere(Claude); !here {
@@ -63,7 +63,7 @@ func TestAHookForAnotherCopyIsFoundAndConnectingPutsItRight(t *testing.T) {
 	if !isConnected(Claude) {
 		t.Fatal("hooks naming another copy no longer count as connected: the check couldn't say which copy")
 	}
-	if err := connectAgents(); err != nil {
+	if _, err := connectAgents(true); err != nil {
 		t.Fatal(err)
 	}
 	if here, _ := hooksPointHere(Claude); !here {
@@ -80,7 +80,8 @@ func TestThePhoneIsToldHowItReachesThisComputer(t *testing.T) {
 	}{
 		{listenTailscale, []string{"100.101.102.103"}, checkOK, fixHomeWiFi},
 		{listenAll, []string{"100.101.102.103"}, checkOK, ""},
-		{listenTailscale, nil, checkTodo, fixTailscale},
+		// No phone can reach it: the Wi-Fi is the button, as it works at once.
+		{listenTailscale, nil, checkTodo, fixHomeWiFi},
 		{listenAll, nil, checkInfo, fixTailscale},
 	}
 	for _, c := range cases {
@@ -158,11 +159,24 @@ func TestOnlyAPhoneCountsAsPairedAndLoginIsOffered(t *testing.T) {
 	if c := phoneCheck(2); c.Status != checkOK || !strings.HasPrefix(c.Detail, "2 paired") {
 		t.Errorf("two phones: %+v", c)
 	}
-	if c := loginCheck(false); c.Status != checkTodo || c.Fix != fixLogin {
+	if c := loginCheck(false, true); c.Status != checkTodo || c.Fix != fixLogin {
 		t.Errorf("not at login: %+v", c)
 	}
 	if !ready([]check{{Status: checkOK}, {Status: checkTodo}, {Status: checkInfo}}) || ready([]check{{Status: checkOK}, {Status: checkFix}}) {
 		t.Error("only a check to fix is in the way")
+	}
+}
+
+func TestOpensAtLoginOnlyPromisesATrayWhereThereIsOne(t *testing.T) {
+	savedStarted, savedHost := trayStarted.Load(), hasTrayHost
+	t.Cleanup(func() { trayStarted.Store(savedStarted); hasTrayHost = savedHost })
+	trayStarted.Store(true)
+	for _, host := range []bool{true, false} {
+		hasTrayHost = func() bool { return host }
+		c := loginCheck(true, hasTray())
+		if c.Status != checkOK || strings.Contains(c.Detail, "tray") != host {
+			t.Errorf("tray host %v: %+v", host, c)
+		}
 	}
 }
 
@@ -230,18 +244,138 @@ func TestSetupFromATerminalReadsTheChecklistWithTheSetupKey(t *testing.T) {
 	if err != nil || len(report.Checks) == 0 {
 		t.Fatalf("the checklist from a terminal: %+v, %v", report, err)
 	}
-	if err := client.fix("teleport"); err == nil || !strings.Contains(err.Error(), errUnknownFix.Error()) {
+	// A terminal only repairs: any other fix, even one that isn't, is the page's.
+	if err := client.fix("teleport"); err == nil || !strings.Contains(err.Error(), "This is for the setup page") {
 		t.Errorf("an unknown fix from a terminal: %v", err)
 	}
+	// The page asking for one that doesn't exist is told so.
+	if response := pagePost(t, d, server.URL, "/setup/fix?fix=teleport"); response.StatusCode != http.StatusBadRequest {
+		t.Errorf("an unknown fix from the page: %d, want 400", response.StatusCode)
+	} else {
+		response.Body.Close()
+	}
+	defer func(was string) { setupSystem = was }(setupSystem)
+	setupSystem = "linux"
 	var out bytes.Buffer
 	printChecklist(&out, []check{
 		{Title: "Your agents report to Smolcorp", Status: checkOK, Detail: "Claude Code."},
 		{Title: "A phone is paired", Status: checkTodo, Detail: "Scan the code."},
 		{Title: "Your phone can reach this computer", Status: checkTodo, Detail: "Get it.", Fix: fixTailscale, Label: "Get Tailscale"},
 	})
-	for _, said := range []string{"✓ Your agents report to Smolcorp\n    Claude Code.", "• A phone is paired", "On the setup page: Get Tailscale.", "Ready."} {
+	for _, said := range []string{"✓ Your agents report to Smolcorp\n    Claude Code.", "• A phone is paired", "On the setup page: Get Tailscale.", "Ready.", "choose Open Setup… from the tray icon; with no tray, use the link Smolcorp prints as it starts (for a new one, run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again)"} {
 		if !strings.Contains(out.String(), said) {
 			t.Errorf("the terminal shows\n%s\nwithout %q", out.String(), said)
+		}
+	}
+}
+
+func TestStartHereRetriesAFailedSelfTestAndThenSaysSo(t *testing.T) {
+	d := newTestDeck(t)
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer})
+	if page.Code != http.StatusOK {
+		t.Fatalf("the setup page: %d", page.Code)
+	}
+	html := page.Body.String()
+	if !strings.Contains(html, "const startWait = 45000;") {
+		t.Error("the self-test wait isn't 45 s")
+	}
+	start := strings.Index(html, "async function loadStartHere()")
+	end := strings.Index(html, "function renderStartHere(")
+	if start < 0 || end < start {
+		t.Fatal("the page has no loadStartHere")
+	}
+	load := html[start:end]
+	// A failed or slow first check isn't dropped: it's tried again, then Start here is shown with the error and a Retry.
+	for _, want := range []string{"setTimeout(loadStartHere, startRetries[", "showStartHereFailed()", "AbortSignal.timeout && AbortSignal.timeout(startWait)", "startRunning"} {
+		if !strings.Contains(load, want) {
+			t.Errorf("loadStartHere doesn't have %q:\n%s", want, load)
+		}
+	}
+	shown := html[strings.Index(html, "function showStartHereFailed()"):end]
+	for _, want := range []string{"$('start-here').hidden = false", "startSaid(", "startButton('Retry'", "if (startRunning) return;"} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("the failed Start here doesn't have %q", want)
+		}
+	}
+}
+
+func TestSetupsRepairLeavesAgentsYouDisconnectedUntilYouConnect(t *testing.T) {
+	d := newTestDeck(t)
+	if err := os.MkdirAll(filepath.Join(homeDir, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(&router{deck: d})
+	defer server.Close()
+	writeFile(t, setupKeyFile, d.access.SetupKey+"\n")
+	client := setupClient{base: server.URL, http: server.Client()}
+	// Connecting and disconnecting are the page's; setup's repair is a terminal's.
+	post := func(path string) {
+		t.Helper()
+		response := pagePost(t, d, server.URL, path)
+		if response.StatusCode >= 400 {
+			t.Fatalf("POST %s: %v", path, response)
+		}
+		response.Body.Close()
+	}
+
+	post("/setup/hooks")
+	if !isConnected(Claude) {
+		t.Fatal("Connect didn't connect")
+	}
+	post("/setup/hooks?remove=1")
+	if isConnected(Claude) {
+		t.Fatal("Disconnect didn't disconnect")
+	}
+	// What smolcorp setup does for the hooks line.
+	if err := client.fix(fixRepair); err == nil || !strings.Contains(err.Error(), "disconnected") || !strings.Contains(err.Error(), "Connect on the setup page") {
+		t.Errorf("setup's repair after a disconnect said %v, want that they are disconnected and how to connect", err)
+	}
+	if isConnected(Claude) {
+		t.Error("setup's repair connected agents you had disconnected")
+	}
+	// The flag outlives a restart: it's in the config file.
+	if !loadConfig().HooksDisconnected {
+		t.Error("the disconnect wasn't saved")
+	}
+
+	post("/setup/hooks")
+	post("/setup/hooks?remove=1")
+	post("/setup/hooks")
+	if err := client.fix(fixRepair); err != nil || !isConnected(Claude) {
+		t.Errorf("setup's repair after a Connect: %v, connected %v", err, isConnected(Claude))
+	}
+	if loadConfig().HooksDisconnected {
+		t.Error("Connect left the disconnect remembered")
+	}
+}
+
+// The home Wi-Fi restarts Smolcorp and makes a new setup key, so the setup page asks first and says what to do after.
+func TestLettingInTheHomeWiFiAsksFirstAndSaysHowToGetTheNewLink(t *testing.T) {
+	raw, err := os.ReadFile("../Resources/web/setup.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(raw)
+	start := strings.Index(page, "async function startFix(fix)")
+	if start < 0 {
+		t.Fatal("setup.html has no startFix")
+	}
+	body := page[start:]
+	if end := strings.Index(body, "$('start-fix-all')"); end > 0 {
+		body = body[:end]
+	}
+	ask := strings.Index(body, "fix === 'homewifi' && !confirm(")
+	post := strings.Index(body, "fetch(`/setup/fix?")
+	if ask < 0 || post < 0 || ask > post {
+		t.Fatal("startFix does not ask for confirmation for the home Wi-Fi before it posts the fix")
+	}
+	// 1.24: setup --open no longer makes a link (any command could be a hire's), so it isn't offered.
+	if strings.Contains(body[ask:post], "setup --open") {
+		t.Error("the home Wi-Fi confirmation still offers smolcorp setup --open, which makes no link in 1.24")
+	}
+	for _, want := range []string{"Smolcorp restarts", "already open stops working", "Open Setup…", "tray icon", "run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again", "new link"} {
+		if !strings.Contains(body[ask:post], want) {
+			t.Errorf("the home Wi-Fi confirmation does not say %q", want)
 		}
 	}
 }

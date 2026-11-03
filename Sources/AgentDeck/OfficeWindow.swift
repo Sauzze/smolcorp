@@ -30,10 +30,12 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     private var panel: OfficePanel?
     private var monitors: [Any] = []
     private let defaults: UserDefaults
+    private let config: Config
 
-    init(address: URL, defaults: UserDefaults = .standard) {
+    init(address: URL, defaults: UserDefaults = .standard, config: Config = .shared) {
         self.address = address
         self.defaults = defaults
+        self.config = config
     }
 
     var isShown: Bool { panel?.isVisible == true }
@@ -44,13 +46,29 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         defaults.object(forKey: "officeWindow.\(name)") as? Bool ?? standard
     }
 
-    /// On top of other windows: on unless you turn it off.
+    /// On top of other windows, on every Space and beside apps in full
+    /// screen: setup's switch, and the menu's Always on Top. Off unless you
+    /// turn it on (see `settle`).
     var alwaysOnTop: Bool {
-        get { option("alwaysOnTop", standard: true) }
-        set { defaults.set(newValue, forKey: "officeWindow.alwaysOnTop"); applyOptions() }
+        get { config.officeOnTop ?? false }
+        set {
+            config.officeOnTop = newValue
+            config.save()
+            applyOptions()
+        }
     }
 
-    /// On every Space, and beside apps in full screen.
+    /// Kept on top once in the menu, and on by default there: a Mac that had
+    /// the office window before keeps what it had, its choice or that
+    /// default, and a new one starts with it off. Once, as the app starts.
+    static func settle(_ config: Config, defaults: UserDefaults = .standard, file: URL = Paths.config) {
+        guard config.officeOnTop == nil else { return }
+        config.officeOnTop = defaults.object(forKey: "officeWindow.alwaysOnTop") as? Bool ?? config.hasCompletedSetup
+        config.save(to: file)
+    }
+
+    /// On every Space, and beside apps in full screen, on its own: kept on
+    /// top, it's there anyway.
     var onAllSpaces: Bool {
         get { option("onAllSpaces", standard: false) }
         set { defaults.set(newValue, forKey: "officeWindow.onAllSpaces"); applyOptions() }
@@ -68,10 +86,18 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         return frame.height > frame.width
     }
 
-    private func applyOptions() {
+    /// The window's level, and the Spaces it's on, for these options.
+    static func placement(onTop: Bool, onAllSpaces: Bool) -> (level: NSWindow.Level, spaces: NSWindow.CollectionBehavior) {
+        (onTop ? .floating : .normal, onTop || onAllSpaces ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.fullScreenAuxiliary])
+    }
+
+    /// The options as they are now, to the window if it's open: setup's
+    /// switch calls it too.
+    func applyOptions() {
         guard let panel else { return }
-        panel.level = alwaysOnTop ? .floating : .normal
-        panel.collectionBehavior = onAllSpaces ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.fullScreenAuxiliary]
+        let placement = OfficeWindow.placement(onTop: alwaysOnTop, onAllSpaces: onAllSpaces)
+        panel.level = placement.level
+        panel.collectionBehavior = placement.spaces
         panel.ignoresMouseEvents = clickThrough
     }
 
@@ -88,6 +114,12 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         // once you've clicked it.
         panel.orderFrontRegardless()
         refreshShadow()
+    }
+
+    /// Shown if it's hidden; in front if it isn't, where it is.
+    func bringForward() {
+        guard let panel, panel.isVisible else { return show() }
+        panel.orderFrontRegardless()
     }
 
     func hide() {
@@ -420,5 +452,13 @@ final class HotKey {
 
     deinit {
         if let reference { UnregisterEventHotKey(reference) }
+    }
+}
+
+extension OfficeWindow {
+    /// Puts the office's window at `rect` (AppleScript's coordinates) while it's shown.
+    func place(atTile rect: CGRect, mainHeight: CGFloat) {
+        guard let panel, panel.isVisible else { return }
+        panel.setFrame(Tiler.flipped(rect, mainHeight: mainHeight), display: true)
     }
 }

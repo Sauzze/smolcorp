@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -156,5 +157,39 @@ func TestWindowStateIsKeptInTheConfig(t *testing.T) {
 	got := loadConfig()
 	if got.Window == nil || *got.Window != *c.Window || !got.AlwaysOnTop {
 		t.Fatalf("got %+v, top=%v", got.Window, got.AlwaysOnTop)
+	}
+}
+
+// Setup's "Keep the office on top of other windows" is the tray's Always on
+// Top: off to begin with, kept, and only where the office has a window of its
+// own. Elsewhere setup is told there's none, to say why there's no switch.
+func TestSetupKeepsTheOfficeOnTopWhereItHasAWindow(t *testing.T) {
+	d := newTestDeck(t)
+	shown := func() map[string]any {
+		return (&router{deck: d}).setupState()["officeWindow"].(map[string]any)
+	}
+	turn := func(enabled string) int {
+		return serve(t, d, call{method: "POST", target: "/setup/ontop?enabled=" + enabled, host: "localhost:7710", from: thisComputer,
+			headers: map[string]string{setupHeader: "1"}}).Code
+	}
+	if w := shown(); w["available"] != hasNativeWindow || w["onTop"] != false || d.config.AlwaysOnTop {
+		t.Fatalf("a new config: %v, saved %v; want off", w, d.config.AlwaysOnTop)
+	}
+	if !hasNativeWindow {
+		if code := turn("1"); code != http.StatusNotFound || loadConfig().AlwaysOnTop {
+			t.Fatalf("no window here, yet turned on: %d", code)
+		}
+		return
+	}
+	if code := turn("1"); code != http.StatusOK || shown()["onTop"] != true || !loadConfig().AlwaysOnTop {
+		t.Fatalf("turned on: %d, %v, saved %v", code, shown(), loadConfig().AlwaysOnTop)
+	}
+	if code := turn("0"); code != http.StatusOK || shown()["onTop"] != false || loadConfig().AlwaysOnTop {
+		t.Fatalf("turned off: %d, %v", code, shown())
+	}
+	// Only from this computer, as every setting is.
+	if got := serve(t, d, call{method: "POST", target: "/setup/ontop?enabled=1", host: deckOnWiFi, from: aPhone,
+		headers: map[string]string{setupHeader: "1"}}); got.Code == http.StatusOK || d.config.AlwaysOnTop {
+		t.Fatalf("a phone turned it on: %d", got.Code)
 	}
 }

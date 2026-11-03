@@ -26,13 +26,14 @@
   button:disabled { opacity: .4; }
   .error { color: var(--error); min-height: 22px; margin-top: 14px; font-size: 14px; }
   .help { margin-top: 36px; font-size: 13px; color: var(--dim); }
+  p code { font: 14px ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); white-space: nowrap; }
 </style>
 </head>
 <body>
 <main>
   <img src="/icon.png" alt="">
   <h1>Pair with your computer</h1>
-  <p>On your computer, click the Smolcorp icon in the menu bar or tray, choose <b>Pair a Phone…</b>, and enter the code it shows, or scan its QR code with your camera.</p>
+  <p>On your computer, click the Smolcorp icon in the menu bar or tray and choose <b>Pair a Phone…</b>. With no tray, open the setup link Smolcorp printed as it started (for a new one, run <code>smolcorp quit</code> or press Ctrl+C in its terminal, then start Smolcorp again) and choose <b>Pair a phone</b>. Enter the code it shows, or scan its QR code with your camera.</p>
   <form id="form">
     <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" aria-label="Pairing code">
     <button id="go" disabled>Pair</button>

@@ -30,9 +30,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var server = HTTPServer(port: Deck.port, router: router)
     private lazy var office = OfficeWindow(address: URL(string: "http://127.0.0.1:\(Deck.port)/office?window&t=\(deck.windowKey)")!)
     private var officeKey: HotKey?
-    private lazy var settings = SettingsWindow(setupKey: deck.access.setupKey)
+    private lazy var settings = SettingsWindow(newSession: { [deck] in
+        deck.access.setupSessions.open(link: deck.access.setupSessions.newLink())
+    })
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The GM's token file is there only while "Allow a GM started by hand" is on: an earlier build's is taken away.
+        deck.access.gm.applySetting()
         // A test copy leaves your agents' hooks and your login item to the copy in use.
         if !TestCopy.isOn {
             try? Hooks.refresh()
@@ -43,11 +47,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server.onReady = { [menu] in menu.showListening() }
         server.service = PhoneApp.service
         server.start()
+        deck.watchers.start()
         // Tailscale's address, looked up from the start, for setup and the phone mic.
         Tailnet.refresh { [deck] in deck.refresh() }
+        // Whether a Summary key is saved, asked of the Keychain off the main queue.
+        SummaryKey.onLearned = { [deck] in deck.refresh() }
+        SummaryKey.learnHint()
         menu.office = office
         menu.settings = settings
         router.showOffice = { [office] in office.show() }
+        router.placeOffice = { [office] rect, mainHeight in office.place(atTile: rect, mainHeight: mainHeight) }
+        OfficeWindow.settle(Config.shared)
+        router.officeOptionsChanged = { [office] in office.applyOptions() }
         NSApp.mainMenu = mainMenu()
         // ⌥⌘O, from anywhere, shows and hides the office's window.
         officeKey = HotKey(keyCode: UInt32(kVK_ANSI_O), modifiers: UInt32(cmdKey | optionKey), id: 1) { [office] in office.toggle() }
@@ -63,10 +74,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// A click on the Dock icon, or the app opened again from Finder,
-    /// Spotlight or Launchpad: the office if it's hidden, and with the
-    /// office showing, Settings.
+    /// Spotlight or Launchpad: the office, shown if it's hidden and brought
+    /// forward if it isn't, never a second one. Settings opens from ⚙︎, the
+    /// menus and ⌘, only.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        office.isShown ? settings.show() : office.show()
+        office.bringForward()
         return false
     }
 

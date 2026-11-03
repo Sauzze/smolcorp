@@ -382,11 +382,13 @@ struct Role: Codable, Equatable {
     /// the message after `--` where it stands alone, so text starting with a
     /// dash is never read as an option. Grok starts as it is: how it takes
     /// these hasn't been checked.
-    func arguments(firstMessage message: String) -> [String] {
+    /// `plugin` is the General Manager's, only ever loaded by Claude Code.
+    func arguments(firstMessage message: String, plugin: GMPlugin.Launch? = nil) -> [String] {
         let agent = Agent(rawValue: agent) ?? .claude
         switch agent {
         case .claude:
-            return (model.isEmpty ? [] : ["--model=\(model)"]) + (effort.isEmpty ? [] : ["--effort=\(effort)"]) + ["--", message]
+            return (model.isEmpty ? [] : ["--model=\(model)"]) + (effort.isEmpty ? [] : ["--effort=\(effort)"])
+                + (plugin?.arguments ?? []) + ["--", message]
         case .codex:
             return (model.isEmpty ? [] : ["--model=\(model)"]) + ["--", message]
         case .gemini:
@@ -406,10 +408,37 @@ struct Role: Codable, Equatable {
         startScript(firstMessage: firstMessage(in: folder, pinned: pinned))
     }
 
-    func startScript(firstMessage message: String) -> String {
-        let words = [(Agent(rawValue: agent) ?? .claude).rawValue] + arguments(firstMessage: message)
-        let quoted = words.map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " ")
-        return "#!/bin/sh\n# A hire from Smolcorp's office, as a \(name): runs once.\nrm -f \"$0\"\nexec \(quoted)\n"
+    /// `account` is the Claude account it works on: its config folder is set
+    /// for the agent, and ~/.claude's account clears any left over from the terminal.
+    /// `environment` is shell lines run before it starts (a hire's ports, its API key).
+    /// `settings` is the hire's own Claude Code settings file (deny rules, the guard), for Claude Code only.
+    /// `plugin` is the General Manager's plugin; left out, the GM role gets the one bundled in the app, if there is one.
+    func startScript(firstMessage message: String, account: ClaudeProfile? = nil, environment extra: String = "", settings: String? = nil,
+                     plugin: GMPlugin.Launch? = nil, command: URL = Paths.bundledCLI, testCopy: Bool = TestCopy.isOn) -> String {
+        let claude = (Agent(rawValue: agent) ?? .claude) == .claude
+        let launch = claude ? (plugin ?? (id == GMPlugin.role ? GMPlugin.Launch.bundled() : nil)) : nil
+        let extra = extra + (launch?.environment ?? "")
+        var own = claude ? settings.map { ["--settings=\($0)"] } ?? [] : []
+        // A test copy's hire doesn't load the account's own settings (the real app's hooks are in them): its settings file reports to the copy.
+        if claude && testCopy { own.append(Role.testCopySources) }
+        let words = [(Agent(rawValue: agent) ?? .claude).rawValue] + own + arguments(firstMessage: message, plugin: launch)
+        let quoted = words.map { Role.shellQuoted($0) }.joined(separator: " ")
+        var environment = ""
+        if let account, (Agent(rawValue: agent) ?? .claude) == .claude {
+            environment = account.isDefault ? "unset CLAUDE_CONFIG_DIR\n" : "export CLAUDE_CONFIG_DIR=\(Role.shellQuoted(account.dir))\n"
+        }
+        // The app's own `smolcorp` on the agent's PATH, for this agent alone.
+        if FileManager.default.isExecutableFile(atPath: command.path) {
+            environment += "export PATH=\(Role.shellQuoted(command.deletingLastPathComponent().path)):\"$PATH\"\n"
+        }
+        return "#!/bin/sh\n# A hire from Smolcorp's office, as a \(name): runs once.\nrm -f \"$0\"\n\(environment)\(extra)exec \(quoted)\n"
+    }
+
+    /// What keeps the account's user settings out of a test copy's Claude Code.
+    static let testCopySources = "--setting-sources=project,local"
+
+    private static func shellQuoted(_ word: String) -> String {
+        "'" + word.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// What the phone is told of a role: never its instructions.

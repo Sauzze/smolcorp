@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "smolcorp": {
+      "type": "stdio",
+      "command": "${SMOLCORP_CLI}",
+      "args": ["mcp"]
+    }
+  }
+}

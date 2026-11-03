@@ -15,6 +15,19 @@ final class ConfigTests: XCTestCase {
         try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
     }
 
+    /// Default is Smolcorp's own profile: a backup under that name is refused, and says why and what to do.
+    func testSavingAProfileAsDefaultSaysWhyAndWhatToDo() {
+        let config = Config.load(from: file)
+        for name in ["Default", "default", " DEFAULT "] {
+            XCTAssertThrowsError(try config.saveProfile(as: name)) { error in
+                let message = (error as? ProfileError)?.message ?? ""
+                XCTAssertTrue(message.contains("Smolcorp's own profile") && message.contains("another name"), message)
+            }
+        }
+        XCTAssertThrowsError(try config.saveProfile(as: "  ")) { XCTAssertEqual(($0 as? ProfileError)?.message, ProfileError.name.message) }
+        XCTAssertTrue(config.profiles.isEmpty, "nothing was stored")
+    }
+
     func testAFieldOfTheWrongTypeLosesOnlyItself() throws {
         try ##"{"pins": ["/work/a"], "scrollEnabled": "yes", "hireFolder": "/work", "colours": {"key": "#ff0000"}}"##
             .write(to: file, atomically: true, encoding: .utf8)
@@ -177,6 +190,17 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(Config.load(from: file).hireFolder, "/elsewhere")
     }
 
+    func testFloorRulesAreKeptAndAnOlderFileHasNone() throws {
+        try #"{"hireFolder": "/work"}"#.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(Config.load(from: file).floorRules, [])
+        try #"{"floorRules": [{"folder": "/work/atlas", "floor": 2}, 7, {"folder": "/x", "floor": "two"}]}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        let config = Config.load(from: file)
+        XCTAssertEqual(config.floorRules, [FloorRule(folder: "/work/atlas", floor: 2)])
+        config.save(to: file)
+        XCTAssertEqual(Config.load(from: file).floorRules, config.floorRules)
+    }
+
     func testTheFloorsAre1FTo6FInTheOfficesOwnStyleUntilChanged() throws {
         try #"{"hireFolder": "/work"}"#.write(to: file, atomically: true, encoding: .utf8)
         let floors = Config.load(from: file).floors
@@ -226,6 +250,15 @@ final class ConfigTests: XCTestCase {
             let permissions = try FileManager.default.attributesOfItem(atPath: saved.path)[.posixPermissions] as? Int
             XCTAssertEqual(permissions, 0o600, saved.lastPathComponent)
         }
+    }
+
+    /// Disconnecting the agents is remembered across a restart (SIERRA 1.23 m-7), and off for a file from before it.
+    func testADisconnectIsRememberedInTheConfig() throws {
+        XCTAssertFalse(Config.load(from: file).hooksDisconnected)
+        let config = Config.load(from: file)
+        config.hooksDisconnected = true
+        config.save(to: file)
+        XCTAssertTrue(Config.load(from: file).hooksDisconnected)
     }
 }
 

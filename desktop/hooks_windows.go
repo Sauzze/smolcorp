@@ -4,7 +4,6 @@ package desktop
 
 import (
 	"path/filepath"
-	"strings"
 
 	"golang.org/x/sys/windows"
 )
@@ -25,9 +24,7 @@ func shellPath(path string) string {
 		path = windows.UTF16ToString(short[:n])
 	}
 	path = filepath.ToSlash(path)
-	// A drive with short names turned off keeps its spaces: quoted, the path
-	// still works through cmd and Git Bash.
-	if strings.Contains(path, " ") {
+	if windowsPathNeedsQuotes(path) {
 		return `"` + path + `"`
 	}
 	return path

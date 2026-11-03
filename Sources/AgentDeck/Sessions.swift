@@ -52,6 +52,8 @@ final class Session {
     var choice: PendingChoice?
     /// What it's asking, while it asks: see `Sessions.asked`.
     var asked = Asked()
+    /// When it began asking, in ms, as its hook raised it; 0 while it isn't.
+    var askedSince: Double = 0
     /// When it last stopped asking, as its hook raised it: a prompt's event raised before then is over.
     var leftAskingAt: Double = 0
     /// Its tool calls under way, by who makes them, tool and input, with their ids: see `Sessions.trackCalls`.
@@ -236,11 +238,13 @@ final class Sessions {
             session.state = next
             if next != .error { session.errorKind = "" }
         }
+        if session.state == .asking, !wasAsking { session.askedSince = time }
         // Answered, or no longer asked: its options go.
         if session.state != .asking {
             if wasAsking { session.leftAskingAt = time }
             session.choice = nil
             session.asked = .init()
+            session.askedSince = 0
         }
         onChange()
     }
@@ -589,6 +593,8 @@ final class Sessions {
         case "Interrupt":
             return .idle
         default:
+            // PermissionDenied is ignored on purpose: Claude Code fires it only when auto mode
+            // denies a call, so nothing waits on you. Only the event log keeps it.
             return nil
         }
     }

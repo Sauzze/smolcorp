@@ -13,6 +13,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"testing"
+
+	"github.com/Sauzze/smolcorp/internal/appdirs"
 )
 
 // Port is where the deck listens on every platform: 7710, unless SMOLCORP_PORT
@@ -28,8 +31,9 @@ func portFromEnvironment(text string) int {
 
 // Where the app keeps its state, outside the program itself, so it can be
 // moved or updated without losing the paired phones: ~/.config/sauzzedeck-pro
-// on Linux, %APPDATA%\SauzzeDeck Pro on Windows. They keep the name the app
-// had before it was Smolcorp, as the Mac app keeps AgentDeck's.
+// on Linux, %APPDATA%\SauzzeDeck Pro on Windows, Application Support/AgentDeck
+// on a Mac. They keep the name the app had before it was Smolcorp, as the Mac
+// app keeps AgentDeck's.
 var (
 	supportDir  = makeSupportDir()
 	phonesFile  = filepath.Join(supportDir, "phones.json")
@@ -45,18 +49,26 @@ var (
 )
 
 func makeSupportDir() string {
+	// A binary `go test` built (testing.Testing) must never create or reach the app's real
+	// folder, even at import: it gets a throwaway one, which TestMain removes.
+	if testing.Testing() {
+		if dir, err := os.MkdirTemp("", "smolcorp-desktop-test-"); err == nil {
+			return dir
+		}
+		return filepath.Join(os.TempDir(), "smolcorp-desktop-test-fallback")
+	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		base = os.TempDir()
 	}
-	name := "sauzzedeck-pro"
-	if runtime.GOOS == "windows" {
-		name = "SauzzeDeck Pro"
-	}
-	dir := filepath.Join(base, name)
+	dir := filepath.Join(base, supportDirName(runtime.GOOS))
 	_ = os.MkdirAll(dir, 0o700)
 	return dir
 }
+
+// supportDirName is the folder's name on a system: the one the Mac app writes
+// on a Mac (AgentDeck), so the setup key is found there.
+func supportDirName(goos string) string { return appdirs.Name(goos) }
 
 // writePrivate writes a file only its owner can read, as the keys need.
 func writePrivate(path string, data []byte) error {

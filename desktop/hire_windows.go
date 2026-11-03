@@ -12,6 +12,9 @@ import (
 // No tmux on Windows.
 const hasTmuxHires = false
 
+// A role's Claude hire can be made through the launcher, behind the beta switch.
+var launcherHires = true
+
 // hireOpeners are where a hire's window can open: Windows Terminal, where
 // it's installed, then a console window of its own, which every Windows has.
 var hireOpeners = []hireOpener{
@@ -29,6 +32,10 @@ var hireOpeners = []hireOpener{
 
 // inLoginShell: Windows finds the agents through its own PATH.
 func inLoginShell(command []string) []string { return command }
+
+// hireAgentMissing: a hire finds its agent through Windows' own PATH, as the
+// app does, and the launcher says so in its window when it doesn't.
+func hireAgentMissing(string) string { return "" }
 
 // prepareHireWindow gives a console hire a window of its own, rather than
 // this app's, which may have none.

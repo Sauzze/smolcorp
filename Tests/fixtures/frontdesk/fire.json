@@ -1,0 +1,24 @@
+{
+  "route": "POST /setup/gm/fire",
+  "callers": ["gm", "page"],
+  "request": {
+    "id": "abcdef123456",
+    "force": false,
+    "removeWorktree": false
+  },
+  "answer": {
+    "status": 204,
+    "keptWorktree": {"status": 200, "body": {"ok": true, "kept": "<why>", "worktree": "<path>", "branch": "<name>"}, "when": "removeWorktree was asked and the worktree stayed"}
+  },
+  "refusals": [
+    {"request": {}, "status": 400, "why": "no id"},
+    {"request": {"id": "nobody"}, "status": 404, "why": "not in the registry"},
+    {"request": {"id": "abcdef123456"}, "status": 409, "why": "the worktree has changes nobody committed, listed in the message; force fires anyway"},
+    {"request": {"id": "abcdef123456", "force": true}, "status": 409, "why": "its window shows a question or a menu: nothing is sent, even with force"},
+    {"request": {"id": "abcdef123456"}, "status": 409, "why": "the hire is fired or failed already"}
+  ],
+  "recap": {
+    "file": "recaps/<hire id>.md",
+    "lines": ["# Recap: <nickname or name>", "- Who:", "- Task:", "- Folder:", "- Branch:", "- Worktree:", "- Hired:", "- Fired:", "- Cost:", "## Last status"]
+  }
+}

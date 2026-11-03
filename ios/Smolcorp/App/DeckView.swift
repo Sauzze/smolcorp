@@ -13,6 +13,7 @@ struct DeckView: View {
     @State private var choices: Choices
     @State private var board: Board
     @State private var info: Info
+    @State private var waiting: Waiting
     @State private var showingSettings = false
     /// The lite office, as the page keeps it: read as settings open.
     @State private var lite = true
@@ -30,6 +31,7 @@ struct DeckView: View {
         _choices = State(initialValue: Choices(link: link, flash: { mic.flash($0) }))
         _board = State(initialValue: Board(link: link))
         _info = State(initialValue: Info(link: link))
+        _waiting = State(initialValue: Waiting(link: link))
     }
 
     var body: some View {
@@ -51,6 +53,13 @@ struct DeckView: View {
                     // on its side, in the margin it leaves on the right.
                     .padding(.trailing, wide ? max(4, (insets.trailing - 54) / 2) : 30)
                     .padding(.top, wide ? 14 : 16)
+                // Under it, only while something waits for you and the Mac gives the list.
+                if waiting.visible {
+                    waitingButton
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(.trailing, wide ? max(4, (insets.trailing - 54) / 2) : 30)
+                        .padding(.top, wide ? 60 : 50)
+                }
             }
             .ignoresSafeArea()
         }
@@ -72,6 +81,7 @@ struct DeckView: View {
             }
             .onChange(of: link.status) { _, status in
                 if case .connected = status {
+                    waiting.connected(notify: notifications.waiting)
                     Task { await mic.learnNames() }
                     Task { await notifications.look() }
                 }
@@ -87,6 +97,19 @@ struct DeckView: View {
             PixelPanel(dismiss: { showingSettings = false }, tall: true) {
                 SettingsView(link: link, mic: mic, notifications: notifications, lite: $lite, styles: openStyles,
                              unpair: unpair, close: { showingSettings = false })
+            }
+        } else if waiting.isOpen {
+            PixelPanel(dismiss: waiting.close, tall: true) {
+                WaitingSheet(waiting: waiting,
+                             answer: { session in
+                                 waiting.close()
+                                 choices.open(session)
+                             },
+                             openDesk: { session in
+                                 waiting.close()
+                                 notifications.opened = session
+                             },
+                             close: waiting.close)
             }
         } else if let heard = mic.heard {
             PixelPanel(dismiss: nil) {
@@ -211,6 +234,24 @@ struct DeckView: View {
         return CGSize(width: key.maxX + 6, height: key.midY - micHeight / 2)
     }
 
+    /// "N waiting": the list of who waits for you, and the review cards.
+    private var waitingButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            waiting.open()
+        } label: {
+            HStack(spacing: 5) {
+                Circle().fill(Color(hex: 0xe0483e)).frame(width: 7, height: 7)
+                Text("\(waiting.count) waiting").font(.system(size: 12, weight: .semibold))
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(.white.opacity(0.08), in: Capsule())
+            .foregroundStyle(.white.opacity(0.8))
+        }
+        .accessibilityLabel("\(waiting.count) waiting for you")
+    }
+
     private func routeButton(wide: Bool) -> some View {
         Button(action: openSettings) {
             Group {
@@ -296,9 +337,10 @@ struct DeckView: View {
             return await link.post(path + DeckView.withoutKey(query), body: body)
         }
         office.onStyleKey = { styleKey = $0 }
-        link.onSnapshot = { [office, mic, choices, link] json in
+        link.onSnapshot = { [office, mic, choices, link, waiting, notifications] json in
             office.deliver(DeckView.shown(json, mic: mic))
             choices.follow(link.snapshot)
+            waiting.follow(link.snapshot, notify: notifications.waiting)
             openTapped()
         }
         link.onPing = { [office] in office.ping() }
