@@ -64,7 +64,9 @@ func TestNoInputMakesTheGuardSlow(t *testing.T) {
 		start := time.Now()
 		r := Check(line, DefaultGroups())
 		took := time.Since(start)
-		if took > 2*time.Second {
+		// Each is linear: the slowest, tmux, takes about 0.4 s on a Mac and 2.15 s on GitHub's Windows
+		// runner, and twice as long for twice the line. A guard that goes quadratic takes minutes here.
+		if took > 5*time.Second {
 			t.Errorf("%s: took %v", name, took)
 		}
 		// A deny for each that ends with git push or can't be read; a few are only a long harmless line.

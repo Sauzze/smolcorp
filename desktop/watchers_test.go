@@ -565,7 +565,7 @@ func TestWhereAFileWatchHasReadSurvivesARestartAndIsKeptInWatchersJSONPrivately(
 	b.tick()
 	file := filepath.Join(supportDir, "watchers.json")
 	info, err := os.Stat(file)
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil || !modeIs(info, 0o600) {
 		t.Fatalf("watchers.json: %v %v", err, info)
 	}
 	var kept struct {

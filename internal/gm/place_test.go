@@ -1,6 +1,7 @@
 package gm
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,13 +13,32 @@ import (
 	"testing"
 )
 
+// workApp is the fixtures' folder /work/app as the CLI makes it absolute: itself on Linux and the Mac,
+// with the drive's letter on Windows (D:\work\app there).
+func workApp(t *testing.T) string {
+	t.Helper()
+	folder, err := filepath.Abs("/work/app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return folder
+}
+
+// workAppJSON is workApp as a JSON string.
+func workAppJSON(t *testing.T) string {
+	t.Helper()
+	data, _ := json.Marshal(workApp(t))
+	return string(data)
+}
+
 // placeApp answers the team with the fixture, and a pin, an unpin and a nickname with the given status and text.
 func placeApp(t *testing.T, status int, text string, nickBody *string) *fakeApp {
 	t.Helper()
 	return newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == "GET" && r.URL.Path == "/setup/gm/team":
-			w.Write(teamAnswer(t))
+			// The fixture's folders are the Mac's; on Windows its session works in workApp.
+			w.Write(bytes.ReplaceAll(teamAnswer(t), []byte(`"/work/app"`), []byte(workAppJSON(t))))
 		case r.URL.Path == "/setup/gm/nickname":
 			data, _ := io.ReadAll(r.Body)
 			if nickBody != nil {
@@ -34,7 +54,7 @@ func placeApp(t *testing.T, status int, text string, nickBody *string) *fakeApp 
 func TestPinSendsTheDeskAndTheFolderWithTheGMsToken(t *testing.T) {
 	app := placeApp(t, 204, "", nil)
 	code, out, errOut := runGM(app.env(t, withToken()), "pin", "--desk", "3", "--folder", "/work/app")
-	if code != 0 || errOut != "" || !strings.Contains(out, "Pinned /work/app to desk 3.") {
+	if code != 0 || errOut != "" || !strings.Contains(out, "Pinned "+workApp(t)+" to desk 3.") {
 		t.Fatalf("exit %d %q %q", code, out, errOut)
 	}
 	if len(app.reqs) != 1 {
@@ -42,7 +62,7 @@ func TestPinSendsTheDeskAndTheFolderWithTheGMsToken(t *testing.T) {
 	}
 	r := app.reqs[0]
 	q, _ := url.ParseQuery(r.RawQuery)
-	if r.Method != "POST" || r.Path != "/setup/pin" || q.Get("key") != "2" || q.Get("folder") != "/work/app" {
+	if r.Method != "POST" || r.Path != "/setup/pin" || q.Get("key") != "2" || q.Get("folder") != workApp(t) {
 		t.Errorf("request = %+v", r)
 	}
 	if r.Header.Get("X-AgentDeck-Setup") != "1" || r.Header.Get(tokenHeader) != fakeToken {
@@ -123,7 +143,7 @@ func TestNicknameBuildsTheRequest(t *testing.T) {
 	var body string
 	app := placeApp(t, 200, `{"project":"/work/app","nickname":"Ada"}`, &body)
 	code, out, errOut := runGM(app.env(t, withToken()), "nickname", "Ada", "--folder", "/work/app") // flags may follow the name
-	if code != 0 || errOut != "" || !strings.Contains(out, "Named whoever works in /work/app: Ada.") {
+	if code != 0 || errOut != "" || !strings.Contains(out, "Named whoever works in "+workApp(t)+": Ada.") {
 		t.Fatalf("exit %d %q %q", code, out, errOut)
 	}
 	r := app.reqs[0]
@@ -132,7 +152,7 @@ func TestNicknameBuildsTheRequest(t *testing.T) {
 	}
 	var got map[string]any
 	json.Unmarshal([]byte(body), &got)
-	if !reflect.DeepEqual(got, map[string]any{"folder": "/work/app", "name": "Ada"}) {
+	if !reflect.DeepEqual(got, map[string]any{"folder": workApp(t), "name": "Ada"}) {
 		t.Errorf("body = %s", body)
 	}
 	// An empty name takes the nickname away; the name is trimmed.
