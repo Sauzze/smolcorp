@@ -64,9 +64,9 @@ You can pin projects to specific desks and furnish the office your way.
 
 ## Run a team
 
-The office has nine desks on the ground floor and five floors above it, with
-twelve desks to a floor, so you can run it like a small company of dozens of
-agents.
+The office has nine desks on the ground floor and five floors above it, each
+with nine desks and a chill area of its own, so you can run it like a small
+company of dozens of agents.
 
 **Hire by role.** Hold any free desk, and pick who to hire:
 a **Reviewer**, a **Tester**, a **Bug hunter**, a **Docs writer**, a
@@ -145,16 +145,29 @@ down to their desk. A run that ends, or stops being heard from, leaves.
 SMOLCORP_HEADLESS=1 SMOLCORP_PARENT_FOLDER="$PWD" claude -p "Write the changelog for this release"
 ```
 
-**Six floors.** Over the ground floor there are five more, twelve desks to a
-floor, filled in order: cloud bots such as Grok Bots, then runs without a
-terminal, then anyone with no desk free downstairs (their keys are still on
-your phone's list). You can put anyone on any floor: tap the **⇅ floor** key
-on an agent, or drop them on the elevator. In setup's Office pane, you can also
-give a folder a floor, and its agents sit there from then on, each keeping their
-desk. Press the call button beside the elevator, by the entrance,
-for a list of the floors and how many are on each; pick one and the elevator
-takes you there. In setup, under Office → Floors, give each floor a name and a
-style: the office's own, the server room, or any of the styles.
+**Six floors.** Over the ground floor there are five more, each laid out like
+it: nine desks in three rows and a chill area with a couch, a plant and a
+coffee counter, in the floor's own style. They're filled in order: cloud bots
+such as Grok Bots first, each on its floor (see **Bots on any floor**
+below), then runs without a terminal, then anyone with no desk free downstairs
+(their keys are still on your phone's list). You can put anyone on
+any floor: tap the **⇅ floor** key on an agent, or drop them on the elevator.
+In setup's Office pane, you can also give a folder a floor, and its agents sit
+there from then on, each keeping their desk. Press the call button beside the
+elevator, by the entrance, for a list of the floors and how many are on each;
+pick one and the elevator takes you there. In setup, under Office → Floors,
+give each floor a name and a style: the office's own, the server room, or any
+of the styles. Each floor can be arranged its own way, too: see **Arrange the
+room** below.
+
+**Bots on any floor.** A cloud bot, such as a Grok Bot, takes a desk like
+anyone else, on any floor, the ground floor too. Put it on one, from the office
+or from setup's Bots card, and it stays there. Otherwise it sits where a
+floor's rule for its folder says (`/cloud/<its name>`, or `/cloud` for every
+bot), or on the floor new bots go to, which you choose on the Bots card; until
+you do, it's the floor most of your bots are on. When that floor is full, the
+bot sits where there's room, and setup names any bot left with no desk on any
+floor. There's no set number of bots: the floors' desks are the room.
 
 ## Supported agents
 
@@ -565,6 +578,10 @@ floor, the walls, the door, the mic and the red button; **Back to standard**
 puts everything back; **Undo** and **Redo** (⌘Z, ⇧⌘Z) step through your
 changes. The room on its side and upright are arranged on their own, and
 **Copy from upright** or **Copy from sideways** starts one from the other.
+Pick a floor at the top to arrange it instead: each floor upstairs keeps its
+own arrangement, its desks, its furniture and its chill area, in the style
+the floor has. The red button and the mic stay on the ground floor, and the
+door and the elevator are where they are downstairs.
 People walk round whatever is in their way, and a desk nobody can get to from
 the door is outlined in red. Your phone follows as you go.
 

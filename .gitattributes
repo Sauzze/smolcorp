@@ -1,0 +1,4 @@
+# Every text file is checked out with Unix line ends, on Windows too, as the
+# releases are built: the tests read the web pages and the Mac app's sources
+# line by line, and Git for Windows would otherwise turn them into \r\n.
+* text=auto eol=lf

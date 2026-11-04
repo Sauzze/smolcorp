@@ -1,14 +1,23 @@
 import XCTest
+import Security
 @testable import AgentDeck
 
 /// A Keychain that lives in a test: the same item across "restarts" of the app, as the real one would.
 final class FakeGMTokenStore: GMTokenStore {
     var item: String?
     var refuses = false
-    func read() -> String? { item }
+    /// The item is there but can't be read (a locked Keychain, an app signed another way).
+    var readFails = false
+    /// Every token written, in order.
+    private(set) var writes: [String] = []
+    func read() -> GMTokenRead {
+        if readFails { return .failed }
+        return item.map { .token($0) } ?? .none
+    }
     func write(_ token: String) -> Bool {
         guard !refuses else { return false }
         item = token
+        writes.append(token)
         return true
     }
     func remove() { item = nil }
@@ -275,6 +284,127 @@ final class GMIdentityTests: XCTestCase {
         XCTAssertNil(identity().session)
         XCTAssertFalse(store.item?.contains("new") ?? false)
         XCTAssertFalse((try String(contentsOf: file, encoding: .utf8)).contains("new"))
+    }
+
+    // MARK: Restarts (T758)
+
+    private var sessionFile: URL { folder.appendingPathComponent(GMIdentity.sessionFileName) }
+    private var sessionFileThere: Bool { FileManager.default.fileExists(atPath: sessionFile.path) }
+
+    /// The app starting again: a new identity over the same store and folder, the GM's session live, the setting applied.
+    private func restart(live: String? = nil) -> GMIdentity {
+        let gm = identity()
+        let live = live ?? sessionID
+        gm.isLive = { $0 == live }
+        gm.applySetting()
+        return gm
+    }
+
+    func testARoleTakenUnderAnOlderBuildComesBackOnlyAfterOneGMRequest() throws {
+        // An older build: the token in the Keychain and its file, but no gm-session (it never wrote one).
+        byHand = true
+        let token = String(repeating: "aB3_-", count: 8) + "xyz"
+        store.item = token
+        try (token + "\n").write(to: file, atomically: true, encoding: .utf8)
+        let first = restart()
+        XCTAssertNil(first.session, "nothing to restore, and nothing guessed from the live session")
+        XCTAssertFalse(first.startedByHand)
+        XCTAssertFalse(sessionFileThere)
+        XCTAssertEqual(store.item, token, "the same token: no rotation")
+        // The GM's first request writes it.
+        XCTAssertTrue(first.isToken(token))
+        first.rememberSession(sessionID)
+        XCTAssertEqual(try String(contentsOf: sessionFile, encoding: .utf8), sessionID + "\n")
+        // And the next restart restores it.
+        let second = restart()
+        XCTAssertEqual(second.session, sessionID)
+        XCTAssertTrue(second.startedByHand)
+        XCTAssertEqual(store.item, token)
+    }
+
+    func testAKeychainReadErrorAtLaunchKeepsTheTokenFromTheFileAndTheRole() throws {
+        byHand = true
+        let token = try XCTUnwrap(identity().token())
+        let gm = identity()
+        XCTAssertTrue(gm.isToken(token))
+        gm.rememberSession(sessionID)
+        XCTAssertTrue(sessionFileThere)
+        let before = store.writes.count
+        store.readFails = true
+        let restarted = restart()
+        XCTAssertTrue(restarted.isToken(token), "the same token, from the private file")
+        XCTAssertEqual(restarted.token(), token)
+        XCTAssertEqual(Array(store.writes.dropFirst(before)), [], "nothing written to the Keychain, and no new token made")
+        XCTAssertTrue(sessionFileThere, "gm-session kept")
+        XCTAssertEqual(restarted.session, sessionID, "and the role restored")
+        XCTAssertTrue(restarted.startedByHand)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), token + "\n")
+    }
+
+    func testARealNoItemMakesANewTokenAndDeletesTheSession() throws {
+        byHand = true
+        let gm = identity()
+        let old = try XCTUnwrap(gm.token())
+        XCTAssertTrue(gm.isToken(old))
+        gm.rememberSession(sessionID)
+        store.item = nil // the Keychain says "not found"
+        let restarted = restart()
+        let fresh = try XCTUnwrap(restarted.token())
+        XCTAssertNotEqual(fresh, old)
+        XCTAssertFalse(restarted.isToken(old))
+        XCTAssertFalse(sessionFileThere, "a new token is a new GM")
+        XCTAssertNil(restarted.session)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), fresh + "\n")
+    }
+
+    func testAKeychainErrorWithABadOrNoFileGivesNoTokenAndNoRotation() throws {
+        let token = String(repeating: "aB3_-", count: 8) + "xyz"
+        for bad in [nil, "", "short", "has spaces in it, so it is not a token at all!!!!"] as [String?] {
+            for allowed in [true, false] {
+                try? FileManager.default.removeItem(at: file)
+                if let bad { try bad.write(to: file, atomically: true, encoding: .utf8) }
+                try (sessionID + "\n").write(to: sessionFile, atomically: true, encoding: .utf8)
+                store = FakeGMTokenStore()
+                store.item = token
+                store.readFails = true
+                byHand = allowed
+                let gm = restart()
+                let what = "file \(bad.map { "'\($0)'" } ?? "missing"), by-hand \(allowed)"
+                XCTAssertNil(gm.token(), what)
+                XCTAssertFalse(gm.isToken(token), what)
+                XCTAssertTrue(store.writes.isEmpty, "no token made: \(what)")
+                XCTAssertEqual(store.item, token, what)
+                XCTAssertNil(gm.session, what)
+                if allowed {
+                    XCTAssertTrue(sessionFileThere, "gm-session kept for a later launch: \(what)")
+                    XCTAssertEqual(try? String(contentsOf: file, encoding: .utf8), bad, "the file left as it was: \(what)")
+                }
+                // Rotating, which the owner asks for, still makes one.
+                XCTAssertNotNil(gm.rotate(), what)
+                XCTAssertEqual(store.writes.count, 1, what)
+            }
+        }
+    }
+
+    func testOnlyNotFoundIsNoItemInTheKeychain() {
+        XCTAssertEqual(GMKeychain.result(status: errSecSuccess, data: Data("abc".utf8)), .token("abc"))
+        XCTAssertEqual(GMKeychain.result(status: errSecSuccess, data: Data([0xff, 0xfe])), .token(""), "not text: no token, replaced like one")
+        XCTAssertEqual(GMKeychain.result(status: errSecItemNotFound, data: nil), GMTokenRead.none)
+        for status in [errSecInteractionNotAllowed, errSecAuthFailed, errSecUserCanceled, errSecNotAvailable, errSecDecode] {
+            XCTAssertEqual(GMKeychain.result(status: status, data: nil), .failed, "status \(status)")
+        }
+    }
+
+    func testTheTokenFileStoreTellsNoFileFromAnUnreadableOne() throws {
+        let store = GMTokenFile(file: folder.appendingPathComponent("store"))
+        XCTAssertEqual(store.read(), GMTokenRead.none)
+        XCTAssertTrue(store.write("abc"))
+        XCTAssertEqual(store.read(), .token("abc"))
+        try Data().write(to: store.file)
+        XCTAssertEqual(store.read(), .token(""), "empty: no token, replaced like one")
+        try FileManager.default.removeItem(at: store.file)
+        try FileManager.default.createDirectory(at: store.file, withIntermediateDirectories: false)
+        XCTAssertEqual(store.read(), .failed, "there, but it can't be read")
     }
 
     func testSessionIdsAreCheckedLikeTheCommandChecksThem() {

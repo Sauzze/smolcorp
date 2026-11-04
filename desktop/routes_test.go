@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -96,6 +97,12 @@ func withGMAndAHire(t *testing.T, d *Deck) (gm, hireKey string) {
 // Every row, for each of the five callers. The gate is driven for the refusals, which stop before any handler
 // runs; what a caller is let in to is asked of the table, so no test here hires, unpairs or writes a real hook.
 func TestEveryRowOfTheTableAgainstEachCaller(t *testing.T) {
+	// The page and the GM are let in to the hire routes. On Windows nothing stops a hire before
+	// its window opens (no agent is looked for there), and a real one would run in the test's
+	// home folder past its end, keeping it from being removed: no window is started here.
+	saved := startHire
+	t.Cleanup(func() { startHire = saved })
+	startHire = func(*exec.Cmd) error { return nil }
 	d := newTestDeck(t)
 	gm, hireKey := withGMAndAHire(t, d)
 	for _, row := range routeFixture(t) {

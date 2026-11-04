@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -57,6 +58,9 @@ func TestTheStartScriptIsTheMacsForAHire(t *testing.T) {
 }
 
 func TestAHireNeverGetsTheGMToken(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the start script is the tmux engine's (hireengine.go), Linux's: it runs with /bin/sh")
+	}
 	isolate(t)
 	t.Setenv("SMOLCORP_GM_TOKEN", testGMToken)
 	for _, apiKey := range []bool{false, true} {
@@ -129,6 +133,9 @@ func TestATestCopyHireExportsItsPortAndFolder(t *testing.T) {
 }
 
 func TestAnAPIKeyHireReadsTheKeyAsItStartsAndStopsWithoutIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the start script is the tmux engine's (hireengine.go), Linux's: it runs with /bin/sh")
+	}
 	isolate(t)
 	script, _ := hireStart{Role: testHireRole(), Message: "go", APIKey: true}.script()
 	if !strings.Contains(script, "secret-tool lookup service 'smolcorp-summary' username ") || !strings.Contains(script, "|| { echo") ||
@@ -168,6 +175,9 @@ func TestAnAPIKeyHireReadsTheKeyAsItStartsAndStopsWithoutIt(t *testing.T) {
 }
 
 func TestTheStartScriptFileIsPrivateAndRemovesItself(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the start script is the tmux engine's (hireengine.go), Linux's: it runs with /bin/sh")
+	}
 	isolate(t)
 	folder := filepath.Join(t.TempDir(), "hires")
 	script, _ := hireStart{Role: testHireRole(), Message: "go"}.script()

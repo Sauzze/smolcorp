@@ -451,6 +451,8 @@ func TestTheDigestIsOnlyWhileAGMIsAtWorkAndTellsWhoDidWhat(t *testing.T) {
 }
 
 func TestADigestNamesWhoIsWaitingAndHowManyAreLeftOut(t *testing.T) {
+	// Folders are told apart by the system's own separator, so they are written with it.
+	w := filepath.FromSlash
 	hires := []Hire{
 		{ID: "1", Name: "A", Folder: "/w/a", State: "working"}, {ID: "2", Name: "B", Nickname: "Bee", Folder: "/w/b", State: "working"},
 		{ID: "3", Name: "C", Folder: "/w/c", State: "working"}, {ID: "4", Name: "D", Folder: "/w/d", State: "working"},
@@ -458,7 +460,10 @@ func TestADigestNamesWhoIsWaitingAndHowManyAreLeftOut(t *testing.T) {
 		{ID: "7", Name: "G", Folder: "/w/g", State: "working"}, {ID: "8", Name: "H", Folder: "/w/h", State: "fired"},
 		{ID: "9", Name: "GM", Role: gmRole, Folder: "/w/gm", State: "working"}, {ID: "10", Name: "I", Folder: "/w/i", State: "working"},
 	}
-	got := digestText(hires, map[string]eventEntry{"/w/i/sub": {ID: 4, Kind: "idle"}}, map[string]float64{"/w/a/deep": 1}, []string{"X", "Y"})
+	for i := range hires {
+		hires[i].Folder = w(hires[i].Folder)
+	}
+	got := digestText(hires, map[string]eventEntry{w("/w/i/sub"): {ID: 4, Kind: "idle"}}, map[string]float64{w("/w/a/deep"): 1}, []string{"X", "Y"})
 	want := "Hourly digest. Working: Bee, C, D, E, F, G. Idle: I. Waiting: A. Done since last: X, Y."
 	if got != want {
 		t.Errorf("\n got %s\nwant %s", got, want)

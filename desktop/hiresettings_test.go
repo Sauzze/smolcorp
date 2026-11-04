@@ -107,9 +107,19 @@ func hireGlob(pattern, path string) bool {
 	return regexp.MustCompile(re.String() + "$").MatchString(path)
 }
 
+// claudePosix is an absolute path as Claude Code matches it against a rule: with forward
+// slashes, and on Windows the drive as a folder (C:\Users\ana is /c/Users/ana, its permissions docs).
+func claudePosix(path string) string {
+	path = filepath.ToSlash(path)
+	if len(path) >= 2 && path[1] == ':' {
+		path = "/" + strings.ToLower(path[:1]) + path[2:]
+	}
+	return "/" + strings.TrimPrefix(path, "/")
+}
+
 // hireDenied: whether a rule for tool covers the absolute path, as the Mac's test reads the rules.
 func hireDenied(deny []string, path, tool string) bool {
-	path = filepath.ToSlash(path)
+	path = claudePosix(path)
 	if tool == "Write" { // Claude Code checks Edit rules for every tool that changes a file
 		tool = "Edit"
 	}
@@ -149,7 +159,7 @@ func TestHireSettingsHoldTheDenyRulesTheGuardAndAutoMode(t *testing.T) {
 			t.Errorf("unexpected %s", rule)
 		}
 	}
-	work, base := "/"+strings.TrimPrefix(filepath.ToSlash(r.work.Dir), "/"), "/"+strings.TrimPrefix(filepath.ToSlash(r.support), "/")
+	work, base := claudePosix(r.work.Dir), claudePosix(r.support)
 	for _, rule := range []string{"Read(**/.env*)", "Edit(**/.env*)", "Edit(//**/.env*)", "Edit(~/.claude*/settings*.json)", "Edit(**/.claude/settings*.json)",
 		"Read(~/.claude*/projects/**)", "Edit(/" + work + "/settings*.json)", "Read(/" + work + "/projects/**)",
 		"Edit(/" + base + "/*.json)", "Read(/" + base + "/gm-token)", "Edit(/" + base + "/gm-token)",
@@ -176,7 +186,12 @@ func TestHireSettingsHoldTheDenyRulesTheGuardAndAutoMode(t *testing.T) {
 // The exact rule list, order and forms, on a fixed layout (Linux paths).
 func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 	groups := []guardGroup{{Name: "push", On: true, Commands: []string{"git push|send-pack"}}, {Name: "cloud", On: false, Commands: []string{"aws"}}}
-	got := hireDenyRules("abc123", groups, "/s", []claudeProfile{{Name: "work", Dir: "/c/work/"}, {Name: "bad", Dir: "rel"}},
+	// /c/work isn't a full path on Windows; C:\work is, and its rules are the same.
+	work := "/c/work/"
+	if runtime.GOOS == "windows" {
+		work = `C:\work\`
+	}
+	got := hireDenyRules("abc123", groups, "/s", []claudeProfile{{Name: "work", Dir: work}, {Name: "bad", Dir: "rel"}},
 		[]string{"abc123", "other11", ".hid"}, []string{"events", "hires", ".x", "briefs"})
 	var want []string
 	both := func(p string) { want = append(want, "Edit("+p+")") }
@@ -204,6 +219,19 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("rules differ:\n got %q\nwant %q", got, want)
+	}
+}
+
+// An absolute path in a rule is as Claude Code matches it: on Windows the drive is a folder, in lower case.
+func TestAbsoluteRulePathsAreClaudeCodesPOSIXForm(t *testing.T) {
+	cases := map[string]string{"/s/x": "//s/x", "C:/Users/ana": "//c/Users/ana", "d:/x": "//d/x"}
+	if runtime.GOOS == "windows" {
+		cases[`C:\Users\ana\AppData\Roaming\Smolcorp`] = "//c/Users/ana/AppData/Roaming/Smolcorp"
+	}
+	for path, want := range cases {
+		if got := absoluteRulePath(path); got != want {
+			t.Errorf("%s: %s, want %s", path, got, want)
+		}
 	}
 }
 
@@ -237,7 +265,7 @@ func TestHireGMKeepsTheDenyRulesAndMayReadTheTeamsStatusFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	deny := r.deny(path)
-	root := "/" + strings.TrimPrefix(filepath.ToSlash(r.support), "/")
+	root := claudePosix(r.support)
 	for _, rule := range []string{"Edit(/" + root + "/*.json)", "Edit(~/.claude*/settings*.json)", "Read(~/.claude*/projects/**)",
 		"Read(/" + root + "/hire-guard.json)", "Edit(/" + root + "/hires/other11/**)", "Edit(/" + root + "/hires/*/settings*)",
 		"Bash(git push:*)", "Bash(vercel:*)"} {
@@ -317,7 +345,7 @@ func TestHireOwnStatusFileIsNotDeniedButItsSettingsAndTheRestAre(t *testing.T) {
 func TestHireKnownFoldersAreDeniedEvenWhenAbsent(t *testing.T) {
 	r := newHireSettingsRig(t)
 	path, _ := r.write("abc123", nil)
-	root := "/" + strings.TrimPrefix(filepath.ToSlash(r.support), "/")
+	root := claudePosix(r.support)
 	for _, name := range hireKnownFolders {
 		if _, err := os.Stat(filepath.Join(r.support, name)); err == nil {
 			t.Fatalf("%s exists", name)

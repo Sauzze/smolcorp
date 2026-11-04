@@ -619,6 +619,18 @@
     };
   }
 
+  /**
+   * Each floor upstairs arranged its own way, from the setup page's editor: by the floor's number, "1" for 2F up to
+   * "5" for 6F, its arrangement as planOf keeps one. A floor not there is as it comes. The apps' Layout.swift and
+   * layout.go keep the same, as `Room.floorPlans` and `Room.FloorPlans`.
+   */
+  function floorPlansOf(given) {
+    const raw = given && typeof given === 'object' && !Array.isArray(given) ? given : {};
+    const plans = {};
+    for (let n = 1; n < FLOORS_MOST; n++) if (raw[n] && typeof raw[n] === 'object' && !Array.isArray(raw[n])) plans[n] = planOf(raw[n]);
+    return plans;
+  }
+
   /** What a desk can have of its own, each but Auto: read when asked, the lists being further on. */
   const DESK_CHOICES = {
     workspace: () => ROOM_CHOICES.workspace, monitor: () => ROOM_CHOICES.monitor, finish: () => ROOM_CHOICES.desk,
@@ -705,16 +717,17 @@
   /** The pieces added to the lounge in the room's shape now. */
   const addedOf = (room) => (room && room.plan && room.plan.added && room.plan.added[shape === TALL ? 'tall' : 'wide']) || [];
 
-  /** Where each desk is, as the room's shape now and its arrangement put them, and whether it's been put away; upstairs, where its own are. */
-  const desksOf = (room) => (room.upstairs ? UPSTAIRS_DESKS[shape === TALL ? 'tall' : 'wide'].map((desk) => ({ ...desk })) : STANDARD_DESKS.map((desk, i) => {
+  /** Where each desk is, as the room's shape now and its arrangement put them, and whether it's been put away: upstairs as downstairs, each floor as it's arranged. */
+  const desksOf = (room) => STANDARD_DESKS.map((desk, i) => {
     const piece = pieceOf(`desk${i + 1}`, room);
     return { x: desk.x + piece.x, y: desk.y + piece.y, off: piece.off };
-  }));
+  });
 
   /**
    * What hangs on the back wall in the room's shape now, each round its
    * middle `x`: as you hung it, or in the wall's five places as set up. In a
-   * style, the style's pieces go where yours are, in turn.
+   * style, the style's pieces go where yours are, in turn; upstairs, a floor
+   * hung its own way has what you hung there.
    */
   function hungOf(room = decor) {
     const side = shape === TALL ? 'tall' : 'wide';
@@ -723,7 +736,7 @@
     if (known && known.side === side) return known.pieces;
     const placed = room && room.plan && room.plan.hung && room.plan.hung[side];
     const pieces = !Array.isArray(placed) ? room.wall.map((kind, i) => ({ kind, x: WALL_SLOTS[i] }))
-      : ROOM_STYLES[room.preset] ? placed.map((piece, i) => ({ ...piece, kind: room.wall[i % room.wall.length] })) : placed;
+      : ROOM_STYLES[room.preset] && !room.upstairs ? placed.map((piece, i) => ({ ...piece, kind: room.wall[i % room.wall.length] })) : placed;
     // Each on a stretch of the wall, clear of the elevator, the doorway and the window, wherever they've been moved
     const fitted = fitWall(pieces, wallStretches(room));
     HUNG_KNOWN.set(room, { side, pieces: fitted });
@@ -1209,7 +1222,7 @@
     grokbots: { name: 'Grok Bots', room: { workspace: 'grokbotpod', floor: 'grokbotfloor', paint: 'grokbotwall', lounge: 'grokbotfloor', loungePaint: 'grokbotwall',
       corner: 'grokbotrack', desk: 'black', chair: 'grey', pet: 'grokdrone', monitor: 'grokbotmon', staff: 'none',
       wall: ['grokbotmissions', 'grokbotroutine', 'grokbotstatus', 'grokbotmailbox', 'grokneon'] },
-      things: ['grokbotqueue', 'grokbotantenna', 'grokmug'], racks: true },
+      things: ['grokbotqueue', 'grokbotantenna', 'grokmug'] },
   };
   /** What a style furnishes. The sky, the seasons, the sound and your team stay as you have them. */
   const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff'];
@@ -2182,76 +2195,103 @@
   const RIDE_LENGTH = 0.4;
   /** How long the doors stay open after the ding, in seconds, from when the ride ends. */
   const DOORS_OPEN_FOR = 1.3;
-  /** The most desks on a floor upstairs; anyone past the top floor's is counted in the elevator's floor list. */
-  const UPSTAIRS_MOST = 12;
+  /**
+   * The most desks on a floor upstairs: as many as downstairs, three rows of three, as the apps' `Floor.desks`
+   * and `desksPerFloor` have it. Anyone past the top floor's is counted in the elevator's floor list.
+   */
+  const UPSTAIRS_MOST = STANDARD_DESKS.length;
   /** The most floors, the ground floor's among them: the apps send each of them in `floors`. */
   const FLOORS_MOST = 6;
   /** The elevator's floor list, in art pixels: its width, each floor's row (taller upright, for a finger), and the margin round them. */
   const PICKER = { w: 96, get row() { return shape === TALL ? 18 : 12; }, pad: 3 };
   /** The call button's plate, on the wall just left of the elevator's frame: its left edge from the frame's, and its top. */
   const CALL_PLATE = { dx: -6, top: 30, w: 4, h: 9 };
-  /**
-   * The desks upstairs, oldest first in reading order. On its side, four to
-   * a row, the fourth row's desks past the corridor where the lounge would
-   * be; upright, three to a row, a fourth row under the others, where the
-   * lounge's wall would be: there's none upstairs.
-   */
-  const UPSTAIRS_DESKS = {
-    wide: DESK_ROWS.flatMap((y) => [...DESK_COLUMNS, 232].map((x) => ({ x, y, off: false }))),
-    tall: [...DESK_ROWS, 190].flatMap((y) => DESK_COLUMNS.map((x) => ({ x, y, off: false }))),
-  };
-  /** The corner of racks: the first rack's left edge, the floor they stand on, how many, and the cable tray's height above the floor. */
-  const RACKS = { wide: { x: 284, base: 60, count: 3, tray: 46 }, tall: { x: 8, base: 290, count: 5, tray: 48 } };
   /** Where this device keeps the floor its viewer was last on. */
   const FLOOR_KEY = 'office-floor';
-  /** The server room's colours: its cool paint and raised floor, its racks, and the elevator's brushed steel and lamp. */
+  /** The server room's colours: its cool paint and raised floor, and the elevator's brushed steel and lamp. */
   const SERVER_ROOM = {
     wall: 0x3e4f5c, top: 0x2b3843, wallSeam: 0x35444f, vent: 0x2a3640, wainscot: 0x2e3b46, rail: 0x6b7f8d,
     tile: 0x7f8c96, tileLight: 0x8d9aa4, tileSeam: 0x66727b, holes: 0x5a656e,
-    rack: 0x1c2026, rackFace: 0x272c34, unit: 0x353b45, unitTop: 0x434a56, plinth: 0x14171c,
-    tray: 0x9aa3ad, trayShade: 0x5d6670, cables: [0x3f7fd0, 0xe0b040, 0x8a93a0],
-    leds: [0x3fdc6f, 0x3fdc6f, 0xffb648, 0x4c9cff],
     steel: 0x8d97a1, steelLight: 0xbcc5cd, steelDark: 0x57616b, leaf: 0xa4aeb8, leafLight: 0xc6cfd7, seam: 0x3c444d,
     car: 0x2b3038, carLight: 0xffe6a8, lampOn: 0xffb648, lampOff: 0x4a3c30,
   };
   /** The headless desks' badge, a little robot, on the front of each desk upstairs: its antenna's light blinks. */
   const ROBOT_BADGE = ['...a...', '.GGGGG.', 'GgggggG', 'GgcgcgG', 'GgkkkgG', '.GGGGG.'];
   const ROBOT_INKS = { G: 0x7d838f, g: 0xc4c8d0, c: 0x6fe0ff, k: 0x1f2129 };
-  /** What the floor upstairs puts away, in either shape: the whole lounge, with its button and mic. */
-  const UPSTAIRS_AWAY = ['wall', 'corner', 'couch', 'pong', 'plant', 'button', 'mic'];
+  /**
+   * What a floor upstairs never has, in either shape, however it's arranged: the red button and the mic, the ground
+   * floor's controls, and the ping-pong table, gone from every lounge.
+   */
+  const UPSTAIRS_AWAY = ['pong', 'button', 'mic'];
+  /** `plan` with what no floor upstairs has put away, in either shape: the button and the mic can't be put away downstairs. */
+  const awayUpstairs = (plan) => {
+    const away = Object.fromEntries(UPSTAIRS_AWAY.map((part) => [part, { ...STANDARD_PIECE, off: true }]));
+    return { ...plan, wide: { ...plan.wide, ...away }, tall: { ...plan.tall, ...away } };
+  };
+
+  /**
+   * Floor `n`'s arrangement upstairs (1 for 2F up to 5 for 6F), as `room.floorPlans` keeps it from the setup
+   * page's editor, or as it comes: its desks three rows of three, as downstairs, and its lounge, the chill area.
+   * Whatever it says, nothing upstairs has the button or the mic, and the door and the elevator are where they are
+   * downstairs: the same shaft, the same stairwell.
+   */
+  function upstairsPlanOf(room, n) {
+    const own = room.floorPlans && room.floorPlans[n] ? room.floorPlans[n] : planOf(null);
+    const fixed = (side) => Object.fromEntries(['door', 'elevator'].map((part) => [part, (room.plan && room.plan[side][part]) || STANDARD_PIECE]));
+    return awayUpstairs({ ...own, wide: { ...own.wide, ...fixed('wide') }, tall: { ...own.tall, ...fixed('tall') } });
+  }
+
+  /**
+   * A floor's own arrangement, from `room`, a floor upstairs as drawn: what
+   * every floor has, the button, the mic and the ping-pong table away and
+   * the door and the elevator where they are downstairs, left out, and the
+   * server room's window too while it's away as it comes. What's kept in the
+   * layout's `room.floorPlans`.
+   */
+  function ownFloorPlan(room) {
+    const own = (side) => {
+      const pieces = { ...room.plan[side] };
+      for (const part of [...UPSTAIRS_AWAY, 'door', 'elevator']) delete pieces[part];
+      const pane = pieces.window;
+      if (room.server && pane && pane.off && !pane.x && !pane.y && pane.size === 1) delete pieces.window;
+      return pieces;
+    };
+    return { ...room.plan, wide: own('wide'), tall: own('tall') };
+  }
 
   /**
    * The floor upstairs, furnished from the room downstairs: your team's
-   * looks and the sky stay as they are, the rest is the server room's own.
-   * Its floor and paint are drawn by drawOffice's drawUpstairs parts; those
-   * named here are only what other parts read.
+   * looks and the sky stay as they are, the rest is the server room's own,
+   * its lounge a chill area with a rack of servers in its corner and no
+   * window. Its floor and paint are drawn by drawOffice's drawUpstairs
+   * parts; those named here are only what other parts read.
    */
-  function upstairsRoomOf(room) {
-    const away = Object.fromEntries(UPSTAIRS_AWAY.map((part) => [part, { ...STANDARD_PIECE, off: true }]));
-    // The door and the elevator where they are downstairs: the same shaft, the same stairwell
-    const plan = (side) => ({ ...away, ...Object.fromEntries(['door', 'elevator'].map((part) => [part, (room.plan && room.plan[side][part]) || STANDARD_PIECE])) });
+  function upstairsRoomOf(room, n) {
+    const plan = upstairsPlanOf(room, n);
+    // A server room has no window, unless you put one in
+    for (const side of ['wide', 'tall']) if (!(room.floorPlans && room.floorPlans[n] && room.floorPlans[n][side].window)) plan[side].window = { ...STANDARD_PIECE, off: true };
     return {
       ...room, upstairs: true, server: true, preset: 'yours',
       floor: 'tiles', lounge: 'tiles', paint: 'slate', loungePaint: 'auto', wall: ['bare', 'bare', 'bare', 'bare', 'bare'],
-      corner: 'none', pet: 'none', pets: [], staff: 'none', door: 'standard', drift: 'none', season: 'off', fireworks: 'off',
-      workspace: 'desk', monitor: 'standard', desk: 'black', chair: 'grey',
-      plan: { wide: plan('wide'), tall: plan('tall'), added: { wide: [], tall: [] }, hung: { wide: null, tall: null } },
+      corner: 'servers', pet: 'none', pets: [], staff: 'none', door: 'standard', drift: 'none', season: 'off', fireworks: 'off',
+      workspace: 'desk', monitor: 'standard', desk: 'black', chair: 'grey', plan,
     };
   }
 
   /**
-   * A floor upstairs in the style setup gave it: "server" is the server room
-   * (see upstairsRoomOf), "" the style downstairs as it is, any other that
-   * style as roomOf furnishes it. Each is laid out as upstairs is: its lounge
-   * put away, the same elevator and door, your team as downstairs, and no
+   * Floor `n` upstairs (1 for 2F up to 5 for 6F) in the style setup gave it:
+   * "server" is the server room (see upstairsRoomOf), "" the style
+   * downstairs as it is, any other that style as roomOf furnishes it. Each
+   * is laid out as it's arranged (see upstairsPlanOf): nine desks and a
+   * chill area, the same elevator and door, your team as downstairs, and no
    * pets, staff or fireworks.
    */
-  function floorRoomOf(room, preset) {
-    if (preset === 'server') return upstairsRoomOf(room);
+  function floorRoomOf(room, preset, n) {
+    if (preset === 'server') return upstairsRoomOf(room, n);
     const styled = preset && ROOM_STYLES[preset] ? { ...roomOf({ ...room, preset, plan: null }), team: room.team, dress: room.dress } : room;
     return {
       ...styled, upstairs: true, server: false, pet: 'none', pets: [], staff: 'none', fireworks: 'off',
-      plan: upstairsRoomOf(room).plan,
+      plan: upstairsPlanOf(room, n),
     };
   }
 
@@ -2390,13 +2430,13 @@
       [ELEVATOR_AT.side + lift - 2, ELEVATOR_AT.x + ELEVATOR.w + lift + 2],
       [DOOR_FRAME.left + door - 2, DOOR_FRAME.right + door + 2],
     ];
-    if (tall && !room.upstairs) {
+    if (tall) {
       away.push([LOUNGE_LINE + DOOR_FRAME.left + door - 2, LOUNGE_LINE + DOOR_FRAME.right + door + 2]);
       const pinboard = LOUNGE_LINE + loungePinboard(room) + TALL.offsets.wall.x, half = wallWidthOf('pinboard') / 2;
       away.push([pinboard - half - 2, pinboard + half + 2]);
     }
     const pane = pieceOf('window', room);
-    if (!pane.off && !room.upstairs) {
+    if (!pane.off) {
       const left = PIECE_BOXES.window.x + pane.x + (tall ? LOUNGE_LINE + TALL.offsets.window.x : 0);
       away.push([left - 1, left + PIECE_BOXES.window.w + 1]);
     }
@@ -2478,6 +2518,7 @@
     room.team = teamOf(raw.team);
     room.dress = dressOf(raw.dress);
     room.plan = planOf(raw.plan);
+    room.floorPlans = floorPlansOf(raw.floorPlans);
     // In a style, the style furnishes it, from the standard.
     const style = ROOM_STYLES[room.preset];
     if (style) {
@@ -3068,8 +3109,8 @@
     take(0, 0, DOORWAY.left - 1, WALL_BOTTOM - 1);
     take(DOORWAY.right + 1, 0, shape.width, WALL_BOTTOM - 1);
     take(DOORWAY.left, 0, DOORWAY.right, DOOR.y - 3);
-    // Held upright, the lounge's wall, but for its doorway. Upstairs has no lounge, so no wall.
-    if (shape.loungeWall !== undefined && !decor.upstairs) {
+    // Held upright, the lounge's wall, but for its doorway: upstairs too, round each floor's chill area.
+    if (shape.loungeWall !== undefined) {
       take(0, shape.loungeWall - WALL_BOTTOM, DOORWAY.left - 1, shape.loungeWall - 1);
       take(DOORWAY.right + 1, shape.loungeWall - WALL_BOTTOM, shape.width, shape.loungeWall - 1);
     }
@@ -4377,7 +4418,9 @@
     if (!list || !seed) return null;
     let h = 0;
     for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 0x5bd1e995) >>> 0;
-    return list[(h ^ (h >>> 13)) % list.length];
+    // The remainder is negative for about half of all names: counted back from the end of the list, not undefined.
+    const i = (h ^ (h >>> 13)) % list.length;
+    return list[i < 0 ? i + list.length : i];
   }
 
   function outfitOf(agent, model, member, workspace = null, role = null, desk = null, seed = null) {
@@ -5084,10 +5127,12 @@
      * Furnishes the office as the layout says. Anyone at a spot by a corner
      * piece that has gone, or at a whiteboard that has moved, goes elsewhere:
      * an agent to their desk, staff to another spot, or home. Rearranged, the
-     * room is laid out again, `now`.
+     * room is laid out again, `now`. With `floor`, `{ n, preset }`, it's
+     * that floor upstairs, for the setup page's editor to arrange.
      */
-    furnish(given, now) {
-      const next = roomOf(given);
+    furnish(given, now, floor = null) {
+      // A floor upstairs being arranged: that floor's room, in its style, as it's arranged (see floorRoomOf)
+      const next = floor ? floorRoomOf(roomOf(given), floor.preset, floor.n) : roomOf(given);
       if (JSON.stringify(next) === JSON.stringify(decor)) return;
       const cornerGone = next.corner !== decor.corner;
       // Pieces added or taken out of the lounge move the spots round them: anyone there goes elsewhere.
@@ -63095,6 +63140,9 @@
       fill(left, 30, right - left, 8, c.wainscot);
       fill(left, 30, right - left, 1, c.rail);
       fill(left, 38, right - left, 2, PALETTE.baseboard);
+      // What's hung there, if anything is, and the chill area's window, where it's been put in: a server room has none as it comes
+      hungOf().forEach((piece, i) => { if (!piece.away && piece.kind !== 'bare' && !onWallAt(piece.x).dy) drawWallPiece(piece.kind, piece.x, i); });
+      if (shape === WIDE && !pieceOf('window').off) moved('window', () => drawWindow(260, 6, 30, 20, true));
       alongWall(shiftsOf().door, () => {
         drawDoor();
         drawClock(CORRIDOR_X, 6);
@@ -63122,58 +63170,6 @@
       fill(left, WALL_BOTTOM, right - left, 1, SHADOW);
     }
 
-    /**
-     * The corner of racks: a row of server cabinets, their units' lights
-     * blinking each in its own time, and over them a cable tray, its cables
-     * dropping into each one. On its side, the tray runs along the back wall.
-     */
-    function drawRacks() {
-      const r = RACKS[shape === TALL ? 'tall' : 'wide'], c = SERVER_ROOM, w = 10, h = 34, top = r.base - h;
-      const trayY = r.base - r.tray, trayL = shape === TALL ? Math.max(seen.left, r.x - 6) : CORRIDOR_X + 10;
-      const trayR = shape === TALL ? r.x + r.count * (w + 1) + 4 : seen.right;
-      if (shape === TALL) for (const x of [trayL + 2, trayR - 3]) fill(x, trayY - 6, 1, 6, c.trayShade); // hung from the ceiling
-      for (let i = 0; i < r.count; i++) {
-        const x = r.x + i * (w + 1);
-        c.cables.forEach((colour, k) => fill(x + 3 + k * 2, trayY + 2, 1, top - trayY - 2, colour));
-        fill(x, top, w, h, c.rack);
-        fill(x + 1, top + 1, w - 2, h - 3, c.rackFace);
-        for (let y = top + 2; y < r.base - 5; y += 4) {
-          fill(x + 1, y, w - 2, 3, c.unit);
-          fill(x + 1, y, w - 2, 1, c.unitTop);
-          fill(x + 5, y + 1, 3, 1, c.rack);
-        }
-        fill(x, r.base - 2, w, 2, c.plinth);
-      }
-      fill(trayL, trayY, trayR - trayL, 2, c.tray);
-      for (let x = trayL + 1; x < trayR; x += 3) dot(x, trayY + 2, c.trayShade);
-      fill(r.x - 1, r.base, r.count * (w + 1) + 1, 1, SHADOW);
-      // The lights, over the night's dark, since they're what's lit in a server room after hours
-      glowLate(() => {
-        for (let i = 0; i < r.count; i++) {
-          const x = r.x + i * (w + 1);
-          for (let y = top + 2, u = 0; y < r.base - 5; y += 4, u++) {
-            const k = hash(i, u), on = Math.sin(now * (2 + (k % 5)) + k) > -0.3;
-            dot(x + 2, y + 1, c.leds[k % c.leds.length], on ? 1 : 0.25);
-            dot(x + 3, y + 1, c.leds[0], Math.sin(now * 9 + k * 2) > 0 ? 0.9 : 0.2);
-          }
-        }
-      });
-    }
-
-    /** The Grok Bots' racks, where the server room's stand: black cabinets under a graphite cable tray, as in the lounge's pair. */
-    function drawGrokRacks() {
-      const r = RACKS[shape === TALL ? 'tall' : 'wide'], w = 11, h = 34, trayY = r.base - r.tray;
-      const trayL = shape === TALL ? Math.max(seen.left, r.x - 6) : CORRIDOR_X + 10, trayR = shape === TALL ? r.x + r.count * (w + 1) + 4 : seen.right;
-      if (shape === TALL) for (const x of [trayL + 2, trayR - 3]) fill(x, trayY - 6, 1, 6, 0x3a3d47); // hung from the ceiling
-      for (let i = 0; i < r.count; i++) {
-        const x = r.x + i * (w + 1);
-        [0x8ab4ff, 0xf4f1ea, 0x6e727c].forEach((colour, k) => fill(x + 3 + k * 2, trayY + 2, 1, r.base - h - trayY - 2, colour));
-        drawGrokRack(x, r.base, h);
-      }
-      fill(trayL, trayY, trayR - trayL, 2, 0x6e727c);
-      for (let x = trayL + 1; x < trayR; x += 3) dot(x, trayY + 2, 0x3a3d47);
-    }
-
     /** The robot badge on the front of a headless desk, its antenna's light blinking now and then. */
     function drawRobotBadge(desk) {
       const { x, y } = DESKS[desk], bx = x + 4, by = y + 8;
@@ -63184,14 +63180,14 @@
       }));
     }
 
-    /** What stands on the floor upstairs besides the desks and the people: the racks, and each headless desk's badge. */
+    /**
+     * What stands on the floor upstairs besides what stands downstairs: each headless desk's badge. The racks a floor
+     * had in its corner are its chill area's now: the server room's servers, or a style's own, in the lounge's corner.
+     */
     function upstairsItems(items) {
-      // The server room's racks, or a style's own where it has them (Grok Bots), where they stand
-      if (decor.server) items.push([RACKS[shape === TALL ? 'tall' : 'wide'].base, drawRacks]);
-      else if (ROOM_STYLES[decor.preset]?.racks) items.push([RACKS[shape === TALL ? 'tall' : 'wide'].base, drawGrokRacks]);
       // An agent here only for want of a desk downstairs isn't a headless run: no robot on its desk.
       office.seats.forEach((s, desk) => {
-        if (s.session && s.session.headless !== false && DESKS[desk]) items.push([DESKS[desk].y + 5.1, () => drawRobotBadge(desk)]);
+        if (s.session && s.session.headless !== false && DESKS[desk] && !DESKS[desk].off) items.push([DESKS[desk].y + 5.1, () => drawRobotBadge(desk)]);
       });
     }
 
@@ -63222,7 +63218,8 @@
         draw();
       }))),
     ];
-    if (shape.loungeWall !== undefined && !frame.upstairs) items.push([shape.loungeWall, drawLoungeWall]);
+    // Held upright, the lounge's wall, upstairs as downstairs: every floor has its chill area below its desks
+    if (shape.loungeWall !== undefined) items.push([shape.loungeWall, drawLoungeWall]);
     for (const pet of office.pets) if (pet.isIn) items.push([!pet.isWalking && pet.target && pet.target.depth ? pet.target.depth : pet.position.y, () => drawPet(pet)]);
     DESKS.forEach((d, desk) => {
       if (d.off) return;
@@ -63230,7 +63227,7 @@
       items.push([d.y + 3.5, () => drawChair(desk)]); // just behind whoever sits in it
       items.push([d.y + 3, () => drawWorkspaceBack(desk)]);
     });
-    if (frame.upstairs) upstairsItems(items);
+    if (frame.upstairs && !frame.arranging) upstairsItems(items);
     // Someone being carried is drawn on top, where the finger has them, not at their desk. Someone at
     // the clock or the whiteboard is in front of the first row's workspaces, the tallest of which reach
     // the wall: they're there to be seen.
@@ -65103,6 +65100,7 @@
     let scrolling = null;    // { y, at, moved, carry }, while two fingers are down
     // Arranging the room, on the setup page: the piece picked, and the one being dragged.
     let arranging = null;    // { picked, drag: { part, x, y, from } }
+    let arrangingFloor = null; // the floor upstairs the editor arranges, { n, preset }, or null for the ground floor
     let styleKeyAt = null;   // where the styles' key was last drawn, in art pixels
     const stylePictures = new Map(); // a picture of each style, by its id, drawn as the panel opens
     let hiring = { fire: false, hire: false }; // what the computer lets a held desk offer
@@ -65152,7 +65150,7 @@
     function onUpper(n, fn) {
       const { office: there, world } = upperOf(n);
       const preset = (floorList()[n - 1] || { preset: '' }).preset;
-      if (world.base !== decor || world.preset !== preset) Object.assign(world, { base: decor, preset, decor: floorRoomOf(decor, preset), shape: null });
+      if (world.base !== decor || world.preset !== preset) Object.assign(world, { base: decor, preset, decor: floorRoomOf(decor, preset, n - 1), shape: null });
       return onFloor(world, () => {
         if (world.moved) {
           world.moved = false;
@@ -65836,6 +65834,8 @@
       }
       frames[1] = {
         ...room, elevator: elevatorOf(now, 1), floorPicker: picked,
+        // Arranging a floor upstairs, it's drawn as that floor is: its walls, and its number over the elevator
+        ...(arranging && arrangingFloor ? { upstairs: true, elevator: { floor: arrangingFloor.n + 1, top: FLOORS_MOST, open: 0, riding: null } } : {}),
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
         deskButton: heldButton(), carrying, micLanguage: micLanguageKey(),
         firing: firing && { ...fireDialog(), title: `Fire ${firing.name}?`, detail: 'Its agent stops, and its tab closes.' },
@@ -66439,7 +66439,9 @@
     function arrangeable() {
       const added = addedOf(decor).map((_, i) => `added:${i}`);
       const hung = hungOf().map((_, i) => `hung:${i}`).filter((part) => hungOf()[Number(part.slice(5))].kind !== 'bare' && !hungOf()[Number(part.slice(5))].away);
-      return [...Object.keys(ARRANGEABLE), ...added].filter((part) => !pieceOf(part).off && (part.startsWith('desk') || pieceRect(part)))
+      // Upstairs, the door and the elevator are where they are downstairs: the same stairwell, the same shaft
+      const fixed = (part) => decor.upstairs && (part === 'door' || part === 'elevator');
+      return [...Object.keys(ARRANGEABLE), ...added].filter((part) => !pieceOf(part).off && !fixed(part) && (part.startsWith('desk') || pieceRect(part)))
         .concat(hung)
         .map((part) => ({ part, box: pieceBox(part) }))
         .sort((a, b) => (a.box.right - a.box.left) * (a.box.bottom - a.box.top) - (b.box.right - b.box.left) * (b.box.bottom - b.box.top));
@@ -66461,8 +66463,9 @@
         return null;
       };
       const parts = DESKS.map((desk, i) => (desk.off ? null : { part: `desk${i + 1}`, at: behind(i) })).filter(Boolean);
+      // The red button, where there is one: upstairs there's none to get to
       const presser = placed('button', PRESSER);
-      parts.push({ part: 'button', at: standsFree(presser) ? presser : null });
+      if (!pieceOf('button').off) parts.push({ part: 'button', at: standsFree(presser) ? presser : null });
       // Every place in the lounge someone goes to, by the piece it's at
       for (const spot of LOUNGE_SPOTS) if (!pieceOf(spot.part).off) parts.push({ part: spot.part, at: placed(spot.part, spot) });
       for (const { part, kind } of loungePieces()) for (const spot of CORNER_SPOTS[kind]) parts.push({ part, at: placed(part, spot) });
@@ -66488,7 +66491,8 @@
 
     /** The room arranged as `plan` from now on: here at once, and then on the page, which keeps it in the layout. */
     function settle(plan) {
-      decor = { ...decor, plan: planOf(plan) };
+      // Upstairs, the button and the mic stay downstairs, whatever planOf lets a room put away
+      decor = { ...decor, plan: decor.upstairs ? awayUpstairs(planOf(plan)) : planOf(plan) };
       spots = spotsOf(decor);
       // The whiteboard and the windows go where they're hung now, and so does whoever's at them.
       boardSpots = boardSpotsOf(decor);
@@ -66496,7 +66500,7 @@
       office.relayout(clock());
       floorChanged();
       if (arranging) arranging.blocked = blocked();
-      on.arranged?.(decor.plan);
+      on.arranged?.(decor.upstairs ? ownFloorPlan(decor) : decor.plan);
     }
 
     /** The back wall as you hung it in the room's shape now, written out from its five places the first time it's changed. */
@@ -66705,7 +66709,10 @@
     function copyFrom(other) {
       const plan = structuredClone(decor.plan), side = shapeName();
       if (other === side) return;
+      const was = plan[side];
       plan[side] = structuredClone(plan[other]);
+      // Upstairs, the door and the elevator stay where they are downstairs in this shape
+      if (decor.upstairs) for (const part of ['door', 'elevator']) if (was[part]) plan[side][part] = was[part]; else delete plan[side][part];
       plan.added[side] = structuredClone(plan.added[other]);
       plan.hung[side] = plan.hung[other] ? plan.hung[other].map((piece) => ({ ...piece })) : null;
       settle(plan);
@@ -66961,7 +66968,7 @@
           const age = (Date.now() - ahead - note.at) / 1000;
           if (age < VOICE_NOTE_FOR - VOICE_NOTE_FADE) voiceNotes.set(session.id, { text: String(note.text), cleaned: !!note.cleaned, from: clock() - Math.max(0, age) });
         }
-        office.furnish(snapshot.layout && snapshot.layout.room, clock());
+        office.furnish(snapshot.layout && snapshot.layout.room, clock(), arranging && arrangingFloor);
         office.apply(seatsOf(snapshot, ahead), snapshot.theme, clock());
         applyUpstairs(snapshot, clock());
         // The question and what's held out go with their agent; a hire, once its desk is taken.
@@ -67089,6 +67096,17 @@
       setArranging(shown) {
         arranging = shown ? { picked: null, drag: null, blocked: blocked() } : null;
         if (shown) styling = false;
+      },
+      /**
+       * The floor being arranged: 0, the ground floor, as it comes, or 1 for
+       * 2F up to 5 for 6F, in `preset`, the style setup gave it. It's drawn as
+       * that floor is, from the layout's `room.floorPlans`, and
+       * `on.arranged(plan)` gives that floor's own arrangement, to keep there.
+       */
+      arrangeFloor(n, preset = '') {
+        arrangingFloor = Number.isInteger(n) && n >= 1 && n < FLOORS_MOST ? { n, preset: typeof preset === 'string' ? preset : '' } : null;
+        if (latest) office.furnish(latest.layout && latest.layout.room, clock(), arranging && arrangingFloor);
+        if (arranging) Object.assign(arranging, { picked: null, drag: null, blocked: blocked() });
       },
       pick(part) { if (arranging) arranging.picked = part; },
       arrange(part, change) {
@@ -67343,6 +67361,8 @@
     // What the back wall can hold, each piece's width, and where along the wall they can go, for the editor's drawer
     wallPieces: Object.fromEntries(WALL_CHOICES.filter((kind) => kind !== 'bare').map((kind) => [kind, { w: wallWidthOf(kind) }])),
     wallRange: WALL_RANGE, hungMost: HUNG_MOST, addedMost: ADDED_MOST,
+    // Floor `n` upstairs as it's drawn, in `preset`, from the layout's room: for the editor's drawer to show its pieces
+    floorRoom: (room, preset, n) => floorRoomOf(roomOf(room), preset, n), floorsMost: FLOORS_MOST,
     // Each style's own group, or null where it says none, and the NBA teams': for the editor's drawer to shelve each pack's pieces
     styleGroups: Object.fromEntries(STYLE_IDS.map((id) => [id, ROOM_STYLES[id]?.group || STYLE_GROUP_OF[id] || null])), nbaTeams: Object.keys(NBA_TEAMS),
     // What each workspace dresses whoever works at it in, for the setup page to shelve each style's outfits with its pack

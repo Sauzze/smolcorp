@@ -77,7 +77,7 @@ func TestAHireGetsAWorktreeTrustedByItsResolvedPathAndPorts(t *testing.T) {
 	if !isTrusted(place.Worktree, data) || !strings.Contains(string(data), "\"numStartups\": 3") {
 		t.Fatalf("worktree not trusted by its resolved path, or other bytes changed: %s", data)
 	}
-	if info, _ := os.Stat(file); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(file); !modeIs(info, 0o600) {
 		t.Fatalf("mode %v", info.Mode())
 	}
 }

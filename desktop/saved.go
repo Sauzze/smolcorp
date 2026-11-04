@@ -173,12 +173,12 @@ func (d *Deck) saveSessions() {
 // launcher's wait for it to connect, and the others are looked at in the
 // background, the panes' terminals asked whether their agent still runs.
 func (d *Deck) restoreSessions() {
-	data, err := os.ReadFile(d.sessionsFile)
-	if err != nil {
-		return
-	}
-	var saved savedDeck
-	if json.Unmarshal(data, &saved) != nil || len(saved.Sessions) == 0 {
+	saved, ok := loadSavedDeck(d.sessionsFile)
+	// With nothing saved too: a bot still "upstairs" is settled all the same.
+	d.mu.Lock()
+	d.putBackBots(saved)
+	d.mu.Unlock()
+	if !ok || len(saved.Sessions) == 0 {
 		return
 	}
 	fresh := nowMillis()-saved.SavedAt < freshSave
@@ -202,6 +202,47 @@ func (d *Deck) restoreSessions() {
 		defer d.mu.Unlock()
 		d.restore(running, places, fresh)
 	}()
+}
+
+// loadSavedDeck is the deck saved in file, with everyone upstairs at a desk
+// each floor still has: a deck saved when floors had twelve desks is moved
+// onto nine (see onFloorDesks) and written back as moved, so it's moved once,
+// and read as it is from then on. False with no deck there.
+func loadSavedDeck(file string) (savedDeck, bool) {
+	var saved savedDeck
+	data, err := os.ReadFile(file)
+	if err != nil || json.Unmarshal(data, &saved) != nil {
+		return savedDeck{}, false
+	}
+	if seats, floors, moved := onFloorDesks(saved.Seats, saved.Floors); moved {
+		saved.Seats, saved.Floors = seats, floors
+		if data, err := json.Marshal(saved); err == nil {
+			_ = writePrivate(file, data)
+		}
+	}
+	return saved, true
+}
+
+// putBackBots puts the cloud bots back at the desks they had, a key or a desk
+// upstairs, as anyone still running is: a bot never ends, so its desk is its
+// own, over any it was given as the app started. Those still "upstairs", from
+// before bots could sit on any floor, are first kept on the floor of the desk
+// they had, and the settings saved (see Config.settleBots): after moving
+// anyone at desks 10 to 12 (see loadSavedDeck). With the lock held.
+func (d *Deck) putBackBots(saved savedDeck) {
+	if d.config.settleBots(saved.Seats) {
+		d.config.save()
+		d.cloud.configure(d.config.CloudBots)
+	}
+	bots, _ := d.cloud.seated()
+	for _, s := range bots {
+		if key, ok := saved.Keys[s.ID]; ok && key >= 0 && key < mostKeys {
+			d.keyOf[s.ID] = key
+		}
+		if seat, ok := saved.Seats[s.ID]; ok {
+			d.seatOf[s.ID] = seat
+		}
+	}
 }
 
 // restore puts back sessions found still running, on the keys, floors and

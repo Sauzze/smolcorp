@@ -112,13 +112,13 @@ final class CloudBotTests: XCTestCase {
         let id = "cloud-smolcorp-mini"
         XCTAssertNil(desks.last(ofSession: id))
         desks.apply(.report, to: "smolcorp-mini", action: CloudAction(text: "Sent a report", count: 2, at: Date()))
-        XCTAssertEqual(desks.seated(on: "upstairs").first?.state, .unread)
+        XCTAssertEqual(desks.seated().map(\.session).first?.state, .unread)
         desks.apply(.report, to: "smolcorp-mini")
         XCTAssertEqual(changes, 2, "a second report, still green, changes the card")
         XCTAssertEqual(desks.last(ofSession: id)?.count, 3)
 
         XCTAssertTrue(desks.seen(session: id))
-        XCTAssertEqual(desks.seated(on: "upstairs").first?.state, .thinking, "blue at once")
+        XCTAssertEqual(desks.seated().map(\.session).first?.state, .thinking, "blue at once")
         XCTAssertEqual(desks.last(ofSession: id)?.count, 3)
         XCTAssertFalse(desks.seen(session: "some-terminal-session"), "only a cloud bot's desk")
         XCTAssertFalse(desks.seen(session: "smolcorp-mini"), "by its desk's session id")
@@ -160,7 +160,7 @@ final class CloudBotTests: XCTestCase {
         XCTAssertEqual(bots[0].agent, "grok")
         XCTAssertEqual(bots[0].outfit, "grok")
         XCTAssertTrue(bots[0].permanent)
-        XCTAssertEqual(bots[0].floor, "upstairs", "upstairs unless set")
+        XCTAssertEqual(bots[0].floor, "", "where new bots go unless set")
         XCTAssertEqual(bots[0].source, CloudBot.Source(kind: "grokBotApp", bot: "Smolcorp mini", counts: "unprompted"))
         XCTAssertEqual(bots[0].sessionID, "cloud-smolcorp-mini")
         XCTAssertEqual(bots[0].folder, "/cloud/Smolcorp mini")
@@ -169,7 +169,7 @@ final class CloudBotTests: XCTestCase {
         XCTAssertEqual(bots[1].badge, "megaphone")
         XCTAssertEqual(bots[1].agent, "grok")
         XCTAssertFalse(bots[1].permanent)
-        XCTAssertEqual(bots[1].floor, "upstairs", "a floor there isn't is upstairs")
+        XCTAssertEqual(bots[1].floor, "", "a floor there isn't is where new bots go")
         XCTAssertEqual(CloudBot(id: "g", name: "G", floor: "ground").checked?.floor, "ground")
         XCTAssertEqual(bots[1].source, CloudBot.Source())
     }
@@ -216,6 +216,34 @@ final class CloudBotTests: XCTestCase {
         XCTAssertNil(GrokBotApp.botID(named: "nobody", inRoster: Data(roster.utf8)))
         let sneaky = #"{"value":{"rows":[{"name":"x","id":"../../secrets"}]}}"#
         XCTAssertNil(GrokBotApp.botID(named: "x", inRoster: Data(sneaky.utf8)))
+    }
+
+    /// The roster as the app keeps it: a group chat, between two of its bots, among the bots' own chats.
+    /// Made up: no real names or ids.
+    private let groupRoster = #"""
+    {"schemaVersion":4,"value":{"rows":[
+     {"name":"Alpha","id":"A1-11","isGroup":false,"memberIds":[]},
+     {"name":"Two Bots","id":"C3-33","isGroup":true,"memberIds":["A1-11","B2-22"]},
+     {"name":"Beta","id":"B2-22","isGroup":false,"memberIds":[]},
+     {"name":"Older Group","id":"D4-44","memberIds":["A1-11","B2-22"]},
+     {"name":"Gamma","id":"E5-55"},
+     {"name":"Flag Only","id":"F6-66","isGroup":true,"memberIds":[]}]}}
+    """#
+
+    func testAGroupChatInTheRosterIsToldFromItsBots() throws {
+        let rows = try XCTUnwrap(GrokBotApp.roster(in: Data(groupRoster.utf8)))
+        XCTAssertEqual(rows.map(\.id), ["A1-11", "C3-33", "B2-22", "D4-44", "E5-55", "F6-66"])
+        XCTAssertEqual(rows.filter(\.isGroup).map(\.id), ["C3-33", "D4-44", "F6-66"], "it says so, or has more than one bot in it")
+    }
+
+    func testTheAppsGroupChatNeverGetsADesk() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data(groupRoster.utf8).write(to: folder.appendingPathComponent(fileName("s.roster.last-roster")))
+        let found = CloudBot.discover(GrokBotApp.rows(folder: folder), in: [], hidden: [])
+        XCTAssertEqual(found.bots.map(\.source.botId), ["A1-11", "B2-22", "E5-55"])
+        XCTAssertEqual(found.noRoom, [])
     }
 
     func testTurnsAreToldFromIDs() {
@@ -319,7 +347,7 @@ final class CloudBotTests: XCTestCase {
         changes = 0
 
         desks.rename("smolcorp-mini", to: "Smolcorp Mini Manager")
-        let seated = desks.seated(on: "upstairs")
+        let seated = desks.seated().map(\.session)
         XCTAssertEqual(seated.map(\.id), ["cloud-smolcorp-mini", "cloud-xreplier"], "the same desk, at the same seat")
         XCTAssertEqual(seated[0].projectName, "Smolcorp Mini Manager")
         XCTAssertEqual(seated[0].state, .unread, "still green")
@@ -329,15 +357,15 @@ final class CloudBotTests: XCTestCase {
         XCTAssertEqual(changes, 1, "no change, no redraw")
 
         desks.rename("smolcorp-mini", to: "Mini/Manager")
-        XCTAssertEqual(desks.seated(on: "upstairs")[0].projectName, "Mini-Manager", "no slash, as a name set")
+        XCTAssertEqual(desks.seated().map(\.session)[0].projectName, "Mini-Manager", "no slash, as a name set")
         desks.rename("smolcorp-mini", to: nil)
-        XCTAssertEqual(desks.seated(on: "upstairs")[0].projectName, "Smolcorp mini", "no live name: the one it was set with")
+        XCTAssertEqual(desks.seated().map(\.session)[0].projectName, "Smolcorp mini", "no live name: the one it was set with")
         desks.rename("nobody", to: "X")
 
         // Set again, unchanged: it keeps the live name.
         desks.rename("smolcorp-mini", to: "Smolcorp Mini Manager")
         desks.configure([CloudBot(id: "smolcorp-mini", name: "Smolcorp mini"), CloudBot(id: "xreplier", name: "Xreplier")])
-        XCTAssertEqual(desks.seated(on: "upstairs")[0].projectName, "Smolcorp Mini Manager")
+        XCTAssertEqual(desks.seated().map(\.session)[0].projectName, "Smolcorp Mini Manager")
     }
 
     func testANameAloneStillFindsItThenTheOneNameLikeIt() {

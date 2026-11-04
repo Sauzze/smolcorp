@@ -10,7 +10,7 @@ final class TestCopySecretsTests: XCTestCase {
 
     private struct NoKeychainToken: GMTokenStore {
         let fail: (String) -> Void
-        func read() -> String? { fail("GM read"); return nil }
+        func read() -> GMTokenRead { fail("GM read"); return .none }
         func write(_ token: String) -> Bool { fail("GM write"); return false }
         func remove() { fail("GM remove") }
     }
@@ -31,14 +31,14 @@ final class TestCopySecretsTests: XCTestCase {
         let store = GMIdentity.defaultStore(testCopy: true, support: folder, keychain: {
             XCTFail("a test copy asked for the Keychain store"); return NoKeychainToken(fail: { XCTFail("Keychain: \($0)") })
         })
-        XCTAssertNil(store.read())
+        XCTAssertEqual(store.read(), GMTokenRead.none)
         XCTAssertTrue(store.write(token))
-        XCTAssertEqual(store.read(), token)
+        XCTAssertEqual(store.read(), .token(token))
         let file = folder.appendingPathComponent(TestCopySecrets.gmTokenName)
         XCTAssertEqual(mode(file), 0o600)
         XCTAssertEqual(mode(folder), 0o700)
         store.remove()
-        XCTAssertNil(store.read())
+        XCTAssertEqual(store.read(), GMTokenRead.none)
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
     }
 

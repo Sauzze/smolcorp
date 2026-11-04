@@ -114,12 +114,15 @@ struct HireTmux {
 
     /// How the pane takes a paste: whether it is in a mode of tmux's own (copy mode, scrolled back: a paste
     /// would go to the mode, not the agent) and whether the agent asked for bracketed paste. Nil if tmux couldn't say.
+    /// A tmux before 3.7 has no bracket_paste_flag and leaves it empty (`"0 "`, which `Tool.run` trims to `"0"`):
+    /// the pane is then taken as not asking for bracketed paste, the safe way, so a multi-line message goes as one line.
     func pasteState() -> (inMode: Bool, bracketed: Bool)? {
         guard let answer = run(command(["display-message", "-p", "-t", HireTmux.pane, "#{pane_in_mode} #{bracket_paste_flag}"])),
               answer.status == 0 else { return nil }
-        let parts = answer.output.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard parts.count == 2, parts.allSatisfy({ $0.allSatisfy(\.isNumber) }) else { return nil }
-        return (parts[0] != "0", parts[1] == "1")
+        let parts = answer.output.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 1 || parts.count == 2, !parts[0].isEmpty,
+              parts.allSatisfy({ $0.allSatisfy(\.isNumber) }) else { return nil }
+        return (parts[0] != "0", parts.count == 2 && parts[1] == "1")
     }
 
     /// Return, once. Only after a paste the caller has put into an idle, empty input box: this is the send

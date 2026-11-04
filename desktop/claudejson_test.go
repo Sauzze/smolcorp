@@ -68,7 +68,7 @@ func TestApprovingAKeyAddsItsLast20CharactersFirstAndChangesNoOtherByte(t *testi
 	if strings.Contains(string(data), editorTestKey) {
 		t.Error("the whole key must not be written")
 	}
-	if info, _ := os.Stat(file); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(file); !modeIs(info, 0o600) {
 		t.Errorf("mode %v, want 0600", info.Mode().Perm())
 	}
 	// Again: nothing more is added, nothing changes.
@@ -148,7 +148,7 @@ func TestTheEditWritesThroughASymlink(t *testing.T) {
 
 func TestPreTrustSetsOnlyTheWorktreesTrust(t *testing.T) {
 	home := isolate(t)
-	if claudeJSON("") != filepath.Join(home, ".claude.json") || claudeJSON("/acct") != "/acct/.claude.json" {
+	if claudeJSON("") != filepath.Join(home, ".claude.json") || claudeJSON("/acct") != filepath.Join("/acct", ".claude.json") {
 		t.Error("an account keeps its .claude.json in its own folder, ~/.claude's in the home")
 	}
 	file := newClaudeJSON(t, claudeJSONBefore)
@@ -163,7 +163,7 @@ func TestPreTrustSetsOnlyTheWorktreesTrust(t *testing.T) {
 	if data := mustRead(t, file); !strings.Contains(string(data), "12345678901234567890") || strings.Contains(string(data), "approved\": [\""+editorTestTail) {
 		t.Errorf("numbers stay as written, and a trust-only edit approves no key:\n%s", data)
 	}
-	if info, _ := os.Stat(file); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(file); !modeIs(info, 0o600) {
 		t.Errorf("mode %v, want 0600", info.Mode().Perm())
 	}
 }
@@ -180,7 +180,7 @@ func TestAStaleTempFileIsLeftAloneAndTheResultIsPrivate(t *testing.T) {
 	if err := preTrust("/w", file, nil); err != nil {
 		t.Fatal(err)
 	}
-	if info, _ := os.Stat(file); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(file); !modeIs(info, 0o600) {
 		t.Errorf("mode %v, want 0600", info.Mode().Perm())
 	}
 	if !isTrusted("/w", mustRead(t, file)) {
@@ -213,10 +213,10 @@ func TestAStaleTempSymlinkIsNotWrittenThrough(t *testing.T) {
 	if got := mustRead(t, victim); string(got) != "mine" {
 		t.Errorf("the link's target was written through: %q", got)
 	}
-	if info, _ := os.Stat(victim); info.Mode().Perm() != 0o644 {
+	if info, _ := os.Stat(victim); !modeIs(info, 0o644) {
 		t.Errorf("the link's target's mode changed to %v", info.Mode().Perm())
 	}
-	if info, _ := os.Lstat(file); info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+	if info, _ := os.Lstat(file); info.Mode()&os.ModeSymlink != 0 || !modeIs(info, 0o600) {
 		t.Errorf("the file should be a private regular file, mode %v", info.Mode())
 	}
 	if !isApproved(editorTestTail, mustRead(t, file)) {
@@ -234,7 +234,7 @@ func TestAFileAlreadyRightEndsPrivate(t *testing.T) {
 	if err := preTrust("/w", file, tailOf(editorTestTail)); err != nil {
 		t.Fatal(err)
 	}
-	if info, _ := os.Stat(file); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(file); !modeIs(info, 0o600) {
 		t.Errorf("mode %v, want 0600", info.Mode().Perm())
 	}
 	if string(mustRead(t, file)) != string(before) {

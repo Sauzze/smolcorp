@@ -1,0 +1,697 @@
+[
+ {
+  "after": {
+   "floors": {
+    "a0": 1,
+    "b0": 2,
+    "down": 0,
+    "m1": 1,
+    "m3": 3,
+    "n1": 3,
+    "p1": 4
+   },
+   "seats": {
+    "a0": {
+     "desk": 0,
+     "floor": 1
+    },
+    "a1": {
+     "desk": 1,
+     "floor": 1
+    },
+    "a2": {
+     "desk": 2,
+     "floor": 1
+    },
+    "a3": {
+     "desk": 3,
+     "floor": 1
+    },
+    "a4": {
+     "desk": 4,
+     "floor": 1
+    },
+    "a5": {
+     "desk": 5,
+     "floor": 1
+    },
+    "a6": {
+     "desk": 6,
+     "floor": 1
+    },
+    "b0": {
+     "desk": 0,
+     "floor": 2
+    },
+    "b1": {
+     "desk": 1,
+     "floor": 2
+    },
+    "b2": {
+     "desk": 2,
+     "floor": 2
+    },
+    "b3": {
+     "desk": 3,
+     "floor": 2
+    },
+    "b4": {
+     "desk": 4,
+     "floor": 2
+    },
+    "b5": {
+     "desk": 5,
+     "floor": 2
+    },
+    "b6": {
+     "desk": 6,
+     "floor": 2
+    },
+    "b7": {
+     "desk": 7,
+     "floor": 2
+    },
+    "b8": {
+     "desk": 8,
+     "floor": 2
+    },
+    "c0": {
+     "desk": 0,
+     "floor": 3
+    },
+    "c2": {
+     "desk": 2,
+     "floor": 3
+    },
+    "e0": {
+     "desk": 0,
+     "floor": 5
+    },
+    "e1": {
+     "desk": 1,
+     "floor": 5
+    },
+    "e2": {
+     "desk": 2,
+     "floor": 5
+    },
+    "e3": {
+     "desk": 3,
+     "floor": 5
+    },
+    "e4": {
+     "desk": 4,
+     "floor": 5
+    },
+    "e5": {
+     "desk": 5,
+     "floor": 5
+    },
+    "e6": {
+     "desk": 6,
+     "floor": 5
+    },
+    "e7": {
+     "desk": 7,
+     "floor": 5
+    },
+    "e8": {
+     "desk": 8,
+     "floor": 5
+    },
+    "m1": {
+     "desk": 7,
+     "floor": 1
+    },
+    "m2": {
+     "desk": 8,
+     "floor": 1
+    },
+    "m3": {
+     "desk": 1,
+     "floor": 3
+    },
+    "n1": {
+     "desk": 3,
+     "floor": 3
+    },
+    "n2": {
+     "desk": 4,
+     "floor": 3
+    },
+    "odd": {
+     "desk": 10,
+     "floor": 9
+    },
+    "p1": {
+     "desk": 0,
+     "floor": 4
+    }
+   }
+  },
+  "case": "people at desks 10 to 12 on several floors: a free desk on the same floor, or else the next floor up with one, or else the nearest below; one put on their floor is put on the one they move to",
+  "floors": {
+   "a0": 1,
+   "b0": 2,
+   "down": 0,
+   "m1": 1,
+   "m3": 1,
+   "n1": 2,
+   "p1": 5
+  },
+  "seats": {
+   "a0": {
+    "desk": 0,
+    "floor": 1
+   },
+   "a1": {
+    "desk": 1,
+    "floor": 1
+   },
+   "a2": {
+    "desk": 2,
+    "floor": 1
+   },
+   "a3": {
+    "desk": 3,
+    "floor": 1
+   },
+   "a4": {
+    "desk": 4,
+    "floor": 1
+   },
+   "a5": {
+    "desk": 5,
+    "floor": 1
+   },
+   "a6": {
+    "desk": 6,
+    "floor": 1
+   },
+   "b0": {
+    "desk": 0,
+    "floor": 2
+   },
+   "b1": {
+    "desk": 1,
+    "floor": 2
+   },
+   "b2": {
+    "desk": 2,
+    "floor": 2
+   },
+   "b3": {
+    "desk": 3,
+    "floor": 2
+   },
+   "b4": {
+    "desk": 4,
+    "floor": 2
+   },
+   "b5": {
+    "desk": 5,
+    "floor": 2
+   },
+   "b6": {
+    "desk": 6,
+    "floor": 2
+   },
+   "b7": {
+    "desk": 7,
+    "floor": 2
+   },
+   "b8": {
+    "desk": 8,
+    "floor": 2
+   },
+   "c0": {
+    "desk": 0,
+    "floor": 3
+   },
+   "c2": {
+    "desk": 2,
+    "floor": 3
+   },
+   "e0": {
+    "desk": 0,
+    "floor": 5
+   },
+   "e1": {
+    "desk": 1,
+    "floor": 5
+   },
+   "e2": {
+    "desk": 2,
+    "floor": 5
+   },
+   "e3": {
+    "desk": 3,
+    "floor": 5
+   },
+   "e4": {
+    "desk": 4,
+    "floor": 5
+   },
+   "e5": {
+    "desk": 5,
+    "floor": 5
+   },
+   "e6": {
+    "desk": 6,
+    "floor": 5
+   },
+   "e7": {
+    "desk": 7,
+    "floor": 5
+   },
+   "e8": {
+    "desk": 8,
+    "floor": 5
+   },
+   "m1": {
+    "desk": 9,
+    "floor": 1
+   },
+   "m2": {
+    "desk": 10,
+    "floor": 1
+   },
+   "m3": {
+    "desk": 11,
+    "floor": 1
+   },
+   "n1": {
+    "desk": 9,
+    "floor": 2
+   },
+   "n2": {
+    "desk": 11,
+    "floor": 2
+   },
+   "odd": {
+    "desk": 10,
+    "floor": 9
+   },
+   "p1": {
+    "desk": 10,
+    "floor": 5
+   }
+  }
+ },
+ {
+  "after": {
+   "floors": {
+    "late": 2
+   },
+   "seats": {
+    "f1-0": {
+     "desk": 0,
+     "floor": 1
+    },
+    "f1-1": {
+     "desk": 1,
+     "floor": 1
+    },
+    "f1-2": {
+     "desk": 2,
+     "floor": 1
+    },
+    "f1-3": {
+     "desk": 3,
+     "floor": 1
+    },
+    "f1-4": {
+     "desk": 4,
+     "floor": 1
+    },
+    "f1-5": {
+     "desk": 5,
+     "floor": 1
+    },
+    "f1-6": {
+     "desk": 6,
+     "floor": 1
+    },
+    "f1-7": {
+     "desk": 7,
+     "floor": 1
+    },
+    "f1-8": {
+     "desk": 8,
+     "floor": 1
+    },
+    "f2-0": {
+     "desk": 0,
+     "floor": 2
+    },
+    "f2-1": {
+     "desk": 1,
+     "floor": 2
+    },
+    "f2-2": {
+     "desk": 2,
+     "floor": 2
+    },
+    "f2-3": {
+     "desk": 3,
+     "floor": 2
+    },
+    "f2-4": {
+     "desk": 4,
+     "floor": 2
+    },
+    "f2-5": {
+     "desk": 5,
+     "floor": 2
+    },
+    "f2-6": {
+     "desk": 6,
+     "floor": 2
+    },
+    "f2-7": {
+     "desk": 7,
+     "floor": 2
+    },
+    "f2-8": {
+     "desk": 8,
+     "floor": 2
+    },
+    "f3-0": {
+     "desk": 0,
+     "floor": 3
+    },
+    "f3-1": {
+     "desk": 1,
+     "floor": 3
+    },
+    "f3-2": {
+     "desk": 2,
+     "floor": 3
+    },
+    "f3-3": {
+     "desk": 3,
+     "floor": 3
+    },
+    "f3-4": {
+     "desk": 4,
+     "floor": 3
+    },
+    "f3-5": {
+     "desk": 5,
+     "floor": 3
+    },
+    "f3-6": {
+     "desk": 6,
+     "floor": 3
+    },
+    "f3-7": {
+     "desk": 7,
+     "floor": 3
+    },
+    "f3-8": {
+     "desk": 8,
+     "floor": 3
+    },
+    "f4-0": {
+     "desk": 0,
+     "floor": 4
+    },
+    "f4-1": {
+     "desk": 1,
+     "floor": 4
+    },
+    "f4-2": {
+     "desk": 2,
+     "floor": 4
+    },
+    "f4-3": {
+     "desk": 3,
+     "floor": 4
+    },
+    "f4-4": {
+     "desk": 4,
+     "floor": 4
+    },
+    "f4-5": {
+     "desk": 5,
+     "floor": 4
+    },
+    "f4-6": {
+     "desk": 6,
+     "floor": 4
+    },
+    "f4-7": {
+     "desk": 7,
+     "floor": 4
+    },
+    "f4-8": {
+     "desk": 8,
+     "floor": 4
+    },
+    "f5-0": {
+     "desk": 0,
+     "floor": 5
+    },
+    "f5-1": {
+     "desk": 1,
+     "floor": 5
+    },
+    "f5-2": {
+     "desk": 2,
+     "floor": 5
+    },
+    "f5-3": {
+     "desk": 3,
+     "floor": 5
+    },
+    "f5-4": {
+     "desk": 4,
+     "floor": 5
+    },
+    "f5-5": {
+     "desk": 5,
+     "floor": 5
+    },
+    "f5-6": {
+     "desk": 6,
+     "floor": 5
+    },
+    "f5-7": {
+     "desk": 7,
+     "floor": 5
+    },
+    "f5-8": {
+     "desk": 8,
+     "floor": 5
+    }
+   }
+  },
+  "case": "every floor full: the desk is let go, and they sit where there's room, as anyone new does, or wait in the elevator's list",
+  "floors": {
+   "late": 2
+  },
+  "seats": {
+   "f1-0": {
+    "desk": 0,
+    "floor": 1
+   },
+   "f1-1": {
+    "desk": 1,
+    "floor": 1
+   },
+   "f1-2": {
+    "desk": 2,
+    "floor": 1
+   },
+   "f1-3": {
+    "desk": 3,
+    "floor": 1
+   },
+   "f1-4": {
+    "desk": 4,
+    "floor": 1
+   },
+   "f1-5": {
+    "desk": 5,
+    "floor": 1
+   },
+   "f1-6": {
+    "desk": 6,
+    "floor": 1
+   },
+   "f1-7": {
+    "desk": 7,
+    "floor": 1
+   },
+   "f1-8": {
+    "desk": 8,
+    "floor": 1
+   },
+   "f2-0": {
+    "desk": 0,
+    "floor": 2
+   },
+   "f2-1": {
+    "desk": 1,
+    "floor": 2
+   },
+   "f2-2": {
+    "desk": 2,
+    "floor": 2
+   },
+   "f2-3": {
+    "desk": 3,
+    "floor": 2
+   },
+   "f2-4": {
+    "desk": 4,
+    "floor": 2
+   },
+   "f2-5": {
+    "desk": 5,
+    "floor": 2
+   },
+   "f2-6": {
+    "desk": 6,
+    "floor": 2
+   },
+   "f2-7": {
+    "desk": 7,
+    "floor": 2
+   },
+   "f2-8": {
+    "desk": 8,
+    "floor": 2
+   },
+   "f3-0": {
+    "desk": 0,
+    "floor": 3
+   },
+   "f3-1": {
+    "desk": 1,
+    "floor": 3
+   },
+   "f3-2": {
+    "desk": 2,
+    "floor": 3
+   },
+   "f3-3": {
+    "desk": 3,
+    "floor": 3
+   },
+   "f3-4": {
+    "desk": 4,
+    "floor": 3
+   },
+   "f3-5": {
+    "desk": 5,
+    "floor": 3
+   },
+   "f3-6": {
+    "desk": 6,
+    "floor": 3
+   },
+   "f3-7": {
+    "desk": 7,
+    "floor": 3
+   },
+   "f3-8": {
+    "desk": 8,
+    "floor": 3
+   },
+   "f4-0": {
+    "desk": 0,
+    "floor": 4
+   },
+   "f4-1": {
+    "desk": 1,
+    "floor": 4
+   },
+   "f4-2": {
+    "desk": 2,
+    "floor": 4
+   },
+   "f4-3": {
+    "desk": 3,
+    "floor": 4
+   },
+   "f4-4": {
+    "desk": 4,
+    "floor": 4
+   },
+   "f4-5": {
+    "desk": 5,
+    "floor": 4
+   },
+   "f4-6": {
+    "desk": 6,
+    "floor": 4
+   },
+   "f4-7": {
+    "desk": 7,
+    "floor": 4
+   },
+   "f4-8": {
+    "desk": 8,
+    "floor": 4
+   },
+   "f5-0": {
+    "desk": 0,
+    "floor": 5
+   },
+   "f5-1": {
+    "desk": 1,
+    "floor": 5
+   },
+   "f5-2": {
+    "desk": 2,
+    "floor": 5
+   },
+   "f5-3": {
+    "desk": 3,
+    "floor": 5
+   },
+   "f5-4": {
+    "desk": 4,
+    "floor": 5
+   },
+   "f5-5": {
+    "desk": 5,
+    "floor": 5
+   },
+   "f5-6": {
+    "desk": 6,
+    "floor": 5
+   },
+   "f5-7": {
+    "desk": 7,
+    "floor": 5
+   },
+   "f5-8": {
+    "desk": 8,
+    "floor": 5
+   },
+   "late": {
+    "desk": 10,
+    "floor": 2
+   }
+  }
+ },
+ {
+  "after": null,
+  "case": "nobody past the ninth desk: nothing moves",
+  "floors": {
+   "x": 1
+  },
+  "seats": {
+   "x": {
+    "desk": 8,
+    "floor": 1
+   },
+   "y": {
+    "desk": 0,
+    "floor": 5
+   }
+  }
+ }
+]

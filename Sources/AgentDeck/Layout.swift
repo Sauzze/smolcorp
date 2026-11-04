@@ -140,6 +140,11 @@ struct Room: Codable, Equatable {
     var dress = Dress()
     /// Where each piece of the room is, as arranged on the setup page.
     var plan = Plan()
+    /// Each floor upstairs arranged its own way on the setup page, by its
+    /// number: "1" for 2F up to "5" for 6F. A floor not there is as it comes:
+    /// its nine desks in three rows and its chill area where they stand.
+    /// office.js reads them, and the Windows and Linux app's Room keeps the same.
+    var floorPlans: [String: Plan] = [:]
 
     /// The most projects a team remembers.
     static let teamLimit = 50
@@ -251,6 +256,23 @@ struct Room: Codable, Equatable {
             .prefix(Room.teamLimit).map { ($0.key, $0.value) })
         dress = ((try? c?.decodeIfPresent(Dress.self, forKey: .dress)) ?? nil) ?? Dress()
         plan = ((try? c?.decodeIfPresent(Plan.self, forKey: .plan)) ?? nil) ?? Plan()
+        // Each floor's own, by a number there is; one that isn't an arrangement at all is left out
+        let floors = ((try? c?.decodeIfPresent([String: LooseFloorPlan].self, forKey: .floorPlans)) ?? nil) ?? [:]
+        floorPlans = floors.reduce(into: [:]) { kept, floor in
+            if Room.floorPlanKeys.contains(floor.key), let plan = floor.value.plan { kept[floor.key] = plan }
+        }
+    }
+
+    /// The floors upstairs an arrangement can be kept for, by number: "1" for 2F up to "5" for 6F.
+    static let floorPlanKeys = (1..<Floor.count).map(String.init)
+
+    /// A floor's arrangement as given, read as the room's own is: one that isn't an object is left out.
+    private struct LooseFloorPlan: Decodable {
+        let plan: Plan?
+        private enum Keys: String, CodingKey { case wide }
+        init(from decoder: Decoder) throws {
+            plan = (try? decoder.container(keyedBy: Keys.self)) == nil ? nil : try? Plan(from: decoder)
+        }
     }
 
     /// The pets given that an office can have, each once and as many as it

@@ -40,7 +40,13 @@ enum TestCopySecrets {
 struct GMTokenFile: GMTokenStore {
     let file: URL
 
-    func read() -> String? { TestCopySecrets.read(file) }
+    /// No file is no token; a file there that can't be read is a failed read, never "none".
+    func read() -> GMTokenRead {
+        guard FileManager.default.fileExists(atPath: file.path) else { return .none }
+        if let text = TestCopySecrets.read(file) { return .token(text) }
+        // There but empty reads as an empty token (replaced like any bad one); unreadable is a failure.
+        return (try? Data(contentsOf: file)) != nil ? .token("") : .failed
+    }
     func write(_ token: String) -> Bool { TestCopySecrets.write(token, to: file) }
     func remove() { TestCopySecrets.remove(file) }
 }

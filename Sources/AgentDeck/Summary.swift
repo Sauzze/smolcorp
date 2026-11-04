@@ -924,7 +924,7 @@ final class Summaries {
             }
         }
         // The file and the Keychain are read off the main queue, so the deck never waits on them.
-        let key = key, savedKey = savedKey, transport = transport, agent = agent, now = now
+        let key = key, savedKey = savedKey, transport = transport, agent = agent, clock = now
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let extract = TranscriptTail.read(transcript) else { return finish(.failure(.noHistory), nil) }
             if provider == .apiKey {
@@ -949,9 +949,9 @@ final class Summaries {
             let note = Summaries.fallbackNote(failure, provider)
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.calls.removeAll { now().timeIntervalSince($0) >= Summaries.window }
+                self.calls.removeAll { clock().timeIntervalSince($0) >= Summaries.window }
                 guard self.calls.count < Summaries.most else { return finish(.failure(failure.error(provider)), nil) }
-                self.calls.append(now())
+                self.calls.append(clock())
                 self.lastFallback = note
                 transport(SummaryRequest.request(extract, project: project, key: secret)) { data, status, error in
                     finish(SummaryRequest.answer(data, status: status, error: error).map { $0 + "\n" + note }, extract.latest)

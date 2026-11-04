@@ -209,9 +209,13 @@ func hireCommandRules(groups []guardGroup) []string {
 }
 
 // absoluteRulePath is a path as Claude Code's rules write an absolute one: // then the
-// path. On Windows the drive stays (C:/Users/…), with forward slashes; that form is not
-// yet checked on Claude Code for Windows (T604).
+// path. On Windows Claude Code makes a path POSIX before matching it, C:\Users\ana
+// becoming /c/Users/ana (its permissions docs), so the drive is a folder of its own,
+// in lower case: //c/Users/ana. A rule that kept C: would never match.
 func absoluteRulePath(path string) string {
+	if len(path) >= 2 && path[1] == ':' && ('A' <= path[0] && path[0] <= 'Z' || 'a' <= path[0] && path[0] <= 'z') {
+		path = "/" + strings.ToLower(path[:1]) + path[2:]
+	}
 	path = filepath.ToSlash(path)
 	return "//" + strings.TrimPrefix(path, "/")
 }

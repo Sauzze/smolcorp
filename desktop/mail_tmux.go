@@ -30,13 +30,15 @@ type pasteMode struct {
 }
 
 // pasteState says how the pane takes a paste; ok is false when tmux couldn't say (HireTmux.pasteState).
+// A tmux before 3.7 (Ubuntu 24.04 has 3.4) has no bracket_paste_flag and leaves it empty: the pane is then
+// taken as not asking for bracketed paste, the safe way, so a multi-line message goes as one line.
 func (h *hireTmux) pasteState() (pasteMode, bool) {
 	out, status, ran := h.run(h.command("display-message", "-p", "-t", hirePane, "#{pane_in_mode} #{bracket_paste_flag}"))
 	if !ran || status != 0 {
 		return pasteMode{}, false
 	}
-	parts := strings.Fields(out)
-	if len(parts) != 2 {
+	parts := strings.Split(out, " ")
+	if len(parts) != 2 || parts[0] == "" {
 		return pasteMode{}, false
 	}
 	for _, part := range parts {

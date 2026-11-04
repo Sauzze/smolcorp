@@ -16,7 +16,7 @@ final class BotDiscoveryTests: XCTestCase {
         let result = CloudBot.discover([mini, scout], in: [], hidden: [])
         XCTAssertEqual(result.bots.map(\.id), ["smolcorp-mini", "x-scout"])
         XCTAssertEqual(result.bots.map(\.source.botId), ["aa11", "bb22"])
-        XCTAssertTrue(result.bots.allSatisfy { $0.discovered && !$0.pinned && $0.floor == "upstairs" && $0.source.kind == "grokBotApp" })
+        XCTAssertTrue(result.bots.allSatisfy { $0.discovered && !$0.pinned && $0.floor == "" && $0.source.kind == "grokBotApp" })
     }
 
     func testABotYouSetIsntFoundTwiceByItsIdOrItsName() {
@@ -34,6 +34,89 @@ final class BotDiscoveryTests: XCTestCase {
         XCTAssertEqual(result.bots.map(\.id), ["kept", "yours", "smolcorp-mini"])
     }
 
+    func testAFoundBotYouRenamedKeepsYourNameWhileOneYouOnlyPinnedFollowsTheApp() {
+        var renamed = found("Smolcorp Mini", "aa11", pinned: true)
+        renamed.name = "Boss" // renamed in setup, which pins it
+        let onlyPinned = found("X scout", "bb22", pinned: true)
+        let app = [GrokBotApp.Row(id: "aa11", name: "Mini Two"), GrokBotApp.Row(id: "bb22", name: "Scout Two")]
+        let result = CloudBot.discover(app, in: [renamed, onlyPinned], hidden: [])
+        XCTAssertEqual(result.bots.first { $0.source.botId == "aa11" }?.name, "Boss", "your name stays")
+        XCTAssertEqual(result.bots.first { $0.source.botId == "aa11" }?.source.bot, "Smolcorp Mini")
+        XCTAssertEqual(result.bots.first { $0.source.botId == "bb22" }?.name, "Scout Two", "a pinned bot not renamed follows the app")
+        XCTAssertEqual(renamed.setupJSON(in: app)["name"] as? String, "Boss", "setup's list agrees with the config")
+    }
+
+    /// A group chat in the app, between its bots: not a bot. Made up.
+    private let group = GrokBotApp.Row(id: "cc33", name: "Bot Room", isGroup: true)
+
+    func testAGroupChatInTheAppGetsNoDesk() {
+        let result = CloudBot.discover([mini, group, scout], in: [], hidden: [])
+        XCTAssertEqual(result.bots.map(\.source.botId), ["aa11", "bb22"])
+        // Nor waits for room.
+        let full = (0..<CloudBot.most).map { CloudBot(id: "b\($0)", name: "B\($0)") }
+        XCTAssertEqual(CloudBot.discover([group], in: full, hidden: []).noRoom, [])
+    }
+
+    func testAGroupChatThatHadADeskLosesItPinnedOrNotAndTheBotsKeepTheirs() {
+        var bots = [found("Smolcorp Mini", "aa11"), found("Bot Room", "cc33", pinned: true), found("X scout", "bb22")]
+        for i in bots.indices { bots[i].floor = "3" }
+        var unpinned = bots[1]
+        unpinned.pinned = false
+        let result = CloudBot.discover([mini, group, scout], in: bots, hidden: [])
+        XCTAssertEqual(result.bots, [bots[0], bots[2]], "the bots as they were, on their floor")
+        XCTAssertEqual(CloudBot.discover([mini, group, scout], in: [unpinned], hidden: []).bots.map(\.source.botId), ["aa11", "bb22"])
+        // One you set yourself on it stays yours, as any bot you set does.
+        let yours = CloudBot(id: "room", name: "Room", source: .init(kind: "grokBotApp", botId: "cc33"))
+        XCTAssertEqual(CloudBot.discover([group], in: [yours], hidden: []).bots, [yours])
+    }
+
+    func testTheGroupChatsDeskGoesAndNothingElseMoves() {
+        var bots = [found("Smolcorp Mini", "aa11"), found("Bot Room", "cc33", pinned: true), found("X scout", "bb22")]
+        for i in bots.indices { bots[i].floor = "3" }
+        let desks = CloudDesks(bots, looking: false)
+        desks.apply(.report, to: "smolcorp-mini")
+        XCTAssertEqual(desks.seated().map(\.session).map(\.id), ["cloud-smolcorp-mini", "cloud-bot-room", "cloud-x-scout"])
+
+        desks.configure(CloudBot.discover([mini, group, scout], in: bots, hidden: []).bots)
+        XCTAssertEqual(desks.seated().map(\.session).map(\.id), ["cloud-smolcorp-mini", "cloud-x-scout"])
+        XCTAssertEqual(desks.seated().map(\.session).first?.state, .unread, "the others keep their news")
+        XCTAssertNil(desks.bot(ofSession: "cloud-bot-room"))
+        XCTAssertFalse(desks.seen(session: "cloud-bot-room"), "its card, if still open, finds no desk")
+        XCTAssertFalse(desks.apply(.report, to: "bot-room"))
+        // Each bot on the floor keeps the desk it had: the group chat's is only left free.
+        let seated = Deck.seat(placed: [Upstairs(person: "cloud-smolcorp-mini", id: "cloud-smolcorp-mini", floor: 2, had: Seat(floor: 2, desk: 0)),
+                                        Upstairs(person: "cloud-x-scout", id: "cloud-x-scout", floor: 2, had: Seat(floor: 2, desk: 2))], rest: [])
+        XCTAssertEqual(seated.seats["cloud-smolcorp-mini"], Seat(floor: 2, desk: 0))
+        XCTAssertEqual(seated.seats["cloud-x-scout"], Seat(floor: 2, desk: 2))
+    }
+
+    func testAGroupChatNeverCountsTowardTheMostAndItsPlaceGoesToABot() {
+        // Full, one of them the group chat: it goes, and a bot waiting takes its place.
+        let eight = (0..<CloudBot.most - 1).map { CloudBot(id: "b\($0)", name: "B\($0)") }
+        let result = CloudBot.discover([group, mini], in: eight + [found("Bot Room", "cc33")], hidden: [])
+        XCTAssertEqual(result.bots.count, CloudBot.most)
+        XCTAssertEqual(result.bots.last?.source.botId, "aa11")
+        XCTAssertEqual(result.noRoom, [], "setup says no bot is waiting")
+    }
+
+    func testABotRenamedInTheAppIsKeptByItsNameThereNow() {
+        // Found as "Lima", now "Onyx" in the app: kept as "Onyx", with the same id, address and floor.
+        var lima = found("Lima", "aa11")
+        lima.floor = "4"
+        let yours = CloudBot(id: "scout", name: "Scout", source: .init(kind: "grokBotApp", bot: "Scout", botId: "bb22"))
+        let renamed = CloudBot.discover([.init(id: "aa11", name: "Onyx"), scout], in: [lima, yours], hidden: [])
+        XCTAssertEqual(renamed.bots.map(\.name), ["Onyx", "Scout"], "a bot you named keeps your name in your config")
+        XCTAssertEqual(renamed.bots[0].id, "lima")
+        XCTAssertEqual(renamed.bots[0].floor, "4")
+        XCTAssertEqual(renamed.bots[0].source.bot, "Onyx")
+        XCTAssertEqual(renamed.bots[0].source.botId, "aa11")
+        // Setup's list says each one's name in the app now, by its id; with no roster, the one kept.
+        let rows = [GrokBotApp.Row(id: "AA11", name: "Onyx"), scout]
+        XCTAssertEqual([lima, yours].map { $0.setupJSON(in: rows)["name"] as? String }, ["Onyx", "X scout"])
+        XCTAssertEqual([lima, yours].map { $0.setupJSON(in: [])["name"] as? String }, ["Lima", "Scout"])
+        XCTAssertEqual(CloudBot(id: "x", name: "X").setupJSON(in: rows)["name"] as? String, "X", "not from the app: its own")
+    }
+
     func testAnAppThatCantBeReadChangesNothing() {
         let bots = [found("Old", "cc33")]
         XCTAssertEqual(CloudBot.discover(nil, in: bots, hidden: []).bots, bots)
@@ -47,8 +130,8 @@ final class BotDiscoveryTests: XCTestCase {
     }
 
     func testPastTheMostThereIsNoRoomAndSetupIsTold() {
-        let nine = (0..<CloudBot.most).map { CloudBot(id: "b\($0)", name: "B\($0)") }
-        let result = CloudBot.discover([mini], in: nine, hidden: [])
+        let full = (0..<CloudBot.most).map { CloudBot(id: "b\($0)", name: "B\($0)") }
+        let result = CloudBot.discover([mini], in: full, hidden: [])
         XCTAssertEqual(result.bots.count, CloudBot.most)
         XCTAssertEqual(result.noRoom, [mini])
     }

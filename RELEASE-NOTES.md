@@ -1,3 +1,38 @@
+# Smolcorp 1.24.1 (beta)
+
+A fix release for 1.24.0, with two bigger changes: every floor now works like the ground floor, and bots can sit on any floor.
+
+## Every floor works like the ground floor
+- **Nine desks and a chill area upstairs.** Every floor above the ground floor has nine desks in three rows, plus a chill area like the ground floor's (couch, rug, plant, coffee and water cooler), with the corner piece of the floor's style.
+- **Arrange works on every floor.** Pick a floor in the Arranger and move its desks, furniture and chill area, as on the ground floor. Undo, Redo and Back to standard apply to that floor only. Each floor's arrangement is saved, kept across restarts and shown on your phone.
+- **Desks 10 to 12.** Anyone who sat at desks 10–12 upstairs moves once, at the first launch, to a free desk on the same floor, or else on the next floor up with one, or else the nearest one below. Nobody disappears; roles and nicknames go with them.
+- A profile saved before 1.24.1 has no arrangement for the floors upstairs. Switching to it puts them back to their standard look.
+
+## Bots
+- **Bots on any floor.** A cloud bot, such as a Grok Bot, can take a desk on any floor, the ground floor included. Put it there yourself (the office's ⇅ floor, the elevator, or setup → Bots), or let it be placed. A bot you put somewhere stays there.
+- **Where new bots go.** A new bot goes to the floor a folder rule names for it (`/cloud`, or `/cloud/<its name>`), or else to the floor set in setup → Bots → **New bots go to**. When that floor is full, it sits at the first free desk from 2F up. It never takes the desk of someone already sitting there.
+- **No more limit of nine bots.** Room is counted floor by floor, people and bots together. When every floor is full, setup says which bots have no desk.
+- **A bot keeps its desk across a restart**, at its key on the ground floor or at its desk upstairs. One you put on the ground floor takes no room from the floors above.
+- **Moving from 1.24.0:** bots that sat "upstairs" stay on the floor they were on.
+- **A Grok Bot group chat never gets a desk.** A conversation between your bots isn't a bot. One that had a desk loses it, and its place goes to a bot that was waiting.
+- **Bots show their name from the Grok Bot app**, unless you gave one a name of your own. An old stored name no longer wins.
+
+## The General Manager started by hand
+- **Its role survives a restart even when the Keychain can't be read.** If macOS couldn't read the GM token from the Keychain at launch (for example after the app's signature changed), Smolcorp used to make a new token, and the started-by-hand GM lost its role until it ran a `gm` command. Now it uses the token in its private file and changes nothing.
+- After an upgrade from a build before 1.24.0, the first launch still needs one `smolcorp gm …` command from the GM before the role comes back, since older builds didn't save which session was the GM.
+
+## Fixed
+- **Mail to hires with a tmux before 3.7.** On a tmux before 3.7 (stock Ubuntu 24.04 and Debian 12, or an older Homebrew or MacPorts tmux on a Mac), every message to a hire failed: "Its window couldn't be looked at" on Linux, "Couldn't tell how its window takes a paste" on the Mac. It's fixed on both.
+- **Windows: hires' deny rules.** On Windows, the rules that keep a hire away from the GM token, the setup key, other hires' folders and its own settings didn't match, because Claude Code reads Windows paths in another form. They match now. Windows managed hires are still beta and off by default.
+- **Windows: a hire asked into a repo's subfolder** started at the top of its worktree. It now starts in that subfolder.
+- **A style's outfits.** A style that dresses each person differently, such as the Hall of Armor, left about half of the people in their own clothes. Everyone is dressed now, and nobody who was dressed changes outfit.
+- **FIRST-SETUP.md** said the Mac app is notarised. It's signed with a Developer ID and not notarised: if macOS says it can't check it, open System Settings → Privacy & Security and click Open Anyway, once.
+- **Building from source** works again with newer Swift compilers.
+- The source passes CI on macOS, Linux and Windows again.
+
+## Updating
+As for 1.24.0: download the new version and replace the app. Your office, floors, pins and hires are kept.
+
 # Smolcorp 1.24.0 (beta)
 
 If you're coming from 1.22.1, this covers everything since: 1.23 was never

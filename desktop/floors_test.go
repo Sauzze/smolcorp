@@ -33,47 +33,49 @@ func TestANewBuildingHasNobodyAboveTheGroundFloor(t *testing.T) {
 	}
 }
 
-func TestTwelveFillTheSecondFloorAndNoMore(t *testing.T) {
-	floors, over := buildingFloors(nil, people("h", 12), nil)
-	if !reflect.DeepEqual(floors[1], people("h", 12)) || len(floors[2]) != 0 || over != 0 {
-		t.Fatalf("twelve runs are %v, %d over", floors, over)
+func TestNineFillTheSecondFloorAndNoMore(t *testing.T) {
+	floors, over := buildingFloors(nil, people("h", desksPerFloor), nil)
+	if !reflect.DeepEqual(floors[1], people("h", desksPerFloor)) || len(floors[2]) != 0 || over != 0 {
+		t.Fatalf("nine runs are %v, %d over", floors, over)
 	}
 }
 
-func TestTheThirteenthGoesUpToTheThirdFloor(t *testing.T) {
-	floors, over := buildingFloors(nil, people("h", 13), nil)
-	if len(floors[1]) != 12 || !reflect.DeepEqual(floors[2], []string{"h12"}) || over != 0 {
-		t.Fatalf("thirteen runs are %v, %d over", floors, over)
+func TestTheTenthGoesUpToTheThirdFloor(t *testing.T) {
+	floors, over := buildingFloors(nil, people("h", desksPerFloor+1), nil)
+	if len(floors[1]) != desksPerFloor || !reflect.DeepEqual(floors[2], []string{fmt.Sprintf("h%d", desksPerFloor)}) || over != 0 {
+		t.Fatalf("ten runs are %v, %d over", floors, over)
 	}
 	if _, past := secondFloor(floors, over); past != 1 {
 		t.Errorf("%d past the second floor, want 1", past)
 	}
 }
 
-func TestSixtyFillFiveFloorsAndTheSixtyFirstHasNone(t *testing.T) {
-	floors, over := buildingFloors(nil, people("h", 60), nil)
-	if !reflect.DeepEqual(floorSizes(floors), []int{0, 12, 12, 12, 12, 12}) || floors[5][11] != "h59" || over != 0 {
-		t.Fatalf("sixty runs are %v, %d over", floorSizes(floors), over)
+func TestFortyFiveFillFiveFloorsAndTheFortySixthHasNone(t *testing.T) {
+	everyDesk := (floorCount - 1) * desksPerFloor
+	full := []int{0, desksPerFloor, desksPerFloor, desksPerFloor, desksPerFloor, desksPerFloor}
+	floors, over := buildingFloors(nil, people("h", everyDesk), nil)
+	if !reflect.DeepEqual(floorSizes(floors), full) || floors[5][desksPerFloor-1] != fmt.Sprintf("h%d", everyDesk-1) || over != 0 {
+		t.Fatalf("forty-five runs are %v, %d over", floorSizes(floors), over)
 	}
-	floors, over = buildingFloors(nil, people("h", 61), nil)
-	if !reflect.DeepEqual(floorSizes(floors), []int{0, 12, 12, 12, 12, 12}) || over != 1 {
-		t.Fatalf("sixty-one runs are %v, %d over", floorSizes(floors), over)
+	floors, over = buildingFloors(nil, people("h", everyDesk+1), nil)
+	if !reflect.DeepEqual(floorSizes(floors), full) || over != 1 {
+		t.Fatalf("forty-six runs are %v, %d over", floorSizes(floors), over)
 	}
-	if _, past := secondFloor(floors, over); past != 49 {
-		t.Errorf("%d past the second floor, want 49", past)
+	if _, past := secondFloor(floors, over); past != everyDesk-desksPerFloor+1 {
+		t.Errorf("%d past the second floor, want %d", past, everyDesk-desksPerFloor+1)
 	}
 }
 
 // Cloud bots first, then headless runs, then the agents with no desk downstairs.
 func TestCloudBotsGoUpFirstThenRunsThenThoseWithNoDesk(t *testing.T) {
-	floors, over := buildingFloors(people("c", 2), people("h", 11), people("o", 3))
+	floors, over := buildingFloors(people("c", 2), people("h", desksPerFloor-1), people("o", 3))
 	if len(floors[0]) != 0 {
 		t.Errorf("the ground floor holds %v: its desks are its keys", floors[0])
 	}
-	if want := append(people("c", 2), people("h", 10)...); !reflect.DeepEqual(floors[1], want) {
+	if want := append(people("c", 2), people("h", desksPerFloor-2)...); !reflect.DeepEqual(floors[1], want) {
 		t.Errorf("2F is %v, want %v", floors[1], want)
 	}
-	if want := append([]string{"h10"}, people("o", 3)...); !reflect.DeepEqual(floors[2], want) || over != 0 {
+	if want := append([]string{fmt.Sprintf("h%d", desksPerFloor-2)}, people("o", 3)...); !reflect.DeepEqual(floors[2], want) || over != 0 {
 		t.Errorf("3F is %v, %d over, want %v", floors[2], over, want)
 	}
 }
@@ -155,14 +157,14 @@ func TestSetupSendsTheFloorsAndThePhonesSeeThem(t *testing.T) {
 	}
 }
 
-// The snapshot's floors: a desk each upstairs for the runs, 12 a floor, then
+// The snapshot's floors: a desk each upstairs for the runs, nine a floor, then
 // the agents with no desk downstairs, watched, never driven; upstairs is the
 // second floor alone, for older phones.
 func TestTheSnapshotSaysWhoIsOnEachFloor(t *testing.T) {
 	d := newTestDeck(t)
 	d.config.Floors = checkedFloors([]Floor{{}, {"Ops", "server"}})
 	running(d, mostKeys+1)
-	headless(d, 12)
+	headless(d, desksPerFloor)
 	d.mu.Lock()
 	data := d.snapshot()
 	d.mu.Unlock()
@@ -185,7 +187,7 @@ func TestTheSnapshotSaysWhoIsOnEachFloor(t *testing.T) {
 	if len(state.Floors) != 6 || state.Floors[0].N != 1 || len(state.Floors[0].Desks) != 0 || state.Floors[5].N != 6 {
 		t.Fatalf("the floors are %+v", state.Floors)
 	}
-	if f := state.Floors[1]; f.Name != "Ops" || f.Preset != "server" || len(f.Desks) != 12 || f.Desks[0]["headless"] != true {
+	if f := state.Floors[1]; f.Name != "Ops" || f.Preset != "server" || len(f.Desks) != desksPerFloor || f.Desks[0]["headless"] != true {
 		t.Errorf("2F is %s %q with %d desks, the first %v", f.Name, f.Preset, len(f.Desks), f.Desks)
 	}
 	third := state.Floors[2].Desks
@@ -204,7 +206,7 @@ func TestTheSnapshotSaysWhoIsOnEachFloor(t *testing.T) {
 			t.Errorf("a desk with no key has %s %v, want %v as downstairs", control, third[0][control], downstairs[control])
 		}
 	}
-	if state.Overflow != 1 || state.FloorsOverflow != 0 || len(state.Upstairs.Desks) != 12 || state.Upstairs.Overflow != 1 {
+	if state.Overflow != 1 || state.FloorsOverflow != 0 || len(state.Upstairs.Desks) != desksPerFloor || state.Upstairs.Overflow != 1 {
 		t.Errorf("over %d downstairs and %d past 6F; upstairs %d desks and %d past it", state.Overflow, state.FloorsOverflow,
 			len(state.Upstairs.Desks), state.Upstairs.Overflow)
 	}
@@ -215,7 +217,7 @@ func TestTheSnapshotSaysWhoIsOnEachFloor(t *testing.T) {
 func TestTheViewerNumbersHiddenDesksAcrossTheFloors(t *testing.T) {
 	d := newTestDeck(t)
 	d.config.Floors = checkedFloors([]Floor{{}, {}, {"Secret lab", "space"}})
-	headless(d, 13)
+	headless(d, desksPerFloor+1)
 	for _, hideNames := range []bool{false, true} {
 		d.mu.Lock()
 		snapshot := d.viewerSnapshot(hideNames, func(id string) string { return id })
@@ -226,7 +228,7 @@ func TestTheViewerNumbersHiddenDesksAcrossTheFloors(t *testing.T) {
 		}
 		name, desk := "Secret lab", "api"
 		if hideNames {
-			name, desk = "3F", "Upstairs 13"
+			name, desk = "3F", fmt.Sprintf("Upstairs %d", desksPerFloor+1)
 		}
 		third, _ := floors[2]["desks"].([]map[string]any)
 		if floors[2]["name"] != name || floors[2]["preset"] != "space" || len(third) != 1 || third[0]["name"] != desk {

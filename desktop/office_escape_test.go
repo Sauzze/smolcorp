@@ -3,6 +3,8 @@ package desktop
 import (
 	"bytes"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -90,5 +92,48 @@ func TestTheOfficeAndSetupShowWhyHiringIsOff(t *testing.T) {
 	toggle = toggle[:strings.Index(toggle, "\n")]
 	if !strings.Contains(toggle, "showHiringProblem(") || !strings.Contains(setup, "$('hiring-problem').textContent = res.ok ? '' : await res.text()") {
 		t.Error("setup: the hiring toggle must show the answer's text, under the step, when its request fails")
+	}
+}
+
+// styleDressOf gave a project whose hash remainder came out negative list[negative], undefined: nothing of the
+// style on. It counts back from the end of the list now, and a name whose remainder was not negative keeps its item.
+// The function runs in node on a tiny stand-in for its surroundings; without node the test is skipped.
+func TestAStyleDressesEveryNameEvenWhenItsRemainderIsNegative(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: styleDressOf can't be run")
+	}
+	web, _ := officeSources(t)
+	src := string(web)
+	at := strings.Index(src, "function styleDressOf(seed) {")
+	if at < 0 {
+		t.Fatal("styleDressOf is gone: update this test")
+	}
+	fn := src[at:]
+	fn = fn[:strings.Index(fn, "\n  }\n")+4]
+	script := `
+const decor = { preset: 'p' };
+const STYLE_DRESS = { p: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] };
+` + fn + `
+let negative = 0, other = 0;
+for (let n = 0; n < 2000; n++) {
+  const seed = 'project-' + n;
+  let h = 0;
+  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 0x5bd1e995) >>> 0;
+  const r = (h ^ (h >>> 13)) % 7; // what the old code indexed with
+  const got = styleDressOf(seed);
+  if (got === undefined || got === null) throw new Error(seed + ' is not dressed');
+  if (r < 0) { negative++; if (got !== STYLE_DRESS.p[r + 7]) throw new Error(seed + ' not counted back from the end'); }
+  else { other++; if (got !== STYLE_DRESS.p[r]) throw new Error(seed + ' changed suit'); }
+}
+if (!negative || !other) throw new Error('the names covered one sign only');
+`
+	dir := t.TempDir()
+	file := filepath.Join(dir, "dress.js")
+	if err := os.WriteFile(file, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(node, file).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }

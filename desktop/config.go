@@ -92,6 +92,13 @@ type Config struct {
 	// here looks in that app, which is the Mac's alone.
 	BotsAutoDetect *bool    `json:"botsAutoDetect,omitempty"`
 	HiddenBots     []string `json:"hiddenBots,omitempty"`
+	// The floor new bots go to, 0 for the ground floor up to 5 for 6F, when
+	// no floor rule names one for them (see CloudBot.Floor); chosen in setup.
+	// Until it is, the floor your bots are on (newBotsFloor).
+	BotFloor int `json:"botFloor"`
+	// Whether the file had BotFloor: one from before it has it worked out
+	// again once the bots that were upstairs are settled (see settleBots).
+	botFloorKept bool
 	// The building's six floors, the ground floor first: each one's name, and
 	// the style of those above it (see Floor).
 	Floors floorList `json:"floors"`
@@ -150,6 +157,10 @@ func loadConfig() *Config {
 					config.unknown[name] = value
 				}
 			}
+			var floor int
+			if raw, ok := fields["botFloor"]; ok && json.Unmarshal(raw, &floor) == nil && floor >= 0 && floor < floorCount {
+				config.BotFloor, config.botFloorKept = floor, true
+			}
 		}
 	}
 	// At least 1 each, as on the Mac (Config.swift).
@@ -185,6 +196,10 @@ func loadConfig() *Config {
 	config.RolesOffered = shippedRoleIDs()
 	// Checked as they load: their names are drawn in the office.
 	config.CloudBots = checkedCloudBots(config.CloudBots)
+	// A file from before it: where the bots are, and again once those that were upstairs are settled.
+	if !config.botFloorKept {
+		config.BotFloor = newBotsFloor(config.CloudBots)
+	}
 	// Checked as they load, for the same reason.
 	config.Floors = checkedFloors(config.Floors)
 	config.FloorRules = checkedFloorRules(config.FloorRules)
@@ -220,6 +235,23 @@ func (c *Config) save() {
 		}
 	}
 	_ = writePrivate(configFile, data)
+}
+
+// settleBots puts the bots still "upstairs", from before bots could sit on
+// any floor, each on the floor it sits on, by seats, the desks saved across a
+// restart (see settledCloudBots); and with a file from before BotFloor, new
+// bots then go where the bots are. Whether anything changed, to be saved.
+// Once settled, there's nothing to do again. The Mac app's Config.settleBots
+// does the same.
+func (c *Config) settleBots(seats map[string]Seat) bool {
+	if !slices.ContainsFunc(c.CloudBots, func(b CloudBot) bool { return b.Floor == cloudUpstairs }) {
+		return false
+	}
+	c.CloudBots = settledCloudBots(c.CloudBots, seats)
+	if !c.botFloorKept {
+		c.BotFloor = newBotsFloor(c.CloudBots)
+	}
+	return true
 }
 
 // Pin pins folder to key index, taking it off any other key it was on.

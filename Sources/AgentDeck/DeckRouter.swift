@@ -741,11 +741,19 @@ final class DeckRouter: Router {
             respond(.json(["bots": cloudBotsJSON()]))
 
         // One bot pinned or not, put on a floor, or hidden, from setup's list; or a hidden one shown again, by its
-        // app id; or the Grok Bot app's bots found by themselves, or not.
+        // app id; or the Grok Bot app's bots found by themselves, or not; or the floor new bots go to.
         case ("POST", "/setup/bots/override"):
             let given = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any] ?? [:]
+            // A floor for new bots that isn't a whole number changes nothing, as on the Windows and Linux app.
+            let newBots = DeckRouter.botFloor(given["botFloor"])
+            guard !newBots.refused else {
+                return respond(.status(400, "Send {\"botFloor\": …} as a whole number: 0 for the ground floor up to 5 for 6F."))
+            }
             if let on = given["autoDetect"] as? Bool {
                 config.botsAutoDetect = on
+            }
+            if let floor = newBots.floor {
+                config.botFloor = floor
             }
             if let shown = (given["show"] as? String).flatMap(GrokBotApp.safeID) {
                 config.hiddenBots.removeAll { $0.lowercased() == shown.lowercased() }
@@ -1449,6 +1457,19 @@ final class DeckRouter: Router {
         return index
     }
 
+    /// The floor new bots go to as setup sends it: `floor`, 0 for the ground
+    /// floor up to 5 for 6F; nil when none is sent, or for a whole number
+    /// that's no floor, such as 6, left as it was. Anything else, a true, a
+    /// "2" or a 1.5 among them, even a 1.0, is `refused`, as the Windows and
+    /// Linux app refuses what it can't read as a whole number.
+    static func botFloor(_ given: Any?) -> (floor: Int?, refused: Bool) {
+        guard let given, !(given is NSNull) else { return (nil, false) }
+        guard let number = given as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), !CFNumberIsFloatType(number) else {
+            return (nil, true)
+        }
+        return ((0..<Floor.count).contains(number.intValue) ? number.intValue : nil, false)
+    }
+
     /// The bots as kept, each with who it is in its app now, read afresh:
     /// `resolved` is `{botId, name, by}`, or null when it isn't found there.
     private func cloudBotsJSON() -> Any {
@@ -1624,15 +1645,17 @@ final class DeckRouter: Router {
             // The folders whose sessions sit on a floor of their own.
             "floorRules": Config.shared.floorRules.map(\.jsonObject),
             // The cloud bots, for setup's list: each pinned or found in the Grok Bot app, which this Mac looks in;
-            // those you hid, by name where the app still has them; and those found with no room for them.
+            // those you hid, by name where the app still has them; those with no room for them, found or at work;
+            // and the floor new bots go to.
             "cloudBots": [
                 "detects": true,
                 "autoDetect": Config.shared.botsAutoDetect,
-                "bots": Config.shared.cloudBots.map(\.setupJSON),
+                "botFloor": Config.shared.botFloor,
+                "bots": Config.shared.cloudBots.map { $0.setupJSON(in: deck.lastRoster) },
                 "hidden": Config.shared.hiddenBots.map { id in
                     ["botId": id, "name": deck.lastRoster.first { $0.id.lowercased() == id.lowercased() }?.name ?? NSNull()] as [String: Any]
                 },
-                "noRoom": deck.botsWithNoRoom.map(\.name),
+                "noRoom": deck.botsWithNoRoom.map(\.name) + deck.botsWithNoDesk().map(\.name),
             ] as [String: Any],
             "presets": Room.presets.filter { $0 != "yours" },
             // Saved looks, besides Default, the one the deck was last switched

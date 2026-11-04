@@ -1,9 +1,18 @@
 package desktop
 
 import (
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+// modeIs says a file has the Unix mode want. Windows has no Unix modes: Go reports any writable
+// file as 0666 there, and what keeps a file yours is your profile folder's own permissions,
+// so there any mode is taken as right (as saved_test.go does).
+func modeIs(info os.FileInfo, want os.FileMode) bool {
+	return runtime.GOOS == "windows" || info.Mode().Perm() == want
+}
 
 // isolate points every file the package reads or writes, and the home folder
 // agents keep their settings in, at fresh folders, so a test never touches

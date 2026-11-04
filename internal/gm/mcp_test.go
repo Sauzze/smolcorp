@@ -231,13 +231,13 @@ func TestMCPPlaceToolsSchemasAndRequests(t *testing.T) {
 	if len(app.reqs) != 4 { // pin, unpin, two nicknames; the three bad calls never reach the app
 		t.Fatalf("requests: %+v", app.reqs)
 	}
-	if q, _ := url.ParseQuery(app.reqs[0].RawQuery); app.reqs[0].Path != "/setup/pin" || q.Get("key") != "2" || q.Get("folder") != "/work/app" {
+	if q, _ := url.ParseQuery(app.reqs[0].RawQuery); app.reqs[0].Path != "/setup/pin" || q.Get("key") != "2" || q.Get("folder") != workApp(t) {
 		t.Errorf("pin = %+v", app.reqs[0])
 	}
 	if q, _ := url.ParseQuery(app.reqs[1].RawQuery); app.reqs[1].Path != "/setup/unpin" || q.Get("key") != "2" {
 		t.Errorf("unpin = %+v", app.reqs[1])
 	}
-	if app.reqs[2].Path != "/setup/gm/nickname" || bodies[2] != `{"folder":"/work/app","name":"Ada"}` {
+	if app.reqs[2].Path != "/setup/gm/nickname" || bodies[2] != `{"folder":`+workAppJSON(t)+`,"name":"Ada"}` {
 		t.Errorf("nickname = %+v %s", app.reqs[2], bodies[2])
 	}
 	if app.reqs[3].Path != "/setup/gm/nickname" || !strings.Contains(bodies[3], `"name":""`) {

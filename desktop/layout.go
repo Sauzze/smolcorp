@@ -7,6 +7,7 @@ import (
 	"math"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -105,7 +106,22 @@ type Room struct {
 	Dress Dress `json:"dress"`
 	// Where each piece of the room is, as arranged on the setup page.
 	Plan Plan `json:"plan"`
+	// Each floor upstairs arranged its own way on the setup page, by its
+	// number: "1" for 2F up to "5" for 6F. A floor not there is as it comes:
+	// its nine desks in three rows and its chill area where they stand.
+	// office.js reads them, and the Mac app's Room keeps the same.
+	FloorPlans map[string]Plan `json:"floorPlans"`
 }
+
+// floorPlanKeys are the floors upstairs an arrangement can be kept for, by
+// number: "1" for 2F up to "5" for 6F.
+var floorPlanKeys = func() []string {
+	keys := []string{}
+	for floor := 1; floor < floorCount; floor++ {
+		keys = append(keys, strconv.Itoa(floor))
+	}
+	return keys
+}()
 
 // TeamMember is how one project's agent looks in the office: skin, hair, a
 // hairstyle, something extra such as glasses or a cap, an outfit and its
@@ -394,6 +410,21 @@ func (r *Room) UnmarshalJSON(data []byte) error {
 	}
 	json.Unmarshal(raw["dress"], &r.Dress)
 	json.Unmarshal(raw["plan"], &r.Plan)
+	// Each floor's own, by a number there is; one that isn't an arrangement at all is left out
+	var floors map[string]json.RawMessage
+	json.Unmarshal(raw["floorPlans"], &floors)
+	for floor, given := range floors {
+		var parts map[string]json.RawMessage
+		if !slices.Contains(floorPlanKeys, floor) || json.Unmarshal(given, &parts) != nil || parts == nil {
+			continue
+		}
+		var plan Plan
+		json.Unmarshal(given, &plan)
+		if r.FloorPlans == nil {
+			r.FloorPlans = map[string]Plan{}
+		}
+		r.FloorPlans[floor] = plan
+	}
 	*r = r.checked()
 	return nil
 }
@@ -419,7 +450,12 @@ func (r Room) checked() Room {
 		Desk: choose("desk", r.Desk), Workspace: choose("workspace", r.Workspace), Monitor: choose("monitor", r.Monitor),
 		Door: choose("door", r.Door), Drift: choose("drift", r.Drift), Fireworks: choose("fireworks", r.Fireworks), Chair: choose("chair", r.Chair),
 		Staff: choose("staff", r.Staff), Arrivals: choose("arrivals", r.Arrivals), Calm: choose("calm", r.Calm), Preset: choose("preset", r.Preset), Wall: slices.Clone(standardWall), Dress: r.Dress.checked(),
-		Plan: r.Plan.checked()}
+		Plan: r.Plan.checked(), FloorPlans: map[string]Plan{}}
+	for floor, plan := range r.FloorPlans {
+		if slices.Contains(floorPlanKeys, floor) {
+			checked.FloorPlans[floor] = plan.checked()
+		}
+	}
 	for i := range checked.Wall {
 		if i < len(r.Wall) && slices.Contains(wallChoices, r.Wall[i]) {
 			checked.Wall[i] = r.Wall[i]

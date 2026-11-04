@@ -43,7 +43,7 @@ final class BuildingTests: XCTestCase {
     }
 
     func testOnAFullFloorSomeoneThereForWantOfRoomMakesWay() {
-        let runs = (0..<12).map { up("r\($0)", had: Seat(floor: 2, desk: $0)) }
+        let runs = (0..<Floor.desks).map { up("r\($0)", had: Seat(floor: 2, desk: $0)) }
         let seated = Deck.seat(placed: [up("nova", floor: 2)], rest: runs)
         XCTAssertEqual(seated.seats["nova"], Seat(floor: 2, desk: 0))
         XCTAssertEqual(seated.seats["r0"], Seat(floor: 1, desk: 0), "the run made way, to where there's room")
@@ -51,10 +51,10 @@ final class BuildingTests: XCTestCase {
     }
 
     func testAPutFloorThatIsFullSendsTheRestWhereThereIsRoom() {
-        let crowd = (0..<13).map { up("p\($0)", floor: 2) }
+        let crowd = (0...Floor.desks).map { up("p\($0)", floor: 2) }
         let seated = Deck.seat(placed: crowd, rest: [])
-        XCTAssertEqual(seated.floors[2].count, 12)
-        XCTAssertEqual(names(seated.floors[1]), ["p12"])
+        XCTAssertEqual(seated.floors[2].count, 9)
+        XCTAssertEqual(names(seated.floors[1]), ["p9"])
     }
 
     func testADeskThatWasOnAFloorThatIsGoneIsForgotten() {
@@ -63,9 +63,9 @@ final class BuildingTests: XCTestCase {
     }
 
     func testPastTheTopFloorThereIsNoDesk() {
-        let seated = Deck.seat(placed: [], rest: (0..<61).map { up("h\($0)") })
-        XCTAssertEqual(seated.overflow, 1)
-        XCTAssertNil(seated.seats["h60"])
+        let seated = Deck.seat(placed: [], rest: (0..<46).map { up("h\($0)") })
+        XCTAssertEqual(seated.overflow, 1, "five floors of nine")
+        XCTAssertNil(seated.seats["h45"])
     }
 
     // MARK: Rules
@@ -84,8 +84,8 @@ final class BuildingTests: XCTestCase {
         // Desk 1 was left empty by someone who went; the team is in the second row now, so the hire joins it.
         XCTAssertEqual(Deck.rowDesk(taken: [0, 2, 3, 4]), 5)
         // With the top floor's last row full, the first free desk anywhere.
-        XCTAssertEqual(Deck.rowDesk(taken: Set(4..<12)), 0)
-        XCTAssertNil(Deck.rowDesk(taken: Set(0..<12)))
+        XCTAssertEqual(Deck.rowDesk(taken: Set(4..<9)), 0)
+        XCTAssertNil(Deck.rowDesk(taken: Set(0..<9)))
     }
 
     func testManagerHiresSeatByRowWhileOthersTakeTheFirstFreeDesk() {
@@ -99,7 +99,7 @@ final class BuildingTests: XCTestCase {
         // With the team already in the second row, a gap in the first stays empty for a manager's hire, not for anyone else.
         let team = up("x", floor: 2, had: Seat(floor: 2, desk: 4))
         let gap = Deck.seat(placed: [team, hire], rest: [])
-        XCTAssertEqual(gap.seats["hire"], Seat(floor: 2, desk: 5))
+        XCTAssertEqual(gap.seats["hire"], Seat(floor: 2, desk: 3))
         var plain = hire
         plain.byRow = false
         let first = Deck.seat(placed: [team, plain], rest: [])
@@ -117,14 +117,14 @@ final class BuildingTests: XCTestCase {
         XCTAssertEqual(seated.seats["h0"], Seat(floor: 1, desk: 0))
         XCTAssertEqual(seated.seats["h1"], Seat(floor: 1, desk: 1))
         XCTAssertEqual(seated.seats["h4"], Seat(floor: 1, desk: 4))
-        // h2 is new: the last row anyone sits in is the second, so it takes its first free desk, 5.
-        XCTAssertEqual(seated.seats["h2"], Seat(floor: 1, desk: 5))
+        // h2 is new: the last row anyone sits in is the second (desks 3 to 5), so it takes its first free desk, 3.
+        XCTAssertEqual(seated.seats["h2"], Seat(floor: 1, desk: 3))
     }
 
     func testAManagerHireWithNoFloorSetFindsARowOnTheFirstFloorWithRoom() {
         var hire = up("hire")
         hire.byRow = true
-        let full = (0..<12).map { up("f\($0)", had: Seat(floor: 1, desk: $0)) }
+        let full = (0..<Floor.desks).map { up("f\($0)", had: Seat(floor: 1, desk: $0)) }
         let seated = Deck.seat(placed: [], rest: full + [hire])
         XCTAssertEqual(seated.seats["hire"], Seat(floor: 2, desk: 0))
     }
@@ -217,10 +217,10 @@ final class BuildingTests: XCTestCase {
         XCTAssertEqual(bot.floorIndex, 3)
         bot.floor = "ground"
         XCTAssertEqual(bot.floorIndex, 0)
-        bot.floor = "upstairs"
-        XCTAssertNil(bot.floorIndex)
+        bot.floor = ""
+        XCTAssertNil(bot.floorIndex, "where new bots go")
         bot.floor = "7"
-        XCTAssertEqual(bot.checked?.floor, "upstairs")
+        XCTAssertEqual(bot.checked?.floor, "")
         XCTAssertEqual(CloudBot.floor(at: 3), "4")
         XCTAssertEqual(CloudBot.floor(at: 0), "ground")
     }
@@ -281,5 +281,24 @@ final class BuildingTests: XCTestCase {
         let failed = Deck.settingsAnswer(opened: false)
         XCTAssertEqual(failed.status, 502)
         XCTAssertTrue(String(decoding: failed.body, as: UTF8.self).contains("Settings… from Smolcorp's menu bar icon"))
+    }
+
+    /// Going home, a bot that yields never takes a desk kept for someone put on a floor and sent on from it, though
+    /// the first one placed is a bot that yields for the floor it sits on; seated again as they now sit, nobody moves.
+    /// The same case as the Go app's TestGoingHomeABotTakesNoDeskKeptForSomeoneSentOn: both apps seat alike.
+    func testGoingHomeABotTakesNoDeskKeptForSomeoneSentOn() {
+        var placed: [Upstairs<String>] = [
+            Upstairs(person: "A", id: "A", floor: 2, had: Seat(floor: 2, desk: 0), yields: true),  // a bot for 3F, at 3F's first desk
+            Upstairs(person: "P", id: "P", floor: 1, had: Seat(floor: 2, desk: 1), yields: true),  // a bot for 2F, at 3F's second
+            Upstairs(person: "H", id: "H", floor: 4, had: Seat(floor: 1, desk: 8)),               // put on 5F, sent on to 2F's last desk
+        ]
+        placed += (0..<Floor.desks).map { Upstairs(person: "f\($0)", id: "f\($0)", floor: 4, had: Seat(floor: 4, desk: $0)) }  // 5F full
+        var rest = (0..<8).map { Upstairs(person: "r\($0)", id: "r\($0)", had: Seat(floor: 1, desk: $0)) }
+        let seats = Deck.seat(placed: placed, rest: rest).seats
+        XCTAssertEqual(seats["H"], Seat(floor: 1, desk: 8), "H at 2F's last desk")
+        XCTAssertEqual(seats["P"], Seat(floor: 2, desk: 1), "P at 3F's second")
+        for i in placed.indices { placed[i].had = seats[placed[i].id] }
+        for i in rest.indices { rest[i].had = seats[rest[i].id] }
+        XCTAssertEqual(Deck.seat(placed: placed, rest: rest).seats, seats, "seated again, nobody moves")
     }
 }

@@ -210,7 +210,7 @@ func headless(d *Deck, count int) {
 func TestHeadlessRunsSitUpstairsAwayFromTheKeys(t *testing.T) {
 	d := newTestDeck(t)
 	running(d, 2)
-	headless(d, 14)
+	headless(d, desksPerFloor+2)
 	keys, overflow := d.layout()
 	for i, key := range keys {
 		if key.session != nil && key.session.Headless() {
@@ -230,9 +230,9 @@ func TestHeadlessRunsSitUpstairsAwayFromTheKeys(t *testing.T) {
 	if err := json.Unmarshal(d.snapshot(), &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Overflow != 0 || len(snapshot.Upstairs.Desks) != 12 || snapshot.Upstairs.Overflow != 2 {
-		t.Fatalf("downstairs over %d, upstairs %d desks and %d over; want 0, 12 and 2",
-			snapshot.Overflow, len(snapshot.Upstairs.Desks), snapshot.Upstairs.Overflow)
+	if snapshot.Overflow != 0 || len(snapshot.Upstairs.Desks) != desksPerFloor || snapshot.Upstairs.Overflow != 2 {
+		t.Fatalf("downstairs over %d, upstairs %d desks and %d over; want 0, %d and 2",
+			snapshot.Overflow, len(snapshot.Upstairs.Desks), snapshot.Upstairs.Overflow, desksPerFloor)
 	}
 	first := snapshot.Upstairs.Desks[0]
 	if first["id"] != "h0" || first["headless"] != true || first["role"] != nil {

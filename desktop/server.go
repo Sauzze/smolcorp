@@ -1173,21 +1173,25 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && path == "/setup/bots/mailbox":
 		rt.botMailboxChoose(w, r)
 
-	// One bot pinned or not, or put on a floor, from setup's list.
+	// One bot pinned or not, or put on a floor, from setup's list; or the floor new bots go to.
 	case r.Method == http.MethodPost && path == "/setup/bots/override":
 		var given struct {
-			ID     string  `json:"id"`
-			Pinned *bool   `json:"pinned"`
-			Floor  *string `json:"floor"`
-			Hidden bool    `json:"hidden"`
+			ID       string  `json:"id"`
+			Pinned   *bool   `json:"pinned"`
+			Floor    *string `json:"floor"`
+			Hidden   bool    `json:"hidden"`
+			BotFloor *int    `json:"botFloor"`
 		}
-		if json.NewDecoder(r.Body).Decode(&given) != nil || given.ID == "" {
-			writeStatus(w)(http.StatusBadRequest, `Send {"id": …} with "pinned" or "floor".`)
+		if json.NewDecoder(r.Body).Decode(&given) != nil || given.ID == "" && given.BotFloor == nil {
+			writeStatus(w)(http.StatusBadRequest, `Send {"id": …} with "pinned" or "floor", or {"botFloor": …}.`)
 			return
 		}
 		d.mu.Lock()
+		if given.BotFloor != nil && *given.BotFloor >= 0 && *given.BotFloor < floorCount {
+			config.BotFloor = *given.BotFloor
+		}
 		bots := slices.Clone(config.CloudBots)
-		found := false
+		found := given.ID == ""
 		for i := range bots {
 			if bots[i].ID != given.ID {
 				continue
@@ -1620,10 +1624,12 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"floors": checkedFloors(d.config.Floors),
 		// The folders whose sessions sit on a floor of their own.
 		"floorRules": checkedFloorRules(d.config.FloorRules),
-		// The cloud bots, for setup's list, each pinned or not and on its floor. Nothing here looks in the Grok
-		// Bot app, the Mac's alone, so none are found and none can be hidden from there.
-		"cloudBots": map[string]any{"detects": false, "bots": cloudBotsForSetup(d.config.CloudBots), "hidden": []any{}, "noRoom": []any{}},
-		"presets":   floorStyles(),
+		// The cloud bots, for setup's list, each pinned or not and on its floor; those at work with no room for
+		// them; and the floor new bots go to. Nothing here looks in the Grok Bot app, the Mac's alone, so none are
+		// found and none can be hidden from there.
+		"cloudBots": map[string]any{"detects": false, "bots": cloudBotsForSetup(d.config.CloudBots), "hidden": []any{},
+			"noRoom": d.botsWithNoDesk(), "botFloor": d.config.BotFloor},
+		"presets": floorStyles(),
 		// Saved looks, besides Default, the one the deck was last switched
 		// to, and whether it has changed since.
 		// A copy: the reply is written after the lock is let go.
