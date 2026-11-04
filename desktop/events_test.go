@@ -204,7 +204,7 @@ func TestNumberingGoesOnAcrossRestartsAndRotationKeepsTheNewest(t *testing.T) {
 	if l.oldestID <= 1 {
 		t.Errorf("oldest %d: nothing dropped", l.oldestID)
 	}
-	if info, err := os.Stat(l.earlier); err != nil || info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(l.earlier); err != nil || !modeIs(info, 0o600) {
 		t.Errorf("readable by you alone: %v %v", info, err)
 	}
 	again := newEventLog(folder, 600)

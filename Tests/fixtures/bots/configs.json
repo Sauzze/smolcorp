@@ -1,0 +1,82 @@
+[
+  {
+    "about": "An office as 1.24.0 kept it: the Mini Manager (the owner's RUBY) on the ground floor, the other bots upstairs, at desks on 2F, the first floor above, as the desks saved for them say. They stay on 2F, where they sat, which is where new bots go too.",
+    "before": {
+      "hireFolder": "/work",
+      "floors": [{"name": "Head", "preset": ""}, {"name": "Bot Land", "preset": "grokbots"}],
+      "cloudBots": [
+        {"id": "mini", "name": "Mini Manager", "badge": "crown", "floor": "ground", "discovered": true, "pinned": true,
+         "source": {"kind": "grokBotApp", "bot": "Mini Manager", "botId": "a1", "counts": "unprompted"}},
+        {"id": "one", "name": "One", "floor": "upstairs", "discovered": true, "source": {"kind": "grokBotApp", "bot": "One", "botId": "b2"}},
+        {"id": "two", "name": "Two", "floor": "upstairs", "discovered": true, "source": {"kind": "grokBotApp", "bot": "Two", "botId": "c3"}},
+        {"id": "three", "name": "Three", "floor": "upstairs"}
+      ]
+    },
+    "seats": {"cloud-one": {"floor": 1, "desk": 0}, "cloud-two": {"floor": 1, "desk": 1}, "cloud-three": {"floor": 1, "desk": 2}},
+    "after": {
+      "botFloor": 1,
+      "bots": [["mini", "ground"], ["one", "2"], ["two", "2"], ["three", "2"]],
+      "pinned": ["mini"],
+      "floorNames": ["Head", "Bot Land", "3F", "4F", "5F", "6F"],
+      "hireFolder": "/work"
+    }
+  },
+  {
+    "about": "More bots than the 9 there could be, none lost. U2 stays on 2F, where the desk saved for it is; U1 and U3, with no desk saved, fill 2F around the bots there, U2 among them, then 3F. A floor there isn't, or none, is where new bots go; new bots go to the floor most bots are on, here 6F. A bot twice, or with a bad id, is left out as ever.",
+    "before": {
+      "cloudBots": [
+        {"id": "mini", "name": "Mini Manager", "floor": "ground"},
+        {"id": "p1", "name": "P1", "floor": "2"}, {"id": "p2", "name": "P2", "floor": "2"}, {"id": "p3", "name": "P3", "floor": "2"},
+        {"id": "p4", "name": "P4", "floor": "2"}, {"id": "p5", "name": "P5", "floor": "2"}, {"id": "p6", "name": "P6", "floor": "2"},
+        {"id": "p7", "name": "P7", "floor": "2"},
+        {"id": "u1", "name": "U1", "floor": "upstairs"}, {"id": "u2", "name": "U2", "floor": "upstairs"}, {"id": "u3", "name": "U3", "floor": "upstairs"},
+        {"id": "s1", "name": "S1", "floor": "6"}, {"id": "s2", "name": "S2", "floor": "6"}, {"id": "s3", "name": "S3", "floor": "6"},
+        {"id": "s4", "name": "S4", "floor": "6"}, {"id": "s5", "name": "S5", "floor": "6"}, {"id": "s6", "name": "S6", "floor": "6"},
+        {"id": "s7", "name": "S7", "floor": "6"}, {"id": "s8", "name": "S8", "floor": "6"}, {"id": "s9", "name": "S9", "floor": "6"},
+        {"id": "s10", "name": "S10", "floor": "6"},
+        {"id": "roof", "name": "Roof", "floor": "roof"},
+        {"id": "plain", "name": "Plain"},
+        {"id": "u1", "name": "Twice", "floor": "upstairs"},
+        {"id": "bad id", "name": "Bad", "floor": "upstairs"}
+      ]
+    },
+    "seats": {"cloud-u2": {"floor": 1, "desk": 8}},
+    "after": {
+      "botFloor": 5,
+      "bots": [["mini", "ground"], ["p1", "2"], ["p2", "2"], ["p3", "2"], ["p4", "2"], ["p5", "2"], ["p6", "2"], ["p7", "2"],
+               ["u1", "2"], ["u2", "2"], ["u3", "3"],
+               ["s1", "6"], ["s2", "6"], ["s3", "6"], ["s4", "6"], ["s5", "6"], ["s6", "6"], ["s7", "6"], ["s8", "6"], ["s9", "6"], ["s10", "6"],
+               ["roof", ""], ["plain", ""]]
+    }
+  },
+  {
+    "about": "The floor new bots go to, once chosen, is kept whatever the bots' floors are, those settled as the app starts too.",
+    "before": {"botFloor": 3, "cloudBots": [{"id": "a", "name": "A", "floor": "2"}, {"id": "b", "name": "B", "floor": "2"}, {"id": "c", "name": "C", "floor": "upstairs"}]},
+    "seats": {"cloud-c": {"floor": 1, "desk": 2}},
+    "after": {"botFloor": 3, "bots": [["a", "2"], ["b", "2"], ["c", "2"]]}
+  },
+  {
+    "about": "One that is no floor is chosen afresh, as if never set: where the bots are.",
+    "before": {"botFloor": 9, "cloudBots": [{"id": "a", "name": "A", "floor": "4"}]},
+    "after": {"botFloor": 3, "bots": [["a", "4"]]}
+  },
+  {
+    "about": "A new config: no bots, and new bots go to 2F.",
+    "before": {},
+    "after": {"botFloor": 1, "bots": []}
+  },
+  {
+    "about": "Nine people put on 2F by their folder's rule, so the bots upstairs sat behind them on 3F, as the desks saved for them say: they stay on 3F, not on 2F, where there was no room for them, and new bots go there too.",
+    "before": {
+      "floorRules": [{"folder": "/work/team", "floor": 1}],
+      "cloudBots": [{"id": "one", "name": "One", "floor": "upstairs"}, {"id": "two", "name": "Two", "floor": "upstairs"}]
+    },
+    "seats": {
+      "t1": {"floor": 1, "desk": 0}, "t2": {"floor": 1, "desk": 1}, "t3": {"floor": 1, "desk": 2},
+      "t4": {"floor": 1, "desk": 3}, "t5": {"floor": 1, "desk": 4}, "t6": {"floor": 1, "desk": 5},
+      "t7": {"floor": 1, "desk": 6}, "t8": {"floor": 1, "desk": 7}, "t9": {"floor": 1, "desk": 8},
+      "cloud-one": {"floor": 2, "desk": 0}, "cloud-two": {"floor": 2, "desk": 1}
+    },
+    "after": {"botFloor": 2, "bots": [["one", "3"], ["two", "3"]]}
+  }
+]

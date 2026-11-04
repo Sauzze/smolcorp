@@ -60,7 +60,8 @@ func TestTheSummaryRunsMatchTheMacApps(t *testing.T) {
 	want := []string{"--print", "--model", "haiku", "--tools", "", "--strict-mcp-config", "--setting-sources", "",
 		"--disable-slash-commands", "--no-session-persistence", "--permission-mode", "dontAsk",
 		"--output-format", "json", "--system-prompt", "S"}
-	if got := summaryInvocationOf(providerClaude, "S", "P", "/f").args; !slices.Equal(got, want) {
+	// Windows's own form, the instructions on the input, has its test below.
+	if got := summaryInvocationFor("darwin", providerClaude, "S", "P", "/f").args; !slices.Equal(got, want) {
 		t.Errorf("claude: %q", got)
 	}
 	if got := summaryInvocationOf(providerOpenCode, "S", "P", "/f").args; !slices.Equal(got, []string{"run", "--standalone", "--agent", "summary", "--format", "json"}) {

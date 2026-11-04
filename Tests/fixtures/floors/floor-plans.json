@@ -1,0 +1,216 @@
+{
+ "case": "each floor upstairs arranged its own way, by its number: '1' for 2F up to '5' for 6F, each kept as the ground floor's arrangement is; a floor that isn't one, or isn't an arrangement, is left out",
+ "given": {
+  "corner": "arcade",
+  "plan": {
+   "wide": {
+    "desk1": {
+     "x": 5
+    }
+   }
+  },
+  "floorPlans": {
+   "1": {
+    "wide": {
+     "desk1": {
+      "x": 10,
+      "y": -6.4,
+      "workspace": "tent",
+      "monitor": "nonsense"
+     },
+     "couch": {
+      "x": -20,
+      "size": 1.5
+     },
+     "sofa": {
+      "x": 3
+     },
+     "plant": "here"
+    },
+    "tall": {
+     "plant": {
+      "off": true
+     }
+    },
+    "added": {
+     "wide": [
+      {
+       "kind": "fishtank",
+       "x": 4,
+       "y": 2,
+       "size": 2
+      },
+      {
+       "kind": "notapiece"
+      }
+     ],
+     "tall": {
+      "kind": "fishtank"
+     }
+    },
+    "hung": {
+     "wide": [
+      {
+       "kind": "whiteboard",
+       "x": 60
+      },
+      {
+       "kind": "bare",
+       "x": 10
+      },
+      {
+       "kind": "window",
+       "x": 9999
+      }
+     ]
+    }
+   },
+   "3": {
+    "wide": {
+     "corner": {
+      "x": 9999,
+      "size": 3
+     },
+     "button": {
+      "off": true,
+      "size": 2
+     }
+    }
+   },
+   "5": {},
+   "0": {
+    "wide": {
+     "desk1": {
+      "x": 1
+     }
+    }
+   },
+   "6": {
+    "wide": {}
+   },
+   "2": "not an arrangement",
+   "4": [
+    1,
+    2
+   ],
+   "two": {
+    "wide": {}
+   }
+  }
+ },
+ "kept": {
+  "1": {
+   "wide": {
+    "desk1": {
+     "x": 10,
+     "y": -6,
+     "size": 1,
+     "off": false,
+     "workspace": "tent",
+     "monitor": "auto",
+     "finish": "auto",
+     "chair": "auto",
+     "thing": "auto",
+     "outfit": "auto",
+     "colour": "auto"
+    },
+    "couch": {
+     "x": -20,
+     "y": 0,
+     "size": 1.5,
+     "off": false,
+     "workspace": "auto",
+     "monitor": "auto",
+     "finish": "auto",
+     "chair": "auto",
+     "thing": "auto",
+     "outfit": "auto",
+     "colour": "auto"
+    }
+   },
+   "tall": {
+    "plant": {
+     "x": 0,
+     "y": 0,
+     "size": 1,
+     "off": true,
+     "workspace": "auto",
+     "monitor": "auto",
+     "finish": "auto",
+     "chair": "auto",
+     "thing": "auto",
+     "outfit": "auto",
+     "colour": "auto"
+    }
+   },
+   "added": {
+    "wide": [
+     {
+      "kind": "fishtank",
+      "x": 4,
+      "y": 2,
+      "size": 2
+     }
+    ],
+    "tall": []
+   },
+   "hung": {
+    "wide": [
+     {
+      "kind": "whiteboard",
+      "x": 60
+     },
+     {
+      "kind": "window",
+      "x": 448
+     }
+    ]
+   }
+  },
+  "3": {
+   "wide": {
+    "corner": {
+     "x": 400,
+     "y": 0,
+     "size": 1,
+     "off": false,
+     "workspace": "auto",
+     "monitor": "auto",
+     "finish": "auto",
+     "chair": "auto",
+     "thing": "auto",
+     "outfit": "auto",
+     "colour": "auto"
+    },
+    "button": {
+     "x": 0,
+     "y": 0,
+     "size": 2,
+     "off": false,
+     "workspace": "auto",
+     "monitor": "auto",
+     "finish": "auto",
+     "chair": "auto",
+     "thing": "auto",
+     "outfit": "auto",
+     "colour": "auto"
+    }
+   },
+   "tall": {},
+   "added": {
+    "wide": [],
+    "tall": []
+   },
+   "hung": {}
+  },
+  "5": {
+   "wide": {},
+   "tall": {},
+   "added": {
+    "wide": [],
+    "tall": []
+   },
+   "hung": {}
+  }
+ }
+}

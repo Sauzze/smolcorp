@@ -223,6 +223,9 @@ func TestIfTheWindowBeginsAskingAfterThePasteReturnIsNotPressed(t *testing.T) {
 
 func TestAMultiLineMessageIsPastedAsItIsWhenTheAgentTakesBracketedPaste(t *testing.T) {
 	f := startFakeClaude(t, "mt-multi", "idle", true)
+	if out, status, ran := f.h.run(f.h.command("display-message", "-p", "-t", hirePane, "#{bracket_paste_flag}")); ran && status == 0 && out == "" {
+		t.Skip("this tmux is before 3.7: it can't say whether the agent asked for bracketed paste, so the message goes as one line")
+	}
 	var commits int
 	got := f.try("line one\nline two", false, &commits, true)
 	if got.Outcome != mailSent || got.Note != "" {
@@ -320,7 +323,8 @@ func TestThePasteIsOneBracketedPasteThroughANamedBufferAndReturnIsSeparate(t *te
 func TestPasteStateReadsTheTwoFlags(t *testing.T) {
 	r := newRecorder()
 	h, socket := fakeHireTmux(t, r, 0)
-	for out, want := range map[string]pasteMode{"0 1": {false, true}, "1 0": {true, false}, "0 0": {false, false}} {
+	// "0 " and "1 " are a tmux before 3.7, which has no bracket_paste_flag: taken as no bracketed paste.
+	for out, want := range map[string]pasteMode{"0 1": {false, true}, "1 0": {true, false}, "0 0": {false, false}, "0 ": {false, false}, "1 ": {true, false}} {
 		r.output = out
 		if got, ok := h.pasteState(); !ok || got != want {
 			t.Errorf("%q gave %+v %v", out, got, ok)
@@ -329,7 +333,7 @@ func TestPasteStateReadsTheTwoFlags(t *testing.T) {
 	if want := []string{"-S", socket, "display-message", "-p", "-t", "=hire:", "#{pane_in_mode} #{bracket_paste_flag}"}; !reflect.DeepEqual(r.asked[0], want) {
 		t.Errorf("asked %q", r.asked[0])
 	}
-	for _, bad := range []string{"", "1", "0 1 2", "a b", "0 x"} {
+	for _, bad := range []string{"", " ", " 1", "1", "0 1 2", "0  1", "a b", "0 x"} {
 		r.output = bad
 		if _, ok := h.pasteState(); ok {
 			t.Errorf("%q was read", bad)

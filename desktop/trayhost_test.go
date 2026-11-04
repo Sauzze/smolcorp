@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -156,6 +157,9 @@ func TestWithNoTrayHostTheWaitEndsInTheFallback(t *testing.T) {
 
 // The office's button on setup says whether the browser opened.
 func TestSetupOfficeAnswersWhetherTheBrowserOpened(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("on Windows the office opens in a window of its own (window_windows.go), never the browser")
+	}
 	d := newTestDeck(t)
 	opener := func(err error) *[]string {
 		saved := openURL

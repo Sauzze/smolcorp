@@ -192,7 +192,7 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	if floor > 0 {
 		// Upstairs, at a desk nobody sits at: its floor's folder, if the floor has one.
 		index, err := strconv.Atoi(desk)
-		if err != nil || index < 0 || index >= mostUpstairs {
+		if err != nil || index < 0 || index >= desksPerFloor {
 			return http.StatusBadRequest, "Unknown desk"
 		}
 		_, overflow := d.layout()

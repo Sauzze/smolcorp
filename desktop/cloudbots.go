@@ -35,9 +35,10 @@ type CloudBot struct {
 	Badge string `json:"badge"`
 	// Always at its desk, or only between "start" and "stop".
 	Permanent bool `json:"permanent"`
-	// Where its desk is: "upstairs", the floor above, by the headless runs,
-	// as it never has a terminal; "ground", at a free key; or "2" to "6", a
-	// floor of its own choosing, as it was put there from the office.
+	// The floor its desk is on, like anyone's: "ground", at a key, or "2" to
+	// "6", as you put it there, from the office or setup, where it stays; or
+	// "", where a floor rule for its folder says, else where new bots go
+	// (Config.BotFloor). A floor that's full sends it on to one with room.
 	Floor string `json:"floor"`
 	// Where its reports are seen, besides the event route.
 	Source CloudSource `json:"source"`
@@ -85,8 +86,14 @@ type CloudSource struct {
 
 const (
 	cloudIDLimit = 32
-	// The most cloud bots there can be.
-	cloudBotsMost = 9
+	// The most cloud bots there can be: as many as the building has desks,
+	// the ground floor's with the rest, as one more could never sit. How
+	// many fit on each floor is the floors'.
+	cloudBotsMost = floorCount * desksPerFloor
+	// What a bot's floor was before bots could sit on any floor: the floors
+	// above, where there was room. Kept until the app starts, then settled on
+	// the floor it sits on (see settledCloudBots); until then, read as no floor.
+	cloudUpstairs = "upstairs"
 	// What a cloud bot's desk is told: a report, its news seen, at its desk or gone.
 	cloudReport = "report"
 	cloudSeen   = "seen"
@@ -95,7 +102,7 @@ const (
 )
 
 var (
-	cloudFloors  = []string{"upstairs", "ground", "2", "3", "4", "5", "6"}
+	cloudFloors  = []string{"", "ground", "2", "3", "4", "5", "6"}
 	cloudKinds   = []string{"none", "grokBotApp"}
 	cloudCounts  = []string{"unprompted", "any"}
 	cloudEvents  = []string{cloudReport, cloudSeen, cloudStart, cloudStop}
@@ -108,7 +115,7 @@ var (
 )
 
 func standardCloudBot() CloudBot {
-	return CloudBot{Agent: string(Grok), Outfit: "grok", Permanent: true, Floor: "upstairs", Source: standardCloudSource()}
+	return CloudBot{Agent: string(Grok), Outfit: "grok", Permanent: true, Source: standardCloudSource()}
 }
 
 func standardCloudSource() CloudSource { return CloudSource{Kind: "none", Counts: "unprompted"} }
@@ -219,15 +226,17 @@ func (b CloudBot) checked() (CloudBot, bool) {
 	if slices.Contains(cloudBadges, b.Badge) {
 		badge = b.Badge
 	}
-	floor := "upstairs"
-	if slices.Contains(cloudFloors, b.Floor) {
+	floor := ""
+	if slices.Contains(cloudFloors, b.Floor) || b.Floor == cloudUpstairs {
 		floor = b.Floor
 	}
 	return CloudBot{ID: id, Name: name, Agent: agent, Outfit: outfit, Badge: badge, Permanent: b.Permanent, Floor: floor, Source: source,
 		Discovered: b.Discovered, Pinned: b.Pinned, Mailbox: strings.TrimSpace(b.Mailbox)}, true
 }
 
-// checkedCloudBots is the bots as kept: each checked, each id once, at most cloudBotsMost.
+// checkedCloudBots is the bots as kept: each checked, each id once, at most
+// cloudBotsMost. One still "upstairs" is kept so, to be settled where it sat
+// as the app starts (see settledCloudBots).
 func checkedCloudBots(bots []CloudBot) []CloudBot {
 	kept := []CloudBot{}
 	for _, bot := range bots {
@@ -236,6 +245,74 @@ func checkedCloudBots(bots []CloudBot) []CloudBot {
 		}
 	}
 	return kept
+}
+
+// settledCloudBots puts each bot "upstairs" on the floor it sits on now,
+// there to stay: the floor of the desk it had, as saved across a restart
+// (seats, by its desk's id), the only record of where a bot sits. One with no
+// desk saved on a floor above goes to the first above the ground floor with a
+// desk free of the bots there, in order, as bots upstairs were seated; with
+// none, where new bots go. The others as they are, so a second time changes
+// nothing. The Mac app's CloudBot.settled does the same.
+func settledCloudBots(given []CloudBot, seats map[string]Seat) []CloudBot {
+	bots := slices.Clone(given)
+	for i, bot := range bots {
+		if seat, ok := seats[bot.sessionID()]; ok && bot.Floor == cloudUpstairs && seat.Floor >= 1 && seat.Floor < floorCount {
+			bots[i].Floor = cloudFloorAt(seat.Floor)
+		}
+	}
+	taken := map[int]int{}
+	for _, bot := range bots {
+		if floor := bot.floorIndex(); floor > 0 {
+			taken[floor]++
+		}
+	}
+	for i, bot := range bots {
+		if bot.Floor != cloudUpstairs {
+			continue
+		}
+		bots[i].Floor = ""
+		for floor := 1; floor < floorCount; floor++ {
+			if taken[floor] < desksPerFloor {
+				bots[i].Floor = cloudFloorAt(floor)
+				taken[floor]++
+				break
+			}
+		}
+	}
+	return bots
+}
+
+// newBotsFloor is where new bots go until you choose: the floor above the
+// ground floor that most bots sit on, the lower of two with as many, as where
+// your bots are is their floor; else 2F, where bots always went first.
+func newBotsFloor(bots []CloudBot) int {
+	count := map[int]int{}
+	for _, bot := range bots {
+		if floor := bot.floorIndex(); floor > 0 {
+			count[floor]++
+		}
+	}
+	most := 1
+	for floor := 2; floor < floorCount; floor++ {
+		if count[floor] > count[most] {
+			most = floor
+		}
+	}
+	return most
+}
+
+// floorOn is the floor the bot sits on, 0 for the ground floor up to 5 for
+// 6F: the one it was put on; else the one a floor rule gives its folder, as
+// anyone's; else botFloor, where new bots go.
+func (b CloudBot) floorOn(rules []FloorRule, botFloor int) int {
+	if floor := b.floorIndex(); floor >= 0 {
+		return floor
+	}
+	if floor, ok := ruleFloor(b.folder(), rules); ok {
+		return floor
+	}
+	return botFloor
 }
 
 // role is what it wears, as the phone is told of a role, through the path
@@ -401,9 +478,9 @@ func (d *cloudDesk) apply(event string, now time.Time, permanent bool, action *C
 
 // cloudDesks are the cloud bots' desks: their sessions, as the office draws
 // them, kept here rather than in Sessions, so nothing that looks for tabs,
-// hooks or processes ever touches them. They sit upstairs, first, before the
-// headless runs, or at free desks on the ground floor as any new session
-// would; they have no controls. Used with the deck's lock held.
+// hooks or processes ever touches them. Each sits on its floor, first there,
+// before the headless runs, or at a free desk on the ground floor as any new
+// session would; they have no controls. Used with the deck's lock held.
 type cloudDesks struct {
 	bots     []CloudBot
 	desks    map[string]cloudDesk
@@ -478,23 +555,22 @@ func (c *cloudDesks) configure(given []CloudBot) {
 	c.update(false)
 }
 
-// seated is the desks to seat on floor, in the order the bots were set.
-// seatedAbove is the desks to seat above the ground floor, in the order the
-// bots were set, each with the floor it was put on, or -1 for upstairs, where
-// there's room.
-func (c *cloudDesks) seatedAbove() ([]*Session, []int) {
-	seated, floors := []*Session{}, []int{}
+// seated is the desks to seat, each with its bot, in the order the bots were
+// set: the office puts each on its floor (see Deck.cloudFloor).
+func (c *cloudDesks) seated() ([]*Session, []CloudBot) {
+	seated, bots := []*Session{}, []CloudBot{}
 	for _, bot := range c.bots {
-		if s := c.sessions[bot.sessionID()]; bot.Floor != "ground" && s != nil && s.State != Idle {
+		if s := c.sessions[bot.sessionID()]; s != nil && s.State != Idle {
 			seated = append(seated, s)
-			floors = append(floors, bot.floorIndex())
+			bots = append(bots, bot)
 		}
 	}
-	return seated, floors
+	return seated, bots
 }
 
 // floorIndex is the bot's floor as the building counts them: 0 for the
-// ground floor, 1 to 5 for 2F to 6F; -1 upstairs, where there's room.
+// ground floor, 1 to 5 for 2F to 6F; -1 for one that goes where its rule or
+// new bots go, as one still "upstairs" does.
 func (b CloudBot) floorIndex() int {
 	if b.Floor == "ground" {
 		return 0
@@ -511,16 +587,6 @@ func cloudFloorAt(index int) string {
 		return "ground"
 	}
 	return strconv.Itoa(index + 1)
-}
-
-func (c *cloudDesks) seated(floor string) []*Session {
-	seated := []*Session{}
-	for _, bot := range c.bots {
-		if s := c.sessions[bot.sessionID()]; bot.Floor == floor && s != nil && s.State != Idle {
-			seated = append(seated, s)
-		}
-	}
-	return seated
 }
 
 // botOf is the bot at the desk of session id, if it's a cloud bot's.

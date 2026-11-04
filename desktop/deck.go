@@ -449,7 +449,13 @@ type deckKey struct {
 // have no keys: they sit upstairs (see upstairs). Cloud bots on the ground
 // floor take free desks as any new session does.
 func (d *Deck) layout() ([]deckKey, []*Session) {
-	remaining := append(slices.DeleteFunc(d.sessions.All(), (*Session).Headless), d.cloud.seated("ground")...)
+	remaining := slices.DeleteFunc(d.sessions.All(), (*Session).Headless)
+	bots, sitting := d.cloud.seated()
+	for i, s := range bots {
+		if d.cloudFloor(sitting[i]) == 0 {
+			remaining = append(remaining, s)
+		}
+	}
 	// A session that took another's place in its tab, as after /clear, takes its key and floor too.
 	for new, old := range d.sessions.TakeReplacements() {
 		if index, ok := d.keyOf[old]; ok {
@@ -906,9 +912,6 @@ func (d *Deck) hiredBy(s *Session) map[string]any {
 	}
 	return map[string]any{"id": nil, "name": lastPart(parent)}
 }
-
-// mostUpstairs is as many desks as each floor above the ground floor has.
-const mostUpstairs = 12
 
 // upstairs is the second floor: its desks (see floorsState), and how many sit
 // above it or have no floor. Its desks show what each is doing, with every

@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"runtime"
 	"slices"
@@ -181,7 +182,7 @@ func TestOpeningACloudCardMarksItSeenAndNothingElse(t *testing.T) {
 	}
 	given := newCloudAction(cloudReportText, 2, time.Now())
 	desks.apply(cloudReport, "smolcorp-mini", &given)
-	if seated := desks.seated("upstairs"); len(seated) != 1 || seated[0].State != Unread {
+	if seated, _ := desks.seated(); len(seated) != 1 || seated[0].State != Unread {
 		t.Fatalf("after a report upstairs is %v", seated)
 	}
 	desks.apply(cloudReport, "smolcorp-mini", nil)
@@ -195,7 +196,7 @@ func TestOpeningACloudCardMarksItSeenAndNothingElse(t *testing.T) {
 	if !desks.seen(id) {
 		t.Fatal("its card opened isn't seen")
 	}
-	if seated := desks.seated("upstairs"); seated[0].State != Thinking || desks.last(id).Count != 3 {
+	if seated, _ := desks.seated(); seated[0].State != Thinking || desks.last(id).Count != 3 {
 		t.Errorf("seen, it shows %s with %d reports: want blue at once, the card unchanged", seated[0].State, desks.last(id).Count)
 	}
 	if desks.seen("some-terminal-session") || desks.seen("smolcorp-mini") {
@@ -219,7 +220,7 @@ func TestBotsAreCheckedAsTheyAreKept(t *testing.T) {
 	if len(bots) != 2 || bots[0].ID != "smolcorp-mini" || bots[1].ID != "other" {
 		t.Fatalf("kept %+v", bots)
 	}
-	want := CloudBot{ID: "smolcorp-mini", Name: "Smolcorp mini", Agent: "grok", Outfit: "grok", Permanent: true, Floor: "upstairs",
+	want := CloudBot{ID: "smolcorp-mini", Name: "Smolcorp mini", Agent: "grok", Outfit: "grok", Permanent: true, Floor: "",
 		Source: CloudSource{Kind: "grokBotApp", Bot: "Smolcorp mini", Counts: "unprompted"}}
 	if bots[0] != want {
 		t.Errorf("the first is\n%+v\nwant\n%+v", bots[0], want)
@@ -227,20 +228,20 @@ func TestBotsAreCheckedAsTheyAreKept(t *testing.T) {
 	if bots[0].sessionID() != "cloud-smolcorp-mini" || bots[0].folder() != "/cloud/Smolcorp mini" {
 		t.Errorf("its desk is %s in %s", bots[0].sessionID(), bots[0].folder())
 	}
-	want = CloudBot{ID: "other", Name: "a-b", Agent: "grok", Outfit: "", Badge: "megaphone", Permanent: false, Floor: "upstairs",
+	want = CloudBot{ID: "other", Name: "a-b", Agent: "grok", Outfit: "", Badge: "megaphone", Permanent: false, Floor: "",
 		Source: standardCloudSource()}
 	if bots[1] != want {
-		t.Errorf("the second is\n%+v\nwant\n%+v: a floor there isn't is upstairs", bots[1], want)
+		t.Errorf("the second is\n%+v\nwant\n%+v: a floor there isn't is where new bots go", bots[1], want)
 	}
 	if ground, _ := (CloudBot{ID: "g", Name: "G", Floor: "ground"}).checked(); ground.Floor != "ground" {
 		t.Errorf("the ground floor became %s", ground.Floor)
 	}
 	var many []CloudBot
-	for _, id := range "abcdefghijkl" {
-		many = append(many, CloudBot{ID: string(id), Name: "Bot"})
+	for i := range cloudBotsMost + 3 {
+		many = append(many, CloudBot{ID: fmt.Sprintf("b%d", i), Name: "Bot"})
 	}
 	if kept := checkedCloudBots(many); len(kept) != cloudBotsMost {
-		t.Errorf("kept %d of 12 bots, want %d", len(kept), cloudBotsMost)
+		t.Errorf("kept %d of %d bots, want %d", len(kept), len(many), cloudBotsMost)
 	}
 	for _, bad := range []string{`{"id": 3, "name": "x"}`, `{"id": "x", "permanent": "yes"}`, `{"id": "x", "source": "none"}`, `"x"`, `null`} {
 		var bot CloudBot
@@ -336,7 +337,7 @@ func deckState(t *testing.T, d *Deck) (keys []map[string]any, upstairs []map[str
 func TestACloudBotSitsUpstairsFirstOrAtAFreeKey(t *testing.T) {
 	d := newTestDeck(t)
 	running(d, 1)
-	headless(d, mostUpstairs)
+	headless(d, desksPerFloor)
 	upstairs := standardCloudBotNamed("mini", "Smolcorp mini")
 	upstairs.Badge = "crown"
 	ground := standardCloudBotNamed("helper", "Helper")
@@ -346,8 +347,8 @@ func TestACloudBotSitsUpstairsFirstOrAtAFreeKey(t *testing.T) {
 	withCloudBots(d, upstairs, ground, visitor)
 
 	keys, desks, overflow := deckState(t, d)
-	if len(desks) != mostUpstairs || overflow != 1 {
-		t.Fatalf("%d desks upstairs and %d over, want %d and 1: the bot first, the runs after", len(desks), int(overflow), mostUpstairs)
+	if len(desks) != desksPerFloor || overflow != 1 {
+		t.Fatalf("%d desks upstairs and %d over, want %d and 1: the bot first, the runs after", len(desks), int(overflow), desksPerFloor)
 	}
 	bot := desks[0]
 	if bot["id"] != "cloud-mini" || bot["cloud"] != true || bot["name"] != "Smolcorp mini" || bot["state"] != "thinking" || bot["last"] != nil {
@@ -378,7 +379,8 @@ func TestACloudBotSitsUpstairsFirstOrAtAFreeKey(t *testing.T) {
 		t.Errorf("an auto outfit is %v, want its agent's own", role["outfit"])
 	}
 
-	// A visitor sits down to report, where there's room, and nobody upstairs moves for it; its card says what it did.
+	// A visitor sits down to report: 2F, where new bots go, is full, so where there's room, and nobody upstairs moves
+	// for it, as nobody put it on 2F; its card says what it did.
 	replied := newCloudAction("Replied", 2, time.Now())
 	reported(d, "visitor", &replied)
 	_, desks, _ = deckState(t, d)
@@ -548,7 +550,7 @@ func TestSetupSetsTheCloudBotsAllAtOnce(t *testing.T) {
 		}
 	}
 	got, body := set(`{"bots": [{"id": "Mini", "name": "Smolcorp mini"}, {"id": "bad id", "name": "x"}]}`)
-	want := `{"bots":[{"id":"mini","name":"Smolcorp mini","agent":"grok","outfit":"grok","badge":"","permanent":true,"floor":"upstairs",` +
+	want := `{"bots":[{"id":"mini","name":"Smolcorp mini","agent":"grok","outfit":"grok","badge":"","permanent":true,"floor":"",` +
 		`"source":{"kind":"none","bot":"","botId":"","counts":"unprompted"}}]}`
 	if got != 200 || strings.TrimSpace(body) != want {
 		t.Errorf("setting the bots: %d %s\nwant %s", got, body, want)

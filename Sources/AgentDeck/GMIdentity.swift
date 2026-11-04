@@ -1,9 +1,19 @@
 import Foundation
+import os
 import Security
+
+/// What reading the kept token found: the text kept (checked later), no item at all,
+/// or an item that couldn't be read (a locked Keychain, an app signed another way).
+/// Only `none` means there is no GM yet: a read that failed never makes a new token.
+enum GMTokenRead: Equatable {
+    case token(String)
+    case none
+    case failed
+}
 
 /// Where the GM's token is kept between runs of the app.
 protocol GMTokenStore {
-    func read() -> String?
+    func read() -> GMTokenRead
     func write(_ token: String) -> Bool
     func remove()
 }
@@ -18,13 +28,23 @@ struct GMKeychain: GMTokenStore {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: GMKeychain.service, kSecAttrAccount as String: GMKeychain.account]
     }
 
-    func read() -> String? {
+    func read() -> GMTokenRead {
         var query = match
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var found: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let data = found as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        let status = SecItemCopyMatching(query as CFDictionary, &found)
+        return GMKeychain.result(status: status, data: found as? Data)
+    }
+
+    /// Only "not found" is no item. Any other failure is an item there that this run can't read;
+    /// an item that reads but isn't text is no token, and is replaced like one.
+    static func result(status: OSStatus, data: Data?) -> GMTokenRead {
+        switch status {
+        case errSecSuccess: return .token(data.flatMap { String(data: $0, encoding: .utf8) } ?? "")
+        case errSecItemNotFound: return .none
+        default: return .failed
+        }
     }
 
     func write(_ token: String) -> Bool {
@@ -75,6 +95,13 @@ final class GMIdentity {
     private let lock = NSLock()
     private var kept: String?
     private var loaded = false
+    /// The Keychain had an item this run couldn't read, and no token file to fall back on:
+    /// no token until the next launch or a rotate, and none made in its place.
+    private var unreadable = false
+    #if DEBUG
+    // The app logs nothing in a release (see scripts/check-public.sh): a debug build says why there's no token.
+    private static let log = Logger(subsystem: "io.github.sauzze.agentdeck", category: "gm")
+    #endif
     private var seen = false
     /// The session a by-hand GM said it runs in, while `seen` holds. In memory only, like `seen`.
     private var seenSession: String?
@@ -113,22 +140,46 @@ final class GMIdentity {
     }
 
     /// The token in memory, read from the Keychain the first time. Call with the lock held.
+    /// A read that failed is not "no token": with by-hand on, the private token file holds the
+    /// same token and is used; without it there is no token for now, and none is made, so the GM
+    /// and its remembered session are kept. Nothing is written back to the Keychain after a failed
+    /// read: its write is a delete then an add, and an add that failed then would leave no item,
+    /// which the next launch would read as "no token" and rotate.
     private func current() -> String? {
         if !loaded {
-            kept = store.read().flatMap(GMIdentity.valid)
+            switch store.read() {
+            case .token(let text): kept = GMIdentity.valid(text)
+            case .none: kept = nil
+            case .failed:
+                // Read as it is: the app wrote it (0600), and nothing here changes its folder.
+                kept = fileAllowed() ? (try? String(contentsOf: tokenFile, encoding: .utf8)).flatMap(GMIdentity.valid) : nil
+                if kept != nil {
+                    #if DEBUG
+                    GMIdentity.log.error("The GM token couldn't be read from the Keychain; the by-hand token file's was used")
+                    #endif
+                } else {
+                    unreadable = true
+                    #if DEBUG
+                    GMIdentity.log.error("The GM token couldn't be read from the Keychain and there's no token file to use: no GM token until the next launch or a rotate, and none made in its place")
+                    #endif
+                }
+            }
             loaded = true
         }
         return kept
     }
 
-    /// The token, made now if there is none yet. Nil only if it can't be kept.
+    /// No token now, and one may be made: there was really none, not one that couldn't be read. Call with the lock held.
+    private var mayMake: Bool { current() == nil && !unreadable }
+
+    /// The token, made now if there is none yet. Nil if it can't be kept, or if the one kept couldn't be read.
     func token() -> String? {
         lock.lock(); defer { lock.unlock() }
         if let token = current() {
             syncFile(token)
             return token
         }
-        return make()
+        return mayMake ? make() : nil
     }
 
     /// Whether a header's value is the GM's token. It never makes one: with
@@ -238,7 +289,7 @@ final class GMIdentity {
     func applySetting() {
         lock.lock(); defer { lock.unlock() }
         if fileAllowed() {
-            if let token = current() ?? make() { syncFile(token) }
+            if let token = current() ?? (mayMake ? make() : nil) { syncFile(token) }
         } else {
             seen = false
             clearRemembered()
@@ -255,6 +306,7 @@ final class GMIdentity {
         seen = false
         kept = fresh
         loaded = true
+        unreadable = false
         syncFile(fresh)
         return fresh
     }

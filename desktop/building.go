@@ -1,9 +1,11 @@
 package desktop
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -168,6 +170,12 @@ type upstairsPerson[Person any] struct {
 	id     string
 	floor  int
 	had    *Seat
+	// On its floor because nobody put it there, as a cloud bot that goes where
+	// its folder's rule or new bots go: on that floor full, it takes nobody's
+	// desk, and sits where there's room, keeping that desk as others come and
+	// go till one is free on its own floor. There only for want of room, it
+	// makes way for anyone put on that floor (see seatBuilding).
+	yields bool
 }
 
 // seatedPerson is someone seated above the ground floor, with their desk.
@@ -176,13 +184,17 @@ type seatedPerson[Person any] struct {
 	desk   int
 }
 
-// seatBuilding is the building above the ground floor, mostUpstairs desks a
+// seatBuilding is the building above the ground floor, desksPerFloor desks a
 // floor. Those put on a floor sit there first, at the desk they had if it's
 // still free, else at its first free one; a floor that's full sends the rest
-// to be seated with everyone else. Then everyone else, in order: at the desk
-// they had if it's free, else at the first free desk from 2F up. So nobody
-// moves when someone else comes or goes. Each floor's people in the order of
-// their desks; how many there's no desk for; and the desk each one has now.
+// to be seated with everyone else, past anyone there only for want of room
+// elsewhere unless they yield. One who yields, sent on from its floor, keeps
+// the desk it has on another as anyone not put on a floor does, making way for
+// those put there, till its own has a desk for it. Then everyone else, in
+// order: at the desk they had if it's free, else at the first free desk from
+// 2F up. So nobody moves when someone else comes or goes. Each floor's people
+// in the order of their desks; how many there's no desk for; and the desk each
+// one has now.
 func seatBuilding[Person any](placed, rest []upstairsPerson[Person]) ([][]seatedPerson[Person], int, map[string]Seat) {
 	everyone := slices.Concat(placed, rest)
 	taken := map[Seat]int{}
@@ -193,12 +205,13 @@ func seatBuilding[Person any](placed, rest []upstairsPerson[Person]) ([][]seated
 		seats[everyone[index].id] = seat
 	}
 	valid := func(seat *Seat) bool {
-		return seat != nil && seat.Floor >= 1 && seat.Floor < floorCount && seat.Desk >= 0 && seat.Desk < mostUpstairs
+		return seat != nil && seat.Floor >= 1 && seat.Floor < floorCount && seat.Desk >= 0 && seat.Desk < desksPerFloor
 	}
 	onAFloor := func(p upstairsPerson[Person]) bool { return p.floor >= 1 && p.floor < floorCount }
 	seated := func(i int) bool { _, ok := seats[everyone[i].id]; return ok }
 	// First everyone at the desk they had, so nobody moves for someone new: those put on a floor at theirs there,
-	// then everyone else at theirs, wherever it is.
+	// then everyone else at theirs, wherever it is; then those who yield at theirs on a floor not their own, where
+	// theirs had no room: after the rest, so one back at a desk it had takes no one's.
 	for i, p := range placed {
 		if onAFloor(p) && valid(p.had) && p.had.Floor == p.floor && free(*p.had) {
 			sit(i, *p.had)
@@ -209,49 +222,114 @@ func seatBuilding[Person any](placed, rest []upstairsPerson[Person]) ([][]seated
 			sit(len(placed)+i, *had)
 		}
 	}
+	for i, p := range placed {
+		if p.yields && onAFloor(p) && !seated(i) && valid(p.had) && free(*p.had) {
+			sit(i, *p.had)
+		}
+	}
+	// On floor only for want of room on its own: one who yields; and anyone not put on a floor, there for want of
+	// room anywhere.
+	away := func(i, floor int) bool { return i < len(placed) && everyone[i].yields && everyone[i].floor != floor }
+	makesWay := func(i, floor int) bool { return i >= len(placed) || away(i, floor) }
+	// A desk kept for someone put on another floor and sent on from it, who sits again at the desk they had
+	// below: one who yields takes nobody's desk, theirs included.
+	keptFor := func(seat Seat) bool {
+		for j, q := range placed {
+			if !q.yields && !seated(j) && valid(q.had) && *q.had == seat {
+				return true
+			}
+		}
+		return false
+	}
+	// The first free desk on floor (for one who yields, not a desk kept for someone), else, with gives, the first
+	// whose one there gives it up; -1 for neither.
+	deskOn := func(floor int, yields bool, gives func(i, floor int) bool) int {
+		for desk := 0; desk < desksPerFloor; desk++ {
+			if seat := (Seat{floor, desk}); free(seat) && !(yields && keptFor(seat)) {
+				return desk
+			}
+		}
+		for desk := 0; desk < desksPerFloor && gives != nil; desk++ {
+			if at, ok := taken[Seat{floor, desk}]; ok && gives(at, floor) {
+				return desk
+			}
+		}
+		return -1
+	}
 	// Those put on a floor and new there: at a free desk on it; on a floor that's full, at the desk of someone there
-	// only for want of room elsewhere, who goes to the floors with room. With neither, where there's room.
+	// only for want of room elsewhere, who goes to the floors with room, unless nobody put them there (yields).
+	// With neither, where there's room.
 	var unseated []int
 	for i, p := range placed {
-		if seated(i) {
+		if seated(i) || slices.Contains(unseated, i) {
 			continue
 		}
 		if !onAFloor(p) {
 			unseated = append(unseated, i)
 			continue
 		}
-		spot, other := -1, -1
-		for desk := 0; desk < mostUpstairs && spot < 0; desk++ {
-			if free(Seat{p.floor, desk}) {
-				spot = desk
-			}
+		gives := makesWay
+		if p.yields {
+			gives = nil // it takes nobody's desk
 		}
-		for desk := 0; desk < mostUpstairs && spot < 0; desk++ {
-			if at := taken[Seat{p.floor, desk}]; at >= len(placed) {
-				spot, other = desk, at
-			}
-		}
+		spot := deskOn(p.floor, p.yields, gives)
 		if spot < 0 {
 			unseated = append(unseated, i)
 			continue
 		}
-		if other >= 0 {
+		if other, ok := taken[Seat{p.floor, spot}]; ok {
 			delete(seats, everyone[other].id) // seated again below, with everyone not seated yet
+			if other < len(placed) {
+				unseated = append(unseated, other)
+			}
 		}
 		sit(i, Seat{p.floor, spot})
 	}
-	// Then everyone else not seated yet, and those whose floor was full: at the first free desk from 2F up.
-	left := unseated
+	// Then those who yield and aren't on their floor, new or sent on from it: at a free desk there; or, two each on
+	// the other's, at each other's desks. Again till nobody moves, as one going home can free a desk for another.
+	for moved := true; moved; {
+		moved = false
+		for i, p := range placed {
+			was, sat := seats[p.id]
+			if !p.yields || !onAFloor(p) || sat && was.Floor == p.floor {
+				continue
+			}
+			// One that yields too, on this floor, whose own is where p sits.
+			homeFromHere := func(j, floor int) bool { return sat && away(j, floor) && everyone[j].floor == was.Floor }
+			spot := deskOn(p.floor, true, homeFromHere)
+			if spot < 0 {
+				continue
+			}
+			other, swap := taken[Seat{p.floor, spot}]
+			if sat {
+				delete(taken, was)
+			}
+			sit(i, Seat{p.floor, spot})
+			if swap {
+				sit(other, was)
+			}
+			moved = true
+		}
+	}
+	// Then everyone else not seated yet, and those whose floor was full: at the desk they had if it's still free
+	// (so nobody sent on from a full floor shifts when a bot or anyone else arrives), else at the first free desk from 2F up.
+	left := slices.DeleteFunc(unseated, seated)
 	for i := range rest {
 		if !seated(len(placed) + i) {
 			left = append(left, len(placed)+i)
 		}
 	}
+	for _, i := range left {
+		if had := everyone[i].had; valid(had) && free(*had) {
+			sit(i, *had)
+		}
+	}
+	left = slices.DeleteFunc(left, seated)
 	overflow := 0
 	for _, i := range left {
 		seated := false
 		for floor := 1; floor < floorCount && !seated; floor++ {
-			for desk := 0; desk < mostUpstairs && !seated; desk++ {
+			for desk := 0; desk < desksPerFloor && !seated; desk++ {
 				if seat := (Seat{floor, desk}); free(seat) {
 					sit(i, seat)
 					seated = true
@@ -265,13 +343,87 @@ func seatBuilding[Person any](placed, rest []upstairsPerson[Person]) ([][]seated
 	floors := make([][]seatedPerson[Person], floorCount)
 	for floor := range floors {
 		floors[floor] = []seatedPerson[Person]{}
-		for desk := 0; desk < mostUpstairs; desk++ {
+		for desk := 0; desk < desksPerFloor; desk++ {
 			if i, ok := taken[Seat{floor, desk}]; ok {
 				floors[floor] = append(floors[floor], seatedPerson[Person]{everyone[i].person, desk})
 			}
 		}
 	}
 	return floors, overflow, seats
+}
+
+// onFloorDesks is the desks above the ground floor kept across a restart, on
+// floors of desksPerFloor desks: anyone at a desk past the last (desks 10 to 12
+// of a floor, from when every floor had twelve) moves to the first free desk
+// on the same floor, or else on the next floor up with one, or else on the
+// nearest floor below with one. One put on their floor is put on the floor
+// they move to. Their role, nickname and folder's rules go with them, being
+// kept by session and folder rather than by desk. With no free desk anywhere,
+// their desk is let go: they sit where there's room, as anyone new does, or
+// wait in the elevator's list. Nobody disappears. False when nobody needs to
+// move, so seats already moved stay as they are. The Mac app's
+// Deck.onFloorDesks does the same.
+func onFloorDesks(seats map[string]Seat, floors map[string]int) (map[string]Seat, map[string]int, bool) {
+	upstairs := func(floor int) bool { return floor >= 1 && floor < floorCount }
+	var movers []string
+	taken := map[Seat]bool{}
+	for id, seat := range seats {
+		if upstairs(seat.Floor) && seat.Desk >= desksPerFloor {
+			movers = append(movers, id)
+		} else if upstairs(seat.Floor) && seat.Desk >= 0 {
+			taken[seat] = true
+		}
+	}
+	if len(movers) == 0 {
+		return seats, floors, false
+	}
+	slices.SortFunc(movers, func(a, b string) int {
+		if c := cmp.Compare(seats[a].Floor, seats[b].Floor); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(seats[a].Desk, seats[b].Desk); c != 0 {
+			return c
+		}
+		return strings.Compare(a, b)
+	})
+	// The first free desk on floor, or -1 when it's full
+	freeOn := func(floor int) int {
+		for desk := 0; desk < desksPerFloor; desk++ {
+			if !taken[Seat{floor, desk}] {
+				return desk
+			}
+		}
+		return -1
+	}
+	moved, put := maps.Clone(seats), maps.Clone(floors)
+	if put == nil {
+		put = map[string]int{}
+	}
+	for _, id := range movers {
+		had := seats[id]
+		delete(moved, id)
+		// Its own floor, then those above it, then those below, nearest first
+		order := []int{had.Floor}
+		for floor := had.Floor + 1; floor < floorCount; floor++ {
+			order = append(order, floor)
+		}
+		for floor := had.Floor - 1; floor >= 1; floor-- {
+			order = append(order, floor)
+		}
+		for _, floor := range order {
+			desk := freeOn(floor)
+			if desk < 0 {
+				continue
+			}
+			taken[Seat{floor, desk}] = true
+			moved[id] = Seat{floor, desk}
+			if was, ok := put[id]; ok && was == had.Floor && floor != had.Floor {
+				put[id] = floor
+			}
+			break
+		}
+	}
+	return moved, put, true
 }
 
 // floorRulesBody reads a request's body once, for both the floors and their rules.
@@ -283,9 +435,10 @@ func floorRulesBody(body io.Reader) []byte {
 // move puts session id on floor given, 0 for the ground floor up to 5 for
 // 6F, from the office: until it ends, before its folder's rule; and with
 // remember, its folder's rule too, so its next sessions go there. A cloud
-// bot's floor is kept in setup's list, as it never ends. Refused when there's
-// no desk for it there: the ground floor with every key taken, or a floor
-// above with all its desks.
+// bot's floor is kept in setup's list, as it never ends: put there, it stays,
+// whatever its rule or new bots' floor says. Refused when there's no desk for
+// it there: the ground floor with every key taken, or a floor above with all
+// its desks.
 func (d *Deck) move(id, given string, remember bool) (int, string) {
 	floor, err := strconv.Atoi(given)
 	if err != nil || floor < 0 || floor >= floorCount {
@@ -302,7 +455,8 @@ func (d *Deck) move(id, given string, remember bool) (int, string) {
 		if floor > 0 && !d.hasRoom(floor, id) {
 			return http.StatusConflict, full
 		}
-		if floor == 0 && !d.hasFreeKey() {
+		// At a key already, as where new bots go: it keeps that one.
+		if floor == 0 && !d.hasFreeKey() && !d.atAKey(id) {
 			return http.StatusConflict, "Every desk is taken. Fire someone, or add a desk, first."
 		}
 		bots := slices.Clone(d.config.CloudBots)
@@ -313,7 +467,9 @@ func (d *Deck) move(id, given string, remember bool) (int, string) {
 		}
 		d.config.CloudBots = bots
 		d.config.save()
-		delete(d.seatOf, id)
+		if seat, ok := d.seatOf[id]; ok && seat.Floor != floor {
+			delete(d.seatOf, id)
+		}
 		d.cloud.configure(d.config.CloudBots)
 		d.changed()
 		return http.StatusNoContent, ""
@@ -365,7 +521,11 @@ func (d *Deck) hasFreeKey() bool {
 
 // hasRoom is whether floor, above the ground floor, has a desk for id: fewer
 // than its desks are taken by others put there. Those seated there only for
-// want of room elsewhere make way, to the floors with room. With the lock held.
+// want of room elsewhere make way, to the floors with room. A bot nobody put
+// on its floor counts where it sits: there, on its floor; sent on to another
+// for want of room, on neither, as it makes way there and takes a desk on its
+// own only once those put there have theirs (see seatBuilding). With the lock
+// held.
 func (d *Deck) hasRoom(floor int, id string) bool {
 	put := 0
 	for _, s := range d.sessions.All() {
@@ -373,13 +533,22 @@ func (d *Deck) hasRoom(floor int, id string) bool {
 			put++
 		}
 	}
-	bots, floors := d.cloud.seatedAbove()
+	bots, sitting := d.cloud.seated()
 	for i, s := range bots {
-		if floors[i] == floor && s.ID != id {
+		seat, ok := d.seatOf[s.ID]
+		elsewhere := sitting[i].floorIndex() < 0 && ok && seat.Floor != floor
+		if d.cloudFloor(sitting[i]) == floor && s.ID != id && !elsewhere {
 			put++
 		}
 	}
-	return put < mostUpstairs
+	return put < desksPerFloor
+}
+
+// atAKey is whether session id has a key on the ground floor now. With the
+// lock held.
+func (d *Deck) atAKey(id string) bool {
+	keys, _ := d.layout()
+	return slices.ContainsFunc(keys, func(k deckKey) bool { return k.session != nil && k.session.ID == id })
 }
 
 // floorFolder is the folder an upstairs hire on floor starts in: the floor's

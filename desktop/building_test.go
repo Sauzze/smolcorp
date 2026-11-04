@@ -66,22 +66,23 @@ func TestSomeonePutOnAFloorTakesTheirOwnDeskBackFromAnyoneSeatedThereSince(t *te
 
 func TestAPutFloorThatIsFullSendsTheRestWhereThereIsRoom(t *testing.T) {
 	var crowd []upstairsPerson[string]
-	for i := range 13 {
+	for i := range desksPerFloor + 1 {
 		crowd = append(crowd, person("p"+strings.Repeat("x", i), 2, nil))
 	}
 	floors, _, _ := seatBuilding(crowd, nil)
-	if len(floors[2]) != 12 || len(floors[1]) != 1 {
-		t.Errorf("3F has %d and 2F %d, want 12 and 1", len(floors[2]), len(floors[1]))
+	if len(floors[2]) != desksPerFloor || len(floors[1]) != 1 {
+		t.Errorf("3F has %d and 2F %d, want %d and 1", len(floors[2]), len(floors[1]), desksPerFloor)
 	}
 }
 
 func TestPastTheTopFloorThereIsNoDesk(t *testing.T) {
 	var rest []upstairsPerson[string]
-	for i := range 61 {
+	everyDesk := (floorCount - 1) * desksPerFloor
+	for i := range everyDesk + 1 {
 		rest = append(rest, person(strings.Repeat("h", i+1), -1, nil))
 	}
 	_, over, seats := seatBuilding(nil, rest)
-	if _, ok := seats[strings.Repeat("h", 61)]; over != 1 || ok {
+	if _, ok := seats[strings.Repeat("h", everyDesk+1)]; over != 1 || ok {
 		t.Errorf("%d over", over)
 	}
 }
@@ -256,14 +257,15 @@ func TestAMoveRememberedIsItsFoldersRule(t *testing.T) {
 	}
 }
 
-func TestAFloorWithTwelvePutThereIsFull(t *testing.T) {
+func TestAFloorWithNinePutThereIsFull(t *testing.T) {
 	d := newTestDeck(t)
 	d.config.FloorRules = floorRuleList{{"/work", 1, false}}
-	running(d, 13)
+	running(d, desksPerFloor+1)
+	last := fmt.Sprintf("s%d", desksPerFloor)
 	d.mu.Lock()
-	d.floorOf["s12"] = 0
+	d.floorOf[last] = 0
 	d.mu.Unlock()
-	if code, text := d.Perform("move", "s12", url.Values{"floor": {"1"}}); code != http.StatusConflict || !strings.Contains(text, "full") {
+	if code, text := d.Perform("move", last, url.Values{"floor": {"1"}}); code != http.StatusConflict || !strings.Contains(text, "full") {
 		t.Errorf("a full floor gave %d %s", code, text)
 	}
 }
@@ -383,7 +385,7 @@ func TestSomeoneMovedOntoAFloorTakesAFreeDeskAndBumpsNobody(t *testing.T) {
 
 func TestOnAFullFloorSomeoneThereForWantOfRoomMakesWay(t *testing.T) {
 	var runs []upstairsPerson[string]
-	for i := range 12 {
+	for i := range desksPerFloor {
 		runs = append(runs, person(fmt.Sprintf("r%d", i), -1, &Seat{2, i}))
 	}
 	_, _, seats := seatBuilding([]upstairsPerson[string]{person("nova", 2, nil)}, runs)
@@ -400,8 +402,8 @@ func TestACloudBotHasNoKeyWhenEveryDeskIsTaken(t *testing.T) {
 	if code, text := d.Perform("move", "cloud-mini", url.Values{"floor": {"0"}}); code != http.StatusConflict || !strings.Contains(text, "Every desk") {
 		t.Errorf("down to a full ground floor gave %d %s", code, text)
 	}
-	if d.config.CloudBots[0].Floor != "upstairs" {
-		t.Errorf("refused, its floor is %q", d.config.CloudBots[0].Floor)
+	if d.config.CloudBots[0].Floor != "" {
+		t.Errorf("refused, its floor is %q, want where new bots go", d.config.CloudBots[0].Floor)
 	}
 }
 
@@ -427,3 +429,41 @@ func TestWindowsRulesForOneFolderWrittenTwoWaysAreOneAndTheLaterWins(t *testing.
 		t.Errorf("a tie went to %d, want the later rule's 3", floor)
 	}
 }
+
+// Going home, a bot that yields never takes a desk kept for someone put on a
+// floor and sent on from it, though the first one placed is a bot that yields
+// for the floor it sits on; seated again as they now sit, nobody moves.
+func TestGoingHomeABotTakesNoDeskKeptForSomeoneSentOn(t *testing.T) {
+	yielding := func(p upstairsPerson[string]) upstairsPerson[string] { p.yields = true; return p }
+	placed := []upstairsPerson[string]{
+		yielding(person("A", 2, &Seat{2, 0})), // a bot for 3F, at 3F's first desk
+		yielding(person("P", 1, &Seat{2, 1})), // a bot for 2F, at 3F's second
+		person("H", 4, &Seat{1, 8}),          // put on 5F, sent on to 2F's last desk
+	}
+	for i := 0; i < desksPerFloor; i++ {
+		placed = append(placed, person(fmt.Sprintf("f%d", i), 4, &Seat{4, i})) // 5F full
+	}
+	var rest []upstairsPerson[string]
+	for i := 0; i < 8; i++ {
+		rest = append(rest, person(fmt.Sprintf("r%d", i), -1, &Seat{1, i}))
+	}
+	_, _, seats := seatBuilding(placed, rest)
+	if seats["H"] != (Seat{1, 8}) || seats["P"] != (Seat{2, 1}) {
+		t.Fatalf("H is at %v and P at %v, want H at 2F's last desk and P at 3F's second", seats["H"], seats["P"])
+	}
+	for i := range placed {
+		s := seats[placed[i].id]
+		placed[i].had = &s
+	}
+	for i := range rest {
+		s := seats[rest[i].id]
+		rest[i].had = &s
+	}
+	_, _, again := seatBuilding(placed, rest)
+	for id, seat := range seats {
+		if again[id] != seat {
+			t.Errorf("seated again, %s moved from %v to %v", id, seat, again[id])
+		}
+	}
+}
+

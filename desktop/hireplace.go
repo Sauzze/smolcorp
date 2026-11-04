@@ -162,7 +162,8 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 		}
 		place.Repo, place.Branch, place.Worktree = repo, branch, physical(path)
 		place.Folder = place.Worktree
-		if rest, found := strings.CutPrefix(given, repo+"/"); found {
+		// By this system's separator: on Windows, given is C:\…\repo\sub.
+		if rest, found := strings.CutPrefix(given, repo+string(filepath.Separator)); found {
 			place.Folder = filepath.Join(place.Worktree, rest)
 		}
 	} else if repo == "" {

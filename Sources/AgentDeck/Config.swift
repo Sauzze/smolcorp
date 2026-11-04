@@ -140,6 +140,13 @@ final class Config: Codable {
     /// those you hid, never given a desk again until you show them.
     var botsAutoDetect = true
     var hiddenBots: [String] = []
+    /// The floor new bots go to, 0 for the ground floor up to 5 for 6F, when
+    /// no floor rule names one for them (see `CloudBot.floor`); chosen in
+    /// setup. Until it is, the floor your bots are on (`CloudBot.newBotsFloor`).
+    var botFloor = 1
+    /// Whether the file had `botFloor`: one from before it has it worked out
+    /// again once the bots that were upstairs are settled (see `settleBots`).
+    private(set) var botFloorKept = false
     /// The building's six floors, the ground floor first: each one's name,
     /// and the style of those above it (see `Floor`).
     var floors = Floor.standard
@@ -160,7 +167,7 @@ final class Config: Codable {
         case dictationCleanup, dictationGlossary
         case musicEnabled, maxConfirm, webhook, summaryOptIn, summaryProvider, viewer, hasCompletedSetup, hooksDisconnected, claudeProfiles, managerEnabled, gmByHand
         case mailMaxBytes, mailPerHour, mailWaitHours, mailInboxSocket, builtinWatches, teamScreen, keystrokesAllowed, keystrokeApps
-        case phoneMicEnabled, showInDock, cloudBots, floors, floorRules, botsAutoDetect, hiddenBots
+        case phoneMicEnabled, showInDock, cloudBots, floors, floorRules, botsAutoDetect, hiddenBots, botFloor
         // Under a name of its own since the confirm box: the old one, saved as
         // true by every earlier build, meant no box had been offered yet.
         case phoneMicAutoSend = "phoneMicSkipsConfirm"
@@ -245,6 +252,10 @@ final class Config: Codable {
         showInDock = field(Bool.self, .showInDock) ?? true
         officeOnTop = field(Bool.self, .officeOnTop)
         cloudBots = CloudBot.checked(field([Lossy<CloudBot>].self, .cloudBots)?.compactMap(\.value) ?? [])
+        // A file from before it: where the bots are, and again once those that were upstairs are settled.
+        let keptFloor = field(Int.self, .botFloor).flatMap { (0..<Floor.count).contains($0) ? $0 : nil }
+        botFloorKept = keptFloor != nil
+        botFloor = keptFloor ?? CloudBot.newBotsFloor(for: cloudBots)
         botsAutoDetect = field(Bool.self, .botsAutoDetect) ?? true
         hiddenBots = (field([String].self, .hiddenBots) ?? []).compactMap(GrokBotApp.safeID)
         // Checked as they load: their names are drawn in the office.
@@ -287,6 +298,18 @@ final class Config: Codable {
         guard !unknown.isEmpty, var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return data }
         for (key, value) in unknown where object[key] == nil { object[key] = value }
         return try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    /// The bots still "upstairs", from before bots could sit on any floor,
+    /// each on the floor it sits on, by `seats`, the desks saved across a
+    /// restart (see `CloudBot.settled`); and with a file from before
+    /// `botFloor`, new bots then go where the bots are. Whether anything
+    /// changed, to be saved. Once settled, there's nothing to do again.
+    func settleBots(seats: [String: Seat]) -> Bool {
+        guard cloudBots.contains(where: { $0.floor == CloudBot.upstairs }) else { return false }
+        cloudBots = CloudBot.settled(cloudBots, seats: seats)
+        if !botFloorKept { botFloor = CloudBot.newBotsFloor(for: cloudBots) }
+        return true
     }
 
     /// `folder` first among the recent hire folders, once.
@@ -339,6 +362,11 @@ struct Floor: Codable, Equatable {
     var preset: String
 
     static let count = 6
+    /// As many desks as each floor has: three rows of three, as the office
+    /// draws them on every floor. The one number every floor's room is
+    /// counted from: seating, the moves between floors, a hire upstairs, the
+    /// bots' room. The Windows and Linux app's `desksPerFloor` is the same.
+    static let desks = 9
     static let nameLimit = 24
     static let server = "server"
 

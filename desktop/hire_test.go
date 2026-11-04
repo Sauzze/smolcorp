@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -430,6 +431,9 @@ func TestAHireWhoseAgentIsntFoundSaysWhyAndOpensNothing(t *testing.T) {
 }
 
 func TestAnAgentNotFoundWhereHiresStartIsExplained(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hires start in a login shell only on Linux (hire_unix.go): Windows has no ~/.profile to tell of")
+	}
 	home := isolate(t)
 	local := filepath.Join(home, ".local", "bin", "claude")
 	for _, c := range []struct {
@@ -541,7 +545,11 @@ func TestTheSetupPageSaysHiredOnlyOnceTheHireIsAtADesk(t *testing.T) {
 		t.Fatal("no Hire your General Manager button handler in the setup page")
 	}
 	handler := page[start:]
-	handler = handler[:strings.Index(handler, "\n  };\n")]
+	end := strings.Index(handler, "\n  };\n")
+	if end < 0 {
+		t.Fatal("the Hire your General Manager handler has no closing \"  };\" line: the test needs to learn its new shape")
+	}
+	handler = handler[:end]
 	accepted := strings.Index(handler, "if (!res.ok)")
 	seated := strings.Index(handler, "startSaid(`Hired:")
 	if accepted < 0 || seated < 0 {

@@ -22,10 +22,11 @@ struct CloudBot: Codable, Equatable {
     var badge = ""
     /// Always at its desk, or only between "start" and "stop".
     var permanent = true
-    /// Where its desk is: "upstairs", the floor above, by the headless runs,
-    /// as it never has a terminal; "ground", at a free key; or "2" to "6",
-    /// a floor of its own choosing, as it was put there from the office.
-    var floor = "upstairs"
+    /// The floor its desk is on, like anyone's: "ground", at a key, or "2"
+    /// to "6", as you put it there, from the office or setup, where it stays;
+    /// or "", where a floor rule for its folder says, else where new bots go
+    /// (`Config.botFloor`). A floor that's full sends it on to one with room.
+    var floor = ""
     /// Where its reports are seen, besides the event route.
     var source = Source()
     /// Found in the Grok Bot app rather than set by you (see `discover`):
@@ -73,7 +74,7 @@ struct CloudBot: Codable, Equatable {
     }
 
     init(id: String, name: String, agent: String = Agent.grok.rawValue, outfit: String = "grok", badge: String = "",
-         permanent: Bool = true, floor: String = "upstairs", source: Source = Source(), discovered: Bool = false, pinned: Bool = false, mailbox: String = "") {
+         permanent: Bool = true, floor: String = "", source: Source = Source(), discovered: Bool = false, pinned: Bool = false, mailbox: String = "") {
         self.id = id
         self.name = name
         self.agent = agent
@@ -103,19 +104,33 @@ struct CloudBot: Codable, Equatable {
         mailbox = try c.decodeIfPresent(String.self, forKey: .mailbox) ?? mailbox
     }
 
-    static let floors = ["upstairs", "ground"] + (2...Floor.count).map(String.init)
+    static let floors = ["", "ground"] + (2...Floor.count).map(String.init)
+    /// What a bot's floor was before bots could sit on any floor: the floors
+    /// above, where there was room. Kept until the app starts, then settled on
+    /// the floor it sits on (see `settled(_:seats:)`); until then, read as no floor.
+    static let upstairs = "upstairs"
 
     /// Its floor as the building counts them: 0 for the ground floor, 1 to 5
-    /// for 2F to 6F; nil upstairs, where there's room.
+    /// for 2F to 6F; nil for one that goes where its rule or new bots go, as
+    /// one still "upstairs" does.
     var floorIndex: Int? {
         if floor == "ground" { return 0 }
         return Int(floor).flatMap { (2...Floor.count).contains($0) ? $0 - 1 : nil }
     }
 
+    /// The floor it sits on, 0 for the ground floor up to 5 for 6F: the one
+    /// it was put on; else the one a floor rule gives its folder, as anyone's;
+    /// else `botFloor`, where new bots go.
+    func floorIndex(rules: [FloorRule], botFloor: Int) -> Int {
+        floorIndex ?? FloorRule.floor(of: folder, in: rules) ?? botFloor
+    }
+
     /// `floorIndex` as it's kept: "ground", or "2" to "6".
     static func floor(at index: Int) -> String { index == 0 ? "ground" : String(index + 1) }
     static let idLimit = 32
-    static let most = 9
+    /// As many as the building has desks, the ground floor's with the rest:
+    /// one more could never sit. How many fit on each floor is the floors'.
+    static var most: Int { Floor.count * Floor.desks }
 
     /// As kept, or nil for one that can't be: a bad id or no name.
     var checked: CloudBot? {
@@ -132,11 +147,13 @@ struct CloudBot: Codable, Equatable {
         return CloudBot(id: id, name: name, agent: Agent(rawValue: agent)?.rawValue ?? Agent.grok.rawValue,
                         outfit: TeamMember.choices["outfit"]?.contains(outfit) == true && outfit != "auto" ? outfit : "",
                         badge: Role.badges.contains(badge) ? badge : "", permanent: permanent,
-                        floor: CloudBot.floors.contains(floor) ? floor : "upstairs", source: source,
+                        floor: CloudBot.floors.contains(floor) || floor == CloudBot.upstairs ? floor : "", source: source,
                         discovered: discovered, pinned: pinned, mailbox: mailbox.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    /// Bots as kept: each checked, each id once, at most `most`.
+    /// Bots as kept: each checked, each id once, at most `most`. One still
+    /// "upstairs" is kept so, to be settled where it sat as the app starts
+    /// (see `settled(_:seats:)`).
     static func checked(_ bots: [CloudBot]) -> [CloudBot] {
         var kept: [CloudBot] = []
         for bot in bots.compactMap(\.checked) where !kept.contains(where: { $0.id == bot.id }) && kept.count < most {
@@ -145,15 +162,56 @@ struct CloudBot: Codable, Equatable {
         return kept
     }
 
+    /// Each bot "upstairs" on the floor it sits on now, there to stay: the
+    /// floor of the desk it had, as saved across a restart (`seats`, by its
+    /// desk's id), the only record of where a bot sits. One with no desk saved
+    /// on a floor above goes to the first above the ground floor with a desk
+    /// free of the bots there, in order, as bots upstairs were seated; with
+    /// none, where new bots go. The others as they are, so a second time
+    /// changes nothing.
+    static func settled(_ bots: [CloudBot], seats: [String: Seat]) -> [CloudBot] {
+        let sat = bots.map { bot in
+            guard bot.floor == upstairs, let seat = seats[bot.sessionID], (1..<Floor.count).contains(seat.floor) else { return bot }
+            var bot = bot
+            bot.floor = floor(at: seat.floor)
+            return bot
+        }
+        var taken: [Int: Int] = [:]
+        for floor in sat.compactMap(\.floorIndex) where floor > 0 { taken[floor, default: 0] += 1 }
+        return sat.map { bot in
+            guard bot.floor == upstairs else { return bot }
+            var bot = bot
+            let free = (1..<Floor.count).first { taken[$0, default: 0] < Floor.desks }
+            bot.floor = free.map(floor(at:)) ?? ""
+            if let free { taken[free, default: 0] += 1 }
+            return bot
+        }
+    }
+
+    /// Where new bots go until you choose: the floor above the ground floor
+    /// that most bots sit on, the lower of two with as many, as where your
+    /// bots are is their floor; else 2F, where bots always went first.
+    static func newBotsFloor(for bots: [CloudBot]) -> Int {
+        var count: [Int: Int] = [:]
+        for floor in bots.compactMap(\.floorIndex) where floor > 0 { count[floor, default: 0] += 1 }
+        let most = (1..<Floor.count).max { (count[$0, default: 0], -$0) < (count[$1, default: 0], -$1) }
+        return most.flatMap { count[$0, default: 0] > 0 ? $0 : nil } ?? 1
+    }
+
     /// What finding the Grok Bot app's bots made of `bots`: one for each bot
     /// there that none is set for yet and that isn't `hidden`, found, at the
     /// end, while there's room; and found ones gone from there, or hidden
     /// since, left out, unless pinned. A bot you set yourself is never left
     /// out. With `rows` nil, as when the app's roster can't be read, nothing
     /// changes: an app moved or locked isn't an app with no bots.
+    /// A group chat there, between bots, is no bot: it's never found, and
+    /// one found before goes, pinned or not (see `Row.isGroup`). A found bot
+    /// takes the name it has there now, by its id, as its desk says it.
     static func discover(_ rows: [GrokBotApp.Row]?, in bots: [CloudBot], hidden: Set<String>)
         -> (bots: [CloudBot], noRoom: [GrokBotApp.Row]) {
-        guard let rows else { return (bots, []) }
+        guard let all = rows else { return (bots, []) }
+        let groups = Set(all.filter(\.isGroup).map { $0.id.lowercased() })
+        let rows = all.filter { !$0.isGroup }
         let here = Set(rows.map { $0.id.lowercased() })
         let hiddenIDs = Set(hidden.map { $0.lowercased() })
         // A bot set by its name in the app is given its id there while the name is the same, so a rename there
@@ -169,7 +227,18 @@ struct CloudBot: Codable, Equatable {
         }
         var kept = named.filter { bot in
             let id = bot.source.botId.lowercased()
+            if bot.discovered && bot.source.kind == "grokBotApp" && groups.contains(id) { return false }
             return !bot.discovered || bot.pinned || bot.source.kind != "grokBotApp" || here.contains(id) && !hiddenIDs.contains(id)
+        }
+        // Renamed in the app: a found bot's name there now is kept, as its desk says it, not the one it was found with.
+        // Not over a name the user gave it (setup pins a bot it renames): only while it's still the app's name.
+        for i in kept.indices where kept[i].discovered && kept[i].source.kind == "grokBotApp"
+            && (!kept[i].pinned || kept[i].name == CloudBot.deskName(kept[i].source.bot)) {
+            guard let row = rows.first(where: { $0.id.lowercased() == kept[i].source.botId.lowercased() }) else { continue }
+            let name = CloudBot.deskName(row.name)
+            guard !name.isEmpty else { continue }
+            kept[i].name = name
+            kept[i].source.bot = row.name.oneLine(64)
         }
         var noRoom: [GrokBotApp.Row] = []
         for row in rows where !hiddenIDs.contains(row.id.lowercased()) {
@@ -209,8 +278,15 @@ struct CloudBot: Codable, Equatable {
     }
 
     /// The bot as setup's list shows it.
-    var setupJSON: [String: Any] {
-        ["id": id, "name": name, "floor": floor, "pinned": pinned, "discovered": discovered,
+    var setupJSON: [String: Any] { setupJSON(in: []) }
+
+    /// The bot as setup's list shows it, by the name it has in the app now
+    /// when `rows` has it by its id, as its desk says it.
+    func setupJSON(in rows: [GrokBotApp.Row]) -> [String: Any] {
+        let named = pinned && name != CloudBot.deskName(source.bot)
+        let live = source.kind == "grokBotApp" && !source.botId.isEmpty && !named
+            ? rows.first { $0.id.lowercased() == source.botId.lowercased() }.map { CloudBot.deskName($0.name) } : nil
+        return ["id": id, "name": live.flatMap { $0.isEmpty ? nil : $0 } ?? name, "floor": floor, "pinned": pinned, "discovered": discovered,
          "fromApp": source.kind == "grokBotApp", "botId": source.botId, "mailbox": mailbox]
     }
 
@@ -377,9 +453,9 @@ protocol CloudBotSource: AnyObject {
 /// The Grok Bot app (xAI, com.anysphere.sand) keeps a copy of each chat
 /// on this Mac, as plain JSON, in files named by their key in base32. Two
 /// are read: the roster, for each bot's id and name, and that bot's
-/// transcript. Of those, only ids, names, kinds, roles and order: never
-/// what a message says, and no other file there (its secrets and cookies
-/// are in others). Nothing is written. It's kept up while the app is open.
+/// transcript. Of those, only ids, names, whether a chat is a group, kinds,
+/// roles and order: never what a message says, and no other file there (its
+/// secrets and cookies are in others). Nothing is written. It's kept up while the app is open.
 final class GrokBotApp: CloudBotSource {
     static let folder = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Grok Bot/sand-client-persistence", isDirectory: true)
@@ -473,10 +549,12 @@ final class GrokBotApp: CloudBotSource {
         var json: [String: Any] { ["botId": botId, "name": name, "by": by] }
     }
 
-    /// One bot in the roster: its id and the name it has now, and nothing else of it.
+    /// One bot in the roster: its id and the name it has now, and nothing else of it
+    /// but whether it's a group chat, between bots, rather than a bot.
     struct Row: Equatable {
         let id: String
         let name: String
+        var isGroup = false
     }
 
     /// Finds a bot: by `botId` alone when it has one (a bot by that id
@@ -548,7 +626,9 @@ final class GrokBotApp: CloudBotSource {
               let rows = (file["value"] as? [String: Any])?["rows"] as? [[String: Any]] else { return nil }
         return rows.compactMap { row in
             guard let id = (row["id"] as? String).flatMap(safeID), let name = row["name"] as? String else { return nil }
-            return Row(id: id, name: name)
+            // A group chat says so, and has its bots as members; a bot's own chat has none.
+            let isGroup = row["isGroup"] as? Bool == true || ((row["memberIds"] as? [Any])?.count ?? 0) > 1
+            return Row(id: id, name: name, isGroup: isGroup)
         }
     }
 
@@ -618,9 +698,9 @@ final class GrokBotApp: CloudBotSource {
 
 /// The cloud bots' desks: their sessions, as the office draws them, kept
 /// here rather than in `Sessions`, so nothing that looks for tabs, hooks or
-/// processes ever touches them. They sit upstairs, first, before the
-/// headless runs, or at free desks on the ground floor as any new session
-/// would; they have no controls.
+/// processes ever touches them. Each sits on its floor, first there, before
+/// the headless runs, or at a free desk on the ground floor as any new
+/// session would; they have no controls.
 final class CloudDesks {
     #if DEBUG
     private static let log = Logger(subsystem: "io.github.sauzze.agentdeck", category: "cloudbots")
@@ -681,20 +761,12 @@ final class CloudDesks {
         update()
     }
 
-    /// The desks to seat on `floor`, in the order the bots were set.
-    func seated(on floor: String) -> [Session] {
+    /// The desks to seat, each with its bot, in the order the bots were set:
+    /// the office puts each on its floor (see `Deck.floor(of:)`).
+    func seated() -> [(session: Session, bot: CloudBot)] {
         bots.compactMap { bot in
-            guard bot.floor == floor, let session = sessionsByID[bot.sessionID], session.state != .idle else { return nil }
-            return session
-        }
-    }
-
-    /// The desks to seat above the ground floor, in the order the bots were
-    /// set, each with the floor it was put on, or nil for upstairs, where there's room.
-    func seatedAbove() -> [(session: Session, floor: Int?)] {
-        bots.compactMap { bot in
-            guard bot.floor != "ground", let session = sessionsByID[bot.sessionID], session.state != .idle else { return nil }
-            return (session, bot.floorIndex)
+            guard let session = sessionsByID[bot.sessionID], session.state != .idle else { return nil }
+            return (session, bot)
         }
     }
 

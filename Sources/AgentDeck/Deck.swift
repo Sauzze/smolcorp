@@ -528,13 +528,46 @@ final class Deck {
     /// something happens, so an idle one would otherwise stay away until it's
     /// next used.
     private func restoreSessions() {
-        guard let data = try? Data(contentsOf: Paths.sessions),
-              let saved = try? JSONDecoder().decode(SavedDeck.self, from: data), !saved.sessions.isEmpty else { return }
+        let saved = Deck.savedDeck(at: Paths.sessions)
+        // With nothing saved too: a bot still "upstairs" is settled all the same.
+        putBackBots(saved ?? SavedDeck(savedAt: 0, sessions: [], keys: [:]))
+        guard let saved, !saved.sessions.isEmpty else { return }
         DispatchQueue.global(qos: .utility).async {
             let running = saved.sessions.filter { Deck.isStillRunning($0) }
             DispatchQueue.main.async {
                 self.putBack(saved, running: running)
             }
+        }
+    }
+
+    /// The deck saved at `url`, with everyone upstairs at a desk each floor
+    /// still has: a deck saved when floors had twelve desks is moved onto
+    /// nine (see `onFloorDesks`) and written back as moved, so it's moved
+    /// once, and read as it is from then on. Nil with no deck there.
+    static func savedDeck(at url: URL) -> SavedDeck? {
+        guard let data = try? Data(contentsOf: url), var saved = try? JSONDecoder().decode(SavedDeck.self, from: data) else { return nil }
+        if let moved = Deck.onFloorDesks(seats: saved.seats ?? [:], floors: saved.floors ?? [:]) {
+            (saved.seats, saved.floors) = (moved.seats, moved.floors)
+            if let data = try? JSONEncoder().encode(saved) { Paths.writePrivately(data, to: url) }
+        }
+        return saved
+    }
+
+    /// The cloud bots back at the desks they had, a key or a desk upstairs,
+    /// as anyone still running is: a bot never ends, so its desk is its own,
+    /// over any it was given as the app started. Those still "upstairs", from
+    /// before bots could sit on any floor, are first kept on the floor of the
+    /// desk they had, and the settings saved (see `Config.settleBots`): after
+    /// moving anyone at desks 10 to 12 (see `savedDeck(at:)`).
+    func putBackBots(_ saved: SavedDeck) {
+        let config = Config.shared
+        if config.settleBots(seats: saved.seats ?? [:]) {
+            config.save()
+            cloud.configure(config.cloudBots)
+        }
+        for (session, _) in cloud.seated() {
+            if let key = saved.keys[session.id], (0..<KeyCount.most).contains(key) { keyOf[session.id] = key }
+            if let seat = saved.seats?[session.id] { seatOf[session.id] = seat }
         }
     }
 
@@ -614,8 +647,8 @@ final class Deck {
     /// runs have no keys: they sit upstairs (see `upstairs()`).
     func layout() -> (keys: [Key], overflow: [Session]) {
         let config = layoutConfig
-        // Cloud bots take free desks as any new session does.
-        var remaining = Deck.downstairs(sessions.all) + cloud.seated(on: "ground")
+        // Cloud bots on the ground floor take free desks as any new session does.
+        var remaining = Deck.downstairs(sessions.all) + cloud.seated().filter { floor(of: $0.bot) == 0 }.map(\.session)
         let live = Set(remaining.map(\.id))
         // A session that took another's place in its tab, as after /clear, takes its key, role and floor too.
         for (new, old) in sessions.takeReplacements() {
@@ -788,9 +821,6 @@ final class Deck {
         return (nil, Session.lastPart(of: parent))
     }
 
-    /// As many desks as each floor above the ground floor has.
-    static let upstairsDesks = 12
-
     /// An agent at a desk upstairs, with no key: put there, by the office or
     /// its folder's rule, or with none left for it downstairs. Driven there as
     /// on the ground floor, by a tap on its desk; only it has no key.
@@ -816,29 +846,41 @@ final class Deck {
     }
 
     /// The floor `session` was put on, by the office, by its folder's rule,
-    /// or, for a cloud bot, in setup: 0 for the ground floor, 1 to 5 above
-    /// it. Nil for one that sits where there's room.
+    /// or, for a cloud bot, as `floor(of:)` says: 0 for the ground floor, 1
+    /// to 5 above it. Nil for one that sits where there's room.
     func aboveGround(of session: Session) -> Int? {
-        if let bot = cloud.bot(ofSession: session.id) { return bot.floorIndex }
+        if let bot = cloud.bot(ofSession: session.id) { return floor(of: bot) }
         return Deck.floor(of: session.project, put: floorOf[session.id], rules: layoutConfig.floorRules)
     }
 
+    /// The floor cloud bot `bot` sits on: the one it was put on, else its
+    /// folder's rule's, else where new bots go. A floor that's full sends it
+    /// on to one with room: one you put there as anyone put there, past those
+    /// there only for want of room; any other taking nobody's desk (see
+    /// `seat(placed:rest:)`).
+    func floor(of bot: CloudBot) -> Int {
+        bot.floorIndex(rules: layoutConfig.floorRules, botFloor: layoutConfig.botFloor)
+    }
+
     /// Who sits above the ground floor, floor by floor (see `seat(placed:rest:)`):
-    /// first those put on a floor, then, where there's room, the cloud bots
-    /// seated upstairs, the headless runs, then `overflow`, the sessions the
-    /// ground floor had no desk for. Each with the desk it has on its floor.
+    /// first those put on a floor, the cloud bots first among them, then,
+    /// where there's room, the headless runs, then `overflow`, the sessions
+    /// the ground floor had no desk for. Each with the desk it has on its floor.
     func building(overflow: [Session]) -> (floors: [[Session]], desks: [String: Int], overflow: Int) {
         let headless = sessions.all.filter(\.isHeadless)
-        let bots = cloud.seatedAbove()
+        // Every bot has a floor: the ground floor's are at keys, or in `overflow` with none free.
+        let bots = cloud.seated().map { (session: $0.session, floor: floor(of: $0.bot), yields: $0.bot.floorIndex == nil) }
+            .filter { $0.floor > 0 }
         let up = { (s: Session, floor: Int?) in
             Upstairs(person: s, id: s.id, floor: floor, had: self.seatOf[s.id], byRow: self.managerHireFolders.contains(s.project)) }
         // Sessions put upstairs are left out of the keys (see `layout()`), so they're found here.
         let put = Deck.downstairs(sessions.all).filter { (aboveGround(of: $0) ?? 0) > 0 }
-        let placed = bots.filter { $0.floor != nil }.map { up($0.session, $0.floor) }
+        // A bot nobody put on its floor takes nobody's desk there (see `Upstairs.yields`).
+        let placed = bots.map { bot in var one = up(bot.session, bot.floor); one.yields = bot.yields; return one }
             + headless.compactMap { s in aboveGround(of: s).flatMap { $0 > 0 ? up(s, $0) : nil } }
             + put.map { up($0, aboveGround(of: $0)) }
         let placedIDs = Set(placed.map(\.id))
-        let rest = (bots.filter { $0.floor == nil }.map(\.session) + headless + overflow)
+        let rest = (headless + overflow)
             .filter { !placedIDs.contains($0.id) }.map { up($0, nil) }
         let seated = Deck.seat(placed: placed, rest: rest)
         for (id, seat) in seated.seats { seatOf[id] = seat }
@@ -847,8 +889,17 @@ final class Deck {
         return (seated.floors.map { $0.map(\.person) }, desks, seated.overflow)
     }
 
+    /// The bots at work with no desk on any floor, every one taken, for setup
+    /// to say so.
+    func botsWithNoDesk() -> [CloudBot] {
+        let (keys, overflow) = layout()
+        let upstairs = building(overflow: overflow).desks
+        let atKeys = Set(keys.compactMap { $0.session?.id })
+        return cloud.seated().filter { !atKeys.contains($0.session.id) && upstairs[$0.session.id] == nil }.map(\.bot)
+    }
+
     /// The building's floors, the ground floor first and always empty here,
-    /// as its desks are the keys; then 2F to 6F, `upstairsDesks` each, filled
+    /// as its desks are the keys; then 2F to 6F, `Floor.desks` each, filled
     /// in order: cloud bots first, so a permanent one keeps its desk as runs
     /// come and go, then headless runs, oldest first, then the agents with no
     /// desk downstairs. And how many there's no floor for. None of them has a key.
@@ -1302,7 +1353,8 @@ final class Deck {
     /// Session `id` put on floor `to`, 0 for the ground floor up to 5 for 6F,
     /// from the office: until it ends, before its folder's rule; and with
     /// `remember`, its folder's rule too, so its next sessions go there. A
-    /// cloud bot's floor is kept in setup's list, as it never ends. Refused
+    /// cloud bot's floor is kept in setup's list, as it never ends: put there,
+    /// it stays, whatever its rule or new bots' floor says. Refused
     /// when there's no desk for it there: the ground floor with every key
     /// taken, or a floor above with all its desks.
     func move(_ id: String, to given: String?, remember: Bool) -> Response {
@@ -1312,10 +1364,13 @@ final class Deck {
         if let bot = cloud.bot(ofSession: id) {
             guard bot.floorIndex != floor else { return .status(204) }
             guard floor == 0 || hasRoom(on: floor, besides: id) else { return .status(409, "\(name) is full.") }
-            guard floor > 0 || hasFreeKey() else { return .status(409, "Every desk is taken. Fire someone, or add a desk, first.") }
+            // At a key already, as where new bots go: it keeps that one.
+            guard floor > 0 || hasFreeKey() || layout().keys.contains(where: { $0.session?.id == id }) else {
+                return .status(409, "Every desk is taken. Fire someone, or add a desk, first.")
+            }
             config.cloudBots = config.cloudBots.map { var b = $0; if b.id == bot.id { b.floor = CloudBot.floor(at: floor) }; return b }
             config.save()
-            seatOf[id] = nil
+            if seatOf[id]?.floor != floor { seatOf[id] = nil }
             cloud.configure(config.cloudBots)
             changed()
             return .status(204)
@@ -1353,11 +1408,18 @@ final class Deck {
 
     /// Whether floor `floor`, above the ground floor, has a desk for `id`:
     /// fewer than its desks are taken by others put there. Those seated there
-    /// only for want of room elsewhere make way, to the floors with room.
+    /// only for want of room elsewhere make way, to the floors with room. A
+    /// bot nobody put on its floor counts where it sits: there, on its floor;
+    /// sent on to another for want of room, on neither, as it makes way there
+    /// and takes a desk on its own only once those put there have theirs (see
+    /// `seat(placed:rest:)`).
     private func hasRoom(on floor: Int, besides id: String) -> Bool {
         let put = sessions.all.filter { $0.id != id && aboveGround(of: $0) == floor }.count
-            + cloud.seatedAbove().filter { $0.session.id != id && $0.floor == floor }.count
-        return put < Deck.upstairsDesks
+            + cloud.seated().filter { one in
+                let elsewhere = one.bot.floorIndex == nil && seatOf[one.session.id].map { $0.floor != floor } == true
+                return one.session.id != id && self.floor(of: one.bot) == floor && !elsewhere
+            }.count
+        return put < Floor.desks
     }
 
     /// The office in one of its styles, from the phone, on every screen it's
@@ -1512,9 +1574,9 @@ final class Deck {
             let taken = Set(building.floors[floor].compactMap { building.desks[$0.id] })
             // A manager's hire takes the next desk of the row its team sits in; anyone else, the first free one.
             let managed = config.managerEnabled || options.worktree
-            let next = managed ? Deck.rowDesk(taken: taken) : (0..<Deck.upstairsDesks).first(where: { !taken.contains($0) })
+            let next = managed ? Deck.rowDesk(taken: taken) : (0..<Floor.desks).first(where: { !taken.contains($0) })
             guard let index = desk.map({ Int($0) ?? -1 }) ?? next,
-                  (0..<Deck.upstairsDesks).contains(index) else { return done(.status(400, "Unknown desk")) }
+                  (0..<Floor.desks).contains(index) else { return done(.status(400, "Unknown desk")) }
             guard !taken.contains(index) else { return done(.status(409, "Someone's at that desk already.")) }
             guard hasRoom(on: floor, besides: "") else { return done(.status(409, "\(config.floors[floor].name) is full.")) }
             held = index

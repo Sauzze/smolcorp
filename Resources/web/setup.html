@@ -478,6 +478,7 @@
   .arranger .bar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--sep); background: var(--sidebar); }
   .arranger .bar h2 { font-size: 14px; font-weight: 600; margin-right: 6px; }
   .arranger .bar .saved { color: var(--dim); font-size: 12px; margin-left: auto; }
+  .arranger .bar #arrange-floor { flex: 0 1 auto; max-width: 180px; font-weight: 600; padding: 4px 24px 4px 9px; }
   .seg { display: inline-flex; flex-wrap: nowrap; gap: 0; background: var(--hover); border-radius: 7px; padding: 2px; }
   .seg .btn { border: 0; border-radius: 5px; background: none; box-shadow: none; padding: 2px 11px; }
   .seg .btn.on { background: var(--cap); box-shadow: 0 1px 2px rgb(0 0 0 / .18); border: 0; }
@@ -919,7 +920,7 @@
     </div>
     <div class="group" id="floors-group" hidden>
       <h2>Floors</h2>
-      <p class="hint">Agents with no desk on the ground floor go upstairs, 12 to a floor. Name each floor, and pick a style for the ones above. Add a project's folder under a floor, and its agents sit there: put anyone on any floor from the office too, with ⇅ floor.</p>
+      <p class="hint">Agents with no desk on the ground floor go upstairs, nine to a floor. Name each floor, and pick a style for the ones above. Add a project's folder under a floor, and its agents sit there: put anyone on any floor from the office too, with ⇅ floor.</p>
       <div class="box" id="floors" data-search="Floors" data-keywords="floor upstairs building storey server room name"></div>
     </div>
     <div class="group" id="bots-group" hidden>
@@ -1376,6 +1377,7 @@
 <div class="arranger" id="arranger" role="dialog" aria-modal="true" aria-labelledby="arranger-title" data-mode="simple" hidden>
   <div class="bar">
     <h2 id="arranger-title">Arrange the room</h2>
+    <select id="arrange-floor" aria-label="The floor to arrange" hidden></select>
     <div class="choices seg" id="arrange-shape" role="group" aria-label="The room on its side or upright"></div>
     <button class="btn" id="arrange-undo" aria-keyshortcuts="Meta+Z">Undo</button>
     <button class="btn" id="arrange-redo" aria-keyshortcuts="Meta+Shift+Z">Redo</button>
@@ -1448,7 +1450,7 @@
         </div>
         <p class="hint" id="drawer-none" hidden>No piece by that name.</p>
       </div>
-      <p class="hint adv-only">Click a piece in the room to pick it, drag it where you want it, and drag its corner to grow it. The arrow keys nudge it, and Shift nudges it further. A session whose desk is put away waits in line along the back wall. The room on its side and upright are arranged on their own. Your phone follows as you go.</p>
+      <p class="hint adv-only">Click a piece in the room to pick it, drag it where you want it, and drag its corner to grow it. The arrow keys nudge it, and Shift nudges it further. A session whose desk is put away waits in line along the back wall. The room on its side and upright, and each floor, are arranged on their own. Your phone follows as you go.</p>
     </aside>
   </div>
 </div>
@@ -4718,11 +4720,37 @@
   let arranger = null;     // the office being arranged, once it's been opened
   let arrangeShape = 'wide';
   let arrangePicked = null;
+  /** The floor being arranged: 0, the ground floor, or 1 for 2F up to 5 for 6F, each arranged on its own. */
+  let arrangeFloor = 0;
   const PIECE_SIZE_NAMES = { 1: 'Small', 1.5: 'Medium', 2: 'Large' };
+
+  /**
+   * The arrangement being edited: the ground floor's, the room's `plan`, or
+   * a floor upstairs', the room's `floorPlans` by the floor's number; null
+   * where there's none yet, as the floor comes.
+   */
+  function editedPlan() {
+    const room = layout.room || {};
+    return (arrangeFloor ? room.floorPlans && room.floorPlans[arrangeFloor] : room.plan) || null;
+  }
+  /** Keeps `plan` as the arrangement of the floor being arranged. */
+  function keepPlan(plan) {
+    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
+    if (!arrangeFloor) {
+      room.plan = plan;
+      return;
+    }
+    const floors = { ...(room.floorPlans || {}) };
+    if (plan) floors[arrangeFloor] = plan;
+    else delete floors[arrangeFloor];
+    room.floorPlans = floors;
+  }
+  /** The style setup gave the floor being arranged: "" for the office's own. */
+  const arrangedFloorStyle = () => ((state && Array.isArray(state.floors) && state.floors[arrangeFloor]) || {}).preset || '';
 
   /** The pieces of the room as arranged in the shape shown, by name. */
   function arrangedPieces() {
-    const plan = layout.room && layout.room.plan;
+    const plan = editedPlan();
     return (plan && plan[arrangeShape]) || {};
   }
 
@@ -4739,7 +4767,7 @@
 
   /** A desk's own `field`, as the office reads it: the shape shown's, or the other's when that's "auto". */
   function deskLook(part, field) {
-    const plan = (layout.room && layout.room.plan) || {};
+    const plan = editedPlan() || {};
     const own = (side) => (plan[side] && plan[side][part] && plan[side][part][field]) || 'auto';
     const here = own(arrangeShape);
     return here !== 'auto' ? here : own(arrangeShape === 'wide' ? 'tall' : 'wide');
@@ -4748,11 +4776,11 @@
   /** Gives a desk its own look, the same on its side and upright; where it stands stays each shape's own. */
   function setLook(part, field, value) {
     remember();
-    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
-    const plan = room.plan || (room.plan = { wide: {}, tall: {}, added: { wide: [], tall: [] } });
+    const plan = editedPlan() || { wide: {}, tall: {}, added: { wide: [], tall: [] } };
     for (const side of ['wide', 'tall']) {
       plan[side] = { ...plan[side], [part]: { x: 0, y: 0, size: 1, off: false, ...(plan[side] && plan[side][part]), [field]: value } };
     }
+    keepPlan(plan);
     showArranged();
     saveArranged();
     renderProfiles();
@@ -4761,7 +4789,7 @@
 
   /** The pieces added to the lounge in the shape shown. */
   function addedPieces() {
-    const plan = layout.room && layout.room.plan;
+    const plan = editedPlan();
     return (plan && plan.added && plan.added[arrangeShape]) || [];
   }
 
@@ -4798,7 +4826,7 @@
   function remember() {
     const now = performance.now();
     if (now - changedAt > TOGETHER) {
-      undone = [...undone.slice(1 - UNDO_MOST), structuredClone((layout.room && layout.room.plan) || null)];
+      undone = [...undone.slice(1 - UNDO_MOST), structuredClone(editedPlan())];
       redone = [];
     }
     changedAt = now;
@@ -4807,9 +4835,8 @@
   function undo(back) {
     const from = back ? undone : redone, to = back ? redone : undone;
     if (!from.length) return;
-    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
-    to.push(structuredClone(room.plan || null));
-    room.plan = from.pop();
+    to.push(structuredClone(editedPlan()));
+    keepPlan(from.pop());
     changedAt = 0;
     arrangePicked = null;
     arranger.pick(null);
@@ -4825,6 +4852,14 @@
   /** The room arranged anew, a piece moved, grown, put away or added: kept in the layout, and sent on in a moment. */
   function keepArranged(plan) {
     remember();
+    // A floor upstairs keeps its own: its style stays the one setup gave it
+    if (arrangeFloor) {
+      keepPlan(plan);
+      saveArranged();
+      renderProfiles();
+      drawArrangeTools();
+      return;
+    }
     let room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
     const hungBefore = JSON.stringify((room.plan && room.plan.hung) || {});
     // In a style, a change to the back wall makes the office yours, as any change to its furnishing does: the
@@ -4930,6 +4965,33 @@
     $('arrange-shape').replaceChildren(
       choice('On its side', arrangeShape === 'wide', () => setArrangeShape('wide')),
       choice('Upright', arrangeShape === 'tall', () => setArrangeShape('tall')));
+    drawArrangeFloors();
+  }
+
+  /** The floors to arrange, by the names setup gave them, the one being arranged picked: none to pick with no floors upstairs. */
+  function drawArrangeFloors() {
+    const floors = state && Array.isArray(state.floors) ? state.floors : [];
+    const pick = $('arrange-floor');
+    pick.hidden = floors.length < 2;
+    const names = JSON.stringify(floors.map((floor) => floor.name));
+    if (pick.dataset.names !== names) {
+      pick.dataset.names = names;
+      pick.replaceChildren(...floors.map((floor, i) => new Option(i === 0 ? `${floor.name} (ground floor)` : floor.name, String(i))));
+    }
+    pick.value = String(arrangeFloor);
+  }
+  $('arrange-floor').onchange = (e) => setArrangeFloor(Number(e.target.value));
+
+  /** Another floor to arrange: drawn as it is now, in its style, nothing picked, and nothing to undo from the floor before. */
+  function setArrangeFloor(n) {
+    arrangeFloor = Number.isInteger(n) && n > 0 && n < AgentOffice.floorsMost ? n : 0;
+    arrangePicked = null;
+    undone = [];
+    redone = [];
+    arranger.pick(null);
+    arranger.arrangeFloor(arrangeFloor, arrangedFloorStyle());
+    showArranged();
+    drawArrangeTools();
   }
 
   /** What the chooser below was last drawn for, so it's drawn again only when that changes. */
@@ -4943,7 +5005,8 @@
    * style has it; choosing one makes the office yours.
    */
   function drawKinds() {
-    const part = arrangePicked === 'corner' || arrangePicked === 'mic' || arrangePicked === 'button' ? arrangePicked : null;
+    // Upstairs, a floor's corner piece is its style's: what's chosen here is the office's own, downstairs
+    const part = !arrangeFloor && (arrangePicked === 'corner' || arrangePicked === 'mic' || arrangePicked === 'button') ? arrangePicked : null;
     const room = layout.room || STANDARD_ROOM, shown = furnished(room);
     const key = part && JSON.stringify([part, shown[part], lookOf(room)]);
     $('arrange-kind').hidden = !part;
@@ -5219,14 +5282,17 @@
    * the room or click to put where it fits.
    */
   function drawDrawer() {
-    const room = layout.room || STANDARD_ROOM, shown = furnished(room), pieces = arrangedPieces();
+    const room = layout.room || STANDARD_ROOM;
+    // Upstairs, the floor as it's drawn, in its style: what's away there, the server room's window as it comes too
+    const shown = arrangeFloor ? AgentOffice.floorRoom(room, arrangedFloorStyle(), arrangeFloor) : furnished(room);
+    const pieces = arrangeFloor ? shown.plan[arrangeShape] : arrangedPieces();
     const away = (part) => !!(pieces[part] && pieces[part].off);
     const desks = Object.keys(AgentOffice.arrangeable).filter((part) => part.startsWith('desk') && away(part));
     // The lounge's own pieces put away, first among the lounge's: the ping-pong table is gone for good
     const furniture = ['wall', 'window', 'couch', 'plant', 'corner'].filter((part) => away(part) && (part !== 'corner' || shown.corner !== 'none'));
     const addedFull = addedPieces().length >= AgentOffice.addedMost;
     const hungFull = arranger.hung().length >= AgentOffice.hungMost;
-    const key = JSON.stringify([desks, furniture, shown.corner, addedFull, hungFull, lookOf(room)]);
+    const key = JSON.stringify([desks, furniture, shown.corner, addedFull, hungFull, lookOf(room), arrangeFloor]);
     // The same drawer, but another piece picked: its shelf opens
     if (key === drawerFor) { if (pickedShelf() !== pickFor) searchDrawer(); return; }
     drawerFor = key;
@@ -5387,6 +5453,7 @@
       });
       arranger.setArranging(true);
     }
+    arranger.arrangeFloor(arrangeFloor, arrangedFloorStyle());
     arranger.setVisible(true);
     $('arrange-saved').textContent = '';
     arrangedSent = JSON.stringify(layout);
@@ -5444,6 +5511,8 @@
     welcomeOpen = false;
     $('invite').hidden = true;
     if (empty === null) return;
+    // The welcome makes the ground floor yours
+    arrangeFloor = 0;
     $('arrange-open').click();
     if (empty) arranger.empty(true);
   }
@@ -5494,11 +5563,10 @@
   $('arrange-reset').onclick = () => {
     remember();
     changedAt = 0;
-    const room = layout.room || (layout.room = structuredClone(STANDARD_ROOM));
-    const plan = room.plan || { wide: {}, tall: {}, added: { wide: [], tall: [] } };
-    // Back as it comes: every piece where it stands, nothing added, and the wall's five places
-    room.plan = { ...plan, [arrangeShape]: {}, added: { ...(plan.added || { wide: [], tall: [] }), [arrangeShape]: [] },
-      hung: { ...(plan.hung || {}), [arrangeShape]: null } };
+    const plan = editedPlan() || { wide: {}, tall: {}, added: { wide: [], tall: [] } };
+    // Back as it comes: every piece where it stands, nothing added, and the wall's five places; upstairs, nine desks and the chill area
+    keepPlan({ ...plan, [arrangeShape]: {}, added: { ...(plan.added || { wide: [], tall: [] }), [arrangeShape]: [] },
+      hung: { ...(plan.hung || {}), [arrangeShape]: null } });
     arrangePicked = null;
     arranger.pick(null);
     showArranged();
@@ -5577,9 +5645,10 @@
     if (!bots) return;
     if ($('bots').contains(document.activeElement)) return;
     if (!changed($('bots'), [bots, state.floors, state.platform])) return;
-    $('bots-hint').textContent = bots.detects
+    $('bots-hint').textContent = (bots.detects
       ? 'A bot in the Grok Bot app gets a desk by itself, and goes when it leaves there. 📌 keeps one whatever the app says; Hide sends it away for good.'
-      : 'Bots set in config.json or by a tool of yours, each at a desk of its own. 📌 marks one as yours on a Mac, where they are found in the Grok Bot app.';
+      : 'Bots set in config.json or by a tool of yours, each at a desk of its own. 📌 marks one as yours on a Mac, where they are found in the Grok Bot app.')
+      + ' A bot stays on the floor you put it on, here or in the office; the others go where new bots go, or where there’s room when it’s full.';
     const send = (body) => post('/setup/bots/override', body);
     const rows = [];
     if (bots.detects) {
@@ -5596,8 +5665,21 @@
       rows.push(row);
     }
     const floors = Array.isArray(state.floors) ? state.floors : [];
-    const places = [['upstairs', 'Upstairs, where there’s room'], ['ground', `${(floors[0] || {}).name || '1F'} (ground floor)`],
-      ...floors.slice(1).map((floor, i) => [String(i + 2), floor.name])];
+    const floorName = (i) => (i === 0 ? `${(floors[0] || {}).name || '1F'} (ground floor)` : (floors[i] || {}).name || `${i + 1}F`);
+    const newBots = Number.isInteger(bots.botFloor) ? bots.botFloor : 1;
+    // A bot sits on any floor: the one picked here, or where new bots go, a folder's floor going first.
+    const places = [['', `Its folder’s floor, or where new bots go (${floorName(newBots)})`], ['ground', floorName(0)],
+      ...floors.slice(1).map((floor, i) => [String(i + 2), floorName(i + 1)])];
+    let newRow = null;
+    if (floors.length && Number.isInteger(bots.botFloor)) {
+      newRow = document.createElement('div');
+      newRow.className = 'field';
+      const newFloor = document.createElement('select');
+      newFloor.setAttribute('aria-label', 'The floor new bots go to');
+      newFloor.replaceChildren(...floors.map((floor, i) => new Option(floorName(i), String(i), false, i === newBots)));
+      newFloor.onchange = () => { newFloor.blur(); send({ botFloor: Number(newFloor.value) }); };
+      newRow.append(Object.assign(document.createElement('span'), { textContent: 'New bots go to' }), newFloor);
+    }
     for (const bot of bots.bots || []) {
       const row = document.createElement('div');
       row.className = 'field floor';
@@ -5636,9 +5718,11 @@
     }
     if ((bots.noRoom || []).length) {
       rows.push(Object.assign(document.createElement('p'), { className: 'hint',
-        textContent: `No desk for ${bots.noRoom.join(', ')}: there can be 9 cloud bots. Hide or remove one to make room.` }));
+        textContent: `No room for ${bots.noRoom.join(', ')}: every floor is full. Hide a bot, or free or add a desk, to make room.` }));
     }
     if (!rows.length) rows.push(Object.assign(document.createElement('p'), { className: 'hint', textContent: 'No cloud bots yet.' }));
+    // Where new bots go, under the switch that finds them, with bots or none yet.
+    if (newRow) rows.splice(bots.detects ? 1 : 0, 0, newRow);
     $('bots').replaceChildren(...rows);
   }
 

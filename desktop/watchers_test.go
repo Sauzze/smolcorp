@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -67,10 +68,24 @@ func (b *watchBench) call(method, target, body string, asGM bool) *httptest.Resp
 	return serve(b.t, b.d, c)
 }
 
+// inJSON is text as it goes inside a JSON string: a Windows path's backslashes escaped.
+func inJSON(text string) string {
+	data, _ := json.Marshal(text)
+	return string(data[1 : len(data)-1])
+}
+
+// systemFile is a full path to one of the system's own files, outside every folder the app manages.
+func systemFile() string {
+	if runtime.GOOS == "windows" {
+		return `C:\Windows\win.ini`
+	}
+	return "/etc/hosts"
+}
+
 // watch sets a watch as the GM and returns it as answered.
 func (b *watchBench) watch(body string) map[string]any {
 	b.t.Helper()
-	w := b.call("POST", "/setup/gm/watch", strings.ReplaceAll(body, "$ROOT", b.root), true)
+	w := b.call("POST", "/setup/gm/watch", strings.ReplaceAll(body, "$ROOT", inJSON(b.root)), true)
 	if w.Code != http.StatusOK {
 		b.t.Fatalf("watch %s: %d %s", body, w.Code, w.Body)
 	}
@@ -140,8 +155,8 @@ func TestWatchAnswersAsWatchJSONSaysForEachKind(t *testing.T) {
 	b := watchDeck(t)
 	fx := loadWatchFixture(t)
 	want := map[string]map[string]any{
-		"file":           {"kind": "file", "target": b.root + "/STATUS.md", "pattern": `\bDONE\b`, "repeat": false},
-		"file-in-a-hire": {"kind": "file", "target": b.root + "/STATUS.md", "pattern": "NEEDS-REVIEW", "repeat": true},
+		"file":           {"kind": "file", "target": filepath.Join(b.root, "STATUS.md"), "pattern": `\bDONE\b`, "repeat": false},
+		"file-in-a-hire": {"kind": "file", "target": filepath.Join(b.root, "STATUS.md"), "pattern": "NEEDS-REVIEW", "repeat": true},
 		"event":          {"kind": "event", "target": "permissionDenied", "pattern": "", "repeat": true, "folder": b.root},
 		"idle":           {"kind": "idle", "target": b.root, "pattern": "", "repeat": false, "minutes": 10.0},
 		"exit":           {"kind": "exit", "target": "a1b2c3", "pattern": "", "repeat": false},
@@ -181,7 +196,8 @@ func TestWatchRefusesAsWatchJSONSays(t *testing.T) {
 	b := watchDeck(t)
 	fx := loadWatchFixture(t)
 	for _, r := range fx.Refusals {
-		body := strings.ReplaceAll(string(r.Request), "$ROOT", b.root)
+		// The fixture is the Mac's: its outside file is a Unix one.
+		body := strings.ReplaceAll(strings.ReplaceAll(string(r.Request), "$ROOT", inJSON(b.root)), "/etc/hosts", inJSON(systemFile()))
 		if w := b.call("POST", "/setup/gm/watch", body, true); w.Code != r.Status {
 			t.Errorf("%s (%s): %d %s, want %d", body, r.Why, w.Code, w.Body, r.Status)
 		}
@@ -202,7 +218,7 @@ func TestWatchRefusesAsWatchJSONSays(t *testing.T) {
 			t.Errorf("body %q: %d %s", body, w.Code, w.Body)
 		}
 	}
-	for _, body := range []string{`{"kind":"file","target":"STATUS.md","pattern":"x"}`, `{"kind":"idle","minutes":5}`, `{"kind":"time","minutes":0.5,"repeat":true}`, `{"kind":"time"}`, `{"kind":"file","target":"` + b.root + `/a"}`} {
+	for _, body := range []string{`{"kind":"file","target":"STATUS.md","pattern":"x"}`, `{"kind":"idle","minutes":5}`, `{"kind":"time","minutes":0.5,"repeat":true}`, `{"kind":"time"}`, `{"kind":"file","target":"` + inJSON(b.root) + `/a"}`} {
 		if w := b.call("POST", "/setup/gm/watch", body, true); w.Code != 400 {
 			t.Errorf("%s: %d %s, want 400", body, w.Code, w.Body)
 		}
@@ -380,7 +396,7 @@ func TestAFileWatchLooksOnlyInsideAHiresFolderOrTheHiresFolderAndNeverAtSecrets(
 		filepath.Join(b.root, "link", "S.md"):            403, // a link out
 		filepath.Join(b.root, "S.md"):                    403, // a link to a file outside
 		filepath.Join(outside, "S.md"):                   403,
-		"/etc/hosts":                                     403,
+		systemFile():                                     403,
 		filepath.Join(home, "x.md"):                      403,
 	} {
 		if got := trial(path, ""); got != want {
@@ -565,7 +581,7 @@ func TestWhereAFileWatchHasReadSurvivesARestartAndIsKeptInWatchersJSONPrivately(
 	b.tick()
 	file := filepath.Join(supportDir, "watchers.json")
 	info, err := os.Stat(file)
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil || !modeIs(info, 0o600) {
 		t.Fatalf("watchers.json: %v %v", err, info)
 	}
 	var kept struct {
@@ -734,7 +750,7 @@ func TestAnIdleWatchFiresOnceForAQuietSpellAfterNMinutesAndEndsWhenTheHireLeaves
 		t.Fatalf("a spell that began before the watch: %v", b.fired())
 	}
 	w.observe(eventEntry{ID: 2, At: b.clock.UnixMilli(), Kind: "prompt", Folder: b.root})
-	w.observe(eventEntry{ID: 3, At: b.clock.UnixMilli(), Kind: "idle", Folder: b.root + "/sub"}) // a folder under it counts
+	w.observe(eventEntry{ID: 3, At: b.clock.UnixMilli(), Kind: "idle", Folder: filepath.Join(b.root, "sub")}) // a folder under it counts
 	b.clock = b.clock.Add(4 * time.Minute)
 	b.tick()
 	if len(b.fired()) != 0 {
@@ -780,7 +796,7 @@ func TestTheGMCommandsWatchUnwatchAndWatchesWorkAgainstTheServer(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("watch file: %d %q %q", code, out, errOut)
 	}
-	code, _, errOut = run("watch", "file", "/etc/hosts", "--pattern", "x")
+	code, _, errOut = run("watch", "file", systemFile(), "--pattern", "x")
 	if code != 1 || !strings.Contains(errOut, "Only files inside a hire's folder") {
 		t.Errorf("a refused watch: %d %q", code, errOut)
 	}
@@ -825,7 +841,7 @@ func TestAHardLinkToAFileOutsideIsNeverWatchedOrRead(t *testing.T) {
 	if err := os.Link(secret, linked); err != nil {
 		t.Fatal(err)
 	}
-	w := b.call("POST", "/setup/gm/watch", `{"kind":"file","target":"`+linked+`","pattern":"."}`, true)
+	w := b.call("POST", "/setup/gm/watch", `{"kind":"file","target":"`+inJSON(linked)+`","pattern":"."}`, true)
 	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "Only files inside") {
 		t.Errorf("a hard link: %d %s", w.Code, w.Body)
 	}
