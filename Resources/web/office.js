@@ -58099,6 +58099,38 @@
      */
     /** How far through something done every `period` seconds for `length` is, 0 to 1, or null between times: each wearer at their own moment. */
     const every = (look, period, length, salt) => { const t = (now + look.phase * salt) % period; return t < length ? t / length : null; };
+    /*
+     * The original teams of characters and costumes (Greek gods, zoo onesies, the ant colony, the royal court): shared helpers,
+     * no private code. Each team draws the rest in its own OUTFIT_PARTS entries.
+     */
+    /** A character's own skin and hair, whoever wears it. */
+    const costumeLook = (skin, hair) => ({ skin, hair, hairStyle: 'costumeown', extra: 'none' });
+    /** An arm hanging at the side, `dx` -4 or 4: its sleeve and its hand. */
+    const costumeArm = (x, top, dx, look, sleeve, hand = look.skin) => { sleeve(x + dx, top + 8, 1, 4); dot(x + dx, top + 12, hand); };
+    /** How far each foot is lifted mid-step, left and right, as drawPerson walks them; null sitting down, the legs out of sight. */
+    function costumeLift(pose) {
+      if (pose.kind === 'sit' || pose.kind === 'slump' || pose.kind === 'wallet') return null;
+      return pose.kind === 'walk' ? (pose.step === 0 ? [1, 0] : [0, 1]) : pose.kind === 'tap' ? [0, pose.beat] : [0, 0];
+    }
+    /** A sparkle at `tx`, `ty`: a white point, and its four rays every other moment; it shines through the night. */
+    function costumeTwinkle(tx, ty, strength = 1) {
+      const rays = Math.floor(now * 6) % 2 === 0;
+      const draw = () => {
+        dot(tx, ty, WHITE, strength);
+        if (rays) for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) dot(tx + dx, ty + dy, WHITE, 0.45 * strength);
+      };
+      if (isNight) glowLate(draw); else draw();
+    }
+    /**
+     * A onesie's hood over the head, `c` lit on the left and shaded on the right: rounder and wider than the head, down either
+     * side of the face to the jaw, the face looking out of it; from behind, all of the head.
+     */
+    function costumeHood(x, top, c, light, dark, away) {
+      fill(x - 3, top - 2, 7, 1, c); fill(x - 4, top - 1, 9, 3, c); fill(x - 4, top + 2, 2, 5, c); fill(x + 3, top + 2, 2, 5, c);
+      dot(x - 3, top - 2, light); fill(x - 4, top - 1, 1, 8, light); fill(x + 4, top - 1, 1, 8, dark); dot(x + 3, top - 2, dark);
+      if (away) fill(x - 3, top + 2, 7, 5, c);
+    }
+
     const OUTFIT_PARTS = {
       marvel1widow: {
         // Black Widow (brand nod: Marvel): a black catsuit with a silver zip and a belt with the red hourglass buckle; long red hair; her wrist bites spark blue every so often
