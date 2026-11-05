@@ -463,7 +463,7 @@ func TestStartingOnLinuxWritesTheScopeDownBySettlingOnThePhonesPaired(t *testing
 					t.Fatal(err)
 				}
 			}
-			d := NewDeck()
+			d := startDeck(t)
 			if d.config.Listen != c.want || scopeOf(d.config) != c.want {
 				t.Errorf("listen %q, scope %q, want %q", d.config.Listen, scopeOf(d.config), c.want)
 			}
@@ -479,11 +479,11 @@ func TestAPhonePairedAfterTheMigrationChangesNothingOnLinux(t *testing.T) {
 		t.Skip("the migration is for Linux, and NewDeck asks which system this is")
 	}
 	isolate(t)
-	if d := NewDeck(); d.config.Listen != listenTailscale {
+	if d := startDeck(t); d.config.Listen != listenTailscale {
 		t.Fatalf("a new install settled on %q", d.config.Listen)
 	}
 	writePhones(t, "Pixel")
-	if d := NewDeck(); d.config.Listen != listenTailscale || scopeOf(d.config) != listenTailscale {
+	if d := startDeck(t); d.config.Listen != listenTailscale || scopeOf(d.config) != listenTailscale {
 		t.Errorf("the next start, with a phone: %q, want it to stay %q", d.config.Listen, listenTailscale)
 	}
 	if got := savedListen(t); got != listenTailscale {
@@ -500,7 +500,7 @@ func TestAConfigWithAPhoneKeepsItsOtherSettingsWhenTheScopeIsWritten(t *testing.
 	if err := os.WriteFile(configFile, []byte(`{"alwaysOnTop": true, "somethingNewer": 7}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	NewDeck()
+	startDeck(t)
 	data, err := os.ReadFile(configFile)
 	if err != nil {
 		t.Fatal(err)

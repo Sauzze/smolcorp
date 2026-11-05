@@ -575,6 +575,8 @@
     gentlemenbilliards: { x: 252, y: 58, w: 54, h: 39 },
     groklaunch: { x: 258, y: 40, w: 40, h: 55 },
     grokbotrack: { x: 261, y: 45, w: 40, h: 50 },
+    geodegrotto: { x: 248, y: 28, w: 62, h: 72 },
+    geodesorter: { x: 248, y: 43, w: 62, h: 55 },
   };
   /** What `part` takes up, in the wide room as it comes: the corner's by what's in it, null with nothing there. */
   const pieceRect = (part) => (part === 'corner' ? CORNER_BOXES[decor.corner] || null
@@ -1223,6 +1225,10 @@
       corner: 'grokbotrack', desk: 'black', chair: 'grey', pet: 'grokdrone', monitor: 'grokbotmon', staff: 'none',
       wall: ['grokbotmissions', 'grokbotroutine', 'grokbotstatus', 'grokbotmailbox', 'grokneon'] },
       things: ['grokbotqueue', 'grokbotantenna', 'grokmug'] },
+    geode: { name: 'The Geode', room: { workspace: 'geodedesk', floor: 'geodefloor', paint: 'geodewall', lounge: 'geodefloor', loungePaint: 'geodewall',
+      corner: 'geodegrotto', desk: 'black', chair: 'grey', pet: 'geodegolem', monitor: 'geodemon', staff: 'none',
+      wall: ['geodebell', 'geodelantern', 'geodevault', 'geodelantern', 'geodecluster'] },
+      things: ['geodetumbler', 'geodespecimens', 'geodelamp', 'geodeuvlamp', 'geodehalf', 'geodecaliper', 'geodepan', 'geodehammer'] },
   };
   /** What a style furnishes. The sky, the seasons, the sound and your team stay as you have them. */
   const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff'];
@@ -1268,22 +1274,22 @@
     // How the mic's sound waves look: the red dotted arcs, or another style
     wave: ['classic', 'orange', 'ocean', 'mint', 'gold', 'rainbow', 'rings', 'dashed', 'sine', 'eq', 'dots', 'notes', 'hearts', 'sparks', 'lightning', 'speech', 'radar', 'glitch', 'bubbles', 'coins', 'basketballs'],
     floor: ['wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass', 'forest', 'rubber',
-      'epoxy', 'arcade', 'hauntedcourt', 'court', 'studio', 'stationfloor', 'zensand', 'planks', 'wetflags', 'polished', 'emeraldgold', 'worncarpet', 'cablefloor', 'pitchgrass', 'lakerscourt', 'celticscourt', 'warriorscourt', 'knickscourt', 'bullscourt', 'heatcourt', 'spurscourt', 'thundercourt', 'wolvescourt', 'nuggetscourt', 'hawkscourt', 'netscourt', 'hornetscourt', 'cavscourt', 'mavscourt', 'pistonscourt', 'rocketscourt', 'pacerscourt', 'clipperscourt', 'grizzliescourt', 'buckscourt', 'pelicanscourt', 'magiccourt', 'sixerscourt', 'sunscourt', 'blazerscourt', 'kingscourt', 'raptorscourt', 'jazzcourt', 'wizardscourt', 'marvel1tower', 'marvel1stars', 'marvel2vibranium', 'marvel2cosmos', 'ironmangarage', 'ironmanhexglass', 'batcavedeck', 'batcaverock', 'dcmixwatchtower', 'dcmixthemyscira', 'pokemontiles', 'pokemongrass', 'lolhextiles', 'lolrift', 'wowinn', 'wowcobble', 'gtavice', 'gtaasphalt', 'destinytower', 'destinyrust', 'starwarsdeck', 'starwarssand', 'girly1marble', 'girly1shag', 'girly2mint', 'girly2cloud', 'narcostiles', 'narcosleopard', 'apple1oak', 'apple1stone', 'apple2carpet', 'apple2dither', 'jewishstone', 'jewishtiles', 'muslimzellige', 'muslimcarpet', 'christianflags', 'christianoak', 'buddhisttatami', 'buddhistslate', 'volcanobasalt', 'volcanogrid', 'kitchenquarry', 'kitchenmat', 'hospitallino', 'hospitallines', 'noirchecker', 'noirboards', 'madlabdrain', 'madlabplate', 'casinocarpet', 'casinomarble', 'orientterrazzo', 'orientcarpet', 'halloweendxboards', 'halloweendxsoil', 'catcafeoak', 'catcafepatch', 'spiderverserooftop', 'spiderversehalftone', 'xmendanger', 'xmenparquet', 'f1tarmac', 'f1chequer', 'ufccanvas', 'ufcmats', 'nyloftboards', 'nyloftrug', 'pariscafetiles', 'pariscafechevron', 'muertostiles', 'muertospetals', 'submarinedeepgrate', 'submarinedeepmat', 'arcticbasetread', 'arcticbaserug', 'sakuraboards', 'sakuralawn', 'potterflags', 'pottercommon', 'lotrshire', 'lotrmeduseld', 'breakingbadlab', 'breakingbaddesert', 'strangerarcade', 'strangerupside', 'gotwinterfell', 'gotredkeep', 'simpsonsplant', 'simpsonsliving', 'bondmi6', 'bondlair', 'dunesietch', 'dunesand', 'onepiecedeck', 'onepiecelawn', 'eldenringleyndell', 'eldenringlimgrave', 'sevcarpet', 'sevtile', 'offcarpet', 'offlino', 'peakyboards', 'peakycobble', 'madmcarpet', 'madmparquet', 'squidfield', 'squidteal', 'boysmarble', 'boyscarpet', 'falloutvault', 'falloutconcrete', 'rickgarage', 'rickportal', 'mirrorfloor', 'mirrordark', 'westlab', 'westsaloon', 'bttfgaragefloor', 'bttfdinerfloor', 'jpvisitorfloor', 'jpjunglefloor', 'wicklobbyfloor', 'wickvaultfloor', 'kingsmanshopfloor', 'kingsmanhqfloor', 'wonkariverfloor', 'wonkacandyfloor', 'weslobbyfloor', 'wescorridorfloor', 'mibhqfloor', 'mibtunnelfloor', 'trongridfloor', 'tronarenafloor', 'dbzdojofloor', 'dbzlabfloor', 'amongusshipfloor', 'amonguscafefloor', 'tokyofloor', 'tokyotatami', 'egyptfloor', 'egyptmosaic', 'vikingfloor', 'vikingstone', 'aztecfloor', 'aztecjungle', 'obsfloor', 'obscarpet', 'tikifloor', 'tikisand', 'dinerfloor', 'dinerterrazzo', 'courtfloor', 'courtcarpet', 'artfloor', 'artrug', 'aquariumfloor', 'aquariumglass', 'circussawdust', 'circusredcarpet', 'museummarble', 'museumparquet', 'northpolesnow', 'northpoleplank', 'soundstagefloor', 'soundstagelounge', 'cultclay', 'cultmat', 'esportsstagefloor', 'esportscarpet', 'cavemanrock', 'cavemanhide', 'lodgechecker', 'lodgecarpet', 'prepperconcrete', 'prepperrubber', 'paradiseovalrug', 'paradisebunkerfloor', 'startrekdeck', 'startrekpad', 'gentlemenherringbone', 'gentlementartan', 'grokfloor', 'grokrug', 'grokbotfloor'],
+      'epoxy', 'arcade', 'hauntedcourt', 'court', 'studio', 'stationfloor', 'zensand', 'planks', 'wetflags', 'polished', 'emeraldgold', 'worncarpet', 'cablefloor', 'pitchgrass', 'lakerscourt', 'celticscourt', 'warriorscourt', 'knickscourt', 'bullscourt', 'heatcourt', 'spurscourt', 'thundercourt', 'wolvescourt', 'nuggetscourt', 'hawkscourt', 'netscourt', 'hornetscourt', 'cavscourt', 'mavscourt', 'pistonscourt', 'rocketscourt', 'pacerscourt', 'clipperscourt', 'grizzliescourt', 'buckscourt', 'pelicanscourt', 'magiccourt', 'sixerscourt', 'sunscourt', 'blazerscourt', 'kingscourt', 'raptorscourt', 'jazzcourt', 'wizardscourt', 'marvel1tower', 'marvel1stars', 'marvel2vibranium', 'marvel2cosmos', 'ironmangarage', 'ironmanhexglass', 'batcavedeck', 'batcaverock', 'dcmixwatchtower', 'dcmixthemyscira', 'pokemontiles', 'pokemongrass', 'lolhextiles', 'lolrift', 'wowinn', 'wowcobble', 'gtavice', 'gtaasphalt', 'destinytower', 'destinyrust', 'starwarsdeck', 'starwarssand', 'girly1marble', 'girly1shag', 'girly2mint', 'girly2cloud', 'narcostiles', 'narcosleopard', 'apple1oak', 'apple1stone', 'apple2carpet', 'apple2dither', 'jewishstone', 'jewishtiles', 'muslimzellige', 'muslimcarpet', 'christianflags', 'christianoak', 'buddhisttatami', 'buddhistslate', 'volcanobasalt', 'volcanogrid', 'kitchenquarry', 'kitchenmat', 'hospitallino', 'hospitallines', 'noirchecker', 'noirboards', 'madlabdrain', 'madlabplate', 'casinocarpet', 'casinomarble', 'orientterrazzo', 'orientcarpet', 'halloweendxboards', 'halloweendxsoil', 'catcafeoak', 'catcafepatch', 'spiderverserooftop', 'spiderversehalftone', 'xmendanger', 'xmenparquet', 'f1tarmac', 'f1chequer', 'ufccanvas', 'ufcmats', 'nyloftboards', 'nyloftrug', 'pariscafetiles', 'pariscafechevron', 'muertostiles', 'muertospetals', 'submarinedeepgrate', 'submarinedeepmat', 'arcticbasetread', 'arcticbaserug', 'sakuraboards', 'sakuralawn', 'potterflags', 'pottercommon', 'lotrshire', 'lotrmeduseld', 'breakingbadlab', 'breakingbaddesert', 'strangerarcade', 'strangerupside', 'gotwinterfell', 'gotredkeep', 'simpsonsplant', 'simpsonsliving', 'bondmi6', 'bondlair', 'dunesietch', 'dunesand', 'onepiecedeck', 'onepiecelawn', 'eldenringleyndell', 'eldenringlimgrave', 'sevcarpet', 'sevtile', 'offcarpet', 'offlino', 'peakyboards', 'peakycobble', 'madmcarpet', 'madmparquet', 'squidfield', 'squidteal', 'boysmarble', 'boyscarpet', 'falloutvault', 'falloutconcrete', 'rickgarage', 'rickportal', 'mirrorfloor', 'mirrordark', 'westlab', 'westsaloon', 'bttfgaragefloor', 'bttfdinerfloor', 'jpvisitorfloor', 'jpjunglefloor', 'wicklobbyfloor', 'wickvaultfloor', 'kingsmanshopfloor', 'kingsmanhqfloor', 'wonkariverfloor', 'wonkacandyfloor', 'weslobbyfloor', 'wescorridorfloor', 'mibhqfloor', 'mibtunnelfloor', 'trongridfloor', 'tronarenafloor', 'dbzdojofloor', 'dbzlabfloor', 'amongusshipfloor', 'amonguscafefloor', 'tokyofloor', 'tokyotatami', 'egyptfloor', 'egyptmosaic', 'vikingfloor', 'vikingstone', 'aztecfloor', 'aztecjungle', 'obsfloor', 'obscarpet', 'tikifloor', 'tikisand', 'dinerfloor', 'dinerterrazzo', 'courtfloor', 'courtcarpet', 'artfloor', 'artrug', 'aquariumfloor', 'aquariumglass', 'circussawdust', 'circusredcarpet', 'museummarble', 'museumparquet', 'northpolesnow', 'northpoleplank', 'soundstagefloor', 'soundstagelounge', 'cultclay', 'cultmat', 'esportsstagefloor', 'esportscarpet', 'cavemanrock', 'cavemanhide', 'lodgechecker', 'lodgecarpet', 'prepperconcrete', 'prepperrubber', 'paradiseovalrug', 'paradisebunkerfloor', 'startrekdeck', 'startrekpad', 'gentlemenherringbone', 'gentlementartan', 'grokfloor', 'grokrug', 'grokbotfloor', 'geodefloor', 'geodeagate'],
     paint: ['slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block', 'foam',
-      'primetime', 'bleachers', 'stationwall', 'shoji', 'plankwall', 'deepsea', 'fintech', 'greenglow', 'frostblue', 'ledstrip', 'parcnavy', 'lakerswall', 'celticswall', 'warriorswall', 'knickswall', 'bullswall', 'heatwall', 'spurswall', 'thunderwall', 'wolveswall', 'nuggetswall', 'hawkswall', 'netswall', 'hornetswall', 'cavswall', 'mavswall', 'pistonswall', 'rocketswall', 'pacerswall', 'clipperswall', 'grizzlieswall', 'buckswall', 'pelicanswall', 'magicwall', 'sixerswall', 'sunswall', 'blazerswall', 'kingswall', 'raptorswall', 'jazzwall', 'wizardswall', 'marvel1red', 'marvel1webwall', 'marvel2wakanda', 'marvel2sanctum', 'ironmanred', 'ironmanglass', 'batcavestone', 'batcavemanor', 'dcmixsuperblue', 'dcmixlanternwall', 'pokemoncenter', 'pokemonroute', 'lolpiltover', 'loljungle', 'wowstormwind', 'wowhorde', 'gtavicecity', 'gtabrick', 'destinylastcity', 'destinyvoid', 'starwarsimperial', 'starwarsrebel', 'girly1hotpink', 'girly1blush', 'girly2lilac', 'girly2mintwall', 'narcoshacienda', 'narcosjungle', 'apple1white', 'apple1space', 'apple2beige', 'apple2rainbow', 'jewishblue', 'jewishsand', 'muslimteal', 'muslimplaster', 'christianwhite', 'christianwine', 'buddhistsaffron', 'buddhistmaroon', 'volcanorock', 'volcanosteel', 'kitchentile', 'kitchenbrick', 'hospitalmint', 'hospitalwhite', 'noirplaster', 'noirgreen', 'madlabstone', 'madlabtile', 'casinored', 'casinoneon', 'orientmarquetry', 'orientcream', 'halloweendxdamask', 'halloweendxcrypt', 'catcafepink', 'catcafemint', 'spiderversegraffiti', 'spiderversegwen', 'xmenmansion', 'xmenhangar', 'f1pitwall', 'f1carbon', 'ufcarena', 'ufcgym', 'nyloftbrick', 'nyloftplaster', 'pariscafeboiserie', 'pariscafebordeaux', 'muertospink', 'muertosteal', 'submarinedeepwhite', 'submarinedeepnavy', 'arcticbasered', 'arcticbasepine', 'sakurablush', 'sakurasky', 'pottergryffindor', 'potterstone', 'lotrbagend', 'lotrrivendell', 'breakingbadsuperlab', 'breakingbadstucco', 'strangerwallpaper', 'strangerupsidewall', 'gotstone', 'gotcrimson', 'simpsonspink', 'simpsonssky', 'bondwalnut', 'bondgunwall', 'duneatreides', 'dunerock', 'onepiecesunny', 'onepiecesea', 'eldenringstormveil', 'eldenringerdtree', 'sevwall', 'sevhall', 'offwall', 'offbreak', 'peakywall', 'peakybrick', 'madmwall', 'madmteak', 'squidstairs', 'squidpink', 'boyswall', 'boysred', 'falloutwall', 'falloutgrime', 'rickwall', 'rickalien', 'mirrorwall', 'mirrordarkwall', 'westlabwall', 'westsaloonwall', 'bttfgaragewall', 'bttfdinerwall', 'jpconcretewall', 'jpjunglewall', 'wicklobbywall', 'wickvaultwall', 'kingsmanshopwall', 'kingsmanhqwall', 'wonkafactorywall', 'wonkagardenwall', 'weslobbywall', 'wescorridorwall', 'mibhqwall', 'mibtunnelwall', 'trongridwall', 'tronorangewall', 'dbzdojowall', 'dbzlabwall', 'amongusshipwall', 'amonguscafewall', 'tokyoneonwall', 'tokyobrick', 'egyptwall', 'egyptgold', 'vikingwall', 'vikingrune', 'aztecwall', 'aztecvine', 'obswall', 'obspanel', 'tikiwall', 'tikisunset', 'dinerwall', 'dinerstripe', 'courtwall', 'courtmarble', 'artwall', 'artbrick', 'aquariumwall', 'aquariumcoral', 'circusbigtop', 'circusmarquee', 'museumstone', 'museumgallery', 'northpolelog', 'northpolewrap', 'soundstageacoustic', 'soundstagegreenroom', 'cultadobe', 'cultveil', 'esportsled', 'esportspanel', 'cavemanwall', 'cavemanpaintings', 'lodgepanel', 'lodgedrape', 'prepperwall', 'preppersandbag', 'paradiseoval', 'paradiseconcrete', 'startrekbulkhead', 'startrekjefferies', 'gentlemenpanel', 'gentlementweed', 'grokwall', 'grokpanel', 'grokbotwall'],
+      'primetime', 'bleachers', 'stationwall', 'shoji', 'plankwall', 'deepsea', 'fintech', 'greenglow', 'frostblue', 'ledstrip', 'parcnavy', 'lakerswall', 'celticswall', 'warriorswall', 'knickswall', 'bullswall', 'heatwall', 'spurswall', 'thunderwall', 'wolveswall', 'nuggetswall', 'hawkswall', 'netswall', 'hornetswall', 'cavswall', 'mavswall', 'pistonswall', 'rocketswall', 'pacerswall', 'clipperswall', 'grizzlieswall', 'buckswall', 'pelicanswall', 'magicwall', 'sixerswall', 'sunswall', 'blazerswall', 'kingswall', 'raptorswall', 'jazzwall', 'wizardswall', 'marvel1red', 'marvel1webwall', 'marvel2wakanda', 'marvel2sanctum', 'ironmanred', 'ironmanglass', 'batcavestone', 'batcavemanor', 'dcmixsuperblue', 'dcmixlanternwall', 'pokemoncenter', 'pokemonroute', 'lolpiltover', 'loljungle', 'wowstormwind', 'wowhorde', 'gtavicecity', 'gtabrick', 'destinylastcity', 'destinyvoid', 'starwarsimperial', 'starwarsrebel', 'girly1hotpink', 'girly1blush', 'girly2lilac', 'girly2mintwall', 'narcoshacienda', 'narcosjungle', 'apple1white', 'apple1space', 'apple2beige', 'apple2rainbow', 'jewishblue', 'jewishsand', 'muslimteal', 'muslimplaster', 'christianwhite', 'christianwine', 'buddhistsaffron', 'buddhistmaroon', 'volcanorock', 'volcanosteel', 'kitchentile', 'kitchenbrick', 'hospitalmint', 'hospitalwhite', 'noirplaster', 'noirgreen', 'madlabstone', 'madlabtile', 'casinored', 'casinoneon', 'orientmarquetry', 'orientcream', 'halloweendxdamask', 'halloweendxcrypt', 'catcafepink', 'catcafemint', 'spiderversegraffiti', 'spiderversegwen', 'xmenmansion', 'xmenhangar', 'f1pitwall', 'f1carbon', 'ufcarena', 'ufcgym', 'nyloftbrick', 'nyloftplaster', 'pariscafeboiserie', 'pariscafebordeaux', 'muertospink', 'muertosteal', 'submarinedeepwhite', 'submarinedeepnavy', 'arcticbasered', 'arcticbasepine', 'sakurablush', 'sakurasky', 'pottergryffindor', 'potterstone', 'lotrbagend', 'lotrrivendell', 'breakingbadsuperlab', 'breakingbadstucco', 'strangerwallpaper', 'strangerupsidewall', 'gotstone', 'gotcrimson', 'simpsonspink', 'simpsonssky', 'bondwalnut', 'bondgunwall', 'duneatreides', 'dunerock', 'onepiecesunny', 'onepiecesea', 'eldenringstormveil', 'eldenringerdtree', 'sevwall', 'sevhall', 'offwall', 'offbreak', 'peakywall', 'peakybrick', 'madmwall', 'madmteak', 'squidstairs', 'squidpink', 'boyswall', 'boysred', 'falloutwall', 'falloutgrime', 'rickwall', 'rickalien', 'mirrorwall', 'mirrordarkwall', 'westlabwall', 'westsaloonwall', 'bttfgaragewall', 'bttfdinerwall', 'jpconcretewall', 'jpjunglewall', 'wicklobbywall', 'wickvaultwall', 'kingsmanshopwall', 'kingsmanhqwall', 'wonkafactorywall', 'wonkagardenwall', 'weslobbywall', 'wescorridorwall', 'mibhqwall', 'mibtunnelwall', 'trongridwall', 'tronorangewall', 'dbzdojowall', 'dbzlabwall', 'amongusshipwall', 'amonguscafewall', 'tokyoneonwall', 'tokyobrick', 'egyptwall', 'egyptgold', 'vikingwall', 'vikingrune', 'aztecwall', 'aztecvine', 'obswall', 'obspanel', 'tikiwall', 'tikisunset', 'dinerwall', 'dinerstripe', 'courtwall', 'courtmarble', 'artwall', 'artbrick', 'aquariumwall', 'aquariumcoral', 'circusbigtop', 'circusmarquee', 'museumstone', 'museumgallery', 'northpolelog', 'northpolewrap', 'soundstageacoustic', 'soundstagegreenroom', 'cultadobe', 'cultveil', 'esportsled', 'esportspanel', 'cavemanwall', 'cavemanpaintings', 'lodgepanel', 'lodgedrape', 'prepperwall', 'preppersandbag', 'paradiseoval', 'paradiseconcrete', 'startrekbulkhead', 'startrekjefferies', 'gentlemenpanel', 'gentlementweed', 'grokwall', 'grokpanel', 'grokbotwall', 'geodewall', 'geodecitrine'],
     // The lounge's floor: a carpet, or any of the office's floors; and its wall, as the office's unless it has its own
     lounge: ['navy', 'teal', 'plum', 'sand', 'wood', 'tiles', 'concrete', 'carpet', 'plating', 'deck', 'marble', 'flagstone', 'snow', 'grass',
-      'forest', 'rubber', 'epoxy', 'arcade', 'hauntedcourt', 'court', 'studio', 'stationfloor', 'zensand', 'planks', 'wetflags', 'polished', 'emeraldgold', 'worncarpet', 'cablefloor', 'pitchgrass', 'lakerscourt', 'celticscourt', 'warriorscourt', 'knickscourt', 'bullscourt', 'heatcourt', 'spurscourt', 'thundercourt', 'wolvescourt', 'nuggetscourt', 'hawkscourt', 'netscourt', 'hornetscourt', 'cavscourt', 'mavscourt', 'pistonscourt', 'rocketscourt', 'pacerscourt', 'clipperscourt', 'grizzliescourt', 'buckscourt', 'pelicanscourt', 'magiccourt', 'sixerscourt', 'sunscourt', 'blazerscourt', 'kingscourt', 'raptorscourt', 'jazzcourt', 'wizardscourt', 'marvel1tower', 'marvel1stars', 'marvel2vibranium', 'marvel2cosmos', 'ironmangarage', 'ironmanhexglass', 'batcavedeck', 'batcaverock', 'dcmixwatchtower', 'dcmixthemyscira', 'pokemontiles', 'pokemongrass', 'lolhextiles', 'lolrift', 'wowinn', 'wowcobble', 'gtavice', 'gtaasphalt', 'destinytower', 'destinyrust', 'starwarsdeck', 'starwarssand', 'girly1marble', 'girly1shag', 'girly2mint', 'girly2cloud', 'narcostiles', 'narcosleopard', 'apple1oak', 'apple1stone', 'apple2carpet', 'apple2dither', 'jewishstone', 'jewishtiles', 'muslimzellige', 'muslimcarpet', 'christianflags', 'christianoak', 'buddhisttatami', 'buddhistslate', 'volcanobasalt', 'volcanogrid', 'kitchenquarry', 'kitchenmat', 'hospitallino', 'hospitallines', 'noirchecker', 'noirboards', 'madlabdrain', 'madlabplate', 'casinocarpet', 'casinomarble', 'orientterrazzo', 'orientcarpet', 'halloweendxboards', 'halloweendxsoil', 'catcafeoak', 'catcafepatch', 'spiderverserooftop', 'spiderversehalftone', 'xmendanger', 'xmenparquet', 'f1tarmac', 'f1chequer', 'ufccanvas', 'ufcmats', 'nyloftboards', 'nyloftrug', 'pariscafetiles', 'pariscafechevron', 'muertostiles', 'muertospetals', 'submarinedeepgrate', 'submarinedeepmat', 'arcticbasetread', 'arcticbaserug', 'sakuraboards', 'sakuralawn', 'potterflags', 'pottercommon', 'lotrshire', 'lotrmeduseld', 'breakingbadlab', 'breakingbaddesert', 'strangerarcade', 'strangerupside', 'gotwinterfell', 'gotredkeep', 'simpsonsplant', 'simpsonsliving', 'bondmi6', 'bondlair', 'dunesietch', 'dunesand', 'onepiecedeck', 'onepiecelawn', 'eldenringleyndell', 'eldenringlimgrave', 'sevcarpet', 'sevtile', 'offcarpet', 'offlino', 'peakyboards', 'peakycobble', 'madmcarpet', 'madmparquet', 'squidfield', 'squidteal', 'boysmarble', 'boyscarpet', 'falloutvault', 'falloutconcrete', 'rickgarage', 'rickportal', 'mirrorfloor', 'mirrordark', 'westlab', 'westsaloon', 'bttfgaragefloor', 'bttfdinerfloor', 'jpvisitorfloor', 'jpjunglefloor', 'wicklobbyfloor', 'wickvaultfloor', 'kingsmanshopfloor', 'kingsmanhqfloor', 'wonkariverfloor', 'wonkacandyfloor', 'weslobbyfloor', 'wescorridorfloor', 'mibhqfloor', 'mibtunnelfloor', 'trongridfloor', 'tronarenafloor', 'dbzdojofloor', 'dbzlabfloor', 'amongusshipfloor', 'amonguscafefloor', 'tokyofloor', 'tokyotatami', 'egyptfloor', 'egyptmosaic', 'vikingfloor', 'vikingstone', 'aztecfloor', 'aztecjungle', 'obsfloor', 'obscarpet', 'tikifloor', 'tikisand', 'dinerfloor', 'dinerterrazzo', 'courtfloor', 'courtcarpet', 'artfloor', 'artrug', 'aquariumfloor', 'aquariumglass', 'circussawdust', 'circusredcarpet', 'museummarble', 'museumparquet', 'northpolesnow', 'northpoleplank', 'soundstagefloor', 'soundstagelounge', 'cultclay', 'cultmat', 'esportsstagefloor', 'esportscarpet', 'cavemanrock', 'cavemanhide', 'lodgechecker', 'lodgecarpet', 'prepperconcrete', 'prepperrubber', 'paradiseovalrug', 'paradisebunkerfloor', 'startrekdeck', 'startrekpad', 'gentlemenherringbone', 'gentlementartan', 'grokfloor', 'grokrug', 'grokbotfloor'],
+      'forest', 'rubber', 'epoxy', 'arcade', 'hauntedcourt', 'court', 'studio', 'stationfloor', 'zensand', 'planks', 'wetflags', 'polished', 'emeraldgold', 'worncarpet', 'cablefloor', 'pitchgrass', 'lakerscourt', 'celticscourt', 'warriorscourt', 'knickscourt', 'bullscourt', 'heatcourt', 'spurscourt', 'thundercourt', 'wolvescourt', 'nuggetscourt', 'hawkscourt', 'netscourt', 'hornetscourt', 'cavscourt', 'mavscourt', 'pistonscourt', 'rocketscourt', 'pacerscourt', 'clipperscourt', 'grizzliescourt', 'buckscourt', 'pelicanscourt', 'magiccourt', 'sixerscourt', 'sunscourt', 'blazerscourt', 'kingscourt', 'raptorscourt', 'jazzcourt', 'wizardscourt', 'marvel1tower', 'marvel1stars', 'marvel2vibranium', 'marvel2cosmos', 'ironmangarage', 'ironmanhexglass', 'batcavedeck', 'batcaverock', 'dcmixwatchtower', 'dcmixthemyscira', 'pokemontiles', 'pokemongrass', 'lolhextiles', 'lolrift', 'wowinn', 'wowcobble', 'gtavice', 'gtaasphalt', 'destinytower', 'destinyrust', 'starwarsdeck', 'starwarssand', 'girly1marble', 'girly1shag', 'girly2mint', 'girly2cloud', 'narcostiles', 'narcosleopard', 'apple1oak', 'apple1stone', 'apple2carpet', 'apple2dither', 'jewishstone', 'jewishtiles', 'muslimzellige', 'muslimcarpet', 'christianflags', 'christianoak', 'buddhisttatami', 'buddhistslate', 'volcanobasalt', 'volcanogrid', 'kitchenquarry', 'kitchenmat', 'hospitallino', 'hospitallines', 'noirchecker', 'noirboards', 'madlabdrain', 'madlabplate', 'casinocarpet', 'casinomarble', 'orientterrazzo', 'orientcarpet', 'halloweendxboards', 'halloweendxsoil', 'catcafeoak', 'catcafepatch', 'spiderverserooftop', 'spiderversehalftone', 'xmendanger', 'xmenparquet', 'f1tarmac', 'f1chequer', 'ufccanvas', 'ufcmats', 'nyloftboards', 'nyloftrug', 'pariscafetiles', 'pariscafechevron', 'muertostiles', 'muertospetals', 'submarinedeepgrate', 'submarinedeepmat', 'arcticbasetread', 'arcticbaserug', 'sakuraboards', 'sakuralawn', 'potterflags', 'pottercommon', 'lotrshire', 'lotrmeduseld', 'breakingbadlab', 'breakingbaddesert', 'strangerarcade', 'strangerupside', 'gotwinterfell', 'gotredkeep', 'simpsonsplant', 'simpsonsliving', 'bondmi6', 'bondlair', 'dunesietch', 'dunesand', 'onepiecedeck', 'onepiecelawn', 'eldenringleyndell', 'eldenringlimgrave', 'sevcarpet', 'sevtile', 'offcarpet', 'offlino', 'peakyboards', 'peakycobble', 'madmcarpet', 'madmparquet', 'squidfield', 'squidteal', 'boysmarble', 'boyscarpet', 'falloutvault', 'falloutconcrete', 'rickgarage', 'rickportal', 'mirrorfloor', 'mirrordark', 'westlab', 'westsaloon', 'bttfgaragefloor', 'bttfdinerfloor', 'jpvisitorfloor', 'jpjunglefloor', 'wicklobbyfloor', 'wickvaultfloor', 'kingsmanshopfloor', 'kingsmanhqfloor', 'wonkariverfloor', 'wonkacandyfloor', 'weslobbyfloor', 'wescorridorfloor', 'mibhqfloor', 'mibtunnelfloor', 'trongridfloor', 'tronarenafloor', 'dbzdojofloor', 'dbzlabfloor', 'amongusshipfloor', 'amonguscafefloor', 'tokyofloor', 'tokyotatami', 'egyptfloor', 'egyptmosaic', 'vikingfloor', 'vikingstone', 'aztecfloor', 'aztecjungle', 'obsfloor', 'obscarpet', 'tikifloor', 'tikisand', 'dinerfloor', 'dinerterrazzo', 'courtfloor', 'courtcarpet', 'artfloor', 'artrug', 'aquariumfloor', 'aquariumglass', 'circussawdust', 'circusredcarpet', 'museummarble', 'museumparquet', 'northpolesnow', 'northpoleplank', 'soundstagefloor', 'soundstagelounge', 'cultclay', 'cultmat', 'esportsstagefloor', 'esportscarpet', 'cavemanrock', 'cavemanhide', 'lodgechecker', 'lodgecarpet', 'prepperconcrete', 'prepperrubber', 'paradiseovalrug', 'paradisebunkerfloor', 'startrekdeck', 'startrekpad', 'gentlemenherringbone', 'gentlementartan', 'grokfloor', 'grokrug', 'grokbotfloor', 'geodefloor', 'geodeagate'],
     loungePaint: ['auto', 'slate', 'sage', 'clay', 'cream', 'hull', 'timber', 'damask', 'stone', 'ice', 'logs', 'brick', 'bamboo', 'block',
-      'foam', 'primetime', 'bleachers', 'stationwall', 'shoji', 'plankwall', 'deepsea', 'fintech', 'greenglow', 'frostblue', 'ledstrip', 'parcnavy', 'lakerswall', 'celticswall', 'warriorswall', 'knickswall', 'bullswall', 'heatwall', 'spurswall', 'thunderwall', 'wolveswall', 'nuggetswall', 'hawkswall', 'netswall', 'hornetswall', 'cavswall', 'mavswall', 'pistonswall', 'rocketswall', 'pacerswall', 'clipperswall', 'grizzlieswall', 'buckswall', 'pelicanswall', 'magicwall', 'sixerswall', 'sunswall', 'blazerswall', 'kingswall', 'raptorswall', 'jazzwall', 'wizardswall', 'marvel1red', 'marvel1webwall', 'marvel2wakanda', 'marvel2sanctum', 'ironmanred', 'ironmanglass', 'batcavestone', 'batcavemanor', 'dcmixsuperblue', 'dcmixlanternwall', 'pokemoncenter', 'pokemonroute', 'lolpiltover', 'loljungle', 'wowstormwind', 'wowhorde', 'gtavicecity', 'gtabrick', 'destinylastcity', 'destinyvoid', 'starwarsimperial', 'starwarsrebel', 'girly1hotpink', 'girly1blush', 'girly2lilac', 'girly2mintwall', 'narcoshacienda', 'narcosjungle', 'apple1white', 'apple1space', 'apple2beige', 'apple2rainbow', 'jewishblue', 'jewishsand', 'muslimteal', 'muslimplaster', 'christianwhite', 'christianwine', 'buddhistsaffron', 'buddhistmaroon', 'volcanorock', 'volcanosteel', 'kitchentile', 'kitchenbrick', 'hospitalmint', 'hospitalwhite', 'noirplaster', 'noirgreen', 'madlabstone', 'madlabtile', 'casinored', 'casinoneon', 'orientmarquetry', 'orientcream', 'halloweendxdamask', 'halloweendxcrypt', 'catcafepink', 'catcafemint', 'spiderversegraffiti', 'spiderversegwen', 'xmenmansion', 'xmenhangar', 'f1pitwall', 'f1carbon', 'ufcarena', 'ufcgym', 'nyloftbrick', 'nyloftplaster', 'pariscafeboiserie', 'pariscafebordeaux', 'muertospink', 'muertosteal', 'submarinedeepwhite', 'submarinedeepnavy', 'arcticbasered', 'arcticbasepine', 'sakurablush', 'sakurasky', 'pottergryffindor', 'potterstone', 'lotrbagend', 'lotrrivendell', 'breakingbadsuperlab', 'breakingbadstucco', 'strangerwallpaper', 'strangerupsidewall', 'gotstone', 'gotcrimson', 'simpsonspink', 'simpsonssky', 'bondwalnut', 'bondgunwall', 'duneatreides', 'dunerock', 'onepiecesunny', 'onepiecesea', 'eldenringstormveil', 'eldenringerdtree', 'sevwall', 'sevhall', 'offwall', 'offbreak', 'peakywall', 'peakybrick', 'madmwall', 'madmteak', 'squidstairs', 'squidpink', 'boyswall', 'boysred', 'falloutwall', 'falloutgrime', 'rickwall', 'rickalien', 'mirrorwall', 'mirrordarkwall', 'westlabwall', 'westsaloonwall', 'bttfgaragewall', 'bttfdinerwall', 'jpconcretewall', 'jpjunglewall', 'wicklobbywall', 'wickvaultwall', 'kingsmanshopwall', 'kingsmanhqwall', 'wonkafactorywall', 'wonkagardenwall', 'weslobbywall', 'wescorridorwall', 'mibhqwall', 'mibtunnelwall', 'trongridwall', 'tronorangewall', 'dbzdojowall', 'dbzlabwall', 'amongusshipwall', 'amonguscafewall', 'tokyoneonwall', 'tokyobrick', 'egyptwall', 'egyptgold', 'vikingwall', 'vikingrune', 'aztecwall', 'aztecvine', 'obswall', 'obspanel', 'tikiwall', 'tikisunset', 'dinerwall', 'dinerstripe', 'courtwall', 'courtmarble', 'artwall', 'artbrick', 'aquariumwall', 'aquariumcoral', 'circusbigtop', 'circusmarquee', 'museumstone', 'museumgallery', 'northpolelog', 'northpolewrap', 'soundstageacoustic', 'soundstagegreenroom', 'cultadobe', 'cultveil', 'esportsled', 'esportspanel', 'cavemanwall', 'cavemanpaintings', 'lodgepanel', 'lodgedrape', 'prepperwall', 'preppersandbag', 'paradiseoval', 'paradiseconcrete', 'startrekbulkhead', 'startrekjefferies', 'gentlemenpanel', 'gentlementweed', 'grokwall', 'grokpanel', 'grokbotwall'],
+      'foam', 'primetime', 'bleachers', 'stationwall', 'shoji', 'plankwall', 'deepsea', 'fintech', 'greenglow', 'frostblue', 'ledstrip', 'parcnavy', 'lakerswall', 'celticswall', 'warriorswall', 'knickswall', 'bullswall', 'heatwall', 'spurswall', 'thunderwall', 'wolveswall', 'nuggetswall', 'hawkswall', 'netswall', 'hornetswall', 'cavswall', 'mavswall', 'pistonswall', 'rocketswall', 'pacerswall', 'clipperswall', 'grizzlieswall', 'buckswall', 'pelicanswall', 'magicwall', 'sixerswall', 'sunswall', 'blazerswall', 'kingswall', 'raptorswall', 'jazzwall', 'wizardswall', 'marvel1red', 'marvel1webwall', 'marvel2wakanda', 'marvel2sanctum', 'ironmanred', 'ironmanglass', 'batcavestone', 'batcavemanor', 'dcmixsuperblue', 'dcmixlanternwall', 'pokemoncenter', 'pokemonroute', 'lolpiltover', 'loljungle', 'wowstormwind', 'wowhorde', 'gtavicecity', 'gtabrick', 'destinylastcity', 'destinyvoid', 'starwarsimperial', 'starwarsrebel', 'girly1hotpink', 'girly1blush', 'girly2lilac', 'girly2mintwall', 'narcoshacienda', 'narcosjungle', 'apple1white', 'apple1space', 'apple2beige', 'apple2rainbow', 'jewishblue', 'jewishsand', 'muslimteal', 'muslimplaster', 'christianwhite', 'christianwine', 'buddhistsaffron', 'buddhistmaroon', 'volcanorock', 'volcanosteel', 'kitchentile', 'kitchenbrick', 'hospitalmint', 'hospitalwhite', 'noirplaster', 'noirgreen', 'madlabstone', 'madlabtile', 'casinored', 'casinoneon', 'orientmarquetry', 'orientcream', 'halloweendxdamask', 'halloweendxcrypt', 'catcafepink', 'catcafemint', 'spiderversegraffiti', 'spiderversegwen', 'xmenmansion', 'xmenhangar', 'f1pitwall', 'f1carbon', 'ufcarena', 'ufcgym', 'nyloftbrick', 'nyloftplaster', 'pariscafeboiserie', 'pariscafebordeaux', 'muertospink', 'muertosteal', 'submarinedeepwhite', 'submarinedeepnavy', 'arcticbasered', 'arcticbasepine', 'sakurablush', 'sakurasky', 'pottergryffindor', 'potterstone', 'lotrbagend', 'lotrrivendell', 'breakingbadsuperlab', 'breakingbadstucco', 'strangerwallpaper', 'strangerupsidewall', 'gotstone', 'gotcrimson', 'simpsonspink', 'simpsonssky', 'bondwalnut', 'bondgunwall', 'duneatreides', 'dunerock', 'onepiecesunny', 'onepiecesea', 'eldenringstormveil', 'eldenringerdtree', 'sevwall', 'sevhall', 'offwall', 'offbreak', 'peakywall', 'peakybrick', 'madmwall', 'madmteak', 'squidstairs', 'squidpink', 'boyswall', 'boysred', 'falloutwall', 'falloutgrime', 'rickwall', 'rickalien', 'mirrorwall', 'mirrordarkwall', 'westlabwall', 'westsaloonwall', 'bttfgaragewall', 'bttfdinerwall', 'jpconcretewall', 'jpjunglewall', 'wicklobbywall', 'wickvaultwall', 'kingsmanshopwall', 'kingsmanhqwall', 'wonkafactorywall', 'wonkagardenwall', 'weslobbywall', 'wescorridorwall', 'mibhqwall', 'mibtunnelwall', 'trongridwall', 'tronorangewall', 'dbzdojowall', 'dbzlabwall', 'amongusshipwall', 'amonguscafewall', 'tokyoneonwall', 'tokyobrick', 'egyptwall', 'egyptgold', 'vikingwall', 'vikingrune', 'aztecwall', 'aztecvine', 'obswall', 'obspanel', 'tikiwall', 'tikisunset', 'dinerwall', 'dinerstripe', 'courtwall', 'courtmarble', 'artwall', 'artbrick', 'aquariumwall', 'aquariumcoral', 'circusbigtop', 'circusmarquee', 'museumstone', 'museumgallery', 'northpolelog', 'northpolewrap', 'soundstageacoustic', 'soundstagegreenroom', 'cultadobe', 'cultveil', 'esportsled', 'esportspanel', 'cavemanwall', 'cavemanpaintings', 'lodgepanel', 'lodgedrape', 'prepperwall', 'preppersandbag', 'paradiseoval', 'paradiseconcrete', 'startrekbulkhead', 'startrekjefferies', 'gentlemenpanel', 'gentlementweed', 'grokwall', 'grokpanel', 'grokbotwall', 'geodewall', 'geodecitrine'],
     corner: ['arcade', 'vending', 'foosball', 'fishtank', 'books', 'dragon', 'pinball', 'jukebox', 'pool', 'piano', 'drums',
       'telescope', 'jellyfish', 'bonsai', 'jungle', 'coffee', 'servers', 'printer', 'boxing', 'treadmill', 'hottub', 'ballpit',
       'campfire', 'bubbler', 'neonbox', 'wallbox', 'djtable', 'turntable', 'boombox', 'hifi', 'synth', 'cauldron', 'graveyard',
       'lanterns', 'pumpkinrack', 'halfcourt', 'arcadehoop', 'ballrack', 'studiodesk', 'bench', 'coffinbox', 'skeletonmodel', 'xmastree',
-      'fireplace', 'sleigh', 'carolbox', 'woodstove', 'cocoabar', 'heartbox', 'candledinner', 'plumtree', 'lionhead', 'watchparty', 'noodlebar', 'periscope', 'sonar', 'espressobar', 'saloonbar', 'pianola', 'discobooth', 'stadiumorgan', 'valveradio', 'guzheng', 'holobooth', 'gramophone', 'cosmicsynth', 'koipond', 'singingbowls', 'guitarhook', 'clawmachine', 'trainset', 'easel', 'orrery', 'copier', 'teslacoil', 'chesstable', 'butterflyhouse', 'switchboard', 'puttinggreen', 'retrofridge', 'readingchair', 'potterywheel', 'projector', 'birdfeeder', 'vivarium', 'claudecade', 'sparkfloorlamp', 'eldritchaltar', 'deepaquarium', 'miskatonicnook', 'coldsafe', 'noderack', 'bullstatue', 'coinfountain', 'sleepybear', 'leakbucket', 'miningrig', 'parcstand', 'celticsmascot', 'bullsmascot', 'heatmascot', 'spursmascot', 'rocketsmascot', 'raptorsmascot', 'sunsmascot', 'nuggetsmascot', 'thundermascot', 'grizzliesmascot', 'hawksmascot', 'hornetsmascot', 'pacersmascot', 'bucksmascot', 'wolvesmascot', 'jazzmascot', 'kingsmascot', 'magicmascot', 'pistonsmascot', 'pelicansmascot', 'cavsmascot', 'mavsmascot', 'sixersmascot', 'blazersmascot', 'wizardsmascot', 'clippersmascot', 'netsmascot', 'lakersmascot', 'knicksmascot', 'warriorsmascot', 'marvel1worthy', 'marvel1webcorner', 'marvel2throne', 'marvel2herbgarden', 'ironmanhulkbuster', 'ironmangantry', 'batcavebatmobile', 'batcavepenny', 'dcmixphonebooth', 'dcmixtreadmill', 'pokemonhealer', 'pokemonsnorlax', 'lolnexus', 'lolbaron', 'wowforge', 'wowgryphon', 'gtapayspray', 'gtaphonebooth', 'destinycryptarch', 'destinysparrowbay', 'starwarsholotable', 'starwarscantina', 'girly1convertible', 'girly1wardrobe', 'girly2dessert', 'girly2plushpile', 'narcosmoney', 'narcoslab', 'apple1geniusbar', 'apple1trees', 'apple2bigmac', 'apple2garage', 'jewishsukkah', 'jewishstudy', 'muslimprayer', 'muslimfountain', 'christianpew', 'christianorgan', 'buddhistaltar', 'buddhistmeditation', 'volcanolavapit', 'volcanothrone', 'kitchenline', 'kitchenpass', 'hospitalbed', 'hospitalcrash', 'noirinterrogation', 'noircell', 'madlabslab', 'madlabtank', 'casinoslots', 'casinoroulette', 'orientdining', 'orientloco', 'halloweendxcauldron', 'halloweendxtree', 'catcafetree', 'catcafecounter', 'spiderversemural', 'spiderversegohome', 'xmencerebro', 'xmensentinelhead', 'f1simrig', 'f1garage', 'ufcheavybag', 'ufcoctagon', 'nyloftrecords', 'nyloftplants', 'pariscafeterrace', 'pariscafepastry', 'muertosofrenda', 'muertoscart', 'submarinedeepairlock', 'submarinedeeptank', 'arcticbasewoodstove', 'arcticbasesnowmobile', 'sakuratree', 'sakurastall', 'potterplatform', 'potterfireplace', 'lotrprancing', 'lotrdoom', 'breakingbadrvcorner', 'breakingbadreactor', 'strangergate', 'strangercastle', 'gotironthrone', 'gotmaptable', 'simpsonstv', 'simpsonskwikemart', 'bondbaccarat', 'bondlaser', 'duneworm', 'duneconservatory', 'onepiecefigurehead', 'onepiecegalley', 'eldenringgracesite', 'eldenringminortree', 'sevmde', 'sevwellnessroom', 'offreception', 'offkitchen', 'peakybar', 'peakyfireplace', 'madmbarcart', 'madmhifi', 'squidredlight', 'squidglassbridge', 'boysstage', 'boysstatue', 'falloutvaultcog', 'falloutpowerarmor', 'rickship', 'rickportallab', 'mirrorpod', 'mirrorserver', 'westpianocorner', 'westrepairbay', 'bttfdelorean', 'bttfdinerbooth', 'jptrex', 'jphatchery', 'wickbar', 'wickvault', 'kingsmanfitting', 'kingsmanroundtable', 'wonkariver', 'wonkagarden', 'weslobby', 'wesbakery', 'mibarrivals', 'mibbigscreen', 'tronarcade', 'troncyclearena', 'dbzgravity', 'dbzkamehouse', 'amongusreactor', 'amonguscafeteria', 'tokyoyatai', 'tokyoshrine', 'egyptsarc', 'egyptbrazier', 'vikinghearth', 'vikinghighseat', 'aztecshrine', 'aztecserpenthead', 'obstelescope', 'obsplanetarium', 'tikibar', 'tikifirepit', 'dinerjukebox', 'dinercounter', 'courtbench', 'courtjurybox', 'arteasel', 'artgallery', 'aquariumtunnel', 'aquariumtouchpool', 'circuscannon', 'circuscalliope', 'museumrex', 'museumgem', 'northpoletree', 'northpolesleigh', 'soundstagedolly', 'soundstageset', 'cultshrine', 'cultgathering', 'esportsstage', 'esportsstream', 'cavemanfire', 'cavemanmount', 'lodgealtar', 'lodgethrone', 'prepperstation', 'prepperstockpile', 'paradisevault', 'paradisesurveil', 'startrektransporter', 'startrekwarpcore', 'gentlemenlounge', 'gentlemenbilliards', 'groklaunch', 'grokbotrack', 'none'],
+      'fireplace', 'sleigh', 'carolbox', 'woodstove', 'cocoabar', 'heartbox', 'candledinner', 'plumtree', 'lionhead', 'watchparty', 'noodlebar', 'periscope', 'sonar', 'espressobar', 'saloonbar', 'pianola', 'discobooth', 'stadiumorgan', 'valveradio', 'guzheng', 'holobooth', 'gramophone', 'cosmicsynth', 'koipond', 'singingbowls', 'guitarhook', 'clawmachine', 'trainset', 'easel', 'orrery', 'copier', 'teslacoil', 'chesstable', 'butterflyhouse', 'switchboard', 'puttinggreen', 'retrofridge', 'readingchair', 'potterywheel', 'projector', 'birdfeeder', 'vivarium', 'claudecade', 'sparkfloorlamp', 'eldritchaltar', 'deepaquarium', 'miskatonicnook', 'coldsafe', 'noderack', 'bullstatue', 'coinfountain', 'sleepybear', 'leakbucket', 'miningrig', 'parcstand', 'celticsmascot', 'bullsmascot', 'heatmascot', 'spursmascot', 'rocketsmascot', 'raptorsmascot', 'sunsmascot', 'nuggetsmascot', 'thundermascot', 'grizzliesmascot', 'hawksmascot', 'hornetsmascot', 'pacersmascot', 'bucksmascot', 'wolvesmascot', 'jazzmascot', 'kingsmascot', 'magicmascot', 'pistonsmascot', 'pelicansmascot', 'cavsmascot', 'mavsmascot', 'sixersmascot', 'blazersmascot', 'wizardsmascot', 'clippersmascot', 'netsmascot', 'lakersmascot', 'knicksmascot', 'warriorsmascot', 'marvel1worthy', 'marvel1webcorner', 'marvel2throne', 'marvel2herbgarden', 'ironmanhulkbuster', 'ironmangantry', 'batcavebatmobile', 'batcavepenny', 'dcmixphonebooth', 'dcmixtreadmill', 'pokemonhealer', 'pokemonsnorlax', 'lolnexus', 'lolbaron', 'wowforge', 'wowgryphon', 'gtapayspray', 'gtaphonebooth', 'destinycryptarch', 'destinysparrowbay', 'starwarsholotable', 'starwarscantina', 'girly1convertible', 'girly1wardrobe', 'girly2dessert', 'girly2plushpile', 'narcosmoney', 'narcoslab', 'apple1geniusbar', 'apple1trees', 'apple2bigmac', 'apple2garage', 'jewishsukkah', 'jewishstudy', 'muslimprayer', 'muslimfountain', 'christianpew', 'christianorgan', 'buddhistaltar', 'buddhistmeditation', 'volcanolavapit', 'volcanothrone', 'kitchenline', 'kitchenpass', 'hospitalbed', 'hospitalcrash', 'noirinterrogation', 'noircell', 'madlabslab', 'madlabtank', 'casinoslots', 'casinoroulette', 'orientdining', 'orientloco', 'halloweendxcauldron', 'halloweendxtree', 'catcafetree', 'catcafecounter', 'spiderversemural', 'spiderversegohome', 'xmencerebro', 'xmensentinelhead', 'f1simrig', 'f1garage', 'ufcheavybag', 'ufcoctagon', 'nyloftrecords', 'nyloftplants', 'pariscafeterrace', 'pariscafepastry', 'muertosofrenda', 'muertoscart', 'submarinedeepairlock', 'submarinedeeptank', 'arcticbasewoodstove', 'arcticbasesnowmobile', 'sakuratree', 'sakurastall', 'potterplatform', 'potterfireplace', 'lotrprancing', 'lotrdoom', 'breakingbadrvcorner', 'breakingbadreactor', 'strangergate', 'strangercastle', 'gotironthrone', 'gotmaptable', 'simpsonstv', 'simpsonskwikemart', 'bondbaccarat', 'bondlaser', 'duneworm', 'duneconservatory', 'onepiecefigurehead', 'onepiecegalley', 'eldenringgracesite', 'eldenringminortree', 'sevmde', 'sevwellnessroom', 'offreception', 'offkitchen', 'peakybar', 'peakyfireplace', 'madmbarcart', 'madmhifi', 'squidredlight', 'squidglassbridge', 'boysstage', 'boysstatue', 'falloutvaultcog', 'falloutpowerarmor', 'rickship', 'rickportallab', 'mirrorpod', 'mirrorserver', 'westpianocorner', 'westrepairbay', 'bttfdelorean', 'bttfdinerbooth', 'jptrex', 'jphatchery', 'wickbar', 'wickvault', 'kingsmanfitting', 'kingsmanroundtable', 'wonkariver', 'wonkagarden', 'weslobby', 'wesbakery', 'mibarrivals', 'mibbigscreen', 'tronarcade', 'troncyclearena', 'dbzgravity', 'dbzkamehouse', 'amongusreactor', 'amonguscafeteria', 'tokyoyatai', 'tokyoshrine', 'egyptsarc', 'egyptbrazier', 'vikinghearth', 'vikinghighseat', 'aztecshrine', 'aztecserpenthead', 'obstelescope', 'obsplanetarium', 'tikibar', 'tikifirepit', 'dinerjukebox', 'dinercounter', 'courtbench', 'courtjurybox', 'arteasel', 'artgallery', 'aquariumtunnel', 'aquariumtouchpool', 'circuscannon', 'circuscalliope', 'museumrex', 'museumgem', 'northpoletree', 'northpolesleigh', 'soundstagedolly', 'soundstageset', 'cultshrine', 'cultgathering', 'esportsstage', 'esportsstream', 'cavemanfire', 'cavemanmount', 'lodgealtar', 'lodgethrone', 'prepperstation', 'prepperstockpile', 'paradisevault', 'paradisesurveil', 'startrektransporter', 'startrekwarpcore', 'gentlemenlounge', 'gentlemenbilliards', 'groklaunch', 'grokbotrack', 'geodegrotto', 'geodesorter', 'none'],
     sky: ['live', 'day'],
     pet: ['none', 'cat', 'dog', 'lizard', 'monkey', 'llama', 'penguin', 'parrot', 'owl', 'capybara', 'redpanda', 'corgi', 'hamster',
-      'robodog', 'bat', 'snail', 'fox', 'axolotl', 'blackcat', 'goat', 'raven', 'ghost', 'spider', 'reindeer', 'snowman', 'snowhare', 'cupid', 'lovebirds', 'drone', 'tumbleweed', 'hedgehog', 'tortoise', 'treefrog', 'marsrover', 'ferret', 'duckling', 'tinrobot', 'guineapig', 'robovac', 'hermitcrab', 'hen', 'sparkling', 'shoggoth', 'minicthulhu', 'rgbcat', 'marvel1jeff', 'marvel1throg', 'marvel2groot', 'marvel2goose', 'ironmandummy', 'ironmanlegion', 'batcaveace', 'batcavecow', 'dcmixkrypto', 'dcmixstreaky', 'pokemonpikachu', 'pokemoncharmander', 'lolporo', 'lolminion', 'wowmurloc', 'wowwhelp', 'gtachop', 'gtapigeon', 'destinyghost', 'destinyservitor', 'starwarsr2', 'starwarsgrogu', 'girly1poodle', 'girly1flamingo', 'girly2kitty', 'girly2bunny', 'narcoshippo', 'narcosparrot', 'apple1siri', 'apple1ipod', 'apple2mac', 'apple2dogcow', 'jewishdove', 'jewishhoopoe', 'muslimcat', 'muslimkitten', 'christianlamb', 'christianrobin', 'buddhistdeer', 'buddhistkoi', 'volcanosalamander', 'volcanocat', 'volcanogolem', 'kitchencat', 'kitchenlobster', 'kitchenmouse', 'hospitaldog', 'hospitalbot', 'hospitalbunny', 'noircat', 'noirpigeon', 'noirhound', 'madlabrat', 'madlabslime', 'madlabbrainbot', 'casinopug', 'casinotiger', 'casinodove', 'orientscottie', 'orientsiamese', 'orientpeke', 'halloweendxwisp', 'halloweendxpumpkin', 'halloweendxbatcat', 'halloweendxghostdog', 'catcafeginger', 'catcafecalico', 'catcafeblue', 'catcafetabby', 'catcafepersian', 'catcafetortie', 'catcafesphynx', 'catcafekitten', 'catcafemaine', 'catcafebengal', 'catcafepoodle', 'spiderverseham', 'spiderversespider', 'spiderversespdr', 'xmenlockheed', 'xmensentinel', 'f1roscoe', 'f1drone', 'ufcgymcat', 'ufcpug', 'nyloftcat', 'nyloftpigeon', 'nyloftdachshund', 'pariscafepoodle', 'pariscafesparrow', 'pariscafecat', 'muertosxolo', 'muertosalebrije', 'muertosmonarch', 'submarinedeepoctopus', 'submarinedeepjelly', 'submarinedeepangler', 'arcticbasehusky', 'arcticbasefox', 'arcticbasepuffin', 'sakurashiba', 'sakuramejiro', 'sakurabunny', 'potterhedwig', 'pottercrookshanks', 'potterfawkes', 'lotrgollum', 'lotreagle', 'lotrbill', 'breakingbadfly', 'breakingbadtortoise', 'breakingbadroadrunner', 'strangerdemodog', 'strangermews', 'strangerdemobat', 'gotdragon', 'gotdirewolf', 'gotraven', 'simpsonsdog', 'simpsonssnowball', 'simpsonsplopper', 'bondpersian', 'bondrc', 'bondgyro', 'dunemouse', 'dunesandworm', 'duneornithopter', 'onepiecechopper', 'onepiecesnail', 'onepiecegull', 'eldenringtorrent', 'eldenringjellyfish', 'eldenringpastor', 'sevgoat', 'sevkier', 'offcat', 'offbat', 'peakyhorse', 'peakyterrier', 'madmcat', 'madmdachshund', 'squiddoll', 'squidpiggy', 'boysbulldog', 'boysoctopus', 'falloutdog', 'falloutmrhandy', 'rickmeeseeks', 'ricksnowball', 'mirrordog', 'mirrorbee', 'westhorse', 'westfly', 'bttfeinstein', 'bttfdinermouse', 'jpraptor', 'jpcompy', 'wickdog', 'wickcat', 'kingsmanpug', 'kingsmanpigeon', 'wonkasquirrel', 'wonkagummy', 'wescat', 'wesfox', 'mibpug', 'mibroach', 'tronbit', 'tronpup', 'dbzdragon', 'dbzturtle', 'amonguspet', 'amongusufo', 'tokyocat', 'tokyotanuki', 'egyptcat', 'egyptscarab', 'vikingraven', 'vikinggoat', 'aztecjaguar', 'aztecmacaw', 'obsowl', 'obscat', 'tikiparrot', 'tikicrab', 'dinercat', 'dinerpup', 'courtowl', 'courtcat', 'artcat', 'artbird', 'aquariumpenguin', 'aquariumotter', 'circusmonkey', 'circusseal', 'circuspony', 'museumdodo', 'museumtortoise', 'museummoth', 'northpolereindeer', 'northpolehusky', 'northpolerobin', 'soundstagedog', 'soundstagecat', 'soundstagepigeon', 'cultdove', 'cultgoose', 'cultcat', 'esportsmascot', 'esportsdrone', 'esportscat', 'cavemandino', 'cavemanmammoth', 'cavemanptero', 'lodgeraven', 'lodgeowl', 'lodgecat', 'preppercanary', 'prepperrat', 'prepperdog', 'paradisedog', 'paradisedrone', 'startrektribble', 'startrekcat', 'gentlemenhound', 'gentlemenpheasant', 'grokdrone'],
+      'robodog', 'bat', 'snail', 'fox', 'axolotl', 'blackcat', 'goat', 'raven', 'ghost', 'spider', 'reindeer', 'snowman', 'snowhare', 'cupid', 'lovebirds', 'drone', 'tumbleweed', 'hedgehog', 'tortoise', 'treefrog', 'marsrover', 'ferret', 'duckling', 'tinrobot', 'guineapig', 'robovac', 'hermitcrab', 'hen', 'sparkling', 'shoggoth', 'minicthulhu', 'rgbcat', 'marvel1jeff', 'marvel1throg', 'marvel2groot', 'marvel2goose', 'ironmandummy', 'ironmanlegion', 'batcaveace', 'batcavecow', 'dcmixkrypto', 'dcmixstreaky', 'pokemonpikachu', 'pokemoncharmander', 'lolporo', 'lolminion', 'wowmurloc', 'wowwhelp', 'gtachop', 'gtapigeon', 'destinyghost', 'destinyservitor', 'starwarsr2', 'starwarsgrogu', 'girly1poodle', 'girly1flamingo', 'girly2kitty', 'girly2bunny', 'narcoshippo', 'narcosparrot', 'apple1siri', 'apple1ipod', 'apple2mac', 'apple2dogcow', 'jewishdove', 'jewishhoopoe', 'muslimcat', 'muslimkitten', 'christianlamb', 'christianrobin', 'buddhistdeer', 'buddhistkoi', 'volcanosalamander', 'volcanocat', 'volcanogolem', 'kitchencat', 'kitchenlobster', 'kitchenmouse', 'hospitaldog', 'hospitalbot', 'hospitalbunny', 'noircat', 'noirpigeon', 'noirhound', 'madlabrat', 'madlabslime', 'madlabbrainbot', 'casinopug', 'casinotiger', 'casinodove', 'orientscottie', 'orientsiamese', 'orientpeke', 'halloweendxwisp', 'halloweendxpumpkin', 'halloweendxbatcat', 'halloweendxghostdog', 'catcafeginger', 'catcafecalico', 'catcafeblue', 'catcafetabby', 'catcafepersian', 'catcafetortie', 'catcafesphynx', 'catcafekitten', 'catcafemaine', 'catcafebengal', 'catcafepoodle', 'spiderverseham', 'spiderversespider', 'spiderversespdr', 'xmenlockheed', 'xmensentinel', 'f1roscoe', 'f1drone', 'ufcgymcat', 'ufcpug', 'nyloftcat', 'nyloftpigeon', 'nyloftdachshund', 'pariscafepoodle', 'pariscafesparrow', 'pariscafecat', 'muertosxolo', 'muertosalebrije', 'muertosmonarch', 'submarinedeepoctopus', 'submarinedeepjelly', 'submarinedeepangler', 'arcticbasehusky', 'arcticbasefox', 'arcticbasepuffin', 'sakurashiba', 'sakuramejiro', 'sakurabunny', 'potterhedwig', 'pottercrookshanks', 'potterfawkes', 'lotrgollum', 'lotreagle', 'lotrbill', 'breakingbadfly', 'breakingbadtortoise', 'breakingbadroadrunner', 'strangerdemodog', 'strangermews', 'strangerdemobat', 'gotdragon', 'gotdirewolf', 'gotraven', 'simpsonsdog', 'simpsonssnowball', 'simpsonsplopper', 'bondpersian', 'bondrc', 'bondgyro', 'dunemouse', 'dunesandworm', 'duneornithopter', 'onepiecechopper', 'onepiecesnail', 'onepiecegull', 'eldenringtorrent', 'eldenringjellyfish', 'eldenringpastor', 'sevgoat', 'sevkier', 'offcat', 'offbat', 'peakyhorse', 'peakyterrier', 'madmcat', 'madmdachshund', 'squiddoll', 'squidpiggy', 'boysbulldog', 'boysoctopus', 'falloutdog', 'falloutmrhandy', 'rickmeeseeks', 'ricksnowball', 'mirrordog', 'mirrorbee', 'westhorse', 'westfly', 'bttfeinstein', 'bttfdinermouse', 'jpraptor', 'jpcompy', 'wickdog', 'wickcat', 'kingsmanpug', 'kingsmanpigeon', 'wonkasquirrel', 'wonkagummy', 'wescat', 'wesfox', 'mibpug', 'mibroach', 'tronbit', 'tronpup', 'dbzdragon', 'dbzturtle', 'amonguspet', 'amongusufo', 'tokyocat', 'tokyotanuki', 'egyptcat', 'egyptscarab', 'vikingraven', 'vikinggoat', 'aztecjaguar', 'aztecmacaw', 'obsowl', 'obscat', 'tikiparrot', 'tikicrab', 'dinercat', 'dinerpup', 'courtowl', 'courtcat', 'artcat', 'artbird', 'aquariumpenguin', 'aquariumotter', 'circusmonkey', 'circusseal', 'circuspony', 'museumdodo', 'museumtortoise', 'museummoth', 'northpolereindeer', 'northpolehusky', 'northpolerobin', 'soundstagedog', 'soundstagecat', 'soundstagepigeon', 'cultdove', 'cultgoose', 'cultcat', 'esportsmascot', 'esportsdrone', 'esportscat', 'cavemandino', 'cavemanmammoth', 'cavemanptero', 'lodgeraven', 'lodgeowl', 'lodgecat', 'preppercanary', 'prepperrat', 'prepperdog', 'paradisedog', 'paradisedrone', 'startrektribble', 'startrekcat', 'gentlemenhound', 'gentlemenpheasant', 'grokdrone', 'geodegolem', 'geodepangolin'],
     season: ['calendar', 'off'],
     sound: ['off', 'quiet', 'normal'],
     // The recorded keyboards and talk under the rest, while there's any sound
@@ -1296,15 +1302,15 @@
     workspace: ['desk', 'standing', 'gaming', 'tent', 'box', 'beanbag', 'igloo', 'van', 'cockpit', 'ship', 'throne', 'greenhouse',
       'console', 'hover', 'chest', 'gilded', 'crates', 'altar', 'log', 'bench', 'bamboo', 'rack', 'drafting', 'glass', 'scorer', 'anchor',
       'coffin', 'waxdesk', 'clawdesk', 'gingerdesk', 'workbench', 'plaiddesk', 'pinkdesk', 'lacedesk', 'lacquerdesk', 'courtdesk', 'cyberdesk', 'subconsole',
-      'cafetable', 'barreldesk', 'discodesk', 'lowtable', 'cratedesk', 'scriptorium', 'charttable', 'tradingdesk', 'bulldesk', 'heaterdesk', 'screenwall', 'pitchdesk', 'lakersdesk', 'celticsdesk', 'warriorsdesk', 'knicksdesk', 'bullsdesk', 'heatdesk', 'spursdesk', 'thunderdesk', 'wolvesdesk', 'nuggetsdesk', 'hawksdesk', 'netsdesk', 'hornetsdesk', 'cavsdesk', 'mavsdesk', 'pistonsdesk', 'rocketsdesk', 'pacersdesk', 'clippersdesk', 'grizzliesdesk', 'bucksdesk', 'pelicansdesk', 'magicdesk', 'sixersdesk', 'sunsdesk', 'blazersdesk', 'kingsdesk', 'raptorsdesk', 'jazzdesk', 'wizardsdesk', 'marvel1deck', 'marvel2milano', 'ironmanbench', 'batcaveconsole', 'dcmixplanetdesk', 'pokemonballdesk', 'lolhexdesk', 'wowquestdesk', 'gtalowrider', 'destinyvanguard', 'starwarsconsole', 'girly1vanity', 'girly2desk', 'narcosdesk', 'apple1table', 'apple2desk', 'jewishdesk', 'muslimdesk', 'christiandesk', 'buddhistdesk', 'volcanodesk', 'kitchendesk', 'hospitaldesk', 'noirdesk', 'madlabdesk', 'casinodesk', 'orientdesk', 'halloweendxdesk', 'catcafedesk', 'spiderversedesk', 'xmendesk', 'f1desk', 'ufcdesk', 'nyloftdesk', 'pariscafedesk', 'muertosdesk', 'submarinedeepdesk', 'arcticbasedesk', 'sakuradesk', 'potterdesk', 'lotrdesk', 'breakingbaddesk', 'strangerdesk', 'gotdesk', 'simpsonsconsole', 'bonddesk', 'dunedesk', 'onepiecedesk', 'eldenringdesk', 'sevdesk', 'offdesk', 'peakydesk', 'madmdesk', 'squiddesk', 'boysdesk', 'falloutdesk', 'rickdesk', 'mirrordesk', 'westdesk', 'bttfbench', 'jpcontroldesk', 'wickconcierge', 'kingsmancuttingtable', 'wonkadesk', 'wesconcierge', 'mibdesk', 'trondesk', 'dbzdesk', 'amongusdesk', 'tokyodesk', 'egyptdesk', 'vikingdesk', 'aztecdesk', 'obsdesk', 'tikidesk', 'dinerdesk', 'courtcounsel', 'artdesk', 'aquariumdesk', 'circusdesk', 'museumdesk', 'northpolebench', 'soundstagedesk', 'cultdesk', 'esportsrig', 'cavemanslab', 'lodgedesk', 'prepperdesk', 'paradiseresolute', 'startrekbridge', 'gentlemenpartners', 'grokdesk', 'grokbotpod'],
+      'cafetable', 'barreldesk', 'discodesk', 'lowtable', 'cratedesk', 'scriptorium', 'charttable', 'tradingdesk', 'bulldesk', 'heaterdesk', 'screenwall', 'pitchdesk', 'lakersdesk', 'celticsdesk', 'warriorsdesk', 'knicksdesk', 'bullsdesk', 'heatdesk', 'spursdesk', 'thunderdesk', 'wolvesdesk', 'nuggetsdesk', 'hawksdesk', 'netsdesk', 'hornetsdesk', 'cavsdesk', 'mavsdesk', 'pistonsdesk', 'rocketsdesk', 'pacersdesk', 'clippersdesk', 'grizzliesdesk', 'bucksdesk', 'pelicansdesk', 'magicdesk', 'sixersdesk', 'sunsdesk', 'blazersdesk', 'kingsdesk', 'raptorsdesk', 'jazzdesk', 'wizardsdesk', 'marvel1deck', 'marvel2milano', 'ironmanbench', 'batcaveconsole', 'dcmixplanetdesk', 'pokemonballdesk', 'lolhexdesk', 'wowquestdesk', 'gtalowrider', 'destinyvanguard', 'starwarsconsole', 'girly1vanity', 'girly2desk', 'narcosdesk', 'apple1table', 'apple2desk', 'jewishdesk', 'muslimdesk', 'christiandesk', 'buddhistdesk', 'volcanodesk', 'kitchendesk', 'hospitaldesk', 'noirdesk', 'madlabdesk', 'casinodesk', 'orientdesk', 'halloweendxdesk', 'catcafedesk', 'spiderversedesk', 'xmendesk', 'f1desk', 'ufcdesk', 'nyloftdesk', 'pariscafedesk', 'muertosdesk', 'submarinedeepdesk', 'arcticbasedesk', 'sakuradesk', 'potterdesk', 'lotrdesk', 'breakingbaddesk', 'strangerdesk', 'gotdesk', 'simpsonsconsole', 'bonddesk', 'dunedesk', 'onepiecedesk', 'eldenringdesk', 'sevdesk', 'offdesk', 'peakydesk', 'madmdesk', 'squiddesk', 'boysdesk', 'falloutdesk', 'rickdesk', 'mirrordesk', 'westdesk', 'bttfbench', 'jpcontroldesk', 'wickconcierge', 'kingsmancuttingtable', 'wonkadesk', 'wesconcierge', 'mibdesk', 'trondesk', 'dbzdesk', 'amongusdesk', 'tokyodesk', 'egyptdesk', 'vikingdesk', 'aztecdesk', 'obsdesk', 'tikidesk', 'dinerdesk', 'courtcounsel', 'artdesk', 'aquariumdesk', 'circusdesk', 'museumdesk', 'northpolebench', 'soundstagedesk', 'cultdesk', 'esportsrig', 'cavemanslab', 'lodgedesk', 'prepperdesk', 'paradiseresolute', 'startrekbridge', 'gentlemenpartners', 'grokdesk', 'grokbotpod', 'geodedesk'],
     monitor: ['standard', 'crt', 'holo', 'brass', 'crystal', 'gilt', 'ice', 'ultrawide', 'dual', 'laptop', 'bamboo', 'tablet', 'portrait',
-      'broadcast', 'ghostcrt', 'ouija', 'tombstone', 'candycane', 'giftwrap', 'knitmon', 'heartframe', 'locket', 'lanternmon', 'scoreboard', 'catnap', 'mossframe', 'satdish', 'bookstack', 'woodcase', 'nestmonitor', 'claudeterm', 'sparksaver', 'wirelessset', 'scryingscreen', 'orderbook', 'greencandles', 'redcandles', 'stickerback', 'matchcast', 'lakerscast', 'celticscast', 'warriorscast', 'knickscast', 'bullscast', 'heatcast', 'spurscast', 'thundercast', 'wolvescast', 'nuggetscast', 'hawkscast', 'netscast', 'hornetscast', 'cavscast', 'mavscast', 'pistonscast', 'rocketscast', 'pacerscast', 'clipperscast', 'grizzliescast', 'buckscast', 'pelicanscast', 'magiccast', 'sixerscast', 'sunscast', 'blazerscast', 'kingscast', 'raptorscast', 'jazzcast', 'wizardscast', 'marvel1shieldmon', 'marvel2kimoyo', 'ironmanjarvis', 'batcavescreen', 'dcmixlanternmon', 'pokemondex', 'lolhexmon', 'wowportal', 'gtawanted', 'destinytraveler', 'starwarsmon', 'girly1mon', 'girly2mon', 'narcosmon', 'apple1imac', 'apple2classic', 'jewishmon', 'muslimmon', 'christianmon', 'buddhistmon', 'volcanomon', 'kitchenmon', 'hospitalmon', 'noirmon', 'madlabmon', 'casinomon', 'orientmon', 'halloweendxmon', 'catcafemon', 'spiderversemon', 'xmenmon', 'f1mon', 'ufcmon', 'nyloftmon', 'pariscafemon', 'muertosmon', 'submarinedeepmon', 'arcticbasemon', 'sakuramon', 'pottermon', 'lotrmon', 'breakingbadmon', 'strangermon', 'gotmon', 'simpsonsmon', 'bondmon', 'dunemon', 'onepiecemon', 'eldenringmon', 'sevmon', 'offmon', 'peakymon', 'madmmon', 'squidmon', 'boysmon', 'falloutmon', 'rickmon', 'mirrormon', 'westmon', 'bttftimecircuits', 'jpmon', 'wickmon', 'kingsmanmon', 'wonkamon', 'wesmon', 'mibmon', 'tronmon', 'dbzmon', 'amongusmon', 'tokyomon', 'egyptmon', 'vikingmon', 'aztecmon', 'obsmon', 'tikimon', 'dinermon', 'courtmon', 'artmon', 'aquariummon', 'circusmon', 'museummon', 'northpolemon', 'soundstagemon', 'cultmon', 'esportsmon', 'cavemanmon', 'lodgemon', 'preppermon', 'paradiseterminal', 'startrekconsole', 'gentlemenwoodcase', 'grokmon', 'grokbotmon'],
+      'broadcast', 'ghostcrt', 'ouija', 'tombstone', 'candycane', 'giftwrap', 'knitmon', 'heartframe', 'locket', 'lanternmon', 'scoreboard', 'catnap', 'mossframe', 'satdish', 'bookstack', 'woodcase', 'nestmonitor', 'claudeterm', 'sparksaver', 'wirelessset', 'scryingscreen', 'orderbook', 'greencandles', 'redcandles', 'stickerback', 'matchcast', 'lakerscast', 'celticscast', 'warriorscast', 'knickscast', 'bullscast', 'heatcast', 'spurscast', 'thundercast', 'wolvescast', 'nuggetscast', 'hawkscast', 'netscast', 'hornetscast', 'cavscast', 'mavscast', 'pistonscast', 'rocketscast', 'pacerscast', 'clipperscast', 'grizzliescast', 'buckscast', 'pelicanscast', 'magiccast', 'sixerscast', 'sunscast', 'blazerscast', 'kingscast', 'raptorscast', 'jazzcast', 'wizardscast', 'marvel1shieldmon', 'marvel2kimoyo', 'ironmanjarvis', 'batcavescreen', 'dcmixlanternmon', 'pokemondex', 'lolhexmon', 'wowportal', 'gtawanted', 'destinytraveler', 'starwarsmon', 'girly1mon', 'girly2mon', 'narcosmon', 'apple1imac', 'apple2classic', 'jewishmon', 'muslimmon', 'christianmon', 'buddhistmon', 'volcanomon', 'kitchenmon', 'hospitalmon', 'noirmon', 'madlabmon', 'casinomon', 'orientmon', 'halloweendxmon', 'catcafemon', 'spiderversemon', 'xmenmon', 'f1mon', 'ufcmon', 'nyloftmon', 'pariscafemon', 'muertosmon', 'submarinedeepmon', 'arcticbasemon', 'sakuramon', 'pottermon', 'lotrmon', 'breakingbadmon', 'strangermon', 'gotmon', 'simpsonsmon', 'bondmon', 'dunemon', 'onepiecemon', 'eldenringmon', 'sevmon', 'offmon', 'peakymon', 'madmmon', 'squidmon', 'boysmon', 'falloutmon', 'rickmon', 'mirrormon', 'westmon', 'bttftimecircuits', 'jpmon', 'wickmon', 'kingsmanmon', 'wonkamon', 'wesmon', 'mibmon', 'tronmon', 'dbzmon', 'amongusmon', 'tokyomon', 'egyptmon', 'vikingmon', 'aztecmon', 'obsmon', 'tikimon', 'dinermon', 'courtmon', 'artmon', 'aquariummon', 'circusmon', 'museummon', 'northpolemon', 'soundstagemon', 'cultmon', 'esportsmon', 'cavemanmon', 'lodgemon', 'preppermon', 'paradiseterminal', 'startrekconsole', 'gentlemenwoodcase', 'grokmon', 'grokbotmon', 'geodemon'],
     // The door onto the corridor: as it comes, haunted, with a wreath, painted red with a love-letter slot, painted for
     // the Lunar New Year, a locker room's, or a saloon's swinging half-doors
-    door: ['standard', 'haunted', 'wreathdoor', 'mailboxdoor', 'lunardoor', 'lockerdoor', 'saloondoor', 'glassdoor', 'dutchdoor', 'screendoor', 'vaultdoor', 'marvel1door', 'marvel2sanctumdoor', 'ironmandoor', 'batcaveclock', 'dcmixhalldoor', 'pokemondoor', 'loldoor', 'wowdoor', 'gtadoor', 'destinydoor', 'starwarsdoor', 'girly1door', 'girly2door', 'narcosdoor', 'apple1door', 'apple2door', 'jewishdoor', 'muslimdoor', 'christiandoor', 'buddhistdoor', 'volcanodoor', 'kitchendoor', 'hospitaldoor', 'noirdoor', 'madlabdoor', 'casinodoor', 'orientdoor', 'halloweendxdoor', 'catcafedoor', 'spiderversedoor', 'xmendoor', 'f1door', 'ufcdoor', 'nyloftdoor', 'pariscafedoor', 'muertosdoor', 'submarinedeepdoor', 'arcticbasedoor', 'sakuradoor', 'potterdoor', 'lotrdoor', 'breakingbaddoor', 'strangerdoor', 'gotdoor', 'simpsonsdoor', 'bonddoor', 'dunedoor', 'onepiecedoor', 'eldenringfog', 'sevdoor', 'offdoor', 'peakydoor', 'madmdoor', 'squiddoor', 'boysdoor', 'falloutdoor', 'rickdoor', 'mirrordoor', 'westdoor', 'bttfdoor', 'jpgatedoor', 'wickdoor', 'kingsmanfittingdoor', 'wonkadoor', 'wesdoor', 'mibdoor', 'trondoor', 'dbzdoor', 'amongusdoor', 'tokyodoor', 'egyptdoor', 'vikingdoor', 'aztecdoor', 'obsdoor', 'tikidoor', 'dinerdoor', 'courtdoor', 'artdoor', 'aquariumdoor', 'circusflap', 'museumarch', 'northpolewreathdoor', 'soundstagedoor', 'cultdoor', 'esportsdoor', 'cavemandoor', 'lodgedoor', 'prepperhatch', 'paradiseblastdoor', 'startrekturbolift', 'gentlemenbookdoor', 'grokdoor'],
+    door: ['standard', 'haunted', 'wreathdoor', 'mailboxdoor', 'lunardoor', 'lockerdoor', 'saloondoor', 'glassdoor', 'dutchdoor', 'screendoor', 'vaultdoor', 'marvel1door', 'marvel2sanctumdoor', 'ironmandoor', 'batcaveclock', 'dcmixhalldoor', 'pokemondoor', 'loldoor', 'wowdoor', 'gtadoor', 'destinydoor', 'starwarsdoor', 'girly1door', 'girly2door', 'narcosdoor', 'apple1door', 'apple2door', 'jewishdoor', 'muslimdoor', 'christiandoor', 'buddhistdoor', 'volcanodoor', 'kitchendoor', 'hospitaldoor', 'noirdoor', 'madlabdoor', 'casinodoor', 'orientdoor', 'halloweendxdoor', 'catcafedoor', 'spiderversedoor', 'xmendoor', 'f1door', 'ufcdoor', 'nyloftdoor', 'pariscafedoor', 'muertosdoor', 'submarinedeepdoor', 'arcticbasedoor', 'sakuradoor', 'potterdoor', 'lotrdoor', 'breakingbaddoor', 'strangerdoor', 'gotdoor', 'simpsonsdoor', 'bonddoor', 'dunedoor', 'onepiecedoor', 'eldenringfog', 'sevdoor', 'offdoor', 'peakydoor', 'madmdoor', 'squiddoor', 'boysdoor', 'falloutdoor', 'rickdoor', 'mirrordoor', 'westdoor', 'bttfdoor', 'jpgatedoor', 'wickdoor', 'kingsmanfittingdoor', 'wonkadoor', 'wesdoor', 'mibdoor', 'trondoor', 'dbzdoor', 'amongusdoor', 'tokyodoor', 'egyptdoor', 'vikingdoor', 'aztecdoor', 'obsdoor', 'tikidoor', 'dinerdoor', 'courtdoor', 'artdoor', 'aquariumdoor', 'circusflap', 'museumarch', 'northpolewreathdoor', 'soundstagedoor', 'cultdoor', 'esportsdoor', 'cavemandoor', 'lodgedoor', 'prepperhatch', 'paradiseblastdoor', 'startrekturbolift', 'gentlemenbookdoor', 'grokdoor', 'geodedoor'],
     // What drifts, floats or crosses the room now and then: nothing, snow, hearts, the Lunar New Year's dragon dance, or
     // short soft bursts of confetti. Styles leave it as it is.
-    drift: ['none', 'snow', 'hearts', 'lunar', 'confetti', 'seamist', 'greenburst', 'marvel1webzip', 'marvel2snap', 'ironmanflyby', 'batcaveswarm', 'dcmixspeedster', 'pokemonthrow', 'lolpings', 'wowlevelup', 'gtasiren', 'destinyengrams', 'starwarslightspeed', 'girly1glitter', 'girly2bubbles', 'narcosmoneyrain', 'apple1icons', 'apple2toasters', 'jewishlights', 'muslimlanterns', 'christianstar', 'buddhistleaves', 'volcanoembers', 'kitchensteam', 'hospitalsiren', 'noirrain', 'madlabbubbles', 'casinocardrain', 'orientsteam', 'halloweendxghost', 'catcafeyarnball', 'spiderverseswing', 'xmenbamf', 'f1flyby', 'ufcflashes', 'nylofttrain', 'pariscafenotes', 'muertosdrift', 'submarinedeepbubbles', 'arcticbaseaurora', 'sakuraflurry', 'potterletters', 'lotrfirework', 'breakingbadcash', 'strangerspores', 'gotdragonshadow', 'simpsonsdonuts', 'bonddots', 'dunespicedrift', 'onepiecebubbles', 'eldenringleaves', 'sevballoons', 'offplanes', 'peakysmoke', 'madmsmoke', 'squidmoney', 'boysstreamers', 'falloutdust', 'rickspark', 'mirrorglitch', 'westdust', 'bttfsparks', 'jptremor', 'wickcoinrain', 'kingsmanbrolly', 'wonkabubbles', 'wespostcards', 'mibflash', 'tronderez', 'dbzki', 'amonguseject', 'tokyorain', 'egyptsand', 'vikingembers', 'aztecleaves', 'obsstars', 'tikipetals', 'dinernotes', 'courtpapers', 'artsplatter', 'aquariumbubbles', 'circusrelease', 'museumdust', 'northpolesleighby', 'soundstagebeams', 'cultpetals', 'esportspyro', 'cavemanembers', 'lodgeincense', 'prepperalert', 'paradisedust', 'startrekalertdrift', 'gentlemensmoke'],
+    drift: ['none', 'snow', 'hearts', 'lunar', 'confetti', 'seamist', 'greenburst', 'marvel1webzip', 'marvel2snap', 'ironmanflyby', 'batcaveswarm', 'dcmixspeedster', 'pokemonthrow', 'lolpings', 'wowlevelup', 'gtasiren', 'destinyengrams', 'starwarslightspeed', 'girly1glitter', 'girly2bubbles', 'narcosmoneyrain', 'apple1icons', 'apple2toasters', 'jewishlights', 'muslimlanterns', 'christianstar', 'buddhistleaves', 'volcanoembers', 'kitchensteam', 'hospitalsiren', 'noirrain', 'madlabbubbles', 'casinocardrain', 'orientsteam', 'halloweendxghost', 'catcafeyarnball', 'spiderverseswing', 'xmenbamf', 'f1flyby', 'ufcflashes', 'nylofttrain', 'pariscafenotes', 'muertosdrift', 'submarinedeepbubbles', 'arcticbaseaurora', 'sakuraflurry', 'potterletters', 'lotrfirework', 'breakingbadcash', 'strangerspores', 'gotdragonshadow', 'simpsonsdonuts', 'bonddots', 'dunespicedrift', 'onepiecebubbles', 'eldenringleaves', 'sevballoons', 'offplanes', 'peakysmoke', 'madmsmoke', 'squidmoney', 'boysstreamers', 'falloutdust', 'rickspark', 'mirrorglitch', 'westdust', 'bttfsparks', 'jptremor', 'wickcoinrain', 'kingsmanbrolly', 'wonkabubbles', 'wespostcards', 'mibflash', 'tronderez', 'dbzki', 'amonguseject', 'tokyorain', 'egyptsand', 'vikingembers', 'aztecleaves', 'obsstars', 'tikipetals', 'dinernotes', 'courtpapers', 'artsplatter', 'aquariumbubbles', 'circusrelease', 'museumdust', 'northpolesleighby', 'soundstagebeams', 'cultpetals', 'esportspyro', 'cavemanembers', 'lodgeincense', 'prepperalert', 'paradisedust', 'startrekalertdrift', 'gentlemensmoke', 'geodeprism'],
     // What the windows show after dark: nothing, fireworks round midnight (23:55 to 00:15), or a burst now and then every
     // night. By the clock only, never the calendar; styles leave it as it is.
     fireworks: ['off', 'midnight', 'nightly'],
@@ -1516,6 +1522,7 @@
     gentlemenpartners: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
     grokdesk: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
     grokbotpod: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
+    geodedesk: { screen: { dx: 6, dy: -10 }, stands: false, chair: true, things: { dx: 0, dy: 0 }, top: -14 },
   };
   /** The colours of what can sit on a desk besides a plant, papers and a lamp. */
   const DESK_THINGS = { cactus: 0x5a9a4a, duck: 0xf2cf3a, beak: 0xe8823a, sky: 0x8fc0e8, coffee: 0x5a3a24 };
@@ -1528,7 +1535,7 @@
     'bike', 'mirror', 'timer', 'climbing', 'vines', 'tiki', 'blind', 'cabin', 'trail', 'paddles',
     'pumpkins', 'lanternhang', 'cobweb', 'ghosts', 'broom', 'leafgarland', 'hauntedhoop', 'spookyboard', 'candycorn',
     'hoop', 'scorebug', 'lowerthird', 'onair', 'schedule', 'pennants', 'retired', 'playboard', 'garland', 'scarfhooks', 'heartgarland', 'bemine', 'lunarlanterns', 'pennantline', 'scarfwall', 'rainwindow', 'neonsign', 'fishporthole', 'chalkmenu', 'pendantlamps', 'wanted',
-    'countdown', 'streamers', 'balloons', 'earthwindow', 'paperscreen', 'leafwindow', 'ropeladder', 'cuckoo', 'photostring', 'dartboard', 'splitflap', 'periodictable', 'growshelf', 'mugrack', 'wallfan', 'kite', 'windchime', 'claudeneon', 'modelposter', 'hellocard', 'contextclock', 'tentacleporthole', 'starchartodd', 'followingportrait', 'sunkencity', 'eldertapestry', 'tickerboard', 'candlechart', 'marketclocks', 'moonposter', 'upchart', 'moonwindow', 'redchart', 'stormpane', 'hanginthere', 'blackout', 'denposters', 'floodlights', 'framedjersey', 'lakersbanner', 'celticsbanner', 'warriorsbanner', 'knicksbanner', 'bullsbanner', 'heatbanner', 'spursbanner', 'thunderbanner', 'wolvesbanner', 'nuggetsbanner', 'hawksbanner', 'netsbanner', 'hornetsbanner', 'cavsbanner', 'mavsbanner', 'pistonsbanner', 'rocketsbanner', 'pacersbanner', 'clippersbanner', 'grizzliesbanner', 'bucksbanner', 'pelicansbanner', 'magicbanner', 'sixersbanner', 'sunsbanner', 'blazersbanner', 'kingsbanner', 'raptorsbanner', 'jazzbanner', 'wizardsbanner', 'marvel1shieldwall', 'marvel1hammerwall', 'marvel1spidewindow', 'marvel1assemble', 'marvel1hulkhole', 'marvel1bugle', 'marvel2gauntlet', 'marvel2sanctumwindow', 'marvel2portal', 'marvel2awesomemix', 'marvel2tapestry', 'marvel2lokihelm', 'ironmanarmory', 'ironmanblueprint', 'ironmanmark1', 'ironmanexpo', 'ironmanheart', 'ironmanpegboard', 'batcavesignal', 'batcavesuits', 'batcavestalactites', 'batcaveboard', 'batcavecard', 'batcavebatarangs', 'dcmixplanetglobe', 'dcmixshield', 'dcmixlasso', 'dcmixflashwindow', 'dcmixtrident', 'dcmixharley', 'pokemonbadges', 'pokemonmap', 'pokemonwindow', 'pokemonposter', 'pokemonballshelf', 'pokemonsign', 'lolminimap', 'lolbanner', 'lolcrest', 'lolwindow', 'lolabilities', 'lolpenta', 'wowlion', 'wowhordebanner', 'wowquestboard', 'wowwindow', 'wowshield', 'wowmap', 'gtasunset', 'gtamap', 'gtaneon', 'gtaposter', 'gtagrove', 'gtaplates', 'destinywindow', 'destinyhunter', 'destinytitan', 'destinywarlock', 'destinydirector', 'destinyxur', 'starwarshyper', 'starwarssuns', 'starwarssabers', 'starwarscarbonite', 'starwarsbanner', 'starwarsplans', 'girly1mirror', 'girly1neon', 'girly1heels', 'girly1carposter', 'girly1heartclock', 'girly1curtains', 'girly2rainbow', 'girly2kittyframe', 'girly2polaroids', 'girly2moon', 'girly2plushshelf', 'girly2cloudclock', 'narcoswanted', 'narcosmap', 'narcosportrait', 'narcospalms', 'narcossafe', 'narcosjersey', 'apple1logo', 'apple1window', 'apple1poster', 'apple1phones', 'apple1watches', 'apple1hello', 'apple2logo', 'apple2think', 'apple21984', 'apple2floppy', 'apple2macpaint', 'apple2bomb', 'jewisharch', 'jewishbooks', 'jewishpapercut', 'jewishhanukkiah', 'jewishshabbat', 'jewishshofar', 'muslimmashrabiya', 'muslimlantern', 'muslimtilepanel', 'muslimarabesque', 'muslimarch', 'muslimquranshelf', 'christianstainedglass', 'christiancross', 'christianrosewindow', 'christianbibleshelf', 'christiansconce', 'christianwreath', 'buddhistflags', 'buddhistaltarshelf', 'buddhistlotusscroll', 'buddhistmoonwindow', 'buddhistwheel', 'buddhistlanterns', 'volcanocaldera', 'volcanomap', 'volcanobeacon', 'volcanopipes', 'volcanoporthole', 'volcanocountdown', 'kitchenrail', 'kitchenpans', 'kitchenknives', 'kitchenheatlamps', 'kitchenhood', 'kitchenspices', 'hospitalecg', 'hospitalxray', 'hospitaleyechart', 'hospitalclock', 'hospitalexit', 'hospitalgloves', 'noirblinds', 'noirevidence', 'noirheight', 'noircitymap', 'noirhatrack', 'noirfrosted', 'madlablever', 'madlabladder', 'madlabjars', 'madlabchalk', 'madlabgauges', 'madlabwindow', 'casinomarquee', 'casinowheel', 'casinoneonsign', 'casinoflush', 'casinojackpot', 'casinochandelier', 'orientclock', 'orientwindow', 'orientposter', 'orientluggage', 'orientsconce', 'orientroute', 'halloweendxmoon', 'halloweendxportrait', 'halloweendxclock', 'halloweendxgarland', 'halloweendxshelf', 'halloweendxmirror', 'catcafeshelves', 'catcafeportraits', 'catcafewindow', 'catcafebunting', 'catcafeyarn', 'catcafeplanter', 'spiderversewindow', 'spiderversecomic', 'spiderverseportal', 'spiderversemasks', 'spiderversespot', 'spiderversepennant', 'xmenlogo', 'xmenblackbird', 'xmenroster', 'xmenschool', 'xmenalert', 'xmenhelmet', 'f1lights', 'f1tyres', 'f1helmetcase', 'f1timing', 'f1circuit', 'f1trophies', 'ufcfence', 'ufcposter', 'ufcbelt', 'ufcclock', 'ufcgloves', 'ufcspeedbag', 'nyloftwindow', 'nyloftsubway', 'nyloftshelf', 'nyloftneon', 'nyloftclock', 'nyloftbike', 'pariscafewindow', 'pariscafemenu', 'pariscafemirror', 'pariscafeposter', 'pariscafeclock', 'pariscafebottles', 'muertospapel', 'muertosretablo', 'muertoscatrina', 'muertostinsun', 'muertosguitar', 'muertoswindow', 'submarinedeepviewport', 'submarinedeepdepth', 'submarinedeepmap', 'submarinedeepvalves', 'submarinedeeplocker', 'submarinedeepsamples', 'arcticbasewindow', 'arcticbasemap', 'arcticbaseweather', 'arcticbaseradio', 'arcticbaseskis', 'arcticbasechart', 'sakurabranch', 'sakurawindow', 'sakurafan', 'sakurastreamers', 'sakuraprint', 'sakuracalendar', 'potterportrait', 'potterhousepoints', 'potterwindow', 'potterbroom', 'pottermap', 'potterbanners', 'lotrwindow', 'lotrmap', 'lotreye', 'lotrsting', 'lotrgondor', 'lotrrohan', 'breakingbadlogo', 'breakingbadpollos', 'breakingbadheisenberg', 'breakingbadsaul', 'breakingbadwindow', 'breakingbadmasks', 'strangerlights', 'strangerhellfire', 'strangerwindow', 'strangerscoops', 'strangerclock', 'strangerhawkins', 'gotstark', 'gotlannister', 'gottargaryen', 'gotwindow', 'gotswords', 'gotweirwood', 'simpsonsboat', 'simpsonslardlad', 'simpsonskrusty', 'simpsonswindow', 'simpsonsaccident', 'simpsonsduff', 'bondgunbarrel', 'bond007', 'bondworldmap', 'bondwindow', 'bondgadgets', 'bondparachute', 'dunewindow', 'duneatreidesbanner', 'duneharkonnen', 'dunebullhead', 'dunecrysknife', 'dunespicemap', 'onepiecejollyroger', 'onepiecewanted', 'onepieceporthole', 'onepiecehelm', 'onepiecemap', 'onepieceswords', 'eldenringerdtreewindow', 'eldenringsigil', 'eldenringmap', 'eldenringmoonveil', 'eldenringranni', 'eldenringdied', 'sevkierportrait', 'sevprinciples', 'sevclock', 'sevbreakroom', 'sevbanner', 'sevlight', 'offwindow', 'offmotivation', 'offwhiteboard', 'offcorkboard', 'offclock', 'offdundieplaque', 'peakyoddsboard', 'peakywindow', 'peakyportrait', 'peakywhiskyshelf', 'peakycap', 'peakyclock', 'madmwindow', 'madmart', 'madmclock', 'madmboard', 'madmshelf', 'madmposter', 'squidshapes', 'squidpiggybank', 'squidladders', 'squidnumbers', 'squidguardframe', 'squidclock', 'boyswindow', 'boysseven', 'boysstat', 'boyslogo', 'boysaward', 'boysclock', 'falloutvaultdoor', 'falloutvaultboy', 'falloutposter', 'falloutterminal', 'falloutsign', 'falloutclock', 'rickportalwall', 'rickpegboard', 'rickchalkboard', 'rickjars', 'rickflag', 'rickclock', 'mirrorscreen', 'mirrorrating', 'mirrorwindow', 'mirrorblocked', 'mirrorart', 'mirrorclock', 'westhostvat', 'westvitruvian', 'westwindow', 'westmaze', 'westwanted', 'westantlers', 'bttfclocktower', 'bttfneondiner', 'bttfroadsign', 'bttfsaveclock', 'bttfmenuboard', 'bttfwallclock', 'jpgate', 'jpbanner', 'jpwarnfence', 'jpparkmap', 'jpfossilwall', 'jppaddocksign', 'wickneon', 'wickportrait', 'wickclock', 'wickmirror', 'wickboard', 'wicksconce', 'kingsmantriplemirror', 'kingsmansuitrack', 'kingsmanfabrics', 'kingsmanportrait', 'kingsmanclock', 'kingsmanshears', 'wonkagates', 'wonkapipes', 'wonkawallpaper', 'wonkamarquee', 'wonkacandyshelf', 'wonkaclock', 'wesportrait', 'wesclock', 'wessunburst', 'wespigeonholes', 'weslandscape', 'wesbanner', 'mibworldmap', 'mibscreens', 'mibzoneclocks', 'mibposter', 'mibtubes', 'mibwanted', 'trongrid', 'tronrecognizer', 'trontower', 'tronmap', 'tronportal', 'tronleaderboard', 'dbzturtlekanji', 'dbzbanner', 'dbzcapsulesign', 'dbzscroll', 'dbzpunchboard', 'dbzclock', 'amongusvent', 'amongusmap', 'amonguswiring', 'amongusviewport', 'amongustasklist', 'amonguswarning', 'tokyosign', 'tokyolanterns', 'tokyonoren', 'tokyobillboard', 'tokyovending', 'tokyocables', 'egypthiero', 'egyptanubis', 'egyptpharaoh', 'egypttorch', 'egyptankh', 'egyptfalcon', 'vikingshield', 'vikingantlers', 'vikingtapestry', 'vikinghornrack', 'vikingrunestone', 'vikingtorch', 'aztecsunstone', 'aztecidol', 'aztecserpent', 'aztecmask', 'aztecvines', 'aztecglyphs', 'obschart', 'obsconstellation', 'obsmoonphase', 'obszodiac', 'obsplanetposter', 'obssextant', 'tikimask', 'tikisurfboard', 'tikitorch', 'tikipuffer', 'tikisign', 'tikihula', 'dinerneon', 'dinerclock', 'dinermenu', 'dinerpie', 'dinershake', 'dinerplates', 'courtscales', 'courtflag', 'courtseal', 'courtclock', 'courtbooks', 'courtportrait', 'artcanvas', 'artpalette', 'artsketch', 'artskylight', 'artshelf', 'artposter', 'aquariumreef', 'aquariumjelly', 'aquariumshark', 'aquariumseahorse', 'aquariumstar', 'aquariumtube', 'circusposter', 'circusbunting', 'circussign', 'circustrapeze', 'circuswheel', 'circusmirror', 'museumtrex', 'museumdiorama', 'museumbutterflies', 'museumgems', 'museumportrait', 'museummap', 'northpolewreath', 'northpolestockings', 'northpolewindow', 'northpolelist', 'northpolelights', 'northpolegears', 'soundstagerig', 'soundstageposter', 'soundstagescreen', 'soundstagestar', 'soundstagestoryboard', 'soundstagereel', 'culteye', 'cultsun', 'cultportrait', 'culttenets', 'cultwindow', 'cultcandles', 'esportsscreen', 'esportsbracket', 'esportsleaderboard', 'esportsbanner', 'esportsneon', 'esportsshelf', 'cavemanhandprints', 'cavemanhunt', 'cavemanbones', 'cavemanwheel', 'cavemanwindow', 'cavemantorch', 'lodgeeye', 'lodgepillars', 'lodgeportrait', 'lodgecharter', 'lodgesymbols', 'lodgesconce', 'prepperboard', 'preppershelf', 'prepperhazard', 'preppertools', 'prepperclock', 'preppervent', 'paradisesealplaque', 'paradisefakewindow', 'paradisemonitors', 'paradiseblasthatch', 'paradisedoomsday', 'paradiseportrait', 'startrekviewscreen', 'startreklcars', 'startrekplaque', 'startrekalert', 'startrekstarmap', 'startrekport', 'gentlemenstag', 'gentlemenportrait', 'gentlemenguncabinet', 'gentlemenmap', 'gentlemengrowroom', 'gentlemenhunt', 'grokneon', 'grokgalaxy', 'grok42', 'grokboard', 'grokwindow', 'grokfun', 'grokbotmissions', 'grokbotroutine', 'grokbotmailbox', 'grokbotstatus'];
+    'countdown', 'streamers', 'balloons', 'earthwindow', 'paperscreen', 'leafwindow', 'ropeladder', 'cuckoo', 'photostring', 'dartboard', 'splitflap', 'periodictable', 'growshelf', 'mugrack', 'wallfan', 'kite', 'windchime', 'claudeneon', 'modelposter', 'hellocard', 'contextclock', 'tentacleporthole', 'starchartodd', 'followingportrait', 'sunkencity', 'eldertapestry', 'tickerboard', 'candlechart', 'marketclocks', 'moonposter', 'upchart', 'moonwindow', 'redchart', 'stormpane', 'hanginthere', 'blackout', 'denposters', 'floodlights', 'framedjersey', 'lakersbanner', 'celticsbanner', 'warriorsbanner', 'knicksbanner', 'bullsbanner', 'heatbanner', 'spursbanner', 'thunderbanner', 'wolvesbanner', 'nuggetsbanner', 'hawksbanner', 'netsbanner', 'hornetsbanner', 'cavsbanner', 'mavsbanner', 'pistonsbanner', 'rocketsbanner', 'pacersbanner', 'clippersbanner', 'grizzliesbanner', 'bucksbanner', 'pelicansbanner', 'magicbanner', 'sixersbanner', 'sunsbanner', 'blazersbanner', 'kingsbanner', 'raptorsbanner', 'jazzbanner', 'wizardsbanner', 'marvel1shieldwall', 'marvel1hammerwall', 'marvel1spidewindow', 'marvel1assemble', 'marvel1hulkhole', 'marvel1bugle', 'marvel2gauntlet', 'marvel2sanctumwindow', 'marvel2portal', 'marvel2awesomemix', 'marvel2tapestry', 'marvel2lokihelm', 'ironmanarmory', 'ironmanblueprint', 'ironmanmark1', 'ironmanexpo', 'ironmanheart', 'ironmanpegboard', 'batcavesignal', 'batcavesuits', 'batcavestalactites', 'batcaveboard', 'batcavecard', 'batcavebatarangs', 'dcmixplanetglobe', 'dcmixshield', 'dcmixlasso', 'dcmixflashwindow', 'dcmixtrident', 'dcmixharley', 'pokemonbadges', 'pokemonmap', 'pokemonwindow', 'pokemonposter', 'pokemonballshelf', 'pokemonsign', 'lolminimap', 'lolbanner', 'lolcrest', 'lolwindow', 'lolabilities', 'lolpenta', 'wowlion', 'wowhordebanner', 'wowquestboard', 'wowwindow', 'wowshield', 'wowmap', 'gtasunset', 'gtamap', 'gtaneon', 'gtaposter', 'gtagrove', 'gtaplates', 'destinywindow', 'destinyhunter', 'destinytitan', 'destinywarlock', 'destinydirector', 'destinyxur', 'starwarshyper', 'starwarssuns', 'starwarssabers', 'starwarscarbonite', 'starwarsbanner', 'starwarsplans', 'girly1mirror', 'girly1neon', 'girly1heels', 'girly1carposter', 'girly1heartclock', 'girly1curtains', 'girly2rainbow', 'girly2kittyframe', 'girly2polaroids', 'girly2moon', 'girly2plushshelf', 'girly2cloudclock', 'narcoswanted', 'narcosmap', 'narcosportrait', 'narcospalms', 'narcossafe', 'narcosjersey', 'apple1logo', 'apple1window', 'apple1poster', 'apple1phones', 'apple1watches', 'apple1hello', 'apple2logo', 'apple2think', 'apple21984', 'apple2floppy', 'apple2macpaint', 'apple2bomb', 'jewisharch', 'jewishbooks', 'jewishpapercut', 'jewishhanukkiah', 'jewishshabbat', 'jewishshofar', 'muslimmashrabiya', 'muslimlantern', 'muslimtilepanel', 'muslimarabesque', 'muslimarch', 'muslimquranshelf', 'christianstainedglass', 'christiancross', 'christianrosewindow', 'christianbibleshelf', 'christiansconce', 'christianwreath', 'buddhistflags', 'buddhistaltarshelf', 'buddhistlotusscroll', 'buddhistmoonwindow', 'buddhistwheel', 'buddhistlanterns', 'volcanocaldera', 'volcanomap', 'volcanobeacon', 'volcanopipes', 'volcanoporthole', 'volcanocountdown', 'kitchenrail', 'kitchenpans', 'kitchenknives', 'kitchenheatlamps', 'kitchenhood', 'kitchenspices', 'hospitalecg', 'hospitalxray', 'hospitaleyechart', 'hospitalclock', 'hospitalexit', 'hospitalgloves', 'noirblinds', 'noirevidence', 'noirheight', 'noircitymap', 'noirhatrack', 'noirfrosted', 'madlablever', 'madlabladder', 'madlabjars', 'madlabchalk', 'madlabgauges', 'madlabwindow', 'casinomarquee', 'casinowheel', 'casinoneonsign', 'casinoflush', 'casinojackpot', 'casinochandelier', 'orientclock', 'orientwindow', 'orientposter', 'orientluggage', 'orientsconce', 'orientroute', 'halloweendxmoon', 'halloweendxportrait', 'halloweendxclock', 'halloweendxgarland', 'halloweendxshelf', 'halloweendxmirror', 'catcafeshelves', 'catcafeportraits', 'catcafewindow', 'catcafebunting', 'catcafeyarn', 'catcafeplanter', 'spiderversewindow', 'spiderversecomic', 'spiderverseportal', 'spiderversemasks', 'spiderversespot', 'spiderversepennant', 'xmenlogo', 'xmenblackbird', 'xmenroster', 'xmenschool', 'xmenalert', 'xmenhelmet', 'f1lights', 'f1tyres', 'f1helmetcase', 'f1timing', 'f1circuit', 'f1trophies', 'ufcfence', 'ufcposter', 'ufcbelt', 'ufcclock', 'ufcgloves', 'ufcspeedbag', 'nyloftwindow', 'nyloftsubway', 'nyloftshelf', 'nyloftneon', 'nyloftclock', 'nyloftbike', 'pariscafewindow', 'pariscafemenu', 'pariscafemirror', 'pariscafeposter', 'pariscafeclock', 'pariscafebottles', 'muertospapel', 'muertosretablo', 'muertoscatrina', 'muertostinsun', 'muertosguitar', 'muertoswindow', 'submarinedeepviewport', 'submarinedeepdepth', 'submarinedeepmap', 'submarinedeepvalves', 'submarinedeeplocker', 'submarinedeepsamples', 'arcticbasewindow', 'arcticbasemap', 'arcticbaseweather', 'arcticbaseradio', 'arcticbaseskis', 'arcticbasechart', 'sakurabranch', 'sakurawindow', 'sakurafan', 'sakurastreamers', 'sakuraprint', 'sakuracalendar', 'potterportrait', 'potterhousepoints', 'potterwindow', 'potterbroom', 'pottermap', 'potterbanners', 'lotrwindow', 'lotrmap', 'lotreye', 'lotrsting', 'lotrgondor', 'lotrrohan', 'breakingbadlogo', 'breakingbadpollos', 'breakingbadheisenberg', 'breakingbadsaul', 'breakingbadwindow', 'breakingbadmasks', 'strangerlights', 'strangerhellfire', 'strangerwindow', 'strangerscoops', 'strangerclock', 'strangerhawkins', 'gotstark', 'gotlannister', 'gottargaryen', 'gotwindow', 'gotswords', 'gotweirwood', 'simpsonsboat', 'simpsonslardlad', 'simpsonskrusty', 'simpsonswindow', 'simpsonsaccident', 'simpsonsduff', 'bondgunbarrel', 'bond007', 'bondworldmap', 'bondwindow', 'bondgadgets', 'bondparachute', 'dunewindow', 'duneatreidesbanner', 'duneharkonnen', 'dunebullhead', 'dunecrysknife', 'dunespicemap', 'onepiecejollyroger', 'onepiecewanted', 'onepieceporthole', 'onepiecehelm', 'onepiecemap', 'onepieceswords', 'eldenringerdtreewindow', 'eldenringsigil', 'eldenringmap', 'eldenringmoonveil', 'eldenringranni', 'eldenringdied', 'sevkierportrait', 'sevprinciples', 'sevclock', 'sevbreakroom', 'sevbanner', 'sevlight', 'offwindow', 'offmotivation', 'offwhiteboard', 'offcorkboard', 'offclock', 'offdundieplaque', 'peakyoddsboard', 'peakywindow', 'peakyportrait', 'peakywhiskyshelf', 'peakycap', 'peakyclock', 'madmwindow', 'madmart', 'madmclock', 'madmboard', 'madmshelf', 'madmposter', 'squidshapes', 'squidpiggybank', 'squidladders', 'squidnumbers', 'squidguardframe', 'squidclock', 'boyswindow', 'boysseven', 'boysstat', 'boyslogo', 'boysaward', 'boysclock', 'falloutvaultdoor', 'falloutvaultboy', 'falloutposter', 'falloutterminal', 'falloutsign', 'falloutclock', 'rickportalwall', 'rickpegboard', 'rickchalkboard', 'rickjars', 'rickflag', 'rickclock', 'mirrorscreen', 'mirrorrating', 'mirrorwindow', 'mirrorblocked', 'mirrorart', 'mirrorclock', 'westhostvat', 'westvitruvian', 'westwindow', 'westmaze', 'westwanted', 'westantlers', 'bttfclocktower', 'bttfneondiner', 'bttfroadsign', 'bttfsaveclock', 'bttfmenuboard', 'bttfwallclock', 'jpgate', 'jpbanner', 'jpwarnfence', 'jpparkmap', 'jpfossilwall', 'jppaddocksign', 'wickneon', 'wickportrait', 'wickclock', 'wickmirror', 'wickboard', 'wicksconce', 'kingsmantriplemirror', 'kingsmansuitrack', 'kingsmanfabrics', 'kingsmanportrait', 'kingsmanclock', 'kingsmanshears', 'wonkagates', 'wonkapipes', 'wonkawallpaper', 'wonkamarquee', 'wonkacandyshelf', 'wonkaclock', 'wesportrait', 'wesclock', 'wessunburst', 'wespigeonholes', 'weslandscape', 'wesbanner', 'mibworldmap', 'mibscreens', 'mibzoneclocks', 'mibposter', 'mibtubes', 'mibwanted', 'trongrid', 'tronrecognizer', 'trontower', 'tronmap', 'tronportal', 'tronleaderboard', 'dbzturtlekanji', 'dbzbanner', 'dbzcapsulesign', 'dbzscroll', 'dbzpunchboard', 'dbzclock', 'amongusvent', 'amongusmap', 'amonguswiring', 'amongusviewport', 'amongustasklist', 'amonguswarning', 'tokyosign', 'tokyolanterns', 'tokyonoren', 'tokyobillboard', 'tokyovending', 'tokyocables', 'egypthiero', 'egyptanubis', 'egyptpharaoh', 'egypttorch', 'egyptankh', 'egyptfalcon', 'vikingshield', 'vikingantlers', 'vikingtapestry', 'vikinghornrack', 'vikingrunestone', 'vikingtorch', 'aztecsunstone', 'aztecidol', 'aztecserpent', 'aztecmask', 'aztecvines', 'aztecglyphs', 'obschart', 'obsconstellation', 'obsmoonphase', 'obszodiac', 'obsplanetposter', 'obssextant', 'tikimask', 'tikisurfboard', 'tikitorch', 'tikipuffer', 'tikisign', 'tikihula', 'dinerneon', 'dinerclock', 'dinermenu', 'dinerpie', 'dinershake', 'dinerplates', 'courtscales', 'courtflag', 'courtseal', 'courtclock', 'courtbooks', 'courtportrait', 'artcanvas', 'artpalette', 'artsketch', 'artskylight', 'artshelf', 'artposter', 'aquariumreef', 'aquariumjelly', 'aquariumshark', 'aquariumseahorse', 'aquariumstar', 'aquariumtube', 'circusposter', 'circusbunting', 'circussign', 'circustrapeze', 'circuswheel', 'circusmirror', 'museumtrex', 'museumdiorama', 'museumbutterflies', 'museumgems', 'museumportrait', 'museummap', 'northpolewreath', 'northpolestockings', 'northpolewindow', 'northpolelist', 'northpolelights', 'northpolegears', 'soundstagerig', 'soundstageposter', 'soundstagescreen', 'soundstagestar', 'soundstagestoryboard', 'soundstagereel', 'culteye', 'cultsun', 'cultportrait', 'culttenets', 'cultwindow', 'cultcandles', 'esportsscreen', 'esportsbracket', 'esportsleaderboard', 'esportsbanner', 'esportsneon', 'esportsshelf', 'cavemanhandprints', 'cavemanhunt', 'cavemanbones', 'cavemanwheel', 'cavemanwindow', 'cavemantorch', 'lodgeeye', 'lodgepillars', 'lodgeportrait', 'lodgecharter', 'lodgesymbols', 'lodgesconce', 'prepperboard', 'preppershelf', 'prepperhazard', 'preppertools', 'prepperclock', 'preppervent', 'paradisesealplaque', 'paradisefakewindow', 'paradisemonitors', 'paradiseblasthatch', 'paradisedoomsday', 'paradiseportrait', 'startrekviewscreen', 'startreklcars', 'startrekplaque', 'startrekalert', 'startrekstarmap', 'startrekport', 'gentlemenstag', 'gentlemenportrait', 'gentlemenguncabinet', 'gentlemenmap', 'gentlemengrowroom', 'gentlemenhunt', 'grokneon', 'grokgalaxy', 'grok42', 'grokboard', 'grokwindow', 'grokfun', 'grokbotmissions', 'grokbotroutine', 'grokbotmailbox', 'grokbotstatus', 'geodevault', 'geodelantern', 'geodecluster', 'geodebell', 'geodedrip', 'geodedeep'];
   const STANDARD_WALL = ['window', 'whiteboard', 'window', 'pinboard', 'window'];
   /** The middle of each of the back wall's places, left to right. */
   const WALL_SLOTS = [42, 69, 97, 124, 151];
@@ -2169,6 +2176,12 @@
     grokbotroutine: 19,
     grokbotmailbox: 23,
     grokbotstatus: 25,
+    geodevault: 40,
+    geodelantern: 12,
+    geodecluster: 24,
+    geodebell: 26,
+    geodedrip: 14,
+    geodedeep: 32,
   };
   const wallWidthOf = (kind) => WALL_WIDTHS[kind] || 32;
 
@@ -2938,6 +2951,8 @@
     gentlemenbilliards: [{ x: 278, y: 97, pose: 'away' }],
     groklaunch: [{ x: 284, y: 97, pose: 'away' }],
     grokbotrack: [{ x: 274, y: 97, pose: 'away' }],
+    geodegrotto: [{ x: 296, y: 97, pose: 'stand' }],
+    geodesorter: [{ x: 280, y: 99, pose: 'away' }],
     none: [],
   };
 
@@ -3683,6 +3698,8 @@
     grokwall: { wall: 0x24262c, top: 0x16171b, wainscot: 0x16171b, rail: 0xd8dce4, lounge: 0x24262c },
     grokpanel: { wall: 0x2e3038, top: 0x1e1f24, wainscot: 0x1a1b20, rail: 0x8ab4ff, lounge: 0x2e3038 },
     grokbotwall: { wall: 0x22252c, top: 0x16171b, wainscot: 0x1a1c22, rail: 0x8ab4ff, lounge: 0x22252c },
+    geodewall: { wall: 0x2e1d40, top: 0x1e1229, wainscot: 0x1e1229, rail: 0x56407a, lounge: 0x2e1d40 },
+    geodecitrine: { wall: 0x3a2a1e, top: 0x2a1c12, wainscot: 0x261a12, rail: 0x6a4a28, lounge: 0x3a2a1e },
   };
   /** The lounge's carpet, and its edge along the office's floor. */
   const LOUNGES = {
@@ -3704,6 +3721,35 @@
    * match its top, a white shirt's sleeves under a waistcoat.
    */
   const DENIM = 0x46679a, TRAINERS = 0xe9e6df;
+  /**
+   * The Geode's gems (`geode`): a gem outfit is its gem's row. `base`, `light` and `dark` its colours; `sheen` how it
+   * catches the light ('glint' a spark on its stone, 'shift' colours that drift over it, 'glow' a soft light by night,
+   * 'flecks' gold specks, 'bands' stripes of a lighter green, 'lustre' a pearly sheen); `prop` the one thing that makes its
+   * character (see GD_PROPS), or none. A new gem is one more row here, and its outfit's id (`geode` and the gem) in the
+   * lists (add-piece). Amethyst and Obsidian aren't bots yet: they're here to show it.
+   */
+  const GEODE_GEMS = {
+    ruby: { base: 0xb81830, light: 0xe8485a, dark: 0x6e0a1a, sheen: 'glint', prop: 'crown' },
+    opal: { base: 0xd4e4ee, light: 0xf4fbff, dark: 0x9ab4c8, sheen: 'shift', prop: null },
+    sapphire: { base: 0x1e3cb4, light: 0x5274e8, dark: 0x0e1e6e, sheen: 'glint', prop: 'star' },
+    amber: { base: 0xd8861a, light: 0xf6bc4a, dark: 0x8a5010, sheen: 'glow', prop: 'pendant' },
+    garnet: { base: 0x701428, light: 0xa03044, dark: 0x3a0812, sheen: 'glint', prop: 'armour' },
+    topaz: { base: 0xe2a82a, light: 0xfad466, dark: 0x9a6a10, sheen: 'glint', prop: 'explorer' },
+    pearl: { base: 0xf0ece4, light: 0xffffff, dark: 0xc4bcb0, sheen: 'lustre', prop: 'quill' },
+    moonstone: { base: 0xc4d8ee, light: 0xeef6ff, dark: 0x8aa6c6, sheen: 'glow', prop: 'cloak' },
+    malachite: { base: 0x1a8a58, light: 0x58c48a, dark: 0x0c5434, sheen: 'bands', prop: 'books' },
+    jade: { base: 0x4aa86c, light: 0x86d4a0, dark: 0x2a6e48, sheen: 'glint', prop: 'press' },
+    lapis: { base: 0x142070, light: 0x2a3c9c, dark: 0x0a1048, sheen: 'flecks', prop: null },
+    amethyst: { base: 0x7a48b8, light: 0xb08ae8, dark: 0x46246e, sheen: 'glint', prop: 'cloak' },
+    obsidian: { base: 0x26242e, light: 0x5a5668, dark: 0x0e0c12, sheen: 'glint', prop: 'armour' },
+  };
+  /** The gem outfits' ids, `geode` and the gem: `geoderuby`, … */
+  const GEODE_OUTFITS = Object.keys(GEODE_GEMS).map((gem) => `geode${gem}`);
+  /** A gem outfit's colours, the vault keeper's tabard in its gem's (`gem` as GEODE_GEMS has it), whatever the agent's: dark sleeves, trousers and boots. */
+  function geodeOutfitOf(gem) {
+    return { style: `geode${gem}`, shirt: GEODE_GEMS[gem].base, sleeves: 0x2a2030, pants: 0x2a2232, shoes: 0x16121c, fixed: true };
+  }
+
   const OUTFITS = {
     tee: { style: 'tee', pants: DENIM, shoes: TRAINERS },
     hoodie: { style: 'hoodie' },
@@ -4243,6 +4289,8 @@
     gentlemengamekeeper: { style: 'gentlemengamekeeper', shirt: 0x4a5a3a, pants: 0x5a4a32, shoes: 0x3a2616 },
     gentlemengangster: { style: 'gentlemengangster', shirt: 0x2a2d35, pants: 0x1f2127, shoes: 0x1a1a1f, tie: 0x8a1c1c },
     gentlementracksuit: { style: 'gentlementracksuit', shirt: 0x2a4a8a, pants: 0x2a4a8a, matching: true, shoes: 0xf0f0f0 },
+    // The Geode's gem outfits, one for each gem in GEODE_GEMS (see geodeOutfitOf)
+    ...Object.fromEntries(Object.keys(GEODE_GEMS).map((gem) => [`geode${gem}`, geodeOutfitOf(gem)])),
   };
   /**
    * What an agent left on Auto wears for the workspace they're at, in their
@@ -4411,11 +4459,16 @@
     ironmanhall: ['ironmanmk1', 'ironmanmk4', 'ironmanmk5', 'ironmanmk6', 'ironmanmk7', 'ironmanmk15', 'ironmanmk16', 'ironmanmk17', 'ironmanmk33',
       'ironmanmk38', 'ironmanmk42', 'ironmanmk43', 'ironmanmk45', 'ironmanmk46', 'ironmanmk47', 'ironmanmk50', 'ironmanmk85', 'ironmanpatriot',
       'ironmanironspider', 'ironmanrescue', 'ironmanmk2', 'ironmanmk3', 'ironmanwarmachine'],
+    // The Geode: each person in one of the gems, and a bot named after a gem in its own (see styleDressOf)
+    geode: GEODE_OUTFITS,
   };
   /** What the room's style dresses `seed` (a project's name) in, if it dresses each person differently. */
   function styleDressOf(seed) {
     const list = STYLE_DRESS[decor.preset];
     if (!list || !seed) return null;
+    // Someone named after one of the style's own outfits wears that one: in the Geode (`geode`), a bot named RUBY its `geoderuby`
+    const own = decor.preset + seed.toLowerCase();
+    if (list.includes(own)) return own;
     let h = 0;
     for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 0x5bd1e995) >>> 0;
     // The remainder is negative for about half of all names: counted back from the end of the list, not undefined.
@@ -4450,9 +4503,14 @@
     return outfit;
   }
 
-  /** What one of the office's staff wears: plain clothes, or `dress`, what most desks give (see WORKSPACE_DRESS), in their colour. */
-  function staffOutfitOf(look, dress) {
+  /**
+   * What one of the office's staff wears: plain clothes, or `dress`, what most desks give (see WORKSPACE_DRESS), in their colour;
+   * in a style that dresses each person differently, one of its outfits, picked by their `name` as an agent's is by its project's.
+   */
+  function staffOutfitOf(look, dress, name = null) {
     const shirt = STAFF_SHIRTS[Math.floor(look.phase * STAFF_SHIRTS.length) % STAFF_SHIRTS.length];
+    const styled = styleDressOf(name);
+    if (styled) return dressFor(styled, shirt);
     return dress ? dressFor(STAFF_DRESS[dress] ?? dress, shirt) : { style: 'plain', shirt, pants: PALETTE.pants, shoes: PALETTE.shoes };
   }
   /** Staff wear plain colours, none of them an agent's. */
@@ -4527,13 +4585,13 @@
       'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee', 'coachpolo', 'blazer', 'werewolf', 'santa', 'xmasjumper',
       'beanie', 'cableknit', 'redsuit', 'heartsweater', 'tangsuit', 'playoffjersey', 'superfan', 'techwear', 'submariner', 'barista', 'cowboy', 'partyhat', 'sequin',
       'artdirector', 'lawyer', 'therapist', 'plumber', 'gmexec', 'gmcoach', 'gmtycoon',
-      'detective', 'hardhat', 'librarian', 'janitor', 'firefighter', 'pilot', 'postman', 'accountant', 'marketer', 'securityguard', 'chef', 'spacesuit', 'kimono', 'cultistrobe', 'investigator', 'deepone', 'professor', 'divingsuit', 'fleecevest', 'bullparty', 'blanketcape', 'denhoodie', 'homejersey', 'lakersjersey', 'celticsjersey', 'warriorsjersey', 'knicksjersey', 'bullsjersey', 'heatjersey', 'spursjersey', 'thunderjersey', 'wolvesjersey', 'nuggetsjersey', 'hawksjersey', 'netsjersey', 'hornetsjersey', 'cavsjersey', 'mavsjersey', 'pistonsjersey', 'rocketsjersey', 'pacersjersey', 'clippersjersey', 'grizzliesjersey', 'bucksjersey', 'pelicansjersey', 'magicjersey', 'sixersjersey', 'sunsjersey', 'blazersjersey', 'kingsjersey', 'raptorsjersey', 'jazzjersey', 'wizardsjersey', 'marvel1cap', 'marvel1spidey', 'marvel1thor', 'marvel1widow', 'marvel2starlord', 'marvel2strange', 'marvel2panther', 'marvel2loki', 'ironmanmk3', 'ironmanmk2', 'ironmanwarmachine', 'batcavebatsuit', 'batcaverobin', 'batcavealfred', 'batcavecatwoman', 'dcmixsuperman', 'dcmixwonder', 'dcmixflash', 'dcmixgreenlantern', 'pokemontrainer', 'pokemonrocket', 'pokemonnurse', 'pokemonoak', 'loljinx', 'lolahri', 'lolgaren', 'lollux', 'wowpaladin', 'wowgrunt', 'wowmage', 'wowelf', 'gtatommy', 'gtacj', 'gtacop', 'gtaheist', 'destinyhunterwear', 'destinytitanwear', 'destinywarlockwear', 'destinyexo', 'starwarsjedi', 'starwarsvader', 'starwarsstormtrooper', 'starwarsprincess', 'girly1gingham', 'girly1cowgirl', 'girly1tracksuit', 'girly1gown', 'girly2kittyhood', 'girly2bunnyhood', 'girly2sailor', 'girly2overalls', 'narcosboss', 'narcosdea', 'narcosmiami', 'narcoshawaiian', 'apple1turtleneck', 'apple1genius', 'apple1headset', 'apple1hoodie', 'apple2bowtie', 'apple2woz', 'apple2rainbowtee', 'apple2runner', 'jewishkippah', 'jewishtichel', 'jewishknit', 'jewishdress', 'muslimhijab', 'muslimabaya', 'muslimthobe', 'muslimkurta', 'christianpendant', 'christianchoir', 'christiansuit', 'christianlace', 'buddhistrobe', 'buddhistmaroonrobe', 'buddhistlinen', 'buddhistmala', 'ironmantony2', 'ironmantony2b', 'ironmantony2c', 'ironmanmk1', 'ironmanmk4', 'ironmanmk5', 'ironmanmk6', 'ironmanmk7', 'ironmanmk15', 'ironmanmk16', 'ironmanmk17', 'ironmanmk33', 'ironmanmk38', 'ironmanmk42', 'ironmanmk43', 'ironmanmk45', 'ironmanmk46', 'ironmanmk47', 'ironmanmk50', 'ironmanmk85', 'ironmanpatriot', 'ironmanironspider', 'ironmanrescue', 'volcanojumpsuit', 'volcanovillain', 'volcanoheatsuit', 'volcanoguard', 'kitchenchef', 'kitchensous', 'kitchenpartie', 'kitchencommis', 'hospitalscrubs', 'hospitaldoctor', 'hospitalnurse', 'hospitalsurgeon', 'noirtrench', 'noiruniform', 'noirsuspenders', 'noirreporter', 'madlabcoat', 'madlabapron', 'madlabassistant', 'madlabhazmat', 'casinodealer', 'casinotux', 'casinohighroller', 'casinoshowman', 'orientconductor', 'orientattendant', 'orienttraveller', 'orientpearls', 'halloweendxvampire', 'halloweendxplague', 'halloweendxscarecrow', 'halloweendxspider', 'catcafebarista', 'catcafeears', 'catcafejumper', 'catcafeoveralls', 'spiderversemiles', 'spiderversegwensuit', 'spiderversepeterb', 'spiderversepunk', 'xmenwolverine', 'xmencyclops', 'xmengambit', 'xmenstormsuit', 'f1racesuit', 'f1silversuit', 'f1pitcrew', 'f1teampolo', 'ufcrashguard', 'ufcreferee', 'ufccornerhoodie', 'ufcwalkout', 'nyloftpeacoat', 'nyloftflannel', 'nyloftturtleneck', 'nyloftleather', 'pariscafemariniere', 'pariscafegarcon', 'pariscafetrench', 'pariscafepearls', 'muertoscatrinadress', 'muertoscharro', 'muertosblouse', 'muertosbones', 'submarinedeepcoverall', 'submarinedeepwetsuit', 'submarinedeeplabcoat', 'submarinedeepsweater', 'arcticbaseparka', 'arcticbasefleece', 'arcticbasecoldsuit', 'arcticbaseknit', 'sakurayukata', 'sakuracardigan', 'sakurasailor', 'sakuraflorist', 'pottergryffindor', 'potterslytherin', 'potterquidditch', 'potterheadmaster', 'lotrgandalf', 'lotrhobbit', 'lotrelf', 'lotrranger', 'breakingbadhazmat', 'breakingbadheisenberg', 'breakingbadjesse', 'breakingbadsaul', 'strangereleven', 'strangerhellfiretee', 'strangerscoopsuniform', 'strangerhopper', 'gotnightswatch', 'gotlannisterred', 'gotdaenerys', 'gotwhitewalker', 'simpsonshomer', 'simpsonsmarge', 'simpsonsbart', 'simpsonslisa', 'bondtux', 'bondwhitejacket', 'bondmoneypenny', 'bondoddjob', 'dunestillsuit', 'dunefremen', 'dunebenegesserit', 'duneharkonnenblack', 'onepieceluffy', 'onepiecezoro', 'onepiecenami', 'onepiecesanji', 'eldenringtarnished', 'eldenringmaiden', 'eldenringvalkyrie', 'eldenringwitch', 'sevmdr', 'sevmanager', 'sevwellness', 'sevsecurity', 'offdwight', 'offjim', 'offmichael', 'offpam', 'peakytommy', 'peakyarthur', 'peakypolly', 'peakybarman', 'madmdon', 'madmroger', 'madmjoan', 'madmpeggy', 'squidplayer', 'squidguard', 'squidfrontman', 'squidvip', 'boyshomelander', 'boysstarlight', 'boysbutcher', 'boysexec', 'falloutvaultsuit', 'falloutranger', 'falloutraider', 'falloutscientist', 'rickcoat', 'rickmorty', 'ricksummer', 'rickbirdperson', 'mirrorsuit', 'mirrorjumpsuit', 'mirrortech', 'mirrorgown', 'westcowboy', 'westhost', 'westtech', 'westgunslinger', 'bttfmarty', 'bttfdoc', 'bttffuture', 'bttfsodajerk', 'jpranger', 'jpscientist', 'jpvisitor', 'jpnedry', 'wicksuit', 'wickconciergeoutfit', 'wicksommelier', 'wickadjudicator', 'kingsmangalahad', 'kingsmanmerlin', 'kingsmantailor', 'kingsmanagent', 'wonkawonka', 'wonkaoompa', 'wonkacharlie', 'wonkaguide', 'wesgustave', 'weszero', 'wesagatha', 'wesguest', 'mibsuit', 'mibzed', 'mibalien', 'mibworm', 'tronblue', 'tronorange', 'tronflynn', 'tronsiren', 'dbzgoku', 'dbzvegeta', 'dbzpiccolo', 'dbzstudent', 'amongusred', 'amonguscyan', 'amongusyellow', 'amongusimposter', 'tokyohappi', 'tokyokimono', 'tokyosalaryman', 'tokyostreet', 'egyptking', 'egyptpriest', 'egyptqueen', 'egyptworker', 'vikingwarrior', 'vikingmaiden', 'vikingjarl', 'vikingseer', 'aztecjaguarw', 'azteceaglew', 'aztecpriest', 'aztecnoble', 'obsastronomer', 'obsprofessor', 'obsastronaut', 'obsstargazer', 'tikibartender', 'tikisurfer', 'tikiluau', 'tikitourist', 'dinerwaitress', 'dinercook', 'dinergreaser', 'dinerpoodle', 'courtjudge', 'courtlawyer', 'courtbailiff', 'courtclerk', 'artsmock', 'artberet', 'artsculptor', 'artstudent', 'aquariumwetsuit', 'aquariumkeeper', 'aquariumbiologist', 'aquariumscuba', 'circusringmaster', 'circusclown', 'circusacrobat', 'circusstrongman', 'museumcurator', 'museumpaleo', 'museumdocent', 'museumprofessor', 'northpolesanta', 'northpoleelf', 'northpolemrsclaus', 'northpolesweater', 'soundstagedirector', 'soundstagestarlet', 'soundstagecrew', 'soundstagetux', 'cultrobe', 'cultleader', 'cultelder', 'cultinitiate', 'esportsjersey', 'esportshoodie', 'esportscaster', 'esportspro', 'cavemanfur', 'cavemanhunter', 'cavemanshaman', 'cavemanchief', 'lodgerobe', 'lodgemaster', 'lodgeapron', 'lodgeguard', 'prepperhazmat', 'prepperfatigues', 'prepperbugout', 'prepperranger', 'paradisepresident', 'paradisesecret', 'paradiseaide', 'paradisehazmat', 'startrekgold', 'startrekblue', 'startrekred', 'startrekcaptain', 'gentlementweedsuit', 'gentlemengamekeeper', 'gentlemengangster', 'gentlementracksuit'],
+      'detective', 'hardhat', 'librarian', 'janitor', 'firefighter', 'pilot', 'postman', 'accountant', 'marketer', 'securityguard', 'chef', 'spacesuit', 'kimono', 'cultistrobe', 'investigator', 'deepone', 'professor', 'divingsuit', 'fleecevest', 'bullparty', 'blanketcape', 'denhoodie', 'homejersey', 'lakersjersey', 'celticsjersey', 'warriorsjersey', 'knicksjersey', 'bullsjersey', 'heatjersey', 'spursjersey', 'thunderjersey', 'wolvesjersey', 'nuggetsjersey', 'hawksjersey', 'netsjersey', 'hornetsjersey', 'cavsjersey', 'mavsjersey', 'pistonsjersey', 'rocketsjersey', 'pacersjersey', 'clippersjersey', 'grizzliesjersey', 'bucksjersey', 'pelicansjersey', 'magicjersey', 'sixersjersey', 'sunsjersey', 'blazersjersey', 'kingsjersey', 'raptorsjersey', 'jazzjersey', 'wizardsjersey', 'marvel1cap', 'marvel1spidey', 'marvel1thor', 'marvel1widow', 'marvel2starlord', 'marvel2strange', 'marvel2panther', 'marvel2loki', 'ironmanmk3', 'ironmanmk2', 'ironmanwarmachine', 'batcavebatsuit', 'batcaverobin', 'batcavealfred', 'batcavecatwoman', 'dcmixsuperman', 'dcmixwonder', 'dcmixflash', 'dcmixgreenlantern', 'pokemontrainer', 'pokemonrocket', 'pokemonnurse', 'pokemonoak', 'loljinx', 'lolahri', 'lolgaren', 'lollux', 'wowpaladin', 'wowgrunt', 'wowmage', 'wowelf', 'gtatommy', 'gtacj', 'gtacop', 'gtaheist', 'destinyhunterwear', 'destinytitanwear', 'destinywarlockwear', 'destinyexo', 'starwarsjedi', 'starwarsvader', 'starwarsstormtrooper', 'starwarsprincess', 'girly1gingham', 'girly1cowgirl', 'girly1tracksuit', 'girly1gown', 'girly2kittyhood', 'girly2bunnyhood', 'girly2sailor', 'girly2overalls', 'narcosboss', 'narcosdea', 'narcosmiami', 'narcoshawaiian', 'apple1turtleneck', 'apple1genius', 'apple1headset', 'apple1hoodie', 'apple2bowtie', 'apple2woz', 'apple2rainbowtee', 'apple2runner', 'jewishkippah', 'jewishtichel', 'jewishknit', 'jewishdress', 'muslimhijab', 'muslimabaya', 'muslimthobe', 'muslimkurta', 'christianpendant', 'christianchoir', 'christiansuit', 'christianlace', 'buddhistrobe', 'buddhistmaroonrobe', 'buddhistlinen', 'buddhistmala', 'ironmantony2', 'ironmantony2b', 'ironmantony2c', 'ironmanmk1', 'ironmanmk4', 'ironmanmk5', 'ironmanmk6', 'ironmanmk7', 'ironmanmk15', 'ironmanmk16', 'ironmanmk17', 'ironmanmk33', 'ironmanmk38', 'ironmanmk42', 'ironmanmk43', 'ironmanmk45', 'ironmanmk46', 'ironmanmk47', 'ironmanmk50', 'ironmanmk85', 'ironmanpatriot', 'ironmanironspider', 'ironmanrescue', 'volcanojumpsuit', 'volcanovillain', 'volcanoheatsuit', 'volcanoguard', 'kitchenchef', 'kitchensous', 'kitchenpartie', 'kitchencommis', 'hospitalscrubs', 'hospitaldoctor', 'hospitalnurse', 'hospitalsurgeon', 'noirtrench', 'noiruniform', 'noirsuspenders', 'noirreporter', 'madlabcoat', 'madlabapron', 'madlabassistant', 'madlabhazmat', 'casinodealer', 'casinotux', 'casinohighroller', 'casinoshowman', 'orientconductor', 'orientattendant', 'orienttraveller', 'orientpearls', 'halloweendxvampire', 'halloweendxplague', 'halloweendxscarecrow', 'halloweendxspider', 'catcafebarista', 'catcafeears', 'catcafejumper', 'catcafeoveralls', 'spiderversemiles', 'spiderversegwensuit', 'spiderversepeterb', 'spiderversepunk', 'xmenwolverine', 'xmencyclops', 'xmengambit', 'xmenstormsuit', 'f1racesuit', 'f1silversuit', 'f1pitcrew', 'f1teampolo', 'ufcrashguard', 'ufcreferee', 'ufccornerhoodie', 'ufcwalkout', 'nyloftpeacoat', 'nyloftflannel', 'nyloftturtleneck', 'nyloftleather', 'pariscafemariniere', 'pariscafegarcon', 'pariscafetrench', 'pariscafepearls', 'muertoscatrinadress', 'muertoscharro', 'muertosblouse', 'muertosbones', 'submarinedeepcoverall', 'submarinedeepwetsuit', 'submarinedeeplabcoat', 'submarinedeepsweater', 'arcticbaseparka', 'arcticbasefleece', 'arcticbasecoldsuit', 'arcticbaseknit', 'sakurayukata', 'sakuracardigan', 'sakurasailor', 'sakuraflorist', 'pottergryffindor', 'potterslytherin', 'potterquidditch', 'potterheadmaster', 'lotrgandalf', 'lotrhobbit', 'lotrelf', 'lotrranger', 'breakingbadhazmat', 'breakingbadheisenberg', 'breakingbadjesse', 'breakingbadsaul', 'strangereleven', 'strangerhellfiretee', 'strangerscoopsuniform', 'strangerhopper', 'gotnightswatch', 'gotlannisterred', 'gotdaenerys', 'gotwhitewalker', 'simpsonshomer', 'simpsonsmarge', 'simpsonsbart', 'simpsonslisa', 'bondtux', 'bondwhitejacket', 'bondmoneypenny', 'bondoddjob', 'dunestillsuit', 'dunefremen', 'dunebenegesserit', 'duneharkonnenblack', 'onepieceluffy', 'onepiecezoro', 'onepiecenami', 'onepiecesanji', 'eldenringtarnished', 'eldenringmaiden', 'eldenringvalkyrie', 'eldenringwitch', 'sevmdr', 'sevmanager', 'sevwellness', 'sevsecurity', 'offdwight', 'offjim', 'offmichael', 'offpam', 'peakytommy', 'peakyarthur', 'peakypolly', 'peakybarman', 'madmdon', 'madmroger', 'madmjoan', 'madmpeggy', 'squidplayer', 'squidguard', 'squidfrontman', 'squidvip', 'boyshomelander', 'boysstarlight', 'boysbutcher', 'boysexec', 'falloutvaultsuit', 'falloutranger', 'falloutraider', 'falloutscientist', 'rickcoat', 'rickmorty', 'ricksummer', 'rickbirdperson', 'mirrorsuit', 'mirrorjumpsuit', 'mirrortech', 'mirrorgown', 'westcowboy', 'westhost', 'westtech', 'westgunslinger', 'bttfmarty', 'bttfdoc', 'bttffuture', 'bttfsodajerk', 'jpranger', 'jpscientist', 'jpvisitor', 'jpnedry', 'wicksuit', 'wickconciergeoutfit', 'wicksommelier', 'wickadjudicator', 'kingsmangalahad', 'kingsmanmerlin', 'kingsmantailor', 'kingsmanagent', 'wonkawonka', 'wonkaoompa', 'wonkacharlie', 'wonkaguide', 'wesgustave', 'weszero', 'wesagatha', 'wesguest', 'mibsuit', 'mibzed', 'mibalien', 'mibworm', 'tronblue', 'tronorange', 'tronflynn', 'tronsiren', 'dbzgoku', 'dbzvegeta', 'dbzpiccolo', 'dbzstudent', 'amongusred', 'amonguscyan', 'amongusyellow', 'amongusimposter', 'tokyohappi', 'tokyokimono', 'tokyosalaryman', 'tokyostreet', 'egyptking', 'egyptpriest', 'egyptqueen', 'egyptworker', 'vikingwarrior', 'vikingmaiden', 'vikingjarl', 'vikingseer', 'aztecjaguarw', 'azteceaglew', 'aztecpriest', 'aztecnoble', 'obsastronomer', 'obsprofessor', 'obsastronaut', 'obsstargazer', 'tikibartender', 'tikisurfer', 'tikiluau', 'tikitourist', 'dinerwaitress', 'dinercook', 'dinergreaser', 'dinerpoodle', 'courtjudge', 'courtlawyer', 'courtbailiff', 'courtclerk', 'artsmock', 'artberet', 'artsculptor', 'artstudent', 'aquariumwetsuit', 'aquariumkeeper', 'aquariumbiologist', 'aquariumscuba', 'circusringmaster', 'circusclown', 'circusacrobat', 'circusstrongman', 'museumcurator', 'museumpaleo', 'museumdocent', 'museumprofessor', 'northpolesanta', 'northpoleelf', 'northpolemrsclaus', 'northpolesweater', 'soundstagedirector', 'soundstagestarlet', 'soundstagecrew', 'soundstagetux', 'cultrobe', 'cultleader', 'cultelder', 'cultinitiate', 'esportsjersey', 'esportshoodie', 'esportscaster', 'esportspro', 'cavemanfur', 'cavemanhunter', 'cavemanshaman', 'cavemanchief', 'lodgerobe', 'lodgemaster', 'lodgeapron', 'lodgeguard', 'prepperhazmat', 'prepperfatigues', 'prepperbugout', 'prepperranger', 'paradisepresident', 'paradisesecret', 'paradiseaide', 'paradisehazmat', 'startrekgold', 'startrekblue', 'startrekred', 'startrekcaptain', 'gentlementweedsuit', 'gentlemengamekeeper', 'gentlemengangster', 'gentlementracksuit', 'geoderuby', 'geodeopal', 'geodesapphire', 'geodeamber', 'geodegarnet', 'geodetopaz', 'geodepearl', 'geodemoonstone', 'geodemalachite', 'geodejade', 'geodelapis', 'geodeamethyst', 'geodeobsidian'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
       'potions', 'egg', 'spellbook', 'controller', 'energy', 'headset', 'circuit', 'pizza', 'coffeepot', 'dumbbell', 'shaker',
       'kettlebell', 'coconut', 'pineapple', 'tikimug', 'enamel', 'lantern', 'pinecone', 'jackolantern', 'candles', 'candy', 'pumpkinball', 'batfinger',
-      'basketball', 'whistle', 'stopwatch', 'sneaker', 'foamfinger', 'cup', 'clipboard', 'cocoa', 'teapot', 'roses', 'chocolates', 'redenvelopes', 'tangerines', 'nachos', 'latte', 'champagne', 'noisemaker', 'floatmug', 'floatplant', 'lavalamp', 'gumball', 'hourglass', 'drinkingbird', 'typewriter', 'antfarm', 'plasmaball', 'toaster', 'flytrap', 'cassette', 'dnamodel', 'dicetower', 'eggtimer', 'sunflower', 'sourdough', 'knitbasket', 'rotaryphone', 'addingmachine', 'solderstation', 'instantcam', 'pinwheel', 'sparklamp', 'claudemug', 'clawdplush', 'necrotome', 'tentacleink', 'greenidol', 'eldersignstand', 'specimenjar', 'trapezohedron', 'whisperconch', 'hardwallet', 'gmmug', 'tickercube', 'coinstand', 'moonshot', 'coinpile', 'bullbobble', 'noodlecup', 'hodlkit', 'emptywallet', 'cantower', 'pizzastack', 'coinlamp', 'matchball', 'psgscarf', 'eiffelmini', 'lakerstrophy', 'celticsball', 'warriorsfinger', 'knickssneaker', 'bullsbobble', 'heatpennant', 'spurstrophy', 'thunderfinger', 'wolvesbobble', 'nuggetspennant', 'hawkssneaker', 'netsball', 'hornetsbobble', 'cavstrophy', 'mavsfinger', 'pistonspennant', 'rocketssneaker', 'pacersball', 'clippersbobble', 'grizzliesfinger', 'buckstrophy', 'pelicanspennant', 'magicsneaker', 'sixersbobble', 'sunsball', 'blazersfinger', 'kingstrophy', 'raptorspennant', 'jazzsneaker', 'wizardsball', 'marvel1tesseract', 'marvel1minimjolnir', 'marvel1webshooter', 'marvel1spideybobble', 'marvel1hulkfist', 'marvel1antjar', 'marvel1shawarma', 'marvel1compass', 'marvel2walkman', 'marvel2eye', 'marvel2orb', 'marvel2scepter', 'marvel2pantherbust', 'marvel2cloak', 'marvel2beads', 'marvel2tvaclock', 'ironmanreactor', 'ironmanhelmet', 'ironmangauntlet', 'ironmanburger', 'ironmanshades', 'ironmanphone', 'ironmanscraps', 'ironmandonut', 'batcavebatarang', 'batcavecowl', 'batcavetea', 'batcavebelt', 'batcavephone', 'batcavegrapple', 'batcaveteeth', 'batcaveumbrella', 'dcmixlanternbattery', 'dcmixkryptonite', 'dcmixtiara', 'dcmixglasses', 'dcmixmotherbox', 'dcmixmallet', 'dcmixfortress', 'dcmixflashring', 'pokemonball', 'pokemongameboy', 'pokemonegg', 'pokemonpotion', 'pokemoncards', 'pokemonmagikarp', 'pokemonjiggly', 'pokemonstones', 'lolsnax', 'lolward', 'lolpotion', 'lolcrystal', 'lolteemo', 'lolchest', 'lolblitz', 'lolmouse', 'wowhearth', 'wowmana', 'wowgold', 'wowale', 'wowfrostmourne', 'wowloot', 'wowscroll', 'wowfel', 'gtacash', 'gtaphone', 'gtasprunk', 'gtadice', 'gtatoycar', 'gtaradio', 'gtaburger', 'gtaheli', 'destinyengram', 'destinyglimmer', 'destinygjallarhorn', 'destinyshell', 'destinysparrow', 'destinyhelmet', 'destinymote', 'destinycoin', 'starwarsxwing', 'starwarsvaderbust', 'starwarssaber', 'starwarsholocron', 'starwarsfalcon', 'starwarstrooper', 'starwarsbluemilk', 'girly1lipstick', 'girly1perfume', 'girly1compact', 'girly1phone', 'girly1polish', 'girly1heel', 'girly1tiara', 'girly1cupcake', 'girly2boba', 'girly2milk', 'girly2plush', 'girly2pencils', 'girly2macarons', 'girly2mushroom', 'girly2headphones', 'girly2onigiri', 'narcoscash', 'narcosbrick', 'narcosphone', 'narcosscale', 'narcoscigar', 'narcosrum', 'narcospager', 'narcoscoffee', 'apple1iphone', 'apple1airpods', 'apple1watch', 'apple1homepod', 'apple1mouse', 'apple1ipad', 'apple1vision', 'apple1apple', 'apple2floppies', 'apple2mouse', 'apple2newton', 'apple2imac', 'apple2mug', 'apple2ipod', 'apple2stickies', 'apple2toaster', 'starwarsporg', 'jewishchallah', 'jewishkiddush', 'jewishdreidel', 'jewishpomegranate', 'jewishhoney', 'jewishtzedakah', 'jewishspicebox', 'jewishsufganiyot', 'muslimtea', 'muslimdates', 'muslimqibla', 'muslimbeads', 'muslimdallah', 'muslimlamp', 'muslimincense', 'muslimrosewater', 'christianbible', 'christiannativity', 'christianlily', 'christiancandle', 'christianrosary', 'christianeggs', 'christianstar', 'christianbuns', 'buddhistbowl', 'buddhistincense', 'buddhistbonsai', 'buddhistlotus', 'buddhisttea', 'buddhistzentray', 'buddhistbutterlamp', 'buddhistcairn', 'volcanobutton', 'volcanophone', 'volcanoglobe', 'volcanoseismo', 'volcanoobsidian', 'volcanomagma', 'volcanoplans', 'volcanokey', 'kitchenmise', 'kitchenboard', 'kitchensauce', 'kitchenbell', 'kitchenplate', 'kitchentimer', 'kitchensalt', 'kitchenwhisk', 'hospitalstetho', 'hospitalpills', 'hospitalthermo', 'hospitalcoffee', 'hospitalheart', 'hospitalpager', 'hospitalbandage', 'hospitalhammer', 'noirfedora', 'noirmagnifier', 'noirbadge', 'noirdonut', 'noircasefile', 'noircuffs', 'noirreel', 'noirradio', 'madlabflask', 'madlabtubes', 'madlabgoggles', 'madlabbattery', 'madlabbulb', 'madlabpetri', 'madlabhand', 'madlabmagnet', 'casinochips', 'casinodice', 'casinodeck', 'casinomartini', 'casinoroulettemini', 'casinoslotmini', 'casinohorseshoe', 'casinomoney', 'orientticket', 'orientteacup', 'orientwatch', 'orienttelegram', 'orientlantern', 'orientmodel', 'orientpassport', 'orientcamera', 'halloweendxskull', 'halloweendxapple', 'halloweendxbowl', 'halloweendxcrystal', 'halloweendxtarot', 'halloweendxgourds', 'halloweendxmusicbox', 'halloweendxjar', 'catcafelatte', 'catcafecookie', 'catcafebox', 'catcafemug', 'catcafetreats', 'catcafenapper', 'catcafetoy', 'catcafeteapot', 'spiderversespray', 'spiderversephones', 'spiderverseshooter', 'spiderversecomics', 'spiderversesneaker', 'spiderversewatch', 'spiderversecollider', 'spiderversepizza', 'xmenclaws', 'xmenvisor', 'xmencards', 'xmenchess', 'xmenmagneto', 'xmendogtags', 'xmenstorm', 'xmenflask', 'f1car', 'f1wheel', 'f1tyre', 'f1champagne', 'f1headset', 'f1cap', 'f1wheelgun', 'f1flag', 'ufcmitts', 'ufcmouthguard', 'ufcwraps', 'ufcbottle', 'ufcbucket', 'ufcicepack', 'ufcscorecard', 'ufccutman', 'nyloftbagel', 'nyloftcoffee', 'nyloftslice', 'nylofttaxi', 'nyloftsucculent', 'nyloftcard', 'nyloftpretzel', 'nyloftcamera', 'pariscafecroissant', 'pariscafeespresso', 'pariscafemacarons', 'pariscafebaguette', 'pariscafewine', 'pariscafecheese', 'pariscaferose', 'pariscafepaper', 'muertossugarskull', 'muertospan', 'muertoscandle', 'muertosmarigolds', 'muertoscopal', 'muertoschocolate', 'muertosmaracas', 'muertosfigurine', 'submarinedeepjar', 'submarinedeeprov', 'submarinedeepshell', 'submarinedeepthermos', 'submarinedeepcoral', 'submarinedeeplog', 'submarinedeepradio', 'submarinedeeppearl', 'arcticbasecore', 'arcticbasecocoa', 'arcticbasemittens', 'arcticbasethermo', 'arcticbasebeacon', 'arcticbasegoggles', 'arcticbasecrystal', 'arcticbasestove', 'sakuramochi', 'sakuradango', 'sakuramatcha', 'sakurabento', 'sakurasprig', 'sakurasoda', 'sakuraonigiri', 'sakurasketch', 'potterwand', 'pottersnitch', 'pottersortinghat', 'pottermonsterbook', 'potterhowler', 'potterchocofrog', 'pottertimeturner', 'potterprophet', 'lotrring', 'lotrpipe', 'lotrlembas', 'lotrphial', 'lotrredbook', 'lotrpalantir', 'lotrmushrooms', 'lotrhorn', 'breakingbadhat', 'breakingbadcrystal', 'breakingbadflask', 'breakingbadmoney', 'breakingbadpollosbox', 'breakingbadbear', 'breakingbadphone', 'breakingbadrv', 'strangerwaffles', 'strangerwalkie', 'strangerdice', 'strangercompass', 'strangerdemogorgon', 'strangerwalkman', 'strangersundae', 'strangernailbat', 'goteggs', 'gotgoblet', 'gotdagger', 'gotthrone', 'gotpin', 'gotscroll', 'gotcoin', 'gotdragonglass', 'simpsonsdonut', 'simpsonsduffcan', 'simpsonsrod', 'simpsonssquishee', 'simpsonssax', 'simpsonsslingshot', 'simpsonsbobble', 'simpsonspacifier', 'bondmartini', 'bondwalther', 'bondwatch', 'bondcards', 'bondpen', 'bondbriefcase', 'bondgoldbar', 'bondteeth', 'dunespice', 'dunethumper', 'dunegombox', 'duneliterjon', 'dunepalm', 'duneshield', 'dunesandtimer', 'dunecoffee', 'onepiecehat', 'onepiecemeat', 'onepiecelogpose', 'onepiecedevilfruit', 'onepiecetangerines', 'onepiecesake', 'onepiececola', 'onepieceponeglyph', 'eldenringrune', 'eldenringflasks', 'eldenringgrace', 'eldenringkey', 'eldenringbell', 'eldenringsoapstone', 'eldenringjar', 'eldenringlantern', 'sevegg', 'sevhandbook', 'sevfingertrap', 'sevwaffle', 'sevcoffee', 'sevmelon', 'sevfan', 'sevpencup', 'offbobblehead', 'offbossmug', 'offjello', 'offphone', 'offteapot', 'offdonuts', 'offpaperstack', 'offpretzel', 'peakywhisky', 'peakyashtray', 'peakycash', 'peakyledger', 'peakywatch', 'peakypint', 'peakygramophone', 'peakynewspaper', 'madmoldfashioned', 'madmtypewriter', 'madmrotary', 'madmashtray', 'madmrolodex', 'madmcigbox', 'madmcoffee', 'madmprojector', 'squiddalgona', 'squidtin', 'squidddakji', 'squidmarbles', 'squidnumber', 'squidbread', 'squidjar', 'squidmask', 'boysmilk', 'boyscoffee', 'boyscape', 'boysmic', 'boysstatuette', 'boyscomic', 'boysphone', 'boysenergy', 'falloutnuka', 'falloutpipboy', 'falloutbobblehead', 'falloutstimpak', 'falloutcaps', 'falloutlunchbox', 'falloutteddy', 'falloutradaway', 'rickportalgun', 'rickflask', 'rickplumbus', 'rickbutterbot', 'rickraygun', 'rickcrystal', 'rickhipflask', 'rickseed', 'mirrorphone', 'mirrorcookie', 'mirrorlens', 'mirrortablet', 'mirrorspeaker', 'mirrorvr', 'mirrorearpiece', 'mirrorcube', 'westhat', 'westrevolver', 'westwhiskey', 'westmazecoin', 'westtablet', 'westhand', 'westcards', 'westspur', 'bttffluxcap', 'bttfhoverboard', 'bttfmrfusion', 'bttfspeedo', 'bttfplutonium', 'bttfalmanac', 'bttfmilkshake', 'bttfwalkman', 'jpamber', 'jpdnavial', 'jpjeep', 'jpgoggles', 'jpraptoregg', 'jpcanister', 'jpflare', 'jptremorcup', 'wickcoin', 'wickmarker', 'wickwhiskey', 'wickphone', 'wickrose', 'wickdogbowl', 'wickcoinstack', 'wickcufflinks', 'kingsmanumbrella', 'kingsmanglasses', 'kingsmanoxford', 'kingsmansignet', 'kingsmanpen', 'kingsmanlighter', 'kingsmanwhisky', 'kingsmantape', 'wonkabar', 'wonkaticket', 'wonkagobstopper', 'wonkalollipop', 'wonkafizzy', 'wonkacane', 'wonkahat', 'wonkagum', 'wesbell', 'weskey', 'wescake', 'wesradio', 'wesphone', 'wesbook', 'wesbinoculars', 'wesperfume', 'mibneuralyzer', 'mibshades', 'mibbadge', 'mibbugjar', 'mibgalaxy', 'mibcoffee', 'mibalienplant', 'mibglobe', 'tronidentity', 'troncycle', 'tronbaton', 'tronenergy', 'tronchip', 'tronhelmet', 'troncube', 'troncoin', 'dbzdragonball', 'dbzcapsule', 'dbzsenzu', 'dbzscouter', 'dbzradar', 'dbztrophy', 'dbznoodles', 'dbzgifold', 'amonguscrewmate', 'amongusbutton', 'amongustaskpad', 'amonguswires', 'amongusfuel', 'amongusvisor', 'amongussnack', 'amongusscan', 'tokyoramen', 'tokyosake', 'tokyomaneki', 'tokyogacha', 'tokyobonsai', 'tokyosushi', 'tokyoteapot', 'tokyodaruma', 'egyptscroll', 'egyptcanopic', 'egyptbust', 'egyptscales', 'egyptgoldcat', 'egyptamulet', 'egyptincense', 'egyptsenet', 'vikingtankard', 'vikinghelm', 'vikingaxe', 'vikingrunecast', 'vikingmead', 'vikinglongship', 'vikingtorc', 'vikingfeast', 'aztecskull', 'aztecgoldidol', 'aztecobsidian', 'azteccacao', 'aztecpot', 'azteccalendar', 'aztecfeather', 'aztecmaize', 'obsglobe', 'obsdesktelescope', 'obsastrolabe', 'obsmeteorite', 'obsstarchart', 'obssaturn', 'obscompass', 'obsnotebook', 'tikicoconut', 'tikipineapple', 'tikiukulele', 'tikishell', 'tikilei', 'tikibananas', 'tikibottle', 'tikivolcano', 'dinermilkshake', 'dinerburger', 'dinerfries', 'dinercondiments', 'dinercoffee', 'dinerselector', 'dinernapkins', 'dinerdonut', 'courtgavel', 'courtscalesmini', 'courtlawbooks', 'courtinkwell', 'courtnameplate', 'courtcoffee', 'courtbadge', 'courtstamp', 'artpalettemini', 'artbrushes', 'artpaints', 'artcanvasmini', 'artclay', 'artpencils', 'artink', 'artwater', 'aquariumbowl', 'aquariumcoralmini', 'aquariumnautilus', 'aquariumdiver', 'aquariumanemone', 'aquariumseaglass', 'aquariumpearl', 'aquariumsub', 'circuspopcorn', 'circustophat', 'circusballoons', 'circuscotton', 'circuspins', 'circusticket', 'circusjackbox', 'circuscandy', 'museumglobe', 'museumskull', 'museummicroscope', 'museumammonite', 'museumjar', 'museummagnifier', 'museummeteorite', 'museumtrilo', 'northpolegift', 'northpolecocoa', 'northpolecookies', 'northpolesnowglobe', 'northpolesoldier', 'northpolebell', 'northpolecandycane', 'northpoletrain', 'soundstageclapper', 'soundstagemegaphone', 'soundstageaward', 'soundstagescript', 'soundstagespotlight', 'soundstagecamera', 'soundstagereelcan', 'soundstagecoffee', 'cultcandle', 'cultincense', 'cultbowl', 'cultcrystal', 'cultchalice', 'cultbell', 'cultpamphlet', 'cultflower', 'esportskeyboard', 'esportsheadset', 'esportsmouse', 'esportsenergy', 'esportscontroller', 'esportsfigure', 'esportstrophy', 'esportsmic', 'cavemanclub', 'cavemanbone', 'cavemanegg', 'cavemanflint', 'cavemanskull', 'cavemantablet', 'cavemancrystal', 'cavemanmeat', 'lodgecandelabra', 'lodgeseal', 'lodgescroll', 'lodgechalice', 'lodgegavel', 'lodgekey', 'lodgehourglass', 'lodgecompass', 'prepperrations', 'preppergasmask', 'prepperradio', 'prepperlantern', 'preppergeiger', 'prepperfirstaid', 'prepperjerrycan', 'preppermultitool', 'paradiseflagstand', 'paradisephone', 'paradisenameplate', 'paradisebigbutton', 'paradisefolders', 'paradiseintercom', 'paradiseeagle', 'paradiselamp', 'startrektricorder', 'startrekphaser', 'startrekpadd', 'startrekteacup', 'startrekmodel', 'startrekdilithium', 'startrekcombadge', 'startrekgauge', 'gentlemendecanter', 'gentlemencigars', 'gentlemenpipe', 'gentlemenbrick', 'gentlemenfoxmask', 'gentlemenledger', 'gentlemenseal', 'gentlemenshells', 'grokmug', 'grokrocket', 'grokorb', 'groktowel', 'grokplush', 'grokbotqueue', 'grokbotantenna', 'none'],
+      'basketball', 'whistle', 'stopwatch', 'sneaker', 'foamfinger', 'cup', 'clipboard', 'cocoa', 'teapot', 'roses', 'chocolates', 'redenvelopes', 'tangerines', 'nachos', 'latte', 'champagne', 'noisemaker', 'floatmug', 'floatplant', 'lavalamp', 'gumball', 'hourglass', 'drinkingbird', 'typewriter', 'antfarm', 'plasmaball', 'toaster', 'flytrap', 'cassette', 'dnamodel', 'dicetower', 'eggtimer', 'sunflower', 'sourdough', 'knitbasket', 'rotaryphone', 'addingmachine', 'solderstation', 'instantcam', 'pinwheel', 'sparklamp', 'claudemug', 'clawdplush', 'necrotome', 'tentacleink', 'greenidol', 'eldersignstand', 'specimenjar', 'trapezohedron', 'whisperconch', 'hardwallet', 'gmmug', 'tickercube', 'coinstand', 'moonshot', 'coinpile', 'bullbobble', 'noodlecup', 'hodlkit', 'emptywallet', 'cantower', 'pizzastack', 'coinlamp', 'matchball', 'psgscarf', 'eiffelmini', 'lakerstrophy', 'celticsball', 'warriorsfinger', 'knickssneaker', 'bullsbobble', 'heatpennant', 'spurstrophy', 'thunderfinger', 'wolvesbobble', 'nuggetspennant', 'hawkssneaker', 'netsball', 'hornetsbobble', 'cavstrophy', 'mavsfinger', 'pistonspennant', 'rocketssneaker', 'pacersball', 'clippersbobble', 'grizzliesfinger', 'buckstrophy', 'pelicanspennant', 'magicsneaker', 'sixersbobble', 'sunsball', 'blazersfinger', 'kingstrophy', 'raptorspennant', 'jazzsneaker', 'wizardsball', 'marvel1tesseract', 'marvel1minimjolnir', 'marvel1webshooter', 'marvel1spideybobble', 'marvel1hulkfist', 'marvel1antjar', 'marvel1shawarma', 'marvel1compass', 'marvel2walkman', 'marvel2eye', 'marvel2orb', 'marvel2scepter', 'marvel2pantherbust', 'marvel2cloak', 'marvel2beads', 'marvel2tvaclock', 'ironmanreactor', 'ironmanhelmet', 'ironmangauntlet', 'ironmanburger', 'ironmanshades', 'ironmanphone', 'ironmanscraps', 'ironmandonut', 'batcavebatarang', 'batcavecowl', 'batcavetea', 'batcavebelt', 'batcavephone', 'batcavegrapple', 'batcaveteeth', 'batcaveumbrella', 'dcmixlanternbattery', 'dcmixkryptonite', 'dcmixtiara', 'dcmixglasses', 'dcmixmotherbox', 'dcmixmallet', 'dcmixfortress', 'dcmixflashring', 'pokemonball', 'pokemongameboy', 'pokemonegg', 'pokemonpotion', 'pokemoncards', 'pokemonmagikarp', 'pokemonjiggly', 'pokemonstones', 'lolsnax', 'lolward', 'lolpotion', 'lolcrystal', 'lolteemo', 'lolchest', 'lolblitz', 'lolmouse', 'wowhearth', 'wowmana', 'wowgold', 'wowale', 'wowfrostmourne', 'wowloot', 'wowscroll', 'wowfel', 'gtacash', 'gtaphone', 'gtasprunk', 'gtadice', 'gtatoycar', 'gtaradio', 'gtaburger', 'gtaheli', 'destinyengram', 'destinyglimmer', 'destinygjallarhorn', 'destinyshell', 'destinysparrow', 'destinyhelmet', 'destinymote', 'destinycoin', 'starwarsxwing', 'starwarsvaderbust', 'starwarssaber', 'starwarsholocron', 'starwarsfalcon', 'starwarstrooper', 'starwarsbluemilk', 'girly1lipstick', 'girly1perfume', 'girly1compact', 'girly1phone', 'girly1polish', 'girly1heel', 'girly1tiara', 'girly1cupcake', 'girly2boba', 'girly2milk', 'girly2plush', 'girly2pencils', 'girly2macarons', 'girly2mushroom', 'girly2headphones', 'girly2onigiri', 'narcoscash', 'narcosbrick', 'narcosphone', 'narcosscale', 'narcoscigar', 'narcosrum', 'narcospager', 'narcoscoffee', 'apple1iphone', 'apple1airpods', 'apple1watch', 'apple1homepod', 'apple1mouse', 'apple1ipad', 'apple1vision', 'apple1apple', 'apple2floppies', 'apple2mouse', 'apple2newton', 'apple2imac', 'apple2mug', 'apple2ipod', 'apple2stickies', 'apple2toaster', 'starwarsporg', 'jewishchallah', 'jewishkiddush', 'jewishdreidel', 'jewishpomegranate', 'jewishhoney', 'jewishtzedakah', 'jewishspicebox', 'jewishsufganiyot', 'muslimtea', 'muslimdates', 'muslimqibla', 'muslimbeads', 'muslimdallah', 'muslimlamp', 'muslimincense', 'muslimrosewater', 'christianbible', 'christiannativity', 'christianlily', 'christiancandle', 'christianrosary', 'christianeggs', 'christianstar', 'christianbuns', 'buddhistbowl', 'buddhistincense', 'buddhistbonsai', 'buddhistlotus', 'buddhisttea', 'buddhistzentray', 'buddhistbutterlamp', 'buddhistcairn', 'volcanobutton', 'volcanophone', 'volcanoglobe', 'volcanoseismo', 'volcanoobsidian', 'volcanomagma', 'volcanoplans', 'volcanokey', 'kitchenmise', 'kitchenboard', 'kitchensauce', 'kitchenbell', 'kitchenplate', 'kitchentimer', 'kitchensalt', 'kitchenwhisk', 'hospitalstetho', 'hospitalpills', 'hospitalthermo', 'hospitalcoffee', 'hospitalheart', 'hospitalpager', 'hospitalbandage', 'hospitalhammer', 'noirfedora', 'noirmagnifier', 'noirbadge', 'noirdonut', 'noircasefile', 'noircuffs', 'noirreel', 'noirradio', 'madlabflask', 'madlabtubes', 'madlabgoggles', 'madlabbattery', 'madlabbulb', 'madlabpetri', 'madlabhand', 'madlabmagnet', 'casinochips', 'casinodice', 'casinodeck', 'casinomartini', 'casinoroulettemini', 'casinoslotmini', 'casinohorseshoe', 'casinomoney', 'orientticket', 'orientteacup', 'orientwatch', 'orienttelegram', 'orientlantern', 'orientmodel', 'orientpassport', 'orientcamera', 'halloweendxskull', 'halloweendxapple', 'halloweendxbowl', 'halloweendxcrystal', 'halloweendxtarot', 'halloweendxgourds', 'halloweendxmusicbox', 'halloweendxjar', 'catcafelatte', 'catcafecookie', 'catcafebox', 'catcafemug', 'catcafetreats', 'catcafenapper', 'catcafetoy', 'catcafeteapot', 'spiderversespray', 'spiderversephones', 'spiderverseshooter', 'spiderversecomics', 'spiderversesneaker', 'spiderversewatch', 'spiderversecollider', 'spiderversepizza', 'xmenclaws', 'xmenvisor', 'xmencards', 'xmenchess', 'xmenmagneto', 'xmendogtags', 'xmenstorm', 'xmenflask', 'f1car', 'f1wheel', 'f1tyre', 'f1champagne', 'f1headset', 'f1cap', 'f1wheelgun', 'f1flag', 'ufcmitts', 'ufcmouthguard', 'ufcwraps', 'ufcbottle', 'ufcbucket', 'ufcicepack', 'ufcscorecard', 'ufccutman', 'nyloftbagel', 'nyloftcoffee', 'nyloftslice', 'nylofttaxi', 'nyloftsucculent', 'nyloftcard', 'nyloftpretzel', 'nyloftcamera', 'pariscafecroissant', 'pariscafeespresso', 'pariscafemacarons', 'pariscafebaguette', 'pariscafewine', 'pariscafecheese', 'pariscaferose', 'pariscafepaper', 'muertossugarskull', 'muertospan', 'muertoscandle', 'muertosmarigolds', 'muertoscopal', 'muertoschocolate', 'muertosmaracas', 'muertosfigurine', 'submarinedeepjar', 'submarinedeeprov', 'submarinedeepshell', 'submarinedeepthermos', 'submarinedeepcoral', 'submarinedeeplog', 'submarinedeepradio', 'submarinedeeppearl', 'arcticbasecore', 'arcticbasecocoa', 'arcticbasemittens', 'arcticbasethermo', 'arcticbasebeacon', 'arcticbasegoggles', 'arcticbasecrystal', 'arcticbasestove', 'sakuramochi', 'sakuradango', 'sakuramatcha', 'sakurabento', 'sakurasprig', 'sakurasoda', 'sakuraonigiri', 'sakurasketch', 'potterwand', 'pottersnitch', 'pottersortinghat', 'pottermonsterbook', 'potterhowler', 'potterchocofrog', 'pottertimeturner', 'potterprophet', 'lotrring', 'lotrpipe', 'lotrlembas', 'lotrphial', 'lotrredbook', 'lotrpalantir', 'lotrmushrooms', 'lotrhorn', 'breakingbadhat', 'breakingbadcrystal', 'breakingbadflask', 'breakingbadmoney', 'breakingbadpollosbox', 'breakingbadbear', 'breakingbadphone', 'breakingbadrv', 'strangerwaffles', 'strangerwalkie', 'strangerdice', 'strangercompass', 'strangerdemogorgon', 'strangerwalkman', 'strangersundae', 'strangernailbat', 'goteggs', 'gotgoblet', 'gotdagger', 'gotthrone', 'gotpin', 'gotscroll', 'gotcoin', 'gotdragonglass', 'simpsonsdonut', 'simpsonsduffcan', 'simpsonsrod', 'simpsonssquishee', 'simpsonssax', 'simpsonsslingshot', 'simpsonsbobble', 'simpsonspacifier', 'bondmartini', 'bondwalther', 'bondwatch', 'bondcards', 'bondpen', 'bondbriefcase', 'bondgoldbar', 'bondteeth', 'dunespice', 'dunethumper', 'dunegombox', 'duneliterjon', 'dunepalm', 'duneshield', 'dunesandtimer', 'dunecoffee', 'onepiecehat', 'onepiecemeat', 'onepiecelogpose', 'onepiecedevilfruit', 'onepiecetangerines', 'onepiecesake', 'onepiececola', 'onepieceponeglyph', 'eldenringrune', 'eldenringflasks', 'eldenringgrace', 'eldenringkey', 'eldenringbell', 'eldenringsoapstone', 'eldenringjar', 'eldenringlantern', 'sevegg', 'sevhandbook', 'sevfingertrap', 'sevwaffle', 'sevcoffee', 'sevmelon', 'sevfan', 'sevpencup', 'offbobblehead', 'offbossmug', 'offjello', 'offphone', 'offteapot', 'offdonuts', 'offpaperstack', 'offpretzel', 'peakywhisky', 'peakyashtray', 'peakycash', 'peakyledger', 'peakywatch', 'peakypint', 'peakygramophone', 'peakynewspaper', 'madmoldfashioned', 'madmtypewriter', 'madmrotary', 'madmashtray', 'madmrolodex', 'madmcigbox', 'madmcoffee', 'madmprojector', 'squiddalgona', 'squidtin', 'squidddakji', 'squidmarbles', 'squidnumber', 'squidbread', 'squidjar', 'squidmask', 'boysmilk', 'boyscoffee', 'boyscape', 'boysmic', 'boysstatuette', 'boyscomic', 'boysphone', 'boysenergy', 'falloutnuka', 'falloutpipboy', 'falloutbobblehead', 'falloutstimpak', 'falloutcaps', 'falloutlunchbox', 'falloutteddy', 'falloutradaway', 'rickportalgun', 'rickflask', 'rickplumbus', 'rickbutterbot', 'rickraygun', 'rickcrystal', 'rickhipflask', 'rickseed', 'mirrorphone', 'mirrorcookie', 'mirrorlens', 'mirrortablet', 'mirrorspeaker', 'mirrorvr', 'mirrorearpiece', 'mirrorcube', 'westhat', 'westrevolver', 'westwhiskey', 'westmazecoin', 'westtablet', 'westhand', 'westcards', 'westspur', 'bttffluxcap', 'bttfhoverboard', 'bttfmrfusion', 'bttfspeedo', 'bttfplutonium', 'bttfalmanac', 'bttfmilkshake', 'bttfwalkman', 'jpamber', 'jpdnavial', 'jpjeep', 'jpgoggles', 'jpraptoregg', 'jpcanister', 'jpflare', 'jptremorcup', 'wickcoin', 'wickmarker', 'wickwhiskey', 'wickphone', 'wickrose', 'wickdogbowl', 'wickcoinstack', 'wickcufflinks', 'kingsmanumbrella', 'kingsmanglasses', 'kingsmanoxford', 'kingsmansignet', 'kingsmanpen', 'kingsmanlighter', 'kingsmanwhisky', 'kingsmantape', 'wonkabar', 'wonkaticket', 'wonkagobstopper', 'wonkalollipop', 'wonkafizzy', 'wonkacane', 'wonkahat', 'wonkagum', 'wesbell', 'weskey', 'wescake', 'wesradio', 'wesphone', 'wesbook', 'wesbinoculars', 'wesperfume', 'mibneuralyzer', 'mibshades', 'mibbadge', 'mibbugjar', 'mibgalaxy', 'mibcoffee', 'mibalienplant', 'mibglobe', 'tronidentity', 'troncycle', 'tronbaton', 'tronenergy', 'tronchip', 'tronhelmet', 'troncube', 'troncoin', 'dbzdragonball', 'dbzcapsule', 'dbzsenzu', 'dbzscouter', 'dbzradar', 'dbztrophy', 'dbznoodles', 'dbzgifold', 'amonguscrewmate', 'amongusbutton', 'amongustaskpad', 'amonguswires', 'amongusfuel', 'amongusvisor', 'amongussnack', 'amongusscan', 'tokyoramen', 'tokyosake', 'tokyomaneki', 'tokyogacha', 'tokyobonsai', 'tokyosushi', 'tokyoteapot', 'tokyodaruma', 'egyptscroll', 'egyptcanopic', 'egyptbust', 'egyptscales', 'egyptgoldcat', 'egyptamulet', 'egyptincense', 'egyptsenet', 'vikingtankard', 'vikinghelm', 'vikingaxe', 'vikingrunecast', 'vikingmead', 'vikinglongship', 'vikingtorc', 'vikingfeast', 'aztecskull', 'aztecgoldidol', 'aztecobsidian', 'azteccacao', 'aztecpot', 'azteccalendar', 'aztecfeather', 'aztecmaize', 'obsglobe', 'obsdesktelescope', 'obsastrolabe', 'obsmeteorite', 'obsstarchart', 'obssaturn', 'obscompass', 'obsnotebook', 'tikicoconut', 'tikipineapple', 'tikiukulele', 'tikishell', 'tikilei', 'tikibananas', 'tikibottle', 'tikivolcano', 'dinermilkshake', 'dinerburger', 'dinerfries', 'dinercondiments', 'dinercoffee', 'dinerselector', 'dinernapkins', 'dinerdonut', 'courtgavel', 'courtscalesmini', 'courtlawbooks', 'courtinkwell', 'courtnameplate', 'courtcoffee', 'courtbadge', 'courtstamp', 'artpalettemini', 'artbrushes', 'artpaints', 'artcanvasmini', 'artclay', 'artpencils', 'artink', 'artwater', 'aquariumbowl', 'aquariumcoralmini', 'aquariumnautilus', 'aquariumdiver', 'aquariumanemone', 'aquariumseaglass', 'aquariumpearl', 'aquariumsub', 'circuspopcorn', 'circustophat', 'circusballoons', 'circuscotton', 'circuspins', 'circusticket', 'circusjackbox', 'circuscandy', 'museumglobe', 'museumskull', 'museummicroscope', 'museumammonite', 'museumjar', 'museummagnifier', 'museummeteorite', 'museumtrilo', 'northpolegift', 'northpolecocoa', 'northpolecookies', 'northpolesnowglobe', 'northpolesoldier', 'northpolebell', 'northpolecandycane', 'northpoletrain', 'soundstageclapper', 'soundstagemegaphone', 'soundstageaward', 'soundstagescript', 'soundstagespotlight', 'soundstagecamera', 'soundstagereelcan', 'soundstagecoffee', 'cultcandle', 'cultincense', 'cultbowl', 'cultcrystal', 'cultchalice', 'cultbell', 'cultpamphlet', 'cultflower', 'esportskeyboard', 'esportsheadset', 'esportsmouse', 'esportsenergy', 'esportscontroller', 'esportsfigure', 'esportstrophy', 'esportsmic', 'cavemanclub', 'cavemanbone', 'cavemanegg', 'cavemanflint', 'cavemanskull', 'cavemantablet', 'cavemancrystal', 'cavemanmeat', 'lodgecandelabra', 'lodgeseal', 'lodgescroll', 'lodgechalice', 'lodgegavel', 'lodgekey', 'lodgehourglass', 'lodgecompass', 'prepperrations', 'preppergasmask', 'prepperradio', 'prepperlantern', 'preppergeiger', 'prepperfirstaid', 'prepperjerrycan', 'preppermultitool', 'paradiseflagstand', 'paradisephone', 'paradisenameplate', 'paradisebigbutton', 'paradisefolders', 'paradiseintercom', 'paradiseeagle', 'paradiselamp', 'startrektricorder', 'startrekphaser', 'startrekpadd', 'startrekteacup', 'startrekmodel', 'startrekdilithium', 'startrekcombadge', 'startrekgauge', 'gentlemendecanter', 'gentlemencigars', 'gentlemenpipe', 'gentlemenbrick', 'gentlemenfoxmask', 'gentlemenledger', 'gentlemenseal', 'gentlemenshells', 'grokmug', 'grokrocket', 'grokorb', 'groktowel', 'grokplush', 'grokbotqueue', 'grokbotantenna', 'geodetumbler', 'geodespecimens', 'geodelamp', 'geodeuvlamp', 'geodehalf', 'geodecaliper', 'geodepan', 'geodehammer', 'none'],
     workspace: ['auto', ...ROOM_CHOICES.workspace],
   };
   /** The most a nickname can be, in characters, and the most projects a team remembers. */
@@ -5021,6 +5079,8 @@
     gentlemenhound: { speed: 28, stay: [5, 14] },
     gentlemenpheasant: { speed: 14, stay: [8, 22] },
     grokdrone: { speed: 22, stay: [10, 26], flies: true },
+    geodegolem: { speed: 9, stay: [12, 30] },
+    geodepangolin: { speed: 11, stay: [10, 24] },
   };
   /** The corgi's laps of the rug, once an agent has finished, in seconds; the snail's trail, how long it shines. */
   const ZOOMIES = 3.2;
@@ -5596,6 +5656,7 @@
         gentlemenbilliards: { x: 278, y: 70, depth: 88.5 },
         groklaunch: { x: 266, y: 50, depth: 88.5 },
         grokbotrack: { x: 273, y: 57, depth: 88.5 },
+        geodegrotto: { x: 280, y: 45, depth: 88.5 },
       };
       /** Beside the corner piece, where the cat likes to be: watching the fish, warm by the fire, on the dragon's gold. */
       const watches = {
@@ -5651,6 +5712,18 @@
       // Someone walking about that no other pet is following already
       const walker = this.people.find((p) => p.isWalking && !p.isLeaving && !this.pets.some((o) => o !== pet && o.target && o.target.follow === p));
       switch (pet.kind) {
+        case 'geodepangolin':
+          // Snuffling by the lounge's corner piece, curled up under the couch's end, by the plant, out in the corridor, or at the hardest worker's feet
+          places.push(placed('corner', { x: 254, y: 99, pose: 'sit' }), placed('couch', { x: 302, y: 141, pose: 'sleep' }),
+            placed('plant', { x: 243, y: 171, pose: 'sit' }), { x: CORRIDOR_X, y: 124, pose: 'sit' });
+          if (desk) places.push({ x: desk.x - 6, y: desk.y + 16, pose: 'sit' });
+          break;
+        case 'geodegolem':
+          // By the grotto's pool, under the couch's end, by the plant, out in the corridor, or at the hardest worker's feet
+          places.push(placed('corner', { x: 258, y: 99, pose: 'sit' }), placed('couch', { x: 300, y: 141, pose: 'sleep' }),
+            placed('plant', { x: 243, y: 171, pose: 'sit' }), { x: CORRIDOR_X, y: 132, pose: 'sit' });
+          if (desk) places.push({ x: desk.x - 6, y: desk.y + 16, pose: 'sit' });
+          break;
         case 'grokdrone':
           // The orb drone: over the busiest desk, on the lounge's pieces, by the couch, else hovering in the corridor
           for (const { part, kind } of loungePieces()) if (tops[kind]) places.push(placed(part, { ...tops[kind], pose: 'perch' }));
@@ -10052,6 +10125,7 @@
       else if (decor.door === 'startrekturbolift') drawStartrekturboliftDoor(open);
       else if (decor.door === 'gentlemenbookdoor') drawGentlemenbookdoorDoor(open);
       else if (decor.door === 'grokdoor') drawGrokdoorDoor(open);
+      else if (decor.door === 'geodedoor') drawGeodedoorDoor(open);
       else if (open) {
         fill(207, 15, 14, 25, PALETTE.doorway);
         fill(207, 15, 3, 25, PALETTE.door);
@@ -11821,6 +11895,40 @@
     }
 
     /**
+     * A mine door in the rock: heavy planks bound in iron in a rough arch of plum stones, an amethyst growing out of its
+     * keystone, a round window of violet glass and a brass ring for a handle. Open, a lantern glows far down the tunnel
+     * behind it; by night the window and the keystone's crystal glow.
+     */
+    function drawGeodedoorDoor(open) {
+      const stone = 0x4a3a5c, stoneLight = 0x6a5684, stoneDark = 0x241830, wood = 0x5a3b25, woodLight = 0x7a5434, woodDark = 0x3a2416;
+      const iron = 0x3a3640, ironLight = 0x6a6672;
+      // The arch: rough stones round the frame, a keystone at its top with a crystal growing out of it
+      fill(205, 13, 18, 27, stoneDark);
+      for (const [sx, sy, w, h] of [[205, 16, 2, 7], [205, 24, 2, 6], [205, 31, 2, 9], [221, 15, 2, 6], [221, 22, 2, 8], [221, 31, 2, 9], [205, 13, 5, 3], [217, 13, 6, 2], [210, 12, 7, 3]]) {
+        fill(sx, sy, w, h, stone); fill(sx, sy, w, 1, stoneLight); fill(sx, sy + h - 1, w, 1, shaded(stone, 0.75));
+      }
+      gdPoint(211, 12, 3, 2, GD_AMETHYST[2], -1, -0.35); gdPoint(213, 12, 5, 2, GD_AMETHYST[1], -1); gdPoint(215, 12, 3, 2, GD_AMETHYST[0], -1, 0.35);
+      if (open) {
+        // Far down the tunnel, a lantern; the door swung in, edge on
+        const f = candlelight(9);
+        fill(207, 15, 14, 25, PALETTE.doorway);
+        fill(212, 22, 5, 11, 0x161018); dot(215, 27, 0xffd080, 0.6 + 0.3 * f); glowAt(215, 27, 4, 3, 0xffc060, 0.16 * f);
+        fill(207, 15, 3, 25, wood); fill(207, 15, 1, 25, woodLight); fill(209, 15, 1, 25, woodDark);
+        if (isNight) glowLate(() => { glowAt(215, 27, 5, 4, 0xffc060, 0.25 * f); dot(215, 27, 0xffe0a0); dot(213, 9, 0xeee0ff); });
+        return;
+      }
+      // The planks, two iron straps riveted across them
+      fill(207, 15, 14, 25, wood); fill(207, 15, 1, 25, woodLight); fill(207, 15, 14, 1, woodLight);
+      for (const px of [210, 213, 216, 219]) fill(px, 16, 1, 24, woodDark);
+      for (const sy of [18, 34]) { fill(207, sy, 14, 2, iron); fill(207, sy, 14, 1, ironLight); for (let k = 0; k < 4; k++) dot(208 + k * 4, sy + 1, 0x9a96a2); }
+      // The round window, violet glass with a glint; the ring handle
+      disc(214, 25, 2.8, iron); disc(214, 25, 2.1, 0x5a3a96); dot(213, 24, 0xd8c4f8); dot(215, 26, 0x3a2266);
+      ring(218, 29, 1.5, 0xc8a050); dot(218, 28, 0xf0d080);
+      glowAt(214, 25, 3, 3, 0xa070f0, isNight ? 0.12 : 0.05);
+      if (isNight) glowLate(() => { glowAt(214, 25, 4, 4, 0xa070f0, 0.3); dot(213, 24, 0xeee0ff); dot(213, 8, 0xeee0ff); glowAt(213, 9, 3, 3, 0xa070f0, 0.2); });
+    }
+
+    /**
      * The haunted door: weathered boards in plum-grey, a wreath of dead leaves, a cobweb in the frame's corner and a
      * slot under the wreath where yellow eyes look out now and then (more often at night). Every so often it creaks open
      * a crack on its own, the dark showing at its edge, and swings shut again. Open while someone passes, as any door is.
@@ -12110,6 +12218,100 @@
      * does on paint.
      */
     const WALL_FINISHES = {
+      /**
+       * Citrine crystal wall. Smoky brown rock flecked with gold under a rind banded in honey and cream, pockets in it lined
+       * with golden points, and clusters of them along under the ledge; a point glints now and then, and by night the
+       * pockets glow warm and the points' tips shine.
+       */
+      geodecitrine(L, R) {
+        const w = R - L, rock = 0x3a2a1e, rockLight = 0x4a3826, rockDark = 0x261a12;
+        fill(L, 0, w, 40, rock);
+        for (let x = from(L, 7, 2); x < R; x += 7) { const h = hash(x, 13); fill(x, 9 + (h % 17), 3 + (h % 4), 1, (h >>> 3) % 2 ? rockLight : rockDark); }
+        for (let x = from(L, 3); x < R; x += 3) { const h = hash(x, 15); if (h % 5 === 0) dot(x, 8 + ((h >>> 4) % 20), 0x6a4a28, 0.6); }
+        // The rind along the top, banded honey and cream
+        for (let x = from(L, 4); x < R; x += 4) {
+          const d = Math.round(Math.sin(x * 0.05) * 1.4 + Math.sin(x * 0.17) * 0.6);
+          fill(x, 0, 4, 3 + d, 0x24180e); fill(x, 3 + d, 4, 1, 0x8a6a3a); fill(x, 4 + d, 4, 1, 0xe8d8b0); fill(x, 5 + d, 4, 1, 0xa87a30);
+        }
+        // Pockets in the rock, a rind round each, lined with golden points growing up and hanging down
+        const tips = [], pockets = [];
+        for (let x = from(L, 33, 9); x < R; x += 33) {
+          const h = hash(x, 23), px = x + (h % 11), py = 15 + ((h >>> 5) % 7);
+          // The hollow, oval, its rind round it, lit along its top
+          for (let r = -4; r <= 4; r++) { const h = Math.round(7 * Math.sqrt(Math.max(0, 1 - (r / 4.6) ** 2))); fill(px - h, py + r, h * 2 + 1, 1, r < -2 ? 0x6a4a28 : 0x4a3420); }
+          for (let r = -3; r <= 3; r++) { const h = Math.round(5.6 * Math.sqrt(Math.max(0, 1 - (r / 3.6) ** 2))); fill(px - h, py + r, h * 2 + 1, 1, 0x1e140a); }
+          for (let dx = -4; dx <= 4; dx++) dot(px + dx, py - 4 + (Math.abs(dx) > 2 ? 1 : 0), 0xc8a050, 0.55);
+          for (const [dx, hh, lean, i] of [[-4, 3, -0.35, 0], [-2, 5, -0.15, 1], [0, 6, 0, 2], [2, 5, 0.15, 0], [4, 3, 0.35, 1]]) {
+            gdPoint(px + dx, py + 3, hh, 2, GD_CITRINE[i], -1, lean); tips.push([px + dx + Math.round((hh - 1) * lean) + 1, py + 4 - hh]);
+          }
+          for (const [dx, hh, i] of [[-3, 2, 2], [1, 3, 0], [3, 2, 1]]) gdPoint(px + dx, py - 3, hh, 1, GD_CITRINE[i], 1);
+          pockets.push([px, py]);
+        }
+        // Gold flecks in the rock
+        for (let x = from(L, 4, 1); x < R; x += 4) { const h = hash(x, 27); if (h % 7 === 0) dot(x, 8 + ((h >>> 4) % 20), 0xc89a3a, 0.7); }
+        // The ledge at the rail, and clusters of golden points along under it
+        fill(L, 29, w, 2, rockLight); fill(L, 29, w, 1, 0x6a4a28); fill(L, 31, w, 7, rockDark);
+        for (let x = from(L, 13, 4); x < R; x += 13) {
+          const h = hash(x, 31), big = h % 3 === 0;
+          for (const [dx, hh, lean] of [[-3, 2 + (h % 2), -0.3], [-1, big ? 6 : 4, -0.05], [1, big ? 4 : 3, 0.25]]) gdPoint(x + dx, 37, hh, 2, GD_CITRINE[(h >>> 4) % 3], -1, lean);
+          if (big) tips.push([x, 32]);
+        }
+        fill(L, 38, w, 2, 0x1a120c);
+        gdTwinkle(tips, 1.7, 19);
+        if (isNight) glowLate(() => {
+          for (const [px, py] of pockets) glowAt(px, py + 1, 9, 7, 0xf0b040, 0.14);
+          for (let x = from(L, 26, 7); x < R; x += 26) glowAt(x, 34, 10, 3, 0xf0b040, 0.08);
+          for (const [tx, ty] of tips) dot(tx, ty, 0xfff0b0, 0.85);
+        });
+      },
+      /**
+       * Amethyst geode wall. The inside of a split geode: its banded rind along the top, violet crystals hanging
+       * from it in clusters like chandeliers and a crystal bed growing up under the ledge, dark plum rock between with a druzy
+       * sparkle; a point glints now and then, and by night the crystals' tips glow.
+       */
+      geodewall(L, R) {
+        const w = R - L, rock = 0x2a1a3a, rockLight = 0x36244c, rockDark = 0x1a1026;
+        const wave = (x) => Math.round(Math.sin(x * 0.045) * 1.5 + Math.sin(x * 0.13) * 0.7);
+        const near = (x, step, off) => { const c = from(x, step, off) + step / 2; return 1 - Math.min(1, Math.abs(x - c) / (step / 2)); };
+        fill(L, 0, w, 40, rock);
+        for (let x = from(L, 9, 3); x < R; x += 9) { const h = hash(x, 11); fill(x, 12 + (h % 11), 4 + (h % 5), 2, (h >>> 3) % 2 ? rockLight : rockDark); }
+        for (let x = from(L, 3); x < R; x += 3) { const h = hash(x, 5); if (h % 4 === 0) dot(x, 10 + ((h >>> 4) % 18), 0x6a4c98, 0.55); }
+        // The rind, banded as a cut geode's edge is
+        for (let x = from(L, 4), e; x < R; x = e) {
+          const d = wave(x); e = x + 4; while (e < R && wave(e) === d) e += 4;
+          fill(x, 0, e - x, 3 + d, 0x342824); fill(x, 3 + d, e - x, 1, 0x5e5666); fill(x, 4 + d, e - x, 1, 0xa8a0bc); fill(x, 5 + d, e - x, 1, 0x6e5e90);
+        }
+        // Crystals hanging from it, longest in the middle of each cluster
+        const tips = [], bright = [];
+        for (let x = from(L, 4, 1); x < R; x += 4) {
+          const h = hash(x, 3), n = near(x, 29, 11), len = 3 + (h % 3) + Math.round(n * n * 10), d = wave(x);
+          if (n < 0.3 && (x >> 2) % 2) continue;
+          gdPoint(x + ((h >>> 9) % 2), 6 + d, len, n > 0.45 ? 3 : 2, GD_AMETHYST[(h >>> 7) % 3], 1);
+          if (n > 0.5) { tips.push([x + 1, 6 + d + len - 3]); bright.push([x + 1 + ((h >>> 9) % 2), 6 + d + len - 1]); }
+        }
+        // The ledge at the rail, and the crystal bed under it, its clusters between the hanging ones
+        fill(L, 29, w, 2, rockLight); fill(L, 29, w, 1, 0x4e3a70); fill(L, 31, w, 7, rockDark);
+        for (let x = from(L, 4, 3); x < R; x += 4) {
+          const h = hash(x, 7), n = near(x, 29, 25), len = 2 + (h % 3) + Math.round(n * n * 5);
+          if (n < 0.3 && (x >> 2) % 2) continue;
+          gdPoint(x, 37, len, n > 0.5 ? 3 : 2, GD_AMETHYST[(h >>> 6) % 3], -1);
+          if (n > 0.6) { tips.push([x + 1, 38 - len + 1]); bright.push([x + 1, 37 - len + 1]); }
+        }
+        fill(L, 38, w, 2, 0x140a1e);
+        gdTwinkle(tips, 1.4, 11); gdTwinkle(tips, 2.3, 23);
+        if (isNight) {
+          // The bed's glow and its bright tips in the wall itself, so the lift, the door and the counter stand in front of them
+          for (let x = from(L, 29, 11) + 28; x < R + 8; x += 29) { gdGlow(x, 33, 9, 5, 0xa070f0, 0.42); gdGlow(x, 32, 4, 3, 0xc8a8ff, 0.3); }
+          for (const [bx, by] of bright) if (by >= 26) { fill(bx - 1, by, 3, 1, 0xc8a8ff, 0.7); fill(bx, by - 1, 1, 3, 0xc8a8ff, 0.7); dot(bx, by, 0xf4ecff); }
+          // The hanging points' glows, over the night's dark, but never on the lift or the door, whose tops reach up among them
+          const liftL = ELEVATOR.x - 1, liftR = ELEVATOR.x + ELEVATOR.w + 1, doorL = DOOR_FRAME.left + shiftsOf().door, doorR = DOOR_FRAME.right + shiftsOf().door + 1;
+          const clear = [[L, 0, R - L, 12], [L, 12, liftL - L, 14], [liftR, 12, doorL - liftR, 14], [doorR, 12, R - doorR, 14]].filter(([, , w]) => w > 0);
+          glowLate(() => within(clear, () => {
+            for (let x = from(L, 29, 11) + 14; x < R; x += 29) gdGlow(x, 12, 9, 7, 0xa070f0, 0.24);
+            for (const [bx, by] of bright) if (by < 26) { fill(bx - 1, by, 3, 1, 0xc8a8ff, 0.45); dot(bx, by, 0xe0ccff, 0.85); }
+          }));
+        }
+      },
       /** Cloud-room panels. Dark steel-blue panels with hairline seams, each with a little status light, over a near-black wainscot and an ion-blue rail. */
       grokbotwall(L, R) {
         const w = R - L, wall = 0x22252c, seam = 0x1a1c22, sheen = 0x2a2d35;
@@ -13236,6 +13438,15 @@
 
     /** What moves on a floor, over it as it's kept: where the snow glints, each `h` setting when, from `L`, `T` to `R`, `B`. */
     const FLOOR_GLINTS = {
+      /** The Geode's slate: a few of its amethyst flecks catch the light. */
+      geodefloor(L, T, R, B) {
+        const glints = [];
+        for (let y = T + 12, r = 0; y < B; y += 17, r++) for (let x = from(L, 41, (r % 2) * 20); x < R; x += 41) {
+          const h = hash(x, y + 3), gx = x + (h % 34), gy = y + ((h >>> 6) % 11);
+          if ((h >>> 11) % 3 === 0) glints.push({ x: gx, y: gy, h });
+        }
+        return glints;
+      },
       snow(L, T, R, B) {
         const glints = [];
         for (let y = T, r = 0; y < B; y += 6, r++) for (let x = from(L, 14, (r % 2) * 7); x < R; x += 14) {
@@ -13248,6 +13459,30 @@
 
     /** What drifts over a floor each frame, over it as it's kept, from `L`, `T` to `R`, `B`: the haunted court's fog, thicker at night. */
     const FLOOR_AIRS = {
+      /** The Geode's line: every 50 s a cart of gems rolls in to the vault (to the nearest stretch of line no desk hides, see gdParkAt), waits while it opens and hands its gems up into it, and rolls back out empty (see gdDelivery). */
+      geodefloor(L, T, R, B) {
+        // By night the wall's crystals light the floor at its foot (under the desks and the lift), and the crystal clusters
+        // at the floor's edges glow, their tallest points' tips lit
+        if (isNight) for (let x = from(L, 58, 25); x < R; x += 58) gdGlow(x, 44, 30, 5, 0x8a5ad8, 0.14);
+        if (isNight) glowLate(() => { for (const [fx, fy] of gdFloorClusters(L, T, R, B)) { gdGlow(fx, fy - 4, 6, 5, 0xa070f0, 0.22); dot(fx, fy - 6, 0xeee0ff); } });
+        // No vault on the back wall (put away, or this floor under another style): no delivery
+        if (gdVaultX === null) return;
+        const vx = gdVaultX, stop = gdParkAt(vx), d = gdDelivery(vx, L, stop);
+        if (d.cart === null) return;
+        gdCart(d.cart, 42, GD_CART, GD_GEMS, d.load);
+        if (isNight && d.load) glowLate(() => glowAt(d.cart + 7, 37, 8, 4, 0xa080e0, 0.16));
+        // The hand-over: while the vault stands open, the gems arc one after another from the cart into its mouth
+        if (d.hand === null) return;
+        const trail = () => {
+          for (let i = 0; i < 9; i++) {
+            const p = (d.hand - i * 0.22) / 0.8;
+            if (p <= 0 || p >= 1) continue;
+            const gx = Math.round(stop + 7 + (vx - stop - 7) * p), gy = Math.round(35 - 11 * p - Math.sin(p * Math.PI) * 9);
+            const c = GD_JEWELS[i % GD_JEWELS.length]; fill(gx, gy, 2, 2, c); dot(gx, gy, shaded(c, 1.45)); dot(gx + 1, gy + 1, shaded(c, 0.7));
+          }
+        };
+        if (isNight) glowLate(trail); else trail();
+      },
       hauntedcourt(L, T, R, B) {
         const w = R - L + 40, h = B - T - 10, count = Math.min(10, Math.max(3, Math.round(((R - L) * (B - T)) / 3000)));
         for (let k = 0; k < count; k++) {
@@ -15251,6 +15486,61 @@
           }
         }
       },
+      /**
+       * Slate with amethyst flecks. Dark plum-grey slate in long uneven slabs, a few violet crystal flecks in it,
+       * darker towards the walls, and along the back of the floor the brass mine-cart line to the vault.
+       */
+      geodefloor(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0x28222e);
+        for (let y = T, r = 0; y < B; y += 11, r++) {
+          for (let x = -140 - (r % 3) * 9; x < R; ) {
+            const h = hash(x, y), len = 18 + (h % 17), c = [0x2d2734, 0x29232f, 0x25202a][(h >>> 4) % 3];
+            fill(x, y, len, 11, c); fill(x, y, len, 1, shaded(c, 1.14)); fill(x, y + 1, 1, 10, 0x1d1922);
+            x += len;
+          }
+        }
+        for (let y = T + 2; y < B; y += 3) for (let x = from(L, 4, (y * 3) % 4); x < R; x += 4) {
+          const h = hash(x, y);
+          if (h % 29 === 0) { dot(x, y, 0x5a3e88); if ((h >>> 5) % 3 === 0) dot(x + 1, y, 0x7a5ab0); }
+        }
+        // The cave's dark: against the wall, and towards the sides and the front
+        fill(L, T, R - L, 9, BLACK, 0.18); fill(L, T + 9, R - L, 6, BLACK, 0.08);
+        for (let k = 0; k < 4; k++) { fill(L, T, 6 + k * 6, B - T, BLACK, 0.06); fill(R - 6 - k * 6, T, 6 + k * 6, B - T, BLACK, 0.06); fill(L, B - 6 - k * 6, R - L, 6 + k * 6, BLACK, 0.05); }
+        // Little crystal clusters and rubble at the floor's edges, out of everyone's way (they glow by night: see FLOOR_AIRS)
+        for (const [fx, fy, k] of gdFloorClusters(L, T, R, B)) {
+          for (const [dx, h, w, lean] of [[-4, 4, 2, -0.4], [-1, 7, 3, -0.1], [2, 5, 2, 0.35]]) gdPoint(fx + dx, fy, h, w, GD_AMETHYST[(k + dx + 4) % 3], -1, lean);
+          fill(fx - 5, fy + 1, 10, 1, SHADOW); dot(fx - 7, fy, 0x4a4050); dot(fx + 5, fy + 1, 0x4a4050); dot(fx + 7, fy - 1, 0x3a3444);
+        }
+        gdRails(L, R, 42, GD_LINE);
+      },
+      /**
+       * Agate-slice paving. The cave's polished floor: big slices of agate laid as flagstones in dark grout, each cut through
+       * its bands, plum and grey close in tone with one pale line, round an off-centre heart, one slice in four with a little
+       * heart of violet crystal; darker towards the walls.
+       */
+      geodeagate(L, T, R, B) {
+        fill(L, T, R - L, B - T, 0x161018);
+        const oval = (cx, cy, rx, ry, c) => {
+          for (let r = -Math.floor(ry); r <= Math.floor(ry); r++) { const h = Math.round(rx * Math.sqrt(Math.max(0, 1 - (r / (ry + 0.5)) ** 2))); fill(cx - h, cy + r, h * 2 + 1, 1, c); }
+        };
+        const BANDS = [[0x2a2232, 0x2f2638, 0x2b2334, 0x332a3e, 0x2e2538], [0x29242e, 0x2e2934, 0x2a2530, 0x322c3a, 0x2c2732], [0x2c2230, 0x322636, 0x2e2332, 0x372a3c, 0x302535]];
+        for (let y = T, r = 0; y < B; y += 23, r++) {
+          for (let x = from(L, 35, (r % 2) * 17); x < R; x += 35) {
+            const h = hash(x, y), pal = BANDS[(h >>> 3) % BANDS.length], cx = x + 9 + (h % 17), cy = y + 6 + ((h >>> 5) % 10);
+            within([[x, y, 34, 22]], () => {
+              fill(x, y, 34, 22, pal[0]);
+              for (let k = 1; k < pal.length; k++) { const rx = 30 - k * 5.5; oval(cx, cy, rx, rx * 0.6, pal[k]); }
+              // A pale line through the bands, and in one slice in four a little heart of violet crystal
+              const pale = 30 - (1 + ((h >>> 9) % 3)) * 5.5 + 2.7;
+              for (let a = 0; a < Math.PI * 2; a += 0.07) dot(cx + Math.round(Math.cos(a) * pale), cy + Math.round(Math.sin(a) * pale * 0.6), 0x5a4c6a, 0.4);
+              if ((h >>> 13) % 4 === 0) { oval(cx, cy, 2, 1, 0x3a2a52); dot(cx - 1, cy, 0x7a52b8); dot(cx + 1, cy, 0x9a78d8); dot(cx, cy - 1, 0x6a44a8); }
+              fill(x, y, 34, 1, WHITE, 0.04); fill(x, y + 21, 34, 1, BLACK, 0.12);
+            });
+          }
+        }
+        // The cave's dark against the walls
+        fill(L, T, R - L, 8, BLACK, 0.18); for (let k = 0; k < 3; k++) fill(R - 6 - k * 6, T, 6 + k * 6, B - T, BLACK, 0.06);
+      },
     };
 
     /** The lounge's wall: the office's, one room from end to end. A style's or an old room's own `loungePaint` is kept, unread. */
@@ -17055,6 +17345,35 @@
     }
 
     /**
+     * A prism's rainbow: every 24 s or so a shaft of light finds its way down through a crack in the cave's roof onto one of
+     * the crystals at the top of the wall, which sparkles and throws a rainbow down onto the floor; the rainbow slides
+     * slowly across, a few motes glinting in it, and fades.
+     */
+    function drawGeodeprismDrift() {
+      const period = 24, n = Math.floor(now / period), t = now - n * period;
+      if (t > 7) return;
+      const k = Math.sin((t / 7) * Math.PI) * (isNight ? 0.75 : 1);
+      const ox = Math.round(seen.left + 30 + (hash(n, 61) % Math.max(1, Math.round(seen.width - 60)))), oy = 14;
+      // The shaft from the crack in the roof to the crystal, and the crystal sparkling
+      for (const dx of [0, 1]) line(ox + 9 + dx, seen.top, ox + dx, oy, 0xfffae8, 0.22 * k);
+      gdSparkle(ox, oy, 0.5, WHITE);
+      dot(ox, oy, WHITE, k);
+      // The rainbow, from the crystal down onto the floor, sliding slowly across as it goes
+      const colours = [0xff5a5a, 0xffa040, 0xffe058, 0x6ae070, 0x58a8ff, 0xa878ff];
+      const lx = ox - 24 + Math.round(t * 7), ly = Math.round(Math.min(seen.top + seen.height * 0.6, oy + 100));
+      colours.forEach((c, i) => {
+        const ex = lx + i * 3;
+        line(ox, oy + 1, ex, ly, c, 0.18 * k); line(ox + 1, oy + 1, ex + 1, ly, c, 0.12 * k);
+        glowAt(ex + 1, ly, 3, 2, c, 0.3 * k); fill(ex, ly - 1, 3, 2, c, 0.22 * k);
+      });
+      // Motes glinting in it
+      for (let m = 0; m < 4; m++) {
+        const f = ((t * 0.35 + m * 0.27) % 1), mx = Math.round(ox + (lx + 8 - ox) * f), my = Math.round(oy + (ly - oy) * f);
+        if ((Math.floor(now * 5) + m) % 3 === 0) dot(mx + ((m * 5) % 7) - 3, my, WHITE, 0.8 * k);
+      }
+    }
+
+    /**
      * Now and then, a short soft burst or two of confetti high in the room, the long turn's own bits, spreading and
      * drifting down as they fade. Most of the time, nothing.
      */
@@ -17481,6 +17800,241 @@
       for (let k = 0; k < 8; k++) { const a = turn + (k / 8) * Math.PI * 2; dot(cx + Math.round(Math.cos(a) * (r - 1)), cy + Math.round(Math.sin(a) * (r - 1)), M2_SPELL_LIGHT, alpha); }
       for (let k = 0; k < 4; k++) { const a = -turn * 2 + k * 1.7, d = r + 1 + (Math.floor(now * 8) + k) % 2; dot(cx + Math.round(Math.cos(a) * d), cy + Math.round(Math.sin(a) * d), M2_SPELL_LIGHT, 0.8 * alpha); }
     }
+
+    /* The Geode (geode): the Grok bots' floor inside a giant split-open geode; amethyst, gold and plum rock, and a vault door for its hero */
+    /** Amethyst in three tones, each [dark, body, light, tip]; citrine, the same. */
+    const GD_AMETHYST = [[0x4a2a78, 0x6a44a8, 0x9a78d8, 0xd8c4f8], [0x5a3a8a, 0x7a52b8, 0xb090e8, 0xeee0ff], [0x3a2266, 0x5a3a96, 0x8a6ac8, 0xc8b0f0]];
+    const GD_CITRINE = [[0x8a5a10, 0xd09a2a, 0xf0c050, 0xfff0b0], [0x9a6a18, 0xe0aa3a, 0xf8d070, 0xfff4c8], [0x7a4a0a, 0xc08a20, 0xe8b848, 0xffe8a0]];
+    /**
+     * A crystal point from its base at `x`, `y`, `h` tall and `w` wide, growing up (`dir` -1) or hanging down (1), leaning
+     * `lean` across a row: from `pal` [dark, body, light, tip], a lit left face, its body, a dark right face, narrowing to its tip.
+     */
+    function gdPoint(x, y, h, w, pal, dir = -1, lean = 0, glint = 0) {
+      const [dark, body, light, tip] = pal, narrow = w > 2 ? w - 2 : w, nx = (w - narrow) >> 1;
+      if (!lean) {
+        const len = Math.max(0, h - 2), start = dir < 0 ? y - len + 1 : y;
+        if (w === 2 && h > 1) {
+          // Two wide, its narrowing row is the body's own last row: one fill each for the body, its lit side and its shaded side
+          const top = dir < 0 ? y - h + 2 : y;
+          fill(x, top, 2, h - 1, body); fill(x, top, 1, h - 1, light); if (len) fill(x + 1, dir < 0 ? top + 1 : top, 1, len, dark);
+        } else {
+          if (len) { fill(x, start, w, len, body); if (w > 1) { fill(x, start, 1, len, light); fill(x + w - 1, start, 1, len, dark); } }
+          if (h > 1) { const ny = y + dir * (h - 2); fill(x + nx, ny, narrow, 1, narrow > 1 ? body : light); if (narrow > 1) dot(x + nx, ny, light); }
+        }
+        dot(x + (w >> 1), y + dir * (h - 1), tip);
+      } else {
+        for (let k = 0, n; k < h; k += n) {
+          const yy = y + dir * k, xx = x + Math.round(k * lean), left = h - 1 - k;
+          if (!left) { dot(xx + (w >> 1), yy, tip); break; }
+          const ww = left === 1 ? narrow : w, ox2 = left === 1 ? nx : 0;
+          // The rows that stand straight over each other, in one go
+          n = 1; if (left > 1) while (k + n < h - 2 && Math.round((k + n) * lean) === xx - x) n++;
+          const top = dir < 0 ? yy - n + 1 : yy;
+          fill(xx + ox2, top, ww, n, body);
+          if (ww > 1) { fill(xx + ox2, top, 1, n, light); fill(xx + ox2 + ww - 1, top, 1, n, dark); }
+        }
+      }
+      if (glint) dot(x + Math.round(Math.max(0, h - 3) * lean), y + dir * Math.max(0, h - 3), WHITE, glint);
+    }
+    /** A round thing of radius `r`, filled, as disc draws it: its rows of one width in one go, the same pixels in fewer calls. */
+    function gdDisc(cx, cy, r, color, alpha = 1) {
+      const top = Math.floor(r);
+      for (let row = -top, n; row <= top; row += n) {
+        const half = Math.floor(Math.sqrt(r * r - row * row));
+        n = 1; while (row + n <= top && Math.floor(Math.sqrt(r * r - (row + n) * (row + n))) === half) n++;
+        fill(cx - half, cy + row, half * 2 + 1, n, color, alpha);
+      }
+    }
+    /** The Geode's night glows: glowAt's soft oval of `colour` round `cx`, `cy`, in one pass of rows two pixels tall, a quarter of its work. */
+    function gdGlow(cx, cy, rx, ry, colour, alpha) {
+      for (let row = -Math.floor(ry); row <= Math.floor(ry); row += 2) {
+        const half = Math.round(rx * Math.sqrt(Math.max(0, 1 - ((row + 0.5) / (ry + 0.5)) ** 2)));
+        fill(cx - half, cy + row, half * 2 + 1, 2, colour, alpha * 0.85);
+      }
+    }
+    /** A sparkle at `x`, `y`, `k` from 0 to 1 through its life: a white point, a cross of light round it at its brightest. */
+    function gdSparkle(x, y, k, colour = WHITE) {
+      const a = Math.sin(Math.min(1, Math.max(0, k)) * Math.PI);
+      dot(x, y, colour, a);
+      if (a > 0.45) for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) dot(x + dx, y + dy, colour, a * 0.55);
+    }
+    /** Now and then one of `spots` ([x, y] each) sparkles: a new one every `every` seconds, for 0.45 s. */
+    function gdTwinkle(spots, every, salt) {
+      if (!spots.length) return;
+      const n = Math.floor(now / every), t = now - n * every;
+      if (t < 0.45) { const [sx, sy] = spots[hash(n, salt) % spots.length]; gdSparkle(sx, sy, t / 0.45); }
+    }
+    /** A mine-cart line along the floor from `l` to `r`, its far rail at `y` and its near one at `y` + 4, on sleepers every 5. `m` its materials. */
+    function gdRails(l, r, y, m) {
+      for (let x = from(l, 6, 1); x < r; x += 6) { fill(x, y - 1, 3, 7, m.sleeper); fill(x, y - 1, 3, 1, m.sleeperLight); fill(x, y + 6, 3, 1, SHADOW); }
+      for (const ry of [y, y + 4]) { fill(l, ry, r - l, 1, m.rail); fill(l, ry + 1, r - l, 1, m.railDark); }
+      for (let x = from(l, 23, 7); x < r; x += 23) { dot(x, y, m.railLight); dot(x + 9, y + 4, m.railLight); }
+    }
+    /**
+     * A mine cart on a line whose far rail is at `y`, its left at `x`: two wheels on the near rail, the tub over them (wider
+     * at the top, banded and riveted) and, as full as `load` (0 to 1), a heap of gems in the bots' colours.
+     */
+    function gdCart(x, y, m, gems, load = 1) {
+      fill(x + 1, y + 6, 13, 1, SHADOW);
+      for (const wx of [x + 2, x + 9]) { fill(wx, y + 3, 3, 3, m.wheel); dot(wx + 1, y + 4, m.hub); }
+      for (let r = 0; r < 7; r++) fill(x + (r > 4 ? 1 : 0), y - 4 + r, 14 - (r > 4 ? 2 : 0), 1, r === 0 ? m.rim : r === 6 ? m.tubDark : m.tub);
+      fill(x, y - 4, 1, 6, m.tubLight); fill(x + 13, y - 4, 1, 6, m.tubDark);
+      for (const rx of [x + 4, x + 9]) fill(rx, y - 3, 1, 6, m.band);
+      for (const [dx, dy] of [[2, -2], [11, -2], [2, 1], [11, 1]]) dot(x + dx, y + dy, m.rivet);
+      const rows = load > 0.66 ? 3 : load > 0.33 ? 2 : load > 0 ? 1 : 0;
+      [[1, -5, 12], [3, -6, 8], [5, -7, 4]].slice(0, rows).forEach(([dx, dy, w], row) => { for (let k = 0; k < w; k++) dot(x + dx + k, y + dy, gems[(k * 3 + row * 5) % gems.length]); });
+      if (rows === 3) { dot(x + 6, y - 7, WHITE, 0.8); dot(x + 10, y - 5, WHITE, 0.6); }
+    }
+    /**
+     * The gem delivery, now: a cart rolls in from the left along the back of the floor to the vault at `vx`, the vault lights
+     * its sockets one by one, draws its bolts and opens, the gems go in, it shuts, and the cart rolls back out empty; every
+     * 50 s. `cart` is the cart's left (null while it's away), `load` how full it is, `lit` the sockets lit, `shut` the bolts
+     * (1 home), `open` how far the vault's halves have parted, `hand` how long its gems have been going up into it (null
+     * when they aren't). The cart stops at `stop` (see gdParkAt), at the vault's foot if it isn't given. In a calm office
+     * the cart waits there, loaded, the vault shut.
+     */
+    function gdDelivery(vx, left, stop = vx - 7) {
+      const away = left - 16;
+      if (isCalm()) return { cart: stop, load: 1, lit: 0, shut: 1, open: 0, wide: 0, hand: null };
+      const t = now % 50, along = (k) => Math.round(away + (stop - away) * k);
+      if (t < 6) return { cart: along(t / 6), load: 1, lit: 0, shut: 1, open: 0, wide: 0, hand: null };
+      if (t < 15) {
+        const u = t - 6;
+        return {
+          cart: stop, load: u < 5 ? 1 : u < 7 ? 1 - (u - 5) / 2 : 0, lit: u < 9 ? Math.min(11, Math.floor(u / 0.25) + 1) : 0,
+          shut: u < 3 ? 1 : u < 4 ? 1 - (u - 3) : u < 8 ? 0 : Math.min(1, u - 8),
+          open: u >= 4 && u < 8 ? Math.max(0, Math.min(3, Math.floor((u - 4) * 4)) - Math.max(0, Math.floor((u - 7.25) * 4))) : 0,
+          wide: u < 4 ? 0 : u < 5 ? u - 4 : u < 7 ? 1 : u < 8 ? 8 - u : 0,
+          hand: u >= 4.8 && u < 7.4 ? u - 4.8 : null,
+        };
+      }
+      if (t < 21) return { cart: along(1 - (t - 15) / 6), load: 0, lit: 0, shut: 1, open: 0, wide: 0, hand: null };
+      return { cart: null, load: 0, lit: 0, shut: 1, open: 0, wide: 0, hand: null };
+    }
+    /**
+     * Where the gem cart stops for the vault at `vx`: the nearest stretch of the line, either side of it, that no desk by
+     * the back wall stands in front of, wherever the desks are arranged, so the gems can be seen going in; at the vault's
+     * foot if there's none within reach.
+     */
+    function gdParkAt(vx) {
+      const hidden = (l, r) => DESKS.some((desk) => !desk.off && desk.y < 80 && l < desk.x + 47 && r > desk.x - 2);
+      for (let d = 0; d < 90; d++) for (const stop of [vx - 7 - d, vx - 7 + d]) if (stop >= seen.left && !hidden(stop - 1, stop + 15)) return stop;
+      return vx - 7;
+    }
+    /** The crystal clusters along the Geode floor's edges, [x, y, tone] each, from `L`, `T` to `R`, `B`; four more in the lower part of a tall floor, between what stands in its lounge. */
+    const gdFloorClusters = (L, T, R, B) => [[L + 5, T + 52, 0], [L + 9, B - 16, 1], [R - 9, T + 70, 2], [R - 14, B - 12, 0], [L + 70, B - 5, 2], [R - 70, B - 4, 1],
+      ...(B - T > 260 ? [[0.45, 0.7, 1], [0.72, 0.79, 2], [0.27, 0.86, 0], [0.6, 0.66, 2]].map(([fx, fy, k]) => [L + Math.round((R - L) * fx), T + Math.round((B - T) * fy), k]) : [])];
+    /** The line and its cart: brass rails on dark sleepers, an iron cart banded in brass; the gems it carries, the bots' colours. */
+    const GD_LINE = { sleeper: 0x4a3428, sleeperLight: 0x6e5038, rail: 0xb08a48, railLight: 0xf0d890, railDark: 0x4a3418 };
+    const GD_CART = { wheel: 0x2a2228, hub: 0xc8a050, tub: 0x4a4250, tubLight: 0x6a6272, tubDark: 0x2e2834, rim: 0x8a8296, band: 0xc8a050, rivet: 0xe8c878 };
+    const GD_GEMS = [0xd02040, 0x9a78d8, 0x2a4ac8, 0xe8962a, 0x4aa86a, 0xf0c040, 0xf2f0ea, 0x7a52b8, 0x3ab8c8];
+    /** The eleven bots' gems, in the vaults' sockets: Ruby, Opal, Sapphire, Amber, Garnet, Topaz, Pearl, Moonstone, Malachite, Jade, Lapis. */
+    const GD_JEWELS = [0xe02040, 0xf4f4f8, 0x2a4ad8, 0xf09a2a, 0x9a1830, 0xf8c840, 0xfaf6ee, 0xb8d8f8, 0x2a9a5a, 0x5ac87a, 0x2a3ab0];
+    /** Opal's colours, drifting over it. */
+    const GD_OPAL = [0xf4b4d4, 0xa8f0d0, 0xa8d0ff, 0xd0b8ff, 0xf8e0a0, 0xb8f4f4];
+    /**
+     * The gems' props, each the one thing that makes a gem's character, drawn over the cut: `front`, `back` and `head` as
+     * OUTFIT_PARTS have them (with the gem's row `g` after them), `hands` and `raise` for what's held; `chest` when it takes
+     * the place of the cut's own stone on the chest.
+     */
+    const GD_PROPS = {
+      // A little gold crown, three points and a jewel of the gem's colour: the Mini Manager
+      crown: { head(x, top, g, look, away) {
+        fill(x - 2, top - 1, 5, 2, 0xe8b84a); fill(x - 2, top, 5, 1, 0x9a7428); dot(x - 2, top - 2, 0xe8b84a); dot(x, top - 3, 0xf8d878); dot(x, top - 2, 0xe8b84a); dot(x + 2, top - 2, 0xe8b84a);
+        if (!away) { dot(x, top - 1, g.light); dot(x - 1, top - 1, 0xfff0b0); }
+      } },
+      // A star sapphire on the chest, its six-rayed star of light brightening now and then
+      star: { chest: true, front(x, y, g, look) {
+        fill(x - 1, y + 2, 3, 3, g.base); dot(x - 1, y + 2, g.light); dot(x + 1, y + 4, g.dark);
+        const k = every(look, 7, 0.9, 3), a = k === null ? 0.55 : 0.55 + 0.45 * Math.sin(k * Math.PI);
+        dot(x, y + 3, WHITE, a); for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) dot(x + dx, y + 3 + dy, WHITE, a * 0.6);
+      } },
+      // An amber drop on a gold chain, a speck of an old insect inside it; it glows warm by night
+      pendant: { chest: true, front(x, y, g) {
+        for (const [dx, dy] of [[-2, 0], [-1, 1], [1, 1], [2, 0]]) dot(x + dx, y + dy, 0xe8b84a);
+        fill(x - 1, y + 2, 3, 2, g.base); dot(x, y + 4, g.base); dot(x - 1, y + 2, g.light); dot(x, y + 3, 0x3a2410);
+        if (isNight) glowLate(() => { glowAt(x, y + 3, 2, 2, g.light, 0.35); dot(x - 1, y + 2, g.light); });
+      } },
+      // A guard's armour: a steel cuirass with the gem set in it, a steel helmet with a plume of the gem's colour
+      armour: { chest: true,
+        front(x, y, g) { fill(x - 3, y, 7, 4, 0x6e727c); fill(x - 3, y, 7, 1, 0xa8adb6); fill(x + 3, y, 1, 4, 0x4a4e58); fill(x - 3, y + 3, 7, 1, 0x4a4e58); fill(x - 3, y, 2, 1, 0xc8ccd4); fill(x + 2, y, 2, 1, 0xc8ccd4); dot(x, y + 1, g.light); dot(x, y + 2, g.base); },
+        back(x, y) { fill(x - 3, y, 7, 4, 0x6e727c); fill(x - 3, y, 7, 1, 0xa8adb6); fill(x, y + 1, 1, 3, 0x4a4e58); },
+        head(x, top, g, look, away) { fill(x - 3, top - 1, 7, 3, 0x6e727c); fill(x - 3, top - 1, 7, 1, 0xa8adb6); fill(x + 3, top, 1, 2, 0x4a4e58); if (!away) fill(x, top + 2, 1, 2, 0x6e727c); dot(x, top - 2, g.base); dot(x + 1, top - 3, g.light); dot(x + 2, top - 3, g.base); } },
+      // The treasure hunter's pith helmet with a band of the gem's colour, and a satchel's strap across the chest
+      explorer: {
+        front(x, y) { for (let k = 0; k < 5; k++) dot(x - 2 + k, y + k, 0x6a4428); dot(x + 2, y + 4, 0xc8a050); },
+        back(x, y) { for (let k = 0; k < 5; k++) dot(x + 2 - k, y + k, 0x6a4428); },
+        head(x, top, g, look, away) { fill(x - 2, top - 2, 5, 1, 0xd8c08a); fill(x - 3, top - 1, 7, 2, 0xc8ae78); fill(x - 3, top, 7, 1, g.base); fill(x - 4, top + 1, 9, 1, 0x9a8458); dot(x - 2, top - 2, 0xf0dcae); } },
+      // A string of pearls, and a long white quill held up now and then as if writing in the air
+      quill: { front(x, y) { for (const [dx, dy] of [[-2, 0], [-1, 1], [0, 1], [1, 1], [2, 0]]) dot(x + dx, y + dy, 0xf8f4ec); dot(x, y + 1, WHITE); },
+        raise: (look) => every(look, 19, 2.6, 5) !== null,
+        hands(x, top, raised, look) {
+          if (raised) { line(x + 5, top + 1, x + 7, top - 5, 0xf4f0e8); dot(x + 6, top - 2, 0xc8c0b4); dot(x + 7, top - 5, WHITE); }
+          else { line(x + 5, top + 11, x + 6, top + 5, 0xf4f0e8); dot(x + 6, top + 6, 0xc8c0b4); }
+        } },
+      // A scout's cloak: its hood up round the face, its edges down the front, a glowing clasp; it covers the back
+      cloak: {
+        front(x, y, g) { fill(x - 3, y, 1, 6, g.light); fill(x + 3, y, 1, 6, g.dark); dot(x, y, g.light); dot(x - 1, y, 0xd8dce4); dot(x + 1, y, 0xd8dce4); },
+        back(x, y, g) { fill(x - 3, y, 7, 6, g.base); fill(x - 1, y + 1, 1, 5, g.dark); fill(x + 2, y + 1, 1, 5, g.dark); fill(x - 2, y, 5, 2, g.dark); },
+        head(x, top, g, look, away) {
+          if (away) { fill(x - 3, top, 7, 7, g.base); fill(x - 1, top + 1, 3, 5, g.dark); return; }
+          fill(x - 3, top - 1, 7, 2, g.base); dot(x - 2, top - 1, g.light); fill(x - 4, top + 1, 1, 6, g.base); fill(x + 4, top + 1, 1, 6, g.dark); dot(x - 3, top + 1, g.base); dot(x + 3, top + 1, g.dark);
+        } },
+      // A librarian's round gold spectacles, and a book under the arm
+      books: {
+        head(x, top, g, look, away) { if (away) return; for (const dx of [-3, -1, 0, 1, 3]) dot(x + dx, top + 4, 0xd8b050); dot(x - 2, top + 3, 0xd8b050, 0.6); dot(x + 2, top + 3, 0xd8b050, 0.6); },
+        hands(x, top) { fill(x - 6, top + 8, 2, 5, 0x1e6a46); dot(x - 6, top + 8, 0x3a9a6a); fill(x - 5, top + 9, 1, 3, 0xeae6dc); } },
+      // A press badge on a lanyard, and a notepad, held up now and then to take a note
+      press: { chest: true,
+        front(x, y, g) { dot(x - 1, y, 0xd03030); dot(x - 1, y + 1, 0xd03030); fill(x - 1, y + 2, 3, 2, 0xf4f2ec); dot(x - 1, y + 2, g.dark); dot(x, y + 3, 0x2a2a30); dot(x + 1, y + 3, 0x2a2a30); },
+        raise: (look) => every(look, 17, 2, 7) !== null,
+        hands(x, top, raised) { if (raised) { fill(x + 5, top, 2, 3, 0xf4f2ec); dot(x + 6, top + 1, 0x2a2a30); } else { fill(x + 4, top + 11, 2, 3, 0xf4f2ec); dot(x + 5, top + 12, 0x2a2a30); } } },
+    };
+    /** A gem's sheen on its garment, over the cut's front from `x`, `y`: opal's drifting colours, lapis's gold, malachite's bands, pearl's lustre. */
+    function gdShimmer(x, y, g, look) {
+      if (g.sheen === 'shift') {
+        // Opal's fire: two streaks down from the shoulders to the collar and its stone, the colours rolling along them
+        const k = Math.floor(now / 0.6 + look.phase * 7);
+        for (const [dx, dy] of [[-3, 0], [-2, 0], [-3, 1], [-2, 1], [-1, 1], [2, 0], [3, 0], [1, 1], [2, 1], [3, 1], [0, 1]]) dot(x + dx, y + dy, GD_OPAL[(((k + dx + dy) % 6) + 6) % 6], 0.85);
+        for (const [dx, dy] of [[-1, 3], [2, 2], [-2, 4]]) dot(x + dx, y + dy, GD_OPAL[(((k + dx + 3) % 6) + 6) % 6], 0.6);
+      }
+      else if (g.sheen === 'flecks') { for (const [dx, dy] of [[-2, 0], [2, 1], [-3, 2], [1, 2], [-1, 4], [2, 4]]) dot(x + dx, y + dy, 0xe8c050); const k = every(look, 5, 0.4, 2); if (k !== null) dot(x - 2, y, WHITE, Math.sin(k * Math.PI)); }
+      else if (g.sheen === 'bands') { for (const dy of [1, 3]) for (let dx = -3; dx <= 3; dx++) dot(x + dx, y + dy + ((dx + 4) % 3 === 0 ? 1 : 0), g.light); }
+      else if (g.sheen === 'lustre') { dot(x - 2, y + 2, WHITE, 0.7); dot(x - 2, y + 3, WHITE, 0.35); }
+    }
+    /** The cut stone of a gem outfit at `sx`, `sy`: in the gem's light colour, opal's drifting; it glints now and then, or glows by night. */
+    function gdStone(sx, sy, g, look) {
+      const c = g.sheen === 'shift' ? GD_OPAL[Math.floor(now / 0.6 + look.phase * 7) % GD_OPAL.length] : g.light;
+      dot(sx, sy, c);
+      if (g.sheen === 'glint') { const k = every(look, 6, 0.45, 9); if (k !== null) gdSparkle(sx, sy, k); }
+      if (isNight && (g.sheen === 'glow' || g.sheen === 'shift')) glowLate(() => { glowAt(sx, sy, 2, 2, c, 0.35); dot(sx, sy, c); });
+    }
+    /**
+     * A gem outfit (`geode` and the gem): the vault keeper's tabard in the colours of its gem's row `g`, gold at its collar
+     * and belt and a cut stone on its chest, the gem's sheen over it, and the gem's prop.
+     */
+    function gdGemOutfit(g) {
+      const prop = GD_PROPS[g.prop] || {}, gold = 0xe0b050;
+      return {
+        front(x, y, o, look) {
+          fill(x - 3, y, 1, 6, g.light); fill(x + 3, y, 1, 6, g.dark);
+          dot(x, y, 0x2a2030); dot(x - 1, y, gold); dot(x + 1, y, gold); dot(x, y + 1, gold);
+          fill(x - 3, y + 5, 7, 1, 0x3a2a1a); dot(x, y + 5, gold);
+          gdShimmer(x, y, g, look);
+          if (!prop.chest) { dot(x - 1, y + 3, gold); dot(x + 1, y + 3, gold); gdStone(x, y + 3, g, look); }
+          if (prop.front) prop.front(x, y, g, look);
+        },
+        back(x, y, o, look) {
+          dot(x, y + 1, gold); dot(x - 1, y + 2, gold); dot(x + 1, y + 2, gold); dot(x, y + 3, gold); fill(x - 3, y + 5, 7, 1, 0x3a2a1a);
+          if (prop.back) prop.back(x, y, g, look);
+        },
+        head: prop.head ? (x, top, look, away) => prop.head(x, top, g, look, away) : undefined,
+        hands: prop.hands ? (x, top, raised, look) => prop.hands(x, top, raised, look, g) : undefined,
+        raise: prop.raise,
+      };
+    }
+    /** Where the vault hangs on the back wall this frame, as it says when it draws itself there (the back wall is drawn before the floor); null while none is hung. */
+    let gdVaultX = null;
 
     /* Iron Man (ironman): Stark's workshop, hot-rod red, gold, arc-reactor blue and workshop greys */
     const IM_RED = 0xa8141c, IM_RED_LIGHT = 0xd83a3a, IM_RED_DARK = 0x6a0a10, IM_GOLD = 0xe0b040, IM_GOLD_LIGHT = 0xf8d870, IM_GOLD_DARK = 0x9a7420;
@@ -26640,6 +27194,178 @@
         draw();
         if (isNight) glowLate(() => { glowAt(x, 15, 12, 8, ion, 0.08); draw(); });
       },
+      /**
+       * The geode vault door (the hero). A great round door cut from a geode, set in a gold ring in the crystal
+       * wall: a band of agate round a hollow of violet crystals all pointing in to a glowing heart, a jewel set in the ring
+       * for each of the eleven bots, two gold bolts across its seam and two hinges. When a cart of gems comes (gdDelivery)
+       * the jewels light one by one, the bolts draw back and the two halves part, light pouring out; by night its heart glows.
+       */
+      geodevault(x) {
+        const cx = x, cy = 22, gold = 0xc8a050, goldLight = 0xf0d080, goldDark = 0x7a5a24;
+        gdVaultX = x;
+        const { lit, shut, open } = gdDelivery(x, seen.left);
+        gdDisc(cx, cy, 19.5, 0x4a3466); gdDisc(cx, cy, 18.5, 0x120818);
+        gdDisc(cx, cy, 17.6, goldDark); gdDisc(cx - 0.7, cy - 0.7, 17, goldLight); gdDisc(cx, cy, 16.6, gold);
+        for (const hy of [cy - 10, cy + 6]) { fill(cx - 20, hy, 5, 4, gold); fill(cx - 20, hy, 5, 1, goldLight); fill(cx - 20, hy + 3, 5, 1, goldDark); dot(cx - 19, hy + 1, goldDark); }
+        const jewels = [0xe02040, 0xf4f4f8, 0x2a4ad8, 0xf09a2a, 0x9a1830, 0xf8c840, 0xfaf6ee, 0xb8d8f8, 0x2a9a5a, 0x5ac87a, 0x2a3ab0];
+        const at = (i) => { const a = -Math.PI / 2 + ((i + 0.5) / 11) * Math.PI * 2; return [cx + Math.round(Math.cos(a) * 16.8) - 1, cy + Math.round(Math.sin(a) * 16.8) - 1]; };
+        jewels.forEach((c, i) => { const [jx, jy] = at(i); fill(jx, jy, 2, 2, i < lit ? c : 0x3a2c22); dot(jx, jy, i < lit ? shaded(c, 1.4) : goldDark); });
+        gdDisc(cx, cy, 15.5, open ? 0xfaf4ff : 0x0e0814);
+        const face = () => {
+          for (const [r, c] of [[15, 0x3a2c28], [14, 0x6a6274], [13, 0xc8c0d8], [12, 0x8a7aac], [11, 0xb8b0cc], [10, 0x1a0e2c], [6.5, 0x261640], [4, 0x3a2266]]) gdDisc(cx, cy, r, c);
+          // The crystals in the hollow, every one pointing in to the heart
+          for (let k = 0; k < 12; k++) {
+            const a = (k / 12) * Math.PI * 2 + 0.13, ca = Math.cos(a), sa = Math.sin(a), long = k % 2 ? 4 : 2.6, pal = GD_AMETHYST[k % 3];
+            const ex = cx + Math.round(ca * 9.4), ey = cy + Math.round(sa * 9.4), tx = cx + Math.round(ca * long), ty = cy + Math.round(sa * long);
+            line(ex, ey, tx, ty, pal[1]); line(ex - Math.round(sa), ey + Math.round(ca), tx - Math.round(sa), ty + Math.round(ca), pal[ca + sa > 0 ? 0 : 2]);
+            dot(tx, ty, pal[3]);
+          }
+          gdDisc(cx, cy, 2.2, 0xb090e8); fill(cx - 1, cy - 1, 2, 2, 0xe0ccff); dot(cx - 1, cy - 1, WHITE);
+        };
+        if (open) {
+          within([[cx - 17, cy - 17, 17, 34]], () => alongWall(-open, face));
+          within([[cx, cy - 17, 17, 34]], () => alongWall(open, face));
+          fill(cx + 2 + open, cy - 13, 2, 2, gold); fill(cx + 2 + open, cy + 11, 2, 2, gold);
+        } else {
+          face();
+          for (let k = -15; k <= 15; k++) if (Math.abs(k) > 9) dot(cx + [0, 0, 1, 0, 0, -1][(k + 30) % 6], cy + k, 0x120818);
+          const len = 2 + Math.round(shut * 5);
+          for (const by of [cy - 13, cy + 11]) { fill(cx + 4 - len, by, len, 2, gold); fill(cx + 4 - len, by, len, 1, goldLight); }
+        }
+        gdGlow(cx, cy, 5, 5, 0xc0a0ff, isNight ? 0.12 : 0.08);
+        if (open) { glowAt(cx, cy, open, 15, 0xfaf4ff, 0.45); glowAt(cx, cy, 4 + open * 2, 16, 0xe0c8ff, 0.1); }
+        if (isNight) glowLate(() => {
+          if (!open) { glowAt(cx, cy, 7, 7, 0xb080ff, 0.2); dot(cx - 1, cy - 1, WHITE); dot(cx, cy, 0xe0ccff); }
+          jewels.slice(0, lit).forEach((c, i) => { const [jx, jy] = at(i); fill(jx, jy, 2, 2, c); glowAt(jx, jy, 2, 2, c, 0.3); });
+          if (open) { glowAt(cx, cy, open, 16, 0xfaf4ff, 0.5); fill(cx - open + 1, cy - 14, open * 2 - 1, 28, 0xfaf4ff, 0.6); glowAt(cx, 46, 12 + open * 4, 5, 0xc8a8ff, 0.22); }
+        });
+      },
+      /** A brass lantern: hung from a bracket on the crystal wall, its flame wavering behind amber glass; its warm light falls on the wall round it, and by night on the floor below. */
+      geodelantern(x) {
+        const brass = 0xc8a050, brassLight = 0xf0d080, brassDark = 0x7a5a24, f = candlelight(x * 0.13), ly = 10;
+        fill(x - 5, 5, 2, 4, brassDark); fill(x - 5, 5, 7, 1, brass); fill(x + 1, 6, 1, 2, brassDark);
+        fill(x, ly - 2, 3, 1, brass); dot(x + 1, ly - 3, brassLight);
+        fill(x - 1, ly - 1, 5, 1, brassDark); fill(x - 2, ly, 7, 2, brass); fill(x - 2, ly, 7, 1, brassLight);
+        fill(x - 2, ly + 2, 7, 8, 0x3a2a1a); fill(x - 1, ly + 2, 5, 8, 0xf0b048, 0.5 + 0.35 * f); fill(x + 1, ly + 2, 1, 8, 0x3a2a1a, 0.6);
+        fill(x, ly + 5, 3, 3, 0xffe0a0, f); dot(x + 1, ly + 4, 0xffffff, f); dot(x - 1, ly + 2, WHITE, 0.5);
+        fill(x - 2, ly + 10, 7, 2, brass); fill(x - 2, ly + 11, 7, 1, brassDark); fill(x - 1, ly + 12, 5, 1, brassDark);
+        gdGlow(x + 1, ly + 6, 11, 10, 0xffc860, (isNight ? 0.16 : 0.07) * f);
+        if (isNight) glowLate(() => { gdGlow(x + 1, ly + 6, 15, 13, 0xffc860, 0.13 * f); gdGlow(x + 1, ly + 6, 4, 4, 0xffe8a0, 0.35 * f); fill(x, ly + 5, 3, 3, 0xfff0c0); gdGlow(x + 1, 43, 15, 3, 0xffc860, 0.1 * f); });
+      },
+      /** An amethyst cluster: a big druse of chunky violet points fanning out of a rock on the wall, tallest in the middle; a point glints now and then, and by night it glows and its tips shine. */
+      geodecluster(x) {
+        fill(x - 11, 24, 23, 5, 0x3c2852); fill(x - 9, 22, 19, 2, 0x3c2852); fill(x - 11, 24, 23, 1, 0x4c3866); fill(x - 11, 28, 23, 1, 0x1e1229);
+        for (const [dx, dy] of [[-7, 26], [2, 27], [7, 25]]) dot(x + dx, dy, 0x5a4480);
+        const pts = [[-10, 25, 6, 3, -0.7], [-7, 24, 11, 4, -0.38], [-3, 23, 17, 4, -0.12], [1, 23, 19, 4, 0.06], [5, 23, 13, 4, 0.32], [8, 24, 8, 3, 0.62], [-5, 26, 6, 3, -0.3], [4, 26, 5, 3, 0.3]];
+        pts.forEach(([dx, dy, h, w, lean], i) => gdPoint(x + dx, dy, h, w, GD_AMETHYST[i % 3], -1, lean, 0.55));
+        const tips = pts.map(([dx, dy, h, w, lean]) => [x + dx + Math.round((h - 1) * lean) + (w >> 1), dy - h + 1]);
+        gdTwinkle(tips, 2.7, x);
+        gdGlow(x, 14, 10, 10, 0x9a6ae0, isNight ? 0.12 : 0.06);
+        if (isNight) glowLate(() => { gdGlow(x, 14, 13, 12, 0xa070f0, 0.15); for (const [tx, ty] of tips) dot(tx, ty, 0xeee0ff); });
+      },
+      /**
+       * The shift bell: a brass bell hung from an iron bracket in the rock, its pull-cord down to the ledge. When the gem cart
+       * comes in to the vault (see gdDelivery) it rings: it swings, its clapper knocks, and rings of sound spread from it.
+       */
+      geodebell(x) {
+        const brass = 0xc8a050, brassLight = 0xf0d080, brassDark = 0x7a5a24, iron = 0x3a3640, ironLight = 0x5e5a68;
+        // It rings for a little over 2 s as the cart reaches the vault, six seconds into each 50
+        const t = isCalm() ? 99 : now % 50, ring = t > 5.4 && t < 7.8 ? t - 5.4 : null;
+        const fade = ring === null ? 0 : Math.sqrt(1 - ring / 2.4), swing = ring === null ? 0 : Math.round(Math.sin(ring * 9) * 2.5 * fade);
+        // The bracket: a plate in the rock, an arm out over the bell, a scroll under the arm
+        fill(x - 10, 3, 3, 10, iron); fill(x - 10, 3, 1, 10, ironLight); dot(x - 9, 5, 0x8a8692); dot(x - 9, 11, 0x8a8692);
+        fill(x - 7, 4, 9, 2, iron); fill(x - 7, 4, 9, 1, ironLight); line(x - 7, 8, x - 3, 6, iron); dot(x - 7, 7, iron);
+        // The bell, hung from its yoke: each row leans with the swing, the lower the more
+        fill(x - 1, 6, 3, 2, brassDark);
+        const rows = [2, 3, 3, 3, 4, 4, 4, 5, 6];
+        rows.forEach((half, r) => {
+          const lean = Math.round((swing * (r + 2)) / rows.length), by = 8 + r, last = r === rows.length - 1;
+          fill(x - half + lean, by, half * 2 + 1, 1, last ? brassDark : brass);
+          if (!last) { dot(x - half + lean, by, brassLight); dot(x + half + lean, by, brassDark); }
+        });
+        fill(x - 3 + Math.round(swing * 0.6), 10, 1, 4, brassLight); dot(x - 2 + Math.round(swing * 0.6), 9, WHITE, 0.6);
+        // The clapper, and the cord from it down to the ledge
+        const cx = x - swing, mouth = 17;
+        dot(cx, mouth, 0x5a5a62); dot(cx, mouth + 1, 0x3a3a42);
+        line(cx, mouth + 2, x, 26, 0xa08868); fill(x - 1, 26, 3, 2, 0x8a6a48); dot(x, 28, 0x6a5038);
+        // The rings of sound, either side, while it rings
+        if (ring !== null) {
+          const a = 0.9 * fade, beat = Math.floor(ring * 3) % 2;
+          for (const side of [-1, 1]) {
+            const ox = x + side * (8 + beat);
+            for (const [dx, dy] of [[0, 9], [1, 10], [1, 11], [1, 12], [0, 13]]) dot(ox + side * dx, dy, brassLight, a);
+            for (const [dx, dy] of [[0, 8], [2, 10], [2, 12], [0, 14]]) dot(ox + side * (dx + 2), dy, brassLight, a * 0.5);
+          }
+        }
+        if (isNight) glowLate(() => dot(x - 2 + Math.round(swing * 0.6), 9, 0xfff0c0, 0.7));
+      },
+      /**
+       * A drip clock: a stalactite drips into a brass-bound glass on the ledge under it, marked in hours, the water standing
+       * at the hour of the day. A drop falls every few seconds and rings spread on the water; by night the water glows a little.
+       */
+      geodedrip(x) {
+        const rock = 0x4e3e64, rockLight = 0x6e5a8a, rockDark = 0x2e2240, brass = 0xc8a050, brassLight = 0xf0d080, brassDark = 0x7a5a24;
+        // The stalactite, wet at its tip
+        [7, 6, 6, 5, 4, 4, 3, 3, 2, 2, 1].forEach((w, r) => { const l = x - (w >> 1); fill(l, r, w, 1, rock); dot(l, r, rockLight); if (w > 2) dot(l + w - 1, r, rockDark); });
+        dot(x, 11, 0x9ad0f0, 0.8); dot(x - 1, 4, WHITE, 0.3);
+        // The glass, its brass bands and hour marks, standing on the ledge
+        const l = x - 4, top = 15, bottom = 28;
+        fill(l, top, 9, bottom - top, 0xdff0f6, 0.32);
+        fill(l, top, 1, bottom - top, 0xdff0f6, 0.65); fill(l + 8, top, 1, bottom - top, 0xdff0f6, 0.5);
+        fill(l - 1, top, 11, 1, brass); fill(l - 1, top, 11, 1, brassLight, 0.5); fill(l - 1, bottom, 11, 2, brass); fill(l - 1, bottom + 1, 11, 1, brassDark);
+        for (let k = 0; k <= 12; k++) dot(l + 7, bottom - 1 - k, brassDark, k % 3 === 0 ? 0.9 : 0.45);
+        // The water: an hour a mark, from midnight at the bottom
+        const d = new Date(), hours = d.getHours() + d.getMinutes() / 60, level = Math.max(1, Math.round((hours / 24) * 12)), surface = bottom - level;
+        fill(l + 1, surface, 7, level, 0x5aa0d8, 0.55); fill(l + 1, surface, 7, 1, 0xa8e0ff, 0.8);
+        dot(l + 1, top + 2, WHITE, 0.7);
+        // A drop now and then, and its rings on the water
+        const t = isCalm() ? 9 : (now + x * 0.3) % 3.6;
+        if (t < 0.55) dot(x, 12 + Math.round((t / 0.55) * (surface - 13)), 0xb8e4ff);
+        else if (t < 1.5) { const k = (t - 0.55) / 0.95; for (const dx of [-1, 1]) dot(x + dx * Math.round(1 + k * 2.5), surface, WHITE, 0.8 * (1 - k)); }
+        if (isNight) glowLate(() => { glowAt(x, surface + level / 2, 5, level / 2 + 2, 0x6ac0f0, 0.18); fill(l + 1, surface, 7, 1, 0xc8f0ff, 0.7); });
+      },
+      /**
+       * A window on the deep: a ragged hole broken through the geode's wall, its rim banded and lined with crystal, onto the
+       * cavern far below, ledge under ledge of violet rock going down into the dark, crystals on them and a rope ladder.
+       * Now and then a miner's lamp crosses far down; by night the deep crystals glow.
+       */
+      geodedeep(x) {
+        const cy = 16, rx = 13, ry = 11;
+        const half = (y) => { const k = (y - cy) / (ry + 0.5); return Math.abs(k) >= 1 ? -1 : Math.round(rx * Math.sqrt(1 - k * k)) + ((hash(x, y) % 3) - 1); };
+        const rows = [];
+        for (let y = cy - ry; y <= cy + ry; y++) { const h = half(y); if (h >= 0) rows.push([y, h]); }
+        // The rim: the wall's thickness, banded like the geode's edge
+        for (const [y, h] of rows) { fill(x - h - 2, y, h * 2 + 5, 1, 0x5e5666); fill(x - h - 1, y, h * 2 + 3, 1, 0xa8a0bc); }
+        // The deep: darker the further down
+        for (const [y, h] of rows) fill(x - h, y, h * 2 + 1, 1, y < cy - 4 ? 0x1e1230 : y < cy + 3 ? 0x170d26 : 0x0e0818);
+        const clip = rows.map(([y, h]) => [x - h, y, h * 2 + 1, 1]);
+        const deep = [];
+        within(clip, () => {
+          // Ledges going down, each a little darker and smaller
+          for (const [lx, ly, w, c] of [[-13, 12, 11, 0x3a2652], [4, 17, 10, 0x2e1e44], [-9, 22, 9, 0x241838], [2, 26, 12, 0x1c122e]]) {
+            fill(x + lx, ly, w, 2, c); fill(x + lx, ly, w, 1, shaded(c, 1.35)); fill(x + lx, ly + 2, w, 3, shaded(c, 0.7));
+          }
+          // Crystals on them
+          for (const [dx, y0, h, i] of [[-10, 12, 4, 0], [-8, 12, 3, 2], [7, 17, 3, 1], [9, 17, 2, 0], [-6, 22, 2, 2], [6, 26, 2, 1]]) {
+            gdPoint(x + dx, y0 - 1, h, 2, GD_AMETHYST[i], -1); deep.push([x + dx + 1, y0 - h]);
+          }
+          dot(x + 9, 25, 0x4ab0d0); dot(x + 10, 25, 0x8ae0e8); deep.push([x + 10, 25]);
+          // A rope ladder down from the first ledge
+          for (const lx of [x - 3, x]) line(lx, 13, lx, 24, 0x6a5038);
+          for (let ry2 = 15; ry2 < 24; ry2 += 2) fill(x - 3, ry2, 4, 1, 0x8a6a48);
+          // Far down, now and then, a miner's lamp crossing
+          const t = isCalm() ? 99 : (now + x * 0.7) % 31;
+          if (t < 9) { const lx = x - 7 + Math.round((t / 9) * 14); dot(lx, 25, 0xffd080); glowAt(lx, 25, 3, 2, 0xffc060, 0.3); }
+        });
+        // Crystal teeth round the top of the rim
+        for (const [dx, h] of [[-9, 3], [-6, 4], [-2, 3], [2, 4], [5, 3], [8, 4]]) gdPoint(x + dx, cy - ry + (Math.abs(dx) > 6 ? 2 : 0), h, 2, GD_AMETHYST[(dx + 9) % 3], 1);
+        gdTwinkle(deep, 3.3, x);
+        if (isNight) glowLate(() => {
+          for (const [dx2, dy2] of deep) { glowAt(dx2, dy2 + 1, 3, 2, 0x9a6ae0, 0.25); dot(dx2, dy2, 0xd8c4f8); }
+          const t = isCalm() ? 99 : (now + x * 0.7) % 31;
+          if (t < 9) { const lx = x - 7 + Math.round((t / 9) * 14); glowAt(lx, 25, 4, 3, 0xffc060, 0.35); dot(lx, 25, 0xffe8b0); }
+        });
+      },
     };
 
     /**
@@ -28759,6 +29485,17 @@
           led();
           if (isNight) glowLate(led);
           fill(x + 5, y + 9, 3, 2, 0x2a2c33);
+        },
+      },
+      /** A geode-backed monitor: from behind, its back is half a geode, rough grey-brown rind with pits in it, violet crystal teeth showing round its rim. */
+      geodemon: {
+        draw(x, y) {
+          fill(x, y + 1, 13, 7, 0x4a3c34); fill(x + 1, y, 11, 9, 0x4a3c34);
+          fill(x + 1, y, 11, 1, 0x6a5c50); fill(x, y + 1, 1, 7, 0x6a5c50); fill(x + 12, y + 1, 1, 7, 0x2e241e); fill(x + 1, y + 8, 11, 1, 0x2e241e);
+          for (const [dx, dy] of [[3, 3], [7, 2], [9, 5], [4, 6], [6, 4]]) dot(x + dx, y + dy, 0x3a2e26);
+          for (let k = 1; k < 12; k += 2) dot(x + k, y - 1, k % 4 === 1 ? 0x9a78d8 : 0x6a44a8);
+          dot(x - 1, y + 3, 0x7a52b8); dot(x - 1, y + 5, 0x9a78d8); dot(x + 13, y + 4, 0x7a52b8);
+          fill(x + 5, y + 9, 3, 2, PALETTE.monitorStand);
         },
       },
     };
@@ -31976,6 +32713,34 @@
           if (isNight) glowLate(strip);
           fill(x + 2, y + 16, 40, 1, SHADOW);
           drawKeyboard(s, y + 2);
+        },
+      },
+      /**
+       * A geode desk: a slab of dark stone edged in brass, its front a polished geode slice, agate bands in
+       * grey, white and lavender round a hollow of violet crystal that glitters, on two rough rock feet; by night its heart glows.
+       */
+      geodedesk: {
+        front({ x, y, s, tint }) {
+          const brass = 0xc8a050, brassLight = 0xf0d080, cx = x + 22, cy = y + 10;
+          drawMonitor(x + 6, y - 10);
+          fill(x, y, 44, 1, tint(brassLight, 1)); fill(x, y + 1, 44, 3, tint(0x2c2632, 1)); fill(x, y + 4, 44, 1, brass);
+          fill(x + 9, y + 1, 7, 1, PALETTE.monitorStand);
+          // The slice: its rind, then band inside band to the crystal hollow
+          fill(x, y + 5, 44, 10, 0x342824); fill(x, y + 5, 44, 1, 0x4a3c34);
+          for (const [rx, ry, c] of [[21, 4.6, 0x5e5868], [19, 4.1, 0x9a92ae], [15, 3.3, 0x6e5e90], [11, 2.5, 0x8a80a6], [7, 1.7, 0x1e1036]]) {
+            const halfAt = (r) => Math.round(rx * Math.sqrt(Math.max(0, 1 - (r / (ry + 0.5)) ** 2)));
+            for (let r = -Math.floor(ry), n; r <= Math.floor(ry); r += n) {
+              const half = halfAt(r);
+              n = 1; while (r + n <= Math.floor(ry) && halfAt(r + n) === half) n++;
+              fill(cx - half, cy + r, half * 2 + 1, n, c);
+            }
+          }
+          for (const [dx, dy, c] of [[-4, 0, 0x9a78d8], [-1, -1, 0xc8a8f8], [2, 0, 0x7a52b8], [4, 1, 0x9a78d8], [0, 1, 0x6a44a8], [-3, 1, 0xb090e8]]) dot(cx + dx, cy + dy, c);
+          if ((now + x * 0.21) % 9 < 0.5) gdSparkle(cx - 1, cy - 1, ((now + x * 0.21) % 9) / 0.5);
+          fill(x + 1, y + 15, 5, 2, 0x3a2e2a); fill(x + 38, y + 15, 5, 2, 0x3a2e2a); dot(x + 1, y + 15, 0x5a4a40); dot(x + 38, y + 15, 0x5a4a40);
+          fill(x + 1, y + 17, 42, 1, SHADOW);
+          drawKeyboard(s, y + 2);
+          if (isNight) glowLate(() => gdGlow(cx, cy, 8, 2, 0xa070f0, 0.16));
         },
       },
     };
@@ -40238,6 +41003,139 @@
         tip();
         if (isNight) glowLate(tip);
         fill(x + 35, y, 9, 1, SHADOW);
+      },
+      /** A rock tumbler: a violet rubber barrel on its side on the rollers of a little green motor base, three stones it has polished beside it; every so often it runs for a few seconds, its ribs turning, the barrel rocking and its light on. */
+      geodetumbler(x, y) {
+        const base = 0x3e6a56, baseLight = 0x5e8a74, baseDark = 0x264232, drum = 0x3a2e48, drumLight = 0x5a4a6e, drumDark = 0x221a2e;
+        const t = (now + x * 0.37) % 17, on = !isCalm() && t < 4, rock = on && Math.floor(now * 10) % 2 ? 1 : 0;
+        fill(x + 33, y, 12, 1, SHADOW);
+        // The motor base, its light, and the two rollers on it
+        fill(x + 35, y - 3, 10, 3, base); fill(x + 35, y - 3, 10, 1, baseLight); fill(x + 44, y - 2, 1, 2, baseDark);
+        dot(x + 36, y - 1, on ? 0x6aff8a : 0x2a4a3a);
+        fill(x + 36, y - 4, 8, 1, 0x2a2a30); dot(x + 37, y - 4, 0x8a8a92); dot(x + 42, y - 4, 0x8a8a92);
+        // The barrel on its side, its steel lid on the left; its ribs go round while it runs
+        const top = y - 10 - rock;
+        fill(x + 36, top, 8, 6, drum); fill(x + 36, top, 8, 1, drumLight); fill(x + 36, top + 5, 8, 1, drumDark); fill(x + 43, top + 1, 1, 4, drumDark);
+        fill(x + 35, top + 1, 1, 4, 0x8a8e98); fill(x + 34, top + 2, 1, 2, 0x6e727c); dot(x + 35, top + 1, 0xc8ccd4);
+        const turn = on ? Math.floor(now * 9) : 0;
+        for (let k = 0; k < 2; k++) fill(x + 37, top + 1 + ((turn + k * 2) % 4), 6, 1, drumDark);
+        dot(x + 38, top + 1, WHITE, 0.35);
+        // The stones it has polished, on the desk beside it
+        dot(x + 33, y - 1, 0xc84a8a); dot(x + 34, y - 1, 0x4ab0d0); dot(x + 33, y - 2, 0xe8b84a); dot(x + 33, y - 2, WHITE, 0.3);
+      },
+      /** A box of mineral specimens: a wooden box with its lid up and a label inside it, six little stones in its compartments (amethyst, citrine, malachite, rose quartz, azurite and pyrite); one of them glints now and then. */
+      geodespecimens(x, y) {
+        const wood = 0x8a5a32, woodLight = 0xa8703e, woodDark = 0x5a3b25, well = 0x3a2416;
+        fill(x + 33, y, 13, 1, SHADOW);
+        // The lid, up behind the box, its paper label
+        fill(x + 34, y - 12, 11, 5, woodDark); fill(x + 34, y - 12, 11, 1, wood); fill(x + 35, y - 11, 9, 4, 0x6a4428);
+        fill(x + 36, y - 10, 6, 2, PALETTE.paper); for (const dx of [37, 38, 40]) dot(x + dx, y - 9, 0x6a6a72);
+        // The box, its compartments, a stone in each
+        fill(x + 33, y - 7, 13, 7, wood); fill(x + 33, y - 7, 13, 1, woodLight); fill(x + 45, y - 6, 1, 6, woodDark); fill(x + 33, y - 1, 13, 1, woodDark);
+        const stones = [[0x7a52b8, 0xc8a8f8], [0xe0a82a, 0xfae080], [0x1a8a58, 0x6ad49a], [0xd88aa4, 0xfad0dc], [0x2a5ad8, 0x7aa8ff], [0xa89040, 0xf0e090]];
+        const spots = stones.map(([c, light], i) => {
+          const sx = x + 34 + (i % 3) * 4, sy = y - 6 + Math.floor(i / 3) * 3;
+          fill(sx, sy, 3, 2, well); fill(sx, sy + 1, 2, 1, c); dot(sx + 1, sy, c); dot(sx, sy + 1, light);
+          return [sx + 1, sy];
+        });
+        const t = (now + x * 0.31) % 6.5;
+        if (t < 0.5) { const [sx, sy] = spots[Math.floor((now + x * 0.31) / 6.5) % spots.length]; gdSparkle(sx, sy, t / 0.5); }
+      },
+      /** A miner's carbide lamp: a little brass canister with a polished reflector on its front, a small flame in the middle of it and a hook on top; the flame wavers, and by night it pools warm light on the desk. */
+      geodelamp(x, y) {
+        const brass = 0xc8a050, brassLight = 0xf0d080, brassDark = 0x7a5a24, f = candlelight(x * 0.11 + 3);
+        fill(x + 34, y, 10, 1, SHADOW);
+        // The canister, water over carbide, a band between and a foot
+        fill(x + 38, y - 8, 5, 8, brass); fill(x + 38, y - 8, 1, 8, brassLight); fill(x + 42, y - 8, 1, 8, brassDark);
+        fill(x + 38, y - 5, 5, 1, brassDark); fill(x + 37, y - 1, 7, 1, brassDark); fill(x + 39, y - 9, 3, 1, brassDark); dot(x + 40, y - 10, brass);
+        // Its hook
+        dot(x + 42, y - 10, 0x4a4e58); dot(x + 43, y - 11, 0x4a4e58); dot(x + 42, y - 12, 0x4a4e58);
+        // The reflector on its front, and the flame in the middle of it
+        fill(x + 36, y - 7, 2, 1, brass);
+        disc(x + 35, y - 7, 2.7, 0xd8dce4); ring(x + 35, y - 7, 2.7, brassDark); dot(x + 34, y - 8, WHITE);
+        dot(x + 35, y - 7, 0xfff4c0, f); dot(x + 35, y - 8, 0xffc050, 0.7 * f);
+        glowAt(x + 35, y - 7, 4, 3, 0xffd080, (isNight ? 0.12 : 0.06) * f);
+        if (isNight) glowLate(() => { glowAt(x + 35, y - 7, 6, 5, 0xffd080, 0.3 * f); glowAt(x + 37, y + 1, 10, 2, 0xffc860, 0.12 * f); dot(x + 35, y - 7, 0xfff4c0); });
+      },
+      /** A UV lamp over a rock: a dull grey stone under a little black lamp on a stand; every so often the lamp clicks on, its tube violet, and the stone lights up in bands of neon green, red and blue, then it goes dull again. By night that glow shows across the desk. */
+      geodeuvlamp(x, y) {
+        const t = (now + x * 0.41) % 19, on = !isCalm() && t < 5, k = on ? Math.min(1, t * 5, (5 - t) * 5) : 0;
+        fill(x + 33, y, 12, 1, SHADOW);
+        // The stand and the lamp's head; its tube is violet while it's on
+        fill(x + 43, y - 11, 1, 11, 0x2a2a32); fill(x + 41, y - 1, 4, 1, 0x2a2a32); dot(x + 43, y - 11, 0x5a5a66); dot(x + 42, y - 1, on ? 0x6aff8a : 0x3a3a42);
+        fill(x + 35, y - 12, 9, 2, 0x22222a); fill(x + 35, y - 12, 9, 1, 0x3a3a46);
+        fill(x + 36, y - 10, 6, 1, on ? 0xd0a0ff : 0x4a3a6a);
+        // The rock: dull grey, its minerals lit while the lamp's on
+        fill(x + 34, y - 4, 7, 4, 0x8a8478); fill(x + 35, y - 5, 5, 1, 0x9a948a); fill(x + 34, y - 1, 7, 1, 0x6a645a); dot(x + 35, y - 4, 0xb0aa9e);
+        dot(x + 37, y - 3, 0x9a9488); dot(x + 39, y - 2, 0x7a7468);
+        const lit = [[1, -4, 0x4aff6a], [2, -4, 0x4aff6a], [3, -3, 0xff4a3a], [4, -3, 0xff4a3a], [5, -2, 0x4aff6a], [2, -2, 0x6a8aff], [5, -4, 0xff4a3a], [1, -1, 0x6a8aff], [3, -1, 0x4aff6a]];
+        const shine = () => { for (const [dx, dy, c] of lit) dot(x + 34 + dx, y + dy, c, k); dot(x + 37, y - 10, WHITE, 0.6 * k); };
+        if (on) { glowAt(x + 38, y - 5, 5, 4, 0x9a60ff, (isNight ? 0.16 : 0.1) * k); shine(); }
+        if (on && isNight) glowLate(() => { glowAt(x + 38, y - 4, 8, 5, 0x9a60ff, 0.25 * k); shine(); });
+      },
+      /** A geode half on a little stand: grey rind, bands of agate and a hollow of violet crystal facing out; a point inside glints now and then, and by night the hollow glows. */
+      geodehalf(x, y) {
+        const cx = x + 39, cy = y - 7;
+        fill(x + 34, y, 11, 1, SHADOW);
+        fill(x + 35, y - 2, 9, 2, 0x5a3b25); fill(x + 35, y - 2, 9, 1, 0x8a5a32);
+        disc(cx, cy, 5.2, 0x4e423c); disc(cx - 0.5, cy - 0.5, 4.6, 0x8a7e76);
+        disc(cx, cy, 4.2, 0xe2dcea); disc(cx, cy, 3.6, 0x8a7aac); disc(cx, cy, 3.1, 0xc8bedc); disc(cx, cy, 2.6, 0x24142e);
+        for (const [dx, dy, c] of [[-2, -1, 0x9a78d8], [-1, -2, 0xb090e8], [1, -2, 0x7a52b8], [2, -1, 0x9a78d8], [2, 1, 0x6a44a8], [1, 2, 0x7a52b8], [-1, 2, 0x9a78d8], [-2, 1, 0xb090e8], [0, -2, 0xd8c4f8]]) dot(cx + dx, cy + dy, c);
+        dot(cx, cy, 0x5a3a96);
+        const t = (now + x * 0.19) % 9;
+        if (t < 0.5) gdSparkle(cx - 1, cy - 1, t / 0.5);
+        if (isNight) glowLate(() => { glowAt(cx, cy, 4, 4, 0xa070f0, 0.25); dot(cx, cy - 2, 0xeee0ff); });
+      },
+      /** A gem gauge: a steel dial caliper lying on the desk, its jaws up round a cut sapphire on a scrap of red velvet; now and then the jaw slides open, the dial's needle swings, and it closes on the stone again. */
+      geodecaliper(x, y) {
+        const steel = 0x8a8e98, steelLight = 0xc8ccd4, steelDark = 0x4a4e58;
+        const t = (now + x * 0.29) % 14, open = isCalm() ? 0 : t < 0.6 ? Math.round(t / 0.3) : t < 2.4 ? 2 : t < 3 ? Math.round((3 - t) / 0.3) : 0;
+        fill(x + 33, y, 12, 1, SHADOW);
+        // The velvet, and the stone on it
+        fill(x + 34, y - 3, 7, 1, 0x7a1a30); fill(x + 34, y - 3, 7, 1, 0x9a2a40, 0.5);
+        fill(x + 36, y - 6, 3, 3, 0x2a4ad8); dot(x + 36, y - 6, 0x8aa8ff); dot(x + 37, y - 6, 0x5a7af0); dot(x + 38, y - 4, 0x14287a); dot(x + 37, y - 5, 0x3a5ae8);
+        // The beam along the desk, the fixed jaw on its left, the sliding jaw and its dial
+        fill(x + 33, y - 2, 12, 1, steel); fill(x + 33, y - 1, 12, 1, steelDark);
+        for (let k = 0; k < 5; k++) dot(x + 40 + k, y - 2, k % 2 ? steelLight : steelDark);
+        fill(x + 34, y - 7, 2, 5, steel); dot(x + 34, y - 7, steelLight);
+        const jx = x + 39 + open;
+        fill(jx, y - 7, 2, 5, steel); dot(jx, y - 7, steelLight);
+        disc(jx + 3, y - 5, 1.8, 0xf4f2ec); ring(jx + 3, y - 5, 2, steelDark);
+        dot(jx + 3 + (open ? 1 : 0), y - 6 + (open ? 1 : 0), 0xd02030);
+        if (t > 6 && t < 6.45) gdSparkle(x + 37, y - 6, (t - 6) / 0.45);
+      },
+      /** A prospector's pan: a shallow steel pan of wet gravel; now and then it's given a swirl, the gravel going round in it, and two gem chips, a red and a gold, come up out of it and glint. */
+      geodepan(x, y) {
+        const cx = x + 39, cy = y - 3, t = (now + x * 0.23) % 15, swirl = !isCalm() && t < 2.5, spin = swirl ? t * 4.5 : 0;
+        fill(x + 33, y, 13, 1, SHADOW);
+        // The pan, seen from above: its rim, its sloping side and the wet gravel in its middle
+        const oval = (rx, ry, c, dy = 0) => { for (let r = -Math.floor(ry); r <= Math.floor(ry); r++) { const h = Math.round(rx * Math.sqrt(Math.max(0, 1 - (r / (ry + 0.5)) ** 2))); fill(cx - h, cy + dy + r, h * 2 + 1, 1, c); } };
+        oval(6.5, 3, 0x6e727c); oval(5.5, 2.4, 0x4a4e58); oval(4, 1.6, 0x7a6a52); oval(2.6, 1, 0x5a7080, 0);
+        fill(cx - 5, cy - 3, 11, 1, 0xa8adb6); dot(cx - 4, cy - 3, WHITE, 0.7); fill(cx - 5, cy + 3, 11, 1, 0x3a3e46);
+        // The gravel, going round while it's swirled
+        for (let k = 0; k < 8; k++) {
+          const a = k * 0.8 + spin + (k % 3) * 0.4, rr = 0.45 + (k % 3) * 0.2;
+          dot(cx + Math.round(Math.cos(a) * 4 * rr), cy + Math.round(Math.sin(a) * 1.6 * rr), k % 2 ? 0x5a4a38 : 0x9a8a6a);
+        }
+        // The gems, found when the swirl stops
+        const g = swirl ? 0 : t < 3 ? (t - 2.5) / 0.5 : 1;
+        dot(cx - 1, cy, 0xe02040, g); dot(cx + 2, cy + 1, 0xf8c840, g);
+        if (t > 2.5 && t < 3) gdSparkle(cx - 1, cy, (t - 2.5) / 0.5);
+        else if (t > 8 && t < 8.45) gdSparkle(cx + 2, cy + 1, (t - 8) / 0.45);
+      },
+      /** A rock hammer on a field notebook: a geologist's hammer with a blue grip, its head a square face and a pick, on a green notebook held shut by an elastic band; its steel glints now and then. */
+      geodehammer(x, y) {
+        const steel = 0x8a8e98, steelLight = 0xd0d4dc, steelDark = 0x4a4e58;
+        fill(x + 33, y, 13, 1, SHADOW);
+        // The notebook, its pages' edge and its elastic
+        fill(x + 33, y - 4, 12, 4, 0x2e6a46); fill(x + 33, y - 4, 12, 1, 0x4a8a62); fill(x + 33, y - 1, 12, 1, PALETTE.paper); fill(x + 44, y - 3, 1, 3, 0x1e4a30);
+        fill(x + 41, y - 4, 1, 4, 0x1a1a1e);
+        // The hammer across it: its grip and shaft, then its head, the pick up and the square face down
+        fill(x + 34, y - 6, 6, 2, 0x2a4a9a); fill(x + 34, y - 6, 6, 1, 0x4a6ac8); fill(x + 40, y - 6, 3, 2, steel); fill(x + 40, y - 6, 3, 1, steelLight);
+        fill(x + 43, y - 9, 2, 7, steel); fill(x + 43, y - 9, 1, 7, steelLight); fill(x + 44, y - 4, 1, 2, steelDark);
+        dot(x + 43, y - 10, steel); dot(x + 43, y - 11, steelDark); fill(x + 42, y - 3, 3, 1, steelDark);
+        const t = (now + x * 0.17) % 11;
+        if (t < 0.5) gdSparkle(x + 43, y - 8, t / 0.5);
       },
     };
 
@@ -49939,6 +50837,121 @@
       drawGrokRack(280, 93, 36, busy);
     }
 
+    /**
+     * The amethyst grotto (the chill area): a mound of plum boulders, cracked and lit from the left, hollowed into a little
+     * cave over an underground pool; violet crystals line its mouth and a great cluster crowns its top, stalactites hang in
+     * it, a brass lantern hangs at its mouth and a glow lives deep inside. Now and then a drop falls and rings spread on the
+     * water; someone at the pool's edge makes it glow brighter. By night the lantern pools warm light on the water, the
+     * pool glows teal, the hollow violet, and the crystals' tips shine.
+     */
+    function drawGeodegrotto() {
+      const someone = atCorner(0), rock = 0x3a2650, rockLight = 0x6a5094, rockDark = 0x22142e, cx = 279, f = candlelight(4);
+      fill(250, 96, 58, 1, SHADOW); fill(253, 97, 52, 1, SHADOW);
+      // The boulders, each lit from the upper left, a crack or two in each
+      const boulders = [[259, 82, 9], [302, 82, 8], [266, 66, 11], [293, 65, 11], [280, 57, 12]];
+      for (const [bx, by, r] of boulders) {
+        gdDisc(bx, by, r, rockDark); gdDisc(bx - 1, by - 1, r - 1, rock);
+        for (let a = 3.2; a < 5; a += 0.15) dot(bx - 1 + Math.round(Math.cos(a) * (r - 1.5)), by - 1 + Math.round(Math.sin(a) * (r - 1.5)), rockLight);
+        if (by < 70) for (let a = 5; a < 5.9; a += 0.15) dot(bx - 1 + Math.round(Math.cos(a) * (r - 1.5)), by - 1 + Math.round(Math.sin(a) * (r - 1.5)), rockLight, 0.55);
+        for (let a = 3.5; a < 4.6; a += 0.2) dot(bx - 1 + Math.round(Math.cos(a) * (r - 3)), by - 1 + Math.round(Math.sin(a) * (r - 3)), 0x4e3870);
+        const h = hash(bx, by);
+        line(bx + (h % 5) - 2, by - Math.round(r * 0.6), bx + (h % 5), by - Math.round(r * 0.1), rockDark);
+        dot(bx + (h % 5) + 1, by - Math.round(r * 0.1) + 1, rockDark);
+      }
+      fill(252, 82, 56, 14, rock); fill(252, 82, 3, 14, rockLight, 0.6); fill(304, 82, 4, 14, rockDark); fill(252, 95, 56, 1, rockDark);
+      for (let k = 0; k < 16; k++) { const h = hash(k, 43), fx = 254 + (h % 50), fy = 50 + ((h >>> 6) % 42); dot(fx, fy, (h >>> 3) % 2 ? 0x7a5aa8 : rockDark); }
+      // The hollow: its mouth, a glow deep inside, crystals lining it and stalactites hanging in it
+      const inner = (x) => 62 + Math.round(((x - cx) / 15) ** 2 * 14);
+      for (let x = 265; x <= 293; x++) fill(x, inner(x), 1, 95 - inner(x), 0x120818);
+      gdGlow(cx, 76, 10, 11, 0x8a5ad8, isNight ? 0.19 : 0.14);
+      for (let x = 266; x <= 292; x += 3) gdPoint(x, inner(x) + 1, 2 + (hash(x, 9) % 3), 2, GD_AMETHYST[x % 3], 1);
+      for (const [x, h] of [[273, 8], [280, 10], [287, 7]]) { fill(x, inner(x) + 2, 2, h, 0x2e1d40); dot(x, inner(x) + 2 + h, 0x6a5090); }
+      for (const [x, h, lean] of [[265, 7, -0.3], [268, 9, -0.15], [290, 8, 0.15], [293, 6, 0.3]]) gdPoint(x, 87, h, 3, GD_AMETHYST[x % 3], -1, lean, 0.6);
+      // Crystals crowning the mound, a great cluster at its top
+      const crown = [[262, 58, 8, 3, -0.5], [266, 56, 12, 4, -0.25], [271, 55, 7, 3, 0.1], [276, 47, 9, 3, -0.35], [279, 46, 16, 4, -0.08], [283, 47, 12, 4, 0.18],
+        [287, 48, 9, 3, -0.2], [291, 50, 13, 4, 0.15], [296, 55, 8, 3, 0.5], [301, 74, 7, 3, 0.55]];
+      crown.forEach(([x, y, h, w, lean], i) => gdPoint(x, y, h, w, GD_AMETHYST[i % 3], -1, lean, 0.5));
+      const tips = crown.map(([x, y, h, w, lean]) => [x + Math.round((h - 1) * lean) + (w >> 1), y - h + 1]);
+      gdTwinkle(tips, 3.1, 7);
+      gdGlow(280, 40, 9, 8, 0x9a6ae0, isNight ? 0.12 : 0.06);
+      // The pool, lit from below, the crystals in its water, a rim of pale stones along its front
+      const glow = someone ? 1 : 0;
+      for (let r = -5; r <= 5; r++) { const half = Math.round(18 * Math.sqrt(1 - (r / 5.5) ** 2)); fill(cx - half, 90 + r, half * 2 + 1, 1, r < -2 ? 0x16304e : r < 2 ? 0x1f4468 : 0x2a5a86); }
+      for (const [dx, dy, w] of [[-10, 88, 4], [-2, 89, 3], [5, 91, 5], [11, 88, 2]]) fill(cx + dx, dy, w, 1, 0x9a78e0, 0.6);
+      for (let x = cx - 16; x <= cx + 16; x += 4) { const h = hash(x, 77); fill(x, 95 - (h % 2), 3, 2, 0x8a7a9a); dot(x, 95 - (h % 2), 0xb0a4c0); }
+      dot(cx - 6, 92, WHITE, 0.7); dot(cx + 9, 93, WHITE, 0.5);
+      if (glow) fill(cx - 15, 88, 31, 5, 0x6ad8f0, 0.16);
+      const d = isCalm() ? 9 : (now + 2.3) % 6.5;
+      if (d < 0.7) dot(281, 72 + Math.round((d / 0.7) * 17), 0xb0d8f8);
+      else if (d < 2.4) { const k = (d - 0.7) / 1.7; ellipseRing(281, 90, 1 + k * 7, 0.5 + k * 2.2, 0xc8e8ff, 0.7 * (1 - k)); }
+      gdGlow(cx, 89, 17, 5, 0x4ab0d8, (isNight ? 0.14 : 0.07) + glow * 0.09);
+      // A brass lantern on a chain at the hollow's mouth, its light on the water under it
+      const lx = 266, ly = 70;
+      line(263, 62, lx, ly - 2, 0x7a5a24); dot(263, 62, 0x5a4020);
+      fill(lx - 1, ly - 1, 3, 1, 0xc8a050); fill(lx - 2, ly, 5, 5, 0x3a2a1a); fill(lx - 1, ly, 3, 5, 0xf0b048, 0.55 + 0.3 * f); dot(lx, ly + 2, 0xffe0a0, f); fill(lx - 2, ly + 5, 5, 1, 0xc8a050);
+      gdGlow(lx, ly + 2, 6, 5, 0xffc860, (isNight ? 0.16 : 0.07) * f);
+      fill(lx - 4, 88, 9, 1, 0xffc860, 0.25 * f);
+      if (isNight) glowLate(() => {
+        gdGlow(cx, 90, 21, 7, 0x4ac0e8, 0.16 + glow * 0.1); gdGlow(cx, 76, 12, 13, 0x9a6ae0, 0.28); gdGlow(280, 40, 10, 9, 0xa070f0, 0.26);
+        gdGlow(lx, ly + 2, 9, 8, 0xffc860, 0.22 * f); gdGlow(lx + 2, 89, 10, 3, 0xffc860, 0.16 * f); dot(lx, ly + 2, 0xfff0c0);
+        for (const [tx, ty] of tips) { fill(tx - 1, ty, 3, 1, 0xc8a8ff, 0.3); fill(tx, ty - 1, 1, 3, 0xc8a8ff, 0.3); dot(tx, ty, 0xeee0ff); }
+      });
+    }
+
+
+
+    /**
+     * The gem-sorting table: a heavy wooden table, a hopper of rough stones on legs at its left feeding a sloping riddle,
+     * four bins of sorted gems under the riddle along the table's front (rubies, sapphires, emeralds and topazes), and a
+     * lantern on a post at its right lighting the work. Now and then a stone rolls down the riddle and drops into its bin;
+     * someone at the table sets the riddle shaking and the gems rolling one after another. By night the lantern pools warm light.
+     */
+    function drawGeodesorter() {
+      const someone = atCorner(0) && !isCalm(), wood = 0x7a5232, woodLight = 0x9a6a40, woodDark = 0x4a3020, iron = 0x3a3640, ironLight = 0x6a6672;
+      const brass = 0xc8a050, brassDark = 0x7a5a24, f = candlelight(5);
+      const GEMS = [[0xc81838, 0xff6070], [0x2a4ad8, 0x7a9aff], [0x1a9a5a, 0x6ad49a], [0xe0a82a, 0xfad466]];
+      fill(250, 96, 58, 1, SHADOW); fill(252, 97, 54, 1, SHADOW);
+      // The table: its legs, a shelf low down with a sack of stones on it, its top
+      for (const lx of [254, 300]) { fill(lx, 77, 3, 19, woodDark); fill(lx, 77, 1, 19, wood); }
+      fill(254, 88, 49, 2, wood); fill(254, 88, 49, 1, woodLight); fill(256, 90, 45, 1, SHADOW);
+      fill(262, 83, 8, 5, 0x8a7a5a); fill(263, 82, 6, 1, 0x9a8a68); fill(264, 81, 3, 1, 0x6a5a40); dot(265, 85, 0x6a5a40); dot(268, 86, 0x6a5a40);
+      fill(252, 74, 54, 4, wood); fill(252, 74, 54, 1, woodLight); fill(252, 77, 54, 1, woodDark); fill(305, 75, 1, 3, woodDark);
+      // The hopper on its legs at the left, heaped with rough stones, its spout over the top of the riddle
+      for (const hx of [253, 267]) fill(hx, 50, 1, 24, woodDark);
+      fill(252, 48, 17, 2, wood); fill(252, 48, 17, 1, woodLight);
+      for (let r = 0; r < 7; r++) fill(253 + r, 50 + r, 15 - r * 2, 1, r === 6 ? woodDark : r % 2 ? wood : shaded(wood, 0.9));
+      fill(259, 57, 3, 2, iron); dot(259, 57, ironLight);
+      for (let k = 0; k < 11; k++) { const h = hash(k, 91); dot(254 + (h % 13), 47 - ((h >>> 4) % 3), (h >>> 7) % 3 ? 0x8a7a6a : 0x6a5a4a); }
+      dot(257, 46, 0xb090e8); dot(263, 46, 0xe02040); dot(260, 45, 0x8a7a6a);
+      // The riddle on two trestles, sloping down to the right over the bins, shaking while someone's at it
+      const shake = someone ? Math.floor(now * 12) % 2 : 0, slope = (x) => 59 + Math.round((x - 262) * 0.2);
+      for (const tx of [264, 297]) { fill(tx, slope(tx) + 3, 2, 69 - slope(tx) - 3, woodDark); dot(tx, slope(tx) + 3, wood); }
+      for (let x = 262; x <= 300; x++) { dot(x + shake, slope(x), woodLight); dot(x + shake, slope(x) + 3, woodDark); }
+      for (let x = 263; x <= 299; x += 2) for (let dy = 1; dy < 3; dy++) dot(x + shake + (dy % 2), slope(x) + dy, 0x9a96a2, 0.5);
+      // The four bins along the table's front, each heaped with its gems
+      GEMS.forEach(([c, light], i) => {
+        const bx = 266 + i * 9;
+        fill(bx, 69, 8, 6, wood); fill(bx, 69, 8, 1, woodLight); fill(bx + 7, 70, 1, 5, woodDark); fill(bx, 74, 8, 1, woodDark);
+        for (let k = 0; k < 6; k++) dot(bx + 1 + k, 68 - (k % 2 ? 0 : 1) * (k > 0 && k < 5 ? 1 : 0), k % 3 ? c : light);
+        dot(bx + 3, 67, c); dot(bx + 4, 67, light);
+      });
+      // A stone rolling down the riddle and dropping into its bin: now and then, or one after another with someone at it
+      const every = someone ? 1.8 : 13, n = Math.floor(now / every), t = (now - n * every) / 1.8;
+      if (!isCalm() && t < 1) {
+        const i = hash(n, 17) % 4, [c, light] = GEMS[i], drop = 269 + i * 9;
+        if (t < 0.7) { const gx = 261 + Math.round((t / 0.7) * (drop - 261)); fill(gx + shake, slope(gx) - 2, 2, 2, c); dot(gx + shake, slope(gx) - 2, light); }
+        else { const gy = slope(drop) + Math.round(((t - 0.7) / 0.3) * (67 - slope(drop))); fill(drop, gy, 2, 2, c); dot(drop, gy, light); }
+      }
+      // The lantern on its post at the right
+      fill(303, 49, 2, 25, woodDark); fill(303, 49, 1, 25, wood); fill(297, 49, 8, 2, woodDark);
+      const lx = 298, ly = 52;
+      fill(lx - 1, ly - 1, 4, 1, brass); fill(lx - 2, ly, 6, 1, brassDark); fill(lx - 2, ly + 1, 6, 6, 0x3a2a1a);
+      fill(lx - 1, ly + 1, 4, 6, 0xf0b048, 0.55 + 0.3 * f); fill(lx, ly + 3, 2, 2, 0xffe0a0, f); fill(lx - 2, ly + 7, 6, 1, brass);
+      glowAt(lx + 1, ly + 4, 9, 8, 0xffc860, (isNight ? 0.14 : 0.07) * f);
+      glowAt(284, 72, 22, 5, 0xffc860, (isNight ? 0.08 : 0.04) * f);
+      if (isNight) glowLate(() => { glowAt(lx + 1, ly + 4, 14, 12, 0xffc860, 0.14 * f); glowAt(285, 73, 24, 6, 0xffc860, 0.12 * f); fill(lx, ly + 3, 2, 2, 0xfff0c0); });
+    }
+
     /* The pet */
     /** The cat café's cats, one look each: fur, markings, eyes and nose, and build (0 kitten, 1 cat, 2 big). */
     const CAFE_CATS = {
@@ -50058,6 +51071,84 @@
       const grounded = (!pet.target || !pet.target.depth || pet.isWalking) && !flying && !['axolotl', 'hamster'].includes(pet.kind);
       if (grounded) p(-4, 0, 9, 1, SHADOW);
       switch (pet.kind) {
+        case 'geodepangolin': {
+          // A gem pangolin: a little pangolin whose scales are plates of amethyst, down its arched back and its long tail, a
+          // pale snout and a dark eye; walking it shuffles along nose down, sitting it rears up on its hind legs to sniff the
+          // air, its tail on the floor behind; asleep it's curled into a ball of scales like a closed geode. By night its scales' edges glow.
+          const scale = 0x6a44a8, scaleLight = 0xb090e8, scaleDark = 0x36205e, skin = 0xd8c8d8, skinDark = 0x9a88a8, edge = 0xd8c4f8;
+          // Its plates: rows of them, each row's light edges over the shadow of the row under it, every other row between
+          const plates = (rows) => rows.forEach(([dy, from, to], i) => { for (let dx = from + (i % 2); dx <= to; dx += 3) { p(dx, dy, 2, 1, scaleLight); p(dx + 2, dy, 1, 1, scaleDark); } });
+          if (pose === 'sleep') {
+            // Curled into a ball, plated all round, the tail's tip tucked over its nose
+            p(-3, -7, 7, 7, scale); p(-4, -5, 9, 4, scale); p(-2, -8, 5, 1, scale); p(-3, -1, 7, 1, scaleDark); p(4, -4, 1, 3, scaleDark);
+            p(-2, -8, 5, 1, scaleLight);
+            plates([[-6, -3, 3], [-4, -4, 3], [-2, -3, 2]]);
+            p(2, -2, 2, 1, skin, 0.7);
+            if (isNight) glowLate(() => { glowAt(x, y - 4, 5, 4, 0xa070f0, 0.14); p(-2, -8, 5, 1, edge, 0.8); });
+            break;
+          }
+          if (pose === 'sit') {
+            // Up on its hind legs to sniff the air, its tail on the floor behind
+            const sniff = Math.floor(now * 4 + x) % 5 === 0 ? 1 : 0;
+            p(-8, -2, 7, 2, scale); p(-9, -1, 1, 1, scaleDark); for (const dx of [-7, -4]) p(dx, -2, 2, 1, scaleLight);
+            p(-2, -9, 4, 8, scale); p(2, -8, 1, 6, scaleDark); p(-2, -1, 4, 1, scaleDark);
+            for (const dy of [-9, -7, -5, -3]) { p(-2, dy, 3, 1, scaleLight); p(1, dy, 1, 1, scaleDark); }
+            p(0, -11, 3, 2, skin); p(3, -10 - sniff, 1, 1, skinDark); p(1, -11, 1, 1, PALETTE.eye);
+            p(2, -7, 1, 2, skinDark); p(-1, -1, 1, 1, skinDark); p(1, -1, 1, 1, skinDark);
+            if (isNight) glowLate(() => { for (const dy of [-9, -5]) p(-2, dy, 3, 1, edge, 0.7); });
+            break;
+          }
+          // On all fours, its back arched under its plates, its long tail behind and its nose down
+          const walk = pose === 'walk', st = walk ? step : 0;
+          p(-11, -1, 2, 1, scaleDark); p(-10, -2, 4, 1, scale); p(-8, -3, 3, 1, scale); p(-10, -2, 2, 1, scaleLight); p(-7, -3, 1, 1, scaleLight);
+          p(-3, -8, 5, 1, scale); p(-5, -7, 9, 1, scale); p(-6, -6, 10, 4, scale); p(-5, -2, 8, 1, scaleDark);
+          p(-3, -8, 5, 1, scaleLight);
+          plates([[-7, -5, 3], [-5, -6, 3], [-3, -6, 2]]);
+          p(3, -5, 2, 1, scale); p(3, -4, 3, 2, skin); p(6, -3, 1, 1, skinDark); p(4, -4, 1, 1, PALETTE.eye);
+          p(-4, -1, 1, 1 - st, skinDark); p(-3, -1, 1, st, skinDark); p(1, -1, 1, st, skinDark); p(2, -1, 1, 1 - st, skinDark);
+          if (isNight) glowLate(() => { p(-3, -8, 5, 1, edge, 0.8); for (const dx of [-5, -2, 1]) p(dx, -7, 2, 1, edge, 0.5); });
+          break;
+        }
+        case 'geodegolem': {
+          // A crystal golem: its body one faceted point of amethyst, lit from the left, a crystal point out from each
+          // shoulder, two bright eyes, standing on a pale lilac rock for hips and feet; now and then a glint runs up its
+          // facet. Sitting, it polishes a tiny ruby that sparkles; asleep it's just three crystals on the pale rock. By
+          // night it glows, its eyes brightest.
+          const rock = 0x8a7a9a, rockLight = 0xb0a4c0, rockDark = 0x5e5468, lit = 0xc8a8f0, body = 0x9a78d8, facet = 0x7a5ac0, shade = 0x5a3a96, tip = 0xeee0ff;
+          if (pose === 'sleep') {
+            p(-4, -4, 9, 4, rock); p(-4, -4, 9, 1, rockLight); p(-4, -4, 1, 4, rockLight); p(4, -3, 1, 3, rockDark); p(-4, -1, 9, 1, rockDark);
+            for (const [dx, h] of [[-3, 4], [-1, 6], [1, 4]]) { p(dx, -3 - h, 1, h - 1, lit); p(dx + 1, -3 - h, 1, h - 1, shade); p(dx, -4 - h, 1, 1, tip); }
+            if (isNight) glowLate(() => { glowAt(x, y - 7, 5, 4, 0xa070f0, 0.2); p(-1, -10, 1, 1, tip); });
+            break;
+          }
+          const walk = pose === 'walk', sit = pose === 'sit', st = walk ? step : 0, b = sit ? 1 : walk ? -step : 0;
+          // The pale rock: its feet (gone under it when it sits) and its hips
+          if (!sit) { p(-3, -1, 2, 1, rockDark); p(1, -1, 2, 1, rockDark); if (walk) p(st ? 1 : -3, -1, 2, 1, rock); }
+          p(-4, -4 + b, 8, 3, rock); p(-4, -4 + b, 8, 1, rockLight); p(-4, -4 + b, 1, 3, rockLight); p(3, -3 + b, 1, 2, rockDark); p(-3, -2 + b, 6, 1, rockDark);
+          // The body: one point of amethyst, a lit face, its body and a facet, a shaded face, narrowing to its tip
+          p(-2, -9 + b, 5, 5, body); p(-2, -9 + b, 1, 5, lit); p(1, -9 + b, 1, 5, facet); p(2, -9 + b, 1, 5, shade);
+          p(-1, -10 + b, 3, 1, body); p(-1, -10 + b, 1, 1, lit); p(1, -10 + b, 1, 1, shade); p(0, -11 + b, 1, 1, tip);
+          // A point out from each shoulder
+          p(-3, -6 + b, 1, 1, body); p(-3, -7 + b, 1, 1, lit); p(-4, -7 + b, 1, 1, lit); p(-5, -8 + b, 1, 1, tip);
+          p(3, -6 + b, 1, 1, shade); p(3, -7 + b, 1, 1, facet); p(4, -8 + b, 1, 1, body); p(4, -9 + b, 1, 1, 0xd8c4f8);
+          // Its eyes
+          p(-2, -8 + b, 2, 1, WHITE); p(1, -8 + b, 2, 1, WHITE);
+          // Now and then a glint runs up its lit face
+          const g = (now + x * 0.17) % 7;
+          if (g < 0.6) p(-2, -5 + b - Math.floor(g / 0.12), 1, 1, WHITE, 0.9);
+          if (sit) {
+            // Polishing its ruby, held out in front
+            const rub = Math.floor(now * 3 + x) % 2;
+            p(4, -4 + rub, 2, 1, rockLight); p(5, -3, 2, 2, 0xe02040); p(5, -3, 1, 1, 0xff8090);
+            if ((now + x * 0.3) % 6 < 0.4) p(7, -4, 1, 1, WHITE, 0.9);
+          }
+          if (isNight) glowLate(() => {
+            glowAt(x, y - 8 + b, 6, 6, 0xa070f0, 0.25);
+            glowAt(x - 1.5, y - 8 + b, 2, 2, 0xe0ccff, 0.4); glowAt(x + 1.5, y - 8 + b, 2, 2, 0xe0ccff, 0.4);
+            p(-2, -8 + b, 2, 1, WHITE); p(1, -8 + b, 2, 1, WHITE); p(0, -11 + b, 1, 1, tip); p(-5, -8 + b, 1, 1, tip);
+          });
+          break;
+        }
         case 'grokdrone': {
           // A little orb drone: a graphite ball with a white visor slit that looks where it goes, a ring of light round its
           // middle, bobbing as it hovers; resting, it settles low and its ring dims to a slow pulse
@@ -54959,6 +56050,8 @@
       gentlemenbilliards: [[90, drawGentlemenbilliards]],
       groklaunch: [[90, drawGroklaunch]],
       grokbotrack: [[90, drawGrokbotrack]],
+      geodegrotto: [[90, drawGeodegrotto]],
+      geodesorter: [[90, drawGeodesorter]],
       none: [],
     };
 
@@ -56162,7 +57255,7 @@
       const nod = isListener(person) && since < NOD_LENGTH && Math.floor((since / NOD_LENGTH) * 4) % 2 === 0 ? 1 : 0;
       const top = topOf(person, pose) + nod;
       const look = lookFor(person), away = person.isFacingAway;
-      const outfit = person.isStaff ? staffOutfitOf(look, crewDress)
+      const outfit = person.isStaff ? staffOutfitOf(look, crewDress, person.session.name)
         : outfitOf(person.session.agent, person.session.model, memberOf(person.session), workspaceOf(person.session, person.desk), person.session.role, person.desk, person.session.name);
       const shirtColour = outfit.shirt, parts = OUTFIT_PARTS[outfit.style];
       // An outfit that is someone in particular (Tony Stark) brings their skin and hair
@@ -61969,6 +63062,8 @@
           if (away) { fill(x - 3, top + 1, 7, 5, 0x2a2016); fill(x - 4, top - 1, 9, 2, cap); }
         },
       },
+      // The Geode's gem outfits, each drawn from its gem's row (see gdGemOutfit)
+      ...Object.fromEntries(Object.keys(GEODE_GEMS).map((gem) => [`geode${gem}`, gdGemOutfit(GEODE_GEMS[gem])])),
     };
 
     /**
@@ -63264,6 +64359,7 @@
     drawSeasonal('glow');
     if (drift === 'hearts') drawHeartDrift();
     if (drift === 'confetti') drawConfettiDrift();
+    if (drift === 'geodeprism') drawGeodeprismDrift();
     if (drift === 'westdust') drawWestdustDrift();
     if (drift === 'mirrorglitch') drawMirrorglitchDrift();
     if (drift === 'rickspark') drawRicksparkDrift();
@@ -64496,6 +65592,8 @@
     gentlemenbilliards: 'pool',
     groklaunch: 'hum',
     grokbotrack: 'hum',
+    geodegrotto: 'splash',
+    geodesorter: 'clink',
   };
   /** What people coming and going through the door make it sound like, where it isn't the latch. */
   const DOOR_SOUNDS = { haunted: 'creak', wreathdoor: 'jingle', mailboxdoor: 'flap', lunardoor: 'drumtap', lockerdoor: 'buzzer', volcanodoor: 'buzzer', kitchendoor: 'saloondoor', hospitaldoor: 'buzzer', noirdoor: 'creak', madlabdoor: 'creak', casinodoor: 'jingle', orientdoor: 'creak', halloweendxdoor: 'creak', catcafedoor: 'jingle', saloondoor: 'saloondoor', screendoor: 'creak', starwarsdoor: 'buzzer', girly1door: 'jingle', girly2door: 'jingle', narcosdoor: 'creak', potterdoor: 'creak', lotrdoor: 'creak', breakingbaddoor: 'buzzer', strangerdoor: 'creak', gotdoor: 'creak', simpsonsdoor: 'buzzer', bonddoor: 'creak', dunedoor: 'creak', onepiecedoor: 'creak', eldenringfog: 'creak' };

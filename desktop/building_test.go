@@ -175,7 +175,7 @@ func TestSessionsAreBackOnTheirFloorsAfterARestart(t *testing.T) {
 	saved := paneRunsAgent
 	t.Cleanup(func() { paneRunsAgent = saved })
 	paneRunsAgent = func(commandTab, Agent) bool { return true }
-	after := NewDeck()
+	after := startDeck(t)
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		after.mu.Lock()
@@ -232,7 +232,7 @@ func TestTheOfficePutsSomeoneOnAnotherFloorAndBringsThemBack(t *testing.T) {
 	// Someone else takes the free key meanwhile: down, there's none for it.
 	running(d, 4)
 	floorDesks(t, d, 0) // the deck lays out on every change: s3 takes the free key
-	if code, text := d.Perform("move", "s1", url.Values{"floor": {"0"}}); code != http.StatusConflict || !strings.Contains(text, "Every desk") {
+	if code, text := d.Perform("move", "s1", url.Values{"floor": {"0"}}); code != http.StatusConflict || text != "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room." {
 		t.Errorf("moving down to a full ground floor gave %d %s", code, text)
 	}
 	if desks := floorDesks(t, d, 3); len(desks) != 1 || desks[0]["id"] != "s1" {
@@ -399,7 +399,7 @@ func TestACloudBotHasNoKeyWhenEveryDeskIsTaken(t *testing.T) {
 	d.config.Layout.Keys = 3
 	running(d, 3)
 	withCloudBots(d, standardCloudBotNamed("mini", "Smolcorp mini"))
-	if code, text := d.Perform("move", "cloud-mini", url.Values{"floor": {"0"}}); code != http.StatusConflict || !strings.Contains(text, "Every desk") {
+	if code, text := d.Perform("move", "cloud-mini", url.Values{"floor": {"0"}}); code != http.StatusConflict || text != "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room." {
 		t.Errorf("down to a full ground floor gave %d %s", code, text)
 	}
 	if d.config.CloudBots[0].Floor != "" {
@@ -438,7 +438,7 @@ func TestGoingHomeABotTakesNoDeskKeptForSomeoneSentOn(t *testing.T) {
 	placed := []upstairsPerson[string]{
 		yielding(person("A", 2, &Seat{2, 0})), // a bot for 3F, at 3F's first desk
 		yielding(person("P", 1, &Seat{2, 1})), // a bot for 2F, at 3F's second
-		person("H", 4, &Seat{1, 8}),          // put on 5F, sent on to 2F's last desk
+		person("H", 4, &Seat{1, 8}),           // put on 5F, sent on to 2F's last desk
 	}
 	for i := 0; i < desksPerFloor; i++ {
 		placed = append(placed, person(fmt.Sprintf("f%d", i), 4, &Seat{4, i})) // 5F full
@@ -466,4 +466,3 @@ func TestGoingHomeABotTakesNoDeskKeptForSomeoneSentOn(t *testing.T) {
 		}
 	}
 }
-

@@ -3,8 +3,10 @@ package desktop
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 )
@@ -289,5 +291,59 @@ func TestADeskSaysWhenItsSessionStartedThroughClear(t *testing.T) {
 	desk := snapshot.Keys[0].Session
 	if desk["id"] != "s2" || desk["startedAt"] != float64(1_000) || desk["turnStartedAt"] != float64(9_500) {
 		t.Fatalf("the desk after /clear is %v %v started, turn %v; want s2, 1000 and 9500", desk["id"], desk["startedAt"], desk["turnStartedAt"])
+	}
+}
+
+// The tests' stop ends a deck's rounds and waits for one under way: a look due later never runs, nor
+// anything started after the stop, so a deck left from one test never reads the next test's stand-ins.
+func TestStoppingADeckEndsItsRoundsAndWaitsForOneUnderWay(t *testing.T) {
+	d := newTestDeck(t)
+	var mu sync.Mutex
+	ran := map[string]int{}
+	note := func(what string) func() {
+		return func() {
+			mu.Lock()
+			defer mu.Unlock()
+			ran[what]++
+		}
+	}
+	counts := func() map[string]int {
+		mu.Lock()
+		defer mu.Unlock()
+		return maps.Clone(ran)
+	}
+	d.rounds.every(time.Millisecond, note("round"))
+	for deadline := time.Now().Add(5 * time.Second); counts()["round"] < 2 && time.Now().Before(deadline); {
+		time.Sleep(time.Millisecond)
+	}
+	if counts()["round"] < 2 {
+		t.Fatal("the round never came round")
+	}
+	underWay, finish := make(chan struct{}), make(chan struct{})
+	d.rounds.run(func() { close(underWay); <-finish; note("under way")() })
+	<-underWay
+	d.rounds.after(time.Hour, note("due later"))
+
+	stopped := make(chan struct{})
+	go func() { d.stopWatchers(); close(stopped) }()
+	select {
+	case <-stopped:
+		t.Fatal("the stop didn't wait for the look under way")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(finish)
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the rounds did not stop")
+	}
+	before := counts()
+	d.rounds.run(note("after the stop"))
+	d.rounds.after(0, note("after the stop"))
+	d.rounds.every(time.Millisecond, note("after the stop"))
+	time.Sleep(20 * time.Millisecond)
+	d.stopWatchers() // again, as the test's cleanup does too
+	if got := counts(); before["under way"] != 1 || got["due later"] != 0 || got["after the stop"] != 0 || got["round"] != before["round"] {
+		t.Errorf("before the stop's end %v, after it %v; want the look under way finished and nothing else run", before, got)
 	}
 }

@@ -173,6 +173,9 @@ if [ -n "$NOTARY_PROFILE" ]; then
   check "Gatekeeper refuses the app." spctl --assess -vvv --type execute "$APP"
   # How an installer would see it too: said, not a reason to stop, as -t install is for packages more than DMGs.
   spctl --assess -vvv --type install "$DMG" || echo "(spctl -t install on the DMG: see above; -t open is the DMG's own check)"
+  # The DMG was made before the app had its ticket, so the app in it has none: make the DMG
+  # again around the stapled app, and have that notarised and stapled, as --dmg-only does.
+  [ "$DMG_ONLY" = 1 ] || exec env SMOLCORP_DEVELOPER_ID="$DEVELOPER_ID" SMOLCORP_NOTARY_PROFILE="$NOTARY_PROFILE" scripts/release.sh --dmg-only
 fi
 
 rm -f "$ZIP"

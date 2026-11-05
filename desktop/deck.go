@@ -103,8 +103,10 @@ type Deck struct {
 	looking sync.Mutex
 	// What the GM asked the app to watch, kept in the support folder (see watchers.go).
 	watchers *watchers
-	// stopWatchers ends the watchers' two loops; the app lets them run as long as the process does, the tests' deck helper calls it.
+	// stopWatchers ends the watchers' two loops, the mail pump and the deck's rounds, and waits for them; the app lets them run as long as the process does, the tests' deck helpers call it.
 	stopWatchers func()
+	// The deck's timed rounds, and the looks it starts by itself: see deckRounds.
+	rounds deckRounds
 	// OnChange is called on every change, for the tray.
 	OnChange func()
 }
@@ -140,6 +142,7 @@ func NewDeck() *Deck {
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
 		keyOf: map[string]int{}, floorOf: map[string]int{}, seatOf: map[string]Seat{}, lastReturn: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue), events: newEventLog(supportDir, eventsFileMost),
+		rounds: deckRounds{stopped: make(chan struct{})},
 	}
 	if settleListenScope(d.config, phonesOnly(d.access.Phones), runtime.GOOS) {
 		d.config.save()
@@ -193,39 +196,89 @@ func NewDeck() *Deck {
 			job()
 		}
 	}()
-	go func() {
-		for range time.Tick(pingInterval) {
-			d.mu.Lock()
-			for stream := range d.streams {
-				stream.send(nil)
-			}
-			d.mu.Unlock()
+	d.rounds.every(pingInterval, func() {
+		d.mu.Lock()
+		for stream := range d.streams {
+			stream.send(nil)
 		}
-	}()
-	go func() {
-		for range time.Tick(pruneInterval) {
-			d.pruneClosedTabs()
-			d.pruneGoneAgents()
+		d.mu.Unlock()
+	})
+	d.rounds.every(pruneInterval, func() {
+		d.pruneClosedTabs()
+		d.pruneGoneAgents()
+	})
+	d.rounds.every(handOnInterval, func() {
+		d.mu.Lock()
+		if d.sessions.EndHandOns(nowMillis()) {
+			d.changed()
 		}
-	}()
-	go func() {
-		for range time.Tick(handOnInterval) {
-			d.mu.Lock()
-			if d.sessions.EndHandOns(nowMillis()) {
-				d.changed()
-			}
-			d.mu.Unlock()
-		}
-	}()
-	go func() {
-		for range time.Tick(musicInterval) {
-			d.followMusic()
-		}
-	}()
-	// The mail pump, after d.cloud is set; the watchers' stop ends it too.
+		d.mu.Unlock()
+	})
+	d.rounds.every(musicInterval, d.followMusic)
+	// The mail pump, after d.cloud is set; the watchers' stop ends it too, and the deck's rounds.
 	stopWatching, stopMail := d.stopWatchers, d.startMailPump()
-	d.stopWatchers = func() { stopMail(); stopWatching() }
+	d.stopWatchers = func() { stopMail(); d.rounds.stop(); stopWatching() }
 	return d
+}
+
+// deckRounds are what a deck runs by itself: its timed rounds, and the looks it
+// starts after a control. The app lets them run as long as the process does;
+// the tests stop them with their deck (stopWatchers), so a deck left from one
+// test never reads the stand-ins the next one puts in.
+type deckRounds struct {
+	mu      sync.Mutex
+	stopped chan struct{} // closed by stop
+	ended   bool
+	running sync.WaitGroup
+}
+
+// run runs job on a goroutine of its own, unless the rounds have stopped.
+func (r *deckRounds) run(job func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.ended {
+		r.running.Go(job)
+	}
+}
+
+// every runs job every interval, until the rounds stop.
+func (r *deckRounds) every(interval time.Duration, job func()) {
+	r.run(func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.stopped:
+				return
+			case <-ticker.C:
+			}
+			job()
+		}
+	})
+}
+
+// after runs job once, wait from now, unless the rounds stop first.
+func (r *deckRounds) after(wait time.Duration, job func()) {
+	r.run(func() {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-r.stopped:
+		case <-timer.C:
+			job()
+		}
+	})
+}
+
+// stop ends the rounds, and waits for one under way. It may be called more than once.
+func (r *deckRounds) stop() {
+	r.mu.Lock()
+	if !r.ended {
+		r.ended = true
+		close(r.stopped)
+	}
+	r.mu.Unlock()
+	r.running.Wait()
 }
 
 // followMusic looks whether music is playing, with the jukebox on, and tells
@@ -272,7 +325,7 @@ func (d *Deck) playMusic(key string) (int, string) {
 		return http.StatusInternalServerError, "Couldn't reach the music here."
 	}
 	// The player takes a moment to say it has.
-	time.AfterFunc(600*time.Millisecond, d.followMusic)
+	d.rounds.after(600*time.Millisecond, d.followMusic)
 	return http.StatusNoContent, ""
 }
 
@@ -299,7 +352,7 @@ func (d *Deck) setMusicLevel(text string) (int, string) {
 	if err := setMusicVolume(level); err != nil {
 		return http.StatusInternalServerError, "Couldn't reach the volume here."
 	}
-	go d.followMusic()
+	d.rounds.run(d.followMusic)
 	return http.StatusNoContent, ""
 }
 

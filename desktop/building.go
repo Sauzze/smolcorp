@@ -457,7 +457,7 @@ func (d *Deck) move(id, given string, remember bool) (int, string) {
 		}
 		// At a key already, as where new bots go: it keeps that one.
 		if floor == 0 && !d.hasFreeKey() && !d.atAKey(id) {
-			return http.StatusConflict, "Every desk is taken. Fire someone, or add a desk, first."
+			return http.StatusConflict, "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room."
 		}
 		bots := slices.Clone(d.config.CloudBots)
 		for i := range bots {
@@ -495,7 +495,7 @@ func (d *Deck) move(id, given string, remember bool) (int, string) {
 			} else {
 				delete(d.floorOf, id)
 			}
-			return http.StatusConflict, "Every desk is taken. Fire someone, or add a desk, first."
+			return http.StatusConflict, "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room."
 		}
 	}
 	d.floorOf[id] = floor

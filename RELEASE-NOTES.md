@@ -1,3 +1,21 @@
+# Smolcorp 1.24.2 (beta)
+
+A small release for 1.24.1: the Mac app is notarised, there's a new floor style for your bots, and a few fixes.
+
+## The Mac app is notarised
+- **No more Open Anyway.** Apple has checked the app and the DMG, and the notarisation ticket is stapled to both, so macOS accepts Smolcorp even offline. The first time you open it, macOS only asks whether to open an app downloaded from the internet: click **Open**.
+
+## The Geode, a floor for your bots
+- **A new style, The Geode.** An amethyst geode wall with a vault at its heart (a mine cart brings the gems in as it opens), pools of lantern light, a crystal grotto in the chill area, crystals that glow at night, and a crystal golem. It fits every floor's nine desks and chill area, in the office and on your phone.
+- **Gem outfits.** Thirteen of them: Ruby, Opal, Sapphire, Amber, Garnet, Topaz, Pearl, Moonstone, Malachite, Jade, Lapis, Amethyst and Obsidian. In The Geode, everyone without an outfit of their own wears one, and someone named after a gem, such as a bot called Ruby, wears that gem's. You can also pick one for anyone on your team.
+
+## Fixed
+- **No more "add a desk".** Every floor has its nine desks, so there's no desk to add. When every floor is full, setup now says to hide or remove a bot, or free a desk. When every desk on the ground floor is taken, the Mac app and the Windows and Linux app say to fire someone there, or free a desk.
+- The source's tests pass with Go's race detector, and CI runs them that way.
+
+## Updating
+As for 1.24.1: download the new version and replace the app. Your office, floors, pins and hires are kept.
+
 # Smolcorp 1.24.1 (beta)
 
 A fix release for 1.24.0, with two bigger changes: every floor now works like the ground floor, and bots can sit on any floor.

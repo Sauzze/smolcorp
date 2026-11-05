@@ -553,8 +553,7 @@ func TestABotGetsTheDeskItHadBackAfterARestart(t *testing.T) {
 	if os.WriteFile(configFile, []byte(config), 0o600) != nil || os.WriteFile(sessionsFile, []byte(saved), 0o600) != nil {
 		t.Fatal("can't write the saved files")
 	}
-	d := NewDeck()
-	t.Cleanup(d.stopWatchers)
+	d := startDeck(t)
 	d.summaryProviders.set(map[summaryProvider]providerState{})
 	keys, _ := seating(d)
 	if !slices.Equal(keys, []string{"", "", "", "", "cloud-manager", ""}) {
@@ -579,8 +578,7 @@ func TestABotThatWasUpstairsStaysOnTheFloorItSatOnAsTheAppStarts(t *testing.T) {
 		if os.WriteFile(configFile, []byte(config), 0o600) != nil || saved != "" && os.WriteFile(sessionsFile, []byte(saved), 0o600) != nil {
 			t.Fatal("can't write the saved files")
 		}
-		d := NewDeck()
-		t.Cleanup(d.stopWatchers)
+		d := startDeck(t)
 		d.summaryProviders.set(map[summaryProvider]providerState{})
 		return d
 	}

@@ -278,12 +278,9 @@ func engineDeck(t *testing.T) (*Deck, *engineRig, *hiring) {
 	t.Helper()
 	h := fakeHiring(t, "/usr/bin/tmux")
 	r := newEngineRig(t)
-	d := newTestDeck(t)
-	// newTestDeck isolated again: the rig's support folder and home are the ones to use.
-	shortSupport(t)
-	r.home = homeDir
-	t.Setenv("HOME", r.home)
-	writeConfig(t, r.home, "{}")
+	// As newTestDeck starts one, but on the rig's own support folder and home, every stand-in in first (see startDeck).
+	d := startDeck(t)
+	d.summaryProviders.set(map[summaryProvider]providerState{})
 	d.config.HiringEnabled, d.config.HireInTmux, d.config.HireFolder = true, true, r.repo
 	r.o.Worktrees = ""
 	d.engine = r.o
