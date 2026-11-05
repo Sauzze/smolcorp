@@ -137,3 +137,51 @@ if (!negative || !other) throw new Error('the names covered one sign only');
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
+
+// A style that dresses each person differently puts someone named after one of its own outfits in that one, whatever the
+// case of the name: a Grok bot named RUBY, in the Geode (`geode`), wears `geoderuby`. Anyone else is dressed by the hash,
+// as before, and a style whose outfits aren't named after it, as the Hall of Armor's `ironman…` aren't, dresses nobody by
+// name. Runs styleDressOf in node, as the test above does; without node it's skipped.
+func TestSomeoneNamedAfterOneOfAStylesOutfitsWearsIt(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: styleDressOf can't be run")
+	}
+	web, _ := officeSources(t)
+	src := string(web)
+	at := strings.Index(src, "function styleDressOf(seed) {")
+	if at < 0 {
+		t.Fatal("styleDressOf is gone: update this test")
+	}
+	fn := src[at:]
+	fn = fn[:strings.Index(fn, "\n  }\n")+4]
+	script := `
+let decor = { preset: 'geode' };
+const STYLE_DRESS = { geode: ['geoderuby', 'geodeopal', 'geodemoonstone', 'geodejade'], ironmanhall: ['ironmanmk1', 'ironmanmk2', 'ironmanrescue'] };
+` + fn + `
+const hashed = (seed, list) => {
+  let h = 0;
+  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 0x5bd1e995) >>> 0;
+  const i = (h ^ (h >>> 13)) % list.length;
+  return list[i < 0 ? i + list.length : i];
+};
+for (const [seed, want] of [['RUBY', 'geoderuby'], ['Opal', 'geodeopal'], ['moonstone', 'geodemoonstone'], ['JADE', 'geodejade']]) {
+  if (styleDressOf(seed) !== want) throw new Error(seed + ' wears ' + styleDressOf(seed) + ', not ' + want);
+}
+for (const seed of ['api-server', 'ONYX', 'RUBY 2', 'ruby-bot', 'geoderuby']) {
+  if (styleDressOf(seed) !== hashed(seed, STYLE_DRESS.geode)) throw new Error(seed + ' is no longer dressed by the hash');
+}
+decor = { preset: 'ironmanhall' };
+for (const seed of ['mk1', 'ironmanmk1', 'rescue', 'MK2']) {
+  if (styleDressOf(seed) !== hashed(seed, STYLE_DRESS.ironmanhall)) throw new Error(seed + ' is dressed by name in a style whose outfits are not named after it');
+}
+`
+	dir := t.TempDir()
+	file := filepath.Join(dir, "namesake.js")
+	if err := os.WriteFile(file, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(node, file).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}

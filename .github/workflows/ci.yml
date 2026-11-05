@@ -1,6 +1,7 @@
 # Builds both apps on every push and pull request: the Mac app with Swift,
-# and the Windows and Linux app with Go, vetted and tested on each system,
-# then built for every download the releases carry.
+# and the Windows and Linux app with Go, vetted and tested on each system
+# (on Linux under the race detector too), then built for every download the
+# releases carry.
 
 name: CI
 
@@ -42,6 +43,10 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test ./...
+      # The same tests under the race detector, which needs cgo: on Linux, whose runner has a C compiler.
+      - name: Test with the race detector
+        if: runner.os == 'Linux'
+        run: go test -race ./...
       - name: Build every download
         if: runner.os == 'Linux'
         run: |

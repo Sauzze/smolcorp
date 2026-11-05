@@ -218,7 +218,7 @@ func TestUnclosedUnitsAreNotSlow(t *testing.T) {
 	} {
 		start := time.Now()
 		r := Check(line, DefaultGroups())
-		if took := time.Since(start); took > 2*time.Second {
+		if took := time.Since(start); took > 2*time.Second*raceSlowdown {
 			t.Errorf("%s: took %v", name, took)
 		}
 		switch name {

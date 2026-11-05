@@ -32,12 +32,14 @@ func TestAJukeboxPressesTheKeyItWasAskedFor(t *testing.T) {
 }
 
 func TestAJukeboxSetsTheVolumeItWasAskedFor(t *testing.T) {
-	d := newTestDeck(t)
 	set := []int{}
 	savedSet, savedRead := setMusicVolume, readMusicVolume
 	setMusicVolume = func(level int) error { set = append(set, level); return nil }
 	readMusicVolume = func() *musicVolume { return nil }
 	t.Cleanup(func() { setMusicVolume, readMusicVolume = savedSet, savedRead })
+	// After the stand-ins: each volume set looks at the volume again on a goroutine of the deck's,
+	// and the deck stops, waiting for them, before the stand-ins are put back.
+	d := newTestDeck(t)
 
 	volume := func(level string) int {
 		status, _ := d.Perform("music", "", url.Values{"do": {"volume"}, "level": {level}})

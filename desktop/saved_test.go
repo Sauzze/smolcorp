@@ -81,7 +81,7 @@ func TestSessionsInPanesAreBackOnTheirKeysAfterARestart(t *testing.T) {
 	t.Cleanup(func() { paneRunsAgent = saved })
 	// s1's pane has closed meanwhile.
 	paneRunsAgent = func(pane commandTab, _ Agent) bool { return pane.id != "%1" }
-	after := NewDeck()
+	after := startDeck(t)
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		after.mu.Lock()
@@ -114,7 +114,7 @@ func TestALaunchersSessionIsBackWhenItConnectsAgain(t *testing.T) {
 		Claude, "launcher:L2", "", nowMillis())
 	savedFrom(t, d, 0)
 
-	after := NewDeck()
+	after := startDeck(t)
 	if len(after.sessions.All()) != 0 {
 		t.Fatal("a launcher's session is back before its launcher is")
 	}

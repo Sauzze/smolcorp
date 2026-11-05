@@ -425,6 +425,35 @@ final class BotFloorTests: XCTestCase {
         }
     }
 
+    /// With every key taken, neither a bot from upstairs nor an agent put there goes down to the ground floor, and
+    /// the office says what makes room, as the Windows and Linux app does: no desk is added any more.
+    func testNobodyFromUpstairsIsPutOnAFullGroundFloorAndTheOfficeSaysWhatMakesRoom() {
+        movingBots {
+            // Three keys in the settings too, which `hasFreeKey` asks, put back after.
+            let keysBefore = Config.shared.layout.keys
+            defer { Config.shared.layout.keys = keysBefore }
+            Config.shared.layout.keys = .fixed(3)
+            let deck = quietDeck()
+            deck.layoutConfig.layout.keys = .fixed(3)
+            for (n, id) in ["s0", "s1", "s2", "s3"].enumerated() {
+                deck.sessions.apply(["hook_event_name": "UserPromptSubmit", "session_id": id, "cwd": "/work/\(id)"],
+                                    agent: .claude, tab: "tty:/dev/\(id)", startedIn: "", at: 10 + Double(n))
+            }
+            XCTAssertEqual(deck.move("s3", to: "1", remember: false).status, 204)
+            Config.shared.cloudBots = [CloudBot(id: "mini", name: "Mini Manager")]
+            deck.cloud.configure(Config.shared.cloudBots)
+            XCTAssertEqual(keys(deck), ["s0", "s1", "s2"])
+            for id in ["cloud-mini", "s3"] {
+                let refused = deck.move(id, to: "0", remember: false)
+                XCTAssertEqual(refused.status, 409, id)
+                XCTAssertEqual(String(decoding: refused.body, as: UTF8.self),
+                               "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room.", id)
+            }
+            XCTAssertEqual(Config.shared.cloudBots.map(\.floor), [""], "the bot still where new bots go")
+            XCTAssertEqual(seats(deck)["s3"]?.floor, 1, "the agent still on 2F")
+        }
+    }
+
     func testABotWithNoDeskOnAnyFloorIsNamedForSetup() {
         let deck = quietDeck()
         deck.layoutConfig.layout.keys = .fixed(3)
@@ -473,7 +502,12 @@ final class BotFloorTests: XCTestCase {
         XCTAssertTrue(page.contains("textContent: 'New bots go to'"))
         XCTAssertTrue(page.contains("send({ botFloor: Number(newFloor.value) })"))
         XCTAssertTrue(page.contains("[['', `Its folder’s floor, or where new bots go (${floorName(newBots)})`], ['ground', floorName(0)]"))
-        XCTAssertTrue(page.contains("every floor is full. Hide a bot, or free or add a desk, to make room."))
+        // What makes room now, in the words of the bots' own buttons (Hide only for a bot the Mac found in the Grok Bot app):
+        // "Hide or remove" where one of them says Hide. No desk is added any more.
+        XCTAssertTrue(page.contains("const hides = bots.detects && (bots.bots || []).some((bot) => bot.fromApp);"))
+        XCTAssertTrue(page.contains("every floor is full. ${hides ? 'Hide or remove' : 'Remove'} a bot, or free a desk, to make room."))
+        XCTAssertTrue(page.contains("textContent = bots.detects && bot.fromApp ? 'Hide' : 'Remove'"))
+        XCTAssertFalse(page.contains("add a desk"))
         XCTAssertFalse(page.contains("there can be 9 cloud bots"))
         XCTAssertFalse(page.contains("Upstairs, where there’s room"))
     }

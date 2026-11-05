@@ -179,7 +179,7 @@ func TestHugeTextIsCutQuickly(t *testing.T) {
 	if got := oneLine(strings.Repeat("é", 1<<20), commandLimit); len([]rune(got)) != commandLimit {
 		t.Fatalf("cut to %d characters, want %d", len([]rune(got)), commandLimit)
 	}
-	if took := time.Since(start); took > time.Second {
+	if took := time.Since(start); took > time.Second*raceSlowdown {
 		t.Fatalf("cutting a megabyte took %v", took)
 	}
 }

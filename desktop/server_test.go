@@ -56,10 +56,20 @@ func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
 func newTestDeck(t *testing.T) *Deck {
 	t.Helper()
 	isolate(t)
-	d := NewDeck()
-	t.Cleanup(d.stopWatchers)
+	d := startDeck(t)
 	// No coding agent is looked for: the tests' own say which are here.
 	d.summaryProviders.set(map[summaryProvider]providerState{})
+	return d
+}
+
+// startDeck starts a deck on the folders the test has set up, as the app does at each start, and
+// stops its rounds at the end (see deckRounds), so it never reads the stand-ins a later test puts in.
+// A stand-in the deck's rounds or looks read goes in before the deck starts: cleanups run last
+// first, so it is put back once the deck has stopped.
+func startDeck(t *testing.T) *Deck {
+	t.Helper()
+	d := NewDeck()
+	t.Cleanup(d.stopWatchers)
 	return d
 }
 
@@ -226,8 +236,8 @@ func TestHiringIsSetUpOnlyWhenEveryPartIsRight(t *testing.T) {
 }
 
 func TestHiringCantBeTurnedOnWithNoFolderAndTheOfficeSaysWhy(t *testing.T) {
-	d := newTestDeck(t)
 	fakeHiring(t, "") // hiring can open here
+	d := newTestDeck(t)
 	setUp := func(query string) int {
 		return serve(t, d, call{method: "POST", target: "/setup/hiring?" + query, host: "localhost:7710", from: thisComputer,
 			headers: map[string]string{setupHeader: "1"}}).Code
@@ -266,9 +276,9 @@ func TestHiringCantBeTurnedOnWithNoFolderAndTheOfficeSaysWhy(t *testing.T) {
 // Where hiring can't open at all, the folder isn't what blocks it: the switch
 // can still be turned on, for firing, and nothing says to choose a folder.
 func TestWhereHiringCantOpenTheSwitchNeedsNoFolder(t *testing.T) {
-	d := newTestDeck(t)
 	fakeHiring(t, "")
 	installedOpeners = func() []hireOpener { return nil }
+	d := newTestDeck(t)
 	if canHireHere() {
 		t.Fatal("canHireHere is true with no terminal and no tmux")
 	}
@@ -481,7 +491,7 @@ func TestTheLinkGivesThePageASessionCookieThatIsNotTheKey(t *testing.T) {
 		t.Errorf("the page asking for a pairing code: %d, want %d", paired.Code, http.StatusOK)
 	}
 	// Each start has a new key and no sessions, so a link or cookie from before stops working.
-	again := NewDeck()
+	again := startDeck(t)
 	if again.access.SetupKey == d.access.SetupKey || again.access.IsSetupSession(cookie.Value) {
 		t.Error("a new start kept the setup key or a session")
 	}

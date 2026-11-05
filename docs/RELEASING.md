@@ -58,7 +58,7 @@ them it signs ad hoc, as it always has.
 | Variable | What it does |
 |---|---|
 | `SMOLCORP_DEVELOPER_ID` | Signs the screen saver, the app and the DMG with this Developer ID Application certificate, with the hardened runtime on and a secure timestamp. The entitlements are in `packaging/macos/Smolcorp.entitlements`: Apple Events (for Terminal, Spotify and Music) and the mic (for dictation). |
-| `SMOLCORP_NOTARY_PROFILE` | Sends the DMG to Apple's notary service and waits for it, then staples the ticket to the DMG and to the app before zipping it, so both open without a warning, even offline. Needs `SMOLCORP_DEVELOPER_ID`. |
+| `SMOLCORP_NOTARY_PROFILE` | Sends the DMG to Apple's notary service and waits for it, staples the ticket to the app, then makes the DMG again around it and has that notarised and stapled too (two submissions), so the DMG, the app in it and the zipped app each carry a ticket. Needs `SMOLCORP_DEVELOPER_ID`. |
 
 ### Setting it up once
 
@@ -124,5 +124,6 @@ stops. See why with:
 xcrun notarytool log <submission-id> --keychain-profile smolcorp-notary
 ```
 
-Once releases are notarised, the README's install steps can drop the
-**Open Anyway** step.
+Releases are notarised since 1.24.2, so the README's and FIRST-SETUP.md's
+install steps have no **Open Anyway** step. A release made without
+`SMOLCORP_NOTARY_PROFILE` would need it back.

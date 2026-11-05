@@ -433,7 +433,7 @@ func TestWhoMayUseTheMailRoutes(t *testing.T) {
 func TestTheOutboxSurvivesARestart(t *testing.T) {
 	m := newMailDeck(t)
 	m.send(t, asGM, `{"to":"Rev","text":"remember me","id":"keep-1"}`)
-	again := NewDeck()
+	again := startDeck(t)
 	row, ok := again.mail.get("keep-1")
 	if !ok || row.Text != "remember me" || row.State != mailQueued {
 		t.Errorf("after a restart: %+v %v", row, ok)

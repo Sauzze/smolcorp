@@ -1366,7 +1366,7 @@ final class Deck {
             guard floor == 0 || hasRoom(on: floor, besides: id) else { return .status(409, "\(name) is full.") }
             // At a key already, as where new bots go: it keeps that one.
             guard floor > 0 || hasFreeKey() || layout().keys.contains(where: { $0.session?.id == id }) else {
-                return .status(409, "Every desk is taken. Fire someone, or add a desk, first.")
+                return .status(409, "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room.")
             }
             config.cloudBots = config.cloudBots.map { var b = $0; if b.id == bot.id { b.floor = CloudBot.floor(at: floor) }; return b }
             config.save()
@@ -1385,7 +1385,7 @@ final class Deck {
             floorOf[id] = 0
             guard layout().keys.contains(where: { $0.session?.id == id }) else {
                 (floorOf[id], seatOf[id]) = before
-                return .status(409, "Every desk is taken. Fire someone, or add a desk, first.")
+                return .status(409, "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room.")
             }
         }
         floorOf[id] = floor
@@ -1531,7 +1531,7 @@ final class Deck {
         var expected = desk
         if desk == nil {
             if case .fixed = Config.shared.layout.keys {
-                guard let free else { return done(.status(409, "Every desk is taken. Fire someone, or add a desk, first.")) }
+                guard let free else { return done(.status(409, "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room.")) }
                 desk = free
                 expected = free
             } else {

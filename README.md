@@ -237,9 +237,8 @@ that needs no Accessibility at all.
 
 ## Install
 
-On the Mac, Smolcorp is in **beta**, signed with a Developer ID. If macOS says
-it can't check the app the first time you open it, see
-[Download the app](#download-the-app). On Windows and Linux it's an **alpha**,
+On the Mac, Smolcorp is in **beta**, signed with a Developer ID and notarised
+by Apple. On Windows and Linux it's an **alpha**,
 still in testing: the Windows build isn't signed yet, so SmartScreen warns you
 the first time.
 
@@ -278,10 +277,8 @@ If `~/.local/bin` isn't on your PATH, the installer prints the line to add
    folder beside it. Then open Smolcorp from your Applications folder, and
    eject the **Smolcorp** disk in Finder's sidebar.
 
-   The first time, macOS may say it can't check the app. Open **System
-   Settings → Privacy & Security** and click **Open Anyway**, once. If macOS
-   only asks whether to open an app downloaded from the internet, click
-   **Open**.
+   The app is notarised by Apple. The first time, macOS asks whether to
+   open an app downloaded from the internet: click **Open**.
 
    If setup then says macOS is opening a temporary copy of Smolcorp, even
    though it is in Applications, the download's mark is still on it. Smolcorp

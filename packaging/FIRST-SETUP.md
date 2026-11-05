@@ -30,9 +30,9 @@ described here.
   installs to `~/.local/bin` and runs `smolcorp setup` itself.
 - **Mac** (`Smolcorp.app`, or `Smolcorp.dmg`): if it's a DMG, tell me to
   open it and drag Smolcorp to Applications, then open it once from there.
-  It's signed with a Developer ID. If macOS says it can't check the app, tell
-  me to open System Settings → Privacy & Security and click **Open Anyway**,
-  once. Then run `/Applications/Smolcorp.app/Contents/MacOS/AgentDeck --setup`. If its
+  It's signed with a Developer ID and notarised by Apple: the first time,
+  macOS asks whether to open an app downloaded from the internet; tell me
+  to click **Open**. Then run `/Applications/Smolcorp.app/Contents/MacOS/AgentDeck --setup`. If its
   checklist says macOS is opening a temporary copy of an app that is in
   Applications, tell me to quit Smolcorp, run
   `xattr -d com.apple.quarantine /Applications/Smolcorp.app` myself in

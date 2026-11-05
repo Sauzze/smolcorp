@@ -473,7 +473,7 @@ func TestALongLineIsRedactedQuickly(t *testing.T) {
 	if isSecretLine(line) || !isSecretLine(line+" mongodb+srv://app:"+"hunter2"+"@db.local/app") {
 		t.Fatal("wrong on a long line")
 	}
-	if took := time.Since(start); took > 2*time.Second {
+	if took := time.Since(start); took > 2*time.Second*raceSlowdown {
 		t.Fatalf("took %v", took)
 	}
 }
@@ -483,7 +483,7 @@ func TestARunOfJWTStartsIsRedactedQuickly(t *testing.T) {
 	if isSecretLine(strings.Repeat("eyJ", 66_667)) {
 		t.Fatal("a run of eyJ is no JWT")
 	}
-	if took := time.Since(start); took > 2*time.Second {
+	if took := time.Since(start); took > 2*time.Second*raceSlowdown {
 		t.Fatalf("took %v", took)
 	}
 	// A JWT is still caught, alone or after a word; put together here, so no file holds one whole.
