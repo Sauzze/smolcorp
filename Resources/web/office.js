@@ -1242,6 +1242,13 @@
       corner: 'apple1trees', desk: 'white', chair: 'teal', pet: 'owl', monitor: 'standard', staff: 'some',
       wall: ['window', 'wessunburst', 'christianwreath', 'moonwindow', 'window'] },
       things: ['goblet', 'plasmaball', 'roses'] },
+    // A zoo: everyone in one of the nine animal onesies (see STYLE_DRESS), at desks out on the lawn among the animals' houses: the
+    // polar window, the zoo's map, the savanna, the reef tank and the big cat at its window; a pond in the lounge with a penguin
+    // about, and the keeper's megaphone. Only pieces other styles already have, so none of them moves shelf in setup.
+    zoo: { name: 'Zoo', room: { workspace: 'desk', floor: 'grass', paint: 'cream', lounge: 'sand',
+      corner: 'koipond', desk: 'wood', chair: 'green', pet: 'penguin', monitor: 'standard', mic: 'megaphone', staff: 'some',
+      wall: ['arcticbasewindow', 'trail', 'museumdiorama', 'aquariumreef', 'catcafewindow'] },
+      things: ['penguin', 'tikibananas', 'wesbinoculars', 'circusticket'] },
   };
   /** What a style furnishes. The sky, the seasons, the sound and your team stay as you have them. */
   const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff'];
@@ -4323,6 +4330,16 @@
     olympushermes: { style: 'olympushermes', shirt: 0xf4f2ea, pants: 0xf4f2ea, legs: 'skin', shoes: 0xc89a4a, fixed: true },
     olympusares: { style: 'olympusares', shirt: 0xc8903a, pants: 0xb02a2a, legs: 'skin', shoes: 0xa87830, fixed: true },
     olympusaphrodite: { style: 'olympusaphrodite', shirt: 0xf2a0b0, robe: true, shoes: 0xd8a840, fixed: true },
+    // The zoo onesies (their hoods drawn by costumeHood, in drawOffice): each animal in its own colours, whatever the agent's
+    zoolion: { style: 'zoolion', shirt: 0xd8a040, pants: 0xd8a040, shoes: 0x8a5a2a, fixed: true },
+    zooelephant: { style: 'zooelephant', shirt: 0x9a9ea8, pants: 0x9a9ea8, shoes: 0x6e727c, fixed: true },
+    zoogiraffe: { style: 'zoogiraffe', shirt: 0xf0c050, pants: 0xf0c050, shoes: 0x5a3418, fixed: true },
+    zoozebra: { style: 'zoozebra', shirt: 0xf4f4f0, pants: 0xf4f4f0, shoes: 0x1a1a1e, fixed: true },
+    zoopenguin: { style: 'zoopenguin', shirt: 0x1e1e26, pants: 0x1e1e26, shoes: 0xf08a20, fixed: true },
+    zoopanda: { style: 'zoopanda', shirt: 0xf4f4f0, sleeves: 0x1e1e22, pants: 0x1e1e22, shoes: 0x1e1e22, fixed: true },
+    zoomonkey: { style: 'zoomonkey', shirt: 0x7a4a2a, pants: 0x7a4a2a, shoes: 0x5a3420, fixed: true },
+    zooflamingo: { style: 'zooflamingo', shirt: 0xf28aa8, pants: 0xf28aa8, shoes: 0xd85a7a, fixed: true },
+    zoocroc: { style: 'zoocroc', shirt: 0x4a8a3a, pants: 0x4a8a3a, shoes: 0x2e5a22, fixed: true },
   };
   /**
    * What an agent left on Auto wears for the workspace they're at, in their
@@ -4496,6 +4513,8 @@
     castle: ['castleking', 'castlequeen', 'castlejester', 'castleherald', 'castleknight', 'castlepage', 'castlecook', 'castlefalconer', 'castlelady'],
     // Mount Olympus: the Greek gods, one each by project name
     olympus: ['olympuszeus', 'olympushera', 'olympusposeidon', 'olympusathena', 'olympusapollo', 'olympusartemis', 'olympushermes', 'olympusares', 'olympusaphrodite'],
+    // The zoo: everyone in one of the nine animal onesies
+    zoo: ['zoolion', 'zooelephant', 'zoogiraffe', 'zoozebra', 'zoopenguin', 'zoopanda', 'zoomonkey', 'zooflamingo', 'zoocroc'],
   };
   /** What the room's style dresses `seed` (a project's name) in, if it dresses each person differently. */
   function styleDressOf(seed) {
@@ -4620,7 +4639,7 @@
       'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee', 'coachpolo', 'blazer', 'werewolf', 'santa', 'xmasjumper',
       'beanie', 'cableknit', 'redsuit', 'heartsweater', 'tangsuit', 'playoffjersey', 'superfan', 'techwear', 'submariner', 'barista', 'cowboy', 'partyhat', 'sequin',
       'artdirector', 'lawyer', 'therapist', 'plumber', 'gmexec', 'gmcoach', 'gmtycoon',
-      'detective', 'hardhat', 'librarian', 'janitor', 'firefighter', 'pilot', 'postman', 'accountant', 'marketer', 'securityguard', 'chef', 'spacesuit', 'kimono', 'cultistrobe', 'investigator', 'deepone', 'professor', 'divingsuit', 'fleecevest', 'bullparty', 'blanketcape', 'denhoodie', 'homejersey', 'lakersjersey', 'celticsjersey', 'warriorsjersey', 'knicksjersey', 'bullsjersey', 'heatjersey', 'spursjersey', 'thunderjersey', 'wolvesjersey', 'nuggetsjersey', 'hawksjersey', 'netsjersey', 'hornetsjersey', 'cavsjersey', 'mavsjersey', 'pistonsjersey', 'rocketsjersey', 'pacersjersey', 'clippersjersey', 'grizzliesjersey', 'bucksjersey', 'pelicansjersey', 'magicjersey', 'sixersjersey', 'sunsjersey', 'blazersjersey', 'kingsjersey', 'raptorsjersey', 'jazzjersey', 'wizardsjersey', 'marvel1cap', 'marvel1spidey', 'marvel1thor', 'marvel1widow', 'marvel2starlord', 'marvel2strange', 'marvel2panther', 'marvel2loki', 'ironmanmk3', 'ironmanmk2', 'ironmanwarmachine', 'batcavebatsuit', 'batcaverobin', 'batcavealfred', 'batcavecatwoman', 'dcmixsuperman', 'dcmixwonder', 'dcmixflash', 'dcmixgreenlantern', 'pokemontrainer', 'pokemonrocket', 'pokemonnurse', 'pokemonoak', 'loljinx', 'lolahri', 'lolgaren', 'lollux', 'wowpaladin', 'wowgrunt', 'wowmage', 'wowelf', 'gtatommy', 'gtacj', 'gtacop', 'gtaheist', 'destinyhunterwear', 'destinytitanwear', 'destinywarlockwear', 'destinyexo', 'starwarsjedi', 'starwarsvader', 'starwarsstormtrooper', 'starwarsprincess', 'girly1gingham', 'girly1cowgirl', 'girly1tracksuit', 'girly1gown', 'girly2kittyhood', 'girly2bunnyhood', 'girly2sailor', 'girly2overalls', 'narcosboss', 'narcosdea', 'narcosmiami', 'narcoshawaiian', 'apple1turtleneck', 'apple1genius', 'apple1headset', 'apple1hoodie', 'apple2bowtie', 'apple2woz', 'apple2rainbowtee', 'apple2runner', 'jewishkippah', 'jewishtichel', 'jewishknit', 'jewishdress', 'muslimhijab', 'muslimabaya', 'muslimthobe', 'muslimkurta', 'christianpendant', 'christianchoir', 'christiansuit', 'christianlace', 'buddhistrobe', 'buddhistmaroonrobe', 'buddhistlinen', 'buddhistmala', 'ironmantony2', 'ironmantony2b', 'ironmantony2c', 'ironmanmk1', 'ironmanmk4', 'ironmanmk5', 'ironmanmk6', 'ironmanmk7', 'ironmanmk15', 'ironmanmk16', 'ironmanmk17', 'ironmanmk33', 'ironmanmk38', 'ironmanmk42', 'ironmanmk43', 'ironmanmk45', 'ironmanmk46', 'ironmanmk47', 'ironmanmk50', 'ironmanmk85', 'ironmanpatriot', 'ironmanironspider', 'ironmanrescue', 'volcanojumpsuit', 'volcanovillain', 'volcanoheatsuit', 'volcanoguard', 'kitchenchef', 'kitchensous', 'kitchenpartie', 'kitchencommis', 'hospitalscrubs', 'hospitaldoctor', 'hospitalnurse', 'hospitalsurgeon', 'noirtrench', 'noiruniform', 'noirsuspenders', 'noirreporter', 'madlabcoat', 'madlabapron', 'madlabassistant', 'madlabhazmat', 'casinodealer', 'casinotux', 'casinohighroller', 'casinoshowman', 'orientconductor', 'orientattendant', 'orienttraveller', 'orientpearls', 'halloweendxvampire', 'halloweendxplague', 'halloweendxscarecrow', 'halloweendxspider', 'catcafebarista', 'catcafeears', 'catcafejumper', 'catcafeoveralls', 'spiderversemiles', 'spiderversegwensuit', 'spiderversepeterb', 'spiderversepunk', 'xmenwolverine', 'xmencyclops', 'xmengambit', 'xmenstormsuit', 'f1racesuit', 'f1silversuit', 'f1pitcrew', 'f1teampolo', 'ufcrashguard', 'ufcreferee', 'ufccornerhoodie', 'ufcwalkout', 'nyloftpeacoat', 'nyloftflannel', 'nyloftturtleneck', 'nyloftleather', 'pariscafemariniere', 'pariscafegarcon', 'pariscafetrench', 'pariscafepearls', 'muertoscatrinadress', 'muertoscharro', 'muertosblouse', 'muertosbones', 'submarinedeepcoverall', 'submarinedeepwetsuit', 'submarinedeeplabcoat', 'submarinedeepsweater', 'arcticbaseparka', 'arcticbasefleece', 'arcticbasecoldsuit', 'arcticbaseknit', 'sakurayukata', 'sakuracardigan', 'sakurasailor', 'sakuraflorist', 'pottergryffindor', 'potterslytherin', 'potterquidditch', 'potterheadmaster', 'lotrgandalf', 'lotrhobbit', 'lotrelf', 'lotrranger', 'breakingbadhazmat', 'breakingbadheisenberg', 'breakingbadjesse', 'breakingbadsaul', 'strangereleven', 'strangerhellfiretee', 'strangerscoopsuniform', 'strangerhopper', 'gotnightswatch', 'gotlannisterred', 'gotdaenerys', 'gotwhitewalker', 'simpsonshomer', 'simpsonsmarge', 'simpsonsbart', 'simpsonslisa', 'bondtux', 'bondwhitejacket', 'bondmoneypenny', 'bondoddjob', 'dunestillsuit', 'dunefremen', 'dunebenegesserit', 'duneharkonnenblack', 'onepieceluffy', 'onepiecezoro', 'onepiecenami', 'onepiecesanji', 'eldenringtarnished', 'eldenringmaiden', 'eldenringvalkyrie', 'eldenringwitch', 'sevmdr', 'sevmanager', 'sevwellness', 'sevsecurity', 'offdwight', 'offjim', 'offmichael', 'offpam', 'peakytommy', 'peakyarthur', 'peakypolly', 'peakybarman', 'madmdon', 'madmroger', 'madmjoan', 'madmpeggy', 'squidplayer', 'squidguard', 'squidfrontman', 'squidvip', 'boyshomelander', 'boysstarlight', 'boysbutcher', 'boysexec', 'falloutvaultsuit', 'falloutranger', 'falloutraider', 'falloutscientist', 'rickcoat', 'rickmorty', 'ricksummer', 'rickbirdperson', 'mirrorsuit', 'mirrorjumpsuit', 'mirrortech', 'mirrorgown', 'westcowboy', 'westhost', 'westtech', 'westgunslinger', 'bttfmarty', 'bttfdoc', 'bttffuture', 'bttfsodajerk', 'jpranger', 'jpscientist', 'jpvisitor', 'jpnedry', 'wicksuit', 'wickconciergeoutfit', 'wicksommelier', 'wickadjudicator', 'kingsmangalahad', 'kingsmanmerlin', 'kingsmantailor', 'kingsmanagent', 'wonkawonka', 'wonkaoompa', 'wonkacharlie', 'wonkaguide', 'wesgustave', 'weszero', 'wesagatha', 'wesguest', 'mibsuit', 'mibzed', 'mibalien', 'mibworm', 'tronblue', 'tronorange', 'tronflynn', 'tronsiren', 'dbzgoku', 'dbzvegeta', 'dbzpiccolo', 'dbzstudent', 'amongusred', 'amonguscyan', 'amongusyellow', 'amongusimposter', 'tokyohappi', 'tokyokimono', 'tokyosalaryman', 'tokyostreet', 'egyptking', 'egyptpriest', 'egyptqueen', 'egyptworker', 'vikingwarrior', 'vikingmaiden', 'vikingjarl', 'vikingseer', 'aztecjaguarw', 'azteceaglew', 'aztecpriest', 'aztecnoble', 'obsastronomer', 'obsprofessor', 'obsastronaut', 'obsstargazer', 'tikibartender', 'tikisurfer', 'tikiluau', 'tikitourist', 'dinerwaitress', 'dinercook', 'dinergreaser', 'dinerpoodle', 'courtjudge', 'courtlawyer', 'courtbailiff', 'courtclerk', 'artsmock', 'artberet', 'artsculptor', 'artstudent', 'aquariumwetsuit', 'aquariumkeeper', 'aquariumbiologist', 'aquariumscuba', 'circusringmaster', 'circusclown', 'circusacrobat', 'circusstrongman', 'museumcurator', 'museumpaleo', 'museumdocent', 'museumprofessor', 'northpolesanta', 'northpoleelf', 'northpolemrsclaus', 'northpolesweater', 'soundstagedirector', 'soundstagestarlet', 'soundstagecrew', 'soundstagetux', 'cultrobe', 'cultleader', 'cultelder', 'cultinitiate', 'esportsjersey', 'esportshoodie', 'esportscaster', 'esportspro', 'cavemanfur', 'cavemanhunter', 'cavemanshaman', 'cavemanchief', 'lodgerobe', 'lodgemaster', 'lodgeapron', 'lodgeguard', 'prepperhazmat', 'prepperfatigues', 'prepperbugout', 'prepperranger', 'paradisepresident', 'paradisesecret', 'paradiseaide', 'paradisehazmat', 'startrekgold', 'startrekblue', 'startrekred', 'startrekcaptain', 'gentlementweedsuit', 'gentlemengamekeeper', 'gentlemengangster', 'gentlementracksuit', 'geoderuby', 'geodeopal', 'geodesapphire', 'geodeamber', 'geodegarnet', 'geodetopaz', 'geodepearl', 'geodemoonstone', 'geodemalachite', 'geodejade', 'geodelapis', 'geodeamethyst', 'geodeobsidian', 'castleking', 'castlequeen', 'castlejester', 'castleherald', 'castleknight', 'castlepage', 'castlecook', 'castlefalconer', 'castlelady', 'olympuszeus', 'olympushera', 'olympusposeidon', 'olympusathena', 'olympusapollo', 'olympusartemis', 'olympushermes', 'olympusares', 'olympusaphrodite'],
+      'detective', 'hardhat', 'librarian', 'janitor', 'firefighter', 'pilot', 'postman', 'accountant', 'marketer', 'securityguard', 'chef', 'spacesuit', 'kimono', 'cultistrobe', 'investigator', 'deepone', 'professor', 'divingsuit', 'fleecevest', 'bullparty', 'blanketcape', 'denhoodie', 'homejersey', 'lakersjersey', 'celticsjersey', 'warriorsjersey', 'knicksjersey', 'bullsjersey', 'heatjersey', 'spursjersey', 'thunderjersey', 'wolvesjersey', 'nuggetsjersey', 'hawksjersey', 'netsjersey', 'hornetsjersey', 'cavsjersey', 'mavsjersey', 'pistonsjersey', 'rocketsjersey', 'pacersjersey', 'clippersjersey', 'grizzliesjersey', 'bucksjersey', 'pelicansjersey', 'magicjersey', 'sixersjersey', 'sunsjersey', 'blazersjersey', 'kingsjersey', 'raptorsjersey', 'jazzjersey', 'wizardsjersey', 'marvel1cap', 'marvel1spidey', 'marvel1thor', 'marvel1widow', 'marvel2starlord', 'marvel2strange', 'marvel2panther', 'marvel2loki', 'ironmanmk3', 'ironmanmk2', 'ironmanwarmachine', 'batcavebatsuit', 'batcaverobin', 'batcavealfred', 'batcavecatwoman', 'dcmixsuperman', 'dcmixwonder', 'dcmixflash', 'dcmixgreenlantern', 'pokemontrainer', 'pokemonrocket', 'pokemonnurse', 'pokemonoak', 'loljinx', 'lolahri', 'lolgaren', 'lollux', 'wowpaladin', 'wowgrunt', 'wowmage', 'wowelf', 'gtatommy', 'gtacj', 'gtacop', 'gtaheist', 'destinyhunterwear', 'destinytitanwear', 'destinywarlockwear', 'destinyexo', 'starwarsjedi', 'starwarsvader', 'starwarsstormtrooper', 'starwarsprincess', 'girly1gingham', 'girly1cowgirl', 'girly1tracksuit', 'girly1gown', 'girly2kittyhood', 'girly2bunnyhood', 'girly2sailor', 'girly2overalls', 'narcosboss', 'narcosdea', 'narcosmiami', 'narcoshawaiian', 'apple1turtleneck', 'apple1genius', 'apple1headset', 'apple1hoodie', 'apple2bowtie', 'apple2woz', 'apple2rainbowtee', 'apple2runner', 'jewishkippah', 'jewishtichel', 'jewishknit', 'jewishdress', 'muslimhijab', 'muslimabaya', 'muslimthobe', 'muslimkurta', 'christianpendant', 'christianchoir', 'christiansuit', 'christianlace', 'buddhistrobe', 'buddhistmaroonrobe', 'buddhistlinen', 'buddhistmala', 'ironmantony2', 'ironmantony2b', 'ironmantony2c', 'ironmanmk1', 'ironmanmk4', 'ironmanmk5', 'ironmanmk6', 'ironmanmk7', 'ironmanmk15', 'ironmanmk16', 'ironmanmk17', 'ironmanmk33', 'ironmanmk38', 'ironmanmk42', 'ironmanmk43', 'ironmanmk45', 'ironmanmk46', 'ironmanmk47', 'ironmanmk50', 'ironmanmk85', 'ironmanpatriot', 'ironmanironspider', 'ironmanrescue', 'volcanojumpsuit', 'volcanovillain', 'volcanoheatsuit', 'volcanoguard', 'kitchenchef', 'kitchensous', 'kitchenpartie', 'kitchencommis', 'hospitalscrubs', 'hospitaldoctor', 'hospitalnurse', 'hospitalsurgeon', 'noirtrench', 'noiruniform', 'noirsuspenders', 'noirreporter', 'madlabcoat', 'madlabapron', 'madlabassistant', 'madlabhazmat', 'casinodealer', 'casinotux', 'casinohighroller', 'casinoshowman', 'orientconductor', 'orientattendant', 'orienttraveller', 'orientpearls', 'halloweendxvampire', 'halloweendxplague', 'halloweendxscarecrow', 'halloweendxspider', 'catcafebarista', 'catcafeears', 'catcafejumper', 'catcafeoveralls', 'spiderversemiles', 'spiderversegwensuit', 'spiderversepeterb', 'spiderversepunk', 'xmenwolverine', 'xmencyclops', 'xmengambit', 'xmenstormsuit', 'f1racesuit', 'f1silversuit', 'f1pitcrew', 'f1teampolo', 'ufcrashguard', 'ufcreferee', 'ufccornerhoodie', 'ufcwalkout', 'nyloftpeacoat', 'nyloftflannel', 'nyloftturtleneck', 'nyloftleather', 'pariscafemariniere', 'pariscafegarcon', 'pariscafetrench', 'pariscafepearls', 'muertoscatrinadress', 'muertoscharro', 'muertosblouse', 'muertosbones', 'submarinedeepcoverall', 'submarinedeepwetsuit', 'submarinedeeplabcoat', 'submarinedeepsweater', 'arcticbaseparka', 'arcticbasefleece', 'arcticbasecoldsuit', 'arcticbaseknit', 'sakurayukata', 'sakuracardigan', 'sakurasailor', 'sakuraflorist', 'pottergryffindor', 'potterslytherin', 'potterquidditch', 'potterheadmaster', 'lotrgandalf', 'lotrhobbit', 'lotrelf', 'lotrranger', 'breakingbadhazmat', 'breakingbadheisenberg', 'breakingbadjesse', 'breakingbadsaul', 'strangereleven', 'strangerhellfiretee', 'strangerscoopsuniform', 'strangerhopper', 'gotnightswatch', 'gotlannisterred', 'gotdaenerys', 'gotwhitewalker', 'simpsonshomer', 'simpsonsmarge', 'simpsonsbart', 'simpsonslisa', 'bondtux', 'bondwhitejacket', 'bondmoneypenny', 'bondoddjob', 'dunestillsuit', 'dunefremen', 'dunebenegesserit', 'duneharkonnenblack', 'onepieceluffy', 'onepiecezoro', 'onepiecenami', 'onepiecesanji', 'eldenringtarnished', 'eldenringmaiden', 'eldenringvalkyrie', 'eldenringwitch', 'sevmdr', 'sevmanager', 'sevwellness', 'sevsecurity', 'offdwight', 'offjim', 'offmichael', 'offpam', 'peakytommy', 'peakyarthur', 'peakypolly', 'peakybarman', 'madmdon', 'madmroger', 'madmjoan', 'madmpeggy', 'squidplayer', 'squidguard', 'squidfrontman', 'squidvip', 'boyshomelander', 'boysstarlight', 'boysbutcher', 'boysexec', 'falloutvaultsuit', 'falloutranger', 'falloutraider', 'falloutscientist', 'rickcoat', 'rickmorty', 'ricksummer', 'rickbirdperson', 'mirrorsuit', 'mirrorjumpsuit', 'mirrortech', 'mirrorgown', 'westcowboy', 'westhost', 'westtech', 'westgunslinger', 'bttfmarty', 'bttfdoc', 'bttffuture', 'bttfsodajerk', 'jpranger', 'jpscientist', 'jpvisitor', 'jpnedry', 'wicksuit', 'wickconciergeoutfit', 'wicksommelier', 'wickadjudicator', 'kingsmangalahad', 'kingsmanmerlin', 'kingsmantailor', 'kingsmanagent', 'wonkawonka', 'wonkaoompa', 'wonkacharlie', 'wonkaguide', 'wesgustave', 'weszero', 'wesagatha', 'wesguest', 'mibsuit', 'mibzed', 'mibalien', 'mibworm', 'tronblue', 'tronorange', 'tronflynn', 'tronsiren', 'dbzgoku', 'dbzvegeta', 'dbzpiccolo', 'dbzstudent', 'amongusred', 'amonguscyan', 'amongusyellow', 'amongusimposter', 'tokyohappi', 'tokyokimono', 'tokyosalaryman', 'tokyostreet', 'egyptking', 'egyptpriest', 'egyptqueen', 'egyptworker', 'vikingwarrior', 'vikingmaiden', 'vikingjarl', 'vikingseer', 'aztecjaguarw', 'azteceaglew', 'aztecpriest', 'aztecnoble', 'obsastronomer', 'obsprofessor', 'obsastronaut', 'obsstargazer', 'tikibartender', 'tikisurfer', 'tikiluau', 'tikitourist', 'dinerwaitress', 'dinercook', 'dinergreaser', 'dinerpoodle', 'courtjudge', 'courtlawyer', 'courtbailiff', 'courtclerk', 'artsmock', 'artberet', 'artsculptor', 'artstudent', 'aquariumwetsuit', 'aquariumkeeper', 'aquariumbiologist', 'aquariumscuba', 'circusringmaster', 'circusclown', 'circusacrobat', 'circusstrongman', 'museumcurator', 'museumpaleo', 'museumdocent', 'museumprofessor', 'northpolesanta', 'northpoleelf', 'northpolemrsclaus', 'northpolesweater', 'soundstagedirector', 'soundstagestarlet', 'soundstagecrew', 'soundstagetux', 'cultrobe', 'cultleader', 'cultelder', 'cultinitiate', 'esportsjersey', 'esportshoodie', 'esportscaster', 'esportspro', 'cavemanfur', 'cavemanhunter', 'cavemanshaman', 'cavemanchief', 'lodgerobe', 'lodgemaster', 'lodgeapron', 'lodgeguard', 'prepperhazmat', 'prepperfatigues', 'prepperbugout', 'prepperranger', 'paradisepresident', 'paradisesecret', 'paradiseaide', 'paradisehazmat', 'startrekgold', 'startrekblue', 'startrekred', 'startrekcaptain', 'gentlementweedsuit', 'gentlemengamekeeper', 'gentlemengangster', 'gentlementracksuit', 'geoderuby', 'geodeopal', 'geodesapphire', 'geodeamber', 'geodegarnet', 'geodetopaz', 'geodepearl', 'geodemoonstone', 'geodemalachite', 'geodejade', 'geodelapis', 'geodeamethyst', 'geodeobsidian', 'castleking', 'castlequeen', 'castlejester', 'castleherald', 'castleknight', 'castlepage', 'castlecook', 'castlefalconer', 'castlelady', 'olympuszeus', 'olympushera', 'olympusposeidon', 'olympusathena', 'olympusapollo', 'olympusartemis', 'olympushermes', 'olympusares', 'olympusaphrodite', 'zoolion', 'zooelephant', 'zoogiraffe', 'zoozebra', 'zoopenguin', 'zoopanda', 'zoomonkey', 'zooflamingo', 'zoocroc'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
@@ -58172,6 +58191,12 @@
      */
     const CASTLE_GOLD = 0xe8b830, CASTLE_GOLD_LIGHT = 0xffe08a, CASTLE_GOLD_DARK = 0xa07818, CASTLE_STEEL = 0xb8bec8;
 
+    /*
+     * The zoo's onesies (zoo…): under each hood the wearer's hair is tucked in, so long hair or an afro never pokes out round it.
+     * Their own skin, hair colour, glasses and beard stay.
+     */
+    const zooTucked = { hairStyle: 'short' };
+
     const OUTFIT_PARTS = {
       marvel1widow: {
         // Black Widow (brand nod: Marvel): a black catsuit with a silver zip and a belt with the red hourglass buckle; long red hair; her wrist bites spark blue every so often
@@ -63899,6 +63924,288 @@
           costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
           // The apple held out past her hair, so it doesn't melt into it: lit on the top left, a leaf at its stalk
           fill(x + 5, top + 11, 2, 2, 0xe8b830); dot(x + 5, top + 11, 0xffe08a); dot(x + 6, top + 12, 0xa07818); dot(x + 6, top + 10, 0x4a8a3a);
+          return true;
+        },
+      },
+      zoolion: {
+        // The lion onesie: a golden suit with a cream belly, its hood ringed by a big shaggy mane falling over the shoulders, two little
+        // round ears on top. Now and then it roars: the mane bristles out and the mouth opens wide.
+        look: zooTucked,
+        front(x, y) {
+          // The cream belly, the zip, the suit lit on the left
+          fill(x - 1, y + 2, 3, 4, 0xf2e2b8); dot(x, y + 2, 0xb88a2a);
+          fill(x - 3, y + 2, 1, 4, 0xf0c060); fill(x + 3, y + 2, 1, 4, 0xa87820);
+        },
+        back(x, y) { fill(x - 3, y, 7, 2, 0xb8642a); dot(x + 1, y + 5, 0xb88a2a); },
+        head(x, top, look, away) {
+          const M = 0xb8642a, ML = 0xd8843a, MD = 0x8a4418, F = 0xe0aa48, FD = 0xb88a2a, roar = look.costumeRoar ? 1 : 0;
+          // The mane: a shaggy ring round the hood and under the chin, out over the shoulders; it bristles out further as it roars
+          const L = x - 5 - roar, R = x + 5 + roar, T = top - 3 - roar, B = top + 8 + roar;
+          fill(L, T + 1, x - 3 - L, B - T - 1, M); fill(x + 4, T + 1, R - x - 3, B - T - 1, M);
+          fill(x - 3, T, 7, top - 1 - T, M); fill(x - 3, top + 7, 7, B - top - 6, M);
+          for (let yy = T + 1; yy < B; yy += 2) { dot(L - 1, yy, M); dot(R + 1, yy + 1, MD); }
+          for (let xx = x - 3; xx <= x + 3; xx += 2) dot(xx, T - 1, ML);
+          fill(L, T + 1, 1, B - T - 1, ML); fill(R, T + 1, 1, B - T - 1, MD);
+          // The hood's golden fur inside it, round the face; two little round ears on top of the mane
+          fill(x - 3, top - 1, 7, 3, F); fill(x - 3, top + 2, 1, 5, F); fill(x + 3, top + 2, 1, 5, FD); dot(x - 3, top - 1, 0xf0c060);
+          fill(x - 4, T - 2, 2, 2, F); fill(x + 3, T - 2, 2, 2, FD); dot(x - 3, T - 1, 0x7a3a1a); dot(x + 3, T - 1, 0x7a3a1a);
+          if (away) { fill(x - 3, top + 2, 7, 5, M); return; }
+          // Roaring: the mouth wide open
+          if (roar) { fill(x - 1, top + 6, 3, 1, 0x5a1a1a); dot(x, top + 5, 0x5a1a1a); }
+        },
+        // Paws for hands; the roar's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeRoar = pose.kind !== 'walk' && every(look, 14, 1.4, 5) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0xb88a2a); costumeArm(x, top, 4, look, sleeve, 0xb88a2a);
+          return true;
+        },
+      },
+      zooelephant: {
+        // The elephant onesie: a grey suit, its hood with two great round ears pink inside and a trunk hanging down between the eyes,
+        // a little white tusk either side of it. Now and then the ears flap and the trunk swings up with a toot.
+        look: zooTucked,
+        front(x, y) {
+          // The paler belly, the suit lit on the left
+          fill(x - 1, y + 1, 3, 4, 0xb4b8c0); fill(x - 3, y, 1, 6, 0xb4b8c0); fill(x + 3, y, 1, 6, 0x6e727c);
+        },
+        back(x, y) { dot(x, y + 5, 0x6e727c); dot(x, y + 6, 0x4a4e58); },
+        head(x, top, look, away) {
+          const G = 0x9a9ea8, GL = 0xb8bcc6, GD = 0x6e727c, pink = 0xe8a8b4, toot = look.costumeToot;
+          costumeHood(x, top, G, GL, GD, away);
+          // The ears: great round flaps either side, pink inside, flapping as it toots
+          const flap = toot !== null && toot !== undefined && Math.floor(now * 6) % 2, ew = flap ? 2 : 3;
+          fill(x - 4 - ew, top - 1, ew, 7, GL); dot(x - 4 - ew, top - 1, G);
+          fill(x + 5, top - 1, ew, 7, GD); dot(x + 4 + ew, top - 1, G);
+          // From behind, the backs of the ears: grey, the pink only inside
+          if (away) return;
+          fill(x - 3 - ew, top, ew - 1, 5, pink); fill(x + 5, top, ew - 1, 5, pink);
+          // The trunk down between the eyes, or swung up with a toot: over the brow in its darker grey, so it shows on the hood, and
+          // out past it, its tip turned up; the toot puffs off the tip. The tusks.
+          if (toot !== null && toot !== undefined) {
+            dot(x, top + 2, G); dot(x, top + 1, GD); dot(x + 1, top, GD); dot(x + 2, top - 1, GD); dot(x + 3, top - 2, GD);
+            dot(x + 4, top - 3, G); dot(x + 4, top - 4, GL);
+            const k = (toot * 3) % 1, rise = Math.round(k * 2);
+            dot(x + 5 + rise, top - 4 - rise, WHITE, 0.8 * (1 - k)); dot(x + 6 + rise, top - 3 - rise, WHITE, 0.6 * (1 - k));
+          } else { fill(x, top + 2, 1, 4, G); dot(x, top + 6, GD); dot(x + 1, top + 6, GD); }
+          dot(x - 1, top + 5, 0xf6f4ee); dot(x + 1, top + 5, 0xf6f4ee);
+        },
+        // Grey paws; the toot's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeToot = pose.kind === 'walk' ? null : every(look, 14, 1.8, 4);
+          costumeArm(x, top, -4, look, sleeve, 0x6e727c); costumeArm(x, top, 4, look, sleeve, 0x6e727c);
+          return true;
+        },
+      },
+      zoogiraffe: {
+        // The giraffe onesie: a yellow suit with brown patches, its hood rising tall with patches of its own, two horns tipped in brown
+        // and little ears out to the sides. Now and then the ears flick and a long dark tongue curls out.
+        look: zooTucked,
+        front(x, y) {
+          // The patches, the suit lit on the left
+          for (const [dx, dy] of [[-2, 0], [1, 1], [-1, 3], [2, 3], [-3, 4], [0, 5]]) fill(x + dx, y + dy, 2, 1, 0xa86a2a);
+          fill(x - 3, y, 1, 4, 0xf8d878); fill(x + 3, y, 1, 3, 0xc8962a);
+        },
+        back(x, y) { for (const [dx, dy] of [[-2, 1], [1, 2], [-1, 4], [2, 5]]) fill(x + dx, y + dy, 2, 1, 0xa86a2a); },
+        head(x, top, look, away) {
+          const Y = 0xf0c050, YL = 0xf8d878, YD = 0xc8962a, spot = 0xa86a2a, flick = look.costumeFlick ? 1 : 0;
+          costumeHood(x, top, Y, YL, YD, away);
+          // Rising tall over the head, patched
+          fill(x - 2, top - 4, 5, 2, Y); dot(x - 2, top - 4, YL); dot(x + 2, top - 3, YD);
+          for (const [dx, dy] of [[-1, -3], [2, -1], [-3, 0], [1, 1], [-4, 3], [3, 4]]) dot(x + dx, top + dy, spot);
+          // The horns, tipped in brown; the ears out to the sides, flicking now and then
+          fill(x - 2, top - 6, 1, 2, YD); dot(x - 2, top - 7, 0x5a3418); fill(x + 2, top - 6, 1, 2, YD); dot(x + 2, top - 7, 0x5a3418);
+          dot(x - 5, top - 2 - flick, Y); dot(x - 6, top - 2 - flick, YL); dot(x + 5, top - 2 - flick, Y); dot(x + 6, top - 2 - flick, YD);
+          if (!away && flick) { dot(x, top + 6, 0x4a2a6a); dot(x + 1, top + 7, 0x4a2a6a); dot(x + 2, top + 7, 0x6a4a8a); }
+        },
+        // Hooves for hands; the flick's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeFlick = pose.kind !== 'walk' && every(look, 12, 1.4, 7) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x5a3418); costumeArm(x, top, 4, look, sleeve, 0x5a3418);
+          return true;
+        },
+      },
+      zoozebra: {
+        // The zebra onesie: a white suit striped in black, its hood striped too, with a black-and-white mane standing up over the top
+        // and pointed ears tipped black. Now and then the ears flick and the mane bristles.
+        look: zooTucked,
+        front(x, y) {
+          // The stripes, curving round the body
+          for (const r of [0, 2, 4]) { fill(x - 3, y + r, 2, 1, 0x1a1a1e); fill(x + 2, y + r + 1, 2, 1, 0x1a1a1e); }
+          dot(x - 1, y + 1, 0x1a1a1e); dot(x + 1, y + 3, 0x1a1a1e); dot(x - 1, y + 5, 0x1a1a1e);
+        },
+        back(x, y) {
+          // Its stripes curving round the back as on the front, not in straight bands like a referee's shirt
+          for (const r of [0, 2, 4]) { fill(x + 2, y + r, 2, 1, 0x1a1a1e); fill(x - 3, y + r + 1, 2, 1, 0x1a1a1e); }
+          dot(x + 1, y + 1, 0x1a1a1e); dot(x - 1, y + 3, 0x1a1a1e); dot(x + 1, y + 5, 0x1a1a1e);
+        },
+        head(x, top, look, away) {
+          const W = 0xf4f4f0, WD = 0xc8c8c4, K = 0x1a1a1e, up = look.costumeFlick ? 1 : 0;
+          costumeHood(x, top, W, 0xffffff, WD, away);
+          // The hood's stripes, down either side
+          for (const [dx, dy] of [[-4, 0], [-4, 2], [-4, 4], [-3, -1], [4, 1], [4, 3], [4, 5], [3, -1], [-2, -2], [2, -2]]) dot(x + dx, top + dy, K);
+          // The mane standing up over the top, striped, bristling now and then; the pointed ears tipped black
+          for (let i = 0; i < 4; i++) dot(x, top - 3 - i - up, i % 2 ? W : K);
+          dot(x - 1, top - 3 - up, K); dot(x + 1, top - 4 - up, K);
+          dot(x - 3, top - 3, W); dot(x - 3, top - 4 + up, K); dot(x + 3, top - 3, WD); dot(x + 3, top - 4 + up, K);
+          if (!away) dot(x, top + 6, 0x8a8a90);
+        },
+        // Black hooves for hands; the flick's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeFlick = pose.kind !== 'walk' && every(look, 12, 1.4, 2) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x1a1a1e); costumeArm(x, top, 4, look, sleeve, 0x1a1a1e);
+          return true;
+        },
+      },
+      zoopenguin: {
+        // The penguin onesie: black with a big white belly and orange feet; its hood black with a white face round the opening and an
+        // orange beak over the brow; flippers for arms. Now and then it flaps them.
+        look: zooTucked,
+        front(x, y) {
+          // The white belly, the black sides
+          fill(x - 2, y, 5, 6, 0xf6f6f2); dot(x - 2, y, 0x1e1e26); dot(x + 2, y, 0x1e1e26); dot(x + 2, y + 1, 0xdcdcd8); fill(x + 2, y + 2, 1, 4, 0xdcdcd8);
+          fill(x - 3, y, 1, 6, 0x3a3a44);
+        },
+        head(x, top, look, away) {
+          const K = 0x1e1e26;
+          costumeHood(x, top, K, 0x3a3a44, 0x0e0e12, away);
+          if (away) return;
+          // The white face round the opening, the orange beak over the brow
+          fill(x - 3, top + 2, 1, 4, 0xf6f6f2); fill(x + 3, top + 2, 1, 4, 0xdcdcd8);
+          fill(x - 1, top + 1, 3, 1, 0xf08a20); dot(x, top + 2, 0xd8701a);
+        },
+        // Flippers for arms, no hands; flapping now and then
+        arms(x, top, look, o, sleeve, pose) {
+          const flap = pose.kind !== 'walk' && every(look, 12, 1.6, 3) !== null && Math.floor(now * 8) % 2;
+          for (const side of [-1, 1]) {
+            if (flap) { fill(x + side * 4, top + 8, 1, 2, 0x1e1e26); fill(x + side * 5, top + 7, 1, 3, 0x2a2a34); }
+            else fill(x + side * 4, top + 8, 1, 5, side < 0 ? 0x2a2a34 : 0x14141a);
+          }
+          return true;
+        },
+      },
+      zoopanda: {
+        // The panda onesie: white with black arms and legs and a black band over the shoulders; its hood white with round black ears
+        // and a panda's face on it, black patches round its eyes and a black nose. Now and then it munches a stalk of bamboo.
+        look: zooTucked,
+        front(x, y) {
+          // The black band over the shoulders, the white belly lit on the left
+          fill(x - 3, y, 7, 2, 0x1e1e22); fill(x - 3, y + 2, 1, 4, 0xffffff); fill(x + 3, y + 2, 1, 4, 0xd8d8d4);
+        },
+        back(x, y) { fill(x - 3, y, 7, 2, 0x1e1e22); dot(x, y + 5, 0xf6f6f2); },
+        head(x, top, look, away) {
+          const W = 0xf6f6f2, K = 0x1e1e22;
+          costumeHood(x, top, W, 0xffffff, 0xd0d0cc, away);
+          // The round black ears on top
+          fill(x - 4, top - 4, 2, 2, K); fill(x + 3, top - 4, 2, 2, K); dot(x - 4, top - 4, 0x3a3a40);
+          if (away) return;
+          // The panda's face on the hood over the brow: black patches round its eyes, their glints, a black nose
+          fill(x - 3, top - 1, 2, 2, K); fill(x + 2, top - 1, 2, 2, K); dot(x - 2, top - 1, WHITE); dot(x + 2, top - 1, WHITE); dot(x, top + 1, K);
+          // Munching bamboo (see arms)
+          if (look.costumeMunch) {
+            const chew = Math.floor(now * 6) % 2;
+            fill(x + 1, top + 4 + chew, 1, 5, 0x5aa83a); dot(x + 1, top + 3 + chew, 0x8ad86a); dot(x + 2, top + 5 + chew, 0x3a8a2a); dot(x + 1, top + 6 + chew, 0x2e7a24);
+          }
+        },
+        // Black paws; now and then one comes up with a stalk of bamboo (the stalk is drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeMunch = pose.kind !== 'walk' && every(look, 15, 2.6, 8) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x1e1e22);
+          if (look.costumeMunch) { sleeve(x + 4, top + 7, 1, 3); dot(x + 3, top + 7, 0x1e1e22); dot(x + 2, top + 8, 0x1e1e22); }
+          else costumeArm(x, top, 4, look, sleeve, 0x1e1e22);
+          return true;
+        },
+      },
+      zoomonkey: {
+        // The monkey onesie: brown with a tan belly, its hood with big round ears out at the sides, tan inside, and a tan face round the
+        // opening; a banana in hand. Now and then it peels the banana and takes a bite.
+        look: zooTucked,
+        front(x, y) {
+          // The tan belly, the suit lit on the left
+          fill(x - 1, y + 1, 3, 5, 0xd8b088); fill(x - 3, y, 1, 6, 0x9a6a42); fill(x + 3, y, 1, 6, 0x5a3420);
+        },
+        // Its tail curled up its back, in the darker brown so it shows on the suit
+        back(x, y) { for (const [dx, dy] of [[2, 5], [3, 4], [3, 3], [2, 2]]) dot(x + dx, y + dy, 0x5a3420); },
+        head(x, top, look, away) {
+          const B = 0x7a4a2a, BL = 0x9a6a42, BD = 0x5a3420, T = 0xd8b088;
+          costumeHood(x, top, B, BL, BD, away);
+          // Big round ears out at the sides, tan inside
+          fill(x - 7, top + 1, 3, 3, B); fill(x - 6, top + 2, 2, 1, T); dot(x - 7, top + 1, BL);
+          fill(x + 5, top + 1, 3, 3, BD); fill(x + 5, top + 2, 2, 1, T);
+          if (away) return;
+          // The tan face round the opening
+          fill(x - 2, top + 1, 5, 1, T); dot(x - 3, top + 2, T); dot(x + 3, top + 2, T); dot(x - 3, top + 6, T); dot(x + 3, top + 6, T);
+          // The banana, up at the mouth, peeled and bitten (see arms)
+          const p = look.costumeBanana;
+          if (p !== null && p !== undefined) {
+            fill(x + 1, top + 5, 1, 4, 0xf2d84a); dot(x + 2, top + 8, 0xc8a82a);
+            if (p > 0.3) { dot(x, top + 5, 0xf2d84a); dot(x + 2, top + 5, 0xe8c83a); dot(x, top + 6, 0xe8c83a); }
+            if (p > 0.6) dot(x + 1, top + 4, 0xfaf2d0);
+          }
+        },
+        // Brown paws, a banana in one; now and then the banana goes up to its mouth (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 14, 2.4, 3);
+          look.costumeBanana = p;
+          costumeArm(x, top, -4, look, sleeve, 0x5a3420);
+          if (p !== null) { sleeve(x + 4, top + 7, 1, 3); dot(x + 3, top + 8, 0x5a3420); }
+          else { costumeArm(x, top, 4, look, sleeve, 0x5a3420); dot(x + 5, top + 11, 0xf2d84a); dot(x + 5, top + 12, 0xf2d84a); dot(x + 6, top + 10, 0xe8c83a); }
+          return true;
+        },
+      },
+      zooflamingo: {
+        // The flamingo onesie: pink all over, darker at the wing edges; its hood with a long neck curving up out of it and the
+        // flamingo's head on top, its bent beak black at the tip. Now and then the neck bends down to preen.
+        look: zooTucked,
+        front(x, y) {
+          // Feathered rows, the wings' darker edges, lit on the left
+          for (const dx of [-2, 0, 2]) dot(x + dx, y + 2, 0xe0708e); for (const dx of [-1, 1]) dot(x + dx, y + 4, 0xe0708e);
+          fill(x - 3, y, 1, 6, 0xf8b0c4); fill(x + 3, y, 1, 6, 0xc85a7a);
+        },
+        head(x, top, look, away) {
+          const P = 0xf28aa8, PL = 0xf8b0c4, PD = 0xc85a7a, dip = look.costumePreen ? 1 : 0;
+          costumeHood(x, top, P, PL, PD, away);
+          // The neck rising out of the hood in a curve, the head on top with its eye and bent beak, all of it within the outfit
+          // picker's picture; bent down to preen now and then
+          const neck = dip ? [[0, -3], [1, -4], [2, -4], [3, -3], [4, -2]] : [[0, -3], [1, -4], [1, -5]];
+          for (const [dx, dy] of neck) dot(x + dx, top + dy, P);
+          const [hx, hy] = dip ? [x + 5, top - 2] : [x - 1, top - 7];
+          fill(hx - 1, hy, 3, 2, P); dot(hx - 1, hy, PL); dot(hx + (dip ? 0 : -1), hy, 0x1a1a1a);
+          if (dip) { dot(hx + 2, hy + 1, 0xf6f2ea); dot(hx + 2, hy + 2, 0xf6f2ea); dot(hx + 1, hy + 3, 0x1a1a1a); }
+          else { dot(hx - 2, hy + 1, 0xf6f2ea); dot(hx - 2, hy + 2, 0xf6f2ea); dot(hx - 1, hy + 3, 0x1a1a1a); }
+        },
+        // Pink wings for arms, their edges darker; the preen's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumePreen = pose.kind !== 'walk' && every(look, 13, 2, 9) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0xc85a7a); costumeArm(x, top, 4, look, sleeve, 0xc85a7a);
+          dot(x - 4, top + 11, 0xc85a7a); dot(x + 4, top + 11, 0xc85a7a);
+          return true;
+        },
+      },
+      zoocroc: {
+        // The crocodile onesie: green with a pale yellow belly in bands; its hood is the crocodile's open jaws, the face looking out
+        // between rows of white teeth, the bulging yellow eyes on top, a ridged tail behind. Now and then the jaws snap a little.
+        look: zooTucked,
+        front(x, y) {
+          // The banded belly, the suit lit on the left
+          fill(x - 2, y + 1, 5, 5, 0xe8e0a0); for (const r of [2, 4]) fill(x - 2, y + r, 5, 1, 0xc8c080);
+          fill(x - 3, y, 1, 6, 0x6aaa4a); fill(x + 3, y, 1, 6, 0x2e5a22);
+        },
+        back(x, y) { for (const dx of [-2, 0, 2]) dot(x + dx, y, 0x2e5a22); for (const r of [2, 4]) dot(x, y + r, 0x2e5a22); },
+        head(x, top, look, away) {
+          const G = 0x4a8a3a, GD = 0x2e5a22, tooth = 0xf6f6f0, snap = look.costumeSnap ? 1 : 0;
+          costumeHood(x, top, G, 0x6aaa4a, GD, away);
+          // The bulging yellow eyes on top, the bumps along the head
+          fill(x - 3, top - 3, 2, 1, G); fill(x + 2, top - 3, 2, 1, G); dot(x - 3, top - 3, 0xf0d840); dot(x + 3, top - 3, 0xf0d840);
+          dot(x - 2, top - 3, 0x1a1a1a); dot(x + 2, top - 3, 0x1a1a1a); for (const dx of [-1, 1]) dot(x + dx, top - 2, GD);
+          if (away) return;
+          // The teeth: a row along the upper jaw over the brow, another along the lower jaw at the chin; snapping a little now and then
+          for (const dx of [-2, 0, 2]) dot(x + dx, top + 2 + snap, tooth);
+          fill(x - 3, top + 7, 7, 1, G); for (const dx of [-1, 1]) dot(x + dx, top + 6, tooth);
+        },
+        // Green claws; the snap's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeSnap = pose.kind !== 'walk' && every(look, 11, 1.2, 6) !== null && Math.floor(now * 5) % 2 === 0;
+          costumeArm(x, top, -4, look, sleeve, 0x2e5a22); costumeArm(x, top, 4, look, sleeve, 0x2e5a22);
           return true;
         },
       },
