@@ -1234,6 +1234,14 @@
       desk: 'walnut', chair: 'red', pet: 'gentlemenhound', monitor: 'brass', staff: 'some',
       wall: ['christianstainedglass', 'egypttorch', 'shield', 'egypttorch', 'christianstainedglass'] },
       things: ['roses', 'goblet', 'hourglass'] },
+    // The Greek gods' home (see STYLE_DRESS), everyone dressed as one of them: a temple of pale stone and marble under a blue and
+    // gold frieze, the sun and the moon either side of an olive wreath, windows onto the sky, two trees in stone planters, an owl
+    // about the place; nectar, lightning and roses on the desks. Only pieces the office already has, and none of them moves shelf
+    // in setup.
+    olympus: { name: 'Mount Olympus', group: 'themes', room: { workspace: 'desk', floor: 'museummarble', paint: 'wowstormwind', lounge: 'sand',
+      corner: 'apple1trees', desk: 'white', chair: 'teal', pet: 'owl', monitor: 'standard', staff: 'some',
+      wall: ['window', 'wessunburst', 'christianwreath', 'moonwindow', 'window'] },
+      things: ['goblet', 'plasmaball', 'roses'] },
   };
   /** What a style furnishes. The sky, the seasons, the sound and your team stay as you have them. */
   const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff'];
@@ -4305,6 +4313,16 @@
     castlecook: { style: 'castlecook', shirt: 0x7a5a3a, sleeves: 'skin', robe: true, shoes: 0x3a2a1a, fixed: true },
     castlefalconer: { style: 'castlefalconer', shirt: 0x3a6a3a, pants: 0x5a4030, shoes: 0x3a2a1a, fixed: true },
     castlelady: { style: 'castlelady', shirt: 0x2a5aa8, robe: true, shoes: 0x2a2a3a, fixed: true },
+    // The Greek gods (see OUTFIT_PARTS): an original team from myth, each in their own colours whatever the agent's
+    olympuszeus: { style: 'olympuszeus', shirt: 0xf4f0e6, robe: true, sleeves: 0xe8c0a0, shoes: 0xd8a840, fixed: true },
+    olympushera: { style: 'olympushera', shirt: 0x2a8a96, robe: true, shoes: 0xd8a840, fixed: true },
+    olympusposeidon: { style: 'olympusposeidon', shirt: 0x2a7a7a, robe: true, shoes: 0xd8a840, fixed: true },
+    olympusathena: { style: 'olympusathena', shirt: 0x3a5aa8, robe: true, shoes: 0xd8a840, fixed: true },
+    olympusapollo: { style: 'olympusapollo', shirt: 0xf6f2e8, pants: 0xf6f2e8, legs: 'skin', shoes: 0xd8a840, fixed: true },
+    olympusartemis: { style: 'olympusartemis', shirt: 0xe4ecdc, pants: 0xe4ecdc, legs: 'skin', shoes: 0x8a6a3a, fixed: true },
+    olympushermes: { style: 'olympushermes', shirt: 0xf4f2ea, pants: 0xf4f2ea, legs: 'skin', shoes: 0xc89a4a, fixed: true },
+    olympusares: { style: 'olympusares', shirt: 0xc8903a, pants: 0xb02a2a, legs: 'skin', shoes: 0xa87830, fixed: true },
+    olympusaphrodite: { style: 'olympusaphrodite', shirt: 0xf2a0b0, robe: true, shoes: 0xd8a840, fixed: true },
   };
   /**
    * What an agent left on Auto wears for the workspace they're at, in their
@@ -4476,6 +4494,8 @@
     // The Geode: each person in one of the gems, and a bot named after a gem in its own (see styleDressOf)
     geode: GEODE_OUTFITS,
     castle: ['castleking', 'castlequeen', 'castlejester', 'castleherald', 'castleknight', 'castlepage', 'castlecook', 'castlefalconer', 'castlelady'],
+    // Mount Olympus: the Greek gods, one each by project name
+    olympus: ['olympuszeus', 'olympushera', 'olympusposeidon', 'olympusathena', 'olympusapollo', 'olympusartemis', 'olympushermes', 'olympusares', 'olympusaphrodite'],
   };
   /** What the room's style dresses `seed` (a project's name) in, if it dresses each person differently. */
   function styleDressOf(seed) {
@@ -4600,7 +4620,7 @@
       'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee', 'coachpolo', 'blazer', 'werewolf', 'santa', 'xmasjumper',
       'beanie', 'cableknit', 'redsuit', 'heartsweater', 'tangsuit', 'playoffjersey', 'superfan', 'techwear', 'submariner', 'barista', 'cowboy', 'partyhat', 'sequin',
       'artdirector', 'lawyer', 'therapist', 'plumber', 'gmexec', 'gmcoach', 'gmtycoon',
-      'detective', 'hardhat', 'librarian', 'janitor', 'firefighter', 'pilot', 'postman', 'accountant', 'marketer', 'securityguard', 'chef', 'spacesuit', 'kimono', 'cultistrobe', 'investigator', 'deepone', 'professor', 'divingsuit', 'fleecevest', 'bullparty', 'blanketcape', 'denhoodie', 'homejersey', 'lakersjersey', 'celticsjersey', 'warriorsjersey', 'knicksjersey', 'bullsjersey', 'heatjersey', 'spursjersey', 'thunderjersey', 'wolvesjersey', 'nuggetsjersey', 'hawksjersey', 'netsjersey', 'hornetsjersey', 'cavsjersey', 'mavsjersey', 'pistonsjersey', 'rocketsjersey', 'pacersjersey', 'clippersjersey', 'grizzliesjersey', 'bucksjersey', 'pelicansjersey', 'magicjersey', 'sixersjersey', 'sunsjersey', 'blazersjersey', 'kingsjersey', 'raptorsjersey', 'jazzjersey', 'wizardsjersey', 'marvel1cap', 'marvel1spidey', 'marvel1thor', 'marvel1widow', 'marvel2starlord', 'marvel2strange', 'marvel2panther', 'marvel2loki', 'ironmanmk3', 'ironmanmk2', 'ironmanwarmachine', 'batcavebatsuit', 'batcaverobin', 'batcavealfred', 'batcavecatwoman', 'dcmixsuperman', 'dcmixwonder', 'dcmixflash', 'dcmixgreenlantern', 'pokemontrainer', 'pokemonrocket', 'pokemonnurse', 'pokemonoak', 'loljinx', 'lolahri', 'lolgaren', 'lollux', 'wowpaladin', 'wowgrunt', 'wowmage', 'wowelf', 'gtatommy', 'gtacj', 'gtacop', 'gtaheist', 'destinyhunterwear', 'destinytitanwear', 'destinywarlockwear', 'destinyexo', 'starwarsjedi', 'starwarsvader', 'starwarsstormtrooper', 'starwarsprincess', 'girly1gingham', 'girly1cowgirl', 'girly1tracksuit', 'girly1gown', 'girly2kittyhood', 'girly2bunnyhood', 'girly2sailor', 'girly2overalls', 'narcosboss', 'narcosdea', 'narcosmiami', 'narcoshawaiian', 'apple1turtleneck', 'apple1genius', 'apple1headset', 'apple1hoodie', 'apple2bowtie', 'apple2woz', 'apple2rainbowtee', 'apple2runner', 'jewishkippah', 'jewishtichel', 'jewishknit', 'jewishdress', 'muslimhijab', 'muslimabaya', 'muslimthobe', 'muslimkurta', 'christianpendant', 'christianchoir', 'christiansuit', 'christianlace', 'buddhistrobe', 'buddhistmaroonrobe', 'buddhistlinen', 'buddhistmala', 'ironmantony2', 'ironmantony2b', 'ironmantony2c', 'ironmanmk1', 'ironmanmk4', 'ironmanmk5', 'ironmanmk6', 'ironmanmk7', 'ironmanmk15', 'ironmanmk16', 'ironmanmk17', 'ironmanmk33', 'ironmanmk38', 'ironmanmk42', 'ironmanmk43', 'ironmanmk45', 'ironmanmk46', 'ironmanmk47', 'ironmanmk50', 'ironmanmk85', 'ironmanpatriot', 'ironmanironspider', 'ironmanrescue', 'volcanojumpsuit', 'volcanovillain', 'volcanoheatsuit', 'volcanoguard', 'kitchenchef', 'kitchensous', 'kitchenpartie', 'kitchencommis', 'hospitalscrubs', 'hospitaldoctor', 'hospitalnurse', 'hospitalsurgeon', 'noirtrench', 'noiruniform', 'noirsuspenders', 'noirreporter', 'madlabcoat', 'madlabapron', 'madlabassistant', 'madlabhazmat', 'casinodealer', 'casinotux', 'casinohighroller', 'casinoshowman', 'orientconductor', 'orientattendant', 'orienttraveller', 'orientpearls', 'halloweendxvampire', 'halloweendxplague', 'halloweendxscarecrow', 'halloweendxspider', 'catcafebarista', 'catcafeears', 'catcafejumper', 'catcafeoveralls', 'spiderversemiles', 'spiderversegwensuit', 'spiderversepeterb', 'spiderversepunk', 'xmenwolverine', 'xmencyclops', 'xmengambit', 'xmenstormsuit', 'f1racesuit', 'f1silversuit', 'f1pitcrew', 'f1teampolo', 'ufcrashguard', 'ufcreferee', 'ufccornerhoodie', 'ufcwalkout', 'nyloftpeacoat', 'nyloftflannel', 'nyloftturtleneck', 'nyloftleather', 'pariscafemariniere', 'pariscafegarcon', 'pariscafetrench', 'pariscafepearls', 'muertoscatrinadress', 'muertoscharro', 'muertosblouse', 'muertosbones', 'submarinedeepcoverall', 'submarinedeepwetsuit', 'submarinedeeplabcoat', 'submarinedeepsweater', 'arcticbaseparka', 'arcticbasefleece', 'arcticbasecoldsuit', 'arcticbaseknit', 'sakurayukata', 'sakuracardigan', 'sakurasailor', 'sakuraflorist', 'pottergryffindor', 'potterslytherin', 'potterquidditch', 'potterheadmaster', 'lotrgandalf', 'lotrhobbit', 'lotrelf', 'lotrranger', 'breakingbadhazmat', 'breakingbadheisenberg', 'breakingbadjesse', 'breakingbadsaul', 'strangereleven', 'strangerhellfiretee', 'strangerscoopsuniform', 'strangerhopper', 'gotnightswatch', 'gotlannisterred', 'gotdaenerys', 'gotwhitewalker', 'simpsonshomer', 'simpsonsmarge', 'simpsonsbart', 'simpsonslisa', 'bondtux', 'bondwhitejacket', 'bondmoneypenny', 'bondoddjob', 'dunestillsuit', 'dunefremen', 'dunebenegesserit', 'duneharkonnenblack', 'onepieceluffy', 'onepiecezoro', 'onepiecenami', 'onepiecesanji', 'eldenringtarnished', 'eldenringmaiden', 'eldenringvalkyrie', 'eldenringwitch', 'sevmdr', 'sevmanager', 'sevwellness', 'sevsecurity', 'offdwight', 'offjim', 'offmichael', 'offpam', 'peakytommy', 'peakyarthur', 'peakypolly', 'peakybarman', 'madmdon', 'madmroger', 'madmjoan', 'madmpeggy', 'squidplayer', 'squidguard', 'squidfrontman', 'squidvip', 'boyshomelander', 'boysstarlight', 'boysbutcher', 'boysexec', 'falloutvaultsuit', 'falloutranger', 'falloutraider', 'falloutscientist', 'rickcoat', 'rickmorty', 'ricksummer', 'rickbirdperson', 'mirrorsuit', 'mirrorjumpsuit', 'mirrortech', 'mirrorgown', 'westcowboy', 'westhost', 'westtech', 'westgunslinger', 'bttfmarty', 'bttfdoc', 'bttffuture', 'bttfsodajerk', 'jpranger', 'jpscientist', 'jpvisitor', 'jpnedry', 'wicksuit', 'wickconciergeoutfit', 'wicksommelier', 'wickadjudicator', 'kingsmangalahad', 'kingsmanmerlin', 'kingsmantailor', 'kingsmanagent', 'wonkawonka', 'wonkaoompa', 'wonkacharlie', 'wonkaguide', 'wesgustave', 'weszero', 'wesagatha', 'wesguest', 'mibsuit', 'mibzed', 'mibalien', 'mibworm', 'tronblue', 'tronorange', 'tronflynn', 'tronsiren', 'dbzgoku', 'dbzvegeta', 'dbzpiccolo', 'dbzstudent', 'amongusred', 'amonguscyan', 'amongusyellow', 'amongusimposter', 'tokyohappi', 'tokyokimono', 'tokyosalaryman', 'tokyostreet', 'egyptking', 'egyptpriest', 'egyptqueen', 'egyptworker', 'vikingwarrior', 'vikingmaiden', 'vikingjarl', 'vikingseer', 'aztecjaguarw', 'azteceaglew', 'aztecpriest', 'aztecnoble', 'obsastronomer', 'obsprofessor', 'obsastronaut', 'obsstargazer', 'tikibartender', 'tikisurfer', 'tikiluau', 'tikitourist', 'dinerwaitress', 'dinercook', 'dinergreaser', 'dinerpoodle', 'courtjudge', 'courtlawyer', 'courtbailiff', 'courtclerk', 'artsmock', 'artberet', 'artsculptor', 'artstudent', 'aquariumwetsuit', 'aquariumkeeper', 'aquariumbiologist', 'aquariumscuba', 'circusringmaster', 'circusclown', 'circusacrobat', 'circusstrongman', 'museumcurator', 'museumpaleo', 'museumdocent', 'museumprofessor', 'northpolesanta', 'northpoleelf', 'northpolemrsclaus', 'northpolesweater', 'soundstagedirector', 'soundstagestarlet', 'soundstagecrew', 'soundstagetux', 'cultrobe', 'cultleader', 'cultelder', 'cultinitiate', 'esportsjersey', 'esportshoodie', 'esportscaster', 'esportspro', 'cavemanfur', 'cavemanhunter', 'cavemanshaman', 'cavemanchief', 'lodgerobe', 'lodgemaster', 'lodgeapron', 'lodgeguard', 'prepperhazmat', 'prepperfatigues', 'prepperbugout', 'prepperranger', 'paradisepresident', 'paradisesecret', 'paradiseaide', 'paradisehazmat', 'startrekgold', 'startrekblue', 'startrekred', 'startrekcaptain', 'gentlementweedsuit', 'gentlemengamekeeper', 'gentlemengangster', 'gentlementracksuit', 'geoderuby', 'geodeopal', 'geodesapphire', 'geodeamber', 'geodegarnet', 'geodetopaz', 'geodepearl', 'geodemoonstone', 'geodemalachite', 'geodejade', 'geodelapis', 'geodeamethyst', 'geodeobsidian', 'castleking', 'castlequeen', 'castlejester', 'castleherald', 'castleknight', 'castlepage', 'castlecook', 'castlefalconer', 'castlelady'],
+      'detective', 'hardhat', 'librarian', 'janitor', 'firefighter', 'pilot', 'postman', 'accountant', 'marketer', 'securityguard', 'chef', 'spacesuit', 'kimono', 'cultistrobe', 'investigator', 'deepone', 'professor', 'divingsuit', 'fleecevest', 'bullparty', 'blanketcape', 'denhoodie', 'homejersey', 'lakersjersey', 'celticsjersey', 'warriorsjersey', 'knicksjersey', 'bullsjersey', 'heatjersey', 'spursjersey', 'thunderjersey', 'wolvesjersey', 'nuggetsjersey', 'hawksjersey', 'netsjersey', 'hornetsjersey', 'cavsjersey', 'mavsjersey', 'pistonsjersey', 'rocketsjersey', 'pacersjersey', 'clippersjersey', 'grizzliesjersey', 'bucksjersey', 'pelicansjersey', 'magicjersey', 'sixersjersey', 'sunsjersey', 'blazersjersey', 'kingsjersey', 'raptorsjersey', 'jazzjersey', 'wizardsjersey', 'marvel1cap', 'marvel1spidey', 'marvel1thor', 'marvel1widow', 'marvel2starlord', 'marvel2strange', 'marvel2panther', 'marvel2loki', 'ironmanmk3', 'ironmanmk2', 'ironmanwarmachine', 'batcavebatsuit', 'batcaverobin', 'batcavealfred', 'batcavecatwoman', 'dcmixsuperman', 'dcmixwonder', 'dcmixflash', 'dcmixgreenlantern', 'pokemontrainer', 'pokemonrocket', 'pokemonnurse', 'pokemonoak', 'loljinx', 'lolahri', 'lolgaren', 'lollux', 'wowpaladin', 'wowgrunt', 'wowmage', 'wowelf', 'gtatommy', 'gtacj', 'gtacop', 'gtaheist', 'destinyhunterwear', 'destinytitanwear', 'destinywarlockwear', 'destinyexo', 'starwarsjedi', 'starwarsvader', 'starwarsstormtrooper', 'starwarsprincess', 'girly1gingham', 'girly1cowgirl', 'girly1tracksuit', 'girly1gown', 'girly2kittyhood', 'girly2bunnyhood', 'girly2sailor', 'girly2overalls', 'narcosboss', 'narcosdea', 'narcosmiami', 'narcoshawaiian', 'apple1turtleneck', 'apple1genius', 'apple1headset', 'apple1hoodie', 'apple2bowtie', 'apple2woz', 'apple2rainbowtee', 'apple2runner', 'jewishkippah', 'jewishtichel', 'jewishknit', 'jewishdress', 'muslimhijab', 'muslimabaya', 'muslimthobe', 'muslimkurta', 'christianpendant', 'christianchoir', 'christiansuit', 'christianlace', 'buddhistrobe', 'buddhistmaroonrobe', 'buddhistlinen', 'buddhistmala', 'ironmantony2', 'ironmantony2b', 'ironmantony2c', 'ironmanmk1', 'ironmanmk4', 'ironmanmk5', 'ironmanmk6', 'ironmanmk7', 'ironmanmk15', 'ironmanmk16', 'ironmanmk17', 'ironmanmk33', 'ironmanmk38', 'ironmanmk42', 'ironmanmk43', 'ironmanmk45', 'ironmanmk46', 'ironmanmk47', 'ironmanmk50', 'ironmanmk85', 'ironmanpatriot', 'ironmanironspider', 'ironmanrescue', 'volcanojumpsuit', 'volcanovillain', 'volcanoheatsuit', 'volcanoguard', 'kitchenchef', 'kitchensous', 'kitchenpartie', 'kitchencommis', 'hospitalscrubs', 'hospitaldoctor', 'hospitalnurse', 'hospitalsurgeon', 'noirtrench', 'noiruniform', 'noirsuspenders', 'noirreporter', 'madlabcoat', 'madlabapron', 'madlabassistant', 'madlabhazmat', 'casinodealer', 'casinotux', 'casinohighroller', 'casinoshowman', 'orientconductor', 'orientattendant', 'orienttraveller', 'orientpearls', 'halloweendxvampire', 'halloweendxplague', 'halloweendxscarecrow', 'halloweendxspider', 'catcafebarista', 'catcafeears', 'catcafejumper', 'catcafeoveralls', 'spiderversemiles', 'spiderversegwensuit', 'spiderversepeterb', 'spiderversepunk', 'xmenwolverine', 'xmencyclops', 'xmengambit', 'xmenstormsuit', 'f1racesuit', 'f1silversuit', 'f1pitcrew', 'f1teampolo', 'ufcrashguard', 'ufcreferee', 'ufccornerhoodie', 'ufcwalkout', 'nyloftpeacoat', 'nyloftflannel', 'nyloftturtleneck', 'nyloftleather', 'pariscafemariniere', 'pariscafegarcon', 'pariscafetrench', 'pariscafepearls', 'muertoscatrinadress', 'muertoscharro', 'muertosblouse', 'muertosbones', 'submarinedeepcoverall', 'submarinedeepwetsuit', 'submarinedeeplabcoat', 'submarinedeepsweater', 'arcticbaseparka', 'arcticbasefleece', 'arcticbasecoldsuit', 'arcticbaseknit', 'sakurayukata', 'sakuracardigan', 'sakurasailor', 'sakuraflorist', 'pottergryffindor', 'potterslytherin', 'potterquidditch', 'potterheadmaster', 'lotrgandalf', 'lotrhobbit', 'lotrelf', 'lotrranger', 'breakingbadhazmat', 'breakingbadheisenberg', 'breakingbadjesse', 'breakingbadsaul', 'strangereleven', 'strangerhellfiretee', 'strangerscoopsuniform', 'strangerhopper', 'gotnightswatch', 'gotlannisterred', 'gotdaenerys', 'gotwhitewalker', 'simpsonshomer', 'simpsonsmarge', 'simpsonsbart', 'simpsonslisa', 'bondtux', 'bondwhitejacket', 'bondmoneypenny', 'bondoddjob', 'dunestillsuit', 'dunefremen', 'dunebenegesserit', 'duneharkonnenblack', 'onepieceluffy', 'onepiecezoro', 'onepiecenami', 'onepiecesanji', 'eldenringtarnished', 'eldenringmaiden', 'eldenringvalkyrie', 'eldenringwitch', 'sevmdr', 'sevmanager', 'sevwellness', 'sevsecurity', 'offdwight', 'offjim', 'offmichael', 'offpam', 'peakytommy', 'peakyarthur', 'peakypolly', 'peakybarman', 'madmdon', 'madmroger', 'madmjoan', 'madmpeggy', 'squidplayer', 'squidguard', 'squidfrontman', 'squidvip', 'boyshomelander', 'boysstarlight', 'boysbutcher', 'boysexec', 'falloutvaultsuit', 'falloutranger', 'falloutraider', 'falloutscientist', 'rickcoat', 'rickmorty', 'ricksummer', 'rickbirdperson', 'mirrorsuit', 'mirrorjumpsuit', 'mirrortech', 'mirrorgown', 'westcowboy', 'westhost', 'westtech', 'westgunslinger', 'bttfmarty', 'bttfdoc', 'bttffuture', 'bttfsodajerk', 'jpranger', 'jpscientist', 'jpvisitor', 'jpnedry', 'wicksuit', 'wickconciergeoutfit', 'wicksommelier', 'wickadjudicator', 'kingsmangalahad', 'kingsmanmerlin', 'kingsmantailor', 'kingsmanagent', 'wonkawonka', 'wonkaoompa', 'wonkacharlie', 'wonkaguide', 'wesgustave', 'weszero', 'wesagatha', 'wesguest', 'mibsuit', 'mibzed', 'mibalien', 'mibworm', 'tronblue', 'tronorange', 'tronflynn', 'tronsiren', 'dbzgoku', 'dbzvegeta', 'dbzpiccolo', 'dbzstudent', 'amongusred', 'amonguscyan', 'amongusyellow', 'amongusimposter', 'tokyohappi', 'tokyokimono', 'tokyosalaryman', 'tokyostreet', 'egyptking', 'egyptpriest', 'egyptqueen', 'egyptworker', 'vikingwarrior', 'vikingmaiden', 'vikingjarl', 'vikingseer', 'aztecjaguarw', 'azteceaglew', 'aztecpriest', 'aztecnoble', 'obsastronomer', 'obsprofessor', 'obsastronaut', 'obsstargazer', 'tikibartender', 'tikisurfer', 'tikiluau', 'tikitourist', 'dinerwaitress', 'dinercook', 'dinergreaser', 'dinerpoodle', 'courtjudge', 'courtlawyer', 'courtbailiff', 'courtclerk', 'artsmock', 'artberet', 'artsculptor', 'artstudent', 'aquariumwetsuit', 'aquariumkeeper', 'aquariumbiologist', 'aquariumscuba', 'circusringmaster', 'circusclown', 'circusacrobat', 'circusstrongman', 'museumcurator', 'museumpaleo', 'museumdocent', 'museumprofessor', 'northpolesanta', 'northpoleelf', 'northpolemrsclaus', 'northpolesweater', 'soundstagedirector', 'soundstagestarlet', 'soundstagecrew', 'soundstagetux', 'cultrobe', 'cultleader', 'cultelder', 'cultinitiate', 'esportsjersey', 'esportshoodie', 'esportscaster', 'esportspro', 'cavemanfur', 'cavemanhunter', 'cavemanshaman', 'cavemanchief', 'lodgerobe', 'lodgemaster', 'lodgeapron', 'lodgeguard', 'prepperhazmat', 'prepperfatigues', 'prepperbugout', 'prepperranger', 'paradisepresident', 'paradisesecret', 'paradiseaide', 'paradisehazmat', 'startrekgold', 'startrekblue', 'startrekred', 'startrekcaptain', 'gentlementweedsuit', 'gentlemengamekeeper', 'gentlemengangster', 'gentlementracksuit', 'geoderuby', 'geodeopal', 'geodesapphire', 'geodeamber', 'geodegarnet', 'geodetopaz', 'geodepearl', 'geodemoonstone', 'geodemalachite', 'geodejade', 'geodelapis', 'geodeamethyst', 'geodeobsidian', 'castleking', 'castlequeen', 'castlejester', 'castleherald', 'castleknight', 'castlepage', 'castlecook', 'castlefalconer', 'castlelady', 'olympuszeus', 'olympushera', 'olympusposeidon', 'olympusathena', 'olympusapollo', 'olympusartemis', 'olympushermes', 'olympusares', 'olympusaphrodite'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
@@ -63499,6 +63519,388 @@
           return true;
         },
         nods(look) { return look.castleCurtsy ? 1 : 0; },
+      },
+      olympuszeus: {
+        // Zeus: white curls and a great white beard; a white himation round him and over one shoulder, the chest bare on the other
+        // side under a gold border, a gold cord at the waist, gold sandals; a golden thunderbolt in his hand. Now and then he raises
+        // it high and it crackles with lightning; by night it lights him up. His whites are shaded storm-grey on the right, his arms
+        // bare and tanned, so he holds his own against pale stone and marble.
+        look: costumeLook(0xe8c0a0, 0xf2f0ea),
+        front(x, y, o, look) {
+          // The bare chest at his left shoulder above the gold border, the cloth's folds, the cord; lit on the left, storm-grey in
+          // the shade on the right
+          dot(x + 2, y, look.skin); dot(x + 3, y, look.skin); dot(x + 3, y + 1, shaded(look.skin, 0.9));
+          dot(x + 1, y, 0xe8b830); dot(x + 2, y + 1, 0xe8b830); dot(x + 3, y + 2, 0xa07818);
+          dot(x - 1, y + 3, 0xd8d4c8); fill(x + 3, y + 3, 1, 3, 0x9ca0b0); fill(x - 3, y + 4, 7, 1, 0xc8a050);
+          fill(x - 3, y, 1, 4, 0xffffff);
+        },
+        back(x, y) { fill(x + 3, y, 1, 6, 0x9ca0b0); fill(x - 3, y + 4, 7, 1, 0xc8a050); },
+        head(x, top, look, away) {
+          const W = look.hair, WL = 0xffffff, WD = 0xc8c6be, WS = 0x767c90;
+          // The curls, full round the head and down to the jaw, their right edge in storm-grey shade
+          fill(x - 3, top - 1, 7, 1, W); fill(x - 4, top, 9, 2, W); fill(x - 4, top + 2, 1, 3, W); fill(x - 3, top + 2, 1, 2, W); fill(x + 3, top + 2, 1, 2, WD);
+          for (const [dx, dy] of [[-2, -1], [1, -1], [-3, 0], [0, 0], [3, 1], [-1, 1]]) dot(x + dx, top + dy, WL);
+          for (const [dx, dy] of [[2, 0], [-4, 1]]) dot(x + dx, top + dy, WD);
+          fill(x + 4, top, 1, 5, WS); dot(x + 3, top - 1, WS);
+          if (away) { fill(x - 3, top + 2, 7, 5, W); fill(x + 3, top + 2, 1, 3, WD); fill(x + 3, top + 5, 1, 2, WS); return; }
+          // Stern brows and the great beard, curling down onto his chest, shaded down its right edge; light next to the eyes
+          dot(x - 2, top + 3, WD); dot(x + 2, top + 3, WD);
+          fill(x - 3, top + 5, 7, 2, W); fill(x - 2, top + 7, 5, 2, W); fill(x - 1, top + 9, 3, 1, W);
+          for (const [dx, dy] of [[-1, 5], [1, 5], [-2, 7], [0, 9]]) dot(x + dx, top + dy, WD);
+          for (const [dx, dy] of [[3, 5], [3, 6], [2, 7], [2, 8], [1, 9]]) dot(x + dx, top + dy, WS);
+        },
+        // The thunderbolt in his hand, a gold zigzag; now and then raised high over his head, crackling, lighting him by night: his
+        // arm up and out past his curls, as the office raises an arm, the bolt's tip in his fist
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 15, 2.2, 7), lift = costumeLift(pose);
+          // The himation's shade on down to his feet, standing
+          if (lift) { dot(x + 3, top + 13, 0x9ca0b0); if (pose.kind !== 'walk') fill(x + 3, top + 14, 1, 2, 0x9ca0b0); }
+          // `w` wide from `bx`, `by` down: a stroke down to the left, a jog back across, a stroke down to the left again; pale at
+          // the top, gold across, amber at the tip
+          const bolt = (bx, by, w) => {
+            for (let i = 0; i < w; i++) {
+              dot(bx + w - 1 - i, by + i, 0xfff0a0); dot(bx + i, by + w, 0xffd84a); dot(bx + w - 1 - i, by + w + 1 + i, 0xe8a828);
+            }
+          };
+          costumeArm(x, top, -4, look, sleeve);
+          if (p !== null) {
+            sleeve(x + 4, top + 7, 1, 2); sleeve(x + 5, top + 3, 1, 4); dot(x + 5, top + 2, look.skin);
+            bolt(x + 5, top - 7, 4);
+            const flick = Math.floor(now * 12) % 2;
+            for (const [dx, dy] of flick ? [[5, -6], [-1, -5], [4, -1]] : [[1, -8], [5, -3], [-2, -4]]) dot(x + 5 + dx, top + dy, 0xfff6c0, 0.9);
+            if (isNight) glowLate(() => { glowAt(x + 7, top - 3, 8, 8, 0xfff0a0, 0.25); bolt(x + 5, top - 7, 4); }); else glowAt(x + 7, top - 3, 6, 6, 0xfff0a0, 0.12);
+          } else {
+            costumeArm(x, top, 4, look, sleeve);
+            bolt(x + 5, top + 6, 3);
+          }
+          return true;
+        },
+      },
+      olympushera: {
+        // Hera: a tall gold crown, dark hair waved at the sides, gold earrings; a white gown under a peacock-teal mantle with a gold
+        // brooch at each shoulder, a peacock feather in her hand. Now and then a peacock's tail fans out behind her, its eyes
+        // shimmering.
+        look: costumeLook(0xf0d0b8, 0x2e1e14),
+        front(x, y) {
+          // The white gown down the middle, the mantle either side, its brooches; lit on the left
+          fill(x - 1, y, 3, 6, 0xf6f4ee); fill(x + 1, y, 1, 6, 0xdcdad2); dot(x - 2, y, 0xe8b830); dot(x + 2, y, 0xa07818);
+          fill(x - 3, y, 1, 6, 0x4aaab4); fill(x + 3, y, 1, 6, 0x1a5a64);
+        },
+        head(x, top, look, away) {
+          const G = 0xe8b830, GL = 0xffe08a, GD = 0xa07818, H = look.hair;
+          // Dark hair waved at the sides
+          fill(x - 3, top + 1, 1, 4, H); fill(x + 3, top + 1, 1, 4, H); dot(x - 4, top + 2, H); dot(x + 4, top + 2, H);
+          // The crown: a tall gold cylinder rising to three points, a lighter band round it, a teal jewel
+          fill(x - 2, top - 3, 5, 3, G); fill(x - 2, top - 3, 1, 3, GL); fill(x + 2, top - 3, 1, 3, GD); fill(x - 2, top - 2, 5, 1, GL); dot(x, top - 2, 0x2a8a96);
+          dot(x - 2, top - 4, GL); dot(x, top - 4, GL); dot(x + 2, top - 4, G);
+          if (away) { fill(x - 2, top + 2, 5, 4, H); fill(x - 1, top + 6, 3, 1, H); return; }
+          dot(x - 3, top + 5, G); dot(x + 3, top + 5, G); dot(x, top + 6, 0xc84a5a);
+        },
+        // The feather in her hand; now and then the peacock's tail fanning out behind her head and shoulders (drawn here, before her
+        // head, so she stays in front of it)
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 17, 2.6, 5);
+          if (p !== null) {
+            const r = Math.round(4 + Math.min(1, p * 4) * 3), shimmer = Math.floor(now * 6) % 2;
+            for (let i = 0; i <= 8; i++) {
+              const a = Math.PI + (i / 8) * Math.PI, fx = x + Math.round(Math.cos(a) * r), fy = top + 4 + Math.round(Math.sin(a) * r);
+              line(x, top + 4, fx, fy, 0x3a8a4a, 0.9);
+              dot(fx, fy, (i + shimmer) % 2 ? 0x2a6ad8 : 0x2ab0a8); if (r > 5) dot(fx, fy + (fy < top + 4 ? 1 : 0), 0xe8b830, 0.8);
+            }
+          }
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          fill(x + 5, top + 6, 1, 7, 0x3a8a4a); dot(x + 5, top + 5, 0x2a6ad8); dot(x + 5, top + 4, 0x2ab0a8); dot(x + 6, top + 5, 0xe8b830);
+          return true;
+        },
+      },
+      olympusposeidon: {
+        // Poseidon: wild sea-green hair and a sea-green beard under a gold crown of points; a teal mantle patterned like fish scales
+        // over a white tunic; a gold trident. Now and then a wave rises round his feet and spray flies off the trident.
+        look: costumeLook(0xd8b090, 0x2a8a7a),
+        front(x, y) {
+          // The white tunic at the neck and its gold clasp, the scales on the mantle; lit on the left
+          fill(x - 1, y, 3, 1, 0xf2f0e8); dot(x - 2, y, 0xe8b830);
+          for (const [dx, dy] of [[-2, 2], [0, 2], [2, 2], [-1, 3], [1, 3], [-2, 4], [0, 4], [2, 4], [-1, 5], [1, 5]]) dot(x + dx, y + dy, 0x1a6a6a);
+          fill(x - 3, y, 1, 6, 0x4ab4a4); fill(x + 3, y, 1, 6, 0x10484a);
+        },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0x4ab4a4, HD = 0x1a5a50, G = 0xe8b830;
+          // Wild sea-green hair, out past the ears, and the gold crown of points on it
+          fill(x - 4, top, 9, 2, H); fill(x - 4, top + 2, 1, 3, H); fill(x + 4, top + 2, 1, 3, HD); fill(x - 3, top + 2, 1, 2, H); fill(x + 3, top + 2, 1, 2, HD);
+          for (const [dx, dy] of [[-4, 0], [-1, 1], [2, 0], [4, 1]]) dot(x + dx, top + dy, HL);
+          fill(x - 3, top - 1, 7, 1, G); for (const dx of [-3, -1, 1, 3]) dot(x + dx, top - 2, G); dot(x - 1, top - 2, 0xffe08a);
+          if (away) { fill(x - 3, top + 2, 7, 5, H); return; }
+          // The sea-green beard, curling down onto his chest
+          fill(x - 3, top + 5, 7, 2, H); fill(x - 2, top + 7, 5, 2, H); dot(x, top + 9, H);
+          for (const [dx, dy] of [[-2, 5], [1, 6], [-1, 7], [2, 7], [0, 8]]) dot(x + dx, top + dy, HL);
+          dot(x - 1, top + 5, HD); dot(x + 1, top + 5, HD);
+        },
+        // The trident upright in his right hand; now and then a wave round his feet and spray off the trident's tip
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 16, 2.4, 9), lift = costumeLift(pose), G = 0xe8b830;
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          // The trident taller than him, its head clear of his crown: a crossbar and three prongs with a gap between each
+          fill(x + 5, top - 3, 1, 19, G); fill(x + 3, top - 4, 5, 1, G); dot(x + 7, top - 4, 0xa07818);
+          for (const dx of [3, 7]) fill(x + dx, top - 6, 1, 2, G); fill(x + 5, top - 7, 1, 3, G);
+          for (const dx of [3, 5, 7]) dot(x + dx, top - (dx === 5 ? 7 : 6), 0xffe08a);
+          if (p !== null) {
+            const k = Math.floor(now * 6) % 3, rise = k === 1 ? 1 : 0;
+            if (lift) { fill(x - 5, top + 15 - rise, 11, 2, 0x4ab0d8, 0.85); for (const dx of [-5, -2, 1, 4]) dot(x + dx + (k % 2), top + 14 - rise, 0xf2f8ff); }
+            for (const [dx, dy] of [[-2, -2], [2, -3], [0, -4], [1, -1]]) dot(x + 5 + dx, top - 7 + dy - k, 0xbfe8ff, 0.85);
+          }
+          return true;
+        },
+      },
+      olympusathena: {
+        // Athena: a bronze helmet pushed back on her head, its face-guard tipped up and a tall blue crest along it, long brown hair
+        // under it; a golden scaled aegis over the shoulders of a blue gown; a spear, and a little owl on her shoulder. Now and then
+        // the owl hops up flapping, turns its head and blinks.
+        look: costumeLook(0xf0d4bc, 0x4a2a1a),
+        front(x, y) {
+          // The aegis: gold scales over the shoulders and chest, its fringe; the blue gown under it with a gold girdle; lit on the left
+          for (let r = 0; r < 2; r++) for (let dx = -3; dx <= 3; dx++) dot(x + dx, y + r, (dx + r) % 2 ? 0xe8b830 : 0xa07818);
+          for (const dx of [-2, 0, 2]) dot(x + dx, y + 2, 0xa07818);
+          fill(x - 3, y + 2, 1, 4, 0x5a7ac8); fill(x + 3, y + 2, 1, 4, 0x1e3a7a); fill(x - 3, y + 4, 7, 1, 0xe8b830);
+        },
+        head(x, top, look, away) {
+          const B = 0xc8903a, BL = 0xe8b860, BD = 0x7a5420;
+          // Long brown hair under the helmet, down the sides
+          fill(x - 3, top + 1, 1, 6, look.hair); fill(x + 3, top + 1, 1, 6, look.hair);
+          // The helmet pushed back: a bronze bowl over the brow, the tipped-up face-guard with its eye holes (from the front only),
+          // the crest along the top
+          fill(x - 3, top - 2, 7, 3, B); fill(x - 3, top - 2, 1, 3, BL); fill(x + 3, top - 2, 1, 3, BD);
+          fill(x - 1, top - 6, 2, 4, 0x2a5aa8); dot(x - 1, top - 6, 0x6a9ae8); dot(x + 1, top - 5, 0x2a5aa8); dot(x + 1, top - 4, 0x1a3a7a); dot(x - 2, top - 4, 0x6a9ae8);
+          if (away) { fill(x - 3, top + 1, 7, 6, look.hair); return; }
+          dot(x - 2, top, 0x3a2410); dot(x + 2, top, 0x3a2410);
+          dot(x, top + 6, 0xc86a6a);
+          // The owl on her shoulder: grey-brown, lit on the left, ear tufts, a pale face and breast, two big yellow eyes; now and
+          // then it hops up off her shoulder flapping its wings, turns its head and blinks (see arms)
+          const turn = look.costumeOwl, hop = turn !== null && turn !== undefined && turn < 0.5;
+          const ox = x - 5, oy = top + 3 - (hop ? 1 : 0), owl = 0xb09c80, owlLight = 0xd0c0a4, tuft = 0x5e4e3e, face = 0xf4ecdc, eye = 0xffd23a;
+          fill(ox - 1, oy, 3, 4, owl); fill(ox - 1, oy + 2, 1, 2, owlLight); dot(ox - 1, oy, tuft); dot(ox + 1, oy, tuft);
+          if (hop) { const wy = oy + 1 + (Math.floor(now * 8) % 2); dot(ox - 2, wy, owlLight); dot(ox + 2, wy, owl); }
+          if (turn !== null && turn !== undefined && turn < 0.6) { dot(ox - 1, oy + 1, eye); dot(ox, oy + 1, face); }
+          else if (turn !== null && turn !== undefined && turn < 0.75) { dot(ox - 1, oy + 1, tuft); dot(ox, oy + 1, face); dot(ox + 1, oy + 1, tuft); }
+          else { dot(ox - 1, oy + 1, eye); dot(ox, oy + 1, face); dot(ox + 1, oy + 1, eye); }
+          dot(ox, oy + 2, 0xe8a030); dot(ox, oy + 3, face); dot(ox - 1, oy + 4, 0xe8a030); dot(ox + 1, oy + 4, 0xe8a030);
+        },
+        // The spear in her right hand; the owl's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeOwl = pose.kind === 'walk' ? null : every(look, 13, 2, 4);
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          fill(x + 5, top - 2, 1, 16, 0x8a5a32); fill(x + 5, top - 4, 1, 2, 0xc8903a); dot(x + 5, top - 5, 0xe8b860);
+          return true;
+        },
+      },
+      olympusapollo: {
+        // Apollo: short golden curls; a white chiton to the knee with a gold belt and a gold border at the hem, a red cloak pinned at
+        // one shoulder, gold sandals; a golden lyre. Now and then he strums it and notes float up.
+        look: costumeLook(0xf0c8a0, 0xf0c040),
+        front(x, y) {
+          // The red cloak at his shoulders and its gold pin, the gold belt; the chiton lit on the left
+          dot(x - 3, y, 0xc8302a); dot(x + 3, y, 0x8a1c1c); fill(x + 3, y + 1, 1, 3, 0x8a1c1c); dot(x + 2, y, 0xe8b830);
+          fill(x - 3, y + 3, 7, 1, 0xe8b830); fill(x - 3, y + 1, 1, 2, 0xffffff);
+        },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xffe080, HD = 0xb88a1a;
+          // Short golden curls all over, lit on top
+          fill(x - 3, top - 1, 7, 1, H); fill(x - 4, top, 9, 2, H); dot(x - 4, top + 2, H); dot(x + 4, top + 2, HD); dot(x - 3, top + 2, H); dot(x + 3, top + 2, HD);
+          for (const [dx, dy] of [[-2, -1], [1, -1], [-3, 0], [0, 0], [3, 1], [-1, 1]]) dot(x + dx, top + dy, HL);
+          for (const [dx, dy] of [[2, 0], [-4, 1], [4, 1]]) dot(x + dx, top + dy, HD);
+          if (away) { fill(x - 3, top + 2, 7, 3, H); return; }
+          // Strumming: amber-gold notes floating up off the lyre (see arms), to read on pale stone and dark wood alike
+          const p = look.costumeLyre;
+          if (p !== null && p !== undefined) for (let i = 0; i < 2; i++) {
+            const k = (p * 2 + i * 0.5) % 1, nx = x + 7 + i * 2, ny = top + 4 - Math.round(k * 8);
+            dot(nx, ny, 0xd8921c, 1 - k); dot(nx, ny - 1, 0xd8921c, 1 - k); dot(nx + 1, ny - 1, 0xd8921c, 1 - k);
+          }
+        },
+        // The lyre held at his side, now and then raised and strummed; sitting at a desk, held up at his shoulder, clear of the
+        // desk; the chiton's gold hem when the legs show
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), G = 0xe8b830, GD = 0xa07818;
+          if (lift) { fill(x - 3, top + 13, 7, 1, 0xf6f2e8); for (const dx of [-3, -1, 1, 3]) dot(x + dx, top + 13, G); }
+          const p = pose.kind === 'walk' ? null : every(look, 14, 2.6, 6);
+          look.costumeLyre = p;
+          // The lyre: two arms curving up out of a round sound box and out at their tips, a crossbar under the tips, two strings
+          const lyre = (lx, ly) => {
+            dot(lx - 1, ly - 1, G); dot(lx + 4, ly - 1, GD); fill(lx, ly, 1, 4, G); fill(lx + 3, ly, 1, 4, GD);
+            fill(lx, ly + 1, 4, 1, G); fill(lx + 1, ly + 4, 2, 1, GD); dot(lx + 1, ly + 4, G);
+            fill(lx + 1, ly + 2, 1, 2, 0xf8f6f0, 0.85); fill(lx + 2, ly + 2, 1, 2, 0xf8f6f0, 0.55);
+          };
+          costumeArm(x, top, -4, look, sleeve);
+          if (p !== null) { sleeve(x + 4, top + 7, 1, 3); lyre(x + 5, top + 5); dot(x + 6 + (Math.floor(now * 8) % 2), top + 7, look.skin); }
+          else if (!lift) { lyre(x + 4, top + 5); dot(x + 4, top + 9, look.skin); }
+          else { costumeArm(x, top, 4, look, sleeve); lyre(x + 5, top + 9); }
+          return true;
+        },
+      },
+      olympusartemis: {
+        // Artemis: auburn hair tied up high, a silver crescent moon on her brow; a short pale chiton belted at the waist, hunting
+        // sandals, a quiver of arrows over her shoulder; a silver bow. Now and then she draws the bow, an arrow on it, and looses it;
+        // by night her crescent shines.
+        look: costumeLook(0xf2d0b4, 0x9a3a1a),
+        front(x, y) {
+          // The quiver's strap over one shoulder, the belt and its silver clasp; the chiton lit on the left
+          dot(x + 2, y, 0x6a4424); dot(x + 1, y + 1, 0x6a4424); dot(x, y + 2, 0x6a4424); fill(x - 3, y + 3, 7, 1, 0x6a4424); dot(x, y + 3, 0xc8ccd4);
+          fill(x - 3, y, 1, 3, 0xffffff);
+        },
+        back(x, y) { fill(x + 1, y - 1, 2, 5, 0x8a5a32); for (const dx of [1, 2]) dot(x + dx, y - 2, 0xf2f0ea); },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xc85a2a, HD = 0x6a2410, silver = 0xe8ecf4;
+          // The hair tied up high in a knot on a short tail
+          fill(x - 1, top - 3, 3, 2, H); dot(x - 1, top - 3, HL); dot(x + 1, top - 2, HD); dot(x, top - 1, H);
+          fill(x - 3, top + 1, 1, 3, H); fill(x + 3, top + 1, 1, 3, H);
+          if (away) { fill(x - 3, top + 2, 7, 4, H); return; }
+          // The arrows' fletching peeking over her shoulder (from behind, the quiver shows its own)
+          dot(x + 4, top + 6, 0xf2f0ea); dot(x + 5, top + 6, 0xc83a3a); dot(x + 4, top + 7, 0x8a5a32);
+          // The silver crescent on her brow, shining through the night: a soft light on the brow alone
+          const moon = () => { dot(x - 1, top + 1, silver); dot(x + 1, top + 1, silver); dot(x, top + 2, silver); };
+          if (isNight) glowLate(() => { glowAt(x, top + 1, 2, 1, 0xe0e8ff, 0.3); moon(); }); else moon();
+        },
+        // The bow in her left hand, its silver a step darker than pale stone; now and then drawn, an arrow on the string, then
+        // loosed with a streak
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 15, 2.2, 8), S = 0xc0c6d2, SD = 0x767a86;
+          costumeArm(x, top, 4, look, sleeve);
+          if (p === null) {
+            // At rest, upright at her side: the limbs bowed out from tip to tip, the string straight between them
+            costumeArm(x, top, -4, look, sleeve);
+            dot(x - 5, top + 6, SD); dot(x - 6, top + 7, S); fill(x - 7, top + 8, 1, 5, S); dot(x - 6, top + 13, S); dot(x - 5, top + 14, SD);
+            fill(x - 5, top + 7, 1, 7, 0xf2f2f2, 0.6);
+            return true;
+          }
+          // Drawn: the bow out at arm's length, the string back to her chest; or loosed, a streak where the arrow went
+          sleeve(x - 4, top + 8, 1, 1); sleeve(x - 6, top + 8, 2, 1); dot(x - 7, top + 8, look.skin);
+          fill(x - 8, top + 4, 1, 9, S); dot(x - 7, top + 3, SD); dot(x - 7, top + 13, SD);
+          if (p < 0.7) {
+            line(x - 7, top + 4, x - 2, top + 8, 0xf2f2f2, 0.7); line(x - 7, top + 12, x - 2, top + 8, 0xf2f2f2, 0.7);
+            fill(x - 10, top + 8, 8, 1, 0x8a5a32); dot(x - 11, top + 8, 0xc8ccd4); dot(x - 2, top + 7, 0xc83a3a);
+          } else {
+            line(x - 8, top + 4, x - 8, top + 12, 0xf2f2f2, 0.7);
+            const k = (p - 0.7) / 0.3; for (let i = 0; i < 3; i++) dot(x - 11 - Math.round(k * 6) - i * 2, top + 8, 0xe8ecf4, 0.8 - i * 0.25);
+          }
+          return true;
+        },
+      },
+      olympushermes: {
+        // Hermes: a round brimmed traveller's hat with a little white wing either side, brown curls; a short white tunic with a red
+        // cloak at the shoulders and a satchel of letters at the hip; winged sandals; the caduceus. Now and then a letter flies out
+        // of the satchel and zooms off, delivered.
+        look: costumeLook(0xe8bc94, 0x5a3418),
+        front(x, y) {
+          // The red cloak round his shoulders and its clasp, the satchel's strap across; lit on the left
+          dot(x - 3, y, 0xc8302a); dot(x - 2, y, 0xc8302a); dot(x + 2, y, 0x9a2020); dot(x + 3, y, 0x9a2020); dot(x, y, 0xe8b830);
+          dot(x - 1, y + 1, 0x6a4424); dot(x, y + 2, 0x6a4424); dot(x + 1, y + 3, 0x6a4424);
+          fill(x - 3, y + 1, 1, 3, 0xffffff);
+        },
+        head(x, top, look, away) {
+          const hat = 0xb08a5a, wing = 0xf6f6f2, wingDark = 0xc8ccd4, flap = look.costumeLetter !== null && look.costumeLetter !== undefined && Math.floor(now * 10) % 2;
+          // The hat: a low round crown and a wide brim, a little white wing out to each side, beating while a letter goes
+          fill(x - 2, top - 2, 5, 2, hat); fill(x - 2, top - 2, 2, 1, 0xd0aa78); fill(x - 4, top, 9, 1, hat); dot(x - 4, top, 0xd0aa78); dot(x + 4, top, 0x7a5a34);
+          const up = flap ? 1 : 0;
+          dot(x - 5, top - 1 - up, wing); dot(x - 6, top - 2 - up, wing); dot(x - 5, top - 2 - up, wingDark);
+          dot(x + 5, top - 1 - up, wing); dot(x + 6, top - 2 - up, wingDark); dot(x + 5, top - 2 - up, wing);
+          fill(x - 3, top + 1, 1, 2, look.hair); fill(x + 3, top + 1, 1, 2, look.hair);
+          if (away) fill(x - 3, top + 1, 7, 4, look.hair);
+        },
+        // The caduceus in his left hand, the satchel at his right hip, the sandals' wings; now and then a letter zooms off
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), G = 0xe8b830;
+          // The sandals' little wings, out from each heel, clear of the tunic
+          if (lift) for (const [side, l] of [[-1, lift[0]], [1, lift[1]]]) { dot(x + side * 3, top + 16 - l, 0xd8dce4); dot(x + side * 4, top + 15 - l, 0xf6f6f2); }
+          const p = pose.kind === 'walk' ? null : every(look, 14, 1.6, 3);
+          look.costumeLetter = p;
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          // The caduceus: a gold staff, two green snakes winding up it, little wings at its top
+          fill(x - 5, top + 3, 1, 11, G); dot(x - 6, top + 3, 0xf6f6f2); dot(x - 4, top + 3, 0xf6f6f2); dot(x - 5, top + 2, 0xffe08a);
+          for (let i = 0; i < 4; i++) dot(x - 6 + (i % 2) * 2, top + 5 + i * 2, 0x3a9a4a);
+          // The satchel, a letter in it, or the letter flying off
+          fill(x + 2, top + 11, 3, 2, 0x8a5a32); dot(x + 2, top + 11, 0xa8743e);
+          if (p === null) dot(x + 3, top + 10, 0xf6f4ee);
+          else {
+            const k = Math.min(1, p * 1.2), lx = x + 4 + Math.round(k * 12), ly = top + 9 - Math.round(k * 5);
+            fill(lx, ly, 3, 2, 0xf6f4ee); dot(lx + 1, ly, 0xc8302a);
+            for (let i = 1; i <= 3; i++) dot(lx - i * 2, ly + 1, 0xd8dce4, 0.8 - i * 0.2);
+          }
+          return true;
+        },
+      },
+      olympusares: {
+        // Ares: a bronze helmet closing over his face but for the T of its opening, a tall red crest arching over it; a bronze cuirass
+        // shaped to the chest, a red cloak, a short red skirt, bronze greaves; a round bronze shield and a spear. Now and then he
+        // strikes the shield with a war cry, and it rings.
+        look: costumeLook(0xd8a888, 0x2a1a12),
+        front(x, y) {
+          const BL = 0xe8b860, BD = 0x7a5420;
+          // The cuirass lit on the left, the chest and belly modelled in it; the red cloak at the shoulders; the skirt's strips
+          fill(x - 2, y, 1, 4, BL); dot(x - 1, y + 1, BD); dot(x + 1, y + 1, BD); dot(x, y + 2, BD); dot(x - 1, y + 3, BD); dot(x + 1, y + 3, BD); fill(x + 2, y, 1, 4, BD);
+          dot(x - 3, y, 0xc8302a); dot(x + 3, y, 0x8a1c1c); fill(x - 3, y + 4, 7, 2, 0xb02a2a); for (const dx of [-2, 0, 2]) dot(x + dx, y + 5, 0x7a1414);
+        },
+        back(x, y) { fill(x - 3, y, 7, 6, 0xb02a2a); fill(x + 3, y, 1, 6, 0x7a1414); },
+        head(x, top, look, away) {
+          const B = 0xc8903a, BL = 0xe8b860, BD = 0x7a5420, crest = 0xc8302a;
+          // The helmet: a bronze bowl closing over the face, the T of its opening showing his eyes and mouth
+          fill(x - 3, top - 1, 7, 8, B); fill(x - 3, top - 1, 1, 8, BL); fill(x + 3, top - 1, 1, 8, BD); fill(x - 2, top - 2, 5, 1, B);
+          if (!away) {
+            fill(x - 2, top + 4, 5, 1, look.skin); fill(x, top + 5, 1, 2, look.skin); dot(x - 2, top + 4, PALETTE.eye); dot(x + 2, top + 4, PALETTE.eye); dot(x, top + 3, BD);
+            if (look.costumeCry) dot(x, top + 6, 0x3a1010);
+          }
+          // The crest: tall red horsehair arching over the top from front to back
+          fill(x - 1, top - 6, 3, 4, crest); fill(x - 2, top - 5, 1, 3, crest); fill(x + 2, top - 5, 1, 3, 0x8a1c1c); dot(x - 1, top - 6, 0xe85a4a); dot(x, top - 7, crest);
+        },
+        // Greaves on the shins; the round shield on his left arm, ringing when struck; the spear in his right hand, raised to strike
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), B = 0xc8903a, BL = 0xe8b860, BD = 0x7a5420;
+          if (lift) { fill(x - 2, top + 14 - lift[0], 2, 2, B); fill(x + 1, top + 14 - lift[1], 2, 2, BD); }
+          const p = pose.kind === 'walk' ? null : every(look, 15, 1.8, 2), hit = p !== null && Math.floor(p * 6) % 2 === 0;
+          look.costumeCry = p !== null;
+          costumeArm(x, top, -4, look, sleeve);
+          const sx = x - 6 + (hit ? 1 : 0);
+          disc(sx, top + 10, 3, B); disc(sx - 1, top + 9, 1.5, BL); ring(sx, top + 10, 3.2, BD, 0.9); dot(sx, top + 10, BD);
+          if (hit) costumeTwinkle(sx - 2, top + 8, 0.9);
+          costumeArm(x, top, 4, look, sleeve);
+          const up = p !== null ? 3 : 0;
+          fill(x + 5, top - 3 - up, 1, 16, 0x8a5a32); fill(x + 5, top - 5 - up, 1, 2, 0xc8ccd4); dot(x + 5, top - 6 - up, 0xe8ecf2);
+          return true;
+        },
+      },
+      olympusaphrodite: {
+        // Aphrodite: long golden waves down to her waist with a pink rose in them, red lips; a rose-pink chiton with a gold girdle and a
+        // pearly scallop-shell clasp, a golden apple in her hand. Now and then little hearts float up from her.
+        look: costumeLook(0xf6dcc8, 0xf2c860),
+        front(x, y) {
+          // The shell clasp at her shoulder, the gold girdle under the bust, the chiton's folds; lit on the left
+          dot(x + 2, y, 0xf6eee6); dot(x + 3, y, 0xe8d8cc); dot(x + 2, y + 1, 0xe8d8cc);
+          fill(x - 2, y + 2, 5, 1, 0xe8b830); dot(x, y + 3, 0xe8b830);
+          for (const dx of [-1, 1]) fill(x + dx, y + 3, 1, 3, 0xe07888);
+          fill(x - 3, y, 1, 6, 0xf8b8c4);
+        },
+        back(x, y, o, look) { fill(x - 3, y, 7, 5, look.hair); for (const dx of [-2, 0, 2]) dot(x + dx, y + 2, 0xc8a040); },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xfff0a8, HD = 0xc8a040;
+          // The long golden waves: over the head and down both sides past the shoulders, a rose tucked in them
+          fill(x - 3, top - 1, 7, 1, H); fill(x - 4, top, 9, 2, H);
+          for (const side of [-1, 1]) { fill(x + side * 4, top + 2, 1, 10, H); fill(x + side * 3, top + 2, 1, 4, H); }
+          for (const [dx, dy] of [[-2, -1], [1, 0], [-4, 4], [-4, 7], [-4, 10], [4, 3], [4, 6], [4, 9]]) dot(x + dx, top + dy, dx < 0 ? HL : HD);
+          dot(x - 3, top, 0xe8405a); dot(x - 4, top, 0xc82a4a); dot(x - 3, top + 1, 0x4a8a3a);
+          if (away) { fill(x - 3, top + 2, 7, 5, H); return; }
+          fill(x - 1, top + 6, 3, 1, 0xd8283c); dot(x - 2, top + 5, 0xf0a0a8, 0.5); dot(x + 2, top + 5, 0xf0a0a8, 0.5);
+          // The hearts floating up from her (see arms)
+          const p = look.costumeHearts;
+          if (p !== null && p !== undefined) for (let i = 0; i < 3; i++) {
+            const k = (p * 1.5 + i / 3) % 1, hx = x - 3 + i * 3 + Math.round(Math.sin(k * 6 + i)), hy = top - 1 - Math.round(k * 8), a = 1 - k;
+            dot(hx - 1, hy - 1, 0xf0507a, a); dot(hx + 1, hy - 1, 0xf0507a, a); fill(hx - 1, hy, 3, 1, 0xf0507a, a); dot(hx, hy + 1, 0xf0507a, a);
+          }
+        },
+        // The golden apple in her right hand; the hearts' moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeHearts = pose.kind === 'walk' ? null : every(look, 13, 2.4, 6);
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          // The apple held out past her hair, so it doesn't melt into it: lit on the top left, a leaf at its stalk
+          fill(x + 5, top + 11, 2, 2, 0xe8b830); dot(x + 5, top + 11, 0xffe08a); dot(x + 6, top + 12, 0xa07818); dot(x + 6, top + 10, 0x4a8a3a);
+          return true;
+        },
       },
     };
 
