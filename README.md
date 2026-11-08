@@ -338,8 +338,13 @@ opens in your browser.
 
 ## Set up
 
-Setup opens by itself the first time, on **Start here**: a checklist your
-computer runs, each line with the button that puts it right.
+Setup opens by itself the first time, on **Start here**, and an arrow points
+at each step until your General Manager is at its desk: choose the folder your
+hires work in (it suggests one, such as `~/Projects`), check what the first
+hire needs, then hire your General Manager. **Show Me Around Again**, in the
+Help menu, the menu bar icon (the tray icon on Windows and Linux) and Easy
+setup, shows the way again. Below that, a checklist your computer runs, each
+line with the button that puts it right.
 
 <p align="center">
   <img src="docs/setup.png" alt="The setup page: getting started, and a pairing code with its QR code for your phone" width="720">
@@ -362,12 +367,16 @@ computer runs, each line with the button that puts it right.
 - **A phone is paired** (see below), and **Smolcorp opens at login**.
 
 **Fix everything** does every line it can at once. Beside them, **Open the
-office**, and **Hire your General Manager**: one click starts the GM role in
-its own terminal, where it asks you what the goal is.
+office**, and **Hire your General Manager**: before it, Start here checks that
+Claude Code is installed and signed in, each line saying what to do if not;
+one click then starts the GM role in its own terminal, where it asks you what
+the goal is.
 
-Further down: the [roles](#run-a-team) you can hire, the office's style,
-pets and mic, and under Advanced everything else, from the desks to
-[Tell other tools](#tell-other-tools).
+Further down: the [roles](#run-a-team) you can hire and **Find a setting**.
+The other sections are Office and look, Hires and roles, Floors, and Phone
+and voice, then General and Advanced, down to
+[Tell other tools](#tell-other-tools); the search finds any setting by its
+words.
 
 The first time you press a button on a Mac, macOS asks whether Smolcorp may
 control Terminal. Click **Allow**.
