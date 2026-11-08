@@ -1,0 +1,208 @@
+package desktop
+
+import (
+	"encoding/json"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// The first-run guide shows on a new computer only: a config from before it, of someone who had set up
+// (setup opened, a hires folder chosen, or a GM hired), counts as done, and what's saved is kept.
+func TestTheGuideIsForAFirstRunOnly(t *testing.T) {
+	isolate(t)
+	if loadConfig().GuideDone {
+		t.Fatal("no config yet: the guide counts as done")
+	}
+	for _, file := range []string{`{"hasCompletedSetup": true}`, `{"hireFolder": "/work"}`, `{"managerEnabled": true}`} {
+		writeFile(t, configFile, file)
+		if !loadConfig().GuideDone {
+			t.Errorf("%s, from before the guide: it would be shown", file)
+		}
+	}
+	writeFile(t, configFile, `{"hasCompletedSetup": false, "hireFolder": ""}`)
+	if loadConfig().GuideDone {
+		t.Error("a config of someone who never set up: the guide counts as done")
+	}
+	// Setup opened (hasCompletedSetup) during the guide doesn't end it: what's saved is.
+	writeFile(t, configFile, `{"hasCompletedSetup": true, "hireFolder": "/work", "guideDone": false}`)
+	config := loadConfig()
+	if config.GuideDone {
+		t.Fatal("guideDone false loads as done")
+	}
+	config.save()
+	if loadConfig().GuideDone {
+		t.Error("saved and loaded again, the guide counts as done")
+	}
+}
+
+// POST /setup/guide keeps whether the guide is over, and setup's state says it.
+func TestTheGuideIsKeptAndSetupsStateSaysIt(t *testing.T) {
+	d := newTestDeck(t)
+	d.config.GuideDone = false
+	done := func() bool {
+		t.Helper()
+		var state struct{ Guide struct{ Done *bool } }
+		got := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer})
+		if json.Unmarshal(got.Body.Bytes(), &state) != nil || state.Guide.Done == nil {
+			t.Fatalf("setup's state has no guide.done: %s", got.Body.String())
+		}
+		return *state.Guide.Done
+	}
+	set := func(value string) {
+		t.Helper()
+		got := serve(t, d, call{method: "POST", target: "/setup/guide?done=" + value, host: "localhost:7710", from: thisComputer,
+			headers: map[string]string{setupHeader: "1"}})
+		if got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"guide"`) {
+			t.Fatalf("done=%s: %d %s", value, got.Code, got.Body.String())
+		}
+	}
+	if done() {
+		t.Fatal("a first run: setup says the guide is over")
+	}
+	set("1")
+	if !done() || !d.config.GuideDone || !loadConfig().GuideDone {
+		t.Fatalf("finished: setup says %v, the config %v, the saved config %v", done(), d.config.GuideDone, loadConfig().GuideDone)
+	}
+	set("0")
+	if done() || loadConfig().GuideDone {
+		t.Fatal("shown again: the guide still counts as done")
+	}
+}
+
+// The tray's Show Me Around Again turns the guide on again, saved, and opens setup on #guide.
+func TestShowMeAroundAgainTurnsTheGuideOnAndOpensSetupOnIt(t *testing.T) {
+	d := newTestDeck(t)
+	d.config.GuideDone = true
+	d.config.save()
+	opened := 0
+	was := openGuidePage
+	openGuidePage = func(*Deck) error { opened++; return nil }
+	t.Cleanup(func() { openGuidePage = was })
+	if err := d.showGuideAgain(); err != nil {
+		t.Fatal(err)
+	}
+	if d.config.GuideDone || loadConfig().GuideDone || opened != 1 {
+		t.Fatalf("after Show Me Around Again: done %v, saved %v, setup opened %d times", d.config.GuideDone, loadConfig().GuideDone, opened)
+	}
+	if !strings.HasSuffix(setupAddress("o=token", "guide"), "#o=token&guide") {
+		t.Error("setup's address doesn't end in &guide, which the page starts the guide on")
+	}
+	app, err := os.ReadFile("app.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tray := string(app)
+	if !strings.Contains(tray, `systray.AddMenuItem("Show Me Around Again"`) || !strings.Contains(tray, "case <-t.guide.ClickedCh:\n\t\t\t_ = t.deck.showGuideAgain()") {
+		t.Error("the tray has no Show Me Around Again that calls showGuideAgain")
+	}
+}
+
+// guide.js is served as office.js is, with no key: it holds nothing of yours.
+func TestTheGuideScriptIsServed(t *testing.T) {
+	d := newTestDeck(t)
+	got := serve(t, d, call{method: "GET", target: "/guide.js", host: "localhost:7710", from: thisComputer})
+	if got.Code != http.StatusOK || !strings.Contains(got.Body.String(), "SmolcorpGuide") {
+		t.Fatalf("/guide.js: %d", got.Code)
+	}
+}
+
+// Setup loads the guide, has its steps on the 1.24.3 contract's ids, and starts it again from #guide and its button.
+func TestSetupHasTheGuidesStepsOnTheContractsIds(t *testing.T) {
+	data, err := os.ReadFile("../Resources/web/setup.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup := string(data)
+	for _, want := range []string{
+		`<script src="/guide.js"></script>`,
+		`target: '#first-folder-use', area: '#first-folder'`, `target: '#first-gm-checks'`, `target: '#start-gm'`, `target: '#hs-hire'`,
+		`$('first-gm-next')`, `$('start-office')`,
+		`id="guide-again"`, `'/setup/guide?done=1'`, `'/setup/guide?done=0'`, `['pair', 'unpair', 'viewer', 'guide']`, `location.hash !== '#guide'`,
+	} {
+		if !strings.Contains(setup, want) {
+			t.Errorf("setup.html has no %s", want)
+		}
+	}
+	steps := setup[strings.Index(setup, "steps: [") : strings.Index(setup, "onFinish:")]
+	order := []string{"id: 'folder'", "id: 'checks'", "id: 'hire'", "id: 'sheet'", "id: 'desk'"}
+	for i := 1; i < len(order); i++ {
+		if strings.Index(steps, order[i-1]) < 0 || strings.Index(steps, order[i-1]) > strings.Index(steps, order[i]) {
+			t.Errorf("the steps aren't in the contract's order: %s before %s", order[i-1], order[i])
+		}
+	}
+}
+
+// The guide's own rules, run in node on guide.js as it is: which step shows, where the arrow and the bubble go,
+// and the arrow in three colours. Without node the test is skipped.
+func TestTheGuidePicksTheNextStepAndPlacesItsArrowInNode(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: guide.js can't be run")
+	}
+	guide, err := filepath.Abs("../Resources/web/guide.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := `
+const g = require(` + strconvQuote(guide) + `);
+const assert = (ok, what) => { if (!ok) throw new Error(what); };
+const step = (o) => Object.assign({ done: false, shown: false, away: false, missingFor: 0 }, o);
+
+// The first step not done is shown, whatever is done after it.
+assert(g.pick([step({ done: true }), step({ shown: true }), step({ shown: true })]).index === 1, 'the step after the one done');
+assert(g.pick([step({ shown: true }), step({ done: true }), step({ shown: true })]).index === 0, 'a later step done never skips an earlier one');
+assert(g.pick([step({ done: true }), step({ done: true })]).finished, 'every step done is finished');
+assert(g.pick([step({ shown: true }), step({ missingFor: g.GRACE }), step({ done: true })]).finished, 'the last step done is finished');
+// A missing control is waited for, then looked past; one elsewhere on the page is shown docked.
+assert(g.pick([step({ missingFor: 100 }), step({ shown: true })]).index === -1, 'a step missing a moment is waited for');
+assert(g.pick([step({ missingFor: g.GRACE }), step({ shown: true })]).index === 1, 'a step missing for long is looked past');
+assert(g.pick([step({ missingFor: g.GRACE }), step({ missingFor: 0 }), step({ shown: true })]).index === -1, 'the next one is waited for too');
+let r = g.pick([step({ missingFor: g.GRACE }), step({ missingFor: g.GRACE })]);
+assert(r.index === -1 && !r.finished, 'nothing there: nothing shown, never finished');
+assert(g.pick([step({ away: true }), step({ shown: true })]).index === 0, 'a step elsewhere on the page is still the one');
+
+const arrow = { width: 33, height: 33 };
+const inside = (p, bubble, view) => p.bubble.x >= 0 && p.bubble.y >= 0 && p.bubble.x + bubble.width <= view.width && p.bubble.y + bubble.height <= view.height
+  && p.arrow.x >= 0 && p.arrow.y >= 0 && p.arrow.x + arrow.width <= view.width && p.arrow.y + arrow.height <= view.height;
+for (const view of [{ width: 1100, height: 780 }, { width: 390, height: 844 }]) {
+  const bubble = { width: Math.min(326, view.width - 24), height: 90 };
+  // Room above: above it, pointing down, the arrow's tip at its top and centred on it.
+  let box = { left: 40, top: 400, width: 120, height: 28 };
+  let p = g.place(box, view, bubble, arrow);
+  assert(p.down && p.arrow.y + arrow.height <= box.top && p.arrow.y + arrow.height >= box.top - 8, view.width + ': above a control with room');
+  assert(Math.abs(p.arrow.x + arrow.width / 2 - (box.left + box.width / 2)) <= 1, view.width + ': the arrow is centred on it');
+  assert(p.bubble.y + bubble.height === p.arrow.y && inside(p, bubble, view), view.width + ': the bubble on the arrow, inside the window');
+  // At the top of the window: below it, pointing up.
+  box = { left: view.width - 60, top: 20, width: 50, height: 24 };
+  p = g.place(box, view, bubble, arrow);
+  assert(!p.down && p.arrow.y >= box.top + box.height && inside(p, bubble, view), view.width + ': below a control at the top, at the right edge');
+  // Out of sight, below or above: the arrow at the window's edge, pointing that way.
+  p = g.place({ left: 100, top: 3000, width: 100, height: 30 }, view, bubble, arrow);
+  assert(p.down && inside(p, bubble, view), view.width + ': a control below the window');
+  p = g.place({ left: 100, top: -900, width: 100, height: 30 }, view, bubble, arrow);
+  assert(!p.down && inside(p, bubble, view), view.width + ': a control above the window');
+}
+
+// The arrow: a square grid of three colours, as the office's pixel UI.
+const used = new Set(g.ARROW.join('').replace(/\./g, ''));
+assert(g.ARROW.every((row) => row.length === g.ARROW[0].length), 'every row the same width');
+assert(used.size >= 2 && used.size <= 3 && [...used].every((c) => /^#[0-9a-f]{6}$/.test(g.COLOURS[c])), 'two or three colours, each one set');
+`
+	file := filepath.Join(t.TempDir(), "guide.js")
+	if err := os.WriteFile(file, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(node, file).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// strconvQuote is a path as a JavaScript string.
+func strconvQuote(path string) string {
+	quoted, _ := json.Marshal(path)
+	return string(quoted)
+}

@@ -336,6 +336,10 @@ final class DeckRouter: Router {
         if request.method == "GET" && request.path == "/office.js" {
             return respond(.file(Paths.web.appendingPathComponent("office.js")))
         }
+        // The first-run guide's arrows, for the setup page: nothing of yours either.
+        if request.method == "GET" && request.path == "/guide.js" {
+            return respond(.file(Paths.web.appendingPathComponent("guide.js")))
+        }
         // Its recordings, the keyboards and the talk, in either kind a browser plays.
         if request.method == "GET" && DeckRouter.sounds.contains(request.path) {
             return respond(.file(Paths.web.appendingPathComponent(String(request.path.dropFirst()))))
@@ -1020,6 +1024,12 @@ final class DeckRouter: Router {
                 }
             }
 
+        // The first-run guide, finished or skipped (done=1), or to be shown again (done=0).
+        case ("POST", "/setup/guide"):
+            config.guideDone = request.query["done"] == "1"
+            config.save()
+            respond(.json(setupState(caller)))
+
         case ("POST", "/setup/music"):
             config.musicEnabled = request.query["enabled"] == "1"
             config.save()
@@ -1587,6 +1597,8 @@ final class DeckRouter: Router {
             ] as [String: Any],
             "music": ["enabled": config.musicEnabled],
             "maxConfirm": ["enabled": config.maxConfirm],
+            // The first-run guide's arrows: shown until it's finished or skipped (see guide.js).
+            "guide": ["done": config.guideDone],
             "manager": DeckRouter.managerState(enabled: config.managerEnabled, byHand: config.gmByHand, startedByHand: deck.access.gm.startedByHand),
             "keystrokes": ["enabled": config.keystrokesAllowed, "accessibility": Permissions.hasAccessibility,
                            "apps": config.keystrokeApps, "running": Keystrokes.runningApps(except: config.keystrokeApps)] as [String: Any],

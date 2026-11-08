@@ -618,7 +618,7 @@
   <section class="pane" data-pane="easy" data-title="Easy setup">
     <header class="pane-head">
       <h1>Your office</h1>
-      <p>What most people change. Everything else is under Advanced.</p>
+      <p>What most people change. Everything else is under Advanced. <button class="link" id="guide-again">Show me around again</button></p>
     </header>
     <div class="attention" id="easy-attention" hidden>
       <div class="text"><b id="easy-attention-title"></b><span id="easy-attention-detail"></span></div>
@@ -1476,6 +1476,7 @@
 </dialog>
 
 <script src="/office.js"></script>
+<script src="/guide.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
   let state = null;
@@ -1493,6 +1494,7 @@
       if (res.status === 401) return locked(res.headers.get('X-Smolcorp-App'));
       state = await res.json();
       render();
+      syncGuide();
     } catch {} finally {
       clearTimeout(timer);
       loading = false;
@@ -1524,7 +1526,7 @@
     if (!key && !token) return;
     const given = key ? { 'X-Smolcorp-Setup-Key': key } : { 'X-Smolcorp-Setup-Once': token };
     await fetch('/setup/session', { method: 'POST', headers: { ...setupHeaders(false), ...given } }).catch(() => {});
-    const then = ['pair', 'unpair', 'viewer'].find((action) => opened.has(action));
+    const then = ['pair', 'unpair', 'viewer', 'guide'].find((action) => opened.has(action));
     history.replaceState(null, '', location.pathname + (then ? `#${then}` : ''));
   }
 
@@ -1558,6 +1560,7 @@
     if (res.headers.get('Content-Type') === 'application/json') {
       state = await res.json();
       render();
+      syncGuide();
     } else {
       load();
     }
@@ -6377,6 +6380,83 @@
   $('arrange-menu').querySelectorAll('.menu-list .btn').forEach((b) => b.addEventListener('click', () => { $('arrange-menu').open = false; }));
   document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#arrange-menu')) $('arrange-menu').open = false; });
 
+  /* ------------------------------------------------------- the first-run guide */
+
+  /*
+   * Arrows on the next thing to do, on a first run, in Start here's order (see guide.js): the folder for
+   * hires, the checks before a first hire, Hire your General Manager, and the GM at its desk. Each step
+   * moves on by what you do there. Shown until it's finished or skipped, which the app keeps (guideDone,
+   * beside hasCompletedSetup), and again from Show me around again, here or in the app's menu. The ids are
+   * the 1.24.3 contract's: their owners build them, and a step whose control isn't there is looked past.
+   */
+  const gmSessions = () => ((state && state.sessions) || []).filter((s) => s.role === 'gm');
+  const inEasy = () => !!document.querySelector('.pane.current[data-pane="easy"]');
+  const isShown = (el) => !!el && el.getClientRects().length > 0;
+  /** The checks are green: as the list says, once it says, else the hire button no longer greyed. */
+  function firstChecksGreen() {
+    const checks = $('first-gm-checks'), hire = $('start-gm');
+    if (checks && checks.dataset.ok) return checks.dataset.ok === 'true';
+    return !!hire && !hire.disabled && hire.getAttribute('aria-disabled') !== 'true';
+  }
+  /** The GM at its desk: T782's card for it, or, where there's none, Open the office once a GM is seated. */
+  function firstGmDesk() {
+    const next = $('first-gm-next');
+    if (next) return isShown(next) ? next : null;
+    return gmSessions().some((s) => s.key != null) ? $('start-office') : null;
+  }
+  const inStartHere = { away: () => !inEasy(), reveal: () => go('easy') };
+  const guide = window.SmolcorpGuide && SmolcorpGuide.create({
+    total: 4,
+    modals: '#invite:not([hidden]), #arranger:not([hidden])',
+    awayText: 'Your next step is in Easy setup.',
+    steps: [
+      { id: 'folder', n: 1, target: '#first-folder-use', area: '#first-folder', ...inStartHere,
+        say: 'Pick where your hires work', press: 'Use this folder',
+        done: () => !!(state && state.hiring && state.hiring.folder) || gmSessions().length > 0 },
+      { id: 'checks', n: 2, target: '#first-gm-checks', ...inStartHere,
+        say: 'Make these checks green: each one says what to do', done: () => firstChecksGreen() || gmSessions().length > 0 },
+      { id: 'hire', n: 3, target: '#start-gm', ...inStartHere, ackOnClick: true,
+        say: 'Now your first hire', press: 'Hire your General Manager', done: () => gmSessions().length > 0 },
+      // Only if the hire asks anything first, in its sheet.
+      { id: 'sheet', n: 3, target: '#hs-hire', ackOnClick: true,
+        say: 'Filled in for you', press: 'Hire', done: () => gmSessions().length > 0 },
+      { id: 'desk', n: 4, target: firstGmDesk, area: '#first-gm-next', ...inStartHere, ackOnClick: true, button: 'Done',
+        say: 'Your General Manager is at its desk. Say hello', press: 'Open the office' },
+    ],
+    // Over, finished or skipped: kept, so it isn't shown again unless you ask.
+    onFinish: () => {
+      guideEnded = true;
+      post('/setup/guide?done=1').catch(() => {});
+    },
+  });
+  /** Ended here, until the app says so: a state asked for before that doesn't start it again. */
+  let guideEnded = false;
+
+  /** The guide runs while the app says it isn't over, on this page and on any other setup page open. */
+  function syncGuide() {
+    if (!guide || !state || !state.guide) return;
+    if (state.guide.done) guideEnded = false;
+    if (!state.guide.done && !guide.running && !guideEnded) guide.start();
+    else if (state.guide.done && guide.running) guide.stop();
+  }
+  /** Show me around again: from the first step not done, in Easy setup. */
+  async function guideAgain() {
+    if (!guide) return;
+    go('easy');
+    guide.stop();
+    guideEnded = false;
+    await post('/setup/guide?done=0').catch(() => {});
+  }
+  $('guide-again').onclick = guideAgain;
+  $('guide-again').hidden = !window.SmolcorpGuide;
+  // Opened on #guide, by the menu's Show Me Around Again, or sent there while this page was open.
+  function guideFromAddress() {
+    if (location.hash !== '#guide') return;
+    history.replaceState(null, '', location.pathname);
+    guideAgain();
+  }
+  window.addEventListener('hashchange', guideFromAddress);
+
   /* ------------------------------------------------------------------ start */
 
   go('easy');
@@ -6394,6 +6474,8 @@
     }
     // From "Set up the viewer on the setup page" in the menu.
     if (location.hash === '#viewer') go('extras', $('viewer'));
+    // From "Show Me Around Again" in the menu.
+    guideFromAddress();
   }).then(loadStartHere).then(loadViewer).then(loadBriefs).then(loadGuard);
   setInterval(() => { if (!document.querySelector('.over')) load(); }, 1500);
   // The viewer's state, for its switch and "last sent": often while it's on.

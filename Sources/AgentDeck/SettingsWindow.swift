@@ -343,3 +343,17 @@ final class SettingsPanel: NSWindow {
         }
     }
 }
+
+// MARK: The first-run guide
+
+extension SettingsWindow {
+    /// What setup's address ends with to start the first-run guide's arrows (see guide.js).
+    static let guide = "guide"
+
+    /// "Show Me Around Again", in the Help menu and the menu bar's: the guide on again, and saved, so
+    /// setup starts it however it opens. The caller then shows setup on `guide`.
+    static func showGuideAgain(_ config: Config = .shared, file: URL = Paths.config) {
+        config.guideDone = false
+        config.save(to: file)
+    }
+}

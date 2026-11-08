@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guide fixture</title>
+<!--
+  The first-run guide (Resources/web/guide.js) on a stand-in for Start here, with the 1.24.3 contract's ids,
+  opened from disk (file://), no server: each button does what the real one leads to, so every step can be
+  walked by hand, at the settings window's size and at 390 px. ?missing=folder,checks leaves those blocks out,
+  as before T781 and T782 land, to see the guide look past them.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; font: 13px/1.45 -apple-system, BlinkMacSystemFont, sans-serif; background: Canvas; color: CanvasText; }
+  [hidden] { display: none !important; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  .card { border: 1px solid #8884; border-radius: 10px; padding: 14px; display: grid; gap: 8px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .filler { height: 520px; border: 1px dashed #8884; border-radius: 10px; display: grid; place-items: center; color: GrayText; }
+  code { font: 12px ui-monospace, Menlo, monospace; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Your office</h1>
+  <p><button id="guide-again">Show me around again</button> <span id="said" role="status"></span></p>
+  <div class="card" id="start-here">
+    <h2>Start here</h2>
+    <div id="first-folder">
+      <p>Your hires work in projects inside this folder.</p>
+      <div class="row"><code id="first-folder-path">~/Projects</code>
+        <button id="first-folder-use">Use this folder</button><button id="first-folder-choose">Choose another…</button></div>
+      <p id="first-folder-problem" hidden></p>
+    </div>
+    <div id="first-gm-checks" data-ok="false">
+      <div class="row">✗ Claude Code isn't signed in <button id="fix-checks">Check again</button></div>
+    </div>
+    <div class="row"><button id="start-gm" disabled>Hire your General Manager</button><button id="start-office">Open the office</button></div>
+    <div id="first-gm-next" hidden>
+      <p>Your General Manager is at its desk. What to say first:</p>
+      <div class="row"><code>Plan my week's work</code><button>Copy</button><button>Open the office</button></div>
+    </div>
+  </div>
+  <div class="filler">Other cards</div>
+</main>
+<script src="../../../Resources/web/guide.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const missing = (new URLSearchParams(location.search).get('missing') || '').split(',');
+  if (missing.includes('folder')) $('first-folder').remove();
+  if (missing.includes('checks')) { $('first-gm-checks').remove(); $('start-gm').disabled = false; }
+  let folder = '', hired = false;
+  $('first-folder-use') && ($('first-folder-use').onclick = () => { folder = '~/Projects'; $('first-folder').hidden = true; });
+  $('fix-checks') && ($('fix-checks').onclick = () => { $('first-gm-checks').dataset.ok = 'true'; $('first-gm-checks').textContent = '✓ Ready'; $('start-gm').disabled = false; });
+  $('start-gm').onclick = () => setTimeout(() => { hired = true; $('first-gm-next').hidden = false; }, 1500);
+  const guide = SmolcorpGuide.create({
+    total: 4,
+    steps: [
+      { id: 'folder', n: 1, target: '#first-folder-use', area: '#first-folder', say: 'Pick where your hires work', press: 'Use this folder', done: () => !!folder || hired },
+      { id: 'checks', n: 2, target: '#first-gm-checks', say: 'Make these checks green: each one says what to do',
+        done: () => ($('first-gm-checks') ? $('first-gm-checks').dataset.ok === 'true' : true) || hired },
+      { id: 'hire', n: 3, target: '#start-gm', ackOnClick: true, say: 'Now your first hire', press: 'Hire your General Manager', done: () => hired },
+      { id: 'desk', n: 4, target: '#first-gm-next', ackOnClick: true, button: 'Done', say: 'Your General Manager is at its desk. Say hello', press: 'Open the office' },
+    ],
+    onFinish: (reason) => { $('said').textContent = `Guide over: ${reason}`; },
+  });
+  $('guide-again').onclick = () => { $('said').textContent = ''; guide.stop(); guide.start(); };
+  guide.start();
+</script>
+</body>
+</html>
