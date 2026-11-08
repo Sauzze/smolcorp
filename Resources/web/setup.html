@@ -6986,7 +6986,8 @@
    * moves on by what you do there. Shown until it's finished or skipped, which the app keeps (guideDone,
    * beside hasCompletedSetup), and again from Show me around again, here or in the app's menu, which walks
    * every step from the first, done or not. The ids are the 1.24.3 contract's: their owners build them,
-   * and a step whose control isn't there is looked past.
+   * and a step whose control isn't there is looked past. The bubble stays off the page's title and Start
+   * here's header, and off what each step talks about; it has no count of its own, as Start here has one.
    */
   const gmSessions = () => ((state && state.sessions) || []).filter((s) => s.role === 'gm');
   const inEasy = () => !!document.querySelector('.pane.current[data-pane="easy"]');
@@ -7014,28 +7015,32 @@
   }
   const inStartHere = { away: () => !inEasy(), reveal: () => go('easy') };
   const guide = window.SmolcorpGuide && SmolcorpGuide.create({
-    total: 4,
     modals: '#invite:not([hidden]), #arranger:not([hidden])',
-    awayText: 'Your next step is in Easy setup.',
+    awayText: 'Next step in Easy setup',
+    skipSays: 'Skip: Show me around again brings it back',
+    keep: '.pane.current > .pane-head, #easy-attention, #start-here > .card-head',
     steps: [
-      { id: 'folder', n: 1, target: '#first-folder-use', area: '#first-folder', doneTarget: '#first-folder', ...inStartHere,
+      { id: 'folder', target: '#first-folder-use', area: '#first-folder', doneTarget: '#first-folder', ...inStartHere,
         say: 'Pick where your hires work', press: 'Use this folder', doneSay: 'Your hires work in this folder. You can change it here.',
         done: () => !!(state && state.hiring && state.hiring.folder) || gmSessions().length > 0 },
-      { id: 'checks', n: 2, target: '#first-gm-checks', ...inStartHere, patience: () => (checksPending() ? 15000 : 0),
+      // Off the other checks above, and off Hire, Check again and why Hire is greyed, below.
+      { id: 'checks', target: '#first-gm-checks', keep: '#start-checks, #start-gm-account, #start-gm, #first-gm-recheck, #first-gm-why', ...inStartHere, patience: () => (checksPending() ? 15000 : 0),
         say: 'Make these checks green: each one says what to do', doneSay: 'These checks are green: your General Manager has what it needs.',
         done: () => firstChecksGreen() || gmSessions().length > 0 },
       // Done while the hire is really under way, not on the click: a refused or failed hire brings the arrow back.
       // Shown done in a tour, it points where the GM is now, not at a button that would hire a second.
-      { id: 'hire', n: 3, target: '#start-gm', doneTarget: () => firstGmDesk() || $('start-office'), ...inStartHere,
+      // Off the checks just made green, the account it hires on, and what's said when a hire is refused.
+      { id: 'hire', target: '#start-gm', doneTarget: () => firstGmDesk() || $('start-office'), ...inStartHere,
+        keep: '#first-gm-checks, #start-checks, #start-gm-account, #first-gm-recheck, #first-gm-why',
         say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Your General Manager is hired.',
         done: () => gmSessions().length > 0 || gmHiring || gmSheetOpen() },
       // Only if the hire asks anything first, in its sheet.
-      { id: 'sheet', n: 3, target: '#hs-hire', optional: true,
+      { id: 'sheet', target: '#hs-hire', optional: true,
         say: 'Filled in for you', press: 'Hire', done: () => gmSessions().length > 0 || gmHiring },
       // While the GM is starting, its card can't come: waited for as long as Start here waits for it (five
       // minutes: the trust prompt may wait), saying meanwhile what its terminal asks. Docked as lost only
       // after that, in a tour, or when a GM is seated but its card never shows.
-      { id: 'desk', n: 4, target: firstGmDesk, area: '#first-gm-next', ...inStartHere, ackOnClick: true, button: 'Done',
+      { id: 'desk', target: firstGmDesk, area: '#first-gm-next', ...inStartHere, ackOnClick: true, button: 'Done',
         patience: () => (gmStarting() ? 300000 : 0),
         wait: () => (gmStarting() ? 'Your General Manager is starting: if its terminal asks to trust the folder, answer Yes.' : ''),
         say: 'Your General Manager is at its desk. Say hello', press: 'Open the office',

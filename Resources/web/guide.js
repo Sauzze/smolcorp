@@ -3,8 +3,10 @@
  * short bubble saying what to do, step by step. Each step moves on by what you
  * do (the folder saved, the checks green, the hire sent), never by a Next
  * button alone. The rest of the page is dimmed, but nothing is covered: every
- * control still works, the step's own most of all. Skip ends it; Esc only puts
- * it away until the page opens again.
+ * control still works, the step's own most of all, and the bubble sits beside
+ * or below what's lit, off what the page asks to keep in sight. While the step
+ * is in another part of the page, it's a small pill in a corner. Skip ends it;
+ * Esc only puts it away until the page opens again.
  *
  * No dependency, and nothing of yours: the page that uses it gives the steps
  * and remembers when it's over (setup.html, "the first-run guide"). Its plain
@@ -33,6 +35,7 @@
     '.....k.....',
   ];
   const COLOURS = { k: '#1b1e2a', y: '#ffb000', h: '#ffe7a3' };
+  const ARROW_SIZE = { width: ARROW[0].length * PIXEL, height: ARROW.length * PIXEL };
   /** How long a step's control may be missing before the guide looks past it, in ms. */
   const GRACE = 2500;
   /** Between the arrow and what it points at, and from the window's edges. */
@@ -42,6 +45,8 @@
   const PAD = 6;
   /** The ring round what's lit: two pixels of the art, kept inside the window. */
   const RING = PIXEL * 2;
+  /** The pill's widest, in CSS pixels, its ring in: it fits the foot of a side column (setup's is 220). */
+  const PILL = 196;
 
   const clamp = (value, low, high) => Math.min(Math.max(value, low), Math.max(low, high));
 
@@ -74,31 +79,103 @@
     return { index: -1, finished: false };
   }
 
+  /** How far below what's lit the bubble may move to keep something in sight, before it goes elsewhere. */
+  const SLIDE = 120;
+
+  const overlaps = (a, b) => a.left < b.left + b.width && a.left + a.width > b.left && a.top < b.top + b.height && a.top + a.height > b.top;
+  const overlap = (a, b) => Math.max(0, Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left))
+    * Math.max(0, Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top));
+
   /**
-   * Where the arrow and the bubble go, for a control whose box in the window
-   * is `box` ({ top, left, width, height }), lit with the box `around` (the
-   * control's, if not given), in a window `view` ({ width, height }), with a
-   * bubble and an arrow of the sizes given: above what's lit, pointing down,
-   * where there's room, else below it, pointing up, so neither covers what's
-   * lit; centred on the control; both kept inside the window. A control out of
-   * sight gets the arrow at the edge nearest it.
+   * Where the arrow and the bubble go, for a control whose box in the window is `box` ({ top, left, width,
+   * height }), lit with the box `around` (the control's, if not given), in a window `view` ({ width,
+   * height }), with a bubble and an arrow of the sizes given, the bubble kept off the boxes in `keep` (the
+   * page's title, the items the step talks about). The arrow's tip is on the control. The bubble goes beside
+   * what's lit, right then left, else below it, moved down past what's kept if need be; never on what's lit
+   * or kept, and inside the window. Failing those, it goes in a corner of the window that's clear, and the
+   * arrow stays on the control, on a side where it covers nothing kept. A control out of sight gets the arrow
+   * at the edge nearest it. `side` says where the bubble went ("right", "left", "below", "edge"); `point`,
+   * the way the arrow points ("up", "down", "left", "right").
    */
-  function place(box, view, bubble, arrow, around = box) {
-    const bottom = around.top + around.height;
-    const need = arrow.height + GAP + bubble.height + MARGIN;
-    const above = around.top, below = view.height - bottom;
-    const down = above >= need || (below < need && above > below);
-    const centre = clamp(box.left + box.width / 2, MARGIN + arrow.width / 2, view.width - MARGIN - arrow.width / 2);
-    let y = down ? around.top - GAP - arrow.height : bottom + GAP;
-    y = clamp(y, MARGIN + (down ? bubble.height : 0), view.height - MARGIN - arrow.height - (down ? 0 : bubble.height));
-    return {
-      down,
-      arrow: { x: Math.round(centre - arrow.width / 2), y: Math.round(y) },
-      bubble: {
-        x: Math.round(clamp(centre - bubble.width / 2, MARGIN, view.width - MARGIN - bubble.width)),
-        y: Math.round(down ? y - bubble.height : y + arrow.height),
-      },
+  function place(box, view, bubble, arrow, around = box, keep = []) {
+    const aw = arrow.width, ah = arrow.height, bw = bubble.width, bh = bubble.height;
+    const cx = box.left + box.width / 2, cy = box.top + box.height / 2;
+    const right = around.left + around.width, bottom = around.top + around.height;
+    const rect = (x, y, width, height) => ({ left: x, top: y, width, height });
+    const inside = (r) => r.left >= MARGIN && r.top >= MARGIN && r.left + r.width <= view.width - MARGIN && r.top + r.height <= view.height - MARGIN;
+    const clearOf = (r, boxes) => inside(r) && boxes.every((k) => !overlaps(r, k));
+    const free = (x, y) => clearOf(rect(x, y, bw, bh), [around, ...keep]);
+    // The arrow along the control, centred on it, inside the window; under or over it, moved along it, if
+    // need be, to cover nothing kept.
+    const ax = clamp(cx - aw / 2, MARGIN, view.width - MARGIN - aw);
+    const ay = clamp(cy - ah / 2, MARGIN, view.height - MARGIN - ah);
+    const along = (y) => {
+      const low = Math.max(MARGIN, Math.min(box.left, ax)), high = Math.min(view.width - MARGIN - aw, Math.max(box.left + box.width - aw, ax));
+      const xs = [ax, ...keep.flatMap((k) => [k.left + k.width + GAP, k.left - GAP - aw])].map((x) => clamp(x, low, high));
+      return { x: xs.find((x) => clearOf(rect(x, y, aw, ah), keep)) ?? ax, y };
     };
+    const result = (side, point, arrowAt, x, y) => ({
+      side, point, down: point === 'down',
+      arrow: { x: Math.round(arrowAt.x), y: Math.round(arrowAt.y) },
+      bubble: { x: Math.round(x), y: Math.round(y) },
+    });
+
+    // Out of sight: the arrow at the edge nearest it, pointing that way, the bubble beside the arrow.
+    if (box.top + box.height <= 0 || box.top >= view.height) {
+      const up = box.top + box.height <= 0;
+      const y = up ? MARGIN : view.height - MARGIN - ah;
+      return result('edge', up ? 'up' : 'down', { x: ax, y }, clamp(cx - bw / 2, MARGIN, view.width - MARGIN - bw), up ? y + ah : y - bh);
+    }
+
+    // Beside what's lit: the arrow just off it, level with the control, and the bubble level with the
+    // arrow, centred on it, or moved up or down to keep clear of what's kept.
+    for (const side of ['right', 'left']) {
+      const arrowAt = { x: side === 'right' ? right + GAP : around.left - GAP - aw, y: ay };
+      if (!clearOf(rect(arrowAt.x, arrowAt.y, aw, ah), keep)) continue;
+      const x = side === 'right' ? arrowAt.x + aw : arrowAt.x - bw;
+      const low = Math.min(ay + ah - bh, ay), high = Math.max(ay + ah - bh, ay);
+      const ys = [cy - bh / 2, ...keep.flatMap((k) => [k.top + k.height + GAP, k.top - GAP - bh]), low, high].map((y) => clamp(y, low, high));
+      const y = ys.find((at) => free(x, at));
+      if (y !== undefined) return result(side, side === 'right' ? 'left' : 'right', arrowAt, x, y);
+    }
+
+    // Below what's lit: the arrow's tip on the control's foot, pointing up, the bubble under what's lit,
+    // under the arrow, moved down past what's kept if that's all it takes.
+    const under = along(box.top + box.height + GAP);
+    let x = under.x + aw / 2 - bw / 2;
+    if (bw <= around.width) x = clamp(x, around.left, right - bw);
+    x = clamp(x, Math.max(MARGIN, under.x + aw - bw), Math.min(view.width - MARGIN - bw, under.x));
+    if (clearOf(rect(under.x, under.y, aw, ah), keep)) {
+      const from = Math.max(under.y + ah, bottom + GAP);
+      const ys = [from, ...keep.map((k) => k.top + k.height + GAP).filter((y) => y > from && y <= from + SLIDE).sort((a, b) => a - b)];
+      const y = ys.find((at) => free(x, at));
+      if (y !== undefined) return result('below', 'up', under, x, y);
+    }
+
+    // The window's edge: the arrow on the control where it covers nothing kept, the bubble in the first
+    // corner that's clear (else the one that covers least of what's kept, and never what's lit).
+    const sides = [
+      ['up', under],
+      ['left', { x: right + GAP, y: ay }],
+      ['down', along(box.top - GAP - ah)],
+      ['right', { x: around.left - GAP - aw, y: ay }],
+    ];
+    const [point, arrowAt] = sides.find(([, at]) => clearOf(rect(at.x, at.y, aw, ah), keep))
+      || (box.top - GAP - ah >= MARGIN ? sides[2] : sides[0]);
+    arrowAt.x = clamp(arrowAt.x, MARGIN, view.width - MARGIN - aw);
+    arrowAt.y = clamp(arrowAt.y, MARGIN, view.height - MARGIN - ah);
+    const pointer = rect(arrowAt.x, arrowAt.y, aw, ah);
+    const corners = [
+      [view.width - MARGIN - bw, view.height - MARGIN - bh], [MARGIN, view.height - MARGIN - bh],
+      [view.width - MARGIN - bw, MARGIN], [MARGIN, MARGIN],
+    ].map(([cornerX, cornerY]) => [Math.max(MARGIN, cornerX), Math.max(MARGIN, cornerY)]);
+    const cost = ([cornerX, cornerY]) => {
+      const r = rect(cornerX, cornerY, bw, bh);
+      return overlap(r, around) * 1000 + overlap(r, pointer) * 100 + keep.reduce((sum, k) => sum + overlap(r, k), 0);
+    };
+    const corner = corners.find(([cornerX, cornerY]) => clearOf(rect(cornerX, cornerY, bw, bh), [around, pointer, ...keep]))
+      || corners.reduce((best, at) => (cost(at) < cost(best) ? at : best));
+    return result('edge', point, arrowAt, corner[0], corner[1]);
   }
 
   const STYLE = `
@@ -107,7 +184,9 @@
 .smol-guide-shade { position: fixed; border-radius: 6px; pointer-events: none;
   box-shadow: 0 0 0 ${PIXEL}px ${COLOURS.y}, 0 0 0 ${PIXEL * 2}px ${COLOURS.k}, 0 0 0 200vmax rgb(0 0 0 / .38); }
 .smol-guide-arrow { position: fixed; left: 0; top: 0; pointer-events: none; }
-.smol-guide-arrow.up { transform: rotate(180deg); }
+.smol-guide-arrow[data-point="up"] { transform: rotate(180deg); }
+.smol-guide-arrow[data-point="left"] { transform: rotate(90deg); }
+.smol-guide-arrow[data-point="right"] { transform: rotate(-90deg); }
 .smol-guide-arrow svg { display: block; shape-rendering: crispEdges; animation: smol-guide-bob 1.1s steps(1, end) infinite; }
 @keyframes smol-guide-bob { 0% { transform: translateY(0); } 50% { transform: translateY(${PIXEL}px); } }
 .smol-guide-bubble { position: fixed; left: 0; top: 0; margin: ${PIXEL}px; pointer-events: auto; box-sizing: border-box;
@@ -116,6 +195,7 @@
   box-shadow: 0 -${PIXEL}px 0 0 ${COLOURS.k}, 0 ${PIXEL}px 0 0 ${COLOURS.k}, -${PIXEL}px 0 0 0 ${COLOURS.k}, ${PIXEL}px 0 0 0 ${COLOURS.k},
     0 ${PIXEL * 2}px 0 0 rgb(0 0 0 / .25);
   font: 500 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; text-align: left; }
+.smol-guide-count[hidden] { display: none; }
 .smol-guide-count { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #5b5f6e; margin-bottom: 2px; }
 .smol-guide-text { margin: 0; overflow-wrap: anywhere; }
 .smol-guide-text b { font-weight: 700; white-space: nowrap; }
@@ -126,6 +206,13 @@
 .smol-guide-tools button:focus-visible { outline: ${PIXEL}px solid ${COLOURS.y}; outline-offset: 2px; }
 .smol-guide.docked .smol-guide-shade, .smol-guide.docked .smol-guide-arrow { display: none; }
 .smol-guide.docked .smol-guide-bubble { left: 50% !important; top: auto !important; bottom: ${MARGIN + PIXEL}px; transform: translateX(-50%); }
+.smol-guide.pill .smol-guide-bubble { left: ${MARGIN}px !important; transform: none; max-width: min(${PILL}px, calc(100vw - ${MARGIN * 2 + PIXEL * 2}px));
+  display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; padding: 5px 4px 5px 9px; font-size: 12px; }
+.smol-guide.pill .smol-guide-count { display: none; }
+.smol-guide.pill .smol-guide-text { flex: 1 1 0; min-width: 0; }
+.smol-guide.pill .smol-guide-tools { display: contents; }
+.smol-guide.pill .smol-guide-skip { order: 1; align-self: flex-start; padding: 0 5px; font-size: 15px; line-height: 1.1; text-decoration: none; }
+.smol-guide.pill .smol-guide-go { order: 2; padding: 2px 8px; margin-top: 3px; }
 .smol-guide-room { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .smol-guide-arrow svg { animation: none; } }
 `;
@@ -170,11 +257,13 @@
    * wait (a function: what it says, docked, while its control is waited for,
    * or nothing; its patience counts from when it starts saying it),
    * doneTarget and doneSay (where it points and what it says when it's shown
-   * done, in a tour), n (its number) }.
-   * `options.total` is how many steps the count says; `options.modals`, a
-   * selector for what covers the page besides a <dialog>, under which the guide
-   * waits; `options.awayText`, what the bubble says while the step is
-   * elsewhere; `options.onFinish(reason)`, called once it's over: "done",
+   * done, in a tour), keep (what the bubble stays off on this step: a selector,
+   * an element, a function or a list of them) }.
+   * `options.keep`, what the bubble stays off on every step (the page's title);
+   * `options.modals`, a selector for what covers the page besides a <dialog>,
+   * under which the guide waits; `options.awayText`, what the pill says while
+   * the step is elsewhere; `options.skipSays`, what Skip says it does, on hover
+   * and to a screen reader; `options.onFinish(reason)`, called once it's over: "done",
    * "skipped" (Skip), or "hidden" (Esc: put away until the page opens again).
    */
   function create(options) {
@@ -204,7 +293,8 @@
     text.setAttribute('aria-live', 'polite');
     const tools = make('div', 'smol-guide-tools');
     const skip = Object.assign(make('button', 'smol-guide-skip'), { type: 'button', textContent: 'Skip' });
-    skip.setAttribute('aria-label', 'Skip the guide');
+    skip.setAttribute('aria-label', options.skipSays || 'Skip the guide');
+    skip.title = options.skipSays || 'Skip the guide';
     const go = Object.assign(make('button', 'smol-guide-go'), { type: 'button' });
     tools.append(skip, go);
     bubble.append(count, text, tools);
@@ -237,6 +327,13 @@
     const find = (target) => {
       const found = typeof target === 'function' ? call(target, null) : target;
       return typeof found === 'string' ? doc.querySelector(found) : found || null;
+    };
+    /** Every element meant: a selector (all it matches), an element, a function giving any of those, or a list. */
+    const all = (what) => {
+      const found = typeof what === 'function' ? call(what, null) : what;
+      if (!found) return [];
+      if (typeof found === 'string') return [...doc.querySelectorAll(found)];
+      return Array.isArray(found) ? found.flatMap(all) : [found];
     };
     const visible = (el) => !!el && el.isConnected && el.getClientRects().length > 0 && win.getComputedStyle(el).visibility !== 'hidden';
     const modalsOpen = () => [...doc.querySelectorAll('dialog[open]' + (options.modals ? `, ${options.modals}` : ''))].filter(visible);
@@ -315,9 +412,12 @@
     }
 
     function fill(step, i, how, done) {
-      count.textContent = `Step ${step.n || i + 1} of ${options.total || steps.length}${done ? ' · done' : ''}`;
+      // No count: Start here says its own (N steps left), and two counts that disagree is one too many.
+      count.textContent = done ? 'Done' : '';
+      count.hidden = !done;
+      skip.textContent = how === 'away' ? '×' : 'Skip';
       if (how === 'away') {
-        text.textContent = options.awayText || 'Your next step is in another part of this page.';
+        text.textContent = (options.awayText || 'Next step in another part of this page') + (step.reveal ? ' →' : '');
       } else if (how === 'lost') {
         text.textContent = step.lost || step.say;
       } else if (how === 'waiting') {
@@ -345,6 +445,7 @@
       const host = (!docked && state.target.closest('dialog[open]')) || doc.body;
       if (layer.parentNode !== host) host.append(layer);
       layer.classList.toggle('docked', docked);
+      layer.classList.toggle('pill', how === 'away');
       layer.hidden = false;
       if (i !== shown || how !== shownHow || state.target !== shownTarget) {
         if (i !== shown) shownDone = done;
@@ -367,30 +468,56 @@
         } else if (i !== settled || settle) {
           settled = i;
           settle = false;
+          // Brought into sight; or to the middle, when the bubble would go to the window's edge here and
+          // beside or below what's lit there.
           const box = state.target.getBoundingClientRect();
-          if (box.top < 0 || box.top + box.height > win.innerHeight) state.target.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
+          const laid = position();
+          if (box.top < 0 || box.top + box.height > win.innerHeight || (laid && laid.at.side === 'edge' && centred(laid).side !== 'edge')) {
+            state.target.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
+          }
           focusOn(state.target);
         }
       }
       position();
     }
 
+    /**
+     * What the bubble stays off, as it is now: the page's and the step's, those shown, and not what's lit,
+     * what's in it or holds it. While the step is in a <dialog>, only what's in the dialog.
+     */
+    function kept(step, litEl) {
+      const dialog = shownTarget.closest('dialog[open]');
+      return [...all(options.keep), ...all(step.keep)]
+        .filter((el) => visible(el) && !el.contains(litEl) && !litEl.contains(el) && (!dialog || dialog.contains(el)))
+        .map((el) => el.getBoundingClientRect())
+        .filter((box) => box.width > 0 && box.height > 0);
+    }
+
     function position() {
       frame = 0;
-      if (!running || layer.hidden || shown < 0 || shownHow !== 'here' || !shownTarget || !shownTarget.isConnected) return;
+      if (!running || layer.hidden || shown < 0 || shownHow !== 'here' || !shownTarget || !shownTarget.isConnected) return null;
       const step = steps[shown];
       const area = find(step.area);
-      const lit = (visible(area) ? area : shownTarget).getBoundingClientRect();
+      const litEl = visible(area) ? area : shownTarget;
+      const lit = litEl.getBoundingClientRect();
       const view = { width: doc.documentElement.clientWidth || win.innerWidth, height: win.innerHeight };
       // The ring stays inside the window, however wide what's lit.
       const left = Math.max(lit.left - PAD, RING), right = Math.min(lit.left + lit.width + PAD, view.width - RING);
       Object.assign(shade.style, { left: `${left}px`, top: `${lit.top - PAD}px`, width: `${Math.max(0, right - left)}px`, height: `${lit.height + PAD * 2}px` });
       const around = { left: left - RING, top: lit.top - PAD - RING, width: Math.max(0, right - left) + RING * 2, height: lit.height + (PAD + RING) * 2 };
       const size = { width: bubble.offsetWidth + PIXEL * 2, height: bubble.offsetHeight + PIXEL * 2 };
-      const at = place(shownTarget.getBoundingClientRect(), view, size, { width: ARROW[0].length * PIXEL, height: ARROW.length * PIXEL }, around);
-      arrow.classList.toggle('up', !at.down);
+      const box = shownTarget.getBoundingClientRect(), keep = kept(step, litEl);
+      const at = place(box, view, size, ARROW_SIZE, around, keep);
+      arrow.dataset.point = at.point;
       Object.assign(arrow.style, { left: `${at.arrow.x}px`, top: `${at.arrow.y}px` });
       Object.assign(bubble.style, { left: `${at.bubble.x}px`, top: `${at.bubble.y}px` });
+      return { at, box, around, keep, view, size };
+    }
+    /** Where it would all go with what's lit scrolled to the middle of the window. */
+    function centred({ box, around, keep, view, size }) {
+      const by = view.height / 2 - (around.top + around.height / 2);
+      const moved = (b) => ({ left: b.left, top: b.top + by, width: b.width, height: b.height });
+      return place(moved(box), view, size, ARROW_SIZE, moved(around), keep.map(moved));
     }
     const follow = () => { if (!frame) frame = win.requestAnimationFrame(position); };
 
