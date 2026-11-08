@@ -139,10 +139,24 @@ func hireFolderRefusal(folder, home string) string {
 	if inside {
 		system = first == "library" || first == "appdata"
 	}
-	if system || slices.ContainsFunc(parts, func(p string) bool { return strings.HasPrefix(p, ".") || strings.HasSuffix(p, ".app") }) {
+	if system || slices.ContainsFunc(parts, func(p string) bool { return strings.HasSuffix(p, ".app") }) {
 		return "That folder holds your computer's or your apps' own files. Choose a project folder, " + example + "."
 	}
-	return ""
+	return hiddenHireFolderRefusal(parts, example)
+}
+
+// hiddenHireFolderRefusal says why a path with a hidden (dot) folder in it
+// can't be used, saying so: the folder itself, or one it's inside. "" if
+// there's none. As the Mac's HireFolder.hiddenRefusal.
+func hiddenHireFolderRefusal(parts []string, example string) string {
+	at := slices.IndexFunc(parts, func(p string) bool { return strings.HasPrefix(p, ".") })
+	switch {
+	case at < 0:
+		return ""
+	case at == len(parts)-1:
+		return "A hidden folder (one whose name starts with '.') can't be used. Choose a project folder, " + example + "."
+	}
+	return "A folder inside a hidden folder (one whose name starts with '.') can't be used: choose one outside it."
 }
 
 // shownHireFolder is folder with ~ for home, as the page shows it.

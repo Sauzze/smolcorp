@@ -124,10 +124,11 @@
   #manager-tools:not([hidden]) { display: grid; gap: 7px; }
   .group > .said-under, #manager-tools > .said-under { margin: 0 2px; }
   /* The words about the token stacked; its switches' rows (.field.pad) with the switch on the right, like every other. */
-  .gm-token .pad:not(.field) { display: grid; gap: 6px; }
+  /* One column no wider than the box: a long path is cut in the middle, never pushing the text off a phone's edge. */
+  .gm-token .pad:not(.field) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .gm-token .pad p { margin: 0; }
   .token-file { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
-  .token-file code { font-size: 12px; user-select: all; flex: 0 1 auto; }
+  .token-file code { font-size: 12px; user-select: all; flex: 0 1 auto; min-width: 0; max-width: 100%; }
   .token-file .result, .hire-saved { color: var(--dim); font-size: 12px; }
   .token-file .result.good, .hire-saved.good { color: var(--unread); }
   .token-file .result.wrong { color: var(--error); }
@@ -725,7 +726,7 @@
           <b>Where your hires work</b>
           <p class="ff-what">Your hires work in projects inside this folder.</p>
           <code class="ff-path" id="first-folder-path"></code>
-          <p class="ff-what" id="first-folder-picking" role="status" hidden>A folder window opened on your Mac: pick a folder there. Or type its path here.</p>
+          <p class="ff-what" id="first-folder-picking" role="status" hidden>A folder window opened on your Mac: pick a folder there. Or type its path here and use it: the window then closes by itself.</p>
           <input type="text" id="first-folder-input" class="mono" spellcheck="false" placeholder="~/Projects" aria-label="The folder your hires work in" hidden>
           <div class="ff-problem" id="first-folder-problem" role="alert" hidden><span id="first-folder-problem-text"></span> <button class="btn" id="first-folder-fix" hidden></button></div>
           <div class="ff-tools">
@@ -1201,10 +1202,10 @@
 
   <!-- ============================================================== Floors -->
   <section class="pane" data-pane="floors" data-title="Floors">
-    <header class="pane-head"><h1>Floors</h1><p>The floors above the office: their names and styles, which projects sit on each, and where cloud bots go.</p></header>
+    <header class="pane-head"><h1>Floors</h1><p>Each floor of the office: its name, its style, and which projects sit there.</p></header>
     <div class="group" id="floors-group" hidden>
       <h2>Floors</h2>
-      <p class="hint">Agents with no desk on the ground floor go upstairs, nine to a floor. Name each floor, and pick a style for the ones above. Add a project's folder under a floor, and its agents sit there: put anyone on any floor from the office too, with ⇅ floor.</p>
+      <p class="hint">Agents with no desk on the ground floor go upstairs, nine to a floor. A floor's name is up to you: with none, the office shows its number, such as 2F. Pick a style for each floor above the ground floor. Add a project's folder under a floor, and its agents sit there: put anyone on any floor from the office too, with ⇅ floor.</p>
       <div class="box" id="floors" data-search="Floors" data-keywords="floor upstairs building storey server room name rule rules project folder sits"></div>
     </div>
     <div class="group" id="bots-group" data-folds hidden>
@@ -6043,9 +6044,10 @@
       const label = document.createElement('span');
       label.textContent = i === 0 ? 'Ground floor' : `Floor ${i + 1}`;
       const name = document.createElement('input');
-      Object.assign(name, { type: 'text', spellcheck: false, placeholder: `${i + 1}F`, maxLength: FLOOR_NAME_LIMIT });
-      name.setAttribute('aria-label', `${label.textContent}'s name`);
-      // Its default name shows as the placeholder, so an empty field is the default.
+      // One name per floor: the row says which floor it is, the field holds its name, if you give it one.
+      Object.assign(name, { type: 'text', spellcheck: false, placeholder: 'Name (optional)', maxLength: FLOOR_NAME_LIMIT });
+      name.setAttribute('aria-label', `${label.textContent}'s name (optional)`);
+      // An empty field is the default name, its number (2F), as the office shows it.
       name.value = floor.name === `${i + 1}F` ? '' : floor.name;
       name.onchange = sendFloors;
       row.append(label, name);
@@ -6201,9 +6203,11 @@
       const chip = document.createElement('span');
       chip.className = 'rule';
       // One remembered from the office is that folder alone; one added here holds the folders in it too.
-      // The whole path, short of room cut in the middle so its folder's name shows, and whole on hover.
-      chip.append(pathLine(document.createElement('span'), shortFolder(rule.folder) + (rule.exact ? ' (alone)' : '')));
-      chip.title = rule.exact ? `${rule.folder}, this folder alone` : `${rule.folder}, and the folders in it`;
+      // The whole path, short of room cut in the middle so its folder's name shows. Hovering anywhere on the chip,
+      // its path included, gives the full path and whether the folders in it sit there too.
+      const says = rule.exact ? `${rule.folder}, this folder alone` : `${rule.folder}, and the folders in it`;
+      chip.append(pathLine(document.createElement('span'), shortFolder(rule.folder) + (rule.exact ? ' (alone)' : ''), says));
+      chip.title = says;
       const off = document.createElement('button');
       off.type = 'button';
       off.textContent = '✕';

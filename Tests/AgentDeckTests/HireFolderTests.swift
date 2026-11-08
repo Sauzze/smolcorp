@@ -55,6 +55,7 @@ final class HireFolderTests: XCTestCase {
         make("Projects/app")
         make("Library/Work")
         make(".config/x")
+        make("Projects/smolcorp/.team/scratch")
         make("AppData/Roaming")
         make("Applications/Smolcorp.app/Contents")
         make("Locked")
@@ -64,6 +65,9 @@ final class HireFolderTests: XCTestCase {
         try files.createSymbolicLink(atPath: home.appendingPathComponent("lib").path, withDestinationPath: home.appendingPathComponent("Library").path)
         let system = "That folder holds your Mac's or your apps' own files. Choose a project folder, such as ~/Projects."
         let disk = "That's a whole disk. Choose a project folder, such as ~/Projects."
+        // A hidden (dot) folder says so, not "your Mac's own files" (fresh eyes 3, problem 4).
+        let insideHidden = "A folder inside a hidden folder (one whose name starts with '.') can't be used: choose one outside it."
+        let hidden = "A hidden folder (one whose name starts with '.') can't be used. Choose a project folder, such as ~/Projects."
         let noDisk = "smolcorp-no-such-disk"
         let cases: [(String, String, HireFolder.Fix, Bool)] = [
             ("", "Type the folder's full path, such as ~/Projects.", .choose, false),
@@ -83,7 +87,13 @@ final class HireFolderTests: XCTestCase {
             (home.path + "/LIBRARY/New", system, .choose, false),
             (home.path + "/lib/New", system, .choose, false),
             (home.path + "/Applications/Smolcorp.APP/Contents", system, .choose, false),
-            (home.path + "/.config/x", system, .choose, false),
+            (home.path + "/.config/x", insideHidden, .choose, false),
+            (home.path + "/.config", hidden, .choose, false),
+            (home.path + "/Projects/smolcorp/.team/scratch", insideHidden, .choose, false),
+            (home.path + "/Projects/smolcorp/.team", hidden, .choose, false),
+            ("~/Projects/.Hidden/New", insideHidden, .choose, false),
+            // A system or app folder is still said as one, hidden folder or not.
+            (home.path + "/Library/.cache", system, .choose, false),
             (home.path + "/AppData/Roaming", system, .choose, false),
             (home.path + "/Applications/Smolcorp.app/Contents", system, .choose, false),
             (home.path + "/Missing/deeper", "There's no folder at ~/Missing/deeper yet.", .create, false),

@@ -73,10 +73,21 @@ enum HireFolder {
             return "That's a whole disk. Choose a project folder, \(example)."
         }
         let system = inside ? ["library", "appdata"].contains(first) : systemFolders.contains(first)
-        if system || parts.contains(where: { $0.hasPrefix(".") || $0.hasSuffix(".app") }) {
+        if system || parts.contains(where: { $0.hasSuffix(".app") }) {
             return "That folder holds your Mac's or your apps' own files. Choose a project folder, \(example)."
         }
+        if let hidden = hiddenRefusal(parts, example: example) { return hidden }
         return nil
+    }
+
+    /// Why a path with a hidden (dot) folder in it can't be used, saying so: the folder itself, or one it's
+    /// inside. As hirefolder.go's hiddenHireFolderRefusal.
+    static func hiddenRefusal(_ parts: [String], example: String) -> String? {
+        guard let at = parts.firstIndex(where: { $0.hasPrefix(".") }) else { return nil }
+        if at == parts.count - 1 {
+            return "A hidden folder (one whose name starts with '.') can't be used. Choose a project folder, \(example)."
+        }
+        return "A folder inside a hidden folder (one whose name starts with '.') can't be used: choose one outside it."
     }
 
     /// The folder to suggest when none is set: the first likely one that's

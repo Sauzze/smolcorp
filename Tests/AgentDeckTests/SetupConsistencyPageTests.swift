@@ -56,7 +56,7 @@ final class SetupConsistencyPageTests: XCTestCase {
         let helper = try part(page, from: "function pathLine(el, shown, full = shown) {", to: "function shortFolder(")
         XCTAssertTrue(helper.contains("el.title = full || '';"), "whole on hover")
         // Each chip or line that shows a path.
-        for use in ["pathLine(document.createElement('span'), shortFolder(rule.folder) + (rule.exact ? ' (alone)' : ''))",
+        for use in ["pathLine(document.createElement('span'), shortFolder(rule.folder) + (rule.exact ? ' (alone)' : ''), says)",
                     "pathLine($('first-folder-short'), tildePath(f.folder, f.home), f.folder);",
                     "pathLine($('first-folder-path'), tildePath(f.folder || f.suggested, f.home), f.folder || f.suggested);",
                     "pathLine($('gm-token-file'), m.gmTokenFileShown || file, file);",
@@ -122,7 +122,7 @@ final class SetupConsistencyPageTests: XCTestCase {
     func testTheTokensSwitchSitsOnTheRightLikeTheOthers() throws {
         let page = try file("Resources/web/setup.html")
         XCTAssertFalse(page.contains(".gm-token .pad { display: grid;"), "its switch rows aren't stacked")
-        XCTAssertTrue(page.contains(".gm-token .pad:not(.field) { display: grid; gap: 6px; }"))
+        XCTAssertTrue(page.contains(".gm-token .pad:not(.field) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }"))
         let block = try part(page, from: #"<div class="box gm-token" id="gm-token""#, to: #"<div id="manager-tools" hidden>"#)
         XCTAssertTrue(block.contains(#"<div class="field pad">"# + "\n" + #"          <span class="text">Allow a General Manager started by hand"#))
         XCTAssertTrue(page.contains(".field { display: flex; align-items: center; gap: 12px; justify-content: space-between; min-width: 0; }"))

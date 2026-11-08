@@ -178,7 +178,7 @@ final class GMPreflightTests: XCTestCase {
     /// and Open the office, from both its buttons.
     func testButtonsThatActOnTheMacShowASignOfLifeInThePage() throws {
         let page = try source("Resources/web/setup.html")
-        XCTAssertTrue(page.contains(#"<p class="ff-what" id="first-folder-picking" role="status" hidden>A folder window opened on your Mac: pick a folder there. Or type its path here.</p>"#))
+        XCTAssertTrue(page.contains(#"<p class="ff-what" id="first-folder-picking" role="status" hidden>A folder window opened on your Mac: pick a folder there. Or type its path here and use it: the window then closes by itself.</p>"#))
         let choose = try XCTUnwrap(page.range(of: "async function chooseFirstFolder() {"))
         let body = page[choose.upperBound...].prefix(1800)
         let said = try XCTUnwrap(body.range(of: "firstFolderPicking = firstFolderTyping = true;\n      renderFirstFolder();"))
