@@ -120,7 +120,7 @@ enum SelfTest {
         if !missing.isEmpty || !scriptThere {
             check.status = .fix
             check.fix = repair
-            check.label = "Connect them"
+            check.label = "Connect"
             check.detail = missing.isEmpty ? "Their hook script is missing from Smolcorp's folder."
                 : missing.joined(separator: ", ") + (missing.count == 1 ? " isn't" : " aren't") + " connected."
             return check
@@ -129,15 +129,16 @@ enum SelfTest {
         return check
     }
 
+    /// Accessibility, said the same way here and in General (setup.html draws both from this line).
     static func accessibilityCheck(_ allowed: Bool) -> Check {
-        var check = Check(id: "accessibility", status: .ok, title: "Your phone's keys reach your agents", detail: "")
+        var check = Check(id: "accessibility", status: .ok, title: "Smolcorp can use your keyboard", detail: "")
         if allowed {
-            check.detail = "macOS lets Smolcorp press the keys you tap on your phone."
+            check.detail = "Your phone's keys, the buttons, the mic and scrolling reach your agents."
         } else {
             check.status = .todo
             check.fix = accessibility
             check.label = "Allow"
-            check.detail = "macOS asks once, in Privacy & Security, for Smolcorp to press the keys you tap on your phone."
+            check.detail = "Your phone's keys, the buttons, the mic and scrolling need it. Turn Smolcorp on in the list that opens. After an update, turn it on again."
         }
         return check
     }

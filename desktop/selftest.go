@@ -90,7 +90,7 @@ func hooksCheck(found []Agent, connected func(Agent) bool, here func(Agent) (boo
 		}
 	}
 	if len(wrong) > 0 {
-		c.Status, c.Fix, c.Label = checkFix, fixRepair, "Connect them"
+		c.Status, c.Fix, c.Label = checkFix, fixRepair, "Connect"
 		c.Detail = strings.Join(wrong, "; ") + "."
 		return c
 	}

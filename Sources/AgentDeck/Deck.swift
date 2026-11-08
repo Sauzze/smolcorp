@@ -1879,10 +1879,13 @@ final class Deck {
 
     /// Why a test copy won't hire on `account`, or nil: the default account keeps its trusted folders in the real
     /// ~/.claude.json, which a test copy leaves alone. Every hire route passes `Deck.hire`, so none skips this.
+    /// No file name in it: the page puts a button to the accounts list beside it (it ends with `chooseTestAccount`).
     static func testCopyAccountRefusal(account: ClaudeProfile, testCopy: Bool = TestCopy.isOn) -> (status: Int, message: String)? {
         guard testCopy, account.isDefault else { return nil }
-        return (409, "This is a test copy of Smolcorp: it won't hire on the default Claude account, which would change your real ~/.claude.json. Choose a test account.")
+        return (409, "This is a test copy of Smolcorp, so it won't hire on your default Claude account: your own Claude Code stays as it is. \(chooseTestAccount)")
     }
+    /// The test copy's refusal's last words, which setup.html answers with a button to the accounts.
+    static let chooseTestAccount = "Choose a test account."
 
     /// Why a test copy won't hire `agent`, or nil: only Claude Code can be kept from the real app's hooks (see `Hooks.hireHooks`).
     static func testCopyRefusal(for agent: Agent?, testCopy: Bool = TestCopy.isOn) -> String? {

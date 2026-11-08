@@ -170,6 +170,41 @@ func TestTheGMPreflightOffersConnectWhenClaudeDoesntReport(t *testing.T) {
 	}
 }
 
+// A step not taken yet (no folder, Claude Code to install, Connect to press) is To do on the page, never red;
+// a real problem (a folder gone, no terminal) isn't. The Mac says the same (GMPreflightTests).
+func TestTheGMPreflightTellsAStepToTakeFromAProblem(t *testing.T) {
+	d, h, at, _ := preflightDeck(t)
+	d.config.HireFolder = ""
+	if line := preflightLine(t, d.gmPreflight(), "folder"); !line.Todo {
+		t.Errorf("no folder yet is a step to take: %+v", line)
+	}
+	d.config.HireFolder = filepath.Join(t.TempDir(), "gone")
+	if line := preflightLine(t, d.gmPreflight(), "folder"); line.Todo {
+		t.Errorf("a folder that's gone is a problem: %+v", line)
+	}
+	hooksNotConnected = func(agent Agent) string { return "Claude Code isn't connected." }
+	if line := preflightLine(t, d.gmPreflight(), "hooks"); !line.Todo {
+		t.Errorf("Connect not pressed yet is a step to take: %+v", line)
+	}
+	// The same word on the button as Start here's own line for the agents.
+	if c := hooksCheck([]Agent{Claude}, func(Agent) bool { return false }, func(Agent) (bool, string) { return true, "" }); c.Label != "Connect" {
+		t.Errorf("Start here's agents line says %q, the preflight says Connect", c.Label)
+	}
+	canOpenWindows = func() bool { return false }
+	if line := preflightLine(t, d.gmPreflight(), "terminal"); line.OK || line.Todo {
+		t.Errorf("no terminal is a problem: %+v", line)
+	}
+	*at = ""
+	h.missing = "claude isn't installed here."
+	if line := preflightLine(t, d.gmPreflight(), "claude"); !line.Todo {
+		t.Errorf("Claude Code to install is a step to take: %+v", line)
+	}
+	said, _ := json.Marshal(d.gmPreflight())
+	if !strings.Contains(string(said), `"todo":true`) {
+		t.Errorf("the page reads todo: %s", said)
+	}
+}
+
 func TestTheGMPreflightWithoutATerminalSaysHowToInstallTmux(t *testing.T) {
 	d, _, _, _ := preflightDeck(t)
 	canOpenWindows = func() bool { return false }
@@ -230,7 +265,7 @@ func TestTheGMPreflightRouteAnswersBeforeTheManagerIsOn(t *testing.T) {
 			keys = append(keys, key)
 		}
 		slices.Sort(keys)
-		if !slices.Equal(keys, []string{"action", "fix", "id", "ok", "optional", "title"}) {
+		if !slices.Equal(keys, []string{"action", "fix", "id", "ok", "optional", "title", "todo"}) {
 			t.Errorf("line %v has keys %q", item, keys)
 		}
 	}
@@ -442,5 +477,34 @@ func TestASecondGMHireWhileOneRunsIsRefusedAndLeavesTheSwitches(t *testing.T) {
 	}
 	if code, text := pageCall(t, d, "POST", "/setup/hire/gm"); code != http.StatusNoContent || len(h.windows) != 1 {
 		t.Errorf("the hire after it: %d %q, %d windows", code, text, len(h.windows))
+	}
+}
+
+// The page the Linux/Windows app serves: General's agents and login rows say what Start here says, a step not
+// taken yet is To do, a refusal under Hire carries a button to its fix, and the lines look again by themselves.
+func TestStartHereAndGeneralAgreeAndPointAtTheFix(t *testing.T) {
+	d := newTestDeck(t)
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer})
+	if page.Code != http.StatusOK {
+		t.Fatalf("the setup page: %d", page.Code)
+	}
+	html := page.Body.String()
+	for _, want := range []string{
+		"const sameAsStartHere = { hooks: 'step-hooks', accessibility: 'step-accessibility', login: 'step-login' };",
+		`<div class="title">Your agents report to Smolcorp</div>`,
+		`<div class="title">Smolcorp opens at login</div>`,
+		"const status = item.ok ? 'done' : item.optional ? 'info' : item.todo ? 'todo' : 'fix';",
+		"startSaid(why, true, hireRefusalFix(why));",
+		"if (why.startsWith('Connect your agents first')) return { label: 'Connect',",
+		"document.addEventListener('smolcorp:hire-folder', (e) => folderMoved(e.detail && e.detail.folder));",
+		"<b>Change where hires work</b>",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the page doesn't have %q", want)
+		}
+	}
+	// The words the page answers with a button are this app's own.
+	if !strings.HasPrefix(setupHireNeedsFolder, "Choose the folder for your hires first") || !strings.HasPrefix(chooseHireFolderFirst, "Choose the folder for your hires first") {
+		t.Error("the folder refusal's words changed: setup.html's hireRefusalFix answers them")
 	}
 }

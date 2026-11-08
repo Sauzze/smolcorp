@@ -35,6 +35,8 @@ type preflightItem struct {
 	Action *preflightAction `json:"action"`
 	// Optional is a line not in the way of the hire: it starts without it.
 	Optional bool `json:"optional"`
+	// Todo is a step not taken yet, not a problem: the page shows it as To do, never in red (the Mac's Item.todo).
+	Todo bool `json:"todo"`
 }
 
 type preflightReport struct {
@@ -177,7 +179,7 @@ func (d *Deck) gmPreflight() preflightReport {
 	add := func(item preflightItem) { items = append(items, item) }
 	show := &preflightAction{Kind: "folder", Label: "Show me"}
 	if folder == "" {
-		add(preflightItem{ID: "folder", Title: "There's no folder for your hires yet.", Fix: "Choose it in the first step above.", Action: show})
+		add(preflightItem{ID: "folder", Title: "There's no folder for your hires yet.", Fix: "Choose it in the first step above.", Action: show, Todo: true})
 	} else if _, ok := existingFolder(folder); !ok {
 		add(preflightItem{ID: "folder", Title: "The folder for your hires isn't there any more: " + trimmed(folder) + ".",
 			Fix: "Choose it again in the first step above.", Action: show})
@@ -195,7 +197,7 @@ func (d *Deck) gmPreflight() preflightReport {
 	switch {
 	case at == "" && (missing || windows):
 		add(preflightItem{ID: "claude", Title: "Claude Code isn't installed on this computer.",
-			Fix: "Paste this in " + shellName + ", wait for it to finish, then press Check again.", Action: &preflightAction{Kind: "copy", Label: "Copy", Command: install}})
+			Fix: "Paste this in " + shellName + ", wait for it to finish, then press Check again.", Action: &preflightAction{Kind: "copy", Label: "Copy", Command: install}, Todo: true})
 	case missing:
 		where := filepath.Dir(at)
 		add(preflightItem{ID: "claude", Title: "Claude Code is in " + trimmed(where) + ", where your terminal doesn't look for it.",
@@ -221,7 +223,7 @@ func (d *Deck) gmPreflight() preflightReport {
 		}
 		if hooksNotConnected(Claude) != "" {
 			add(preflightItem{ID: "hooks", Title: "Claude Code doesn't report to Smolcorp yet, so your General Manager would never reach a desk.",
-				Fix: "Press Connect, then Check again.", Action: &preflightAction{Kind: "fix", Label: "Connect", Fix: fixRepair}})
+				Fix: "Press Connect, then Check again.", Action: &preflightAction{Kind: "fix", Label: "Connect", Fix: fixRepair}, Todo: true})
 		} else {
 			add(preflightItem{ID: "hooks", OK: true, Title: "Claude Code reports to Smolcorp."})
 		}

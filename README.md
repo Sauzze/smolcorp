@@ -355,11 +355,12 @@ line with the button that puts it right.
   `%LOCALAPPDATA%\Smolcorp` on Windows (it does that itself), in `~/.local`
   on Linux.
 - **Your agents report to Smolcorp**: every supported agent on your
-  computer tells Smolcorp what it's doing. **Connect them** sets it up, and
+  computer tells Smolcorp what it's doing. **Connect** sets it up, and
   puts right hooks left by another copy of Smolcorp. Restart any sessions
   that were already open.
-- **Your phone's keys reach your agents** (Mac): System Settings opens;
-  turn on **Smolcorp**. The buttons, the mic and scrolling need this.
+- **Smolcorp can use your keyboard** (Mac): **Allow** opens System Settings;
+  turn on **Smolcorp**. Your phone's keys, the buttons, the mic and scrolling
+  need this.
 - **Your phone can reach this computer**: on your Wi-Fi, and with
   [Tailscale](https://tailscale.com), free, from anywhere.
 - **Windows Firewall lets in only your devices** (Windows): **Set the
@@ -1082,7 +1083,7 @@ project folder can't be told apart, so keep one per folder, or start them with
 is off.** Turn Smolcorp on in System
 Settings → Privacy & Security → Accessibility. Updating Smolcorp clears
 that permission, because macOS treats each version as a new app. Click
-**Open Settings** on the setup page again afterwards, and turn Smolcorp
+**Allow** on the setup page again afterwards, and turn Smolcorp
 back on.
 
 **Two fingers don't scroll.** Turn on **Let two fingers scroll Terminal** on
