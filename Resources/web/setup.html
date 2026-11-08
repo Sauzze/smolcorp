@@ -264,8 +264,21 @@
   .card-head .tools { margin-left: auto; }
   .card h3 { font-size: 12px; font-weight: 600; color: var(--dim); }
   .card .more-link { justify-self: start; font-size: 12px; }
+  /* Find a setting: the ones people look for most, each a click to where it is. */
+  .jumps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  @media (max-width: 560px) { .jumps { grid-template-columns: minmax(0, 1fr); } }
+  .jump { display: grid; gap: 1px; text-align: left; padding: 8px 28px 8px 11px; border-radius: 9px; border: 1px solid var(--sep);
+    background: var(--well); color: var(--ink); position: relative; min-width: 0; }
+  .jump:hover { background: var(--hover); }
+  .jump::after { content: "›"; position: absolute; right: 11px; top: 50%; transform: translateY(-52%); color: var(--dim); font-size: 17px; }
+  .jump b { font-weight: 600; }
+  .jump small { color: var(--dim); font-size: 11.5px; }
+  /* On this page: a long section's groups, a click to each. */
+  .on-page { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -10px; }
+  .on-page button { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--sep); background: var(--group); color: var(--ink); font-size: 12px; }
+  .on-page button:hover { background: var(--hover); }
   /* Easy's rows of choices don't scroll inside the page: the first few, then More for the rest */
-  [data-pane="easy"] .picker.many > .tiles, [data-pane="easy"] .picker.many > .choices { max-height: none; overflow: visible;
+  :is([data-pane="easy"], .easy-look) .picker.many > .tiles, :is([data-pane="easy"], .easy-look) .picker.many > .choices { max-height: none; overflow: visible;
     overscroll-behavior: auto; padding: 0; background: none; border: 0; }
   .folded { display: none !important; }
   .more-row { justify-self: start; }
@@ -585,13 +598,13 @@
     <div class="search"><input type="search" class="search-input" placeholder="Search" aria-label="Search settings" autocomplete="off" spellcheck="false"><div class="results" hidden></div></div>
     <div class="nav" id="nav">
       <button data-go="easy"><span class="icon" style="--c:#ff9f0a"><svg viewBox="0 0 16 16"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg></span>Easy setup</button>
-      <div class="label">Advanced</div>
-      <button data-go="team"><span class="icon" style="--c:#5e5ce6"><svg viewBox="0 0 16 16"><circle cx="5.6" cy="5.4" r="2.2"/><circle cx="11" cy="6" r="1.8"/><path d="M1.8 13.5c.4-2.5 1.9-3.8 3.8-3.8s3.4 1.3 3.8 3.8M9.6 10c1.9-.3 3.6.8 4.2 3.5"/></svg></span>Team and roles</button>
-      <button data-go="general"><span class="icon" style="--c:#8e8e93"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg></span>General</button>
-      <button data-go="office"><span class="icon" style="--c:#34c759"><svg viewBox="0 0 16 16"><path d="M2 7.2L8 2.5l6 4.7M3.8 6v7.5h8.4V6M6.6 13.5V9.7h2.8v3.8"/></svg></span>Office</button>
+      <button data-go="office"><span class="icon" style="--c:#34c759"><svg viewBox="0 0 16 16"><path d="M2 7.2L8 2.5l6 4.7M3.8 6v7.5h8.4V6M6.6 13.5V9.7h2.8v3.8"/></svg></span>Office and look</button>
+      <button data-go="team"><span class="icon" style="--c:#5e5ce6"><svg viewBox="0 0 16 16"><circle cx="5.6" cy="5.4" r="2.2"/><circle cx="11" cy="6" r="1.8"/><path d="M1.8 13.5c.4-2.5 1.9-3.8 3.8-3.8s3.4 1.3 3.8 3.8M9.6 10c1.9-.3 3.6.8 4.2 3.5"/></svg></span>Hires and roles</button>
+      <button data-go="floors"><span class="icon" style="--c:#bf5af2"><svg viewBox="0 0 16 16"><path d="M8 2l6 3-6 3-6-3zM2 8l6 3 6-3M2 11l6 3 6-3"/></svg></span>Floors</button>
       <button data-go="phone"><span class="icon" style="--c:#0a84ff"><svg viewBox="0 0 16 16"><rect x="4.3" y="1.5" width="7.4" height="13" rx="1.6"/><path d="M7 12.2h2"/></svg></span>Phone and voice</button>
-      <button data-go="profiles"><span class="icon" style="--c:#bf5af2"><svg viewBox="0 0 16 16"><path d="M8 2l6 3-6 3-6-3zM2 8l6 3 6-3M2 11l6 3 6-3"/></svg></span>Profiles</button>
-      <button data-go="extras"><span class="icon" style="--c:#30b0c7"><svg viewBox="0 0 16 16"><path d="M8 2v12M2 8h12"/><circle cx="8" cy="8" r="6"/></svg></span>Extras</button>
+      <div class="label">More</div>
+      <button data-go="general"><span class="icon" style="--c:#8e8e93"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg></span>General</button>
+      <button data-go="extras"><span class="icon" style="--c:#30b0c7"><svg viewBox="0 0 16 16"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/><circle cx="5.5" cy="4.5" r="1.4"/><circle cx="10.5" cy="8" r="1.4"/><circle cx="7" cy="11.5" r="1.4"/></svg></span>Advanced</button>
     </div>
   </nav>
 
@@ -601,13 +614,13 @@
         <img class="topbar-logo" alt="" onerror="this.style.opacity=0" onload="this.style.opacity=1">
         <select id="pane-menu" aria-label="Section">
           <option value="easy">Easy setup</option>
-          <optgroup label="Advanced">
-            <option value="team">Team and roles</option>
+          <option value="office">Office and look</option>
+          <option value="team">Hires and roles</option>
+          <option value="floors">Floors</option>
+          <option value="phone">Phone and voice</option>
+          <optgroup label="More">
             <option value="general">General</option>
-            <option value="office">Office</option>
-            <option value="phone">Phone and voice</option>
-            <option value="profiles">Profiles</option>
-            <option value="extras">Extras</option>
+            <option value="extras">Advanced</option>
           </optgroup>
         </select>
       </div>
@@ -617,8 +630,8 @@
   <!-- ================================================================ Easy -->
   <section class="pane" data-pane="easy" data-title="Easy setup">
     <header class="pane-head">
-      <h1>Your office</h1>
-      <p>What most people change. Everything else is under Advanced.</p>
+      <h1>Easy setup</h1>
+      <p>Get going and hire your team. Every other setting is a click away below, or in the search.</p>
     </header>
     <div class="attention" id="easy-attention" hidden>
       <div class="text"><b id="easy-attention-title"></b><span id="easy-attention-detail"></span></div>
@@ -660,60 +673,27 @@
       <div class="hire-how" id="easy-hire-how" role="status" hidden></div>
     </div>
 
-    <div class="card style-card">
-      <div class="card-head">
-        <h2>Style</h2><span class="now" id="easy-style-name"></span>
-        <div class="tools">
-          <button class="btn" id="welcome-open">Make it yours…</button>
-          <button class="btn primary" id="easy-arrange">Arrange the room…</button>
-        </div>
+    <div class="card find-card" id="find-card" data-search="Find a setting" data-keywords="jump where go list common settings">
+      <div class="card-head"><h2>Find a setting</h2><span class="now">The ones people want most</span></div>
+      <div class="jumps">
+        <button class="jump" data-go="team" data-at="step-hiring"><b>Change where hires start</b><small>The folder new hires open in · Hires and roles</small></button>
+        <button class="jump" data-go="office" data-at="look-style"><b>Change the look</b><small>Style, pets, mic, day and night · Office and look</small></button>
+        <button class="jump" data-go="floors" data-at="floors-group"><b>Put a project on a floor</b><small>Floors, their names and rules · Floors</small></button>
+        <button class="jump" data-go="team" data-at="gm-group"><b>Your General Manager</b><small>Its token, hire by hand, fire · Hires and roles</small></button>
+        <button class="jump" data-go="team" data-at="maker-box"><b>Dress your team</b><small>Outfits, hair and nicknames · Hires and roles</small></button>
+        <button class="jump" data-go="phone" data-at="pair"><b>Pair a phone</b><small>A code or a QR code · Phone and voice</small></button>
+        <button class="jump" data-go="general" data-at="step-hooks"><b>Connect your coding agents</b><small>Claude Code, Codex and the rest · General</small></button>
+        <button class="jump" data-go="extras" data-at="guard-section"><b>Commands hires can't run</b><small>The guard · Advanced</small></button>
       </div>
-      <div class="catalog" id="easy-style"></div>
     </div>
 
-    <div class="cards">
-      <div class="card">
-        <div class="card-head"><h2>Pets</h2><span class="now">Up to 3</span></div>
-        <div class="picker" data-fold="picked" data-more="pets"><input type="search" class="filter" placeholder="Filter pets" aria-label="Filter pets"><div class="choices" id="easy-pets"></div></div>
-        <p class="hint" id="easy-pets-hint" hidden></p>
-      </div>
-      <div class="card" data-search="Mic" data-keywords="microphone talk sound waves">
-        <div class="card-head"><h2>Mic</h2></div>
-        <div class="catalog" id="easy-mic"></div>
-        <div id="easy-wave-box" hidden>
-          <h3>Sound waves</h3>
-          <div class="catalog" id="easy-wave"></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-head"><h2>Day and night</h2></div>
-        <h3>Daylight</h3><div class="choices" id="easy-sky"></div>
-        <h3>Seasons in the windows</h3><div class="choices" id="easy-season"></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><h2>Profile</h2><div class="tools"><button class="link more-link" data-go="profiles">Manage…</button></div></div>
-        <div class="choices" id="easy-profiles"></div>
-        <p class="hint">Your office, saved under a name. Switch, and your phone follows.</p>
-      </div>
-      <div class="card">
-        <div class="card-head"><h2>Pair a phone</h2></div>
-        <div class="easy-pair">
-          <div>
-            <div class="hint">On the same Wi-Fi, open <span class="address" id="easy-address"></span> and enter:</div>
-            <div class="code" id="easy-code">— — —</div>
-            <div class="expires" id="easy-expires"></div>
-            <button class="btn" id="easy-new-code">Get a code</button>
-          </div>
-          <img class="qr" id="easy-qr" alt="QR code that pairs your phone with this code" hidden>
-        </div>
-        <button class="link more-link" data-go="phone">Phone settings…</button>
-      </div>
-    </div>
+
   </section>
 
   <!-- ============================================================= General -->
   <section class="pane" data-pane="general" data-title="General">
-    <header class="pane-head"><h1>General</h1><p>Connect your agents and let Smolcorp do its job.</p></header>
+    <header class="pane-head"><h1>General</h1><p>Connect your agents, and how Smolcorp runs on this computer.</p></header>
+    <nav class="on-page" aria-label="On this page" hidden></nav>
     <div class="group">
       <h2>Getting started</h2>
       <div class="box steps">
@@ -810,72 +790,6 @@
           </div>
           <button class="switch" id="maxconfirm" aria-label="Ask before max effort"></button>
         </div>
-        <div class="step" id="step-keystrokes" data-keywords="keys keystrokes typing accessibility click apps" hidden>
-          <div class="mark">✓</div>
-          <div class="text">
-            <div class="title">Let features press keys in other apps</div>
-            <div class="detail" data-pending="Off. When on, a feature may type or press a key in an app you name, one key at a time. It stops if you click elsewhere or use the keyboard or mouse, and never types into a file dialog. Turning it on also needs macOS's Accessibility permission for Smolcorp, which macOS will ask you for." data-done="On. A feature may type or press a key in an app it names. It stops at once if you click elsewhere or use the keyboard or mouse, and never types into a file dialog. It also needs macOS's Accessibility permission for Smolcorp."></div>
-            <div class="detail" id="keystrokes-apps-note"></div>
-            <div id="keystrokes-apps"></div>
-            <div class="detail" style="display:flex;gap:6px;align-items:center;margin-top:6px">
-              <select id="keystrokes-pick" aria-label="An open app to allow"></select>
-              <button class="btn" id="keystrokes-add">Add</button>
-            </div>
-            <div class="detail" id="keystrokes-problem" hidden></div>
-            <div class="detail" id="keystrokes-access" hidden>Turn Smolcorp on in System Settings → Privacy &amp; Security → Accessibility, or nothing will be pressed.</div>
-          </div>
-          <button class="switch" id="keystrokes" aria-label="Let features press keys in other apps"></button>
-        </div>
-      </div>
-    </div>
-    <div class="group">
-      <h2>Manager</h2>
-      <div class="box steps switches">
-        <div class="step" id="step-manager" data-keywords="manager general manager gm team front desk" hidden>
-          <div class="mark">✓</div>
-          <div class="text">
-            <div class="title">Let a General Manager run your team</div>
-            <div class="detail" data-pending="Off: Smolcorp works as before. Your team's events are still noted, so turning this on shows what happened lately." data-done="On: a General Manager can see your team on this computer and hire, brief and tile it. Turning it off fires no one."></div>
-            <div class="detail" id="manager-team"></div>
-            <div class="detail" id="manager-screens" hidden>
-              <span>Which screen holds the team?</span>
-              <span class="choices" id="manager-screen-list"></span>
-            </div>
-          </div>
-          <button class="switch" id="manager" aria-label="Let a General Manager run your team"></button>
-        </div>
-      </div>
-      <div id="manager-tools" hidden>
-        <h3 class="hint">General Manager</h3>
-        <div class="box">
-          <div class="field pad" id="gm-row" data-search="General Manager" data-keywords="gm general manager fire token rotate by hand file">
-            <span class="text" id="gm-status"></span>
-            <button class="btn" id="gm-fire" hidden>Fire the General Manager</button>
-          </div>
-          <div class="field pad">
-            <span class="text">A new General Manager token<br><small class="hint">The old token stops working. Fire the General Manager and hire it again to give it the new one.</small></span>
-            <button class="btn" id="gm-rotate">New GM token</button>
-          </div>
-          <div class="field pad">
-            <span class="text">Allow a General Manager started by hand<br><small class="hint">This writes the General Manager's token to a file on this computer, so a General Manager you start yourself can find it. Anything that can read your files can read it. Off keeps the token out of every file.</small></span>
-            <button class="switch" id="gm-byhand" aria-label="Allow a General Manager started by hand"></button>
-          </div>
-        </div>
-        <p class="hint" id="gm-problem" hidden></p>
-        <h3 class="hint">Team</h3>
-        <div class="box" id="team-list"></div>
-        <p class="hint" id="team-problem" hidden></p>
-      </div>
-      <div id="guard-section" hidden>
-        <h3 class="hint">Guard</h3>
-        <p class="hint">Commands every hire is refused, whatever it is asked. Each group is on until you switch it off. A group you switch off is dropped from Claude's own deny rules too, not only from the guard: you allowed it, so Smolcorp no longer blocks it.</p>
-        <div class="box steps switches" id="guard-groups"></div>
-        <div class="box guard-extra" id="guard-extra" data-search="Guard" data-keywords="guard refuse block hire push deploy publish command pattern">
-          <input type="text" id="guard-pattern" spellcheck="false" placeholder="Another command to refuse, such as terraform import" aria-label="Another command to refuse">
-          <button class="btn" id="guard-add">Add</button>
-        </div>
-        <p class="hint" id="guard-problem" hidden></p>
-        <p class="hint" id="guard-limits"></p>
       </div>
     </div>
     <p class="detail" id="app-version" style="text-align:right"></p>
@@ -883,19 +797,64 @@
 
   <!-- ============================================================== Office -->
 
-  <section class="pane layout" id="layout" data-pane="office" data-title="Office" hidden>
-    <header class="pane-head"><h1>Office</h1><p>How the office looks and lives, on your phone, this computer and the viewer.</p></header>
+  <section class="pane layout" id="layout" data-pane="office" data-title="Office and look" hidden>
+    <header class="pane-head"><h1>Office and look</h1><p>How the office looks and lives, on your phone, this computer and the viewer.</p></header>
+    <nav class="on-page" aria-label="On this page" hidden></nav>
+    <div class="card style-card" id="look-style" data-search="Style" data-keywords="look theme appearance preset furnish decorate change the look">
+      <div class="card-head">
+        <h2>Style</h2><span class="now" id="easy-style-name"></span>
+        <div class="tools">
+          <button class="btn" id="welcome-open">Make it yours…</button>
+          <button class="btn primary" id="easy-arrange">Arrange the room…</button>
+        </div>
+      </div>
+      <div class="catalog" id="easy-style"></div>
+    </div>
+    <div class="cards easy-look">
+      <div class="card" data-search="Pets" data-keywords="pet cat dog animals">
+        <div class="card-head"><h2>Pets</h2><span class="now">Up to 3</span></div>
+        <div class="picker" data-fold="picked" data-more="pets"><input type="search" class="filter" placeholder="Filter pets" aria-label="Filter pets"><div class="choices" id="easy-pets"></div></div>
+        <p class="hint" id="easy-pets-hint" hidden></p>
+      </div>
+      <div class="card" data-search="Day and night" data-keywords="daylight sky seasons windows clock calendar">
+        <div class="card-head"><h2>Day and night</h2></div>
+        <h3>Daylight</h3><div class="choices" id="easy-sky"></div>
+        <h3>Seasons in the windows</h3><div class="choices" id="easy-season"></div>
+      </div>
+    </div>
+    <div class="card" data-search="Mic" data-keywords="microphone talk sound waves" style="--picker-h: 330px">
+      <div class="card-head"><h2>Mic</h2></div>
+      <div class="catalog" id="easy-mic"></div>
+      <div id="easy-wave-box" hidden>
+        <h3>Sound waves</h3>
+        <div class="catalog" id="easy-wave"></div>
+      </div>
+    </div>
     <div class="group">
-      <h2>Style</h2>
+      <h2>The room</h2>
       <div class="box">
-        <div class="field stacked" data-keywords="theme preset">
-          <span>Style <small>A style furnishes the office for you; change anything below and you're back to Yours.</small></span>
-          <div class="catalog" id="room-preset"></div>
-        </div>
-        <div class="field pad arrange-row" data-keywords="move furniture drawer desks wall pieces">
-          <span class="text">Where everything goes<br><small class="hint">Move desks and furniture, add lounge pieces and hang things on the back wall.</small></span>
-          <button class="btn primary" id="arrange-open">Arrange the room…</button>
-        </div>
+        <div class="field stacked"><span>Floor</span><div class="catalog" id="room-floor"></div></div>
+        <div class="field stacked"><span>Walls</span><div class="catalog" id="room-paint"></div></div>
+        <div class="field stacked"><span>Monitors</span><div class="catalog" id="room-monitor"></div></div>
+        <div class="field stacked"><span>Door</span><div class="catalog" id="room-door"></div></div>
+      </div>
+    </div>
+    <div class="group">
+      <h2>Sky and air</h2>
+      <div class="box">
+        <div class="field stacked"><span>In the air</span><div class="catalog" id="room-drift"></div></div>
+        <div class="field"><span>In the windows</span><div class="choices" id="room-fireworks"></div></div>
+      </div>
+    </div>
+    <div class="group">
+      <h2>Life</h2>
+      <div class="box">
+        <div class="field"><span>Sound</span><div class="choices" id="room-sound"></div></div>
+        <div class="field" data-keywords="background behind window front"><span>Sound plays <small>Always: also behind other windows, minimised or on another Space.</small></span><div class="choices" id="room-soundWhen"></div></div>
+        <div class="field"><span>Typing and chatter</span><div class="choices" id="room-ambience"></div></div>
+        <div class="field"><span>Office staff</span><div class="choices" id="room-staff"></div></div>
+        <div class="field"><span>Comings and goings</span><div class="choices" id="room-arrivals"></div></div>
+        <div class="field" data-keywords="power battery quiet"><span>Calm office <small>Nobody wanders, the pets rest, nothing drifts: much less power.</small></span><div class="choices" id="room-calm"></div></div>
       </div>
     </div>
     <div class="group" id="window-group" hidden>
@@ -918,59 +877,79 @@
         </div>
       </div>
     </div>
-    <div class="group" id="floors-group" hidden>
-      <h2>Floors</h2>
-      <p class="hint">Agents with no desk on the ground floor go upstairs, nine to a floor. Name each floor, and pick a style for the ones above. Add a project's folder under a floor, and its agents sit there: put anyone on any floor from the office too, with ⇅ floor.</p>
-      <div class="box" id="floors" data-search="Floors" data-keywords="floor upstairs building storey server room name"></div>
-    </div>
-    <div class="group" id="bots-group" hidden>
-      <h2>Cloud bots</h2>
-      <p class="hint" id="bots-hint"></p>
-      <div class="box" id="bots" data-search="Cloud bots" data-keywords="grok bot cloud bots desk pin hide find detect"></div>
-    </div>
-    <div class="group">
-      <h2>The room</h2>
+    <section class="group profiles" id="profiles-section" data-search="Profiles" data-keywords="save switch export import rename profile saved looks" hidden>
+      <h2>Saved looks</h2>
+      <p class="hint">Your office, saved under a name, as a profile. Switch, and your phone follows.</p>
       <div class="box">
-        <div class="field stacked"><span>Floor</span><div class="catalog" id="room-floor"></div></div>
-        <div class="field stacked"><span>Walls</span><div class="catalog" id="room-paint"></div></div>
-        <div class="field stacked"><span>Monitors</span><div class="catalog" id="room-monitor"></div></div>
-        <div class="field stacked"><span>Door</span><div class="catalog" id="room-door"></div></div>
+        <div class="pad"><div class="choices" id="profiles"></div></div>
+        <div class="pad tools">
+          <button class="btn" id="profile-save">Save</button>
+          <button class="btn" id="profile-save-as">Save as…</button>
+          <button class="btn" id="profile-rename">Rename</button>
+          <button class="btn" id="profile-delete">Delete</button>
+          <span style="flex:1"></span>
+          <button class="btn" id="profile-export">Export</button>
+          <button class="btn" id="profile-import">Import…</button>
+          <input type="file" id="profile-file" accept=".json,application/json" hidden>
+        </div>
+      </div>
+    </section>
+    <!-- The same choices as above, in their older places: kept, with their ids, out of sight, so
+         one home each shows. Drawn as before, so nothing that reads them changes. -->
+    <div class="elsewhere" id="also-elsewhere" hidden>
+    <div class="group">
+      <h2>Style</h2>
+      <div class="box">
+        <div class="field stacked" data-keywords="theme preset">
+          <span>Style <small>A style furnishes the office for you; change anything below and you're back to Yours.</small></span>
+          <div class="catalog" id="room-preset"></div>
+        </div>
+        <div class="field pad arrange-row" data-keywords="move furniture drawer desks wall pieces">
+          <span class="text">Where everything goes<br><small class="hint">Move desks and furniture, add lounge pieces and hang things on the back wall.</small></span>
+          <button class="btn primary" id="arrange-open">Arrange the room…</button>
+        </div>
       </div>
     </div>
-    <div class="group">
-      <h2>Sky and air</h2>
       <div class="box">
         <div class="field"><span>Daylight</span><div class="choices" id="room-sky"></div></div>
         <div class="field"><span>Seasons in the windows</span><div class="choices" id="room-season"></div></div>
-        <div class="field stacked"><span>In the air</span><div class="catalog" id="room-drift"></div></div>
-        <div class="field"><span>In the windows</span><div class="choices" id="room-fireworks"></div></div>
-      </div>
-    </div>
-    <div class="group">
-      <h2>Life</h2>
-      <div class="box">
         <div class="field stacked">
           <span>Pets <small>Up to 3</small></span>
           <div class="picker"><input type="search" class="filter" placeholder="Filter pets" aria-label="Filter pets"><div class="choices" id="room-pet"></div></div>
           <p class="hint" id="room-pet-hint" hidden></p>
         </div>
-        <div class="field"><span>Sound</span><div class="choices" id="room-sound"></div></div>
-        <div class="field" data-keywords="background behind window front"><span>Sound plays <small>Always: also behind other windows, minimised or on another Space.</small></span><div class="choices" id="room-soundWhen"></div></div>
-        <div class="field"><span>Typing and chatter</span><div class="choices" id="room-ambience"></div></div>
-        <div class="field"><span>Office staff</span><div class="choices" id="room-staff"></div></div>
-        <div class="field"><span>Comings and goings</span><div class="choices" id="room-arrivals"></div></div>
-        <div class="field" data-keywords="power battery quiet"><span>Calm office <small>Nobody wanders, the pets rest, nothing drifts: much less power.</small></span><div class="choices" id="room-calm"></div></div>
+      </div>
+      <div class="cards">
+      <div class="card">
+        <div class="card-head"><h2>Profile</h2><div class="tools"><button class="link more-link" data-go="profiles">Manage…</button></div></div>
+        <div class="choices" id="easy-profiles"></div>
+        <p class="hint">Your office, saved under a name. Switch, and your phone follows.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Pair a phone</h2></div>
+        <div class="easy-pair">
+          <div>
+            <div class="hint">On the same Wi-Fi, open <span class="address" id="easy-address"></span> and enter:</div>
+            <div class="code" id="easy-code">— — —</div>
+            <div class="expires" id="easy-expires"></div>
+            <button class="btn" id="easy-new-code">Get a code</button>
+          </div>
+          <img class="qr" id="easy-qr" alt="QR code that pairs your phone with this code" hidden>
+        </div>
+        <button class="link more-link" data-go="phone">Phone settings…</button>
+      </div>
       </div>
     </div>
   </section>
 
   <!-- ================================================================ Team -->
-  <section class="pane" data-pane="team" data-title="Team and roles">
-    <header class="pane-head"><h1>Team and roles</h1><p>Who the office can hire, how each starts, and how each agent looks.</p></header>
+  <section class="pane" data-pane="team" data-title="Hires and roles">
+    <header class="pane-head"><h1>Hires and roles</h1><p>Where new hires start, who you can hire, your General Manager, and how your team looks.</p></header>
+    <nav class="on-page" aria-label="On this page" hidden></nav>
     <div class="group">
       <h2>Hiring</h2>
       <div class="box steps switches">
-        <div class="step" id="step-hiring">
+        <div class="step" id="step-hiring" data-keywords="hires folder where new hires start projects directory path choose agent terminal tmux">
           <div class="mark">✓</div>
           <div class="text">
             <div class="title">Let the office hire and fire</div>
@@ -986,6 +965,45 @@
           </div>
           <button class="switch" id="hiring" aria-label="Let the office hire and fire"></button>
         </div>
+      </div>
+    </div>
+    <div class="group" id="gm-group">
+      <h2>General Manager</h2>
+      <div class="box steps switches">
+        <div class="step" id="step-manager" data-keywords="manager general manager gm team front desk token by hand fire" hidden>
+          <div class="mark">✓</div>
+          <div class="text">
+            <div class="title">Let a General Manager run your team</div>
+            <div class="detail" data-pending="Off: Smolcorp works as before. Your team's events are still noted, so turning this on shows what happened lately." data-done="On: a General Manager can see your team on this computer and hire, brief and tile it. Turning it off fires no one."></div>
+            <div class="detail" id="manager-team"></div>
+            <div class="detail" id="manager-screens" hidden>
+              <span>Which screen holds the team?</span>
+              <span class="choices" id="manager-screen-list"></span>
+            </div>
+          </div>
+          <button class="switch" id="manager" aria-label="Let a General Manager run your team"></button>
+        </div>
+      </div>
+      <div id="manager-tools" hidden>
+        <h3 class="hint">Hired, its token, and by hand</h3>
+        <div class="box">
+          <div class="field pad" id="gm-row" data-search="General Manager" data-keywords="gm general manager fire token rotate by hand file">
+            <span class="text" id="gm-status"></span>
+            <button class="btn" id="gm-fire" hidden>Fire the General Manager</button>
+          </div>
+          <div class="field pad">
+            <span class="text">A new General Manager token<br><small class="hint">The old token stops working. Fire the General Manager and hire it again to give it the new one.</small></span>
+            <button class="btn" id="gm-rotate">New GM token</button>
+          </div>
+          <div class="field pad">
+            <span class="text">Allow a General Manager started by hand<br><small class="hint">This writes the General Manager's token to a file on this computer, so a General Manager you start yourself can find it. Anything that can read your files can read it. Off keeps the token out of every file.</small></span>
+            <button class="switch" id="gm-byhand" aria-label="Allow a General Manager started by hand"></button>
+          </div>
+        </div>
+        <p class="hint" id="gm-problem" hidden></p>
+        <h3 class="hint">Team</h3>
+        <div class="box" id="team-list"></div>
+        <p class="hint" id="team-problem" hidden></p>
       </div>
     </div>
     <section class="group roles" id="roles-section" hidden>
@@ -1042,9 +1060,25 @@
     </div>
   </section>
 
+  <!-- ============================================================== Floors -->
+  <section class="pane" data-pane="floors" data-title="Floors">
+    <header class="pane-head"><h1>Floors</h1><p>The floors above the office: their names and styles, which projects sit on each, and where cloud bots go.</p></header>
+    <div class="group" id="floors-group" hidden>
+      <h2>Floors</h2>
+      <p class="hint">Agents with no desk on the ground floor go upstairs, nine to a floor. Name each floor, and pick a style for the ones above. Add a project's folder under a floor, and its agents sit there: put anyone on any floor from the office too, with ⇅ floor.</p>
+      <div class="box" id="floors" data-search="Floors" data-keywords="floor upstairs building storey server room name rule rules project folder sits"></div>
+    </div>
+    <div class="group" id="bots-group" hidden>
+      <h2>Cloud bots</h2>
+      <p class="hint" id="bots-hint"></p>
+      <div class="box" id="bots" data-search="Cloud bots" data-keywords="grok bot cloud bots desk pin hide find detect"></div>
+    </div>
+  </section>
+
   <!-- =============================================================== Phone -->
   <section class="pane" data-pane="phone" data-title="Phone and voice">
     <header class="pane-head"><h1>Phone and voice</h1><p>Pair a phone, and how it listens.</p></header>
+    <nav class="on-page" aria-label="On this page" hidden></nav>
     <div class="group" id="pair" data-search="Pair a phone" data-keywords="code qr wifi pairing">
       <h2>Pair a phone</h2>
       <div class="box pairing">
@@ -1128,31 +1162,12 @@
     </div>
   </section>
 
-  <!-- ============================================================ Profiles -->
-  <section class="pane" data-pane="profiles" data-title="Profiles">
-    <header class="pane-head"><h1>Profiles</h1><p>Your office, saved under a name. Switch, and your phone follows.</p></header>
-    <section class="group profiles" id="profiles-section" data-search="Profiles" data-keywords="save switch export import rename" hidden>
-      <div class="box">
-        <div class="pad"><div class="choices" id="profiles"></div></div>
-        <div class="pad tools">
-          <button class="btn" id="profile-save">Save</button>
-          <button class="btn" id="profile-save-as">Save as…</button>
-          <button class="btn" id="profile-rename">Rename</button>
-          <button class="btn" id="profile-delete">Delete</button>
-          <span style="flex:1"></span>
-          <button class="btn" id="profile-export">Export</button>
-          <button class="btn" id="profile-import">Import…</button>
-          <input type="file" id="profile-file" accept=".json,application/json" hidden>
-        </div>
-      </div>
-    </section>
-  </section>
-
-  <!-- ============================================================== Extras -->
-  <section class="pane" data-pane="extras" data-title="Extras">
-    <header class="pane-head"><h1>Extras</h1><p>Optional: music, summaries, other tools, and the office away from home.</p></header>
+  <!-- ============================================================ Advanced -->
+  <section class="pane" data-pane="extras" data-title="Advanced">
+    <header class="pane-head"><h1>Advanced</h1><p>Optional and expert: music, summaries, other tools, the hires' guard, keys in other apps, and the office away from home.</p></header>
+    <nav class="on-page" aria-label="On this page" hidden></nav>
     <div class="group">
-      <h2>Optional</h2>
+      <h2>Extras</h2>
       <div class="box steps switches">
         <div class="step" id="step-music" hidden>
           <div class="mark">✓</div>
@@ -1212,6 +1227,38 @@
             </div>
           </div>
           <button class="switch" id="webhook" aria-label="Tell other tools"></button>
+        </div>
+      </div>
+    </div>
+  <div class="group" id="guard-section" hidden>
+    <h2>Guard</h2>
+      <p class="hint">Commands every hire is refused, whatever it is asked. Each group is on until you switch it off. A group you switch off is dropped from Claude's own deny rules too, not only from the guard: you allowed it, so Smolcorp no longer blocks it.</p>
+      <div class="box steps switches" id="guard-groups"></div>
+      <div class="box guard-extra" id="guard-extra" data-search="Guard" data-keywords="guard refuse block hire push deploy publish command pattern">
+        <input type="text" id="guard-pattern" spellcheck="false" placeholder="Another command to refuse, such as terraform import" aria-label="Another command to refuse">
+        <button class="btn" id="guard-add">Add</button>
+      </div>
+      <p class="hint" id="guard-problem" hidden></p>
+      <p class="hint" id="guard-limits"></p>
+  </div>
+    <div class="group">
+      <h2>Keys in other apps</h2>
+      <div class="box steps switches">
+        <div class="step" id="step-keystrokes" data-keywords="keys keystrokes typing accessibility click apps" hidden>
+          <div class="mark">✓</div>
+          <div class="text">
+            <div class="title">Let features press keys in other apps</div>
+            <div class="detail" data-pending="Off. When on, a feature may type or press a key in an app you name, one key at a time. It stops if you click elsewhere or use the keyboard or mouse, and never types into a file dialog. Turning it on also needs macOS's Accessibility permission for Smolcorp, which macOS will ask you for." data-done="On. A feature may type or press a key in an app it names. It stops at once if you click elsewhere or use the keyboard or mouse, and never types into a file dialog. It also needs macOS's Accessibility permission for Smolcorp."></div>
+            <div class="detail" id="keystrokes-apps-note"></div>
+            <div id="keystrokes-apps"></div>
+            <div class="detail" style="display:flex;gap:6px;align-items:center;margin-top:6px">
+              <select id="keystrokes-pick" aria-label="An open app to allow"></select>
+              <button class="btn" id="keystrokes-add">Add</button>
+            </div>
+            <div class="detail" id="keystrokes-problem" hidden></div>
+            <div class="detail" id="keystrokes-access" hidden>Turn Smolcorp on in System Settings → Privacy &amp; Security → Accessibility, or nothing will be pressed.</div>
+          </div>
+          <button class="switch" id="keystrokes" aria-label="Let features press keys in other apps"></button>
         </div>
       </div>
     </div>
@@ -1614,6 +1661,8 @@
     renderAttention();
     showInvite();
     hideEmptyGroups();
+    showJumps();
+    drawOnPage();
     fitDetails();
   }
 
@@ -5933,9 +5982,17 @@
      top on a phone. Easy setup comes first, each time the page opens. */
 
   const PANES = [...document.querySelectorAll('.pane')].map((pane) => pane.dataset.pane);
+  /** Sections that have moved into another, by their old name: where each is now. */
+  const MOVED = { profiles: ['office', 'profiles-section'] };
 
-  /** Shows a section, and in it `at`, an element to bring into view and light up for a moment. */
+  /**
+   * Shows a section, and in it `at`, an element to bring into view and light up for a moment.
+   * `at` decides the section, wherever it has moved to; one out of sight lights up what holds it.
+   */
   function go(pane, at = null) {
+    if (MOVED[pane]) [pane, at] = [MOVED[pane][0], at || $(MOVED[pane][1])];
+    const holder = at && at.closest('.pane');
+    if (holder) pane = holder.dataset.pane;
     if (!PANES.includes(pane)) return;
     document.querySelectorAll('.pane').forEach((el) => el.classList.toggle('current', el.dataset.pane === pane));
     document.querySelectorAll('#nav [data-go]').forEach((b) => {
@@ -5943,13 +6000,15 @@
       else b.removeAttribute('aria-current');
     });
     $('pane-menu').value = pane;
+    drawOnPage();
     fitDetails();
     // The outfit maker's picture moves again once it's in sight
     if (pane === 'team' && layout && layout.room) drawMaker(layout.room);
     document.querySelectorAll('.pane.current .picker').forEach(scrollToPicked);
     document.querySelectorAll('.pane.current .picker[data-fold]').forEach(filterPicker);
-    if (!at) return window.scrollTo(0, 0);
-    at.scrollIntoView({ block: 'center' });
+    while (at && at.closest('[hidden]') && !at.matches('.pane')) at = at.parentElement.closest('.group, .card, .step, .pane');
+    if (!at || at.matches('.pane')) return window.scrollTo(0, 0);
+    at.scrollIntoView({ block: at.offsetHeight > innerHeight * 0.6 ? 'start' : 'center' });
     at.classList.remove('flash');
     void at.offsetWidth;
     at.classList.add('flash');
@@ -5959,6 +6018,29 @@
     b.addEventListener('click', () => go(b.dataset.go, b.dataset.at ? $(b.dataset.at) : null));
   });
   $('pane-menu').onchange = () => go($('pane-menu').value);
+
+  /** Find a setting's links, but those to what this computer doesn't have. */
+  function showJumps() {
+    document.querySelectorAll('.jump').forEach((b) => {
+      const to = $(b.dataset.at);
+      b.hidden = !to || !!(to.hidden || to.parentElement.closest('[hidden]:not(.pane)'));
+    });
+  }
+
+  /** On this page: the section's groups in sight, a click to each, where there are enough to need it. */
+  function drawOnPage() {
+    const pane = document.querySelector('.pane.current'), host = pane && pane.querySelector(':scope > .on-page');
+    if (!host) return;
+    const heads = [...pane.querySelectorAll(':scope > .group > h2, :scope > .card > .card-head > h2, :scope > .cards > .card > .card-head > h2')]
+      .filter((h) => !h.closest('[hidden]'));
+    if (!changed(host, heads.map((h) => h.textContent))) return;
+    host.hidden = heads.length < 4;
+    host.replaceChildren(...heads.map((h) => {
+      const b = Object.assign(document.createElement('button'), { type: 'button', textContent: h.textContent });
+      b.onclick = () => go(pane.dataset.pane, h.closest('.group, .card'));
+      return b;
+    }));
+  }
   $('easy-arrange').onclick = () => $('arrange-open').click();
   $('easy-hiring').onclick = () => $('hiring').click();
 
@@ -6256,17 +6338,31 @@
    * section it's in. Picked, it's shown there and lit up for a moment.
    */
   function searchable() {
-    const found = [];
+    const found = [], seen = new Map();
     for (const pane of document.querySelectorAll('.pane')) {
-      // Easy setup's choices are under Advanced too, but for those marked
-      for (const el of pane.querySelectorAll(pane.dataset.pane === 'easy' ? '[data-search]' : '.step, .field, [data-search]')) {
+      // Each choice has one home in sight: the copies kept out of sight aren't found, nor the
+      // jump list's links, nor Start here's checks. A group or a card is found by its heading too.
+      for (const el of pane.querySelectorAll('.step, .field, [data-search], .group, .card')) {
         // Not what this computer doesn't have, nor rows drawn for a role or a team member
-        if (el.closest('[hidden]') || el.parentElement.closest('.role, .maker, .dress, .inspector')) continue;
-        const title = el.dataset.search || (el.matches('.step') ? el.querySelector('.title').textContent
-          : (el.querySelector(':scope > span:first-child')?.firstChild?.textContent || '').trim());
+        if (el.closest('[hidden]') || el.parentElement.closest('.role, .maker, .dress, .inspector, .jumps, #start-here')) continue;
+        const heading = el.querySelector(':scope > h2, :scope > .card-head > h2');
+        const title = (el.dataset.search || (el.matches('.step') ? el.querySelector('.title').textContent
+          : el.matches('.field') ? (el.querySelector(':scope > span:first-child')?.firstChild?.textContent || '')
+            : heading ? heading.textContent : '')).trim();
         if (!title) continue;
-        const words = [title, el.dataset.keywords || '', el.matches('.step') ? el.querySelector('.detail').textContent : ''].join(' ').toLowerCase();
-        found.push({ el, title, words, pane: pane.dataset.pane, where: pane.dataset.title });
+        // Found by its words: its name, the words it's known by, what it says, and the group it's in
+        const group = el.parentElement.closest('.group, .card'), groupName = group && group.querySelector(':scope > h2, :scope > .card-head > h2');
+        const said = el.matches('.step') ? el.querySelector('.detail').textContent
+          : el.matches('.field') ? (el.querySelector(':scope > span:first-child small')?.textContent || '')
+            : (el.querySelector(':scope > .hint, :scope > p.hint, :scope > .card-head .now')?.textContent || '');
+        const words = [title, el.dataset.keywords || '', said, groupName ? groupName.textContent : ''].join(' ').toLowerCase();
+        const where = groupName && groupName.textContent !== title ? `${pane.dataset.title} › ${groupName.textContent}` : pane.dataset.title;
+        // A group and its box by the same name are one setting, found by the words of both
+        const same = seen.get(`${pane.dataset.pane} ${title}`);
+        if (same) { same.words += ` ${words}`; continue; }
+        const hit = { el, title, words, pane: pane.dataset.pane, where };
+        seen.set(`${pane.dataset.pane} ${title}`, hit);
+        found.push(hit);
       }
     }
     return found;
@@ -6277,8 +6373,10 @@
     const show = () => {
       const words = input.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
       if (!words.length) { results.hidden = true; return; }
+      // Those named by what you typed first, then those it's in the words of
+      const named = (s) => words.filter((w) => s.title.toLowerCase().includes(w)).length;
       hits = searchable().filter((s) => words.every((w) => s.words.includes(w)))
-        .sort((a, b) => Number(!a.title.toLowerCase().includes(words[0])) - Number(!b.title.toLowerCase().includes(words[0]))).slice(0, 12);
+        .sort((a, b) => named(b) - named(a)).slice(0, 12);
       at = 0;
       results.replaceChildren(...(hits.length ? hits.map((hit, i) => {
         const b = document.createElement('button');
