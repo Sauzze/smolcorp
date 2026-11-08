@@ -800,7 +800,7 @@
   <section class="pane layout" id="layout" data-pane="office" data-title="Office and look" hidden>
     <header class="pane-head"><h1>Office and look</h1><p>How the office looks and lives, on your phone, this computer and the viewer.</p></header>
     <nav class="on-page" aria-label="On this page" hidden></nav>
-    <div class="card style-card" id="look-style" data-search="Style" data-keywords="look theme appearance preset furnish decorate change the look">
+    <div class="card style-card" id="look-style" data-search="Style" data-keywords="look theme appearance preset furnish decorate change the look arrange room move furniture drawer desks wall pieces lounge hang">
       <div class="card-head">
         <h2>Style</h2><span class="now" id="easy-style-name"></span>
         <div class="tools">
@@ -1230,8 +1230,8 @@
         </div>
       </div>
     </div>
-  <div class="group" id="guard-section" hidden>
-    <h2>Guard</h2>
+    <div class="group" id="guard-section" hidden>
+      <h2>Guard</h2>
       <p class="hint">Commands every hire is refused, whatever it is asked. Each group is on until you switch it off. A group you switch off is dropped from Claude's own deny rules too, not only from the guard: you allowed it, so Smolcorp no longer blocks it.</p>
       <div class="box steps switches" id="guard-groups"></div>
       <div class="box guard-extra" id="guard-extra" data-search="Guard" data-keywords="guard refuse block hire push deploy publish command pattern">
@@ -1240,7 +1240,7 @@
       </div>
       <p class="hint" id="guard-problem" hidden></p>
       <p class="hint" id="guard-limits"></p>
-  </div>
+    </div>
     <div class="group">
       <h2>Keys in other apps</h2>
       <div class="box steps switches">
@@ -3269,8 +3269,14 @@
     $(id).addEventListener('load', () => { delete $(id).dataset.broken; });
   }
 
+  /** The older copies kept out of sight, in #also-elsewhere: not drawn, as nothing shows or reads them. */
+  function keptAway(id) {
+    return !!$(id).closest('#also-elsewhere');
+  }
+
   /** Easy setup's pairing card: the same code, its countdown and its QR code. */
   function mirrorPairing() {
+    if (keptAway('easy-code')) return;
     $('easy-address').textContent = $('address').textContent;
     $('easy-code').textContent = $('code').textContent;
     $('easy-expires').textContent = $('expires').textContent;
@@ -4666,6 +4672,7 @@
     const shown = furnished(room);
     // The desks' finish and the chairs' colour are the style's now: no longer offered, though the office still draws a room's own
     for (const part of ['sky', 'season', 'sound', 'ambience', 'soundWhen', 'fireworks', 'staff', 'arrivals', 'calm']) {
+      if (keptAway(`room-${part}`)) continue;
       $(`room-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label, swatch]) =>
         choice(label, (shown[part] || STANDARD_ROOM[part]) === id, () => furnish((r) => { r[part] = id; }, part), swatch)));
     }
@@ -4673,7 +4680,7 @@
     for (const part of ['floor', 'paint', 'monitor', 'door', 'drift']) {
       catalog(`room-${part}`, roomCatalog(part, room, shown[part] || STANDARD_ROOM[part], (id) => furnish((r) => { r[part] = id; }, part), 'small'));
     }
-    catalog('room-preset', roomCatalog('preset', room, room.preset || STANDARD_ROOM.preset, (id) => furnish((r) => { r.preset = id; }, 'preset'), 'small'));
+    if (!keptAway('room-preset')) catalog('room-preset', roomCatalog('preset', room, room.preset || STANDARD_ROOM.preset, (id) => furnish((r) => { r.preset = id; }, 'preset'), 'small'));
     drawEasy(room, shown);
     if (refocus) {
       // The same choice can be in Easy setup, the welcome and Office: the one in view
@@ -4728,7 +4735,7 @@
       r.pet = pets.includes(id) ? pets.filter((pet) => pet !== id) : [...pets, id];
     });
     // The same pets under Office, in Easy setup and in the welcome
-    for (const where of ['room-pet', 'easy-pets', 'welcome-pets']) {
+    for (const where of ['room-pet', 'easy-pets', 'welcome-pets'].filter((id) => !keptAway(id))) {
       $(where).replaceChildren(
         choice(styled ? "Style's pet" : 'None', !picked.length, () => furnish((r) => { r.pet = []; })),
         ...ROOM_CHOICES.pet.map(([id, label]) => {
@@ -4738,7 +4745,7 @@
         }));
     }
     const hint = full ? 'Three is the most. Take one off to pick another.' : styled ? "Pick pets to replace the style's pet." : '';
-    for (const where of ['room-pet-hint', 'easy-pets-hint']) {
+    for (const where of ['room-pet-hint', 'easy-pets-hint'].filter((id) => !keptAway(id))) {
       $(where).textContent = hint;
       $(where).hidden = !hint;
     }
@@ -5866,7 +5873,7 @@
     // A change still on its way counts before the computer has said so.
     const edited = state.profileEdited || changesWaiting();
     // Under Profiles, and in Easy setup
-    for (const where of ['profiles', 'easy-profiles']) {
+    for (const where of ['profiles', 'easy-profiles'].filter((id) => !keptAway(id))) {
       $(where).replaceChildren(...[DEFAULT_PROFILE, ...state.profiles.map((p) => p.name)].map((name) =>
         choice(name === active && edited ? `${name} · edited` : name, name === active, () => switchTo(name))));
     }
@@ -5988,8 +5995,9 @@
   /**
    * Shows a section, and in it `at`, an element to bring into view and light up for a moment.
    * `at` decides the section, wherever it has moved to; one out of sight lights up what holds it.
+   * Focus goes there too (or to the section's heading), but not as the page opens.
    */
-  function go(pane, at = null) {
+  function go(pane, at = null, moveFocus = true) {
     if (MOVED[pane]) [pane, at] = [MOVED[pane][0], at || $(MOVED[pane][1])];
     const holder = at && at.closest('.pane');
     if (holder) pane = holder.dataset.pane;
@@ -6007,12 +6015,29 @@
     document.querySelectorAll('.pane.current .picker').forEach(scrollToPicked);
     document.querySelectorAll('.pane.current .picker[data-fold]').forEach(filterPicker);
     while (at && at.closest('[hidden]') && !at.matches('.pane')) at = at.parentElement.closest('.group, .card, .step, .pane');
-    if (!at || at.matches('.pane')) return window.scrollTo(0, 0);
+    if (!at || at.matches('.pane')) {
+      window.scrollTo(0, 0);
+      if (moveFocus) focusOn(document.querySelector('.pane.current h1'));
+      return;
+    }
     at.scrollIntoView({ block: at.offsetHeight > innerHeight * 0.6 ? 'start' : 'center' });
     at.classList.remove('flash');
     void at.offsetWidth;
     at.classList.add('flash');
     setTimeout(() => at.classList.remove('flash'), 1900);
+    if (moveFocus) focusOn(at);
+  }
+  /**
+   * Focus on what was just shown, so the next Tab, and a screen reader, carry on from there,
+   * not from the link that took you, now out of sight. One that can't take focus can, until it loses it.
+   */
+  function focusOn(el) {
+    if (!el) return;
+    if (!el.matches('a[href], button, input, select, textarea, summary, [tabindex]')) {
+      el.tabIndex = -1;
+      el.addEventListener('blur', () => el.removeAttribute('tabindex'), { once: true });
+    }
+    el.focus({ preventScroll: true });
   }
   document.querySelectorAll('[data-go]').forEach((b) => {
     b.addEventListener('click', () => go(b.dataset.go, b.dataset.at ? $(b.dataset.at) : null));
@@ -6477,21 +6502,21 @@
 
   /* ------------------------------------------------------------------ start */
 
-  go('easy');
+  go('easy', null, false);
   handOverKey().then(load).then(() => {
     if (!state) return;
     // Arriving from "Pair a Phone…" in the menu: have a code ready.
     if (location.hash === '#pair') {
-      go('phone');
+      go('phone', null, false);
       if (!state.pairing.code) post('/setup/pair');
     }
     // From "Unpair All Phones…" in the tray, which has no dialog of its own.
     if (location.hash === '#unpair' && state.phones.length) {
-      go('phone');
+      go('phone', null, false);
       $('unpair-all').click();
     }
     // From "Set up the viewer on the setup page" in the menu.
-    if (location.hash === '#viewer') go('extras', $('viewer'));
+    if (location.hash === '#viewer') go('extras', $('viewer'), false);
   }).then(loadStartHere).then(loadViewer).then(loadBriefs).then(loadGuard);
   setInterval(() => { if (!document.querySelector('.over')) load(); }, 1500);
   // The viewer's state, for its switch and "last sent": often while it's on.
