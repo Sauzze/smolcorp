@@ -32,7 +32,7 @@ final class SetupFreshEyesPageTests: XCTestCase {
         XCTAssertTrue(page.contains(#"<button class="jump" data-go="team" data-at="gm-token"><b>Your General Manager's token</b>"#))
         // The path, never the token: the state says only where the file is.
         let render = try part(page, from: "function renderGmToken(m)", to: "function renderManagerTools")
-        XCTAssertTrue(render.contains("$('gm-token-file').textContent = m.gmTokenFileShown || file;"))
+        XCTAssertTrue(render.contains("pathLine($('gm-token-file'), m.gmTokenFileShown || file, file);"))
         XCTAssertTrue(render.contains("copyText(file, 'gm-token-copied')"))
         XCTAssertTrue(render.contains("$('gm-rotate-row').hidden = !m.enabled;"), "a new token only where the app makes one")
         // Drawn with the manager off too, before renderManager stops there.
@@ -98,7 +98,7 @@ final class SetupFreshEyesPageTests: XCTestCase {
         XCTAssertTrue(rules.contains("add.onchange = keep;"), "Enter still adds")
         XCTAssertTrue(rules.contains("adding.onclick = keep;"))
         XCTAssertTrue(rules.contains("chip.title = rule.exact ? `${rule.folder}, this folder alone` : `${rule.folder}, and the folders in it`;"))
-        XCTAssertTrue(rules.contains("textContent: shortFolder(rule.folder)"))
+        XCTAssertTrue(rules.contains("pathLine(document.createElement('span'), shortFolder(rule.folder)"))
         XCTAssertFalse(rules.contains("'/…'"), "no more smolcorp/… chips")
         // Inside the box, and whole on a phone.
         XCTAssertTrue(page.contains(".box > .floor-rules { padding: 0 14px 10px; border-top: 0; }"))

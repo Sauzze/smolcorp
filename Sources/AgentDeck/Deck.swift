@@ -1958,12 +1958,16 @@ final class Deck {
     /// The folder panel, while it's open.
     private var hirePanel: NSOpenPanel?
 
+    /// What the panel says it's for: the hires folder, or a project's folder for a floor (Floors' Choose…).
+    static let hireFolderMessage = "New hires from the office start their work in this folder."
+    static let floorFolderMessage = "The agents working in this project's folder sit on the floor you chose it for."
+
     /// Asks for the new hires' folder with the Mac's own panel, from the setup
     /// page. Asked again while it's open, it brings that panel forward rather
     /// than opening another, and answers at once. `done` gets the folder picked,
     /// kept as the hires folder unless `keep` is false (Start here keeps it
-    /// itself, through its checks).
-    func chooseHireFolder(keep: Bool = true, then done: @escaping (String?) -> Void) {
+    /// itself, through its checks, and Floors puts it on a floor, with its own `message`).
+    func chooseHireFolder(keep: Bool = true, message: String = Deck.hireFolderMessage, then done: @escaping (String?) -> Void) {
         if let open = hirePanel {
             NSApp.activate(ignoringOtherApps: true)
             open.makeKeyAndOrderFront(nil)
@@ -1975,7 +1979,7 @@ final class Deck {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose"
-        panel.message = "New hires from the office start their work in this folder."
+        panel.message = message
         if let current = Deck.folder(Config.shared.hireFolder) { panel.directoryURL = URL(fileURLWithPath: current) }
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in
