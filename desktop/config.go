@@ -76,6 +76,11 @@ type Config struct {
 	// one you've deleted isn't given back. Saved as every shipped role.
 	RolesOffered      []string `json:"rolesOffered"`
 	HasCompletedSetup bool     `json:"hasCompletedSetup"`
+	// Whether the first-run guide, the arrows in setup that point at the next
+	// thing to do, is over: finished or skipped. "Show Me Around Again" in the
+	// tray turns it back off. A file from before it, of someone who had set up
+	// already (setup opened, a hires folder or a GM, by hand too), counts as done.
+	GuideDone bool `json:"guideDone"`
 	// Window is where the office window was left, and whether it stays above the others (Windows).
 	Window      *WindowState `json:"window"`
 	AlwaysOnTop bool         `json:"alwaysOnTop"`
@@ -156,6 +161,13 @@ func loadConfig() *Config {
 					}
 					config.unknown[name] = value
 				}
+			}
+			// Someone who had set up before the guide came never sees it unless they ask. A GM
+			// started by hand counts as hired: this app has no switch for it, but keeps the key.
+			if _, ok := fields["guideDone"]; !ok {
+				var byHand bool
+				_ = json.Unmarshal(fields["gmByHand"], &byHand)
+				config.GuideDone = config.HasCompletedSetup || config.HireFolder != "" || config.ManagerEnabled || byHand
 			}
 			var floor int
 			if raw, ok := fields["botFloor"]; ok && json.Unmarshal(raw, &floor) == nil && floor >= 0 && floor < floorCount {

@@ -642,7 +642,7 @@
   <section class="pane" data-pane="easy" data-title="Easy setup">
     <header class="pane-head">
       <h1>Easy setup</h1>
-      <p>Get going and hire your team. Every other setting is a click away below, or in the search.</p>
+      <p>Get going and hire your team. Every other setting is a click away below, or in the search. <button class="link" id="guide-again">Show me around again</button></p>
     </header>
     <div class="attention" id="easy-attention" hidden>
       <div class="text"><b id="easy-attention-title"></b><span id="easy-attention-detail"></span></div>
@@ -1550,15 +1550,22 @@
 </dialog>
 
 <script src="/office.js"></script>
+<script src="/guide.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
   let state = null;
 
   /** One request for the state at a time: one asked for while another is on its way is made once that one is back. */
   let loading = false, loadAgain = false;
+  /**
+   * The requests for the state, counted as they're sent, and which of them was the first-run guide's last
+   * change: the guide goes by no state asked for before that (syncGuide).
+   */
+  let asks = 0, guideAsked = 0;
   async function load() {
     if (loading) { loadAgain = true; return; }
     loading = true;
+    const asked = ++asks;
     // A request that never comes back is given up on after 10 s, in every browser, so the refresh isn't held for good.
     const giveUp = new AbortController();
     const timer = setTimeout(() => giveUp.abort(), 10000);
@@ -1567,6 +1574,7 @@
       if (res.status === 401) return locked(res.headers.get('X-Smolcorp-App'));
       state = await res.json();
       render();
+      syncGuide(asked);
     } catch {} finally {
       clearTimeout(timer);
       loading = false;
@@ -1598,7 +1606,7 @@
     if (!key && !token) return;
     const given = key ? { 'X-Smolcorp-Setup-Key': key } : { 'X-Smolcorp-Setup-Once': token };
     await fetch('/setup/session', { method: 'POST', headers: { ...setupHeaders(false), ...given } }).catch(() => {});
-    const then = ['pair', 'unpair', 'viewer'].find((action) => opened.has(action));
+    const then = ['pair', 'unpair', 'viewer', 'guide'].find((action) => opened.has(action));
     history.replaceState(null, '', location.pathname + (then ? `#${then}` : ''));
   }
 
@@ -1624,6 +1632,8 @@
   }
 
   async function post(path, body) {
+    const asked = ++asks;
+    if (path.startsWith('/setup/guide?')) guideAsked = asked;
     const res = await fetch(path, {
       method: 'POST',
       headers: setupHeaders(body),
@@ -1632,6 +1642,7 @@
     if (res.headers.get('Content-Type') === 'application/json') {
       state = await res.json();
       render();
+      syncGuide(asked);
     } else {
       load();
     }
@@ -3189,6 +3200,8 @@
       return;
     }
     $('hs-hire').disabled = true;
+    const gmHire = hiring.id === 'gm';
+    if (gmHire) gmHiring = true;
     const res = await fetch('/setup/hire', { method: 'POST', headers: setupHeaders(true),
       body: JSON.stringify({ role: hiring.id, folder, answers: hireAnswers(), floor: Number($('hs-floor').value) || 0,
         worktree: $('hs-worktree').checked,
@@ -3198,6 +3211,7 @@
         ...($('hs-account-row').hidden || (!$('hs-apikey-row').hidden && $('hs-apikey').checked) ? {} : { account: $('hs-account').value }) }) }).catch(() => null);
     $('hs-hire').disabled = false;
     if (!res || !res.ok) {
+      if (gmHire) hireEnded();
       $('hs-problem').textContent = res ? await res.text() : "Can't reach Smolcorp.";
       $('hs-problem').hidden = false;
       return;
@@ -5570,6 +5584,8 @@
    */
   function showInvite() {
     if (welcomeOpen || invited() || !window.AgentOffice || !layout || !$('arranger').hidden) return;
+    // On a first run the guide comes first: the welcome waits until it's finished or skipped.
+    if (window.SmolcorpGuide && state && state.guide && !state.guide.done) return;
     const room = layout.room || STANDARD_ROOM;
     const plan = room.plan;
     const arranged = !!plan && (['wide', 'tall'].some((side) => Object.keys(plan[side] || {}).length
@@ -6257,13 +6273,30 @@
     return sessions.filter((s) => s.role === 'gm' && s.key != null).map((s) => s.id);
   }
 
+  /**
+   * A General Manager's hire is under way, from Hire your General Manager or the hire sheet: the guide's
+   * hire step counts as done while it is, and its last step waits for the GM to sit down. Set once the
+   * hire is sent, cleared by hireEnded when it's refused or fails.
+   */
+  let gmHiring = false;
+  /** The GM's hire is over without a GM seated (refused, no answer, or it never started): the guide's arrow goes back to Hire. Every such path calls it. */
+  function hireEnded() {
+    gmHiring = false;
+  }
   $('start-gm').onclick = async () => {
     if (!$('start-gm-account').hidden && !$('start-gm-account').value) return startSaid('Choose the Claude account your General Manager works on.', true);
     const before = (await seatedGms()) || [];
     startSaid('Hiring your General Manager: its terminal opens, and it asks you what the goal is.');
+    gmHiring = true;
     const res = await fetch(`/setup/hire/gm${$('start-gm-account').hidden ? '' : `?account=${encodeURIComponent($('start-gm-account').value)}`}`, { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
-    if (!res) return startSaid("Can't reach Smolcorp on this computer.", true);
-    if (!res.ok) return startSaid(await res.text(), true);
+    if (!res) {
+      hireEnded();
+      return startSaid("Can't reach Smolcorp on this computer.", true);
+    }
+    if (!res.ok) {
+      hireEnded();
+      return startSaid(await res.text(), true);
+    }
     const advice = 'Claude Code may first ask to trust the folder and, if an API key is in the environment, whether to use it: answer Yes to both.';
     startSaid(`Your General Manager is starting: its terminal is opening. ${advice}`);
     // Only a session at a desk says it's there. Wait up to a minute for it.
@@ -6685,6 +6718,113 @@
   $('arrange-menu').querySelectorAll('.menu-list .btn').forEach((b) => b.addEventListener('click', () => { $('arrange-menu').open = false; }));
   document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#arrange-menu')) $('arrange-menu').open = false; });
 
+  /* ------------------------------------------------------- the first-run guide */
+
+  /*
+   * Arrows on the next thing to do, on a first run, in Start here's order (see guide.js): the folder for
+   * hires, the checks before a first hire, Hire your General Manager, and the GM at its desk. Each step
+   * moves on by what you do there. Shown until it's finished or skipped, which the app keeps (guideDone,
+   * beside hasCompletedSetup), and again from Show me around again, here or in the app's menu, which walks
+   * every step from the first, done or not. The ids are the 1.24.3 contract's: their owners build them,
+   * and a step whose control isn't there is looked past.
+   */
+  const gmSessions = () => ((state && state.sessions) || []).filter((s) => s.role === 'gm');
+  const inEasy = () => !!document.querySelector('.pane.current[data-pane="easy"]');
+  const isShown = (el) => !!el && el.getClientRects().length > 0;
+  /** Whether the checks were green when they last said: they don't say while they look again. */
+  let checksWereGreen = false;
+  /** The checks are green: as the list says (data-ok), else, without the list, the hire button no longer greyed. */
+  function firstChecksGreen() {
+    const checks = $('first-gm-checks'), hire = $('start-gm');
+    if (!checks) return !!hire && !hire.disabled && hire.getAttribute('aria-disabled') !== 'true';
+    if (checks.dataset.ok) checksWereGreen = checks.dataset.ok === 'true';
+    return checksWereGreen;
+  }
+  /** The checks are being looked at for the first time: their step is waited for longer than most. */
+  const checksPending = () => !!$('first-gm-checks') && !$('first-gm-checks').dataset.ok && !checksWereGreen;
+  /** A GM's hire is under way and none has sat down yet: its card can't be there yet. */
+  const gmStarting = () => gmHiring && !gmSessions().some((s) => s.key != null);
+  /** The hire sheet is open on the General Manager. */
+  const gmSheetOpen = () => $('hire-sheet').open && !!hiring && hiring.id === 'gm';
+  /** The GM at its desk: T782's card for it, or, where there's none, Open the office once a GM is seated. */
+  function firstGmDesk() {
+    const next = $('first-gm-next');
+    if (next) return isShown(next) ? next : null;
+    return gmSessions().some((s) => s.key != null) ? $('start-office') : null;
+  }
+  const inStartHere = { away: () => !inEasy(), reveal: () => go('easy') };
+  const guide = window.SmolcorpGuide && SmolcorpGuide.create({
+    total: 4,
+    modals: '#invite:not([hidden]), #arranger:not([hidden])',
+    awayText: 'Your next step is in Easy setup.',
+    steps: [
+      { id: 'folder', n: 1, target: '#first-folder-use', area: '#first-folder', doneTarget: '#first-folder', ...inStartHere,
+        say: 'Pick where your hires work', press: 'Use this folder', doneSay: 'Your hires work in this folder. You can change it here.',
+        done: () => !!(state && state.hiring && state.hiring.folder) || gmSessions().length > 0 },
+      { id: 'checks', n: 2, target: '#first-gm-checks', ...inStartHere, patience: () => (checksPending() ? 15000 : 0),
+        say: 'Make these checks green: each one says what to do', doneSay: 'These checks are green: your General Manager has what it needs.',
+        done: () => firstChecksGreen() || gmSessions().length > 0 },
+      // Done while the hire is really under way, not on the click: a refused or failed hire brings the arrow back.
+      // Shown done in a tour, it points where the GM is now, not at a button that would hire a second.
+      { id: 'hire', n: 3, target: '#start-gm', doneTarget: () => firstGmDesk() || $('start-office'), ...inStartHere,
+        say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Your General Manager is hired.',
+        done: () => gmSessions().length > 0 || gmHiring || gmSheetOpen() },
+      // Only if the hire asks anything first, in its sheet.
+      { id: 'sheet', n: 3, target: '#hs-hire', optional: true,
+        say: 'Filled in for you', press: 'Hire', done: () => gmSessions().length > 0 || gmHiring },
+      // While the GM is starting, its card can't come: waited for as long as Start here waits for it (five
+      // minutes: the trust prompt may wait), saying meanwhile what its terminal asks. Docked as lost only
+      // after that, in a tour, or when a GM is seated but its card never shows.
+      { id: 'desk', n: 4, target: firstGmDesk, area: '#first-gm-next', ...inStartHere, ackOnClick: true, button: 'Done',
+        patience: () => (gmStarting() ? 300000 : 0),
+        wait: () => (gmStarting() ? 'Your General Manager is starting: if its terminal asks to trust the folder, answer Yes.' : ''),
+        say: 'Your General Manager is at its desk. Say hello', press: 'Open the office',
+        lost: 'Open the office to see your General Manager.' },
+    ],
+    // Finished or skipped: kept, so it isn't shown again unless you ask. Esc only puts it away until setup opens again.
+    onFinish: (reason) => {
+      guideEnded = true;
+      if (reason !== 'hidden') post('/setup/guide?done=1').catch(() => {});
+    },
+  });
+  /** Over or put away here, until the app says it's over: a state that says otherwise doesn't start it again. */
+  let guideEnded = false;
+  /** A tour asked for (Show me around again), to start once the app says the guide is on. */
+  let guideTour = false;
+
+  /**
+   * The guide runs while the app says it isn't over, on this page and on any other setup page open. A state
+   * asked for before the guide's last change is out of date for it, whenever it comes back.
+   */
+  function syncGuide(asked) {
+    if (!guide || !state || !state.guide || asked < guideAsked) return;
+    if (state.guide.done) guideEnded = false;
+    if (!state.guide.done && !guide.running && !guideEnded) {
+      guide.start({ tour: guideTour, focus: guideTour });
+      guideTour = false;
+    } else if (state.guide.done && guide.running) guide.stop();
+  }
+  /** Show me around again: every step from the first, done or not, in Easy setup. */
+  async function guideAgain() {
+    if (!guide) return;
+    go('easy');
+    guide.stop();
+    guideEnded = false;
+    guideTour = true;
+    // Not kept: no tour waiting, or the next plain start would be one.
+    const res = await post('/setup/guide?done=0').catch(() => null);
+    if (!res || !res.ok) guideTour = false;
+  }
+  $('guide-again').onclick = guideAgain;
+  $('guide-again').hidden = !window.SmolcorpGuide;
+  // Opened on #guide, by the menu's Show Me Around Again, or sent there while this page was open.
+  function guideFromAddress() {
+    if (location.hash !== '#guide') return;
+    history.replaceState(null, '', location.pathname);
+    guideAgain();
+  }
+  window.addEventListener('hashchange', guideFromAddress);
+
   /* ------------------------------------------------------------------ start */
 
   go('easy', null, false);
@@ -6702,6 +6842,8 @@
     }
     // From "Set up the viewer on the setup page" in the menu.
     if (location.hash === '#viewer') go('extras', $('viewer'), false);
+    // From "Show Me Around Again" in the menu.
+    guideFromAddress();
   }).then(loadFirstFolder).then(loadStartHere).then(loadViewer).then(loadBriefs).then(loadGuard);
   setInterval(() => { if (!document.querySelector('.over')) load(); }, 1500);
   // The viewer's state, for its switch and "last sent": often while it's on.

@@ -127,6 +127,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         forward(to: window, "Minimize", #selector(NSWindow.performMiniaturize(_:)), key: "m")
         forward(to: window, "Close", #selector(NSWindow.performClose(_:)), key: "w")
         NSApp.windowsMenu = window
+
+        // The first-run guide's arrows again, from the start, in Settings.
+        let help = submenu(of: bar, "Help")
+        add(to: help, "Show Me Around Again", #selector(showMeAround))
+        NSApp.helpMenu = help
         return bar
     }
 
@@ -157,6 +162,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() { settings.show() }
     @objc private func pairPhone() { settings.show(then: "pair") }
+    @objc private func showMeAround() {
+        SettingsWindow.showGuideAgain()
+        settings.show(then: SettingsWindow.guide)
+    }
     @objc private func toggleOffice() { office.toggle() }
 }
 

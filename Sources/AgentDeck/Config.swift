@@ -91,6 +91,10 @@ final class Config: Codable {
     /// default: the box shows what was heard, to send, type or cancel.
     var phoneMicAutoSend = false
     var hasCompletedSetup = false
+    /// Whether the first-run guide, the arrows in setup that point at the next thing to do, is over:
+    /// finished or skipped. "Show Me Around Again" in the Help menu turns it back off. A file from
+    /// before it, of someone who had set up already (setup opened, a hires folder or a GM, by hand too), counts as done.
+    var guideDone = false
     /// You disconnected the agents on purpose, so `--setup` leaves them be.
     /// Connecting, in Settings or Start here, clears it.
     var hooksDisconnected = false
@@ -166,6 +170,7 @@ final class Config: Codable {
         case hireTerminal, hireInTmux, hireWorktrees, recentHireFolders, dictationEnabled, dictationLanguage, dictationForClaude
         case dictationCleanup, dictationGlossary
         case musicEnabled, maxConfirm, webhook, summaryOptIn, summaryProvider, viewer, hasCompletedSetup, hooksDisconnected, claudeProfiles, managerEnabled, gmByHand
+        case guideDone
         case mailMaxBytes, mailPerHour, mailWaitHours, mailInboxSocket, builtinWatches, teamScreen, keystrokesAllowed, keystrokeApps
         case phoneMicEnabled, showInDock, cloudBots, floors, floorRules, botsAutoDetect, hiddenBots, botFloor
         // Under a name of its own since the confirm box: the old one, saved as
@@ -237,6 +242,8 @@ final class Config: Codable {
         }
         managerEnabled = field(Bool.self, .managerEnabled) ?? false
         gmByHand = field(Bool.self, .gmByHand) ?? false
+        // Someone who had set up before the guide came never sees it unless they ask.
+        guideDone = field(Bool.self, .guideDone) ?? (hasCompletedSetup || !hireFolder.isEmpty || managerEnabled || gmByHand)
         // At least 1, so a bad value can't shut the mail off without saying so.
         mailMaxBytes = max(1, field(Int.self, .mailMaxBytes) ?? MailRouter.defaultMaxBytes)
         mailPerHour = max(1, field(Int.self, .mailPerHour) ?? MailRouter.defaultPerHour)

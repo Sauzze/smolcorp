@@ -419,6 +419,11 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		serveFile(w, "Resources/web/office.js")
 		return
 	}
+	// The first-run guide's arrows, for the setup page: nothing of yours either.
+	if r.Method == http.MethodGet && r.URL.Path == "/guide.js" {
+		serveFile(w, "Resources/web/guide.js")
+		return
+	}
 	// Its recordings, the keyboards and the talk, in either kind a browser plays.
 	if r.Method == http.MethodGet && slices.Contains(sounds, r.URL.Path) {
 		serveFile(w, "Resources/web"+r.URL.Path)
@@ -1046,6 +1051,14 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
+	// The first-run guide, finished or skipped (done=1), or to be shown again (done=0).
+	case r.Method == http.MethodPost && path == "/setup/guide":
+		d.mu.Lock()
+		config.GuideDone = query.Get("done") == "1"
+		config.save()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
 	case r.Method == http.MethodPost && path == "/setup/music":
 		d.mu.Lock()
 		config.MusicEnabled = query.Get("enabled") == "1"
@@ -1628,6 +1641,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		},
 		"music":      map[string]any{"enabled": d.config.MusicEnabled},
 		"maxConfirm": map[string]any{"enabled": d.config.MaxConfirm},
+		// The first-run guide's arrows: shown until it's finished or skipped (see guide.js).
+		"guide": map[string]any{"done": d.config.GuideDone},
 		// Without a window of its own, setup says why there's no switch.
 		"officeWindow": map[string]any{"available": hasNativeWindow, "mac": false, "onTop": hasNativeWindow && d.config.AlwaysOnTop},
 		"summary":      d.summaryState(),

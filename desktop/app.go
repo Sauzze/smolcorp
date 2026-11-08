@@ -193,6 +193,8 @@ type tray struct {
 	quit                                  *systray.MenuItem
 	logo                                  string
 	code                                  *int // what RunApp returns
+	// "Show Me Around Again": the first-run guide's arrows, from the start.
+	guide *systray.MenuItem
 }
 
 func newTray(deck *Deck, failed <-chan error, code *int) {
@@ -217,6 +219,7 @@ func newTray(deck *Deck, failed <-chan error, code *int) {
 	t.setup = systray.AddMenuItem("Open Setup…", "")
 	t.pair = systray.AddMenuItem("Pair a Phone…", "")
 	t.unpair = systray.AddMenuItem("Unpair All Phones…", "")
+	t.guide = systray.AddMenuItem("Show Me Around Again", "Setup's arrows to the folder for hires and your first General Manager")
 	systray.AddSeparator()
 	t.portableStatus = systray.AddMenuItem("", "")
 	t.portableStatus.Disable()
@@ -344,6 +347,8 @@ func (t *tray) listen(failed <-chan error) {
 			} else {
 				t.deck.portable.Start()
 			}
+		case <-t.guide.ClickedCh:
+			_ = t.deck.showGuideAgain()
 		case <-t.viewerSetup.ClickedCh:
 			t.deck.openSetup("viewer")
 		case <-t.login.ClickedCh:
