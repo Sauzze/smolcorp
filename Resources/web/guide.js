@@ -4,9 +4,12 @@
  * do (the folder saved, the checks green, the hire sent), never by a Next
  * button alone. The rest of the page is dimmed, but nothing is covered: every
  * control still works, the step's own most of all, and the bubble sits beside
- * or below what's lit, off what the page asks to keep in sight. While the step
- * is in another part of the page, it's a small pill in a corner. Skip ends it;
- * Esc only puts it away until the page opens again.
+ * or below what's lit, off what the page asks to keep in sight, else right
+ * against its arrow. While the step's control is off the window's edge, it's a
+ * small "↓ Continue below" chip that brings it into sight. While the step is in
+ * another part of the page, it's a small pill in a corner, which on a phone
+ * shrinks to a chip once you scroll. Skip ends it; Esc only puts it away until
+ * the page opens again.
  *
  * No dependency, and nothing of yours: the page that uses it gives the steps
  * and remembers when it's over (setup.html, "the first-run guide"). Its plain
@@ -47,6 +50,14 @@
   const RING = PIXEL * 2;
   /** The pill's widest, in CSS pixels, its ring in: it fits the foot of a side column (setup's is 220). */
   const PILL = 196;
+  /** The chip shown while the step's control is off the window's edge, its ring in, until it's measured. */
+  const CHIP = { width: 150, height: 32 };
+  /** A window this wide or less is a phone's (setup's own breakpoint): the bubble stays against its arrow there. */
+  const PHONE = 760;
+  /** A phone, or a finger: where the pill shrinks to a chip once you scroll, as it's in the way of what you read. */
+  const NARROW = `(max-width: ${PHONE}px), (pointer: coarse)`;
+  /** How far the page scrolls before the pill shrinks, in CSS pixels. */
+  const SHRINK = 48;
 
   const clamp = (value, low, high) => Math.min(Math.max(value, low), Math.max(low, high));
 
@@ -93,12 +104,18 @@
    * page's title, the items the step talks about) and off `how.text` (the lines of text on screen) near
    * what's lit: wherever a bubble beside or below it could reach. The arrow's tip is on the control. The
    * bubble goes beside what's lit, right then left, else below it, along it or moved down past what's kept
-   * if need be; never on what's lit or kept, and inside the window. Failing those, or with `how.aside` (its
-   * control was just pressed: out of the way of what that brings), it goes in the corner of the window that
-   * covers least (what's lit, the arrow, what's kept, then any other text), and the arrow stays on the
-   * control, on a side where it covers nothing kept. A control out of sight gets the arrow at the edge
-   * nearest it. `side` says where the bubble went ("right", "left", "below", "edge"); `point`, the way the
-   * arrow points ("up", "down", "left", "right").
+   * if need be; never on what's lit or kept, and inside the window. A control off the window's edge (its
+   * middle out of the window, or cut by its edge with no room beside or below) gets no bubble and no arrow,
+   * but a chip (`how.chip`, its size) at that edge, off what's kept: "chip", pointing "up" or "down"; it's
+   * never parked away from it, nor the arrow on whatever row is at the edge. Failing those, on a phone
+   * (`view` no wider than PHONE), the bubble goes right against its arrow, under it or over
+   * it ("attached"), on nothing lit or kept, over as little of the text near it as can be. Else, or with
+   * `how.aside` (its control was just pressed: out of the way of what that brings), it goes in the corner
+   * that covers least (what's lit, the arrow, what's kept, the text near what's lit, then any other
+   * text); so it does when even its arrow has no room to be next to. In a corner the arrow
+   * stays on the control, on a side where it covers nothing kept. `side` says where the bubble went
+   * ("right", "left", "below", "attached", "edge", "chip"); `point`, the way the arrow points ("up",
+   * "down", "left", "right").
    */
   function place(box, view, bubble, arrow, around = box, keep = [], how = {}) {
     const aw = arrow.width, ah = arrow.height, bw = bubble.width, bh = bubble.height;
@@ -130,12 +147,31 @@
       bubble: { x: Math.round(x), y: Math.round(y) },
     });
 
-    // Out of sight: the arrow at the edge nearest it, pointing that way, the bubble beside the arrow.
-    if (box.top + box.height <= 0 || box.top >= view.height) {
-      const up = box.top + box.height <= 0;
-      const y = up ? MARGIN : view.height - MARGIN - ah;
-      return result('edge', up ? 'up' : 'down', { x: ax, y }, clamp(cx - bw / 2, MARGIN, view.width - MARGIN - bw), up ? y + ah : y - bh);
-    }
+    // A box at the top or the foot of the window moved off it, down or up, past what the page keeps there
+    // (a bar across the top, the logo and Search), inside the window: where it stops on the way.
+    const stops = (x, y, w, h, down) => {
+      const at = [];
+      for (let moved = true, n = 0; moved && n <= asked.length; n++) {
+        moved = false;
+        for (const k of asked) {
+          if (!overlaps(rect(x, y, w, h), k)) continue;
+          y = clamp(down ? k.top + k.height + GAP : k.top - GAP - h, MARGIN, view.height - MARGIN - h);
+          at.push(y);
+          moved = true;
+        }
+      }
+      return at;
+    };
+    const past = (x, y, w, h, down) => stops(x, y, w, h, down).pop() ?? y;
+    // Off the window's edge: a chip at that edge, toward it, off what the page keeps.
+    const chip = (up) => {
+      const { width: cw, height: ch } = how.chip || CHIP;
+      const x = clamp(cx - cw / 2, MARGIN, view.width - MARGIN - cw);
+      const y = past(x, up ? MARGIN : view.height - MARGIN - ch, cw, ch, up);
+      return result('chip', up ? 'up' : 'down', { x, y }, x, y);
+    };
+    // Its middle out of the window: there's nothing of it to point at but an edge.
+    if (cy < 0 || cy > view.height) return chip(cy < 0);
 
     // Beside what's lit: the arrow just off it, level with the control, and the bubble level with the
     // arrow, centred on it, or moved up or down to keep clear of what's kept.
@@ -171,6 +207,10 @@
       }
     }
 
+    // Cut by the window's edge, with no room beside or below: a chip toward the rest of it, as long as it
+    // fits in the window once brought into sight (else it's as good as it gets).
+    if ((box.top < 0 || box.top + box.height > view.height) && box.height <= view.height - MARGIN * 2) return chip(box.top < 0);
+
     // The window's edge: the arrow on the control where it covers nothing kept, the bubble in the corner
     // that covers least: never what's lit if it can help it, then the arrow, what the page keeps, the text
     // near what's lit, any other text.
@@ -185,10 +225,14 @@
     arrowAt.x = clamp(arrowAt.x, MARGIN, view.width - MARGIN - aw);
     arrowAt.y = clamp(arrowAt.y, MARGIN, view.height - MARGIN - ah);
     const pointer = rect(arrowAt.x, arrowAt.y, aw, ah);
+    // Each corner, then each moved a little off its edge (SLIDE at most), past what's kept there: never on
+    // the logo or Search for want of a corner clear of them.
     const corners = [
       [view.width - MARGIN - bw, view.height - MARGIN - bh], [MARGIN, view.height - MARGIN - bh],
       [view.width - MARGIN - bw, MARGIN], [MARGIN, MARGIN],
     ].map(([cornerX, cornerY]) => [Math.max(MARGIN, cornerX), Math.max(MARGIN, cornerY)]);
+    corners.push(...corners.flatMap(([cornerX, cornerY]) => stops(cornerX, cornerY, bw, bh, cornerY === MARGIN)
+      .filter((y) => Math.abs(y - cornerY) <= SLIDE).map((y) => [cornerX, y])));
     const covers = ([cornerX, cornerY]) => {
       const r = rect(cornerX, cornerY, bw, bh);
       const sum = (boxes) => boxes.reduce((total, k) => total + overlap(r, k), 0);
@@ -200,6 +244,34 @@
     for (const at of corners.slice(1)) {
       const these = covers(at);
       if (less(these, least)) [corner, least] = [at, these];
+    }
+    // On a phone: right against its arrow, rather than in a corner far from it. Under the arrow, moved down
+    // past what's kept if that's all it takes; else over it. On nothing lit or kept, over as little of the
+    // text near it as can be, then as near the middle. Its control just pressed, or a wider window (where
+    // the corner is clear of the rows near what's lit): the corner, as it is.
+    if (how.aside || view.width > PHONE) return result('edge', point, arrowAt, corner[0], corner[1]);
+    const nearOn = (r) => near.reduce((total, k) => total + overlap(r, k), 0);
+    const next = (at, y) => {
+      const mid = at.x + aw / 2 - bw / 2;
+      const lowAt = Math.max(MARGIN, at.x + aw - bw), highAt = Math.min(view.width - MARGIN - bw, at.x);
+      const options = [mid, lowAt, highAt, ...[...asked, ...near].flatMap((k) => [k.left + k.width + GAP, k.left - GAP - bw])]
+        .map((bx) => clamp(bx, lowAt, highAt))
+        .filter((bx) => clearOf(rect(bx, y, bw, bh), [around, rect(at.x, at.y, aw, ah), ...asked]));
+      const score = (bx) => [nearOn(rect(bx, y, bw, bh)), Math.abs(bx - mid)];
+      return options.sort((a, b) => (less(score(a), score(b)) ? -1 : less(score(b), score(a)) ? 1 : 0))[0];
+    };
+    if (clearOf(rect(under.x, under.y, aw, ah), asked)) {
+      const from = Math.max(under.y + ah, bottom + GAP);
+      for (const y of [from, ...asked.map((k) => k.top + k.height + GAP).filter((y) => y > from && y <= from + SLIDE).sort((a, b) => a - b)]) {
+        const at = next(under, y);
+        if (at !== undefined) return result('attached', 'up', under, at, y);
+      }
+    }
+    const over = along(box.top - GAP - ah);
+    if (over.y >= MARGIN && clearOf(rect(over.x, over.y, aw, ah), asked)) {
+      const y = Math.min(over.y, around.top - GAP) - bh;
+      const at = next(over, y);
+      if (at !== undefined) return result('attached', 'down', over, at, y);
     }
     return result('edge', point, arrowAt, corner[0], corner[1]);
   }
@@ -245,6 +317,19 @@
   .smol-guide.pill .smol-guide-go { order: 1; min-height: 44px; padding: 0 16px; margin-top: 0; }
   .smol-guide.pill .smol-guide-skip { order: 2; align-self: center; min-width: 44px; min-height: 44px; padding: 0; font-size: 20px; }
 }
+/* Shrunk, on a phone once you scroll: only the button, at the right, so it covers next to nothing. */
+.smol-guide.pill.small .smol-guide-bubble { left: auto !important; right: ${MARGIN}px; padding: 3px; }
+.smol-guide.pill.small .smol-guide-text, .smol-guide.pill.small .smol-guide-skip { display: none; }
+/* The step's control off the window's edge: a chip toward it, in place of the bubble and the arrow. Hidden
+   rather than gone, either way, so each can be measured. */
+.smol-guide-more { position: fixed; left: 0; top: 0; margin: ${PIXEL}px; visibility: hidden; pointer-events: auto; box-sizing: border-box;
+  min-height: 26px; padding: 4px 12px; border: 0; border-radius: 0; background: ${COLOURS.k}; color: #f4f1ea; cursor: pointer;
+  box-shadow: 0 -${PIXEL}px 0 0 ${COLOURS.y}, 0 ${PIXEL}px 0 0 ${COLOURS.y}, -${PIXEL}px 0 0 0 ${COLOURS.y}, ${PIXEL}px 0 0 0 ${COLOURS.y};
+  font: 700 12px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; white-space: nowrap; }
+.smol-guide-more:focus-visible { outline: ${PIXEL}px solid ${COLOURS.y}; outline-offset: 2px; }
+.smol-guide.more .smol-guide-more { visibility: visible; }
+.smol-guide.more .smol-guide-bubble, .smol-guide.more .smol-guide-arrow { visibility: hidden; }
+@media (max-width: ${PHONE}px), (pointer: coarse) { .smol-guide-more { min-height: 44px; padding: 0 16px; font-size: 13px; } }
 .smol-guide-room { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .smol-guide-arrow svg { animation: none; } }
 `;
@@ -336,7 +421,9 @@
     const go = Object.assign(make('button', 'smol-guide-go'), { type: 'button' });
     tools.append(skip, go);
     bubble.append(count, text, tools);
-    layer.append(shade, arrow, bubble);
+    /** In place of the bubble while the step's control is off the window's edge: brings it into sight. */
+    const more = Object.assign(make('button', 'smol-guide-more'), { type: 'button', textContent: '↓ Continue below' });
+    layer.append(shade, arrow, bubble, more);
     /** Room at the foot of the page while the bubble is docked there, so it never sits on a pane's last row. */
     const room = make('div', 'smol-guide-room');
     room.setAttribute('aria-hidden', 'true');
@@ -365,6 +452,10 @@
     /** Where the pill was hidden (its ×): not shown there again, but in the next part of the page you open. */
     let pillHiddenIn = null;
     const where = () => String(call(options.where, '') ?? '');
+    /** The pill shrunk to a chip (a phone, once you scroll), where it was shown and from which scroll. */
+    let pillSmall = false, pillIn = null, pillFrom = 0;
+    const scrollTop = () => win.scrollY || win.pageYOffset || (doc.documentElement && doc.documentElement.scrollTop) || 0;
+    const narrow = () => !!(win.matchMedia && win.matchMedia(NARROW).matches);
 
     const call = (fn, fallback) => { try { return fn ? fn() : fallback; } catch { return fallback; } };
     const find = (target) => {
@@ -489,6 +580,12 @@
       const step = steps[i];
       const docked = how !== 'here';
       const done = tour && state.already;
+      // The pill at its full size wherever it's first shown, in each part of the page; shrunk once you scroll there.
+      if (how !== 'away' || shownHow !== 'away' || i !== shown || where() !== pillIn) {
+        pillSmall = false;
+        pillIn = how === 'away' ? where() : null;
+        pillFrom = scrollTop();
+      }
       // A step's control pressed counts until the step changes, or you're shown it again.
       if (i !== shown || how !== 'here') pressed = -1;
       // In a <dialog> that's open, the guide goes in it: nothing outside one is drawn over it.
@@ -504,7 +601,14 @@
         shownTarget = docked ? null : state.target;
         fill(step, i, how, shownDone);
       }
+      layer.classList.toggle('small', how === 'away' && pillSmall);
+      if (how === 'away' && step.reveal) go.textContent = pillSmall ? 'Next step →' : 'Show me';
+      // Shrunk, its words are gone: the button says them on hover and to a screen reader.
+      go.title = how === 'away' && pillSmall ? text.textContent.replace(/ →$/, '') : '';
+      if (go.title) go.setAttribute('aria-label', `${go.title}: show me`);
+      else go.removeAttribute('aria-label');
       if (docked) {
+        layer.classList.toggle('more', false);
         undescribe();
         room.style.height = `${bubble.offsetHeight + MARGIN * 2 + PIXEL * 2}px`;
         if (room.parentNode !== doc.body) doc.body.append(room);
@@ -522,7 +626,8 @@
           // beside or below what's lit there.
           const box = state.target.getBoundingClientRect();
           const laid = position();
-          if (box.top < 0 || box.top + box.height > win.innerHeight || (laid && laid.at.side === 'edge' && centred(laid).side !== 'edge')) {
+          const beside = (at) => ['right', 'left', 'below'].includes(at.side);
+          if (box.top < 0 || box.top + box.height > win.innerHeight || (laid && !beside(laid.at) && beside(centred(laid)))) {
             state.target.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
           }
           focusOn(state.target);
@@ -589,9 +694,18 @@
       Object.assign(shade.style, { left: `${left}px`, top: `${lit.top - PAD}px`, width: `${Math.max(0, right - left)}px`, height: `${lit.height + PAD * 2}px` });
       const around = { left: left - RING, top: lit.top - PAD - RING, width: Math.max(0, right - left) + RING * 2, height: lit.height + (PAD + RING) * 2 };
       const size = { width: bubble.offsetWidth + PIXEL * 2, height: bubble.offsetHeight + PIXEL * 2 };
+      const chip = { width: more.offsetWidth + PIXEL * 2, height: more.offsetHeight + PIXEL * 2 };
       const box = shownTarget.getBoundingClientRect(), keep = kept(step, litEl), text = lines(litEl, view);
       // Its control just pressed: out of the way at once, of what the press brings.
-      const at = place(box, view, size, ARROW_SIZE, around, keep, { text, aside: pressed === shown });
+      const at = place(box, view, size, ARROW_SIZE, around, keep, { text, aside: pressed === shown, chip });
+      // Off the window's edge: the chip toward it, in place of the bubble and the arrow.
+      const off = at.side === 'chip';
+      layer.classList.toggle('more', off);
+      if (off) {
+        more.textContent = at.point === 'up' ? '↑ Continue above' : '↓ Continue below';
+        Object.assign(more.style, { left: `${at.bubble.x}px`, top: `${at.bubble.y}px` });
+        return { at, box, around, keep, text, view, size };
+      }
       arrow.dataset.point = at.point;
       Object.assign(arrow.style, { left: `${at.arrow.x}px`, top: `${at.arrow.y}px` });
       Object.assign(bubble.style, { left: `${at.bubble.x}px`, top: `${at.bubble.y}px` });
@@ -604,6 +718,14 @@
       return place(moved(box), view, size, ARROW_SIZE, moved(around), keep.map(moved), { text: text.map(moved) });
     }
     const follow = () => { if (!frame) frame = win.requestAnimationFrame(position); };
+    /** Scrolled: the bubble follows; and on a phone the pill, in the way of what you read, shrinks to a chip. */
+    function scrolled() {
+      if (running && !layer.hidden && shownHow === 'away' && !pillSmall && narrow() && Math.abs(scrollTop() - pillFrom) > SHRINK) {
+        pillSmall = true;
+        tick();
+      }
+      follow();
+    }
 
     /**
      * A click on the step's control counts, when that's all it asks. Seen first, before the page acts on it.
@@ -643,6 +765,12 @@
       }
       finish('skipped');
     };
+    // The step's control off the window's edge: brought into sight, and the keyboard with it.
+    more.onclick = () => {
+      if (!running || shown < 0 || shownHow !== 'here' || !shownTarget) return;
+      shownTarget.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
+      focusOn(shownTarget);
+    };
     go.onclick = () => {
       if (shown < 0) return;
       const step = steps[shown];
@@ -658,7 +786,7 @@
 
     function listen(on) {
       const how = on ? 'addEventListener' : 'removeEventListener';
-      win[how]('scroll', follow, { capture: true, passive: true });
+      win[how]('scroll', scrolled, { capture: true, passive: true });
       win[how]('resize', follow);
       doc[how]('click', clicked, true);
       doc[how]('keydown', keyed);
@@ -701,6 +829,8 @@
       settle = false;
       pressed = -1;
       pillHiddenIn = null;
+      pillSmall = false;
+      pillIn = null;
       running = true;
       doc.body.append(layer);
       listen(true);
@@ -716,7 +846,7 @@
     };
   }
 
-  const api = { create, pick, place, ARROW, COLOURS, GRACE, PIXEL };
+  const api = { create, pick, place, ARROW, COLOURS, GRACE, PIXEL, NARROW };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.SmolcorpGuide = api;
 })(typeof window !== 'undefined' ? window : globalThis);
