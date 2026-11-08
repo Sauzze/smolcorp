@@ -1604,6 +1604,9 @@ final class DeckRouter: Router {
             "music": ["enabled": config.musicEnabled],
             "maxConfirm": ["enabled": config.maxConfirm],
             "manager": DeckRouter.managerState(enabled: config.managerEnabled, byHand: config.gmByHand, startedByHand: deck.access.gm.startedByHand),
+            // Whether a General Manager is hired, whatever the manager switch says: Start here looks no further
+            // then. Top level, as Linux/Windows has no manager object to put it in.
+            "gmHired": BriefRoutes.gmIsHired(among: deck.frontDesk.hires),
             "keystrokes": ["enabled": config.keystrokesAllowed, "accessibility": Permissions.hasAccessibility,
                            "apps": config.keystrokeApps, "running": Keystrokes.runningApps(except: config.keystrokeApps)] as [String: Any],
             "dock": ["enabled": config.showInDock],

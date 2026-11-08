@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -80,12 +81,25 @@ var claudeFoundAt = func() string {
 // the hire's environment, so a key or a cloud provider your shell's files set counts. A variable, for the tests.
 var claudeSignIn = func(program string) signIn {
 	command := signInCommand(program)
-	return signInFrom(quickRun(command[0], command[1:], hireEnvironment()).output)
+	return signInFrom(quickRun(command[0], command[1:], signInEnvironment()).output)
 }
 
-// signInCommand is `claude auth status --json` the way a hire's command is run (startHire, inLoginShell).
+// signInCommand is `claude auth status --json` the way a hire's command is run (startHire, inLoginShell), on
+// ~/.claude's account as the GM's hire is: its start script clears CLAUDE_CONFIG_DIR after your shell's files
+// have run, so this clears it there too (the Mac's GMPreflight.signInArguments). Windows has no login shell.
 func signInCommand(program string) []string {
-	return inLoginShell([]string{program, "auth", "status", "--json"})
+	if runtime.GOOS == "windows" {
+		return []string{program, "auth", "status", "--json"}
+	}
+	return inLoginShell([]string{"env", "-u", "CLAUDE_CONFIG_DIR", program, "auth", "status", "--json"})
+}
+
+// signInEnvironment is the hire's environment without CLAUDE_CONFIG_DIR, as the launcher drops it for the GM.
+func signInEnvironment() []string {
+	return slices.DeleteFunc(hireEnvironment(), func(variable string) bool {
+		name, _, _ := strings.Cut(variable, "=")
+		return strings.EqualFold(name, "CLAUDE_CONFIG_DIR")
+	})
 }
 
 // signInFrom reads `claude auth status --json`, after whatever your shell's files print as it starts.

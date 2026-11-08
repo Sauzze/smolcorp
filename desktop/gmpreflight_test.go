@@ -102,6 +102,9 @@ func TestTheGMPreflightSaysHowToInstallClaudeCode(t *testing.T) {
 }
 
 func TestTheGMPreflightGivesTheLineForALoginShellThatDoesntFindClaude(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hires on Windows use Windows' own PATH: there's no PATH line")
+	}
 	d, h, at, _ := preflightDeck(t)
 	*at = filepath.Join(homeDir, ".local", "bin", "claude")
 	h.missing = "your login shell doesn't find claude"
@@ -290,20 +293,58 @@ func TestTheGMHireTurnsHiringOnAndBackOffIfItFails(t *testing.T) {
 }
 
 // Asked as the hire starts Claude Code: the same command shape (your login shell where there's one) and the
-// same environment, keys and cloud providers kept, as the Mac asks it (GMPreflight.signInArguments).
+// same environment, keys and cloud providers kept, as the Mac asks it (GMPreflight.signInArguments). The GM
+// works on ~/.claude's account, so CLAUDE_CONFIG_DIR is cleared, from the app's environment and after your
+// shell's files, as the GM's start script and the launcher clear it.
 func TestTheSignInIsAskedAsTheHireStartsIt(t *testing.T) {
 	command := signInCommand("/x/bin/claude")
-	if !slices.Equal(command, inLoginShell([]string{"/x/bin/claude", "auth", "status", "--json"})) {
-		t.Errorf("sign-in command %q", command)
-	}
-	if runtime.GOOS != "windows" && (command[0] != loginShell() || command[1] != "-lic") {
-		t.Errorf("sign-in not through the login shell: %q", command)
+	if runtime.GOOS == "windows" {
+		if !slices.Equal(command, []string{"/x/bin/claude", "auth", "status", "--json"}) {
+			t.Errorf("sign-in command %q", command)
+		}
+	} else {
+		if !slices.Equal(command, inLoginShell([]string{"env", "-u", "CLAUDE_CONFIG_DIR", "/x/bin/claude", "auth", "status", "--json"})) {
+			t.Errorf("sign-in command %q", command)
+		}
+		if command[0] != loginShell() || command[1] != "-lic" {
+			t.Errorf("sign-in not through the login shell: %q", command)
+		}
 	}
 	t.Setenv("ANTHROPIC_API_KEY", "k-fake")
 	t.Setenv("SMOLCORP_SESSION", "s1")
-	env := hireEnvironment()
+	t.Setenv("CLAUDE_CONFIG_DIR", "/x/other-account")
+	env := signInEnvironment()
 	if !slices.Contains(env, "ANTHROPIC_API_KEY=k-fake") || slices.Contains(env, "SMOLCORP_SESSION=s1") {
 		t.Errorf("the hire's environment: key kept %v, session dropped %v", slices.Contains(env, "ANTHROPIC_API_KEY=k-fake"), !slices.Contains(env, "SMOLCORP_SESSION=s1"))
+	}
+	if slices.ContainsFunc(env, func(variable string) bool { return strings.HasPrefix(variable, "CLAUDE_CONFIG_DIR=") }) {
+		t.Error("CLAUDE_CONFIG_DIR kept: the GM's hire runs on ~/.claude's account")
+	}
+}
+
+// Whether a GM is hired is in the setup state with the manager off too, so Start here doesn't look again
+// every 10 s for an office that has one (the Mac's "gmHired").
+func TestTheSetupStateSaysWhetherAGMIsHired(t *testing.T) {
+	d := newTestDeck(t)
+	d.config.ManagerEnabled = false
+	hired := func() any { return (&router{deck: d}).setupStateFor(callerPage)["gmHired"] }
+	if got := hired(); got != false {
+		t.Errorf("no registry: gmHired %v", got)
+	}
+	registry := func(hires ...Hire) {
+		data, _ := json.Marshal(map[string]any{"version": 1, "hires": hires})
+		if err := os.WriteFile(registryPath(), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	registry(Hire{ID: "h1", Name: "General Manager", Folder: "/x/hires", Role: gmRole, State: "working"})
+	if got := hired(); got != true {
+		t.Errorf("a GM at work: gmHired %v", got)
+	}
+	registry(Hire{ID: "h1", Name: "General Manager", Folder: "/x/hires", Role: gmRole, State: "fired"},
+		Hire{ID: "h2", Name: "Janitor", Folder: "/x/hires", Role: "janitor", State: "working"})
+	if got := hired(); got != false {
+		t.Errorf("a fired GM: gmHired %v", got)
 	}
 }
 
@@ -345,6 +386,9 @@ func TestTheGMPreflightNamesTheFolderOfALinkNotWhereItLeads(t *testing.T) {
 
 // A folder with a quote, a $, a backquote or a space: the line still writes that folder, whole.
 func TestThePathLineQuotesAnOddFolder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hires on Windows use Windows' own PATH: there's no PATH line")
+	}
 	odd := filepath.Join(homeDir, "Bob's \"apps\"", "$bin`x`")
 	got := pathLine("/bin/zsh", odd)
 	want := `echo 'export PATH="$HOME/Bob'\''s \"apps\"/\$bin\` + "`x\\`" + `:$PATH"' >> ~/.zprofile`
@@ -353,9 +397,6 @@ func TestThePathLineQuotesAnOddFolder(t *testing.T) {
 	}
 	if fish := pathLine("/usr/bin/fish", filepath.Join(homeDir, "Bob's apps")); fish != `fish_add_path '`+filepath.Join(homeDir, `Bob\'s apps`)+`'` {
 		t.Errorf("fish: %s", fish)
-	}
-	if runtime.GOOS == "windows" {
-		return
 	}
 	// What the echo writes, read back by a shell as a profile would. Only sh, on a command made here: nothing is written.
 	sh := func(command string, env ...string) string {

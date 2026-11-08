@@ -1733,8 +1733,12 @@
     const m = state.manager;
     $('step-manager').hidden = !m;
     $('step-manager').closest('.group').hidden = !m;
-    // With the manager off (or no manager here), no GM is hired; with it on, the team below says.
-    if (!m || !m.enabled) gmKnown = true;
+    // With the manager off (or no manager here), the state says whether a GM is hired (the team is closed then);
+    // with it on, the team below says.
+    if (!m || !m.enabled) {
+      gmHired = !!state.gmHired;
+      gmKnown = true;
+    }
     if (!m) return;
     showStartGM(!!m.gmStartedByHand); // the flag alone for now; the team below knows if a hired GM is there
     mark('step-manager', m.enabled);
@@ -1745,8 +1749,15 @@
     $('manager-tools').hidden = true;
     if (!m.enabled) return;
     renderScreens();
+    // The team can't be read: the state says whether a GM is hired, and the flag whether one was started by hand.
+    const teamUnread = () => {
+      gmHired = !!state.gmHired;
+      gmKnown = true;
+      showStartGM(!!(state.manager && state.manager.gmStartedByHand));
+    };
     fetch('/setup/gm/team', { cache: 'no-store', headers: setupHeaders() }).then((res) => (res.ok ? res.json() : null)).then((team) => {
-      if (!team || !state.manager || !state.manager.enabled) return;
+      if (!state.manager || !state.manager.enabled) return;
+      if (!team) return teamUnread();
       const rows = (team.team || []).filter((r) => r.state !== 'fired' && r.state !== 'failed');
       const hired = rows.some((r) => r.role === 'gm' && r.registered);
       // A GM started by hand: the app names its session (a live row with the gm role and no hire), or, from
@@ -1759,7 +1770,7 @@
       gmKnown = true;
       showStartGM(byHand);
       renderManagerTools(team.team || []);
-    }).catch(() => { gmKnown = true; showStartGM(!!(state.manager && state.manager.gmStartedByHand)); });
+    }).catch(teamUnread);
   }
 
   /** Easy setup's hire button gives way to the by-hand line while a General Manager started by hand is there. */
@@ -6201,6 +6212,8 @@
     // The hire turns Hire and fire from the office on, as the GM hires its team: said once it's done.
     const hiringWasOff = !!state.hiring && !state.hiring.enabled;
     const before = (await seatedGms()) || [];
+    // When Hire was pressed: a GM hire started after it is this one, whenever the team can first be read.
+    const pressedAt = Date.now();
     startSaid('Hiring your General Manager: its terminal opens, and it asks you what the goal is.');
     const res = await fetch(`/setup/hire/gm${$('start-gm-account').hidden ? '' : `?account=${encodeURIComponent($('start-gm-account').value)}`}`, { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
     if (!res) {
@@ -6236,8 +6249,8 @@
       }
       if (i % 3 !== 2) continue;
       const failedNow = await failedGms();
-      // Couldn't read the team when the hire began: what's failed now is the old ones.
-      if (failedNow && !failed) failed = failedNow;
+      // Couldn't read the team when the hire began: the old ones are those started before Hire was pressed.
+      if (failedNow && !failed) failed = failedNow.filter((r) => !(r.started >= pressedAt));
       const gone = failedNow && failedNow.find((r) => !failed.some((f) => f.id === r.id));
       if (gone) {
         startSaid(`Your General Manager didn't start. ${gone.notes || ''} Put right what's marked ! above, then hire it again.`.replace(/\s+/g, ' '), true);
@@ -6255,24 +6268,29 @@
    * Only while the box is shown: never with a GM hired or started by hand, nor while a hire runs.
    */
   let gmPreflight = null, gmPreflightTimer = 0, gmPreflightBusy = false, gmPreflightAsked = false, gmPreflightOlder = false,
-    gmPreflightFailed = false, gmHired = false, gmKnown = false, gmHireRunning = false;
+    gmPreflightFailed = false, gmHired = false, gmKnown = false, gmHireRunning = false, gmPreflightRunning = null;
 
   /** Whether the lines are wanted: the hire button shown, no GM hired (once that's known), no hire running. */
   function gmPreflightWanted() {
     return gmKnown && !$('start-gm').hidden && !gmHired && !gmHireRunning;
   }
 
-  /** The look again in 10 s, while the lines are wanted and something is left; otherwise none. */
+  /** The look again in 10 s, while the lines are wanted and something is left, and the page is in view; otherwise none. */
   function armGmPreflight() {
     clearTimeout(gmPreflightTimer);
-    const again = gmPreflightAsked && !gmPreflightBusy && !gmPreflightOlder && (!gmPreflight || !gmPreflight.ready);
+    const again = gmPreflightAsked && !gmPreflightBusy && !gmPreflightOlder && (!gmPreflight || !gmPreflight.ready) && !document.hidden;
     gmPreflightTimer = again && gmPreflightWanted() ? setTimeout(() => checkGmPreflight(), 10000) : 0;
   }
 
-  /** `pressed`: the hire's own look, made while it runs. */
+  /** `pressed`: the hire's own look, made while it runs; one already under way is waited for, not skipped. */
   async function checkGmPreflight(pressed = false) {
     clearTimeout(gmPreflightTimer);
-    if (gmPreflightBusy || !(pressed ? gmKnown && !$('start-gm').hidden && !gmHired : gmPreflightWanted())) return;
+    if (gmPreflightBusy) return pressed ? gmPreflightRunning : undefined;
+    if (!(pressed ? gmKnown && !$('start-gm').hidden && !gmHired : gmPreflightWanted())) return;
+    gmPreflightRunning = lookGmPreflight(pressed);
+    return gmPreflightRunning;
+  }
+  async function lookGmPreflight(pressed) {
     gmPreflightBusy = gmPreflightAsked = true;
     // For the guide: no data-ok while checking, so its step never flickers.
     delete $('first-gm-checks').dataset.ok;
@@ -6363,8 +6381,12 @@
 
   $('first-gm-recheck').onclick = () => checkGmPreflight();
   $('start-gm-account').addEventListener('change', () => checkGmPreflight());
-  // Back from Terminal, a browser or System Settings: looked at again.
+  // Back from Terminal, a browser or System Settings: looked at again. The 10 s look waits while the page is hidden.
   window.addEventListener('focus', () => { if (gmPreflightAsked) checkGmPreflight(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) clearTimeout(gmPreflightTimer);
+    else if (gmPreflightAsked) checkGmPreflight();
+  });
   $('first-gm-office').onclick = () => $('start-office').click();
   $('first-gm-done').onclick = () => { $('first-gm-next').hidden = true; };
   $('first-gm-says').querySelectorAll('button').forEach((button) => {

@@ -116,6 +116,13 @@ final class GMPreflightTests: XCTestCase {
         XCTAssertEqual(claude.title, "Claude Code is in \(bin.path), where Terminal doesn't look for it.")
         XCTAssertEqual(claude.action?.command, "echo 'export PATH=\"\(bin.path):$PATH\"' >> ~/.zprofile")
         XCTAssertFalse(claude.title.contains("versions") || claude.action?.command?.contains("versions") == true)
+        // The preflight's own look finds it the same way: where it was found, never program(named:)'s resolved path.
+        let preflight = try source("Sources/AgentDeck/GMPreflight.swift")
+        let start = try XCTUnwrap(preflight.range(of: "static var look:"))
+        let end = try XCTUnwrap(preflight.range(of: "\n    }\n", range: start.upperBound..<preflight.endIndex))
+        let look = preflight[start.upperBound..<end.lowerBound]
+        XCTAssertTrue(look.contains(#"OpenCodeInstall.place(named: "claude")"#), String(look))
+        XCTAssertFalse(look.contains(#"program(named: "claude")"#), String(look))
     }
 
     /// A folder with a quote, a $, a backquote or a space: the line still writes that folder, whole.
@@ -309,6 +316,19 @@ final class GMPreflightTests: XCTestCase {
         XCTAssertTrue(text(unknown).hasPrefix("There's no Claude account called no-such-account-t782."), text(unknown))
     }
 
+    /// Whether a GM is hired is in the setup state with the manager off too (the team is closed then), so
+    /// Start here doesn't look again every 10 s for an office that has one. The registry's own answer.
+    func testTheSetupStateSaysWhetherAGMIsHired() throws {
+        let config = Config.shared
+        config.managerEnabled = false
+        let deck = quietDeck()
+        let answered = try answer(DeckRouter(deck: deck), try request(deck, "GET", "/setup/state"))
+        XCTAssertEqual(answered.status, 200, text(answered))
+        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: answered.body) as? [String: Any])
+        XCTAssertEqual(state["gmHired"] as? Bool, BriefRoutes.gmIsHired(among: deck.frontDesk.hires))
+        XCTAssertTrue(try source("Sources/AgentDeck/DeckRouter.swift").contains(#""gmHired": BriefRoutes.gmIsHired(among: deck.frontDesk.hires),"#))
+    }
+
     /// With no folder for your hires (or one that's gone), never your home folder: refused, the switches untouched.
     func testTheGMHireWithoutAFolderIsRefusedWithTheSwitchesUntouched() throws {
         let config = Config.shared
@@ -365,12 +385,32 @@ final class GMPreflightTests: XCTestCase {
         let page = try source("Resources/web/setup.html")
         XCTAssertTrue(page.contains("return gmKnown && !$('start-gm').hidden && !gmHired && !gmHireRunning;"))
         XCTAssertTrue(page.contains("gmPreflightTimer = again && gmPreflightWanted() ? setTimeout(() => checkGmPreflight(), 10000) : 0;"))
-        XCTAssertTrue(page.contains("if (gmPreflightBusy || !(pressed ? gmKnown && !$('start-gm').hidden && !gmHired : gmPreflightWanted())) return;"))
+        XCTAssertTrue(page.contains("if (!(pressed ? gmKnown && !$('start-gm').hidden && !gmHired : gmPreflightWanted())) return;"))
+        // Hire waits for a look already under way, rather than reading the old lines.
+        XCTAssertTrue(page.contains("if (gmPreflightBusy) return pressed ? gmPreflightRunning : undefined;"))
+        // No 10 s look while the page is hidden; back in view, it looks.
+        XCTAssertTrue(page.contains("(!gmPreflight || !gmPreflight.ready) && !document.hidden;"))
+        XCTAssertTrue(page.contains("if (document.hidden) clearTimeout(gmPreflightTimer);"))
         XCTAssertTrue(page.contains("if (gmHireRunning) return startSaid('Your General Manager is being hired. Give it a moment.');"))
         let hire = try XCTUnwrap(page.range(of: "async function hireGm() {"))
         let body = page[hire.upperBound...]
         let post = try XCTUnwrap(body.range(of: "method: 'POST'")), failed = try XCTUnwrap(body.range(of: "let failed = await failedGms();"))
         XCTAssertLessThan(post.lowerBound, failed.lowerBound, "the failed GMs are read after the hire's POST")
         XCTAssertNotNil(body.prefix(3000).range(of: "load();"), "the switches the hire turned on are shown")
+        // The team unread when the hire began: the old failures are the GMs started before Hire was pressed.
+        XCTAssertTrue(page.contains("if (failedNow && !failed) failed = failedNow.filter((r) => !(r.started >= pressedAt));"))
+    }
+
+    /// With the manager off, the state says whether a GM is hired, so an office that has one isn't looked at
+    /// every 10 s; a team that can't be read falls back to the same, and still lets the page look.
+    func testThePageReadsWhetherAGMIsHiredFromTheState() throws {
+        let page = try source("Resources/web/setup.html")
+        let manager = try XCTUnwrap(page.range(of: "function renderManager() {"))
+        let body = page[manager.upperBound...].prefix(3500)
+        XCTAssertNotNil(body.range(of: "if (!m || !m.enabled) {\n      gmHired = !!state.gmHired;\n      gmKnown = true;"))
+        XCTAssertNotNil(body.range(of: "if (!team) return teamUnread();"))
+        XCTAssertNotNil(body.range(of: "}).catch(teamUnread);"))
+        let unread = try XCTUnwrap(body.range(of: "const teamUnread = () => {"))
+        XCTAssertTrue(body[unread.upperBound...].prefix(200).contains("gmHired = !!state.gmHired;\n      gmKnown = true;"))
     }
 }

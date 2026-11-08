@@ -1554,6 +1554,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 	}
 	connected := allConnected()
 	openAtLogin := isOpenAtLogin()
+	gmHired := readRegistry(registryPath(), false).gmIsHired()
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -1611,6 +1612,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		// No accessibility step: nothing here needs that permission.
 		"checklist": map[string]any{"hooks": connected, "scroll": d.config.ScrollEnabled, "openAtLogin": openAtLogin},
 		"agents":    agentList,
+		// Whether a General Manager is hired, whatever the manager switch says: Start here looks no further then.
+		"gmHired": gmHired,
 		// Where hires open: the terminals here that can open them, and tmux if it's there.
 		"hiring": d.hireState(),
 		// The roles, those that come with the app to go back to, and what a
