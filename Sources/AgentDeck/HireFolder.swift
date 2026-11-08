@@ -22,8 +22,18 @@ enum HireFolder {
         var fix = Fix.none
     }
 
-    /// `given` checked as the folder for new hires. `~` is `home`.
-    static func check(_ given: String, home: URL = Paths.home) -> Check {
+    /// Where hires may not work, by a folder's first part from `/`: the system's own folders (and Linux's
+    /// and Windows' too, as hirefolder.go has them), wherever the folder isn't inside the home folder.
+    static let systemFolders: Set<String> = ["applications", "bin", "boot", "cores", "dev", "etc", "lib", "lib32", "lib64", "libx32",
+                                             "library", "private", "proc", "run", "sbin", "snap", "sys", "system", "tmp", "usr", "var",
+                                             "windows", "program files", "program files (x86)", "programdata"]
+    /// Where other disks show up: one of these, or a disk right inside it (`/Volumes/Work`), is a whole disk.
+    static let diskFolders: Set<String> = ["volumes", "mnt", "media"]
+
+    /// `given` checked as the folder for new hires. `~` is `home`. A folder already `saved` is checked
+    /// only for what hiring needs (there, a folder, writable), so a folder kept before these checks
+    /// stays as it was; a new one may also not be a whole disk, the home folder or a system or app folder.
+    static func check(_ given: String, saved: Bool = false, home: URL = Paths.home) -> Check {
         let trimmed = given.trimmingCharacters(in: .whitespacesAndNewlines)
         let example = "such as ~/Projects"
         guard !trimmed.isEmpty else { return Check(problem: "Type the folder's full path, \(example).", fix: .choose) }
@@ -36,15 +46,7 @@ enum HireFolder {
             check.fix = fix
             return check
         }
-        if folder == "/" { return problem("That's your Mac's whole disk. Choose a folder inside your home folder, \(example).") }
-        if folder == base {
-            return problem("That's your whole home folder. Choose a folder inside it, \(example), so hires keep to their projects.")
-        }
-        guard folder.hasPrefix(base + "/") else { return problem("Choose a folder inside your home folder, \(example).") }
-        let parts = folder.dropFirst(base.count + 1).split(separator: "/").map(String.init)
-        if ["Library", "AppData"].contains(parts.first ?? "") || parts.contains(where: { $0.hasPrefix(".") || $0.hasSuffix(".app") }) {
-            return problem("That folder holds your Mac's or your apps' own files. Choose a project folder, \(example).")
-        }
+        if !saved, let refusal = refusal(folder, home: base, example: example) { return problem(refusal) }
         let shown = shown(folder, home: base)
         var isFolder: ObjCBool = false
         guard FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder) else {
@@ -56,6 +58,25 @@ enum HireFolder {
             return problem("Smolcorp can't write in \(shown). Choose a folder of your own, \(example).")
         }
         return check
+    }
+
+    /// Why `folder` (worked out by `real`) can't be a new hires folder, if it can't. Names are
+    /// compared whatever their letter case, as the Mac's disk does.
+    private static func refusal(_ folder: String, home: String, example: String) -> String? {
+        if folder == home {
+            return "That's your whole home folder. Choose a folder inside it, \(example), so hires keep to their projects."
+        }
+        let inside = folder.hasPrefix(home + "/")
+        let parts = (inside ? folder.dropFirst(home.count + 1) : Substring(folder)).split(separator: "/").map { $0.lowercased() }
+        let first = parts.first ?? ""
+        if !inside, parts.isEmpty || diskFolders.contains(first) && parts.count <= (first == "media" ? 3 : 2) {
+            return "That's a whole disk. Choose a project folder, \(example)."
+        }
+        let system = inside ? ["library", "appdata"].contains(first) : systemFolders.contains(first)
+        if system || parts.contains(where: { $0.hasPrefix(".") || $0.hasSuffix(".app") }) {
+            return "That folder holds your Mac's or your apps' own files. Choose a project folder, \(example)."
+        }
+        return nil
     }
 
     /// The folder to suggest when none is set: the first likely one that's
@@ -82,7 +103,7 @@ enum HireFolder {
             if shown.fix == .create { (shown.problem, shown.fix) = ("", .none) }
             return json(shown, suggested: suggested, home: home)
         }
-        var shown = check(saved, home: home)
+        var shown = check(saved, saved: true, home: home)
         shown.folder = saved
         return json(shown, suggested: "", home: home)
     }
@@ -109,9 +130,35 @@ enum HireFolder {
         return found.problem.isEmpty ? .success(found.folder) : .failure(found)
     }
 
-    /// `path` with `..` and symlinks worked out, as the hire sheet's own check does.
+    /// `/setup/hire-folder` as DeckRouter answers it: GET is `state`; POST keeps `folder=` in `config`
+    /// once checked, then `saved()` saves it and refreshes. A refusal answers 400 with the same JSON,
+    /// to show with its fix, and the folder set stays as it was.
+    static func route(_ request: Request, config: Config, home: URL = Paths.home, saved: () -> Void) -> Response {
+        guard request.method == "POST" else {
+            return .json(state(saved: config.hireFolder, asked: request.query["check"], home: home))
+        }
+        switch keep(request.query["folder"] ?? "", create: request.query["create"] == "1", home: home) {
+        case .failure(let found):
+            return .json(json(found, suggested: "", home: home), status: 400)
+        case .success(let folder):
+            config.hireFolder = folder
+            saved()
+            return .json(state(saved: folder, home: home))
+        }
+    }
+
+    /// `path` with `..` worked out, and the symlinks of its deepest part that's there resolved (with the
+    /// letter case the disk has), the rest put back as given: as hirefolder.go's realPath. So a folder
+    /// not made yet is checked where it would really be made.
     private static func real(_ path: String) -> String {
-        let resolved = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+        var there = URL(fileURLWithPath: path).standardizedFileURL.path
+        var rest: [String] = []
+        while there != "/", !FileManager.default.fileExists(atPath: there) {
+            rest.insert((there as NSString).lastPathComponent, at: 0)
+            there = (there as NSString).deletingLastPathComponent
+        }
+        var resolved = URL(fileURLWithPath: there).resolvingSymlinksInPath().path
+        for part in rest { resolved = (resolved as NSString).appendingPathComponent(part) }
         return resolved.count > 1 && resolved.hasSuffix("/") ? String(resolved.dropLast()) : resolved
     }
 

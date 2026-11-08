@@ -6249,21 +6249,20 @@
     document.dispatchEvent(new CustomEvent('smolcorp:hire-folder', { detail: { folder: answer.folder } }));
   }
 
-  /** Choose another…: the Mac's own folder picker, or else a path, checked as it's typed. */
+  /**
+   * Choose another…: the Mac's own folder picker, or else a path, checked as it's typed. The picker
+   * only answers the folder picked (pick=1); it's kept through the same checks as a typed one.
+   */
   async function chooseFirstFolder() {
     firstFolderIssue = null;
     if (onMac() && state.hiring && state.hiring.canChoose) {
-      const before = firstFolder && firstFolder.folder;
-      const res = await fetch('/setup/hiring/choose', { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
-      if (res && res.ok) {
-        state = await res.json().catch(() => state);
-        render();
+      const res = await fetch('/setup/hiring/choose?pick=1', { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
+      const answer = res && res.ok ? await res.json().catch(() => null) : null;
+      if (answer) {
+        if (answer.picked) return keepFirstFolder(answer.picked, false);
+        // Nothing picked: as it was.
         firstFolderChanging = false;
-        await loadFirstFolder();
-        if (firstFolder && firstFolder.folder && firstFolder.folder !== before && !firstFolder.problem) {
-          document.dispatchEvent(new CustomEvent('smolcorp:hire-folder', { detail: { folder: firstFolder.folder } }));
-        }
-        return;
+        return renderFirstFolder();
       }
     }
     firstFolderTyping = true;

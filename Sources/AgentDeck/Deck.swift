@@ -1957,12 +1957,14 @@ final class Deck {
 
     /// Asks for the new hires' folder with the Mac's own panel, from the setup
     /// page. Asked again while it's open, it brings that panel forward rather
-    /// than opening another, and answers at once.
-    func chooseHireFolder(then done: @escaping () -> Void) {
+    /// than opening another, and answers at once. `done` gets the folder picked,
+    /// kept as the hires folder unless `keep` is false (Start here keeps it
+    /// itself, through its checks).
+    func chooseHireFolder(keep: Bool = true, then done: @escaping (String?) -> Void) {
         if let open = hirePanel {
             NSApp.activate(ignoringOtherApps: true)
             open.makeKeyAndOrderFront(nil)
-            return done()
+            return done(nil)
         }
         let panel = NSOpenPanel()
         hirePanel = panel
@@ -1975,12 +1977,13 @@ final class Deck {
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in
             self.hirePanel = nil
-            if response == .OK, let url = panel.url {
-                Config.shared.hireFolder = url.path
+            let picked = response == .OK ? panel.url?.path : nil
+            if keep, let picked {
+                Config.shared.hireFolder = picked
                 Config.shared.save()
                 self.refresh()
             }
-            done()
+            done(picked)
         }
     }
 

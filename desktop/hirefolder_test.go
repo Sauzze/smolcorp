@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -79,6 +80,12 @@ func TestALikelyFolderThatFailsAChecksIsPassedOver(t *testing.T) {
 	}
 }
 
+// hireFolderCase is a folder given, and what its check should say.
+type hireFolderCase struct {
+	given, problem, fix string
+	exists              bool
+}
+
 func TestEveryHireFolderCheckSaysWhatsWrongWithItsFix(t *testing.T) {
 	home, _ := hireFolderHome(t)
 	mkdirs(t, home, "Projects/app", "Library/Work", ".config/x", "AppData/Roaming", "Applications/Smolcorp.app/Contents", "Locked")
@@ -86,27 +93,23 @@ func TestEveryHireFolderCheckSaysWhatsWrongWithItsFix(t *testing.T) {
 		t.Fatal(err)
 	}
 	sep := string(filepath.Separator)
-	system := "That folder holds your computer's or your apps' own files. Choose a project folder, such as ~/Projects."
-	outside := "Choose a folder inside your home folder, such as ~/Projects."
-	wholeHome := "That's your whole home folder. Choose a folder inside it, such as ~/Projects, so hires keep to their projects."
-	root := string(filepath.Separator)
+	example := "such as ~" + sep + "Projects" // ~\Projects on Windows
+	system := "That folder holds your computer's or your apps' own files. Choose a project folder, " + example + "."
+	wholeDisk := "That's a whole disk. Choose a project folder, " + example + "."
+	wholeHome := "That's your whole home folder. Choose a folder inside it, " + example + ", so hires keep to their projects."
+	root := sep
 	if runtime.GOOS == "windows" {
 		root = filepath.VolumeName(home) + sep
 	}
-	elsewhere := filepath.Dir(home) // a sibling's parent: outside home
-	cases := []struct {
-		given, problem, fix string
-		exists              bool
-	}{
-		{"", "Type the folder's full path, such as ~/Projects.", "choose", false},
-		{"Projects", "Give the folder's full path, such as ~/Projects.", "choose", false},
-		{root, "That's your computer's whole disk. Choose a folder inside your home folder, such as ~/Projects.", "choose", false},
+	cases := []hireFolderCase{
+		{"", "Type the folder's full path, " + example + ".", "choose", false},
+		{"Projects", "Give the folder's full path, " + example + ".", "choose", false},
+		{root, wholeDisk, "choose", false},
 		{home, wholeHome, "choose", false},
 		{home + sep, wholeHome, "choose", false},
 		{"~", wholeHome, "choose", false},
-		{elsewhere, outside, "choose", false},
-		{filepath.Join(home, "Projects", "..", ".."), outside, "choose", false},
 		{filepath.Join(home, "Library", "Work"), system, "choose", false},
+		{filepath.Join(home, "LIBRARY", "New"), system, "choose", false},
 		{filepath.Join(home, ".config", "x"), system, "choose", false},
 		{filepath.Join(home, "AppData", "Roaming"), system, "choose", false},
 		{filepath.Join(home, "Applications", "Smolcorp.app", "Contents"), system, "choose", false},
@@ -117,26 +120,71 @@ func TestEveryHireFolderCheckSaysWhatsWrongWithItsFix(t *testing.T) {
 		{"~/Projects/app", "", "", true},
 		{filepath.Join(home, "Projects", "..", "Projects", "app"), "", "", true},
 	}
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS == "windows" {
+		cases = append(cases,
+			hireFolderCase{`C:\Windows\Temp\x`, system, "choose", false},
+			hireFolderCase{`C:\Program Files\x`, system, "choose", false},
+		)
+	} else {
+		// Another disk is fine, but not the whole disk; nor the system's own folders, by a symlink either.
 		if err := os.Symlink("/usr", filepath.Join(home, "out")); err != nil {
 			t.Fatal(err)
 		}
-		cases = append(cases, struct {
-			given, problem, fix string
-			exists              bool
-		}{filepath.Join(home, "out"), outside, "choose", false})
+		disk := "smolcorp-no-such-disk"
+		cases = append(cases,
+			hireFolderCase{"/Volumes/" + disk, wholeDisk, "choose", false},
+			hireFolderCase{"/mnt/" + disk, wholeDisk, "choose", false},
+			hireFolderCase{"/media/me/" + disk, wholeDisk, "choose", false},
+			hireFolderCase{"/Volumes/" + disk + "/code", "There's no folder at /Volumes/" + disk + "/code yet.", "create", false},
+			hireFolderCase{"/mnt/" + disk + "/code", "There's no folder at /mnt/" + disk + "/code yet.", "create", false},
+			hireFolderCase{"/usr/local/new", system, "choose", false},
+			hireFolderCase{"/etc", system, "choose", false},
+			hireFolderCase{filepath.Join(home, "out"), system, "choose", false},
+		)
 	}
 	if lockFolder(t, filepath.Join(home, "Locked")) {
-		cases = append(cases, struct {
-			given, problem, fix string
-			exists              bool
-		}{filepath.Join(home, "Locked"), "Smolcorp can't write in ~" + sep + "Locked. Choose a folder of your own, such as ~/Projects.", "choose", true})
+		cases = append(cases, hireFolderCase{filepath.Join(home, "Locked"), "Smolcorp can't write in ~" + sep + "Locked. Choose a folder of your own, " + example + ".", "choose", true})
 	}
 	for _, c := range cases {
-		got := checkHireFolder(c.given, home)
+		got := checkHireFolder(c.given, home, choosingHireFolder)
 		if got.problem != c.problem || got.fix != c.fix || got.exists != c.exists {
 			t.Errorf("%q: %+v, want problem %q fix %q exists %v", c.given, got, c.problem, c.fix, c.exists)
 		}
+	}
+}
+
+// A folder on another drive is fine for a new one: D:\code on Windows.
+func TestAHireFolderOnAnotherDriveIsFine(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("drive letters are Windows'")
+	}
+	home, _ := hireFolderHome(t)
+	other := "D:"
+	if strings.EqualFold(filepath.VolumeName(home), other) {
+		other = "E:"
+	}
+	got := checkHireFolder(other+`\code`, home, choosingHireFolder)
+	if got.fix == "choose" {
+		t.Errorf("%s\\code refused: %+v", other, got)
+	}
+}
+
+// A folder set before these checks is judged only by what hiring needs, so an older config stays as it was.
+func TestASavedHireFolderOutsideHomeHasNoProblem(t *testing.T) {
+	home, _ := hireFolderHome(t)
+	elsewhere := t.TempDir() // outside home, and on a Mac under /private, where a new folder may not be
+	for _, saved := range []string{elsewhere, home} {
+		state := hireFolderState(saved, nil, home)
+		if state["problem"] != "" || state["fix"] != "" || state["exists"] != true || state["folder"] != saved {
+			t.Errorf("saved %q: %v", saved, state)
+		}
+	}
+	if got := checkHireFolder(elsewhere, home, savedHireFolder); got.problem != "" {
+		t.Errorf("saved %q: %+v", elsewhere, got)
+	}
+	// Gone since: still said, with Create it.
+	if state := hireFolderState(filepath.Join(elsewhere, "Gone"), nil, home); state["fix"] != "create" || state["exists"] != false {
+		t.Errorf("gone: %v", state)
 	}
 }
 
@@ -155,15 +203,27 @@ func TestKeepingTheHireFolderMakesItOnlyWhenAskedAndOnlyWhereItMay(t *testing.T)
 	if info, err := os.Stat(missing); err != nil || !info.IsDir() {
 		t.Fatal("not made once accepted")
 	}
-	for _, place := range []string{string(filepath.Separator), home, filepath.Join(home, "Library", "New"), filepath.Join(home, ".new")} {
+	mkdirs(t, home, "Library")
+	never := []string{filepath.Join(home, "Library", "New"), filepath.Join(home, ".new"), filepath.Join(home, "LIBRARY", "Made")}
+	if runtime.GOOS != "windows" {
+		// A symlink in home to its Library: the folder would really be made in the Library.
+		if err := os.Symlink(filepath.Join(home, "Library"), filepath.Join(home, "lib")); err != nil {
+			t.Fatal(err)
+		}
+		never = append(never, filepath.Join(home, "lib", "New"))
+	}
+	for _, place := range append([]string{string(filepath.Separator), home}, never...) {
 		if _, refused := keepHireFolder(place, true, home); refused == nil || refused.fix != "choose" {
 			t.Errorf("%q: %+v", place, refused)
 		}
 	}
-	for _, never := range []string{filepath.Join(home, "Library", "New"), filepath.Join(home, ".new")} {
-		if _, err := os.Stat(never); err == nil {
-			t.Errorf("made %q", never)
+	for _, folder := range append(never, filepath.Join(home, "Library", "Made")) {
+		if _, err := os.Stat(folder); err == nil {
+			t.Errorf("made %q", folder)
 		}
+	}
+	if entries, _ := os.ReadDir(filepath.Join(home, "Library")); len(entries) != 0 {
+		t.Errorf("made in the Library: %v", entries)
 	}
 }
 
@@ -235,5 +295,30 @@ func TestSetupKeepsTheHireFolderFromStartHere(t *testing.T) {
 	}
 	if code, answer = ask("GET", ""); answer["folder"] != kept || answer["suggested"] != "" || answer["exists"] != true {
 		t.Errorf("once set: %d %v", code, answer)
+	}
+}
+
+// A hire from the setup page, any role, with no folder for your hires (or one that's gone) is refused
+// as the GM route refuses it, never started in the home folder; nothing opens and the cooldown is kept.
+func TestASetupHireWithNoHiresFolderIsRefusedNotStartedAtHome(t *testing.T) {
+	for _, folder := range []string{"", filepath.Join(t.TempDir(), "gone")} {
+		for _, role := range []string{"", "reviewer", "gm"} {
+			d, h, _ := hiringDeck(t, "")
+			hooksOn(t)
+			d.config.HireFolder = folder
+			status, message := d.hireFromSetup(role)
+			if status != http.StatusConflict || message != "Choose the folder for your hires first: it's the first step of Start here." {
+				t.Errorf("folder %q, role %q: %d %q", folder, role, status, message)
+			}
+			if len(h.windows) != 0 || !d.lastHire.IsZero() {
+				t.Errorf("folder %q, role %q: the refused hire opened %q or spent the cooldown", folder, role, h.windows)
+			}
+		}
+	}
+	// With the folder set, the same hire goes ahead there.
+	d, h, folder := hiringDeck(t, "")
+	hooksOn(t)
+	if status, message := d.hireFromSetup(""); status != http.StatusNoContent || len(h.windows) != 1 {
+		t.Fatalf("hire into %s: %d %q, windows %q", folder, status, message, h.windows)
 	}
 }
