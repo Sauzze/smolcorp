@@ -216,7 +216,8 @@ func TestATestCopySaysItsGMNeedsAnAccountBeforeHire(t *testing.T) {
 	onPort(t, portFromEnvironment("")+1)
 	report := d.gmPreflight()
 	line := preflightLine(t, report, "account")
-	if line.OK || line.Optional || line.Title != gmNeedsAccount || !strings.Contains(line.Fix, "real Smolcorp") || report.Ready {
+	// Red (!), not To do as on the Mac: there's no step to take here (R790).
+	if line.OK || line.Optional || line.Todo || line.Action != nil || line.Title != gmNeedsAccount || !strings.Contains(line.Fix, "real Smolcorp") || report.Ready {
 		t.Errorf("a test copy's account line: %+v (ready %v)", line, report.Ready)
 	}
 	if !strings.Contains(gmNeedsAccount, "Claude account of its own") {

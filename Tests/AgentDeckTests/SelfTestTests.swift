@@ -59,7 +59,11 @@ final class SelfTestTests: XCTestCase {
         let all = SelfTest.hooksCheck(found: ["Claude Code", "Codex"], connected: ["Claude Code", "Codex"], scriptThere: true, testCopy: false)
         XCTAssertEqual(all.status, .ok)
         XCTAssertTrue(all.detail.hasPrefix("Claude Code, Codex:"))
-        XCTAssertEqual(SelfTest.hooksCheck(found: [], connected: [], scriptThere: false, testCopy: true).status, .info)
+        // A test copy's hires report through its own hook: ticked, as its GM preflight's line is (FX7).
+        let copy = SelfTest.hooksCheck(found: [], connected: [], scriptThere: false, testCopy: true)
+        XCTAssertEqual(copy.status, .ok)
+        XCTAssertTrue(copy.detail.hasPrefix(SelfTest.testCopyHires))
+        XCTAssertNil(copy.fix)
     }
 
     /// A step still to take, as pairing a phone or allowing the keys, isn't in the way; a fix is.

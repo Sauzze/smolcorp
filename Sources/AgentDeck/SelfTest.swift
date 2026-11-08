@@ -101,14 +101,18 @@ enum SelfTest {
         getxattr(path, "com.apple.quarantine", nil, 0, 0, XATTR_NOFOLLOW) >= 0
     }
 
+    /// How a test copy hears from its hires: through its own hook, whatever your agents' settings hold. Said by this
+    /// check and by the GM preflight's hooks line (GMPreflight.items), both ticked, so Start here, its hire's lines and
+    /// General never disagree on it.
+    static let testCopyHires = "Your hires report to this test copy through its own hook."
+
     /// Whether every agent found is hooked up. Their hooks run report.sh in
     /// Smolcorp's own folder, never the app where it happens to be, so it's
-    /// enough that it's there.
+    /// enough that it's there. A test copy's hires report through its own hook: ticked.
     static func hooksCheck(found: [String], connected: [String], scriptThere: Bool, testCopy: Bool = TestCopy.isOn) -> Check {
         var check = Check(id: "hooks", status: .ok, title: "Your agents report to Smolcorp", detail: "")
         if testCopy {
-            check.status = .info
-            check.detail = "A test copy is told only of sessions started with its own hook (see scripts/test-copy.sh)."
+            check.detail = testCopyHires + " Sessions you start yourself report to the Smolcorp you use."
             return check
         }
         guard !found.isEmpty else {

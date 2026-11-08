@@ -61,7 +61,7 @@ final class SetupConsistencyPageTests: XCTestCase {
                     "pathLine($('first-folder-path'), tildePath(f.folder || f.suggested, f.home), f.folder || f.suggested);",
                     "pathLine($('gm-token-file'), m.gmTokenFileShown || file, file);",
                     "pathLine(Object.assign(document.createElement('span'), { className: 'dir' }), p.dir);",
-                    "pathLine(Object.assign(document.createElement('span'), { className: 'dir' }), f.dir), add);"] {
+                    "pathLine(Object.assign(document.createElement('span'), { className: 'dir' }), f.dir));"] {
             XCTAssertTrue(page.contains(use), use)
         }
         // None of them wraps anywhere any more, nor shows only its start.

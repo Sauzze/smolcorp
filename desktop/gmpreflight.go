@@ -234,6 +234,7 @@ func (d *Deck) gmPreflight() preflightReport {
 	}
 	// A test copy never hires Claude Code on this computer (testCopyRefusal): said before Hire, not after. The Mac's
 	// test copy can hire on a second account (GMPreflight.accountItems); this one can't yet, so it's a line with no fix here.
+	// Not Todo, unlike the Mac's: there's no step to take here, so it stays red (!).
 	if testCopyPort() != 0 {
 		add(preflightItem{ID: "account", Title: gmNeedsAccount, Fix: "A test copy on this computer can't use one yet: hire your General Manager from the real Smolcorp."})
 	}
