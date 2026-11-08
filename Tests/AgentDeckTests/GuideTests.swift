@@ -177,4 +177,20 @@ final class GuideTests: XCTestCase {
             XCTAssertTrue(setup.contains(id), "a step on \(id)")
         }
     }
+
+    /// The bubble keeps off the page's title and Start here's header, and has no count of its own beside
+    /// Start here's; off Easy setup it's a pill, and Skip says Show me around again brings it back.
+    func testTheGuidesBubbleKeepsOffTheTitleAndCountsNothing() throws {
+        let setup = try source("Resources/web/setup.html")
+        let from = try XCTUnwrap(setup.range(of: "SmolcorpGuide.create({"))
+        let to = try XCTUnwrap(setup.range(of: "onFinish:", range: from.upperBound..<setup.endIndex))
+        let guide = setup[from.upperBound..<to.lowerBound]
+        XCTAssertTrue(guide.contains("keep: '.pane.current > .pane-head, #easy-attention, #start-here > .card-head'"))
+        XCTAssertTrue(guide.contains("awayText: 'Next step in Easy setup'"))
+        XCTAssertTrue(guide.contains("skipSays: 'Skip: Show me around again brings it back'"))
+        XCTAssertFalse(guide.contains("total:"), "no count of its own")
+        let script = try source("Resources/web/guide.js")
+        XCTAssertFalse(script.contains("Step ${"), "the bubble says no step number")
+        XCTAssertTrue(script.contains(".smol-guide.pill .smol-guide-bubble"))
+    }
 }

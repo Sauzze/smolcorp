@@ -65,15 +65,15 @@
     }, 4000);
   };
   const guide = SmolcorpGuide.create({
-    total: 4,
+    keep: 'h1',
     steps: [
-      { id: 'folder', n: 1, target: '#first-folder-use', area: '#first-folder', doneTarget: '#first-folder', say: 'Pick where your hires work', press: 'Use this folder',
+      { id: 'folder', target: '#first-folder-use', area: '#first-folder', doneTarget: '#first-folder', say: 'Pick where your hires work', press: 'Use this folder',
         doneSay: 'Your hires work in this folder. You can change it here.', done: () => !!folder || hired },
-      { id: 'checks', n: 2, target: '#first-gm-checks', say: 'Make these checks green: each one says what to do', doneSay: 'These checks are green.',
+      { id: 'checks', target: '#first-gm-checks', say: 'Make these checks green: each one says what to do', doneSay: 'These checks are green.',
         done: () => ($('first-gm-checks') ? $('first-gm-checks').dataset.ok === 'true' : true) || hired },
-      { id: 'hire', n: 3, target: '#start-gm', doneTarget: '#start-office', say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Your General Manager is hired.',
+      { id: 'hire', target: '#start-gm', doneTarget: '#start-office', say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Your General Manager is hired.',
         done: () => hired || hiring },
-      { id: 'desk', n: 4, target: '#first-gm-next', ackOnClick: true, button: 'Done', say: 'Your General Manager is at its desk. Say hello', press: 'Open the office',
+      { id: 'desk', target: '#first-gm-next', ackOnClick: true, button: 'Done', say: 'Your General Manager is at its desk. Say hello', press: 'Open the office',
         patience: () => (hiring && !hired ? 300000 : 0),
         wait: () => (hiring && !hired ? 'Your General Manager is starting: if its terminal asks to trust the folder, answer Yes.' : ''),
         lost: 'Open the office to see your General Manager.' },

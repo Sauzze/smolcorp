@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -146,6 +147,31 @@ func TestSetupHasTheGuidesStepsOnTheContractsIds(t *testing.T) {
 	}
 }
 
+// The bubble keeps off the page's title and Start here's header, and off what the checks and hire steps talk
+// about; it has no count of its own (Start here's "N steps left" is the one); off Easy setup it's a pill
+// whose Skip says it can be undone.
+func TestTheGuidesBubbleKeepsOffWhatItTalksAbout(t *testing.T) {
+	data, err := os.ReadFile("../Resources/web/setup.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup := string(data)
+	guide := setup[strings.Index(setup, "SmolcorpGuide.create({"):strings.Index(setup, "onFinish:")]
+	for _, want := range []string{
+		`keep: '.pane.current > .pane-head, #easy-attention, #start-here > .card-head'`,
+		`keep: '#start-checks, #start-gm-account, #start-gm, #first-gm-recheck, #first-gm-why'`,
+		`keep: '#first-gm-checks, #start-checks, #start-gm-account, #first-gm-recheck, #first-gm-why'`,
+		`awayText: 'Next step in Easy setup'`, `skipSays: 'Skip: Show me around again brings it back'`,
+	} {
+		if !strings.Contains(guide, want) {
+			t.Errorf("the guide has no %s", want)
+		}
+	}
+	if strings.Contains(guide, "total:") || regexp.MustCompile(`\bn: \d`).MatchString(guide) {
+		t.Error("the guide still counts its steps beside Start here's own count")
+	}
+}
+
 // gmHiring, the hire under way the guide's hire step goes by: set once Hire your General Manager has
 // sent the hire, and cleared by hireEnded on every way out but a GM seated, so the arrow comes back.
 func TestTheGuidesHireStepFollowsTheHireNotTheClick(t *testing.T) {
@@ -268,23 +294,41 @@ assert(r.index === 2 && r.lost && !r.waiting, 'past its patience: lost');
 const arrow = { width: 33, height: 33 };
 const inside = (p, bubble, view) => p.bubble.x >= 0 && p.bubble.y >= 0 && p.bubble.x + bubble.width <= view.width && p.bubble.y + bubble.height <= view.height
   && p.arrow.x >= 0 && p.arrow.y >= 0 && p.arrow.x + arrow.width <= view.width && p.arrow.y + arrow.height <= view.height;
+const on = (p, bubble, b) => p.bubble.x < b.left + b.width && p.bubble.x + bubble.width > b.left && p.bubble.y < b.top + b.height && p.bubble.y + bubble.height > b.top;
 for (const view of [{ width: 1100, height: 780 }, { width: 390, height: 844 }]) {
   const bubble = { width: Math.min(326, view.width - 24), height: 90 };
-  // Room above: above it, pointing down, the arrow's tip at its top and centred on it.
-  let box = { left: 40, top: 400, width: 120, height: 28 };
+  // A small control with room beside it (not on a phone): the bubble to its right, the arrow's tip on it,
+  // pointing left. On a phone, below it.
+  let box = { left: 40, top: 400, width: 20, height: 28 };
   let p = g.place(box, view, bubble, arrow);
-  assert(p.down && p.arrow.y + arrow.height <= box.top && p.arrow.y + arrow.height >= box.top - 8, view.width + ': above a control with room');
-  assert(Math.abs(p.arrow.x + arrow.width / 2 - (box.left + box.width / 2)) <= 1, view.width + ': the arrow is centred on it');
-  assert(p.bubble.y + bubble.height === p.arrow.y && inside(p, bubble, view), view.width + ': the bubble on the arrow, inside the window');
-  // At the top of the window: below it, pointing up.
-  box = { left: view.width - 60, top: 20, width: 50, height: 24 };
-  p = g.place(box, view, bubble, arrow);
-  assert(!p.down && p.arrow.y >= box.top + box.height && inside(p, bubble, view), view.width + ': below a control at the top, at the right edge');
+  if (view.width > 500) {
+    assert(p.side === 'right' && p.point === 'left' && p.arrow.x === box.left + box.width + 4, view.width + ': beside a small control');
+    assert(Math.abs(p.arrow.y + arrow.height / 2 - (box.top + box.height / 2)) <= 1, view.width + ': the arrow level with it');
+    assert(p.bubble.x === p.arrow.x + arrow.width, view.width + ': the bubble on the arrow');
+  } else {
+    assert(p.side === 'below' && p.point === 'up' && p.arrow.y === box.top + box.height + 4, view.width + ': no room beside: below');
+  }
+  assert(inside(p, bubble, view) && !on(p, bubble, box), view.width + ': the bubble off the control, inside the window');
+  // A block as wide as the window: below it, the arrow's tip on the control's foot, pointing up.
+  const lit = { left: 12, top: 200, width: view.width - 24, height: 150 };
+  box = { left: 40, top: 300, width: 120, height: 28 };
+  p = g.place(box, view, bubble, arrow, lit);
+  assert(p.side === 'below' && p.point === 'up' && p.arrow.y === box.top + box.height + 4, view.width + ': below a wide block');
+  assert(Math.abs(p.arrow.x + arrow.width / 2 - (box.left + box.width / 2)) <= 1 && !on(p, bubble, lit) && inside(p, bubble, view), view.width + ': centred on the control, off the block');
+  // Something to keep in sight just under the block, beside the arrow: the bubble moves down past it.
+  const kept = { left: 200, top: 360, width: 160, height: 30 };
+  p = g.place(box, view, bubble, arrow, lit, [kept]);
+  assert(p.side === 'below' && !on(p, bubble, kept) && !on(p, bubble, lit), view.width + ': off what is kept');
+  // No room beside or below: a corner of the window, never on the block, the arrow still on the control.
+  const low = { left: 12, top: view.height - 200, width: view.width - 24, height: 180 };
+  box = { left: 40, top: view.height - 120, width: 120, height: 28 };
+  p = g.place(box, view, bubble, arrow, low);
+  assert(p.side === 'edge' && !on(p, bubble, low) && inside(p, bubble, view), view.width + ': no room: a corner off the block');
   // Out of sight, below or above: the arrow at the window's edge, pointing that way.
   p = g.place({ left: 100, top: 3000, width: 100, height: 30 }, view, bubble, arrow);
   assert(p.down && inside(p, bubble, view), view.width + ': a control below the window');
   p = g.place({ left: 100, top: -900, width: 100, height: 30 }, view, bubble, arrow);
-  assert(!p.down && inside(p, bubble, view), view.width + ': a control above the window');
+  assert(!p.down && p.point === 'up' && inside(p, bubble, view), view.width + ': a control above the window');
 }
 
 // The arrow: a square grid of three colours, as the office's pixel UI.

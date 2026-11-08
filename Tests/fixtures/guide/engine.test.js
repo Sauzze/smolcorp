@@ -3,8 +3,9 @@
  * just enough of the DOM for the guide (elements with a box, a few selectors, clicks and keys, timers that
  * only run when told). It checks what a click counts for, Esc and Skip, a dialog over the page, the
  * keyboard moved only when the step changes, a tour of steps already done, the last step waiting while the
- * GM starts and docked when its control never comes, and stop() leaving no timer or listener behind. Then setup.html's welcome, which
- * waits for the guide on a first run.
+ * GM starts and docked when its control never comes, and stop() leaving no timer or listener behind. Where
+ * the bubble and the arrow go, on the fresh-eyes shots' Start here (1100×780 and 390×844), and the pill off
+ * Easy setup. Then setup.html's welcome, which waits for the guide on a first run.
  *
  * Run by desktop/guide_test.go: node engine.test.js <guide.js> <setup.html>. It throws on the first failure.
  */
@@ -163,15 +164,15 @@ function startHere() {
   p.add('button', 'office', [60, 560, 120, 28], desk);
   const said = [];
   const steps = [
-    { id: 'folder', n: 1, target: '#use', doneTarget: '#checks', say: 'Pick where your hires work', press: 'Use this folder', doneSay: 'Folder set', done: () => s.folder },
-    { id: 'checks', n: 2, target: '#checks', say: 'Make these checks green', doneSay: 'Green', done: () => s.green },
-    { id: 'hire', n: 3, target: '#hire', say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Hired', done: () => s.gm || s.hiring || s.sheetOpen },
-    { id: 'sheet', n: 3, target: '#sheet-hire', optional: true, say: 'Filled in', press: 'Hire', done: () => s.gm || s.hiring },
+    { id: 'folder', target: '#use', doneTarget: '#checks', say: 'Pick where your hires work', press: 'Use this folder', doneSay: 'Folder set', done: () => s.folder },
+    { id: 'checks', target: '#checks', say: 'Make these checks green', doneSay: 'Green', done: () => s.green },
+    { id: 'hire', target: '#hire', say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Hired', done: () => s.gm || s.hiring || s.sheetOpen },
+    { id: 'sheet', target: '#sheet-hire', optional: true, say: 'Filled in', press: 'Hire', done: () => s.gm || s.hiring },
     // As setup.html's: while the GM is starting (hired, none seated), waited for five minutes, saying why.
-    { id: 'desk', n: 4, target: '#desk', ackOnClick: true, button: 'Done', say: 'At its desk', press: 'Open the office', lost: 'Open the office to see your General Manager.',
+    { id: 'desk', target: '#desk', ackOnClick: true, button: 'Done', say: 'At its desk', press: 'Open the office', lost: 'Open the office to see your General Manager.',
       patience: () => (s.hiring && !s.gm ? 300000 : 0), wait: () => (s.hiring && !s.gm ? STARTING : '') },
   ];
-  const guide = g.create({ document: p.doc, total: 4, steps, onFinish: (reason) => said.push(reason) });
+  const guide = g.create({ document: p.doc, steps, onFinish: (reason) => said.push(reason) });
   return { p, s, guide, said, el: (id) => p.doc.getElementById(id) };
 }
 
@@ -190,7 +191,7 @@ function startHere() {
   assert(textOf(p).startsWith('Now your first hire'), 'a click on Hire alone is not a hire: ' + textOf(p));
   s.hiring = true;
   p.wait(450);
-  assert(docked(p) && textOf(p) === STARTING && countOf(p) === 'Step 4 of 4', 'the GM starting: docked, saying what its terminal asks: ' + textOf(p));
+  assert(docked(p) && textOf(p) === STARTING && countOf(p) === '', 'the GM starting: docked, saying what its terminal asks, no count: ' + textOf(p));
   assert(goOf(p).hidden && !skipOf(p).hidden, 'nothing to press but Skip while it starts');
   assert(p.doc.body.children.some((c) => c.className === 'smol-guide-room'), 'room at the foot of the page while docked');
   s.hiring = false;
@@ -291,7 +292,7 @@ function startHere() {
   const { p, s, guide, said, el } = startHere();
   s.folder = s.green = s.gm = true;
   guide.start({ tour: true, focus: true });
-  assert(showing(p) && textOf(p) === 'Folder set' && countOf(p).endsWith('· done'), 'a tour starts at step 1, done: ' + textOf(p));
+  assert(showing(p) && textOf(p) === 'Folder set' && countOf(p) === 'Done', 'a tour starts at step 1, done: ' + textOf(p));
   assert(el('checks').focused === 0 && goOf(p).textContent === 'Next', 'done: with Next, pointing where it was done');
   goOf(p).onclick();
   assert(textOf(p) === 'Green', 'Next: step 2, done: ' + textOf(p));
@@ -331,20 +332,105 @@ function startHere() {
   assert(!layerOf(p), 'and nothing comes back');
 }
 
-// Placement: the arrow and the bubble never sit on what's lit, when there's room.
+// Placement, on the fresh-eyes shots' Start here (shots 01, 01c, 02, 05): the bubble beside or below what's
+// lit, never on it, on the page's title and Start here's header, or on what the step talks about; the
+// arrow's tip on the control the bubble names; else the window's edge.
 {
   const arrow = { width: 33, height: 33 };
-  const overlaps = (a, b) => a.x < b.left + b.width && a.x + a.width > b.left && a.y < b.top + b.height && a.y + a.height > b.top;
-  for (const view of [{ width: 1100, height: 780 }, { width: 390, height: 844 }]) {
-    const bubble = { width: Math.min(326, view.width - 24), height: 90 };
-    const around = { left: 10, top: 300, width: view.width - 20, height: 160 };
-    const box = { left: 40, top: 400, width: 120, height: 28 };
-    for (const lit of [around, { ...around, top: 40 }]) {
-      const at = g.place(box, view, bubble, arrow, lit);
-      assert(!overlaps({ ...at.arrow, ...arrow }, lit) && !overlaps({ ...at.bubble, ...bubble }, lit), `${view.width}: nothing over what's lit at ${lit.top}`);
-      assert(Math.abs(at.arrow.x + arrow.width / 2 - (box.left + box.width / 2)) <= 1, `${view.width}: centred on the control`);
+  const LIT = 12; // PAD and RING: what's lit, as the guide draws it round the step's block.
+  const box = (left, top, width, height) => ({ left, top, width, height });
+  const grow = (b) => box(b.left - LIT, b.top - LIT, b.width + LIT * 2, b.height + LIT * 2);
+  const overlaps = (a, b) => a.left < b.left + b.width && a.left + a.width > b.left && a.top < b.top + b.height && a.top + a.height > b.top;
+  /** The arrow's tip: the end it points with. */
+  const tip = (at) => ({ up: [at.arrow.x + 16.5, at.arrow.y], down: [at.arrow.x + 16.5, at.arrow.y + 33],
+    left: [at.arrow.x, at.arrow.y + 16.5], right: [at.arrow.x + 33, at.arrow.y + 16.5] })[at.point];
+  const cases = [
+    // Mac, step 1: the folder card under Start here's header and the page's title.
+    { name: 'mac folder', view: [1100, 780], control: box(284, 266, 112, 26), lit: box(269, 182, 782, 124),
+      keep: [box(252, 26, 816, 76), box(269, 136, 782, 28)], side: 'below' },
+    // Phone, step 1: Start here's header right above the card.
+    { name: 'phone folder', view: [390, 844], control: box(48, 420, 118, 28), lit: box(34, 336, 322, 124),
+      keep: [box(16, 118, 358, 80), box(33, 250, 324, 70)], side: 'below' },
+    // Mac, step 2: the checks, the other checks above them, Hire (greyed), Check again and why Hire is greyed below.
+    { name: 'mac checks', view: [1100, 780], control: box(269, 273, 782, 232), lit: box(269, 273, 782, 232),
+      keep: [box(269, 0, 782, 252), box(269, 526, 186, 28), box(463, 526, 100, 28), box(269, 571, 640, 16)], side: 'below' },
+    // Phone, step 2: Check again wrapped under Hire.
+    { name: 'phone checks', view: [390, 844], control: box(33, 300, 324, 230), lit: box(33, 300, 324, 230),
+      keep: [box(33, 0, 324, 280), box(33, 546, 230, 40), box(33, 594, 110, 40), box(33, 644, 324, 40)] },
+    // Mac, step 3: Hire, the checks just green above it; then with a refusal said under it.
+    { name: 'mac hire', view: [1100, 780], control: box(269, 377, 186, 26), lit: box(269, 377, 186, 26),
+      keep: [box(269, 0, 782, 121), box(269, 141, 782, 216)], side: 'right' },
+    { name: 'mac hire refused', view: [1100, 780], control: box(269, 377, 186, 26), lit: box(269, 377, 186, 26),
+      keep: [box(269, 0, 782, 121), box(269, 141, 782, 216), box(269, 423, 770, 34)] },
+    // Phone, step 3, with and without a refusal said.
+    { name: 'phone hire', view: [390, 844], control: box(33, 450, 230, 40), lit: box(33, 450, 230, 40),
+      keep: [box(33, 200, 324, 230)] },
+    { name: 'phone hire refused', view: [390, 844], control: box(33, 450, 230, 40), lit: box(33, 450, 230, 40),
+      keep: [box(33, 200, 324, 230), box(33, 500, 324, 60)] },
+  ];
+  for (const c of cases) {
+    const view = { width: c.view[0], height: c.view[1] };
+    for (const bubble of [{ width: 326, height: 74 }, { width: 326, height: 110 }]) {
+      const around = grow(c.lit);
+      const at = g.place(c.control, view, bubble, arrow, around, c.keep);
+      const b = box(at.bubble.x, at.bubble.y, bubble.width, bubble.height);
+      const what = `${c.name} (${bubble.height}): ${JSON.stringify(at)}`;
+      assert(b.left >= 12 && b.top >= 12 && b.left + b.width <= view.width - 12 && b.top + b.height <= view.height - 12, 'the bubble inside the window: ' + what);
+      assert(!overlaps(b, around), "the bubble off what's lit: " + what);
+      assert(c.keep.every((k) => !overlaps(b, k)), 'the bubble off the title, the header and what the step talks about: ' + what);
+      if (c.side) assert(at.side === c.side, `${c.side}: ` + what);
+      // The tip on the control, or just off what's lit round it, pointing at it.
+      const [x, y] = tip(at);
+      const r = c.control;
+      const dx = Math.max(r.left - x, 0, x - (r.left + r.width)), dy = Math.max(r.top - y, 0, y - (r.top + r.height));
+      assert(Math.hypot(dx, dy) <= LIT + 4 + 1, 'the arrow at the control: ' + what);
+      const toward = { up: y >= r.top + r.height, down: y <= r.top, left: x >= r.left + r.width, right: x <= r.left }[at.point];
+      assert(toward && (at.point === 'up' || at.point === 'down' ? x >= r.left && x <= r.left + r.width : y >= r.top && y <= r.top + r.height), 'the arrow points at the control: ' + what);
+      // Nothing kept under the arrow either.
+      assert(c.keep.every((k) => !overlaps(box(at.arrow.x, at.arrow.y, 33, 33), k)), 'the arrow off what the step talks about: ' + what);
     }
   }
+  // A control out of sight: the arrow at the edge nearest it, pointing that way, all inside the window.
+  for (const view of [{ width: 1100, height: 780 }, { width: 390, height: 844 }]) {
+    const bubble = { width: 326, height: 90 };
+    let at = g.place(box(100, 3000, 100, 30), view, bubble, arrow);
+    assert(at.point === 'down' && at.arrow.y + 33 <= view.height && at.bubble.y + 90 <= at.arrow.y, view.width + ': a control below the window');
+    at = g.place(box(100, -900, 100, 30), view, bubble, arrow);
+    assert(at.point === 'up' && at.arrow.y >= 0 && at.bubble.y >= at.arrow.y + 33, view.width + ': a control above the window');
+  }
+}
+
+// In the page: the bubble off what the page keeps, the arrow on the control; elsewhere on the page, a small
+// pill (Next step in Easy setup → Show me, ×), and Skip says it can be undone.
+{
+  const p = page();
+  current = p;
+  const s = { away: false };
+  p.add('header', 'head', [252, 26, 816, 76]);
+  p.add('div', 'card-head', [269, 136, 782, 28]);
+  const card = p.add('div', 'folder', [269, 182, 782, 124]);
+  p.add('button', 'use', [284, 266, 112, 26], card);
+  // Another pane: Easy setup, and the card with it, hidden.
+  const away = (on) => { s.away = on; card.hidden = on; };
+  const guide = g.create({ document: p.doc, keep: '#head, #card-head', awayText: 'Next step in Easy setup', skipSays: 'Skip: Show me around again brings it back',
+    steps: [{ id: 'folder', target: '#use', area: '#folder', away: () => s.away, reveal: () => away(false), say: 'Pick where your hires work', press: 'Use this folder', done: () => false }] });
+  guide.start();
+  const layer = layerOf(p);
+  const bubble = layer.all().find((el) => el.className === 'smol-guide-bubble');
+  const arrowEl = layer.all().find((el) => el.className === 'smol-guide-arrow');
+  const at = { left: parseFloat(bubble.style.left), top: parseFloat(bubble.style.top), width: 266, height: 86 };
+  const hits = (id) => { const b = p.doc.getElementById(id).box; return at.left < b.left + b.width && at.left + at.width > b.left && at.top < b.top + b.height && at.top + at.height > b.top; };
+  assert(!hits('head') && !hits('card-head') && !hits('folder'), 'the bubble off the title, the header and the card: ' + JSON.stringify(at));
+  assert(arrowEl.dataset.point === 'up' && parseFloat(arrowEl.style.top) === 266 + 26 + 4, 'the arrow under Use this folder, pointing up at it: ' + arrowEl.style.top);
+  assert(countOf(p) === '' && skipOf(p).textContent === 'Skip', 'no count; Skip');
+  assert(skipOf(p).title === 'Skip: Show me around again brings it back' && skipOf(p).getAttribute('aria-label') === skipOf(p).title, 'Skip says it can be undone');
+  away(true);
+  p.wait(450);
+  assert(layer.classList.contains('pill') && layer.classList.contains('docked'), 'elsewhere: a pill');
+  assert(textOf(p) === 'Next step in Easy setup →' && goOf(p).textContent === 'Show me' && skipOf(p).textContent === '×', 'the pill: ' + textOf(p));
+  goOf(p).onclick();
+  assert(!layer.classList.contains('pill') && textOf(p).startsWith('Pick where your hires work'), 'Show me: back to the step, no pill');
+  guide.stop();
 }
 
 /* ------------------------------------------------------------------ setup.html's welcome */
