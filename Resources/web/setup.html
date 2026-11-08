@@ -123,13 +123,18 @@
   .group > h3.sub, #manager-tools > h3.sub { font-size: 12px; font-weight: 600; color: var(--dim); margin: 8px 2px 0; }
   #manager-tools:not([hidden]) { display: grid; gap: 7px; }
   .group > .said-under, #manager-tools > .said-under { margin: 0 2px; }
-  .gm-token .pad { display: grid; gap: 6px; }
+  /* The words about the token stacked; its switches' rows (.field.pad) with the switch on the right, like every other. */
+  .gm-token .pad:not(.field) { display: grid; gap: 6px; }
   .gm-token .pad p { margin: 0; }
   .token-file { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
-  .token-file code { font-size: 12px; overflow-wrap: anywhere; user-select: all; }
+  .token-file code { font-size: 12px; user-select: all; flex: 0 1 auto; }
   .token-file .result, .hire-saved { color: var(--dim); font-size: 12px; }
   .token-file .result.good, .hire-saved.good { color: var(--unread); }
   .token-file .result.wrong { color: var(--error); }
+  /* A path in one line that, short of room, keeps its end: the start gives way with … in the middle (see pathLine). */
+  .path-mid { display: inline-flex; max-width: 100%; min-width: 0; white-space: nowrap; overflow: hidden; vertical-align: bottom; }
+  .path-mid > .head { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .path-mid > .tail { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .flash { animation: flash 1.8s ease-out; }
   @keyframes flash { 0%, 30% { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: 0 0 0 2px transparent; } }
 
@@ -174,9 +179,9 @@
   .box > .field.floor:has(+ .floor-rules) { padding-bottom: 6px; }
   .floor-rules .rule { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: 10px;
     background: rgb(128 128 128 / .15); max-width: min(100%, 420px); min-width: 0; }
-  .floor-rules .rule .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .floor-rules .rule .path-mid { flex: 0 1 auto; }
   .floor-rules .rule button { border: 0; background: none; padding: 0 4px; cursor: pointer; color: inherit; opacity: .6; flex: none; }
-  .floor-rules .rule-add { display: flex; gap: 6px; flex: 1 1 240px; min-width: 0; max-width: 380px; }
+  .floor-rules .rule-add { display: flex; gap: 6px; flex: 1 1 240px; min-width: 0; max-width: 460px; }
   .floor-rules .rule-add input[type=text] { flex: 1; min-width: 0; font-size: 12px; }
   /* A cloud bot's name: cut with … where it must be, the whole of it on hover. */
   .field.floor > .bot-name { display: flex; align-items: baseline; min-width: 0; }
@@ -244,7 +249,7 @@
   /* Claude accounts: one row each, and a row to add one */
   .accounts { display: grid; gap: 6px; margin-top: 8px; }
   .accounts .row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12.5px; }
-  .accounts .row .dir { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; font: 12px ui-monospace, "SF Mono", Menlo, monospace; color: var(--dim); }
+  .accounts .row .dir { flex: 1 1 200px; min-width: 0; font: 12px ui-monospace, "SF Mono", Menlo, monospace; color: var(--dim); }
   .accounts input[type=text] { flex: 1 1 140px; }
   /* The account the General Manager works on, marked; the way to sign in to another; the folder words, small. */
   .accounts .gm-uses { padding: 0 6px; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); font-size: 11px; white-space: nowrap; }
@@ -387,7 +392,7 @@
   .ff-open { display: grid; gap: 6px; justify-items: start; padding: 12px 14px; border-radius: 10px; background: var(--accent-soft);
     border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
   .ff-what { margin: 0; color: var(--dim); font-size: 12.5px; }
-  .ff-path { font: 600 14px ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
+  .ff-path { font: 600 14px ui-monospace, "SF Mono", Menlo, monospace; }
   #first-folder-input { width: min(100%, 420px); }
   .ff-problem { color: var(--error); font-size: 12.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .ff-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -920,6 +925,7 @@
         </div>
       </div>
       <p class="hint" id="easy-style-yours" hidden>Yours: as you've arranged it, starting from Classic, or from the style you were in when you changed something.</p>
+      <p class="hint" id="easy-style-pets" hidden></p>
       <div class="catalog" id="easy-style"></div>
     </div>
     <div class="cards easy-look">
@@ -1995,7 +2001,7 @@
    */
   function renderGmToken(m) {
     const file = m.gmTokenFile || '';
-    $('gm-token-file').textContent = m.gmTokenFileShown || file;
+    pathLine($('gm-token-file'), m.gmTokenFileShown || file, file);
     $('gm-token-file').parentElement.hidden = !file; // an app from before says no path
     $('gm-token-copy').onclick = () => copyText(file, 'gm-token-copied');
     $('gm-byhand').classList.toggle('on', !!m.gmByHand);
@@ -2565,7 +2571,7 @@
       const row = document.createElement('div');
       row.className = 'row';
       const name = Object.assign(document.createElement('strong'), { textContent: p.name });
-      const dir = Object.assign(document.createElement('span'), { className: 'dir', textContent: p.dir });
+      const dir = pathLine(Object.assign(document.createElement('span'), { className: 'dir' }), p.dir);
       // The same word as the agents' line; a test copy's hires report through its own hook, whatever an account holds.
       const status = Object.assign(document.createElement('span'), { textContent: testCopy() ? '' : p.connected ? 'Reports to Smolcorp' : "Doesn't report yet" });
       row.append(name, dir, status);
@@ -2585,7 +2591,7 @@
       add.setAttribute('aria-label', `Add ${f.name}`);
       add.onclick = () => saveAccounts([...accounts.profiles.filter((q) => !q.default), f]);
       row.append(Object.assign(document.createElement('span'), { textContent: 'Found:' }), Object.assign(document.createElement('strong'), { textContent: f.name }),
-        Object.assign(document.createElement('span'), { className: 'dir', textContent: f.dir }), add);
+        pathLine(Object.assign(document.createElement('span'), { className: 'dir' }), f.dir), add);
       rows.push(row);
     }
     $('accounts-list').replaceChildren(...rows);
@@ -4203,7 +4209,8 @@
     const named = (id) => { const [, label, swatch] = ROOM_CHOICES[part].find(([other]) => other === id); return { id, label, swatch, pinned: true }; };
     return {
       kind: part, label: CATALOG_LABELS[part] || 'choices', value, size, chips: !pictured,
-      items, pinned: [...(part === 'preset' ? ['yours'] : []), ...first.map(([id]) => id)].map(named),
+      // Yours once it holds something of yours: till then it's Classic's look, and Classic is picked.
+      items, pinned: [...(part === 'preset' && !ownUntouched(room) ? ['yours'] : []), ...first.map(([id]) => id)].map(named),
       pick,
       // A style is a style's own shelf; the NBA's thirty, theirs
       shelfOf: part === 'preset' ? (item) => shelfOf(item.pack).slice(0, shelfOf(item.pack)[1] === 'nba' ? 3 : 1) : undefined,
@@ -4352,6 +4359,23 @@
     'staff']);
   /** The most pets the office has at once. */
   const PETS_MOST = 3;
+  /** Whether the room's own furnishing (Yours) is as it comes: nothing a style furnishes changed, nothing arranged. */
+  const ownUntouched = (room) => !roomArranged(room)
+    && [...STYLED].every((part) => room[part] === undefined || JSON.stringify(room[part]) === JSON.stringify(STANDARD_ROOM[part]));
+  /**
+   * The style a room is in, as the page names it. Yours as it comes looks just as Classic does (Classic furnishes
+   * the standard), so a fresh office is in Classic, and in Yours only once something's changed.
+   */
+  const styleOf = (room) => {
+    const preset = room.preset || STANDARD_ROOM.preset;
+    return preset === 'yours' && ownUntouched(room) ? 'classic' : preset;
+  };
+  /** Whether anything's been moved, added or hung in the room, as showInvite tells. */
+  function roomArranged(room) {
+    const plan = room.plan;
+    return !!plan && (['wide', 'tall'].some((side) => Object.keys(plan[side] || {}).length
+      || (plan.added && (plan.added[side] || []).length) || (plan.hung && Array.isArray(plan.hung[side]))));
+  }
   /** The pets as kept: a list, or one by its id as before, of ones the office can have, each once, as many as it has at once. */
   const petsOf = (given) => (Array.isArray(given) ? given : [given])
     .filter((pet, i, all) => ROOM_CHOICES.pet.some(([id]) => id === pet) && all.indexOf(pet) === i).slice(0, PETS_MOST);
@@ -4993,7 +5017,7 @@
     for (const part of ['floor', 'paint', 'monitor', 'door', 'drift']) {
       catalog(`room-${part}`, roomCatalog(part, room, shown[part] || STANDARD_ROOM[part], (id) => furnish((r) => { r[part] = id; }, part), 'small'));
     }
-    if (!keptAway('room-preset')) catalog('room-preset', roomCatalog('preset', room, room.preset || STANDARD_ROOM.preset, (id) => furnish((r) => { r.preset = id; }, 'preset'), 'small'));
+    if (!keptAway('room-preset')) catalog('room-preset', roomCatalog('preset', room, styleOf(room), (id) => furnish((r) => { r.preset = id; }, 'preset'), 'small'));
     drawEasy(room, shown);
     if (refocus) {
       // The same choice can be in Easy setup, the welcome and Office: the one in view
@@ -5013,13 +5037,19 @@
    * them. The same choices as under Office, made the same way.
    */
   function drawEasy(room, shown) {
-    const style = room.preset || STANDARD_ROOM.preset;
+    const style = styleOf(room);
     const styles = () => roomCatalog('preset', room, style, (id) => furnish((r) => { r.preset = id; }, 'preset'), 'big');
     catalog('easy-style', styles());
     if (!$('invite').hidden) catalog('welcome-style', styles());
     const name = ROOM_CHOICES.preset.find(([id]) => id === style);
     $('easy-style-name').textContent = name ? name[1] : '';
     $('easy-style-yours').hidden = style !== 'yours';
+    // A style with pets of its own brings them while you've picked none: said here, where it's picked.
+    const stylePets = style !== 'yours' && !petsOf(room.pet).length ? petsOf(shown.pet) : [];
+    const petNames = new Intl.ListFormat('en').format(stylePets.map((id) => ROOM_CHOICES.pet.find(([other]) => other === id)[1]));
+    $('easy-style-pets').textContent = stylePets.length
+      ? `${name ? name[1] : 'This style'} brings its own ${stylePets.length === 1 ? 'pet' : 'pets'}: ${petNames}. Pick pets below to have yours instead.` : '';
+    $('easy-style-pets').hidden = !stylePets.length;
     for (const part of ['sky', 'season']) {
       $(`easy-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label]) =>
         choice(label, (shown[part] || STANDARD_ROOM[part]) === id, () => furnish((r) => { r[part] = id; }, part))));
@@ -6171,9 +6201,9 @@
       const chip = document.createElement('span');
       chip.className = 'rule';
       // One remembered from the office is that folder alone; one added here holds the folders in it too.
-      // The whole path, cut with … only where there's no room, and whole on hover.
+      // The whole path, short of room cut in the middle so its folder's name shows, and whole on hover.
+      chip.append(pathLine(document.createElement('span'), shortFolder(rule.folder) + (rule.exact ? ' (alone)' : '')));
       chip.title = rule.exact ? `${rule.folder}, this folder alone` : `${rule.folder}, and the folders in it`;
-      chip.append(Object.assign(document.createElement('span'), { className: 'path', textContent: shortFolder(rule.folder) + (rule.exact ? ' (alone)' : '') }));
       const off = document.createElement('button');
       off.type = 'button';
       off.textContent = '✕';
@@ -6191,22 +6221,70 @@
     add.setAttribute('aria-label', `A project folder whose agents sit on ${floorLabel}`);
     const adding = Object.assign(document.createElement('button'), { type: 'button', className: 'btn', textContent: 'Add' });
     adding.setAttribute('aria-label', `Add this project folder to ${floorLabel}`);
+    // Setup's rule for that folder and the ones in it: one remembered from the office for it alone stays beside it.
+    // Said "Saved", as the hires folder is.
+    const keepFolder = async (folder) => {
+      const res = await sendFloors([...state.floorRules.filter((r) => r.folder !== folder || r.exact), { folder, floor: i }]);
+      if (res && res.ok) floorSaved(i);
+    };
     // Add, or Enter (or leaving the field with a folder in it): the same.
     const keep = () => {
       const folder = add.value.trim();
       if (!folder) return;
       add.value = '';
       add.blur();
-      // Setup's rule for that folder and the ones in it: one remembered from the office for it alone stays beside it.
-      sendFloors([...state.floorRules.filter((r) => r.folder !== folder || r.exact), { folder, floor: i }]);
+      keepFolder(folder);
     };
     add.onchange = keep;
     adding.onclick = keep;
     adding.onmousedown = (e) => e.preventDefault(); // the field's change, on leaving it, would add it first
     const row = Object.assign(document.createElement('span'), { className: 'rule-add' });
     row.append(add, adding);
-    box.append(row);
+    // Choose…, with the Mac's own panel, as the hires folder has: it only answers the folder picked (pick=1), kept here
+    // as one typed. Linux and Windows type the path.
+    if (onMac() && state.hiring && state.hiring.canChoose) {
+      const choose = Object.assign(document.createElement('button'), { type: 'button', className: 'btn', textContent: 'Choose…' });
+      choose.setAttribute('aria-label', `Choose a project folder for ${floorLabel}`);
+      choose.onclick = async () => {
+        choose.blur(); // out of the floors' rows, or the list wouldn't be drawn again with it (see renderFloors)
+        const res = await fetch('/setup/hiring/choose?pick=1&for=floor', { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
+        const answer = res && res.ok ? await res.json().catch(() => null) : null;
+        if (answer && answer.picked) keepFolder(answer.picked);
+      };
+      row.append(choose);
+    }
+    const saved = Object.assign(document.createElement('span'), { className: 'hire-saved', id: `floor-saved-${i}` });
+    saved.setAttribute('role', 'status');
+    if (floorSavedAt === i) Object.assign(saved, { textContent: 'Saved ✓', className: 'hire-saved good' });
+    box.append(row, saved);
     return box;
+  }
+
+  // The floor whose project was just kept, for its "Saved ✓" to outlast the list drawn again, and the sign's timer.
+  let floorSavedAt = -1;
+  let floorSavedTimer = 0;
+  function floorSaved(i) {
+    clearTimeout(floorSavedTimer);
+    floorSavedAt = i;
+    if ($(`floor-saved-${i}`)) said(`floor-saved-${i}`, 'Saved ✓', 'good');
+    floorSavedTimer = setTimeout(() => {
+      if ($(`floor-saved-${floorSavedAt}`)) said(`floor-saved-${floorSavedAt}`, '');
+      floorSavedAt = -1;
+    }, 4000);
+  }
+
+  /**
+   * Shows a path in `el` on one line that keeps its end, the part that names the folder: short of room, its start
+   * gives way with … in the middle, as ~/Projects/…/demo-project. `shown` is the path as it reads, `full` the whole
+   * of it, on hover. Read out whole.
+   */
+  function pathLine(el, shown, full = shown) {
+    const [, head, tail] = /^(.*?)([\\/][^\\/]+[\\/]?(?: \(alone\))?)$/.exec(shown || '') || [null, '', shown || ''];
+    el.classList.add('path-mid');
+    el.replaceChildren(...[['head', head], ['tail', tail]].filter(([, text]) => text)
+      .map(([className, textContent]) => Object.assign(document.createElement('span'), { className, textContent })));
+    el.title = full || '';
+    return el;
   }
 
   /** A folder as a chip shows it: ~ for the home folder where the path says whose it is. */
@@ -6218,7 +6296,7 @@
   function sendFloors(rules) {
     const floors = [...$('floors').querySelectorAll('.floor')].map((row) =>
       ({ name: row.querySelector('input').value, preset: row.querySelector('select')?.value || '' }));
-    post('/setup/floors', { floors, ...(Array.isArray(state.floorRules) ? { rules: Array.isArray(rules) ? rules : state.floorRules } : {}) });
+    return post('/setup/floors', { floors, ...(Array.isArray(state.floorRules) ? { rules: Array.isArray(rules) ? rules : state.floorRules } : {}) });
   }
 
   /* -------------------------------------------------------------- profiles */
@@ -7033,8 +7111,8 @@
     const open = !f.folder || !!f.problem || firstFolderTyping || firstFolderChanging || !!firstFolderIssue;
     $('first-folder-open').hidden = !open;
     $('first-folder-done').hidden = open;
-    $('first-folder-short').textContent = tildePath(f.folder, f.home);
-    $('first-folder-path').textContent = tildePath(f.folder || f.suggested, f.home);
+    pathLine($('first-folder-short'), tildePath(f.folder, f.home), f.folder);
+    pathLine($('first-folder-path'), tildePath(f.folder || f.suggested, f.home), f.folder || f.suggested);
     $('first-folder-path').hidden = firstFolderTyping;
     $('first-folder-input').hidden = !firstFolderTyping;
     $('first-folder-picking').hidden = !firstFolderPicking || !firstFolderTyping;

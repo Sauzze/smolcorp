@@ -247,7 +247,7 @@ final class HireFolderTests: XCTestCase {
     func testThePickedFolderIsKeptThroughTheSameChecks() throws {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let router = try String(contentsOf: repo.appendingPathComponent("Sources/AgentDeck/DeckRouter.swift"), encoding: .utf8)
-        XCTAssertNotNil(router.range(of: #"deck.chooseHireFolder(keep: false) { picked in respond(.json(["picked": picked ?? ""])) }"#))
+        XCTAssertNotNil(router.range(of: #"deck.chooseHireFolder(keep: false, message: message) { picked in respond(.json(["picked": picked ?? ""])) }"#))
         let page = try String(contentsOf: repo.appendingPathComponent("Resources/web/setup.html"), encoding: .utf8)
         XCTAssertNotNil(page.range(of: "fetch('/setup/hiring/choose?pick=1'"))
         XCTAssertNotNil(page.range(of: "if (answer.picked) return keepFirstFolder(answer.picked, false);"))

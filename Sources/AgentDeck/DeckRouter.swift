@@ -1329,10 +1329,12 @@ final class DeckRouter: Router {
             respond(.json(setupState(caller)))
 
         // The Mac's own folder picker, which a web page can't open. With `pick=1` it only answers the folder
-        // picked (`picked`, empty if none), for Start here to keep through its checks (POST /setup/hire-folder).
+        // picked (`picked`, empty if none), for Start here to keep through its checks (POST /setup/hire-folder),
+        // or with `for=floor`, for Floors to put a project on a floor (POST /setup/floors).
         case ("POST", "/setup/hiring/choose"):
             if request.query["pick"] == "1" {
-                deck.chooseHireFolder(keep: false) { picked in respond(.json(["picked": picked ?? ""])) }
+                let message = request.query["for"] == "floor" ? Deck.floorFolderMessage : Deck.hireFolderMessage
+                deck.chooseHireFolder(keep: false, message: message) { picked in respond(.json(["picked": picked ?? ""])) }
             } else {
                 deck.chooseHireFolder { [self] _ in respond(.json(setupState(caller))) }
             }
