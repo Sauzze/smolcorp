@@ -22,10 +22,10 @@ final class GuideTests: XCTestCase {
     }
 
     /// A new Mac sees the guide; a file from before it, of someone who had set up (setup opened, a hires
-    /// folder, or a GM hired), counts as done; what's saved is kept.
+    /// folder, or a GM hired, by hand too), counts as done; what's saved is kept.
     func testTheGuideIsForAFirstRunOnly() throws {
         XCTAssertFalse(Config.load(from: file).guideDone, "no config yet")
-        for text in [#"{"hasCompletedSetup": true}"#, #"{"hireFolder": "/work"}"#, #"{"managerEnabled": true}"#] {
+        for text in [#"{"hasCompletedSetup": true}"#, #"{"hireFolder": "/work"}"#, #"{"managerEnabled": true}"#, #"{"gmByHand": true}"#] {
             try text.write(to: file, atomically: true, encoding: .utf8)
             XCTAssertTrue(Config.load(from: file).guideDone, "\(text), from before the guide")
         }
@@ -39,6 +39,20 @@ final class GuideTests: XCTestCase {
         config.save(to: file)
         XCTAssertTrue(Config.load(from: file).guideDone, "finished, saved and loaded again")
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.appendingPathExtension("broken").path))
+    }
+
+    /// Not done, beside a setup that's done: saved and loaded again, it's still not done. Were guideDone
+    /// not written, the file would load as from before the guide, and count as done.
+    func testAGuideNotDoneIsSavedBesideASetupThatIs() throws {
+        let config = Config()
+        config.hasCompletedSetup = true
+        config.guideDone = false
+        config.save(to: file)
+        let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        XCTAssertEqual(saved["guideDone"] as? Bool, false, "written")
+        let loaded = Config.load(from: file)
+        XCTAssertTrue(loaded.hasCompletedSetup)
+        XCTAssertFalse(loaded.guideDone, "loaded again: still to be shown")
     }
 
     /// Show Me Around Again turns the guide on again, saved, and setup opens on #guide, which the page starts it on.
@@ -61,12 +75,99 @@ final class GuideTests: XCTestCase {
         XCTAssertTrue(try source("Sources/AgentDeck/App.swift").contains(#"let help = submenu(of: bar, "Help")"#), "in the Help menu")
     }
 
-    /// The route keeps it, setup's state says it, and guide.js is served as office.js is: no key, nothing of yours.
+    // MARK: POST /setup/guide, on a stand-in server
+
+    /// Setup's gate and the guide's route, as DeckRouter has them, without the deck (whose full state
+    /// reaches into the Keychain): the answer is the state's "guide" part, as setupState gives it.
+    private final class StandIn: Router {
+        let key = "stand-in-key"
+        let sessions = SetupSessions()
+        let config: Config
+        let file: URL
+
+        init(config: Config, file: URL) { (self.config, self.file) = (config, file) }
+
+        func handle(_ request: Request, reply: @escaping (Reply) -> Void) {
+            let respond = { reply(.response($0)) }
+            guard DeckRouter.isSetupPath(request.path) else { return respond(.status(404)) }
+            let gate = DeckRouter.setupGate(request, sessions: sessions, isSetupKey: { $0 == self.key })
+            if let refused = gate.refusal { return respond(refused) }
+            guard request.method == "POST", request.path == "/setup/guide" else { return respond(.status(404)) }
+            DeckRouter.saveGuide(request, config: config, file: file)
+            respond(.json(["guide": DeckRouter.guideState(config)]))
+        }
+    }
+
+    /// A port nothing listens on, as the system hands one out.
+    private func sparePort() throws -> UInt16 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        defer { close(fd) }
+        var address = sockaddr_in(sin_len: UInt8(MemoryLayout<sockaddr_in>.size), sin_family: sa_family_t(AF_INET), sin_port: 0,
+                                  sin_addr: in_addr(s_addr: inet_addr("127.0.0.1")), sin_zero: (0, 0, 0, 0, 0, 0, 0, 0))
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        try withUnsafeMutablePointer(to: &address) { pointer in
+            try pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                guard Darwin.bind(fd, $0, length) == 0, Darwin.getsockname(fd, $0, &length) == 0 else { throw URLError(.cannotConnectToHost) }
+            }
+        }
+        let port = UInt16(bigEndian: address.sin_port)
+        XCTAssertNotEqual(port, 7710)
+        return port
+    }
+
+    private func send(_ path: String, port: UInt16, key: String?, action: Bool = true) -> (Int, Data) {
+        var request = URLRequest(url: URL(string: "http://localhost:\(port)\(path)")!)
+        request.httpMethod = "POST"
+        if let key { request.setValue(key, forHTTPHeaderField: DeckRouter.setupKeyHeader) }
+        if action { request.setValue("1", forHTTPHeaderField: DeckRouter.setupHeader) }
+        let done = expectation(description: "POST \(path)")
+        var result = (0, Data())
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            result = ((response as? HTTPURLResponse)?.statusCode ?? 0, data ?? Data())
+            done.fulfill()
+        }.resume()
+        wait(for: [done], timeout: 10)
+        return result
+    }
+
+    /// The route, over HTTP: setup's own requests only; done=1 ends the guide and done=0 shows it again,
+    /// saved each time; the answer says so as setup's state does ("guide": {"done": …}, as Go's).
+    func testTheGuidesRouteKeepsItOverHTTP() throws {
+        try #"{"hasCompletedSetup": true}"#.write(to: file, atomically: true, encoding: .utf8)
+        let config = Config.load(from: file)
+        config.guideDone = false
+        let port = try sparePort()
+        let standIn = StandIn(config: config, file: file)
+        let server = HTTPServer(port: port, router: standIn)
+        let ready = expectation(description: "listening")
+        server.onReady = { ready.fulfill() }
+        server.start()
+        defer { server.stop() }
+        wait(for: [ready], timeout: 10)
+
+        XCTAssertEqual(send("/setup/guide?done=1", port: port, key: nil).0, 401, "no key")
+        XCTAssertEqual(send("/setup/guide?done=1", port: port, key: standIn.key, action: false).0, 403, "no setup header")
+        XCTAssertFalse(config.guideDone, "refused: nothing changed")
+
+        let done = { (answer: (Int, Data)) -> Bool? in
+            XCTAssertEqual(answer.0, 200)
+            return ((try? JSONSerialization.jsonObject(with: answer.1)) as? [String: Any])
+                .flatMap { $0["guide"] as? [String: Any] }.flatMap { $0["done"] as? Bool }
+        }
+        XCTAssertEqual(done(send("/setup/guide?done=1", port: port, key: standIn.key)), true)
+        XCTAssertTrue(Config.load(from: file).guideDone, "finished: saved")
+        XCTAssertEqual(done(send("/setup/guide?done=0", port: port, key: standIn.key)), false)
+        XCTAssertFalse(config.guideDone)
+        XCTAssertFalse(Config.load(from: file).guideDone, "shown again: saved, beside a setup that's done")
+    }
+
+    /// DeckRouter's own route and state go through the same two calls the stand-in does; guide.js is served
+    /// as office.js is: no key, nothing of yours.
     func testTheRouteTheStateAndTheScriptAreThere() throws {
         let router = try source("Sources/AgentDeck/DeckRouter.swift")
-        XCTAssertTrue(router.contains(#"case ("POST", "/setup/guide"):"#))
-        XCTAssertTrue(router.contains(#"config.guideDone = request.query["done"] == "1""#))
-        XCTAssertTrue(router.contains(#""guide": ["done": config.guideDone]"#))
+        let route = try XCTUnwrap(router.range(of: #"case ("POST", "/setup/guide"):"#))
+        XCTAssertTrue(router[route.upperBound...].prefix(160).contains("DeckRouter.saveGuide(request, config: config)\n            respond(.json(setupState(caller)))"))
+        XCTAssertTrue(router.contains(#""guide": DeckRouter.guideState(config),"#))
         XCTAssertTrue(router.contains(#"request.path == "/guide.js""#))
         let script = try source("Resources/web/guide.js")
         XCTAssertTrue(script.contains("SmolcorpGuide"))

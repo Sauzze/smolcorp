@@ -8,7 +8,9 @@
   The first-run guide (Resources/web/guide.js) on a stand-in for Start here, with the 1.24.3 contract's ids,
   opened from disk (file://), no server: each button does what the real one leads to, so every step can be
   walked by hand, at the settings window's size and at 390 px. ?missing=folder,checks leaves those blocks out,
-  as before T781 and T782 land, to see the guide look past them.
+  as before T781 and T782 land, to see the guide look past them. ?refuse=1 has the first hire refused, to see
+  the arrow come back to it; ?nodesk=1 never shows the GM's card, to see the last step docked. Show me around
+  again walks every step from the first, done or not.
 -->
 <style>
   :root { color-scheme: light dark; }
@@ -50,22 +52,33 @@
   const missing = (new URLSearchParams(location.search).get('missing') || '').split(',');
   if (missing.includes('folder')) $('first-folder').remove();
   if (missing.includes('checks')) { $('first-gm-checks').remove(); $('start-gm').disabled = false; }
-  let folder = '', hired = false;
-  $('first-folder-use') && ($('first-folder-use').onclick = () => { folder = '~/Projects'; $('first-folder').hidden = true; });
+  const asked = new URLSearchParams(location.search);
+  let folder = '', hired = false, hiring = false, refusals = asked.get('refuse') ? 1 : 0;
+  $('first-folder-use') && ($('first-folder-use').onclick = () => { folder = '~/Projects'; $('first-folder-use').hidden = $('first-folder-choose').hidden = true; });
   $('fix-checks') && ($('fix-checks').onclick = () => { $('first-gm-checks').dataset.ok = 'true'; $('first-gm-checks').textContent = '✓ Ready'; $('start-gm').disabled = false; });
-  $('start-gm').onclick = () => setTimeout(() => { hired = true; $('first-gm-next').hidden = false; }, 1500);
+  $('start-gm').onclick = () => {
+    hiring = true;
+    setTimeout(() => {
+      if (refusals-- > 0) { hiring = false; $('said').textContent = 'Refused: try again'; return; }
+      hired = true;
+      if (!asked.get('nodesk')) $('first-gm-next').hidden = false;
+    }, 1500);
+  };
   const guide = SmolcorpGuide.create({
     total: 4,
     steps: [
-      { id: 'folder', n: 1, target: '#first-folder-use', area: '#first-folder', say: 'Pick where your hires work', press: 'Use this folder', done: () => !!folder || hired },
-      { id: 'checks', n: 2, target: '#first-gm-checks', say: 'Make these checks green: each one says what to do',
+      { id: 'folder', n: 1, target: '#first-folder-use', area: '#first-folder', doneTarget: '#first-folder', say: 'Pick where your hires work', press: 'Use this folder',
+        doneSay: 'Your hires work in this folder. You can change it here.', done: () => !!folder || hired },
+      { id: 'checks', n: 2, target: '#first-gm-checks', say: 'Make these checks green: each one says what to do', doneSay: 'These checks are green.',
         done: () => ($('first-gm-checks') ? $('first-gm-checks').dataset.ok === 'true' : true) || hired },
-      { id: 'hire', n: 3, target: '#start-gm', ackOnClick: true, say: 'Now your first hire', press: 'Hire your General Manager', done: () => hired },
-      { id: 'desk', n: 4, target: '#first-gm-next', ackOnClick: true, button: 'Done', say: 'Your General Manager is at its desk. Say hello', press: 'Open the office' },
+      { id: 'hire', n: 3, target: '#start-gm', say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Your General Manager is hired.',
+        done: () => hired || hiring },
+      { id: 'desk', n: 4, target: '#first-gm-next', ackOnClick: true, button: 'Done', say: 'Your General Manager is at its desk. Say hello', press: 'Open the office',
+        lost: 'Open the office to see your General Manager.' },
     ],
     onFinish: (reason) => { $('said').textContent = `Guide over: ${reason}`; },
   });
-  $('guide-again').onclick = () => { $('said').textContent = ''; guide.stop(); guide.start(); };
+  $('guide-again').onclick = () => { $('said').textContent = ''; guide.stop(); guide.start({ tour: true, focus: true }); };
   guide.start();
 </script>
 </body>

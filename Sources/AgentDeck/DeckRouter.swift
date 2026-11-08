@@ -70,6 +70,15 @@ final class DeckRouter: Router {
         return (nil, caller)
     }
 
+    /// POST /setup/guide: the first-run guide finished or skipped (done=1), or to be shown again (done=0), saved.
+    static func saveGuide(_ request: Request, config: Config, file: URL = Paths.config) {
+        config.guideDone = request.query["done"] == "1"
+        config.save(to: file)
+    }
+
+    /// Setup's state for the first-run guide: whether it's over (see guide.js).
+    static func guideState(_ config: Config) -> [String: Any] { ["done": config.guideDone] }
+
     /// A tool with the setup-key file may only run `--setup`'s own repair (auto=1),
     /// which leaves agents you disconnected alone: installing the app, the login
     /// and accessibility fixes, and a repair that reconnects are for the setup page (or the GM).
@@ -1026,8 +1035,7 @@ final class DeckRouter: Router {
 
         // The first-run guide, finished or skipped (done=1), or to be shown again (done=0).
         case ("POST", "/setup/guide"):
-            config.guideDone = request.query["done"] == "1"
-            config.save()
+            DeckRouter.saveGuide(request, config: config)
             respond(.json(setupState(caller)))
 
         case ("POST", "/setup/music"):
@@ -1598,7 +1606,7 @@ final class DeckRouter: Router {
             "music": ["enabled": config.musicEnabled],
             "maxConfirm": ["enabled": config.maxConfirm],
             // The first-run guide's arrows: shown until it's finished or skipped (see guide.js).
-            "guide": ["done": config.guideDone],
+            "guide": DeckRouter.guideState(config),
             "manager": DeckRouter.managerState(enabled: config.managerEnabled, byHand: config.gmByHand, startedByHand: deck.access.gm.startedByHand),
             "keystrokes": ["enabled": config.keystrokesAllowed, "accessibility": Permissions.hasAccessibility,
                            "apps": config.keystrokeApps, "running": Keystrokes.runningApps(except: config.keystrokeApps)] as [String: Any],

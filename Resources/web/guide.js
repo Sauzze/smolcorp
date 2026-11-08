@@ -3,7 +3,8 @@
  * short bubble saying what to do, step by step. Each step moves on by what you
  * do (the folder saved, the checks green, the hire sent), never by a Next
  * button alone. The rest of the page is dimmed, but nothing is covered: every
- * control still works, the step's own most of all. Esc or Skip ends it.
+ * control still works, the step's own most of all. Skip ends it; Esc only puts
+ * it away until the page opens again.
  *
  * No dependency, and nothing of yours: the page that uses it gives the steps
  * and remembers when it's over (setup.html, "the first-run guide"). Its plain
@@ -39,44 +40,54 @@
   const MARGIN = 12;
   /** The light round what's to be used, beyond its box. */
   const PAD = 6;
+  /** The ring round what's lit: two pixels of the art, kept inside the window. */
+  const RING = PIXEL * 2;
 
   const clamp = (value, low, high) => Math.min(Math.max(value, low), Math.max(low, high));
 
   /**
    * Which step to show. Each of `steps` says how it is: { done, shown (its
    * control is on screen), away (it's in another part of the page), missingFor
-   * (ms its control has been nowhere) }. The first step not done is shown; one
-   * whose control has been missing longer than GRACE is looked past, for the
+   * (ms its control has been nowhere), patience (how long that may last before
+   * it's looked past, GRACE if not said), optional (shown only when its control
+   * is there, never waited for) }. The first step not done is shown; one whose
+   * control has been missing longer than its patience is looked past, for the
    * next one that's there, so a missing control never holds the guide up.
    * `index` -1 is nothing to show for now; `finished`, every step done, or the
-   * last, which says you're there.
+   * last, which says you're there. `lost`: every step before the last is done
+   * but the last one's control never came, so it's shown docked, with words of
+   * its own, rather than the guide running on unseen.
    */
   function pick(steps) {
     if (!steps.length || steps[steps.length - 1].done || steps.every((step) => step.done)) return { index: -1, finished: true };
+    const last = steps.length - 1;
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
       if (step.done) continue;
       if (step.shown || step.away) return { index: i, finished: false };
-      if (!(step.missingFor >= GRACE)) return { index: -1, finished: false };
+      if (step.optional) continue;
+      if (!(step.missingFor >= (step.patience || GRACE))) return { index: -1, finished: false };
+      if (i === last && steps.slice(0, last).every((before) => before.done || before.optional)) return { index: i, finished: false, lost: true };
     }
     return { index: -1, finished: false };
   }
 
   /**
    * Where the arrow and the bubble go, for a control whose box in the window
-   * is `box` ({ top, left, width, height }), in a window `view` ({ width,
-   * height }), with a bubble and an arrow of the sizes given: above the
-   * control, pointing down, where there's room, else below, pointing up; both
-   * kept inside the window. A control out of sight gets the arrow at the edge
-   * nearest it.
+   * is `box` ({ top, left, width, height }), lit with the box `around` (the
+   * control's, if not given), in a window `view` ({ width, height }), with a
+   * bubble and an arrow of the sizes given: above what's lit, pointing down,
+   * where there's room, else below it, pointing up, so neither covers what's
+   * lit; centred on the control; both kept inside the window. A control out of
+   * sight gets the arrow at the edge nearest it.
    */
-  function place(box, view, bubble, arrow) {
-    const bottom = box.top + box.height;
+  function place(box, view, bubble, arrow, around = box) {
+    const bottom = around.top + around.height;
     const need = arrow.height + GAP + bubble.height + MARGIN;
-    const above = box.top, below = view.height - bottom;
+    const above = around.top, below = view.height - bottom;
     const down = above >= need || (below < need && above > below);
     const centre = clamp(box.left + box.width / 2, MARGIN + arrow.width / 2, view.width - MARGIN - arrow.width / 2);
-    let y = down ? box.top - GAP - arrow.height : bottom + GAP;
+    let y = down ? around.top - GAP - arrow.height : bottom + GAP;
     y = clamp(y, MARGIN + (down ? bubble.height : 0), view.height - MARGIN - arrow.height - (down ? 0 : bubble.height));
     return {
       down,
@@ -113,6 +124,7 @@
 .smol-guide-tools button:focus-visible { outline: ${PIXEL}px solid ${COLOURS.y}; outline-offset: 2px; }
 .smol-guide.docked .smol-guide-shade, .smol-guide.docked .smol-guide-arrow { display: none; }
 .smol-guide.docked .smol-guide-bubble { left: 50% !important; top: auto !important; bottom: ${MARGIN + PIXEL}px; transform: translateX(-50%); }
+.smol-guide-room { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .smol-guide-arrow svg { animation: none; } }
 `;
 
@@ -148,13 +160,18 @@
    * The guide, for `options.steps`, each { id, target (a selector, an element
    * or a function giving one), area (what's lit, if more than the target),
    * say, press (the control's name, in bold after an arrow), button (a label:
-   * pressing it counts as done), ackOnClick (a click on it counts as done),
-   * done (a function: whether what it asks is done), away (whether it's in a
-   * part of the page not shown now), reveal (shows that part), n (its number) }.
+   * pressing it counts as done), ackOnClick (a click on it counts as done:
+   * only for a step whose click is all it asks), done (a function: whether
+   * what it asks is done), away (whether it's in a part of the page not shown
+   * now), reveal (shows that part), optional and patience (see `pick`), lost
+   * (what it says, docked, when it's the last and its control never came),
+   * doneTarget and doneSay (where it points and what it says when it's shown
+   * done, in a tour), n (its number) }.
    * `options.total` is how many steps the count says; `options.modals`, a
    * selector for what covers the page besides a <dialog>, under which the guide
    * waits; `options.awayText`, what the bubble says while the step is
-   * elsewhere; `options.onFinish(reason)`, called once it's over: "done" or "skipped".
+   * elsewhere; `options.onFinish(reason)`, called once it's over: "done",
+   * "skipped" (Skip), or "hidden" (Esc: put away until the page opens again).
    */
   function create(options) {
     const doc = options.document || root.document;
@@ -188,14 +205,27 @@
     tools.append(skip, go);
     bubble.append(count, text, tools);
     layer.append(shade, arrow, bubble);
+    /** Room at the foot of the page while the bubble is docked there, so it never sits on a pane's last row. */
+    const room = make('div', 'smol-guide-room');
+    room.setAttribute('aria-hidden', 'true');
 
-    let running = false;
+    let running = false, tour = false;
     let timer = 0, frame = 0;
-    /** The steps counted as done by a click or their button, and since when each control has been missing. */
+    /** The steps counted as done by a click or their button (in a tour, every step passed), and since when each control has been missing. */
     const acked = new Set();
     const missingSince = new Map();
-    /** What's shown: the step, whether it's away, its control, and the control that was given the guide's words. */
-    let shown = -1, shownAway = false, shownTarget = null, described = null;
+    /**
+     * What's shown: the step, how ("here", "away" in another part of the page, or "lost", docked as the
+     * last), whether it was done when it came, its control, and the control that was given the guide's
+     * words. Kept while the guide is hidden under a dialog, so it doesn't count as new when it's back.
+     */
+    let shown = -1, shownHow = '', shownDone = false, shownTarget = null, described = null;
+    /**
+     * The step the keyboard and the scroll were last brought to (ADOPT: the next one shown is taken as
+     * where you already are); `settle` is set when the next one shown should be brought to all the same.
+     */
+    const ADOPT = -2;
+    let settled = -1, settle = false;
 
     const call = (fn, fallback) => { try { return fn ? fn() : fallback; } catch { return fallback; } };
     const find = (target) => {
@@ -206,36 +236,51 @@
     const modalsOpen = () => [...doc.querySelectorAll('dialog[open]' + (options.modals ? `, ${options.modals}` : ''))].filter(visible);
     /** Something covers the page that the step's control isn't in: the guide waits for it to close. */
     const covered = (target) => modalsOpen().some((modal) => !target || !modal.contains(target));
+    const patience = (step) => call(step.patience, 0) || GRACE;
 
+    /**
+     * How each step is now. On a first run a step is done when what it asks is. In a tour every step is
+     * walked, done or not: one is passed by its Next, by being done while it's shown, or by being nowhere
+     * (all but the last, which then says where to look).
+     */
     function look() {
       const now = Date.now();
+      const last = steps.length - 1;
       return steps.map((step, i) => {
-        const done = acked.has(step.id) || !!call(step.done, false);
-        const target = done ? null : find(step.target);
+        const already = !!call(step.done, false);
+        if (tour && i === shown && !shownDone && already) acked.add(step.id);
+        let done = acked.has(step.id) || (!tour && already);
+        const target = done ? null : find(already && step.doneTarget ? step.doneTarget : step.target);
         const isShown = visible(target);
         const away = !done && !isShown && !!call(step.away, false);
         if (done || isShown || away) missingSince.delete(i);
         else if (!missingSince.has(i)) missingSince.set(i, now);
-        return { done, shown: isShown, away, missingFor: missingSince.has(i) ? now - missingSince.get(i) : 0, target };
+        const missingFor = missingSince.has(i) ? now - missingSince.get(i) : 0;
+        if (tour && i < last && !done && !isShown && !away && !step.optional && missingFor >= patience(step)) {
+          acked.add(step.id);
+          done = true;
+        }
+        return { done, already, shown: isShown && !done, away, missingFor, patience: patience(step), optional: !!step.optional, target: done ? null : target };
       });
     }
 
     function tick() {
       if (!running) return;
       const states = look();
-      const { index, finished } = pick(states);
+      const { index, finished, lost } = pick(states);
       if (finished) return finish('done');
-      if (index < 0 || covered(states[index].target)) return hide();
-      show(index, states[index]);
+      if (index < 0 || (!lost && !states[index].away && covered(states[index].target)) || ((lost || states[index].away) && covered(null))) return hide();
+      show(index, states[index], lost ? 'lost' : states[index].away ? 'away' : 'here');
     }
 
     function hide() {
       layer.hidden = true;
+      room.remove();
       undescribe();
-      shown = -1;
     }
 
     function describe(el) {
+      if (el === described) return;
       undescribe();
       if (!el) return;
       const ids = (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
@@ -250,47 +295,69 @@
       described = null;
     }
 
+    /** The control the keyboard goes to: the step's own, or the first one inside it. */
+    const control = (target) => (target.matches(FOCUSABLE) ? target : target.querySelector(FOCUSABLE)) || target;
     /** The keyboard to the step's control, unless you're typing somewhere: what you type stays where it is. */
     function focusOn(target) {
       const active = doc.activeElement;
-      if (active && active !== doc.body && !layer.contains(active) && active.matches(TYPING)) return null;
-      const into = target.matches(FOCUSABLE) ? target : target.querySelector(FOCUSABLE);
-      if (into) into.focus({ preventScroll: true });
-      return into || target;
+      if (active && active !== doc.body && !layer.contains(active) && active.matches(TYPING)) return;
+      const into = control(target);
+      if (into !== target || target.matches(FOCUSABLE)) into.focus({ preventScroll: true });
     }
 
-    function fill(step, i, away) {
-      count.textContent = `Step ${step.n || i + 1} of ${options.total || steps.length}`;
-      if (away) {
+    function fill(step, i, how, done) {
+      count.textContent = `Step ${step.n || i + 1} of ${options.total || steps.length}${done ? ' · done' : ''}`;
+      if (how === 'away') {
         text.textContent = options.awayText || 'Your next step is in another part of this page.';
+      } else if (how === 'lost') {
+        text.textContent = step.lost || step.say;
+      } else if (done) {
+        text.textContent = step.doneSay || step.say;
       } else {
         text.textContent = step.say + (step.press ? ' → ' : '');
         if (step.press) text.append(Object.assign(doc.createElement('b'), { textContent: step.press }));
       }
-      const label = away ? (step.reveal ? 'Show me' : '') : step.button || '';
+      const label = how === 'away' ? (step.reveal ? 'Show me' : '')
+        : how === 'lost' ? step.button || 'Done'
+        : done ? (i === steps.length - 1 ? step.button || 'Done' : 'Next')
+        : step.button || '';
       go.textContent = label;
       go.hidden = !label;
     }
 
-    function show(i, state) {
+    function show(i, state, how) {
       const step = steps[i];
-      const fresh = i !== shown || state.away !== shownAway || state.target !== shownTarget;
+      const docked = how !== 'here';
+      const done = tour && state.already;
       // In a <dialog> that's open, the guide goes in it: nothing outside one is drawn over it.
-      const host = (state.target && state.target.closest('dialog[open]')) || doc.body;
+      const host = (!docked && state.target.closest('dialog[open]')) || doc.body;
       if (layer.parentNode !== host) host.append(layer);
-      layer.classList.toggle('docked', state.away);
+      layer.classList.toggle('docked', docked);
       layer.hidden = false;
-      if (fresh) {
+      if (i !== shown || how !== shownHow || state.target !== shownTarget) {
+        if (i !== shown) shownDone = done;
         shown = i;
-        shownAway = state.away;
-        shownTarget = state.target;
-        fill(step, i, state.away);
-        if (!state.away) {
+        shownHow = how;
+        shownTarget = docked ? null : state.target;
+        fill(step, i, how, shownDone);
+      }
+      if (docked) {
+        undescribe();
+        room.style.height = `${bubble.offsetHeight + MARGIN * 2 + PIXEL * 2}px`;
+        if (room.parentNode !== doc.body) doc.body.append(room);
+      } else {
+        room.remove();
+        describe(control(state.target));
+        // The scroll and the keyboard move to a step only when it's new, or when you asked to be shown it:
+        // never just because the guide is back after a dialog or another pane.
+        if (settled === ADOPT && !settle) {
+          settled = i;
+        } else if (i !== settled || settle) {
+          settled = i;
+          settle = false;
           const box = state.target.getBoundingClientRect();
-          if (box.top < 0 || box.bottom > win.innerHeight) state.target.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
-          describe(focusOn(state.target));
-        } else {
-          undescribe();
+          if (box.top < 0 || box.top + box.height > win.innerHeight) state.target.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
+          focusOn(state.target);
         }
       }
       position();
@@ -298,24 +365,26 @@
 
     function position() {
       frame = 0;
-      if (!running || layer.hidden || shown < 0 || shownAway || !shownTarget || !shownTarget.isConnected) return;
+      if (!running || layer.hidden || shown < 0 || shownHow !== 'here' || !shownTarget || !shownTarget.isConnected) return;
       const step = steps[shown];
       const area = find(step.area);
       const lit = (visible(area) ? area : shownTarget).getBoundingClientRect();
-      Object.assign(shade.style, { left: `${lit.left - PAD}px`, top: `${lit.top - PAD}px`, width: `${lit.width + PAD * 2}px`, height: `${lit.height + PAD * 2}px` });
-      const box = shownTarget.getBoundingClientRect();
       const view = { width: doc.documentElement.clientWidth || win.innerWidth, height: win.innerHeight };
+      // The ring stays inside the window, however wide what's lit.
+      const left = Math.max(lit.left - PAD, RING), right = Math.min(lit.left + lit.width + PAD, view.width - RING);
+      Object.assign(shade.style, { left: `${left}px`, top: `${lit.top - PAD}px`, width: `${Math.max(0, right - left)}px`, height: `${lit.height + PAD * 2}px` });
+      const around = { left: left - RING, top: lit.top - PAD - RING, width: Math.max(0, right - left) + RING * 2, height: lit.height + (PAD + RING) * 2 };
       const size = { width: bubble.offsetWidth + PIXEL * 2, height: bubble.offsetHeight + PIXEL * 2 };
-      const at = place(box, view, size, { width: ARROW[0].length * PIXEL, height: ARROW.length * PIXEL });
+      const at = place(shownTarget.getBoundingClientRect(), view, size, { width: ARROW[0].length * PIXEL, height: ARROW.length * PIXEL }, around);
       arrow.classList.toggle('up', !at.down);
       Object.assign(arrow.style, { left: `${at.arrow.x}px`, top: `${at.arrow.y}px` });
       Object.assign(bubble.style, { left: `${at.bubble.x}px`, top: `${at.bubble.y}px` });
     }
     const follow = () => { if (!frame) frame = win.requestAnimationFrame(position); };
 
-    /** A click on the step's control counts, when that's what it asks. Seen first, before the page acts on it. */
+    /** A click on the step's control counts, when that's all it asks. Seen first, before the page acts on it. */
     function clicked(e) {
-      if (!running || shown < 0 || shownAway) return;
+      if (!running || layer.hidden || shown < 0 || shownHow !== 'here' || !shownTarget) return;
       const step = steps[shown];
       const area = find(step.area);
       if (step.ackOnClick && (shownTarget.contains(e.target) || (area && area.contains(e.target)))) {
@@ -329,14 +398,17 @@
       const inBubble = bubble.contains(e.target);
       if (!inBubble && ((e.target.matches && e.target.matches(TYPING)) || (shownTarget && shownTarget.closest('dialog[open]')))) return;
       e.preventDefault();
-      finish('skipped');
+      // Put away, not over: it's back the next time the page opens.
+      finish('hidden');
     }
 
     skip.onclick = () => finish('skipped');
     go.onclick = () => {
       if (shown < 0) return;
       const step = steps[shown];
-      if (shownAway) {
+      if (shownHow === 'away') {
+        // You asked to be shown it: the scroll and the keyboard go there once it's in sight.
+        settle = true;
         call(step.reveal);
       } else {
         acked.add(step.id);
@@ -364,18 +436,28 @@
       running = false;
       win.clearInterval(timer);
       if (frame) win.cancelAnimationFrame(frame);
-      frame = 0;
+      timer = frame = 0;
       listen(false);
       hide();
       layer.remove();
     }
 
-    /** From the first step not done, with nothing counted from before. */
-    function start() {
+    /**
+     * From the beginning, with nothing counted from before. `how.tour`: every step is walked from the
+     * first, done or not (Show me around again); `how.focus`: the keyboard and the scroll go to the first
+     * step shown, as you asked for it. Otherwise, as on a page that has just opened, they're left where
+     * they are until the step changes.
+     */
+    function start(how = {}) {
       if (running) return;
       acked.clear();
       missingSince.clear();
+      tour = !!how.tour;
       shown = -1;
+      shownHow = '';
+      shownTarget = null;
+      settled = how.focus ? -1 : ADOPT;
+      settle = false;
       running = true;
       doc.body.append(layer);
       listen(true);

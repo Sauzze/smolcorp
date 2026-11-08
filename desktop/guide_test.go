@@ -11,19 +11,19 @@ import (
 )
 
 // The first-run guide shows on a new computer only: a config from before it, of someone who had set up
-// (setup opened, a hires folder chosen, or a GM hired), counts as done, and what's saved is kept.
+// (setup opened, a hires folder chosen, or a GM hired, by hand too), counts as done, and what's saved is kept.
 func TestTheGuideIsForAFirstRunOnly(t *testing.T) {
 	isolate(t)
 	if loadConfig().GuideDone {
 		t.Fatal("no config yet: the guide counts as done")
 	}
-	for _, file := range []string{`{"hasCompletedSetup": true}`, `{"hireFolder": "/work"}`, `{"managerEnabled": true}`} {
+	for _, file := range []string{`{"hasCompletedSetup": true}`, `{"hireFolder": "/work"}`, `{"managerEnabled": true}`, `{"gmByHand": true}`} {
 		writeFile(t, configFile, file)
 		if !loadConfig().GuideDone {
 			t.Errorf("%s, from before the guide: it would be shown", file)
 		}
 	}
-	writeFile(t, configFile, `{"hasCompletedSetup": false, "hireFolder": ""}`)
+	writeFile(t, configFile, `{"hasCompletedSetup": false, "hireFolder": "", "gmByHand": false}`)
 	if loadConfig().GuideDone {
 		t.Error("a config of someone who never set up: the guide counts as done")
 	}
@@ -119,7 +119,8 @@ func TestSetupHasTheGuidesStepsOnTheContractsIds(t *testing.T) {
 	setup := string(data)
 	for _, want := range []string{
 		`<script src="/guide.js"></script>`,
-		`target: '#first-folder-use', area: '#first-folder'`, `target: '#first-gm-checks'`, `target: '#start-gm'`, `target: '#hs-hire'`,
+		`target: '#first-folder-use', area: '#first-folder'`, `target: '#first-gm-checks'`, `target: '#start-gm'`, `target: '#hs-hire', optional: true`,
+		`lost: 'Open the office to see your General Manager.'`, `checks.dataset.ok`,
 		`$('first-gm-next')`, `$('start-office')`,
 		`id="guide-again"`, `'/setup/guide?done=1'`, `'/setup/guide?done=0'`, `['pair', 'unpair', 'viewer', 'guide']`, `location.hash !== '#guide'`,
 	} {
@@ -127,12 +128,70 @@ func TestSetupHasTheGuidesStepsOnTheContractsIds(t *testing.T) {
 			t.Errorf("setup.html has no %s", want)
 		}
 	}
-	steps := setup[strings.Index(setup, "steps: [") : strings.Index(setup, "onFinish:")]
+	steps := setup[strings.Index(setup, "steps: ["):strings.Index(setup, "onFinish:")]
 	order := []string{"id: 'folder'", "id: 'checks'", "id: 'hire'", "id: 'sheet'", "id: 'desk'"}
 	for i := 1; i < len(order); i++ {
 		if strings.Index(steps, order[i-1]) < 0 || strings.Index(steps, order[i-1]) > strings.Index(steps, order[i]) {
 			t.Errorf("the steps aren't in the contract's order: %s before %s", order[i-1], order[i])
 		}
+	}
+	// Only the last step counts a click: the hire is done while it's really under way, not when pressed.
+	if strings.Count(steps, "ackOnClick") != 1 || strings.Index(steps, "ackOnClick") < strings.Index(steps, "id: 'desk'") {
+		t.Error("a step other than the GM at its desk counts a click as done")
+	}
+	if !strings.Contains(steps, "done: () => gmSessions().length > 0 || gmHiring || gmSheetOpen() }") {
+		t.Error("the hire step isn't done by a hire under way")
+	}
+}
+
+// gmHiring, the hire under way the guide's hire step goes by: set once Hire your General Manager has
+// sent the hire, and cleared when the app is out of reach or says no, so the arrow comes back.
+func TestTheGuidesHireStepFollowsTheHireNotTheClick(t *testing.T) {
+	data, err := os.ReadFile("../Resources/web/setup.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup := string(data)
+	start := strings.Index(setup, "$('start-gm').onclick = async () => {")
+	if start < 0 {
+		t.Fatal("setup.html has no Hire your General Manager")
+	}
+	hire := setup[start : start+strings.Index(setup[start:], "\n  };\n")]
+	set, sent := strings.Index(hire, "gmHiring = true;"), strings.Index(hire, "await fetch(`/setup/hire/gm")
+	cleared := strings.Index(hire, "if (!res || !res.ok) gmHiring = false;")
+	if set < 0 || sent < set || cleared < sent || strings.Index(hire, "if (!res) return") < cleared {
+		t.Errorf("gmHiring isn't set before the hire is sent and cleared before each refusal:\n%s", hire)
+	}
+	if strings.Index(hire, "Choose the Claude account") > set {
+		t.Error("gmHiring is set before the account is checked")
+	}
+	sheet := setup[strings.Index(setup, "$('hs-hire').onclick = async () => {"):]
+	sheet = sheet[:strings.Index(sheet, "closeHireSheet();")]
+	if !strings.Contains(sheet, "if (gmHire) gmHiring = true;") || !strings.Contains(sheet, "if (gmHire) gmHiring = false;") {
+		t.Error("the hire sheet doesn't say when a GM's hire is under way")
+	}
+}
+
+// The engine itself, run in node on a small stand-in page (Tests/fixtures/guide/engine.test.js): what a
+// click counts for, Esc and Skip, a dialog over the page, the keyboard moved only on a new step, a tour,
+// the last step docked when its control never comes, stop() leaving nothing running; and setup's welcome
+// waiting for the guide on a first run. Without node the test is skipped.
+func TestTheGuidesEngineInNode(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: guide.js can't be run")
+	}
+	var paths []string
+	for _, path := range []string{"../Tests/fixtures/guide/engine.test.js", "../Resources/web/guide.js", "../Resources/web/setup.html"} {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, abs)
+	}
+	out, err := exec.Command(node, paths...).CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "ok" {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }
 
@@ -164,6 +223,14 @@ assert(g.pick([step({ missingFor: g.GRACE }), step({ missingFor: 0 }), step({ sh
 let r = g.pick([step({ missingFor: g.GRACE }), step({ missingFor: g.GRACE })]);
 assert(r.index === -1 && !r.finished, 'nothing there: nothing shown, never finished');
 assert(g.pick([step({ away: true }), step({ shown: true })]).index === 0, 'a step elsewhere on the page is still the one');
+// The last step's control never comes, every step before it done: shown docked, not run unseen.
+r = g.pick([step({ done: true }), step({ done: true }), step({ missingFor: g.GRACE })]);
+assert(r.index === 2 && r.lost && !r.finished, 'the last step lost: docked');
+assert(!g.pick([step({ missingFor: g.GRACE }), step({ missingFor: g.GRACE })]).lost, 'not lost while a step before it is not done');
+assert(g.pick([step({ done: true }), step({ optional: true }), step({ missingFor: g.GRACE })]).lost, 'an optional step before it is no hold-up');
+// An optional step is never waited for; a step's own patience is.
+assert(g.pick([step({ optional: true }), step({ shown: true })]).index === 1, 'an optional step not there is passed at once');
+assert(g.pick([step({ missingFor: g.GRACE, patience: 15000 }), step({ shown: true })]).index === -1, 'a step given more patience is waited for longer');
 
 const arrow = { width: 33, height: 33 };
 const inside = (p, bubble, view) => p.bubble.x >= 0 && p.bubble.y >= 0 && p.bubble.x + bubble.width <= view.width && p.bubble.y + bubble.height <= view.height
