@@ -85,7 +85,7 @@ final class SetupFreshEyesPageTests: XCTestCase {
         XCTAssertFalse(hiring.contains(#"id="hire-folder""#))
         // Saved, said on a save; Find a setting uses Start here's word.
         XCTAssertTrue(page.contains("said('hire-folder-saved', 'Saved ✓', 'good');"))
-        XCTAssertTrue(page.contains(#"data-at="step-hire-folder"><b>Change where hires work</b><small>The folder new hires work in"#))
+        XCTAssertTrue(page.contains(#"data-at="step-hire-folder"><b>Change where hires work</b><small>The folder your hires work in"#))
         XCTAssertFalse(page.contains("Change where hires start"))
     }
 
