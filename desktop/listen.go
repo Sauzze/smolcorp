@@ -132,6 +132,17 @@ func phoneHost() string {
 	return tailscale[0]
 }
 
+// phoneTailnet is where a phone signed in to Tailscale opens Smolcorp from
+// anywhere, for Pair a phone to say beside the Wi-Fi address: "" with no
+// Tailscale here, or when the phone's address is Tailscale's already.
+func phoneTailnet() string {
+	tailscale := tailscaleAddresses()
+	if len(tailscale) == 0 || phoneHost() == tailscale[0] {
+		return ""
+	}
+	return fmt.Sprintf("http://%s:%d", tailscale[0], Port)
+}
+
 // listenerFor opens what the scope asks for on port.
 func listenerFor(scope string, port int) (net.Listener, error) {
 	if scope != listenTailscale {

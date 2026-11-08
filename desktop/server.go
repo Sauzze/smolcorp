@@ -1604,7 +1604,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 			keyOf[key.session.ID] = i
 		}
 	}
-	pairing := map[string]any{"address": phoneAddress(), "open": false, "codeExpiresIn": 0}
+	pairing := map[string]any{"address": phoneAddress(), "tailnet": phoneTailnet(), "open": false, "codeExpiresIn": 0}
 	if code := d.access.ActiveCode(); code != "" {
 		pairing["open"] = true
 		pairing["codeExpiresIn"] = int(d.access.CodeExpiresIn().Seconds())
