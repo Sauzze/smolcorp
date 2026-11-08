@@ -1394,8 +1394,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"managerEnabled": enabled == "1"})
 
+	// What a first General Manager hire needs (gmpreflight.go), Start here's lines above its
+	// Hire button. Outside /setup/gm/, which is closed while the manager is off, as on a first run.
+	case r.Method == http.MethodGet && path == "/setup/hire/gm/preflight":
+		writeJSON(w, http.StatusOK, d.gmPreflight())
+
 	// Start here's Hire your General Manager: the GM role, in the folder for
-	// new hires or your home folder, its questions asked in its terminal.
+	// your hires, its questions asked in its terminal.
 	case r.Method == http.MethodPost && path == "/setup/hire/gm":
 		// One GM per office: the GM's token never hires the gm role. Checked before anything is saved
 		// (DeckRouter.swift: the same refusal before the hire).
@@ -1403,11 +1408,26 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			writeStatus(w)(status, text)
 			return
 		}
+		// One at a time, as the Mac claims it: a second click while one runs would read the switches
+		// the first turned on as its own "before", and could leave them on when both fail.
+		if !d.gmHiring.TryLock() {
+			writeStatus(w)(http.StatusConflict, gmBeingHired)
+			return
+		}
+		defer d.gmHiring.Unlock()
 		// The manager is switched on before the hire (the GM is a managed hire) and back if the hire
-		// fails, as the Mac does (DeckRouter.swift). d.mu is not held across the hire.
+		// fails, as the Mac does (DeckRouter.swift). d.mu is not held across the hire. Hire and fire
+		// from the office goes on with it too, as the GM hires its team, and back off the same way.
+		// In the folder for your hires, never your home folder: Start here's first step sets it.
 		d.mu.Lock()
-		before := d.config.ManagerEnabled
+		if _, ok := existingFolder(d.config.HireFolder); !ok {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusConflict, chooseHireFolderFirst)
+			return
+		}
+		before, hiring := d.config.ManagerEnabled, d.config.HiringEnabled
 		d.config.ManagerEnabled = true
+		d.config.HiringEnabled = true
 		d.config.save()
 		d.changed()
 		d.mu.Unlock()
@@ -1415,6 +1435,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		if status >= http.StatusBadRequest {
 			d.mu.Lock()
 			d.config.ManagerEnabled = before
+			d.config.HiringEnabled = hiring
 			d.config.save()
 			d.changed()
 			d.mu.Unlock()
@@ -1572,6 +1593,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 	}
 	connected := allConnected()
 	openAtLogin := isOpenAtLogin()
+	gmHired := readRegistry(registryPath(), false).gmIsHired()
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -1629,6 +1651,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		// No accessibility step: nothing here needs that permission.
 		"checklist": map[string]any{"hooks": connected, "scroll": d.config.ScrollEnabled, "openAtLogin": openAtLogin},
 		"agents":    agentList,
+		// Whether a General Manager is hired, whatever the manager switch says: Start here looks no further then.
+		"gmHired": gmHired,
 		// Where hires open: the terminals here that can open them, and tmux if it's there.
 		"hiring": d.hireState(),
 		// The roles, those that come with the app to go back to, and what a

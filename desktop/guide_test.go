@@ -154,37 +154,42 @@ func TestTheGuidesHireStepFollowsTheHireNotTheClick(t *testing.T) {
 		t.Fatal(err)
 	}
 	setup := string(data)
-	start := strings.Index(setup, "$('start-gm').onclick = async () => {")
+	// The button runs hireGm (one hire at a time); the hire itself is in there.
+	start := strings.Index(setup, "async function hireGm() {")
 	if start < 0 {
-		t.Fatal("setup.html has no Hire your General Manager")
+		t.Fatal("setup.html has no hireGm for Hire your General Manager")
 	}
-	hire := setup[start : start+strings.Index(setup[start:], "\n  };\n")]
+	hire := setup[start : start+strings.Index(setup[start:], "\n  }\n")]
 	set, sent := strings.Index(hire, "gmHiring = true;"), strings.Index(hire, "await fetch(`/setup/hire/gm")
 	if set < 0 || sent < set {
 		t.Errorf("gmHiring isn't set before the hire is sent:\n%s", hire)
 	}
-	// Every way out after the hire is sent, but the GM seated, ends the hire first: no answer, a refusal,
-	// and (with T782's handler) a GM that never started.
+	// Every way out after the hire is sent ends the hire first (no answer, a refusal, a GM that never
+	// started), but two: the GM seated ("Hired:"), and the last return, five minutes on, where the guide's
+	// own patience has run out the same way.
 	if !strings.Contains(setup, "function hireEnded() {\n    gmHiring = false;") {
 		t.Error("setup.html has no hireEnded that clears gmHiring")
 	}
-	outs := 0
-	for from, rest := sent, hire[sent:]; ; {
-		at := strings.Index(rest, "return ")
+	after := hire[sent:]
+	last := strings.LastIndex(after, "return ")
+	outs, prev := 0, 0
+	for i := 0; ; {
+		at := strings.Index(after[i:], "return ")
 		if at < 0 {
 			break
 		}
-		if !strings.HasPrefix(rest[at:], "return startSaid(`Hired:") {
+		at += i
+		if at != last && !strings.Contains(after[prev:at], "Hired:") {
 			outs++
-			if !strings.Contains(rest[:at], "hireEnded();") {
-				t.Errorf("a way out of the hire doesn't call hireEnded first: %s", strings.SplitN(rest[at:], "\n", 2)[0])
+			if !strings.Contains(after[prev:at], "hireEnded();") {
+				t.Errorf("a way out of the hire doesn't call hireEnded first: %s", strings.SplitN(after[at:], "\n", 2)[0])
 			}
 		}
-		from += at + len("return ")
-		rest = hire[from:]
+		prev = at + len("return ")
+		i = prev
 	}
-	if outs < 2 {
-		t.Errorf("expected the no-answer and refused ways out after the hire is sent, found %d", outs)
+	if outs < 3 {
+		t.Errorf("expected the no-answer, refused and didn't-start ways out after the hire is sent, found %d", outs)
 	}
 	if strings.Index(hire, "Choose the Claude account") > set {
 		t.Error("gmHiring is set before the account is checked")

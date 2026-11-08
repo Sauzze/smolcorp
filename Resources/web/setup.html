@@ -349,6 +349,19 @@
   .ff-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .ff-done { color: var(--dim); font-size: 12.5px; }
   .ff-done code { color: var(--ink); }
+  /* Before the General Manager's hire: what it needs, each line with what to do; then what to say to it first. */
+  .start-here .first-gm-go { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .start-here .btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+  .start-here code.cmd { display: block; margin-top: 4px; padding: 4px 8px; background: var(--well); border-radius: 6px; font-size: 11.5px;
+    user-select: all; -webkit-user-select: all; overflow-wrap: anywhere; }
+  .first-gm-next { margin-top: 10px; padding: 12px 14px; border-radius: 10px; background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+  .first-gm-next .head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .first-gm-next h3 { margin: 0; font-size: 14px; flex: 1 1 200px; }
+  .first-gm-next p { margin: 6px 0 0; font-size: 12.5px; }
+  .first-gm-next ul { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+  .first-gm-next li { display: flex; gap: 8px; align-items: center; background: var(--group); border-radius: 8px; padding: 6px 10px; font-size: 12.5px; }
+  .first-gm-next li span { flex: 1 1 auto; min-width: 0; }
   .attention { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: color-mix(in srgb, var(--asking) 10%, var(--group));
     border: 1px solid color-mix(in srgb, var(--asking) 45%, transparent); border-radius: 12px; padding: 12px 16px; }
   .attention .text { flex: 1 1 240px; }
@@ -655,9 +668,6 @@
         <div class="tools">
           <button class="btn primary" id="start-fix-all" hidden>Fix everything</button>
           <button class="btn" id="start-office">Open the office</button>
-          <select id="start-gm-account" aria-label="The Claude account your General Manager works on" hidden></select>
-          <button class="btn" id="start-gm">Hire your General Manager</button>
-          <span class="text" id="start-gm-byhand" hidden>Your General Manager was started by hand.</span>
         </div>
       </div>
       <!-- The hires folder, first thing on a first run; once set, one line with Change. -->
@@ -677,6 +687,28 @@
         <div class="ff-done" id="first-folder-done" hidden>Hires work in <code id="first-folder-short"></code> · <button class="link" id="first-folder-change">Change</button></div>
       </div>
       <div class="box" id="start-checks"></div>
+      <div class="box" id="first-gm-checks" aria-label="What your General Manager needs" hidden></div>
+      <div class="first-gm-go">
+        <select id="start-gm-account" aria-label="The Claude account your General Manager works on" hidden></select>
+        <button class="btn" id="start-gm">Hire your General Manager</button>
+        <button class="btn" id="first-gm-recheck" hidden>Check again</button>
+        <span class="text" id="start-gm-byhand" hidden>Your General Manager was started by hand.</span>
+      </div>
+      <p class="said" id="first-gm-why" hidden></p>
+      <div class="first-gm-next" id="first-gm-next" hidden>
+        <div class="head">
+          <h3>Your General Manager is at its desk</h3>
+          <button class="btn primary" id="first-gm-office">Open the office</button>
+          <button class="btn" id="first-gm-done">Done</button>
+        </div>
+        <p id="first-gm-hiring" hidden>Hire and fire from the office is now on, so your General Manager can hire its team.</p>
+        <p>It's asking what the goal is. Answer in its terminal window, in your own words. A few ways to start:</p>
+        <ul id="first-gm-says">
+          <li><span>Look at the projects in this folder and tell me what each one is. Then suggest what we could get done first.</span><button class="btn">Copy</button></li>
+          <li><span>Our goal this week: [say it in one line]. Make a plan, then hire the first employee we need.</span><button class="btn">Copy</button></li>
+          <li><span>Hire a developer to fix [the bug you have in mind], and tell me when it's done.</span><button class="btn">Copy</button></li>
+        </ul>
+      </div>
       <p class="said" id="start-said" role="status" hidden></p>
     </div>
 
@@ -1788,6 +1820,12 @@
     const m = state.manager;
     $('step-manager').hidden = !m;
     $('step-manager').closest('.group').hidden = !m;
+    // With the manager off (or no manager here), the state says whether a GM is hired (the team is closed then);
+    // with it on, the team below says.
+    if (!m || !m.enabled) {
+      gmHired = !!state.gmHired;
+      gmKnown = true;
+    }
     if (!m) return;
     showStartGM(!!m.gmStartedByHand); // the flag alone for now; the team below knows if a hired GM is there
     mark('step-manager', m.enabled);
@@ -1798,8 +1836,15 @@
     $('manager-tools').hidden = true;
     if (!m.enabled) return;
     renderScreens();
+    // The team can't be read: the state says whether a GM is hired, and the flag whether one was started by hand.
+    const teamUnread = () => {
+      gmHired = !!state.gmHired;
+      gmKnown = true;
+      showStartGM(!!(state.manager && state.manager.gmStartedByHand));
+    };
     fetch('/setup/gm/team', { cache: 'no-store', headers: setupHeaders() }).then((res) => (res.ok ? res.json() : null)).then((team) => {
-      if (!team || !state.manager || !state.manager.enabled) return;
+      if (!state.manager || !state.manager.enabled) return;
+      if (!team) return teamUnread();
       const rows = (team.team || []).filter((r) => r.state !== 'fired' && r.state !== 'failed');
       const hired = rows.some((r) => r.role === 'gm' && r.registered);
       // A GM started by hand: the app names its session (a live row with the gm role and no hire), or, from
@@ -1808,9 +1853,11 @@
       const others = rows.filter((r) => r.role !== 'gm').length;
       line.textContent = `${hired ? 'Your General Manager is hired.' : byHand ? 'Your General Manager was started by hand.' : 'No General Manager yet: use Hire your General Manager on Easy setup.'} `
         + (others === 1 ? '1 employee on the team.' : `${others} employees on the team.`);
+      gmHired = hired;
+      gmKnown = true;
       showStartGM(byHand);
       renderManagerTools(team.team || []);
-    }).catch(() => {});
+    }).catch(teamUnread);
   }
 
   /** Easy setup's hire button gives way to the by-hand line while a General Manager started by hand is there. */
@@ -1819,6 +1866,10 @@
     $('start-gm-byhand').hidden = !byHand;
     if (byHand) $('start-gm-account').hidden = true;
     else renderGmAccount();
+    renderGmPreflight();
+    // Shown, with nothing checked yet: the first check. Otherwise the 10 s look, only while it's shown.
+    if (gmPreflightWanted() && !gmPreflightAsked) checkGmPreflight();
+    else armGmPreflight();
   }
 
   /** Says a refusal in place, under the control that met it. Never an alert. */
@@ -2322,6 +2373,8 @@
     pick.hidden = profiles.length < 2 || !state.agents.some((a) => a.id === 'claude') || $('start-gm').hidden;
     pick.replaceChildren(new Option('Choose an account…', ''), ...profiles.map((p) => new Option(p.name, p.name)));
     if (profiles.some((p) => p.name === kept)) pick.value = kept;
+    // Nothing it can default is asked: the default account is chosen until another is.
+    else if (profiles.some((p) => p.default)) pick.value = profiles.find((p) => p.default).name;
   }
   /** The Claude accounts besides the default, as the page lists them; changes go to the app whole. */
   function renderAccounts() {
@@ -6164,6 +6217,7 @@
     startChecks = report.checks;
     renderStartHere(report);
     renderAttention();
+    if (!gmPreflightAsked) checkGmPreflight();
     if (report.checks.some((c) => c.status !== 'ok' && c.status !== 'info')) startTimer = setTimeout(loadStartHere, 15000);
   }
 
@@ -6283,32 +6337,234 @@
   function hireEnded() {
     gmHiring = false;
   }
+  /** The General Manager hires that didn't start, by id, with why: the team keeps the reason in its notes. */
+  async function failedGms() {
+    const res = await fetch('/setup/gm/team', { cache: 'no-store', headers: setupHeaders(false) }).catch(() => null);
+    if (!res || !res.ok) return null;
+    return ((await res.json().catch(() => ({}))).team || []).filter((r) => r.role === 'gm' && r.state === 'failed');
+  }
+
   $('start-gm').onclick = async () => {
-    if (!$('start-gm-account').hidden && !$('start-gm-account').value) return startSaid('Choose the Claude account your General Manager works on.', true);
+    // One hire at a time: a second click while one runs says so, and sends nothing.
+    if (gmHireRunning) return startSaid('Your General Manager is being hired. Give it a moment.');
+    gmHireRunning = true;
+    renderGmPreflight();
+    armGmPreflight();
+    let again = false;
+    try {
+      again = await hireGm();
+    } finally {
+      gmHireRunning = false;
+      renderGmPreflight();
+      if (again) checkGmPreflight();
+      else armGmPreflight();
+    }
+  };
+
+  /** Start here's hire, while the button is busy: true when the lines above should look again. */
+  async function hireGm() {
+    // Greyed while something is in the way: pressed, it looks again, and says what's left.
+    if (gmPreflightLeft().length) {
+      await checkGmPreflight(true);
+      const left = gmPreflightLeft();
+      if (left.length) {
+        startSaid(`Not yet: ${left[0].title} ${left[0].fix}`, true);
+        return false;
+      }
+    }
+    if (!$('start-gm-account').hidden && !$('start-gm-account').value) {
+      startSaid('Choose the Claude account your General Manager works on.', true);
+      return false;
+    }
+    $('first-gm-next').hidden = true;
+    // The hire turns Hire and fire from the office on, as the GM hires its team: said once it's done.
+    const hiringWasOff = !!state.hiring && !state.hiring.enabled;
     const before = (await seatedGms()) || [];
+    // When Hire was pressed: a GM hire started after it is this one, whenever the team can first be read.
+    const pressedAt = Date.now();
     startSaid('Hiring your General Manager: its terminal opens, and it asks you what the goal is.');
     gmHiring = true;
     const res = await fetch(`/setup/hire/gm${$('start-gm-account').hidden ? '' : `?account=${encodeURIComponent($('start-gm-account').value)}`}`, { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
     if (!res) {
       hireEnded();
-      return startSaid("Can't reach Smolcorp on this computer.", true);
+      startSaid("Can't reach Smolcorp on this computer.", true);
+      return false;
     }
+    // Refused: the reason, and the lines above look again, so the fix is right there.
     if (!res.ok) {
       hireEnded();
-      return startSaid(await res.text(), true);
+      const why = await res.text();
+      startSaid(why, true);
+      // No folder for your hires: its step, the first of Start here.
+      if (why.startsWith('Choose the folder for your hires first')) gmPreflightDo({ kind: 'folder' });
+      return true;
     }
+    // The GMs that had already failed, taken now the hire is under way: the manager is on (the team is
+    // closed while it's off, so a look before would see none), and a new hire's failure takes a while to show.
+    let failed = await failedGms();
+    // Hire and fire from the office, and the manager, are on now: the rest of the page says so.
+    load();
+    $('first-gm-hiring').hidden = !hiringWasOff;
     const advice = 'Claude Code may first ask to trust the folder and, if an API key is in the environment, whether to use it: answer Yes to both.';
-    startSaid(`Your General Manager is starting: its terminal is opening. ${advice}`);
-    // Only a session at a desk says it's there. Wait up to a minute for it.
-    for (let i = 0; i < 30; i++) {
+    startSaid(`Your General Manager is starting: its terminal is opening. ${hiringWasOff ? 'Hire and fire from the office is now on, so it can hire its team. ' : ''}${advice}`);
+    // Only a session at a desk says it's there; a hire that ended first says why. Up to five minutes, as a trust prompt may wait.
+    for (let i = 0; i < 150; i++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       const now = await seatedGms();
       if (now && now.some((id) => !before.includes(id))) {
-        return startSaid(`Hired: your General Manager is at a desk in the office, asking what the goal is. ${advice}`);
+        startSaid(`Hired: your General Manager is at its desk in the office.`);
+        $('first-gm-next').hidden = false;
+        $('first-gm-next').scrollIntoView({ block: 'nearest' });
+        load();
+        return false;
       }
+      if (i % 3 !== 2) continue;
+      const failedNow = await failedGms();
+      // Couldn't read the team when the hire began: the old ones are those started before Hire was pressed.
+      if (failedNow && !failed) failed = failedNow.filter((r) => !(r.started >= pressedAt));
+      const gone = failedNow && failedNow.find((r) => !failed.some((f) => f.id === r.id));
+      if (gone) {
+        hireEnded();
+        startSaid(`Your General Manager didn't start. ${gone.notes || ''} Put right what's marked ! above, then hire it again.`.replace(/\s+/g, ' '), true);
+        return true;
+      }
+      if (i === 29) startSaid(`Your General Manager is still starting. Look at its terminal window: it may be waiting for you. ${advice}`);
     }
-    startSaid(`Your General Manager is still starting. Look at its terminal window: it may be waiting for you. ${advice}`);
-  };
+    return false;
+  }
+
+  /*
+   * Before the General Manager's hire: what it needs (GET /setup/hire/gm/preflight), each line with what to
+   * do, in #first-gm-checks. Hire your General Manager is greyed while anything is in the way, says why when
+   * pressed, and looks again; so does coming back to this page, and every 10 s while something is left.
+   * Only while the box is shown: never with a GM hired or started by hand, nor while a hire runs.
+   */
+  let gmPreflight = null, gmPreflightTimer = 0, gmPreflightBusy = false, gmPreflightAsked = false, gmPreflightOlder = false,
+    gmPreflightFailed = false, gmHired = false, gmKnown = false, gmHireRunning = false, gmPreflightRunning = null;
+
+  /** Whether the lines are wanted: the hire button shown, no GM hired (once that's known), no hire running. */
+  function gmPreflightWanted() {
+    return gmKnown && !$('start-gm').hidden && !gmHired && !gmHireRunning;
+  }
+
+  /** The look again in 10 s, while the lines are wanted and something is left, and the page is in view; otherwise none. */
+  function armGmPreflight() {
+    clearTimeout(gmPreflightTimer);
+    const again = gmPreflightAsked && !gmPreflightBusy && !gmPreflightOlder && (!gmPreflight || !gmPreflight.ready) && !document.hidden;
+    gmPreflightTimer = again && gmPreflightWanted() ? setTimeout(() => checkGmPreflight(), 10000) : 0;
+  }
+
+  /** `pressed`: the hire's own look, made while it runs; one already under way is waited for, not skipped. */
+  async function checkGmPreflight(pressed = false) {
+    clearTimeout(gmPreflightTimer);
+    if (gmPreflightBusy) return pressed ? gmPreflightRunning : undefined;
+    if (!(pressed ? gmKnown && !$('start-gm').hidden && !gmHired : gmPreflightWanted())) return;
+    gmPreflightRunning = lookGmPreflight(pressed);
+    return gmPreflightRunning;
+  }
+  async function lookGmPreflight(pressed) {
+    gmPreflightBusy = gmPreflightAsked = true;
+    // For the guide: no data-ok while checking, so its step never flickers.
+    delete $('first-gm-checks').dataset.ok;
+    const pick = $('start-gm-account');
+    const account = pick.hidden || !pick.value ? '' : `?account=${encodeURIComponent(pick.value)}`;
+    const res = await fetch(`/setup/hire/gm/preflight${account}`, { cache: 'no-store', headers: setupHeaders(false) }).catch(() => null);
+    const report = res && res.ok ? await res.json().catch(() => null) : null;
+    gmPreflightBusy = false;
+    // An app from before the preflight has none: the button hires as it did.
+    gmPreflight = report && Array.isArray(report.items) ? report : null;
+    gmPreflightOlder = !!res && res.status === 404;
+    gmPreflightFailed = !gmPreflight && !gmPreflightOlder;
+    renderGmPreflight();
+    if (!pressed) armGmPreflight();
+  }
+
+  /** The lines in the hire's way: wrong, and not optional. */
+  function gmPreflightLeft() {
+    return gmPreflight && !gmPreflight.ready ? gmPreflight.items.filter((i) => !i.ok && !i.optional) : [];
+  }
+
+  function renderGmPreflight() {
+    const box = $('first-gm-checks');
+    const shown = !$('start-gm').hidden && !gmHired;
+    const left = shown ? gmPreflightLeft() : [];
+    const failed = gmPreflightFailed;
+    box.hidden = !shown || !gmPreflight;
+    // Known: whether nothing greys the hire (an older app, or a check that failed, leaves it to hire as before).
+    if (gmPreflightAsked && !gmPreflightBusy) box.dataset.ok = String(!left.length);
+    // Greyed while something is in the way, and busy while a hire runs.
+    $('start-gm').setAttribute('aria-disabled', String(left.length > 0 || gmHireRunning));
+    $('start-gm').setAttribute('aria-busy', String(gmHireRunning));
+    $('start-gm').classList.toggle('primary', shown && !!gmPreflight && !left.length);
+    $('first-gm-recheck').hidden = !shown || (!left.length && !failed);
+    const why = !shown ? '' : failed ? "Couldn't check what your General Manager needs. You can still hire it, or press Check again."
+      : left.length ? `Hire your General Manager is greyed until ${left.length === 1 ? 'the line marked ! above is' : `the ${left.length} lines marked ! above are`} put right.` : '';
+    $('first-gm-why').hidden = !why;
+    $('first-gm-why').textContent = wording(why);
+    if (box.hidden) return;
+    if (changed(box, gmPreflight.items)) box.replaceChildren(...gmPreflight.items.map(gmPreflightRow));
+  }
+
+  function gmPreflightRow(item) {
+    const row = document.createElement('div');
+    row.className = `step ${item.ok ? 'done' : item.optional ? 'todo' : 'fix'}`;
+    row.dataset.check = item.id;
+    const mark = Object.assign(document.createElement('div'), { className: 'mark', textContent: item.ok ? '✓' : '!' });
+    const text = Object.assign(document.createElement('div'), { className: 'text' });
+    text.append(Object.assign(document.createElement('div'), { className: 'title', textContent: item.title }));
+    if (item.fix) text.append(Object.assign(document.createElement('div'), { className: 'detail', textContent: item.fix }));
+    const action = item.action;
+    const code = action && action.command ? Object.assign(document.createElement('code'), { className: 'cmd', textContent: action.command }) : null;
+    if (code) text.append(code);
+    row.append(mark, text);
+    if (action) row.append(startButton(action.label, (e) => gmPreflightDo(action, e.currentTarget, code), !item.optional));
+    return row;
+  }
+
+  /** A line's button: copies its command, presses its fix, or shows the folder step. */
+  async function gmPreflightDo(action, button, code) {
+    if (action.kind === 'copy') {
+      try {
+        await navigator.clipboard.writeText(action.command);
+        button.textContent = 'Copied';
+      } catch {
+        // No clipboard here: the command is selected, to copy by hand.
+        if (code) getSelection().selectAllChildren(code);
+        button.textContent = 'Selected: copy it';
+      }
+      return setTimeout(() => { button.textContent = action.label; }, 2500);
+    }
+    if (action.kind === 'folder') {
+      const step = $('first-folder') && !$('first-folder').hidden ? $('first-folder') : $('step-hiring');
+      return go(step.closest('.pane').dataset.pane, step);
+    }
+    button.disabled = true;
+    const res = await fetch(`/setup/fix?fix=${encodeURIComponent(action.fix)}`, { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
+    button.disabled = false;
+    if (!res) startSaid("Can't reach Smolcorp on this computer.", true);
+    else if (!res.ok) startSaid(await res.text(), true);
+    else {
+      startSaid('');
+      renderStartHere(await res.json());
+      load();
+    }
+    checkGmPreflight();
+  }
+
+  $('first-gm-recheck').onclick = () => checkGmPreflight();
+  $('start-gm-account').addEventListener('change', () => checkGmPreflight());
+  // Back from Terminal, a browser or System Settings: looked at again. The 10 s look waits while the page is hidden.
+  window.addEventListener('focus', () => { if (gmPreflightAsked) checkGmPreflight(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) clearTimeout(gmPreflightTimer);
+    else if (gmPreflightAsked) checkGmPreflight();
+  });
+  $('first-gm-office').onclick = () => $('start-office').click();
+  $('first-gm-done').onclick = () => { $('first-gm-next').hidden = true; };
+  $('first-gm-says').querySelectorAll('button').forEach((button) => {
+    const line = button.previousElementSibling;
+    button.onclick = () => gmPreflightDo({ kind: 'copy', label: 'Copy', command: line.textContent }, button, line);
+  });
 
   /*
    * Start here's hires folder (GET /setup/hire-folder): with none set, the one suggested, kept in one

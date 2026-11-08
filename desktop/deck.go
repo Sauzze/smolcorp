@@ -23,7 +23,9 @@ import (
 // their own, outside the lock, so a slow terminal never holds up the server
 // and two quick notches arrive in the order they were turned.
 type Deck struct {
-	mu       sync.Mutex
+	mu sync.Mutex
+	// Held through Start here's GM hire (server.go), never with mu: one at a time.
+	gmHiring sync.Mutex
 	access   *Access
 	gmToken  string // the GM's token, in memory only (see newGMToken)
 	config   *Config

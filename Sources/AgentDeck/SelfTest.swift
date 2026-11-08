@@ -214,6 +214,8 @@ enum SelfTest {
         case accessibility: Permissions.requestAccessibility()
         case login: LoginItem.isEnabled = true
         case tailscale: NSWorkspace.shared.open(URL(string: "https://tailscale.com/download")!)
+        // The GM preflight's: where you let Smolcorp open your terminal.
+        case GMPreflight.automationFix: NSWorkspace.shared.open(GMPreflight.automationPane)
         default: throw FixError.unknown
         }
     }

@@ -267,6 +267,15 @@
     },
     {
       "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "GET",
+      "path" : "\/setup\/hire\/gm\/preflight",
+      "why" : "what a first GM hire needs: it starts your login shell and Claude Code to tell"
+    },
+    {
+      "callers" : [
         "gm",
         "page"
       ],
