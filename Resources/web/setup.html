@@ -6526,11 +6526,14 @@
    */
   function renderStartNow() {
     if (!startChecks || startFailed) return;
-    const account = !!gmPreflight && !$('first-gm-checks').hidden && gmPreflight.items.some((i) => i.id === 'account' && !i.ok);
+    const shown = !!gmPreflight && !$('first-gm-checks').hidden;
+    const account = shown && gmPreflight.items.some((i) => i.id === 'account' && !i.ok);
+    // Anything still in Hire's way (a line that isn't optional): not Ready to work yet, whatever the checklist says.
+    const inTheWay = shown && gmPreflight.items.some((i) => !i.ok && !i.optional);
     const left = startChecks.filter((c) => c.status === 'fix').length;
     const steps = startChecks.filter((c) => c.status === 'todo').length + (account ? 1 : 0);
     const many = `${steps} ${steps === 1 ? 'step' : 'steps'} left`;
-    $('start-now').textContent = left ? `${left} to fix` : steps ? (account ? many : `Ready to work · ${many}`) : 'All set';
+    $('start-now').textContent = left ? `${left} to fix` : steps ? (inTheWay ? many : `Ready to work · ${many}`) : inTheWay ? 'Before your first hire' : 'All set';
   }
 
   function renderStartHere(report) {

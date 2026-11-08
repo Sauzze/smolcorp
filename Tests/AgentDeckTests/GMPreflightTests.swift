@@ -139,12 +139,14 @@ final class GMPreflightTests: XCTestCase {
         XCTAssertTrue(Deck.testCopyAccountRefusal(account: home, otherAccounts: false, testCopy: true)?.message.hasSuffix(add.fix) ?? false)
     }
 
-    /// Start here's account line goes where it says (FX4), and nothing is Ready to work until it's taken.
+    /// Start here's account line goes where it says (FX4), and nothing is Ready to work while a line is in Hire's way.
     func testStartHereWaitsForATestCopysAccountBeforeReadyToWork() throws {
         let page = try source("Resources/web/setup.html")
         XCTAssertTrue(page.contains("if (action.kind === 'account') return chooseAccount().run();"))
-        XCTAssertTrue(page.contains("const account = !!gmPreflight && !$('first-gm-checks').hidden && gmPreflight.items.some((i) => i.id === 'account' && !i.ok);"))
-        XCTAssertTrue(page.contains("steps ? (account ? many : `Ready to work · ${many}`) : 'All set'"))
+        XCTAssertTrue(page.contains("const account = shown && gmPreflight.items.some((i) => i.id === 'account' && !i.ok);"))
+        // Not only the account: any line still in Hire's way keeps Ready to work (and All set) back.
+        XCTAssertTrue(page.contains("const inTheWay = shown && gmPreflight.items.some((i) => !i.ok && !i.optional);"))
+        XCTAssertTrue(page.contains("steps ? (inTheWay ? many : `Ready to work · ${many}`) : inTheWay ? 'Before your first hire' : 'All set'"))
         let render = try XCTUnwrap(page.range(of: "function renderGmPreflight() {"))
         XCTAssertNotNil(page[render.upperBound...].prefix(400).range(of: "renderStartNow();"), "the state beside Start here follows the line")
     }
