@@ -42,20 +42,30 @@ func TestTheGreekGodsAreInEveryList(t *testing.T) {
 		if strings.Contains(src, "add-piece: TODO") {
 			t.Errorf("a placeholder is still in %s", name)
 		}
+		// TEAM_CHOICES' outfit list, which a team member's or a desk's outfit is checked against
 		at := strings.Index(src, "const TEAM_CHOICES = {")
 		if at < 0 {
 			t.Fatalf("TEAM_CHOICES is gone from %s: update this test", name)
 		}
-		team := src[at:]
-		end := strings.Index(team, "\n  };")
-		if end < 0 {
-			t.Fatalf("TEAM_CHOICES has no end in %s: update this test", name)
+		choices := src[at:]
+		start := strings.Index(choices, "\n    outfit: [")
+		if start < 0 {
+			t.Fatalf("TEAM_CHOICES has no outfit list in %s: update this test", name)
 		}
-		team = team[:end]
+		choices = choices[start:]
+		end := strings.Index(choices, "],\n")
+		if end < 0 {
+			t.Fatalf("TEAM_CHOICES' outfit list has no end in %s: update this test", name)
+		}
+		choices = choices[:end]
 		for _, id := range olympusOutfits {
-			// Its colours in OUTFITS, its drawing in OUTFIT_PARTS, and its place among the team's choices
-			if !strings.Contains(src, id+": { style: '"+id+"'") || !strings.Contains(src, "\n      "+id+": {\n") || !strings.Contains(team, "'"+id+"'") {
-				t.Errorf("%s is not wholly in %s (OUTFITS, OUTFIT_PARTS and TEAM_CHOICES)", id, name)
+			// Its colours in OUTFITS and its drawing in OUTFIT_PARTS
+			if !strings.Contains(src, id+": { style: '"+id+"'") || !strings.Contains(src, "\n      "+id+": {\n") {
+				t.Errorf("%s is not wholly in %s (OUTFITS and OUTFIT_PARTS)", id, name)
+			}
+			// Its place among the team's choices: an outfit missing from them is drawn as Auto
+			if !strings.Contains(choices, "'"+id+"'") {
+				t.Errorf("%s is not among %s's TEAM_CHOICES outfits: a team member or a desk picking it is drawn as Auto", id, name)
 			}
 		}
 	}

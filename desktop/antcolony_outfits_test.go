@@ -69,9 +69,13 @@ func TestTheAntColonyIsInEveryList(t *testing.T) {
 			}
 		}
 		for _, id := range antColonyOutfits {
-			// Its colours in OUTFITS, its drawing in OUTFIT_PARTS, and its place in the team's choices
-			if !strings.Contains(src, id+": { style: '"+id+"'") || !strings.Contains(src, "\n      "+id+": {\n") || !strings.Contains(team, "'"+id+"'") {
-				t.Errorf("%s is not wholly in %s (OUTFITS, OUTFIT_PARTS and TEAM_CHOICES)", id, name)
+			// Its colours in OUTFITS and its drawing in OUTFIT_PARTS
+			if !strings.Contains(src, id+": { style: '"+id+"'") || !strings.Contains(src, "\n      "+id+": {\n") {
+				t.Errorf("%s is not wholly in %s (OUTFITS and OUTFIT_PARTS)", id, name)
+			}
+			// Its place among the team's choices: an outfit missing from them is drawn as Auto
+			if !strings.Contains(team, "'"+id+"'") {
+				t.Errorf("%s is not among %s's TEAM_CHOICES outfits: a team member or a desk picking it is drawn as Auto", id, name)
 			}
 		}
 	}
