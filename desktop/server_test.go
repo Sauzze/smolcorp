@@ -778,7 +778,7 @@ func TestSetupStateNamesThePlatform(t *testing.T) {
 func TestTheOfficePaneHeaderDoesNotNameTheMac(t *testing.T) {
 	d := newTestDeck(t)
 	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
-	const head = "<h1>Office</h1><p>"
+	const head = "<h1>Office and look</h1><p>"
 	i := strings.Index(page, head)
 	if i < 0 {
 		t.Fatal("the setup page has no Office pane header")
