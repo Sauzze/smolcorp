@@ -20,6 +20,7 @@ import (
 
 // preflightAction is what a line's button does: "copy" (a command to paste in
 // a terminal), "fix" (a POST /setup/fix by name) or "folder" (the folder step above).
+// The Mac also has "account" (its Claude accounts), for a test copy's line.
 type preflightAction struct {
 	Kind    string `json:"kind"`
 	Label   string `json:"label"`
@@ -47,6 +48,9 @@ type preflightReport struct {
 // chooseHireFolderFirst is Start here's GM hire with no folder for your hires: the page points
 // at its folder step (#first-folder). The Mac says the same (DeckRouter.swift).
 const chooseHireFolderFirst = "Choose the folder for your hires first: it's the first step of Start here."
+
+// gmNeedsAccount is a test copy's account line, in the Mac's words (GMPreflight.needsAccount).
+const gmNeedsAccount = "Your General Manager needs a Claude account of its own (this is a test copy)."
 
 // gmBeingHired answers a GM hire while another one runs, as the Mac does (Deck.gmRefusal).
 const gmBeingHired = "A General Manager is being hired right now. Give it a moment."
@@ -227,6 +231,11 @@ func (d *Deck) gmPreflight() preflightReport {
 		} else {
 			add(preflightItem{ID: "hooks", OK: true, Title: "Claude Code reports to Smolcorp."})
 		}
+	}
+	// A test copy never hires Claude Code on this computer (testCopyRefusal): said before Hire, not after. The Mac's
+	// test copy can hire on a second account (GMPreflight.accountItems); this one can't yet, so it's a line with no fix here.
+	if testCopyPort() != 0 {
+		add(preflightItem{ID: "account", Title: gmNeedsAccount, Fix: "A test copy on this computer can't use one yet: hire your General Manager from the real Smolcorp."})
 	}
 	terminals, tmux := hireWays()
 	terminal, hasTerminal := hireTerminal(chosen, terminals)

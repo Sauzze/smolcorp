@@ -1626,7 +1626,8 @@ final class Deck {
         let profile = account.isEmpty ? nil : ClaudeProfiles.profile(named: account, among: accounts)
         if !account.isEmpty && profile == nil { return done(.status(404, "There's no Claude account called \(account).")) }
         // A test copy never hires on the default account: its trust would be written to the real ~/.claude.json.
-        if claude, let why = Deck.testCopyAccountRefusal(account: profile ?? accounts.first ?? ClaudeProfiles.defaultProfile()) { return done(.status(why.status, why.message)) }
+        if claude, let why = Deck.testCopyAccountRefusal(account: profile ?? accounts.first ?? ClaudeProfiles.defaultProfile(),
+                                                         otherAccounts: accounts.contains { !$0.isDefault }) { return done(.status(why.status, why.message)) }
         // A test copy hires Claude Code only: its hire reports through its own settings file, which no other agent takes.
         if let why = Deck.testCopyRefusal(for: Deck.hiredAgent(role: role, hireAgent: config.hireAgent)) { return done(.status(409, why)) }
         // A test copy's hire doesn't read the account's hooks, so it needn't find them connected.
@@ -1879,13 +1880,13 @@ final class Deck {
 
     /// Why a test copy won't hire on `account`, or nil: the default account keeps its trusted folders in the real
     /// ~/.claude.json, which a test copy leaves alone. Every hire route passes `Deck.hire`, so none skips this.
-    /// No file name in it: the page puts a button to the accounts list beside it (it ends with `chooseTestAccount`).
-    static func testCopyAccountRefusal(account: ClaudeProfile, testCopy: Bool = TestCopy.isOn) -> (status: Int, message: String)? {
+    /// No file name in it: the page puts a button beside it. It ends with what Start here's account line says to do
+    /// (`GMPreflight.addAccountFix`, or `chooseAccountFix` with another account listed), so both say the same.
+    static func testCopyAccountRefusal(account: ClaudeProfile, otherAccounts: Bool = false, testCopy: Bool = TestCopy.isOn) -> (status: Int, message: String)? {
         guard testCopy, account.isDefault else { return nil }
-        return (409, "This is a test copy of Smolcorp, so it won't hire on your default Claude account: your own Claude Code stays as it is. \(chooseTestAccount)")
+        let fix = otherAccounts ? GMPreflight.chooseAccountFix : GMPreflight.addAccountFix
+        return (409, "This is a test copy of Smolcorp, so it won't hire on your default Claude account: your own Claude Code stays as it is. \(fix)")
     }
-    /// The test copy's refusal's last words, which setup.html answers with a button to the accounts.
-    static let chooseTestAccount = "Choose a test account."
 
     /// Why a test copy won't hire `agent`, or nil: only Claude Code can be kept from the real app's hooks (see `Hooks.hireHooks`).
     static func testCopyRefusal(for agent: Agent?, testCopy: Bool = TestCopy.isOn) -> String? {
