@@ -68,6 +68,51 @@ final class GMPreflightTests: XCTestCase {
         XCTAssertTrue(try line(GMPreflight.items(f), "folder").title.contains("isn't there any more: ~/Gone"))
     }
 
+    /// A step not taken yet (no folder, Claude Code to install, Connect to press) is To do on the page, never red;
+    /// a real problem (a folder gone, Terminal refused) isn't. Linux/Windows says the same (gmpreflight_test.go).
+    func testAStepToTakeIsToDoAndAProblemIsNot() throws {
+        var f = ready()
+        f.folder = ""
+        XCTAssertTrue(try line(GMPreflight.items(f), "folder").todo, "no folder yet")
+        XCTAssertEqual(try line(GMPreflight.items(f), "folder").jsonObject["todo"] as? Bool, true)
+        f.folder = "\(home)/Gone"
+        XCTAssertFalse(try line(GMPreflight.items(f), "folder").todo, "a folder that's gone")
+        f = ready()
+        f.hooks = "Claude Code isn't connected."
+        XCTAssertTrue(try line(GMPreflight.items(f), "hooks").todo)
+        f.automation = .denied
+        XCTAssertFalse(try line(GMPreflight.items(f), "terminal").todo, "Terminal refused")
+        f.claudeAt = nil
+        f.claudeOnLoginPath = false
+        XCTAssertTrue(try line(GMPreflight.items(f), "claude").todo)
+        XCTAssertTrue(GMPreflight.items(ready()).allSatisfy { !$0.todo })
+    }
+
+    /// A test copy hears only from its own hires' hook: its line says so, as Start here's agents line does, never "connect".
+    func testATestCopySaysItsHiresReportThroughItsOwnHook() throws {
+        var f = ready()
+        f.testCopy = true
+        f.hooks = "Claude Code isn't connected."
+        let hooks = try line(GMPreflight.items(f), "hooks")
+        XCTAssertTrue(hooks.ok)
+        XCTAssertEqual(hooks.title, "Your hires report to this test copy through its own hook.")
+        XCTAssertNil(hooks.action)
+    }
+
+    /// Start here and General draw the keyboard, agents and login lines from the same checks: one name, one button.
+    func testStartHereAndGeneralShareTheirWords() throws {
+        let keys = SelfTest.accessibilityCheck(false)
+        XCTAssertEqual(keys.title, "Smolcorp can use your keyboard")
+        XCTAssertEqual(keys.label, "Allow")
+        XCTAssertEqual(SelfTest.accessibilityCheck(true).title, keys.title)
+        XCTAssertEqual(SelfTest.hooksCheck(found: ["Claude Code"], connected: [], scriptThere: true, testCopy: false).label, "Connect")
+        let page = try source("Resources/web/setup.html")
+        XCTAssertFalse(page.contains("Your phone's keys reach your agents"))
+        XCTAssertFalse(page.contains("Allow Smolcorp to use your keyboard"))
+        XCTAssertTrue(page.contains(#"<div class="title">Smolcorp can use your keyboard</div>"#))
+        XCTAssertTrue(page.contains("const sameAsStartHere = { hooks: 'step-hooks', accessibility: 'step-accessibility', login: 'step-login' };"))
+    }
+
     func testClaudeCodeMissingGivesItsInstaller() throws {
         var f = ready()
         f.claudeAt = nil
@@ -237,7 +282,7 @@ final class GMPreflightTests: XCTestCase {
         let report = GMPreflight.report(GMPreflight.items(f))
         XCTAssertEqual(report["ready"] as? Bool, false)
         let items = try XCTUnwrap(report["items"] as? [[String: Any]])
-        for item in items { XCTAssertEqual(Set(item.keys), ["id", "ok", "title", "fix", "action", "optional"]) }
+        for item in items { XCTAssertEqual(Set(item.keys), ["id", "ok", "title", "fix", "action", "optional", "todo"]) }
         XCTAssertEqual((items[0]["action"] as? [String: Any])?["kind"] as? String, "folder")
         XCTAssertTrue(items[1]["action"] is NSNull)
         XCTAssertNotNil(try JSONSerialization.data(withJSONObject: report))
@@ -305,7 +350,7 @@ final class GMPreflightTests: XCTestCase {
         XCTAssertEqual(report["ready"] as? Bool, false, "no folder for your hires")
         let items = try XCTUnwrap(report["items"] as? [[String: Any]])
         XCTAssertEqual(Array(items.map { $0["id"] as? String }.prefix(3)), ["folder", "claude", "signin"])
-        for item in items { XCTAssertEqual(Set(item.keys), ["id", "ok", "title", "fix", "action", "optional"]) }
+        for item in items { XCTAssertEqual(Set(item.keys), ["id", "ok", "title", "fix", "action", "optional", "todo"]) }
         XCTAssertEqual((items[0]["action"] as? [String: Any])?["kind"] as? String, "folder")
         XCTAssertEqual(items[2]["optional"] as? Bool, true, "signed out never greys the hire")
         XCTAssertFalse(config.managerEnabled, "only looked")
@@ -387,7 +432,7 @@ final class GMPreflightTests: XCTestCase {
         XCTAssertTrue(page.contains("gmPreflightTimer = again && gmPreflightWanted() ? setTimeout(() => checkGmPreflight(), 10000) : 0;"))
         XCTAssertTrue(page.contains("if (!(pressed ? gmKnown && !$('start-gm').hidden && !gmHired : gmPreflightWanted())) return;"))
         // Hire waits for a look already under way, rather than reading the old lines.
-        XCTAssertTrue(page.contains("if (gmPreflightBusy) return pressed ? gmPreflightRunning : undefined;"))
+        XCTAssertTrue(page.contains("if (!pressed) gmPreflightAgain = true;\n      return pressed ? gmPreflightRunning : undefined;"))
         // No 10 s look while the page is hidden; back in view, it looks.
         XCTAssertTrue(page.contains("(!gmPreflight || !gmPreflight.ready) && !document.hidden;"))
         XCTAssertTrue(page.contains("if (document.hidden) clearTimeout(gmPreflightTimer);"))
@@ -399,6 +444,53 @@ final class GMPreflightTests: XCTestCase {
         XCTAssertNotNil(body.prefix(3000).range(of: "load();"), "the switches the hire turned on are shown")
         // The team unread when the hire began: the old failures are the GMs started before Hire was pressed.
         XCTAssertTrue(page.contains("if (failedNow && !failed) failed = failedNow.filter((r) => !(r.started >= pressedAt));"))
+    }
+
+    /// Never stale (FX2): a folder kept or changed anywhere, a fix pressed, or coming back to Easy setup looks again;
+    /// a look asked for during one is made after it; a done folder step is never offered back as Show me.
+    func testThePageLooksAgainByItselfAndNeverPointsBackToADoneStep() throws {
+        let page = try source("Resources/web/setup.html")
+        XCTAssertTrue(page.contains("document.addEventListener('smolcorp:hire-folder', (e) => folderMoved(e.detail && e.detail.folder));"))
+        XCTAssertTrue(page.contains("folderMoved(h.folder);"), "a folder changed on Hires and roles, or by the GM")
+        XCTAssertTrue(page.contains("if (gmPreflightAgain) {\n      gmPreflightAgain = false;\n      return checkGmPreflight();"))
+        XCTAssertTrue(page.contains("if (startAgain) {\n      startAgain = false;\n      loadStartHere();"))
+        XCTAssertTrue(page.contains("const back = pane === 'easy' && !!document.querySelector('.pane.current:not([data-pane=\"easy\"])');"))
+        XCTAssertTrue(page.contains("if (back) lookAgain();"))
+        // A fix pressed on Start here, or General's own buttons: both lists look again.
+        let fix = try XCTUnwrap(page.range(of: "async function startFix(fix) {"))
+        XCTAssertNotNil(page[fix.upperBound...].prefix(1400).range(of: "checkGmPreflight();"))
+        XCTAssertTrue(page.contains("$('accessibility').onclick = () => post('/setup/accessibility').then(lookAgain);"))
+        XCTAssertTrue(page.contains("} else if (state.notice) alert(state.notice);\n    lookAgain();"))
+        XCTAssertTrue(page.contains("const back = action && action.kind === 'folder' && firstFolderDone();"))
+        XCTAssertTrue(page.contains("if (action && !back) row.append(startButton("))
+    }
+
+    /// No red on a first screen (FX2): a step not taken yet says To do, neutral; only a real problem is marked !.
+    func testAStepNotTakenIsToDoNotRed() throws {
+        let page = try source("Resources/web/setup.html")
+        XCTAssertTrue(page.contains("const status = item.ok ? 'done' : item.optional ? 'info' : item.todo ? 'todo' : 'fix';"))
+        XCTAssertTrue(page.contains("if (status === 'todo') toDo(title);"))
+        XCTAssertTrue(page.contains("if (c.status === 'todo') toDo(title);"), "Start here's own steps say it the same way")
+        XCTAssertTrue(page.contains("textContent: 'To do'"))
+        XCTAssertFalse(page.contains("marked ! above is` : `the ${left.length} lines marked ! above are`} put right."))
+    }
+
+    /// A refusal under Hire with its fix elsewhere carries a button there (FX2): the accounts, Connect, the folder step.
+    func testARefusalUnderHirePointsAtItsFix() throws {
+        let page = try source("Resources/web/setup.html")
+        XCTAssertTrue(page.contains(#"<p class="said" id="start-said" role="status" hidden><span id="start-said-text"></span><button class="btn" id="start-said-do" hidden></button></p>"#))
+        XCTAssertTrue(page.contains("startSaid(why, true, hireRefusalFix(why));"))
+        XCTAssertTrue(page.contains("return { label: 'Choose an account', run: () => go('general', $('step-accounts')) };"))
+        XCTAssertTrue(page.contains("if (why.startsWith('Connect your agents first')) return { label: 'Connect',"))
+        // The words the page answers are the apps' own.
+        let refused = try XCTUnwrap(Deck.testCopyAccountRefusal(account: ClaudeProfiles.defaultProfile(home: URL(fileURLWithPath: home)), testCopy: true))
+        XCTAssertTrue(refused.message.hasSuffix(Deck.chooseTestAccount))
+        XCTAssertTrue(page.contains(#"/Choose a test account\.$|"#))
+        XCTAssertFalse(refused.message.contains(".claude.json"), "no file name in the sentence")
+        XCTAssertTrue(Deck.hooksRefusal(for: .claude, found: [.claude], connected: { _ in false })?.hasPrefix("Connect your agents first") ?? false)
+        // In a test copy, the picker under Hire starts on a test account.
+        XCTAssertTrue(page.contains("else if (testCopy() && profiles.some((p) => !p.default)) pick.value = profiles.find((p) => !p.default).name;"))
+        XCTAssertTrue(page.contains("<b>Change where hires work</b>"))
     }
 
     /// With the manager off, the state says whether a GM is hired, so an office that has one isn't looked at

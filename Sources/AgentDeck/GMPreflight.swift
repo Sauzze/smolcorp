@@ -36,9 +36,11 @@ enum GMPreflight {
         var action: Action?
         /// Not in the way of the hire: it starts without it.
         var optional = false
+        /// A step not taken yet, not a problem: the page shows it as To do, never in red.
+        var todo = false
 
         var jsonObject: [String: Any] {
-            ["id": id, "ok": ok, "title": title, "fix": fix, "action": action?.jsonObject ?? NSNull(), "optional": optional]
+            ["id": id, "ok": ok, "title": title, "fix": fix, "action": action?.jsonObject ?? NSNull(), "optional": optional, "todo": todo]
         }
     }
 
@@ -64,6 +66,8 @@ enum GMPreflight {
         var tmuxWanted = false
         var tmux = false
         var home = NSHomeDirectory()
+        /// A test copy: its hires report through its own hook, whatever your agents' settings hold.
+        var testCopy = false
     }
 
     /// The fix that opens Privacy & Security's Automation pane.
@@ -78,7 +82,7 @@ enum GMPreflight {
         let folder = tilde(f.folder, home: f.home)
         if f.folder.isEmpty {
             items.append(Item(id: "folder", ok: false, title: "There's no folder for your hires yet.", fix: "Choose it in the first step above.",
-                              action: Action(kind: "folder", label: "Show me")))
+                              action: Action(kind: "folder", label: "Show me"), todo: true))
         } else if !f.folderExists {
             items.append(Item(id: "folder", ok: false, title: "The folder for your hires isn't there any more: \(folder).",
                               fix: "Choose it again in the first step above.", action: Action(kind: "folder", label: "Show me")))
@@ -88,7 +92,7 @@ enum GMPreflight {
         if f.claudeAt == nil && f.claudeOnLoginPath != true {
             items.append(Item(id: "claude", ok: false, title: "Claude Code isn't installed on this Mac.",
                               fix: "Paste this in Terminal, wait for it to finish, then press Check again.",
-                              action: Action(kind: "copy", label: "Copy", command: installCommand)))
+                              action: Action(kind: "copy", label: "Copy", command: installCommand), todo: true))
             return items + terminalItems(f)
         }
         // Installed, but where your login shell, which hires start in, doesn't look.
@@ -111,9 +115,12 @@ enum GMPreflight {
             items.append(Item(id: "signin", ok: false, title: "Smolcorp couldn't tell if Claude Code is signed in.",
                               fix: "You can hire anyway: if your General Manager asks you to sign in, type /login in its window.", optional: true))
         }
-        if f.hooks != nil {
+        if f.testCopy {
+            // As the self-test's line says: a test copy hears only from its own hires' hook.
+            items.append(Item(id: "hooks", ok: true, title: "Your hires report to this test copy through its own hook."))
+        } else if f.hooks != nil {
             items.append(Item(id: "hooks", ok: false, title: "Claude Code doesn't report to Smolcorp yet, so your General Manager would never reach a desk.",
-                              fix: "Press Connect, then Check again.", action: Action(kind: "fix", label: "Connect", fix: SelfTest.repair)))
+                              fix: "Press Connect, then Check again.", action: Action(kind: "fix", label: "Connect", fix: SelfTest.repair), todo: true))
         } else {
             items.append(Item(id: "hooks", ok: true, title: "Claude Code reports to Smolcorp."))
         }
@@ -192,6 +199,7 @@ enum GMPreflight {
         f.terminal = choice?.name ?? "Terminal"
         f.tmuxWanted = config.hireInTmux
         f.tmux = Tmux.path != nil
+        f.testCopy = TestCopy.isOn
         f.shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
         let bundle = choice?.bundle
         DispatchQueue.global(qos: .userInitiated).async {
