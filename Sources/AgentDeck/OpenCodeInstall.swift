@@ -21,7 +21,7 @@ enum OpenCodeInstall {
 
     /// The PATH your login shell sets, asked once, never on the main thread:
     /// empty if it doesn't say within a few seconds.
-    private static func loginShellPath() -> [String] {
+    static func loginShellPath() -> [String] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
         // A marker before it, as a shell's start-up files can print things of their own

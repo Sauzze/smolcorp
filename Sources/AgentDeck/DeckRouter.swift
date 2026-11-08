@@ -73,6 +73,9 @@ final class DeckRouter: Router {
     /// A tool with the setup-key file may only run `--setup`'s own repair (auto=1),
     /// which leaves agents you disconnected alone: installing the app, the login
     /// and accessibility fixes, and a repair that reconnects are for the setup page (or the GM).
+    /// Start here's GM hire with no folder for your hires: the page points at its folder step (#first-folder).
+    static let chooseHireFolderFirst = "Choose the folder for your hires first: it's the first step of Start here."
+
     static func fixRefusal(caller: SetupSessions.Caller, fix: String?, auto: String? = nil) -> Response? {
         caller == .tool && !(fix == SelfTest.repair && auto == "1") ? .status(403, "This is for the setup page the menu opens.") : nil
     }
@@ -1373,22 +1376,29 @@ final class DeckRouter: Router {
             showOffice()
             respond(.status(204))
 
-        // Start here's Hire your General Manager: the GM role, in the folder for new hires or your home
-        // folder, started by the app with its token in its own environment. `worktree=1` gives it a worktree.
-        // The manager is switched on before the hire (the GM is a managed hire) and back if the hire fails.
+        // Start here's Hire your General Manager: the GM role, in the folder for your hires (never your home
+        // folder: with none set, it's refused and the page points at its folder step), started by the app with
+        // its token in its own environment. `worktree=1` gives it a worktree. The manager, and Hire and fire
+        // from the office (the GM hires its team), are switched on before the hire and back if it fails.
         // `account=` names the Claude account, as a role card's hire does; with one account it is left out.
         case ("POST", "/setup/hire/gm"):
             // One GM per office: the GM's token never hires the gm role, whatever the registry holds. Checked before anything is saved.
             if let refused = BriefRoutes.gmHireRefusal(role: GMPlugin.role, caller: caller, gmHired: BriefRoutes.gmIsHired(among: deck.frontDesk.hires)) { return respond(refused.response) }
-            let folder = config.hireFolder.isEmpty ? NSHomeDirectory() : config.hireFolder
+            guard let folder = Deck.folder(config.hireFolder) else { return respond(.status(409, DeckRouter.chooseHireFolderFirst)) }
             if let refusal = deck.gmRefusal() { return respond(.status(refusal.status, refusal.message)) }
-            let before = config.managerEnabled
+            let before = config.managerEnabled, hiring = config.hiringEnabled
             config.managerEnabled = true
+            config.hiringEnabled = true
             config.save()
             deck.hire(as: "gm", in: folder, answers: nil, account: request.query["account"] ?? "", options: HireDesk.HireOptions(worktree: request.query["worktree"] == "1")) { response in
-                if response.status >= 400 { config.managerEnabled = before; config.save() }
+                if response.status >= 400 { config.managerEnabled = before; config.hiringEnabled = hiring; config.save() }
                 respond(response.status < 400 ? .status(204) : response)
             }
+
+        // What a first General Manager hire needs (GMPreflight), Start here's lines above its Hire button.
+        // Outside /setup/gm/, which is closed while the manager is off, as it is on a first run.
+        case ("GET", "/setup/hire/gm/preflight"):
+            GMPreflight.check(config: config, account: request.query["account"] ?? "") { respond(.json($0)) }
 
         // Whether the GM's token is also kept in a file, for a GM started by hand: the page alone, off by default.
         case ("POST", "/setup/gm/by-hand"):

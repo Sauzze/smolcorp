@@ -1355,6 +1355,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"managerEnabled": enabled == "1"})
 
+	// What a first General Manager hire needs (gmpreflight.go), Start here's lines above its
+	// Hire button. Outside /setup/gm/, which is closed while the manager is off, as on a first run.
+	case r.Method == http.MethodGet && path == "/setup/hire/gm/preflight":
+		writeJSON(w, http.StatusOK, d.gmPreflight())
+
 	// Start here's Hire your General Manager: the GM role, in the folder for
 	// new hires or your home folder, its questions asked in its terminal.
 	case r.Method == http.MethodPost && path == "/setup/hire/gm":
@@ -1365,10 +1370,18 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			return
 		}
 		// The manager is switched on before the hire (the GM is a managed hire) and back if the hire
-		// fails, as the Mac does (DeckRouter.swift). d.mu is not held across the hire.
+		// fails, as the Mac does (DeckRouter.swift). d.mu is not held across the hire. Hire and fire
+		// from the office goes on with it too, as the GM hires its team, and back off the same way.
+		// In the folder for your hires, never your home folder: Start here's first step sets it.
 		d.mu.Lock()
-		before := d.config.ManagerEnabled
+		if _, ok := existingFolder(d.config.HireFolder); !ok {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusConflict, chooseHireFolderFirst)
+			return
+		}
+		before, hiring := d.config.ManagerEnabled, d.config.HiringEnabled
 		d.config.ManagerEnabled = true
+		d.config.HiringEnabled = true
 		d.config.save()
 		d.changed()
 		d.mu.Unlock()
@@ -1376,6 +1389,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		if status >= http.StatusBadRequest {
 			d.mu.Lock()
 			d.config.ManagerEnabled = before
+			d.config.HiringEnabled = hiring
 			d.config.save()
 			d.changed()
 			d.mu.Unlock()
