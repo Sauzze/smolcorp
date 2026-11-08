@@ -110,6 +110,26 @@
   .box > * + * { border-top: 1px solid var(--sep); }
   .box > .field, .box > .pad { padding: 10px 14px; }
   .hint { color: var(--dim); font-size: 12px; margin: 0; }
+  /* A section folded to its heading: a click on the heading opens it (see foldable). */
+  .fold-head { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; border-radius: 4px; }
+  .fold-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .fold-head::after { content: "›"; color: var(--dim); font-weight: 400; transition: transform .15s; }
+  [data-folds]:not(.folded) .fold-head::after { transform: rotate(90deg); }
+  [data-folds].folded > :not(h2):not(.card-head):not(.fold-note) { display: none !important; }
+  [data-folds].folded > .card-head > :not(h2) { display: none !important; }
+  [data-folds]:not(.folded) > .fold-note { display: none; }
+  .fold-note { margin: 0 2px; }
+  /* A group's smaller headings, between its boxes, with room above them. */
+  .group > h3.sub, #manager-tools > h3.sub { font-size: 12px; font-weight: 600; color: var(--dim); margin: 8px 2px 0; }
+  #manager-tools:not([hidden]) { display: grid; gap: 7px; }
+  .group > .said-under, #manager-tools > .said-under { margin: 0 2px; }
+  .gm-token .pad { display: grid; gap: 6px; }
+  .gm-token .pad p { margin: 0; }
+  .token-file { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .token-file code { font-size: 12px; overflow-wrap: anywhere; user-select: all; }
+  .token-file .result, .hire-saved { color: var(--dim); font-size: 12px; }
+  .token-file .result.good, .hire-saved.good { color: var(--unread); }
+  .token-file .result.wrong { color: var(--error); }
   .flash { animation: flash 1.8s ease-out; }
   @keyframes flash { 0%, 30% { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: 0 0 0 2px transparent; } }
 
@@ -148,12 +168,27 @@
   .field.floor > span:first-child { flex: 1; }
   .field.floor input[type=text] { max-width: 160px; }
   .field.floor select { max-width: 220px; }
-  /* Under a floor: the folders whose agents sit there, each with ✕, and a field to add one. */
-  .floor-rules { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 10px; font-size: 12px; }
+  /* Under a floor, inside its box: the folders whose agents sit there, each with ✕, and a field with Add. */
+  .floor-rules { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; min-width: 0; }
+  .box > .floor-rules { padding: 0 14px 10px; border-top: 0; }
+  .box > .field.floor:has(+ .floor-rules) { padding-bottom: 6px; }
   .floor-rules .rule { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: 10px;
-    background: rgb(128 128 128 / .15); max-width: 100%; overflow-wrap: anywhere; }
-  .floor-rules .rule button { border: 0; background: none; padding: 0 4px; cursor: pointer; color: inherit; opacity: .6; }
-  .floor-rules input[type=text] { flex: 1; min-width: 140px; max-width: 280px; font-size: 12px; }
+    background: rgb(128 128 128 / .15); max-width: min(100%, 420px); min-width: 0; }
+  .floor-rules .rule .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .floor-rules .rule button { border: 0; background: none; padding: 0 4px; cursor: pointer; color: inherit; opacity: .6; flex: none; }
+  .floor-rules .rule-add { display: flex; gap: 6px; flex: 1 1 240px; min-width: 0; max-width: 380px; }
+  .floor-rules .rule-add input[type=text] { flex: 1; min-width: 0; font-size: 12px; }
+  /* A cloud bot's name: cut with … where it must be, the whole of it on hover. */
+  .field.floor > .bot-name { display: flex; align-items: baseline; min-width: 0; }
+  .field.floor > .bot-name b { font-weight: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .field.floor > .bot-name small { flex: none; }
+  @media (max-width: 560px) {
+    /* A floor on a phone: its name on a line, then its name field and style side by side, whole. */
+    .box > .field.floor { flex-wrap: wrap; gap: 8px; }
+    .field.floor > span:first-child { flex: 1 0 100%; }
+    .field.floor input[type=text], .field.floor select { flex: 1 1 0; min-width: 0; max-width: none; }
+    .field.floor > .btn { flex: none; }
+  }
   .field.stacked { flex-direction: column; align-items: stretch; gap: 8px; }
   .field.stacked > .choices, .field.stacked .picker > .choices { justify-content: flex-start; }
   .field.stacked > span:first-child small, .field > span:first-child small { color: var(--dim); font-size: 12px; margin-left: 4px; }
@@ -735,10 +770,10 @@
     <div class="card find-card" id="find-card" data-search="Find a setting" data-keywords="jump where go list common settings">
       <div class="card-head"><h2>Find a setting</h2><span class="now">The ones people want most</span></div>
       <div class="jumps">
-        <button class="jump" data-go="team" data-at="step-hiring"><b>Change where hires start</b><small>The folder new hires open in · Hires and roles</small></button>
+        <button class="jump" data-go="team" data-at="step-hire-folder"><b>Change where hires work</b><small>The folder new hires work in · Hires and roles</small></button>
         <button class="jump" data-go="office" data-at="look-style"><b>Change the look</b><small>Style, pets, mic, day and night · Office and look</small></button>
-        <button class="jump" data-go="floors" data-at="floors-group"><b>Put a project on a floor</b><small>Floors, their names and rules · Floors</small></button>
-        <button class="jump" data-go="team" data-at="gm-group"><b>Your General Manager</b><small>Its token, hire by hand, fire · Hires and roles</small></button>
+        <button class="jump" data-go="floors" data-at="floors-group"><b>Put a project on a floor</b><small>Floor names, styles and the projects on each · Floors</small></button>
+        <button class="jump" data-go="team" data-at="gm-token"><b>Your General Manager's token</b><small>What it is, and the file for one started by hand · Hires and roles</small></button>
         <button class="jump" data-go="team" data-at="maker-box"><b>Dress your team</b><small>Outfits, hair and nicknames · Hires and roles</small></button>
         <button class="jump" data-go="phone" data-at="pair"><b>Pair a phone</b><small>A code or a QR code · Phone and voice</small></button>
         <button class="jump" data-go="general" data-at="step-hooks"><b>Connect your coding agents</b><small>Claude Code, Codex and the rest · General</small></button>
@@ -867,6 +902,7 @@
           <button class="btn primary" id="easy-arrange">Arrange the room…</button>
         </div>
       </div>
+      <p class="hint" id="easy-style-yours" hidden>Yours: as you've arranged it, starting from Classic, or from the style you were in when you changed something.</p>
       <div class="catalog" id="easy-style"></div>
     </div>
     <div class="cards easy-look">
@@ -881,7 +917,7 @@
         <h3>Seasons in the windows</h3><div class="choices" id="easy-season"></div>
       </div>
     </div>
-    <div class="card" data-search="Mic" data-keywords="microphone talk sound waves" style="--picker-h: 330px">
+    <div class="card" data-search="Mic" data-keywords="microphone talk sound waves" data-folds style="--picker-h: 330px">
       <div class="card-head"><h2>Mic</h2></div>
       <div class="catalog" id="easy-mic"></div>
       <div id="easy-wave-box" hidden>
@@ -889,7 +925,7 @@
         <div class="catalog" id="easy-wave"></div>
       </div>
     </div>
-    <div class="group">
+    <div class="group" data-folds>
       <h2>The room</h2>
       <div class="box">
         <div class="field stacked"><span>Floor</span><div class="catalog" id="room-floor"></div></div>
@@ -898,14 +934,14 @@
         <div class="field stacked"><span>Door</span><div class="catalog" id="room-door"></div></div>
       </div>
     </div>
-    <div class="group">
+    <div class="group" data-folds>
       <h2>Sky and air</h2>
       <div class="box">
         <div class="field stacked"><span>In the air</span><div class="catalog" id="room-drift"></div></div>
         <div class="field"><span>In the windows</span><div class="choices" id="room-fireworks"></div></div>
       </div>
     </div>
-    <div class="group">
+    <div class="group" data-folds>
       <h2>Life</h2>
       <div class="box">
         <div class="field"><span>Sound</span><div class="choices" id="room-sound"></div></div>
@@ -916,7 +952,7 @@
         <div class="field" data-keywords="power battery quiet"><span>Calm office <small>Nobody wanders, the pets rest, nothing drifts: much less power.</small></span><div class="choices" id="room-calm"></div></div>
       </div>
     </div>
-    <div class="group" id="window-group" hidden>
+    <div class="group" id="window-group" data-folds hidden>
       <h2>Window</h2>
       <div class="box steps switches">
         <div class="step" id="step-ontop" data-keywords="always on top float floating above other windows spaces full screen pin">
@@ -936,7 +972,7 @@
         </div>
       </div>
     </div>
-    <section class="group profiles" id="profiles-section" data-search="Profiles" data-keywords="save switch export import rename profile saved looks" hidden>
+    <section class="group profiles" id="profiles-section" data-search="Profiles" data-keywords="save switch export import rename profile saved looks" data-folds hidden>
       <h2>Saved looks</h2>
       <p class="hint">Your office, saved under a name, as a profile. Switch, and your phone follows.</p>
       <div class="box">
@@ -1003,19 +1039,30 @@
 
   <!-- ================================================================ Team -->
   <section class="pane" data-pane="team" data-title="Hires and roles">
-    <header class="pane-head"><h1>Hires and roles</h1><p>Where new hires start, who you can hire, your General Manager, and how your team looks.</p></header>
+    <header class="pane-head"><h1>Hires and roles</h1><p>Where new hires work, who you can hire, your General Manager, and how your team looks.</p></header>
     <nav class="on-page" aria-label="On this page" hidden></nav>
     <div class="group">
       <h2>Hiring</h2>
       <div class="box steps switches">
-        <div class="step" id="step-hiring" data-keywords="hires folder where new hires start projects directory path choose agent terminal tmux">
+        <!-- The hires folder: the same one as Start here's, in a row of its own, whatever the switch below. -->
+        <div class="step" id="step-hire-folder" data-search="New hires work in" data-keywords="hires folder where new hires start work projects directory path choose" hidden>
+          <div class="text">
+            <div class="title">New hires work in</div>
+            <div class="detail">The folder your hires work in: each works in a project inside it. The same folder as Start here's, on Easy setup.</div>
+            <div class="hire-setup">
+              <input type="text" id="hire-folder" spellcheck="false" placeholder="~/Projects" aria-label="The folder new hires work in">
+              <button class="btn" id="hire-choose">Choose…</button>
+              <span class="hire-saved" id="hire-folder-saved" role="status"></span>
+            </div>
+            <p class="note" id="hire-folder-problem" role="alert" hidden></p>
+          </div>
+        </div>
+        <div class="step" id="step-hiring" data-keywords="hire fire desk agent terminal tmux">
           <div class="mark">✓</div>
           <div class="text">
             <div class="title">Let the office hire and fire</div>
             <div class="detail"></div>
             <div class="hire-setup" id="hire-setup" hidden>
-              <input type="text" id="hire-folder" spellcheck="false" placeholder="~/Projects" aria-label="The folder new hires start in">
-              <button class="btn" id="hire-choose">Choose…</button>
               <select id="hire-agent" aria-label="The agent to hire"></select>
               <select id="hire-terminal" aria-label="The terminal hires open in" hidden></select>
               <label class="hire-tmux" id="hire-tmux-label" hidden><input type="checkbox" id="hire-tmux"> Start inside tmux</label>
@@ -1029,11 +1076,11 @@
     <div class="group" id="gm-group">
       <h2>General Manager</h2>
       <div class="box steps switches">
-        <div class="step" id="step-manager" data-keywords="manager general manager gm team front desk token by hand fire" hidden>
+        <div class="step" id="step-manager" data-keywords="manager general manager gm team front desk by hand fire" hidden>
           <div class="mark">✓</div>
           <div class="text">
             <div class="title">Let a General Manager run your team</div>
-            <div class="detail" data-pending="Off: Smolcorp works as before. Your team's events are still noted, so turning this on shows what happened lately." data-done="On: a General Manager can see your team on this computer and hire, brief and tile it. Turning it off fires no one."></div>
+            <div class="detail" data-pending="Off: Smolcorp works as before. Hire your General Manager, on Easy setup, turns this on for you. Your team's events are still noted, so turning it on shows what happened lately." data-done="On: a General Manager can see your team on this computer and hire, brief and tile it. Hire your General Manager, on Easy setup, turns this on for you. Turning it off fires no one."></div>
             <div class="detail" id="manager-team"></div>
             <div class="detail" id="manager-screens" hidden>
               <span>Which screen holds the team?</span>
@@ -1043,26 +1090,36 @@
           <button class="switch" id="manager" aria-label="Let a General Manager run your team"></button>
         </div>
       </div>
+      <!-- Its token: what it is, who gets it, and the file for one started by hand. Never the token itself. -->
+      <h3 class="sub">Its token</h3>
+      <div class="box gm-token" id="gm-token" data-search="The General Manager's token" data-keywords="gm general manager token key file path copy by hand rotate new">
+        <div class="pad">
+          <p class="text">The token is your General Manager's key to Smolcorp: with it, it can see your team and hire, brief and fire. This page never shows it.</p>
+          <p class="hint">A General Manager you hire from Smolcorp (Hire your General Manager, on Easy setup) gets it by itself: there's nothing to copy.</p>
+          <p class="hint">For a General Manager you start yourself, turn on <b>Allow a General Manager started by hand</b> below. Smolcorp then writes the token to this file, where your General Manager can read it:</p>
+          <div class="token-file"><code id="gm-token-file"></code> <button class="btn" id="gm-token-copy">Copy path</button> <span class="result" id="gm-token-copied" role="status"></span></div>
+        </div>
+        <div class="field pad">
+          <span class="text">Allow a General Manager started by hand<br><small class="hint">Writes the token to the file above. Anything that can read your files can read it. Off keeps the token out of every file.</small></span>
+          <button class="switch" id="gm-byhand" aria-label="Allow a General Manager started by hand"></button>
+        </div>
+        <div class="field pad" id="gm-rotate-row" hidden>
+          <span class="text">A new General Manager token<br><small class="hint">The old token stops working. Fire the General Manager and hire it again to give it the new one.</small></span>
+          <button class="btn" id="gm-rotate">New GM token</button>
+        </div>
+      </div>
+      <p class="hint said-under" id="gm-problem" hidden></p>
       <div id="manager-tools" hidden>
-        <h3 class="hint">Hired, its token, and by hand</h3>
+        <h3 class="sub">Hired</h3>
         <div class="box">
-          <div class="field pad" id="gm-row" data-search="General Manager" data-keywords="gm general manager fire token rotate by hand file">
+          <div class="field pad" id="gm-row" data-search="General Manager" data-keywords="gm general manager fire hired">
             <span class="text" id="gm-status"></span>
             <button class="btn" id="gm-fire" hidden>Fire the General Manager</button>
           </div>
-          <div class="field pad">
-            <span class="text">A new General Manager token<br><small class="hint">The old token stops working. Fire the General Manager and hire it again to give it the new one.</small></span>
-            <button class="btn" id="gm-rotate">New GM token</button>
-          </div>
-          <div class="field pad">
-            <span class="text">Allow a General Manager started by hand<br><small class="hint">This writes the General Manager's token to a file on this computer, so a General Manager you start yourself can find it. Anything that can read your files can read it. Off keeps the token out of every file.</small></span>
-            <button class="switch" id="gm-byhand" aria-label="Allow a General Manager started by hand"></button>
-          </div>
         </div>
-        <p class="hint" id="gm-problem" hidden></p>
-        <h3 class="hint">Team</h3>
+        <h3 class="sub">Team</h3>
         <div class="box" id="team-list"></div>
-        <p class="hint" id="team-problem" hidden></p>
+        <p class="hint said-under" id="team-problem" hidden></p>
       </div>
     </div>
     <section class="group roles" id="roles-section" hidden>
@@ -1127,8 +1184,9 @@
       <p class="hint">Agents with no desk on the ground floor go upstairs, nine to a floor. Name each floor, and pick a style for the ones above. Add a project's folder under a floor, and its agents sit there: put anyone on any floor from the office too, with ⇅ floor.</p>
       <div class="box" id="floors" data-search="Floors" data-keywords="floor upstairs building storey server room name rule rules project folder sits"></div>
     </div>
-    <div class="group" id="bots-group" hidden>
+    <div class="group" id="bots-group" data-folds hidden>
       <h2>Cloud bots</h2>
+      <p class="hint fold-note" id="bots-folded"></p>
       <p class="hint" id="bots-hint"></p>
       <div class="box" id="bots" data-search="Cloud bots" data-keywords="grok bot cloud bots desk pin hide find detect"></div>
     </div>
@@ -1144,7 +1202,7 @@
         <div>
           <ol>
             <li>Join the same Wi-Fi as this computer.</li>
-            <li>In your phone's browser, go to <span class="address" id="address"></span></li>
+            <li>In your phone's browser, go to <span class="address" id="address"></span><span id="pair-tailnet" hidden>, or from anywhere, with Tailscale on your phone: <span class="address" id="pair-tailnet-address"></span></span></li>
             <li>Enter this code:</li>
           </ol>
           <div class="code" id="code">— — —</div>
@@ -1154,7 +1212,7 @@
         <div id="scan" hidden>
           <div class="or">or scan</div>
           <img class="qr" id="qr" alt="QR code that pairs your phone with this code">
-          <div class="qr-note">Pairs with the code beside it, so it works once.</div>
+          <div class="qr-note">Holds the same code as the 6 digits, so it works once.</div>
         </div>
       </div>
     </div>
@@ -1830,6 +1888,7 @@
     showStartGM(!!m.gmStartedByHand); // the flag alone for now; the team below knows if a hired GM is there
     mark('step-manager', m.enabled);
     $('manager').classList.toggle('on', m.enabled);
+    renderGmToken(m);
     const line = $('manager-team');
     line.textContent = '';
     $('manager-screens').hidden = true;
@@ -1881,13 +1940,33 @@
     return (res && (await res.text().catch(() => ''))) || (res ? fallback : wording("Can't reach Smolcorp on this computer."));
   }
 
+  /**
+   * Its token, with the manager on or off: what it is, and where "started by hand" writes it, with
+   * Copy path. Never the token. A new one only with the manager on, as the app refuses it while off.
+   */
+  function renderGmToken(m) {
+    const file = m.gmTokenFile || '';
+    $('gm-token-file').textContent = m.gmTokenFileShown || file;
+    $('gm-token-file').parentElement.hidden = !file; // an app from before says no path
+    $('gm-token-copy').onclick = () => copyText(file, 'gm-token-copied');
+    $('gm-byhand').classList.toggle('on', !!m.gmByHand);
+    $('gm-byhand').setAttribute('aria-pressed', String(!!m.gmByHand));
+    $('gm-byhand').onclick = async () => {
+      const res = await fetch(`/setup/gm/by-hand?enabled=${state.manager.gmByHand ? 0 : 1}`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
+      if (res && res.ok) { tell('gm-problem', ''); load(); } else tell('gm-problem', await refusal(res, "That couldn't be changed."));
+    };
+    $('gm-rotate-row').hidden = !m.enabled;
+    if (!$('gm-rotate').dataset.sure) resetRotate(); // the 1.5 s refresh must not undo an armed button
+  }
+
   /** The General Manager's controls and the team, with a fire (and its options) on each row. */
   function renderManagerTools(rows) {
     const open = rows.filter((r) => r.state !== 'fired' && r.state !== 'failed');
     const gm = open.find((r) => r.role === 'gm' && r.registered);
+    const byHand = !gm && (state.manager.gmStartedByHand || open.some((r) => r.role === 'gm'));
     $('manager-tools').hidden = false;
     $('gm-status').textContent = gm ? 'Your General Manager is hired.'
-      : (state.manager.gmStartedByHand || open.some((r) => r.role === 'gm')) ? 'Your General Manager was started by hand.' : 'No General Manager is hired.';
+      : byHand ? 'Your General Manager was started by hand.' : 'No General Manager yet: use Hire your General Manager on Easy setup.';
     $('gm-fire').hidden = !gm;
     $('gm-fire').onclick = async () => {
       $('gm-fire').disabled = true;
@@ -1895,29 +1974,38 @@
       $('gm-fire').disabled = false;
       if (res && res.ok) { tell('gm-problem', ''); load(); } else tell('gm-problem', await refusal(res, "The General Manager couldn't be fired."));
     };
-    if (!$('gm-rotate').dataset.sure) resetRotate(); // the 1.5 s refresh must not undo an armed button
-    $('gm-byhand').classList.toggle('on', !!state.manager.gmByHand);
-    $('gm-byhand').onclick = async () => {
-      const res = await fetch(`/setup/gm/by-hand?enabled=${state.manager.gmByHand ? 0 : 1}`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
-      if (res && res.ok) { tell('gm-problem', ''); load(); } else tell('gm-problem', await refusal(res, "That couldn't be changed."));
-    };
     const list = $('team-list');
     if (list.contains(document.activeElement)) return;
     const rest = open.filter((r) => r !== gm && r.registered);
+    // Said the same way as the line above: with no General Manager there, no one is hired at all.
     list.replaceChildren(...(rest.length ? rest.map(teamRow)
-      : [Object.assign(document.createElement('p'), { className: 'hint', textContent: 'No one is hired besides the General Manager.', style: 'padding:10px 14px;margin:0' })]));
+      : [Object.assign(document.createElement('p'), { className: 'hint',
+        textContent: gm || byHand ? 'No one else is on the team yet.' : 'No one is hired yet.', style: 'padding:10px 14px;margin:0' })]));
   }
+
+  // How long "Yes, make a new token" waits for its click, and longer while the pointer is on it.
+  const ROTATE_WAIT = 15000;
+  let rotateTimer = 0;
 
   /** "New GM token" asks once more on the button itself before it rotates. */
   function resetRotate() {
     const button = $('gm-rotate');
+    clearTimeout(rotateTimer);
     button.textContent = 'New GM token';
     button.dataset.sure = '';
+    // Put back after a while, but never under the pointer, nor by the timer of an earlier ask.
+    const later = () => {
+      rotateTimer = setTimeout(() => {
+        if (!button.dataset.sure || button.disabled) return;
+        if (button.matches(':hover')) return later();
+        resetRotate();
+      }, ROTATE_WAIT);
+    };
     button.onclick = async () => {
       if (!button.dataset.sure) {
         button.dataset.sure = '1';
         button.textContent = 'Yes, make a new token';
-        setTimeout(() => { if (button.dataset.sure && !button.disabled) resetRotate(); }, 8000);
+        later();
         return;
       }
       button.disabled = true;
@@ -2250,8 +2338,8 @@
     const detail = $('step-hiring').querySelector('.detail');
     if (h.canHire) {
       detail.dataset.pending = 'Optional. Hold a free desk in the office to hire an agent, or an agent\'s to fire it.';
-      detail.dataset.done = h.folder ? 'New hires start in the folder below. Hold a desk in the office to hire or fire.'
-        : 'Choose the folder new hires start in.';
+      detail.dataset.done = h.folder ? 'New hires work in the folder above. Hold a desk in the office to hire or fire.'
+        : 'Choose the folder new hires work in, above.';
     } else {
       detail.dataset.pending = "Optional. Hold an agent's desk in the office to fire it. Hiring needs the Mac app, for now.";
       detail.dataset.done = "Hold an agent's desk in the office to fire it.";
@@ -2259,8 +2347,14 @@
     mark('step-hiring', h.enabled);
     $('hiring').classList.toggle('on', h.enabled);
     $('hire-setup').hidden = !h.canHire;
+    $('step-hire-folder').hidden = !h.canHire;
     $('hire-choose').hidden = !h.canChoose;
-    if (document.activeElement !== $('hire-folder')) $('hire-folder').value = h.folder;
+    if (document.activeElement !== $('hire-folder') && h.folder !== hireFolderShown) {
+      // Changed by Choose…, or elsewhere: said as kept, as a typed one is.
+      if (hireFolderShown !== undefined && h.folder) hireFolderSaved();
+      $('hire-folder').value = h.folder;
+    }
+    hireFolderShown = h.folder;
     // Changed elsewhere (here under Advanced, or by the GM): Start here's folder step follows.
     if (firstFolder && h.folder !== firstFolderSeen && !firstFolderTyping) {
       firstFolderSeen = h.folder;
@@ -2283,7 +2377,24 @@
     const agent = agents.find((a) => a.id === h.agent);
     $('easy-hire-detail').textContent = !h.enabled ? 'Off. Turn it on to hire a role from a free desk in the office, and fire from a busy one.'
       : !h.canHire ? "Hold an agent's desk in the office to fire it."
-      : h.folder ? `New hires: ${agent ? agent.name : h.agent}, in ${h.folder}.` : 'Choose the folder new hires start in.';
+      : h.folder ? `New hires: ${agent ? agent.name : h.agent}, in ${h.folder}.` : 'Choose the folder new hires work in.';
+  }
+
+  // The folder last shown in the hires folder row, and its "Saved" sign's timer.
+  let hireFolderShown;
+  let hireSavedTimer = 0;
+  function hireFolderSaved() {
+    clearTimeout(hireSavedTimer);
+    said('hire-folder-saved', 'Saved ✓', 'good');
+    hireSavedTimer = setTimeout(() => said('hire-folder-saved', ''), 4000);
+  }
+
+  /** What the hires folder's request answered: "Saved", or the refusal under the row. */
+  async function showHireFolderProblem(res) {
+    const why = res.ok ? '' : await res.text();
+    tell('hire-folder-problem', why);
+    if (res.ok) hireFolderSaved();
+    else said('hire-folder-saved', '');
   }
 
   /**
@@ -2518,7 +2629,12 @@
     webhookProblem = '';
     await post('/setup/webhook/test');
   };
-  $('hire-folder').onchange = async () => showHiringProblem(await post(`/setup/hiring?folder=${encodeURIComponent($('hire-folder').value)}`));
+  $('hire-folder').onchange = async () => {
+    const res = await post(`/setup/hiring?folder=${encodeURIComponent($('hire-folder').value)}`);
+    if (res.ok) hireFolderShown = state.hiring && state.hiring.folder; // said here, not again by the next draw
+    showHireFolderProblem(res);
+  };
+  $('hire-folder').onkeydown = (e) => { if (e.key === 'Enter') $('hire-folder').blur(); };
   $('hire-choose').onclick = () => post('/setup/hiring/choose');
   $('hire-agent').onchange = () => post(`/setup/hiring?agent=${$('hire-agent').value}`);
   $('hire-terminal').onchange = () => post(`/setup/hiring?terminal=${$('hire-terminal').value}`);
@@ -3334,6 +3450,9 @@
     $('address').textContent = p.address
       ? p.address.replace(/^http:\/\//, '')
       : '(none yet: let in your home Wi-Fi, or get Tailscale, under Start here)';
+    // Where Tailscale is another way in: its address too, as Start here says the phone reaches you from anywhere.
+    $('pair-tailnet').hidden = !p.tailnet || !p.address;
+    $('pair-tailnet-address').textContent = (p.tailnet || '').replace(/^http:\/\//, '');
     renderPhones();
 
     // The QR code holds the pairing code, so it exists only while the code
@@ -3900,17 +4019,24 @@
       el.append(...its.map((item) => button(item, lane)));
       return el;
     };
-    const lane = (title, its, key) => {
+    const lane = (title, its, key, reserved = false) => {
       if (!its.length) return null;
       const el = Object.assign(document.createElement('div'), { className: 'lane' });
-      if (title) el.append(Object.assign(document.createElement('h4'), { textContent: title }));
+      // A heading to come keeps its room, so the tiles under it don't move when it does come.
+      if (title || reserved) {
+        const h4 = Object.assign(document.createElement('h4'), { textContent: title || 'Recent' });
+        if (!title) { h4.style.visibility = 'hidden'; h4.setAttribute('aria-hidden', 'true'); }
+        el.append(h4);
+      }
       el.append(list(key, its));
       return el;
     };
     const parts = [];
     if (!words) {
-      const recent = keptList(recentKey).map((id) => items.find((item) => item.id === id)).filter(Boolean);
-      parts.push(lane(recent.length ? 'Recent' : null, [...pinned, ...recent], 'recent'));
+      // Recent as it was when this section was shown: a pick doesn't move the tiles under your pointer.
+      if (c.visit !== paneVisit || !c.recentIds) { c.visit = paneVisit; c.recentIds = keptList(recentKey); }
+      const recent = c.recentIds.map((id) => items.find((item) => item.id === id)).filter(Boolean);
+      parts.push(lane(recent.length ? 'Recent' : null, [...pinned, ...recent], 'recent', true));
       parts.push(lane('Starred', items.filter((item) => stars.has(item.id)), 'starred'));
     }
     // The shelves: by group, and in a group by pack, with what matches the search
@@ -4807,6 +4933,7 @@
     if (!$('invite').hidden) catalog('welcome-style', styles());
     const name = ROOM_CHOICES.preset.find(([id]) => id === style);
     $('easy-style-name').textContent = name ? name[1] : '';
+    $('easy-style-yours').hidden = style !== 'yours';
     for (const part of ['sky', 'season']) {
       $(`easy-${part}`).replaceChildren(...ROOM_CHOICES[part].map(([id, label]) =>
         choice(label, (shown[part] || STANDARD_ROOM[part]) === id, () => furnish((r) => { r[part] = id; }, part))));
@@ -5806,6 +5933,12 @@
     const bots = state.cloudBots;
     $('bots-group').hidden = !bots;
     if (!bots) return;
+    // Folded, unless a bot is in use: one of yours, kept, moved, or with a mailbox. Until you open or close it yourself.
+    const list = bots.bots || [];
+    const inUse = list.some((bot) => !bot.discovered || bot.pinned || bot.floor || bot.mailbox);
+    if (!$('bots-group').dataset.touched) setFold($('bots-group'), !inUse);
+    $('bots-folded').textContent = !list.length ? 'None yet. Bots from the Grok Bot app, if you use it, show here.'
+      : `${list.length === 1 ? '1 bot' : `${list.length} bots`}${bots.detects ? ', found in the Grok Bot app' : ''}. Open to put them on a floor, keep or hide them.`;
     if ($('bots').contains(document.activeElement)) return;
     if (!changed($('bots'), [bots, state.floors, state.platform])) return;
     $('bots-hint').textContent = (bots.detects
@@ -5846,11 +5979,12 @@
     for (const bot of bots.bots || []) {
       const row = document.createElement('div');
       row.className = 'field floor';
-      const label = document.createElement('span');
-      label.textContent = bot.name;
+      // Its name cut with … where there's no room for it, never mid-word without one; whole on hover.
+      const label = Object.assign(document.createElement('span'), { className: 'bot-name', title: bot.name });
       const from = Object.assign(document.createElement('small'), { textContent: bot.discovered ? ' · found in the Grok Bot app' : ' · yours' });
       from.style.opacity = '.6';
-      label.append(from);
+      from.style.whiteSpace = 'pre';
+      label.append(Object.assign(document.createElement('b'), { textContent: bot.name }), from);
       const where = document.createElement('select');
       where.setAttribute('aria-label', `${bot.name}'s floor`);
       where.replaceChildren(...places.map(([id, text]) => new Option(text, id, false, id === bot.floor)));
@@ -5932,12 +6066,13 @@
       const chip = document.createElement('span');
       chip.className = 'rule';
       // One remembered from the office is that folder alone; one added here holds the folders in it too.
+      // The whole path, cut with … only where there's no room, and whole on hover.
       chip.title = rule.exact ? `${rule.folder}, this folder alone` : `${rule.folder}, and the folders in it`;
-      chip.textContent = (rule.folder.split(/[\\/]/).filter(Boolean).pop() || rule.folder) + (rule.exact ? '' : '/…');
+      chip.append(Object.assign(document.createElement('span'), { className: 'path', textContent: shortFolder(rule.folder) + (rule.exact ? ' (alone)' : '') }));
       const off = document.createElement('button');
       off.type = 'button';
       off.textContent = '✕';
-      off.setAttribute('aria-label', `Stop putting ${chip.textContent} on ${floorLabel}`);
+      off.setAttribute('aria-label', `Stop putting ${rule.folder} on ${floorLabel}`);
       // Out of the floors' rows first, or the list wouldn't be drawn again with it gone (see renderFloors).
       off.onclick = () => {
         off.blur();
@@ -5949,15 +6084,29 @@
     const add = document.createElement('input');
     Object.assign(add, { type: 'text', spellcheck: false, placeholder: `Add a project folder, as ${exampleFolder()}` });
     add.setAttribute('aria-label', `A project folder whose agents sit on ${floorLabel}`);
-    add.onchange = () => {
+    const adding = Object.assign(document.createElement('button'), { type: 'button', className: 'btn', textContent: 'Add' });
+    adding.setAttribute('aria-label', `Add this project folder to ${floorLabel}`);
+    // Add, or Enter (or leaving the field with a folder in it): the same.
+    const keep = () => {
       const folder = add.value.trim();
       if (!folder) return;
+      add.value = '';
       add.blur();
       // Setup's rule for that folder and the ones in it: one remembered from the office for it alone stays beside it.
       sendFloors([...state.floorRules.filter((r) => r.folder !== folder || r.exact), { folder, floor: i }]);
     };
-    box.append(add);
+    add.onchange = keep;
+    adding.onclick = keep;
+    adding.onmousedown = (e) => e.preventDefault(); // the field's change, on leaving it, would add it first
+    const row = Object.assign(document.createElement('span'), { className: 'rule-add' });
+    row.append(add, adding);
+    box.append(row);
     return box;
+  }
+
+  /** A folder as a chip shows it: ~ for the home folder where the path says whose it is. */
+  function shortFolder(folder) {
+    return folder.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, '~').replace(/^[A-Za-z]:\\Users\\[^\\]+(?=\\|$)/, '~');
   }
 
   /** All six at once, as the page has them, and the folders' rules, as given or as they are. */
@@ -6098,6 +6247,31 @@
   /** Sections that have moved into another, by their old name: where each is now. */
   const MOVED = { profiles: ['office', 'profiles-section'] };
 
+  // Counts the sections shown, for the pickers' Recent row (see drawCatalog). A var: a picker may be drawn before this line runs.
+  var paneVisit = 0;
+
+  /**
+   * Sections folded to their heading ([data-folds]): the heading opens and closes them. What
+   * search or Find a setting lands on, in a folded one, opens it first (see go).
+   */
+  function setFold(section, folded) {
+    section.classList.toggle('folded', folded);
+    const head = section.querySelector(':scope > h2 .fold-head, :scope > .card-head > h2 .fold-head');
+    if (head) head.setAttribute('aria-expanded', String(!folded));
+  }
+  document.querySelectorAll('[data-folds]').forEach((section) => {
+    const h2 = section.querySelector(':scope > h2, :scope > .card-head > h2');
+    const head = Object.assign(document.createElement('button'), { type: 'button', className: 'fold-head' });
+    head.append(...h2.childNodes);
+    h2.append(head);
+    head.onclick = () => {
+      section.dataset.touched = '1';
+      setFold(section, !section.classList.contains('folded'));
+      if (section.matches('.pane.current *')) fitDetails();
+    };
+    setFold(section, section.dataset.folds !== 'open');
+  });
+
   /**
    * Shows a section, and in it `at`, an element to bring into view and light up for a moment.
    * `at` decides the section, wherever it has moved to; one out of sight lights up what holds it.
@@ -6108,6 +6282,7 @@
     const holder = at && at.closest('.pane');
     if (holder) pane = holder.dataset.pane;
     if (!PANES.includes(pane)) return;
+    if (pane !== document.querySelector('.pane.current')?.dataset.pane) paneVisit++;
     document.querySelectorAll('.pane').forEach((el) => el.classList.toggle('current', el.dataset.pane === pane));
     document.querySelectorAll('#nav [data-go]').forEach((b) => {
       if (b.dataset.go === pane) b.setAttribute('aria-current', 'page');
@@ -6121,6 +6296,8 @@
     document.querySelectorAll('.pane.current .picker').forEach(scrollToPicked);
     document.querySelectorAll('.pane.current .picker[data-fold]').forEach(filterPicker);
     while (at && at.closest('[hidden]') && !at.matches('.pane')) at = at.parentElement.closest('.group, .card, .step, .pane');
+    const folded = at && at.closest('[data-folds].folded');
+    if (folded) setFold(folded, false);
     if (!at || at.matches('.pane')) {
       window.scrollTo(0, 0);
       if (moveFocus) focusOn(document.querySelector('.pane.current h1'));
@@ -6539,7 +6716,7 @@
       return setTimeout(() => { button.textContent = action.label; }, 2500);
     }
     if (action.kind === 'folder') {
-      const step = $('first-folder') && !$('first-folder').hidden ? $('first-folder') : $('step-hiring');
+      const step = $('first-folder') && !$('first-folder').hidden ? $('first-folder') : $('step-hire-folder');
       return go(step.closest('.pane').dataset.pane, step);
     }
     button.disabled = true;

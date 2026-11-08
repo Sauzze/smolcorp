@@ -68,6 +68,8 @@ final class SelfTestTests: XCTestCase {
         XCTAssertEqual(SelfTest.accessibilityCheck(false).fix, SelfTest.accessibility)
         XCTAssertEqual(SelfTest.phoneCheck(0).status, .todo)
         XCTAssertEqual(SelfTest.phoneCheck(1).status, .ok)
+        // The Mac shows the code and the QR; the phone scans one or types the other.
+        XCTAssertEqual(SelfTest.phoneCheck(0).detail, "Open Pair a phone, then scan its QR code with your phone's camera, or type its 6-digit code on your phone.")
         XCTAssertEqual(SelfTest.networkCheck(tailnet: nil).status, .info)
         XCTAssertTrue(SelfTest.networkCheck(tailnet: "https://mac.example.ts.net").detail.contains("mac.example.ts.net"))
         XCTAssertEqual(SelfTest.loginCheck(false, testCopy: false).fix, SelfTest.login)

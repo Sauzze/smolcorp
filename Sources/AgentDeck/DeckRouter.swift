@@ -1575,8 +1575,11 @@ final class DeckRouter: Router {
 
     /// The manager's part of the setup state. `gmStartedByHand` is true only with the
     /// setting on and a GM that has used the token (see `GMIdentity.startedByHand`).
-    static func managerState(enabled: Bool, byHand: Bool, startedByHand: Bool) -> [String: Any] {
-        ["enabled": enabled, "gmByHand": byHand, "gmStartedByHand": byHand && startedByHand]
+    /// `gmTokenFile` is where "Allow a General Manager started by hand" writes the token,
+    /// for the page to say where (`gmTokenFileShown`, with ~) and copy the path: never the token.
+    static func managerState(enabled: Bool, byHand: Bool, startedByHand: Bool, tokenFile: URL = Paths.gmToken) -> [String: Any] {
+        ["enabled": enabled, "gmByHand": byHand, "gmStartedByHand": byHand && startedByHand,
+         "gmTokenFile": tokenFile.path, "gmTokenFileShown": (tokenFile.path as NSString).abbreviatingWithTildeInPath]
     }
 
     private func setupState(_ caller: SetupSessions.Caller) -> [String: Any] {
@@ -1587,8 +1590,9 @@ final class DeckRouter: Router {
             if let session = key.session { keyOf[session.id] = index }
         }
 
+        // Tailscale reaches this Mac only over HTTPS, with the phone mic on (see Tailnet): only then is it said.
         let pairing = SetupSessions.pairing(code: deck.access.activeCode, expiresIn: Int(deck.access.codeExpiry.timeIntervalSinceNow),
-                                            address: deck.phoneAddress, for: caller)
+                                            address: deck.phoneAddress, tailnet: config.phoneMicEnabled ? Tailnet.url : nil, for: caller)
 
         return [
             // Which Smolcorp this is, shown at the foot of setup's first pane.

@@ -153,7 +153,7 @@ func TestTheFirewallIsRightOnlyWithTailscalesRuleForThisCopy(t *testing.T) {
 }
 
 func TestOnlyAPhoneCountsAsPairedAndLoginIsOffered(t *testing.T) {
-	if c := phoneCheck(0); c.Status != checkTodo {
+	if c := phoneCheck(0); c.Status != checkTodo || c.Detail != "Open Pair a phone, then scan its QR code with your phone's camera, or type its 6-digit code on your phone." {
 		t.Errorf("no phone: %+v", c)
 	}
 	if c := phoneCheck(2); c.Status != checkOK || !strings.HasPrefix(c.Detail, "2 paired") {

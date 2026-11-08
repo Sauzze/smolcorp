@@ -159,7 +159,7 @@ enum SelfTest {
         var check = Check(id: "phone", status: .ok, title: "A phone is paired", detail: "\(phones) paired. Pair another from Phone and voice.")
         if phones == 0 {
             check.status = .todo
-            check.detail = "Scan the code under Pair a phone with your phone's camera, then type the 6 digits it shows."
+            check.detail = "Open Pair a phone, then scan its QR code with your phone's camera, or type its 6-digit code on your phone."
         }
         return check
     }
