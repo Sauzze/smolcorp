@@ -99,6 +99,25 @@ final class GMPreflightTests: XCTestCase {
         XCTAssertNil(hooks.action)
     }
 
+    /// One row, one state (FX7): a test copy's agents line was an empty circle on General and Start here, while the hire's
+    /// line under it was ticked, as each decided the test copy apart. Now both say it from one sentence, both ticked,
+    /// and General shows the test copy's words with no Disconnect.
+    func testATestCopysAgentsLineIsTickedEverywhereFromOneSource() throws {
+        var f = ready()
+        f.testCopy = true
+        let hire = try line(GMPreflight.items(f), "hooks")
+        let check = SelfTest.hooksCheck(found: [], connected: [], scriptThere: true, testCopy: true)
+        XCTAssertTrue(hire.ok)
+        XCTAssertEqual(check.status, .ok)
+        XCTAssertEqual(hire.title, SelfTest.testCopyHires)
+        XCTAssertTrue(check.detail.hasPrefix(SelfTest.testCopyHires))
+        XCTAssertFalse(check.detail.contains("scripts/"), "no file names on a tester's screen")
+        XCTAssertTrue(try source("Sources/AgentDeck/GMPreflight.swift").contains("title: SelfTest.testCopyHires"))
+        let page = try source("Resources/web/setup.html")
+        XCTAssertTrue(page.contains("detail.textContent = id === 'hooks' && ok && detail.dataset.done && !testCopy() ? detail.dataset.done : c.detail;"))
+        XCTAssertTrue(page.contains("el.hidden = !ok || (id === 'hooks' && testCopy());"))
+    }
+
     /// A test copy never hires on your default Claude account (FX4): Start here says so before Hire, To do, with how
     /// and a button to it; ticked with the account's name once another is picked. The real app shows no such line.
     func testATestCopySaysItsGMNeedsAnAccountOfItsOwnBeforeHire() throws {
@@ -139,16 +158,106 @@ final class GMPreflightTests: XCTestCase {
         XCTAssertTrue(Deck.testCopyAccountRefusal(account: home, otherAccounts: false, testCopy: true)?.message.hasSuffix(add.fix) ?? false)
     }
 
-    /// Start here's account line goes where it says (FX4), and nothing is Ready to work while a line is in Hire's way.
+    /// Start here's account line goes where it says (FX4), and nothing is Ready while a line is in Hire's way.
     func testStartHereWaitsForATestCopysAccountBeforeReadyToWork() throws {
         let page = try source("Resources/web/setup.html")
         XCTAssertTrue(page.contains("if (action.kind === 'account') return chooseAccount().run();"))
-        XCTAssertTrue(page.contains("const account = shown && gmPreflight.items.some((i) => i.id === 'account' && !i.ok);"))
-        // Not only the account: any line still in Hire's way keeps Ready to work (and All set) back.
-        XCTAssertTrue(page.contains("const inTheWay = shown && gmPreflight.items.some((i) => !i.ok && !i.optional);"))
-        XCTAssertTrue(page.contains("steps ? (inTheWay ? many : `Ready to work · ${many}`) : inTheWay ? 'Before your first hire' : 'All set'"))
+        // Any line still in Hire's way is counted as a step left (or to fix): never Ready, never All set.
+        XCTAssertTrue(page.contains("todo: [...(hireAhead ? [] : steps), ...hire.filter((i) => i.todo)],"))
+        XCTAssertTrue(page.contains("$('start-now').textContent = !left ? ready : !hireAhead && !fix.length ? `Ready to work · ${left}` : left;"))
         let render = try XCTUnwrap(page.range(of: "function renderGmPreflight() {"))
         XCTAssertNotNil(page[render.upperBound...].prefix(400).range(of: "renderStartNow();"), "the state beside Start here follows the line")
+    }
+
+    /// One count (FX7): the header's "N steps left", the To do badges and the line under Hire all come from startLines.
+    /// While the GM is to hire, Start here's own steps (keyboard, phone, open at login) say Later and aren't counted;
+    /// the line under Hire names what greys it instead of counting lines.
+    func testStartHereCountsItsLinesOnceAndNamesWhatGreysHire() throws {
+        let page = try source("Resources/web/setup.html")
+        XCTAssertEqual(page.components(separatedBy: "startLines()").count - 1, 3, "defined once, read by the header and the line under Hire")
+        XCTAssertTrue(page.contains("const hire = hireAhead ? gmPreflightLeft() : [];"))
+        XCTAssertTrue(page.contains("later: hireAhead ? steps : [],"))
+        XCTAssertTrue(page.contains("row.querySelector('.to-do').textContent = hireAhead ? 'Later' : 'To do';"))
+        XCTAssertTrue(page.contains("const ready = hireAhead ? `Ready to hire${later.length ? ` · ${later.length} for later` : ''}` : 'All set';"))
+        // The badges are set once the rows are drawn, not before.
+        let draw = try XCTUnwrap(page.range(of: "function renderStartHere(report) {"))
+        let body = page[draw.upperBound...].prefix(2600)
+        let rows = try XCTUnwrap(body.range(of: "$('start-checks').replaceChildren("))
+        let count = try XCTUnwrap(body.range(of: "renderStartNow();"))
+        XCTAssertLessThan(rows.lowerBound, count.lowerBound)
+        // Named, from the lines in Hire's way.
+        XCTAssertTrue(page.contains(": left.length ? hireGreyedUntil(startLines().hire) : '';"))
+        XCTAssertTrue(page.contains("return `Hire your General Manager is greyed until you've ${list}.`;"))
+        for words in ["'picked the hires folder'", "'added a Claude account'", "'chosen a Claude account'", "'installed Claude Code'", "'pressed Connect'"] {
+            XCTAssertTrue(page.contains(words), words)
+        }
+        // The account line's button words, which say which of add and choose it is, are the app's own.
+        var f = ready()
+        f.testCopy = true
+        f.account = ClaudeProfiles.defaultName
+        XCTAssertEqual(try line(GMPreflight.items(f), "account").action?.label, "Add an account")
+        f.otherAccounts = true
+        XCTAssertEqual(try line(GMPreflight.items(f), "account").action?.label, "Choose an account")
+        XCTAssertTrue(page.contains("i.action.label === 'Choose an account' ? 'chosen a Claude account' : 'added a Claude account'"))
+        // Start here's own steps are none of the hire's: the hire's needs are its own lines.
+        for c in [SelfTest.accessibilityCheck(false), SelfTest.phoneCheck(0), SelfTest.loginCheck(false, testCopy: false)] {
+            XCTAssertEqual(c.status, .todo, c.id)
+        }
+        XCTAssertTrue(page.contains(".start-here .step.todo.later .mark"))
+    }
+
+    /// Come to the accounts from Start here's account line (FX7): one sentence on which to pick and what happens, the
+    /// accounts that will do marked, and an Add goes straight back to Easy setup, where the line looks again.
+    func testComingFromTheAccountLineSaysWhichToAddAndComesBack() throws {
+        let page = try source("Resources/web/setup.html")
+        XCTAssertTrue(page.contains(#"<p class="accounts-for-gm" id="accounts-for-gm" role="status" hidden></p>"#))
+        XCTAssertTrue(page.contains("'Pick any account below that isn\\'t the one you use yourself, and click Add: your General Manager will work on it.'"))
+        XCTAssertTrue(page.contains("accountsForGm = testCopy();\n      renderAccounts();\n      go('general', $('step-accounts'));"))
+        XCTAssertTrue(page.contains("return accountsForGm && testCopy() && !gmHired && !$('start-gm').hidden && !gmAccount();"))
+        XCTAssertTrue(page.contains("textContent: 'Your General Manager can work on this one'"))
+        XCTAssertTrue(page.contains("textContent: 'The one you use yourself'"))
+        XCTAssertTrue(page.contains("if (forGm && gmAccount()) {"))
+        XCTAssertTrue(page.contains("return go('easy', $('first-gm-checks'));"), "back on Easy setup, go() looks again")
+        // No word of a Connect button the list doesn't have.
+        XCTAssertFalse(page.contains("Connect puts Smolcorp's hooks"))
+        XCTAssertTrue(page.contains("$('accounts-hooks').hidden = testCopy();"))
+    }
+
+    /// A test copy's GM needs an account of its own, so a test copy can add one (FX7): kept in its own settings,
+    /// with no account's hooks touched (it used to refuse every Add, 409, so the account line's way out was a dead end).
+    func testATestCopyAddsAnAccountWithoutTouchingItsHooks() throws {
+        let config = Config.shared
+        let before = config.claudeProfiles
+        defer {
+            config.claudeProfiles = before
+            config.save()
+        }
+        let dir = scratch.appendingPathComponent(".claude-fx7test", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let settings = dir.appendingPathComponent("settings.json")
+        try "{}".write(to: settings, atomically: true, encoding: .utf8)
+        let router = DeckRouter(deck: quietDeck())
+        let body = try JSONSerialization.data(withJSONObject: ["profiles": [["name": "fx7test", "dir": dir.path]]])
+        let answered = router.setClaudeAccounts(body, testCopy: true)
+        XCTAssertEqual(answered.status, 200, text(answered))
+        XCTAssertTrue(config.claudeProfiles.contains { $0.name == "fx7test" && $0.dir == dir.path })
+        XCTAssertEqual(try String(contentsOf: settings, encoding: .utf8), "{}", "no hooks written into the account")
+        // Taken out again: still nothing written.
+        XCTAssertEqual(router.setClaudeAccounts(Data(#"{"profiles":[]}"#.utf8), testCopy: true).status, 200)
+        XCTAssertFalse(config.claudeProfiles.contains { $0.name == "fx7test" })
+        XCTAssertEqual(try String(contentsOf: settings, encoding: .utf8), "{}")
+    }
+
+    /// Open the office says where it opened (FX7): its own window on the Mac and Windows, the browser on Linux, beside the button.
+    func testOpenTheOfficeSaysWhereItOpened() throws {
+        let page = try source("Resources/web/setup.html")
+        XCTAssertTrue(page.contains("onMac() ? 'The office opened in its own window.' : 'The office is open: in its own window, or in your browser.'"))
+        // R791: one fact counts once (the hooks line in both lists), and the live region is written only when it changes.
+        XCTAssertTrue(page.contains("const twice = (c) => c.id === 'hooks' && hire.some((i) => i.id === 'hooks');"))
+        XCTAssertTrue(page.contains("own.filter((c) => c.status === 'fix' && !twice(c))"))
+        XCTAssertTrue(page.contains("if ($('accounts-for-gm').textContent !== forGm) $('accounts-for-gm').textContent = forGm;"))
+        XCTAssertTrue(page.contains("const said = officeOpened(button);"))
+        XCTAssertTrue(page.contains("button.after(said);"))
     }
 
     /// The accounts list (FX4): one verb, Add, on the instruction and the buttons; the GM's account marked; a way back to
@@ -171,7 +280,8 @@ final class GMPreflightTests: XCTestCase {
         XCTAssertTrue(page.contains("$('accounts-next').hidden = !accountAdded || gmHired || $('start-gm').hidden;"))
         XCTAssertTrue(page.contains("go('easy', $('start-gm'));"))
         // The lines look again once the picker beside Hire has the new list.
-        XCTAssertTrue(page.contains("await load();\n      checkGmPreflight();"))
+        XCTAssertTrue(page.contains("await load();\n      // Added for the General Manager"))
+        XCTAssertTrue(page.contains("return go('easy', $('first-gm-checks'));\n      }\n      checkGmPreflight();"))
     }
 
     /// Buttons that act on the Mac say so in the page (FX4): Change's folder window, with a path field as the other way,
@@ -184,7 +294,11 @@ final class GMPreflightTests: XCTestCase {
         let said = try XCTUnwrap(body.range(of: "firstFolderPicking = firstFolderTyping = true;\n      renderFirstFolder();"))
         let asked = try XCTUnwrap(body.range(of: "fetch('/setup/hiring/choose?pick=1'"))
         XCTAssertLessThan(said.lowerBound, asked.lowerBound, "said before the window's answer, which waits for a pick")
-        XCTAssertNotNil(body.range(of: "if (!firstFolderEdited) firstFolderTyping = firstFolderChanging = false;"), "a typed path stays")
+        // Nothing typed: folded back as it was, without the check made as the window opened (R790).
+        XCTAssertNotNil(body.range(of: "if (!firstFolderEdited) {\n          firstFolderTyping = firstFolderChanging = false;\n          firstFolderIssue = null;\n        }"),
+                        "a typed path stays; otherwise the step folds back")
+        let render = try XCTUnwrap(page.range(of: "function renderFirstFolder() {"))
+        XCTAssertNotNil(page[render.upperBound...].prefix(600).range(of: "|| !!firstFolderIssue;"), "an issue left behind would keep the step open")
         XCTAssertTrue(page.contains("$('first-folder-picking').hidden = !firstFolderPicking || !firstFolderTyping;"))
         XCTAssertTrue(page.contains("button.textContent = 'Opening the office…';"))
         XCTAssertTrue(page.contains("$('first-gm-office').onclick = $('start-office').onclick;"))
@@ -572,7 +686,7 @@ final class GMPreflightTests: XCTestCase {
         let page = try source("Resources/web/setup.html")
         XCTAssertTrue(page.contains(#"<p class="said" id="start-said" role="status" hidden><span id="start-said-text"></span><button class="btn" id="start-said-do" hidden></button></p>"#))
         XCTAssertTrue(page.contains("startSaid(why, true, hireRefusalFix(why));"))
-        XCTAssertTrue(page.contains("return { label: 'Add an account', run: () => go('general', $('step-accounts')) };"))
+        XCTAssertTrue(page.contains("return { label: 'Add an account', run: () => {"))
         XCTAssertTrue(page.contains("if (why.startsWith('Connect your agents first')) return { label: 'Connect',"))
         // The words the page answers are the apps' own.
         let refused = try XCTUnwrap(Deck.testCopyAccountRefusal(account: ClaudeProfiles.defaultProfile(home: URL(fileURLWithPath: home)), testCopy: true))

@@ -127,8 +127,8 @@ enum GMPreflight {
                               fix: "You can hire anyway: if your General Manager asks you to sign in, type /login in its window.", optional: true))
         }
         if f.testCopy {
-            // As the self-test's line says: a test copy hears only from its own hires' hook.
-            items.append(Item(id: "hooks", ok: true, title: "Your hires report to this test copy through its own hook."))
+            // The self-test's hooks line says the same, ticked too (SelfTest.hooksCheck): one answer for a test copy.
+            items.append(Item(id: "hooks", ok: true, title: SelfTest.testCopyHires))
         } else if f.hooks != nil {
             items.append(Item(id: "hooks", ok: false, title: "Claude Code doesn't report to Smolcorp yet, so your General Manager would never reach a desk.",
                               fix: "Press Connect, then Check again.", action: Action(kind: "fix", label: "Connect", fix: SelfTest.repair), todo: true))
@@ -140,6 +140,7 @@ enum GMPreflight {
 
     /// A test copy's account line: To do while the hire would be on the default account (it's refused there), ticked
     /// with the account's name once another is picked. The real app hires on the default account: no line.
+    /// Linux/Windows keeps its line red (!), as there it can't be put right: a test copy there never hires Claude Code.
     private static func accountItems(_ f: Facts) -> [Item] {
         guard f.testCopy else { return [] }
         if let name = f.account, name != ClaudeProfiles.defaultName {

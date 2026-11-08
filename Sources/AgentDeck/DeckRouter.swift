@@ -1470,8 +1470,10 @@ final class DeckRouter: Router {
     /// `POST /setup/claude-accounts` with `{profiles: [{name, dir}]}`: the
     /// accounts besides ~/.claude, whole, checked before anything is kept. One
     /// added while Smolcorp is connected is connected too; one taken out has
-    /// Smolcorp's hooks taken out of it, and nothing else.
-    func setClaudeAccounts(_ body: Data) -> Response {
+    /// Smolcorp's hooks taken out of it, and nothing else. A test copy keeps the
+    /// list in its own settings (its General Manager needs an account of its own)
+    /// and never touches an account's hooks: its hires report through its own.
+    func setClaudeAccounts(_ body: Data, testCopy: Bool = TestCopy.isOn) -> Response {
         guard let given = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any], let list = given["profiles"] as? [[String: Any]]
         else { return .status(400, "Send {profiles: [{name, dir}]}.") }
         let asked = list.map { ClaudeProfile(name: $0["name"] as? String ?? "", dir: $0["dir"] as? String ?? "") }
@@ -1479,10 +1481,10 @@ final class DeckRouter: Router {
         case .failure(let refused): return .status(400, refused.message)
         case .success(let profiles):
             let config = Config.shared
-            guard !TestCopy.isOn else { return .status(409, Hooks.HookError.testCopy.localizedDescription) }
             let before = config.claudeProfiles
             config.claudeProfiles = profiles
             config.save()
+            if testCopy { return .json(ClaudeProfiles.json(ClaudeProfiles.current)) }
             if !config.hooksDisconnected { Hooks.connectAdded(profiles.filter { !before.contains($0) }) }
             for gone in before where !profiles.contains(where: { $0.dir == gone.dir }) { _ = try? Hooks.removeClaude(from: gone) } // writes nothing if none of ours is in it
             return .json(ClaudeProfiles.json(ClaudeProfiles.current))

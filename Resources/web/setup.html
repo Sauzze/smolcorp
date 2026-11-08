@@ -256,6 +256,9 @@
   .accounts .gm-uses { padding: 0 6px; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); font-size: 11px; white-space: nowrap; }
   .accounts .row code { font-size: 11.5px; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
   .accounts-fine { color: var(--dim); font-size: 11.5px; margin: 6px 0 0; }
+  .accounts .gm-not { color: var(--dim); font-size: 11px; white-space: nowrap; }
+  /* Come from Start here's account line: which account to add, said once, plainly. */
+  .accounts-for-gm { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); font-size: 12.5px; }
   #accounts-next { color: var(--ink); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
   /* Guard: one row a group, then your own patterns */
   .guard-warning { color: var(--error); }
@@ -380,10 +383,13 @@
   .start-here .step.fix .mark { border-color: var(--error); color: var(--error); }
   .start-here .step.todo .mark { border-color: var(--asking); }
   .start-here .step.info .mark { border-style: dashed; }
+  /* A step not needed to hire: Later, until the General Manager is hired. */
+  .start-here .step.todo.later .mark { border-color: var(--faint); }
   /* A step not taken yet: neutral, said in words, never red. */
   .start-here .to-do { margin-left: 8px; padding: 0 6px; border: 1px solid var(--faint); border-radius: 999px; color: var(--dim);
     font-size: 11px; font-weight: 500; white-space: nowrap; }
   .start-here .said .btn { margin-left: 6px; }
+  .start-here .office-opened { color: var(--dim); font-size: 12px; align-self: center; }
   .start-here .step .btn { flex: none; }
   .start-here .tools { display: flex; gap: 6px; flex-wrap: wrap; }
   .start-here .said { color: var(--dim); font-size: 12px; margin: 8px 2px 0; }
@@ -834,6 +840,8 @@
           <div class="text">
             <div class="title">Claude accounts</div>
             <div class="detail">Each hire works on one of these Claude accounts. To hire on another, add it here.</div>
+            <!-- Come from Start here's account line (a test copy): which to pick, and what happens then. -->
+            <p class="accounts-for-gm" id="accounts-for-gm" role="status" hidden></p>
             <div class="accounts" id="accounts-list"></div>
             <div class="accounts"><div class="row" id="accounts-add">
               <input type="text" id="account-name" spellcheck="false" placeholder="Name, such as work" aria-label="The account's name">
@@ -847,7 +855,7 @@
             </div></div>
             <p id="accounts-next" role="status" hidden>Added. <button class="btn primary" id="accounts-back">Back to Easy setup → Hire your General Manager</button></p>
             <p class="note" id="accounts-problem" role="alert" hidden></p>
-            <p class="accounts-fine">Each account is a folder of its own (CLAUDE_CONFIG_DIR). Connect puts Smolcorp's hooks in every account listed.</p>
+            <p class="accounts-fine">Each account is a folder of its own (CLAUDE_CONFIG_DIR).<span id="accounts-hooks"> One you add reports to Smolcorp too, while your agents are connected.</span></p>
           </div>
         </div>
         <div class="step" id="step-launcher" hidden>
@@ -1864,7 +1872,7 @@
   /**
    * General's Getting started says what Start here says: its agents, keyboard and login rows take the
    * self-test's line of the same id (its title, its tick, its words, its button's word), so the two never
-   * disagree. A test copy's line (info) has no button here either. Without the self-test, they're as drawn.
+   * disagree. A test copy's lines (its agents, its login) have no button here either. Without the self-test, they're as drawn.
    */
   const sameAsStartHere = { hooks: 'step-hooks', accessibility: 'step-accessibility', login: 'step-login' };
   function matchStartHere() {
@@ -1875,13 +1883,14 @@
       step.classList.toggle('done', ok);
       step.querySelector('.title').textContent = c.title;
       const detail = step.querySelector('.detail');
-      // Once they report, the agents' row keeps its own word on them (a restart, Codex's /hooks).
-      detail.textContent = id === 'hooks' && ok && detail.dataset.done ? detail.dataset.done : c.detail;
+      // Once they report, the agents' row keeps its own word on them (a restart, Codex's /hooks); a test copy's says how its hires report.
+      detail.textContent = id === 'hooks' && ok && detail.dataset.done && !testCopy() ? detail.dataset.done : c.detail;
       step.querySelectorAll('[data-pending-only]').forEach((el) => {
         el.hidden = ok || info || !c.label;
         if (c.label) el.textContent = c.label;
       });
-      step.querySelectorAll('[data-done-only]').forEach((el) => { el.hidden = !ok; });
+      // A test copy never changes your agents' settings: nothing to disconnect.
+      step.querySelectorAll('[data-done-only]').forEach((el) => { el.hidden = !ok || (id === 'hooks' && testCopy()); });
       // A test copy leaves the login item to the Smolcorp you use: no switch to say otherwise.
       if (id === 'login') $('login').hidden = info;
     }
@@ -2561,6 +2570,12 @@
   }
   // An account just added: the way back to Start here's hire is offered, while there's a GM to hire.
   let accountAdded = false;
+  // Come to the list from Start here's account line, in a test copy: it says which to add, and an Add goes back to Hire.
+  let accountsForGm = false;
+  /** Whether the list is saying which account to add for the General Manager: come from its line, and it still has none. */
+  function addingForGm() {
+    return accountsForGm && testCopy() && !gmHired && !$('start-gm').hidden && !gmAccount();
+  }
   /** The Claude accounts besides the default, as the page lists them; changes go to the app whole. */
   function renderAccounts() {
     const accounts = state.claudeAccounts;
@@ -2568,6 +2583,15 @@
     $('step-accounts').hidden = !accounts || !state.agents.some((a) => a.id === 'claude');
     if ($('step-accounts').hidden) return;
     const forGm = gmAccount();
+    // A test copy's General Manager can work on any account but the default, the one you use yourself: said, and marked.
+    const adding = addingForGm();
+    const found = accounts.found.length > 0;
+    $('accounts-for-gm').hidden = !adding;
+    const forGm = found
+      ? 'Pick any account below that isn\'t the one you use yourself, and click Add: your General Manager will work on it.'
+      : 'Your General Manager needs an account that isn\'t the one you use yourself: sign in to one below, then add it. It will work on that one.';
+    // A live region: written only when its words change, so a screen reader doesn't read it again at every refresh.
+    if ($('accounts-for-gm').textContent !== forGm) $('accounts-for-gm').textContent = forGm;
     const rows = accounts.profiles.map((p) => {
       const row = document.createElement('div');
       row.className = 'row';
@@ -2577,6 +2601,7 @@
       const status = Object.assign(document.createElement('span'), { textContent: testCopy() ? '' : p.connected ? 'Reports to Smolcorp' : "Doesn't report yet" });
       row.append(name, dir, status);
       if (p.name === forGm) row.append(Object.assign(document.createElement('span'), { className: 'gm-uses', textContent: 'Your General Manager works on this one' }));
+      if (adding && p.default) row.append(Object.assign(document.createElement('span'), { className: 'gm-not', textContent: 'The one you use yourself' }));
       if (!p.default) {
         const remove = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Remove' });
         remove.setAttribute('aria-label', `Remove ${p.name}`);
@@ -2592,13 +2617,17 @@
       add.setAttribute('aria-label', `Add ${f.name}`);
       add.onclick = () => saveAccounts([...accounts.profiles.filter((q) => !q.default), f]);
       row.append(Object.assign(document.createElement('span'), { textContent: 'Found:' }), Object.assign(document.createElement('strong'), { textContent: f.name }),
-        pathLine(Object.assign(document.createElement('span'), { className: 'dir' }), f.dir), add);
+        pathLine(Object.assign(document.createElement('span'), { className: 'dir' }), f.dir));
+      if (adding) row.append(Object.assign(document.createElement('span'), { className: 'gm-uses', textContent: 'Your General Manager can work on this one' }));
+      row.append(add);
       rows.push(row);
     }
     $('accounts-list').replaceChildren(...rows);
     // A test copy's second account is named for what it's for.
     $('account-signin-line').textContent = `CLAUDE_CONFIG_DIR=~/.claude-${testCopy() ? 'test' : 'work'} claude`;
     $('accounts-next').hidden = !accountAdded || gmHired || $('start-gm').hidden;
+    // A test copy's hires report through its own hook, whatever an account holds: nothing to say about connecting.
+    $('accounts-hooks').hidden = testCopy();
   }
   async function saveAccounts(profiles) {
     $('accounts-problem').hidden = true;
@@ -2609,8 +2638,15 @@
       $('account-dir').value = '';
       // One more account than before: added, so the way back to the hire is offered.
       accountAdded = profiles.length > addedAccounts().length;
+      const forGm = accountAdded && addingForGm();
       // The lines look once the picker beside Hire has the new list (a test copy picks the added one).
       await load();
+      // Added for the General Manager from its line: straight back to it, where the lines look again by themselves.
+      if (forGm && gmAccount()) {
+        accountsForGm = accountAdded = false;
+        $('accounts-next').hidden = true;
+        return go('easy', $('first-gm-checks'));
+      }
       checkGmPreflight();
       return;
     }
@@ -6627,25 +6663,46 @@
   }
 
   /**
-   * Start here's state beside its title. A test copy's General Manager with no account of its own (its preflight
-   * line) is one more step left, and nothing is Ready to work until it's taken.
+   * Start here's lines as they're marked, counted in one place: the header's count, the badges and the line under
+   * Hire all read this. While your General Manager is still to hire, the lines under Start here's own
+   * (#first-gm-checks) are what the hire needs: those left are To do, or ! for a real problem. Start here's own
+   * steps (the keyboard, a phone, open at login) aren't needed to hire, so they're for Later until it's done.
    */
+  function startLines() {
+    const own = startChecks || [];
+    const hireAhead = !!gmPreflight && !$('first-gm-checks').hidden;
+    const hire = hireAhead ? gmPreflightLeft() : [];
+    const steps = own.filter((c) => c.status === 'todo');
+    // One fact counts once: when Hire's own list has its "doesn't report to Smolcorp" line, Start here's
+    // "Your agents report to Smolcorp" is the same Connect, so it isn't counted again.
+    const twice = (c) => c.id === 'hooks' && hire.some((i) => i.id === 'hooks');
+    return {
+      hireAhead,
+      // In Hire's way, as the line under Hire names them.
+      hire,
+      fix: [...own.filter((c) => c.status === 'fix' && !twice(c)), ...hire.filter((i) => !i.todo)],
+      todo: [...(hireAhead ? [] : steps), ...hire.filter((i) => i.todo)],
+      later: hireAhead ? steps : [],
+    };
+  }
+
+  /** Start here's state beside its title, and its own steps marked To do or Later: as startLines counts them. */
   function renderStartNow() {
     if (!startChecks || startFailed) return;
-    const shown = !!gmPreflight && !$('first-gm-checks').hidden;
-    const account = shown && gmPreflight.items.some((i) => i.id === 'account' && !i.ok);
-    // Anything still in Hire's way (a line that isn't optional): not Ready to work yet, whatever the checklist says.
-    const inTheWay = shown && gmPreflight.items.some((i) => !i.ok && !i.optional);
-    const left = startChecks.filter((c) => c.status === 'fix').length;
-    const steps = startChecks.filter((c) => c.status === 'todo').length + (account ? 1 : 0);
-    const many = `${steps} ${steps === 1 ? 'step' : 'steps'} left`;
-    $('start-now').textContent = left ? `${left} to fix` : steps ? (inTheWay ? many : `Ready to work · ${many}`) : inTheWay ? 'Before your first hire' : 'All set';
+    const { hireAhead, fix, todo, later } = startLines();
+    const left = [fix.length && `${fix.length} to fix`, todo.length && `${todo.length} ${todo.length === 1 ? 'step' : 'steps'} left`].filter(Boolean).join(' · ');
+    const ready = hireAhead ? `Ready to hire${later.length ? ` · ${later.length} for later` : ''}` : 'All set';
+    // Once the GM is hired (or none is to hire), steps left still leave it Ready to work, as before.
+    $('start-now').textContent = !left ? ready : !hireAhead && !fix.length ? `Ready to work · ${left}` : left;
+    $('start-checks').querySelectorAll('.step.todo').forEach((row) => {
+      row.classList.toggle('later', hireAhead);
+      row.querySelector('.to-do').textContent = hireAhead ? 'Later' : 'To do';
+    });
   }
 
   function renderStartHere(report) {
     startChecks = report.checks;
     $('start-here').hidden = false;
-    renderStartNow();
     $('start-fix-all').hidden = report.checks.filter((c) => c.status === 'fix' && c.fix).length < 2;
     $('start-checks').replaceChildren(...report.checks.map((c) => {
       const row = document.createElement('div');
@@ -6673,6 +6730,8 @@
       }
       return row;
     }));
+    // Its count, and its steps' To do or Later, once they're drawn.
+    renderStartNow();
     // General's rows for the same checks say the same.
     matchStartHere();
   }
@@ -6709,11 +6768,18 @@
     if (/Add one under Claude accounts: |Choose one other than default, |^There's no Claude account called |^Say which Claude account /.test(why)) return chooseAccount();
     return null;
   }
-  /** The way to an account: the picker beside Hire when it's shown (Choose), otherwise General's Claude accounts (Add, the word on its buttons). */
+  /**
+   * The way to an account: the picker beside Hire when it's shown (Choose), otherwise General's Claude accounts (Add, the
+   * word on its buttons). A test copy's list then says which to add, and an Add there comes straight back to Hire.
+   */
   function chooseAccount() {
     const pick = $('start-gm-account');
     if (!pick.hidden) return { label: 'Choose an account', run: () => { pick.focus(); try { pick.showPicker(); } catch {} } };
-    return { label: 'Add an account', run: () => go('general', $('step-accounts')) };
+    return { label: 'Add an account', run: () => {
+      accountsForGm = testCopy();
+      renderAccounts();
+      go('general', $('step-accounts'));
+    } };
   }
 
   const startFixSays = {
@@ -6748,18 +6814,36 @@
     }
   };
   // The office opens in its own window, apart from this page: the button pressed says Opening the office… until it's
-  // up, then reads as it did. Start here's and the one shown once the GM is at its desk.
+  // up, then reads as it did, and a line beside it says where it opened. Start here's and the one shown once the GM is at its desk.
   $('start-office').onclick = async (e) => {
     const button = e.currentTarget, label = button.textContent;
+    const said = officeOpened(button);
     const back = () => { button.textContent = label; button.disabled = false; };
+    said.hidden = true;
     button.textContent = 'Opening the office…';
     button.disabled = true;
     const res = await fetch('/setup/office', { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
     if (!res || !res.ok) back();
     if (!res) return startSaid("Can't reach Smolcorp on this computer.", true);
     if (!res.ok) return startSaid(`${await res.text()} Open the office from ${onMac() ? "Smolcorp's menu bar icon" : "Smolcorp's menu in the tray"}: Show Office, or open ${location.origin}/office in a browser on this computer and enter the code from Pair a phone.`, true);
-    setTimeout(back, 2500);
+    setTimeout(() => {
+      back();
+      // The Mac and Windows open a window of its own; Linux opens it in the browser.
+      // Windows without WebView2 falls back to the browser, which the page can't tell: words true either way there.
+      said.textContent = onMac() ? 'The office opened in its own window.' : 'The office is open: in its own window, or in your browser.';
+      said.hidden = false;
+      clearTimeout(said.timer);
+      said.timer = setTimeout(() => { said.hidden = true; }, 8000);
+    }, 2500);
   };
+  /** The line beside an Open the office button that says where the office opened: made once, next to it. */
+  function officeOpened(button) {
+    if (button.nextElementSibling && button.nextElementSibling.matches('.office-opened')) return button.nextElementSibling;
+    const said = Object.assign(document.createElement('span'), { className: 'office-opened', hidden: true });
+    said.setAttribute('role', 'status');
+    button.after(said);
+    return said;
+  }
   /** The General Manager sessions at a desk now, by id: the desk comes once the hire's hook has posted. */
   async function seatedGms() {
     const res = await fetch('/setup/state', { cache: 'no-store' }).catch(() => null);
@@ -6974,10 +7058,8 @@
     $('start-gm').setAttribute('aria-busy', String(gmHireRunning));
     $('start-gm').classList.toggle('primary', shown && !!gmPreflight && !left.length);
     $('first-gm-recheck').hidden = !shown || (!left.length && !failed);
-    // Each line left is marked To do (a step not taken yet) or ! (a real problem): said with the same words.
-    const marks = [...new Set(left.map((i) => (i.todo ? 'To do' : '!')))].join(' or ');
     const why = !shown ? '' : failed ? "Couldn't check what your General Manager needs. You can still hire it, or press Check again."
-      : left.length ? `Hire your General Manager is greyed until ${left.length === 1 ? `the line marked ${marks} above is` : `the ${left.length} lines marked ${marks} above are`} done.` : '';
+      : left.length ? hireGreyedUntil(startLines().hire) : '';
     $('first-gm-why').hidden = !why;
     $('first-gm-why').textContent = wording(why);
     if (box.hidden) return;
@@ -6990,6 +7072,26 @@
       checkGmPreflight();
     } else if (!folderLeft && !gmPreflightBusy) gmPreflightStale = false;
     if (changed(box, [gmPreflight.items, firstFolderDone()])) box.replaceChildren(...gmPreflight.items.map(gmPreflightRow));
+  }
+
+  /** What each line in Hire's way asks of you, said after "until you've" ('' when it can't be put right here). */
+  const hireNeeds = {
+    folder: (i) => (i.todo ? 'picked the hires folder' : 'picked the hires folder again'),
+    claude: (i) => (i.todo ? 'installed Claude Code' : 'put Claude Code where your terminal looks for it'),
+    hooks: () => 'pressed Connect',
+    account: (i) => (!i.action ? '' : i.action.label === 'Choose an account' ? 'chosen a Claude account' : 'added a Claude account'),
+    terminal: (i) => (!i.action ? 'installed tmux' : i.action.kind === 'fix' ? 'let Smolcorp open your terminal' : 'installed tmux'),
+  };
+  /** Why Hire is greyed, naming the lines in its way (`left`, as startLines has them), so it never counts them apart. */
+  function hireGreyedUntil(left) {
+    const needs = left.map((i) => (hireNeeds[i.id] ? hireNeeds[i.id](i) : ''));
+    if (needs.every(Boolean)) {
+      const list = needs.length === 1 ? needs[0] : `${needs.slice(0, -1).join(', ')} and ${needs[needs.length - 1]}`;
+      return `Hire your General Manager is greyed until you've ${list}.`;
+    }
+    // A line with nothing to do here (a Linux/Windows test copy's account): pointed at by its mark.
+    const marks = [...new Set(left.map((i) => (i.todo ? 'To do' : '!')))].join(' or ');
+    return `Hire your General Manager is greyed until ${left.length === 1 ? `the line marked ${marks} above is` : `the ${left.length} lines marked ${marks} above are`} put right.`;
   }
 
   function gmPreflightRow(item) {
@@ -7177,8 +7279,11 @@
       firstFolderPicking = false;
       if (answer) {
         if (answer.picked) return keepFirstFolder(answer.picked, false);
-        // Nothing picked, nothing typed: as it was.
-        if (!firstFolderEdited) firstFolderTyping = firstFolderChanging = false;
+        // Nothing picked, nothing typed: as it was, without the check made as the window opened.
+        if (!firstFolderEdited) {
+          firstFolderTyping = firstFolderChanging = false;
+          firstFolderIssue = null;
+        }
         return renderFirstFolder();
       }
     }
