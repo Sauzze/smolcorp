@@ -1307,9 +1307,25 @@ final class DeckRouter: Router {
             }
             respond(.json(setupState(caller)))
 
-        // The Mac's own folder picker, which a web page can't open.
+        // The Mac's own folder picker, which a web page can't open. With `pick=1` it only answers the folder
+        // picked (`picked`, empty if none), for Start here to keep through its checks (POST /setup/hire-folder).
         case ("POST", "/setup/hiring/choose"):
-            deck.chooseHireFolder { [self] in respond(.json(setupState(caller))) }
+            if request.query["pick"] == "1" {
+                deck.chooseHireFolder(keep: false) { picked in respond(.json(["picked": picked ?? ""])) }
+            } else {
+                deck.chooseHireFolder { [self] _ in respond(.json(setupState(caller))) }
+            }
+
+        // Start here's hires folder: the one set, or with none, one suggested; `check=` checks one as it's typed.
+        case ("GET", "/setup/hire-folder"):
+            respond(HireFolder.route(request, config: config) {})
+
+        // Keeps it, once checked; `create=1` makes it first if it isn't there yet. A problem answers 400 with the same JSON, to show with its fix.
+        case ("POST", "/setup/hire-folder"):
+            respond(HireFolder.route(request, config: config) { [self] in
+                config.save()
+                deck.refresh()
+            })
 
         case ("POST", "/setup/hooks"):
             var notice: String?

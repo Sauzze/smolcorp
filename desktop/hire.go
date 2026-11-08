@@ -155,8 +155,8 @@ func (d *Deck) hireUpstairs(floor, desk, roleID string) (int, string) {
 }
 
 // hireFromSetup is a hire of roleID asked for on the setup page, on this
-// computer: hiring needn't be on for the phones, and with no folder for new
-// hires it starts in your home folder.
+// computer: hiring needn't be on for the phones. With no folder for new hires
+// it's refused (setupHireNeedsFolder), never started in your home folder.
 func (d *Deck) hireFromSetup(roleID string) (int, string) {
 	return d.hireAs("", roleID, 0, true)
 }
@@ -178,6 +178,11 @@ func hooksRefusal(agent Agent) string {
 	}
 	return ""
 }
+
+// setupHireNeedsFolder is a hire from the setup page with no folder for your
+// hires, or one that's gone: the page points at Start here's folder step. The
+// same words as the GM route's refusal (POST /setup/hire/gm) on both apps.
+const setupHireNeedsFolder = "Choose the folder for your hires first: it's the first step of Start here."
 
 func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, string) {
 	d.mu.Lock()
@@ -234,7 +239,7 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	if folder == "" {
 		var ok bool
 		if folder, ok = existingFolder(d.config.HireFolder); !ok && fromSetup {
-			folder, ok = existingFolder(homeDir)
+			return http.StatusConflict, setupHireNeedsFolder
 		}
 		if !ok {
 			return http.StatusConflict, "Choose a folder for new hires in setup, on your computer."
