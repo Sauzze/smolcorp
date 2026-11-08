@@ -21,6 +21,17 @@ enum TestCopy {
         .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
     static var isOn: Bool { port != nil }
 
+    /// A test copy, as it opens, writes a setup link to `setup-link` in its own folder (0600), so a
+    /// tester's browser can open the same page the Settings window shows. The link works once, as
+    /// the menu's do. The real app never writes one.
+    static func leaveSetupLink(_ url: URL, into folder: URL? = support, when on: Bool = isOn) {
+        guard on, let folder else { return }
+        let file = folder.appendingPathComponent("setup-link")
+        try? FileManager.default.removeItem(at: file)
+        guard FileManager.default.createFile(atPath: file.path, contents: Data((url.absoluteString + "\n").utf8),
+                                             attributes: [.posixPermissions: 0o600]) else { return }
+    }
+
     /// What a test copy leaves to the copy in use.
     enum Refused: LocalizedError {
         case screenSaver, hiring
