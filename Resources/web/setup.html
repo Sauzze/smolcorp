@@ -3269,6 +3269,8 @@
       $('hs-problem').hidden = false;
       return;
     }
+    // Accepted: the sheet doesn't follow the hire, so after the five minutes a start may take, it's over for the guide.
+    if (gmHire) setTimeout(hireEnded, 300000);
     // Where it sits, 0-based as the app counts desks; null with Auto and no desk free
     const { desk } = await res.json().catch(() => ({}));
     const name = hiring.name, onText = !hiring.brief || hiring.brief.kind === 'text';
@@ -6430,6 +6432,8 @@
       }
       if (i === 29) startSaid(`Your General Manager is still starting. Look at its terminal window: it may be waiting for you. ${advice}`);
     }
+    // Five minutes and no GM at a desk: the hire is over as far as the guide goes (a GM that sits down later still counts).
+    hireEnded();
     return false;
   }
 

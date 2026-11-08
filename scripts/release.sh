@@ -198,7 +198,10 @@ fi
 # files inside the app, and the seal breaks. The ticket is a file, not an attribute.
 rm -f "$ZIP"
 ditto -c -k --keepParent --norsrc --noextattr "$APP" "$ZIP"
-if unzip -Z1 "$ZIP" | grep -E -q '(^|/)\._|^__MACOSX/'; then
+# The listing is read whole first: grep -q stopping at a match would make unzip fail with SIGPIPE, which
+# pipefail turns into "no match".
+LISTING="$(unzip -Z1 "$ZIP")"
+if grep -E -q '(^|/)\._|^__MACOSX/' <<<"$LISTING"; then
   echo "Stopped: $ZIP holds AppleDouble (._) entries, which break the app's seal when it's unzipped."
   exit 1
 fi

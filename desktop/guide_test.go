@@ -165,13 +165,11 @@ func TestTheGuidesHireStepFollowsTheHireNotTheClick(t *testing.T) {
 		t.Errorf("gmHiring isn't set before the hire is sent:\n%s", hire)
 	}
 	// Every way out after the hire is sent ends the hire first (no answer, a refusal, a GM that never
-	// started), but two: the GM seated ("Hired:"), and the last return, five minutes on, where the guide's
-	// own patience has run out the same way.
+	// started, five minutes with no GM at a desk), but one: the GM seated ("Hired:").
 	if !strings.Contains(setup, "function hireEnded() {\n    gmHiring = false;") {
 		t.Error("setup.html has no hireEnded that clears gmHiring")
 	}
 	after := hire[sent:]
-	last := strings.LastIndex(after, "return ")
 	outs, prev := 0, 0
 	for i := 0; ; {
 		at := strings.Index(after[i:], "return ")
@@ -179,7 +177,7 @@ func TestTheGuidesHireStepFollowsTheHireNotTheClick(t *testing.T) {
 			break
 		}
 		at += i
-		if at != last && !strings.Contains(after[prev:at], "Hired:") {
+		if !strings.Contains(after[prev:at], "Hired:") {
 			outs++
 			if !strings.Contains(after[prev:at], "hireEnded();") {
 				t.Errorf("a way out of the hire doesn't call hireEnded first: %s", strings.SplitN(after[at:], "\n", 2)[0])
@@ -188,15 +186,16 @@ func TestTheGuidesHireStepFollowsTheHireNotTheClick(t *testing.T) {
 		prev = at + len("return ")
 		i = prev
 	}
-	if outs < 3 {
-		t.Errorf("expected the no-answer, refused and didn't-start ways out after the hire is sent, found %d", outs)
+	if outs < 4 {
+		t.Errorf("expected the no-answer, refused, didn't-start and timed-out ways out after the hire is sent, found %d", outs)
 	}
 	if strings.Index(hire, "Choose the Claude account") > set {
 		t.Error("gmHiring is set before the account is checked")
 	}
 	sheet := setup[strings.Index(setup, "$('hs-hire').onclick = async () => {"):]
 	sheet = sheet[:strings.Index(sheet, "closeHireSheet();")]
-	if !strings.Contains(sheet, "if (gmHire) gmHiring = true;") || !strings.Contains(sheet, "if (gmHire) hireEnded();") {
+	if !strings.Contains(sheet, "if (gmHire) gmHiring = true;") || !strings.Contains(sheet, "if (gmHire) hireEnded();") ||
+		!strings.Contains(sheet, "if (gmHire) setTimeout(hireEnded, 300000);") {
 		t.Error("the hire sheet doesn't say when a GM's hire is under way")
 	}
 }
