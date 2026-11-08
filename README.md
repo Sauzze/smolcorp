@@ -322,7 +322,7 @@ Update with `brew upgrade --cask smolcorp`.
 ### Or build it yourself
 
 You need Apple's free developer tools. The installer offers to install them if
-you don't have them. A copy you build yourself opens without the warning.
+you don't have them. macOS doesn't ask before opening a copy you build yourself, since it isn't a download.
 
 ```bash
 git clone https://github.com/Sauzze/smolcorp.git
