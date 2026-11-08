@@ -292,6 +292,16 @@
       ],
       "kind" : "action",
       "method" : "POST",
+      "path" : "\/setup\/hire-folder",
+      "why" : "the folder for new hires, from Start here"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
       "path" : "\/setup\/roles",
       "why" : "the roles, and so the briefs future hires get"
     },

@@ -1131,6 +1131,32 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
+	// Start here's hires folder: the one set, or with none, one suggested; check= checks one as it's typed.
+	case r.Method == http.MethodGet && path == "/setup/hire-folder":
+		var asked *string
+		if query.Has("check") {
+			given := query.Get("check")
+			asked = &given
+		}
+		d.mu.Lock()
+		saved := config.HireFolder
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, hireFolderState(saved, asked, homeDir))
+
+	// Keeps it, once checked; create=1 makes it first if it isn't there yet. A problem answers 400 with the same JSON, to show with its fix.
+	case r.Method == http.MethodPost && path == "/setup/hire-folder":
+		folder, refused := keepHireFolder(query.Get("folder"), query.Get("create") == "1", homeDir)
+		if refused != nil {
+			writeJSON(w, http.StatusBadRequest, hireFolderJSON(*refused, "", homeDir))
+			return
+		}
+		d.mu.Lock()
+		config.HireFolder = folder
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, hireFolderState(folder, nil, homeDir))
+
 	// The roles as the page has them, all of them: checked as they're kept,
 	// since their instructions go to agents.
 	case r.Method == http.MethodPost && path == "/setup/roles":

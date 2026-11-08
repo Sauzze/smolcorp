@@ -106,7 +106,7 @@ enum BriefRoutes {
         case .failure(let refused): return refused.response
         }
         let folder = (given["folder"] as? String).flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
-            ?? Deck.folder(hireFolder) ?? Paths.home.appendingPathComponent("Projects").path
+            ?? Deck.folder(hireFolder) ?? HireFolder.suggestion()
         let pinned = given["pinned"] as? Bool ?? pins.contains { $0.flatMap(Deck.folder) == Deck.folder(folder) && Deck.folder(folder) != nil }
         do {
             guard let made = try BriefBuilder.make(role, library: library, folder: folder, pinned: pinned, desk: nil, answers: answers,

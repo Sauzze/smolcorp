@@ -1,0 +1,162 @@
+import XCTest
+@testable import AgentDeck
+
+/// Start here's hires folder (T781): the folder suggested when none is set, every
+/// check with its fix, keeping one, and the route's JSON, which the Linux/Windows
+/// app's hirefolder_test.go checks for the same keys.
+final class HireFolderTests: XCTestCase {
+    private var home: URL!
+    private var base: String!
+    private let files = FileManager.default
+
+    override func setUp() {
+        home = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("hire-folder-home-\(UUID().uuidString)")
+        try? files.createDirectory(at: home, withIntermediateDirectories: true)
+        base = home.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    override func tearDown() {
+        // A folder left unwritable by a test can't be removed until it's writable again.
+        for name in ["Locked", "Developer"] {
+            _ = try? files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: home.appendingPathComponent(name).path)
+        }
+        try? files.removeItem(at: home)
+    }
+
+    private func make(_ path: String) {
+        try? files.createDirectory(at: home.appendingPathComponent(path), withIntermediateDirectories: true)
+    }
+
+    func testTheSuggestionIsTheFirstLikelyFolderThere() {
+        XCTAssertEqual(HireFolder.suggestion(home: home), base + "/Smolcorp", "none there: ~/Smolcorp, made only once accepted")
+        XCTAssertFalse(files.fileExists(atPath: home.appendingPathComponent("Smolcorp").path), "suggesting makes nothing")
+        make("src")
+        XCTAssertEqual(HireFolder.suggestion(home: home), base + "/src")
+        make("Code")
+        XCTAssertEqual(HireFolder.suggestion(home: home), base + "/Code")
+        make("Developer")
+        XCTAssertEqual(HireFolder.suggestion(home: home), base + "/Developer")
+        make("Projects")
+        XCTAssertEqual(HireFolder.suggestion(home: home), base + "/Projects", "~/Projects first")
+    }
+
+    func testALikelyFolderThatFailsAChecksIsPassedOver() throws {
+        // ~/Projects is a file here, and ~/Developer can't be written in.
+        try "".write(to: home.appendingPathComponent("Projects"), atomically: true, encoding: .utf8)
+        make("Code")
+        XCTAssertEqual(HireFolder.suggestion(home: home), base + "/Code")
+        try files.removeItem(at: home.appendingPathComponent("Code"))
+        make("Developer")
+        try files.setAttributes([.posixPermissions: 0o555], ofItemAtPath: home.appendingPathComponent("Developer").path)
+        XCTAssertEqual(HireFolder.suggestion(home: home), base + "/Smolcorp")
+    }
+
+    func testEveryCheckSaysWhatsWrongWithItsFix() throws {
+        make("Projects/app")
+        make("Library/Work")
+        make(".config/x")
+        make("AppData/Roaming")
+        make("Applications/Smolcorp.app/Contents")
+        make("Locked")
+        try files.setAttributes([.posixPermissions: 0o555], ofItemAtPath: home.appendingPathComponent("Locked").path)
+        try "".write(to: home.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+        try files.createSymbolicLink(atPath: home.appendingPathComponent("out").path, withDestinationPath: "/usr")
+        let system = "That folder holds your Mac's or your apps' own files. Choose a project folder, such as ~/Projects."
+        let cases: [(String, String, HireFolder.Fix, Bool)] = [
+            ("", "Type the folder's full path, such as ~/Projects.", .choose, false),
+            ("Projects", "Give the folder's full path, such as ~/Projects.", .choose, false),
+            ("/", "That's your Mac's whole disk. Choose a folder inside your home folder, such as ~/Projects.", .choose, false),
+            (home.path, "That's your whole home folder. Choose a folder inside it, such as ~/Projects, so hires keep to their projects.", .choose, false),
+            (home.path + "/", "That's your whole home folder. Choose a folder inside it, such as ~/Projects, so hires keep to their projects.", .choose, false),
+            ("/usr", "Choose a folder inside your home folder, such as ~/Projects.", .choose, false),
+            (home.path + "/out", "Choose a folder inside your home folder, such as ~/Projects.", .choose, false),
+            (home.path + "/Projects/../..", "Choose a folder inside your home folder, such as ~/Projects.", .choose, false),
+            (home.path + "/Library/Work", system, .choose, false),
+            (home.path + "/.config/x", system, .choose, false),
+            (home.path + "/AppData/Roaming", system, .choose, false),
+            (home.path + "/Applications/Smolcorp.app/Contents", system, .choose, false),
+            (home.path + "/Missing/deeper", "There's no folder at ~/Missing/deeper yet.", .create, false),
+            (home.path + "/notes.md", "~/notes.md is a file, not a folder.", .choose, true),
+            (home.path + "/Locked", "Smolcorp can't write in ~/Locked. Choose a folder of your own, such as ~/Projects.", .choose, true),
+            (home.path + "/Projects/app", "", .none, true),
+            (" \(home.path)/Projects/app/ ", "", .none, true),
+            (home.path + "/Projects/../Projects/app", "", .none, true),
+        ]
+        for (given, problem, fix, exists) in cases {
+            let check = HireFolder.check(given, home: home)
+            XCTAssertEqual(check.problem, problem, "\(given)")
+            XCTAssertEqual(check.fix, fix, "\(given)")
+            XCTAssertEqual(check.exists, exists, "\(given)")
+        }
+        XCTAssertEqual(HireFolder.check(home.path + "/Projects/../Projects/app/", home: home).folder, base + "/Projects/app")
+    }
+
+    func testATildeIsTheHomeFolder() {
+        make("Projects")
+        XCTAssertEqual(HireFolder.check("~/Projects", home: home), HireFolder.Check(folder: base + "/Projects", exists: true))
+        XCTAssertEqual(HireFolder.check("~", home: home).problem,
+                       "That's your whole home folder. Choose a folder inside it, such as ~/Projects, so hires keep to their projects.")
+    }
+
+    func testKeepingMakesTheFolderOnlyWhenAskedAndOnlyWhereItMay() {
+        let missing = home.appendingPathComponent("Smolcorp").path
+        guard case .failure(let refused) = HireFolder.keep(missing, create: false, home: home) else { return XCTFail("kept a folder that isn't there") }
+        XCTAssertEqual(refused.fix, .create)
+        XCTAssertFalse(files.fileExists(atPath: missing))
+        XCTAssertEqual(try HireFolder.keep(missing, create: true, home: home).get(), base + "/Smolcorp")
+        XCTAssertTrue(files.fileExists(atPath: missing), "made once accepted")
+        XCTAssertEqual(try HireFolder.keep("~/Smolcorp", create: false, home: home).get(), base + "/Smolcorp", "there now: kept as it is")
+        for refusedPlace in ["/", home.path, home.path + "/Library/New", home.path + "/.new", "/usr/local/new"] {
+            guard case .failure(let check) = HireFolder.keep(refusedPlace, create: true, home: home) else { return XCTFail("kept \(refusedPlace)") }
+            XCTAssertEqual(check.fix, .choose, refusedPlace)
+        }
+        XCTAssertFalse(files.fileExists(atPath: home.appendingPathComponent("Library/New").path), "never made where it may not be")
+        XCTAssertFalse(files.fileExists(atPath: home.appendingPathComponent(".new").path))
+    }
+
+    /// The route's JSON: these keys, on a Mac and on Linux/Windows alike (hirefolder_test.go).
+    static let keys: Set<String> = ["exists", "fix", "folder", "home", "problem", "suggested"]
+
+    func testTheRouteSaysWhatsSetOrSuggested() throws {
+        // Nothing set: the suggestion, not there yet, and nothing wrong with it.
+        var state = HireFolder.state(saved: "", home: home)
+        XCTAssertEqual(Set(state.keys), Self.keys)
+        XCTAssertEqual(state["folder"] as? String, "")
+        XCTAssertEqual(state["suggested"] as? String, base + "/Smolcorp")
+        XCTAssertEqual(state["exists"] as? Bool, false)
+        XCTAssertEqual(state["problem"] as? String, "")
+        XCTAssertEqual(state["fix"] as? String, "")
+        XCTAssertEqual(state["home"] as? String, base)
+        // Set and there.
+        make("Projects")
+        state = HireFolder.state(saved: base + "/Projects", home: home)
+        XCTAssertEqual(state["folder"] as? String, base + "/Projects")
+        XCTAssertEqual(state["suggested"] as? String, "")
+        XCTAssertEqual(state["exists"] as? Bool, true)
+        XCTAssertEqual(state["problem"] as? String, "")
+        // Set, but gone since: its problem, and Create it.
+        state = HireFolder.state(saved: base + "/Gone", home: home)
+        XCTAssertEqual(state["folder"] as? String, base + "/Gone")
+        XCTAssertEqual(state["problem"] as? String, "There's no folder at ~/Gone yet.")
+        XCTAssertEqual(state["fix"] as? String, "create")
+        // One typed, as it's checked.
+        state = HireFolder.state(saved: base + "/Projects", asked: "~/Library", home: home)
+        XCTAssertEqual(Set(state.keys), Self.keys)
+        XCTAssertEqual(state["folder"] as? String, base + "/Library")
+        XCTAssertEqual(state["fix"] as? String, "choose")
+        XCTAssertEqual(state["suggested"] as? String, "")
+        // As JSON, the sorted keys the Linux/Windows app writes too.
+        let body = HireFolder.json(HireFolder.Check(), suggested: "", home: home)
+        let data = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+        XCTAssertEqual(String(decoding: data, as: UTF8.self),
+                       "{\"exists\":false,\"fix\":\"\",\"folder\":\"\",\"home\":\"\(base.replacingOccurrences(of: "/", with: "\\/"))\",\"problem\":\"\",\"suggested\":\"\"}")
+    }
+
+    func testTheRouteIsTheGMsOrThePagesToChange() {
+        XCTAssertTrue(SetupRoutes.allows(.page, "POST", "/setup/hire-folder"))
+        XCTAssertTrue(SetupRoutes.allows(.gm, "POST", "/setup/hire-folder"))
+        XCTAssertFalse(SetupRoutes.allows(.tool, "POST", "/setup/hire-folder"))
+        XCTAssertFalse(SetupRoutes.allows(.hire, "POST", "/setup/hire-folder"))
+        XCTAssertTrue(SetupRoutes.allows(.tool, "GET", "/setup/hire-folder"), "reading it is as any setup read")
+    }
+}

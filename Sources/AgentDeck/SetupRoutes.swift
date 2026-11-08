@@ -69,6 +69,7 @@ enum SetupRoutes {
         action("/setup/hire/gm", "starting a GM"),
         action("/setup/hiring", "how and where hires start"),
         action("/setup/hiring/choose", "the folder for new hires"),
+        action("/setup/hire-folder", "the folder for new hires, from Start here"),
         action("/setup/roles", "the roles, and so the briefs future hires get"),
         action("/setup/hooks", "connecting or disconnecting the agents' hooks"),
         action("/setup/unpair", "cutting off your phone"),

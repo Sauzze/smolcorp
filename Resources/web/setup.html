@@ -325,6 +325,17 @@
   .start-here .tools { display: flex; gap: 6px; flex-wrap: wrap; }
   .start-here .said { color: var(--dim); font-size: 12px; margin: 8px 2px 0; }
   .start-here .said.wrong { color: var(--error); }
+  /* Start here's hires folder: the path, what it's for, and one button to accept it. */
+  .first-folder { margin-top: 10px; }
+  .ff-open { display: grid; gap: 6px; justify-items: start; padding: 12px 14px; border-radius: 10px; background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+  .ff-what { margin: 0; color: var(--dim); font-size: 12.5px; }
+  .ff-path { font: 600 14px ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
+  #first-folder-input { width: min(100%, 420px); }
+  .ff-problem { color: var(--error); font-size: 12.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .ff-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .ff-done { color: var(--dim); font-size: 12.5px; }
+  .ff-done code { color: var(--ink); }
   .attention { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: color-mix(in srgb, var(--asking) 10%, var(--group));
     border: 1px solid color-mix(in srgb, var(--asking) 45%, transparent); border-radius: 12px; padding: 12px 16px; }
   .attention .text { flex: 1 1 240px; }
@@ -635,6 +646,22 @@
           <button class="btn" id="start-gm">Hire your General Manager</button>
           <span class="text" id="start-gm-byhand" hidden>Your General Manager was started by hand.</span>
         </div>
+      </div>
+      <!-- The hires folder, first thing on a first run; once set, one line with Change. -->
+      <div class="first-folder" id="first-folder" hidden>
+        <div class="ff-open" id="first-folder-open">
+          <b>Where your hires work</b>
+          <p class="ff-what">Your hires work in projects inside this folder.</p>
+          <code class="ff-path" id="first-folder-path"></code>
+          <input type="text" id="first-folder-input" class="mono" spellcheck="false" placeholder="~/Projects" aria-label="The folder your hires work in" hidden>
+          <div class="ff-problem" id="first-folder-problem" role="alert" hidden><span id="first-folder-problem-text"></span> <button class="btn" id="first-folder-fix" hidden></button></div>
+          <div class="ff-tools">
+            <button class="btn primary" id="first-folder-use">Use this folder</button>
+            <button class="btn" id="first-folder-choose">Choose another…</button>
+            <button class="link" id="first-folder-cancel" hidden>Cancel</button>
+          </div>
+        </div>
+        <div class="ff-done" id="first-folder-done" hidden>Hires work in <code id="first-folder-short"></code> · <button class="link" id="first-folder-change">Change</button></div>
       </div>
       <div class="box" id="start-checks"></div>
       <p class="said" id="start-said" role="status" hidden></p>
@@ -2123,6 +2150,11 @@
     $('hire-setup').hidden = !h.canHire;
     $('hire-choose').hidden = !h.canChoose;
     if (document.activeElement !== $('hire-folder')) $('hire-folder').value = h.folder;
+    // Changed elsewhere (here under Advanced, or by the GM): Start here's folder step follows.
+    if (firstFolder && h.folder !== firstFolderSeen && !firstFolderTyping) {
+      firstFolderSeen = h.folder;
+      loadFirstFolder();
+    }
     const agents = state.agents.length ? state.agents : [{ id: 'claude', name: 'Claude Code' }];
     $('hire-agent').replaceChildren(...agents.map((a) => new Option(a.name, a.id, false, a.id === h.agent)));
     // Where hires open, where there's more than one terminal to choose from; tmux, where it's there.
@@ -6135,6 +6167,157 @@
     startSaid(`Your General Manager is still starting. Look at its terminal window: it may be waiting for you. ${advice}`);
   };
 
+  /*
+   * Start here's hires folder (GET /setup/hire-folder): with none set, the one suggested, kept in one
+   * click; once set, one line with Change. Choose another… is the Mac's own folder picker, or a path
+   * checked as it's typed. A problem says what's wrong, with the way on: Create it, or Choose another….
+   */
+  let firstFolder = null;
+  // A problem shown instead of firstFolder's: the typed path's check, or a refused keep.
+  let firstFolderIssue = null;
+  let firstFolderTyping = false;
+  let firstFolderChanging = false;
+  // The folder set when the route was last asked, to ask again once it's changed elsewhere (Advanced, the picker).
+  let firstFolderSeen;
+  let firstFolderTimer = 0;
+
+  /** A full path as the page shows it: ~ for the home folder. */
+  function tildePath(path, home) {
+    if (!path || !home) return path || '';
+    if (path === home) return '~';
+    const sep = home.includes('\\') ? '\\' : '/';
+    return path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+  }
+
+  async function loadFirstFolder() {
+    const res = await fetch('/setup/hire-folder', { cache: 'no-store', headers: setupHeaders(false) }).catch(() => null);
+    // An app from before this step has no route: Start here is as it was.
+    if (!res || !res.ok) return;
+    const answer = await res.json().catch(() => null);
+    if (!answer) return;
+    firstFolder = answer;
+    firstFolderSeen = answer.folder;
+    renderFirstFolder();
+  }
+
+  function renderFirstFolder() {
+    const f = firstFolder;
+    $('first-folder').hidden = !f;
+    if (!f) return;
+    const issue = firstFolderIssue || (firstFolderTyping ? null : f);
+    const problem = (issue && issue.problem) || '';
+    const open = !f.folder || !!f.problem || firstFolderTyping || firstFolderChanging || !!firstFolderIssue;
+    $('first-folder-open').hidden = !open;
+    $('first-folder-done').hidden = open;
+    $('first-folder-short').textContent = tildePath(f.folder, f.home);
+    $('first-folder-path').textContent = tildePath(f.folder || f.suggested, f.home);
+    $('first-folder-path').hidden = firstFolderTyping;
+    $('first-folder-input').hidden = !firstFolderTyping;
+    $('first-folder-problem').hidden = !problem;
+    $('first-folder-problem-text').textContent = problem;
+    const create = !!problem && issue.fix === 'create' && !!issue.folder;
+    $('first-folder-fix').hidden = !create;
+    $('first-folder-fix').textContent = 'Create it';
+    // With a problem, its fix is the way on: Create it, or Choose another….
+    $('first-folder-use').hidden = !!problem && !firstFolderTyping;
+    $('first-folder-use').disabled = firstFolderTyping && !!problem;
+    $('first-folder-choose').hidden = firstFolderTyping;
+    $('first-folder-choose').className = problem && !create ? 'btn primary' : 'btn';
+    $('first-folder-cancel').hidden = !firstFolderTyping && !(firstFolderChanging && f.folder && !f.problem);
+  }
+
+  /** Keeps `folder` for new hires, made first with `create`: folded once it is, or its problem said. */
+  async function keepFirstFolder(folder, create) {
+    const res = await fetch(`/setup/hire-folder?folder=${encodeURIComponent(folder)}${create ? '&create=1' : ''}`,
+      { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
+    if (!res) {
+      firstFolderIssue = { problem: "Can't reach Smolcorp on this computer.", fix: '' };
+      return renderFirstFolder();
+    }
+    const answer = await res.json().catch(() => null);
+    if (!res.ok || !answer) {
+      firstFolderIssue = answer || { problem: 'That folder couldn\'t be kept. Choose another.', fix: 'choose' };
+      return renderFirstFolder();
+    }
+    firstFolder = answer;
+    firstFolderSeen = answer.folder;
+    firstFolderIssue = null;
+    firstFolderTyping = firstFolderChanging = false;
+    renderFirstFolder();
+    load();
+    // For the guide: the folder step is done.
+    document.dispatchEvent(new CustomEvent('smolcorp:hire-folder', { detail: { folder: answer.folder } }));
+  }
+
+  /** Choose another…: the Mac's own folder picker, or else a path, checked as it's typed. */
+  async function chooseFirstFolder() {
+    firstFolderIssue = null;
+    if (onMac() && state.hiring && state.hiring.canChoose) {
+      const before = firstFolder && firstFolder.folder;
+      const res = await fetch('/setup/hiring/choose', { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
+      if (res && res.ok) {
+        state = await res.json().catch(() => state);
+        render();
+        firstFolderChanging = false;
+        await loadFirstFolder();
+        if (firstFolder && firstFolder.folder && firstFolder.folder !== before && !firstFolder.problem) {
+          document.dispatchEvent(new CustomEvent('smolcorp:hire-folder', { detail: { folder: firstFolder.folder } }));
+        }
+        return;
+      }
+    }
+    firstFolderTyping = true;
+    const f = firstFolder || {};
+    $('first-folder-input').value = tildePath(f.folder || f.suggested, f.home);
+    renderFirstFolder();
+    $('first-folder-input').focus();
+    $('first-folder-input').select();
+    checkTypedFolder();
+  }
+
+  async function checkTypedFolder() {
+    const typed = $('first-folder-input').value;
+    const res = await fetch(`/setup/hire-folder?check=${encodeURIComponent(typed)}`, { cache: 'no-store', headers: setupHeaders(false) }).catch(() => null);
+    // Only the answer for what's in the field now.
+    if (!res || !res.ok || !firstFolderTyping || typed !== $('first-folder-input').value) return;
+    firstFolderIssue = await res.json().catch(() => null);
+    renderFirstFolder();
+  }
+
+  $('first-folder-use').onclick = () => {
+    const f = firstFolder;
+    if (!f) return;
+    if (firstFolderTyping) return keepFirstFolder($('first-folder-input').value, false);
+    if (f.folder) {
+      firstFolderChanging = false;
+      return renderFirstFolder();
+    }
+    // The suggestion is made only now, once it's accepted.
+    keepFirstFolder(f.suggested, !f.exists);
+  };
+  $('first-folder-choose').onclick = chooseFirstFolder;
+  $('first-folder-change').onclick = () => {
+    firstFolderChanging = true;
+    chooseFirstFolder();
+  };
+  $('first-folder-fix').onclick = () => {
+    const issue = firstFolderIssue || firstFolder;
+    if (issue && issue.folder) keepFirstFolder(issue.folder, true);
+  };
+  $('first-folder-cancel').onclick = () => {
+    firstFolderTyping = firstFolderChanging = false;
+    firstFolderIssue = null;
+    renderFirstFolder();
+  };
+  $('first-folder-input').oninput = () => {
+    clearTimeout(firstFolderTimer);
+    firstFolderTimer = setTimeout(checkTypedFolder, 250);
+  };
+  $('first-folder-input').onkeydown = (e) => {
+    if (e.key === 'Enter' && !$('first-folder-use').disabled) $('first-folder-use').click();
+    if (e.key === 'Escape') $('first-folder-cancel').click();
+  };
+
   /** What still needs doing before anything works, at the top of Easy setup. */
   function renderAttention() {
     // Start here's checklist says it, and more.
@@ -6394,7 +6577,7 @@
     }
     // From "Set up the viewer on the setup page" in the menu.
     if (location.hash === '#viewer') go('extras', $('viewer'));
-  }).then(loadStartHere).then(loadViewer).then(loadBriefs).then(loadGuard);
+  }).then(loadFirstFolder).then(loadStartHere).then(loadViewer).then(loadBriefs).then(loadGuard);
   setInterval(() => { if (!document.querySelector('.over')) load(); }, 1500);
   // The viewer's state, for its switch and "last sent": often while it's on.
   setInterval(() => { if (viewer && (viewer.on || document.hasFocus())) loadViewer(); }, 5000);

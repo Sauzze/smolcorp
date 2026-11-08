@@ -1311,6 +1311,22 @@ final class DeckRouter: Router {
         case ("POST", "/setup/hiring/choose"):
             deck.chooseHireFolder { [self] in respond(.json(setupState(caller))) }
 
+        // Start here's hires folder: the one set, or with none, one suggested; `check=` checks one as it's typed.
+        case ("GET", "/setup/hire-folder"):
+            respond(.json(HireFolder.state(saved: config.hireFolder, asked: request.query["check"])))
+
+        // Keeps it, once checked; `create=1` makes it first if it isn't there yet. A problem answers 400 with the same JSON, to show with its fix.
+        case ("POST", "/setup/hire-folder"):
+            switch HireFolder.keep(request.query["folder"] ?? "", create: request.query["create"] == "1") {
+            case .failure(let found):
+                respond(.json(HireFolder.json(found, suggested: ""), status: 400))
+            case .success(let folder):
+                config.hireFolder = folder
+                config.save()
+                deck.refresh()
+                respond(.json(HireFolder.state(saved: folder)))
+            }
+
         case ("POST", "/setup/hooks"):
             var notice: String?
             let disconnecting = request.query["remove"] != nil
