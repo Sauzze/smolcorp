@@ -185,7 +185,7 @@ final class GuideTests: XCTestCase {
         let from = try XCTUnwrap(setup.range(of: "SmolcorpGuide.create({"))
         let to = try XCTUnwrap(setup.range(of: "onFinish:", range: from.upperBound..<setup.endIndex))
         let guide = setup[from.upperBound..<to.lowerBound]
-        XCTAssertTrue(guide.contains("keep: '.pane.current > .pane-head, #easy-attention, #start-here > .card-head'"))
+        XCTAssertTrue(guide.contains("keep: '.sidebar > .brand, .sidebar > .search, .topbar, .pane.current > .pane-head, #easy-attention, #start-here > .card-head'"))
         XCTAssertTrue(guide.contains("awayText: 'Next step in Easy setup'"))
         XCTAssertTrue(guide.contains("skipSays: 'Skip: Show me around again brings it back'"))
         XCTAssertFalse(guide.contains("total:"), "no count of its own")
@@ -200,7 +200,7 @@ final class GuideTests: XCTestCase {
     /// node (Tests/fixtures/guide/engine.test.js, run by the Go tests).
     func testTheGuideKeepsOffTextAndTheWelcomeNamesWhatsMissing() throws {
         let script = try source("Resources/web/guide.js")
-        for want in ["function lines(litEl, view) {", "{ text, aside: pressed === shown }", "pressed = shown;\n        position();",
+        for want in ["function lines(litEl, view) {", "{ text, aside: pressed === shown, chip }", "pressed = shown;\n        position();",
                      "pillHiddenIn = where();\n        return hide();", "min-width: 44px; min-height: 44px;", ".smol-guide.pill .smol-guide-go { order: 1; min-height: 44px;"] {
             XCTAssertTrue(script.contains(want), "guide.js has no \(want)")
         }
@@ -211,5 +211,22 @@ final class GuideTests: XCTestCase {
             XCTAssertTrue(setup.contains(want), "setup.html has no \(want)")
         }
         XCTAssertFalse(setup.contains("on a paired phone. Want desks"), "the last step no longer says ready whatever is missing")
+    }
+
+    /// Fresh eyes, round 3: the bubble never sits on the logo or Search; a step whose control is off the
+    /// window's edge shows a "Continue below" chip, not a parked bubble; on a phone the bubble is against its
+    /// arrow, and the pill shrinks to a chip once you scroll. Where it lands is checked in node (run by Go).
+    func testTheGuideStaysByItsControlOrSaysContinueBelow() throws {
+        let script = try source("Resources/web/guide.js")
+        for want in ["textContent: '↓ Continue below'", "more.textContent = at.point === 'up' ? '↑ Continue above' : '↓ Continue below';",
+                     "if (cy < 0 || cy > view.height) return chip(cy < 0);", "if (how.aside || view.width > PHONE) return result('edge'",
+                     ".smol-guide.pill.small .smol-guide-bubble", "go.textContent = pillSmall ? 'Next step →' : 'Show me';"] {
+            XCTAssertTrue(script.contains(want), "guide.js has no \(want)")
+        }
+        let setup = try source("Resources/web/setup.html")
+        XCTAssertTrue(setup.contains("keep: '.sidebar > .brand, .sidebar > .search, .topbar, "), "the bubble keeps off the logo and Search")
+        for want in ["<div class=\"brand\">", "<div class=\"topbar\">", "<nav class=\"sidebar\""] {
+            XCTAssertTrue(setup.contains(want), "setup.html has no \(want)")
+        }
     }
 }

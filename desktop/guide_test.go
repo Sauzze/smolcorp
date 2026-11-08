@@ -158,7 +158,7 @@ func TestTheGuidesBubbleKeepsOffWhatItTalksAbout(t *testing.T) {
 	setup := string(data)
 	guide := setup[strings.Index(setup, "SmolcorpGuide.create({"):strings.Index(setup, "onFinish:")]
 	for _, want := range []string{
-		`keep: '.pane.current > .pane-head, #easy-attention, #start-here > .card-head'`,
+		`keep: '.sidebar > .brand, .sidebar > .search, .topbar, .pane.current > .pane-head, #easy-attention, #start-here > .card-head'`,
 		`keep: '#start-checks, #start-gm-account, #start-gm, #first-gm-recheck, #first-gm-why'`,
 		`keep: '#first-gm-checks, #start-checks, #start-gm-account, #first-gm-recheck, #first-gm-why, #start-said'`,
 		`awayText: 'Next step in Easy setup'`, `skipSays: 'Skip: Show me around again brings it back'`,
@@ -189,7 +189,7 @@ func TestTheGuideKeepsOffTextAndTheWelcomeNamesWhatsMissing(t *testing.T) {
 	script, setup := read("../Resources/web/guide.js"), read("../Resources/web/setup.html")
 	for _, want := range []string{
 		"function lines(litEl, view) {",
-		"{ text, aside: pressed === shown }",
+		"{ text, aside: pressed === shown, chip }",
 		"pressed = shown;\n        position();",
 		"pillHiddenIn = where();\n        return hide();",
 		".smol-guide.pill .smol-guide-skip { order: 2; align-self: center; min-width: 44px; min-height: 44px;",
@@ -266,6 +266,41 @@ func TestTheGuidesHireStepFollowsTheHireNotTheClick(t *testing.T) {
 	if !strings.Contains(sheet, "if (gmHire) gmHiring = true;") || !strings.Contains(sheet, "if (gmHire) hireEnded();") ||
 		!strings.Contains(sheet, "if (gmHire) { const mine = ++gmHireSerial; setTimeout(() => { if (mine === gmHireSerial) hireEnded(); }, 300000); }") {
 		t.Error("the hire sheet doesn't say when a GM's hire is under way")
+	}
+}
+
+// Fresh eyes, round 3: the bubble never sits on the logo or Search (the Mac's side column, a phone's bar);
+// a step whose control is off the window's edge shows a chip toward it, not a parked bubble nor an arrow on
+// a row at the edge; on a phone the bubble is against its arrow, and the pill shrinks to a chip once you
+// scroll. Where it all lands is checked in node (Tests/fixtures/guide/engine.test.js).
+func TestTheGuideStaysByItsControlOrSaysContinueBelow(t *testing.T) {
+	read := func(path string) string {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	script, setup := read("../Resources/web/guide.js"), read("../Resources/web/setup.html")
+	for _, want := range []string{
+		"textContent: '↓ Continue below'",
+		"more.textContent = at.point === 'up' ? '↑ Continue above' : '↓ Continue below';",
+		"if (cy < 0 || cy > view.height) return chip(cy < 0);",
+		"if (how.aside || view.width > PHONE) return result('edge'",
+		".smol-guide.pill.small .smol-guide-bubble",
+		"go.textContent = pillSmall ? 'Next step →' : 'Show me';",
+		"win[how]('scroll', scrolled, { capture: true, passive: true });",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("guide.js has no %q", want)
+		}
+	}
+	if !strings.Contains(setup, "keep: '.sidebar > .brand, .sidebar > .search, .topbar, ") {
+		t.Error("the guide doesn't keep off the logo and Search")
+	}
+	if !strings.Contains(setup, `<div class="brand">`) || !strings.Contains(setup, `<div class="topbar">`) || !strings.Contains(setup, `<nav class="sidebar"`) {
+		t.Error("the logo and Search the guide keeps off aren't where it looks for them")
 	}
 }
 
@@ -362,16 +397,22 @@ for (const view of [{ width: 1100, height: 780 }, { width: 390, height: 844 }]) 
   const kept = { left: 200, top: 360, width: 160, height: 30 };
   p = g.place(box, view, bubble, arrow, lit, [kept]);
   assert(p.side === 'below' && !on(p, bubble, kept) && !on(p, bubble, lit), view.width + ': off what is kept');
-  // No room beside or below: a corner of the window, never on the block, the arrow still on the control.
+  // No room beside or below: a corner of the window, never on the block, the arrow still on the control;
+  // on a phone, right against the arrow (over it here), still off the block.
   const low = { left: 12, top: view.height - 200, width: view.width - 24, height: 180 };
   box = { left: 40, top: view.height - 120, width: 120, height: 28 };
   p = g.place(box, view, bubble, arrow, low);
-  assert(p.side === 'edge' && !on(p, bubble, low) && inside(p, bubble, view), view.width + ': no room: a corner off the block');
-  // Out of sight, below or above: the arrow at the window's edge, pointing that way.
-  p = g.place({ left: 100, top: 3000, width: 100, height: 30 }, view, bubble, arrow);
-  assert(p.down && inside(p, bubble, view), view.width + ': a control below the window');
-  p = g.place({ left: 100, top: -900, width: 100, height: 30 }, view, bubble, arrow);
-  assert(!p.down && p.point === 'up' && inside(p, bubble, view), view.width + ': a control above the window');
+  assert(p.side === (view.width > 760 ? 'edge' : 'attached') && !on(p, bubble, low) && inside(p, bubble, view), view.width + ': no room: a corner off the block, or against the arrow');
+  if (p.side === 'attached') assert(p.point === 'down' && p.bubble.y + bubble.height <= p.arrow.y, view.width + ': the bubble over its arrow');
+  // Out of sight, below or above, or cut by the window's foot with no room: a chip at that edge, toward it.
+  const chip = { width: 150, height: 32 };
+  p = g.place({ left: 100, top: 3000, width: 100, height: 30 }, view, bubble, arrow, undefined, [], { chip });
+  assert(p.side === 'chip' && p.down && p.bubble.y === view.height - 12 - chip.height, view.width + ': a control below the window');
+  p = g.place({ left: 100, top: -900, width: 100, height: 30 }, view, bubble, arrow, undefined, [], { chip });
+  assert(p.side === 'chip' && p.point === 'up' && p.bubble.y === 12, view.width + ': a control above the window');
+  const cut = { left: 12, top: view.height - 150, width: view.width - 24, height: 280 };
+  p = g.place(cut, view, bubble, arrow, cut, [], { chip });
+  assert(p.side === 'chip' && p.down, view.width + ': a list cut by the foot of the window: ' + JSON.stringify(p));
 }
 
 // The arrow: a square grid of three colours, as the office's pixel UI.

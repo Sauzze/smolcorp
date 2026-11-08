@@ -7496,7 +7496,9 @@
    * beside hasCompletedSetup), and again from Show me around again, here or in the app's menu, which walks
    * every step from the first, done or not. The ids are the 1.24.3 contract's: their owners build them,
    * and a step whose control isn't there is looked past. The bubble stays off the page's title and Start
-   * here's header, and off what each step talks about; it has no count of its own, as Start here has one.
+   * here's header, the logo and Search, and off what each step talks about; it has no count of its own, as
+   * Start here has one. While the step's control is off the window's edge, the guide shows a "Continue
+   * below" chip instead.
    */
   const gmSessions = () => ((state && state.sessions) || []).filter((s) => s.role === 'gm');
   const inEasy = () => !!document.querySelector('.pane.current[data-pane="easy"]');
@@ -7530,7 +7532,8 @@
     // The pill's × hides it in this section only: it's back in the next one, until the guide is over.
     where: () => document.querySelector('.pane.current')?.dataset.pane || '',
     hideSays: "Hide for now: it's back in the next section you open",
-    keep: '.pane.current > .pane-head, #easy-attention, #start-here > .card-head',
+    // The logo and Search at the top (the Mac's side column, a phone's bar) too: the bubble never sits on them.
+    keep: '.sidebar > .brand, .sidebar > .search, .topbar, .pane.current > .pane-head, #easy-attention, #start-here > .card-head',
     steps: [
       { id: 'folder', target: '#first-folder-use', area: '#first-folder', doneTarget: '#first-folder', ...inStartHere,
         say: 'Pick where your hires work', press: 'Use this folder', doneSay: 'Your hires work in this folder. You can change it here.',

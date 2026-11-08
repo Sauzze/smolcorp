@@ -6,8 +6,10 @@
  * GM starts and docked when its control never comes, and stop() leaving no timer or listener behind. Where
  * the bubble and the arrow go, on the fresh-eyes shots' Start here (1100×780 and 390×844), and the pill off
  * Easy setup; round 2's shots with their text, the bubble out of the way once its control is pressed, and the
- * pill's × that only hides it. Then setup.html's welcome, which waits for the guide on a first run, and whose
- * last step names the General Manager while none is there.
+ * pill's × that only hides it; round 3's shots: never on the logo or Search, a "Continue below" chip for a
+ * control cut by the window's edge, the bubble against its arrow on a phone, and the phone's pill shrinking
+ * once you scroll. Then setup.html's welcome, which waits for the guide on a first run, and whose last step
+ * names the General Manager while none is there.
  *
  * Run by desktop/guide_test.go: node engine.test.js <guide.js> <setup.html>. It throws on the first failure.
  */
@@ -392,13 +394,13 @@ function startHere() {
       assert(c.keep.every((k) => !overlaps(box(at.arrow.x, at.arrow.y, 33, 33), k)), 'the arrow off what the step talks about: ' + what);
     }
   }
-  // A control out of sight: the arrow at the edge nearest it, pointing that way, all inside the window.
+  // A control out of sight: no bubble parked away from it, but a chip at the edge nearest it, toward it.
   for (const view of [{ width: 1100, height: 780 }, { width: 390, height: 844 }]) {
-    const bubble = { width: 326, height: 90 };
-    let at = g.place(box(100, 3000, 100, 30), view, bubble, arrow);
-    assert(at.point === 'down' && at.arrow.y + 33 <= view.height && at.bubble.y + 90 <= at.arrow.y, view.width + ': a control below the window');
-    at = g.place(box(100, -900, 100, 30), view, bubble, arrow);
-    assert(at.point === 'up' && at.arrow.y >= 0 && at.bubble.y >= at.arrow.y + 33, view.width + ': a control above the window');
+    const bubble = { width: 326, height: 90 }, chip = { width: 150, height: 32 };
+    let at = g.place(box(100, 3000, 100, 30), view, bubble, arrow, undefined, [], { chip });
+    assert(at.side === 'chip' && at.point === 'down' && at.bubble.y + 32 === view.height - 12, view.width + ': a control below the window: ' + JSON.stringify(at));
+    at = g.place(box(100, -900, 100, 30), view, bubble, arrow, undefined, [], { chip });
+    assert(at.side === 'chip' && at.point === 'up' && at.bubble.y === 12, view.width + ': a control above the window: ' + JSON.stringify(at));
   }
 }
 
@@ -431,8 +433,9 @@ function startHere() {
   const cases = [
     { name: 'mac folder (01)', view: [1100, 780], control: box(284, 266, 112, 26), lit: box(269, 182, 782, 124),
       keep: [box(252, 26, 816, 76), box(269, 136, 782, 28)], text: [...sidebar, ...rows01], side: { 74: 'below' } },
+    // On a phone there's no room clear of the rows: since round 3, against its arrow rather than in a corner.
     { name: 'phone folder (01p)', view: [390, 844], control: box(48, 420, 118, 28), lit: box(34, 336, 322, 124),
-      keep: [box(16, 118, 358, 80), box(33, 250, 324, 70)], text: rows01p },
+      keep: [box(16, 118, 358, 80), box(33, 250, 324, 70)], text: rows01p, side: { 74: 'attached', 110: 'attached' }, next: true },
     { name: 'mac hire (03)', view: [1100, 780], control: box(269, 510, 186, 27), lit: box(269, 510, 186, 27),
       keep: [box(269, 275, 782, 214), box(269, 0, 782, 253)], text: [...sidebar, ...above03, ...roles], side: { 74: 'right' } },
     { name: 'mac hire refused (03)', view: [1100, 780], control: box(269, 510, 186, 27), lit: box(269, 510, 186, 27),
@@ -449,10 +452,12 @@ function startHere() {
       const what = `${c.name} (${bubble.height}): ${JSON.stringify(at)}`;
       assert(b.left >= 12 && b.top >= 12 && b.left + b.width <= view.width - 12 && b.top + b.height <= view.height - 12, 'the bubble inside the window: ' + what);
       assert(!overlaps(b, around) && c.keep.every((k) => !overlaps(b, k)), "the bubble off what's lit and kept: " + what);
-      // Every line of text within 120 px of what's lit stays readable; so does what the press brings.
+      // Every line of text within 120 px of what's lit stays readable; so does what the press brings. On a
+      // phone (next), the bubble is against its arrow instead.
       const near = [...c.text, ...(c.after || [])].filter((line) => apart(line, around) <= 120);
       const hidden = near.filter((line) => overlaps(b, line));
-      assert(!hidden.length, 'the bubble off the text near what it lights: ' + JSON.stringify(hidden) + ' ' + what);
+      if (c.next) assert(apart(b, box(at.arrow.x, at.arrow.y, 33, 33)) === 0, 'the bubble against its arrow: ' + what);
+      else assert(!hidden.length, 'the bubble off the text near what it lights: ' + JSON.stringify(hidden) + ' ' + what);
       if (c.side && c.side[bubble.height]) assert(at.side === c.side[bubble.height], `${c.side[bubble.height]}: ` + what);
       assert(c.keep.every((k) => !overlaps(box(at.arrow.x, at.arrow.y, 33, 33), k)), 'the arrow off what is kept: ' + what);
     }
@@ -461,6 +466,160 @@ function startHere() {
   // along what's lit rather than over it.
   const at = g.place(box(284, 266, 112, 26), { width: 1100, height: 780 }, { width: 326, height: 74 }, arrow, grow(box(269, 182, 782, 124)), [box(269, 330, 420, 40)]);
   assert(at.side === 'below' && at.bubble.x >= 269 + 420, 'along what is lit, off what is kept: ' + JSON.stringify(at));
+}
+
+// Round 3's shots (fresh-eyes-3 04, 05/12, 01 phone), with the logo and Search kept as setup.html keeps
+// them: the bubble never on them; with the checks cut by the window's foot (after Open the office, the page
+// scrolled up), no bubble parked in a corner and no arrow on whatever row is at the edge, but a chip toward
+// them; on a phone, the bubble against its arrow; and the chip off the phone's bar across the top.
+{
+  const arrow = { width: 33, height: 33 }, chip = { width: 150, height: 32 };
+  const LIT = 12;
+  const box = (left, top, width, height) => ({ left, top, width, height });
+  const grow = (b) => box(b.left - LIT, b.top - LIT, b.width + LIT * 2, b.height + LIT * 2);
+  const overlaps = (a, b) => a.left < b.left + b.width && a.left + a.width > b.left && a.top < b.top + b.height && a.top + a.height > b.top;
+  const apart = (a, b) => Math.max(b.left - (a.left + a.width), a.left - (b.left + b.width), b.top - (a.top + a.height), a.top - (b.top + b.height), 0);
+  // The Mac's side column: the logo and its name, then Search (kept); the sections under them (text).
+  const brand = box(10, 14, 200, 38), search = box(10, 66, 199, 31);
+  const nav = [box(49, 117, 66, 17), box(49, 150, 92, 17), box(49, 183, 90, 17), box(49, 216, 40, 17), box(49, 249, 100, 17),
+    box(18, 288, 30, 14), box(49, 315, 48, 17), box(49, 348, 56, 17)];
+  const head = box(252, 26, 816, 76), cardHead = box(269, 136, 782, 28), startChecks = box(269, 221, 782, 396);
+  // Shot 05: the other checks above (each a title and its detail, and their buttons).
+  const rows05 = [box(316, 236, 168, 17), box(316, 253, 388, 16), box(316, 296, 194, 17), box(316, 314, 493, 16), box(316, 355, 204, 17),
+    box(533, 357, 36, 14), box(316, 374, 620, 16), box(316, 391, 120, 16), box(992, 373, 32, 16), box(316, 433, 200, 17), box(316, 451, 520, 16),
+    box(316, 493, 112, 17), box(316, 512, 568, 16), box(949, 511, 76, 16), box(316, 571, 150, 17), box(316, 589, 328, 16),
+    box(271, 42, 90, 22), box(341, 70, 390, 16), box(341, 89, 96, 16), box(269, 140, 72, 18), box(351, 144, 68, 14), box(945, 142, 94, 16)];
+  // Shot 04: the checks in the middle; Hire, Check again and why Hire is greyed under them (kept); Roles below.
+  const checks04 = box(269, 252, 782, 276);
+  const keep04 = [brand, search, box(269, -165, 782, 396), box(269, 548, 186, 27), box(463, 548, 100, 27), box(269, 594, 446, 16)];
+  const text04 = [...nav, box(316, 12, 520, 16), box(316, 54, 236, 17), box(316, 72, 520, 16), box(316, 114, 166, 17), box(437, 116, 36, 14),
+    box(316, 133, 556, 16), box(316, 150, 50, 16), box(949, 125, 76, 16), box(316, 192, 150, 17), box(316, 211, 328, 16),
+    box(269, 666, 40, 20), box(318, 668, 105, 16), box(881, 664, 60, 16), box(972, 664, 66, 16), box(282, 712, 180, 17), box(282, 731, 466, 16)];
+  // Phone, shot 01: the bar across the top (the logo, the section, Search), the title, Start here's header.
+  const bar = box(0, 0, 390, 104);
+  const phoneKeep = [bar, box(16, 124, 358, 92), box(33, 254, 324, 30)];
+  const rows01 = [box(80, 463, 180, 17), box(80, 483, 240, 16), box(80, 500, 130, 16), box(80, 542, 206, 17), box(80, 561, 240, 16),
+    box(80, 579, 250, 16), box(80, 621, 150, 17), box(80, 641, 110, 17), box(149, 643, 42, 14), box(80, 661, 250, 16), box(80, 679, 252, 16),
+    box(80, 696, 250, 16), box(48, 726, 58, 28), box(80, 786, 203, 17), box(80, 805, 215, 16), box(80, 822, 100, 16)];
+  const cases = [
+    // Shot 04: the checks in sight: below them, past Hire and Check again, off the logo and Search.
+    { name: 'mac checks (04)', view: [1100, 780], control: checks04, lit: checks04, keep: keep04, text: text04, side: 'below' },
+    // Shots 05 and 12: the page scrolled up to Open the office, the checks cut by the window's foot.
+    { name: 'mac checks cut (05)', view: [1100, 780], control: box(269, 640, 782, 276), lit: box(269, 640, 782, 276),
+      keep: [brand, search, head, cardHead, startChecks], text: [...nav, ...rows05], side: 'chip', point: 'down' },
+    // The same, further down: its middle out of the window.
+    { name: 'mac checks below (05)', view: [1100, 780], control: box(269, 760, 782, 276), lit: box(269, 760, 782, 276),
+      keep: [brand, search, head, cardHead, startChecks], text: [...nav, ...rows05], side: 'chip', point: 'down' },
+    // A button in them pressed, while cut: the chip all the same, small at the foot, out of the way.
+    { name: 'mac checks cut, pressed (05)', aside: true, view: [1100, 780], control: box(269, 640, 782, 276), lit: box(269, 640, 782, 276),
+      keep: [brand, search, head, cardHead, startChecks], text: [...nav, ...rows05], side: 'chip', point: 'down' },
+    // Phone, shot 01: no room clear of the rows: against its arrow, under Use this folder.
+    { name: 'phone folder (01)', view: [390, 844], control: box(48, 388, 118, 29), lit: box(36, 306, 318, 121),
+      keep: phoneKeep, text: rows01, side: 'attached', point: 'up', next: true },
+    // Phone: the checks cut by the foot, or scrolled past under the bar: a chip, never on the bar.
+    { name: 'phone checks cut', view: [390, 844], control: box(33, 600, 324, 330), lit: box(33, 600, 324, 330),
+      keep: phoneKeep, text: rows01, side: 'chip', point: 'down' },
+    { name: 'phone checks above', view: [390, 844], control: box(33, -420, 324, 330), lit: box(33, -420, 324, 330),
+      keep: [bar], text: [], side: 'chip', point: 'up' },
+  ];
+  for (const c of cases) {
+    const view = { width: c.view[0], height: c.view[1] };
+    for (const bubble of [{ width: Math.min(326, view.width - 30), height: 74 }, { width: Math.min(326, view.width - 30), height: 110 }]) {
+      const around = grow(c.lit);
+      const at = g.place(c.control, view, bubble, arrow, around, c.keep, { text: c.text, aside: !!c.aside, chip });
+      const size = at.side === 'chip' ? chip : bubble;
+      const b = box(at.bubble.x, at.bubble.y, size.width, size.height);
+      const what = `${c.name} (${bubble.height}): ${JSON.stringify(at)}`;
+      assert(at.side === c.side && (!c.point || at.point === c.point), `${c.side} ${c.point || ''}: ` + what);
+      assert(b.left >= 12 && b.top >= 12 && b.left + b.width <= view.width - 12 && b.top + b.height <= view.height - 12, 'inside the window: ' + what);
+      // Never on the logo, Search, the bar across the top, the title or anything else kept.
+      assert(c.keep.every((k) => !overlaps(b, k)), 'off the logo, Search and what is kept: ' + what);
+      if (at.side === 'chip') {
+        // At the edge toward what's to be used, under the control's middle as far as the window lets it.
+        assert(c.point === 'down' ? b.top + b.height >= view.height - 12 - 1 : b.top < c.control.top + c.control.height + view.height, 'the chip at that edge: ' + what);
+        continue;
+      }
+      const a = box(at.arrow.x, at.arrow.y, 33, 33);
+      assert(!overlaps(b, around), "the bubble off what's lit: " + what);
+      assert(c.keep.every((k) => !overlaps(a, k)), 'the arrow off what is kept: ' + what);
+      // The arrow on what it names, inside the window: never on a row at the edge for want of the rest.
+      assert(apart(a, c.control) <= LIT + 4 + 1 && a.top >= 0 && a.top + 33 <= view.height, 'the arrow at the control: ' + what);
+      if (c.next) assert(apart(b, a) === 0, 'the bubble against its arrow: ' + what);
+      if (!c.aside && !c.next) {
+        const hidden = c.text.filter((line) => apart(line, around) <= 120 && overlaps(b, line));
+        assert(!hidden.length, 'off the text near what it lights: ' + JSON.stringify(hidden) + ' ' + what);
+      }
+    }
+  }
+  // Under the phone's bar: a chip toward a control above is moved below the bar.
+  const up = g.place(box(33, -420, 324, 330), { width: 390, height: 844 }, { width: 326, height: 74 }, arrow, undefined, [bar], { chip });
+  assert(up.bubble.y >= 104 + 4, 'the chip below the bar across the top: ' + JSON.stringify(up));
+  // Shot 05 before the fix: every corner covered something, and the top-left one (the logo and Search) won.
+  // Pressed with what's lit low in the window, in sight, the corner of last resort is now just below Search
+  // (a bubble is wider than the side column: it may touch the title's edge, never the logo or Search).
+  const corner = g.place(box(269, 690, 782, 60), { width: 1100, height: 780 }, { width: 326, height: 92 }, arrow, grow(box(269, 690, 782, 60)),
+    [brand, search, head, cardHead, startChecks], { text: [...nav, ...rows05], aside: true });
+  const cb = box(corner.bubble.x, corner.bubble.y, 326, 92);
+  assert(corner.bubble.x === 12 && corner.bubble.y >= 66 + 31 + 4 && corner.bubble.y <= 12 + 120 && !overlaps(cb, brand) && !overlaps(cb, search),
+    'the corner of last resort just below Search: ' + JSON.stringify(corner));
+}
+
+// In the page: a step whose control is cut by the window's foot shows a chip ("↓ Continue below") in place
+// of the bubble and the arrow; the chip brings it into sight; back in sight, the bubble and the arrow.
+{
+  const p = page();
+  current = p;
+  const list = p.add('div', 'checks', [269, 640, 782, 276]);
+  const guide = g.create({ document: p.doc, steps: [{ id: 'checks', target: '#checks', say: 'Make these checks green', done: () => false }] });
+  guide.start();
+  const layer = layerOf(p);
+  const more = layer.all().find((el) => el.className === 'smol-guide-more');
+  assert(layer.classList.contains('more') && more.textContent === '↓ Continue below', 'cut by the foot: the chip: ' + layer.className + ' ' + more.textContent);
+  assert(parseFloat(more.style.top) + 80 + 6 === 780 - 12, 'the chip at the foot of the window: ' + more.style.top);
+  const before = list.scrolled;
+  more.onclick();
+  assert(list.scrolled === before + 1, 'the chip brings the checks into sight');
+  list.box = { left: 269, top: 200, width: 782, height: 276 };
+  p.wait(450);
+  assert(!layer.classList.contains('more'), 'in sight: the bubble and the arrow again, no chip');
+  list.box = { left: 269, top: -500, width: 782, height: 276 };
+  p.wait(450);
+  assert(layer.classList.contains('more') && more.textContent === '↑ Continue above', 'scrolled past: the chip, toward it: ' + more.textContent);
+  guide.stop();
+}
+
+// In the page: on a phone the pill (Next step in Easy setup → Show me ×) shrinks to a small chip once you
+// scroll, as it would sit on what you read; it's full size again in the next section; never on a Mac.
+{
+  for (const phone of [true, false]) {
+    const p = page();
+    current = p;
+    if (phone) p.win.matchMedia = (q) => ({ matches: q === g.NARROW });
+    const s = { pane: 'general' };
+    p.add('button', 'use', [40, 300, 120, 28]).hidden = true;
+    const guide = g.create({ document: p.doc, awayText: 'Next step in Easy setup', where: () => s.pane,
+      steps: [{ id: 'folder', target: '#use', away: () => true, reveal: () => {}, say: 'Pick where your hires work', done: () => false }] });
+    guide.start();
+    const layer = layerOf(p);
+    const scroll = (y) => { p.win.scrollY = y; for (const l of p.listeners.win.filter((l) => l.type === 'scroll')) l.fn(); };
+    assert(layer.classList.contains('pill') && !layer.classList.contains('small') && goOf(p).textContent === 'Show me', 'first the full pill');
+    scroll(30);
+    assert(!layer.classList.contains('small'), 'a nudge: still the full pill');
+    scroll(400);
+    if (!phone) {
+      assert(!layer.classList.contains('small') && goOf(p).textContent === 'Show me', 'on a Mac it stays as it is');
+      guide.stop();
+      continue;
+    }
+    assert(layer.classList.contains('small') && goOf(p).textContent === 'Next step →', 'scrolled on a phone: a small chip');
+    assert(goOf(p).title === 'Next step in Easy setup' && goOf(p).getAttribute('aria-label') === 'Next step in Easy setup: show me', 'the chip says what it is: ' + goOf(p).title);
+    p.wait(450);
+    assert(layer.classList.contains('small'), 'it stays small');
+    s.pane = 'phone';
+    p.wait(450);
+    assert(!layer.classList.contains('small') && goOf(p).textContent === 'Show me' && goOf(p).title === '', 'the next section: the full pill again');
+    guide.stop();
+  }
 }
 
 // In the page: the step's control pressed sends the bubble out of the way at once, before what the press
