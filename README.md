@@ -495,7 +495,10 @@ There's more to see while they work:
   corner and pick one. **Yours** is the office as you furnish it below, and
   changing anything there but the pets takes you back to it. Your team, the
   daylight, the seasons and the sound stay as you set them, and so do the pets
-  you pick, in place of the style's own.
+  you pick, in place of the style's own. Four styles also put the whole office
+  in costume, with nine outfits each: the Castle great hall (a royal court),
+  Mount Olympus (the Greek gods), the Zoo (animal onesies) and the Ant colony.
+  You can pick any of those outfits for someone on your team, too.
 - **The floor** in wood, tiles, concrete or carpet, and more, and **the walls**
   in slate, sage, clay or cream, and more.
 - **In the room editor** (below): the mic you talk into, from a microphone to a

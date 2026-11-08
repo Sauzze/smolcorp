@@ -1,3 +1,8 @@
+# Smolcorp 1.24.3 (beta)
+
+## Four teams in costume
+- **Four new styles that dress the whole office:** the Castle great hall (a royal court: king, queen, jester, knight and more), Mount Olympus (Zeus, Hera and seven more Greek gods), the Zoo (nine animal onesies) and the Ant colony (a queen, workers, soldiers and more). Each has nine outfits that everyone wears in that style, the office's staff included, and you can pick any of them for someone on your team.
+
 # Smolcorp 1.24.2 (beta)
 
 A small release for 1.24.1: the Mac app is notarised, there's a new floor style for your bots, and a few fixes.
