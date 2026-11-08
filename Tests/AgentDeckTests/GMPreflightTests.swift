@@ -99,6 +99,96 @@ final class GMPreflightTests: XCTestCase {
         XCTAssertNil(hooks.action)
     }
 
+    /// A test copy never hires on your default Claude account (FX4): Start here says so before Hire, To do, with how
+    /// and a button to it; ticked with the account's name once another is picked. The real app shows no such line.
+    func testATestCopySaysItsGMNeedsAnAccountOfItsOwnBeforeHire() throws {
+        var f = ready()
+        f.account = "default"
+        XCTAssertFalse(GMPreflight.items(f).contains { $0.id == "account" }, "the real app hires on the default account")
+        f.testCopy = true
+        var items = GMPreflight.items(f)
+        XCTAssertEqual(items.map(\.id), ["folder", "claude", "signin", "hooks", "account", "terminal"])
+        let add = try line(items, "account")
+        XCTAssertFalse(add.ok)
+        XCTAssertTrue(add.todo, "a step to take, never red")
+        XCTAssertEqual(add.title, "Your General Manager needs a Claude account of its own (this is a test copy).")
+        XCTAssertEqual(add.fix, "Add one under Claude accounts: sign in to a second account there, then add it.")
+        XCTAssertEqual(add.action, GMPreflight.Action(kind: "account", label: "Add an account"))
+        XCTAssertFalse(isReady(items), "Hire waits for it")
+        // Another account listed, the default picked (or none picked among several): choose it beside Hire.
+        f.otherAccounts = true
+        for account in ["default", nil] as [String?] {
+            f.account = account
+            let choose = try line(GMPreflight.items(f), "account")
+            XCTAssertEqual(choose.fix, GMPreflight.chooseAccountFix)
+            XCTAssertEqual(choose.action, GMPreflight.Action(kind: "account", label: "Choose an account"))
+        }
+        f.account = "test"
+        items = GMPreflight.items(f)
+        let ok = try line(items, "account")
+        XCTAssertTrue(ok.ok)
+        XCTAssertEqual(ok.title, "Your General Manager works on the Claude account test.")
+        XCTAssertTrue(isReady(items))
+        // Said even with Claude Code still to install.
+        f.account = "default"
+        f.claudeAt = nil
+        f.claudeOnLoginPath = false
+        XCTAssertTrue(GMPreflight.items(f).contains { $0.id == "account" && $0.todo })
+        // The hire's refusal says the same thing to do, so the line and the refusal agree.
+        let home = ClaudeProfiles.defaultProfile(home: URL(fileURLWithPath: self.home))
+        XCTAssertTrue(Deck.testCopyAccountRefusal(account: home, otherAccounts: false, testCopy: true)?.message.hasSuffix(add.fix) ?? false)
+    }
+
+    /// Start here's account line goes where it says (FX4), and nothing is Ready to work until it's taken.
+    func testStartHereWaitsForATestCopysAccountBeforeReadyToWork() throws {
+        let page = try source("Resources/web/setup.html")
+        XCTAssertTrue(page.contains("if (action.kind === 'account') return chooseAccount().run();"))
+        XCTAssertTrue(page.contains("const account = !!gmPreflight && !$('first-gm-checks').hidden && gmPreflight.items.some((i) => i.id === 'account' && !i.ok);"))
+        XCTAssertTrue(page.contains("steps ? (account ? many : `Ready to work · ${many}`) : 'All set'"))
+        let render = try XCTUnwrap(page.range(of: "function renderGmPreflight() {"))
+        XCTAssertNotNil(page[render.upperBound...].prefix(400).range(of: "renderStartNow();"), "the state beside Start here follows the line")
+    }
+
+    /// The accounts list (FX4): one verb, Add, on the instruction and the buttons; the GM's account marked; a way back to
+    /// the hire once one is added; how to sign in to a second account; CLAUDE_CONFIG_DIR only in the small print.
+    func testTheAccountsListSaysAddMarksTheGMsAccountAndLeadsBack() throws {
+        let page = try source("Resources/web/setup.html")
+        let start = try XCTUnwrap(page.range(of: #"<div class="step" id="step-accounts" hidden>"#))
+        let end = try XCTUnwrap(page.range(of: #"<div class="step" id="step-launcher""#, range: start.upperBound..<page.endIndex))
+        let step = page[start.upperBound..<end.lowerBound]
+        let lead = try XCTUnwrap(step.range(of: #"<div class="detail">"#))
+        let first = step[lead.upperBound...].prefix { $0 != "<" }
+        XCTAssertEqual(first, "Each hire works on one of these Claude accounts. To hire on another, add it here.")
+        XCTAssertFalse(first.contains("CLAUDE_CONFIG_DIR"))
+        XCTAssertTrue(step.contains(#"<p class="accounts-fine">Each account is a folder of its own (CLAUDE_CONFIG_DIR)."#))
+        XCTAssertTrue(step.contains("No second account yet? Sign in to one: paste this in Terminal, then add it when it shows up above."))
+        XCTAssertTrue(step.contains(#"<button class="btn primary" id="accounts-back">Back to Easy setup → Hire your General Manager</button>"#))
+        XCTAssertFalse(step.contains("Choose"), "the list's verb is Add")
+        XCTAssertTrue(page.contains("textContent: 'Your General Manager works on this one'"))
+        XCTAssertTrue(page.contains("$('account-signin-line').textContent = `CLAUDE_CONFIG_DIR=~/.claude-${testCopy() ? 'test' : 'work'} claude`;"))
+        XCTAssertTrue(page.contains("$('accounts-next').hidden = !accountAdded || gmHired || $('start-gm').hidden;"))
+        XCTAssertTrue(page.contains("go('easy', $('start-gm'));"))
+        // The lines look again once the picker beside Hire has the new list.
+        XCTAssertTrue(page.contains("await load();\n      checkGmPreflight();"))
+    }
+
+    /// Buttons that act on the Mac say so in the page (FX4): Change's folder window, with a path field as the other way,
+    /// and Open the office, from both its buttons.
+    func testButtonsThatActOnTheMacShowASignOfLifeInThePage() throws {
+        let page = try source("Resources/web/setup.html")
+        XCTAssertTrue(page.contains(#"<p class="ff-what" id="first-folder-picking" role="status" hidden>A folder window opened on your Mac: pick a folder there. Or type its path here.</p>"#))
+        let choose = try XCTUnwrap(page.range(of: "async function chooseFirstFolder() {"))
+        let body = page[choose.upperBound...].prefix(1800)
+        let said = try XCTUnwrap(body.range(of: "firstFolderPicking = firstFolderTyping = true;\n      renderFirstFolder();"))
+        let asked = try XCTUnwrap(body.range(of: "fetch('/setup/hiring/choose?pick=1'"))
+        XCTAssertLessThan(said.lowerBound, asked.lowerBound, "said before the window's answer, which waits for a pick")
+        XCTAssertNotNil(body.range(of: "if (!firstFolderEdited) firstFolderTyping = firstFolderChanging = false;"), "a typed path stays")
+        XCTAssertTrue(page.contains("$('first-folder-picking').hidden = !firstFolderPicking || !firstFolderTyping;"))
+        XCTAssertTrue(page.contains("button.textContent = 'Opening the office…';"))
+        XCTAssertTrue(page.contains("$('first-gm-office').onclick = $('start-office').onclick;"))
+        XCTAssertFalse(page.contains("startSaid('The office is opening.');"), "said on the button pressed, not under Hire")
+    }
+
     /// Start here and General draw the keyboard, agents and login lines from the same checks: one name, one button.
     func testStartHereAndGeneralShareTheirWords() throws {
         let keys = SelfTest.accessibilityCheck(false)
@@ -480,16 +570,18 @@ final class GMPreflightTests: XCTestCase {
         let page = try source("Resources/web/setup.html")
         XCTAssertTrue(page.contains(#"<p class="said" id="start-said" role="status" hidden><span id="start-said-text"></span><button class="btn" id="start-said-do" hidden></button></p>"#))
         XCTAssertTrue(page.contains("startSaid(why, true, hireRefusalFix(why));"))
-        XCTAssertTrue(page.contains("return { label: 'Choose an account', run: () => go('general', $('step-accounts')) };"))
+        XCTAssertTrue(page.contains("return { label: 'Add an account', run: () => go('general', $('step-accounts')) };"))
         XCTAssertTrue(page.contains("if (why.startsWith('Connect your agents first')) return { label: 'Connect',"))
         // The words the page answers are the apps' own.
         let refused = try XCTUnwrap(Deck.testCopyAccountRefusal(account: ClaudeProfiles.defaultProfile(home: URL(fileURLWithPath: home)), testCopy: true))
-        XCTAssertTrue(refused.message.hasSuffix(Deck.chooseTestAccount))
-        XCTAssertTrue(page.contains(#"/Choose a test account\.$|"#))
+        XCTAssertTrue(refused.message.hasSuffix(GMPreflight.addAccountFix))
+        XCTAssertTrue(page.contains(#"/Add one under Claude accounts: |Choose one other than default, |"#))
         XCTAssertFalse(refused.message.contains(".claude.json"), "no file name in the sentence")
         XCTAssertTrue(Deck.hooksRefusal(for: .claude, found: [.claude], connected: { _ in false })?.hasPrefix("Connect your agents first") ?? false)
         // In a test copy, the picker under Hire starts on a test account.
-        XCTAssertTrue(page.contains("else if (testCopy() && profiles.some((p) => !p.default)) pick.value = profiles.find((p) => !p.default).name;"))
+        XCTAssertTrue(page.contains("const testOne = testCopy() && profiles.find((p) => !p.default);"))
+        XCTAssertTrue(page.contains("if (profiles.some((p) => p.name === kept) && !(testOne && kept === 'default')) pick.value = kept;"),
+                      "a test copy moves off the default account once another is added")
         XCTAssertTrue(page.contains("<b>Change where hires work</b>"))
     }
 

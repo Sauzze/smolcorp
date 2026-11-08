@@ -235,7 +235,8 @@ final class BriefRouteTests: XCTestCase {
         let test = ClaudeProfile(name: "t124", dir: home.appendingPathComponent(".claude-t124").path)
         let refused = Deck.testCopyAccountRefusal(account: real, testCopy: true)
         XCTAssertEqual(refused?.status, 409)
-        XCTAssertTrue(refused?.message.contains("Choose a test account") ?? false)
+        XCTAssertTrue(refused?.message.hasSuffix(GMPreflight.addAccountFix) ?? false)
+        XCTAssertTrue(Deck.testCopyAccountRefusal(account: real, otherAccounts: true, testCopy: true)?.message.hasSuffix(GMPreflight.chooseAccountFix) ?? false)
         XCTAssertNil(Deck.testCopyAccountRefusal(account: test, testCopy: true), "a test account is fine")
         XCTAssertNil(Deck.testCopyAccountRefusal(account: real, testCopy: false), "the real app hires on the default account")
     }

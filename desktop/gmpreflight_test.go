@@ -205,6 +205,25 @@ func TestTheGMPreflightTellsAStepToTakeFromAProblem(t *testing.T) {
 	}
 }
 
+// A test copy's GM can't be hired on this computer (testCopyRefusal): its line says so before Hire, and Hire waits.
+// The real app hires on your own account: no such line (the Mac's GMPreflightTests say the same for its test copy).
+func TestATestCopySaysItsGMNeedsAnAccountBeforeHire(t *testing.T) {
+	d, _, _, _ := preflightDeck(t)
+	onPort(t, portFromEnvironment(""))
+	if ids := preflightIDs(d.gmPreflight()); slices.Contains(ids, "account") {
+		t.Errorf("the real app has an account line: %v", ids)
+	}
+	onPort(t, portFromEnvironment("")+1)
+	report := d.gmPreflight()
+	line := preflightLine(t, report, "account")
+	if line.OK || line.Optional || line.Title != gmNeedsAccount || !strings.Contains(line.Fix, "real Smolcorp") || report.Ready {
+		t.Errorf("a test copy's account line: %+v (ready %v)", line, report.Ready)
+	}
+	if !strings.Contains(gmNeedsAccount, "Claude account of its own") {
+		t.Errorf("not the Mac's words: %q", gmNeedsAccount)
+	}
+}
+
 func TestTheGMPreflightWithoutATerminalSaysHowToInstallTmux(t *testing.T) {
 	d, _, _, _ := preflightDeck(t)
 	canOpenWindows = func() bool { return false }

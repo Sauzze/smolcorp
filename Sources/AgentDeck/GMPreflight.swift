@@ -13,7 +13,8 @@ import CoreServices
 /// way: the GM's window asks you to sign in.
 enum GMPreflight {
     struct Action: Equatable {
-        /// "copy" (a command to paste in Terminal), "fix" (a POST /setup/fix by name) or "folder" (the folder step above).
+        /// "copy" (a command to paste in Terminal), "fix" (a POST /setup/fix by name), "folder" (the folder step above)
+        /// or "account" (the account picker beside Hire when it's shown, otherwise General's Claude accounts).
         var kind: String
         var label: String
         var command: String?
@@ -68,6 +69,10 @@ enum GMPreflight {
         var home = NSHomeDirectory()
         /// A test copy: its hires report through its own hook, whatever your agents' settings hold.
         var testCopy = false
+        /// The Claude account the hire would work on ("default" for ~/.claude's), nil while none is picked among several;
+        /// and whether an account besides the default is listed. Only a test copy has a line for them.
+        var account: String?
+        var otherAccounts = false
     }
 
     /// The fix that opens Privacy & Security's Automation pane.
@@ -75,6 +80,12 @@ enum GMPreflight {
     static let automationPane = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!
     /// Claude Code's own installer.
     static let installCommand = "curl -fsSL https://claude.ai/install.sh | bash"
+
+    /// A test copy's General Manager never works on your default Claude account (`Deck.testCopyAccountRefusal`):
+    /// said before Hire, with what to do. The page matches these words for the refusal's button.
+    static let needsAccount = "Your General Manager needs a Claude account of its own (this is a test copy)."
+    static let addAccountFix = "Add one under Claude accounts: sign in to a second account there, then add it."
+    static let chooseAccountFix = "Choose one other than default, beside Hire your General Manager below."
 
     /// The lines, in the order they're put right.
     static func items(_ f: Facts) -> [Item] {
@@ -93,7 +104,7 @@ enum GMPreflight {
             items.append(Item(id: "claude", ok: false, title: "Claude Code isn't installed on this Mac.",
                               fix: "Paste this in Terminal, wait for it to finish, then press Check again.",
                               action: Action(kind: "copy", label: "Copy", command: installCommand), todo: true))
-            return items + terminalItems(f)
+            return items + accountItems(f) + terminalItems(f)
         }
         // Installed, but where your login shell, which hires start in, doesn't look.
         if f.claudeOnLoginPath == false, let at = f.claudeAt {
@@ -101,7 +112,7 @@ enum GMPreflight {
             items.append(Item(id: "claude", ok: false, title: "Claude Code is in \(tilde(where_, home: f.home)), where Terminal doesn't look for it.",
                               fix: "Paste this in Terminal, open a new Terminal window, then press Check again.",
                               action: Action(kind: "copy", label: "Copy", command: pathLine(shell: f.shell, folder: where_, home: f.home))))
-            return items + terminalItems(f)
+            return items + accountItems(f) + terminalItems(f)
         }
         items.append(Item(id: "claude", ok: true, title: "Claude Code is installed."))
         switch f.signIn {
@@ -124,7 +135,18 @@ enum GMPreflight {
         } else {
             items.append(Item(id: "hooks", ok: true, title: "Claude Code reports to Smolcorp."))
         }
-        return items + terminalItems(f)
+        return items + accountItems(f) + terminalItems(f)
+    }
+
+    /// A test copy's account line: To do while the hire would be on the default account (it's refused there), ticked
+    /// with the account's name once another is picked. The real app hires on the default account: no line.
+    private static func accountItems(_ f: Facts) -> [Item] {
+        guard f.testCopy else { return [] }
+        if let name = f.account, name != ClaudeProfiles.defaultName {
+            return [Item(id: "account", ok: true, title: "Your General Manager works on the Claude account \(name).")]
+        }
+        return [Item(id: "account", ok: false, title: needsAccount, fix: f.otherAccounts ? chooseAccountFix : addAccountFix,
+                     action: Action(kind: "account", label: f.otherAccounts ? "Choose an account" : "Add an account"), todo: true)]
     }
 
     private static func terminalItems(_ f: Facts) -> [Item] {
@@ -188,7 +210,8 @@ enum GMPreflight {
     /// The checks for a hire on `account` ("" the default), answered on the main queue.
     /// The config and the hooks are read here, on the main queue; the shell, Claude Code and macOS are asked off it.
     static func check(config: Config, account: String, done: @escaping ([String: Any]) -> Void) {
-        let profile = ClaudeProfiles.profile(named: account, among: ClaudeProfiles.current)
+        let profiles = ClaudeProfiles.current
+        let profile = ClaudeProfiles.profile(named: account, among: profiles)
         var f = Facts()
         f.folder = config.hireFolder.trimmingCharacters(in: .whitespaces)
         f.folderExists = Deck.folder(f.folder) != nil
@@ -200,6 +223,8 @@ enum GMPreflight {
         f.tmuxWanted = config.hireInTmux
         f.tmux = Tmux.path != nil
         f.testCopy = TestCopy.isOn
+        f.account = profile?.name
+        f.otherAccounts = profiles.contains { !$0.isDefault }
         f.shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
         let bundle = choice?.bundle
         DispatchQueue.global(qos: .userInitiated).async {

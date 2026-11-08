@@ -246,6 +246,11 @@
   .accounts .row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12.5px; }
   .accounts .row .dir { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; font: 12px ui-monospace, "SF Mono", Menlo, monospace; color: var(--dim); }
   .accounts input[type=text] { flex: 1 1 140px; }
+  /* The account the General Manager works on, marked; the way to sign in to another; the folder words, small. */
+  .accounts .gm-uses { padding: 0 6px; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); font-size: 11px; white-space: nowrap; }
+  .accounts .row code { font-size: 11.5px; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
+  .accounts-fine { color: var(--dim); font-size: 11.5px; margin: 6px 0 0; }
+  #accounts-next { color: var(--ink); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
   /* Guard: one row a group, then your own patterns */
   .guard-warning { color: var(--error); }
   .guard-extra { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 10px 14px; }
@@ -715,6 +720,7 @@
           <b>Where your hires work</b>
           <p class="ff-what">Your hires work in projects inside this folder.</p>
           <code class="ff-path" id="first-folder-path"></code>
+          <p class="ff-what" id="first-folder-picking" role="status" hidden>A folder window opened on your Mac: pick a folder there. Or type its path here.</p>
           <input type="text" id="first-folder-input" class="mono" spellcheck="false" placeholder="~/Projects" aria-label="The folder your hires work in" hidden>
           <div class="ff-problem" id="first-folder-problem" role="alert" hidden><span id="first-folder-problem-text"></span> <button class="btn" id="first-folder-fix" hidden></button></div>
           <div class="ff-tools">
@@ -821,14 +827,21 @@
         <div class="step" id="step-accounts" hidden>
           <div class="text">
             <div class="title">Claude accounts</div>
-            <div class="detail">Claude Code signed in to more than one account, each in a folder of its own (CLAUDE_CONFIG_DIR). Connect puts Smolcorp's hooks in every account listed, and a hire says which one it works on.</div>
+            <div class="detail">Each hire works on one of these Claude accounts. To hire on another, add it here.</div>
             <div class="accounts" id="accounts-list"></div>
             <div class="accounts"><div class="row" id="accounts-add">
               <input type="text" id="account-name" spellcheck="false" placeholder="Name, such as work" aria-label="The account's name">
               <input type="text" id="account-dir" class="mono" spellcheck="false" placeholder="Folder, such as ~/.claude-work" aria-label="The account's folder">
               <button class="btn" id="account-add">Add</button>
             </div></div>
+            <!-- No second account yet: how to sign in to one, so it shows up above as Found, with Add. -->
+            <div class="accounts"><div class="row" id="accounts-signin">
+              <span>No second account yet? Sign in to one: paste this in Terminal, then add it when it shows up above.</span>
+              <code id="account-signin-line"></code> <button class="btn" id="account-signin-copy">Copy</button> <span class="result" id="account-signin-copied"></span>
+            </div></div>
+            <p id="accounts-next" role="status" hidden>Added. <button class="btn primary" id="accounts-back">Back to Easy setup → Hire your General Manager</button></p>
             <p class="note" id="accounts-problem" role="alert" hidden></p>
+            <p class="accounts-fine">Each account is a folder of its own (CLAUDE_CONFIG_DIR). Connect puts Smolcorp's hooks in every account listed.</p>
           </div>
         </div>
         <div class="step" id="step-launcher" hidden>
@@ -2518,18 +2531,31 @@
     const pick = $('start-gm-account'), kept = pick.value;
     pick.hidden = profiles.length < 2 || !state.agents.some((a) => a.id === 'claude') || $('start-gm').hidden;
     pick.replaceChildren(new Option('Choose an account…', ''), ...profiles.map((p) => new Option(p.name, p.name)));
-    if (profiles.some((p) => p.name === kept)) pick.value = kept;
-    // A test copy never hires on the default account: a test one is chosen first.
-    else if (testCopy() && profiles.some((p) => !p.default)) pick.value = profiles.find((p) => !p.default).name;
+    // A test copy never hires on the default account: a test one is chosen first, and once one is added.
+    const testOne = testCopy() && profiles.find((p) => !p.default);
+    if (profiles.some((p) => p.name === kept) && !(testOne && kept === 'default')) pick.value = kept;
+    else if (testOne) pick.value = testOne.name;
     // Nothing it can default is asked: the default account is chosen until another is.
     else if (profiles.some((p) => p.default)) pick.value = profiles.find((p) => p.default).name;
   }
+  /**
+   * The account Start here's hire would put the General Manager on: the one picked beside Hire (the only one,
+   * with one). None while a GM is hired, as the page doesn't know its account, nor a test copy's default (refused there).
+   */
+  function gmAccount() {
+    if (gmHired || $('start-gm').hidden) return '';
+    const name = $('start-gm-account').value;
+    return testCopy() && name === 'default' ? '' : name;
+  }
+  // An account just added: the way back to Start here's hire is offered, while there's a GM to hire.
+  let accountAdded = false;
   /** The Claude accounts besides the default, as the page lists them; changes go to the app whole. */
   function renderAccounts() {
     const accounts = state.claudeAccounts;
     renderGmAccount();
     $('step-accounts').hidden = !accounts || !state.agents.some((a) => a.id === 'claude');
     if ($('step-accounts').hidden) return;
+    const forGm = gmAccount();
     const rows = accounts.profiles.map((p) => {
       const row = document.createElement('div');
       row.className = 'row';
@@ -2538,6 +2564,7 @@
       // The same word as the agents' line; a test copy's hires report through its own hook, whatever an account holds.
       const status = Object.assign(document.createElement('span'), { textContent: testCopy() ? '' : p.connected ? 'Reports to Smolcorp' : "Doesn't report yet" });
       row.append(name, dir, status);
+      if (p.name === forGm) row.append(Object.assign(document.createElement('span'), { className: 'gm-uses', textContent: 'Your General Manager works on this one' }));
       if (!p.default) {
         const remove = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Remove' });
         remove.setAttribute('aria-label', `Remove ${p.name}`);
@@ -2557,6 +2584,9 @@
       rows.push(row);
     }
     $('accounts-list').replaceChildren(...rows);
+    // A test copy's second account is named for what it's for.
+    $('account-signin-line').textContent = `CLAUDE_CONFIG_DIR=~/.claude-${testCopy() ? 'test' : 'work'} claude`;
+    $('accounts-next').hidden = !accountAdded || gmHired || $('start-gm').hidden;
   }
   async function saveAccounts(profiles) {
     $('accounts-problem').hidden = true;
@@ -2565,14 +2595,26 @@
     if (res && res.ok) {
       $('account-name').value = '';
       $('account-dir').value = '';
+      // One more account than before: added, so the way back to the hire is offered.
+      accountAdded = profiles.length > addedAccounts().length;
+      // The lines look once the picker beside Hire has the new list (a test copy picks the added one).
+      await load();
       checkGmPreflight();
-      return load();
+      return;
     }
     $('accounts-problem').textContent = res ? await res.text() : "Can't reach Smolcorp.";
     $('accounts-problem').hidden = false;
   }
+  /** The accounts listed besides the default. */
+  function addedAccounts() { return ((state.claudeAccounts && state.claudeAccounts.profiles) || []).filter((p) => !p.default); }
   $('account-add').onclick = () => saveAccounts([...state.claudeAccounts.profiles.filter((p) => !p.default),
     { name: $('account-name').value.trim(), dir: $('account-dir').value.trim() }]);
+  $('account-signin-copy').onclick = () => copyText($('account-signin-line').textContent, 'account-signin-copied');
+  $('accounts-back').onclick = () => {
+    accountAdded = false;
+    $('accounts-next').hidden = true;
+    go('easy', $('start-gm'));
+  };
   $('hooks').onclick = () => changeHooks('/setup/hooks');
   $('unhook').onclick = () => changeHooks('/setup/hooks?remove=1');
   $('accessibility').onclick = () => post('/setup/accessibility').then(lookAgain);
@@ -6478,12 +6520,23 @@
     }, true));
   }
 
+  /**
+   * Start here's state beside its title. A test copy's General Manager with no account of its own (its preflight
+   * line) is one more step left, and nothing is Ready to work until it's taken.
+   */
+  function renderStartNow() {
+    if (!startChecks || startFailed) return;
+    const account = !!gmPreflight && !$('first-gm-checks').hidden && gmPreflight.items.some((i) => i.id === 'account' && !i.ok);
+    const left = startChecks.filter((c) => c.status === 'fix').length;
+    const steps = startChecks.filter((c) => c.status === 'todo').length + (account ? 1 : 0);
+    const many = `${steps} ${steps === 1 ? 'step' : 'steps'} left`;
+    $('start-now').textContent = left ? `${left} to fix` : steps ? (account ? many : `Ready to work · ${many}`) : 'All set';
+  }
+
   function renderStartHere(report) {
     startChecks = report.checks;
     $('start-here').hidden = false;
-    const left = report.checks.filter((c) => c.status === 'fix').length;
-    const steps = report.checks.filter((c) => c.status === 'todo').length;
-    $('start-now').textContent = left ? `${left} to fix` : steps ? `Ready to work · ${steps} ${steps === 1 ? 'step' : 'steps'} left` : 'All set';
+    renderStartNow();
     $('start-fix-all').hidden = report.checks.filter((c) => c.status === 'fix' && c.fix).length < 2;
     $('start-checks').replaceChildren(...report.checks.map((c) => {
       const row = document.createElement('div');
@@ -6543,13 +6596,15 @@
   function hireRefusalFix(why) {
     if (why.startsWith('Choose the folder for your hires first')) return { label: 'Show me', run: () => gmPreflightDo({ kind: 'folder' }) };
     if (why.startsWith('Connect your agents first')) return { label: 'Connect', run: (e) => gmPreflightDo({ kind: 'fix', label: 'Connect', fix: 'repair' }, e.currentTarget) };
-    if (/Choose a test account\.$|^There's no Claude account called |^Say which Claude account /.test(why)) return chooseAccount();
+    // A test copy's refusal ends with what its account line says to do (Add one… or Choose one…).
+    if (/Add one under Claude accounts: |Choose one other than default, |^There's no Claude account called |^Say which Claude account /.test(why)) return chooseAccount();
     return null;
   }
+  /** The way to an account: the picker beside Hire when it's shown (Choose), otherwise General's Claude accounts (Add, the word on its buttons). */
   function chooseAccount() {
     const pick = $('start-gm-account');
     if (!pick.hidden) return { label: 'Choose an account', run: () => { pick.focus(); try { pick.showPicker(); } catch {} } };
-    return { label: 'Choose an account', run: () => go('general', $('step-accounts')) };
+    return { label: 'Add an account', run: () => go('general', $('step-accounts')) };
   }
 
   const startFixSays = {
@@ -6583,11 +6638,18 @@
       if (c.fix === 'install') return;
     }
   };
-  $('start-office').onclick = async () => {
+  // The office opens in its own window, apart from this page: the button pressed says Opening the office… until it's
+  // up, then reads as it did. Start here's and the one shown once the GM is at its desk.
+  $('start-office').onclick = async (e) => {
+    const button = e.currentTarget, label = button.textContent;
+    const back = () => { button.textContent = label; button.disabled = false; };
+    button.textContent = 'Opening the office…';
+    button.disabled = true;
     const res = await fetch('/setup/office', { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
+    if (!res || !res.ok) back();
     if (!res) return startSaid("Can't reach Smolcorp on this computer.", true);
     if (!res.ok) return startSaid(`${await res.text()} Open the office from ${onMac() ? "Smolcorp's menu bar icon" : "Smolcorp's menu in the tray"}: Show Office, or open ${location.origin}/office in a browser on this computer and enter the code from Pair a phone.`, true);
-    startSaid('The office is opening.');
+    setTimeout(back, 2500);
   };
   /** The General Manager sessions at a desk now, by id: the desk comes once the hire's hook has posted. */
   async function seatedGms() {
@@ -6794,6 +6856,8 @@
     const left = shown ? gmPreflightLeft() : [];
     const failed = gmPreflightFailed;
     box.hidden = !shown || !gmPreflight;
+    // A test copy's account line counts in Start here's state.
+    renderStartNow();
     // Known: whether nothing greys the hire (an older app, or a check that failed, leaves it to hire as before).
     if (gmPreflightAsked && !gmPreflightBusy) box.dataset.ok = String(!left.length);
     // Greyed while something is in the way, and busy while a hire runs.
@@ -6858,6 +6922,8 @@
       const step = $('first-folder') && !$('first-folder').hidden ? $('first-folder') : $('step-hire-folder');
       return go(step.closest('.pane').dataset.pane, step);
     }
+    // A test copy's account line: the picker beside Hire, or General's Claude accounts.
+    if (action.kind === 'account') return chooseAccount().run();
     button.disabled = true;
     const res = await fetch(`/setup/fix?fix=${encodeURIComponent(action.fix)}`, { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
     button.disabled = false;
@@ -6887,7 +6953,7 @@
       if (startLeft()) loadStartHere();
     }
   });
-  $('first-gm-office').onclick = () => $('start-office').click();
+  $('first-gm-office').onclick = $('start-office').onclick;
   $('first-gm-done').onclick = () => { $('first-gm-next').hidden = true; };
   $('first-gm-says').querySelectorAll('button').forEach((button) => {
     const line = button.previousElementSibling;
@@ -6904,6 +6970,10 @@
   let firstFolderIssue = null;
   let firstFolderTyping = false;
   let firstFolderChanging = false;
+  // The Mac's folder window is open (it opens apart from this page): said, with the path field as the other way.
+  let firstFolderPicking = false;
+  // Typed in the path field since it opened: a folder window closed with nothing picked leaves it open.
+  let firstFolderEdited = false;
   // The folder set when the route was last asked, to ask again once it's changed elsewhere (Advanced, the picker).
   let firstFolderSeen;
   let firstFolderTimer = 0;
@@ -6940,6 +7010,7 @@
     $('first-folder-path').textContent = tildePath(f.folder || f.suggested, f.home);
     $('first-folder-path').hidden = firstFolderTyping;
     $('first-folder-input').hidden = !firstFolderTyping;
+    $('first-folder-picking').hidden = !firstFolderPicking || !firstFolderTyping;
     $('first-folder-problem').hidden = !problem;
     $('first-folder-problem-text').textContent = problem;
     const create = !!problem && issue.fix === 'create' && !!issue.folder;
@@ -6971,7 +7042,7 @@
     firstFolder = answer;
     firstFolderSeen = answer.folder;
     firstFolderIssue = null;
-    firstFolderTyping = firstFolderChanging = false;
+    firstFolderTyping = firstFolderChanging = firstFolderPicking = false;
     renderFirstFolder();
     load();
     // For the guide: the folder step is done.
@@ -6984,19 +7055,25 @@
    */
   async function chooseFirstFolder() {
     firstFolderIssue = null;
+    const f = firstFolder || {};
+    firstFolderEdited = false;
+    $('first-folder-input').value = tildePath(f.folder || f.suggested, f.home);
     if (onMac() && state.hiring && state.hiring.canChoose) {
+      // The folder window opens on the Mac, not in this page: the page says so at once, with the path field beside it.
+      firstFolderPicking = firstFolderTyping = true;
+      renderFirstFolder();
+      checkTypedFolder();
       const res = await fetch('/setup/hiring/choose?pick=1', { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
       const answer = res && res.ok ? await res.json().catch(() => null) : null;
+      firstFolderPicking = false;
       if (answer) {
         if (answer.picked) return keepFirstFolder(answer.picked, false);
-        // Nothing picked: as it was.
-        firstFolderChanging = false;
+        // Nothing picked, nothing typed: as it was.
+        if (!firstFolderEdited) firstFolderTyping = firstFolderChanging = false;
         return renderFirstFolder();
       }
     }
     firstFolderTyping = true;
-    const f = firstFolder || {};
-    $('first-folder-input').value = tildePath(f.folder || f.suggested, f.home);
     renderFirstFolder();
     $('first-folder-input').focus();
     $('first-folder-input').select();
@@ -7033,11 +7110,12 @@
     if (issue && issue.folder) keepFirstFolder(issue.folder, true);
   };
   $('first-folder-cancel').onclick = () => {
-    firstFolderTyping = firstFolderChanging = false;
+    firstFolderTyping = firstFolderChanging = firstFolderPicking = false;
     firstFolderIssue = null;
     renderFirstFolder();
   };
   $('first-folder-input').oninput = () => {
+    firstFolderEdited = true;
     clearTimeout(firstFolderTimer);
     firstFolderTimer = setTimeout(checkTypedFolder, 250);
   };
