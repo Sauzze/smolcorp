@@ -1489,8 +1489,13 @@
       <div class="catalog" id="welcome-mic"></div>
     </div>
     <div class="wstep" data-step="3" hidden>
-      <h2>All set</h2>
-      <p>Your office is ready: open it on this computer, or on a paired phone. Want desks somewhere else, a jukebox, or pictures on the wall? Arrange the room, on its side and upright.</p>
+      <h2 id="welcome-end-title">All set</h2>
+      <p id="welcome-ready">Your office is ready: open it on this computer, or on a paired phone.</p>
+      <div id="welcome-gm-missing" hidden>
+        <p>Nobody works in your office yet. Start with your General Manager: it plans the work and hires the rest of your team.</p>
+        <div class="tools"><button class="btn primary" id="welcome-gm">Hire your General Manager</button></div>
+      </div>
+      <p>Want desks somewhere else, a jukebox, or pictures on the wall? Arrange the room, on its side and upright.</p>
       <div class="tools">
         <button class="btn" id="invite-standard">Arrange the room…</button>
         <button class="btn" id="invite-empty">Start from an empty room…</button>
@@ -5828,8 +5833,27 @@
     $('welcome-back').hidden = step === 1;
     $('welcome-next').hidden = step === 3;
     $('invite-later').hidden = step !== 3;
-    ($('invite').querySelector('.tile.on') && step === 1 ? $('invite').querySelector('.tile.on') : step === 3 ? $('invite-later') : $('welcome-next')).focus();
+    const gmMissing = step === 3 && welcomeEnd();
+    ($('invite').querySelector('.tile.on') && step === 1 ? $('invite').querySelector('.tile.on') : gmMissing ? $('welcome-gm') : step === 3 ? $('invite-later') : $('welcome-next')).focus();
   }
+  /**
+   * The welcome's last step: all set once a General Manager is there (hired, started by hand, or its hire
+   * under way). Until then it never says the office is ready: it says what's missing and leads to it.
+   * Says whether it's missing.
+   */
+  function welcomeEnd() {
+    const hired = gmKnown ? gmHired : !!(state && state.gmHired);
+    const missing = !hired && !gmHireRunning && !$('start-gm').hidden;
+    $('welcome-end-title').textContent = missing ? 'Next: hire your General Manager' : 'All set';
+    $('welcome-ready').hidden = missing;
+    $('welcome-gm-missing').hidden = !missing;
+    return missing;
+  }
+  // To Hire your General Manager on Easy setup, the welcome kept as finished.
+  $('welcome-gm').onclick = () => {
+    answerInvite(null);
+    go('easy', $('start-gm'));
+  };
   $('welcome-next').onclick = () => welcomeAt(Number($('invite').dataset.step) + 1);
   $('welcome-back').onclick = () => welcomeAt(Number($('invite').dataset.step) - 1);
   $('welcome-skip').onclick = () => answerInvite(null);
@@ -7344,6 +7368,9 @@
     modals: '#invite:not([hidden]), #arranger:not([hidden])',
     awayText: 'Next step in Easy setup',
     skipSays: 'Skip: Show me around again brings it back',
+    // The pill's × hides it in this section only: it's back in the next one, until the guide is over.
+    where: () => document.querySelector('.pane.current')?.dataset.pane || '',
+    hideSays: "Hide for now: it's back in the next section you open",
     keep: '.pane.current > .pane-head, #easy-attention, #start-here > .card-head',
     steps: [
       { id: 'folder', target: '#first-folder-use', area: '#first-folder', doneTarget: '#first-folder', ...inStartHere,
@@ -7355,9 +7382,10 @@
         done: () => firstChecksGreen() || gmSessions().length > 0 },
       // Done while the hire is really under way, not on the click: a refused or failed hire brings the arrow back.
       // Shown done in a tour, it points where the GM is now, not at a button that would hire a second.
-      // Off the checks just made green, the account it hires on, and what's said when a hire is refused.
+      // Off the checks just made green, the account it hires on, and what's said when a hire is refused
+      // (the guide keeps off any text near Hire too, and goes out of the way once Hire is pressed).
       { id: 'hire', target: '#start-gm', doneTarget: () => firstGmDesk() || $('start-office'), ...inStartHere,
-        keep: '#first-gm-checks, #start-checks, #start-gm-account, #first-gm-recheck, #first-gm-why',
+        keep: '#first-gm-checks, #start-checks, #start-gm-account, #first-gm-recheck, #first-gm-why, #start-said',
         say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Your General Manager is hired.',
         done: () => gmSessions().length > 0 || gmHiring || gmSheetOpen() },
       // Only if the hire asks anything first, in its sheet.

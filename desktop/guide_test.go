@@ -160,8 +160,10 @@ func TestTheGuidesBubbleKeepsOffWhatItTalksAbout(t *testing.T) {
 	for _, want := range []string{
 		`keep: '.pane.current > .pane-head, #easy-attention, #start-here > .card-head'`,
 		`keep: '#start-checks, #start-gm-account, #start-gm, #first-gm-recheck, #first-gm-why'`,
-		`keep: '#first-gm-checks, #start-checks, #start-gm-account, #first-gm-recheck, #first-gm-why'`,
+		`keep: '#first-gm-checks, #start-checks, #start-gm-account, #first-gm-recheck, #first-gm-why, #start-said'`,
 		`awayText: 'Next step in Easy setup'`, `skipSays: 'Skip: Show me around again brings it back'`,
+		`where: () => document.querySelector('.pane.current')?.dataset.pane || ''`,
+		`hideSays: "Hide for now: it's back in the next section you open"`,
 	} {
 		if !strings.Contains(guide, want) {
 			t.Errorf("the guide has no %s", want)
@@ -169,6 +171,47 @@ func TestTheGuidesBubbleKeepsOffWhatItTalksAbout(t *testing.T) {
 	}
 	if strings.Contains(guide, "total:") || regexp.MustCompile(`\bn: \d`).MatchString(guide) {
 		t.Error("the guide still counts its steps beside Start here's own count")
+	}
+}
+
+// Fresh eyes, round 2: the bubble keeps off any text near what's lit and goes out of the way once its
+// control is pressed; the pill's × only hides it, and on a phone Show me and × are apart, 44 px each; the
+// welcome's last step names the General Manager while none is there, and leads to Hire.
+func TestTheGuideKeepsOffTextAndTheWelcomeNamesWhatsMissing(t *testing.T) {
+	read := func(path string) string {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	script, setup := read("../Resources/web/guide.js"), read("../Resources/web/setup.html")
+	for _, want := range []string{
+		"function lines(litEl, view) {",
+		"{ text, aside: pressed === shown }",
+		"pressed = shown;\n        position();",
+		"pillHiddenIn = where();\n        return hide();",
+		".smol-guide.pill .smol-guide-skip { order: 2; align-self: center; min-width: 44px; min-height: 44px;",
+		".smol-guide.pill .smol-guide-go { order: 1; min-height: 44px;",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("guide.js has no %q", want)
+		}
+	}
+	for _, want := range []string{
+		`<h2 id="welcome-end-title">All set</h2>`,
+		`<p id="welcome-ready">Your office is ready: open it on this computer, or on a paired phone.</p>`,
+		`<button class="btn primary" id="welcome-gm">Hire your General Manager</button>`,
+		"'Next: hire your General Manager' : 'All set'",
+		"go('easy', $('start-gm'));",
+	} {
+		if !strings.Contains(setup, want) {
+			t.Errorf("setup.html has no %q", want)
+		}
+	}
+	if strings.Contains(setup, "Your office is ready: open it on this computer, or on a paired phone. Want desks") {
+		t.Error("the welcome's last step still says the office is ready whatever is missing")
 	}
 }
 

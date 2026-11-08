@@ -193,4 +193,23 @@ final class GuideTests: XCTestCase {
         XCTAssertFalse(script.contains("Step ${"), "the bubble says no step number")
         XCTAssertTrue(script.contains(".smol-guide.pill .smol-guide-bubble"))
     }
+
+    /// Fresh eyes, round 2: the bubble keeps off any text near what's lit and goes out of the way once its
+    /// control is pressed; the pill's × only hides it, and on a phone Show me and × are 44 px each; the
+    /// welcome's last step names the General Manager while none is there. Where it all lands is checked in
+    /// node (Tests/fixtures/guide/engine.test.js, run by the Go tests).
+    func testTheGuideKeepsOffTextAndTheWelcomeNamesWhatsMissing() throws {
+        let script = try source("Resources/web/guide.js")
+        for want in ["function lines(litEl, view) {", "{ text, aside: pressed === shown }", "pressed = shown;\n        position();",
+                     "pillHiddenIn = where();\n        return hide();", "min-width: 44px; min-height: 44px;", ".smol-guide.pill .smol-guide-go { order: 1; min-height: 44px;"] {
+            XCTAssertTrue(script.contains(want), "guide.js has no \(want)")
+        }
+        let setup = try source("Resources/web/setup.html")
+        for want in ["#first-gm-why, #start-said'", "hideSays: \"Hide for now: it's back in the next section you open\"",
+                     "<button class=\"btn primary\" id=\"welcome-gm\">Hire your General Manager</button>",
+                     "'Next: hire your General Manager' : 'All set'", "go('easy', $('start-gm'));"] {
+            XCTAssertTrue(setup.contains(want), "setup.html has no \(want)")
+        }
+        XCTAssertFalse(setup.contains("on a paired phone. Want desks"), "the last step no longer says ready whatever is missing")
+    }
 }

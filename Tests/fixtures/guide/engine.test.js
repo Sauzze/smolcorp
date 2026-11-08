@@ -5,7 +5,9 @@
  * keyboard moved only when the step changes, a tour of steps already done, the last step waiting while the
  * GM starts and docked when its control never comes, and stop() leaving no timer or listener behind. Where
  * the bubble and the arrow go, on the fresh-eyes shots' Start here (1100×780 and 390×844), and the pill off
- * Easy setup. Then setup.html's welcome, which waits for the guide on a first run.
+ * Easy setup; round 2's shots with their text, the bubble out of the way once its control is pressed, and the
+ * pill's × that only hides it. Then setup.html's welcome, which waits for the guide on a first run, and whose
+ * last step names the General Manager while none is there.
  *
  * Run by desktop/guide_test.go: node engine.test.js <guide.js> <setup.html>. It throws on the first failure.
  */
@@ -400,19 +402,109 @@ function startHere() {
   }
 }
 
+// Round 2's shots (fresh-eyes-2 01, 03, 01p), with their lines of text: the bubble covers none near what's
+// lit (the checklist's rows under the folder card, the red line under Hire), and once Hire is pressed it's
+// out of the way at once, in a corner.
+{
+  const arrow = { width: 33, height: 33 };
+  const LIT = 12;
+  const box = (left, top, width, height) => ({ left, top, width, height });
+  const grow = (b) => box(b.left - LIT, b.top - LIT, b.width + LIT * 2, b.height + LIT * 2);
+  const overlaps = (a, b) => a.left < b.left + b.width && a.left + a.width > b.left && a.top < b.top + b.height && a.top + a.height > b.top;
+  const apart = (a, b) => Math.max(b.left - (a.left + a.width), a.left - (b.left + b.width), b.top - (a.top + a.height), a.top - (b.top + b.height), 0);
+  const sidebar = [box(58, 18, 66, 18), box(38, 74, 42, 16), box(49, 117, 66, 17), box(49, 150, 92, 17), box(49, 183, 90, 17), box(49, 216, 40, 17),
+    box(49, 249, 100, 17), box(18, 288, 30, 14), box(49, 315, 48, 17), box(49, 348, 56, 17)];
+  // Shot 01: Start here's rows under the folder card, each a title and its detail.
+  const rows01 = [box(316, 337, 200, 17), box(316, 358, 388, 16), box(316, 399, 196, 17), box(316, 418, 494, 16),
+    box(316, 460, 204, 17), box(533, 461, 36, 14), box(316, 480, 620, 16), box(316, 497, 120, 16), box(992, 479, 32, 16),
+    box(316, 537, 200, 17), box(316, 557, 520, 16), box(316, 598, 112, 17), box(437, 600, 36, 14), box(316, 617, 568, 16),
+    box(316, 634, 34, 16), box(949, 616, 76, 16), box(316, 675, 150, 17), box(316, 694, 328, 16), box(316, 756, 226, 17), box(969, 766, 56, 14)];
+  // Shot 03: what's under Hire: the red line (once refused), then Roles.
+  const refusal = [box(271, 556, 737, 16), box(271, 577, 50, 16), box(338, 576, 110, 17)];
+  const roles = [box(269, 652, 46, 20), box(351, 655, 110, 16), box(882, 655, 58, 16), box(972, 655, 64, 16), box(283, 698, 180, 17),
+    box(283, 718, 465, 16), box(269, 754, 560, 16)];
+  const above03 = [box(316, 8, 620, 16), box(316, 25, 100, 16), box(992, 9, 32, 16), box(316, 76, 200, 17), box(316, 95, 520, 16)];
+  // Shot 01p: the rows under the card on a phone, and the bar at the top.
+  const rows01p = [box(68, 18, 80, 20), box(45, 64, 110, 18), box(80, 488, 180, 17), box(80, 508, 240, 16), box(80, 526, 130, 16),
+    box(80, 567, 206, 17), box(80, 587, 240, 16), box(80, 605, 250, 16), box(80, 646, 150, 17), box(80, 666, 110, 17), box(149, 668, 42, 14),
+    box(80, 687, 250, 16), box(80, 704, 252, 16), box(80, 722, 250, 16), box(60, 756, 46, 16), box(80, 803, 203, 17), box(80, 823, 215, 16)];
+  const cases = [
+    { name: 'mac folder (01)', view: [1100, 780], control: box(284, 266, 112, 26), lit: box(269, 182, 782, 124),
+      keep: [box(252, 26, 816, 76), box(269, 136, 782, 28)], text: [...sidebar, ...rows01], side: { 74: 'below' } },
+    { name: 'phone folder (01p)', view: [390, 844], control: box(48, 420, 118, 28), lit: box(34, 336, 322, 124),
+      keep: [box(16, 118, 358, 80), box(33, 250, 324, 70)], text: rows01p },
+    { name: 'mac hire (03)', view: [1100, 780], control: box(269, 510, 186, 27), lit: box(269, 510, 186, 27),
+      keep: [box(269, 275, 782, 214), box(269, 0, 782, 253)], text: [...sidebar, ...above03, ...roles], side: { 74: 'right' } },
+    { name: 'mac hire refused (03)', view: [1100, 780], control: box(269, 510, 186, 27), lit: box(269, 510, 186, 27),
+      keep: [box(269, 275, 782, 214), box(269, 0, 782, 253)], text: [...sidebar, ...above03, ...refusal, ...roles], side: { 74: 'edge', 110: 'edge' } },
+    { name: 'mac hire pressed (03)', aside: true, view: [1100, 780], control: box(269, 510, 186, 27), lit: box(269, 510, 186, 27),
+      keep: [box(269, 275, 782, 214), box(269, 0, 782, 253)], text: [...sidebar, ...above03, ...roles], side: { 74: 'edge', 110: 'edge' }, after: refusal },
+  ];
+  for (const c of cases) {
+    const view = { width: c.view[0], height: c.view[1] };
+    for (const bubble of [{ width: Math.min(326, view.width - 30), height: 74 }, { width: Math.min(326, view.width - 30), height: 110 }]) {
+      const around = grow(c.lit);
+      const at = g.place(c.control, view, bubble, arrow, around, c.keep, { text: c.text, aside: !!c.aside });
+      const b = box(at.bubble.x, at.bubble.y, bubble.width, bubble.height);
+      const what = `${c.name} (${bubble.height}): ${JSON.stringify(at)}`;
+      assert(b.left >= 12 && b.top >= 12 && b.left + b.width <= view.width - 12 && b.top + b.height <= view.height - 12, 'the bubble inside the window: ' + what);
+      assert(!overlaps(b, around) && c.keep.every((k) => !overlaps(b, k)), "the bubble off what's lit and kept: " + what);
+      // Every line of text within 120 px of what's lit stays readable; so does what the press brings.
+      const near = [...c.text, ...(c.after || [])].filter((line) => apart(line, around) <= 120);
+      const hidden = near.filter((line) => overlaps(b, line));
+      assert(!hidden.length, 'the bubble off the text near what it lights: ' + JSON.stringify(hidden) + ' ' + what);
+      if (c.side && c.side[bubble.height]) assert(at.side === c.side[bubble.height], `${c.side[bubble.height]}: ` + what);
+      assert(c.keep.every((k) => !overlaps(box(at.arrow.x, at.arrow.y, 33, 33), k)), 'the arrow off what is kept: ' + what);
+    }
+  }
+  // Without text, as before: what's lit wider than the bubble, something kept under the arrow: the bubble
+  // along what's lit rather than over it.
+  const at = g.place(box(284, 266, 112, 26), { width: 1100, height: 780 }, { width: 326, height: 74 }, arrow, grow(box(269, 182, 782, 124)), [box(269, 330, 420, 40)]);
+  assert(at.side === 'below' && at.bubble.x >= 269 + 420, 'along what is lit, off what is kept: ' + JSON.stringify(at));
+}
+
+// In the page: the step's control pressed sends the bubble out of the way at once, before what the press
+// brings, and it stays there until the step changes; a click elsewhere in the page doesn't.
+{
+  const { p, s, guide, el } = startHere();
+  s.folder = s.green = true;
+  guide.start();
+  const bubble = layerOf(p).all().find((e) => e.className === 'smol-guide-bubble');
+  const where = () => [parseFloat(bubble.style.left), parseFloat(bubble.style.top)];
+  const LIT_EDGE = 12; // PAD and RING
+
+  const before = where();
+  assert(textOf(p).startsWith('Now your first hire') && before[0] === 40 + 180 + LIT_EDGE + 4 + 33, 'beside Hire first: ' + before);
+  p.fire('click', p.add('button', 'elsewhere', [700, 20, 80, 20]));
+  assert(where().join() === before.join(), 'a click elsewhere: the bubble stays');
+  p.fire('click', el('hire'));
+  const pressed = where();
+  assert(pressed.join() !== before.join() && pressed[1] === 780 - 12 - (80 + 6), 'Hire pressed: in a corner at once, before any tick: ' + pressed);
+  p.wait(900);
+  assert(where().join() === pressed.join() && textOf(p).startsWith('Now your first hire'), 'refused, still the hire step: still out of the way');
+  s.hiring = true;
+  p.wait(450);
+  s.hiring = false;
+  p.wait(450);
+  assert(where().join() === before.join(), 'the step shown anew: beside Hire again, until it is pressed: ' + where());
+  guide.stop();
+}
+
 // In the page: the bubble off what the page keeps, the arrow on the control; elsewhere on the page, a small
 // pill (Next step in Easy setup → Show me, ×), and Skip says it can be undone.
 {
   const p = page();
   current = p;
-  const s = { away: false };
+  const s = { away: false, pane: 'easy' };
   p.add('header', 'head', [252, 26, 816, 76]);
   p.add('div', 'card-head', [269, 136, 782, 28]);
   const card = p.add('div', 'folder', [269, 182, 782, 124]);
   p.add('button', 'use', [284, 266, 112, 26], card);
   // Another pane: Easy setup, and the card with it, hidden.
-  const away = (on) => { s.away = on; card.hidden = on; };
+  const away = (on, pane = on ? 'general' : 'easy') => { s.away = on; s.pane = pane; card.hidden = on; };
+  const said = [];
   const guide = g.create({ document: p.doc, keep: '#head, #card-head', awayText: 'Next step in Easy setup', skipSays: 'Skip: Show me around again brings it back',
+    where: () => s.pane, hideSays: "Hide for now: it's back in the next section you open", onFinish: (why) => said.push(why),
     steps: [{ id: 'folder', target: '#use', area: '#folder', away: () => s.away, reveal: () => away(false), say: 'Pick where your hires work', press: 'Use this folder', done: () => false }] });
   guide.start();
   const layer = layerOf(p);
@@ -428,6 +520,21 @@ function startHere() {
   p.wait(450);
   assert(layer.classList.contains('pill') && layer.classList.contains('docked'), 'elsewhere: a pill');
   assert(textOf(p) === 'Next step in Easy setup →' && goOf(p).textContent === 'Show me' && skipOf(p).textContent === '×', 'the pill: ' + textOf(p));
+  assert(skipOf(p).title === "Hide for now: it's back in the next section you open" && skipOf(p).getAttribute('aria-label') === skipOf(p).title, 'the pill\'s × says it only hides it');
+  // The ×: hidden in this section only, the guide still on; back in the next section; Skip again at the step.
+  skipOf(p).onclick();
+  p.wait(900);
+  assert(guide.running && !said.length && layer.hidden, 'the pill\'s ×: hidden here, the guide not over: ' + said.join());
+  away(true, 'phone');
+  p.wait(450);
+  assert(!layer.hidden && layer.classList.contains('pill'), 'another section: the pill is back');
+  skipOf(p).onclick();
+  away(false);
+  p.wait(450);
+  assert(!layer.hidden && !layer.classList.contains('pill') && skipOf(p).textContent === 'Skip', 'back on Easy setup: the step, with Skip');
+  assert(skipOf(p).title === 'Skip: Show me around again brings it back', 'Skip says it can be undone again');
+  away(true);
+  p.wait(450);
   goOf(p).onclick();
   assert(!layer.classList.contains('pill') && textOf(p).startsWith('Pick where your hires work'), 'Show me: back to the step, no pill');
   guide.stop();
@@ -457,6 +564,31 @@ function startHere() {
   assert(run({ AgentOffice: {} }, { guide: { done: false } }), 'no guide on the page: as before');
   assert(run(app, {}), 'an app without the guide: as before');
   assert(/render\(\);\s*\n\s*syncGuide\(asked\);/.test(setup) && /\n    showInvite\(\);\n/.test(setup), 'each state asks again, so it opens once the guide is over');
+}
+
+// The welcome's last step never says the office is ready while no General Manager is there: it says
+// what's missing and leads to Hire your General Manager. Hired, started by hand, or its hire under way: All set.
+{
+  const setup = fs.readFileSync(setupPath, 'utf8');
+  const from = setup.indexOf('  function welcomeEnd() {');
+  const to = setup.indexOf('\n  }\n', from) + 4;
+  assert(from > 0 && to > from, 'setup.html has welcomeEnd');
+  const run = (vars) => {
+    const els = {};
+    const $ = (id) => (els[id] = els[id] || { hidden: id === 'start-gm' ? !!vars.byHand : false, textContent: '' });
+    const end = new Function('$', 'state', 'gmKnown', 'gmHired', 'gmHireRunning', `${setup.slice(from, to)}\nreturn welcomeEnd;`)(
+      $, vars.state || {}, vars.known !== false, !!vars.hired, !!vars.running);
+    const missing = end();
+    return { missing, title: $('welcome-end-title').textContent, ready: !$('welcome-ready').hidden, lead: !$('welcome-gm-missing').hidden };
+  };
+  let r = run({});
+  assert(r.missing && r.title === 'Next: hire your General Manager' && !r.ready && r.lead, 'no GM: says what is missing, not ready: ' + JSON.stringify(r));
+  r = run({ hired: true });
+  assert(!r.missing && r.title === 'All set' && r.ready && !r.lead, 'a GM hired: All set');
+  assert(!run({ byHand: true }).missing && !run({ running: true }).missing, 'started by hand, or its hire under way: not missing');
+  assert(run({ known: false, state: { gmHired: false } }).missing && !run({ known: false, state: { gmHired: true } }).missing, 'not known yet: as the state says');
+  assert(/\$\('welcome-gm'\)\.onclick = \(\) => \{\n    answerInvite\(null\);\n    go\('easy', \$\('start-gm'\)\);/.test(setup), 'its button leads to Hire your General Manager on Easy setup');
+  assert(setup.includes('<button class="btn primary" id="welcome-gm">Hire your General Manager</button>'), 'the welcome has the button');
 }
 
 if (failures) { console.error(`${failures} failed`); process.exit(1); }
