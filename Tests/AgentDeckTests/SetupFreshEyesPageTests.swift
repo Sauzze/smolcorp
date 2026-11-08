@@ -121,7 +121,7 @@ final class SetupFreshEyesPageTests: XCTestCase {
         let page = try page()
         let go = try part(page, from: "function go(pane, at = null, moveFocus = true) {", to: "at.scrollIntoView(")
         XCTAssertTrue(go.contains("const folded = at && at.closest('[data-folds].folded');"))
-        XCTAssertTrue(go.contains("if (folded) setFold(folded, false);"))
+        XCTAssertTrue(go.contains("if (folded) { folded.dataset.touched = '1'; setFold(folded, false); }"))
     }
 
     // MARK: C. Office and look

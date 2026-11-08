@@ -3425,7 +3425,7 @@
       return;
     }
     // Accepted: the sheet doesn't follow the hire, so after the five minutes a start may take, it's over for the guide.
-    if (gmHire) setTimeout(hireEnded, 300000);
+    if (gmHire) { const mine = ++gmHireSerial; setTimeout(() => { if (mine === gmHireSerial) hireEnded(); }, 300000); }
     // Where it sits, 0-based as the app counts desks; null with Auto and no desk free
     const { desk } = await res.json().catch(() => ({}));
     const name = hiring.name, onText = !hiring.brief || hiring.brief.kind === 'text';
@@ -6339,7 +6339,8 @@
     document.querySelectorAll('.pane.current .picker[data-fold]').forEach(filterPicker);
     while (at && at.closest('[hidden]') && !at.matches('.pane')) at = at.parentElement.closest('.group, .card, .step, .pane');
     const folded = at && at.closest('[data-folds].folded');
-    if (folded) setFold(folded, false);
+    // Opened by a link or the search: it stays open (as if its heading were clicked), not folded again on the next draw.
+    if (folded) { folded.dataset.touched = '1'; setFold(folded, false); }
     if (!at || at.matches('.pane')) {
       window.scrollTo(0, 0);
       if (moveFocus) focusOn(document.querySelector('.pane.current h1'));
@@ -6602,6 +6603,8 @@
    * hire is sent, cleared by hireEnded when it's refused or fails.
    */
   let gmHiring = false;
+  /** Each GM hire's number: a late timer from an earlier hire never ends a later one. */
+  let gmHireSerial = 0;
   /** The GM's hire is over without a GM seated (refused, no answer, or it never started): the guide's arrow goes back to Hire. Every such path calls it. */
   function hireEnded() {
     gmHiring = false;
@@ -6653,6 +6656,7 @@
     const pressedAt = Date.now();
     startSaid('Hiring your General Manager: its terminal opens, and it asks you what the goal is.');
     gmHiring = true;
+    gmHireSerial++;
     const res = await fetch(`/setup/hire/gm${$('start-gm-account').hidden ? '' : `?account=${encodeURIComponent($('start-gm-account').value)}`}`, { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
     if (!res) {
       hireEnded();

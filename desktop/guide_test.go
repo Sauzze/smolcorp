@@ -221,7 +221,7 @@ func TestTheGuidesHireStepFollowsTheHireNotTheClick(t *testing.T) {
 	sheet := setup[strings.Index(setup, "$('hs-hire').onclick = async () => {"):]
 	sheet = sheet[:strings.Index(sheet, "closeHireSheet();")]
 	if !strings.Contains(sheet, "if (gmHire) gmHiring = true;") || !strings.Contains(sheet, "if (gmHire) hireEnded();") ||
-		!strings.Contains(sheet, "if (gmHire) setTimeout(hireEnded, 300000);") {
+		!strings.Contains(sheet, "if (gmHire) { const mine = ++gmHireSerial; setTimeout(() => { if (mine === gmHireSerial) hireEnded(); }, 300000); }") {
 		t.Error("the hire sheet doesn't say when a GM's hire is under way")
 	}
 }

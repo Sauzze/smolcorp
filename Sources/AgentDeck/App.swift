@@ -48,7 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server.service = PhoneApp.service
         server.start()
         // A test copy leaves its tester a setup link in its own folder (see TestCopy.leaveSetupLink).
-        TestCopy.leaveSetupLink(deck.setupURL())
+        // Only a test copy makes the link: the real app mints no setup key nobody asked for.
+        if TestCopy.isOn { TestCopy.leaveSetupLink(deck.setupURL()) }
         deck.watchers.start()
         // Tailscale's address, looked up from the start, for setup and the phone mic.
         Tailnet.refresh { [deck] in deck.refresh() }

@@ -31,3 +31,14 @@ final class TestCopySetupLinkTests: XCTestCase {
         TestCopy.leaveSetupLink(link)
     }
 }
+
+/// The real app doesn't even make the link: App.swift asks for one only in a test copy.
+final class TestCopySetupLinkLaunchTests: XCTestCase {
+    func testOnlyATestCopyMintsTheLink() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let app = try String(contentsOf: here.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/AgentDeck/App.swift"), encoding: .utf8)
+        XCTAssertTrue(app.contains("if TestCopy.isOn { TestCopy.leaveSetupLink(deck.setupURL()) }"))
+        XCTAssertEqual(app.components(separatedBy: "deck.setupURL()").count - 1, 1)
+    }
+}
