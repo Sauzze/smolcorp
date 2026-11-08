@@ -88,13 +88,16 @@ type hireFolderCase struct {
 
 func TestEveryHireFolderCheckSaysWhatsWrongWithItsFix(t *testing.T) {
 	home, _ := hireFolderHome(t)
-	mkdirs(t, home, "Projects/app", "Library/Work", ".config/x", "AppData/Roaming", "Applications/Smolcorp.app/Contents", "Locked")
+	mkdirs(t, home, "Projects/app", "Library/Work", ".config/x", "Projects/smolcorp/.team/scratch", "AppData/Roaming", "Applications/Smolcorp.app/Contents", "Locked")
 	if err := os.WriteFile(filepath.Join(home, "notes.md"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	sep := string(filepath.Separator)
 	example := "such as ~" + sep + "Projects" // ~\Projects on Windows
 	system := "That folder holds your computer's or your apps' own files. Choose a project folder, " + example + "."
+	// A hidden (dot) folder says so, not "your computer's own files" (fresh eyes 3, problem 4).
+	insideHidden := "A folder inside a hidden folder (one whose name starts with '.') can't be used: choose one outside it."
+	hidden := "A hidden folder (one whose name starts with '.') can't be used. Choose a project folder, " + example + "."
 	wholeDisk := "That's a whole disk. Choose a project folder, " + example + "."
 	wholeHome := "That's your whole home folder. Choose a folder inside it, " + example + ", so hires keep to their projects."
 	root := sep
@@ -110,7 +113,13 @@ func TestEveryHireFolderCheckSaysWhatsWrongWithItsFix(t *testing.T) {
 		{"~", wholeHome, "choose", false},
 		{filepath.Join(home, "Library", "Work"), system, "choose", false},
 		{filepath.Join(home, "LIBRARY", "New"), system, "choose", false},
-		{filepath.Join(home, ".config", "x"), system, "choose", false},
+		{filepath.Join(home, ".config", "x"), insideHidden, "choose", false},
+		{filepath.Join(home, ".config"), hidden, "choose", false},
+		{filepath.Join(home, "Projects", "smolcorp", ".team", "scratch"), insideHidden, "choose", false},
+		{filepath.Join(home, "Projects", "smolcorp", ".team"), hidden, "choose", false},
+		{"~/Projects/.Hidden/New", insideHidden, "choose", false},
+		// A system or app folder is still said as one, hidden folder or not.
+		{filepath.Join(home, "Library", ".cache"), system, "choose", false},
 		{filepath.Join(home, "AppData", "Roaming"), system, "choose", false},
 		{filepath.Join(home, "Applications", "Smolcorp.app", "Contents"), system, "choose", false},
 		{filepath.Join(home, "Missing", "deeper"), "There's no folder at ~" + sep + "Missing" + sep + "deeper yet.", "create", false},

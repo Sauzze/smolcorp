@@ -97,7 +97,8 @@ final class SetupFreshEyesPageTests: XCTestCase {
         XCTAssertTrue(rules.contains("textContent: 'Add' }"))
         XCTAssertTrue(rules.contains("add.onchange = keep;"), "Enter still adds")
         XCTAssertTrue(rules.contains("adding.onclick = keep;"))
-        XCTAssertTrue(rules.contains("chip.title = rule.exact ? `${rule.folder}, this folder alone` : `${rule.folder}, and the folders in it`;"))
+        XCTAssertTrue(rules.contains("const says = rule.exact ? `${rule.folder}, this folder alone` : `${rule.folder}, and the folders in it`;"))
+        XCTAssertTrue(rules.contains("chip.title = says;"))
         XCTAssertTrue(rules.contains("pathLine(document.createElement('span'), shortFolder(rule.folder)"))
         XCTAssertFalse(rules.contains("'/…'"), "no more smolcorp/… chips")
         // Inside the box, and whole on a phone.

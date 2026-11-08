@@ -1995,6 +1995,14 @@ final class Deck {
         }
     }
 
+    /// Closes the folder panel if it's open for the hires folder, as if cancelled: once a folder typed on
+    /// the page is kept instead, the panel left open would ask for a folder already chosen. Its caller
+    /// then gets nothing picked. A panel open for a floor's project (Floors' Choose…) stays.
+    func closeHireFolderPanel() {
+        guard let open = hirePanel, open.message == Deck.hireFolderMessage else { return }
+        open.cancel(nil)
+    }
+
     /// Push to talk through Claude's own /voice, in tap mode: Space starts
     /// listening, Space again stops and sends. Hold mode cannot be used — it
     /// detects a held key by its key-repeat, and a posted key never repeats.

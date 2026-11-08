@@ -1081,6 +1081,8 @@ final class DeckRouter: Router {
             if let tmux { config.hireInTmux = tmux == "1" }
             config.save()
             deck.refresh()
+            // A folder typed while the Mac's folder window is open closes that window, as on Start here.
+            if folder?.isEmpty == false { deck.closeHireFolderPanel() }
             respond(.json(setupState(caller)))
 
         // Dictation: turned on, its language, and whether Claude Code uses it. Turning it on
@@ -1344,10 +1346,12 @@ final class DeckRouter: Router {
             respond(HireFolder.route(request, config: config) {})
 
         // Keeps it, once checked; `create=1` makes it first if it isn't there yet. A problem answers 400 with the same JSON, to show with its fix.
+        // A folder typed on the page while the Mac's folder window is open closes that window: it's chosen now.
         case ("POST", "/setup/hire-folder"):
             respond(HireFolder.route(request, config: config) { [self] in
                 config.save()
                 deck.refresh()
+                deck.closeHireFolderPanel()
             })
 
         case ("POST", "/setup/hooks"):
