@@ -3130,7 +3130,7 @@
         ...($('hs-account-row').hidden || (!$('hs-apikey-row').hidden && $('hs-apikey').checked) ? {} : { account: $('hs-account').value }) }) }).catch(() => null);
     $('hs-hire').disabled = false;
     if (!res || !res.ok) {
-      if (gmHire) gmHiring = false;
+      if (gmHire) hireEnded();
       $('hs-problem').textContent = res ? await res.text() : "Can't reach Smolcorp.";
       $('hs-problem').hidden = false;
       return;
@@ -6133,18 +6133,28 @@
 
   /**
    * A General Manager's hire is under way, from Hire your General Manager or the hire sheet: the guide's
-   * hire step counts as done while it is. Set once the hire is sent, cleared when it's refused or fails.
+   * hire step counts as done while it is, and its last step waits for the GM to sit down. Set once the
+   * hire is sent, cleared by hireEnded when it's refused or fails.
    */
   let gmHiring = false;
+  /** The GM's hire is over without a GM seated (refused, no answer, or it never started): the guide's arrow goes back to Hire. Every such path calls it. */
+  function hireEnded() {
+    gmHiring = false;
+  }
   $('start-gm').onclick = async () => {
     if (!$('start-gm-account').hidden && !$('start-gm-account').value) return startSaid('Choose the Claude account your General Manager works on.', true);
     const before = (await seatedGms()) || [];
     startSaid('Hiring your General Manager: its terminal opens, and it asks you what the goal is.');
     gmHiring = true;
     const res = await fetch(`/setup/hire/gm${$('start-gm-account').hidden ? '' : `?account=${encodeURIComponent($('start-gm-account').value)}`}`, { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
-    if (!res || !res.ok) gmHiring = false;
-    if (!res) return startSaid("Can't reach Smolcorp on this computer.", true);
-    if (!res.ok) return startSaid(await res.text(), true);
+    if (!res) {
+      hireEnded();
+      return startSaid("Can't reach Smolcorp on this computer.", true);
+    }
+    if (!res.ok) {
+      hireEnded();
+      return startSaid(await res.text(), true);
+    }
     const advice = 'Claude Code may first ask to trust the folder and, if an API key is in the environment, whether to use it: answer Yes to both.';
     startSaid(`Your General Manager is starting: its terminal is opening. ${advice}`);
     // Only a session at a desk says it's there. Wait up to a minute for it.
@@ -6424,6 +6434,8 @@
   }
   /** The checks are being looked at for the first time: their step is waited for longer than most. */
   const checksPending = () => !!$('first-gm-checks') && !$('first-gm-checks').dataset.ok && !checksWereGreen;
+  /** A GM's hire is under way and none has sat down yet: its card can't be there yet. */
+  const gmStarting = () => gmHiring && !gmSessions().some((s) => s.key != null);
   /** The hire sheet is open on the General Manager. */
   const gmSheetOpen = () => $('hire-sheet').open && !!hiring && hiring.id === 'gm';
   /** The GM at its desk: T782's card for it, or, where there's none, Open the office once a GM is seated. */
@@ -6445,13 +6457,19 @@
         say: 'Make these checks green: each one says what to do', doneSay: 'These checks are green: your General Manager has what it needs.',
         done: () => firstChecksGreen() || gmSessions().length > 0 },
       // Done while the hire is really under way, not on the click: a refused or failed hire brings the arrow back.
-      { id: 'hire', n: 3, target: '#start-gm', ...inStartHere,
+      // Shown done in a tour, it points where the GM is now, not at a button that would hire a second.
+      { id: 'hire', n: 3, target: '#start-gm', doneTarget: () => firstGmDesk() || $('start-office'), ...inStartHere,
         say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Your General Manager is hired.',
         done: () => gmSessions().length > 0 || gmHiring || gmSheetOpen() },
       // Only if the hire asks anything first, in its sheet.
       { id: 'sheet', n: 3, target: '#hs-hire', optional: true,
         say: 'Filled in for you', press: 'Hire', done: () => gmSessions().length > 0 || gmHiring },
+      // While the GM is starting, its card can't come: waited for as long as Start here waits for it (five
+      // minutes: the trust prompt may wait), saying meanwhile what its terminal asks. Docked as lost only
+      // after that, in a tour, or when a GM is seated but its card never shows.
       { id: 'desk', n: 4, target: firstGmDesk, area: '#first-gm-next', ...inStartHere, ackOnClick: true, button: 'Done',
+        patience: () => (gmStarting() ? 300000 : 0),
+        wait: () => (gmStarting() ? 'Your General Manager is starting: if its terminal asks to trust the folder, answer Yes.' : ''),
         say: 'Your General Manager is at its desk. Say hello', press: 'Open the office',
         lost: 'Open the office to see your General Manager.' },
     ],
@@ -6485,7 +6503,9 @@
     guide.stop();
     guideEnded = false;
     guideTour = true;
-    await post('/setup/guide?done=0').catch(() => {});
+    // Not kept: no tour waiting, or the next plain start would be one.
+    const res = await post('/setup/guide?done=0').catch(() => null);
+    if (!res || !res.ok) guideTour = false;
   }
   $('guide-again').onclick = guideAgain;
   $('guide-again').hidden = !window.SmolcorpGuide;

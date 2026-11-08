@@ -2,8 +2,8 @@
  * The first-run guide's engine (Resources/web/guide.js) run in node, on a tiny stand-in for the page:
  * just enough of the DOM for the guide (elements with a box, a few selectors, clicks and keys, timers that
  * only run when told). It checks what a click counts for, Esc and Skip, a dialog over the page, the
- * keyboard moved only when the step changes, a tour of steps already done, the last step docked when its
- * control never comes, and stop() leaving no timer or listener behind. Then setup.html's welcome, which
+ * keyboard moved only when the step changes, a tour of steps already done, the last step waiting while the
+ * GM starts and docked when its control never comes, and stop() leaving no timer or listener behind. Then setup.html's welcome, which
  * waits for the guide on a first run.
  *
  * Run by desktop/guide_test.go: node engine.test.js <guide.js> <setup.html>. It throws on the first failure.
@@ -147,6 +147,9 @@ const goOf = (p) => layerOf(p).all().find((el) => el.className === 'smol-guide-g
 const skipOf = (p) => layerOf(p).all().find((el) => el.className === 'smol-guide-skip');
 const showing = (p) => { const l = layerOf(p); return !!l && !l.hidden; };
 
+const STARTING = 'Your General Manager is starting: if its terminal asks to trust the folder, answer Yes.';
+const docked = (p) => showing(p) && layerOf(p).classList.contains('docked');
+
 /** Start here, as the contract has it: the folder, the checks, the hire, the GM at its desk. */
 function startHere() {
   const p = page();
@@ -164,7 +167,9 @@ function startHere() {
     { id: 'checks', n: 2, target: '#checks', say: 'Make these checks green', doneSay: 'Green', done: () => s.green },
     { id: 'hire', n: 3, target: '#hire', say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Hired', done: () => s.gm || s.hiring || s.sheetOpen },
     { id: 'sheet', n: 3, target: '#sheet-hire', optional: true, say: 'Filled in', press: 'Hire', done: () => s.gm || s.hiring },
-    { id: 'desk', n: 4, target: '#desk', ackOnClick: true, button: 'Done', say: 'At its desk', press: 'Open the office', lost: 'Open the office to see your General Manager.' },
+    // As setup.html's: while the GM is starting (hired, none seated), waited for five minutes, saying why.
+    { id: 'desk', n: 4, target: '#desk', ackOnClick: true, button: 'Done', say: 'At its desk', press: 'Open the office', lost: 'Open the office to see your General Manager.',
+      patience: () => (s.hiring && !s.gm ? 300000 : 0), wait: () => (s.hiring && !s.gm ? STARTING : '') },
   ];
   const guide = g.create({ document: p.doc, total: 4, steps, onFinish: (reason) => said.push(reason) });
   return { p, s, guide, said, el: (id) => p.doc.getElementById(id) };
@@ -173,7 +178,8 @@ function startHere() {
 /* ------------------------------------------------------------------ the tests */
 
 // What a click counts for: on the hire step, nothing (the page says when a hire is under way); on the
-// last step, whose click is all it asks, it's done. A refused hire brings the arrow back.
+// last step, whose click is all it asks, it's done. A refused hire brings the arrow back. While the GM is
+// starting, the last step waits, docked, saying what its terminal asks, and never offers Done.
 {
   const { p, s, guide, said, el } = startHere();
   s.folder = s.green = true;
@@ -184,16 +190,22 @@ function startHere() {
   assert(textOf(p).startsWith('Now your first hire'), 'a click on Hire alone is not a hire: ' + textOf(p));
   s.hiring = true;
   p.wait(450);
-  // The desk isn't there yet: waited for, then docked with words of its own.
-  assert(!showing(p), 'the desk card not there yet: waited for');
+  assert(docked(p) && textOf(p) === STARTING && countOf(p) === 'Step 4 of 4', 'the GM starting: docked, saying what its terminal asks: ' + textOf(p));
+  assert(goOf(p).hidden && !skipOf(p).hidden, 'nothing to press but Skip while it starts');
+  assert(p.doc.body.children.some((c) => c.className === 'smol-guide-room'), 'room at the foot of the page while docked');
   s.hiring = false;
   p.wait(450);
-  assert(showing(p) && textOf(p).startsWith('Now your first hire'), 'the hire refused: the arrow is back on Hire');
+  assert(showing(p) && !docked(p) && textOf(p).startsWith('Now your first hire'), 'the hire refused: the arrow is back on Hire');
+  // Hired again: the wait starts again from this hire, however long the page has been open.
+  p.wait(300000);
   s.hiring = true;
   p.wait(g.GRACE + 500);
-  assert(showing(p) && layerOf(p).classList.contains('docked') && textOf(p) === 'Open the office to see your General Manager.', 'the desk never came: docked, saying where to look');
+  assert(docked(p) && textOf(p) === STARTING, 'well past GRACE, still starting: still waiting, not lost: ' + textOf(p));
+  p.wait(240000);
+  assert(docked(p) && textOf(p) === STARTING, 'four minutes on: still waiting');
+  p.wait(60000);
+  assert(docked(p) && textOf(p) === 'Open the office to see your General Manager.', 'five minutes and no GM: docked, saying where to look: ' + textOf(p));
   assert(goOf(p).textContent === 'Done' && !goOf(p).hidden, 'with Done');
-  assert(p.doc.body.children.some((c) => c.className === 'smol-guide-room'), 'room at the foot of the page while docked');
   s.gm = true;
   el('desk').hidden = false;
   p.wait(450);
@@ -202,6 +214,21 @@ function startHere() {
   p.fire('click', el('office'));
   p.wait(100);
   assert(said.join() === 'done' && !guide.running, 'a click in the last step finishes it: ' + said.join());
+}
+
+// A GM seated whose card never shows: docked as lost after GRACE, as before.
+{
+  const { p, s, guide, said } = startHere();
+  s.folder = s.green = s.hiring = true;
+  guide.start();
+  assert(docked(p) && textOf(p) === STARTING, 'starting: waiting');
+  s.gm = true;
+  p.wait(450);
+  assert(!showing(p) || textOf(p) !== STARTING, 'seated: no longer says it is starting');
+  p.wait(g.GRACE + 500);
+  assert(docked(p) && textOf(p) === 'Open the office to see your General Manager.', 'seated, no card: docked after GRACE: ' + textOf(p));
+  goOf(p).onclick();
+  assert(said.join() === 'done', 'Done ends it');
 }
 
 // Esc puts the guide away, not over; Esc in a field is the field's; Skip is over.

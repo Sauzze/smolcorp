@@ -121,6 +121,8 @@ func TestSetupHasTheGuidesStepsOnTheContractsIds(t *testing.T) {
 		`<script src="/guide.js"></script>`,
 		`target: '#first-folder-use', area: '#first-folder'`, `target: '#first-gm-checks'`, `target: '#start-gm'`, `target: '#hs-hire', optional: true`,
 		`lost: 'Open the office to see your General Manager.'`, `checks.dataset.ok`,
+		`patience: () => (gmStarting() ? 300000 : 0)`, `'Your General Manager is starting: if its terminal asks to trust the folder, answer Yes.'`,
+		`doneTarget: () => firstGmDesk() || $('start-office')`, `if (!res || !res.ok) guideTour = false;`,
 		`$('first-gm-next')`, `$('start-office')`,
 		`id="guide-again"`, `'/setup/guide?done=1'`, `'/setup/guide?done=0'`, `['pair', 'unpair', 'viewer', 'guide']`, `location.hash !== '#guide'`,
 	} {
@@ -145,7 +147,7 @@ func TestSetupHasTheGuidesStepsOnTheContractsIds(t *testing.T) {
 }
 
 // gmHiring, the hire under way the guide's hire step goes by: set once Hire your General Manager has
-// sent the hire, and cleared when the app is out of reach or says no, so the arrow comes back.
+// sent the hire, and cleared by hireEnded on every way out but a GM seated, so the arrow comes back.
 func TestTheGuidesHireStepFollowsTheHireNotTheClick(t *testing.T) {
 	data, err := os.ReadFile("../Resources/web/setup.html")
 	if err != nil {
@@ -158,16 +160,38 @@ func TestTheGuidesHireStepFollowsTheHireNotTheClick(t *testing.T) {
 	}
 	hire := setup[start : start+strings.Index(setup[start:], "\n  };\n")]
 	set, sent := strings.Index(hire, "gmHiring = true;"), strings.Index(hire, "await fetch(`/setup/hire/gm")
-	cleared := strings.Index(hire, "if (!res || !res.ok) gmHiring = false;")
-	if set < 0 || sent < set || cleared < sent || strings.Index(hire, "if (!res) return") < cleared {
-		t.Errorf("gmHiring isn't set before the hire is sent and cleared before each refusal:\n%s", hire)
+	if set < 0 || sent < set {
+		t.Errorf("gmHiring isn't set before the hire is sent:\n%s", hire)
+	}
+	// Every way out after the hire is sent, but the GM seated, ends the hire first: no answer, a refusal,
+	// and (with T782's handler) a GM that never started.
+	if !strings.Contains(setup, "function hireEnded() {\n    gmHiring = false;") {
+		t.Error("setup.html has no hireEnded that clears gmHiring")
+	}
+	outs := 0
+	for from, rest := sent, hire[sent:]; ; {
+		at := strings.Index(rest, "return ")
+		if at < 0 {
+			break
+		}
+		if !strings.HasPrefix(rest[at:], "return startSaid(`Hired:") {
+			outs++
+			if !strings.Contains(rest[:at], "hireEnded();") {
+				t.Errorf("a way out of the hire doesn't call hireEnded first: %s", strings.SplitN(rest[at:], "\n", 2)[0])
+			}
+		}
+		from += at + len("return ")
+		rest = hire[from:]
+	}
+	if outs < 2 {
+		t.Errorf("expected the no-answer and refused ways out after the hire is sent, found %d", outs)
 	}
 	if strings.Index(hire, "Choose the Claude account") > set {
 		t.Error("gmHiring is set before the account is checked")
 	}
 	sheet := setup[strings.Index(setup, "$('hs-hire').onclick = async () => {"):]
 	sheet = sheet[:strings.Index(sheet, "closeHireSheet();")]
-	if !strings.Contains(sheet, "if (gmHire) gmHiring = true;") || !strings.Contains(sheet, "if (gmHire) gmHiring = false;") {
+	if !strings.Contains(sheet, "if (gmHire) gmHiring = true;") || !strings.Contains(sheet, "if (gmHire) hireEnded();") {
 		t.Error("the hire sheet doesn't say when a GM's hire is under way")
 	}
 }
@@ -231,6 +255,11 @@ assert(g.pick([step({ done: true }), step({ optional: true }), step({ missingFor
 // An optional step is never waited for; a step's own patience is.
 assert(g.pick([step({ optional: true }), step({ shown: true })]).index === 1, 'an optional step not there is passed at once');
 assert(g.pick([step({ missingFor: g.GRACE, patience: 15000 }), step({ shown: true })]).index === -1, 'a step given more patience is waited for longer');
+// A step that says why it waits is shown, docked, while it does; past its patience, as any other.
+r = g.pick([step({ done: true }), step({ done: true }), step({ missingFor: g.GRACE, patience: 300000, waiting: true })]);
+assert(r.index === 2 && r.waiting && !r.lost && !r.finished, 'the last step waited for, saying why');
+r = g.pick([step({ done: true }), step({ done: true }), step({ missingFor: 300000, patience: 300000, waiting: true })]);
+assert(r.index === 2 && r.lost && !r.waiting, 'past its patience: lost');
 
 const arrow = { width: 33, height: 33 };
 const inside = (p, bubble, view) => p.bubble.x >= 0 && p.bubble.y >= 0 && p.bubble.x + bubble.width <= view.width && p.bubble.y + bubble.height <= view.height

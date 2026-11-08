@@ -50,13 +50,15 @@
    * control is on screen), away (it's in another part of the page), missingFor
    * (ms its control has been nowhere), patience (how long that may last before
    * it's looked past, GRACE if not said), optional (shown only when its control
-   * is there, never waited for) }. The first step not done is shown; one whose
+   * is there, never waited for), waiting (it has words for while its control is
+   * waited for) }. The first step not done is shown; one whose
    * control has been missing longer than its patience is looked past, for the
    * next one that's there, so a missing control never holds the guide up.
    * `index` -1 is nothing to show for now; `finished`, every step done, or the
    * last, which says you're there. `lost`: every step before the last is done
    * but the last one's control never came, so it's shown docked, with words of
-   * its own, rather than the guide running on unseen.
+   * its own, rather than the guide running on unseen. `waiting`: the step's
+   * control is still waited for, and it says why meanwhile, docked.
    */
   function pick(steps) {
     if (!steps.length || steps[steps.length - 1].done || steps.every((step) => step.done)) return { index: -1, finished: true };
@@ -66,7 +68,7 @@
       if (step.done) continue;
       if (step.shown || step.away) return { index: i, finished: false };
       if (step.optional) continue;
-      if (!(step.missingFor >= (step.patience || GRACE))) return { index: -1, finished: false };
+      if (!(step.missingFor >= (step.patience || GRACE))) return step.waiting ? { index: i, finished: false, waiting: true } : { index: -1, finished: false };
       if (i === last && steps.slice(0, last).every((before) => before.done || before.optional)) return { index: i, finished: false, lost: true };
     }
     return { index: -1, finished: false };
@@ -165,6 +167,8 @@
    * what it asks is done), away (whether it's in a part of the page not shown
    * now), reveal (shows that part), optional and patience (see `pick`), lost
    * (what it says, docked, when it's the last and its control never came),
+   * wait (a function: what it says, docked, while its control is waited for,
+   * or nothing; its patience counts from when it starts saying it),
    * doneTarget and doneSay (where it points and what it says when it's shown
    * done, in a tour), n (its number) }.
    * `options.total` is how many steps the count says; `options.modals`, a
@@ -214,9 +218,11 @@
     /** The steps counted as done by a click or their button (in a tour, every step passed), and since when each control has been missing. */
     const acked = new Set();
     const missingSince = new Map();
+    /** The steps saying why they wait: each one's patience counts from when it started to. */
+    const waiting = new Set();
     /**
-     * What's shown: the step, how ("here", "away" in another part of the page, or "lost", docked as the
-     * last), whether it was done when it came, its control, and the control that was given the guide's
+     * What's shown: the step, how ("here", "away" in another part of the page, "waiting" for its control,
+     * docked with its own words, or "lost", docked as the last), whether it was done when it came, its control, and the control that was given the guide's
      * words. Kept while the guide is hidden under a dialog, so it doesn't count as new when it's back.
      */
     let shown = -1, shownHow = '', shownDone = false, shownTarget = null, described = null;
@@ -253,24 +259,27 @@
         const target = done ? null : find(already && step.doneTarget ? step.doneTarget : step.target);
         const isShown = visible(target);
         const away = !done && !isShown && !!call(step.away, false);
+        const waits = !done && !!call(step.wait, '');
         if (done || isShown || away) missingSince.delete(i);
-        else if (!missingSince.has(i)) missingSince.set(i, now);
+        else if (!missingSince.has(i) || (waits && !waiting.has(i))) missingSince.set(i, now);
+        if (waits) waiting.add(i); else waiting.delete(i);
         const missingFor = missingSince.has(i) ? now - missingSince.get(i) : 0;
         if (tour && i < last && !done && !isShown && !away && !step.optional && missingFor >= patience(step)) {
           acked.add(step.id);
           done = true;
         }
-        return { done, already, shown: isShown && !done, away, missingFor, patience: patience(step), optional: !!step.optional, target: done ? null : target };
+        return { done, already, shown: isShown && !done, away, missingFor, patience: patience(step), optional: !!step.optional, waiting: waits, target: done ? null : target };
       });
     }
 
     function tick() {
       if (!running) return;
       const states = look();
-      const { index, finished, lost } = pick(states);
+      const { index, finished, lost, waiting: waits } = pick(states);
       if (finished) return finish('done');
-      if (index < 0 || (!lost && !states[index].away && covered(states[index].target)) || ((lost || states[index].away) && covered(null))) return hide();
-      show(index, states[index], lost ? 'lost' : states[index].away ? 'away' : 'here');
+      const how = index < 0 ? '' : lost ? 'lost' : waits ? 'waiting' : states[index].away ? 'away' : 'here';
+      if (index < 0 || (how === 'here' && covered(states[index].target)) || (how !== 'here' && covered(null))) return hide();
+      show(index, states[index], how);
     }
 
     function hide() {
@@ -311,6 +320,8 @@
         text.textContent = options.awayText || 'Your next step is in another part of this page.';
       } else if (how === 'lost') {
         text.textContent = step.lost || step.say;
+      } else if (how === 'waiting') {
+        text.textContent = call(step.wait, '') || step.say;
       } else if (done) {
         text.textContent = step.doneSay || step.say;
       } else {
@@ -319,6 +330,7 @@
       }
       const label = how === 'away' ? (step.reveal ? 'Show me' : '')
         : how === 'lost' ? step.button || 'Done'
+        : how === 'waiting' ? ''
         : done ? (i === steps.length - 1 ? step.button || 'Done' : 'Next')
         : step.button || '';
       go.textContent = label;
@@ -452,6 +464,7 @@
       if (running) return;
       acked.clear();
       missingSince.clear();
+      waiting.clear();
       tour = !!how.tour;
       shown = -1;
       shownHow = '';

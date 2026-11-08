@@ -62,7 +62,7 @@
       if (refusals-- > 0) { hiring = false; $('said').textContent = 'Refused: try again'; return; }
       hired = true;
       if (!asked.get('nodesk')) $('first-gm-next').hidden = false;
-    }, 1500);
+    }, 4000);
   };
   const guide = SmolcorpGuide.create({
     total: 4,
@@ -71,9 +71,11 @@
         doneSay: 'Your hires work in this folder. You can change it here.', done: () => !!folder || hired },
       { id: 'checks', n: 2, target: '#first-gm-checks', say: 'Make these checks green: each one says what to do', doneSay: 'These checks are green.',
         done: () => ($('first-gm-checks') ? $('first-gm-checks').dataset.ok === 'true' : true) || hired },
-      { id: 'hire', n: 3, target: '#start-gm', say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Your General Manager is hired.',
+      { id: 'hire', n: 3, target: '#start-gm', doneTarget: '#start-office', say: 'Now your first hire', press: 'Hire your General Manager', doneSay: 'Your General Manager is hired.',
         done: () => hired || hiring },
       { id: 'desk', n: 4, target: '#first-gm-next', ackOnClick: true, button: 'Done', say: 'Your General Manager is at its desk. Say hello', press: 'Open the office',
+        patience: () => (hiring && !hired ? 300000 : 0),
+        wait: () => (hiring && !hired ? 'Your General Manager is starting: if its terminal asks to trust the folder, answer Yes.' : ''),
         lost: 'Open the office to see your General Manager.' },
     ],
     onFinish: (reason) => { $('said').textContent = `Guide over: ${reason}`; },
