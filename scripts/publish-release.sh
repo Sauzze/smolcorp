@@ -21,7 +21,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Set both for the release being published; the checks below stop on a mismatch.
-VERSION="1.24.2"
+VERSION="1.24.3"
 BRANCH="release-next"
 TAG="v$VERSION"
 RELEASE_BRANCH="release/$VERSION"
