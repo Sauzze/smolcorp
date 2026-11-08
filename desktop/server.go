@@ -1361,7 +1361,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		writeJSON(w, http.StatusOK, d.gmPreflight())
 
 	// Start here's Hire your General Manager: the GM role, in the folder for
-	// new hires or your home folder, its questions asked in its terminal.
+	// your hires, its questions asked in its terminal.
 	case r.Method == http.MethodPost && path == "/setup/hire/gm":
 		// One GM per office: the GM's token never hires the gm role. Checked before anything is saved
 		// (DeckRouter.swift: the same refusal before the hire).
@@ -1369,6 +1369,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			writeStatus(w)(status, text)
 			return
 		}
+		// One at a time, as the Mac claims it: a second click while one runs would read the switches
+		// the first turned on as its own "before", and could leave them on when both fail.
+		if !d.gmHiring.TryLock() {
+			writeStatus(w)(http.StatusConflict, gmBeingHired)
+			return
+		}
+		defer d.gmHiring.Unlock()
 		// The manager is switched on before the hire (the GM is a managed hire) and back if the hire
 		// fails, as the Mac does (DeckRouter.swift). d.mu is not held across the hire. Hire and fire
 		// from the office goes on with it too, as the GM hires its team, and back off the same way.

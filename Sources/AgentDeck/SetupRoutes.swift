@@ -67,6 +67,7 @@ enum SetupRoutes {
         // 1.23's routes a hire could misuse with the setup-key file.
         action("/setup/hire", "a hire hiring more hires"),
         action("/setup/hire/gm", "starting a GM"),
+        page("GET", "/setup/hire/gm/preflight", "what a first GM hire needs: it starts your login shell and Claude Code to tell"),
         action("/setup/hiring", "how and where hires start"),
         action("/setup/hiring/choose", "the folder for new hires"),
         action("/setup/roles", "the roles, and so the briefs future hires get"),

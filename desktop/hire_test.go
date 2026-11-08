@@ -544,10 +544,15 @@ func TestTheSetupPageSaysHiredOnlyOnceTheHireIsAtADesk(t *testing.T) {
 	if start < 0 {
 		t.Fatal("no Hire your General Manager button handler in the setup page")
 	}
-	handler := page[start:]
-	end := strings.Index(handler, "\n  };\n")
+	// The button marks itself busy and runs hireGm, which does the hire.
+	body := strings.Index(page, "async function hireGm() {")
+	if body < 0 || !strings.Contains(page[start:body], "await hireGm()") {
+		t.Fatal("the Hire your General Manager button doesn't run hireGm: the test needs to learn its new shape")
+	}
+	handler := page[body:]
+	end := strings.Index(handler, "\n  }\n")
 	if end < 0 {
-		t.Fatal("the Hire your General Manager handler has no closing \"  };\" line: the test needs to learn its new shape")
+		t.Fatal("hireGm has no closing \"  }\" line: the test needs to learn its new shape")
 	}
 	handler = handler[:end]
 	accepted := strings.Index(handler, "if (!res.ok)")

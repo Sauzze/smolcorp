@@ -70,12 +70,12 @@ final class DeckRouter: Router {
         return (nil, caller)
     }
 
-    /// A tool with the setup-key file may only run `--setup`'s own repair (auto=1),
-    /// which leaves agents you disconnected alone: installing the app, the login
-    /// and accessibility fixes, and a repair that reconnects are for the setup page (or the GM).
     /// Start here's GM hire with no folder for your hires: the page points at its folder step (#first-folder).
     static let chooseHireFolderFirst = "Choose the folder for your hires first: it's the first step of Start here."
 
+    /// A tool with the setup-key file may only run `--setup`'s own repair (auto=1),
+    /// which leaves agents you disconnected alone: installing the app, the login
+    /// and accessibility fixes, and a repair that reconnects are for the setup page (or the GM).
     static func fixRefusal(caller: SetupSessions.Caller, fix: String?, auto: String? = nil) -> Response? {
         caller == .tool && !(fix == SelfTest.repair && auto == "1") ? .status(403, "This is for the setup page the menu opens.") : nil
     }
@@ -1396,9 +1396,15 @@ final class DeckRouter: Router {
             }
 
         // What a first General Manager hire needs (GMPreflight), Start here's lines above its Hire button.
-        // Outside /setup/gm/, which is closed while the manager is off, as it is on a first run.
+        // Outside /setup/gm/, which is closed while the manager is off, as it is on a first run. The page's
+        // alone (SetupRoutes): it starts your login shell and Claude Code. An account that isn't there is
+        // said, as the hire would say it, rather than checked as the default.
         case ("GET", "/setup/hire/gm/preflight"):
-            GMPreflight.check(config: config, account: request.query["account"] ?? "") { respond(.json($0)) }
+            let account = request.query["account"] ?? ""
+            if !account.trimmingCharacters(in: .whitespaces).isEmpty, let why = ClaudeProfiles.hireRefusal(account: account, among: ClaudeProfiles.current) {
+                return respond(.status(400, why.message))
+            }
+            GMPreflight.check(config: config, account: account) { respond(.json($0)) }
 
         // Whether the GM's token is also kept in a file, for a GM started by hand: the page alone, off by default.
         case ("POST", "/setup/gm/by-hand"):

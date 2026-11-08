@@ -41,6 +41,7 @@ var routeTable = []routeRow{
 	{"*", "/setup/gm/*", []string{"gm", "page"}},
 	{"POST", "/setup/hire", []string{"gm", "page"}},
 	{"POST", "/setup/hire/gm", []string{"gm", "page"}},
+	{"GET", "/setup/hire/gm/preflight", []string{"page"}},
 	{"POST", "/setup/hiring", []string{"gm", "page"}},
 	{"POST", "/setup/hiring/choose", []string{"gm", "page"}},
 	{"POST", "/setup/roles", []string{"gm", "page"}},

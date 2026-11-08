@@ -2,7 +2,6 @@ package desktop
 
 import (
 	"encoding/json"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -46,6 +45,9 @@ type preflightReport struct {
 // at its folder step (#first-folder). The Mac says the same (DeckRouter.swift).
 const chooseHireFolderFirst = "Choose the folder for your hires first: it's the first step of Start here."
 
+// gmBeingHired answers a GM hire while another one runs, as the Mac does (Deck.gmRefusal).
+const gmBeingHired = "A General Manager is being hired right now. Give it a moment."
+
 // Whether Claude Code is signed in, as it says itself.
 type signIn int
 
@@ -74,23 +76,38 @@ var claudeFoundAt = func() string {
 	return ""
 }
 
-// claudeSignIn asks program whether it's signed in: a variable, for the tests.
+// claudeSignIn asks program whether it's signed in, as a hire starts it: through your login shell, with
+// the hire's environment, so a key or a cloud provider your shell's files set counts. A variable, for the tests.
 var claudeSignIn = func(program string) signIn {
-	return signInFrom(quickRun(program, []string{"auth", "status", "--json"}, hireEnvironment()).output)
+	command := signInCommand(program)
+	return signInFrom(quickRun(command[0], command[1:], hireEnvironment()).output)
 }
 
-// signInFrom reads `claude auth status --json`.
+// signInCommand is `claude auth status --json` the way a hire's command is run (startHire, inLoginShell).
+func signInCommand(program string) []string {
+	return inLoginShell([]string{program, "auth", "status", "--json"})
+}
+
+// signInFrom reads `claude auth status --json`, after whatever your shell's files print as it starts.
 func signInFrom(status []byte) signIn {
-	var said struct {
-		LoggedIn *bool `json:"loggedIn"`
+	text := string(status)
+	for start := 0; start < len(text); {
+		var said struct {
+			LoggedIn *bool `json:"loggedIn"`
+		}
+		if text[start] == '{' && json.Unmarshal([]byte(text[start:]), &said) == nil && said.LoggedIn != nil {
+			if *said.LoggedIn {
+				return signedIn
+			}
+			return signedOut
+		}
+		next := strings.Index(text[start:], "\n{")
+		if next < 0 {
+			break
+		}
+		start += next + 1
 	}
-	if json.Unmarshal(status, &said) != nil || said.LoggedIn == nil {
-		return signInUnknown
-	}
-	if *said.LoggedIn {
-		return signedIn
-	}
-	return signedOut
+	return signInUnknown
 }
 
 // hasProgram is whether name is on this app's PATH: a variable, for the tests.
@@ -111,13 +128,30 @@ func tmuxInstall() string {
 }
 
 // pathLine is the command that adds folder to the PATH of shell, a login shell, in the file it reads.
+// A folder with a quote, a $ or a space in its name still gives a line that works (the Mac's is the same).
 func pathLine(shell, folder string) string {
 	shell = filepath.Base(shell)
 	if shell == "fish" {
-		return "fish_add_path " + trimmed(folder)
+		if strings.Trim(folder, plainPathCharacters) == "" {
+			return "fish_add_path " + trimmed(folder)
+		}
+		return `fish_add_path '` + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(folder) + `'`
 	}
-	return `echo 'export PATH="` + strings.Replace(folder, homeDir, "$HOME", 1) + `:$PATH"' >> ` + loginFile(shell)
+	rest, underHome := strings.CutPrefix(folder, homeDir+"/")
+	if !underHome {
+		rest = folder
+	}
+	// In the profile, the folder sits inside "…"; on the command line, that line sits inside '…'.
+	rest = strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`, "`", "\\`").Replace(rest)
+	if underHome {
+		rest = "$HOME/" + rest
+	}
+	line := `export PATH="` + rest + `:$PATH"`
+	return `echo '` + strings.ReplaceAll(line, "'", `'\''`) + `' >> ` + loginFile(shell)
 }
+
+// plainPathCharacters are those a folder can have without quoting it in a shell.
+const plainPathCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+~@%:,"
 
 // gmPreflight is the report, without the lock held.
 func (d *Deck) gmPreflight() preflightReport {
@@ -152,7 +186,7 @@ func (d *Deck) gmPreflight() preflightReport {
 		where := filepath.Dir(at)
 		add(preflightItem{ID: "claude", Title: "Claude Code is in " + trimmed(where) + ", where your terminal doesn't look for it.",
 			Fix:    "Paste this in a terminal, open a new terminal window, then press Check again.",
-			Action: &preflightAction{Kind: "copy", Label: "Copy", Command: pathLine(os.Getenv("SHELL"), where)}})
+			Action: &preflightAction{Kind: "copy", Label: "Copy", Command: pathLine(loginShell(), where)}})
 	default:
 		add(preflightItem{ID: "claude", OK: true, Title: "Claude Code is installed."})
 		state := signInUnknown
@@ -163,8 +197,9 @@ func (d *Deck) gmPreflight() preflightReport {
 		case signedIn:
 			add(preflightItem{ID: "signin", OK: true, Title: "Claude Code is signed in."})
 		case signedOut:
-			add(preflightItem{ID: "signin", Title: "Claude Code isn't signed in.",
-				Fix:    "Paste this in " + shellName + " and sign in in the browser it opens (if it doesn't ask, type /login). Then press Check again.",
+			// Said, never in the way: an API key or a cloud provider can work where this can't see it.
+			add(preflightItem{ID: "signin", Optional: true, Title: "Claude Code isn't signed in.",
+				Fix:    "Hire anyway: its window asks you to sign in. Or sign in first: paste this in " + shellName + " (type /login if it doesn't ask), then press Check again.",
 				Action: &preflightAction{Kind: "copy", Label: "Copy", Command: "claude"}})
 		default:
 			add(preflightItem{ID: "signin", Optional: true, Title: "Smolcorp couldn't tell if Claude Code is signed in.",

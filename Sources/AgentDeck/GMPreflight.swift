@@ -7,8 +7,10 @@ import CoreServices
 /// sentence and exactly what to do: a command to copy, a fix to press, or
 /// where to go on the page. Only looks: the fixes are the page's buttons.
 ///
-/// Signed in is what Claude Code's own `claude auth status` says, as Summary
-/// asks it: no credential, key or token is ever read.
+/// Signed in is what Claude Code's own `claude auth status` says, asked as the
+/// hire starts it (your login shell, the account's config folder): no
+/// credential, key or token is ever read. Signed out is said, never in the
+/// way: the GM's window asks you to sign in.
 enum GMPreflight {
     struct Action: Equatable {
         /// "copy" (a command to paste in Terminal), "fix" (a POST /setup/fix by name) or "folder" (the folder step above).
@@ -48,7 +50,8 @@ enum GMPreflight {
         /// The folder for new hires as set ("" when it isn't), and whether it's a folder.
         var folder = ""
         var folderExists = false
-        /// Where the app finds Claude Code, nil nowhere; whether your login shell, where hires start, finds it (nil: it didn't say).
+        /// Where the app finds Claude Code, links left as they are, nil nowhere; whether your login shell,
+        /// where hires start, finds it (nil: it didn't say).
         var claudeAt: String?
         var claudeOnLoginPath: Bool?
         var shell = "/bin/zsh"
@@ -100,9 +103,10 @@ enum GMPreflight {
         switch f.signIn {
         case .yes: items.append(Item(id: "signin", ok: true, title: "Claude Code is signed in."))
         case .no:
+            // Said, never in the way: an API key or a cloud provider can work where this can't see it.
             items.append(Item(id: "signin", ok: false, title: "Claude Code isn't signed in.",
-                              fix: "Paste this in Terminal and sign in in the browser it opens (if it doesn't ask, type /login). Then press Check again.",
-                              action: Action(kind: "copy", label: "Copy", command: "claude")))
+                              fix: "Hire anyway: its window asks you to sign in. Or sign in first: paste this in Terminal (type /login if it doesn't ask), then press Check again.",
+                              action: Action(kind: "copy", label: "Copy", command: "claude"), optional: true))
         case .unknown:
             items.append(Item(id: "signin", ok: false, title: "Smolcorp couldn't tell if Claude Code is signed in.",
                               fix: "You can hire anyway: if your General Manager asks you to sign in, type /login in its window.", optional: true))
@@ -142,9 +146,13 @@ enum GMPreflight {
     }
 
     /// The command that adds `folder` to your login shell's PATH, in the file that shell reads.
+    /// A folder with a quote, a $ or a space in its name still gives a line that works (Linux/Windows: the same).
     static func pathLine(shell: String, folder: String, home: String) -> String {
         let name = (shell as NSString).lastPathComponent
-        if name == "fish" { return "fish_add_path \(tilde(folder, home: home))" }
+        if name == "fish" {
+            if folder.allSatisfy({ plain.contains($0) }) { return "fish_add_path \(tilde(folder, home: home))" }
+            return "fish_add_path '" + folder.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'") + "'"
+        }
         let file: String
         switch name {
         case "zsh": file = "~/.zprofile"
@@ -153,9 +161,16 @@ enum GMPreflight {
                 .map { "~/" + $0 } ?? "~/.profile"
         default: file = "~/.profile"
         }
-        let path = folder.hasPrefix(home + "/") ? "$HOME" + folder.dropFirst(home.count) : folder
-        return "echo 'export PATH=\"\(path):$PATH\"' >> \(file)"
+        let underHome = folder.hasPrefix(home + "/")
+        // In the profile, the folder sits inside "…"; on the command line, that line sits inside '…'.
+        var rest = underHome ? String(folder.dropFirst(home.count + 1)) : folder
+        for (from, to) in [("\\", "\\\\"), ("\"", "\\\""), ("$", "\\$"), ("`", "\\`")] { rest = rest.replacingOccurrences(of: from, with: to) }
+        let line = "export PATH=\"\(underHome ? "$HOME/" : "")\(rest):$PATH\""
+        return "echo '" + line.replacingOccurrences(of: "'", with: "'\\''") + "' >> \(file)"
     }
+
+    /// What a folder can have without quoting it in a shell.
+    private static let plain = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+~@%:,")
 
     static func tilde(_ path: String, home: String) -> String {
         path == home ? "~" : path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
@@ -178,31 +193,64 @@ enum GMPreflight {
         f.tmuxWanted = config.hireInTmux
         f.tmux = Tmux.path != nil
         f.shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
+        let bundle = choice?.bundle
         DispatchQueue.global(qos: .userInitiated).async {
-            let login = OpenCodeInstall.loginShellPath()
-            let found = OpenCodeInstall.program(named: "claude")
-            f.claudeAt = found?.path
-            f.claudeOnLoginPath = login.isEmpty ? nil : login.contains { FileManager.default.isExecutableFile(atPath: ($0 as NSString).appendingPathComponent("claude")) }
-            if let found, f.claudeOnLoginPath != false { f.signIn = signIn(found, profile: profile) }
-            f.automation = choice.map { automation(bundle: $0.bundle) } ?? .unknown
+            look(&f, profile, bundle)
             let answer = report(items(f))
             DispatchQueue.main.async { done(answer) }
         }
     }
 
-    /// What `claude auth status --json` says, on `profile`'s config folder.
-    static func signIn(_ program: URL, profile: ClaudeProfile?) -> SignIn {
-        var environment = SummaryCLI.environment()
-        environment.removeValue(forKey: "SMOLCORP_SUMMARY")
-        if let profile, !profile.isDefault { environment["CLAUDE_CONFIG_DIR"] = profile.dir } else { environment.removeValue(forKey: "CLAUDE_CONFIG_DIR") }
-        let ran = SummaryCLI.spawn(program, ["auth", "status", "--json"], input: Data(), environment: environment,
-                                   folder: FileManager.default.temporaryDirectory.path, timeout: 10)
+    /// What's asked off the main queue (your login shell, Claude Code, macOS) for `profile` and the terminal's
+    /// `bundle`, filled into the facts: a variable, so tests drive the route without any of them.
+    static var look: (inout Facts, ClaudeProfile?, String?) -> Void = { f, profile, bundle in
+        let login = OpenCodeInstall.loginShellPath()
+        // Where it was found, not where its link leads: that folder is the one to add to a PATH.
+        let found = OpenCodeInstall.place(named: "claude")
+        f.claudeAt = found?.path
+        f.claudeOnLoginPath = login.isEmpty ? nil : login.contains { FileManager.default.isExecutableFile(atPath: ($0 as NSString).appendingPathComponent("claude")) }
+        if let found, f.claudeOnLoginPath != false { f.signIn = signIn(found, profile: profile, shell: f.shell) }
+        f.automation = bundle.map { automation(bundle: $0) } ?? .unknown
+    }
+
+    /// What `claude auth status --json` says, asked as the hire starts Claude Code: in your login shell
+    /// (so with what its files set: an API key, a cloud provider), on `profile`'s config folder.
+    /// Linux/Windows asks the same way (gmpreflight.go's claudeSignIn).
+    static func signIn(_ program: URL, profile: ClaudeProfile?, shell: String) -> SignIn {
+        let ran = SummaryCLI.spawn(URL(fileURLWithPath: shell), signInArguments(program: program.path, profile: profile),
+                                   input: Data(), environment: hireEnvironment(), folder: FileManager.default.temporaryDirectory.path, timeout: 10)
         return signIn(status: ran.output)
     }
 
+    /// The login shell's arguments: the account's config folder set, or unset for ~/.claude's, as a hire's start script does (Role.startScript).
+    static func signInArguments(program: String, profile: ClaudeProfile?) -> [String] {
+        let account = profile.map { $0.isDefault ? ["-u", "CLAUDE_CONFIG_DIR"] : ["CLAUDE_CONFIG_DIR=\($0.dir)"] } ?? ["-u", "CLAUDE_CONFIG_DIR"]
+        let words = ["env"] + account + [program, "auth", "status", "--json"]
+        return ["-lic", "exec " + words.map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " ")]
+    }
+
+    /// Smolcorp's environment less what says where it was started, as a hire's terminal never has it
+    /// (Linux/Windows: hireEnvironment). Keys and cloud providers stay: the hire has them too.
+    static func hireEnvironment(_ base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
+        let left: Set<String> = ["SMOLCORP_SESSION", "SAUZZEDECK_SESSION", "SMOLCORP_HEADLESS", "SMOLCORP_PARENT_FOLDER", "SMOLCORP_GM_TOKEN",
+                                 "SMOLCORP_SUMMARY", "TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON"]
+        return base.filter { !left.contains($0.key.uppercased()) }
+    }
+
+    /// What `claude auth status --json` printed, after whatever your shell's files print as it starts.
     static func signIn(status: Data) -> SignIn {
-        guard let object = (try? JSONSerialization.jsonObject(with: status)) as? [String: Any], let loggedIn = object["loggedIn"] as? Bool else { return .unknown }
-        return loggedIn ? .yes : .no
+        let text = String(decoding: status, as: UTF8.self)
+        var starts = text.hasPrefix("{") ? [text.startIndex] : []
+        var from = text.startIndex
+        while let found = text.range(of: "\n{", range: from..<text.endIndex) {
+            starts.append(text.index(after: found.lowerBound))
+            from = found.upperBound
+        }
+        for start in starts {
+            if let object = (try? JSONSerialization.jsonObject(with: Data(text[start...].utf8))) as? [String: Any],
+               let loggedIn = object["loggedIn"] as? Bool { return loggedIn ? .yes : .no }
+        }
+        return .unknown
     }
 
     /// Whether macOS lets this app send Apple Events to the app `bundle`, never asking: an app not running can't say.

@@ -3,7 +3,10 @@ package desktop
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -114,12 +117,14 @@ func TestTheGMPreflightGivesTheLineForALoginShellThatDoesntFindClaude(t *testing
 	}
 }
 
+// Signed out is said, never in the way: an API key or a cloud provider may work where the check can't see it.
 func TestTheGMPreflightAsksClaudeCodeIfItIsSignedIn(t *testing.T) {
 	d, _, _, state := preflightDeck(t)
 	*state = signedOut
 	report := d.gmPreflight()
 	line := preflightLine(t, report, "signin")
-	if report.Ready || line.OK || line.Optional || line.Action == nil || line.Action.Command != "claude" || !strings.Contains(line.Fix, "/login") {
+	if !report.Ready || line.OK || !line.Optional || line.Action == nil || line.Action.Command != "claude" || !strings.Contains(line.Fix, "/login") ||
+		!strings.HasPrefix(line.Fix, "Hire anyway: its window asks you to sign in.") {
 		t.Errorf("signed out: ready %v, %+v", report.Ready, line)
 	}
 	// Couldn't tell: said, but not in the way.
@@ -137,6 +142,9 @@ func TestSignInIsWhatClaudeCodeSays(t *testing.T) {
 		`{}`:                                         signInUnknown,
 		`error: unknown command 'auth'`:              signInUnknown,
 		``:                                           signInUnknown,
+		// Asked through your login shell, whose files may print first.
+		"Welcome back {you}\n{\"loggedIn\":true}\n": signedIn,
+		"motd\n{\n  \"loggedIn\": false\n}\n":       signedOut,
 	} {
 		if got := signInFrom([]byte(said)); got != want {
 			t.Errorf("%q: %v, want %v", said, got, want)
@@ -278,5 +286,120 @@ func TestTheGMHireTurnsHiringOnAndBackOffIfItFails(t *testing.T) {
 	}
 	if d.config.HiringEnabled || loadConfig().HiringEnabled {
 		t.Error("a failed GM hire left hiring on")
+	}
+}
+
+// Asked as the hire starts Claude Code: the same command shape (your login shell where there's one) and the
+// same environment, keys and cloud providers kept, as the Mac asks it (GMPreflight.signInArguments).
+func TestTheSignInIsAskedAsTheHireStartsIt(t *testing.T) {
+	command := signInCommand("/x/bin/claude")
+	if !slices.Equal(command, inLoginShell([]string{"/x/bin/claude", "auth", "status", "--json"})) {
+		t.Errorf("sign-in command %q", command)
+	}
+	if runtime.GOOS != "windows" && (command[0] != loginShell() || command[1] != "-lic") {
+		t.Errorf("sign-in not through the login shell: %q", command)
+	}
+	t.Setenv("ANTHROPIC_API_KEY", "k-fake")
+	t.Setenv("SMOLCORP_SESSION", "s1")
+	env := hireEnvironment()
+	if !slices.Contains(env, "ANTHROPIC_API_KEY=k-fake") || slices.Contains(env, "SMOLCORP_SESSION=s1") {
+		t.Errorf("the hire's environment: key kept %v, session dropped %v", slices.Contains(env, "ANTHROPIC_API_KEY=k-fake"), !slices.Contains(env, "SMOLCORP_SESSION=s1"))
+	}
+}
+
+// The native installer's ~/.local/bin/claude is a link into a versions folder: the line names the link's
+// folder, which holds a claude once it's on the PATH, never the versions folder, which holds none.
+func TestTheGMPreflightNamesTheFolderOfALinkNotWhereItLeads(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("links need rights on Windows, and its hires use Windows' own PATH")
+	}
+	root := t.TempDir()
+	versions, bin := filepath.Join(root, "share", "claude", "versions"), filepath.Join(root, "bin")
+	for _, folder := range []string{versions, bin} {
+		if err := os.MkdirAll(folder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	program := filepath.Join(versions, "2.1.319")
+	if err := os.WriteFile(program, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(program, filepath.Join(bin, "claude")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	found := claudeFoundAt()
+	if found != filepath.Join(bin, "claude") {
+		t.Fatalf("found at %q, want the link %q", found, filepath.Join(bin, "claude"))
+	}
+	d, h, at, _ := preflightDeck(t)
+	*at = found
+	h.missing = "your login shell doesn't find claude"
+	t.Setenv("SHELL", "/bin/zsh")
+	line := preflightLine(t, d.gmPreflight(), "claude")
+	want := `echo 'export PATH="` + bin + `:$PATH"' >> ~/.zprofile`
+	if line.Action == nil || line.Action.Command != want || strings.Contains(line.Title, "versions") {
+		t.Errorf("a link: %+v, want the command %q", line, want)
+	}
+}
+
+// A folder with a quote, a $, a backquote or a space: the line still writes that folder, whole.
+func TestThePathLineQuotesAnOddFolder(t *testing.T) {
+	odd := filepath.Join(homeDir, "Bob's \"apps\"", "$bin`x`")
+	got := pathLine("/bin/zsh", odd)
+	want := `echo 'export PATH="$HOME/Bob'\''s \"apps\"/\$bin\` + "`x\\`" + `:$PATH"' >> ~/.zprofile`
+	if got != want {
+		t.Fatalf("pathLine:\n got %s\nwant %s", got, want)
+	}
+	if fish := pathLine("/usr/bin/fish", filepath.Join(homeDir, "Bob's apps")); fish != `fish_add_path '`+filepath.Join(homeDir, `Bob\'s apps`)+`'` {
+		t.Errorf("fish: %s", fish)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	// What the echo writes, read back by a shell as a profile would. Only sh, on a command made here: nothing is written.
+	sh := func(command string, env ...string) string {
+		cmd := exec.Command("/bin/sh", "-c", command)
+		cmd.Env = append([]string{"PATH=/usr/bin:/bin"}, env...)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("sh -c %q: %v", command, err)
+		}
+		return strings.TrimRight(string(out), "\n")
+	}
+	written := sh(strings.TrimSuffix(got, " >> ~/.zprofile"))
+	if path := sh(written+`; printf %s "$PATH"`, "HOME="+homeDir); path != odd+":/usr/bin:/bin" {
+		t.Errorf("the profile's PATH: %q, want %q", path, odd+":/usr/bin:/bin")
+	}
+}
+
+// The preflight is the page's alone: it starts your login shell and Claude Code, so a tool with the setup-key file can't.
+func TestTheGMPreflightIsThePagesAlone(t *testing.T) {
+	d, _, _, _ := preflightDeck(t)
+	w := serve(t, d, call{method: "GET", target: "/setup/hire/gm/preflight", host: "localhost:7710", from: thisComputer, asTool: true,
+		headers: map[string]string{setupHeader: "1"}})
+	if w.Code != http.StatusForbidden {
+		t.Errorf("a tool's preflight: %d %q, want 403", w.Code, w.Body.String())
+	}
+	if !routeAllows(callerPage, "GET", "/setup/hire/gm/preflight") || routeAllows(callerTool, "GET", "/setup/hire/gm/preflight") || routeAllows(callerGM, "GET", "/setup/hire/gm/preflight") {
+		t.Error("the table doesn't keep the preflight to the page")
+	}
+}
+
+// One GM hire at a time: a second, while the first runs, is refused before it reads or flips a switch.
+func TestASecondGMHireWhileOneRunsIsRefusedAndLeavesTheSwitches(t *testing.T) {
+	d, h, _, _ := preflightDeck(t)
+	d.config.ManagerEnabled, d.config.HiringEnabled = false, false
+	d.gmHiring.Lock()
+	code, text := pageCall(t, d, "POST", "/setup/hire/gm")
+	d.gmHiring.Unlock()
+	if code != http.StatusConflict || text != gmBeingHired || len(h.windows) != 0 {
+		t.Errorf("a GM hire while one runs: %d %q, %d windows, want 409 %q", code, text, len(h.windows), gmBeingHired)
+	}
+	if d.config.ManagerEnabled || d.config.HiringEnabled {
+		t.Errorf("the switches changed (manager %v, hiring %v)", d.config.ManagerEnabled, d.config.HiringEnabled)
+	}
+	if code, text := pageCall(t, d, "POST", "/setup/hire/gm"); code != http.StatusNoContent || len(h.windows) != 1 {
+		t.Errorf("the hire after it: %d %q, %d windows", code, text, len(h.windows))
 	}
 }
