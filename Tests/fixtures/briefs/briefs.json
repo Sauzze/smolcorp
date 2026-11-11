@@ -634,6 +634,1834 @@
         "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c.",
         "problem" : "The guard file it isn't a guard file, so every group is on until you save here."
       }
+    },
+    {
+      "file" : "{\"groups\":[null]}",
+      "state" : {
+        "extra" : [
+
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : true
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c.",
+        "problem" : "The guard file it isn't a guard file, so every group is on until you save here."
+      }
+    },
+    {
+      "file" : "{\"groups\":[{\"name\":\"\\n\",\"on\":true}]}",
+      "state" : {
+        "extra" : [
+
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : true
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c."
+      }
+    },
+    {
+      "file" : "{\"groups\":[{\"name\":\"push\",\"on\":true,\"commands\":[\"a\",1]}]}",
+      "state" : {
+        "extra" : [
+
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : true
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c."
+      }
+    },
+    {
+      "file" : "{\"groups\":[{\"name\":\"push\",\"on\":0},{\"name\":\"deploy\",\"on\":1.0}]}",
+      "state" : {
+        "extra" : [
+
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : false
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : true
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c."
+      }
+    }
+  ],
+  "guardSaves" : [
+    {
+      "after" : {
+        "groups" : [
+          {
+            "commands" : [
+              "git push|send-pack",
+              "git subtree push",
+              "git svn dcommit",
+              "git lfs push"
+            ],
+            "name" : "push",
+            "on" : false
+          },
+          {
+            "commands" : [
+              "vercel",
+              "netlify",
+              "wrangler",
+              "firebase deploy|hosting|functions|apphosting|firestore|database|extensions|appdistribution|remoteconfig|dataconnect",
+              "fly",
+              "railway",
+              "heroku",
+              "render",
+              "eas build|submit|update",
+              "supabase db push",
+              "supabase functions deploy",
+              "kubectl apply|delete",
+              "terraform apply|destroy",
+              "pulumi up|destroy",
+              "docker push",
+              "docker image push",
+              "docker compose push",
+              "docker-compose push",
+              "docker manifest push",
+              "docker buildx build|bake --push",
+              "docker build --push",
+              "docker builder build --push",
+              "podman push",
+              "podman image push",
+              "podman manifest push",
+              "podman compose push"
+            ],
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "npm publish|publis|publi|publ|pub|pu",
+              "pnpm publish",
+              "yarn publish",
+              "bun publish",
+              "cargo publish",
+              "twine upload",
+              "gem push",
+              "fastlane",
+              "xcrun altool|notarytool",
+              "gh pr create|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
+              "gh issue create|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
+              "gh release",
+              "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink",
+              "gh gist create|edit|delete",
+              "gh label create|delete|edit|clone",
+              "gh ssh-key add|delete",
+              "gh gpg-key add|delete",
+              "gh codespace create|delete|ssh",
+              "gh extension install",
+              "gh cache delete",
+              "gh auth token|refresh|login|logout|setup-git",
+              "gh auth status -t|--show-token",
+              "npm unpublish|deprecate|dist-tag|access|owner|token|login|adduser|team|org",
+              "gh workflow run|enable|disable",
+              "gh run rerun|cancel|delete",
+              "gh secret",
+              "gh variable",
+              "gh api -X|--method|-f|-F|--field|--raw-field|--input"
+            ],
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "aws",
+              "gcloud",
+              "az",
+              "gsutil",
+              "bq",
+              "cdk"
+            ],
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "ssh",
+              "scp",
+              "sftp",
+              "rsync @remote"
+            ],
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
+              "smolcorp gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+              "security",
+              "osascript",
+              "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
+              "op read|item|inject|signin",
+              "bw",
+              "pass"
+            ],
+            "name" : "local",
+            "on" : true
+          },
+          {
+            "commands" : [
+
+            ],
+            "name" : "extra",
+            "on" : true
+          }
+        ]
+      },
+      "answer" : {
+        "extra" : [
+
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : false
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : true
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c."
+      },
+      "body" : "{\"groups\":[{\"name\":\"push\",\"on\":false}]}",
+      "file" : null,
+      "status" : 200
+    },
+    {
+      "after" : {
+        "groups" : [
+          {
+            "commands" : [
+              "git push|send-pack",
+              "git subtree push",
+              "git svn dcommit",
+              "git lfs push"
+            ],
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "vercel",
+              "netlify",
+              "wrangler",
+              "firebase deploy|hosting|functions|apphosting|firestore|database|extensions|appdistribution|remoteconfig|dataconnect",
+              "fly",
+              "railway",
+              "heroku",
+              "render",
+              "eas build|submit|update",
+              "supabase db push",
+              "supabase functions deploy",
+              "kubectl apply|delete",
+              "terraform apply|destroy",
+              "pulumi up|destroy",
+              "docker push",
+              "docker image push",
+              "docker compose push",
+              "docker-compose push",
+              "docker manifest push",
+              "docker buildx build|bake --push",
+              "docker build --push",
+              "docker builder build --push",
+              "podman push",
+              "podman image push",
+              "podman manifest push",
+              "podman compose push"
+            ],
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "npm publish|publis|publi|publ|pub|pu",
+              "pnpm publish",
+              "yarn publish",
+              "bun publish",
+              "cargo publish",
+              "twine upload",
+              "gem push",
+              "fastlane",
+              "xcrun altool|notarytool",
+              "gh pr create|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
+              "gh issue create|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
+              "gh release",
+              "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink",
+              "gh gist create|edit|delete",
+              "gh label create|delete|edit|clone",
+              "gh ssh-key add|delete",
+              "gh gpg-key add|delete",
+              "gh codespace create|delete|ssh",
+              "gh extension install",
+              "gh cache delete",
+              "gh auth token|refresh|login|logout|setup-git",
+              "gh auth status -t|--show-token",
+              "npm unpublish|deprecate|dist-tag|access|owner|token|login|adduser|team|org",
+              "gh workflow run|enable|disable",
+              "gh run rerun|cancel|delete",
+              "gh secret",
+              "gh variable",
+              "gh api -X|--method|-f|-F|--field|--raw-field|--input"
+            ],
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "aws",
+              "gcloud",
+              "az",
+              "gsutil",
+              "bq",
+              "cdk"
+            ],
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "ssh",
+              "scp",
+              "sftp",
+              "rsync @remote"
+            ],
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
+              "smolcorp gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+              "security",
+              "osascript",
+              "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
+              "op read|item|inject|signin",
+              "bw",
+              "pass"
+            ],
+            "name" : "local",
+            "on" : true
+          },
+          {
+            "commands" : [
+
+            ],
+            "name" : "extra",
+            "on" : true
+          }
+        ]
+      },
+      "answer" : {
+        "extra" : [
+
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : true
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c."
+      },
+      "body" : "{}",
+      "file" : null,
+      "status" : 200
+    },
+    {
+      "after" : {
+        "groups" : [
+          {
+            "commands" : [
+              "git push|send-pack",
+              "git subtree push",
+              "git svn dcommit",
+              "git lfs push"
+            ],
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "vercel",
+              "netlify",
+              "wrangler",
+              "firebase deploy|hosting|functions|apphosting|firestore|database|extensions|appdistribution|remoteconfig|dataconnect",
+              "fly",
+              "railway",
+              "heroku",
+              "render",
+              "eas build|submit|update",
+              "supabase db push",
+              "supabase functions deploy",
+              "kubectl apply|delete",
+              "terraform apply|destroy",
+              "pulumi up|destroy",
+              "docker push",
+              "docker image push",
+              "docker compose push",
+              "docker-compose push",
+              "docker manifest push",
+              "docker buildx build|bake --push",
+              "docker build --push",
+              "docker builder build --push",
+              "podman push",
+              "podman image push",
+              "podman manifest push",
+              "podman compose push"
+            ],
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "npm publish|publis|publi|publ|pub|pu",
+              "pnpm publish",
+              "yarn publish",
+              "bun publish",
+              "cargo publish",
+              "twine upload",
+              "gem push",
+              "fastlane",
+              "xcrun altool|notarytool",
+              "gh pr create|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
+              "gh issue create|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
+              "gh release",
+              "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink",
+              "gh gist create|edit|delete",
+              "gh label create|delete|edit|clone",
+              "gh ssh-key add|delete",
+              "gh gpg-key add|delete",
+              "gh codespace create|delete|ssh",
+              "gh extension install",
+              "gh cache delete",
+              "gh auth token|refresh|login|logout|setup-git",
+              "gh auth status -t|--show-token",
+              "npm unpublish|deprecate|dist-tag|access|owner|token|login|adduser|team|org",
+              "gh workflow run|enable|disable",
+              "gh run rerun|cancel|delete",
+              "gh secret",
+              "gh variable",
+              "gh api -X|--method|-f|-F|--field|--raw-field|--input"
+            ],
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "aws",
+              "gcloud"
+            ],
+            "name" : "cloud",
+            "on" : false
+          },
+          {
+            "commands" : [
+              "ssh",
+              "scp",
+              "sftp",
+              "rsync @remote"
+            ],
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
+              "smolcorp gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+              "security",
+              "osascript",
+              "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
+              "op read|item|inject|signin",
+              "bw",
+              "pass"
+            ],
+            "name" : "local",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "terraform import",
+              "gh  api",
+              "git|svn dcommit",
+              "make-it.go_v2+ x"
+            ],
+            "name" : "extra",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "make ship"
+            ],
+            "name" : "mine",
+            "on" : true
+          },
+          {
+            "name" : "theirs",
+            "on" : false
+          }
+        ]
+      },
+      "answer" : {
+        "extra" : [
+          "terraform import",
+          "gh  api",
+          "git|svn dcommit",
+          "make-it.go_v2+ x"
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : false
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : true
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c."
+      },
+      "body" : "{\"extra\":[\"terraform import\",\"\\u00a0terraform import\\t\",\"gh  api\",\"git|svn dcommit\",\"make-it.go_v2+ x\"]}",
+      "file" : "{\"groups\":[{\"name\":\"cloud\",\"on\":false,\"commands\":[\"aws\",\"gcloud\"]},{\"name\":\"extra\",\"on\":true,\"commands\":[\"terraform import\"]},{\"name\":\"mine\",\"on\":true,\"commands\":[\"make ship\"]},{\"name\":\"theirs\",\"on\":false}]}",
+      "status" : 200
+    },
+    {
+      "after" : {
+        "groups" : [
+          {
+            "commands" : [
+              "git push|send-pack",
+              "git subtree push",
+              "git svn dcommit",
+              "git lfs push"
+            ],
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "vercel",
+              "netlify",
+              "wrangler",
+              "firebase deploy|hosting|functions|apphosting|firestore|database|extensions|appdistribution|remoteconfig|dataconnect",
+              "fly",
+              "railway",
+              "heroku",
+              "render",
+              "eas build|submit|update",
+              "supabase db push",
+              "supabase functions deploy",
+              "kubectl apply|delete",
+              "terraform apply|destroy",
+              "pulumi up|destroy",
+              "docker push",
+              "docker image push",
+              "docker compose push",
+              "docker-compose push",
+              "docker manifest push",
+              "docker buildx build|bake --push",
+              "docker build --push",
+              "docker builder build --push",
+              "podman push",
+              "podman image push",
+              "podman manifest push",
+              "podman compose push"
+            ],
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "npm publish|publis|publi|publ|pub|pu",
+              "pnpm publish",
+              "yarn publish",
+              "bun publish",
+              "cargo publish",
+              "twine upload",
+              "gem push",
+              "fastlane",
+              "xcrun altool|notarytool",
+              "gh pr create|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
+              "gh issue create|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
+              "gh release",
+              "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink",
+              "gh gist create|edit|delete",
+              "gh label create|delete|edit|clone",
+              "gh ssh-key add|delete",
+              "gh gpg-key add|delete",
+              "gh codespace create|delete|ssh",
+              "gh extension install",
+              "gh cache delete",
+              "gh auth token|refresh|login|logout|setup-git",
+              "gh auth status -t|--show-token",
+              "npm unpublish|deprecate|dist-tag|access|owner|token|login|adduser|team|org",
+              "gh workflow run|enable|disable",
+              "gh run rerun|cancel|delete",
+              "gh secret",
+              "gh variable",
+              "gh api -X|--method|-f|-F|--field|--raw-field|--input"
+            ],
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "aws",
+              "gcloud"
+            ],
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "ssh",
+              "scp",
+              "sftp",
+              "rsync @remote"
+            ],
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
+              "smolcorp gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+              "security",
+              "osascript",
+              "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
+              "op read|item|inject|signin",
+              "bw",
+              "pass"
+            ],
+            "name" : "local",
+            "on" : false
+          },
+          {
+            "commands" : [
+              "terraform import"
+            ],
+            "name" : "extra",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "make ship"
+            ],
+            "name" : "mine",
+            "on" : true
+          },
+          {
+            "name" : "theirs",
+            "on" : false
+          }
+        ]
+      },
+      "answer" : {
+        "extra" : [
+          "terraform import"
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : false
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c."
+      },
+      "body" : "{\"groups\":[{\"name\":\"cloud\",\"on\":true},{\"name\":\"local\",\"on\":false}]}",
+      "file" : "{\"groups\":[{\"name\":\"cloud\",\"on\":false,\"commands\":[\"aws\",\"gcloud\"]},{\"name\":\"extra\",\"on\":true,\"commands\":[\"terraform import\"]},{\"name\":\"mine\",\"on\":true,\"commands\":[\"make ship\"]},{\"name\":\"theirs\",\"on\":false}]}",
+      "status" : 200
+    },
+    {
+      "after" : {
+        "groups" : [
+          {
+            "commands" : [
+              "git push|send-pack",
+              "git subtree push",
+              "git svn dcommit",
+              "git lfs push"
+            ],
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "vercel",
+              "netlify",
+              "wrangler",
+              "firebase deploy|hosting|functions|apphosting|firestore|database|extensions|appdistribution|remoteconfig|dataconnect",
+              "fly",
+              "railway",
+              "heroku",
+              "render",
+              "eas build|submit|update",
+              "supabase db push",
+              "supabase functions deploy",
+              "kubectl apply|delete",
+              "terraform apply|destroy",
+              "pulumi up|destroy",
+              "docker push",
+              "docker image push",
+              "docker compose push",
+              "docker-compose push",
+              "docker manifest push",
+              "docker buildx build|bake --push",
+              "docker build --push",
+              "docker builder build --push",
+              "podman push",
+              "podman image push",
+              "podman manifest push",
+              "podman compose push"
+            ],
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "npm publish|publis|publi|publ|pub|pu",
+              "pnpm publish",
+              "yarn publish",
+              "bun publish",
+              "cargo publish",
+              "twine upload",
+              "gem push",
+              "fastlane",
+              "xcrun altool|notarytool",
+              "gh pr create|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
+              "gh issue create|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
+              "gh release",
+              "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink",
+              "gh gist create|edit|delete",
+              "gh label create|delete|edit|clone",
+              "gh ssh-key add|delete",
+              "gh gpg-key add|delete",
+              "gh codespace create|delete|ssh",
+              "gh extension install",
+              "gh cache delete",
+              "gh auth token|refresh|login|logout|setup-git",
+              "gh auth status -t|--show-token",
+              "npm unpublish|deprecate|dist-tag|access|owner|token|login|adduser|team|org",
+              "gh workflow run|enable|disable",
+              "gh run rerun|cancel|delete",
+              "gh secret",
+              "gh variable",
+              "gh api -X|--method|-f|-F|--field|--raw-field|--input"
+            ],
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "aws",
+              "gcloud"
+            ],
+            "name" : "cloud",
+            "on" : false
+          },
+          {
+            "commands" : [
+              "ssh",
+              "scp",
+              "sftp",
+              "rsync @remote"
+            ],
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
+              "smolcorp gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+              "security",
+              "osascript",
+              "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
+              "op read|item|inject|signin",
+              "bw",
+              "pass"
+            ],
+            "name" : "local",
+            "on" : true
+          },
+          {
+            "commands" : [
+
+            ],
+            "name" : "extra",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "make ship"
+            ],
+            "name" : "mine",
+            "on" : true
+          },
+          {
+            "name" : "theirs",
+            "on" : false
+          }
+        ]
+      },
+      "answer" : {
+        "extra" : [
+
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : false
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : true
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c."
+      },
+      "body" : "{\"extra\":[]}",
+      "file" : "{\"groups\":[{\"name\":\"cloud\",\"on\":false,\"commands\":[\"aws\",\"gcloud\"]},{\"name\":\"extra\",\"on\":true,\"commands\":[\"terraform import\"]},{\"name\":\"mine\",\"on\":true,\"commands\":[\"make ship\"]},{\"name\":\"theirs\",\"on\":false}]}",
+      "status" : 200
+    },
+    {
+      "after" : {
+        "groups" : [
+          {
+            "commands" : [
+              "git push|send-pack",
+              "git subtree push",
+              "git svn dcommit",
+              "git lfs push"
+            ],
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "vercel",
+              "netlify",
+              "wrangler",
+              "firebase deploy|hosting|functions|apphosting|firestore|database|extensions|appdistribution|remoteconfig|dataconnect",
+              "fly",
+              "railway",
+              "heroku",
+              "render",
+              "eas build|submit|update",
+              "supabase db push",
+              "supabase functions deploy",
+              "kubectl apply|delete",
+              "terraform apply|destroy",
+              "pulumi up|destroy",
+              "docker push",
+              "docker image push",
+              "docker compose push",
+              "docker-compose push",
+              "docker manifest push",
+              "docker buildx build|bake --push",
+              "docker build --push",
+              "docker builder build --push",
+              "podman push",
+              "podman image push",
+              "podman manifest push",
+              "podman compose push"
+            ],
+            "name" : "deploy",
+            "on" : false
+          },
+          {
+            "commands" : [
+              "npm publish|publis|publi|publ|pub|pu",
+              "pnpm publish",
+              "yarn publish",
+              "bun publish",
+              "cargo publish",
+              "twine upload",
+              "gem push",
+              "fastlane",
+              "xcrun altool|notarytool",
+              "gh pr create|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
+              "gh issue create|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
+              "gh release",
+              "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink",
+              "gh gist create|edit|delete",
+              "gh label create|delete|edit|clone",
+              "gh ssh-key add|delete",
+              "gh gpg-key add|delete",
+              "gh codespace create|delete|ssh",
+              "gh extension install",
+              "gh cache delete",
+              "gh auth token|refresh|login|logout|setup-git",
+              "gh auth status -t|--show-token",
+              "npm unpublish|deprecate|dist-tag|access|owner|token|login|adduser|team|org",
+              "gh workflow run|enable|disable",
+              "gh run rerun|cancel|delete",
+              "gh secret",
+              "gh variable",
+              "gh api -X|--method|-f|-F|--field|--raw-field|--input"
+            ],
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "aws",
+              "gcloud",
+              "az",
+              "gsutil",
+              "bq",
+              "cdk"
+            ],
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "ssh",
+              "scp",
+              "sftp",
+              "rsync @remote"
+            ],
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
+              "smolcorp gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+              "security",
+              "osascript",
+              "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
+              "op read|item|inject|signin",
+              "bw",
+              "pass"
+            ],
+            "name" : "local",
+            "on" : true
+          },
+          {
+            "commands" : [
+
+            ],
+            "name" : "extra",
+            "on" : true
+          }
+        ]
+      },
+      "answer" : {
+        "extra" : [
+
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : false
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : true
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c."
+      },
+      "body" : "{\"groups\":[{\"name\":\"deploy\",\"on\":false}]}",
+      "file" : "not json",
+      "status" : 200
+    },
+    {
+      "after" : {
+        "groups" : [
+          {
+            "commands" : [
+              "git push|send-pack",
+              "git subtree push",
+              "git svn dcommit",
+              "git lfs push"
+            ],
+            "name" : "push",
+            "on" : false
+          },
+          {
+            "commands" : [
+              "vercel",
+              "netlify",
+              "wrangler",
+              "firebase deploy|hosting|functions|apphosting|firestore|database|extensions|appdistribution|remoteconfig|dataconnect",
+              "fly",
+              "railway",
+              "heroku",
+              "render",
+              "eas build|submit|update",
+              "supabase db push",
+              "supabase functions deploy",
+              "kubectl apply|delete",
+              "terraform apply|destroy",
+              "pulumi up|destroy",
+              "docker push",
+              "docker image push",
+              "docker compose push",
+              "docker-compose push",
+              "docker manifest push",
+              "docker buildx build|bake --push",
+              "docker build --push",
+              "docker builder build --push",
+              "podman push",
+              "podman image push",
+              "podman manifest push",
+              "podman compose push"
+            ],
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "npm publish|publis|publi|publ|pub|pu",
+              "pnpm publish",
+              "yarn publish",
+              "bun publish",
+              "cargo publish",
+              "twine upload",
+              "gem push",
+              "fastlane",
+              "xcrun altool|notarytool",
+              "gh pr create|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
+              "gh issue create|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
+              "gh release",
+              "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink",
+              "gh gist create|edit|delete",
+              "gh label create|delete|edit|clone",
+              "gh ssh-key add|delete",
+              "gh gpg-key add|delete",
+              "gh codespace create|delete|ssh",
+              "gh extension install",
+              "gh cache delete",
+              "gh auth token|refresh|login|logout|setup-git",
+              "gh auth status -t|--show-token",
+              "npm unpublish|deprecate|dist-tag|access|owner|token|login|adduser|team|org",
+              "gh workflow run|enable|disable",
+              "gh run rerun|cancel|delete",
+              "gh secret",
+              "gh variable",
+              "gh api -X|--method|-f|-F|--field|--raw-field|--input"
+            ],
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "aws",
+              "gcloud",
+              "az",
+              "gsutil",
+              "bq",
+              "cdk"
+            ],
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "ssh",
+              "scp",
+              "sftp",
+              "rsync @remote"
+            ],
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
+              "smolcorp gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+              "security",
+              "osascript",
+              "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
+              "op read|item|inject|signin",
+              "bw",
+              "pass"
+            ],
+            "name" : "local",
+            "on" : true
+          },
+          {
+            "commands" : [
+
+            ],
+            "name" : "extra",
+            "on" : true
+          }
+        ]
+      },
+      "answer" : {
+        "extra" : [
+
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : false
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : true
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c."
+      },
+      "body" : "{\"groups\":[{\"name\":\"push\",\"on\":0},{\"name\":\"remote\",\"on\":1}]}",
+      "file" : null,
+      "status" : 200
+    },
+    {
+      "after" : null,
+      "answer" : "Couldn't write the guard file.",
+      "body" : "{\"groups\":[{\"name\":\"push\",\"on\":false}]}",
+      "file" : null,
+      "missingFolder" : true,
+      "status" : 500
+    },
+    {
+      "after" : {
+        "groups" : [
+          {
+            "commands" : [
+              "aws",
+              "gcloud"
+            ],
+            "name" : "cloud",
+            "on" : false
+          },
+          {
+            "commands" : [
+              "terraform import"
+            ],
+            "name" : "extra",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "make ship"
+            ],
+            "name" : "mine",
+            "on" : true
+          },
+          {
+            "name" : "theirs",
+            "on" : false
+          }
+        ]
+      },
+      "answer" : "Send {groups: [{name, on}], extra: [pattern]}.",
+      "body" : "not json",
+      "file" : "{\"groups\":[{\"name\":\"cloud\",\"on\":false,\"commands\":[\"aws\",\"gcloud\"]},{\"name\":\"extra\",\"on\":true,\"commands\":[\"terraform import\"]},{\"name\":\"mine\",\"on\":true,\"commands\":[\"make ship\"]},{\"name\":\"theirs\",\"on\":false}]}",
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "Send {groups: [{name, on}], extra: [pattern]}.",
+      "body" : "[]",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "Send {groups: [{name, on}], extra: [pattern]}.",
+      "body" : "null",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "Send {groups: [{name, on}], extra: [pattern]}.",
+      "body" : "{\"groups\":[],\"more\":1}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "groups is a list of {name, on}.",
+      "body" : "{\"groups\":{\"name\":\"push\",\"on\":false}}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "groups is a list of {name, on}.",
+      "body" : "{\"groups\":null}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "groups is a list of {name, on}.",
+      "body" : "{\"groups\":[null]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "Each group is {name, on}.",
+      "body" : "{\"groups\":[{\"name\":\"push\"}]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "Each group is {name, on}.",
+      "body" : "{\"groups\":[{\"name\":\"push\",\"on\":\"no\"}]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "Each group is {name, on}.",
+      "body" : "{\"groups\":[{\"name\":\"push\",\"on\":2}]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : {
+        "groups" : [
+          {
+            "commands" : [
+              "aws",
+              "gcloud"
+            ],
+            "name" : "cloud",
+            "on" : false
+          },
+          {
+            "commands" : [
+              "terraform import"
+            ],
+            "name" : "extra",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "make ship"
+            ],
+            "name" : "mine",
+            "on" : true
+          },
+          {
+            "name" : "theirs",
+            "on" : false
+          }
+        ]
+      },
+      "answer" : "There is no group called mine.",
+      "body" : "{\"groups\":[{\"name\":\"mine\",\"on\":false}]}",
+      "file" : "{\"groups\":[{\"name\":\"cloud\",\"on\":false,\"commands\":[\"aws\",\"gcloud\"]},{\"name\":\"extra\",\"on\":true,\"commands\":[\"terraform import\"]},{\"name\":\"mine\",\"on\":true,\"commands\":[\"make ship\"]},{\"name\":\"theirs\",\"on\":false}]}",
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "There is no group called extra.",
+      "body" : "{\"groups\":[{\"name\":\"extra\",\"on\":false}]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "There are two groups called push.",
+      "body" : "{\"groups\":[{\"name\":\"push\",\"on\":true},{\"name\":\"push\",\"on\":false}]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "extra is a list of patterns.",
+      "body" : "{\"extra\":\"terraform import\"}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "extra is a list of patterns.",
+      "body" : "{\"extra\":[\"ok\",1]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "At most 40 patterns of your own.",
+      "body" : "{\"extra\":[\"tool1\",\"tool2\",\"tool3\",\"tool4\",\"tool5\",\"tool6\",\"tool7\",\"tool8\",\"tool9\",\"tool10\",\"tool11\",\"tool12\",\"tool13\",\"tool14\",\"tool15\",\"tool16\",\"tool17\",\"tool18\",\"tool19\",\"tool20\",\"tool21\",\"tool22\",\"tool23\",\"tool24\",\"tool25\",\"tool26\",\"tool27\",\"tool28\",\"tool29\",\"tool30\",\"tool31\",\"tool32\",\"tool33\",\"tool34\",\"tool35\",\"tool36\",\"tool37\",\"tool38\",\"tool39\",\"tool40\",\"tool41\"]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "A pattern can't be empty.",
+      "body" : "{\"extra\":[\" \\t\"]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "A pattern starts with the command's name, such as \"terraform import\"; \"*\" isn't one.",
+      "body" : "{\"extra\":[\"*\"]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "A pattern starts with the command's name, such as \"terraform import\"; \"git|\" isn't one.",
+      "body" : "{\"extra\":[\"git|\"]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "A pattern starts with the command's name, such as \"terraform import\"; \"-rf\" isn't one.",
+      "body" : "{\"extra\":[\"-rf x\"]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "A pattern starts with the command's name, such as \"terraform import\"; \"été\" isn't one.",
+      "body" : "{\"extra\":[\"été x\"]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "A pattern is one line of plain words.",
+      "body" : "{\"extra\":[\"git\\npush\"]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "A pattern is one line of plain words.",
+      "body" : "{\"extra\":[\"git\\u200bpush\"]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : null,
+      "answer" : "A pattern is at most 200 characters.",
+      "body" : "{\"extra\":[\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"]}",
+      "file" : null,
+      "status" : 400
+    },
+    {
+      "after" : {
+        "groups" : [
+          {
+            "commands" : [
+              "git push|send-pack",
+              "git subtree push",
+              "git svn dcommit",
+              "git lfs push"
+            ],
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "vercel",
+              "netlify",
+              "wrangler",
+              "firebase deploy|hosting|functions|apphosting|firestore|database|extensions|appdistribution|remoteconfig|dataconnect",
+              "fly",
+              "railway",
+              "heroku",
+              "render",
+              "eas build|submit|update",
+              "supabase db push",
+              "supabase functions deploy",
+              "kubectl apply|delete",
+              "terraform apply|destroy",
+              "pulumi up|destroy",
+              "docker push",
+              "docker image push",
+              "docker compose push",
+              "docker-compose push",
+              "docker manifest push",
+              "docker buildx build|bake --push",
+              "docker build --push",
+              "docker builder build --push",
+              "podman push",
+              "podman image push",
+              "podman manifest push",
+              "podman compose push"
+            ],
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "npm publish|publis|publi|publ|pub|pu",
+              "pnpm publish",
+              "yarn publish",
+              "bun publish",
+              "cargo publish",
+              "twine upload",
+              "gem push",
+              "fastlane",
+              "xcrun altool|notarytool",
+              "gh pr create|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
+              "gh issue create|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
+              "gh release",
+              "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink",
+              "gh gist create|edit|delete",
+              "gh label create|delete|edit|clone",
+              "gh ssh-key add|delete",
+              "gh gpg-key add|delete",
+              "gh codespace create|delete|ssh",
+              "gh extension install",
+              "gh cache delete",
+              "gh auth token|refresh|login|logout|setup-git",
+              "gh auth status -t|--show-token",
+              "npm unpublish|deprecate|dist-tag|access|owner|token|login|adduser|team|org",
+              "gh workflow run|enable|disable",
+              "gh run rerun|cancel|delete",
+              "gh secret",
+              "gh variable",
+              "gh api -X|--method|-f|-F|--field|--raw-field|--input"
+            ],
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "aws",
+              "gcloud",
+              "az",
+              "gsutil",
+              "bq",
+              "cdk"
+            ],
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "ssh",
+              "scp",
+              "sftp",
+              "rsync @remote"
+            ],
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
+              "smolcorp gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+              "security",
+              "osascript",
+              "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
+              "op read|item|inject|signin",
+              "bw",
+              "pass"
+            ],
+            "name" : "local",
+            "on" : true
+          },
+          {
+            "commands" : [
+              "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            ],
+            "name" : "extra",
+            "on" : true
+          }
+        ]
+      },
+      "answer" : {
+        "extra" : [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ],
+        "groups" : [
+          {
+            "about" : "Sending code to a remote: git push and its relatives.",
+            "allows" : "send code to a remote with git push.",
+            "name" : "push",
+            "on" : true
+          },
+          {
+            "about" : "Putting things live: Vercel, Netlify, Docker pushes, kubectl, terraform, EAS builds.",
+            "allows" : "deploy: put things live with Vercel, Netlify, Docker pushes, kubectl, terraform or EAS builds.",
+            "name" : "deploy",
+            "on" : true
+          },
+          {
+            "about" : "Publishing packages and changing things on GitHub: npm publish, pull requests, releases, secrets.",
+            "allows" : "publish packages and change things on GitHub: npm publish, pull requests, releases and secrets.",
+            "name" : "publish",
+            "on" : true
+          },
+          {
+            "about" : "Cloud accounts: aws, gcloud, az and their kin.",
+            "allows" : "use your cloud accounts with aws, gcloud, az and the like.",
+            "name" : "cloud",
+            "on" : true
+          },
+          {
+            "about" : "Reaching other machines: ssh, scp, sftp, rsync to a host.",
+            "allows" : "reach other machines with ssh, scp, sftp and rsync.",
+            "name" : "remote",
+            "on" : true
+          },
+          {
+            "about" : "Driving your Mac: tmux keystrokes, the GM's commands, osascript, stored passwords.",
+            "allows" : "drive your Mac: tmux keystrokes, the GM's commands, osascript and your stored passwords.",
+            "name" : "local",
+            "on" : true
+          }
+        ],
+        "limits" : "The guard reads the commands a hire types, so it can't stop a script the hire writes and then runs, a command built from variables, or python -c."
+      },
+      "body" : "{\"extra\":[\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"]}",
+      "file" : null,
+      "status" : 200
     }
   ],
   "hires" : [
@@ -827,6 +2655,46 @@
         ]
       },
       "task" : "  Fix the login bug.\n\tStep by step.\u001b  "
+    },
+    {
+      "answers" : [
+        "« tout », s’il te plaît",
+        "la base de test, déjà prête"
+      ],
+      "date" : 1800000000,
+      "folder" : "~/Projets/équipe café",
+      "kept" : "~/Support/briefs",
+      "made" : {
+        "brief" : "~/Projets/équipe café/BRIEF.md",
+        "firstMessage" : "Read `~/Projets/équipe café/BRIEF.md` and start: it's your brief, as my Tester, with my answers to its questions.",
+        "markdown" : "# Brief: Tester\n\n## Who you are\nYou are the **Tester**, hired from the Smolcorp office on 2027-01-15. You test: you run the tests named under \"The job\" and use the real thing the way a user would, then report what passes, what fails and why. You don't change the code under test, and you don't weaken a test to make it pass.\n\n**The user hired you for this; don't wait for plan approval unless this brief says to ask.** Write your plan at the top of `~/Projets/équipe café/STATUS.md`, then carry on until the job is done. Anything this brief doesn't cover isn't approved.\n\n## The job\nThe user answered these questions as they hired you:\n\n- **Which project should you work on?** `~/Projets/équipe café`\n- **Which tests should you run: all of them, a folder, or a single file?** « tout », s’il te plaît\n- **Is there anything to set up or start first, such as a database, a server or environment variables?** la base de test, déjà prête\n\n**How to work:**\n- **Set up first:** read the README for how to install and run. Anything that needs a key or a `.env` file you weren't given: skip it, and list it as not tested, with why.\n- **Work in a copy when running changes files:** copy the project into a folder of your own, leaving out `.git`, `node_modules`, build outputs and every `.env*` file (`rsync -a --exclude .git --exclude node_modules --exclude dist --exclude '.env*' <project>/ <copy>/`), and install and run there.\n- **Run the suite,** then try the real thing (start it on a free port, click through, call its routes) for what the tests don't cover.\n- **For each failure,** find out why: a real bug, a broken test, or the environment. Run anything that fails once twice more, to see if it's flaky.\n\n## Where you work\n- **Folder:** `~/Projets/équipe café`. Work there, or in the project named under \"The job\". You're **read-only**: the only files you write are your own, next to this brief.\n- **No git here** that Smolcorp could see. In a project with git, follow its branch rules; without git, list every file you change in `~/Projets/équipe café/STATUS.md`.\n- **You run as** Claude Code, model `sonnet`, effort medium. Don't switch accounts, log in or out, or use a key you weren't given.\n- **Servers:** on a free port above 4000 only (`lsof -iTCP:<port> -sTCP:LISTEN` shows nothing), never one another app is on.\n\n## Deliver\n`~/Projets/équipe café/TEST-REPORT.md`, next to this brief:\n- the totals (passed, failed, skipped, flaky) and the exact commands you ran;\n- each failure with an id (`T1`, `T2`…), how to reproduce it, its cause, and the fix you'd make;\n- what you couldn't test, and why;\n- the checks you made by hand on the real thing, with what you saw.\n\n**The bar:**\n- A result is what you saw, not what should happen: quote the output.\n- Keep real bugs, broken tests and environment problems apart.\n- Do what's asked, nothing more: a related problem goes in `~/Projets/équipe café/STATUS.md` under \"Found, not fixed\", with where it is and why it matters.\n- Write in the project's language. Copy for users reads as a native speaker would write it, never translated word for word.\n\n## Verify\nNothing is done until you've checked it yourself in the real thing (the command's output, the page in a browser, the file on disk), not \"it should work\".\n\n- Each test command with its summary output, and screenshots for anything visual.\n\n## Base rules\n1. Work only in your folder or worktree; the one place you also write is `~/Projets/équipe café/STATUS.md`. `~/Projets/équipe café/BRIEF.md` is your task.\n2. Add one line to `~/Projets/équipe café/STATUS.md` for every step you finish.\n3. When the job is done, write `NEEDS-REVIEW: <what to look at>` as the last line of `~/Projets/équipe café/STATUS.md`, then stop.\n4. If `STOP` appears in `~/Projets/équipe café/STATUS.md`, stop at once, whatever you are doing.\n5. Don't push, deploy or publish anything.\n6. Don't read, write, print or commit secrets.\n7. Stage and commit only your own files, never `git add -A` or `git add .`.\n\n## Report\n- **`~/Projets/équipe café/STATUS.md`** is your logbook, read by the user at any time: your plan at the top, then one dated line per step with its proof (commands and their results, screenshot paths, commit hashes).\n- **Markers,** at the start of a line: `QUESTION: <question>` (only the user can decide; carry on with your best default), `BLOCKED: <why>` (say what would unblock you), and, when the whole job is done, `TESTS DONE: <one-line summary>`, then the `NEEDS-REVIEW:` line from the base rules as the last line. Say the same in your terminal, with where things are and what needs the user.\n\n## Stop and ask\nWrite `QUESTION:` and ask before you push, merge, tag, deploy, publish, post or release anything; delete a file or branch; spend money, create an account, contact a person or submit a form on a live site; or go beyond this brief. If your agent's safety checks refuse an action, don't retry or work around it: note it and carry on.\n\n## Never\n- Open, write, print or commit `.env` files, keys or tokens (noting where one is is fine).\n- `rm`, `git clean` or empty folders, unless the user named what to delete.\n- Edit outside the project, except your own files next to `~/Projets/équipe café/BRIEF.md`.\n- Quit, restart or call the apps the user has running, Smolcorp included, or type into another window.\n- Install anything system-wide, or invent facts, quotes, numbers or results.\n- Change the code under test, or skip, loosen or delete a test to make it pass.\n- Run tests against production data or live services.\n\n## Clean up\n- Stop every process you start (servers, watchers, headless browsers) once its step is done, by its own PID, never by name. Before you finish, check nothing of yours runs (`lsof -iTCP -sTCP:LISTEN`, `ps`), and list any leftover in `~/Projets/équipe café/STATUS.md`.\n- **A job over about 30 minutes runs detached,** to outlive your session, logging to a file; write its PID, log and how to resume it in `~/Projets/équipe café/STATUS.md`:\n  `nohup perl -MPOSIX -e 'POSIX::setsid() or die; exec @ARGV' -- <command> > <log> 2>&1 < /dev/null & echo $! > <pid file>`\n",
+        "report" : "~/Projets/équipe café/TEST-REPORT.md",
+        "status" : "~/Projets/équipe café/STATUS.md"
+      },
+      "madeAsIs" : {
+        "brief" : "~/Projets/équipe café/BRIEF.md",
+        "firstMessage" : "Read `~/Projets/équipe café/BRIEF.md` and start: it's your brief, as my Tester, with my answers to its questions.",
+        "markdown" : "# Brief: Tester\n\n## Who you are\nYou are the **Tester**, hired from the Smolcorp office on 2027-01-15. You test: you run the tests named under \"The job\" and use the real thing the way a user would, then report what passes, what fails and why. You don't change the code under test, and you don't weaken a test to make it pass.\n\n**The user hired you for this; don't wait for plan approval unless this brief says to ask.** Write your plan at the top of `~/Projets/équipe café/STATUS.md`, then carry on until the job is done. Anything this brief doesn't cover isn't approved.\n\n## The job\nThe user answered these questions as they hired you:\n\n- **Which project should you work on?** `~/Projets/équipe café`\n- **Which tests should you run: all of them, a folder, or a single file?** « tout », s’il te plaît\n- **Is there anything to set up or start first, such as a database, a server or environment variables?** la base de test, déjà prête\n\n**How to work:**\n- **Set up first:** read the README for how to install and run. Anything that needs a key or a `.env` file you weren't given: skip it, and list it as not tested, with why.\n- **Work in a copy when running changes files:** copy the project into a folder of your own, leaving out `.git`, `node_modules`, build outputs and every `.env*` file (`rsync -a --exclude .git --exclude node_modules --exclude dist --exclude '.env*' <project>/ <copy>/`), and install and run there.\n- **Run the suite,** then try the real thing (start it on a free port, click through, call its routes) for what the tests don't cover.\n- **For each failure,** find out why: a real bug, a broken test, or the environment. Run anything that fails once twice more, to see if it's flaky.\n\n## Where you work\n- **Folder:** `~/Projets/équipe café`. Work there, or in the project named under \"The job\". You're **read-only**: the only files you write are your own, next to this brief.\n- **No git here** that Smolcorp could see. In a project with git, follow its branch rules; without git, list every file you change in `~/Projets/équipe café/STATUS.md`.\n- **You run as** Claude Code, model `sonnet`, effort medium. Don't switch accounts, log in or out, or use a key you weren't given.\n- **Servers:** on a free port above 4000 only (`lsof -iTCP:<port> -sTCP:LISTEN` shows nothing), never one another app is on.\n\n## Deliver\n`~/Projets/équipe café/TEST-REPORT.md`, next to this brief:\n- the totals (passed, failed, skipped, flaky) and the exact commands you ran;\n- each failure with an id (`T1`, `T2`…), how to reproduce it, its cause, and the fix you'd make;\n- what you couldn't test, and why;\n- the checks you made by hand on the real thing, with what you saw.\n\n**The bar:**\n- A result is what you saw, not what should happen: quote the output.\n- Keep real bugs, broken tests and environment problems apart.\n- Do what's asked, nothing more: a related problem goes in `~/Projets/équipe café/STATUS.md` under \"Found, not fixed\", with where it is and why it matters.\n- Write in the project's language. Copy for users reads as a native speaker would write it, never translated word for word.\n\n## Verify\nNothing is done until you've checked it yourself in the real thing (the command's output, the page in a browser, the file on disk), not \"it should work\".\n\n- Each test command with its summary output, and screenshots for anything visual.\n\n## Base rules\n1. Work only in your folder or worktree; the one place you also write is `~/Projets/équipe café/STATUS.md`. `~/Projets/équipe café/BRIEF.md` is your task.\n2. Add one line to `~/Projets/équipe café/STATUS.md` for every step you finish.\n3. When the job is done, write `NEEDS-REVIEW: <what to look at>` as the last line of `~/Projets/équipe café/STATUS.md`, then stop.\n4. If `STOP` appears in `~/Projets/équipe café/STATUS.md`, stop at once, whatever you are doing.\n5. Don't push, deploy or publish anything.\n6. Don't read, write, print or commit secrets.\n7. Stage and commit only your own files, never `git add -A` or `git add .`.\n\n## Report\n- **`~/Projets/équipe café/STATUS.md`** is your logbook, read by the user at any time: your plan at the top, then one dated line per step with its proof (commands and their results, screenshot paths, commit hashes).\n- **Markers,** at the start of a line: `QUESTION: <question>` (only the user can decide; carry on with your best default), `BLOCKED: <why>` (say what would unblock you), and, when the whole job is done, `TESTS DONE: <one-line summary>`, then the `NEEDS-REVIEW:` line from the base rules as the last line. Say the same in your terminal, with where things are and what needs the user.\n\n## Stop and ask\nWrite `QUESTION:` and ask before you push, merge, tag, deploy, publish, post or release anything; delete a file or branch; spend money, create an account, contact a person or submit a form on a live site; or go beyond this brief. If your agent's safety checks refuse an action, don't retry or work around it: note it and carry on.\n\n## Never\n- Open, write, print or commit `.env` files, keys or tokens (noting where one is is fine).\n- `rm`, `git clean` or empty folders, unless the user named what to delete.\n- Edit outside the project, except your own files next to `~/Projets/équipe café/BRIEF.md`.\n- Quit, restart or call the apps the user has running, Smolcorp included, or type into another window.\n- Install anything system-wide, or invent facts, quotes, numbers or results.\n- Change the code under test, or skip, loosen or delete a test to make it pass.\n- Run tests against production data or live services.\n\n## Clean up\n- Stop every process you start (servers, watchers, headless browsers) once its step is done, by its own PID, never by name. Before you finish, check nothing of yours runs (`lsof -iTCP -sTCP:LISTEN`, `ps`), and list any leftover in `~/Projets/équipe café/STATUS.md`.\n- **A job over about 30 minutes runs detached,** to outlive your session, logging to a file; write its PID, log and how to resume it in `~/Projets/équipe café/STATUS.md`:\n  `nohup perl -MPOSIX -e 'POSIX::setsid() or die; exec @ARGV' -- <command> > <log> 2>&1 < /dev/null & echo $! > <pid file>`\n",
+        "report" : "~/Projets/équipe café/TEST-REPORT.md",
+        "status" : "~/Projets/équipe café/STATUS.md"
+      },
+      "name" : "pinned to a folder with accents, answered",
+      "normalized" : "NFC",
+      "pinned" : true,
+      "role" : {
+        "agent" : "claude",
+        "badge" : "clipboard",
+        "effort" : "medium",
+        "id" : "tester",
+        "instructions" : "Run the tests I point you to. If any fail, find out why, and explain each failure with the fix you'd make. Don't change any code until I say so.",
+        "model" : "sonnet",
+        "name" : "Tester",
+        "outfit" : "",
+        "questions" : [
+          "Which tests should you run: all of them, a folder, or a single file?",
+          "Is there anything to set up or start first, such as a database, a server or environment variables?"
+        ]
+      }
     },
     {
       "date" : 1800000000,
