@@ -174,8 +174,17 @@ func TestT3EachStateIsFoundAndTheVersionIsAsked(t *testing.T) {
 }
 
 func TestT3IsLookedForWhereT3CodeLinksItThenThePath(t *testing.T) {
+	// The folders are joined and the PATH split by this computer's own rules (its separator, its list
+	// separator), as on the real machine, whose GOOS is always this one's: a Linux machine can't be played on
+	// Windows, so there the PATH is Windows'.
 	m := t3Machine{Home: "/home/ada", GOOS: "linux", Path: "/usr/bin:/bin"}
-	if got, want := t3Folders(m), []string{"/home/ada/.local/bin", "/home/ada/bin", "/usr/bin", "/bin"}; !reflect.DeepEqual(got, want) {
+	if runtime.GOOS == "windows" {
+		m = t3Machine{Home: `C:\Users\ada`, GOOS: "windows", Path: `C:\Windows;C:\bin`, Getenv: func(string) string { return "" }}
+		if got, want := t3Folders(m), []string{`C:\Users\ada\.t3\bin`, `C:\Windows`, `C:\bin`}; !reflect.DeepEqual(got, want) {
+			t.Errorf("Windows, then its PATH: %q", got)
+		}
+		m.Home = "/home/ada"
+	} else if got, want := t3Folders(m), []string{"/home/ada/.local/bin", "/home/ada/bin", "/usr/bin", "/bin"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("Linux: %q", got)
 	}
 	m.GOOS = "windows"
