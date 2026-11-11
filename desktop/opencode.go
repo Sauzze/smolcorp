@@ -88,10 +88,10 @@ func openCodePlaces() []string {
 		return []string{filepath.Join(os.Getenv("APPDATA"), "npm"), filepath.Join(os.Getenv("LOCALAPPDATA"), "pnpm"),
 			filepath.Join(os.Getenv("LOCALAPPDATA"), "Volta", "bin"), home(".opencode", "bin"), home(".bun", "bin")}
 	}
-	askLoginPath()
+	login := askLoginPath()
 	nvm, _ := filepath.Glob(home(".nvm", "versions", "node", "*", "bin"))
 	slices.Reverse(nvm) // the newest first
-	return slices.Concat(loginPath, []string{home(".opencode", "bin"), home(".local", "bin"), home(".bun", "bin"), home(".npm-global", "bin"),
+	return slices.Concat(login, []string{home(".opencode", "bin"), home(".local", "bin"), home(".bun", "bin"), home(".npm-global", "bin"),
 		home(".local", "share", "pnpm"), home(".volta", "bin"), home(".local", "share", "fnm", "aliases", "default", "bin"),
 		home(".asdf", "shims"), home(".local", "share", "mise", "shims"), "/opt/homebrew/bin", "/usr/local/bin"}, nvm)
 }

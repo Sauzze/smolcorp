@@ -83,21 +83,22 @@ final class GoCore {
     /// find yours and its tools (`SHELL` gives your login shell's PATH), and
     /// what a hire's pane gets from the Mac on the Swift engine and needs to
     /// work the same: your ssh agent (`git push` over SSH), `LOGNAME`, the text
-    /// encoding and `LC_*` (`inheritedPrefix`), and `TMUX_TMPDIR`, so both
+    /// encoding and the locale's own variables, and `TMUX_TMPDIR`, so both
     /// engines' hires are in one tmux folder. Nothing else. A Smolcorp opened from
     /// a terminal would otherwise hand the core that terminal's whole
     /// environment, its tokens too.
     static let inherited = ["PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "SHELL", "SSH_AUTH_SOCK",
-                            "__CF_USER_TEXT_ENCODING", "TMUX_TMPDIR"]
-    /// The locale's own variables (LC_ALL, LC_CTYPE, ...), kept with `inherited`.
-    static let inheritedPrefix = "LC_"
+                            "__CF_USER_TEXT_ENCODING", "TMUX_TMPDIR",
+                            // The locale's categories, a closed list: an open `LC_*` would pass
+                            // LC_TERMINAL (iTerm2) and whatever ssh's AcceptEnv carries.
+                            "LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME"]
 
     /// The core's environment: `inherited` from this app's, with the port and folder
     /// a test copy's hires and `smolcorp gm` read, as the Swift engine gives them, and
     /// SMOLCORP_TEST_LISTEN=lan if the copy was opened with it (the core listens on this
     /// Mac only otherwise, as `TestCopy.listensOn`). Never the token.
     func environment(base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
-        var environment = base.filter { GoCore.inherited.contains($0.key) || $0.key.hasPrefix(GoCore.inheritedPrefix) }
+        var environment = base.filter { GoCore.inherited.contains($0.key) }
         environment["SMOLCORP_PORT"] = String(port)
         environment["SMOLCORP_TEST_SUPPORT_DIR"] = support.path
         if base["SMOLCORP_TEST_LISTEN"]?.lowercased() == "lan" { environment["SMOLCORP_TEST_LISTEN"] = "lan" }

@@ -72,7 +72,7 @@ var hireSocketFolder = tmuxSocketFolder
 // out for -L. The hire's tmux is given the same environment (hireEnvironment), so it would pick the same.
 func tmuxSocketFolder() string {
 	base := os.Getenv("TMUX_TMPDIR")
-	if base == "" {
+	if !filepath.IsAbs(base) { // unset, or relative (it would mean the core's own folder)
 		base = "/tmp"
 	}
 	return filepath.Join(base, "tmux-"+strconv.Itoa(os.Getuid()))
