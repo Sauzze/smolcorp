@@ -788,8 +788,9 @@
    * only). Without the box, the computer decides by the setting, as before.
    */
   async function dictate(session, text, send) {
-    const res = await post('/dictate', { session }, undefined, send === undefined ? { text } : { text, send });
+    const res = await post('/dictate', { session }, timeLimit(INPUT_WAIT), send === undefined ? { text } : { text, send });
     if (!res) return flash("Can't reach your computer");
+    if (res.timedOut) return flash(NO_ANSWER);
     if (res.status === 401) return unpaired();
     if (!res.ok) return flash((await res.text()) || `failed (${res.status})`);
     const sent = send === undefined ? phoneMic.autoSend && text.split(/\s+/).length >= 3 : send;
@@ -942,9 +943,14 @@
       flash(rehearse(params));
       return false;
     }
-    const res = await post(pathname, params, signal);
+    const input = pathname === '/act' && INPUT_ACTIONS.has(params.action);
+    const res = await post(pathname, params, signal || (input ? timeLimit(INPUT_WAIT) : undefined));
     if (!res) {
       flash("Can't reach your computer");
+      return false;
+    }
+    if (res.timedOut) {
+      flash(NO_ANSWER);
       return false;
     }
     if (res.status === 401) unpaired();
@@ -1469,11 +1475,29 @@
 
   /* ----------------------------------------------------------- plumbing */
 
+  /*
+   * A desk's keys and text, and the words dictated: the phone never just waits. The computer answers within
+   * seconds, saying so itself when a terminal isn't answering; past this, it's the computer that isn't. What
+   * it was given may still be on its way, so look at the desk before trying again.
+   */
+  const INPUT_WAIT = 20000;
+  const NO_ANSWER = "Your computer didn't answer in time. Look at the desk before you try again.";
+  const INPUT_ACTIONS = new Set(['accept', 'send', 'reject', 'esc', 'up', 'down', 'choose', 'button', 'clear', 'scroll']);
+
+  /** A signal that gives up after `ms`, made by hand where the browser has no AbortSignal.timeout. */
+  function timeLimit(ms) {
+    if (AbortSignal.timeout) return AbortSignal.timeout(ms);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), ms);
+    return controller.signal;
+  }
+
+  /** The computer's answer; nothing if it can't be reached; `{ timedOut: true }` once `signal` has given up. */
   function post(pathname, params = {}, signal, json) {
     if (preview) return Promise.resolve();
     const q = new URLSearchParams({ t: token, ...params });
     const body = json === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(json) };
-    return fetch(`${pathname}?${q}`, { method: 'POST', signal, ...body }).catch(() => {});
+    return fetch(`${pathname}?${q}`, { method: 'POST', signal, ...body }).catch(() => (signal && signal.aborted ? { timedOut: true } : undefined));
   }
 
   /** What the computer streams: the sessions at their desks and the layout. */

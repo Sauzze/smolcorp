@@ -61,7 +61,10 @@ enum Tool {
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         overran.cancel()
-        guard process.terminationReason == .exit else { return nil }
+        guard process.terminationReason == .exit else {
+            Terminal.noteTimeout()
+            return nil
+        }
         return (process.terminationStatus, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
@@ -737,7 +740,7 @@ enum Openers {
                     tell current session of w to write text "cd " & quoted form of (item 1 of argv) & " && " & quoted form of (item 2 of argv)
                     return "iterm:" & (unique ID of current session of w)
                 end tell
-                """, arguments: [folder, command]).flatMap { $0.hasPrefix("iterm:") ? $0 : nil }
+                """, arguments: [folder, command], timeout: Terminal.openTimeout).flatMap { $0.hasPrefix("iterm:") ? $0 : nil }
         case "ghostty":
             return Terminal.run("""
                 tell application "Ghostty"
@@ -745,7 +748,7 @@ enum Openers {
                     set w to new window with configuration {initial working directory:(item 1 of argv), initial input:(quoted form of (item 2 of argv)) & linefeed}
                     return "ghostty-id:" & (id of focused terminal of selected tab of w)
                 end tell
-                """, arguments: [folder, command]).flatMap { $0.hasPrefix("ghostty-id:") ? $0 : nil }
+                """, arguments: [folder, command], timeout: Terminal.openTimeout).flatMap { $0.hasPrefix("ghostty-id:") ? $0 : nil }
         default:
             // The tab's tty and its window's id, both: macOS gives a closed tab's tty to a new one (see `HireWindows`).
             return Terminal.open(command, in: folder).map { HireWindows.terminalRecord(tty: $0.tty, windowID: $0.window) }

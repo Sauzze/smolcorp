@@ -48,7 +48,7 @@ final class HostBridgeTests: XCTestCase {
                 "viewer-key": HostBridge.Secret(read: { nil }, write: { _ in false }, delete: nil),
             ],
             loginItem: (get: { [unowned self] in login }, set: { [unowned self] in login = $0 }),
-            queue: terminals)
+            queue: { [terminals] _ in terminals })
     }
 
     private func ask(_ request: [String: Any], token given: String? = nil) -> [String: Any] {
@@ -138,6 +138,31 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertLessThan(HostBridge.actionWait, 20, "under the core's own wait (desktop/hostbridge_darwin.go)")
         // Running, it's waited for; done, its answer is given.
         if case .done(let value) = HostBridge.run(on: terminals, until: .now() + 5, { 42 }) { XCTAssertEqual(value, 42) } else { XCTFail("not run") }
+    }
+
+    /// A tab action runs on its own terminal's queue, as the deck's keys do: a tmux tab's never waits behind
+    /// Terminal.app, and one its terminal doesn't get to within the deck's input wait is never run.
+    func testATabActionWaitsOnlyOnItsOwnTerminal() {
+        let tmux = DispatchQueue(label: "test.tmux")
+        var actions = self.actions
+        actions.queue = { [terminals] tab in tab?.kind == "tmux" ? tmux : terminals }
+        let release = DispatchSemaphore(value: 0)
+        terminals.async { release.wait() } // Terminal.app not answering
+        func line(_ tab: String) -> Data {
+            try! JSONSerialization.data(withJSONObject: ["token": token, "action": "type", "tab": tab, "text": "hello"])
+        }
+        let started = Date()
+        XCTAssertTrue(isOK(HostBridge.answer(line("tmux:%1@/tmp/s"), token: token, actions: actions, until: .now() + HostBridge.actionWait)))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+        XCTAssertEqual(asked, ["type hello tmux:%1@/tmp/s"])
+        // Terminal.app's: given the deck's input wait to start, not the bridge's whole 18 s.
+        let late = HostBridge.answer(line("tty:/dev/ttys003"), token: token, actions: actions, until: .now() + HostBridge.actionWait)
+        XCTAssertEqual(late["error"] as? String, "The terminal didn't answer in time.")
+        XCTAssertLessThan(Date().timeIntervalSince(started), Terminals.inputWait + 1.5)
+        release.signal()
+        terminals.sync {}
+        XCTAssertEqual(asked, ["type hello tmux:%1@/tmp/s"], "never typed once Terminal was free")
+        XCTAssertTrue(Terminals.inputWait < HostBridge.actionWait)
     }
 
     /// A window, as a tab action: on the terminals' queue, and never once the core has given up,

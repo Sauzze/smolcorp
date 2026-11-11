@@ -7,10 +7,13 @@ import AppKit
 /// window and tab indexes shift as tabs move, a tty does not.
 ///
 /// AppleScript runs through osascript, one call at a time on `queue`, so a slow
-/// script never holds up the menu bar or the server. Every script checks that
-/// Terminal is running first, because asking a closed Terminal anything
-/// launches it.
+/// script never holds up the menu bar or the server; the looks at Terminal's
+/// tabs run on pollers of their own (`Poller`), and each script has a time
+/// limit. Every script checks that Terminal is running first, because asking
+/// a closed Terminal anything launches it.
 enum Terminal {
+    /// Terminal.app's tabs' queue: their keys, text, windows opened. Other
+    /// terminals each have their own (`Terminals.queue(for:)`).
     static let queue = DispatchQueue(label: "io.github.sauzze.agentdeck.terminal")
     private static let bundleID = "com.apple.Terminal"
 
@@ -63,7 +66,7 @@ enum Terminal {
     /// could not be asked. Asked for all at once: windows walked one by one
     /// shift under the walk as one opens, closes or comes to the front, and a
     /// window skipped would look closed.
-    static func openTTYs() -> Set<String>? {
+    static func openTTYs(timeout: TimeInterval = pollTimeout) -> Set<String>? {
         guard let output = run("""
             if application "Terminal" is not running then return ""
             tell application "Terminal" to set byWindow to tty of every tab of every window
@@ -75,7 +78,7 @@ enum Terminal {
             end repeat
             set AppleScript's text item delimiters to linefeed
             return ttys as text
-            """) else { return nil }
+            """, timeout: timeout) else { return nil }
         return Set(output.split(separator: "\n").map(String.init))
     }
 
@@ -153,7 +156,7 @@ enum Terminal {
                 if not frontmost or (count of windows) is 0 then return ""
                 return tty of selected tab of front window
             end tell
-            """)
+            """, timeout: pollTimeout)
         return tty?.isEmpty == false ? tty : nil
     }
 
@@ -285,7 +288,7 @@ enum Terminal {
                 end try
                 return "tty:" & found
             end tell
-            """, arguments: [folder, command])?.split(separator: "\n").map(String.init) ?? []
+            """, arguments: [folder, command], timeout: openTimeout)?.split(separator: "\n").map(String.init) ?? []
         guard let first = opened.first, first.hasPrefix("tty:") else { return nil }
         let window = opened.count == 2 && !opened[1].isEmpty && opened[1].allSatisfy(\.isNumber) ? opened[1] : nil
         return (String(first.dropFirst(4)), window)
@@ -489,19 +492,64 @@ enum Terminal {
         return output == "yes"
     }
 
+    /// How long a look at Terminal's tabs may take. It usually answers in a
+    /// fraction of a second; one that doesn't answer, as while macOS asks
+    /// whether Smolcorp may control it, is ended and asked again next round.
+    static let pollTimeout: TimeInterval = 3
+    /// How long any other script may take: a tab found, a key's tab selected, a line typed.
+    static let scriptTimeout: TimeInterval = 4
+    /// How long opening a window may take: Terminal may have to start first,
+    /// or macOS ask you whether Smolcorp may control it.
+    static let openTimeout: TimeInterval = 30
+
+    /// osascript's path. Settable for tests, which give a stand-in: they never ask a real terminal anything.
+    static var osascript = "/usr/bin/osascript"
+
     /// Runs an AppleScript, passing `arguments` as argv rather than splicing
-    /// them into the source. Nil if it failed.
-    static func run(_ source: String, arguments: [String] = []) -> String? {
+    /// them into the source. Nil if it failed, or took longer than `timeout`:
+    /// then osascript is ended by its pid, so a terminal that doesn't answer
+    /// never holds up what waits behind it for long (see `noticingTimeouts`).
+    static func run(_ source: String, arguments: [String] = [], timeout: TimeInterval = scriptTimeout) -> String? {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.executableURL = URL(fileURLWithPath: osascript)
         process.arguments = ["-e", "on run argv\n\(source)\nend run"] + arguments
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { return nil }
+        let pid = process.processIdentifier
+        // Ended when it overruns, which also ends the reading below.
+        let overran = DispatchWorkItem { if process.isRunning { kill(pid, SIGKILL) } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: overran)
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        overran.cancel()
+        guard process.terminationReason == .exit else {
+            noteTimeout()
+            return nil
+        }
         guard process.terminationStatus == 0 else { return nil }
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
+    }
+
+    private static let timedOutKey = "io.github.sauzze.agentdeck.timedOut"
+
+    /// `body`'s value, and whether a script or a tool it ran on this thread
+    /// was ended for taking too long: a key that didn't go because its
+    /// terminal didn't answer is told apart from a tab that's gone.
+    static func noticingTimeouts<T>(_ body: () -> T) -> (value: T, timedOut: Bool) {
+        let thread = Thread.current.threadDictionary
+        let outer = thread[timedOutKey]
+        thread[timedOutKey] = false
+        let value = body()
+        let timedOut = thread[timedOutKey] as? Bool == true
+        thread[timedOutKey] = outer.map { ($0 as? Bool == true) || timedOut }
+        return (value, timedOut)
+    }
+
+    /// A script or a tool was ended for taking too long, on this thread.
+    static func noteTimeout() {
+        let thread = Thread.current.threadDictionary
+        if thread[timedOutKey] != nil { thread[timedOutKey] = true }
     }
 }

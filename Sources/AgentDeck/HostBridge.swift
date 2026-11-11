@@ -47,10 +47,11 @@ final class HostBridge {
     static let connectionsMost = 8
     /// How long a whole request has to arrive, however it's cut up.
     static let requestWait: TimeInterval = 5
-    /// How long a tab action has to start, from the moment its connection is
-    /// taken: under the core's 20 s (desktop/hostbridge_darwin.go), so the core
-    /// is still waiting when it's answered. One that hasn't started by then is
-    /// never run: the core has given up, and a phone may try again.
+    /// How long a window has to start opening, from the moment its connection
+    /// is taken: under the core's 20 s (desktop/hostbridge_darwin.go), so the
+    /// core is still waiting when it's answered. One that hasn't started by then
+    /// is never run: the core has given up, and a phone may try again. A tab
+    /// action has less, `Terminals.inputWait`, as the deck's own keys have.
     static let actionWait: TimeInterval = 18
     /// The longest a socket's path can be on a Mac.
     static let pathMost = 103
@@ -309,8 +310,11 @@ final class HostBridge {
                 }
             }
         }
-        switch run(on: actions.queue, until: deadline, work) {
-        case .done(let answer): return answer
+        // On its own terminal's queue, as the deck's keys go, and given no longer to start than they are (`Terminals.inputWait`).
+        let start = min(deadline, .now() + Terminals.inputWait)
+        switch run(on: actions.queue(tab), until: start, { Terminal.noticingTimeouts(work) }) {
+        case .done(let answer) where answer.timedOut && answer.value["ok"] as? Bool != true: return refused("The terminal didn't answer in time.")
+        case .done(let answer): return answer.value
         case .tooLate: return refused("The terminal didn't answer in time.")
         }
     }
@@ -387,7 +391,7 @@ final class HostBridge {
         guard let script = request["script"] as? String, isHireScript(script, in: actions.hires) else {
             return refused("Not a script in Smolcorp's hires folder.")
         }
-        switch run(on: actions.queue, until: deadline, { actions.open(terminal, folder, script) }) {
+        switch run(on: actions.queue(nil), until: deadline, { actions.open(terminal, folder, script) }) {
         case .done(let tab?): return ["ok": true, "tab": tab]
         case .done(nil): return refused("The window didn't open.")
         case .tooLate: return refused("The terminal didn't answer in time.")
@@ -463,10 +467,10 @@ final class HostBridge {
         var secrets: [String: Secret]
         /// The login item, or nil in a test copy, whose login item is the copy in use's: never read or set.
         var loginItem: (get: () -> Bool, set: (Bool) -> Void)?
-        /// Where tab actions and windows opened run, one at a time.
-        var queue: DispatchQueue = Terminal.queue
+        /// Where a tab's actions run, one at a time: its terminal's queue, as the deck's keys go. Nil for windows opened.
+        var queue: (TabAddress?) -> DispatchQueue = { Terminals.queue(for: $0) }
 
-        /// The Swift engine's own: the terminal drivers on `Terminal.queue`, one at a time
+        /// The Swift engine's own: the terminal drivers on their terminals' queues, one at a time
         /// as the deck runs them, the openers, the secrets' stores (files in a test copy), the login item.
         static var mac: Actions { onThisMac() }
 
