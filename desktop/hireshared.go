@@ -191,12 +191,14 @@ func (d *Deck) hireHeardFrom(h Hire) bool {
 }
 
 // startedIn is where an engine hire started: its worktree, at the same place in it as the folder it was
-// hired into is in the repo; that folder itself when it has no worktree.
+// hired into is in the repo; that folder itself when it has no worktree. The folder is kept as it was given (a
+// desk's pin may name it through a link) and the repo resolved, so it is placed with its links resolved, as the
+// Mac's HireDesk.prepare places it (physical(request.folder) against the physical repo).
 func startedIn(h Hire) string {
 	if h.Worktree == "" || h.Repo == "" {
 		return h.Folder
 	}
-	if rest, inside := strings.CutPrefix(filepath.Clean(h.Folder), filepath.Clean(h.Repo)+string(filepath.Separator)); inside {
+	if rest, inside := strings.CutPrefix(physical(h.Folder), physical(h.Repo)+string(filepath.Separator)); inside {
 		return filepath.Join(h.Worktree, rest)
 	}
 	return h.Worktree
