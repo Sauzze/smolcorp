@@ -1706,6 +1706,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			writeStatus(w)(refused.status, refused.message)
 			return
 		}
+		// A GM whose row the owner set to failed or fired loses its token, as a fired one does: its scope
+		// follows the row (gmscope.go), so a working token with no open row would be unscoped (RX1d N1).
+		if hire.Role == gmRole && !isOpen(hire) {
+			d.clearFiredGMToken()
+		}
 		writeJSON(w, http.StatusOK, hire)
 
 	// routes.json: POST /setup/gm/nickname is an action for gm and page, never a tool or a hire.

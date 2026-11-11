@@ -148,7 +148,7 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	}
 	// The hire is written down before its key is made (a key's hash is kept against
 	// its row). It has no tmux socket: its launcher is known by its id.
-	hire = Hire{ID: id, Name: r.Role.Name, Role: r.Role.ID, Folder: place.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
+	hire = Hire{ID: id, Name: r.Role.Name, Nickname: r.Nickname, Account: r.AccountName, Role: r.Role.ID, Folder: place.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
 		ViaLauncher: true, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
 	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, hire) }); err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't save the hire in the registry.")
@@ -419,7 +419,7 @@ func (d *Deck) forgetLauncher(token string) {
 // it hires role roleID through the launcher engine and says what to answer,
 // or handled false: the switch is off, no terminal, or no such role, so it
 // opens as it did. The lock is let go while the engine works.
-func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int) (status int, message string, handled bool) {
+func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire) (status int, message string, handled bool) {
 	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == roleID })
 	if i < 0 || !d.config.HireManagedWindows || !hasTerminal {
 		return 0, "", false
@@ -439,6 +439,10 @@ func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, h
 	// The accounts' settings and transcripts are denied to the hire, as in tmux (managedHireWith): the saved list is
 	// copied here, and its folders are looked in once the lock is let go.
 	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
+	// What the GM route asks besides (its task, its account), or nil.
+	if extra != nil {
+		extra.apply(&request, d.config.ManagerEnabled)
+	}
 	// The GM gets a new token at its hire, handed to its launcher alone; the one it
 	// was given is taken away again if the hire doesn't go ahead or never starts.
 	gmToken := ""

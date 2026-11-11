@@ -160,8 +160,8 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 the GM into (400 for another role, another folder, or one that isn't there; 409 into T3 Code, or where the hire
 wouldn't go through the hire engine in tmux). The Go app keeps it in that GM's registry row (`scope`, written only
 when set) and holds every request made with its token to it (`desktop/gmscope.go`): `POST /setup/gm/hire` only
-into that folder or the top of one of its worktrees, a folder that is there, never `apiKey`, `account` or
-`engine: "t3"`; `send`, `brief`, `fire`, `contacts`, `nickname`, `/setup/pin`, `/setup/unpin`, `watch` and
+into that folder or the top of one of its worktrees, a folder that is there, never `apiKey` or `engine: "t3"`,
+and on the Claude account the GM was hired on (`account` that one or left out, when the app fills it in); `send`, `brief`, `fire`, `contacts`, `nickname`, `/setup/pin`, `/setup/unpin`, `watch` and
 `unwatch` only for its own hires, folders and watches; any other route but a GET is refused. Each refusal is
 403 with one sentence, before the route. A GM with no scope gets every answer below as before. The Mac's Swift
 engine has no scope and ignores the field: M7 keeps this before it deletes Swift's GM routes. `smolcorp demo`

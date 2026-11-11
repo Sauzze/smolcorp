@@ -515,8 +515,8 @@ type demoHireAsk struct {
 	t3, apiKey            bool
 }
 
-// hire checks one hire: into T3 Code never, nor on the API-key account or another Claude account;
-// a role from the list; a folder inside the demo, written as a plain path.
+// hire checks one hire: into T3 Code never, nor on the API-key account or a Claude account named (the app fills
+// in the GM's own); a role from the list; a folder inside the demo, written as a plain path.
 func (f demoFence) hire(ask demoHireAsk, cwd string) string {
 	folder := strings.TrimSpace(ask.folder)
 	switch {
@@ -525,7 +525,7 @@ func (f demoFence) hire(ask demoHireAsk, cwd string) string {
 	case ask.apiKey:
 		return demoFenceRefusal + "the demo hires on your Claude account's plan, never the API-key account: leave out --api-key."
 	case ask.account != "" && ask.account != claudeDefaultName:
-		return demoFenceRefusal + "the demo hires on your default Claude account only, as you were asked: leave out --account."
+		return demoFenceRefusal + "the demo's hires work on the General Manager's own Claude account, which Smolcorp fills in: leave out --account."
 	case !slices.Contains(f.roles, ask.role):
 		return demoFenceRefusal + fmt.Sprintf("the demo hires these roles only, all on Claude Code: %s.", strings.Join(f.roles, ", "))
 	case folder == "":

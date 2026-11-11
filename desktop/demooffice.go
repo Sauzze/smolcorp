@@ -207,6 +207,11 @@ func (o *officeTeam) demoLink(f demoFolder) string {
 // follows the team until the GM writes its report. The page's Hire turns on the switches the demo needs.
 func (o *officeTeam) work(ctx context.Context, f demoFolder, roles []string, out io.Writer) error {
 	off := o.off()
+	// The app answers only for a demo folder it was told about (demopage.go): this one, with its roles.
+	register := "/setup/demo/register?root=" + url.QueryEscape(f.root) + "&roles=" + url.QueryEscape(strings.Join(roles, ","))
+	if err := o.call(http.MethodPost, register, nil, nil); err != nil {
+		return fmt.Errorf("Smolcorp didn't take the demo's folder. %v\nNobody was hired. The demo folder stays: %s", err, f.root)
+	}
 	if o.noOpen {
 		fmt.Fprintf(out, "Open the demo's page in a browser on this computer, and click Hire there:\n\n  %s\n\n"+
 			"It opens signed in where Setup is already open. If it isn't, %s first, then open the link above.\n", o.demoLink(f), setupMenuWords())
@@ -358,7 +363,7 @@ func demoGMHire(f demoFolder, roles []string) map[string]any {
 			"3. Check each hire's proof yourself: `python3 -m unittest` in its worktree, and its diff.\n" +
 			"4. Have a Reviewer review each branch, and get what it finds fixed by the hire.\n" +
 			"5. Stop before anything ships: don't merge, push, publish or delete. The project has no remote, on purpose.\n" +
-			"6. Last, write " + demoReportName + " in " + f.root + " (not in the project): each task, its branch, its proof, " +
+			"6. Last, write " + demoReportName + " in " + f.root + " yourself (not in the project, and not through a hire): each task, its branch, its proof, " +
 			"its review, and what you'd ship with my OK. That file ends the demo.",
 	}
 }

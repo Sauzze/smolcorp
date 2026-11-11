@@ -31,6 +31,12 @@ With `--no-open`, nothing is opened: the demo prints the page's link instead.
 Open it in a browser on this computer where Setup is already open (signed in);
 if it isn't, open Setup from Smolcorp's menu first, then the link.
 
+The page shows a demo only for a folder `smolcorp demo` told Smolcorp about
+while Smolcorp was running, with roles the office has. A folder that only looks
+like a demo's (a cloned repository, an unpacked download) is refused, and the
+General Manager's task always comes from Smolcorp itself, never from the
+folder's files. After Smolcorp restarts, run the demo again for a new page.
+
 The sample is `bill`: one Python file that splits a restaurant bill, with its
 tests, MIT licensed. Its `TASKS.md` lists three tasks: a lost cent to fix,
 tests to add, and a README to finish. Python 3 is all the proof needs.
@@ -60,10 +66,14 @@ your phone or from Smolcorp's menu. Ctrl-C stops following, not the team.
 
 ## What it spends
 
-It runs real Claude Code on your default Claude account: the General Manager
-on Opus, and about four hires for some minutes each. That uses your plan's
-usage, as any Claude Code session does. Never an API key: the fence refuses a
-hire on the API-key account, or on another of your Claude accounts. Nothing
+It runs real Claude Code on your default Claude account, or on the one you
+pick on the demo's page: the General Manager on Opus, and about four hires for
+some minutes each. Its hires work on the General Manager's own account, which
+Smolcorp fills in for them. That uses your plan's usage, as any Claude Code
+session does. Never an API key: Smolcorp refuses a hire on the API-key account,
+or on any account but the General Manager's. A test copy of Smolcorp never
+hires on the default account, so there the page picks the test account, and
+the hires follow it. Nothing
 else is paid for, and the demo asks before it starts anything.
 
 ## What keeps it in its folder

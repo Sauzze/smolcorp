@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // POST /setup/gm/hire, for the GM and the setup page (the route table gates the callers): the Mac's hire, through
@@ -14,11 +15,11 @@ import (
 // With `engine: "t3"`, into T3 Code through Setup's own lane (hireFromSetupSheetIntoT3), as the Mac's route does.
 // The request is the fixture Tests/fixtures/frontdesk/hire.json.
 
-// gmHireCantHonour is the 400 for a field the Go path can't honour yet. Under the Mac app it's "this engine",
-// whose way back is the Swift one.
+// gmHireCantHonour is the 400 for a field the Go path can't honour yet. Under the Mac app it's "this engine".
+// It never says to switch back to the Swift engine: that one doesn't serve smolcorp demo, so a GM there would end it.
 func gmHireCantHonour(field string, macApp bool) string {
 	if macApp {
-		return "On this engine, the General Manager's hire can't honour \"" + field + "\" yet: leave it out, or switch back to the Swift engine."
+		return "On this engine, the General Manager's hire can't honour \"" + field + "\" yet: leave it out."
 	}
 	return "Smolcorp on Linux and Windows can't honour \"" + field + "\" in a hire yet: leave it out."
 }
@@ -65,8 +66,15 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		reply(http.StatusBadRequest, "Send {role}, the role to hire.")
 		return
 	}
-	if _, isText := body["task"].(string); body["task"] != nil && !isText {
+	// The task, as the Mac's BriefRoutes.hireRequest reads it: text of at most 8000 characters, into the brief
+	// as BriefContext.task (briefTask); left out or null is none.
+	task, isText := body["task"].(string)
+	if body["task"] != nil && !isText {
 		reply(http.StatusBadRequest, "The task is text.")
+		return
+	}
+	if utf8.RuneCountInString(task) > briefTaskLimit {
+		reply(http.StatusBadRequest, "The task is at most 8000 characters.")
 		return
 	}
 	// Where it works, in the Mac's words: a terminal (left out or "terminal") or T3 Code ("t3"), nothing else.
@@ -85,7 +93,7 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 	for _, f := range []struct {
 		field string
 		bad   bool
-	}{{"account", set("account", "")}, {"model", set("model", "")}, {"nickname", set("nickname", "")}, {"task", set("task", "")},
+	}{{"model", set("model", "")}, {"nickname", set("nickname", "")},
 		{"apiKey", set("apiKey", false)}, {"worktree", set("worktree", true)}, // a hire is always in a worktree of its own
 		{"answers", set("answers") && (!isList || len(answers) > 0)}} {
 		if f.bad {
@@ -112,12 +120,37 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		reply(http.StatusBadRequest, why)
 		return
 	}
-	if t3 {
-		d.gmHireIntoT3(w, setupHire{Role: role, Folder: folder, Floor: int(floor), Answers: []string{}, Worktree: true, T3: true})
+	// The account, as the Mac's: one of your Claude accounts by name. Left out (or "") is the default one, as
+	// this route always hired; a GM held to one project has its own account filled in (gmScopeRefusal).
+	named, isName := body["account"].(string)
+	if body["account"] != nil && !isName {
+		reply(http.StatusBadRequest, "The account is a name, as text.")
 		return
 	}
+	named = strings.Trim(named, " \t")
+	if t3 {
+		// T3 Code works on its own account: what was named is kept for its own refusal, as setup's hire does.
+		d.gmHireIntoT3(w, setupHire{Role: role, Folder: folder, Floor: int(floor), Answers: []string{}, Worktree: true, T3: true,
+			Account: named, Task: briefTask(task)})
+		return
+	}
+	extra := &setupHire{Role: role, Account: named, Task: briefTask(task), Worktree: true}
+	if named != "" {
+		d.mu.Lock()
+		saved := slices.Clone(d.config.ClaudeProfiles)
+		d.mu.Unlock()
+		// The account folders are looked in without the lock, as setup's own list is (claudeaccounts.go).
+		accounts := claudeAccountList(saved)
+		if status, why := claudeAccountRefusal(named, accounts); status != 0 {
+			reply(status, why)
+			return
+		}
+		if account, _ := claudeAccountNamed(named, accounts); account.Name != claudeDefaultName {
+			extra.configDir = account.Dir
+		}
+	}
 	seat := -1
-	if status, text := d.hireWith(hireSpec{roleID: role, floor: int(floor), fromSetup: true, folder: folder, fenced: true, seat: &seat}); status != http.StatusNoContent {
+	if status, text := d.hireWith(hireSpec{roleID: role, floor: int(floor), fromSetup: true, folder: folder, fenced: true, seat: &seat, extra: extra}); status != http.StatusNoContent {
 		reply(status, text)
 		return
 	}

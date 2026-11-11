@@ -171,7 +171,8 @@ func runDemo(ctx context.Context, r demoRun) int {
 	}
 	if !r.dry {
 		fmt.Fprintf(out, `
-This starts real Claude Code sessions on your default Claude account: a General
+This starts real Claude Code sessions on your default Claude account (or the
+one you pick on the demo's page; the hires work on the same one): a General
 Manager (Opus) and about four hires, for some minutes each. That uses your
 plan's usage, as any Claude Code session does, never an API key.
 %s

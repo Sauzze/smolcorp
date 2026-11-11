@@ -463,8 +463,13 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 				return status, message
 			}
 		} else if launcherHires && d.config.HireManagedWindows && hasTerminal && (extra == nil || extra.Scope == "") {
-			// Beta: in a window run by the launcher, only where that is made and the switch is on.
-			if status, message, handled := d.managedLauncherHire(roleID, folder, terminal, hasTerminal, held, floor); handled {
+			// Beta: in a window run by the launcher, only where that is made and the switch is on. The GM route's
+			// task and account go with it (setup's sheet keeps its way through the launcher, as before).
+			var routeExtra *setupHire
+			if s.fenced {
+				routeExtra = extra
+			}
+			if status, message, handled := d.managedLauncherHire(roleID, folder, terminal, hasTerminal, held, floor, routeExtra); handled {
 				return status, message
 			}
 		}

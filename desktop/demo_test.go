@@ -398,14 +398,15 @@ type standInOffice struct {
 	calls     []string
 	hire      map[string]any
 	teamCalls int
-	finish    func()           // the stand-in GM's last step, at the second look at the team
-	gone      bool             // Smolcorp stops answering the team
-	others    []map[string]any // the hires open before the demo's GM is hired
-	noClick   bool             // the page is opened, and nobody clicks Hire
-	page      string           // what the page says: "" (waiting), "open", "closed"
-	failOpen  bool             // the browser doesn't open
-	noDemo    bool             // a Smolcorp that doesn't serve the demo's page (404)
-	onWait    func()           // runs at each look for the GM before it's hired
+	finish    func()            // the stand-in GM's last step, at the second look at the team
+	gone      bool              // Smolcorp stops answering the team
+	others    []map[string]any  // the hires open before the demo's GM is hired
+	noClick   bool              // the page is opened, and nobody clicks Hire
+	page      string            // what the page says: "" (waiting), "open", "closed"
+	failOpen  bool              // the browser doesn't open
+	noDemo    bool              // a Smolcorp that doesn't serve the demo's page (404)
+	onWait    func()            // runs at each look for the GM before it's hired
+	told      map[string]string // the demo folders registered, with their roles, as the app keeps them
 }
 
 func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -440,6 +441,10 @@ func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]any{"gmHired": false, "open": open})
 			return
 		}
+		if _, told := s.told[root]; !told {
+			http.Error(w, root+" isn't a demo folder this Smolcorp was told about: run smolcorp demo for one.", http.StatusBadRequest)
+			return
+		}
 		var gm any
 		if s.hire != nil {
 			gm = map[string]any{"id": "g1", "state": "starting"}
@@ -451,7 +456,17 @@ func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			page = "waiting"
 		}
 		json.NewEncoder(w).Encode(map[string]any{"demo": map[string]any{"page": page, "gm": gm}})
+	case "POST /setup/demo/register":
+		if s.told == nil {
+			s.told = map[string]string{}
+		}
+		s.told[root] = r.URL.Query().Get("roles")
+		w.WriteHeader(http.StatusNoContent)
 	case "POST /setup/demo/open":
+		if _, told := s.told[root]; !told {
+			http.Error(w, "not told", http.StatusBadRequest)
+			return
+		}
 		if s.failOpen {
 			http.Error(w, "The browser didn't open (no xdg-open): run smolcorp demo --no-open for the demo's link.", http.StatusBadGateway)
 			return
@@ -551,7 +566,9 @@ func TestTheRealDemoAsksBeforeItSpendsAndHasYouHireTheGMOnItsPage(t *testing.T) 
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	root := filepath.Join(in, demoFolderName)
-	if want := []string{"POST /setup/demo/open?root=" + url.QueryEscape(root)}; !slices.Equal(office.posts(), want) {
+	// It tells the app which folder it made, with the roles its fence allows (the office's Claude roles), first.
+	if want := []string{"POST /setup/demo/register?root=" + url.QueryEscape(root) + "&roles=" + url.QueryEscape("reviewer,tester"),
+		"POST /setup/demo/open?root=" + url.QueryEscape(root)}; !slices.Equal(office.posts(), want) {
 		t.Errorf("the demo's POSTs: %v, want %v", office.posts(), want)
 	}
 	for _, want := range []string{"Setup is open in your browser at the demo", "Waiting for the General Manager's hire", "You hired the General Manager",
@@ -638,7 +655,9 @@ func TestTheDemoWaitsForYourHireAndStopsCleanly(t *testing.T) {
 			t.Errorf("%s: the demo folder didn't stay: %v", name, err)
 		}
 		if code != 1 || !strings.Contains(out, want) || !strings.Contains(out, "The demo folder stays: "+root) || strings.Contains(out, "hired the General Manager") ||
-			strings.Contains(out, "left it on") || slices.ContainsFunc(office.posts(), func(c string) bool { return !strings.HasPrefix(c, "POST /setup/demo/open?") }) {
+			strings.Contains(out, "left it on") || slices.ContainsFunc(office.posts(), func(c string) bool {
+			return !strings.HasPrefix(c, "POST /setup/demo/open?") && !strings.HasPrefix(c, "POST /setup/demo/register?")
+		}) {
 			t.Errorf("%s: %d %v\n%s", name, code, office.posts(), out)
 		}
 	}
@@ -669,7 +688,8 @@ func TestTheDemoPrintsItsPageWithNoOpen(t *testing.T) {
 	code, out, in := realDemoWith(t, context.Background(), office, "y\n", func(o *officeTeam) { o.noOpen = true })
 	link := office.posts()
 	root := filepath.Join(in, demoFolderName)
-	if code != 1 || len(link) != 0 || !strings.Contains(out, "/setup?demo="+url.QueryEscape(root)+"\n") || strings.Contains(out, "#o=") ||
+	// Only told, never opened: the folder is registered all the same, so the printed link has a page to show.
+	if code != 1 || len(link) != 1 || !strings.HasPrefix(link[0], "POST /setup/demo/register?root="+url.QueryEscape(root)+"&") || !strings.Contains(out, "/setup?demo="+url.QueryEscape(root)+"\n") || strings.Contains(out, "#o=") ||
 		!strings.Contains(out, "It opens signed in where Setup is already open.") || !strings.Contains(out, "closed without a hire") {
 		t.Errorf("--no-open: %d %v\n%s", code, link, out)
 	}

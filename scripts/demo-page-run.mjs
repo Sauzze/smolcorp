@@ -125,6 +125,16 @@ try {
     const refused = asGM('hire', '--role', 'reviewer', '--folder', outside);
     const said = `${refused.stdout}${refused.stderr}`.trim();
     check(refused.status !== 0 && said.includes('This General Manager'), "the GM's hire outside its project is refused by the app", said);
+    // RX1d B1 and S2: the hire line the GM's task gives it, word for word (its blanks filled in), is hired, on the GM's
+    // own account (the copy's test one, which the app fills in), into a worktree of the project.
+    const task = json((await asTool(`/setup/demo?root=${encodeURIComponent(root)}`)).body).demo?.hire?.task || '';
+    const line = (task.match(/`(smolcorp gm hire [^`]+)`/) || [])[1] || '';
+    const words = line.replace('<role>', 'tester').replace('<what done means, and the proof>', 'The lost cent is fixed; proof: python3 -m unittest passes.')
+      .match(/'[^']*'|\S+/g) || [];
+    const hired = words.length > 3 ? asGM(...words.slice(2).map((w) => w.replace(/^'|'$/g, ''))) : { status: -1, stdout: '', stderr: `no hire line in the task: ${task.slice(0, 200)}` };
+    const tester = (json(readFileSync(join(RUN, 'support', 'registry.json'), 'utf8')).hires || []).find((h) => h.role === 'tester');
+    check(hired.status === 0 && !!tester && tester.account === gm?.account && (tester.worktree || '').startsWith(root),
+      "the GM's hire line, as its task writes it, hires into the project on the GM's account", `${hired.status} ${`${hired.stdout}${hired.stderr}`.trim()} ${JSON.stringify(tester && { account: tester.account, worktree: tester.worktree })}`);
     const switched = await fetch(`http://127.0.0.1:${PORT}/setup/hiring?enabled=0`, { method: 'POST', headers: { 'X-Smolcorp-GM-Token': token, 'X-AgentDeck-Setup': '1' } });
     const why = await switched.text();
     check(switched.status === 403 && why.startsWith('This General Manager'), 'the GM can\'t turn a switch off either', `${switched.status} ${why}`);

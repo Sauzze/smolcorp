@@ -17,7 +17,7 @@ import (
 // with that GM's token to it, whichever way it came (`smolcorp gm`, `smolcorp mcp`, curl):
 //   - a hire only into the project itself or the top of one of its own worktrees (the folder is the top of
 //     its checkout, and the checkout's git folder is the project's), a folder that is there, in a terminal
-//     of Smolcorp's, on the default Claude account, never the API key;
+//     of Smolcorp's, on the Claude account the GM was hired on (filled in when left out), never the API key;
 //   - send, brief, fire, contacts, nickname, pin, unpin, watch and unwatch only for its own hires, folders
 //     and watches;
 //   - nothing else that changes the office (its switches, roles, layout, windows…); what it reads is as before.
@@ -51,9 +51,12 @@ func checkedGMScope(given any, h setupHire, home string) (string, int, string) {
 	return folder, 0, ""
 }
 
-// gmScopeNow is the scope of the GM whose token works now, "" for none: the open GM hired last, as each
-// GM's hire makes a new token and takes the older one's place.
-func gmScopeNow() string {
+// gmScopeNow is the scope of the GM whose token works now, "" for none.
+func gmScopeNow() string { return gmNow().Scope }
+
+// gmNow is the GM whose token works now, a zero Hire for none: the open GM hired last, as each GM's hire
+// makes a new token and takes the older one's place.
+func gmNow() Hire {
 	var newest *Hire
 	hires := officeHires()
 	for i := range hires {
@@ -62,9 +65,17 @@ func gmScopeNow() string {
 		}
 	}
 	if newest == nil {
-		return ""
+		return Hire{}
 	}
-	return newest.Scope
+	return *newest
+}
+
+// gmAccountWords is the Claude account a GM was hired on, as its refusal says it.
+func gmAccountWords(account string) string {
+	if account == "" || account == claudeDefaultName {
+		return "your default Claude account, the one it was hired on"
+	}
+	return "the Claude account it was hired on, " + account
 }
 
 // gmScope is a scope as a request is held to it: the project's full path, as kept at the GM's hire
@@ -138,7 +149,8 @@ func (s gmScope) named(name string) bool {
 // gmScopeRefusal is why a request made with the GM's token goes beyond the GM's scope: a status and one
 // sentence, or 0 to go on. A request it checks gets back, as its body, exactly what was checked.
 func (d *Deck) gmScopeRefusal(r *request) (int, string) {
-	root := gmScopeNow()
+	gm := gmNow()
+	root := gm.Scope
 	if root == "" || r.Method == http.MethodGet {
 		return 0, ""
 	}
@@ -163,8 +175,22 @@ func (d *Deck) gmScopeRefusal(r *request) (int, string) {
 		if v := asked["apiKey"]; v != nil && v != false {
 			return refuse("never hires on the API key.")
 		}
-		if v := asked["account"]; v != nil && v != "" {
-			return refuse("hires only on your default Claude account.")
+		// Its hires work on the account it was hired on (the one the demo's card showed): named or left out,
+		// never another. Left out, the app fills it in, so a GM on another account than the default (a test
+		// copy's, which never hires on the default one) hires on its own.
+		own := gm.Account
+		if own == claudeDefaultName {
+			own = ""
+		}
+		named, isName := asked["account"].(string)
+		named = strings.Trim(named, " \t")
+		if v := asked["account"]; v != nil && !isName || named != "" && named != own && !(named == claudeDefaultName && own == "") {
+			return refuse("hires only on " + gmAccountWords(gm.Account) + ".")
+		}
+		if own != "" {
+			asked["account"] = own
+		} else {
+			delete(asked, "account")
 		}
 		if t3, known := checkedHireEngine(asked["engine"]); t3 || !known {
 			return refuse("hires only in a terminal of Smolcorp's.")
