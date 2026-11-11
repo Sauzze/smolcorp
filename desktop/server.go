@@ -730,6 +730,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	if d.briefRoute(w, r.Method, path, r.Body) {
 		return
 	}
+	// Setup's own hire sheet (setuphire.go).
+	if d.setupHireRoute(w, r.Method, path, r.Body, r.caller) {
+		return
+	}
 
 	// What only macOS does, under the Mac app (hostsetup.go): not served elsewhere.
 	if rt.macSetup(w, r) {

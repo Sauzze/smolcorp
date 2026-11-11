@@ -74,8 +74,13 @@ type bridgeAnswer struct {
 	Error string `json:"error,omitempty"`
 	// The terminal can't do that at all (no driver for it): errUnsupported, not a tab that's gone.
 	Unsupported bool `json:"unsupported,omitempty"`
-	// open: the new window's tab, as the deck will know it.
-	Tab string `json:"tab,omitempty"`
+	// open: the new window's tab, as the deck will know it, and the window's
+	// own record (Terminal's carries its window id), which switching hires to
+	// the background closes by; "" when the terminal gave none.
+	Tab    string `json:"tab,omitempty"`
+	Window string `json:"window,omitempty"`
+	// terminals: which of Terminal, iTerm2 and Ghostty are installed (their ids).
+	Terminals []string `json:"terminals,omitempty"`
 	// close: fired, gone or not-stopped, as the Mac's Terminal.Fired.
 	Fired string `json:"fired,omitempty"`
 	// secret-read: the value, and whether there is one.
@@ -191,10 +196,17 @@ func ask(h hostBridge, request bridgeRequest) (bridgeAnswer, error) {
 }
 
 // hostOpenTerminal opens a window of terminal in folder running script, a
-// file the engine wrote in the hires folder, and says its tab.
-func hostOpenTerminal(h hostBridge, terminal, folder, script string) (string, error) {
+// file the engine wrote in the hires folder, and says its tab and the
+// window's record.
+func hostOpenTerminal(h hostBridge, terminal, folder, script string) (tab, window string, err error) {
 	answer, err := ask(h, bridgeRequest{Action: "open", Terminal: terminal, Folder: folder, Script: script})
-	return answer.Tab, err
+	return answer.Tab, answer.Window, err
+}
+
+// hostTerminals are the terminals the Mac app can open a window of, by id.
+func hostTerminals(h hostBridge) ([]string, error) {
+	answer, err := ask(h, bridgeRequest{Action: "terminals"})
+	return answer.Terminals, err
 }
 
 // hostReadSecret reads one of the app's own items: found is false when there is none.

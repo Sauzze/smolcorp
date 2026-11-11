@@ -124,8 +124,12 @@ enum HireSettings {
         }
 
         // This app's folder, piece by piece: never a rule that would cover the hire's own STATUS.md.
+        // The secrets of both engines a Mac may run (this app's gm-session and hook-header, the Go engine's
+        // hook-key and window-key), as the Go engine lists them: one file whichever engine writes it.
         let root = absolute(support.path)
-        for pattern in ["*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "token"] { both("\(root)/\(pattern)") }
+        for pattern in ["*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token"] {
+            both("\(root)/\(pattern)")
+        }
         for entry in entries where entry != "hires" && !entry.hasPrefix(".") && !entry.contains("/") { both("\(root)/\(entry)/**") }
         // The folders the app is known to make, listed even when absent now, so one made later is covered too.
         for name in knownFolders where !entries.contains(name) { both("\(root)/\(name)/**") }
@@ -135,7 +139,7 @@ enum HireSettings {
         for pattern in ["*.json", "*.sh", "*.jsonl", "*.log", "settings*"] { both("\(root)/hires/*/\(pattern)") }
         for other in others where other != hireID && !other.contains("/") && !other.hasPrefix(".") { both("\(root)/hires/\(other)/**") }
         // Nothing secret or app-state can be read either.
-        for name in ["gm-token", "gm-session", "setup-key", "hook-header", "token", guardFileName, "phones.json", "sessions.json", "config.json", "registry.json"] {
+        for name in ["gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", guardFileName, "phones.json", "sessions.json", "config.json", "registry.json"] {
             rules.append("Read(\(root)/\(name))")
         }
         return rules
@@ -203,13 +207,19 @@ enum HireSettings {
                                      reporting: reporting, isExecutable: isExecutable), hireID: hireID, support: support)
     }
 
+    /// A settings file's bytes, as `save` writes them. The Go engine writes the same bytes for the same rules
+    /// (desktop/swiftjson.go), which `Tests/fixtures/frontdesk/hire-settings.json` checks.
+    static func encoded(_ object: [String: Any]) -> Data? {
+        try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+    }
+
     /// Writes `object` as hire `hireID`'s settings file, private to you and replaced whole, and says where.
     @discardableResult
     static func save(_ object: [String: Any], hireID: String, support: URL = Paths.support) throws -> URL {
         let manager = FileManager.default
         let place = folder(of: hireID, support: support)
         let target = file(of: hireID, support: support)
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+        guard let data = encoded(object),
               (try? manager.createDirectory(at: place, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])) != nil,
               Paths.writePrivately(data, to: target) else {
             throw Refusal(status: 500, message: "Couldn't write the hire's settings, so Smolcorp won't start it unguarded.")

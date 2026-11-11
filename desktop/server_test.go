@@ -215,6 +215,10 @@ func TestHiringIsSetUpOnlyWhenEveryPartIsRight(t *testing.T) {
 		"enabled=1&agent=codex&folder=~/nowhere",   // a folder that isn't there
 		"enabled=1&agent=codex&folder=~/work/keep", // a file, not a folder
 		"enabled=1&agent=skynet&folder=" + homeDir, // an agent there isn't
+		// Names config.json would load as Claude Code (B1-b, RM4c): this route never keeps them.
+		"enabled=1&agent=Claude&folder=" + homeDir,
+		"enabled=1&agent=/opt/x/bin/claude&folder=" + homeDir,
+		"enabled=1&agent=&folder=" + homeDir,
 	} {
 		if got := setUp(query); got != http.StatusBadRequest {
 			t.Errorf("%s: %d, want %d", query, got, http.StatusBadRequest)

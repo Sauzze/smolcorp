@@ -214,7 +214,8 @@ func TestATestCopyNeverHiresClaudeOnTheDefaultAccount(t *testing.T) {
 			t.Errorf("a test copy hiring %q: %v, want the T721 refusal", program, err)
 		}
 	}
-	if testCopyRefusal(7799, "claude", "/acct") == nil {
+	// On a Mac a test copy hires on a named account, as the Mac's Swift engine does (setuphire_test.go).
+	if runtime.GOOS != "darwin" && testCopyRefusal(7799, "claude", "/acct") == nil {
 		t.Error("a test copy's hire on a named account must wait for the reporting hooks")
 	}
 	if testCopyRefusal(0, "claude", "") != nil || testCopyRefusal(7799, "codex", "") != nil {

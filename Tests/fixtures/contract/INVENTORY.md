@@ -125,7 +125,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | GET | `/setup/hire-folder` | page, tool | `?check=` | `{exists, fix, folder, home, problem, suggested}` | 200 | setup.json | served |
 | POST | `/setup/hire-folder` | gm, page | `?folder=&create=1` | as GET | 200, 400 | setup.json | served |
 | GET | `/setup/hire/folders` | page, tool | — | `{default, recent}` | 200 | setup.json | served |
-| POST | `/setup/hire` | gm, page | `{role, folder, account, model, floor, worktree, apiKey, task, answers, engine}` (`engine: "t3"`: into T3 Code, the Mac's, experimental) | empty or `{ok, desk, session}` | 200, 204, 400, 404, 409 | setup.json, frontdesk/hire-guard.json | 404 |
+| POST | `/setup/hire` | gm, page | `{role, folder, account, model, floor, worktree, apiKey, task, answers, engine}` (`engine: "t3"`: into T3 Code, the Mac's, experimental) | empty or `{ok, desk, session}` | 200, 204, 400, 404, 409 | setup.json, frontdesk/hire-guard.json | served |
 | POST | `/setup/hire/gm` | gm, page | `?worktree=1&account=` | empty | 204, 409, and the hire's | setup.json | served |
 | POST | `/setup/hire/window` | page | `{id}` | empty or text: a window attached to the hire's own tmux session | 204, 409 | setup.json | served |
 | GET | `/setup/hire/gm/preflight` | page | `?account=` | `{ready, items}` | 200, 400 | setup.json | differs |
@@ -553,7 +553,6 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `setup-state` | `.claudeAccounts` | missing | Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) | M2 |
 | `setup-state` | `.floorRules[].exact` | missing | a rule's exact is left out when false (omitempty) | M3 fixes: sent when false or empty too |
 | `setup-state` | `.hiring.apiKey` | missing | a hire on the API-key account is the Mac's (M4) | M4 |
-| `setup-state` | `.hiring.fromSetup` | extra | setup's own hire sheet (POST /setup/hire) isn't served here: false tells the page to show `smolcorp run --role` instead | M4: removed with POST /setup/hire on Go |
 | `setup-state` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
@@ -567,7 +566,6 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `setup-state-tool` | `.claudeAccounts` | missing | Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) | M2 |
 | `setup-state-tool` | `.floorRules[].exact` | missing | a rule's exact is left out when false (omitempty) | M3 fixes: sent when false or empty too |
 | `setup-state-tool` | `.hiring.apiKey` | missing | a hire on the API-key account is the Mac's (M4) | M4 |
-| `setup-state-tool` | `.hiring.fromSetup` | extra | setup's own hire sheet (POST /setup/hire) isn't served here: false tells the page to show `smolcorp run --role` instead | M4: removed with POST /setup/hire on Go |
 | `setup-state-tool` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state-tool` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state-tool` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
@@ -605,7 +603,6 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `POST /setup/bots` | `.bots[].mailbox` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
 | `POST /setup/bots` | `.bots[].pinned` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
 | `GET /setup/hire/gm/preflight` | `refusal: no such Claude account` | status 200 | Claude accounts are the Mac's (M2): the GM's tools are checked for any account | M4, once M2 has the Claude accounts |
-| `POST /setup/hire` | `route` | 404 | hiring from the setup page by role is the Mac's (M4) | M4 |
 | `POST /setup/notify` | `route` | 404 | a push to the iPhone app (personal build) | M6: personal shell |
 | `POST /setup/t3code/letgo` | `refusal: no such hire` | status 409 | hiring into T3 Code is the Mac's alone for now: Go answers 409 to any let go, a hire it knows or not | M5: the desk lane (port of T797b) |
 | `GET /setup/nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |

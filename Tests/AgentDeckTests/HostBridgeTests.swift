@@ -40,7 +40,7 @@ final class HostBridgeTests: XCTestCase {
                 return ["%1": .fired, "%2": .gone, "%3": .notStopped][tab.id]
             },
             hires: hires,
-            open: { [unowned self] terminal, folder, script in asked.append("open \(terminal) \(folder) \(script)"); return "iterm:AB12" },
+            open: { [unowned self] terminal, folder, script in asked.append("open \(terminal) \(folder) \(script)"); return Openers.Opened(tab: "iterm:AB12", window: "iterm:AB12") },
             secrets: [
                 "summary-key": HostBridge.Secret(read: { [unowned self] in kept["summary-key"] },
                                                  write: { [unowned self] in kept["summary-key"] = $0; return true },
@@ -246,7 +246,7 @@ final class HostBridgeTests: XCTestCase {
         actions.open = { [terminals] _, _, _ in
             dispatchPrecondition(condition: .onQueue(terminals))
             onQueue = true
-            return "iterm:AB12"
+            return Openers.Opened(tab: "iterm:AB12", window: "iterm:AB12")
         }
         XCTAssertEqual(HostBridge.answer(line, token: token, actions: actions, until: .now() + 5)["tab"] as? String, "iterm:AB12")
         XCTAssertTrue(onQueue, "opened on the terminals' queue")
@@ -299,13 +299,43 @@ final class HostBridgeTests: XCTestCase {
         var opened: [String] = []
         var actions = HostBridge.Actions.onThisMac(testCopy: true, opener: { command, folder, terminal in
             opened.append("\(terminal)|\(folder)|\(command)")
-            return "iterm:AB12"
+            return Openers.Opened(tab: "iterm:AB12", window: nil)
         })
         actions.hires = hires
         let line = try JSONSerialization.data(withJSONObject: ["token": token, "action": "open", "terminal": "iterm",
                                                                "folder": folder.path, "script": spaced.path])
         XCTAssertEqual(HostBridge.answer(line, token: token, actions: actions)["tab"] as? String, "iterm:AB12")
         XCTAssertEqual(opened, ["iterm|\(folder.path)|\(spaced.path)"], "not \(Openers.quoted(spaced.path))")
+    }
+
+    /// A hire's window, as the deck records it (T796): the tab the deck knows, and the window's own record,
+    /// which for Terminal carries the window's id beside the tty. A tab with no window of its own gives none.
+    func testAnOpenedWindowIsAnsweredWithItsRecord() throws {
+        let script = hires.appendingPathComponent("hire-3.sh")
+        try Data("#!/bin/sh\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+        var actions = self.actions
+        let line = try JSONSerialization.data(withJSONObject: ["token": token, "action": "open", "terminal": "terminal",
+                                                               "folder": folder.path, "script": script.path])
+        actions.open = { _, _, _ in Openers.Opened(tab: "tty:/dev/ttys004", window: HireWindows.terminalRecord(tty: "/dev/ttys004", windowID: "1234")) }
+        let answer = HostBridge.answer(line, token: token, actions: actions)
+        XCTAssertEqual(answer["tab"] as? String, "tty:/dev/ttys004")
+        XCTAssertEqual(answer["window"] as? String, "tty:/dev/ttys004#w1234")
+        actions.open = { _, _, _ in Openers.Opened(tab: "tty:/dev/ttys005", window: nil) }
+        let bare = HostBridge.answer(line, token: token, actions: actions)
+        XCTAssertEqual(bare["tab"] as? String, "tty:/dev/ttys005")
+        XCTAssertNil(bare["window"], "no window record when the terminal gave none")
+    }
+
+    /// Which of the three terminals are here: what the core offers as setup's choices.
+    func testTheInstalledTerminalsAreSaid() {
+        var actions = self.actions
+        actions.terminals = { ["terminal", "ghostty"] }
+        let line = try! JSONSerialization.data(withJSONObject: ["token": token, "action": "terminals"])
+        let answer = HostBridge.answer(line, token: token, actions: actions)
+        XCTAssertTrue(isOK(answer))
+        XCTAssertEqual(answer["terminals"] as? [String], ["terminal", "ghostty"])
+        XCTAssertEqual(HostBridge.answer(line, token: "other-token-of-32-characters-long!", actions: actions)["ok"] as? Bool, false)
     }
 
     func testTheAppsOwnItemsOnly() {

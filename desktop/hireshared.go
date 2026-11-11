@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -51,7 +52,21 @@ type engineRequest struct {
 	Desk    *int
 	Answers []string
 	Task    string
+	// Setup's own hire (POST /setup/hire, setuphire.go) may say more: the
+	// nickname, kept in the registry and naming its worktree and branch; no
+	// worktree of its own (the manager off and none asked for, or the GM, as
+	// the Mac's); the account it works on, by name, for the registry; and the
+	// Claude accounts whose settings and transcripts its fence denies.
+	Nickname    string
+	NoWorktree  bool
+	AccountName string
+	Profiles    []claudeProfile
 }
+
+// engineAutoMode is whether an engine hire's settings put it in auto mode: on
+// a Mac, as the Mac's HireSettings.forHire always does, so a Mac hire's fence
+// is the same file whichever engine starts it. Linux and Windows keep theirs.
+const engineAutoMode = runtime.GOOS == "darwin"
 
 // hireBrief writes a hire's brief where the Mac's HireDesk writes it: a
 // managed hire's (one with a worktree) in its own folder in Smolcorp's, any

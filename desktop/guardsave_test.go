@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -189,5 +190,32 @@ func TestAShippedRoleYouHaventChangedIsSentAsItCame(t *testing.T) {
 	}
 	if same == 0 {
 		t.Fatal("no shipped role among the roles kept")
+	}
+}
+
+// What setup writes for "cloud off, one pattern of your own" is the Mac's file,
+// byte for byte (GuardFileTests.swift writes the fixture; the guard reads it),
+// at mode 0600; and no patterns is written as the Mac writes an empty list.
+func TestSavingTheGuardWritesTheMacsFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), hireGuardFile)
+	if answer := saveGuard([]byte(`{"groups":[{"name":"cloud","on":false}],"extra":["terraform import"]}`), path, runtime.GOOS); answer.status != http.StatusOK {
+		t.Fatalf("%d %s", answer.status, answer.message)
+	}
+	written, _ := os.ReadFile(path)
+	fixture, err := os.ReadFile(filepath.Join("..", "Tests", "fixtures", "frontdesk", "hire-guard.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(written, fixture) {
+		t.Errorf("the file isn't the Mac's:\n%s", written)
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v", info.Mode().Perm())
+	}
+	if answer := saveGuard([]byte(`{"extra":[]}`), path, runtime.GOOS); answer.status != http.StatusOK {
+		t.Fatal(answer.status)
+	}
+	if written, _ := os.ReadFile(path); !strings.Contains(string(written), "\"commands\" : [\n\n      ],\n      \"name\" : \"extra\"") {
+		t.Errorf("no patterns isn't written as the Mac writes it:\n%s", written)
 	}
 }

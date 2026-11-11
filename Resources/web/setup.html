@@ -3395,8 +3395,7 @@
 
   /** How to hire `role`: from the phone's office, or, with a launcher, in a terminal. The page can't hire by itself. */
   function showHire(role) {
-    // An app that lists the folders but can't hire from here yet says so (hiring.fromSetup false): it gets the steps below.
-    if (canHireHere && !(state.hiring && state.hiring.fromSetup === false)) return openHireSheet(role);
+    if (canHireHere) return openHireSheet(role);
     hireShown = role.id;
     drawEasyRoles(state.roles);
     const how = $('easy-hire-how'), text = document.createElement('span'), tools = [];
@@ -3844,13 +3843,14 @@
     // Accepted: the sheet doesn't follow the hire, so after the five minutes a start may take, it's over for the guide.
     if (gmHire) { const mine = ++gmHireSerial; setTimeout(() => { if (mine === gmHireSerial) hireEnded(); }, 300000); }
     // Where it sits, 0-based as the app counts desks; null with Auto and no desk free
-    const { desk } = await res.json().catch(() => ({}));
+    // note: the Go core's word for a hire that went the old way, without its task and answers
+    const { desk, note } = await res.json().catch(() => ({}));
     const name = hiring.name, onText = !hiring.brief || hiring.brief.kind === 'text', inT3 = hireIntoT3();
     closeHireSheet();
     $('easy-hire-how').replaceChildren(Object.assign(document.createElement('span'), {
       textContent: `${name} is hired${inT3 ? ' into T3 Code, in a worktree of' : ', in'} ${folder}${Number.isInteger(desk) && !inT3 ? `, at desk ${desk + 1}` : ''}`
         + `${Number($('hs-floor').value) > 0 ? `, on ${$('hs-floor').selectedOptions[0].text}` : ''}. `
-        + (onText ? 'It starts on its instructions, with your answers.' : 'It starts by reading its brief.') }),
+        + (typeof note === 'string' && note ? note : onText ? 'It starts on its instructions, with your answers.' : 'It starts by reading its brief.') }),
       choice('OK', null, () => { $('easy-hire-how').hidden = true; }));
     $('easy-hire-how').hidden = false;
     load();

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -83,6 +84,11 @@ func testCopyRefusal(testPort int, program, configDir string) error {
 	}
 	if configDir == "" {
 		return &hireRefusal{Status: 409, Message: "This is a test copy of Smolcorp, so it never hires Claude on the default account: that is the real office's login. Hire from the real Smolcorp."}
+	}
+	// A Mac's test copy hires on a named account, as the Mac's Swift engine does (Deck.testCopyAccountRefusal):
+	// its trust goes in that account's own .claude.json, and its hire reports through its settings file.
+	if runtime.GOOS == "darwin" {
+		return nil
 	}
 	return &hireRefusal{Status: 409, Message: "A test copy's hires on a named account aren't set up yet, so none is started."}
 }

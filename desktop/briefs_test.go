@@ -219,14 +219,14 @@ func TestSetupAsksForTheBriefsTheFoldersAndTheGuard(t *testing.T) {
 	if groups, _ := answer["groups"].([]any); code != http.StatusOK || len(groups) != 6 || answer["limits"] == "" || answer["problem"] != nil {
 		t.Errorf("guard: %d %v", code, answer)
 	}
-	// It lists the folders, but setup's own hire sheet isn't served here: the page is told, and shows how to hire instead.
+	// Setup's own hire sheet is served here now (POST /setup/hire, setuphire.go): the state no longer turns it off.
 	code, answer, _ = ask(call{method: "GET", target: "/setup/state"})
-	if hiring, _ := answer["hiring"].(map[string]any); code != http.StatusOK || hiring["fromSetup"] != false {
+	if hiring, _ := answer["hiring"].(map[string]any); code != http.StatusOK || hiring == nil || hiring["fromSetup"] != nil {
 		t.Errorf("setup state's hiring: %d %v", code, answer["hiring"])
 	}
 	page, err := fs.ReadFile(agentdeck.Files, "Resources/web/setup.html")
-	if err != nil || !strings.Contains(string(page), "if (canHireHere && !(state.hiring && state.hiring.fromSetup === false)) return openHireSheet(role);") {
-		t.Errorf("the page opens its hire sheet without asking whether this app hires from setup (%v)", err)
+	if err != nil || !strings.Contains(string(page), "if (canHireHere) return openHireSheet(role);") {
+		t.Errorf("the page doesn't open its hire sheet where the app can hire (%v)", err)
 	}
 	// Nothing here answers anyone but this computer's setup.
 	if code := serve(t, d, call{method: "GET", target: "/setup/briefs", host: "localhost:7710", from: thisComputer, withoutSetupKey: true}).Code; code != http.StatusUnauthorized {

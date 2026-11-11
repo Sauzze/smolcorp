@@ -200,15 +200,9 @@ func loadGuard(path string) (guardStored, string) {
 	return stored, ""
 }
 
-// guardEntry is one group as the file writes it, its keys in order as the Mac sorts them.
-type guardEntry struct {
-	Commands []string `json:"commands"`
-	Name     string   `json:"name"`
-	On       bool     `json:"on"`
-}
-
-// guardFileData is the file as it is written: the six groups in the guard's
-// order, then your patterns, then any group this page doesn't know.
+// guardFileData is the file as it is written, in the Mac's GuardFile.data bytes
+// (JSONSerialization's, swiftjson.go, and a newline): the six groups in the
+// guard's order, then your patterns, then any group this page doesn't know, as it was.
 func guardFileData(stored guardStored) []byte {
 	list := []any{}
 	for _, group := range guard.DefaultGroups() {
@@ -217,18 +211,16 @@ func guardFileData(stored guardStored) []byte {
 		if !has {
 			commands = guardDefaults().commands[group.Name]
 		}
-		list = append(list, guardEntry{Commands: commands, Name: group.Name, On: !ok || on})
+		list = append(list, map[string]any{"commands": commands, "name": group.Name, "on": !ok || on})
 	}
-	list = append(list, guardEntry{Commands: stored.extra, Name: guardExtraGroup, On: true})
+	list = append(list, map[string]any{"commands": stored.extra, "name": guardExtraGroup, "on": true})
 	for _, other := range stored.others {
-		list = append(list, other)
+		var kept any
+		if json.Unmarshal(other, &kept) == nil {
+			list = append(list, kept)
+		}
 	}
-	var out bytes.Buffer
-	encoder := json.NewEncoder(&out)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	_ = encoder.Encode(map[string]any{"groups": list})
-	return out.Bytes()
+	return append(swiftJSON(map[string]any{"groups": list}), '\n')
 }
 
 // guardState is what GET /setup/guard answers.

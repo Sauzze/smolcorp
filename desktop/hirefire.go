@@ -132,6 +132,8 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 		}
 		return http.StatusInternalServerError, err.Error(), true
 	}
+	// Its windows' records go with it (hirewindows.go): it has none to close any more.
+	forgetHireWindows(h.ID, windowsOfHire(h.ID))
 	// A fired GM's token stops working, and mail still waiting for the hire fails
 	// now rather than on the pump's next round.
 	if h.Role == gmRole {

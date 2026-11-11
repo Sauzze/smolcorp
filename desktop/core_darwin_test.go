@@ -211,7 +211,7 @@ func TestTheSocketCarriesTheTokenAndTheAnswer(t *testing.T) {
 		got = r
 		return `{"ok":true,"tab":"iterm:AB12"}`
 	})
-	tab, err := hostOpenTerminal(appBridge(path, fakeBridgeToken), "iterm", "/Users/me", filepath.Join(folder, "hires", "a.sh"))
+	tab, _, err := hostOpenTerminal(appBridge(path, fakeBridgeToken), "iterm", "/Users/me", filepath.Join(folder, "hires", "a.sh"))
 	if err != nil || tab != "iterm:AB12" {
 		t.Fatalf("open: %q %v", tab, err)
 	}
