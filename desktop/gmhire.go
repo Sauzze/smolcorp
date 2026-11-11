@@ -46,11 +46,9 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		reply(http.StatusBadRequest, "Send {role}, the role to hire.")
 		return
 	}
-	if task, ok := body["task"]; ok && task != nil {
-		if _, isText := task.(string); !isText {
-			reply(http.StatusBadRequest, "The task is text.")
-			return
-		}
+	if _, isText := body["task"].(string); body["task"] != nil && !isText {
+		reply(http.StatusBadRequest, "The task is text.")
+		return
 	}
 	// What the Go path can't honour yet is refused, never dropped: what's left out, null or already so is fine.
 	set := func(field string, already ...any) bool {
@@ -59,11 +57,14 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 	}
 	floor, isNumber := body["floor"].(float64)
 	answers, isList := body["answers"].([]any)
-	for field, bad := range map[string]bool{"account": set("account", ""), "model": set("model", ""), "nickname": set("nickname", ""),
-		"task": set("task", ""), "apiKey": set("apiKey", false), "worktree": set("worktree", true), // a hire is always in a worktree of its own
-		"answers": set("answers") && (!isList || len(answers) > 0)} {
-		if bad {
-			reply(http.StatusBadRequest, "Smolcorp on Linux and Windows can't honour \""+field+"\" in a hire yet: leave it out.")
+	for _, f := range []struct {
+		field string
+		bad   bool
+	}{{"account", set("account", "")}, {"model", set("model", "")}, {"nickname", set("nickname", "")}, {"task", set("task", "")},
+		{"apiKey", set("apiKey", false)}, {"worktree", set("worktree", true)}, // a hire is always in a worktree of its own
+		{"answers", set("answers") && (!isList || len(answers) > 0)}} {
+		if f.bad {
+			reply(http.StatusBadRequest, "Smolcorp on Linux and Windows can't honour \""+f.field+"\" in a hire yet: leave it out.")
 			return
 		}
 	}

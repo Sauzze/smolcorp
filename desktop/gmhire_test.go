@@ -56,8 +56,7 @@ func nothingMade(t *testing.T, r *engineRig, h *hiring) {
 	}
 }
 
-// Every refusal in hire.json with its status, and the answer in its shape. The 409 row is refused for want
-// of a folder, so it runs with none set up.
+// Every refusal in hire.json with its status, and the answer in its shape (the 409 row runs with no folder set up).
 func TestTheGMHireAnswersAndRefusesAsTheFixtureDoes(t *testing.T) {
 	var f struct {
 		Answer struct {
@@ -163,6 +162,11 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 			t.Errorf("%s: %d %q, want 400 naming it", field, code, text)
 		}
 	}
+	for range 20 { // several at once: the field named is always the first in the order the route checks them
+		if _, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","answers":["a"],"worktree":false,"model":"opus","account":"work"}`); !strings.Contains(text, `"account"`) {
+			t.Fatalf("with several refused, the 400 names %q, want account", text)
+		}
+	}
 	nothingMade(t, r, h)
 	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","apiKey":false,"worktree":true,"task":"","answers":[],"account":null,"floor":2}`); code != http.StatusOK || !strings.Contains(text, `"desk":0`) {
 		t.Fatalf("what is already so, on floor 2: %d %q", code, text)
@@ -192,8 +196,7 @@ func TestTheGMHireWithEveryDeskTaken(t *testing.T) {
 	}
 }
 
-// Only the two fenced ways: what would open a plain terminal is refused in one sentence, with nothing opened;
-// a hire from the office keeps its behaviour; the window setting doesn't move the GM's hire out of the engine.
+// Only the fenced ways: what would open a plain terminal is 409 in one sentence, nothing opened; the office keeps its behaviour.
 func TestTheGMHireNeverOpensAPlainTerminal(t *testing.T) {
 	for _, c := range []struct{ name, want string }{{"no tmux", "Install tmux: "}, {"another agent", "only Claude roles"}} {
 		d, r, h, token := gmHireDeck(t)
@@ -219,8 +222,7 @@ func TestTheGMHireNeverOpensAPlainTerminal(t *testing.T) {
 	}
 }
 
-// The same fence: each case of hire-guard.json (as it is, then each group turned the other way) through a desk hire
-// and through /setup/gm/hire starts with the same guard and deny settings.
+// The same fence: each hire-guard.json case (as is, then each group turned) through a desk hire and the route starts with the same guard and deny settings.
 func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 	var file struct{ Groups []map[string]any }
 	if err := json.Unmarshal(frontDeskFixture(t, "hire-guard.json"), &file); err != nil || len(file.Groups) == 0 {
@@ -277,11 +279,10 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 	}
 }
 
-// End to end on a real Deck on a test port (7750 to 7799), which is a test copy: T721 refuses Claude on the default
-// account before anything is made, and no socket, worktree, row or session is left.
+// End to end on a real Deck on a test port (a test copy): T721 refuses Claude on the default account, and nothing is left.
 func TestARealDeckOnATestPortRefusesTheGMHireAsATestCopy(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux isn't installed, and this test runs a Deck whose hires use it")
+		t.Skip("needs tmux installed (a Deck on a test port picks its hire engine from it) and a free port from 7750 to 7799")
 	}
 	d, r, h, token := gmHireDeck(t)
 	var listener net.Listener
