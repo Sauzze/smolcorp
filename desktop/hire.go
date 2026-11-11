@@ -273,6 +273,11 @@ type hireSpec struct {
 	folder       string     // asked for and checked by the caller; "" is the folder for new hires
 	fenced       bool       // only a fenced way (the tmux engine, or the launcher's): 409 where a plain terminal would open
 	seat         *int       // when set, is given the desk the hire takes
+	// The Claude account Start here's GM hire (POST /setup/hire/gm, as the Mac's DeckRouter) or the GM route
+	// names ("" for none), and whether Start here's GM gets a worktree of its own (worktree=1); nil for the
+	// path's own way. Setup's sheet says both in extra.
+	account  string
+	worktree *bool
 }
 
 // fenceRefusal is why a fenced hire of program can't be made, or "": a plain terminal has no guard.
@@ -298,6 +303,13 @@ func fenceRefusal(program, pinned string, tmux, launcher, macApp bool) string {
 // hireWith is hireAs for a hireSpec.
 func (d *Deck) hireWith(s hireSpec) (int, string) {
 	desk, roleID, floor, fromSetup, extra := s.desk, s.roleID, s.floor, s.fromSetup, s.extra
+	// The Claude accounts a hire may name: their folders are looked in without the lock, as setup's own list is.
+	d.mu.Lock()
+	accounts := slices.Clone(d.config.ClaudeProfiles)
+	d.mu.Unlock()
+	if extra == nil {
+		accounts = claudeAccountList(accounts)
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if !d.config.HiringEnabled && (!fromSetup || s.fenced) {
@@ -397,20 +409,35 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		}
 		program = d.config.Roles[i].Agent
 	}
-	// T721, on every hire route, before anything is made or the cooldown is spent. Only setup's
-	// hire names an account (a test copy never hires on the default one).
-	configDir := ""
-	if extra != nil {
-		configDir = extra.configDir
-	}
-	if err := testCopyRefusal(testCopyPort(), program, configDir); err != nil {
-		return refusalStatus(err), err.Error()
-	}
 	// One GM per office, by whichever route it is hired.
 	if roleID == "gm" {
 		if err := d.gmRefusal(); err != nil {
 			return refusalStatus(err), err.Error()
 		}
+	}
+	// With more than one Claude account, every way in names one (the Mac's Deck.hire, C05): the office's
+	// hires, Anyone's, the GM route's and Start here's. Setup's sheet has asked already, in the same words,
+	// and found the account's folder (setupHireRequest), where a hire on the API-key account names none.
+	account, configDir := s.account, ""
+	if extra != nil {
+		account, configDir = extra.Account, extra.configDir
+	} else if agentOrClaude(program) == Claude {
+		if status, why := claudeAccountRefusal(account, accounts); status != 0 {
+			return status, why
+		}
+		if named, ok := claudeAccountNamed(account, accounts); ok && named.Name != claudeDefaultName {
+			configDir = named.Dir
+		}
+	}
+	// What the engine is told of an account or a worktree that setup's sheet didn't send (Start here's).
+	engineExtra := extra
+	if extra == nil && (account != "" || s.worktree != nil) {
+		engineExtra = &setupHire{Account: account, configDir: configDir, Worktree: s.worktree == nil || *s.worktree}
+	}
+	// T721, on every hire route, before anything is made or the cooldown is spent (a test copy never hires
+	// on the default account).
+	if err := testCopyRefusal(testCopyPort(), program, configDir); err != nil {
+		return refusalStatus(err), err.Error()
 	}
 	if d.hiring || time.Since(d.lastHire) < hireCooldown {
 		return http.StatusTooManyRequests, "Hired a moment ago. Try again in a few seconds."
@@ -469,12 +496,12 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 	// at its pinned desk.
 	if roleID != "" && pinned == "" && Agent(program) == Claude {
 		if inTmux {
-			if status, message, handled := d.managedHireWith(roleID, folder, terminal, showWindow, held, floor, extra); handled {
+			if status, message, handled := d.managedHireWith(roleID, folder, terminal, showWindow, held, floor, engineExtra); handled {
 				return status, message
 			}
 		} else if launcherHires && d.config.HireManagedWindows && hasTerminal {
 			// Beta: in a window run by the launcher, only where that is made and the switch is on.
-			if status, message, handled := d.managedLauncherHire(roleID, folder, terminal, hasTerminal, held, floor); handled {
+			if status, message, handled := d.managedLauncherHire(roleID, folder, terminal, hasTerminal, held, floor, engineExtra); handled {
 				return status, message
 			}
 		}
@@ -550,6 +577,9 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		}
 	}
 	d.hires[token] = &pendingHire{desk: held, floor: floor, at: time.Now()}
+	// The folder it starts in, first among setup's recent ones (the Mac's Deck.open, Config.noteHire).
+	d.config.noteHireFolder(folder)
+	d.config.save()
 	if extra != nil {
 		// Setup's sheet is told: only the engine's hires get its task and answers, in a BRIEF.
 		return http.StatusNoContent, setupHireNotPassedOn

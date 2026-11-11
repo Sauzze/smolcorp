@@ -266,6 +266,10 @@ func TestTheGMHireOnTheLauncherStartsItsWindowWithTheGuardOfAHireFromTheOffice(t
 			if err := os.MkdirAll(briefsKeptDir(), 0o700); err != nil {
 				t.Fatal(err)
 			}
+			// The same for config.json, which a hire saves (setup's recent folders, hiredInto).
+			w.d.mu.Lock()
+			w.d.config.save()
+			w.d.mu.Unlock()
 			deskSettings, deskGuard := hire(w, role, groups, false)
 			routeSettings, routeGuard := hire(w, role, groups, true)
 			if deskSettings != routeSettings || !slices.Equal(deskGuard, routeGuard) || len(routeGuard) == 0 {
@@ -524,9 +528,29 @@ func TestEverySavedAccountsFolderIsDeniedToALauncherHire(t *testing.T) {
 		w.d.lastHire = time.Time{}
 		w.d.mu.Unlock()
 		if route {
-			w.hire("janitor")
-		} else if status, text := w.d.Perform("hire", "", url.Values{"role": {"janitor"}}); status != http.StatusNoContent {
-			t.Fatalf("%s: %d %q", where, status, text)
+			// With two accounts it names one, as it must on the Mac (C05).
+			if status, text := w.post("/setup/gm/hire", map[string]any{"role": "janitor", "account": "default"}, winAsGM); status != http.StatusOK {
+				t.Fatalf("%s: %d %s", where, status, text)
+			}
+		} else {
+			// The office's hire can't name one: with two it is asked which, in the Mac's words, and nothing is made.
+			if status, text := w.d.Perform("hire", "", url.Values{"role": {"janitor"}}); status != http.StatusBadRequest ||
+				text != "Say which Claude account to hire on: default, work." || len(winRegistry(t)) != before {
+				t.Fatalf("%s with two accounts: %d %q", where, status, text)
+			}
+			// With work not saved, only the default is left to work on: hired, and the one outside still fenced off.
+			w.d.mu.Lock()
+			saved := w.d.config.ClaudeProfiles
+			w.d.config.ClaudeProfiles = slices.DeleteFunc(slices.Clone(saved), func(p claudeProfile) bool { return p.Name == "work" })
+			w.d.lastHire = time.Time{}
+			w.d.mu.Unlock()
+			status, text := w.d.Perform("hire", "", url.Values{"role": {"janitor"}})
+			w.d.mu.Lock()
+			w.d.config.ClaudeProfiles = saved
+			w.d.mu.Unlock()
+			if status != http.StatusNoContent {
+				t.Fatalf("%s: %d %q", where, status, text)
+			}
 		}
 		w.d.watching.Wait()
 		rows := winRegistry(t)
@@ -537,6 +561,10 @@ func TestEverySavedAccountsFolderIsDeniedToALauncherHire(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", where, err)
 		}
-		deniesTheAccounts(t, where, string(settings), work, outside)
+		if route {
+			deniesTheAccounts(t, where, string(settings), work, outside)
+		} else {
+			deniesTheAccounts(t, where, string(settings), outside)
+		}
 	}
 }

@@ -277,12 +277,9 @@ func (d *Deck) setupSheetDesk(h setupHire) (desk string, expected any, pinned bo
 }
 
 // setupSheetHired is setup's answer to hire h, hired: the desk it's expected
-// at, or its floor; and the folder put first among the recent ones.
+// at, or its floor. The folder it started in was put first among the recent
+// ones by the hire itself (hiredInto, or hireWith's plain path).
 func (d *Deck) setupSheetHired(h setupHire, expected any) map[string]any {
-	d.mu.Lock()
-	d.config.noteHireFolder(h.Folder)
-	d.config.save()
-	d.mu.Unlock()
 	if h.Floor > 0 {
 		return map[string]any{"ok": true, "desk": nil, "floor": h.Floor, "session": nil}
 	}
@@ -376,6 +373,11 @@ func (d *Deck) hireFromSetupSheetIntoT3(h setupHire, roles []Role) (int, any, st
 	if status != http.StatusNoContent {
 		return status, nil, why
 	}
+	// Into T3 Code, the folder asked for is put first among the recent ones, as the Mac's hireIntoT3 does.
+	d.mu.Lock()
+	d.config.noteHireFolder(h.Folder)
+	d.config.save()
+	d.mu.Unlock()
 	return http.StatusOK, d.setupSheetHired(h, expected), ""
 }
 

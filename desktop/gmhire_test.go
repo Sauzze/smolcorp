@@ -156,7 +156,7 @@ func TestTheGMHireFolder(t *testing.T) {
 // What the Go path can't honour is refused naming the field; what's already so is honoured; a floor is the hire's, on its first free desk.
 func TestTheGMHireFieldsAndFloor(t *testing.T) {
 	d, r, h, token := gmHireDeck(t)
-	for field, value := range map[string]string{"account": `"work"`, "model": `"opus"`, "nickname": `"Ada"`, "apiKey": `true`,
+	for field, value := range map[string]string{"model": `"opus"`, "nickname": `"Ada"`, "apiKey": `true`,
 		"worktree": `false`, "task": `"Review it."`, "answers": `["a"]`, "floor": `6`, "floor ": `"2"`} {
 		code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","`+strings.TrimSpace(field)+`":`+value+`}`)
 		if code != http.StatusBadRequest || !strings.Contains(text, field) && field != "floor" || strings.Contains(text, "\n") {
@@ -164,9 +164,14 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 		}
 	}
 	for range 20 { // several at once: the field named is always the first in the order the route checks them
-		if _, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","answers":["a"],"worktree":false,"model":"opus","account":"work"}`); !strings.Contains(text, `"account"`) {
-			t.Fatalf("with several refused, the 400 names %q, want account", text)
+		if _, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","answers":["a"],"worktree":false,"nickname":"Ada","model":"opus"}`); !strings.Contains(text, `"model"`) {
+			t.Fatalf("with several refused, the 400 names %q, want model", text)
 		}
+	}
+	// The account is honoured as the Mac's route honours it: one that isn't saved is said, in the Mac's words.
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","account":"work"}`); code != http.StatusNotFound ||
+		text != "There's no Claude account called work. Pick one of: default." {
+		t.Errorf("an account that isn't saved: %d %q", code, text)
 	}
 	nothingMade(t, r, h)
 	for _, engine := range []string{`"bogus"`, `7`, `"T3"`} {
@@ -284,8 +289,9 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 	// hire makes a hire of role with the guard saying groups, and says what it started with, its own names made plain.
 	hire := func(role string, groups []map[string]any, route bool) (settings string, guard []string) {
 		d, r, _, token := gmHireDeck(t)
-		// One saved account besides the default: both hires deny it (RPGM2 n1).
-		work := claudeFolder(t, filepath.Join(homeDir, "accounts", "work"), "settings.json")
+		// One saved account besides the default: both hires deny it (RPGM2 n1). Outside the home folder, so no
+		// hire takes it and the office's hire, which can't name an account, isn't asked which (the Mac's rule).
+		work := claudeFolder(t, filepath.Join(physical(t.TempDir()), "accounts", "work"), "settings.json")
 		d.config.ClaudeProfiles = []claudeProfile{{Name: "work", Dir: work}}
 		printed, _ := json.Marshal(map[string]any{"groups": groups})
 		d.engine.Guard = func(_ string, args []string) (int, string, bool) {
@@ -309,7 +315,7 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 		}
 		data, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, hires[0].ID), hireSettingsFile))
 		deniesTheAccounts(t, map[bool]string{false: "desk", true: "route"}[route]+" hire of "+role, string(data), work)
-		plain := strings.NewReplacer(hires[0].ID, "<hire>", hires[0].Worktree, "<worktree>", d.config.HireFolder, "<repo>", supportDir, "<support>", homeDir, "<home>")
+		plain := strings.NewReplacer(hires[0].ID, "<hire>", work, "<work>", hires[0].Worktree, "<worktree>", d.config.HireFolder, "<repo>", supportDir, "<support>", homeDir, "<home>")
 		return plain.Replace(string(data)), guard
 	}
 	for _, role := range []string{"janitor", "gm"} {

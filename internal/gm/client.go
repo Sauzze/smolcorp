@@ -376,6 +376,9 @@ func (c *Client) do(method, path string, query url.Values, body []byte, timeout 
 		if cmd, ok := goAppUnserved[method+" "+path]; ok && c.isGoApp() {
 			msg := fmt.Sprintf("`gm %s` isn't available in Smolcorp on Linux and Windows yet.", cmd)
 			return nil, &Error{Code: exitApp, Status: resp.StatusCode, Cause: errNotServedHere, Msg: msg}
+		} else if ok && strings.HasPrefix(strings.TrimSpace(string(data)), "`gm "+cmd+"` isn't available") {
+			// The Go engine under the Mac app says it in its own words (an older app's 404 is empty).
+			return nil, &Error{Code: exitApp, Status: resp.StatusCode, Cause: errNotServedHere, Msg: c.scrub(oneLine(strings.TrimSpace(string(data))))}
 		}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {

@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"maps"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -147,8 +148,20 @@ func forgetHire(id string) {
 	})
 }
 
+// failHire marks hire id failed, with its notes, whatever open state it is in by now: a hire whose start
+// failed after its agent was up (its window didn't open) may already have been marked working, and the
+// answer has told the owner it wasn't hired. Failed is final: setHire only moves a "starting" row, so no
+// watcher brings a failed one back. One already fired or failed is left as it is.
+func failHire(id, notes string) {
+	_ = updateRegistry(func(f *registryFile) {
+		if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id && isOpen(h) }); i >= 0 {
+			f.hires[i].State, f.hires[i].Notes = "failed", notes
+		}
+	})
+}
+
 // setHire gives hire id a state and its notes, only while it is still
-// "starting": a hire the owner fired or changed meanwhile is left as it is.
+// "starting": a hire the owner fired or changed meanwhile, or one that failed, is left as it is.
 func setHire(id, state, notes string) {
 	_ = updateRegistry(func(f *registryFile) {
 		if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id && h.State == "starting" }); i >= 0 {
@@ -162,11 +175,46 @@ func setHire(id, state, notes string) {
 func (d *Deck) hireHeardFrom(h Hire) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	folder := physical(h.Folder)
+	folder := physical(cmpOr(h.Worktree, h.Folder)) // where it works: its worktree if it has one
 	return slices.ContainsFunc(d.sessions.All(), func(s *Session) bool {
 		where := physical(s.Folder)
 		return s.Agent == Claude && s.StartedAt >= h.Started && (where == folder || strings.HasPrefix(where, folder+string(filepath.Separator)))
 	})
+}
+
+// startedIn is where an engine hire started: its worktree, at the same place in it as the folder it was
+// hired into is in the repo; that folder itself when it has no worktree.
+func startedIn(h Hire) string {
+	if h.Worktree == "" || h.Repo == "" {
+		return h.Folder
+	}
+	if rest, inside := strings.CutPrefix(filepath.Clean(h.Folder), filepath.Clean(h.Repo)+string(filepath.Separator)); inside {
+		return filepath.Join(h.Worktree, rest)
+	}
+	return h.Worktree
+}
+
+// hiredInto is what the Mac's Deck.open keeps of a hire that started, with the lock held: the folder it
+// started in, first among setup's recent ones (Config.noteHire), and, for a hire in a worktree of its own,
+// its nickname on its desk, which the office names by that folder's name (Deck.nicknamed).
+func (d *Deck) hiredInto(h Hire) {
+	folder := startedIn(h)
+	d.config.noteHireFolder(folder)
+	if name := firstRunes(trimSwiftSpace(h.Nickname), nicknameLimit); h.Worktree != "" && name != "" {
+		team := maps.Clone(d.config.Layout.Room.Team)
+		if team == nil {
+			team = map[string]TeamMember{}
+		}
+		member, known := team[lastPart(folder)]
+		if !known {
+			member = TeamMember{}.checked()
+		}
+		member.Name = name
+		team[lastPart(folder)] = member
+		d.config.Layout.Room.Team = team
+	}
+	d.config.save()
+	d.changed()
 }
 
 // calledHire is what a fire's answers call a hire: its nickname, else its
@@ -186,21 +234,27 @@ var firing = struct {
 
 // windowRefusal is why a window showing screen (readable false: it couldn't be
 // looked at) may not be ended, or "". A question or a menu, or a window that
-// can't be looked at, is never skipped; force skips the rest.
+// can't be looked at, is never skipped; force skips the rest. The tmux fire
+// types "/exit" into an idle window, so its refusals say nothing was sent, as
+// the Mac's.
 func windowRefusal(h Hire, screen string, readable, force bool) string {
-	return stateRefusal(h, ReadPaneState(screen), readable, force)
+	return refusalOfState(h, ReadPaneState(screen), readable, force, "sent")
 }
 
 // stateRefusal is windowRefusal for a window already read as state (a
-// launcher sends only that).
+// launcher sends only that). The launcher's fire types nothing: nothing was ended.
 func stateRefusal(h Hire, state PaneState, readable, force bool) string {
+	return refusalOfState(h, state, readable, force, "ended")
+}
+
+func refusalOfState(h Hire, state PaneState, readable, force bool, nothing string) string {
 	name := calledHire(h)
 	if !readable {
-		return "Couldn't tell what " + name + "'s window holds, so nothing was ended. Look at it first."
+		return "Couldn't tell what " + name + "'s window holds, so nothing was " + nothing + ". Look at it first."
 	}
 	switch {
 	case state == PaneMenu:
-		return name + " is waiting for an answer in its window. Answer it there first; nothing was ended."
+		return name + " is waiting for an answer in its window. Answer it there first; nothing was " + nothing + "."
 	case force || state == PaneIdle:
 		return ""
 	case state == PaneDraft:
@@ -208,7 +262,15 @@ func stateRefusal(h Hire, state PaneState, readable, force bool) string {
 	case state == PaneBusy:
 		return name + " is working right now. Wait until it is done, or fire with force."
 	}
-	return "Couldn't tell what " + name + "'s window holds, so nothing was ended. Look at it, or fire with force."
+	return "Couldn't tell what " + name + "'s window holds, so nothing was " + nothing + ". Look at it, or fire with force."
+}
+
+// firedWorktreeKept is why a fire left a worktree, as the Mac's HireFire.finish says it.
+const firedWorktreeKept = "It holds changes nobody committed (new files count too), or git wouldn't remove it."
+
+// firedKeptNote is the registry's note of a fired hire whose worktree was kept (the Mac's afterColon).
+func firedKeptNote(worktree string) string {
+	return "Its worktree " + worktree + " was kept: it" + strings.TrimPrefix(firedWorktreeKept, "It")
 }
 
 // uncommittedRefusal is why a hire's worktree may not be left, or "": git

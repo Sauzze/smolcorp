@@ -73,11 +73,19 @@ func TestSetupsHireSheetHiresWithWhatItSaid(t *testing.T) {
 	if !strings.Contains(string(settings), absoluteRulePath(filepath.Join(homeDir, ".claude"))+"/settings*.json") {
 		t.Error("the default account's settings aren't denied by name")
 	}
+	// As the Mac's: the registry's folder is the project, the folder it started in (its worktree) is first among the
+	// recent ones, and its nickname is on its desk, which the office names by that folder's name (C3 A5, A6).
 	d.mu.Lock()
-	recent := d.config.RecentHireFolders
+	recent, team := d.config.RecentHireFolders, d.config.Layout.Room.Team
 	d.mu.Unlock()
-	if len(recent) == 0 || recent[0] != repo {
-		t.Errorf("recent folders %v", recent)
+	if got[0].Folder != repo || len(recent) == 0 || recent[0] != got[0].Worktree {
+		t.Errorf("registry folder %q, recent folders %v", got[0].Folder, recent)
+	}
+	if member, ok := team[filepath.Base(got[0].Worktree)]; !ok || member.Name != "Ana" {
+		t.Errorf("the desk's name: %+v", team)
+	}
+	if saved := loadConfig().Layout.Room.Team[filepath.Base(got[0].Worktree)]; saved.Name != "Ana" {
+		t.Errorf("the nickname isn't saved on its desk: %+v", saved)
 	}
 }
 

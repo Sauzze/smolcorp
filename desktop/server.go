@@ -1304,11 +1304,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		terminals, tmux := hireWays()
 		if query.Has("terminal") && !slices.ContainsFunc(terminals, func(o hireOpener) bool { return o.id == query.Get("terminal") }) {
-			http.Error(w, "That terminal isn't on this computer", http.StatusBadRequest)
+			http.Error(w, "That terminal isn't on this "+d.machine(), http.StatusBadRequest)
 			return
 		}
 		if query.Get("tmux") == "1" && !tmux {
-			http.Error(w, "tmux isn't on this computer", http.StatusBadRequest)
+			http.Error(w, "tmux isn't on this "+d.machine(), http.StatusBadRequest)
 			return
 		}
 		d.mu.Lock()
@@ -1677,7 +1677,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		writeJSON(w, http.StatusOK, d.gmPreflight())
 
 	// Start here's Hire your General Manager: the GM role, in the folder for
-	// your hires, its questions asked in its terminal.
+	// your hires, its questions asked in its terminal. `account=` names the
+	// Claude account and `worktree=1` gives it a worktree, as on the Mac.
 	case r.Method == http.MethodPost && path == "/setup/hire/gm":
 		// One GM per office: the GM's token never hires the gm role. Checked before anything is saved
 		// (DeckRouter.swift: the same refusal before the hire).
@@ -1708,7 +1709,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.config.save()
 		d.changed()
 		d.mu.Unlock()
-		status, text := d.hireFromSetup("gm")
+		// The Claude account named (with one account it is left out) and a worktree of its own (worktree=1),
+		// passed on as the Mac's (DeckRouter.swift).
+		worktree := query.Get("worktree") == "1"
+		status, text := d.hireWith(hireSpec{roleID: gmRole, fromSetup: true, account: strings.Trim(query.Get("account"), " \t"), worktree: &worktree})
 		if status >= http.StatusBadRequest {
 			d.mu.Lock()
 			d.config.ManagerEnabled = before
@@ -1804,6 +1808,18 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		r.Method == http.MethodPost && path == "/setup/gm/watch",
 		(r.Method == http.MethodPost || r.Method == http.MethodDelete) && path == "/setup/gm/unwatch":
 		rt.watchRoutes(w, r, path)
+
+	// The GM's screens and tile aren't served on this core yet (GO-PARITY rows 65 and 68). Under the Mac app
+	// the 404 says so in the engine's words, so `smolcorp gm` doesn't say "Linux and Windows" on a Mac;
+	// elsewhere it stays empty, and the GM tool words it itself.
+	case r.Method == http.MethodGet && path == "/setup/gm/screens",
+		r.Method == http.MethodPost && (path == "/setup/gm/screen" || path == "/setup/gm/tile"):
+		if d.macHost() == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		command := strings.TrimPrefix(path, "/setup/gm/")
+		http.Error(w, "`gm "+command+"` isn't available on this engine yet: switch back to the Swift engine to use it.", http.StatusNotFound)
 
 	// The Mac answers an unknown route under /setup with an empty 404.
 	default:

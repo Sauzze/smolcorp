@@ -102,8 +102,9 @@ func entriesFor(agent Agent) *hookEntries {
 	command := hookCommand(agent)
 	switch agent {
 	case Claude:
+		// PermissionDenied is the one Claude Code sends when a permission is refused: the event log keeps it (Hooks.swift).
 		return &hookEntries{file: filepath.Join(agentFolder(Claude), "settings.json"), events: []string{
-			"SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse",
+			"SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PermissionDenied", "PostToolUse",
 			"PostToolUseFailure", "Notification", "Stop", "StopFailure", "SessionEnd",
 			"SubagentStart", "SubagentStop", "PreCompact", "PostCompact",
 		}, handler: map[string]any{"type": "command", "command": command, "async": true}}

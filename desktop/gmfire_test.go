@@ -114,7 +114,7 @@ func TestAGMFireRefusesEveryRowOfFireJSONWithItsStatusAndNeverTypes(t *testing.T
 		{setup: func(g *gmRig) { g.d.mu.Lock(); g.d.config.HiringEnabled = false; g.d.mu.Unlock() }, status: 403}}
 	gmRefusals(t, "fire.json", "/setup/gm/fire", rows, func(i int, g *gmRig, w *httptest.ResponseRecorder) {
 		if i >= 2 && i < 5 && (!strings.HasPrefix(w.Body.String(), "Rex ") || strings.Contains(w.Body.String(), "janitor")) ||
-			i == 2 && !strings.Contains(w.Body.String(), "new.txt") || (i == 3 || i == 6) && (g.r.tmux.ran("kill-session") || !g.r.tmux.up) {
+			i == 2 && !strings.Contains(w.Body.String(), "new.txt") || (i == 3 || i == 6) && (g.r.tmux.ran("kill-server") || !g.r.tmux.up) {
 			t.Errorf("row %d: %q, tmux %q", i, w.Body, g.asked())
 		}
 	})
@@ -126,7 +126,7 @@ func TestAForcedGMFireKeepsTheWorktreeWithChangesAndSaysWhy(t *testing.T) {
 	w := g.fire(t, true, map[string]any{"force": true, "removeWorktree": true})
 	var got map[string]any
 	json.Unmarshal(w.Body.Bytes(), &got)
-	if _, err := os.Stat(g.hire.Worktree); w.Code != http.StatusOK || got["ok"] != true || got["kept"] != "it has changes, or git wouldn't remove it" ||
+	if _, err := os.Stat(g.hire.Worktree); w.Code != http.StatusOK || got["ok"] != true || got["kept"] != firedWorktreeKept ||
 		got["worktree"] != g.hire.Worktree || got["branch"] != g.hire.Branch || err != nil || g.typed() {
 		t.Fatalf("%d %q (worktree %v)", w.Code, w.Body, err)
 	}

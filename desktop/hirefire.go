@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Fire, for a hire the engine made (Phase 6 T602, part C3), as the Mac's
@@ -13,11 +14,18 @@ import (
 // typed, and its worktree holds nothing uncommitted. At a question or a menu,
 // or when the window can't be read, it always refuses; with a draft, at work,
 // or a window that can't be told apart, or with uncommitted files, it refuses
-// unless force is given. A refusal changes nothing: nothing here ever answers
-// a prompt or types into the window (hard rules 1 and 2), not even with
-// force: the session is only ended. When in doubt it refuses. It ends the
-// session on the hire's own socket only (hireOwnTmux), looks again to see it
-// is gone, and the worktree goes only through removeHireWorktree.
+// unless force is given. A refusal changes nothing. Nothing here ever answers
+// a prompt (hard rules 1 and 2): only an idle, empty input box, looked at again
+// just before, is typed into, and only with "/exit" and Return, so Claude Code
+// ends its session itself and its SessionEnd hooks run (the event log's
+// sessionStop), as the Mac's HireFire.fire does. At work or with a draft (with
+// force) nothing is typed. Then, after the session ends or exitWithin, the
+// hire's own tmux server is ended. All of it is on the hire's own socket only
+// (hireOwnTmux), never a terminal window the owner types in; it looks again to
+// see the session is gone, and the worktree goes only through removeHireWorktree.
+
+// fireExitWithin is how long a fire waits for the session to end after "/exit" (HireFire.exitWithin).
+const fireExitWithin = 10 * time.Second
 
 // fireEngineHire fires h: a refusal says why and leaves everything as it was.
 // Otherwise its session is ended (and seen to be gone), its worktree removed
@@ -65,13 +73,25 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 		if message := windowRefusal(h, capture, readable, force); message != "" {
 			return refuse(message)
 		}
-		// Git may have taken a while: look again just before ending, so a question that came up meanwhile stops it.
+		// Git may have taken a while: look again just before typing or ending, so a question that came up meanwhile stops it.
 		fresh, ok := tmux.capture(200)
 		if message := windowRefusal(h, fresh, ok, force); message != "" {
 			return refuse(message)
 		}
-		tmux.end()
-		// A kill that failed is not a fire: the session must be known to be gone.
+		// Only an idle, empty box is typed into, and only if it still is: "/exit" and Return, then a bounded wait.
+		if ReadPaneState(capture) == PaneIdle {
+			if !ok || ReadPaneState(fresh) != PaneIdle {
+				return refuse("Its window changed while it was being looked at, so nothing was sent. Try again.")
+			}
+			// Not into a mode of tmux's own (an owner's viewer scrolled back): the paste would go there. It is then only ended.
+			if mode, known := tmux.pasteState(); known && !mode.inMode && tmux.paste("/exit") && tmux.submit() {
+				waitForSessionEnd(tmux, o)
+			}
+		}
+		if still, known := tmux.alive(); !known || still {
+			tmux.endServer()
+		}
+		// An end that failed is not a fire: the session must be known to be gone.
 		if still, known := tmux.alive(); !known || still {
 			return refuse("Couldn't end " + calledHire(h) + "'s tmux session, so nothing was changed.")
 		}
@@ -79,12 +99,23 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 	removed := h.Worktree != "" && !o.KeepWorktree && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
 	writeRecap(h, capture, removed, o.Now())
 	if h.Worktree != "" && !removed && !o.KeepWorktree {
-		kept = "it has changes, or git wouldn't remove it"
-		markFired(h.ID, "Its worktree "+h.Worktree+" was kept: "+kept+".")
-		return kept, nil
+		markFired(h.ID, firedKeptNote(h.Worktree))
+		return firedWorktreeKept, nil
 	}
 	markFired(h.ID, "")
 	return "", nil
+}
+
+// waitForSessionEnd waits up to fireExitWithin for the hire's session to end by itself after "/exit",
+// looking every half second (HireFire.waitForEnd), on the clock and pause given.
+func waitForSessionEnd(tmux *hireTmux, o engineOptions) {
+	end := o.Now().Add(fireExitWithin)
+	for {
+		if up, known := tmux.alive(); known && !up || !o.Now().Before(end) {
+			return
+		}
+		o.Pause(500 * time.Millisecond)
+	}
 }
 
 // engineHireAt is the registry's hire whose recorded tmux socket is the tab's,
