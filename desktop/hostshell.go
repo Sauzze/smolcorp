@@ -12,7 +12,7 @@ import (
 // Swift engine does them (DeckRouter.swift, SelfTest.swift): Open at login
 // (LoginItem), the office's own window and keeping it on top (OfficeWindow),
 // the Mac's folder panel (Deck.chooseHireFolder), ✨ Summary's key in the
-// Keychain (SummaryKey), and the self-test's Accessibility and network lines
+// Keychain (SummaryKey), and the self-test's install, Accessibility and network lines
 // in the Mac's words. On Windows and Linux there is no host, and each does what
 // it did before: autostart_*.go, window_*.go, picker*.go, summary_store_other.go.
 
@@ -51,7 +51,7 @@ func (rt *router) macShell(w http.ResponseWriter, r *request) bool {
 		}
 		keys, refusal := officeKeyChoice(query.Get("keys"), labels)
 		if refusal != "" {
-			http.Error(w, refusal, http.StatusBadRequest)
+			writeStatus(w)(http.StatusBadRequest, refusal)
 			return true
 		}
 		if err := hostOfficeKey(h, keys); err != nil {
@@ -233,7 +233,8 @@ func macLoginCheck(on, testCopy bool) check {
 }
 
 // macFix runs a fix that is the Mac app's under it, and says whether name was one: Accessibility asked of
-// macOS, and the login item (left to the Smolcorp in use by a test copy, as the Swift engine leaves it).
+// macOS, the login item (left to the Smolcorp in use by a test copy, as the Swift engine leaves it), and
+// Move to Applications.
 func (d *Deck) macFix(name string) (status int, message string, done bool) {
 	h := d.macHost()
 	if h == nil {
@@ -247,6 +248,12 @@ func (d *Deck) macFix(name string) (status int, message string, done bool) {
 		on := true
 		if _, err = hostLoginItem(h, &on); isAppRefusal(err) {
 			err = nil
+		}
+	// Move to Applications: the app copies itself there and opens the copy. Why not (a test copy stays where it
+	// was built) is the Mac's sentence, 409, as the Swift engine's fix route says it.
+	case fixInstall:
+		if err = hostInstall(h); isAppRefusal(err) {
+			return http.StatusConflict, err.Error(), true
 		}
 	default:
 		return 0, "", false

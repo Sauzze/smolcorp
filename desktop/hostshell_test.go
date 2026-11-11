@@ -3,6 +3,7 @@ package desktop
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -264,6 +265,10 @@ func TestTheSelfTestHasTheMacsLinesUnderTheMacApp(t *testing.T) {
 	if at < 0 || !slices.Equal(ids[at:], []string{"hooks", "accessibility", "network", "phone", "login"}) {
 		t.Fatalf("the checks: %v", ids)
 	}
+	// The install line is the app's own, first, as the Swift engine's self-test has it (A13).
+	if !slices.Equal(ids[:at], []string{"install"}) || checks[0].Detail != "As /Applications/Smolcorp.app." {
+		t.Errorf("the install line: %v, %+v", ids[:at], checks[0])
+	}
 	accessibility, network, login := checks[at+1], checks[at+2], checks[at+4]
 	// The fixture's facts: Accessibility not given, a test copy.
 	if accessibility.Status != checkTodo || accessibility.Fix != fixAccessibility || accessibility.Label != "Allow" ||
@@ -297,6 +302,44 @@ func TestTheSelfTestHasTheMacsLinesUnderTheMacApp(t *testing.T) {
 	for _, check := range d.selfTest() {
 		if check.ID == "accessibility" {
 			t.Error("an Accessibility line the app didn't say")
+		}
+	}
+	// Nor an install line the app didn't say.
+	mac.refusing(map[string]string{"install-check": "The Mac didn't answer in time."})
+	for _, check := range d.selfTest() {
+		if check.ID == "install" {
+			t.Error("an install line the app didn't say")
+		}
+	}
+}
+
+// Move to Applications is the app's: asked of it, and its no (a test copy stays where it was built) is the 409 of
+// the Swift engine's fix route. A tool may not press it under the Mac app, as the Mac's own fix route says.
+func TestMoveToApplicationsIsAskedOfTheMacApp(t *testing.T) {
+	mac := withMac(t)
+	d := newTestDeck(t)
+	if status, message := d.fix(fixInstall); status != http.StatusNoContent || message != "" || len(mac.requests("install")) != 1 {
+		t.Errorf("fix install: %d %q, asked %d", status, message, len(mac.requests("install")))
+	}
+	mac.refusing(map[string]string{"install": "A test copy stays where it was built."})
+	if status, message := d.fix(fixInstall); status != http.StatusConflict || message != "A test copy stays where it was built." {
+		t.Errorf("a refused install: %d %q", status, message)
+	}
+	mac.refusing(nil)
+	if fixAllowed(callerTool, fixInstall, "", true) || !fixAllowed(callerPage, fixInstall, "", true) {
+		t.Error("under the Mac app, only the page presses Move to Applications")
+	}
+}
+
+// The office key's refusals are the Mac's bytes: the sentence, no newline after it (as every setup refusal).
+func TestTheOfficeKeysRefusalsHaveNoTrailingNewline(t *testing.T) {
+	withMac(t)
+	d := newTestDeck(t)
+	for _, keys := range []string{"", "K", "shift+K", "cmd+Q", "cmd+Tab"} {
+		got := serve(t, d, call{method: "POST", target: "/setup/officekey?keys=" + url.QueryEscape(keys), host: "localhost:7710", from: thisComputer,
+			headers: map[string]string{setupHeader: "1"}})
+		if got.Code != http.StatusBadRequest || got.Body.Len() == 0 || strings.HasSuffix(got.Body.String(), "\n") {
+			t.Errorf("keys %q: %d %q", keys, got.Code, got.Body.String())
 		}
 	}
 }

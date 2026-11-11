@@ -279,8 +279,13 @@ final class Deck {
 
     // MARK: Addresses
 
-    /// What a phone on the same network opens to pair.
-    var phoneAddress: String { "http://\(LocalNetwork.address() ?? "localhost"):\(Deck.port)" }
+    /// What a phone on the same network opens to pair: nothing on a test copy that listens on this Mac only
+    /// (`TestCopy.listensOn`), which no phone could open, as the Go engine says it.
+    var phoneAddress: String { Deck.phoneAddress(listening: TestCopy.isOn ? TestCopy.listensOn : .everywhere) }
+
+    static func phoneAddress(listening scope: HTTPServer.Scope, host: String? = LocalNetwork.address()) -> String {
+        scope == .thisMac ? "" : "http://\(host ?? "localhost"):\(Deck.port)"
+    }
 
     /// What the QR code opens: the pairing page with `code` filled in.
     func pairingLink(for code: String) -> String { "\(phoneAddress)/?pair=\(code)" }

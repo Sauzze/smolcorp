@@ -68,6 +68,14 @@ final class TestCopyQuietTests: XCTestCase {
         XCTAssertEqual(TestCopy.listensOn, .thisMac, "the suite's stand-in servers stay on this Mac")
     }
 
+    /// What a phone is told to open (and the QR code, which 404s without it) is what the copy really listens on, as
+    /// the Go engine says it (FXC1c N2): no address for a copy on this Mac only, the LAN's for the real app.
+    func testThePairingAddressIsWhatTheCopyListensOn() {
+        XCTAssertEqual(Deck.phoneAddress(listening: .thisMac, host: "192.168.1.20"), "")
+        XCTAssertEqual(Deck.phoneAddress(listening: .everywhere, host: "192.168.1.20"), "http://192.168.1.20:\(Deck.port)")
+        XCTAssertEqual(Deck.phoneAddress(listening: .everywhere, host: nil), "http://localhost:\(Deck.port)")
+    }
+
     /// At the socket: the server's listening sockets are bound to 127.0.0.1 (and ::1), never *, and it answers there.
     func testTheServerIsBoundToLoopbackOnly() throws {
         let port = UInt16.random(in: 47_100...47_900)

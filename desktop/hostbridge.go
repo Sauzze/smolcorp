@@ -142,6 +142,8 @@ type bridgeAnswer struct {
 	Folder string `json:"folder,omitempty"`
 	// facts: what only the Mac can say, for setup.
 	Facts *macFacts `json:"facts,omitempty"`
+	// install-check: the checklist's install line, as the app says it (SelfTest.installCheck).
+	Check *check `json:"check,omitempty"`
 	// keystroke-apps: the list, with the app on it or off it; glossary: the names, checked.
 	Apps  []string `json:"apps,omitempty"`
 	Names []string `json:"names,omitempty"`
@@ -432,6 +434,26 @@ func hostFacts(h hostBridge, apps []string) (macFacts, error) {
 		return macFacts{}, err
 	}
 	return *answer.Facts, nil
+}
+
+// hostInstallCheck is the checklist's install line, as the Mac app says it: whether it is in Applications, or
+// Move to Applications when it isn't (a downloaded or translocated copy). Only the app knows its bundle's path.
+func hostInstallCheck(h hostBridge) (check, error) {
+	answer, err := ask(h, bridgeRequest{Action: "install-check"})
+	if err == nil && (answer.Check == nil || answer.Check.ID != "install") {
+		err = errors.New("the Mac app said nothing of where it is")
+	}
+	if err != nil {
+		return check{}, err
+	}
+	return *answer.Check, nil
+}
+
+// hostInstall is that line's fix: the app copied into Applications and opened there, which quits the one asked.
+// A refusal says why not (a test copy stays where it was built).
+func hostInstall(h hostBridge) error {
+	_, err := ask(h, bridgeRequest{Action: "install"})
+	return err
 }
 
 // hostDock shows Smolcorp in the Dock and ⌘-Tab, or in the menu bar only, at once.

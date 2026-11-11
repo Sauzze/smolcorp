@@ -756,6 +756,21 @@ final class HostBridgeTests: XCTestCase {
         mac.dock = { [unowned self] in asked.append("dock \($0)") }
         mac.askAccessibility = { [unowned self] in asked.append("accessibility") }
         mac.keystrokesOn = { [unowned self] in asked.append("keystrokes on") }
+        // The install line (FXC1c), by the real check on stand-in bundles: a copy run from Downloads, then a
+        // translocated one with a quarantined Smolcorp in Applications. Its fix: moved, then refused as a test copy's is.
+        var installLooks = 0
+        mac.installCheck = {
+            installLooks += 1
+            return installLooks == 1
+                ? SelfTest.installCheck(bundle: URL(fileURLWithPath: "/Users/example/Downloads/Smolcorp.app"), testCopy: false,
+                                        home: "/Users/example", quarantined: { _ in false })
+                : SelfTest.installCheck(bundle: URL(fileURLWithPath: "/private/var/folders/ab/T/AppTranslocation/1234/d/Smolcorp.app"),
+                                        testCopy: false, home: "/Users/example", quarantined: { $0 == "/Applications/Smolcorp.app" })
+        }
+        mac.moveToApplications = { [unowned self] in
+            asked.append("install")
+            if asked.filter({ $0 == "install" }).count == 2 { throw SelfTest.FixError.testCopy }
+        }
         mac.prepareDictation = { [unowned self] language, done in
             asked.append("dictation \(language)")
             done(language == "fr_FR" ? "Apple's model for French couldn't be downloaded." : nil)
@@ -817,7 +832,7 @@ final class HostBridgeTests: XCTestCase {
         }
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
         XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "office", "on top true", "keys ctrl+alt+K", "keys ctrl+alt+T", "choose /Users/example/hires floor", "choose - hires",
-                               "close hires", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true",
+                               "close hires", "accessibility", "install", "install", "keystrokes on", "dictation fr_FR", "terminal command true",
                                "t3 app opened", "t3 link t3code://threads/local/mcp%3Aabc-1", "volume 30"])
         XCTAssertTrue(login, "Open at login, switched on")
         // The phone's text, by `Deck.typePhoneWords` on the stand-in drivers: nothing for an agent that has ended,

@@ -401,7 +401,7 @@ func TestT3SetupsHireSheetHiresIntoT3Code(t *testing.T) {
 	d.mu.Lock()
 	d.config.HiringEnabled = false
 	d.mu.Unlock()
-	if got := hire(`{"role":"reviewer","engine":"t3","folder":` + jsonText(repo) + `}`); got.Code != http.StatusForbidden || got.Body.String() != hiringOff+"\n" {
+	if got := hire(`{"role":"reviewer","engine":"t3","folder":` + jsonText(repo) + `}`); got.Code != http.StatusForbidden || got.Body.String() != hiringOff {
 		t.Errorf("hiring off: %d %q", got.Code, got.Body)
 	}
 	d.mu.Lock()
