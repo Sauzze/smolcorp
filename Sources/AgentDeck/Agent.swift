@@ -49,6 +49,30 @@ enum Agent: String, CaseIterable {
     var hasEffortDial: Bool { self == .claude }
     var hasVoice: Bool { self == .claude }
 
+    /// Whether the agent asks its terminal for bracketed paste while it waits at its prompt, so a paste
+    /// of several lines comes to it between markers, its line breaks new lines in the text, never Return.
+    /// Terminal.app, iTerm2 and Ghostty can't say whether it did, so several lines are pasted there only
+    /// for these (`LinesWay.clipboard`), and only while the desk waits at its prompt with nothing else
+    /// reading the tab's keys (`Deck.clipboardRefusal`). Only what was shown is on the list (the owner's
+    /// rule: when in doubt, nothing is typed). Read on 11 Nov 2026 in the installed binaries' strings,
+    /// none of them started:
+    /// - Claude Code 2.1.322: its terminal-mode manager writes `set("bracketedPaste")` (ESC[?2004h) when
+    ///   its input's raw mode first turns on, `reset("bracketedPaste")` when raw mode drops to zero, and
+    ///   reasserts it on resume. It goes off in two other places only: a terminal `$EDITOR` (Ctrl-G,
+    ///   opening a file: its alternate-screen switch suspends every mode), and Ctrl-Z. A window editor
+    ///   (`code --wait`, `subl --wait`) goes through a handoff that turns off only the mouse and focus
+    ///   modes: bracketed paste stays on while it waits. The deck's own checks cover the two (something
+    ///   else with the tab as its input, the agent not in front).
+    /// - OpenCode 2.0.32 (Homebrew): has ESC[?2004h among the modes it turns on once the terminal says it
+    ///   has them, asks for the mode's state (ESC[?2004$p) and keeps it as a capability that's off unless
+    ///   told otherwise. In a terminal that doesn't answer, it may never turn it on: left off (RI34c B1).
+    ///   It comes back after a paste of two lines by hand into its prompt in each of Terminal.app, iTerm2
+    ///   and Ghostty that doesn't send the first line on its own.
+    /// - Codex and Gemini CLI: not installed on that Mac, so nothing could be checked: left off.
+    /// - Grok CLI: its binary has the sequences too (crossterm), but when it turns them on wasn't
+    ///   checked: left off.
+    var asksForBracketedPaste: Bool { self == .claude }
+
     /// The agent's process in its Terminal tab, for finding the tab when its
     /// hooks run elsewhere: Codex runs them in a shared background service,
     /// whose process tree leads to no tab. Gemini CLI runs as `node`, which

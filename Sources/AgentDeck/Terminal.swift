@@ -405,6 +405,70 @@ enum Terminal {
         return .job(tpgid, names: Set(job.map(\.name)), commandLines: job.map(\.args))
     }
 
+    /// The processes in the foreground job of `tty`, each with its command
+    /// line: empty when nothing is in front, nil if `ps` couldn't be asked.
+    static func foregroundJob(tty: String) -> [(pid: pid_t, args: String)]? {
+        guard let rows = processes(on: tty) else { return nil }
+        guard let tpgid = rows.first?.tpgid, tpgid > 0 else { return [] }
+        return rows.filter { $0.pgid == tpgid }.map { ($0.pid, $0.args) }
+    }
+
+    /// What's in front in a tab, for a paste of several lines (RI34b B1):
+    /// where `agent` is, and what else in its foreground job reads the tab's
+    /// keys (RI34c S1).
+    struct TabFront: Equatable {
+        let place: Place
+        /// The names of the processes in the foreground job, other than the
+        /// agent itself, that have the tab's tty as their standard input: a
+        /// terminal editor or a pager the agent opened, a shell. Whichever it
+        /// is, the paste would go to it, not to the agent. Only for saying
+        /// which: having the tty is what counts, whatever the name.
+        let readers: Set<String>
+    }
+
+    /// `agent`'s tab on `tty` as `TabFront` says it; nil if any of it couldn't be looked at.
+    static func front(of agent: Agent, on tty: String) -> TabFront? {
+        guard let place = place(of: agent, on: tty), let job = foregroundJob(tty: tty),
+              let readers = readers(of: agent, in: job, tty: tty) else { return nil }
+        return TabFront(place: place, readers: readers)
+    }
+
+    /// Which processes of `job`, other than `agent` itself, have `tty` as
+    /// their standard input (RI34c S1), by name: the program's own (`name`,
+    /// the path whole, spaces and all) and its command line's first word, as
+    /// `code`, a script, runs as bash. Nil if one couldn't be looked at: not
+    /// known is refused. A hook's or the status line's `sh -c`, an MCP server
+    /// or `caffeinate` has a pipe or /dev/null there, and reads none of the
+    /// tab's keys. The one exception is the system's `caffeinate` (FXI34d), which owners run in front of
+    /// the agent (`caffeinate -di claude`): it has the tab as its input but never reads it. It's known by
+    /// its program's whole path, `/usr/bin/caffeinate`, so a name alone exempts nothing. Settable lookups
+    /// for tests, which give stand-ins.
+    static func readers(of agent: Agent, in job: [(pid: pid_t, args: String)], tty: String,
+                        input: (pid_t) -> Processes.StandardInput = Processes.standardInput(of:),
+                        name: (pid_t) -> String? = Processes.programName(of:),
+                        path: (pid_t) -> String? = Processes.programPath(of:)) -> Set<String>? {
+        let device = tty.hasPrefix("/dev/") ? tty : "/dev/" + tty
+        let named = { (word: String) in (word as NSString).lastPathComponent.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "-")) }
+        var readers: Set<String> = []
+        for process in job where !agent.isItself(commandLine: process.args) {
+            switch input(process.pid) {
+            case .unknown: return nil
+            case .other: continue
+            case .file(let inputPath):
+                guard inputPath == device else { continue }
+                if path(process.pid) == neverReads { continue }
+                let first = process.args.split(separator: " ").first.map(String.init)
+                let names = Set([name(process.pid), first].compactMap { $0.map(named) }.filter { !$0.isEmpty })
+                // Unnamed, it still reads the keys.
+                readers.formUnion(names.isEmpty ? ["?"] : names)
+            }
+        }
+        return readers
+    }
+
+    /// The one program that has the tab's tty as its input and never reads it (see `readers`).
+    static let neverReads = "/usr/bin/caffeinate"
+
     /// Whether a job other than the shell runs on `tty`, as one sent to the
     /// background with `&` or stopped with Ctrl-Z: closing the tab would hang
     /// it up. `shell` as for `foreground`. Nil if that couldn't be looked at.
@@ -450,11 +514,11 @@ enum Terminal {
     }
 
     /// Keys go to whichever app is in front, so they wait until that is
-    /// Terminal. Posted any sooner, they land in the app you were using:
-    /// Space in Finder opens Quick Look.
-    private static func waitUntilFrontmost() -> Bool {
+    /// Terminal (or `bundle`'s app). Posted any sooner, they land in the app
+    /// you were using: Space in Finder opens Quick Look.
+    static func waitUntilFrontmost(_ bundle: String = bundleID) -> Bool {
         let deadline = Date().addingTimeInterval(activationTimeout)
-        while !isFrontmost {
+        while !isFrontmost(bundle) {
             guard Date() < deadline else { return false }
             Thread.sleep(forTimeInterval: 0.01)
         }
@@ -462,9 +526,85 @@ enum Terminal {
         return true
     }
 
-    private static var isFrontmost: Bool {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID
+    private static var isFrontmost: Bool { isFrontmost(bundleID) }
+
+    private static func isFrontmost(_ bundle: String) -> Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundle
     }
+
+    // MARK: Several lines through the clipboard (I34, owner's Q1 b)
+
+    /// The tab brought forward for ⌘V (see `ClipboardPaste`): never while the
+    /// Mac is locked, when the app in front is the lock screen. True once
+    /// Terminal is in front with this very tab selected in its front window,
+    /// asked again after it came forward. Types nothing.
+    static func forwardForPaste(tty: String) -> Bool {
+        guard !isLocked, focus(tty: tty), waitUntilFrontmost() else { return false }
+        return onlyLooking { frontTTY() } == tty
+    }
+
+    /// ⌘V in this very tab (RI34b B2): asked again right before, whether it's
+    /// still the selected tab of Terminal's front window, as a click on
+    /// another tab or window could have changed since it was brought forward.
+    /// Not, and nothing is pressed. `posting` as for `pressPaste(in:)`.
+    static func pressPaste(tty: String, posting: () -> Void = {}) -> PastePress {
+        guard onlyLooking({ frontTTY() }) == tty else { return .notInFront }
+        return pressPaste(in: bundleID, posting: posting) ? .sent : .notInFront
+    }
+
+    /// ⌘V through the keyboard's own path, as Terminal's menu shortcuts go
+    /// (see `pressInFront`): to the app in front, only while that is still
+    /// `bundle`'s, so it never lands in the app you switched to. `posting` is
+    /// called right before the key goes, once every check has passed: the
+    /// clipboard's reads count from then on (RI34c N2).
+    static func pressPaste(in bundle: String, posting: () -> Void = {}) -> Bool {
+        guard !isLocked, isFrontmost(bundle) else { return false }
+        posting()
+        for down in [true, false] {
+            let event = CGEvent(keyboardEventSource: nil, virtualKey: pasteKey, keyDown: down)
+            event?.flags = .maskCommand
+            // "v", whatever the keyboard's layout says that key types.
+            event?.keyboardSetUnicodeString(stringLength: 1, unicodeString: [0x76])
+            if let event { postEvent(event, nil) }
+        }
+        noteStep()
+        return true
+    }
+
+    /// Whether you're using the Mac: keyboard or mouse input in the last
+    /// `inUseWindow` seconds (VICTOR's ruling on RI34b S3). Terminal.app and
+    /// iTerm2 come to the front for ⌘V, which would take your focus, and your
+    /// keys could land in the agent's tab: refused then. Ghostty pastes where
+    /// it is, so it never asks.
+    static var macInUse: Bool { inUse(sinceInput: secondsSinceInput(), sinceOwnKeys: lastOwnKeys.map { -$0.timeIntervalSinceNow }) }
+
+    static let inUseWindow: TimeInterval = 10
+
+    /// In use, given how long ago the Mac last had input and how long ago
+    /// Smolcorp last posted keys of its own (nil: not since it started): the
+    /// Mac may count those as input too, and they aren't you.
+    static func inUse(sinceInput: TimeInterval, sinceOwnKeys: TimeInterval?) -> Bool {
+        guard sinceInput < inUseWindow else { return false }
+        guard let sinceOwnKeys else { return true }
+        return sinceInput < sinceOwnKeys - 0.25
+    }
+
+    /// Seconds since the Mac's keyboard or mouse was last used. Settable for
+    /// tests: the stand-in clock.
+    static var secondsSinceInput: () -> TimeInterval = {
+        CGEventType(rawValue: ~0).map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) } ?? 0
+    }
+
+    /// When Smolcorp last posted keys through the keyboard's path.
+    static var lastOwnKeys: Date? {
+        get { ownKeysLock.withLock { ownKeys } }
+        set { ownKeysLock.withLock { ownKeys = newValue } }
+    }
+    private static var ownKeys: Date?
+    private static let ownKeysLock = NSLock()
+
+    /// V's key, which pastes with ⌘.
+    private static let pasteKey: CGKeyCode = 9
 
     /// Posts `key` to the app in front, or, given `pid`, to that app alone.
     private static func post(_ key: Key, modifiers: CGEventFlags, times: Int, to pid: pid_t? = nil) {
@@ -485,7 +625,10 @@ enum Terminal {
     /// for tests, which give one that posts nothing: no key of theirs ever
     /// reaches a real app.
     static var postEvent: (CGEvent, pid_t?) -> Void = { event, pid in
-        if let pid { event.postToPid(pid) } else { event.post(tap: .cghidEventTap) }
+        if let pid { event.postToPid(pid) } else {
+            lastOwnKeys = Date()
+            event.post(tap: .cghidEventTap)
+        }
     }
 
     /// Terminal's pid while it runs. Settable for tests, with `postEvent`.

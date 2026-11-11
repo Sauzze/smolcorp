@@ -7,7 +7,8 @@ import Foundation
 ///
 /// iOS only lets a page use the microphone over HTTPS, so this works when the
 /// deck is opened through `tailscale serve`; over plain http on the Wi-Fi,
-/// the mic is the Mac's, as before.
+/// the mic is the Mac's, as before. The same route carries text typed on the
+/// phone, over the Wi-Fi as well (I34), with the same checks.
 enum PhoneDictation {
     /// The most text one dictation may carry, in characters: well beyond a
     /// minute of speech, short enough that a stray request can't type a book.
@@ -34,10 +35,13 @@ enum PhoneDictation {
         last.map { now.timeIntervalSince($0) < peekGap } ?? false
     }
 
-    /// The text as it will be typed: line breaks (Unicode's own line and
-    /// paragraph separators too) and other control characters become spaces
-    /// (a line break would press Return part way through), runs of spaces
-    /// one, trimmed. Nil if nothing's left or it's too long (`refusal` says which).
+    /// The text as it will be typed. On one line: control characters become
+    /// spaces, runs of spaces one, trimmed. Of several lines (I34): the line
+    /// breaks (Unicode's own line and paragraph separators too) kept, each a
+    /// line feed, for a bracketed paste to carry (see `Deck.typePhoneDictation`);
+    /// the lines themselves as they were, a tab kept, other control characters
+    /// spaces, blank lines at either end and the spaces round the whole trimmed.
+    /// Nil if nothing's left or it's too long (`refusal` says which).
     /// Only control characters (Cc): the invisible format ones (Cf) stay, as the
     /// joiner in 👩‍💻, which CharacterSet.controlCharacters counts too.
     static func prepared(_ text: String) -> String? {
@@ -46,10 +50,22 @@ enum PhoneDictation {
         return single
     }
 
+    /// Whether the text, as `prepared` gave it, is of several lines.
+    static func isLines(_ words: String) -> Bool { words.contains("\n") }
+
+    /// What ends a line: a line feed, a return (or both, as Windows writes them), and Unicode's next-line,
+    /// line and paragraph separators. A vertical tab or form feed is a control character like any other.
+    private static let lineBreaks: Set<Unicode.Scalar> = ["\n", "\r", "\u{85}", "\u{2028}", "\u{2029}"]
+
     private static func flattened(_ text: String) -> String {
-        let breaks = { (scalar: Unicode.Scalar) in scalar.properties.generalCategory == .control || CharacterSet.newlines.contains(scalar) }
-        let flat = String(String.UnicodeScalarView(text.unicodeScalars.map { breaks($0) ? " " : $0 }))
-        return flat.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+        let scalars = text.replacingOccurrences(of: "\r\n", with: "\n").unicodeScalars.map { scalar -> Unicode.Scalar in
+            if lineBreaks.contains(scalar) { return "\n" }
+            return scalar.properties.generalCategory == .control && scalar != "\t" ? " " : scalar
+        }
+        let lines = String(String.UnicodeScalarView(scalars)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lines.contains("\n") else { return lines }
+        // One line, as before: a tab a space too (typed, it would be a key), runs of spaces one.
+        return lines.replacingOccurrences(of: "\t", with: " ").split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
     }
 
     /// Why `prepared` gave nothing, for the phone to say: too long, or nothing to type.

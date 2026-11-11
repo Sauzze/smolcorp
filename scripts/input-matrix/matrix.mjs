@@ -25,6 +25,8 @@
 //   MATRIX_GM_TOKEN a file holding the copy's GM token: the GM desk then signs one call as the GM,
 //                   as a GM started by hand does (with "Allow a GM started by hand" on)
 //   MATRIX_ONLY     comma-separated desk names to run (all)
+//   MATRIX_LAN      the copy's address on the Wi-Fi, as a phone there opens it (http://192.168.1.4:7780):
+//                   the plain-LAN rows (I34) need it, and say SKIPPED without
 //
 // The desks: gm (Claude, GM role), mgr (Claude, a manager started by hand in a shell),
 // hire (Claude in a hire's tmux session) and fake (a non-Claude agent: fake-agent.mjs, as Codex).
@@ -54,6 +56,7 @@ const HOOK = process.env.MATRIX_HOOK || quoted(join(SUPPORT, 'report.sh'));
 const KEY = process.env.MATRIX_KEY ? readFileSync(process.env.MATRIX_KEY, 'utf8').trim() : '';
 const DESKS = join(DIR, 'desks.json');
 const BASE = `http://127.0.0.1:${PORT}`;
+const LAN = process.env.MATRIX_LAN || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ------------------------------------------------------------- tmux, ours only */
@@ -108,18 +111,31 @@ async function turn(id) {
   return waitState(id, ['unread', 'idle', 'asking'], 90000);
 }
 
-/** POST /dictate as the deck sends it over Tailscale's HTTPS: from this computer's loopback, passed on by a proxy. */
-async function dictate(id, text, send) {
-  const res = await fetch(`${BASE}/dictate?t=${encodeURIComponent(KEY)}&session=${encodeURIComponent(id)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '100.101.102.103', 'Tailscale-User-Login': 'tester@example.com' },
-    body: JSON.stringify({ text, send }),
+/**
+ * POST /dictate as the deck sends it over Tailscale's HTTPS: from this computer's loopback, passed on by a proxy.
+ * `lan`: as a phone on the Wi-Fi sends it, over plain http to the copy's LAN address (I34), with `key` (the paired one).
+ */
+async function dictate(id, text, send, { lan = false, key = KEY, path = '/dictate' } = {}) {
+  const where = lan ? LAN : BASE;
+  const headers = lan ? { 'Content-Type': 'application/json' }
+    : { 'Content-Type': 'application/json', 'X-Forwarded-For': '100.101.102.103', 'Tailscale-User-Login': 'tester@example.com' };
+  const res = await fetch(`${where}${path}?${key === null ? '' : `t=${encodeURIComponent(key)}&`}session=${encodeURIComponent(id)}`, {
+    method: 'POST', headers, body: JSON.stringify({ text, send }),
   });
   return { status: res.status, body: await res.text() };
 }
 
-/** As PhoneDictation.prepared: line breaks and control characters to spaces, runs of spaces one, trimmed. */
-const prepared = (text) => text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').split(' ').filter(Boolean).join(' ');
+/**
+ * As PhoneDictation.prepared: line breaks to line feeds, other control characters but a tab to spaces, trimmed;
+ * of several lines, the lines as they are (I34); of one, a tab a space too and runs of spaces one.
+ */
+const prepared = (text) => {
+  // Swift's .whitespacesAndNewlines, not JS's \s, which trims U+FEFF but neither U+0085 nor U+200B.
+  const space = '[\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200b\\u2028\\u2029\\u202f\\u205f\\u3000]';
+  const lines = text.replace(/\r\n/g, '\n').replace(/[\r\u0085\u2028\u2029]/g, '\n')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, ' ').replace(new RegExp(`^${space}+|${space}+$`, 'g'), '');
+  return lines.includes('\n') ? lines : lines.replace(/\t/g, ' ').split(' ').filter(Boolean).join(' ');
+};
 
 /** The session's last prompt, from its transcript (Claude Code) or the stand-in's log. */
 function lastPrompt(desk) {
@@ -213,15 +229,18 @@ const ran = (name) => [join(repo, 'build/input-matrix-desks/gm'), join(repo, 'bu
   join(repo, 'build/input-matrix-desks/fake'), repo, DIR, process.env.HOME].some((folder) => existsSync(join(folder, canary(name))));
 const SHELLISH = () => `He said "hi" and it's 'ok' $HOME \`touch ${canary('bt')}\` $(touch ${canary('cs')}) ; echo a && echo b \\`;
 const SEMI = 'fin de phrase;';
+// Several lines, as one bracketed paste (I34): indentation, a tab, a blank line, accents, a trailing ";".
+const LINES = 'I34 lines:\n\n    « indentée » 👩‍💻\n\tavec un tab;';
+const NO_LINES = "This desk's terminal can't take several lines as one paste, so nothing was typed: send it as one line.";
 // "!" alone, and with what makes it one character with the next to Swift while the agent still sees "!" first:
 // a combining accent, a zero-width joiner, an emoji variation selector.
 const BANGS = [['', 'bang'], ['\u0301', 'bang-301'], ['\u200d', 'bang-200d'], ['\ufe0f', 'bang-fe0f']];
 const CANARIES = ['bt', 'cs', 'perm', ...BANGS.map(([, name]) => name)];
 
 /** Types `text` without Return, reads it back from the box, and empties the box. */
-async function typedBack(desk, text) {
+async function typedBack(desk, text, how) {
   const mark = desk.kind === 'fake' ? fakeMark(desk) : 0;
-  const res = await dictate(desk.id, text, false);
+  const res = await dictate(desk.id, text, false, how);
   const want = desk.kind === 'fake' ? `\x1b[200~${prepared(text)}\x1b[201~` : prepared(text);
   // Read back until it shows, for up to 3 s: a terminal redrawing has no box for a moment.
   let got = null;
@@ -245,7 +264,43 @@ const cases = [
     const res = await dictate(desk.id, LONG, true);
     await turn(desk.id);
     const got = lastPrompt(desk);
-    return { pass: res.status === 204 && got === prepared(LONG), note: `${res.status}; ${LONG.length} chars, ${LONG.split('\n').length} lines; prompt ${got === prepared(LONG) ? 'exact, as one line' : JSON.stringify(got?.slice(0, 80))}` };
+    return { pass: res.status === 204 && got === LONG, note: `${res.status}; ${LONG.length} chars, ${LONG.split('\n').length} lines; prompt ${got === LONG ? 'exact, every line (one paste)' : JSON.stringify(got?.slice(0, 80))}` };
+  }],
+  // I34: several lines typed as ONE bracketed paste, byte for byte; read from the stand-in's bytes (a Claude box
+  // shows a long paste folded: its exact lines are the "long multi-line" row's transcript).
+  ['multi-line typed: one bracketed paste', async (desk) => {
+    if (desk.kind !== 'fake') return { pass: true, note: 'n/a: Claude folds a paste in its box; its exact lines are the long multi-line row' };
+    const r = await typedBack(desk, LINES);
+    return { pass: r.ok, note: `${r.res.status}; ${r.ok ? 'exact, \\e[200~ … \\e[201~ around it, no Return' : `got ${JSON.stringify(r.got)}`}` };
+  }],
+  ['multi-line where the pane takes no bracketed paste', async (desk) => {
+    if (desk.kind !== 'fake') return { pass: true, note: 'n/a: Claude Code asks for bracketed paste at its prompt (not while a terminal $EDITOR has the tab, which the deck refuses); the stand-in can stop' };
+    await dictate(desk.id, 'nopaste', true);
+    await sleep(700);
+    const mark = fakeMark(desk);
+    const res = await dictate(desk.id, LINES, true);
+    await sleep(700);
+    const typed = fakeBytes(desk, mark);
+    await dictate(desk.id, 'paste', true);
+    await sleep(700);
+    return { pass: res.status === 409 && res.body === NO_LINES && typed === '', note: `${res.status} ${res.body}; ${typed ? `TYPED ${JSON.stringify(typed)}` : 'nothing typed'}` };
+  }],
+  // I34: over the Wi-Fi's plain http, a paired phone's key types as through Tailscale; no key or a wrong one, nothing.
+  ['plain LAN: typed with the paired key', async (desk) => {
+    if (!LAN) return { pass: true, note: 'SKIPPED: set MATRIX_LAN' };
+    const r = await typedBack(desk, FRENCH, { lan: true });
+    return { pass: r.ok, note: `${r.res.status}; ${r.ok ? 'exact' : `got ${JSON.stringify(r.got)}`}` };
+  }],
+  ['plain LAN: no key, a wrong key, the peek', async (desk) => {
+    if (!LAN) return { pass: true, note: 'SKIPPED: set MATRIX_LAN' };
+    const before = desk.kind === 'fake' ? fakeMark(desk) : 0;
+    const none = await dictate(desk.id, 'should not land', false, { lan: true, key: null });
+    const wrong = await dictate(desk.id, 'should not land', false, { lan: true, key: 'not-a-paired-key' });
+    const peek = await dictate(desk.id, '', false, { lan: true, path: '/peek' });
+    await sleep(500);
+    const landed = desk.kind === 'fake' ? fakeBytes(desk, before) !== '' : (boxLine(desk) ?? '').includes('should not land');
+    return { pass: none.status === 401 && wrong.status === 401 && peek.status === 403 && !landed,
+      note: `no key ${none.status}, wrong key ${wrong.status}, peek ${peek.status}; ${landed ? 'TEXT LANDED' : 'nothing typed'}` };
   }],
   ['French accents + emoji (typed)', async (desk) => {
     const r = await typedBack(desk, FRENCH);

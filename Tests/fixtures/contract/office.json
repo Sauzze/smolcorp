@@ -419,18 +419,46 @@
           "request" : {
             "as" : "phone",
             "body" : {
-              "text" : "hi"
+              "text" : "!ls"
             }
           },
+          "status" : 400,
+          "why" : "a Wi-Fi phone too (I34): text starting with “!”"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "phone",
+            "body" : {
+              "text" : "one\ntwo"
+            },
+            "query" : {
+              "session" : "nope"
+            }
+          },
+          "status" : 404,
+          "why" : "several lines, to no such session"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "phone",
+            "body" : {
+              "text" : "one line"
+            },
+            "given" : [
+              "the phone mic off"
+            ]
+          },
           "status" : 403,
-          "why" : "over Tailscale's HTTPS address only"
+          "why" : "the phone mic off in setup"
         },
         {
           "kind" : "empty",
           "request" : {
             "as" : "nobody",
             "body" : {
-              "text" : "hi"
+              "text" : "!ls"
             }
           },
           "status" : 401,
@@ -473,8 +501,8 @@
           "request" : {
             "as" : "phone"
           },
-          "status" : 403,
-          "why" : "over Tailscale's HTTPS address only"
+          "status" : 400,
+          "why" : "a Wi-Fi phone too (I34): no option=other"
         },
         {
           "kind" : "empty",

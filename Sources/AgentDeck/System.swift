@@ -144,6 +144,38 @@ enum Processes {
         return string(info.pvi_cdir.vip_path)
     }
 
+    /// What a process has as its standard input (fd 0).
+    enum StandardInput: Equatable {
+        /// A file or a device, by its path: a terminal tab's is its tty, /dev/ttys….
+        case file(String)
+        /// A pipe or a socket, nothing open there, or the process has ended: no tab's keys.
+        case other
+        /// It couldn't be looked at, as another user's process (`sudo`'s) can't.
+        case unknown
+    }
+
+    /// `pid`'s standard input, read from the kernel: no command is run.
+    static func standardInput(of pid: pid_t) -> StandardInput {
+        var info = vnode_fdinfowithpath()
+        let size = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+        errno = 0
+        if proc_pidfdinfo(pid, 0, PROC_PIDFDVNODEPATHINFO, &info, size) == size { return .file(string(info.pvip.vip_path)) }
+        // Not a file (a pipe, a socket) or not open is EBADF; ended is ESRCH. Anything else isn't known.
+        return errno == EBADF || errno == ESRCH ? .other : .unknown
+    }
+
+    /// The path of the program `pid` runs, as the kernel has it: whole, spaces and all.
+    static func programPath(of pid: pid_t) -> String? {
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
+        return String(cString: path)
+    }
+
+    /// The name of the program `pid` runs: the last part of its path.
+    static func programName(of pid: pid_t) -> String? {
+        programPath(of: pid).map { ($0 as NSString).lastPathComponent }
+    }
+
     /// A C string held in a fixed-size array, which Swift sees as a tuple.
     private static func string<Characters>(_ characters: Characters) -> String {
         withUnsafeBytes(of: characters) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }

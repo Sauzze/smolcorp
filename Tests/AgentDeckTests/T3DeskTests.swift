@@ -409,6 +409,16 @@ final class T3DeskTests: XCTestCase {
 
     // MARK: Mail
 
+    /// Several lines reach a T3 hire's thread as they are (I34): on t3's standard input, byte for byte (compared
+    /// as bytes: Swift's == takes NFC and NFD for the same), never typed anywhere, so no line break presses Return.
+    func testSeveralLinesReachTheThreadByteForByte() throws {
+        let hire = FrontDesk.Hire(id: "h1", name: "Ada", folder: "/x", state: .working, engine: "t3", t3Thread: "mcp:abc-1")
+        let text = "Deux lignes :\n    « ça marche » 👩‍💻 $(touch nope) `y` fin;\n\tet un tab\r\nfin"
+        try fakeT3()
+        XCTAssertEqual(T3Desk.send(hire, text, machine: machine()), .delivered)
+        XCTAssertEqual(try Data(contentsOf: stdin), Data(text.utf8))
+    }
+
     func testMailGoesOnStandardInputAndABusyThreadQueuesIt() throws {
         let hire = FrontDesk.Hire(id: "h1", name: "Ada", folder: "/x", state: .working, engine: "t3", t3Thread: "mcp:abc-1")
         let text = "— from the GM (Smolcorp), message m1\n\nPlease review; don't `rm -rf` anything."

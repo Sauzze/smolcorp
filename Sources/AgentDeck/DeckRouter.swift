@@ -101,18 +101,22 @@ final class DeckRouter: Router {
         request.isAddressedDirectly || (request.isTailnet && phoneMic)
     }
 
-    /// Personal build: the phone's words are typed, and sent, only from the
-    /// deck opened through `tailscale serve`, over HTTPS, where the page uses
-    /// the phone mic. Never over the Wi-Fi's plain http, where a key seen on
-    /// the network could otherwise type a prompt of its own.
-    static func takesDictation(_ request: Request) -> Bool {
-        request.isTailnet
+    /// The phone's text (typed, or heard by its own mic) is typed, and sent,
+    /// from a paired phone with its key, over the Wi-Fi's plain http as well
+    /// as through `tailscale serve` (I34, the owner's call): on the Wi-Fi it
+    /// isn't encrypted, which the phone's settings say. Never from the office's
+    /// own window, which never typed text. Every request here has passed
+    /// `admits` and the phone's key.
+    static func takesDictation(phone: PairedPhone) -> Bool {
+        phone.id != PairedPhone.officeWindow.id
     }
 
+    static let phonesOnly = "Text is typed from a paired phone."
+
     /// Personal build: the peek at an agent's input line shows what its
-    /// terminal shows, so it's given only where dictation is taken, through
-    /// `tailscale serve`. Never over the Wi-Fi, where a key seen on the
-    /// network could otherwise read a terminal.
+    /// terminal shows, so it's given only through `tailscale serve`, though
+    /// text is typed over the Wi-Fi too (I34). Never over the Wi-Fi, where a
+    /// key seen on the network could otherwise read a terminal.
     static func showsTerminal(_ request: Request) -> Bool {
         request.isTailnet
     }
@@ -145,7 +149,7 @@ final class DeckRouter: Router {
     }
 
     /// iPhone app (personal build): a phone's device token comes only through
-    /// `tailscale serve`, as typed text does, from a phone paired with its own key.
+    /// `tailscale serve`, from a phone paired with its own key.
     static func takesPushToken(_ request: Request, phone: PairedPhone) -> Bool {
         request.isTailnet && phone.id != PairedPhone.officeWindow.id
     }
@@ -386,9 +390,7 @@ final class DeckRouter: Router {
 
         // Phone microphone (personal build): the words the phone heard, typed into the session's tab.
         case ("POST", "/dictate"):
-            guard DeckRouter.takesDictation(request) else {
-                return respond(.status(403, "The phone mic works only over Tailscale's HTTPS address."))
-            }
+            guard DeckRouter.takesDictation(phone: phone) else { return respond(.status(403, DeckRouter.phonesOnly)) }
             let text = request.json["text"] as? String ?? ""
             // The confirm box's choice, the deck's or the iPhone app's: Send ⏎ or Type only; an older page's says nothing.
             deck.typePhoneDictation(text, into: session, send: request.json["send"] as? Bool, done: respond)
@@ -400,11 +402,9 @@ final class DeckRouter: Router {
             }
             deck.peek(session, done: respond)
 
-        // iPhone app (personal build): a typed answer to a menu's "Type something", never over the Wi-Fi.
+        // iPhone app (personal build): a typed answer to a menu's "Type something", from a paired phone, over the Wi-Fi too.
         case ("POST", "/choose"):
-            guard DeckRouter.takesDictation(request) else {
-                return respond(.status(403, "Typed answers go only over Tailscale's HTTPS address."))
-            }
+            guard DeckRouter.takesDictation(phone: phone) else { return respond(.status(403, DeckRouter.phonesOnly)) }
             guard request.query["option"] == "other" else { return respond(.status(400, "Pick an option with the deck's keys.")) }
             deck.answerOther(request.json["text"] as? String ?? "", of: request.query["choice"], in: session, done: respond)
 

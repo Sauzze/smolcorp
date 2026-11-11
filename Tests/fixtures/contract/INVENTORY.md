@@ -54,9 +54,9 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | GET | `/session/info` | phone | `?id=` or `?session=` | account, model, time, tokens | 200, 403 | office.json | 404 |
 | GET | `/notifications` | phone | — | `{key, registered, finished, waiting, gm}` | 200 | office.json | 404 |
 | POST | `/notifications` | phone | `{token, sandbox, finished, waiting, gm, office, officeID}` | as GET | 200, 403 | office.json | 404 |
-| POST | `/dictate` | phone | `{text, send}` | empty or text | 204, 403 | office.json | 404 |
+| POST | `/dictate` | phone | `{text, send}`, over the Wi-Fi or Tailscale (I34); several lines as one paste (tmux by the pane's flag; Terminal.app, iTerm2 and Ghostty through the clipboard and ⌘V, Claude Code only) | empty or text | 204, 400, 403 (the office's window, the phone mic off, no Accessibility for ⌘V), 404, 409 (asking; several lines where its terminal or agent can't take one paste, a tmux pane in copy mode, the Mac locked for ⌘V; through the clipboard: working, not in front of its tab, something else reading the tab's keys (an editor, a pager, a shell, anything else), the tab not known, not brought or kept in front, the Mac in use, the clipboard can't be put back, another paste still on it), 503 (the terminal stopped answering; ⌘V went but the paste wasn't read in time, no Return) | office.json | 404 |
 | POST | `/peek` | phone | `?session=` | the input line | 200, 403 | office.json | 404 |
-| POST | `/choose` | phone | `?option=other&choice=`, `{text}` | empty | 204, 400, 403 | office.json | 404 |
+| POST | `/choose` | phone | `?option=other&choice=`, `{text}`, over the Wi-Fi or Tailscale (I34), one line | empty | 204, 400 (several lines too), 403 | office.json | 404 |
 | GET | `/choice` | phone | `?session=` | a prompt's command or file | 200, 403 | office.json | 404 |
 | GET | `/t3code` | window | `?session=&fresh=1` | `{installed, …, hire}`, and `lane` for a hire in T3 Code | 200, 403 (a phone), 404 (T3 Code off) | office.json | served |
 | POST | `/t3code/open` | window | `?session=` | empty or text | 204, 403, 404 (T3 Code off, not a hire), 409 | office.json | served |
@@ -602,9 +602,9 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `GET /session/info` | `route` | 404 | ⓘ Info (personal build) | M6: personal shell |
 | `GET /notifications` | `route` | 404 | the iPhone app's push notifications (personal build) | M6: personal shell |
 | `POST /notifications` | `route` | 404 | the iPhone app's push notifications (personal build) | M6: personal shell |
-| `POST /dictate` | `route` | 404 | the phone mic (personal build) | M6: personal shell |
+| `POST /dictate` | `route` | 404 | the phone's text, typed or heard (personal build), over the Wi-Fi or Tailscale, several lines as one paste | M6: personal shell |
 | `POST /peek` | `route` | 404 | the phone mic (personal build) | M6: personal shell |
-| `POST /choose` | `route` | 404 | the iPhone app's typed answers (personal build) | M6: personal shell |
+| `POST /choose` | `route` | 404 | the iPhone app's typed answers (personal build), over the Wi-Fi or Tailscale | M6: personal shell |
 | `GET /choice` | `route` | 404 | the iPhone app's prompt details (personal build) | M6: personal shell |
 | `GET /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1) |
 | `POST /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1) |

@@ -198,6 +198,32 @@ struct Tmux: TerminalDriver {
         return pasted(text, in: tab, bracketed: false)
     }
 
+    /// Several lines as one bracketed paste, only while the pane's agent has asked for bracketed paste:
+    /// tmux reads the pane's flag and pastes in one command (`if-shell -F`), so the flag can't change in
+    /// between, and `-r` keeps each line feed a line feed, byte for byte. The same command says which way
+    /// it went (RI34 S1): "pasted", or "not-taken" and whether the pane is in copy mode (its flag then
+    /// reads 0), the buffer deleted. Anything else, as tmux ending for taking too long or a pane that's
+    /// gone, is a failure: the buffer goes, and no Return follows. A tmux before 3.7, without the flag,
+    /// reads as not asked: nothing typed.
+    var linesWay: LinesWay { .paneFlag }
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> String?) -> LinesPasted {
+        guard HireTmux.canPaste(text) else { return .failed }
+        if let why = ready() { return .refused(why) }
+        let buffer = "smolcorp-\(UUID().uuidString.prefix(8))"
+        guard ran(tab, ["load-buffer", "-b", buffer, "-"], input: Data(text.utf8)) else { return .failed }
+        let answer = run(tab, ["if-shell", "-F", "-t", tab.id, "#{bracket_paste_flag}",
+                               "paste-buffer -p -r -d -b \(buffer) -t \(tab.id) ; display-message -p pasted",
+                               "delete-buffer -b \(buffer) ; display-message -p -t \(tab.id) 'not-taken #{pane_in_mode}'"])
+        switch answer.map({ ($0.status, $0.output) }) {
+        case (0, "pasted")?: return .pasted
+        case (0, "not-taken 0")?: return .notTaken
+        case (0, "not-taken 1")?: return .inMode
+        default:
+            _ = ran(tab, ["delete-buffer", "-b", buffer])
+            return .failed
+        }
+    }
+
     /// `text` into the pane through a buffer of its own, loaded from tmux's standard input, byte for
     /// byte: as an argument, its accents would come apart (see `Tool.run`) and a ";" at its end go.
     private func pasted(_ text: String, in tab: TabAddress, bracketed: Bool) -> Bool {
@@ -350,6 +376,41 @@ struct ITerm: TerminalDriver {
 
     func focus(_ tab: TabAddress) -> Bool {
         withSession(tab.id, "select w\nselect t\nselect s\nactivate\nreturn \"ok\"") == "ok"
+    }
+
+    static let bundleID = "com.googlecode.iterm2"
+
+    /// Several lines through the clipboard and ⌘V, the session brought forward first: iTerm2's own paste,
+    /// which it wraps in bracketed-paste markers where the agent asked for them. Posting ⌘V needs Accessibility.
+    var linesWay: LinesWay { .clipboard(inFront: true) }
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> String?) -> LinesPasted {
+        ClipboardPaste.paste(text, first: { Terminal.macInUse ? .macInUse : nil },
+                             forward: { Terminal.macInUse ? .macInUse : forwardForPaste(tab) ? nil : .notInFront }, ready: ready,
+                             press: { posting in isInFront(tab) && Terminal.pressPaste(in: ITerm.bundleID, posting: posting) ? .sent : .notInFront })
+    }
+
+    /// The session selected and iTerm2 in front, never while the Mac is locked; true once this very
+    /// session is the current one of iTerm2's front window, asked again after it came forward. Types nothing.
+    private func forwardForPaste(_ tab: TabAddress) -> Bool {
+        Terminal.onlyLooking {
+            guard !Terminal.isLocked, focus(tab), Terminal.waitUntilFrontmost(ITerm.bundleID) else { return false }
+            return isInFront(tab)
+        }
+    }
+
+    /// Whether this very session is the current one of iTerm2's front window, iTerm2 in front: asked again
+    /// right before ⌘V too (RI34b B2), as a click on another pane, tab or window could have changed it.
+    private func isInFront(_ tab: TabAddress) -> Bool {
+        Terminal.onlyLooking {
+            Terminal.run("""
+                if application "iTerm" is not running then return "gone"
+                tell application "iTerm"
+                    if not frontmost then return "behind"
+                    if (unique ID of current session of current window) is (item 1 of argv) then return "ok"
+                end tell
+                return "other"
+                """, arguments: [tab.id]) == "ok"
+        }
     }
 
     /// The session on `tty`, brought forward: for tmux shown in iTerm2.
@@ -552,6 +613,17 @@ struct Ghostty: TerminalDriver {
 
     /// As keys, where `insert` pastes: as `press` types them.
     func typeKeys(_ text: String, in tab: TabAddress) -> Bool { typeText(text, in: tab) }
+
+    /// Several lines through the clipboard and Ghostty's own paste (`paste_from_clipboard`, what ⌘V does),
+    /// performed on this terminal, so nothing is brought forward: Ghostty wraps it in bracketed-paste
+    /// markers where the agent asked for them, and asks you first, by default, where it didn't.
+    var linesWay: LinesWay { .clipboard(inFront: false) }
+    /// Not answered (it ended for taking too long), the paste may still come: the clipboard keeps the
+    /// phone's text a while longer for it (see `ClipboardPaste.grace`), and no Return follows.
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> String?) -> LinesPasted {
+        ClipboardPaste.paste(text, forward: { Terminal.onlyLooking { isOpen(tab) == true } ? nil : .failed }, ready: ready,
+                             press: { withTerminal(tab, "perform action \"paste_from_clipboard\" on t\nreturn \"ok\"") == "ok" ? .sent : .unsure })
+    }
 }
 
 /// Brings a terminal app forward by its bundle id, after its own command

@@ -265,9 +265,11 @@ final class ContractTests: XCTestCase {
         Route("GET", "/session/info", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
         Route("GET", "/notifications", ask("phone")),
         Route("POST", "/notifications", nil, refusals: [(ask("phone", body: ["token": "not-a-token"]), "over Tailscale's HTTPS address only")]),
-        Route("POST", "/dictate", nil, refusals: [(ask("phone", body: ["text": "hi"]), "over Tailscale's HTTPS address only")]),
+        Route("POST", "/dictate", nil, refusals: [(ask("phone", body: ["text": "!ls"]), "a Wi-Fi phone too (I34): text starting with “!”"),
+                                                  (ask("phone", query: ["session": "nope"], body: ["text": "one\ntwo"]), "several lines, to no such session"),
+                                                  (ask("phone", body: ["text": "one line"], given: ["the phone mic off"]), "the phone mic off in setup")]),
         Route("POST", "/peek", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
-        Route("POST", "/choose", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
+        Route("POST", "/choose", nil, refusals: [(ask("phone"), "a Wi-Fi phone too (I34): no option=other")]),
         Route("GET", "/choice", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
         Route("GET", "/t3code", nil, refusals: [(ask("phone"), "the office's own window only, never a phone")]),
         Route("POST", "/t3code/open", nil, refusals: [(ask("phone"), "the office's own window only, never a phone")]),
@@ -332,6 +334,8 @@ final class ContractTests: XCTestCase {
     static let givens: [String: [String: Any]] = [
         "manager on": ["says": "config.json's managerEnabled is true"],
         "T3 Code on": ["says": "config.json's t3CodeEnabled is true (the T3 Code choice, T796)"],
+        "the phone mic off": ["says": "config.json's phoneMicEnabled is false (setup's Phone microphone, personal build): "
+            + "the Go app has no phone mic (M6)"],
         "sessions": [
             "requests": hooks.map { hook -> [String: Any] in
                 ["as": "hook", "method": "POST", "path": "/hook", "headers": hook["headers"]!, "body": hook["body"]!]
@@ -804,6 +808,7 @@ final class ContractTests: XCTestCase {
             switch name {
             case "manager on": Config.shared.managerEnabled = true
             case "T3 Code on": Config.shared.t3CodeEnabled = true
+            case "the phone mic off": Config.shared.phoneMicEnabled = false
             case "a paired phone": _ = try phoneKey(deck)
             case "the app's briefs": try copyAppBriefs()
             case "sessions": deck.hiredTabs.append((tab: "launcher:contract-a", role: Self.hiredRole, desk: nil, at: Date(),

@@ -255,9 +255,9 @@
   <div class="summary-head"><span>✨</span><b id="summary-name"></b><span aria-label="Close">✕</span></div>
   <div class="summary-text" id="summary-text"></div>
 </div>
-<div class="confirm" id="confirm" role="dialog" aria-label="What the phone heard" hidden>
+<div class="confirm" id="confirm" role="dialog" aria-label="Text for the agent" hidden>
   <div class="summary-head"><span>🎙</span><b id="confirm-name"></b></div>
-  <textarea id="confirm-text" rows="3" autocapitalize="sentences" spellcheck="true" aria-label="What the phone heard"></textarea>
+  <textarea id="confirm-text" rows="3" autocapitalize="sentences" spellcheck="true" aria-label="What the phone heard, or what you type"></textarea>
   <div class="confirm-why" id="confirm-why" role="status" hidden>It's asking you something: answer it on the deck first. Your words wait here.</div>
   <div class="confirm-keys">
     <button class="confirm-send" id="confirm-send">Send ⏎</button>
@@ -801,19 +801,25 @@
    * Only the words, to the computer, for the session that was listening:
    * with Return if `send` (the box's Send ⏎), without it if false (Type
    * only). Without the box, the computer decides by the setting, as before.
+   * Several lines go as they are, as one paste (I34); refused, as where the
+   * desk can't take one, the words from the box go back in it.
    */
   async function dictate(session, text, send) {
     const res = await post('/dictate', { session }, timeLimit(INPUT_WAIT), send === undefined ? { text } : { text, send });
     if (!res) return flash("Can't reach your computer");
     if (res.timedOut) return flash(NO_ANSWER);
     if (res.status === 401) return unpaired();
-    if (!res.ok) return flash((await res.text()) || `failed (${res.status})`);
+    if (!res.ok) {
+      if (send !== undefined && res.status < 500) confirmDictation(session, text);
+      return flash((await res.text()) || `failed (${res.status})`);
+    }
     const sent = send === undefined ? phoneMic.autoSend && text.split(/\s+/).length >= 3 : send;
     flash(sent ? `sent: ${text}` : `typed: ${text}`);
-    setTimeout(() => peek(session), PEEK_AFTER);
+    // The peek reads a terminal: through Tailscale's HTTPS only, as the computer gives it.
+    if (location.protocol === 'https:') setTimeout(() => peek(session), PEEK_AFTER);
   }
 
-  /** The box over the room: what was heard, to correct, for the session that was listening. */
+  /** The box over the room: what was heard, to correct, or what you type, for the session it's for. */
   let confirming = null; // the session id the box is for
   function confirmDictation(session, text) {
     confirming = session;
@@ -843,7 +849,8 @@
   }
   function confirmed(send) {
     const session = confirming;
-    const text = $('confirm-text').value.replace(/\s+/g, ' ').trim();
+    // Several lines stay several lines: the computer sends them as one paste, or says it can't (I34).
+    const text = $('confirm-text').value.replace(/\r\n?/g, '\n').trim();
     if (!session || $('confirm-send').disabled) return;
     tick();
     if (!text) return flash('Nothing to type');
@@ -1449,6 +1456,16 @@
         openSettings();
       }));
     }
+    // Text for the picked desk, typed here: the way in where the phone's own mic can't listen, as over the
+    // Wi-Fi's plain http (I34), and over HTTPS without speaking. Only where the computer types into that desk.
+    const picked = !preview && !whole && phoneMic.on && selected && sessions.find((x) => x.id === selected);
+    if (picked && picked.phoneMic) {
+      row(`Type to ${picked.project || picked.name}`, button('Type…', null, () => {
+        closeSettings();
+        confirmDictation(picked.id, '');
+        $('confirm-text').focus();
+      }));
+    }
     if (dictationNow && typeof dictationNow.cleanup === 'boolean') {
       const on = dictationNow.cleanup;
       row('Clean up dictation', button(on ? 'On' : 'Off', on, () => {
@@ -1456,6 +1473,14 @@
         dictationNow = { ...dictationNow, cleanup: !on };
         openSettings();
       }));
+    }
+    if (!preview && !whole && phoneMic.on && location.protocol !== 'https:') {
+      rows.push(Object.assign(document.createElement('div'), { className: 'info-note', id: 'lan-note',
+        textContent: "Over the Wi-Fi, what you type isn't encrypted. Tailscale is the private option." }));
+    }
+    if (!preview && !whole && phoneMic.on) {
+      rows.push(Object.assign(document.createElement('div'), { className: 'info-note', id: 'clipboard-note',
+        textContent: "Several lines typed to Claude Code in Terminal, iTerm2 or Ghostty go through the clipboard: a clipboard manager, or iTerm2's paste history, may keep a copy, and a password you'd copied is cleared, not put back." }));
     }
     $('settings-rows').replaceChildren(...rows);
     $('settings').hidden = false;
@@ -1624,8 +1649,9 @@
     micLanguage = (data.dictation && data.dictation.language) || micLanguage;
     dictationNow = data.dictation || null;
     if (phoneMic.on && !wasOn) phoneMicHint();
-    if (!phoneMicHere()) {
-      dropHearing();
+    if (!phoneMicHere()) dropHearing();
+    // The box goes with the phone's text, not its mic: typed from Settings, it works over the Wi-Fi too (I34).
+    if (!phoneMic.on) {
       closeConfirm();
       closePeek();
     }
