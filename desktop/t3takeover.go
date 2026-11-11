@@ -94,7 +94,9 @@ func t3TakeOverRefusal(h Hire, session t3Session, home string, testCopy bool) st
 		return "Only a hire Smolcorp runs in a tmux session of its own can be taken over in T3 Code, and " + name + " isn't one."
 	case h.Worktree == "":
 		return name + " has no worktree of its own, and in T3 Code its fence stays on one, so it can't be taken over."
-	case plainPath(filepath.Clean(h.Folder)) != plainPath(filepath.Clean(h.Worktree)):
+	// Where the hire's session started: its folder is the project (as the Mac's registry), so the
+	// session's folder is the worktree plus the folder's place in the project (startedIn).
+	case plainPath(filepath.Clean(startedIn(h))) != plainPath(filepath.Clean(h.Worktree)):
 		return name + " works in a folder inside its worktree, and T3 Code takes over only a session started at a project's top."
 	case session.ID == "":
 		return "Smolcorp hasn't heard from " + name + "'s Claude Code yet, so it doesn't know which session to hand over."

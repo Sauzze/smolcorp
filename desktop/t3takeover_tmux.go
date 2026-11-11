@@ -106,7 +106,8 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	if err != nil {
 		return errors.New("its start script couldn't be written.")
 	}
-	_, socket, ok := tmux.start(h.Folder, loginShell(), file)
+	// In the folder the session started in (its worktree), never the project the registry names.
+	_, socket, ok := tmux.start(startedIn(h), loginShell(), file)
 	if !ok {
 		_ = os.Remove(file)
 		return errors.New("tmux didn't start it.")
