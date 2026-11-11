@@ -541,8 +541,9 @@ The Go app may answer null here, or the type. ContractTests.swift checks this ta
 
 Where the Go app doesn't answer as the Mac does, today: `knownGaps` in `desktop/contract_test.go`, row for row
 (the test checks they're the same). **In** is a route or a shape by its name in `contract.json`; **Where** is
-`route` (not served: 404), `callers`, a refusal (its status, kind, or a field of its JSON), a field, or the
-given's sessions in a list (`ids`); **Go** is what the Go app has instead. **Owner** is who closes it: the M
+`route` (not served: 404), `callers`, a refusal (its status, kind, or a field of its JSON), a field, the
+given's sessions in a list (`ids`), or what no fixture can show, asked of the Go app by the test itself as the
+Mac's rule says (`mic: …`, office dictation: `macDictationGaps`); **Go** is what the Go app has instead. **Owner** is who closes it: the M
 piece (M2 server and setup, M3 office, snapshot and bots, M4 hiring, guard and GM, M4a briefs, M5 T3, M6 the
 personal shell), "via the bridge (M1)" for what only macOS can do, served on a Mac through the bridge, or
 `stays: <why>` for a Go-only extra that's meant to stay. Each M piece turns rows into passes, and takes them
@@ -624,6 +625,7 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `POST /setup/gm/token/rotate` | `route` | 404 | no GM token here (M4) | M4 |
 | `GET /setup/gm/nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
 | `POST /act` | `refusal: unknown dictation language` | status 404 | no dictation here: action=language isn't known, so its session is looked for | M3 fixes: action=language known, an unknown language refused with 400 |
+| `POST /act` | `mic: dictation on, under the Mac app` | not dictated | the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false | M3 via the bridge (M1) |
 | `GET /glossary` | `route` | 404 | the iPhone app's speech names (personal build) | M6: personal shell |
 | `GET /approvals` | `route` | 404 | over Tailscale only (personal build) | M6: personal shell |
 | `GET /reviews` | `route` | 404 | over Tailscale only (personal build) | M6: personal shell |

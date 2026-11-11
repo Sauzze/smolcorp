@@ -1268,7 +1268,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		bots := config.CloudBots
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]any{"bots": botsResolved(host, bots)})
+		writeJSON(w, http.StatusOK, map[string]any{"bots": botsResolved(d.macHost(), bots)})
 
 	case r.Method == http.MethodPost && path == "/setup/bots":
 		given, ok := cloudBotsSent(r.Body)
@@ -1284,7 +1284,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.changed()
 		bots := config.CloudBots
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]any{"bots": botsResolved(host, bots)})
+		writeJSON(w, http.StatusOK, map[string]any{"bots": botsResolved(d.macHost(), bots)})
 
 	// A bot's mailbox folder, page only (routes.json).
 	case r.Method == http.MethodPost && path == "/setup/bots/mailbox":

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -35,6 +36,9 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 	}
 	switch request.Action {
 	case "facts":
+		if len(request.Apps) > keystrokeAppsMost {
+			return bridgeAnswer{Error: "Not a list of apps."}, nil
+		}
 		facts := m.facts
 		return bridgeAnswer{OK: true, Facts: &facts}, nil
 	case "dock", "accessibility", "keystrokes-on", "terminal-command", "dictation":
@@ -57,6 +61,13 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 		return bridgeAnswer{OK: true, Resolved: make([]*botResolution, len(request.Bots))}, nil
 	}
 	return bridgeAnswer{Error: "This terminal can't do that.", Unsupported: true}, nil
+}
+
+// refusing has the stand-in say no to these actions from now on (none: to none). Its deck may be asking it now.
+func (m *macStandIn) refusing(refuse map[string]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.refuse = refuse
 }
 
 // actions is what it was asked, by action, in order.
@@ -211,7 +222,10 @@ func TestWithoutTheMacAppSetupAndTheOfficeHaveNoneOfTheMacs(t *testing.T) {
 	host = nil
 	t.Cleanup(func() { host = saved })
 	d := newTestDeck(t)
-	running(d, 1)
+	// Ten: nine desks downstairs, and one upstairs for want of a desk.
+	d.mu.Lock()
+	running(d, 10)
+	d.mu.Unlock()
 	state := (&router{deck: d}).setupState()
 	for _, field := range []string{"dictation", "keystrokes", "dock", "terminalCommand"} {
 		if _, ok := state[field]; ok {
@@ -225,7 +239,7 @@ func TestWithoutTheMacAppSetupAndTheOfficeHaveNoneOfTheMacs(t *testing.T) {
 		t.Error("setup's bots have autoDetect")
 	}
 	for _, path := range []string{"/setup/dock?enabled=0", "/setup/accessibility", "/setup/keystrokes?enabled=1", "/setup/dictation?enabled=1",
-		"/setup/terminal-command", "/setup/bots/resolve"} {
+		"/setup/terminal-command", "/setup/bots/resolve", "/setup/dictation/glossary", "/setup/keystrokes/apps?add=com.example.mail"} {
 		if code, _ := pageCall(t, d, "POST", path); code != http.StatusNotFound {
 			t.Errorf("POST %s: %d, want 404", path, code)
 		}
@@ -237,10 +251,32 @@ func TestWithoutTheMacAppSetupAndTheOfficeHaveNoneOfTheMacs(t *testing.T) {
 	if _, ok := snapshot["dictation"]; ok {
 		t.Error("the snapshot has dictation")
 	}
-	keys, _, _ := deckState(t, d)
-	for _, field := range []string{"keys", "fire", "dictates", "choice"} {
-		if _, ok := keys[0]["session"].(map[string]any)[field]; ok {
-			t.Errorf("a desk has %s", field)
+	// Every desk this program drives, wherever it's told of: the keys, the floors and upstairs.
+	var desks []map[string]any
+	keys, upstairs, _ := deckState(t, d)
+	for _, key := range keys {
+		if desk, ok := key["session"].(map[string]any); ok {
+			desks = append(desks, desk)
+		}
+	}
+	desks = append(desks, upstairs...)
+	floors, _ := snapshot["floors"].([]any)
+	onFloors := 0
+	for _, floor := range floors {
+		list, _ := floor.(map[string]any)["desks"].([]any)
+		for _, desk := range list {
+			desks = append(desks, desk.(map[string]any))
+			onFloors++
+		}
+	}
+	if len(upstairs) == 0 || onFloors == 0 {
+		t.Fatalf("%d desks upstairs, %d on the floors: not the office this test needs", len(upstairs), onFloors)
+	}
+	for _, desk := range desks {
+		for _, field := range []string{"keys", "fire", "dictates", "choice"} {
+			if _, ok := desk[field]; ok {
+				t.Errorf("desk %v has %s", desk["id"], field)
+			}
 		}
 	}
 }
@@ -272,11 +308,11 @@ func TestTheMacsSwitchesAreKeptHereAndDoneByTheApp(t *testing.T) {
 		!slices.Equal(loadConfig().KeystrokeApps, []string{"com.example.mail"}) {
 		t.Errorf("an app added: %d, kept %v", code, loadConfig().KeystrokeApps)
 	}
-	mac.refuse = map[string]string{"keystroke-apps": "Keys are never sent to a terminal."}
+	mac.refusing(map[string]string{"keystroke-apps": "Keys are never sent to a terminal."})
 	if code, text := pageCall(t, d, "POST", "/setup/keystrokes/apps?add=com.apple.terminal"); code != http.StatusConflict || text != "Keys are never sent to a terminal." {
 		t.Errorf("a terminal added: %d %q, want 409 in the app's words", code, text)
 	}
-	mac.refuse = nil
+	mac.refusing(nil)
 	if code, _ := pageCall(t, d, "POST", "/setup/keystrokes/apps"); code != http.StatusBadRequest {
 		t.Errorf("neither add nor remove: %d", code)
 	}
@@ -292,11 +328,11 @@ func TestTheMacsSwitchesAreKeptHereAndDoneByTheApp(t *testing.T) {
 	if code, _ := pageCall(t, d, "POST", "/setup/accessibility"); code != http.StatusNoContent {
 		t.Errorf("Accessibility asked for: %d", code)
 	}
-	mac.refuse = map[string]string{"terminal-command": "This is a test copy of Smolcorp."}
+	mac.refusing(map[string]string{"terminal-command": "This is a test copy of Smolcorp."})
 	if code, text := pageCall(t, d, "POST", "/setup/terminal-command"); code != http.StatusConflict || text != "This is a test copy of Smolcorp." {
 		t.Errorf("Add smolcorp to Terminal in a test copy: %d %q", code, text)
 	}
-	mac.refuse = nil
+	mac.refusing(nil)
 	var done []string
 	for _, action := range mac.actions() {
 		if action != "facts" && action != "bots-resolve" && action != "abilities" {
@@ -320,25 +356,11 @@ func TestTheDesksAbilitiesAreAskedOncePerSetOfTabs(t *testing.T) {
 	mac := withMac(t)
 	d := newTestDeck(t)
 	for i, tab := range []string{"tty:/dev/ttys901", "iterm:AB12"} {
-		d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "m" + string(rune('0'+i)), "cwd": "/work/mac"},
-			Claude, tab, "", float64(100+i))
+		applied(d, map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "m" + string(rune('0'+i)), "cwd": "/work/mac"},
+			Claude, tab, float64(100+i))
 	}
-	learned := func() map[string]any {
-		t.Helper()
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-			d.mu.Lock()
-			d.snapshot()
-			learning := d.mac.learning || d.mac.abilities == nil
-			d.mu.Unlock()
-			if !learning {
-				break
-			}
-		}
-		keys, _, _ := deckState(t, d)
-		return keys[0]["session"].(map[string]any)
-	}
-	desk := learned()
-	if desk["keys"] != true || desk["fire"] != true || desk["dictates"] != false || desk["choice"] != nil {
+	desk := learnedDesk(t, d)
+	if desk["keys"] != true || desk["fire"] != true || desk["dial"] != true || desk["mic"] != true || desk["dictates"] != false || desk["choice"] != nil {
 		t.Errorf("a desk under the Mac app: %v", desk)
 	}
 	for range 5 {
@@ -356,8 +378,8 @@ func TestTheDesksAbilitiesAreAskedOncePerSetOfTabs(t *testing.T) {
 	if count() != 1 {
 		t.Errorf("asked %d times for the same tabs, want 1", count())
 	}
-	d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "m9", "cwd": "/work/other"}, Claude, "tty:/dev/ttys909", "", 200)
-	learned()
+	applied(d, map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "m9", "cwd": "/work/other"}, Claude, "tty:/dev/ttys909", 200)
+	learnedDesk(t, d)
 	if count() != 2 {
 		t.Errorf("asked %d times after a new tab, want 2", count())
 	}
@@ -367,6 +389,150 @@ func TestTheDesksAbilitiesAreAskedOncePerSetOfTabs(t *testing.T) {
 	d.mu.Unlock()
 	if dictation, _ := snapshot["dictation"].(map[string]any); dictation["on"] != false || dictation["language"] != "" && dictation["language"] != "en_US" {
 		t.Errorf("the snapshot's dictation: %v", snapshot["dictation"])
+	}
+}
+
+// applied is a hook's event applied as the server applies it, with the deck's lock: its rounds read the sessions too.
+func applied(d *Deck, event map[string]any, agent Agent, tab string, at float64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.sessions.Apply(event, agent, tab, "", at)
+}
+
+// learnedDesk is the first desk once the app has said, or given up saying, what its terminal lets the office do.
+func learnedDesk(t *testing.T, d *Deck) map[string]any {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		d.mu.Lock()
+		d.snapshot()
+		learning := d.mac.learning || d.mac.abilities == nil && d.mac.unanswered < abilitiesTries
+		d.mu.Unlock()
+		if !learning {
+			break
+		}
+	}
+	keys, _, _ := deckState(t, d)
+	return keys[0]["session"].(map[string]any)
+}
+
+// A terminal the app can't type into has no dial and no mic, and no keys or fire where it can't press keys.
+func TestADesksControlsAreWhatItsTerminalAllows(t *testing.T) {
+	mac := withMac(t)
+	mac.abilities = tabAbilities{Keys: true}
+	d := newTestDeck(t)
+	applied(d, map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "m1", "cwd": "/work/mac"}, Claude, "tty:/dev/ttys901", 100)
+	if desk := learnedDesk(t, d); desk["keys"] != true || desk["mic"] != true || desk["dial"] != false || desk["fire"] != false {
+		t.Errorf("keys alone: %v", desk)
+	}
+}
+
+// The abilities the app didn't answer are asked again a little later, a few times at most.
+func TestTheDesksAbilitiesAreAskedAgainWhenTheAppDidntAnswer(t *testing.T) {
+	saved := abilitiesRetryWait
+	t.Cleanup(func() { abilitiesRetryWait = saved })
+	abilitiesRetryWait = 100 * time.Millisecond
+	mac := withMac(t)
+	mac.refusing(map[string]string{"abilities": "Not now."})
+	d := newTestDeck(t)
+	asked := func() int {
+		return len(slices.DeleteFunc(mac.actions(), func(action string) bool { return action != "abilities" }))
+	}
+	waitFor := func(what string, done func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); !done(); time.Sleep(5 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("never %s", what)
+			}
+		}
+	}
+	desk := func(id string) map[string]any {
+		t.Helper()
+		keys, _, _ := deckState(t, d)
+		for _, key := range keys {
+			if s, _ := key["session"].(map[string]any); s != nil && s["id"] == id {
+				return s
+			}
+		}
+		t.Fatalf("no desk %s", id)
+		return nil
+	}
+
+	// Not answered at first, answered at the next try: the desk has its controls.
+	applied(d, map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "m1", "cwd": "/work/mac"}, Claude, "tty:/dev/ttys901", 100)
+	deckState(t, d)
+	waitFor("asked", func() bool { return asked() == 1 })
+	if got := desk("m1"); got["keys"] != false {
+		t.Errorf("before the app has said: %v", got)
+	}
+	mac.refusing(nil)
+	waitFor("answered at the next try", func() bool { return desk("m1")["keys"] == true })
+	if asked() != 2 {
+		t.Errorf("asked %d times, answered at the second: want 2", asked())
+	}
+
+	// Never answered: asked a few times, then not again until the tabs change.
+	mac.refusing(map[string]string{"abilities": "Not now."})
+	applied(d, map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "m2", "cwd": "/work/mac"}, Claude, "tty:/dev/ttys902", 200)
+	deckState(t, d)
+	waitFor("given up", func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return !d.mac.learning && d.mac.unanswered >= abilitiesTries
+	})
+	time.Sleep(5 * abilitiesRetryWait)
+	for range 3 {
+		deckState(t, d)
+	}
+	if asked() != 2+abilitiesTries {
+		t.Errorf("asked %d times in all, the new tabs never answered: want %d", asked(), 2+abilitiesTries)
+	}
+	if got := desk("m1"); got["keys"] != true {
+		t.Errorf("what the app said before is kept: %v", got)
+	}
+	if got := desk("m2"); got["keys"] != false {
+		t.Errorf("a tab the app never answered for: %v", got)
+	}
+}
+
+// The language is the Mac's from the start, and a kept one it doesn't have isn't used; more apps than the Mac
+// app keeps are left out as the config loads; In the Dock is kept only once the app has done it.
+func TestTheMacsSettingsAreReadAsTheMacAppReadsThem(t *testing.T) {
+	mac := withMac(t)
+	isolate(t)
+	apps := make([]string, 0, 60)
+	for i := range 60 {
+		apps = append(apps, "com.example.app"+strconv.Itoa(i))
+	}
+	written, _ := json.Marshal(map[string]any{"keystrokeApps": apps, "dictationLanguage": "xx_XX"})
+	if err := os.WriteFile(configFile, written, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := startDeck(t)
+	d.summaryProviders.set(map[summaryProvider]providerState{})
+	d.mu.Lock()
+	kept := slices.Clone(d.config.KeystrokeApps)
+	d.mu.Unlock()
+	if len(kept) != keystrokeAppsMost || kept[0] != "com.example.app0" {
+		t.Errorf("the apps kept: %d %v", len(kept), kept)
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		d.mu.Lock()
+		language := d.dictationLanguage()
+		d.mu.Unlock()
+		if language == "en_US" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the office's language at the start: %q, want the Mac's en_US", language)
+		}
+	}
+	if state := (&router{deck: d}).setupState(); state["keystrokes"] == nil {
+		t.Error("setup has none of the Mac's with the most apps kept")
+	}
+
+	mac.refusing(map[string]string{"dock": "Not now."})
+	if code, _ := pageCall(t, d, "POST", "/setup/dock?enabled=0"); code != http.StatusConflict || loadConfig().ShowInDock != nil {
+		t.Errorf("In the Dock off, the app saying no: %d, kept %v", code, loadConfig().ShowInDock)
 	}
 }
 
@@ -381,7 +547,10 @@ func TestGrokBotsAreFoundInTheGrokBotAppThroughTheApp(t *testing.T) {
 		t.Fatalf("the bots: %d %s", w.Code, w.Body)
 	}
 	found := &fixtureHost{answer: bridgeAnswer{OK: true, Resolved: []*botResolution{{BotID: "0a1b-2c3d", Name: "Smolcorp Mini Manager", By: "guess"}}}}
-	host = found
+	// The deck asks the app it was made under: this one stands in for it from now on.
+	d.mu.Lock()
+	d.mac.host = found
+	d.mu.Unlock()
 	code, text := pageCall(t, d, "POST", "/setup/bots/resolve")
 	var answer struct {
 		Bots               []map[string]any

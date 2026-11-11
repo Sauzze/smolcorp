@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"sync"
+	"time"
 )
 
 // Setup's parts that only macOS does, served under the Mac app (engine=go)
@@ -17,17 +19,30 @@ import (
 // say, with its own code. On Windows and Linux there is no host: none of these
 // routes is served (404), and the setup state has none of these fields.
 
-// macState is what the Mac app last said that's needed between asks. With the deck's lock.
+// macState is the Mac app this deck runs under, and what it last said that's needed between asks. With the
+// deck's lock.
 type macState struct {
-	// The dictation language the Mac suggests, from the last facts: used until one is chosen.
+	// The Mac app, or nil: the host when the deck was made, never changed after, so nothing the deck does
+	// later, on any goroutine, reads the package's.
+	host hostBridge
+	// The dictation language the Mac suggests, and those it has, from the last facts: the suggested one is
+	// used until one is chosen, and a chosen one it doesn't have isn't (as the Mac's Config load).
 	suggested string
+	languages []string
 	// Why dictation's language isn't ready, as the app said when it got it ready last, or "".
 	dictationProblem string
 	// What each session's terminal lets the office do (hostoffice.go): for the tabs in abilitiesFor,
-	// and whether the app is being asked now.
-	abilities    map[string]tabAbilities
-	abilitiesFor string
-	learning     bool
+	// and whether the app is being asked now; the tabs it didn't answer for last, how many times, and
+	// when it may be asked again.
+	abilities     map[string]tabAbilities
+	abilitiesFor  string
+	learning      bool
+	unansweredFor string
+	unanswered    int
+	askAgainAt    time.Time
+	// Held from reading the apps keys may go to until the app's new list is kept, so two changes at
+	// once don't lose one. Never with the deck's lock.
+	appsChanging sync.Mutex
 }
 
 // eventKindKeystroke is pressing keys in other apps switched on or off, or an
@@ -40,21 +55,37 @@ const glossaryBodyMost = 64 << 10
 // macFactsNow asks the Mac app what setup shows of this Mac: nil without the
 // app, or without its answer, and setup then shows what it has. Without the lock.
 func (d *Deck) macFactsNow() *macFacts {
-	h := host
+	d.mu.Lock()
+	h, apps := d.mac.host, slices.Clone(d.config.KeystrokeApps)
+	d.mu.Unlock()
 	if h == nil {
 		return nil
 	}
-	d.mu.Lock()
-	apps := slices.Clone(d.config.KeystrokeApps)
-	d.mu.Unlock()
 	facts, err := hostFacts(h, apps)
 	if err != nil {
 		return nil
 	}
 	d.mu.Lock()
-	d.mac.suggested = facts.Dictation.Suggested
+	d.learnedLanguages(facts)
 	d.mu.Unlock()
 	return &facts
+}
+
+// learnedLanguages keeps the dictation languages the Mac has, and the one it suggests, and tells the office
+// when its language changes with them. With the lock held.
+func (d *Deck) learnedLanguages(facts macFacts) {
+	before := d.dictationLanguage()
+	d.mac.suggested, d.mac.languages = facts.Dictation.Suggested, facts.Dictation.Languages
+	if d.dictationLanguage() != before {
+		d.changed()
+	}
+}
+
+// macHost is the Mac app this deck runs under, or nil. Without the lock.
+func (d *Deck) macHost() hostBridge {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.mac.host
 }
 
 // addMacSetup puts what only the Mac has into setup's state, as the Swift
@@ -90,10 +121,12 @@ func (d *Deck) addMacSetup(state map[string]any, facts *macFacts) {
 	}
 }
 
-// dictationLanguage is the one chosen, or the one the Mac suggests. With the lock held.
+// dictationLanguage is the one chosen, or the one the Mac suggests: a chosen one the Mac doesn't have is
+// left out, as the Mac app's Config load leaves it out. With the lock held.
 func (d *Deck) dictationLanguage() string {
-	if d.config.DictationLanguage != "" {
-		return d.config.DictationLanguage
+	chosen := d.config.DictationLanguage
+	if chosen != "" && (d.mac.languages == nil || slices.Contains(d.mac.languages, chosen)) {
+		return chosen
 	}
 	return d.mac.suggested
 }
@@ -126,25 +159,26 @@ func bridgeFailed(w http.ResponseWriter, err error) {
 // macSetup answers setup's routes for what only macOS does, under the Mac app,
 // and says whether the route was one. Elsewhere it answers none: they're 404.
 func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
-	h := host
+	d := rt.deck
+	h := d.macHost()
 	if h == nil || r.Method != http.MethodPost {
 		return false
 	}
-	d := rt.deck
 	query := r.URL.Query()
 	path := r.URL.Path
 	switch {
 	// In the Dock and ⌘-Tab, or the menu bar only: at once, and kept.
 	case path == "/setup/dock":
+		// Kept once the app has done it: a bridge that doesn't answer leaves the setting as it was.
 		on := query.Get("enabled") == "1"
-		d.mu.Lock()
-		d.config.ShowInDock = &on
-		d.config.save()
-		d.mu.Unlock()
 		if err := hostDock(h, on); err != nil {
 			bridgeFailed(w, err)
 			return true
 		}
+		d.mu.Lock()
+		d.config.ShowInDock = &on
+		d.config.save()
+		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// Setup's Accessibility step: macOS asks you, in its own window.
@@ -190,11 +224,13 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 			return true
 		}
 		id := slices.Concat(added, removed)[0]
+		d.mac.appsChanging.Lock()
 		d.mu.Lock()
 		before := slices.Clone(d.config.KeystrokeApps)
 		d.mu.Unlock()
 		list, err := hostKeystrokeApps(h, before, id, adding)
 		if err != nil {
+			d.mac.appsChanging.Unlock()
 			bridgeFailed(w, err)
 			return true
 		}
@@ -205,6 +241,7 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 			d.config.save()
 		}
 		d.mu.Unlock()
+		d.mac.appsChanging.Unlock()
 		if changed {
 			detail := "app removed: " + id
 			if adding {
@@ -228,7 +265,7 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 			return true
 		}
 		d.mu.Lock()
-		d.mac.suggested = facts.Dictation.Suggested
+		d.learnedLanguages(facts)
 		if choosing {
 			d.config.DictationLanguage = language[0]
 		}

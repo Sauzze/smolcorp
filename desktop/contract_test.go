@@ -111,6 +111,7 @@ var knownGaps = []knownGap{
 	{"POST /setup/gm/token/rotate", "route", "404", "no GM token here (M4)", "M4"},
 	{"GET /setup/gm/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
 	{"POST /act", "refusal: unknown dictation language", "status 404", "no dictation here: action=language isn't known, so its session is looked for", "M3 fixes: action=language known, an unknown language refused with 400"},
+	{"POST /act", "mic: dictation on, under the Mac app", "not dictated", "the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false", "M3 via the bridge (M1)"},
 	{"GET /glossary", "route", "404", "the iPhone app's speech names (personal build)", "M6: personal shell"},
 	{"GET /approvals", "route", "404", "over Tailscale only (personal build)", "M6: personal shell"},
 	{"GET /reviews", "route", "404", "over Tailscale only (personal build)", "M6: personal shell"},
@@ -822,7 +823,46 @@ func contractGaps(t *testing.T, c contract) []knownGap {
 			}
 		}
 	}
+	for _, g := range macDictationGaps(t, c) {
+		add(g)
+	}
 	return gaps
+}
+
+// macDictationGaps is the office's dictation under the Mac app, which no fixture shows: the Mac's own test
+// can't count on its speech recognition and microphone. With both (the stand-in app has them), and dictation
+// on for Claude Code too, the Mac's rule (Deck.dictates, Dictation.isOn) has the snapshot's dictation on and
+// contract-a, a Claude desk in a launcher's window, dictate. A gap while this app's mic doesn't.
+func macDictationGaps(t *testing.T, c contract) []knownGap {
+	cd := newContractDeck(t, c, []string{"sessions"})
+	d := cd.d
+	d.mu.Lock()
+	mac, _ := d.mac.host.(*macStandIn)
+	d.mu.Unlock()
+	if mac == nil {
+		t.Fatal("no stand-in Mac app")
+	}
+	mac.mu.Lock()
+	mac.facts.Dictation.Available, mac.facts.Dictation.Allowed = true, true
+	mac.mu.Unlock()
+	d.mu.Lock()
+	d.config.DictationEnabled, d.config.DictationForClaude = true, true
+	var state struct {
+		Dictation struct{ On bool }
+		Keys      []struct{ Session map[string]any }
+	}
+	_ = json.Unmarshal(d.snapshot(), &state)
+	d.mu.Unlock()
+	dictates := false
+	for _, key := range state.Keys {
+		if key.Session["id"] == "contract-a" {
+			dictates = key.Session["dictates"] == true
+		}
+	}
+	if state.Dictation.On && dictates {
+		return nil
+	}
+	return []knownGap{{subject: "POST /act", where: "mic: dictation on, under the Mac app", got: "not dictated"}}
 }
 
 // valuesAt is the values at where (".a[].b") in an answer, every element's, as text, sorted: as the Mac writes ids.

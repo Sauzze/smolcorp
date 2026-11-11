@@ -349,7 +349,9 @@ final class HostBridge {
             guard let id = bot["botId"] as? String, let name = bot["bot"] as? String, id.count <= 64, name.count <= 200 else {
                 return refused("Not a list of bots.")
             }
-            wanted.append((GrokBotApp.safeID(id) ?? "", name))
+            // An id no bot can have is refused, not looked for by its name instead: a bot without one sends "".
+            guard id.isEmpty || GrokBotApp.safeID(id) != nil else { return refused("Not a list of bots.") }
+            wanted.append((id, name))
         }
         let rows = actions.roster()
         return ["ok": true, "resolved": wanted.map { bot -> Any in

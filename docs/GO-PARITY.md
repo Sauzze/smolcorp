@@ -22,6 +22,7 @@ subsystem of its own. "–" where there is nothing to port.
 | `/act?action=fire` | ✓ | ✓ | none | – |
 | `/act?action=hire` (Anyone, or a role, at a desk) | ✓ | ✓ | on Linux, a role's Claude hire in tmux at a desk that isn't held or pinned goes through the hire engine (its own tmux server, worktree and ports); every other hire opens as before. A hire of the gm role here is refused (409) while a GM is working, as the Mac does: "A General Manager is already working. Fire it first, then hire another."; with none working it hires as before | – |
 | `/act?action=language` (dictation's language) | ✓ | – | dictation is the Mac's (see below) | – |
+| The office's mic dictating (`/act?action=mic`, `language`, `cleanup`) under the Mac app (engine=go) | ✓ | – | not done: the mic presses Claude Code's own voice key, as with dictation off, and a desk's `dictates` and the snapshot's `dictation.on` stay false. A known gap, M3's through the bridge (`Tests/fixtures/contract/INVENTORY.md`), so M7 sees it | M |
 | `/summary` | ✓ | ✓ | none | – |
 | `/hook` with agent, tab, project, pid, parent headers | ✓ | ✓ | none; Go also has `/launcher` | – |
 | `/setup`, `/setup/session`, `/setup/state`, `/setup/preview` | ✓ | ✓ | Go adds a one-time tray token | – |
@@ -66,7 +67,7 @@ subsystem of its own. "–" where there is nothing to port.
 | roles | ✓ | ✓ | **done**: outfits and every badge kept | – |
 | rolesOffered | ✓ | ✓ | **done** | – |
 | hireTerminal, hireInTmux | ✓ | ✓ | **done**; a Mac terminal's id reads as not installed | – |
-| dictationEnabled, dictationLanguage, dictationForClaude | ✓ | kept, not read | Mac only | – |
+| dictationEnabled, dictationLanguage, dictationForClaude, dictationCleanup, dictationGlossary, keystrokesAllowed, keystrokeApps, showInDock | ✓ | read under the Mac app (engine=go), which does what they say through the bridge; kept, not read, on Linux and Windows | Mac only | – |
 | viewer | ✓ | ✓ | **done** | – |
 | unknown keys kept on save | ✓ | ✓ | none | – |
 

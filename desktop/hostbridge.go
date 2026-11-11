@@ -159,6 +159,14 @@ type botResolution struct {
 // bridgeTabsMost is the most tabs asked about at once: the app refuses more.
 const bridgeTabsMost = 256
 
+// keystrokeAppsMost is the most apps keys may go to, and bridgeTextMost the
+// longest text in a list the app is sent: it refuses a list with more, or
+// longer (Keystrokes.AppList.most, HostBridge.strings).
+const (
+	keystrokeAppsMost = 50
+	bridgeTextMost    = 1024
+)
+
 // bridgeSecrets are the Keychain items the app owns that the engine may ask
 // for: the ✨ Summary API key, the GM's token, and the portable office's id,
 // key and write secret. In a test copy the app keeps them in files of its own.

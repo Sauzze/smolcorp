@@ -208,6 +208,10 @@ func loadConfig() *Config {
 	config.MailMaxBytes = max(1, config.MailMaxBytes)
 	config.MailPerHour = max(1, config.MailPerHour)
 	config.MailWaitHours = max(1, config.MailWaitHours)
+	// The apps keys may go to, as many as the Mac app keeps (its AppList.checked), so asking it about
+	// them is never refused: a longer id than any app's isn't one.
+	config.KeystrokeApps = slices.DeleteFunc(config.KeystrokeApps, func(id string) bool { return id == "" || len(id) > bridgeTextMost })
+	config.KeystrokeApps = config.KeystrokeApps[:min(len(config.KeystrokeApps), keystrokeAppsMost)]
 	// Layouts are checked again as they load: their buttons type into sessions.
 	config.Layout = config.Layout.checked()
 	for i := range config.Profiles {

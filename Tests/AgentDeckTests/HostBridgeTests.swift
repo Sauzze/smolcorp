@@ -467,6 +467,8 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertFalse(isOK(HostBridge.answer(line(["action": "dock"]), token: token, actions: mac)), "neither on nor off")
         XCTAssertFalse(isOK(HostBridge.answer(line(["action": "abilities", "tabs": Array(repeating: "tty:/dev/ttys001", count: 257)]), token: token, actions: mac)))
         XCTAssertFalse(isOK(HostBridge.answer(line(["action": "bots-resolve", "bots": [["bot": "No id"]]]), token: token, actions: mac)))
+        XCTAssertFalse(isOK(HostBridge.answer(line(["action": "bots-resolve", "bots": [["botId": "../0a1b", "bot": "Mini"]]]), token: token, actions: mac)),
+                       "an id no bot can have")
         XCTAssertFalse(isOK(HostBridge.answer(line(["action": "keystroke-apps", "app": "com.example.mail"]), token: token, actions: mac)), "neither on nor off")
         // No roster to read: nobody found, as the Swift engine answers.
         let none = HostBridge.answer(line(["action": "bots-resolve", "bots": [["botId": "", "bot": "Mini"]]]), token: token, actions: mac)

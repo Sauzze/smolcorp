@@ -147,6 +147,8 @@ func NewDeck() *Deck {
 		keyOf: map[string]int{}, floorOf: map[string]int{}, seatOf: map[string]Seat{}, lastReturn: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue), events: newEventLog(supportDir, eventsFileMost),
 		rounds: deckRounds{stopped: make(chan struct{})},
+		// The Mac app it runs under, or none, taken now: the deck reads only its own (hostsetup.go).
+		mac: macState{host: host},
 	}
 	if settleListenScope(d.config, phonesOnly(d.access.Phones), runtime.GOOS) {
 		d.config.save()
@@ -222,6 +224,11 @@ func NewDeck() *Deck {
 	// The mail pump, after d.cloud is set; the watchers' stop ends it too, and the deck's rounds.
 	stopWatching, stopMail := d.stopWatchers, d.startMailPump()
 	d.stopWatchers = func() { stopMail(); d.rounds.stop(); stopWatching() }
+	// Under the Mac app, its dictation languages and the one it suggests, asked once now, so the
+	// office has a language before setup is first opened.
+	if d.mac.host != nil {
+		d.rounds.run(func() { d.macFactsNow() })
+	}
 	return d
 }
 
