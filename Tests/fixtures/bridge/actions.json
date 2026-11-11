@@ -1,5 +1,5 @@
 {
-  "about": "The host bridge's actions for what only macOS does (M2m), and the phone's text into a Mac terminal (I5): each request as the Go core sends it (desktop/hostbridge.go, without its token) and the Mac app's answer (Sources/AgentDeck/HostBridge.swift), on the stand-ins both tests use. desktop/hostbridge_test.go checks the core asks exactly this and reads the answer; HostBridgeTests.swift checks the app answers exactly this.",
+  "about": "The host bridge's actions for what only macOS does (M2m), and the phone's text into a Mac terminal (I5; the app asks the core whether it may still go on the same connection, right before the words, which no case here shows: a held one is the core's no): each request as the Go core sends it (desktop/hostbridge.go, without its token) and the Mac app's answer (Sources/AgentDeck/HostBridge.swift), on the stand-ins both tests use. desktop/hostbridge_test.go checks the core asks exactly this and reads the answer; HostBridgeTests.swift checks the app answers exactly this.",
   "cases": [
     {
       "name": "setup's facts, the apps keys may go to left out of those running",
@@ -90,6 +90,11 @@
       "name": "the phone's text, starting with !, refused",
       "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": "!ls"},
       "answer": {"ok": false, "error": "Not text to type."}
+    },
+    {
+      "name": "the phone's text, held: the core said no as the terminal got to it",
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys006", "agent": "claude", "text": "hello"},
+      "answer": {"ok": true, "pasted": "asked"}
     },
     {
       "name": "the peek at the input line",

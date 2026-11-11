@@ -12,7 +12,9 @@ import (
 
 // socketBridge reaches the Mac app on its socket in the support folder, with
 // the token the app gave this engine as it started it: one connection per
-// request, a line of JSON each way.
+// request, a line of JSON each way. Only the phone's text has one more of
+// each, before its answer: the app asking whether the words may still go,
+// and this side's yes or no (bridgeRequest.stillFree).
 //
 // The socket's path alone says nothing of who listens there: another process
 // of yours could move the app's socket aside and listen in its place. So each
@@ -65,6 +67,27 @@ func (b *socketBridge) call(request bridgeRequest) (bridgeAnswer, error) {
 		return bridgeAnswer{}, err
 	}
 	reader := bufio.NewReaderSize(conn, 4096)
+	asked := false
+	for {
+		answer, err := readBridgeAnswer(reader)
+		if err != nil || !answer.Ready {
+			return answer, err
+		}
+		// The app asking, once, right before the phone's words, whether they may still go: only a yes lets them.
+		if asked {
+			return bridgeAnswer{}, errors.New("the Mac app asked twice")
+		}
+		asked = true
+		free := request.stillFree != nil && request.stillFree()
+		reply, _ := json.Marshal(map[string]bool{"go": free})
+		if _, err := conn.Write(append(reply, '\n')); err != nil {
+			return bridgeAnswer{}, err
+		}
+	}
+}
+
+// readBridgeAnswer reads one line of the app's, no longer than bridgeAnswerMost.
+func readBridgeAnswer(reader *bufio.Reader) (bridgeAnswer, error) {
 	var text []byte
 	for {
 		part, more, err := reader.ReadLine()

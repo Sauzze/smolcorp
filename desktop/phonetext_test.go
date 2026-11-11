@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -145,6 +146,10 @@ type phoneMac struct {
 	answer bridgeAnswer
 	// during runs as the words are typed, as a desk starting to ask meanwhile.
 	during func()
+	// queued runs while phone-text waits for its terminal's queue, before the app asks the core again.
+	queued func()
+	// held counts the phone's texts the core said no to on the terminal's queue: nothing typed.
+	held int
 }
 
 // reply sets how phone-text is answered from now on.
@@ -152,6 +157,13 @@ func (m *phoneMac) reply(answer bridgeAnswer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answer = answer
+}
+
+// whileQueued sets what happens while the words wait for the terminal's queue.
+func (m *phoneMac) whileQueued(queued func()) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.queued = queued
 }
 
 // whileTyping sets what happens as the words are typed.
@@ -164,10 +176,23 @@ func (m *phoneMac) whileTyping(during func()) {
 func (m *phoneMac) call(request bridgeRequest) (bridgeAnswer, error) {
 	m.mu.Lock()
 	m.asked = append(m.asked, request)
-	answer, during := m.answer, m.during
+	answer, during, queued := m.answer, m.during, m.queued
 	m.mu.Unlock()
 	switch request.Action {
 	case "phone-text":
+		// As the Mac app: the agent's place, then on the terminal's queue the core asked again, right before the words.
+		if !answer.OK {
+			return answer, nil
+		}
+		if queued != nil {
+			queued()
+		}
+		if request.stillFree == nil || !request.stillFree() {
+			m.mu.Lock()
+			m.held++
+			m.mu.Unlock()
+			return bridgeAnswer{OK: true, Pasted: "asked"}, nil
+		}
 		if during != nil {
 			during()
 		}
@@ -307,6 +332,112 @@ func TestADeskThatStartedAskingMeanwhileGetsNothing(t *testing.T) {
 	}
 	if got := mac.actions(); len(got) != 0 {
 		t.Errorf("typed: %q", got)
+	}
+}
+
+// Under the Mac app, the desk began asking while the words waited for its terminal's queue: the app asks the
+// core from there, right before them, as the Swift engine looks at its sessions on that queue. Nothing goes.
+func TestUnderTheMacAppTheCoreIsAskedAgainOnTheTerminalsQueue(t *testing.T) {
+	d, mac := phoneDeck(t)
+	mac.whileQueued(func() { asksPermission(d, 30) })
+	if status, message := d.TypePhoneText("fix the login bug", "s1", sendIt()); status != http.StatusConflict || message != answerFirst {
+		t.Errorf("%d %s", status, message)
+	}
+	mac.mu.Lock()
+	held := mac.held
+	mac.mu.Unlock()
+	if held != 1 {
+		t.Errorf("held on the queue %d times, want once", held)
+	}
+	for _, action := range mac.actions() {
+		if strings.HasPrefix(action, "press") {
+			t.Errorf("a Return went: %q", mac.actions())
+		}
+	}
+	// Still free there, the words go: TestSeveralLinesGoAsOnePasteOrNotAtAll, on the same stand-in.
+}
+
+// A failure once the words were on their way says what happened, never "Tab not found".
+func TestAFailureSaysWhatHappened(t *testing.T) {
+	d, mac := phoneDeck(t)
+	mac.reply(bridgeAnswer{Error: "Terminal isn't answering, so nothing was typed. Try again in a moment."})
+	if status, message := d.TypePhoneText("hello there", "s1", sendIt()); status != http.StatusConflict ||
+		message != "Terminal isn't answering, so nothing was typed. Try again in a moment." {
+		t.Errorf("the Mac app's no: %d %s", status, message)
+	}
+	mac.reply(bridgeAnswer{OK: true, Pasted: "something else"})
+	if status, message := d.TypePhoneText("hello there", "s1", sendIt()); status != http.StatusBadGateway || message != pasteUnsaid {
+		t.Errorf("not said: %d %s", status, message)
+	}
+	for _, action := range mac.actions() {
+		if strings.HasPrefix(action, "press") {
+			t.Errorf("a Return went: %q", mac.actions())
+		}
+	}
+}
+
+// A launcher that doesn't say in time may still paste: the phone is told the words may have landed, and no
+// Return goes. Its late answer finds nothing, and an older launcher's look-only answer types nothing more.
+func TestALauncherThatDoesntSaySaysSo(t *testing.T) {
+	saved, settle, wait := host, phoneTextSettle, launcherPasteWait
+	host, phoneTextSettle, launcherPasteWait = nil, time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { host, phoneTextSettle, launcherPasteWait = saved, settle, wait })
+	d := newTestDeck(t)
+	tab := d.launcherConnected("L1", Claude, "/work/api", "", "")
+	d.Ingest(map[string]any{"hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api"}, "claude", "launcher:L1", "", 20)
+	if status, message := d.TypePhoneText("hello there", "s1", sendIt()); status != http.StatusServiceUnavailable || message != launcherLate {
+		t.Errorf("late: %d %s", status, message)
+	}
+	command := <-tab.commands
+	if command.PhoneText != "hello there" || command.Look == "" {
+		t.Fatalf("%+v", command)
+	}
+	if d.launcherScreenAnswered("L1", tab.screenSecret, screenAnswer{Look: command.Look, State: "idle", Pasted: "pasted"}) {
+		t.Error("a late answer was taken")
+	}
+	go func() {
+		command := <-tab.commands
+		d.launcherScreenAnswered("L1", tab.screenSecret, screenAnswer{Look: command.Look, State: "idle"})
+	}()
+	if status, message := d.TypePhoneText("hello there", "s1", sendIt()); status != http.StatusBadGateway || message != pasteUnsaid {
+		t.Errorf("an older launcher: %d %s", status, message)
+	}
+	select {
+	case extra := <-tab.commands:
+		t.Errorf("more went: %+v", extra)
+	default:
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.lookPasted)+len(d.looks)+len(d.lookBracketed) != 0 {
+		t.Errorf("left behind: %v %v %v", d.lookPasted, d.looks, d.lookBracketed)
+	}
+}
+
+// A launcher's ordinary looks, mail's and hiring's, leave nothing where a phone paste's answer goes, before or after one.
+func TestALaunchersLooksLeaveNothingBehind(t *testing.T) {
+	saved, settle := host, phoneTextSettle
+	host, phoneTextSettle = nil, time.Millisecond
+	t.Cleanup(func() { host, phoneTextSettle = saved, settle })
+	d := newTestDeck(t)
+	newFakeLauncherAs(t, d, "L1", "/work/api", "", "", "idle-empty", true)
+	d.Ingest(map[string]any{"hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api"}, "claude", "launcher:L1", "", 20)
+	look := func() {
+		if _, err := d.lookAtLauncher("L1", 2*time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	look()
+	if status, message := d.TypePhoneText("one line", "s1", nil); status != http.StatusNoContent {
+		t.Fatalf("%d %s", status, message)
+	}
+	for range 3 {
+		look()
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.lookPasted)+len(d.looks)+len(d.lookBracketed) != 0 {
+		t.Errorf("left behind: %v %v %v", d.lookPasted, d.looks, d.lookBracketed)
 	}
 }
 
@@ -539,6 +670,107 @@ func TestTailscaleIsToItsAddressFromATailnetAddress(t *testing.T) {
 	}
 	if !ask("127.0.0.1:5000", "127.0.0.1", map[string]string{"X-Forwarded-For": "100.101.102.103"}) {
 		t.Error("tailscale serve's hand-on")
+	}
+}
+
+// On a Mac, Tailscale's adapter is a utunN like any VPN's: it's told by its addresses, 100.64/10 with
+// Tailscale's own IPv6 range. And `tailscale serve` hands the phone's request on to its ts.net name, let in
+// as the Mac app lets it in: from this computer's loopback, with the phone's text on.
+func TestOnAMacTailscaleIsToldByItsAddressesAndServedByItsName(t *testing.T) {
+	saved := macTailscale
+	t.Cleanup(func() { macTailscale = saved })
+	macTailscale = true
+	ip := net.ParseIP
+	utun := []net.IP{ip("fe80::1"), ip("100.101.102.103"), ip("fd7a:115c:a1e0::1234")}
+	for _, c := range []struct {
+		name string
+		up   bool
+		ips  []net.IP
+		want []string
+	}{
+		{"utun4", true, utun, []string{"100.101.102.103"}},
+		{"utun4", false, utun, nil},
+		// Another VPN's, or a provider's, 100.64/10 alone isn't Tailscale's; nor is a neighbouring IPv6 range.
+		{"utun4", true, utun[:2], nil},
+		{"utun5", true, []net.IP{ip("100.101.102.103"), ip("fd7a:115c:a1e1::1")}, nil},
+		{"en0", true, []net.IP{ip("192.168.1.20"), ip("fd7a:115c:a1e0::1")}, nil},
+	} {
+		if got := tailscaleFrom(c.name, c.up, c.ips); !slices.Equal(got, c.want) {
+			t.Errorf("%s up=%v %v: %v, want %v", c.name, c.up, c.ips, got, c.want)
+		}
+	}
+	d, _ := phoneDeck(t)
+	d.mu.Lock()
+	key := d.access.Phones.Pair("Phone")
+	d.mu.Unlock()
+	peek := func(host, remote string) (int, string) {
+		r := httptest.NewRequest(http.MethodPost, "/peek?session=s1", nil)
+		r.Host, r.RemoteAddr = host, remote
+		r.Header.Set(hookKeyHeader, key)
+		w := httptest.NewRecorder()
+		(&router{deck: d}).ServeHTTP(w, r)
+		return w.Code, strings.TrimSpace(w.Body.String())
+	}
+	if status, body := peek("my-mac.tail1234.ts.net", "127.0.0.1:50000"); status != http.StatusOK || body != `{"lines":["❯ hello"]}` {
+		t.Fatalf("tailscale serve's hand-on: %d %s", status, body)
+	}
+	// Refused before the peek is counted: a ts.net name from elsewhere, another name, the phone's text off.
+	for _, c := range [][2]string{{"my-mac.tail1234.ts.net", "100.101.102.103:5000"}, {"my-mac.example.net", "127.0.0.1:50000"}, {"ts.net", "127.0.0.1:50000"}} {
+		if status, _ := peek(c[0], c[1]); status != http.StatusForbidden {
+			t.Errorf("%v: %d", c, status)
+		}
+	}
+	d.mu.Lock()
+	d.config.PhoneMicEnabled = false
+	d.mu.Unlock()
+	if status, _ := peek("my-mac.tail1234.ts.net", "127.0.0.1:50000"); status != http.StatusForbidden {
+		t.Errorf("the phone's text off: %d", status)
+	}
+	// Elsewhere than a Mac, as before: a ts.net name isn't let in.
+	d.mu.Lock()
+	d.config.PhoneMicEnabled = true
+	d.mu.Unlock()
+	macTailscale = false
+	if status, _ := peek("my-mac.tail1234.ts.net", "127.0.0.1:50000"); status != http.StatusForbidden {
+		t.Errorf("not a Mac: %d", status)
+	}
+}
+
+// A proxy's hand-on is never this computer's own request, as on the Mac (Addressing.isProxied): the office
+// window's key isn't taken with a proxy's headers, so it reads no peek, and setup isn't there.
+func TestAProxiedRequestIsntThisComputers(t *testing.T) {
+	d, mac := phoneDeck(t)
+	d.mu.Lock()
+	window := d.access.WindowKey
+	d.mu.Unlock()
+	ask := func(method, path string, proxied bool) int {
+		r := httptest.NewRequest(method, path, nil)
+		r.Host, r.RemoteAddr = "localhost:7710", "127.0.0.1:50000"
+		r.Header.Set(hookKeyHeader, window)
+		if proxied {
+			r.Header["Forwarded"] = []string{""} // even empty, as the Mac reads it
+		}
+		w := httptest.NewRecorder()
+		(&router{deck: d}).ServeHTTP(w, r)
+		return w.Code
+	}
+	for _, mac := range []bool{true, false} {
+		saved := macTailscale
+		macTailscale = mac
+		if status := ask(http.MethodPost, "/peek?session=s1", true); status != http.StatusUnauthorized {
+			t.Errorf("mac=%v: the window's key with a proxy's header: %d", mac, status)
+		}
+		if status := ask(http.MethodGet, "/setup", true); status != http.StatusNotFound {
+			t.Errorf("mac=%v: setup with a proxy's header: %d", mac, status)
+		}
+		macTailscale = saved
+	}
+	// The window itself, with no proxy: this computer's, and still no peek, as it isn't Tailscale.
+	if status := ask(http.MethodPost, "/peek?session=s1", false); status != http.StatusForbidden {
+		t.Errorf("the window: %d", status)
+	}
+	if got := mac.actions(); len(got) != 0 {
+		t.Errorf("%q", got)
 	}
 }
 

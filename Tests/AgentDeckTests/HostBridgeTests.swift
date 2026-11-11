@@ -576,7 +576,10 @@ final class HostBridgeTests: XCTestCase {
         for one in cases {
             var request = try XCTUnwrap(one["request"] as? [String: Any])
             request["token"] = token
-            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: token, actions: mac)
+            // The core says the words may go, but to ttys006's, which began asking as its terminal got to them.
+            let held = request["tab"] as? String == "tty:/dev/ttys006"
+            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: token, actions: mac,
+                                           stillFree: { !held })
             XCTAssertEqual(text(answer), text(one["answer"] ?? NSNull()), one["name"] as? String ?? "")
         }
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
@@ -599,7 +602,7 @@ final class HostBridgeTests: XCTestCase {
             var request: [String: Any] = ["action": "phone-text", "tab": tab, "token": token]
             if let text { request["text"] = text }
             if let agent { request["agent"] = agent }
-            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: mac)
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: mac, stillFree: { true })
         }
         for refused: Any? in ["", "  padded  ", "one\u{1b}[201~", "tab\there", "a\r\nb", "!ls", String(repeating: "a", count: 2001), 42, nil] {
             XCTAssertFalse(isOK(phone(refused)), "\(String(describing: refused))")
@@ -615,6 +618,11 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(phone("hello", tab: "tty:/dev/ttys005")["pasted"] as? String, "pasted")
         XCTAssertFalse(isOK(phone("one\ntwo")), "a paste that failed")
         XCTAssertEqual(typed, ["hello", "one\ntwo"])
+        // With no core to ask, nothing goes.
+        let unasked = HostBridge.answer(try! JSONSerialization.data(withJSONObject: ["action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude",
+                                                                                     "text": "hello", "token": token]), token: token, actions: mac)
+        XCTAssertEqual(unasked["pasted"] as? String, "asked")
+        XCTAssertEqual(typed, ["hello", "one\ntwo"])
         // The peek: only in front, and only where the terminal can show its screen.
         func peek(_ tab: String) -> [String: Any] {
             HostBridge.answer(try! JSONSerialization.data(withJSONObject: ["action": "peek", "tab": tab, "agent": "claude", "token": token]),
@@ -623,6 +631,107 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(peek("tty:/dev/ttys005")["place"] as? String, "behind", "unknown isn't in front")
         XCTAssertEqual(peek("tty:/dev/ttys003")["error"] as? String, "This terminal can't show its input line.")
         XCTAssertEqual(peek("iterm:AB12")["unsupported"] as? Bool, true)
+    }
+
+    /// The owner's rule, never answer a waiting prompt, under the Go core: the desk began asking while the words
+    /// waited for its terminal's queue. The core is asked from that queue, after the agent's place and right
+    /// before the words, as `Deck.typePhoneDictation` looks at its sessions there: nothing is typed.
+    func testTheCoreIsAskedOnTheTerminalsQueueRightBeforeTheWords() {
+        let log = NSLock()
+        var done: [String] = []
+        var asking = false
+        func note(_ what: String) { log.lock(); done.append(what); log.unlock() }
+        var mac = actions
+        mac.place = { _, _ in note("place"); return .front }
+        mac.insert = { text, _ in note("insert \(text)"); return true }
+        mac.insertLines = { text, _ in note("lines \(text)"); return .pasted }
+        let stillFree = { () -> Bool in
+            log.lock(); defer { log.unlock() }
+            done.append("asked the core")
+            return !asking
+        }
+        for (words, typed) in [("fix the login bug", "insert fix the login bug"), ("one\n  two", "lines one\n  two")] {
+            // Another desk's AppleScript holds Terminal's queue; the prompt comes meanwhile.
+            let release = DispatchSemaphore(value: 0)
+            terminals.async { release.wait() }
+            var answer: [String: Any] = [:]
+            let answered = DispatchSemaphore(value: 0)
+            let line = try! JSONSerialization.data(withJSONObject: ["action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": words, "token": token])
+            DispatchQueue.global().async { [token] in
+                answer = HostBridge.answer(line, token: token, actions: mac, until: .now() + HostBridge.actionWait, stillFree: stillFree)
+                answered.signal()
+            }
+            Thread.sleep(forTimeInterval: 0.2)
+            log.lock(); XCTAssertEqual(done, [], "nothing before the queue"); asking = true; log.unlock()
+            release.signal()
+            answered.wait()
+            XCTAssertEqual(answer["pasted"] as? String, "asked")
+            XCTAssertEqual(done, ["place", "asked the core"], "nothing typed")
+            // Answered on the deck: the next words go, after the same question.
+            log.lock(); asking = false; done = []; log.unlock()
+            let free = HostBridge.answer(line, token: token, actions: mac, until: .now() + HostBridge.actionWait, stillFree: stillFree)
+            XCTAssertEqual(free["pasted"] as? String, "pasted")
+            XCTAssertEqual(done, ["place", "asked the core", typed])
+            done = []
+        }
+    }
+
+    /// The question goes on the request's own connection, once, and only a yes in time lets the words go: a no,
+    /// no answer, or an answer sent before it was asked holds them.
+    func testTheCoreIsAskedOnTheRequestsOwnConnection() throws {
+        let socket = folder.appendingPathComponent("bridge.sock")
+        var mac = actions
+        var typed: [String] = []
+        mac.place = { _, _ in .front }
+        mac.insert = { text, _ in typed.append(text); return true }
+        let bridge = HostBridge(socket: socket, token: token, actions: mac)
+        try bridge.start()
+        defer { bridge.stop() }
+        bridge.core = getpid() // this test stands in for the core
+        let request = #"{"token":"\#(token)","action":"phone-text","tab":"tty:/dev/ttys003","agent":"claude","text":"hello"}"#
+        /// The request, then each of `replies` once the app has said something, as the core answers.
+        func converse(_ first: String, replies: [String]) -> [String] {
+            let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+            defer { close(fd) }
+            var address = sockaddr_un()
+            address.sun_family = sa_family_t(AF_UNIX)
+            withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: socket.path.utf8.prefix($0.count - 1)) }
+            _ = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+            }
+            var wait = timeval(tv_sec: 5, tv_usec: 0)
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
+            _ = HostBridge.write(Data(first.utf8), to: fd)
+            var heard: [String] = [], pending = Data(), replies = replies
+            var chunk = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = read(fd, &chunk, chunk.count)
+                guard count > 0 else { break }
+                pending.append(chunk, count: count)
+                while let end = pending.firstIndex(of: 0x0A) {
+                    heard.append(String(decoding: pending[pending.startIndex..<end], as: UTF8.self))
+                    pending = Data(pending[(end + 1)...])
+                    if !replies.isEmpty { _ = HostBridge.write(Data((replies.removeFirst() + "\n").utf8), to: fd) }
+                }
+            }
+            return heard
+        }
+        XCTAssertEqual(converse(request + "\n", replies: [#"{"go":true}"#]), [#"{"ready":true}"#, #"{"ok":true,"pasted":"pasted"}"#])
+        XCTAssertEqual(typed, ["hello"])
+        for no in [#"{"go":false}"#, #"{"go":1}"#, #"{"go":true} {"go":true}"#, "nonsense"] {
+            let heard = converse(request + "\n", replies: [no])
+            XCTAssertEqual(heard.first, #"{"ready":true}"#, no)
+            XCTAssertTrue(heard.last?.contains(#""pasted":"asked""#) == true, "\(no): \(heard)")
+        }
+        // Said before it was asked: not an answer, and not asked at all.
+        XCTAssertEqual(converse(request + "\n" + #"{"go":true}"# + "\n", replies: []).map { $0.contains(#""pasted":"asked""#) }, [true])
+        // No answer in time.
+        let started = Date()
+        let silent = converse(request + "\n", replies: [])
+        XCTAssertEqual(silent.first, #"{"ready":true}"#)
+        XCTAssertTrue(silent.last?.contains(#""pasted":"asked""#) == true, "\(silent)")
+        XCTAssertLessThan(Date().timeIntervalSince(started), HostBridge.CoreQuestion.wait + 1.5)
+        XCTAssertEqual(typed, ["hello"], "typed only on a yes")
     }
 
     func testSetupsMacPartsTakeOnlyWhatTheyShould() {

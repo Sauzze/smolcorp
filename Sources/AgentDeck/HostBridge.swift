@@ -212,16 +212,82 @@ final class HostBridge {
             guard request.count <= HostBridge.requestMost else { return }
         }
         let line = request.prefix(upTo: request.firstIndex(of: 0x0A)!)
-        let answer = HostBridge.answer(line, token: token, actions: actions, until: taken + HostBridge.actionWait)
+        // Anything sent after the request came before any question: it answers none (see CoreQuestion).
+        let question = CoreQuestion(connection, sentEarly: request.count > line.count + 1, until: taken + HostBridge.actionWait)
+        let answer = HostBridge.answer(line, token: token, actions: actions, until: taken + HostBridge.actionWait, stillFree: question.ask)
+        question.close()
         var data = (try? JSONSerialization.data(withJSONObject: answer)) ?? Data()
         data.append(0x0A)
+        _ = HostBridge.write(data, to: connection)
+    }
+
+    /// Writes all of `data` to `connection`: false if it couldn't.
+    static func write(_ data: Data, to connection: Int32) -> Bool {
         data.withUnsafeBytes { raw in
             var sent = 0
             while sent < raw.count {
-                let count = write(connection, raw.baseAddress! + sent, raw.count - sent)
-                guard count > 0 else { return }
+                let count = Darwin.write(connection, raw.baseAddress! + sent, raw.count - sent)
+                guard count > 0 else { return false }
                 sent += count
             }
+            return true
+        }
+    }
+
+    /// The one thing the bridge asks the core back, on a request's own connection: whether the phone's text may
+    /// still go, the agent asking nothing (desktop/hostbridge_darwin.go answers it at once, from its sessions).
+    /// Asked from the terminal's queue right before the words, as the Swift engine looks at its own sessions
+    /// there (`Deck.typePhoneDictation`), so a prompt that came while the words waited for the queue holds them.
+    /// Once at most, and never once the request is answered: the connection may be closed by then, and its
+    /// number another's. No answer in time, or anything but a yes, is a no.
+    final class CoreQuestion {
+        /// How long the core has to answer: it only looks at its sessions.
+        static let wait: TimeInterval = 2
+        /// The longest answer read: `{"go":true}`.
+        static let answerMost = 64
+        private let lock = NSLock()
+        private let connection: Int32
+        private let deadline: DispatchTime
+        private var open: Bool
+
+        init(_ connection: Int32, sentEarly: Bool, until deadline: DispatchTime) {
+            self.connection = connection
+            self.deadline = deadline
+            open = !sentEarly
+        }
+
+        /// Whether the core said the words may go.
+        func ask() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard open else { return false }
+            open = false
+            guard HostBridge.write(Data("{\"ready\":true}\n".utf8), to: connection) else { return false }
+            let by = min(deadline, .now() + CoreQuestion.wait)
+            var reply = Data()
+            var chunk = [UInt8](repeating: 0, count: CoreQuestion.answerMost)
+            while !reply.contains(0x0A) {
+                let left = Int64(by.uptimeNanoseconds) - Int64(DispatchTime.now().uptimeNanoseconds)
+                guard left > 0, reply.count <= CoreQuestion.answerMost else { return false }
+                var wait = timeval(tv_sec: Int(left / 1_000_000_000), tv_usec: Int32(left % 1_000_000_000 / 1000))
+                setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
+                let count = read(connection, &chunk, chunk.count)
+                guard count > 0 else { return false }
+                reply.append(chunk, count: count)
+            }
+            // One line, and nothing after it: the core says nothing more until it has the answer.
+            let line = reply.prefix(upTo: reply.firstIndex(of: 0x0A)!)
+            guard reply.count == line.count + 1,
+                  let said = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+                  let go = said["go"] as? NSNumber, CFGetTypeID(go) == CFBooleanGetTypeID() else { return false }
+            return go.boolValue
+        }
+
+        /// No question once the request is answered.
+        func close() {
+            lock.lock()
+            open = false
+            lock.unlock()
         }
     }
 
@@ -236,8 +302,10 @@ final class HostBridge {
     // MARK: Answers
 
     /// The answer to one request: refused without the token, then the action's.
-    /// A tab action or a window not started by `deadline` isn't run.
-    static func answer(_ line: Data, token: String, actions: Actions, until deadline: DispatchTime = .distantFuture) -> [String: Any] {
+    /// A tab action or a window not started by `deadline` isn't run. `stillFree` asks the core, right before
+    /// the phone's text, whether it may still go (`CoreQuestion`): with none to ask, it never does.
+    static func answer(_ line: Data, token: String, actions: Actions, until deadline: DispatchTime = .distantFuture,
+                       stillFree: @escaping () -> Bool = { false }) -> [String: Any] {
         guard let request = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
               let given = request["token"] as? String, sameToken(given, token) else {
             return ["ok": false, "error": "Not this app's engine."]
@@ -249,7 +317,7 @@ final class HostBridge {
         case "press", "type", "insert", "focus", "scroll", "scroll-bottom", "close":
             return tabAction(action, request, actions, until: deadline)
         case "phone-text", "peek":
-            return phoneAction(action, request, actions, until: deadline)
+            return phoneAction(action, request, actions, until: deadline, stillFree: stillFree)
         case "open":
             return open(request, actions, until: deadline)
         case "terminals":
@@ -441,9 +509,12 @@ final class HostBridge {
     /// drivers the Swift engine types it with: `insert` for one line, `insertLines` for several, one paste where
     /// the terminal takes one. And the peek: the end of what the tab shows (`PhoneDictation.peek`). Each only
     /// while the agent is in front in its tab, looked at on the terminal's queue right before, as `Deck.toAgent`
-    /// and `Deck.peek` look. The words are checked again: as `PhoneDictation.prepared` gives them, so 2,000
-    /// characters at most; no "!" first; no control character but a line feed and a tab.
-    private static func phoneAction(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
+    /// and `Deck.peek` look; and the words only if the core then says the agent isn't asking anything
+    /// (`stillFree`), as `Deck.typePhoneDictation` looks on that queue. The words are checked again: as
+    /// `PhoneDictation.prepared` gives them, so 2,000 characters at most; no "!" first; no control character but
+    /// a line feed and a tab.
+    private static func phoneAction(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime,
+                                    stillFree: @escaping () -> Bool) -> [String: Any] {
         guard let text = request["tab"] as? String, let tab = TabAddress(text) else { return refused("Not a tab.") }
         guard let name = request["agent"] as? String, let agent = Agent(rawValue: name) else { return refused("Not an agent.") }
         let work: () -> [String: Any]
@@ -457,6 +528,8 @@ final class HostBridge {
                 case .behind?: return ["ok": false, "error": "That agent isn't in front in its terminal: bring it back with fg.", "place": "behind"]
                 case .front?, nil: break
                 }
+                // Asking you something by now, as the core has it, its menu would take the words: nothing goes.
+                guard stillFree() else { return ["ok": true, "pasted": "asked"] }
                 guard PhoneDictation.isLines(words) else { return pasted(actions.insert(words, tab)) }
                 switch actions.insertLines(words, tab) {
                 case .pasted?: return ["ok": true, "pasted": "pasted"]

@@ -584,10 +584,11 @@ func (t commandTab) phoneText(words string, lines bool) (pasteResult, error) {
 			return pasteNotTaken, nil
 		}
 		_ = t.run("delete-buffer", "-b", buffer)
+		// Not said either way, even if tmux was stopped once it had pasted: nothing more goes.
 		if err == nil {
-			err = errPasteFailed
+			return pasteFailed, errPasteFailed
 		}
-		return pasteFailed, err
+		return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, err)
 	case "wezterm":
 		return pasteDone, t.run("send-text", "--pane-id", t.id, "--", words)
 	case "kitty":

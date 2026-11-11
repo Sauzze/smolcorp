@@ -61,6 +61,10 @@ type bridgeRequest struct {
 	Tabs []string `json:"tabs,omitempty"`
 	// bots-resolve: the Grok Bots to look for in the Grok Bot app.
 	Bots []bridgeBot `json:"bots,omitempty"`
+	// phone-text: whether the words may still go, the agent asking nothing. The Mac app asks it on this
+	// request's own connection, from the terminal's queue right before the words, as the Swift engine looks
+	// at its sessions there; the transport answers it (socketBridge). Never sent itself; nil says no.
+	stillFree func() bool
 }
 
 // bridgeBot is a Grok Bot as set: its id in the Grok Bot app, if known, and its name there.
@@ -106,6 +110,8 @@ type bridgeAnswer struct {
 	Place string `json:"place,omitempty"`
 	// peek: the end of what the tab shows, as the phone's peek gives it.
 	Peek []string `json:"peek,omitempty"`
+	// Not the answer yet: the Mac app asking whether the phone's text may still go (bridgeRequest.stillFree).
+	Ready bool `json:"ready,omitempty"`
 }
 
 // macFacts is what setup shows of this Mac, as the Swift engine's setup state
@@ -327,9 +333,10 @@ func hostResolveBots(h hostBridge, bots []bridgeBot) ([]*botResolution, error) {
 // agent: without Return, one line as typed text and several as one paste where the terminal takes one, by
 // the Swift engine's own drivers (insert, insertLines) on that terminal's queue, and only while agent is in
 // front there. The app checks the words again: prepared, no "!" first, no control character but a line
-// feed and a tab, 2,000 characters at most.
-func hostPhoneText(h hostBridge, tab string, agent Agent, words string) (pasteResult, error) {
-	answer, err := ask(h, bridgeRequest{Action: "phone-text", Tab: tab, Agent: agent, Text: words})
+// feed and a tab, 2,000 characters at most. Right before them, on that queue, it asks stillFree, as the Swift
+// engine looks whether the agent is asking: only a yes lets them go.
+func hostPhoneText(h hostBridge, tab string, agent Agent, words string, stillFree func() bool) (pasteResult, error) {
+	answer, err := ask(h, bridgeRequest{Action: "phone-text", Tab: tab, Agent: agent, Text: words, stillFree: stillFree})
 	if err != nil {
 		return pasteFailed, placeError(answer, err)
 	}
@@ -338,8 +345,10 @@ func hostPhoneText(h hostBridge, tab string, agent Agent, words string) (pasteRe
 		return pasteDone, nil
 	case "not-taken":
 		return pasteNotTaken, nil
+	case "asked":
+		return pasteAsked, nil
 	}
-	return pasteFailed, fmt.Errorf("the Mac app answered %q", answer.Pasted)
+	return pasteFailed, fmt.Errorf("%w: the Mac app answered %q", errPasteFailed, answer.Pasted)
 }
 
 // hostPeek has the Mac app read the end of what tab shows, only while agent is in front there.

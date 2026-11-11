@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -57,6 +58,9 @@ const (
 	choiceTailnet       = "The details show only over Tailscale."
 	pickWithKeys        = "Pick an option with the deck's keys."
 	notFrontFg          = "That agent isn't in front in its terminal: bring it back with fg."
+	// A failure once the words were on their way: never "Tab not found".
+	launcherLate = "The window didn't say in time whether it typed the text: it may have landed, but no Return went. Look at the desk before you try again."
+	pasteUnsaid  = "The terminal didn't say it took the text, so nothing more went. Look at the desk before you try again."
 )
 
 // phoneLineBreaks end a line: a line feed, a return (CRLF is one), and Unicode's next-line, line and paragraph separators.
@@ -221,6 +225,8 @@ const (
 	pasteDone
 	// pasteNotTaken: several lines where the tab can't take them as one paste now: nothing was typed.
 	pasteNotTaken
+	// pasteAsked: under the Mac app, the agent was asking by the time its terminal got to the words: nothing was typed.
+	pasteAsked
 )
 
 var (
@@ -244,8 +250,9 @@ func takesLinesAtAll(name string) bool {
 }
 
 // phoneText types words into t, session tab name's, without Return: one line as typed text, several as
-// one paste, where the tab takes one. On the key worker.
-func (d *Deck) phoneText(name string, t Tab, agent Agent, words string, lines bool) (pasteResult, error) {
+// one paste, where the tab takes one. On the key worker, right after stillFree said they may go; the Mac
+// app, whose terminals wait on queues of their own, asks stillFree again from there, right before them.
+func (d *Deck) phoneText(name string, t Tab, agent Agent, words string, lines bool, stillFree func() bool) (pasteResult, error) {
 	switch tab := t.(type) {
 	case *launcherTab:
 		_, id, _ := splitTab(name)
@@ -254,7 +261,7 @@ func (d *Deck) phoneText(name string, t Tab, agent Agent, words string, lines bo
 		if tab.pane != nil {
 			return tab.pane.phoneText(words, lines)
 		}
-		return hostPhoneText(tab.host, tab.name, agent, words)
+		return hostPhoneText(tab.host, tab.name, agent, words, stillFree)
 	case commandTab:
 		return tab.phoneText(words, lines)
 	}
@@ -289,7 +296,8 @@ func (d *Deck) claimReturn(id string) bool {
 // TypePhoneText is POST /dictate: the phone's words typed into session id's agent, with Return if send says
 // so (the confirm box's Send ⏎), or, for an older page that says nothing, once they're a few words and
 // autoSend is on. Only to the agent in front in its tab (toAgent), and not while it asks you something:
-// checked as the request comes, and again on the key worker right before the words.
+// checked as the request comes, and again right before the words: on the key worker, and under the Mac app
+// on the terminal's own queue too, as the Mac app asks (hostPhoneText).
 func (d *Deck) TypePhoneText(text, id string, send *bool) (int, string) {
 	d.mu.Lock()
 	on, autoSend := d.config.PhoneMicEnabled, d.config.PhoneMicAutoSend
@@ -328,24 +336,31 @@ func (d *Deck) TypePhoneText(text, id string, send *bool) (int, string) {
 	if send != nil {
 		sends = *send
 	}
+	stillFree := func() bool { return !d.isAsking(id) }
 	var asked, notTaken, withheld, unsupported bool
+	var failure error
 	status, message := d.toAgent(name, agent, func(t Tab) error {
 		// Asked something while this waited for the worker: checked again right before the words.
-		if d.isAsking(id) {
+		if !stillFree() {
 			asked = true
 			return nil
 		}
-		result, err := d.phoneText(name, t, agent, words, lines)
+		result, err := d.phoneText(name, t, agent, words, lines, stillFree)
 		switch {
 		case errors.Is(err, errUnsupported):
 			unsupported = true
 			return nil
 		case err != nil:
+			failure = err
 			return err
+		case result == pasteAsked:
+			asked = true
+			return nil
 		case result == pasteNotTaken:
 			notTaken = true
 			return nil
 		case result != pasteDone:
+			failure = errPasteFailed
 			return errPasteFailed
 		}
 		if !sends {
@@ -376,7 +391,29 @@ func (d *Deck) TypePhoneText(text, id string, send *bool) (int, string) {
 	case withheld && status < http.StatusBadRequest:
 		return http.StatusConflict, typedNotSent
 	}
+	if failed, why, ok := phoneTextFailure(failure); ok {
+		return failed, why
+	}
 	return status, message
+}
+
+// phoneTextFailure says what the phone is told of a failure to type its text, where the deck's words for a
+// tab's (inTab) would say "Tab not found": a launcher's window that didn't answer in time, which may still
+// type them; the Mac app's no, in its words; a terminal that answered without saying it took them. Past 500,
+// the phone doesn't put the words back in its box: they may be in the terminal already.
+func phoneTextFailure(err error) (int, string, bool) {
+	var refusal appRefusal
+	switch {
+	case err == nil, errors.Is(err, errAgentGone), errors.Is(err, errAgentBehind):
+		return 0, "", false
+	case errors.Is(err, errLookTimedOut):
+		return http.StatusServiceUnavailable, launcherLate, true
+	case errors.As(err, &refusal):
+		return http.StatusConflict, string(refusal), true
+	case errors.Is(err, errPasteFailed):
+		return http.StatusBadGateway, pasteUnsaid, true
+	}
+	return 0, "", false
 }
 
 // Peek is POST /peek: the last lines session id's tab shows, read by its terminal, for the phone to see
@@ -428,6 +465,24 @@ func (d *Deck) Peek(id string) (int, []string, string) {
 	}
 	return http.StatusOK, got.lines, ""
 }
+
+// isProxied says whether a proxy passed the request on, as `tailscale serve` does: it says whom for in these
+// headers, and sets them over any the sender put in. As the Mac's Addressing.isProxied: there, even empty.
+func isProxied(header http.Header) bool {
+	for _, name := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Forwarded", "Tailscale-User-Login"} {
+		if header.Values(name) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// tailnetName matches a MagicDNS name in a tailnet, as my-mac.tail1234.ts.net: as the Mac's Addressing.isTailnet.
+var tailnetName = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.){2}ts\.net$`)
+
+// isTailnetName says whether a Host, without its port, is a tailnet's name. Believed only from this computer's
+// loopback, as `tailscale serve` hands it on: Tailscale, not a web page, says where ts.net names point.
+func isTailnetName(host string) bool { return tailnetName.MatchString(strings.ToLower(host)) }
 
 // lookedAt says whether a look at session id may go now, and if so counts it: once every peekGap. With the lock held.
 func (d *Deck) lookedAt(last map[string]time.Time, id string) bool {
@@ -508,7 +563,8 @@ func (d *Deck) ChoiceDetail(id string) (int, string) {
 
 // fromTailnet says whether a request came through Tailscale, where reading a terminal is given: to this
 // computer's Tailscale address from another device's (WireGuard carries it encrypted), or passed on by
-// `tailscale serve` on this computer (a proxy's headers, from its loopback). Never the Wi-Fi's plain http.
+// `tailscale serve` on this computer (from its loopback, with a proxy's headers, or on a Mac to a ts.net
+// name, as the Mac app's Request.isTailnet). Never the Wi-Fi's plain http.
 func fromTailnet(r *http.Request) bool {
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)
@@ -516,12 +572,7 @@ func fromTailnet(r *http.Request) bool {
 		return false
 	}
 	if ip.IsLoopback() {
-		for _, header := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Forwarded", "Tailscale-User-Login"} {
-			if r.Header.Get(header) != "" {
-				return true
-			}
-		}
-		return false
+		return isProxied(r.Header) || macTailscale && isTailnetName(portSuffix.ReplaceAllString(r.Host, ""))
 	}
 	local, _ := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
 	if local == nil || ip.To4() == nil || !tailnet.Contains(ip.To4()) {

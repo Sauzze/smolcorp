@@ -41,7 +41,8 @@ type Deck struct {
 	looks map[string]chan PaneState
 	// Whether the answer to each of those said bracketed paste is on, by the same key.
 	lookBracketed map[string]bool
-	// What a launcher said of the phone's text it was asked to paste, by the same key: see pasteIntoLauncher.
+	// What a launcher said of the phone's text it was asked to paste, by the same key, only while that paste
+	// waits for it: see pasteIntoLauncher.
 	lookPasted map[string]string
 	// The key each session was given, so it keeps it.
 	keyOf map[string]int

@@ -318,6 +318,8 @@ const cases = [
   }],
   // I5: the peek reads the input line through Tailscale only (the plain LAN row above); the same on both engines.
   ['the peek over Tailscale, after a line typed', async (desk) => {
+    // A launcher's window sends the Go core its state, never its text: its peek is 409 "can't show" by design.
+    if (desk.launcher) return { pass: true, note: "SKIPPED: the Go core can't peek a launcher's window (it says its state, never its text)" };
     const typed = await dictate(desk.id, SHORT, false);
     await sleep(700);
     const res = await dictate(desk.id, '', false, { path: '/peek' });

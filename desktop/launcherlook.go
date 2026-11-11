@@ -212,7 +212,8 @@ func (d *Deck) launcherScreenAnswered(id, proof string, answer screenAnswer) boo
 		// Only a screen that was known can say bracketed paste is on.
 		d.lookBracketed[key] = answer.Bracketed && state != PaneUnknown
 	}
-	if ok && d.lookPasted != nil {
+	// Kept only for a phone paste waiting for it (pasteIntoLauncher made its entry): an ordinary look leaves nothing behind.
+	if _, paste := d.lookPasted[key]; ok && paste {
 		d.lookPasted[key] = answer.Pasted
 	}
 	d.mu.Unlock()
@@ -252,6 +253,7 @@ func (d *Deck) pasteIntoLauncher(id, words string) (pasteResult, error) {
 	key := id + "/" + number
 	answer := make(chan PaneState, 1)
 	d.looks[key] = answer
+	d.lookPasted[key] = "" // a paste's look: only this one's answer is kept there
 	d.mu.Unlock()
 	defer func() {
 		d.mu.Lock()

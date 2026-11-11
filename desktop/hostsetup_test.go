@@ -134,6 +134,7 @@ func (f *fixtureHost) call(request bridgeRequest) (bridgeAnswer, error) {
 
 // Each of the fixture's requests is what the core sends, and its answer is read as the core needs it.
 func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
+	yes := func() bool { return true }
 	want := map[string]func(h hostBridge) (any, error){
 		"setup's facts, the apps keys may go to left out of those running": func(h hostBridge) (any, error) {
 			facts, err := hostFacts(h, []string{"com.example.notes"})
@@ -165,20 +166,23 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			return hostResolveBots(h, []bridgeBot{{Bot: "Smolcorp Mini"}, {Bot: "Nobody Here"}})
 		},
 		"the phone's text, one line, into a Terminal tab": func(h hostBridge) (any, error) {
-			return hostPhoneText(h, "tty:/dev/ttys003", Claude, "Bonjour l’équipe « ça marche » 👩‍💻 ;")
+			return hostPhoneText(h, "tty:/dev/ttys003", Claude, "Bonjour l’équipe « ça marche » 👩‍💻 ;", yes)
 		},
 		"the phone's text, several lines, as one paste in iTerm2": func(h hostBridge) (any, error) {
-			return hostPhoneText(h, "iterm:AB12", Claude, "first line\n    indented\tand a tab")
+			return hostPhoneText(h, "iterm:AB12", Claude, "first line\n    indented\tand a tab", yes)
 		},
 		"the phone's text, several lines, where the terminal can't take one paste": func(h hostBridge) (any, error) {
-			return hostPhoneText(h, "tty:/dev/ttys004", Codex, "one\ntwo")
+			return hostPhoneText(h, "tty:/dev/ttys004", Codex, "one\ntwo", yes)
 		},
 		"the phone's text, to an agent that has ended": func(h hostBridge) (any, error) {
-			result, err := hostPhoneText(h, "tty:/dev/ttys005", Claude, "hello")
+			result, err := hostPhoneText(h, "tty:/dev/ttys005", Claude, "hello", yes)
 			return []any{result, errors.Is(err, errAgentGone)}, err
 		},
 		"the phone's text, starting with !, refused": func(h hostBridge) (any, error) {
-			return hostPhoneText(h, "tty:/dev/ttys003", Claude, "!ls")
+			return hostPhoneText(h, "tty:/dev/ttys003", Claude, "!ls", yes)
+		},
+		"the phone's text, held: the core said no as the terminal got to it": func(h hostBridge) (any, error) {
+			return hostPhoneText(h, "tty:/dev/ttys006", Claude, "hello", func() bool { return false })
 		},
 		"the peek at the input line": func(h hostBridge) (any, error) { return hostPeek(h, "tty:/dev/ttys003", Claude) },
 		"the peek, the agent not in front": func(h hostBridge) (any, error) {
@@ -203,6 +207,7 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the phone's text, several lines, where the terminal can't take one paste": pasteNotTaken,
 		"the phone's text, to an agent that has ended":                             []any{pasteFailed, true},
 		"the phone's text, starting with !, refused":                               pasteFailed,
+		"the phone's text, held: the core said no as the terminal got to it":       pasteAsked,
 		"the peek at the input line":                                               []string{"> Bonjour l’équipe", "  ? for shortcuts"},
 		"the peek, the agent not in front":                                         []any{true, true},
 	}

@@ -393,3 +393,74 @@ func TestTheAppsLines(t *testing.T) {
 		}
 	}
 }
+
+// The phone's text: the app asks, on the same connection and right before the words, whether they may still
+// go, and is answered at once; only a yes lets them. No question to answer is a no, and a second is an error.
+func TestTheAppAsksBeforeThePhonesTextOnItsConnection(t *testing.T) {
+	folder := shortFolder(t)
+	path := filepath.Join(folder, "bridge.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	_ = os.Chmod(path, 0o600)
+	heard := make(chan string, 8)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				reader := bufio.NewReader(conn)
+				line, err := reader.ReadBytes('\n')
+				var request bridgeRequest
+				if err != nil || json.Unmarshal(line, &request) != nil || request.Token != fakeBridgeToken {
+					return
+				}
+				asks := 1
+				if request.Text == "twice" {
+					asks = 2
+				}
+				reply := ""
+				for range asks {
+					_, _ = conn.Write([]byte(`{"ready":true}` + "\n"))
+					said, err := reader.ReadBytes('\n')
+					if err != nil {
+						return
+					}
+					reply = strings.TrimSpace(string(said))
+					heard <- reply
+				}
+				if reply == `{"go":true}` {
+					_, _ = conn.Write([]byte(`{"ok":true,"pasted":"pasted"}` + "\n"))
+				} else {
+					_, _ = conn.Write([]byte(`{"ok":true,"pasted":"asked"}` + "\n"))
+				}
+			}()
+		}
+	}()
+	bridge := appBridge(path, fakeBridgeToken)
+	for _, c := range []struct {
+		free  func() bool
+		said  string
+		typed pasteResult
+	}{
+		{func() bool { return true }, `{"go":true}`, pasteDone},
+		{func() bool { return false }, `{"go":false}`, pasteAsked},
+		{nil, `{"go":false}`, pasteAsked},
+	} {
+		result, err := hostPhoneText(bridge, "tty:/dev/ttys003", Claude, "hello", c.free)
+		if err != nil || result != c.typed {
+			t.Errorf("%s: %v %v", c.said, result, err)
+		}
+		if said := <-heard; said != c.said {
+			t.Errorf("answered %s, want %s", said, c.said)
+		}
+	}
+	if result, err := hostPhoneText(bridge, "tty:/dev/ttys003", Claude, "twice", func() bool { return true }); err == nil || result != pasteFailed {
+		t.Errorf("asked twice: %v %v", result, err)
+	}
+}

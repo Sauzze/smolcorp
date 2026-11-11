@@ -159,10 +159,12 @@ type router struct {
 // request is what the router needs to know about one.
 type request struct {
 	*http.Request
-	isLocal             bool // sent from this computer to a local name
+	isLocal             bool // sent from this computer to a local name, not passed on by a proxy
 	isAddressedDirectly bool // to an IP address or a local name, as a phone would
-	remoteAddress       string
-	caller              caller // who is asking setup: set only for /setup and /bots
+	// On a Mac: handed on by `tailscale serve` on this computer, to a ts.net name or with a proxy's headers.
+	isTailnet     bool
+	remoteAddress string
+	caller        caller // who is asking setup: set only for /setup and /bots
 }
 
 // caller is who is asking for setup: the page, a tool of yours, or no one.
@@ -197,10 +199,17 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := portSuffix.ReplaceAllString(r.Host, "")
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)
+	fromLoopback, proxied := ip != nil && ip.IsLoopback(), isProxied(r.Header)
+	// On a Mac, as its app reads a request (HTTPServer.swift's Request.addressed): `tailscale serve` hands a
+	// phone's request on from this computer's loopback, with whatever Host the phone sent, so a proxy's hand-on
+	// is the tailnet's, never addressed directly; let in only with the phone's text on.
+	fromProxy := macTailscale && fromLoopback && proxied
 	req := &request{
-		Request:             r,
-		isLocal:             ip != nil && ip.IsLoopback() && (host == "localhost" || host == "127.0.0.1" || host == "[::1]"),
-		isAddressedDirectly: host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasPrefix(host, "[") || ipv4Address.MatchString(host),
+		Request: r,
+		// A proxy on this computer passes on someone else's request: never this computer's, for setup, the hook or the window's key.
+		isLocal:             fromLoopback && !proxied && (host == "localhost" || host == "127.0.0.1" || host == "[::1]"),
+		isAddressedDirectly: !fromProxy && (host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasPrefix(host, "[") || ipv4Address.MatchString(host)),
+		isTailnet:           fromProxy || macTailscale && fromLoopback && isTailnetName(host),
 		remoteAddress:       remote,
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -391,7 +400,12 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	}
 
-	if !r.isAddressedDirectly {
+	// Past setup and the hook: to an IP address or a local name, as a phone asks; or on a Mac, with the phone's
+	// text on, handed on by `tailscale serve`, as the Mac app lets it in (DeckRouter.admits).
+	d.mu.Lock()
+	phoneText := d.config.PhoneMicEnabled
+	d.mu.Unlock()
+	if !r.isAddressedDirectly && !(r.isTailnet && phoneText) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
