@@ -125,7 +125,8 @@ func TestSetupsHireRequestIsCheckedAsTheMacs(t *testing.T) {
 		{`{"role":"janitor","model":"sonnet 5"}`, one, 400, "A model is a name such as claude-sonnet-5-5."},
 		{`{"role":"janitor","nickname":"` + strings.Repeat("a", 41) + `"}`, one, 400, "A nickname is one line of at most 40 characters."},
 		{`{"role":"janitor","nickname":"a\nb"}`, one, 400, "A nickname is one line of at most 40 characters."},
-		{`{"role":"janitor","engine":"t3"}`, one, 409, setupHireNotT3},
+		{`{"role":"janitor","engine":"t3"}`, two, 400, "Say which folder to hire into."},
+		{`{"role":"janitor","engine":"t3","apiKey":true,"folder":"~/Projects/none"}`, two, 400, "There's no folder at ~/Projects/none."},
 		{`{"role":"janitor","engine":"vim"}`, one, 400, `Where it works is "t3" (T3 Code), or left out for a terminal.`},
 		{`{"role":"janitor","folder":"~/Projects/app"}`, two, 400, "Say which Claude account to hire on: default, work."},
 		{`{"role":"janitor","account":"home","folder":"~/Projects/app"}`, two, 404, "There's no Claude account called home. Pick one of: default, work."},
@@ -155,6 +156,15 @@ func TestSetupsHireRequestIsCheckedAsTheMacs(t *testing.T) {
 	if status != 0 || hire.Folder != app || hire.Task != "Do it." || hire.Account != "work" || hire.configDir != two[1].Dir ||
 		hire.Nickname != "Ana" || hire.Floor != 2 || hire.Answers == nil || len(hire.Answers) != 0 {
 		t.Errorf("%d %q %+v", status, why, hire)
+	}
+	// Into T3 Code: no account asked for among several; one named, or the API-key account, kept for T3 Code's own refusal.
+	if hire, status, why := setupHireRequest([]byte(`{"role":"janitor","engine":"t3","folder":"~/Projects/app"}`), roles, two, home); status != 0 || !hire.T3 ||
+		hire.Account != "" || hire.APIKey || hire.Folder != app {
+		t.Errorf("into T3 Code: %d %q %+v", status, why, hire)
+	}
+	if hire, status, why := setupHireRequest([]byte(`{"role":"janitor","engine":"t3","folder":"~/Projects/app","account":" work ","apiKey":true}`), roles, two, home); status != 0 ||
+		!hire.T3 || hire.Account != "work" || !hire.APIKey || hire.configDir != "" {
+		t.Errorf("into T3 Code, an account: %d %q %+v", status, why, hire)
 	}
 	// Another agent names no account; a floor that isn't one is the ground floor.
 	if hire, status, _ := setupHireRequest([]byte(`{"role":"writer","folder":"~/Projects/app","floor":9}`), roles, two, home); status != 0 || hire.Account != "" || hire.Floor != 0 {

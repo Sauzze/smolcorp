@@ -91,7 +91,6 @@ var knownGaps = []knownGap{
 	{"POST /setup/bots", ".bots[].pinned", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
 	{"GET /setup/hire/gm/preflight", "refusal: no such Claude account", "status 200", "Claude accounts are the Mac's (M2): the GM's tools are checked for any account", "M4, once M2 has the Claude accounts"},
 	{"POST /setup/notify", "route", "404", "a push to the iPhone app (personal build)", "M6: personal shell"},
-	{"POST /setup/t3code/letgo", "refusal: no such hire", "status 409", "hiring into T3 Code is the Mac's alone for now: Go answers 409 to any let go, a hire it knows or not", "M5: the desk lane (port of T797b)"},
 	{"GET /setup/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
 	{"GET /setup/gm/screens", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
 	{"POST /setup/gm/screen", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},

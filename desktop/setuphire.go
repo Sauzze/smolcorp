@@ -23,8 +23,9 @@ import (
 // What reaches the hire: a role's Claude Code hire in tmux goes through the
 // engine (hireengine.go) with its answers, task, nickname, model, account and
 // fence; any other opens the old way, through the launcher, which asks the
-// role's questions itself. Into T3 Code and on the API-key account aren't this
-// engine's yet: refused in a sentence rather than hired another way.
+// role's questions itself. Into T3 Code (`engine: "t3"`, experimental), the
+// T3 Code lane (Deck.hireIntoT3), as the Mac's. On the API-key account isn't
+// this engine's yet: refused in a sentence rather than hired another way.
 
 // setupHire is what setup's hire asks for besides the role, checked.
 type setupHire struct {
@@ -39,6 +40,9 @@ type setupHire struct {
 	Nickname  string
 	Worktree  bool
 	Task      string
+	// T3: into T3 Code. A named account (Account) or the API-key account (APIKey) is kept for T3 Code's own refusal.
+	T3     bool
+	APIKey bool
 }
 
 // apply puts what setup asked for into an engine hire's request. Its worktree
@@ -64,7 +68,6 @@ func (h *setupHire) apply(r *engineRequest, managerOn bool) {
 
 const (
 	setupHireModelLongest = 60
-	setupHireNotT3        = "Hiring into T3 Code isn't on this engine yet: hire in a terminal, or from the Swift engine."
 	setupHireNotAPIKey    = "The API-key account isn't on this engine yet: hire on a Claude account."
 )
 
@@ -96,13 +99,12 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 	if utf8.RuneCountInString(nickname) > longestNickname || strings.ContainsAny(nickname, "\r\n  \u0085") {
 		return setupHire{}, http.StatusBadRequest, "A nickname is one line of at most 40 characters."
 	}
+	t3 := false
 	switch engine := given["engine"].(type) {
 	case nil:
 	case string:
-		if engine == "t3" {
-			return setupHire{}, http.StatusConflict, setupHireNotT3
-		}
-		if engine != "" && engine != "terminal" {
+		t3 = engine == t3Engine
+		if !t3 && engine != "" && engine != "terminal" {
 			return setupHire{}, http.StatusBadRequest, `Where it works is "t3" (T3 Code), or left out for a terminal.`
 		}
 	default:
@@ -110,9 +112,13 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 	}
 	apiKey, _ := given["apiKey"].(bool)
 	worktree, _ := given["worktree"].(bool)
-	hire := setupHire{Role: id, Model: model, Nickname: nickname, Worktree: worktree}
+	hire := setupHire{Role: id, Model: model, Nickname: nickname, Worktree: worktree, T3: t3}
 	// With more than one Claude account, a hire on Claude Code says which; another agent has none to name.
-	if agentOrClaude(role.Agent) == Claude {
+	// A hire in T3 Code works on T3 Code's own account: what was named is kept, for its own refusal.
+	if t3 {
+		named, _ := given["account"].(string)
+		hire.Account, hire.APIKey = strings.Trim(named, " \t"), apiKey
+	} else if agentOrClaude(role.Agent) == Claude {
 		named, _ := given["account"].(string)
 		named = strings.Trim(named, " \t")
 		if !apiKey || named != "" {
@@ -125,7 +131,7 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 			hire.configDir = account.Dir
 		}
 	}
-	if apiKey {
+	if apiKey && !t3 {
 		return setupHire{}, http.StatusConflict, setupHireNotAPIKey
 	}
 	path, _ := given["folder"].(string)
@@ -225,51 +231,69 @@ func gmSetupHireRefusal(role string, who caller, hires []Hire) string {
 	return onlyOwnerHiresGMRefusal
 }
 
+// setupSheetDesk is where setup's hire h sits, as the Mac's Deck.hire(as:in:answers:…)
+// picks it: on the ground floor, the desk pinned to its folder if there's one
+// (pinned), else a free one (with a fixed number of desks, one must be free);
+// upstairs, none named. A status and why when there's no room.
+func (d *Deck) setupSheetDesk(h setupHire) (desk string, expected any, pinned bool, status int, why string) {
+	if h.Floor > 0 {
+		return "", nil, false, 0, ""
+	}
+	d.mu.Lock()
+	keys, _ := d.layout()
+	fixed := d.config.Layout.Keys != Auto
+	d.mu.Unlock()
+	free, at := -1, -1
+	for i, k := range keys {
+		if k.pin == nil {
+			if k.session == nil && free < 0 {
+				free = i
+			}
+			continue
+		}
+		if folder, ok := existingFolder(*k.pin); ok && at < 0 && physical(folder) == h.Folder {
+			at = i
+		}
+	}
+	switch {
+	case at >= 0:
+		return strconv.Itoa(at), at, true, 0, ""
+	case fixed && free < 0:
+		return "", nil, false, http.StatusConflict, "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room."
+	case free >= 0:
+		return strconv.Itoa(free), free, false, 0, ""
+	case len(keys) < mostKeys:
+		return strconv.Itoa(len(keys)), len(keys), false, 0, ""
+	}
+	return "", nil, false, 0, ""
+}
+
+// setupSheetHired is setup's answer to hire h, hired: the desk it's expected
+// at, or its floor; and the folder put first among the recent ones.
+func (d *Deck) setupSheetHired(h setupHire, expected any) map[string]any {
+	d.mu.Lock()
+	d.config.noteHireFolder(h.Folder)
+	d.config.save()
+	d.mu.Unlock()
+	if h.Floor > 0 {
+		return map[string]any{"ok": true, "desk": nil, "floor": h.Floor, "session": nil}
+	}
+	return map[string]any{"ok": true, "desk": expected, "session": nil}
+}
+
 // hireFromSetupSheet hires h as the Mac's Deck.hire(as:in:answers:…): at the
 // desk pinned to its folder if there's one, else at a free one (with a fixed
 // number of desks, one must be free). The answer's body, or a status and why.
 func (d *Deck) hireFromSetupSheet(h setupHire) (int, any, string) {
-	desk, expected := "", any(nil)
-	if h.Floor == 0 {
-		d.mu.Lock()
-		keys, _ := d.layout()
-		fixed := d.config.Layout.Keys != Auto
-		d.mu.Unlock()
-		free, pinned := -1, -1
-		for i, k := range keys {
-			if k.pin == nil {
-				if k.session == nil && free < 0 {
-					free = i
-				}
-				continue
-			}
-			if folder, ok := existingFolder(*k.pin); ok && pinned < 0 && physical(folder) == h.Folder {
-				pinned = i
-			}
-		}
-		switch {
-		case pinned >= 0:
-			desk, expected = strconv.Itoa(pinned), pinned
-		case fixed && free < 0:
-			return http.StatusConflict, nil, "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room."
-		case free >= 0:
-			desk, expected = strconv.Itoa(free), free
-		case len(keys) < mostKeys:
-			desk, expected = strconv.Itoa(len(keys)), len(keys)
-		}
+	desk, expected, _, status, why := d.setupSheetDesk(h)
+	if status != 0 {
+		return status, nil, why
 	}
 	status, message := d.hireAsWith(desk, h.Role, h.Floor, true, &h)
 	if status != http.StatusNoContent {
 		return status, nil, message
 	}
-	d.mu.Lock()
-	d.config.noteHireFolder(h.Folder)
-	d.config.save()
-	d.mu.Unlock()
-	answer := map[string]any{"ok": true, "desk": expected, "session": nil}
-	if h.Floor > 0 {
-		answer = map[string]any{"ok": true, "desk": nil, "floor": h.Floor, "session": nil}
-	}
+	answer := d.setupSheetHired(h, expected)
 	// A hire that went the plain way (another agent, a pinned desk): its task and answers weren't passed on.
 	if message != "" {
 		answer["note"] = message
@@ -307,13 +331,43 @@ func (d *Deck) setupHireRoute(w http.ResponseWriter, method, path string, body i
 		http.Error(w, hiringOff, http.StatusForbidden)
 		return true
 	}
-	status, answer, why := d.hireFromSetupSheet(hire)
+	hireInto := d.hireFromSetupSheet
+	if hire.T3 {
+		hireInto = func(h setupHire) (int, any, string) { return d.hireFromSetupSheetIntoT3(h, roles) }
+	}
+	status, answer, why := hireInto(hire)
 	if answer == nil {
 		http.Error(w, why, status)
 		return true
 	}
 	writeJSON(w, status, answer)
 	return true
+}
+
+// hireFromSetupSheetIntoT3 hires h into T3 Code, as the Mac's Deck.hire(as:in:answers:…)
+// with `engine: "t3"`: through hireIntoT3, which refuses as the Mac does (the role, an
+// account, hiring off, the hooks, the cooldown, the lane) before anything is made. The
+// answer is the Mac's for any setup hire: the desk it's expected at, though a hire in
+// T3 Code isn't seated at one (its agent reports with no tab).
+func (d *Deck) hireFromSetupSheetIntoT3(h setupHire, roles []Role) (int, any, string) {
+	i := slices.IndexFunc(roles, func(r Role) bool { return r.ID == h.Role })
+	if i < 0 {
+		return http.StatusNotFound, nil, "That role isn't there any more. Pick another."
+	}
+	_, expected, pinned, status, why := d.setupSheetDesk(h)
+	if status != 0 {
+		return status, nil, why
+	}
+	var desk *int
+	if at, ok := expected.(int); ok {
+		desk = &at
+	}
+	status, why = d.hireIntoT3(t3Ask{Role: roles[i], Folder: h.Folder, Nickname: h.Nickname, Model: h.Model, Task: h.Task,
+		Answers: h.Answers, Pinned: pinned, Desk: desk, Account: h.Account, APIKey: h.APIKey})
+	if status != http.StatusNoContent {
+		return status, nil, why
+	}
+	return http.StatusOK, d.setupSheetHired(h, expected), ""
 }
 
 // noteHireFolder puts folder first among the folders hires last started in, as

@@ -341,6 +341,30 @@ type hireSettingsOptions struct {
 // writeHireSettings writes hire HireID's settings and says where: refused if the guard
 // can't be run. The file is private to you and replaced whole.
 func writeHireSettings(o hireSettingsOptions) (string, error) {
+	object, err := hireSettingsObject(o)
+	if err != nil {
+		return "", err
+	}
+
+	// Written as the Mac's HireSettings.save writes it, byte for byte (Tests/fixtures/frontdesk/hire-settings.json).
+	data := swiftJSON(object)
+	failed := &hireRefusal{Status: 500, Message: "Couldn't write the hire's settings, so Smolcorp won't start it unguarded."}
+	folder := hireFolder(o.Support, o.HireID)
+	if os.MkdirAll(folder, 0o700) != nil || os.Chmod(folder, 0o700) != nil {
+		return "", failed
+	}
+	target := filepath.Join(folder, hireSettingsFile)
+	if writePrivate(target, data) != nil {
+		return "", failed
+	}
+	return target, nil
+}
+
+// hireSettingsObject is what hire HireID's settings hold (deny rules, the guard as a
+// PreToolUse hook, auto mode), as writeHireSettings writes them: refused if the guard
+// can't be run. A hire in T3 Code gets the same, as its worktree's fence (t3desk.go), as
+// the Mac's HireSettings.object gives both.
+func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 	run, isExec := o.Run, o.IsExec
 	if run == nil {
 		run = runGuardTool
@@ -353,15 +377,15 @@ func writeHireSettings(o hireSettingsOptions) (string, error) {
 		profile = guardHire
 	}
 	if o.HireID == "" || strings.ContainsAny(o.HireID, `/\`) || strings.HasPrefix(o.HireID, ".") {
-		return "", &hireRefusal{Status: 400, Message: "That isn't a hire's name, so Smolcorp won't write settings for it."}
+		return nil, &hireRefusal{Status: 400, Message: "That isn't a hire's name, so Smolcorp won't write settings for it."}
 	}
 	if !isExec(o.CLI) {
-		return "", errGuardMissing
+		return nil, errGuardMissing
 	}
 	rules := filepath.Join(o.Support, hireGuardFile)
 	groups := guardGroups(o.CLI, rules, profile, run)
 	if groups == nil {
-		return "", &hireRefusal{Status: 500, Message: "The guard couldn't say which commands a hire is refused, so Smolcorp won't start one unguarded."}
+		return nil, &hireRefusal{Status: 500, Message: "The guard couldn't say which commands a hire is refused, so Smolcorp won't start one unguarded."}
 	}
 	names := func(dir string) []string {
 		var list []string
@@ -382,17 +406,5 @@ func writeHireSettings(o hireSettingsOptions) (string, error) {
 	if o.ReportPort != 0 {
 		reporting = reportingHooks(o.CLI, o.ReportPort)
 	}
-	object := hireSettingsValue(deny, guardHookCommand(o.CLI, rules, profile), o.Auto, reporting)
-	// Written as the Mac's HireSettings.save writes it, byte for byte (Tests/fixtures/frontdesk/hire-settings.json).
-	data := swiftJSON(object)
-	failed := &hireRefusal{Status: 500, Message: "Couldn't write the hire's settings, so Smolcorp won't start it unguarded."}
-	folder := hireFolder(o.Support, o.HireID)
-	if os.MkdirAll(folder, 0o700) != nil || os.Chmod(folder, 0o700) != nil {
-		return "", failed
-	}
-	target := filepath.Join(folder, hireSettingsFile)
-	if writePrivate(target, data) != nil {
-		return "", failed
-	}
-	return target, nil
+	return hireSettingsValue(deny, guardHookCommand(o.CLI, rules, profile), o.Auto, reporting), nil
 }

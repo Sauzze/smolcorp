@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -65,6 +66,10 @@ type t3Machine struct {
 	App     func() string
 	OpenApp func(launcher string)
 	Run     func(program string, args []string, timeout time.Duration) t3Ran
+	// Feed runs program as Run does, with input on its standard input (a hire in T3 Code's mail, t3desk.go).
+	Feed func(program string, args []string, input []byte, timeout time.Duration) t3Ran
+	// OpenURL hands a link to this computer's opener (a hire's thread in T3 Code, t3desk.go): never a shell.
+	OpenURL func(link string) error
 	Pause   func(time.Duration)
 	Now     func() time.Time
 }
@@ -75,7 +80,8 @@ var newT3Machine = defaultT3Machine
 
 func defaultT3Machine() t3Machine {
 	home, _ := os.UserHomeDir()
-	m := t3Machine{Home: home, GOOS: runtime.GOOS, Path: os.Getenv("PATH"), Getenv: os.Getenv, Run: runT3, Pause: time.Sleep, Now: time.Now}
+	m := t3Machine{Home: home, GOOS: runtime.GOOS, Path: os.Getenv("PATH"), Getenv: os.Getenv, Run: runT3, Feed: feedT3,
+		OpenURL: func(link string) error { return openURL(link) }, Pause: time.Sleep, Now: time.Now}
 	m.App = func() string { return t3AppLauncher(m) }
 	m.OpenApp = func(launcher string) {
 		cmd := exec.Command(launcher)
@@ -266,6 +272,10 @@ func t3Title(h Hire) string {
 // t3Open opens a hire's folder in T3 Code as status says it's installed: 200 with {ok, opened}, or a status and
 // its sentence. It runs t3 and may wait for the app.
 func t3Open(h Hire, status t3Status, m t3Machine) (int, any) {
+	// A hire that runs in T3 Code (t3desk.go): its own thread there, by T3 Code's link, not a new one.
+	if h.Engine == t3Engine {
+		return t3OpenThread(h, status, m)
+	}
 	folder, refused, why := t3Folder(h, m.Home)
 	if refused != 0 {
 		return refused, why
@@ -368,9 +378,17 @@ func t3Failed(ran t3Ran) (int, any) {
 
 // runT3 runs program with args as they are, stopped after timeout. Only what it says in that time is read.
 func runT3(program string, args []string, timeout time.Duration) t3Ran {
+	return feedT3(program, args, nil, timeout)
+}
+
+// feedT3 is runT3 with input on program's standard input (none when nil).
+func feedT3(program string, args []string, input []byte, timeout time.Duration) t3Ran {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := scriptCommand(ctx, program, args)
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
 	var out, errs strings.Builder
 	cmd.Stdout, cmd.Stderr = &limited{&out}, &limited{&errs}
 	// An app t3 started may keep its output open: it isn't waited for past the end.
