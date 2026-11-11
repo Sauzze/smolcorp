@@ -360,7 +360,7 @@ final class HostBridge {
             return ["ok": true, "on": item.get()]
         case "office", "office-ontop", "office-key", "choose-folder", "folder-panel-close":
             return shell(action, request, actions, until: deadline)
-        case "facts", "dock", "accessibility", "keystrokes-on", "keystroke-apps", "glossary", "dictation", "terminal-command":
+        case "facts", "install-check", "install", "dock", "accessibility", "keystrokes-on", "keystroke-apps", "glossary", "dictation", "terminal-command":
             return setup(action, request, actions, until: deadline)
         case "abilities":
             guard let tabs = strings(request["tabs"], most: tabsMost) else { return refused("Not a list of tabs.") }
@@ -406,6 +406,23 @@ final class HostBridge {
             guard let apps = strings(request["apps"], most: Keystrokes.AppList.most) else { return refused("Not a list of apps.") }
             switch run(on: actions.main, until: deadline, { actions.facts(apps) }) {
             case .done(let facts): return ["ok": true, "facts": facts]
+            case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
+            }
+        case "install-check":
+            // The checklist's install line, as this app says it: where it is, and Move to Applications if it
+            // should be (the core can't tell where the app's bundle is, nor that macOS translocated it).
+            switch run(on: actions.main, until: deadline, { actions.installCheck().jsonObject }) {
+            case .done(let check): return ["ok": true, "check": check]
+            case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
+            }
+        case "install":
+            // The fix of that line, as the Swift engine's: the app copied into Applications and opened there, or why not.
+            switch run(on: actions.main, until: deadline, { () -> String? in
+                do { try actions.moveToApplications() } catch { return error.localizedDescription }
+                return nil
+            }) {
+            case .done(nil): return ["ok": true]
+            case .done(let problem?): return refused(problem)
             case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
             }
         case "dock":
@@ -1056,6 +1073,10 @@ final class HostBridge {
         var main: DispatchQueue = .main
         /// Setup's facts of this Mac (see desktop/hostbridge.go's macFacts), given the apps keys may go to.
         var facts: (_ apps: [String]) -> [String: Any] = { _ in [:] }
+        /// The checklist's install line (`SelfTest.installCheck`), and its fix: the app moved to Applications.
+        var installCheck: () -> Check = { SelfTest.installCheck() }
+        /// Refuses unless `onThisMac` supplies the real one, so no `Actions` built by hand can move a bundle.
+        var moveToApplications: () throws -> Void = { throw SelfTest.FixError.testCopy }
         var dock: (Bool) -> Void = { _ in }
         var askAccessibility: () -> Void = {}
         /// Keys in other apps switched on: Accessibility asked for if it isn't given, but never by a test copy.
@@ -1157,6 +1178,10 @@ final class HostBridge {
                         "terminalCommand": TerminalCommand.json(),
                     ]
                 },
+                installCheck: { SelfTest.installCheck(testCopy: testCopy) },
+                // A test copy never moves its bundle, whatever the global switch says (so a test of `onThisMac(testCopy: true)` can't reach /Applications).
+                // Only the Mac's own app moves its bundle: never a test copy, nor the test suite's bundle.
+                moveToApplications: { if testCopy || Paths.underTest { throw SelfTest.FixError.testCopy }; try SelfTest.moveToApplications() },
                 dock: { Dock.show($0) },
                 askAccessibility: { Permissions.requestAccessibility() },
                 keystrokesOn: { if !testCopy, !Permissions.hasAccessibility { Permissions.requestAccessibility() } },

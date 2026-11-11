@@ -427,6 +427,36 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertTrue(login)
     }
 
+    /// A test copy never moves its bundle (FXC1d N-2): `install` on `onThisMac(testCopy: true)` is refused in the
+    /// Mac's words before `SelfTest.moveToApplications` is reached, whatever `TestCopy.isOn` says in a test run.
+    /// Only the test copy's side is asked here: the other would move this test's own bundle.
+    func testATestCopyRefusesToMoveToApplications() {
+        var copy = HostBridge.Actions.onThisMac(testCopy: true)
+        copy.main = terminals // not the main queue, which this test is on
+        var request: [String: Any] = ["action": "install", "token": token]
+        let answer = HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: copy)
+        XCTAssertFalse(isOK(answer))
+        XCTAssertEqual(answer["error"] as? String, SelfTest.FixError.testCopy.localizedDescription)
+        XCTAssertEqual(answer["error"] as? String, "A test copy stays where it was built.")
+        request["action"] = "install-check"
+        let line = HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: copy)
+        XCTAssertEqual((line["check"] as? [String: Any])?["detail"] as? String, SelfTest.installCheck(testCopy: true).detail)
+    }
+
+    /// No `Actions` of a test run can move a bundle (FXC1e N-1): one built by hand refuses by default, and `.mac`
+    /// (not a test copy, but in the test suite) refuses too, in the Mac's words, before /Applications is reached.
+    func testNoActionsOfATestRunMovesToApplications() {
+        // `actions` is built memberwise and leaves the mover alone; `.mac` is the real one, in a test run.
+        for (name, base) in [("by hand", actions), ("mac", HostBridge.Actions.mac)] {
+            var copy = base
+            copy.main = terminals
+            let request: [String: Any] = ["action": "install", "token": token]
+            let answer = HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: copy)
+            XCTAssertFalse(isOK(answer), name)
+            XCTAssertEqual(answer["error"] as? String, "A test copy stays where it was built.", name)
+        }
+    }
+
     /// A test copy's login item is the copy in use's: the bridge reads it, as the Swift engine's own setup
     /// does in a test copy, and never sets it, saying so in the Mac's words (SelfTest.loginCheck's).
     func testATestCopyLeavesTheLoginItemAlone() {
@@ -775,6 +805,24 @@ final class HostBridgeTests: XCTestCase {
         mac.dock = { [unowned self] in asked.append("dock \($0)") }
         mac.askAccessibility = { [unowned self] in asked.append("accessibility") }
         mac.keystrokesOn = { [unowned self] in asked.append("keystrokes on") }
+        // The install line (FXC1c), by the real check on stand-in bundles: a copy run from Downloads, a
+        // translocated one with a quarantined Smolcorp in Applications, one in Applications, a test copy. Its fix: moved, then refused as a test copy's is.
+        var installLooks = 0
+        mac.installCheck = {
+            installLooks += 1
+            let (bundle, testCopy, quarantined): (String, Bool, String) = switch installLooks {
+            case 1: ("/Users/example/Downloads/Smolcorp.app", false, "")
+            case 2: ("/private/var/folders/ab/T/AppTranslocation/1234/d/Smolcorp.app", false, "/Applications/Smolcorp.app")
+            case 3: ("/Applications/Smolcorp.app", false, "")
+            default: ("/Users/example/dev/Smolcorp.app", true, "")
+            }
+            return SelfTest.installCheck(bundle: URL(fileURLWithPath: bundle), testCopy: testCopy, home: "/Users/example",
+                                         quarantined: { $0 == quarantined })
+        }
+        mac.moveToApplications = { [unowned self] in
+            asked.append("install")
+            if asked.filter({ $0 == "install" }).count == 2 { throw SelfTest.FixError.testCopy }
+        }
         mac.prepareDictation = { [unowned self] language, done in
             asked.append("dictation \(language)")
             done(language == "fr_FR" ? "Apple's model for French couldn't be downloaded." : nil)
@@ -836,7 +884,7 @@ final class HostBridgeTests: XCTestCase {
         }
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
         XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "office", "on top true", "keys ctrl+alt+K", "keys ctrl+alt+T", "choose /Users/example/hires floor", "choose - hires",
-                               "close hires", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true",
+                               "close hires", "accessibility", "install", "install", "keystrokes on", "dictation fr_FR", "terminal command true",
                                "t3 app opened", "t3 link t3code://threads/local/mcp%3Aabc-1", "volume 30"])
         XCTAssertTrue(login, "Open at login, switched on")
         // The phone's text, by `Deck.typePhoneWords` on the stand-in drivers: nothing for an agent that has ended,

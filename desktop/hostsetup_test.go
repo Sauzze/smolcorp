@@ -49,8 +49,10 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 		}
 		facts := m.facts
 		return bridgeAnswer{OK: true, Facts: &facts}, nil
-	case "dock", "accessibility", "keystrokes-on", "terminal-command", "dictation":
+	case "dock", "accessibility", "keystrokes-on", "terminal-command", "dictation", "install":
 		return bridgeAnswer{OK: true}, nil
+	case "install-check":
+		return bridgeAnswer{OK: true, Check: &check{ID: "install", Status: checkOK, Title: "Smolcorp is in Applications", Detail: "As /Applications/Smolcorp.app."}}, nil
 	case "keystroke-apps":
 		list := slices.DeleteFunc(slices.Clone(request.Apps), func(app string) bool { return strings.EqualFold(app, request.App) })
 		if *request.On {
@@ -227,7 +229,15 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the hires' folder panel closed":              func(h hostBridge) (any, error) { return nil, hostCloseFolderPanel(h) },
 		"the Summary key, from the Keychain":          func(h hostBridge) (any, error) { return summaryStore(h).get() },
 		"Accessibility asked for":                     func(h hostBridge) (any, error) { return nil, hostAskAccessibility(h) },
-		"keys in other apps switched on":              func(h hostBridge) (any, error) { return nil, hostKeystrokesOn(h) },
+		"the install line, a copy run from Downloads": func(h hostBridge) (any, error) { return hostInstallCheck(h) },
+		"the install line, a translocated copy of one already in Applications": func(h hostBridge) (any, error) {
+			return hostInstallCheck(h)
+		},
+		"the install line, a copy in Applications": func(h hostBridge) (any, error) { return hostInstallCheck(h) },
+		"the install line, a test copy":            func(h hostBridge) (any, error) { return hostInstallCheck(h) },
+		"the app moved to Applications":            func(h hostBridge) (any, error) { return nil, hostInstall(h) },
+		"the app moved to Applications, refused":   func(h hostBridge) (any, error) { return nil, hostInstall(h) },
+		"keys in other apps switched on":           func(h hostBridge) (any, error) { return nil, hostKeystrokesOn(h) },
 		"an app allowed keys": func(h hostBridge) (any, error) {
 			return hostKeystrokeApps(h, []string{"com.example.notes"}, "com.example.mail", true)
 		},
@@ -343,6 +353,13 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the Grok Bot app's bots, for the core to find": []any{[]grokRow{{ID: "0a1b-2c3d", Name: "Smolcorp Mini Manager"},
 			{ID: "9f8e", Name: "Two bots", IsGroup: true}}, true},
 		"the jukebox: what's playing and the volume": []any{true, musicVolume{level: 45}},
+		"the install line, a copy run from Downloads": check{ID: "install", Status: checkFix, Title: "Smolcorp is in Applications", Fix: fixInstall,
+			Label: "Move to Applications", Detail: "It's running from /Users/example/Downloads, where macOS may not keep it. In Applications it stays put, and opens at login."},
+		"the install line, a translocated copy of one already in Applications": check{ID: "install", Status: checkFix, Title: "Smolcorp is in Applications",
+			Fix: fixInstall, Label: "Move to Applications", Detail: "macOS is opening a temporary copy of Smolcorp because it was just downloaded. If this is the copy you just downloaded, move it to Applications. If Smolcorp is already there, quit it, run this in Terminal, then open it again: xattr -d com.apple.quarantine '/Applications/Smolcorp.app'. After that, allow Accessibility."},
+		"the install line, a copy in Applications": check{ID: "install", Status: checkOK, Title: "Smolcorp is in Applications", Detail: "As /Applications/Smolcorp.app."},
+		"the install line, a test copy": check{ID: "install", Status: checkOK, Title: "Smolcorp is in Applications",
+			Detail: "A test copy, beside the Smolcorp you use: it stays where it was built."},
 	}
 	cases := readBridgeCases(t)
 	if len(cases) != len(want) {

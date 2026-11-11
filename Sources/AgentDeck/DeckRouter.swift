@@ -665,6 +665,9 @@ final class DeckRouter: Router {
             if request.query["via"] == "tailnet" {
                 guard config.phoneMicEnabled, let tailnet = Tailnet.url else { return respond(.status(404)) }
                 link = "\(tailnet)/?pair=\(code)"
+            } else if deck.phoneAddress.isEmpty {
+                // No address a phone could open (a test copy on this Mac only): no QR code to scan.
+                return respond(.status(404))
             }
             respond(Response(contentType: "image/png", body: QRCode.png(for: link) ?? Data()))
 

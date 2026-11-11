@@ -50,7 +50,13 @@ func (d *Deck) selfTest() []check {
 	if restart := restartCheck(); restart != nil {
 		checks = append(checks, *restart)
 	}
-	if install := installCheck(); install != nil {
+	if h := d.macHost(); h != nil {
+		// Under the Mac app, where the app is, as the Mac's own self-test says it (hostshell.go). Without
+		// the app's answer there's no line, rather than a made-up one.
+		if install, err := hostInstallCheck(h); err == nil {
+			checks = append(checks, install)
+		}
+	} else if install := installCheck(); install != nil {
 		checks = append(checks, *install)
 	}
 	if leavesAgentsAlone() {
