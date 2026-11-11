@@ -60,7 +60,7 @@ func newT3Rig(t *testing.T) *t3Rig {
 // fake installs a fake t3 in ~/.local/bin: each run's arguments one to a line, then "--". flags make a step
 // fail: addfail, elsewhere (add names another folder), eatfence (add deletes the fence), startfail, ownworktree
 // (show has a T3 worktree), otherproject (show has another project), slow (show takes a second), removefail,
-// gone (remove finds no project), busy (send queues), sendfail. At `project add` it notes whether the
+// gone (remove finds no project), busy (send queues), sendfail, authfail (Take over's sign-in, t3takeover_test.go). At `project add` it notes whether the
 // worktree, the fence, git's ignoring it and the brief were there; `thread send` keeps its standard input.
 func (r *t3Rig) fake(flags ...string) {
 	r.t.Helper()
@@ -103,6 +103,10 @@ case "$1 $2" in
     has sendfail && { echo "No thread matches." >&2; exit 1; }
     has busy && { echo "{\"threadId\":\"$3\",\"status\":\"running\",\"delivery\":\"queued\"}"; exit 0; }
     echo "{\"threadId\":\"$3\",\"status\":\"starting\",\"delivery\":\"started\"}"; exit 0 ;;
+  "auth session")
+    has authfail && { echo '{"sessionId":"s-1","token":"fake-tok-leak"}'; echo "Could not open T3 Code's auth store." >&2; exit 1; }
+    [ "$3" = issue ] && { echo '{"sessionId":"s-1","token":"fake-tok","method":"bearer","scopes":["orchestration:operate"]}'; exit 0; }
+    echo "Revoked session $4."; exit 0 ;;
   "project remove")
     has removefail && { echo "Could not reach the T3 Code desktop app." >&2; exit 1; }
     has gone && { echo "No T3 Code project matches $3." >&2; exit 1; }

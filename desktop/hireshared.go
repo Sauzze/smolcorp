@@ -68,6 +68,10 @@ type engineRequest struct {
 // is the same file whichever engine starts it. Linux and Windows keep theirs.
 const engineAutoMode = runtime.GOOS == "darwin"
 
+// hireSocketPrefix starts every hire's tmux socket we make (hiretmux.go), and ownsHireSocket checks for it. Here,
+// for every system: Take over (t3takeover.go) refuses a hire without one, on Windows too.
+const hireSocketPrefix = "smolcorp-"
+
 // hireBrief writes a hire's brief where the Mac's HireDesk writes it: a
 // managed hire's (one with a worktree) in its own folder in Smolcorp's, any
 // other's in Smolcorp's briefs folder. Nil for a role on its own

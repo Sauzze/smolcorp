@@ -50,6 +50,8 @@ type hireStart struct {
 	SendKey        string // the hire's own send key
 	GMToken        string // the GM's token, for the gm role's script only
 	APIKey         bool   // run on the API key in the secret store, never written down
+	// Resume is a Claude Code session to go on with (Hand back, t3takeover.go): `--resume <id>`, and no first message.
+	Resume string
 	// A test copy: both set, and the port not one a real Smolcorp owns.
 	TestPort       int
 	TestSupportDir string
@@ -121,7 +123,11 @@ func (h hireStart) script() (string, error) {
 	if claude && h.TestPort != 0 {
 		words = append(words, testCopySources)
 	}
-	words = append(words, h.Role.arguments(h.Message)...)
+	if claude && h.Resume != "" {
+		words = append(words, h.Role.resumeArguments(h.Resume)...)
+	} else {
+		words = append(words, h.Role.arguments(h.Message)...)
+	}
 	quoted := make([]string, len(words))
 	for i, word := range words {
 		quoted[i] = shellQuoted(word)

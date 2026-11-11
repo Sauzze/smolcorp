@@ -69,12 +69,26 @@ var (
 // user's, a protected one) isn't T3 Code's agent, which runs as you. False when the processes can't be listed,
 // or the listing stops part way (RM5a N3).
 func processesWorkingIn(folder string) ([]int, bool) {
+	folders := t3PlacesOf(folder)
+	return processesWhere(func(cwd string, args []string) bool { return t3WorksIn(folders, cwd, args, `\`, true) })
+}
+
+// processesHolding is the processes that work in folder as processesWorkingIn finds them, or whose command line
+// names Claude Code session session (Hand back's check, t3takeover.go).
+func processesHolding(folder, session string) ([]int, bool) {
+	folders := t3PlacesOf(folder)
+	return processesWhere(func(cwd string, args []string) bool {
+		return t3WorksIn(folders, cwd, args, `\`, true) || t3NamesSession(args, session)
+	})
+}
+
+// processesWhere is the processes whose current folder and command line match, read as processPlace reads them.
+func processesWhere(match func(cwd string, args []string) bool) ([]int, bool) {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return nil, false
 	}
 	defer windows.CloseHandle(snapshot)
-	folders := t3PlacesOf(folder)
 	var found []int
 	entry := windows.ProcessEntry32{Size: uint32(unsafe.Sizeof(windows.ProcessEntry32{}))}
 	for err = windows.Process32First(snapshot, &entry); err == nil; err = windows.Process32Next(snapshot, &entry) {
@@ -83,7 +97,7 @@ func processesWorkingIn(folder string) ([]int, bool) {
 		}
 		if cwd, line, ok := processPlace(entry.ProcessID); ok {
 			args, _ := windows.DecomposeCommandLine(line)
-			if t3WorksIn(folders, cwd, args, `\`, true) {
+			if match(cwd, args) {
 				found = append(found, int(entry.ProcessID))
 			}
 		}

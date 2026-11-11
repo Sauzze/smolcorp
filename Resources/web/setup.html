@@ -2212,6 +2212,53 @@
     return menu;
   }
 
+  /*
+   * Take over in T3 Code, and Hand back (EXPERIMENTAL; served by the Go core only, which says so in /setup/t3code's
+   * takeOver): a hire in its own tmux session goes on, the same session, in T3 Code, and comes back. Each after a
+   * confirm that says what happens; each answer kept outside its row, as a let go's is.
+   */
+  const T3_TAKE_OVER = "EXPERIMENTAL. Its Claude Code stops in its tmux session here, only while it's idle with nothing typed, and goes on, the same session, in T3 Code, with its fence on its worktree. T3 Code runs it with its permissions bypassed: the fence still applies. Hand it back to bring it here again.";
+  const T3_HAND_BACK = "EXPERIMENTAL. T3 Code lets go of its session and its thread there is removed. Once nothing holds the session any more, it goes on in its own tmux session here.";
+  const t3Handing = new Map();
+
+  function takeOverMenu(r, back) {
+    const name = r.nickname || r.name;
+    const menu = document.createElement('details');
+    menu.className = 'menu';
+    const body = document.createElement('div');
+    body.style.cssText = 'display:grid;gap:6px;padding:8px 0 0';
+    const confirm = Object.assign(document.createElement('p'), { className: 't3-confirm',
+      textContent: back ? `Hand ${name} back? ${T3_HAND_BACK}` : `Take ${name} over in T3 Code? ${T3_TAKE_OVER}` });
+    const label = back ? `Hand ${name} back` : `Take ${name} over`;
+    const go = Object.assign(document.createElement('button'), { className: 'btn', textContent: label });
+    const problem = Object.assign(document.createElement('p'), { className: 'note', hidden: true });
+    const paint = () => {
+      const handing = t3Handing.get(r.id);
+      go.disabled = !!(handing && handing.busy);
+      go.textContent = handing && handing.busy ? (back ? 'Handing back…' : 'Taking over…') : label;
+      problem.textContent = handing && !handing.busy && Date.now() - handing.at < T3_ANSWER_FOR ? handing.text : '';
+      problem.hidden = !problem.textContent;
+      if (problem.textContent) menu.open = true;
+    };
+    paint();
+    go.onclick = async () => {
+      if ((t3Handing.get(r.id) || {}).busy) return;
+      t3Handing.set(r.id, { busy: true, text: '', at: Date.now() });
+      paint();
+      const res = await fetch(back ? '/setup/t3code/handback' : '/setup/t3code/takeover', { method: 'POST', headers: setupHeaders(true),
+        body: JSON.stringify({ id: r.id }) }).catch(() => null);
+      // Said in full, whatever happened: a refusal says where it stopped, and what still holds the session.
+      const done = res && res.ok ? await res.json().catch(() => ({})) : null;
+      t3Handing.set(r.id, { busy: false, at: Date.now(),
+        text: done ? (back ? `Handed back: ${name} goes on in its tmux session.${done.note ? ` ${done.note}` : ''}` : `Taken over: ${name} goes on in T3 Code.`)
+          : await refusal(res, back ? `${name} couldn't be handed back.` : `${name} couldn't be taken over.`) });
+      load();
+    };
+    body.append(confirm, go, problem);
+    menu.append(Object.assign(document.createElement('summary'), { className: 'btn', textContent: back ? 'Hand back (EXPERIMENTAL)…' : 'Take over in T3 Code (EXPERIMENTAL)…' }), body);
+    return menu;
+  }
+
   /** One hire on the team: who, where, and Fire… with the two options a fire has. */
   function teamRow(r) {
     const row = document.createElement('div');
@@ -2279,6 +2326,13 @@
       };
       keys.append(show);
     }
+    // Take over in T3 Code, or Hand back (EXPERIMENTAL), where the computer offers it: only the Go core says takeOver.
+    if (state.t3CodeEnabled && t3 && t3.takeOver) {
+      if (r.handBack) keys.append(takeOverMenu(r, true));
+      else if (!inT3 && r.tmuxSocket && r.worktree && r.role !== 'gm') keys.append(takeOverMenu(r, false));
+    }
+    // One waiting to be handed back from T3 Code has no Fire…: Hand back first.
+    if (r.handBack && !inT3) fire.hidden = true;
     // A hire that runs in T3 Code (T797b): Let go… instead of Fire…; Open in T3 Code only while T3 Code is on (T796).
     keys.append(inT3 ? letGoMenu(r, () => { if (t3Key) t3Key.button.click(); }) : fire);
     // On a phone-wide window (390 px), the buttons go under the name rather than squeeze it.

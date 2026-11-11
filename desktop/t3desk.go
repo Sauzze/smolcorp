@@ -613,13 +613,18 @@ func t3DeskJSON(h Hire, f *t3Follower) map[string]any {
 		"canOpen": t3DeepLink(h.T3Thread, h.T3Link) != ""}
 }
 
-// t3Decorate gives each T3 hire's row of the team, as the page gets it, its desk (t3).
+// t3Decorate gives each T3 hire's row of the team, as the page gets it, its desk (t3); and a hire taken over from
+// its tmux session (t3takeover.go), handBack, only then, so Hand back is offered.
 func t3Decorate(rows []map[string]any, hires []Hire, f *t3Follower) []map[string]any {
 	for _, row := range rows {
-		if row["engine"] != t3Engine {
+		i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == row["id"] })
+		if i < 0 {
 			continue
 		}
-		if i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == row["id"] }); i >= 0 {
+		if hires[i].T3Session != "" && isOpen(hires[i]) {
+			row["handBack"] = true
+		}
+		if row["engine"] == t3Engine {
 			row["t3"] = t3DeskJSON(hires[i], f)
 		}
 	}

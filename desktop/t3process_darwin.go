@@ -14,6 +14,9 @@ import (
 // bridge (M1). Nothing is looked at meanwhile (RM5a N4).
 func processesWorkingIn(string) ([]int, bool) { return nil, false }
 
+// processesHolding can't look on a Mac either: Take over and Hand back refuse and say why (t3takeover.go).
+func processesHolding(string, string) ([]int, bool) { return nil, false }
+
 // processName is a process's name as the kernel keeps it (zsh, node…), or "".
 func processName(pid int) string {
 	p, err := unix.SysctlKinfoProc("kern.proc.pid", pid)

@@ -537,12 +537,35 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 				lane["branch"] = hire.Branch
 				answer["lane"] = lane
 			}
+			// Take over in T3 Code, or Hand back, where it's offered (the Go core's only, t3takeover.go).
+			if found {
+				if offered := t3TakeOverJSON(hire, true); offered != nil {
+					answer["takeOver"] = offered
+				}
+			}
 			writeJSON(w, http.StatusOK, answer)
 		case http.MethodPost:
 			openHireInT3(w, d.t3Latest(hire), found)
 		default:
 			http.NotFound(w, r.Request)
 		}
+	// Take over in T3 Code and Hand back (EXPERIMENTAL, t3takeover.go), from a desk's card in the office's own window
+	// on this computer, never a phone: the hire is found by its desk, never by anything sent.
+	case r.Method == http.MethodPost && r.URL.Path == "/act" && slices.Contains([]string{"takeover", "handback"}, r.URL.Query().Get("action")):
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, "Take over in T3 Code is on your computer.")
+			return
+		}
+		status, answer, ok := d.takeOverAtDesk(r.URL.Query().Get("action"), session)
+		if !ok {
+			writeStatus(w)(http.StatusNotFound, "Only a hire Smolcorp runs can be taken over in T3 Code, or handed back.")
+			return
+		}
+		if text, isText := answer.(string); isText {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
 	// Let go of a hire in T3 Code from its desk's card, after its confirm (t3desks.go): the lane's answer, as Setup's.
 	case r.Method == http.MethodPost && r.URL.Path == "/act" && r.URL.Query().Get("action") == "letgo":
 		status, answer, ok := d.letGoAtDesk(session)
@@ -1595,6 +1618,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		// Whether a hire may go into T3 Code (t3desk.go), or the one sentence saying why not.
 		why := t3LaneRefusal(on, status)
 		answer["lane"] = map[string]any{"ok": why == "", "why": why}
+		// Whether Take over and Hand back may be used (the Go core's only, t3takeover.go), or why not.
+		gate := t3TakeOverGate(on, status)
+		answer["takeOver"] = map[string]any{"ok": gate == "", "why": gate, "tag": t3TakeOverTag}
 		writeJSON(w, http.StatusOK, answer)
 	case r.Method == http.MethodPost && path == "/setup/t3code/open":
 		if !d.t3On() {
@@ -1610,6 +1636,22 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			}
 		}
 		openHireInT3(w, d.t3Latest(hire), found)
+	// Take over in T3 Code and Hand back (EXPERIMENTAL, t3takeover.go), by the hire's id after the page's confirm:
+	// everything else comes from the registry and the hire's own session, never from the request. The page alone.
+	case r.Method == http.MethodPost && (path == "/setup/t3code/takeover" || path == "/setup/t3code/handback"):
+		id, _ := decodeJSON(r.Body)["id"].(string)
+		var status int
+		var answer any
+		if path == "/setup/t3code/takeover" {
+			status, answer = d.takeOverIntoT3(id)
+		} else {
+			status, answer = d.handBackFromT3(id)
+		}
+		if text, ok := answer.(string); ok {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
 	// Let go of a hire in T3 Code (t3deskdeck.go), by its id after the page's confirm: its T3 project removed, its
 	// worktree kept. The worktree comes from the registry, never from the request.
 	case r.Method == http.MethodPost && path == "/setup/t3code/letgo":

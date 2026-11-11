@@ -292,6 +292,9 @@
   <button class="t3-leave" id="t3-leave" type="button" hidden>Let go…</button>
   <div class="info-note" id="t3-confirm" hidden></div>
   <button class="t3-leave sure" id="t3-leave-yes" type="button" hidden></button>
+  <button class="t3-leave" id="t3-hand" type="button" hidden>Take over in T3 Code (EXPERIMENTAL)…</button>
+  <div class="info-note" id="t3-hand-confirm" hidden></div>
+  <button class="t3-leave sure" id="t3-hand-yes" type="button" hidden></button>
 </div>
 <div class="tail-mark" aria-hidden="true">TAIL · phone mic</div>
 <div class="mic-hint" id="mic-hint" role="status" hidden>🎙 Phone mic needs HTTPS: see Tailscale in setup</div>
@@ -1312,12 +1315,15 @@
     t3Confirm(false);
     $('t3-name').textContent = session.project || session.name;
     $('t3-open').disabled = true;
+    t3HandShow(null);
     t3Say('');
     $('t3').hidden = false;
     const res = await get('/t3code', { session: id, fresh: '1' });
     const found = res && res.ok ? await res.json().catch(() => null) : null;
     if (t3For !== id) return;
     if (!found) return t3Say("Couldn't tell whether T3 Code is installed.");
+    // Take over in T3 Code (EXPERIMENTAL), where the computer offers it: only the Go core says takeOver.
+    if (found.takeOver && found.takeOver.takeOver) t3HandShow(id, false);
     if (!found.hire) return t3Say("Only a hire's folder opens in T3 Code: this agent wasn't hired by Smolcorp.");
     if (found.lane) {
       const lane = found.lane;
@@ -1345,6 +1351,7 @@
   $('t3-close').addEventListener('click', () => {
     t3For = null;
     t3DeskFor = null;
+    t3HandShow(null);
     $('t3').hidden = true;
   });
 
@@ -1379,6 +1386,8 @@
     $('t3-leave').hidden = false;
     $('t3-leave').disabled = false;
     if (first) t3Confirm(false);
+    // Taken over from its tmux session: Hand back, on its card (the Go core's only).
+    if (first || !t3Hand) t3HandShow(s.t3 && s.t3.handBack ? s.id : null, true);
     t3Say(t3DeskLine(s));
     $('t3').hidden = false;
     if (open) await t3DeskOpen(s.id);
@@ -1423,6 +1432,49 @@
       return t3Say("Let go: its thread in T3 Code was removed; its worktree and branch were kept.");
     }
     // The lane's refusal, said in full: it can carry T3 Code's own line, and the names of what still works there.
+    t3Say(res ? await problemText(res, 700) : "Couldn't reach your computer.");
+  });
+
+  /*
+   * Take over in T3 Code, and Hand back (EXPERIMENTAL; the Go core's only): a hire in its own tmux session goes on,
+   * the same session, in T3 Code, from its card here; a T3 desk taken over comes back the same way. Each after a
+   * confirm that says what happens; refusals said in full.
+   */
+  const T3_TAKE_OVER = "EXPERIMENTAL. Its Claude Code stops in its tmux session here, only while it's idle with nothing typed, and goes on, the same session, in T3 Code, with its fence on its worktree. T3 Code runs it with its permissions bypassed: the fence still applies. Hand it back to bring it here again.";
+  const T3_HAND_BACK = "EXPERIMENTAL. T3 Code lets go of its session and its thread there is removed. Once nothing holds the session any more, it goes on in its own tmux session here.";
+  let t3Hand = null; // the card's Take over or Hand back: { session, back }
+
+  function t3HandShow(session, back) {
+    t3Hand = session ? { session, back: !!back } : null;
+    $('t3-hand').hidden = !session;
+    $('t3-hand').disabled = false;
+    t3HandConfirm(false);
+  }
+
+  function t3HandConfirm(on) {
+    const back = !!(t3Hand && t3Hand.back);
+    $('t3-hand').textContent = on ? 'Keep it as it is' : back ? 'Hand back (EXPERIMENTAL)…' : 'Take over in T3 Code (EXPERIMENTAL)…';
+    $('t3-hand-confirm').textContent = on ? (back ? `Hand it back? ${T3_HAND_BACK}` : `Take it over in T3 Code? ${T3_TAKE_OVER}`) : '';
+    $('t3-hand-confirm').hidden = !on;
+    $('t3-hand-yes').textContent = back ? 'Hand it back' : 'Take it over';
+    $('t3-hand-yes').hidden = !on;
+  }
+
+  $('t3-hand').addEventListener('click', () => t3HandConfirm($('t3-hand-confirm').hidden));
+  $('t3-hand-yes').addEventListener('click', async () => {
+    if (!t3Hand) return;
+    const { session, back } = t3Hand;
+    t3HandConfirm(false);
+    $('t3-hand').disabled = true;
+    t3Say(back ? 'Handing back…' : 'Taking over…');
+    if (preview) return t3Say(back ? 'Hands it back: it goes on in its tmux session.' : 'Takes it over: it goes on in T3 Code.');
+    const res = await post('/act', { session, action: back ? 'handback' : 'takeover' });
+    if (!t3Hand || t3Hand.session !== session) return;
+    $('t3-hand').disabled = false;
+    if (res && res.ok) {
+      $('t3-hand').hidden = true;
+      return t3Say(back ? 'Handed back: it goes on in its tmux session.' : 'Taken over: it goes on in T3 Code.');
+    }
     t3Say(res ? await problemText(res, 700) : "Couldn't reach your computer.");
   });
 

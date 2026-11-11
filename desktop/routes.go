@@ -91,6 +91,13 @@ var routeTable = []routeRow{
 	{"*", "/bots/*", []string{"page", "tool"}},
 }
 
+// goOnlyRoutes are setup routes only this app serves (INVENTORY.md's "Served by the Go app only"), so they aren't
+// in the Mac's fixture: Take over in T3 Code and Hand back (t3takeover.go), the page alone.
+var goOnlyRoutes = []routeRow{
+	{"POST", "/setup/t3code/takeover", []string{"page"}},
+	{"POST", "/setup/t3code/handback", []string{"page"}},
+}
+
 // name is how the table spells a caller.
 func (c caller) name() string {
 	switch c {
@@ -110,6 +117,11 @@ func (c caller) name() string {
 func routeFor(method, path string) *routeRow {
 	fits := func(row *routeRow) bool { return row.method == "*" || row.method == method }
 	var best *routeRow
+	for i := range goOnlyRoutes {
+		if row := &goOnlyRoutes[i]; fits(row) && row.path == path {
+			return row
+		}
+	}
 	for i := range routeTable {
 		row := &routeTable[i]
 		if !fits(row) {
