@@ -1122,6 +1122,7 @@
           <button class="switch" id="manager" aria-label="Let a General Manager run your team"></button>
         </div>
       </div>
+      <p class="hint said-under" id="gm-fence"></p>
       <!-- Its token: what it is, who gets it, and the file for one started by hand. Never the token itself. -->
       <h3 class="sub">Its token</h3>
       <div class="box gm-token" id="gm-token" data-search="The General Manager's token" data-keywords="gm general manager token key file path copy by hand rotate new">
@@ -1381,7 +1382,7 @@
     </div>
     <div class="group" id="guard-section" hidden>
       <h2>Guard</h2>
-      <p class="hint">Commands every hire is refused, whatever it is asked. Each group is on until you switch it off. A group you switch off is dropped from Claude's own deny rules too, not only from the guard: you allowed it, so Smolcorp no longer blocks it.</p>
+      <p class="hint">Commands the General Manager and the Claude Code hires it manages are refused, whatever they're asked. A Claude Code hire made with the manager off, and hires of Codex, Gemini CLI, OpenCode and Grok, don't get the guard: they run with their own settings. Each group is on until you switch it off. A group you switch off is dropped from Claude's own deny rules too, not only from the guard: you allowed it, so Smolcorp no longer blocks it.</p>
       <div class="box steps switches" id="guard-groups"></div>
       <div class="box guard-extra" id="guard-extra" data-search="Guard" data-keywords="guard refuse block hire push deploy publish command pattern">
         <input type="text" id="guard-pattern" spellcheck="false" placeholder="Another command to refuse, such as terraform import" aria-label="Another command to refuse">
@@ -1421,7 +1422,7 @@
           <div class="mark">✓</div>
           <div class="text">
             <div class="title">Viewer address</div>
-            <div class="detail" data-pending="The address Vercel gives your viewer project. The README says how to make one." data-done="Where the office is sent, locked, while it's on."></div>
+            <div class="detail" data-pending="The address Vercel gives your viewer project. Portable office, in Smolcorp's docs on GitHub (docs/extras.md), says how to make one." data-done="Where the office is sent, locked, while it's on."></div>
             <div class="hire-setup">
               <input type="url" id="viewer-url" spellcheck="false" placeholder="https://office-viewer-xxxx.vercel.app" aria-label="The viewer's address">
               <button class="btn" id="viewer-save">Save</button>
@@ -1564,6 +1565,7 @@
           </div>
         </div>
       </details>
+      <p class="hint" id="hs-fence" role="status" hidden></p>
       <div id="hs-questions" style="display:grid;gap:10px"></div>
       <details id="hs-brief"><summary>The brief it gets</summary><div class="md" id="hs-brief-md"></div></details>
       <p class="note" id="hs-problem" hidden></p>
@@ -1938,6 +1940,17 @@
   $('terminal-add').onclick = () => changeTerminalCommand(false);
   $('terminal-remove').onclick = () => changeTerminalCommand(true);
 
+  /** Who gets Smolcorp's fence (Claude Code's deny rules and the guard), as each app gives it: the Mac's Deck.hire,
+   *  the Linux engine's tmux hires (hireAs), and Windows's beta managed hires. Everyone else runs with their own settings. */
+  function fenceLine() {
+    const others = 'hires of Codex, Gemini CLI, OpenCode and Grok, don\'t get it: they run with their own settings.';
+    if (onMac()) return 'The fence (Claude Code\'s deny rules and the guard, under Advanced) covers the General Manager and the Claude Code hires made while this is on, or into a worktree. A Claude Code hire made with this off, and ' + others;
+    const covers = state.platform === 'windows'
+      ? 'covers a role\'s Claude Code hire only with managed hires on, a beta that\'s off by default.'
+      : 'covers a role\'s Claude Code hire started inside tmux, the General Manager\'s included.';
+    return `The fence (Claude Code's deny rules and the guard) ${covers} Other hires, and ${others}`;
+  }
+
   /** The Manager panel: the switch, and, once it is on, whether a General Manager is hired and how big the team is. */
   function renderManager() {
     const m = state.manager;
@@ -1954,6 +1967,7 @@
     mark('step-manager', m.enabled);
     $('manager').classList.toggle('on', m.enabled);
     renderGmToken(m);
+    $('gm-fence').textContent = fenceLine();
     const line = $('manager-team');
     line.textContent = '';
     $('manager-screens').hidden = true;
@@ -3474,6 +3488,20 @@
 
   /** The role being hired from the sheet. */
   let hiring = null;
+  const AGENT_NAMES = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', opencode: 'OpenCode', grok: 'Grok' };
+  /** The sheet's line for a hire that won't get Smolcorp's fence, or '' for one that will. */
+  function hireFenceNote(role, managerOn, worktree) {
+    const agent = AGENT_NAMES[role.agent] ? role.agent : 'claude'; // as the Mac's Deck.hiredAgent: an unknown agent is Claude Code
+    if (agent !== 'claude') return `${AGENT_NAMES[agent]} hires don't get Smolcorp's fence: they run with their own settings.`;
+    if (managerOn || worktree || role.id === 'gm') return '';
+    return "With the manager off and no worktree, this Claude Code hire doesn't get Smolcorp's fence: it runs with its own settings.";
+  }
+  function showHireFence() {
+    if (!hiring) return;
+    const note = hireFenceNote(hiring, !!(state.manager && state.manager.enabled), $('hs-worktree').checked);
+    $('hs-fence').textContent = note;
+    $('hs-fence').hidden = !note;
+  }
   async function openHireSheet(role) {
     hiring = role;
     hireShown = role.id;
@@ -3512,6 +3540,7 @@
     $('hs-apikey-row').hidden = !(key && key.available) || (!!role.agent && role.agent !== 'claude');
     $('hs-apikey').checked = false;
     $('hs-apikey-notice').textContent = 'Billed to your API key. The hire can read this key.';
+    showHireFence();
     $('hs-questions').replaceChildren(...(role.questions || []).map((q, i) => {
       const label = document.createElement('label');
       const answer = document.createElement('textarea');
@@ -3563,6 +3592,7 @@
     const own = [...new Set((state.floorRules || []).filter((r) => r.floor === floor).map((r) => r.folder))];
     if (floor > 0 && own.length === 1 && !$('hs-folder').value.trim()) $('hs-folder').value = own[0];
   };
+  $('hs-worktree').addEventListener('change', showHireFence);
   $('hs-hire').onclick = async () => {
     if (!hiring) return;
     const folder = hireFolder();
