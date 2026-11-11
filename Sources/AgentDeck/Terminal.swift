@@ -205,9 +205,11 @@ enum Terminal {
     static func press(_ key: Key, modifiers: CGEventFlags = [], times: Int = 1, tty: String) -> Bool {
         // Selecting the tab types nothing: a Terminal that didn't answer there has had no key.
         guard onlyLooking({ withTab(tty, do: "set selected of t to true\nset index of w to 1") }),
-              let terminal = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else { return false }
+              let terminal = runningPID() else { return false }
         Thread.sleep(forTimeInterval: settle)
         post(key, modifiers: modifiers, times: times, to: terminal)
+        // The keys have gone: a later step that stops answering is "part way", not "nothing typed".
+        noteStep()
         return true
     }
 
@@ -217,7 +219,7 @@ enum Terminal {
     static func insert(_ text: String, tty: String) -> Bool {
         // Selecting the tab types nothing: a Terminal that didn't answer there has had no key.
         guard onlyLooking({ withTab(tty, do: "set selected of t to true\nset index of w to 1") }),
-              let terminal = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else { return false }
+              let terminal = runningPID() else { return false }
         Thread.sleep(forTimeInterval: settle)
         let units = Array(text.utf16)
         // A key event carries a few characters at most: the text goes in pieces.
@@ -226,9 +228,11 @@ enum Terminal {
             for down in [true, false] {
                 let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
                 event?.keyboardSetUnicodeString(stringLength: piece.count, unicodeString: piece)
-                event?.postToPid(terminal)
+                if let event { postEvent(event, terminal) }
             }
         }
+        // The text has gone: a later step that stops answering is "part way", not "nothing typed".
+        noteStep()
         return true
     }
 
@@ -238,6 +242,7 @@ enum Terminal {
     private static func pressInFront(_ key: Key, modifiers: CGEventFlags = [], times: Int = 1, tty: String) -> Bool {
         guard !isLocked, focus(tty: tty), waitUntilFrontmost() else { return false }
         post(key, modifiers: modifiers, times: times)
+        noteStep()
         return true
     }
 
@@ -471,9 +476,21 @@ enum Terminal {
                     let units = Array(character.utf16)
                     event?.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
                 }
-                if let pid { event?.postToPid(pid) } else { event?.post(tap: .cghidEventTap) }
+                if let event { postEvent(event, pid) }
             }
         }
+    }
+
+    /// Sends a key event to `pid`, or with none to the app in front. Settable
+    /// for tests, which give one that posts nothing: no key of theirs ever
+    /// reaches a real app.
+    static var postEvent: (CGEvent, pid_t?) -> Void = { event, pid in
+        if let pid { event.postToPid(pid) } else { event.post(tap: .cghidEventTap) }
+    }
+
+    /// Terminal's pid while it runs. Settable for tests, with `postEvent`.
+    static var runningPID: () -> pid_t? = {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier
     }
 
     /// Runs `body` with `w` and `t` bound to the window and tab on `tty`.
@@ -566,8 +583,9 @@ enum Terminal {
         if thread[timedOutKey] != nil { thread[timedOutKey] = true }
     }
 
-    /// A script or a tool has started on this thread: unless it only looks,
-    /// what it does may reach the tab even if it's ended later.
+    /// A script or a tool has started on this thread, or Terminal's keys have
+    /// been posted: unless it only looks, what it does may reach the tab even
+    /// if it's ended later.
     static func noteStep() {
         let thread = Thread.current.threadDictionary
         if thread[mayHaveTypedKey] != nil, thread[lookingKey] as? Bool != true { thread[mayHaveTypedKey] = true }

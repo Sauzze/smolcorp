@@ -186,6 +186,61 @@ final class TerminalQueueTests: XCTestCase {
         XCTAssertTrue(Terminal.noticingTimeouts { Tool.run("/bin/sleep", ["5"], timeout: 0.2) }.partWay, "it may have typed")
     }
 
+    /// Terminal.app's text goes as key events, which no process carries: once
+    /// they're posted, a later step that hangs is "part way", never "nothing
+    /// was typed", which would invite a retry that types it twice. The posts
+    /// are stood in for: no event ever reaches a real Terminal.
+    func testTextThatWentBeforeAHangIsPartWay() throws {
+        // Terminal answers the text's tab select, then hangs on Return's.
+        let osascript = folder.appendingPathComponent("osascript-once")
+        let answered = folder.appendingPathComponent("answered-once")
+        try """
+            #!/bin/sh
+            echo $$ >> '\(osascriptPids.path)'
+            [ -e '\(answered.path)' ] && exec sleep 60
+            touch '\(answered.path)'
+            echo yes
+            """.write(to: osascript, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: osascript.path)
+        Terminal.osascript = osascript.path
+        let savedPost = Terminal.postEvent, savedPID = Terminal.runningPID
+        defer { Terminal.postEvent = savedPost; Terminal.runningPID = savedPID }
+        var posted: [pid_t?] = []
+        Terminal.queue.sync {
+            Terminal.runningPID = { 999_999 }
+            Terminal.postEvent = { _, pid in posted.append(pid) }
+        }
+
+        let done = expectation(description: "answered")
+        var answer: Response?
+        Deck.deliver(to: "tty:/dev/ttys999", done: { answer = $0; done.fulfill() }) {
+            Terminal.insert("bonjour", tty: "/dev/ttys999") && Terminal.press(.returnKey, tty: "/dev/ttys999")
+        }
+        wait(for: [done], timeout: Terminal.scriptTimeout + 3)
+        Terminal.queue.sync {}
+        XCTAssertEqual(posted, [999_999, 999_999], "the text's key down and up, to the stand-in pid; no Return")
+        XCTAssertEqual(osascripts.count, 2)
+        XCTAssertTrue(osascripts.allSatisfy(isGone), "Return's select ended by its pid")
+        XCTAssertEqual(answer?.status, 503)
+        XCTAssertEqual(answer.map(text), "Terminal stopped answering part way. Look at the desk before you try again.")
+    }
+
+    /// A tmux desk's tap brings its Terminal tab forward on Terminal's queue;
+    /// one Terminal gets to only after the input wait is skipped, so a
+    /// Terminal answering again never comes forward seconds after the taps.
+    func testALateTerminalFocusIsSkipped() throws {
+        let address = try XCTUnwrap(TabAddress(tab))
+        let release = DispatchSemaphore(value: 0)
+        Terminal.queue.async { release.wait() } // Terminal busy, as while it hangs
+        XCTAssertTrue(Tmux().focus(address))
+        Thread.sleep(forTimeInterval: Terminals.inputWait + 0.3)
+        release.signal()
+        Terminal.queue.sync {}
+        Terminals.queue(kind: "iterm").sync {}
+        XCTAssertTrue(tmuxAsked.contains("select-pane"), tmuxAsked)
+        XCTAssertEqual(osascripts, [], "Terminal was never asked to bring the tab forward")
+    }
+
     /// Focusing a tmux desk shown in Terminal.app asks only tmux on tmux's
     /// queue: the Terminal tab is brought forward on Terminal's own. So with
     /// Terminal not answering, a tmux desk's dictation right after still goes

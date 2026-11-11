@@ -302,6 +302,9 @@ final class HostBridge {
         case "scroll-bottom":
             work = { done(actions.scrollToBottom(tab)) }
         default: // close
+            // In tmux each step has `Tool.timeout`, so a tmux that answers some steps and hangs on others could,
+            // in theory, take a close past `deadline`: then it's answered "stopped answering part way", while the
+            // close may still finish. It takes several separate hangs; nothing more is done about it.
             guard let name = request["agent"] as? String, let agent = Agent(rawValue: name) else { return refused("Not an agent.") }
             work = {
                 switch actions.fire(tab, agent) {

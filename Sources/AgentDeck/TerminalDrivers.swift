@@ -176,9 +176,13 @@ struct Tmux: TerminalDriver {
             if let session = run(tab, ["display-message", "-p", "-t", tab.id, "#{session_id}"]), session.status == 0,
                let client = run(tab, ["list-clients", "-t", session.output, "-F", "#{client_tty}"])?.output
                    .split(separator: "\n").first.map(String.init) {
+                // Skipped when its terminal gets to it too late, as when Terminal answers again after a
+                // hang: it would bring Terminal forward seconds after the tap.
+                let tapped = Date()
+                let inTime = { Date().timeIntervalSince(tapped) < Terminals.inputWait }
                 Terminal.queue.async {
-                    guard !Terminal.focus(tty: client) else { return }
-                    Terminals.queue(kind: "iterm").async { _ = ITerm().focus(tty: client) }
+                    guard inTime(), !Terminal.focus(tty: client) else { return }
+                    Terminals.queue(kind: "iterm").async { if inTime() { _ = ITerm().focus(tty: client) } }
                 }
             } else if HireTmux.owns(tab.socket) {
                 // A hire's own server with no window showing it: "open" shows it again.
