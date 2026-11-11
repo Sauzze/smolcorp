@@ -569,7 +569,11 @@ final class HostBridgeTests: XCTestCase {
             asked.append("terminal command \(add)")
             throw TerminalCommand.Problem.testCopy
         }
-        mac.roster = { [GrokBotApp.Row(id: "0a1b-2c3d", name: "Smolcorp Mini Manager")] }
+        mac.roster = { [GrokBotApp.Row(id: "0a1b-2c3d", name: "Smolcorp Mini Manager"), GrokBotApp.Row(id: "9f8e", name: "Two bots", isGroup: true)] }
+        // The jukebox: playing at 45, without Accessibility, so its keys are refused and only the volume is set.
+        mac.musicState = { (true, (45, false)) }
+        mac.pressMusic = { [unowned self] in asked.append("music \($0)") }
+        mac.setVolume = { [unowned self] in asked.append("volume \($0)") }
         // The phone's text and the peek (I5): the agent in front but on ttys005, where it has ended; Codex on
         // ttys004, not known to take several lines as one paste; iTerm2's CD34 doesn't read its ⌘V in time.
         mac.place = { tab, _ in tab.id == "/dev/ttys005" ? .gone : .front }
@@ -590,7 +594,8 @@ final class HostBridgeTests: XCTestCase {
             XCTAssertEqual(text(answer), text(one["answer"] ?? NSNull()), one["name"] as? String ?? "")
         }
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
-        XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true"])
+        XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true",
+                               "volume 30"])
         // The phone's text, by `Deck.typePhoneWords` on the stand-in drivers: nothing for an agent that has ended,
         // nor for "!", nor for Codex, nor to a desk asking. ⌘V that wasn't read in time went.
         XCTAssertEqual(typed, ["insert tty:/dev/ttys003 Bonjour l’équipe « ça marche » 👩‍💻 ;",

@@ -602,3 +602,30 @@ func TestT3DeskOnlyAT3HiresRecordSaysWhereItSits(t *testing.T) {
 		t.Errorf("%+v", back)
 	}
 }
+
+// While T3 Code is off, t3 is never run: after the follow's first tick nothing can say the hire is at work, so its
+// desk is white, as the Mac's is when T3 Code isn't there; the registry is left as it said.
+func TestT3DeskIsWhileT3CodeIsOffAsTheMacsWhenT3CodeIsntThere(t *testing.T) {
+	d, _ := t3Deck(t, Hire{ID: t3DeskTestID})
+	desk := t3DeskID(t3DeskTestID)
+	state := func() (any, any) {
+		for _, one := range officeDesks(t, d) {
+			if one["id"] == desk {
+				return one["state"], one["activity"]
+			}
+		}
+		t.Fatal("no desk for the hire")
+		return nil, nil
+	}
+	// Before any look, as the registry says, as the Mac's first snapshot.
+	if s, a := state(); s != "thinking" || a != "At work in T3 Code" {
+		t.Errorf("before a look: %v %v", s, a)
+	}
+	d.t3FollowTick(registryPath())
+	if s, a := state(); s != "idle" || a != nil {
+		t.Errorf("T3 Code off: %v %v", s, a)
+	}
+	if hires := readRegistry(registryPath(), false).hires; len(hires) != 1 || hires[0].State != "working" {
+		t.Errorf("the registry: %+v", hires)
+	}
+}

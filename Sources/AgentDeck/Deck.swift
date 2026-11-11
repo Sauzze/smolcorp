@@ -34,7 +34,7 @@ final class Deck {
     static let returnRepeat: TimeInterval = 0.5
     /// Without Accessibility, posted keys vanish without a trace. The phone
     /// says so instead, since every update turns the permission off.
-    private static let noKeyboard = "Keyboard access is off. Turn it on in setup, on your Mac."
+    static let noKeyboard = "Keyboard access is off. Turn it on in setup, on your Mac."
 
     let access = Access()
     let sessions = Sessions()

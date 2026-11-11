@@ -777,8 +777,9 @@ func TestTheWiFiTypesWithAPairedPhonesKeyOnly(t *testing.T) {
 	if got := mac.actions(); !reflect.DeepEqual(got, []string{"phone-text tty:/dev/ttys003 claude first\n  second 👩‍💻"}) {
 		t.Errorf("%q", got)
 	}
-	// Reading a terminal stays Tailscale's: never over the Wi-Fi.
-	if status, message := phoneAsk(t, d, http.MethodPost, "/peek?session=s1", key, nil, nil); status != http.StatusForbidden || message != peekTailnet {
+	// Reading a terminal stays Tailscale's: never over the Wi-Fi. Said in the Mac's words.
+	if status, message := phoneAsk(t, d, http.MethodPost, "/peek?session=s1", key, nil, nil); status != http.StatusForbidden ||
+		message != "The input line shows only over Tailscale's HTTPS address." {
 		t.Errorf("peek: %d %s", status, message)
 	}
 	if status, _ := phoneAsk(t, d, http.MethodGet, "/choice?session=s1", key, nil, nil); status != http.StatusForbidden {

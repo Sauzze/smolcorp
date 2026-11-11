@@ -354,6 +354,13 @@ final class HostBridge {
             }
         case "bots-resolve":
             return resolveBots(request, actions)
+        case "bots-roster":
+            // The Grok Bot app's bots now, read afresh, for the core to find them as `CloudBot.discover` does: null
+            // when the roster can't be read, which isn't an app with no bots.
+            let rows = actions.roster().map { $0.map { ["id": $0.id, "name": $0.name, "isGroup": $0.isGroup] as [String: Any] } }
+            return ["ok": true, "rows": rows ?? NSNull()]
+        case "music", "music-state", "volume":
+            return music(action, request, actions, until: deadline)
         default:
             // Notifications and the office's mic dictating aren't asked of the app yet.
             return refused("This Mac app can't do \(action) for the engine yet.")
@@ -449,6 +456,24 @@ final class HostBridge {
         return ["ok": true, "resolved": wanted.map { bot -> Any in
             rows.flatMap { GrokBotApp.resolve(botId: bot.botId, name: bot.name, in: $0) }?.json ?? NSNull()
         }]
+    }
+
+    /// The jukebox, as the Swift engine's (`Deck.playMusic`, `Deck.setVolume`, `Deck.followMusic`): a key pressed, only
+    /// with Accessibility; the volume set; and whether music is playing, and the volume, read afresh.
+    private static func music(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
+        switch action {
+        case "music":
+            guard let key = request["music"] as? String, Music.keys[key] != nil else { return refused("A jukebox has no such key.") }
+            guard actions.keyboard() else { return refused(Deck.noKeyboard) }
+            return onMain(actions, until: deadline) { actions.pressMusic(key) }
+        case "volume":
+            guard let level = request["level"] as? Int, (0...100).contains(level) else { return refused("The volume goes from 0 to 100.") }
+            return onMain(actions, until: deadline) { actions.setVolume(level) }
+        default: // music-state
+            let now = actions.musicState()
+            return ["ok": true, "playing": now.playing.map { $0 as Any } ?? NSNull(),
+                    "volume": now.volume.map { ["level": $0.level, "muted": $0.muted] as Any } ?? NSNull()]
+        }
     }
 
     /// What `tab`'s terminal lets the office do, as its driver's table says (`Terminals.abilities`), and
@@ -802,6 +827,12 @@ final class HostBridge {
         var abilities: (String) -> [String: Bool] = HostBridge.abilities(of:)
         /// The Grok Bot app's bots now, read afresh: nil when its roster can't be read.
         var roster: () -> [GrokBotApp.Row]? = { nil }
+        /// The jukebox (`Music`): whether its keys may be pressed (Accessibility), a key pressed, whether music is
+        /// playing and the volume, and the volume set.
+        var keyboard: () -> Bool = { false }
+        var pressMusic: (String) -> Void = { _ in }
+        var musicState: () -> (playing: Bool?, volume: (level: Int, muted: Bool)?) = { (nil, nil) }
+        var setVolume: (Int) -> Void = { _ in }
 
         /// The Swift engine's own: the terminal drivers on their terminals' queues, one at a time
         /// as the deck runs them, the openers, the secrets' stores (files in a test copy), the login item.
@@ -870,7 +901,11 @@ final class HostBridge {
                     guard !testCopy else { throw TerminalCommand.Problem.testCopy }
                     if add { try TerminalCommand.add() } else { try TerminalCommand.remove() }
                 },
-                roster: { GrokBotApp.rows() })
+                roster: { GrokBotApp.rows() },
+                keyboard: { Permissions.hasAccessibility },
+                pressMusic: { Music.press($0) },
+                musicState: { (Music.isPlaying(), Music.volume()) },
+                setVolume: { Music.setVolume($0) })
         }
     }
 }

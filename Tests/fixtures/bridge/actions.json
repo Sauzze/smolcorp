@@ -110,6 +110,26 @@
       "name": "the peek, the agent not in front",
       "request": {"action": "peek", "tab": "tty:/dev/ttys005", "agent": "claude"},
       "answer": {"ok": false, "error": "That agent isn't in front in its terminal.", "place": "behind"}
+    },
+    {
+      "name": "the Grok Bot app's bots, for the core to find",
+      "request": {"action": "bots-roster"},
+      "answer": {"ok": true, "rows": [{"id": "0a1b-2c3d", "name": "Smolcorp Mini Manager", "isGroup": false}, {"id": "9f8e", "name": "Two bots", "isGroup": true}]}
+    },
+    {
+      "name": "the jukebox: what's playing and the volume",
+      "request": {"action": "music-state"},
+      "answer": {"ok": true, "playing": true, "volume": {"level": 45, "muted": false}}
+    },
+    {
+      "name": "the jukebox's play key, without Accessibility",
+      "request": {"action": "music", "music": "playpause"},
+      "answer": {"ok": false, "error": "Keyboard access is off. Turn it on in setup, on your Mac."}
+    },
+    {
+      "name": "the jukebox's volume set",
+      "request": {"action": "volume", "level": 30},
+      "answer": {"ok": true}
     }
   ]
 }

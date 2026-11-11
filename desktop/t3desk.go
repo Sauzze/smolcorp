@@ -521,6 +521,19 @@ func (f *t3Follower) lastSeen(id string) (t3Glance, bool) {
 	return look, ok
 }
 
+// unseen is each hire's look while T3 Code is off: unknown, with no t3 run. Says whether one moved.
+func (f *t3Follower) unseen(hires []Hire) bool {
+	f.Lock()
+	defer f.Unlock()
+	off, moved := t3Glance{Status: "unknown", Raw: "T3 Code is off"}, false
+	for _, h := range hires {
+		if f.seen[h.ID] != off {
+			f.seen[h.ID], moved = off, true
+		}
+	}
+	return moved
+}
+
 // t3Seen is one hire's look.
 type t3Seen struct {
 	ID   string

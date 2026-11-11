@@ -61,10 +61,19 @@ type bridgeRequest struct {
 	Tabs []string `json:"tabs,omitempty"`
 	// bots-resolve: the Grok Bots to look for in the Grok Bot app.
 	Bots []bridgeBot `json:"bots,omitempty"`
+	// music: the jukebox's key pressed, one of musicKeys; volume: the level set, 0 to 100.
+	Music string `json:"music,omitempty"`
+	Level *int   `json:"level,omitempty"`
 	// phone-text: the desk's state now, as this engine's sessions have it ("" for one gone). The Mac app asks
 	// it on this request's own connection, from the terminal's queue, where the Swift engine looks at its own
 	// sessions (Deck.typePhoneWords); the transport answers it (socketBridge). Never sent itself; nil is asking.
 	deskState func() SessionState
+}
+
+// bridgeVolume is the Mac's output volume, as the jukebox's bar shows it: 0 to 100, and whether it's muted.
+type bridgeVolume struct {
+	Level int  `json:"level"`
+	Muted bool `json:"muted"`
 }
 
 // bridgeBot is a Grok Bot as set: its id in the Grok Bot app, if known, and its name there.
@@ -104,6 +113,12 @@ type bridgeAnswer struct {
 	Abilities []tabAbilities `json:"abilities,omitempty"`
 	// bots-resolve: who each bot is in the Grok Bot app, in the order asked; null for one not there.
 	Resolved []*botResolution `json:"resolved,omitempty"`
+	// bots-roster: the Grok Bot app's bots now; null when its roster can't be read.
+	Rows *[]grokRow `json:"rows,omitempty"`
+	// music-state: whether music is playing (true, or null when that can't be told), and the volume
+	// (null where it can't be set).
+	Playing *bool         `json:"playing,omitempty"`
+	Volume  *bridgeVolume `json:"volume,omitempty"`
 	// phone-text: "pasted". Anything else comes as the app's no, in the Swift engine's words: nothing typed.
 	Pasted string `json:"pasted,omitempty"`
 	// phone-text: with the app's no, the words may have been typed all the same (⌘V the terminal hadn't read in
@@ -330,6 +345,33 @@ func hostResolveBots(h hostBridge, bots []bridgeBot) ([]*botResolution, error) {
 		err = fmt.Errorf("the Mac app said who %d bots are for %d", len(answer.Resolved), len(bots))
 	}
 	return answer.Resolved, err
+}
+
+// hostMusicKey presses one of the jukebox's keys (musicKeys) on the Mac, as its media key does: the app's no
+// without Accessibility, in its words.
+func hostMusicKey(h hostBridge, key string) error {
+	_, err := ask(h, bridgeRequest{Action: "music", Music: key})
+	return err
+}
+
+// hostMusicState is whether music is playing on the Mac (true, or nil when that can't be told) and its
+// output volume (nil where it can't be set), read afresh.
+func hostMusicState(h hostBridge) (*bool, *musicVolume, error) {
+	answer, err := ask(h, bridgeRequest{Action: "music-state"})
+	if err != nil {
+		return nil, nil, err
+	}
+	var volume *musicVolume
+	if answer.Volume != nil {
+		volume = &musicVolume{level: clampVolume(answer.Volume.Level), muted: answer.Volume.Muted}
+	}
+	return answer.Playing, volume, nil
+}
+
+// hostSetVolume sets the Mac's output volume, 0 to 100, as the jukebox's bar does.
+func hostSetVolume(h hostBridge, level int) error {
+	_, err := ask(h, bridgeRequest{Action: "volume", Level: &level})
+	return err
 }
 
 // hostPhoneText has the Mac app type the phone's words into tab, a Terminal, iTerm2 or Ghostty tab, for

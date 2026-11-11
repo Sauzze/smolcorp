@@ -25,6 +25,10 @@ type macStandIn struct {
 	facts     macFacts
 	abilities tabAbilities
 	refuse    map[string]string // by action: the app's no
+	// The Grok Bot app's roster (nil: it can't be read); the jukebox: Accessibility given, the volume.
+	roster   *[]grokRow
+	keyboard bool
+	volume   int
 }
 
 func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
@@ -59,6 +63,23 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 		return bridgeAnswer{OK: true, Abilities: said}, nil
 	case "bots-resolve":
 		return bridgeAnswer{OK: true, Resolved: make([]*botResolution, len(request.Bots))}, nil
+	case "bots-roster":
+		if m.roster == nil {
+			return bridgeAnswer{OK: true}, nil
+		}
+		rows := slices.Clone(*m.roster)
+		return bridgeAnswer{OK: true, Rows: &rows}, nil
+	case "music":
+		if !m.keyboard {
+			return bridgeAnswer{Error: "Keyboard access is off. Turn it on in setup, on your Mac."}, nil
+		}
+		return bridgeAnswer{OK: true}, nil
+	case "volume":
+		m.volume = *request.Level
+		return bridgeAnswer{OK: true}, nil
+	case "music-state":
+		playing := true
+		return bridgeAnswer{OK: true, Playing: &playing, Volume: &bridgeVolume{Level: m.volume}}, nil
 	}
 	return bridgeAnswer{Error: "This terminal can't do that.", Unsupported: true}, nil
 }
@@ -197,6 +218,16 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			lines, err := hostPeek(h, "tty:/dev/ttys005", Claude)
 			return []any{lines == nil, errors.Is(err, errAgentBehind)}, err
 		},
+		"the Grok Bot app's bots, for the core to find": func(h hostBridge) (any, error) {
+			rows, readable, err := hostBotsRoster(h)
+			return []any{rows, readable}, err
+		},
+		"the jukebox: what's playing and the volume": func(h hostBridge) (any, error) {
+			playing, volume, err := hostMusicState(h)
+			return []any{*playing, *volume}, err
+		},
+		"the jukebox's play key, without Accessibility": func(h hostBridge) (any, error) { return nil, hostMusicKey(h, "playpause") },
+		"the jukebox's volume set":                      func(h hostBridge) (any, error) { return nil, hostSetVolume(h, 30) },
 	}
 	// What the core makes of each answer.
 	got := map[string]any{
@@ -220,6 +251,9 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the phone's text, several lines, ⌘V the terminal hadn't read in time": []any{pasteFailed, true},
 		"the peek at the input line":       []string{"> Bonjour l’équipe", "  ? for shortcuts"},
 		"the peek, the agent not in front": []any{true, true},
+		"the Grok Bot app's bots, for the core to find": []any{[]grokRow{{ID: "0a1b-2c3d", Name: "Smolcorp Mini Manager"},
+			{ID: "9f8e", Name: "Two bots", IsGroup: true}}, true},
+		"the jukebox: what's playing and the volume": []any{true, musicVolume{level: 45}},
 	}
 	cases := readBridgeCases(t)
 	if len(cases) != len(want) {
@@ -378,7 +412,7 @@ func TestTheMacsSwitchesAreKeptHereAndDoneByTheApp(t *testing.T) {
 	mac.refusing(nil)
 	var done []string
 	for _, action := range mac.actions() {
-		if action != "facts" && action != "bots-resolve" && action != "abilities" {
+		if action != "facts" && action != "bots-resolve" && action != "abilities" && action != "bots-roster" {
 			done = append(done, action)
 		}
 	}
