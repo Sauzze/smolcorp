@@ -1219,7 +1219,8 @@
    */
   const T3_BUTTON = 'smolcorp-t3code';
   const T3_NOTE = 'T3 Code opens its own agent there, separate from this hire.';
-  const T3_OPENED = { thread: "T3 Code is open on this hire's folder, in a new thread.", project: "Added to T3 Code's projects: open T3 Code to see it." };
+  const T3_OPENED = { thread: "T3 Code is open on this hire's folder, in a new thread.", project: "Added to T3 Code's projects: open T3 Code to see it.",
+    unsure: "T3 Code has this hire's folder open as a project; it didn't confirm a new thread, so look in T3 Code." };
   let t3Here = false;  // the computer said this window may open T3 Code
   let t3Snapshot = null; // the last snapshot, to show again with the key once it's allowed
   let t3For = null;    // the session the card is for

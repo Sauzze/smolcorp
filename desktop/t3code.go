@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -19,9 +20,9 @@ import (
 // app on this computer with its own agent. Smolcorp only runs what's
 // installed: never npx, an install or a download, and never the hire's
 // terminal or agent. `t3` only ever runs with `--version`, `app <folder>` or
-// `project add <folder> --title <title>`, and, after a `t3 app` that says it
-// failed, `thread list --project <folder> --json` to see whether it did; its
-// arguments always as a list. On Windows
+// `project add <folder> --title <title>`, and `thread list --project <folder>
+// --json`, before `t3 app` and again after one that says it failed, to see
+// whether it did; its arguments always as a list. On Windows
 // `t3` is a .cmd, which only cmd.exe starts: its command line is escaped as
 // OpenCode's is (cmdLine), so a folder's name is never read as a command.
 
@@ -32,7 +33,7 @@ const (
 	// asked fresh, a check newer than t3FreshFor is the answer.
 	t3KeptFor  = 30 * time.Second
 	t3FreshFor = 2 * time.Second
-	// How new a thread of the folder's must be to count as the one `t3 app` opened.
+	// How new a thread of the folder's must be to count as the one `t3 app` opened: one that wasn't listed before it.
 	t3ThreadWithin = 15 * time.Second
 	// What a run may print that's kept: a thread list's JSON fits.
 	t3KeptOutput     = 1 << 20
@@ -290,6 +291,13 @@ func t3Open(h Hire, status t3Status, m t3Machine) (int, any) {
 		}
 		return t3Failed(ran)
 	}
+	// The folder's threads before: only one that isn't among them can be the one `t3 app` opens. None when T3 Code
+	// isn't running yet or the folder isn't one of its projects.
+	before := map[string]bool{}
+	listed, _ := t3Threads(program, folder, m)
+	for _, thread := range listed {
+		before[thread.ThreadID] = true
+	}
 	// The app, started, then `t3 app` once it answers: tried again until it does, for t3OpenWithin at most.
 	if launcher := m.App(); launcher != "" {
 		m.OpenApp(launcher)
@@ -301,13 +309,22 @@ func t3Open(h Hire, status t3Status, m t3Machine) (int, any) {
 		if ran.Ended && ran.Code == 0 {
 			return http.StatusOK, map[string]any{"ok": true, "opened": "thread"}
 		}
-		// The app answered, and said it couldn't open a thread: T3 Code 0.1.8 says so even when it did. A thread
-		// of the folder's that's just appeared says it did; tried again, it would open another.
-		if ran.Ended && strings.Contains(ran.Output+ran.Error, "thread-open-failed") {
-			if t3ThreadJustOpened(program, folder, m) {
-				return http.StatusOK, map[string]any{"ok": true, "opened": "thread"}
+		// The app answered, and said it couldn't open a thread: T3 Code 0.1.8 says so even when it did, and its new
+		// thread is a draft, which isn't listed until it's used. Not tried again, it would open another. A thread of
+		// the folder's that's just appeared says it did; a list without one, that the folder is open as a project
+		// and T3 Code got as far as its thread; a list that fails, the error.
+		if ran.Ended && strings.Contains(ran.Output+ran.Error, "(thread-open-failed)") {
+			after, ok := t3Threads(program, folder, m)
+			if !ok {
+				return t3Failed(ran)
 			}
-			return t3Failed(ran)
+			opened, since := "unsure", m.Now().Add(-t3ThreadWithin)
+			for _, thread := range after {
+				if made, err := time.Parse(time.RFC3339Nano, thread.CreatedAt); err == nil && !before[thread.ThreadID] && !made.Before(since) {
+					opened = "thread"
+				}
+			}
+			return http.StatusOK, map[string]any{"ok": true, "opened": opened}
 		}
 		m.Pause(time.Second)
 		if !m.Now().Before(until) {
@@ -316,27 +333,28 @@ func t3Open(h Hire, status t3Status, m t3Machine) (int, any) {
 	}
 }
 
-// t3ThreadJustOpened is whether T3 Code lists a thread for folder made in the last t3ThreadWithin.
-func t3ThreadJustOpened(program, folder string, m t3Machine) bool {
-	ran := m.Run(program, []string{"thread", "list", "--project", folder, "--json"}, t3VersionTimeout)
-	var threads []struct {
-		CreatedAt string `json:"createdAt"`
-	}
-	if !ran.Ended || ran.Code != 0 || json.Unmarshal([]byte(ran.Output), &threads) != nil {
-		return false
-	}
-	since := m.Now().Add(-t3ThreadWithin)
-	for _, thread := range threads {
-		if made, err := time.Parse(time.RFC3339Nano, thread.CreatedAt); err == nil && !made.Before(since) {
-			return true
-		}
-	}
-	return false
+// t3Thread is one of the threads T3 Code lists: its id and when it was made.
+type t3Thread struct {
+	ThreadID  string `json:"threadId"`
+	CreatedAt string `json:"createdAt"`
 }
 
-// t3Failed is a t3 that failed: a 502 with the first line it said, and nothing else.
+// t3Threads is the threads T3 Code lists for folder; false if the list fails or isn't a list.
+func t3Threads(program, folder string, m t3Machine) ([]t3Thread, bool) {
+	ran := m.Run(program, []string{"thread", "list", "--project", folder, "--json"}, t3VersionTimeout)
+	var threads []t3Thread
+	if !ran.Ended || ran.Code != 0 || json.Unmarshal([]byte(ran.Output), &threads) != nil {
+		return nil, false
+	}
+	return threads, true
+}
+
+// t3LogPrefix is what T3 Code's log puts before an error: "[01:33:17.503] ERROR (#2): DesktopAppRequestFailedError: ".
+var t3LogPrefix = regexp.MustCompile(`^\[[^\]]*\] ERROR \(#\d+\): \w+Error: `)
+
+// t3Failed is a t3 that failed: a 502 with the first line it said, without T3 Code's log prefix, and nothing else.
 func t3Failed(ran t3Ran) (int, any) {
-	line := firstLine(cmpOr(ran.Error, ran.Output))
+	line := t3LogPrefix.ReplaceAllString(firstLine(cmpOr(ran.Error, ran.Output)), "")
 	switch {
 	case line == "" && !ran.Ended:
 		line = "T3 Code didn't answer."

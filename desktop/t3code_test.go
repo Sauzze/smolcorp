@@ -26,10 +26,10 @@ func init() {
 // t3Fake is a home folder with a fake t3 in it that writes down each run's arguments, a clock that moves only
 // when the open pauses, and the app as the test says.
 type t3Fake struct {
-	home, calls, mode, threads string
-	opened                     int
-	clock                      time.Time
-	app                        bool
+	home, calls, mode, threads, next string
+	opened                           int
+	clock                            time.Time
+	app                              bool
 }
 
 func newT3Fake(t *testing.T) *t3Fake {
@@ -46,13 +46,15 @@ func newT3Fake(t *testing.T) *t3Fake {
 	t3Kept.status, t3Kept.at = t3Status{}, time.Time{}
 	t3Kept.Unlock()
 	return &t3Fake{home: home, calls: filepath.Join(home, "calls"), mode: filepath.Join(home, "mode"), threads: filepath.Join(home, "threads"),
-		clock: time.Unix(1_000_000, 0)}
+		next: filepath.Join(home, "next"), clock: time.Unix(1_000_000, 0)}
 }
 
 // install puts the fake t3 in folder, under the home folder, behaving as mode says: "ok", "fail" (always, on two
-// lines), "exists" (project add says it's there), "late" (fails twice), "slow" (its version takes a second) or
-// "unsure" (t3 app says thread-open-failed, as T3 Code 0.1.8 does even when it opened one; thread list prints
-// the threads file). It says its version as the real one does: "t3 v0.1.8".
+// lines), "exists" (project add says it's there), "late" (t3 app fails twice), "renderer" (t3 app fails twice as
+// T3 Code does while its window isn't up), "slow" (its version takes a second) or "unsure" (t3 app says
+// thread-open-failed, as T3 Code 0.1.8 does even when it opened one). thread list prints the threads file, and
+// fails as T3 Code does when it isn't running without one; a next file is what t3 app makes the threads. It
+// says its version as the real one does: "t3 v0.1.8".
 func (f *t3Fake) install(t *testing.T, folder, mode string) {
 	t.Helper()
 	bin := filepath.Join(f.home, folder)
@@ -69,13 +71,19 @@ if [ "$1" = "--version" ]; then
   [ "$mode" = "slow" ] && sleep 1
   echo "t3 v0.1.8"; exit 0
 fi
-if [ "$1" = "thread" ]; then cat '` + f.threads + `'; exit 0; fi
+if [ "$1" = "thread" ]; then
+  [ -f '` + f.threads + `' ] || { echo "No running T3 Code server uses ~/.t3. Start T3 Code, then retry." >&2; exit 1; }
+  cat '` + f.threads + `'; exit 0
+fi
+[ -f '` + f.next + `' ] && mv '` + f.next + `' '` + f.threads + `'
+apps=$(grep -c '^app$' '` + f.calls + `')
 case "$mode" in
   unsure) echo "[01:33:17.503] ERROR (#2): DesktopAppRequestFailedError: T3 Code could not open $2 (thread-open-failed)." >&2
     echo "    at Object.<anonymous> (file:///binCli.mjs:8963:34)" >&2; exit 1 ;;
   fail) printf '  Could not reach the T3 Code desktop app.  \nmore detail\n' >&2; exit 1 ;;
   exists) echo "Project already exists: $3" >&2; exit 1 ;;
-  late) n=$(grep -c '^--$' '` + f.calls + `'); [ "$n" -le 2 ] && { echo "not yet" >&2; exit 1; }; exit 0 ;;
+  late) [ "$apps" -le 2 ] && { echo "not yet" >&2; exit 1; }; exit 0 ;;
+  renderer) [ "$apps" -le 2 ] && { echo "T3 Code could not open $2 (renderer-unavailable)." >&2; exit 1; }; exit 0 ;;
 esac
 exit 0
 `
@@ -124,6 +132,9 @@ func (f *t3Fake) folder(t *testing.T, name string) string {
 	}
 	return path
 }
+
+// t3List is the run that lists folder's threads.
+func t3List(folder string) []string { return []string{"thread", "list", "--project", folder, "--json"} }
 
 func t3Hire(folder, worktree string) Hire {
 	return Hire{ID: "h1", Name: "Ada", Folder: folder, Worktree: worktree, Branch: "hire/ada-1a2b3c", State: "working"}
@@ -259,8 +270,8 @@ func TestT3FoundOpensTheAppThenAThreadNeverThroughAShell(t *testing.T) {
 	if status != http.StatusOK || !reflect.DeepEqual(answer, map[string]any{"ok": true, "opened": "thread"}) {
 		t.Fatalf("%d %v", status, answer)
 	}
-	if got := f.runs(); !reflect.DeepEqual(got, [][]string{{"app", tricky}}) || f.opened != 1 {
-		t.Errorf("one argument for the folder, as it is: %q, opened %d", got, f.opened)
+	if got := f.runs(); !reflect.DeepEqual(got, [][]string{t3List(tricky), {"app", tricky}}) || f.opened != 1 {
+		t.Errorf("its threads before, then one argument for the folder, as it is: %q, opened %d", got, f.opened)
 	}
 	if _, err := os.Stat(filepath.Join(f.home, "Projects", "pwned")); err == nil {
 		t.Error("the folder's name was run as a command")
@@ -272,8 +283,12 @@ func TestT3FoundWaitsForTheAppThenSaysItsFirstLine(t *testing.T) {
 	f.install(t, ".local/bin", "late")
 	f.app = true
 	project := f.folder(t, "Projects/app")
-	if status, _ := t3Open(t3Hire(project, ""), t3Status{State: t3Found}, f.machine()); status != http.StatusOK || len(f.runs()) != 3 {
-		t.Errorf("waited for the app: %d after %d runs", status, len(f.runs()))
+	want := [][]string{t3List(project), {"app", project}, {"app", project}, {"app", project}}
+	if status, _ := t3Open(t3Hire(project, ""), t3Status{State: t3Found}, f.machine()); status != http.StatusOK || !reflect.DeepEqual(f.runs(), want) {
+		t.Errorf("waited for the app: %d after %q", status, f.runs())
+	}
+	if err := os.Remove(f.calls); err != nil {
+		t.Fatal(err)
 	}
 	f.setMode(t, "fail")
 	start := f.clock
@@ -284,10 +299,26 @@ func TestT3FoundWaitsForTheAppThenSaysItsFirstLine(t *testing.T) {
 	if waited := f.clock.Sub(start); waited > t3OpenWithin+time.Second {
 		t.Errorf("waited %v", waited)
 	}
-	for _, run := range f.runs() {
-		if !reflect.DeepEqual(run, []string{"app", project}) {
-			t.Errorf("only t3 app <folder>: %q", run)
+	for i, run := range f.runs() {
+		if i == 0 && !reflect.DeepEqual(run, t3List(project)) || i > 0 && !reflect.DeepEqual(run, []string{"app", project}) {
+			t.Errorf("its threads, then only t3 app <folder>: %q", run)
 		}
+	}
+}
+
+// T3 Code says renderer-unavailable while its window isn't up: tried again, as any failure but thread-open-failed,
+// which is matched with its parentheses so a folder's name can't pass for it.
+func TestT3RendererUnavailableIsTriedAgain(t *testing.T) {
+	f := newT3Fake(t)
+	f.install(t, ".local/bin", "renderer")
+	f.app = true
+	project := f.folder(t, "Projects/thread-open-failed")
+	status, answer := t3Open(t3Hire(project, ""), t3Status{State: t3Found}, f.machine())
+	if status != http.StatusOK || !reflect.DeepEqual(answer, map[string]any{"ok": true, "opened": "thread"}) {
+		t.Errorf("%d %v", status, answer)
+	}
+	if got, want := f.runs(), [][]string{t3List(project), {"app", project}, {"app", project}, {"app", project}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("three t3 app, no list after: %q", got)
 	}
 }
 
@@ -336,49 +367,74 @@ func TestT3OneCheckAtATime(t *testing.T) {
 	}
 }
 
-// T3 Code 0.1.8's t3 app says thread-open-failed even when the thread opened: a thread of the folder's made in
-// the last 15 s says it did, and nothing is tried again; without one, its first line, as before.
+// T3 Code 0.1.8's t3 app says thread-open-failed even when it opened one, and that thread is a draft, which isn't
+// listed. The folder's threads are listed before t3 app and once after, and nothing is tried again: a thread that's
+// new since, made in the last 15 s, is "thread"; a list without one, "unsure"; a list that fails, T3 Code's error
+// without its log prefix.
 func TestT3AFalseFailureIsCheckedInTheThreadList(t *testing.T) {
 	f := newT3Fake(t)
 	f.install(t, ".local/bin", "unsure")
 	f.app = true
 	project := f.folder(t, "Projects/My App; touch pwned")
-	thread := func(at time.Time) {
-		list := `[{"threadId":"t-old","createdAt":"1970-01-01T00:00:00.000Z"},{"threadId":"t1","createdAt":"` + at.UTC().Format("2006-01-02T15:04:05.000Z") + `"}]`
-		if err := os.WriteFile(f.threads, []byte(list), 0o644); err != nil {
-			t.Fatal(err)
+	// listed is a thread list: each thread's id, made that many seconds ago.
+	listed := func(ids ...any) string {
+		items := []string{}
+		for i := 0; i < len(ids); i += 2 {
+			at := f.clock.Add(-time.Duration(ids[i+1].(int)) * time.Second).UTC().Format("2006-01-02T15:04:05.000Z")
+			items = append(items, `{"threadId":"`+ids[i].(string)+`","createdAt":"`+at+`"}`)
+		}
+		return "[" + strings.Join(items, ",") + "]"
+	}
+	open := func(before, after string) (int, any) {
+		_ = os.Remove(f.calls)
+		for file, list := range map[string]string{f.threads: before, f.next: after} {
+			_ = os.Remove(file)
+			if list != "" {
+				if err := os.WriteFile(file, []byte(list), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		return t3Open(t3Hire(project, ""), t3Status{State: t3Found}, f.machine())
+	}
+	want := [][]string{t3List(project), {"app", project}, t3List(project)}
+	for _, c := range []struct{ before, after, opened, why string }{
+		{listed("t-old", 3600), listed("t-old", 3600, "t1", 4), "thread", "a new thread from 4 s ago"},
+		{"", listed("t-old", 3600, "t1", 4), "thread", "no list before: one from 4 s ago"},
+		{"[]", "[]", "unsure", "the draft, not listed"},
+		{listed("t1", 4), listed("t1", 4), "unsure", "a thread that was there before"},
+		{listed("t-old", 3600), listed("t-old", 3600, "t2", 20), "unsure", "a new one, but from 20 s ago"},
+	} {
+		if status, answer := open(c.before, c.after); status != http.StatusOK || !reflect.DeepEqual(answer, map[string]any{"ok": true, "opened": c.opened}) {
+			t.Errorf("%s: %d %v", c.why, status, answer)
+		}
+		if got := f.runs(); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: the list before, t3 app once, the list after once: %q", c.why, got)
 		}
 	}
-	thread(f.clock.Add(-4 * time.Second))
-	status, answer := t3Open(t3Hire(project, ""), t3Status{State: t3Found}, f.machine())
-	if status != http.StatusOK || !reflect.DeepEqual(answer, map[string]any{"ok": true, "opened": "thread"}) {
-		t.Errorf("a thread from 4 s ago: %d %v", status, answer)
-	}
-	want := [][]string{{"app", project}, {"thread", "list", "--project", project, "--json"}}
-	if got := f.runs(); !reflect.DeepEqual(got, want) {
-		t.Errorf("t3 app, then the thread list once: %q", got)
-	}
-	if err := os.Remove(f.calls); err != nil {
-		t.Fatal(err)
-	}
-	thread(f.clock.Add(-20 * time.Second))
-	status, answer = t3Open(t3Hire(project, ""), t3Status{State: t3Found}, f.machine())
-	if line := "[01:33:17.503] ERROR (#2): DesktopAppRequestFailedError: T3 Code could not open " + project + " (thread-open-failed)."; status != http.StatusBadGateway || answer != clip(line, 200) {
-		t.Errorf("no new thread: %d %q", status, answer)
+	status, answer := open("", "")
+	if line := "T3 Code could not open " + project + " (thread-open-failed)."; status != http.StatusBadGateway || answer != clip(line, 200) {
+		t.Errorf("the list exits 1: %d %q, want the line without T3 Code's log prefix", status, answer)
 	}
 	if got := f.runs(); !reflect.DeepEqual(got, want) {
 		t.Errorf("not tried again: %q", got)
 	}
-	for _, list := range []string{"[]", "not json"} {
-		if err := os.WriteFile(f.threads, []byte(list), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if status, _ := t3Open(t3Hire(project, ""), t3Status{State: t3Found}, f.machine()); status != http.StatusBadGateway {
-			t.Errorf("thread list %q: %d", list, status)
-		}
+	if status, _ := open("not json", ""); status != http.StatusBadGateway {
+		t.Errorf("a list that isn't a list: %d", status)
 	}
 	if _, err := os.Stat(filepath.Join(f.home, "Projects", "pwned")); err == nil {
 		t.Error("the folder's name was run as a command")
+	}
+}
+
+// Every t3 error is said without T3 Code's log prefix; an error without one, as it is.
+func TestT3CodesLogPrefixIsLeftOut(t *testing.T) {
+	logged := t3Ran{Ended: true, Code: 1, Error: "[01:33:17.503] ERROR (#12): DesktopAppRequestFailedError: T3 Code could not open /a (renderer-unavailable).\n  at x"}
+	if _, answer := t3Failed(logged); answer != "T3 Code could not open /a (renderer-unavailable)." {
+		t.Errorf("logged: %q", answer)
+	}
+	if _, answer := t3Failed(t3Ran{Ended: true, Code: 1, Error: "[note] Could not reach the T3 Code desktop app."}); answer != "[note] Could not reach the T3 Code desktop app." {
+		t.Errorf("plain: %q", answer)
 	}
 }
 

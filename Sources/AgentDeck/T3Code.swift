@@ -9,9 +9,9 @@ import AppKit
 /// the app is opened and `t3 app <folder>` starts a thread there; with `t3`
 /// alone, `t3 project add` adds the folder to its projects. `t3` only ever runs
 /// with `--version`, `app <folder>` or `project add <folder> --title <title>`,
-/// its arguments as a list, never through a shell; and, after a `t3 app` that
-/// says it failed, `thread list --project <folder> --json` to see whether it
-/// did. The Linux/Windows app's t3code.go answers the same.
+/// its arguments as a list, never through a shell; and `thread list --project
+/// <folder> --json`, before `t3 app` and again after one that says it failed,
+/// to see whether it did. The Linux/Windows app's t3code.go answers the same.
 enum T3Code {
     /// What's installed: the app and `t3`, one of them, or neither.
     enum State: String { case found, appOnly, cliOnly, none }
@@ -31,7 +31,7 @@ enum T3Code {
     /// asked fresh, a check newer than `freshFor` is the answer.
     static let keptFor: TimeInterval = 30
     static let freshFor: TimeInterval = 2
-    /// How new a thread of the folder's must be to count as the one `t3 app` opened.
+    /// How new a thread of the folder's must be to count as the one `t3 app` opened: one that wasn't listed before it.
     static let threadWithin: TimeInterval = 15
 
     static let appOnlyHint = "In T3 Code, open Settings → About and install the t3 command."
@@ -195,6 +195,9 @@ enum T3Code {
             }
             return failed(ran)
         }
+        // The folder's threads before: only one that isn't among them can be the one `t3 app` opens. None when T3 Code
+        // isn't running yet or the folder isn't one of its projects.
+        let before = Set((threads(program, folder: folder, machine: machine) ?? []).map(\.id))
         // The app, opened, then `t3 app` once it answers: tried again until it does, for `openWithin` at most.
         machine.openApp()
         let until = machine.now().addingTimeInterval(openWithin)
@@ -202,22 +205,28 @@ enum T3Code {
         repeat {
             ran = machine.run(program, ["app", folder], max(1, until.timeIntervalSince(machine.now())))
             if ran.status == 0 { return .json(["ok": true, "opened": "thread"]) }
-            // The app answered, and said it couldn't open a thread: T3 Code 0.1.8 says so even when it did. A
-            // thread of the folder's that's just appeared says it did; tried again, it would open another.
-            if (ran.output + ran.errors).contains("thread-open-failed") {
-                return threadJustOpened(program, folder: folder, machine: machine) ? .json(["ok": true, "opened": "thread"]) : failed(ran)
+            // The app answered, and said it couldn't open a thread: T3 Code 0.1.8 says so even when it did, and its
+            // new thread is a draft, which isn't listed until it's used. Not tried again, it would open another. A
+            // thread of the folder's that's just appeared says it did; a list without one, that the folder is open
+            // as a project and T3 Code got as far as its thread; a list that fails, the error.
+            if (ran.output + ran.errors).contains("(thread-open-failed)") {
+                guard let after = threads(program, folder: folder, machine: machine) else { return failed(ran) }
+                let since = machine.now().addingTimeInterval(-threadWithin)
+                let new = after.contains { !before.contains($0.id) && ($0.made.map { $0 >= since } ?? false) }
+                return .json(["ok": true, "opened": new ? "thread" : "unsure"])
             }
             machine.pause(1)
         } while machine.now() < until
         return failed(ran)
     }
 
-    /// Whether T3 Code lists a thread for `folder` made in the last `threadWithin` seconds.
-    static func threadJustOpened(_ program: URL, folder: String, machine: Machine) -> Bool {
+    /// The threads T3 Code lists for `folder`, by id with when each was made; nil if the list fails or isn't a list.
+    static func threads(_ program: URL, folder: String, machine: Machine) -> [(id: String, made: Date?)]? {
         let ran = machine.run(program, ["thread", "list", "--project", folder, "--json"], versionTimeout)
-        guard ran.status == 0, let threads = try? JSONSerialization.jsonObject(with: Data(ran.output.utf8)) as? [[String: Any]] else { return false }
-        let since = machine.now().addingTimeInterval(-threadWithin)
-        return threads.contains { thread in (thread["createdAt"] as? String).flatMap(date).map { $0 >= since } ?? false }
+        guard ran.status == 0, let threads = try? JSONSerialization.jsonObject(with: Data(ran.output.utf8)) as? [[String: Any]] else { return nil }
+        return threads.compactMap { thread in
+            (thread["threadId"] as? String).map { ($0, (thread["createdAt"] as? String).flatMap(date)) }
+        }
     }
 
     /// An ISO 8601 time as T3 Code writes it, with or without its milliseconds.
@@ -227,9 +236,13 @@ enum T3Code {
         return withMilliseconds.date(from: text) ?? plain.date(from: text)
     }
 
-    /// A `t3` that failed: a 502 with the first line it said, and nothing else.
+    /// What T3 Code's log puts before an error: "[01:33:17.503] ERROR (#2): DesktopAppRequestFailedError: ".
+    static let logPrefix = try! NSRegularExpression(pattern: #"^\[[^\]]*\] ERROR \(#\d+\): \w+Error: "#)
+
+    /// A `t3` that failed: a 502 with the first line it said, without T3 Code's log prefix, and nothing else.
     static func failed(_ ran: Ran) -> Response {
-        let line = firstLine(ran.errors.isEmpty ? ran.output : ran.errors)
+        var line = firstLine(ran.errors.isEmpty ? ran.output : ran.errors)
+        line = logPrefix.stringByReplacingMatches(in: line, range: NSRange(line.startIndex..., in: line), withTemplate: "")
         return .status(502, line.isEmpty ? (ran.status == nil ? "T3 Code didn't answer." : "T3 Code couldn't open it.") : String(line.prefix(200)))
     }
 

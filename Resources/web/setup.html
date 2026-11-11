@@ -2151,7 +2151,8 @@
    */
   const T3_EVERY = 30000, T3_AGAIN = 5000, T3_ANSWER_FOR = 30000;
   const T3_NOTE = 'T3 Code opens its own agent there, separate from this hire.';
-  const T3_OPENED = { thread: "T3 Code is open on this hire's folder, in a new thread.", project: "Added to T3 Code's projects: open T3 Code to see it." };
+  const T3_OPENED = { thread: "T3 Code is open on this hire's folder, in a new thread.", project: "Added to T3 Code's projects: open T3 Code to see it.",
+    unsure: "T3 Code has this hire's folder open as a project; it didn't confirm a new thread, so look in T3 Code." };
   let t3 = null, t3At = 0, t3Asking = null;
   /*
    * Each hire's open, by its id, kept outside its row: the team is drawn again every 1.5 seconds, and an open (up
