@@ -254,6 +254,9 @@
         }
       ],
       "says" : "before its hooks, contract-a's tab (launcher:contract-a) is a hire's, opened with the role reviewer: the Mac keeps that in Deck.hiredTabs, the Go app in its launcher (launcherConnected)"
+    },
+    "T3 Code on" : {
+      "says" : "config.json's t3CodeEnabled is true (the T3 Code choice, T796)"
     }
   },
   "note" : "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1), read by desktop\/contract_test.go. Shapes, not values: \"string\", \"number\", \"bool\", \"null\"; 'x' for that string; alternatives joined by | (\"string|null\", a closed set 'a'|'b'); an object's keys, no more, no fewer; an array's elements as the different shapes they have, each element like one of them and each like some element ([] for none). \"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why, and each null allowed. Beside a shape, ids: the given's sessions in each of its lists, sorted, compared as they are. A refusal answered in JSON has its shape too.",
@@ -275,6 +278,13 @@
           "hooks" : "bool",
           "openAtLogin" : "bool",
           "scroll" : "bool"
+        },
+        "choices" : {
+          "asked" : "bool",
+          "background" : "bool",
+          "hasTmux" : "bool",
+          "t3Code" : "bool",
+          "t3Installed" : "bool"
         },
         "claudeAccounts" : {
           "found" : "array",
@@ -744,6 +754,7 @@
           "saved" : "string",
           "savedKey" : "bool"
         },
+        "t3CodeEnabled" : "bool",
         "terminalCommand" : {
           "available" : "bool",
           "link" : "string",
@@ -823,6 +834,13 @@
           "hooks" : "bool",
           "openAtLogin" : "bool",
           "scroll" : "bool"
+        },
+        "choices" : {
+          "asked" : "bool",
+          "background" : "bool",
+          "hasTmux" : "bool",
+          "t3Code" : "bool",
+          "t3Installed" : "bool"
         },
         "claudeAccounts" : {
           "found" : "array",
@@ -1290,6 +1308,7 @@
           "saved" : "string",
           "savedKey" : "bool"
         },
+        "t3CodeEnabled" : "bool",
         "terminalCommand" : {
           "available" : "bool",
           "link" : "string",

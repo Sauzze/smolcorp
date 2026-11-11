@@ -1,5 +1,5 @@
-# Builds both apps on every push and pull request: the Mac app with Swift,
-# and the Windows and Linux app with Go, vetted and tested on each system
+# Builds and tests both apps on every push and pull request: the Mac app with
+# Swift, and the Windows and Linux app with Go, vetted and tested on each system
 # (on Linux under the race detector too), then built for every download the
 # releases carry.
 
@@ -28,6 +28,15 @@ jobs:
       - uses: actions/checkout@v7
       - run: swift build -c release
       - run: scripts/build-saver.sh
+      # The whole suite. Its tests keep to a support folder of their own and use stand-ins for tmux and the
+      # terminals; the few that drive real tmux panes skip themselves here, where the runner has no tmux and
+      # CI is "true". The time limits stop a hung build or test instead of holding the job for six hours.
+      - name: Build the tests
+        timeout-minutes: 20
+        run: swift build --build-tests
+      - name: Test
+        timeout-minutes: 15
+        run: swift test --skip-build
 
   desktop:
     name: Windows and Linux app, on ${{ matrix.os }}

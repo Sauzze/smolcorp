@@ -171,14 +171,18 @@ final class SummaryProvidersTests: XCTestCase {
     func testARunThatHangsIsEndedWithAnythingItStarted() throws {
         let pidFile = folder.appendingPathComponent("child")
         let slow = try fake("claude", "sleep 30 & echo $! > \(pidFile.path); wait")
-        var timeouts = SummaryCLI.Ran()
-        let started = Date()
-        timeouts = SummaryCLI.spawn(slow, [], input: Data(), environment: SummaryCLI.environment(), folder: folder.path, timeout: 1)
-        XCTAssertTrue(timeouts.timedOut)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 6)
-        let child = try XCTUnwrap(Int32(String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
-        usleep(200_000)
-        XCTAssertNotEqual(kill(child, 0), 0, "what it started is still running")
+        let started = { (try? String(contentsOf: pidFile, encoding: .utf8)).flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) } }
+        // It's stopped only once it has started its child: on a busy Mac, a second may not be enough
+        // to get that far, so it's run again with longer.
+        for timeout: TimeInterval in [1, 4, 16] where started() == nil {
+            let began = Date()
+            let ran = SummaryCLI.spawn(slow, [], input: Data(), environment: SummaryCLI.environment(), folder: folder.path, timeout: timeout)
+            XCTAssertTrue(ran.timedOut)
+            XCTAssertLessThan(Date().timeIntervalSince(began), timeout + 5)
+        }
+        let child = try XCTUnwrap(started(), "it started its child")
+        // Killed, it's gone once its new parent has reaped it: a moment, longer on a busy Mac.
+        XCTAssertTrue(eventually { kill(child, 0) != 0 }, "what it started is still running")
     }
 
     func testARunsOutputIsCut() throws {

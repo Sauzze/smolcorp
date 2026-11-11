@@ -1681,6 +1681,70 @@
       "route" : "POST \/setup\/viewer"
     },
     {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "page"
+      ],
+      "note" : "background=1 is refused (400) where there's no tmux: not asked, as whether there is depends on this computer",
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "t3" : "0"
+        }
+      },
+      "route" : "POST \/setup\/choices"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "note" : "a hire that is found has a window opened for it; only the refusal, which comes first, is asked",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "id" : "no-such-hire"
+            }
+          },
+          "status" : 409,
+          "why" : "no such hire"
+        }
+      ],
+      "route" : "POST \/setup\/hire\/window"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "note" : "with T3 Code on it looks for T3 Code's app and runs its command; only the refusal, which comes first, is asked",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page"
+          },
+          "status" : 404,
+          "why" : "T3 Code is off"
+        }
+      ],
+      "route" : "GET \/setup\/t3code"
+    },
+    {
       "callers" : [
         "page"
       ],
@@ -1694,10 +1758,44 @@
             }
           },
           "status" : 404,
+          "why" : "T3 Code is off"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "id" : "no-such-hire"
+            },
+            "given" : [
+              "T3 Code on"
+            ]
+          },
+          "status" : 404,
           "why" : "no such hire"
         }
       ],
       "route" : "POST \/setup\/t3code\/open"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "note" : "a hire in T3 Code that is found is let go there; only the refusal, which comes first, is asked",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "id" : "no-such-hire"
+            }
+          },
+          "status" : 404,
+          "why" : "no such hire"
+        }
+      ],
+      "route" : "POST \/setup\/t3code\/letgo"
     },
     {
       "callers" : [

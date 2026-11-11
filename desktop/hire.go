@@ -137,6 +137,35 @@ func canHireHere() bool {
 	return len(terminals) > 0 || tmux
 }
 
+// unfencedNote is the office's line for a hire that won't get Smolcorp's
+// fence (Claude Code's deny rules and the guard, hiresettings.go), or "" for
+// one that will. It follows hireAs: the fence is written only for a role's
+// Claude Code hire made by the engine, in tmux (hireengine.go), or on Windows
+// in the launcher's window behind the beta switch (hirelauncher.go). A hire at
+// a pinned desk, or on a floor with a folder of its own, takes the old way too;
+// the snapshot can't tell which desk will be held, so those get no line.
+func (d *Deck) unfencedNote(roleID, program string, terminals []hireOpener, tmux bool) string {
+	agent := Agent(program)
+	if agent != Claude {
+		if name := agent.Name(); name != "" {
+			return name + " hires don't get Smolcorp's fence: they run with their own settings."
+		}
+		return "This hire doesn't get Smolcorp's fence: it runs with its own settings."
+	}
+	if roleID == "" {
+		return "A hire with no role doesn't get Smolcorp's fence: it runs with its own settings."
+	}
+	_, hasTerminal := hireTerminal(d.config.HireTerminal, terminals)
+	inTmux := tmux && (d.config.HireInTmux || !hasTerminal)
+	if hasTmuxHires && inTmux || !inTmux && launcherHires && d.config.HireManagedWindows && hasTerminal {
+		return ""
+	}
+	if !hasTmuxHires {
+		return "On Windows, only managed hires (a beta, off by default) get Smolcorp's fence: this one runs with its own settings."
+	}
+	return "Outside tmux, this hire doesn't get Smolcorp's fence: it runs with its own settings. Start inside tmux, in setup, gives it the fence."
+}
+
 // hire opens a new hire's terminal, as the Mac app's: see the top of this
 // file. desk and roleID are as the phone sent them, either empty.
 func (d *Deck) hire(desk, roleID string) (int, string) {
@@ -295,8 +324,11 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 		return http.StatusConflict, why
 	}
 
-	// In tmux when chosen, or when there's no window to open.
-	inTmux := tmux && (d.config.HireInTmux || !hasTerminal)
+	// In tmux when chosen, or when there's no window to open. Agent windows in
+	// the background (T796): in tmux, with no window, as without a terminal.
+	background := backgroundHires(d.config, tmux)
+	inTmux := tmux && (d.config.HireInTmux || !hasTerminal || background)
+	showWindow := hasTerminal && !background
 	// A role's Claude hire goes through the engine, at the desk chosen too (it
 	// is seated there when its session appears); the rest open as they did.
 	// A pinned desk stays on the old path: the engine's hire sits in a
@@ -304,7 +336,7 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	// at its pinned desk.
 	if roleID != "" && pinned == "" && Agent(program) == Claude {
 		if inTmux {
-			if status, message, handled := d.managedHire(roleID, folder, terminal, hasTerminal, held, floor); handled {
+			if status, message, handled := d.managedHire(roleID, folder, terminal, showWindow, held, floor); handled {
 				return status, message
 			}
 		} else if launcherHires && d.config.HireManagedWindows && hasTerminal {
@@ -326,15 +358,20 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 		// The agent looked for, whatever setup changed meanwhile.
 		command = append(command, program)
 	}
+	// A plain hire (not the engine's: a pinned desk, another agent, no role)
+	// isn't on a tmux server of its own, so in the background nothing but
+	// `tmux attach` would show it, and it has no "Open a window": it opens in
+	// its window as before (T796).
+	plainInTmux := tmux && (d.config.HireInTmux || !hasTerminal)
 	// Opened outside the lock: the terminal may take a moment to start.
 	d.mu.Unlock()
-	err := openHire(command, folder, terminal, hasTerminal, inTmux)
+	err := openHire(command, folder, terminal, hasTerminal, plainInTmux)
 	d.mu.Lock()
 	if err != nil {
 		// Nobody was hired, so the next try needn't wait.
 		d.lastHire = time.Time{}
 		name := terminal.name
-		if inTmux {
+		if plainInTmux {
 			name = "tmux"
 		}
 		return http.StatusInternalServerError, name + " didn't open"

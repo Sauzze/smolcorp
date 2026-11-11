@@ -545,6 +545,38 @@
     },
     {
       "callers" : [
+        "window"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "phone"
+          },
+          "status" : 403,
+          "why" : "the office's own window only, never a phone"
+        }
+      ],
+      "route" : "GET \/hire\/window"
+    },
+    {
+      "callers" : [
+        "window"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "phone"
+          },
+          "status" : 403,
+          "why" : "the office's own window only, never a phone"
+        }
+      ],
+      "route" : "POST \/hire\/window"
+    },
+    {
+      "callers" : [
         "page",
         "tool"
       ],

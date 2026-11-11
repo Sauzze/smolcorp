@@ -71,6 +71,13 @@ final class T3CodeTests: XCTestCase {
         return text.components(separatedBy: "--\n").dropLast().map { $0.split(separator: "\n", omittingEmptySubsequences: false).map(String.init).filter { !$0.isEmpty } }
     }
 
+    /// `T3Code.run`, with time enough for the fake: a shell script that, on a busy Mac, can take seconds just to
+    /// start, past the 3 the version and the thread list get, and be stopped before it writes down its run. It
+    /// always ends by itself; how a run that takes too long is stopped is tested on `run` itself.
+    private static func runFake(_ program: URL, _ arguments: [String], _ timeout: TimeInterval) -> T3Code.Ran {
+        T3Code.run(program, arguments, max(timeout, 60))
+    }
+
     /// This machine as the tests have it: the fake home, no other folders, no PATH, the app as `app` says; time
     /// moves only when the open pauses.
     private func machine(app: Bool) -> T3Code.Machine {
@@ -78,6 +85,7 @@ final class T3CodeTests: XCTestCase {
         machine.home = home
         machine.system = []
         machine.path = ""
+        machine.run = T3CodeTests.runFake
         machine.appInstalled = { app }
         machine.openApp = { [unowned self] in self.opened += 1 }
         machine.pause = { [unowned self] in self.clock.addTimeInterval($0) }
@@ -160,23 +168,24 @@ final class T3CodeTests: XCTestCase {
     }
 
     /// `run` reads what's said as it comes: a program that leaves a process holding its output is let go a second
-    /// after it ends, with what it said, and nothing is left waiting on a read.
+    /// after it ends, with what it said, and nothing is left waiting on a read. The times are far apart, so a busy
+    /// Mac that's slow to start a program can't pass for one held up.
     func testARunIsntHeldByWhatItLeavesRunning() throws {
         let program = home.appendingPathComponent("lingers")
-        try "#!/bin/sh\necho said\necho also >&2\nsleep 4 &\nexit 3\n".write(to: program, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\necho said\necho also >&2\nsleep 30 &\nexit 3\n".write(to: program, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: program.path)
         let start = Date()
-        let ran = T3Code.run(program, [], 5)
-        XCTAssertLessThan(Date().timeIntervalSince(start), 3)
+        let ran = T3Code.run(program, [], 20)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10, "not held till what it left ends, nor till its limit")
         XCTAssertEqual(ran.status, 3)
         XCTAssertEqual(ran.output, "said\n")
         XCTAssertEqual(ran.errors, "also\n")
         let slow = home.appendingPathComponent("slow")
-        try "#!/bin/sh\necho started\nsleep 4\n".write(to: slow, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\necho started\nsleep 30\n".write(to: slow, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: slow.path)
         let stopped = Date()
         XCTAssertNil(T3Code.run(slow, [], 0.5).status, "stopped for taking too long")
-        XCTAssertLessThan(Date().timeIntervalSince(stopped), 3)
+        XCTAssertLessThan(Date().timeIntervalSince(stopped), 10, "at its limit, not when it ends")
     }
 
     // MARK: The folder, from the registry
@@ -329,7 +338,7 @@ final class T3CodeTests: XCTestCase {
                 first.lock(); apps += 1; let wait = apps == 1; first.unlock()
                 if wait { started.signal(); release.wait() }
             }
-            return T3Code.run(program, arguments, timeout)
+            return T3CodeTests.runFake(program, arguments, timeout)
         }
         let found: (T3Code.Machine) -> T3Code.Status = { _ in T3Code.Status(state: .found) }
         let done = DispatchSemaphore(value: 0)
@@ -430,18 +439,19 @@ final class T3CodeTests: XCTestCase {
         let page = try web("setup.html")
         let row = try XCTUnwrap(page.range(of: "function teamRow(r) {"))
         let teamRow = String(page[row.lowerBound...].prefix(4500))
-        XCTAssertTrue(teamRow.contains("const t3Key = t3Button(r);"))
+        XCTAssertTrue(teamRow.contains("const t3Key = state.t3CodeEnabled ? t3Button(r) : null;"), "T3 Code on (T796)")
         XCTAssertTrue(teamRow.contains("head.style.flexWrap = 'wrap';"), "390 px: the buttons go under the name")
-        XCTAssertTrue(teamRow.contains("row.append(head, t3Key.line);"), "the hint on its own line under the button")
+        XCTAssertTrue(teamRow.contains("row.append(head, ...(t3Key ? [t3Key.line] : []), ...(why ? [why] : []));"), "the hint on its own line under the button")
         for words in ["textContent: 'Open in T3 Code', disabled: true", "fetch('/setup/t3code/open'", "JSON.stringify({ id: r.id })",
                       "'Opening T3 Code…'", "'T3 Code opens its own agent there, separate from this hire.'",
                       "Added to T3 Code's projects: open T3 Code to see it.", "t3.state === 'found' ? T3_NOTE : ''", ": t3.hint;",
                       #"unsure: "T3 Code has this hire's folder open as a project; it didn't confirm a new thread, so look in T3 Code.""#,
-                      "const T3_EVERY = 30000", "`/setup/t3code${fresh ? '?fresh=1' : ''}`", "row.addEventListener('pointerenter', () => t3State(true));"] {
+                      "const T3_EVERY = 30000", "`/setup/t3code${fresh ? '?fresh=1' : ''}`", "if (t3Key) row.addEventListener('pointerenter', () => t3State(true));"] {
             XCTAssertTrue(page.contains(words), words)
         }
         // Greyed for appOnly and none: only found and cliOnly may click.
-        XCTAssertTrue(page.contains("const usable = !!t3 && (t3.state === 'found' || t3.state === 'cliOnly');"))
+        // (A hire in T3 Code, T797b, opens its own thread by T3 Code's link: that takes the app, and is greyed otherwise.)
+        XCTAssertTrue(page.contains("      : t3.state === 'found' || t3.state === 'cliOnly');"))
         XCTAssertTrue(page.contains("button.disabled = open && open.busy ? true : !usable;"))
         // Fire… opened, the buttons' span shrinks, so its sentences wrap in the row (measured at 390 and 1280 px).
         XCTAssertTrue(teamRow.contains("keys.style.cssText = 'flex:0 1 auto;min-width:0;"))

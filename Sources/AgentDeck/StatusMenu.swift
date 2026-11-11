@@ -185,7 +185,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
 
     /// Both are drawn as templates, so they follow the menu bar's colour.
-    private static func icon(for logo: Logo) -> NSImage {
+    static func icon(for logo: Logo) -> NSImage {
         switch logo {
         case .smolcorp: return smolcorpIcon
         case .keys: return keysIcon

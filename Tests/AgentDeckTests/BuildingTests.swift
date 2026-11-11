@@ -275,6 +275,26 @@ final class BuildingTests: XCTestCase {
         XCTAssertTrue(refusal?.hasPrefix("Connect your agents first: Claude Code") == true, refusal ?? "nil")
     }
 
+    /// The office says which hires won't get the fence: every agent but Claude Code, and a Claude Code hire
+    /// with the manager off, unless it's the General Manager (D1, as `open` writes the fence for `managed && claudeHire`).
+    func testTheOfficeSaysWhichHiresGetNoFence() {
+        func role(_ id: String, _ agent: String) -> Role {
+            Role(id: id, name: id, agent: agent, model: "", effort: "", instructions: "Do it.", badge: "X")
+        }
+        XCTAssertEqual(Deck.unfencedNote(role: role("rev", "codex"), hireAgent: "claude", managerOn: true),
+                       "Codex hires don't get Smolcorp's fence: they run with their own settings.")
+        XCTAssertEqual(Deck.unfencedNote(role: nil, hireAgent: "opencode", managerOn: true),
+                       "OpenCode hires don't get Smolcorp's fence: they run with their own settings.")
+        XCTAssertNotNil(Deck.unfencedNote(role: nil, hireAgent: "aider", managerOn: true), "a command of your own isn't fenced")
+        XCTAssertNil(Deck.unfencedNote(role: role("dev", "claude"), hireAgent: "codex", managerOn: true))
+        XCTAssertNil(Deck.unfencedNote(role: nil, hireAgent: "claude", managerOn: true))
+        XCTAssertNil(Deck.unfencedNote(role: role(Deck.gmRole, "claude"), hireAgent: "claude", managerOn: false), "the GM is always managed")
+        XCTAssertNil(Deck.unfencedNote(role: role("dev", "aider"), hireAgent: "codex", managerOn: true), "an unknown agent launches as Claude Code")
+        XCTAssertEqual(Deck.unfencedNote(role: role("dev", "claude"), hireAgent: "claude", managerOn: false),
+                       "With the manager off, this Claude Code hire doesn't get Smolcorp's fence: it runs with its own settings.")
+        XCTAssertNotNil(Deck.unfencedNote(role: nil, hireAgent: "claude", managerOn: false))
+    }
+
     /// The office's ⚙︎ says so when the browser won't open, with the way in that works (SIERRA 1.23 gear).
     func testTheCogSaysWhenTheBrowserWouldNotOpen() {
         XCTAssertEqual(Deck.settingsAnswer(opened: true).status, 204)

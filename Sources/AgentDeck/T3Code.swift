@@ -59,6 +59,10 @@ enum T3Code {
             NSWorkspace.shared.openApplication(at: app, configuration: configuration)
         }
         var run: (URL, [String], TimeInterval) -> Ran = T3Code.run
+        /// The same, with `Data` given on its standard input: a message for `t3 thread send <id> -` (T797b).
+        var feed: (URL, [String], Data, TimeInterval) -> Ran = T3Code.feed
+        /// Opens a link (T3 Code's own `t3code://` one) with NSWorkspace, never through a shell. Says whether it was taken.
+        var openURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
         var pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
         var now: () -> Date = Date.init
     }
@@ -176,6 +180,8 @@ enum T3Code {
     /// Opens `hire`'s folder in T3 Code as `status` says it's installed: a 200 with `{ok, opened}`, or a refusal.
     /// Runs `t3` and may wait for the app: never on the main thread.
     static func open(_ hire: FrontDesk.Hire, status: Status, machine: Machine = Machine()) -> Response {
+        // A hire that runs in T3 Code (T797b): its own thread there, by T3 Code's link, not a new one.
+        if hire.engine == T3Desk.engine { return T3Desk.openThread(hire, status: status, machine: machine) }
         let folder: String
         switch T3Code.folder(of: hire, home: machine.home) {
         case .failure(let refusal): return .status(refusal.status, refusal.message)
@@ -256,6 +262,15 @@ enum T3Code {
     /// Runs `program` with `arguments` as they are, no shell, stopped after `timeout`. Its folder is put first
     /// on the PATH it's given, so a `t3` that's a script finds what sits beside it.
     static func run(_ program: URL, _ arguments: [String], _ timeout: TimeInterval) -> Ran {
+        launch(program, arguments, timeout, input: nil)
+    }
+
+    /// `run`, with `input` written to its standard input, then closed: the text never goes on its command line.
+    static func feed(_ program: URL, _ arguments: [String], _ input: Data, _ timeout: TimeInterval) -> Ran {
+        launch(program, arguments, timeout, input: input)
+    }
+
+    private static func launch(_ program: URL, _ arguments: [String], _ timeout: TimeInterval, input: Data?) -> Ran {
         let process = Process()
         process.executableURL = program
         process.arguments = arguments
@@ -266,7 +281,8 @@ enum T3Code {
         let output = Pipe(), errors = Pipe()
         process.standardOutput = output
         process.standardError = errors
-        process.standardInput = FileHandle.nullDevice
+        let given = input.map { _ in Pipe() }
+        process.standardInput = given ?? FileHandle.nullDevice
         let ended = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in ended.signal() }
         // What each pipe says, kept as it comes under a lock, and when it's closed. Nothing waits on a read: what
@@ -287,6 +303,15 @@ enum T3Code {
         }
         let letGo = { for (pipe, _) in pipes { pipe.fileHandleForReading.readabilityHandler = nil } }
         guard (try? process.run()) != nil else { letGo(); return Ran(status: nil) }
+        if let given, let input {
+            // Written off this thread, so a program that doesn't read it can't hold the wait for its end.
+            // A program that stops reading early mustn't raise SIGPIPE in Smolcorp (as SummaryProviders does).
+            _ = fcntl(given.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+            DispatchQueue.global(qos: .userInitiated).async {
+                try? given.fileHandleForWriting.write(contentsOf: input)
+                try? given.fileHandleForWriting.close()
+            }
+        }
         let inTime = ended.wait(timeout: .now() + timeout) == .success
         if !inTime { process.terminate() }
         let drained = DispatchTime.now() + 1

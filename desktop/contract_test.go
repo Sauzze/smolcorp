@@ -128,6 +128,7 @@ var knownGaps = []knownGap{
 	{"POST /setup/briefs/preview", "route", "404", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"POST /setup/hire", "route", "404", "hiring from the setup page by role is the Mac's (M4)", "M4"},
 	{"POST /setup/notify", "route", "404", "a push to the iPhone app (personal build)", "M6: personal shell"},
+	{"POST /setup/t3code/letgo", "refusal: no such hire", "status 409", "hiring into T3 Code is the Mac's alone for now: Go answers 409 to any let go, a hire it knows or not", "M5: the desk lane (port of T797b)"},
 	{"GET /setup/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
 	{"GET /setup/gm/screens", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
 	{"POST /setup/gm/screen", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
@@ -150,6 +151,8 @@ var knownGaps = []knownGap{
 	{"POST /peek", "route", "404", "the phone mic (personal build)", "M6: personal shell"},
 	{"POST /choose", "route", "404", "the iPhone app's typed answers (personal build)", "M6: personal shell"},
 	{"GET /choice", "route", "404", "the iPhone app's prompt details (personal build)", "M6: personal shell"},
+	{"GET /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4 via the bridge (M1)"},
+	{"POST /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4 via the bridge (M1)"},
 	{"GET /nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
 }
 
@@ -571,6 +574,10 @@ func newContractDeck(t *testing.T, c contract, given []string) *contractDeck {
 		switch name {
 		case "manager on":
 			managerOn(cd.d)
+		case "T3 Code on":
+			cd.d.mu.Lock()
+			cd.d.config.T3CodeEnabled = true
+			cd.d.mu.Unlock()
 		case "a paired phone":
 			cd.phoneKey()
 		case "sessions":

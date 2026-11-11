@@ -35,7 +35,9 @@
  * `on.hire(desk, role, floor)` for an empty desk held and hired into: by the id
  * of one of the snapshot's `hiring.roles`, along the foot of the room, or
  * null for Anyone, or for its Hire button where there are no roles; `floor`
- * is 0 on the ground floor, whose desks are the keys, and 1 to 5 upstairs,
+ * is 0 on the ground floor, whose desks are the keys, and 1 to 5 upstairs
+ * (a role, or `hiring` for Anyone, with an `unfenced` line is a hire that won't
+ * get Smolcorp's fence: `on.hint` says it as the hire is made),
  * `on.move(id, floor, remember)` for someone put on another floor, 0 to 5,
  * their folder's next sessions too if `remember`, true if they went,
  * `on.settings()` for the cog in the room's corner, where the page opens its
@@ -33702,7 +33704,7 @@
         disc(x + 38.5, y - 5.5, 3.4, creamDark); disc(x + 38.5, y - 5.5, 2.6, lens); disc(x + 38.5, y - 5.5, 1.2, 0x4c6a9a); dot(x + 37, y - 7, WHITE, 0.8);
         // The flash window, bursting white when it shoots
         const f = t < 0.4;
-        fill(x + 42, y - 8, 2, 2, f ? WHITE : 0xd8e4ea); 
+        fill(x + 42, y - 8, 2, 2, f ? WHITE : 0xd8e4ea);
         if (f) { dot(x + 41, y - 10, WHITE, 0.8); dot(x + 45, y - 9, WHITE, 0.8); dot(x + 43, y - 12, WHITE, 0.7); dot(x + 46, y - 7, WHITE, 0.6); dot(x + 40, y - 8, WHITE, 0.5); }
         if (f && isNight) glowLate(() => glowAt(x + 43, y - 7, 6, 5, 0xffffff, 0.3));
       },
@@ -35433,7 +35435,7 @@
         [[0xf8b8c8, 35, -4], [G2_MINT, 40, -4], [G2_LILAC, 38, -7], [0xfff0a8, 38, -10]].forEach(([c, dx, dy]) => {
           fill(x + dx, y + dy, 4, 1, c); fill(x + dx, y + dy + 1, 4, 1, G2_CREAM); fill(x + dx, y + dy + 2, 4, 1, shaded(c, 0.9)); dot(x + dx, y + dy, shaded(c, 1.1));
         });
-        
+
       },
       /** A mushroom lamp: a round pink cap with white spots on a cream stem; it glows warm, softly by day and brightly at night, breathing slowly. */
       girly2mushroom(x, y) {
@@ -56680,7 +56682,7 @@
             const spread = (r1 - 0.5) * 34, land = floor + Math.floor(r2 * 4), run = land - top;
             const py = top + 1 + ((t * 46 + r2 * run) % run);
             const px = x + spread * (0.25 + 0.75 * (py - top) / run);
-            fill(px, py, 1, 2, 0x9fd8ff, 0.8 * fade); 
+            fill(px, py, 1, 2, 0x9fd8ff, 0.8 * fade);
             if (land - py < 3) dot(px + (k % 2 ? 1 : -1), land - 1, WHITE, 0.6 * fade);
           }
           const rx = Math.min(15, 4 + t * 6);
@@ -68110,6 +68112,13 @@
     /** The roles the computer can hire into, as you've set them up: none, and a hire is anyone. */
     const roles = () => (Array.isArray(hiring.roles) ? hiring.roles.filter((r) => r && typeof r.id === 'string' && r.name) : []);
 
+    /** Hires role `id` (null for anyone) into `desk`, and says so when that hire won't get Smolcorp's fence: the computer's `unfenced` line. */
+    function hireInto(desk, id, floor) {
+      on.hire?.(desk, id, floor);
+      const note = id ? (roles().find((r) => r.id === id) || {}).unfenced : hiring.unfenced;
+      if (typeof note === 'string' && note) on.hint?.(note);
+    }
+
     /** The roles a held empty desk can hire into, along the foot of the room, Anyone first, if there are any to choose from. */
     function roleRow() {
       if (framed || !held || held.kind !== 'empty' || !hiresHere(held) || !roles().length || arranging || styling || firing || maxing || carrying) return null;
@@ -68808,7 +68817,7 @@
         if (session) firing = { id: holding.id, name: memberOf(session)?.name || session.name, at: clock() };
         return on.held?.();
       }
-      if (target.kind === 'hire') return on.hire?.(holding.desk, null, holding.floor ? holding.floor - 1 : 0);
+      if (target.kind === 'hire') return hireInto(holding.desk, null, holding.floor ? holding.floor - 1 : 0);
       if (target.kind === 'micLanguage') return on.language?.(target.next);
       if (target.kind === 'micCleanup') return on.cleanup?.(target.next);
       // An empty or pinned desk says something on a tap, once the finger lifts: holding it is something else.
@@ -68913,7 +68922,7 @@
         if (dropped && chip && !finger.slid && held && held.kind === 'empty') {
           const { desk, floor } = held;
           held = null;
-          on.hire?.(desk, id, floor ? floor - 1 : 0);
+          hireInto(desk, id, floor ? floor - 1 : 0);
         }
       }
       if (finger && !finger.held) {

@@ -22,6 +22,7 @@ type HireOptions struct {
 	Role, Folder, Account, Model, Nickname, Task string
 	Floor                                        int // -1: not given
 	Worktree, APIKey                             bool
+	T3                                           bool // into T3 Code (experimental, the Mac app only)
 }
 
 // body is the request as POST /setup/gm/hire takes it.
@@ -40,6 +41,9 @@ func (o HireOptions) body() map[string]any {
 	}
 	if o.APIKey {
 		m["apiKey"] = true
+	}
+	if o.T3 {
+		m["engine"] = "t3"
 	}
 	return m
 }
@@ -209,6 +213,7 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 		fs.IntVar(&o.Floor, "floor", -1, "the floor, 0 to 5")
 		fs.BoolVar(&o.Worktree, "worktree", false, "a worktree of its own")
 		fs.BoolVar(&o.APIKey, "api-key", false, "on the API-key account")
+		fs.BoolVar(&o.T3, "t3", false, "into T3 Code (experimental)")
 		fs.StringVar(&o.Task, "task", "", "what to do")
 		fs.StringVar(&taskFile, "task-file", "", "a file with what to do (- for standard input)")
 	case "brief":

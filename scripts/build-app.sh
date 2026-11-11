@@ -16,10 +16,6 @@ APP="build/$APP_NAME.app"
 ARCHS=()
 [ "${1:-}" = "universal" ] && ARCHS=(--arch arm64 --arch x86_64)
 
-# The phone's viewer draws with a copy of the office: an app whose office has
-# moved on without it would show the phone another room.
-viewer/scripts/sync-office.sh --check
-
 echo "Building…"
 mkdir -p build
 if ! swift build -c release ${ARCHS[@]+"${ARCHS[@]}"} >build/build.log 2>&1; then
@@ -39,7 +35,16 @@ cp "$BIN" "$APP/Contents/MacOS/$EXECUTABLE"
 strip -S -no_code_signature_warning "$APP/Contents/MacOS/$EXECUTABLE"
 cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns Resources/report.sh Resources/opencode-plugin.js Resources/opencode-plugin-v1.js "$APP/Contents/Resources/"
+# office.js is built from Resources/web/office (scripts/buildoffice), and
+# committed: checked here, never rebuilt, so a change made in office.js itself
+# isn't lost. The app serves office.js alone, without its sources.
+if command -v go >/dev/null 2>&1; then
+  go run ./scripts/buildoffice -check
+else
+  echo "Go isn't installed: office.js isn't checked against its sources in Resources/web/office (brew install go)."
+fi
 cp -R Resources/web "$APP/Contents/Resources/"
+rm -rf "$APP/Contents/Resources/web/office"
 cp -R Resources/briefs "$APP/Contents/Resources/"
 cp -R Resources/gm "$APP/Contents/Resources/"
 # Signed already, so the app's signature seals it as it is.

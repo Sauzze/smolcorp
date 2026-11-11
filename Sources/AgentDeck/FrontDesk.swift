@@ -42,6 +42,11 @@ final class FrontDesk {
         var started: Double = 0
         var state = State.starting
         var notes = ""
+        /// Where its agent runs: "" in a terminal of Smolcorp's, `T3Desk.engine` ("t3") in T3 Code (T797b).
+        var engine = ""
+        /// Its T3 Code thread's id and link, for a hire in T3 Code; "" otherwise.
+        var t3Thread = ""
+        var t3Link = ""
     }
 
     /// A session as the deck follows it, with where it sits in the office.
@@ -191,6 +196,19 @@ final class FrontDesk {
         guard let i = hires.firstIndex(where: { $0.id == id }) else { return false }
         guard hires[i].state != state else { return true }
         hires[i].state = state
+        save()
+        return true
+    }
+
+    /// A hire in T3 Code's thread and link, as T3 Code gave them (and its brief, once written); saved at once. Says whether
+    /// there was such a hire.
+    @discardableResult
+    func setT3(_ id: String, thread: String, link: String, brief: String? = nil) -> Bool {
+        guard let i = hires.firstIndex(where: { $0.id == id }) else { return false }
+        guard hires[i].t3Thread != thread || hires[i].t3Link != link || (brief != nil && hires[i].brief != brief) else { return true }
+        hires[i].t3Thread = thread
+        hires[i].t3Link = link
+        if let brief { hires[i].brief = brief }
         save()
         return true
     }
@@ -356,6 +374,11 @@ final class FrontDesk {
             "status": status(place),
         ]
         // Where the session is now, or what a hire with none is: gone.
+        // A hire in T3 Code says so, with its thread; nobody else's row changes.
+        if let hire, !hire.engine.isEmpty {
+            row["engine"] = hire.engine
+            row["t3Thread"] = hire.t3Thread
+        }
         row["sessionId"] = live?.id ?? ""
         row["agent"] = live?.agent ?? ""
         row["liveState"] = live?.state ?? "gone"
@@ -446,6 +469,39 @@ extension FrontDesk.Hire {
         started = try c.decodeIfPresent(Double.self, forKey: .started) ?? 0
         state = try c.decodeIfPresent(FrontDesk.State.self, forKey: .state) ?? .starting
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        engine = try c.decodeIfPresent(String.self, forKey: .engine) ?? ""
+        t3Thread = try c.decodeIfPresent(String.self, forKey: .t3Thread) ?? ""
+        t3Link = try c.decodeIfPresent(String.self, forKey: .t3Link) ?? ""
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, nickname, role, folder, branch, worktree, repo, tmuxSocket, account, model, ports, brief, started, state, notes
+        case engine, t3Thread, t3Link
+    }
+
+    /// Written as it always was; where it runs and its T3 Code thread only for a hire in T3 Code, so every
+    /// other record (and the Linux and Windows app's reading of them) stays the same.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(nickname, forKey: .nickname)
+        try c.encode(role, forKey: .role)
+        try c.encode(folder, forKey: .folder)
+        try c.encode(branch, forKey: .branch)
+        try c.encode(worktree, forKey: .worktree)
+        try c.encode(repo, forKey: .repo)
+        try c.encode(tmuxSocket, forKey: .tmuxSocket)
+        try c.encode(account, forKey: .account)
+        try c.encode(model, forKey: .model)
+        try c.encode(ports, forKey: .ports)
+        try c.encode(brief, forKey: .brief)
+        try c.encode(started, forKey: .started)
+        try c.encode(state, forKey: .state)
+        try c.encode(notes, forKey: .notes)
+        if !engine.isEmpty { try c.encode(engine, forKey: .engine) }
+        if !t3Thread.isEmpty { try c.encode(t3Thread, forKey: .t3Thread) }
+        if !t3Link.isEmpty { try c.encode(t3Link, forKey: .t3Link) }
     }
 }
 

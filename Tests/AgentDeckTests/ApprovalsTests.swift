@@ -149,13 +149,11 @@ final class ApprovalsTests: XCTestCase {
         XCTAssertTrue(page.contains("selected = item.session; render();"))
     }
 
-    /// The office tags a waiting desk, and the viewer's copy of the office is the same file.
-    func testTheOfficeTagsAWaitingDeskInBothCopies() throws {
+    /// The office tags a waiting desk (the viewer draws with the same file, copied in when it's deployed).
+    func testTheOfficeTagsAWaitingDesk() throws {
         let web = try String(contentsOf: Self.repo.appendingPathComponent("Resources/web/office.js"), encoding: .utf8)
-        let viewer = try String(contentsOf: Self.repo.appendingPathComponent("viewer/public/office.js"), encoding: .utf8)
         XCTAssertTrue(web.contains("s.session.state === 'asking' && !DESKS[desk].off"))
         XCTAssertTrue(web.contains("'WAITING'"))
-        XCTAssertEqual(web, viewer)
     }
 
     // MARK: The fixture

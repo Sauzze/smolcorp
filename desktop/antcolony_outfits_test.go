@@ -29,54 +29,52 @@ func TestTheAntColonyIsInEveryList(t *testing.T) {
 		}
 		return string(b)
 	}
-	web, viewer := officeSources(t)
+	src, name := string(officeSource(t)), "office.js"
 	setup, swift := read("../Resources/web/setup.html"), read("../Sources/AgentDeck/Layout.swift")
 	// STYLE_DRESS's list runs over two lines: compared without its spaces and line breaks
 	spaces := regexp.MustCompile(`\s+`)
 	dress := "antcolony:['" + strings.Join(antColonyOutfits, "','") + "'],"
-	for name, src := range map[string]string{"office.js": string(web), "the viewer's office.js": string(viewer)} {
-		// The style, from pieces other styles have, and the nine it dresses each person in
-		if !strings.Contains(src, "antcolony: { name: 'Ant colony'") {
-			t.Errorf("the antcolony style is not in %s's ROOM_STYLES", name)
+	// The style, from pieces other styles have, and the nine it dresses each person in
+	if !strings.Contains(src, "antcolony: { name: 'Ant colony'") {
+		t.Errorf("the antcolony style is not in %s's ROOM_STYLES", name)
+	}
+	at := strings.Index(src, "  const STYLE_DRESS = {")
+	if at < 0 {
+		t.Fatalf("STYLE_DRESS is gone from %s: update this test", name)
+	}
+	block := src[at:]
+	block = block[:strings.Index(block, "\n  };")]
+	if !strings.Contains(spaces.ReplaceAllString(block, ""), dress) {
+		t.Errorf("%s's STYLE_DRESS does not dress the antcolony style in the nine", name)
+	}
+	if strings.Contains(src, "add-piece: TODO") {
+		t.Errorf("a placeholder is still in %s", name)
+	}
+	// The team's outfit choices: TEAM_CHOICES's own outfit list, up to its colours (STYLE_DRESS names the nine too)
+	at = strings.Index(src, "  const TEAM_CHOICES = {")
+	if at < 0 {
+		t.Fatalf("TEAM_CHOICES is gone from %s: update this test", name)
+	}
+	team := src[at:]
+	from, to := strings.Index(team, "\n    outfit: ["), strings.Index(team, "\n    colour: [")
+	if from < 0 || to < from {
+		t.Fatalf("TEAM_CHOICES's outfit list is not where it was in %s: update this test", name)
+	}
+	team = team[from:to]
+	// The team's own drawing helpers, after OUTFIT_PARTS: without them, drawing any of the nine would stop the office
+	for _, helper := range []string{"costumeAntHead", "costumeAntLegs", "costumeAntSprite"} {
+		if strings.Count(src, "function "+helper+"(") != 1 {
+			t.Errorf("%s is not in %s just once", helper, name)
 		}
-		at := strings.Index(src, "  const STYLE_DRESS = {")
-		if at < 0 {
-			t.Fatalf("STYLE_DRESS is gone from %s: update this test", name)
+	}
+	for _, id := range antColonyOutfits {
+		// Its colours in OUTFITS and its drawing in OUTFIT_PARTS
+		if !strings.Contains(src, id+": { style: '"+id+"'") || !strings.Contains(src, "\n      "+id+": {\n") {
+			t.Errorf("%s is not wholly in %s (OUTFITS and OUTFIT_PARTS)", id, name)
 		}
-		block := src[at:]
-		block = block[:strings.Index(block, "\n  };")]
-		if !strings.Contains(spaces.ReplaceAllString(block, ""), dress) {
-			t.Errorf("%s's STYLE_DRESS does not dress the antcolony style in the nine", name)
-		}
-		if strings.Contains(src, "add-piece: TODO") {
-			t.Errorf("a placeholder is still in %s", name)
-		}
-		// The team's outfit choices: TEAM_CHOICES's own outfit list, up to its colours (STYLE_DRESS names the nine too)
-		at = strings.Index(src, "  const TEAM_CHOICES = {")
-		if at < 0 {
-			t.Fatalf("TEAM_CHOICES is gone from %s: update this test", name)
-		}
-		team := src[at:]
-		from, to := strings.Index(team, "\n    outfit: ["), strings.Index(team, "\n    colour: [")
-		if from < 0 || to < from {
-			t.Fatalf("TEAM_CHOICES's outfit list is not where it was in %s: update this test", name)
-		}
-		team = team[from:to]
-		// The team's own drawing helpers, after OUTFIT_PARTS: without them, drawing any of the nine would stop the office
-		for _, helper := range []string{"costumeAntHead", "costumeAntLegs", "costumeAntSprite"} {
-			if strings.Count(src, "function "+helper+"(") != 1 {
-				t.Errorf("%s is not in %s just once", helper, name)
-			}
-		}
-		for _, id := range antColonyOutfits {
-			// Its colours in OUTFITS and its drawing in OUTFIT_PARTS
-			if !strings.Contains(src, id+": { style: '"+id+"'") || !strings.Contains(src, "\n      "+id+": {\n") {
-				t.Errorf("%s is not wholly in %s (OUTFITS and OUTFIT_PARTS)", id, name)
-			}
-			// Its place among the team's choices: an outfit missing from them is drawn as Auto
-			if !strings.Contains(team, "'"+id+"'") {
-				t.Errorf("%s is not among %s's TEAM_CHOICES outfits: a team member or a desk picking it is drawn as Auto", id, name)
-			}
+		// Its place among the team's choices: an outfit missing from them is drawn as Auto
+		if !strings.Contains(team, "'"+id+"'") {
+			t.Errorf("%s is not among %s's TEAM_CHOICES outfits: a team member or a desk picking it is drawn as Auto", id, name)
 		}
 	}
 	if !styles["antcolony"] || !strings.Contains(setup, "['antcolony', 'Ant colony']") || !strings.Contains(swift, `"antcolony"`) {

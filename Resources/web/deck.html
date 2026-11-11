@@ -435,6 +435,7 @@
       // same two keys, and answers them itself from what reaches it as /act.
       if (bare && action === `button:${BOARD_BUTTON}`) return openBoard(selected);
       if (bare && action === `button:${INFO_BUTTON}`) return openInfo(selected);
+      if (bare && action === `button:${WINDOW_BUTTON}`) return openHireWindow(selected);
       if (t3Here && action === `button:${T3_BUTTON}`) return openT3(selected);
       if (action.startsWith('button:')) return send('/act', { session: selected, action: 'button', button: action.slice(7) });
       if (['esc', 'send', 'clear'].includes(action)) send('/act', { session: selected, action });
@@ -1033,8 +1034,39 @@
   const BOARD_EVERY = 3000;
   const INFO_EVERY = 5000;
 
+  /*
+   * Agent windows in the background (T796): the office's own window on the Mac gets one more key in the picked
+   * agent's row, ⧉ window, which opens a window attached to that hire's tmux session. The Mac answers /hire/window
+   * to that window alone, never to a phone, and says whether hires run in the background; it's asked again now
+   * and then, as Settings may change it.
+   */
+  const WINDOW_BUTTON = 'smolcorp-window';
+  let windowKey = false;
+  let windowSnapshot = null;
+
+  function askWindowKey() {
+    get('/hire/window').then(async (res) => {
+      const answer = res && res.ok ? await res.json().catch(() => null) : null;
+      const shown = !!(answer && answer.background);
+      if (shown === windowKey) return;
+      windowKey = shown;
+      if (windowSnapshot) office.show({ ...withMacKeys(windowSnapshot), theme: {} });
+    });
+  }
+  if (bare && !preview) {
+    askWindowKey();
+    setInterval(askWindowKey, 30000);
+  }
+
+  async function openHireWindow(id) {
+    const res = await post('/hire/window', { session: id });
+    if (!res) return flash("Can't reach your Mac.");
+    flash(res.ok ? "Its window is open." : await problemText(res));
+  }
+
   function withMacKeys(data) {
     const buttons = [...(bare ? [{ id: BOARD_BUTTON, label: '▤ conversation' }, { id: INFO_BUTTON, label: 'ⓘ info' }] : []),
+      ...(bare && windowKey ? [{ id: WINDOW_BUTTON, label: '⧉ window' }] : []),
       ...(t3Here ? [{ id: T3_BUTTON, label: 'T3 Code' }] : [])];
     if (!buttons.length) return data;
     const rows = data.layout && Array.isArray(data.layout.rows) ? data.layout.rows : [];
@@ -1220,7 +1252,10 @@
   const T3_BUTTON = 'smolcorp-t3code';
   const T3_NOTE = 'T3 Code opens its own agent there, separate from this hire.';
   const T3_OPENED = { thread: "T3 Code is open on this hire's folder, in a new thread.", project: "Added to T3 Code's projects: open T3 Code to see it.",
-    unsure: "T3 Code has this hire's folder open as a project; it didn't confirm a new thread, so look in T3 Code." };
+    unsure: "T3 Code has this hire's folder open as a project; it didn't confirm a new thread, so look in T3 Code.",
+    link: "T3 Code is open on this hire's own thread." };
+  /* A hire that runs in T3 Code (T797b, experimental): its card says so, with its branch and its thread's status. */
+  const T3_STATUS = { starting: 'starting', working: 'at work', waiting: 'waiting for an answer in T3 Code', done: 'done', unknown: "T3 Code didn't say" };
   let t3Here = false;  // the computer said this window may open T3 Code
   let t3Snapshot = null; // the last snapshot, to show again with the key once it's allowed
   let t3For = null;    // the session the card is for
@@ -1251,6 +1286,11 @@
     if (t3For !== id) return;
     if (!found) return t3Say("Couldn't tell whether T3 Code is installed.");
     if (!found.hire) return t3Say("Only a hire's folder opens in T3 Code: this agent wasn't hired by Smolcorp.");
+    if (found.lane) {
+      const lane = found.lane;
+      $('t3-open').disabled = !((found.state === 'found' || found.state === 'appOnly') && lane.canOpen);
+      return t3Say(`${lane.tag}${lane.branch ? ` · ${lane.branch}` : ''} · ${T3_STATUS[lane.status] || T3_STATUS.unknown}. Let it go from Setup's team list.`);
+    }
     const usable = found.state === 'found' || found.state === 'cliOnly';
     $('t3-open').disabled = !usable;
     t3Say(usable ? (found.state === 'found' ? T3_NOTE : '') : found.hint);
@@ -1474,6 +1514,7 @@
       };
     }
     // The office's own colours: a theme saved by an older setup page is left out.
+    windowSnapshot = data;
     t3Snapshot = data;
     office.show({ ...withMacKeys(data), theme: {} });
     $('status').classList.remove('off');

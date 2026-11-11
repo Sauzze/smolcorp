@@ -500,6 +500,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusForbidden, "T3 Code opens on your computer.")
 			return
 		}
+		if !d.t3On() {
+			writeStatus(w)(http.StatusNotFound, t3Off)
+			return
+		}
 		hire, found := d.hireInSession(session)
 		switch r.Method {
 		case http.MethodGet:
@@ -1091,6 +1095,55 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
+	// The two plain choices (T796), from first setup or Settings: T3 Code on or
+	// off, agent windows, and asked=1 once first setup has asked them. Switching
+	// to the background detaches each hire's windows on its own tmux server.
+	case r.Method == http.MethodPost && path == "/setup/choices":
+		_, tmux := hireWays()
+		d.mu.Lock()
+		switched, status, refusal := setChoices(config, query, tmux)
+		if refusal != "" {
+			d.mu.Unlock()
+			http.Error(w, refusal, status)
+			return
+		}
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		answer := rt.setupStateFor(r.caller)
+		if switched {
+			answer["windowsSaid"] = hiresToBackground(officeHires(), func(h Hire) detached { return detachHireViewers(h, nil) })
+		}
+		writeJSON(w, http.StatusOK, answer)
+
+	// "Open a window" on a hire's desk in Setup's team list (T796): by the hire's
+	// id, from the registry; a window attached to its own tmux server.
+	case r.Method == http.MethodPost && path == "/setup/hire/window":
+		var given struct {
+			ID string `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&given)
+		// Read once: the list may change meanwhile, and i must point into this one.
+		hires := officeHires()
+		i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == given.ID && h.State != "fired" && h.State != "failed" })
+		if i < 0 {
+			http.Error(w, "That hire isn't on the team.", http.StatusConflict)
+			return
+		}
+		terminals, _ := hireWays()
+		d.mu.Lock()
+		terminal, hasTerminal := hireTerminal(config.HireTerminal, terminals)
+		d.mu.Unlock()
+		if !hasTerminal {
+			http.Error(w, "There's no terminal here to open a window in: tmux attach shows it.", http.StatusConflict)
+			return
+		}
+		if err := openHireViewer(hires[i], terminal); err != nil {
+			http.Error(w, "Its window didn't open: the hire may have ended.", http.StatusConflict)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
 	// Every part is checked before any is kept, so a wrong one changes
 	// nothing. An empty folder clears it.
 	case r.Method == http.MethodPost && path == "/setup/hiring":
@@ -1419,8 +1472,16 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// folder opened there, by the hire's id: the folder comes from the registry, never from the request.
 	// The page alone (routes.go).
 	case r.Method == http.MethodGet && path == "/setup/t3code":
+		if !d.t3On() {
+			http.Error(w, t3Off, http.StatusNotFound)
+			return
+		}
 		writeJSON(w, http.StatusOK, t3JSON(t3StatusNow(query.Get("fresh") == "1", newT3Machine())))
 	case r.Method == http.MethodPost && path == "/setup/t3code/open":
+		if !d.t3On() {
+			http.Error(w, t3Off, http.StatusNotFound)
+			return
+		}
 		id, _ := decodeJSON(r.Body)["id"].(string)
 		var hire Hire
 		found := false
@@ -1430,6 +1491,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			}
 		}
 		openHireInT3(w, hire, found)
+	// Hiring into T3 Code (T797b) is the Mac app's alone for now: on this computer no hire runs in T3 Code to let go.
+	case r.Method == http.MethodPost && path == "/setup/t3code/letgo":
+		writeStatus(w)(http.StatusConflict, "Hiring into T3 Code is in the Mac app only for now, so no hire here runs in T3 Code.")
 
 	// What a first General Manager hire needs (gmpreflight.go), Start here's lines above its
 	// Hire button. Outside /setup/gm/, which is closed while the manager is off, as on a first run.
@@ -1679,6 +1743,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 			"agent": s.Agent, "model": nilIfEmpty(s.Model), "role": roleID(d.roleOf(s)),
 		})
 	}
+	_, tmuxHere := hireWays()
 	return map[string]any{
 		"version": Version,
 		// Which computer this is, so the page shows its own kind of folder path.
@@ -1704,6 +1769,9 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"maxConfirm": map[string]any{"enabled": d.config.MaxConfirm},
 		// The first-run guide's arrows: shown until it's finished or skipped (see guide.js).
 		"guide": map[string]any{"done": d.config.GuideDone},
+		// The two plain choices (T796), and the T3 Code gate as T3 Code's own code reads it.
+		"choices":       choicesState(d.config, tmuxHere, t3InstalledRecently),
+		"t3CodeEnabled": t3CodeAllowed(d.config),
 		// Without a window of its own, setup says why there's no switch.
 		"officeWindow": map[string]any{"available": hasNativeWindow, "mac": false, "onTop": hasNativeWindow && d.config.AlwaysOnTop},
 		"summary":      d.summaryState(),

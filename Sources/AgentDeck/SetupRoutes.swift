@@ -108,9 +108,13 @@ enum SetupRoutes {
         page("POST", "/setup/keystrokes", "letting features press keys in other apps, only from its switch"),
         page("POST", "/setup/keystrokes/apps", "the apps keys may go to: added or removed, only from the page"),
 
+        // The two plain choices, and a background hire's window: the page alone, never the GM or a hire (T796).
+        page("POST", "/setup/choices", "T3 Code on or off, and agent windows: switching to the background closes the windows Smolcorp opened"),
+        page("POST", "/setup/hire/window", "a window attached to a hire's own tmux session, by the hire's id"),
         // Another app on this computer: the page alone, never the GM or a hire (T792).
         page("GET", "/setup/t3code", "whether T3 Code and its t3 command are installed"),
         page("POST", "/setup/t3code/open", "a hire's folder, from the registry, opened in T3 Code on this computer"),
+        page("POST", "/setup/t3code/letgo", "let a hire in T3 Code go: its T3 project removed, its worktree kept"),
 
         // Phones' codes and keys: the page alone (1.23.1).
         page("POST", "/setup/pair", "a pairing code"),

@@ -20,3 +20,9 @@ func hireSessionUp(h Hire, testPort int, o engineOptions) bool { return false }
 func (d *Deck) fireTab(tab string, force bool) (int, string, bool) {
 	return d.fireLauncherTab(tab, force)
 }
+
+// detachHireViewers: no hire runs on a tmux server of its own here.
+func detachHireViewers(hire Hire, run func([]string) (string, int, bool)) detached { return detached{} }
+
+// openHireViewer: no hire runs in tmux here.
+func openHireViewer(hire Hire, terminal hireOpener) error { return errUnsupported }

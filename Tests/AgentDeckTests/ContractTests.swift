@@ -63,7 +63,7 @@ final class ContractTests: XCTestCase {
             switch path {
             case "/hook": return ["hook"]
             case "/pair": return ["anyone"]
-            case "/t3code", "/t3code/open": return ["window"]
+            case "/t3code", "/t3code/open", "/hire/window": return ["window"]
             default: return ["phone"]
             }
         }
@@ -184,7 +184,17 @@ final class ContractTests: XCTestCase {
               note: "hires the GM in the folder for your hires; asked here only with none set"),
         Route("POST", "/setup/notify", nil, refusals: [(ask(body: [String: Any]()), "no title or body")]),
         Route("POST", "/setup/viewer", nil, refusals: [(ask(body: "not json"), "not a viewer setting")]),
-        Route("POST", "/setup/t3code/open", nil, refusals: [(ask(body: ["id": "no-such-hire"]), "no such hire")]),
+        // The two plain choices (T796): asked with nothing switched to the background, which would detach the hires' windows.
+        Route("POST", "/setup/choices", ask(query: ["t3": "0"]),
+              note: "background=1 is refused (400) where there's no tmux: not asked, as whether there is depends on this computer"),
+        Route("POST", "/setup/hire/window", nil, refusals: [(ask(body: ["id": "no-such-hire"]), "no such hire")],
+              note: "a hire that is found has a window opened for it; only the refusal, which comes first, is asked"),
+        Route("GET", "/setup/t3code", nil, refusals: [(ask(), "T3 Code is off")],
+              note: "with T3 Code on it looks for T3 Code's app and runs its command; only the refusal, which comes first, is asked"),
+        Route("POST", "/setup/t3code/open", nil, refusals: [(ask(body: ["id": "no-such-hire"]), "T3 Code is off"),
+                                                          (ask(body: ["id": "no-such-hire"], given: ["T3 Code on"]), "no such hire")]),
+        Route("POST", "/setup/t3code/letgo", nil, refusals: [(ask(body: ["id": "no-such-hire"]), "no such hire")],
+              note: "a hire in T3 Code that is found is let go there; only the refusal, which comes first, is asked"),
         Route("POST", "/setup/fix", nil, refusals: [(ask("tool", query: ["fix": "nope"]), "a tool only repairs")]),
         Route("GET", "/setup/nothing-here", nil, refusals: [(ask(), "no such route")]),
     ]
@@ -261,6 +271,8 @@ final class ContractTests: XCTestCase {
         Route("GET", "/choice", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
         Route("GET", "/t3code", nil, refusals: [(ask("phone"), "the office's own window only, never a phone")]),
         Route("POST", "/t3code/open", nil, refusals: [(ask("phone"), "the office's own window only, never a phone")]),
+        Route("GET", "/hire/window", nil, refusals: [(ask("phone"), "the office's own window only, never a phone")]),
+        Route("POST", "/hire/window", nil, refusals: [(ask("phone"), "the office's own window only, never a phone")]),
         Route("POST", "/bots/no-such-bot/event", nil, refusals: [
             (ask("tool", body: ["type": "nope"]), "not an event a bot has"),
             (ask("tool", body: ["type": "seen"]), "no such bot"),
@@ -319,6 +331,7 @@ final class ContractTests: XCTestCase {
     /// before the app reads it, or what each app does its own way (`says`). Written to contract.json as they are.
     static let givens: [String: [String: Any]] = [
         "manager on": ["says": "config.json's managerEnabled is true"],
+        "T3 Code on": ["says": "config.json's t3CodeEnabled is true (the T3 Code choice, T796)"],
         "sessions": [
             "requests": hooks.map { hook -> [String: Any] in
                 ["as": "hook", "method": "POST", "path": "/hook", "headers": hook["headers"]!, "body": hook["body"]!]
@@ -714,6 +727,7 @@ final class ContractTests: XCTestCase {
             let given = try XCTUnwrap(Self.givens[name], "nothing gives \(name)")
             switch name {
             case "manager on": Config.shared.managerEnabled = true
+            case "T3 Code on": Config.shared.t3CodeEnabled = true
             case "a paired phone": _ = try phoneKey(deck)
             case "sessions": deck.hiredTabs.append((tab: "launcher:contract-a", role: Self.hiredRole, desk: nil, at: Date(),
                                                      folder: "/work/alpha", floor: nil))
@@ -949,6 +963,7 @@ final class ContractTests: XCTestCase {
         reset(\.keystrokesAllowed); reset(\.keystrokeApps); reset(\.showInDock); reset(\.botsAutoDetect); reset(\.hiddenBots)
         reset(\.claudeProfiles); reset(\.dictationEnabled); reset(\.dictationForClaude); reset(\.dictationCleanup)
         reset(\.dictationGlossary); reset(\.hireTerminal); reset(\.hireInTmux); reset(\.musicEnabled); reset(\.teamScreen)
+        reset(\.t3CodeEnabled); reset(\.hiresInBackground); reset(\.choicesAsked)
         // Nothing is asked of the Keychain, Tailscale or the coding agents' own commands.
         let key = SummaryKey.store
         SummaryKey.store = .init(read: { nil }, hint: { nil }, write: { _, _ in false }, delete: {})

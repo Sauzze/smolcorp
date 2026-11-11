@@ -7,10 +7,10 @@ and tells you the two or three things only you can do.
 
 ---
 
-You're setting up Smolcorp on this computer for me. Smolcorp shows my coding
-agents as little people in a pixel office, on this computer and on my
-phone. Do the whole setup, check it, and report. Work only with what's
-described here.
+You're setting up Smolcorp on this computer for me. Smolcorp gives my AI
+coding agents a General Manager, and shows the team as little people in a
+pixel office, in any browser: on this computer, and on my phone. Do the whole
+setup, check it, and report. Work only with what's described here.
 
 **Rules**
 - Don't read, print or copy any key: not Smolcorp's `setup-key` or

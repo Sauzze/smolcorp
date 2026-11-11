@@ -17,7 +17,7 @@ How a hire works, what keeps it in bounds, and where those limits end.
 
 ## What stops a hire
 
-A managed Claude hire starts with its own settings file, merged on top of your account's. It holds two things.
+A managed Claude hire starts with its own settings file, merged on top of your account's. It holds two things. Which hires are managed differs by platform, and hires of Codex, Gemini CLI, OpenCode and Grok never are: see [The fence, and who gets it](../team.md#the-fence-and-who-gets-it).
 
 **Deny rules** (Claude Code's own permission rules, which win over any allow):
 - push, deploy and publish commands (`git push`, `vercel deploy`, `npm publish` and the like);

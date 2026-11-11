@@ -26,7 +26,6 @@ final class SharedPageFixesTests: XCTestCase {
         XCTAssertTrue(web.contains("target.step && rolesAt"))
         XCTAssertTrue(web.contains("e.key === 'ArrowRight' ? 1 : -1"), "the keyboard slides the roles too")
         XCTAssertTrue(web.contains("const stepRoles = (dir)"), "the arrows and keys share one step")
-        XCTAssertEqual(web, try read("viewer/public/office.js"), "the viewer's copy of the office is the same file")
     }
 
     /// T739: the Office pane opens cheap, for a person and for a screen reader (Accessibility), and a refresh with

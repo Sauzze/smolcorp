@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/Sauzze/smolcorp/internal/appdirs"
 )
@@ -22,9 +23,17 @@ const (
 // fileName is the owner's guard file, in the app's support folder.
 const fileName = "hire-guard.json"
 
-// supportFile is where hire-guard.json lives: the Mac app's folder in
-// Application Support, or the same folder desktop/paths.go uses.
+// testSupportEnv names a test copy's own support folder (the Mac app's
+// TestCopy.support, and SMOLCORP_TEST_SUPPORT_DIR in a hire's start script).
+const testSupportEnv = "SMOLCORP_TEST_SUPPORT_DIR"
+
+// supportFile is where hire-guard.json lives: a test copy's own folder when
+// one is named, so its hires never read the real app's rules; otherwise the
+// Mac app's folder in Application Support, or the same folder desktop/paths.go uses.
 func supportFile() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv(testSupportEnv)); dir != "" {
+		return filepath.Join(dir, fileName), nil
+	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("can't find the app's support folder: %v", err)

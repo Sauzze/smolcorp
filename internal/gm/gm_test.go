@@ -516,6 +516,19 @@ func TestHireLeavesOutWhatIsNotGiven(t *testing.T) {
 	}
 }
 
+// --t3 hires into T3 Code (T797b): the request says engine "t3", and the app's answer (or refusal) comes back as for any hire.
+func TestHireIntoT3CodeSaysSo(t *testing.T) {
+	var got []byte
+	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
+		got, _ = io.ReadAll(r.Body)
+		w.Write([]byte(`{"ok":true,"desk":null}`))
+	})
+	code, out, _ := runGM(app.env(t, withToken()), "hire", "--role", "reviewer", "--t3", "--json")
+	if code != 0 || !strings.Contains(out, `"ok": true`) || string(got) != `{"engine":"t3","role":"reviewer"}` {
+		t.Errorf("exit %d out %q body %s", code, out, got)
+	}
+}
+
 func TestHireRefusalIsPrinted(t *testing.T) {
 	app := newFakeApp(t, serve([]byte("Choose a folder for new hires in setup, on your Mac."), 409))
 	code, _, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor")
