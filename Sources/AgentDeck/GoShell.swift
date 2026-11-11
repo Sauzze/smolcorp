@@ -47,7 +47,8 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return
             }
             let address = core.officeAddress()
-            let link = core.setupLink()
+            // Only a test copy leaves a setup link: the real app mints no link nobody asked for.
+            let link = TestCopy.isOn ? core.setupLink() : nil
             DispatchQueue.main.async { self.ready(office: address, setupLink: link) }
         }
     }

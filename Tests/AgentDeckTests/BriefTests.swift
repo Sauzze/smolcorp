@@ -43,8 +43,6 @@ final class BriefTests: XCTestCase {
             {{/branch}}
             Inline{{#read_only}} read-only{{/read_only}}{{^read_only}} writable{{/read_only}}.
 
-
-
             End <!-- inline -->
             """
         let known = BriefTemplate.names
@@ -470,29 +468,6 @@ final class BriefTests: XCTestCase {
         var library = saved
         library.brief = .library("builder")
         XCTAssertEqual(Role.synced([library], saved: [saved]).first, library, "a library brief, its instructions as they were")
-    }
-
-    /// An edit of a library role's instructions, from any page, puts it on them.
-    func testEditingALibraryRolesInstructionsPutsItOnThem() throws {
-        let saved = Role.checked(Role.shipped)
-        var janitor = try XCTUnwrap(saved.first { $0.id == "janitor" })
-        XCTAssertEqual(janitor.brief, .library("janitor"))
-        janitor.instructions = "Tidy only the docs folder."
-        let synced = Role.synced([janitor], saved: saved)
-        XCTAssertEqual(synced.first?.brief, .text("Tidy only the docs folder."))
-        // Through the route, as the page from before briefs sends it, its brief as the state gave it.
-        var object = janitor.jsonObject
-        object["brief"] = ["kind": "library", "id": "janitor"]
-        let body = try JSONSerialization.data(withJSONObject: [object])
-        XCTAssertEqual(try BriefRoutes.roles(body, saved: saved).get().first?.source, .text("Tidy only the docs folder."))
-        // Picking a library brief, instructions unchanged, keeps it; so does a new role.
-        var picked = try XCTUnwrap(saved.first { $0.id == "lawyer" })
-        picked.brief = .library("thinker")
-        XCTAssertEqual(Role.synced([picked], saved: saved).first?.brief, .library("thinker"))
-        var fresh = picked
-        fresh.id = "own-9"
-        fresh.instructions = "Something else."
-        XCTAssertEqual(Role.synced([fresh], saved: saved).first?.brief, .library("thinker"))
     }
 
     // MARK: One builder, the base rules, editable templates, managed hires

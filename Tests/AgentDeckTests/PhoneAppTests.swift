@@ -31,34 +31,6 @@ final class PhoneAppTests: XCTestCase {
         XCTAssertEqual(answer["language"] as? String, Config.shared.dictationLanguage)
     }
     #else
-    /// A public build has no name of its own for the app: it's a phone like any.
-    func testAPublicBuildNamesTheAppAsAnyPhone() {
-        XCTAssertEqual(Phones.name(forUserAgent: "Smolcorp iOS CFNetwork/3860 Darwin/27.2.0"), "Phone")
-        XCTAssertEqual(Phones.name(forUserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 27_2 like Mac OS X)"), "iPhone")
-    }
 
-    /// No web page asks the iPhone app's routes, and a public build answers none of them: 404, as the Linux/Windows
-    /// app does. Asked from the office's own window, which the personal build answers 200 on `/glossary` and
-    /// `GET /notifications`, and of setup's `/setup/notify` with the page's cookie (400 there, for no title).
-    func testAPublicBuildAnswersNoneOfTheIPhoneAppsRoutes() throws {
-        let deck = Deck(quiet: true)
-        let router = DeckRouter(deck: deck)
-        let setup = deck.access.setupSessions
-        let cookie = "\(DeckRouter.setupCookie)=\(try XCTUnwrap(setup.open(link: setup.newLink())))"
-        for (method, path) in [("GET", "/glossary"), ("GET", "/notifications"), ("POST", "/notifications"), ("GET", "/reviews"),
-                               ("POST", "/setup/notify")] {
-            let office = !path.hasPrefix("/setup")
-            let headers = office ? ["host": "localhost:7710"] : [DeckRouter.setupHeader: "1", "host": "127.0.0.1:7710", "cookie": cookie]
-            var got: Response?
-            let answered = expectation(description: path)
-            router.handle(Request.addressed(method: method, path: path, query: office ? ["t": deck.windowKey] : [:], headers: headers,
-                                            body: Data("{}".utf8), fromLoopback: true, remoteAddress: "127.0.0.1")) { reply in
-                if case .response(let response) = reply { got = response }
-                answered.fulfill()
-            }
-            wait(for: [answered], timeout: 10)
-            XCTAssertEqual(try XCTUnwrap(got, path).status, 404, "\(method) \(path)")
-        }
-    }
     #endif
 }

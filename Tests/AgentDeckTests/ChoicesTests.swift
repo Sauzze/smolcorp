@@ -51,56 +51,6 @@ final class ChoicesTests: XCTestCase {
         XCTAssertTrue(old.hireInTmux)
     }
 
-    func testBackgroundNeedsTmux() {
-        let config = Config()
-        config.hiresInBackground = true
-        XCTAssertTrue(Choices.background(config, hasTmux: true))
-        XCTAssertFalse(Choices.background(config, hasTmux: false))
-        let state = Choices.json(config, hasTmux: false, installed: { false })
-        XCTAssertEqual(state["background"] as? Bool, false)
-        XCTAssertEqual(state["hasTmux"] as? Bool, false)
-    }
-
-    // MARK: The T3 Code gate
-
-    /// Off and asked: the gate says no, and T3 Code isn't even looked for.
-    func testTheT3GateHidesEverythingWhenOff() {
-        let config = Config()
-        config.choicesAsked = true
-        XCTAssertFalse(Choices.t3Code(config))
-        let state = Choices.json(config, hasTmux: true, installed: { XCTFail("T3 Code was looked for while off"); return true })
-        XCTAssertNil(state["t3Installed"], "nothing of T3 Code's is said")
-        XCTAssertEqual(state["t3Code"] as? Bool, false)
-
-        // First setup looks, to know whether to ask; on, it looks for the install hint.
-        var looked = 0
-        config.choicesAsked = false
-        XCTAssertEqual(Choices.json(config, hasTmux: true, installed: { looked += 1; return true })["t3Installed"] as? Bool, true)
-        config.choicesAsked = true
-        config.t3CodeEnabled = true
-        XCTAssertTrue(Choices.t3Code(config))
-        XCTAssertEqual(Choices.json(config, hasTmux: true, installed: { looked += 1; return false })["t3Installed"] as? Bool, false)
-        XCTAssertEqual(looked, 2)
-    }
-
-    /// The app by its bundle id, or a `t3` file in T3 Code's own folders, then the PATH's: looked at, never run.
-    func testT3CodeIsFoundByItsAppOrAT3FileAndNeverRun() throws {
-        let home = folder.appendingPathComponent("home").path
-        XCTAssertEqual(Choices.t3Folders(home: home, path: "/usr/bin:relative:/opt/homebrew/bin"),
-                       [home + "/.local/bin", home + "/bin", home + "/.t3/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"])
-        XCTAssertTrue(Choices.t3Installed(home: home, path: "", appFound: { true }, isExecutable: { _ in XCTFail("the app was enough"); return false }))
-        XCTAssertFalse(Choices.t3Installed(home: home, path: "/usr/bin", appFound: { false }, isExecutable: { _ in false }))
-
-        // A real file that would leave a mark if it ran.
-        let bin = folder.appendingPathComponent("home/.t3/bin", isDirectory: true)
-        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
-        let ran = folder.appendingPathComponent("ran")
-        try "#!/bin/sh\ntouch '\(ran.path)'\n".write(to: bin.appendingPathComponent("t3"), atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: bin.appendingPathComponent("t3").path)
-        XCTAssertTrue(Choices.t3Installed(home: home, path: "", appFound: { false }))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: ran.path), "t3 was never run")
-    }
-
     // MARK: Agent windows
 
     /// A tmux that answers as each hire's server would, and writes down every call.
@@ -311,27 +261,6 @@ final class ChoicesTests: XCTestCase {
         XCTAssertTrue(HireWindows.Terminals.ghosttyLook.contains("try\n        return \"tty:\" & (tty of terminal id (item 1 of argv))\n    on error\n        return \"?\""))
     }
 
-    /// A window `Tmux.focus` opens again for a hire is recorded for the hire on that socket, as one Smolcorp opened;
-    /// a socket that's no hire's, or the user's own, isn't anyone's. A Terminal record goes once its tab has closed.
-    func testAReopenedWindowIsRecordedForItsHire() throws {
-        let hires = [FrontDesk.Hire(id: "alpha", name: "Ada", folder: "/x", tmuxSocket: "/private/tmp/tmux-501/smolcorp-alpha"),
-                     FrontDesk.Hire(id: "gone", name: "Gus", folder: "/x", tmuxSocket: "/private/tmp/tmux-501/smolcorp-gone", state: .fired)]
-        XCTAssertEqual(Deck.hireID(onSocket: "/private/tmp/tmux-501/smolcorp-alpha", among: hires, testPort: nil), "alpha")
-        XCTAssertNil(Deck.hireID(onSocket: "/private/tmp/tmux-501/smolcorp-gone", among: hires, testPort: nil), "fired")
-        XCTAssertNil(Deck.hireID(onSocket: "/private/tmp/tmux-501/default", among: hires, testPort: nil))
-        XCTAssertNil(Deck.hireID(onSocket: "/private/tmp/tmux-501/smolcorp-other", among: hires, testPort: nil))
-        let focus = try source("Sources/AgentDeck/TerminalDrivers.swift")
-        XCTAssertTrue(focus.contains("if let window = Openers.reattach(socket: socket, in: folder ?? NSHomeDirectory(), terminal: terminal) {\n                        Tmux.reopened?(socket, window)"))
-        let deck = try source("Sources/AgentDeck/Deck.swift")
-        XCTAssertTrue(deck.contains("Tmux.reopened = { [weak self] socket, window in"))
-        XCTAssertTrue(deck.contains("HireWindows.Terminals.parse(record).map { $0.kind == \"terminal\" && closed.contains($0.id) } ?? false"))
-
-        let quiet = Deck(quiet: true)
-        quiet.hireWindows = ["alpha": ["tty:/dev/ttys010#w1", "iterm:AB-12"], "bravo": ["tty:/dev/ttys011#w2"]]
-        quiet.forgetHireWindows { HireWindows.Terminals.parse($0).map { $0.kind == "terminal" && ["/dev/ttys010", "/dev/ttys011"].contains($0.id) } ?? false }
-        XCTAssertEqual(quiet.hireWindows, ["alpha": ["iterm:AB-12"]])
-    }
-
     /// In the background a hire starts in tmux and no window is opened: only tmux is run, never a terminal.
     func testAHireInTheBackgroundOpensNoWindow() throws {
         let log = folder.appendingPathComponent("tmux-calls")
@@ -388,25 +317,6 @@ final class ChoicesTests: XCTestCase {
         XCTAssertEqual(before, after, "every other tab is as it was")
         XCTAssertTrue(alive.hasPrefix(HireTmux.session + ":"), "the session is still alive")
         XCTAssertEqual(result.forget, ["t796test": [window]])
-    }
-
-    // MARK: Routes
-
-    func testTheChoicesAndAHiresWindowAreThePagesAlone() {
-        for path in ["/setup/choices", "/setup/hire/window"] {
-            XCTAssertTrue(SetupRoutes.allows(.page, "POST", path), path)
-            for caller in [SetupSessions.Caller.gm, .tool, .hire] {
-                XCTAssertFalse(SetupRoutes.allows(caller, "POST", path), "\(caller) \(path)")
-            }
-        }
-    }
-
-    func testTheOfficesWindowKeyIsTheMacsOfficeWindowAlone() throws {
-        let router = try source("Sources/AgentDeck/DeckRouter.swift")
-        for route in [#"case ("GET", "/hire/window"):"#, #"case ("POST", "/hire/window"):"#] {
-            let start = try XCTUnwrap(router.range(of: route)?.upperBound, route)
-            XCTAssertTrue(router[start...].prefix(200).contains("guard DeckRouter.isOfficeWindow(request, phone: phone)"), route)
-        }
     }
 
     // MARK: The pages, read from the source
@@ -467,53 +377,6 @@ final class ChoicesTests: XCTestCase {
     }
 
     // MARK: The T3 Code gate on its routes
-
-    /// Off, which it is until chosen, none of T3 Code's four routes answers and `t3` is never run; on, they do. The
-    /// opens are asked with no hire, so nothing runs either way; the looks run `t3 --version`, so they're asked off only.
-    func testT3CodesRoutesAnswerNothingWhileItsOff() throws {
-        let config = Config.shared
-        let was = config.t3CodeEnabled
-        defer { config.t3CodeEnabled = was }
-        let deck = Deck(quiet: true)
-        deck.layoutConfig = Config()
-        let router = DeckRouter(deck: deck)
-        let setup = deck.access.setupSessions
-        let cookie = "\(DeckRouter.setupCookie)=\(try XCTUnwrap(setup.open(link: setup.newLink())))"
-        func ask(_ method: String, _ path: String) throws -> Response {
-            let office = !path.hasPrefix("/setup")
-            let headers = office ? ["host": "localhost:7710"] : [DeckRouter.setupHeader: "1", "host": "127.0.0.1:7710", "cookie": cookie]
-            let query = office ? ["t": deck.windowKey, "session": "no-such-session"] : [:]
-            let body = path.hasSuffix("/open") && !office ? Data(#"{"id":"no-such-hire"}"#.utf8) : Data()
-            var got: Response?
-            let answered = expectation(description: path)
-            router.handle(Request.addressed(method: method, path: path, query: query, headers: headers, body: body,
-                                            fromLoopback: true, remoteAddress: "127.0.0.1")) { reply in
-                if case .response(let response) = reply { got = response }
-                answered.fulfill()
-            }
-            wait(for: [answered], timeout: 10)
-            return try XCTUnwrap(got)
-        }
-        let routes = [("GET", "/t3code"), ("POST", "/t3code/open"), ("GET", "/setup/t3code"), ("POST", "/setup/t3code/open")]
-        config.t3CodeEnabled = false
-        for (method, path) in routes {
-            let answer = try ask(method, path)
-            XCTAssertEqual(answer.status, 404, path)
-            XCTAssertEqual(String(decoding: answer.body, as: UTF8.self), DeckRouter.t3Off, path)
-        }
-        config.t3CodeEnabled = true
-        for (method, path) in routes where method == "POST" {
-            let answer = try ask(method, path)
-            XCTAssertEqual(answer.status, 404, path)
-            XCTAssertEqual(String(decoding: answer.body, as: UTF8.self), "That hire isn't on the team.", "on, the open is asked: \(path)")
-        }
-        // Each of the four asks the gate first, in the router's source.
-        let router_ = try source("Sources/AgentDeck/DeckRouter.swift")
-        for (method, path) in routes {
-            let start = try XCTUnwrap(router_.range(of: "case (\"\(method)\", \"\(path)\"):")?.upperBound, path)
-            XCTAssertTrue(router_[start...].prefix(260).contains("guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }"), path)
-        }
-    }
 
     /// Setup's team row: Open in T3 Code only while T3 Code is on, and nothing asked of it while it's off.
     func testSetupsTeamRowShowsT3CodeOnlyWhenItsOn() throws {

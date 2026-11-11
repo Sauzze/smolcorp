@@ -45,11 +45,6 @@ final class ManagerSwitchTests: XCTestCase {
         XCTAssertNotNil(ManagerSwitch.refusal("GET", "/setup/gm/manager", enabled: false))
     }
 
-    func testTheSwitchAndTheVersionAreInTheRouteTable() {
-        XCTAssertEqual(SetupRoutes.row("POST", "/setup/gm/manager")?.callers, [.gm, .page])
-        XCTAssertEqual(SetupRoutes.row("GET", "/setup/gm/version")?.kind, "read")
-    }
-
     func testTheManagerIsOffUntilTurnedOnAndStaysSaved() throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
         defer { try? FileManager.default.removeItem(at: file) }

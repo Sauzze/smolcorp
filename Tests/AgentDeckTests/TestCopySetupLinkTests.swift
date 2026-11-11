@@ -37,8 +37,10 @@ final class TestCopySetupLinkLaunchTests: XCTestCase {
     func testOnlyATestCopyMintsTheLink() throws {
         let here = URL(fileURLWithPath: #filePath)
         let app = try String(contentsOf: here.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/AgentDeck/App.swift"), encoding: .utf8)
-        XCTAssertTrue(app.contains("if TestCopy.isOn { TestCopy.leaveSetupLink(deck.setupURL()) }"))
-        XCTAssertEqual(app.components(separatedBy: "deck.setupURL()").count - 1, 1)
+            .appendingPathComponent("Sources/AgentDeck/GoShell.swift"), encoding: .utf8)
+        // The core makes a link only when asked; the shell leaves it only for a test copy (TestCopy.leaveSetupLink checks).
+        XCTAssertTrue(app.contains("let link = TestCopy.isOn ? core.setupLink() : nil"))
+        XCTAssertTrue(app.contains("if let setupLink { TestCopy.leaveSetupLink(setupLink) }"))
+        XCTAssertEqual(app.components(separatedBy: "TestCopy.leaveSetupLink(").count - 1, 1)
     }
 }

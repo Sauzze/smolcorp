@@ -204,116 +204,7 @@ final class SummaryProvidersTests: XCTestCase {
     private let ready = SummaryProviderState(kind: .ready, reason: "uses your plan")
     private let out = SummaryProviderState(kind: .signedOut, reason: "installed, not signed in")
 
-    func testTheFirstThatWorksIsPickedClaudeCodeFirst() {
-        XCTAssertEqual(SummaryChoice.chosen(saved: "", optIn: false, states: [.opencode: ready, .claude: ready], hasKey: true), .claude)
-        XCTAssertEqual(SummaryChoice.chosen(saved: "", optIn: false, states: [.claude: out, .opencode: ready], hasKey: false), .opencode)
-        XCTAssertEqual(SummaryChoice.chosen(saved: "", optIn: false, states: [.claude: out], hasKey: true), .apiKey)
-        XCTAssertNil(SummaryChoice.chosen(saved: "", optIn: false, states: [.claude: out], hasKey: false))
-    }
-
-    func testOneWhoUsedTheKeyBeforeKeepsIt() {
-        XCTAssertEqual(SummaryChoice.chosen(saved: "", optIn: true, states: [.claude: ready], hasKey: true), .apiKey)
-    }
-
-    func testOneSavedIsNeverSwappedForAnother() {
-        XCTAssertEqual(SummaryChoice.chosen(saved: "opencode", optIn: true, states: [.claude: ready, .opencode: out], hasKey: true), .opencode)
-        XCTAssertFalse(SummaryChoice.works(.opencode, states: [.opencode: out], hasKey: true))
-        XCTAssertNil(SummaryChoice.chosen(saved: "apikey", optIn: true, states: [.claude: ready], hasKey: false))
-    }
-
-    func testGroksAgentIsNeverTakenForCursor() throws {
-        let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        defer { setenv("PATH", path, 1) }
-        setenv("PATH", folder.path, 1)
-        let grok = try fake("agent", "echo 'grok 1.0.70 (f50904eaee6c)'")
-        XCTAssertNotEqual(SummaryProviders.program(.cursor)?.path, grok.resolvingSymlinksInPath().path)
-        try FileManager.default.removeItem(at: grok)
-        let cursor = try fake("agent", "echo '2025.10.28-0a1b2c3'")
-        XCTAssertEqual(SummaryProviders.program(.cursor)?.path, cursor.resolvingSymlinksInPath().path)
-    }
-
-    // MARK: Made with the key when it fails, and saying so
-
-    private func transcript() throws -> String {
-        let path = folder.appendingPathComponent("t.jsonl")
-        try #"{"type":"user","message":{"role":"user","content":"add a dark mode toggle please"}}"#.write(to: path, atomically: true, encoding: .utf8)
-        return path.path
-    }
-
-    private func wait(_ summaries: Summaries, _ path: String, _ provider: SummaryProvider) -> Result<String, SummaryError> {
-        let done = expectation(description: "summary")
-        var got: Result<String, SummaryError>!
-        summaries.summarize("s", transcript: path, project: "p", provider: provider) { got = $0; done.fulfill() }
-        wait(for: [done], timeout: 5)
-        return got
-    }
-
-    private let anthropic: Summaries.Transport = { _, done in
-        done(Data(#"{"content":[{"type":"text","text":"From the key."}]}"#.utf8), 200, nil)
-    }
-
-    func testAFailedAgentFallsBackToTheKeyAndSaysSo() throws {
-        let summaries = Summaries(transport: anthropic, key: { "sk-ant-test" }, savedKey: { "sk-ant-test" },
-                                  agent: { _, _, _ in .failure(.signedOut) })
-        XCTAssertEqual(wait(summaries, try transcript(), .claude),
-                       .success("From the key.\n(Claude Code isn't signed in, so this was made with your API key.)"))
-        XCTAssertEqual(summaries.lastFallback, "(Claude Code isn't signed in, so this was made with your API key.)")
-    }
-
-    func testAFailedAgentWithNoKeySaysWhy() throws {
-        var sent = false
-        let summaries = Summaries(transport: { _, _ in sent = true }, key: { nil }, savedKey: { nil }, agent: { _, _, _ in .failure(.quota) })
-        XCTAssertEqual(wait(summaries, try transcript(), .codex), .failure(SummaryCLIFailure.quota.error(.codex)))
-        XCTAssertFalse(sent)
-    }
-
-    func testAnAgentThatWorksSendsNothingToAnthropic() throws {
-        var sent = false, given = ""
-        let summaries = Summaries(transport: { _, _ in sent = true }, key: { "sk-ant-test" }, savedKey: { "sk-ant-test" },
-                                  agent: { _, system, prompt in given = system + prompt; return .success("From the agent.") })
-        XCTAssertEqual(wait(summaries, try transcript(), .opencode), .success("From the agent."))
-        XCTAssertFalse(sent)
-        XCTAssertTrue(given.contains("LATEST REQUEST"), "the agent gets today's excerpt")
-        XCTAssertNil(summaries.lastFallback)
-    }
-
-    func testOnlyAKeyPastedInSetupIsAFallbackNeverTheEnvironments() throws {
-        var sent = false
-        // ANTHROPIC_API_KEY in Smolcorp's environment (key), nothing pasted (savedKey).
-        let summaries = Summaries(transport: { _, _ in sent = true }, key: { "sk-ant-fromenv" }, savedKey: { nil },
-                                  agent: { _, _, _ in .failure(.signedOut) })
-        XCTAssertEqual(wait(summaries, try transcript(), .claude), .failure(SummaryCLIFailure.signedOut.error(.claude)))
-        XCTAssertFalse(sent)
-    }
-
-    func testTheFallbackKeepsWithinTheLimit() throws {
-        var sent = 0
-        let summaries = Summaries(transport: { _, done in sent += 1; self.anthropic(URLRequest(url: URL(string: "http://x")!), done) },
-                                  savedKey: { "sk-ant-test" }, agent: { _, _, _ in .failure(.quota) })
-        let path = try transcript()
-        // Each tap: the agent's call and the key's, until the window is full.
-        for i in 0..<Summaries.most {
-            let done = expectation(description: "\(i)")
-            summaries.summarize("s\(i)", transcript: path, project: "p", provider: .claude) { _ in done.fulfill() }
-            wait(for: [done], timeout: 5)
-        }
-        XCTAssertEqual(sent, Summaries.most / 2, "the fallback went past the limit")
-    }
-
     // MARK: Only what can't use tools
-
-    func testOnlyClaudeCodeAndOpenCodeAreRun() {
-        XCTAssertEqual(SummaryProvider.agents.filter(\.isSupported), [.claude, .opencode])
-        for provider in [SummaryProvider.codex, .gemini, .cursor, .grok] {
-            let state = SummaryProviders.shared.check(provider)
-            XCTAssertEqual(state.kind, .unsupported, "\(provider)")
-            XCTAssertEqual(state.reason, "not supported yet: can't turn its tools off safely")
-            XCTAssertNil(SummaryChoice.chosen(saved: provider.rawValue, optIn: true, states: [provider: ready], hasKey: false))
-            XCTAssertFalse(SummaryChoice.works(provider, states: [provider: ready], hasKey: false))
-            XCTAssertEqual(SummaryCLI.run(provider, program: URL(fileURLWithPath: "/usr/bin/true"), system: "", prompt: ""), .failure(.unsupported))
-        }
-        XCTAssertEqual(SummaryChoice.chosen(saved: "", optIn: false, states: [.grok: ready, .codex: ready], hasKey: false), nil)
-    }
 
     func testOpenCodesSummaryAgentMustDenyEveryTool() {
         // As OpenCode 2.0.32's `debug agents` lists it.
@@ -337,19 +228,6 @@ final class SummaryProvidersTests: XCTestCase {
         {"type":"text","sessionID":"ses_a","part":{"type":"text","text":"Asked: x."}}
         """
         XCTAssertEqual(SummaryCLI.answer(.opencode, status: 0, timedOut: false, output: Data(printed.utf8), error: Data()), .failure(.usedTool))
-    }
-
-    func testAConsoleLoginSaysItBillsTheAPIAccount() {
-        XCTAssertEqual(SummaryCLI.claudeLogin(Data(#"{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}"#.utf8)), .ready)
-        XCTAssertEqual(SummaryCLI.claudeLogin(Data(#"{"loggedIn":true,"authMethod":"console","subscriptionType":null}"#.utf8)), .apiAccount)
-        XCTAssertEqual(SummaryCLI.claudeLogin(Data(#"{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":""}"#.utf8)), .apiAccount)
-        XCTAssertNil(SummaryCLI.claudeLogin(Data(#"{"loggedIn":false}"#.utf8)))
-        let console = SummaryProviderState(kind: .apiAccount, reason: "signed in with a Console account: bills your API account")
-        XCTAssertTrue(SummaryChoice.works(.claude, states: [.claude: console], hasKey: false))
-        // Never picked by itself, as it isn't a plan: only when chosen, and then it says what it bills.
-        XCTAssertNil(SummaryChoice.chosen(saved: "", optIn: false, states: [.claude: console], hasKey: false))
-        let state = DeckRouter.summaryState(optIn: false, saved: "claude", environment: [:], states: [.claude: console])
-        XCTAssertEqual((state["provider"] as? [String: Any])?["plan"] as? String, "signed in with a Console account: bills your API account")
     }
 
     func testOtherCloudsSettingsDontReachTheRun() {
@@ -418,29 +296,7 @@ final class SummaryProvidersTests: XCTestCase {
         XCTAssertFalse(kept.contains("passw") || kept.contains("hunter"), kept)
     }
 
-    func testAnUnsupportedPickSaysSo() {
-        let state = DeckRouter.summaryState(optIn: true, saved: "gemini", environment: [:],
-                                            states: [.gemini: SummaryProviderState(kind: .unsupported, reason: SummaryProvider.unsupportedReason)])
-        XCTAssertEqual(state["saved"] as? String, "gemini")
-        XCTAssertTrue(state["provider"] is NSNull)
-        XCTAssertEqual(state["enabled"] as? Bool, false)
-    }
-
     // MARK: Setup
-
-    func testSetupSaysWhyEachCantAndWhatTheChosenCosts() {
-        SummaryKey.store = .init(read: { nil }, hint: { nil }, write: { _, _ in true }, delete: {})
-        SummaryKey.forgetKnown()
-        defer { SummaryKey.store = .keychain; SummaryKey.forgetKnown() }
-        let state = DeckRouter.summaryState(optIn: false, saved: "", environment: [:],
-                                            states: [.claude: ready, .grok: out, .codex: .missing(.codex)])
-        let providers = state["providers"] as! [[String: Any]]
-        XCTAssertEqual(providers.map { $0["id"] as! String }, ["claude", "codex", "gemini", "grok", "cursor", "opencode", "apikey"])
-        XCTAssertEqual(providers[1]["reason"] as? String, "not installed")
-        XCTAssertEqual(providers[2]["state"] as? String, "checking")
-        XCTAssertEqual((state["provider"] as? [String: Any])?["id"] as? String, "claude")
-        XCTAssertEqual(state["enabled"] as? Bool, false)
-    }
 
     func testTheSetupPageKeepsTheKeyHiddenAndWarns() throws {
         let page = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()

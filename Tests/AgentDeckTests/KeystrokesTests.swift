@@ -174,13 +174,6 @@ final class KeystrokesTests: XCTestCase {
         XCTAssertEqual(Config.load(from: file).keystrokeApps, ["com.example.notes"], "a hand-edited file can't add a terminal")
     }
 
-    func testOnlyTheSetupPageMayChangeTheList() {
-        XCTAssertTrue(SetupRoutes.allows(.page, "POST", "/setup/keystrokes/apps"))
-        XCTAssertFalse(SetupRoutes.allows(.tool, "POST", "/setup/keystrokes/apps"))
-        for method in ["POST", "GET", "PUT", "DELETE"] { XCTAssertFalse(SetupRoutes.allows(.gm, method, "/setup/keystrokes/apps"), method) }
-        XCTAssertEqual(SetupRoutes.row("POST", "/setup/keystrokes/apps")?.kind, "page")
-    }
-
     func testAChangeOfTheListIsLoggedWithTheIdAlone() {
         XCTAssertEqual(Keystrokes.appListChange(added: true, id: app), "app allowed: com.example.notes")
         XCTAssertEqual(Keystrokes.appListChange(added: false, id: app), "app removed: com.example.notes")
@@ -327,17 +320,6 @@ final class KeystrokesTests: XCTestCase {
         XCTAssertFalse(fake.logged.contains { $0.2.contains("secret") })
     }
 
-    func testTheEventLogTakesAKeystrokeLine() throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("keystrokes-log-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let log = EventLog(folder: folder)
-        let entry = log.append(EventLog.Entry(at: 1, kind: .keystroke, detail: "type com.example.notes: done, 5 sent"))
-        XCTAssertEqual(entry.kind, .keystroke)
-        XCTAssertEqual(log.entries(since: 0, limit: 10).entries.map(\.detail), ["type com.example.notes: done, 5 sent"])
-        XCTAssertEqual(EventLog.Kind(rawValue: "keystroke"), .keystroke)
-        XCTAssertNil(EventLog.Kind(hook: "keystroke"), "a hook can't raise it")
-    }
-
     // MARK: Dialogs, and who may change the setting
 
     func testWhatCountsAsAFileDialog() {
@@ -349,13 +331,5 @@ final class KeystrokesTests: XCTestCase {
         XCTAssertTrue(FileDialog.refuses(role: nil, subrole: nil), "unsure means refuse")
         XCTAssertTrue(FileDialog.isPanelService(owner: "Open and Save Panel Service (Notes)"))
         XCTAssertFalse(FileDialog.isPanelService(owner: "Notes"))
-    }
-
-    func testOnlyTheSetupPageMayChangeTheSetting() {
-        XCTAssertTrue(SetupRoutes.allows(.page, "POST", "/setup/keystrokes"))
-        XCTAssertFalse(SetupRoutes.allows(.tool, "POST", "/setup/keystrokes"))
-        // The GM is refused on any method. (A tool on another method falls to the unlisted rule, and the router has no such route.)
-        for method in ["POST", "GET", "PUT", "DELETE"] { XCTAssertFalse(SetupRoutes.allows(.gm, method, "/setup/keystrokes"), method) }
-        XCTAssertEqual(SetupRoutes.row("POST", "/setup/keystrokes")?.kind, "page")
     }
 }

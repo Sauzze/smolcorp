@@ -45,16 +45,6 @@ enum TestCopy {
 
     private static let quietLog = Logger(subsystem: "io.github.sauzze.agentdeck", category: "test-copy")
 
-    /// Where the copy's server listens: this Mac only (127.0.0.1 and ::1), so the Mac's firewall
-    /// never asks about it and nothing on the network reaches it, unless SMOLCORP_TEST_LISTEN=lan asks
-    /// for every interface, as the phone matrix needs. The real app listens on every interface. The
-    /// suite counts as a test copy here: its stand-in servers stay on this Mac too.
-    static let listensOn = listenScope(testCopy: isOn || Paths.underTest, environment: ProcessInfo.processInfo.environment)
-    static func listenScope(testCopy: Bool, environment: [String: String]) -> HTTPServer.Scope {
-        guard testCopy, environment["SMOLCORP_TEST_LISTEN"]?.lowercased() != "lan" else { return .everywhere }
-        return .thisMac
-    }
-
     /// A test copy, as it opens, writes a setup link to `setup-link` in its own folder (0600), so a
     /// tester's browser can open the same page the Settings window shows. The link works once, as
     /// the menu's do. The real app never writes one.

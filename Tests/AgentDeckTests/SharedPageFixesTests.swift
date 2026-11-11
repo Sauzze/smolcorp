@@ -15,8 +15,8 @@ final class SharedPageFixesTests: XCTestCase {
         XCTAssertTrue(page.contains("state.platform === 'windows'"))
         XCTAssertTrue(page.contains("return '/home/you/project'"))
         XCTAssertFalse(page.contains("'Add a project folder, as /Users/you/project'"))
-        // The Mac says so in its own setup state
-        XCTAssertTrue(try read("Sources/AgentDeck/DeckRouter.swift").contains(#""platform": "darwin""#))
+        // The Go core says so in its setup state, "darwin" on a Mac
+        XCTAssertTrue(try read("desktop/server.go").contains(#""platform": runtime.GOOS,"#))
     }
 
     func testTheRolesUnderAHeldDeskHaveArrows() throws {

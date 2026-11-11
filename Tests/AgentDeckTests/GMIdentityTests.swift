@@ -203,30 +203,6 @@ final class GMIdentityTests: XCTestCase {
         XCTAssertTrue(gm.isToken(token)) // the token itself still works
     }
 
-    func testOnlyAGMFireThatWorkedForgetsIt() {
-        func hire(_ role: String) -> FrontDesk.Hire { FrontDesk.Hire(id: "h1", name: role, role: role, folder: "/x") }
-        XCTAssertTrue(Deck.firedGM(hire("gm"), answer: .status(204)))
-        XCTAssertTrue(Deck.firedGM(hire("gm"), answer: .json(["ok": true, "kept": "x"])))
-        XCTAssertFalse(Deck.firedGM(hire("gm"), answer: .status(409, "no")))
-        XCTAssertFalse(Deck.firedGM(hire("dev"), answer: .status(204)))
-        XCTAssertFalse(Deck.firedGM(nil, answer: .status(204)))
-    }
-
-    func testTheManagerStateCarriesTheFlagOnlyWithTheSettingOn() {
-        XCTAssertEqual(DeckRouter.managerState(enabled: true, byHand: true, startedByHand: true)["gmStartedByHand"] as? Bool, true)
-        XCTAssertEqual(DeckRouter.managerState(enabled: true, byHand: false, startedByHand: true)["gmStartedByHand"] as? Bool, false)
-        XCTAssertEqual(DeckRouter.managerState(enabled: true, byHand: true, startedByHand: false)["gmStartedByHand"] as? Bool, false)
-    }
-
-    /// The page says where "Allow a General Manager started by hand" writes the token, never the token.
-    func testTheManagerStateSaysWhereTheTokenFileIs() {
-        let file = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support/AgentDeck/gm-token")
-        let state = DeckRouter.managerState(enabled: false, byHand: false, startedByHand: false, tokenFile: file)
-        XCTAssertEqual(state["gmTokenFile"] as? String, file.path)
-        XCTAssertEqual(state["gmTokenFileShown"] as? String, "~/Library/Application Support/AgentDeck/gm-token")
-        XCTAssertEqual(Set(state.keys), ["enabled", "gmByHand", "gmStartedByHand", "gmTokenFile", "gmTokenFileShown"])
-    }
-
     // MARK: The by-hand GM's session
 
     private let sessionID = "0b1f6c1e-52aa-4d0e-9a57-3c1d2f4e8a90"

@@ -145,10 +145,4 @@ final class TerminalCommandTests: XCTestCase {
             XCTAssertEqual(run.terminationStatus, 1, port)
         }
     }
-
-    func testTheSetupRouteIsThePagesAlone() {
-        XCTAssertTrue(SetupRoutes.allows(.page, "POST", "/setup/terminal-command"))
-        XCTAssertFalse(SetupRoutes.allows(.gm, "POST", "/setup/terminal-command"))
-        XCTAssertFalse(SetupRoutes.allows(.tool, "POST", "/setup/terminal-command"))
-    }
 }

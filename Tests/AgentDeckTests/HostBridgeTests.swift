@@ -427,8 +427,8 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertTrue(login)
     }
 
-    /// A test copy's login item is the copy in use's: the bridge reads it, as the Swift engine's own setup
-    /// does in a test copy, and never sets it, saying so in the Mac's words (SelfTest.loginCheck's).
+    /// A test copy's login item is the copy in use's: the bridge reads it and never sets it, saying so in the
+    /// Mac's words (SelfTest.testCopyLogin).
     func testATestCopyLeavesTheLoginItemAlone() {
         var set: [Bool] = []
         let item: (get: () -> Bool, set: (Bool) -> Void) = (get: { true }, set: { set.append($0) })
@@ -444,10 +444,10 @@ final class HostBridgeTests: XCTestCase {
         for on in [false, true] {
             let answer = ask(["action": "login-item", "on": on], copy)
             XCTAssertFalse(isOK(answer))
-            XCTAssertEqual(answer["error"] as? String, "A test copy leaves the login item to the Smolcorp you use.")
+            XCTAssertEqual(answer["error"] as? String, SelfTest.testCopyLogin)
         }
         XCTAssertEqual(set, [], "never set")
-        XCTAssertEqual(SelfTest.loginCheck(false, testCopy: true).detail, SelfTest.testCopyLogin, "the self-test's words")
+        XCTAssertEqual(SelfTest.testCopyLogin, "A test copy leaves the login item to the Smolcorp you use.")
         // The copy in use sets its own.
         XCTAssertTrue(isOK(ask(["action": "login-item", "on": false], HostBridge.Actions.onThisMac(testCopy: false, loginItem: item))))
         XCTAssertEqual(set, [false])

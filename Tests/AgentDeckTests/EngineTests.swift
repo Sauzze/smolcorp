@@ -160,6 +160,7 @@ final class EngineTests: XCTestCase {
     func testTheSettingsWindowUsesTheEnginesCookie() throws {
         let cookie = try XCTUnwrap(SettingsWindow.sessionCookie(session: "abc", name: "smolcorp-setup"))
         XCTAssertEqual(cookie.name, "smolcorp-setup")
-        XCTAssertEqual(SettingsWindow.sessionCookie(session: "abc")?.name, DeckRouter.setupCookie, "the Swift engine's, as before")
+        XCTAssertEqual(SettingsWindow.sessionCookie(session: "abc")?.name, SettingsWindow.setupCookie, "this port's, as the core names it")
+        XCTAssertEqual(SettingsWindow.setupCookie, Deck.port == 7710 ? "smolcorp-setup" : "smolcorp-setup-\(Deck.port)")
     }
 }

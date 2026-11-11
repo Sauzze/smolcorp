@@ -33,18 +33,14 @@ final class SetupFreshEyes3PageTests: XCTestCase {
     }
 
     func testKeepingATypedFolderClosesTheMacsFolderWindow() throws {
+        // The Go core asks the bridge's folder-panel-close: only the hires folder's panel, as if cancelled, so its
+        // caller gets nothing picked; a floor's stays.
+        let bridge = try file("Sources/AgentDeck/HostBridge.swift")
+        XCTAssertTrue(bridge.contains("actions.closeFolderPanel(Deck.hireFolderMessage)"))
         let deck = try file("Sources/AgentDeck/Deck.swift")
-        let close = try part(deck, from: "func closeHireFolderPanel() {", to: "/// Push to talk")
-        // Only the hires folder's panel, as if cancelled: its caller gets nothing picked; a floor's stays.
-        XCTAssertTrue(close.contains("Deck.closeFolderPanel(for: Deck.hireFolderMessage)"))
+        let close = try part(deck, from: "static func closeFolderPanel(for message: String) {", to: "\n    }")
         XCTAssertTrue(close.contains("guard let open = hirePanel, open.message == message else { return }"))
         XCTAssertTrue(close.contains("open.cancel(nil)"))
-        let router = try file("Sources/AgentDeck/DeckRouter.swift")
-        // Start here's keep, once checked and saved (never on a refusal), and Hires and roles' typed folder.
-        let keep = try part(router, from: #"case ("POST", "/setup/hire-folder"):"#, to: "case (")
-        XCTAssertTrue(keep.contains("deck.refresh()\n                deck.closeHireFolderPanel()\n            })"))
-        let hiring = try part(router, from: #"case ("POST", "/setup/hiring"):"#, to: "case (")
-        XCTAssertTrue(hiring.contains("if folder?.isEmpty == false { deck.closeHireFolderPanel() }"))
         // The page says so while the window is open.
         let page = try file("Resources/web/setup.html")
         XCTAssertTrue(page.contains("A folder window opened on your Mac: pick a folder there. Or type its path here and use it: the window then closes by itself.</p>"))
