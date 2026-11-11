@@ -71,6 +71,13 @@ final class T3CodeTests: XCTestCase {
         return text.components(separatedBy: "--\n").dropLast().map { $0.split(separator: "\n", omittingEmptySubsequences: false).map(String.init).filter { !$0.isEmpty } }
     }
 
+    /// `T3Code.run`, with time enough for the fake: a shell script that, on a busy Mac, can take seconds just to
+    /// start, past the 3 the version and the thread list get, and be stopped before it writes down its run. It
+    /// always ends by itself; how a run that takes too long is stopped is tested on `run` itself.
+    private static func runFake(_ program: URL, _ arguments: [String], _ timeout: TimeInterval) -> T3Code.Ran {
+        T3Code.run(program, arguments, max(timeout, 60))
+    }
+
     /// This machine as the tests have it: the fake home, no other folders, no PATH, the app as `app` says; time
     /// moves only when the open pauses.
     private func machine(app: Bool) -> T3Code.Machine {
@@ -78,6 +85,7 @@ final class T3CodeTests: XCTestCase {
         machine.home = home
         machine.system = []
         machine.path = ""
+        machine.run = T3CodeTests.runFake
         machine.appInstalled = { app }
         machine.openApp = { [unowned self] in self.opened += 1 }
         machine.pause = { [unowned self] in self.clock.addTimeInterval($0) }
@@ -160,23 +168,24 @@ final class T3CodeTests: XCTestCase {
     }
 
     /// `run` reads what's said as it comes: a program that leaves a process holding its output is let go a second
-    /// after it ends, with what it said, and nothing is left waiting on a read.
+    /// after it ends, with what it said, and nothing is left waiting on a read. The times are far apart, so a busy
+    /// Mac that's slow to start a program can't pass for one held up.
     func testARunIsntHeldByWhatItLeavesRunning() throws {
         let program = home.appendingPathComponent("lingers")
-        try "#!/bin/sh\necho said\necho also >&2\nsleep 4 &\nexit 3\n".write(to: program, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\necho said\necho also >&2\nsleep 30 &\nexit 3\n".write(to: program, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: program.path)
         let start = Date()
-        let ran = T3Code.run(program, [], 5)
-        XCTAssertLessThan(Date().timeIntervalSince(start), 3)
+        let ran = T3Code.run(program, [], 20)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10, "not held till what it left ends, nor till its limit")
         XCTAssertEqual(ran.status, 3)
         XCTAssertEqual(ran.output, "said\n")
         XCTAssertEqual(ran.errors, "also\n")
         let slow = home.appendingPathComponent("slow")
-        try "#!/bin/sh\necho started\nsleep 4\n".write(to: slow, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\necho started\nsleep 30\n".write(to: slow, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: slow.path)
         let stopped = Date()
         XCTAssertNil(T3Code.run(slow, [], 0.5).status, "stopped for taking too long")
-        XCTAssertLessThan(Date().timeIntervalSince(stopped), 3)
+        XCTAssertLessThan(Date().timeIntervalSince(stopped), 10, "at its limit, not when it ends")
     }
 
     // MARK: The folder, from the registry
@@ -329,7 +338,7 @@ final class T3CodeTests: XCTestCase {
                 first.lock(); apps += 1; let wait = apps == 1; first.unlock()
                 if wait { started.signal(); release.wait() }
             }
-            return T3Code.run(program, arguments, timeout)
+            return T3CodeTests.runFake(program, arguments, timeout)
         }
         let found: (T3Code.Machine) -> T3Code.Status = { _ in T3Code.Status(state: .found) }
         let done = DispatchSemaphore(value: 0)

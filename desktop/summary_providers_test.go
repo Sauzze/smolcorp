@@ -203,17 +203,29 @@ func TestASummaryRunThatHangsIsEndedWithAnythingItStarted(t *testing.T) {
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "child")
 	slow := fakeCLI(t, dir, "claude", "sleep 30 & echo $! > "+pidFile+"; wait")
-	started := time.Now()
-	ran := spawnSummary(slow, nil, nil, summaryEnvironment(os.Environ()), dir, time.Second)
-	if !ran.timedOut || time.Since(started) > 6*time.Second {
-		t.Fatalf("timed out %v after %v", ran.timedOut, time.Since(started))
+	child := func() int {
+		text, _ := os.ReadFile(pidFile)
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(text)))
+		return pid
 	}
-	text, _ := os.ReadFile(pidFile)
-	child, _ := strconv.Atoi(strings.TrimSpace(string(text)))
-	time.Sleep(200 * time.Millisecond)
-	if child == 0 || !processGone(child) {
-		t.Error("what it started is still running")
+	// It's stopped only once it has started its child: on a busy computer, a second may not be
+	// enough to get that far, so it's run again with longer.
+	for _, timeout := range []time.Duration{time.Second, 4 * time.Second, 16 * time.Second} {
+		if child() != 0 {
+			break
+		}
+		started := time.Now()
+		ran := spawnSummary(slow, nil, nil, summaryEnvironment(os.Environ()), dir, timeout)
+		if !ran.timedOut || time.Since(started) > timeout+5*time.Second {
+			t.Fatalf("timed out %v after %v", ran.timedOut, time.Since(started))
+		}
 	}
+	pid := child()
+	if pid == 0 {
+		t.Fatal("it never started its child")
+	}
+	// Killed, it's gone once its new parent has reaped it: a moment, longer on a busy computer.
+	eventually(t, "stopped what it started", func() bool { return processGone(pid) })
 }
 
 func TestASummaryRunsOutputIsCut(t *testing.T) {

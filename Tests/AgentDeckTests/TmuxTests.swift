@@ -156,14 +156,24 @@ final class TmuxFiringTests: XCTestCase {
     }
 
     /// A pane started with `command`, and `typed` typed into it once its shell is up.
+    /// It's handed back once its program runs: on a busy Mac that can take a while.
     private func pane(_ command: String, typed: String? = nil) throws -> TabAddress {
         let made = try XCTUnwrap(Tool.run(tmux, ["-S", socket, "new-session", "-d", "-P", "-F", "#{pane_id}", "-x", "80", "-y", "24", command]))
         let address = try XCTUnwrap(TabAddress("tmux:\(made.output)@\(socket)"))
+        let tty = try XCTUnwrap(Tmux().tty(of: address))
+        let shell = command == "/bin/sh"
+        if shell {
+            // Its prompt is shown: the shell reads what's typed.
+            XCTAssertTrue(eventually { !(Tool.run(tmux, ["-S", socket, "capture-pane", "-p", "-t", address.id])?.output ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }, "the shell's prompt")
+        }
         if let typed {
-            Thread.sleep(forTimeInterval: 0.5)
             _ = Tool.run(tmux, ["-S", socket, "send-keys", "-t", address.id, typed, "Enter"])
         }
-        Thread.sleep(forTimeInterval: 0.8)
+        // The program typed, or the pane's own, runs on its tty.
+        if let program = (typed ?? (shell ? nil : command))?.split(separator: " ").first.map({ ($0 as NSString).lastPathComponent }) {
+            XCTAssertTrue(eventually { Terminal.isRunning(program, on: tty) == true }, "\(program) runs in the pane")
+        }
         return address
     }
 
@@ -236,8 +246,7 @@ final class TmuxFiringTests: XCTestCase {
         let job = try pane("/bin/sh", typed: claude)
         XCTAssertEqual(place(in: job), .front, "a job in front")
         _ = Tool.run(tmux, ["-S", socket, "send-keys", "-t", job.id, "C-z"])
-        Thread.sleep(forTimeInterval: 0.5)
-        XCTAssertEqual(place(in: job), .behind, "its text would run in the shell")
+        XCTAssertTrue(eventually { place(in: job) == .behind }, "its text would run in the shell")
         XCTAssertEqual(Tmux().fire(job, agent: .claude), .notStopped, "closing the pane would hang it up")
         XCTAssertTrue(isThere(job))
     }
@@ -257,7 +266,6 @@ final class TmuxFiringTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
         let made = try XCTUnwrap(Tool.run(tmux, ["-S", socket] + Openers.session("hire", in: folder.path, shell: "/bin/sh", running: script.path)))
         XCTAssertEqual(made.status, 0)
-        Thread.sleep(forTimeInterval: 1)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: started.path))
+        XCTAssertTrue(eventually { FileManager.default.fileExists(atPath: started.path) }, "the hire's script ran")
     }
 }
