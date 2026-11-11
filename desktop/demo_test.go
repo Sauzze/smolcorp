@@ -175,6 +175,20 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		write("notes/plan.md"),
 		tool("Read", map[string]any{"file_path": "/etc/hosts"}),
 		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": repo}),
+		// On the default account, said or not; a $ in single quotes is text, not the shell's.
+		bashCall("smolcorp gm hire --role tester --folder "+repo+" --account default", repo),
+		bashCall("smolcorp gm hire --role tester --folder "+repo+" --task 'parse_amount reads $12.50'", repo),
+		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": repo, "account": "default", "api-key": false}),
+		// A $ in a line that doesn't name smolcorp, though its paths do (smolcorp-demo).
+		bashCall("ls "+root+" && echo $?", repo),
+		// git reads its config, and puts files back.
+		bashCall("git config user.email", repo),
+		bashCall("git config --get core.hooksPath", repo),
+		bashCall("git -C "+repo+" config --list --show-origin", repo),
+		bashCall("git restore bill.py && git status", repo),
+		bashCall("cat .git/HEAD .claude/settings.json", repo),
+		write(filepath.Join(repo, "docs", "claude.md")),
+		tool("NotebookEdit", map[string]any{"notebook_path": filepath.Join(repo, "a.ipynb")}),
 	}
 	refused := []demoCall{
 		bashCall("smolcorp gm hire --role tester --folder ~", repo),
@@ -195,13 +209,63 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		tool("Edit", map[string]any{}),
 		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": elsewhere}),
 		tool("Bash", map[string]any{"command": 5}),
+		// RX1's B1: folders the shell makes something else before smolcorp sees them.
+		bashCall(`smolcorp gm hire --role tester --folder "$HOME/Projects" --worktree`, repo),
+		bashCall(`smolcorp gm hire --role tester --folder ${HOME} --worktree`, repo),
+		bashCall(`smolcorp gm hire --role tester --folder ~someone/Projects --worktree`, repo),
+		bashCall(`smolcorp gm hire --role tester --folder $PWD/../.. --worktree`, repo),
+		bashCall(`smolcorp gm hire --role tester --folder "$(pwd)/../.." --worktree`, repo),
+		bashCall(`smolcorp gm hire --role tester --folder {/Users,/tmp}`, repo),
+		bashCall("smolcorp gm hire --role tester --folder `pwd`/../..", repo),
+		bashCall("smolcorp gm hire --role tester --folder ./*", repo),
+		bashCall("smolcorp gm hire --role tester --folder app/~x", repo),
+		// B2: the API-key account, any spelling, and another Claude account.
+		bashCall("smolcorp gm hire --role tester --folder "+repo+" --api-key", repo),
+		bashCall("smolcorp gm hire -api-key --role tester --folder "+repo, repo),
+		bashCall("smolcorp gm hire --role tester --folder "+repo+" --api-key=false", repo),
+		bashCall("smolcorp gm hire --role tester --folder "+repo+" --account work", repo),
+		bashCall("smolcorp gm hire --role tester --account=work --folder "+repo, repo),
+		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": repo, "api-key": true}),
+		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": repo, "api-key": 1}),
+		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": repo, "account": "work"}),
+		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": repo, "account": 5}),
+		// A flag that takes a value takes the next word: --folder is the nickname, the hire goes to elsewhere.
+		bashCall("smolcorp gm hire --role tester --nickname --folder --folder "+elsewhere, repo),
+		// S2: gm built by the shell, and the hire routes spelled another way.
+		bashCall("smolcorp $'gm' hire --role tester --folder ~", repo),
+		bashCall("G=gm; smolcorp $G hire --role tester --folder ~", repo),
+		bashCall("smolcorp `echo gm` hire --role tester --folder ~", repo),
+		bashCall("S=smolcorp; $S gm hire --role tester --folder "+repo, repo),
+		bashCall(`curl -X POST -H "X: $SMOLCORP_GM_TOKEN" localhost:7710/setup/gm/%68ire -d '{}'`, repo),
+		bashCall(`curl -X POST localhost:7710/setup/gm/%68ire -d '{}'`, repo),
+		bashCall(`curl -X POST localhost:7710/setup//hire -d '{}'`, repo),
+		bashCall(`curl -X POST localhost:7710/setup/./gm/x/../hire -d '{}'`, repo),
+		bashCall(`curl -X POST localhost:7710/setup/%2568ire -d '{}'`, repo),
+		// S3: the fence and the hooks themselves, in the project and in a hire's worktree.
+		write(".claude/settings.json"),
+		write(filepath.Join(repo, ".claude", "settings.local.json")),
+		write(filepath.Join(repo, ".Claude", "settings.json")),
+		write(filepath.Join(repo, ".git", "hooks", "pre-push")),
+		write(filepath.Join(root, "app-hires", "tester-1", ".claude", "settings.json")),
+		write(filepath.Join(root, "app-hires", "tester-1", ".git")),
+		tool("MultiEdit", map[string]any{"file_path": filepath.Join(repo, ".git", "config")}),
+		tool("NotebookEdit", map[string]any{"file_path": filepath.Join(repo, "a.ipynb"), "notebook_path": filepath.Join(elsewhere, "n.ipynb")}),
+		tool("NotebookEdit", map[string]any{"notebook_path": filepath.Join(repo, ".claude", "n.ipynb")}),
+		bashCall("git config core.hooksPath /dev/null", repo),
+		bashCall("git config remote.o.url https://example.invalid/x.git", repo),
+		bashCall("git -C "+repo+" config --unset core.hooksPath", repo),
+		bashCall("git config set core.hooksPath /dev/null", repo),
+		bashCall("git checkout -b mine", repo),
+		bashCall("cd "+repo+" && /usr/bin/git switch other", repo),
 	}
 	if runtime.GOOS == "windows" { // elsewhere, C:\ is a folder name like any other
 		refused = append(refused, bashCall(`smolcorp gm hire --role tester --folder C:\Users\someone\elsewhere`, repo))
 	}
 	if linked {
 		refused = append(refused, bashCall("smolcorp gm hire --role tester --folder "+filepath.Join(root, "link"), repo),
-			write(filepath.Join(root, "link", "x.txt")))
+			write(filepath.Join(root, "link", "x.txt")),
+			// The system follows the link before the ..: this is in, beside the demo folder, not in it.
+			write(strings.Join([]string{root, "link", "..", "x.txt"}, string(filepath.Separator))))
 	}
 	for _, c := range allowed {
 		if why := f.check(c); why != "" {
@@ -244,6 +308,8 @@ type standInOffice struct {
 	hire      map[string]any
 	teamCalls int
 	finish    func() // the stand-in GM's last step, at the second look at the team
+	failHire  bool   // the GM's hire fails
+	gone      bool   // Smolcorp stops answering the team
 }
 
 func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -259,11 +325,19 @@ func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "GET /setup/state":
 		io.WriteString(w, s.state)
 	case "POST /setup/hire":
+		if s.failHire {
+			http.Error(w, "No desk is free.", http.StatusConflict)
+			return
+		}
 		json.NewDecoder(r.Body).Decode(&s.hire)
 		io.WriteString(w, `{"ok":true,"desk":2,"session":null}`)
 	case "GET /setup/gm/team":
 		if s.teamCalls++; s.teamCalls == 2 && s.finish != nil {
 			s.finish()
+		}
+		if s.gone {
+			http.Error(w, "gone", http.StatusServiceUnavailable)
+			return
 		}
 		folder, _ := s.hire["folder"].(string)
 		json.NewEncoder(w).Encode(map[string]any{"team": []map[string]any{
@@ -282,13 +356,18 @@ const demoTestState = `{"gmHired":%s,"manager":{"enabled":false},"hiring":{"enab
 
 func realDemo(t *testing.T, office *standInOffice, answer string) (int, string, string) {
 	t.Helper()
+	return realDemoIn(t, context.Background(), office, answer)
+}
+
+func realDemoIn(t *testing.T, ctx context.Context, office *standInOffice, answer string) (int, string, string) {
+	t.Helper()
 	in := demoTestFolder(t)
 	server := httptest.NewServer(office)
 	t.Cleanup(server.Close)
 	team := &officeTeam{base: server.URL, key: func() ([]byte, error) { return []byte("fake-setup-key\n"), nil }, http: server.Client(),
 		start: func() error { t.Error("started the app while it was running"); return nil }, every: 5 * time.Millisecond}
 	var out bytes.Buffer
-	code := runDemo(context.Background(), demoRun{in: in, team: team, stdin: strings.NewReader(answer), out: &out})
+	code := runDemo(ctx, demoRun{in: in, team: team, stdin: strings.NewReader(answer), out: &out})
 	return code, out.String(), in
 }
 
@@ -296,7 +375,7 @@ func TestTheRealDemoAsksBeforeItSpendsAndHiresTheGMInsideItsFolder(t *testing.T)
 	// No OK: nothing made, nobody hired.
 	office := &standInOffice{state: strings.Replace(demoTestState, "%s", "false", 1)}
 	code, out, in := realDemo(t, office, "n\n")
-	if entries, _ := os.ReadDir(in); code != 1 || len(entries) != 0 || slices.Contains(office.calls, "POST /setup/hire") || !strings.Contains(out, "your own Claude account") {
+	if entries, _ := os.ReadDir(in); code != 1 || len(entries) != 0 || slices.Contains(office.calls, "POST /setup/hire") || !strings.Contains(out, "your default Claude account") {
 		t.Errorf("without an OK: %d %v %v\n%s", code, entries, office.calls, out)
 	}
 
@@ -343,6 +422,83 @@ func TestTheRealDemoAsksBeforeItSpendsAndHiresTheGMInsideItsFolder(t *testing.T)
 		t.Errorf("the settings: %s", settings)
 	}
 }
+
+func TestTheDemoSaysWhichSwitchesItTurnsOnAndPutsThemBack(t *testing.T) {
+	bothOff := strings.Replace(strings.Replace(demoTestState, "%s", "false", 1), `"hiring":{"enabled":true`, `"hiring":{"enabled":false`, 1)
+	managerOff := strings.Replace(demoTestState, "%s", "false", 1)
+	leftOn := "turn it off in Setup, Hires and roles: Let a General Manager run your team."
+
+	// The question names the switches that are off, and that they stay on; a no changes nothing.
+	office := &standInOffice{state: bothOff}
+	code, out, _ := realDemo(t, office, "n\n")
+	if code != 1 || !strings.Contains(out, "Smolcorp's manager is off and hiring is off: the demo turns them on, and they stay on until you turn them off in Setup.") ||
+		slices.ContainsFunc(office.calls, func(c string) bool { return strings.HasPrefix(c, "POST") }) {
+		t.Errorf("both off, no: %d %v\n%s", code, office.calls, out)
+	}
+	if _, out, _ := realDemo(t, &standInOffice{state: managerOff}, "n\n"); !strings.Contains(out, "Smolcorp's manager is off: the demo turns it on, and it stays on until you turn it off in Setup.") {
+		t.Errorf("the manager off:\n%s", out)
+	}
+
+	// The GM's hire fails: what the demo turned on goes back off, last first, and it says so.
+	office = &standInOffice{state: bothOff, failHire: true}
+	code, out, _ = realDemo(t, office, "y\n")
+	want := []string{"POST /setup/gm/manager?enabled=1", "POST /setup/hiring?enabled=1", "POST /setup/hire", "POST /setup/hiring?enabled=0", "POST /setup/gm/manager?enabled=0"}
+	var posts []string
+	for _, c := range office.calls {
+		if strings.HasPrefix(c, "POST") {
+			posts = append(posts, c)
+		}
+	}
+	if code != 1 || !slices.Equal(posts, want) || !strings.Contains(out, "No desk is free.") || !strings.Contains(out, "Turned hiring back off") ||
+		!strings.Contains(out, "Turned Smolcorp's manager back off") || strings.Contains(out, "left") {
+		t.Errorf("a failed hire: %d %v\n%s", code, posts, out)
+	}
+
+	// The report: the last word says what's still on, and where to turn it off.
+	office = &standInOffice{state: managerOff}
+	office.finish = func() {
+		folder, _ := office.hire["folder"].(string)
+		os.WriteFile(filepath.Join(filepath.Dir(folder), demoReportName), []byte("# Report"), 0o644)
+	}
+	if code, out, _ := realDemo(t, office, "y\n"); code != 0 || !strings.HasSuffix(strings.TrimSpace(out), leftOn) ||
+		!strings.Contains(out, "The demo turned on Smolcorp's manager, and left it on") {
+		t.Errorf("after the report: %d\n%s", code, out)
+	}
+
+	// Ctrl-C while following: the same last word.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	office = &standInOffice{state: managerOff}
+	office.finish = cancel
+	if code, out, _ := realDemoIn(t, ctx, office, "y\n"); code != 0 || !strings.Contains(out, "Stopped following") || !strings.HasSuffix(strings.TrimSpace(out), leftOn) {
+		t.Errorf("after Ctrl-C: %d\n%s", code, out)
+	}
+
+	// Smolcorp gone: the same.
+	office = &standInOffice{state: managerOff}
+	office.finish = func() { office.gone = true }
+	if code, out, _ := realDemo(t, office, "y\n"); code != 1 || !strings.Contains(out, "Smolcorp stopped answering") || !strings.HasSuffix(strings.TrimSpace(out), leftOn) {
+		t.Errorf("with Smolcorp gone: %d\n%s", code, out)
+	}
+
+	// Ctrl-C is the demo's to catch only once the question is answered.
+	caught := false
+	interrupt := func(ctx context.Context) (context.Context, context.CancelFunc) {
+		caught = true
+		return context.WithCancel(ctx)
+	}
+	team := &officeTeam{state: demoState{}}
+	team.state.Hiring.Enabled = true
+	runDemo(context.Background(), demoRun{in: demoTestFolder(t), team: readyTeam{team}, stdin: strings.NewReader("n\n"), out: io.Discard, interrupt: interrupt})
+	if caught {
+		t.Error("Ctrl-C was caught before the answer")
+	}
+}
+
+// readyTeam is an office team whose ready reads nothing.
+type readyTeam struct{ *officeTeam }
+
+func (readyTeam) ready(io.Writer) ([]string, error) { return []string{"reviewer"}, nil }
 
 func TestTheSampleHasNoPrivateNames(t *testing.T) {
 	err := fs.WalkDir(demoSample, ".", func(path string, entry fs.DirEntry, err error) error {

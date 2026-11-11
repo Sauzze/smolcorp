@@ -79,6 +79,9 @@ func (standInTeam) ready(out io.Writer) ([]string, error) {
 	return demoStandInRoles, nil
 }
 
+func (standInTeam) off() []demoSwitch    { return nil }
+func (standInTeam) leftOn() []demoSwitch { return nil }
+
 func (standInTeam) work(ctx context.Context, f demoFolder, roles []string, out io.Writer) error {
 	fence := demoFence{root: f.root, roles: roles, home: homeDir}
 	say := func(who, format string, a ...any) { fmt.Fprintf(out, "%-14s %s\n", who+":", fmt.Sprintf(format, a...)) }

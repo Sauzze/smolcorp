@@ -24,8 +24,11 @@ tests to add, and a README to finish. Python 3 is all the proof needs.
 ## What happens
 
 1. **The General Manager is hired** into the sample project, with the demo's
-   goal and its questions answered. If the manager or hiring is off, the demo
-   turns it on, as hiring a GM from Setup does.
+   goal and its questions answered. If Smolcorp's manager or hiring is off,
+   the question says so: the demo turns it on, and it stays on until you turn
+   it off in Setup. If anything fails before the GM is hired, the demo turns
+   back off what it turned on. At the end (the report, Ctrl-C, or Smolcorp no
+   longer answering), it says what it turned on and where to turn it off.
 2. **It plans with you.** It shows you the plan in its terminal and waits for
    your OK there.
 3. **It hires one agent per task**, each in a worktree of its own on a branch of
@@ -42,10 +45,11 @@ your phone or from Smolcorp's menu. Ctrl-C stops following, not the team.
 
 ## What it spends
 
-It runs real Claude Code on your own Claude account: the General Manager on
-Opus, and about four hires for some minutes each. That uses your plan's
-usage, as any Claude Code session does. Nothing else is paid for, and the
-demo asks before it starts anything.
+It runs real Claude Code on your default Claude account: the General Manager
+on Opus, and about four hires for some minutes each. That uses your plan's
+usage, as any Claude Code session does. Never an API key: the fence refuses a
+hire on the API-key account, or on another of your Claude accounts. Nothing
+else is paid for, and the demo asks before it starts anything.
 
 ## What keeps it in its folder
 
@@ -55,12 +59,22 @@ demo asks before it starts anything.
 - **Its own fence, for every session in it.** The project's committed
   `.claude/settings.json` runs `smolcorp demo fence` before each tool call of
   the General Manager and of each hire. It refuses a file changed outside the
-  demo folder, a hire into any other folder, a hire of a role that isn't on
-  Claude Code, a hire into T3 Code, and what the guard refuses (pushes,
+  demo folder, or in a `.claude` or `.git` folder inside it (where the fence
+  and the hooks are); a hire into any other folder, or with a folder the shell
+  would expand (`$HOME`, `~someone`, `{a,b}`, `*`); a hire of a role that isn't
+  on Claude Code, into T3 Code, or on the API-key account or another Claude
+  account; a `smolcorp` command built with `$` or a backtick; `git config`
+  writes, `git checkout` and `git switch`; and what the guard refuses (pushes,
   deploys, publishing, cloud commands). That's on top of the fence the General
   Manager and its hires get anyway ([The fence, and who gets it](team.md#the-fence-and-who-gets-it)).
 - Like the guard, it reads one command line: a script a hire writes and runs
   isn't read. It's a fence, not a wall.
+- It reads files changed with Claude Code's own tools and shell commands. A
+  tool of another MCP server that writes files isn't read.
+- It's a Claude Code hook: if `smolcorp` is gone, or doesn't answer within
+  10 seconds, Claude Code goes ahead without it. The project's pre-push hook
+  and its settings' deny rules for `git push` stay; `git push --no-verify`
+  skips the hook, and the fence and the deny rules refuse it anyway.
 
 ## A dry run first
 

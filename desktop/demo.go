@@ -61,6 +61,56 @@ type demoTeam interface {
 	ready(out io.Writer) (roles []string, err error)
 	// work runs the flow in folder f until the GM's report, or until ctx ends.
 	work(ctx context.Context, f demoFolder, roles []string, out io.Writer) error
+	// off is the switches the demo would turn on, read by ready: the question names them.
+	off() []demoSwitch
+	// leftOn is the switches the demo turned on and left on, for the last word of the run.
+	leftOn() []demoSwitch
+}
+
+// demoSwitch is one of Smolcorp's switches the real demo turns on when it's off.
+type demoSwitch struct {
+	name, route, setting string // as the demo says it; its route; its name in Setup's Hires and roles
+}
+
+var demoSwitches = []demoSwitch{
+	{"Smolcorp's manager", "/setup/gm/manager", "Let a General Manager run your team"},
+	{"hiring", "/setup/hiring", "Let the office hire and fire"},
+}
+
+// demoSwitchNames is "Smolcorp's manager and hiring", and whether there's more than one.
+func demoSwitchNames(switches []demoSwitch, suffix string) (string, bool) {
+	var names []string
+	for _, s := range switches {
+		names = append(names, s.name+suffix)
+	}
+	return strings.Join(names, " and "), len(switches) > 1
+}
+
+// demoSwitchesOff is the question's sentence on the switches that are off: which, and that they stay on.
+func demoSwitchesOff(off []demoSwitch) string {
+	if len(off) == 0 {
+		return "Smolcorp's manager and hiring are on already."
+	}
+	names, many := demoSwitchNames(off, " is off")
+	it, stays := "it", "it stays"
+	if many {
+		it, stays = "them", "they stay"
+	}
+	return strings.ToUpper(names[:1]) + names[1:] + ": the demo turns " + it + " on, and " + stays + " on until you turn " + it + " off in Setup."
+}
+
+// demoSwitchesLeftOn is the run's last word on the switches it turned on: they're still on, and where to turn them off.
+func demoSwitchesLeftOn(on []demoSwitch) string {
+	names, many := demoSwitchNames(on, "")
+	them, settings := "it", []string{}
+	if many {
+		them = "them"
+	}
+	for _, s := range on {
+		settings = append(settings, s.setting)
+	}
+	return fmt.Sprintf("The demo turned on %s, and left %s on for the team. Once you've fired the demo's team, turn %s off in Setup, Hires and roles: %s.",
+		names, them, them, strings.Join(settings, "; "))
 }
 
 // RunDemo is `smolcorp demo`.
@@ -78,13 +128,14 @@ func RunDemo(args []string) int {
 		fmt.Fprintf(os.Stderr, "smolcorp demo takes no argument %q (smolcorp demo --help)\n", fs.Arg(0))
 		return 2
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
 	var team demoTeam = newOfficeTeam()
 	if *dry {
 		team = standInTeam{}
 	}
-	return runDemo(ctx, demoRun{in: *in, dry: *dry, team: team, stdin: os.Stdin, out: os.Stdout})
+	interrupt := func(ctx context.Context) (context.Context, context.CancelFunc) {
+		return signal.NotifyContext(ctx, os.Interrupt)
+	}
+	return runDemo(context.Background(), demoRun{in: *in, dry: *dry, team: team, stdin: os.Stdin, out: os.Stdout, interrupt: interrupt})
 }
 
 // demoRun is one run of the demo.
@@ -94,6 +145,8 @@ type demoRun struct {
 	team  demoTeam
 	stdin io.Reader
 	out   io.Writer
+	// interrupt makes Ctrl-C end ctx, once the question is answered (before, Ctrl-C ends the demo as any program).
+	interrupt func(context.Context) (context.Context, context.CancelFunc)
 }
 
 func runDemo(ctx context.Context, r demoRun) int {
@@ -109,19 +162,25 @@ func runDemo(ctx context.Context, r demoRun) int {
 		return 1
 	}
 	if !r.dry {
-		fmt.Fprint(out, `
-This starts real Claude Code sessions on your own Claude account: a General
+		fmt.Fprintf(out, `
+This starts real Claude Code sessions on your default Claude account: a General
 Manager (Opus) and about four hires, for some minutes each. That uses your
-plan's usage, as any Claude Code session does. Smolcorp turns its manager and
-hiring on if they're off. Nothing is pushed, merged or published: the project
-has no remote, and the team stops before anything ships.
+plan's usage, as any Claude Code session does, never an API key.
+%s
+Nothing is pushed, merged or published: the project has no remote, and the
+team stops before anything ships.
 
-Go on? [y/N] `)
+Go on? [y/N] `, demoSwitchesOff(r.team.off()))
 		answer, _ := bufio.NewReader(r.stdin).ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
 			fmt.Fprintln(out, "Nothing was made or started.")
 			return 1
 		}
+	}
+	if r.interrupt != nil {
+		var stop context.CancelFunc
+		ctx, stop = r.interrupt(ctx)
+		defer stop()
 	}
 	f, err := makeDemoFolder(r.in, !r.dry, roles)
 	if err != nil {
@@ -129,19 +188,32 @@ Go on? [y/N] `)
 		return 1
 	}
 	fmt.Fprintf(out, "\nThe demo folder: %s\nThe project: %s (no remote; its own fence for every hire)\n\n", f.root, f.repo)
+	code := 1
 	if err := r.team.work(ctx, f, roles, out); err != nil {
 		fmt.Fprintln(out, err)
-		if !errors.Is(err, context.Canceled) {
-			return 1
+		if errors.Is(err, context.Canceled) {
+			code = demoShipped(f, out)
 		}
+	} else {
+		code = demoShipped(f, out)
 	}
-	return demoShipped(f, out)
+	// At the end, whichever: the report, Ctrl-C, Smolcorp gone.
+	if on := r.team.leftOn(); len(on) > 0 {
+		fmt.Fprintln(out, demoSwitchesLeftOn(on))
+	}
+	return code
 }
 
 // makeDemoFolder makes a new demo folder in parent (smolcorp-demo, else -2, -3…), never one already there,
 // with the sample project in it. A real run's must be one the office hires into: inside your home folder.
 func makeDemoFolder(parent string, real bool, roles []string) (demoFolder, error) {
 	parent = resolveExisting(parent)
+	if real && parent != resolveExisting(homeDir) {
+		// Checked before anything is made there.
+		if _, _, why := checkedSetupFolder(parent, homeDir); why != "" {
+			return demoFolder{}, errors.New(why)
+		}
+	}
 	var root string
 	for n := 1; n < 100 && root == ""; n++ {
 		name := demoFolderName
@@ -230,9 +302,9 @@ func writeDemoProject(f demoFolder, roles []string) error {
 // demoSettings is the project's .claude/settings.json: the demo's fence before every tool call,
 // and deny rules for the plain forms of what it refuses.
 func demoSettings(root string, roles []string) ([]byte, error) {
-	program, err := executable()
-	if err != nil {
-		return nil, err
+	program := commandLineProgram() // links resolved; on Windows, smolcorp-cli.exe
+	if program == "" {
+		return nil, errors.New("couldn't find smolcorp's own program for the demo's fence")
 	}
 	command := fmt.Sprintf("%s demo fence --root %s --roles %s", shellPath(program), shellPath(root), shellPath(strings.Join(roles, ",")))
 	return json.MarshalIndent(map[string]any{

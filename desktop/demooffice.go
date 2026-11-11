@@ -26,6 +26,7 @@ type officeTeam struct {
 	start func() error // starts Smolcorp when it doesn't answer
 	every time.Duration
 	state demoState
+	on    []demoSwitch // the switches this run turned on and left on
 }
 
 // demoState is what the demo reads of GET /setup/state.
@@ -112,7 +113,7 @@ func (o *officeTeam) ready(out io.Writer) ([]string, error) {
 		if setupSystem == "darwin" && !setupMayOpenApp() {
 			return nil, errors.New(macNotRunning)
 		}
-		fmt.Fprintln(out, "Starting Smolcorp…")
+		fmt.Fprintln(out, "Smolcorp isn't running: starting it to read the office. Nothing is hired or spent before you say yes.")
 		if err := o.start(); err != nil {
 			return nil, fmt.Errorf("Smolcorp couldn't start: %v", err)
 		}
@@ -143,26 +144,35 @@ func (o *officeTeam) ready(out io.Writer) ([]string, error) {
 	return roles, nil
 }
 
-// work turns the manager and hiring on if they're off, hires the GM into the project with the
-// demo's goal, and follows the team until the GM writes its report.
-func (o *officeTeam) work(ctx context.Context, f demoFolder, roles []string, out io.Writer) error {
-	if !o.state.Manager.Enabled {
-		if err := o.call(http.MethodPost, "/setup/gm/manager?enabled=1", nil, nil); err != nil {
-			return err
+// off is the switches that are off: manager, hiring, as ready read them.
+func (o *officeTeam) off() []demoSwitch {
+	var off []demoSwitch
+	for _, s := range demoSwitches {
+		if s.route == "/setup/gm/manager" && !o.state.Manager.Enabled || s.route == "/setup/hiring" && !o.state.Hiring.Enabled {
+			off = append(off, s)
 		}
-		fmt.Fprintln(out, "Turned Smolcorp's manager on (it stays on, as when you hire a GM from Setup).")
 	}
-	if !o.state.Hiring.Enabled {
-		if err := o.call(http.MethodPost, "/setup/hiring?enabled=1", nil, nil); err != nil {
-			return err
+	return off
+}
+
+func (o *officeTeam) leftOn() []demoSwitch { return o.on }
+
+// work turns the manager and hiring on if they're off, hires the GM into the project with the
+// demo's goal, and follows the team until the GM writes its report. Should anything fail before
+// the GM is hired, it turns back off what it turned on.
+func (o *officeTeam) work(ctx context.Context, f demoFolder, roles []string, out io.Writer) error {
+	for _, s := range o.off() {
+		if err := o.call(http.MethodPost, s.route+"?enabled=1", nil, nil); err != nil {
+			return o.putBack(err, out)
 		}
-		fmt.Fprintln(out, "Turned hiring on.")
+		o.on = append(o.on, s)
+		fmt.Fprintf(out, "Turned %s on.\n", s.name)
 	}
 	var hired struct {
 		Desk *int `json:"desk"`
 	}
 	if err := o.call(http.MethodPost, "/setup/hire", demoGMHire(f, roles), &hired); err != nil {
-		return err
+		return o.putBack(err, out)
 	}
 	at := ""
 	if hired.Desk != nil {
@@ -171,6 +181,21 @@ func (o *officeTeam) work(ctx context.Context, f demoFolder, roles []string, out
 	fmt.Fprintf(out, "Hired the General Manager%s. It shows you its plan in its terminal: answer there to approve it.\n", at)
 	fmt.Fprintln(out, "Watch the team in the office, on your phone or from Smolcorp's menu. This window follows along; Ctrl-C stops following, not the team.")
 	return o.follow(ctx, f, out)
+}
+
+// putBack turns off, last first, the switches this run turned on, says so, and gives back why it had to.
+func (o *officeTeam) putBack(why error, out io.Writer) error {
+	fmt.Fprintln(out, why)
+	for i := len(o.on) - 1; i >= 0; i-- {
+		s := o.on[i]
+		if err := o.call(http.MethodPost, s.route+"?enabled=0", nil, nil); err != nil {
+			fmt.Fprintf(out, "Couldn't turn %s back off (%v).\n", s.name, err)
+			continue
+		}
+		o.on = slices.Delete(o.on, i, i+1)
+		fmt.Fprintf(out, "Turned %s back off: the demo hired no General Manager.\n", s.name)
+	}
+	return errors.New("The demo stopped before hiring its General Manager.")
 }
 
 // follow prints each change in the demo's team until the GM's report is there.
