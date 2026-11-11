@@ -56,8 +56,9 @@ func t3Names() []string {
 }
 
 // t3Installed says whether a t3 command is in one of t3LookFolders. Existence
-// only: it's never run. The desktop app has no id to look for here; its
-// installers put t3 on the PATH.
+// only: it's never run. On Linux and Windows the desktop app has no id to look
+// for; its installers put t3 on the PATH. On a Mac, t3Look also asks the Mac
+// app for the app by its bundle id (t3MacAppFound).
 func t3Installed(home, path string, isFile func(string) bool) bool {
 	for _, folder := range t3LookFolders(home, path) {
 		for _, name := range t3Names() {
@@ -81,9 +82,19 @@ var (
 	// t3Look is the look itself: a variable, for the tests.
 	t3Look = func() bool {
 		home, _ := os.UserHomeDir()
-		return t3Installed(home, os.Getenv("PATH"), isRegularFile)
+		return t3MacAppFound() || t3Installed(home, os.Getenv("PATH"), isRegularFile)
 	}
 )
+
+// t3MacAppFound is whether T3 Code's app is on the Mac, as the Mac app's Choices.t3Installed looks for it (by
+// its bundle id, through the bridge): false without the Mac app (C4 A1).
+func t3MacAppFound() bool {
+	if host == nil {
+		return false
+	}
+	found, _ := hostT3App(host)
+	return found
+}
 
 // t3InstalledRecently is the last look, for 30 s: setup asks for its state often.
 func t3InstalledRecently() bool {

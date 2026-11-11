@@ -1076,7 +1076,8 @@ func TestT3AProcessInTheWorktreeIsFoundAndNamed(t *testing.T) {
 	found, looked := processesWorkingIn(wt)
 	switch runtime.GOOS {
 	case "darwin":
-		// Only its arguments can be read here: the answer is "can't look", so Let go keeps the fence.
+		// Without the Mac app (none here), this engine can't read a process's folder: the answer is "can't look",
+		// so Let go keeps the fence. Under the app it asks it (t3process_darwin_test.go).
 		if looked {
 			t.Error("said it looked")
 		}

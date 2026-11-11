@@ -120,6 +120,9 @@ type t3Handing struct {
 	Git     gitRunner
 	// Call is one call of T3 Code's internal API (t3Call).
 	Call func(program, method string, payload map[string]any) (map[string]any, error)
+	// NoCalls: Call isn't used, as T3 Code is off or t3 isn't the version Take over was tried on (Hand back's
+	// fallback, RM5b S4).
+	NoCalls bool
 	// Holding is the processes that name session or work in folder (processesHolding); false when it can't look.
 	Holding func(folder, session string) ([]int, bool)
 	Name    func(int) string
@@ -136,8 +139,32 @@ type t3Handing struct {
 	Save func(id string, change func(*Hire)) error
 }
 
+// t3SaveMost is how many times the registry is tried right after the stop (RM5b S2).
+const t3SaveMost = 3
+
+// t3SaveTries runs save up to t3SaveMost times, a moment apart: whether it was saved.
+func t3SaveTries(ways t3Handing, save func() error) bool {
+	for try := 1; ; try++ {
+		if save() == nil {
+			return true
+		}
+		if try == t3SaveMost {
+			return false
+		}
+		ways.Pause(200 * time.Millisecond)
+	}
+}
+
+// t3UnsavedAfterStop is what to do when hire h was stopped but the registry couldn't be written, so Hand back
+// isn't offered: resume it on its own settings file, its fence, never a bare claude --resume (RM5b S2).
+func t3UnsavedAfterStop(h Hire, session string) string {
+	settings := filepath.Join(hireFolder(supportDir, h.ID), hireSettingsFile)
+	return calledHire(h) + " was stopped, but the registry couldn't be written, so nothing went to T3 Code. Resume it fenced, from its folder: claude --settings=" +
+		shellQuoted(settings) + " --resume " + session + " (or fire it and hire again)."
+}
+
 func t3CantLook(name string) string {
-	return "Smolcorp can't see which processes hold " + name + "'s session on this computer, so nothing was changed: two agents on one session lose turns silently."
+	return "Smolcorp can't see which processes hold " + name + "'s session on this " + t3Here() + ", so nothing was changed: two agents on one session lose turns silently."
 }
 
 // t3StillHeld names what still holds a session: up to five processes, by name where it's known.
@@ -208,8 +235,10 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 	}
 	// From here it's on record as taken over: whatever stops part way is handed back, never lost.
 	h.T3Session, h.T3Transcript = session.ID, session.Transcript
-	if ways.Save(h.ID, func(r *Hire) { r.T3Session, r.T3Transcript = session.ID, session.Transcript }) != nil {
-		return "", t3Refused(http.StatusInternalServerError, name+" was stopped, but the registry couldn't be written: resume it from its folder with claude --resume "+session.ID+".")
+	if !t3SaveTries(ways, func() error {
+		return ways.Save(h.ID, func(r *Hire) { r.T3Session, r.T3Transcript = session.ID, session.Transcript })
+	}) {
+		return "", t3Refused(http.StatusInternalServerError, t3UnsavedAfterStop(h, session.ID))
 	}
 	giveBack := func(status int, why string) (string, error) {
 		h.Engine = ""
@@ -287,24 +316,26 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 	session := h.T3Session
 	program := t3Program(ways.Machine)
 	if program == "" {
-		return "", t3Refused(http.StatusConflict, "T3 Code's t3 command isn't there, so nothing was changed: "+name+" may still be running in T3 Code.")
+		return "", t3Refused(http.StatusConflict, "Handing "+name+" back needs T3 Code's t3 command, to remove its project there, and it isn't there, so nothing was changed: in T3 Code, open Settings → About and install it, then hand back again.")
 	}
 	if _, looked := ways.Holding(h.Worktree, session); !looked {
 		return "", t3Refused(http.StatusConflict, t3CantLook(name))
 	}
 	if h.T3Thread != "" {
-		// 1. T3 Code lets go of the session: its own Force stop. A thread it no longer has holds nothing.
-		value, err := ways.Call(program, "orchestration.forceStopThread", map[string]any{"threadId": h.T3Thread})
-		if err != nil && t3Show(h.T3Thread, program, ways.Machine) != nil {
-			return "", t3Refused(http.StatusBadGateway, "T3 Code didn't let go of "+name+"'s session ("+err.Error()+"), so it wasn't resumed.")
-		}
-		if outcome, _ := value["outcome"].(string); err == nil && !slices.Contains([]string{"killed", "released", "releasing"}, outcome) {
-			return "", t3Refused(http.StatusConflict, "T3 Code stopped only part of what holds "+name+"'s session ("+cmpOr(outcome, "it didn't say")+"), so it wasn't resumed.")
+		// 1. T3 Code lets go of the session: its own Force stop, while its internal calls may be used (T3 Code on,
+		// the version Take over was tried on). When they may not, or its server doesn't answer (its app closed),
+		// the project's removal below ends T3 Code's agent for it all the same (T797a), and the hard check after it
+		// is the guard (RM5b S4). Only an answer that says part of it is still held stops here.
+		if !ways.NoCalls {
+			value, err := ways.Call(program, "orchestration.forceStopThread", map[string]any{"threadId": h.T3Thread})
+			if outcome, _ := value["outcome"].(string); err == nil && !slices.Contains([]string{"killed", "released", "releasing"}, outcome) {
+				return "", t3Refused(http.StatusConflict, "T3 Code stopped only part of what holds "+name+"'s session ("+cmpOr(outcome, "it didn't say")+"), so it wasn't handed back.")
+			}
 		}
 		// 2. Its project removed, so no thread of T3 Code's is left that could open the session again.
 		removed := ways.Machine.Run(program, []string{"project", "remove", h.Worktree, "--force"}, t3Within)
 		if !(removed.Ended && removed.Code == 0) && !t3NoProject(removed) {
-			return "", t3Refused(http.StatusBadGateway, "T3 Code didn't remove "+name+"'s project ("+t3Said(removed)+"), so it wasn't resumed: T3 Code could still open its session.")
+			return "", t3Refused(http.StatusBadGateway, "T3 Code didn't remove "+name+"'s project ("+t3Said(removed)+"), so it wasn't handed back: T3 Code could still open its session.")
 		}
 		h.T3Thread = ""
 		_ = ways.Save(h.ID, func(r *Hire) { r.T3Thread, r.T3Link = "", "" })
@@ -471,9 +502,9 @@ func (d *Deck) handBackFromT3(id string) (int, any) {
 	on := t3CodeAllowed(d.config)
 	d.mu.Unlock()
 	ways := d.t3HandingFor(asked)
-	if why := t3TakeOverGate(on, t3StatusNow(true, ways.Machine)); why != "" {
-		return http.StatusConflict, why
-	}
+	// Not gated as Take over is: a hire taken over is handed back even once T3 Code is off, t3 was updated or its
+	// app is closed, without T3 Code's internal calls then (RM5b S4). Without t3 at all, t3HandBack says why.
+	ways.NoCalls = t3TakeOverGate(on, t3StatusNow(true, ways.Machine)) != ""
 	t3Desk.Lock()
 	hire, found := registryHire(id)
 	var note string

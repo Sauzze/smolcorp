@@ -516,7 +516,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// whether the picked agent is a hire; then its folder opened, found by its session, never a path that's sent.
 	case r.URL.Path == "/t3code" || r.URL.Path == "/t3code/open":
 		if phoneID != officeWindowID {
-			writeStatus(w)(http.StatusForbidden, "T3 Code opens on your computer.")
+			writeStatus(w)(http.StatusForbidden, "T3 Code opens on your "+t3Here()+".")
 			return
 		}
 		if !d.t3On() {
@@ -553,7 +553,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// on this computer, never a phone: the hire is found by its desk, never by anything sent.
 	case r.Method == http.MethodPost && r.URL.Path == "/act" && slices.Contains([]string{"takeover", "handback"}, r.URL.Query().Get("action")):
 		if phoneID != officeWindowID {
-			writeStatus(w)(http.StatusForbidden, "Take over in T3 Code is on your computer.")
+			writeStatus(w)(http.StatusForbidden, "Take over in T3 Code is on your "+t3Here()+".")
 			return
 		}
 		status, answer, ok := d.takeOverAtDesk(r.URL.Query().Get("action"), session)

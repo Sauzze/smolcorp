@@ -141,16 +141,14 @@ func t3CallWith(origin, token, method string, payload map[string]any, within tim
 		return nil, t3CallFailed("T3 Code's server closed the connection")
 	}
 	for {
-		op, data, err := t3SocketRead(reader, t3CallLongest)
+		// A ping is answered where it comes, even between two fragments of the answer, which are kept (RM5b S1).
+		op, data, err := t3SocketReadAnswering(reader, t3CallLongest, func(ping []byte) { _ = t3SocketWrite(conn, 10, ping, true) })
 		if err != nil {
 			return nil, t3CallFailed("T3 Code's server didn't answer the call")
 		}
 		switch op {
 		case 8:
 			return nil, t3CallFailed("T3 Code's server closed the connection before answering")
-		case 9:
-			_ = t3SocketWrite(conn, 10, data, true)
-			continue
 		case 1, 2:
 		default:
 			continue
@@ -262,8 +260,15 @@ func t3SocketWrite(w io.Writer, op byte, data []byte, mask bool) error {
 }
 
 // t3SocketRead reads one message: its op and its data, the fragments put together, unmasked when masked; an
-// error past longest bytes. A ping or a close between fragments comes back on its own.
+// error past longest bytes. A control frame (ping, pong, close) comes back on its own.
 func t3SocketRead(r *bufio.Reader, longest int) (byte, []byte, error) {
+	return t3SocketReadAnswering(r, longest, nil)
+}
+
+// t3SocketReadAnswering is t3SocketRead with ping, when given, answering each ping where it comes and a pong
+// passed over, so a message's fragments already read are kept around them (RFC 6455 §5.4 allows control frames
+// between fragments: RM5b S1). A close still comes back on its own.
+func t3SocketReadAnswering(r *bufio.Reader, longest int, ping func([]byte)) (byte, []byte, error) {
 	var op byte
 	var message []byte
 	for {
@@ -307,6 +312,13 @@ func t3SocketRead(r *bufio.Reader, longest int) (byte, []byte, error) {
 			}
 		}
 		if frameOp >= 8 {
+			switch {
+			case ping != nil && frameOp == 9:
+				ping(data)
+				continue
+			case ping != nil && frameOp == 10:
+				continue
+			}
 			return frameOp, data, nil
 		}
 		if frameOp != 0 {

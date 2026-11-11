@@ -2326,11 +2326,10 @@
       };
       keys.append(show);
     }
-    // Take over in T3 Code, or Hand back (EXPERIMENTAL), where the computer offers it: only the Go core says takeOver.
-    if (state.t3CodeEnabled && t3 && t3.takeOver) {
-      if (r.handBack) keys.append(takeOverMenu(r, true));
-      else if (!inT3 && r.tmuxSocket && r.worktree && r.role !== 'gm') keys.append(takeOverMenu(r, false));
-    }
+    // Take over in T3 Code (EXPERIMENTAL), where the computer offers it: only the Go core says takeOver. Hand back
+    // for a hire taken over, even once T3 Code is off or t3 was updated: only the Go core says handBack.
+    if (r.handBack) keys.append(takeOverMenu(r, true));
+    else if (state.t3CodeEnabled && t3 && t3.takeOver && !inT3 && r.tmuxSocket && r.worktree && r.role !== 'gm') keys.append(takeOverMenu(r, false));
     // One waiting to be handed back from T3 Code has no Fire…: Hand back first.
     if (r.handBack && !inT3) fire.hidden = true;
     // A hire that runs in T3 Code (T797b): Let go… instead of Fire…; Open in T3 Code only while T3 Code is on (T796).

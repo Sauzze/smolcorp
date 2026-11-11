@@ -361,6 +361,13 @@ enum T3Desk {
     /// yet (then nothing, so rounds never pile up behind a slow T3 Code). What it saw, and whether a desk's look moved,
     /// go to `apply` on the main thread. Says whether a round began.
     @discardableResult
+    /// The hires the Follow looks at now: those still open in T3 Code, and none while T3 Code is off in Settings, when
+    /// `t3` is never run (C4 B1, as the Go core rests).
+    static func followed(_ hires: [FrontDesk.Hire], config: Config) -> [FrontDesk.Hire] {
+        guard T3Code.laneAllowed(config) else { return [] }
+        return hires.filter { $0.engine == engine && $0.state != .fired && $0.state != .failed }
+    }
+
     static func tick(_ hires: [FrontDesk.Hire], machine: T3Code.Machine = T3Code.Machine(),
                      apply: @escaping (_ seen: [(id: String, seen: Seen)], _ moved: Bool) -> Void) -> Bool {
         dispatchPrecondition(condition: .onQueue(.main))
@@ -575,14 +582,35 @@ extension Processes {
     /// The processes working in `folder` (or a folder inside it), or given it with `--add-dir`, as T3 Code's agent is
     /// (T797a): read from the kernel by PID, nothing run.
     static func working(in folder: String) -> [pid_t] {
+        holding(folder, session: "")?.map(\.pid) ?? []
+    }
+
+    /// Why a process holds a folder or a session, as `holding` says it.
+    enum Hold: String {
+        /// Its current folder is the folder, or one inside it.
+        case folder
+        /// It was given the folder with `--add-dir`.
+        case addDir = "add-dir"
+        /// One of its arguments names the Claude Code session (Take over's check, desktop/t3takeover.go).
+        case session
+    }
+
+    /// The processes working in `folder` as `working(in:)` finds them, and, with a `session`, those whose arguments
+    /// name it, each with why: read from the kernel by PID, nothing run, nothing signalled. Nil when it can't look
+    /// (no full path, or the kernel listed no process). The Go core on this Mac asks it over the bridge.
+    static func holding(_ folder: String, session: String) -> [(pid: pid_t, why: Hold)]? {
         let wanted = HireDesk.physical(folder)
-        guard wanted.hasPrefix("/") else { return [] }
-        return allPIDs().filter { pid in
-            if let here = workingDirectory(of: pid), here == wanted || here.hasPrefix(wanted + "/") { return true }
+        guard wanted.hasPrefix("/") else { return nil }
+        let pids = allPIDs()
+        guard !pids.isEmpty else { return nil }
+        return pids.compactMap { pid in
+            if let here = workingDirectory(of: pid), here == wanted || here.hasPrefix(wanted + "/") { return (pid, .folder) }
             let words = arguments(of: pid)
-            return zip(words, words.dropFirst() + [""]).contains { word, next in
+            if zip(words, words.dropFirst() + [""]).contains(where: { word, next in
                 word == "--add-dir=\(wanted)" || word == "--add-dir=\(folder)" || (word == "--add-dir" && (next == wanted || next == folder))
-            }
+            }) { return (pid, .addDir) }
+            if !session.isEmpty, words.contains(where: { $0.contains(session) }) { return (pid, .session) }
+            return nil
         }
     }
 

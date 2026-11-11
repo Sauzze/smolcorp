@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
@@ -101,6 +102,11 @@ func newT3FakeServer(t *testing.T, home string) *t3FakeServer {
 		answer, _ := json.Marshal([]any{map[string]any{"_tag": "Exit", "requestId": "1", "exit": exit}})
 		half := len(answer) / 2
 		_, _ = conn.Write(append([]byte{0x01, byte(half)}, answer[:half]...))
+		// A ping between the two fragments (RM5b S1): answered, and the first half kept.
+		_ = t3SocketWrite(conn, 9, []byte("mid"), false)
+		if op, back, err := t3SocketRead(rw.Reader, 1<<20); err != nil || op != 10 || string(back) != "mid" {
+			return
+		}
 		_, _ = conn.Write(append([]byte{0x80, byte(len(answer) - half)}, answer[half:]...))
 		_, _, _ = t3SocketRead(rw.Reader, 1<<20)
 	})
@@ -521,12 +527,9 @@ func TestT3HandBackRefusesWhatItCantBeSureOf(t *testing.T) {
 		{"can't look", func(k *t3TakeOverRig) { k.looks = false }, t3CantLook("Ada"), []string{"look"}},
 		{"only part stopped", func(k *t3TakeOverRig) {
 			k.srv.answer["orchestration.forceStopThread"] = map[string]any{"_tag": "Success", "value": map[string]any{"outcome": "shared", "sharedWithThreadIds": []any{"t-2"}}}
-		}, "T3 Code stopped only part of what holds Ada's session (shared), so it wasn't resumed.", []string{"look", "call orchestration.forceStopThread"}},
-		{"force stop refused while the thread is there", func(k *t3TakeOverRig) {
-			k.srv.answer["orchestration.forceStopThread"] = map[string]any{"_tag": "Failure", "cause": map[string]any{"_tag": "Fail", "error": map[string]any{"_tag": "OrchestrationV2ForceStopThreadError"}}}
-		}, "T3 Code didn't let go of Ada's session (T3 Code refused it (OrchestrationV2ForceStopThreadError)), so it wasn't resumed.", []string{"look", "call orchestration.forceStopThread"}},
+		}, "T3 Code stopped only part of what holds Ada's session (shared), so it wasn't handed back.", []string{"look", "call orchestration.forceStopThread"}},
 		{"project kept", func(k *t3TakeOverRig) { k.fake("removefail") },
-			"T3 Code didn't remove Ada's project (Could not reach the T3 Code desktop app.), so it wasn't resumed: T3 Code could still open its session.", []string{"look", "call orchestration.forceStopThread"}},
+			"T3 Code didn't remove Ada's project (Could not reach the T3 Code desktop app.), so it wasn't handed back: T3 Code could still open its session.", []string{"look", "call orchestration.forceStopThread"}},
 		{"still being written", func(k *t3TakeOverRig) {
 			k.pausedAt = func() {
 				f, _ := os.OpenFile(k.session.Transcript, os.O_APPEND|os.O_WRONLY, 0)
@@ -550,6 +553,114 @@ func TestT3HandBackRefusesWhatItCantBeSureOf(t *testing.T) {
 				t.Errorf("%q", k.log)
 			}
 		})
+	}
+}
+
+// RM5b S4: Hand back isn't stranded. T3 Code's server refusing (or its app closed), or its internal calls not to be
+// used (T3 Code off, another t3), falls back to removing the project with --force, which ends T3 Code's agent for
+// it, then the same hard check before any resume.
+func TestT3HandBackFallsBackToRemovingTheProjectThenTheHardCheck(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		set  func(k *t3TakeOverRig, ways *t3Handing)
+		log  []string
+	}{
+		{"its server refuses the force stop", func(k *t3TakeOverRig, _ *t3Handing) {
+			k.srv.answer["orchestration.forceStopThread"] = map[string]any{"_tag": "Failure", "cause": map[string]any{"_tag": "Fail", "error": map[string]any{"_tag": "OrchestrationV2ForceStopThreadError"}}}
+		}, []string{"look", "call orchestration.forceStopThread", "save", "look", "save", "resume " + t3TakeOverSession, "save"}},
+		{"its app is closed", func(k *t3TakeOverRig, _ *t3Handing) {
+			k.srv.listen(k.t, k.home, "http://127.0.0.1:1")
+		}, []string{"look", "call orchestration.forceStopThread", "save", "look", "save", "resume " + t3TakeOverSession, "save"}},
+		{"T3 Code off, or another t3", func(_ *t3TakeOverRig, ways *t3Handing) { ways.NoCalls = true },
+			[]string{"look", "save", "look", "save", "resume " + t3TakeOverSession, "save"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			k := newT3TakeOverRig(t)
+			h := k.takenOver()
+			ways := k.ways()
+			c.set(k, &ways)
+			if _, err := t3HandBack(h, ways); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(k.log, c.log) {
+				t.Errorf("order:\n%q", k.log)
+			}
+			if !slices.ContainsFunc(k.runs(), func(run []string) bool {
+				return slices.Equal(run, []string{"project", "remove", h.Worktree, "--force"})
+			}) {
+				t.Errorf("the project wasn't removed: %q", k.runs())
+			}
+			if exists(k.fence()) || k.saved.T3Session != "" || k.saved.T3Thread != "" {
+				t.Errorf("%+v", k.saved)
+			}
+		})
+	}
+	// The fallback is no way round the hard check: a process still holding the session is never resumed over.
+	k := newT3TakeOverRig(t)
+	h := k.takenOver()
+	ways := k.ways()
+	ways.NoCalls = true
+	k.holders = func() []int { return []int{777} }
+	_, err := t3HandBack(h, ways)
+	if refusalOf(t, err).Status != http.StatusConflict || slices.ContainsFunc(k.log, func(s string) bool { return strings.HasPrefix(s, "resume") }) {
+		t.Errorf("%v %q", err, k.log)
+	}
+	// Without t3 at all, nothing is changed, in Hand back's own words.
+	k = newT3TakeOverRig(t)
+	h = k.takenOver()
+	_ = os.Remove(filepath.Join(k.home, ".local", "bin", "t3"))
+	_, err = t3HandBack(h, k.ways())
+	if refusalOf(t, err).Message != "Handing Ada back needs T3 Code's t3 command, to remove its project there, and it isn't there, so nothing was changed: in T3 Code, open Settings → About and install it, then hand back again." || len(k.log) != 0 {
+		t.Errorf("%v %q", err, k.log)
+	}
+}
+
+// RM5b S2: the registry tried again right after the stop; if it still can't be written, the advice resumes the hire
+// on its own settings file (its fence), never a bare claude --resume, and nothing goes to T3 Code.
+func TestT3TakeOverWhoseRegistryCantBeWrittenAfterTheStopAdvisesAFencedResume(t *testing.T) {
+	k := newT3TakeOverRig(t)
+	ways := k.ways()
+	save, failing := ways.Save, 2
+	ways.Save = func(id string, change func(*Hire)) error {
+		if failing > 0 {
+			failing--
+			return errors.New("disk full")
+		}
+		return save(id, change)
+	}
+	if _, err := t3TakeOver(k.hire, k.session, ways); err != nil {
+		t.Fatalf("two failed tries, then saved: %v", err)
+	}
+	k = newT3TakeOverRig(t)
+	ways = k.ways()
+	tries := 0
+	ways.Save = func(string, func(*Hire)) error { tries++; return errors.New("disk full") }
+	_, err := t3TakeOver(k.hire, k.session, ways)
+	settings := filepath.Join(hireFolder(supportDir, k.hire.ID), hireSettingsFile)
+	want := "Ada was stopped, but the registry couldn't be written, so nothing went to T3 Code. Resume it fenced, from its folder: claude --settings=" +
+		shellQuoted(settings) + " --resume " + t3TakeOverSession + " (or fire it and hire again)."
+	if refused := refusalOf(t, err); refused.Message != want || tries != t3SaveMost {
+		t.Errorf("%d tries: %q", tries, refused.Message)
+	}
+	if len(k.runs()) != 0 || len(k.srv.made()) != 0 {
+		t.Errorf("T3 Code heard of it: %q %q", k.runs(), k.srv.made())
+	}
+}
+
+// RM5b S3: a hire taken over (in T3 Code, or stopped and waiting for Hand back) isn't fired from the office, Setup
+// or the GM: hand it back first.
+func TestT3AHireTakenOverIsHandedBackBeforeItsFired(t *testing.T) {
+	waiting := Hire{ID: "abcdef123456", Name: "Ada", State: "working", T3Session: t3TakeOverSession}
+	inT3 := waiting
+	inT3.Engine = t3Engine
+	for _, h := range []Hire{waiting, inT3} {
+		want := "Ada was taken over in T3 Code: hand it back first, then fire it."
+		if t3FireRefusal(h) != want || gmT3FireRefusal(h) != want {
+			t.Errorf("%+v: %q %q", h, t3FireRefusal(h), gmT3FireRefusal(h))
+		}
+	}
+	if t3FireRefusal(Hire{Name: "Bo"}) != "" || gmT3FireRefusal(Hire{Name: "Bo"}) != "" {
+		t.Error("a plain hire refused")
 	}
 }
 
@@ -617,6 +728,33 @@ func TestT3CallGoesOnlyToThisComputerAndNeverSaysTheToken(t *testing.T) {
 	}
 	if runs := r.runs(); len(runs) != 2 || runs[1][2] != "revoke" {
 		t.Errorf("not signed out: %q", runs)
+	}
+}
+
+// RM5b S1: a ping (and a pong) between two fragments of a message is answered where it comes, and the message
+// comes back whole; without a ping answer, control frames come back on their own, as before.
+func TestT3SocketKeepsAMessageAcrossAPingBetweenItsFragments(t *testing.T) {
+	stream := func() *bufio.Reader {
+		var b bytes.Buffer
+		b.Write(append([]byte{0x01, 5}, "first"...))  // text, not final
+		b.Write(append([]byte{0x89, 1}, 'p'))         // ping
+		b.Write(append([]byte{0x8A, 1}, 'q'))         // pong
+		b.Write(append([]byte{0x80, 6}, "second"...)) // continuation, final
+		return bufio.NewReader(&b)
+	}
+	var pinged []string
+	op, data, err := t3SocketReadAnswering(stream(), 1<<20, func(ping []byte) { pinged = append(pinged, string(ping)) })
+	if err != nil || op != 1 || string(data) != "firstsecond" || !slices.Equal(pinged, []string{"p"}) {
+		t.Errorf("%d %q %v, pinged %q", op, data, err, pinged)
+	}
+	if op, data, err := t3SocketRead(stream(), 1<<20); err != nil || op != 9 || string(data) != "p" {
+		t.Errorf("unanswered: %d %q %v", op, data, err)
+	}
+	var closing bytes.Buffer
+	closing.Write(append([]byte{0x01, 2}, "hi"...))
+	closing.Write([]byte{0x88, 0})
+	if op, _, err := t3SocketReadAnswering(bufio.NewReader(&closing), 1<<20, func([]byte) {}); err != nil || op != 8 {
+		t.Errorf("a close between fragments: %d %v", op, err)
 	}
 }
 
@@ -706,6 +844,20 @@ func TestT3TakeOverAndHandBackThroughTheDeckAndItsRoutes(t *testing.T) {
 	}
 	if k.saved.Engine != "" || k.saved.T3Session != "" || !slices.Contains(k.log, "resume "+t3TakeOverSession) {
 		t.Errorf("%+v %q", k.saved, k.log)
+	}
+	// RM5b S4: taken over again, then T3 Code turned off: Setup's Hand back still works, without T3 Code's
+	// internal calls (its project removed with --force, then the hard check).
+	k.saved = k.takenOver()
+	_ = updateRegistry(func(f *registryFile) { f.hires[0] = k.saved })
+	d.mu.Lock()
+	d.config.T3CodeEnabled = false
+	d.mu.Unlock()
+	k.log = nil
+	if status, body := page("/setup/t3code/handback", k.hire.ID); status != http.StatusOK {
+		t.Fatalf("T3 Code off: %d %s", status, body)
+	}
+	if slices.Contains(k.log, "call orchestration.forceStopThread") || !slices.Contains(k.log, "resume "+t3TakeOverSession) || k.saved.T3Session != "" {
+		t.Errorf("T3 Code off: %q %+v", k.log, k.saved)
 	}
 	if got := serve(t, d, call{method: "POST", target: "/act?action=takeover&session=nobody&t=" + d.access.WindowKey, host: "localhost:7710", from: thisComputer}); got.Code != http.StatusNotFound {
 		t.Errorf("no hire at that desk: %d", got.Code)
@@ -815,7 +967,7 @@ func TestT3NamesSessionAnywhereOnItsCommandLine(t *testing.T) {
 func TestT3HoldingFindsAProcessNamingTheSession(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		if found, looked := processesHolding(t.TempDir(), t3TakeOverSession); runtime.GOOS == "darwin" && (looked || found != nil) {
-			t.Errorf("a Mac's Go core can't look: %v %v", found, looked)
+			t.Errorf("a Mac's Go core without the app can't look: %v %v", found, looked)
 		}
 		t.Skip("read from /proc on Linux; Windows's reader is Let go's (t3process_windows.go)")
 	}

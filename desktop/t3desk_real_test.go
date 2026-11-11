@@ -241,8 +241,8 @@ func TestT3TheFenceHoldsOnARealT3Thread(t *testing.T) {
 	leaving := defaultT3Leaving()
 	leaving.Machine = machine
 	if runtime.GOOS == "darwin" {
-		// This engine can't read a process's folder on a Mac without cgo (t3process_darwin.go); the test reads it
-		// with lsof (read-only), as a Linux core reads /proc.
+		// This engine reads a process's folder on a Mac through the Mac app (t3process_darwin.go), which this test
+		// hasn't; it reads it with lsof (read-only), as a Linux core reads /proc.
 		leaving.Working = func(folder string) ([]int, bool) { return lsofWorkingIn(t, folder), true }
 	}
 	hire := Hire{ID: hireID, Name: "Fence", Folder: repo, Branch: started.Place.Branch, Worktree: worktree, Repo: started.Place.Repo,

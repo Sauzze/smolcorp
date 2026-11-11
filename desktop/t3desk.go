@@ -674,7 +674,7 @@ func t3Encoded(text string) string {
 // latest, which its route puts in h), handed to this computer's opener. Never a shell, never t3.
 func t3OpenThread(h Hire, status t3Status, machine t3Machine) (int, any) {
 	if status.State != t3Found && status.State != t3AppOnlyIs {
-		return http.StatusConflict, "T3 Code's app isn't on this computer, so the hire's thread can't be shown there."
+		return http.StatusConflict, "T3 Code's app isn't on this " + t3Here() + ", so the hire's thread can't be shown there."
 	}
 	deep := t3DeepLink(h.T3Thread, h.T3Link)
 	if deep == "" {
@@ -790,7 +790,7 @@ func t3Leave(h Hire, leaving t3Leaving) (bool, error) {
 		still, looked = leaving.Working(h.Worktree)
 	}
 	if !looked {
-		return false, t3Refused(http.StatusConflict, "T3 Code removed the project, but Smolcorp can't see which processes work in "+name+"'s worktree on this computer, so its fence was kept and it isn't let go yet.")
+		return false, t3Refused(http.StatusConflict, "T3 Code removed the project, but Smolcorp can't see which processes work in "+name+"'s worktree on this "+t3Here()+", so its fence was kept and it isn't let go yet.")
 	}
 	if len(still) > 0 {
 		// Named, so you know your own terminal or editor there when it's that.

@@ -183,6 +183,20 @@ final class T3DeskTests: XCTestCase {
         XCTAssertTrue(T3Code.laneAllowed(config))
     }
 
+    /// C4 B1: while T3 Code is off, the Follow looks at no hire, so `t3` isn't run; on, at the open T3 hires only.
+    func testTheFollowRestsWhileT3CodeIsOff() {
+        var fired = t3Hire(worktree: "/x/wt2")
+        fired.id = "gone1"
+        fired.state = .fired
+        let plain = FrontDesk.Hire(id: "plain1", name: "Bo", folder: "/x")
+        let hires = [t3Hire(worktree: "/x/wt"), fired, plain]
+        let config = Config()
+        config.t3CodeEnabled = false
+        XCTAssertEqual(T3Desk.followed(hires, config: config), [])
+        config.t3CodeEnabled = true
+        XCTAssertEqual(T3Desk.followed(hires, config: config).map(\.id), [hires[0].id])
+    }
+
     func testOnlyAClaudeCodeRoleOnT3sOwnAccountNeverTheGMNorATestCopy() {
         let role = Role(id: "reviewer", name: "Reviewer", agent: "claude", model: "", effort: "", instructions: "", badge: "star")
         XCTAssertNil(T3Desk.hireRefusal(role: role, account: "", apiKey: false, testCopy: false))
