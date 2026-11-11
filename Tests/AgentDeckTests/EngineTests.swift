@@ -52,8 +52,11 @@ final class EngineTests: XCTestCase {
         return GoCore(program: program, port: port, support: folder, bridge: bridge)
     }
 
-    /// A stand-in that says it's ready, then answers each line with its id.
+    /// A stand-in that reads the token first, as the core does, then says it's
+    /// ready and answers each line with its id. It ends at once (9) without the token.
     private let answering = #"""
+        read token
+        [ "$token" = "fake-token-fake-token-fake-token-0" ] || exit 9
         echo '{"ready":true,"port":7779,"cookie":"fake-cookie"}'
         while read line; do
           id=$(echo "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
@@ -61,12 +64,14 @@ final class EngineTests: XCTestCase {
         done
         """#
 
-    func testTheTokenGoesInTheEnvironmentNeverOnTheCommandLine() throws {
+    func testTheTokenIsNeitherOnTheCommandLineNorInTheEnvironment() throws {
         let core = try core("exit 0")
         XCTAssertEqual(core.arguments, ["core", "--port", "7779", "--support", folder.path, "--bridge", folder.appendingPathComponent("bridge.sock").path])
         XCTAssertFalse(core.arguments.joined(separator: " ").contains(core.bridge.token))
-        let environment = core.environment(base: ["HOME": "/Users/me", "SMOLCORP_BRIDGE_TOKEN": "old"])
-        XCTAssertEqual(environment["SMOLCORP_BRIDGE_TOKEN"], core.bridge.token)
+        let environment = core.environment(base: ["HOME": "/Users/me"])
+        XCTAssertFalse(environment.contains { $0.key.contains(core.bridge.token) || $0.value.contains(core.bridge.token) },
+                       "other processes of yours read a process's environment (ps -E)")
+        XCTAssertFalse(environment.keys.contains("SMOLCORP_BRIDGE_TOKEN"))
         XCTAssertEqual(environment["SMOLCORP_PORT"], "7779")
         XCTAssertEqual(environment["SMOLCORP_TEST_SUPPORT_DIR"], folder.path)
         XCTAssertEqual(environment["HOME"], "/Users/me")
@@ -84,6 +89,23 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(core.stop(grace: 2), "its input ended, and it went")
         XCTAssertTrue(GoCore.isGone(pid))
         XCTAssertNil(core.ask("office"), "nothing to ask once stopped")
+    }
+
+    /// What the real one sees: its arguments, its environment and its first line of input, written to a file.
+    func testTheTokenIsTheFirstLineOnItsInputAndNowhereElse() throws {
+        let seen = folder.appendingPathComponent("seen")
+        let core = try core("""
+            { echo "$@"; env; } > '\(seen.path)'
+            read token
+            echo "first line: $token" >> '\(seen.path)'
+            echo '{"ready":true}'
+            while read line; do :; done
+            """)
+        try core.start(waitingUpTo: 5)
+        core.stop(grace: 1)
+        let text = try String(contentsOf: seen)
+        XCTAssertTrue(text.hasSuffix("first line: \(core.bridge.token)\n"), "on its input, before anything else")
+        XCTAssertEqual(text.components(separatedBy: core.bridge.token).count, 2, "and only there: not in its arguments or its environment")
     }
 
     func testOneThatWontGoIsStoppedByItsPid() throws {

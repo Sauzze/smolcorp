@@ -21,11 +21,13 @@ enum Engine: String {
 
 /// The Go core, run as this app's child: `bin/smolcorp core`, bundled and
 /// signed with the app. It's told its port, the support folder and the
-/// bridge's socket on its command line, and the bridge's token in its
-/// environment. It says it's ready on its standard output; this app then asks
-/// it, a line of JSON each way, for the office window's key and for setup
-/// sessions. Nothing else can reach that channel. When this app quits, or
-/// dies, the core's input ends and it stops: `stop` also makes sure, by its pid.
+/// bridge's socket on its command line, and the bridge's token as the first
+/// line on its standard input: never in its arguments or its environment,
+/// which other processes of yours can read (`ps -E`). It says it's ready on
+/// its standard output; this app then asks it, a line of JSON each way, for
+/// the office window's key and for setup sessions. Nothing else can reach that
+/// channel. When this app quits, or dies, the core's input ends and it stops:
+/// `stop` also makes sure, by its pid.
 final class GoCore {
     enum Failure: LocalizedError {
         case noProgram, didNotStart(String), notReady(String)
@@ -70,16 +72,15 @@ final class GoCore {
     /// The pid of the running core, if any.
     var pid: pid_t? { process.map(\.processIdentifier) }
 
-    /// What the core is started with: never the token, which is in its environment.
+    /// What the core is started with: never the token, which goes on its input.
     var arguments: [String] {
         ["core", "--port", String(port), "--support", support.path, "--bridge", bridge.socket.path]
     }
 
-    /// The core's environment: this app's, with the token, and the port and folder
-    /// a test copy's hires and `smolcorp gm` read, as the Swift engine gives them.
+    /// The core's environment: this app's, with the port and folder a test
+    /// copy's hires and `smolcorp gm` read, as the Swift engine gives them. Never the token.
     func environment(base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var environment = base
-        environment["SMOLCORP_BRIDGE_TOKEN"] = bridge.token
         environment["SMOLCORP_PORT"] = String(port)
         environment["SMOLCORP_TEST_SUPPORT_DIR"] = support.path
         return environment
@@ -114,6 +115,11 @@ final class GoCore {
         do { try process.run() } catch { throw Failure.didNotStart(error.localizedDescription) }
         self.process = process
         input = toCore.fileHandleForWriting
+        // A core that has ended mustn't raise SIGPIPE in this app as it's written to.
+        _ = fcntl(toCore.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        // The token first, before anything else is said on that pipe: the core reads it before its `hello`.
+        // Not written only when the core has already ended, which the wait below says.
+        try? toCore.fileHandleForWriting.write(contentsOf: Data((bridge.token + "\n").utf8))
         guard let ready = nextLine(until: Date().addingTimeInterval(wait)), ready["ready"] as? Bool == true else {
             let why = process.isRunning ? "no answer in \(Int(wait)) s" : "it ended (\(process.terminationStatus))"
             _ = stop()

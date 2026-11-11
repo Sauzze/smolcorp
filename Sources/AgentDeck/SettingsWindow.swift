@@ -41,6 +41,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
 
     var isShown: Bool { window?.isVisible == true }
 
+    /// Closed, as its close button does: its page goes with it.
+    func close() { window?.close() }
+
     // MARK: Addresses and what opens where
 
     /// The setup page, and what to do there (`pair`, `viewer`), as the page

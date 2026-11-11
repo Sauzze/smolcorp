@@ -27,7 +27,7 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = NSMenu()
         item.menu?.delegate = self
         NSApp.mainMenu = mainMenu()
-        core.onExit = { [weak self] status in self?.problem = "The Go engine stopped (\(status)). Quit and open Smolcorp again." }
+        core.onExit = { [weak self] status in self?.coreStopped(status) }
         do {
             try bridge.start()
         } catch {
@@ -61,6 +61,27 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let setupLink { TestCopy.leaveSetupLink(setupLink) }
         officeKey = HotKey(keyCode: UInt32(kVK_ANSI_O), modifiers: UInt32(cmdKey | optionKey), id: 1) { [weak self] in self?.office?.toggle() }
         if !Config.shared.hasCompletedSetup { settings?.show() }
+    }
+
+    /// The core ended by itself: its pages are gone, so their windows close, and
+    /// it's said once. It isn't started again: a core that keeps failing would
+    /// only fail again (a test copy only, for now).
+    private func coreStopped(_ status: Int32) {
+        let said = "The Go engine stopped (\(status)). Quit and open Smolcorp again."
+        guard problem != said else { return }
+        problem = said
+        officeKey = nil
+        office?.hide()
+        office = nil
+        settings?.close()
+        settings = nil
+        let alert = NSAlert()
+        alert.messageText = "Smolcorp's engine stopped"
+        alert.informativeText = "Its windows are closed. Quit Smolcorp and open it again."
+        alert.addButton(withTitle: "Quit Smolcorp")
+        alert.addButton(withTitle: "Not Now")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn { NSApp.terminate(nil) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

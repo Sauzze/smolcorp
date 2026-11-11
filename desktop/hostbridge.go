@@ -51,6 +51,8 @@ type bridgeRequest struct {
 type bridgeAnswer struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
+	// The terminal can't do that at all (no driver for it): errUnsupported, not a tab that's gone.
+	Unsupported bool `json:"unsupported,omitempty"`
 	// open: the new window's tab, as the deck will know it.
 	Tab string `json:"tab,omitempty"`
 	// close: fired, gone or not-stopped, as the Mac's Terminal.Fired.
@@ -74,6 +76,9 @@ func ask(h hostBridge, request bridgeRequest) (bridgeAnswer, error) {
 		return answer, err
 	}
 	if !answer.OK {
+		if answer.Unsupported {
+			return answer, errUnsupported
+		}
 		if answer.Error == "" {
 			answer.Error = "the Mac app said no"
 		}

@@ -13,7 +13,10 @@ import (
 // request, a line of JSON each way.
 type socketBridge struct {
 	path, token string
-	// How long one request may take: a terminal's AppleScript can take a few seconds.
+	// How long one request may take: a terminal's AppleScript can take a few
+	// seconds. 20 s when zero; the app starts a tab action only within 18 s of
+	// taking the connection (HostBridge.actionWait), so it never runs one after
+	// this side has given up.
 	wait time.Duration
 }
 

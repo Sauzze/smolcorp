@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -20,18 +21,23 @@ import (
 //
 //	smolcorp core --port N --support DIR --bridge DIR/SOCKET
 //
-// The bridge's token comes in SMOLCORP_BRIDGE_TOKEN, never on the command
-// line, which others signed in to this Mac can read. Without the app's socket
-// and token it doesn't start: it is never a second app of its own.
+// The bridge's token is the first line on its standard input, which only the
+// app holds: never on the command line or in the environment, which other
+// processes of yours can read (ps -E -ww). It is never exported, so nothing
+// this engine starts has it. Without the app's socket and token it doesn't
+// start: it is never a second app of its own.
 //
 // The app talks to it on its standard input and output, which nothing else
 // can reach: a line of JSON each way. The first line out says it's ready;
 // the app then asks for the office window's key and for setup sessions. When
 // the app goes, its input ends, and so does the engine.
 func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
-	token := os.Getenv(bridgeTokenEnvironment)
-	// Not handed on to anything this engine starts: hires, agents, terminals.
-	_ = os.Unsetenv(bridgeTokenEnvironment)
+	input := bufio.NewReaderSize(in, 4096)
+	token, err := readBridgeToken(input, coreTokenWait)
+	if err != nil {
+		fmt.Fprintf(errs, "%s (%v)\n", coreRefusal, err)
+		return 2
+	}
 	options, err := parseCoreOptions(args, token)
 	if err != nil {
 		fmt.Fprintf(errs, "%s (%v)\n", coreRefusal, err)
@@ -65,7 +71,7 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 	stopPortableOnSignal(deck)
 	lines := make(chan []byte)
 	go func() {
-		scanner := bufio.NewScanner(in)
+		scanner := bufio.NewScanner(input)
 		scanner.Buffer(make([]byte, 4096), 64<<10)
 		for scanner.Scan() {
 			lines <- append([]byte(nil), scanner.Bytes()...)
@@ -75,8 +81,49 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 	return serveShell(deck, lines, out, failed)
 }
 
-// bridgeTokenEnvironment carries the bridge's token from the app to the engine.
-const bridgeTokenEnvironment = "SMOLCORP_BRIDGE_TOKEN"
+// coreTokenWait is how long the app has to give the token, so a core started
+// by hand in a terminal says what it is rather than waiting on its input.
+var coreTokenWait = 5 * time.Second
+
+// bridgeTokenMost is the longest token line read: the app's is 64 characters.
+const bridgeTokenMost = 256
+
+// readBridgeToken reads the token, the first line the app writes on the
+// engine's input, before anything else is read from it.
+func readBridgeToken(input *bufio.Reader, wait time.Duration) (string, error) {
+	type read struct {
+		line string
+		err  error
+	}
+	got := make(chan read, 1)
+	go func() {
+		var line []byte
+		for {
+			b, err := input.ReadByte()
+			if err != nil {
+				got <- read{err: err}
+				return
+			}
+			if b == '\n' {
+				got <- read{line: string(line)}
+				return
+			}
+			if line = append(line, b); len(line) > bridgeTokenMost {
+				got <- read{err: errors.New("too long")}
+				return
+			}
+		}
+	}()
+	select {
+	case r := <-got:
+		if r.err != nil {
+			return "", errors.New("no bridge token")
+		}
+		return strings.TrimSuffix(r.line, "\r"), nil
+	case <-time.After(wait):
+		return "", errors.New("no bridge token")
+	}
+}
 
 // coreRefusal is what the engine says to anyone but the app.
 const coreRefusal = "smolcorp core is Smolcorp.app's engine, started by the app itself: open Smolcorp.app instead"

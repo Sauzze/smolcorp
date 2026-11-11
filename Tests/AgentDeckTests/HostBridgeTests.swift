@@ -24,6 +24,8 @@ final class HostBridgeTests: XCTestCase {
 
     private var kept: [String: String] = ["summary-key": "sk-ant-fake"]
     private var login = false
+    /// Where the stand-ins' tab actions run, as the terminals' queue.
+    private let terminals = DispatchQueue(label: "test.terminals")
 
     private var actions: HostBridge.Actions {
         HostBridge.Actions(
@@ -45,8 +47,8 @@ final class HostBridgeTests: XCTestCase {
                                                  delete: { [unowned self] in kept["summary-key"] = nil }),
                 "viewer-key": HostBridge.Secret(read: { nil }, write: { _ in false }, delete: nil),
             ],
-            loginItem: { [unowned self] in login },
-            setLoginItem: { [unowned self] in login = $0 })
+            loginItem: (get: { [unowned self] in login }, set: { [unowned self] in login = $0 }),
+            queue: terminals)
     }
 
     private func ask(_ request: [String: Any], token given: String? = nil) -> [String: Any] {
@@ -97,10 +99,13 @@ final class HostBridgeTests: XCTestCase {
 
     func testEachTabActionIsTheDrivers() {
         XCTAssertTrue(isOK(ask(["action": "type", "tab": "iterm:BD22-06F6", "text": "hello there"])))
-        XCTAssertFalse(isOK(ask(["action": "insert", "tab": "iterm:BD22-06F6", "text": "hello"])), "the terminal didn't take it")
+        let notTaken = ask(["action": "insert", "tab": "iterm:BD22-06F6", "text": "hello"])
+        XCTAssertFalse(isOK(notTaken), "the terminal didn't take it")
+        XCTAssertNil(notTaken["unsupported"])
         XCTAssertTrue(isOK(ask(["action": "focus", "tab": "tmux:%1@/tmp/s"])))
         let cant = ask(["action": "focus", "tab": "ghostty:/dev/ttys004"])
         XCTAssertEqual(cant["error"] as? String, "This terminal can't do that.")
+        XCTAssertEqual(cant["unsupported"] as? Bool, true, "the core's errUnsupported, not a tab that's gone")
         XCTAssertTrue(isOK(ask(["action": "scroll", "tab": "tmux:%1@/tmp/s", "lines": -5000])))
         XCTAssertTrue(isOK(ask(["action": "scroll-bottom", "tab": "tmux:%1@/tmp/s"])))
         XCTAssertEqual(asked, ["type hello there iterm:BD22-06F6", "insert hello iterm:BD22-06F6", "focus tmux:%1@/tmp/s",
@@ -111,7 +116,28 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(ask(["action": "close", "tab": "tmux:%1@/tmp/s", "agent": "claude"])["fired"] as? String, "fired")
         XCTAssertEqual(ask(["action": "close", "tab": "tmux:%2@/tmp/s", "agent": "codex"])["fired"] as? String, "gone")
         XCTAssertEqual(ask(["action": "close", "tab": "tmux:%3@/tmp/s", "agent": "grok"])["fired"] as? String, "not-stopped")
-        XCTAssertFalse(isOK(ask(["action": "close", "tab": "tmux:%4@/tmp/s", "agent": "claude"])), "no driver")
+        let none = ask(["action": "close", "tab": "tmux:%4@/tmp/s", "agent": "claude"])
+        XCTAssertFalse(isOK(none), "no driver")
+        XCTAssertEqual(none["unsupported"] as? Bool, true)
+    }
+
+    /// The core gives up at 20 s: an action that hasn't started by the bridge's deadline is never run.
+    func testATabActionTheCoreGaveUpOnIsNeverRunLate() {
+        // A slow AppleScript ahead of it holds the terminals' queue.
+        let release = DispatchSemaphore(value: 0)
+        terminals.async { release.wait() }
+        let line = try! JSONSerialization.data(withJSONObject: ["token": token, "action": "type", "tab": "tty:/dev/ttys003", "text": "hello"])
+        let late = HostBridge.answer(line, token: token, actions: actions, until: .now() + 0.2)
+        XCTAssertEqual(late["error"] as? String, "The terminal didn't answer in time.")
+        release.signal()
+        terminals.sync {}
+        XCTAssertTrue(asked.isEmpty, "not typed once the queue was free: the core had given up")
+        // In time, it runs.
+        XCTAssertTrue(isOK(HostBridge.answer(line, token: token, actions: actions, until: .now() + 5)))
+        XCTAssertEqual(asked, ["type hello tty:/dev/ttys003"])
+        XCTAssertLessThan(HostBridge.actionWait, 20, "under the core's own wait (desktop/hostbridge_darwin.go)")
+        // Running, it's waited for; done, its answer is given.
+        if case .done(let value) = HostBridge.run(on: terminals, until: .now() + 5, { 42 }) { XCTAssertEqual(value, 42) } else { XCTFail("not run") }
     }
 
     func testATerminalOpensOnlyOnAHireScript() throws {
@@ -139,6 +165,35 @@ final class HostBridgeTests: XCTestCase {
             XCTAssertFalse(isOK(ask(request)), "\(key) \(value)")
         }
         XCTAssertEqual(asked.count, 1, "no other window opened")
+
+        // A folder inside hires that's a link to somewhere else: the script behind it isn't a hire's.
+        let elsewhere = folder.appendingPathComponent("elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        let behind = elsewhere.appendingPathComponent("hire-2.sh")
+        try Data("#!/bin/sh\n".utf8).write(to: behind)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: behind.path)
+        try FileManager.default.createSymbolicLink(at: hires.appendingPathComponent("linked"), withDestinationURL: elsewhere)
+        XCTAssertFalse(HostBridge.isHireScript(hires.appendingPathComponent("linked/hire-2.sh").path, in: hires))
+        XCTAssertTrue(HostBridge.isHireScript(script.path, in: hires))
+    }
+
+    /// The opener gets the script's path as it is, as the deck's hire gives it: each
+    /// terminal's AppleScript quotes it itself, and a path quoted twice never runs.
+    func testTheOpenerIsGivenTheRawPath() throws {
+        let spaced = hires.appendingPathComponent("hire dir/it's.sh")
+        try FileManager.default.createDirectory(at: spaced.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: spaced)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: spaced.path)
+        var opened: [String] = []
+        var actions = HostBridge.Actions.onThisMac(testCopy: true, opener: { command, folder, terminal in
+            opened.append("\(terminal)|\(folder)|\(command)")
+            return "iterm:AB12"
+        })
+        actions.hires = hires
+        let line = try JSONSerialization.data(withJSONObject: ["token": token, "action": "open", "terminal": "iterm",
+                                                               "folder": folder.path, "script": spaced.path])
+        XCTAssertEqual(HostBridge.answer(line, token: token, actions: actions)["tab"] as? String, "iterm:AB12")
+        XCTAssertEqual(opened, ["iterm|\(folder.path)|\(spaced.path)"], "not \(Openers.quoted(spaced.path))")
     }
 
     func testTheAppsOwnItemsOnly() {
@@ -161,6 +216,22 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(ask(["action": "login-item"])["on"] as? Bool, false)
         XCTAssertEqual(ask(["action": "login-item", "on": true])["on"] as? Bool, true)
         XCTAssertTrue(login)
+    }
+
+    /// A test copy's login item is the copy in use's: the bridge neither reads nor sets it.
+    func testATestCopyLeavesTheLoginItemAlone() {
+        var touched = false
+        let item: (get: () -> Bool, set: (Bool) -> Void) = (get: { touched = true; return true }, set: { _ in touched = true })
+        let copy = HostBridge.Actions.onThisMac(testCopy: true, loginItem: item)
+        for request: [String: Any] in [["action": "login-item"], ["action": "login-item", "on": false]] {
+            var request = request
+            request["token"] = token
+            let answer = HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: copy)
+            XCTAssertFalse(isOK(answer))
+            XCTAssertEqual(answer["error"] as? String, "A test copy has no login item: it's the copy in use's.")
+        }
+        XCTAssertFalse(touched)
+        XCTAssertNotNil(HostBridge.Actions.onThisMac(testCopy: false, loginItem: item).loginItem, "the copy in use's own")
     }
 
     // MARK: The socket
@@ -211,12 +282,27 @@ final class HostBridgeTests: XCTestCase {
 
     func testAnEarlierSocketIsReplacedButNothingElse() throws {
         let socket = folder.appendingPathComponent("bridge.sock")
+        // One a launch left behind: nothing listens there any more.
+        let left = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: socket.path.utf8.prefix($0.count - 1)) }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(left, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        XCTAssertEqual(bound, 0)
+        close(left)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: socket.path))
         let first = HostBridge(socket: socket, token: token, actions: actions)
         try first.start()
+        defer { first.stop() }
+        XCTAssertNotNil(try XCTUnwrap(send(#"{"token":"\#(token)","action":"hello"}"#, to: socket.path)).range(of: "true"))
+
+        // A live one is another Smolcorp's on this folder: never taken over.
         let second = HostBridge(socket: socket, token: "fake-token-second-second-second-00", actions: actions)
-        try second.start()
-        defer { second.stop(); first.stop() }
-        XCTAssertNotNil(try XCTUnwrap(send(#"{"token":"fake-token-second-second-second-00","action":"hello"}"#, to: socket.path)).range(of: "true"))
+        XCTAssertThrowsError(try second.start()) { XCTAssertEqual($0.localizedDescription, HostBridge.Failure.inUse.localizedDescription) }
+        XCTAssertNotNil(try XCTUnwrap(send(#"{"token":"\#(token)","action":"hello"}"#, to: socket.path)).range(of: "true"),
+                        "the first still has its bridge")
 
         let file = folder.appendingPathComponent("plain")
         try Data().write(to: file)
@@ -224,6 +310,48 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
         let long = folder.appendingPathComponent(String(repeating: "x", count: 120))
         XCTAssertThrowsError(try HostBridge(socket: long, actions: actions).start())
+    }
+
+    /// A request has `requestWait` in all, however slowly it's sent, and only so many are served at once.
+    func testASlowOrCrowdingClientIsCutOff() throws {
+        let socket = folder.appendingPathComponent("bridge.sock")
+        let bridge = HostBridge(socket: socket, token: token, actions: actions)
+        try bridge.start()
+        defer { bridge.stop() }
+        func connect() -> Int32 {
+            let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+            var address = sockaddr_un()
+            address.sun_family = sa_family_t(AF_UNIX)
+            withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: socket.path.utf8.prefix($0.count - 1)) }
+            _ = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+            }
+            return fd
+        }
+        // As many as are served, each sending nothing yet.
+        let held = (0..<HostBridge.connectionsMost).map { _ in connect() }
+        defer { held.forEach { close($0) } }
+        Thread.sleep(forTimeInterval: 0.3)
+        // One more is closed at once.
+        let extra = connect()
+        var byte: UInt8 = 0
+        var wait = timeval(tv_sec: 2, tv_usec: 0)
+        setsockopt(extra, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
+        XCTAssertEqual(read(extra, &byte, 1), 0, "closed, not left waiting")
+        close(extra)
+
+        // One that sends a byte a second never gets its whole request in.
+        let start = Date()
+        let slow = held[0]
+        setsockopt(slow, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
+        var closed = false
+        for character in Array(#"{"token":"\#(token)","action":"hello"}"#.utf8) {
+            var one = character
+            if write(slow, &one, 1) != 1 { closed = true; break }
+            if read(slow, &byte, 1) == 0 { closed = true; break } // waits up to 2 s, the next byte's pace
+        }
+        XCTAssertTrue(closed)
+        XCTAssertLessThan(Date().timeIntervalSince(start), HostBridge.requestWait + 3)
     }
 
     func testEachLaunchHasItsOwnToken() {

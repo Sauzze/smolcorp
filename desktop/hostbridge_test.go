@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"errors"
+	"net/http"
 	"path/filepath"
 	"testing"
 )
@@ -125,6 +126,14 @@ func TestCloseSaysWhatTheAppDid(t *testing.T) {
 	withHost(t, bridgeAnswer{OK: false, Error: "Accessibility is off"})
 	if err := d.tab("tty:/dev/ttys003").Focus(); err == nil || err.Error() != "Accessibility is off" {
 		t.Errorf("the app's refusal: %v", err)
+	}
+	// A terminal the app has no driver for: "can't do that", not "Tab not found".
+	withHost(t, bridgeAnswer{OK: false, Error: "This terminal can't do that.", Unsupported: true})
+	if err := d.tab("ghostty:/dev/ttys004").Focus(); !errors.Is(err, errUnsupported) {
+		t.Errorf("unsupported: %v", err)
+	}
+	if code, said := d.inTab("ghostty:/dev/ttys004", func(tab Tab) error { return tab.Focus() }); code != http.StatusNotFound || said != "This terminal can't do that" {
+		t.Errorf("%d %q", code, said)
 	}
 	fake := withHost(t, bridgeAnswer{})
 	fake.err = errors.New("no socket")

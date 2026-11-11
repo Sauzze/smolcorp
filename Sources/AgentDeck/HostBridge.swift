@@ -4,8 +4,9 @@ import Security
 /// The Go core's way to what only macOS lets this app do (see `Engine`): a
 /// Unix socket in the support folder, readable by you alone (the socket 0600,
 /// its folder 0700), whose every request carries the token this launch made
-/// and handed the core in its environment. A request is a line of JSON, and
-/// so is its answer, one per connection.
+/// and handed the core as the first line on its input (never its arguments or
+/// environment, which other processes of yours can read). A request is a line
+/// of JSON, and so is its answer, one per connection.
 ///
 /// Each action is this app's own code, as the Swift engine runs it: the
 /// terminal drivers (Accessibility and AppleScript), the openers, the
@@ -18,9 +19,22 @@ final class HostBridge {
     let actions: Actions
     private var listener: Int32 = -1
     private let queue = DispatchQueue(label: "io.github.sauzze.agentdeck.bridge", attributes: .concurrent)
+    /// Connections being served, never more than `connectionsMost`. Guarded by `counting`.
+    private var serving = 0
+    private let counting = NSLock()
 
     /// The longest request read: a typed text or a secret is short.
     static let requestMost = 256 << 10
+    /// The most connections served at once: the core asks one thing at a time
+    /// per session, so more is someone else's, and is closed at once.
+    static let connectionsMost = 8
+    /// How long a whole request has to arrive, however it's cut up.
+    static let requestWait: TimeInterval = 5
+    /// How long a tab action has to start, from the moment its connection is
+    /// taken: under the core's 20 s (desktop/hostbridge_darwin.go), so the core
+    /// is still waiting when it's answered. One that hasn't started by then is
+    /// never run: the core has given up, and a phone may try again.
+    static let actionWait: TimeInterval = 18
     /// The longest a socket's path can be on a Mac.
     static let pathMost = 103
 
@@ -40,19 +54,22 @@ final class HostBridge {
     }
 
     enum Failure: LocalizedError {
-        case pathTooLong, notOurs, socket(String)
+        case pathTooLong, notOurs, inUse, socket(String)
 
         var errorDescription: String? {
             switch self {
             case .pathTooLong: return "The support folder's path is too long for the engine's socket."
             case .notOurs: return "Something that isn't the engine's socket is where it goes."
+            case .inUse: return "Another Smolcorp is already running on this support folder."
             case .socket(let call): return "The engine's socket couldn't be made (\(call): \(String(cString: strerror(errno))))."
             }
         }
     }
 
     /// Listens on the socket, its folder made yours alone first, and a socket
-    /// an earlier launch left removed. Anything else there is left alone.
+    /// an earlier launch left removed. A socket that still answers is another
+    /// Smolcorp's, running on this folder: it's never taken over. Anything else
+    /// there is left alone.
     func start() throws {
         let path = socket.path
         guard path.utf8.count <= HostBridge.pathMost else { throw Failure.pathTooLong }
@@ -60,17 +77,14 @@ final class HostBridge {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
         var info = stat()
+        var address = HostBridge.address(path)
         if lstat(path, &info) == 0 {
             guard info.st_mode & S_IFMT == S_IFSOCK else { throw Failure.notOurs }
+            guard !HostBridge.answers(&address) else { throw Failure.inUse }
             unlink(path)
         }
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw Failure.socket("socket") }
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        withUnsafeMutableBytes(of: &address.sun_path) { raw in
-            raw.copyBytes(from: path.utf8.prefix(raw.count - 1))
-        }
         // Made 0600 as it's bound, not after: never a moment others could connect.
         let mask = umask(0o177)
         let bound = withUnsafePointer(to: &address) {
@@ -103,6 +117,26 @@ final class HostBridge {
         unlink(socket.path)
     }
 
+    /// The socket's address for `path`, which `start` has checked is short enough.
+    private static func address(_ path: String) -> sockaddr_un {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { raw in
+            raw.copyBytes(from: path.utf8.prefix(raw.count - 1))
+        }
+        return address
+    }
+
+    /// Whether something listens at `address`: a running Smolcorp's bridge, not one a launch left behind.
+    private static func answers(_ address: inout sockaddr_un) -> Bool {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        return withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        } == 0
+    }
+
     private func acceptLoop(_ fd: Int32) {
         while true {
             let connection = accept(fd, nil, nil)
@@ -110,31 +144,52 @@ final class HostBridge {
                 if errno == EINTR { continue }
                 return // stopped
             }
-            queue.async { [weak self] in
-                self?.serve(connection)
+            let taken = DispatchTime.now()
+            // An answer to a core that has given up mustn't raise SIGPIPE in this app.
+            var noSignal: Int32 = 1
+            setsockopt(connection, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
+            counting.lock()
+            let room = serving < HostBridge.connectionsMost
+            if room { serving += 1 }
+            counting.unlock()
+            guard room else {
                 close(connection)
+                continue
+            }
+            queue.async { [weak self] in
+                self?.serve(connection, taken: taken)
+                close(connection)
+                self?.counting.lock()
+                self?.serving -= 1
+                self?.counting.unlock()
             }
         }
     }
 
-    /// One request on `connection`, from a process of this user only.
-    private func serve(_ connection: Int32) {
+    /// One request on `connection`, from a process of this user only, read whole
+    /// within `requestWait` of its being taken.
+    private func serve(_ connection: Int32, taken: DispatchTime) {
         var uid = uid_t(0), gid = gid_t(0)
         guard getpeereid(connection, &uid, &gid) == 0, uid == getuid() else { return }
-        var wait = timeval(tv_sec: 5, tv_usec: 0)
-        setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
+        let readBy = taken + HostBridge.requestWait
         var request = Data()
         var chunk = [UInt8](repeating: 0, count: 4096)
         while !request.contains(0x0A) {
+            // What's left of the whole request's time, for this read.
+            let left = Int64(readBy.uptimeNanoseconds) - Int64(DispatchTime.now().uptimeNanoseconds)
+            guard left > 0 else { return }
+            var wait = timeval(tv_sec: Int(left / 1_000_000_000), tv_usec: Int32(left % 1_000_000_000 / 1000))
+            setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
             let count = read(connection, &chunk, chunk.count)
             guard count > 0 else { return }
             request.append(chunk, count: count)
             guard request.count <= HostBridge.requestMost else { return }
         }
         let line = request.prefix(upTo: request.firstIndex(of: 0x0A)!)
-        var answer = (try? JSONSerialization.data(withJSONObject: HostBridge.answer(line, token: token, actions: actions))) ?? Data()
-        answer.append(0x0A)
-        answer.withUnsafeBytes { raw in
+        let answer = HostBridge.answer(line, token: token, actions: actions, until: taken + HostBridge.actionWait)
+        var data = (try? JSONSerialization.data(withJSONObject: answer)) ?? Data()
+        data.append(0x0A)
+        data.withUnsafeBytes { raw in
             var sent = 0
             while sent < raw.count {
                 let count = write(connection, raw.baseAddress! + sent, raw.count - sent)
@@ -147,7 +202,8 @@ final class HostBridge {
     // MARK: Answers
 
     /// The answer to one request: refused without the token, then the action's.
-    static func answer(_ line: Data, token: String, actions: Actions) -> [String: Any] {
+    /// A tab action not started by `deadline` isn't run.
+    static func answer(_ line: Data, token: String, actions: Actions, until deadline: DispatchTime = .distantFuture) -> [String: Any] {
         guard let request = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
               let given = request["token"] as? String, sameToken(given, token) else {
             return ["ok": false, "error": "Not this app's engine."]
@@ -157,14 +213,15 @@ final class HostBridge {
         case "hello":
             return ["ok": true]
         case "press", "type", "insert", "focus", "scroll", "scroll-bottom", "close":
-            return tabAction(action, request, actions)
+            return tabAction(action, request, actions, until: deadline)
         case "open":
             return open(request, actions)
         case "secret-read", "secret-write", "secret-delete":
             return secret(action, request, actions)
         case "login-item":
-            if let on = request["on"] as? Bool { actions.setLoginItem(on) }
-            return ["ok": true, "on": actions.loginItem()]
+            guard let item = actions.loginItem else { return refused("A test copy has no login item: it's the copy in use's.") }
+            if let on = request["on"] as? Bool { item.set(on) }
+            return ["ok": true, "on": item.get()]
         default:
             // Notifications and dictation aren't asked of the app yet.
             return refused("This Mac app can't do \(action) for the engine yet.")
@@ -172,6 +229,9 @@ final class HostBridge {
     }
 
     private static func refused(_ why: String) -> [String: Any] { ["ok": false, "error": why] }
+
+    /// A terminal the app can't do this in: the core tells it apart from a tab that's gone.
+    private static let unsupported: [String: Any] = ["ok": false, "error": "This terminal can't do that.", "unsupported": true]
 
     /// Compared whole, in the same time however much of it is right.
     static func sameToken(_ given: String, _ token: String) -> Bool {
@@ -188,35 +248,95 @@ final class HostBridge {
     static let textMost = 4000
     static let timesMost = 9
 
-    private static func tabAction(_ action: String, _ request: [String: Any], _ actions: Actions) -> [String: Any] {
+    private static func tabAction(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
         guard let text = request["tab"] as? String, let tab = TabAddress(text) else { return refused("Not a tab.") }
+        // Checked here; run on the terminals' queue, below, if it's still wanted.
+        let work: () -> [String: Any]
         switch action {
         case "press":
             guard let name = request["key"] as? String, var keystroke = keys[name] else { return refused("Not a key the deck presses.") }
             let times = request["times"] as? Int ?? 1
             guard (1...timesMost).contains(times) else { return refused("Too many presses.") }
             keystroke.times = times
-            return done(actions.press(keystroke, tab))
+            work = { done(actions.press(keystroke, tab)) }
         case "type", "insert":
             guard let text = request["text"] as? String, !text.isEmpty, text.count <= textMost, !text.hasControlCharacters else {
                 return refused("Not text to type.")
             }
-            return done(action == "type" ? actions.type(text, tab) : actions.insert(text, tab))
+            work = { done(action == "type" ? actions.type(text, tab) : actions.insert(text, tab)) }
         case "focus":
-            return done(actions.focus(tab))
+            work = { done(actions.focus(tab)) }
         case "scroll":
             guard let lines = request["lines"] as? Int, lines != 0 else { return refused("No lines to scroll.") }
-            return done(actions.scroll(max(-Terminal.maxScroll, min(Terminal.maxScroll, lines)), tab))
+            work = { done(actions.scroll(max(-Terminal.maxScroll, min(Terminal.maxScroll, lines)), tab)) }
         case "scroll-bottom":
-            return done(actions.scrollToBottom(tab))
+            work = { done(actions.scrollToBottom(tab)) }
         default: // close
             guard let name = request["agent"] as? String, let agent = Agent(rawValue: name) else { return refused("Not an agent.") }
-            guard let fired = actions.fire(tab, agent) else { return refused("This terminal can't do that.") }
-            switch fired {
-            case .fired: return ["ok": true, "fired": "fired"]
-            case .gone: return ["ok": true, "fired": "gone"]
-            case .notStopped: return ["ok": true, "fired": "not-stopped"]
+            work = {
+                switch actions.fire(tab, agent) {
+                case .fired?: return ["ok": true, "fired": "fired"]
+                case .gone?: return ["ok": true, "fired": "gone"]
+                case .notStopped?: return ["ok": true, "fired": "not-stopped"]
+                case nil: return unsupported
+                }
             }
+        }
+        switch run(on: actions.queue, until: deadline, work) {
+        case .done(let answer): return answer
+        case .tooLate: return refused("The terminal didn't answer in time.")
+        }
+    }
+
+    /// What came of something run on a queue with a deadline.
+    enum Timed<T> {
+        case done(T), tooLate
+    }
+
+    /// Runs `body` on `queue`, after what's already there, as the deck runs its
+    /// terminals one at a time, and waits for it until `deadline`. One that
+    /// hasn't started by then never runs: its caller has given up, and a key
+    /// typed late could be typed twice. One already running when the time is up
+    /// can't be stopped; it finishes, and its answer goes unheard.
+    static func run<T>(on queue: DispatchQueue, until deadline: DispatchTime, _ body: @escaping () -> T) -> Timed<T> {
+        let pending = Pending<T>()
+        queue.async {
+            guard pending.begin() else { return }
+            pending.finish(body())
+        }
+        return pending.wait(until: deadline)
+    }
+
+    /// One `run`, between the queue and its caller.
+    private final class Pending<T> {
+        private let lock = NSLock()
+        private let finished = DispatchSemaphore(value: 0)
+        private var givenUp = false
+        private var value: T?
+        private var hasValue = false
+
+        /// Whether to run it: not once its caller has given up.
+        func begin() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return !givenUp
+        }
+
+        func finish(_ result: T) {
+            lock.lock()
+            value = result
+            hasValue = true
+            lock.unlock()
+            finished.signal()
+        }
+
+        func wait(until deadline: DispatchTime) -> Timed<T> {
+            _ = finished.wait(timeout: deadline)
+            lock.lock()
+            defer { lock.unlock() }
+            if hasValue, let value { return .done(value) }
+            givenUp = true
+            return .tooLate
         }
     }
 
@@ -224,7 +344,7 @@ final class HostBridge {
         switch result {
         case true?: return ["ok": true]
         case false?: return refused("The terminal didn't take it.")
-        case nil: return refused("This terminal can't do that.")
+        case nil: return unsupported
         }
     }
 
@@ -247,14 +367,26 @@ final class HostBridge {
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
-    /// A regular file of yours, not a link, nobody else can change, inside `hires`.
+    /// A regular file of yours, nobody else can change, inside `hires`, with no
+    /// link anywhere on the way from `hires` to it: not the file, nor a folder.
     static func isHireScript(_ path: String, in hires: URL) -> Bool {
         guard path.hasPrefix("/"), !path.split(separator: "/").contains(".."), path.utf8.count < 1024 else { return false }
-        let folder = hires.standardizedFileURL.path + "/"
-        guard URL(fileURLWithPath: path).standardizedFileURL.path.hasPrefix(folder) else { return false }
+        let folder = hires.standardizedFileURL.path
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard standardized.hasPrefix(folder + "/") else { return false }
+        // The whole path resolved: the hires folder's own, then exactly the rest as given.
+        guard let realFolder = realPath(folder), let realScript = realPath(standardized),
+              realScript == realFolder + standardized.dropFirst(folder.count) else { return false }
         var info = stat()
         guard lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid() else { return false }
         return info.st_mode & 0o022 == 0
+    }
+
+    /// `path` with every link resolved, or nil if it isn't there.
+    private static func realPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     private static func secret(_ action: String, _ request: [String: Any], _ actions: Actions) -> [String: Any] {
@@ -297,15 +429,26 @@ final class HostBridge {
         var hires: URL
         var open: (_ terminal: String, _ folder: String, _ script: String) -> String?
         var secrets: [String: Secret]
-        var loginItem: () -> Bool
-        var setLoginItem: (Bool) -> Void
+        /// The login item, or nil in a test copy, whose login item is the copy in use's: never read or set.
+        var loginItem: (get: () -> Bool, set: (Bool) -> Void)?
+        /// Where tab actions run, one at a time.
+        var queue: DispatchQueue = Terminal.queue
 
         /// The Swift engine's own: the terminal drivers on `Terminal.queue`, one at a time
         /// as the deck runs them, the openers, the secrets' stores (files in a test copy), the login item.
-        static var mac: Actions {
-            func drive<T>(_ tab: TabAddress, _ body: @escaping (TerminalDriver) -> T) -> T? {
+        static var mac: Actions { onThisMac() }
+
+        /// `mac`, with what a test changes: whether this is a test copy, the login item, and the opener
+        /// (`Openers.open`, given the command, the folder and the terminal).
+        static func onThisMac(testCopy: Bool = TestCopy.isOn,
+                              loginItem: (get: () -> Bool, set: (Bool) -> Void) = (get: { LoginItem.isEnabled }, set: { LoginItem.isEnabled = $0 }),
+                              opener: @escaping (_ command: String, _ folder: String, _ terminal: String) -> String? = { command, folder, terminal in
+                                  Openers.open(command, in: folder, terminal: terminal, inTmux: false, hireID: "")
+                              }) -> Actions {
+            // On `queue`, already: see `HostBridge.run`.
+            func drive<T>(_ tab: TabAddress, _ body: (TerminalDriver) -> T) -> T? {
                 guard let driver = Terminals.driver(for: tab) else { return nil }
-                return Terminal.queue.sync { body(driver) }
+                return body(driver)
             }
             let viewer = ViewerStore.defaultStore()
             func viewerItem(_ account: ViewerKeychain.Account) -> Secret {
@@ -321,9 +464,9 @@ final class HostBridge {
                 scrollToBottom: { tab in drive(tab) { $0.scrollToBottom(in: tab) } },
                 fire: { tab, agent in drive(tab) { $0.fire(tab, agent: agent) } },
                 hires: Paths.hires,
-                open: { terminal, folder, script in
-                    Openers.open(Openers.quoted(script), in: folder, terminal: terminal, inTmux: false, hireID: "")
-                },
+                // The script's path as it is, as the deck's hire gives it (Deck.swift): each terminal's
+                // AppleScript quotes it for the shell itself (`quoted form of`).
+                open: { terminal, folder, script in opener(script, folder, terminal) },
                 secrets: [
                     "summary-key": Secret(read: { SummaryKey.store.read() }, write: { SummaryKey.save($0) }, delete: { SummaryKey.remove() }),
                     "gm-token": Secret(read: {
@@ -334,8 +477,7 @@ final class HostBridge {
                     "viewer-key": viewerItem(.key),
                     "viewer-write-secret": viewerItem(.writeSecret),
                 ],
-                loginItem: { LoginItem.isEnabled },
-                setLoginItem: { LoginItem.isEnabled = $0 })
+                loginItem: testCopy ? nil : loginItem)
         }
     }
 }

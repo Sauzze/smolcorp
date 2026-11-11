@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -155,27 +156,53 @@ func TestTheEngineRefusesAnyoneButTheApp(t *testing.T) {
 }
 
 func TestRunCoreWithoutTheAppSaysWhatItIs(t *testing.T) {
-	t.Setenv(bridgeTokenEnvironment, "")
 	var errs bytes.Buffer
 	if code := RunCore([]string{"--port", "7779"}, strings.NewReader(""), &bytes.Buffer{}, &errs); code != 2 {
 		t.Errorf("code %d", code)
 	}
-	if !strings.Contains(errs.String(), "open Smolcorp.app instead") {
+	if !strings.Contains(errs.String(), "open Smolcorp.app instead") || !strings.Contains(errs.String(), "no bridge token") {
 		t.Errorf("said %q", errs.String())
 	}
-	// The right shape, but an app that doesn't know the token: refused before anything is read.
+	// The right shape, but an app that doesn't know the token: refused before anything else is read.
 	folder := shortFolder(t)
 	socket := fakeApp(t, folder, func(bridgeRequest) string { return `{"ok":true}` })
-	t.Setenv(bridgeTokenEnvironment, strings.Repeat("z", 40))
+	token := strings.Repeat("z", 40)
 	errs.Reset()
-	if code := RunCore([]string{"--port", "7779", "--support", folder, "--bridge", socket}, strings.NewReader(""), &bytes.Buffer{}, &errs); code != 2 {
+	if code := RunCore([]string{"--port", "7779", "--support", folder, "--bridge", socket}, strings.NewReader(token+"\n"), &bytes.Buffer{}, &errs); code != 2 {
 		t.Errorf("code %d", code)
 	}
-	if os.Getenv(bridgeTokenEnvironment) != "" {
-		t.Error("the token isn't handed on")
+	if !strings.Contains(errs.String(), "the app's bridge: no") {
+		t.Errorf("said %q", errs.String())
+	}
+	for _, variable := range os.Environ() {
+		if strings.Contains(variable, token) {
+			t.Errorf("the token is in the environment: %s", strings.SplitN(variable, "=", 2)[0])
+		}
 	}
 	if supportDir == folder {
 		t.Error("a refused engine never takes the folder")
+	}
+}
+
+func TestTheTokenIsTheFirstLineOnTheInput(t *testing.T) {
+	input := bufio.NewReader(strings.NewReader(fakeBridgeToken + "\n" + `{"id":1,"op":"office"}` + "\n"))
+	token, err := readBridgeToken(input, time.Second)
+	if err != nil || token != fakeBridgeToken {
+		t.Fatalf("token %q, %v", token, err)
+	}
+	if rest, _ := input.ReadString('\n'); rest != `{"id":1,"op":"office"}`+"\n" {
+		t.Errorf("the app's lines after it are left to read: %q", rest)
+	}
+	for name, text := range map[string]string{"nothing": "", "no line end": fakeBridgeToken, "too long": strings.Repeat("z", bridgeTokenMost+1) + "\n"} {
+		if _, err := readBridgeToken(bufio.NewReader(strings.NewReader(text)), time.Second); err == nil {
+			t.Errorf("%s: a token", name)
+		}
+	}
+	// Started by hand, with nothing on its input: it doesn't wait for ever.
+	silent, _ := io.Pipe()
+	start := time.Now()
+	if _, err := readBridgeToken(bufio.NewReader(silent), 100*time.Millisecond); err == nil || time.Since(start) > 900*time.Millisecond {
+		t.Errorf("a silent input: %v after %v", err, time.Since(start))
 	}
 }
 
