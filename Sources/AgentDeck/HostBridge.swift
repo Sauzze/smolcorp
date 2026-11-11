@@ -475,7 +475,8 @@ final class HostBridge {
         static func onThisMac(testCopy: Bool = TestCopy.isOn,
                               loginItem: (get: () -> Bool, set: (Bool) -> Void) = (get: { LoginItem.isEnabled }, set: { LoginItem.isEnabled = $0 }),
                               opener: @escaping (_ command: String, _ folder: String, _ terminal: String) -> String? = { command, folder, terminal in
-                                  Openers.open(command, in: folder, terminal: terminal, inTmux: false, hireID: "")
+                                  // The tab only, for now; the window Smolcorp opened (T796) goes over the bridge with M4.
+                                  Openers.open(command, in: folder, terminal: terminal, inTmux: false, hireID: "")?.tab
                               }) -> Actions {
             // On `queue`, already: see `HostBridge.run`.
             func drive<T>(_ tab: TabAddress, _ body: (TerminalDriver) -> T) -> T? {
