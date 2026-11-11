@@ -1178,6 +1178,8 @@ final class HostBridge {
                     ]
                 },
                 installCheck: { SelfTest.installCheck(testCopy: testCopy) },
+                // A test copy never moves its bundle, whatever the global switch says (so a test of `onThisMac(testCopy: true)` can't reach /Applications).
+                moveToApplications: { if testCopy { throw SelfTest.FixError.testCopy }; try SelfTest.moveToApplications() },
                 dock: { Dock.show($0) },
                 askAccessibility: { Permissions.requestAccessibility() },
                 keystrokesOn: { if !testCopy, !Permissions.hasAccessibility { Permissions.requestAccessibility() } },

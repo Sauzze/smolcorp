@@ -56,6 +56,19 @@
         "detail": "macOS is opening a temporary copy of Smolcorp because it was just downloaded. If this is the copy you just downloaded, move it to Applications. If Smolcorp is already there, quit it, run this in Terminal, then open it again: xattr -d com.apple.quarantine '/Applications/Smolcorp.app'. After that, allow Accessibility."
       }}
     },
+    {
+      "name": "the install line, a copy in Applications",
+      "request": {"action": "install-check"},
+      "answer": {"ok": true, "check": {"id": "install", "status": "ok", "title": "Smolcorp is in Applications", "detail": "As /Applications/Smolcorp.app."}}
+    },
+    {
+      "name": "the install line, a test copy",
+      "request": {"action": "install-check"},
+      "answer": {"ok": true, "check": {
+        "id": "install", "status": "ok", "title": "Smolcorp is in Applications",
+        "detail": "A test copy, beside the Smolcorp you use: it stays where it was built."
+      }}
+    },
     {"name": "the app moved to Applications", "request": {"action": "install"}, "answer": {"ok": true}},
     {
       "name": "the app moved to Applications, refused",

@@ -323,7 +323,7 @@ func (d *Deck) setupHireRoute(w http.ResponseWriter, method, path string, body i
 	}
 	_ = json.Unmarshal(data, &named)
 	if why := gmSetupHireRefusal(named.Role, who, officeHires()); why != "" {
-		http.Error(w, why, http.StatusConflict)
+		writeStatus(w)(http.StatusConflict, why)
 		return true
 	}
 	d.mu.Lock()
@@ -333,7 +333,7 @@ func (d *Deck) setupHireRoute(w http.ResponseWriter, method, path string, body i
 	// The account folders are looked in without the lock, as setup's own list is (claudeaccounts.go).
 	hire, status, why := setupHireRequest(data, roles, claudeAccountList(saved), homeDir)
 	if status != 0 {
-		http.Error(w, why, status)
+		writeStatus(w)(status, why)
 		return true
 	}
 	// Hiring off is off for setup's sheet and the GM too: once the request is checked, the
@@ -346,7 +346,7 @@ func (d *Deck) setupHireRoute(w http.ResponseWriter, method, path string, body i
 	// On the API-key account: only while it's offered, refused in the Mac's words (or this computer's) before anything is made.
 	if hire.APIKey && !hire.T3 {
 		if offer := d.apiKeyOffer(); !offer.Available {
-			http.Error(w, offer.Refusal, http.StatusConflict)
+			writeStatus(w)(http.StatusConflict, offer.Refusal)
 			return true
 		}
 	}
@@ -356,7 +356,7 @@ func (d *Deck) setupHireRoute(w http.ResponseWriter, method, path string, body i
 	}
 	status, answer, why := hireInto(hire)
 	if answer == nil {
-		http.Error(w, why, status)
+		writeStatus(w)(status, why)
 		return true
 	}
 	writeJSON(w, status, answer)

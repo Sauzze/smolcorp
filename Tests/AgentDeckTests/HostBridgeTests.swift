@@ -427,6 +427,22 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertTrue(login)
     }
 
+    /// A test copy never moves its bundle (FXC1d N-2): `install` on `onThisMac(testCopy: true)` is refused in the
+    /// Mac's words before `SelfTest.moveToApplications` is reached, whatever `TestCopy.isOn` says in a test run.
+    /// Only the test copy's side is asked here: the other would move this test's own bundle.
+    func testATestCopyRefusesToMoveToApplications() {
+        var copy = HostBridge.Actions.onThisMac(testCopy: true)
+        copy.main = terminals // not the main queue, which this test is on
+        var request: [String: Any] = ["action": "install", "token": token]
+        let answer = HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: copy)
+        XCTAssertFalse(isOK(answer))
+        XCTAssertEqual(answer["error"] as? String, SelfTest.FixError.testCopy.localizedDescription)
+        XCTAssertEqual(answer["error"] as? String, "A test copy stays where it was built.")
+        request["action"] = "install-check"
+        let line = HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: copy)
+        XCTAssertEqual((line["check"] as? [String: Any])?["detail"] as? String, SelfTest.installCheck(testCopy: true).detail)
+    }
+
     /// A test copy's login item is the copy in use's: the bridge reads it, as the Swift engine's own setup
     /// does in a test copy, and never sets it, saying so in the Mac's words (SelfTest.loginCheck's).
     func testATestCopyLeavesTheLoginItemAlone() {
@@ -756,16 +772,19 @@ final class HostBridgeTests: XCTestCase {
         mac.dock = { [unowned self] in asked.append("dock \($0)") }
         mac.askAccessibility = { [unowned self] in asked.append("accessibility") }
         mac.keystrokesOn = { [unowned self] in asked.append("keystrokes on") }
-        // The install line (FXC1c), by the real check on stand-in bundles: a copy run from Downloads, then a
-        // translocated one with a quarantined Smolcorp in Applications. Its fix: moved, then refused as a test copy's is.
+        // The install line (FXC1c), by the real check on stand-in bundles: a copy run from Downloads, a
+        // translocated one with a quarantined Smolcorp in Applications, one in Applications, a test copy. Its fix: moved, then refused as a test copy's is.
         var installLooks = 0
         mac.installCheck = {
             installLooks += 1
-            return installLooks == 1
-                ? SelfTest.installCheck(bundle: URL(fileURLWithPath: "/Users/example/Downloads/Smolcorp.app"), testCopy: false,
-                                        home: "/Users/example", quarantined: { _ in false })
-                : SelfTest.installCheck(bundle: URL(fileURLWithPath: "/private/var/folders/ab/T/AppTranslocation/1234/d/Smolcorp.app"),
-                                        testCopy: false, home: "/Users/example", quarantined: { $0 == "/Applications/Smolcorp.app" })
+            let (bundle, testCopy, quarantined): (String, Bool, String) = switch installLooks {
+            case 1: ("/Users/example/Downloads/Smolcorp.app", false, "")
+            case 2: ("/private/var/folders/ab/T/AppTranslocation/1234/d/Smolcorp.app", false, "/Applications/Smolcorp.app")
+            case 3: ("/Applications/Smolcorp.app", false, "")
+            default: ("/Users/example/dev/Smolcorp.app", true, "")
+            }
+            return SelfTest.installCheck(bundle: URL(fileURLWithPath: bundle), testCopy: testCopy, home: "/Users/example",
+                                         quarantined: { $0 == quarantined })
         }
         mac.moveToApplications = { [unowned self] in
             asked.append("install")

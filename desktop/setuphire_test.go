@@ -143,7 +143,7 @@ func TestAHireWorksOnAnAccountSavedInConfigJSON(t *testing.T) {
 	body, _ = json.Marshal(map[string]any{"role": "janitor", "folder": repo})
 	w = serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer, body: string(body),
 		headers: map[string]string{setupHeader: "1"}})
-	if w.Code != http.StatusBadRequest || w.Body.String() != "Say which Claude account to hire on: default, work.\n" {
+	if w.Code != http.StatusBadRequest || w.Body.String() != "Say which Claude account to hire on: default, work." {
 		t.Errorf("no account named: %d %q", w.Code, w.Body)
 	}
 }
@@ -164,7 +164,7 @@ func TestEverySavedAccountsFolderIsDeniedToAHire(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{"role": "janitor", "folder": repo, "account": "ext"})
 	w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer, body: string(body),
 		headers: map[string]string{setupHeader: "1"}})
-	if w.Code != http.StatusNotFound || w.Body.String() != "There's no Claude account called ext. Pick one of: default.\n" {
+	if w.Code != http.StatusNotFound || w.Body.String() != "There's no Claude account called ext. Pick one of: default." {
 		t.Errorf("a hire on the outside account: %d %q", w.Code, w.Body)
 	}
 

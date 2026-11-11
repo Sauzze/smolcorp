@@ -383,7 +383,7 @@ func TestT3SetupsHireSheetHiresIntoT3Code(t *testing.T) {
 		`{"role":"reviewer","engine":"t3","folder":` + jsonText(repo) + `,"account":"work"}`,
 		`{"role":"reviewer","engine":"t3","folder":` + jsonText(repo) + `,"apiKey":true}`,
 	} {
-		if got := hire(body); got.Code != http.StatusConflict || got.Body.String() != "A hire in T3 Code works on T3 Code's own Claude account, so no account is picked for it.\n" {
+		if got := hire(body); got.Code != http.StatusConflict || got.Body.String() != "A hire in T3 Code works on T3 Code's own Claude account, so no account is picked for it." {
 			t.Errorf("%s: %d %q", body, got.Code, got.Body)
 		}
 	}

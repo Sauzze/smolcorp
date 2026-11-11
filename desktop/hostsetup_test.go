@@ -220,9 +220,11 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the install line, a translocated copy of one already in Applications": func(h hostBridge) (any, error) {
 			return hostInstallCheck(h)
 		},
-		"the app moved to Applications":          func(h hostBridge) (any, error) { return nil, hostInstall(h) },
-		"the app moved to Applications, refused": func(h hostBridge) (any, error) { return nil, hostInstall(h) },
-		"keys in other apps switched on":         func(h hostBridge) (any, error) { return nil, hostKeystrokesOn(h) },
+		"the install line, a copy in Applications": func(h hostBridge) (any, error) { return hostInstallCheck(h) },
+		"the install line, a test copy":            func(h hostBridge) (any, error) { return hostInstallCheck(h) },
+		"the app moved to Applications":            func(h hostBridge) (any, error) { return nil, hostInstall(h) },
+		"the app moved to Applications, refused":   func(h hostBridge) (any, error) { return nil, hostInstall(h) },
+		"keys in other apps switched on":           func(h hostBridge) (any, error) { return nil, hostKeystrokesOn(h) },
 		"an app allowed keys": func(h hostBridge) (any, error) {
 			return hostKeystrokeApps(h, []string{"com.example.notes"}, "com.example.mail", true)
 		},
@@ -342,6 +344,9 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			Label: "Move to Applications", Detail: "It's running from /Users/example/Downloads, where macOS may not keep it. In Applications it stays put, and opens at login."},
 		"the install line, a translocated copy of one already in Applications": check{ID: "install", Status: checkFix, Title: "Smolcorp is in Applications",
 			Fix: fixInstall, Label: "Move to Applications", Detail: "macOS is opening a temporary copy of Smolcorp because it was just downloaded. If this is the copy you just downloaded, move it to Applications. If Smolcorp is already there, quit it, run this in Terminal, then open it again: xattr -d com.apple.quarantine '/Applications/Smolcorp.app'. After that, allow Accessibility."},
+		"the install line, a copy in Applications": check{ID: "install", Status: checkOK, Title: "Smolcorp is in Applications", Detail: "As /Applications/Smolcorp.app."},
+		"the install line, a test copy": check{ID: "install", Status: checkOK, Title: "Smolcorp is in Applications",
+			Detail: "A test copy, beside the Smolcorp you use: it stays where it was built."},
 	}
 	cases := readBridgeCases(t)
 	if len(cases) != len(want) {
