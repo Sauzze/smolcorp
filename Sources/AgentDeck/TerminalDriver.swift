@@ -137,8 +137,12 @@ protocol TerminalDriver {
 }
 
 enum Terminals {
+    /// Settable for tests, which give a stand-in terminal for every tab.
+    static var standIn: TerminalDriver?
+
     /// The driver for `tab`'s terminal, or nil for one the deck can only watch.
     static func driver(for tab: TabAddress) -> TerminalDriver? {
+        if let standIn { return standIn }
         switch tab.kind {
         case "tty": return TerminalApp()
         case "tmux": return Tmux.path == nil ? nil : Tmux()

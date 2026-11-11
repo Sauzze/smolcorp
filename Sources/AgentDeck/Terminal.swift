@@ -489,19 +489,49 @@ enum Terminal {
         return output == "yes"
     }
 
+    /// Settable for tests, which give a stand-in: a test never tells a real app anything.
+    static var osascript = "/usr/bin/osascript"
+
     /// Runs an AppleScript, passing `arguments` as argv rather than splicing
     /// them into the source. Nil if it failed.
-    static func run(_ source: String, arguments: [String] = []) -> String? {
+    /// `input`, if given, is the script's `givenText`, read from osascript's standard input:
+    /// as an argument, its accents would come apart (see `Tool.run`).
+    static func run(_ source: String, arguments: [String] = [], input: String? = nil) -> String? {
+        if leavesAlone(source) { return nil }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", "on run argv\n\(source)\nend run"] + arguments
+        process.executableURL = URL(fileURLWithPath: osascript)
+        process.arguments = ["-e", script(source, reading: input != nil)] + arguments
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
+        let given = input.map { _ in Pipe() }
+        if let given { process.standardInput = given }
         do { try process.run() } catch { return nil }
+        if let given, let input { Tool.feed(Data(input.utf8), to: given) }
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
+    }
+
+    /// `source` as osascript runs it. Reading `input`, its first line reads the
+    /// standard input whole, as UTF-8, before any app is told anything.
+    static func script(_ source: String, reading input: Bool) -> String {
+        guard input else { return "on run argv\n\(source)\nend run" }
+        return """
+            use framework "Foundation"
+            use scripting additions
+            on run argv
+            set givenText to (current application's NSString's alloc()'s initWithData:(current application's NSFileHandle's \
+            fileHandleWithStandardInput()'s readDataToEndOfFile()) encoding:(current application's NSUTF8StringEncoding)) as text
+            \(source)
+            end run
+            """
+    }
+
+    /// Whether `source` is left unrun because it asks Terminal.app something and this is a test
+    /// copy started with SMOLCORP_TEST_NO_TERMINAL_APP=1: unknown, as when Terminal can't be asked.
+    static func leavesAlone(_ source: String, alone: Bool = TestCopy.leavesTerminalAppAlone) -> Bool {
+        alone && source.contains(#"application "Terminal""#)
     }
 }

@@ -47,14 +47,21 @@ enum Tool {
     /// Its output and exit status, or nil if it couldn't be run or was stopped for taking too long.
     /// With `errors`, what it says on its standard error comes in its output too.
     /// `timeout` is how long it has, `Tool.timeout` unless a slow one (a checkout) is given longer.
-    static func run(_ path: String, _ arguments: [String], errors: Bool = false, timeout limit: TimeInterval = Tool.timeout) -> (status: Int32, output: String)? {
+    /// `input`, if given, is its standard input, then closed: text that must arrive byte for byte goes
+    /// there, as Process passes each argument in the file system's form, its accents taken apart (é as
+    /// e and a combining accent).
+    static func run(_ path: String, _ arguments: [String], errors: Bool = false, timeout limit: TimeInterval = Tool.timeout,
+                    input: Data? = nil) -> (status: Int32, output: String)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
         let output = Pipe()
         process.standardOutput = output
         process.standardError = errors ? output : FileHandle.nullDevice
+        let given = input.map { _ in Pipe() }
+        if let given { process.standardInput = given }
         do { try process.run() } catch { return nil }
+        if let given, let input { feed(input, to: given) }
         // Stopped when it overruns, which also ends the reading below.
         let overran = DispatchWorkItem { if process.isRunning { process.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + limit, execute: overran)
@@ -63,6 +70,24 @@ enum Tool {
         overran.cancel()
         guard process.terminationReason == .exit else { return nil }
         return (process.terminationStatus, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Writes `input` into `pipe`, then closes it, in the background: a tool's standard input, once it runs.
+    static func feed(_ input: Data, to pipe: Pipe) {
+        let fd = pipe.fileHandleForWriting.fileDescriptor
+        // A tool that stops reading early mustn't raise SIGPIPE in Smolcorp.
+        _ = fcntl(fd, F_SETNOSIGPIPE, 1)
+        DispatchQueue.global().async {
+            input.withUnsafeBytes { bytes in
+                var sent = 0
+                while sent < bytes.count {
+                    let n = write(fd, bytes.baseAddress! + sent, bytes.count - sent)
+                    if n <= 0 { break }
+                    sent += n
+                }
+            }
+            try? pipe.fileHandleForWriting.close()
+        }
     }
 
     /// The first of `paths` that can be run: an app in the menu bar has no
@@ -126,12 +151,12 @@ struct Tmux: TerminalDriver {
     /// Settable for tests, which give a stand-in.
     static var path = Tool.find(["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/opt/local/bin/tmux", "/usr/bin/tmux"])
 
-    private func run(_ tab: TabAddress, _ arguments: [String]) -> (status: Int32, output: String)? {
+    private func run(_ tab: TabAddress, _ arguments: [String], input: Data? = nil) -> (status: Int32, output: String)? {
         guard let path = Tmux.path else { return nil }
-        return Tool.run(path, (tab.socket.isEmpty ? [] : ["-S", tab.socket]) + arguments)
+        return Tool.run(path, (tab.socket.isEmpty ? [] : ["-S", tab.socket]) + arguments, input: input)
     }
 
-    private func ran(_ tab: TabAddress, _ arguments: [String]) -> Bool { run(tab, arguments)?.status == 0 }
+    private func ran(_ tab: TabAddress, _ arguments: [String], input: Data? = nil) -> Bool { run(tab, arguments, input: input)?.status == 0 }
 
     func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool {
         guard let name = keystroke.tmuxName else { return false }
@@ -142,22 +167,42 @@ struct Tmux: TerminalDriver {
         return true
     }
 
+    /// `text` as the last argument of a tmux command, kept whole. tmux reads an
+    /// argument ending in ";" as the end of its command and drops that ";"
+    /// (a lone ";" leaves no text at all), and takes one ending in "\;" for a
+    /// ";": so a ";" at the end goes as "\;". As the Windows and Linux app's
+    /// tmuxLiteral (desktop/tabs.go). Text that must arrive byte for byte goes
+    /// on tmux's standard input instead (see `pasted`).
+    static func literal(_ text: String) -> String {
+        text.hasSuffix(";") ? String(text.dropLast()) + #"\;"# : text
+    }
+
     func type(_ text: String, in tab: TabAddress) -> Bool {
-        // A ; at the end would be read as tmux's own command separator.
-        let literal = text.hasSuffix(";") ? String(text.dropLast()) + #"\;"# : text
-        return ran(tab, ["send-keys", "-t", tab.id, "-l", "--", literal]) && ran(tab, ["send-keys", "-t", tab.id, "Enter"])
+        ran(tab, ["send-keys", "-t", tab.id, "-l", "--", Tmux.literal(text)]) && ran(tab, ["send-keys", "-t", tab.id, "Enter"])
     }
 
     /// As a bracketed paste, so the agent takes it as one piece of text.
     func insert(_ text: String, in tab: TabAddress) -> Bool {
         // Escape could end the bracket early and Return would press Enter: refused, as a hire's paste does.
         guard HireTmux.canPaste(text) else { return false }
-        let buffer = "smolcorp-\(UUID().uuidString.prefix(8))"
-        return ran(tab, ["set-buffer", "-b", buffer, "--", text]) && ran(tab, ["paste-buffer", "-p", "-d", "-b", buffer, "-t", tab.id])
+        return pasted(text, in: tab, bracketed: true)
     }
 
-    /// As keys, where `insert` pastes.
-    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { ran(tab, ["send-keys", "-t", tab.id, "-l", "--", text]) }
+    /// As keys, where `insert` pastes: the same text, without the brackets, a line feed as itself (-r) as send-keys sent it.
+    func typeKeys(_ text: String, in tab: TabAddress) -> Bool {
+        guard HireTmux.canPaste(text) else { return false }
+        return pasted(text, in: tab, bracketed: false)
+    }
+
+    /// `text` into the pane through a buffer of its own, loaded from tmux's standard input, byte for
+    /// byte: as an argument, its accents would come apart (see `Tool.run`) and a ";" at its end go.
+    private func pasted(_ text: String, in tab: TabAddress, bracketed: Bool) -> Bool {
+        let buffer = "smolcorp-\(UUID().uuidString.prefix(8))"
+        guard ran(tab, ["load-buffer", "-b", buffer, "-"], input: Data(text.utf8)) else { return false }
+        if ran(tab, ["paste-buffer", bracketed ? "-p" : "-r", "-d", "-b", buffer, "-t", tab.id]) { return true }
+        _ = ran(tab, ["delete-buffer", "-b", buffer]) // -d only deletes after a paste
+        return false
+    }
 
     /// The pane, and the terminal tab tmux is shown in, when that's one the
     /// deck can bring forward.
@@ -233,8 +278,8 @@ struct ITerm: TerminalDriver {
     var keysNeedAccessibility: Bool { false }
 
     /// Runs `body` with `s` as the session whose unique ID is the first
-    /// argument; "gone" if there's none.
-    private func withSession(_ id: String, _ body: String, _ extra: [String] = []) -> String? {
+    /// argument; "gone" if there's none. `text`, if given, is its `givenText`.
+    private func withSession(_ id: String, _ body: String, _ extra: [String] = [], text: String? = nil) -> String? {
         Terminal.run("""
             if application "iTerm" is not running then return "gone"
             tell application "iTerm"
@@ -249,7 +294,7 @@ struct ITerm: TerminalDriver {
                 end repeat
             end tell
             return "gone"
-            """, arguments: [id] + extra)
+            """, arguments: [id] + extra, input: text)
     }
 
     func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool {
@@ -261,12 +306,13 @@ struct ITerm: TerminalDriver {
         return true
     }
 
+    /// The text goes on osascript's standard input, never as an argument: see `Terminal.run`.
     func type(_ text: String, in tab: TabAddress) -> Bool {
-        withSession(tab.id, "tell s to write text (item 2 of argv)\nreturn \"ok\"", [text]) == "ok"
+        withSession(tab.id, "tell s to write text givenText\nreturn \"ok\"", text: text) == "ok"
     }
 
     func insert(_ text: String, in tab: TabAddress) -> Bool {
-        withSession(tab.id, "tell s to write text (item 2 of argv) newline NO\nreturn \"ok\"", [text]) == "ok"
+        withSession(tab.id, "tell s to write text givenText newline NO\nreturn \"ok\"", text: text) == "ok"
     }
 
     /// The session's visible lines, as text: its `contents`.
@@ -380,7 +426,8 @@ struct Ghostty: TerminalDriver {
 
     /// Runs `body` with `t` as the terminal, "gone" if it isn't there.
     /// …and still on the session's tty, asked each time: if it isn't, nothing is done.
-    private func withTerminal(_ tab: TabAddress, _ body: String, _ extra: [String] = []) -> String? {
+    /// `text`, if given, is its `givenText`.
+    private func withTerminal(_ tab: TabAddress, _ body: String, _ extra: [String] = [], text: String? = nil) -> String? {
         guard let id = Ghostty.id(on: tab.id) else { return nil }
         return Terminal.run("""
             if application "Ghostty" is not running then return "gone"
@@ -394,7 +441,7 @@ struct Ghostty: TerminalDriver {
                 end try
                 \(body)
             end tell
-            """, arguments: [id, tab.id] + extra)
+            """, arguments: [id, tab.id] + extra, input: text)
     }
 
     /// `text` as Ghostty's text: action reads it, its escapes being Zig's.
@@ -413,8 +460,14 @@ struct Ghostty: TerminalDriver {
         return out
     }
 
+    /// A key's bytes, all ASCII, as an argument: reading standard input costs osascript a moment more.
     private func typeBytes(_ bytes: String, in tab: TabAddress) -> Bool {
         withTerminal(tab, "perform action (\"text:\" & (item 3 of argv)) on t\nreturn \"ok\"", [Ghostty.escaped(bytes)]) == "ok"
+    }
+
+    /// Text on osascript's standard input, never as an argument: see `Terminal.run`.
+    private func typeText(_ text: String, in tab: TabAddress) -> Bool {
+        withTerminal(tab, "perform action (\"text:\" & givenText) on t\nreturn \"ok\"", text: Ghostty.escaped(text)) == "ok"
     }
 
     func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool {
@@ -426,11 +479,11 @@ struct Ghostty: TerminalDriver {
         return true
     }
 
-    func type(_ text: String, in tab: TabAddress) -> Bool { typeBytes(text + "\r", in: tab) }
+    func type(_ text: String, in tab: TabAddress) -> Bool { typeText(text + "\r", in: tab) }
 
     /// As Ghostty pastes, without Return.
     func insert(_ text: String, in tab: TabAddress) -> Bool {
-        withTerminal(tab, "input text (item 3 of argv) to t\nreturn \"ok\"", [text]) == "ok"
+        withTerminal(tab, "input text givenText to t\nreturn \"ok\"", text: text) == "ok"
     }
 
     func focus(_ tab: TabAddress) -> Bool { withTerminal(tab, "focus t\nactivate\nreturn \"ok\"") == "ok" }
@@ -471,7 +524,7 @@ struct Ghostty: TerminalDriver {
     var showsScreen: Bool { false }
 
     /// As keys, where `insert` pastes: as `press` types them.
-    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { typeBytes(text, in: tab) }
+    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { typeText(text, in: tab) }
 }
 
 /// Brings a terminal app forward by its bundle id, after its own command
@@ -493,14 +546,20 @@ struct WezTerm: TerminalDriver {
     /// Settable for tests, which give a stand-in.
     static var path = Tool.find(["/Applications/WezTerm.app/Contents/MacOS/wezterm", "/opt/homebrew/bin/wezterm", "/usr/local/bin/wezterm"])
 
-    private func run(_ tab: TabAddress, _ arguments: [String]) -> (status: Int32, output: String)? {
+    private func run(_ tab: TabAddress, _ arguments: [String], input: Data? = nil) -> (status: Int32, output: String)? {
         guard let path = WezTerm.path else { return nil }
         // The GUI's socket, where the hook gave it; otherwise wezterm finds the running GUI itself.
         let socket = tab.socket.isEmpty ? [] : ["WEZTERM_UNIX_SOCKET=\(tab.socket)"]
-        return Tool.run("/usr/bin/env", socket + [path, "cli"] + arguments)
+        return Tool.run("/usr/bin/env", socket + [path, "cli"] + arguments, input: input)
     }
 
-    private func ran(_ tab: TabAddress, _ arguments: [String]) -> Bool { run(tab, arguments)?.status == 0 }
+    private func ran(_ tab: TabAddress, _ arguments: [String], input: Data? = nil) -> Bool { run(tab, arguments, input: input)?.status == 0 }
+
+    /// `text` through send-text, which reads it from its standard input when it's given none: as an
+    /// argument, its accents would come apart (see `Tool.run`).
+    private func send(_ text: String, in tab: TabAddress, paste: Bool) -> Bool {
+        ran(tab, ["send-text", "--pane-id", tab.id] + (paste ? [] : ["--no-paste"]), input: Data(text.utf8))
+    }
 
     func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool {
         guard let bytes = keystroke.bytes else { return false }
@@ -512,14 +571,14 @@ struct WezTerm: TerminalDriver {
     }
 
     func type(_ text: String, in tab: TabAddress) -> Bool {
-        ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", "--", text]) && ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", "\r"])
+        send(text, in: tab, paste: false) && ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", "\r"])
     }
 
     /// As a paste, which is send-text's own way, without Return.
-    func insert(_ text: String, in tab: TabAddress) -> Bool { ran(tab, ["send-text", "--pane-id", tab.id, "--", text]) }
+    func insert(_ text: String, in tab: TabAddress) -> Bool { send(text, in: tab, paste: true) }
 
     /// As keys, where `insert` pastes.
-    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", "--", text]) }
+    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { send(text, in: tab, paste: false) }
 
     func focus(_ tab: TabAddress) -> Bool {
         guard ran(tab, ["activate-pane", "--pane-id", tab.id]) else { return false }
@@ -566,12 +625,18 @@ struct Kitty: TerminalDriver {
     /// Settable for tests, which give a stand-in.
     static var path = Tool.find(["/Applications/kitty.app/Contents/MacOS/kitten", "/opt/homebrew/bin/kitten", "/usr/local/bin/kitten"])
 
-    private func run(_ tab: TabAddress, _ arguments: [String], errors: Bool = false) -> (status: Int32, output: String)? {
+    private func run(_ tab: TabAddress, _ arguments: [String], errors: Bool = false, input: Data? = nil) -> (status: Int32, output: String)? {
         guard let path = Kitty.path else { return nil }
-        return Tool.run(path, ["@", "--to", tab.socket] + arguments, errors: errors)
+        return Tool.run(path, ["@", "--to", tab.socket] + arguments, errors: errors, input: input)
     }
 
-    private func ran(_ tab: TabAddress, _ arguments: [String]) -> Bool { run(tab, arguments)?.status == 0 }
+    private func ran(_ tab: TabAddress, _ arguments: [String], input: Data? = nil) -> Bool { run(tab, arguments, input: input)?.status == 0 }
+
+    /// `text` through send-text's standard input, which it takes as it is, with no escapes: as an
+    /// argument, its accents would come apart (see `Tool.run`).
+    private func send(_ text: String, in tab: TabAddress) -> Bool {
+        ran(tab, ["send-text", "--match", "id:\(tab.id)", "--stdin"], input: Data(text.utf8))
+    }
 
     /// Text as kitty's send-text reads it: Python escapes, so a backslash itself is doubled.
     static func escaped(_ text: String) -> String {
@@ -591,13 +656,9 @@ struct Kitty: TerminalDriver {
         return true
     }
 
-    func type(_ text: String, in tab: TabAddress) -> Bool {
-        ran(tab, ["send-text", "--match", "id:\(tab.id)", "--", Kitty.escaped(text + "\r")])
-    }
+    func type(_ text: String, in tab: TabAddress) -> Bool { send(text + "\r", in: tab) }
 
-    func insert(_ text: String, in tab: TabAddress) -> Bool {
-        ran(tab, ["send-text", "--match", "id:\(tab.id)", "--", Kitty.escaped(text)])
-    }
+    func insert(_ text: String, in tab: TabAddress) -> Bool { send(text, in: tab) }
 
     func focus(_ tab: TabAddress) -> Bool {
         guard ran(tab, ["focus-window", "--match", "id:\(tab.id)"]) else { return false }
