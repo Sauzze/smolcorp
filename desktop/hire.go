@@ -188,30 +188,23 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	return d.hireWith(hireSpec{desk: desk, roleID: roleID, floor: floor, fromSetup: fromSetup})
 }
 
-// hireSpec is a hire's request, as hireAs and the General Manager's route
-// (POST /setup/gm/hire) both make it: the one hire path.
+// hireSpec is a hire's request, as hireAs and POST /setup/gm/hire make it: the one hire path.
 type hireSpec struct {
 	desk, roleID string
 	floor        int
 	fromSetup    bool
-	// folder is the folder asked for, already checked by the caller; "" is the
-	// folder for new hires.
-	folder string
-	// fenced hires only through a fenced way (the tmux engine, or the launcher's
-	// behind its switch), and refuses with 409 what would open a plain terminal.
-	fenced bool
-	// seat, when set, is given the desk the hire takes when none was chosen.
-	seat *int
+	folder       string // asked for and checked by the caller; "" is the folder for new hires
+	fenced       bool   // only a fenced way (the tmux engine, or the launcher's): 409 where a plain terminal would open
+	seat         *int   // when set, is given the desk the hire takes
 }
 
-// fenceRefusal is why a fenced hire of program can't be made, or "": nothing
-// the General Manager hires is ever opened in a plain terminal, which has no guard.
+// fenceRefusal is why a fenced hire of program can't be made, or "": a plain terminal has no guard.
 func fenceRefusal(program, pinned string, tmux, launcher bool) string {
 	switch {
 	case Agent(program) != Claude:
 		return "The General Manager hires only Claude roles: Smolcorp can't fence another agent."
 	case pinned != "":
-		return "The General Manager doesn't hire at a pinned desk: Smolcorp can fence only a hire in a worktree of its own."
+		return "The General Manager doesn't hire into a pinned desk's or a floor's own folder."
 	case tmux, launcherHires && launcher:
 		return ""
 	case launcherHires:
@@ -234,19 +227,30 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 	held := -1
 	if floor > 0 {
 		// Upstairs, at a desk nobody sits at: its floor's folder, if the floor has one.
+		_, overflow := d.layout()
+		seated, _ := d.seatedBuilding(overflow)
+		seatedAt := func(i int) bool {
+			return slices.ContainsFunc(seated[floor], func(p seatedPerson[*Session]) bool { return p.desk == i })
+		}
+		for i := 0; desk == "" && s.fenced && i < desksPerFloor; i++ { // the route names a floor, not a desk: its first free one
+			if !seatedAt(i) {
+				desk = strconv.Itoa(i)
+			}
+		}
 		index, err := strconv.Atoi(desk)
 		if err != nil || index < 0 || index >= desksPerFloor {
 			return http.StatusBadRequest, "Unknown desk"
 		}
-		_, overflow := d.layout()
-		seated, _ := d.seatedBuilding(overflow)
-		if slices.ContainsFunc(seated[floor], func(p seatedPerson[*Session]) bool { return p.desk == index }) {
+		if seatedAt(index) {
 			return http.StatusConflict, "Someone's at that desk already."
 		}
 		if !d.hasRoom(floor, "") {
 			return http.StatusConflict, checkedFloors(d.config.Floors)[floor].Name + " is full."
 		}
 		held = index
+		if s.seat != nil {
+			*s.seat = index
+		}
 		pinned, _ = existingFolder(floorFolder(d.config.FloorRules, floor))
 	} else if desk != "" {
 		keys, _ := d.layout()
@@ -274,8 +278,7 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		}
 	} else if s.seat != nil {
 		keys, _ := d.layout()
-		*s.seat = slices.IndexFunc(keys, func(k deckKey) bool { return k.pin == nil && k.session == nil })
-		if *s.seat < 0 {
+		if *s.seat = slices.IndexFunc(keys, func(k deckKey) bool { return k.pin == nil && k.session == nil }); *s.seat < 0 {
 			*s.seat = len(keys)
 		}
 	}
@@ -290,10 +293,6 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		}
 		if !ok {
 			return http.StatusConflict, "Choose a folder for new hires in setup, on your computer."
-		}
-		// Never your home folder, whatever setup holds.
-		if s.fenced && sameFolder(realPath(folder), realPath(homeDir)) {
-			return http.StatusConflict, setupHireNeedsFolder
 		}
 	}
 	program := d.config.HireAgent
@@ -322,10 +321,8 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 	if !hasTerminal && !tmux {
 		return http.StatusConflict, "There's no terminal here to open a hire in."
 	}
-	if s.fenced {
-		if why := fenceRefusal(program, pinned, tmux, d.config.HireManagedWindows && hasTerminal); why != "" {
-			return http.StatusConflict, why
-		}
+	if why := fenceRefusal(program, pinned, tmux, d.config.HireManagedWindows && hasTerminal); s.fenced && why != "" {
+		return http.StatusConflict, why
 	}
 	d.lastHire = time.Now()
 	// Until it's done, however long the lock is let go, which may be longer
@@ -371,7 +368,6 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		}
 	}
 	if s.fenced {
-		// Not made by an engine: never the plain terminal, which has no guard.
 		d.lastHire = time.Time{}
 		return http.StatusConflict, "The General Manager hires only into a hire Smolcorp can fence, and this one couldn't be."
 	}
