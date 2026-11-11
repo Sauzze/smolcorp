@@ -9,8 +9,9 @@ import AppKit
 /// the app is opened and `t3 app <folder>` starts a thread there; with `t3`
 /// alone, `t3 project add` adds the folder to its projects. `t3` only ever runs
 /// with `--version`, `app <folder>` or `project add <folder> --title <title>`,
-/// its arguments as a list, never through a shell. The Linux/Windows app's
-/// t3code.go answers the same.
+/// its arguments as a list, never through a shell; and, after a `t3 app` that
+/// says it failed, `thread list --project <folder> --json` to see whether it
+/// did. The Linux/Windows app's t3code.go answers the same.
 enum T3Code {
     /// What's installed: the app and `t3`, one of them, or neither.
     enum State: String { case found, appOnly, cliOnly, none }
@@ -26,11 +27,16 @@ enum T3Code {
     /// How long `t3 --version` may take, and how long the app may take to answer `t3 app`.
     static let versionTimeout: TimeInterval = 3
     static let openWithin: TimeInterval = 10
-    /// How long a check is kept: the page asks again at most this often, or when the button's menu opens.
+    /// How long a check is kept: the page asks again at most this often, or when the button's menu opens. Even
+    /// asked fresh, a check newer than `freshFor` is the answer.
     static let keptFor: TimeInterval = 30
+    static let freshFor: TimeInterval = 2
+    /// How new a thread of the folder's must be to count as the one `t3 app` opened.
+    static let threadWithin: TimeInterval = 15
 
     static let appOnlyHint = "In T3 Code, open Settings → About and install the t3 command."
     static let noneHint = "Install T3 Code to open this hire's folder there (t3.codes)."
+    static let alreadyOpening = "Already opening T3 Code for this hire."
 
     /// One run of `t3`: how it ended (nil: it didn't start, or was stopped for taking too long) and what it printed.
     struct Ran {
@@ -76,18 +82,29 @@ enum T3Code {
         let app = machine.appInstalled()
         guard let program = program(machine) else { return Status(state: app ? .appOnly : .none) }
         let ran = machine.run(program, ["--version"], versionTimeout)
-        let version = ran.status == 0 ? firstLine(ran.output) : ""
+        // It says "t3 v0.1.8": the version is what follows "t3 ".
+        var version = ran.status == 0 ? firstLine(ran.output) : ""
+        if version.hasPrefix("t3 ") { version = String(version.dropFirst(3)) }
         return Status(state: app ? .found : .cliOnly, version: String(version.prefix(40)))
     }
 
     private static let lock = NSLock()
     private static var kept: (status: Status, at: Date)?
+    /// Held while `t3 --version` runs: one check at a time.
+    private static let checking = NSLock()
 
-    /// The last check, if it's newer than `keptFor`; otherwise, or `fresh`, a new one. Never on the main thread.
+    /// The last check, if it's newer than `keptFor` (`freshFor`, asked `fresh`); otherwise a new one, one at a
+    /// time: a check that ends while this one waits for it is the answer. Never on the main thread.
     static func status(fresh: Bool = false, machine: Machine = Machine()) -> Status {
-        lock.lock()
-        if !fresh, let kept, machine.now().timeIntervalSince(kept.at) < keptFor { lock.unlock(); return kept.status }
-        lock.unlock()
+        func newEnough() -> Status? {
+            lock.lock(); defer { lock.unlock() }
+            guard let kept else { return nil }
+            let age = machine.now().timeIntervalSince(kept.at)
+            return age >= 0 && age < (fresh ? freshFor : keptFor) ? kept.status : nil
+        }
+        if let status = newEnough() { return status }
+        checking.lock(); defer { checking.unlock() }
+        if let status = newEnough() { return status }
         let status = detect(machine)
         lock.lock(); kept = (status, machine.now()); lock.unlock()
         return status
@@ -141,6 +158,21 @@ enum T3Code {
 
     // MARK: Opening
 
+    /// The hires whose folder is being opened now.
+    private static var opening = Set<String>()
+
+    /// `open`, once at a time for a hire: a second open for the same hire while one runs is a 409. What's
+    /// installed is `check`ed once it's this hire's turn. Never on the main thread.
+    static func openOnce(_ hire: FrontDesk.Hire, machine: Machine = Machine(),
+                         check: (Machine) -> Status = { status(machine: $0) }) -> Response {
+        lock.lock()
+        let first = opening.insert(hire.id).inserted
+        lock.unlock()
+        guard first else { return .status(409, alreadyOpening) }
+        defer { lock.lock(); opening.remove(hire.id); lock.unlock() }
+        return open(hire, status: check(machine), machine: machine)
+    }
+
     /// Opens `hire`'s folder in T3 Code as `status` says it's installed: a 200 with `{ok, opened}`, or a refusal.
     /// Runs `t3` and may wait for the app: never on the main thread.
     static func open(_ hire: FrontDesk.Hire, status: Status, machine: Machine = Machine()) -> Response {
@@ -170,9 +202,29 @@ enum T3Code {
         repeat {
             ran = machine.run(program, ["app", folder], max(1, until.timeIntervalSince(machine.now())))
             if ran.status == 0 { return .json(["ok": true, "opened": "thread"]) }
+            // The app answered, and said it couldn't open a thread: T3 Code 0.1.8 says so even when it did. A
+            // thread of the folder's that's just appeared says it did; tried again, it would open another.
+            if (ran.output + ran.errors).contains("thread-open-failed") {
+                return threadJustOpened(program, folder: folder, machine: machine) ? .json(["ok": true, "opened": "thread"]) : failed(ran)
+            }
             machine.pause(1)
         } while machine.now() < until
         return failed(ran)
+    }
+
+    /// Whether T3 Code lists a thread for `folder` made in the last `threadWithin` seconds.
+    static func threadJustOpened(_ program: URL, folder: String, machine: Machine) -> Bool {
+        let ran = machine.run(program, ["thread", "list", "--project", folder, "--json"], versionTimeout)
+        guard ran.status == 0, let threads = try? JSONSerialization.jsonObject(with: Data(ran.output.utf8)) as? [[String: Any]] else { return false }
+        let since = machine.now().addingTimeInterval(-threadWithin)
+        return threads.contains { thread in (thread["createdAt"] as? String).flatMap(date).map { $0 >= since } ?? false }
+    }
+
+    /// An ISO 8601 time as T3 Code writes it, with or without its milliseconds.
+    static func date(_ text: String) -> Date? {
+        let withMilliseconds = ISO8601DateFormatter(), plain = ISO8601DateFormatter()
+        withMilliseconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return withMilliseconds.date(from: text) ?? plain.date(from: text)
     }
 
     /// A `t3` that failed: a 502 with the first line it said, and nothing else.
@@ -184,6 +236,9 @@ enum T3Code {
     static func firstLine(_ text: String) -> String {
         text.split(whereSeparator: \.isNewline).lazy.map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
     }
+
+    /// What a run may print that's kept: a thread list's JSON fits.
+    static let keptOutput = 1 << 20
 
     /// Runs `program` with `arguments` as they are, no shell, stopped after `timeout`. Its folder is put first
     /// on the PATH it's given, so a `t3` that's a script finds what sits beside it.
@@ -201,20 +256,30 @@ enum T3Code {
         process.standardInput = FileHandle.nullDevice
         let ended = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in ended.signal() }
-        guard (try? process.run()) != nil else { return Ran(status: nil) }
-        // Both read at once, so neither pipe fills; what an app it started keeps open isn't waited for past the end.
-        final class Box { var data = Data() }
-        let printed = Box(), said = Box(), reading = DispatchGroup()
-        for (pipe, box) in [(output, printed), (errors, said)] {
-            reading.enter()
-            DispatchQueue.global().async { box.data = pipe.fileHandleForReading.readDataToEndOfFile(); reading.leave() }
+        // What each pipe says, kept as it comes under a lock, and when it's closed. Nothing waits on a read: what
+        // an app it started keeps open is let go a second after the end.
+        final class Said {
+            private let lock = NSLock()
+            private var data = Data()
+            let closed = DispatchSemaphore(value: 0)
+            func add(_ chunk: Data) { lock.lock(); data.append(chunk.prefix(T3Code.keptOutput - data.count)); lock.unlock() }
+            var text: String { lock.lock(); defer { lock.unlock() }; return String(decoding: data, as: UTF8.self) }
         }
-        guard ended.wait(timeout: .now() + timeout) == .success else {
-            process.terminate()
-            return Ran(status: nil)
+        let printed = Said(), said = Said(), pipes = [(output, printed), (errors, said)]
+        for (pipe, box) in pipes {
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if chunk.isEmpty { handle.readabilityHandler = nil; box.closed.signal() } else { box.add(chunk) }
+            }
         }
-        _ = reading.wait(timeout: .now() + 1)
-        return Ran(status: process.terminationStatus,
-                   output: String(decoding: printed.data.prefix(4096), as: UTF8.self), errors: String(decoding: said.data.prefix(4096), as: UTF8.self))
+        let letGo = { for (pipe, _) in pipes { pipe.fileHandleForReading.readabilityHandler = nil } }
+        guard (try? process.run()) != nil else { letGo(); return Ran(status: nil) }
+        let inTime = ended.wait(timeout: .now() + timeout) == .success
+        if !inTime { process.terminate() }
+        let drained = DispatchTime.now() + 1
+        for (_, box) in pipes { _ = box.closed.wait(timeout: drained) }
+        letGo()
+        guard inTime else { return Ran(status: nil) }
+        return Ran(status: process.terminationStatus, output: printed.text, errors: said.text)
     }
 }

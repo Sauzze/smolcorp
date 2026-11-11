@@ -2132,7 +2132,8 @@
     fire.append(open, body);
     const t3Key = t3Button(r);
     const keys = Object.assign(document.createElement('span'), { className: 'choices' });
-    keys.style.cssText = 'flex:none;justify-content:flex-end;align-items:flex-start';
+    // It may shrink: Fire… opened, its sentences wrap inside the row rather than push it wider.
+    keys.style.cssText = 'flex:0 1 auto;min-width:0;justify-content:flex-end;align-items:flex-start';
     keys.append(t3Key.button, fire);
     // On a phone-wide window (390 px), the two buttons go under the name rather than squeeze it.
     head.style.flexWrap = 'wrap';
@@ -2148,10 +2149,15 @@
    * separate app on this computer with its own agent. What's installed is asked at most every 30 seconds as the
    * team is drawn, and again (at most every 5) as a hire's row is pointed at, so a T3 Code installed meanwhile is seen.
    */
-  const T3_EVERY = 30000, T3_AGAIN = 5000;
+  const T3_EVERY = 30000, T3_AGAIN = 5000, T3_ANSWER_FOR = 30000;
   const T3_NOTE = 'T3 Code opens its own agent there, separate from this hire.';
   const T3_OPENED = { thread: "T3 Code is open on this hire's folder, in a new thread.", project: "Added to T3 Code's projects: open T3 Code to see it." };
   let t3 = null, t3At = 0, t3Asking = null;
+  /*
+   * Each hire's open, by its id, kept outside its row: the team is drawn again every 1.5 seconds, and an open (up
+   * to 10 seconds) and its answer outlive that. { busy, text, at }: busy while it runs, its answer kept 30 seconds.
+   */
+  const t3Opening = new Map();
 
   function t3State(fresh) {
     if (Date.now() - t3At < (fresh ? T3_AGAIN : T3_EVERY)) return Promise.resolve(t3);
@@ -2162,16 +2168,22 @@
     return t3Asking;
   }
 
-  /** Every hire's button, as what's installed says: greyed with its hint, or the line about T3 Code's own agent. */
+  /** Every hire's button on the page, as its open and what's installed say. */
   function paintT3() {
-    for (const button of document.querySelectorAll('#team-list [data-t3]')) {
-      if (button.dataset.busy) continue;
-      const usable = !!t3 && (t3.state === 'found' || t3.state === 'cliOnly');
-      button.disabled = !usable;
-      const line = button.closest('.pad').querySelector('.t3-line');
-      line.textContent = !t3 ? '' : usable ? (t3.state === 'found' ? T3_NOTE : '') : t3.hint;
-      line.hidden = !line.textContent;
-    }
+    for (const button of document.querySelectorAll('#team-list [data-t3]')) paintT3Row(button, button.closest('.pad').querySelector('.t3-line'));
+  }
+
+  /**
+   * One hire's button and the line under it: while it's being opened, greyed with "Opening T3 Code…"; its answer
+   * for a while after; otherwise as what's installed says, greyed with its hint, or the line about T3 Code's agent.
+   */
+  function paintT3Row(button, line) {
+    const open = t3Opening.get(button.dataset.t3);
+    const usable = !!t3 && (t3.state === 'found' || t3.state === 'cliOnly');
+    button.disabled = open && open.busy ? true : !usable;
+    line.textContent = open && (open.busy || Date.now() - open.at < T3_ANSWER_FOR) ? open.text
+      : !t3 ? '' : usable ? (t3.state === 'found' ? T3_NOTE : '') : t3.hint;
+    line.hidden = !line.textContent;
   }
 
   function t3Button(r) {
@@ -2179,16 +2191,18 @@
     button.dataset.t3 = r.id;
     const line = Object.assign(document.createElement('p'), { className: 'hint t3-line', hidden: true });
     line.style.cssText = 'margin:4px 0 0;font-size:12.5px';
+    // Drawn again mid-open, the row is as the open left it.
+    paintT3Row(button, line);
     button.onclick = async () => {
-      button.disabled = true;
-      button.dataset.busy = '1';
-      line.textContent = 'Opening T3 Code…';
-      line.hidden = false;
+      if ((t3Opening.get(r.id) || {}).busy) return;
+      t3Opening.set(r.id, { busy: true, text: 'Opening T3 Code…', at: Date.now() });
+      paintT3Row(button, line);
       const res = await fetch('/setup/t3code/open', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify({ id: r.id }) }).catch(() => null);
-      delete button.dataset.busy;
-      button.disabled = false;
-      line.textContent = res && res.ok ? T3_OPENED[(await res.json().catch(() => ({}))).opened] || T3_OPENED.thread
+      const text = res && res.ok ? T3_OPENED[(await res.json().catch(() => ({}))).opened] || T3_OPENED.thread
         : await refusal(res, "T3 Code couldn't open this hire's folder.");
+      // The answer goes to the hire's open, and so to whichever row is on the page now.
+      t3Opening.set(r.id, { busy: false, text, at: Date.now() });
+      paintT3();
     };
     return { button, line };
   }

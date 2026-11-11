@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -24,10 +26,10 @@ func init() {
 // t3Fake is a home folder with a fake t3 in it that writes down each run's arguments, a clock that moves only
 // when the open pauses, and the app as the test says.
 type t3Fake struct {
-	home, calls, mode string
-	opened            int
-	clock             time.Time
-	app               bool
+	home, calls, mode, threads string
+	opened                     int
+	clock                      time.Time
+	app                        bool
 }
 
 func newT3Fake(t *testing.T) *t3Fake {
@@ -39,11 +41,18 @@ func newT3Fake(t *testing.T) *t3Fake {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &t3Fake{home: home, calls: filepath.Join(home, "calls"), mode: filepath.Join(home, "mode"), clock: time.Unix(1_000_000, 0)}
+	// Each test starts with no check kept: an earlier test's, at the same fake time, would be taken as new.
+	t3Kept.Lock()
+	t3Kept.status, t3Kept.at = t3Status{}, time.Time{}
+	t3Kept.Unlock()
+	return &t3Fake{home: home, calls: filepath.Join(home, "calls"), mode: filepath.Join(home, "mode"), threads: filepath.Join(home, "threads"),
+		clock: time.Unix(1_000_000, 0)}
 }
 
 // install puts the fake t3 in folder, under the home folder, behaving as mode says: "ok", "fail" (always, on two
-// lines), "exists" (project add says it's there) or "late" (fails twice).
+// lines), "exists" (project add says it's there), "late" (fails twice), "slow" (its version takes a second) or
+// "unsure" (t3 app says thread-open-failed, as T3 Code 0.1.8 does even when it opened one; thread list prints
+// the threads file). It says its version as the real one does: "t3 v0.1.8".
 func (f *t3Fake) install(t *testing.T, folder, mode string) {
 	t.Helper()
 	bin := filepath.Join(f.home, folder)
@@ -57,9 +66,13 @@ printf -- '--\n' >> '` + f.calls + `'
 mode=$(cat '` + f.mode + `')
 if [ "$1" = "--version" ]; then
   [ "$mode" = "fail" ] && { echo "  broken install  " >&2; exit 1; }
-  echo "0.1.8"; exit 0
+  [ "$mode" = "slow" ] && sleep 1
+  echo "t3 v0.1.8"; exit 0
 fi
+if [ "$1" = "thread" ]; then cat '` + f.threads + `'; exit 0; fi
 case "$mode" in
+  unsure) echo "[01:33:17.503] ERROR (#2): DesktopAppRequestFailedError: T3 Code could not open $2 (thread-open-failed)." >&2
+    echo "    at Object.<anonymous> (file:///binCli.mjs:8963:34)" >&2; exit 1 ;;
   fail) printf '  Could not reach the T3 Code desktop app.  \nmore detail\n' >&2; exit 1 ;;
   exists) echo "Project already exists: $3" >&2; exit 1 ;;
   late) n=$(grep -c '^--$' '` + f.calls + `'); [ "$n" -le 2 ] && { echo "not yet" >&2; exit 1; }; exit 0 ;;
@@ -126,11 +139,11 @@ func TestT3EachStateIsFoundAndTheVersionIsAsked(t *testing.T) {
 		t.Errorf("the app alone: %+v", got)
 	}
 	f.install(t, ".local/bin", "ok")
-	if got := t3Detect(f.machine()); got != (t3Status{State: t3Found, Version: "0.1.8"}) {
+	if got := t3Detect(f.machine()); got != (t3Status{State: t3Found, Version: "v0.1.8"}) {
 		t.Errorf("both: %+v", got)
 	}
 	f.app = false
-	if got := t3Detect(f.machine()); got != (t3Status{State: t3CliOnly, Version: "0.1.8"}) {
+	if got := t3Detect(f.machine()); got != (t3Status{State: t3CliOnly, Version: "v0.1.8"}) {
 		t.Errorf("t3 alone: %+v", got)
 	}
 	if got := f.runs(); !reflect.DeepEqual(got, [][]string{{"--version"}, {"--version"}}) {
@@ -155,8 +168,18 @@ func TestT3IsLookedForWhereT3CodeLinksItThenThePath(t *testing.T) {
 		t.Errorf("Linux: %q", got)
 	}
 	m.GOOS = "windows"
+	m.Getenv = func(string) string { return "" }
 	if got := t3Folders(m)[0]; got != filepath.Join("/home/ada", ".t3", "bin") {
 		t.Errorf("Windows looks in the folder T3 Code adds to the PATH first: %q", got)
+	}
+	m.Getenv = func(name string) string {
+		if name == "T3CODE_HOME" {
+			return `D:\t3home`
+		}
+		return ""
+	}
+	if got := t3Folders(m)[:2]; !reflect.DeepEqual(got, []string{filepath.Join(`D:\t3home`, "bin"), filepath.Join("/home/ada", ".t3", "bin")}) {
+		t.Errorf("with T3CODE_HOME set, its bin first: %q", got)
 	}
 }
 
@@ -166,7 +189,12 @@ func TestT3ACheckIsKeptThirtySecondsUnlessAskedFresh(t *testing.T) {
 	m := f.machine()
 	t3StatusNow(true, m)
 	t3StatusNow(false, m)
-	f.clock = f.clock.Add(29 * time.Second)
+	f.clock = f.clock.Add(time.Second)
+	t3StatusNow(true, m)
+	if n := len(f.runs()); n != 1 {
+		t.Errorf("asked fresh within 2 s: %d runs, want 1", n)
+	}
+	f.clock = f.clock.Add(28 * time.Second)
 	t3StatusNow(false, m)
 	if n := len(f.runs()); n != 1 {
 		t.Errorf("kept: %d runs", n)
@@ -290,6 +318,150 @@ func TestT3CliOnlyAddsAProjectAndAppOnlyOrNoneSayWhatToInstall(t *testing.T) {
 	}
 	if len(f.runs()) != runs || f.opened != 0 {
 		t.Error("appOnly and none run nothing")
+	}
+}
+
+func TestT3OneCheckAtATime(t *testing.T) {
+	f := newT3Fake(t)
+	f.install(t, ".local/bin", "slow")
+	m := f.machine()
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Add(1)
+		go func() { defer wg.Done(); t3StatusNow(true, m) }()
+	}
+	wg.Wait()
+	if n := len(f.runs()); n != 1 {
+		t.Errorf("three fresh asks at once: %d runs of t3 --version, want 1", n)
+	}
+}
+
+// T3 Code 0.1.8's t3 app says thread-open-failed even when the thread opened: a thread of the folder's made in
+// the last 15 s says it did, and nothing is tried again; without one, its first line, as before.
+func TestT3AFalseFailureIsCheckedInTheThreadList(t *testing.T) {
+	f := newT3Fake(t)
+	f.install(t, ".local/bin", "unsure")
+	f.app = true
+	project := f.folder(t, "Projects/My App; touch pwned")
+	thread := func(at time.Time) {
+		list := `[{"threadId":"t-old","createdAt":"1970-01-01T00:00:00.000Z"},{"threadId":"t1","createdAt":"` + at.UTC().Format("2006-01-02T15:04:05.000Z") + `"}]`
+		if err := os.WriteFile(f.threads, []byte(list), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	thread(f.clock.Add(-4 * time.Second))
+	status, answer := t3Open(t3Hire(project, ""), t3Status{State: t3Found}, f.machine())
+	if status != http.StatusOK || !reflect.DeepEqual(answer, map[string]any{"ok": true, "opened": "thread"}) {
+		t.Errorf("a thread from 4 s ago: %d %v", status, answer)
+	}
+	want := [][]string{{"app", project}, {"thread", "list", "--project", project, "--json"}}
+	if got := f.runs(); !reflect.DeepEqual(got, want) {
+		t.Errorf("t3 app, then the thread list once: %q", got)
+	}
+	if err := os.Remove(f.calls); err != nil {
+		t.Fatal(err)
+	}
+	thread(f.clock.Add(-20 * time.Second))
+	status, answer = t3Open(t3Hire(project, ""), t3Status{State: t3Found}, f.machine())
+	if line := "[01:33:17.503] ERROR (#2): DesktopAppRequestFailedError: T3 Code could not open " + project + " (thread-open-failed)."; status != http.StatusBadGateway || answer != clip(line, 200) {
+		t.Errorf("no new thread: %d %q", status, answer)
+	}
+	if got := f.runs(); !reflect.DeepEqual(got, want) {
+		t.Errorf("not tried again: %q", got)
+	}
+	for _, list := range []string{"[]", "not json"} {
+		if err := os.WriteFile(f.threads, []byte(list), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if status, _ := t3Open(t3Hire(project, ""), t3Status{State: t3Found}, f.machine()); status != http.StatusBadGateway {
+			t.Errorf("thread list %q: %d", list, status)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(f.home, "Projects", "pwned")); err == nil {
+		t.Error("the folder's name was run as a command")
+	}
+}
+
+// A second open for a hire while one runs is a 409, and runs nothing; another hire's isn't held up.
+func TestT3OneOpenAtATimeForAHire(t *testing.T) {
+	f := newT3Fake(t)
+	f.install(t, ".local/bin", "ok")
+	f.app = true
+	project := f.folder(t, "Projects/app")
+	started, release := make(chan struct{}), make(chan struct{})
+	m := f.machine()
+	var mu sync.Mutex
+	apps := 0
+	m.Run = func(program string, args []string, timeout time.Duration) t3Ran {
+		if args[0] == "app" {
+			mu.Lock()
+			apps++
+			first := apps == 1
+			mu.Unlock()
+			if first {
+				close(started)
+				<-release
+			}
+		}
+		return runT3(program, args, timeout)
+	}
+	m.OpenApp = func(string) {}
+	done := make(chan int)
+	go func() { status, _ := t3OpenOnce(t3Hire(project, ""), m); done <- status }()
+	<-started
+	if status, answer := t3OpenOnce(t3Hire(project, ""), m); status != http.StatusConflict || answer != "Already opening T3 Code for this hire." {
+		t.Errorf("a second open while one runs: %d %q", status, answer)
+	}
+	other := t3Hire(project, "")
+	other.ID = "h2"
+	if status, _ := t3OpenOnce(other, m); status != http.StatusOK {
+		t.Errorf("another hire's: %d", status)
+	}
+	close(release)
+	if status := <-done; status != http.StatusOK {
+		t.Errorf("the first: %d", status)
+	}
+	if status, _ := t3OpenOnce(t3Hire(project, ""), m); status != http.StatusOK {
+		t.Errorf("once it's done, it opens again: %d", status)
+	}
+}
+
+// t3 runs with its four argument lists only, and never through a shell: Windows' .cmd goes through cmdLine alone.
+func TestT3RunsWithItsFourArgumentListsNeverAShell(t *testing.T) {
+	read := func(name string) string {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		code := []string{}
+		for _, line := range strings.Split(string(data), "\n") {
+			if !strings.HasPrefix(strings.TrimSpace(line), "//") {
+				code = append(code, line)
+			}
+		}
+		return strings.Join(code, "\n")
+	}
+	source := read("t3code.go")
+	got := regexp.MustCompile(`m\.Run\(program, (\[\]string\{[^}]*\})`).FindAllStringSubmatch(source, -1)
+	lists := []string{}
+	for _, call := range got {
+		lists = append(lists, call[1])
+	}
+	want := []string{`[]string{"--version"}`, `[]string{"project", "add", folder, "--title", t3Title(h)}`, `[]string{"app", folder}`,
+		`[]string{"thread", "list", "--project", folder, "--json"}`}
+	if !reflect.DeepEqual(lists, want) || strings.Count(source, "m.Run(") != len(want) {
+		t.Errorf("t3's argument lists: %q", lists)
+	}
+	for _, name := range []string{"t3code.go", "opencode_other.go", "opencode_windows.go"} {
+		code := read(name)
+		for _, never := range []string{`"sh"`, `/bin/sh`, `"-c"`, `"/c"`, "bash", "zsh", "-lc", "cmd /c", "powershell", "npx", "npm "} {
+			if strings.Contains(strings.ToLower(code), never) {
+				t.Errorf("%s has %s", name, never)
+			}
+		}
+	}
+	if windows := read("opencode_windows.go"); !strings.Contains(windows, "CmdLine: cmdLine(shell, program, args)") || strings.Count(windows, "CmdLine:") != 1 {
+		t.Error("a .cmd's command line is cmdLine's, and only that")
 	}
 }
 

@@ -8,6 +8,7 @@ final class T3CodeTests: XCTestCase {
     private var home: URL!
     private var calls: URL { home.appendingPathComponent("calls") }
     private var mode: URL { home.appendingPathComponent("mode") }
+    private var threads: URL { home.appendingPathComponent("threads") }
     private var opened = 0
     private var clock = Date(timeIntervalSince1970: 1_000_000)
 
@@ -23,7 +24,9 @@ final class T3CodeTests: XCTestCase {
     }
 
     /// A fake `t3` in `folder` (in the home folder): each run's arguments one to a line, then "--". As `mode` says:
-    /// "ok", "fail" (always, saying why on two lines), "exists" (project add says it's there), or "late" (fails twice).
+    /// "ok", "fail" (always, saying why on two lines), "exists" (project add says it's there), "late" (fails twice),
+    /// "slow" (its version takes a second) or "unsure" (`t3 app` says thread-open-failed, as T3 Code 0.1.8 does even
+    /// when it opened one; `thread list` prints the threads file). It says its version as the real one: "t3 v0.1.8".
     private func fakeT3(in folder: String = ".local/bin", mode: String = "ok") throws {
         let bin = home.appendingPathComponent(folder)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -35,9 +38,13 @@ final class T3CodeTests: XCTestCase {
         mode=$(cat '\(self.mode.path)')
         if [ "$1" = "--version" ]; then
           [ "$mode" = "fail" ] && { echo "  broken install  " >&2; exit 1; }
-          echo "0.1.8"; exit 0
+          [ "$mode" = "slow" ] && sleep 1
+          echo "t3 v0.1.8"; exit 0
         fi
+        if [ "$1" = "thread" ]; then cat '\(threads.path)'; exit 0; fi
         case "$mode" in
+          unsure) echo "[01:33:17.503] ERROR (#2): DesktopAppRequestFailedError: T3 Code could not open $2 (thread-open-failed)." >&2
+            echo "    at Object.<anonymous> (file:///binCli.mjs:8963:34)" >&2; exit 1 ;;
           fail) printf '  Could not reach the T3 Code desktop app.  \\nmore detail\\n' >&2; exit 1 ;;
           exists) echo "Project already exists: $3" >&2; exit 1 ;;
           late) n=$(grep -c '^--$' '\(calls.path)'); [ "$n" -le 2 ] && { echo "not yet" >&2; exit 1; }; exit 0 ;;
@@ -92,8 +99,8 @@ final class T3CodeTests: XCTestCase {
         XCTAssertEqual(T3Code.detect(machine(app: true)), T3Code.Status(state: .appOnly))
         XCTAssertEqual(runs(), [], "no t3: nothing run")
         try fakeT3()
-        XCTAssertEqual(T3Code.detect(machine(app: false)), T3Code.Status(state: .cliOnly, version: "0.1.8"))
-        XCTAssertEqual(T3Code.detect(machine(app: true)), T3Code.Status(state: .found, version: "0.1.8"))
+        XCTAssertEqual(T3Code.detect(machine(app: false)), T3Code.Status(state: .cliOnly, version: "v0.1.8"))
+        XCTAssertEqual(T3Code.detect(machine(app: true)), T3Code.Status(state: .found, version: "v0.1.8"), "without its \"t3 \"")
         XCTAssertEqual(runs(), [["--version"], ["--version"]], "only --version, to find it")
         try "fail".write(to: mode, atomically: true, encoding: .utf8)
         XCTAssertEqual(T3Code.detect(machine(app: true)), T3Code.Status(state: .found, version: ""), "a t3 that fails is still there")
@@ -119,7 +126,10 @@ final class T3CodeTests: XCTestCase {
         let m = machine(app: true)
         _ = T3Code.status(fresh: true, machine: m)
         _ = T3Code.status(machine: m)
-        clock.addTimeInterval(29)
+        clock.addTimeInterval(1)
+        _ = T3Code.status(fresh: true, machine: m)
+        XCTAssertEqual(runs().count, 1, "asked fresh within 2 seconds: the last check")
+        clock.addTimeInterval(28)
         _ = T3Code.status(machine: m)
         XCTAssertEqual(runs().count, 1, "kept")
         _ = T3Code.status(fresh: true, machine: m)
@@ -127,6 +137,34 @@ final class T3CodeTests: XCTestCase {
         clock.addTimeInterval(31)
         _ = T3Code.status(machine: m)
         XCTAssertEqual(runs().count, 3, "older than 30 seconds: asked again")
+    }
+
+    func testOneCheckAtATime() throws {
+        try fakeT3(mode: "slow")
+        let m = machine(app: true)
+        clock.addTimeInterval(3600) // newer than any check an earlier test kept
+        DispatchQueue.concurrentPerform(iterations: 3) { _ in _ = T3Code.status(fresh: true, machine: m) }
+        XCTAssertEqual(runs(), [["--version"]], "three fresh asks at once: one t3 --version")
+    }
+
+    /// `run` reads what's said as it comes: a program that leaves a process holding its output is let go a second
+    /// after it ends, with what it said, and nothing is left waiting on a read.
+    func testARunIsntHeldByWhatItLeavesRunning() throws {
+        let program = home.appendingPathComponent("lingers")
+        try "#!/bin/sh\necho said\necho also >&2\nsleep 4 &\nexit 3\n".write(to: program, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: program.path)
+        let start = Date()
+        let ran = T3Code.run(program, [], 5)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 3)
+        XCTAssertEqual(ran.status, 3)
+        XCTAssertEqual(ran.output, "said\n")
+        XCTAssertEqual(ran.errors, "also\n")
+        let slow = home.appendingPathComponent("slow")
+        try "#!/bin/sh\necho started\nsleep 4\n".write(to: slow, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: slow.path)
+        let stopped = Date()
+        XCTAssertNil(T3Code.run(slow, [], 0.5).status, "stopped for taking too long")
+        XCTAssertLessThan(Date().timeIntervalSince(stopped), 3)
     }
 
     // MARK: The folder, from the registry
@@ -202,6 +240,71 @@ final class T3CodeTests: XCTestCase {
         XCTAssertEqual(opened, 1)
     }
 
+    /// T3 Code 0.1.8's `t3 app` says thread-open-failed even when the thread opened: a thread of the folder's made
+    /// in the last 15 seconds says it did, and nothing is tried again; without one, its first line, as before.
+    func testAFalseFailureIsCheckedInTheThreadList() throws {
+        try fakeT3(mode: "unsure")
+        let project = try folder("Projects/My App; touch pwned")
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        func thread(_ ago: TimeInterval) throws {
+            try #"[{"threadId":"t-old","createdAt":"1970-01-01T00:00:00.000Z"},{"threadId":"t1","createdAt":"\#(iso.string(from: clock.addingTimeInterval(-ago)))"}]"#
+                .write(to: threads, atomically: true, encoding: .utf8)
+        }
+        try thread(4)
+        let opened = T3Code.open(hire(folder: project), status: T3Code.Status(state: .found), machine: machine(app: true))
+        XCTAssertEqual(json(opened), ["ok": true, "opened": "thread"], "a thread from 4 seconds ago")
+        let want = [["app", project], ["thread", "list", "--project", project, "--json"]]
+        XCTAssertEqual(runs(), want, "t3 app, then the thread list once")
+        try FileManager.default.removeItem(at: calls)
+        try thread(20)
+        let failed = T3Code.open(hire(folder: project), status: T3Code.Status(state: .found), machine: machine(app: true))
+        XCTAssertEqual(failed.status, 502)
+        XCTAssertEqual(text(failed), String("[01:33:17.503] ERROR (#2): DesktopAppRequestFailedError: T3 Code could not open \(project) (thread-open-failed).".prefix(200)))
+        XCTAssertEqual(runs(), want, "not tried again")
+        for list in ["[]", "not json"] {
+            try list.write(to: threads, atomically: true, encoding: .utf8)
+            XCTAssertEqual(T3Code.open(hire(folder: project), status: T3Code.Status(state: .found), machine: machine(app: true)).status, 502, list)
+        }
+        XCTAssertEqual(T3Code.date("2026-11-11T01:33:17Z"), Date(timeIntervalSince1970: 1_794_360_797), "without milliseconds too")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("Projects/pwned").path))
+    }
+
+    /// A second open for a hire while one runs is a 409 and runs nothing; another hire's isn't held up.
+    func testOneOpenAtATimeForAHire() throws {
+        try fakeT3()
+        let project = try folder("Projects/app")
+        let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        var m = machine(app: true)
+        m.openApp = {}
+        m.now = { Date() }
+        let first = NSLock()
+        var apps = 0
+        m.run = { program, arguments, timeout in
+            if arguments.first == "app" {
+                first.lock(); apps += 1; let wait = apps == 1; first.unlock()
+                if wait { started.signal(); release.wait() }
+            }
+            return T3Code.run(program, arguments, timeout)
+        }
+        let found: (T3Code.Machine) -> T3Code.Status = { _ in T3Code.Status(state: .found) }
+        let done = DispatchSemaphore(value: 0)
+        var answer: Response?
+        DispatchQueue.global().async { answer = T3Code.openOnce(self.hire(folder: project), machine: m, check: found); done.signal() }
+        started.wait()
+        let second = T3Code.openOnce(hire(folder: project), machine: m, check: found)
+        XCTAssertEqual(second.status, 409)
+        XCTAssertEqual(text(second), "Already opening T3 Code for this hire.")
+        var other = hire(folder: project)
+        other.id = "h2"
+        XCTAssertEqual(T3Code.openOnce(other, machine: m, check: found).status, 200, "another hire's")
+        release.signal()
+        done.wait()
+        XCTAssertEqual(answer?.status, 200)
+        XCTAssertEqual(T3Code.openOnce(hire(folder: project), machine: m, check: found).status, 200, "once it's done, it opens again")
+        XCTAssertEqual(runs().count, 3, "the refused open ran nothing")
+    }
+
     func testCliOnlyAddsAProjectWithItsTitle() throws {
         try fakeT3()
         let worktree = try folder("Projects/app-hires/ada 1a2b3c")
@@ -231,15 +334,17 @@ final class T3CodeTests: XCTestCase {
         XCTAssertEqual(runs(), [])
     }
 
-    /// `t3` runs with `--version`, `app` or `project add` only: no other call is in the source.
-    func testT3RunsWithItsThreeArgumentListsOnly() throws {
+    /// `t3` runs with `--version`, `app`, `project add` or `thread list` only: no other call is in the source.
+    func testT3RunsWithItsFourArgumentListsOnly() throws {
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("../../Sources/AgentDeck/T3Code.swift"), encoding: .utf8)
         let calls = source.components(separatedBy: "machine.run(program, ").dropFirst().map { String($0.prefix(while: { $0 != "]" })) + "]" }
-        XCTAssertEqual(calls, [#"["--version"]"#, #"["project", "add", folder, "--title", title(of: hire)]"#, #"["app", folder]"#])
+        XCTAssertEqual(calls, [#"["--version"]"#, #"["project", "add", folder, "--title", title(of: hire)]"#, #"["app", folder]"#,
+                               #"["thread", "list", "--project", folder, "--json"]"#])
+        XCTAssertEqual(source.components(separatedBy: "machine.run(").count - 1, calls.count, "no other run")
         // The code, its comments left out (they say what's never done).
         let code = source.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
-        for never in ["npx", "/bin/sh", "/bin/zsh", "\"-c\"", "brew ", "npm", "curl"] {
+        for never in ["npx", "/bin/sh", "/bin/zsh", "/bin/bash", "\"-c\"", "\"-lc\"", "brew ", "npm", "curl"] {
             XCTAssertFalse(code.contains(never), never)
         }
     }
@@ -292,7 +397,21 @@ final class T3CodeTests: XCTestCase {
         }
         // Greyed for appOnly and none: only found and cliOnly may click.
         XCTAssertTrue(page.contains("const usable = !!t3 && (t3.state === 'found' || t3.state === 'cliOnly');"))
-        XCTAssertTrue(page.contains("button.disabled = !usable;"))
+        XCTAssertTrue(page.contains("button.disabled = open && open.busy ? true : !usable;"))
+        // Fire… opened, the buttons' span shrinks, so its sentences wrap in the row (measured at 390 and 1280 px).
+        XCTAssertTrue(teamRow.contains("keys.style.cssText = 'flex:0 1 auto;min-width:0;"))
+        XCTAssertFalse(teamRow.contains("flex:none"))
+        // The open outlives Setup's redraw every 1.5 s: kept by hire id outside the row, and restored as it's drawn.
+        let button = try XCTUnwrap(page.range(of: "function t3Button(r) {"))
+        let t3Button = String(page[button.lowerBound...].prefix(1600))
+        for words in ["const t3Opening = new Map();"] { XCTAssertTrue(page.contains(words), words) }
+        for words in ["paintT3Row(button, line);\n    button.onclick", "if ((t3Opening.get(r.id) || {}).busy) return;",
+                      "t3Opening.set(r.id, { busy: true, text: 'Opening T3 Code…', at: Date.now() });",
+                      "t3Opening.set(r.id, { busy: false, text, at: Date.now() });\n      paintT3();"] {
+            XCTAssertTrue(t3Button.contains(words), words)
+        }
+        XCTAssertFalse(t3Button.contains("line.textContent ="), "the answer goes to the hire's open, never to the row it was clicked in")
+        XCTAssertTrue(page.contains("const open = t3Opening.get(button.dataset.t3);"))
         XCTAssertFalse(teamRow.contains("worktree:") && teamRow.contains("/setup/t3code/open', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify({ id: r.id, "),
                        "the id alone is sent")
     }

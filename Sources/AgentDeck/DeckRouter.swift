@@ -509,11 +509,12 @@ final class DeckRouter: Router {
         }
     }
 
-    /// A hire's folder opened in T3 Code, off the main thread: a hire still on the team, or a 404.
+    /// A hire's folder opened in T3 Code, off the main thread: a hire still on the team, or a 404; and once at a
+    /// time for a hire, a 409 while it's being opened.
     static func openInT3Code(_ hire: FrontDesk.Hire?, respond: @escaping (Response) -> Void) {
         guard let hire, hire.state != .fired, hire.state != .failed else { return respond(.status(404, "That hire isn't on the team.")) }
         DispatchQueue.global(qos: .userInitiated).async {
-            let answer = T3Code.open(hire, status: T3Code.status())
+            let answer = T3Code.openOnce(hire)
             DispatchQueue.main.async { respond(answer) }
         }
     }

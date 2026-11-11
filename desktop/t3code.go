@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -18,21 +19,30 @@ import (
 // app on this computer with its own agent. Smolcorp only runs what's
 // installed: never npx, an install or a download, and never the hire's
 // terminal or agent. `t3` only ever runs with `--version`, `app <folder>` or
-// `project add <folder> --title <title>`, its arguments as a list. On Windows
+// `project add <folder> --title <title>`, and, after a `t3 app` that says it
+// failed, `thread list --project <folder> --json` to see whether it did; its
+// arguments always as a list. On Windows
 // `t3` is a .cmd, which only cmd.exe starts: its command line is escaped as
 // OpenCode's is (cmdLine), so a folder's name is never read as a command.
 
 const (
 	t3VersionTimeout = 3 * time.Second
 	t3OpenWithin     = 10 * time.Second
-	// How long a check is kept: the page asks again at most this often, or when the button's menu opens.
-	t3KeptFor   = 30 * time.Second
-	t3AppOnly   = "In T3 Code, open Settings → About and install the t3 command."
-	t3NoneHint  = "Install T3 Code to open this hire's folder there (t3.codes)."
-	t3Found     = "found"
-	t3AppOnlyIs = "appOnly"
-	t3CliOnly   = "cliOnly"
-	t3None      = "none"
+	// How long a check is kept: the page asks again at most this often, or when the button's menu opens. Even
+	// asked fresh, a check newer than t3FreshFor is the answer.
+	t3KeptFor  = 30 * time.Second
+	t3FreshFor = 2 * time.Second
+	// How new a thread of the folder's must be to count as the one `t3 app` opened.
+	t3ThreadWithin = 15 * time.Second
+	// What a run may print that's kept: a thread list's JSON fits.
+	t3KeptOutput     = 1 << 20
+	t3AlreadyOpening = "Already opening T3 Code for this hire."
+	t3AppOnly        = "In T3 Code, open Settings → About and install the t3 command."
+	t3NoneHint       = "Install T3 Code to open this hire's folder there (t3.codes)."
+	t3Found          = "found"
+	t3AppOnlyIs      = "appOnly"
+	t3CliOnly        = "cliOnly"
+	t3None           = "none"
 )
 
 // t3Status is what's installed: found (the app and t3), appOnly, cliOnly or none, and what `t3 --version` said.
@@ -77,11 +87,15 @@ func defaultT3Machine() t3Machine {
 }
 
 // t3Folders is where t3 is looked for: where T3 Code links it (~/.local/bin, ~/bin; on Windows, the folder it
-// adds to your PATH, ~/.t3/bin, which this app's own PATH may predate), then the PATH.
+// adds to your PATH, which this app's own PATH may predate: bin in T3 Code's home, %T3CODE_HOME% where it's
+// set, else ~/.t3), then the PATH.
 func t3Folders(m t3Machine) []string {
 	first := []string{filepath.Join(m.Home, ".local", "bin"), filepath.Join(m.Home, "bin")}
 	if m.GOOS == "windows" {
 		first = []string{filepath.Join(m.Home, ".t3", "bin")}
+		if m.Getenv != nil && m.Getenv("T3CODE_HOME") != "" {
+			first = append([]string{filepath.Join(m.Getenv("T3CODE_HOME"), "bin")}, first...)
+		}
 	}
 	return append(first, filepath.SplitList(m.Path)...)
 }
@@ -148,7 +162,8 @@ func t3Detect(m t3Machine) t3Status {
 	}
 	version := ""
 	if ran := m.Run(program, []string{"--version"}, t3VersionTimeout); ran.Ended && ran.Code == 0 {
-		version = clip(firstLine(ran.Output), 40)
+		// It says "t3 v0.1.8": the version is what follows "t3 ".
+		version = clip(strings.TrimPrefix(firstLine(ran.Output), "t3 "), 40)
 	}
 	if app {
 		return t3Status{State: t3Found, Version: version}
@@ -162,14 +177,30 @@ var t3Kept struct {
 	at     time.Time
 }
 
-// t3StatusNow is the last check if it's newer than t3KeptFor; otherwise, or fresh, a new one.
+// t3Checking is held while t3 --version runs: one check at a time.
+var t3Checking sync.Mutex
+
+// t3StatusNow is the last check if it's newer than t3KeptFor (t3FreshFor, asked fresh); otherwise a new one, one
+// at a time: a check that ends while this one waits for it is the answer.
 func t3StatusNow(fresh bool, m t3Machine) t3Status {
-	t3Kept.Lock()
-	if !fresh && !t3Kept.at.IsZero() && m.Now().Sub(t3Kept.at) < t3KeptFor {
+	newEnough := func() (t3Status, bool) {
+		t3Kept.Lock()
 		defer t3Kept.Unlock()
-		return t3Kept.status
+		limit := t3KeptFor
+		if fresh {
+			limit = t3FreshFor
+		}
+		age := m.Now().Sub(t3Kept.at)
+		return t3Kept.status, !t3Kept.at.IsZero() && age >= 0 && age < limit
 	}
-	t3Kept.Unlock()
+	if status, ok := newEnough(); ok {
+		return status
+	}
+	t3Checking.Lock()
+	defer t3Checking.Unlock()
+	if status, ok := newEnough(); ok {
+		return status
+	}
 	status := t3Detect(m)
 	t3Kept.Lock()
 	t3Kept.status, t3Kept.at = status, m.Now()
@@ -270,11 +301,37 @@ func t3Open(h Hire, status t3Status, m t3Machine) (int, any) {
 		if ran.Ended && ran.Code == 0 {
 			return http.StatusOK, map[string]any{"ok": true, "opened": "thread"}
 		}
+		// The app answered, and said it couldn't open a thread: T3 Code 0.1.8 says so even when it did. A thread
+		// of the folder's that's just appeared says it did; tried again, it would open another.
+		if ran.Ended && strings.Contains(ran.Output+ran.Error, "thread-open-failed") {
+			if t3ThreadJustOpened(program, folder, m) {
+				return http.StatusOK, map[string]any{"ok": true, "opened": "thread"}
+			}
+			return t3Failed(ran)
+		}
 		m.Pause(time.Second)
 		if !m.Now().Before(until) {
 			return t3Failed(ran)
 		}
 	}
+}
+
+// t3ThreadJustOpened is whether T3 Code lists a thread for folder made in the last t3ThreadWithin.
+func t3ThreadJustOpened(program, folder string, m t3Machine) bool {
+	ran := m.Run(program, []string{"thread", "list", "--project", folder, "--json"}, t3VersionTimeout)
+	var threads []struct {
+		CreatedAt string `json:"createdAt"`
+	}
+	if !ran.Ended || ran.Code != 0 || json.Unmarshal([]byte(ran.Output), &threads) != nil {
+		return false
+	}
+	since := m.Now().Add(-t3ThreadWithin)
+	for _, thread := range threads {
+		if made, err := time.Parse(time.RFC3339Nano, thread.CreatedAt); err == nil && !made.Before(since) {
+			return true
+		}
+	}
+	return false
 }
 
 // t3Failed is a t3 that failed: a 502 with the first line it said, and nothing else.
@@ -315,11 +372,11 @@ func runT3(program string, args []string, timeout time.Duration) t3Ran {
 	return ran
 }
 
-// limited keeps the first 4 KB written to it.
+// limited keeps the first t3KeptOutput bytes written to it.
 type limited struct{ b *strings.Builder }
 
 func (l *limited) Write(p []byte) (int, error) {
-	if room := 4096 - l.b.Len(); room > 0 {
+	if room := t3KeptOutput - l.b.Len(); room > 0 {
 		l.b.Write(p[:min(len(p), room)])
 	}
 	return len(p), nil
@@ -343,14 +400,38 @@ func (d *Deck) hireInSession(id string) (Hire, bool) {
 	return Hire{}, false
 }
 
-// openHireInT3 is POST /setup/t3code/open's answer, and the office's: a hire still on the team, or a 404.
+// t3Opening is the hires whose folder is being opened now.
+var t3Opening = struct {
+	sync.Mutex
+	ids map[string]bool
+}{ids: map[string]bool{}}
+
+// t3OpenOnce is t3Open once at a time for a hire: a second open for the same hire while one runs is a 409. What's
+// installed is checked once it's this hire's turn.
+func t3OpenOnce(h Hire, m t3Machine) (int, any) {
+	t3Opening.Lock()
+	busy := t3Opening.ids[h.ID]
+	t3Opening.ids[h.ID] = true
+	t3Opening.Unlock()
+	if busy {
+		return http.StatusConflict, t3AlreadyOpening
+	}
+	defer func() {
+		t3Opening.Lock()
+		delete(t3Opening.ids, h.ID)
+		t3Opening.Unlock()
+	}()
+	return t3Open(h, t3StatusNow(false, m), m)
+}
+
+// openHireInT3 is POST /setup/t3code/open's answer, and the office's: a hire still on the team, or a 404; and
+// once at a time for a hire, a 409 while it's being opened.
 func openHireInT3(w http.ResponseWriter, h Hire, found bool) {
 	if !found || h.State == "fired" || h.State == "failed" {
 		writeStatus(w)(http.StatusNotFound, "That hire isn't on the team.")
 		return
 	}
-	m := newT3Machine()
-	status, answer := t3Open(h, t3StatusNow(false, m), m)
+	status, answer := t3OpenOnce(h, newT3Machine())
 	if text, ok := answer.(string); ok {
 		writeStatus(w)(status, text)
 		return
