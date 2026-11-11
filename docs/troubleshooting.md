@@ -57,7 +57,11 @@ Saver, click **Options…** and enter a new code. After updating Smolcorp,
 choose **Install Screen Saver…** again.
 
 **"Port 7710 is in use."** Another copy of Smolcorp, or another app, is
-using that port. Quit it and open Smolcorp again.
+using that port. On a Mac, the menu bar icon turns into a warning triangle and
+its menu says **Port 7710 is in use. Is Smolcorp already running? Trying
+again…**; quit the other one and Smolcorp starts by itself within a couple of
+seconds. On Windows and Linux, Smolcorp says the address is already in use and
+closes: quit the other one and open Smolcorp again.
 
 ## Uninstall
 

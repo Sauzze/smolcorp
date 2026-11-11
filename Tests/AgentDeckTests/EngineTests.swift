@@ -150,6 +150,46 @@ final class EngineTests: XCTestCase {
         XCTAssertThrowsError(try missing.start()) { XCTAssertEqual($0.localizedDescription, GoCore.Failure.noProgram.localizedDescription) }
     }
 
+    /// A core whose port is taken ends with EADDRINUSE's status: the shell says so and tries again (M7WORDS).
+    func testACoreWhosePortIsTakenIsSaidSo() throws {
+        XCTAssertEqual(GoCore.portInUseStatus, EADDRINUSE, "as the core ends (desktop/core_darwin.go)")
+        XCTAssertThrowsError(try core("exit \(GoCore.portInUseStatus)", port: 7710).start(waitingUpTo: 5)) { error in
+            guard case GoCore.Failure.portInUse(let port) = error else { return XCTFail("not the port: \(error)") }
+            XCTAssertEqual(port, 7710)
+            XCTAssertEqual(error.localizedDescription, "Port 7710 is in use. Is Smolcorp already running?")
+        }
+        // Only that status: another end is the engine's own trouble, said as it was.
+        for status in [1, 2, 3] {
+            XCTAssertThrowsError(try core("exit \(status)").start(waitingUpTo: 5)) { error in
+                guard case GoCore.Failure.notReady = error else { return XCTFail("status \(status): \(error)") }
+            }
+        }
+        XCTAssertEqual(GoShellDelegate.portInUseLine(port: 7710), "Port 7710 is in use. Is Smolcorp already running? Trying again…",
+                       "the Swift app's words, as StatusMenu.showPortInUse had them")
+        XCTAssertEqual(GoShellDelegate.retryDelay, 2)
+    }
+
+    /// The same core is started again once the port is free, and the first try's end isn't "the engine stopped".
+    func testACoreStartedAgainAfterATakenPortServes() throws {
+        let marker = folder.appendingPathComponent("tried")
+        let core = try core("""
+            if [ ! -e '\(marker.path)' ]; then touch '\(marker.path)'; exit \(GoCore.portInUseStatus); fi
+            \(answering)
+            """)
+        let stoppedByItself = expectation(description: "onExit")
+        stoppedByItself.isInverted = true
+        core.onExit = { _ in stoppedByItself.fulfill() }
+        XCTAssertThrowsError(try core.start(waitingUpTo: 5)) { error in
+            guard case GoCore.Failure.portInUse = error else { return XCTFail("\(error)") }
+        }
+        try core.start(waitingUpTo: 5)
+        let pid = try XCTUnwrap(core.pid)
+        XCTAssertEqual(core.bridge.core, pid)
+        XCTAssertEqual(core.setupSession()?.session, "fake-session", "it answers")
+        wait(for: [stoppedByItself], timeout: 0.5)
+        XCTAssertTrue(core.stop(grace: 2))
+    }
+
     func testAnUnansweredQuestionIsNil() throws {
         let core = try core("echo '{\"ready\":true}'\nwhile read line; do echo '{\"id\":99}'; done")
         try core.start(waitingUpTo: 5)

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -57,7 +58,7 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 	Port = options.port
 	if running, err := acquireInstance(); running {
 		fmt.Fprintln(errs, "smolcorp core: another Smolcorp is using this support folder.")
-		return 1
+		return corePortInUse // its copy holds the port: the app says so, and tries again
 	} else if err != nil {
 		fmt.Fprintf(errs, "smolcorp: no instance lock (%v), going on without\n", err)
 	}
@@ -71,7 +72,7 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 	go func() { failed <- Serve(deck) }()
 	if err := waitUntilServing(Port, failed, coreStartWait); err != nil {
 		fmt.Fprintf(errs, "smolcorp core: can't serve on port %d: %v\n", Port, err)
-		return 1
+		return coreFailedStatus(err)
 	}
 	// Stopped by the app (SIGTERM) or smolcorp quit: the portable office stops, as on quit.
 	stopPortableOnSignal(deck)
@@ -133,6 +134,20 @@ func readBridgeToken(input *bufio.Reader, wait time.Duration) (string, error) {
 
 // coreRefusal is what the engine says to anyone but the app.
 const coreRefusal = "smolcorp core is Smolcorp.app's engine, started by the app itself: open Smolcorp.app instead"
+
+// corePortInUse is the status the engine ends with when the port is taken: Smolcorp's own earlier copy, or another
+// app's. It is EADDRINUSE as macOS numbers it, and the app (GoCore.portInUseStatus) reads it to say so in its menu
+// and try again, as the Swift engine's server did.
+const corePortInUse = 48
+
+// coreFailedStatus is the status the engine ends with when it couldn't serve: corePortInUse for a port that's
+// taken, 1 for anything else.
+func coreFailedStatus(err error) int {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return corePortInUse
+	}
+	return 1
+}
 
 // coreStartWait is how long the server has to start listening.
 var coreStartWait = 10 * time.Second

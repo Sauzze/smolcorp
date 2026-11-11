@@ -34,16 +34,21 @@ enum Engine: String {
 /// sure, by its pid.
 final class GoCore {
     enum Failure: LocalizedError {
-        case noProgram, didNotStart(String), notReady(String)
+        case noProgram, didNotStart(String), notReady(String), portInUse(UInt16)
 
         var errorDescription: String? {
             switch self {
             case .noProgram: return "This build of Smolcorp has no Go engine inside it (bin/smolcorp)."
             case .didNotStart(let why): return "The Go engine didn't start: \(why)"
             case .notReady(let why): return "The Go engine didn't get ready: \(why)"
+            case .portInUse(let port): return "Port \(port) is in use. Is Smolcorp already running?"
             }
         }
     }
+
+    /// The status the core ends with when its port is taken (EADDRINUSE as macOS numbers it; `corePortInUse`
+    /// in desktop/core_darwin.go): `start` then throws `Failure.portInUse`, for the shell to say so and try again.
+    static let portInUseStatus: Int32 = 48
 
     let program: URL
     let port: UInt16
@@ -65,6 +70,11 @@ final class GoCore {
     private let asking = NSLock()
     private var nextID = 1
     private var stopping = false
+    /// Whether this start's core has said it's ready: one that ends before that is `start`'s failure to
+    /// throw, not an engine that "stopped by itself".
+    private var served = false
+    /// The status of a core that ended after saying ready, but before `start` had taken note of it.
+    private var endedWhileStarting: Int32?
 
     init(program: URL = Paths.bundledCLI, port: UInt16, support: URL, bridge: HostBridge) {
         self.program = program
@@ -102,6 +112,14 @@ final class GoCore {
     /// Starts the core and waits until it serves, or fails. Off the main queue.
     func start(waitingUpTo wait: TimeInterval = 20) throws {
         guard FileManager.default.isExecutableFile(atPath: program.path) else { throw Failure.noProgram }
+        // Started again after a port that was taken: nothing of the last try is kept.
+        lock.lock()
+        stopping = false
+        served = false
+        endedWhileStarting = nil
+        buffer.removeAll()
+        lines.removeAll()
+        lock.unlock()
         let process = Process()
         process.executableURL = program
         process.arguments = arguments
@@ -120,15 +138,27 @@ final class GoCore {
         process.terminationHandler = { [weak self] ended in
             guard let self else { return }
             self.lock.lock()
-            let expected = self.stopping
+            // A core this app stopped, one a newer start has taken the place of, and one that ended before it
+            // was ready (`start` throws that) aren't "stopped by itself".
+            let current = !self.stopping && self.process === ended
+            let expected = !current || !self.served
+            if current && !self.served { self.endedWhileStarting = ended.terminationStatus }
             self.lock.unlock()
             // Its pid may be another process's soon: the bridge serves no one now.
             if self.bridge.core == ended.processIdentifier { self.bridge.core = nil }
             self.arrived.signal()
             if !expected { DispatchQueue.main.async { self.onExit(ended.terminationStatus) } }
         }
-        do { try process.run() } catch { throw Failure.didNotStart(error.localizedDescription) }
+        // Set before it runs, under the lock its end handler takes: it can't end unseen.
+        lock.lock()
         self.process = process
+        lock.unlock()
+        do { try process.run() } catch {
+            lock.lock()
+            self.process = nil
+            lock.unlock()
+            throw Failure.didNotStart(error.localizedDescription)
+        }
         // The only process the bridge serves, from before the core has its token.
         bridge.core = process.processIdentifier
         input = toCore.fileHandleForWriting
@@ -139,9 +169,17 @@ final class GoCore {
         try? toCore.fileHandleForWriting.write(contentsOf: Data((bridge.token + "\n").utf8))
         guard let ready = nextLine(until: Date().addingTimeInterval(wait)), ready["ready"] as? Bool == true else {
             let why = process.isRunning ? "no answer in \(Int(wait)) s" : "it ended (\(process.terminationStatus))"
+            let ended = process.isRunning ? nil : process.terminationStatus
             _ = stop()
+            if ended == GoCore.portInUseStatus { throw Failure.portInUse(port) }
             throw Failure.notReady(why)
         }
+        lock.lock()
+        served = true
+        let early = endedWhileStarting
+        lock.unlock()
+        // It said ready and then ended, in the moment before this: told as any other stop is.
+        if let early { DispatchQueue.main.async { self.onExit(early) } }
         if let cookie = ready["cookie"] as? String, !cookie.isEmpty { setupCookie = cookie }
     }
 

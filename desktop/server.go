@@ -2126,12 +2126,10 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 			"enabled": d.config.Webhook.Enabled, "url": d.config.Webhook.URL, "secret": webhookSecretFor(who, d.config.Webhook.Secret),
 			"outside": d.config.Webhook.Outside, "events": d.config.Webhook.Events, "last": d.lastDelivery(),
 		},
-		// What to type to start an agent through the launcher.
-		"launcher": launchCommand(),
-		"pairing":  pairing,
-		"phones":   phones,
-		"logo":     d.config.Logo,
-		"pins":     pins,
+		"pairing": pairing,
+		"phones":  phones,
+		"logo":    d.config.Logo,
+		"pins":    pins,
 		// How many keys the phone shows now.
 		"phoneKeys": len(keys),
 		"sessions":  sessions,
@@ -2153,6 +2151,12 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"profiles":      slices.Clone(d.config.Profiles),
 		"activeProfile": d.config.ActiveProfile,
 		"profileEdited": d.config.profileEdited(),
+	}
+	// What to type to start an agent through the launcher. Not under the Mac app, even while it doesn't answer:
+	// the page takes "launcher" for a Linux or Windows computer and words everything for one (its Keychain
+	// becomes a secret store, a terminal hire a launcher one), and the Swift engine never sent it.
+	if d.mac.host == nil {
+		state["launcher"] = launchCommand()
 	}
 	d.addMacSetup(state, facts)
 	return state

@@ -198,3 +198,27 @@ func TestNotFoundIsEmpty(t *testing.T) {
 		}
 	}
 }
+
+// Setup's page takes "launcher" in the state for a Linux or Windows computer: its step, its tmux label, its
+// "secret store" for the Keychain. Under the Mac app none is sent, whether or not the app answers the facts
+// (M7WORDS), so a Mac reads its own words, as the Swift engine's. Elsewhere it names the command.
+func TestSetupSendsNoLauncherUnderTheMacApp(t *testing.T) {
+	state := func(d *Deck) map[string]any { return (&router{deck: d}).setupStateFor(callerPage) }
+	elsewhere := state(newTestDeck(t))
+	if command, _ := elsewhere["launcher"].(string); !strings.HasSuffix(command, " run") {
+		t.Errorf("without the Mac app the launcher is %v, want its command", elsewhere["launcher"])
+	}
+	for _, answering := range []bool{true, false} {
+		mac := withMac(t)
+		if !answering {
+			mac.refusing(map[string]string{"facts": "The app is busy."})
+		}
+		got := state(newTestDeck(t))
+		if _, sent := got["launcher"]; sent {
+			t.Errorf("under the Mac app (answering %v) the state carries launcher %v", answering, got["launcher"])
+		}
+		if _, ok := got["terminalCommand"]; ok != answering {
+			t.Errorf("under the Mac app (answering %v) the Mac's facts are in the state: %v", answering, ok)
+		}
+	}
+}
