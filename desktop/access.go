@@ -345,6 +345,9 @@ func phoneName(userAgent string) string {
 	// system may write it either way.
 	case strings.Contains(userAgent, "AgentOffice"), strings.Contains(userAgent, "Agent%20Office"):
 		return "Agent Office"
+	// So does the Mac's screen saver, from its Options (ScreenSaver/Pairing.swift).
+	case strings.Contains(userAgent, "SauzzeDeckScreenSaver"):
+		return "Screen saver"
 	case strings.Contains(userAgent, "iPhone"):
 		return "iPhone"
 	case strings.Contains(userAgent, "iPad"):

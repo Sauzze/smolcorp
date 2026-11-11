@@ -788,7 +788,7 @@ func TestHiresWorktreesGoInTheFolderConfigJSONSets(t *testing.T) {
 	d.mu.Lock()
 	d.engine.Tmux = r.o.Tmux
 	d.mu.Unlock()
-	if kept, err := d.fireTmuxHire(hire, false, false); err != nil || kept != "" {
+	if kept, _, err := d.fireTmuxHire(hire, false, false); err != nil || kept != "" {
 		t.Fatalf("fire: kept %q, err %v", kept, err)
 	}
 	if _, err := os.Stat(hire.Worktree); err == nil || branches(t, r.repo) != "" {

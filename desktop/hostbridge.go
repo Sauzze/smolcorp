@@ -90,8 +90,11 @@ type bridgeRequest struct {
 	// the text is Text, and whether to clean it up On.
 	Glossary *[]string `json:"glossary,omitempty"`
 	Desks    []string  `json:"desks,omitempty"`
-	// abilities: the sessions' tabs, as the deck names them.
-	Tabs []string `json:"tabs,omitempty"`
+	// abilities, agents-ended: the sessions' tabs, as the deck names them; agents-ended: each one's agent, in order.
+	Tabs   []string `json:"tabs,omitempty"`
+	Agents []Agent  `json:"agents,omitempty"`
+	// close: only with the agent in front, never a tab with only its shell left (closeStrict).
+	Strict bool `json:"strict,omitempty"`
 	// bots-resolve: the Grok Bots to look for in the Grok Bot app.
 	Bots []bridgeBot `json:"bots,omitempty"`
 	// tile: the hires' windows to move (Terminal is the terminal), by the tty each shows; office-place: where the
@@ -144,6 +147,8 @@ type bridgeAnswer struct {
 	Left   string `json:"left,omitempty"`
 	// close: fired, gone or not-stopped, as the Mac's Terminal.Fired.
 	Fired string `json:"fired,omitempty"`
+	// agents-ended: for each tab asked, whether its agent is known to have left it.
+	Ended []bool `json:"ended,omitempty"`
 	// secret-read, api-key-read: the value, and whether there is one; t3-app: whether T3 Code's app is on the Mac.
 	Value string `json:"value,omitempty"`
 	Found bool   `json:"found,omitempty"`
@@ -589,6 +594,16 @@ func hostAbilities(h hostBridge, tabs []string) ([]tabAbilities, error) {
 	return answer.Abilities, err
 }
 
+// hostAgentsEnded is, for each tab in order, whether the Mac app knows its agent has left it (Deck.pruneClosedPanes'
+// look): a Terminal tab by ps, iTerm2's and Ghostty's also closed. Read only; unknown is false.
+func hostAgentsEnded(h hostBridge, tabs []string, agents []Agent) ([]bool, error) {
+	answer, err := ask(h, bridgeRequest{Action: "agents-ended", Tabs: tabs, Agents: agents})
+	if err == nil && len(answer.Ended) != len(tabs) {
+		err = fmt.Errorf("the Mac app said %d tabs' agents for %d", len(answer.Ended), len(tabs))
+	}
+	return answer.Ended, err
+}
+
 // hostResolveBots is who each bot is in the Grok Bot app now, read afresh, in
 // order: nil for one that isn't there.
 func hostResolveBots(h hostBridge, bots []bridgeBot) ([]*botResolution, error) {
@@ -778,10 +793,19 @@ func (t macTab) ScrollToBottom() error {
 	return err
 }
 
+// errTabClosed is the Mac app's close finding no tab there, or (strict) no agent in front of it.
+var errTabClosed = errors.New("the pane has closed")
+
 // Close fires the agent as the Mac app does: errNotStopped when its tab is
 // left open, as commandTab.Close says it.
-func (t macTab) Close(agent Agent) error {
-	answer, err := t.do(bridgeRequest{Action: "close", Agent: agent})
+func (t macTab) Close(agent Agent) error { return t.close(agent, false) }
+
+// CloseStrict is Close only with agent in front of its tab: a tab with only its shell left is never closed, as it
+// may be another's on a tty used again (errTabClosed). For a tab known only by its folder (hirefire_window.go).
+func (t macTab) CloseStrict(agent Agent) error { return t.close(agent, true) }
+
+func (t macTab) close(agent Agent, strict bool) error {
+	answer, err := t.do(bridgeRequest{Action: "close", Agent: agent, Strict: strict})
 	if err != nil {
 		return err
 	}
@@ -789,7 +813,7 @@ func (t macTab) Close(agent Agent) error {
 	case "fired":
 		return nil
 	case "gone":
-		return errors.New("the pane has closed")
+		return errTabClosed
 	case "not-stopped":
 		return errNotStopped
 	}

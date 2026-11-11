@@ -78,6 +78,7 @@ final class HostBridgeTests: XCTestCase {
         // No AppleScript ever runs, and no screen is read: a test that tiles gives its own stand-in.
         actions.tileScript = { _, _ in XCTFail("an AppleScript would have run"); return .failed }
         actions.screens = { [] }
+        actions.openTTYs = { [] } // Terminal with no tab open: its tab list is never read
         // The team's registry, as the core keeps it: the fixture's hire, and the one these tests ask about.
         actions.openWorktrees = { ["/Users/ada/repo-hires/ada-abcdef", "/Users/ada/wt"] }
         return actions
@@ -280,6 +281,89 @@ final class HostBridgeTests: XCTestCase {
         let none = ask(["action": "close", "tab": "tmux:%4@/tmp/s", "agent": "claude"])
         XCTAssertFalse(isOK(none), "no driver")
         XCTAssertEqual(none["unsupported"] as? Bool, true)
+    }
+
+    /// A strict close (FXHIRE B1 a, a hire in a window of its own): the tab is fired only with its agent in front;
+    /// a shell alone there (a tty used again), the agent behind, or a tab that can't be looked at, is never touched.
+    func testAStrictCloseFiresOnlyAnAgentInFront() {
+        var mac = actions
+        mac.place = { tab, _ in ["%1": .front, "%2": .gone, "%3": .behind][tab.id] ?? nil }
+        func close(_ tab: String, strict: Bool = true) -> String? {
+            var request: [String: Any] = ["action": "close", "tab": tab, "agent": "claude", "token": token]
+            if strict { request["strict"] = true }
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: mac)["fired"] as? String
+        }
+        XCTAssertEqual(close("tmux:%1@/tmp/s"), "fired")
+        XCTAssertEqual(close("tmux:%2@/tmp/s"), "gone", "only a shell left: answered gone")
+        XCTAssertEqual(close("tmux:%3@/tmp/s"), "not-stopped")
+        XCTAssertEqual(close("tmux:%4@/tmp/s"), "not-stopped", "unknown is not the same as none")
+        XCTAssertEqual(asked, ["fire claude tmux:%1@/tmp/s"], "only the agent in front was fired")
+        XCTAssertEqual(close("tmux:%2@/tmp/s", strict: false), "gone")
+        XCTAssertEqual(asked.last, "fire claude tmux:%2@/tmp/s", "without strict, the close is the office's as before")
+    }
+
+    /// Whether each desk's agent has left its tab (FXHIRE B1 b): asked in order, read only; a test copy never asks
+    /// iTerm2 or Ghostty, only `ps`.
+    func testAgentsEndedAreAnsweredInOrderAndATestCopyAsksNoOtherApp() {
+        var mac = actions
+        var looked: [String] = []
+        mac.ended = { tab, agent, testCopy in looked.append("\(tab.text) \(agent.rawValue) \(testCopy)"); return tab.id == "/dev/ttys005" }
+        func ask(_ request: [String: Any]) -> [String: Any] {
+            var request = request
+            request["action"] = "agents-ended"
+            request["token"] = token
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: mac)
+        }
+        let answer = ask(["tabs": ["tty:/dev/ttys005", "iterm:AB12", "not a tab"], "agents": ["claude", "codex", "claude"]])
+        XCTAssertEqual(answer["ended"] as? [Bool], [true, false, false])
+        XCTAssertEqual(looked, ["tty:/dev/ttys005 claude false", "iterm:AB12 codex false"], "a tab that isn't one is never looked at")
+        XCTAssertFalse(isOK(ask(["tabs": ["tty:/dev/ttys005"], "agents": []])), "a tab without its agent")
+        XCTAssertFalse(isOK(ask(["tabs": "tty:/dev/ttys005", "agents": ["claude"]])))
+
+        // The Mac's own rule: iTerm2 asked only outside a test copy.
+        var opens: [String] = []
+        let standIn = PhoneTerminal(pastes: .pasted) { _ in }
+        standIn.open = { opens.append($0.text); return false }
+        let saved = Terminals.standIn
+        Terminals.standIn = standIn
+        defer { Terminals.standIn = saved }
+        let iterm = TabAddress("iterm:AB12")!
+        XCTAssertFalse(HostBridge.agentEnded(iterm, .claude, testCopy: true))
+        XCTAssertEqual(opens, [], "a test copy never asks another terminal app")
+        XCTAssertTrue(HostBridge.agentEnded(iterm, .claude, testCopy: false), "closed")
+        XCTAssertEqual(opens, ["iterm:AB12"])
+    }
+
+    /// RHIRE2 nit 1, as the Swift engine's `Deck.pruneClosedTabs`: a Terminal tab is asked of `ps` only once it has left
+    /// Terminal's own tab list, read once for all; unknown is not gone, and a test copy never reads that list. A tab
+    /// Smolcorp can only watch, its address a tty, is judged by `ps` (`pruneClosedPanes`), in a test copy too.
+    func testATerminalTabIsAskedOfPsOnlyOnceTerminalNoLongerListsIt() {
+        var mac = actions
+        var looked: [String] = [], listed = 0
+        mac.ended = { tab, _, _ in looked.append(tab.text); return true }
+        mac.openTTYs = { listed += 1; return ["/dev/ttys004"] }
+        func ask() -> [Bool]? {
+            let request: [String: Any] = ["action": "agents-ended", "token": token,
+                                          "tabs": ["tty:/dev/ttys004", "tty:/dev/ttys005", "iterm:AB12"], "agents": ["claude", "claude", "codex"]]
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: mac)["ended"] as? [Bool]
+        }
+        XCTAssertEqual(ask(), [false, true, true], "ttys004 is still one of Terminal's tabs: its agent is kept, whatever ps says")
+        XCTAssertEqual(looked, ["tty:/dev/ttys005", "iterm:AB12"])
+        XCTAssertEqual(listed, 1, "Terminal is asked once for all its tabs")
+        looked = []
+        mac.openTTYs = { listed += 1; return nil }
+        XCTAssertEqual(ask(), [false, false, true], "Terminal not answering: unknown is not gone")
+        XCTAssertEqual(looked, ["iterm:AB12"])
+        looked = []
+        listed = 0
+        mac.testCopy = true
+        XCTAssertEqual(ask(), [false, false, true])
+        XCTAssertEqual(listed, 0, "a test copy never reads Terminal's tab list")
+        XCTAssertEqual(looked, ["iterm:AB12"])
+
+        // Nothing runs on a tty no tab has: an agent there has left it, by ps alone (no other app asked).
+        XCTAssertTrue(HostBridge.agentEnded(TabAddress("other:/dev/ttys987")!, .claude, testCopy: true))
+        XCTAssertFalse(HostBridge.agentEnded(TabAddress("tmux:%3@/tmp/tmux-501/default")!, .claude, testCopy: true), "a pane is no tty: unknown")
     }
 
     /// The core gives up at 20 s: an action that hasn't started by the bridge's deadline is never run.
@@ -1133,6 +1217,8 @@ final class HostBridgeTests: XCTestCase {
         // The phone's text and the peek (I5): the agent in front but on ttys005, where it has ended; Codex on
         // ttys004, not known to take several lines as one paste; iTerm2's CD34 doesn't read its ⌘V in time.
         mac.place = { tab, _ in tab.id == "/dev/ttys005" ? .gone : .front }
+        // FXHIRE: the agent has left ttys005 (so a strict close there touches nothing), not iTerm2's AB12.
+        mac.ended = { tab, _, _ in tab.id == "/dev/ttys005" }
         var typed: [String] = []
         mac.driver = { tab in PhoneTerminal(pastes: tab.id == "CD34" ? .notRead : .pasted) { typed.append($0) } }
         mac.screen = { _ in .some("> Bonjour l’équipe\n  ? for shortcuts\n\n\n") }
@@ -1725,6 +1811,8 @@ private final class PhoneTerminal: TerminalDriver {
     func scrollToBottom(in tab: TabAddress) -> Bool { false }
     func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired { .notStopped }
     func tty(of tab: TabAddress) -> String? { nil }
-    func isOpen(_ tab: TabAddress) -> Bool? { nil }
+    /// Whether a tab is open, for the agents-ended look: unknown unless a test says.
+    var open: ((TabAddress) -> Bool?)?
+    func isOpen(_ tab: TabAddress) -> Bool? { open?(tab) ?? nil }
     func screen(of tab: TabAddress) -> String? { nil }
 }

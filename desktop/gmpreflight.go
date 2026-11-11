@@ -239,7 +239,7 @@ func (d *Deck) gmPreflightOn(account string) preflightReport {
 	at := claudeFoundAt()
 	switch {
 	case at == "" && (missing || windows):
-		add(preflightItem{ID: "claude", Title: "Claude Code isn't installed on this computer.",
+		add(preflightItem{ID: "claude", Title: "Claude Code isn't installed on this " + d.machine() + ".",
 			Fix: "Paste this in " + shellName + ", wait for it to finish, then press Check again.", Action: &preflightAction{Kind: "copy", Label: "Copy", Command: install}, Todo: true})
 	case missing:
 		where := filepath.Dir(at)
@@ -317,7 +317,7 @@ func (d *Deck) gmPreflightOn(account string) preflightReport {
 		if tmuxAction != nil {
 			fix = "Paste this in a terminal to install tmux, then press Check again."
 		}
-		add(preflightItem{ID: "terminal", Title: "There's no terminal on this computer to open your General Manager in.", Fix: fix, Action: tmuxAction})
+		add(preflightItem{ID: "terminal", Title: "There's no terminal on this " + d.machine() + " to open your General Manager in.", Fix: fix, Action: tmuxAction})
 	}
 	if hasTmuxHires && inTmux && hasTerminal {
 		if tmux {

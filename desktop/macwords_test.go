@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 )
 
@@ -42,6 +43,31 @@ func TestUnderTheMacAppThePhoneHearsTheMacsWords(t *testing.T) {
 		}
 		if got := inMacWords(errSummaryOff.Message); got != errSummaryOff.Message {
 			t.Errorf("mac %v: %q", mac, got)
+		}
+		host = saved
+	}
+}
+
+// Setup's and the self-test's sentences that name this computer say "Mac" under the Mac app, as its Swift engine
+// said them (Hooks.swift, DeckRouter.swift, HireFolder.swift); "computer" elsewhere.
+func TestUnderTheMacAppSetupsRefusalsNameTheMac(t *testing.T) {
+	for _, mac := range []bool{false, true} {
+		saved := host
+		host = nil
+		if mac {
+			withMac(t)
+		}
+		word := map[bool]string{false: "computer", true: "Mac"}[mac]
+		home := t.TempDir()
+		_, _, background := setChoices(&Config{}, map[string][]string{"background": {"1"}}, false)
+		got := []string{noAgentsFound().Error(), background, hireFolderRefusal(filepath.Join(home, "Library", "x"), home)}
+		want := []string{"No coding agent found on this " + word + ". Install one, open it once, then connect again.",
+			"Running hires in the background needs tmux, which isn't on this " + word + ".",
+			"That folder holds your " + word + "'s or your apps' own files. Choose a project folder, " + hireFolderExample + "."}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("mac %v: %q, want %q", mac, got[i], want[i])
+			}
 		}
 		host = saved
 	}

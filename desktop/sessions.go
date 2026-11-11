@@ -749,6 +749,19 @@ func (s *Sessions) Prune(alive func(tab string) bool, now float64) bool {
 	return changed
 }
 
+// PruneIDs drops the sessions gone names by id, each only while it is still on the tab it was judged on: a session
+// that has taken that tab since is another's, and stays. As for Prune, each is remembered for a while.
+func (s *Sessions) PruneIDs(gone map[string]string, now float64) bool {
+	changed := false
+	for _, session := range s.All() {
+		if tab, ok := gone[session.ID]; ok && session.Tab == tab && !session.Headless() {
+			s.drop(session, now)
+			changed = true
+		}
+	}
+	return changed
+}
+
 // PruneGone drops sessions whose process has gone, where the hook said which
 // it was, and headless runs once they have been quiet for headlessQuiet, or
 // headlessQuietWithPID where their process is known: either may have been

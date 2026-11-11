@@ -375,11 +375,14 @@
       send('/act', { session: id, action: 'seen' });
     },
     // Firing, once the office has asked: whether the agent was let go,
-    // which only a plain yes means. And hiring, into the desk held, as one of
+    // which only a yes means: a plain one, or a 200 with what the computer
+    // has to say (a hire marked fired with its window left open), said on the
+    // status line as Setup says it. And hiring, into the desk held, as one of
     // the roles set up on the computer, or a regular hire without one.
     async fire(id) {
       tick();
-      return (await send('/act', { session: id, action: 'fire' })) === 204;
+      const status = await send('/act', { session: id, action: 'fire' }, undefined, flash);
+      return status === 204 || status === 200;
     },
     hire(desk, role, floor) {
       tick();
@@ -961,9 +964,9 @@
   /**
    * POST and say anything that is not a plain yes on the status line. It
    * comes to the computer's status, or false with no answer: in the
-   * preview, or out of reach.
+   * preview, or out of reach. With said, a 200's text is given to it.
    */
-  async function send(pathname, params, signal) {
+  async function send(pathname, params, signal, said) {
     if (preview) {
       flash(rehearse(params));
       return false;
@@ -981,6 +984,10 @@
     if (res.status === 401) unpaired();
     else if (res.status === 202) flash('queued — goes in when Claude is done');
     else if (!res.ok) flash((await res.text()) || `failed (${res.status})`);
+    else if (res.status === 200 && said) {
+      const text = await res.text().catch(() => '');
+      if (text) said(text);
+    }
     return res.status;
   }
 

@@ -130,7 +130,8 @@ const backgroundNeedsTmux = "Running hires in the background needs tmux, which i
 // 1. Whether it switched hires to the background, or a refusal.
 func setChoices(c *Config, query url.Values, hasTmux bool) (switched bool, status int, refusal string) {
 	if query.Get("background") == "1" && !hasTmux {
-		return false, http.StatusBadRequest, backgroundNeedsTmux
+		// In the Mac's words under the Mac app (macWords), as the Swift engine's DeckRouter said it.
+		return false, http.StatusBadRequest, inMacWords(backgroundNeedsTmux)
 	}
 	was := backgroundHires(c, hasTmux)
 	if query.Has("t3") {

@@ -109,6 +109,14 @@ func (d *Deck) machine() string {
 	return "computer"
 }
 
+// machineHere is d.machine for code without a deck: "Mac" under the Mac app, else "computer".
+func machineHere() string {
+	if host != nil {
+		return "Mac"
+	}
+	return "computer"
+}
+
 // appNamed is the app the locked setup page names on its 401 (X-Smolcorp-App), so its note tells this app's way
 // in: "mac" under the Mac app, as the Swift engine says it, or this system's. Without the lock.
 func (d *Deck) appNamed() string {

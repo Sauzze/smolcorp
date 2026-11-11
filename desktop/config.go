@@ -158,6 +158,9 @@ type Config struct {
 	MailMaxBytes  int     `json:"mailMaxBytes"`
 	MailPerHour   int     `json:"mailPerHour"`
 	MailWaitHours float64 `json:"mailWaitHours"`
+	// Whether mail may go to a hire's Claude Code inbox socket first (mail_inbox.go). Off: only tmux.
+	// No page setting, as on the Mac: the file only.
+	MailInboxSocket bool `json:"mailInboxSocket,omitempty"`
 	// Whether the app keeps its own watches on the hires (watchers_builtin.go),
 	// while the manager is on; unset for on. No page setting: the file only.
 	BuiltinWatches bool `json:"builtinWatches"`

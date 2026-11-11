@@ -171,6 +171,17 @@ func allConnected() bool {
 
 var errNoAgents = errors.New("No coding agent found on this computer. Install one, open it once, then connect again.")
 
+// errNoAgentsMac is errNoAgents as the Mac says it (Hooks.swift), under the Mac app.
+var errNoAgentsMac = errors.New("No coding agent found on this Mac. Install one, open it once, then connect again.")
+
+// noAgentsFound is errNoAgents in this computer's words.
+func noAgentsFound() error {
+	if host != nil {
+		return errNoAgentsMac
+	}
+	return errNoAgents
+}
+
 // errTestCopyAgents is a test copy's no, in the Mac's words (Hooks.HookError.testCopy): a copy on a port of its own
 // never writes your agents' settings, which are the real Smolcorp's. Its hires report through a hook of their own.
 var errTestCopyAgents = errors.New("This is a test copy of Smolcorp: it doesn't change your agents' settings. Report to it with a hook of its own.")
@@ -191,7 +202,7 @@ func connectAgents(turnOnVoice bool) (string, error) {
 	}
 	found := foundAgents()
 	if len(found) == 0 {
-		return "", errNoAgents
+		return "", noAgentsFound()
 	}
 	var unreadable []string
 	notice := ""

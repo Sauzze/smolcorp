@@ -644,6 +644,25 @@ func TestFireSaysWhenTheWorktreeWasKept(t *testing.T) {
 	}
 }
 
+// Marked fired with no window closed (a hire in a window of its own, fired with force): `gm fire` says so, and why
+// its worktree stayed, never just "Fired".
+func TestFireSaysWhenNoWindowWasClosed(t *testing.T) {
+	var team TeamReply
+	json.Unmarshal(teamAnswer(t), &team)
+	answer := `{"ok":true,"note":"Rex is marked fired, but Smolcorp couldn't find its window, so it wasn't closed. If it's still open, close it there.",` +
+		`"kept":"Its window wasn't closed, so it may still be at work in it.","worktree":"/w/ada","branch":"ada/work"}`
+	app := fireApp(t, 200, answer)
+	code, out, errOut := runGM(app.env(t, withToken()), "fire", team.Team[0].ID, "--force", "--remove-worktree")
+	if code != 0 || errOut != "" {
+		t.Fatalf("exit %d %q", code, errOut)
+	}
+	want := "Rex is marked fired, but Smolcorp couldn't find its window, so it wasn't closed. If it's still open, close it there." +
+		" Its worktree (/w/ada) and branch were kept, not removed: its window wasn't closed, so it may still be at work in it.\n"
+	if out != want {
+		t.Errorf("got %q, want %q", out, want)
+	}
+}
+
 func TestAfterColonLowersOnlyAPlainCapital(t *testing.T) {
 	for in, want := range map[string]string{"It holds.": "it holds.", "API key.": "API key.", "lower": "lower", "": "", "I": "I", "I can't.": "I can't.", "I'll try.": "I'll try.", "I\u2019ll try.": "I\u2019ll try."} {
 		if got := afterColon(in); got != want {

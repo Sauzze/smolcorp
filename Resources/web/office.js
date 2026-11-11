@@ -68819,7 +68819,8 @@
       // The lite office's switch: the page keeps the choice, and says so with setLite; the panel stays open
       if (target.kind === 'lite') return on.lite?.(!liteOffice);
       // They carry their things out in a box only once the computer says
-      // they're fired; if it couldn't, the deck says why.
+      // they're fired, with a note or not (the deck says it, as for a hire
+      // marked fired with its window left open); if it couldn't, the deck says why.
       if (target.kind === 'fired') {
         if (!firing) return; // they left while the finger was down
         const { id } = firing;

@@ -2157,7 +2157,7 @@
       $('gm-fire').disabled = true;
       const res = await fetch('/setup/gm/fire', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify({ id: gm.id }) }).catch(() => null);
       $('gm-fire').disabled = false;
-      if (res && res.ok) { tell('gm-problem', ''); load(); } else tell('gm-problem', await refusal(res, "The General Manager couldn't be fired."));
+      if (res && res.ok) { tell('gm-problem', await firedSaid(res)); load(); } else tell('gm-problem', await refusal(res, "The General Manager couldn't be fired."));
     };
     const list = $('team-list');
     if (list.contains(document.activeElement)) return;
@@ -2304,6 +2304,18 @@
     return menu;
   }
 
+  /**
+   * What a fire said beyond "fired", from its 200: that it closed no window (a hire in a window of its own, fired with
+   * force), and why a worktree it was asked to remove stayed. "" for a plain 204.
+   */
+  async function firedSaid(res) {
+    if (res.status !== 200) return '';
+    const said = await res.json().catch(() => ({}));
+    const why = String(said.kept || '').replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase());
+    const kept = why ? `Its worktree${said.worktree ? ` (${said.worktree})` : ''} was kept: ${why}` : '';
+    return [said.note, kept].filter(Boolean).join(' ');
+  }
+
   /** One hire on the team: who, where, and Fire… with the two options a fire has. */
   function teamRow(r) {
     const row = document.createElement('div');
@@ -2345,7 +2357,8 @@
       const res = await fetch('/setup/gm/fire', { method: 'POST', headers: setupHeaders(true),
         body: JSON.stringify({ id: r.id, ...(force.checked ? { force: true } : {}), ...(remove && remove.checked ? { removeWorktree: true } : {}) }) }).catch(() => null);
       go.disabled = false;
-      if (res && res.ok) { load(); return; }
+      // Its row goes with the hire: what the fire said (no window closed, a worktree kept) is said under the team.
+      if (res && res.ok) { tell('team-problem', await firedSaid(res)); load(); return; }
       problem.textContent = await refusal(res, "That hire couldn't be fired.");
       problem.hidden = false;
     };
