@@ -25,25 +25,32 @@ import (
 //
 //   - changing a file outside the demo folder (Edit, Write, MultiEdit, NotebookEdit),
 //     or one in a .claude or .git folder in it, where the fence and the hooks are;
-//   - a hire outside the demo folder: `smolcorp gm hire` (or the MCP tool hire)
-//     must name a --folder inside it, as a plain path, and one of the roles given,
-//     which are the Claude Code roles, so every hire reads this file too; never
-//     into T3 Code, on the API-key account, or on a Claude account but the default;
+//   - a hire anywhere but the demo's project: `smolcorp gm hire` (or the MCP tool hire)
+//     must name as --folder, written plainly, the project itself or the top of one of
+//     its worktrees in the demo folder, a folder that is there (the folders that hold
+//     this file), and one of the roles given, which are the Claude Code roles, so every
+//     hire reads this file too; never into T3 Code, on the API-key account, or on a
+//     Claude account but the default;
 //   - a hire by any other way (a request to the app's hire routes), and a line that
 //     names smolcorp (or gm and a word) and builds words with $ or a backtick;
 //   - smolcorp for anything but `smolcorp gm …`, version and help: its MCP server on
 //     standard input, `run`, `setup`, `serve` and the rest would hire, or start an agent,
-//     where the fence can't see;
+//     where the fence can't see; a word that holds smolcorp but isn't the program or a
+//     path in the demo (X=smolcorp, alias h=smolcorp); a command whose name the shell
+//     builds ($X mcp);
 //   - a send, brief or fire (or contacts) for anyone but a hire the demo made: one whose
 //     folder is inside the demo, as the office's team says;
 //   - a line or a path that names the setup key: it opens the owner's whole setup;
-//   - git config writes, and git checkout or switch: a branch with another fence;
+//   - git config writes, and git checkout or switch: a branch with another fence; a
+//     git worktree added outside the demo folder;
 //   - whatever the hire guard refuses the GM by default: push, deploy, publish,
 //     cloud, remote shells, typing into another session.
 //
 // Like the guard, it reads one command line and never the scripts it runs: a
 // Bash command that writes outside the folder isn't caught here (the office's
-// own fence and the owner's permission prompts stay the other layers).
+// own fence and the owner's permission prompts stay the other layers). The wall
+// is the app's: the demo hires its GM held to the project (gmscope.go), so every
+// hire, send, brief or fire its token asks for, by whatever way, stays in it.
 
 // demoCall is the part of Claude Code's PreToolUse input the fence reads.
 type demoCall struct {
@@ -62,6 +69,7 @@ type demoFence struct {
 	// hireSession: the call is a hire's (its send key is set). The app lets a hire write only to
 	// its GM, or to a hire the GM put in its contacts, which this fence checks on the GM's side.
 	hireSession bool
+	git         gitRunner // nil: git itself
 }
 
 // demoFenceRefusal starts every refusal, so the GM and the owner know whose it is.
@@ -153,15 +161,24 @@ func (f demoFence) command(line, cwd string) string {
 	// Read twice, as the guard reads a line: a backslash escapes (bash), or it's part of a path
 	// (Windows, C:\Users\…). A hire either reading refuses is refused.
 	all := append(demoCommands(line, true, 0), demoCommands(line, false, 0)...)
+	// A command whose name the shell builds ($X mcp, after X=smolcorp in another call) can't be read.
+	for _, words := range demoSegments(line, true) {
+		if name := demoCommandName(words); strings.ContainsAny(name, "$`") {
+			return demoFenceRefusal + "a command whose name holds $ or a backtick: write the program's name out plainly."
+		}
+	}
 	if shellExpands(line) && slices.ContainsFunc(all, namesSmolcorp) {
 		// The shell would build a word the fence can't read: smolcorp $'gm' hire, G=gm; smolcorp $G hire.
 		return demoFenceRefusal + "a smolcorp command with $ or a backtick in its line: write it out plainly (text with a $ in single quotes, or in --task-file)."
 	}
 	for _, words := range all {
+		if word := f.smolcorpInAWord(words, cwd); word != "" {
+			return demoFenceRefusal + fmt.Sprintf("%q holds smolcorp: in the demo, smolcorp is the program's name or a path in %s only.", word, f.root)
+		}
 		if !demoSmolcorpAllowed(words) {
 			return demoFenceRefusal + "in the demo, smolcorp runs `smolcorp gm …` (and version, help) only: its other commands hire or start agents where the fence can't see."
 		}
-		if why := demoGitRefusal(words); why != "" {
+		if why := f.gitRefusal(words, cwd); why != "" {
 			return demoFenceRefusal + why
 		}
 		if tool, refs := demoTargets(words); tool != "" {
@@ -196,6 +213,39 @@ func isSmolcorp(word string) bool {
 	name := strings.ToLower(strings.ReplaceAll(word, `\`, "/"))
 	name = strings.TrimSuffix(name[strings.LastIndexByte(name, '/')+1:], ".exe")
 	return name == "smolcorp" || name == "smolcorp-cli"
+}
+
+// demoCommandName is a simple command's program: its first word after any NAME=value.
+func demoCommandName(words []string) string {
+	for _, word := range words {
+		if !demoAssignment.MatchString(word) {
+			return word
+		}
+	}
+	return ""
+}
+
+var demoAssignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+
+// smolcorpInAWord is the first word that holds smolcorp (any case) without being the program or a path in the
+// demo, "" for none. A NAME=value word (an assignment, an alias) or --flag=value is judged by its value, so
+// X=smolcorp and alias h='smolcorp mcp' are refused: the shell could run that value later as smolcorp.
+// A word with a blank in it is a line of its own, whose words are judged (demoCommands).
+func (f demoFence) smolcorpInAWord(words []string, cwd string) string {
+	for _, word := range words {
+		if !strings.Contains(strings.ToLower(word), "smolcorp") || strings.ContainsAny(word, " \t\n") || isSmolcorp(word) {
+			continue
+		}
+		value := word
+		if _, after, assigned := strings.Cut(word, "="); assigned && (demoAssignment.MatchString(word) || strings.HasPrefix(word, "-")) {
+			value = after
+		}
+		path := value == "~" || strings.HasPrefix(value, "~/") || filepath.IsAbs(value) || strings.ContainsAny(value, `/\`)
+		if !path || !plainFolder(value) || !f.inside(value, cwd) {
+			return word
+		}
+	}
+	return ""
 }
 
 // demoSmolcorpAllowed says whether every smolcorp in a simple command's words is followed by gm, version or help:
@@ -296,7 +346,8 @@ func (f demoFence) targets(tool string, refs []string) string {
 }
 
 // demosOwn says whether ref (an id, a name or a nickname, as the app and the CLI find them) names
-// only hires of the demo's: hires (not a session alone) whose folder and worktree are in the demo.
+// only hires of the demo's: hires (not a session alone) whose folder and worktree are the demo's
+// project or a worktree of it (checkout).
 func (f demoFence) demosOwn(ref string, team []demoMember) bool {
 	asked := mailAsked(ref)
 	named := func(name string) bool {
@@ -308,7 +359,7 @@ func (f demoFence) demosOwn(ref string, team []demoMember) bool {
 			continue
 		}
 		found = true
-		if !m.Registered || !f.inside(m.Folder, "") || m.Worktree != "" && !f.inside(m.Worktree, "") {
+		if !m.Registered || !f.checkout(m.Folder, "") || m.Worktree != "" && !f.checkout(m.Worktree, "") {
 			return false
 		}
 	}
@@ -361,19 +412,23 @@ func namesHireRoute(line string) bool {
 
 var demoDotSegment = regexp.MustCompile(`/[^/\s'"]+/\.\./`)
 
-// demoGitRefusal says why a git command is refused: a config write (hooks, remotes), or a branch
-// switch (a branch of the GM's could carry another fence into every hire made after it).
-func demoGitRefusal(words []string) string {
+// gitRefusal says why a git command is refused: a config write (hooks, remotes), a branch switch (a
+// branch of the GM's could carry another fence into every hire made after it), or a worktree added
+// outside the demo folder (from cwd, or the folder -C names).
+func (f demoFence) gitRefusal(words []string, cwd string) string {
 	for i, word := range words {
 		name := strings.ToLower(strings.ReplaceAll(word, `\`, "/"))
 		if strings.TrimSuffix(name[strings.LastIndexByte(name, '/')+1:], ".exe") != "git" {
 			continue
 		}
-		sub, args := "", []string(nil)
+		sub, args, from := "", []string(nil), cwd
 		for j := i + 1; j < len(words); j++ {
 			a := words[j]
 			if strings.HasPrefix(a, "-") {
 				if !strings.Contains(a, "=") && slices.Contains([]string{"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}, a) {
+					if a == "-C" && j+1 < len(words) {
+						from = demoFrom(words[j+1], from, f.home)
+					}
 					j++
 				}
 				continue
@@ -386,6 +441,42 @@ func demoGitRefusal(words []string) string {
 			return "the demo doesn't switch branches: each hire has a worktree of its own (git restore puts a file back)."
 		case sub == "config" && !gitConfigReads(args):
 			return "git config only reads in the demo: the project's hooks and remotes stay as the demo made them."
+		case sub == "worktree" && len(args) > 0 && strings.ToLower(args[0]) == "add":
+			if path := gitWorktreeAddPath(args[1:]); path == "" || !plainFolder(path) || !f.inside(path, from) {
+				return "a worktree of the demo's stays in " + f.root + ": the office makes the hires' own."
+			}
+		}
+	}
+	return ""
+}
+
+// demoFrom is the folder git -C dir works from, read from where the command runs: "" when it can't be told.
+func demoFrom(dir, cwd, home string) string {
+	switch {
+	case dir == "~" || strings.HasPrefix(dir, "~/"):
+		return filepath.Join(home, dir[1:])
+	case filepath.IsAbs(dir):
+		return dir
+	case cwd == "" || !filepath.IsAbs(cwd):
+		return ""
+	}
+	return filepath.Join(cwd, dir)
+}
+
+// gitWorktreeAddPath is the folder `git worktree add`'s arguments make: the first that isn't an option or an
+// option's value. "" when there's none.
+func gitWorktreeAddPath(args []string) string {
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "-b" || a == "-B" || a == "--reason":
+			i++
+		case a == "--":
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		case !strings.HasPrefix(a, "-"):
+			return a
 		}
 	}
 	return ""
@@ -442,10 +533,31 @@ func (f demoFence) hire(ask demoHireAsk, cwd string) string {
 	case !plainFolder(folder):
 		// The shell would make it something else ($HOME, ~user, {a,b}, *): the fence can't know what.
 		return demoFenceRefusal + "write the folder out plainly, with no $, `, {, *, ?, [ or ~user in it: --folder " + filepath.Join(f.root, demoRepoName) + "."
-	case !f.inside(folder, cwd):
-		return demoFenceRefusal + "that folder is outside the demo. Hire into " + filepath.Join(f.root, demoRepoName) + "."
+	case !f.checkout(folder, cwd):
+		return demoFenceRefusal + "hire into the demo's project, " + filepath.Join(f.root, demoRepoName) + " (with --worktree), or the top of one of its worktrees: no other folder holds the demo's fence."
 	}
 	return ""
+}
+
+// checkout says whether folder (~ is home, a relative one is from cwd) is the demo's project, or the top of
+// a worktree of it in the demo folder: the folders whose .claude/settings.json is the demo's fence. It must be
+// there, so a link made in the same line can't stand in for it. The rule is the app's own (gmScope.holds).
+func (f demoFence) checkout(folder, cwd string) bool {
+	folder = strings.TrimSpace(folder)
+	if folder == "~" || strings.HasPrefix(folder, "~/") || strings.HasPrefix(folder, `~\`) {
+		folder = filepath.Join(f.home, folder[1:])
+	}
+	if !filepath.IsAbs(folder) {
+		if cwd == "" || !filepath.IsAbs(cwd) || strings.HasPrefix(folder, "/") || strings.HasPrefix(folder, `\`) {
+			return false
+		}
+		folder = filepath.Join(cwd, folder)
+	}
+	git := f.git
+	if git == nil {
+		git = runGit
+	}
+	return f.inside(folder, "") && gmScope{root: filepath.Join(f.root, demoRepoName), git: git}.holds(folder)
 }
 
 // plainFolder says whether the shell leaves a folder as written: no expansion in it but ~ or ~/… at its start.

@@ -125,7 +125,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | GET | `/setup/hire-folder` | page, tool | `?check=` | `{exists, fix, folder, home, problem, suggested}` | 200 | setup.json | served |
 | POST | `/setup/hire-folder` | gm, page | `?folder=&create=1` | as GET | 200, 400 | setup.json | served |
 | GET | `/setup/hire/folders` | page, tool | — | `{default, recent}` | 200 | setup.json | served |
-| POST | `/setup/hire` | gm, page | `{role, folder, account, model, floor, worktree, apiKey, task, answers, engine}` (`engine: "t3"`: into T3 Code, experimental (Go: `Deck.hireIntoT3`)) | empty or `{ok, desk, session}` | 200, 204, 400, 404, 409 | setup.json, frontdesk/hire-guard.json | served |
+| POST | `/setup/hire` | gm, page | `{role, folder, account, model, floor, worktree, apiKey, task, answers, engine, scope}` (`engine: "t3"`: into T3 Code, experimental (Go: `Deck.hireIntoT3`); `scope`, Go only: the GM's own project, see the General Manager's section) | empty or `{ok, desk, session}` | 200, 204, 400, 404, 409 | setup.json, frontdesk/hire-guard.json | served |
 | POST | `/setup/hire/gm` | gm, page | `?worktree=1&account=` | empty | 204, 409, and the hire's | setup.json | served |
 | POST | `/setup/hire/window` | page | `{id}` | empty or text: a window attached to the hire's own tmux session | 204, 409 | setup.json | served |
 | GET | `/setup/hire/gm/preflight` | page | `?account=` | `{ready, items}` | 200, 400 | setup.json | differs |
@@ -155,6 +155,17 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | GET | `/setup/viewer/qr.png` | page | — | PNG | 200, 404 | none: draws the viewer's link, from the Keychain | served |
 
 ## Setup: the General Manager (/setup/gm/, 409 while the manager is off but for version and the switch)
+
+**A GM's scope (Go only).** The owner's `POST /setup/hire` of the gm role may send `scope`, the folder it hires
+the GM into (400 for another role, another folder, or one that isn't there; 409 into T3 Code, or where the hire
+wouldn't go through the hire engine in tmux). The Go app keeps it in that GM's registry row (`scope`, written only
+when set) and holds every request made with its token to it (`desktop/gmscope.go`): `POST /setup/gm/hire` only
+into that folder or the top of one of its worktrees, a folder that is there, never `apiKey`, `account` or
+`engine: "t3"`; `send`, `brief`, `fire`, `contacts`, `nickname`, `/setup/pin`, `/setup/unpin`, `watch` and
+`unwatch` only for its own hires, folders and watches; any other route but a GET is refused. Each refusal is
+403 with one sentence, before the route. A GM with no scope gets every answer below as before. The Mac's Swift
+engine has no scope and ignores the field: M7 keeps this before it deletes Swift's GM routes. `smolcorp demo`
+hires its GM so (`desktop/demooffice.go`).
 
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
 |---|---|---|---|---|---|---|---|

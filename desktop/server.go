@@ -290,6 +290,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusConflict, managerOffAnswer)
 			return
 		}
+		// A General Manager the owner held to one project goes no further than it (gmscope.go).
+		if r.caller == callerGM {
+			if status, why := d.gmScopeRefusal(r); status != 0 {
+				writeStatus(w)(status, why)
+				return
+			}
+		}
 		rt.setup(w, r)
 		return
 	// A cloud bot's news, from a tool of yours: guarded as setup's actions are.

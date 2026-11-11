@@ -61,6 +61,8 @@ type engineRequest struct {
 	NoWorktree  bool
 	AccountName string
 	Profiles    []claudeProfile
+	// Scope: the project a General Manager is held to (gmscope.go), kept in its registry row; "" for none.
+	Scope string
 }
 
 // engineAutoMode is whether an engine hire's settings put it in auto mode: on

@@ -15,7 +15,7 @@ import (
 
 // POST /setup/hire, setup's own hire sheet, as the Mac's BriefRoutes.hireRequest
 // and Deck.hire(as:in:answers:…): {role, folder, answers, floor, worktree,
-// model, nickname, account, apiKey, task, engine}, each checked with the Mac's
+// model, nickname, account, apiKey, task, engine, scope}, each checked with the Mac's
 // words, then hired as the office hires (hireAsWith), at the desk pinned to
 // that folder if there's one, or at a free one. Answered with the desk it sits
 // at, or, with Auto, the one it's expected to take as its agent reports.
@@ -43,6 +43,8 @@ type setupHire struct {
 	// T3: into T3 Code. A named account (Account) or the API-key account (APIKey) is kept for T3 Code's own refusal.
 	T3     bool
 	APIKey bool
+	// Scope: the GM alone, the project it is held to (gmscope.go), the folder it is hired into; "" for none.
+	Scope string
 }
 
 // apply puts what setup asked for into an engine hire's request. Its worktree
@@ -53,6 +55,7 @@ func (h *setupHire) apply(r *engineRequest, managerOn bool) {
 	r.Task = h.Task
 	r.Nickname = h.Nickname
 	r.AccountName = h.Account
+	r.Scope = h.Scope
 	if h.Model != "" {
 		r.Role.Model = h.Model
 	}
@@ -136,6 +139,10 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 		return setupHire{}, status, why
 	}
 	hire.Folder = folder
+	// Only the owner's hire of the GM names a scope: the GM's token never hires the gm role.
+	if hire.Scope, status, why = checkedGMScope(given["scope"], hire, home); status != 0 {
+		return setupHire{}, status, why
+	}
 	switch task := given["task"].(type) {
 	case nil:
 	case string:

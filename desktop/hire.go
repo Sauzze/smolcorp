@@ -462,12 +462,18 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 			if status, message, handled := d.managedHireWith(roleID, folder, terminal, showWindow, held, floor, extra); handled {
 				return status, message
 			}
-		} else if launcherHires && d.config.HireManagedWindows && hasTerminal {
+		} else if launcherHires && d.config.HireManagedWindows && hasTerminal && (extra == nil || extra.Scope == "") {
 			// Beta: in a window run by the launcher, only where that is made and the switch is on.
 			if status, message, handled := d.managedLauncherHire(roleID, folder, terminal, hasTerminal, held, floor); handled {
 				return status, message
 			}
 		}
+	}
+	// A General Manager held to one project (gmscope.go) keeps its scope only in the engine's registry row:
+	// any other way would drop it, so it is refused rather than hired unscoped.
+	if extra != nil && extra.Scope != "" {
+		d.lastHire = time.Time{}
+		return http.StatusConflict, gmScopeNeedsEngine
 	}
 	// The plain path, through the launcher: it writes no fence and starts on the default account.
 	// Under the Mac app, a hire the Mac would manage (the manager on, a worktree asked for, or the

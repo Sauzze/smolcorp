@@ -145,13 +145,37 @@ func TestTheDemoNeverPushes(t *testing.T) {
 	}
 }
 
-func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
-	in := demoTestFolder(t)
-	root := filepath.Join(in, "smolcorp-demo")
-	repo := filepath.Join(root, "app")
+// demoCheckout makes root/app a git project with one commit, and a worktree of it at root/app-hires/<name>
+// for each name, as the office makes a hire's. It returns the project.
+func demoCheckout(t *testing.T, root string, names ...string) string {
+	t.Helper()
+	repo := filepath.Join(root, demoRepoName)
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	gitOut(t, repo, "init", "-q", "-b", "main")
+	stopSigning(t, repo)
+	gitOut(t, repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "one")
+	for _, name := range names {
+		gitOut(t, repo, "worktree", "add", "-q", "-b", "hire/"+name, filepath.Join(root, "app-hires", name))
+	}
+	return repo
+}
+
+func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
+	in := demoTestFolder(t)
+	root := filepath.Join(in, "smolcorp-demo")
+	repo := demoCheckout(t, root, "tester-1")
+	worktree := filepath.Join(root, "app-hires", "tester-1")
+	// RX1c B1: folders in the demo that hold no fence: the demo folder itself, the worktrees' folder, a new
+	// folder, a folder in the project, and another project's checkout.
+	other := filepath.Join(root, "other")
+	for _, dir := range []string{filepath.Join(root, "x"), filepath.Join(repo, "sub"), other} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitOut(t, other, "init", "-q")
 	elsewhere := filepath.Join(in, "elsewhere")
 	os.MkdirAll(elsewhere, 0o755)
 	// A link inside the demo that leads out of it (where the system lets a test make one).
@@ -198,6 +222,12 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		bashCall("smolcorp gm team", repo),
 		// RX1b S3: a hire over several lines, as models write them.
 		bashCall("smolcorp gm hire --role tester \\\n  --folder "+repo+" \\\n  --worktree \\\n  --task 'Fix the rounding'", repo),
+		// FXX1c: the top of a worktree of the project, as the office makes them; paths in the demo name it.
+		bashCall("smolcorp gm hire --role reviewer --folder "+worktree, repo),
+		tool("mcp__smolcorp__hire", map[string]any{"role": "reviewer", "folder": worktree}),
+		bashCall("cd "+worktree+" && python3 -m unittest", repo),
+		bashCall("git -C "+repo+" worktree list && git worktree add ../app-hires/extra -b extra", repo),
+		bashCall("smolcorp gm hire --role tester --folder="+repo+" --worktree", repo),
 	}
 	refused := []demoCall{
 		bashCall("smolcorp gm hire --role tester --folder ~", repo),
@@ -295,6 +325,27 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		bashCall(`curl -H 'X-Smolcorp-Setup-Key: k' 'http://127.0.0.1:7710/setup/hiring?enabled=0'`, repo),
 		tool("Read", map[string]any{"file_path": filepath.Join(homeDir, ".config", "Smolcorp", "Setup-Key")}),
 		{ToolName: "Grep", ToolInput: json.RawMessage(`{"pattern":"x","path":"/somewhere/setup\u002dKey"}`), Cwd: repo},
+		// RX1c B1: a hire into the demo folder but not the project or a worktree of it: no fence there.
+		bashCall("smolcorp gm hire --role reviewer --folder "+root+" --task 'Write DEMO-REPORT.md'", repo),
+		bashCall("smolcorp gm hire --role reviewer --folder "+filepath.Join(root, "app-hires"), repo),
+		bashCall("mkdir -p "+filepath.Join(root, "x")+" && smolcorp gm hire --role tester --folder "+filepath.Join(root, "x"), repo),
+		bashCall("smolcorp gm hire --role tester --folder "+filepath.Join(repo, "sub"), repo),
+		bashCall("smolcorp gm hire --role tester --folder "+other, repo),
+		bashCall("smolcorp gm hire --role tester --folder "+filepath.Join(root, "app-hires", "not-yet"), repo),
+		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": root}),
+		// RX1c S2: a link made in the same line isn't there when the fence looks.
+		bashCall("ln -s "+elsewhere+" "+filepath.Join(root, "p")+"; smolcorp gm hire --role tester --folder "+filepath.Join(root, "p"), repo),
+		// RX1c S1: smolcorp as a part of a word, and a command whose name the shell builds.
+		bashCall("X=smolcorp; $X mcp < m.txt", repo),
+		bashCall("X=smolcorp\n\"$X\" mcp < m.txt", repo),
+		bashCall("alias h='smolcorp mcp'\neval h < m.txt", repo),
+		bashCall("alias h=smolcorp\nh mcp < m.txt", repo),
+		bashCall("X=smol; Y=corp; $X$Y mcp < m.txt", repo),
+		// RX1c S5: a worktree outside the demo folder.
+		bashCall("git worktree add ../../../outside-wt", repo),
+		bashCall("git -C "+repo+" worktree add ~/Projects/wt", repo),
+		bashCall("git -C "+elsewhere+" worktree add wt", repo),
+		bashCall("git worktree add -b x "+elsewhere+"/wt main", repo),
 	}
 	if runtime.GOOS == "windows" { // elsewhere, C:\ is a folder name like any other
 		refused = append(refused, bashCall(`smolcorp gm hire --role tester --folder C:\Users\someone\elsewhere`, repo))
@@ -450,7 +501,8 @@ func TestTheRealDemoAsksBeforeItSpendsAndHiresTheGMInsideItsFolder(t *testing.T)
 	}
 	task, _ := office.hire["task"].(string)
 	answers, _ := office.hire["answers"].([]any)
-	if office.hire["role"] != "gm" || office.hire["folder"] != repo || len(answers) != 3 || !strings.Contains(task, "--folder "+repo) ||
+	// FXX1c: held by the app to the project, whatever way its GM asks.
+	if office.hire["role"] != "gm" || office.hire["folder"] != repo || office.hire["scope"] != repo || len(answers) != 3 || !strings.Contains(task, "--folder "+repo) ||
 		!strings.Contains(task, "Stop before anything ships") || !strings.Contains(task, "reviewer, tester.") {
 		t.Errorf("the GM's hire: %v", office.hire)
 	}
@@ -546,12 +598,10 @@ func TestTheDemoSaysWhichSwitchesItTurnsOnAndPutsThemBack(t *testing.T) {
 func TestTheDemosFenceKeepsTheGMToItsOwnHires(t *testing.T) {
 	in := demoTestFolder(t)
 	root := filepath.Join(in, "smolcorp-demo")
-	repo := filepath.Join(root, "app")
+	repo := demoCheckout(t, root, "tester-1")
 	elsewhere := filepath.Join(in, "elsewhere")
-	for _, dir := range []string{repo, elsewhere} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
 	}
 	team := []demoMember{
 		{ID: "g1", Name: "General Manager", Role: "gm", Folder: repo, Registered: true, State: "working"},

@@ -63,6 +63,9 @@ type Hire struct {
 	// only for a hire in T3 Code, as the Mac writes them.
 	T3Floor *int `json:"t3Floor,omitempty"`
 	T3Desk  *int `json:"t3Desk,omitempty"`
+	// Scope: a General Manager the owner hired held to one project (gmscope.go), as the full path of that
+	// project; written only when set. Go only: the Mac's Swift engine has no scope (M7).
+	Scope string `json:"scope,omitempty"`
 }
 
 // liveSession is a session as the deck follows it, with where it sits.

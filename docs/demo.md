@@ -57,23 +57,44 @@ else is paid for, and the demo asks before it starts anything.
 - **Everything is in the demo folder**: the project in `app`, the hires'
   worktrees beside it in `app-hires`.
 - **The project has no remote**, and a pre-push hook that refuses every push.
+- **Smolcorp holds the General Manager to the project.** The demo hires its GM
+  with a scope, the project, and Smolcorp keeps it with that GM (in its
+  registry, so a restart doesn't drop it). Every request made with the GM's
+  token, whichever way it comes (`smolcorp gm`, its MCP tools, or a request
+  of its own), is held to it: a hire only into the project or the top of one
+  of its worktrees, a folder that is there, in a terminal, on your default
+  Claude account and never the API key; send, brief, fire, contacts,
+  nicknames, pins and watches only for its own hires and folders; nothing
+  else that changes your office (its switches, roles, layout or windows).
+  Each refusal is one sentence. A General Manager you hire yourself has no
+  scope, and works as it always has. The scope needs Smolcorp's hire engine
+  in tmux (Linux, or a Mac with the Go engine): where a GM's hire would open
+  any other way (Windows' launcher), Smolcorp refuses to hire it with a scope
+  rather than drop it. The Mac app's own engine doesn't have the scope yet,
+  so there only the demo's fence below holds the GM.
 - **Its own fence, for every session in it.** The project's committed
   `.claude/settings.json` runs `smolcorp demo fence` before each tool call of
   the General Manager and of each hire. It refuses a file changed outside the
   demo folder, or in a `.claude` or `.git` folder inside it (where the fence
-  and the hooks are); a hire into any other folder, or with a folder the shell
-  would expand (`$HOME`, `~someone`, `{a,b}`, `*`); a hire of a role that isn't
+  and the hooks are); a hire into any folder but the project or the top of
+  one of its worktrees (the folders that hold this fence), one that isn't
+  there yet, or one the shell would expand (`$HOME`, `~someone`, `{a,b}`,
+  `*`); a hire of a role that isn't
   on Claude Code, into T3 Code, or on the API-key account or another Claude
-  account; a `smolcorp` command built with `$` or a backtick; any `smolcorp`
+  account; a `smolcorp` command built with `$` or a backtick, a command whose
+  name holds `$`, and a word that holds `smolcorp` without being the program
+  or a path in the demo (`X=smolcorp`, `alias h=smolcorp`); any `smolcorp`
   command but `smolcorp gm …`, `version` and `help` (its MCP server on standard
   input, or `smolcorp run`, would hire or start an agent where the fence can't
   see); a send, brief or fire for anyone but the demo's own hires; anything
-  that names the setup key; `git config` writes, `git checkout` and
-  `git switch`; and what the guard refuses (pushes, deploys, publishing, cloud
+  that names the setup key; `git config` writes, `git checkout`,
+  `git switch`, and `git worktree add` outside the demo folder; and what the
+  guard refuses (pushes, deploys, publishing, cloud
   commands). That's on top of the fence the General
   Manager and its hires get anyway ([The fence, and who gets it](team.md#the-fence-and-who-gets-it)).
 - Like the guard, it reads one command line: a script a hire writes and runs
-  isn't read. It's a fence, not a wall.
+  isn't read. It's a fence, not a wall: the wall is Smolcorp's hold on the
+  General Manager, above.
 - It reads files changed with Claude Code's own tools and shell commands. A
   tool of another MCP server that writes files isn't read.
 - It's a Claude Code hook: if `smolcorp` is gone, or doesn't answer within

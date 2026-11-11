@@ -281,6 +281,8 @@ func demoGMHire(f demoFolder, roles []string) map[string]any {
 	return map[string]any{
 		"role":   gmRole,
 		"folder": f.repo,
+		// The app holds this GM to the project (gmscope.go): its hires, mail, briefs and firings, whatever way it asks.
+		"scope": f.repo,
 		"answers": []string{
 			"The three tasks in TASKS.md, in the demo project at " + f.repo + ", and nothing else.",
 			"Only Claude Code hires on my own account, these roles: " + list + ". No API keys, no cloud, nothing paid.",
