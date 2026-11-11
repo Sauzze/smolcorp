@@ -16,9 +16,20 @@ final class HTTPServer {
     /// the app as it quits, say, while this one starts.
     static let retryDelay: TimeInterval = 2
 
+    /// Where it listens: every interface, as the app always has, or this Mac
+    /// only (127.0.0.1, and ::1 where there is one), as a test copy does (see
+    /// `TestCopy.listensOn`): then nothing on the network reaches it, and the
+    /// Mac's firewall never asks about it.
+    enum Scope { case everywhere, thisMac }
+
     private let port: UInt16
     private let router: Router
+    let scope: Scope
     private var listener: NWListener?
+    /// With `thisMac`, the one on ::1 beside the one on 127.0.0.1: without it
+    /// a page opened at localhost would wait on IPv6 first. Not having it isn't
+    /// a failure, as on a Mac without IPv6 on loopback.
+    private var listenerOnIPv6: NWListener?
     private var openConnections = 0
     private var openByAddress: [String: Int] = [:]
     private var stopped = false
@@ -30,9 +41,10 @@ final class HTTPServer {
     /// only; nil, as a public build leaves it, is no Bonjour.
     var service: NWListener.Service?
 
-    init(port: UInt16, router: Router) {
+    init(port: UInt16, router: Router, scope: Scope = TestCopy.listensOn) {
         self.port = port
         self.router = router
+        self.scope = scope
     }
 
     /// Listens on the port, and keeps trying until it can: a port taken
@@ -41,9 +53,7 @@ final class HTTPServer {
         do {
             // As other servers do: the last copy's closed connections, which
             // linger half a minute, don't keep the port.
-            let parameters = NWParameters.tcp
-            parameters.allowLocalEndpointReuse = true
-            let listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
+            let listener = try makeListener(on: scope == .thisMac ? .ipv4(.loopback) : nil)
             listener.service = service
             listener.newConnectionHandler = { [weak self] connection in
                 self?.accept(connection)
@@ -59,9 +69,34 @@ final class HTTPServer {
             }
             listener.start(queue: .main)
             self.listener = listener
+            if scope == .thisMac { listenOnIPv6() }
         } catch {
             failed(error)
         }
+    }
+
+    /// A listener on the port: on `host` only, or on every interface.
+    private func makeListener(on host: NWEndpoint.Host?) throws -> NWListener {
+        let port = NWEndpoint.Port(rawValue: port)!
+        let parameters = NWParameters.tcp
+        parameters.allowLocalEndpointReuse = true
+        guard let host else { return try NWListener(using: parameters, on: port) }
+        parameters.requiredLocalEndpoint = .hostPort(host: host, port: port)
+        return try NWListener(using: parameters)
+    }
+
+    private func listenOnIPv6() {
+        guard let listener = try? makeListener(on: .ipv6(.loopback)) else { return }
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.accept(connection)
+        }
+        listener.stateUpdateHandler = { [weak self, weak listener] state in
+            guard case .failed = state else { return }
+            listener?.cancel()
+            if self?.listenerOnIPv6 === listener { self?.listenerOnIPv6 = nil }
+        }
+        listener.start(queue: .main)
+        listenerOnIPv6 = listener
     }
 
     /// Stops listening for good, as a stand-in server in a test does once it's done.
@@ -69,10 +104,15 @@ final class HTTPServer {
         stopped = true
         listener?.cancel()
         listener = nil
+        listenerOnIPv6?.cancel()
+        listenerOnIPv6 = nil
     }
 
     private func failed(_ error: Error) {
         listener = nil
+        // Both again, together, when it tries again.
+        listenerOnIPv6?.cancel()
+        listenerOnIPv6 = nil
         onFailure(error)
         DispatchQueue.main.asyncAfter(deadline: .now() + HTTPServer.retryDelay) { [weak self] in
             guard let self, !self.stopped, self.listener == nil else { return }

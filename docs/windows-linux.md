@@ -86,7 +86,9 @@ within about 15 seconds, with no restart; if it stops, the address is let go.
   on every interface.
 - `SMOLCORP_PORT` (1024-65535) replaces port 7710, to try a build next to the one
   you use. It is for tests: the hooks and the launcher read it too, so set it for
-  everything that should talk to that copy.
+  everything that should talk to that copy. That copy listens on this computer
+  only (127.0.0.1 and ::1), whatever `"listen"` says, so the firewall never asks
+  about it; `SMOLCORP_TEST_LISTEN=lan` lets it onto every interface, to try a phone.
 
 ### One Smolcorp at a time
 

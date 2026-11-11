@@ -80,6 +80,16 @@ final class EngineTests: XCTestCase {
                        "nothing else of a terminal Smolcorp was opened from: not its tokens")
     }
 
+    /// The core listens on this Mac only in a test copy (desktop/listen.go), unless the copy was
+    /// opened with SMOLCORP_TEST_LISTEN=lan, which it's given then, and only then.
+    func testTheCoreIsLetOntoTheLANOnlyWhenTheCopyWas() throws {
+        let core = try core("exit 0")
+        XCTAssertEqual(core.environment(base: ["PATH": "/usr/bin", "SMOLCORP_TEST_LISTEN": "lan"])["SMOLCORP_TEST_LISTEN"], "lan")
+        XCTAssertEqual(core.environment(base: ["PATH": "/usr/bin", "SMOLCORP_TEST_LISTEN": "LAN"])["SMOLCORP_TEST_LISTEN"], "lan")
+        XCTAssertNil(core.environment(base: ["PATH": "/usr/bin", "SMOLCORP_TEST_LISTEN": "all"])["SMOLCORP_TEST_LISTEN"])
+        XCTAssertNil(core.environment(base: ["PATH": "/usr/bin"])["SMOLCORP_TEST_LISTEN"])
+    }
+
     func testItStartsAsksAndStops() throws {
         let core = try core(answering)
         try core.start(waitingUpTo: 5)

@@ -162,7 +162,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         alert.addButton(withTitle: "Unpair All")
         alert.addButton(withTitle: "Cancel")
         // A menu bar app is never active by itself, and the alert would open behind other windows.
-        NSApp.activate(ignoringOtherApps: true)
+        Foreground.activate("the alert “Unpair all phones?”")
         if alert.runModal() == .alertFirstButtonReturn { deck.unpairAll() }
     }
 
@@ -175,7 +175,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             let alert = NSAlert()
             alert.messageText = "Couldn't install the screen saver"
             alert.informativeText = error.localizedDescription
-            NSApp.activate(ignoringOtherApps: true)
+            Foreground.activate("the alert “Couldn't install the screen saver”")
             alert.runModal()
         }
     }

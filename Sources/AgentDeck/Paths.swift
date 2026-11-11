@@ -1,13 +1,15 @@
 import Foundation
+import os
 
 /// Where AgentDeck reads and writes. Its own state lives in
 /// ~/Library/Application Support/AgentDeck, so the app can be moved or
 /// replaced without losing the paired phones or the deck's layout.
 /// A test copy of the app, for trying a build beside the one in use: started
 /// with SMOLCORP_TEST_PORT and SMOLCORP_TEST_SUPPORT_DIR (scripts/test-copy.sh),
-/// it listens on its own port, keeps its own settings and keys, and changes
-/// nothing outside its folder: no hooks in your agents' settings, no login
-/// item. Without both, the app is itself.
+/// it listens on its own port, on this Mac only, keeps its own settings and
+/// keys, and changes nothing outside its folder: no hooks in your agents'
+/// settings, no login item, no window or alert by itself. Without both, the
+/// app is itself.
 enum TestCopy {
     static let port: UInt16? = {
         guard support != nil, let text = ProcessInfo.processInfo.environment["SMOLCORP_TEST_PORT"],
@@ -26,6 +28,31 @@ enum TestCopy {
     static let leavesTerminalAppAlone = leavesTerminalAppAlone(testCopy: isOn, environment: ProcessInfo.processInfo.environment)
     static func leavesTerminalAppAlone(testCopy: Bool, environment: [String: String]) -> Bool {
         testCopy && environment["SMOLCORP_TEST_NO_TERMINAL_APP"] == "1"
+    }
+
+    /// A test copy runs beside the owner's own work, hidden (scripts/test-copy.sh opens it with
+    /// `open -g -j`): it never comes in front of other apps, takes the keyboard, or puts up a window
+    /// or an alert by itself (first-run Settings, the engine-stopped alert, a page's Open the office
+    /// or folder panel). Each is written to its log instead (subsystem io.github.sauzze.agentdeck,
+    /// category test-copy, readable: `log show --predicate 'category == "test-copy"'`), and this
+    /// says no. The real app: yes.
+    static func mayComeForward(_ what: String, testCopy: Bool = isOn,
+                               log: (String) -> Void = { quietLog.notice("\($0, privacy: .public)") }) -> Bool {
+        guard testCopy else { return true }
+        log("Smolcorp Test: \(what) not shown, a test copy never comes forward by itself")
+        return false
+    }
+
+    private static let quietLog = Logger(subsystem: "io.github.sauzze.agentdeck", category: "test-copy")
+
+    /// Where the copy's server listens: this Mac only (127.0.0.1 and ::1), so the Mac's firewall
+    /// never asks about it and nothing on the network reaches it, unless SMOLCORP_TEST_LISTEN=lan asks
+    /// for every interface, as the phone matrix needs. The real app listens on every interface. The
+    /// suite counts as a test copy here: its stand-in servers stay on this Mac too.
+    static let listensOn = listenScope(testCopy: isOn || Paths.underTest, environment: ProcessInfo.processInfo.environment)
+    static func listenScope(testCopy: Bool, environment: [String: String]) -> HTTPServer.Scope {
+        guard testCopy, environment["SMOLCORP_TEST_LISTEN"]?.lowercased() != "lan" else { return .everywhere }
+        return .thisMac
     }
 
     /// A test copy, as it opens, writes a setup link to `setup-link` in its own folder (0600), so a

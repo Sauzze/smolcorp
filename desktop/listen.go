@@ -24,10 +24,32 @@ import (
 // The default is "tailscale" on Windows and Linux, and "all" elsewhere. The
 // setting is "listen" in config.json ("all" or "tailscale"), read at start:
 // setup's Also on my home Wi-Fi sets "all".
+//
+// A test copy (see testCopyScope) listens on this computer only, 127.0.0.1 and
+// ::1, whatever its file says, unless SMOLCORP_TEST_LISTEN=lan asks for "all".
 const (
-	listenAll       = "all"
-	listenTailscale = "tailscale"
+	listenAll          = "all"
+	listenTailscale    = "tailscale"
+	listenThisComputer = "this-computer" // a test copy's, never a config value
 )
+
+// testListenVariable is how a test copy is let onto the local network, for the
+// phone matrix only: "lan".
+const testListenVariable = "SMOLCORP_TEST_LISTEN"
+
+// testCopyScope is where a test copy listens (testPort is testCopyPort's):
+// this computer only, so nothing on the network reaches it and the computer's
+// firewall never asks about it, or every interface when lan says "lan". The
+// office's own (testPort 0) keeps scope.
+func testCopyScope(scope string, testPort int, lan string) string {
+	if testPort == 0 {
+		return scope
+	}
+	if strings.EqualFold(strings.TrimSpace(lan), "lan") {
+		return listenAll
+	}
+	return listenThisComputer
+}
 
 // listenScope is the scope in force, set when the server starts, and read by
 // phoneHost to give the phone an address that works.
@@ -130,6 +152,10 @@ func tailscaleFrom(name string, up bool, ips []net.IP) []string {
 // address on the local network, as before, and Tailscale's only if there is no
 // other.
 func phoneHost() string {
+	// A test copy on this computer only: no phone can open it at all.
+	if listenScope == listenThisComputer {
+		return ""
+	}
 	tailscale := tailscaleAddresses()
 	if listenScope == listenTailscale {
 		if len(tailscale) > 0 {
@@ -156,7 +182,7 @@ func phoneTailnet() string {
 
 // listenerFor opens what the scope asks for on port.
 func listenerFor(scope string, port int) (net.Listener, error) {
-	if scope != listenTailscale {
+	if scope != listenTailscale && scope != listenThisComputer {
 		return net.Listen("tcp", fmt.Sprintf(":%d", port))
 	}
 	set := newListenerSet(port)
@@ -166,6 +192,9 @@ func listenerFor(scope string, port int) (net.Listener, error) {
 	// Where there's no IPv6 on loopback, 127.0.0.1 is all there is.
 	if err := set.add("::1"); err != nil {
 		log.Printf("smolcorp: no listening on ::1: %v", err)
+	}
+	if scope == listenThisComputer {
+		return set, nil
 	}
 	// Tailscale's address only once the firewall's rules are set: opening it
 	// first would have Windows ask, and make rules that let anyone in.

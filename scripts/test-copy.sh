@@ -1,7 +1,19 @@
 #!/bin/bash
 # Builds a test copy of Smolcorp and opens it beside the one in use:
 #
-#   scripts/test-copy.sh [port]     7790 if not given
+#   scripts/test-copy.sh [--show] [port]     7790 if not given
+#
+# It opens hidden, in the background (open -g -j): it never comes in front of
+# what you're doing or takes the keyboard, and puts up no window or alert by
+# itself (see TestCopy.mayComeForward); everything goes through its HTTP
+# routes. --show opens it as an app normally opens, for trying it by hand. It
+# says its pid as it starts; quit it with kill <pid>.
+#
+# It listens on this Mac only (127.0.0.1 and ::1), so nothing on the network
+# reaches it and the Mac's firewall never asks about it, on either engine. For
+# the phone matrix only, SMOLCORP_TEST_LISTEN=lan lets it onto the local network:
+#
+#   SMOLCORP_TEST_LISTEN=lan scripts/test-copy.sh 7791
 #
 # The copy is "Smolcorp Test" (io.github.sauzze.agentdeck.test), so macOS
 # keeps its permissions apart from the real app's. It listens on its own
@@ -41,12 +53,18 @@
 #
 #   claude --setting-sources project,local --settings build/test-support/claude-settings.json
 #
-# Quit it from its menu bar icon. Running this again replaces the copy on
-# the same port, and only that one.
+# Quit it by its pid, or from its menu bar icon. Running this again replaces
+# the copy on the same port, and only that one.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# Hidden and in the background unless --show asks for it as an app opens.
+HIDDEN=(-g -j)
+if [[ "${1:-}" == "--show" ]]; then
+  HIDDEN=()
+  shift
+fi
 PORT="${1:-7790}"
 # A number only, read as decimal: 07710 or +7710 would otherwise slip past the check below.
 [[ "$PORT" =~ ^[0-9]+$ ]] || { echo "The port must be a number."; exit 1; }
@@ -102,8 +120,30 @@ for _ in $(seq 50); do
   lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 || break
   sleep 0.1
 done
-open -n --env "SMOLCORP_TEST_PORT=$PORT" --env "SMOLCORP_TEST_SUPPORT_DIR=$SUPPORT" \
+open -n ${HIDDEN[@]+"${HIDDEN[@]}"} --env "SMOLCORP_TEST_PORT=$PORT" --env "SMOLCORP_TEST_SUPPORT_DIR=$SUPPORT" \
   ${SMOLCORP_TEST_ANTHROPIC_URL:+--env "SMOLCORP_TEST_ANTHROPIC_URL=$SMOLCORP_TEST_ANTHROPIC_URL"} \
-  ${SMOLCORP_TEST_NO_TERMINAL_APP:+--env "SMOLCORP_TEST_NO_TERMINAL_APP=$SMOLCORP_TEST_NO_TERMINAL_APP"} "$APP"
-echo "Smolcorp Test is opening on port $PORT, with its settings in $SUPPORT."
+  ${SMOLCORP_TEST_NO_TERMINAL_APP:+--env "SMOLCORP_TEST_NO_TERMINAL_APP=$SMOLCORP_TEST_NO_TERMINAL_APP"} \
+  ${SMOLCORP_TEST_LISTEN:+--env "SMOLCORP_TEST_LISTEN=$SMOLCORP_TEST_LISTEN"} "$APP"
+
+# Its pid, once it listens: the app's own, or on the Go engine its core's parent, the app.
+COPY=""
+for _ in $(seq 200); do
+  for pid in $(lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null); do
+    case "$(ps -o command= -p "$pid")" in
+      *"Smolcorp Test.app/Contents/MacOS/"*) COPY="$pid" ;;
+      *"Smolcorp Test.app/Contents/Resources/bin/smolcorp core "*) COPY="$(ps -o ppid= -p "$pid" | tr -d ' ')" ;;
+    esac
+  done
+  [[ -n "$COPY" ]] && break
+  sleep 0.1
+done
+WHERE="this Mac only"
+[[ "$(printf %s "${SMOLCORP_TEST_LISTEN:-}" | tr "[:upper:]" "[:lower:]")" == "lan" ]] && WHERE="the local network too"
+if [[ -n "$COPY" ]]; then
+  echo "Smolcorp Test is running on port $PORT ($WHERE), pid $COPY, with its settings in $SUPPORT."
+  echo "Quit it with: kill $COPY"
+else
+  echo "Smolcorp Test is opening on port $PORT, with its settings in $SUPPORT, but isn't listening yet."
+  echo "Its pid, once it is: lsof -t -nP -iTCP:$PORT -sTCP:LISTEN"
+fi
 echo "A Claude session that reports to it: claude --setting-sources project,local --settings $SUPPORT/claude-settings.json"
