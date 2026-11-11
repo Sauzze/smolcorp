@@ -493,6 +493,31 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		writeStatus(w)(http.StatusNoContent, "")
+	// Open in T3 Code, from the office's own window on this computer, never a phone: what's installed, and
+	// whether the picked agent is a hire; then its folder opened, found by its session, never a path that's sent.
+	case r.URL.Path == "/t3code" || r.URL.Path == "/t3code/open":
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, "T3 Code opens on your computer.")
+			return
+		}
+		if !d.t3On() {
+			writeStatus(w)(http.StatusNotFound, t3Off)
+			return
+		}
+		hire, found := d.hireInSession(session)
+		switch r.Method {
+		case http.MethodGet:
+			answer := t3JSON(t3StatusNow(r.URL.Query().Get("fresh") == "1", newT3Machine()))
+			answer["hire"] = nil
+			if found {
+				answer["hire"] = t3Title(hire)
+			}
+			writeJSON(w, http.StatusOK, answer)
+		case http.MethodPost:
+			openHireInT3(w, hire, found)
+		default:
+			http.NotFound(w, r.Request)
+		}
 	case r.Method == http.MethodPost && r.URL.Path == "/act":
 		writeStatus(w)(d.Perform(r.URL.Query().Get("action"), session, r.URL.Query()))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
@@ -1087,7 +1112,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		answer := rt.setupStateFor(r.caller)
 		if switched {
-			answer["windowsSaid"] = hiresToBackground(officeHires(), detachHireViewers)
+			answer["windowsSaid"] = hiresToBackground(officeHires(), func(h Hire) detached { return detachHireViewers(h, nil) })
 		}
 		writeJSON(w, http.StatusOK, answer)
 
@@ -1098,7 +1123,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			ID string `json:"id"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&given)
-		i := slices.IndexFunc(officeHires(), func(h Hire) bool { return h.ID == given.ID && h.State != "fired" && h.State != "failed" })
+		// Read once: the list may change meanwhile, and i must point into this one.
+		hires := officeHires()
+		i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == given.ID && h.State != "fired" && h.State != "failed" })
 		if i < 0 {
 			http.Error(w, "That hire isn't on the team.", http.StatusConflict)
 			return
@@ -1111,7 +1138,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			http.Error(w, "There's no terminal here to open a window in: tmux attach shows it.", http.StatusConflict)
 			return
 		}
-		if err := openHireViewer(officeHires()[i], terminal); err != nil {
+		if err := openHireViewer(hires[i], terminal); err != nil {
 			http.Error(w, "Its window didn't open: the hire may have ended.", http.StatusConflict)
 			return
 		}
@@ -1440,6 +1467,30 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.changed()
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"managerEnabled": enabled == "1"})
+
+	// Open in T3 Code (t3code.go): what's installed (again now, as its menu opens: fresh=1), and a hire's
+	// folder opened there, by the hire's id: the folder comes from the registry, never from the request.
+	// The page alone (routes.go).
+	case r.Method == http.MethodGet && path == "/setup/t3code":
+		if !d.t3On() {
+			http.Error(w, t3Off, http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, t3JSON(t3StatusNow(query.Get("fresh") == "1", newT3Machine())))
+	case r.Method == http.MethodPost && path == "/setup/t3code/open":
+		if !d.t3On() {
+			http.Error(w, t3Off, http.StatusNotFound)
+			return
+		}
+		id, _ := decodeJSON(r.Body)["id"].(string)
+		var hire Hire
+		found := false
+		for _, h := range readRegistry(registryPath(), false).hires {
+			if h.ID == id {
+				hire, found = h, true
+			}
+		}
+		openHireInT3(w, hire, found)
 
 	// What a first General Manager hire needs (gmpreflight.go), Start here's lines above its
 	// Hire button. Outside /setup/gm/, which is closed while the manager is off, as on a first run.

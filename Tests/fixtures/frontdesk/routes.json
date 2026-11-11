@@ -646,6 +646,24 @@
         "page"
       ],
       "kind" : "page",
+      "method" : "GET",
+      "path" : "\/setup\/t3code",
+      "why" : "whether T3 Code and its t3 command are installed"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/t3code\/open",
+      "why" : "a hire's folder, from the registry, opened in T3 Code on this computer"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
       "method" : "POST",
       "path" : "\/setup\/pair",
       "why" : "a pairing code"

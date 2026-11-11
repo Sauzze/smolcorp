@@ -469,4 +469,12 @@ extension Deck {
                                   desk: place.flatMap { $0.desk >= 0 ? $0.desk : nil }, lastEventAt: session.lastEventAt)
         }
     }
+
+    /// The hire working in session `id`, as the team pairs them; nil for a session that's no hire's.
+    func hire(inSession id: String) -> FrontDesk.Hire? {
+        guard !id.isEmpty else { return nil }
+        let rows = frontDesk.teamJSON(live: frontDeskLive())["team"] as? [[String: Any]] ?? []
+        guard let row = rows.first(where: { $0["sessionId"] as? String == id && $0["registered"] as? Bool == true }) else { return nil }
+        return frontDesk.hires.first { $0.id == row["id"] as? String }
+    }
 }

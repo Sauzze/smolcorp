@@ -62,7 +62,7 @@ func TestTheT3GateHidesEverythingWhenOff(t *testing.T) {
 
 func TestT3IsFoundAsAFileAndNeverRun(t *testing.T) {
 	home := t.TempDir()
-	folders := t3Folders(home, strings.Join([]string{"/usr/bin", "relative"}, string(os.PathListSeparator)))
+	folders := t3LookFolders(home, strings.Join([]string{"/usr/bin", "relative"}, string(os.PathListSeparator)))
 	if folders[0] != filepath.Join(home, ".local", "bin") || folders[1] != filepath.Join(home, "bin") || folders[2] != filepath.Join(home, ".t3", "bin") ||
 		folders[len(folders)-1] != "/usr/bin" || slices.Contains(folders, "relative") {
 		t.Fatalf("folders %v", folders)
@@ -111,25 +111,35 @@ func TestSwitchingToTheBackgroundOnlyDetaches(t *testing.T) {
 		{ID: "c", Name: "Cy", TmuxSocket: "/s/smolcorp-c", State: "fired"},
 		{ID: "d", Name: "Di", State: "working"},
 		{ID: "e", Name: "Ed", TmuxSocket: "/s/smolcorp-e", State: "working"},
+		{ID: "f", Name: "Flo", TmuxSocket: "/elsewhere/default", State: "working"},
+		{ID: "g", Name: "Gus", TmuxSocket: "/s/smolcorp-g", State: "working"},
 	}
 	asked := []string{}
-	said := hiresToBackground(hires, func(h Hire) (int, bool) {
+	said := hiresToBackground(hires, func(h Hire) detached {
 		asked = append(asked, h.ID)
 		switch h.ID {
 		case "a":
-			return 1, true
+			return detached{own: true, asked: true, viewers: 1, ok: true}
 		case "b":
-			return 0, true
+			return detached{own: true, asked: true, ok: true}
+		case "f":
+			return detached{}
+		case "g":
+			return detached{own: true}
 		default:
-			return 0, false
+			return detached{own: true, asked: true, viewers: 1}
 		}
 	})
-	if !slices.Equal(asked, []string{"a", "b", "e"}) {
-		t.Fatalf("asked %v: a fired hire, or one without its own tmux, is left", asked)
+	if !slices.Equal(asked, []string{"a", "b", "e", "f", "g"}) {
+		t.Fatalf("asked %v: a fired hire, or one with no tmux socket, isn't detached", asked)
 	}
 	want := []string{
-		"Ada: detached. This computer doesn't keep which window it opened, so the window is left open.",
+		// The window this computer opened is the attach itself, so it ends with it.
+		"Ada: detached. A window this computer opened for it closes with it; any other is left open.",
+		"Di isn't on a tmux server of its own, so its window is left.",
 		"Ed's window couldn't be detached, so it's left.",
+		"Flo isn't on a tmux server of its own, so its window is left.",
+		"Gus's tmux couldn't be asked who's watching it, so its window is left.",
 	}
 	if !slices.Equal(said, want) {
 		t.Fatalf("said %q", said)

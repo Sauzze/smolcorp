@@ -80,6 +80,8 @@ var routeTable = []routeRow{
 	{"POST", "/setup/keystrokes/apps", []string{"page"}},
 	{"POST", "/setup/choices", []string{"page"}},
 	{"POST", "/setup/hire/window", []string{"page"}},
+	{"GET", "/setup/t3code", []string{"page"}},
+	{"POST", "/setup/t3code/open", []string{"page"}},
 	{"POST", "/setup/pair", []string{"page"}},
 	{"GET", "/setup/qr.png", []string{"page"}},
 	{"GET", "/setup/viewer/qr.png", []string{"page"}},

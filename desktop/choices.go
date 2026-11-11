@@ -21,9 +21,20 @@ import (
 // false.
 func t3CodeAllowed(c *Config) bool { return c.T3CodeEnabled }
 
-// t3Folders are where a t3 command may be, in the order T3 Code's own CLI
+// t3Off is what T3 Code's routes say while it's off: they answer nothing
+// else, and t3 is never run.
+const t3Off = "T3 Code is off: turn it on in Settings."
+
+// t3On is the gate as a route asks it, under the deck's lock.
+func (d *Deck) t3On() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return t3CodeAllowed(d.config)
+}
+
+// t3LookFolders are where a t3 command may be, in the order T3 Code's own CLI
 // install looks, then the PATH's folders.
-func t3Folders(home, path string) []string {
+func t3LookFolders(home, path string) []string {
 	folders := []string{filepath.Join(home, ".local", "bin"), filepath.Join(home, "bin"), filepath.Join(home, ".t3", "bin")}
 	if runtime.GOOS != "windows" {
 		folders = append(folders, "/opt/homebrew/bin", "/usr/local/bin")
@@ -44,11 +55,11 @@ func t3Names() []string {
 	return []string{"t3"}
 }
 
-// t3Installed says whether a t3 command is in one of t3Folders. Existence
+// t3Installed says whether a t3 command is in one of t3LookFolders. Existence
 // only: it's never run. The desktop app has no id to look for here; its
 // installers put t3 on the PATH.
 func t3Installed(home, path string, isFile func(string) bool) bool {
-	for _, folder := range t3Folders(home, path) {
+	for _, folder := range t3LookFolders(home, path) {
 		for _, name := range t3Names() {
 			if isFile(filepath.Join(folder, name)) {
 				return true
@@ -64,9 +75,9 @@ func isRegularFile(path string) bool {
 }
 
 var (
-	t3LookMu sync.Mutex
-	t3LookAt time.Time
-	t3Found  bool
+	t3LookMu    sync.Mutex
+	t3LookAt    time.Time
+	t3LookFound bool
 	// t3Look is the look itself: a variable, for the tests.
 	t3Look = func() bool {
 		home, _ := os.UserHomeDir()
@@ -79,10 +90,10 @@ func t3InstalledRecently() bool {
 	t3LookMu.Lock()
 	defer t3LookMu.Unlock()
 	if !t3LookAt.IsZero() && time.Since(t3LookAt) < 30*time.Second {
-		return t3Found
+		return t3LookFound
 	}
-	t3Found, t3LookAt = t3Look(), time.Now()
-	return t3Found
+	t3LookFound, t3LookAt = t3Look(), time.Now()
+	return t3LookFound
 }
 
 // backgroundHires says whether hires run in the background now: chosen, and tmux here.
@@ -117,25 +128,43 @@ func setChoices(c *Config, query url.Values, hasTmux bool) (switched bool, statu
 	return !was && backgroundHires(c, hasTmux), 0, ""
 }
 
+// detached is what detaching one hire's viewers came to.
+type detached struct {
+	own     bool // on a tmux server of its own (hireOwnTmux)
+	asked   bool // its tmux said how many windows were attached
+	viewers int  // how many were
+	ok      bool // they're detached now, or there were none
+}
+
 // hiresToBackground detaches the viewers of each hire on its own tmux
 // server, on its own socket and session: never the session or the server.
-// This app keeps no record of the windows it opened, so they're left, and said.
-func hiresToBackground(hires []Hire, detach func(Hire) (viewers int, ok bool)) []string {
+// A window this app opened for a hire is that attach itself (hire.go,
+// hirecleanup.go), so it ends as it's detached; any other is left. A plain
+// hire, not on a tmux server of its own, is left in its window. Each is said.
+func hiresToBackground(hires []Hire, detach func(Hire) detached) []string {
 	said := []string{}
 	for _, hire := range hires {
-		if hire.State == "fired" || hire.State == "failed" || hire.TmuxSocket == "" {
+		if hire.State == "fired" || hire.State == "failed" {
 			continue
 		}
 		name := hire.Nickname
 		if name == "" {
 			name = hire.Name
 		}
-		viewers, ok := detach(hire)
+		if hire.TmuxSocket == "" {
+			said = append(said, name+" isn't on a tmux server of its own, so its window is left.")
+			continue
+		}
+		got := detach(hire)
 		switch {
-		case !ok:
+		case !got.own:
+			said = append(said, name+" isn't on a tmux server of its own, so its window is left.")
+		case !got.asked:
+			said = append(said, name+"'s tmux couldn't be asked who's watching it, so its window is left.")
+		case !got.ok:
 			said = append(said, name+"'s window couldn't be detached, so it's left.")
-		case viewers > 0:
-			said = append(said, name+": detached. This computer doesn't keep which window it opened, so the window is left open.")
+		case got.viewers > 0:
+			said = append(said, name+": detached. A window this computer opened for it closes with it; any other is left open.")
 		}
 	}
 	return said

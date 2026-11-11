@@ -287,7 +287,7 @@ enum Tiler {
         }
         let windows = parseWindows(output)
         for seat in seats {
-            guard let desk = tmux(seat.socket), let tty = desk.clientTTYs().first,
+            guard let desk = tmux(seat.socket), let tty = desk.clientTTYs()?.first,
                   let window = windows.first(where: { $0.ttys.contains(tty) }) else { report.missed.append(seat.hireID); continue }
             let wanted = grid.cells[seat.desk]
             switch script(moveScript(app: app), moveArguments(window: window.id, to: wanted)) {

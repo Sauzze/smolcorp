@@ -173,10 +173,16 @@ struct Tmux: TerminalDriver {
             let config = Config.shared
             let terminal = Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal"
             let folder = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_current_path}"]).flatMap { $0.status == 0 ? $0.output : nil }
-            Openers.reattach(socket: tab.socket, in: folder ?? NSHomeDirectory(), terminal: terminal)
+            if let window = Openers.reattach(socket: tab.socket, in: folder ?? NSHomeDirectory(), terminal: terminal) {
+                Tmux.reopened?(tab.socket, window)
+            }
         }
         return true
     }
+
+    /// Told of a window `focus` opened again for a hire's own server (its socket, the window as its terminal gave
+    /// it), so the deck records it as Smolcorp's for that hire.
+    static var reopened: ((_ socket: String, _ window: String) -> Void)?
 
     func scroll(lines: Int, in tab: TabAddress) -> Bool {
         guard ran(tab, ["copy-mode", "-e", "-t", tab.id]) else { return false }
@@ -681,7 +687,7 @@ enum Openers {
     /// no window opens: "Open a window" on its desk shows one. Off the main thread.
     static func open(_ command: String, in folder: String, terminal: String, inTmux: Bool, window showing: Bool = true, hireID: String) -> Opened? {
         guard inTmux, let tmux = Tmux.path, let desk = HireTmux(hireID: hireID) else {
-            return window(command, in: folder, terminal: terminal).map { Opened(tab: $0, window: $0) }
+            return window(command, in: folder, terminal: terminal).map { Opened(tab: HireWindows.tab(ofRecord: $0), window: $0) }
         }
         // The agent's own tmux server and session, through your login shell, so
         // it finds what your PATH finds; then a window showing it, unless it runs in the background.
@@ -741,7 +747,8 @@ enum Openers {
                 end tell
                 """, arguments: [folder, command]).flatMap { $0.hasPrefix("ghostty-id:") ? $0 : nil }
         default:
-            return Terminal.open(command, in: folder).map { TabAddress.terminalApp(tty: $0).text }
+            // The tab's tty and its window's id, both: macOS gives a closed tab's tty to a new one (see `HireWindows`).
+            return Terminal.open(command, in: folder).map { HireWindows.terminalRecord(tty: $0.tty, windowID: $0.window) }
         }
     }
 

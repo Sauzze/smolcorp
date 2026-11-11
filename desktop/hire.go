@@ -329,15 +329,20 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 		// The agent looked for, whatever setup changed meanwhile.
 		command = append(command, program)
 	}
+	// A plain hire (not the engine's: a pinned desk, another agent, no role)
+	// isn't on a tmux server of its own, so in the background nothing but
+	// `tmux attach` would show it, and it has no "Open a window": it opens in
+	// its window as before (T796).
+	plainInTmux := tmux && (d.config.HireInTmux || !hasTerminal)
 	// Opened outside the lock: the terminal may take a moment to start.
 	d.mu.Unlock()
-	err := openHire(command, folder, terminal, showWindow, inTmux)
+	err := openHire(command, folder, terminal, hasTerminal, plainInTmux)
 	d.mu.Lock()
 	if err != nil {
 		// Nobody was hired, so the next try needn't wait.
 		d.lastHire = time.Time{}
 		name := terminal.name
-		if inTmux {
+		if plainInTmux {
 			name = "tmux"
 		}
 		return http.StatusInternalServerError, name + " didn't open"

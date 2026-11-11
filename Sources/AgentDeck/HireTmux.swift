@@ -81,9 +81,15 @@ struct HireTmux {
         return answer.status == 0
     }
 
-    /// The ttys of the terminal windows attached to the session: where its viewers are.
-    func clientTTYs() -> [String] {
-        guard let answer = run(command(["list-clients", "-t", "=" + HireTmux.session, "-F", "#{client_tty}"])), answer.status == 0 else { return [] }
+    /// The ttys of the terminal windows attached to the session: where its viewers are. Nil when tmux couldn't be asked.
+    func clientTTYs() -> [String]? {
+        guard let answer = run(command(["list-clients", "-t", "=" + HireTmux.session, "-F", "#{client_tty}"])), answer.status == 0 else { return nil }
+        return answer.output.split(separator: "\n").map(String.init).filter(TabAddress.isTTY)
+    }
+
+    /// The ttys of every pane on this server (the team grid's: each a viewer of one hire). Nil when tmux couldn't be asked.
+    func paneTTYs() -> [String]? {
+        guard let answer = run(command(["list-panes", "-a", "-F", "#{pane_tty}"])), answer.status == 0 else { return nil }
         return answer.output.split(separator: "\n").map(String.init).filter(TabAddress.isTTY)
     }
 

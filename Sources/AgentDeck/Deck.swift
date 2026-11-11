@@ -191,6 +191,10 @@ final class Deck {
         sessions.onChange = { [weak self] in self?.changed() }
         cloud.onChange = { [weak self] in self?.changed() }
         restoreSessions()
+        // A hire's window opened again as its desk is brought forward is Smolcorp's, recorded for that hire (T796).
+        Tmux.reopened = { [weak self] socket, window in
+            DispatchQueue.main.async { self?.recordReopenedWindow(socket: socket, window: window) }
+        }
         // What's running as it starts is where the webhook starts from, so the first change after it is news
         tellWebhook()
 
@@ -2560,7 +2564,7 @@ final class Deck {
 
     private func pruneClosedTabs() {
         // Hires waiting for their agent are looked at too, sessions or not.
-        guard !sessions.all.isEmpty || !hiredTabs.isEmpty, !checkingTabs else { return }
+        guard !sessions.all.isEmpty || !hiredTabs.isEmpty || !hireWindows.isEmpty, !checkingTabs else { return }
         checkingTabs = true
         Terminal.queue.async {
             let open = Terminal.openTTYs()
@@ -2581,6 +2585,10 @@ final class Deck {
                 self.hiredTabs.removeAll { hired in
                     guard let tty = terminalTTY(hired.tab) else { return false }
                     return closed.contains(tty) || !open.contains(tty) && Date().timeIntervalSince(hired.at) > Deck.hiredTabListed
+                }
+                // A Terminal window Smolcorp opened for a hire, its tab closed: forgotten, so a tab given that tty later is never taken for it.
+                self.forgetHireWindows { record in
+                    HireWindows.Terminals.parse(record).map { $0.kind == "terminal" && closed.contains($0.id) } ?? false
                 }
                 let suspects = self.sessions.all.compactMap { session -> (tab: String, tty: String, agent: Agent)? in
                     guard let tty = terminalTTY(session.tab), closed.contains(tty) else { return nil }

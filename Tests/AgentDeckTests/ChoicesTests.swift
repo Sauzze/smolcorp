@@ -107,12 +107,16 @@ final class ChoicesTests: XCTestCase {
     private final class FakeTmux {
         var calls: [[String]] = []
         let viewers: [String: [String]]
+        /// Servers whose list-clients fails.
+        var unasked: Set<String> = []
         init(viewers: [String: [String]]) { self.viewers = viewers }
 
         func desk(_ socketName: String) -> HireTmux? {
             HireTmux(socketName: socketName, testPort: nil) { [self] arguments in
                 calls.append(arguments)
-                if arguments.contains("list-clients") { return (0, (viewers[socketName] ?? []).joined(separator: "\n")) }
+                if arguments.contains("list-clients") {
+                    return unasked.contains(socketName) ? (1, "") : (0, (viewers[socketName] ?? []).joined(separator: "\n"))
+                }
                 return (0, "")
             }
         }
@@ -121,10 +125,16 @@ final class ChoicesTests: XCTestCase {
     /// Windows by the ids recorded, each showing a tty; closes write down what they were given.
     private final class FakeCloser: HireWindows.Closer {
         var ttys: [String: String] = [:]
+        /// Windows whose terminal couldn't be asked.
+        var unknown: Set<String> = []
         var refuse: [String: String] = [:]
         var asked: [String] = []
         var closed: [String] = []
-        func tty(of window: String) -> String? { asked.append(window); return ttys[window] }
+        func look(_ window: String) -> HireWindows.Shown {
+            asked.append(window)
+            if unknown.contains(window) { return .unknown }
+            return ttys[window].map { .open($0) } ?? .gone
+        }
         func close(_ window: String, tty: String) -> HireWindows.Closed {
             closed.append(window)
             return refuse[window].map { .left($0) } ?? .closed
@@ -138,7 +148,7 @@ final class ChoicesTests: XCTestCase {
             "smolcorp-delta": ["/dev/ttys040"],
         ])
         let closer = FakeCloser()
-        closer.ttys = ["tty:/dev/ttys010": "/dev/ttys010", "iterm:AB-12": "/dev/ttys020", "ghostty-id:9F": "/dev/ttys040"]
+        closer.ttys = ["tty:/dev/ttys010#w101": "/dev/ttys010", "iterm:AB-12": "/dev/ttys020", "ghostty-id:9F": "/dev/ttys040"]
         closer.refuse = ["ghostty-id:9F": "something still runs in it"]
         let hires = [
             HireWindows.Hire(id: "alpha", name: "Ada", socket: "/private/tmp/tmux-501/smolcorp-alpha"),
@@ -147,8 +157,8 @@ final class ChoicesTests: XCTestCase {
             HireWindows.Hire(id: "delta", name: "Di", socket: "/private/tmp/tmux-501/smolcorp-delta"),
             HireWindows.Hire(id: "echo", name: "Ed", socket: ""),
         ]
-        let windows = ["alpha": ["tty:/dev/ttys010"], "bravo": ["iterm:AB-12"], "charlie": ["tty:/dev/ttys099"],
-                       "delta": ["ghostty-id:9F"], "echo": ["tty:/dev/ttys050"]]
+        let windows = ["alpha": ["tty:/dev/ttys010#w101"], "bravo": ["iterm:AB-12"], "charlie": ["tty:/dev/ttys099#w102"],
+                       "delta": ["ghostty-id:9F"], "echo": ["tty:/dev/ttys050#w103"]]
         let result = HireWindows.toBackground(hires, windows: windows, tmux: tmux.desk, closer: closer)
 
         // Each call on the hire's own socket; viewers listed and detached by the session, nothing else.
@@ -165,9 +175,9 @@ final class ChoicesTests: XCTestCase {
         XCTAssertEqual(Set(tmux.calls.map { $0[2] }), ["list-clients", "detach-client"])
 
         // Only recorded windows, by their ids; one that shows something else now, or isn't open, isn't closed.
-        XCTAssertEqual(closer.closed, ["tty:/dev/ttys010", "ghostty-id:9F"])
-        XCTAssertFalse(closer.asked.contains("tty:/dev/ttys050"), "a hire without tmux is left in its window")
-        XCTAssertEqual(result.forget, ["alpha": ["tty:/dev/ttys010"], "charlie": ["tty:/dev/ttys099"]])
+        XCTAssertEqual(closer.closed, ["tty:/dev/ttys010#w101", "ghostty-id:9F"])
+        XCTAssertFalse(closer.asked.contains("tty:/dev/ttys050#w103"), "a hire without tmux is left in its window")
+        XCTAssertEqual(result.forget, ["alpha": ["tty:/dev/ttys010#w101"], "charlie": ["tty:/dev/ttys099#w102"]])
 
         let said = result.said.joined(separator: "\n")
         XCTAssertTrue(said.contains("Ada: detached; its window wasn't opened by Smolcorp while it ran, so it's left open."), said)
@@ -176,17 +186,65 @@ final class ChoicesTests: XCTestCase {
         XCTAssertTrue(said.contains("Di: detached; its window is left open: something still runs in it."), said)
         XCTAssertTrue(said.contains("Ed runs in its window without tmux, so it stays there."), said)
         XCTAssertFalse(said.contains("Cy"), said)
+        XCTAssertFalse(said.contains("team grid"), "no grid, nothing said of it")
+    }
+
+    /// Not knowing isn't "not open": a terminal that couldn't be asked keeps its record, nothing of it is closed, and
+    /// that's said; its viewer isn't said to be someone else's window. A tmux that couldn't be asked, and a hire
+    /// without tmux and with no record (as after a restart), are said too.
+    func testWhatCouldntBeAskedIsKeptAndSaid() {
+        let tmux = FakeTmux(viewers: ["smolcorp-alpha": ["/dev/ttys010"], "smolcorp-bravo": ["/dev/ttys020"]])
+        tmux.unasked = ["smolcorp-bravo"]
+        let closer = FakeCloser()
+        closer.unknown = ["ghostty-id:9F"]
+        let hires = [
+            HireWindows.Hire(id: "alpha", name: "Ada", socket: "smolcorp-alpha"),
+            HireWindows.Hire(id: "bravo", name: "Bo", socket: "smolcorp-bravo"),
+            HireWindows.Hire(id: "echo", name: "Ed", socket: ""),
+        ]
+        let result = HireWindows.toBackground(hires, windows: ["alpha": ["ghostty-id:9F"], "bravo": ["tty:/dev/ttys020#w7"]],
+                                              tmux: tmux.desk, closer: closer)
+        XCTAssertEqual(closer.closed, [])
+        XCTAssertEqual(result.forget, [:], "every record kept")
+        XCTAssertEqual(result.said, [
+            "Ada: detached; Smolcorp couldn't ask Ghostty about the window it opened for it, so it's left.",
+            "Bo's tmux couldn't be asked who's watching it, so its window is left.",
+            "Ed runs in its window without tmux, so it stays there.",
+        ])
+        XCTAssertFalse(tmux.calls.contains { $0.contains("smolcorp-bravo") && $0.contains("detach-client") }, "not asked, not detached")
+    }
+
+    /// The team grid's panes are read-only viewers of the hires: detached like any, never counted as someone's
+    /// window, and said once.
+    func testTheTeamGridsPanesAreSaidOnce() {
+        let tmux = FakeTmux(viewers: ["smolcorp-alpha": ["/dev/ttys030", "/dev/ttys010"], "smolcorp-bravo": ["/dev/ttys031"]])
+        let closer = FakeCloser()
+        closer.ttys = ["tty:/dev/ttys010#w1": "/dev/ttys010"]
+        let hires = [HireWindows.Hire(id: "alpha", name: "Ada", socket: "smolcorp-alpha"), HireWindows.Hire(id: "bravo", name: "Bo", socket: "smolcorp-bravo")]
+        let result = HireWindows.toBackground(hires, windows: ["alpha": ["tty:/dev/ttys010#w1"]], tmux: tmux.desk, closer: closer,
+                                              grid: ["/dev/ttys030", "/dev/ttys031"])
+        XCTAssertEqual(closer.closed, ["tty:/dev/ttys010#w1"])
+        XCTAssertEqual(result.said, ["The team grid's view of your hires ended."])
+        XCTAssertEqual(tmux.calls.filter { $0.contains("detach-client") }.count, 2)
+
+        // The grid's ttys, from its own server: every pane's.
+        var asked: [[String]] = []
+        let grid = HireTmux(socketName: "smolcorp-team", testPort: nil) { asked.append($0); return (0, "/dev/ttys030\n/dev/ttys031\n") }
+        XCTAssertEqual(HireWindows.gridTTYs(grid), ["/dev/ttys030", "/dev/ttys031"])
+        XCTAssertEqual(asked, [["-L", "smolcorp-team", "list-panes", "-a", "-F", "#{pane_tty}"]])
+        XCTAssertEqual(HireWindows.gridTTYs(HireTmux(socketName: "smolcorp-team", testPort: nil) { _ in (1, "") }), [])
+        XCTAssertEqual(TeamGrid.socketName(testPort: nil), "smolcorp-team")
     }
 
     /// A tmux that can't be reached, or won't detach: nothing is closed, and it's said.
     func testNothingIsClosedWhenTheViewerWasntDetached() {
         let closer = FakeCloser()
-        closer.ttys = ["tty:/dev/ttys010": "/dev/ttys010"]
+        closer.ttys = ["tty:/dev/ttys010#w1": "/dev/ttys010"]
         let stubborn: (String) -> HireTmux? = { name in
             HireTmux(socketName: name, testPort: nil) { $0.contains("list-clients") ? (0, "/dev/ttys010") : (1, "") }
         }
         let hire = HireWindows.Hire(id: "alpha", name: "Ada", socket: "smolcorp-alpha")
-        let result = HireWindows.toBackground([hire], windows: ["alpha": ["tty:/dev/ttys010"]], tmux: stubborn, closer: closer)
+        let result = HireWindows.toBackground([hire], windows: ["alpha": ["tty:/dev/ttys010#w1"]], tmux: stubborn, closer: closer)
         XCTAssertEqual(closer.closed, [])
         XCTAssertEqual(result.said, ["Ada's window couldn't be detached, so it's left."])
 
@@ -205,11 +263,73 @@ final class ChoicesTests: XCTestCase {
     /// unique ID, Ghostty's terminal by its id. Anything else, as a name, can't be closed.
     func testWindowsAreKnownOnlyByTheIdsTheirTerminalGave() {
         XCTAssertEqual(HireWindows.Terminals.parse("tty:/dev/ttys004")?.kind, "terminal")
+        XCTAssertNil(HireWindows.Terminals.parse("tty:/dev/ttys004")?.window, "recorded without its window's id")
+        let terminal = HireWindows.Terminals.parse("tty:/dev/ttys004#w1234")
+        XCTAssertEqual(terminal?.id, "/dev/ttys004")
+        XCTAssertEqual(terminal?.window, "1234")
         XCTAssertEqual(HireWindows.Terminals.parse("iterm:AB-12")?.id, "AB-12")
         XCTAssertEqual(HireWindows.Terminals.parse("ghostty-id:9F3C")?.id, "9F3C")
-        for odd in ["Terminal", "window 1", "ghostty-id:", "ghostty-id:a b", "tty:ttys004", "iterm:nothex!", "tmux:%1@/s"] {
+        for odd in ["Terminal", "window 1", "ghostty-id:", "ghostty-id:a b", "tty:ttys004", "iterm:nothex!", "tmux:%1@/s",
+                    "tty:/dev/ttys004#w", "tty:/dev/ttys004#wfront", "tty:/dev/ttys004#w1 or 2", "iterm:AB-12#w1"] {
             XCTAssertNil(HireWindows.Terminals.parse(odd), odd)
         }
+        // A Terminal window as recorded, and its tab as the deck knows it.
+        XCTAssertEqual(HireWindows.terminalRecord(tty: "/dev/ttys004", windowID: "1234"), "tty:/dev/ttys004#w1234")
+        XCTAssertEqual(HireWindows.terminalRecord(tty: "/dev/ttys004", windowID: nil), "tty:/dev/ttys004")
+        XCTAssertEqual(HireWindows.tab(ofRecord: "tty:/dev/ttys004#w1234"), "tty:/dev/ttys004")
+        XCTAssertEqual(HireWindows.tab(ofRecord: "iterm:AB-12"), "iterm:AB-12")
+        XCTAssertEqual(HireWindows.terminalName("ghostty-id:9F"), "Ghostty")
+        XCTAssertEqual(HireWindows.terminalName("iterm:AB-12"), "iTerm2")
+        XCTAssertEqual(HireWindows.terminalName("tty:/dev/ttys004#w1"), "Terminal")
+        // Without its window's id, a Terminal window is never closed (a tty alone may be a new tab's).
+        XCTAssertEqual(HireWindows.Terminals(settle: 0).close("tty:/dev/ttys004", tty: "/dev/ttys004"),
+                       .left("Smolcorp didn't get its window's id from Terminal"))
+    }
+
+    /// The scripts that look and close: each finds its one window by the id recorded (Terminal's window id and its
+    /// tab's tty, iTerm2's unique ID, Ghostty's terminal id), never by a name, never every window, never windows at once.
+    func testTheScriptsFindOneWindowByItsId() {
+        let scripts = [HireWindows.Terminals.terminalLook, HireWindows.Terminals.terminalClose, HireWindows.Terminals.itermClose,
+                       HireWindows.Terminals.ghosttyLook, HireWindows.Terminals.ghosttyClose]
+        for script in scripts {
+            for never in ["whose name", "name of", "every window", "close windows", "close every", "front window", "window 1"] {
+                XCTAssertFalse(script.contains(never), "\(never) in\n\(script)")
+            }
+        }
+        XCTAssertTrue(HireWindows.Terminals.terminalLook.contains("exists window id wid"))
+        XCTAssertTrue(HireWindows.Terminals.terminalLook.contains("if tty of t is (item 2 of argv) then return \"open\""))
+        let terminal = HireWindows.Terminals.terminalClose
+        for words in ["set w to window id wid", "if (count of tabs of w) is not 1 then return \"tabs\"",
+                      "if tty of tab 1 of w is not (item 2 of argv) then return \"moved\"", "close w"] {
+            XCTAssertTrue(terminal.contains(words), words)
+        }
+        XCTAssertTrue(HireWindows.Terminals.itermClose.contains("if unique ID of s is (item 1 of argv) then"))
+        XCTAssertTrue(HireWindows.Terminals.itermClose.contains("if tty of s is not (item 2 of argv) then return \"moved\""))
+        XCTAssertTrue(HireWindows.Terminals.ghosttyClose.contains("set t to terminal id (item 1 of argv)"))
+        XCTAssertTrue(HireWindows.Terminals.ghosttyClose.contains("if (tty of t) is not (item 2 of argv) then return \"moved\""))
+        // Ghostty 1.3 can't say a tty: the look is in a try, so that's "couldn't ask", never "not open".
+        XCTAssertTrue(HireWindows.Terminals.ghosttyLook.contains("try\n        return \"tty:\" & (tty of terminal id (item 1 of argv))\n    on error\n        return \"?\""))
+    }
+
+    /// A window `Tmux.focus` opens again for a hire is recorded for the hire on that socket, as one Smolcorp opened;
+    /// a socket that's no hire's, or the user's own, isn't anyone's. A Terminal record goes once its tab has closed.
+    func testAReopenedWindowIsRecordedForItsHire() throws {
+        let hires = [FrontDesk.Hire(id: "alpha", name: "Ada", folder: "/x", tmuxSocket: "/private/tmp/tmux-501/smolcorp-alpha"),
+                     FrontDesk.Hire(id: "gone", name: "Gus", folder: "/x", tmuxSocket: "/private/tmp/tmux-501/smolcorp-gone", state: .fired)]
+        XCTAssertEqual(Deck.hireID(onSocket: "/private/tmp/tmux-501/smolcorp-alpha", among: hires, testPort: nil), "alpha")
+        XCTAssertNil(Deck.hireID(onSocket: "/private/tmp/tmux-501/smolcorp-gone", among: hires, testPort: nil), "fired")
+        XCTAssertNil(Deck.hireID(onSocket: "/private/tmp/tmux-501/default", among: hires, testPort: nil))
+        XCTAssertNil(Deck.hireID(onSocket: "/private/tmp/tmux-501/smolcorp-other", among: hires, testPort: nil))
+        let focus = try source("Sources/AgentDeck/TerminalDrivers.swift")
+        XCTAssertTrue(focus.contains("if let window = Openers.reattach(socket: tab.socket, in: folder ?? NSHomeDirectory(), terminal: terminal) {\n                Tmux.reopened?(tab.socket, window)"))
+        let deck = try source("Sources/AgentDeck/Deck.swift")
+        XCTAssertTrue(deck.contains("Tmux.reopened = { [weak self] socket, window in"))
+        XCTAssertTrue(deck.contains("HireWindows.Terminals.parse(record).map { $0.kind == \"terminal\" && closed.contains($0.id) } ?? false"))
+
+        let quiet = Deck(quiet: true)
+        quiet.hireWindows = ["alpha": ["tty:/dev/ttys010#w1", "iterm:AB-12"], "bravo": ["tty:/dev/ttys011#w2"]]
+        quiet.forgetHireWindows { HireWindows.Terminals.parse($0).map { $0.kind == "terminal" && ["/dev/ttys010", "/dev/ttys011"].contains($0.id) } ?? false }
+        XCTAssertEqual(quiet.hireWindows, ["alpha": ["iterm:AB-12"]])
     }
 
     /// In the background a hire starts in tmux and no window is opened: only tmux is run, never a terminal.
@@ -337,8 +457,71 @@ final class ChoicesTests: XCTestCase {
         let deck = try source("Resources/web/deck.html")
         XCTAssertTrue(deck.contains("if (bare && action === `button:${WINDOW_BUTTON}`) return openHireWindow(selected);"))
         XCTAssertTrue(deck.contains("if (bare && !preview) {\n    askWindowKey();"))
+        // Next to T3 Code's key (T792), in the same row: ⧉ window in the Mac's own window alone.
         let keys = try XCTUnwrap(deck.range(of: "function withMacKeys(data) {"))
-        XCTAssertTrue(deck[keys.upperBound...].prefix(80).contains("if (!bare) return data;"))
+        let withMacKeys = String(deck[keys.upperBound...].prefix(600))
+        XCTAssertTrue(withMacKeys.contains("...(bare && windowKey ? [{ id: WINDOW_BUTTON, label: '⧉ window' }] : []),"))
+        XCTAssertTrue(withMacKeys.contains("...(t3Here ? [{ id: T3_BUTTON, label: 'T3 Code' }] : [])];"))
+        XCTAssertTrue(deck.contains("if (t3Here && action === `button:${T3_BUTTON}`) return openT3(selected);"))
+        XCTAssertTrue(deck.contains("    windowSnapshot = data;\n    t3Snapshot = data;\n"), "both keys shown again with the last snapshot")
+    }
+
+    // MARK: The T3 Code gate on its routes
+
+    /// Off, which it is until chosen, none of T3 Code's four routes answers and `t3` is never run; on, they do. The
+    /// opens are asked with no hire, so nothing runs either way; the looks run `t3 --version`, so they're asked off only.
+    func testT3CodesRoutesAnswerNothingWhileItsOff() throws {
+        let config = Config.shared
+        let was = config.t3CodeEnabled
+        defer { config.t3CodeEnabled = was }
+        let deck = Deck(quiet: true)
+        deck.layoutConfig = Config()
+        let router = DeckRouter(deck: deck)
+        let setup = deck.access.setupSessions
+        let cookie = "\(DeckRouter.setupCookie)=\(try XCTUnwrap(setup.open(link: setup.newLink())))"
+        func ask(_ method: String, _ path: String) throws -> Response {
+            let office = !path.hasPrefix("/setup")
+            let headers = office ? ["host": "localhost:7710"] : [DeckRouter.setupHeader: "1", "host": "127.0.0.1:7710", "cookie": cookie]
+            let query = office ? ["t": deck.windowKey, "session": "no-such-session"] : [:]
+            let body = path.hasSuffix("/open") && !office ? Data(#"{"id":"no-such-hire"}"#.utf8) : Data()
+            var got: Response?
+            let answered = expectation(description: path)
+            router.handle(Request.addressed(method: method, path: path, query: query, headers: headers, body: body,
+                                            fromLoopback: true, remoteAddress: "127.0.0.1")) { reply in
+                if case .response(let response) = reply { got = response }
+                answered.fulfill()
+            }
+            wait(for: [answered], timeout: 10)
+            return try XCTUnwrap(got)
+        }
+        let routes = [("GET", "/t3code"), ("POST", "/t3code/open"), ("GET", "/setup/t3code"), ("POST", "/setup/t3code/open")]
+        config.t3CodeEnabled = false
+        for (method, path) in routes {
+            let answer = try ask(method, path)
+            XCTAssertEqual(answer.status, 404, path)
+            XCTAssertEqual(String(decoding: answer.body, as: UTF8.self), DeckRouter.t3Off, path)
+        }
+        config.t3CodeEnabled = true
+        for (method, path) in routes where method == "POST" {
+            let answer = try ask(method, path)
+            XCTAssertEqual(answer.status, 404, path)
+            XCTAssertEqual(String(decoding: answer.body, as: UTF8.self), "That hire isn't on the team.", "on, the open is asked: \(path)")
+        }
+        // Each of the four asks the gate first, in the router's source.
+        let router_ = try source("Sources/AgentDeck/DeckRouter.swift")
+        for (method, path) in routes {
+            let start = try XCTUnwrap(router_.range(of: "case (\"\(method)\", \"\(path)\"):")?.upperBound, path)
+            XCTAssertTrue(router_[start...].prefix(260).contains("guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }"), path)
+        }
+    }
+
+    /// Setup's team row: Open in T3 Code only while T3 Code is on, and nothing asked of it while it's off.
+    func testSetupsTeamRowShowsT3CodeOnlyWhenItsOn() throws {
+        let page = try source("Resources/web/setup.html")
+        XCTAssertTrue(page.contains("const t3Key = state.t3CodeEnabled ? t3Button(r) : null;"))
+        XCTAssertTrue(page.contains("if (rest.length && state.t3CodeEnabled) t3State(false).then(paintT3);"))
+        XCTAssertTrue(page.contains("if (t3Key) row.addEventListener('pointerenter', () => t3State(true));"))
+        XCTAssertEqual(page.components(separatedBy: "t3State(").count - 1, 3, "asked in two places, both gated, and defined once")
     }
 
     private func source(_ path: String) throws -> String {

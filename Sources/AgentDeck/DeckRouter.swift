@@ -426,6 +426,23 @@ final class DeckRouter: Router {
             guard let id = deck.teamHireID(session: session) else { return respond(.status(404, "This agent wasn't hired by Smolcorp, so it has no window to open.")) }
             deck.openHireWindow(id) { problem in respond(problem.map { .status(409, $0) } ?? .status(204)) }
 
+        // Open in T3 Code (T792), from the office's own window on this Mac: never a phone. What's installed, and
+        // whether the picked agent is a hire; then its folder opened, found by its session, never a path that's sent.
+        case ("GET", "/t3code"):
+            guard DeckRouter.isOfficeWindow(request, phone: phone) else { return respond(.status(403, "T3 Code opens on your Mac.")) }
+            guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }
+            let hire = deck.hire(inSession: session)
+            DeckRouter.t3Status(fresh: request.query["fresh"] == "1") { status in
+                var answer = T3Code.json(status)
+                answer["hire"] = hire.map { T3Code.title(of: $0) } ?? NSNull()
+                respond(.json(answer))
+            }
+
+        case ("POST", "/t3code/open"):
+            guard DeckRouter.isOfficeWindow(request, phone: phone) else { return respond(.status(403, "T3 Code opens on your Mac.")) }
+            guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }
+            DeckRouter.openInT3Code(deck.hire(inSession: session), respond: respond)
+
         // The approvals list: who waits for you, read only. Answering is the paired phone's /act and /choose.
         case ("GET", "/approvals"):
             guard DeckRouter.showsApprovals(request, phone: phone) else {
@@ -497,6 +514,27 @@ final class DeckRouter: Router {
     /// "stop" (or ?type=): what a cloud bot's desk is told by hand. A report
     /// may say what it was, how many and when, for the desk's card:
     /// {"type": "report", "text": "Sent a report", "count": 3, "at": "<ISO 8601>"}.
+    /// T3 Code is off in Settings (T796): none of its routes answers, and `t3` is never run.
+    static let t3Off = "T3 Code is off: turn it on in Settings."
+
+    /// T3 Code's state, checked off the main thread (it runs `t3 --version`), answered on it.
+    static func t3Status(fresh: Bool, done: @escaping (T3Code.Status) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let status = T3Code.status(fresh: fresh)
+            DispatchQueue.main.async { done(status) }
+        }
+    }
+
+    /// A hire's folder opened in T3 Code, off the main thread: a hire still on the team, or a 404; and once at a
+    /// time for a hire, a 409 while it's being opened.
+    static func openInT3Code(_ hire: FrontDesk.Hire?, respond: @escaping (Response) -> Void) {
+        guard let hire, hire.state != .fired, hire.state != .failed else { return respond(.status(404, "That hire isn't on the team.")) }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let answer = T3Code.openOnce(hire)
+            DispatchQueue.main.async { respond(answer) }
+        }
+    }
+
     private func botEvent(_ request: Request) -> Response {
         let parts = request.path.split(separator: "/", omittingEmptySubsequences: false)
         guard request.method == "POST", parts.count == 4, parts[3] == "event" else { return .status(404) }
@@ -1311,6 +1349,17 @@ final class DeckRouter: Router {
             } catch {
                 respond(.status(409, error.localizedDescription))
             }
+
+        // Open in T3 Code (T792): what's installed (again now, as its menu opens: fresh=1), and a hire's folder
+        // opened there, by the hire's id: the folder comes from the registry, never from the request. The page alone.
+        case ("GET", "/setup/t3code"):
+            guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }
+            DeckRouter.t3Status(fresh: request.query["fresh"] == "1") { respond(.json(T3Code.json($0))) }
+
+        case ("POST", "/setup/t3code/open"):
+            guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }
+            let id = request.json["id"] as? String ?? ""
+            DeckRouter.openInT3Code(deck.frontDesk.hires.first { $0.id == id }, respond: respond)
 
         // The hire guard's groups and your own patterns: a tool may read them, only the page changes them (see `SetupRoutes`).
         case ("GET", "/setup/guard"):
