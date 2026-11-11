@@ -366,19 +366,21 @@ func TestUnderTheMacAppTheGMRoutesHireIsRefusedInTheEnginesWords(t *testing.T) {
 	pin := r.repo
 	for _, manager := range []bool{false, true} {
 		for _, c := range []struct {
-			name, desk string
-			setup      func()
-			want       string
+			name  string
+			floor int
+			setup func()
+			want  string
 		}{
-			{"a pinned desk", "1", func() { d.config.Pins[1] = &pin }, macHirePinnedUnfenced},
-			{"no tmux", "", func() { tmuxPath = func() string { return "" } }, macHireNeedsTmux},
+			// The route names a floor, never a desk: its words send the GM to another floor (N5, RPGS).
+			{"a floor with its own folder", 1, func() { d.config.FloorRules = checkedFloorRules([]FloorRule{{Folder: pin, Floor: 1}}) }, macGMHirePinnedUnfenced},
+			{"no tmux", 0, func() { tmuxPath = func() string { return "" } }, macHireNeedsTmux},
 		} {
 			saved := tmuxPath
-			d.config.ManagerEnabled, d.config.Pins[1] = manager, nil
+			d.config.ManagerEnabled, d.config.FloorRules = manager, nil
 			c.setup()
 			d.lastHire = time.Time{}
 			seat := -1
-			status, message := d.hireWith(hireSpec{desk: c.desk, roleID: "janitor", fromSetup: true, fenced: true, seat: &seat})
+			status, message := d.hireWith(hireSpec{floor: c.floor, roleID: "janitor", fromSetup: true, fenced: true, seat: &seat})
 			tmuxPath = saved
 			if status != http.StatusConflict || message != c.want {
 				t.Errorf("manager %v, %s: %d %s, want 409 %q", manager, c.name, status, message, c.want)
@@ -391,6 +393,24 @@ func TestUnderTheMacAppTheGMRoutesHireIsRefusedInTheEnginesWords(t *testing.T) {
 			}
 		}
 	}
+}
+
+// N5 (RPGS): under the Mac app, the route's 400 for a field it can't honour speaks of this engine, not of
+// Linux and Windows; on its own, the words name those.
+func TestUnderTheMacAppTheGMRoutesFieldRefusalSpeaksOfThisEngine(t *testing.T) {
+	d, r, h, token := gmHireDeck(t)
+	want := "On this engine, the General Manager's hire can't honour \"model\" yet: leave it out, or switch back to the Swift engine."
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","model":"opus"}`); code != http.StatusBadRequest || !strings.HasPrefix(text, "Smolcorp on Linux and Windows") {
+		t.Errorf("on its own: %d %q", code, text)
+	}
+	ran := macApp(t, d)
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","model":"opus"}`); code != http.StatusBadRequest || text != want {
+		t.Errorf("under the Mac app: %d %q, want 400 %q", code, text, want)
+	}
+	if len(*ran) != 0 {
+		t.Errorf("a refused hire opened %q", *ran)
+	}
+	nothingMade(t, r, h)
 }
 
 // B2 (RM4): the launcher starts on the default account, so a hire on a named

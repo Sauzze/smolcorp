@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // POST /setup/gm/hire (gmhire.go) on the engine tests' stand-ins (engineDeck), with the shared fixtures hire.json and hire-guard.json.
@@ -168,7 +169,13 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 		}
 	}
 	nothingMade(t, r, h)
-	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","apiKey":false,"worktree":true,"task":"","answers":[],"account":null,"floor":2}`); code != http.StatusOK || text != `{"desk":null,"floor":2,"ok":true,"session":null}` {
+	for _, engine := range []string{`"bogus"`, `7`, `"T3"`} {
+		if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","engine":`+engine+`}`); code != http.StatusBadRequest || text != hireEngineRefusal {
+			t.Errorf("engine %s: %d %q, want 400 %q", engine, code, text, hireEngineRefusal)
+		}
+	}
+	nothingMade(t, r, h)
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","apiKey":false,"worktree":true,"task":"","answers":[],"account":null,"engine":"terminal","floor":2}`); code != http.StatusOK || text != `{"desk":null,"floor":2,"ok":true,"session":null}` {
 		t.Fatalf("what is already so, on floor 2: %d %q", code, text)
 	}
 	d.mu.Lock()
@@ -176,6 +183,30 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 	d.mu.Unlock()
 	if seat.floor != 2 || seat.desk != 0 {
 		t.Errorf("the hire's seat is %+v, want floor 2, desk 0", seat)
+	}
+	d.lastHire = time.Time{}
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","engine":""}`); code != http.StatusOK || len(registered(t)) != 2 || registered(t)[1].Engine == t3Engine {
+		t.Errorf(`engine "": %d %q, registry %+v, want a terminal hire`, code, text, registered(t))
+	}
+}
+
+// B2 (RPGS): a floor with a folder of its own takes the engine's fence away, so the GM's hire there is 409 in
+// one sentence with nothing made: never the plain window the office's hire on that floor would open.
+func TestTheGMHireOnAFloorWithItsOwnFolderIsRefusedAndOpensNothing(t *testing.T) {
+	const want = "The General Manager doesn't hire into a pinned desk's or a floor's own folder."
+	for _, c := range []struct{ name, body string }{
+		{"the floor's folder, the folder left out", `{"role":"janitor","floor":1}`},
+		{"the floor's folder, named", `{"role":"janitor","floor":1,"folder":"~/other"}`},
+	} {
+		d, r, h, token := gmHireDeck(t)
+		other := filepath.Join(homeDir, "other")
+		os.MkdirAll(other, 0o755)
+		d.config.FloorRules = checkedFloorRules([]FloorRule{{Folder: other, Floor: 1}})
+		code, text := postGMHire(t, d, asGMCaller, token, strings.Replace(c.body, "~", homeDir, 1))
+		if code != http.StatusConflict || text != want {
+			t.Errorf("%s: %d %q, want 409 %q", c.name, code, text, want)
+		}
+		nothingMade(t, r, h)
 	}
 }
 
@@ -211,12 +242,14 @@ func TestTheGMHireHonoursTheHiringSwitch(t *testing.T) {
 }
 
 // Only the fenced ways: what would open a plain terminal is 409 in one sentence, nothing opened; the office keeps its behaviour.
+// With no tmux and managed windows switched on, still "Install tmux": only Windows hires through the launcher.
 func TestTheGMHireNeverOpensAPlainTerminal(t *testing.T) {
-	for _, c := range []struct{ name, want string }{{"no tmux", "Install tmux: "}, {"another agent", "only Claude roles"}} {
+	for _, c := range []struct{ name, want string }{{"no tmux", "Install tmux: "}, {"no tmux, managed windows on", "Install tmux: "}, {"another agent", "only Claude roles"}} {
 		d, r, h, token := gmHireDeck(t)
 		role := "janitor"
-		if c.name == "no tmux" {
+		if strings.HasPrefix(c.name, "no tmux") {
 			tmuxPath = func() string { return "" }
+			d.config.HireManagedWindows = c.name != "no tmux"
 		} else {
 			role = "scribe"
 			d.config.Roles = append(d.config.Roles, Role{ID: role, Name: "Scribe", Agent: "codex"})
@@ -225,7 +258,7 @@ func TestTheGMHireNeverOpensAPlainTerminal(t *testing.T) {
 			t.Errorf("%s: %d %q, want 409 with %q", c.name, code, text, c.want)
 		}
 		nothingMade(t, r, h)
-		if status, message := d.Perform("hire", "", url.Values{"role": {role}}); status != http.StatusNoContent || len(h.windows) != 1 && c.name == "no tmux" {
+		if status, message := d.Perform("hire", "", url.Values{"role": {role}}); status != http.StatusNoContent || len(h.windows) != 1 && c.name != "another agent" {
 			t.Errorf("%s, from the office: %d %q, %d windows, want what it did before", c.name, status, message, len(h.windows))
 		}
 	}

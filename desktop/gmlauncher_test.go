@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -290,6 +291,83 @@ func TestTheGMHireWithManagedWindowsOffRefusesNamingTheSwitchAndOpensNothing(t *
 	}
 	if len(w.opened) != 0 || len(winRegistry(t)) != 0 {
 		t.Errorf("a refused hire opened %q, registry %+v", w.opened, winRegistry(t))
+	}
+}
+
+// B2 (RPGS), the launcher's twin: on a floor with a folder of its own the route refuses in one sentence and opens
+// nothing, with managed windows on; the office's hire there would open a plain window.
+func TestTheGMHireOnTheLauncherOnAFloorWithItsOwnFolderIsRefusedAndOpensNothing(t *testing.T) {
+	w := newWinRig(t)
+	w.d.config.FloorRules = checkedFloorRules([]FloorRule{{Folder: w.d.config.HireFolder, Floor: 1}})
+	status, text := w.post("/setup/gm/hire", map[string]any{"role": "janitor", "floor": 1}, winAsGM)
+	if want := "The General Manager doesn't hire into a pinned desk's or a floor's own folder."; status != http.StatusConflict || text != want {
+		t.Errorf("%d %q, want 409 %q", status, text, want)
+	}
+	if len(w.opened) != 0 || len(winRegistry(t)) != 0 {
+		t.Errorf("a refused hire opened %q, registry %+v", w.opened, winRegistry(t))
+	}
+}
+
+// standInWorktree gives the launcher hire h a worktree of its own in a stand-in repo, as the launcher would have
+// made it, and a stand-in git that says it's clean and records what else it's asked: the row as it now reads,
+// and what git was asked.
+func (w *winRig) standInWorktree(h Hire) (Hire, *[]string) {
+	w.t.Helper()
+	repo := w.d.config.HireFolder
+	tree := filepath.Join(hiresFolder(repo, w.d.launcherEngine.Worktrees), "janitor-"+h.ID)
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		w.t.Fatal(err)
+	}
+	h.Repo, h.Worktree, h.Branch = repo, physical(tree), "hire/"+filepath.Base(tree)
+	if err := updateRegistry(func(f *registryFile) {
+		for i := range f.hires {
+			if f.hires[i].ID == h.ID {
+				// Hired in a repository, it has no "isn't a git repository" note either.
+				f.hires[i].Repo, f.hires[i].Worktree, f.hires[i].Branch, f.hires[i].Notes = h.Repo, h.Worktree, h.Branch, ""
+			}
+		}
+	}); err != nil {
+		w.t.Fatal(err)
+	}
+	var mu sync.Mutex
+	asked := &[]string{}
+	w.d.mu.Lock()
+	w.d.launcherEngine.Git = func(dir string, args ...string) (int, string, bool) {
+		switch {
+		case slices.Equal(args, []string{"status", "--porcelain"}):
+			return 0, "", true
+		case len(args) > 0 && args[0] == "symbolic-ref":
+			return 0, h.Branch, true
+		}
+		mu.Lock()
+		*asked = append(*asked, strings.Join(args, " "))
+		mu.Unlock()
+		return 0, "", true
+	}
+	w.d.mu.Unlock()
+	return h, asked
+}
+
+// N3 (RPGS): the launcher's fire keeps a clean worktree unless asked to remove it, as the Mac's: a plain fire
+// removes nothing and writes no note; removal asked for is git's worktree remove. Either way 204.
+func TestTheGMFireOnTheLauncherKeepsTheCleanWorktreeUnlessAskedToRemoveIt(t *testing.T) {
+	for _, c := range []struct {
+		extra  map[string]any
+		remove bool
+	}{{map[string]any{}, false}, {map[string]any{"removeWorktree": false}, false}, {map[string]any{"removeWorktree": true}, true}} {
+		w := newWinRig(t)
+		h, asked := w.standInWorktree(w.hire("janitor"))
+		body := map[string]any{"id": h.ID}
+		maps.Copy(body, c.extra)
+		status, text := w.post("/setup/gm/fire", body, winAsGM)
+		removed := slices.ContainsFunc(*asked, func(a string) bool { return strings.HasPrefix(a, "worktree remove") })
+		rows := winRegistry(t)
+		if status != http.StatusNoContent || text != "" || removed != c.remove || len(rows) != 1 || rows[0].State != "fired" || rows[0].Notes != "" {
+			t.Errorf("%v: %d %q, git asked %q, registry %+v; want 204, removed %v, fired with no note", c.extra, status, text, *asked, rows, c.remove)
+		}
+		if _, err := os.Stat(h.Worktree); err != nil {
+			t.Errorf("%v: the worktree folder went: %v", c.extra, err)
+		}
 	}
 }
 

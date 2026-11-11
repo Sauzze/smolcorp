@@ -313,3 +313,11 @@ func t3FireRefusal(h Hire) string {
 	}
 	return calledHire(h) + " runs in T3 Code: let it go from Setup's team list."
 }
+
+// gmT3FireRefusal is the GM's fire of a hire in T3 Code, refused in the Mac's words (Deck.fire), or "" for any other hire.
+func gmT3FireRefusal(h Hire) string {
+	if h.Engine != t3Engine {
+		return ""
+	}
+	return calledHire(h) + " runs in T3 Code: let it go from Setup's team list or from its desk."
+}

@@ -49,6 +49,8 @@ func (rt *router) gmFire(w http.ResponseWriter, r *request) {
 		status, message = http.StatusNotFound, gmFireNoHire
 	case r.caller == callerGM && h.Role == gmRole:
 		status, message = http.StatusConflict, gmFireNotSelf
+	case gmT3FireRefusal(h) != "": // nothing is asked of it: no tmux or launcher is reached
+		status, message = http.StatusConflict, gmT3FireRefusal(h)
 	}
 	if status != 0 {
 		refuse(status, message)

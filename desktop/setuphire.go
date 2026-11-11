@@ -99,16 +99,9 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 	if utf8.RuneCountInString(nickname) > longestNickname || strings.ContainsAny(nickname, "\r\n  \u0085") {
 		return setupHire{}, http.StatusBadRequest, "A nickname is one line of at most 40 characters."
 	}
-	t3 := false
-	switch engine := given["engine"].(type) {
-	case nil:
-	case string:
-		t3 = engine == t3Engine
-		if !t3 && engine != "" && engine != "terminal" {
-			return setupHire{}, http.StatusBadRequest, `Where it works is "t3" (T3 Code), or left out for a terminal.`
-		}
-	default:
-		return setupHire{}, http.StatusBadRequest, `Where it works is "t3" (T3 Code), or left out for a terminal.`
+	t3, known := checkedHireEngine(given["engine"])
+	if !known {
+		return setupHire{}, http.StatusBadRequest, hireEngineRefusal
 	}
 	apiKey, _ := given["apiKey"].(bool)
 	worktree, _ := given["worktree"].(bool)
@@ -175,6 +168,21 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 		hire.Floor = int(floor)
 	}
 	return hire, 0, ""
+}
+
+// hireEngineRefusal is the Mac's answer to an engine but a terminal or T3 Code (HireDesk.HireOptions.checked).
+const hireEngineRefusal = `Where it works is "t3" (T3 Code), or left out for a terminal.`
+
+// checkedHireEngine is where a hire asks to work, read as the Mac's HireOptions.checked reads `engine`: T3 Code
+// ("t3"), or a terminal (left out, null, "" or "terminal"). known is false for anything else.
+func checkedHireEngine(given any) (t3, known bool) {
+	switch engine := given.(type) {
+	case nil:
+		return false, true
+	case string:
+		return engine == t3Engine, engine == t3Engine || engine == "" || engine == "terminal"
+	}
+	return false, false
 }
 
 // checkedSetupFolder is where setup may hire into, as the Mac's

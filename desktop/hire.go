@@ -225,6 +225,8 @@ const setupHireNeedsFolder = "Choose the folder for your hires first: it's the f
 const (
 	macHireNeedsTmux      = "Hires on this engine need tmux on your Mac to start fenced: install it, or switch back to the Swift engine."
 	macHirePinnedUnfenced = "On this engine, a hire at a desk or floor pinned to a folder can't start fenced yet: hire at another desk, or switch back to the Swift engine."
+	// The GM's route names a floor, never a desk: only a floor's own folder pins it, and another floor is its way out.
+	macGMHirePinnedUnfenced = "On this engine, a hire on a floor with a folder of its own can't start fenced yet: hire on another floor, or switch back to the Swift engine."
 	// Setup's sheet picks the desk pinned to the folder itself, so another desk isn't its way out.
 	macSetupHirePinnedUnfenced = "On this engine, a hire in a folder a desk or floor is pinned to can't start fenced yet: unpin that folder, or switch back to the Swift engine."
 	// A role whose agent isn't one Smolcorp knows: the Mac starts it as Claude Code, fenced.
@@ -264,13 +266,13 @@ type hireSpec struct {
 }
 
 // fenceRefusal is why a fenced hire of program can't be made, or "": a plain terminal has no guard.
-// Under the Mac app, a missing tmux and a pinned folder are said in the engine's own words (M4's).
+// Under the Mac app, a missing tmux (M4's words) and a pinned folder are said in the engine's own words.
 func fenceRefusal(program, pinned string, tmux, launcher, macApp bool) string {
 	switch {
 	case Agent(program) != Claude:
 		return "The General Manager hires only Claude roles: Smolcorp can't fence another agent."
 	case pinned != "" && macApp:
-		return macHirePinnedUnfenced
+		return macGMHirePinnedUnfenced
 	case pinned != "":
 		return "The General Manager doesn't hire into a pinned desk's or a floor's own folder."
 	case tmux, launcherHires && launcher:
@@ -491,6 +493,8 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		return http.StatusConflict, macHireNoRoleUnfenced
 	}
 	// The backstop of a fenced hire (the GM route's) that no fenced way took: never a plain terminal.
+	// fenceRefusal has already refused every such hire before anything was made, so this isn't reached
+	// while the two agree: it is there in depth, so a change to one can't open a plain terminal unseen.
 	if s.fenced {
 		d.lastHire = time.Time{}
 		return http.StatusConflict, "The General Manager hires only into a hire Smolcorp can fence, and this one couldn't be."

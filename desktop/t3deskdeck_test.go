@@ -164,6 +164,96 @@ func TestT3SetupSaysWhetherTheLaneIsOpen(t *testing.T) {
 	}
 }
 
+// t3GMCall is a call from the GM, with its token.
+func t3GMCall(d *Deck, target, body string) call {
+	return call{method: "POST", target: target, host: "localhost:7710", from: thisComputer, body: body,
+		withoutSetupKey: true, headers: map[string]string{setupHeader: "1", gmTokenHeader: d.newGMToken()}}
+}
+
+// B1 (RPGS): the GM's hire with `engine: "t3"` (gm hire --t3) goes into T3 Code by Setup's own lane, as the Mac's
+// /setup/gm/hire does: into the folder for new hires, with the answer of any setup hire. The GM-token rule comes
+// first, and hiring off and the hooks are refused in the lane's own words, before anything is made.
+func TestT3TheGMsHireWithEngineT3HiresIntoT3Code(t *testing.T) {
+	r, d := t3DeckRig(t)
+	repo := r.repo()
+	homeDir = r.home // the folder must be inside the home folder, and the fence denies this home's ~/.claude
+	d.mu.Lock()
+	d.config.Roles = []Role{{ID: "reviewer", Name: "Reviewer", Agent: "claude", Brief: &RoleBrief{Kind: "library", ID: "tester"}}, {ID: "gm", Name: "General Manager", Agent: "claude"}}
+	d.config.HireFolder = repo
+	d.mu.Unlock()
+	hire := func(body string) *httptest.ResponseRecorder {
+		t.Helper()
+		return serve(t, d, t3GMCall(d, "/setup/gm/hire", body))
+	}
+	madeNothing := func(when string) {
+		t.Helper()
+		if len(r.runs()) > 0 || len(readRegistry(registryPath(), false).hires) != 0 {
+			t.Fatalf("%s: something was made: %q", when, r.runs())
+		}
+	}
+	if got := hire(`{"role":"gm","engine":"t3"}`); got.Code != http.StatusConflict || got.Body.String() != onlyOwnerHiresGMRefusal {
+		t.Errorf("the gm role: %d %q", got.Code, got.Body)
+	}
+	if got := hire(`{"role":"reviewer","engine":"vim"}`); got.Code != http.StatusBadRequest || got.Body.String() != hireEngineRefusal {
+		t.Errorf("another engine: %d %q", got.Code, got.Body)
+	}
+	madeNothing("the gm role, another engine")
+	d.mu.Lock()
+	d.config.HiringEnabled = false
+	d.mu.Unlock()
+	if got := hire(`{"role":"reviewer","engine":"t3"}`); got.Code != http.StatusForbidden || got.Body.String() != hiringOff {
+		t.Errorf("hiring off: %d %q", got.Code, got.Body)
+	}
+	d.mu.Lock()
+	d.config.HiringEnabled = true
+	d.mu.Unlock()
+	kept := hooksNotConnected
+	hooksNotConnected = func(Agent) string {
+		return "Connect your agents first: Claude Code isn't connected. Press Connect in setup."
+	}
+	got := hire(`{"role":"reviewer","engine":"t3"}`)
+	hooksNotConnected = kept
+	if got.Code != http.StatusConflict || !strings.HasPrefix(got.Body.String(), "Connect your agents first:") {
+		t.Errorf("hooks: %d %q", got.Code, got.Body)
+	}
+	madeNothing("hiring off, the hooks")
+
+	got = hire(`{"role":"reviewer","engine":"t3"}`)
+	var answer map[string]any
+	if got.Code != http.StatusOK || json.Unmarshal(got.Body.Bytes(), &answer) != nil || answer["ok"] != true || answer["session"] != nil {
+		t.Fatalf("%d %s", got.Code, got.Body)
+	}
+	if _, found := answer["desk"]; !found {
+		t.Errorf("no desk in %v", answer)
+	}
+	hires := readRegistry(registryPath(), false).hires
+	if len(hires) != 1 || hires[0].Engine != t3Engine || hires[0].Role != "reviewer" || hires[0].T3Thread != "mcp:abc-1" || hires[0].Folder != repo {
+		t.Fatalf("%+v", hires)
+	}
+	if firsts := r.firsts(); !reflect.DeepEqual(firsts[1:], [][]string{{"project", "add"}, {"thread", "start"}, {"thread", "show"}}) {
+		t.Errorf("%q", r.runs())
+	}
+}
+
+// N6 (RPGS): the GM's fire of a hire in T3 Code is refused in the Mac's words, and nothing is run or removed.
+func TestT3TheGMsFireOfAT3HireIsRefusedInTheMacsWords(t *testing.T) {
+	r, d := t3DeckRig(t)
+	wt := r.fencedWorktree()
+	h := r.t3Hire(wt)
+	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, h) }); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{`{"id":` + jsonText(h.ID) + `}`, `{"id":` + jsonText(h.ID) + `,"force":true,"removeWorktree":true}`} {
+		got := serve(t, d, t3GMCall(d, "/setup/gm/fire", body))
+		if want := "Ada runs in T3 Code: let it go from Setup's team list or from its desk."; got.Code != http.StatusConflict || got.Body.String() != want {
+			t.Errorf("%s: %d %q, want 409 %q", body, got.Code, got.Body, want)
+		}
+	}
+	if len(r.runs()) != 0 || !exists(filepath.Join(wt, ".claude", "settings.local.json")) || readRegistry(registryPath(), false).hires[0].State == "fired" {
+		t.Error("something was run, removed or marked fired")
+	}
+}
+
 // The office (or a phone) doesn't fire a hire in T3 Code: it's let go from Setup's team list.
 func TestT3TheOfficesFireOfAT3HireIsRefused(t *testing.T) {
 	r, d := t3DeckRig(t)
