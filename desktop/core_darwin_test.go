@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -635,4 +636,38 @@ func TestTheAppAsksTheDesksStateOnItsConnection(t *testing.T) {
 		t.Errorf("asked four times: %v %v", result, err)
 	}
 	<-heard
+}
+
+// A port that's taken ends the engine with a status of its own, so the app says so and tries again (M7WORDS):
+// Smolcorp's own copy or another app on the port, as the server meets it in each of its scopes. Anything else
+// that fails is 1.
+func TestAPortInUseEndsTheEngineWithItsOwnStatus(t *testing.T) {
+	if corePortInUse != int(syscall.EADDRINUSE) {
+		t.Errorf("the status is %d, EADDRINUSE is %d", corePortInUse, syscall.EADDRINUSE)
+	}
+	for _, scope := range []string{"", listenThisComputer} {
+		free, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := free.Addr().(*net.TCPAddr).Port
+		free.Close()
+		holder, err := listenerFor(scope, port)
+		if err != nil {
+			t.Fatalf("scope %q: %v", scope, err)
+		}
+		_, taken := listenerFor(scope, port)
+		failed := make(chan error, 1)
+		failed <- taken
+		err = waitUntilServing(port, failed, 5*time.Second)
+		holder.Close()
+		if taken == nil || err == nil || coreFailedStatus(err) != corePortInUse {
+			t.Errorf("scope %q: a second listener on the port: %v, the start said %v, status %d", scope, taken, err, coreFailedStatus(err))
+		}
+	}
+	for _, other := range []error{errors.New("it didn't start in time"), fmt.Errorf("listen: %w", os.ErrPermission), nil} {
+		if status := coreFailedStatus(other); status != 1 {
+			t.Errorf("%v ended with %d, want 1", other, status)
+		}
+	}
 }

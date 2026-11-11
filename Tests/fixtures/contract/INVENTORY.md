@@ -579,13 +579,11 @@ has until the Go app serves it; the Swift engine's twin is in the history before
 |---|---|---|---|---|
 | `setup-state` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
-| `setup-state` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
 | `setup-state` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
 | `setup-state` | `.phoneMic` | missing | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 | M2: setup's Phone microphone switch |
 | `setup-state` | `.summary.noStore` | extra | says there's no secret store for the key, which a Mac always has | stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false |
 | `setup-state-tool` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state-tool` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
-| `setup-state-tool` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
 | `setup-state-tool` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
 | `setup-state-tool` | `.pairing.codeExpiresIn` | extra | a tool is told how long the code lasts; the Mac tells only the page | stays: Go-only, a tool's; the page has it in its own state on both apps |
 | `setup-state-tool` | `.phoneMic` | missing | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 | M2: setup's Phone microphone switch |

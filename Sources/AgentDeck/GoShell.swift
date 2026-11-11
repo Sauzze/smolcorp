@@ -52,11 +52,18 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         DispatchQueue.global().async { [self] in
-            do {
-                try core.start()
-            } catch {
-                DispatchQueue.main.async { self.problem = error.localizedDescription }
-                return
+            while true {
+                do {
+                    try core.start()
+                    break
+                } catch GoCore.Failure.portInUse(let port) {
+                    // Said in the menu, and tried again until the port is free, as the Swift engine's server did.
+                    DispatchQueue.main.async { self.showPortInUse(port) }
+                    Thread.sleep(forTimeInterval: GoShellDelegate.retryDelay)
+                } catch {
+                    DispatchQueue.main.async { self.problem = error.localizedDescription }
+                    return
+                }
             }
             let address = core.officeAddress()
             // Only a test copy leaves a setup link: the real app mints no link nobody asked for.
@@ -65,7 +72,23 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// How long the port is left before it's tried again.
+    static let retryDelay: TimeInterval = 2
+
+    /// The menu's line while the port is taken: another Smolcorp, or another app.
+    static func portInUseLine(port: UInt16) -> String {
+        "Port \(port) is in use. Is Smolcorp already running? Trying again…"
+    }
+
+    private func showPortInUse(_ port: UInt16) {
+        let line = GoShellDelegate.portInUseLine(port: port)
+        problem = line
+        item.button?.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: line)
+    }
+
     private func ready(office address: URL?, setupLink: URL?) {
+        // The port is the app's again: back to the usual icon (the menu's, with its logo and the portable office's dot).
+        item.button?.image = GoShellDelegate.icon(for: state)
         guard let address else {
             problem = "The Go engine didn't give the office's address."
             return
