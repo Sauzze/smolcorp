@@ -51,9 +51,11 @@ enum HireDesk {
         /// Asked for a worktree of its own, with the trust, ports and start check that go with it. Only the GM's
         /// route and setup's explicit choice say so; otherwise a hire is as in 1.23 unless the manager is on.
         var worktree = false
+        /// Hired into T3 Code (T797b, experimental): its agent runs in a T3 Code thread, in a worktree of its own.
+        var t3 = false
 
-        /// The options as a request carries them; refuses what couldn't be a model or a nickname.
-        static func checked(model: String?, nickname: String?, apiKey: Bool?, worktree: Bool? = nil) -> Result<HireOptions, Refusal> {
+        /// The options as a request carries them; refuses what couldn't be a model or a nickname, or an engine but T3 Code's.
+        static func checked(model: String?, nickname: String?, apiKey: Bool?, worktree: Bool? = nil, engine: Any? = nil) -> Result<HireOptions, Refusal> {
             let model = (model ?? "").trimmingCharacters(in: .whitespaces)
             let nickname = (nickname ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard model.count <= 60, model.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.:[]".contains($0)) }) else {
@@ -62,7 +64,15 @@ enum HireDesk {
             guard nickname.count <= FrontDesk.longestNickname, !nickname.contains(where: { $0.isNewline }) else {
                 return .failure(Refusal(status: 400, message: "A nickname is one line of at most \(FrontDesk.longestNickname) characters."))
             }
-            return .success(HireOptions(model: model, nickname: nickname, apiKey: apiKey ?? false, worktree: worktree ?? false))
+            // Where its agent runs: a terminal, as always (left out, or ""), or T3 Code ("t3"), always in a worktree.
+            let t3: Bool
+            switch engine {
+            case nil, is NSNull: t3 = false
+            case let word as String where word.isEmpty || word == "terminal": t3 = false
+            case let word as String where word == T3Desk.engine: t3 = true
+            default: return .failure(Refusal(status: 400, message: "Where it works is \"t3\" (T3 Code), or left out for a terminal."))
+            }
+            return .success(HireOptions(model: model, nickname: nickname, apiKey: apiKey ?? false, worktree: (worktree ?? false) || t3, t3: t3))
         }
     }
 

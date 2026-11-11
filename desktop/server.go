@@ -1430,6 +1430,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			}
 		}
 		openHireInT3(w, hire, found)
+	// Hiring into T3 Code (T797b) is the Mac app's alone for now: on this computer no hire runs in T3 Code to let go.
+	case r.Method == http.MethodPost && path == "/setup/t3code/letgo":
+		writeStatus(w)(http.StatusConflict, "Hiring into T3 Code is in the Mac app only for now, so no hire here runs in T3 Code.")
 
 	// What a first General Manager hire needs (gmpreflight.go), Start here's lines above its
 	// Hire button. Outside /setup/gm/, which is closed while the manager is off, as on a first run.

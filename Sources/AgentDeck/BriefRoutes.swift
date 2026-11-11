@@ -222,14 +222,16 @@ enum BriefRoutes {
         guard let id = given["role"] as? String, !id.isEmpty else { return .failure(.status(400, "Say which role to hire.")) }
         guard let role = roles.first(where: { $0.id == id }) else { return .failure(.status(404, "That role isn't there any more. Pick another.")) }
         let options: HireDesk.HireOptions
-        switch HireDesk.HireOptions.checked(model: given["model"] as? String, nickname: given["nickname"] as? String, apiKey: given["apiKey"] as? Bool, worktree: given["worktree"] as? Bool) {
+        switch HireDesk.HireOptions.checked(model: given["model"] as? String, nickname: given["nickname"] as? String, apiKey: given["apiKey"] as? Bool, worktree: given["worktree"] as? Bool,
+                                                engine: given["engine"]) {
         case .success(let checked): options = checked
         case .failure(let refused): return .failure(.status(refused.status, refused.message))
         }
         // With more than one Claude account, a hire on Claude Code says which (the API-key account needs none);
         // another agent has no account to name.
         var account = ""
-        if (Agent(rawValue: role.agent) ?? .claude) == .claude {
+        // A hire in T3 Code works on T3 Code's own Claude account, so it names none.
+        if (Agent(rawValue: role.agent) ?? .claude) == .claude, !options.t3 {
             let named = (given["account"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
             if !options.apiKey || !named.isEmpty, let why = ClaudeProfiles.hireRefusal(account: named, among: accounts) {
                 return .failure(.status(why.status, why.message))

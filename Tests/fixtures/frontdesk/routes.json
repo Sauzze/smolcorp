@@ -647,6 +647,15 @@
       ],
       "kind" : "page",
       "method" : "POST",
+      "path" : "\/setup\/t3code\/letgo",
+      "why" : "let a hire in T3 Code go: its T3 project removed, its worktree kept"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
       "path" : "\/setup\/pair",
       "why" : "a pairing code"
     },

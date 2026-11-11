@@ -21,10 +21,12 @@ Commands:
   version                       the app, its API and its features
   accounts                      the Claude accounts the app knows
   hire --role R [--folder F] [--account A] [--model M] [--nickname N]
-       [--floor K] [--worktree] [--api-key] [--task TEXT | --task-file F]
+       [--floor K] [--worktree] [--api-key] [--t3] [--task TEXT | --task-file F]
                                 hire an employee (the folder defaults to the
                                 one set up for new hires). Not the gm role:
-                                the owner hires the GM from Setup
+                                the owner hires the GM from Setup. --t3 hires
+                                into T3 Code (experimental, Mac only): its own
+                                worktree and a T3 Code thread
   brief <hire> (--text TEXT | --file F)
                                 send a later brief to a hire already working
                                 (it comes to the hire as mail)

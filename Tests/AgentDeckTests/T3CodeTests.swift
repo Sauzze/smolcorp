@@ -396,7 +396,8 @@ final class T3CodeTests: XCTestCase {
             XCTAssertTrue(page.contains(words), words)
         }
         // Greyed for appOnly and none: only found and cliOnly may click.
-        XCTAssertTrue(page.contains("const usable = !!t3 && (t3.state === 'found' || t3.state === 'cliOnly');"))
+        // (A hire in T3 Code, T797b, opens its own thread by T3 Code's link: that takes the app, and is greyed otherwise.)
+        XCTAssertTrue(page.contains("      : t3.state === 'found' || t3.state === 'cliOnly');"))
         XCTAssertTrue(page.contains("button.disabled = open && open.busy ? true : !usable;"))
         // Fire… opened, the buttons' span shrinks, so its sentences wrap in the row (measured at 390 and 1280 px).
         XCTAssertTrue(teamRow.contains("keys.style.cssText = 'flex:0 1 auto;min-width:0;"))

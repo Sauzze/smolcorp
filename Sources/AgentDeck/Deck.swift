@@ -213,6 +213,7 @@ final class Deck {
             self?.discoverBots()
         }
         startMail()
+        startT3Follow()
     }
 
     // MARK: Grok Bot app
@@ -1222,6 +1223,8 @@ final class Deck {
         let route = session.flatMap { s in terminal(of: s, for: .fire) }
         let tmux = hire.flatMap { $0.tmuxSocket.isEmpty ? nil : HireTmux(socketName: URL(fileURLWithPath: $0.tmuxSocket).lastPathComponent) }
         if hire == nil, route == nil { return done(.status(409, Deck.notHere)) }
+        // A hire in T3 Code is let go from Setup's team list, after a confirm that says what's removed (T797b).
+        if let hire, hire.engine == T3Desk.engine { return done(.status(409, "\(HireDesk.called(hire)) runs in T3 Code: let it go from Setup's team list.")) }
         if let hire, hire.tmuxSocket.isEmpty == false, tmux == nil { return done(.status(409, "tmux isn't here, so \(HireDesk.called(hire))'s session can't be ended.")) }
         // Not on the terminal's queue: waiting for /exit to take can last seconds.
         DispatchQueue.global(qos: .userInitiated).async { [self] in
@@ -1601,6 +1604,8 @@ final class Deck {
             role = found
         }
         if !options.model.isEmpty { role?.model = options.model }
+        // Into T3 Code (T797b): a Claude Code role, on T3 Code's own account, never the GM, never from a test copy.
+        if options.t3, let why = T3Desk.hireRefusal(role: role, account: account, apiKey: options.apiKey) { return done(.status(409, why)) }
         // Only one General Manager at a time, by whichever way it is hired.
         if role?.id == Deck.gmRole {
             if let why = claimGMHire() { return done(.status(why.status, why.message)) }
@@ -1616,7 +1621,7 @@ final class Deck {
         // With several accounts, every way in must name one (C05), unless it is on the API-key account.
         let accounts = ClaudeProfiles.current
         let claude = Deck.hiredAgent(role: role, hireAgent: config.hireAgent) == .claude
-        if claude, !options.apiKey || !account.isEmpty, let why = ClaudeProfiles.hireRefusal(account: account, among: accounts) {
+        if claude, !options.t3, !options.apiKey || !account.isEmpty, let why = ClaudeProfiles.hireRefusal(account: account, among: accounts) {
             return done(.status(why.status, why.message))
         }
         if options.apiKey {
@@ -1648,6 +1653,10 @@ final class Deck {
         let request = HireDesk.Request(hireID: hireID, name: options.nickname.isEmpty ? (role?.id ?? "hire") : options.nickname, folder: folder,
                                        claude: claude, account: hireAccount, apiKey: options.apiKey, worktree: !isGM || options.worktree)
         let worktrees = config.hireWorktrees, taken = frontDesk.portsInUse
+        if options.t3, let role {
+            return hireIntoT3(request, role: role, original: folder, pinned: pinned != nil, desk: floor > 0 ? nil : desk.flatMap { Int($0) },
+                              answers: answers, options: options, task: task, worktrees: worktrees, taken: taken, held: held, done: hired)
+        }
         // Git can take a while on a big repo, so the place is made off the main thread.
         DispatchQueue.global(qos: .userInitiated).async {
             let made: Result<HireDesk.Ready, FrontDesk.Refusal>
@@ -1664,6 +1673,118 @@ final class Deck {
                 case .success(let ready):
                     self.open(ready, managed: managed, hireID: hireID, role: role, original: folder, pinned: pinned, desk: desk, held: held, floor: floor,
                               answers: answers, options: options, task: task, profile: profile, hireAccount: hireAccount, done: hired)
+                }
+            }
+        }
+    }
+
+    /// A hire into T3 Code (T797b, experimental), once `hire` has checked who and where: the gate, then `T3Desk.hire`, off
+    /// the main thread; the registry is written on the main one. Answered as every hire is: 204 once its thread runs.
+    private func hireIntoT3(_ request: HireDesk.Request, role: Role, original: String, pinned: Bool, desk: Int?, answers: [String]?,
+                            options: HireDesk.HireOptions, task: String, worktrees: String, taken: [String], held: Int?,
+                            done hired: @escaping (Response, Int?) -> Void) {
+        let config = Config.shared
+        let on = T3Code.laneAllowed(config)
+        let hireID = request.hireID
+        let model = role.model.isEmpty ? T3Desk.defaultModel : role.model
+        let hiring = T3Desk.Hiring(hireID: hireID, name: request.name, called: options.nickname.isEmpty ? role.name : options.nickname,
+                                   folder: request.folder, model: model, worktrees: worktrees, taken: taken)
+        let onMain = { (work: () -> Void) in DispatchQueue.main.sync(execute: work) }
+        let ways = T3Desk.Ways(
+            settings: { try HireSettings.object(hireID: hireID) },
+            brief: { ready in
+                var message = answers.map { role.firstMessage(in: ready.folder, answers: $0) } ?? role.firstMessage(in: ready.folder, pinned: pinned)
+                var path = ""
+                if let made = try BriefBuilder.make(role, library: .editable(), folder: ready.folder, pinned: pinned, desk: desk, answers: answers,
+                                                    task: task.isEmpty ? nil : task, managed: BriefBuilder.hireFolder(hireID), write: true) {
+                    message = made.firstMessage
+                    path = made.names.brief.path
+                }
+                return (message, path)
+            },
+            discardBrief: { try? FileManager.default.removeItem(at: BriefBuilder.hireFolder(hireID)) },
+            register: { [weak self] ready in onMain {
+                let record = FrontDesk.Hire(id: hireID, name: role.name, nickname: options.nickname, role: role.id, folder: original,
+                                            branch: ready.branch, worktree: ready.worktree, repo: ready.repo, model: model, ports: ready.ports,
+                                            started: (Date().timeIntervalSince1970 * 1000).rounded(), engine: T3Desk.engine)
+                self?.frontDesk.register(record)
+            } },
+            started: { [weak self] thread, link, brief in onMain { self?.frontDesk.setT3(hireID, thread: thread, link: link, brief: brief) } },
+            fail: { [weak self] why in onMain { self?.frontDesk.fail(hireID, reason: "Didn't start in T3 Code: \(why)") } })
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result: Result<T3Desk.Started, FrontDesk.Refusal>
+            if let why = T3Desk.refusal(on: on, status: T3Code.status(fresh: true)) {
+                result = .failure(FrontDesk.Refusal(status: 409, message: why))
+            } else {
+                result = T3Desk.hire(hiring, ways: ways)
+            }
+            DispatchQueue.main.async {
+                switch result {
+                case .failure(let refusal):
+                    self.lastHire = nil
+                    self.changed()
+                    hired(.status(refusal.status, refusal.message), nil)
+                case .success(let started):
+                    config.noteHire(in: original)
+                    // Its nickname on its desk, as a managed hire's: its session (from its own hooks) works in its worktree.
+                    self.managerHireFolders.insert(started.ready.folder)
+                    config.layout.room.team = Deck.nicknamed(config.layout.room.team, folder: started.ready.folder, nickname: options.nickname)
+                    config.save()
+                    self.changed()
+                    hired(.status(204), held)
+                }
+            }
+        }
+    }
+
+    /// Looks at every T3 hire's thread every `T3Desk.followEvery` seconds, one at a time off the main thread: its status for
+    /// its desk, and the registry's state and link kept as T3 Code says.
+    func startT3Follow() {
+        Timer.scheduledTimer(withTimeInterval: T3Desk.followEvery, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let hires = self.frontDesk.hires.filter { $0.engine == T3Desk.engine && $0.state != .fired && $0.state != .failed }
+            guard !hires.isEmpty else { return }
+            T3Desk.queue.async {
+                let earlier = hires.map { T3Desk.lastSeen($0.id) }
+                guard let seen = T3Desk.follow(hires) else { return }
+                let looksMoved = hires.map { T3Desk.lastSeen($0.id) } != earlier
+                DispatchQueue.main.async {
+                    let before = self.frontDesk.hires
+                    for (id, look) in seen {
+                        guard let hire = self.frontDesk.hires.first(where: { $0.id == id }), hire.state != .fired, hire.state != .failed else { continue }
+                        if let state = T3Desk.state(for: look.status) { self.frontDesk.move(id, to: state) }
+                        if !look.link.isEmpty { self.frontDesk.setT3(id, thread: hire.t3Thread, link: look.link) }
+                    }
+                    // The desks show what was seen; the office is told only when something moved.
+                    if self.frontDesk.hires != before || looksMoved { self.changed() }
+                }
+            }
+        }
+    }
+
+    /// `POST /setup/t3code/letgo {id}`: a hire in T3 Code let go (`T3Desk.letGo`), off the main thread; the registry says
+    /// so on the main one. The page alone, after its confirm.
+    func letGoOfT3(id: String, done: @escaping (Response) -> Void) {
+        guard frontDesk.hires.contains(where: { $0.id == id }) else { return done(.status(404, "That hire isn't on the team.")) }
+        // One `t3` at a time, the follow's too; the registry is read again once it's this let go's turn, so a second
+        // click finds the hire already gone.
+        T3Desk.queue.async {
+            guard let hire = DispatchQueue.main.sync(execute: { self.frontDesk.hires.first { $0.id == id } }) else {
+                return DispatchQueue.main.async { done(.status(404, "That hire isn't on the team.")) }
+            }
+            let result = T3Desk.letGo(hire) { _ in
+                DispatchQueue.main.sync {
+                    self.frontDesk.move(hire.id, to: .fired)
+                    let now = self.frontDesk.hires.first { $0.id == hire.id }?.notes ?? ""
+                    let note = "Let go from T3 Code: its thread there was removed; its worktree and branch were kept."
+                    _ = try? self.frontDesk.edit(["id": hire.id, "notes": String((now.isEmpty ? note : note + "\n" + now).prefix(FrontDesk.longestNotes))])
+                }
+            }
+            DispatchQueue.main.async {
+                self.changed()
+                switch result {
+                case .failure(let refusal): done(.status(refusal.status, refusal.message))
+                case .success(let recap): done(.json(["ok": true, "recap": recap, "worktree": hire.worktree, "branch": hire.branch]))
                 }
             }
         }
