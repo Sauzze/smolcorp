@@ -237,6 +237,9 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 				desk = strconv.Itoa(i)
 			}
 		}
+		if desk == "" && s.fenced {
+			return http.StatusConflict, checkedFloors(d.config.Floors)[floor].Name + " is full."
+		}
 		index, err := strconv.Atoi(desk)
 		if err != nil || index < 0 || index >= desksPerFloor {
 			return http.StatusBadRequest, "Unknown desk"
@@ -277,6 +280,9 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 			}
 		}
 	} else if s.seat != nil {
+		if !d.hasFreeKey() {
+			return http.StatusConflict, "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room."
+		}
 		keys, _ := d.layout()
 		if *s.seat = slices.IndexFunc(keys, func(k deckKey) bool { return k.pin == nil && k.session == nil }); *s.seat < 0 {
 			*s.seat = len(keys)

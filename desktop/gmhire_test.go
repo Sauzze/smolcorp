@@ -174,6 +174,23 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 	}
 }
 
+// A floor with every desk taken is 409 with the office's words and nothing made, never a desk that doesn't exist.
+func TestTheGMHireWithEveryDeskTaken(t *testing.T) {
+	for floor, want := range []string{"Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room.", checkedFloors(nil)[1].Name + " is full."} {
+		d, r, h, token := gmHireDeck(t)
+		running(d, 9)
+		for i, s := range d.sessions.All() {
+			if floor > 0 {
+				d.floorOf[s.ID], d.seatOf[s.ID] = floor, Seat{floor, i}
+			}
+		}
+		if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","floor":`+strconv.Itoa(floor)+`}`); code != http.StatusConflict || text != want {
+			t.Errorf("floor %d: %d %q, want 409 %q", floor, code, text, want)
+		}
+		nothingMade(t, r, h)
+	}
+}
+
 // Only the two fenced ways: what would open a plain terminal is refused in one sentence, with nothing opened;
 // a hire from the office keeps its behaviour; the window setting doesn't move the GM's hire out of the engine.
 func TestTheGMHireNeverOpensAPlainTerminal(t *testing.T) {
