@@ -34,14 +34,16 @@ command line tools. In Terminal:
   process in its tab, only once it's sure that's the agent, then closes the
   tab.
 
-The Mac app is plain Swift with no dependencies. The Windows and Linux app is
-Go, with a handful: a tray icon, pseudo-terminals, QR codes. The phone side is
-a single web page, shared by both.
+One app, in Go, runs the office on every computer, with a handful of
+dependencies: a tray icon, pseudo-terminals, QR codes. On a Mac it runs inside
+a plain Swift app, with no dependencies, that is its menu bar item and windows
+and does what only macOS can: the keys, Terminal, iTerm2 and Ghostty, the
+Keychain, dictation. The phone side is a single web page, shared by all.
 
 ```
-Sources/AgentDeck/   the Mac app
+Sources/AgentDeck/   the Mac app: the menu bar, the windows and what only macOS does, around the Go app
 ScreenSaver/         the Mac's screen saver, which shows the office
-desktop/             the Windows and Linux app, file for file where they match
+desktop/             the app itself, on every computer
 cmd/smolcorp/        its command: the app, the launcher and the hook
 Resources/web/       the phone page, the office, the pairing page and the setup page, shared
 Resources/           the Mac's hook script, and the OpenCode plugin

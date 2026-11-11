@@ -12,7 +12,7 @@ final class ManagerPanelPageTests: XCTestCase {
     func testTheLockedNoteNamesTheMacsMenuItem() throws {
         let page = try page()
         let menu = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .appendingPathComponent("../../Sources/AgentDeck/StatusMenu.swift"), encoding: .utf8)
+            .appendingPathComponent("../../Sources/AgentDeck/GoShell.swift"), encoding: .utf8)
         XCTAssertTrue(menu.contains(#""Open Settings in Browser""#))
         XCTAssertTrue(page.contains("This page opens from Smolcorp's menu bar: choose Open Settings in Browser."))
         // Linux and Windows keep theirs.
@@ -88,13 +88,6 @@ final class ManagerPanelPageTests: XCTestCase {
         XCTAssertTrue(page.contains("fetch('/setup/bots/mailbox'"))
         XCTAssertTrue(page.contains("JSON.stringify({ id: bot.id, folder: input.value.trim() })"))
         XCTAssertTrue(page.contains("rows.push(mailboxRow(bot));"))
-    }
-
-    func testTheRoutesTheControlsCallAreOnThePage() {
-        XCTAssertEqual(SetupRoutes.row("POST", "/setup/gm/fire")?.callers.contains(.page), true)
-        XCTAssertEqual(SetupRoutes.row("POST", "/setup/gm/token/rotate")?.callers, [.page])
-        XCTAssertEqual(SetupRoutes.row("POST", "/setup/gm/by-hand")?.callers, [.page])
-        XCTAssertEqual(SetupRoutes.row("POST", "/setup/bots/mailbox")?.callers, [.page])
     }
 
     func testThePageNeverUsesAnAlertForTheseControls() throws {

@@ -41,8 +41,8 @@ final class SetupConsistencyPageTests: XCTestCase {
     func testTheFloorsPanelSaysWhatItsFor() throws {
         XCTAssertEqual(Deck.hireFolderMessage, "New hires from the office start their work in this folder.")
         XCTAssertEqual(Deck.floorFolderMessage, "The agents working in this project's folder sit on the floor you chose it for.")
-        let router = try file("Sources/AgentDeck/DeckRouter.swift")
-        XCTAssertNotNil(router.range(of: #"let message = request.query["for"] == "floor" ? Deck.floorFolderMessage : Deck.hireFolderMessage"#))
+        let bridge = try file("Sources/AgentDeck/HostBridge.swift")
+        XCTAssertNotNil(bridge.range(of: #"let messages = ["hires": Deck.hireFolderMessage, "floor": Deck.floorFolderMessage]"#))
         let deck = try file("Sources/AgentDeck/Deck.swift")
         XCTAssertNotNil(deck.range(of: "panel.message = message\n"))
     }

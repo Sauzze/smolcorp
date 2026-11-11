@@ -14,13 +14,6 @@ final class TestIsolationTests: XCTestCase {
         XCTAssertTrue(Paths.support.path.hasPrefix(FileManager.default.temporaryDirectory.path))
     }
 
-    func testAWholeDeckWritesItsSetupKeyInTheTestFolder() throws {
-        let deck = Deck(quiet: true)
-        let kept = try String(contentsOf: Paths.setupKey, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-        XCTAssertEqual(kept, deck.access.setupKey)
-        XCTAssertTrue(Paths.setupKey.path.hasPrefix(Paths.testSupport.path))
-    }
-
     func testTheGMTokenIsNeverTheRealKeychainItemInTests() {
         XCTAssertFalse(GMIdentity.defaultStore(testCopy: false, support: nil) is GMKeychain)
     }

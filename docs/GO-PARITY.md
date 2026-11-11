@@ -1,5 +1,11 @@
 # Windows and Linux parity
 
+> **History.** Since 1.25.0 every Mac runs the Go app too, with the Mac app as
+> its shell (M7): the Mac's own Swift engine, the "Mac" column below, is gone.
+> This page is kept as the record of how the two engines compared until then.
+> What the Swift engine had and the Go app still doesn't is in
+> `Tests/fixtures/contract/INVENTORY.md`'s known gaps.
+
 How the Windows and Linux app (Go: `desktop/`, `cmd/smolcorp/`) compares with
 the Mac app (Swift: `Sources/AgentDeck/`), feature by feature. Both serve the
 same web front end, `Resources/web/`, so a gap here is almost always on the

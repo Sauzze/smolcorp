@@ -995,9 +995,9 @@ func TestT3TakeOverRoutesAreThePagesAloneAndServedByThisAppOnly(t *testing.T) {
 				t.Errorf("%s: %s may", path, who.name())
 			}
 		}
-		// Not the Mac's: in INVENTORY.md's Go-only table, owned by M7.
+		// Not the Swift engine's: in INVENTORY.md's Go-only table, the Mac's too since 1.25.0 (M7).
 		inventory, _ := os.ReadFile(filepath.Join(contractFolder(), "INVENTORY.md"))
-		if !regexp.MustCompile("(?m)^\\| POST \\| `" + regexp.QuoteMeta(path) + "` \\|.*\\| none: M7: the Go engine").Match(inventory) {
+		if !regexp.MustCompile("(?m)^\\| POST \\| `" + regexp.QuoteMeta(path) + "` \\|.*\\| the Mac's too since 1.25.0").Match(inventory) {
 			t.Errorf("%s isn't in INVENTORY.md's Go-only table", path)
 		}
 	}

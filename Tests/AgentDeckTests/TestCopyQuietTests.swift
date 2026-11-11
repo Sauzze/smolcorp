@@ -41,10 +41,8 @@ final class TestCopyQuietTests: XCTestCase {
     /// What either shell would show by itself: first-run Settings (both), the Go engine's stopped
     /// alert, setup's Open the office (both) and the folder panel (a page's, through the deck or the bridge).
     func testWhatWouldShowByItselfIsCheckedFirst() throws {
-        let app = try source("App.swift"), shell = try source("GoShell.swift"), deck = try source("Deck.swift")
-        XCTAssertTrue(app.contains("if !Config.shared.hasCompletedSetup, TestCopy.mayComeForward(\"first-run Settings\") {"))
+        let shell = try source("GoShell.swift"), deck = try source("Deck.swift")
         XCTAssertTrue(shell.contains("if !Config.shared.hasCompletedSetup, TestCopy.mayComeForward(\"first-run Settings\") { settings?.show() }"))
-        XCTAssertTrue(app.contains("if TestCopy.mayComeForward(\"the office (from setup)\") { office.show() }"))
         XCTAssertTrue(shell.contains("if TestCopy.mayComeForward(\"the office (from setup)\") { self?.window?.show() }"))
         XCTAssertTrue(deck.contains("guard TestCopy.mayComeForward(\"the folder panel\") else { return done(nil) }"))
 
@@ -56,53 +54,6 @@ final class TestCopyQuietTests: XCTestCase {
         XCTAssertLessThan(check.lowerBound, try XCTUnwrap(body.range(of: "NSAlert()")).lowerBound)
     }
 
-    // MARK: This Mac only
-
-    func testATestCopyListensOnThisMacUnlessTheLANIsAskedFor() {
-        XCTAssertEqual(TestCopy.listenScope(testCopy: true, environment: [:]), .thisMac)
-        XCTAssertEqual(TestCopy.listenScope(testCopy: true, environment: ["SMOLCORP_TEST_LISTEN": "lan"]), .everywhere)
-        XCTAssertEqual(TestCopy.listenScope(testCopy: true, environment: ["SMOLCORP_TEST_LISTEN": "LAN"]), .everywhere)
-        XCTAssertEqual(TestCopy.listenScope(testCopy: true, environment: ["SMOLCORP_TEST_LISTEN": "all"]), .thisMac, "only lan")
-        XCTAssertEqual(TestCopy.listenScope(testCopy: false, environment: [:]), .everywhere, "the real app, as always")
-        XCTAssertEqual(TestCopy.listenScope(testCopy: false, environment: ["SMOLCORP_TEST_LISTEN": "lan"]), .everywhere)
-        XCTAssertEqual(TestCopy.listensOn, .thisMac, "the suite's stand-in servers stay on this Mac")
-    }
-
-    /// What a phone is told to open (and the QR code, which 404s without it) is what the copy really listens on, as
-    /// the Go engine says it (FXC1c N2): no address for a copy on this Mac only, the LAN's for the real app.
-    func testThePairingAddressIsWhatTheCopyListensOn() {
-        XCTAssertEqual(Deck.phoneAddress(listening: .thisMac, host: "192.168.1.20"), "")
-        XCTAssertEqual(Deck.phoneAddress(listening: .everywhere, host: "192.168.1.20"), "http://192.168.1.20:\(Deck.port)")
-        XCTAssertEqual(Deck.phoneAddress(listening: .everywhere, host: nil), "http://localhost:\(Deck.port)")
-    }
-
-    /// At the socket: the server's listening sockets are bound to 127.0.0.1 (and ::1), never *, and it answers there.
-    func testTheServerIsBoundToLoopbackOnly() throws {
-        let port = UInt16.random(in: 47_100...47_900)
-        let server = HTTPServer(port: port, router: Answer())
-        XCTAssertEqual(server.scope, .thisMac, "the default in the suite")
-        let ready = expectation(description: "listening")
-        server.onReady = { ready.fulfill() }
-        server.start()
-        defer { server.stop() }
-        wait(for: [ready], timeout: 10)
-        // ::1 is started beside it: a moment for it too.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-
-        let bound = try listening(on: port)
-        XCTAssertTrue(bound.contains("127.0.0.1:\(port)"), "\(bound)")
-        XCTAssertEqual(bound.subtracting(["127.0.0.1:\(port)", "[::1]:\(port)"]), [], "nothing but loopback: \(bound)")
-
-        let answered = expectation(description: "answered")
-        var status = 0
-        URLSession.shared.dataTask(with: URL(string: "http://127.0.0.1:\(port)/")!) { _, response, _ in
-            status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            answered.fulfill()
-        }.resume()
-        wait(for: [answered], timeout: 10)
-        XCTAssertEqual(status, 200)
-    }
-
     // MARK: Helpers
 
     private var sources: URL {
@@ -112,26 +63,5 @@ final class TestCopyQuietTests: XCTestCase {
 
     private func source(_ name: String) throws -> String {
         try String(contentsOf: sources.appendingPathComponent(name), encoding: .utf8)
-    }
-
-    /// The addresses this process listens on at `port`, as lsof names them ("127.0.0.1:47123", "[::1]:47123", "*:47123").
-    private func listening(on port: UInt16) throws -> Set<String> {
-        let lsof = Process()
-        lsof.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        lsof.arguments = ["-nP", "-a", "-p", String(getpid()), "-iTCP:\(port)", "-sTCP:LISTEN", "-Fn"]
-        let out = Pipe()
-        lsof.standardOutput = out
-        lsof.standardError = FileHandle.nullDevice
-        try lsof.run()
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        lsof.waitUntilExit()
-        let lines = String(decoding: data, as: UTF8.self).components(separatedBy: "\n")
-        return Set(lines.filter { $0.hasPrefix("n") }.map { String($0.dropFirst()) })
-    }
-
-    private final class Answer: Router {
-        func handle(_ request: Request, reply: @escaping (Reply) -> Void) {
-            reply(.response(.status(200, "ok")))
-        }
     }
 }

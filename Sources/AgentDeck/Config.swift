@@ -171,9 +171,9 @@ final class Config: Codable {
     var floors = Floor.standard
     /// The folders whose sessions sit on a floor of their own (see `FloorRule`).
     var floorRules: [FloorRule] = []
-    /// Which engine runs the deck: none or "swift" is this app's own, as
-    /// always; "go" is the Go core the app starts as its child (`Engine`),
-    /// for a test copy only for now. Never saved unless it was set.
+    /// The engine an earlier version ran ("swift" or "go"): ignored since
+    /// 1.25.0, which runs the Go core alone (`Engine`), and kept in the file
+    /// as written. Never saved unless it was set.
     var engine: String?
     /// Some of the file couldn't be read as this version reads it, and is
     /// left out: a copy of the file is kept before it's saved over.
@@ -292,7 +292,7 @@ final class Config: Codable {
         // Checked as they load: their names are drawn in the office.
         floors = Floor.checked(field([Lossy<Floor>].self, .floors)?.map(\.value) ?? [])
         floorRules = FloorRule.checked(field([Lossy<FloorRule>].self, .floorRules)?.compactMap(\.value) ?? [])
-        // Kept as written, even a name this version doesn't know, which runs the Swift engine.
+        // Kept as written, even a name this version doesn't know: the app logs it, and runs the Go engine.
         engine = field(String.self, .engine)
         lostOnLoad = lost
     }

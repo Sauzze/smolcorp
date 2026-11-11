@@ -107,17 +107,6 @@ final class TestCopySecretsTests: XCTestCase {
         XCTAssertEqual(mode(folder), 0o700)
     }
 
-    func testAHireOnTheAPIKeyAccountInATestCopyReadsTheKeyFileAndNeverTheKeychain() {
-        let file = folder.appendingPathComponent(TestCopySecrets.apiKeyName)
-        let lines = HireDesk.scriptLines(ports: "", apiKey: true, copyPort: 7790, copySupport: folder, keyFile: file)
-        XCTAssertFalse(lines.contains("security"))
-        XCTAssertTrue(lines.contains("cat '\(file.path)'"))
-        XCTAssertTrue(lines.contains("exit 1"))
-        XCTAssertFalse(lines.contains(key))
-        // The real app's hire still reads the Keychain.
-        XCTAssertTrue(HireDesk.scriptLines(ports: "", apiKey: true, copyPort: nil, copySupport: nil, keyFile: nil).contains("security find-generic-password"))
-    }
-
     func testTheViewerInATestCopyKeepsItsSecretsInFilesAndNeverAsksTheKeychain() {
         let fail = { (what: String) in XCTFail("Keychain: \(what)") }
         let keychain = ViewerStore(read: { _ in fail("read"); return nil }, absent: { _ in fail("absent"); return false },

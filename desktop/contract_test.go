@@ -21,9 +21,10 @@ import (
 	"time"
 )
 
-// The route contract (M0 of the one-build plan): Tests/fixtures/contract/*.json is what the Mac answers on
-// each route, written by the Mac's ContractTests.swift as shapes: the status, the kind of body, and for JSON
-// its keys, their types and a closed set's values. Each fixture is asked of this app in process, and its answers checked against
+// The route contract (M0 of the one-build plan): Tests/fixtures/contract/*.json is what the Mac answered on
+// each route, written by the Swift engine's ContractTests.swift as shapes (the status, the kind of body, and for
+// JSON its keys, their types and a closed set's values) until M7 deleted that engine: every Mac runs this app
+// since 1.25.0, and the fixtures are kept by hand. Each fixture is asked of this app in process, and its answers checked against
 // them. Where this app doesn't answer as the Mac does yet, the difference is a row of knownGaps, and of
 // INVENTORY.md's "Known gaps" table, which must say the same: each M piece turns rows into passes, and a row
 // that passes must come out of both.

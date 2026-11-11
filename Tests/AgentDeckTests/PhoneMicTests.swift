@@ -98,135 +98,7 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertNotNil(PhoneDictation.prepared(String(repeating: "👍🏽", count: PhoneDictation.longest)))
     }
 
-    /// Typed into Claude Code (or Codex, Gemini CLI, OpenCode), "!" first switches it
-    /// to its shell, and Send would run the rest there: refused before any key goes.
-    func testTextStartingWithABangIsRefused() throws {
-        XCTAssertTrue(PhoneDictation.runsInShell("!rm -rf build"))
-        XCTAssertFalse(PhoneDictation.runsInShell("ship it!"))
-        XCTAssertFalse(PhoneDictation.runsInShell("¡hola!"))
-        // "!" with an accent, a joiner or an emoji's variation selector on it is one character to
-        // Swift, but Claude Code looks at the first code point and still goes into its shell.
-        for bang in ["!\u{301}x", "!\u{200D}x", "!\u{FE0F}x"] {
-            XCTAssertFalse(bang.hasPrefix("!"), "what let it through")
-            XCTAssertTrue(PhoneDictation.runsInShell(bang), bang.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " "))
-            XCTAssertTrue(PhoneDictation.runsInShell(try XCTUnwrap(PhoneDictation.prepared("  " + bang))), "trimmed first")
-        }
-        XCTAssertFalse(PhoneDictation.runsInShell("！x"), "a full-width one is text")
-        let body = try Self.body(of: "func typePhoneDictation(", until: "static let answerFirst")
-        func at(_ text: String) throws -> String.Index { try XCTUnwrap(body.range(of: text)?.lowerBound, text) }
-        XCTAssertLessThan(try at("guard let words = PhoneDictation.prepared(text) else { return done(.status(400, PhoneDictation.refusal(text))) }"),
-                          try at("guard !PhoneDictation.runsInShell(words) else { return done(.status(400, Deck.noBangPrompt)) }"),
-                          "checked on the text as it would be typed: spaces in front are trimmed first")
-        XCTAssertLessThan(try at("guard !PhoneDictation.runsInShell(words)"), try at("Deck.typePhoneWords(words, driver: driver, tab: tab"))
-    }
-
     // MARK: On a deck of its own, with a stand-in terminal
-
-    /// A deck that restores, saves and tells nothing, its desk "s1" a Claude Code session in
-    /// a terminal that records what it's given.
-    private func deckWithDesk(agent: Agent = .claude) -> (Deck, RecordingTerminal) {
-        let deck = Deck(quiet: true)
-        deck.sessions.apply(["hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "/work/api"],
-                            agent: agent, tab: "tmux:%3@/tmp/standin-socket", startedIn: "", at: 10)
-        deck.sessions.apply(["hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api"],
-                            agent: agent, tab: "tmux:%3@/tmp/standin-socket", startedIn: "", at: 20)
-        let terminal = RecordingTerminal()
-        Terminals.standIn = terminal
-        addTeardownBlock { Terminals.standIn = nil }
-        return (deck, terminal)
-    }
-
-    private func asks(_ deck: Deck, at time: Double) {
-        deck.sessions.apply(["hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/api", "tool_name": "Bash",
-                             "tool_input": ["command": "touch x"]], agent: .claude, tab: "tmux:%3@/tmp/standin-socket", startedIn: "", at: time)
-    }
-
-    private func dictate(_ deck: Deck, _ text: String, send: Bool = false) -> Response {
-        let answered = expectation(description: "answered")
-        var response: Response?
-        deck.typePhoneDictation(text, into: "s1", send: send) {
-            response = $0
-            answered.fulfill()
-        }
-        wait(for: [answered], timeout: 10)
-        return response!
-    }
-
-    /// Several lines go as ONE bracketed paste where the terminal takes one, then Return on its own if sent;
-    /// where it doesn't, nothing is typed and the phone is told in one sentence: never flattened, never a
-    /// Return per line (I34).
-    func testSeveralLinesGoAsOnePasteOrNotAtAll() {
-        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
-        let text = "Deux lignes :\n    « ça marche » 👩‍💻 fin;"
-        let (deck, terminal) = deckWithDesk()
-        terminal.lines = .pasted
-        XCTAssertEqual(dictate(deck, text, send: true).status, 204)
-        XCTAssertEqual(terminal.insertedLines, [text], "byte for byte, one paste")
-        XCTAssertEqual(terminal.inserted, [], "never as one line")
-        XCTAssertEqual(terminal.pressed, [.returnKey], "Return once, after the paste")
-
-        let (other, refusing) = deckWithDesk()
-        let response = dictate(other, text, send: true)
-        XCTAssertEqual(response.status, 409)
-        XCTAssertEqual(String(decoding: response.body, as: UTF8.self), Deck.noLines)
-        XCTAssertEqual(refusing.inserted + refusing.insertedLines, [], "nothing typed")
-        XCTAssertEqual(refusing.pressed, [], "no Return")
-
-        // A desk asking something gets nothing, several lines or one.
-        let (asking, held) = deckWithDesk()
-        held.lines = .pasted
-        asks(asking, at: 30)
-        XCTAssertEqual(dictate(asking, text, send: true).status, 409)
-        XCTAssertEqual(held.insertedLines + held.inserted, [])
-        // A typed answer to a menu goes as keys: one line only.
-        XCTAssertFalse(Deck.oneLineAnswer.isEmpty)
-    }
-
-    /// Terminal.app, iTerm2 and Ghostty paste several lines through the clipboard (owner's Q1 b), and wrap
-    /// them in bracketed-paste markers only where the agent asked, which they can't say: so only for an agent
-    /// known to ask. Refused before the terminal's queue is waited on where it can't be done at all (RI34 N3).
-    func testSeveralLinesThroughTheClipboardOnlyForAnAgentThatAsksForBracketedPaste() {
-        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
-        let text = "une\ndeux"
-        let (deck, terminal) = deckWithDesk()
-        terminal.linesWay = .clipboard(inFront: false)
-        terminal.lines = .pasted
-        agentAloneInFront()
-        XCTAssertEqual(dictate(deck, text, send: true).status, 204)
-        XCTAssertEqual(terminal.insertedLines, [text])
-        XCTAssertEqual(terminal.pressed, [.returnKey], "Return once, after the paste")
-
-        // Grok CLI isn't known to ask: each line break would press Return.
-        let (grok, refusing) = deckWithDesk(agent: .grok)
-        refusing.linesWay = .clipboard(inFront: false)
-        refusing.lines = .pasted
-        var looked = false
-        refusing.whenLookedUp = { looked = true }
-        let response = dictate(grok, text, send: true)
-        XCTAssertEqual(response.status, 409)
-        XCTAssertEqual(String(decoding: response.body, as: UTF8.self), Deck.noLines(for: .grok))
-        XCTAssertEqual(refusing.askedToPasteLines, 0)
-        XCTAssertEqual(refusing.pressed, [], "no Return")
-        XCTAssertFalse(looked, "refused before its terminal is asked anything")
-        XCTAssertEqual(dictate(grok, "une ligne", send: false).status, 204, "one line goes as before")
-
-        // A terminal that can't take them at all (WezTerm, kitty): refused at once, not after waiting on its queue.
-        let (never, wez) = deckWithDesk()
-        wez.linesWay = .never
-        var waited = false
-        wez.whenLookedUp = { waited = true }
-        XCTAssertEqual(dictate(never, text, send: true).status, 409)
-        XCTAssertEqual(wez.askedToPasteLines, 0)
-        XCTAssertFalse(waited)
-
-        // A tmux pane scrolled back says so in its own sentence (RI34 N2).
-        let (scrolled, inMode) = deckWithDesk()
-        inMode.lines = .inMode
-        let said = dictate(scrolled, text, send: true)
-        XCTAssertEqual(said.status, 409)
-        XCTAssertEqual(String(decoding: said.body, as: UTF8.self), Deck.linesInCopyMode)
-        XCTAssertEqual(inMode.pressed, [], "no Return")
-    }
 
     /// What's known before the terminal is asked: a terminal that can't, an agent not known to ask for
     /// bracketed paste, ⌘V without Accessibility or with the Mac locked.
@@ -254,31 +126,6 @@ final class PhoneMicTests: XCTestCase {
             }
             XCTAssertNil(Deck.linesRefusal(.paneFlag, agent: agent), agent.name)
         }
-    }
-
-    /// The desk free when the paste was asked for, asking something by the time the tab was in front for ⌘V:
-    /// the check runs right before the paste itself, so nothing goes, and no Return.
-    func testTheAskingCheckComesRightBeforeThePaste() {
-        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
-        let (deck, terminal) = deckWithDesk()
-        terminal.linesWay = .clipboard(inFront: false)
-        terminal.lines = .pasted
-        agentAloneInFront()
-        terminal.beforePaste = { DispatchQueue.main.sync { self.asks(deck, at: 30) } }
-        let response = dictate(deck, "une\ndeux", send: true)
-        XCTAssertEqual(response.status, 409)
-        XCTAssertEqual(String(decoding: response.body, as: UTF8.self), Deck.answerFirst)
-        XCTAssertEqual(terminal.askedToPasteLines, 1)
-        XCTAssertEqual(terminal.insertedLines, [], "nothing pasted")
-        XCTAssertEqual(terminal.pressed, [], "no Return")
-    }
-
-    /// The tab as `Terminal.front` would read it: the agent in front, nothing else reading the tab's keys
-    /// unless `readers` say.
-    private func agentAloneInFront(_ readers: Set<String> = [], place: Terminal.Place = .front) {
-        let saved = Deck.tabFront
-        Deck.tabFront = { _, _ in Terminal.TabFront(place: place, readers: readers) }
-        addTeardownBlock { Deck.tabFront = saved }
     }
 
     /// Several lines through the clipboard only while the desk waits at its main prompt, the agent alone in
@@ -392,104 +239,6 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertEqual(Processes.standardInput(of: 1), .unknown, "launchd is root's: not known")
     }
 
-    /// On a whole deck: an editor open in the tab, or no way to tell, and nothing is pasted, no Return.
-    func testAnEditorOpenFromTheAgentGetsNothing() {
-        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
-        let (deck, terminal) = deckWithDesk()
-        terminal.linesWay = .clipboard(inFront: true)
-        terminal.lines = .pasted
-        agentAloneInFront(["nano"])
-        let response = dictate(deck, "une\ndeux", send: true)
-        XCTAssertEqual(response.status, 409)
-        XCTAssertEqual(String(decoding: response.body, as: UTF8.self), Deck.linesInEditor)
-        XCTAssertEqual(terminal.insertedLines, [], "nothing pasted")
-        XCTAssertEqual(terminal.pressed, [], "no Return")
-
-        let saved = Deck.tabFront
-        Deck.tabFront = { _, _ in nil }
-        defer { Deck.tabFront = saved }
-        XCTAssertEqual(String(decoding: dictate(deck, "une\ndeux", send: true).body, as: UTF8.self), Deck.linesUnknown)
-        XCTAssertEqual(terminal.insertedLines + terminal.inserted, [])
-        // One line keeps today's rule: the asking check only.
-        XCTAssertEqual(dictate(deck, "une ligne", send: false).status, 204)
-        XCTAssertEqual(terminal.inserted, ["une ligne"])
-    }
-
-    /// The phone's text on both engines, one table (Tests/fixtures/bridge/phone-text.json, IGL): each case on the
-    /// Swift engine (`typePhoneDictation`), and as the Go core asks it, through the bridge's phone-text action,
-    /// with the desk's state the core would say. Both type through `Deck.typePhoneWords`: the same refusals in
-    /// the same sentences, the paste only where both let it, and the bridge's answer is the one the Go core reads
-    /// (desktop/phonetext_test.go runs the same table through it). Nothing real is looked at or told anything.
-    func testThePhonesTextTableOnBothEngines() throws {
-        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("fixtures/bridge/phone-text.json")
-        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        let cases = try XCTUnwrap(fixture["cases"] as? [[String: Any]])
-        XCTAssertGreaterThanOrEqual(cases.count, 6)
-        let gates = (Deck.keyboardAllowed, Deck.macLocked, Deck.tabFront)
-        addTeardownBlock { (Deck.keyboardAllowed, Deck.macLocked, Deck.tabFront) = gates }
-        Deck.keyboardAllowed = { true }
-        Deck.macLocked = { false }
-        func json(_ object: Any) -> String {
-            String(decoding: (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data(), as: UTF8.self)
-        }
-        for one in cases {
-            let name = try XCTUnwrap(one["name"] as? String)
-            let agent = try XCTUnwrap(Agent(rawValue: one["agent"] as? String ?? ""))
-            let desk = try XCTUnwrap(SessionState(rawValue: one["desk"] as? String ?? ""))
-            let front = try XCTUnwrap(one["front"] as? [String: Any])
-            let place: Terminal.Place = ["front": .front, "behind": .behind, "gone": .gone][front["place"] as? String ?? ""] ?? .gone
-            Deck.tabFront = { _, _ in Terminal.TabFront(place: place, readers: Set(front["readers"] as? [String] ?? [])) }
-            let pastes: LinesPasted = ["pasted": .pasted, "macInUse": .macInUse, "notRead": .notRead][one["terminal"] as? String ?? ""] ?? .failed
-            var request = try XCTUnwrap(one["request"] as? [String: Any])
-            let text = try XCTUnwrap(request["text"] as? String)
-            let swift = try XCTUnwrap(one["swift"] as? [String: Any])
-            let typed = one["typed"] as? Bool == true, returns = one["returns"] as? Bool == true
-
-            // The Swift engine, its desk in Terminal's tab, as the Go core's.
-            let deck = Deck(quiet: true)
-            deck.sessions.apply(["hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "/work/api"],
-                                agent: agent, tab: "tty:/dev/ttys003", startedIn: "", at: 10)
-            if desk != .thinking {
-                deck.sessions.apply(["hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api"],
-                                    agent: agent, tab: "tty:/dev/ttys003", startedIn: "", at: 20)
-            }
-            XCTAssertEqual(deck.sessions["s1"]?.state, desk, name)
-            let terminal = RecordingTerminal()
-            terminal.linesWay = .clipboard(inFront: true)
-            terminal.lines = pastes
-            Terminals.standIn = terminal
-            defer { Terminals.standIn = nil }
-            let response = dictate(deck, text, send: true)
-            XCTAssertEqual(response.status, swift["status"] as? Int, name)
-            XCTAssertEqual(String(decoding: response.body, as: UTF8.self), swift["says"] as? String, name)
-            XCTAssertEqual(!(terminal.inserted + terminal.insertedLines).isEmpty, typed, "\(name): typed")
-            XCTAssertEqual(terminal.pressed.contains(.returnKey), returns, "\(name): Return")
-
-            // The bridge, as the Go core asks it: the same driver, the desk's state as the core has it.
-            let bridged = RecordingTerminal()
-            bridged.linesWay = .clipboard(inFront: true)
-            bridged.lines = pastes
-            var mac = HostBridge.Actions(press: { _, _ in false }, type: { _, _ in false }, insert: { _, _ in false }, focus: { _ in false },
-                                         scroll: { _, _ in false }, scrollToBottom: { _ in false }, fire: { _, _ in .notStopped },
-                                         hires: FileManager.default.temporaryDirectory, open: { _, _, _ in nil }, secrets: [:], loginItem: nil)
-            mac.driver = { _ in bridged }
-            mac.place = { _, _ in nil }
-            mac.screen = { _ in nil }
-            let queue = DispatchQueue(label: "test.phone-text")
-            mac.queue = { _ in queue }
-            var asked: [String] = []
-            request["token"] = "fake-token"
-            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: "fake-token", actions: mac,
-                                           until: .now() + HostBridge.actionWait, deskState: { asked.append(desk.rawValue); return desk })
-            XCTAssertEqual(json(answer), json(one["answer"] ?? NSNull()), name)
-            XCTAssertEqual(asked, one["asked"] as? [String], "\(name): the core asked")
-            XCTAssertEqual(!(bridged.inserted + bridged.insertedLines).isEmpty, typed, "\(name): typed through the bridge")
-            XCTAssertEqual(bridged.pressed, [], "\(name): the bridge never presses Return: the core does, after")
-        }
-    }
-
     /// Each way several lines didn't go is said in its own sentence; ⌘V that went but wasn't read in time is
     /// a 503, so the page doesn't offer the words to send twice.
     func testEachWayTheClipboardPasteDidntGoIsSaid() {
@@ -507,99 +256,6 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertEqual(said(.notRead)?.1, Deck.linesNotRead)
     }
 
-    /// Over the Wi-Fi's plain http (I34): a paired phone's key types, as through Tailscale; no key, or a
-    /// wrong one, types nothing (401); the office's own window types nothing (403). The peek stays Tailscale's.
-    func testTheWiFiTypesWithAPairedPhonesKeyOnly() throws {
-        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
-        let (deck, terminal) = deckWithDesk()
-        let router = DeckRouter(deck: deck)
-        let key = try XCTUnwrap(deck.access.redeem(deck.access.newCode(), from: "192.168.1.20", userAgent: "Test iPhone"))
-        func post(_ path: String, key: String?, text: String = "deux\nlignes", local: Bool = false) throws -> Response {
-            var query = ["session": "s1"]
-            if let key { query["t"] = key }
-            let request = Request.addressed(method: "POST", path: path, query: query,
-                                            headers: ["host": local ? "localhost:7710" : "192.168.1.4:7710", "content-type": "application/json"],
-                                            body: try JSONSerialization.data(withJSONObject: ["text": text, "send": false]),
-                                            fromLoopback: local, remoteAddress: local ? "127.0.0.1" : "192.168.1.20")
-            XCTAssertFalse(request.isTailnet)
-            let answered = expectation(description: path)
-            var got: Response?
-            router.handle(request) { reply in
-                if case .response(let response) = reply { got = response }
-                answered.fulfill()
-            }
-            wait(for: [answered], timeout: 10)
-            return try XCTUnwrap(got)
-        }
-        XCTAssertEqual(try post("/dictate", key: nil).status, 401)
-        XCTAssertEqual(try post("/dictate", key: "not-a-paired-key").status, 401)
-        XCTAssertEqual(try post("/dictate", key: deck.windowKey, local: true).status, 403, "the office's window")
-        XCTAssertEqual(terminal.inserted + terminal.insertedLines, [], "nothing typed without a paired phone's key")
-        terminal.lines = .pasted
-        XCTAssertEqual(try post("/dictate", key: key).status, 204)
-        XCTAssertEqual(terminal.insertedLines, ["deux\nlignes"])
-        XCTAssertEqual(try post("/dictate", key: key, text: "une ligne").status, 204)
-        XCTAssertEqual(terminal.inserted, ["une ligne"])
-        XCTAssertEqual(try post("/dictate", key: key, text: "!rm -rf x").status, 400, "the same rules")
-        XCTAssertEqual(try post("/peek", key: key).status, 403, "reading a terminal stays Tailscale's")
-    }
-
-    func testTheTextGoesToAFreeDesk() {
-        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
-        let (deck, terminal) = deckWithDesk()
-        XCTAssertEqual(dictate(deck, "Café, ça va ? 👩‍💻 fin;").status, 204)
-        XCTAssertEqual(terminal.inserted, ["Café, ça va ? 👩‍💻 fin;"])
-        XCTAssertEqual(dictate(deck, "!\u{301};touch canary").status, 400, "never typed")
-        XCTAssertEqual(terminal.inserted.count, 1)
-    }
-
-    /// The desk free when the request came, asked something while it waited for the terminal (I1
-    /// measured waits of minutes behind Terminal.app): checked again right before the paste, so
-    /// the words never reach the menu.
-    func testADeskThatStartedAskingMeanwhileGetsNothing() {
-        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
-        let (deck, terminal) = deckWithDesk()
-        // Between the check on the request and the paste: as the terminal is asked where the agent is.
-        terminal.whenLookedUp = { DispatchQueue.main.sync { self.asks(deck, at: 30) } }
-        let response = dictate(deck, "fais un test court", send: true)
-        XCTAssertEqual(response.status, 409)
-        XCTAssertEqual(String(decoding: response.body, as: UTF8.self), Deck.answerFirst)
-        XCTAssertEqual(terminal.inserted, [], "nothing pasted")
-        XCTAssertEqual(terminal.pressed, [], "no Return")
-        XCTAssertEqual(deck.sessions["s1"]?.state, .asking)
-    }
-
-    /// ✗ or Esc from the deck on a Claude Code prompt: Claude ends the turn and waits for a
-    /// prompt, and no hook says so. The deck frees the desk once the key has gone, so the
-    /// phone may type what to do instead; for another agent, nothing is assumed.
-    func testRejectingFromTheDeckFreesAClaudeDesk() {
-        for agent in [Agent.claude, .codex] {
-            let (deck, terminal) = deckWithDesk(agent: agent)
-            deck.sessions.apply(["hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/api", "tool_name": "Bash"],
-                                agent: agent, tab: "tmux:%3@/tmp/standin-socket", startedIn: "", at: 30)
-            XCTAssertEqual(deck.sessions["s1"]?.state, .asking)
-            let answered = expectation(description: "answered")
-            deck.perform("reject", on: "s1", query: [:]) {
-                XCTAssertEqual($0.status, 204)
-                answered.fulfill()
-            }
-            wait(for: [answered], timeout: 10)
-            XCTAssertEqual(terminal.pressed.count, 1, "\(agent)")
-            XCTAssertEqual(deck.sessions["s1"]?.state, agent == .claude ? .idle : .asking, "\(agent)")
-        }
-        // A key that didn't go leaves it asking.
-        let (deck, terminal) = deckWithDesk()
-        asks(deck, at: 30)
-        terminal.takesKeys = false
-        let answered = expectation(description: "answered")
-        deck.perform("esc", on: "s1", query: [:]) {
-            XCTAssertGreaterThanOrEqual($0.status, 400)
-            answered.fulfill()
-        }
-        wait(for: [answered], timeout: 10)
-        XCTAssertEqual(deck.sessions["s1"]?.state, .asking)
-    }
-
     func testItSendsFromThreeWordsWithTheSettingOn() {
         XCTAssertFalse(PhoneDictation.sends("yes", autoSend: true))
         XCTAssertFalse(PhoneDictation.sends("yes please", autoSend: true))
@@ -607,58 +263,7 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertFalse(PhoneDictation.sends("yes please go", autoSend: false))
     }
 
-    /// Return goes on its own, after the text has settled in, as the ⏎ key
-    /// presses it: sent with the text, Claude Code took both for a paste and
-    /// Return for a new line in it.
-    func testReturnGoesAloneAfterTheTextSettles() throws {
-        let body = try Self.body(of: "func typePhoneDictation(", until: "static let answerFirst")
-        XCTAssertFalse(body.contains("driver.type("), "text and Return in one write")
-        // Return only under `if sends`: Type only never presses it.
-        XCTAssertEqual(body.components(separatedBy: "driver.press(").count, 2, "one press")
-        let block = try XCTUnwrap(Self.block(after: "if sends {", in: body))
-        XCTAssertTrue(block.contains("driver.press(.init(key: .returnKey), in: tab)"))
-        XCTAssertTrue(block.contains("Thread.sleep(forTimeInterval: PhoneDictation.settle)"))
-        func at(_ text: String) throws -> String.Index { try XCTUnwrap(body.range(of: text)?.lowerBound, text) }
-        XCTAssertLessThan(try at("Deck.typePhoneWords(words, driver: driver, tab: tab"), try at("Thread.sleep(forTimeInterval: PhoneDictation.settle)"))
-        XCTAssertLessThan(try at("Thread.sleep(forTimeInterval: PhoneDictation.settle)"), try at("driver.press(.init(key: .returnKey), in: tab)"))
-        XCTAssertGreaterThanOrEqual(PhoneDictation.settle, 0.15)
-        XCTAssertLessThanOrEqual(PhoneDictation.settle, 0.3)
-    }
-
     // MARK: An agent asking you something
-
-    /// While an agent asks, its menu would take the words (a digit picks an
-    /// option) and Return the option highlighted: nothing goes, Send or Type
-    /// only, and a Return already on its way is held back.
-    func testNothingGoesToAnAgentAskingYou() throws {
-        XCTAssertTrue(Deck.isAsking(.asking))
-        for state in [SessionState.idle, .thinking, .unread, .error] { XCTAssertFalse(Deck.isAsking(state), state.rawValue) }
-        let now = Date()
-        XCTAssertTrue(Deck.mayPressReturn(state: .thinking, last: nil, now: now))
-        XCTAssertTrue(Deck.mayPressReturn(state: .idle, last: now.addingTimeInterval(-Deck.returnRepeat), now: now))
-        XCTAssertFalse(Deck.mayPressReturn(state: .asking, last: nil, now: now), "began asking during the settle")
-        XCTAssertFalse(Deck.mayPressReturn(state: .idle, last: now.addingTimeInterval(-0.2), now: now), "a ⏎ just went")
-        XCTAssertFalse(Deck.mayPressReturn(state: nil, last: nil, now: now), "the session has gone")
-
-        let body = try Self.body(of: "func typePhoneDictation(", until: "static let answerFirst")
-        func at(_ text: String) throws -> String.Index { try XCTUnwrap(body.range(of: text)?.lowerBound, text) }
-        let guardAsking = try at("guard !Deck.isAsking(session.state) else { return done(.status(409, Deck.answerFirst)) }")
-        XCTAssertLessThan(guardAsking, try at("Deck.typePhoneWords(words, driver: driver, tab: tab"), "checked before any key")
-        // And again where both engines type (IGL), right before one line: the words go only after it.
-        let typing = try Self.body(of: "static func typePhoneWords(", until: "static let oneLineAnswer")
-        let again = try XCTUnwrap(typing.range(of: "guard !isAsking(state()) else { return .refused(.status(409, answerFirst)) }")?.lowerBound)
-        XCTAssertLessThan(again, try XCTUnwrap(typing.range(of: "driver.insert(words, in: tab)")?.lowerBound))
-        XCTAssertLessThan(guardAsking, try at("toAgent(session"))
-        // Again right before Return, on the main queue, where the state and the last Return live.
-        let settle = try at("Thread.sleep(forTimeInterval: PhoneDictation.settle)")
-        let claim = try at("guard DispatchQueue.main.sync(execute: { self.claimReturn(id) }) else {")
-        let press = try at("driver.press(.init(key: .returnKey), in: tab)")
-        XCTAssertLessThan(settle, claim)
-        XCTAssertLessThan(claim, press)
-        let claimer = try Self.body(of: "private func claimReturn(", until: "func peek(")
-        XCTAssertTrue(claimer.contains("guard Deck.mayPressReturn(state: sessions[id]?.state, last: lastReturn[id], now: now) else { return false }"))
-        XCTAssertTrue(claimer.contains("lastReturn[id] = now"))
-    }
 
     /// The page holds the box's Send ⏎ and Type only while that agent asks, and says why.
     func testTheBoxWaitsWhileTheAgentAsks() throws {
@@ -707,16 +312,6 @@ final class PhoneMicTests: XCTestCase {
     }
 
     // MARK: The peek
-
-    func testAPeekAtMostOnceASecond() throws {
-        let now = Date()
-        XCTAssertFalse(PhoneDictation.peekTooSoon(last: nil, now: now))
-        XCTAssertTrue(PhoneDictation.peekTooSoon(last: now.addingTimeInterval(-0.5), now: now))
-        XCTAssertFalse(PhoneDictation.peekTooSoon(last: now.addingTimeInterval(-PhoneDictation.peekGap), now: now))
-        let body = try Self.body(of: "func peek(_ id: String", until: "static func dictates(_ agent")
-        let limit = try XCTUnwrap(body.range(of: "guard !PhoneDictation.peekTooSoon(last: lastPeek[id], now: now) else { return done(.status(429,"))
-        XCTAssertLessThan(limit.lowerBound, try XCTUnwrap(body.range(of: "driver.screen(of: address)")).lowerBound)
-    }
 
     func testThePeekIsTheLastLinesAsText() {
         let screen = (1...30).map { "line \($0)" }.joined(separator: "\n") + "\n\n   \n"
@@ -878,6 +473,60 @@ final class PhoneMicTests: XCTestCase {
         let saved = String(decoding: try JSONEncoder().encode(earlier), as: UTF8.self)
         XCTAssertTrue(saved.contains(#""phoneMicSkipsConfirm":false"#))
         XCTAssertFalse(saved.contains(#""phoneMicAutoSend""#))
+    }
+
+    /// The phone's text, one table (Tests/fixtures/bridge/phone-text.json, IGL): each case as the Go core asks
+    /// it, through the bridge's phone-text action, with the desk's state the core would say, typed through
+    /// `Deck.typePhoneWords`: its refusals in its sentences, and the bridge's answer the one the Go core reads
+    /// (desktop/phonetext_test.go runs the same table through it). The table's "swift" answers were the Swift
+    /// engine's, gone in 1.25.0. Nothing real is looked at or told anything.
+    func testThePhonesTextTableThroughTheBridge() throws {
+        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("fixtures/bridge/phone-text.json")
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let cases = try XCTUnwrap(fixture["cases"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(cases.count, 6)
+        let gates = (Deck.keyboardAllowed, Deck.macLocked, Deck.tabFront)
+        addTeardownBlock { (Deck.keyboardAllowed, Deck.macLocked, Deck.tabFront) = gates }
+        Deck.keyboardAllowed = { true }
+        Deck.macLocked = { false }
+        func json(_ object: Any) -> String {
+            String(decoding: (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data(), as: UTF8.self)
+        }
+        for one in cases {
+            let name = try XCTUnwrap(one["name"] as? String)
+            let agent = try XCTUnwrap(Agent(rawValue: one["agent"] as? String ?? ""))
+            let desk = try XCTUnwrap(SessionState(rawValue: one["desk"] as? String ?? ""))
+            let front = try XCTUnwrap(one["front"] as? [String: Any])
+            let place: Terminal.Place = ["front": .front, "behind": .behind, "gone": .gone][front["place"] as? String ?? ""] ?? .gone
+            Deck.tabFront = { _, _ in Terminal.TabFront(place: place, readers: Set(front["readers"] as? [String] ?? [])) }
+            let pastes: LinesPasted = ["pasted": .pasted, "macInUse": .macInUse, "notRead": .notRead][one["terminal"] as? String ?? ""] ?? .failed
+            var request = try XCTUnwrap(one["request"] as? [String: Any])
+            let text = try XCTUnwrap(request["text"] as? String)
+            let typed = one["typed"] as? Bool == true, returns = one["returns"] as? Bool == true
+
+            // The bridge, as the Go core asks it: the same driver, the desk's state as the core has it.
+            let bridged = RecordingTerminal()
+            bridged.linesWay = .clipboard(inFront: true)
+            bridged.lines = pastes
+            var mac = HostBridge.Actions(press: { _, _ in false }, type: { _, _ in false }, insert: { _, _ in false }, focus: { _ in false },
+                                         scroll: { _, _ in false }, scrollToBottom: { _ in false }, fire: { _, _ in .notStopped },
+                                         hires: FileManager.default.temporaryDirectory, open: { _, _, _ in nil }, secrets: [:], loginItem: nil)
+            mac.driver = { _ in bridged }
+            mac.place = { _, _ in nil }
+            mac.screen = { _ in nil }
+            let queue = DispatchQueue(label: "test.phone-text")
+            mac.queue = { _ in queue }
+            var asked: [String] = []
+            request["token"] = "fake-token"
+            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: "fake-token", actions: mac,
+                                           until: .now() + HostBridge.actionWait, deskState: { asked.append(desk.rawValue); return desk })
+            XCTAssertEqual(json(answer), json(one["answer"] ?? NSNull()), name)
+            XCTAssertEqual(asked, one["asked"] as? [String], "\(name): the core asked")
+            XCTAssertEqual(!(bridged.inserted + bridged.insertedLines).isEmpty, typed, "\(name): typed through the bridge")
+            XCTAssertEqual(bridged.pressed, [], "\(name): the bridge never presses Return: the core does, after")
+        }
     }
 }
 

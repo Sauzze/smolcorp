@@ -266,16 +266,6 @@ extension Keystrokes {
     /// The event log line for a change of the allowed apps: the id alone.
     static func appListChange(added: Bool, id: String) -> String { "\(added ? "app allowed" : "app removed"): \(id)" }
 
-    /// Writes one use to the event log. It's used on the main thread, so this hops there.
-    static func logToEvents(_ events: @escaping () -> EventLog) -> (String, Action, String) -> Void {
-        { app, action, result in
-            DispatchQueue.main.async {
-                _ = events().append(EventLog.Entry(at: Date().timeIntervalSince1970 * 1000, kind: .keystroke,
-                                                    detail: "\(action.rawValue) \(app): \(result)"))
-            }
-        }
-    }
-
     /// The apps open now that could be added: name and id, without those already on the list or on the block-list.
     static func runningApps(except listed: [String]) -> [[String: String]] {
         NSWorkspace.shared.runningApplications.compactMap { app in

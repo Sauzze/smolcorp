@@ -304,16 +304,17 @@ const setupHireNeedsFolder = "Choose the folder for your hires first: it's the f
 
 // Refusals of a hire that would otherwise start without its fence, or on the wrong Claude account.
 const (
-	macHireNeedsTmux      = "Hires on this engine need tmux on your Mac to start fenced: install it, or switch back to the Swift engine."
-	macHirePinnedUnfenced = "On this engine, a hire at a desk or floor pinned to a folder can't start fenced yet: hire at another desk, or switch back to the Swift engine."
+	// Since 1.25.0 the Mac has no other engine to go back to (M7): each says only what to do here.
+	macHireNeedsTmux      = "Hires need tmux on your Mac to start fenced: install it, then hire again."
+	macHirePinnedUnfenced = "A hire at a desk or floor pinned to a folder can't start fenced yet: hire at another desk."
 	// The GM's route names a floor, never a desk: only a floor's own folder pins it, and another floor is its way out.
-	macGMHirePinnedUnfenced = "On this engine, a hire on a floor with a folder of its own can't start fenced yet: hire on another floor, or switch back to the Swift engine."
+	macGMHirePinnedUnfenced = "A hire on a floor with a folder of its own can't start fenced yet: hire on another floor."
 	// Setup's sheet picks the desk pinned to the folder itself, so another desk isn't its way out.
-	macSetupHirePinnedUnfenced = "On this engine, a hire in a folder a desk or floor is pinned to can't start fenced yet: unpin that folder, or switch back to the Swift engine."
-	// A role whose agent isn't one Smolcorp knows: the Mac starts it as Claude Code, fenced.
-	macHireUnknownAgent = "On this engine, a role whose agent Smolcorp doesn't know can't start fenced yet: set its agent to Claude Code in setup, or switch back to the Swift engine."
-	// Anyone's hire (no role) with the manager on: the Mac fences it, the engine only hires a role.
-	macHireNoRoleUnfenced   = "On this engine, a hire with no role can't start fenced yet: pick a role, or switch back to the Swift engine."
+	macSetupHirePinnedUnfenced = "A hire in a folder a desk or floor is pinned to can't start fenced yet: unpin that folder."
+	// A role whose agent isn't one Smolcorp knows: the Swift engine started it as Claude Code, fenced.
+	macHireUnknownAgent = "A role whose agent Smolcorp doesn't know can't start fenced yet: set its agent to Claude Code in setup."
+	// Anyone's hire (no role) with the manager on: the Swift engine fenced it, the engine only hires a role.
+	macHireNoRoleUnfenced   = "A hire with no role can't start fenced yet: pick a role."
 	plainHireDefaultAccount = "This hire would start on your default Claude account, so it wasn't started: hire in tmux, at a desk that isn't pinned."
 	// Setup's hire that went the plain way, said with its answer (setuphire.go).
 	setupHireNotPassedOn = "It starts the old way: your task and answers weren't passed on, and it asks its role's questions itself."

@@ -45,26 +45,13 @@ enum TestCopy {
 
     private static let quietLog = Logger(subsystem: "io.github.sauzze.agentdeck", category: "test-copy")
 
-    /// Where the copy's server listens: this Mac only (127.0.0.1 and ::1), so the Mac's firewall
-    /// never asks about it and nothing on the network reaches it, unless SMOLCORP_TEST_LISTEN=lan asks
-    /// for every interface, as the phone matrix needs. The real app listens on every interface. The
-    /// suite counts as a test copy here: its stand-in servers stay on this Mac too.
-    /// SMOLCORP_TEST_LISTEN=lan left in the environment of `swift test` never puts the suite's stand-in
-    /// servers on the network (RTCH N4): only a real test copy reads it.
-    static let listensOn = listenScope(testCopy: isOn || Paths.underTest,
-                                       environment: isOn ? ProcessInfo.processInfo.environment : [:])
-    static func listenScope(testCopy: Bool, environment: [String: String]) -> HTTPServer.Scope {
-        guard testCopy, !wantsLAN(environment) else { return .everywhere }
-        return .thisMac
-    }
-
     /// Whether SMOLCORP_TEST_LISTEN says "lan", as the Go engine reads it: spaces around it and the
     /// letter case don't matter (RTCH N3), so both engines and scripts/test-copy.sh agree.
     static func wantsLAN(_ environment: [String: String]) -> Bool {
         environment["SMOLCORP_TEST_LISTEN"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "lan"
     }
 
-    /// What a test copy never does to another app (RTCH N1): a route or a bridge action that would bring
+    /// What a test copy never does to another app (RTCH N1): a bridge action that would bring
     /// a terminal app, T3 Code, the Grok app, System Settings or a system prompt in front of the owner's
     /// work, or touch the owner's music or microphone (RWTC N2), answers with the sentence below instead.
     /// The real app: nothing is refused.
@@ -98,20 +85,6 @@ enum TestCopy {
         if let address = TabAddress(tab), address.kind == "tmux", !address.socket.isEmpty,
            HireTmux.owns(address.socket, testPort: testPort) { return nil }
         return OtherApp.terminal.sentence
-    }
-
-    /// The setup routes a test copy answers with a sentence before doing anything (RTCH N1, RWTC N2): the
-    /// Accessibility prompt, tiling other apps' windows, the jukebox turned on (the owner's music and volume)
-    /// and dictation turned on (the microphone's prompt). Turning the last two off is as ever. Nil for the real app.
-    static func routeRefusal(_ method: String, _ path: String, query: [String: String], testCopy: Bool = isOn) -> String? {
-        guard testCopy, method == "POST" else { return nil }
-        switch path {
-        case "/setup/accessibility": return OtherApp.accessibility.sentence
-        case "/setup/gm/tile": return OtherApp.tiler.sentence
-        case "/setup/music" where query["enabled"] == "1": return OtherApp.music.sentence
-        case "/setup/dictation" where query["enabled"] == "1": return OtherApp.microphone.sentence
-        default: return nil
-        }
     }
 
     /// A test copy, as it opens, writes a setup link to `setup-link` in its own folder (0600), so a

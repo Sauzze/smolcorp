@@ -12,21 +12,6 @@ final class SettingsWindowTests: XCTestCase {
         XCTAssertEqual(SettingsWindow.address(port: port, then: "pair").absoluteString, "http://localhost:7710/setup#pair")
     }
 
-    func testItsCookieIsTheOneTheBrowserIsGiven() throws {
-        let cookie = try XCTUnwrap(SettingsWindow.sessionCookie(session: "abc_DEF-123"))
-        XCTAssertEqual(cookie.name, DeckRouter.setupCookie)
-        XCTAssertEqual(cookie.value, "abc_DEF-123")
-        XCTAssertEqual(cookie.domain, "localhost")
-        XCTAssertEqual(cookie.path, "/setup")
-        XCTAssertTrue(cookie.isHTTPOnly)
-        XCTAssertEqual(cookie.sameSitePolicy, .sameSiteStrict)
-        XCTAssertTrue(cookie.isSessionOnly, "kept in memory, never saved")
-        // As WebKit sends it, the router reads it back
-        let sent = Request(method: "GET", path: "/setup/state", query: [:], headers: ["cookie": "\(cookie.name)=\(cookie.value)"],
-                           body: Data(), isLocal: true, isAddressedDirectly: true, remoteAddress: "127.0.0.1")
-        XCTAssertEqual(DeckRouter.cookie(DeckRouter.setupCookie, in: sent), "abc_DEF-123")
-    }
-
     func testOnlyTheSetupPageOpensInIt() {
         let open = { (address: String?) in SettingsWindow.isSetupPage(address.flatMap(URL.init(string:)), port: self.port) }
         XCTAssertTrue(open("http://localhost:7710/setup"))
@@ -78,114 +63,14 @@ final class SettingsWindowTests: XCTestCase {
         XCTAssertNil(SettingsPanel.editing("q", .command))
     }
 
-    /// The setup-key file's key is no cookie at the gate; the window's is a
-    /// page session, a new one from a one-time link each time.
-    func testTheWindowsCookieIsAPageSessionNotTheSetupKey() throws {
-        let sessions = SetupSessions(), setupKey = randomKey()
-        let isKey = { (given: String?) in given.map { constantTimeEqual($0, setupKey) } ?? false }
-        let newSession = { sessions.open(link: sessions.newLink()) }
-        XCTAssertEqual(sessions.caller(header: nil, cookie: setupKey, isSetupKey: isKey), .nobody, "the file's key as a cookie is no one")
-        let session = try XCTUnwrap(newSession())
-        XCTAssertNotEqual(session, setupKey)
-        XCTAssertEqual(sessions.caller(header: nil, cookie: session, isSetupKey: isKey), .page)
-        XCTAssertNotEqual(newSession(), session, "a new one each time")
-    }
-
-    /// The window's own page, in WebKit, against a server standing in for the
-    /// deck on a port of its own, with the deck's gate: a page session reaches
-    /// it as the cookie, only under /setup, and no address carries it.
-    func testThePageReadsSetupWithASessionAndNoKeyInAnyAddress() throws {
-        let sessions = SetupSessions()
-        let (stub, web, _) = try open(server: sessions, window: sessions)
-        XCTAssertEqual(web.title, "done 200 mac mac #pair")
-        XCTAssertEqual(stub.callerAt["/setup/state"], .page, "the session came as the cookie")
-        XCTAssertEqual(stub.callerAt["/elsewhere"], .nobody, "not sent outside /setup")
-        XCTAssertFalse(stub.addresses.isEmpty)
-        XCTAssertFalse(stub.addresses.contains { $0.contains(stub.cookies.first ?? "-") }, "no address carries the session")
-        XCTAssertFalse(stub.cookies.contains(stub.setupKey), "never the setup key")
-    }
-
-    func testAnotherDecksSessionIsRefused() throws {
-        let (_, web, _) = try open(server: SetupSessions(), window: SetupSessions())
-        XCTAssertEqual(web.title, "done 401 mac mac #pair")
-    }
-
-    /// Opening again at #pair and reloading each take a new session.
-    func testEveryLoadTakesANewSession() throws {
-        let sessions = SetupSessions()
-        let (stub, web, settings) = try open(server: sessions, window: sessions)
-        XCTAssertEqual(Set(stub.cookies).count, 1)
-        web.evaluateJavaScript("document.title = 'loading'")
-        settings.reload(web)
-        XCTAssertTrue(wait(15) { web.title?.hasPrefix("done") == true && Set(stub.cookies).count == 2 }, "reload used a second session")
-        XCTAssertEqual(web.title, "done 200 mac mac #pair", "still at #pair")
-        XCTAssertFalse(stub.cookies.contains(stub.setupKey))
-    }
-
-    /// The window's page, at #pair, against a stand-in server on a port of its own.
-    private func open(server sessions: SetupSessions, window: SetupSessions) throws -> (SetupStub, WKWebView, SettingsWindow) {
-        let stub = SetupStub(sessions: sessions, setupKey: randomKey())
-        let port = UInt16.random(in: 47_100...47_900)
-        let server = HTTPServer(port: port, router: stub)
-        var listening = false
-        server.onReady = { listening = true }
-        server.start()
-        servers.append(server)
-        XCTAssertTrue(wait(10) { listening }, "the stand-in server listens")
-
-        let settings = SettingsWindow(port: port, newSession: { window.open(link: window.newLink()) })
-        let web = settings.page(frame: NSRect(x: 0, y: 0, width: 900, height: 640), then: "pair")
-        XCTAssertTrue(wait(15) { web.title?.hasPrefix("done") == true }, "the page loaded and read setup: \(web.title ?? "nothing")")
-        return (stub, web, settings)
-    }
-
-    private var servers: [HTTPServer] = []
-
-    /// Runs the main run loop until `done`, for up to `seconds`.
-    private func wait(_ seconds: TimeInterval, until done: () -> Bool) -> Bool {
-        let end = Date().addingTimeInterval(seconds)
-        while !done() && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-        return done()
-    }
-}
-
-/// The deck's setup check, as DeckRouter makes it (`SetupSessions.caller`),
-/// and a page that reads through it and puts what it got in its title.
-private final class SetupStub: Router {
-    let sessions: SetupSessions
-    let setupKey: String
-    private(set) var addresses: [String] = []
-    private(set) var cookies: [String] = []
-    private(set) var callerAt: [String: SetupSessions.Caller] = [:]
-
-    init(sessions: SetupSessions, setupKey: String) {
-        self.sessions = sessions
-        self.setupKey = setupKey
-    }
-
-    static let page = """
-        <!doctype html><title>loading</title><script>
-        (async () => {
-          const state = await fetch('/setup/state', { headers: { 'X-AgentDeck-Setup': '1' } });
-          await fetch('/elsewhere');
-          const app = window.smolcorpApp ? window.smolcorpApp.platform : 'none';
-          document.title = ['done', state.status, app, document.documentElement.dataset.smolcorpApp, location.hash].join(' ');
-        })();
-        </script>
-        """
-
-    func handle(_ request: Request, reply: @escaping (Reply) -> Void) {
-        addresses.append(request.path + "?" + request.query.map { "\($0)=\($1)" }.joined(separator: "&"))
-        let cookie = DeckRouter.cookie(DeckRouter.setupCookie, in: request)
-        // One per page load: the page's /setup request
-        if let cookie, request.path == "/setup" { cookies.append(cookie) }
-        let caller = sessions.caller(header: request.headers[DeckRouter.setupKeyHeader], cookie: cookie,
-                                     isSetupKey: { [setupKey] in $0.map { constantTimeEqual($0, setupKey) } ?? false })
-        callerAt[request.path] = caller
-        switch request.path {
-        case "/setup": reply(.response(Response(contentType: "text/html; charset=utf-8", body: Data(SetupStub.page.utf8))))
-        case "/setup/state": reply(.response(caller != .nobody && request.headers[DeckRouter.setupHeader] == "1" ? .json([:]) : .status(401)))
-        default: reply(.response(.status(404)))
-        }
+    func testItsCookieIsTheOneTheBrowserIsGiven() throws {
+        let cookie = try XCTUnwrap(SettingsWindow.sessionCookie(session: "abc_DEF-123"))
+        XCTAssertEqual(cookie.name, SettingsWindow.setupCookie)
+        XCTAssertEqual(cookie.value, "abc_DEF-123")
+        XCTAssertEqual(cookie.domain, "localhost")
+        XCTAssertEqual(cookie.path, "/setup")
+        XCTAssertTrue(cookie.isHTTPOnly)
+        XCTAssertEqual(cookie.sameSitePolicy, .sameSiteStrict)
+        XCTAssertTrue(cookie.isSessionOnly, "kept in memory, never saved")
     }
 }

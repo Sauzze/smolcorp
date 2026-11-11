@@ -271,24 +271,4 @@ extension DictationCleanupTests {
 
 /// Pass 2: which mic a desk uses. Clean-up off, it's exactly as before.
 final class DictationRouteTests: XCTestCase {
-    func testWithTheCleanUpOffClaudeCodeKeepsItsOwnVoice() {
-        // Today's rule: agents with no voice dictate; Claude Code only with "Claude Code too".
-        XCTAssertFalse(Deck.dictates(hasVoice: true, dictationOn: true, forClaude: false, cleanup: false))
-        XCTAssertTrue(Deck.dictates(hasVoice: true, dictationOn: true, forClaude: true, cleanup: false))
-        XCTAssertTrue(Deck.dictates(hasVoice: false, dictationOn: true, forClaude: false, cleanup: false))
-    }
-
-    func testWithTheCleanUpOnClaudeCodeDictatesThroughSmolcorp() {
-        XCTAssertTrue(Deck.dictates(hasVoice: true, dictationOn: true, forClaude: false, cleanup: true))
-        XCTAssertTrue(Deck.dictates(hasVoice: false, dictationOn: true, forClaude: false, cleanup: true))
-    }
-
-    func testWithDictationOffNothingChanges() {
-        for forClaude in [false, true] {
-            for cleanup in [false, true] {
-                XCTAssertFalse(Deck.dictates(hasVoice: true, dictationOn: false, forClaude: forClaude, cleanup: cleanup))
-                XCTAssertFalse(Deck.dictates(hasVoice: false, dictationOn: false, forClaude: forClaude, cleanup: cleanup))
-            }
-        }
-    }
 }

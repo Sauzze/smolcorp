@@ -409,7 +409,7 @@ func TestTheMacsWordsUnderTheMacApp(t *testing.T) {
 	for _, c := range []struct{ method, path, command string }{
 		{"GET", "/setup/gm/screens", "screens"}, {"POST", "/setup/gm/screen", "screen"}, {"POST", "/setup/gm/tile", "tile"},
 	} {
-		want := "`gm " + c.command + "` isn't available on this engine yet: switch back to the Swift engine to use it."
+		want := "`gm " + c.command + "` isn't available in this version of Smolcorp yet."
 		if code, text := pageCall(t, d, c.method, c.path); code != http.StatusNotFound || text != want {
 			t.Errorf("%s %s: %d %q", c.method, c.path, code, text)
 		}

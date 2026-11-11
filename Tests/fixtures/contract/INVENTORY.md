@@ -1,12 +1,12 @@
 # The route contract: inventory
 
-Every route the Mac app serves (`Sources/AgentDeck/DeckRouter.swift`, `BriefRoutes.swift`; `HTTPServer.swift`
-has none of its own), who may call it, what it takes and answers, which fixture covers it, and whether the
-Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (served, with a known gap).
+Every route the Mac app's own engine served until 1.25.0 (its Swift engine, deleted in M7), who may call it,
+what it takes and answers, which fixture covers it, and whether the Go app (`desktop/`), which every Mac runs
+since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a known gap).
 
-- The fixtures beside this file are written from the Mac's answers by `Tests/AgentDeckTests/ContractTests.swift`
-  (run once with `SMOLCORP_WRITE_FIXTURES=1` to write them; a normal run checks the Mac still answers so), and
-  asked of the Go app by `desktop/contract_test.go`. Shapes, not values: status, kind of body (refusals too),
+- The fixtures beside this file were written from the Swift engine's answers by its `ContractTests.swift`, gone
+  with it in M7: they're now the reference the Go app keeps, asked of it by `desktop/contract_test.go`, and
+  changed by hand, with that test, when the contract changes. Shapes, not values: status, kind of body (refusals too),
   and for JSON its keys, their types and a closed set's values (a session's state, an agent…). Nothing empty
   stands for anything: a null, `{}` or `[]` where the Mac has something is a difference. `contract.json` holds
   the shapes routes share (the setup state, the snapshot) and what each fixture's `given` sets up.
@@ -23,11 +23,9 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 - **Fixture** names the file, or says `none: ` and why: no fixture asks a route that writes the home folder,
   asks the Keychain, opens a window, a picker or a terminal, starts another program, or reaches another
   computer. Those have their refusals in a fixture where one comes first.
-- The contract is a public build's. What only the native iPhone app (`ios/`) asks (`/glossary`, `/notifications`,
-  `/reviews`, `/setup/notify`) is built only into the owner's personal build, with `-Xswiftc -DIPHONE_APP`
-  (`SMOLCORP_IPHONE_APP=1 scripts/build-app.sh`, M6): its rows say `none: the iPhone app's…` and `404, owner: M6:
-  personal shell`, as a public build answers 404 like the Go app. The personal build also gives the conversation
-  and ⓘ info to the iPhone app through Tailscale; a public build gives them to the office's own window only.
+- The contract is a public build's. What only the native iPhone app (`ios/`) asked (`/glossary`, `/notifications`,
+  `/reviews`, `/setup/notify`) was served only by the Swift engine of the owner's personal build (M6), so it has
+  no rows since M7.
 - Callers: `page` (the setup page's cookie), `tool` (the setup-key file), `gm` (the GM's token), `hire` (a
   hire's send key), as `frontdesk/routes.json`; `phone` (a paired phone's key, or the office's own window),
   `window` (the office's window on this computer only), `hook` (the hook's key, from this computer), `anyone`.
@@ -52,13 +50,9 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/focus` | phone | `?session=`; a hire in T3 Code's desk opens its own thread in T3 Code (T3D-a) | empty, or text | 204, 404, 409 | office.json | served |
 | POST | `/act` | phone | `?action=` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap, style, music, fire, hire, move, seen, language, cleanup, settings, choose, letgo (a hire in T3 Code's desk, T3D-a; any other action there is 409; on a desk in a terminal Smolcorp can only watch, every control, the effort dial included, is 409 "Smolcorp can't do that in this terminal yet.": FXC2b)…; `&session=` | empty, or text | 204, 400, 403, 404, 409 | office.json | differs |
 | POST | `/summary` | phone | `?session=` | `{summary}` or `{error}` | 200, 400–503 `{error}` | office.json | served |
-| GET | `/glossary` | phone | — | `{api, glossary, language}` for the iPhone app's speech | 200 | none: the iPhone app's, served only by the owner's personal build (built with IPHONE_APP); a public build answers 404 | 404, owner: M6: personal shell |
 | GET | `/approvals` | phone | — | `{approvals, at}` | 200, 403 (not Tailscale) | office.json | 404 |
-| GET | `/reviews` | phone | — | the NEEDS-REVIEW list | 200, 403 (not Tailscale) | none: the iPhone app's, served only by the owner's personal build (built with IPHONE_APP); a public build answers 404 | 404, owner: M6: personal shell |
 | GET | `/conversation` | phone | `?session=&before=&size=` | a page of the conversation | 200, 400, 403 | office.json | 404 |
 | GET | `/session/info` | phone | `?id=` or `?session=` | account, model, time, tokens | 200, 403 | office.json | 404 |
-| GET | `/notifications` | phone | — | `{key, registered, finished, waiting, gm}` | 200 | none: the iPhone app's, served only by the owner's personal build (built with IPHONE_APP); a public build answers 404 | 404, owner: M6: personal shell |
-| POST | `/notifications` | phone | `{token, sandbox, finished, waiting, gm, office, officeID}` | as GET | 200, 403 | none: the iPhone app's, served only by the owner's personal build (built with IPHONE_APP); a public build answers 404 | 404, owner: M6: personal shell |
 | POST | `/dictate` | phone | `{text, send}`, over the Wi-Fi or Tailscale (I34); several lines as one paste (tmux by the pane's flag; Terminal.app, iTerm2 and Ghostty through the clipboard and ⌘V, Claude Code only) | empty or text | 204, 400, 403 (the office's window, the phone mic off, no Accessibility for ⌘V), 404, 409 (a hire in T3 Code's desk: nothing types into it; asking; several lines where its terminal or agent can't take one paste, a tmux pane in copy mode, the Mac locked for ⌘V; through the clipboard: working, not in front of its tab, something else reading the tab's keys (an editor, a pager, a shell, anything else), the tab not known, not brought or kept in front, the Mac in use, the clipboard can't be put back, another paste still on it), 503 (the terminal stopped answering; ⌘V went but the paste wasn't read in time, no Return) | office.json | served |
 | POST | `/peek` | phone | `?session=` | the input line | 200, 403 | office.json | served |
 | POST | `/choose` | phone | `?option=other&choice=`, `{text}`, over the Wi-Fi or Tailscale (I34), one line | empty | 204, 400 (several lines too), 403 | office.json | served |
@@ -145,7 +139,6 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/setup/bots/override` | gm, page | `{id, pinned, floor, hidden, show, autoDetect, botFloor}` | the setup state | 200, 400, 404 | setup.json | differs |
 | POST | `/setup/bots/mailbox` | page | `{id, folder}` | `{bots}` | 200, 400 | setup.json | served |
 | POST | `/setup/bots/resolve` | gm, page | — | `{bots, filled, unresolved}` | 200 | setup.json | served |
-| POST | `/setup/notify` | gm, page | `{title, body}` | `{sent}` | 200, 400, 503 | none: the iPhone app's, served only by the owner's personal build (built with IPHONE_APP); a public build answers 404 | 404, owner: M6: personal shell |
 
 ## Setup: the portable office's viewer
 
@@ -170,7 +163,7 @@ into that folder or the top of one of its worktrees, a folder that is there, nev
 and on the Claude account the GM was hired on (`account` that one or left out, when the app fills it in); `send`, `brief`, `fire`, `contacts`, `nickname`, `/setup/pin`, `/setup/unpin`, `watch` and
 `unwatch` only for its own hires, folders and watches; any other route but a GET is refused. Each refusal is
 403 with one sentence, before the route. A GM with no scope gets every answer below as before. The Mac's Swift
-engine has no scope and ignores the field: M7 keeps this before it deletes Swift's GM routes. `smolcorp demo`
+engine had no scope and ignored the field; since 1.25.0 a Mac runs the Go app, so its GM has it too. `smolcorp demo`
 hires its GM so (`desktop/demooffice.go`).
 
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
@@ -209,9 +202,9 @@ hires its GM so (`desktop/demooffice.go`).
 | POST | `/launcher/screen` | a launcher's answer to a look at its window | none |
 | POST | `/raise` | a second Smolcorp asking this one to show the office | none |
 | GET | `/office?o=` | the tray's one-time token swapped for the window key (303) | the Mac's window has its key |
-| POST | `/setup/t3code/takeover` | Take over in T3 Code (EXPERIMENTAL, M5b), the page alone: `{id}`, a hire in a tmux session of its own goes on, the same session, in T3 Code; `{ok, thread, tag}`, 200, 404, 409, 500, 502 | none: M7: the Go engine (the Mac's Swift engine has no Take over) |
-| POST | `/setup/t3code/handback` | Hand back (EXPERIMENTAL, M5b), the page alone: `{id}`, T3 Code lets go, the session is checked free, then resumed in its tmux session; `{ok, note}`, 200, 404, 409, 500, 502 | none: M7: the Go engine (the Mac's Swift engine has no Hand back) |
-| POST | `/act?action=takeover`, `/act?action=handback` | the same from a desk's card, the office's own window only (403 from a phone, 404 for a desk with no hire); `GET /t3code` and `GET /setup/t3code` say `takeOver` where it's offered, a T3 desk's `t3.handBack` and a team row's `handBack` only for a hire taken over | none: M7: the Go engine |
+| POST | `/setup/t3code/takeover` | Take over in T3 Code (EXPERIMENTAL, M5b), the page alone: `{id}`, a hire in a tmux session of its own goes on, the same session, in T3 Code; `{ok, thread, tag}`, 200, 404, 409, 500, 502 | the Mac's too since 1.25.0, as it runs the Go app (the Swift engine had no Take over) |
+| POST | `/setup/t3code/handback` | Hand back (EXPERIMENTAL, M5b), the page alone: `{id}`, T3 Code lets go, the session is checked free, then resumed in its tmux session; `{ok, note}`, 200, 404, 409, 500, 502 | the Mac's too since 1.25.0 (the Swift engine had no Hand back) |
+| POST | `/act?action=takeover`, `/act?action=handback` | the same from a desk's card, the office's own window only (403 from a phone, 404 for a desk with no hire); `GET /t3code` and `GET /setup/t3code` say `takeOver` where it's offered, a T3 desk's `t3.handBack` and a team row's `handBack` only for a hire taken over | the Mac's too since 1.25.0 |
 
 
 ## Fields of `/setup/state` (shape `setup-state`, the page's)
@@ -463,8 +456,8 @@ for hires (`.hiring.roles` is `[]`).
 
 Where a shape doesn't compare all the way down: a list this computer fills (its agents, terminals, accounts,
 screens), a map whose keys are data, something the given can't set up (`object or null`), or a list empty in
-every given (`[]`: the Go app's must be empty too). ContractTests.swift checks this table is every such spot,
-with its why. **In** is a shape's name or a route; a setup-state row is the tool's too. The nulls allowed are
+every given (`[]`: the Go app's must be empty too). The Swift engine's ContractTests.swift checked this table was
+every such spot, with its why, until M7. **In** is a shape's name or a route; a setup-state row is the tool's too. The nulls allowed are
 in the next table.
 
 | In | Where | Shape | Why |
@@ -538,7 +531,8 @@ in the next table.
 Where a shape allows a null although the Mac's value alone can't say so: every element in the given leaves it
 empty, so none beside it says its type. A null the given does fill somewhere is typed by that element instead
 (a model at the pinned key, none at the free one: `string` there, `string or null` here), and isn't in this table.
-The Go app may answer null here, or the type. ContractTests.swift checks this table is every such mark, with why.
+The Go app may answer null here, or the type. The Swift engine's ContractTests.swift checked this table was every
+such mark, with why, until M7.
 
 | In | Where | Shape | Why |
 |---|---|---|---|
@@ -578,7 +572,8 @@ Mac's rule says (`mic: …`, office dictation: `macDictationGaps`); **Go** is wh
 piece (M2 server and setup, M3 office, snapshot and bots, M4 hiring, guard and GM, M4a briefs, M5 T3, M6 the
 personal shell), "via the bridge (M1)" for what only macOS can do, served on a Mac through the bridge, or
 `stays: <why>` for a Go-only extra that's meant to stay. Each M piece turns rows into passes, and takes them
-out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_test.go` checks each row has one.
+out of both tables. Since 1.25.0 (M7) every Mac runs the Go app, so a row left is something a Mac no longer
+has until the Go app serves it; the Swift engine's twin is in the history before M7 (release/1.25.0 at 1da4e935). `desktop/contract_test.go` checks each row has one.
 
 | In | Where | Go | Why | Owner |
 |---|---|---|---|---|

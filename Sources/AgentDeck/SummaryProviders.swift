@@ -1,20 +1,5 @@
 import Foundation
 
-/// ✨ Summary made by a coding agent you already have, on your own plan,
-/// instead of with an API key: Claude Code, Codex, Gemini CLI, Grok Build,
-/// Cursor or OpenCode, run once per summary, headless and with no tools.
-///
-/// Each is run in an empty folder of its own, made for the run and deleted
-/// after it, with the same redacted excerpt and prompt the API key gets, on
-/// its standard input (never its command line, which `ps` shows), for at most
-/// `timeout` and `outputMost` bytes. Its environment is Smolcorp's, less the
-/// providers' API keys, so it can only use the plan you signed in with, and
-/// with SMOLCORP_SUMMARY=1, which Smolcorp's own hook ignores, so the run
-/// never gets a desk. That one process is all this changes: your shell, your
-/// terminals, the agents Smolcorp hires and Smolcorp itself keep theirs.
-
-// MARK: The providers
-
 enum SummaryProvider: String, CaseIterable {
     case claude, codex, gemini, grok, cursor, opencode
     case apiKey = "apikey"
@@ -101,8 +86,6 @@ enum SummaryProvider: String, CaseIterable {
         }
     }
 }
-
-// MARK: One run
 
 /// Why a coding agent made no summary.
 enum SummaryCLIFailure: Error, Equatable {
@@ -537,8 +520,6 @@ enum SummaryCLI {
     }
 }
 
-// MARK: Which are here
-
 /// Whether each coding agent is here and signed in, as setup shows it.
 struct SummaryProviderState: Equatable {
     enum Kind: String, CaseIterable { case ready, missing, signedOut, changed, unsupported
@@ -553,174 +534,5 @@ struct SummaryProviderState: Equatable {
 
     static func missing(_ provider: SummaryProvider) -> SummaryProviderState {
         SummaryProviderState(kind: .missing, reason: "not installed")
-    }
-}
-
-/// Finds the coding agents, asks each whether it's signed in, and checks its
-/// help still lists every flag a summary passes, off the main queue, at most
-/// once a minute unless asked: setup asks every second or so.
-final class SummaryProviders {
-    static let shared = SummaryProviders()
-    static let staleAfter: TimeInterval = 60
-
-    private let queue = DispatchQueue(label: "smolcorp.summary-providers")
-    private let lock = NSLock()
-    private var known: [SummaryProvider: SummaryProviderState]?
-    private var checkedAt = Date.distantPast
-    private var checking = false
-    /// Each program's help text, by its path and when it changed.
-    private var helps: [String: String] = [:]
-
-    /// What's known, or nil before the first check has finished.
-    var states: [SummaryProvider: SummaryProviderState]? {
-        lock.lock(); defer { lock.unlock() }
-        return known
-    }
-
-    var isChecking: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return checking
-    }
-
-    /// For a test: what's known set as if just checked, so asking for the setup state starts no agent's
-    /// command. It answers how to put back what was known before.
-    func preset(_ states: [SummaryProvider: SummaryProviderState]) -> () -> Void {
-        lock.lock(); defer { lock.unlock() }
-        let kept = (known, checkedAt)
-        known = states
-        checkedAt = Date()
-        return { [self] in
-            lock.lock(); defer { lock.unlock() }
-            (known, checkedAt) = kept
-        }
-    }
-
-    /// Checks again, in the background, if it's been a while or `force`.
-    func refresh(force: Bool = false) {
-        lock.lock()
-        guard !checking, force || Date().timeIntervalSince(checkedAt) > Self.staleAfter else { return lock.unlock() }
-        checking = true
-        lock.unlock()
-        queue.async { [self] in
-            let found = Dictionary(uniqueKeysWithValues: SummaryProvider.agents.map { ($0, check($0)) })
-            lock.lock()
-            known = found
-            checkedAt = Date()
-            checking = false
-            lock.unlock()
-        }
-    }
-
-    /// What's known, checked now if never yet: never on the main queue.
-    func statesNow() -> [SummaryProvider: SummaryProviderState] {
-        if let states { return states }
-        refresh(force: true)
-        queue.sync {}
-        return states ?? [:]
-    }
-
-    /// One provider, checked now.
-    func check(_ provider: SummaryProvider) -> SummaryProviderState {
-        guard provider.isSupported else { return SummaryProviderState(kind: .unsupported, reason: SummaryProvider.unsupportedReason) }
-        guard let program = Self.program(provider) else { return .missing(provider) }
-        let environment = SummaryCLI.environment()
-        let home = Paths.home
-        // Its help: each flag a summary passes must still be in it.
-        let help = helpText(provider, program, environment)
-        let missing = SummaryCLI.flags(provider).filter { !SummaryCLI.lists(help, $0) }
-        if !missing.isEmpty {
-            return SummaryProviderState(kind: .changed, reason: "updated, and no longer takes what Smolcorp passes: summaries with it need an update of Smolcorp",
-                                        program: program)
-        }
-        let signedIn: Bool
-        switch provider {
-        case .claude:
-            switch SummaryCLI.claudeLogin(quick(program, ["auth", "status", "--json"], environment).output) {
-            case .ready?: return SummaryProviderState(kind: .ready, reason: provider.plan, program: program)
-            case .apiAccount?:
-                return SummaryProviderState(kind: .apiAccount, reason: "signed in with a Console account: bills your API account", program: program)
-            default: signedIn = false
-            }
-        case .codex:
-            signedIn = quick(program, ["login", "status"], environment).status == 0
-        case .gemini:
-            signedIn = FileManager.default.fileExists(atPath: home.appendingPathComponent(".gemini/oauth_creds.json").path)
-        case .grok:
-            signedIn = FileManager.default.fileExists(atPath: home.appendingPathComponent(".grok/auth.json").path)
-        case .cursor:
-            let ran = quick(program, ["status"], environment)
-            let said = String(decoding: ran.output + ran.error, as: UTF8.self).lowercased()
-            signedIn = ran.status == 0 && !said.contains("not logged in") && !said.contains("not authenticated")
-        case .opencode:
-            // Any model it can use: an account it's connected, or one on this computer.
-            let ran = quick(program, ["models"], environment)
-            signedIn = ran.status == 0 && !String(decoding: ran.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            // Its summary agent must exist and be denied every tool, or it isn't run at all.
-            if signedIn, !SummaryCLI.openCodeSummaryAgentIsLocked(quick(program, ["debug", "agents"], environment).output) {
-                return SummaryProviderState(kind: .unsupported,
-                                            reason: "its summary agent isn't there, or may use tools: not supported with this version", program: program)
-            }
-        case .apiKey:
-            signedIn = false
-        }
-        guard signedIn else { return SummaryProviderState(kind: .signedOut, reason: "installed, not signed in: \(provider.signIn)", program: program) }
-        return SummaryProviderState(kind: .ready, reason: provider.plan, program: program)
-    }
-
-    private func helpText(_ provider: SummaryProvider, _ program: URL, _ environment: [String: String]) -> String {
-        let changed = (try? FileManager.default.attributesOfItem(atPath: program.path))?[.modificationDate] as? Date
-        let stamp = "\(provider.rawValue) \(program.path) \(changed?.timeIntervalSince1970 ?? 0)"
-        if let help = helps[stamp] { return help }
-        let ran = quick(program, provider.helpArguments, environment)
-        let help = String(decoding: ran.output + ran.error, as: UTF8.self)
-        helps[stamp] = help
-        return help
-    }
-
-    private func quick(_ program: URL, _ arguments: [String], _ environment: [String: String]) -> SummaryCLI.Ran {
-        SummaryCLI.spawn(program, arguments, input: Data(), environment: environment, folder: FileManager.default.temporaryDirectory.path,
-                         timeout: 10)
-    }
-
-    /// Where `provider`'s program is, or nil. An `agent` that is Grok's isn't Cursor's.
-    static func program(_ provider: SummaryProvider) -> URL? {
-        for name in provider.programs {
-            guard let program = OpenCodeInstall.program(named: name) else { continue }
-            if provider == .cursor, name == "agent" {
-                let ran = SummaryCLI.spawn(program, ["--version"], input: Data(), environment: SummaryCLI.environment(),
-                                           folder: FileManager.default.temporaryDirectory.path, timeout: 10)
-                if String(decoding: ran.output + ran.error, as: UTF8.self).lowercased().contains("grok") { continue }
-            }
-            return program
-        }
-        return nil
-    }
-
-    /// For tests: what's known, set.
-    func set(_ states: [SummaryProvider: SummaryProviderState]?) {
-        lock.lock(); known = states; checkedAt = states == nil ? .distantPast : Date(); lock.unlock()
-    }
-}
-
-// MARK: The choice
-
-enum SummaryChoice {
-    /// The provider summaries use: the one saved, even when it stops working
-    /// (it then says why, and never quietly sends elsewhere); else, for one who
-    /// turned summaries on with a key before there was a choice, the key, as
-    /// it was; else the first coding agent that works, then the key.
-    static func chosen(saved: String, optIn: Bool, states: [SummaryProvider: SummaryProviderState], hasKey: Bool) -> SummaryProvider? {
-        if let provider = SummaryProvider(rawValue: saved) {
-            guard provider.isSupported else { return nil }
-            return provider == .apiKey && !hasKey ? nil : provider
-        }
-        if optIn && hasKey { return .apiKey }
-        if let first = SummaryProvider.agents.first(where: { $0.isSupported && states[$0]?.kind == .ready }) { return first }
-        return hasKey ? .apiKey : nil
-    }
-
-    /// Whether `provider` can make a summary now.
-    static func works(_ provider: SummaryProvider, states: [SummaryProvider: SummaryProviderState], hasKey: Bool) -> Bool {
-        provider == .apiKey ? hasKey : provider.isSupported && states[provider]?.works == true
     }
 }

@@ -43,8 +43,6 @@ final class BriefTests: XCTestCase {
             {{/branch}}
             Inline{{#read_only}} read-only{{/read_only}}{{^read_only}} writable{{/read_only}}.
 
-
-
             End <!-- inline -->
             """
         let known = BriefTemplate.names
@@ -256,27 +254,6 @@ final class BriefTests: XCTestCase {
                        + "End with `SHIP IT`, notes in \(folder.appendingPathComponent("NOTES.md").path).\n")
     }
 
-    func testATextRoleHasNoBriefAndStartsAsBefore() throws {
-        var lawyer = role("lawyer")
-        lawyer.instructions = "Read the licences I point you to."
-        XCTAssertEqual(lawyer.source, .text(lawyer.instructions), "edited, it's on its instructions")
-        XCTAssertNil(try lawyer.briefTemplate(in: library))
-        XCTAssertTrue(lawyer.firstMessage(in: folder.path, pinned: false).contains("as my Lawyer: Read the licences"))
-        let answered = lawyer.firstMessage(in: folder.path, answers: ["the licence"])
-        XCTAssertTrue(answered.contains("- What should you read: the licence, terms, a privacy policy, or the dependencies' licences? the licence"))
-        XCTAssertTrue(answered.contains("(No answer: use your judgement.)"))
-        XCTAssertTrue(answered.hasSuffix("As my Lawyer: \(lawyer.instructions)"))
-    }
-
-    func testTheFirstMessageSendsTheAgentToItsBrief() {
-        let janitor = role("janitor")
-        let asks = janitor.briefMessage(at: folder.appendingPathComponent("BRIEF.md").path, asks: true)
-        XCTAssertTrue(asks.hasPrefix("Read `\(folder.path)/BRIEF.md` and follow it: it's your brief, as my Janitor."))
-        XCTAssertTrue(asks.contains("your first reply must only ask me its questions"))
-        XCTAssertTrue(janitor.briefMessage(at: "/x/Application Support/1-janitor.md", asks: false).hasPrefix("Read `/x/Application Support/1-janitor.md` and start"))
-        XCTAssertTrue(janitor.startScript(firstMessage: asks).contains("'--' 'Read "))
-    }
-
     // MARK: Where it's written
 
     func testABriefNeverWritesOverAFile() throws {
@@ -470,29 +447,6 @@ final class BriefTests: XCTestCase {
         var library = saved
         library.brief = .library("builder")
         XCTAssertEqual(Role.synced([library], saved: [saved]).first, library, "a library brief, its instructions as they were")
-    }
-
-    /// An edit of a library role's instructions, from any page, puts it on them.
-    func testEditingALibraryRolesInstructionsPutsItOnThem() throws {
-        let saved = Role.checked(Role.shipped)
-        var janitor = try XCTUnwrap(saved.first { $0.id == "janitor" })
-        XCTAssertEqual(janitor.brief, .library("janitor"))
-        janitor.instructions = "Tidy only the docs folder."
-        let synced = Role.synced([janitor], saved: saved)
-        XCTAssertEqual(synced.first?.brief, .text("Tidy only the docs folder."))
-        // Through the route, as the page from before briefs sends it, its brief as the state gave it.
-        var object = janitor.jsonObject
-        object["brief"] = ["kind": "library", "id": "janitor"]
-        let body = try JSONSerialization.data(withJSONObject: [object])
-        XCTAssertEqual(try BriefRoutes.roles(body, saved: saved).get().first?.source, .text("Tidy only the docs folder."))
-        // Picking a library brief, instructions unchanged, keeps it; so does a new role.
-        var picked = try XCTUnwrap(saved.first { $0.id == "lawyer" })
-        picked.brief = .library("thinker")
-        XCTAssertEqual(Role.synced([picked], saved: saved).first?.brief, .library("thinker"))
-        var fresh = picked
-        fresh.id = "own-9"
-        fresh.instructions = "Something else."
-        XCTAssertEqual(Role.synced([fresh], saved: saved).first?.brief, .library("thinker"))
     }
 
     // MARK: One builder, the base rules, editable templates, managed hires

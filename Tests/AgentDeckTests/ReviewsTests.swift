@@ -4,11 +4,6 @@ import XCTest
 /// The reviews list, and the push that a NEEDS-REVIEW sends. The fixture lines are in the shape the
 /// app's own watch (T406) logs: `agent` is "needs-review", the detail "needs-review: <hire>: <file>: <line>".
 final class ReviewsTests: XCTestCase {
-    private func line(_ id: Int, hire: String = "Mia", text: String = "NEEDS-REVIEW: the export is ready", agent: String = "needs-review",
-                      detail: String? = nil) -> EventLog.Entry {
-        EventLog.Entry(id: id, at: 1_761_000_000_000 + Double(id), session: "", folder: "/work/app", agent: agent, kind: .idle,
-                       detail: detail ?? "needs-review: \(hire): STATUS.md: \(text)")
-    }
 
     // The list and its push are the personal build's (IPHONE_APP, M6): `swift test -Xswiftc -DIPHONE_APP` runs them.
     #if IPHONE_APP
@@ -58,24 +53,4 @@ final class ReviewsTests: XCTestCase {
     }
 
     #endif
-
-    func testTheLogTellsTheDeckOfEachNewLine() throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("reviews-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let log = EventLog(folder: folder)
-        var told: [Int] = []
-        log.onAppend = { told.append($0.id) }
-        log.append(line(0))
-        log.append(line(0, agent: ""))
-        XCTAssertEqual(told, [1, 2])
-        log.flush()
-    }
-
-    func testTheRouteIsBehindTheApprovalsGate() throws {
-        let router = try String(contentsOfFile: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/AgentDeck/DeckRouter.swift").path, encoding: .utf8)
-        let route = try XCTUnwrap(router.range(of: #"case ("GET", "/reviews"):"#))
-        let after = String(router[route.upperBound...].prefix(200))
-        XCTAssertTrue(after.contains("DeckRouter.showsApprovals(request, phone: phone)"))
-    }
 }

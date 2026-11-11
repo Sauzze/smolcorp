@@ -2,7 +2,7 @@
 
 The routes the GM and your own tools use to talk to the running app. The GM normally doesn't call them: its tools (`smolcorp gm <command> --json`, and the same as MCP tools) do. This page is for a tool of yours, or a port of the app.
 
-The table that decides who may call what is `Sources/AgentDeck/SetupRoutes.swift`. Its copy for tests is `Tests/fixtures/frontdesk/routes.json`, and the other files in that folder are real examples of each request and answer. A test (`ManagerDocsTests`) fails if a `/setup/gm/` route in the table isn't mentioned here.
+The table that decides who may call what is `desktop/routes.go`. Its copy for tests is `Tests/fixtures/frontdesk/routes.json`, and the other files in that folder are real examples of each request and answer. A test (`ManagerDocsTests`) fails if a `/setup/gm/` route in the table isn't mentioned here.
 
 ## Who is calling
 

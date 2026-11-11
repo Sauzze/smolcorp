@@ -92,10 +92,9 @@ else is paid for, and the demo asks before it starts anything.
   else that changes your office (its switches, roles, layout or windows).
   Each refusal is one sentence. A General Manager you hire yourself has no
   scope, and works as it always has. The scope needs Smolcorp's hire engine
-  in tmux (Linux, or a Mac with the Go engine): where a GM's hire would open
-  any other way (Windows' launcher), Smolcorp refuses to hire it with a scope
-  rather than drop it. The Mac app's own engine doesn't have the scope yet,
-  so there only the demo's fence below holds the GM.
+  in tmux (a Mac, or Linux): where a GM's hire would open any other way
+  (Windows' launcher), Smolcorp refuses to hire it with a scope rather than
+  drop it.
 - **Its own fence, for every session in it.** The project's committed
   `.claude/settings.json` runs `smolcorp demo fence` before each tool call of
   the General Manager and of each hire. It refuses a file changed outside the
