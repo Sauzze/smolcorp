@@ -584,23 +584,36 @@ func TestAWindowThatWontOpenEndsTheEngineHireAndSpendsNoCooldown(t *testing.T) {
 	d.watching.Wait()
 }
 
-// hiredRoleAt finds a role only for a socket in the support folder.
-func TestHiredRoleAtOnlyLooksUpASocketInTheSupportFolder(t *testing.T) {
+// hiredRoleAt finds a role for a socket in a hire socket folder: where new hires go (tmux's own folder,
+// FXC3 A8), or the support folder, where hires made before 1.25 are. A socket anywhere else is nobody's.
+func TestHiredRoleAtLooksInEveryHireSocketFolder(t *testing.T) {
 	d, _, _ := engineDeck(t)
-	inside := filepath.Join(supportDir, "hire-x.sock")
+	// New hires' sockets are not in the support folder: point their folder at another, as a real run has it.
+	own := t.TempDir()
+	saved := hireSocketFolder
+	t.Cleanup(func() { hireSocketFolder = saved })
+	hireSocketFolder = func() string { return own }
+	if filepath.Clean(own) == filepath.Clean(supportDir) {
+		t.Fatal("the stand-in socket folder is the support folder: the test proves nothing")
+	}
+	inOwn := filepath.Join(own, "smolcorp-hire-x")
+	inSupport := filepath.Join(supportDir, "hire-x.sock")
 	outside := filepath.Join(t.TempDir(), "hire-x.sock")
-	for _, socket := range []string{inside, outside} {
+	for _, socket := range []string{inOwn, inSupport, outside} {
 		if err := updateRegistry(func(f *registryFile) {
 			f.hires = append(f.hires, Hire{ID: newID(), Name: "Janitor", Folder: "/x", Role: "janitor", TmuxSocket: socket, State: "working"})
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := d.hiredRoleAt(inside); got != "janitor" {
+	if got := d.hiredRoleAt(inOwn); got != "janitor" {
+		t.Errorf("a socket in tmux's own folder: %q, want janitor", got)
+	}
+	if got := d.hiredRoleAt(inSupport); got != "janitor" {
 		t.Errorf("a socket in the support folder: %q, want janitor", got)
 	}
 	if got := d.hiredRoleAt(outside); got != "" {
-		t.Errorf("a socket outside it: %q, want none", got)
+		t.Errorf("a socket outside both: %q, want none", got)
 	}
 	if got := d.hiredRoleAt(""); got != "" {
 		t.Errorf("no socket: %q", got)

@@ -93,8 +93,66 @@ var tmuxPath = func() string {
 	if !hasTmuxHires {
 		return ""
 	}
-	path, _ := exec.LookPath("tmux")
-	return path
+	return findTmux()
+}
+
+// tmuxPlaces are where tmux may be besides this program's PATH, as the Mac's
+// engine looks (Tmux.path in TerminalDrivers.swift): a program opened from
+// the Finder or the Dock has only launchd's PATH, which has no Homebrew.
+// A variable, for the tests.
+var tmuxPlaces = []string{"/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/usr/bin"}
+
+// tmuxLoginPath is the PATH your login shell sets, asked once, for a tmux
+// somewhere stranger (a home folder's own bin, Nix, Linuxbrew). A variable,
+// for the tests.
+var tmuxLoginPath = func() []string {
+	loginPathOnce.Do(func() { loginPath = loginShellPath() })
+	return loginPath
+}
+
+// findTmux is the tmux program, or "": on this program's PATH, then in the
+// usual places, then on the PATH your login shell sets. The shell is asked
+// only when the first two have nothing.
+func findTmux() string {
+	if path, err := exec.LookPath("tmux"); err == nil {
+		return path
+	}
+	for _, folder := range tmuxPlaces {
+		if path := executableIn(folder, "tmux"); path != "" {
+			return path
+		}
+	}
+	for _, folder := range tmuxLoginPath() {
+		if path := executableIn(folder, "tmux"); path != "" {
+			return path
+		}
+	}
+	return ""
+}
+
+// tmuxProgram is what a tab's tmux command runs: tmux where it was found, or
+// the bare name, left to the PATH (a system with no tmux then fails to start
+// it, as before). It looks for itself, not through tmuxPath, which the tests
+// stand in for.
+func tmuxProgram() string {
+	if hasTmuxHires {
+		if path := findTmux(); path != "" {
+			return path
+		}
+	}
+	return "tmux"
+}
+
+// executableIn is folder/name when that is a program you can run, or "".
+func executableIn(folder, name string) string {
+	if folder == "" {
+		return ""
+	}
+	path := filepath.Join(folder, name)
+	if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0 {
+		return path
+	}
+	return ""
 }
 
 // canOpenWindows is whether there's a desktop to open a hire's window on: a
@@ -777,9 +835,10 @@ func (d *Deck) hireState(apiKey apiKeyOffer) map[string]any {
 
 // hiredRoleAt is the role of the engine's hire whose tmux server is socket, or
 // "" for any other: a session in its pane has no launcher to say which. Only a
-// socket in the support folder is looked up.
+// socket in a hire socket folder is looked up: where new hires go (tmux's own
+// folder), or the support folder, where the Go core put them before 1.25.
 func (d *Deck) hiredRoleAt(socket string) string {
-	if socket == "" || filepath.Dir(filepath.Clean(socket)) != filepath.Clean(supportDir) {
+	if socket == "" || !slices.Contains(hireSocketFolders(), filepath.Dir(filepath.Clean(socket))) {
 		return ""
 	}
 	for _, h := range readRegistry(registryPath(), false).hires {
