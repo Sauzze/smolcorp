@@ -254,9 +254,6 @@ var errNotServedHere = errors.New("route not served by the Go app yet")
 
 // goAppUnserved maps the GM routes the Go app still answers 404 to, to the command that uses each.
 var goAppUnserved = map[string]string{
-	"POST /setup/gm/hire":        "hire",
-	"POST /setup/gm/fire":        "fire",
-	"POST /setup/gm/brief":       "brief",
 	"POST /setup/gm/tile":        "tile",
 	"GET /setup/gm/screens":      "screens",
 	"POST /setup/gm/screen":      "screen",
@@ -378,9 +375,6 @@ func (c *Client) do(method, path string, query url.Values, body []byte, timeout 
 	if resp.StatusCode == http.StatusNotFound {
 		if cmd, ok := goAppUnserved[method+" "+path]; ok && c.isGoApp() {
 			msg := fmt.Sprintf("`gm %s` isn't available in Smolcorp on Linux and Windows yet.", cmd)
-			if cmd == "hire" {
-				msg = "`gm hire` isn't available in Smolcorp on Linux and Windows yet: the owner hires from the office or Setup."
-			}
 			return nil, &Error{Code: exitApp, Status: resp.StatusCode, Cause: errNotServedHere, Msg: msg}
 		}
 	}

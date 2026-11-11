@@ -357,6 +357,42 @@ func TestUnderTheMacAppAManagedHireThatCantBeFencedIsRefused(t *testing.T) {
 	}
 }
 
+// PGS: the GM route's hire (fenced) under the Mac app is refused in the engine's
+// own words (M4's) where it can't start fenced, with nothing opened or made and
+// the cooldown not spent, whether the manager is on or off.
+func TestUnderTheMacAppTheGMRoutesHireIsRefusedInTheEnginesWords(t *testing.T) {
+	d, r, h := engineDeck(t)
+	ran := macApp(t, d)
+	pin := r.repo
+	for _, manager := range []bool{false, true} {
+		for _, c := range []struct {
+			name, desk string
+			setup      func()
+			want       string
+		}{
+			{"a pinned desk", "1", func() { d.config.Pins[1] = &pin }, macHirePinnedUnfenced},
+			{"no tmux", "", func() { tmuxPath = func() string { return "" } }, macHireNeedsTmux},
+		} {
+			saved := tmuxPath
+			d.config.ManagerEnabled, d.config.Pins[1] = manager, nil
+			c.setup()
+			d.lastHire = time.Time{}
+			seat := -1
+			status, message := d.hireWith(hireSpec{desk: c.desk, roleID: "janitor", fromSetup: true, fenced: true, seat: &seat})
+			tmuxPath = saved
+			if status != http.StatusConflict || message != c.want {
+				t.Errorf("manager %v, %s: %d %s, want 409 %q", manager, c.name, status, message, c.want)
+			}
+			if len(*ran)+len(h.windows)+len(h.tmux)+len(r.tmux.asked) != 0 || len(registered(t)) != 0 {
+				t.Errorf("manager %v, %s: something was opened or made: %q %q %q", manager, c.name, *ran, h.windows, r.tmux.asked)
+			}
+			if !d.lastHire.IsZero() {
+				t.Errorf("manager %v, %s: a refused hire spent the cooldown", manager, c.name)
+			}
+		}
+	}
+}
+
 // B2 (RM4): the launcher starts on the default account, so a hire on a named
 // account, or any Claude hire in a test copy, is refused on each plain way
 // (tmux off, a pinned folder, no tmux) with nothing opened.

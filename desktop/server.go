@@ -1587,6 +1587,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		writeStatus(w)(status, text)
 
+	// routes.json: POST /setup/gm/hire is an action for gm and page (see gmhire.go).
+	case r.Method == http.MethodPost && path == "/setup/gm/hire":
+		d.gmHire(w, r)
+
 	// The front desk. routes.json: GET /setup/gm/team is read for gm, page and tool.
 	case r.Method == http.MethodGet && path == "/setup/gm/team":
 		rt.team(w)
@@ -1641,6 +1645,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// Mail (routes.json): send is for gm, page and hire; the outbox is read by gm, page and tool, and a tool is not given the texts.
 	case r.Method == http.MethodPost && path == "/setup/gm/send":
 		rt.mailSend(w, r)
+
+	// Fire and brief a hire found by its registry id (gmfire.go, gmbrief.go).
+	case r.Method == http.MethodPost && path == "/setup/gm/fire":
+		rt.gmFire(w, r)
+
+	case r.Method == http.MethodPost && path == "/setup/gm/brief":
+		rt.gmBrief(w, r)
 
 	case r.Method == http.MethodGet && path == "/setup/gm/outbox":
 		rt.mailOutboxList(w, r)

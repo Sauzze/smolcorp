@@ -4,7 +4,6 @@ package desktop
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -77,10 +76,7 @@ type fakeClaude struct {
 // startFakeClaude runs the fake agent in a real tmux on a socket of the test's own, and ends it at the end.
 func startFakeClaude(t *testing.T, id, mode string, bracketed bool) *fakeClaude {
 	t.Helper()
-	path, err := exec.LookPath("tmux")
-	if err != nil {
-		t.Skip("tmux isn't installed")
-	}
+	path := needTmux(t)
 	shortSupport(t)
 	saved := tmuxPath
 	tmuxPath = func() string { return path }
