@@ -1069,22 +1069,28 @@ func TestT3AProcessInTheWorktreeIsFoundAndNamed(t *testing.T) {
 }
 
 func TestT3WorksInByFolderOrAddDir(t *testing.T) {
-	folders := []string{"/home/a/wt"}
+	// The cases in this system's paths, as its callers give them (t3process_*.go): only a path with a drive is
+	// full on Windows, so there /home/a/wt is C:\home\a\wt.
+	sep, at := "/", func(path string) string { return path }
+	if runtime.GOOS == "windows" {
+		sep, at = `\`, func(path string) string { return `C:` + strings.ReplaceAll(path, "/", `\`) }
+	}
+	folders := []string{at("/home/a/wt")}
 	cases := []struct {
 		cwd  string
 		args []string
 		want bool
 	}{
-		{"/home/a/wt", nil, true},
-		{"/home/a/wt/src", nil, true},
-		{"/home/a/wt-2", nil, false},
-		{"/home/a", []string{"claude", "--add-dir", "/home/a/wt"}, true},
-		{"/home/a", []string{"claude", "--add-dir=/home/a/wt/"}, true},
-		{"/home/a", []string{"claude", "--add-dir"}, false},
-		{"", []string{"/home/a/wt"}, false},
+		{at("/home/a/wt"), nil, true},
+		{at("/home/a/wt/src"), nil, true},
+		{at("/home/a/wt-2"), nil, false},
+		{at("/home/a"), []string{"claude", "--add-dir", at("/home/a/wt")}, true},
+		{at("/home/a"), []string{"claude", "--add-dir=" + at("/home/a/wt/")}, true},
+		{at("/home/a"), []string{"claude", "--add-dir"}, false},
+		{"", []string{at("/home/a/wt")}, false},
 	}
 	for _, c := range cases {
-		if got := t3WorksIn(folders, c.cwd, c.args, "/", false); got != c.want {
+		if got := t3WorksIn(folders, c.cwd, c.args, sep, false); got != c.want {
 			t.Errorf("%+v: %v", c, got)
 		}
 	}

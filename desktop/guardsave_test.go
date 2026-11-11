@@ -195,7 +195,9 @@ func TestAShippedRoleYouHaventChangedIsSentAsItCame(t *testing.T) {
 
 // What setup writes for "cloud off, one pattern of your own" is the Mac's file,
 // byte for byte (GuardFileTests.swift writes the fixture; the guard reads it),
-// at mode 0600; and no patterns is written as the Mac writes an empty list.
+// at mode 0600 (on Windows, which has no such mode, the support folder in your
+// profile keeps it yours: see modeIs); and no patterns is written as the Mac
+// writes an empty list.
 func TestSavingTheGuardWritesTheMacsFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), hireGuardFile)
 	if answer := saveGuard([]byte(`{"groups":[{"name":"cloud","on":false}],"extra":["terraform import"]}`), path, runtime.GOOS); answer.status != http.StatusOK {
@@ -209,7 +211,7 @@ func TestSavingTheGuardWritesTheMacsFile(t *testing.T) {
 	if !bytes.Equal(written, fixture) {
 		t.Errorf("the file isn't the Mac's:\n%s", written)
 	}
-	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(path); !modeIs(info, 0o600) {
 		t.Errorf("mode %v", info.Mode().Perm())
 	}
 	if answer := saveGuard([]byte(`{"extra":[]}`), path, runtime.GOOS); answer.status != http.StatusOK {

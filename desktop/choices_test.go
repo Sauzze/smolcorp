@@ -62,9 +62,14 @@ func TestTheT3GateHidesEverythingWhenOff(t *testing.T) {
 
 func TestT3IsFoundAsAFileAndNeverRun(t *testing.T) {
 	home := t.TempDir()
-	folders := t3LookFolders(home, strings.Join([]string{"/usr/bin", "relative"}, string(os.PathListSeparator)))
+	// A full path on the PATH as this system writes one: /usr/bin has no drive, so Windows doesn't take it as one.
+	system := "/usr/bin"
+	if runtime.GOOS == "windows" {
+		system = `C:\Windows\System32`
+	}
+	folders := t3LookFolders(home, strings.Join([]string{system, "relative"}, string(os.PathListSeparator)))
 	if folders[0] != filepath.Join(home, ".local", "bin") || folders[1] != filepath.Join(home, "bin") || folders[2] != filepath.Join(home, ".t3", "bin") ||
-		folders[len(folders)-1] != "/usr/bin" || slices.Contains(folders, "relative") {
+		folders[len(folders)-1] != system || slices.Contains(folders, "relative") {
 		t.Fatalf("folders %v", folders)
 	}
 	if t3Installed(home, "", isRegularFile) {

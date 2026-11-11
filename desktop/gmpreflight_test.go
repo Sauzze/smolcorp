@@ -90,10 +90,15 @@ func TestTheGMPreflightSaysHowToInstallClaudeCode(t *testing.T) {
 	h.missing = "claude isn't installed here."
 	report := d.gmPreflight()
 	line := preflightLine(t, report, "claude")
-	if report.Ready || line.OK || line.Action == nil || line.Action.Kind != "copy" || line.Action.Command != claudeInstallUnix {
+	// Windows installs it with its own line, pasted in PowerShell; a Mac or Linux with the script, in a terminal.
+	install, shell := claudeInstallUnix, "Paste this in a terminal,"
+	if runtime.GOOS == "windows" {
+		install, shell = claudeInstallWindows, "Paste this in PowerShell,"
+	}
+	if report.Ready || line.OK || line.Action == nil || line.Action.Kind != "copy" || line.Action.Command != install {
 		t.Fatalf("not installed: ready %v, %+v", report.Ready, line)
 	}
-	if line.Title != "Claude Code isn't installed on this computer." || !strings.Contains(line.Fix, "Check again") {
+	if line.Title != "Claude Code isn't installed on this computer." || !strings.HasPrefix(line.Fix, shell) || !strings.Contains(line.Fix, "Check again") {
 		t.Errorf("not installed says %q / %q", line.Title, line.Fix)
 	}
 	if slices.Contains(preflightIDs(report), "signin") || slices.Contains(preflightIDs(report), "hooks") {

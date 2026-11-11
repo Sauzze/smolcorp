@@ -66,6 +66,39 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y tmux
       - run: go test ./...
+      # The GM's hire, fire and brief on the launcher's way, Windows' own, run by name: each one must say PASS, so
+      # a test that's skipped, renamed or left out of the build fails the step instead of passing unseen. The
+      # first six are PEGASUS PR3's (managed windows off among them), the last two FXPGS's. It runs even when the
+      # whole suite above failed, so their answer is never hidden behind another test's.
+      - name: The GM's launcher tests ran and passed
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v -run 'TestTheGM' ./desktop/ 2>&1 | tee gm-tests.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in \
+            TestTheGMHireOnTheLauncherStartsItsWindowWithTheGuardOfAHireFromTheOffice \
+            TestTheGMHireWithManagedWindowsOffRefusesNamingTheSwitchAndOpensNothing \
+            TestTheGMFireOnTheLauncherEndsOnlyTheHiresOwnLauncherAndTypesNothing \
+            TestTheGMFireOnTheLauncherRefusesFromTheLaunchersStateAndAnUnknownIdAndEndsNothing \
+            TestTheGMFireRefusesAHireThatIsNoLaunchersWindowAndALauncherThatWontStop \
+            TestTheGMBriefOnTheLauncherAddsToTheFileAndTypesNothing \
+            TestTheGMHireOnTheLauncherOnAFloorWithItsOwnFolderIsRefusedAndOpensNothing \
+            TestTheGMFireOnTheLauncherKeepsTheCleanWorktreeUnlessAskedToRemoveIt
+          do
+            if ! grep -qE "^--- PASS: $name \(" gm-tests.txt; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          rm -f gm-tests.txt
+          if [ "$status" -ne 0 ] || [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
       # The same tests under the race detector, which needs cgo: on Linux, whose runner has a C compiler.
       - name: Test with the race detector
         if: runner.os == 'Linux'
