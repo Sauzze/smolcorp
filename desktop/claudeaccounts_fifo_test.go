@@ -39,11 +39,24 @@ func TestTheSetupStateDoesNotHoldTheDeckWhileItLooksInAnAccount(t *testing.T) {
 	// Give it time to reach the FIFO and wait in its read: a slow start only makes this run's check weaker, never fail.
 	time.Sleep(300 * time.Millisecond)
 	defer func() {
-		w.Close()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Error("the setup state never came back")
+		// One that reaches the FIFO only after the write end is closed waits in its open instead: the write end
+		// is opened again and held a moment, so that open goes through and the read after it ends, until it's back.
+		deadline := time.After(5 * time.Second)
+		for {
+			w.Close()
+			select {
+			case <-done:
+				return
+			case <-deadline:
+				t.Error("the setup state never came back")
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+			if w, err = os.OpenFile(fifo, os.O_RDWR, 0); err != nil {
+				t.Error(err)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
 	}()
 

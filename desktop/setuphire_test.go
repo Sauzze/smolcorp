@@ -140,6 +140,50 @@ func TestAHireWorksOnAnAccountSavedInConfigJSON(t *testing.T) {
 	}
 }
 
+// A saved account outside the home folder (one the Mac kept, say) is no account a hire works on, but every hire is
+// still denied its settings and transcripts, as on the Mac and before setup and the hires shared one checker. A
+// network, relative or NUL path gives no rule at all.
+func TestEverySavedAccountsFolderIsDeniedToAHire(t *testing.T) {
+	d, _, _ := engineDeck(t)
+	d.engine.HeardFrom = func(Hire) bool { return true }
+	repo := homeRepo(t)
+	outside := claudeFolder(t, filepath.Join(physical(t.TempDir()), "volume", ".claude-ext"), "settings.json")
+	d.mu.Lock()
+	d.config.ClaudeProfiles = []claudeProfile{{Name: "ext", Dir: outside}, {Name: "share", Dir: "//server/share/.claude-s"},
+		{Name: "rel", Dir: "rel/.claude-r"}, {Name: "nul", Dir: homeDir + "/.claude-n\x00"}}
+	d.mu.Unlock()
+
+	body, _ := json.Marshal(map[string]any{"role": "janitor", "folder": repo, "account": "ext"})
+	w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer, body: string(body),
+		headers: map[string]string{setupHeader: "1"}})
+	if w.Code != http.StatusNotFound || w.Body.String() != "There's no Claude account called ext. Pick one of: default.\n" {
+		t.Errorf("a hire on the outside account: %d %q", w.Code, w.Body)
+	}
+
+	body, _ = json.Marshal(map[string]any{"role": "janitor", "folder": repo})
+	w = serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer, body: string(body),
+		headers: map[string]string{setupHeader: "1"}})
+	if w.Code != http.StatusOK {
+		t.Fatalf("a hire on the default account: %d %s", w.Code, w.Body)
+	}
+	d.watching.Wait()
+	got := registered(t)
+	if len(got) != 1 || got[0].Account != "" && got[0].Account != claudeDefaultName {
+		t.Fatalf("registry %+v", got)
+	}
+	settings, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, got[0].ID), hireSettingsFile))
+	for _, rule := range []string{"Edit(" + absoluteRulePath(outside) + "/settings*.json)", "Read(" + absoluteRulePath(outside) + "/projects/**)"} {
+		if !strings.Contains(string(settings), rule) {
+			t.Errorf("the outside account's %s isn't denied:\n%s", rule, settings)
+		}
+	}
+	for _, part := range []string{"server/share", ".claude-s", ".claude-r", ".claude-n"} {
+		if strings.Contains(string(settings), part) {
+			t.Errorf("a rule for a badly formed folder (%s):\n%s", part, settings)
+		}
+	}
+}
+
 // With the manager off and no worktree asked for, the hire works in the folder
 // itself, as the Mac's; a floor above answers with the floor and no desk.
 func TestSetupsHireWithoutAWorktreeWorksInTheFolder(t *testing.T) {

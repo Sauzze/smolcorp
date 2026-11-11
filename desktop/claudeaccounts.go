@@ -17,8 +17,8 @@ import (
 // never a token, a key or a credentials file. A folder that merely looks like an account is offered ("found")
 // and nothing more, until it's confirmed. Setup and the hires read the same list, config.json's claudeProfiles
 // checked by claudeAccountList: an account setup shows is one a hire can work on, and one it leaves out (a
-// folder outside the home folder, say) no hire takes either. A test copy, which never hires on the default
-// account, names one of these.
+// folder outside the home folder, say) no hire takes either, though every hire is still denied its settings and
+// transcripts (claudeDenyProfiles). A test copy, which never hires on the default account, names one of these.
 const (
 	claudeDefaultName = "default"
 	claudeNameLongest = 30
@@ -62,6 +62,20 @@ func isNameRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsMark(r) || unicode.IsNumber(r)
 }
 
+// claudeFolderPath is an account's folder as a cleaned full path (~ for the home folder), from its text alone:
+// nothing on disk is looked at. A network or device path (\\server\share, //server/share, \\?\C:\) is refused
+// before anything touches it, as opening one could reach out to another computer; so is a relative one.
+func claudeFolderPath(given string) (string, bool) {
+	dir := strings.TrimSpace(given)
+	if rest, ok := strings.CutPrefix(dir, "~"); ok && (rest == "" || rest[0] == '/' || rest[0] == filepath.Separator) {
+		dir = homeDir + rest
+	}
+	if strings.HasPrefix(dir, `\\`) || strings.HasPrefix(dir, "//") || !filepath.IsAbs(dir) || strings.Contains(dir, "\x00") {
+		return "", false
+	}
+	return filepath.Clean(dir), true
+}
+
 // checkClaudeProfile is p as it is kept: a name of letters, digits, dashes and underscores, the folder a full
 // path (~ for the home folder) that isn't ~/.claude itself.
 func checkClaudeProfile(p claudeProfile) (claudeProfile, error) {
@@ -71,16 +85,10 @@ func checkClaudeProfile(p claudeProfile) (claudeProfile, error) {
 	}) {
 		return p, fmt.Errorf("A name is up to %d letters, digits, dashes or underscores.", claudeNameLongest)
 	}
-	dir := strings.TrimSpace(p.Dir)
-	if rest, ok := strings.CutPrefix(dir, "~"); ok && (rest == "" || rest[0] == '/' || rest[0] == filepath.Separator) {
-		dir = homeDir + rest
-	}
-	// A network or device path (\\server\share, //server/share, \\?\C:\) is refused before anything touches it:
-	// opening one could reach out to another computer.
-	if strings.HasPrefix(dir, `\\`) || strings.HasPrefix(dir, "//") || !filepath.IsAbs(dir) || strings.Contains(dir, "\x00") {
+	dir, ok := claudeFolderPath(p.Dir)
+	if !ok {
 		return p, errClaudeFolder
 	}
-	dir = filepath.Clean(dir)
 	if name == claudeDefaultName || dir == claudeDefaultProfile().Dir {
 		return p, fmt.Errorf("\"default\" is ~/.claude, which is always there.")
 	}
@@ -137,6 +145,23 @@ func claudeAccountList(saved []claudeProfile) []claudeProfile {
 			continue
 		}
 		list = append(list, ok)
+	}
+	return list
+}
+
+// claudeDenyProfiles is every account whose settings and transcripts a hire is denied: claudeAccountList's, then
+// each other saved folder given as a full path, whether or not a hire may work on it. A folder outside the home
+// folder (one the Mac kept, say) is still fenced off, as the Mac fences it (HireSettings.swift), though no hire
+// takes it. Those others are taken from their text alone (claudeFolderPath): a deny rule never reads its folder, so
+// nothing on disk or on a share is touched for them.
+func claudeDenyProfiles(saved []claudeProfile) []claudeProfile {
+	list := claudeAccountList(saved)
+	for _, p := range saved {
+		dir, ok := claudeFolderPath(p.Dir)
+		if !ok || slices.ContainsFunc(list, func(q claudeProfile) bool { return q.Dir == dir }) {
+			continue
+		}
+		list = append(list, claudeProfile{Name: strings.TrimSpace(p.Name), Dir: dir})
 	}
 	return list
 }
