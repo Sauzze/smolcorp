@@ -114,6 +114,7 @@ enum SetupRoutes {
         // Another app on this computer: the page alone, never the GM or a hire (T792).
         page("GET", "/setup/t3code", "whether T3 Code and its t3 command are installed"),
         page("POST", "/setup/t3code/open", "a hire's folder, from the registry, opened in T3 Code on this computer"),
+        page("POST", "/setup/t3code/letgo", "let a hire in T3 Code go: its T3 project removed, its worktree kept"),
 
         // Phones' codes and keys: the page alone (1.23.1).
         page("POST", "/setup/pair", "a pairing code"),

@@ -521,7 +521,8 @@ final class ChoicesTests: XCTestCase {
         XCTAssertTrue(page.contains("const t3Key = state.t3CodeEnabled ? t3Button(r) : null;"))
         XCTAssertTrue(page.contains("if (rest.length && state.t3CodeEnabled) t3State(false).then(paintT3);"))
         XCTAssertTrue(page.contains("if (t3Key) row.addEventListener('pointerenter', () => t3State(true));"))
-        XCTAssertEqual(page.components(separatedBy: "t3State(").count - 1, 3, "asked in two places, both gated, and defined once")
+        XCTAssertTrue(page.contains("if (state.t3CodeEnabled && role.id !== 'gm' && (!role.agent || role.agent === 'claude')) {"), "the hire sheet asks only while it's on")
+        XCTAssertEqual(page.components(separatedBy: "t3State(").count - 1, 4, "asked in three places, all gated, and defined once")
     }
 
     private func source(_ path: String) throws -> String {

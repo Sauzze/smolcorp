@@ -113,10 +113,8 @@ enum Processes {
         guard let resolved = realpath(folder, nil) else { return nil }
         let wanted = String(cString: resolved)
         free(resolved)
-        var pids = [pid_t](repeating: 0, count: 8192)
-        let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size)))
         var matches: Set<String> = []
-        for pid in pids.prefix(max(count, 0)) where pid > 0 {
+        for pid in allPIDs() {
             guard let info = bsdInfo(pid), string(info.pbi_comm) == name,
                   info.e_tdev != noTerminal, workingDirectory(of: pid) == wanted,
                   let device = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) else { continue }
@@ -126,13 +124,20 @@ enum Processes {
         return matches.count == 1 ? matches.first : nil
     }
 
+    /// Every process's id, as the kernel lists them.
+    static func allPIDs() -> [pid_t] {
+        var pids = [pid_t](repeating: 0, count: 8192)
+        let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size)))
+        return pids.prefix(max(count, 0)).filter { $0 > 0 }
+    }
+
     private static func bsdInfo(_ pid: pid_t) -> proc_bsdinfo? {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
         return proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size ? info : nil
     }
 
-    private static func workingDirectory(of pid: pid_t) -> String? {
+    static func workingDirectory(of pid: pid_t) -> String? {
         var info = proc_vnodepathinfo()
         let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) == size else { return nil }

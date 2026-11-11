@@ -584,6 +584,10 @@
   .seg { display: inline-flex; flex-wrap: nowrap; gap: 0; background: var(--hover); border-radius: 7px; padding: 2px; }
   .seg .btn { border: 0; border-radius: 5px; background: none; box-shadow: none; padding: 2px 11px; }
   .seg .btn.on { background: var(--cap); box-shadow: 0 1px 2px rgb(0 0 0 / .18); border: 0; }
+  /* A hire in T3 Code (T797b): its tag beside its name, and Let go's confirm. */
+  .t3-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border: 1px solid var(--asking); border-radius: 6px;
+    color: var(--asking); font-size: 10.5px; letter-spacing: .03em; white-space: nowrap; }
+  .t3-confirm { margin: 0; font-size: 12.5px; }
   .menu { position: relative; }
   .menu summary { list-style: none; }
   .menu summary::-webkit-details-marker { display: none; }
@@ -1592,6 +1596,15 @@
       <label id="hs-account-row" hidden><span>Which Claude account it works on</span>
         <select id="hs-account" aria-label="The Claude account it works on"></select>
       </label>
+      <div id="hs-t3-row" hidden>
+        <label><span>Where its agent runs</span>
+          <select id="hs-engine" aria-label="Where its agent runs">
+            <option value="">In a terminal, as usual</option>
+            <option value="t3">In T3 Code (experimental)</option>
+          </select>
+        </label>
+        <p class="hint" id="hs-t3-note" style="margin:4px 0 0" hidden></p>
+      </div>
       <label id="hs-floor-row" hidden><span>Which floor it sits on</span>
         <select id="hs-floor" aria-label="The floor it sits on"></select>
       </label>
@@ -2143,6 +2156,58 @@
     };
   }
 
+  /*
+   * A hire in T3 Code (T797b, experimental): its desk says so, with its thread's status; Open in T3 Code shows its
+   * thread there; T3 Code has no stop, so it's let go instead of fired, after a confirm that says what's removed.
+   */
+  const T3_TAG = 'EXPERIMENTAL · runs in T3 Code';
+  const T3_STATUS = { starting: 'starting', working: 'at work', waiting: 'waiting for an answer in T3 Code', done: 'done', unknown: "T3 Code didn't say" };
+  const T3_LETGO = "T3 Code's thread for this hire, and its history in T3 Code, are removed. Its worktree and branch stay.";
+  const T3_STOP_THERE = 'Or open it in T3 Code to stop it there: nothing is removed.';
+  /* Each let go, by hire id, kept outside its row as an open is: { busy, text, at }. */
+  const t3Leaving = new Map();
+
+  function t3Desk(r, label) {
+    const desk = r.t3 || {};
+    label.append(Object.assign(document.createElement('small'), { className: 't3-tag', textContent: T3_TAG }),
+      Object.assign(document.createElement('small'), { className: 'hint', textContent: ` · ${T3_STATUS[desk.status] || T3_STATUS.unknown}` }));
+  }
+
+  function letGoMenu(r, openThere) {
+    const name = r.nickname || r.name;
+    const menu = document.createElement('details');
+    menu.className = 'menu';
+    const body = document.createElement('div');
+    body.style.cssText = 'display:grid;gap:6px;padding:8px 0 0';
+    const confirm = Object.assign(document.createElement('p'), { className: 't3-confirm', textContent: `Let ${name} go? ${T3_LETGO}` });
+    const go = Object.assign(document.createElement('button'), { className: 'btn', textContent: `Let ${name} go` });
+    const instead = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Open in T3 Code instead' });
+    const line = Object.assign(document.createElement('p'), { className: 'hint', textContent: T3_STOP_THERE, style: 'margin:0;font-size:12.5px' });
+    const problem = Object.assign(document.createElement('p'), { className: 'note', hidden: true });
+    const paint = () => {
+      const leaving = t3Leaving.get(r.id);
+      go.disabled = !!(leaving && leaving.busy);
+      go.textContent = leaving && leaving.busy ? 'Letting go…' : `Let ${name} go`;
+      problem.textContent = leaving && !leaving.busy && Date.now() - leaving.at < T3_ANSWER_FOR ? leaving.text : '';
+      problem.hidden = !problem.textContent;
+      if (problem.textContent) menu.open = true;
+    };
+    paint();
+    instead.onclick = openThere;
+    go.onclick = async () => {
+      if ((t3Leaving.get(r.id) || {}).busy) return;
+      t3Leaving.set(r.id, { busy: true, text: '', at: Date.now() });
+      paint();
+      const res = await fetch('/setup/t3code/letgo', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify({ id: r.id }) }).catch(() => null);
+      // Said plainly, whatever happened: a let go that stopped part way says where.
+      t3Leaving.set(r.id, { busy: false, text: res && res.ok ? '' : await refusal(res, `${name} couldn't be let go.`), at: Date.now() });
+      load();
+    };
+    body.append(confirm, go, instead, line, problem);
+    menu.append(Object.assign(document.createElement('summary'), { className: 'btn', textContent: 'Let go…' }), body);
+    return menu;
+  }
+
   /** One hire on the team: who, where, and Fire… with the two options a fire has. */
   function teamRow(r) {
     const row = document.createElement('div');
@@ -2153,6 +2218,8 @@
     label.className = 'text';
     label.textContent = r.nickname || r.name;
     label.append(Object.assign(document.createElement('small'), { className: 'hint', textContent: ` · ${r.role || 'hire'}${r.branch ? ` · ${r.branch}` : ''}` }));
+    const inT3 = r.engine === 't3';
+    if (inT3) t3Desk(r, label);
     const fire = document.createElement('details');
     fire.className = 'menu';
     const open = Object.assign(document.createElement('summary'), { className: 'btn', textContent: 'Fire…' });
@@ -2208,7 +2275,8 @@
       };
       keys.append(show);
     }
-    keys.append(fire);
+    // A hire that runs in T3 Code (T797b): Let go… instead of Fire…; Open in T3 Code only while T3 Code is on (T796).
+    keys.append(inT3 ? letGoMenu(r, () => { if (t3Key) t3Key.button.click(); }) : fire);
     // On a phone-wide window (390 px), the buttons go under the name rather than squeeze it.
     head.style.flexWrap = 'wrap';
     head.append(label, keys);
@@ -2226,7 +2294,8 @@
   const T3_EVERY = 30000, T3_AGAIN = 5000, T3_ANSWER_FOR = 30000;
   const T3_NOTE = 'T3 Code opens its own agent there, separate from this hire.';
   const T3_OPENED = { thread: "T3 Code is open on this hire's folder, in a new thread.", project: "Added to T3 Code's projects: open T3 Code to see it.",
-    unsure: "T3 Code has this hire's folder open as a project; it didn't confirm a new thread, so look in T3 Code." };
+    unsure: "T3 Code has this hire's folder open as a project; it didn't confirm a new thread, so look in T3 Code.",
+    link: "T3 Code is open on this hire's own thread." };
   let t3 = null, t3At = 0, t3Asking = null;
   /*
    * Each hire's open, by its id, kept outside its row: the team is drawn again every 1.5 seconds, and an open (up
@@ -2254,16 +2323,23 @@
    */
   function paintT3Row(button, line) {
     const open = t3Opening.get(button.dataset.t3);
-    const usable = !!t3 && (t3.state === 'found' || t3.state === 'cliOnly');
+    // A hire in T3 Code opens its own thread, by T3 Code's link: that takes the app, not t3.
+    const lane = button.dataset.lane === '1';
+    const usable = !!t3 && (lane ? (t3.state === 'found' || t3.state === 'appOnly') && button.dataset.canOpen === '1'
+      : t3.state === 'found' || t3.state === 'cliOnly');
     button.disabled = open && open.busy ? true : !usable;
     line.textContent = open && (open.busy || Date.now() - open.at < T3_ANSWER_FOR) ? open.text
-      : !t3 ? '' : usable ? (t3.state === 'found' ? T3_NOTE : '') : t3.hint;
+      : !t3 || lane ? '' : usable ? (t3.state === 'found' ? T3_NOTE : '') : t3.hint;
     line.hidden = !line.textContent;
   }
 
   function t3Button(r) {
     const button = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Open in T3 Code', disabled: true });
     button.dataset.t3 = r.id;
+    if (r.engine === 't3') {
+      button.dataset.lane = '1';
+      button.dataset.canOpen = r.t3 && r.t3.canOpen ? '1' : '';
+    }
     const line = Object.assign(document.createElement('p'), { className: 'hint t3-line', hidden: true });
     line.style.cssText = 'margin:4px 0 0;font-size:12.5px';
     // Drawn again mid-open, the row is as the open left it.
@@ -3646,6 +3722,7 @@
     // With more than one Claude account, a hire on Claude Code says which; the first choice is empty, so it's a choice made.
     const accounts = (state.claudeAccounts && state.claudeAccounts.profiles) || [];
     $('hs-account-row').hidden = accounts.length < 2 || (role.agent && role.agent !== 'claude');
+    $('hs-account-row').dataset.shown = $('hs-account-row').hidden ? '' : '1';
     $('hs-account').replaceChildren(new Option('Choose an account…', ''), ...accounts.map((p) => new Option(p.name, p.name)));
     // Options: a worktree is on for a hire under a manager; an API-key choice only with a key in the Keychain.
     $('hs-options').open = false;
@@ -3654,7 +3731,24 @@
     $('hs-nickname').value = '';
     const key = state.hiring && state.hiring.apiKey;
     $('hs-apikey-row').hidden = !(key && key.available) || (!!role.agent && role.agent !== 'claude');
+    $('hs-apikey-row').dataset.shown = $('hs-apikey-row').hidden ? '' : '1';
     $('hs-apikey').checked = false;
+    // Into T3 Code (T797b, experimental): offered for a Claude Code role once this computer has said T3 Code is here;
+    // greyed, with the one sentence why, when it can't be taken now.
+    $('hs-t3-row').hidden = true;
+    $('hs-engine').value = '';
+    $('hs-t3-note').dataset.why = '';
+    paintEngine();
+    if (state.t3CodeEnabled && role.id !== 'gm' && (!role.agent || role.agent === 'claude')) {
+      const asked = role.id;
+      t3State(true).then((found) => {
+        if (hireShown !== asked || !found || !found.lane || found.state === 'none') return;
+        $('hs-engine').options[1].disabled = !found.lane.ok;
+        $('hs-t3-note').dataset.why = found.lane.ok ? '' : found.lane.why;
+        $('hs-t3-row').hidden = false;
+        paintEngine();
+      });
+    }
     $('hs-apikey-notice').textContent = 'Billed to your API key. The hire can read this key.';
     showHireFence();
     $('hs-questions').replaceChildren(...(role.questions || []).map((q, i) => {
@@ -3668,6 +3762,17 @@
     if (!$('hire-sheet').open) $('hire-sheet').showModal();
     ($('hs-questions').querySelector('textarea') || $('hs-folder')).focus();
   }
+  const T3_LANE_NOTE = 'Experimental. T3 Code runs it, in a worktree and branch of its own, behind the same fence as any hire. Its folder must be in a git repository.';
+  const hireIntoT3 = () => !$('hs-t3-row').hidden && $('hs-engine').value === 't3';
+  /** In T3 Code, a hire works on T3 Code's own Claude account: no account or API key to pick. */
+  function paintEngine() {
+    const t3 = hireIntoT3();
+    $('hs-account-row').hidden = t3 || $('hs-account-row').dataset.shown !== '1';
+    $('hs-apikey-row').hidden = t3 || $('hs-apikey-row').dataset.shown !== '1';
+    $('hs-t3-note').textContent = t3 ? T3_LANE_NOTE : $('hs-t3-note').dataset.why || '';
+    $('hs-t3-note').hidden = !$('hs-t3-note').textContent;
+  }
+  $('hs-engine').onchange = paintEngine;
   const hireAnswers = () => [...$('hs-questions').querySelectorAll('textarea')].map((a) => a.value.trim());
   const hireFolder = () => $('hs-folder').value.trim() || $('hs-folders').value;
   function closeHireSheet() {
@@ -3723,6 +3828,7 @@
     const res = await fetch('/setup/hire', { method: 'POST', headers: setupHeaders(true),
       body: JSON.stringify({ role: hiring.id, folder, answers: hireAnswers(), floor: Number($('hs-floor').value) || 0,
         worktree: $('hs-worktree').checked,
+        ...(hireIntoT3() ? { engine: 't3' } : {}),
         ...($('hs-model').value.trim() ? { model: $('hs-model').value.trim() } : {}),
         ...($('hs-nickname').value.trim() ? { nickname: $('hs-nickname').value.trim() } : {}),
         ...(!$('hs-apikey-row').hidden && $('hs-apikey').checked ? { apiKey: true } : {}),
@@ -3738,10 +3844,10 @@
     if (gmHire) { const mine = ++gmHireSerial; setTimeout(() => { if (mine === gmHireSerial) hireEnded(); }, 300000); }
     // Where it sits, 0-based as the app counts desks; null with Auto and no desk free
     const { desk } = await res.json().catch(() => ({}));
-    const name = hiring.name, onText = !hiring.brief || hiring.brief.kind === 'text';
+    const name = hiring.name, onText = !hiring.brief || hiring.brief.kind === 'text', inT3 = hireIntoT3();
     closeHireSheet();
     $('easy-hire-how').replaceChildren(Object.assign(document.createElement('span'), {
-      textContent: `${name} is hired, in ${folder}${Number.isInteger(desk) ? `, at desk ${desk + 1}` : ''}`
+      textContent: `${name} is hired${inT3 ? ' into T3 Code, in a worktree of' : ', in'} ${folder}${Number.isInteger(desk) && !inT3 ? `, at desk ${desk + 1}` : ''}`
         + `${Number($('hs-floor').value) > 0 ? `, on ${$('hs-floor').selectedOptions[0].text}` : ''}. `
         + (onText ? 'It starts on its instructions, with your answers.' : 'It starts by reading its brief.') }),
       choice('OK', null, () => { $('easy-hire-how').hidden = true; }));

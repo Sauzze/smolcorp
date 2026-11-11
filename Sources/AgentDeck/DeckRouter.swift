@@ -435,6 +435,8 @@ final class DeckRouter: Router {
             DeckRouter.t3Status(fresh: request.query["fresh"] == "1") { status in
                 var answer = T3Code.json(status)
                 answer["hire"] = hire.map { T3Code.title(of: $0) } ?? NSNull()
+                // A hire in T3 Code: its desk (the tag, its status) and branch, for the card.
+                if let hire, hire.engine == T3Desk.engine { answer["lane"] = T3Desk.deskJSON(hire).merging(["branch": hire.branch]) { $1 } }
                 respond(.json(answer))
             }
 
@@ -1211,7 +1213,7 @@ final class DeckRouter: Router {
 
         // The front desk: the team, and a hire's nickname, state and notes. The page or a tool may ask (T204 narrows it).
         case ("GET", "/setup/gm/team"):
-            respond(.json(deck.frontDesk.teamJSON(live: deck.frontDeskLive(), byHandGM: deck.byHandGMSession)))
+            respond(.json(T3Desk.decorate(deck.frontDesk.teamJSON(live: deck.frontDeskLive(), byHandGM: deck.byHandGMSession), hires: deck.frontDesk.hires)))
 
         // Who waits for you, and on what. Read only: a prompt is answered by your tap alone (the phone's /act and /choose).
         case ("GET", "/setup/gm/approvals"):
@@ -1354,12 +1356,23 @@ final class DeckRouter: Router {
         // opened there, by the hire's id: the folder comes from the registry, never from the request. The page alone.
         case ("GET", "/setup/t3code"):
             guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }
-            DeckRouter.t3Status(fresh: request.query["fresh"] == "1") { respond(.json(T3Code.json($0))) }
+            let on = T3Code.laneAllowed(config)
+            DeckRouter.t3Status(fresh: request.query["fresh"] == "1") { status in
+                var answer = T3Code.json(status)
+                // Whether a hire may go into T3 Code (T797b), or the one sentence saying why not.
+                let why = T3Desk.refusal(on: on, status: status)
+                answer["lane"] = ["ok": why == nil, "why": why ?? ""]
+                respond(.json(answer))
+            }
 
         case ("POST", "/setup/t3code/open"):
             guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }
             let id = request.json["id"] as? String ?? ""
             DeckRouter.openInT3Code(deck.frontDesk.hires.first { $0.id == id }, respond: respond)
+
+        // Let go of a hire in T3 Code (T797b), by its id after the page's confirm: its T3 project removed, its worktree kept.
+        case ("POST", "/setup/t3code/letgo"):
+            deck.letGoOfT3(id: request.json["id"] as? String ?? "", done: respond)
 
         // The hire guard's groups and your own patterns: a tool may read them, only the page changes them (see `SetupRoutes`).
         case ("GET", "/setup/guard"):

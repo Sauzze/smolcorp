@@ -1252,7 +1252,10 @@
   const T3_BUTTON = 'smolcorp-t3code';
   const T3_NOTE = 'T3 Code opens its own agent there, separate from this hire.';
   const T3_OPENED = { thread: "T3 Code is open on this hire's folder, in a new thread.", project: "Added to T3 Code's projects: open T3 Code to see it.",
-    unsure: "T3 Code has this hire's folder open as a project; it didn't confirm a new thread, so look in T3 Code." };
+    unsure: "T3 Code has this hire's folder open as a project; it didn't confirm a new thread, so look in T3 Code.",
+    link: "T3 Code is open on this hire's own thread." };
+  /* A hire that runs in T3 Code (T797b, experimental): its card says so, with its branch and its thread's status. */
+  const T3_STATUS = { starting: 'starting', working: 'at work', waiting: 'waiting for an answer in T3 Code', done: 'done', unknown: "T3 Code didn't say" };
   let t3Here = false;  // the computer said this window may open T3 Code
   let t3Snapshot = null; // the last snapshot, to show again with the key once it's allowed
   let t3For = null;    // the session the card is for
@@ -1283,6 +1286,11 @@
     if (t3For !== id) return;
     if (!found) return t3Say("Couldn't tell whether T3 Code is installed.");
     if (!found.hire) return t3Say("Only a hire's folder opens in T3 Code: this agent wasn't hired by Smolcorp.");
+    if (found.lane) {
+      const lane = found.lane;
+      $('t3-open').disabled = !((found.state === 'found' || found.state === 'appOnly') && lane.canOpen);
+      return t3Say(`${lane.tag}${lane.branch ? ` · ${lane.branch}` : ''} · ${T3_STATUS[lane.status] || T3_STATUS.unknown}. Let it go from Setup's team list.`);
+    }
     const usable = found.state === 'found' || found.state === 'cliOnly';
     $('t3-open').disabled = !usable;
     t3Say(usable ? (found.state === 'found' ? T3_NOTE : '') : found.hint);
