@@ -294,6 +294,7 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 }
 
 // End to end on a real Deck on a test port (a test copy): T721 refuses Claude on the default account, and nothing is left.
+// It stops at that refusal, before tmux is used; it still fails, never skips, without tmux or a free port.
 func TestARealDeckOnATestPortRefusesTheGMHireAsATestCopy(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Fatal("needs tmux installed (a Deck on a test port picks its hire engine from it) and a free port from 7750 to 7799")
