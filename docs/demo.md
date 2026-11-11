@@ -1,0 +1,80 @@
+# The demo
+
+Watch a General Manager run a small team on a sample project, from a plan to
+reviewed branches, without pointing it at a project of yours. Back to the
+[README](../README.md).
+
+## Run it
+
+```sh
+smolcorp demo             # Linux
+smolcorp-cli demo         # Windows
+/Applications/Smolcorp.app/Contents/Resources/bin/smolcorp demo   # Mac
+```
+
+It makes a new folder, `~/smolcorp-demo` (then `smolcorp-demo-2`, and so on;
+`--in FOLDER` makes it somewhere else inside your home folder), copies a small
+sample project into it, and starts Smolcorp if it isn't running. Then it says
+what it's about to spend and waits for your yes.
+
+The sample is `bill`: one Python file that splits a restaurant bill, with its
+tests, MIT licensed. Its `TASKS.md` lists three tasks: a lost cent to fix,
+tests to add, and a README to finish. Python 3 is all the proof needs.
+
+## What happens
+
+1. **The General Manager is hired** into the sample project, with the demo's
+   goal and its questions answered. If the manager or hiring is off, the demo
+   turns it on, as hiring a GM from Setup does.
+2. **It plans with you.** It shows you the plan in its terminal and waits for
+   your OK there.
+3. **It hires one agent per task**, each in a worktree of its own on a branch of
+   its own: a Bug hunter, a Tester, a Docs writer, or whichever Claude Code
+   roles it picks.
+4. **It checks the proof** (the tests pass, the diff does what was asked) and
+   **has a Reviewer review each branch.**
+5. **It stops before anything ships.** Nothing is merged, pushed or published.
+   It writes `DEMO-REPORT.md` in the demo folder, and the demo prints it, then
+   checks that nothing shipped and lists the branches waiting for you.
+
+The demo's terminal follows the team as it works. The office shows it too, on
+your phone or from Smolcorp's menu. Ctrl-C stops following, not the team.
+
+## What it spends
+
+It runs real Claude Code on your own Claude account: the General Manager on
+Opus, and about four hires for some minutes each. That uses your plan's
+usage, as any Claude Code session does. Nothing else is paid for, and the
+demo asks before it starts anything.
+
+## What keeps it in its folder
+
+- **Everything is in the demo folder**: the project in `app`, the hires'
+  worktrees beside it in `app-hires`.
+- **The project has no remote**, and a pre-push hook that refuses every push.
+- **Its own fence, for every session in it.** The project's committed
+  `.claude/settings.json` runs `smolcorp demo fence` before each tool call of
+  the General Manager and of each hire. It refuses a file changed outside the
+  demo folder, a hire into any other folder, a hire of a role that isn't on
+  Claude Code, a hire into T3 Code, and what the guard refuses (pushes,
+  deploys, publishing, cloud commands). That's on top of the fence the General
+  Manager and its hires get anyway ([The fence, and who gets it](team.md#the-fence-and-who-gets-it)).
+- Like the guard, it reads one command line: a script a hire writes and runs
+  isn't read. It's a fence, not a wall.
+
+## A dry run first
+
+```sh
+smolcorp demo --dry-run
+```
+
+The same steps with stand-ins for the office and for Claude Code: a plan, a
+branch per task with a scripted change, a review, the fence refusing a hire
+outside the folder, a push and a file written outside it, and the report.
+Nothing is started or spent.
+
+## When you're done
+
+Fire the demo's team in the office, then delete the demo folder. One General
+Manager works at a time: if one is already hired, the demo asks you to fire
+it first.
