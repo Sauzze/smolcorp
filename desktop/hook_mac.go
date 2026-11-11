@@ -66,7 +66,8 @@ func headerSafe(text string) bool { return strings.IndexFunc(text, unicode.IsCon
 // the processes above start; send is false when nothing should be sent.
 func macHookTab(agent Agent, event []byte, env func(string) string, process macProcess, start int) (tab, tty string, send bool) {
 	for _, name := range []string{"SMOLCORP_SESSION", "SAUZZEDECK_SESSION"} {
-		if id := env(name); id != "" {
+		// Not for Codex: its shared hook service keeps a stale launcher variable (see below).
+		if id := env(name); id != "" && agent != Codex {
 			return "launcher:" + id, "", true
 		}
 	}

@@ -57,6 +57,7 @@ func TestTheHookNamesAMacTerminalsTabAsReportSh(t *testing.T) {
 		{"no tty, Gemini says headless: nothing sent", Gemini, map[string]string{"SMOLCORP_HEADLESS": "1"}, noTTY, "", false},
 		{"no tty, OpenCode: found by its folder", OpenCode, nil, noTTY, "", true},
 		{"Codex: found by its folder", Codex, map[string]string{"TERM_PROGRAM": "Apple_Terminal"}, inTerminal, "", true},
+		{"Codex with a stale SMOLCORP_SESSION: found by its folder", Codex, map[string]string{"SMOLCORP_SESSION": "other-desk"}, inTerminal, "", true},
 	} {
 		env := func(name string) string { return c.env[name] }
 		tab, _, send := macHookTab(c.agent, event, env, c.tree.process, 99)
