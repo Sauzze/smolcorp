@@ -105,6 +105,9 @@ type Config struct {
 	// Window is where the office window was left, and whether it stays above the others (Windows).
 	Window      *WindowState `json:"window"`
 	AlwaysOnTop bool         `json:"alwaysOnTop"`
+	// OfficeKey is the keys that show and hide the office's window from anywhere, as the setup page records
+	// them (officekey.go): "" for ⌥⌘O, "off" for none. Held by the Mac app only; kept as set elsewhere.
+	OfficeKey string `json:"officeKey,omitempty"`
 	// Listen is who can reach the server: "tailscale" (this computer and the
 	// Tailscale address only; the default on Windows and Linux) or "all" (every
 	// interface; the default elsewhere). Read at start. See listen.go.

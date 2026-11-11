@@ -1,5 +1,4 @@
 import AppKit
-import Carbon.HIToolbox
 
 @main
 enum AgentDeckApp {
@@ -32,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var router = DeckRouter(deck: deck)
     private lazy var server = HTTPServer(port: Deck.port, router: router)
     private lazy var office = OfficeWindow(address: URL(string: "http://127.0.0.1:\(Deck.port)/office?window&t=\(deck.windowKey)")!)
-    private var officeKey: HotKey?
+    private lazy var officeKey = OfficeKeyHolder { [office] in office.toggle() }
     private lazy var settings = SettingsWindow(newSession: { [deck] in
         deck.access.setupSessions.open(link: deck.access.setupSessions.newLink())
     })
@@ -72,8 +71,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         OfficeWindow.settle(Config.shared)
         router.officeOptionsChanged = { [office] in office.applyOptions() }
         NSApp.mainMenu = mainMenu()
-        // ⌥⌘O, from anywhere, shows and hides the office's window.
-        officeKey = HotKey(keyCode: UInt32(kVK_ANSI_O), modifiers: UInt32(cmdKey | optionKey), id: 1) { [office] in office.toggle() }
+        // ⌥⌘O, or the keys chosen in Settings, from anywhere, shows and hides the office's window; changed there at once.
+        officeKey.hold(OfficeKey.chosen(Config.shared, labels: OfficeKey.currentLabels()))
+        router.officeKeyChanged = { [officeKey] in officeKey.hold($0) }
+        router.officeKeyHeld = { [officeKey] in officeKey.current }
+        router.officeKeyLabels = OfficeKey.currentLabels
 
         if !Config.shared.hasCompletedSetup, TestCopy.mayComeForward("first-run Settings") {
             settings.show()
@@ -132,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         forward(to: edit, "Select All", #selector(NSText.selectAll(_:)), key: "a")
 
         let window = submenu(of: bar, "Window")
-        // ⌥⌘O is the office's key from anywhere already, so it isn't given again here.
+        // The office's keys work from anywhere already (⌥⌘O, or those chosen in Settings), so they aren't given again here.
         add(to: window, "Office", #selector(toggleOffice))
         add(to: window, "Settings", #selector(openSettings))
         window.addItem(.separator())

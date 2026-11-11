@@ -36,7 +36,20 @@ Applications. A bookmark of the page won't open it: the menu opens it with a
 link that works once, for five minutes.
 
 On a Mac, **Keep the office on top of other windows** is a switch in the Office
-pane, and the office's corner key is **⚙︎ Settings**. **Let features press
+pane, and the office's corner key is **⚙︎ Settings**. Beside it, **Shortcut to
+show and hide the office** is ⌥⌘O until you change it: click it and press the
+keys you want, with ⌘, ⌥ or ⌃. It works at once, from any app, and needs no
+permission. **Reset to default** brings back ⌥⌘O and **Off** turns it off.
+The keys are shown as your keyboard prints them: on a French AZERTY Mac, ⌥⌘A
+is ⌥⌘A. Smolcorp won't take the Mac's own keys, by what they type on your
+keyboard: ⌘Tab, ⌘Space, ⌘Q, ⇧⌘Q, ⌃⌘Q, ⌘W, ⌘H, ⌘M, ⌘, and the editing and file
+keys every app has (⌘C, ⌘V, ⌘X, ⌘Z, ⇧⌘Z, ⌘A, ⌘S, ⌘F, ⌘T, ⌘N, ⌘P, ⌘O). It also
+won't take keys macOS has switched on in Keyboard Shortcuts, or keys macOS
+won't let it hold. It can't see other apps' own shortcuts, so keys with ⌘ and
+neither ⌥ nor ⌃ get a warning: an app of yours may use them, and it won't get
+them while Smolcorp holds them. If the keys you chose can't be held any more,
+the setting says so. On Windows and Linux the setting is kept but does
+nothing: use **Show Office** in the tray. **Let features press
 keys in other apps** (Mac) is off until you turn it on and name the apps it may
 use.
 

@@ -70,6 +70,8 @@ type bridgeRequest struct {
 	Value string `json:"value,omitempty"`
 	// login-item, dock, office-ontop: on or off; keystroke-apps: App added or removed; terminal-command: made or removed.
 	On *bool `json:"on,omitempty"`
+	// office-key: the office's keys from anywhere, as config.json has them (officekey.go), "off" for none.
+	Keys string `json:"keys,omitempty"`
 	// facts: the apps keys may go to, left out of those running; keystroke-apps: the list App goes on or off.
 	Apps []string `json:"apps,omitempty"`
 	App  string   `json:"app,omitempty"`
@@ -192,6 +194,8 @@ type macFacts struct {
 	Dictation macDictation `json:"dictation"`
 	Running   []runningApp `json:"running"`
 	Terminal  terminalCmd  `json:"terminalCommand"`
+	// The office's keys held now and the layout in use (officekey.go).
+	OfficeKey *macOfficeKey `json:"officeKey,omitempty"`
 }
 
 // macDictation is Apple's speech recognition on this Mac: whether it can
@@ -405,6 +409,15 @@ func hostShowOffice(h hostBridge) error {
 // core's to keep, in the config the app reads it from as it starts.
 func hostOfficeOnTop(h hostBridge, on bool) error {
 	_, err := ask(h, bridgeRequest{Action: "office-ontop", On: &on})
+	return err
+}
+
+// hostOfficeKey has the Mac app hold the office's keys from anywhere instead, at once ("off": none): the
+// setting is the core's to keep, in the config the app reads it from as it starts. Keys macOS has switched on,
+// or won't let it hold, and the Mac's own keys on the layout in use are the app's refusal, and the keys held
+// before are kept.
+func hostOfficeKey(h hostBridge, keys string) error {
+	_, err := ask(h, bridgeRequest{Action: "office-key", Keys: keys})
 	return err
 }
 

@@ -65,8 +65,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         addPortableOffice(to: menu)
         menu.addItem(.separator())
         if let office {
-            let show = add(to: menu, "Show Office", #selector(toggleOffice), key: "o")
-            show.keyEquivalentModifierMask = [.command, .option]
+            // The keys chosen in Settings (⌥⌘O unless changed), as the layout in use prints them; none when off.
+            let labels = OfficeKey.currentLabels()
+            let keys = OfficeKey.chosen(Config.shared, labels: labels)?.menuKey(labels)
+            let show = add(to: menu, "Show Office", #selector(toggleOffice), key: keys?.key ?? "")
+            show.keyEquivalentModifierMask = keys?.modifiers ?? []
             show.state = office.isShown ? .on : .off
             let options = NSMenu()
             let item = menu.addItem(withTitle: "Office Window", action: nil, keyEquivalent: "")

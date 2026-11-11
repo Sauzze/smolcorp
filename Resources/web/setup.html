@@ -162,6 +162,7 @@
   .choices { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
   .choices .btn { padding: 3px 11px; border-radius: 999px; box-shadow: none; }
   .choices .btn.on, .chip.on { background: var(--accent-soft); border-color: var(--accent); }
+  #officekey.on { background: var(--accent-soft); border-color: var(--accent); }
   .choices .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px;
     box-shadow: inset 0 0 0 1px rgb(128 128 128 / .35); }
   .choices canvas { image-rendering: pixelated; vertical-align: -3px; }
@@ -1030,6 +1031,17 @@
             <div class="detail">Not here: the office opens in your browser on this computer, so there's no window of its own to keep on top.</div>
           </div>
         </div>
+        <div class="step" id="step-officekey" data-keywords="shortcut keyboard hotkey hot key option command open show hide record" hidden>
+          <div class="mark">✓</div>
+          <div class="text">
+            <div class="title">Shortcut to show and hide the office</div>
+            <div class="detail" id="officekey-detail"></div>
+          </div>
+          <button class="btn" id="officekey" title="Click, then press the keys you want"></button>
+          <button class="btn" id="officekey-default">Reset to default</button>
+          <button class="btn" id="officekey-off">Off</button>
+        </div>
+        <p class="note" id="officekey-problem" role="alert" hidden></p>
       </div>
     </div>
     <section class="group profiles" id="profiles-section" data-search="Profiles" data-keywords="save switch export import rename profile saved looks" data-folds hidden>
@@ -1921,6 +1933,7 @@
     renderTerminalCommand();
     renderDock();
     renderOnTop();
+    renderOfficeKey();
     renderSummary();
     renderPhoneMic();
     renderWebhook();
@@ -2521,6 +2534,128 @@
     $('ontop').classList.toggle('on', w.onTop);
   }
 
+  // The office's keys, as Settings' recorder reads them from a key pressed. OfficeKeyTests.swift runs this block,
+  // between its markers, in JavaScriptCore. `labels` name the keys as the layout in use prints them, by their US
+  // names, where they differ (the Mac app reads them: ⌥⌘A on a French AZERTY Mac for "alt+cmd+Q").
+  // officeKey: begin
+  const officeKeyCodes = { Space: 'Space', Tab: 'Tab', Comma: ',', Period: '.', Slash: '/', Semicolon: ';', Quote: "'",
+    BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=', Backslash: '\\', Backquote: '`' };
+  const officeKeyReserved = ['cmd+Tab', 'cmd+Space', 'cmd+Q', 'cmd+W', 'cmd+H', 'cmd+M', 'cmd+,',
+    'cmd+C', 'cmd+V', 'cmd+X', 'cmd+Z', 'shift+cmd+Z', 'cmd+A', 'cmd+S', 'cmd+F', 'cmd+T', 'cmd+N',
+    'cmd+P', 'cmd+O', 'shift+cmd+Q', 'ctrl+cmd+Q'];
+  /** A key pressed, as config.json keeps it ("alt+cmd+O"), by where it sits: null for a modifier alone, or a key Smolcorp can't hold. */
+  function officeKeyFrom(e) {
+    const c = e.code || '';
+    const key = /^Key[A-Z]$/.test(c) ? c.slice(3) : /^Digit[0-9]$/.test(c) ? c.slice(5)
+      : /^F([1-9]|1[0-2])$/.test(c) ? c : officeKeyCodes[c];
+    if (!key) return null;
+    const mods = [['ctrl', e.ctrlKey], ['alt', e.altKey], ['shift', e.shiftKey], ['cmd', e.metaKey]].filter((m) => m[1]).map((m) => m[0]);
+    return [...mods, key].join('+');
+  }
+  /** As the Mac's menus show them on the layout in use: ⌥⌘O. */
+  function officeKeySymbols(keys, labels) {
+    const parts = keys.split('+');
+    const key = parts.pop();
+    const marks = { ctrl: '⌃', alt: '⌥', shift: '⇧', cmd: '⌘' };
+    return parts.map((m) => marks[m] || '').join('') + ((labels || {})[key] || key);
+  }
+  /** As apps read them on the layout in use: the key by what it types there, when that's a key Smolcorp names. */
+  function officeKeyTyped(keys, labels) {
+    const parts = keys.split('+');
+    const label = (labels || {})[parts[parts.length - 1]];
+    if (label && officeKeyFrom({ code: officeKeyCodeOf(label) })) parts[parts.length - 1] = label;
+    return parts.join('+');
+  }
+  function officeKeyCodeOf(name) {
+    if (/^[A-Z]$/.test(name)) return 'Key' + name;
+    if (/^[0-9]$/.test(name)) return 'Digit' + name;
+    return Object.keys(officeKeyCodes).find((c) => officeKeyCodes[c] === name) || '';
+  }
+  /** Why the app would refuse these keys, said at once: null when it may hold them (it also checks they're free). */
+  function officeKeyRefusal(keys, labels) {
+    const mods = keys.split('+').slice(0, -1);
+    if (!mods.some((m) => m !== 'shift')) return 'Hold ⌘, ⌥ or ⌃ too: a key alone, or with ⇧ only, would stop it typing anywhere.';
+    if (officeKeyReserved.includes(officeKeyTyped(keys, labels))) return `${officeKeySymbols(keys, labels)} is the Mac's own, in every app: choose another.`;
+    return null;
+  }
+  /** A word on keys it may hold with ⌘ and neither ⌥ nor ⌃: apps' own shortcuts look like that, and Smolcorp can't see them. */
+  function officeKeyWarning(keys, labels) {
+    const mods = keys.split('+').slice(0, -1);
+    if (!mods.includes('cmd') || mods.includes('alt') || mods.includes('ctrl') || officeKeyRefusal(keys, labels)) return null;
+    const shown = officeKeySymbols(keys, labels);
+    return `${shown} works from any app now, so an app of yours that uses ${shown} won't get it: add ⌥ or ⌃ to keep clear of them.`;
+  }
+  /** Settings' recorder on `button`: a click starts it, and the next keys pressed are sent to be saved, or said
+   *  refused at once. They're heard on `doc`, in the capture phase, while it records: WebKit leaves a button it's
+   *  clicked on a Mac unfocused, so the keys never reach the button itself. Esc, a second click or leaving the
+   *  button stops it. `shown(recording)` says when it starts and stops. */
+  function officeKeyRecorder(button, doc, labels, send, refuse, shown) {
+    let recording = false;
+    let stoppedAt = 0;
+    function stop() {
+      if (!recording) return;
+      recording = false;
+      stoppedAt = Date.now();
+      doc.removeEventListener('keydown', heard, true);
+      shown(false);
+    }
+    function heard(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey) return stop();
+      const keys = officeKeyFrom(e);
+      if (!keys) return; // a modifier alone, so far
+      stop();
+      const refusal = officeKeyRefusal(keys, labels());
+      if (refusal) return refuse(refusal);
+      send(keys);
+    }
+    // A Space or Return just pressed to stop it doesn't start it again.
+    button.addEventListener('click', (e) => {
+      if (recording) return stop();
+      if (e.detail === 0 && Date.now() - stoppedAt < 500) return;
+      recording = true;
+      doc.addEventListener('keydown', heard, true);
+      shown(true);
+      button.focus();
+    });
+    button.addEventListener('blur', stop);
+  }
+  // officeKey: end
+
+  /** The keys that show and hide the office from anywhere: the Mac app holds them; elsewhere they're kept for it. */
+  let officeKeyRecording = false;
+  function officeKeyLabels() { return (state.officeKey && state.officeKey.labels) || {}; }
+  function renderOfficeKey() {
+    const k = state.officeKey;
+    $('step-officekey').hidden = !k;
+    if (!k || officeKeyRecording) return;
+    const off = k.keys === 'off';
+    const shown = off ? '' : officeKeySymbols(k.keys, k.labels);
+    // Kept but not held (macOS has them on since, or won't let go): said, and not ticked.
+    const lost = onMac() && !off && !k.held;
+    $('step-officekey').classList.toggle('done', !off && !lost);
+    $('officekey').textContent = off ? 'Record shortcut' : shown;
+    $('officekey').setAttribute('aria-label', off ? 'Record a shortcut' : `Shortcut ${shown}: click, then press new keys`);
+    $('officekey-default').hidden = k.keys === k.default && !lost;
+    $('officekey-off').hidden = off;
+    const warning = off ? null : officeKeyWarning(k.keys, k.labels);
+    $('officekey-detail').textContent = !onMac()
+      ? 'For Smolcorp on a Mac. This computer has no shortcut for the office: use Show Office in Smolcorp\'s menu in the tray.'
+      : off ? 'Off: open the office from Smolcorp\'s menu.'
+      : lost ? `${shown} isn't working now: macOS has it switched on, or won't let Smolcorp hold it. Choose another, or Reset to default.`
+      : `From any app, ${shown} shows and hides the office.` + (warning ? ` ${warning}` : '');
+  }
+  function officeKeyProblem(text) {
+    $('officekey-problem').textContent = text || '';
+    $('officekey-problem').hidden = !text;
+  }
+  async function setOfficeKey(keys) {
+    officeKeyProblem('');
+    const res = await post(`/setup/officekey?keys=${encodeURIComponent(keys)}`);
+    if (!res.ok) officeKeyProblem(await res.text());
+  }
+
   function renderSummary() {
     const s = state.summary;
     $('step-summary').hidden = !s;
@@ -3016,6 +3151,16 @@
   $('keystrokes').onclick = () => post(`/setup/keystrokes?enabled=${state.keystrokes.enabled ? 0 : 1}`);
   $('dock').onclick = () => post(`/setup/dock?enabled=${state.dock.enabled ? 0 : 1}`);
   $('ontop').onclick = () => post(`/setup/ontop?enabled=${state.officeWindow.onTop ? 0 : 1}`);
+  // The recorder: click, then press the keys. Esc leaves them as they were.
+  officeKeyRecorder($('officekey'), document, officeKeyLabels, setOfficeKey, officeKeyProblem, (on) => {
+    officeKeyRecording = on;
+    $('officekey').classList.toggle('on', on);
+    if (!on) return renderOfficeKey();
+    officeKeyProblem('');
+    $('officekey').textContent = 'Press the keys…';
+  });
+  $('officekey-default').onclick = () => setOfficeKey('default');
+  $('officekey-off').onclick = () => setOfficeKey('off');
   // On only from the dialog, which says what's sent where; off at once.
   // The dialog says where summaries go, for turning them on, or for changing where while they're on.
   let summaryDialogFor = null;

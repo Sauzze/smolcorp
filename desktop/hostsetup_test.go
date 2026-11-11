@@ -67,7 +67,7 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 		return bridgeAnswer{OK: true, Abilities: said}, nil
 	case "bots-resolve":
 		return bridgeAnswer{OK: true, Resolved: make([]*botResolution, len(request.Bots))}, nil
-	case "office", "office-ontop", "folder-panel-close":
+	case "office", "office-ontop", "office-key", "folder-panel-close":
 		return bridgeAnswer{OK: true}, nil
 	case "login-item":
 		if request.On != nil {
@@ -190,7 +190,7 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"setup's facts, the apps keys may go to left out of those running": func(h hostBridge) (any, error) {
 			facts, err := hostFacts(h, []string{"com.example.notes"})
 			return []any{facts.Accessibility, facts.TestCopy, facts.Dictation.Languages, facts.Dictation.CleanupProblem == nil,
-				facts.Running, facts.Terminal.State, facts.Terminal.TestCopy}, err
+				facts.Running, facts.Terminal.State, facts.Terminal.TestCopy, facts.OfficeKey}, err
 		},
 		"In the Dock, switched off": func(h hostBridge) (any, error) { return nil, hostDock(h, false) },
 		"Open at login, read":       func(h hostBridge) (any, error) { return hostLoginItem(h, nil) },
@@ -200,6 +200,13 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		},
 		"the office's window shown":       func(h hostBridge) (any, error) { return nil, hostShowOffice(h) },
 		"the office's window kept on top": func(h hostBridge) (any, error) { return nil, hostOfficeOnTop(h, true) },
+		"the office's keys held instead":  func(h hostBridge) (any, error) { return nil, hostOfficeKey(h, "ctrl+alt+K") },
+		"the office's keys, taken by another app": func(h hostBridge) (any, error) {
+			return nil, hostOfficeKey(h, "ctrl+alt+T")
+		},
+		"the office's keys, the Mac's own on the layout in use": func(h hostBridge) (any, error) {
+			return nil, hostOfficeKey(h, "cmd+A")
+		},
 		"the folder panel for a floor, a folder picked": func(h hostBridge) (any, error) {
 			return hostChooseFolder(h, "/Users/example/hires", folderForFloor)
 		},
@@ -289,7 +296,8 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 	// What the core makes of each answer.
 	got := map[string]any{
 		"setup's facts, the apps keys may go to left out of those running": []any{false, true, []string{"fr_FR", "en_US"}, true,
-			[]runningApp{{ID: "com.example.mail", Name: "Mail"}}, "absent", true},
+			[]runningApp{{ID: "com.example.mail", Name: "Mail"}}, "absent", true,
+			&macOfficeKey{Held: "alt+cmd+Q", Labels: map[string]string{"Q": "A", "A": "Q"}}},
 		"Open at login, read":                                                         false,
 		"Open at login, switched on":                                                  true,
 		"the folder panel for a floor, a folder picked":                               "/Users/example/project",

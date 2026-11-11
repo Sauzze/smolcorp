@@ -628,6 +628,15 @@
       ],
       "kind" : "page",
       "method" : "POST",
+      "path" : "\/setup\/officekey",
+      "why" : "the keys that show and hide the office from anywhere, only from the page"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
       "path" : "\/setup\/choices",
       "why" : "T3 Code on or off, and agent windows: switching to the background closes the windows Smolcorp opened"
     },

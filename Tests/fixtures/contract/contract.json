@@ -530,6 +530,12 @@
         "music" : {
           "enabled" : "bool"
         },
+        "officeKey" : {
+          "default" : "string",
+          "held" : "bool",
+          "keys" : "string",
+          "labels" : "map"
+        },
         "officeWindow" : {
           "available" : "bool",
           "mac" : "bool",
@@ -1085,6 +1091,12 @@
         },
         "music" : {
           "enabled" : "bool"
+        },
+        "officeKey" : {
+          "default" : "string",
+          "held" : "bool",
+          "keys" : "string",
+          "labels" : "map"
         },
         "officeWindow" : {
           "available" : "bool",

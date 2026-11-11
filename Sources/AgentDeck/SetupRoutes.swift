@@ -108,6 +108,8 @@ enum SetupRoutes {
         page("POST", "/setup/guard", "the hire guard's groups: a hire or the GM must never loosen its own fence"),
         page("POST", "/setup/keystrokes", "letting features press keys in other apps, only from its switch"),
         page("POST", "/setup/keystrokes/apps", "the apps keys may go to: added or removed, only from the page"),
+        // A key held from anywhere on your Mac: only you choose it, by pressing it on the page (owner, 11 Nov).
+        page("POST", "/setup/officekey", "the keys that show and hide the office from anywhere, only from the page"),
 
         // The two plain choices, and a background hire's window: the page alone, never the GM or a hire (T796).
         page("POST", "/setup/choices", "T3 Code on or off, and agent windows: switching to the background closes the windows Smolcorp opened"),

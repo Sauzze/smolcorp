@@ -545,6 +545,43 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file), before, "the config file is the core's")
     }
 
+    /// The Go shell's office keys (KSC): held at once by its holder (a stand-in here, never a real key), then kept
+    /// in memory for the menu; keys it can't hold are its refusal, and nothing changes. Never saved from the shell.
+    /// Setup's facts carry the keys held now and the layout's names for the keys (FXKSC B2, N2), for the core.
+    func testTheGoShellsOfficeKeysAreHeldAtOnceAndKeptInMemoryOnly() throws {
+        let file = folder.appendingPathComponent("config.json")
+        let config = Config()
+        config.save(to: file)
+        let before = try Data(contentsOf: file)
+        var held: [String] = []
+        let link = OfficeLink(keys: { key, _ in
+            held.append(key.text)
+            return key.text == "ctrl+alt+T" ? nil : NSObject()
+        }, labels: { ["Q": "A", "A": "Q"] })
+        var mac = actions
+        mac.facts = { _ in ["accessibility": true] }
+        let actions = link.actions(mac, config: config)
+        XCTAssertEqual(actions.officeKeyLabels(), ["Q": "A", "A": "Q"])
+        let k = OfficeKey(modifiers: ["ctrl", "alt"], key: "K")
+        XCTAssertNil(actions.officeKey(k))
+        XCTAssertEqual(config.officeKey, "ctrl+alt+K")
+        XCTAssertEqual(actions.officeKey(OfficeKey(modifiers: ["ctrl", "alt"], key: "T")),
+                       "⌃⌥T is taken: macOS has it switched on, or won't let Smolcorp hold it. Choose another.")
+        XCTAssertEqual(config.officeKey, "ctrl+alt+K", "as it was")
+        XCTAssertEqual(link.keys.current, k, "the keys before are held again")
+        var facts = actions.facts([])
+        XCTAssertEqual(facts["accessibility"] as? Bool, true, "the Mac's facts, as they were")
+        XCTAssertEqual(facts["officeKey"] as? NSDictionary, ["held": "ctrl+alt+K", "labels": ["Q": "A", "A": "Q"]] as NSDictionary)
+        XCTAssertNil(actions.officeKey(nil))
+        XCTAssertEqual(config.officeKey, "off")
+        facts = actions.facts([])
+        XCTAssertEqual((facts["officeKey"] as? [String: Any])?["held"] as? String, "off")
+        XCTAssertNil(actions.officeKey(.standard))
+        XCTAssertNil(config.officeKey)
+        XCTAssertEqual(held, ["ctrl+alt+K", "ctrl+alt+T", "ctrl+alt+K", "alt+cmd+O"])
+        XCTAssertEqual(try Data(contentsOf: file), before, "the config file is the core's")
+    }
+
     // MARK: The socket
 
     /// One request on the socket, as the core sends it.
@@ -731,6 +768,13 @@ final class HostBridgeTests: XCTestCase {
         // The Go shell's office window and the folder panel: a floor's picks a project, the hires' is cancelled.
         mac.showOffice = { [unowned self] in asked.append("office") }
         mac.officeOnTop = { [unowned self] in asked.append("on top \($0)") }
+        // The office's keys (KSC): held by a stand-in, never a real key; macOS has ⌃⌥T on. The layout in use is a
+        // French AZERTY's (FXKSC B2): ⌘ on the US A key is its ⌘Q, refused before the holder is asked.
+        mac.officeKey = { [unowned self] key in
+            asked.append("keys \(key?.text ?? "off")")
+            return key?.text == "ctrl+alt+T" ? key.map { OfficeKey.takenRefusal($0) } : nil
+        }
+        mac.officeKeyLabels = { ["Q": "A", "A": "Q"] }
         mac.chooseFolder = { [unowned self] start, message, done in
             asked.append("choose \(start ?? "-") \(message == Deck.floorFolderMessage ? "floor" : message == Deck.hireFolderMessage ? "hires" : message)")
             done(message == Deck.floorFolderMessage ? "/Users/example/project" : nil)
@@ -772,7 +816,7 @@ final class HostBridgeTests: XCTestCase {
             XCTAssertEqual(text(answer), text(one["answer"] ?? NSNull()), one["name"] as? String ?? "")
         }
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
-        XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "office", "on top true", "choose /Users/example/hires floor", "choose - hires",
+        XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "office", "on top true", "keys ctrl+alt+K", "keys ctrl+alt+T", "choose /Users/example/hires floor", "choose - hires",
                                "close hires", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true",
                                "t3 app opened", "t3 link t3code://threads/local/mcp%3Aabc-1", "volume 30"])
         XCTAssertTrue(login, "Open at login, switched on")

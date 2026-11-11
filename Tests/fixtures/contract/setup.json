@@ -79,6 +79,56 @@
         "status" : 200
       },
       "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "keys" : "cmd+Q"
+            }
+          },
+          "status" : 400,
+          "why" : "the Mac's own keys"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "keys" : "K"
+            }
+          },
+          "status" : 400,
+          "why" : "no ⌘, ⌥ or ⌃"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "keys" : "ctrl+alt+K"
+        }
+      },
+      "route" : "POST \/setup\/officekey"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
         "page",
         "tool"
       ],
