@@ -630,7 +630,7 @@ final class ContractTests: XCTestCase {
         "id": T3Desks.sessionID(of: t3HireID),
         "false": T3Desks.controlsOff.sorted(),
         "null": ["choice"],
-        "t3": ["branch", "canOpen", "status", "tag"],
+        "t3": ["branch", "canOpen", "experimental", "status", "tag"],
         "noSlash": ["name", "project"],
     ]
 
@@ -1130,7 +1130,7 @@ final class ContractTests: XCTestCase {
         var doctored = got
         doctored["keys"] = keys
         let wheres = Self.t3DeskDifferences(Self.t3DeskRule, doctored).map { $0.components(separatedBy: ": ")[0] }
-        XCTAssertEqual(wheres.sorted(), ["keys", "fire", "choice", "t3.branch", "t3.canOpen", "t3.status", "project"]
+        XCTAssertEqual(wheres.sorted(), ["keys", "fire", "choice", "t3.branch", "t3.canOpen", "t3.experimental", "t3.status", "project"]
             .map { ".keys[].session[\(id)].\($0)" }.sorted())
         // Only a `t3:` desk: another with its controls on is a desk like any.
         XCTAssertEqual(Self.t3DeskDifferences(Self.t3DeskRule, ["keys": [["session": ["id": "contract-x", "keys": true, "project": "/a/b"]]]]), [])

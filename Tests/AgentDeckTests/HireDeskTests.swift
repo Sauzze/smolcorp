@@ -18,12 +18,18 @@ final class HireDeskTests: XCTestCase {
         repo = root.appendingPathComponent("app").path
         try FileManager.default.createDirectory(atPath: repo + "/src", withIntermediateDirectories: true)
         try "x".write(toFile: repo + "/src/a.txt", atomically: true, encoding: .utf8)
-        for arguments in [["init", "-q", "-b", "main"], ["add", "."], ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "first"]] {
-            XCTAssertEqual(HireDesk.git(repo, arguments)?.status, 0, arguments.joined(separator: " "))
+        for arguments in [["init", "-q", "-b", "main"], ["add", "."], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "first"]] {
+            let done = HireDesk.git(repo, arguments)
+            XCTAssertEqual(done?.status, 0, arguments.joined(separator: " "))
+            if arguments[0] == "init", done?.status == 0 { TempRepo.stopSigning(repo) }  // only a repo that was made
         }
     }
 
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+
+    func testTheTempRepoDoesNotSign() {
+        XCTAssertEqual(TempRepo.local("commit.gpgsign", in: repo), "false")
+    }
 
     private func request(_ folder: String? = nil, apiKey: Bool = false, claude: Bool = true) -> HireDesk.Request {
         HireDesk.Request(hireID: "abcdef123456", name: "Rev iew", folder: folder ?? repo, claude: claude, account: account, apiKey: apiKey)

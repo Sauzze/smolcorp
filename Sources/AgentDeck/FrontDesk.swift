@@ -359,8 +359,11 @@ final class FrontDesk {
         var rows: [[String: Any]] = []
         for hire in hires {
             let open = hire.state != .fired && hire.state != .failed
-            // A hire in T3 Code claims only its own desk, never a session in the folder it was hired from (FXT3Da B1).
-            let mine = { (live: Live) in hire.engine == T3Desk.engine ? live.id == T3Desks.sessionID(of: hire.id) : works(live, for: hire) }
+            // A hire in T3 Code claims only its own desk, never a session in the folder it was hired from (FXT3Da B1);
+            // and no other hire claims a T3 desk (RT3Da2 n1).
+            let mine = { (live: Live) in
+                hire.engine == T3Desk.engine ? live.id == T3Desks.sessionID(of: hire.id) : works(live, for: hire) && !live.id.hasPrefix(T3Desks.prefix)
+            }
             let session = open ? live.first { !claimed.contains($0.id) && mine($0) } : nil
             if let session { claimed.insert(session.id) }
             rows.append(row(hire: hire, live: session, now: now, status: status))

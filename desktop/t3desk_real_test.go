@@ -61,6 +61,9 @@ func TestT3TheFenceHoldsOnARealT3Thread(t *testing.T) {
 		if code, out := git(args...); code != 0 {
 			t.Fatalf("git %v: %s", args, out)
 		}
+		if args[0] == "init" && args[len(args)-1] == repo { // the repo's init (not the bare remote's), before its first commit
+			stopSigning(t, repo)
+		}
 	}
 	saved := supportDir
 	supportDir = filepath.Join(root, "support")

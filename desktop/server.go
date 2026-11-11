@@ -525,6 +525,18 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		default:
 			http.NotFound(w, r.Request)
 		}
+	// Let go of a hire in T3 Code from its desk's card, after its confirm (t3desks.go): the lane's answer, as Setup's.
+	case r.Method == http.MethodPost && r.URL.Path == "/act" && r.URL.Query().Get("action") == "letgo":
+		status, answer, ok := d.letGoAtDesk(session)
+		if !ok {
+			writeStatus(w)(d.Perform("letgo", session, r.URL.Query()))
+			return
+		}
+		if text, isText := answer.(string); isText {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
 	case r.Method == http.MethodPost && r.URL.Path == "/act":
 		writeStatus(w)(d.Perform(r.URL.Query().Get("action"), session, r.URL.Query()))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.

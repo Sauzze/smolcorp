@@ -34,8 +34,10 @@ final class HireFireTests: XCTestCase {
         repo = root.appendingPathComponent("app").path
         try FileManager.default.createDirectory(atPath: repo, withIntermediateDirectories: true)
         try "x".write(toFile: repo + "/a.txt", atomically: true, encoding: .utf8)
-        for arguments in [["init", "-q", "-b", "main"], ["add", "."], ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "first"]] {
-            XCTAssertEqual(HireDesk.git(repo, arguments)?.status, 0)
+        for arguments in [["init", "-q", "-b", "main"], ["add", "."], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "first"]] {
+            let done = HireDesk.git(repo, arguments)
+            XCTAssertEqual(done?.status, 0, arguments.joined(separator: " "))
+            if arguments[0] == "init", done?.status == 0 { TempRepo.stopSigning(repo) }  // only a repo that was made
         }
         branch = "hire/rev-abcdef"
         worktree = HireDesk.physical(root.path) + "/app-hires/rev-abcdef"
@@ -44,6 +46,11 @@ final class HireFireTests: XCTestCase {
         hire = FrontDesk.Hire(id: "abcdef123456", name: "Reviewer", nickname: "Rev", role: "reviewer", folder: repo, branch: branch,
                               worktree: worktree, repo: repo, tmuxSocket: "/t/smolcorp-abcdef123456", ports: "4100-4103", started: 1_761_000_000_000)
         desk.register(hire)
+    }
+
+    func testTheTempRepoDoesNotSign() {
+        XCTAssertEqual(TempRepo.local("commit.gpgsign", in: repo), "false")
+        XCTAssertEqual(TempRepo.local("commit.gpgsign", in: worktree), "false", "the hire's worktree shares the repo's config")
     }
 
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
@@ -336,7 +343,7 @@ final class HireFireTests: XCTestCase {
         try "# Review the login\n\nmore".write(toFile: worktree + "/BRIEF.md", atomically: true, encoding: .utf8)
         try "one\ntwo\nthree: tests pass\n".write(toFile: worktree + "/STATUS.md", atomically: true, encoding: .utf8)
         // Committed, so the worktree is clean and the fire isn't refused.
-        for arguments in [["add", "BRIEF.md", "STATUS.md"], ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "notes"]] {
+        for arguments in [["add", "BRIEF.md", "STATUS.md"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "notes"]] {
             XCTAssertEqual(HireDesk.git(worktree, arguments)?.status, 0)
         }
         screen = HireFireTests.idle + "\nTotal cost: $0.42"

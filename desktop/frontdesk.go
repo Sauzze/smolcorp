@@ -58,6 +58,11 @@ type Hire struct {
 	Engine   string `json:"engine,omitempty"`
 	T3Thread string `json:"t3Thread,omitempty"`
 	T3Link   string `json:"t3Link,omitempty"`
+	// Where a hire in T3 Code's desk is in the office (t3desks.go): its floor (0 for the ground floor, 1 for 2F up
+	// to 5 for 6F) and its desk there, so it sits there again after a restart; nil for where there's room. Written
+	// only for a hire in T3 Code, as the Mac writes them.
+	T3Floor *int `json:"t3Floor,omitempty"`
+	T3Desk  *int `json:"t3Desk,omitempty"`
 }
 
 // liveSession is a session as the deck follows it, with where it sits.
@@ -135,10 +140,15 @@ func setAside(path string) registryFile {
 }
 
 func (f registryFile) save(path string) error {
-	out := map[string]any{"version": registryVersion, "hires": f.hires}
-	if f.hires == nil {
-		out["hires"] = []Hire{}
+	hires := []Hire{}
+	for _, h := range f.hires {
+		// Where a desk sits is a hire in T3 Code's alone, as the Mac writes it.
+		if h.Engine == "" {
+			h.T3Floor, h.T3Desk = nil, nil
+		}
+		hires = append(hires, h)
 	}
+	out := map[string]any{"version": registryVersion, "hires": hires}
 	for k, v := range f.rest {
 		out[k] = v
 	}
@@ -289,7 +299,13 @@ func buildTeam(hires []Hire, live []liveSession, now float64, status func(string
 		var session *liveSession
 		if h.State != "fired" && h.State != "failed" {
 			for i := range live {
-				if !claimed[live[i].ID] && works(live[i], h) {
+				// A hire in T3 Code claims only its own desk, never a session in the folder it was hired from; and
+				// no other hire claims a T3 desk (FXT3Da B1, RT3Da2 n1).
+				mine := works(live[i], h) && !strings.HasPrefix(live[i].ID, t3DeskPrefix)
+				if h.Engine == t3Engine {
+					mine = live[i].ID == t3DeskID(h.ID)
+				}
+				if !claimed[live[i].ID] && mine {
 					session = &live[i]
 					claimed[session.ID] = true
 					break
@@ -394,7 +410,8 @@ func statusLine(folder string) string {
 }
 
 // frontDeskLive is the sessions the deck follows with the floor and desk each
-// sits at: the ground floor's by its key, the others' by the building.
+// sits at: the ground floor's by its key, the others' by the building. A hire
+// in T3 Code's desk is its live session here, so the team pairs it by its id.
 func (d *Deck) frontDeskLive() []liveSession {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -416,7 +433,11 @@ func (d *Deck) frontDeskLive() []liveSession {
 		}
 	}
 	var out []liveSession
-	for _, s := range d.sessions.All() {
+	all := d.sessions.All()
+	for _, one := range d.t3Seated() {
+		all = append(all, one.session)
+	}
+	for _, s := range all {
 		l := liveSession{ID: s.ID, Agent: string(s.Agent), Folder: s.Folder, Project: s.Project,
 			State: string(s.State), Model: s.Model, LastEventAt: s.LastEventAt}
 		if at, ok := seats[s.ID]; ok {

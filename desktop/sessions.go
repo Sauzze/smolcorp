@@ -218,6 +218,10 @@ func (s *Sessions) Apply(event map[string]any, agent Agent, tab, startedIn strin
 	if id == "" || name == "" {
 		return false
 	}
+	// t3: ids are the desks of hires in T3 Code (t3desks.go): no hook event takes one.
+	if strings.HasPrefix(id, t3DeskPrefix) {
+		return false
+	}
 	folder, _ := event["cwd"].(string)
 
 	if end, ok := s.endedAt[id]; ok && at <= end {

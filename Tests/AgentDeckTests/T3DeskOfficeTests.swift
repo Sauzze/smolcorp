@@ -235,6 +235,11 @@ final class T3DeskOfficeTests: XCTestCase {
         sessions.apply(["hook_event_name": "SessionStart", "session_id": "t3:anything", "cwd": "/work/x"], agent: .claude,
                        tab: "tty:/dev/ttys961", startedIn: "", at: 1)
         XCTAssertNil(sessions["t3:anything"])
+        // Nor is one saved before a restart (RT3Da2 n2).
+        sessions.restore([Sessions.Saved(id: "t3:saved", agent: "claude", folder: "/work/x", project: "/work/x", tty: "", tab: "tty:/dev/ttys961",
+                                         state: "idle", effort: "", model: "", transcript: "", startedAt: 1, lastEventAt: 1, turnStartedAt: nil)],
+                         fresh: true)
+        XCTAssertNil(sessions["t3:saved"])
     }
 
     /// FXT3Da N3: a T3 hire's worktree counts (a desk, and new sessions there kept off every desk) only where Smolcorp
@@ -406,7 +411,10 @@ final class T3DeskOfficeTests: XCTestCase {
     /// FXT3Da B1 (RT3Da's P1): you already work in the folder the hire was made from. The hire's row is its own desk,
     /// not your session; your session is a row of its own; the desk has no second row.
     func testAnOlderSessionInTheFolderItWasHiredFromIsntItsDesk() throws {
-        let deck = deck([t3Hire()])
+        // A plain hire made in the T3 hire's worktree, listed first, doesn't take the T3 desk either (RT3Da2 n1).
+        let plain = FrontDesk.Hire(id: "00000000-0000-4000-8000-0000000000c1", name: role.name, nickname: "", role: role.id, folder: worktree,
+                                   branch: "", worktree: "", repo: "", model: "", started: 1_761_000_000_000)
+        let deck = deck([plain, t3Hire()])
         let original = home.appendingPathComponent("repo").path
         hook(deck, "owner", "SessionStart", cwd: original, tab: "tty:/dev/ttys963", startedIn: original, at: 5)
         XCTAssertNotNil(deck.sessions["owner"])
@@ -415,9 +423,10 @@ final class T3DeskOfficeTests: XCTestCase {
         XCTAssertEqual(mine["sessionId"] as? String, deskID)
         XCTAssertEqual(rows.filter { $0["sessionId"] as? String == deskID }.count, 1, "one row for the desk")
         XCTAssertNil(rows.first { $0["id"] as? String == "live:" + deskID }, "no hand-started row for it")
+        XCTAssertEqual(rows.first { $0["id"] as? String == plain.id }?["sessionId"] as? String, "", "the plain hire claims no T3 desk")
         let yours = try XCTUnwrap(rows.first { $0["sessionId"] as? String == "owner" })
         XCTAssertEqual(yours["registered"] as? Bool, false)
-        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.count, 3)
         XCTAssertEqual(deck.hire(inSession: deskID)?.id, hireID)
         XCTAssertNil(deck.hire(inSession: "owner"))
     }

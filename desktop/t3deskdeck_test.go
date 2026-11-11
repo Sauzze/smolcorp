@@ -254,30 +254,34 @@ func TestT3TheGMsFireOfAT3HireIsRefusedInTheMacsWords(t *testing.T) {
 	}
 }
 
-// The office (or a phone) doesn't fire a hire in T3 Code: it's let go from Setup's team list.
+// The office (or a phone) doesn't fire a hire in T3 Code: it's let go from Setup's team list or its desk. Its desk
+// (t3desks.go) is the only session it claims, and nothing there but Let go reaches it.
 func TestT3TheOfficesFireOfAT3HireIsRefused(t *testing.T) {
 	r, d := t3DeckRig(t)
-	wt := r.fencedWorktree()
+	wt := r.worktree()
+	if err := os.MkdirAll(filepath.Join(wt, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, ".claude", "settings.local.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	h := r.t3Hire(wt)
+	h.Repo = filepath.Join(r.home, "repo")
 	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, h) }); err != nil {
 		t.Fatal(err)
 	}
-	// A session working in the hire's worktree, in a terminal: the team pairs it with the hire. (T3 Code's own agent
-	// has no terminal tab, so, as on the Mac, its events alone don't make a desk.)
-	event := `{"hook_event_name":"SessionStart","session_id":"t3s","cwd":` + jsonText(wt) + `}`
-	if got := serve(t, d, call{method: "POST", target: "/hook", host: "127.0.0.1:7710", from: thisComputer,
-		headers: map[string]string{hookKeyHeader: d.access.HookKey, "X-AgentDeck-Agent": "claude", "X-AgentDeck-Tab": "tmux:%9@/nowhere/t3-test-sock"},
-		body:    event}); got.Code != http.StatusNoContent {
-		t.Fatalf("the hook got %d", got.Code)
-	}
-	if status, why := d.Perform("fire", "t3s", url.Values{}); status != http.StatusConflict || why != "Ada runs in T3 Code: let it go from Setup's team list." {
+	desk := t3DeskID(h.ID)
+	if status, why := d.Perform("fire", desk, url.Values{}); status != http.StatusConflict || why != t3NoControls("Ada") {
 		t.Errorf("%d %s", status, why)
+	}
+	if why := t3FireRefusal(h); why != "Ada runs in T3 Code: let it go from Setup's team list or from its desk." {
+		t.Errorf("%s", why)
 	}
 	if len(r.runs()) != 0 || !exists(filepath.Join(wt, ".claude", "settings.local.json")) {
 		t.Error("something was run or removed")
 	}
 	// The office's card says so too, with its desk and branch.
-	got := serve(t, d, call{method: "GET", target: "/t3code?session=t3s&t=" + d.access.WindowKey, host: "localhost:7710", from: thisComputer})
+	got := serve(t, d, call{method: "GET", target: "/t3code?session=" + url.QueryEscape(desk) + "&t=" + d.access.WindowKey, host: "localhost:7710", from: thisComputer})
 	var answer struct{ Lane map[string]any }
 	if json.Unmarshal(got.Body.Bytes(), &answer) != nil || answer.Lane["tag"] != t3Tag || answer.Lane["branch"] != "hire/ada-abcdef" {
 		t.Errorf("%d %s", got.Code, got.Body)

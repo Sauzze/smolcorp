@@ -28,6 +28,8 @@ type t3Ask struct {
 	// Pinned: hired at a desk pinned to its project. Desk: the desk it was hired at on the ground floor, or nil.
 	Pinned bool
 	Desk   *int
+	// Floor is the floor it was hired onto (0 for the ground floor): its desk in the office is there.
+	Floor int
 	// An account or the API-key account asked for: refused, T3 Code's agent works on its own.
 	Account string
 	APIKey  bool
@@ -147,6 +149,9 @@ func (d *Deck) hireIntoT3Now(ask t3Ask, role Role, on bool) (int, string) {
 			hire := Hire{ID: hireID, Name: role.Name, Nickname: ask.Nickname, Role: role.ID, Folder: ask.Folder, Branch: place.Branch,
 				Worktree: place.Worktree, Repo: place.Repo, Model: model, Ports: place.Ports, Started: float64(time.Now().UnixMilli()),
 				State: "starting", Engine: t3Engine}
+			// Its desk in the office, once its thread runs: on the floor it was hired onto (t3desks.go), kept there.
+			floor := ask.Floor
+			hire.T3Floor = &floor
 			return updateRegistry(func(f *registryFile) { f.hires = append(f.hires, hire) })
 		},
 		Started: func(thread, link, brief string) {
@@ -306,12 +311,12 @@ func (d *Deck) t3Latest(h Hire) Hire {
 }
 
 // t3FireRefusal is why a fire from the office, a phone or the GM doesn't reach a hire in T3 Code: it's let go
-// from Setup's team list, after a confirm that says what's removed. "" for any other hire.
+// from Setup's team list or its desk, after a confirm that says what's removed. "" for any other hire.
 func t3FireRefusal(h Hire) string {
 	if h.Engine != t3Engine {
 		return ""
 	}
-	return calledHire(h) + " runs in T3 Code: let it go from Setup's team list."
+	return calledHire(h) + " runs in T3 Code: let it go from Setup's team list or from its desk."
 }
 
 // gmT3FireRefusal is the GM's fire of a hire in T3 Code, refused in the Mac's words (Deck.fire), or "" for any other hire.

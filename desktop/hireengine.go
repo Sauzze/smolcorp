@@ -39,6 +39,9 @@ type engineOptions struct {
 	KeepWorktree bool
 }
 
+// worktrees is the folder hires' worktrees are made in, "" for beside the repo (hiresFolder).
+func (o engineOptions) worktrees() string { return o.Worktrees }
+
 func (o engineOptions) withDefaults() engineOptions {
 	if o.Git == nil {
 		o.Git = runGit
