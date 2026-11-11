@@ -1,11 +1,152 @@
 {
   "given" : {
-    "a paired phone" : "a phone paired with that code (POST \/pair); phone requests carry its key as ?t=",
-    "a pairing code" : "the page asked for a code (POST \/setup\/pair)",
-    "manager on" : "config.json's managerEnabled is true",
-    "sessions" : {
-      "hooks" : [
+    "a cloud bot" : {
+      "requests" : [
         {
+          "as" : "page",
+          "body" : {
+            "bots" : [
+              {
+                "id" : "contract-bot",
+                "name" : "Contract Bot"
+              }
+            ]
+          },
+          "method" : "POST",
+          "path" : "\/setup\/bots"
+        }
+      ]
+    },
+    "a floor rule" : {
+      "requests" : [
+        {
+          "as" : "page",
+          "body" : {
+            "rules" : [
+              {
+                "exact" : false,
+                "floor" : 2,
+                "folder" : "\/work\/beta"
+              }
+            ]
+          },
+          "method" : "POST",
+          "path" : "\/setup\/floors"
+        }
+      ]
+    },
+    "a paired phone" : {
+      "says" : "a phone paired with a code, as the pairing page does it (POST \/pair); phone requests carry its key as ?t=. A code open before is open after"
+    },
+    "a pairing code" : {
+      "requests" : [
+        {
+          "as" : "page",
+          "method" : "POST",
+          "path" : "\/setup\/pair"
+        }
+      ]
+    },
+    "a pin" : {
+      "requests" : [
+        {
+          "as" : "page",
+          "method" : "POST",
+          "path" : "\/setup\/pin",
+          "query" : {
+            "folder" : "\/work\/alpha",
+            "key" : "0"
+          }
+        }
+      ]
+    },
+    "a saved profile" : {
+      "requests" : [
+        {
+          "as" : "page",
+          "method" : "POST",
+          "path" : "\/setup\/profiles",
+          "query" : {
+            "action" : "save",
+            "name" : "Contract"
+          }
+        }
+      ]
+    },
+    "a watch" : {
+      "requests" : [
+        {
+          "as" : "page",
+          "body" : {
+            "kind" : "time",
+            "minutes" : 30,
+            "target" : "check the build"
+          },
+          "method" : "POST",
+          "path" : "\/setup\/gm\/watch"
+        }
+      ]
+    },
+    "an outbox message" : {
+      "content" : {
+        "messages" : [
+          {
+            "at" : 1761000000000,
+            "attempts" : 0,
+            "from" : "gm",
+            "id" : "gm-001",
+            "nextAt" : 0,
+            "note" : "",
+            "size" : 38,
+            "state" : "delivered",
+            "text" : "Please look at the login change first.",
+            "to" : "abcdef123456",
+            "toName" : "Rev"
+          },
+          {
+            "at" : 1761000240000,
+            "attempts" : 0,
+            "from" : "hire",
+            "fromID" : "abcdef123456",
+            "fromName" : "Rev",
+            "id" : "h-001",
+            "nextAt" : 0,
+            "note" : "Kept for the GM to read; not typed into its session.",
+            "size" : 12,
+            "state" : "delivered",
+            "text" : "Review done.",
+            "to" : "gm",
+            "toName" : "the GM"
+          }
+        ],
+        "version" : 1
+      },
+      "file" : "outbox.json"
+    },
+    "manager on" : {
+      "says" : "config.json's managerEnabled is true"
+    },
+    "sessions" : {
+      "requests" : [
+        {
+          "as" : "hook",
+          "body" : {
+            "cwd" : "\/work\/alpha",
+            "hook_event_name" : "SessionStart",
+            "model" : "claude-opus-5-5",
+            "session_id" : "contract-a",
+            "source" : "startup"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/alpha",
+            "x-agentdeck-tab" : "launcher:contract-a"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        },
+        {
+          "as" : "hook",
           "body" : {
             "cwd" : "\/work\/alpha",
             "hook_event_name" : "UserPromptSubmit",
@@ -15,12 +156,49 @@
           "headers" : {
             "x-agentdeck-agent" : "claude",
             "x-agentdeck-project" : "\/work\/alpha",
-            "x-agentdeck-tab" : "tty:\/dev\/ttys901"
+            "x-agentdeck-tab" : "launcher:contract-a"
           },
           "method" : "POST",
           "path" : "\/hook"
         },
         {
+          "as" : "hook",
+          "body" : {
+            "agent_id" : "contract-sub",
+            "agent_type" : "Explore",
+            "cwd" : "\/work\/alpha",
+            "hook_event_name" : "SubagentStart",
+            "session_id" : "contract-a"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/alpha",
+            "x-agentdeck-tab" : "launcher:contract-a"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        },
+        {
+          "as" : "hook",
+          "body" : {
+            "cwd" : "\/work\/alpha",
+            "hook_event_name" : "PreToolUse",
+            "session_id" : "contract-a",
+            "tool_input" : {
+              "file_path" : "\/work\/alpha\/README.md"
+            },
+            "tool_name" : "Read"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/alpha",
+            "x-agentdeck-tab" : "launcher:contract-a"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        },
+        {
+          "as" : "hook",
           "body" : {
             "cwd" : "\/work\/beta",
             "hook_event_name" : "PreToolUse",
@@ -39,6 +217,7 @@
           "path" : "\/hook"
         },
         {
+          "as" : "hook",
           "body" : {
             "cwd" : "\/work\/beta",
             "hook_event_name" : "Notification",
@@ -53,23 +232,18 @@
           "method" : "POST",
           "path" : "\/hook"
         }
-      ]
+      ],
+      "says" : "before its hooks, contract-a's tab (launcher:contract-a) is a hire's, opened with the role reviewer: the Mac keeps that in Deck.hiredTabs, the Go app in its launcher (launcherConnected)"
     }
   },
-  "note" : "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1). Shapes, not values: \"string\", \"number\", \"bool\", \"null\" (any value: it can be null), an object's keys, an array's element ([] for none: any). Read by desktop\/contract_test.go.",
+  "note" : "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1), read by desktop\/contract_test.go. Shapes, not values: \"string\", \"number\", \"bool\", \"null\"; 'x' for that string; alternatives joined by | (\"string|null\", a closed set 'a'|'b'); an object's keys, no more, no fewer; an array's elements as the different shapes they have, each element like one of them and each like some element ([] for none). \"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why.",
   "shapes" : {
     "setup-state" : {
       "as" : "page",
       "route" : "GET \/setup\/state",
       "shape" : {
         "activeProfile" : "string",
-        "agents" : [
-          {
-            "connected" : "bool",
-            "id" : "string",
-            "name" : "string"
-          }
-        ],
+        "agents" : "array",
         "checklist" : {
           "accessibility" : "bool",
           "hooks" : "bool",
@@ -77,27 +251,24 @@
           "scroll" : "bool"
         },
         "claudeAccounts" : {
-          "found" : [
-            {
-              "dir" : "string",
-              "name" : "string"
-            }
-          ],
+          "found" : "array",
           "most" : "number",
-          "profiles" : [
-            {
-              "connected" : "bool",
-              "default" : "bool",
-              "dir" : "string",
-              "name" : "string"
-            }
-          ]
+          "profiles" : "array"
         },
         "cloudBots" : {
           "autoDetect" : "bool",
           "botFloor" : "number",
           "bots" : [
-
+            {
+              "botId" : "string",
+              "discovered" : "bool",
+              "floor" : "string",
+              "fromApp" : "bool",
+              "id" : "string",
+              "mailbox" : "string",
+              "name" : "string",
+              "pinned" : "bool"
+            }
           ],
           "detects" : "bool",
           "hidden" : [
@@ -112,19 +283,23 @@
           "available" : "bool",
           "claude" : "bool",
           "cleanup" : "bool",
-          "cleanupProblem" : "null",
+          "cleanupProblem" : "string|null",
           "enabled" : "bool",
           "glossary" : [
             "string"
           ],
           "language" : "string",
-          "problem" : "null"
+          "problem" : "string|null"
         },
         "dock" : {
           "enabled" : "bool"
         },
         "floorRules" : [
-
+          {
+            "exact" : "bool",
+            "floor" : "number",
+            "folder" : "string"
+          }
         ],
         "floors" : [
           {
@@ -137,7 +312,7 @@
           "done" : "bool"
         },
         "hiring" : {
-          "agent" : "string",
+          "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
           "apiKey" : {
             "available" : "bool",
             "notice" : "string"
@@ -148,12 +323,7 @@
           "folder" : "string",
           "hasTmux" : "bool",
           "terminal" : "string",
-          "terminals" : [
-            {
-              "id" : "string",
-              "name" : "string"
-            }
-          ],
+          "terminals" : "array",
           "tmux" : "bool"
         },
         "keystrokes" : {
@@ -162,12 +332,7 @@
 
           ],
           "enabled" : "bool",
-          "running" : [
-            {
-              "id" : "string",
-              "name" : "string"
-            }
-          ]
+          "running" : "array"
         },
         "layout" : {
           "dial" : "bool",
@@ -230,9 +395,7 @@
             "drift" : "string",
             "fireworks" : "string",
             "floor" : "string",
-            "floorPlans" : {
-
-            },
+            "floorPlans" : "map",
             "lounge" : "string",
             "loungePaint" : "string",
             "mic" : "string",
@@ -250,15 +413,9 @@
 
                 ]
               },
-              "hung" : {
-
-              },
-              "tall" : {
-
-              },
-              "wide" : {
-
-              }
+              "hung" : "map",
+              "tall" : "map",
+              "wide" : "map"
             },
             "preset" : "string",
             "season" : "string",
@@ -266,9 +423,7 @@
             "sound" : "string",
             "soundWhen" : "string",
             "staff" : "string",
-            "team" : {
-
-            },
+            "team" : "map",
             "wall" : [
               "string"
             ],
@@ -288,7 +443,7 @@
           ],
           "stick" : "bool"
         },
-        "logo" : "string",
+        "logo" : "'smolcorp'|'keys'",
         "manager" : {
           "enabled" : "bool",
           "gmByHand" : "bool",
@@ -318,8 +473,8 @@
         "phoneMic" : {
           "autoSend" : "bool",
           "enabled" : "bool",
-          "serving" : "null",
-          "tailnet" : "null"
+          "serving" : "string|null",
+          "tailnet" : "string|null"
         },
         "phones" : [
           {
@@ -331,21 +486,137 @@
           }
         ],
         "pins" : [
-          "null"
+          "null",
+          {
+            "folder" : "string",
+            "name" : "string"
+          }
         ],
-        "platform" : "string",
+        "platform" : "'darwin'|'linux'|'windows'",
         "presets" : [
           "string"
         ],
         "profileEdited" : "bool",
         "profiles" : [
+          {
+            "colours" : "map",
+            "layout" : {
+              "dial" : "bool",
+              "keys" : "string",
+              "office" : "bool",
+              "room" : {
+                "ambience" : "string",
+                "arrivals" : "string",
+                "button" : "string",
+                "calm" : "string",
+                "chair" : "string",
+                "corner" : "string",
+                "desk" : "string",
+                "door" : "string",
+                "dress" : {
+                  "agents" : {
+                    "claude" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "codex" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "gemini" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "grok" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "opencode" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    }
+                  },
+                  "rules" : [
 
+                  ],
+                  "sizes" : {
+                    "large" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "medium" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "small" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "top" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    }
+                  }
+                },
+                "drift" : "string",
+                "fireworks" : "string",
+                "floor" : "string",
+                "floorPlans" : "map",
+                "lounge" : "string",
+                "loungePaint" : "string",
+                "mic" : "string",
+                "monitor" : "string",
+                "paint" : "string",
+                "pet" : [
+
+                ],
+                "plan" : {
+                  "added" : {
+                    "tall" : [
+
+                    ],
+                    "wide" : [
+
+                    ]
+                  },
+                  "hung" : "map",
+                  "tall" : "map",
+                  "wide" : "map"
+                },
+                "preset" : "string",
+                "season" : "string",
+                "sky" : "string",
+                "sound" : "string",
+                "soundWhen" : "string",
+                "staff" : "string",
+                "team" : "map",
+                "wall" : [
+                  "string"
+                ],
+                "wave" : "string",
+                "workspace" : "string"
+              },
+              "rows" : [
+                {
+                  "buttons" : [
+                    {
+                      "id" : "string",
+                      "width" : "number"
+                    }
+                  ],
+                  "tall" : "bool"
+                }
+              ],
+              "stick" : "bool"
+            },
+            "name" : "string"
+          }
         ],
         "roles" : {
           "agents" : [
             {
               "effort" : "bool",
-              "id" : "string",
+              "id" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
               "name" : "string",
               "starts" : "bool"
             }
@@ -368,7 +639,7 @@
           },
           "roles" : [
             {
-              "agent" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
               "badge" : "string",
               "brief" : {
                 "id" : "string",
@@ -387,7 +658,7 @@
           ],
           "shipped" : [
             {
-              "agent" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
               "badge" : "string",
               "brief" : {
                 "id" : "string",
@@ -407,30 +678,41 @@
         },
         "sessions" : [
           {
-            "agent" : "string",
+            "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
             "agentName" : "string",
             "folder" : "string",
             "id" : "string",
             "key" : "number",
-            "model" : "null",
+            "model" : "string",
             "name" : "string",
-            "role" : "null",
-            "state" : "string"
+            "role" : "string",
+            "state" : "'idle'|'thinking'|'asking'|'unread'|'error'"
+          },
+          {
+            "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+            "agentName" : "string",
+            "folder" : "string",
+            "id" : "string",
+            "key" : "number|null",
+            "model" : "string|null",
+            "name" : "string",
+            "role" : "string|null",
+            "state" : "'idle'|'thinking'|'asking'|'unread'|'error'"
           }
         ],
         "summary" : {
           "checking" : "bool",
           "enabled" : "bool",
-          "fallback" : "null",
-          "key" : "null",
+          "fallback" : "string|null",
+          "key" : "object|null",
           "model" : "string",
-          "provider" : "null",
+          "provider" : "object|null",
           "providers" : [
             {
-              "id" : "string",
+              "id" : "'claude'|'codex'|'gemini'|'grok'|'cursor'|'opencode'|'apikey'",
               "name" : "string",
               "reason" : "string",
-              "state" : "string"
+              "state" : "'ready'|'missing'|'signedOut'|'changed'|'unsupported'|'apiAccount'|'checking'"
             }
           ],
           "saved" : "string",
@@ -489,9 +771,9 @@
         "webhook" : {
           "enabled" : "bool",
           "events" : [
-            "string"
+            "'waiting'|'done'|'error'|'working'|'started'|'ended'"
           ],
-          "last" : "null",
+          "last" : "object|null",
           "outside" : "bool",
           "secret" : "string",
           "url" : "string"
@@ -503,13 +785,7 @@
       "route" : "GET \/setup\/state",
       "shape" : {
         "activeProfile" : "string",
-        "agents" : [
-          {
-            "connected" : "bool",
-            "id" : "string",
-            "name" : "string"
-          }
-        ],
+        "agents" : "array",
         "checklist" : {
           "accessibility" : "bool",
           "hooks" : "bool",
@@ -517,27 +793,24 @@
           "scroll" : "bool"
         },
         "claudeAccounts" : {
-          "found" : [
-            {
-              "dir" : "string",
-              "name" : "string"
-            }
-          ],
+          "found" : "array",
           "most" : "number",
-          "profiles" : [
-            {
-              "connected" : "bool",
-              "default" : "bool",
-              "dir" : "string",
-              "name" : "string"
-            }
-          ]
+          "profiles" : "array"
         },
         "cloudBots" : {
           "autoDetect" : "bool",
           "botFloor" : "number",
           "bots" : [
-
+            {
+              "botId" : "string",
+              "discovered" : "bool",
+              "floor" : "string",
+              "fromApp" : "bool",
+              "id" : "string",
+              "mailbox" : "string",
+              "name" : "string",
+              "pinned" : "bool"
+            }
           ],
           "detects" : "bool",
           "hidden" : [
@@ -552,19 +825,23 @@
           "available" : "bool",
           "claude" : "bool",
           "cleanup" : "bool",
-          "cleanupProblem" : "null",
+          "cleanupProblem" : "string|null",
           "enabled" : "bool",
           "glossary" : [
             "string"
           ],
           "language" : "string",
-          "problem" : "null"
+          "problem" : "string|null"
         },
         "dock" : {
           "enabled" : "bool"
         },
         "floorRules" : [
-
+          {
+            "exact" : "bool",
+            "floor" : "number",
+            "folder" : "string"
+          }
         ],
         "floors" : [
           {
@@ -577,7 +854,7 @@
           "done" : "bool"
         },
         "hiring" : {
-          "agent" : "string",
+          "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
           "apiKey" : {
             "available" : "bool",
             "notice" : "string"
@@ -588,12 +865,7 @@
           "folder" : "string",
           "hasTmux" : "bool",
           "terminal" : "string",
-          "terminals" : [
-            {
-              "id" : "string",
-              "name" : "string"
-            }
-          ],
+          "terminals" : "array",
           "tmux" : "bool"
         },
         "keystrokes" : {
@@ -602,12 +874,7 @@
 
           ],
           "enabled" : "bool",
-          "running" : [
-            {
-              "id" : "string",
-              "name" : "string"
-            }
-          ]
+          "running" : "array"
         },
         "layout" : {
           "dial" : "bool",
@@ -670,9 +937,7 @@
             "drift" : "string",
             "fireworks" : "string",
             "floor" : "string",
-            "floorPlans" : {
-
-            },
+            "floorPlans" : "map",
             "lounge" : "string",
             "loungePaint" : "string",
             "mic" : "string",
@@ -690,15 +955,9 @@
 
                 ]
               },
-              "hung" : {
-
-              },
-              "tall" : {
-
-              },
-              "wide" : {
-
-              }
+              "hung" : "map",
+              "tall" : "map",
+              "wide" : "map"
             },
             "preset" : "string",
             "season" : "string",
@@ -706,9 +965,7 @@
             "sound" : "string",
             "soundWhen" : "string",
             "staff" : "string",
-            "team" : {
-
-            },
+            "team" : "map",
             "wall" : [
               "string"
             ],
@@ -728,7 +985,7 @@
           ],
           "stick" : "bool"
         },
-        "logo" : "string",
+        "logo" : "'smolcorp'|'keys'",
         "manager" : {
           "enabled" : "bool",
           "gmByHand" : "bool",
@@ -756,8 +1013,8 @@
         "phoneMic" : {
           "autoSend" : "bool",
           "enabled" : "bool",
-          "serving" : "null",
-          "tailnet" : "null"
+          "serving" : "string|null",
+          "tailnet" : "string|null"
         },
         "phones" : [
           {
@@ -769,21 +1026,137 @@
           }
         ],
         "pins" : [
-          "null"
+          "null",
+          {
+            "folder" : "string",
+            "name" : "string"
+          }
         ],
-        "platform" : "string",
+        "platform" : "'darwin'|'linux'|'windows'",
         "presets" : [
           "string"
         ],
         "profileEdited" : "bool",
         "profiles" : [
+          {
+            "colours" : "map",
+            "layout" : {
+              "dial" : "bool",
+              "keys" : "string",
+              "office" : "bool",
+              "room" : {
+                "ambience" : "string",
+                "arrivals" : "string",
+                "button" : "string",
+                "calm" : "string",
+                "chair" : "string",
+                "corner" : "string",
+                "desk" : "string",
+                "door" : "string",
+                "dress" : {
+                  "agents" : {
+                    "claude" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "codex" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "gemini" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "grok" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "opencode" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    }
+                  },
+                  "rules" : [
 
+                  ],
+                  "sizes" : {
+                    "large" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "medium" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "small" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "top" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    }
+                  }
+                },
+                "drift" : "string",
+                "fireworks" : "string",
+                "floor" : "string",
+                "floorPlans" : "map",
+                "lounge" : "string",
+                "loungePaint" : "string",
+                "mic" : "string",
+                "monitor" : "string",
+                "paint" : "string",
+                "pet" : [
+
+                ],
+                "plan" : {
+                  "added" : {
+                    "tall" : [
+
+                    ],
+                    "wide" : [
+
+                    ]
+                  },
+                  "hung" : "map",
+                  "tall" : "map",
+                  "wide" : "map"
+                },
+                "preset" : "string",
+                "season" : "string",
+                "sky" : "string",
+                "sound" : "string",
+                "soundWhen" : "string",
+                "staff" : "string",
+                "team" : "map",
+                "wall" : [
+                  "string"
+                ],
+                "wave" : "string",
+                "workspace" : "string"
+              },
+              "rows" : [
+                {
+                  "buttons" : [
+                    {
+                      "id" : "string",
+                      "width" : "number"
+                    }
+                  ],
+                  "tall" : "bool"
+                }
+              ],
+              "stick" : "bool"
+            },
+            "name" : "string"
+          }
         ],
         "roles" : {
           "agents" : [
             {
               "effort" : "bool",
-              "id" : "string",
+              "id" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
               "name" : "string",
               "starts" : "bool"
             }
@@ -806,7 +1179,7 @@
           },
           "roles" : [
             {
-              "agent" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
               "badge" : "string",
               "brief" : {
                 "id" : "string",
@@ -825,7 +1198,7 @@
           ],
           "shipped" : [
             {
-              "agent" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
               "badge" : "string",
               "brief" : {
                 "id" : "string",
@@ -845,30 +1218,41 @@
         },
         "sessions" : [
           {
-            "agent" : "string",
+            "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
             "agentName" : "string",
             "folder" : "string",
             "id" : "string",
             "key" : "number",
-            "model" : "null",
+            "model" : "string",
             "name" : "string",
-            "role" : "null",
-            "state" : "string"
+            "role" : "string",
+            "state" : "'idle'|'thinking'|'asking'|'unread'|'error'"
+          },
+          {
+            "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+            "agentName" : "string",
+            "folder" : "string",
+            "id" : "string",
+            "key" : "number|null",
+            "model" : "string|null",
+            "name" : "string",
+            "role" : "string|null",
+            "state" : "'idle'|'thinking'|'asking'|'unread'|'error'"
           }
         ],
         "summary" : {
           "checking" : "bool",
           "enabled" : "bool",
-          "fallback" : "null",
-          "key" : "null",
+          "fallback" : "string|null",
+          "key" : "object|null",
           "model" : "string",
-          "provider" : "null",
+          "provider" : "object|null",
           "providers" : [
             {
-              "id" : "string",
+              "id" : "'claude'|'codex'|'gemini'|'grok'|'cursor'|'opencode'|'apikey'",
               "name" : "string",
               "reason" : "string",
-              "state" : "string"
+              "state" : "'ready'|'missing'|'signedOut'|'changed'|'unsupported'|'apiAccount'|'checking'"
             }
           ],
           "saved" : "string",
@@ -927,9 +1311,9 @@
         "webhook" : {
           "enabled" : "bool",
           "events" : [
-            "string"
+            "'waiting'|'done'|'error'|'working'|'started'|'ended'"
           ],
-          "last" : "null",
+          "last" : "object|null",
           "outside" : "bool",
           "secret" : "string",
           "url" : "string"
@@ -954,6 +1338,106 @@
             "n" : "number",
             "name" : "string",
             "preset" : "string"
+          },
+          {
+            "asking" : "number",
+            "desks" : [
+              {
+                "activity" : "string|null",
+                "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+                "agentName" : "string",
+                "choice" : "object|null",
+                "cloud" : "bool",
+                "compacting" : "bool",
+                "conversation" : "bool",
+                "desk" : "number",
+                "dial" : "bool",
+                "dictates" : "bool",
+                "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+                "errorKind" : "string|null",
+                "fire" : "bool",
+                "hiredBy" : {
+                  "id" : "string|null",
+                  "name" : "string"
+                },
+                "id" : "string",
+                "keys" : "bool",
+                "last" : "object|null",
+                "maxPressedAt" : "number|null",
+                "messaged" : "string|null",
+                "messagedAt" : "number|null",
+                "mic" : "bool",
+                "model" : "string|null",
+                "name" : "string",
+                "pending" : "bool",
+                "phoneMic" : "bool",
+                "project" : "string",
+                "role" : {
+                  "badge" : "string",
+                  "id" : "string",
+                  "name" : "string",
+                  "outfit" : "string"
+                },
+                "startedAt" : "number",
+                "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+                "subagents" : [
+
+                ],
+                "summary" : "bool",
+                "tool" : "string|null",
+                "turnStartedAt" : "number|null",
+                "voiceNote" : "object|null"
+              }
+            ],
+            "n" : "number",
+            "name" : "string",
+            "preset" : "string"
+          },
+          {
+            "asking" : "number",
+            "desks" : [
+              {
+                "activity" : "string|null",
+                "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+                "agentName" : "string",
+                "choice" : "object|null",
+                "compacting" : "bool",
+                "conversation" : "bool",
+                "desk" : "number",
+                "dial" : "bool",
+                "dictates" : "bool",
+                "drivable" : "bool",
+                "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+                "errorKind" : "string|null",
+                "fire" : "bool",
+                "headless" : "bool",
+                "id" : "string",
+                "keys" : "bool",
+                "maxPressedAt" : "number|null",
+                "messaged" : "string|null",
+                "messagedAt" : "number|null",
+                "mic" : "bool",
+                "model" : "string|null",
+                "name" : "string",
+                "overflow" : "bool",
+                "pending" : "bool",
+                "phoneMic" : "bool",
+                "project" : "string",
+                "role" : "null",
+                "startedAt" : "number",
+                "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+                "subagents" : [
+
+                ],
+                "summary" : "bool",
+                "tool" : "string|null",
+                "turnStartedAt" : "number|null",
+                "voiceNote" : "object|null"
+              }
+            ],
+            "n" : "number",
+            "name" : "string",
+            "preset" : "string"
           }
         ],
         "floorsOverflow" : "number",
@@ -966,40 +1450,49 @@
         },
         "keys" : [
           {
-            "pin" : "null",
+            "pin" : "string|null",
             "session" : {
-              "activity" : "string",
-              "agent" : "string",
+              "activity" : "string|null",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
               "agentName" : "string",
-              "choice" : "null",
+              "choice" : "object|null",
               "compacting" : "bool",
               "conversation" : "bool",
               "dial" : "bool",
               "dictates" : "bool",
-              "effort" : "string",
-              "errorKind" : "null",
+              "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+              "errorKind" : "string|null",
               "fire" : "bool",
               "id" : "string",
               "keys" : "bool",
-              "maxPressedAt" : "null",
-              "messaged" : "null",
-              "messagedAt" : "null",
+              "maxPressedAt" : "number|null",
+              "messaged" : "string|null",
+              "messagedAt" : "number|null",
               "mic" : "bool",
-              "model" : "null",
+              "model" : "string|null",
               "name" : "string",
               "pending" : "bool",
               "phoneMic" : "bool",
               "project" : "string",
-              "role" : "null",
+              "role" : {
+                "badge" : "string",
+                "id" : "string",
+                "name" : "string",
+                "outfit" : "string"
+              },
               "startedAt" : "number",
-              "state" : "string",
+              "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
               "subagents" : [
-
+                {
+                  "id" : "string",
+                  "model" : "string|null",
+                  "type" : "string"
+                }
               ],
               "summary" : "bool",
-              "tool" : "string",
-              "turnStartedAt" : "number",
-              "voiceNote" : "null"
+              "tool" : "string|null",
+              "turnStartedAt" : "number|null",
+              "voiceNote" : "object|null"
             }
           }
         ],
@@ -1064,9 +1557,7 @@
             "drift" : "string",
             "fireworks" : "string",
             "floor" : "string",
-            "floorPlans" : {
-
-            },
+            "floorPlans" : "map",
             "lounge" : "string",
             "loungePaint" : "string",
             "mic" : "string",
@@ -1084,15 +1575,9 @@
 
                 ]
               },
-              "hung" : {
-
-              },
-              "tall" : {
-
-              },
-              "wide" : {
-
-              }
+              "hung" : "map",
+              "tall" : "map",
+              "wide" : "map"
             },
             "preset" : "string",
             "season" : "string",
@@ -1100,9 +1585,7 @@
             "sound" : "string",
             "soundWhen" : "string",
             "staff" : "string",
-            "team" : {
-
-            },
+            "team" : "map",
             "wall" : [
               "string"
             ],
@@ -1123,7 +1606,7 @@
           "stick" : "bool"
         },
         "maxConfirm" : "bool",
-        "music" : "null",
+        "music" : "object|null",
         "now" : "number",
         "overflow" : "number",
         "phoneMic" : {
@@ -1147,7 +1630,52 @@
         },
         "upstairs" : {
           "desks" : [
+            {
+              "activity" : "string|null",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "agentName" : "string",
+              "choice" : "object|null",
+              "cloud" : "bool",
+              "compacting" : "bool",
+              "conversation" : "bool",
+              "desk" : "number",
+              "dial" : "bool",
+              "dictates" : "bool",
+              "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+              "errorKind" : "string|null",
+              "fire" : "bool",
+              "hiredBy" : {
+                "id" : "string|null",
+                "name" : "string"
+              },
+              "id" : "string",
+              "keys" : "bool",
+              "last" : "object|null",
+              "maxPressedAt" : "number|null",
+              "messaged" : "string|null",
+              "messagedAt" : "number|null",
+              "mic" : "bool",
+              "model" : "string|null",
+              "name" : "string",
+              "pending" : "bool",
+              "phoneMic" : "bool",
+              "project" : "string",
+              "role" : {
+                "badge" : "string",
+                "id" : "string",
+                "name" : "string",
+                "outfit" : "string"
+              },
+              "startedAt" : "number",
+              "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+              "subagents" : [
 
+              ],
+              "summary" : "bool",
+              "tool" : "string|null",
+              "turnStartedAt" : "number|null",
+              "voiceNote" : "object|null"
+            }
           ],
           "overflow" : "number"
         }

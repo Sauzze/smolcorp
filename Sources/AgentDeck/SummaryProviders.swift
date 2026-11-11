@@ -541,7 +541,7 @@ enum SummaryCLI {
 
 /// Whether each coding agent is here and signed in, as setup shows it.
 struct SummaryProviderState: Equatable {
-    enum Kind: String { case ready, missing, signedOut, changed, unsupported
+    enum Kind: String, CaseIterable { case ready, missing, signedOut, changed, unsupported
         /// Signed in with an API account (a Console login): it works, billed to that account.
         case apiAccount
     }

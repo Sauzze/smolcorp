@@ -11,6 +11,7 @@
       "note" : "the agent's hook event, with its agent, tab, project, pid and parent headers; it feeds the snapshot",
       "refusals" : [
         {
+          "kind" : "empty",
           "request" : {
             "as" : "nobody",
             "body" : {
@@ -25,25 +26,34 @@
         "as" : "hook",
         "body" : {
           "cwd" : "\/work\/alpha",
-          "hook_event_name" : "UserPromptSubmit",
-          "prompt" : "Write the tests.",
-          "session_id" : "contract-a"
+          "hook_event_name" : "SessionStart",
+          "model" : "claude-opus-5-5",
+          "session_id" : "contract-a",
+          "source" : "startup"
         },
         "headers" : {
           "x-agentdeck-agent" : "claude",
           "x-agentdeck-project" : "\/work\/alpha",
-          "x-agentdeck-tab" : "tty:\/dev\/ttys901"
+          "x-agentdeck-tab" : "launcher:contract-a"
         }
       },
       "route" : "POST \/hook"
     },
     {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "key" : "string"
+        },
+        "status" : 200
+      },
       "callers" : [
         "anyone"
       ],
-      "note" : "a right code answers {key}; a wrong one 403 {error}",
+      "note" : "\"$code\" stands for the code the given asked for",
       "refusals" : [
         {
+          "kind" : "json",
           "request" : {
             "as" : "nobody",
             "body" : {
@@ -54,6 +64,15 @@
           "why" : "a code that isn't the one asked for"
         }
       ],
+      "request" : {
+        "as" : "nobody",
+        "body" : {
+          "code" : "$code"
+        },
+        "given" : [
+          "a pairing code"
+        ]
+      },
       "route" : "POST \/pair"
     },
     {
@@ -62,6 +81,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "empty",
           "request" : {
             "as" : "phone",
             "query" : {
@@ -70,6 +90,17 @@
           },
           "status" : 404,
           "why" : "no such session"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody",
+            "query" : {
+              "session" : "no-such-session"
+            }
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
         }
       ],
       "route" : "POST \/focus"
@@ -80,6 +111,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone",
             "query" : {
@@ -91,6 +123,7 @@
           "why" : "no such session"
         },
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone",
             "query" : {
@@ -102,6 +135,7 @@
           "why" : "no such floor"
         },
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone",
             "query" : {
@@ -112,6 +146,7 @@
           "why" : "settings open on the computer itself, not a phone"
         },
         {
+          "kind" : "empty",
           "request" : {
             "as" : "phone",
             "query" : {
@@ -123,6 +158,7 @@
           "why" : "no such cloud bot"
         },
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone",
             "query" : {
@@ -134,6 +170,7 @@
           "why" : "unknown dictation language"
         },
         {
+          "kind" : "empty",
           "request" : {
             "as" : "nobody",
             "query" : {
@@ -153,6 +190,7 @@
       "note" : "{summary} or {error} with the status",
       "refusals" : [
         {
+          "kind" : "json",
           "request" : {
             "as" : "phone",
             "query" : {
@@ -161,6 +199,17 @@
           },
           "status" : 403,
           "why" : "summaries are off"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody",
+            "query" : {
+              "session" : "no-such-session"
+            }
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
         }
       ],
       "route" : "POST \/summary"
@@ -180,6 +229,16 @@
       "callers" : [
         "phone"
       ],
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
+        }
+      ],
       "request" : {
         "as" : "phone",
         "given" : [
@@ -194,11 +253,20 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone"
           },
           "status" : 403,
           "why" : "over Tailscale's HTTPS address only"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
         }
       ],
       "route" : "GET \/approvals"
@@ -209,11 +277,20 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone"
           },
           "status" : 403,
           "why" : "over Tailscale's HTTPS address only"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
         }
       ],
       "route" : "GET \/reviews"
@@ -224,11 +301,20 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone"
           },
           "status" : 403,
           "why" : "over Tailscale's HTTPS address only"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
         }
       ],
       "route" : "GET \/conversation"
@@ -239,14 +325,53 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone"
           },
           "status" : 403,
           "why" : "over Tailscale's HTTPS address only"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
         }
       ],
       "route" : "GET \/session\/info"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "finished" : "bool",
+          "gm" : "bool",
+          "key" : "bool",
+          "registered" : "bool",
+          "waiting" : "bool"
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "phone"
+      ],
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
+        }
+      ],
+      "request" : {
+        "as" : "phone"
+      },
+      "route" : "GET \/notifications"
     },
     {
       "callers" : [
@@ -254,6 +379,37 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
+          "request" : {
+            "as" : "phone",
+            "body" : {
+              "token" : "not-a-token"
+            }
+          },
+          "status" : 403,
+          "why" : "over Tailscale's HTTPS address only"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody",
+            "body" : {
+              "token" : "not-a-token"
+            }
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
+        }
+      ],
+      "route" : "POST \/notifications"
+    },
+    {
+      "callers" : [
+        "phone"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
           "request" : {
             "as" : "phone",
             "body" : {
@@ -262,6 +418,17 @@
           },
           "status" : 403,
           "why" : "over Tailscale's HTTPS address only"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody",
+            "body" : {
+              "text" : "hi"
+            }
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
         }
       ],
       "route" : "POST \/dictate"
@@ -272,11 +439,20 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone"
           },
           "status" : 403,
           "why" : "over Tailscale's HTTPS address only"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
         }
       ],
       "route" : "POST \/peek"
@@ -287,11 +463,20 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone"
           },
           "status" : 403,
           "why" : "over Tailscale's HTTPS address only"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
         }
       ],
       "route" : "POST \/choose"
@@ -302,21 +487,31 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone"
           },
           "status" : 403,
           "why" : "over Tailscale's HTTPS address only"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
         }
       ],
       "route" : "GET \/choice"
     },
     {
       "callers" : [
-        "phone"
+        "window"
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone"
           },
@@ -328,10 +523,11 @@
     },
     {
       "callers" : [
-        "phone"
+        "window"
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "phone"
           },
@@ -348,6 +544,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "tool",
             "body" : {
@@ -358,6 +555,7 @@
           "why" : "not an event a bot has"
         },
         {
+          "kind" : "text",
           "request" : {
             "as" : "tool",
             "body" : {
@@ -368,6 +566,7 @@
           "why" : "no such bot"
         },
         {
+          "kind" : "empty",
           "request" : {
             "as" : "nobody",
             "body" : {
@@ -386,11 +585,20 @@
       ],
       "refusals" : [
         {
+          "kind" : "empty",
           "request" : {
             "as" : "phone"
           },
           "status" : 404,
           "why" : "no such route"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "not one of its callers"
         }
       ],
       "route" : "GET \/nothing-here"

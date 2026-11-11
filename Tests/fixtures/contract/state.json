@@ -12,6 +12,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "empty",
           "request" : {
             "as" : "nobody"
           },
@@ -22,7 +23,11 @@
       "request" : {
         "as" : "page",
         "given" : [
+          "a floor rule",
           "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
           "a pairing code",
           "a paired phone"
         ]
@@ -43,7 +48,11 @@
       "request" : {
         "as" : "tool",
         "given" : [
+          "a floor rule",
           "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
           "a pairing code",
           "a paired phone"
         ]
@@ -62,6 +71,7 @@
       "note" : "an event stream; its first message is the snapshot (shape snapshot), and each change sends it again",
       "refusals" : [
         {
+          "kind" : "empty",
           "request" : {
             "as" : "nobody"
           },
@@ -72,7 +82,10 @@
       "request" : {
         "as" : "phone",
         "given" : [
-          "sessions"
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a cloud bot"
         ]
       },
       "route" : "GET \/events"

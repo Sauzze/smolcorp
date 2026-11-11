@@ -1,7 +1,7 @@
 import Foundation
 
 /// What a session is doing, as the keys show it.
-enum SessionState: String {
+enum SessionState: String, CaseIterable {
     case idle      // white: nothing running, or finished and already seen
     case thinking  // blue: a turn is running
     case asking    // orange: waiting on you — a permission prompt or a question

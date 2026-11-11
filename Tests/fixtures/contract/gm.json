@@ -36,6 +36,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "query" : {
@@ -65,7 +66,7 @@
           "team" : [
             {
               "account" : "string",
-              "agent" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
               "branch" : "string",
               "desk" : "number",
               "floor" : "number",
@@ -74,7 +75,7 @@
               "idleFor" : "number",
               "lastEventAt" : "number",
               "live" : "bool",
-              "liveState" : "string",
+              "liveState" : "'idle'|'thinking'|'asking'|'unread'|'error'",
               "model" : "string",
               "name" : "string",
               "nickname" : "string",
@@ -82,8 +83,8 @@
               "registered" : "bool",
               "role" : "string",
               "sessionId" : "string",
-              "started" : "null",
-              "state" : "string",
+              "started" : "number|null",
+              "state" : "'starting'|'working'|'idle'|'fired'|'failed'|''",
               "status" : "string",
               "tmuxSocket" : "string",
               "worktree" : "string"
@@ -99,6 +100,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page"
           },
@@ -126,7 +128,7 @@
               "detail" : "string",
               "folder" : "string",
               "id" : "number",
-              "kind" : "string",
+              "kind" : "'sessionStart'|'sessionStop'|'prompt'|'permissionAsked'|'permissionDenied'|'notification'|'idle'|'watcherFired'|'mail'|'keystroke'",
               "session" : "string"
             }
           ],
@@ -159,7 +161,7 @@
         "shape" : {
           "approvals" : [
             {
-              "agent" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
               "desk" : "number",
               "floor" : "number",
               "hire" : "string",
@@ -197,7 +199,31 @@
         "kind" : "json",
         "shape" : {
           "messages" : [
-
+            {
+              "at" : "number",
+              "attempts" : "number",
+              "from" : "'gm'|'owner'|'hire'",
+              "fromID" : "string",
+              "fromName" : "string",
+              "id" : "string",
+              "note" : "string",
+              "size" : "number",
+              "state" : "'queued'|'delivered'|'left'|'failed'",
+              "text" : "string",
+              "to" : "string",
+              "toName" : "string"
+            },
+            {
+              "at" : "number",
+              "attempts" : "number",
+              "from" : "'gm'|'owner'|'hire'",
+              "id" : "string",
+              "size" : "number",
+              "state" : "'queued'|'delivered'|'left'|'failed'",
+              "text" : "string",
+              "to" : "string",
+              "toName" : "string"
+            }
           ]
         },
         "status" : 200
@@ -210,7 +236,8 @@
       "request" : {
         "as" : "page",
         "given" : [
-          "manager on"
+          "manager on",
+          "an outbox message"
         ]
       },
       "route" : "GET \/setup\/gm\/outbox"
@@ -220,7 +247,19 @@
         "kind" : "json",
         "shape" : {
           "watches" : [
-
+            {
+              "active" : "bool",
+              "by" : "string",
+              "createdAt" : "number",
+              "due" : "number",
+              "fired" : "number",
+              "id" : "string",
+              "kind" : "'file'|'event'|'idle'|'exit'|'time'",
+              "minutes" : "number",
+              "pattern" : "string",
+              "repeat" : "bool",
+              "target" : "string"
+            }
           ]
         },
         "status" : 200
@@ -233,7 +272,8 @@
       "request" : {
         "as" : "page",
         "given" : [
-          "manager on"
+          "manager on",
+          "a watch"
         ]
       },
       "route" : "GET \/setup\/gm\/watches"
@@ -245,6 +285,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "body" : "not json",
@@ -265,6 +306,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "given" : [
@@ -275,6 +317,7 @@
           "why" : "no id"
         },
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "given" : [
@@ -291,26 +334,32 @@
       "route" : "POST \/setup\/gm\/unwatch"
     },
     {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "no id"
+        }
+      ],
+      "route" : "DELETE \/setup\/gm\/unwatch"
+    },
+    {
       "answer" : {
         "kind" : "json",
         "shape" : {
           "ask" : "bool",
           "chosen" : "string",
-          "screens" : [
-            {
-              "frame" : {
-                "height" : "number",
-                "width" : "number",
-                "x" : "number",
-                "y" : "number"
-              },
-              "id" : "string",
-              "main" : "bool",
-              "name" : "string",
-              "portrait" : "bool",
-              "team" : "bool"
-            }
-          ]
+          "screens" : "array"
         },
         "status" : 200
       },
@@ -334,6 +383,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "given" : [
@@ -344,6 +394,7 @@
           "why" : "no id"
         },
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "given" : [
@@ -367,6 +418,7 @@
       "note" : "the request and answer are frontdesk\/hire.json's",
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "body" : {
@@ -390,6 +442,7 @@
       "note" : "the request and answer are frontdesk\/fire.json's",
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "body" : {
@@ -413,6 +466,7 @@
       "note" : "the request and answer are frontdesk\/brief.json's",
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "body" : {
@@ -437,6 +491,7 @@
       "note" : "the request and answer are frontdesk\/send.json's",
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "body" : {
@@ -460,6 +515,7 @@
       "note" : "the request and answer are frontdesk\/contacts.json's",
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "body" : {
@@ -483,6 +539,7 @@
       "note" : "the request and answer are frontdesk\/registry-edit.json's",
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "body" : {
@@ -505,6 +562,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "body" : {
@@ -526,6 +584,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "empty",
           "request" : {
             "as" : "page",
             "given" : [
@@ -551,6 +610,7 @@
       ],
       "refusals" : [
         {
+          "kind" : "text",
           "request" : {
             "as" : "page",
             "given" : [
@@ -591,6 +651,38 @@
         ]
       },
       "route" : "POST \/setup\/gm\/token\/rotate"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "any path under \/setup\/gm\/ that isn't a route (INVENTORY: * \/setup\/gm\/*)",
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page",
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 404,
+          "why" : "no such route"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "tool",
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 403,
+          "why" : "a tool, on a route not listed for it"
+        }
+      ],
+      "route" : "GET \/setup\/gm\/nothing-here"
     }
   ]
 }

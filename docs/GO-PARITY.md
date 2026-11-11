@@ -43,8 +43,10 @@ subsystem of its own. "–" where there is nothing to port.
 | `POST /setup/gm/manager` (the manager switch) | ✓ | ✓ | the page only; no GM caller exists here yet | – |
 | `POST /setup/gm/registry` | ✓ | ✓ | the page only, for the same reason | – |
 | `/setup/hire/gm` (Start here's Hire your General Manager) | ✓ | ✓ | the Go app hires the plain GM role (through the hire engine only on Linux when tmux is the chosen or only way and the agent is Claude, otherwise as before); the Mac's also gives it its token, rules and tools. It refuses (409) while a GM is working, as the Mac does: "A General Manager is already working. Fire it first, then hire another." Nothing is fired for it | L |
-| `GET /setup/gm/outbox`, `watches`, `screens` | ✓ | – | not served: 404 | M |
-| `POST /setup/gm/hire`, `fire`, `brief`, `send`, `contacts`, `watch`, `unwatch`, `tile`, `screen` | ✓ | – | not served: 404; the team's work (worktrees, mail, watches, tiling) is the Mac's | XL |
+| `GET /setup/gm/outbox`, `watches` | ✓ | ✓ | **done** (checked by the route contract, `Tests/fixtures/contract/gm.json`) | – |
+| `GET /setup/gm/screens` | ✓ | – | not served: 404 | M |
+| `POST /setup/gm/send`, `contacts`, `watch`, `unwatch` | ✓ | ✓ | **done** (checked by the route contract, `Tests/fixtures/contract/gm.json`) | – |
+| `POST /setup/gm/hire`, `fire`, `brief`, `tile`, `screen` | ✓ | – | not served: 404; the team's work (worktrees, briefs, tiling) is the Mac's | XL |
 | `POST /setup/gm/token/rotate`, `POST /setup/gm/by-hand` | ✓ | – | no GM token here | – |
 | `smolcorp gm`, `guard`, `mcp` | ✓ | ✓ | the same commands on all three; on Go they can ask only what is served above | – |
 

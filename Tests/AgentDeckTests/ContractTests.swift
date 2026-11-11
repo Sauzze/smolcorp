@@ -3,18 +3,21 @@ import XCTest
 
 /// The route contract (M0 of the one-build plan): what the Mac answers on each route, written as shapes into
 /// `Tests/fixtures/contract/`, which the Linux/Windows app's `desktop/contract_test.go` checks its own answers
-/// against. Shapes, not values: an answer's status, its kind of body, and for JSON its keys and their types.
-/// A run with SMOLCORP_WRITE_FIXTURES=1 writes the files again; a normal run checks the Mac still answers so.
-/// `INVENTORY.md` beside them lists every route, with or without a fixture.
+/// against. Shapes, not values: an answer's status, its kind of body, and for JSON its keys, their types, and
+/// for a closed set (a session's state, an agent…) the values it may take. A run with SMOLCORP_WRITE_FIXTURES=1
+/// writes the files again; a normal run checks the Mac still answers so. `INVENTORY.md` beside them lists every
+/// route, with or without a fixture, and every place a shape doesn't compare all the way down.
 ///
-/// Only routes that stay inside the test's own folder are asked: none that writes your home folder (hooks,
-/// login item, the smolcorp link), asks the Keychain, opens a window or a terminal, or starts another program.
-/// Those are in the inventory, with their refusals here where a refusal comes before anything is done.
+/// Only routes that write nothing outside the test's own folder are asked: none that writes your home folder
+/// (hooks, login item, the smolcorp link), asks the Keychain, opens a window or a terminal, or starts another
+/// program. Some do read this Mac (the agents and terminals here, its Claude accounts, its screens): those lists
+/// are "array" in the shapes, listed in INVENTORY.md, so a Mac with fewer still passes. Routes not asked are in
+/// the inventory with why, with their refusals here where a refusal comes before anything is done.
 final class ContractTests: XCTestCase {
     // MARK: The routes asked
 
     /// One request, as one caller: the page (its cookie), a tool (the setup key), a paired phone on the Wi-Fi,
-    /// the hook (its key), or nobody. `given` is what's set up first (see `prepare`).
+    /// the hook (its key), or nobody. `given` is what's set up first (see `givens`).
     struct Ask {
         var caller = "page"
         var query: [String: String] = [:]
@@ -60,6 +63,7 @@ final class ContractTests: XCTestCase {
             switch path {
             case "/hook": return ["hook"]
             case "/pair": return ["anyone"]
+            case "/t3code", "/t3code/open": return ["window"]
             default: return ["phone"]
             }
         }
@@ -70,24 +74,38 @@ final class ContractTests: XCTestCase {
         Ask(caller: caller, query: query, body: body, given: given, headers: headers)
     }
 
-    /// What the setup page's state route answers, and the office's snapshot: the shapes most routes refer to.
+    /// What the setup state is asked with, and every setup route that answers it: so that each answers it whole,
+    /// with something in each of its lists.
+    /// The floor rule comes first: it puts contract-b upstairs as it starts.
+    static let stateGiven = ["a floor rule", "sessions", "a pin", "a saved profile", "a cloud bot", "a pairing code", "a paired phone"]
+    /// What the office's snapshot is asked with: a desk at a key, one upstairs, and a cloud bot.
+    static let officeGiven = ["a floor rule", "sessions", "a pin", "a cloud bot"]
+
+    /// The setup page's state route, and the office's snapshot (the first message of /events): the shapes most
+    /// routes refer to, by name.
     static let state: [Route] = [
-        Route("GET", "/setup/state", ask(given: ["sessions", "a pairing code", "a paired phone"]),
+        Route("GET", "/setup/state", ask(given: stateGiven),
               refusals: [(ask("nobody"), "no cookie, no setup key: the locked page")]),
-        Route("GET", "/setup/state", ask("tool", given: ["sessions", "a pairing code", "a paired phone"]),
+        Route("GET", "/setup/state", ask("tool", given: stateGiven),
               note: "a tool sees whether pairing is open, never the code, and no webhook secret"),
-        Route("GET", "/events", ask("phone", given: ["sessions"]),
+        Route("GET", "/events", ask("phone", given: officeGiven),
               refusals: [(ask("nobody"), "no phone's key")],
               note: "an event stream; its first message is the snapshot (shape snapshot), and each change sends it again"),
     ]
 
-    /// Setup's routes the page uses, besides the GM's. Each asked with a pairing code open, so those that answer
-    /// with the setup state answer it whole (the page sees the code).
+    /// Setup's routes the page uses, besides the GM's. Each asked with the setup state's own given, so those that
+    /// answer with the setup state answer it whole, as `GET /setup/state` does.
     static let setup: [Route] = setupRoutes.map { route in
         var route = route
-        route.ask?.given.append("a pairing code")
+        if route.ask != nil, route.ask?.given.isEmpty == true { route.ask?.given = stateGiven }
         return route
     }
+
+    /// The roles as the app comes with them: what `POST /setup/roles` is sent, so it answers the state unchanged.
+    static let shippedRoles: Any = {
+        let data = (try? JSONEncoder().encode(Role.shipped)) ?? Data("[]".utf8)
+        return (try? JSONSerialization.jsonObject(with: data)) ?? [Any]()
+    }()
 
     private static let setupRoutes: [Route] = [
         Route("POST", "/setup/session", nil, refusals: [(ask("nobody"), "no menu link's key: no session")],
@@ -106,7 +124,7 @@ final class ContractTests: XCTestCase {
                          (ask(query: ["key": "0"]), "no folder")]),
         Route("POST", "/setup/unpin", ask(query: ["key": "0"]),
               refusals: [(ask(query: ["key": "x"]), "no such key")]),
-        Route("POST", "/setup/floors", ask(body: ["rules": [Any]()]),
+        Route("POST", "/setup/floors", ask(body: ["rules": [["folder": "/work/beta", "floor": 2, "exact": false]]]),
               refusals: [(ask(body: [String: Any]()), "neither floors nor rules")]),
         Route("POST", "/setup/webhook", ask(body: ["enabled": false]),
               refusals: [(ask(body: "not json"), "not a webhook"),
@@ -125,6 +143,8 @@ final class ContractTests: XCTestCase {
               refusals: [(ask(query: ["agent": "nope"]), "unknown agent"),
                          (ask(query: ["terminal": "nope"]), "a terminal that isn't here"),
                          (ask(query: ["folder": "/no/such/folder/for/contract"]), "no folder there")]),
+        Route("POST", "/setup/hire-folder", nil, refusals: [(ask(query: ["folder": "/no/such/folder/for/contract"]), "no folder there")],
+              note: "a folder that's there is saved as the folder for your hires; only the refusal, which comes first, is asked"),
         Route("POST", "/setup/summaries", ask(query: ["enabled": "0"]),
               refusals: [(ask(query: ["enabled": "1"]), "on only from its dialog (confirmed=1)"),
                          (ask(query: ["enabled": "1", "confirmed": "1", "provider": "nope"]), "no such provider")]),
@@ -140,16 +160,23 @@ final class ContractTests: XCTestCase {
         Route("GET", "/setup/claude-accounts", ask()),
         Route("POST", "/setup/claude-accounts", nil, refusals: [(ask(body: [String: Any]()), "no profiles list")]),
         Route("GET", "/setup/bots", ask()),
-        Route("POST", "/setup/bots", ask(body: ["bots": [Any]()]),
+        Route("POST", "/setup/bots", ask(body: ["bots": [["id": "contract-bot", "name": "Contract Bot"]]]),
               refusals: [(ask(body: "not json"), "not a list of bots")]),
-        Route("POST", "/setup/bots/override", ask(body: ["botFloor": 1]),
+        Route("POST", "/setup/bots/override", ask(body: ["id": "contract-bot", "floor": "2"]),
               refusals: [(ask(body: ["botFloor": "2"]), "botFloor not a whole number"),
                          (ask(body: ["id": "no-such-bot"]), "no such bot")]),
         Route("POST", "/setup/bots/mailbox", nil, refusals: [(ask(body: [String: Any]()), "no id and folder")]),
         Route("POST", "/setup/bots/resolve", ask()),
         Route("GET", "/setup/hire-folder", ask()),
         Route("GET", "/setup/hire/folders", ask()),
+        Route("GET", "/setup/hire/gm/preflight", nil, refusals: [(ask(query: ["account": "no-such-account"]), "no such Claude account")],
+              note: "with a known account it checks the GM's tools, which runs them; only the refusal, which comes first, is asked"),
+        Route("POST", "/setup/roles", ask(body: shippedRoles),
+              refusals: [(ask(body: "not json"), "not a list of roles")],
+              note: "the roles, whole: sent as they come with the app, so the state is answered unchanged"),
         Route("GET", "/setup/briefs", ask()),
+        Route("POST", "/setup/briefs/preview", nil, refusals: [(ask(body: "not json"), "not a role and folder")],
+              note: "reads the brief a hire would get; this test bundle has none of the app's briefs, so only the refusal is asked"),
         Route("POST", "/setup/hire", nil, refusals: [(ask(body: [String: Any]()), "no role"),
                                                      (ask(body: ["role": "nobody-at-all"]), "no such role")]),
         Route("POST", "/setup/hire/gm", nil, refusals: [(ask(), "no folder for your hires yet")],
@@ -170,11 +197,12 @@ final class ContractTests: XCTestCase {
               refusals: [(ask(), "the manager is off")]),
         Route("GET", "/setup/gm/events", ask(query: ["since": "0", "wait": "0"], given: ["manager on", "sessions"])),
         Route("GET", "/setup/gm/approvals", ask(given: ["manager on", "sessions"])),
-        Route("GET", "/setup/gm/outbox", ask(given: ["manager on"])),
-        Route("GET", "/setup/gm/watches", ask(given: ["manager on"])),
+        Route("GET", "/setup/gm/outbox", ask(given: ["manager on", "an outbox message"])),
+        Route("GET", "/setup/gm/watches", ask(given: ["manager on", "a watch"])),
         Route("POST", "/setup/gm/watch", nil, refusals: [(ask(body: "not json", given: ["manager on"]), "not a watch")]),
         Route("POST", "/setup/gm/unwatch", nil, refusals: [(ask(given: ["manager on"]), "no id"),
                                                            (ask(query: ["id": "no-such-watch"], given: ["manager on"]), "no such watch")]),
+        Route("DELETE", "/setup/gm/unwatch", nil, refusals: [(ask(given: ["manager on"]), "no id")]),
         Route("GET", "/setup/gm/screens", ask(given: ["manager on"])),
         Route("POST", "/setup/gm/screen", nil, refusals: [(ask(given: ["manager on"]), "no id"),
                                                           (ask(query: ["id": "no-such-screen"], given: ["manager on"]), "no such screen")]),
@@ -195,15 +223,19 @@ final class ContractTests: XCTestCase {
         Route("POST", "/setup/gm/by-hand", ask(query: ["enabled": "0"], given: ["manager on"]),
               refusals: [(ask(given: ["manager on"]), "neither enabled=1 nor enabled=0")]),
         Route("POST", "/setup/gm/token/rotate", ask(given: ["manager on"])),
+        Route("GET", "/setup/gm/nothing-here", nil, refusals: [(ask(given: ["manager on"]), "no such route"),
+                                                               (ask("tool", given: ["manager on"]), "a tool, on a route not listed for it")],
+              note: "any path under /setup/gm/ that isn't a route (INVENTORY: * /setup/gm/*)"),
     ]
 
     /// The office's routes (a paired phone's), the hook's, a cloud bot's, and pairing.
     static let office: [Route] = [
-        Route("POST", "/hook", ask("hook", body: ContractTests.hooks[0]["body"]!, headers: ContractTests.hooks[0]["headers"] as! [String: String]),
+        Route("POST", "/hook", ask("hook", body: hooks[0]["body"]!, headers: hooks[0]["headers"] as! [String: String]),
               refusals: [(ask("nobody", body: [String: Any]()), "no hook key")],
               note: "the agent's hook event, with its agent, tab, project, pid and parent headers; it feeds the snapshot"),
-        Route("POST", "/pair", nil, refusals: [(ask("nobody", body: ["code": "1"]), "a code that isn't the one asked for")],
-              note: "a right code answers {key}; a wrong one 403 {error}"),
+        Route("POST", "/pair", ask("nobody", body: ["code": "$code"], given: ["a pairing code"]),
+              refusals: [(ask("nobody", body: ["code": "1"]), "a code that isn't the one asked for")],
+              note: "\"$code\" stands for the code the given asked for"),
         Route("POST", "/focus", nil, refusals: [(ask("phone", query: ["session": "no-such-session"]), "no such session")]),
         Route("POST", "/act", nil, refusals: [
             (ask("phone", query: ["action": "accept", "session": "no-such-session"]), "no such session"),
@@ -220,6 +252,8 @@ final class ContractTests: XCTestCase {
         Route("GET", "/reviews", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
         Route("GET", "/conversation", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
         Route("GET", "/session/info", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
+        Route("GET", "/notifications", ask("phone")),
+        Route("POST", "/notifications", nil, refusals: [(ask("phone", body: ["token": "not-a-token"]), "over Tailscale's HTTPS address only")]),
         Route("POST", "/dictate", nil, refusals: [(ask("phone", body: ["text": "hi"]), "over Tailscale's HTTPS address only")]),
         Route("POST", "/peek", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
         Route("POST", "/choose", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
@@ -239,58 +273,318 @@ final class ContractTests: XCTestCase {
         ("state.json", state), ("setup.json", setup), ("gm.json", gm), ("office.json", office),
     ]
 
-    /// "sessions": two Claude Code sessions as their hooks report them, one working and one asking you.
+    // MARK: What's given
+
+    private static func hook(_ session: String, tab: String, project: String, _ body: [String: Any]) -> [String: Any] {
+        ["headers": ["x-agentdeck-agent": "claude", "x-agentdeck-tab": tab, "x-agentdeck-project": project],
+         "body": body.merging(["session_id": session, "cwd": project]) { a, _ in a }]
+    }
+
+    /// "sessions": two Claude Code sessions as their hooks report them. contract-a, with its model, a subagent and
+    /// a role, works; contract-b asks you. contract-a's tab is a launcher's, the tab a hire with a role opens.
     static let hooks: [[String: Any]] = [
-        ["headers": ["x-agentdeck-agent": "claude", "x-agentdeck-tab": "tty:/dev/ttys901", "x-agentdeck-project": "/work/alpha"],
-         "body": ["hook_event_name": "UserPromptSubmit", "session_id": "contract-a", "cwd": "/work/alpha", "prompt": "Write the tests."]],
-        ["headers": ["x-agentdeck-agent": "claude", "x-agentdeck-tab": "tty:/dev/ttys902", "x-agentdeck-project": "/work/beta"],
-         "body": ["hook_event_name": "PreToolUse", "session_id": "contract-b", "cwd": "/work/beta", "tool_name": "Bash",
-                  "tool_input": ["command": "ls"]]],
-        ["headers": ["x-agentdeck-agent": "claude", "x-agentdeck-tab": "tty:/dev/ttys902", "x-agentdeck-project": "/work/beta"],
-         "body": ["hook_event_name": "Notification", "session_id": "contract-b", "cwd": "/work/beta",
-                  "message": "Claude needs your permission to use Bash"]],
+        hook("contract-a", tab: "launcher:contract-a", project: "/work/alpha",
+             ["hook_event_name": "SessionStart", "source": "startup", "model": "claude-opus-5-5"]),
+        hook("contract-a", tab: "launcher:contract-a", project: "/work/alpha",
+             ["hook_event_name": "UserPromptSubmit", "prompt": "Write the tests."]),
+        hook("contract-a", tab: "launcher:contract-a", project: "/work/alpha",
+             ["hook_event_name": "SubagentStart", "agent_id": "contract-sub", "agent_type": "Explore"]),
+        hook("contract-a", tab: "launcher:contract-a", project: "/work/alpha",
+             ["hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": ["file_path": "/work/alpha/README.md"]]),
+        hook("contract-b", tab: "tty:/dev/ttys902", project: "/work/beta",
+             ["hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": ["command": "ls"]]),
+        hook("contract-b", tab: "tty:/dev/ttys902", project: "/work/beta",
+             ["hook_event_name": "Notification", "message": "Claude needs your permission to use Bash"]),
+    ]
+
+    /// The role contract-a's tab was opened with.
+    static let hiredRole = "reviewer"
+
+    private static func step(_ method: String, _ path: String, query: [String: String] = [:], body: Any? = nil) -> [String: Any] {
+        var step: [String: Any] = ["as": "page", "method": method, "path": path]
+        if !query.isEmpty { step["query"] = query }
+        if let body { step["body"] = body }
+        return step
+    }
+
+    /// Each `given`: the requests it is (both apps answer them, each under 300), a file put in the support folder
+    /// before the app reads it, or what each app does its own way (`says`). Written to contract.json as they are.
+    static let givens: [String: [String: Any]] = [
+        "manager on": ["says": "config.json's managerEnabled is true"],
+        "sessions": [
+            "requests": hooks.map { hook -> [String: Any] in
+                ["as": "hook", "method": "POST", "path": "/hook", "headers": hook["headers"]!, "body": hook["body"]!]
+            },
+            "says": "before its hooks, contract-a's tab (launcher:contract-a) is a hire's, opened with the role \(hiredRole): "
+                + "the Mac keeps that in Deck.hiredTabs, the Go app in its launcher (launcherConnected)",
+        ],
+        "a pin": ["requests": [step("POST", "/setup/pin", query: ["key": "0", "folder": "/work/alpha"])]],
+        "a saved profile": ["requests": [step("POST", "/setup/profiles", query: ["action": "save", "name": "Contract"])]],
+        "a floor rule": ["requests": [step("POST", "/setup/floors", body: ["rules": [["folder": "/work/beta", "floor": 2, "exact": false]]])]],
+        "a cloud bot": ["requests": [step("POST", "/setup/bots", body: ["bots": [["id": "contract-bot", "name": "Contract Bot"]]])]],
+        "a watch": ["requests": [step("POST", "/setup/gm/watch", body: ["kind": "time", "target": "check the build", "minutes": 30])]],
+        "an outbox message": ["file": "outbox.json", "content": [
+            "version": 1,
+            "messages": [
+                ["id": "gm-001", "from": "gm", "to": "abcdef123456", "toName": "Rev", "at": 1_761_000_000_000, "state": "delivered",
+                 "size": 38, "attempts": 0, "nextAt": 0, "note": "", "text": "Please look at the login change first."],
+                ["id": "h-001", "from": "hire", "fromID": "abcdef123456", "fromName": "Rev", "to": "gm", "toName": "the GM",
+                 "at": 1_761_000_240_000, "state": "delivered", "size": 12, "attempts": 0, "nextAt": 0,
+                 "note": "Kept for the GM to read; not typed into its session.", "text": "Review done."],
+            ],
+        ] as [String: Any]],
+        "a pairing code": ["requests": [step("POST", "/setup/pair")]],
+        "a paired phone": ["says": "a phone paired with a code, as the pairing page does it (POST /pair); phone requests carry its key "
+            + "as ?t=. A code open before is open after"],
     ]
 
     // MARK: Shapes
 
-    /// A JSON value's shape: "string", "number", "bool" or "null" for a leaf; an object's keys, each with its shape;
-    /// an array's elements merged into one shape, or [] for none.
-    static func shape(_ value: Any) -> Any {
+    /// What's written where the Mac's value alone can't say what the contract is.
+    enum Mark {
+        /// This type, or null: "string|null".
+        case nullable(String)
+        /// One of a closed set of strings (a Swift enum's cases where there is one), or null too.
+        case oneOf([String], nullable: Bool = false)
+        /// Compared no further than this (any, map: an object whose keys are data, array, object|null…), and why.
+        case loose(String, why: String)
+        /// An empty array in every given here, and why.
+        case empty(String)
+    }
+
+    /// The marks, by the shape or route they're in and where. The setup state's are the tool's too.
+    static let marks: [String: [String: Mark]] = {
+        let agents = Agent.allCases.map(\.rawValue)
+        // A session's desk, at a key or upstairs.
+        let desk: [String: Mark] = [
+            ".state": .oneOf(SessionState.allCases.map(\.rawValue)), ".agent": .oneOf(agents),
+            // "" until the agent says.
+            ".effort": .oneOf(Deck.effortLevels + [""]),
+            ".activity": .nullable("string"), ".tool": .nullable("string"), ".model": .nullable("string"),
+            ".messaged": .nullable("string"), ".errorKind": .nullable("string"),
+            ".maxPressedAt": .nullable("number"), ".messagedAt": .nullable("number"), ".turnStartedAt": .nullable("number"),
+            ".subagents[].model": .nullable("string"),
+            ".voiceNote": .loose("object|null", why: "how the last dictation went, for a moment: none in the given (personal build)"),
+            ".choice": .loose("object|null", why: "a menu's options, read from the terminal: none in the given"),
+            ".last": .loose("object|null", why: "a cloud bot's last report: none in the given"),
+            ".hiredBy.id": .nullable("string"),
+        ]
+        let layout: [String: Mark] = [
+            ".layout.room.floorPlans": .loose("map", why: "a floor's plan by its number: keys are data"),
+            ".layout.room.plan.hung": .loose("map", why: "what's hung where: keys are data"),
+            ".layout.room.plan.tall": .loose("map", why: "a tall item's place by its id: keys are data"),
+            ".layout.room.plan.wide": .loose("map", why: "a wide item's place by its id: keys are data"),
+            ".layout.room.team": .loose("map", why: "the team's looks by folder name: keys are data"),
+            ".layout.room.dress.rules": .empty("no dress rule in the default layout"),
+            ".layout.room.pet": .empty("no pet in the default layout"),
+            ".layout.room.plan.added.tall": .empty("nothing added to the default plan"),
+            ".layout.room.plan.added.wide": .empty("nothing added to the default plan"),
+        ]
+        var snapshot = layout
+        for prefix in [".keys[].session", ".floors[].desks[]", ".upstairs.desks[]"] {
+            for (path, mark) in desk { snapshot[prefix + path] = mark }
+        }
+        for prefix in [".floors[].desks[]", ".upstairs.desks[]"] {
+            snapshot[prefix + ".subagents"] = .empty("only contract-a, at a key, has a subagent in the given")
+        }
+        snapshot[".keys[].pin"] = .nullable("string")
+        snapshot[".hiring.roles"] = .empty("no folder for hires in the given, so no role to hire as")
+        snapshot[".music"] = .loose("object|null", why: "what's playing: null with music off, as in the given")
+        // The saved looks, each with a layout of its own and the colours changed from the theme.
+        var setupState = layout
+        for (path, mark) in layout { setupState[".profiles[]" + path] = mark }
+        setupState.merge([
+            ".profiles[].colours": .loose("map", why: "the theme's colours changed in a look, by name: none in the given"),
+            ".platform": .oneOf(["darwin", "linux", "windows"]),
+            ".logo": .oneOf(Logo.allCases.map(\.rawValue)),
+            ".agents": .loose("array", why: "the coding agents found in this computer's home folder"),
+            ".hiring.agent": .oneOf(agents),
+            ".hiring.terminals": .loose("array", why: "the terminals installed on this computer"),
+            ".claudeAccounts.found": .loose("array", why: "the Claude accounts found in this Mac's home folder"),
+            ".claudeAccounts.profiles": .loose("array", why: "the Claude accounts found in this Mac's home folder"),
+            ".keystrokes.running": .loose("array", why: "the apps running on this Mac"),
+            ".keystrokes.apps": .empty("no app allowed keys by default"),
+            ".dictation.problem": .nullable("string"), ".dictation.cleanupProblem": .nullable("string"),
+            ".phoneMic.tailnet": .nullable("string"), ".phoneMic.serving": .nullable("string"),
+            ".summary.provider": .loose("object|null", why: "the provider picked: none with summaries off, as in the given"),
+            ".summary.key": .loose("object|null", why: "where the API key is from: none in the given (no Keychain is asked)"),
+            ".summary.fallback": .nullable("string"),
+            ".summary.providers[].id": .oneOf(SummaryProvider.allCases.map(\.rawValue)),
+            ".summary.providers[].state": .oneOf(SummaryProviderState.Kind.allCases.map(\.rawValue) + ["checking"]),
+            ".webhook.last": .loose("object|null", why: "the last webhook sent: none in the given"),
+            ".webhook.events[]": .oneOf(Webhook.allEvents),
+            ".sessions[].state": .oneOf(SessionState.allCases.map(\.rawValue)),
+            ".sessions[].agent": .oneOf(agents),
+            ".cloudBots.bots[].agent": .oneOf(agents),
+            ".cloudBots.hidden": .empty("no bot hidden in the given"),
+            ".cloudBots.noRoom": .empty("every bot has a desk in the given"),
+            ".roles.agents[].id": .oneOf(agents),
+            ".roles.roles[].agent": .oneOf(agents),
+            ".roles.shipped[].agent": .oneOf(agents),
+        ]) { a, _ in a }
+        return [
+            "setup-state": setupState,
+            "snapshot": snapshot,
+            "GET /setup/claude-accounts": [
+                ".found": .loose("array", why: "the Claude accounts found in this Mac's home folder"),
+                ".profiles": .loose("array", why: "the Claude accounts found in this Mac's home folder"),
+            ],
+            "GET /setup/guard": [".extra": .empty("no pattern of your own in the given")],
+            "GET /setup/bots": [
+                ".bots[].agent": .oneOf(agents),
+                ".bots[].resolved": .loose("object|null", why: "only a bot from the Grok Bot app is resolved: none in the given"),
+            ],
+            "POST /setup/bots": [
+                ".bots[].agent": .oneOf(agents),
+                ".bots[].resolved": .loose("object|null", why: "only a bot from the Grok Bot app is resolved: none in the given"),
+            ],
+            "POST /setup/bots/resolve": [
+                ".bots[].agent": .oneOf(agents),
+                ".bots[].resolved": .loose("object|null", why: "only a bot from the Grok Bot app is resolved: none in the given"),
+                ".filled": .empty("only a bot from the Grok Bot app is filled in: none in the given"),
+                ".unresolved": .empty("only a bot from the Grok Bot app can be unresolved: none in the given"),
+            ],
+            "GET /setup/hire/folders": [".recent": .empty("no folder hired into in the given")],
+            "GET /setup/briefs": [".briefs": .empty("this test bundle has none of the app's briefs")],
+            "GET /setup/gm/team": [
+                ".contacts": .empty("no pair of hires allowed to write to each other in the given"),
+                ".team[].started": .nullable("number"),
+                ".team[].agent": .oneOf(agents),
+                ".team[].liveState": .oneOf(SessionState.allCases.map(\.rawValue)),
+                // "" for a session that isn't a hire.
+                ".team[].state": .oneOf(FrontDesk.State.allCases.map(\.rawValue) + [""]),
+            ],
+            "GET /setup/gm/events": [".events[].kind": .oneOf(EventLog.Kind.allCases.map(\.rawValue))],
+            "GET /setup/gm/approvals": [".approvals[].agent": .oneOf(agents)],
+            "GET /setup/gm/outbox": [
+                ".messages[].state": .oneOf(MailRouter.State.allCases.map(\.rawValue)),
+                ".messages[].from": .oneOf(MailRouter.Sender.allCases.map(\.rawValue)),
+            ],
+            "GET /setup/gm/watches": [".watches[].kind": .oneOf(Watchers.Kind.allCases.map(\.rawValue))],
+            "GET /setup/gm/screens": [".screens": .loose("array", why: "this Mac's screens")],
+        ]
+    }()
+
+    /// The mark at `path` in `subject`: the setup state's for the tool's too.
+    static func mark(_ subject: String, _ path: String) -> Mark? {
+        marks[subject == "setup-state-tool" ? "setup-state" : subject]?[path]
+    }
+
+    /// A spot a shape doesn't compare all the way down: in what, where, what's written, and why.
+    struct Loose: Hashable { let subject, path, shape, why: String }
+
+    /// The shape written for a value of `subject` (a shape's name or a route) at `path`:
+    /// - "string", "number", "bool", "null" for a leaf; 'x' for that string; alternatives as "string|null";
+    ///   "any", "object" (any object), "map" (an object whose keys are data) and "array" (any array) compare no further;
+    /// - an object's keys, each with its shape: no more, no fewer;
+    /// - an array's elements, as the different shapes they have: [] for none. Each element must be like one of
+    ///   them, and each like some element.
+    /// A null, an empty array or an empty object needs a mark (or, in an array's element, another element with
+    /// something there), so none stands for anything by accident: `problems` says where one has none.
+    static func shape(_ value: Any, in subject: String, at path: String = "", loose: inout Set<Loose>, problems: inout [String]) -> Any {
+        if let mark = mark(subject, path) {
+            let written: Any
+            switch mark {
+            case .nullable(let type): written = "\(type)|null"
+            case .oneOf(let values, let nullable): written = values.map { "'\($0)'" }.joined(separator: "|") + (nullable ? "|null" : "")
+            case .loose(let spec, let why):
+                written = spec
+                loose.insert(Loose(subject: subject == "setup-state-tool" ? "setup-state" : subject, path: path, shape: spec, why: why))
+            case .empty(let why):
+                written = [Any]()
+                loose.insert(Loose(subject: subject == "setup-state-tool" ? "setup-state" : subject, path: path, shape: "[]", why: why))
+            }
+            for difference in differences(written, value, at: path) { problems.append("\(subject) \(difference): the Mac's own value, against its mark") }
+            return written
+        }
         switch value {
         case is NSNull: return "null"
         case is String: return "string"
         case let number as NSNumber: return CFGetTypeID(number) == CFBooleanGetTypeID() ? "bool" : "number"
-        case let array as [Any]: return array.isEmpty ? [Any]() : [array.map(shape).reduce(array.map(shape)[0], merge)]
-        case let object as [String: Any]: return object.mapValues(shape)
+        case let array as [Any]:
+            var variants: [Any] = []
+            for element in array {
+                let one = shape(element, in: subject, at: path + "[]", loose: &loose, problems: &problems)
+                if !variants.contains(where: { same($0, one) }) { variants.append(one) }
+            }
+            return variants
+        case let object as [String: Any]:
+            if object.isEmpty { problems.append("\(subject) \(path.isEmpty ? "." : path): an empty object with no mark (a map? empty in every given?)") }
+            return object.reduce(into: [String: Any]()) { shape, item in
+                shape[item.key] = Self.shape(item.value, in: subject, at: path + "." + item.key, loose: &loose, problems: &problems)
+            }
         default: return "any"
         }
     }
 
-    /// Two shapes as one: null gives way to the other, objects keep every key, and two different leaves are "any".
-    static func merge(_ a: Any, _ b: Any) -> Any {
-        if a as? String == "null" { return b }
-        if b as? String == "null" { return a }
-        if let a = a as? [String: Any], let b = b as? [String: Any] {
-            return a.merging(b) { merge($0, $1) }
+    /// A shape settled: a null leaf where another of an array's elements has a leaf type there becomes that type
+    /// or null; one where another has an object or an array stays that element's null. A null or an empty array
+    /// left with nothing beside it is a problem: it needs a mark. Then the elements are sorted, for a stable file.
+    static func settled(_ shape: Any, in subject: String, problems: inout [String]) -> Any {
+        var seen: [String: Set<String>] = [:]   // where: the kinds found there ("leaf:string", "array", "object", "null", "[]")
+        func look(_ shape: Any, _ path: String) {
+            switch shape {
+            case let leaf as String: seen[path, default: []].insert(leaf == "null" ? "null" : "leaf:" + leaf)
+            case let object as [String: Any]: seen[path, default: []].insert("object"); for (key, value) in object { look(value, path + "." + key) }
+            case let array as [Any]:
+                seen[path, default: []].insert(array.isEmpty ? "[]" : "array")
+                for element in array { look(element, path + "[]") }
+            default: break
+            }
         }
-        if let a = a as? [Any], let b = b as? [Any] {
-            if a.isEmpty { return b }
-            if b.isEmpty { return a }
-            return [merge(a[0], b[0])]
+        look(shape, "")
+        func settle(_ shape: Any, _ path: String) -> Any {
+            switch shape {
+            case let leaf as String where leaf == "null":
+                let types = (seen[path] ?? []).filter { $0.hasPrefix("leaf:") }.map { String($0.dropFirst(5)) }.sorted()
+                if types.count == 1, !types[0].contains("null") { return types[0] + "|null" }
+                if seen[path]?.contains("object") == true || seen[path]?.contains("array") == true { return "null" }
+                problems.append("\(subject) \(path.isEmpty ? "." : path): a null with no mark (its type, or null always?)")
+                return leaf
+            case let object as [String: Any]:
+                return object.reduce(into: [String: Any]()) { $0[$1.key] = settle($1.value, path + "." + $1.key) }
+            case let array as [Any]:
+                if array.isEmpty, mark(subject, path) == nil, seen[path]?.contains("array") != true {
+                    problems.append("\(subject) \(path.isEmpty ? "." : path): an empty array with no mark (empty in every given?)")
+                }
+                var variants: [Any] = []
+                for element in array.map({ settle($0, path + "[]") }) where !variants.contains(where: { same($0, element) }) {
+                    variants.append(element)
+                }
+                return variants.sorted { text($0) < text($1) }
+            default: return shape
+            }
         }
-        if let a = a as? String, let b = b as? String, a == b { return a }
-        return "any"
+        return settle(shape, "")
     }
 
-    /// Where `got` doesn't have `want`'s shape, as "where: what" lines (`desktop/contract_test.go` says them the
-    /// same way). A null on either side, an empty array or object, or "any" stands for anything: values, not shapes.
+    /// The shape written for an answer: made, then settled, with every problem found.
+    static func written(_ value: Any, in subject: String, loose: inout Set<Loose>, problems: inout [String]) -> Any {
+        settled(shape(value, in: subject, loose: &loose, problems: &problems), in: subject, problems: &problems)
+    }
+
+    static func text(_ shape: Any) -> String {
+        guard JSONSerialization.isValidJSONObject([shape]),
+              let data = try? JSONSerialization.data(withJSONObject: [shape], options: [.sortedKeys]) else { return "\(shape)" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    static func same(_ a: Any, _ b: Any) -> Bool { text(a) == text(b) }
+
+    // MARK: Comparing
+
+    /// Where `got` (an answer, as JSON) isn't as `want` (a shape) says, as "where: what" lines. Nothing stands for
+    /// anything but "any", "object", "map" and "array": a null, an empty array or object where the shape has
+    /// something else is a difference. `desktop/contract_test.go` compares the same way, line for line.
     static func differences(_ want: Any, _ got: Any, at path: String = "") -> [String] {
         let here = path.isEmpty ? "." : path
-        if let want = want as? String, want == "null" || want == "any" { return [] }
-        if let got = got as? String, got == "null" || got == "any" { return [] }
-        if let want = want as? [String: Any], let got = got as? [String: Any] {
-            // An empty object is a map with nothing in it now, such as the team's nicknames: anything.
-            if want.isEmpty || got.isEmpty { return [] }
+        switch want {
+        case let spec as String:
+            let alternatives = spec.split(separator: "|").map(String.init)
+            if alternatives.contains(where: { matches($0, got) }) { return [] }
+            return ["\(here): \(describe(got, literal: alternatives.contains { $0.hasPrefix("'") })), want \(spec)"]
+        case let want as [String: Any]:
+            guard let got = got as? [String: Any] else { return ["\(here): \(describe(got, literal: false)), want object"] }
             var found: [String] = []
             for key in Set(want.keys).union(got.keys).sorted() {
                 switch (want[key], got[key]) {
@@ -300,17 +594,58 @@ final class ContractTests: XCTestCase {
                 }
             }
             return found
+        case let variants as [Any]:
+            guard let elements = got as? [Any] else { return ["\(here): \(describe(got, literal: false)), want array"] }
+            if variants.isEmpty { return elements.isEmpty ? [] : ["\(here): some, want none"] }
+            if elements.isEmpty { return ["\(here): none, want some"] }
+            var found: [String] = []
+            let add = { (lines: [String]) in for line in lines where !found.contains(line) { found.append(line) } }
+            // Each element like one of the Mac's; then, if each is, each of the Mac's like one of them. Where none
+            // is, the closest says how: an array empty on one side only counts as far.
+            let far = { (lines: [String]) in
+                lines.reduce(0) { $0 + ($1.hasSuffix(": some, want none") || $1.hasSuffix(": none, want some") ? 10 : 1) }
+            }
+            for element in elements {
+                let each = variants.map { differences($0, element, at: path + "[]") }
+                if !each.contains(where: \.isEmpty) { add(each.min { far($0) < far($1) }!) }
+            }
+            if found.isEmpty {
+                for variant in variants {
+                    let each = elements.map { differences(variant, $0, at: path + "[]") }
+                    if !each.contains(where: \.isEmpty) { add(each.min { far($0) < far($1) }!) }
+                }
+            }
+            return found
+        default:
+            return ["\(here): a shape this test doesn't know"]
         }
-        if let want = want as? [Any], let got = got as? [Any] {
-            return want.isEmpty || got.isEmpty ? [] : differences(want[0], got[0], at: path + "[]")
-        }
-        let w = name(want), g = name(got)
-        return w == g ? [] : ["\(here): \(g), want \(w)"]
     }
 
-    private static func name(_ shape: Any) -> String {
-        if let leaf = shape as? String { return leaf }
-        return shape is [Any] ? "array" : "object"
+    private static func matches(_ alternative: String, _ got: Any) -> Bool {
+        switch alternative {
+        case "any": return true
+        case "null": return got is NSNull
+        case "string": return got is String
+        case "bool": return (got as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } ?? false
+        case "number": return (got as? NSNumber).map { CFGetTypeID($0) != CFBooleanGetTypeID() } ?? false
+        case "object", "map": return got is [String: Any]
+        case "array": return got is [Any]
+        default:
+            guard alternative.count >= 2, alternative.hasPrefix("'"), alternative.hasSuffix("'") else { return false }
+            return got as? String == String(alternative.dropFirst().dropLast())
+        }
+    }
+
+    /// What a value is, said in a difference: its type, the string itself among strings of a closed set, {} and [] when empty.
+    private static func describe(_ got: Any, literal: Bool) -> String {
+        switch got {
+        case is NSNull: return "null"
+        case let text as String: return literal ? "'\(text)'" : "string"
+        case let number as NSNumber: return CFGetTypeID(number) == CFBooleanGetTypeID() ? "bool" : "number"
+        case let object as [String: Any]: return object.isEmpty ? "{}" : "object"
+        case let array as [Any]: return array.isEmpty ? "[]" : "array"
+        default: return "something else"
+        }
     }
 
     // MARK: Asking the Mac
@@ -321,23 +656,34 @@ final class ContractTests: XCTestCase {
         let json: Any?
     }
 
+    /// Sets up what an ask is given, in order.
     private func prepare(_ deck: Deck, _ router: DeckRouter, _ given: [String]) throws {
-        for step in given {
-            switch step {
-            case "sessions":
-                for hook in Self.hooks {
-                    let answer = try send(router, deck, method: "POST", path: "/hook", caller: "hook",
-                                          headers: hook["headers"] as? [String: String] ?? [:], body: hook["body"])
-                    XCTAssertEqual(answer.status, 204, "a hook for the sessions")
-                }
-            case "a pairing code": deck.access.newCode()
-            case "a paired phone": _ = try phoneKey(deck)
+        for name in given {
+            let given = try XCTUnwrap(Self.givens[name], "nothing gives \(name)")
+            switch name {
             case "manager on": Config.shared.managerEnabled = true
-            default: XCTFail("nothing gives \(step)")
+            case "a paired phone": _ = try phoneKey(deck)
+            case "sessions": deck.hiredTabs.append((tab: "launcher:contract-a", role: Self.hiredRole, desk: nil, at: Date(),
+                                                     folder: "/work/alpha", floor: nil))
+            default: break
+            }
+            if let file = given["file"] as? String, let content = given["content"] {
+                let url = Paths.support.appendingPathComponent(file)
+                let kept = try? Data(contentsOf: url)
+                try Self.data(content).write(to: url)
+                putBack.append { if let kept { try? kept.write(to: url) } else { try? FileManager.default.removeItem(at: url) } }
+            }
+            for step in given["requests"] as? [[String: Any]] ?? [] {
+                let answer = try send(router, deck, method: step["method"] as! String, path: step["path"] as! String,
+                                      caller: step["as"] as! String, query: step["query"] as? [String: String] ?? [:],
+                                      headers: step["headers"] as? [String: String] ?? [:], body: step["body"])
+                XCTAssertLessThan(answer.status, 300, "\(name): \(step["method"]!) \(step["path"]!)")
             }
         }
     }
 
+    /// What a given put in the support folder, put back after each ask.
+    private var putBack: [() -> Void] = []
     private var phoneKeys: [ObjectIdentifier: String] = [:]
 
     /// A phone paired with this deck, as the pairing page does it.
@@ -374,6 +720,12 @@ final class ContractTests: XCTestCase {
             }
         default: XCTFail("no caller \(caller)")
         }
+        var body = body
+        // "$code" is the pairing code asked for.
+        if var object = body as? [String: Any], object["code"] as? String == "$code" {
+            object["code"] = try XCTUnwrap(deck.access.activeCode)
+            body = object
+        }
         let data: Data
         switch body {
         case nil: data = Data()
@@ -390,7 +742,15 @@ final class ContractTests: XCTestCase {
         }
         wait(for: [answered], timeout: 10)
         switch try XCTUnwrap(got) {
-        case .eventStream: return Answer(status: 200, kind: "event-stream", json: nil)
+        case .eventStream(let attach):
+            // The stream's first message, as the phone reads it: "data: " and the snapshot.
+            var first: String?
+            let stream = EventStream { text in if first == nil { first = text } }
+            attach(stream)
+            stream.close()
+            let line = try XCTUnwrap(first, "the event stream sent nothing").split(separator: "\n").first.map(String.init) ?? ""
+            let json = line.hasPrefix("data: ") ? try JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8)) : nil
+            return Answer(status: 200, kind: "event-stream", json: json)
         case .response(let response):
             let json = response.contentType == "application/json" ? try? JSONSerialization.jsonObject(with: response.body) : nil
             let kind = json != nil ? "json" : response.body.isEmpty ? "empty"
@@ -399,24 +759,19 @@ final class ContractTests: XCTestCase {
         }
     }
 
-    /// One request on a deck of its own, with what it's given set up first.
+    /// One request on a deck of its own, from the config as it comes, with what it's given set up first.
     private func answer(_ route: Route, _ ask: Ask) throws -> Answer {
-        Config.shared.managerEnabled = false
+        for reset in resets { reset() }
+        // Its layout reads Config.shared, as the app's does: the pin, the floor rule and the bot given are in it.
         let deck = Deck(quiet: true)
-        deck.layoutConfig = Config()
         let router = DeckRouter(deck: deck)
+        defer {
+            for back in putBack { back() }
+            putBack = []
+        }
         try prepare(deck, router, ask.given)
         return try send(router, deck, method: route.method, path: route.path, caller: ask.caller, query: ask.query,
                         headers: ask.headers, body: ask.body)
-    }
-
-    /// The office's snapshot, as `/events` sends it first, with the sessions in it.
-    private func snapshot() throws -> Any {
-        Config.shared.managerEnabled = false
-        let deck = Deck(quiet: true)
-        deck.layoutConfig = Config()
-        try prepare(deck, DeckRouter(deck: deck), ["sessions"])
-        return try JSONSerialization.jsonObject(with: deck.snapshotJSON())
     }
 
     // MARK: The files
@@ -424,56 +779,64 @@ final class ContractTests: XCTestCase {
     static let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("fixtures/contract", isDirectory: true)
 
-    /// `contract.json`: the shapes routes refer to by name, and what each `given` is.
-    private func shared() throws -> [String: Any] {
-        let state = try answer(Self.state[0], try XCTUnwrap(Self.state[0].ask))
-        let tool = try answer(Self.state[1], try XCTUnwrap(Self.state[1].ask))
-        return [
-            "note": "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1). Shapes, not values: "
-                + "\"string\", \"number\", \"bool\", \"null\" (any value: it can be null), an object's keys, an array's element "
-                + "([] for none: any). Read by desktop/contract_test.go.",
-            "shapes": [
-                "setup-state": ["route": "GET /setup/state", "as": "page", "shape": Self.shape(try XCTUnwrap(state.json))],
-                "setup-state-tool": ["route": "GET /setup/state", "as": "tool", "shape": Self.shape(try XCTUnwrap(tool.json))],
-                "snapshot": ["route": "GET /events", "as": "phone", "shape": Self.shape(try snapshot())],
-            ],
-            "given": [
-                "sessions": ["hooks": Self.hooks.map { ["method": "POST", "path": "/hook", "headers": $0["headers"]!, "body": $0["body"]!] }],
-                "a pairing code": "the page asked for a code (POST /setup/pair)",
-                "a paired phone": "a phone paired with that code (POST /pair); phone requests carry its key as ?t=",
-                "manager on": "config.json's managerEnabled is true",
-            ],
+    /// Every file, as the Mac answers now: contract.json (the named shapes, what each given is) and each group's.
+    /// `loose` gets every spot that isn't compared all the way down; `problems`, every null or empty with no mark.
+    private func files(loose: inout Set<Loose>, problems: inout [String]) throws -> [(String, [String: Any])] {
+        var named: [String: [String: Any]] = [:]
+        for (name, route) in [("setup-state", Self.state[0]), ("setup-state-tool", Self.state[1]), ("snapshot", Self.state[2])] {
+            let got = try answer(route, try XCTUnwrap(route.ask))
+            named[name] = ["route": route.name, "as": route.ask!.caller,
+                           "shape": Self.written(try XCTUnwrap(got.json, name), in: name, loose: &loose, problems: &problems)]
+        }
+        let shared: [String: Any] = [
+            "note": "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1), read by desktop/contract_test.go. "
+                + "Shapes, not values: \"string\", \"number\", \"bool\", \"null\"; 'x' for that string; alternatives joined by | "
+                + "(\"string|null\", a closed set 'a'|'b'); an object's keys, no more, no fewer; an array's elements as the "
+                + "different shapes they have, each element like one of them and each like some element ([] for none). "
+                + "\"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why.",
+            "shapes": named,
+            "given": Self.givens,
         ]
+        var files: [(String, [String: Any])] = [("contract.json", shared)]
+        for (file, routes) in Self.groups {
+            files.append((file, try group(routes, named: named, loose: &loose, problems: &problems)))
+        }
+        return files
     }
 
     /// A group's file: each route, who may call it, and its answers as the Mac gives them.
-    private func group(_ routes: [Route], shapes: [String: Any]) throws -> [String: Any] {
+    private func group(_ routes: [Route], named: [String: [String: Any]], loose: inout Set<Loose>, problems: inout [String]) throws -> [String: Any] {
         var written: [[String: Any]] = []
         for route in routes {
             var row: [String: Any] = ["route": route.name, "callers": route.callers]
             if let ask = route.ask {
                 let got = try answer(route, ask)
                 var answer: [String: Any] = ["status": got.status, "kind": got.kind]
-                if route.path == "/events" {
-                    answer["shape"] = "snapshot"
-                } else if let json = got.json {
-                    let shape = Self.shape(json)
-                    // An answer that is a shape with a name is written by its name.
-                    let named = shapes.filter { _, value in
-                        guard let named = (value as? [String: Any])?["shape"] else { return false }
-                        return Self.differences(named, shape).isEmpty && Self.differences(shape, named).isEmpty
-                    }.keys.sorted()
-                    answer["shape"] = ask.caller == "tool" && named.contains("setup-state-tool") ? "setup-state-tool"
-                        : named.first(where: { $0 != "setup-state-tool" }) ?? named.first ?? shape
+                if let json = got.json {
+                    // The setup state, and the snapshot, are written by name: each must be the named one whole.
+                    let isState = (json as? [String: Any]).map { $0["pairing"] != nil && $0["version"] != nil } ?? false
+                    let name = route.path == "/events" ? "snapshot" : isState ? (ask.caller == "tool" ? "setup-state-tool" : "setup-state") : nil
+                    let shape = Self.written(json, in: name ?? route.name, loose: &loose, problems: &problems)
+                    if let name {
+                        let want = try XCTUnwrap(named[name]?["shape"])
+                        if !Self.same(want, shape) {
+                            problems.append("\(route.name) answers \(name), but not as \(named[name]?["route"] ?? "") does: "
+                                + (Self.differences(want, json) + Self.differences(shape, json)).joined(separator: "; "))
+                        }
+                        answer["shape"] = name
+                    } else {
+                        answer["shape"] = shape
+                    }
                 }
                 row["request"] = ask.json
                 row["answer"] = answer
             }
-            if !route.refusals.isEmpty {
-                row["refusals"] = try route.refusals.map { refusal -> [String: Any] in
+            let refusals = route.refusals + [Self.strangerRefusal(route)].compactMap { $0 }
+            if !refusals.isEmpty {
+                row["refusals"] = try refusals.map { refusal -> [String: Any] in
                     let got = try answer(route, refusal.ask)
                     XCTAssertGreaterThanOrEqual(got.status, 400, "\(route.name): \(refusal.why)")
-                    return ["request": refusal.ask.json, "status": got.status, "why": refusal.why]
+                    return ["request": refusal.ask.json, "status": got.status, "kind": got.kind, "why": refusal.why]
                 }
             }
             if let note = route.note { row["note"] = note }
@@ -482,14 +845,32 @@ final class ContractTests: XCTestCase {
         return ["routes": written]
     }
 
+    /// A route outside setup asked by one who isn't its caller, as well: nobody, or a phone where only the office's
+    /// own window may call. (Setup's callers are frontdesk/routes.json's, which the Go app's routeTable copies.)
+    static func strangerRefusal(_ route: Route) -> (ask: Ask, why: String)? {
+        let callers = route.callers
+        guard !DeckRouter.isSetupPath(route.path), !route.path.hasPrefix("/bots/"), !callers.contains("anyone") else { return nil }
+        let stranger = callers == ["window"] ? "phone" : "nobody"
+        guard !route.refusals.contains(where: { $0.ask.caller == stranger }) else { return nil }
+        var ask = route.ask ?? route.refusals.first?.ask ?? Ask()
+        ask.caller = stranger
+        ask.given = []
+        return (ask, "not one of its callers")
+    }
+
     private static func data(_ object: Any) throws -> Data {
         try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
     }
 
     // MARK: Tests
 
-    private func keep<T>(_ path: ReferenceWritableKeyPath<Config, T>) {
+    /// What each ask starts from: the config as it comes, whatever the tests before left. Put back after.
+    private var resets: [() -> Void] = []
+
+    private func reset<T>(_ path: ReferenceWritableKeyPath<Config, T>) {
         let kept = Config.shared[keyPath: path]
+        let fresh = Config()[keyPath: path]
+        resets.append { Config.shared[keyPath: path] = fresh }
         addTeardownBlock {
             Config.shared[keyPath: path] = kept
             Config.shared.save()
@@ -497,14 +878,14 @@ final class ContractTests: XCTestCase {
     }
 
     override func setUpWithError() throws {
-        // What the routes asked here change, put back after; and a Mac with no folder for hires, as on a first run.
-        keep(\.managerEnabled); keep(\.scrollEnabled); keep(\.maxConfirm); keep(\.guideDone); keep(\.phoneMicEnabled)
-        keep(\.phoneMicAutoSend); keep(\.officeOnTop); keep(\.logo); keep(\.colours); keep(\.layout); keep(\.pins)
-        keep(\.floors); keep(\.floorRules); keep(\.webhook); keep(\.profiles); keep(\.activeProfile); keep(\.hireAgent)
-        keep(\.summaryOptIn); keep(\.cloudBots); keep(\.botFloor); keep(\.hireFolder); keep(\.hiringEnabled); keep(\.gmByHand)
-        Config.shared.hireFolder = ""
-        Config.shared.hiringEnabled = false
-        Config.shared.summaryOptIn = false
+        reset(\.managerEnabled); reset(\.scrollEnabled); reset(\.maxConfirm); reset(\.guideDone); reset(\.phoneMicEnabled)
+        reset(\.phoneMicAutoSend); reset(\.officeOnTop); reset(\.logo); reset(\.colours); reset(\.layout); reset(\.pins)
+        reset(\.floors); reset(\.floorRules); reset(\.webhook); reset(\.profiles); reset(\.activeProfile); reset(\.hireAgent)
+        reset(\.summaryOptIn); reset(\.summaryProvider); reset(\.cloudBots); reset(\.botFloor); reset(\.hireFolder)
+        reset(\.hiringEnabled); reset(\.gmByHand); reset(\.roles); reset(\.rolesOffered); reset(\.recentHireFolders)
+        reset(\.keystrokesAllowed); reset(\.keystrokeApps); reset(\.showInDock); reset(\.botsAutoDetect); reset(\.hiddenBots)
+        reset(\.claudeProfiles); reset(\.dictationEnabled); reset(\.dictationForClaude); reset(\.dictationCleanup)
+        reset(\.dictationGlossary); reset(\.hireTerminal); reset(\.hireInTmux); reset(\.musicEnabled); reset(\.teamScreen)
         // Nothing is asked of the Keychain, Tailscale or the coding agents' own commands.
         let key = SummaryKey.store
         SummaryKey.store = .init(read: { nil }, hint: { nil }, write: { _, _ in false }, delete: {})
@@ -521,13 +902,12 @@ final class ContractTests: XCTestCase {
         }
     }
 
-    /// Writes the files with SMOLCORP_WRITE_FIXTURES=1; otherwise the Mac must still answer as they say: the same
-    /// routes, requests, callers and statuses, and answers of the same shape.
+    /// Writes the files with SMOLCORP_WRITE_FIXTURES=1; otherwise the Mac must still answer as they say: the
+    /// same routes, requests, callers, statuses, kinds and shapes, every null and empty with its mark.
     func testTheMacAnswersAsTheContractSays() throws {
-        let shared = try shared()
-        let shapes = try XCTUnwrap(shared["shapes"] as? [String: Any])
-        var files: [(String, [String: Any])] = [("contract.json", shared)]
-        for (file, routes) in Self.groups { files.append((file, try group(routes, shapes: shapes))) }
+        var loose = Set<Loose>(), problems: [String] = []
+        let files = try files(loose: &loose, problems: &problems)
+        for problem in problems { XCTFail(problem) }
 
         if ProcessInfo.processInfo.environment["SMOLCORP_WRITE_FIXTURES"] == "1" {
             try FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
@@ -536,79 +916,113 @@ final class ContractTests: XCTestCase {
         for (file, now) in files {
             let written = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: Self.folder.appendingPathComponent(file))) as? [String: Any],
                                         "\(file): run once with SMOLCORP_WRITE_FIXTURES=1")
-            XCTAssertEqual(Self.withoutShapes(written) as NSDictionary, Self.withoutShapes(now) as NSDictionary,
-                           "\(file) is out of date: run once with SMOLCORP_WRITE_FIXTURES=1")
-            for (name, found) in Self.shapes(in: now, named: shapes) {
-                let want = Self.shapes(in: written, named: written["shapes"] as? [String: Any] ?? shapes)[name] ?? [String: Any]()
-                for difference in Self.differences(want, found) + Self.differences(found, want).filter({ $0.hasSuffix(": missing") }) {
-                    XCTFail("\(file) \(name) \(difference): run once with SMOLCORP_WRITE_FIXTURES=1")
-                }
-            }
+            XCTAssertEqual(Self.text(written), Self.text(now), "\(file) is out of date: run once with SMOLCORP_WRITE_FIXTURES=1")
         }
     }
 
-    /// A file with every shape left out, for comparing all the rest exactly.
-    private static func withoutShapes(_ object: [String: Any]) -> [String: Any] {
-        var object = object
-        if var shapes = object["shapes"] as? [String: Any] {
-            for (name, value) in shapes { shapes[name] = (value as? [String: Any])?.filter { $0.key != "shape" } }
-            object["shapes"] = shapes
+    /// The Mac's own answers pass the comparison the Go app's are put through, and a {} or a null where the
+    /// shape has something doesn't.
+    func testTheMacsOwnAnswersPassAndEmptyOnesDont() throws {
+        for (name, route) in [("setup-state", Self.state[0]), ("snapshot", Self.state[2])] {
+            var loose = Set<Loose>(), problems: [String] = []
+            let got = try XCTUnwrap(try answer(route, try XCTUnwrap(route.ask)).json)
+            let shape = Self.written(got, in: name, loose: &loose, problems: &problems)
+            XCTAssertEqual(Self.differences(shape, got), [], name)
+            XCTAssertFalse(Self.differences(shape, [String: Any]()).isEmpty, "\(name): {} must not pass")
+            XCTAssertFalse(Self.differences(shape, NSNull()).isEmpty, "\(name): null must not pass")
+            var nulled = try XCTUnwrap(got as? [String: Any])
+            for key in nulled.keys { nulled[key] = NSNull() }
+            XCTAssertEqual(Self.differences(shape, nulled).count, nulled.count - Self.nullableTopKeys(shape),
+                           "\(name): each field null is a difference, but for those marked so")
         }
-        if let routes = object["routes"] as? [[String: Any]] {
-            object["routes"] = routes.map { route -> [String: Any] in
-                var route = route
-                if var answer = route["answer"] as? [String: Any], !(answer["shape"] is String) {
-                    answer["shape"] = "inline"
-                    route["answer"] = answer
-                }
-                return route
-            }
-        }
-        return object
     }
 
-    /// Every shape in a file, by where it is: a named one, or a route's answer (a name resolved).
-    private static func shapes(in object: [String: Any], named: [String: Any]) -> [String: Any] {
-        var found: [String: Any] = [:]
-        for (name, value) in object["shapes"] as? [String: Any] ?? [:] { found[name] = (value as? [String: Any])?["shape"] }
-        for (index, route) in (object["routes"] as? [[String: Any]] ?? []).enumerated() {
-            guard let shape = (route["answer"] as? [String: Any])?["shape"] else { continue }
-            let resolved = (shape as? String).flatMap { (named[$0] as? [String: Any])?["shape"] } ?? shape
-            found["\(route["route"] ?? "") #\(index)"] = resolved
+    private static func nullableTopKeys(_ shape: Any) -> Int {
+        (shape as? [String: Any])?.values.filter { ($0 as? String)?.split(separator: "|").contains("null") == true }.count ?? 0
+    }
+
+    func testShapesAreKeysTypesAndClosedSets() throws {
+        var loose = Set<Loose>(), problems: [String] = []
+        let json = try JSONSerialization.jsonObject(with: Data(#"{"a": 1, "b": [true, false], "c": [{"d": "x"}, {"e": 2}], "f": "y"}"#.utf8))
+        let shape = Self.written(json, in: "test", loose: &loose, problems: &problems)
+        XCTAssertEqual(Self.text(shape), Self.text(["a": "number", "b": ["bool"], "c": [["d": "string"], ["e": "number"]], "f": "string"]))
+        XCTAssertEqual(problems, [])
+        // A null, an empty array or an empty object needs a mark.
+        _ = Self.written(["n": NSNull(), "e": [Any](), "o": [String: Any]()], in: "test", loose: &loose, problems: &problems)
+        XCTAssertEqual(problems.count, 3, "\(problems)")
+        // Keys, types and closed sets.
+        XCTAssertEqual(Self.differences(["a": "number", "b": "string"], ["a": "x", "c": true]), [".a: string, want number", ".b: missing", ".c: extra"])
+        XCTAssertEqual(Self.differences(["s": "'idle'|'asking'"], ["s": "not-a-state"]), [".s: 'not-a-state', want 'idle'|'asking'"])
+        XCTAssertEqual(Self.differences(["s": "string|null"], ["s": NSNull()]), [])
+        // Nothing empty stands for anything.
+        XCTAssertEqual(Self.differences(["a": ["string"], "g": "number"], ["a": [Any](), "g": NSNull()]), [".a: none, want some", ".g: null, want number"])
+        XCTAssertEqual(Self.differences(["o": ["k": "bool"]], ["o": [String: Any]()]), [".o.k: missing"])
+        XCTAssertEqual(Self.differences(["o": ["k": "bool"]], ["o": NSNull()]), [".o: null, want object"])
+        XCTAssertEqual(Self.differences([Any](), ["x"]), [".: some, want none"])
+        // Each element like one of the Mac's, and each of the Mac's like one of them.
+        XCTAssertEqual(Self.differences([["x": "bool"]], [["x": 1]]), ["[].x: number, want bool"])
+        XCTAssertEqual(Self.differences([["x": "bool"], "null"], [["x": true]]), ["[]: object, want null"])
+        XCTAssertEqual(Self.differences(["map", "any"], [[String: Any](), 3]), [])
+    }
+
+    /// INVENTORY.md's "Not compared" table is every spot the shapes don't compare all the way down, with why
+    /// (alternatives said with "or", as a table's cells can't hold a |).
+    func testEveryLooseSpotIsInTheInventory() throws {
+        var found = Set<Loose>(), problems: [String] = []
+        _ = try files(loose: &found, problems: &problems)
+        let loose = Set(found.map { Loose(subject: $0.subject, path: $0.path, shape: $0.shape.replacingOccurrences(of: "|", with: " or "), why: $0.why) })
+        let inventory = try String(contentsOf: Self.folder.appendingPathComponent("INVENTORY.md"), encoding: .utf8)
+        var section = "", listed = Set<Loose>()
+        for line in inventory.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("## ") { section = String(line.dropFirst(3)) }
+            let cells = line.split(separator: "|", omittingEmptySubsequences: false).dropFirst().dropLast()
+                .map { $0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "`", with: "") }
+            guard section == "Not compared", cells.count == 4, cells[0] != "In", !cells[0].hasPrefix("---") else { continue }
+            listed.insert(Loose(subject: cells[0], path: cells[1], shape: cells[2], why: cells[3]))
         }
-        return found
+        for spot in loose.subtracting(listed).sorted(by: { ($0.subject, $0.path) < ($1.subject, $1.path) }) {
+            XCTFail("not in INVENTORY.md's Not compared: | `\(spot.subject)` | `\(spot.path)` | `\(spot.shape)` | \(spot.why) |")
+        }
+        for spot in listed.subtracting(loose) { XCTFail("INVENTORY.md's Not compared has a row no shape has: \(spot)") }
     }
 
-    func testShapesAreKeysAndTypes() throws {
-        let json = try JSONSerialization.jsonObject(with: Data(#"{"a": 1, "b": [true, null], "c": [{"d": "x"}, {"e": null}], "f": [], "g": null}"#.utf8))
-        let shape = try XCTUnwrap(Self.shape(json) as? [String: Any])
-        XCTAssertEqual(shape as NSDictionary, ["a": "number", "b": ["bool"], "c": [["d": "string", "e": "null"]], "f": [], "g": "null"] as NSDictionary)
-        XCTAssertEqual(Self.differences(["a": "number", "b": "string"], ["a": "string", "c": "bool"]),
-                       [".a: string, want number", ".b: missing", ".c: extra"])
-        XCTAssertEqual(Self.differences(["a": ["string"], "g": "number"], ["a": [Any](), "g": "null"]), [], "an empty array or a null stands for anything")
-        XCTAssertEqual(Self.differences([["x": "bool"]], [["x": "number"]]), ["[].x: number, want bool"])
-    }
-
-    /// Every route the Mac's router answers is a row of INVENTORY.md, so none is left out of the contract.
+    /// Every route the Mac's router answers is a row of INVENTORY.md, so none is left out of the contract: the
+    /// (method, path) cases, the paths matched as `request.path == ` and by `hasPrefix`, and the sounds.
     func testEveryRouteTheMacAnswersIsInTheInventory() throws {
         let inventory = try String(contentsOf: Self.folder.appendingPathComponent("INVENTORY.md"), encoding: .utf8)
-        let listed = Set(inventory.split(separator: "\n").compactMap { line -> String? in
+        var listed = Set<String>(), paths = Set<String>()
+        for line in inventory.split(separator: "\n") {
             let cells = line.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
-            guard cells.count > 2, ["GET", "POST", "DELETE", "*"].contains(cells[0]) else { return nil }
-            return "\(cells[0]) \(cells[1].replacingOccurrences(of: "`", with: ""))"
-        })
+            guard cells.count > 2, ["GET", "POST", "DELETE", "*"].contains(cells[0]) else { continue }
+            let path = cells[1].replacingOccurrences(of: "`", with: "")
+            listed.insert("\(cells[0]) \(path)")
+            paths.insert(path)
+        }
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/AgentDeck")
-        var found = Set<String>()
+        var found = Set<String>(), matched = Set<String>()
         for file in ["DeckRouter.swift", "BriefRoutes.swift"] {
             let text = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
-            let pattern = try NSRegularExpression(pattern: #"\("(GET|POST|DELETE)", "(/[^"]*)"\)"#)
-            for match in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            let range = NSRange(text.startIndex..., in: text)
+            let cases = try NSRegularExpression(pattern: #"\("(GET|POST|DELETE)", "(/[^"]*)"\)"#)
+            for match in cases.matches(in: text, range: range) {
                 found.insert("\(text[Range(match.range(at: 1), in: text)!]) \(text[Range(match.range(at: 2), in: text)!])")
             }
+            // A path matched another way: `path == "/x"` or `hasPrefix("/x/")`. A prefix is listed as /x/<…> or /x/*.
+            let others = try NSRegularExpression(pattern: #"(?:path == |hasPrefix\()"(/[^"]*)""#)
+            for match in others.matches(in: text, range: range) { matched.insert(String(text[Range(match.range(at: 1), in: text)!])) }
         }
         XCTAssertGreaterThan(found.count, 90, "the router's cases were found")
+        XCTAssertGreaterThan(matched.count, 10, "the router's other paths were found")
         for route in found.sorted() { XCTAssertTrue(listed.contains(route), "\(route) is not in INVENTORY.md") }
+        for path in matched.sorted() {
+            let prefix = path.hasSuffix("/")
+            XCTAssertTrue(prefix ? paths.contains { $0.hasPrefix(path) && $0.count > path.count } : paths.contains(path),
+                          "\(path) (matched by path) is not in INVENTORY.md")
+        }
+        for sound in DeckRouter.sounds {
+            XCTAssertTrue(paths.contains("/sounds/*") && sound.hasPrefix("/sounds/"), "\(sound) is not in INVENTORY.md")
+        }
         for (_, routes) in Self.groups {
             for route in routes where !route.path.hasPrefix("/bots/") && !route.path.contains("nothing-here") && !route.path.hasPrefix("/setup/logo/") {
                 XCTAssertTrue(listed.contains(route.name), "\(route.name) has a fixture but no row in INVENTORY.md")
