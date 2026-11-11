@@ -46,6 +46,9 @@ var (
 	// The key of the office window's own paired device, private like the hook's.
 	windowKeyFile = filepath.Join(supportDir, "window-key")
 	homeDir, _    = os.UserHomeDir()
+	// The hook key as the Mac app's report.sh sends it (curl -H @hook-header), set only under the Mac
+	// app (useSupportDir): "" elsewhere, where nothing reads it.
+	hookHeaderFile = ""
 )
 
 func makeSupportDir() string {
@@ -77,6 +80,7 @@ func useSupportDir(dir string) {
 	sessionsFile = filepath.Join(dir, "sessions.json")
 	setupKeyFile = filepath.Join(dir, "setup-key")
 	windowKeyFile = filepath.Join(dir, "window-key")
+	hookHeaderFile = filepath.Join(dir, "hook-header")
 }
 
 // supportDirName is the folder's name on a system: the one the Mac app writes

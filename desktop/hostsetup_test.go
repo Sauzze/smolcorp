@@ -29,6 +29,10 @@ type macStandIn struct {
 	login   bool
 	picked  string
 	secrets map[string]string
+	// The Grok Bot app's roster (nil: it can't be read); the jukebox: Accessibility given, the volume.
+	roster   *[]grokRow
+	keyboard bool
+	volume   int
 }
 
 func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
@@ -84,6 +88,23 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 			delete(m.secrets, request.Item)
 		}
 		return bridgeAnswer{OK: true, Value: value, Found: found}, nil
+	case "bots-roster":
+		if m.roster == nil {
+			return bridgeAnswer{OK: true}, nil
+		}
+		rows := slices.Clone(*m.roster)
+		return bridgeAnswer{OK: true, Rows: &rows}, nil
+	case "music":
+		if !m.keyboard {
+			return bridgeAnswer{Error: "Keyboard access is off. Turn it on in setup, on your Mac."}, nil
+		}
+		return bridgeAnswer{OK: true}, nil
+	case "volume":
+		m.volume = *request.Level
+		return bridgeAnswer{OK: true}, nil
+	case "music-state":
+		playing := true
+		return bridgeAnswer{OK: true, Playing: &playing, Volume: &bridgeVolume{Level: m.volume}}, nil
 	}
 	return bridgeAnswer{Error: "This terminal can't do that.", Unsupported: true}, nil
 }
@@ -254,6 +275,16 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"any other link refused": func(h hostBridge) (any, error) {
 			return nil, hostT3Link(h, "https://example.com/threads/local/mcp%3Aabc-1")
 		},
+		"the Grok Bot app's bots, for the core to find": func(h hostBridge) (any, error) {
+			rows, readable, err := hostBotsRoster(h)
+			return []any{rows, readable}, err
+		},
+		"the jukebox: what's playing and the volume": func(h hostBridge) (any, error) {
+			playing, volume, err := hostMusicState(h)
+			return []any{*playing, *volume}, err
+		},
+		"the jukebox's play key, without Accessibility": func(h hostBridge) (any, error) { return nil, hostMusicKey(h, "playpause") },
+		"the jukebox's volume set":                      func(h hostBridge) (any, error) { return nil, hostSetVolume(h, 30) },
 	}
 	// What the core makes of each answer.
 	got := map[string]any{
@@ -288,6 +319,9 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			{4444, "tail", "session"}},
 		"the processes, on a Mac that can't list them": []bridgeProcess(nil),
 		"T3 Code's app looked for by its bundle id":    true,
+		"the Grok Bot app's bots, for the core to find": []any{[]grokRow{{ID: "0a1b-2c3d", Name: "Smolcorp Mini Manager"},
+			{ID: "9f8e", Name: "Two bots", IsGroup: true}}, true},
+		"the jukebox: what's playing and the volume": []any{true, musicVolume{level: 45}},
 	}
 	cases := readBridgeCases(t)
 	if len(cases) != len(want) {
@@ -450,7 +484,8 @@ func TestTheMacsSwitchesAreKeptHereAndDoneByTheApp(t *testing.T) {
 	mac.mu.Lock()
 	for _, request := range mac.asked {
 		read := request.Action == "secret-read" || request.Action == "login-item" && request.On == nil
-		if !read && request.Action != "facts" && request.Action != "bots-resolve" && request.Action != "abilities" && request.Action != "api-key-offer" {
+		background := request.Action == "bots-roster" // the bots looked for in the Grok Bot app, at the deck's start
+		if !read && !background && request.Action != "facts" && request.Action != "bots-resolve" && request.Action != "abilities" && request.Action != "api-key-offer" {
 			done = append(done, request.Action)
 		}
 	}

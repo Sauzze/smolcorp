@@ -42,6 +42,12 @@ type macState struct {
 	unansweredFor string
 	unanswered    int
 	askAgainAt    time.Time
+	// The Grok Bot app's bots (grokbots.go): its roster at the last look, those there was no room for, and
+	// whether it's being looked at now, and when it was last.
+	roster        []grokRow
+	botsNoRoom    []grokRow
+	discovering   bool
+	lastDiscovery time.Time
 	// Held from reading the apps keys may go to until the app's new list is kept, so two changes at
 	// once don't lose one. Never with the deck's lock.
 	appsChanging sync.Mutex
@@ -152,7 +158,7 @@ func (d *Deck) addMacSetup(state map[string]any, facts *macFacts) {
 		"apps": orEmpty(c.KeystrokeApps), "running": orEmpty(facts.Running)}
 	state["dock"] = map[string]any{"enabled": c.ShowInDock == nil || *c.ShowInDock}
 	if bots, ok := state["cloudBots"].(map[string]any); ok {
-		bots["autoDetect"] = c.BotsAutoDetect == nil || *c.BotsAutoDetect
+		d.addMacBots(bots)
 	}
 }
 

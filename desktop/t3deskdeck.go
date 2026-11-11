@@ -262,15 +262,13 @@ func (d *Deck) startT3Follow() {
 	d.rounds.every(t3FollowTick, func() { d.t3FollowTick(registry) })
 }
 
-// t3FollowTick is one tick of the follow, on the registry at path. Nothing while T3 Code is off, when t3 is never
-// run (RM5a N7): its desks show what was last seen until it's back on.
+// t3FollowTick is one tick of the follow, on the registry at path. While T3 Code is off, t3 is never run (RM5a
+// N7): nothing can say what its hires are doing, so their desks are white, as the Mac's follower shows them when
+// T3 Code isn't there (T3Desk.follow), rather than as the registry last said; the registry itself is left as it is.
 func (d *Deck) t3FollowTick(registry string) {
 	d.mu.Lock()
 	on := t3CodeAllowed(d.config)
 	d.mu.Unlock()
-	if !on {
-		return
-	}
 	var hires []Hire
 	for _, h := range readRegistry(registry, false).hires {
 		if h.Engine == t3Engine && h.T3Thread != "" && isOpen(h) {
@@ -278,6 +276,14 @@ func (d *Deck) t3FollowTick(registry string) {
 		}
 	}
 	if len(hires) == 0 {
+		return
+	}
+	if !on {
+		if d.t3.unseen(hires) {
+			d.mu.Lock()
+			d.changed()
+			d.mu.Unlock()
+		}
 		return
 	}
 	d.t3.tick(hires, newT3Machine(), time.Now, d.rounds.run, func(seen []t3Seen, moved bool) {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -92,7 +93,10 @@ func RunHook(args []string) int {
 	request.Header.Set(hookKeyHeader, strings.TrimSpace(string(key)))
 	request.Header.Set("X-AgentDeck-Agent", agent)
 	request.Header.Set("X-AgentDeck-At", strconv.FormatInt(time.Now().UnixMilli(), 10))
-	tab := tabFromEnvironment(Agent(agent), event)
+	tab, tty, send := hookTab(Agent(agent), event)
+	if !send {
+		return 0
+	}
 	if strings.HasPrefix(tab, "headless:") {
 		request.Header.Set("X-AgentDeck-PID", strconv.Itoa(headlessAgentPID()))
 		if parent := os.Getenv("SMOLCORP_PARENT_FOLDER"); parent != "" && strings.IndexFunc(parent, unicode.IsControl) < 0 {
@@ -105,6 +109,9 @@ func RunHook(args []string) int {
 		return 0
 	}
 	request.Header.Set("X-AgentDeck-Tab", tab)
+	if tty != "" {
+		request.Header.Set("X-AgentDeck-TTY", tty)
+	}
 	request.Header.Set("X-AgentDeck-Project", startFolderFromEnvironment())
 	client := http.Client{Timeout: hookTimeout}
 	if response, err := client.Do(request); err == nil {
@@ -120,6 +127,16 @@ func startFolderFromEnvironment() string {
 		return folder
 	}
 	return os.Getenv("GEMINI_PROJECT_DIR")
+}
+
+// hookTab is the session's tab, and whether to send the event at all: on a Mac
+// by the Mac app's rules (macHookTab), with the tty they find, sent as
+// report.sh sends it; elsewhere from the environment alone.
+func hookTab(agent Agent, event []byte) (tab, tty string, send bool) {
+	if runtime.GOOS == "darwin" {
+		return macHookTab(agent, event, os.Getenv, psProcess, os.Getppid())
+	}
+	return tabFromEnvironment(agent, event), "", true
 }
 
 // tabFromEnvironment names the session's tab from the variables the launcher
@@ -160,6 +177,9 @@ func sessionIDOf(event []byte) string {
 // nearest node, running it, as a node further up may be whatever started the
 // run, and outlive it; else the process that ran the hook.
 func headlessAgentPID() int {
+	if runtime.GOOS == "darwin" {
+		return nearestAgent(os.Getppid(), macParent(psProcess))
+	}
 	return nearestAgent(os.Getppid(), processParent)
 }
 

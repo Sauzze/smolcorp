@@ -386,7 +386,7 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 			return http.StatusConflict, setupHireNeedsFolder
 		}
 		if !ok {
-			return http.StatusConflict, "Choose a folder for new hires in setup, on your computer."
+			return http.StatusConflict, hireFolderFirst
 		}
 	}
 	program := d.config.HireAgent

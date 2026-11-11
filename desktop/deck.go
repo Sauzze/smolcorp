@@ -243,6 +243,9 @@ func NewDeck() *Deck {
 	// office has a language before setup is first opened.
 	if d.mac.host != nil {
 		d.rounds.run(func() { d.macFactsNow() })
+		// The Grok Bot app's bots, at their desks: found now, and looked for again every minute.
+		d.rounds.run(func() { d.discoverBots(false) })
+		d.rounds.every(botsDiscoverEvery, func() { d.discoverBots(false) })
 	}
 	// The hires in T3 Code, followed with the deck's rounds, so they stop with it.
 	d.startT3Follow()
@@ -350,6 +353,11 @@ func (d *Deck) playMusic(key string) (int, string) {
 		return http.StatusForbidden, musicOff
 	}
 	if err := pressMusicKey(key); err != nil {
+		// The Mac app's no, in its words: its keys need Accessibility, as the deck's other keys do.
+		var refusal appRefusal
+		if errors.As(err, &refusal) {
+			return http.StatusForbidden, refusal.Error()
+		}
 		return http.StatusInternalServerError, "Couldn't reach the music here."
 	}
 	// The player takes a moment to say it has.
@@ -1317,6 +1325,16 @@ func (d *Deck) inTab(name string, op func(Tab) error) (int, string) {
 
 const hiringOff = "Hiring and firing are off. Turn them on in setup, on your computer."
 
+// What the phone is told elsewhere: in the Mac's words under the Mac app (macWords).
+const (
+	pairCodeRefusal    = "That code isn't valid. Get a new one on your computer."
+	settingsElsewhere  = "Settings open on your computer."
+	t3Elsewhere        = "T3 Code opens on your computer."
+	scrollingOff       = "Scrolling is off. Turn it on in setup, on your computer."
+	buttonTypesNothing = "This button types nothing yet. Set it up in setup, on your computer."
+	hireFolderFirst    = "Choose a folder for new hires in setup, on your computer."
+)
+
 var errAgentGone = errors.New("the agent no longer runs in its pane")
 
 // toAgent runs op on the session's tab once its agent is known to run there
@@ -1540,7 +1558,7 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		enabled := d.config.ScrollEnabled
 		d.mu.Unlock()
 		if !enabled {
-			return http.StatusForbidden, "Scrolling is off. Turn it on in setup, on your computer."
+			return http.StatusForbidden, scrollingOff
 		}
 		if query.Get("to") == "bottom" {
 			return d.inTab(tab, func(t Tab) error { return t.ScrollToBottom() })
@@ -1591,7 +1609,7 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		case button.Key != "":
 			return d.pressTo(tab, agent, buttonKeys[button.Key])
 		case button.Text == "":
-			return http.StatusBadRequest, "This button types nothing yet. Set it up in setup, on your computer."
+			return http.StatusBadRequest, buttonTypesNothing
 		}
 		return d.toAgent(tab, agent, func(t Tab) error { return t.Type(button.Text) })
 	case "effort":

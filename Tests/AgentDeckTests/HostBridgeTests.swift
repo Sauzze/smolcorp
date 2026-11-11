@@ -727,7 +727,7 @@ final class HostBridgeTests: XCTestCase {
             asked.append("terminal command \(add)")
             throw TerminalCommand.Problem.testCopy
         }
-        mac.roster = { [GrokBotApp.Row(id: "0a1b-2c3d", name: "Smolcorp Mini Manager")] }
+        mac.roster = { [GrokBotApp.Row(id: "0a1b-2c3d", name: "Smolcorp Mini Manager"), GrokBotApp.Row(id: "9f8e", name: "Two bots", isGroup: true)] }
         // The Go shell's office window and the folder panel: a floor's picks a project, the hires' is cancelled.
         mac.showOffice = { [unowned self] in asked.append("office") }
         mac.officeOnTop = { [unowned self] in asked.append("on top \($0)") }
@@ -738,6 +738,10 @@ final class HostBridgeTests: XCTestCase {
         mac.closeFolderPanel = { [unowned self] in asked.append("close \($0 == Deck.hireFolderMessage ? "hires" : $0)") }
         // The API-key account (M4c): offered, out of a test copy, with a stand-in key.
         mac.hireKey = HostBridge.HireKey(offered: { true }, testCopy: false, read: { "fk-m4c-0123456789" })
+        // The jukebox: playing at 45, without Accessibility, so its keys are refused and only the volume is set.
+        mac.musicState = { (true, (45, false)) }
+        mac.pressMusic = { [unowned self] in asked.append("music \($0)") }
+        mac.setVolume = { [unowned self] in asked.append("volume \($0)") }
         // The phone's text and the peek (I5): the agent in front but on ttys005, where it has ended; Codex on
         // ttys004, not known to take several lines as one paste; iTerm2's CD34 doesn't read its ⌘V in time.
         mac.place = { tab, _ in tab.id == "/dev/ttys005" ? .gone : .front }
@@ -770,7 +774,7 @@ final class HostBridgeTests: XCTestCase {
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
         XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "office", "on top true", "choose /Users/example/hires floor", "choose - hires",
                                "close hires", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true",
-                               "t3 app opened", "t3 link t3code://threads/local/mcp%3Aabc-1"])
+                               "t3 app opened", "t3 link t3code://threads/local/mcp%3Aabc-1", "volume 30"])
         XCTAssertTrue(login, "Open at login, switched on")
         // The phone's text, by `Deck.typePhoneWords` on the stand-in drivers: nothing for an agent that has ended,
         // nor for "!", nor for Codex, nor to a desk asking. ⌘V that wasn't read in time went.

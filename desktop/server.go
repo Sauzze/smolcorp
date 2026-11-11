@@ -910,6 +910,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		writeJSON(w, http.StatusOK, d.events.answer(found, since))
 
 	case r.Method == http.MethodGet && path == "/setup/state":
+		// The Grok Bot app's bots looked for again as setup opens, so a bot made there a moment ago is there.
+		d.rounds.run(func() { d.discoverBots(true) })
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The deck, for the preview beside the layout editor: the one page a
@@ -1453,11 +1455,16 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		d.mu.Lock()
 		// The mailbox is the page's to choose (POST /setup/bots/mailbox): what is sent here never sets or changes it.
-		config.CloudBots = keepMailboxes(checkedCloudBots(given), config.CloudBots)
+		bots := keepMailboxes(checkedCloudBots(given), config.CloudBots)
+		if d.mac.host != nil {
+			// A bot set or changed here is yours: kept whatever the Grok Bot app says.
+			bots = pinnedIfChanged(bots, config.CloudBots)
+		}
+		config.CloudBots = bots
 		config.save()
 		d.cloud.configure(config.CloudBots)
 		d.changed()
-		bots := config.CloudBots
+		bots = config.CloudBots
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"bots": botsResolved(d.macHost(), bots)})
 
@@ -1473,14 +1480,31 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			Floor    *string `json:"floor"`
 			Hidden   bool    `json:"hidden"`
 			BotFloor *int    `json:"botFloor"`
+			// Under the Mac app: finding the Grok Bot app's bots on or off, and a bot hidden from there shown again.
+			AutoDetect *bool  `json:"autoDetect"`
+			Show       string `json:"show"`
 		}
-		if json.NewDecoder(r.Body).Decode(&given) != nil || given.ID == "" && given.BotFloor == nil {
+		h := d.macHost()
+		mac := h != nil
+		if json.NewDecoder(r.Body).Decode(&given) != nil || given.ID == "" && given.BotFloor == nil && !(mac && (given.AutoDetect != nil || given.Show != "")) {
 			writeStatus(w)(http.StatusBadRequest, `Send {"id": …} with "pinned" or "floor", or {"botFloor": …}.`)
 			return
+		}
+		// A bot hidden is kept out by its id in the Grok Bot app, or the app would give it back at the next look.
+		var roster []grokRow
+		read := false
+		if mac && given.Hidden {
+			roster, read, _ = hostBotsRoster(h)
 		}
 		d.mu.Lock()
 		if given.BotFloor != nil && *given.BotFloor >= 0 && *given.BotFloor < floorCount {
 			config.BotFloor = *given.BotFloor
+		}
+		if mac && given.AutoDetect != nil {
+			config.BotsAutoDetect = given.AutoDetect
+		}
+		if mac && safeGrokBotID(given.Show) {
+			config.HiddenBots = slices.DeleteFunc(config.HiddenBots, func(id string) bool { return strings.EqualFold(id, given.Show) })
 		}
 		bots := slices.Clone(config.CloudBots)
 		found := given.ID == ""
@@ -1497,7 +1521,16 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			}
 		}
 		if given.Hidden {
-			// Here, hiding a bot is taking it off: there's no app to find it again in.
+			// Taken off; under the Mac app also kept out of the Grok Bot app's bots found. Elsewhere there's no app
+			// to find it again in.
+			if at := slices.IndexFunc(bots, func(b CloudBot) bool { return b.ID == given.ID }); mac && at >= 0 {
+				if !read {
+					roster = d.mac.roster
+				}
+				if app := bots[at].appID(roster); app != "" && !slices.ContainsFunc(config.HiddenBots, func(id string) bool { return strings.EqualFold(id, app) }) {
+					config.HiddenBots = append(config.HiddenBots, app)
+				}
+			}
 			bots = slices.DeleteFunc(bots, func(b CloudBot) bool { return b.ID == given.ID })
 		}
 		if !found {
@@ -1510,6 +1543,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.cloud.configure(config.CloudBots)
 		d.changed()
 		d.mu.Unlock()
+		// Under the Mac app, the Grok Bot app looked in again, as the switches may have changed what's found.
+		d.rounds.run(func() { d.discoverBots(false) })
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The six floors' names and styles, all of them, replaced at once and checked as they're kept;
@@ -2167,8 +2202,32 @@ func writeStatus(w http.ResponseWriter) func(int, string) {
 	return func(status int, message string) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(status)
-		_, _ = io.WriteString(w, message)
+		_, _ = io.WriteString(w, inMacWords(message))
 	}
+}
+
+// macWords are the phone's sentences that name this computer, or say how the phone reaches it, as the Mac
+// app's Swift engine says them (Deck.swift, DeckRouter.swift).
+var macWords = map[string]string{
+	pairCodeRefusal:    "That code isn't valid. Get a new one on your Mac.",
+	settingsElsewhere:  "Settings open on your Mac.",
+	t3Elsewhere:        "T3 Code opens on your Mac.",
+	hiringOff:          "Hiring and firing are off. Turn them on in setup, on your Mac.",
+	scrollingOff:       "Scrolling is off. Turn it on in setup, on your Mac.",
+	buttonTypesNothing: "This button types nothing yet. Set it up in setup, on your Mac.",
+	hireFolderFirst:    "Choose a folder for new hires in setup, on your Mac.",
+	musicOff:           "The jukebox can't play your music: turn it on in setup, on your Mac.",
+	phoneTextOff:       "The phone mic is off. Turn it on in setup, on your Mac.",
+	peekTailnet:        "The input line shows only over Tailscale's HTTPS address.",
+	choiceTailnet:      "The details show only over Tailscale's HTTPS address.",
+}
+
+// inMacWords is message as the Mac app says it, under the Mac app; elsewhere as it is.
+func inMacWords(message string) string {
+	if mac, ok := macWords[message]; ok && host != nil {
+		return mac
+	}
+	return message
 }
 
 func decodeJSON(body io.Reader) map[string]any {
