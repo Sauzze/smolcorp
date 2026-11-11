@@ -4,13 +4,6 @@
 #   scripts/build-app.sh             for this Mac's processor
 #   scripts/build-app.sh universal   for Apple silicon and Intel, as released
 #
-#   SMOLCORP_IPHONE_APP=1 scripts/build-app.sh [universal]
-#                                    the owner's personal build: with what only
-#                                    the iPhone app (ios/) uses, its push
-#                                    notifications, Bonjour, speech names and
-#                                    reviews list (Swift's IPHONE_APP). Never
-#                                    released: a release is built without it.
-#
 # Used by install.sh and scripts/release.sh. Needs the Xcode Command Line Tools.
 
 set -euo pipefail
@@ -22,7 +15,6 @@ APP="build/$APP_NAME.app"
 
 ARCHS=()
 [ "${1:-}" = "universal" ] && ARCHS=(--arch arm64 --arch x86_64)
-[ "${SMOLCORP_IPHONE_APP:-}" = "1" ] && ARCHS+=(-Xswiftc -DIPHONE_APP)
 
 echo "Building…"
 mkdir -p build

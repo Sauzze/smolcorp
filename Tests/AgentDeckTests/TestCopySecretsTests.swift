@@ -126,11 +126,4 @@ final class TestCopySecretsTests: XCTestCase {
         _ = ViewerStore.defaultStore(testCopy: false, support: folder, keychain: real).absent(.id)
         XCTAssertTrue(asked)
     }
-
-    #if IPHONE_APP
-    func testAPushKeyIsNeverLookedForInATestCopy() {
-        XCTAssertNil(PushKey.account(testCopy: true))
-        XCTAssertNil(PushKey.token(keyID: "TESTKEY123", now: Date(), testCopy: true))
-    }
-    #endif
 }

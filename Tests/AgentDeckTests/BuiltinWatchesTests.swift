@@ -19,24 +19,6 @@ final class BuiltinWatchesTests: XCTestCase {
         }
     }
 
-    /// T406's firing is what T411's list reads: the same line, whose hire may have a colon in its name. The list is the
-    /// iPhone app's, in the personal build only (IPHONE_APP, M6).
-    #if IPHONE_APP
-    func testARealNeedsReviewFiringShowsInTheReviewsList() throws {
-        hires[0].nickname = "Rev: two"
-        try write("start\n")
-        let watchers = make()
-        watchers.sync()
-        try write("- NEEDS-REVIEW: T406 ready: see PR\n", append: true)
-        watchers.tick(inline: true)
-        let item = try XCTUnwrap(logged.first.flatMap(Reviews.item))
-        XCTAssertEqual(item.hire, "Rev: two")
-        XCTAssertEqual(item.file, "STATUS.md")
-        XCTAssertEqual(item.text, "T406 ready: see PR")
-        XCTAssertEqual(Reviews.recent(logged).count, 1)
-    }
-    #endif
-
     func testSettingsDefaultToOnWithTheManager() throws {
         XCTAssertTrue(Config().builtinWatches)
         root = FileManager.default.temporaryDirectory.appendingPathComponent("bw-\(UUID().uuidString.prefix(8))", isDirectory: true)
