@@ -475,3 +475,12 @@ final class HotKey {
         if let reference { UnregisterEventHotKey(reference) }
     }
 }
+
+extension OfficeWindow {
+    /// Puts the office's window at `rect` (AppleScript's coordinates) while it's shown: the GM's tiling puts it
+    /// under the team (HostBridge's `office-place`).
+    func place(atTile rect: CGRect, mainHeight: CGFloat) {
+        guard let panel, panel.isVisible else { return }
+        panel.setFrame(Tiler.flipped(rect, mainHeight: mainHeight), display: true)
+    }
+}

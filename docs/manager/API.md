@@ -31,12 +31,12 @@ Reads: GM, page or tool. Actions: GM or page. Fixtures are in `Tests/fixtures/fr
 | `GET /setup/gm/outbox` | GM, page, tool | The messages sent and their states. The text of a message goes to the GM and the page, not a tool. | `outbox.json` |
 | `GET /setup/gm/watches` | GM, page, tool | What was asked to be watched. | `watches.json` |
 | `GET /setup/gm/approvals` | GM, page, tool | What waits for you. Read-only. | none yet |
-| `GET /setup/gm/screens` | GM, page, tool | The screens the team can be tiled on. | none yet |
+| `GET /setup/gm/screens` | GM, page, tool | The screens the team can be tiled on. The Mac only: 404 on Windows and Linux. | none yet |
 | `POST /setup/gm/hire` | GM, page | Hire an employee: `role` (any role but `gm`: one GM per office, so the GM's token gets a 409: "This office already has a General Manager. The owner can replace it from Setup." when one is working, "Only the owner hires the General Manager, from Setup." when none is; only the page hires or replaces the GM), and optionally `folder`, `account`, `model`, `nickname`, `floor`, `worktree`, `apiKey`, `task`. | `hire.json` |
 | `POST /setup/gm/fire` | GM, page | Fire one: `id`, `force`, `removeWorktree`. Answers `204`, and writes the recap; `200` with `{ok, kept, worktree, branch}` when `removeWorktree` was asked and the worktree stayed (it holds changes), saying why. | `fire.json` |
 | `POST /setup/gm/brief` | GM, page | Add a new, dated part to the end of a working hire's BRIEF file (`id`, `text`), then mail the hire to read it. Refuses a fired or failed hire, an empty text, or one over the mail size setting. | `brief.json` |
-| `POST /setup/gm/tile` | GM, page | Tile the team's windows. | none yet |
-| `POST /setup/gm/screen` | GM, page | Choose the screen that holds the team. | none yet |
+| `POST /setup/gm/tile` | GM, page | Tile the team's windows. The Mac only. | none yet |
+| `POST /setup/gm/screen` | GM, page | Choose the screen that holds the team. The Mac only. | none yet |
 | `POST /setup/gm/send` | GM, page | Send a message: `to`, `text`, and an `id` of yours (the same `id` twice is delivered once). | `send.json` |
 | `GET /setup/gm/registry` | page | Not served yet: the row only keeps a tool's refusal truthful. The GM reads `team` instead. | none |
 | `POST /setup/gm/registry` | GM, page | Edit a registry entry's `nickname`, `notes` and `state`; nothing else. | `registry-edit.json`, `registry.json` |
@@ -46,8 +46,8 @@ Reads: GM, page or tool. Actions: GM or page. Fixtures are in `Tests/fixtures/fr
 | `POST /setup/gm/unwatch` | GM, page | Take a watch away: `id` in the query or the body. | `watch.json` |
 | `DELETE /setup/gm/unwatch` | GM, page | The same, as a DELETE. | `watch.json` |
 | `POST /setup/gm/manager` | GM, page | The manager switch: `?enabled=1` or `0`. Works with the manager off. | `version.json` |
-| `POST /setup/gm/by-hand` | page | Whether the GM's token is also kept in a file, for a GM started by hand ("Allow a GM started by hand"). Works with the manager off. | none |
-| `POST /setup/gm/token/rotate` | page | A new GM token; the old one stops working at once. The GM cannot ask for it. | `gm-token-rotate-as-page.json` |
+| `POST /setup/gm/by-hand` | page | Whether the GM's token is also kept in a file, for a GM started by hand ("Allow a GM started by hand"). Works with the manager off. The Mac only. | none |
+| `POST /setup/gm/token/rotate` | page | A new GM token; the old one stops working at once. The GM cannot ask for it. The Mac only: elsewhere a GM gets a new token when it is hired again. | `gm-token-rotate-as-page.json` |
 | `* /setup/gm/*` | GM, page | Any `/setup/gm/` route not listed above. | none |
 
 No route lets the GM answer a permission prompt, and none will.

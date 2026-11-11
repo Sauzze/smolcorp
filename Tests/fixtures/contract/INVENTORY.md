@@ -128,7 +128,7 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | POST | `/setup/hire` | gm, page | `{role, folder, account, model, floor, worktree, apiKey, task, answers, engine, scope}` (`engine: "t3"`: into T3 Code, experimental (Go: `Deck.hireIntoT3`); `scope`, Go only: the GM's own project, see the General Manager's section) | empty or `{ok, desk, session}` | 200, 204, 400, 404, 409 | setup.json, frontdesk/hire-guard.json | served |
 | POST | `/setup/hire/gm` | gm, page | `?worktree=1&account=` | empty | 204, 409, and the hire's | setup.json | served |
 | POST | `/setup/hire/window` | page | `{id}` | empty or text: a window attached to the hire's own tmux session | 204, 409 | setup.json | served |
-| GET | `/setup/hire/gm/preflight` | page | `?account=` | `{ready, items}` | 200, 400 | setup.json | differs |
+| GET | `/setup/hire/gm/preflight` | page | `?account=` | `{ready, items}` | 200, 400 | setup.json | served |
 | POST | `/setup/roles` | gm, page | the roles, whole | the setup state | 200, 400 | setup.json | differs |
 | GET | `/setup/briefs` | page, tool | — | `{briefs}` | 200 | setup.json | served |
 | GET | `/setup/briefs/<name>` | page, tool | — | the brief's markdown | 200, 404 | none: reads one of the app's briefs, which the test bundle doesn't have (404 there) | 404, owner: M4a: briefs |
@@ -178,9 +178,9 @@ hires its GM so (`desktop/demooffice.go`).
 | POST | `/setup/gm/watch` | gm, page | `{kind, target, pattern, minutes, repeat}` | the watch | 200, 400, 409 | gm.json, frontdesk/watch.json | served |
 | POST | `/setup/gm/unwatch` | gm, page | `?id=` or `{id}` | `{id, removed}` | 200, 400, 404, 409 | gm.json | served |
 | DELETE | `/setup/gm/unwatch` | gm, page | as POST | as POST | as POST | gm.json | served |
-| GET | `/setup/gm/screens` | gm, page, tool | — | `{ask, chosen, screens}` | 200, 409 | gm.json | 404 |
-| POST | `/setup/gm/screen` | gm, page | `?id=` | as GET | 200, 400, 409 | gm.json | 404 |
-| POST | `/setup/gm/tile` | gm, page | — | the tiling's report | 200, 409 | none: tiles the team's windows on a screen, which moves them; with the manager off, both apps answer 409 first | 404, owner: M4 via the bridge (M1) |
+| GET | `/setup/gm/screens` | gm, page, tool | — | `{ask, chosen, screens}` | 200, 409 | gm.json | served |
+| POST | `/setup/gm/screen` | gm, page | `?id=` | as GET | 200, 400, 409 | gm.json | served |
+| POST | `/setup/gm/tile` | gm, page | — | the tiling's report | 200, 409 | none: tiles the team's windows on a screen, which moves them; with the manager off, both apps answer 409 first | served |
 | POST | `/setup/gm/hire` | gm, page | as `/setup/hire`, folder optional | `{ok, desk, session}` | 200, 400, 403, 404, 409 | gm.json, frontdesk/hire.json | served |
 | POST | `/setup/gm/fire` | gm, page | `{id, force, removeWorktree}` | empty, or `{ok, kept, worktree, branch}` when removal was asked and the worktree stayed | 200, 204, 400, 403, 404, 409 | gm.json, frontdesk/fire.json | served |
 | POST | `/setup/gm/brief` | gm, page | `{id, text, file}` | `{ok, …}` | 200, 400, 404, 409 | gm.json, frontdesk/brief.json | served |
@@ -189,8 +189,8 @@ hires its GM so (`desktop/demooffice.go`).
 | POST | `/setup/gm/registry` | gm, page | `{id, nickname, state, notes}` | the hire | 200, 400, 404, 409 | gm.json, frontdesk/registry-edit.json | served |
 | GET | `/setup/gm/registry` | page | — | nothing: listed for the page, not answered | 404 | gm.json | served |
 | POST | `/setup/gm/nickname` | gm, page | `{project or folder, nickname}` | `{project, nickname}` | 200, 400, 404, 409 | gm.json | served |
-| POST | `/setup/gm/by-hand` | page | `?enabled=1 or 0` | `{gmByHand}` | 200, 400 | gm.json | 404 |
-| POST | `/setup/gm/token/rotate` | page | — | `{rotated, message}`, never the token | 200, 500 | gm.json, frontdesk/gm-token-rotate-as-page.json | 404 |
+| POST | `/setup/gm/by-hand` | page | `?enabled=1 or 0` | `{gmByHand}` | 200, 400 | gm.json | served |
+| POST | `/setup/gm/token/rotate` | page | — | `{rotated, message}`, never the token | 200, 500 | gm.json, frontdesk/gm-token-rotate-as-page.json | served |
 | * | `/setup/gm/*` | gm, page | a route not listed above | — | 403 for a tool, 404 | gm.json | served |
 
 ## Served by the Go app only
@@ -603,11 +603,6 @@ has until the Go app serves it; the Swift engine's twin is in the history before
 | `snapshot` | `.upstairs.desks[].conversation` | missing | whether a desk has a conversation to read, for the office window's ▤ conversation | M3: the office window's ▤ conversation and ⓘ info |
 | `snapshot` | `.upstairs.desks[].voiceNote` | missing | a voice note: a few seconds' note over a desk of how its last dictation went | M3: the office's voice notes |
 | `POST /setup/phonemic` | `route` | 404 | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 | M2: setup's Phone microphone switch |
-| `GET /setup/hire/gm/preflight` | `refusal: no such Claude account` | status 200 | the preflight takes no account yet: Go has the Claude accounts since M2, but the GM's tools are checked for any account | M4 |
-| `GET /setup/gm/screens` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |
-| `POST /setup/gm/screen` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |
-| `POST /setup/gm/by-hand` | `route` | 404 | no GM token here (M4) | M4 |
-| `POST /setup/gm/token/rotate` | `route` | 404 | no GM token here (M4) | M4 |
 | `POST /act` | `mic: dictation on, under the Mac app` | not dictated | the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false | M3 via the bridge (M1) |
 | `GET /approvals` | `route` | 404 | the deck's list of who waits for you, over Tailscale only | M3: the deck's waiting list |
 | `GET /conversation` | `route` | 404 | the office window's ▤ conversation, as it was written | M3: the office window's ▤ conversation and ⓘ info |

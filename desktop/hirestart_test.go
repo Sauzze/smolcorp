@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -293,5 +294,70 @@ func TestTestCopyPortFollowsTheDefaultAndRefusalStatusHasAFallback(t *testing.T)
 	}
 	if got := refusalStatus(errors.New("plain")); got != 409 {
 		t.Errorf("a plain error gave %d, want 409", got)
+	}
+}
+
+// The General Manager starts with its plugin, where the app bundles it (Role.startScript, GMPlugin.Launch): its
+// folder and its agent as the session's, the program its tools run, or none even from the terminal's, and it is
+// told who it is. No other role ever gets the plugin.
+func TestTheGMStartsWithItsPluginAndAgent(t *testing.T) {
+	gm := Role{ID: gmRole, Name: "General Manager", Agent: "claude", Model: "opus"}
+	start := hireStart{Role: gm, Message: "Read your brief.", GMToken: "t0ken", GMPlugin: "/Applications/Smolcorp.app/Contents/Resources/gm/plugin",
+		GMCLI: "/Applications/Smolcorp.app/Contents/Resources/bin/smolcorp"}
+	script, err := start.script()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`'--plugin-dir=/Applications/Smolcorp.app/Contents/Resources/gm/plugin' '--agent=smolcorp-gm:general-manager' '--model=opus'`,
+		"export SMOLCORP_CLI='/Applications/Smolcorp.app/Contents/Resources/bin/smolcorp'\n"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the GM's script has no %q:\n%s", want, script)
+		}
+	}
+	start.GMCLI = ""
+	if script, _ := start.script(); !strings.Contains(script, "unset SMOLCORP_CLI\n") || strings.Contains(script, "export SMOLCORP_CLI") {
+		t.Errorf("no program: the variable is unset:\n%s", script)
+	}
+	start.Role.ID, start.GMToken = "reviewer", ""
+	if _, err := start.script(); err == nil {
+		t.Error("a reviewer started with the GM's plugin")
+	}
+	if script, _ := (hireStart{Role: gm, Message: "m", GMToken: "t0ken"}).script(); strings.Contains(script, "plugin") || strings.Contains(script, "SMOLCORP_CLI") {
+		t.Errorf("no plugin bundled, none loaded:\n%s", script)
+	}
+
+	intro := gmIntroduction("/x/hires", false)
+	if !strings.HasPrefix(intro, "You are the General Manager of this team. Your folder is /x/hires.") || strings.Contains(intro, "not available") {
+		t.Errorf("the introduction: %q", intro)
+	}
+	if !strings.Contains(gmIntroduction("/x/hires", true), "The `smolcorp` tools are not available in this copy of Smolcorp") {
+		t.Error("the GM isn't told its tools are missing")
+	}
+}
+
+// The plugin is found beside the program as Smolcorp.app bundles it (bin/smolcorp and gm/plugin in Resources),
+// and the repo's own plugin is the one the start line names: its manifest's name, its agent, and its tools'
+// server run through SMOLCORP_CLI.
+func TestTheGMPluginIsFoundBesideTheProgramAsTheAppBundlesIt(t *testing.T) {
+	resources := t.TempDir()
+	cli := filepath.Join(resources, "bin", "smolcorp")
+	if gmPluginFolder(cli) != "" || gmPluginFolder("") != "" {
+		t.Error("a plugin found where there's none")
+	}
+	writeFile(t, filepath.Join(resources, "gm", "plugin", ".claude-plugin", "plugin.json"), "{}")
+	if got := gmPluginFolder(cli); got != filepath.Join(resources, "gm", "plugin") {
+		t.Errorf("found %q", got)
+	}
+	plugin := filepath.Join("..", "Resources", "gm", "plugin")
+	var manifest struct{ Name string }
+	data, err := os.ReadFile(filepath.Join(plugin, ".claude-plugin", "plugin.json"))
+	if err != nil || json.Unmarshal(data, &manifest) != nil || manifest.Name != gmPluginName {
+		t.Errorf("the plugin's manifest: %v %q", err, manifest.Name)
+	}
+	if _, err := os.Stat(filepath.Join(plugin, "agents", gmPluginAgent+".md")); err != nil {
+		t.Errorf("the plugin's agent: %v", err)
+	}
+	if tools, _ := os.ReadFile(filepath.Join(plugin, ".mcp.json")); !strings.Contains(string(tools), "${"+gmCLIEnvironment+"}") {
+		t.Errorf("the tools' server doesn't run through $%s: %s", gmCLIEnvironment, tools)
 	}
 }

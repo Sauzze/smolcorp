@@ -20,14 +20,14 @@ func preflightDeck(t *testing.T) (*Deck, *hiring, *string, *signIn) {
 	saved := []any{claudeFoundAt, claudeSignIn, hasProgram}
 	t.Cleanup(func() {
 		claudeFoundAt = saved[0].(func() string)
-		claudeSignIn = saved[1].(func(string) signIn)
+		claudeSignIn = saved[1].(func(string, string) signIn)
 		hasProgram = saved[2].(func(string) bool)
 	})
 	at, state := "/opt/claude/bin/claude", signedIn
 	claudeFoundAt = func() string { return at }
-	claudeSignIn = func(program string) signIn {
-		if program != at {
-			t.Errorf("sign-in asked of %q, want %q", program, at)
+	claudeSignIn = func(program, configDir string) signIn {
+		if program != at || configDir != "" {
+			t.Errorf("sign-in asked of %q on %q, want %q on ~/.claude's account", program, configDir, at)
 		}
 		return state
 	}
@@ -210,8 +210,9 @@ func TestTheGMPreflightTellsAStepToTakeFromAProblem(t *testing.T) {
 	}
 }
 
-// A test copy's GM can't be hired on this computer (testCopyRefusal): its line says so before Hire, and Hire waits.
-// The real app hires on your own account: no such line (the Mac's GMPreflightTests say the same for its test copy).
+// A test copy's GM is never hired on your default account (testCopyRefusal): its line says so before Hire, and Hire
+// waits. The real app hires on your own account: no such line. A Mac's test copy hires on an account of its own, as
+// the Mac's GMPreflightTests say: To do with what to do, then ticked with the account's name once one is picked.
 func TestATestCopySaysItsGMNeedsAnAccountBeforeHire(t *testing.T) {
 	d, _, _, _ := preflightDeck(t)
 	onPort(t, portFromEnvironment(""))
@@ -221,6 +222,28 @@ func TestATestCopySaysItsGMNeedsAnAccountBeforeHire(t *testing.T) {
 	onPort(t, portFromEnvironment("")+1)
 	report := d.gmPreflight()
 	line := preflightLine(t, report, "account")
+	if runtime.GOOS == "darwin" {
+		if line.OK || line.Optional || !line.Todo || line.Action == nil || line.Action.Kind != "account" || line.Action.Label != "Add an account" ||
+			line.Title != gmNeedsAccount || line.Fix != gmAddAccountFix || report.Ready {
+			t.Errorf("a Mac test copy's account line with no other account: %+v (ready %v)", line, report.Ready)
+		}
+		work := filepath.Join(homeDir, ".claude-work")
+		if err := os.MkdirAll(work, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		d.config.ClaudeProfiles = []claudeProfile{{Name: "work", Dir: work}}
+		if line := preflightLine(t, d.gmPreflight(), "account"); !line.Todo || line.Action.Label != "Choose an account" || line.Fix != gmChooseAccountFix {
+			t.Errorf("another account there, none picked: %+v", line)
+		}
+		if line := preflightLine(t, d.gmPreflightOn("default"), "account"); line.OK || !line.Todo {
+			t.Errorf("the default account picked: %+v", line)
+		}
+		claudeSignIn = func(string, string) signIn { return signedIn }
+		if line := preflightLine(t, d.gmPreflightOn("work"), "account"); !line.OK || line.Title != "Your General Manager works on the Claude account work." {
+			t.Errorf("work picked: %+v", line)
+		}
+		return
+	}
 	// Red (!), not To do as on the Mac: there's no step to take here (R790).
 	if line.OK || line.Optional || line.Todo || line.Action != nil || line.Title != gmNeedsAccount || !strings.Contains(line.Fix, "real Smolcorp") || report.Ready {
 		t.Errorf("a test copy's account line: %+v (ready %v)", line, report.Ready)
@@ -357,7 +380,7 @@ func TestTheGMHireTurnsHiringOnAndBackOffIfItFails(t *testing.T) {
 // works on ~/.claude's account, so CLAUDE_CONFIG_DIR is cleared, from the app's environment and after your
 // shell's files, as the GM's start script and the launcher clear it.
 func TestTheSignInIsAskedAsTheHireStartsIt(t *testing.T) {
-	command := signInCommand("/x/bin/claude")
+	command := signInCommand("/x/bin/claude", "")
 	if runtime.GOOS == "windows" {
 		if !slices.Equal(command, []string{"/x/bin/claude", "auth", "status", "--json"}) {
 			t.Errorf("sign-in command %q", command)
@@ -373,7 +396,7 @@ func TestTheSignInIsAskedAsTheHireStartsIt(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "k-fake")
 	t.Setenv("SMOLCORP_SESSION", "s1")
 	t.Setenv("CLAUDE_CONFIG_DIR", "/x/other-account")
-	env := signInEnvironment()
+	env := signInEnvironment("")
 	if !slices.Contains(env, "ANTHROPIC_API_KEY=k-fake") || slices.Contains(env, "SMOLCORP_SESSION=s1") {
 		t.Errorf("the hire's environment: key kept %v, session dropped %v", slices.Contains(env, "ANTHROPIC_API_KEY=k-fake"), !slices.Contains(env, "SMOLCORP_SESSION=s1"))
 	}
@@ -531,5 +554,58 @@ func TestStartHereAndGeneralAgreeAndPointAtTheFix(t *testing.T) {
 	// The words the page answers with a button are this app's own.
 	if !strings.HasPrefix(setupHireNeedsFolder, "Choose the folder for your hires first") || !strings.HasPrefix(chooseHireFolderFirst, "Choose the folder for your hires first") {
 		t.Error("the folder refusal's words changed: setup.html's hireRefusalFix answers them")
+	}
+}
+
+// The preflight for the account the GM would be hired on (`?account=`), as the Mac's: one that isn't there is the
+// hire's refusal, 400, before anything is looked at; Claude Code's sign-in is asked on that account's folder, and
+// its hooks are that account's.
+func TestTheGMPreflightLooksAtTheAccountNamed(t *testing.T) {
+	d, _, at, _ := preflightDeck(t)
+	onDefaultPort(t)
+	work := filepath.Join(homeDir, ".claude-work")
+	writeFile(t, filepath.Join(work, "settings.json"), `{}`)
+	d.config.ClaudeProfiles = []claudeProfile{{Name: "work", Dir: work}}
+
+	rec := serve(t, d, call{method: http.MethodGet, target: "/setup/hire/gm/preflight?account=nobody", host: "localhost:7710", from: thisComputer})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "There's no Claude account called nobody. Pick one of: default, work.") {
+		t.Errorf("an account that isn't there: %d %q", rec.Code, rec.Body.String())
+	}
+
+	var asked []string
+	claudeSignIn = func(program, configDir string) signIn {
+		asked = append(asked, configDir)
+		if configDir == work {
+			return signedOut
+		}
+		return signedIn
+	}
+	report := d.gmPreflightOn("work")
+	if line := preflightLine(t, report, "signin"); line.OK || !line.Optional {
+		t.Errorf("work isn't signed in: %+v", line)
+	}
+	// work's settings.json has none of Smolcorp's hooks, though ~/.claude's are connected (the stand-in).
+	if line := preflightLine(t, report, "hooks"); line.OK || line.Action == nil || line.Action.Fix != fixRepair {
+		t.Errorf("work doesn't report: %+v", line)
+	}
+	if line := preflightLine(t, d.gmPreflightOn("default"), "hooks"); !line.OK {
+		t.Errorf("the default account reports: %+v", line)
+	}
+	if !slices.Equal(asked, []string{work, ""}) {
+		t.Errorf("sign-in asked on %q, want work's folder then ~/.claude's", asked)
+	}
+	rec = serve(t, d, call{method: http.MethodGet, target: "/setup/hire/gm/preflight?account=work", host: "localhost:7710", from: thisComputer})
+	var said preflightReport
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &said) != nil || preflightLine(t, said, "signin").OK {
+		t.Errorf("the route on work: %d %s", rec.Code, rec.Body.String())
+	}
+
+	if runtime.GOOS != "windows" {
+		if command := signInCommand(*at, work); !slices.Equal(command, inLoginShell([]string{"env", "CLAUDE_CONFIG_DIR=" + work, *at, "auth", "status", "--json"})) {
+			t.Errorf("sign-in command on work: %q", command)
+		}
+	}
+	if env := signInEnvironment(work); !slices.Contains(env, "CLAUDE_CONFIG_DIR="+work) {
+		t.Error("the account's folder isn't in the sign-in's environment")
 	}
 }

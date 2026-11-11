@@ -207,6 +207,8 @@ final class OfficeLink {
             config.officeOnTop = on
             self?.window?.applyOptions()
         }
+        // The GM's tiling: the office's window under the team, while it's shown.
+        actions.placeOffice = { [weak self] rect, mainHeight in self?.window?.place(atTile: rect, mainHeight: mainHeight) }
         // Held at once; kept in memory for the menu once they are, as the core keeps them once told.
         actions.officeKey = { [weak self] key in
             guard let self else { return "The office isn't open." }

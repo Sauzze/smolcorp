@@ -83,6 +83,11 @@ type bridgeRequest struct {
 	Tabs []string `json:"tabs,omitempty"`
 	// bots-resolve: the Grok Bots to look for in the Grok Bot app.
 	Bots []bridgeBot `json:"bots,omitempty"`
+	// tile: the hires' windows to move (Terminal is the terminal), by the tty each shows; office-place: where the
+	// office's window goes, in AppleScript's coordinates turned over by the main screen's height (gmscreens.go).
+	Places     []tilePlace `json:"places,omitempty"`
+	Office     *tileRect   `json:"office,omitempty"`
+	MainHeight float64     `json:"mainHeight,omitempty"`
 	// music: the jukebox's key pressed, one of musicKeys; volume: the level set, 0 to 100.
 	Music string `json:"music,omitempty"`
 	Level *int   `json:"level,omitempty"`
@@ -170,6 +175,11 @@ type bridgeAnswer struct {
 	Ready bool `json:"ready,omitempty"`
 	// processes: those working in the folder or naming the session, the first bridgeProcessesMost.
 	Processes []bridgeProcess `json:"processes,omitempty"`
+	// screens: the Mac's screens, read afresh; tile: the ttys whose windows were placed, and whether the terminal
+	// refused Smolcorp its Automation permission (the work then stopped there).
+	Screens         []macScreen `json:"screens,omitempty"`
+	Placed          []string    `json:"placed,omitempty"`
+	NeedsPermission bool        `json:"needsPermission,omitempty"`
 }
 
 // bridgeProcess is a process the Mac app found working in a folder or naming a session: its pid, its name as

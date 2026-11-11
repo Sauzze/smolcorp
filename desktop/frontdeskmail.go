@@ -181,15 +181,18 @@ func setContacts(path string, body []byte) ([]Contact, *refusal) {
 	return file.contactsJSON(), nil
 }
 
-// The GM's token is kept in memory only, on the Deck: no file, no secret store.
+// The GM's token is kept in memory, on the Deck, and in no secret store; under
+// the Mac app also in a file while a GM started by hand is allowed (gmbyhand.go).
 // The hire engine makes one when it hires or replaces the GM (newGMToken), and
-// takes it away when the GM goes (clearGMToken). Until then nobody is the GM.
+// takes it away when the GM goes (clearGMToken). Until then nobody is the GM,
+// but for one started by hand with the setting on, which always has a token.
 
 // newGMToken makes a fresh token and makes it the only valid one.
 func (d *Deck) newGMToken() string {
 	token := randomKey()
 	d.mu.Lock()
 	d.gmToken = token
+	d.gmTokenChanged()
 	d.mu.Unlock()
 	return token
 }
@@ -198,6 +201,7 @@ func (d *Deck) newGMToken() string {
 func (d *Deck) clearGMToken() {
 	d.mu.Lock()
 	d.gmToken = ""
+	d.gmTokenChanged()
 	d.mu.Unlock()
 }
 
@@ -207,6 +211,7 @@ func (d *Deck) clearGMTokenIf(token string) {
 	d.mu.Lock()
 	if token != "" && constantTimeEqual(d.gmToken, token) {
 		d.gmToken = ""
+		d.gmTokenChanged()
 	}
 	d.mu.Unlock()
 }

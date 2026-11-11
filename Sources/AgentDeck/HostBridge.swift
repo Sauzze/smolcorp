@@ -381,6 +381,8 @@ final class HostBridge {
             return ["ok": true, "rows": rows ?? NSNull()]
         case "music", "music-state", "volume":
             return music(action, request, actions, until: deadline)
+        case "screens", "tile", "office-place":
+            return tiling(action, request, actions, until: deadline)
         default:
             // Notifications and the office's mic dictating aren't asked of the app yet.
             return refused("This Mac app can't do \(action) for the engine yet.")
@@ -504,6 +506,64 @@ final class HostBridge {
                 return ["ok": true]
             }
         }
+    }
+
+    /// How long a tile may take, each window moved with an AppleScript of its own and the first one perhaps waiting
+    /// for your answer to macOS's Automation question: under the core's own wait for it (desktop/gmscreens.go's
+    /// tileWait). And the most windows moved at once: the ground floor's nine desks.
+    static var tileWait: TimeInterval = 90
+    static let tilePlacesMost = 9
+
+    /// The GM's tiling, for the core (desktop/gmscreens.go), as the Swift engine's `POST /setup/gm/tile` did it with
+    /// `Tiler`: the Mac's screens, read afresh on the main queue; the hires' windows moved with their terminal's own
+    /// AppleScript on its queue, each to the place the core gives for the tty it shows; the office's window put
+    /// under them. The grid and which windows are the core's to work out.
+    private static func tiling(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
+        switch action {
+        case "screens":
+            switch run(on: actions.main, until: deadline, { actions.screens() }) {
+            case .done(let screens): return ["ok": true, "screens": screens]
+            case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
+            }
+        case "office-place":
+            guard let rect = rect(request["office"]), let mainHeight = (request["mainHeight"] as? NSNumber)?.doubleValue else {
+                return refused("Say where the office goes.")
+            }
+            return onMain(actions, until: deadline) { actions.placeOffice(rect, CGFloat(mainHeight)) }
+        default: // tile
+            guard let terminal = request["terminal"] as? String, let app = Tiler.scriptable(terminal) else {
+                return refused("Not a terminal Smolcorp can place the windows of.")
+            }
+            guard let given = request["places"] as? [[String: Any]], given.count <= tilePlacesMost else { return refused("Not a list of places.") }
+            var places: [(tty: String, rect: CGRect)] = []
+            for place in given {
+                guard let tty = place["tty"] as? String, TabAddress.isTTY(tty), let rect = rect(place["rect"]) else { return refused("Not a list of places.") }
+                places.append((tty, rect))
+            }
+            // Started within the bridge's own time, then waited for as long as the AppleScripts take, up to `tileWait`.
+            let until = DispatchTime.now() + tileWait
+            let pending = Pending<Tiler.Moved?>(startBy: min(deadline, until))
+            actions.windowQueue(terminal).async {
+                guard pending.begin() else { return }
+                pending.finish(Tiler.tile(app: app, places: places, script: actions.tileScript))
+            }
+            switch pending.wait(until: until) {
+            case .done(let moved?):
+                var answer: [String: Any] = ["ok": true, "placed": moved.placed]
+                if moved.needsPermission { answer["needsPermission"] = true }
+                return answer
+            case .done(nil): return refused("\(app) couldn't be asked for its windows.")
+            case .notStarted, .unfinished: return refused("\(app) didn't answer in time.")
+            }
+        }
+    }
+
+    /// `{x, y, width, height}` as the core sends a place, whole and finite, else nil.
+    private static func rect(_ value: Any?) -> CGRect? {
+        guard let given = value as? [String: Any] else { return nil }
+        let numbers = ["x", "y", "width", "height"].compactMap { (given[$0] as? NSNumber)?.doubleValue }
+        guard numbers.count == 4, numbers.allSatisfy(\.isFinite), numbers[2] >= 0, numbers[3] >= 0 else { return nil }
+        return CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
     }
 
     /// What setup says while Apple's model for a language is still on its way.
@@ -1098,6 +1158,12 @@ final class HostBridge {
         var pressMusic: (String) -> Void = { _ in }
         var musicState: () -> (playing: Bool?, volume: (level: Int, muted: Bool)?) = { (nil, nil) }
         var setVolume: (Int) -> Void = { _ in }
+        /// The GM's tiling (`tiling`): the Mac's screens, the AppleScript the windows are moved with (a stand-in in the
+        /// tests: nothing there ever drives a terminal), and the office's window put at a place in AppleScript's
+        /// coordinates, turned over by the main screen's height (the Go shell's, OfficeLink).
+        var screens: () -> [[String: Any]] = { Tiler.screens() }
+        var tileScript: Tiler.Script = Tiler.osascript
+        var placeOffice: (_ rect: CGRect, _ mainHeight: CGFloat) -> Void = { _, _ in }
 
         /// The Swift engine's own: the terminal drivers on their terminals' queues, one at a time
         /// as the deck runs them, the openers, the secrets' stores (files in a test copy), the login item.

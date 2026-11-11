@@ -33,6 +33,9 @@ type macStandIn struct {
 	roster   *[]grokRow
 	keyboard bool
 	volume   int
+	// The Mac's screens (gmscreens.go), and a terminal that refuses Smolcorp its Automation permission for tiling.
+	screens       []macScreen
+	tileForbidden bool
 }
 
 func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
@@ -101,6 +104,19 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 		return bridgeAnswer{OK: true}, nil
 	case "volume":
 		m.volume = *request.Level
+		return bridgeAnswer{OK: true}, nil
+	case "screens":
+		return bridgeAnswer{OK: true, Screens: slices.Clone(m.screens)}, nil
+	case "tile":
+		if m.tileForbidden {
+			return bridgeAnswer{OK: true, NeedsPermission: true}, nil
+		}
+		var placed []string
+		for _, place := range request.Places {
+			placed = append(placed, place.TTY)
+		}
+		return bridgeAnswer{OK: true, Placed: placed}, nil
+	case "office-place":
 		return bridgeAnswer{OK: true}, nil
 	case "music-state":
 		playing := true
@@ -305,6 +321,18 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		},
 		"the jukebox's play key, without Accessibility": func(h hostBridge) (any, error) { return nil, hostMusicKey(h, "playpause") },
 		"the jukebox's volume set":                      func(h hostBridge) (any, error) { return nil, hostSetVolume(h, 30) },
+		"the Mac's screens, read afresh":                func(h hostBridge) (any, error) { return hostScreens(h) },
+		"the hires' windows tiled in Terminal, one with no window": func(h hostBridge) (any, error) {
+			placed, needsPermission, err := hostTile(h, "terminal", []tilePlace{{"/dev/ttys003", tileRect{0, 30, 480, 573}}, {"/dev/ttys004", tileRect{480, 603, 480, 573}}})
+			return []any{placed, needsPermission}, err
+		},
+		"tiling refused by iTerm2's Automation permission": func(h hostBridge) (any, error) {
+			placed, needsPermission, err := hostTile(h, "iterm", []tilePlace{{"/dev/ttys005", tileRect{0, 30, 480, 573}}})
+			return []any{placed, needsPermission}, err
+		},
+		"the office's window put under the team": func(h hostBridge) (any, error) {
+			return nil, hostPlaceOffice(h, tileRect{0, 1750, 1440, 810}, 2560)
+		},
 	}
 	// What the core makes of each answer.
 	got := map[string]any{
@@ -343,6 +371,10 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the Grok Bot app's bots, for the core to find": []any{[]grokRow{{ID: "0a1b-2c3d", Name: "Smolcorp Mini Manager"},
 			{ID: "9f8e", Name: "Two bots", IsGroup: true}}, true},
 		"the jukebox: what's playing and the volume": []any{true, musicVolume{level: 45}},
+		"the Mac's screens, read afresh": []macScreen{{ID: "1", Name: "Built-in Retina Display", Frame: tileRect{0, 0, 1512, 982}, Visible: tileRect{0, 0, 1512, 950}, Main: true},
+			{ID: "2", Name: "PA278CV", Frame: tileRect{-1440, 0, 1440, 2560}, Visible: tileRect{-1440, 0, 1440, 2530}}},
+		"the hires' windows tiled in Terminal, one with no window": []any{[]string{"/dev/ttys003"}, false},
+		"tiling refused by iTerm2's Automation permission":         []any{[]string{}, true},
 	}
 	cases := readBridgeCases(t)
 	if len(cases) != len(want) {

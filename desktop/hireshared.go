@@ -333,6 +333,7 @@ func (d *Deck) clearFiredGMToken() {
 	defer d.mu.Unlock()
 	if !slices.ContainsFunc(officeHires(), gmHired) {
 		d.gmToken = ""
+		d.gmTokenChanged()
 	}
 }
 

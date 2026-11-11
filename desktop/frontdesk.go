@@ -477,13 +477,25 @@ func (d *Deck) frontDeskLive() []liveSession {
 	return out
 }
 
-// team answers GET /setup/gm/team.
+// team answers GET /setup/gm/team. A GM started by hand has the GM's role on its session's row, unless a GM is
+// hired, which wins (FrontDesk.team's byHandGM).
 func (rt *router) team(w http.ResponseWriter) {
 	live := rt.deck.frontDeskLive()
+	rt.deck.mu.Lock()
+	byHand := rt.deck.byHandGMSession()
+	rt.deck.mu.Unlock()
 	file := readRegistry(registryPath(), false)
 	now := float64(time.Now().UnixMilli())
+	rows := buildTeam(file.hires, live, now, statusLine)
+	if byHand != "" && !file.gmIsHired() {
+		for _, row := range rows {
+			if row["registered"] == false && row["sessionId"] == byHand {
+				row["role"] = gmRole
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"at": int64(now), "team": t3Decorate(buildTeam(file.hires, live, now, statusLine), file.hires, rt.deck.t3), "contacts": file.contactsJSON(),
+		"at": int64(now), "team": t3Decorate(rows, file.hires, rt.deck.t3), "contacts": file.contactsJSON(),
 	})
 }
 

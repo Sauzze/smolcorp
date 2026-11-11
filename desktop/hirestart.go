@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -55,6 +56,9 @@ type hireStart struct {
 	KeyText string
 	// Resume is a Claude Code session to go on with (Hand back, t3takeover.go): `--resume <id>`, and no first message.
 	Resume string
+	// The General Manager's plugin folder (gmPluginFolder), for the gm role on Claude Code only, and the program its
+	// tools run, "" when there's none: the tools are then left without it, and the GM is told (gmIntroduction).
+	GMPlugin, GMCLI string
 	// A test copy: both set, and the port not one a real Smolcorp owns.
 	TestPort       int
 	TestSupportDir string
@@ -133,6 +137,10 @@ func (h hireStart) script() (string, error) {
 	if claude && h.TestPort != 0 {
 		words = append(words, testCopySources)
 	}
+	// The GM's rules, skills and tools: its plugin, and its agent as the session's (GMPlugin.Launch.arguments).
+	if claude && h.GMPlugin != "" {
+		words = append(words, "--plugin-dir="+h.GMPlugin, "--agent="+gmPluginName+":"+gmPluginAgent)
+	}
 	if claude && h.Resume != "" {
 		words = append(words, h.Role.resumeArguments(h.Resume)...)
 	} else {
@@ -153,6 +161,14 @@ func (h hireStart) script() (string, error) {
 	if h.CLIDir != "" {
 		environment += "export PATH=" + shellQuoted(h.CLIDir) + ":\"$PATH\"\n"
 	}
+	// Where the plugin's tools find the program, and nothing, if there is none, even from the terminal's.
+	if claude && h.GMPlugin != "" {
+		if h.GMCLI != "" {
+			environment += "export " + gmCLIEnvironment + "=" + shellQuoted(h.GMCLI) + "\n"
+		} else {
+			environment += "unset " + gmCLIEnvironment + "\n"
+		}
+	}
 	return "#!/bin/sh\n# A hire from Smolcorp's office, as a " + startOneLine(h.Role.Name) + ": runs once.\nrm -f \"$0\"\nunset SMOLCORP_GM_TOKEN\n" +
 		environment + lines + "exec " + strings.Join(quoted, " ") + "\n", nil
 }
@@ -164,6 +180,9 @@ func (h hireStart) script() (string, error) {
 // subscription.
 func (h hireStart) environmentLines() (string, error) {
 	lines := ""
+	if h.GMPlugin != "" && h.Role.ID != gmRole {
+		return "", errors.New("only the General Manager starts with its plugin")
+	}
 	if h.GMToken != "" {
 		if h.Role.ID != gmRole || h.SendKey != "" {
 			return "", errors.New("only the General Manager's script holds its token, and never with a send key")
@@ -200,6 +219,41 @@ func (h hireStart) environmentLines() (string, error) {
 			"export ANTHROPIC_API_KEY\n"
 	}
 	return lines, nil
+}
+
+// The General Manager's plugin for Claude Code (GMPlugin.swift): its rules (an agent), its skills and its tools
+// (the `smolcorp mcp` server), bundled in Smolcorp.app at Resources/gm/plugin and loaded by the GM's start line.
+// Its playbook is a file the GM keeps in its own folder, never in Smolcorp's support folder.
+const (
+	// gmPluginName is the plugin's name in its manifest, and gmPluginAgent the agent that is the GM's rules.
+	gmPluginName  = "smolcorp-gm"
+	gmPluginAgent = "general-manager"
+	// gmCLIEnvironment is where the plugin's tools find the command line program (its .mcp.json).
+	gmCLIEnvironment = "SMOLCORP_CLI"
+)
+
+// gmPluginFolder is the GM's plugin bundled beside cli, Smolcorp.app's Resources/gm/plugin beside its bin folder,
+// or "" when it isn't there: a build run from the source folder, and Linux and Windows, whose packages don't ship it.
+func gmPluginFolder(cli string) string {
+	if cli == "" {
+		return ""
+	}
+	plugin := filepath.Join(filepath.Dir(filepath.Dir(cli)), "gm", "plugin")
+	if _, err := os.Stat(filepath.Join(plugin, ".claude-plugin", "plugin.json")); err != nil {
+		return ""
+	}
+	return plugin
+}
+
+// gmIntroduction is what the GM is told besides its brief: its role, its folder, and its tool (Deck.gmIntroduction),
+// and that its tools aren't there when its plugin is loaded without the program they run.
+func gmIntroduction(folder string, toolsMissing bool) string {
+	text := "You are the General Manager of this team. Your folder is " + folder + ". Your tool for the team is the command `smolcorp gm`; " +
+		"it is already set up to reach Smolcorp, so don't look for a token or a key."
+	if toolsMissing {
+		text += " The `smolcorp` tools are not available in this copy of Smolcorp: say so to the owner, and use the command `smolcorp gm` only if it is on your PATH."
+	}
+	return text
 }
 
 // oneLine keeps a role's name on the comment line it goes in.
