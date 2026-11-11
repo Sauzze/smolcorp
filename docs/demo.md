@@ -27,7 +27,8 @@ tests to add, and a README to finish. Python 3 is all the proof needs.
    goal and its questions answered. If Smolcorp's manager or hiring is off,
    the question says so: the demo turns it on, and it stays on until you turn
    it off in Setup. If anything fails before the GM is hired, the demo turns
-   back off what it turned on. At the end (the report, Ctrl-C, or Smolcorp no
+   back off what it turned on, and a Ctrl-C after your yes stops it before
+  the hire. At the end (the report, Ctrl-C, or Smolcorp no
    longer answering), it says what it turned on and where to turn it off.
 2. **It plans with you.** It shows you the plan in its terminal and waits for
    your OK there.
@@ -63,9 +64,13 @@ else is paid for, and the demo asks before it starts anything.
   and the hooks are); a hire into any other folder, or with a folder the shell
   would expand (`$HOME`, `~someone`, `{a,b}`, `*`); a hire of a role that isn't
   on Claude Code, into T3 Code, or on the API-key account or another Claude
-  account; a `smolcorp` command built with `$` or a backtick; `git config`
-  writes, `git checkout` and `git switch`; and what the guard refuses (pushes,
-  deploys, publishing, cloud commands). That's on top of the fence the General
+  account; a `smolcorp` command built with `$` or a backtick; any `smolcorp`
+  command but `smolcorp gm …`, `version` and `help` (its MCP server on standard
+  input, or `smolcorp run`, would hire or start an agent where the fence can't
+  see); a send, brief or fire for anyone but the demo's own hires; anything
+  that names the setup key; `git config` writes, `git checkout` and
+  `git switch`; and what the guard refuses (pushes, deploys, publishing, cloud
+  commands). That's on top of the fence the General
   Manager and its hires get anyway ([The fence, and who gets it](team.md#the-fence-and-who-gets-it)).
 - Like the guard, it reads one command line: a script a hire writes and runs
   isn't read. It's a fence, not a wall.
@@ -89,6 +94,6 @@ Nothing is started or spent.
 
 ## When you're done
 
-Fire the demo's team in the office, then delete the demo folder. One General
-Manager works at a time: if one is already hired, the demo asks you to fire
-it first.
+Fire the demo's team in the office, then delete the demo folder. The demo
+runs its own team: if a General Manager or any other hire is already working,
+it asks you to fire or finish them first.

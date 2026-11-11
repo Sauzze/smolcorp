@@ -156,7 +156,10 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 	os.MkdirAll(elsewhere, 0o755)
 	// A link inside the demo that leads out of it (where the system lets a test make one).
 	linked := os.Symlink(elsewhere, filepath.Join(root, "link")) == nil
-	f := demoFence{root: root, roles: []string{"tester", "reviewer"}, home: homeDir}
+	f := demoFence{root: root, roles: []string{"tester", "reviewer"}, home: homeDir,
+		team: func() ([]demoMember, error) {
+			return []demoMember{{ID: "tester-1", Folder: repo, Registered: true}}, nil
+		}}
 	write := func(path string) demoCall {
 		input, _ := json.Marshal(map[string]string{"file_path": path})
 		return demoCall{ToolName: "Write", ToolInput: input, Cwd: repo}
@@ -189,6 +192,12 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		bashCall("cat .git/HEAD .claude/settings.json", repo),
 		write(filepath.Join(repo, "docs", "claude.md")),
 		tool("NotebookEdit", map[string]any{"notebook_path": filepath.Join(repo, "a.ipynb")}),
+		// RX1b: smolcorp's own commands the demo uses.
+		bashCall("smolcorp version", repo),
+		bashCall("smolcorp --version && smolcorp help", repo),
+		bashCall("smolcorp gm team", repo),
+		// RX1b S3: a hire over several lines, as models write them.
+		bashCall("smolcorp gm hire --role tester \\\n  --folder "+repo+" \\\n  --worktree \\\n  --task 'Fix the rounding'", repo),
 	}
 	refused := []demoCall{
 		bashCall("smolcorp gm hire --role tester --folder ~", repo),
@@ -257,6 +266,35 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		bashCall("git config set core.hooksPath /dev/null", repo),
 		bashCall("git checkout -b mine", repo),
 		bashCall("cd "+repo+" && /usr/bin/git switch other", repo),
+		// RX1b B1: the MCP server on standard input hires anywhere.
+		bashCall(`printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hire","arguments":{"role":"tester","folder":"`+elsewhere+`"}}}' > m.txt; smolcorp mcp < m.txt`, repo),
+		bashCall("smolcorp mcp", repo),
+		// RX1b B2: smolcorp run starts an agent where the demo's fence isn't.
+		bashCall("smolcorp run claude -p 'fix everything' --dangerously-skip-permissions", repo),
+		bashCall("cd "+elsewhere+" && smolcorp run --role tester", repo),
+		bashCall("smolcorp run codex", repo),
+		// Every other command of smolcorp's, by any path or spelling, and smolcorp handed to another program.
+		bashCall("smolcorp setup --check", repo),
+		bashCall("smolcorp serve", repo),
+		bashCall("smolcorp core", repo),
+		bashCall("smolcorp hook claude", repo),
+		bashCall("smolcorp quit", repo),
+		bashCall("smolcorp guard --profile gm", repo),
+		bashCall("smolcorp demo --dry-run", repo),
+		bashCall("smolcorp frobnicate", repo),
+		bashCall("smolcorp", repo),
+		bashCall("/usr/local/bin/smolcorp-cli mcp < calls.jsonl", repo),
+		bashCall("SMOLCORP.exe setup", repo),
+		bashCall("sm''olcorp mcp", repo),
+		bashCall("nohup smolcorp serve &", repo),
+		bashCall("xargs smolcorp mcp < calls.jsonl", repo),
+		// RX1b S2: a backslash before a line end joins the lines: this is gm hire.
+		bashCall("smolcorp gm hi\\\nre --role tester --folder "+elsewhere, repo),
+		// RX1b S5: the owner's setup key.
+		bashCall("cat '"+filepath.Join(homeDir, "Library", "Application Support", "AgentDeck", "setup-key")+"'", repo),
+		bashCall(`curl -H 'X-Smolcorp-Setup-Key: k' 'http://127.0.0.1:7710/setup/hiring?enabled=0'`, repo),
+		tool("Read", map[string]any{"file_path": filepath.Join(homeDir, ".config", "Smolcorp", "Setup-Key")}),
+		{ToolName: "Grep", ToolInput: json.RawMessage(`{"pattern":"x","path":"/somewhere/setup\u002dKey"}`), Cwd: repo},
 	}
 	if runtime.GOOS == "windows" { // elsewhere, C:\ is a folder name like any other
 		refused = append(refused, bashCall(`smolcorp gm hire --role tester --folder C:\Users\someone\elsewhere`, repo))
@@ -307,9 +345,11 @@ type standInOffice struct {
 	calls     []string
 	hire      map[string]any
 	teamCalls int
-	finish    func() // the stand-in GM's last step, at the second look at the team
-	failHire  bool   // the GM's hire fails
-	gone      bool   // Smolcorp stops answering the team
+	finish    func()           // the stand-in GM's last step, at the second look at the team
+	failHire  bool             // the GM's hire fails
+	gone      bool             // Smolcorp stops answering the team
+	others    []map[string]any // the team before the demo's GM is hired
+	onSwitch  func()           // runs at each switch turned on or off
 }
 
 func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -332,6 +372,10 @@ func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&s.hire)
 		io.WriteString(w, `{"ok":true,"desk":2,"session":null}`)
 	case "GET /setup/gm/team":
+		if s.hire == nil {
+			json.NewEncoder(w).Encode(map[string]any{"team": append([]map[string]any{}, s.others...)})
+			return
+		}
 		if s.teamCalls++; s.teamCalls == 2 && s.finish != nil {
 			s.finish()
 		}
@@ -346,6 +390,9 @@ func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			{"id": "x1", "name": "Someone else's", "role": "docs", "folder": "/elsewhere", "state": "idle"},
 		}})
 	case "POST /setup/gm/manager", "POST /setup/hiring":
+		if s.onSwitch != nil {
+			s.onSwitch()
+		}
 	default:
 		http.NotFound(w, r)
 	}
@@ -492,6 +539,148 @@ func TestTheDemoSaysWhichSwitchesItTurnsOnAndPutsThemBack(t *testing.T) {
 	runDemo(context.Background(), demoRun{in: demoTestFolder(t), team: readyTeam{team}, stdin: strings.NewReader("n\n"), out: io.Discard, interrupt: interrupt})
 	if caught {
 		t.Error("Ctrl-C was caught before the answer")
+	}
+}
+
+// RX1b B3: the GM sends, briefs and fires only the hires the demo made, through the CLI or MCP.
+func TestTheDemosFenceKeepsTheGMToItsOwnHires(t *testing.T) {
+	in := demoTestFolder(t)
+	root := filepath.Join(in, "smolcorp-demo")
+	repo := filepath.Join(root, "app")
+	elsewhere := filepath.Join(in, "elsewhere")
+	for _, dir := range []string{repo, elsewhere} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	team := []demoMember{
+		{ID: "g1", Name: "General Manager", Role: "gm", Folder: repo, Registered: true, State: "working"},
+		{ID: "tester-1", Name: "Tester", Nickname: "Ada", Role: "tester", Folder: repo, Worktree: filepath.Join(root, "app-hires", "tester-1"), Registered: true, State: "working"},
+		{ID: "rev-9", Name: "Reviewer", Role: "reviewer", Folder: elsewhere, Registered: true, State: "working"},
+		{ID: "tester-2", Name: "Tester", Nickname: "Bo", Role: "tester", Folder: repo, Worktree: filepath.Join(elsewhere, "wt"), Registered: true, State: "idle"},
+		{ID: "live:abc", Name: "app", Folder: repo},
+	}
+	f := demoFence{root: root, roles: []string{"tester", "reviewer"}, home: homeDir, team: func() ([]demoMember, error) { return team, nil }}
+	tool := func(name string, input map[string]any) demoCall {
+		data, _ := json.Marshal(input)
+		return demoCall{ToolName: name, ToolInput: data, Cwd: repo}
+	}
+	allowed := []demoCall{
+		bashCall("smolcorp gm send tester-1 --text hi", repo),
+		bashCall("smolcorp gm send Ada --text 'hi there'", repo),
+		bashCall("smolcorp gm send --text hi ada", repo),
+		bashCall("smolcorp gm send gm --text done", repo),
+		bashCall("smolcorp gm brief tester-1 --text 'and the docs'", repo),
+		bashCall("smolcorp gm fire Ada --force", repo),
+		bashCall("smolcorp gm fire tester-1 --remove-worktree --json", repo),
+		bashCall("smolcorp gm contacts && smolcorp gm contacts allow Ada tester-1 --one-way", repo),
+		tool("mcp__smolcorp__send", map[string]any{"to": "Ada", "text": "hi"}),
+		tool("mcp__plugin_smolcorp_smolcorp__brief", map[string]any{"hire": "tester-1", "text": "x"}),
+		tool("mcp__smolcorp__fire", map[string]any{"hire": "ada", "force": 1}),
+		tool("mcp__smolcorp__contacts", map[string]any{}),
+	}
+	refused := []demoCall{
+		bashCall("smolcorp gm send Reviewer --text hi", repo),
+		bashCall("smolcorp gm send rev-9 --text hi", repo),
+		bashCall("smolcorp gm brief reviewer --text 'review my branch'", repo),
+		bashCall("smolcorp gm fire rev-9", repo),
+		bashCall("smolcorp gm fire --force rev-9", repo),
+		bashCall("smolcorp gm fire tester-2", repo),
+		bashCall("smolcorp gm fire Tester", repo), // two hires called that: one of them works outside
+		bashCall("smolcorp gm send live:abc --text hi", repo),
+		bashCall("smolcorp gm send bot:x --text hi", repo),
+		bashCall("smolcorp gm send nobody --text hi", repo),
+		bashCall("smolcorp gm send Ada Reviewer --text hi", repo),
+		bashCall("smolcorp gm contacts allow Ada Reviewer", repo),
+		bashCall("sh -c 'smolcorp gm fire rev-9'", repo),
+		tool("mcp__smolcorp__send", map[string]any{"to": "Reviewer", "text": "hi"}),
+		tool("mcp__smolcorp__brief", map[string]any{"hire": "rev-9", "text": "x"}),
+		tool("mcp__smolcorp__fire", map[string]any{"hire": "rev-9"}),
+		tool("mcp__smolcorp__contacts", map[string]any{"action": "allow", "a": "Ada", "b": "rev-9"}),
+		tool("mcp__smolcorp__send", map[string]any{"to": 5, "text": "hi"}),
+	}
+	for _, c := range allowed {
+		if why := f.check(c); why != "" {
+			t.Errorf("refused %s %s: %s", c.ToolName, c.ToolInput, why)
+		}
+	}
+	for _, c := range refused {
+		if why := f.check(c); !strings.HasPrefix(why, demoFenceRefusal) {
+			t.Errorf("let through %s %s", c.ToolName, c.ToolInput)
+		}
+	}
+	// A team it can't read: refused, never let through.
+	for _, unread := range []func() ([]demoMember, error){nil, func() ([]demoMember, error) { return nil, io.ErrUnexpectedEOF }} {
+		g := f
+		g.team = unread
+		if why := g.check(bashCall("smolcorp gm send Ada --text hi", repo)); !strings.Contains(why, "couldn't read the team") {
+			t.Errorf("without the team: %q", why)
+		}
+	}
+	// A hire writes only to its GM or a hire the GM allowed, as the app checks: its send isn't the fence's to judge.
+	hire := f
+	hire.team, hire.hireSession = nil, true
+	if why := hire.check(bashCall("smolcorp gm send Reviewer --text found-one", repo)); why != "" {
+		t.Errorf("a hire's send: %s", why)
+	}
+	if why := hire.check(bashCall("smolcorp gm fire rev-9", repo)); why == "" {
+		t.Error("a hire's fire let through")
+	}
+}
+
+// RX1b B3: the demo starts only in an office with no hire working, so its GM finds none of the owner's.
+func TestTheDemoWaitsForAnOfficeWithNoHires(t *testing.T) {
+	state := strings.Replace(demoTestState, "%s", "false", 1)
+	office := &standInOffice{state: state, others: []map[string]any{
+		{"id": "rev-9", "name": "Reviewer", "nickname": "Rex", "role": "reviewer", "folder": "/elsewhere", "registered": true, "state": "working"},
+		{"id": "doc-1", "name": "Docs writer", "role": "docs", "folder": "/elsewhere", "registered": true, "state": "idle"},
+	}}
+	code, out, in := realDemo(t, office, "y\n")
+	if entries, _ := os.ReadDir(in); code != 1 || len(entries) != 0 || strings.Contains(out, "Go on?") ||
+		!strings.Contains(out, "The demo runs its own team: fire or finish your hires first (Rex, Docs writer)") ||
+		slices.ContainsFunc(office.calls, func(c string) bool { return strings.HasPrefix(c, "POST") }) {
+		t.Errorf("with hires working: %d %v %v\n%s", code, entries, office.calls, out)
+	}
+	// Hires fired or failed, and sessions that aren't hires, don't count.
+	office = &standInOffice{state: state, others: []map[string]any{
+		{"id": "rev-9", "name": "Reviewer", "folder": "/elsewhere", "registered": true, "state": "fired"},
+		{"id": "doc-1", "name": "Docs writer", "folder": "/elsewhere", "registered": true, "state": "failed"},
+		{"id": "live:abc", "name": "notes", "folder": "/elsewhere", "registered": false, "state": ""},
+	}}
+	if code, out, _ := realDemo(t, office, "n\n"); code != 1 || !strings.Contains(out, "Go on?") || !strings.Contains(out, "Nothing was made or started.") {
+		t.Errorf("with no hire working: %d\n%s", code, out)
+	}
+}
+
+// RX1b S1: Ctrl-C after the yes, before the GM is hired, is a no: nothing more is turned on, nobody is hired.
+func TestCtrlCBeforeTheHireHiresNobody(t *testing.T) {
+	bothOff := strings.Replace(strings.Replace(demoTestState, "%s", "false", 1), `"hiring":{"enabled":true`, `"hiring":{"enabled":false`, 1)
+	posts := func(office *standInOffice) []string {
+		var posts []string
+		for _, c := range office.calls {
+			if strings.HasPrefix(c, "POST") {
+				posts = append(posts, c)
+			}
+		}
+		return posts
+	}
+	// Ctrl-C already in: nothing posted at all.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	office := &standInOffice{state: bothOff}
+	code, out, _ := realDemoIn(t, ctx, office, "y\n")
+	if code != 1 || len(posts(office)) != 0 || !strings.Contains(out, "Stopped before hiring: nothing is working.") || strings.Contains(out, "Hired") {
+		t.Errorf("cancelled before: %d %v\n%s", code, posts(office), out)
+	}
+	// Ctrl-C while the first switch goes on: that one goes back off, the second is never turned on, nobody is hired.
+	ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	office = &standInOffice{state: bothOff, onSwitch: cancel}
+	code, out, _ = realDemoIn(t, ctx, office, "y\n")
+	want := []string{"POST /setup/gm/manager?enabled=1", "POST /setup/gm/manager?enabled=0"}
+	if code != 1 || !slices.Equal(posts(office), want) || !strings.Contains(out, "Stopped before hiring: nothing is working.") ||
+		!strings.Contains(out, "Turned Smolcorp's manager back off") || strings.Contains(out, "left it on") {
+		t.Errorf("cancelled during: %d %v\n%s", code, posts(office), out)
 	}
 }
 

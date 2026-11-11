@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sauzze/smolcorp/internal/gm"
 	"github.com/Sauzze/smolcorp/internal/guard"
 )
 
@@ -29,6 +31,12 @@ import (
 //     into T3 Code, on the API-key account, or on a Claude account but the default;
 //   - a hire by any other way (a request to the app's hire routes), and a line that
 //     names smolcorp (or gm and a word) and builds words with $ or a backtick;
+//   - smolcorp for anything but `smolcorp gm …`, version and help: its MCP server on
+//     standard input, `run`, `setup`, `serve` and the rest would hire, or start an agent,
+//     where the fence can't see;
+//   - a send, brief or fire (or contacts) for anyone but a hire the demo made: one whose
+//     folder is inside the demo, as the office's team says;
+//   - a line or a path that names the setup key: it opens the owner's whole setup;
 //   - git config writes, and git checkout or switch: a branch with another fence;
 //   - whatever the hire guard refuses the GM by default: push, deploy, publish,
 //     cloud, remote shells, typing into another session.
@@ -49,6 +57,11 @@ type demoFence struct {
 	root  string   // the demo folder, resolved
 	roles []string // the roles the GM may hire
 	home  string
+	// team is the office's team as the GM's own token reads it: who a send, brief or fire is for.
+	team func() ([]demoMember, error)
+	// hireSession: the call is a hire's (its send key is set). The app lets a hire write only to
+	// its GM, or to a hire the GM put in its contacts, which this fence checks on the GM's side.
+	hireSession bool
 }
 
 // demoFenceRefusal starts every refusal, so the GM and the owner know whose it is.
@@ -58,6 +71,11 @@ const demoFenceRefusal = "Refused by the Smolcorp demo's fence: "
 func (f demoFence) check(c demoCall) string {
 	var input map[string]any
 	_ = json.Unmarshal(c.ToolInput, &input)
+	// The setup key opens every setup route of the owner's office: no call of the demo's names it,
+	// to read it (Read, Grep, cat) or to send it. Escapes taken away first, as JSON's \u002d.
+	if namesSetupKey(c.ToolInput) {
+		return demoFenceRefusal + "the setup key is the owner's: the demo never reads or sends it."
+	}
 	switch name := c.ToolName; {
 	case name == "Edit" || name == "Write" || name == "MultiEdit" || name == "NotebookEdit":
 		// Every path given is judged: NotebookEdit's own is notebook_path.
@@ -94,6 +112,19 @@ func (f demoFence) check(c demoCall) string {
 			ask.apiKey = true
 		}
 		return f.hire(ask, c.Cwd)
+	case strings.HasPrefix(name, "mcp__") && demoTargetTool(name) != "":
+		tool := demoTargetTool(name)
+		var refs []string
+		for _, key := range map[string][]string{"send": {"to"}, "brief": {"hire"}, "fire": {"hire"}, "contacts": {"a", "b"}}[tool] {
+			if value, has := input[key]; has {
+				ref, isText := value.(string)
+				if !isText {
+					return demoFenceRefusal + "a " + tool + " it can't read."
+				}
+				refs = append(refs, ref)
+			}
+		}
+		return f.targets(tool, refs)
 	default:
 		command, isText := input["command"].(string)
 		if _, has := input["command"]; !has && name != "Bash" && name != "PowerShell" {
@@ -113,6 +144,9 @@ func (f demoFence) command(line, cwd string) string {
 	if r := guard.Check(line, guard.ForGM(guard.DefaultGroups())); r != nil {
 		return demoFenceRefusal + r.Error()
 	}
+	// A backslash before a line end joins the lines (bash): `gm hi\⏎re` is gm hire, and a hire
+	// written over several lines is one command.
+	line = strings.NewReplacer("\\\r\n", "", "\\\n", "").Replace(line)
 	if namesHireRoute(line) {
 		return demoFenceRefusal + "in the demo, hire with `smolcorp gm hire --folder <a folder in the demo>` only."
 	}
@@ -124,8 +158,16 @@ func (f demoFence) command(line, cwd string) string {
 		return demoFenceRefusal + "a smolcorp command with $ or a backtick in its line: write it out plainly (text with a $ in single quotes, or in --task-file)."
 	}
 	for _, words := range all {
+		if !demoSmolcorpAllowed(words) {
+			return demoFenceRefusal + "in the demo, smolcorp runs `smolcorp gm …` (and version, help) only: its other commands hire or start agents where the fence can't see."
+		}
 		if why := demoGitRefusal(words); why != "" {
 			return demoFenceRefusal + why
+		}
+		if tool, refs := demoTargets(words); tool != "" {
+			if why := f.targets(tool, refs); why != "" {
+				return why
+			}
 		}
 		for i := 0; i+1 < len(words); i++ {
 			if words[i] != "gm" || words[i+1] != "hire" {
@@ -142,13 +184,135 @@ func (f demoFence) command(line, cwd string) string {
 // namesSmolcorp says whether a simple command's words name smolcorp (the program, by any path) or gm and a word.
 func namesSmolcorp(words []string) bool {
 	for i, word := range words {
-		name := strings.ToLower(strings.ReplaceAll(word, `\`, "/"))
-		name = strings.TrimSuffix(name[strings.LastIndexByte(name, '/')+1:], ".exe")
-		if name == "smolcorp" || name == "smolcorp-cli" || word == "gm" && i+1 < len(words) {
+		if isSmolcorp(word) || word == "gm" && i+1 < len(words) {
 			return true
 		}
 	}
 	return false
+}
+
+// isSmolcorp says whether a word names the smolcorp program, by any path, any case (the Mac's disk), .exe or not.
+func isSmolcorp(word string) bool {
+	name := strings.ToLower(strings.ReplaceAll(word, `\`, "/"))
+	name = strings.TrimSuffix(name[strings.LastIndexByte(name, '/')+1:], ".exe")
+	return name == "smolcorp" || name == "smolcorp-cli"
+}
+
+// demoSmolcorpAllowed says whether every smolcorp in a simple command's words is followed by gm, version or help:
+// the demo's allowlist. mcp would hire from a file on standard input, run would start an agent in any folder,
+// and setup, serve, core, hook, quit, guard, demo or a word smolcorp doesn't know are no work of the demo's.
+// smolcorp as an argument (xargs smolcorp mcp, which smolcorp) is judged the same: the safe side.
+func demoSmolcorpAllowed(words []string) bool {
+	for i, word := range words {
+		if isSmolcorp(word) && (i+1 == len(words) || !slices.Contains([]string{"gm", "version", "--version", "help", "--help", "-h"}, words[i+1])) {
+			return false
+		}
+	}
+	return true
+}
+
+// namesSetupKey says whether a tool call's input names the setup key: its file (setup-key) or its header
+// (X-Smolcorp-Setup-Key), any case, JSON's escapes read.
+func namesSetupKey(input json.RawMessage) bool {
+	var value any
+	text := string(input)
+	if json.Unmarshal(input, &value) == nil {
+		data, _ := json.Marshal(value)
+		text = string(data)
+	}
+	return strings.Contains(strings.ToLower(text), "setup-key")
+}
+
+// demoTargetTool is send, brief, fire or contacts for the MCP tools of those names, else "".
+func demoTargetTool(name string) string {
+	for _, tool := range []string{"send", "brief", "fire", "contacts"} {
+		if strings.HasSuffix(name, "__"+tool) {
+			return tool
+		}
+	}
+	return ""
+}
+
+// demoTargets reads who `gm send`, `gm brief`, `gm fire` and `gm contacts allow|remove` are for: every word
+// that isn't one of their flags or a flag's value. A word the CLI would refuse is a target too: the safe side.
+func demoTargets(words []string) (tool string, refs []string) {
+	valued := map[string][]string{"send": {"text", "file", "id"}, "brief": {"text", "file"}, "fire": {}, "contacts": {}}
+	flags := map[string][]string{"send": {"json"}, "brief": {"json"}, "fire": {"json", "force", "remove-worktree"}, "contacts": {"json", "one-way"}}
+	for i := 0; i+1 < len(words); i++ {
+		name := strings.ToLower(words[i+1])
+		if words[i] != "gm" || valued[name] == nil {
+			continue
+		}
+		tool = name
+		var plain []string
+		args := words[i+2:]
+		for j := 0; j < len(args); j++ {
+			flag, _, joined := strings.Cut(strings.TrimLeft(args[j], "-"), "=")
+			switch {
+			case args[j] == "--":
+			case strings.HasPrefix(args[j], "-") && slices.Contains(valued[name], flag):
+				if !joined {
+					j++
+				}
+			case strings.HasPrefix(args[j], "-") && slices.Contains(flags[name], flag):
+			default:
+				plain = append(plain, args[j])
+			}
+		}
+		if name == "contacts" && len(plain) > 0 && (plain[0] == "allow" || plain[0] == "remove") {
+			plain = plain[1:]
+		}
+		refs = append(refs, plain...)
+	}
+	return tool, refs
+}
+
+// targets checks that a send, brief, fire or contacts is for the demo's own hires only. Mail to the
+// GM goes: the app puts it nowhere but the GM's inbox. Anything the fence can't check is refused.
+func (f demoFence) targets(tool string, refs []string) string {
+	var team []demoMember
+	read := false
+	for _, ref := range refs {
+		if asked := mailAsked(ref); tool == "send" && (asked == "gm" || asked == "the gm") || tool == "send" && f.hireSession {
+			continue
+		}
+		if !read {
+			var err error
+			if f.team == nil {
+				err = errors.New("no team to ask")
+			} else {
+				team, err = f.team()
+			}
+			if err != nil {
+				return demoFenceRefusal + fmt.Sprintf("it couldn't read the team to see who %q is (%v).", ref, err)
+			}
+			read = true
+		}
+		if !f.demosOwn(ref, team) {
+			return demoFenceRefusal + fmt.Sprintf("in the demo, send, brief and fire reach only the hires the demo made, working in %s: %q isn't one of them (see smolcorp gm team).", f.root, ref)
+		}
+	}
+	return ""
+}
+
+// demosOwn says whether ref (an id, a name or a nickname, as the app and the CLI find them) names
+// only hires of the demo's: hires (not a session alone) whose folder and worktree are in the demo.
+func (f demoFence) demosOwn(ref string, team []demoMember) bool {
+	asked := mailAsked(ref)
+	named := func(name string) bool {
+		return name != "" && (strings.EqualFold(name, ref) || strings.ToLower(name) == asked)
+	}
+	found := false
+	for _, m := range team {
+		if m.ID != ref && m.ID != strings.TrimSpace(ref) && !named(m.Nickname) && !named(m.Name) {
+			continue
+		}
+		found = true
+		if !m.Registered || !f.inside(m.Folder, "") || m.Worktree != "" && !f.inside(m.Worktree, "") {
+			return false
+		}
+	}
+	return found
 }
 
 // shellExpands says whether a line holds a $ or a backtick the shell would act on: one outside single quotes.
@@ -471,7 +635,7 @@ func demoSegments(line string, escapes bool) [][]string {
 // runDemoFence is `smolcorp demo fence --root R --roles a,b`: the call on stdin, an answer only to refuse.
 // Anything it can't read is refused: a fence that fails open isn't one.
 func runDemoFence(args []string, stdin io.Reader, stdout io.Writer) int {
-	f := demoFence{home: homeDir}
+	f := demoFence{home: homeDir, team: demoTeamHere, hireSession: strings.TrimSpace(os.Getenv(hireKeyEnvironment)) != ""}
 	for i := 0; i+1 < len(args); i += 2 {
 		switch args[i] {
 		case "--root":
@@ -502,4 +666,19 @@ func runDemoFence(args []string, stdin io.Reader, stdout io.Writer) int {
 		return 2 // Claude Code reads 2 as block
 	}
 	return 0
+}
+
+// demoTeamHere is the office's team, asked with the GM's own token from the fence's environment
+// (a GM hired from Smolcorp has it), as `smolcorp gm team` asks it.
+func demoTeamHere() ([]demoMember, error) {
+	reply, err := gm.TeamHere()
+	if err != nil {
+		return nil, err
+	}
+	var team []demoMember
+	for _, m := range reply {
+		team = append(team, demoMember{ID: m.ID, Name: m.Name, Nickname: m.Nickname, Role: m.Role, Folder: m.Folder,
+			Worktree: m.Worktree, Registered: m.Registered, Branch: m.Branch, State: m.State})
+	}
+	return team, nil
 }

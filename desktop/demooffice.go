@@ -49,13 +49,15 @@ type demoState struct {
 
 // demoMember is what the demo shows of a member of GET /setup/gm/team.
 type demoMember struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Nickname string `json:"nickname"`
-	Role     string `json:"role"`
-	Folder   string `json:"folder"`
-	Branch   string `json:"branch"`
-	State    string `json:"state"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Nickname   string `json:"nickname"`
+	Role       string `json:"role"`
+	Folder     string `json:"folder"`
+	Worktree   string `json:"worktree"`
+	Registered bool   `json:"registered"` // a hire, not a session alone
+	Branch     string `json:"branch"`
+	State      string `json:"state"`
 }
 
 func newOfficeTeam() *officeTeam {
@@ -107,7 +109,7 @@ func (o *officeTeam) up() bool {
 }
 
 // ready finds the office (starting Smolcorp if it isn't running), and refuses while a GM is
-// working (one per office) or when no hire can open. The roles are those on Claude Code.
+// working (one per office), while any other hire is, or when no hire can open. The roles are those on Claude Code.
 func (o *officeTeam) ready(out io.Writer) ([]string, error) {
 	if !o.up() {
 		if setupSystem == "darwin" && !setupMayOpenApp() {
@@ -128,6 +130,22 @@ func (o *officeTeam) ready(out io.Writer) ([]string, error) {
 	}
 	if o.state.GMHired {
 		return nil, errors.New("A General Manager is already hired. The demo hires its own: fire yours in the office first, then run the demo again.")
+	}
+	// Only the demo's own team in the office: its GM never finds another hire to brief, write to or fire.
+	var team struct {
+		Team []demoMember `json:"team"`
+	}
+	if err := o.call(http.MethodGet, "/setup/gm/team", nil, &team); err != nil {
+		return nil, err
+	}
+	var open []string
+	for _, m := range team.Team {
+		if m.Registered && m.State != "fired" && m.State != "failed" {
+			open = append(open, demoMemberName(m))
+		}
+	}
+	if len(open) > 0 {
+		return nil, fmt.Errorf("The demo runs its own team: fire or finish your hires first (%s), then run the demo again.", strings.Join(open, ", "))
 	}
 	if !o.state.Hiring.CanHire {
 		return nil, errors.New("Smolcorp can't open a hire on this computer yet: see the hiring step in Setup.")
@@ -161,7 +179,12 @@ func (o *officeTeam) leftOn() []demoSwitch { return o.on }
 // demo's goal, and follows the team until the GM writes its report. Should anything fail before
 // the GM is hired, it turns back off what it turned on.
 func (o *officeTeam) work(ctx context.Context, f demoFolder, roles []string, out io.Writer) error {
+	// Ctrl-C after the yes, before the GM is hired, is a no: nothing more is turned on or hired.
+	stopped := errors.New("Stopped before hiring: nothing is working.")
 	for _, s := range o.off() {
+		if ctx.Err() != nil {
+			return o.putBack(stopped, out)
+		}
 		if err := o.call(http.MethodPost, s.route+"?enabled=1", nil, nil); err != nil {
 			return o.putBack(err, out)
 		}
@@ -170,6 +193,9 @@ func (o *officeTeam) work(ctx context.Context, f demoFolder, roles []string, out
 	}
 	var hired struct {
 		Desk *int `json:"desk"`
+	}
+	if ctx.Err() != nil {
+		return o.putBack(stopped, out)
 	}
 	if err := o.call(http.MethodPost, "/setup/hire", demoGMHire(f, roles), &hired); err != nil {
 		return o.putBack(err, out)
@@ -234,12 +260,15 @@ func (o *officeTeam) follow(ctx context.Context, f demoFolder, out io.Writer) er
 	}
 }
 
-func demoMemberLine(m demoMember) string {
-	name := m.Name
+func demoMemberName(m demoMember) string {
 	if m.Nickname != "" {
-		name = m.Nickname
+		return m.Nickname
 	}
-	line := fmt.Sprintf("%s (%s): %s", name, m.Role, m.State)
+	return m.Name
+}
+
+func demoMemberLine(m demoMember) string {
+	line := fmt.Sprintf("%s (%s): %s", demoMemberName(m), m.Role, m.State)
 	if m.Branch != "" {
 		line += ", on " + m.Branch
 	}
@@ -261,7 +290,7 @@ func demoGMHire(f demoFolder, roles []string) map[string]any {
 			". Everything stays in " + f.root + ".\n" +
 			"1. Read TASKS.md and plan one hire per task. Show me the plan here and wait for my OK.\n" +
 			"2. Hire one agent per task, each on its own branch: `smolcorp gm hire --role <role> --folder " + f.repo +
-			" --worktree --task \"<what done means, and the proof>\"`. Roles you may hire: " + list +
+			" --worktree --task '<what done means, and the proof>'` (in single quotes: the fence refuses a $ the shell would read). Roles you may hire: " + list +
 			". Never hire into another folder: the demo's fence refuses it.\n" +
 			"3. Check each hire's proof yourself: `python3 -m unittest` in its worktree, and its diff.\n" +
 			"4. Have a Reviewer review each branch, and get what it finds fixed by the hire.\n" +
