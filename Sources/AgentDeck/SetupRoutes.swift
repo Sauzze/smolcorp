@@ -108,6 +108,10 @@ enum SetupRoutes {
         page("POST", "/setup/keystrokes", "letting features press keys in other apps, only from its switch"),
         page("POST", "/setup/keystrokes/apps", "the apps keys may go to: added or removed, only from the page"),
 
+        // Another app on this computer: the page alone, never the GM or a hire (T792).
+        page("GET", "/setup/t3code", "whether T3 Code and its t3 command are installed"),
+        page("POST", "/setup/t3code/open", "a hire's folder, from the registry, opened in T3 Code on this computer"),
+
         // Phones' codes and keys: the page alone (1.23.1).
         page("POST", "/setup/pair", "a pairing code"),
         page("GET", "/setup/qr.png", "the code as a picture"),
