@@ -475,7 +475,8 @@ func TestATestCopyLeavesTheMusicAndTheMicrophoneAlone(t *testing.T) {
 	if pressed {
 		t.Error("a jukebox key or the volume reached the computer")
 	}
-	for _, action := range []string{"music", "volume", "music-state", "dictation"} {
+	// The Mac app is asked none of these: the jukebox, dictation made ready, or a recording (RGAPA2 N-a).
+	for _, action := range []string{"music", "volume", "music-state", "dictation", "dictation-start"} {
 		if asked := mac.requests(action); len(asked) != 0 {
 			t.Errorf("the Mac app was asked %s: %+v", action, asked)
 		}

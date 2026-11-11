@@ -572,7 +572,7 @@
         "phoneMic" : {
           "autoSend" : "bool",
           "enabled" : "bool",
-          "serving" : "string|null",
+          "serving" : "bool|null",
           "tailnet" : "string|null"
         },
         "phones" : [
@@ -1132,7 +1132,7 @@
         "phoneMic" : {
           "autoSend" : "bool",
           "enabled" : "bool",
-          "serving" : "string|null",
+          "serving" : "bool|null",
           "tailnet" : "string|null"
         },
         "phones" : [

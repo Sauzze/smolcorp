@@ -680,6 +680,25 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertFalse(isOK(ask(["action": "login-item"], none)))
     }
 
+    /// A test copy never records from the Mac's microphone (RGAPA B1): the office's mic is refused before any tab,
+    /// driver or recording is looked at, in the test copy's words. Stand-ins only; nothing records.
+    func testATestCopyNeverRecords() {
+        var copy = actions
+        copy.testCopy = true
+        var recorded: [String] = []
+        copy.startDictation = { language, tab, done in recorded.append("\(language) \(tab)"); done(true) }
+        var request: [String: Any] = ["action": "dictation-start", "tab": "tty:/dev/ttys003", "language": "en_US", "token": token]
+        let answer = HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: copy)
+        XCTAssertFalse(isOK(answer))
+        XCTAssertEqual(answer["error"] as? String, TestCopy.OtherApp.microphone.sentence)
+        XCTAssertEqual(TestCopy.OtherApp.microphone.sentence, "This is a test copy of Smolcorp: it never asks for the microphone or turns dictation on.")
+        // Not even a request the real app would refuse gets further.
+        request["tab"] = "nonsense"
+        let other = HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: copy)
+        XCTAssertEqual(other["error"] as? String, TestCopy.OtherApp.microphone.sentence)
+        XCTAssertEqual(recorded, [], "never recorded")
+    }
+
     /// The office's window and the folder panel: each checked, then run on the main queue, as the Swift
     /// engine's routes run them. Nothing here shows a window or opens a panel: stand-ins.
     func testTheOfficeWindowAndTheFolderPanelAreTheShellsOwn() {
@@ -1056,6 +1075,17 @@ final class HostBridgeTests: XCTestCase {
         var typed: [String] = []
         mac.driver = { tab in PhoneTerminal(pastes: tab.id == "CD34" ? .notRead : .pasted) { typed.append($0) } }
         mac.screen = { _ in .some("> Bonjour l’équipe\n  ? for shortcuts\n\n\n") }
+        // The office's mic (M7GAPA): recording starts for ttys003 only; stopped, it heard a few words, cleaned up
+        // in 0.9 s; the text then goes into the tab where its agent is in front (ttys005's has ended).
+        var heard = ["Fix the uh small corp build"]
+        mac.startDictation = { [unowned self] language, tab, done in asked.append("record \(language) \(tab)"); done(tab == "tty:/dev/ttys003") }
+        mac.stopDictation = { [unowned self] done in asked.append("stop recording"); done(heard.isEmpty ? "" : heard.removeFirst()) }
+        mac.cleanDictation = { [unowned self] text, desks, cleanup, glossary, done in
+            asked.append("clean \(text) \(desks) \(cleanup) \(glossary == DictationCleanup.defaultGlossary ? "default" : "\(glossary)")")
+            cleanup ? done("Fix the Smolcorp build", .cleaned(0.9)) : done(text, .off)
+        }
+        mac.clearCleanupProblem = { [unowned self] in asked.append("clean-up problem cleared") }
+        mac.insert = { [unowned self] text, tab in asked.append("insert \(text) \(tab.text)"); return true }
         // The processes (M5c): three in the hire's worktree or naming its session; a Mac that can't list them without one.
         mac.processes = { folder, session in
             guard folder == "/Users/ada/repo-hires/ada-abcdef", !session.isEmpty else { return nil }
@@ -1081,7 +1111,11 @@ final class HostBridgeTests: XCTestCase {
         }
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
         XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "office", "on top true", "keys ctrl+alt+K", "keys ctrl+alt+T", "choose /Users/example/hires floor", "choose - hires",
-                               "close hires", "accessibility", "install", "install", "keystrokes on", "dictation fr_FR", "terminal command true",
+                               "close hires", "accessibility", "install", "install", "keystrokes on", "dictation fr_FR",
+                               "record fr_FR tty:/dev/ttys003", "record en_US tty:/dev/ttys004", "stop recording", "stop recording",
+                               "clean Fix the uh small corp build [\"smolcorp\", \"website\"] true default", "clean hello there [] false []",
+                               "clean-up problem cleared",
+                               "insert Fix the Smolcorp build tty:/dev/ttys003", "terminal command true",
                                "t3 app opened", "t3 link t3code://threads/local/mcp%3Aabc-1", "volume 30"])
         XCTAssertTrue(login, "Open at login, switched on")
         // The phone's text, by `Deck.typePhoneWords` on the stand-in drivers: nothing for an agent that has ended,

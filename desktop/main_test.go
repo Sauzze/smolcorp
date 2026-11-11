@@ -47,5 +47,7 @@ func runWithTempSupport(m *testing.M) int {
 	os.Setenv("USERPROFILE", homeDir)
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(homeDir, ".config"))
 	os.Setenv("APPDATA", filepath.Join(homeDir, "AppData"))
+	// Tailscale's command line is never run by a test: no Tailscale here, unless a test puts in its own.
+	askTailnet = func() (tailnetAnswer, bool) { return tailnetAnswer{}, false }
 	return m.Run()
 }

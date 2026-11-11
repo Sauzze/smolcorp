@@ -638,7 +638,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		}
 		writeJSON(w, status, answer)
 	case r.Method == http.MethodPost && r.URL.Path == "/act":
-		writeStatus(w)(d.Perform(r.URL.Query().Get("action"), session, r.URL.Query()))
+		writeStatus(w)(d.PerformFrom(phoneID, r.URL.Query().Get("action"), session, r.URL.Query()))
 	// The phone's text (typed, or heard by its own mic), typed into the session's agent: from a paired phone
 	// with its key, over the Wi-Fi as over Tailscale (I34), never from the office's own window. See phonetext.go.
 	case r.Method == http.MethodPost && r.URL.Path == "/dictate":
@@ -1014,6 +1014,20 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		code := d.access.ActiveCode()
 		d.mu.Unlock()
+		// Under the Mac app, ?via=tailnet: the same code at this Mac's tailnet address, for the phone mic over
+		// HTTPS, with the phone mic on and an address (hostphonemic.go).
+		if r.URL.Query().Get("via") == "tailnet" {
+			link := ""
+			if code != "" && d.macHost() != nil {
+				link = d.tailnetPairingLink(code)
+			}
+			if link == "" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			writeQR(w, link)
+			return
+		}
 		// No code, or no address a phone could open: no QR code to scan.
 		if code == "" || phoneAddress() == "" {
 			w.WriteHeader(http.StatusNotFound)
@@ -2070,8 +2084,13 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 	connected := allConnected()
 	openAtLogin := d.openAtLogin()
 	gmHired := readRegistry(registryPath(), false).gmIsHired()
-	// Under the Mac app, what only it can say of this Mac (hostsetup.go).
+	// Under the Mac app, what only it can say of this Mac (hostsetup.go), and what Tailscale last said of it,
+	// for the phone mic (hostphonemic.go).
 	facts := d.macFactsNow()
+	var tailnetFound tailnetAnswer
+	if d.macHost() != nil {
+		tailnetFound = d.tailnetNow()
+	}
 	// The API-key account for a hire: the Mac app's Keychain, or this computer's secret store (hireapikey.go).
 	apiKey := d.apiKeyOffer()
 	// The account folders are looked in without the lock: one that doesn't answer must not stop the deck.
@@ -2205,6 +2224,10 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		state["launcher"] = launchCommand()
 	}
 	d.addMacSetup(state, facts)
+	// Phone microphone, and this Mac's tailnet address if Tailscale says it: the Mac's alone, as its setup has it.
+	if d.mac.host != nil {
+		state["phoneMic"] = d.phoneMicState(tailnetFound)
+	}
 	return state
 }
 

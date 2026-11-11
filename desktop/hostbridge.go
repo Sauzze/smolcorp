@@ -24,8 +24,10 @@ import (
 // and which processes work in a folder or name a session, read only, for Let
 // go and Take over (t3process_darwin.go); T3 Code's app, found and opened by
 // its bundle id, and a hire's thread opened by its link (t3code.go); the
-// Grok Bot app's bots, for the core to find (grokbots.go), and the jukebox
-// (music_other.go). Each is
+// Grok Bot app's bots, for the core to find (grokbots.go), the jukebox
+// (music_other.go), and the office's mic dictating: the Mac's microphone
+// recording for a desk, and what it heard, cleaned up as asked
+// (hostdictation.go). Each is
 // the Mac app's own code, as the Swift engine runs it
 // (HostBridge.swift); their requests and answers are Tests/fixtures/bridge/actions.json.
 //
@@ -80,8 +82,14 @@ type bridgeRequest struct {
 	App  string   `json:"app,omitempty"`
 	// glossary: dictation's names, as the page has them.
 	Names []string `json:"names,omitempty"`
-	// dictation: the language whose model gets ready.
+	// dictation: the language whose model gets ready; dictation-start: the language recorded in.
 	Language string `json:"language,omitempty"`
+	// dictation-start: this program is recording already, so the app checks the tab and says no (RGAPA N2).
+	Busy bool `json:"busy,omitempty"`
+	// dictation-clean: the clean-up's glossary as setup has it (none: the app's own), and the desks' names;
+	// the text is Text, and whether to clean it up On.
+	Glossary *[]string `json:"glossary,omitempty"`
+	Desks    []string  `json:"desks,omitempty"`
 	// abilities: the sessions' tabs, as the deck names them.
 	Tabs []string `json:"tabs,omitempty"`
 	// bots-resolve: the Grok Bots to look for in the Grok Bot app.
@@ -154,6 +162,12 @@ type bridgeAnswer struct {
 	Names []string `json:"names,omitempty"`
 	// dictation: why the language's model isn't ready, or nothing.
 	Problem string `json:"problem,omitempty"`
+	// dictation-start: whether recording started. dictation-stop: what was heard. dictation-clean: the text
+	// cleaned up or as heard, how that went for the desk's note ("" for none), and whether it was cleaned.
+	Started bool   `json:"started,omitempty"`
+	Text    string `json:"text,omitempty"`
+	Note    string `json:"note,omitempty"`
+	Cleaned bool   `json:"cleaned,omitempty"`
 	// abilities: each tab's, in the order asked.
 	Abilities []tabAbilities `json:"abilities,omitempty"`
 	// bots-resolve: who each bot is in the Grok Bot app, in the order asked; null for one not there.

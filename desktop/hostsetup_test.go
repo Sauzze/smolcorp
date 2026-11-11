@@ -39,9 +39,22 @@ type macStandIn struct {
 	// you being back at the Mac (presence).
 	unreadable []string
 	presence   bridgeAnswer
+	// The office's mic (hostdictation.go): a recording that won't start, and what a stop heard; a start held
+	// until startWait is closed, if set (before the lock, so a stop can be answered meanwhile).
+	notStarting bool
+	heard       string
+	startWait   chan struct{}
 }
 
 func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
+	if request.Action == "dictation-start" {
+		m.mu.Lock()
+		wait := m.startWait
+		m.mu.Unlock()
+		if wait != nil {
+			<-wait
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.asked = append(m.asked, request)
@@ -128,6 +141,24 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 	case "time-format":
 		format := m.timeFormat
 		return bridgeAnswer{OK: true, TimeFormat: &format}, nil
+	case "dictation-start":
+		// A launcher's id isn't a tab the app knows (TabAddress): its no, as RGAPA B2 found it. Busy, the core is
+		// recording already: checked, then not started.
+		if kind, _, _ := splitTab(request.Tab); kind == "launcher" {
+			return bridgeAnswer{Error: "Not a tab."}, nil
+		}
+		return bridgeAnswer{OK: true, Started: !m.notStarting && !request.Busy}, nil
+	case "dictation-stop":
+		return bridgeAnswer{OK: true, Text: m.heard}, nil
+	case "dictation-clean":
+		// Cleaned up when asked, as the app's clean-up says it; off, as heard and nothing to say.
+		answer := bridgeAnswer{OK: true, Text: request.Text}
+		if request.On != nil && *request.On {
+			answer.Note, answer.Cleaned = "cleaned in 0.9 s", true
+		}
+		return answer, nil
+	case "insert":
+		return bridgeAnswer{OK: true}, nil
 	}
 	return bridgeAnswer{Error: "This terminal can't do that.", Unsupported: true}, nil
 }
@@ -289,8 +320,36 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"dictation's names, checked": func(h hostBridge) (any, error) {
 			return hostGlossary(h, []string{"Smolcorp", " smolcorp ", "Tailscale", ""})
 		},
-		"dictation got ready, with a problem":      func(h hostBridge) (any, error) { return hostPrepareDictation(h, "fr_FR") },
-		"dictation in a language it doesn't know":  func(h hostBridge) (any, error) { return hostPrepareDictation(h, "xx_XX") },
+		"dictation got ready, with a problem":     func(h hostBridge) (any, error) { return hostPrepareDictation(h, "fr_FR") },
+		"dictation in a language it doesn't know": func(h hostBridge) (any, error) { return hostPrepareDictation(h, "xx_XX") },
+		"the office's mic, recording for a Terminal tab": func(h hostBridge) (any, error) {
+			return hostDictationStart(h, "tty:/dev/ttys003", "fr_FR", false)
+		},
+		"the office's mic, recording that couldn't start": func(h hostBridge) (any, error) {
+			return hostDictationStart(h, "tty:/dev/ttys004", "en_US", false)
+		},
+		"the office's mic, while the core is recording already": func(h hostBridge) (any, error) {
+			return hostDictationStart(h, "tty:/dev/ttys003", "fr_FR", true)
+		},
+		"the clean-up switched off, its last problem forgotten": func(h hostBridge) (any, error) {
+			return nil, hostDictationCleanupOff(h)
+		},
+		"the office's mic let go, what it heard": func(h hostBridge) (any, error) { return hostDictationStop(h) },
+		"the office's mic let go, nothing heard": func(h hostBridge) (any, error) { return hostDictationStop(h) },
+		"what it heard, cleaned up by Claude": func(h hostBridge) (any, error) {
+			return hostDictationClean(h, "Fix the uh small corp build", dictationClean{cleanup: true, desks: []string{"smolcorp", "website"}})
+		},
+		"what it heard, the clean-up off": func(h hostBridge) (any, error) {
+			return hostDictationClean(h, "hello there", dictationClean{glossary: &[]string{}})
+		},
+		"dictation's text, into a Terminal tab, its agent in front": func(h hostBridge) (any, error) {
+			_, err := ask(h, bridgeRequest{Action: "insert", Tab: "tty:/dev/ttys003", Agent: Codex, Text: "Fix the Smolcorp build"})
+			return nil, err
+		},
+		"dictation's text, to an agent that has ended": func(h hostBridge) (any, error) {
+			answer, err := ask(h, bridgeRequest{Action: "insert", Tab: "tty:/dev/ttys005", Agent: Codex, Text: "Fix the build"})
+			return errors.Is(placeError(answer, err), errAgentGone), err
+		},
 		"Add smolcorp to Terminal, in a test copy": func(h hostBridge) (any, error) { return nil, hostTerminalCommand(h, true) },
 		"the desks' terminals, from the drivers' tables": func(h hostBridge) (any, error) {
 			return hostAbilities(h, []string{"iterm:AB12", "tty:/dev/ttys003", "headless:3f2a9c1e"})
@@ -377,6 +436,14 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"dictation's names, checked":                                                  []string{"Smolcorp", "Tailscale"},
 		"dictation got ready, with a problem":                                         "Apple's model for French couldn't be downloaded.",
 		"dictation in a language it doesn't know":                                     "",
+		"the office's mic, recording for a Terminal tab":                              true,
+		"the office's mic, recording that couldn't start":                             false,
+		"the office's mic, while the core is recording already":                       false,
+		"the office's mic let go, what it heard":                                      "Fix the uh small corp build",
+		"the office's mic let go, nothing heard":                                      "",
+		"what it heard, cleaned up by Claude":                                         dictationCleaned{text: "Fix the Smolcorp build", note: "cleaned in 0.9 s", cleaned: true},
+		"what it heard, the clean-up off":                                             dictationCleaned{text: "hello there"},
+		"dictation's text, to an agent that has ended":                                true,
 		"the desks' terminals, from the drivers' tables":                              []tabAbilities{{true, true, true, true}, {true, true, true, true}, {}},
 		"Grok Bots looked for in the Grok Bot app":                                    []*botResolution{{BotID: "0a1b-2c3d", Name: "Smolcorp Mini Manager", By: "guess"}, nil},
 		"the phone's text, one line, into a Terminal tab":                             []any{pasteDone, false},

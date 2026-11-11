@@ -99,20 +99,23 @@ func (d *Deck) addMacControls(entry map[string]any, s *Session) {
 	// terminal lets them, as the Swift engine's (the mic as when it doesn't dictate, below).
 	entry["dial"] = s.Agent.HasEffortDial() && can.Text
 	entry["phoneMic"] = d.config.PhoneMicEnabled && can.Text
+	// The agent's own voice mode through Space, or dictation through the text it types (hostdictation.go).
+	dictates := d.dictatesFor(s.Tab, s.Agent)
 	entry["mic"] = s.Agent.HasVoice() && can.Keys
-	// The office's mic dictates only in the Swift engine for now: nothing asks the app to listen yet
-	// (a known gap of M3's, through the bridge, in contract_test.go).
-	entry["dictates"] = false
+	if dictates {
+		entry["mic"] = can.Text
+	}
+	entry["dictates"] = dictates && can.Text
 	// What a menu asks you to choose is told to the iPhone app (personal build) alone: nothing here.
 	entry["choice"] = nil
 }
 
 // addMacOffice puts dictation in the snapshot under the Mac app, as the Swift
-// engine has it for the mic's quick switches: off, as above, in its language,
-// with the clean-up as set. With the lock held.
+// engine has it for the mic's quick switches: whether it's on, its language,
+// and the clean-up as set. With the lock held.
 func (d *Deck) addMacOffice(state map[string]any) {
 	if d.mac.host == nil {
 		return
 	}
-	state["dictation"] = map[string]any{"on": false, "language": d.dictationLanguage(), "cleanup": d.config.DictationCleanup}
+	state["dictation"] = map[string]any{"on": d.dictationOn(), "language": d.dictationLanguage(), "cleanup": d.config.DictationCleanup}
 }
