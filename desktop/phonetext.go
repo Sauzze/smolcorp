@@ -314,6 +314,11 @@ func (d *Deck) TypePhoneText(text, id string, send *bool) (int, string) {
 		return http.StatusBadRequest, noBangPrompt
 	}
 	d.mu.Lock()
+	// A hire in T3 Code's desk is not typed into: its own sentence, as /act's send and the Mac say it.
+	if hire, ok := d.t3HireAtDesk(id); ok {
+		d.mu.Unlock()
+		return http.StatusConflict, t3NoControls(calledHire(hire))
+	}
 	s := d.sessions.Get(id)
 	if s == nil || s.Tab == "" {
 		d.mu.Unlock()

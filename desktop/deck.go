@@ -1307,6 +1307,11 @@ func (d *Deck) inTab(name string, op func(Tab) error) (int, string) {
 		d.mu.Unlock()
 		return http.StatusGone, "That agent has ended."
 	case errors.Is(err, errUnsupported):
+		// Under the Mac app, as its Swift engine says it for a terminal Smolcorp can only watch (Deck.notHere);
+		// Linux and Windows keep their own sentence.
+		if d.mac.host != nil {
+			return http.StatusConflict, notHere
+		}
 		return http.StatusNotFound, "This terminal can't do that"
 	case errors.Is(err, errNotStopped):
 		return http.StatusConflict, "Couldn't stop the agent, so its tab is left open."
@@ -1481,8 +1486,9 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		return d.playMusic(key)
 	}
 	if action == "hire" {
-		// A new hire has no session yet.
-		if query.Has("desk") && query.Get("desk") == "" {
+		// A new hire has no session yet. With hiring off the answer is that, whatever desk was named (403, as the
+		// Mac's hire says it first).
+		if hiring && query.Has("desk") && query.Get("desk") == "" {
 			return http.StatusBadRequest, "Unknown desk"
 		}
 		if floor := query.Get("floor"); floor != "" && floor != "0" {
@@ -1616,6 +1622,11 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		if !agent.HasEffortDial() {
 			return http.StatusBadRequest, agent.Name() + " has no effort setting"
 		}
+		// Set by typing /effort, which a terminal Smolcorp can only watch can't take: under the Mac app, as its
+		// Swift engine answers (409). Linux and Windows keep taking it, as their desks show the dial everywhere.
+		if d.mac.host != nil && !d.macDrives(tab) {
+			return http.StatusConflict, notHere
+		}
 		level := query.Get("level")
 		if !slices.Contains(effortLevels, level) {
 			return http.StatusBadRequest, "Unknown level"
@@ -1730,10 +1741,34 @@ func (d *Deck) Focus(id string) (int, string) {
 	if tab == "" {
 		return http.StatusNotFound, ""
 	}
+	// A terminal Smolcorp can only watch, or a headless run, has nothing to bring forward: under the Mac app the
+	// tap only picks the desk, as its Swift engine has it (204). Linux and Windows keep their refusals.
+	if d.mac.host != nil && !d.macDrives(tab) {
+		return http.StatusNoContent, ""
+	}
 	if isHeadless(tab) {
 		return http.StatusConflict, headlessNoControls
 	}
 	return d.inTab(tab, func(t Tab) error { return t.Focus() })
+}
+
+// macDrives is whether the Mac app has a driver for the tab's terminal, which every driver of its has (keys,
+// lines, bringing it forward). A terminal Smolcorp can only watch, a headless run and a name nobody knows have none,
+// whatever the app is asked; for one it has a driver for, the app's own word when it has said (a tmux that isn't
+// installed, a Ghostty not learned yet), else yes. Without the lock.
+func (d *Deck) macDrives(name string) bool {
+	kind, _, _ := splitTab(name)
+	switch kind {
+	case "launcher":
+		return true
+	case "tty", "tmux", "iterm", "ghostty", "wezterm", "kitty":
+	default:
+		return false
+	}
+	d.mu.Lock()
+	can, known := d.mac.abilities[name]
+	d.mu.Unlock()
+	return !known || can.Keys || can.Text
 }
 
 // applyQueuedEffort: typed into a running turn, /effort would be queued as a

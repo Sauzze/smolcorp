@@ -79,8 +79,10 @@ type contractAsk struct {
 	As      string            `json:"as"`
 	Query   map[string]string `json:"query"`
 	Headers map[string]string `json:"headers"`
-	Body    any               `json:"body"`
-	Given   []string          `json:"given"`
+	// Headers (named in Headers) that come twice in the request.
+	Repeated []string `json:"repeated"`
+	Body     any      `json:"body"`
+	Given    []string `json:"given"`
 }
 
 type contractRoute struct {
@@ -601,6 +603,9 @@ func (cd *contractDeck) request(method, path string, a contractAsk) *http.Reques
 	r.Host, r.RemoteAddr = host, from
 	for k, v := range headers {
 		r.Header.Set(k, v)
+	}
+	for _, k := range a.Repeated {
+		r.Header.Add(k, headers[k])
 	}
 	return r
 }
