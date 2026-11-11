@@ -67,17 +67,23 @@ func newTestDeck(t *testing.T) *Deck {
 // A stand-in the deck's rounds or looks read goes in before the deck starts: cleanups run last
 // first, so it is put back once the deck has stopped. A save of the sessions still to come is called
 // off once the rounds have stopped, and none is asked for after: it would read the deck after the test
-// and write into folders being removed.
+// and write into folders being removed. One already under way is waited for (its timer has gone off, and it
+// may be a moment from writing): a test that lasts as long as the save's delay would find its folder not empty.
 func startDeck(t *testing.T) *Deck {
 	t.Helper()
 	d := NewDeck()
 	t.Cleanup(func() {
 		d.mu.Lock()
-		defer d.mu.Unlock()
 		if d.saveTimer != nil {
 			d.saveTimer.Stop()
 		}
 		d.savePending = true
+		// A save whose timer has already gone off may be waiting for the lock, or past it and about to write: the
+		// first to a folder that isn't there, the second waited for, so the folder is empty when the test removes it.
+		d.sessionsFile = filepath.Join(filepath.Dir(d.sessionsFile), "no-such-folder", "sessions.json")
+		d.mu.Unlock()
+		d.saveMu.Lock()
+		d.saveMu.Unlock() // only waiting for a save that is under way
 	})
 	t.Cleanup(d.stopWatchers)
 	return d

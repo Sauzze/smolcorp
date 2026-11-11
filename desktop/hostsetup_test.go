@@ -527,10 +527,14 @@ func TestTheMacsSwitchesAreKeptHereAndDoneByTheApp(t *testing.T) {
 func TestTheDesksAbilitiesAreAskedOncePerSetOfTabs(t *testing.T) {
 	mac := withMac(t)
 	d := newTestDeck(t)
+	// Both tabs in under one hold of the lock: the deck's own rounds look at the sessions on their own, and one
+	// that came between two would ask about the first tab alone, then again about both.
+	d.mu.Lock()
 	for i, tab := range []string{"tty:/dev/ttys901", "iterm:AB12"} {
-		applied(d, map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "m" + string(rune('0'+i)), "cwd": "/work/mac"},
-			Claude, tab, float64(100+i))
+		d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "m" + string(rune('0'+i)), "cwd": "/work/mac"},
+			Claude, tab, "", float64(100+i))
 	}
+	d.mu.Unlock()
 	desk := learnedDesk(t, d)
 	if desk["keys"] != true || desk["fire"] != true || desk["dial"] != true || desk["mic"] != true || desk["dictates"] != false || desk["choice"] != nil {
 		t.Errorf("a desk under the Mac app: %v", desk)

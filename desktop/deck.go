@@ -84,6 +84,7 @@ type Deck struct {
 	// from before a restart still waiting for their launcher: see saved.go.
 	savePending  bool
 	saveTimer    *time.Timer
+	saveMu       sync.Mutex // one save of the sessions at a time, from the lock to the written file
 	restoring    *pendingRestore
 	sessionsFile string
 	// Whether the folder picker is open, from setup.
