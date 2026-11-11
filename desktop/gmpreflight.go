@@ -19,8 +19,8 @@ import (
 // asks it: no credential, key or token is ever read.
 
 // preflightAction is what a line's button does: "copy" (a command to paste in
-// a terminal), "fix" (a POST /setup/fix by name) or "folder" (the folder step above).
-// The Mac also has "account" (its Claude accounts), for a test copy's line.
+// a terminal), "fix" (a POST /setup/fix by name), "folder" (the folder step above) or "account" (the
+// Claude accounts, for a Mac's test copy's line).
 type preflightAction struct {
 	Kind    string `json:"kind"`
 	Label   string `json:"label"`
@@ -49,8 +49,14 @@ type preflightReport struct {
 // at its folder step (#first-folder). The Mac says the same (DeckRouter.swift).
 const chooseHireFolderFirst = "Choose the folder for your hires first: it's the first step of Start here."
 
-// gmNeedsAccount is a test copy's account line, in the Mac's words (GMPreflight.needsAccount).
-const gmNeedsAccount = "Your General Manager needs a Claude account of its own (this is a test copy)."
+// gmNeedsAccount is a test copy's account line, in the Mac's words (GMPreflight.needsAccount), and what to do on a
+// Mac, where a test copy hires on an account of its own: add one, or choose one beside Hire (the page matches these
+// words for the refusal's button).
+const (
+	gmNeedsAccount     = "Your General Manager needs a Claude account of its own (this is a test copy)."
+	gmAddAccountFix    = "Add one under Claude accounts: sign in to a second account there, then add it."
+	gmChooseAccountFix = "Choose one other than default, beside Hire your General Manager below."
+)
 
 // gmBeingHired answers a GM hire while another one runs, as the Mac does (Deck.gmRefusal).
 const gmBeingHired = "A General Manager is being hired right now. Give it a moment."
@@ -83,29 +89,40 @@ var claudeFoundAt = func() string {
 	return ""
 }
 
-// claudeSignIn asks program whether it's signed in, as a hire starts it: through your login shell, with
-// the hire's environment, so a key or a cloud provider your shell's files set counts. A variable, for the tests.
-var claudeSignIn = func(program string) signIn {
-	command := signInCommand(program)
-	return signInFrom(quickRun(command[0], command[1:], signInEnvironment()).output)
+// claudeSignIn asks program whether it's signed in on the account whose config folder is configDir ("" for
+// ~/.claude's), as a hire starts it: through your login shell, with the hire's environment, so a key or a cloud
+// provider your shell's files set counts. A variable, for the tests.
+var claudeSignIn = func(program, configDir string) signIn {
+	command := signInCommand(program, configDir)
+	return signInFrom(quickRun(command[0], command[1:], signInEnvironment(configDir)).output)
 }
 
 // signInCommand is `claude auth status --json` the way a hire's command is run (startHire, inLoginShell), on
-// ~/.claude's account as the GM's hire is: its start script clears CLAUDE_CONFIG_DIR after your shell's files
-// have run, so this clears it there too (the Mac's GMPreflight.signInArguments). Windows has no login shell.
-func signInCommand(program string) []string {
+// the account the GM's hire would work on: its start script sets CLAUDE_CONFIG_DIR to the account's folder, or
+// clears it for ~/.claude's (configDir ""), after your shell's files have run, so this does the same there (the
+// Mac's GMPreflight.signInArguments). Windows has no login shell: the environment says it (signInEnvironment).
+func signInCommand(program, configDir string) []string {
 	if runtime.GOOS == "windows" {
 		return []string{program, "auth", "status", "--json"}
 	}
-	return inLoginShell([]string{"env", "-u", "CLAUDE_CONFIG_DIR", program, "auth", "status", "--json"})
+	account := []string{"-u", "CLAUDE_CONFIG_DIR"}
+	if configDir != "" {
+		account = []string{"CLAUDE_CONFIG_DIR=" + configDir}
+	}
+	return inLoginShell(append(append([]string{"env"}, account...), program, "auth", "status", "--json"))
 }
 
-// signInEnvironment is the hire's environment without CLAUDE_CONFIG_DIR, as the launcher drops it for the GM.
-func signInEnvironment() []string {
-	return slices.DeleteFunc(hireEnvironment(), func(variable string) bool {
+// signInEnvironment is the hire's environment without CLAUDE_CONFIG_DIR, as the launcher drops it for the GM, and
+// with the account's own folder when one is named.
+func signInEnvironment(configDir string) []string {
+	env := slices.DeleteFunc(hireEnvironment(), func(variable string) bool {
 		name, _, _ := strings.Cut(variable, "=")
 		return strings.EqualFold(name, "CLAUDE_CONFIG_DIR")
 	})
+	if configDir != "" {
+		env = append(env, "CLAUDE_CONFIG_DIR="+configDir)
+	}
+	return env
 }
 
 // signInFrom reads `claude auth status --json`, after whatever your shell's files print as it starts.
@@ -182,12 +199,25 @@ func pathLine(shell, folder string) string {
 // plainPathCharacters are those a folder can have without quoting it in a shell.
 const plainPathCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+~@%:,"
 
-// gmPreflight is the report, without the lock held.
-func (d *Deck) gmPreflight() preflightReport {
+// gmPreflight is the report for a hire on no account named, without the lock held.
+func (d *Deck) gmPreflight() preflightReport { return d.gmPreflightOn("") }
+
+// gmPreflightOn is the report for a hire on account ("" none named, which is the only one there is when there's
+// one), without the lock held: Claude Code's sign-in and hooks are those of the account the hire would work on,
+// as the Mac checks them (GMPreflight.check). An account that isn't there is the route's refusal, before this.
+func (d *Deck) gmPreflightOn(account string) preflightReport {
 	d.mu.Lock()
 	folder := strings.TrimSpace(d.config.HireFolder)
 	chosen, inTmux := d.config.HireTerminal, d.config.HireInTmux
+	accounts := claudeAccountList(d.config.ClaudeProfiles)
 	d.mu.Unlock()
+	profile, named := claudeAccountNamed(account, accounts)
+	other := named && profile.Name != claudeDefaultName
+	configDir := ""
+	if other {
+		configDir = profile.Dir
+	}
+	testCopy := testCopyPort() != 0
 	items := []preflightItem{}
 	add := func(item preflightItem) { items = append(items, item) }
 	show := &preflightAction{Kind: "folder", Label: "Show me"}
@@ -220,7 +250,7 @@ func (d *Deck) gmPreflight() preflightReport {
 		add(preflightItem{ID: "claude", OK: true, Title: "Claude Code is installed."})
 		state := signInUnknown
 		if at != "" {
-			state = claudeSignIn(at)
+			state = claudeSignIn(at, configDir)
 		}
 		switch state {
 		case signedIn:
@@ -234,6 +264,12 @@ func (d *Deck) gmPreflight() preflightReport {
 			add(preflightItem{ID: "signin", Optional: true, Title: "Smolcorp couldn't tell if Claude Code is signed in.",
 				Fix: "You can hire anyway: if your General Manager asks you to sign in, type /login in its window."})
 		}
+		// Another account reports through its own settings.json, which the Mac connects too; a test copy's hire
+		// through its own settings file, whatever the account's hold (the Mac's SelfTest.testCopyHires).
+		connected := hooksNotConnected(Claude) == ""
+		if other {
+			connected = testCopy || claudeConnectedIn(profile)
+		}
 		if leavesAgentsAlone() {
 			// A test copy never connects Claude Code (it can't write its settings): no Connect to offer, which would
 			// only end in a 409. Ticked, as the Mac's (GMPreflight.items); a copy that's on another port without being
@@ -243,17 +279,25 @@ func (d *Deck) gmPreflight() preflightReport {
 			} else {
 				add(preflightItem{ID: "hooks", Title: notConnectedOnPort()})
 			}
-		} else if hooksNotConnected(Claude) != "" {
+		} else if !connected {
 			add(preflightItem{ID: "hooks", Title: "Claude Code doesn't report to Smolcorp yet, so your General Manager would never reach a desk.",
 				Fix: "Press Connect, then Check again.", Action: &preflightAction{Kind: "fix", Label: "Connect", Fix: fixRepair}, Todo: true})
 		} else {
 			add(preflightItem{ID: "hooks", OK: true, Title: "Claude Code reports to Smolcorp."})
 		}
 	}
-	// A test copy never hires Claude Code on this computer (testCopyRefusal): said before Hire, not after. The Mac's
-	// test copy can hire on a second account (GMPreflight.accountItems); this one can't yet, so it's a line with no fix here.
-	// Not Todo, unlike the Mac's: there's no step to take here, so it stays red (!).
-	if testCopyPort() != 0 {
+	// A test copy never hires Claude Code on your default account (testCopyRefusal): said before Hire, not after.
+	// A Mac's test copy hires on an account of its own (GMPreflight.accountItems): To do until one is picked,
+	// ticked with its name once one is. Elsewhere it can't yet, so it's a line with no fix, red (!): no step to take.
+	if testCopy && runtime.GOOS == "darwin" {
+		if other {
+			add(preflightItem{ID: "account", OK: true, Title: "Your General Manager works on the Claude account " + profile.Name + "."})
+		} else if len(accounts) > 1 {
+			add(preflightItem{ID: "account", Title: gmNeedsAccount, Fix: gmChooseAccountFix, Action: &preflightAction{Kind: "account", Label: "Choose an account"}, Todo: true})
+		} else {
+			add(preflightItem{ID: "account", Title: gmNeedsAccount, Fix: gmAddAccountFix, Action: &preflightAction{Kind: "account", Label: "Add an account"}, Todo: true})
+		}
+	} else if testCopy {
 		add(preflightItem{ID: "account", Title: gmNeedsAccount, Fix: "A test copy on this computer can't use one yet: hire your General Manager from the real Smolcorp."})
 	}
 	terminals, tmux := hireWays()

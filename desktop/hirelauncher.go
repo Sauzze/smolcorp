@@ -464,6 +464,7 @@ func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, h
 	if err != nil {
 		if gmToken != "" && constantTimeEqual(d.gmToken, gmToken) {
 			d.gmToken = "" // d.mu is held: clearGMToken would take it again
+			d.gmTokenChanged()
 		}
 		d.lastHire = time.Time{} // nobody was hired, so the next try needn't wait
 		if refused, ok := err.(*hireRefusal); ok {

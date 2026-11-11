@@ -489,6 +489,9 @@ func writePluginLocked() error {
 func isOurs(handler any) bool {
 	h, _ := handler.(map[string]any)
 	command, _ := h["command"].(string)
+	if isMacReportScript(command) {
+		return true
+	}
 	program, found := strings.CutSuffix(command, " hook")
 	if !found {
 		i := strings.LastIndex(command, " hook ")
@@ -518,6 +521,23 @@ func isOurs(handler any) bool {
 		return program == thisCopysPath()
 	}
 	return program == thisCopysPath() || isDecksProgram(program)
+}
+
+// isMacReportScript is whether command is the Swift engine's own entry, under the Mac app only: its
+// report.sh in this support folder, quoted, with the agent's name after it for any agent but Claude Code and
+// Grok (Hooks.command(for:)). It counts as the deck's, so the start-up refresh puts `smolcorp hook` in its
+// place, connecting replaces it rather than adding a second entry, and disconnecting takes it out. The
+// script itself stays: a hire the Swift engine made still runs it from its own settings file.
+func isMacReportScript(command string) bool {
+	if hookHeaderFile == "" {
+		return false
+	}
+	rest, found := strings.CutPrefix(command, `"`+filepath.Join(supportDir, "report.sh")+`"`)
+	if !found {
+		return false
+	}
+	agent, spaced := strings.CutPrefix(rest, " ")
+	return rest == "" || spaced && Agent(agent) != Claude && Agent(agent) != Grok && slices.Contains(agents, Agent(agent))
 }
 
 // isHookArguments is what follows hook in the deck's command: at most

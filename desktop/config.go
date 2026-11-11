@@ -161,6 +161,11 @@ type Config struct {
 	// Whether the app keeps its own watches on the hires (watchers_builtin.go),
 	// while the manager is on; unset for on. No page setting: the file only.
 	BuiltinWatches bool `json:"builtinWatches"`
+	// Whether a General Manager started by hand is allowed: its token is then kept in a file too (gmbyhand.go).
+	// Under the Mac app only; kept as set elsewhere.
+	GMByHand bool `json:"gmByHand,omitempty"`
+	// The screen that holds the team when it's tiled (gmscreens.go), where you chose one: the Mac's display id.
+	TeamScreen string `json:"teamScreen,omitempty"`
 	// What the file held that this version doesn't read, as it was: saved
 	// back with the rest, so a setting from another version, older or newer,
 	// or the Mac app's, isn't lost at the next save.

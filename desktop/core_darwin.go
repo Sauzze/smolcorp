@@ -71,6 +71,11 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 	// Hires' windows open in Terminal, iTerm2 or Ghostty, through the app.
 	useMacOpeners(bridge)
 	deck := NewDeck()
+	// As Run does, and as the Swift engine did at each launch (Hooks.refresh, Hooks.watchOpenCode): the agents
+	// already connected follow this copy of the program and this version's events, and OpenCode's plugin
+	// follows an OpenCode update. A test copy refreshes none: they're the real Smolcorp's (leavesAgentsAlone).
+	refreshHooks()
+	watchOpenCode()
 	failed := make(chan error, 1)
 	go func() { failed <- Serve(deck) }()
 	if err := waitUntilServing(Port, failed, coreStartWait); err != nil {

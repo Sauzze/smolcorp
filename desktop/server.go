@@ -756,6 +756,9 @@ func (d *Deck) callerAndGM(r *http.Request) (caller, bool) {
 	page := func() bool { c, err := r.Cookie(setupCookie()); return err == nil && d.access.IsSetupSession(c.Value) }()
 	isTool := d.access.IsSetupKey(r.Header.Get(setupKeyHeader))
 	isGM := d.isGMToken(r.Header.Get(gmTokenHeader))
+	if isGM {
+		d.noteGM(r.Header.Get(gmSessionHeader)) // a GM started by hand, and its session (gmbyhand.go)
+	}
 	d.mu.Unlock()
 	if page {
 		return callerPage, isGM
@@ -955,6 +958,15 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	}
 	// What the Mac app does with its own windows, panel and login item, under it (hostshell.go).
 	if rt.macShell(w, r) {
+		return
+	}
+	// A GM started by hand and a new GM token, under the Mac app (gmbyhand.go).
+	if rt.byHandRoutes(w, r) {
+		return
+	}
+	// The GM's screens and tiling, under the Mac app (gmscreens.go). Elsewhere they're 404, and `smolcorp gm`
+	// words it itself.
+	if rt.gmScreenRoutes(w, r) {
 		return
 	}
 
@@ -1768,9 +1780,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// The front desk: the app's version and features, and the manager switch (see manager.go).
 	case r.Method == http.MethodGet && path == "/setup/gm/version":
 		d.mu.Lock()
-		enabled := config.ManagerEnabled
+		enabled, underMac := config.ManagerEnabled, d.mac.host != nil
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, versionAnswer(Version, enabled))
+		writeJSON(w, http.StatusOK, versionAnswer(Version, enabled, underMac))
 
 	case r.Method == http.MethodPost && path == "/setup/gm/manager":
 		// Routes table: the page only (routes.json lists the GM too, but no GM caller exists here yet).
@@ -1853,8 +1865,20 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 
 	// What a first General Manager hire needs (gmpreflight.go), Start here's lines above its
 	// Hire button. Outside /setup/gm/, which is closed while the manager is off, as on a first run.
+	// An account that isn't there is said, as the hire would say it, rather than checked as the
+	// default (DeckRouter.swift): 400, whatever the hire's own status for it.
 	case r.Method == http.MethodGet && path == "/setup/hire/gm/preflight":
-		writeJSON(w, http.StatusOK, d.gmPreflight())
+		account := query.Get("account")
+		if strings.TrimSpace(account) != "" {
+			d.mu.Lock()
+			accounts := claudeAccountList(d.config.ClaudeProfiles)
+			d.mu.Unlock()
+			if status, why := claudeAccountRefusal(account, accounts); status != 0 {
+				writeStatus(w)(http.StatusBadRequest, why)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, d.gmPreflightOn(account))
 
 	// Start here's Hire your General Manager: the GM role, in the folder for
 	// your hires, its questions asked in its terminal. `account=` names the
@@ -1993,18 +2017,6 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		r.Method == http.MethodPost && path == "/setup/gm/watch",
 		(r.Method == http.MethodPost || r.Method == http.MethodDelete) && path == "/setup/gm/unwatch":
 		rt.watchRoutes(w, r, path)
-
-	// The GM's screens and tile aren't served on this core yet (GO-PARITY rows 65 and 68). Under the Mac app
-	// the 404 says so in the engine's words, so `smolcorp gm` doesn't say "Linux and Windows" on a Mac;
-	// elsewhere it stays empty, and the GM tool words it itself.
-	case r.Method == http.MethodGet && path == "/setup/gm/screens",
-		r.Method == http.MethodPost && (path == "/setup/gm/screen" || path == "/setup/gm/tile"):
-		if d.macHost() == nil {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		command := strings.TrimPrefix(path, "/setup/gm/")
-		http.Error(w, "`gm "+command+"` isn't available in this version of Smolcorp yet.", http.StatusNotFound)
 
 	// The Mac answers an unknown route under /setup with an empty 404.
 	default:
@@ -2160,10 +2172,9 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"gmHired": gmHired,
 		// The Claude accounts besides ~/.claude, for the account pickers and the accounts step.
 		"claudeAccounts": claudeAccounts,
-		// The manager, as the Mac's setup state has it. This app has no GM started by hand and no token file
-		// (the token is in memory only), so those say so: no path is ever sent, and never the token.
-		"manager": map[string]any{"enabled": d.config.ManagerEnabled, "gmByHand": false, "gmStartedByHand": false,
-			"gmTokenFile": "", "gmTokenFileShown": ""},
+		// The manager, as the Mac's setup state has it: under the Mac app with a GM started by hand and its
+		// token file's path (gmbyhand.go), elsewhere with neither. Never the token.
+		"manager": d.managerState(),
 		// Where hires open: the terminals here that can open them, and tmux if it's there.
 		"hiring": d.hireState(apiKey),
 		// The roles, those that come with the app to go back to, and what a

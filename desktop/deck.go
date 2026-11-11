@@ -27,7 +27,8 @@ type Deck struct {
 	// Held through Start here's GM hire (server.go), never with mu: one at a time.
 	gmHiring sync.Mutex
 	access   *Access
-	gmToken  string // the GM's token, in memory only (see newGMToken)
+	gmToken  string // the GM's token, in memory, and under the Mac app in a file for a GM started by hand (gmbyhand.go)
+	gmHand   gmByHandState
 	config   *Config
 	sessions *Sessions
 	// Under the Mac app: what it last said of this Mac (see hostsetup.go, hostoffice.go).
@@ -170,6 +171,8 @@ func NewDeck() *Deck {
 	if settleListenScope(d.config, phonesOnly(d.access.Phones), runtime.GOOS) {
 		d.config.save()
 	}
+	// Under the Mac app, a GM started by hand keeps its token across a restart (gmbyhand.go).
+	d.loadByHandGM()
 	d.mail = d.newDeckOutbox()
 	// The folders are taken now, not at each look, so a look never reads a variable a test changes.
 	registry, support := registryPath(), supportDir
@@ -593,6 +596,7 @@ func (d *Deck) layout() ([]deckKey, []*Session) {
 				d.seatOf[new] = seat
 			}
 		}
+		d.movedByHandGM(old, new)
 	}
 	// A hire's desk goes to the first session in the launcher it opened. It's
 	// kept for it below if it's still free; if it was taken in the meantime,
@@ -1196,6 +1200,8 @@ func (d *Deck) sessionRole(s *Session) (Role, bool) {
 		roleID = d.hiredRoleAt(socket) // a hire the engine made: no launcher, its registry row has the role
 	} else if hire, ok := d.t3Desks.hireOf(s.ID); ok {
 		roleID = hire.Role // a hire in T3 Code's desk: its registry row has the role
+	} else if s.ID == d.byHandGMSession() {
+		roleID = gmRole // a GM started by hand was never hired, but has the role (Deck.roleID)
 	}
 	if roleID != "" {
 		for _, role := range d.config.Roles {

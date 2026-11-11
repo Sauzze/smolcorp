@@ -398,21 +398,36 @@ func TestTheGMsRouteSaysAnUnknownRoleFirstAndTakesAFolderBelowAHiddenOne(t *test
 	}
 }
 
-// A10: under the Mac app, the hiring route and the GM's unserved routes say "this Mac" and "this engine".
+// A10: under the Mac app, the hiring route says "this Mac", and the GM's screens, screen and tile are served (M7GAPC)
+// from what the app reads; without the Mac app the same three are 404, as on Linux and Windows.
 func TestTheMacsWordsUnderTheMacApp(t *testing.T) {
-	withMac(t)
+	routes := []struct{ method, path string }{
+		{"GET", "/setup/gm/screens"}, {"POST", "/setup/gm/screen"}, {"POST", "/setup/gm/tile"},
+	}
+	// No Mac app: a version without them, as before.
 	d := newTestDeck(t)
+	managerOn(d)
+	for _, c := range routes {
+		if code, _ := pageCall(t, d, c.method, c.path); code != http.StatusNotFound {
+			t.Errorf("without the Mac app, %s %s: %d", c.method, c.path, code)
+		}
+	}
+	mac := withMac(t)
+	mac.screens = []macScreen{builtIn}
+	d = newTestDeck(t)
 	managerOn(d)
 	if code, text := pageCall(t, d, "POST", "/setup/hiring?terminal=nope"); code != http.StatusBadRequest || text != "That terminal isn't on this Mac" {
 		t.Errorf("an unknown terminal: %d %q", code, text)
 	}
-	for _, c := range []struct{ method, path, command string }{
-		{"GET", "/setup/gm/screens", "screens"}, {"POST", "/setup/gm/screen", "screen"}, {"POST", "/setup/gm/tile", "tile"},
-	} {
-		want := "`gm " + c.command + "` isn't available in this version of Smolcorp yet."
-		if code, text := pageCall(t, d, c.method, c.path); code != http.StatusNotFound || text != want {
-			t.Errorf("%s %s: %d %q", c.method, c.path, code, text)
-		}
+	// The screens as the stand-in app reads them, a screen chosen asked for by its id, and a tile with nobody to place.
+	if code, text := pageCall(t, d, "GET", "/setup/gm/screens"); code != http.StatusOK || !strings.Contains(text, `"name":"Built-in"`) {
+		t.Errorf("GET /setup/gm/screens: %d %q", code, text)
+	}
+	if code, text := pageCall(t, d, "POST", "/setup/gm/screen"); code != http.StatusBadRequest || text != "Say which screen: id=<id> from /setup/gm/screens." {
+		t.Errorf("POST /setup/gm/screen: %d %q", code, text)
+	}
+	if code, text := pageCall(t, d, "POST", "/setup/gm/tile"); code != http.StatusOK || !strings.Contains(text, "nothing to tile") {
+		t.Errorf("POST /setup/gm/tile: %d %q", code, text)
 	}
 }
 

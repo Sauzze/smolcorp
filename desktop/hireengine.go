@@ -160,6 +160,18 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	}
 	start := hireStart{Role: r.Role, Message: message, ConfigDir: r.ConfigDir, DefaultAccount: r.DefaultAccount,
 		Settings: settings, CLIDir: filepath.Dir(o.CLI), Ports: place.Ports, SendKey: sendKey, GMToken: gmToken, APIKey: r.APIKey, KeyText: r.APIKeyText}
+	// The GM is told who it is, and starts with its rules, skills and tools where the app bundles them (GO-PARITY's
+	// GM start, as the Mac's Swift engine started it: Deck.gmIntroduction, Role.startScript's plugin).
+	if r.Role.ID == gmRole && agentOrClaude(r.Role.Agent) == Claude {
+		isExec := o.IsExec
+		if isExec == nil {
+			isExec = isExecutableFile
+		}
+		if start.GMPlugin = gmPluginFolder(o.CLI); start.GMPlugin != "" && isExec(o.CLI) {
+			start.GMCLI = o.CLI
+		}
+		start.Message += "\n\n" + gmIntroduction(place.Folder, start.GMPlugin != "" && start.GMCLI == "")
+	}
 	if r.TestPort != 0 {
 		start.TestPort, start.TestSupportDir = r.TestPort, supportDir
 	}
@@ -284,6 +296,7 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 	if err != nil {
 		if token != "" && constantTimeEqual(d.gmToken, token) {
 			d.gmToken = "" // d.mu is held: clearGMToken would take it again
+			d.gmTokenChanged()
 		}
 		d.lastHire = time.Time{} // nobody was hired, so the next try needn't wait
 		if refused, ok := err.(*hireRefusal); ok {

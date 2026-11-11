@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1291,5 +1292,58 @@ func TestTheHookFallsBackFromABadPort(t *testing.T) {
 				t.Errorf("--port %q did not reach the inherited port", bad)
 			}
 		})
+	}
+}
+
+// Under the Mac app, the Swift engine's own entries (its report.sh in the support folder, as Hooks.swift wrote
+// them) are the deck's: the start-up refresh puts this program's in their place, every event once, and leaves
+// the user's own and a look-alike alone. The script itself stays, for a hire the Swift engine made.
+func TestUnderTheMacAppTheRefreshReplacesTheSwiftEnginesReportScript(t *testing.T) {
+	home := isolate(t)
+	onDefaultPort(t)
+	t.Cleanup(func() { hookHeaderFile = "" })
+	hookHeaderFile = filepath.Join(supportDir, "hook-header")
+	script := filepath.Join(supportDir, "report.sh")
+	writeFile(t, script, "#!/bin/sh\n")
+	swift := `\"` + script + `\"`
+	settings := filepath.Join(home, ".claude", "settings.json")
+	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"`+swift+`","async":true}]},`+
+		`{"hooks":[{"type":"command","command":"`+swift+` --mine"}]},{"hooks":[{"type":"command","command":"say done"}]}]}}`)
+	refreshHooks()
+	stop := commands(readJSON(t, settings), "Stop")
+	want := []string{`"` + script + `" --mine`, "say done", hookCommand(Claude)}
+	if !slices.Equal(stop, want) {
+		t.Errorf("Stop runs %q, want %q", stop, want)
+	}
+	if start := commands(readJSON(t, settings), "SessionStart"); !slices.Equal(start, []string{hookCommand(Claude)}) {
+		t.Errorf("SessionStart runs %q: the refresh brings every event, as connecting does", start)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Error("the Swift engine's script was taken away")
+	}
+
+	// Codex's entry names its agent after the script.
+	if !isOurs(map[string]any{"command": `"` + script + `" codex`}) || isOurs(map[string]any{"command": `"` + script + `" nobody`}) {
+		t.Error("an agent's report.sh entry is the deck's only with an agent's name after it")
+	}
+	// Exact (RGAPC N2): the Swift engine wrote the bare path for Claude Code and Grok, and the agent's name only for
+	// Codex, Gemini and OpenCode; `claude` or `grok` after it was never written, so it is the user's own.
+	for _, command := range []string{`"` + script + `" claude`, `"` + script + `" grok`} {
+		if isOurs(map[string]any{"command": command}) {
+			t.Errorf("%s counts as the deck's, which Swift never wrote", command)
+		}
+	}
+	for _, name := range []string{"codex", "gemini", "opencode"} {
+		if !isOurs(map[string]any{"command": `"` + script + `" ` + name}) || !isOurs(map[string]any{"command": `"` + script + `"`}) {
+			t.Errorf("an entry Swift wrote (%s) isn't the deck's", name)
+		}
+	}
+	// Not under the Mac app (Linux, Windows), nor another folder's script: not the deck's.
+	if isOurs(map[string]any{"command": `"/elsewhere/report.sh"`}) {
+		t.Error("another folder's report.sh counts as the deck's")
+	}
+	hookHeaderFile = ""
+	if isOurs(map[string]any{"command": `"` + script + `"`}) {
+		t.Error("without the Mac app, report.sh counts as the deck's")
 	}
 }

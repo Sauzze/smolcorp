@@ -70,16 +70,19 @@ final class HostBridgeTests: XCTestCase {
         actions.driver = { _ in nil }
         actions.place = { _, _ in nil }
         actions.screen = { _ in nil }
+        // No AppleScript ever runs, and no screen is read: a test that tiles gives its own stand-in.
+        actions.tileScript = { _, _ in XCTFail("an AppleScript would have run"); return .failed }
+        actions.screens = { [] }
         // The team's registry, as the core keeps it: the fixture's hire, and the one these tests ask about.
         actions.openWorktrees = { ["/Users/ada/repo-hires/ada-abcdef", "/Users/ada/wt"] }
         return actions
     }
 
-    private func ask(_ request: [String: Any], token given: String? = nil) -> [String: Any] {
+    private func ask(_ request: [String: Any], token given: String? = nil, actions these: HostBridge.Actions? = nil) -> [String: Any] {
         var request = request
         request["token"] = given ?? token
         let line = try! JSONSerialization.data(withJSONObject: request)
-        return HostBridge.answer(line, token: token, actions: actions)
+        return HostBridge.answer(line, token: token, actions: these ?? actions)
     }
 
     private func isOK(_ answer: [String: Any]) -> Bool { answer["ok"] as? Bool == true }
@@ -1126,6 +1129,21 @@ final class HostBridgeTests: XCTestCase {
         mac.t3App = { true }
         mac.t3OpenApp = { [unowned self] in asked.append("t3 app opened") }
         mac.t3OpenLink = { [unowned self] in asked.append("t3 link \($0.absoluteString)"); return true }
+        // The GM's tiling (M7GAPC): the fixture's own screens; Terminal shows ttys003 in window 101 and ttys009 in 102,
+        // and moves 101 within a character of where it's asked; iTerm2 refuses Smolcorp its Automation permission.
+        // Only `Tiler.tile` runs, on a stand-in: no AppleScript is ever run.
+        let screens = try XCTUnwrap(cases.first { $0["name"] as? String == "the Mac's screens, read afresh" }.flatMap { ($0["answer"] as? [String: Any])?["screens"] as? [[String: Any]] })
+        mac.screens = { screens }
+        mac.tileScript = { [unowned self] source, arguments in
+            let app = source.contains("tell application \"iTerm\"") ? "iTerm" : "Terminal"
+            if source.contains("repeat with w in windows") {
+                asked.append("list \(app)")
+                return app == "iTerm" ? .notAllowed : .ok("101 /dev/ttys003\n102 /dev/ttys009")
+            }
+            asked.append("move \(app) \(arguments.joined(separator: " "))")
+            return .ok("0 30 476 566")
+        }
+        mac.placeOffice = { [unowned self] rect, mainHeight in asked.append("office \(Int(rect.minX)) \(Int(rect.minY)) \(Int(rect.width)) \(Int(rect.height)) \(Int(mainHeight))") }
         func text(_ object: Any) -> String {
             String(decoding: (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data(), as: UTF8.self)
         }
@@ -1135,7 +1153,10 @@ final class HostBridgeTests: XCTestCase {
             request["token"] = token
             // The core says the desk waits at its prompt, but ttys006's began asking as its terminal got to the words.
             let held = request["tab"] as? String == "tty:/dev/ttys006"
-            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: token, actions: mac,
+            // A test copy's tile is refused before any terminal is told anything (B1, RGAPC).
+            var here = mac
+            here.testCopy = one["name"] as? String == "tiling refused in a test copy"
+            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: token, actions: here,
                                            deskState: { held ? .asking : .unread })
             XCTAssertEqual(text(answer), text(one["answer"] ?? NSNull()), one["name"] as? String ?? "")
         }
@@ -1146,12 +1167,58 @@ final class HostBridgeTests: XCTestCase {
                                "clean Fix the uh small corp build [\"smolcorp\", \"website\"] true default", "clean hello there [] false []",
                                "clean-up problem cleared",
                                "insert Fix the Smolcorp build tty:/dev/ttys003", "terminal command true",
-                               "t3 app opened", "t3 link t3code://threads/local/mcp%3Aabc-1", "volume 30"])
+                               "t3 app opened", "t3 link t3code://threads/local/mcp%3Aabc-1", "volume 30",
+                               "list Terminal", "move Terminal 101 0 30 480 573", "list iTerm", "office 0 1750 1440 810 2560"])
         XCTAssertTrue(login, "Open at login, switched on")
         // The phone's text, by `Deck.typePhoneWords` on the stand-in drivers: nothing for an agent that has ended,
         // nor for "!", nor for Codex, nor to a desk asking. ⌘V that wasn't read in time went.
         XCTAssertEqual(typed, ["insert tty:/dev/ttys003 Bonjour l’équipe « ça marche » 👩‍💻 ;",
                                "paste iterm:AB12 first line\n    indented\tand a tab", "paste iterm:CD34 one\ntwo"])
+    }
+
+    /// The GM's tiling refuses what isn't its own (M7GAPC): a terminal that can't place its windows, a place that isn't
+    /// a tty's or a rectangle, more than the nine desks, an office with nowhere to go. Nothing is run for any of them.
+    func testTilingRefusesWhatIsntAPlaceOnAScriptableTerminal() {
+        let place: [String: Any] = ["tty": "/dev/ttys003", "rect": ["x": 0, "y": 30, "width": 480, "height": 573]]
+        for (request, refusal) in [
+            (["action": "tile", "terminal": "ghostty", "places": [place]], "Not a terminal Smolcorp can place the windows of."),
+            (["action": "tile", "terminal": "terminal", "places": [["tty": "ttys003; rm", "rect": place["rect"]!]]], "Not a list of places."),
+            (["action": "tile", "terminal": "terminal", "places": [["tty": "/dev/ttys003", "rect": ["x": 0, "y": 30]]]], "Not a list of places."),
+            (["action": "tile", "terminal": "terminal", "places": Array(repeating: place, count: 10)], "Not a list of places."),
+            (["action": "office-place", "office": ["x": 0, "y": 0, "width": -1, "height": 4], "mainHeight": 900], "Say where the office goes."),
+        ] as [([String: Any], String)] {
+            let answer = ask(request)
+            XCTAssertFalse(isOK(answer), "\(request)")
+            XCTAssertEqual(answer["error"] as? String, refusal, "\(request)")
+        }
+        XCTAssertEqual(windowQueues, [], "nothing was run on a terminal's queue")
+    }
+
+    /// A test copy never moves another app's windows (B1, RGAPC): `tile` and `office-place` are refused with the Swift
+    /// engine's sentence before any terminal's queue, AppleScript or window is touched. The screens are only read. The
+    /// same requests are done for the Mac in use.
+    func testATestCopyRefusesToTileAndToPlaceTheOffice() {
+        var copy = actions
+        copy.main = terminals // the test is on the main queue, which would wait for itself
+        copy.testCopy = true
+        var scripts = 0, placed = 0
+        copy.tileScript = { _, _ in scripts += 1; return .failed }
+        copy.placeOffice = { _, _ in placed += 1 }
+        copy.screens = { [["id": "1", "name": "Built-in"]] }
+        let place: [String: Any] = ["tty": "/dev/ttys003", "rect": ["x": 0, "y": 30, "width": 480, "height": 573]]
+        let office: [String: Any] = ["x": 0, "y": 1750, "width": 1440, "height": 810]
+        for request in [["action": "tile", "terminal": "terminal", "places": [place]],
+                        ["action": "tile", "terminal": "iterm", "places": [place]],
+                        ["action": "tile", "terminal": "ghostty", "places": [place]],
+                        ["action": "office-place", "office": office, "mainHeight": 2560]] as [[String: Any]] {
+            let answer = ask(request, actions: copy)
+            XCTAssertFalse(isOK(answer), "\(request)")
+            XCTAssertEqual(answer["error"] as? String, TestCopy.OtherApp.tiler.sentence, "\(request)")
+        }
+        XCTAssertEqual(TestCopy.OtherApp.tiler.sentence, "This is a test copy of Smolcorp: it never moves or tiles the windows of other apps.")
+        XCTAssertEqual(scripts + placed, 0, "nothing was run")
+        XCTAssertEqual(windowQueues, [], "nothing was run on a terminal's queue")
+        XCTAssertTrue(isOK(ask(["action": "screens"], actions: copy)), "the screens are only read")
     }
 
     /// The API-key account for a hire (M4c): whether it's offered and in what words, never reading the key; the key

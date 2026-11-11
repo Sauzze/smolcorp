@@ -47,11 +47,6 @@ var knownGaps = []knownGap{
 	{"setup-state-tool", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
 	{"setup-state-tool", ".pairing.codeExpiresIn", "extra", "a tool is told how long the code lasts; the Mac tells only the page", "stays: Go-only, a tool's; the page has it in its own state on both apps"},
 	{"setup-state-tool", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
-	{"GET /setup/hire/gm/preflight", "refusal: no such Claude account", "status 200", "the preflight takes no account yet: Go has the Claude accounts since M2, but the GM's tools are checked for any account", "M4"},
-	{"GET /setup/gm/screens", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
-	{"POST /setup/gm/screen", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
-	{"POST /setup/gm/by-hand", "route", "404", "no GM token here (M4)", "M4"},
-	{"POST /setup/gm/token/rotate", "route", "404", "no GM token here (M4)", "M4"},
 }
 
 // contractAsk is a fixture's request: who asks, its query, headers and body, and what's set up first.
@@ -1134,7 +1129,8 @@ func TestTheKnownGapsAreInventorysGoStatus(t *testing.T) {
 		switch {
 		case !ok:
 			t.Errorf("%s has a fixture but no row in INVENTORY.md", route)
-		case row.goStatus != want:
+		// "served" may say where, as the Mac-only rows do: "served (under the Mac app, …; 404 on Linux and Windows)".
+		case row.goStatus != want && !(want == "served" && strings.HasPrefix(row.goStatus, "served (")):
 			t.Errorf("%s: INVENTORY.md says Go %q, the known gaps say %q", route, row.goStatus, want)
 		case !strings.Contains(row.fixture, ".json"):
 			t.Errorf("%s: INVENTORY.md names no fixture", route)
