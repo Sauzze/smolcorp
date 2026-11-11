@@ -33704,7 +33704,7 @@
         disc(x + 38.5, y - 5.5, 3.4, creamDark); disc(x + 38.5, y - 5.5, 2.6, lens); disc(x + 38.5, y - 5.5, 1.2, 0x4c6a9a); dot(x + 37, y - 7, WHITE, 0.8);
         // The flash window, bursting white when it shoots
         const f = t < 0.4;
-        fill(x + 42, y - 8, 2, 2, f ? WHITE : 0xd8e4ea); 
+        fill(x + 42, y - 8, 2, 2, f ? WHITE : 0xd8e4ea);
         if (f) { dot(x + 41, y - 10, WHITE, 0.8); dot(x + 45, y - 9, WHITE, 0.8); dot(x + 43, y - 12, WHITE, 0.7); dot(x + 46, y - 7, WHITE, 0.6); dot(x + 40, y - 8, WHITE, 0.5); }
         if (f && isNight) glowLate(() => glowAt(x + 43, y - 7, 6, 5, 0xffffff, 0.3));
       },
@@ -35435,7 +35435,7 @@
         [[0xf8b8c8, 35, -4], [G2_MINT, 40, -4], [G2_LILAC, 38, -7], [0xfff0a8, 38, -10]].forEach(([c, dx, dy]) => {
           fill(x + dx, y + dy, 4, 1, c); fill(x + dx, y + dy + 1, 4, 1, G2_CREAM); fill(x + dx, y + dy + 2, 4, 1, shaded(c, 0.9)); dot(x + dx, y + dy, shaded(c, 1.1));
         });
-        
+
       },
       /** A mushroom lamp: a round pink cap with white spots on a cream stem; it glows warm, softly by day and brightly at night, breathing slowly. */
       girly2mushroom(x, y) {
@@ -56682,7 +56682,7 @@
             const spread = (r1 - 0.5) * 34, land = floor + Math.floor(r2 * 4), run = land - top;
             const py = top + 1 + ((t * 46 + r2 * run) % run);
             const px = x + spread * (0.25 + 0.75 * (py - top) / run);
-            fill(px, py, 1, 2, 0x9fd8ff, 0.8 * fade); 
+            fill(px, py, 1, 2, 0x9fd8ff, 0.8 * fade);
             if (land - py < 3) dot(px + (k % 2 ? 1 : -1), land - 1, WHITE, 0.6 * fade);
           }
           const rx = Math.min(15, 4 + t * 6);

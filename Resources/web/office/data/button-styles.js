@@ -51,7 +51,7 @@ const BUTTON_STYLES = {
         const spread = (r1 - 0.5) * 34, land = floor + Math.floor(r2 * 4), run = land - top;
         const py = top + 1 + ((t * 46 + r2 * run) % run);
         const px = x + spread * (0.25 + 0.75 * (py - top) / run);
-        fill(px, py, 1, 2, 0x9fd8ff, 0.8 * fade); 
+        fill(px, py, 1, 2, 0x9fd8ff, 0.8 * fade);
         if (land - py < 3) dot(px + (k % 2 ? 1 : -1), land - 1, WHITE, 0.6 * fade);
       }
       const rx = Math.min(15, 4 + t * 6);
