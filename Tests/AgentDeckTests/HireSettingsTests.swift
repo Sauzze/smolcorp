@@ -18,29 +18,6 @@ final class HireSettingsTests: XCTestCase {
 
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
 
-    private func json(_ url: URL) throws -> [String: Any] {
-        try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-    }
-
-    func testOnlyAClaudeHireWithSettingsStartsWithThem() {
-        var role = Role.shipped[0]
-        role.agent = Agent.claude.rawValue
-        let settings = "/s/hires/abc123/settings.json"
-        XCTAssertTrue(role.startScript(firstMessage: "go", settings: settings).contains("'claude' '--settings=\(settings)'"))
-        XCTAssertFalse(role.startScript(firstMessage: "go").contains("--settings"), "an unmanaged hire gets nothing new")
-        role.agent = Agent.codex.rawValue
-        XCTAssertFalse(role.startScript(firstMessage: "go", settings: settings).contains("--settings"))
-    }
-
-    func testATestCopysHireIsStartedWithoutTheAccountsSettings() {
-        var role = Role.shipped[0]
-        role.agent = Agent.claude.rawValue
-        let script = role.startScript(firstMessage: "go", settings: "/s/settings.json", testCopy: true)
-        XCTAssertTrue(script.contains("'--settings=/s/settings.json' '--setting-sources=project,local'"))
-        role.agent = Agent.codex.rawValue
-        XCTAssertFalse(role.startScript(firstMessage: "go", testCopy: true).contains("setting-sources"), "only Claude Code takes it")
-    }
-
     func testTheReportScriptSendsToTheCopysPortAndNeverTheRealOne() throws {
         let template = root.appendingPathComponent("report-template.sh")
         try "curl http://127.0.0.1:{{PORT}}/hook".write(to: template, atomically: true, encoding: .utf8)

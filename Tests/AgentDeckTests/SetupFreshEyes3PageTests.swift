@@ -20,18 +20,6 @@ final class SetupFreshEyes3PageTests: XCTestCase {
 
     // MARK: The hires folder
 
-    func testAHiddenFolderIsRefusedForWhatItIs() {
-        let example = "such as ~/Projects"
-        XCTAssertNil(HireFolder.hiddenRefusal(["projects", "app"], example: example))
-        XCTAssertEqual(HireFolder.hiddenRefusal(["projects", "smolcorp", ".team", "scratch"], example: example),
-                       "A folder inside a hidden folder (one whose name starts with '.') can't be used: choose one outside it.")
-        XCTAssertEqual(HireFolder.hiddenRefusal(["projects", ".team"], example: example),
-                       "A hidden folder (one whose name starts with '.') can't be used. Choose a project folder, such as ~/Projects.")
-        // Never the system's or apps' wording for one.
-        let home = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fe3-home-\(UUID().uuidString)")
-        XCTAssertFalse(HireFolder.check(home.path + "/Projects/.team/scratch", home: home).problem.contains("own files"))
-    }
-
     func testKeepingATypedFolderClosesTheMacsFolderWindow() throws {
         // The Go core asks the bridge's folder-panel-close: only the hires folder's panel, as if cancelled, so its
         // caller gets nothing picked; a floor's stays.

@@ -1,52 +1,6 @@
 import Foundation
 import Network
 
-struct Request {
-    let method: String
-    let path: String
-    let query: [String: String]
-    let headers: [String: String] // names lowercased
-    let body: Data
-    /// Sent from this Mac to a local name: see `HTTPConnection.isLocal`.
-    let isLocal: Bool
-    /// Addressed to an IP address or a local name, as a phone on the network
-    /// would. A web page using DNS rebinding arrives under its own domain.
-    let isAddressedDirectly: Bool
-    /// The address the request came from, to count wrong pairing codes by.
-    let remoteAddress: String
-    /// Headers that came more than once, by their lowercased names: where
-    /// it matters, as for the hook's, the request isn't believed.
-    var repeatedHeaders: Set<String> = []
-    /// Personal build: addressed to a Tailscale name (`*.ts.net`) and come
-    /// from this Mac, or passed on by a proxy on this Mac whatever its Host,
-    /// as `tailscale serve` passes on a phone's request from the tailnet.
-    /// DeckRouter lets it in only with the phone mic setting on.
-    var isTailnet = false
-
-    var json: [String: Any] {
-        (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
-    }
-
-    /// A request as the server reads it: who it's for, from its Host and
-    /// headers and whether it came from this Mac. Pure, for tests.
-    static func addressed(method: String, path: String, query: [String: String], headers: [String: String], body: Data,
-                          fromLoopback: Bool, remoteAddress: String, repeatedHeaders: Set<String> = []) -> Request {
-        let host = Addressing.host(headers["host"])
-        // Passed on by a proxy on this Mac (tailscale serve): from this Mac's
-        // loopback, but for someone else, so never "this Mac" for setup or the hook.
-        let proxied = Addressing.isProxied(headers)
-        // And `tailscale serve` passes on whatever Host the device sent, so
-        // such a request is the tailnet's even as `localhost` or an IP: only
-        // let in with the phone mic on, its wrong codes counted as its own.
-        let fromProxy = fromLoopback && proxied
-        return Request(method: method, path: path, query: query, headers: headers, body: body,
-                       isLocal: fromLoopback && !proxied && ["localhost", "127.0.0.1", "[::1]"].contains(host),
-                       isAddressedDirectly: !fromProxy && Addressing.isDirectAddress(host),
-                       remoteAddress: remoteAddress, repeatedHeaders: repeatedHeaders,
-                       isTailnet: fromProxy || Addressing.isTailnet(host, fromLoopback: fromLoopback))
-    }
-}
-
 struct Response {
     var status = 200
     var contentType = "text/plain; charset=utf-8"

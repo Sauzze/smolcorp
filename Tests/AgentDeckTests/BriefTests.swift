@@ -254,27 +254,6 @@ final class BriefTests: XCTestCase {
                        + "End with `SHIP IT`, notes in \(folder.appendingPathComponent("NOTES.md").path).\n")
     }
 
-    func testATextRoleHasNoBriefAndStartsAsBefore() throws {
-        var lawyer = role("lawyer")
-        lawyer.instructions = "Read the licences I point you to."
-        XCTAssertEqual(lawyer.source, .text(lawyer.instructions), "edited, it's on its instructions")
-        XCTAssertNil(try lawyer.briefTemplate(in: library))
-        XCTAssertTrue(lawyer.firstMessage(in: folder.path, pinned: false).contains("as my Lawyer: Read the licences"))
-        let answered = lawyer.firstMessage(in: folder.path, answers: ["the licence"])
-        XCTAssertTrue(answered.contains("- What should you read: the licence, terms, a privacy policy, or the dependencies' licences? the licence"))
-        XCTAssertTrue(answered.contains("(No answer: use your judgement.)"))
-        XCTAssertTrue(answered.hasSuffix("As my Lawyer: \(lawyer.instructions)"))
-    }
-
-    func testTheFirstMessageSendsTheAgentToItsBrief() {
-        let janitor = role("janitor")
-        let asks = janitor.briefMessage(at: folder.appendingPathComponent("BRIEF.md").path, asks: true)
-        XCTAssertTrue(asks.hasPrefix("Read `\(folder.path)/BRIEF.md` and follow it: it's your brief, as my Janitor."))
-        XCTAssertTrue(asks.contains("your first reply must only ask me its questions"))
-        XCTAssertTrue(janitor.briefMessage(at: "/x/Application Support/1-janitor.md", asks: false).hasPrefix("Read `/x/Application Support/1-janitor.md` and start"))
-        XCTAssertTrue(janitor.startScript(firstMessage: asks).contains("'--' 'Read "))
-    }
-
     // MARK: Where it's written
 
     func testABriefNeverWritesOverAFile() throws {

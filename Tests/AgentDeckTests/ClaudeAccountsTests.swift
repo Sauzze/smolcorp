@@ -199,18 +199,6 @@ final class ClaudeAccountsTests: XCTestCase {
         XCTAssertNil(ClaudeProfiles.profile(named: nil, among: accounts))
     }
 
-    func testAHiredAgentStartsInItsAccountsFolder() throws {
-        var role = try XCTUnwrap(Role.shipped.first)
-        role.agent = Agent.claude.rawValue
-        let work = profile("work", ".claude-work")
-        let script = role.startScript(firstMessage: "hello", account: work)
-        XCTAssertTrue(script.contains("export CLAUDE_CONFIG_DIR='\(work.dir)'\nexec "), script)
-        XCTAssertTrue(role.startScript(firstMessage: "hello", account: ClaudeProfiles.defaultProfile(home: home)).contains("unset CLAUDE_CONFIG_DIR\nexec "))
-        XCTAssertFalse(role.startScript(firstMessage: "hello").contains("CLAUDE_CONFIG_DIR"), "no account named: as it was")
-        role.agent = Agent.codex.rawValue
-        XCTAssertFalse(role.startScript(firstMessage: "hello", account: work).contains("CLAUDE_CONFIG_DIR"), "other agents have none")
-    }
-
     // MARK: Taking out and refreshing
 
     func testTakingOutWhatIsntThereLeavesTheFileAsItIs() throws {

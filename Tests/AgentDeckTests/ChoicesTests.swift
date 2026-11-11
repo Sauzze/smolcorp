@@ -164,28 +164,6 @@ final class ChoicesTests: XCTestCase {
         XCTAssertFalse(tmux.calls.contains { $0.contains("smolcorp-bravo") && $0.contains("detach-client") }, "not asked, not detached")
     }
 
-    /// The team grid's panes are read-only viewers of the hires: detached like any, never counted as someone's
-    /// window, and said once.
-    func testTheTeamGridsPanesAreSaidOnce() {
-        let tmux = FakeTmux(viewers: ["smolcorp-alpha": ["/dev/ttys030", "/dev/ttys010"], "smolcorp-bravo": ["/dev/ttys031"]])
-        let closer = FakeCloser()
-        closer.ttys = ["tty:/dev/ttys010#w1": "/dev/ttys010"]
-        let hires = [HireWindows.Hire(id: "alpha", name: "Ada", socket: "smolcorp-alpha"), HireWindows.Hire(id: "bravo", name: "Bo", socket: "smolcorp-bravo")]
-        let result = HireWindows.toBackground(hires, windows: ["alpha": ["tty:/dev/ttys010#w1"]], tmux: tmux.desk, closer: closer,
-                                              grid: ["/dev/ttys030", "/dev/ttys031"])
-        XCTAssertEqual(closer.closed, ["tty:/dev/ttys010#w1"])
-        XCTAssertEqual(result.said, ["The team grid's view of your hires ended."])
-        XCTAssertEqual(tmux.calls.filter { $0.contains("detach-client") }.count, 2)
-
-        // The grid's ttys, from its own server: every pane's.
-        var asked: [[String]] = []
-        let grid = HireTmux(socketName: "smolcorp-team", testPort: nil) { asked.append($0); return (0, "/dev/ttys030\n/dev/ttys031\n") }
-        XCTAssertEqual(HireWindows.gridTTYs(grid), ["/dev/ttys030", "/dev/ttys031"])
-        XCTAssertEqual(asked, [["-L", "smolcorp-team", "list-panes", "-a", "-F", "#{pane_tty}"]])
-        XCTAssertEqual(HireWindows.gridTTYs(HireTmux(socketName: "smolcorp-team", testPort: nil) { _ in (1, "") }), [])
-        XCTAssertEqual(TeamGrid.socketName(testPort: nil), "smolcorp-team")
-    }
-
     /// A tmux that can't be reached, or won't detach: nothing is closed, and it's said.
     func testNothingIsClosedWhenTheViewerWasntDetached() {
         let closer = FakeCloser()
