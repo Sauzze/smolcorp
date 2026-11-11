@@ -101,7 +101,6 @@ var knownGaps = []knownGap{
 	{"POST /setup/gm/by-hand", "route", "404", "no GM token here (M4)", "M4"},
 	{"POST /setup/gm/token/rotate", "route", "404", "no GM token here (M4)", "M4"},
 	{"GET /setup/gm/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
-	{"snapshot", ".keys[].session.id", "ids contract-a, contract-c", "a hire in T3 Code has no desk on the Go core: its registry entry (engine t3, with its thread and worktree) isn't seated, so the snapshot has no T3 desk (its t3 tag, branch and status, every control off)", "M5: T3D-b, the desk on the Go core"},
 	{"POST /act", "refusal: unknown dictation language", "status 404", "no dictation here: action=language isn't known, so its session is looked for", "M3 fixes: action=language known, an unknown language refused with 400"},
 	{"POST /act", "mic: dictation on, under the Mac app", "not dictated", "the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false", "M3 via the bridge (M1)"},
 	{"GET /glossary", "route", "404", "the iPhone app's speech names (personal build)", "M6: personal shell"},
@@ -984,7 +983,8 @@ func gapKey(g knownGap) string { return g.subject + " | " + g.where + " | " + g.
 // tag, status, branch and whether it opens, and names with no path. A desk that isn't a T3 hire's isn't held to it.
 func TestAT3DeskIsCheckedByValueToo(t *testing.T) {
 	rule := readContract(t).t3Desk["snapshot"]
-	if rule == nil || !strings.HasPrefix(rule.ID, "t3:") || len(rule.False) == 0 || len(rule.T3) == 0 {
+	// Its t3 says it's experimental too (RT3Da2 n3), so a desk without the word fails.
+	if rule == nil || !strings.HasPrefix(rule.ID, "t3:") || len(rule.False) == 0 || !slices.Contains(rule.T3, "experimental") {
 		t.Fatalf("no T3 desk rule beside the snapshot's shape: %+v", rule)
 	}
 	good := map[string]any{"id": rule.ID, "name": "rev-c0ffee", "project": "rev-c0ffee"}
@@ -1021,7 +1021,13 @@ func TestAT3DeskIsCheckedByValueToo(t *testing.T) {
 	}
 	sort.Strings(wheres)
 	want := []string{}
-	for _, field := range []string{"keys", rule.False[0], "choice", "t3.branch", "t3.canOpen", "t3.status", "project"} {
+	fields := []string{"keys", rule.False[0], "choice", "project"}
+	for _, field := range rule.T3 {
+		if field != "tag" {
+			fields = append(fields, "t3."+field)
+		}
+	}
+	for _, field := range fields {
 		want = append(want, ".keys[].session["+rule.ID+"]."+field)
 	}
 	sort.Strings(want)

@@ -746,7 +746,8 @@ final class Sessions {
     /// as it was; any older, a turn may have ended unheard, so each is shown
     /// at rest until it's heard from.
     func restore(_ saved: [Saved], fresh: Bool) {
-        for entry in saved where byID[entry.id] == nil && endedAt[entry.id] == nil {
+        // `t3:` ids are the desks of hires in T3 Code, made from the registry alone: none comes back as a session (RT3Da2 n2).
+        for entry in saved where byID[entry.id] == nil && endedAt[entry.id] == nil && !entry.id.hasPrefix(T3Desks.prefix) {
             guard let agent = Agent(rawValue: entry.agent) else { continue }
             let session = Session(id: entry.id, agent: agent, folder: entry.folder, project: entry.project, startedAt: entry.startedAt)
             session.tab = entry.address
