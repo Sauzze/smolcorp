@@ -69,7 +69,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
 |---|---|---|---|---|---|---|---|
 | GET | `/setup` | page, tool | — | HTML: setup.html | 200, 404 (not local) | none: a file of the app's web folder, which the test bundle doesn't have | served |
-| POST | `/setup/session` | page, tool | the menu link's key in `x-smolcorp-setup-key` | empty, `Set-Cookie` | 204, 401 | setup.json | differs |
+| POST | `/setup/session` | page, tool | the menu link's key in `x-smolcorp-setup-key` | empty, `Set-Cookie` | 204, 401 | setup.json | served |
 | GET | `/setup/state` | page, tool | — | the setup state (a tool: no code, no webhook secret) | 200, 401 (`X-Smolcorp-App: mac`) | state.json | differs |
 | GET | `/setup/preview` | page, tool | — | HTML: deck.html, framed by this deck only | 200 | none: a file of the app's web folder, which the test bundle doesn't have | served |
 | GET | `/setup/selftest` | page, tool | — | `{checks: […], …}` | 200 | none: runs the self-test, which looks at the hooks, the login item and the agents' own commands | served |
@@ -86,7 +86,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/setup/accessibility` | page, tool | — | empty | 204 | none: asks macOS for Accessibility, a system prompt | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
 | POST | `/setup/hooks` | gm, page | `?remove=1` to disconnect | the setup state (`notice`) | 200, 409 (test copy), 500 | none: writes the agents' hooks in your home folder | served |
 | POST | `/setup/logo` | page, tool | `?logo=smolcorp or keys` | the setup state | 200, 400 | setup.json | differs |
-| GET | `/setup/logo/<logo>` | page, tool | — | PNG | 200, 404 | setup.json | differs |
+| GET | `/setup/logo/<logo>` | page, tool | — | PNG | 200, 404 | setup.json | served |
 | POST | `/setup/theme` | page, tool | colours | empty | 204 | setup.json | served |
 | POST | `/setup/layout` | gm, page | a layout | empty | 204, 400 | setup.json | served |
 | POST | `/setup/pin` | gm, page | `?key=&folder=` | empty | 204, 400 | setup.json | served |
@@ -97,7 +97,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/setup/webhook/test` | gm, page | — | the setup state | 200 | none: sends a webhook to its address | served |
 | POST | `/setup/pair` | page | — | the setup state with the code | 200 | setup.json | differs |
 | POST | `/setup/unpair` | gm, page | `?phone=` or `?all=1` | the setup state | 200, 400 | setup.json | differs |
-| GET | `/setup/qr.png` | page | `?via=tailnet` | PNG | 200, 404 (no code) | setup.json | differs |
+| GET | `/setup/qr.png` | page | `?via=tailnet` | PNG | 200, 404 (no code) | setup.json | served |
 | POST | `/setup/summaries` | page | `?enabled=&confirmed=1&provider=` | the setup state | 200, 400 | setup.json | differs |
 | POST | `/setup/summary/provider` | page | `?id=&confirmed=1` | the setup state | 200, 400 | setup.json | served |
 | POST | `/setup/summary/check` | page, tool | — | the setup state | 200 | none: runs each coding agent's own command | served |
@@ -107,8 +107,8 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/setup/keystrokes` | page | `?enabled=` | the setup state | 200, 400 | setup.json | served |
 | POST | `/setup/keystrokes/apps` | page | `?add=` or `?remove=` | the setup state | 200, 400, 409 | setup.json | served |
 | POST | `/setup/terminal-command` | page | `?remove=1` | the setup state | 200, 409 | none: writes the smolcorp link and your shell's PATH line | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
-| GET | `/setup/claude-accounts` | gm, page, tool | — | `{found, most, profiles}` | 200 | setup.json | 404 |
-| POST | `/setup/claude-accounts` | page | `{profiles: [{name, dir}]}` | as GET | 200, 400 | setup.json | 404 |
+| GET | `/setup/claude-accounts` | gm, page, tool | — | `{found, most, profiles}` | 200 | setup.json | served |
+| POST | `/setup/claude-accounts` | page | `{profiles: [{name, dir}]}` | as GET | 200, 400 | setup.json | served |
 | GET | `/setup/guard` | gm, page, tool | — | `{extra, groups, limits}` | 200 | setup.json | served |
 | POST | `/setup/guard` | page | the guard's groups and patterns | as GET | 200, 400, 500 | setup.json | served |
 | POST | `/setup/choices` | page | `?t3=&background=&asked=1`, each 0 or 1 | the setup state, and `windowsSaid` when it switched hires to the background | 200, 400 (background without tmux) | setup.json | differs |
@@ -134,11 +134,11 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | GET | `/setup/briefs/<name>` | page, tool | — | the brief's markdown | 200, 404 | none: reads one of the app's briefs, which the test bundle doesn't have (404 there) | 404, owner: M4a: briefs |
 | POST | `/setup/briefs/preview` | page, tool | a role and folder | the brief as a hire would get it | 200, 400 | setup.json | served |
 | POST | `/setup/briefs/restore` | page | — | the briefs | 200 | none: puts back the app's own briefs, which the test bundle doesn't have | served |
-| GET | `/setup/bots` | page, tool | — | `{bots}` | 200 | setup.json | differs |
-| POST | `/setup/bots` | gm, page | `{bots: [...]}` | `{bots}` | 200, 400 | setup.json | differs |
+| GET | `/setup/bots` | page, tool | — | `{bots}` | 200 | setup.json | served |
+| POST | `/setup/bots` | gm, page | `{bots: [...]}` | `{bots}` | 200, 400 | setup.json | served |
 | POST | `/setup/bots/override` | gm, page | `{id, pinned, floor, hidden, show, autoDetect, botFloor}` | the setup state | 200, 400, 404 | setup.json | differs |
 | POST | `/setup/bots/mailbox` | page | `{id, folder}` | `{bots}` | 200, 400 | setup.json | served |
-| POST | `/setup/bots/resolve` | gm, page | — | `{bots, filled, unresolved}` | 200 | setup.json | differs |
+| POST | `/setup/bots/resolve` | gm, page | — | `{bots, filled, unresolved}` | 200 | setup.json | served |
 | POST | `/setup/notify` | gm, page | `{title, body}` | `{sent}` | 200, 400, 503 | setup.json | 404 |
 
 ## Setup: the portable office's viewer
@@ -177,11 +177,11 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/setup/gm/send` | gm, page, hire | `{to, text, …}` | the message | 200, 400, 403, 404, 409 | gm.json, frontdesk/send.json | served |
 | POST | `/setup/gm/contacts` | gm, page | `{pairs, remove}` | `{contacts}` | 200, 400, 409 | gm.json, frontdesk/contacts.json | served |
 | POST | `/setup/gm/registry` | gm, page | `{id, nickname, state, notes}` | the hire | 200, 400, 404, 409 | gm.json, frontdesk/registry-edit.json | served |
-| GET | `/setup/gm/registry` | page | — | nothing: listed for the page, not answered | 404 | gm.json | differs |
+| GET | `/setup/gm/registry` | page | — | nothing: listed for the page, not answered | 404 | gm.json | served |
 | POST | `/setup/gm/nickname` | gm, page | `{project or folder, nickname}` | `{project, nickname}` | 200, 400, 404, 409 | gm.json | served |
 | POST | `/setup/gm/by-hand` | page | `?enabled=1 or 0` | `{gmByHand}` | 200, 400 | gm.json | 404 |
 | POST | `/setup/gm/token/rotate` | page | — | `{rotated, message}`, never the token | 200, 500 | gm.json, frontdesk/gm-token-rotate-as-page.json | 404 |
-| * | `/setup/gm/*` | gm, page | a route not listed above | — | 403 for a tool, 404 | gm.json | differs |
+| * | `/setup/gm/*` | gm, page | a route not listed above | — | 403 for a tool, 404 | gm.json | served |
 
 ## Served by the Go app only
 
@@ -215,10 +215,10 @@ has are the known gaps' "extra" rows.
 | `.choices.hasTmux` | bool | same |
 | `.choices.t3Code` | bool | same |
 | `.choices.t3Installed` | bool | same |
-| `.claudeAccounts` | object | missing: Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) |
-| `.claudeAccounts.found` | array | missing: Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) |
-| `.claudeAccounts.most` | number | missing: Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) |
-| `.claudeAccounts.profiles` | array | missing: Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) |
+| `.claudeAccounts` | object | same |
+| `.claudeAccounts.found` | array | same |
+| `.claudeAccounts.most` | number | same |
+| `.claudeAccounts.profiles` | array | same |
 | `.cloudBots` | object | same |
 | `.cloudBots.autoDetect` | bool | same |
 | `.cloudBots.botFloor` | number | same |
@@ -239,7 +239,7 @@ has are the known gaps' "extra" rows.
 | `.dock` | object | same |
 | `.dock.enabled` | bool | same |
 | `.floorRules` | array | same |
-| `.floorRules[].exact` | bool | missing: a rule's exact is left out when false (omitempty) |
+| `.floorRules[].exact` | bool | same |
 | `.floorRules[].floor` | number | same |
 | `.floorRules[].folder` | string | same |
 | `.floors` | array | same |
@@ -266,12 +266,12 @@ has are the known gaps' "extra" rows.
 | `.keystrokes.running` | array | same |
 | `.layout` | object | same |
 | `.logo` | one of 'smolcorp', 'keys' | same |
-| `.manager` | object | missing: no manager object here: the switch is in config.json, gmHired is top level (M2) |
-| `.manager.enabled` | bool | missing: no manager object here: the switch is in config.json, gmHired is top level (M2) |
-| `.manager.gmByHand` | bool | missing: no manager object here: the switch is in config.json, gmHired is top level (M2) |
-| `.manager.gmStartedByHand` | bool | missing: no manager object here: the switch is in config.json, gmHired is top level (M2) |
-| `.manager.gmTokenFile` | string | missing: no manager object here: the switch is in config.json, gmHired is top level (M2) |
-| `.manager.gmTokenFileShown` | string | missing: no manager object here: the switch is in config.json, gmHired is top level (M2) |
+| `.manager` | object | same |
+| `.manager.enabled` | bool | same |
+| `.manager.gmByHand` | bool | same |
+| `.manager.gmStartedByHand` | bool | same |
+| `.manager.gmTokenFile` | string | same |
+| `.manager.gmTokenFileShown` | string | same |
 | `.maxConfirm` | object | same |
 | `.maxConfirm.enabled` | bool | same |
 | `.music` | object | same |
@@ -556,27 +556,21 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 
 | In | Where | Go | Why | Owner |
 |---|---|---|---|---|
-| `setup-state` | `.claudeAccounts` | missing | Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) | M2 |
-| `setup-state` | `.floorRules[].exact` | missing | a rule's exact is left out when false (omitempty) | M3 fixes: sent when false or empty too |
 | `setup-state` | `.hiring.apiKey` | missing | a hire on the API-key account is the Mac's (M4) | M4 |
 | `setup-state` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
 | `setup-state` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
-| `setup-state` | `.manager` | missing | no manager object here: the switch is in config.json, gmHired is top level (M2) | M2 |
 | `setup-state` | `.phoneMic` | missing | the phone mic is the Mac's personal build | M6: personal shell |
 | `setup-state` | `.roles.limits.answer` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state` | `.roles.limits.briefFile` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state` | `.roles.limits.briefFileName` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state` | `.summary.noStore` | extra | says there's no secret store for the key, which a Mac always has | stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false |
-| `setup-state-tool` | `.claudeAccounts` | missing | Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) | M2 |
-| `setup-state-tool` | `.floorRules[].exact` | missing | a rule's exact is left out when false (omitempty) | M3 fixes: sent when false or empty too |
 | `setup-state-tool` | `.hiring.apiKey` | missing | a hire on the API-key account is the Mac's (M4) | M4 |
 | `setup-state-tool` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state-tool` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state-tool` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
 | `setup-state-tool` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
-| `setup-state-tool` | `.manager` | missing | no manager object here: the switch is in config.json, gmHired is top level (M2) | M2 |
 | `setup-state-tool` | `.pairing.codeExpiresIn` | extra | a tool is told how long the code lasts; the Mac tells only the page | stays: Go-only, a tool's; the page has it in its own state on both apps |
 | `setup-state-tool` | `.phoneMic` | missing | the phone mic is the Mac's personal build | M6: personal shell |
 | `setup-state-tool` | `.roles.limits.answer` | missing | briefs aren't served here (M4) | M4a: briefs |
@@ -593,31 +587,13 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `snapshot` | `.upstairs.desks[].conversation` | missing | the conversation view: the iPhone app's (personal build) | M6: personal shell |
 | `snapshot` | `.upstairs.desks[].phoneMic` | missing | the phone mic is the Mac's personal build | M6: personal shell |
 | `snapshot` | `.upstairs.desks[].voiceNote` | missing | voice notes: the Mac's personal build | M6: personal shell |
-| `POST /setup/session` | `refusal: no menu link's key: no session` | kind empty | its 401 has no text; the Mac's says why | M2 fixes: the Mac's text in the 401 |
 | `POST /setup/phonemic` | `route` | 404 | the phone mic is the Mac's personal build | M6: personal shell |
-| `GET /setup/qr.png` | `refusal: no pairing code asked for` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
-| `GET /setup/logo/nope` | `refusal: no such logo` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
-| `GET /setup/claude-accounts` | `route` | 404 | Claude accounts are the Mac's (M2) | M2 |
-| `POST /setup/claude-accounts` | `route` | 404 | Claude accounts are the Mac's (M2) | M2 |
-| `GET /setup/bots` | `.bots[].discovered` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
-| `GET /setup/bots` | `.bots[].mailbox` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
-| `GET /setup/bots` | `.bots[].pinned` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
-| `POST /setup/bots/resolve` | `.bots[].discovered` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
-| `POST /setup/bots/resolve` | `.bots[].mailbox` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
-| `POST /setup/bots/resolve` | `.bots[].pinned` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
-| `POST /setup/bots` | `.bots[].discovered` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
-| `POST /setup/bots` | `.bots[].mailbox` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
-| `POST /setup/bots` | `.bots[].pinned` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
-| `GET /setup/hire/gm/preflight` | `refusal: no such Claude account` | status 200 | Claude accounts are the Mac's (M2): the GM's tools are checked for any account | M4, once M2 has the Claude accounts |
+| `GET /setup/hire/gm/preflight` | `refusal: no such Claude account` | status 200 | the preflight takes no account yet: Go has the Claude accounts since M2, but the GM's tools are checked for any account | M4 |
 | `POST /setup/notify` | `route` | 404 | a push to the iPhone app (personal build) | M6: personal shell |
-| `GET /setup/nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
 | `GET /setup/gm/screens` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |
 | `POST /setup/gm/screen` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |
-| `GET /setup/gm/registry` | `refusal: listed for the page, but nothing answers it` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M4: take the dead row out of both route tables (SetupRoutes.swift, routes.go) |
 | `POST /setup/gm/by-hand` | `route` | 404 | no GM token here (M4) | M4 |
 | `POST /setup/gm/token/rotate` | `route` | 404 | no GM token here (M4) | M4 |
-| `GET /setup/gm/nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
-| `POST /act` | `refusal: unknown dictation language` | status 404 | no dictation here: action=language isn't known, so its session is looked for | M3 fixes: action=language known, an unknown language refused with 400 |
 | `POST /act` | `mic: dictation on, under the Mac app` | not dictated | the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false | M3 via the bridge (M1) |
 | `GET /glossary` | `route` | 404 | the iPhone app's speech names (personal build) | M6: personal shell |
 | `GET /approvals` | `route` | 404 | over Tailscale only (personal build) | M6: personal shell |
@@ -632,4 +608,3 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `GET /choice` | `route` | 404 | the iPhone app's prompt details (personal build) | M6: personal shell |
 | `GET /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1) |
 | `POST /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1) |
-| `GET /nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |

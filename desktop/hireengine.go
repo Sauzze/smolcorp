@@ -248,8 +248,10 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 			return err
 		}
 	}
-	request := engineRequest{Role: role, How: how, Folder: folder, DefaultAccount: true, TestPort: testPort, Desk: briefDesk(held, floor),
-		Profiles: claudeAccounts(d.config, homeDir)}
+	request := engineRequest{Role: role, How: how, Folder: folder, DefaultAccount: true, TestPort: testPort, Desk: briefDesk(held, floor)}
+	// The accounts' settings and transcripts are denied to the hire, every saved folder's, even one no hire may
+	// work on: the saved list is copied here, and its folders are looked in once the lock is let go (claudeaccounts.go).
+	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
 	if extra != nil {
 		extra.apply(&request, d.config.ManagerEnabled)
 	}
@@ -260,6 +262,7 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 		request.GMToken = func() string { token = d.newGMToken(); return token }
 	}
 	d.mu.Unlock()
+	request.Profiles = claudeDenyProfiles(savedAccounts)
 	hire, err := runManagedHire(request, options)
 	d.mu.Lock()
 	if err != nil {

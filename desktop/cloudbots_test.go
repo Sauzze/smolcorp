@@ -553,7 +553,7 @@ func TestSetupSetsTheCloudBotsAllAtOnce(t *testing.T) {
 	}
 	got, body := set(`{"bots": [{"id": "Mini", "name": "Smolcorp mini"}, {"id": "bad id", "name": "x"}]}`)
 	want := `{"bots":[{"id":"mini","name":"Smolcorp mini","agent":"grok","outfit":"grok","badge":"","permanent":true,"floor":"",` +
-		`"source":{"kind":"none","bot":"","botId":"","counts":"unprompted"}}]}`
+		`"source":{"kind":"none","bot":"","botId":"","counts":"unprompted"},"discovered":false,"pinned":false,"mailbox":""}]}`
 	if got != 200 || strings.TrimSpace(body) != want {
 		t.Errorf("setting the bots: %d %s\nwant %s", got, body, want)
 	}

@@ -128,7 +128,7 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if r.Role.ID == gmRole {
 		profile = guardGM
 	}
-	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Profile: profile, CLI: o.CLI, Support: supportDir, ReportPort: r.TestPort, Run: o.Guard, IsExec: o.IsExec})
+	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Profile: profile, CLI: o.CLI, Support: supportDir, ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec})
 	if err != nil {
 		undo()
 		return Hire{}, "", err
@@ -436,6 +436,9 @@ func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, h
 	options.Expect = func(token, hireID string, env hireStartEnv) { d.expectLauncherAt(token, hireID, env, held, floor) }
 	options.Forget = d.forgetLauncher
 	request := engineRequest{Role: role, How: hiredIntoGeneralFolder, Folder: folder, DefaultAccount: true, TestPort: testPort, Desk: briefDesk(held, floor)}
+	// The accounts' settings and transcripts are denied to the hire, as in tmux (managedHireWith): the saved list is
+	// copied here, and its folders are looked in once the lock is let go.
+	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
 	// The GM gets a new token at its hire, handed to its launcher alone; the one it
 	// was given is taken away again if the hire doesn't go ahead or never starts.
 	gmToken := ""
@@ -443,6 +446,7 @@ func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, h
 		request.GMToken = func() string { gmToken = d.newGMToken(); return gmToken }
 	}
 	d.mu.Unlock()
+	request.Profiles = claudeDenyProfiles(savedAccounts)
 	hire, token, err := runLauncherHire(request, options)
 	d.mu.Lock()
 	if err != nil {

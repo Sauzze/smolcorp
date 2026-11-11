@@ -40,6 +40,9 @@ type Config struct {
 	// ManagerEnabled is the front desk (manager) switch, the Mac app's
 	// managerEnabled: off until you turn it on. See manager.go.
 	ManagerEnabled bool `json:"managerEnabled"`
+	// ClaudeProfiles are the Claude accounts besides ~/.claude that setup confirmed (claudeaccounts.go),
+	// as the Mac app keeps them.
+	ClaudeProfiles []claudeProfile `json:"claudeProfiles,omitempty"`
 	// HooksDisconnected: you disconnected the agents on purpose, so smolcorp
 	// setup leaves them be. Connecting, on the setup page, clears it.
 	HooksDisconnected bool `json:"hooksDisconnected,omitempty"`

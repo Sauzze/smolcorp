@@ -28,7 +28,7 @@ type FloorRule struct {
 	// The folder alone, not those in it: as "Always put … here" remembers it
 	// from the office, where a folder above a project's would otherwise take
 	// all of them up. A rule added in setup holds the folders in it too.
-	Exact bool `json:"exact,omitempty"`
+	Exact bool `json:"exact"`
 }
 
 const mostFloorRules = 64

@@ -56,8 +56,8 @@ type guardGroup struct {
 
 // claudeProfile is a Claude Code account's config folder (CLAUDE_CONFIG_DIR).
 type claudeProfile struct {
-	Name string
-	Dir  string
+	Name string `json:"name"`
+	Dir  string `json:"dir"`
 }
 
 // guardProfile chooses whose guard rules a file carries: a hire's, or the GM's own.

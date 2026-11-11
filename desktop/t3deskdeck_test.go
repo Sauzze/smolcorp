@@ -403,6 +403,36 @@ func TestT3SetupsHireSheetHiresIntoT3Code(t *testing.T) {
 	}
 }
 
+// A hire in T3 Code works on the default account, but its fence denies every saved account's settings and
+// transcripts, as the Mac's HireSettings.forHire: one inside the home folder and one outside it. A badly formed
+// entry gets no rule. With nothing saved, the fence denies the default account alone, as the Mac's fixture has it.
+func TestT3TheFenceDeniesEverySavedAccount(t *testing.T) {
+	r, d := t3DeckRig(t)
+	repo := r.repo()
+	homeDir = r.home // the folder must be inside the home folder
+	if got := claudeDenyProfiles(nil); !reflect.DeepEqual(got, []claudeProfile{{Name: "default", Dir: filepath.Join(homeDir, ".claude")}}) {
+		t.Errorf("with nothing saved: %+v", got)
+	}
+	work := claudeFolder(t, filepath.Join(homeDir, "accounts", "work"), "settings.json")
+	outside := claudeFolder(t, filepath.Join(physical(t.TempDir()), "volume", ".claude-ext"), "settings.json")
+	d.mu.Lock()
+	d.config.Roles = []Role{{ID: "reviewer", Name: "Reviewer", Agent: "claude"}}
+	d.config.ClaudeProfiles = append([]claudeProfile{{Name: "work", Dir: work}, {Name: "ext", Dir: outside}}, badlyFormedAccounts...)
+	d.mu.Unlock()
+	if got := serve(t, d, t3PageCall("POST", "/setup/hire", `{"role":"reviewer","engine":"t3","folder":`+jsonText(repo)+`}`)); got.Code != http.StatusOK {
+		t.Fatalf("%d %s", got.Code, got.Body)
+	}
+	hires := readRegistry(registryPath(), false).hires
+	if len(hires) != 1 || hires[0].Engine != t3Engine || hires[0].Worktree == "" {
+		t.Fatalf("%+v", hires)
+	}
+	fence, err := os.ReadFile(filepath.Join(hires[0].Worktree, ".claude", "settings.local.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deniesTheAccounts(t, "the T3 fence", string(fence), filepath.Join(homeDir, ".claude"), work, outside)
+}
+
 // hireIntoT3 is safe on its own (RM5a N8): no role, or hiring off, is refused before anything is made.
 func TestT3HireIntoT3RefusesNoRoleAndHiringOffOnItsOwn(t *testing.T) {
 	r, d := t3DeckRig(t)

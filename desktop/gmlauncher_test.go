@@ -506,3 +506,37 @@ func TestTheGMBriefOnTheLauncherAddsToTheFileAndTypesNothing(t *testing.T) {
 		}
 	}
 }
+
+// Every saved account's settings and transcripts are denied to a hire through the launcher too, from the office and
+// from the GM's route, as in tmux: one inside the home folder (an account a hire may work on) and one outside it
+// (no account a hire takes, but fenced off all the same). A badly formed entry gets no rule.
+func TestEverySavedAccountsFolderIsDeniedToALauncherHire(t *testing.T) {
+	w := newWinRig(t)
+	work := claudeFolder(t, filepath.Join(homeDir, "accounts", "work"), "settings.json")
+	outside := claudeFolder(t, filepath.Join(physical(t.TempDir()), "volume", ".claude-ext"), "settings.json")
+	w.d.mu.Lock()
+	w.d.config.ClaudeProfiles = append([]claudeProfile{{Name: "work", Dir: work}, {Name: "ext", Dir: outside}}, badlyFormedAccounts...)
+	w.d.mu.Unlock()
+	for _, route := range []bool{false, true} {
+		where := map[bool]string{false: "the office's hire", true: "the GM's route"}[route]
+		before := len(winRegistry(t))
+		w.d.mu.Lock()
+		w.d.lastHire = time.Time{}
+		w.d.mu.Unlock()
+		if route {
+			w.hire("janitor")
+		} else if status, text := w.d.Perform("hire", "", url.Values{"role": {"janitor"}}); status != http.StatusNoContent {
+			t.Fatalf("%s: %d %q", where, status, text)
+		}
+		w.d.watching.Wait()
+		rows := winRegistry(t)
+		if len(rows) != before+1 || !rows[before].ViaLauncher {
+			t.Fatalf("%s: registry %+v", where, rows)
+		}
+		settings, err := os.ReadFile(filepath.Join(hireFolder(supportDir, rows[before].ID), hireSettingsFile))
+		if err != nil {
+			t.Fatalf("%s: %v", where, err)
+		}
+		deniesTheAccounts(t, where, string(settings), work, outside)
+	}
+}

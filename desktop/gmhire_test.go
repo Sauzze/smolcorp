@@ -284,6 +284,9 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 	// hire makes a hire of role with the guard saying groups, and says what it started with, its own names made plain.
 	hire := func(role string, groups []map[string]any, route bool) (settings string, guard []string) {
 		d, r, _, token := gmHireDeck(t)
+		// One saved account besides the default: both hires deny it (RPGM2 n1).
+		work := claudeFolder(t, filepath.Join(homeDir, "accounts", "work"), "settings.json")
+		d.config.ClaudeProfiles = []claudeProfile{{Name: "work", Dir: work}}
 		printed, _ := json.Marshal(map[string]any{"groups": groups})
 		d.engine.Guard = func(_ string, args []string) (int, string, bool) {
 			guard = append(guard, strings.ReplaceAll(strings.Join(args, " "), supportDir, "<support>"))
@@ -305,6 +308,7 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 			t.Fatalf("%s hire of %s: %d %q, registry %+v", map[bool]string{false: "desk", true: "route"}[route], role, status, text, hires)
 		}
 		data, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, hires[0].ID), hireSettingsFile))
+		deniesTheAccounts(t, map[bool]string{false: "desk", true: "route"}[route]+" hire of "+role, string(data), work)
 		plain := strings.NewReplacer(hires[0].ID, "<hire>", hires[0].Worktree, "<worktree>", d.config.HireFolder, "<repo>", supportDir, "<support>", homeDir, "<home>")
 		return plain.Replace(string(data)), guard
 	}

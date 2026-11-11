@@ -120,7 +120,7 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 			}
 		}
 		hire.Account = named
-		if account, ok := claudeAccountNamed(named, accounts); ok && account.Name != defaultClaudeAccount {
+		if account, ok := claudeAccountNamed(named, accounts); ok && account.Name != claudeDefaultName {
 			hire.configDir = account.Dir
 		}
 	}
@@ -325,9 +325,10 @@ func (d *Deck) setupHireRoute(w http.ResponseWriter, method, path string, body i
 	}
 	d.mu.Lock()
 	off := !d.config.HiringEnabled
-	roles, accounts := slices.Clone(d.config.Roles), claudeAccounts(d.config, homeDir)
+	roles, saved := slices.Clone(d.config.Roles), slices.Clone(d.config.ClaudeProfiles)
 	d.mu.Unlock()
-	hire, status, why := setupHireRequest(data, roles, accounts, homeDir)
+	// The account folders are looked in without the lock, as setup's own list is (claudeaccounts.go).
+	hire, status, why := setupHireRequest(data, roles, claudeAccountList(saved), homeDir)
 	if status != 0 {
 		http.Error(w, why, status)
 		return true
