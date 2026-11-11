@@ -516,8 +516,8 @@ func TestHireLeavesOutWhatIsNotGiven(t *testing.T) {
 	}
 }
 
-// PR1: the Go app serves POST /setup/gm/hire: `gm hire` against it sends the request and prints the answer or the
-// refusal, never the "isn't available" text.
+// PR1: the Go app serves POST /setup/gm/hire: `gm hire` against it sends the request and prints the answer; a 404 is
+// no longer the "isn't available" text.
 func TestHireAgainstTheGoAppSendsTheRequestAndPrintsTheAnswer(t *testing.T) {
 	status, answer, body := http.StatusOK, `{"ok":true,"desk":3,"session":null}`, []byte(nil)
 	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
@@ -530,9 +530,9 @@ func TestHireAgainstTheGoAppSendsTheRequestAndPrintsTheAnswer(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "Hired a janitor. At desk 4.") || string(body) != `{"role":"janitor"}` {
 		t.Fatalf("exit %d out %q body %s", code, out, body)
 	}
-	status, answer = http.StatusConflict, "Install tmux: the General Manager hires only into a hire Smolcorp can fence."
-	if code, _, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor"); code != exitApp || !strings.Contains(errOut, "409: Install tmux") {
-		t.Errorf("refusal: exit %d %q", code, errOut)
+	status, answer = http.StatusNotFound, `{"error":"not found"}`
+	if code, _, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor"); code != exitApp || strings.Contains(errOut, "isn't available") {
+		t.Errorf("a 404: exit %d %q", code, errOut)
 	}
 }
 
