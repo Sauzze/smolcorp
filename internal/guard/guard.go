@@ -235,6 +235,13 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 	if startsClaude(name, unmark(args)) {
 		return &Refusal{Group: "claude", Rule: "starting Claude Code again", Command: strings.Join(words, " "), Why: nestedClaudeWhy(groups)}
 	}
+	// smolcorp run starts its agent as the agent itself would start: judged as that command. A role's
+	// agent may be Claude Code, and nothing here says which, so `run --role` is starting it again.
+	if agent, role := smolcorpRun(name, args); role {
+		return &Refusal{Group: "claude", Rule: "starting Claude Code again", Command: strings.Join(words, " "), Why: nestedClaudeWhy(groups)}
+	} else if r := checkCommand(agent, groups, depth+1, pess); len(agent) > 0 && r != nil {
+		return r
+	}
 	if name == "tmux" {
 		args = tmuxFull(args)
 	}
@@ -484,6 +491,29 @@ func startsClaude(name string, args []string) bool {
 		}
 	}
 	return false
+}
+
+// smolcorpRun reads `smolcorp run`: the agent's command and its arguments, after the launcher's own
+// options (--hire, --hire-id, --pinned, --agent, which the app gives a hire it opens), or role when it
+// starts a role's agent (run --role). Neither when the command isn't smolcorp run.
+func smolcorpRun(name string, args []string) (agent simple, role bool) {
+	if name != "smolcorp" && name != "smolcorp-cli" || len(args) == 0 || !strings.EqualFold(strings.TrimPrefix(args[0], unreadable), "run") {
+		return nil, false
+	}
+	rest := args[1:]
+	for len(rest) > 0 {
+		switch strings.ToLower(strings.TrimPrefix(rest[0], unreadable)) {
+		case "--hire", "--hire-id", "--agent":
+			rest = rest[min(2, len(rest)):]
+		case "--pinned":
+			rest = rest[1:]
+		case "--role":
+			return nil, true
+		default:
+			return simple(rest), false
+		}
+	}
+	return nil, false
 }
 
 func nestedClaudeWhy(groups []Group) string {

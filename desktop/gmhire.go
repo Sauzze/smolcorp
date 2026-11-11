@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // POST /setup/gm/hire, for the GM and the setup page (the route table gates the callers): the Mac's hire, through
@@ -13,11 +14,11 @@ import (
 // With `engine: "t3"`, into T3 Code through Setup's own lane (hireFromSetupSheetIntoT3), as the Mac's route does.
 // The request is the fixture Tests/fixtures/frontdesk/hire.json.
 
-// gmHireCantHonour is the 400 for a field the Go path can't honour yet. Under the Mac app it's "this engine",
-// whose way back is the Swift one.
+// gmHireCantHonour is the 400 for a field the Go path can't honour yet. Under the Mac app it's "this engine".
+// It never says to switch back to the Swift engine: that one doesn't serve smolcorp demo, so a GM there would end it.
 func gmHireCantHonour(field string, macApp bool) string {
 	if macApp {
-		return "On this engine, the General Manager's hire can't honour \"" + field + "\" yet: leave it out, or switch back to the Swift engine."
+		return "On this engine, the General Manager's hire can't honour \"" + field + "\" yet: leave it out."
 	}
 	return "Smolcorp on Linux and Windows can't honour \"" + field + "\" in a hire yet: leave it out."
 }
@@ -70,8 +71,15 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		reply(http.StatusNotFound, "That role isn't there any more. Pick another.")
 		return
 	}
-	if _, isText := body["task"].(string); body["task"] != nil && !isText {
+	// The task, as the Mac's BriefRoutes.hireRequest reads it: text of at most 8000 characters, into the brief
+	// as BriefContext.task (briefTask); left out or null is none.
+	task, isText := body["task"].(string)
+	if body["task"] != nil && !isText {
 		reply(http.StatusBadRequest, "The task is text.")
+		return
+	}
+	if utf8.RuneCountInString(task) > briefTaskLimit {
+		reply(http.StatusBadRequest, "The task is at most 8000 characters.")
 		return
 	}
 	// Where it works, in the Mac's words: a terminal (left out or "terminal") or T3 Code ("t3"), nothing else.
@@ -90,7 +98,7 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 	for _, f := range []struct {
 		field string
 		bad   bool
-	}{{"model", set("model", "")}, {"nickname", set("nickname", "")}, {"task", set("task", "")},
+	}{{"model", set("model", "")}, {"nickname", set("nickname", "")},
 		{"apiKey", set("apiKey", false)}, {"worktree", set("worktree", true)}, // a hire is always in a worktree of its own
 		{"answers", set("answers") && (!isList || len(answers) > 0)}} {
 		if f.bad {
@@ -117,16 +125,26 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		reply(http.StatusBadRequest, why)
 		return
 	}
-	if t3 {
-		d.gmHireIntoT3(w, setupHire{Role: role, Folder: folder, Floor: int(floor), Answers: []string{}, Worktree: true, T3: true})
+	// The account, as the Mac's: one of your Claude accounts by name, as text. Left out (or "") is the only one,
+	// and with more than one saved hireWith asks which; a GM held to one project has its own account filled in
+	// (gmScopeRefusal).
+	named, isName := body["account"].(string)
+	if body["account"] != nil && !isName {
+		reply(http.StatusBadRequest, "The account is a name, as text.")
 		return
 	}
-	// The Claude account, by name, as the Mac's route reads it (anything but text is none): with more than
-	// one saved, hireWith asks which.
-	account, _ := body["account"].(string)
+	named = strings.Trim(named, " \t")
+	if t3 {
+		// T3 Code works on its own account: what was named is kept for its own refusal, as setup's hire does.
+		d.gmHireIntoT3(w, setupHire{Role: role, Folder: folder, Floor: int(floor), Answers: []string{}, Worktree: true, T3: true,
+			Account: named, Task: briefTask(task)})
+		return
+	}
 	seat := -1
+	// The account goes to hireWith, which asks which with more than one saved (as the Mac's route), and finds
+	// its folder; a GM held to one project has its own filled in (gmScopeRefusal).
 	if status, text := d.hireWith(hireSpec{roleID: role, floor: int(floor), fromSetup: true, folder: folder, fenced: true, seat: &seat,
-		account: strings.Trim(account, " \t")}); status != http.StatusNoContent {
+		account: named, task: briefTask(task)}); status != http.StatusNoContent {
 		reply(status, text)
 		return
 	}

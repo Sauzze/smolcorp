@@ -445,7 +445,7 @@ func TestUnderTheMacAppTheGMRoutesHireIsRefusedInTheEnginesWords(t *testing.T) {
 // Linux and Windows; on its own, the words name those.
 func TestUnderTheMacAppTheGMRoutesFieldRefusalSpeaksOfThisEngine(t *testing.T) {
 	d, r, h, token := gmHireDeck(t)
-	want := "On this engine, the General Manager's hire can't honour \"model\" yet: leave it out, or switch back to the Swift engine."
+	want := "On this engine, the General Manager's hire can't honour \"model\" yet: leave it out."
 	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","model":"opus"}`); code != http.StatusBadRequest || !strings.HasPrefix(text, "Smolcorp on Linux and Windows") {
 		t.Errorf("on its own: %d %q", code, text)
 	}

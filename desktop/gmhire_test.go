@@ -157,7 +157,7 @@ func TestTheGMHireFolder(t *testing.T) {
 func TestTheGMHireFieldsAndFloor(t *testing.T) {
 	d, r, h, token := gmHireDeck(t)
 	for field, value := range map[string]string{"model": `"opus"`, "nickname": `"Ada"`, "apiKey": `true`,
-		"worktree": `false`, "task": `"Review it."`, "answers": `["a"]`, "floor": `6`, "floor ": `"2"`} {
+		"worktree": `false`, "answers": `["a"]`, "floor": `6`, "floor ": `"2"`} {
 		code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","`+strings.TrimSpace(field)+`":`+value+`}`)
 		if code != http.StatusBadRequest || !strings.Contains(text, field) && field != "floor" || strings.Contains(text, "\n") {
 			t.Errorf("%s: %d %q, want 400 naming it", field, code, text)
@@ -192,6 +192,52 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 	d.lastHire = time.Time{}
 	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","engine":""}`); code != http.StatusOK || len(registered(t)) != 2 || registered(t)[1].Engine == t3Engine {
 		t.Errorf(`engine "": %d %q, registry %+v, want a terminal hire`, code, text, registered(t))
+	}
+}
+
+// RX1d B1: the route honours a task as the Mac's BriefRoutes.hireRequest does (text, at most 8000 characters, into
+// the brief as BriefContext.task), and an account by name (one of yours; left out, the default), never refused
+// with "switch back to the Swift engine", which doesn't serve smolcorp demo.
+func TestTheGMHireHonoursATaskAndAnAccount(t *testing.T) {
+	d, r, h, token := gmHireDeck(t)
+	for _, c := range []struct {
+		body   string
+		status int
+		text   string
+	}{
+		{`{"role":"janitor","task":5}`, 400, "The task is text."},
+		{`{"role":"janitor","task":"` + strings.Repeat("x", briefTaskLimit+1) + `"}`, 400, "The task is at most 8000 characters."},
+		{`{"role":"janitor","account":"work"}`, 404, "There's no Claude account called work. Pick one of: default."},
+		{`{"role":"janitor","account":7}`, 400, "The account is a name, as text."},
+	} {
+		if code, text := postGMHire(t, d, asGMCaller, token, c.body); code != c.status || text != c.text {
+			t.Errorf("%.60s: %d %q, want %d %q", c.body, code, text, c.status, c.text)
+		}
+	}
+	nothingMade(t, r, h)
+	// The task, as the brief has it: control characters taken away.
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","task":"Review the importer.\u0007 Proof: the tests pass."}`); code != http.StatusOK {
+		t.Fatalf("with a task: %d %q", code, text)
+	}
+	hires := registered(t)
+	brief, _ := os.ReadFile(hires[0].Brief)
+	if len(hires) != 1 || !strings.Contains(string(brief), "Review the importer. Proof: the tests pass.") || strings.Contains(string(brief), "\a") {
+		t.Errorf("the brief %s doesn't hold the task:\n%s", hires[0].Brief, brief)
+	}
+	// An account of yours by name: the hire works on it; "default" is the default one.
+	work := claudeFolder(t, filepath.Join(homeDir, "accounts", "work"), "settings.json", ".claude.json")
+	d.config.ClaudeProfiles = []claudeProfile{{Name: "work", Dir: work}}
+	for i, account := range []string{"work", "default"} {
+		d.lastHire = time.Time{}
+		if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","account":"`+account+`"}`); code != http.StatusOK {
+			t.Fatalf("on %s: %d %q", account, code, text)
+		}
+		hire := registered(t)[i+1]
+		script := r.script(hire)
+		if hire.Account != account || account == "work" && !strings.Contains(script, "CLAUDE_CONFIG_DIR="+shellPath(work)) && !strings.Contains(script, "CLAUDE_CONFIG_DIR='"+work+"'") ||
+			account == "default" && !strings.Contains(script, "unset CLAUDE_CONFIG_DIR") {
+			t.Errorf("on %s: the row's account %q, the start script:\n%s", account, hire.Account, script)
+		}
 	}
 }
 

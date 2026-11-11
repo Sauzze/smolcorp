@@ -300,6 +300,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusConflict, managerOffAnswer)
 			return
 		}
+		// A General Manager the owner held to one project goes no further than it (gmscope.go).
+		if r.caller == callerGM {
+			if status, why := d.gmScopeRefusal(r); status != 0 {
+				writeStatus(w)(status, why)
+				return
+			}
+		}
 		rt.setup(w, r)
 		return
 	// A cloud bot's news, from a tool of yours: guarded as setup's actions are.
@@ -877,6 +884,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	}
 	// Setup's own hire sheet (setuphire.go).
 	if d.setupHireRoute(w, r.Method, path, r.Body, r.caller) {
+		return
+	}
+	// The demo's page: Setup opened at `smolcorp demo`'s hire (demopage.go).
+	if d.demoRoute(w, r) {
 		return
 	}
 
@@ -1840,6 +1851,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		if refused != nil {
 			writeStatus(w)(refused.status, refused.message)
 			return
+		}
+		// A GM whose row the owner set to failed or fired loses its token, as a fired one does: its scope
+		// follows the row (gmscope.go), so a working token with no open row would be unscoped (RX1d N1).
+		if hire.Role == gmRole && !isOpen(hire) {
+			d.clearFiredGMToken()
 		}
 		writeJSON(w, http.StatusOK, hire)
 

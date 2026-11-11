@@ -278,6 +278,9 @@ type hireSpec struct {
 	// path's own way. Setup's sheet says both in extra.
 	account  string
 	worktree *bool
+	// The GM route's task, into the hire's brief as the Mac's BriefContext.task ("" for none); setup's sheet
+	// says its own in extra.
+	task string
 }
 
 // fenceRefusal is why a fenced hire of program can't be made, or "": a plain terminal has no guard.
@@ -429,10 +432,11 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 			configDir = named.Dir
 		}
 	}
-	// What the engine is told of an account or a worktree that setup's sheet didn't send (Start here's).
+	// What the engine is told of an account, a worktree or a task that setup's sheet didn't send (Start here's,
+	// the GM route's).
 	engineExtra := extra
-	if extra == nil && (account != "" || s.worktree != nil) {
-		engineExtra = &setupHire{Account: account, configDir: configDir, Worktree: s.worktree == nil || *s.worktree}
+	if extra == nil && (account != "" || s.worktree != nil || s.task != "") {
+		engineExtra = &setupHire{Account: account, configDir: configDir, Worktree: s.worktree == nil || *s.worktree, Task: s.task}
 	}
 	// T721, on every hire route, before anything is made or the cooldown is spent (a test copy never hires
 	// on the default account).
@@ -499,12 +503,23 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 			if status, message, handled := d.managedHireWith(roleID, folder, terminal, showWindow, held, floor, engineExtra); handled {
 				return status, message
 			}
-		} else if launcherHires && d.config.HireManagedWindows && hasTerminal && !onAPIKey(extra) {
-			// Beta: in a window run by the launcher, only where that is made and the switch is on.
-			if status, message, handled := d.managedLauncherHire(roleID, folder, terminal, hasTerminal, held, floor, engineExtra); handled {
+		} else if launcherHires && d.config.HireManagedWindows && hasTerminal && !onAPIKey(extra) && (extra == nil || extra.Scope == "") {
+			// Beta: in a window run by the launcher, only where that is made and the switch is on. The GM route's
+			// task and account go with it whole (setup's sheet keeps its way through the launcher: its account alone).
+			var routeExtra *setupHire
+			if s.fenced {
+				routeExtra = engineExtra
+			}
+			if status, message, handled := d.managedLauncherHire(roleID, folder, terminal, hasTerminal, held, floor, engineExtra, routeExtra); handled {
 				return status, message
 			}
 		}
+	}
+	// A General Manager held to one project (gmscope.go) keeps its scope only in the engine's registry row:
+	// any other way would drop it, so it is refused rather than hired unscoped.
+	if extra != nil && extra.Scope != "" {
+		d.lastHire = time.Time{}
+		return http.StatusConflict, gmScopeNeedsEngine
 	}
 	// The plain path, through the launcher: it writes no fence and starts on the default account.
 	// Under the Mac app, a hire the Mac would manage (the manager on, a worktree asked for, or the

@@ -415,6 +415,15 @@
   .choices .btn:disabled { opacity: .45; cursor: not-allowed; }
   .step .choices { margin: 6px 0 4px; }
   .choices .btn .tag { margin-left: 6px; font-size: 11px; color: var(--accent); }
+  /* smolcorp demo's page: the demo's hire, what it spends and the switches it turns on, then one Hire. */
+  .demo-card .demo-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 10px 0; font-size: 13px; }
+  .demo-card .demo-facts dt { color: var(--dim); }
+  .demo-card .demo-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .demo-card pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: var(--well); padding: 8px 10px; border-radius: 6px; }
+  .demo-card .demo-go { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .demo-card .said { color: var(--dim); font-size: 12px; margin: 8px 2px 0; }
+  .demo-card .said.wrong { color: var(--error); }
+  @media (max-width: 520px) { .demo-card .demo-facts { grid-template-columns: 1fr; } .demo-card .demo-facts dd { margin-bottom: 4px; } }
   /* Before the General Manager's hire: what it needs, each line with what to do; then what to say to it first. */
   .start-here .first-gm-go { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
   .start-here .btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
@@ -730,6 +739,27 @@
     <div class="attention" id="easy-attention" hidden>
       <div class="text"><b id="easy-attention-title"></b><span id="easy-attention-detail"></span></div>
       <button class="btn primary" id="easy-attention-do"></button>
+    </div>
+
+    <!-- smolcorp demo's page (FXX1d): the demo opens Setup here, at its hire, which you check and make with one click. -->
+    <div class="card demo-card" id="demo-card" data-search="The demo" data-keywords="demo sample smolcorp demo general manager" hidden>
+      <div class="card-head"><h2>Smolcorp's demo</h2><span class="now" id="demo-now">One click from you</span></div>
+      <p>This is the page <code>smolcorp demo</code> opened. Hire hires a General Manager into the demo's sample project, held to it.
+        It plans with you in its terminal, hires one agent per task, checks their proof, has each change reviewed, and stops before anything ships.</p>
+      <dl class="demo-facts">
+        <dt>The project</dt><dd><code id="demo-folder"></code></dd>
+        <dt>Held to</dt><dd><code id="demo-scope"></code><br>Smolcorp refuses its hires, mail, briefs and firings anywhere else.</dd>
+        <dt>It may hire</dt><dd id="demo-roles"></dd>
+        <dt>What it spends</dt><dd>Real Claude Code sessions on your Claude account (the one you pick below, when you have more than one: its hires work on the same one): the General Manager (Opus) and about four hires, for some minutes each.
+          That uses your plan's usage, as any Claude Code session does, never an API key. Nothing is pushed, merged or published.</dd>
+        <dt>Switches</dt><dd id="demo-switches"></dd>
+      </dl>
+      <details><summary>Its task, word for word</summary><pre id="demo-task"></pre></details>
+      <div class="demo-go">
+        <select id="demo-account" aria-label="The Claude account the demo's General Manager works on" hidden></select>
+        <button class="btn primary" id="demo-hire" hidden>Hire the demo's General Manager</button>
+      </div>
+      <p class="said" id="demo-said" role="status" hidden></p>
     </div>
 
     <div class="card start-here" id="start-here" data-search="Start here" data-keywords="setup check install hooks firewall tailscale pair gm general manager" hidden>
@@ -1803,7 +1833,8 @@
     const given = key ? { 'X-Smolcorp-Setup-Key': key } : { 'X-Smolcorp-Setup-Once': token };
     await fetch('/setup/session', { method: 'POST', headers: { ...setupHeaders(false), ...given } }).catch(() => {});
     const then = ['pair', 'unpair', 'viewer', 'guide'].find((action) => opened.has(action));
-    history.replaceState(null, '', location.pathname + (then ? `#${then}` : ''));
+    // The query stays: ?demo= is the demo's page (loadDemo).
+    history.replaceState(null, '', location.pathname + location.search + (then ? `#${then}` : ''));
   }
 
   /** Without the key, as from an old bookmark or a link from before Smolcorp restarted: where to open the page from. */
@@ -1817,7 +1848,8 @@
       ? "This page opens from Smolcorp's menu bar: choose Open Settings in Browser. "
       : "This page opens from Smolcorp's menu: Settings… (or Open Setup… in a browser). With no tray, use the link Smolcorp prints as it starts; "
         + 'for a new one, run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again. ')
-      + 'A link from before Smolcorp last started, as for the home Wi-Fi, no longer works.';
+      + 'A link from before Smolcorp last started, as for the home Wi-Fi, no longer works.'
+      + (demoFromAddress(location.search) ? " Then open the demo's link again: Setup opens at the demo." : '');
     document.querySelector('main').replaceChildren(note);
   }
 
@@ -8248,6 +8280,135 @@
   }
   window.addEventListener('hashchange', guideFromAddress);
 
+  /* ------------------------------------------------------------------ the demo (FXX1d) */
+
+  /**
+   * The demo folder `smolcorp demo` opened this page at, from the address's ?demo=<its full path>, or '' for none.
+   * Only a full path counts; the app checks it's a folder the demo made before anything is shown.
+   */
+  function demoFromAddress(search) {
+    const root = (new URLSearchParams(search).get('demo') || '').trim();
+    return root.startsWith('/') || /^[A-Za-z]:[\\/]/.test(root) ? root : '';
+  }
+  const demoRoot = demoFromAddress(location.search);
+  // The demo's hire as the app reads it (GET /setup/demo), and where its Hire is.
+  let demo = null, demoHiring = false, demoHired = false;
+  function demoSaid(text, wrong = false) {
+    $('demo-said').hidden = !text;
+    $('demo-said').textContent = wording(text || '');
+    $('demo-said').classList.toggle('wrong', wrong);
+  }
+  /** "Smolcorp's manager and hiring", from the switches given. */
+  function demoSwitchNames(switches) { return switches.map((s) => s.name).join(' and '); }
+  /** The page says it's open, or closed: the demo's terminal stops waiting once it's closed without a hire. */
+  function demoPageSays(word) {
+    if (!demo) return;
+    fetch(`/setup/demo/page?root=${encodeURIComponent(demoRoot)}&state=${word}`,
+      { method: 'POST', headers: setupHeaders(false), keepalive: word === 'closed' }).catch(() => {});
+  }
+  /** Opened by `smolcorp demo`: its card, filled in from the demo folder, at the top of Easy setup. */
+  async function loadDemo() {
+    if (!demoRoot || !state) return;
+    try {
+      $('demo-card').hidden = false;
+      const res = await fetch(`/setup/demo?root=${encodeURIComponent(demoRoot)}`, { cache: 'no-store', headers: setupHeaders(false) }).catch(() => null);
+      if (!res || !res.ok) {
+        demoSaid(!res ? "Can't reach Smolcorp on this computer."
+          : res.status === 404 ? "This Smolcorp doesn't serve the demo's page, so it can't hire the demo's General Manager." : await res.text(), true);
+        return;
+      }
+      const answer = await res.json();
+      demo = answer.demo;
+      $('demo-folder').textContent = demo.folder;
+      $('demo-scope').textContent = demo.scope;
+      $('demo-roles').textContent = `${demo.roles.join(', ')}, each on Claude Code, in a worktree of the project.`;
+      $('demo-task').textContent = demo.hire.task;
+      const off = demo.switches.filter((s) => !s.on);
+      $('demo-switches').textContent = !off.length ? "Smolcorp's manager and hiring are on already."
+        : `Hire turns on ${demoSwitchNames(off)} (under Hires and roles: ${off.map((s) => s.setting).join('; ')}), `
+          + `and ${off.length > 1 ? 'they stay' : 'it stays'} on until you turn ${off.length > 1 ? 'them' : 'it'} off there.`;
+      renderDemoAccount();
+      const blocked = demo.gm ? '' : answer.gmHired
+        ? 'A General Manager is already hired: fire it in the office first, then run smolcorp demo again.'
+        : answer.open.length ? `The demo runs its own team: fire or finish your hires first (${answer.open.join(', ')}), then run smolcorp demo again.` : '';
+      demoHired = !!demo.gm;
+      $('demo-hire').hidden = demoHired || !!blocked;
+      $('demo-now').textContent = demoHired ? 'Hired' : 'One click from you';
+      if (demoHired) demoSaid("The demo's General Manager is hired. Answer it in its terminal; the demo's terminal follows the team.");
+      else if (blocked) demoSaid(blocked, true);
+      go('easy', $('demo-card'), false);
+      demoPageSays('open');
+    } catch (e) {
+      demoSaid(String(e.message || e), true);
+    }
+  }
+  /** With more than one Claude account, the demo's hire says which, as Start here's does (a test copy never on the default one). */
+  function renderDemoAccount() {
+    const profiles = (state.claudeAccounts && state.claudeAccounts.profiles) || [];
+    const pick = $('demo-account'), kept = pick.value;
+    pick.hidden = profiles.length < 2;
+    pick.replaceChildren(new Option('Choose an account…', ''), ...profiles.map((p) => new Option(p.name, p.name)));
+    const testOne = testCopy() && profiles.find((p) => !p.default);
+    if (profiles.some((p) => p.name === kept) && !(testOne && kept === 'default')) pick.value = kept;
+    else if (testOne) pick.value = testOne.name;
+    else if (profiles.some((p) => p.default)) pick.value = profiles.find((p) => p.default).name;
+  }
+  /** Hire: the switches the demo needs turned on, then the page's own hire of the GM, with its scope; on a refusal, they go back off. */
+  async function hireDemoGm() {
+    const account = $('demo-account').hidden ? '' : $('demo-account').value;
+    if (!$('demo-account').hidden && !account) return demoSaid('Choose the Claude account the General Manager works on.', true);
+    const turnedOn = [];
+    const putBack = async () => {
+      const off = [], stuck = [];
+      for (const s of [...turnedOn].reverse()) {
+        const res = await fetch(`${s.route}?enabled=0`, { method: 'POST', headers: setupHeaders(false) }).catch(() => null);
+        (res && res.ok ? off : stuck).push(s);
+      }
+      return (off.length ? ` ${demoSwitchNames(off.reverse())} ${off.length > 1 ? 'are' : 'is'} off again.` : '')
+        + (stuck.length ? ` ${demoSwitchNames(stuck.reverse())} couldn't be turned back off: turn ${stuck.length > 1 ? 'them' : 'it'} off under Hires and roles.` : '');
+    };
+    for (const s of demo.switches.filter((s) => !s.on)) {
+      const res = await fetch(`${s.route}?enabled=1`, { method: 'POST', headers: setupHeaders(false) }).catch(() => null);
+      if (!res || !res.ok) {
+        const why = res ? await res.text() : "Can't reach Smolcorp on this computer.";
+        return demoSaid(`Not hired: ${s.name} didn't turn on (${why}).${await putBack()}`, true);
+      }
+      turnedOn.push(s);
+    }
+    demoSaid("Hiring the demo's General Manager…");
+    const res = await fetch('/setup/hire', { method: 'POST', headers: setupHeaders(true),
+      body: JSON.stringify({ ...demo.hire, ...(account ? { account } : {}) }) }).catch(() => null);
+    if (!res || !res.ok) {
+      const why = res ? (await res.text()).trim() : "Can't reach Smolcorp on this computer.";
+      return demoSaid(`Not hired: ${why}${await putBack()}`, true);
+    }
+    demoHired = true;
+    $('demo-hire').hidden = true;
+    $('demo-account').hidden = true;
+    $('demo-now').textContent = 'Hired';
+    demoSaid(`Hired: the demo's General Manager is starting in its terminal${turnedOn.length ? `, and ${demoSwitchNames(turnedOn)} ${turnedOn.length > 1 ? 'are' : 'is'} on` : ''}. `
+      + "Answer it there; the demo's terminal follows the team.");
+    load();
+  }
+  $('demo-hire').onclick = async () => {
+    if (!demo || demoHiring || demoHired) return;
+    demoHiring = true;
+    $('demo-hire').disabled = true;
+    try {
+      await hireDemoGm();
+    } catch (e) {
+      demoSaid(String(e.message || e), true);
+    } finally {
+      demoHiring = false;
+      $('demo-hire').disabled = false;
+    }
+  };
+  if (demoRoot) {
+    setInterval(() => demoPageSays('open'), 15000);
+    window.addEventListener('pagehide', () => demoPageSays('closed'));
+    window.addEventListener('pageshow', (e) => { if (e.persisted) demoPageSays('open'); });
+  }
+
   /* ------------------------------------------------------------------ start */
 
   go('easy', null, false);
@@ -8267,7 +8428,7 @@
     if (location.hash === '#viewer') go('extras', $('viewer'), false);
     // From "Show Me Around Again" in the menu.
     guideFromAddress();
-  }).then(loadFirstFolder).then(loadStartHere).then(loadViewer).then(loadBriefs).then(loadGuard);
+  }).then(loadDemo).then(loadFirstFolder).then(loadStartHere).then(loadViewer).then(loadBriefs).then(loadGuard);
   setInterval(() => { if (!document.querySelector('.over')) load(); }, 1500);
   // The viewer's state, for its switch and "last sent": often while it's on.
   setInterval(() => { if (viewer && (viewer.on || document.hasFocus())) loadViewer(); }, 5000);

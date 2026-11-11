@@ -67,6 +67,9 @@ type Hire struct {
 	// session and that session's transcript, kept until Hand back resumes it there. Written only then.
 	T3Session    string `json:"t3Session,omitempty"`
 	T3Transcript string `json:"t3Transcript,omitempty"`
+	// Scope: a General Manager the owner hired held to one project (gmscope.go), as the full path of that
+	// project; written only when set. Go only: the Mac's Swift engine has no scope (M7).
+	Scope string `json:"scope,omitempty"`
 }
 
 // liveSession is a session as the deck follows it, with where it sits.
