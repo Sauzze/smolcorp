@@ -532,7 +532,9 @@
         },
         "officeKey" : {
           "default" : "string",
-          "keys" : "string"
+          "held" : "bool",
+          "keys" : "string",
+          "labels" : "map"
         },
         "officeWindow" : {
           "available" : "bool",
@@ -1092,7 +1094,9 @@
         },
         "officeKey" : {
           "default" : "string",
-          "keys" : "string"
+          "held" : "bool",
+          "keys" : "string",
+          "labels" : "map"
         },
         "officeWindow" : {
           "available" : "bool",

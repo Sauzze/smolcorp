@@ -291,6 +291,10 @@ final class DeckRouter: Router {
     var officeOptionsChanged: () -> Void = {}
     /// The office's keys held instead (nil: none): why not, or nil once they're held (`OfficeKeyHolder.hold`).
     var officeKeyChanged: (OfficeKey?) -> String? = { _ in nil }
+    /// The office's keys held now (`OfficeKeyHolder.current`): nil when none are.
+    var officeKeyHeld: () -> OfficeKey? = { nil }
+    /// Each key's name on the layout in use (`OfficeKey.currentLabels`): none, the US names, until the app says.
+    var officeKeyLabels: () -> OfficeKey.Labels = { [:] }
     /// The office's window goes to a rect (AppleScript's coordinates, from the main screen's top-left) when it is shown, as tiling places it.
     var placeOffice: (CGRect, CGFloat) -> Void = { _, _ in }
 
@@ -1064,9 +1068,10 @@ final class DeckRouter: Router {
             respond(.json(setupState(caller)))
 
         // The keys that show and hide the office's window from anywhere: "default" for ⌥⌘O, "off" for none, or
-        // keys recorded on the page. Checked, held at once, then kept; keys the Mac or another app has are refused.
+        // keys recorded on the page. Checked on the layout in use, held at once, then kept; keys macOS has switched
+        // on, or won't let go, are refused.
         case ("POST", "/setup/officekey"):
-            switch OfficeKey.choice(request.query["keys"] ?? "") {
+            switch OfficeKey.choice(request.query["keys"] ?? "", labels: officeKeyLabels()) {
             case .failure(let refusal):
                 respond(.status(400, refusal.message))
             case .success(let key):
@@ -1804,8 +1809,14 @@ final class DeckRouter: Router {
             "choices": Choices.json(config, hasTmux: Tmux.path != nil),
             "t3CodeEnabled": Choices.t3Code(config),
             "officeWindow": ["available": true, "mac": true, "onTop": config.officeOnTop ?? false],
-            // The keys that show and hide it from anywhere: "off" for none.
-            "officeKey": ["keys": OfficeKey.chosen(config)?.text ?? OfficeKey.off, "default": OfficeKey.standard.text],
+            // The keys that show and hide it from anywhere ("off" for none), whether they're the ones held now, and
+            // each key's name on the layout in use, for the page to show them as printed.
+            "officeKey": { () -> [String: Any] in
+                let labels = officeKeyLabels()
+                let chosen = OfficeKey.chosen(config, labels: labels)
+                return ["keys": chosen?.text ?? OfficeKey.off, "default": OfficeKey.standard.text,
+                        "held": officeKeyHeld() == chosen, "labels": labels]
+            }(),
             "summary": { () -> [String: Any] in
                 SummaryProviders.shared.refresh()
                 return DeckRouter.summaryState(optIn: config.summaryOptIn, saved: config.summaryProvider,

@@ -547,6 +547,7 @@ final class HostBridgeTests: XCTestCase {
 
     /// The Go shell's office keys (KSC): held at once by its holder (a stand-in here, never a real key), then kept
     /// in memory for the menu; keys it can't hold are its refusal, and nothing changes. Never saved from the shell.
+    /// Setup's facts carry the keys held now and the layout's names for the keys (FXKSC B2, N2), for the core.
     func testTheGoShellsOfficeKeysAreHeldAtOnceAndKeptInMemoryOnly() throws {
         let file = folder.appendingPathComponent("config.json")
         let config = Config()
@@ -556,16 +557,25 @@ final class HostBridgeTests: XCTestCase {
         let link = OfficeLink(keys: { key, _ in
             held.append(key.text)
             return key.text == "ctrl+alt+T" ? nil : NSObject()
-        })
-        let actions = link.actions(actions, config: config)
+        }, labels: { ["Q": "A", "A": "Q"] })
+        var mac = actions
+        mac.facts = { _ in ["accessibility": true] }
+        let actions = link.actions(mac, config: config)
+        XCTAssertEqual(actions.officeKeyLabels(), ["Q": "A", "A": "Q"])
         let k = OfficeKey(modifiers: ["ctrl", "alt"], key: "K")
         XCTAssertNil(actions.officeKey(k))
         XCTAssertEqual(config.officeKey, "ctrl+alt+K")
-        XCTAssertEqual(actions.officeKey(OfficeKey(modifiers: ["ctrl", "alt"], key: "T")), "⌃⌥T is already used by macOS or another app: choose another.")
+        XCTAssertEqual(actions.officeKey(OfficeKey(modifiers: ["ctrl", "alt"], key: "T")),
+                       "⌃⌥T is taken: macOS has it switched on, or won't let Smolcorp hold it. Choose another.")
         XCTAssertEqual(config.officeKey, "ctrl+alt+K", "as it was")
         XCTAssertEqual(link.keys.current, k, "the keys before are held again")
+        var facts = actions.facts([])
+        XCTAssertEqual(facts["accessibility"] as? Bool, true, "the Mac's facts, as they were")
+        XCTAssertEqual(facts["officeKey"] as? NSDictionary, ["held": "ctrl+alt+K", "labels": ["Q": "A", "A": "Q"]] as NSDictionary)
         XCTAssertNil(actions.officeKey(nil))
         XCTAssertEqual(config.officeKey, "off")
+        facts = actions.facts([])
+        XCTAssertEqual((facts["officeKey"] as? [String: Any])?["held"] as? String, "off")
         XCTAssertNil(actions.officeKey(.standard))
         XCTAssertNil(config.officeKey)
         XCTAssertEqual(held, ["ctrl+alt+K", "ctrl+alt+T", "ctrl+alt+K", "alt+cmd+O"])
@@ -758,11 +768,13 @@ final class HostBridgeTests: XCTestCase {
         // The Go shell's office window and the folder panel: a floor's picks a project, the hires' is cancelled.
         mac.showOffice = { [unowned self] in asked.append("office") }
         mac.officeOnTop = { [unowned self] in asked.append("on top \($0)") }
-        // The office's keys (KSC): held by a stand-in, never a real key; ⌃⌥T is another app's.
+        // The office's keys (KSC): held by a stand-in, never a real key; macOS has ⌃⌥T on. The layout in use is a
+        // French AZERTY's (FXKSC B2): ⌘ on the US A key is its ⌘Q, refused before the holder is asked.
         mac.officeKey = { [unowned self] key in
             asked.append("keys \(key?.text ?? "off")")
-            return key?.text == "ctrl+alt+T" ? key.map(OfficeKey.takenRefusal) : nil
+            return key?.text == "ctrl+alt+T" ? key.map { OfficeKey.takenRefusal($0) } : nil
         }
+        mac.officeKeyLabels = { ["Q": "A", "A": "Q"] }
         mac.chooseFolder = { [unowned self] start, message, done in
             asked.append("choose \(start ?? "-") \(message == Deck.floorFolderMessage ? "floor" : message == Deck.hireFolderMessage ? "hires" : message)")
             done(message == Deck.floorFolderMessage ? "/Users/example/project" : nil)

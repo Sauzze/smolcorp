@@ -1,5 +1,4 @@
 import AppKit
-import Carbon.HIToolbox
 
 @main
 enum AgentDeckApp {
@@ -70,8 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         router.officeOptionsChanged = { [office] in office.applyOptions() }
         NSApp.mainMenu = mainMenu()
         // ⌥⌘O, or the keys chosen in Settings, from anywhere, shows and hides the office's window; changed there at once.
-        officeKey.hold(OfficeKey.chosen(Config.shared))
+        officeKey.hold(OfficeKey.chosen(Config.shared, labels: OfficeKey.currentLabels()))
         router.officeKeyChanged = { [officeKey] in officeKey.hold($0) }
+        router.officeKeyHeld = { [officeKey] in officeKey.current }
+        router.officeKeyLabels = OfficeKey.currentLabels
 
         if !Config.shared.hasCompletedSetup {
             settings.show()

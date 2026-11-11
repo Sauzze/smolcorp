@@ -111,7 +111,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/setup/dictation/glossary` | page, tool | `[names]` | the setup state | 200, 400 | setup.json | served |
 | POST | `/setup/keystrokes` | page | `?enabled=` | the setup state | 200, 400 | setup.json | served |
 | POST | `/setup/keystrokes/apps` | page | `?add=` or `?remove=` | the setup state | 200, 400, 409 | setup.json | served |
-| POST | `/setup/officekey` | page | `?keys=` recorded keys (`alt+cmd+O`), `default` or `off` | the setup state | 200, 400 (no ⌘, ⌥ or ⌃; the Mac's own keys), 409 (macOS or another app has them) | setup.json | differs |
+| POST | `/setup/officekey` | page | `?keys=` recorded keys (`alt+cmd+O`), `default` or `off` | the setup state | 200, 400 (no ⌘, ⌥ or ⌃; the Mac's own keys, by what they type on the layout in use), 409 (macOS has them switched on, or won't let them be held) | setup.json | differs |
 | POST | `/setup/terminal-command` | page | `?remove=1` | the setup state | 200, 409 | none: writes the smolcorp link and your shell's PATH line | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
 | GET | `/setup/claude-accounts` | gm, page, tool | — | `{found, most, profiles}` | 200 | setup.json | served |
 | POST | `/setup/claude-accounts` | page | `{profiles: [{name, dir}]}` | as GET | 200, 400 | setup.json | served |
@@ -287,7 +287,9 @@ has are the known gaps' "extra" rows.
 | `.music.enabled` | bool | same |
 | `.officeKey` | object | same |
 | `.officeKey.default` | string | same |
+| `.officeKey.held` | bool | same |
 | `.officeKey.keys` | string | same |
+| `.officeKey.labels` | map | same |
 | `.officeWindow` | object | same |
 | `.officeWindow.available` | bool | same |
 | `.officeWindow.mac` | bool | same |
@@ -484,6 +486,7 @@ in the next table.
 | `setup-state` | `.layout.room.plan.tall` | `map` | a tall item's place by its id: keys are data |
 | `setup-state` | `.layout.room.plan.wide` | `map` | a wide item's place by its id: keys are data |
 | `setup-state` | `.layout.room.team` | `map` | the team's looks by folder name: keys are data |
+| `setup-state` | `.officeKey.labels` | `map` | each key's name on the keyboard layout in use, by its US name, where they differ: keys are data |
 | `setup-state` | `.profiles[].colours` | `map` | the theme's colours changed in a look, by name: none in the given |
 | `setup-state` | `.profiles[].layout.room.dress.rules` | `[]` | no dress rule in the default layout |
 | `setup-state` | `.profiles[].layout.room.floorPlans` | `map` | a floor's plan by its number: keys are data |

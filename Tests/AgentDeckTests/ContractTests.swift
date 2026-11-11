@@ -447,6 +447,7 @@ final class ContractTests: XCTestCase {
         for (path, mark) in layout { setupState[".profiles[]" + path] = mark }
         setupState.merge([
             ".profiles[].colours": .loose("map", why: "the theme's colours changed in a look, by name: none in the given"),
+            ".officeKey.labels": .loose("map", why: "each key's name on the keyboard layout in use, by its US name, where they differ: keys are data"),
             ".platform": .oneOf(["darwin", "linux", "windows"]),
             ".logo": .oneOf(Logo.allCases.map(\.rawValue)),
             ".agents": .loose("array", why: "the coding agents found in this computer's home folder"),

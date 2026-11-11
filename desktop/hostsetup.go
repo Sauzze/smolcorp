@@ -151,6 +151,8 @@ func (d *Deck) addMacSetup(state map[string]any, facts *macFacts) {
 	state["keystrokes"] = map[string]any{"enabled": c.KeystrokesAllowed, "accessibility": facts.Accessibility,
 		"apps": orEmpty(c.KeystrokeApps), "running": orEmpty(facts.Running)}
 	state["dock"] = map[string]any{"enabled": c.ShowInDock == nil || *c.ShowInDock}
+	// The office's keys as the app holds them, named as the layout in use prints them.
+	state["officeKey"] = officeKeyState(c.OfficeKey, facts.OfficeKey)
 	if bots, ok := state["cloudBots"].(map[string]any); ok {
 		bots["autoDetect"] = c.BotsAutoDetect == nil || *c.BotsAutoDetect
 	}

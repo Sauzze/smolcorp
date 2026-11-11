@@ -65,7 +65,7 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // A test copy leaves its tester a setup link in its own folder, as with the Swift engine.
         if let setupLink { TestCopy.leaveSetupLink(setupLink) }
         // The office's keys, as config.json has them; the bridge's office-key changes them at once (OfficeLink).
-        officeLink.keys.hold(OfficeKey.chosen(Config.shared))
+        officeLink.keys.hold(OfficeKey.chosen(Config.shared, labels: OfficeKey.currentLabels()))
         if !Config.shared.hasCompletedSetup { settings?.show() }
     }
 
@@ -108,7 +108,8 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: problem ?? "Smolcorp Test · Go engine on port \(core.port)", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         if let office {
-            let keys = OfficeKey.chosen(Config.shared)?.menuKey
+            let labels = OfficeKey.currentLabels()
+            let keys = OfficeKey.chosen(Config.shared, labels: labels)?.menuKey(labels)
             let show = add(to: menu, "Show Office", #selector(toggleOffice), key: keys?.key ?? "")
             show.keyEquivalentModifierMask = keys?.modifiers ?? []
             show.state = office.isShown ? .on : .off
@@ -168,14 +169,18 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 /// The Go shell's office window, for the bridge's `office`, `office-ontop` and `office-key` (setup's Open the
 /// office, its switch to keep it on top, and the keys that show and hide it from anywhere), on the main queue as
 /// the bridge runs them. The core keeps the settings in config.json, which this app read as it started: they're
-/// changed here in memory only, never saved from here.
+/// changed here in memory only, never saved from here. Setup's facts carry the keys held now and the layout in
+/// use, for the core to show them as printed and check them as typed.
 final class OfficeLink {
     weak var window: OfficeWindow?
     /// The office's keys, held while the core is ready.
-    lazy var keys = OfficeKeyHolder { [weak self] in self?.window?.toggle() }
+    lazy var keys = OfficeKeyHolder(labels: labels) { [weak self] in self?.window?.toggle() }
+    /// Each key's name on the layout in use: a stand-in in the tests.
+    private let labels: () -> OfficeKey.Labels
 
-    init(keys register: OfficeKeyHolder.Register? = nil) {
-        if let register { keys = OfficeKeyHolder(register: register) { [weak self] in self?.window?.toggle() } }
+    init(keys register: OfficeKeyHolder.Register? = nil, labels: @escaping () -> OfficeKey.Labels = OfficeKey.currentLabels) {
+        self.labels = labels
+        if let register { keys = OfficeKeyHolder(register: register, labels: labels) { [weak self] in self?.window?.toggle() } }
     }
 
     /// `actions`, with the office's window this shell shows.
@@ -192,6 +197,13 @@ final class OfficeLink {
             if let problem = keys.hold(key) { return problem }
             config.officeKey = OfficeKey.saved(key)
             return nil
+        }
+        actions.officeKeyLabels = labels
+        let facts = actions.facts
+        actions.facts = { [weak self, labels] apps in
+            var said = facts(apps)
+            said["officeKey"] = ["held": self?.keys.current?.text ?? OfficeKey.off, "labels": labels()] as [String: Any]
+            return said
         }
         return actions
     }

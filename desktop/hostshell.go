@@ -41,10 +41,15 @@ func (rt *router) macShell(w http.ResponseWriter, r *request) bool {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
-	// The keys that show and hide the office from anywhere: checked, held by the app at once, then kept. Keys
-	// macOS or another app has are the app's refusal (409), and nothing changes.
+	// The keys that show and hide the office from anywhere: checked on the layout the app says is in use, held
+	// by the app at once, then kept. Keys macOS has switched on, or won't let it hold, are the app's refusal
+	// (409), and nothing changes.
 	case "/setup/officekey":
-		keys, refusal := officeKeyChoice(query.Get("keys"))
+		var labels map[string]string
+		if facts := d.macFactsNow(); facts != nil {
+			labels = facts.OfficeKey.labels()
+		}
+		keys, refusal := officeKeyChoice(query.Get("keys"), labels)
 		if refusal != "" {
 			http.Error(w, refusal, http.StatusBadRequest)
 			return true

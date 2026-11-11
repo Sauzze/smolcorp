@@ -456,11 +456,15 @@ final class HostBridge {
             guard let on = request["on"] as? Bool else { return refused("Say on or off.") }
             return onMain(actions, until: deadline) { actions.officeOnTop(on) }
         case "office-key":
-            // Checked again here: the core checks them too, but only keys the page could choose are ever held.
-            guard let keys = request["keys"] as? String, keys != "default", case .success(let key) = OfficeKey.choice(keys) else {
-                return refused(OfficeKey.shapeRefusal)
-            }
-            switch run(on: actions.main, until: deadline, { actions.officeKey(key) }) {
+            // Checked again here, on the layout in use (read on main): the core checks them too, but only keys the
+            // page could choose are ever held.
+            guard let keys = request["keys"] as? String, keys != "default" else { return refused(OfficeKey.shapeRefusal) }
+            switch run(on: actions.main, until: deadline, { () -> String? in
+                switch OfficeKey.choice(keys, labels: actions.officeKeyLabels()) {
+                case .failure(let refusal): return refusal.message
+                case .success(let key): return actions.officeKey(key)
+                }
+            }) {
             case .done(nil): return ["ok": true]
             case .done(let problem?): return refused(problem)
             case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
@@ -1042,6 +1046,8 @@ final class HostBridge {
         var officeOnTop: (Bool) -> Void = { _ in }
         /// The office's keys held instead, or none (nil): why not, or nil once they're held (`OfficeKeyHolder`).
         var officeKey: (OfficeKey?) -> String? = { _ in nil }
+        /// Each key's name on the layout in use (`OfficeKey.currentLabels`), on main: the Go shell's own.
+        var officeKeyLabels: () -> OfficeKey.Labels = { [:] }
         /// The folder panel opened at a folder (nil: its own choice), saying a message, and what was picked, or nil.
         var chooseFolder: (_ start: String?, _ message: String, _ done: @escaping (String?) -> Void) -> Void = { _, _, done in done(nil) }
         /// The folder panel closed if it's open saying a message, as if cancelled.

@@ -177,6 +177,8 @@ type macFacts struct {
 	Dictation macDictation `json:"dictation"`
 	Running   []runningApp `json:"running"`
 	Terminal  terminalCmd  `json:"terminalCommand"`
+	// The office's keys held now and the layout in use (officekey.go).
+	OfficeKey *macOfficeKey `json:"officeKey,omitempty"`
 }
 
 // macDictation is Apple's speech recognition on this Mac: whether it can
@@ -394,8 +396,9 @@ func hostOfficeOnTop(h hostBridge, on bool) error {
 }
 
 // hostOfficeKey has the Mac app hold the office's keys from anywhere instead, at once ("off": none): the
-// setting is the core's to keep, in the config the app reads it from as it starts. Keys macOS or another app
-// already has are the app's refusal, and the keys held before are kept.
+// setting is the core's to keep, in the config the app reads it from as it starts. Keys macOS has switched on,
+// or won't let it hold, and the Mac's own keys on the layout in use are the app's refusal, and the keys held
+// before are kept.
 func hostOfficeKey(h hostBridge, keys string) error {
 	_, err := ask(h, bridgeRequest{Action: "office-key", Keys: keys})
 	return err

@@ -1559,7 +1559,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// The keys that show and hide the office from anywhere: the Mac app's (hostshell.go under it). Here there's
 	// no such key, so they're checked and kept, for the page to show.
 	case r.Method == http.MethodPost && path == "/setup/officekey":
-		keys, refusal := officeKeyChoice(query.Get("keys"))
+		keys, refusal := officeKeyChoice(query.Get("keys"), nil)
 		if refusal != "" {
 			http.Error(w, refusal, http.StatusBadRequest)
 			return
@@ -2034,7 +2034,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		// Without a window of its own, setup says why there's no switch; under the Mac app, its own window.
 		"officeWindow": d.officeWindowState(),
 		// The keys that show and hide it from anywhere: the Mac app's, kept here as set.
-		"officeKey": officeKeyState(d.config.OfficeKey),
+		"officeKey": officeKeyState(d.config.OfficeKey, nil),
 		"summary":   d.summaryState(),
 		"webhook": map[string]any{
 			"enabled": d.config.Webhook.Enabled, "url": d.config.Webhook.URL, "secret": webhookSecretFor(who, d.config.Webhook.Secret),
