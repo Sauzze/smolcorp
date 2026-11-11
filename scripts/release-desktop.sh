@@ -38,6 +38,8 @@ if [ -n "$stray" ]; then
 fi
 # Nothing of the maintainer's own goes out in a download.
 scripts/check-public.sh
+# The office the programs build in is exactly the build of its sources.
+go run ./scripts/buildoffice -check
 VERSION="$(sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
 BUILD="$(sed -n '/<key>CFBundleVersion<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
 STAGE="build/desktop"
