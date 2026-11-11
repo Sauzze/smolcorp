@@ -249,7 +249,9 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 
 	// This app's folder, piece by piece: never a rule that would cover the hire's own STATUS.md.
 	root := absoluteRulePath(support)
-	for _, pattern := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token"} {
+	// The secrets of both engines a Mac may run (the Swift app's gm-session and hook-header, the Go
+	// engine's hook-key and window-key), in the same order as the Mac's HireSettings: one file either way.
+	for _, pattern := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token"} {
 		both(root + "/" + pattern)
 	}
 	has := func(list []string, name string) bool {
@@ -283,7 +285,7 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 		}
 	}
 	// Nothing secret or app-state can be read either.
-	for _, name := range []string{"gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json"} {
+	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json"} {
 		rules = append(rules, "Read("+root+"/"+name+")")
 	}
 	return rules
@@ -381,21 +383,15 @@ func writeHireSettings(o hireSettingsOptions) (string, error) {
 		reporting = reportingHooks(o.CLI, o.ReportPort)
 	}
 	object := hireSettingsValue(deny, guardHookCommand(o.CLI, rules, profile), o.Auto, reporting)
-
-	var data bytes.Buffer
-	encoder := json.NewEncoder(&data)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
+	// Written as the Mac's HireSettings.save writes it, byte for byte (Tests/fixtures/frontdesk/hire-settings.json).
+	data := swiftJSON(object)
 	failed := &hireRefusal{Status: 500, Message: "Couldn't write the hire's settings, so Smolcorp won't start it unguarded."}
-	if encoder.Encode(object) != nil {
-		return "", failed
-	}
 	folder := hireFolder(o.Support, o.HireID)
 	if os.MkdirAll(folder, 0o700) != nil || os.Chmod(folder, 0o700) != nil {
 		return "", failed
 	}
 	target := filepath.Join(folder, hireSettingsFile)
-	if writePrivate(target, data.Bytes()) != nil {
+	if writePrivate(target, data) != nil {
 		return "", failed
 	}
 	return target, nil

@@ -67,6 +67,10 @@ type hireOpener struct {
 	program string
 	// args are the terminal's arguments to run command in folder.
 	args func(folder string, command []string) []string
+	// open, where set, opens the window itself, in place of args: the Mac
+	// app's Terminal, iTerm2 and Ghostty under its engine (hire_darwin.go).
+	// It gives the window's record, or "" for none.
+	open func(folder string, command []string) (window string, err error)
 }
 
 // installedOpeners are the terminals here that can open a hire's window, in
@@ -214,6 +218,12 @@ func hooksRefusal(agent Agent) string {
 const setupHireNeedsFolder = "Choose the folder for your hires first: it's the first step of Start here."
 
 func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, string) {
+	return d.hireAsWith(desk, roleID, floor, fromSetup, nil)
+}
+
+// hireAsWith is hireAs, with what setup's own hire says besides (setuphire.go),
+// or nil: its folder, answers, task, account, model and nickname.
+func (d *Deck) hireAsWith(desk, roleID string, floor int, fromSetup bool, extra *setupHire) (int, string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if !fromSetup && !d.config.HiringEnabled {
@@ -225,12 +235,19 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	held := -1
 	if floor > 0 {
 		// Upstairs, at a desk nobody sits at: its floor's folder, if the floor has one.
+		_, overflow := d.layout()
+		seated, _ := d.seatedBuilding(overflow)
 		index, err := strconv.Atoi(desk)
+		if desk == "" && extra != nil {
+			// From setup, which names a floor and no desk: its first free one.
+			index, err = 0, nil
+			for index < desksPerFloor && slices.ContainsFunc(seated[floor], func(p seatedPerson[*Session]) bool { return p.desk == index }) {
+				index++
+			}
+		}
 		if err != nil || index < 0 || index >= desksPerFloor {
 			return http.StatusBadRequest, "Unknown desk"
 		}
-		_, overflow := d.layout()
-		seated, _ := d.seatedBuilding(overflow)
 		if slices.ContainsFunc(seated[floor], func(p seatedPerson[*Session]) bool { return p.desk == index }) {
 			return http.StatusConflict, "Someone's at that desk already."
 		}
@@ -265,6 +282,10 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 		}
 	}
 	folder := pinned
+	if extra != nil && extra.Folder != "" {
+		// The folder setup chose, checked already, before a desk's or a floor's.
+		folder = extra.Folder
+	}
 	if folder == "" {
 		var ok bool
 		if folder, ok = existingFolder(d.config.HireFolder); !ok && fromSetup {
@@ -282,8 +303,13 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 		}
 		program = d.config.Roles[i].Agent
 	}
-	// T721, on every hire route, before anything is made or the cooldown is spent.
-	if err := testCopyRefusal(testCopyPort(), program, ""); err != nil {
+	// T721, on every hire route, before anything is made or the cooldown is spent. Only setup's
+	// hire names an account (a test copy never hires on the default one).
+	configDir := ""
+	if extra != nil {
+		configDir = extra.configDir
+	}
+	if err := testCopyRefusal(testCopyPort(), program, configDir); err != nil {
 		return refusalStatus(err), err.Error()
 	}
 	// One GM per office, by whichever route it is hired.
@@ -316,8 +342,12 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	}
 	// After the agent is known to be there: not installed is the clearer thing
 	// to say. Without the lock: it reads the agents' settings files.
+	// A test copy's Claude hire reports through its own settings file, not the account's hooks (as the Mac's).
 	d.mu.Unlock()
-	why := hooksNotConnected(Agent(program))
+	why := ""
+	if testCopyPort() == 0 || agentOrClaude(program) != Claude {
+		why = hooksNotConnected(Agent(program))
+	}
 	d.mu.Lock()
 	if why != "" {
 		d.lastHire = time.Time{}
@@ -336,7 +366,7 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	// at its pinned desk.
 	if roleID != "" && pinned == "" && Agent(program) == Claude {
 		if inTmux {
-			if status, message, handled := d.managedHire(roleID, folder, terminal, showWindow, held, floor); handled {
+			if status, message, handled := d.managedHireWith(roleID, folder, terminal, showWindow, held, floor, extra); handled {
 				return status, message
 			}
 		} else if launcherHires && d.config.HireManagedWindows && hasTerminal {
@@ -479,12 +509,22 @@ func tmuxSessionArguments(name, folder string, command []string) []string {
 
 // openWindow starts terminal, showing command in folder.
 func openWindow(terminal hireOpener, folder string, command []string) error {
+	_, err := showWindow(terminal, folder, command)
+	return err
+}
+
+// showWindow is openWindow, and the record of the window it opened, "" for
+// none: only a terminal the Mac app opens gives one (hirewindows.go).
+func showWindow(terminal hireOpener, folder string, command []string) (string, error) {
+	if terminal.open != nil {
+		return terminal.open(folder, command)
+	}
 	args := terminal.args(folder, command)
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = folder
 	cmd.Env = hireEnvironment()
 	prepareHireWindow(cmd, terminal.id)
-	return startHire(cmd)
+	return "", startHire(cmd)
 }
 
 // hireEnvironment is this app's environment, less what says where it was

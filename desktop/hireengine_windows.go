@@ -9,6 +9,10 @@ func (d *Deck) managedHire(roleID, folder string, terminal hireOpener, hasTermin
 	return 0, "", false
 }
 
+func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire) (int, string, bool) {
+	return 0, "", false
+}
+
 type engineOptions struct{}
 
 // hireSessionUp: no tmux session of an engine hire's here. A launcher hire's window

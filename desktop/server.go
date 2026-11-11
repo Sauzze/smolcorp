@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
@@ -725,6 +726,15 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	config := d.config
 	d.mu.Unlock()
 
+	// The briefs, and the folders a hire from setup can start in (briefroutes.go).
+	if d.briefRoute(w, r.Method, path, r.Body) {
+		return
+	}
+	// Setup's own hire sheet (setuphire.go), and the guard's groups switched (guardstate.go).
+	if d.setupHireRoute(w, r.Method, path, r.Body, r.caller) || guardRoute(w, r.Method, path, r.Body) {
+		return
+	}
+
 	switch {
 	case r.Method == http.MethodGet && path == "/setup":
 		// Only the page or the setup key counts as setup; a GM token or a hire's key
@@ -1243,6 +1253,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.changed()
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, hireFolderState(folder, nil, homeDir))
+
+	// The hire guard's groups and your own patterns: a tool may read them (guardstate.go).
+	case r.Method == http.MethodGet && path == "/setup/guard":
+		writeJSON(w, http.StatusOK, guardState(filepath.Join(supportDir, hireGuardFile), runtime.GOOS))
 
 	// The roles as the page has them, all of them: checked as they're kept,
 	// since their instructions go to agents.

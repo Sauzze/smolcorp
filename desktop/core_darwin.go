@@ -64,6 +64,8 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 	recordPid()
 	defer forgetPid()
 	host = bridge
+	// Hires' windows open in Terminal, iTerm2 or Ghostty, through the app.
+	useMacOpeners(bridge)
 	deck := NewDeck()
 	failed := make(chan error, 1)
 	go func() { failed <- Serve(deck) }()

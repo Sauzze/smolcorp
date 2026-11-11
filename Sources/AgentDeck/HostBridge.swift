@@ -243,6 +243,9 @@ final class HostBridge {
             return tabAction(action, request, actions, until: deadline)
         case "open":
             return open(request, actions, until: deadline)
+        case "terminals":
+            // The terminals of the three Smolcorp opens that are installed, in setup's order.
+            return ["ok": true, "terminals": actions.terminals()]
         case "secret-read", "secret-write", "secret-delete":
             return secret(action, request, actions)
         case "login-item":
@@ -388,7 +391,12 @@ final class HostBridge {
             return refused("Not a script in Smolcorp's hires folder.")
         }
         switch run(on: actions.queue, until: deadline, { actions.open(terminal, folder, script) }) {
-        case .done(let tab?): return ["ok": true, "tab": tab]
+        case .done(let opened?):
+            // The window's own record, as the Swift engine keeps it for a hire (`Deck.hireWindows`): what
+            // switching hires to the background closes, by its terminal's id. A tab with no window: none.
+            var answer: [String: Any] = ["ok": true, "tab": opened.tab]
+            if let window = opened.window { answer["window"] = window }
+            return answer
         case .done(nil): return refused("The window didn't open.")
         case .tooLate: return refused("The terminal didn't answer in time.")
         }
@@ -459,7 +467,9 @@ final class HostBridge {
         var scrollToBottom: (TabAddress) -> Bool?
         var fire: (TabAddress, Agent) -> Terminal.Fired?
         var hires: URL
-        var open: (_ terminal: String, _ folder: String, _ script: String) -> String?
+        var open: (_ terminal: String, _ folder: String, _ script: String) -> Openers.Opened?
+        /// The ids of `Openers.choices` installed on this Mac.
+        var terminals: () -> [String] = { Openers.choices.filter { Openers.isInstalled($0.id) }.map(\.id) }
         var secrets: [String: Secret]
         /// The login item, or nil in a test copy, whose login item is the copy in use's: never read or set.
         var loginItem: (get: () -> Bool, set: (Bool) -> Void)?
@@ -474,7 +484,7 @@ final class HostBridge {
         /// (`Openers.open`, given the command, the folder and the terminal).
         static func onThisMac(testCopy: Bool = TestCopy.isOn,
                               loginItem: (get: () -> Bool, set: (Bool) -> Void) = (get: { LoginItem.isEnabled }, set: { LoginItem.isEnabled = $0 }),
-                              opener: @escaping (_ command: String, _ folder: String, _ terminal: String) -> String? = { command, folder, terminal in
+                              opener: @escaping (_ command: String, _ folder: String, _ terminal: String) -> Openers.Opened? = { command, folder, terminal in
                                   Openers.open(command, in: folder, terminal: terminal, inTmux: false, hireID: "")
                               }) -> Actions {
             // On `queue`, already: see `HostBridge.run`.

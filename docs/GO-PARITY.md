@@ -43,6 +43,8 @@ subsystem of its own. "–" where there is nothing to port.
 | `POST /setup/gm/manager` (the manager switch) | ✓ | ✓ | the page only; no GM caller exists here yet | – |
 | `POST /setup/gm/registry` | ✓ | ✓ | the page only, for the same reason | – |
 | `/setup/hire/gm` (Start here's Hire your General Manager) | ✓ | ✓ | the Go app hires the plain GM role (through the hire engine only on Linux when tmux is the chosen or only way and the agent is Claude, otherwise as before); the Mac's also gives it its token, rules and tools. It refuses (409) while a GM is working, as the Mac does: "A General Manager is already working. Fire it first, then hire another." Nothing is fired for it | L |
+| `POST /setup/hire` (Setup's own hire sheet: folder, answers, task, model, nickname, worktree, account) | ✓ | ✓ | the Mac's checks and words; a role's Claude hire in tmux goes through the hire engine with its answers, task and fence, any other opens through the launcher, which asks the role's questions itself. Into T3 Code and on the API-key account: refused in a sentence (409) | – |
+| `POST /setup/guard` (switching the guard's groups, your own patterns) | ✓ | ✓ | none: the page alone, and the file is the Mac's byte for byte (`Tests/fixtures/frontdesk/hire-guard.json`) | – |
 | `POST /setup/gm/send`, `GET /setup/gm/outbox` (mail) | ✓ | ✓ | none on the routes (`mail_routes.go`); a hire's mail is typed into its tmux or launcher pane, a bot's goes to its mailbox folder | – |
 | `POST /setup/gm/contacts` | ✓ | ✓ | none (`frontdeskmail.go`) | – |
 | `GET /setup/gm/watches`, `POST /setup/gm/watch`, `POST`/`DELETE /setup/gm/unwatch` | ✓ | ✓ | none on the routes (`watchers.go`); a firing is a line in the event log, as on the Mac | – |
@@ -61,7 +63,7 @@ subsystem of its own. "–" where there is nothing to port.
 | webhook, summaryOptIn, hasCompletedSetup | ✓ | ✓ | none | – |
 | roles | ✓ | ✓ | **done**: outfits and every badge kept | – |
 | rolesOffered | ✓ | ✓ | **done** | – |
-| hireTerminal, hireInTmux | ✓ | ✓ | **done**; a Mac terminal's id reads as not installed | – |
+| hireTerminal, hireInTmux | ✓ | ✓ | **done**; under the Mac app (`smolcorp core`), Terminal, iTerm2 and Ghostty open through the app's bridge, and each window's record is kept for its hire | – |
 | dictationEnabled, dictationLanguage, dictationForClaude | ✓ | kept, not read | Mac only | – |
 | viewer | ✓ | ✓ | **done** | – |
 | unknown keys kept on save | ✓ | ✓ | none | – |

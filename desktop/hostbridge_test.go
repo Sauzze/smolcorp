@@ -161,7 +161,7 @@ func TestTheAppsOwnItems(t *testing.T) {
 	}
 	script := filepath.Join(supportDir, "hires", "hire-abc.sh")
 	fake.answer = bridgeAnswer{OK: true, Tab: "iterm:BD2206F6"}
-	if tab, err := hostOpenTerminal(fake, "iterm", "/Users/me/project", script); err != nil || tab != "iterm:BD2206F6" {
+	if tab, _, err := hostOpenTerminal(fake, "iterm", "/Users/me/project", script); err != nil || tab != "iterm:BD2206F6" {
 		t.Errorf("open: %q %v", tab, err)
 	}
 	want := []string{"secret-read", "secret-write", "secret-delete", "login-item", "open"}
