@@ -200,7 +200,7 @@ func (d *Deck) gmPreflight() preflightReport {
 	at := claudeFoundAt()
 	switch {
 	case at == "" && (missing || windows):
-		add(preflightItem{ID: "claude", Title: "Claude Code isn't installed on this computer.",
+		add(preflightItem{ID: "claude", Title: "Claude Code isn't installed on this " + d.machine() + ".",
 			Fix: "Paste this in " + shellName + ", wait for it to finish, then press Check again.", Action: &preflightAction{Kind: "copy", Label: "Copy", Command: install}, Todo: true})
 	case missing:
 		where := filepath.Dir(at)
@@ -236,7 +236,7 @@ func (d *Deck) gmPreflight() preflightReport {
 	// test copy can hire on a second account (GMPreflight.accountItems); this one can't yet, so it's a line with no fix here.
 	// Not Todo, unlike the Mac's: there's no step to take here, so it stays red (!).
 	if testCopyPort() != 0 {
-		add(preflightItem{ID: "account", Title: gmNeedsAccount, Fix: "A test copy on this computer can't use one yet: hire your General Manager from the real Smolcorp."})
+		add(preflightItem{ID: "account", Title: gmNeedsAccount, Fix: "A test copy on this " + d.machine() + " can't use one yet: hire your General Manager from the real Smolcorp."})
 	}
 	terminals, tmux := hireWays()
 	terminal, hasTerminal := hireTerminal(chosen, terminals)
@@ -255,7 +255,7 @@ func (d *Deck) gmPreflight() preflightReport {
 		if tmuxAction != nil {
 			fix = "Paste this in a terminal to install tmux, then press Check again."
 		}
-		add(preflightItem{ID: "terminal", Title: "There's no terminal on this computer to open your General Manager in.", Fix: fix, Action: tmuxAction})
+		add(preflightItem{ID: "terminal", Title: "There's no terminal on this " + d.machine() + " to open your General Manager in.", Fix: fix, Action: tmuxAction})
 	}
 	if hasTmuxHires && inTmux && hasTerminal {
 		if tmux {

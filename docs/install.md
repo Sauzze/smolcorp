@@ -99,8 +99,10 @@ Update with `brew upgrade --cask smolcorp`.
 
 ### Or build it yourself
 
-You need Apple's free developer tools. The installer offers to install them if
-you don't have them. macOS doesn't ask before opening a copy you build yourself, since it isn't a download.
+You need Apple's free developer tools, and [Go](https://go.dev) 1.26 or later
+(`brew install go`): Smolcorp's engine is written in Go. The installer offers to
+install Apple's tools if you don't have them, and stops and says so if Go is missing.
+macOS doesn't ask before opening a copy you build yourself, since it isn't a download.
 
 ```bash
 git clone https://github.com/Sauzze/smolcorp.git

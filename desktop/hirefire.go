@@ -144,15 +144,15 @@ func engineHireAt(socket string) (Hire, bool) {
 }
 
 // fireTab is /act?action=fire for a tab: handled is true when the tab is an
-// engine hire's, whatever the answer.
+// engine hire's, or a hire's in a window of its own, whatever the answer.
 func (d *Deck) fireTab(tab string, force bool) (status int, message string, handled bool) {
 	kind, _, socket := splitTab(tab)
 	if kind != "tmux" {
-		return 0, "", false
+		return d.fireOwnWindowTab(tab, force)
 	}
 	h, ok := engineHireAt(socket)
 	if !ok {
-		return 0, "", false
+		return d.fireOwnWindowTab(tab, force)
 	}
 	d.mu.Lock()
 	options := d.engine
@@ -182,8 +182,13 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 	return http.StatusNoContent, "", true
 }
 
-// For the GM's fire route (gmfire.go): the engine's fire, and whether a tab's socket is h's own.
+// For the GM's fire route (gmfire.go): the engine's fire, or a hire's in a window of its own
+// (hirefire_window.go), and whether a tab's socket is h's own.
 func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (string, error) {
+	if inOwnWindow(h) {
+		tab, agent := d.ownWindowTab(h)
+		return d.fireOwnWindowHire(h, tab, agent, force, keep)
+	}
 	d.mu.Lock()
 	options := d.engine
 	options.Worktrees = d.worktreesFolder(options.Worktrees)

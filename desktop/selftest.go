@@ -92,7 +92,7 @@ func testCopyHooksCheck() check {
 func hooksCheck(found []Agent, connected func(Agent) bool, here func(Agent) (bool, string)) check {
 	c := check{ID: "hooks", Title: "Your agents report to Smolcorp"}
 	if len(found) == 0 {
-		c.Status, c.Detail = checkFix, errNoAgents.Error()
+		c.Status, c.Detail = checkFix, noAgentsFound().Error()
 		return c
 	}
 	var good, wrong []string

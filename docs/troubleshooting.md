@@ -40,7 +40,8 @@ empty, and voice has to be in tap mode: see [Voice](phone.md#voice).
 
 **The phone can't connect.** Check that both devices are on the same Wi-Fi.
 If macOS or Windows Firewall asked whether Smolcorp may accept incoming
-connections, allow it. On Windows the server answers only on this PC and on
+connections, allow it. On a Mac the question names `smolcorp`, the engine
+inside the app. On Windows the server answers only on this PC and on
 Tailscale's address, so the phone must be on Tailscale too: see
 [Who can reach Smolcorp](windows-linux.md#who-can-reach-smolcorp-windows-and-linux).
 

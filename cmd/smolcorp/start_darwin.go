@@ -18,6 +18,6 @@ func runApp() int {
 
 func runServer() int { return runApp() }
 
-// runCore is the app's engine, which Smolcorp.app starts itself behind its
-// `engine` switch, with its bridge's token: refused to anyone else.
+// runCore is the app's engine, which Smolcorp.app starts itself, with its
+// bridge's token: refused to anyone else.
 func runCore(args []string) int { return desktop.RunCore(args, os.Stdin, os.Stdout, os.Stderr) }

@@ -1332,12 +1332,13 @@ const hiringOff = "Hiring and firing are off. Turn them on in setup, on your com
 
 // What the phone is told elsewhere: in the Mac's words under the Mac app (macWords).
 const (
-	pairCodeRefusal    = "That code isn't valid. Get a new one on your computer."
-	settingsElsewhere  = "Settings open on your computer."
-	t3Elsewhere        = "T3 Code opens on your computer."
-	scrollingOff       = "Scrolling is off. Turn it on in setup, on your computer."
-	buttonTypesNothing = "This button types nothing yet. Set it up in setup, on your computer."
-	hireFolderFirst    = "Choose a folder for new hires in setup, on your computer."
+	pairCodeRefusal      = "That code isn't valid. Get a new one on your computer."
+	settingsElsewhere    = "Settings open on your computer."
+	t3Elsewhere          = "T3 Code opens on your computer."
+	scrollingOff         = "Scrolling is off. Turn it on in setup, on your computer."
+	buttonTypesNothing   = "This button types nothing yet. Set it up in setup, on your computer."
+	hireFolderFirst      = "Choose a folder for new hires in setup, on your computer."
+	hireWindowsElsewhere = "Hires' windows open on your computer."
 )
 
 var errAgentGone = errors.New("the agent no longer runs in its pane")

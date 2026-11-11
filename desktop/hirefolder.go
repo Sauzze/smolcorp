@@ -140,7 +140,7 @@ func hireFolderRefusal(folder, home string) string {
 		system = first == "library" || first == "appdata"
 	}
 	if system || slices.ContainsFunc(parts, func(p string) bool { return strings.HasSuffix(p, ".app") }) {
-		return "That folder holds your computer's or your apps' own files. Choose a project folder, " + example + "."
+		return "That folder holds your " + machineHere() + "'s or your apps' own files. Choose a project folder, " + example + "."
 	}
 	return hiddenHireFolderRefusal(parts, example)
 }

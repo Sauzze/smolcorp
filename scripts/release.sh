@@ -140,7 +140,8 @@ if [ -n "$DEVELOPER_ID" ] && [ "$DMG_ONLY" = 0 ]; then
   check "the screen saver couldn't be signed." \
     codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" "$APP/Contents/Resources/Smolcorp Office.saver"
   check "the smolcorp command couldn't be signed." \
-    codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" "$APP/Contents/Resources/bin/smolcorp"
+    codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" --identifier io.github.sauzze.smolcorp-cli \
+    "$APP/Contents/Resources/bin/smolcorp"
   check "the app couldn't be signed." codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" \
     --entitlements packaging/macos/Smolcorp.entitlements "$APP"
   check "the app's signature doesn't verify." codesign --verify --deep --strict --verbose=2 "$APP"

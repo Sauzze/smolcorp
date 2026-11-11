@@ -124,7 +124,7 @@ func choicesState(c *Config, hasTmux bool, installed func() bool) map[string]any
 // 1. Whether it switched hires to the background, or a refusal.
 func setChoices(c *Config, query url.Values, hasTmux bool) (switched bool, status int, refusal string) {
 	if query.Get("background") == "1" && !hasTmux {
-		return false, http.StatusBadRequest, "Running hires in the background needs tmux, which isn't on this computer."
+		return false, http.StatusBadRequest, "Running hires in the background needs tmux, which isn't on this " + machineHere() + "."
 	}
 	was := backgroundHires(c, hasTmux)
 	if query.Has("t3") {
