@@ -158,8 +158,13 @@ func routeRefusal(method, path string) string {
 // copy (it copies the program that is running, nothing it's handed); and open
 // the firewall for how Smolcorp already listens, which the system asks you to
 // OK. Listening on the Wi-Fi, opening at login and Tailscale are the page's.
-func fixAllowed(who caller, fix, auto string) bool {
-	return who != callerTool || fix == fixRepair && auto == "1" || fix == fixInstall || fix == fixFirewall
+// Under the Mac app (mac), as the Mac's own (DeckRouter.fixRefusal): a tool
+// only repairs, with auto=1, as the Mac app installs and opens itself.
+func fixAllowed(who caller, fix, auto string, mac bool) bool {
+	if who != callerTool || fix == fixRepair && auto == "1" {
+		return true
+	}
+	return !mac && (fix == fixInstall || fix == fixFirewall)
 }
 
 // webhookSecretFor is the webhook's secret for a caller: the setup page's alone,

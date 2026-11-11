@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -979,13 +980,33 @@ func TestTheHookCommandCarriesThePort(t *testing.T) {
 			t.Errorf("hookCommand(%s) = %q, want %q", agent, got, want)
 		}
 	}
+	// Written by the office on the default port: a copy on another port never writes your agents' settings.
+	onDefaultPort(t)
 	writeFile(t, filepath.Join(homeDir, ".claude", "settings.json"), "{}")
 	if err := connect(Claude, false); err != nil {
 		t.Fatal(err)
 	}
-	if stop := commands(readJSON(t, entriesFor(Claude).file), "Stop"); len(stop) != 1 || stop[0] != program+" hook --port 4321" {
+	if stop := commands(readJSON(t, entriesFor(Claude).file), "Stop"); len(stop) != 1 || stop[0] != program+" hook --port 7710" {
 		t.Errorf("Stop runs %q, want the command with the port", stop)
 	}
+}
+
+// onDefaultPort makes this office the one on the default port, for one test: the one that writes your agents'
+// settings (leavesAgentsAlone).
+func onDefaultPort(t *testing.T) {
+	t.Helper()
+	onPort(t, portFromEnvironment(""))
+}
+
+// anotherOfficesHook is the deck's Claude Code entry for Stop as the office on port wrote it, for a test to put in
+// the settings by hand: only the office on the default port writes them now.
+func anotherOfficesHook(t *testing.T, port int) string {
+	t.Helper()
+	saved := Port
+	Port = port
+	command := hookCommand(Claude)
+	Port = saved
+	return command
 }
 
 // What isOurs takes as the deck's: every form the deck ever wrote, and the
@@ -1017,7 +1038,7 @@ func TestHookCommandsOfEveryFormAreTheDecks(t *testing.T) {
 
 func TestReconnectingReplacesOldHooksWithTheOneWithThePort(t *testing.T) {
 	home := isolate(t)
-	onPort(t, 4321)
+	onDefaultPort(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
 	old := func(command string) string {
 		return `{"type":"command","command":"` + command + `","async":true}`
@@ -1045,18 +1066,14 @@ func TestReconnectingReplacesOldHooksWithTheOneWithThePort(t *testing.T) {
 func TestAnotherOfficesPortIsReplacedNotKeptBesideIt(t *testing.T) {
 	home := isolate(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
-	writeFile(t, settings, "{}")
-	onPort(t, 4322)
-	if err := connect(Claude, false); err != nil {
-		t.Fatal(err)
-	}
-	other := hookCommand(Claude)
-	onPort(t, 4323)
+	other := anotherOfficesHook(t, 4322)
+	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"`+other+`","async":true}]}]}}`)
+	onDefaultPort(t)
 	if err := connect(Claude, false); err != nil {
 		t.Fatal(err)
 	}
 	if stop := commands(readJSON(t, settings), "Stop"); len(stop) != 1 || stop[0] == other || stop[0] != hookCommand(Claude) {
-		t.Errorf("Stop runs %q, want only the office on 4323", stop)
+		t.Errorf("Stop runs %q, want only the office on 7710", stop)
 	}
 }
 
@@ -1153,14 +1170,10 @@ func mustPort(t *testing.T, url string) int {
 func TestRefreshKeepsAnotherOfficesPort(t *testing.T) {
 	home := isolate(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
-	writeFile(t, settings, "{}")
-	onPort(t, 4322)
-	if err := connect(Claude, false); err != nil {
-		t.Fatal(err)
-	}
-	other := hookCommand(Claude)
+	other := anotherOfficesHook(t, 4322)
+	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"`+other+`","async":true}]}]}}`)
 	before, _ := os.ReadFile(settings)
-	onPort(t, 4323)
+	onDefaultPort(t)
 	refreshHooks()
 	if after, _ := os.ReadFile(settings); string(after) != string(before) {
 		t.Errorf("the refresh changed another office's settings:\n%s", after)
@@ -1173,7 +1186,7 @@ func TestRefreshKeepsAnotherOfficesPort(t *testing.T) {
 // An entry without a port, as an earlier version wrote it, is upgraded.
 func TestRefreshUpgradesAnEntryWithoutAPort(t *testing.T) {
 	home := isolate(t)
-	onPort(t, 4323)
+	onDefaultPort(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
 	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"'/home/me/.local/bin/smolcorp' hook","async":true}]}]}}`)
 	refreshHooks()
@@ -1185,9 +1198,9 @@ func TestRefreshUpgradesAnEntryWithoutAPort(t *testing.T) {
 // An entry on this office's own port is refreshed as before: moved copy, new path.
 func TestRefreshUpdatesAnEntryOnThisOfficesPort(t *testing.T) {
 	home := isolate(t)
-	onPort(t, 4323)
+	onDefaultPort(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
-	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"'/home/me/.local/bin/smolcorp' hook --port 4323","async":true}]}]}}`)
+	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"'/home/me/.local/bin/smolcorp' hook --port 7710","async":true}]}]}}`)
 	refreshHooks()
 	if stop := commands(readJSON(t, settings), "Stop"); len(stop) != 1 || stop[0] != hookCommand(Claude) {
 		t.Errorf("Stop runs %q, want %q", stop, hookCommand(Claude))
@@ -1200,12 +1213,8 @@ func TestRefreshKeepsAnotherOfficesOpenCodePlugin(t *testing.T) {
 	if err := os.MkdirAll(agentFolder(OpenCode), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	onPort(t, 4322)
-	if err := connect(OpenCode, false); err != nil {
-		t.Fatal(err)
-	}
-	before, _ := os.ReadFile(openCodePlugin())
-	onPort(t, 4323)
+	onDefaultPort(t)
+	before := anotherOfficesPlugin(t, 4322)
 	refreshHooks()
 	if after, _ := os.ReadFile(openCodePlugin()); string(after) != string(before) {
 		t.Error("the refresh moved another office's OpenCode plugin")
@@ -1213,9 +1222,25 @@ func TestRefreshKeepsAnotherOfficesOpenCodePlugin(t *testing.T) {
 	if err := connect(OpenCode, false); err != nil {
 		t.Fatal(err)
 	}
-	if after, _ := os.ReadFile(openCodePlugin()); !strings.Contains(string(after), "4323") {
+	if after, _ := os.ReadFile(openCodePlugin()); !strings.Contains(string(after), `"7710"`) {
 		t.Error("connecting did not move the plugin to this office")
 	}
+}
+
+// anotherOfficesPlugin is OpenCode's plugin as the office on port wrote it, put in place by hand on the default
+// port (only that office writes it), and the plugin's text.
+func anotherOfficesPlugin(t *testing.T, port int) []byte {
+	t.Helper()
+	if err := writePlugin(); err != nil {
+		t.Fatal(err)
+	}
+	plugin, _ := os.ReadFile(openCodePlugin())
+	other := bytes.Replace(plugin, []byte(fmt.Sprintf(`"--port","%d"`, Port)), []byte(fmt.Sprintf(`"--port","%d"`, port)), 1)
+	if bytes.Equal(other, plugin) {
+		t.Fatal("the plugin names no port")
+	}
+	writeFile(t, openCodePlugin(), string(other))
+	return other
 }
 
 // Connecting is deliberate: it replaces another office's port.
@@ -1223,7 +1248,7 @@ func TestConnectReplacesAnotherOfficesPort(t *testing.T) {
 	home := isolate(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
 	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"'/home/me/.local/bin/smolcorp' hook --port 4322","async":true}]}]}}`)
-	onPort(t, 4323)
+	onDefaultPort(t)
 	if err := connect(Claude, false); err != nil {
 		t.Fatal(err)
 	}

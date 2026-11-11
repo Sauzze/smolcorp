@@ -377,13 +377,13 @@ func TestTheAppsLines(t *testing.T) {
 		}
 		answers = append(answers, a)
 	}
-	if len(answers) != 7 || !answers[0].Ready || answers[0].Port != Port || answers[0].Cookie != setupCookie {
+	if len(answers) != 7 || !answers[0].Ready || answers[0].Port != Port || answers[0].Cookie != setupCookie() {
 		t.Fatalf("answers %+v", answers)
 	}
 	if answers[1].ID != 1 || answers[1].Key == "" || !d.access.IsWindowKey(answers[1].Key) {
 		t.Errorf("office: %+v", answers[1])
 	}
-	if answers[2].Cookie != setupCookie || !d.access.IsSetupSession(answers[2].Session) {
+	if answers[2].Cookie != setupCookie() || !d.access.IsSetupSession(answers[2].Session) {
 		t.Errorf("setup session: %+v", answers[2])
 	}
 	if !strings.Contains(answers[3].Link, "/setup#o=") || !strings.HasSuffix(answers[3].Link, "&pair") {

@@ -557,7 +557,7 @@ func (cd *contractDeck) request(method, path string, a contractAsk) *http.Reques
 	switch a.As {
 	case "page":
 		cd.d.mu.Lock()
-		headers["Cookie"] = setupCookie + "=" + cd.d.access.NewSetupSession()
+		headers["Cookie"] = setupCookie() + "=" + cd.d.access.NewSetupSession()
 		cd.d.mu.Unlock()
 	case "tool":
 		headers[setupKeyHeader] = cd.d.access.SetupKey

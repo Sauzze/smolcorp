@@ -63,13 +63,22 @@ const (
 	// The setup key, as a tool of your own sends it, read from the setup-key
 	// file; or as the page's cookie, from the tray's link.
 	setupKeyHeader = "X-Smolcorp-Setup-Key"
-	setupCookie    = "smolcorp-setup"
 	// A tray link's one-time token, which the page swaps for the cookie.
 	setupTokenHeader = "X-Smolcorp-Setup-Once"
 	// The office in a browser on this computer, as the deck sees it: see
 	// Access.WindowKey.
 	officeWindowID = "office-window"
 )
+
+// setupCookie is the setup page's session cookie, named as the Mac names it (DeckRouter.setupCookie): a
+// browser sends localhost's cookies to every port, so a copy on a port of its own has a name of its own, or
+// each office's setup page would sign the other's out.
+func setupCookie() string {
+	if testCopyPort() == 0 {
+		return "smolcorp-setup"
+	}
+	return fmt.Sprintf("smolcorp-setup-%d", Port)
+}
 
 // Serve listens on the deck's port until it fails: on every interface, or on
 // this computer and Tailscale only (see listen.go).
@@ -239,7 +248,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	case r.URL.Path == "/setup" || strings.HasPrefix(r.URL.Path, "/setup/"):
 		if !r.isLocal {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound) // empty, as the Mac's 404s
 			return
 		}
 		if r.Method != http.MethodGet && r.Header.Get(setupHeader) != "1" {
@@ -255,7 +264,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		if r.URL.Path != "/setup" && !redeemed && r.caller == callerNobody {
 			// The locked page says which app it came from, so its note names this app's own way in.
 			if r.URL.Path == "/setup/state" {
-				w.Header().Set(appHeader, runtime.GOOS)
+				w.Header().Set(appHeader, d.appNamed())
 			}
 			if session {
 				writeStatus(w)(http.StatusUnauthorized, setupSessionRefusal)
@@ -270,7 +279,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 				return
 			}
 			d.completeSetup()
-			http.SetCookie(w, &http.Cookie{Name: setupCookie, Value: d.newSetupSession(), Path: "/setup", HttpOnly: true,
+			http.SetCookie(w, &http.Cookie{Name: setupCookie(), Value: d.newSetupSession(), Path: "/setup", HttpOnly: true,
 				SameSite: http.SameSiteStrictMode})
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -295,7 +304,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// A cloud bot's news, from a tool of yours: guarded as setup's actions are.
 	case strings.HasPrefix(r.URL.Path, "/bots/"):
 		if !r.isLocal {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if r.Method != http.MethodGet && r.Header.Get(setupHeader) != "1" {
@@ -316,7 +325,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	case r.URL.Path == "/hook":
 		if !r.isLocal || r.Method != http.MethodPost {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
@@ -339,7 +348,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// A second Smolcorp asking this one to show the office instead of staying.
 	case r.URL.Path == raisePath:
 		if !r.isLocal || r.Method != http.MethodPost {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
@@ -354,7 +363,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	case r.URL.Path == "/launcher":
 		if !r.isLocal || r.Method != http.MethodGet {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
@@ -366,7 +375,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// An engine hire's launcher asks for its start environment, once (hirestartenv.go).
 	case r.URL.Path == hireStartPath:
 		if !r.isLocal || r.Method != http.MethodGet {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
@@ -378,7 +387,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// A launcher's answer to a look at its window: the state only.
 	case r.URL.Path == screenAnswerPath:
 		if !r.isLocal || r.Method != http.MethodPost {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
@@ -425,7 +434,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		key, ok := d.access.Redeem(code, r.remoteAddress, r.UserAgent())
 		d.mu.Unlock()
 		if !ok {
-			writeJSON(w, http.StatusForbidden, map[string]any{"error": "That code isn't valid. Get a new one on your computer."})
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "That code isn't valid. Get a new one on your " + d.machine() + "."})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"key": key})
@@ -487,7 +496,12 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		logo := d.config.Logo
 		d.mu.Unlock()
-		servePageWithIcon(w, "Resources/web/"+page, "Resources/web/icon-"+logo+".png")
+		// The pairing page in the Mac's words under the Mac app, as the Swift engine serves it.
+		var worded func([]byte) []byte
+		if page == "pair.html" && d.macHost() != nil {
+			worded = macPairing
+		}
+		servePageWithIcon(w, "Resources/web/"+page, "Resources/web/icon-"+logo+".png", worded)
 		return
 	}
 	if phoneID == "" {
@@ -504,7 +518,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// ⚙︎ in the office's corner, from its own window on this computer: setup opens, as from the tray.
 	case r.Method == http.MethodPost && r.URL.Path == "/act" && r.URL.Query().Get("action") == "settings":
 		if phoneID != officeWindowID {
-			writeStatus(w)(http.StatusForbidden, "Settings open on your computer.")
+			writeStatus(w)(http.StatusForbidden, "Settings open on your "+d.machine()+".")
 			return
 		}
 		if err := openSetupPage(d); err != nil {
@@ -539,7 +553,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// whether the picked agent is a hire; then its folder opened, found by its session, never a path that's sent.
 	case r.URL.Path == "/t3code" || r.URL.Path == "/t3code/open":
 		if phoneID != officeWindowID {
-			writeStatus(w)(http.StatusForbidden, "T3 Code opens on your computer.")
+			writeStatus(w)(http.StatusForbidden, "T3 Code opens on your "+d.machine()+".")
 			return
 		}
 		if !d.t3On() {
@@ -564,7 +578,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		case http.MethodPost:
 			openHireInT3(w, d.t3Latest(hire), found)
 		default:
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 		}
 	// Let go of a hire in T3 Code from its desk's card, after its confirm (t3desks.go): the lane's answer, as Setup's.
 	case r.Method == http.MethodPost && r.URL.Path == "/act" && r.URL.Query().Get("action") == "letgo":
@@ -660,7 +674,7 @@ func (d *Deck) callerOf(r *http.Request) caller {
 func (d *Deck) callerAndGM(r *http.Request) (caller, bool) {
 	hireKey := r.Header.Get(hireKeyHeader)
 	d.mu.Lock()
-	page := func() bool { c, err := r.Cookie(setupCookie); return err == nil && d.access.IsSetupSession(c.Value) }()
+	page := func() bool { c, err := r.Cookie(setupCookie()); return err == nil && d.access.IsSetupSession(c.Value) }()
 	isTool := d.access.IsSetupKey(r.Header.Get(setupKeyHeader))
 	isGM := d.isGMToken(r.Header.Get(gmTokenHeader))
 	d.mu.Unlock()
@@ -995,7 +1009,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			link = d.portable.Link()
 		}
 		if link == "" {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		writeQR(w, link)
@@ -1525,6 +1539,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		} else {
 			err = disconnectAgents()
 		}
+		// A test copy refuses, as the Mac's does (409): the page shows it inline
+		if errors.Is(err, errTestCopyAgents) {
+			writeStatus(w)(http.StatusConflict, err.Error())
+			return
+		}
 		if err != nil {
 			said := err.Error()
 			if notice != "" {
@@ -1553,7 +1572,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// One of its fixes, by name, and the checklist after it.
 	case r.Method == http.MethodPost && path == "/setup/fix":
 		// A tool (smolcorp setup) only repairs, and with auto=1: its repair leaves agents you disconnected.
-		if !fixAllowed(r.caller, query.Get("fix"), query.Get("auto")) {
+		if !fixAllowed(r.caller, query.Get("fix"), query.Get("auto"), d.macHost() != nil) {
 			writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
 			return
 		}
@@ -2004,12 +2023,15 @@ func serveFile(w http.ResponseWriter, name string) {
 }
 
 // servePageWithIcon serves a page as serveFile does, with its Home Screen
-// icon in it (see withIcon).
-func servePageWithIcon(w http.ResponseWriter, name, icon string) {
+// icon in it (see withIcon), and in other words with worded, if any.
+func servePageWithIcon(w http.ResponseWriter, name, icon string, worded func([]byte) []byte) {
 	data, err := fs.ReadFile(agentdeck.Files, name)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
+	}
+	if worded != nil {
+		data = worded(data)
 	}
 	png, _ := fs.ReadFile(agentdeck.Files, icon)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

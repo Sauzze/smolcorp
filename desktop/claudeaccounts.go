@@ -110,7 +110,8 @@ func looksLikeClaudeAccount(dir string) bool {
 
 // checkedClaudeProfiles is the list setup sends, checked whole: each entry well formed, a folder that is there
 // and looks like an account, no name or folder twice. Nothing is kept if one fails.
-func checkedClaudeProfiles(given []claudeProfile) ([]claudeProfile, error) {
+// machine names this computer in a refusal: "Mac" under the Mac app, as the Swift engine says it, or "computer".
+func checkedClaudeProfiles(given []claudeProfile, machine string) ([]claudeProfile, error) {
 	if len(given) > claudeAccountsMost {
 		return nil, fmt.Errorf("That's the most accounts there can be: %d.", claudeAccountsMost)
 	}
@@ -122,7 +123,7 @@ func checkedClaudeProfiles(given []claudeProfile) ([]claudeProfile, error) {
 		}
 		switch {
 		case !isFolder(ok.Dir):
-			return nil, fmt.Errorf("%s isn't a folder on this computer.", ok.Dir)
+			return nil, fmt.Errorf("%s isn't a folder on this %s.", ok.Dir, machine)
 		case !looksLikeClaudeAccount(ok.Dir):
 			return nil, fmt.Errorf("%s doesn't look like a Claude Code folder: it has no settings.json, .claude.json or sessions.", ok.Dir)
 		case slices.ContainsFunc(list, func(q claudeProfile) bool { return q.Name == ok.Name }):
@@ -297,7 +298,7 @@ func (rt *router) claudeAccounts(w http.ResponseWriter, r *request) {
 			asked[i].Name, _ = p["name"].(string)
 			asked[i].Dir, _ = p["dir"].(string)
 		}
-		profiles, err := checkedClaudeProfiles(asked)
+		profiles, err := checkedClaudeProfiles(asked, d.machine())
 		if err != nil {
 			writeStatus(w)(http.StatusBadRequest, err.Error())
 			return

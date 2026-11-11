@@ -237,7 +237,7 @@ type shellAnswer struct {
 // serveShell says it's ready, then answers the app until its input ends or the server fails.
 func serveShell(deck *Deck, lines <-chan []byte, out io.Writer, failed <-chan error) int {
 	encoder := json.NewEncoder(out)
-	if encoder.Encode(shellAnswer{Ready: true, Port: Port, Cookie: setupCookie}) != nil {
+	if encoder.Encode(shellAnswer{Ready: true, Port: Port, Cookie: setupCookie()}) != nil {
 		return 1
 	}
 	for {
@@ -270,7 +270,7 @@ func answerShell(deck *Deck, line []byte) shellAnswer {
 		answer.Key = deck.access.WindowKey
 		deck.mu.Unlock()
 	case "setup-session":
-		answer.Session, answer.Cookie = deck.newSetupSession(), setupCookie
+		answer.Session, answer.Cookie = deck.newSetupSession(), setupCookie()
 	case "setup-link":
 		// Only what the app's menus open setup at.
 		switch request.Then {

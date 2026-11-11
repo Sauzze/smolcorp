@@ -1,10 +1,12 @@
 package desktop
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"runtime"
 	"slices"
 	"sync"
 	"time"
@@ -86,6 +88,39 @@ func (d *Deck) macHost() hostBridge {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.mac.host
+}
+
+// machine is how setup's words name this computer: "Mac" under the Mac app, as the Swift engine words them
+// (DeckRouter.macPairing, "on your Mac"), or "computer", as on Linux and Windows. Without the lock.
+func (d *Deck) machine() string {
+	if d.macHost() != nil {
+		return "Mac"
+	}
+	return "computer"
+}
+
+// appNamed is the app the locked setup page names on its 401 (X-Smolcorp-App), so its note tells this app's way
+// in: "mac" under the Mac app, as the Swift engine says it, or this system's. Without the lock.
+func (d *Deck) appNamed() string {
+	if d.macHost() != nil {
+		return "mac"
+	}
+	return runtime.GOOS
+}
+
+// macPairing is the phone's pairing page as the Mac words it, as the Swift engine serves it
+// (DeckRouter.macPairing): "Mac" and the menu bar, without the tray and the no-tray hint (smolcorp quit,
+// Ctrl+C), which the Mac has no use for. Linux and Windows keep the file's own words.
+func macPairing(page []byte) []byte {
+	for _, swap := range [][2]string{
+		{"Pair with your computer", "Pair with your Mac"},
+		{"On your computer, click the Smolcorp icon in the menu bar or tray and choose <b>Pair a Phone…</b>. With no tray, open the setup link Smolcorp printed as it started (for a new one, run <code>smolcorp quit</code> or press Ctrl+C in its terminal, then start Smolcorp again) and choose <b>Pair a phone</b>. Enter",
+			"On your Mac, click the Smolcorp icon in the menu bar and choose <b>Pair a Phone…</b>. Enter"},
+		{"Could not reach your computer.", "Could not reach your Mac."},
+	} {
+		page = bytes.ReplaceAll(page, []byte(swap[0]), []byte(swap[1]))
+	}
+	return page
 }
 
 // addMacSetup puts what only the Mac has into setup's state, as the Swift
