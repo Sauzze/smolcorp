@@ -26,7 +26,8 @@ import Security
 /// at), read only: nothing is ever signalled; and T3 Code's app, found and
 /// opened by its bundle id, and a hire's thread opened by T3 Code's own link
 /// (`T3Code.Machine`), for Open in T3 Code; and the jukebox (`Music`): its
-/// keys only with Accessibility, the volume, and what's playing.
+/// keys only with Accessibility, the volume, and what's playing; and when
+/// you're back at the Mac, for the portable office (`MacPresence`).
 /// Nothing here runs a shell line: a terminal is opened only on a script the
 /// core wrote in the hires folder.
 /// The core's side is desktop/hostbridge.go.
@@ -381,6 +382,12 @@ final class HostBridge {
             return ["ok": true, "rows": rows ?? NSNull()]
         case "music", "music-state", "volume":
             return music(action, request, actions, until: deadline)
+        case "presence":
+            // When you're back at the Mac, for the portable office (`MacPresence`): asked every few seconds while
+            // it's on. Never used since the Mac started is said as a year.
+            let now = actions.presence()
+            return ["ok": true, "idle": min(max(now.idle, 0), MacPresence.idleMost), "locked": now.locked,
+                    "unlocks": now.unlocks, "wakes": now.wakes]
         default:
             // Notifications and the office's mic dictating aren't asked of the app yet.
             return refused("This Mac app can't do \(action) for the engine yet.")
@@ -967,7 +974,12 @@ final class HostBridge {
         guard let item = request["item"] as? String, let store = actions.secrets[item] else { return refused("Not an item of Smolcorp's.") }
         switch action {
         case "secret-read":
-            guard let value = store.read() else { return ["ok": true, "found": false] }
+            guard let value = store.read() else {
+                // There but unreadable (a denied prompt, a damaged item) is never "none": the core would make
+                // a new one over it.
+                if let absent = store.absent, !absent() { return refused("It couldn't be read.") }
+                return ["ok": true, "found": false]
+            }
             return ["ok": true, "found": true, "value": value]
         case "secret-write":
             guard let value = request["value"] as? String, !value.isEmpty, value.count <= 4096, !value.hasControlCharacters else {
@@ -1014,6 +1026,8 @@ final class HostBridge {
         var read: () -> String?
         var write: (String) -> Bool
         var delete: (() -> Void)?
+        /// Whether there's surely none, asked when `read` gives nothing: nil where that's always none.
+        var absent: (() -> Bool)? = nil
     }
 
     /// The app's code each action runs: `mac` in the app, stand-ins in the tests.
@@ -1098,6 +1112,9 @@ final class HostBridge {
         var pressMusic: (String) -> Void = { _ in }
         var musicState: () -> (playing: Bool?, volume: (level: Int, muted: Bool)?) = { (nil, nil) }
         var setVolume: (Int) -> Void = { _ in }
+        /// When you're back at the Mac (`MacPresence`): the keyboard's and mouse's idle time, whether the screen is
+        /// locked, and the unlocks and wakes counted.
+        var presence: () -> MacPresence.Now = { MacPresence.Now() }
 
         /// The Swift engine's own: the terminal drivers on their terminals' queues, one at a time
         /// as the deck runs them, the openers, the secrets' stores (files in a test copy), the login item.
@@ -1116,8 +1133,11 @@ final class HostBridge {
                 return body(driver)
             }
             let viewer = ViewerStore.defaultStore()
+            // The portable office's, as the Swift engine kept them: never removed, and one there but unreadable
+            // is the app's no, never "none" (PortableOffice.identity at 1da4e935).
             func viewerItem(_ account: ViewerKeychain.Account) -> Secret {
-                Secret(read: { viewer.read(account) }, write: { viewer.write($0, account) }, delete: nil)
+                Secret(read: { viewer.read(account) }, write: { viewer.write($0, account) }, delete: nil,
+                       absent: { viewer.absent(account) })
             }
             let gm = GMIdentity.defaultStore()
             return Actions(
@@ -1173,7 +1193,8 @@ final class HostBridge {
                 keyboard: { Permissions.hasAccessibility },
                 pressMusic: { Music.press($0) },
                 musicState: { (Music.isPlaying(), Music.volume()) },
-                setVolume: { Music.setVolume($0) })
+                setVolume: { Music.setVolume($0) },
+                presence: { MacPresence.shared.now() })
         }
     }
 }

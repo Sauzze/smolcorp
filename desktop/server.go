@@ -1034,7 +1034,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && path == "/setup/viewer/secret":
 		secret, err := d.portable.MakeWriteSecret()
 		if err != nil {
-			writeStatus(w)(http.StatusInternalServerError, viewerNoStoreProblem)
+			writeStatus(w)(http.StatusInternalServerError, d.portable.secrets.notKept())
 			return
 		}
 		state := d.portable.SetupState(false)

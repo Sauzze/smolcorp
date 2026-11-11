@@ -28,7 +28,7 @@ final class HostBridgeTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    private var kept: [String: String] = ["summary-key": "sk-ant-fake"]
+    private var kept: [String: String] = ["summary-key": "sk-ant-fake", "viewer-id": "AbCdEfGhIjKlMnOpQrStUv"]
     private var login = false
     /// Where the stand-ins' tab actions run, as the terminals' queue.
     private let terminals = DispatchQueue(label: "test.terminals")
@@ -55,7 +55,13 @@ final class HostBridgeTests: XCTestCase {
                 "summary-key": HostBridge.Secret(read: { [unowned self] in kept["summary-key"] },
                                                  write: { [unowned self] in kept["summary-key"] = $0; return true },
                                                  delete: { [unowned self] in kept["summary-key"] = nil }),
-                "viewer-key": HostBridge.Secret(read: { nil }, write: { _ in false }, delete: nil),
+                // The portable office's, as the Mac keeps them: an id, no key yet, and a write secret there but
+                // unreadable (a denied prompt); none removed this way.
+                "viewer-id": HostBridge.Secret(read: { [unowned self] in kept["viewer-id"] },
+                                               write: { [unowned self] in kept["viewer-id"] = $0; return true },
+                                               delete: nil, absent: { [unowned self] in kept["viewer-id"] == nil }),
+                "viewer-key": HostBridge.Secret(read: { nil }, write: { _ in false }, delete: nil, absent: { true }),
+                "viewer-write-secret": HostBridge.Secret(read: { nil }, write: { _ in false }, delete: nil, absent: { false }),
             ],
             loginItem: (get: { [unowned self] in login }, set: { [unowned self] in login = $0 }),
             queue: { [terminals] _ in terminals },
@@ -419,6 +425,63 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertFalse(isOK(ask(["action": "secret-delete", "item": "viewer-key"])))
         XCTAssertEqual(Set(HostBridge.Actions.mac.secrets.keys), ["summary-key", "gm-token", "viewer-id", "viewer-key", "viewer-write-secret"],
                        "as desktop/hostbridge.go's bridgeSecrets")
+    }
+
+    /// The portable office's items, as the Swift engine kept them (RM7 B1): none is "found": false, so the core
+    /// makes the first id and key; one there but unreadable is the app's no, so the core never writes over it and
+    /// every link given out keeps working; none is removed this way.
+    func testTheViewersItemsSayNoneOnlyWhenThereIsNone() {
+        XCTAssertEqual(ask(["action": "secret-read", "item": "viewer-id"])["value"] as? String, "AbCdEfGhIjKlMnOpQrStUv")
+        let none = ask(["action": "secret-read", "item": "viewer-key"])
+        XCTAssertTrue(isOK(none))
+        XCTAssertEqual(none["found"] as? Bool, false)
+        let unreadable = ask(["action": "secret-read", "item": "viewer-write-secret"])
+        XCTAssertFalse(isOK(unreadable))
+        XCTAssertEqual(unreadable["error"] as? String, "It couldn't be read.")
+        XCTAssertNil(unreadable["value"])
+        XCTAssertTrue(isOK(ask(["action": "secret-write", "item": "viewer-id", "value": "ZyXwVuTsRqPoNmLkJiHgFe"])))
+        XCTAssertEqual(kept["viewer-id"], "ZyXwVuTsRqPoNmLkJiHgFe")
+        for item in ["viewer-id", "viewer-key", "viewer-write-secret"] {
+            XCTAssertEqual(ask(["action": "secret-delete", "item": item])["error"] as? String, "That item isn't removed this way.", item)
+        }
+        XCTAssertEqual(kept["viewer-id"], "ZyXwVuTsRqPoNmLkJiHgFe", "not removed")
+        // The Mac's own: the Keychain's "not found" alone is none (ViewerKeychain.absent), in a test copy no file.
+        for item in ["viewer-id", "viewer-key", "viewer-write-secret"] {
+            XCTAssertNotNil(HostBridge.Actions.mac.secrets[item]?.absent, item)
+        }
+    }
+
+    /// When you're back at the Mac (RM7 B2), as the Swift engine's portable office watched it: the screen's unlocks
+    /// and the Mac's and its screens' wakes are counted from the start, and the idle time and the lock read when
+    /// asked. On centres of the test's own: nothing is posted to the Mac's.
+    func testWhereYouAreIsCountedFromTheStartAndReadWhenAsked() {
+        let distributed = NotificationCenter(), workspace = NotificationCenter()
+        var idle: TimeInterval = 42, locked = true
+        let presence = MacPresence(distributed: distributed, workspace: workspace, idle: { idle }, locked: { locked })
+        let unlock = Notification.Name("com.apple.screenIsUnlocked")
+        distributed.post(name: unlock, object: nil)
+        XCTAssertEqual(presence.now(), MacPresence.Now(idle: 42, locked: true, unlocks: 0, wakes: 0), "nothing before the start")
+        presence.start()
+        presence.start()
+        distributed.post(name: unlock, object: nil)
+        workspace.post(name: NSWorkspace.didWakeNotification, object: nil)
+        workspace.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+        workspace.post(name: NSWorkspace.willSleepNotification, object: nil)
+        idle = 1.5
+        locked = false
+        XCTAssertEqual(presence.now(), MacPresence.Now(idle: 1.5, locked: false, unlocks: 1, wakes: 2), "started once, each counted once")
+
+        // As the core is told: never used since the Mac started is a year, never infinity.
+        var mac = actions
+        mac.presence = { MacPresence.Now(idle: .infinity, locked: true, unlocks: 1, wakes: 2) }
+        let line = try! JSONSerialization.data(withJSONObject: ["token": token, "action": "presence"])
+        let answer = HostBridge.answer(line, token: token, actions: mac)
+        XCTAssertTrue(isOK(answer))
+        XCTAssertEqual(answer["idle"] as? TimeInterval, MacPresence.idleMost)
+        XCTAssertEqual(answer["locked"] as? Bool, true)
+        XCTAssertEqual(answer["unlocks"] as? Int, 1)
+        XCTAssertEqual(answer["wakes"] as? Int, 2)
+        XCTAssertNotNil(try? JSONSerialization.data(withJSONObject: answer))
     }
 
     func testTheLoginItem() {
@@ -805,6 +868,8 @@ final class HostBridgeTests: XCTestCase {
         mac.musicState = { (true, (45, false)) }
         mac.pressMusic = { [unowned self] in asked.append("music \($0)") }
         mac.setVolume = { [unowned self] in asked.append("volume \($0)") }
+        // Where you are, for the portable office: in use 2.5 s ago, unlocked, after 3 unlocks and a wake.
+        mac.presence = { MacPresence.Now(idle: 2.5, locked: false, unlocks: 3, wakes: 1) }
         // The phone's text and the peek (I5): the agent in front but on ttys005, where it has ended; Codex on
         // ttys004, not known to take several lines as one paste; iTerm2's CD34 doesn't read its ⌘V in time.
         mac.place = { tab, _ in tab.id == "/dev/ttys005" ? .gone : .front }

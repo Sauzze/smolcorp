@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"cmp"
 	"errors"
 	"net/http"
 
@@ -11,10 +12,12 @@ import (
 // under the Mac app (engine=go), through the bridge (hostbridge.go), as the
 // Swift engine does them (DeckRouter.swift, SelfTest.swift): Open at login
 // (LoginItem), the office's own window and keeping it on top (OfficeWindow),
-// the Mac's folder panel (Deck.chooseHireFolder), ✨ Summary's key in the
-// Keychain (SummaryKey), and the self-test's Accessibility and network lines
-// in the Mac's words. On Windows and Linux there is no host, and each does what
-// it did before: autostart_*.go, window_*.go, picker*.go, summary_store_other.go.
+// the Mac's folder panel (Deck.chooseHireFolder), ✨ Summary's key and the
+// portable office's keys in the Keychain (SummaryKey, ViewerKeychain), when
+// you're back at the Mac (MacPresence), and the self-test's Accessibility and
+// network lines in the Mac's words. On Windows and Linux there is no host, and
+// each does what it did before: autostart_*.go, window_*.go, picker*.go,
+// summary_store_other.go, viewer_store_other.go and presence_*.go.
 
 // macShell answers setup's routes the Mac app does with its own windows, panel
 // and login item, under the Mac app, and says whether the route was one.
@@ -178,6 +181,66 @@ func summaryStore(h hostBridge) secretStore {
 		},
 		set:    func(key string) error { return hostWriteSecret(h, summaryKeyItem, key) },
 		delete: func() error { return hostWriteSecret(h, summaryKeyItem, "") },
+	}
+}
+
+// viewerItems are the portable office's id, key and write secret among the Mac app's own items
+// (bridgeSecrets), by the account the core names each by.
+var viewerItems = map[string]string{viewerIDAccount: "viewer-id", viewerKeyAccount: "viewer-key", viewerSecretAccount: "viewer-write-secret"}
+
+// errViewerItemNone is the Mac app saying it has no such item: surely none, so a first id and key are made.
+// One that's there but can't be read is the app's refusal instead, never taken for none.
+var errViewerItemNone = errors.New("the Mac app has no such item")
+
+// viewerStoreFor is where the portable office's id, key and write secret are kept: under the Mac app, its
+// Keychain items, the Swift engine's own (smolcorp-viewer), so a link made by 1.24 keeps working (in a
+// test copy, the app's own files, never the Keychain); elsewhere this system's (viewerStore). The app
+// never removes them this way, nor does the portable office: a wipe has the viewer forget, and a new key
+// is written over the old one.
+func viewerStoreFor(h hostBridge) viewerSecrets {
+	if h == nil {
+		return viewerStore
+	}
+	item := func(account string) (string, error) {
+		if name, ok := viewerItems[account]; ok {
+			return name, nil
+		}
+		return "", errors.New("not one of the viewer's items")
+	}
+	return viewerSecrets{
+		get: func(account string) (string, error) {
+			name, err := item(account)
+			if err != nil {
+				return "", err
+			}
+			value, found, err := hostReadSecret(h, name)
+			if err == nil && !found {
+				return "", errViewerItemNone
+			}
+			return value, err
+		},
+		set: func(account, value string) error {
+			name, err := item(account)
+			if err != nil || value == "" {
+				return cmp.Or(err, errors.New("nothing to keep"))
+			}
+			return hostWriteSecret(h, name, value)
+		},
+		delete:   func(string) {},
+		notFound: func(err error) bool { return errors.Is(err, errViewerItemNone) },
+		keychain: true,
+	}
+}
+
+// macPresenceOf is what the Mac app tells of you being back at the Mac, for the portable office; nil
+// without the app.
+func macPresenceOf(h hostBridge) func() (macPresence, bool) {
+	if h == nil {
+		return nil
+	}
+	return func() (macPresence, bool) {
+		now, err := hostPresence(h)
+		return now, err == nil
 	}
 }
 

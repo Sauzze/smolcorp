@@ -33,6 +33,10 @@ type macStandIn struct {
 	roster   *[]grokRow
 	keyboard bool
 	volume   int
+	// The app's items that are there but can't be read (a denied Keychain prompt), and what it tells of
+	// you being back at the Mac (presence).
+	unreadable []string
+	presence   bridgeAnswer
 }
 
 func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
@@ -82,12 +86,24 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 		}
 		value, found := m.secrets[request.Item]
 		switch request.Action {
+		case "secret-read":
+			if slices.Contains(m.unreadable, request.Item) {
+				return bridgeAnswer{Error: "It couldn't be read."}, nil
+			}
 		case "secret-write":
 			m.secrets[request.Item] = request.Value
 		case "secret-delete":
+			// The viewer's items, as the Swift engine's: never removed this way (HostBridge.swift).
+			if strings.HasPrefix(request.Item, "viewer-") {
+				return bridgeAnswer{Error: "That item isn't removed this way."}, nil
+			}
 			delete(m.secrets, request.Item)
 		}
 		return bridgeAnswer{OK: true, Value: value, Found: found}, nil
+	case "presence":
+		answer := m.presence
+		answer.OK = true
+		return answer, nil
 	case "bots-roster":
 		if m.roster == nil {
 			return bridgeAnswer{OK: true}, nil
@@ -226,8 +242,26 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the folder panel for the hires, none picked": func(h hostBridge) (any, error) { return hostChooseFolder(h, "", folderForHires) },
 		"the hires' folder panel closed":              func(h hostBridge) (any, error) { return nil, hostCloseFolderPanel(h) },
 		"the Summary key, from the Keychain":          func(h hostBridge) (any, error) { return summaryStore(h).get() },
-		"Accessibility asked for":                     func(h hostBridge) (any, error) { return nil, hostAskAccessibility(h) },
-		"keys in other apps switched on":              func(h hostBridge) (any, error) { return nil, hostKeystrokesOn(h) },
+		"the portable office's id, from the Keychain": func(h hostBridge) (any, error) { return viewerStoreFor(h).get(viewerIDAccount) },
+		// None: surely none, so a first key is made; the app's no: there but unreadable, never made again.
+		"the portable office's key, none yet": func(h hostBridge) (any, error) {
+			store := viewerStoreFor(h)
+			_, err := store.get(viewerKeyAccount)
+			return store.notFound(err), nil
+		},
+		"the portable office's write secret, there but unreadable": func(h hostBridge) (any, error) {
+			store := viewerStoreFor(h)
+			_, err := store.get(viewerSecretAccount)
+			return store.notFound(err), err
+		},
+		"the portable office's id, kept": func(h hostBridge) (any, error) {
+			return nil, viewerStoreFor(h).set(viewerIDAccount, "ZyXwVuTsRqPoNmLkJiHgFe")
+		},
+		"where you are, for the portable office: idle, locked, and the unlocks and wakes seen": func(h hostBridge) (any, error) {
+			return hostPresence(h)
+		},
+		"Accessibility asked for":        func(h hostBridge) (any, error) { return nil, hostAskAccessibility(h) },
+		"keys in other apps switched on": func(h hostBridge) (any, error) { return nil, hostKeystrokesOn(h) },
 		"an app allowed keys": func(h hostBridge) (any, error) {
 			return hostKeystrokeApps(h, []string{"com.example.notes"}, "com.example.mail", true)
 		},
@@ -311,11 +345,16 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"setup's facts, the apps keys may go to left out of those running": []any{false, true, []string{"fr_FR", "en_US"}, true,
 			[]runningApp{{ID: "com.example.mail", Name: "Mail"}}, "absent", true,
 			&macOfficeKey{Held: "alt+cmd+Q", Labels: map[string]string{"Q": "A", "A": "Q"}}},
-		"Open at login, read":                                                         false,
-		"Open at login, switched on":                                                  true,
-		"the folder panel for a floor, a folder picked":                               "/Users/example/project",
-		"the folder panel for the hires, none picked":                                 "",
-		"the Summary key, from the Keychain":                                          "sk-ant-fake",
+		"Open at login, read":                                      false,
+		"Open at login, switched on":                               true,
+		"the folder panel for a floor, a folder picked":            "/Users/example/project",
+		"the folder panel for the hires, none picked":              "",
+		"the Summary key, from the Keychain":                       "sk-ant-fake",
+		"the portable office's id, from the Keychain":              "AbCdEfGhIjKlMnOpQrStUv",
+		"the portable office's key, none yet":                      true,
+		"the portable office's write secret, there but unreadable": false,
+		"where you are, for the portable office: idle, locked, and the unlocks and wakes seen": macPresence{idle: 2500 * time.Millisecond,
+			unlocks: 3, wakes: 1},
 		"an app allowed keys":                                                         []string{"com.example.notes", "com.example.mail"},
 		"an app taken off, any capitals":                                              []string{"com.example.mail"},
 		"a terminal never allowed keys":                                               []string{},

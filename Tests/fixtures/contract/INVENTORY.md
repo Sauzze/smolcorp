@@ -144,14 +144,14 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
 |---|---|---|---|---|---|---|---|
-| GET | `/setup/viewer` | page, tool | — | the viewer's state (the link for the page only) | 200 | none: asks the Keychain for the viewer's link | served |
+| GET | `/setup/viewer` | page, tool | — | the viewer's state (the link for the page only) | 200 | none: asks the Keychain for the viewer's link | served (under the Mac app, its Keychain items through the bridge) |
 | POST | `/setup/viewer` | page | `{baseURL, hideNames, stopOnReturn, stopAfterHours}` | the viewer's state | 200, 400 | setup.json | served |
-| POST | `/setup/viewer/secret` | page | — | the viewer's state with `secret` | 200, 500 | none: makes a secret and keeps it in the Keychain | served |
+| POST | `/setup/viewer/secret` | page | — | the viewer's state with `secret` | 200, 500 | none: makes a secret and keeps it in the Keychain | served (under the Mac app, its Keychain items through the bridge) |
 | POST | `/setup/viewer/check` | page, tool | — | the viewer's state | 200 | none: asks the viewer's server | served |
-| POST | `/setup/viewer/switch` | page | `?on=1` | the viewer's state | 200 | none: starts or stops sending the office to the viewer's server | served |
+| POST | `/setup/viewer/switch` | page | `?on=1` | the viewer's state | 200 | none: starts or stops sending the office to the viewer's server | served (under the Mac app, its Keychain items and when you're back, through the bridge) |
 | POST | `/setup/viewer/rotate` | page | — | the viewer's state | 200 | none: makes a new link with the viewer's server | served |
 | POST | `/setup/viewer/wipe` | page | — | the viewer's state | 200 | none: wipes the office from the viewer's server | served |
-| GET | `/setup/viewer/qr.png` | page | — | PNG | 200, 404 | none: draws the viewer's link, from the Keychain | served |
+| GET | `/setup/viewer/qr.png` | page | — | PNG | 200, 404 | none: draws the viewer's link, from the Keychain | served (under the Mac app, its Keychain items through the bridge) |
 
 ## Setup: the General Manager (/setup/gm/, 409 while the manager is off but for version and the switch)
 

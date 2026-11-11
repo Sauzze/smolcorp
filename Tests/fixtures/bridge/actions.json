@@ -1,5 +1,5 @@
 {
-  "about": "The host bridge's actions for what only macOS does (M2m; the login item, the office's window, the folder panel and the Summary key: FXC1b; the office's keys from anywhere: KSC, and in setup's facts the keys held now and each key's name on the layout in use, a French AZERTY's here: FXKSC), which processes work in a folder or name a session (M5c, read only: Let go's and Take over's check on the Go core), T3 Code's app found and opened by its bundle id and a hire's thread by its link (M5c, C4 A1), the Grok Bot app's bots for the core to find and the jukebox (FXC2), and the phone's text into a Mac terminal (I5, IGL: the Swift engine's own Deck.typePhoneWords; the app asks the core the desk's state on the same connection, where the Swift engine looks at its own sessions, which no case here shows: the held one is the core saying it's asking; phone-text.json has the whole table; and the API-key account for a hire, M4c, with a stand-in key): each request as the Go core sends it (desktop/hostbridge.go, without its token) and the Mac app's answer (Sources/AgentDeck/HostBridge.swift), on the stand-ins both tests use. desktop/hostbridge_test.go checks the core asks exactly this and reads the answer; HostBridgeTests.swift checks the app answers exactly this.",
+  "about": "The host bridge's actions for what only macOS does (M2m; the login item, the office's window, the folder panel and the Summary key: FXC1b; the portable office's keys, the Swift engine's own Keychain items, and when you're back at the Mac: M7VIEW; the office's keys from anywhere: KSC, and in setup's facts the keys held now and each key's name on the layout in use, a French AZERTY's here: FXKSC), which processes work in a folder or name a session (M5c, read only: Let go's and Take over's check on the Go core), T3 Code's app found and opened by its bundle id and a hire's thread by its link (M5c, C4 A1), the Grok Bot app's bots for the core to find and the jukebox (FXC2), and the phone's text into a Mac terminal (I5, IGL: the Swift engine's own Deck.typePhoneWords; the app asks the core the desk's state on the same connection, where the Swift engine looks at its own sessions, which no case here shows: the held one is the core saying it's asking; phone-text.json has the whole table; and the API-key account for a hire, M4c, with a stand-in key): each request as the Go core sends it (desktop/hostbridge.go, without its token) and the Mac app's answer (Sources/AgentDeck/HostBridge.swift), on the stand-ins both tests use. desktop/hostbridge_test.go checks the core asks exactly this and reads the answer; HostBridgeTests.swift checks the app answers exactly this.",
   "cases": [
     {
       "name": "setup's facts, the apps keys may go to left out of those running",
@@ -39,6 +39,15 @@
     {"name": "the folder panel for the hires, none picked", "request": {"action": "choose-folder", "for": "hires"}, "answer": {"ok": true}},
     {"name": "the hires' folder panel closed", "request": {"action": "folder-panel-close"}, "answer": {"ok": true}},
     {"name": "the Summary key, from the Keychain", "request": {"action": "secret-read", "item": "summary-key"}, "answer": {"ok": true, "found": true, "value": "sk-ant-fake"}},
+    {"name": "the portable office's id, from the Keychain", "request": {"action": "secret-read", "item": "viewer-id"}, "answer": {"ok": true, "found": true, "value": "AbCdEfGhIjKlMnOpQrStUv"}},
+    {"name": "the portable office's key, none yet", "request": {"action": "secret-read", "item": "viewer-key"}, "answer": {"ok": true, "found": false}},
+    {"name": "the portable office's write secret, there but unreadable", "request": {"action": "secret-read", "item": "viewer-write-secret"}, "answer": {"ok": false, "error": "It couldn't be read."}},
+    {"name": "the portable office's id, kept", "request": {"action": "secret-write", "item": "viewer-id", "value": "ZyXwVuTsRqPoNmLkJiHgFe"}, "answer": {"ok": true}},
+    {
+      "name": "where you are, for the portable office: idle, locked, and the unlocks and wakes seen",
+      "request": {"action": "presence"},
+      "answer": {"ok": true, "idle": 2.5, "locked": false, "unlocks": 3, "wakes": 1}
+    },
     {"name": "Accessibility asked for", "request": {"action": "accessibility"}, "answer": {"ok": true}},
     {"name": "keys in other apps switched on", "request": {"action": "keystrokes-on"}, "answer": {"ok": true}},
     {

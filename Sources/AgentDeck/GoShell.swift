@@ -33,6 +33,8 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         core.onExit = { [weak self] status in self?.coreStopped(status) }
         // The office's window on top or not, settled once as the Swift engine settles it, before the core reads the file.
         OfficeWindow.settleForCore(Config.shared)
+        // The unlocks and wakes the core's portable office asks about, counted from now (`MacPresence`).
+        MacPresence.shared.start()
         do {
             try bridge.start()
         } catch {
