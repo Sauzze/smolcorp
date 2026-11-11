@@ -16,23 +16,6 @@ release notes:
 The script won't run with uncommitted changes or untracked files: commit them
 or set them aside first.
 
-## The personal build
-
-`ios/` is the maintainer's own iPhone app, which isn't released. What the Mac
-serves only to it (its push notifications and the push key in the Keychain,
-Bonjour, its speech names, the reviews list: `/glossary`, `/notifications`,
-`/reviews`, `/setup/notify`) is compiled only into a personal build:
-
-```bash
-SMOLCORP_IPHONE_APP=1 scripts/build-app.sh universal
-swift test -Xswiftc -DIPHONE_APP   # its tests
-```
-
-That's Swift's `IPHONE_APP` condition. A plain build, and so every release,
-leaves it out, and answers those routes 404 as the Windows and Linux app does;
-`scripts/release.sh` refuses to run with `SMOLCORP_IPHONE_APP` set. The phone's
-web page needs none of it.
-
 ## The DMG
 
 `scripts/make-dmg.sh` makes the DMG from `build/Smolcorp.app`, so after

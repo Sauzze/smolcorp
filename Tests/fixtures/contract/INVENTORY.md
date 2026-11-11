@@ -23,9 +23,8 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 - **Fixture** names the file, or says `none: ` and why: no fixture asks a route that writes the home folder,
   asks the Keychain, opens a window, a picker or a terminal, starts another program, or reaches another
   computer. Those have their refusals in a fixture where one comes first.
-- The contract is a public build's. What only the native iPhone app (`ios/`) asked (`/glossary`, `/notifications`,
-  `/reviews`, `/setup/notify`) was served only by the Swift engine of the owner's personal build (M6), so it has
-  no rows since M7.
+- What only the native iPhone app asked (`/glossary`, `/notifications`, `/reviews`, `/setup/notify`) has no rows:
+  the app and its Mac side were dropped (M7DROP), and the phone's web page needs none of it.
 - Callers: `page` (the setup page's cookie), `tool` (the setup-key file), `gm` (the GM's token), `hire` (a
   hire's send key), as `frontdesk/routes.json`; `phone` (a paired phone's key, or the office's own window),
   `window` (the office's window on this computer only), `hook` (the hook's key, from this computer), `anyone`.
