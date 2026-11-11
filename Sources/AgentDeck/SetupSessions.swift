@@ -91,9 +91,10 @@ final class SetupSessions {
     }
 
     /// The pairing part of the setup state: the code only for the page;
-    /// for a tool, whether pairing is open and nothing more.
-    static func pairing(code: String?, expiresIn: Int, address: String, for caller: Caller) -> [String: Any] {
-        var pairing: [String: Any] = ["address": address, "open": code != nil]
+    /// for a tool, whether pairing is open and nothing more. `tailnet` is where a
+    /// phone on Tailscale opens it from anywhere, or "" where there's no such way in.
+    static func pairing(code: String?, expiresIn: Int, address: String, tailnet: String? = nil, for caller: Caller) -> [String: Any] {
+        var pairing: [String: Any] = ["address": address, "open": code != nil, "tailnet": tailnet ?? ""]
         if caller == .page {
             pairing["codeExpiresIn"] = code == nil ? 0 : expiresIn
             if let code { pairing["code"] = code }

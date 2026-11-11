@@ -86,7 +86,11 @@ final class TailnetRouteTests: XCTestCase {
         }
         XCTAssertGreaterThan(routes.count, 30)
         let paired: Set = ["/events", "/focus", "/act", "/dictate", "/peek", "/summary", "/glossary", "/choice", "/choose",
-                           "/conversation", "/notifications", "/session/info", "/approvals", "/reviews"]
+                           "/conversation", "/notifications", "/session/info", "/approvals", "/reviews",
+                           // Open in T3 Code (T792): behind the key, then the office's own window alone.
+                           "/t3code", "/t3code/open",
+                           // Open a window (T796).
+                           "/hire/window"]
         for route in routes {
             XCTAssertTrue(DeckRouter.isSetupPath(route) || paired.contains(route), "\(route) is neither setup's nor behind a paired key")
         }

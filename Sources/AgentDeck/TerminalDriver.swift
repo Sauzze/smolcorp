@@ -101,8 +101,9 @@ struct TerminalAbilities: OptionSet {
     static let none: TerminalAbilities = []
 }
 
-/// One terminal app, as the deck drives it. Each call is made on
-/// `Terminal.queue`, and may take a moment; none is made on the main thread.
+/// One terminal app, as the deck drives it. Each call is made on its
+/// terminal's queue (`Terminals.queue(for:)`), and may take a moment; none is
+/// made on the main thread.
 protocol TerminalDriver {
     var abilities: TerminalAbilities { get }
     /// Whether pressing keys needs Smolcorp's Accessibility permission.
@@ -137,8 +138,12 @@ protocol TerminalDriver {
 }
 
 enum Terminals {
+    /// Settable for tests, which give a stand-in terminal for every tab.
+    static var standIn: TerminalDriver?
+
     /// The driver for `tab`'s terminal, or nil for one the deck can only watch.
     static func driver(for tab: TabAddress) -> TerminalDriver? {
+        if let standIn { return standIn }
         switch tab.kind {
         case "tty": return TerminalApp()
         case "tmux": return Tmux.path == nil ? nil : Tmux()

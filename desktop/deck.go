@@ -23,11 +23,15 @@ import (
 // their own, outside the lock, so a slow terminal never holds up the server
 // and two quick notches arrive in the order they were turned.
 type Deck struct {
-	mu       sync.Mutex
+	mu sync.Mutex
+	// Held through Start here's GM hire (server.go), never with mu: one at a time.
+	gmHiring sync.Mutex
 	access   *Access
 	gmToken  string // the GM's token, in memory only (see newGMToken)
 	config   *Config
 	sessions *Sessions
+	// Under the Mac app: what it last said of this Mac (see hostsetup.go, hostoffice.go).
+	mac macState
 	// Bots working in a cloud, each at a desk of its own (see cloudDesks).
 	cloud     *cloudDesks
 	streams   map[*eventStream]string // each open stream, with the phone that opened it
@@ -60,6 +64,9 @@ type Deck struct {
 	// when the last hire was made: see hire.go.
 	hires    map[string]*pendingHire
 	lastHire time.Time
+	// t3 follows the hires in T3 Code (t3deskdeck.go); t3Desks are their desks in the office (t3desks.go).
+	t3      *t3Follower
+	t3Desks *t3Desks
 	// A hire is under way: its agent being looked for, or its terminal opening,
 	// with the lock let go. No other starts until it's done.
 	hiring bool
@@ -68,9 +75,10 @@ type Deck struct {
 	// The same for the launcher's way (hirelauncher.go).
 	launcherEngine launcherEngineOptions
 	watching       sync.WaitGroup
-	// Whether a save of the sessions is coming, and the sessions from before
-	// a restart still waiting for their launcher: see saved.go.
+	// Whether a save of the sessions is coming, its timer, and the sessions
+	// from before a restart still waiting for their launcher: see saved.go.
 	savePending  bool
+	saveTimer    *time.Timer
 	restoring    *pendingRestore
 	sessionsFile string
 	// Whether the folder picker is open, from setup.
@@ -143,6 +151,8 @@ func NewDeck() *Deck {
 		keyOf: map[string]int{}, floorOf: map[string]int{}, seatOf: map[string]Seat{}, lastReturn: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue), events: newEventLog(supportDir, eventsFileMost),
 		rounds: deckRounds{stopped: make(chan struct{})},
+		// The Mac app it runs under, or none, taken now: the deck reads only its own (hostsetup.go).
+		mac: macState{host: host},
 	}
 	if settleListenScope(d.config, phonesOnly(d.access.Phones), runtime.GOOS) {
 		d.config.save()
@@ -175,6 +185,9 @@ func NewDeck() *Deck {
 	d.stopWatchers = d.startWatchers()
 	d.cloud = newCloudDesks(d.config.CloudBots, &d.mu)
 	d.cloud.onChange = d.changed
+	// The hires in T3 Code and their desks, before anything lays the office out.
+	d.t3 = newT3Follower()
+	d.t3Desks = newT3Desks(registry)
 	d.summaryKeys = newSummaryKeys(keyringStore, os.Getenv)
 	d.summaries = newSummaries(d.summaryKeys.Read)
 	d.summaryProviders = newSummaryProviders()
@@ -218,6 +231,13 @@ func NewDeck() *Deck {
 	// The mail pump, after d.cloud is set; the watchers' stop ends it too, and the deck's rounds.
 	stopWatching, stopMail := d.stopWatchers, d.startMailPump()
 	d.stopWatchers = func() { stopMail(); d.rounds.stop(); stopWatching() }
+	// Under the Mac app, its dictation languages and the one it suggests, asked once now, so the
+	// office has a language before setup is first opened.
+	if d.mac.host != nil {
+		d.rounds.run(func() { d.macFactsNow() })
+	}
+	// The hires in T3 Code, followed with the deck's rounds, so they stop with it.
+	d.startT3Follow()
 	return d
 }
 
@@ -381,6 +401,12 @@ func (d *Deck) IngestFrom(event map[string]any, reported, tab, startedIn string,
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	// A hire in T3 Code's own Claude Code, heard through your hooks: never a desk, nor anyone else's. Its events
+	// are kept in the event log, as any session's the deck has no desk for.
+	if d.isT3HiresOwn(canonical, startedIn) {
+		d.logEvent(canonical, agent, at)
+		return
+	}
 	if tab == "" {
 		tab = d.launcherFor(canonical, agent)
 	}
@@ -468,6 +494,7 @@ func (d *Deck) launcherFor(event map[string]any, agent Agent) string {
 // changed re-sends the state, with the lock held.
 func (d *Deck) changed() {
 	d.applyQueuedEffort()
+	d.keepT3Seats()
 	state := d.snapshot()
 	for stream := range d.streams {
 		stream.send(state)
@@ -507,6 +534,17 @@ func (d *Deck) layout() ([]deckKey, []*Session) {
 	for i, s := range bots {
 		if d.cloudFloor(sitting[i]) == 0 {
 			remaining = append(remaining, s)
+		}
+	}
+	// A hire in T3 Code on the ground floor takes a desk as anyone does: the one the registry kept for it, if it's free.
+	for _, one := range d.t3Seated() {
+		if t3FloorOf(one.hire) != 0 {
+			continue
+		}
+		remaining = append(remaining, one.session)
+		if _, has := d.keyOf[one.session.ID]; !has && one.hire.T3Desk != nil && *one.hire.T3Desk >= 0 && *one.hire.T3Desk < mostKeys {
+			d.keyOf[one.session.ID] = *one.hire.T3Desk
+			d.setChosen(one.session.ID)
 		}
 	}
 	// A session that took another's place in its tab, as after /clear, takes its key and floor too.
@@ -592,7 +630,8 @@ func (d *Deck) layout() ([]deckKey, []*Session) {
 		}
 	}
 	for id := range d.seatOf {
-		if _, cloud := d.cloud.botOf(id); !kept(id) && !cloud {
+		_, cloud := d.cloud.botOf(id)
+		if _, t3 := d.t3Desks.hireOf(id); !kept(id) && !cloud && !t3 {
 			delete(d.seatOf, id)
 		}
 	}
@@ -742,6 +781,8 @@ func (d *Deck) previousKey(s *Session) int {
 // snapshot is what the phone draws: the keys, the theme and the layout. No
 // tabs or paths.
 func (d *Deck) snapshot() []byte {
+	// Under the Mac app, what the desks' terminals let the office do, asked once for new tabs (hostoffice.go).
+	d.askAbilities()
 	keys, overflow := d.layout()
 	entries := make([]map[string]any, len(keys))
 	for i, key := range keys {
@@ -752,6 +793,8 @@ func (d *Deck) snapshot() []byte {
 		if s := key.session; s != nil {
 			if bot, ok := d.cloud.botOf(s.ID); ok {
 				entry["session"] = d.cloudEntry(s, bot)
+			} else if hire, ok := d.t3Desks.hireOf(s.ID); ok {
+				entry["session"] = d.t3Entry(s, hire)
 			} else {
 				entry["session"] = d.sessionEntry(s)
 			}
@@ -761,7 +804,7 @@ func (d *Deck) snapshot() []byte {
 	// The six floors, the ground floor's desks being the keys, and how many
 	// there's no floor for; and the second floor alone, for phones from before the others.
 	floors, floorsOverflow, upstairs := d.floorsState(overflow)
-	state, _ := json.Marshal(map[string]any{
+	fields := map[string]any{
 		"keys": entries, "overflow": len(overflow), "upstairs": upstairs,
 		"floors": floors, "floorsOverflow": floorsOverflow,
 		"theme": currentTheme(d.config), "scroll": d.config.ScrollEnabled,
@@ -774,7 +817,9 @@ func (d *Deck) snapshot() []byte {
 		// This computer's clock, so the office can count turns on the phone's,
 		// whichever of the two is right.
 		"now": int64(nowMillis()),
-	})
+	}
+	d.addMacOffice(fields)
+	state, _ := json.Marshal(fields)
 	return state
 }
 
@@ -784,7 +829,7 @@ func (d *Deck) sessionEntry(s *Session) map[string]any {
 	if s.PendingEffort != "" {
 		effort = s.PendingEffort
 	}
-	return map[string]any{
+	entry := map[string]any{
 		"id": s.ID, "name": s.Name(), "project": s.ProjectName(), "state": s.State, "effort": effort,
 		"pending": s.PendingEffort != "", "agent": s.Agent, "agentName": s.Agent.Name(),
 		"dial": s.Agent.HasEffortDial(), "mic": s.Agent.HasVoice(),
@@ -799,6 +844,8 @@ func (d *Deck) sessionEntry(s *Session) map[string]any {
 		"summary": s.Transcript != "" && d.summaryOffered(),
 		"role":    d.roleOf(s),
 	}
+	d.addMacControls(entry, s)
+	return entry
 }
 
 // summaryState is ✨ Summary for the setup page: on or off, what makes
@@ -1036,15 +1083,25 @@ func (d *Deck) isConnected(phone string) bool {
 // is where a hire there starts. With the lock held.
 func (d *Deck) hiringState() map[string]any {
 	folder := hasHireFolder(d.config)
-	canHire := canHireHere()
+	terminals, tmux := hireWays()
+	canHire := len(terminals) > 0 || tmux // canHireHere, with the ways kept for the fence's lines
 	hire := d.config.HiringEnabled && folder && canHire
 	roles := []map[string]any{}
+	state := map[string]any{"fire": d.config.HiringEnabled, "hire": hire}
 	if hire {
+		// A hire that won't be fenced says so in the office as it's made: each role's line, and Anyone's.
 		for _, role := range d.config.Roles {
-			roles = append(roles, role.forPhone())
+			phone := role.forPhone()
+			if note := d.unfencedNote(role.ID, role.Agent, terminals, tmux); note != "" {
+				phone["unfenced"] = note
+			}
+			roles = append(roles, phone)
+		}
+		if note := d.unfencedNote("", d.config.HireAgent, terminals, tmux); note != "" {
+			state["unfenced"] = note
 		}
 	}
-	state := map[string]any{"fire": d.config.HiringEnabled, "hire": hire, "roles": roles}
+	state["roles"] = roles
 	if d.config.HiringEnabled && !folder && canHire {
 		state["reason"] = hiringNeedsFolder
 	}
@@ -1100,6 +1157,8 @@ func (d *Deck) sessionRole(s *Session) (Role, bool) {
 		roleID = tab.role
 	} else if kind == "tmux" {
 		roleID = d.hiredRoleAt(socket) // a hire the engine made: no launcher, its registry row has the role
+	} else if hire, ok := d.t3Desks.hireOf(s.ID); ok {
+		roleID = hire.Role // a hire in T3 Code's desk: its registry row has the role
 	}
 	if roleID != "" {
 		for _, role := range d.config.Roles {
@@ -1161,6 +1220,10 @@ func (d *Deck) tab(name string) Tab {
 		}
 		return nil
 	}
+	// Under the Mac app, what macOS alone can do goes to it: see macTab.
+	if tab := hostTab(name, kind, id, socket); tab != nil {
+		return tab
+	}
 	return commandTab{kind: kind, id: id, socket: socket}
 }
 
@@ -1170,7 +1233,7 @@ func (d *Deck) pruneClosedTabs() {
 	d.mu.Lock()
 	panes := map[string]commandTab{}
 	for _, s := range d.sessions.All() {
-		if tab, ok := d.tab(s.Tab).(commandTab); ok {
+		if tab, ok := paneOf(d.tab(s.Tab)); ok {
 			panes[s.Tab] = tab
 		}
 	}
@@ -1249,7 +1312,7 @@ var errAgentGone = errors.New("the agent no longer runs in its pane")
 // so only panes are asked.
 func (d *Deck) toAgent(name string, agent Agent, op func(Tab) error) (int, string) {
 	return d.inTab(name, func(t Tab) error {
-		if pane, ok := t.(commandTab); ok {
+		if pane, ok := paneOf(t); ok {
 			if running, known := pane.runs(agent); known && !running {
 				return errAgentGone
 			}
@@ -1294,6 +1357,14 @@ func (d *Deck) swapKeys(query url.Values) (int, string) {
 	if errA != nil || errB != nil || a == b || a < 0 || b < 0 || a >= len(keys) || b >= len(keys) {
 		return http.StatusBadRequest, "Unknown desks"
 	}
+	// A hire in T3 Code's desk is no project's to pin: it stays where it sits.
+	for _, i := range []int{a, b} {
+		if s := keys[i].session; s != nil {
+			if hire, ok := d.t3Desks.hireOf(s.ID); ok {
+				return http.StatusConflict, calledHire(hire) + " runs in T3 Code: its desk stays where it is."
+			}
+		}
+	}
 	project := func(i int) *string {
 		if s := keys[i].session; s != nil {
 			p := s.Project
@@ -1312,6 +1383,9 @@ func (d *Deck) swapKeys(query url.Values) (int, string) {
 	d.changed()
 	return http.StatusNoContent, ""
 }
+
+// dictationLanguages are the languages the Mac's dictation takes (Dictation.languages).
+var dictationLanguages = []string{"fr_FR", "en_US"}
 
 // Perform runs one of the phone's controls on a session.
 func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
@@ -1342,6 +1416,28 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	if action == "style" {
 		return d.setStyle(query.Get("preset"))
 	}
+	// The mic's quick switch, as the Mac answers it: a language it takes is 204, any other 400. Under the Mac
+	// app it is dictation's language for every phone, kept, saved and sent as the Mac's Deck does, checked
+	// against the languages that Mac has (as setup's /setup/dictation). On Linux and Windows there is no
+	// dictation: nothing is stored and nothing is started, so a known one only says so.
+	if action == "language" {
+		lang := query.Get("lang")
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		known := dictationLanguages
+		if d.mac.host != nil && d.mac.languages != nil {
+			known = d.mac.languages
+		}
+		if !slices.Contains(known, lang) {
+			return http.StatusBadRequest, "Unknown language"
+		}
+		if d.mac.host != nil {
+			d.config.DictationLanguage = lang
+			d.config.save()
+			d.changed()
+		}
+		return http.StatusNoContent, ""
+	}
 	if action == "music" {
 		key := query.Get("do")
 		if key == "volume" {
@@ -1362,7 +1458,21 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		}
 		return d.hire(query.Get("desk"), query.Get("role"))
 	}
+	// A hire in T3 Code's desk: Let go, the lane's, from its card; nothing else reaches it, as there's nothing to type into.
+	if action == "letgo" {
+		if status, answer, ok := d.letGoAtDesk(id); ok {
+			if text, isText := answer.(string); isText {
+				return status, text
+			}
+			data, _ := json.Marshal(answer)
+			return status, string(data)
+		}
+	}
 	d.mu.Lock()
+	if hire, ok := d.t3HireAtDesk(id); ok {
+		d.mu.Unlock()
+		return http.StatusConflict, t3NoControls(calledHire(hire))
+	}
 	session := d.sessions.Get(id)
 	if session == nil || session.Tab == "" {
 		d.mu.Unlock()
@@ -1373,6 +1483,8 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		return http.StatusConflict, headlessNoControls
 	}
 	tab, agent, busy := session.Tab, session.Agent, session.IsBusy()
+	// Claude Code ends the turn when its prompt is put away, and no hook says so: see StoppedAsking.
+	asking := session.State == Asking && agent == Claude
 	d.mu.Unlock()
 
 	// Accept and send are both Enter. They are separate controls on the phone
@@ -1391,10 +1503,20 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 			d.mu.Unlock()
 		}
 		return status, message
-	case "reject":
-		return d.pressTo(tab, agent, agent.Reject())
-	case "esc":
-		return d.pressTo(tab, agent, agent.Interrupt())
+	case "reject", "esc":
+		key := agent.Reject()
+		if action == "esc" {
+			key = agent.Interrupt()
+		}
+		status, message := d.pressTo(tab, agent, key)
+		if asking && status < http.StatusBadRequest {
+			d.mu.Lock()
+			if d.sessions.StoppedAsking(id, nowMillis()) {
+				d.changed()
+			}
+			d.mu.Unlock()
+		}
+		return status, message
 	case "up":
 		return d.pressTo(tab, agent, press(Up))
 	case "down":
@@ -1422,6 +1544,12 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	case "fire":
 		if !hiring {
 			return http.StatusForbidden, hiringOff
+		}
+		// A hire in T3 Code is let go from Setup's team list, after a confirm that says what's removed.
+		if h, found := d.hireInSession(id); found {
+			if why := t3FireRefusal(h); why != "" {
+				return http.StatusConflict, why
+			}
 		}
 		if status, message, handled := d.fireTab(tab, query.Get("force") == "1"); handled {
 			return status, message
@@ -1556,6 +1684,12 @@ func (d *Deck) Focus(id string) (int, string) {
 		d.mu.Unlock()
 		return http.StatusNoContent, ""
 	}
+	d.mu.Unlock()
+	// A hire in T3 Code's desk: its done seen, and its own thread opened in T3 Code.
+	if status, text, ok := d.focusT3(id); ok {
+		return status, text
+	}
+	d.mu.Lock()
 	tab := ""
 	if session := d.sessions.Get(id); session != nil {
 		tab = session.Tab // read while locked: a hook can move the session meanwhile
@@ -1589,7 +1723,7 @@ func (d *Deck) applyQueuedEffort() {
 		go func() {
 			d.work <- func() {
 				// Not into a pane its agent has left: see toAgent.
-				if pane, ok := tab.(commandTab); ok {
+				if pane, ok := paneOf(tab); ok {
 					if running, known := pane.runs(agent); known && !running {
 						return
 					}

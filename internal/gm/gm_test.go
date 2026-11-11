@@ -516,6 +516,46 @@ func TestHireLeavesOutWhatIsNotGiven(t *testing.T) {
 	}
 }
 
+// --t3 hires into T3 Code (T797b): the request says engine "t3", and the app's answer (or refusal) comes back as for any hire.
+func TestHireIntoT3CodeSaysSo(t *testing.T) {
+	var got []byte
+	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
+		got, _ = io.ReadAll(r.Body)
+		w.Write([]byte(`{"ok":true,"desk":null}`))
+	})
+	code, out, _ := runGM(app.env(t, withToken()), "hire", "--role", "reviewer", "--t3", "--json")
+	if code != 0 || !strings.Contains(out, `"ok": true`) || string(got) != `{"engine":"t3","role":"reviewer"}` {
+		t.Errorf("exit %d out %q body %s", code, out, got)
+	}
+}
+
+// PR1: the Go app serves POST /setup/gm/hire: `gm hire` prints its answer, and a 404 isn't the "isn't available" text.
+func TestHireAgainstTheGoAppSendsTheRequestAndPrintsTheAnswer(t *testing.T) {
+	status, answer, body := http.StatusOK, `{"ok":true,"desk":3,"session":null}`, []byte(nil)
+	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Smolcorp-App", "linux")
+		if r.URL.Path == "/setup/state" { // as the Go app's locked page
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		body, _ = io.ReadAll(r.Body)
+		w.WriteHeader(status)
+		w.Write([]byte(answer))
+	})
+	code, out, _ := runGM(app.env(t, withToken()), "hire", "--role", "janitor")
+	if code != 0 || !strings.Contains(out, "Hired a janitor. At desk 4.") || string(body) != `{"role":"janitor"}` {
+		t.Fatalf("exit %d out %q body %s", code, out, body)
+	}
+	status, answer = http.StatusOK, `{"ok":true,"desk":null,"floor":2,"session":null}` // a floor hire names no desk
+	if code, out, _ := runGM(app.env(t, withToken()), "hire", "--role", "janitor"); code != 0 || strings.Contains(out, "At desk") {
+		t.Errorf("a floor hire: exit %d out %q, want no desk line", code, out)
+	}
+	status, answer = http.StatusNotFound, `{"error":"not found"}`
+	if code, _, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor"); code != exitApp || strings.Contains(errOut, "isn't available") {
+		t.Errorf("a 404: exit %d %q", code, errOut)
+	}
+}
+
 func TestHireRefusalIsPrinted(t *testing.T) {
 	app := newFakeApp(t, serve([]byte("Choose a folder for new hires in setup, on your Mac."), 409))
 	code, _, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor")
@@ -897,9 +937,6 @@ func TestUnservedGMRoutesSayWhatTheGoAppLacks(t *testing.T) {
 		args          []string
 		goMsg, macMsg string
 	}{
-		{[]string{"hire", "--role", "janitor", "--task", "tidy"}, "smolcorp gm: `gm hire` isn't available in Smolcorp on Linux and Windows yet: the owner hires from the office or Setup.\n", "smolcorp gm: Smolcorp answered 404: not found\n"},
-		{[]string{"fire", "Rev"}, "smolcorp gm: `gm fire` isn't available in Smolcorp on Linux and Windows yet.\n", ""},
-		{[]string{"brief", "Rev", "--text", "hi"}, "smolcorp gm: `gm brief` isn't available in Smolcorp on Linux and Windows yet.\n", ""},
 		{[]string{"tile"}, "smolcorp gm: `gm tile` isn't available in Smolcorp on Linux and Windows yet.\n", "smolcorp gm: this Smolcorp can't tile windows yet; update it.\n"},
 		{[]string{"screens"}, "smolcorp gm: `gm screens` isn't available in Smolcorp on Linux and Windows yet.\n", "smolcorp gm: this Smolcorp can't choose a screen yet; update it.\n"},
 		{[]string{"accounts"}, "smolcorp gm: `gm accounts` isn't available in Smolcorp on Linux and Windows yet.\n", "smolcorp gm: this Smolcorp has no accounts route yet; update it.\n"},
@@ -931,7 +968,7 @@ func TestUnservedGMRoutesSayWhatTheGoAppLacks(t *testing.T) {
 func TestHelpAndBadTokenNameTheirApp(t *testing.T) {
 	app := newFakeApp(t, serve(teamAnswer(t), 200))
 	_, out, _ := runGM(app.env(t, withToken()), "help")
-	for _, want := range []string{"On Linux and Windows, hire, brief, fire, tile, screens, screen and accounts\naren't served yet.", "on the Mac, ask the owner to rotate it", "hire the GM again from Setup"} {
+	for _, want := range []string{"On Linux and Windows, tile, screens, screen and accounts\naren't served yet.", "on the Mac, ask the owner to rotate it", "hire the GM again from Setup"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help lacks %q", want)
 		}

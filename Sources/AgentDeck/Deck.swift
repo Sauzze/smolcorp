@@ -70,6 +70,11 @@ final class Deck {
         asking: { [unowned self] in self.sessions.all.filter { $0.state == .asking && !$0.folder.isEmpty }.map { HireDesk.physical($0.folder) } })
     /// Bots working in a cloud, each at a desk of its own (see `CloudDesks`).
     let cloud = CloudDesks()
+    /// The hires in T3 Code, each at a desk of its own, from the registry alone (see `T3Desks`).
+    let t3Desks = T3Desks()
+    /// What a T3 desk's tap opens T3 Code with, and what Let go uses: this Mac's, or a test's fakes.
+    var t3Machine = T3Code.Machine()
+    var t3Leaving = T3Desk.Leaving()
     /// ✨ Summary: what each session has been doing, from Claude, with your own key.
     let summaries = Summaries()
     /// iPhone app (personal build): notifications, sent to Apple by this Mac.
@@ -134,6 +139,9 @@ final class Deck {
     /// The folders of hires made with the manager on: new on a floor above, they sit by whole rows.
     private var managerHireFolders: Set<String> = []
     var hiredTabs: [(tab: String, role: String?, desk: Int?, at: Date, folder: String, floor: Int?)] = []
+    /// The window Smolcorp opened for each hire, by hire id, as its terminal
+    /// gave it (T796). Kept while the app runs: a window from before a restart isn't known.
+    var hireWindows: [String: [String]] = [:]
     /// The tab recording started in, and when. One Mac, one microphone.
     private var micPress: (tab: String, at: Date)?
     /// Personal build: how each desk's last dictation went, by session id,
@@ -153,7 +161,10 @@ final class Deck {
     /// iPhone app (personal build): the sessions a typed answer is being typed into, till its Return:
     /// a ✓ meanwhile would send it half typed.
     private var answering: Set<String> = []
-    private var checkingFront = false
+    /// Terminal.app's looks at its tabs, each on a poller of its own, off the desks' keys' way.
+    private let frontPoll = Poller("front")
+    private let tabsPoll = Poller("tabs")
+    /// Set from a look at Terminal's tabs until what it found has been dealt with.
     private var checkingTabs = false
     /// Ttys Terminal reported last time. Only these can be found closed:
     /// sessions in other terminal apps never appear here and are left alone.
@@ -165,7 +176,8 @@ final class Deck {
     /// Tabs of other terminals found gone at the last look: gone again at the
     /// next, their sessions go too.
     private var panesMissedOnce = Set<String>()
-    private var checkingPanes = false
+    /// Other terminals' tabs, looked at for closing on a poller of its own.
+    private let panesPoll = Poller("panes")
     private var savePending = false
     /// Whether music is playing, for the office's jukeboxes: true, or nil when it can't be told.
     private var playing: Bool?
@@ -188,6 +200,10 @@ final class Deck {
         sessions.onChange = { [weak self] in self?.changed() }
         cloud.onChange = { [weak self] in self?.changed() }
         restoreSessions()
+        // A hire's window opened again as its desk is brought forward is Smolcorp's, recorded for that hire (T796).
+        Tmux.reopened = { [weak self] socket, window in
+            DispatchQueue.main.async { self?.recordReopenedWindow(socket: socket, window: window) }
+        }
         // What's running as it starts is where the webhook starts from, so the first change after it is news
         tellWebhook()
 
@@ -213,6 +229,7 @@ final class Deck {
             self?.discoverBots()
         }
         startMail()
+        startT3Follow()
     }
 
     // MARK: Grok Bot app
@@ -274,6 +291,8 @@ final class Deck {
                 pid: Int32? = nil, parent: String = "", at time: Double) {
         let agent = Agent.of(event, reportedAs: reported)
         guard let event = agent.canonical(event) else { return }
+        // A hire in T3 Code's own Claude Code, heard through your hooks: never a desk, nor anyone else's (T3D-a).
+        if isT3HiresOwn(event, startedIn: startedIn) { return }
         let found = !tab.isEmpty ? tab : !tty.isEmpty ? TabAddress.terminalApp(tty: tty).text : self.tab(for: event, of: agent)
         sessions.apply(event, agent: agent, tab: found, startedIn: startedIn, pid: pid, parent: parent, at: time)
         // The first word from a hire still starting: it is working now.
@@ -297,7 +316,7 @@ final class Deck {
         // At most every few seconds: each try asks Ghostty.
         if let last = learningGhostty[address.id], Date().timeIntervalSince(last) < 5 { return }
         learningGhostty[address.id] = Date()
-        Terminal.queue.async {
+        Terminals.queue(for: address).async {
             Ghostty.learn(tty: address.id)
             if Ghostty.id(on: address.id) != nil { DispatchQueue.main.async { self.changed() } }
         }
@@ -333,6 +352,7 @@ final class Deck {
 
     private func changed() {
         applyQueuedEffort()
+        keepT3Seats()
         let state = snapshotJSON()
         streams.values.forEach { $0.stream.send(state) }
         onChange()
@@ -340,6 +360,26 @@ final class Deck {
         tellWebhook()
         tellPhones()
         portable.changed()
+    }
+
+    /// Where each hire in T3 Code sits now, kept in the registry (T3D-a), so it sits there again after a restart.
+    /// The registry is written only when one moved.
+    func keepT3Seats() {
+        let seated = t3Seated()
+        guard !seated.isEmpty else { return }
+        let (keys, overflow) = layout()
+        // The building only when a desk is upstairs (FXT3Da N6): on the ground floor, the keys are enough.
+        let building = seated.contains { ($0.hire.t3Floor ?? 0) > 0 } ? self.building(overflow: overflow) : nil
+        for (session, hire) in seated {
+            // Only a desk on its own floor: one upstairs for want of a key downstairs isn't where it was put.
+            let floor = hire.t3Floor ?? 0
+            if floor == 0, let key = keys.firstIndex(where: { $0.session?.id == session.id }) {
+                frontDesk.setT3Seat(hire.id, floor: 0, desk: key)
+            } else if floor > 0, let building, building.floors.indices.contains(floor), building.floors[floor].contains(where: { $0.id == session.id }),
+                      let desk = building.desks[session.id] {
+                frontDesk.setT3Seat(hire.id, floor: floor, desk: desk)
+            }
+        }
     }
 
     // MARK: Notifications (personal build)
@@ -649,6 +689,11 @@ final class Deck {
         let config = layoutConfig
         // Cloud bots on the ground floor take free desks as any new session does.
         var remaining = Deck.downstairs(sessions.all) + cloud.seated().filter { floor(of: $0.bot) == 0 }.map(\.session)
+        // A hire in T3 Code on the ground floor takes a desk as anyone does: the one the registry kept for it, if it's free.
+        for (session, hire) in t3Seated() where (hire.t3Floor ?? 0) == 0 {
+            remaining.append(session)
+            if keyOf[session.id] == nil, let desk = hire.t3Desk { keyOf[session.id] = desk; chosenDesk.insert(session.id) }
+        }
         let live = Set(remaining.map(\.id))
         // A session that took another's place in its tab, as after /clear, takes its key, role and floor too.
         for (new, old) in sessions.takeReplacements() {
@@ -685,7 +730,7 @@ final class Deck {
         roleOf = roleOf.filter { live.contains($0.key) || sessions.wasDropped($0.key) }
         chosenDesk = chosenDesk.filter { live.contains($0) || sessions.wasDropped($0) }
         floorOf = floorOf.filter { kept($0.key) }
-        seatOf = seatOf.filter { kept($0.key) || cloud.bot(ofSession: $0.key) != nil }
+        seatOf = seatOf.filter { kept($0.key) || cloud.bot(ofSession: $0.key) != nil || t3Desks.hire(ofSession: $0.key) != nil }
         // Those put upstairs, by the office or by their folder's rule, have no key. A pinned key whose
         // project went upstairs stays theirs, empty, as it does while the project has no session.
         for session in remaining where (aboveGround(of: session) ?? 0) > 0 { keyOf[session.id] = nil; chosenDesk.remove(session.id) }
@@ -807,6 +852,43 @@ final class Deck {
         return entry
     }
 
+    /// A hire in T3 Code's desk (T3D-a, experimental): its role's look, its name, and its thread's status, with every
+    /// control off, as there's no tab to type into; its card says it runs in T3 Code, with its branch. On any floor, it
+    /// can be picked (a tap opens its thread in T3 Code), never driven.
+    private func t3Entry(_ s: Session, of hire: FrontDesk.Hire) -> [String: Any] {
+        var entry = sessionEntry(s)
+        for control in T3Desks.controlsOff { entry[control] = false }
+        entry["choice"] = NSNull()
+        entry["role"] = Config.shared.roles.first { $0.id == hire.role }?.forPhone ?? NSNull()
+        entry["t3"] = T3Desks.deskJSON(hire)
+        return entry
+    }
+
+    /// The hires in T3 Code at their desks, as the registry says now.
+    func t3Seated() -> [(session: Session, hire: FrontDesk.Hire)] { t3Desks.seated(frontDesk.hires) }
+
+    /// The hire at T3 desk `id`, as the registry says now: nil for any other desk, or one let go since.
+    func t3Hire(atDesk id: String) -> FrontDesk.Hire? {
+        guard id.hasPrefix(T3Desks.prefix) else { return nil }
+        return frontDesk.hires.first { T3Desks.sessionID(of: $0.id) == id && T3Desks.hasDesk($0) }
+    }
+
+    /// Whether a hook event is a hire in T3 Code's own Claude Code: one Smolcorp doesn't know yet, that started in (or
+    /// works in) the worktree the registry gives an open hire in T3 Code. It's never a desk: the hire's desk is its
+    /// registry's. Nor anyone else's: T3 Code's server started from a terminal hands that terminal's pane on in its
+    /// environment, and the event would take that terminal's desk (RM5a §7). A session already at a desk that moves
+    /// into such a worktree stays as it was. So a terminal you open in a T3 hire's worktree has no desk until the hire
+    /// is let go. Only a worktree where hires' are made counts (`T3Desks.inHiresFolder`).
+    func isT3HiresOwn(_ event: [String: Any], startedIn: String) -> Bool {
+        guard let id = event["session_id"] as? String, sessions[id] == nil, !sessions.wasDropped(id) else { return false }
+        let worktrees = frontDesk.hires
+            .filter { $0.engine == T3Desk.engine && $0.state != .fired && $0.state != .failed && T3Desks.inHiresFolder($0) }
+            .flatMap { [$0.worktree, HireDesk.physical($0.worktree)] }
+        guard !worktrees.isEmpty else { return false }
+        let places = [startedIn, event["cwd"] as? String ?? ""].filter { !$0.isEmpty }.flatMap { [$0, HireDesk.physical($0)] }
+        return places.contains { place in worktrees.contains { place == $0 || place.hasPrefix($0 + "/") } }
+    }
+
     /// Who started a headless run, for its card upstairs: the ground-floor
     /// session working in the folder it was launched from, the oldest, under
     /// its project's name; else that folder's name, with no session; else
@@ -850,6 +932,7 @@ final class Deck {
     /// to 5 above it. Nil for one that sits where there's room.
     func aboveGround(of session: Session) -> Int? {
         if let bot = cloud.bot(ofSession: session.id) { return floor(of: bot) }
+        if let hire = t3Desks.hire(ofSession: session.id) { return hire.t3Floor ?? 0 }
         return Deck.floor(of: session.project, put: floorOf[session.id], rules: layoutConfig.floorRules)
     }
 
@@ -876,7 +959,16 @@ final class Deck {
         // Sessions put upstairs are left out of the keys (see `layout()`), so they're found here.
         let put = Deck.downstairs(sessions.all).filter { (aboveGround(of: $0) ?? 0) > 0 }
         // A bot nobody put on its floor takes nobody's desk there (see `Upstairs.yields`).
+        // A hire in T3 Code upstairs is on the floor it was hired onto, at the desk the registry kept for it.
+        let t3 = t3Seated().compactMap { one -> Upstairs<Session>? in
+            guard let floor = one.hire.t3Floor, floor > 0 else { return nil }
+            var placed = up(one.session, floor)
+            if placed.had == nil, let desk = one.hire.t3Desk { placed.had = Seat(floor: floor, desk: desk) }
+            placed.byRow = false
+            return placed
+        }
         let placed = bots.map { bot in var one = up(bot.session, bot.floor); one.yields = bot.yields; return one }
+            + t3
             + headless.compactMap { s in aboveGround(of: s).flatMap { $0 > 0 ? up(s, $0) : nil } }
             + put.map { up($0, aboveGround(of: $0)) }
         let placedIDs = Set(placed.map(\.id))
@@ -925,7 +1017,12 @@ final class Deck {
         let entry = { (s: Session) -> [String: Any] in
             var shown: [String: Any]
             if let bot = self.cloud.bot(ofSession: s.id) { shown = self.cloudEntry(s, of: bot) }
-            else { shown = s.isHeadless ? self.upstairsEntry(s) : self.drivenEntry(s) }
+            else if let hire = self.t3Desks.hire(ofSession: s.id) {
+                // Picked by a tap, upstairs as downstairs, so its thread opens: there's nothing to drive.
+                shown = self.t3Entry(s, of: hire)
+                shown["headless"] = false
+                shown["drivable"] = true
+            } else { shown = s.isHeadless ? self.upstairsEntry(s) : self.drivenEntry(s) }
             // The desk it has on its floor, so it stays there as others come and go.
             shown["desk"] = building.desks[s.id] ?? NSNull()
             return shown
@@ -940,7 +1037,10 @@ final class Deck {
         let state: [String: Any] = [
             "keys": keys.map { key -> [String: Any] in
                 var entry: [String: Any] = ["pin": key.pin.map { ($0 as NSString).lastPathComponent } ?? NSNull()]
-                if let s = key.session { entry["session"] = cloud.bot(ofSession: s.id).map { cloudEntry(s, of: $0) } ?? sessionEntry(s) }
+                if let s = key.session {
+                    entry["session"] = cloud.bot(ofSession: s.id).map { cloudEntry(s, of: $0) }
+                        ?? t3Desks.hire(ofSession: s.id).map { t3Entry(s, of: $0) } ?? sessionEntry(s)
+                }
                 return entry
             },
             "overflow": overflow.count,
@@ -967,8 +1067,18 @@ final class Deck {
                 var hiring: [String: Any] = [
                     "fire": Config.shared.hiringEnabled,
                     "hire": canHire,
-                    "roles": canHire ? Config.shared.roles.map(\.forPhone) : [],
+                    // A hire that won't be fenced says so in the office as it's made: each role's line, and Anyone's.
+                    "roles": canHire ? Config.shared.roles.map { role in
+                        var phone = role.forPhone
+                        if let note = Deck.unfencedNote(role: role, hireAgent: Config.shared.hireAgent, managerOn: Config.shared.managerEnabled) {
+                            phone["unfenced"] = note
+                        }
+                        return phone
+                    } : [],
                 ]
+                if canHire, let note = Deck.unfencedNote(role: nil, hireAgent: Config.shared.hireAgent, managerOn: Config.shared.managerEnabled) {
+                    hiring["unfenced"] = note
+                }
                 if let reason = Deck.hiringReason(Config.shared, canHireHere: Deck.canHireHere()) { hiring["reason"] = reason }
                 return hiring
             }(),
@@ -995,7 +1105,7 @@ final class Deck {
         let desks = keys.map { key in
             ViewerSnapshot.Desk(pin: key.pin, session: key.session,
                                 role: key.session.flatMap { cloud.bot(ofSession: $0.id)?.role }
-                                    ?? key.session.flatMap { roleOf[$0.id] }.flatMap { id in config.roles.first { $0.id == id } })
+                                    ?? key.session.flatMap { roleOf[$0.id] ?? t3Desks.hire(ofSession: $0.id)?.role }.flatMap { id in config.roles.first { $0.id == id } })
         }
         var snapshot = ViewerSnapshot.build(desks: desks, overflow: overflow.count, theme: Theme.current(),
                                             music: (config.musicEnabled, playing), layout: config.layout, hideNames: hideNames,
@@ -1105,6 +1215,11 @@ final class Deck {
             if query["do"] == "volume" { return done(setVolume(query["level"])) }
             return done(playMusic(query["do"] ?? "playpause"))
         }
+        // A hire in T3 Code's desk: Let go, the lane's, from its card; nothing else reaches it, as there's nothing to type into.
+        if let hire = t3Hire(atDesk: id) {
+            guard action == "letgo" else { return done(.status(409, T3Desks.noControls(HireDesk.called(hire)))) }
+            return letGoOfT3(id: hire.id, done: done)
+        }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
         guard !session.isHeadless else { return done(.status(409, Deck.headless)) }
 
@@ -1130,7 +1245,12 @@ final class Deck {
         case "reject", "esc":
             // Either puts the menu away.
             session.choice = nil
-            press(action == "reject" ? agent.reject : agent.interrupt, to: session, done: done)
+            // Claude Code then ends the turn and waits for a prompt, which no hook says: the next one may be typed.
+            let wasAsking = Deck.isAsking(session.state) && agent == .claude
+            press(action == "reject" ? agent.reject : agent.interrupt, to: session) { [weak self] response in
+                if wasAsking, response.status < 400 { self?.sessions.stoppedAsking(id) }
+                done(response)
+            }
         case "up", "down":
             // The menu's highlight, followed for picking an option by the arrows, once the key has gone.
             press(.init(key: action == "up" ? .up : .down), to: session) { [weak self] response in
@@ -1222,6 +1342,8 @@ final class Deck {
         let route = session.flatMap { s in terminal(of: s, for: .fire) }
         let tmux = hire.flatMap { $0.tmuxSocket.isEmpty ? nil : HireTmux(socketName: URL(fileURLWithPath: $0.tmuxSocket).lastPathComponent) }
         if hire == nil, route == nil { return done(.status(409, Deck.notHere)) }
+        // A hire in T3 Code is let go from Setup's team list or its desk, after a confirm that says what's removed (T797b, T3D-a).
+        if let hire, hire.engine == T3Desk.engine { return done(.status(409, "\(HireDesk.called(hire)) runs in T3 Code: let it go from Setup's team list or from its desk.")) }
         if let hire, hire.tmuxSocket.isEmpty == false, tmux == nil { return done(.status(409, "tmux isn't here, so \(HireDesk.called(hire))'s session can't be ended.")) }
         // Not on the terminal's queue: waiting for /exit to take can last seconds.
         DispatchQueue.global(qos: .userInitiated).async { [self] in
@@ -1234,21 +1356,21 @@ final class Deck {
                     case .success(let fired): kept = options.removeWorktree ? fired.kept : ""
                     }
                     // Its window only showed the session: it closes now, if the terminal keeps it open.
-                    if let (driver, address) = route, let agent { closed = Terminal.queue.sync { driver.fire(address, agent: agent) } }
+                    if let (driver, address) = route, let agent { closed = Terminals.queue(for: address).sync { driver.fire(address, agent: agent) } }
                 } else {
                     // A hire from 1.23's way: the refusals that can be asked without a window, then the tab.
                     if let refusal = HireDesk.fireRefusal(hire, force: options.force, capture: nil) {
                         return DispatchQueue.main.async { done(.status(refusal.status, refusal.message)) }
                     }
                     guard let (driver, address) = route, let agent else { return DispatchQueue.main.async { done(.status(409, Deck.notHere)) } }
-                    closed = Terminal.queue.sync { driver.fire(address, agent: agent) }
+                    closed = Terminals.queue(for: address).sync { driver.fire(address, agent: agent) }
                     if closed == .fired {
                         let fired = HireDesk.settle(hire, options: options, desk: frontDesk)
                         kept = options.removeWorktree ? fired.kept : ""
                     }
                 }
             } else if let (driver, address) = route, let agent {
-                closed = Terminal.queue.sync { driver.fire(address, agent: agent) }
+                closed = Terminals.queue(for: address).sync { driver.fire(address, agent: agent) }
             }
             DispatchQueue.main.async {
                 self.changed()
@@ -1341,6 +1463,10 @@ final class Deck {
         let (keys, _) = layout()
         guard let a = Int(query["from"] ?? ""), let b = Int(query["to"] ?? ""), a != b,
               keys.indices.contains(a), keys.indices.contains(b) else { return .status(400, "Unknown desks") }
+        // A hire in T3 Code's desk is no project's to pin: it stays where it sits.
+        if let hire = [a, b].compactMap({ keys[$0].session.flatMap { t3Hire(atDesk: $0.id) } }).first {
+            return .status(409, "\(HireDesk.called(hire)) runs in T3 Code: its desk stays where it is.")
+        }
         let project = { (i: Int) in keys[i].session?.project ?? keys[i].pin }
         let (first, second) = (project(a), project(b))
         guard first != nil || second != nil else { return .status(204) }
@@ -1375,6 +1501,7 @@ final class Deck {
             changed()
             return .status(204)
         }
+        if let hire = t3Hire(atDesk: id) { return moveT3(hire, sessionID: id, to: floor) }
         guard let session = sessions[id] else { return .status(404, "Session not found") }
         let before = (floorOf[id], seatOf[id])
         guard aboveGround(of: session) != floor || remember else { return .status(204) }
@@ -1399,6 +1526,23 @@ final class Deck {
         return .status(204)
     }
 
+    /// A hire in T3 Code put on another floor, from its card: kept in the registry, so it stays there; at the floor's
+    /// first free desk. There's no folder rule to remember for it.
+    private func moveT3(_ hire: FrontDesk.Hire, sessionID id: String, to floor: Int) -> Response {
+        guard (hire.t3Floor ?? 0) != floor else { return .status(204) }
+        if floor > 0 {
+            guard hasRoom(on: floor, besides: id) else { return .status(409, "\(Config.shared.floors[floor].name) is full.") }
+        } else {
+            guard hasFreeKey() else { return .status(409, "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room.") }
+        }
+        frontDesk.setT3Seat(hire.id, floor: floor, desk: nil)
+        seatOf[id] = nil
+        keyOf[id] = nil
+        chosenDesk.remove(id)
+        changed()
+        return .status(204)
+    }
+
     /// Whether the ground floor has a key for someone new: a free one, or
     /// with Auto, room for one more.
     private func hasFreeKey() -> Bool {
@@ -1415,6 +1559,7 @@ final class Deck {
     /// `seat(placed:rest:)`).
     private func hasRoom(on floor: Int, besides id: String) -> Bool {
         let put = sessions.all.filter { $0.id != id && aboveGround(of: $0) == floor }.count
+            + t3Seated().filter { $0.session.id != id && ($0.hire.t3Floor ?? 0) == floor }.count
             + cloud.seated().filter { one in
                 let elsewhere = one.bot.floorIndex == nil && seatOf[one.session.id].map { $0.floor != floor } == true
                 return one.session.id != id && self.floor(of: one.bot) == floor && !elsewhere
@@ -1601,6 +1746,8 @@ final class Deck {
             role = found
         }
         if !options.model.isEmpty { role?.model = options.model }
+        // Into T3 Code (T797b): a Claude Code role, on T3 Code's own account, never the GM, never from a test copy.
+        if options.t3, let why = T3Desk.hireRefusal(role: role, account: account, apiKey: options.apiKey) { return done(.status(409, why)) }
         // Only one General Manager at a time, by whichever way it is hired.
         if role?.id == Deck.gmRole {
             if let why = claimGMHire() { return done(.status(why.status, why.message)) }
@@ -1616,7 +1763,7 @@ final class Deck {
         // With several accounts, every way in must name one (C05), unless it is on the API-key account.
         let accounts = ClaudeProfiles.current
         let claude = Deck.hiredAgent(role: role, hireAgent: config.hireAgent) == .claude
-        if claude, !options.apiKey || !account.isEmpty, let why = ClaudeProfiles.hireRefusal(account: account, among: accounts) {
+        if claude, !options.t3, !options.apiKey || !account.isEmpty, let why = ClaudeProfiles.hireRefusal(account: account, among: accounts) {
             return done(.status(why.status, why.message))
         }
         if options.apiKey {
@@ -1626,7 +1773,8 @@ final class Deck {
         let profile = account.isEmpty ? nil : ClaudeProfiles.profile(named: account, among: accounts)
         if !account.isEmpty && profile == nil { return done(.status(404, "There's no Claude account called \(account).")) }
         // A test copy never hires on the default account: its trust would be written to the real ~/.claude.json.
-        if claude, let why = Deck.testCopyAccountRefusal(account: profile ?? accounts.first ?? ClaudeProfiles.defaultProfile()) { return done(.status(why.status, why.message)) }
+        if claude, let why = Deck.testCopyAccountRefusal(account: profile ?? accounts.first ?? ClaudeProfiles.defaultProfile(),
+                                                         otherAccounts: accounts.contains { !$0.isDefault }) { return done(.status(why.status, why.message)) }
         // A test copy hires Claude Code only: its hire reports through its own settings file, which no other agent takes.
         if let why = Deck.testCopyRefusal(for: Deck.hiredAgent(role: role, hireAgent: config.hireAgent)) { return done(.status(409, why)) }
         // A test copy's hire doesn't read the account's hooks, so it needn't find them connected.
@@ -1647,6 +1795,11 @@ final class Deck {
         let request = HireDesk.Request(hireID: hireID, name: options.nickname.isEmpty ? (role?.id ?? "hire") : options.nickname, folder: folder,
                                        claude: claude, account: hireAccount, apiKey: options.apiKey, worktree: !isGM || options.worktree)
         let worktrees = config.hireWorktrees, taken = frontDesk.portsInUse
+        if options.t3, let role {
+            return hireIntoT3(request, role: role, original: folder, pinned: pinned != nil, desk: floor > 0 ? nil : desk.flatMap { Int($0) },
+                              answers: answers, options: options, task: task, worktrees: worktrees, taken: taken, held: held, floor: floor,
+                              done: hired)
+        }
         // Git can take a while on a big repo, so the place is made off the main thread.
         DispatchQueue.global(qos: .userInitiated).async {
             let made: Result<HireDesk.Ready, FrontDesk.Refusal>
@@ -1663,6 +1816,130 @@ final class Deck {
                 case .success(let ready):
                     self.open(ready, managed: managed, hireID: hireID, role: role, original: folder, pinned: pinned, desk: desk, held: held, floor: floor,
                               answers: answers, options: options, task: task, profile: profile, hireAccount: hireAccount, done: hired)
+                }
+            }
+        }
+    }
+
+    /// A hire into T3 Code (T797b, experimental), once `hire` has checked who and where: the gate, then `T3Desk.hire`, on
+    /// `T3Desk.queue` (so a let go comes strictly before or after it); the registry is written on the main thread. Answered
+    /// as every hire is: 204 once its thread runs. Its desk is on `floor`, at `held` if one was (T3D-a), kept in the registry.
+    private func hireIntoT3(_ request: HireDesk.Request, role: Role, original: String, pinned: Bool, desk: Int?, answers: [String]?,
+                            options: HireDesk.HireOptions, task: String, worktrees: String, taken: [String], held: Int?, floor: Int = 0,
+                            done hired: @escaping (Response, Int?) -> Void) {
+        let config = Config.shared
+        let on = T3Code.laneAllowed(config)
+        let hireID = request.hireID
+        let model = role.model.isEmpty ? T3Desk.defaultModel : role.model
+        let hiring = T3Desk.Hiring(hireID: hireID, name: request.name, called: options.nickname.isEmpty ? role.name : options.nickname,
+                                   folder: request.folder, model: model, worktrees: worktrees, taken: taken)
+        let onMain = { (work: () -> Void) in DispatchQueue.main.sync(execute: work) }
+        let ways = T3Desk.Ways(
+            settings: { try HireSettings.forHire(hireID, role: role) },
+            brief: { ready in
+                var message = answers.map { role.firstMessage(in: ready.folder, answers: $0) } ?? role.firstMessage(in: ready.folder, pinned: pinned)
+                var path = ""
+                if let made = try BriefBuilder.make(role, library: .editable(), folder: ready.folder, pinned: pinned, desk: desk, answers: answers,
+                                                    task: task.isEmpty ? nil : task, managed: BriefBuilder.hireFolder(hireID), write: true) {
+                    message = made.firstMessage
+                    path = made.names.brief.path
+                }
+                return (message, path)
+            },
+            discardBrief: { try? FileManager.default.removeItem(at: BriefBuilder.hireFolder(hireID)) },
+            register: { [weak self] ready in onMain {
+                var record = FrontDesk.Hire(id: hireID, name: role.name, nickname: options.nickname, role: role.id, folder: original,
+                                            branch: ready.branch, worktree: ready.worktree, repo: ready.repo, model: model, ports: ready.ports,
+                                            started: (Date().timeIntervalSince1970 * 1000).rounded(), engine: T3Desk.engine)
+                // Its desk in the office, once its thread runs: on the floor it was hired onto, at the desk held.
+                (record.t3Floor, record.t3Desk) = (floor, held)
+                self?.frontDesk.register(record)
+            } },
+            started: { [weak self] thread, link, brief in onMain { self?.frontDesk.setT3(hireID, thread: thread, link: link, brief: brief) } },
+            fail: { [weak self] why in onMain { self?.frontDesk.fail(hireID, reason: "Didn't start in T3 Code: \(why)") } })
+        T3Desk.queue.async {
+            let result: Result<T3Desk.Started, FrontDesk.Refusal>
+            if let why = T3Desk.refusal(on: on, status: T3Code.status(fresh: true)) {
+                result = .failure(FrontDesk.Refusal(status: 409, message: why))
+            } else {
+                result = T3Desk.hire(hiring, ways: ways)
+            }
+            DispatchQueue.main.async {
+                switch result {
+                case .failure(let refusal):
+                    self.lastHire = nil
+                    self.changed()
+                    hired(.status(refusal.status, refusal.message), nil)
+                case .success(let started):
+                    config.noteHire(in: original)
+                    // Its nickname on its desk (T3D-a): the desk is its worktree's, as the registry gives it.
+                    self.managerHireFolders.insert(started.ready.folder)
+                    config.layout.room.team = Deck.nicknamed(config.layout.room.team, folder: started.ready.worktree, nickname: options.nickname)
+                    config.save()
+                    self.changed()
+                    hired(.status(204), held)
+                }
+            }
+        }
+    }
+
+    /// Looks at every T3 hire's thread, each no more than every `T3Desk.followEvery` seconds, one at a time off the main
+    /// thread and never while the last round is still out (`T3Desk.tick`): its status for its desk, and the registry's state
+    /// and link kept as T3 Code says. At launch, a hire left part way by a Smolcorp that closed is let go and marked failed.
+    func startT3Follow() {
+        let left = frontDesk.hires.filter { $0.engine == T3Desk.engine && $0.state == .starting && $0.t3Thread.isEmpty }
+        if !left.isEmpty {
+            T3Desk.queue.async {
+                let reasons = T3Desk.reconcile(left)
+                DispatchQueue.main.async {
+                    for (id, reason) in reasons { self.frontDesk.fail(id, reason: reason) }
+                    self.changed()
+                }
+            }
+        }
+        Timer.scheduledTimer(withTimeInterval: T3Desk.followTick, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let hires = self.frontDesk.hires.filter { $0.engine == T3Desk.engine && $0.state != .fired && $0.state != .failed }
+            guard !hires.isEmpty else { return }
+            T3Desk.tick(hires) { seen, looksMoved in
+                let before = self.frontDesk.hires
+                for (id, look) in seen {
+                    guard let hire = self.frontDesk.hires.first(where: { $0.id == id }), hire.state != .fired, hire.state != .failed else { continue }
+                    if let state = T3Desk.state(for: look.status) { self.frontDesk.move(id, to: state) }
+                    if !look.link.isEmpty { self.frontDesk.setT3(id, thread: hire.t3Thread, link: look.link) }
+                }
+                // The desks show what was seen; the office is told only when something moved.
+                if self.frontDesk.hires != before || looksMoved { self.changed() }
+            }
+        }
+    }
+
+    /// `POST /setup/t3code/letgo {id}`: a hire in T3 Code let go (`T3Desk.letGo`), off the main thread; the registry says
+    /// so on the main one. The page alone, after its confirm.
+    func letGoOfT3(id: String, done: @escaping (Response) -> Void) {
+        guard let asked = frontDesk.hires.first(where: { $0.id == id }) else { return done(.status(404, "That hire isn't on the team.")) }
+        // Not while it's being hired: said at once, rather than after the hire.
+        if T3Desk.isHiring(id) { return done(.status(409, T3Desk.stillHiring(HireDesk.called(asked)))) }
+        // After any hire into T3 Code under way (never behind the follow, which has its own queue); the registry is read
+        // again once it's this let go's turn, so a second click finds the hire already gone.
+        let leaving = t3Leaving
+        T3Desk.queue.async {
+            guard let hire = DispatchQueue.main.sync(execute: { self.frontDesk.hires.first { $0.id == id } }) else {
+                return DispatchQueue.main.async { done(.status(404, "That hire isn't on the team.")) }
+            }
+            let result = T3Desk.letGo(hire, leaving: leaving) { gone in
+                DispatchQueue.main.sync {
+                    self.frontDesk.move(hire.id, to: .fired)
+                    let now = self.frontDesk.hires.first { $0.id == hire.id }?.notes ?? ""
+                    let note = "Let go from T3 Code: its thread there was removed; its worktree and branch were kept." + (gone.note.isEmpty ? "" : " " + gone.note)
+                    _ = try? self.frontDesk.edit(["id": hire.id, "notes": String((now.isEmpty ? note : note + "\n" + now).prefix(FrontDesk.longestNotes))])
+                }
+            }
+            DispatchQueue.main.async {
+                self.changed()
+                switch result {
+                case .failure(let refusal): done(.status(refusal.status, refusal.message))
+                case .success(let gone): done(.json(["ok": true, "recap": gone.recap, "note": gone.note, "worktree": hire.worktree, "branch": hire.branch]))
                 }
             }
         }
@@ -1739,7 +2016,7 @@ final class Deck {
             }
         }
         if managed, claudeHire {
-            do { settings = try HireSettings.write(hireID: hireID, profile: role?.id == Deck.gmRole ? .gm : .hire, reporting: reporting).path } catch {
+            do { settings = try HireSettings.save(HireSettings.forHire(hireID, role: role, reporting: reporting), hireID: hireID).path } catch {
                 lastHire = nil
                 undo()
                 return done(.status((error as? FrontDesk.Refusal)?.status ?? 500, (error as? FrontDesk.Refusal)?.message ?? error.localizedDescription))
@@ -1803,13 +2080,16 @@ final class Deck {
             }
         }
         let terminal = Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal"
-        let inTmux = config.hireInTmux && Tmux.path != nil
-        let name = Openers.choices.first { $0.id == terminal }?.name ?? "Terminal"
-        Terminal.queue.async {
-            let tab = Openers.open(command, in: folder, terminal: terminal, inTmux: inTmux, hireID: hireID)
+        // Agent windows in the background (T796): in tmux, with no window.
+        let background = Choices.background(config)
+        let inTmux = background || (config.hireInTmux && Tmux.path != nil)
+        let name = background ? "tmux" : Openers.choices.first { $0.id == terminal }?.name ?? "Terminal"
+        // On the hire's terminal's queue: an iTerm2 or Ghostty window slow to open never holds up Terminal.app's desks.
+        Terminals.queue(opening: terminal).async {
+            let opened = Openers.open(command, in: folder, terminal: terminal, inTmux: inTmux, window: !background, hireID: hireID)
             DispatchQueue.main.async {
                 // Nobody was hired, so the next try needn't wait.
-                guard let tab else {
+                guard let opened else {
                     self.lastHire = nil
                     undo()
                     if role != nil { try? FileManager.default.removeItem(atPath: command) }
@@ -1826,7 +2106,10 @@ final class Deck {
                 }
                 config.save()
                 // Kept for the role, the desk and the floor it's hired on, and for a Ghostty hire, to know its terminal by.
+                let tab = opened.tab
                 self.hiredTabs.append((tab, role?.id, held, Date(), folder, floor > 0 ? floor : nil))
+                // The window Smolcorp opened for it, by its terminal's id: the only one switching to the background closes.
+                if let window = opened.window { self.hireWindows[hireID, default: []].append(window) }
                 // A hire on its own tmux server is written down with the socket it runs on, and the account it runs on.
                 let socket = TabAddress(tab).flatMap { HireTmux.owns($0.socket) ? $0.socket : nil } ?? ""
                 let record = FrontDesk.Hire(id: hireID, name: role?.name ?? "Agent", nickname: options.nickname, role: role?.id ?? "", folder: original,
@@ -1869,6 +2152,18 @@ final class Deck {
         return url
     }
 
+    /// The office's line for a hire that won't get Smolcorp's fence (deny rules and the guard), or nil for one
+    /// that will. As `open` decides it: the fence is written for a managed Claude Code hire, and the office's hire
+    /// asks for no worktree, so it's managed when the manager is on, or when it's the General Manager.
+    static func unfencedNote(role: Role?, hireAgent: String, managerOn: Bool) -> String? {
+        guard let agent = hiredAgent(role: role, hireAgent: hireAgent) else {
+            return "This hire doesn't get Smolcorp's fence: it runs with its own settings."
+        }
+        if agent != .claude { return "\(agent.name) hires don't get Smolcorp's fence: they run with their own settings." }
+        if managerOn || role?.id == gmRole { return nil }
+        return "With the manager off, this Claude Code hire doesn't get Smolcorp's fence: it runs with its own settings."
+    }
+
     /// The agent a hire starts: the role's, which launches as Claude Code when it
     /// isn't one Smolcorp knows (as `Role.checked` does), or the one set for new
     /// hires, which nil means Smolcorp has no hooks to check for.
@@ -1879,9 +2174,12 @@ final class Deck {
 
     /// Why a test copy won't hire on `account`, or nil: the default account keeps its trusted folders in the real
     /// ~/.claude.json, which a test copy leaves alone. Every hire route passes `Deck.hire`, so none skips this.
-    static func testCopyAccountRefusal(account: ClaudeProfile, testCopy: Bool = TestCopy.isOn) -> (status: Int, message: String)? {
+    /// No file name in it: the page puts a button beside it. It ends with what Start here's account line says to do
+    /// (`GMPreflight.addAccountFix`, or `chooseAccountFix` with another account listed), so both say the same.
+    static func testCopyAccountRefusal(account: ClaudeProfile, otherAccounts: Bool = false, testCopy: Bool = TestCopy.isOn) -> (status: Int, message: String)? {
         guard testCopy, account.isDefault else { return nil }
-        return (409, "This is a test copy of Smolcorp: it won't hire on the default Claude account, which would change your real ~/.claude.json. Choose a test account.")
+        let fix = otherAccounts ? GMPreflight.chooseAccountFix : GMPreflight.addAccountFix
+        return (409, "This is a test copy of Smolcorp, so it won't hire on your default Claude account: your own Claude Code stays as it is. \(fix)")
     }
 
     /// Why a test copy won't hire `agent`, or nil: only Claude Code can be kept from the real app's hooks (see `Hooks.hireHooks`).
@@ -1955,14 +2253,20 @@ final class Deck {
     /// The folder panel, while it's open.
     private var hirePanel: NSOpenPanel?
 
+    /// What the panel says it's for: the hires folder, or a project's folder for a floor (Floors' Choose…).
+    static let hireFolderMessage = "New hires from the office start their work in this folder."
+    static let floorFolderMessage = "The agents working in this project's folder sit on the floor you chose it for."
+
     /// Asks for the new hires' folder with the Mac's own panel, from the setup
     /// page. Asked again while it's open, it brings that panel forward rather
-    /// than opening another, and answers at once.
-    func chooseHireFolder(then done: @escaping () -> Void) {
+    /// than opening another, and answers at once. `done` gets the folder picked,
+    /// kept as the hires folder unless `keep` is false (Start here keeps it
+    /// itself, through its checks, and Floors puts it on a floor, with its own `message`).
+    func chooseHireFolder(keep: Bool = true, message: String = Deck.hireFolderMessage, then done: @escaping (String?) -> Void) {
         if let open = hirePanel {
             NSApp.activate(ignoringOtherApps: true)
             open.makeKeyAndOrderFront(nil)
-            return done()
+            return done(nil)
         }
         let panel = NSOpenPanel()
         hirePanel = panel
@@ -1970,18 +2274,27 @@ final class Deck {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose"
-        panel.message = "New hires from the office start their work in this folder."
+        panel.message = message
         if let current = Deck.folder(Config.shared.hireFolder) { panel.directoryURL = URL(fileURLWithPath: current) }
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in
             self.hirePanel = nil
-            if response == .OK, let url = panel.url {
-                Config.shared.hireFolder = url.path
+            let picked = response == .OK ? panel.url?.path : nil
+            if keep, let picked {
+                Config.shared.hireFolder = picked
                 Config.shared.save()
                 self.refresh()
             }
-            done()
+            done(picked)
         }
+    }
+
+    /// Closes the folder panel if it's open for the hires folder, as if cancelled: once a folder typed on
+    /// the page is kept instead, the panel left open would ask for a folder already chosen. Its caller
+    /// then gets nothing picked. A panel open for a floor's project (Floors' Choose…) stays.
+    func closeHireFolderPanel() {
+        guard let open = hirePanel, open.message == Deck.hireFolderMessage else { return }
+        open.cancel(nil)
     }
 
     /// Push to talk through Claude's own /voice, in tap mode: Space starts
@@ -2018,10 +2331,16 @@ final class Deck {
     /// its dictation went ("cleaned in 0.9 s", "raw: too slow (2.5 s)"). None
     /// with the clean-up off: then it's as before. Forgotten after a moment.
     private func noteDictation(_ outcome: DictationCleanup.Outcome, in tab: String) {
-        guard let text = outcome.note, let id = sessions.all.first(where: { $0.tab == tab })?.id else { return }
+        guard let text = outcome.note else { return }
+        noteVoice(text, cleaned: outcome.isCleaned, in: tab)
+    }
+
+    /// A few seconds' note over `tab`'s desk, of how its dictation went.
+    private func noteVoice(_ text: String, cleaned: Bool, in tab: String) {
+        guard let id = sessions.all.first(where: { $0.tab == tab })?.id else { return }
         voiceNoteCount += 1
         let count = voiceNoteCount
-        voiceNotes[id] = (count, text, outcome.isCleaned, Date())
+        voiceNotes[id] = (count, text, cleaned, Date())
         changed()
         // Once, not polling: the note goes from memory; the phone has faded it already.
         DispatchQueue.main.asyncAfter(deadline: .now() + Deck.voiceNoteLife) { [weak self] in
@@ -2037,16 +2356,23 @@ final class Deck {
     }
 
     /// Dictation's text, into the tab it was for, without Return: only while
-    /// that tab's agent still runs there, as for keys (see `toAgent`).
+    /// that tab's agent still runs there, as for keys (see `toAgent`), and only
+    /// if its terminal gets to it in time (see `Delivery`). Text that isn't
+    /// typed because its terminal didn't answer is said over its desk.
     private func typeDictation(_ text: String, into tab: String) {
         guard !text.isEmpty, let address = TabAddress(tab), let driver = Terminals.driver(for: address),
               driver.abilities.contains(.text) else { return }
         let agent = sessions.all.first { $0.tab == tab }?.agent
-        Terminal.queue.async {
+        Deck.deliver(to: tab, done: { [weak self] response in
+            guard response.status == 503 else { return }
+            self?.noteVoice(String(decoding: response.body, as: UTF8.self), cleaned: false, in: tab)
+        }, check: {
             // Only where the agent is in front: behind the shell, the text would wait there to run as a command.
-            if let agent, let tty = Terminals.tty(of: tab), let place = Terminal.place(of: agent, on: tty), place != .front { return }
-            _ = driver.insert(text, in: address)
-        }
+            if let agent, let tty = Terminals.tty(of: tab), let place = Terminal.place(of: agent, on: tty), place != .front {
+                return .status(409, "")
+            }
+            return nil
+        }) { driver.insert(text, in: address) }
     }
 
     /// Phone microphone (personal build): the words the phone heard, typed
@@ -2057,7 +2383,10 @@ final class Deck {
     /// key (see `toAgent`). No Claude clean-up, and nothing is kept.
     func typePhoneDictation(_ text: String, into id: String, send: Bool? = nil, done: @escaping (Response) -> Void) {
         guard Config.shared.phoneMicEnabled else { return done(.status(403, "The phone mic is off. Turn it on in setup, on your Mac.")) }
-        guard let words = PhoneDictation.prepared(text) else { return done(.status(400, "Nothing to type")) }
+        guard let words = PhoneDictation.prepared(text) else { return done(.status(400, PhoneDictation.refusal(text))) }
+        // Typed into the agent, "!" would switch it to its shell, and Return run the rest there.
+        guard !PhoneDictation.runsInShell(words) else { return done(.status(400, Deck.noBangPrompt)) }
+        if let hire = t3Hire(atDesk: id) { return done(.status(409, T3Desks.noControls(HireDesk.called(hire)))) }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
         // Asking you something, its menu would take the words, a digit picking an option and Return the one
         // highlighted ("Yes"): neither Send nor Type only goes until it's answered on the deck.
@@ -2066,10 +2395,16 @@ final class Deck {
         guard !driver.keysNeedAccessibility || Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
         let sends = send ?? PhoneDictation.sends(words, autoSend: Config.shared.phoneMicAutoSend)
         let address = session.tab
-        var withheld = false
+        var withheld = false, asked = false
         toAgent(session, done: { response in
+            if asked { return done(.status(409, Deck.answerFirst)) }
             done(withheld && response.status < 400 ? .status(409, Deck.typedNotSent) : response)
         }) {
+            // Asked something while this waited for the terminal: checked again, on the main queue, right before the text.
+            guard DispatchQueue.main.sync(execute: { !Deck.isAsking(self.sessions[id]?.state) }) else {
+                asked = true
+                return true
+            }
             guard driver.insert(words, in: tab) else { return false }
             if sends {
                 // Return on its own once the text is in, as the ⏎ key presses it: with the text, it would be a new line.
@@ -2148,12 +2483,12 @@ final class Deck {
         case failed
     }
 
-    /// A tapped option's keys, on `Terminal.queue`: only where the screen
+    /// A tapped option's keys, on their terminal's queue: only where the screen
     /// shows that option at that number, never on a guess, nor on a menu
     /// answered on the Mac meanwhile (a terminal that can't show its screen
     /// is answered with ▲ ▼ ✓); then the screen read again until it changes,
     /// as a key posted to a terminal can reach nothing. The queue is held
-    /// for that look, `answerWait` at most, and other sessions' keys wait.
+    /// for that look, `answerWait` at most, and other desks' keys in that terminal wait.
     static func press(_ keys: [Terminal.Keystroke], look: (number: Int?, labels: [String])?, with driver: TerminalDriver, in tab: TabAddress,
                       wait: TimeInterval = answerWait) -> Pressed {
         guard let look, let screen = driver.screen(of: tab), PendingChoice.screen(screen, shows: look.number, startingWith: look.labels) else {
@@ -2229,9 +2564,9 @@ final class Deck {
     func answerOther(_ text: String, of choiceID: String?, in id: String, done: @escaping (Response) -> Void) {
         let done = Deck.logged("answerOther", option: "other", in: sessions[id] == nil ? "unknown" : id, done)
         guard Config.shared.phoneMicEnabled else { return done(.status(403, "The phone mic is off. Turn it on in setup, on your Mac.")) }
-        guard let words = PhoneDictation.prepared(text) else { return done(.status(400, "Nothing to type")) }
+        guard let words = PhoneDictation.prepared(text) else { return done(.status(400, PhoneDictation.refusal(text))) }
         // Where the field didn't open, the text would be a prompt, and one starting with ! a shell command.
-        guard !words.hasPrefix("!") else { return done(.status(400, Deck.noBang)) }
+        guard !PhoneDictation.runsInShell(words) else { return done(.status(400, Deck.noBang)) }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
         guard !session.isHeadless else { return done(.status(409, Deck.headless)) }
         guard let choice = Deck.claimable(session.choice, state: session.state, id: choiceID, lastReturn: lastReturn[id], now: Date()) else {
@@ -2280,6 +2615,7 @@ final class Deck {
 
     static let typedNotAnswered = "Typed, not sent: the question was answered meanwhile, or a Return had just gone. Look at the deck."
     static let noBang = "A typed answer can't start with “!”: Claude Code would take it for a shell command."
+    static let noBangPrompt = "Text can't start with “!”: the agent would run it as a shell command."
 
     /// Whether a typed answer's Return may go: to a session still asking,
     /// its question not answered meanwhile, no new question come in its
@@ -2356,7 +2692,7 @@ final class Deck {
         lastPeek[id] = now
         guard let address = TabAddress(session.tab), let driver = Terminals.driver(for: address) else { return done(.status(409, Deck.notHere)) }
         let tab = session.tab, agent = session.agent
-        Terminal.queue.async {
+        Terminals.queue(for: address).async {
             guard Terminals.tty(of: tab).flatMap({ Terminal.place(of: agent, on: $0) }) == .front else {
                 return DispatchQueue.main.async { done(.status(409, "That agent isn't in front in its terminal.")) }
             }
@@ -2408,7 +2744,7 @@ final class Deck {
     /// Runs `work`, which may bring `tab` forward. A tab you have been shown
     /// counts as seen.
     private func inTab(_ tab: String, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
-        onTerminal(done) {
+        Deck.deliver(to: tab, done: done) {
             let reached = work()
             if reached { DispatchQueue.main.async { self.sessions.markSeen(tab: tab) } }
             return reached
@@ -2441,28 +2777,33 @@ final class Deck {
     /// gets nothing until it's back in front.
     private func toAgent(_ session: Session, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
         let tab = session.tab, agent = session.agent
-        Terminal.queue.async {
+        Deck.deliver(to: tab, done: done, check: {
             // Unknown is not the same as gone: the keys go as they always did.
             switch Terminals.tty(of: tab).flatMap({ Terminal.place(of: agent, on: $0) }) {
             case .gone?:
-                return DispatchQueue.main.async {
-                    self.sessions.prune(closedTabs: [tab])
-                    done(.status(410, "That agent has ended."))
-                }
+                DispatchQueue.main.async { self.sessions.prune(closedTabs: [tab]) }
+                return .status(410, "That agent has ended.")
             case .behind?:
-                return DispatchQueue.main.async { done(.status(409, "That agent isn't in front in its terminal: bring it back with fg.")) }
+                return .status(409, "That agent isn't in front in its terminal: bring it back with fg.")
             case .front?, nil:
-                break
+                return nil
             }
-            let ok = work()
-            DispatchQueue.main.async { done(ok ? .status(204) : .status(404, "Terminal tab not found")) }
-        }
+        }, work)
     }
 
-    private func onTerminal(_ done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
-        Terminal.queue.async {
-            let ok = work()
-            DispatchQueue.main.async { done(ok ? .status(204) : .status(404, "Terminal tab not found")) }
+    /// Runs `work` on `tab`'s terminal's queue, after `check` (nil to go on),
+    /// and answers 204, or why not, once. Only if that terminal gets to it
+    /// within `wait`, checked right before `work`: past it, the caller has
+    /// been told the terminal isn't answering, and nothing is typed (see
+    /// `Delivery`). A desk only ever waits on its own terminal.
+    static func deliver(to tab: String, within wait: TimeInterval = Terminals.inputWait, done: @escaping (Response) -> Void,
+                        check: @escaping () -> Response? = { nil }, _ work: @escaping () -> Bool) {
+        let delivery = Delivery(within: wait, late: .status(503, Terminals.notAnswering(tab)), done: done)
+        Terminals.queue(for: tab).async {
+            if let refusal = check() { return delivery.answer(refusal) }
+            guard delivery.begin() else { return }
+            let (ok, timedOut, partWay) = Terminal.noticingTimeouts(work)
+            delivery.answer(ok ? .status(204) : timedOut ? .status(503, Terminals.notAnswering(tab, partWay: partWay)) : .status(404, "Terminal tab not found"))
         }
     }
 
@@ -2488,6 +2829,18 @@ final class Deck {
     func focus(_ id: String, done: @escaping (Response) -> Void) {
         // A cloud bot's desk: its news seen, and its app brought forward.
         if cloud.tapped(session: id) { return done(.status(204)) }
+        // A hire in T3 Code's desk: its done seen, and its own thread opened in T3 Code (T3D-a).
+        if let hire = t3Hire(atDesk: id) {
+            t3Desks.tapped(session: id)
+            changed()
+            guard Choices.t3Code() else { return done(.status(409, DeckRouter.t3Off)) }
+            let machine = t3Machine
+            DispatchQueue.global(qos: .userInitiated).async {
+                let answer = T3Code.openOnce(hire, machine: machine)
+                DispatchQueue.main.async { done(answer.status < 300 ? .status(204) : answer) }
+            }
+            return
+        }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404)) }
         // A terminal Smolcorp can only watch has nothing to bring forward: the tap only picks the desk.
         guard let (driver, tab) = terminal(of: session, for: .focus) else { return done(.status(204)) }
@@ -2503,7 +2856,7 @@ final class Deck {
             session.pendingEffort = ""
             guard let (driver, tab) = terminal(of: session, for: .text) else { continue }
             let address = session.tab, agent = session.agent
-            Terminal.queue.async {
+            Terminals.queue(for: tab).async {
                 let tty = Terminals.tty(of: address)
                 // Only to the agent in front: see `toAgent`.
                 guard tty.flatMap({ Terminal.place(of: agent, on: $0) }).map({ $0 == .front }) != false, driver.type("/effort \(level)", in: tab) else { return }
@@ -2520,56 +2873,54 @@ final class Deck {
     /// Green means "finished, not looked at". While anything is green, watch
     /// for its tab coming to the front.
     private func checkFrontTab() {
-        guard sessions.contains(.unread), !checkingFront else { return }
-        checkingFront = true
-        Terminal.queue.async {
-            let tty = Terminal.frontTTY()
-            DispatchQueue.main.async {
-                self.checkingFront = false
-                if let tty { self.sessions.markSeen(tab: TabAddress.terminalApp(tty: tty).text) }
-            }
+        guard sessions.contains(.unread) else { return }
+        frontPoll.round({ Terminal.frontTTY() }) { tty in
+            if let tty { self.sessions.markSeen(tab: TabAddress.terminalApp(tty: tty).text) }
         }
     }
 
     private func pruneClosedTabs() {
         // Hires waiting for their agent are looked at too, sessions or not.
-        guard !sessions.all.isEmpty || !hiredTabs.isEmpty, !checkingTabs else { return }
+        guard !sessions.all.isEmpty || !hiredTabs.isEmpty || !hireWindows.isEmpty, !checkingTabs else { return }
         checkingTabs = true
-        Terminal.queue.async {
-            let open = Terminal.openTTYs()
-            DispatchQueue.main.async {
-                guard let open else { // unknown is not the same as none
+        // On a poller of its own: Terminal not answering never holds up a desk's keys, and a stuck look skips the next.
+        // Never refused for a round still running: that round holds `checkingTabs` until it's dealt with.
+        tabsPoll.round({ Terminal.openTTYs() }) { open in
+            guard let open else { // unknown is not the same as none
+                self.checkingTabs = false
+                return
+            }
+            let missing = self.terminalTTYs.subtracting(open)
+            let closed = missing.intersection(self.missedOnce)
+            self.missedOnce = missing.subtracting(closed)
+            self.terminalTTYs = open.union(self.missedOnce)
+            // A session found by its folder before Terminal had listed its tab is on Terminal's tab after all.
+            for tty in open { self.sessions.retag("other:\(tty)", as: TabAddress.terminalApp(tty: tty).text) }
+            // Only Terminal.app's tabs are looked at here: its tab list is what says one has closed.
+            let terminalTTY = { (tab: String) -> String? in TabAddress(tab).flatMap { $0.kind == "tty" ? $0.id : nil } }
+            // A hire's tab closed, seen open before or not: no tty used again later takes its desk or role.
+            self.hiredTabs.removeAll { hired in
+                guard let tty = terminalTTY(hired.tab) else { return false }
+                return closed.contains(tty) || !open.contains(tty) && Date().timeIntervalSince(hired.at) > Deck.hiredTabListed
+            }
+            // A Terminal window Smolcorp opened for a hire, its tab closed: forgotten, so a tab given that tty later is never taken for it.
+            self.forgetHireWindows { record in
+                HireWindows.Terminals.parse(record).map { $0.kind == "terminal" && closed.contains($0.id) } ?? false
+            }
+            let suspects = self.sessions.all.compactMap { session -> (tab: String, tty: String, agent: Agent)? in
+                guard let tty = terminalTTY(session.tab), closed.contains(tty) else { return nil }
+                return (session.tab, tty, session.agent)
+            }
+            guard !suspects.isEmpty else {
+                self.checkingTabs = false
+                return
+            }
+            // The last word is the tab's own: its agent still running there means it's open.
+            DispatchQueue.global(qos: .utility).async {
+                let gone = Set(suspects.filter { Terminal.isRunning($0.agent, on: $0.tty) == false }.map(\.tab))
+                DispatchQueue.main.async {
                     self.checkingTabs = false
-                    return
-                }
-                let missing = self.terminalTTYs.subtracting(open)
-                let closed = missing.intersection(self.missedOnce)
-                self.missedOnce = missing.subtracting(closed)
-                self.terminalTTYs = open.union(self.missedOnce)
-                // A session found by its folder before Terminal had listed its tab is on Terminal's tab after all.
-                for tty in open { self.sessions.retag("other:\(tty)", as: TabAddress.terminalApp(tty: tty).text) }
-                // Only Terminal.app's tabs are looked at here: its tab list is what says one has closed.
-                let terminalTTY = { (tab: String) -> String? in TabAddress(tab).flatMap { $0.kind == "tty" ? $0.id : nil } }
-                // A hire's tab closed, seen open before or not: no tty used again later takes its desk or role.
-                self.hiredTabs.removeAll { hired in
-                    guard let tty = terminalTTY(hired.tab) else { return false }
-                    return closed.contains(tty) || !open.contains(tty) && Date().timeIntervalSince(hired.at) > Deck.hiredTabListed
-                }
-                let suspects = self.sessions.all.compactMap { session -> (tab: String, tty: String, agent: Agent)? in
-                    guard let tty = terminalTTY(session.tab), closed.contains(tty) else { return nil }
-                    return (session.tab, tty, session.agent)
-                }
-                guard !suspects.isEmpty else {
-                    self.checkingTabs = false
-                    return
-                }
-                // The last word is the tab's own: its agent still running there means it's open.
-                DispatchQueue.global(qos: .utility).async {
-                    let gone = Set(suspects.filter { Terminal.isRunning($0.agent, on: $0.tty) == false }.map(\.tab))
-                    DispatchQueue.main.async {
-                        self.checkingTabs = false
-                        self.sessions.prune(closedTabs: gone)
-                    }
+                    self.sessions.prune(closedTabs: gone)
                 }
             }
         }
@@ -2592,18 +2943,14 @@ final class Deck {
             guard let tty = Terminals.ttyInAddress(of: session.tab) else { return nil }
             return (session.tab, { Terminal.isRunning(agent, on: tty) == false })
         }
-        guard !tabs.isEmpty, !checkingPanes else { return }
-        checkingPanes = true
-        Terminal.queue.async {
-            let gone = Set(tabs.filter { $0.isGone() }.map(\.tab))
-            DispatchQueue.main.async {
-                self.checkingPanes = false
-                let closed = gone.intersection(self.panesMissedOnce)
-                self.panesMissedOnce = gone.subtracting(closed)
-                // A Ghostty terminal's tty may be another's next.
-                for tab in closed { if let address = TabAddress(tab), address.kind == "ghostty" { Ghostty.forget(tty: address.id) } }
-                if !closed.isEmpty { self.sessions.prune(closedTabs: closed) }
-            }
+        guard !tabs.isEmpty else { return }
+        // Read-only looks: on a poller of their own, off the desks' keys' way.
+        panesPoll.round({ Set(tabs.filter { $0.isGone() }.map(\.tab)) }) { gone in
+            let closed = gone.intersection(self.panesMissedOnce)
+            self.panesMissedOnce = gone.subtracting(closed)
+            // A Ghostty terminal's tty may be another's next.
+            for tab in closed { if let address = TabAddress(tab), address.kind == "ghostty" { Ghostty.forget(tty: address.id) } }
+            if !closed.isEmpty { self.sessions.prune(closedTabs: closed) }
         }
     }
 }

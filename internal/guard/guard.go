@@ -200,6 +200,9 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 			if strings.Contains(strings.ToLower(w), guardFile) {
 				return &Refusal{Group: "guard", Rule: guardFile, Command: "> " + strings.TrimPrefix(w, unreadable)}
 			}
+			if namesFence(simple{w}) {
+				return &Refusal{Group: "guard", Rule: fenceRule, Command: "> " + strings.TrimPrefix(w, unreadable)}
+			}
 		}
 		return nil
 	}
@@ -218,6 +221,13 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 	}
 	if namesGuardFile(words) && !readsGuardFile(name, args) {
 		return &Refusal{Group: "guard", Rule: guardFile, Command: strings.Join(words, " ")}
+	}
+	// Claude Code's settings, the same way: the fence of a hire in T3 Code is its worktree's own.
+	if namesFence(words) && !readsGuardFile(name, args) {
+		return &Refusal{Group: "guard", Rule: fenceRule, Command: strings.Join(words, " ")}
+	}
+	if rule := clearsIgnored(name, args); rule != "" {
+		return &Refusal{Group: "guard", Rule: rule, Command: strings.Join(words, " ")}
 	}
 	// Always on, like the token and the guard file, and not a group: the owner
 	// can't switch it off in the guard editor. A nested Claude Code gets none of
@@ -297,6 +307,95 @@ func namesGuardFile(words simple) bool {
 		}
 	}
 	return false
+}
+
+// fenceRule is how a refusal names Claude Code's settings. A hire in T3 Code
+// works inside its fence: its worktree's .claude/settings.local.json, the
+// deny rules and this guard as a hook (T797b), ignored by git. A command that
+// names a .claude/settings file, a settings.local.json or the .claude folder
+// itself is refused unless it only reads (as for the guard file), for every
+// hire: no hire rewrites or removes Claude Code's settings. The per-hire
+// deny rules already cover Edit and Write of them.
+const fenceRule = ".claude/settings"
+
+func namesFence(words simple) bool {
+	for _, w := range words {
+		low := strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(w, unreadable), `\`, "/"))
+		if strings.Contains(low, ".claude/settings") || strings.Contains(low, "settings.local.json") {
+			return true
+		}
+		// The folder itself: rm -rf .claude, mv .claude x.
+		if folder := strings.TrimRight(low, "/"); folder == ".claude" || strings.HasSuffix(folder, "/.claude") {
+			return true
+		}
+	}
+	return false
+}
+
+// clearsIgnored is the rule when git would take away every ignored file,
+// the fence among them, without naming it: git clean with -x or -X, git
+// stash with --all (-a). "" otherwise.
+func clearsIgnored(name string, args []string) string {
+	if name != "git" {
+		return ""
+	}
+	sub, rest := gitSubcommand(unmark(args))
+	var wanted, valued string
+	switch sub {
+	case "clean":
+		wanted, valued = "xX", "e"
+	case "stash":
+		wanted, valued = "a", "m"
+	default:
+		return ""
+	}
+	for i := 0; i < len(rest); i++ {
+		a := rest[i]
+		switch {
+		case a == "--":
+			return ""
+		case sub == "stash" && a == "--all":
+			return "git stash --all"
+		case strings.HasPrefix(a, "--") || !strings.HasPrefix(a, "-"):
+			continue
+		}
+		// A cluster of short options (-fdx); the one that takes a value
+		// (-e, -m) ends it, with the next word as its value when it's last.
+		for k := 1; k < len(a); k++ {
+			if strings.IndexByte(wanted, a[k]) >= 0 {
+				if sub == "clean" {
+					return "git clean -x"
+				}
+				return "git stash --all"
+			}
+			if strings.IndexByte(valued, a[k]) >= 0 {
+				if k == len(a)-1 {
+					i++
+				}
+				break
+			}
+		}
+	}
+	return ""
+}
+
+// gitSubcommand is git's subcommand, in lower case, and the words after it.
+func gitSubcommand(args []string) (string, []string) {
+	takes := valueOptions["git"]
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return "", nil
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+			if !strings.Contains(a, "=") && takesNext(a, takes) {
+				i++
+			}
+		default:
+			return strings.ToLower(a), args[i+1:]
+		}
+	}
+	return "", nil
 }
 
 // guardReaders are the commands that may name the guard file, because they

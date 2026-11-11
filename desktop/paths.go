@@ -66,6 +66,19 @@ func makeSupportDir() string {
 	return dir
 }
 
+// useSupportDir points everything kept in the support folder at dir, before
+// anything is read from it: the Mac app's engine (`smolcorp core`) is given
+// the folder the app chose, a test copy's own among them.
+func useSupportDir(dir string) {
+	supportDir = dir
+	phonesFile = filepath.Join(dir, "phones.json")
+	configFile = filepath.Join(dir, "config.json")
+	hookKeyFile = filepath.Join(dir, "hook-key")
+	sessionsFile = filepath.Join(dir, "sessions.json")
+	setupKeyFile = filepath.Join(dir, "setup-key")
+	windowKeyFile = filepath.Join(dir, "window-key")
+}
+
 // supportDirName is the folder's name on a system: the one the Mac app writes
 // on a Mac (AgentDeck), so the setup key is found there.
 func supportDirName(goos string) string { return appdirs.Name(goos) }

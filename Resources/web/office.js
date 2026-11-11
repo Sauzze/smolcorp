@@ -35,7 +35,9 @@
  * `on.hire(desk, role, floor)` for an empty desk held and hired into: by the id
  * of one of the snapshot's `hiring.roles`, along the foot of the room, or
  * null for Anyone, or for its Hire button where there are no roles; `floor`
- * is 0 on the ground floor, whose desks are the keys, and 1 to 5 upstairs,
+ * is 0 on the ground floor, whose desks are the keys, and 1 to 5 upstairs
+ * (a role, or `hiring` for Anyone, with an `unfenced` line is a hire that won't
+ * get Smolcorp's fence: `on.hint` says it as the hire is made),
  * `on.move(id, floor, remember)` for someone put on another floor, 0 to 5,
  * their folder's next sessions too if `remember`, true if they went,
  * `on.settings()` for the cog in the room's corner, where the page opens its
@@ -55,6 +57,8 @@
  * A cloud bot's desk there (`cloud`, with what it `last` did) opens its card
  * on a tap as well as held, and opening it while the desk is green calls
  * `on.seen(id)`, so its news is seen.
+ * A hire in T3 Code's desk (`t3`, experimental), on any floor, wears a T3 badge on its desk's front; it has no
+ * controls, and a tap on it is `on.select(id)`, as any desk's, for the page to open its thread.
  *
  * Its sound, once set up and tapped, is in the style of an old console. A
  * piece of the room asks for one of its sounds by name with
@@ -1229,6 +1233,30 @@
       corner: 'geodegrotto', desk: 'black', chair: 'grey', pet: 'geodegolem', monitor: 'geodemon', staff: 'none',
       wall: ['geodebell', 'geodelantern', 'geodevault', 'geodelantern', 'geodecluster'] },
       things: ['geodetumbler', 'geodespecimens', 'geodelamp', 'geodeuvlamp', 'geodehalf', 'geodecaliper', 'geodepan', 'geodehammer'] },
+    // The royal court's team style (its outfits are the castle… nine): a castle's great hall, from pieces other styles have
+    castle: { name: 'Castle great hall', room: { workspace: 'scriptorium', floor: 'kitchenquarry', paint: 'stone', corner: 'vikinghearth',
+      desk: 'walnut', chair: 'red', pet: 'gentlemenhound', monitor: 'brass', staff: 'some',
+      wall: ['christianstainedglass', 'egypttorch', 'shield', 'egypttorch', 'christianstainedglass'] },
+      things: ['roses', 'goblet', 'hourglass'] },
+    // The Greek gods' home (see STYLE_DRESS), everyone dressed as one of them: a temple of pale stone and marble under a blue and
+    // gold frieze, the sun and the moon either side of an olive wreath, windows onto the sky, two trees in stone planters, an owl
+    // about the place; nectar, lightning and roses on the desks. Only pieces the office already has, and none of them moves shelf
+    // in setup.
+    olympus: { name: 'Mount Olympus', group: 'themes', room: { workspace: 'desk', floor: 'museummarble', paint: 'wowstormwind', lounge: 'sand',
+      corner: 'apple1trees', desk: 'white', chair: 'teal', pet: 'owl', monitor: 'standard', staff: 'some',
+      wall: ['window', 'wessunburst', 'christianwreath', 'moonwindow', 'window'] },
+      things: ['goblet', 'plasmaball', 'roses'] },
+    // A zoo: everyone in one of the nine animal onesies (see STYLE_DRESS), at desks out on the lawn among the animals' houses: the
+    // polar window, the zoo's map, the savanna, the reef tank and the big cat at its window; a pond in the lounge with a penguin
+    // about, and the keeper's megaphone. Only pieces other styles already have, so none of them moves shelf in setup.
+    zoo: { name: 'Zoo', room: { workspace: 'desk', floor: 'grass', paint: 'cream', lounge: 'sand',
+      corner: 'koipond', desk: 'wood', chair: 'green', pet: 'penguin', monitor: 'standard', mic: 'megaphone', staff: 'some',
+      wall: ['arcticbasewindow', 'trail', 'museumdiorama', 'aquariumreef', 'catcafewindow'] },
+      things: ['penguin', 'tikibananas', 'wesbinoculars', 'circusticket'] },
+    antcolony: { name: 'Ant colony', room: { workspace: 'desk', floor: 'forest', paint: 'cavemanwall', lounge: 'halloweendxsoil', corner: 'museumrex',
+      desk: 'wood', chair: 'green', pet: 'snail', monitor: 'bamboo', staff: 'some',
+      wall: ['aztecvines', 'lanternhang', 'preppershelf', 'lanternhang', 'aztecvines'] },
+      things: ['antfarm', 'pinecone', 'terrarium'] },
   };
   /** What a style furnishes. The sky, the seasons, the sound and your team stay as you have them. */
   const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff'];
@@ -2231,6 +2259,9 @@
   /** The headless desks' badge, a little robot, on the front of each desk upstairs: its antenna's light blinks. */
   const ROBOT_BADGE = ['...a...', '.GGGGG.', 'GgggggG', 'GgcgcgG', 'GgkkkgG', '.GGGGG.'];
   const ROBOT_INKS = { G: 0x7d838f, g: 0xc4c8d0, c: 0x6fe0ff, k: 0x1f2129 };
+  /** A hire in T3 Code's badge, "T3" on a violet tag, on the front of its desk on any floor (T3D-a, experimental). */
+  const T3_BADGE = ['.bbbbbbb.', 'bwwwbwwbb', 'bbwbbbbwb', 'bbwbbbwwb', 'bbwbbbbwb', 'bbwbbwwbb', '.bbbbbbb.'];
+  const T3_INKS = { b: 0x6d28d9, w: 0xf4f1ea };
   /**
    * What a floor upstairs never has, in either shape, however it's arranged: the red button and the mic, the ground
    * floor's controls, and the ping-pong table, gone from every lounge.
@@ -4291,6 +4322,44 @@
     gentlementracksuit: { style: 'gentlementracksuit', shirt: 0x2a4a8a, pants: 0x2a4a8a, matching: true, shoes: 0xf0f0f0 },
     // The Geode's gem outfits, one for each gem in GEODE_GEMS (see geodeOutfitOf)
     ...Object.fromEntries(Object.keys(GEODE_GEMS).map((gem) => [`geode${gem}`, geodeOutfitOf(gem)])),
+    castleking: { style: 'castleking', shirt: 0xb02a2a, robe: true, shoes: 0x2a1a12, fixed: true },
+    castlequeen: { style: 'castlequeen', shirt: 0x5a2a8a, robe: true, shoes: 0x2a1a2a, fixed: true },
+    castlejester: { style: 'castlejester', shirt: 0xd83a3a, pants: 0xf0c030, shoes: 0x3a2a6a, fixed: true },
+    castleherald: { style: 'castleherald', shirt: 0x2a5aa8, sleeves: 0xf0ece4, pants: 0x2a2a3a, shoes: 0x3a2a1a, fixed: true },
+    castleknight: { style: 'castleknight', shirt: 0xa8aeb8, sleeves: 0xc8ced8, pants: 0x9aa0aa, shoes: 0x6a707a, fixed: true },
+    castlepage: { style: 'castlepage', shirt: 0x3a8a4a, pants: 0xf0c030, shoes: 0x5a3a1a, fixed: true },
+    castlecook: { style: 'castlecook', shirt: 0x7a5a3a, sleeves: 'skin', robe: true, shoes: 0x3a2a1a, fixed: true },
+    castlefalconer: { style: 'castlefalconer', shirt: 0x3a6a3a, pants: 0x5a4030, shoes: 0x3a2a1a, fixed: true },
+    castlelady: { style: 'castlelady', shirt: 0x2a5aa8, robe: true, shoes: 0x2a2a3a, fixed: true },
+    // The Greek gods (see OUTFIT_PARTS): an original team from myth, each in their own colours whatever the agent's
+    olympuszeus: { style: 'olympuszeus', shirt: 0xf4f0e6, robe: true, sleeves: 0xe8c0a0, shoes: 0xd8a840, fixed: true },
+    olympushera: { style: 'olympushera', shirt: 0x2a8a96, robe: true, shoes: 0xd8a840, fixed: true },
+    olympusposeidon: { style: 'olympusposeidon', shirt: 0x2a7a7a, robe: true, shoes: 0xd8a840, fixed: true },
+    olympusathena: { style: 'olympusathena', shirt: 0x3a5aa8, robe: true, shoes: 0xd8a840, fixed: true },
+    olympusapollo: { style: 'olympusapollo', shirt: 0xf6f2e8, pants: 0xf6f2e8, legs: 'skin', shoes: 0xd8a840, fixed: true },
+    olympusartemis: { style: 'olympusartemis', shirt: 0xe4ecdc, pants: 0xe4ecdc, legs: 'skin', shoes: 0x8a6a3a, fixed: true },
+    olympushermes: { style: 'olympushermes', shirt: 0xf4f2ea, pants: 0xf4f2ea, legs: 'skin', shoes: 0xc89a4a, fixed: true },
+    olympusares: { style: 'olympusares', shirt: 0xc8903a, pants: 0xb02a2a, legs: 'skin', shoes: 0xa87830, fixed: true },
+    olympusaphrodite: { style: 'olympusaphrodite', shirt: 0xf2a0b0, robe: true, shoes: 0xd8a840, fixed: true },
+    // The zoo onesies (their hoods drawn by costumeHood, in drawOffice): each animal in its own colours, whatever the agent's
+    zoolion: { style: 'zoolion', shirt: 0xd8a040, pants: 0xd8a040, shoes: 0x8a5a2a, fixed: true },
+    zooelephant: { style: 'zooelephant', shirt: 0x9a9ea8, pants: 0x9a9ea8, shoes: 0x6e727c, fixed: true },
+    zoogiraffe: { style: 'zoogiraffe', shirt: 0xf0c050, pants: 0xf0c050, shoes: 0x5a3418, fixed: true },
+    zoozebra: { style: 'zoozebra', shirt: 0xf4f4f0, pants: 0xf4f4f0, shoes: 0x1a1a1e, fixed: true },
+    zoopenguin: { style: 'zoopenguin', shirt: 0x1e1e26, pants: 0x1e1e26, shoes: 0xf08a20, fixed: true },
+    zoopanda: { style: 'zoopanda', shirt: 0xf4f4f0, sleeves: 0x1e1e22, pants: 0x1e1e22, shoes: 0x1e1e22, fixed: true },
+    zoomonkey: { style: 'zoomonkey', shirt: 0x7a4a2a, pants: 0x7a4a2a, shoes: 0x5a3420, fixed: true },
+    zooflamingo: { style: 'zooflamingo', shirt: 0xf28aa8, pants: 0xf28aa8, shoes: 0xd85a7a, fixed: true },
+    zoocroc: { style: 'zoocroc', shirt: 0x4a8a3a, pants: 0x4a8a3a, shoes: 0x2e5a22, fixed: true },
+    antcolonyqueen: { style: 'antcolonyqueen', shirt: 0x7a2a1a, robe: true, shoes: 0x3a1008, fixed: true },
+    antcolonyworker: { style: 'antcolonyworker', shirt: 0x24242c, pants: 0x1e1e26, shoes: 0x0e0e12, fixed: true },
+    antcolonysoldier: { style: 'antcolonysoldier', shirt: 0x8a2018, pants: 0x6a1810, shoes: 0x3a0c08, fixed: true },
+    antcolonyleafcutter: { style: 'antcolonyleafcutter', shirt: 0xa04a20, pants: 0x8a3e18, shoes: 0x4a1e0a, fixed: true },
+    antcolonynurse: { style: 'antcolonynurse', shirt: 0xc8742a, pants: 0xb06420, shoes: 0x5a3010, fixed: true },
+    antcolonydrone: { style: 'antcolonydrone', shirt: 0x2a2420, pants: 0x221c18, shoes: 0x0e0c0a, fixed: true },
+    antcolonyarchitect: { style: 'antcolonyarchitect', shirt: 0x6a4a2a, pants: 0x5a3e22, shoes: 0x2a1e10, fixed: true },
+    antcolonyhoneypot: { style: 'antcolonyhoneypot', shirt: 0xd8a040, pants: 0xc08a30, shoes: 0x6a4010, fixed: true },
+    antcolonyfarmer: { style: 'antcolonyfarmer', shirt: 0x2e241e, pants: 0x261e18, shoes: 0x0e0c0a, fixed: true },
   };
   /**
    * What an agent left on Auto wears for the workspace they're at, in their
@@ -4461,6 +4530,13 @@
       'ironmanironspider', 'ironmanrescue', 'ironmanmk2', 'ironmanmk3', 'ironmanwarmachine'],
     // The Geode: each person in one of the gems, and a bot named after a gem in its own (see styleDressOf)
     geode: GEODE_OUTFITS,
+    castle: ['castleking', 'castlequeen', 'castlejester', 'castleherald', 'castleknight', 'castlepage', 'castlecook', 'castlefalconer', 'castlelady'],
+    // Mount Olympus: the Greek gods, one each by project name
+    olympus: ['olympuszeus', 'olympushera', 'olympusposeidon', 'olympusathena', 'olympusapollo', 'olympusartemis', 'olympushermes', 'olympusares', 'olympusaphrodite'],
+    // The zoo: everyone in one of the nine animal onesies
+    zoo: ['zoolion', 'zooelephant', 'zoogiraffe', 'zoozebra', 'zoopenguin', 'zoopanda', 'zoomonkey', 'zooflamingo', 'zoocroc'],
+    antcolony: ['antcolonyqueen', 'antcolonyworker', 'antcolonysoldier', 'antcolonyleafcutter', 'antcolonynurse', 'antcolonydrone',
+      'antcolonyarchitect', 'antcolonyhoneypot', 'antcolonyfarmer'],
   };
   /** What the room's style dresses `seed` (a project's name) in, if it dresses each person differently. */
   function styleDressOf(seed) {
@@ -4585,7 +4661,7 @@
       'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee', 'coachpolo', 'blazer', 'werewolf', 'santa', 'xmasjumper',
       'beanie', 'cableknit', 'redsuit', 'heartsweater', 'tangsuit', 'playoffjersey', 'superfan', 'techwear', 'submariner', 'barista', 'cowboy', 'partyhat', 'sequin',
       'artdirector', 'lawyer', 'therapist', 'plumber', 'gmexec', 'gmcoach', 'gmtycoon',
-      'detective', 'hardhat', 'librarian', 'janitor', 'firefighter', 'pilot', 'postman', 'accountant', 'marketer', 'securityguard', 'chef', 'spacesuit', 'kimono', 'cultistrobe', 'investigator', 'deepone', 'professor', 'divingsuit', 'fleecevest', 'bullparty', 'blanketcape', 'denhoodie', 'homejersey', 'lakersjersey', 'celticsjersey', 'warriorsjersey', 'knicksjersey', 'bullsjersey', 'heatjersey', 'spursjersey', 'thunderjersey', 'wolvesjersey', 'nuggetsjersey', 'hawksjersey', 'netsjersey', 'hornetsjersey', 'cavsjersey', 'mavsjersey', 'pistonsjersey', 'rocketsjersey', 'pacersjersey', 'clippersjersey', 'grizzliesjersey', 'bucksjersey', 'pelicansjersey', 'magicjersey', 'sixersjersey', 'sunsjersey', 'blazersjersey', 'kingsjersey', 'raptorsjersey', 'jazzjersey', 'wizardsjersey', 'marvel1cap', 'marvel1spidey', 'marvel1thor', 'marvel1widow', 'marvel2starlord', 'marvel2strange', 'marvel2panther', 'marvel2loki', 'ironmanmk3', 'ironmanmk2', 'ironmanwarmachine', 'batcavebatsuit', 'batcaverobin', 'batcavealfred', 'batcavecatwoman', 'dcmixsuperman', 'dcmixwonder', 'dcmixflash', 'dcmixgreenlantern', 'pokemontrainer', 'pokemonrocket', 'pokemonnurse', 'pokemonoak', 'loljinx', 'lolahri', 'lolgaren', 'lollux', 'wowpaladin', 'wowgrunt', 'wowmage', 'wowelf', 'gtatommy', 'gtacj', 'gtacop', 'gtaheist', 'destinyhunterwear', 'destinytitanwear', 'destinywarlockwear', 'destinyexo', 'starwarsjedi', 'starwarsvader', 'starwarsstormtrooper', 'starwarsprincess', 'girly1gingham', 'girly1cowgirl', 'girly1tracksuit', 'girly1gown', 'girly2kittyhood', 'girly2bunnyhood', 'girly2sailor', 'girly2overalls', 'narcosboss', 'narcosdea', 'narcosmiami', 'narcoshawaiian', 'apple1turtleneck', 'apple1genius', 'apple1headset', 'apple1hoodie', 'apple2bowtie', 'apple2woz', 'apple2rainbowtee', 'apple2runner', 'jewishkippah', 'jewishtichel', 'jewishknit', 'jewishdress', 'muslimhijab', 'muslimabaya', 'muslimthobe', 'muslimkurta', 'christianpendant', 'christianchoir', 'christiansuit', 'christianlace', 'buddhistrobe', 'buddhistmaroonrobe', 'buddhistlinen', 'buddhistmala', 'ironmantony2', 'ironmantony2b', 'ironmantony2c', 'ironmanmk1', 'ironmanmk4', 'ironmanmk5', 'ironmanmk6', 'ironmanmk7', 'ironmanmk15', 'ironmanmk16', 'ironmanmk17', 'ironmanmk33', 'ironmanmk38', 'ironmanmk42', 'ironmanmk43', 'ironmanmk45', 'ironmanmk46', 'ironmanmk47', 'ironmanmk50', 'ironmanmk85', 'ironmanpatriot', 'ironmanironspider', 'ironmanrescue', 'volcanojumpsuit', 'volcanovillain', 'volcanoheatsuit', 'volcanoguard', 'kitchenchef', 'kitchensous', 'kitchenpartie', 'kitchencommis', 'hospitalscrubs', 'hospitaldoctor', 'hospitalnurse', 'hospitalsurgeon', 'noirtrench', 'noiruniform', 'noirsuspenders', 'noirreporter', 'madlabcoat', 'madlabapron', 'madlabassistant', 'madlabhazmat', 'casinodealer', 'casinotux', 'casinohighroller', 'casinoshowman', 'orientconductor', 'orientattendant', 'orienttraveller', 'orientpearls', 'halloweendxvampire', 'halloweendxplague', 'halloweendxscarecrow', 'halloweendxspider', 'catcafebarista', 'catcafeears', 'catcafejumper', 'catcafeoveralls', 'spiderversemiles', 'spiderversegwensuit', 'spiderversepeterb', 'spiderversepunk', 'xmenwolverine', 'xmencyclops', 'xmengambit', 'xmenstormsuit', 'f1racesuit', 'f1silversuit', 'f1pitcrew', 'f1teampolo', 'ufcrashguard', 'ufcreferee', 'ufccornerhoodie', 'ufcwalkout', 'nyloftpeacoat', 'nyloftflannel', 'nyloftturtleneck', 'nyloftleather', 'pariscafemariniere', 'pariscafegarcon', 'pariscafetrench', 'pariscafepearls', 'muertoscatrinadress', 'muertoscharro', 'muertosblouse', 'muertosbones', 'submarinedeepcoverall', 'submarinedeepwetsuit', 'submarinedeeplabcoat', 'submarinedeepsweater', 'arcticbaseparka', 'arcticbasefleece', 'arcticbasecoldsuit', 'arcticbaseknit', 'sakurayukata', 'sakuracardigan', 'sakurasailor', 'sakuraflorist', 'pottergryffindor', 'potterslytherin', 'potterquidditch', 'potterheadmaster', 'lotrgandalf', 'lotrhobbit', 'lotrelf', 'lotrranger', 'breakingbadhazmat', 'breakingbadheisenberg', 'breakingbadjesse', 'breakingbadsaul', 'strangereleven', 'strangerhellfiretee', 'strangerscoopsuniform', 'strangerhopper', 'gotnightswatch', 'gotlannisterred', 'gotdaenerys', 'gotwhitewalker', 'simpsonshomer', 'simpsonsmarge', 'simpsonsbart', 'simpsonslisa', 'bondtux', 'bondwhitejacket', 'bondmoneypenny', 'bondoddjob', 'dunestillsuit', 'dunefremen', 'dunebenegesserit', 'duneharkonnenblack', 'onepieceluffy', 'onepiecezoro', 'onepiecenami', 'onepiecesanji', 'eldenringtarnished', 'eldenringmaiden', 'eldenringvalkyrie', 'eldenringwitch', 'sevmdr', 'sevmanager', 'sevwellness', 'sevsecurity', 'offdwight', 'offjim', 'offmichael', 'offpam', 'peakytommy', 'peakyarthur', 'peakypolly', 'peakybarman', 'madmdon', 'madmroger', 'madmjoan', 'madmpeggy', 'squidplayer', 'squidguard', 'squidfrontman', 'squidvip', 'boyshomelander', 'boysstarlight', 'boysbutcher', 'boysexec', 'falloutvaultsuit', 'falloutranger', 'falloutraider', 'falloutscientist', 'rickcoat', 'rickmorty', 'ricksummer', 'rickbirdperson', 'mirrorsuit', 'mirrorjumpsuit', 'mirrortech', 'mirrorgown', 'westcowboy', 'westhost', 'westtech', 'westgunslinger', 'bttfmarty', 'bttfdoc', 'bttffuture', 'bttfsodajerk', 'jpranger', 'jpscientist', 'jpvisitor', 'jpnedry', 'wicksuit', 'wickconciergeoutfit', 'wicksommelier', 'wickadjudicator', 'kingsmangalahad', 'kingsmanmerlin', 'kingsmantailor', 'kingsmanagent', 'wonkawonka', 'wonkaoompa', 'wonkacharlie', 'wonkaguide', 'wesgustave', 'weszero', 'wesagatha', 'wesguest', 'mibsuit', 'mibzed', 'mibalien', 'mibworm', 'tronblue', 'tronorange', 'tronflynn', 'tronsiren', 'dbzgoku', 'dbzvegeta', 'dbzpiccolo', 'dbzstudent', 'amongusred', 'amonguscyan', 'amongusyellow', 'amongusimposter', 'tokyohappi', 'tokyokimono', 'tokyosalaryman', 'tokyostreet', 'egyptking', 'egyptpriest', 'egyptqueen', 'egyptworker', 'vikingwarrior', 'vikingmaiden', 'vikingjarl', 'vikingseer', 'aztecjaguarw', 'azteceaglew', 'aztecpriest', 'aztecnoble', 'obsastronomer', 'obsprofessor', 'obsastronaut', 'obsstargazer', 'tikibartender', 'tikisurfer', 'tikiluau', 'tikitourist', 'dinerwaitress', 'dinercook', 'dinergreaser', 'dinerpoodle', 'courtjudge', 'courtlawyer', 'courtbailiff', 'courtclerk', 'artsmock', 'artberet', 'artsculptor', 'artstudent', 'aquariumwetsuit', 'aquariumkeeper', 'aquariumbiologist', 'aquariumscuba', 'circusringmaster', 'circusclown', 'circusacrobat', 'circusstrongman', 'museumcurator', 'museumpaleo', 'museumdocent', 'museumprofessor', 'northpolesanta', 'northpoleelf', 'northpolemrsclaus', 'northpolesweater', 'soundstagedirector', 'soundstagestarlet', 'soundstagecrew', 'soundstagetux', 'cultrobe', 'cultleader', 'cultelder', 'cultinitiate', 'esportsjersey', 'esportshoodie', 'esportscaster', 'esportspro', 'cavemanfur', 'cavemanhunter', 'cavemanshaman', 'cavemanchief', 'lodgerobe', 'lodgemaster', 'lodgeapron', 'lodgeguard', 'prepperhazmat', 'prepperfatigues', 'prepperbugout', 'prepperranger', 'paradisepresident', 'paradisesecret', 'paradiseaide', 'paradisehazmat', 'startrekgold', 'startrekblue', 'startrekred', 'startrekcaptain', 'gentlementweedsuit', 'gentlemengamekeeper', 'gentlemengangster', 'gentlementracksuit', 'geoderuby', 'geodeopal', 'geodesapphire', 'geodeamber', 'geodegarnet', 'geodetopaz', 'geodepearl', 'geodemoonstone', 'geodemalachite', 'geodejade', 'geodelapis', 'geodeamethyst', 'geodeobsidian'],
+      'detective', 'hardhat', 'librarian', 'janitor', 'firefighter', 'pilot', 'postman', 'accountant', 'marketer', 'securityguard', 'chef', 'spacesuit', 'kimono', 'cultistrobe', 'investigator', 'deepone', 'professor', 'divingsuit', 'fleecevest', 'bullparty', 'blanketcape', 'denhoodie', 'homejersey', 'lakersjersey', 'celticsjersey', 'warriorsjersey', 'knicksjersey', 'bullsjersey', 'heatjersey', 'spursjersey', 'thunderjersey', 'wolvesjersey', 'nuggetsjersey', 'hawksjersey', 'netsjersey', 'hornetsjersey', 'cavsjersey', 'mavsjersey', 'pistonsjersey', 'rocketsjersey', 'pacersjersey', 'clippersjersey', 'grizzliesjersey', 'bucksjersey', 'pelicansjersey', 'magicjersey', 'sixersjersey', 'sunsjersey', 'blazersjersey', 'kingsjersey', 'raptorsjersey', 'jazzjersey', 'wizardsjersey', 'marvel1cap', 'marvel1spidey', 'marvel1thor', 'marvel1widow', 'marvel2starlord', 'marvel2strange', 'marvel2panther', 'marvel2loki', 'ironmanmk3', 'ironmanmk2', 'ironmanwarmachine', 'batcavebatsuit', 'batcaverobin', 'batcavealfred', 'batcavecatwoman', 'dcmixsuperman', 'dcmixwonder', 'dcmixflash', 'dcmixgreenlantern', 'pokemontrainer', 'pokemonrocket', 'pokemonnurse', 'pokemonoak', 'loljinx', 'lolahri', 'lolgaren', 'lollux', 'wowpaladin', 'wowgrunt', 'wowmage', 'wowelf', 'gtatommy', 'gtacj', 'gtacop', 'gtaheist', 'destinyhunterwear', 'destinytitanwear', 'destinywarlockwear', 'destinyexo', 'starwarsjedi', 'starwarsvader', 'starwarsstormtrooper', 'starwarsprincess', 'girly1gingham', 'girly1cowgirl', 'girly1tracksuit', 'girly1gown', 'girly2kittyhood', 'girly2bunnyhood', 'girly2sailor', 'girly2overalls', 'narcosboss', 'narcosdea', 'narcosmiami', 'narcoshawaiian', 'apple1turtleneck', 'apple1genius', 'apple1headset', 'apple1hoodie', 'apple2bowtie', 'apple2woz', 'apple2rainbowtee', 'apple2runner', 'jewishkippah', 'jewishtichel', 'jewishknit', 'jewishdress', 'muslimhijab', 'muslimabaya', 'muslimthobe', 'muslimkurta', 'christianpendant', 'christianchoir', 'christiansuit', 'christianlace', 'buddhistrobe', 'buddhistmaroonrobe', 'buddhistlinen', 'buddhistmala', 'ironmantony2', 'ironmantony2b', 'ironmantony2c', 'ironmanmk1', 'ironmanmk4', 'ironmanmk5', 'ironmanmk6', 'ironmanmk7', 'ironmanmk15', 'ironmanmk16', 'ironmanmk17', 'ironmanmk33', 'ironmanmk38', 'ironmanmk42', 'ironmanmk43', 'ironmanmk45', 'ironmanmk46', 'ironmanmk47', 'ironmanmk50', 'ironmanmk85', 'ironmanpatriot', 'ironmanironspider', 'ironmanrescue', 'volcanojumpsuit', 'volcanovillain', 'volcanoheatsuit', 'volcanoguard', 'kitchenchef', 'kitchensous', 'kitchenpartie', 'kitchencommis', 'hospitalscrubs', 'hospitaldoctor', 'hospitalnurse', 'hospitalsurgeon', 'noirtrench', 'noiruniform', 'noirsuspenders', 'noirreporter', 'madlabcoat', 'madlabapron', 'madlabassistant', 'madlabhazmat', 'casinodealer', 'casinotux', 'casinohighroller', 'casinoshowman', 'orientconductor', 'orientattendant', 'orienttraveller', 'orientpearls', 'halloweendxvampire', 'halloweendxplague', 'halloweendxscarecrow', 'halloweendxspider', 'catcafebarista', 'catcafeears', 'catcafejumper', 'catcafeoveralls', 'spiderversemiles', 'spiderversegwensuit', 'spiderversepeterb', 'spiderversepunk', 'xmenwolverine', 'xmencyclops', 'xmengambit', 'xmenstormsuit', 'f1racesuit', 'f1silversuit', 'f1pitcrew', 'f1teampolo', 'ufcrashguard', 'ufcreferee', 'ufccornerhoodie', 'ufcwalkout', 'nyloftpeacoat', 'nyloftflannel', 'nyloftturtleneck', 'nyloftleather', 'pariscafemariniere', 'pariscafegarcon', 'pariscafetrench', 'pariscafepearls', 'muertoscatrinadress', 'muertoscharro', 'muertosblouse', 'muertosbones', 'submarinedeepcoverall', 'submarinedeepwetsuit', 'submarinedeeplabcoat', 'submarinedeepsweater', 'arcticbaseparka', 'arcticbasefleece', 'arcticbasecoldsuit', 'arcticbaseknit', 'sakurayukata', 'sakuracardigan', 'sakurasailor', 'sakuraflorist', 'pottergryffindor', 'potterslytherin', 'potterquidditch', 'potterheadmaster', 'lotrgandalf', 'lotrhobbit', 'lotrelf', 'lotrranger', 'breakingbadhazmat', 'breakingbadheisenberg', 'breakingbadjesse', 'breakingbadsaul', 'strangereleven', 'strangerhellfiretee', 'strangerscoopsuniform', 'strangerhopper', 'gotnightswatch', 'gotlannisterred', 'gotdaenerys', 'gotwhitewalker', 'simpsonshomer', 'simpsonsmarge', 'simpsonsbart', 'simpsonslisa', 'bondtux', 'bondwhitejacket', 'bondmoneypenny', 'bondoddjob', 'dunestillsuit', 'dunefremen', 'dunebenegesserit', 'duneharkonnenblack', 'onepieceluffy', 'onepiecezoro', 'onepiecenami', 'onepiecesanji', 'eldenringtarnished', 'eldenringmaiden', 'eldenringvalkyrie', 'eldenringwitch', 'sevmdr', 'sevmanager', 'sevwellness', 'sevsecurity', 'offdwight', 'offjim', 'offmichael', 'offpam', 'peakytommy', 'peakyarthur', 'peakypolly', 'peakybarman', 'madmdon', 'madmroger', 'madmjoan', 'madmpeggy', 'squidplayer', 'squidguard', 'squidfrontman', 'squidvip', 'boyshomelander', 'boysstarlight', 'boysbutcher', 'boysexec', 'falloutvaultsuit', 'falloutranger', 'falloutraider', 'falloutscientist', 'rickcoat', 'rickmorty', 'ricksummer', 'rickbirdperson', 'mirrorsuit', 'mirrorjumpsuit', 'mirrortech', 'mirrorgown', 'westcowboy', 'westhost', 'westtech', 'westgunslinger', 'bttfmarty', 'bttfdoc', 'bttffuture', 'bttfsodajerk', 'jpranger', 'jpscientist', 'jpvisitor', 'jpnedry', 'wicksuit', 'wickconciergeoutfit', 'wicksommelier', 'wickadjudicator', 'kingsmangalahad', 'kingsmanmerlin', 'kingsmantailor', 'kingsmanagent', 'wonkawonka', 'wonkaoompa', 'wonkacharlie', 'wonkaguide', 'wesgustave', 'weszero', 'wesagatha', 'wesguest', 'mibsuit', 'mibzed', 'mibalien', 'mibworm', 'tronblue', 'tronorange', 'tronflynn', 'tronsiren', 'dbzgoku', 'dbzvegeta', 'dbzpiccolo', 'dbzstudent', 'amongusred', 'amonguscyan', 'amongusyellow', 'amongusimposter', 'tokyohappi', 'tokyokimono', 'tokyosalaryman', 'tokyostreet', 'egyptking', 'egyptpriest', 'egyptqueen', 'egyptworker', 'vikingwarrior', 'vikingmaiden', 'vikingjarl', 'vikingseer', 'aztecjaguarw', 'azteceaglew', 'aztecpriest', 'aztecnoble', 'obsastronomer', 'obsprofessor', 'obsastronaut', 'obsstargazer', 'tikibartender', 'tikisurfer', 'tikiluau', 'tikitourist', 'dinerwaitress', 'dinercook', 'dinergreaser', 'dinerpoodle', 'courtjudge', 'courtlawyer', 'courtbailiff', 'courtclerk', 'artsmock', 'artberet', 'artsculptor', 'artstudent', 'aquariumwetsuit', 'aquariumkeeper', 'aquariumbiologist', 'aquariumscuba', 'circusringmaster', 'circusclown', 'circusacrobat', 'circusstrongman', 'museumcurator', 'museumpaleo', 'museumdocent', 'museumprofessor', 'northpolesanta', 'northpoleelf', 'northpolemrsclaus', 'northpolesweater', 'soundstagedirector', 'soundstagestarlet', 'soundstagecrew', 'soundstagetux', 'cultrobe', 'cultleader', 'cultelder', 'cultinitiate', 'esportsjersey', 'esportshoodie', 'esportscaster', 'esportspro', 'cavemanfur', 'cavemanhunter', 'cavemanshaman', 'cavemanchief', 'lodgerobe', 'lodgemaster', 'lodgeapron', 'lodgeguard', 'prepperhazmat', 'prepperfatigues', 'prepperbugout', 'prepperranger', 'paradisepresident', 'paradisesecret', 'paradiseaide', 'paradisehazmat', 'startrekgold', 'startrekblue', 'startrekred', 'startrekcaptain', 'gentlementweedsuit', 'gentlemengamekeeper', 'gentlemengangster', 'gentlementracksuit', 'geoderuby', 'geodeopal', 'geodesapphire', 'geodeamber', 'geodegarnet', 'geodetopaz', 'geodepearl', 'geodemoonstone', 'geodemalachite', 'geodejade', 'geodelapis', 'geodeamethyst', 'geodeobsidian', 'castleking', 'castlequeen', 'castlejester', 'castleherald', 'castleknight', 'castlepage', 'castlecook', 'castlefalconer', 'castlelady', 'olympuszeus', 'olympushera', 'olympusposeidon', 'olympusathena', 'olympusapollo', 'olympusartemis', 'olympushermes', 'olympusares', 'olympusaphrodite', 'zoolion', 'zooelephant', 'zoogiraffe', 'zoozebra', 'zoopenguin', 'zoopanda', 'zoomonkey', 'zooflamingo', 'zoocroc', 'antcolonyqueen', 'antcolonyworker', 'antcolonysoldier', 'antcolonyleafcutter', 'antcolonynurse', 'antcolonydrone', 'antcolonyarchitect', 'antcolonyhoneypot', 'antcolonyfarmer'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
@@ -33633,7 +33709,7 @@
         disc(x + 38.5, y - 5.5, 3.4, creamDark); disc(x + 38.5, y - 5.5, 2.6, lens); disc(x + 38.5, y - 5.5, 1.2, 0x4c6a9a); dot(x + 37, y - 7, WHITE, 0.8);
         // The flash window, bursting white when it shoots
         const f = t < 0.4;
-        fill(x + 42, y - 8, 2, 2, f ? WHITE : 0xd8e4ea); 
+        fill(x + 42, y - 8, 2, 2, f ? WHITE : 0xd8e4ea);
         if (f) { dot(x + 41, y - 10, WHITE, 0.8); dot(x + 45, y - 9, WHITE, 0.8); dot(x + 43, y - 12, WHITE, 0.7); dot(x + 46, y - 7, WHITE, 0.6); dot(x + 40, y - 8, WHITE, 0.5); }
         if (f && isNight) glowLate(() => glowAt(x + 43, y - 7, 6, 5, 0xffffff, 0.3));
       },
@@ -35364,7 +35440,7 @@
         [[0xf8b8c8, 35, -4], [G2_MINT, 40, -4], [G2_LILAC, 38, -7], [0xfff0a8, 38, -10]].forEach(([c, dx, dy]) => {
           fill(x + dx, y + dy, 4, 1, c); fill(x + dx, y + dy + 1, 4, 1, G2_CREAM); fill(x + dx, y + dy + 2, 4, 1, shaded(c, 0.9)); dot(x + dx, y + dy, shaded(c, 1.1));
         });
-        
+
       },
       /** A mushroom lamp: a round pink cap with white spots on a cream stem; it glows warm, softly by day and brightly at night, breathing slowly. */
       girly2mushroom(x, y) {
@@ -56611,7 +56687,7 @@
             const spread = (r1 - 0.5) * 34, land = floor + Math.floor(r2 * 4), run = land - top;
             const py = top + 1 + ((t * 46 + r2 * run) % run);
             const px = x + spread * (0.25 + 0.75 * (py - top) / run);
-            fill(px, py, 1, 2, 0x9fd8ff, 0.8 * fade); 
+            fill(px, py, 1, 2, 0x9fd8ff, 0.8 * fade);
             if (land - py < 3) dot(px + (k % 2 ? 1 : -1), land - 1, WHITE, 0.6 * fade);
           }
           const rx = Math.min(15, 4 + t * 6);
@@ -58099,6 +58175,50 @@
      */
     /** How far through something done every `period` seconds for `length` is, 0 to 1, or null between times: each wearer at their own moment. */
     const every = (look, period, length, salt) => { const t = (now + look.phase * salt) % period; return t < length ? t / length : null; };
+    /*
+     * The original teams of characters and costumes (Greek gods, zoo onesies, the ant colony, the royal court): shared helpers,
+     * no private code. Each team draws the rest in its own OUTFIT_PARTS entries.
+     */
+    /** A character's own skin and hair, whoever wears it. */
+    const costumeLook = (skin, hair) => ({ skin, hair, hairStyle: 'costumeown', extra: 'none' });
+    /** An arm hanging at the side, `dx` -4 or 4: its sleeve and its hand. */
+    const costumeArm = (x, top, dx, look, sleeve, hand = look.skin) => { sleeve(x + dx, top + 8, 1, 4); dot(x + dx, top + 12, hand); };
+    /** How far each foot is lifted mid-step, left and right, as drawPerson walks them; null sitting down, the legs out of sight. */
+    function costumeLift(pose) {
+      if (pose.kind === 'sit' || pose.kind === 'slump' || pose.kind === 'wallet') return null;
+      return pose.kind === 'walk' ? (pose.step === 0 ? [1, 0] : [0, 1]) : pose.kind === 'tap' ? [0, pose.beat] : [0, 0];
+    }
+    /** A sparkle at `tx`, `ty`: a white point, and its four rays every other moment; it shines through the night. */
+    function costumeTwinkle(tx, ty, strength = 1) {
+      const rays = Math.floor(now * 6) % 2 === 0;
+      const draw = () => {
+        dot(tx, ty, WHITE, strength);
+        if (rays) for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) dot(tx + dx, ty + dy, WHITE, 0.45 * strength);
+      };
+      if (isNight) glowLate(draw); else draw();
+    }
+    /**
+     * A onesie's hood over the head, `c` lit on the left and shaded on the right: rounder and wider than the head, down either
+     * side of the face to the jaw, the face looking out of it; from behind, all of the head.
+     */
+    function costumeHood(x, top, c, light, dark, away) {
+      fill(x - 3, top - 2, 7, 1, c); fill(x - 4, top - 1, 9, 3, c); fill(x - 4, top + 2, 2, 5, c); fill(x + 3, top + 2, 2, 5, c);
+      dot(x - 3, top - 2, light); fill(x - 4, top - 1, 1, 8, light); fill(x + 4, top - 1, 1, 8, dark); dot(x + 3, top - 2, dark);
+      if (away) fill(x - 3, top + 2, 7, 5, c);
+    }
+
+    /*
+     * The royal court: an original team, with no real people and no brand, every id starting castle (`court` is the
+     * courtroom's). Its outfits draw with the shared costume helpers above; these are its own colours.
+     */
+    const CASTLE_GOLD = 0xe8b830, CASTLE_GOLD_LIGHT = 0xffe08a, CASTLE_GOLD_DARK = 0xa07818, CASTLE_STEEL = 0xb8bec8;
+
+    /*
+     * The zoo's onesies (zoo…): under each hood the wearer's hair is tucked in, so long hair or an afro never pokes out round it.
+     * Their own skin, hair colour, glasses and beard stay.
+     */
+    const zooTucked = { hairStyle: 'short' };
+
     const OUTFIT_PARTS = {
       marvel1widow: {
         // Black Widow (brand nod: Marvel): a black catsuit with a silver zip and a belt with the red hourglass buckle; long red hair; her wrist bites spark blue every so often
@@ -63064,7 +63184,1335 @@
       },
       // The Geode's gem outfits, each drawn from its gem's row (see gdGemOutfit)
       ...Object.fromEntries(Object.keys(GEODE_GEMS).map((gem) => [`geode${gem}`, gdGemOutfit(GEODE_GEMS[gem])])),
+      castleking: {
+        // The king: a gold crown of points over red velvet, set with jewels; long white hair and a great white beard down his chest;
+        // a red robe to the floor with a white ermine collar and trim, a gold sceptre in hand. Now and then he raises the sceptre
+        // high, by royal decree, and its jewel flashes.
+        look: costumeLook(0xf0c8a4, 0xf2f0ea),
+        front(x, y) {
+          const ermine = 0xf8f6f0, tail = 0x1e1e22;
+          // The ermine collar over the shoulders and down the front, its black tails; the robe lit on the left
+          fill(x - 3, y, 7, 1, ermine); fill(x - 1, y + 1, 3, 5, ermine);
+          for (const [dx, dy] of [[1, 0], [0, 2], [0, 4]]) dot(x + dx, y + dy, tail);
+          fill(x - 3, y + 1, 1, 5, 0xc83a3a); fill(x + 3, y + 1, 1, 5, 0x801c1c);
+        },
+        back(x, y) { fill(x - 3, y, 7, 1, 0xf8f6f0); dot(x - 1, y, 0x1e1e22); dot(x + 2, y, 0x1e1e22); },
+        head(x, top, look, away) {
+          const G = CASTLE_GOLD, GL = CASTLE_GOLD_LIGHT, GD = CASTLE_GOLD_DARK, red = 0xb02030, W = look.hair, WD = 0xc8c6be;
+          // The crown: a jewelled band, red velvet between its points, a gold ball on top
+          fill(x - 3, top, 7, 1, G); dot(x - 3, top, GL); dot(x + 3, top, GD); dot(x - 2, top, red); dot(x, top, 0x3a6ad8); dot(x + 2, top, red);
+          fill(x - 2, top - 1, 5, 1, red); for (const dx of [-3, -1, 1, 3]) dot(x + dx, top - 1, G);
+          dot(x - 3, top - 2, GL); dot(x, top - 2, G); dot(x + 3, top - 2, GD); dot(x, top - 3, GL);
+          // Long white hair at the sides
+          fill(x - 3, top + 1, 1, 4, W); fill(x + 3, top + 1, 1, 4, WD); fill(x - 4, top + 2, 1, 3, W);
+          if (away) { fill(x - 3, top + 1, 7, 6, W); return; }
+          // The great beard, round the mouth and down his chest, a rosy nose over it
+          fill(x - 3, top + 5, 7, 2, W); fill(x - 2, top + 7, 5, 2, W); fill(x - 1, top + 9, 3, 1, W); dot(x, top + 10, WD);
+          dot(x - 1, top + 5, WD); dot(x + 1, top + 5, WD); dot(x + 2, top + 7, WD); dot(x + 1, top + 9, WD);
+          dot(x, top + 5, 0xe8a090);
+        },
+        // The sceptre in his right hand; now and then raised high, its jewel flashing
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 18, 2.2, 3);
+          const sceptre = (sx, sy) => {
+            fill(sx, sy + 1, 1, 6, CASTLE_GOLD); dot(sx, sy + 1, CASTLE_GOLD_LIGHT); dot(sx, sy, 0xc8283a);
+            dot(sx - 1, sy + 1, CASTLE_GOLD_DARK); dot(sx + 1, sy + 1, CASTLE_GOLD_DARK);
+          };
+          costumeArm(x, top, -4, look, sleeve);
+          if (p !== null) {
+            // Held a column out from the crown, as the office raises an arm
+            sleeve(x + 4, top + 7, 1, 2); sleeve(x + 5, top + 3, 1, 4); dot(x + 5, top + 2, look.skin);
+            sceptre(x + 5, top - 5); costumeTwinkle(x + 5, top - 5, 1);
+          }
+          else { costumeArm(x, top, 4, look, sleeve); sceptre(x + 5, top + 6); }
+          return true;
+        },
+      },
+      castlequeen: {
+        // The queen: a slim gold circlet of three points, long auburn hair in two braids over her shoulders; a purple gown to the
+        // floor with a square neckline, a string of pearls, gold trim and a gold girdle. Now and then she opens a fan and fans herself.
+        look: costumeLook(0xf6d6c0, 0x9a3a1a),
+        front(x, y, o, look) {
+          // The square neckline and the pearls, the gold-trimmed bodice, the girdle hanging down the front; lit on the left
+          fill(x - 1, y, 3, 1, look.skin); for (const dx of [-1, 0, 1]) dot(x + dx, y + 1, 0xf4f0f8); dot(x, y + 1, 0xd8d0e8);
+          fill(x - 2, y, 1, 4, CASTLE_GOLD); fill(x + 2, y, 1, 4, CASTLE_GOLD_DARK);
+          fill(x - 2, y + 4, 5, 1, CASTLE_GOLD); dot(x, y + 5, CASTLE_GOLD_DARK);
+          fill(x - 3, y, 1, 6, 0x7a44aa); fill(x + 3, y, 1, 6, 0x3c1a5a);
+        },
+        back(x, y, o, look) { fill(x - 2, y, 1, 4, look.hair); fill(x + 2, y, 1, 4, look.hair); },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xc85a2a, HD = 0x6a2410;
+          // The circlet: a gold band, three slim points, a green jewel in the middle
+          fill(x - 3, top, 7, 1, CASTLE_GOLD); dot(x - 3, top, CASTLE_GOLD_LIGHT); dot(x, top, 0x3a9a6a);
+          for (const dx of [-2, 0, 2]) dot(x + dx, top - 1, CASTLE_GOLD); dot(x, top - 2, CASTLE_GOLD_LIGHT);
+          // The braids, over her shoulders and down her front, their gold ties
+          for (const side of [-3, 3]) {
+            fill(x + side, top + 1, 1, 9, H);
+            for (let r = 2; r < 10; r += 2) dot(x + side, top + r, side < 0 ? HL : HD);
+            dot(x + side, top + 10, CASTLE_GOLD);
+          }
+          if (away) { fill(x - 2, top + 1, 5, 6, H); return; }
+          dot(x, top + 6, 0xd84a5a);
+          // The fan, open by her face and fanning (see arms)
+          if (look.castleFan) {
+            const f = Math.floor(now * 8) % 2;
+            fill(x + 4, top + 4 + f, 3, 1, 0xd8b8f0); fill(x + 4, top + 5 + f, 2, 1, 0xb890e0); dot(x + 4, top + 6 + f, CASTLE_GOLD);
+            dot(x + 6, top + 3 + f, 0xd8b8f0); dot(x + 5, top + 3 + f, 0xe8d0f8);
+          }
+        },
+        // A folded fan in her hand; now and then raised to her face and opened (drawn with the face). The skirt lit on the left
+        // and shaded on the right, as the bodice is, standing still
+        arms(x, top, look, o, sleeve, pose) {
+          if (costumeLift(pose) && pose.kind !== 'walk') { fill(x - 3, top + 13, 1, 3, 0x7a44aa); fill(x + 3, top + 13, 1, 3, 0x3c1a5a); }
+          look.castleFan = pose.kind !== 'walk' && every(look, 14, 2.4, 9) !== null;
+          costumeArm(x, top, -4, look, sleeve);
+          if (look.castleFan) { sleeve(x + 4, top + 7, 1, 3); dot(x + 4, top + 7, look.skin); }
+          else { costumeArm(x, top, 4, look, sleeve); fill(x + 5, top + 10, 1, 3, 0xb890e0); dot(x + 5, top + 10, CASTLE_GOLD); }
+          return true;
+        },
+      },
+      castlejester: {
+        // The jester: a three-pointed cap of yellow and red with a gold bell on each point, a zigzag collar; a tunic and hose in
+        // halves of yellow and red, curled shoes; a fool's stick with a little head on it. Now and then he juggles three balls in
+        // arcs high over his cap, the bells glinting.
+        look: costumeLook(0xf2c8a0, 0x8a5a2a),
+        front(x, y) {
+          const R = 0xd83a3a, Y = 0xf0c030;
+          // The halves, yellow and red; the zigzag collar; a bell at the hem
+          fill(x - 3, y, 3, 6, Y); fill(x, y, 4, 6, R);
+          for (const dx of [-3, -1, 1, 3]) dot(x + dx, y, dx < 0 ? R : Y);
+          for (const dx of [-2, 0, 2]) dot(x + dx, y + 1, dx < 0 ? R : Y);
+          dot(x - 2, y + 5, CASTLE_GOLD); dot(x + 1, y + 5, CASTLE_GOLD);
+        },
+        back(x, y) { fill(x - 3, y, 3, 6, 0xd83a3a); fill(x, y, 4, 6, 0xf0c030); },
+        head(x, top, look, away) {
+          const R = 0xd83a3a, RD = 0x9a2222, Y = 0xf0c030, YD = 0xb88a1a;
+          const bell = (bx, by) => { dot(bx, by, CASTLE_GOLD_LIGHT); if (look.castleJuggle && !away) costumeTwinkle(bx, by, 0.5); };
+          // The cap: a band round the brow, three floppy points (left, up and right), a bell on each
+          fill(x - 3, top - 1, 3, 2, Y); fill(x, top - 1, 4, 2, R); fill(x - 3, top + 1, 7, 1, YD);
+          fill(x - 5, top, 2, 1, Y); dot(x - 6, top + 1, Y); bell(x - 6, top + 2);
+          fill(x - 1, top - 3, 2, 2, R); dot(x, top - 4, R); dot(x + 1, top - 5, RD); bell(x + 2, top - 5);
+          fill(x + 4, top, 2, 1, R); dot(x + 6, top + 1, RD); bell(x + 6, top + 2);
+          if (away) return;
+          // A wide toothy grin, its corners a row clear of the eyes
+          fill(x - 2, top + 6, 5, 1, 0x8a3a3a); fill(x - 1, top + 6, 3, 1, 0xf6efe2);
+          // The three balls, each in an arc from hand to hand high over the cap (see arms)
+          if (look.castleJuggle) {
+            [0x3a6ad8, 0x3aa84a, 0xe8602a].forEach((colour, i) => {
+              const u = (now * 0.9 + i / 3) % 1, k = (u % 0.5) * 2, bx = u < 0.5 ? x - 5 + Math.round(k * 10) : x + 5 - Math.round(k * 10);
+              dot(bx, top + 4 - Math.round(Math.sin(Math.PI * k) * 12), colour);
+            });
+          }
+        },
+        // Hose in halves and curled shoes; the fool's stick; now and then both hands up, juggling (the balls are drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), R = 0xd83a3a;
+          if (lift) {
+            fill(x, top + 13, 4, 1, R); fill(x + 1, top + 14 - lift[1], 2, 2, R);
+            dot(x - 3, top + 16 - lift[0], 0x3a2a6a); dot(x + 3, top + 16 - lift[1], 0x3a2a6a);
+          }
+          look.castleJuggle = pose.kind !== 'walk' && every(look, 15, 3, 6) !== null;
+          if (look.castleJuggle) {
+            // The hands out a column clear of his face
+            const toss = Math.floor(now * 5) % 2;
+            sleeve(x - 4, top + 6, 1, 3); sleeve(x + 4, top + 6, 1, 3); dot(x - 5, top + 5 - toss, look.skin); dot(x + 5, top + 4 + toss, look.skin);
+          } else {
+            // The fool's stick, its little capped head a row below his grin
+            costumeArm(x, top, 4, look, sleeve); costumeArm(x, top, -4, look, sleeve);
+            fill(x - 5, top + 9, 1, 4, 0x8a5a2a); dot(x - 5, top + 8, look.skin); dot(x - 6, top + 7, R); dot(x - 4, top + 7, 0xf0c030);
+          }
+          return true;
+        },
+      },
+      castleherald: {
+        // The herald: a flat velvet cap with a long white plume; a tabard quartered in blue and gold over white sleeves; a long
+        // brass trumpet hung with a little blue banner. Now and then he raises it and blows a fanfare, notes flying from its bell.
+        look: costumeLook(0xe8c0a0, 0x5a3a20),
+        front(x, y) {
+          const B = 0x2a5aa8, G = 0xe8b830;
+          // The tabard in quarters, its edges lit on the left
+          fill(x - 3, y, 3, 3, B); fill(x, y, 4, 3, G); fill(x - 3, y + 3, 3, 3, G); fill(x, y + 3, 4, 3, B);
+          dot(x - 3, y, 0x4a7ac8); dot(x + 3, y + 3, 0x1a3a7a);
+        },
+        back(x, y) { fill(x - 3, y, 3, 3, 0xe8b830); fill(x, y, 4, 3, 0x2a5aa8); fill(x - 3, y + 3, 3, 3, 0x2a5aa8); fill(x, y + 3, 4, 3, 0xe8b830); },
+        head(x, top, look, away) {
+          const cap = 0x1e2a5a, capLight = 0x34428a;
+          // The cap, flat and soft, tipped to one side; the plume curling up and back from it
+          fill(x - 3, top - 1, 7, 2, cap); fill(x - 4, top, 2, 1, cap); fill(x - 3, top - 1, 3, 1, capLight);
+          for (const [dx, dy, c] of [[3, -2, 0xf6f4ee], [4, -3, 0xf6f4ee], [5, -4, 0xe8e6e0], [6, -4, 0xd8d6d0], [4, -2, 0xd8d6d0]]) dot(x + dx, top + dy, c);
+          if (away) return;
+          // Blowing the fanfare: the trumpet at his lips, a row below his eye, its banner, a cheek puffed out, the notes flying from
+          // its bell (see arms)
+          const p = look.castleFanfare;
+          if (p !== null && p !== undefined) {
+            fill(x + 1, top + 6, 7, 1, CASTLE_GOLD); dot(x + 1, top + 6, CASTLE_GOLD_DARK); fill(x + 8, top + 5, 1, 3, CASTLE_GOLD_LIGHT);
+            dot(x + 9, top + 4, CASTLE_GOLD); dot(x + 9, top + 8, CASTLE_GOLD);
+            fill(x + 4, top + 7, 3, 2, 0x2a5aa8); dot(x + 5, top + 8, CASTLE_GOLD); dot(x + 4, top + 9, 0x2a5aa8);
+            dot(x - 4, top + 5, look.skin); dot(x - 4, top + 6, shaded(look.skin, 0.85));
+            const k = (p * 3) % 1, nx = x + 10 + Math.round(k * 3), ny = top + 3 - Math.round(k * 4);
+            dot(nx, ny, 0xf6f4ee, 1 - k); dot(nx, ny - 1, 0xf6f4ee, 1 - k); dot(nx + 1, ny - 1, 0xf6f4ee, 1 - k);
+          }
+        },
+        // The trumpet held upright at his side, its banner hanging; now and then raised to his lips (drawn with the face)
+        arms(x, top, look, o, sleeve, pose) {
+          look.castleFanfare = pose.kind === 'walk' ? null : every(look, 16, 2.4, 11);
+          costumeArm(x, top, -4, look, sleeve);
+          if (look.castleFanfare !== null) { sleeve(x + 4, top + 7, 1, 2); dot(x + 4, top + 7, look.skin); dot(x + 3, top + 7, look.skin); }
+          else {
+            costumeArm(x, top, 4, look, sleeve);
+            fill(x + 5, top + 2, 1, 10, CASTLE_GOLD); fill(x + 4, top + 1, 3, 1, CASTLE_GOLD_DARK); dot(x + 5, top + 1, CASTLE_GOLD_LIGHT);
+            fill(x + 6, top + 4, 2, 2, 0x2a5aa8); dot(x + 6, top + 5, CASTLE_GOLD);
+          }
+          return true;
+        },
+      },
+      castleknight: {
+        // The tournament knight: shining plate under a surcoat in halves of red and white with a belt; a helmet with its visor up
+        // and a great spray of red and white plumes, a red shield with a white band, and a tall lance with its pennon. Now and then
+        // he dips the lance forward in salute.
+        look: costumeLook(0xe8c09c, 0x6a4a2a),
+        front(x, y) {
+          const R = 0xc8302a, W = 0xf2f0ea;
+          // The surcoat in halves over the plate, the belt and its buckle; the plate at the sides, a rivet or two
+          fill(x - 2, y, 2, 6, R); fill(x, y, 3, 6, W); fill(x - 2, y + 4, 5, 1, 0x6a4424); dot(x, y + 4, CASTLE_GOLD);
+          dot(x - 3, y + 1, 0xe8ecf2); dot(x + 3, y + 1, 0x7a808a); dot(x - 3, y + 3, 0xe8ecf2); dot(x + 3, y + 3, 0x7a808a);
+        },
+        back(x, y) { fill(x - 2, y, 2, 6, 0xf2f0ea); fill(x, y, 3, 6, 0xc8302a); },
+        head(x, top, look, away) {
+          const S = CASTLE_STEEL, SL = 0xe8ecf2, SD = 0x6e747e;
+          // The helmet: a round steel bowl, its visor raised over the brow, cheek plates down the sides
+          fill(x - 3, top - 1, 7, 3, S); fill(x - 2, top - 2, 5, 1, S); dot(x - 2, top - 2, SL); fill(x - 3, top - 1, 1, 2, SL); fill(x + 3, top - 1, 1, 3, SD);
+          fill(x - 3, top + 1, 7, 1, SD); fill(x - 3, top + 2, 1, 4, S); fill(x + 3, top + 2, 1, 4, SD);
+          // The plumes: a great spray from its crown, leaning back, a red one rising between two white
+          const R = 0xc8302a, RD = 0xa01c1c, W = 0xf2f0ea, WD = 0xc8c6c0;
+          fill(x + 1, top - 7, 2, 1, R); fill(x, top - 6, 3, 1, R); fill(x, top - 5, 2, 1, R); dot(x + 1, top - 4, R); dot(x + 1, top - 3, RD);
+          dot(x + 3, top - 6, W); fill(x + 2, top - 5, 2, 1, W); dot(x + 2, top - 4, WD);
+          dot(x - 1, top - 5, W); fill(x - 1, top - 4, 2, 1, W); dot(x, top - 3, WD);
+          if (away) fill(x - 3, top + 2, 7, 4, S);
+        },
+        // Greaves; the shield on his left arm; the lance upright in his right hand, now and then dipped forward in salute
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), wood = 0x8a5a32, steel = CASTLE_STEEL;
+          if (lift) { fill(x - 2, top + 14 - lift[0], 2, 2, 0xa8aeb8); fill(x + 1, top + 14 - lift[1], 2, 2, 0x8a909a); }
+          fill(x - 6, top + 8, 3, 4, 0xc8302a); dot(x - 5, top + 12, 0xc8302a); for (let i = 0; i < 3; i++) dot(x - 6 + i, top + 9 + i, 0xf2f0ea);
+          dot(x - 6, top + 8, 0xe85a4a);
+          costumeArm(x, top, 4, look, sleeve, 0x8a909a);
+          if (pose.kind !== 'walk' && every(look, 17, 2.2, 7) !== null) {
+            line(x + 5, top + 12, x + 12, top - 2, wood); dot(x + 12, top - 3, steel); dot(x + 13, top - 4, steel);
+            dot(x + 11, top - 1, 0xc8302a); dot(x + 12, top, 0xf2f0ea);
+          } else {
+            fill(x + 5, top - 4, 1, 17, wood); fill(x + 5, top - 6, 1, 2, steel); dot(x + 5, top - 7, 0xe8ecf2);
+            fill(x + 6, top - 4, 2, 1, 0xc8302a); fill(x + 6, top - 3, 2, 1, 0xf2f0ea); dot(x + 8, top - 4, 0xc8302a);
+            fill(x + 4, top + 9, 3, 1, steel);
+          }
+          return true;
+        },
+      },
+      castlepage: {
+        // The page: a blond bowl cut with straight bangs; a short green tunic with puffed shoulders and a belt, yellow hose; a red
+        // velvet cushion carried in both hands with a little gold crown on it. Now and then he bows, and the crown wobbles.
+        look: costumeLook(0xf6d2b0, 0xe0b040),
+        front(x, y) {
+          // Puffed shoulders, the belt, the tunic lit on the left
+          dot(x - 3, y, 0x5aaa5a); dot(x + 3, y, 0x2a6a32); fill(x - 3, y + 4, 7, 1, 0x6a4424); dot(x, y + 4, CASTLE_GOLD);
+          fill(x - 3, y + 1, 1, 3, 0x4a9a52); fill(x + 3, y + 1, 1, 3, 0x2a6a32);
+        },
+        back(x, y) { fill(x - 3, y + 4, 7, 1, 0x6a4424); },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xf8d870, HD = 0xb08a2a;
+          // The bowl cut: round on top, straight bangs over the brow, straight at the sides down to the jaw
+          fill(x - 2, top - 1, 5, 1, H); fill(x - 3, top, 7, 3, H); fill(x - 3, top + 3, 1, 2, H); fill(x + 3, top + 3, 1, 2, HD);
+          fill(x - 2, top - 1, 2, 1, HL); dot(x - 3, top, HL); fill(x - 2, top + 2, 5, 1, HD);
+          if (away) { fill(x - 3, top + 3, 7, 2, H); return; }
+          // The crown on the cushion: three points over its band, a row of tunic clear of his chin; it wobbles as he bows (see arms)
+          const wob = look.castleBow ? (Math.floor(now * 8) % 2 ? 1 : -1) : 0, cx = x + wob, cy = top + 9;
+          fill(cx - 2, cy, 5, 1, CASTLE_GOLD); dot(cx - 2, cy, CASTLE_GOLD_LIGHT); dot(cx + 2, cy, CASTLE_GOLD_DARK);
+          dot(cx - 2, cy - 1, CASTLE_GOLD_LIGHT); dot(cx, cy - 1, CASTLE_GOLD); dot(cx + 2, cy - 1, CASTLE_GOLD);
+        },
+        // The cushion held out in both hands, the tunic's hem; now and then a bow (see nods)
+        arms(x, top, look, o, sleeve, pose) {
+          if (costumeLift(pose)) fill(x - 3, top + 13, 7, 1, 0x2a6a32);
+          look.castleBow = pose.kind !== 'walk' && every(look, 15, 1.6, 8) !== null;
+          const cy = top + 10 + (look.castleBow ? 1 : 0);
+          sleeve(x - 4, top + 8, 1, 3); sleeve(x + 4, top + 8, 1, 3);
+          fill(x - 4, cy, 9, 2, 0xb02030); fill(x - 4, cy, 9, 1, 0xd03a4a); dot(x - 5, cy + 1, CASTLE_GOLD); dot(x + 5, cy + 1, CASTLE_GOLD);
+          dot(x - 4, cy + 2, look.skin); dot(x + 4, cy + 2, look.skin);
+          return true;
+        },
+        nods(look) { return look.castleBow ? 1 : 0; },
+      },
+      castlecook: {
+        // The royal cook: a puffed white linen cap over red hair, rosy cheeks; a brown dress to the floor under a big white apron,
+        // sleeves rolled up; a great golden pie held out on a platter. Now and then a blackbird pops out of it and sings.
+        look: costumeLook(0xf0c0a0, 0xb04a24),
+        front(x, y, o, look) {
+          // The dress's neckline, the apron's bib below it, shaded on the right
+          dot(x, y, look.skin); fill(x - 2, y + 1, 5, 5, 0xf6f4ee); fill(x + 2, y + 1, 1, 5, 0xd8d6d0);
+        },
+        back(x, y) { fill(x - 2, y + 2, 5, 1, 0xf6f4ee); },
+        head(x, top, look, away) {
+          const L = 0xf6f4ee, LD = 0xd8d6d0;
+          // The cap: puffed white linen gathered round the head into a frill, red hair showing at the sides
+          fill(x - 3, top - 2, 7, 1, L); fill(x - 4, top - 1, 9, 2, L); dot(x - 3, top - 2, WHITE);
+          for (let dx = -4; dx <= 4; dx++) dot(x + dx, top + 1, dx % 2 ? L : LD);
+          fill(x - 3, top + 2, 1, 2, look.hair); fill(x + 3, top + 2, 1, 2, look.hair);
+          if (away) { fill(x - 3, top + 2, 7, 3, look.hair); return; }
+          dot(x - 2, top + 5, 0xf09080, 0.6); dot(x + 2, top + 5, 0xf09080, 0.6);
+          // The blackbird: it pops out of the pie through its crust, flutters up past her face and sits on her cap to sing (see arms)
+          const p = look.castleBird;
+          if (p !== null && p !== undefined) {
+            const B = 0x1a1a22, beak = 0xe89a2a, flap = Math.floor(now * 10) % 2;
+            const bird = (bx, by, flying) => { fill(bx, by, 2, 2, B); dot(bx + 2, by, beak); dot(bx + 1, by, WHITE, 0.6); dot(bx - 1, by + (flying ? flap : 1), 0x2a2a34); };
+            fill(x, top + 8, 3, 1, 0x5a3418);
+            if (p < 0.12) { fill(x + 1, top + 8, 2, 1, B); dot(x + 3, top + 8, beak); }
+            else if (p < 0.2) bird(x + 5, top + 3, true);
+            else if (p < 0.26) bird(x + 3, top - 3, true);
+            else {
+              bird(x + 1, top - 4, false);
+              const k = ((p - 0.26) * 3) % 1;
+              dot(x + 4, top - 5 - Math.round(k * 3), 0xf6f4ee, 1 - k); dot(x + 5, top - 6 - Math.round(k * 3), 0xf6f4ee, 1 - k);
+            }
+          }
+        },
+        // The pie held out on its platter in both hands
+        arms(x, top, look, o, sleeve, pose) {
+          look.castleBird = pose.kind === 'walk' ? null : every(look, 16, 2.8, 4);
+          sleeve(x - 4, top + 8, 1, 2); sleeve(x + 4, top + 8, 1, 2); dot(x - 4, top + 10, look.skin); dot(x + 4, top + 10, look.skin);
+          fill(x - 5, top + 11, 11, 1, 0x9a9ea8); dot(x - 5, top + 11, 0xc8ccd4);
+          fill(x - 3, top + 9, 7, 2, 0xd8962a); fill(x - 2, top + 8, 5, 1, 0xe8a840);
+          for (const dx of [-2, 0, 2]) dot(x + dx, top + 9, 0xa86a1a); dot(x - 1, top + 8, 0xf8c868);
+          return true;
+        },
+      },
+      castlefalconer: {
+        // The falconer: a brown hunting hat with a long striped feather, dark hair; a green hunting tunic with a leather baldric and a
+        // pouch, tall boots; a hooded falcon on her raised leather glove. Now and then it spreads its wings and flaps.
+        look: costumeLook(0xe8bc98, 0x2a1a12),
+        front(x, y) {
+          // The baldric across, its buckle, the belt and its pouch; the tunic lit on the left
+          for (let r = 0; r < 5; r++) dot(x - 2 + r, y + r, 0x6a4424); dot(x, y + 2, CASTLE_GOLD);
+          fill(x - 3, y + 4, 7, 1, 0x5a3a1e); fill(x + 1, y + 5, 2, 1, 0x8a5a32);
+          fill(x - 3, y, 1, 4, 0x5a9a5a); fill(x + 3, y, 1, 4, 0x2a5a2e);
+        },
+        back(x, y) { for (let r = 0; r < 5; r++) dot(x + 2 - r, y + r, 0x6a4424); },
+        head(x, top, look, away) {
+          const hat = 0x6a4424, hatLight = 0x8a6034, hatDark = 0x4a2e16;
+          // The hat: a soft crown and a wide brim, the feather sweeping up and back
+          fill(x - 2, top - 2, 5, 2, hat); fill(x - 2, top - 2, 2, 1, hatLight); fill(x - 4, top, 9, 1, hat); dot(x - 4, top, hatLight); dot(x + 4, top, hatDark);
+          for (const [dx, dy, c] of [[3, -2, 0xe8dcc0], [4, -3, 0x8a6a3a], [5, -4, 0xe8dcc0], [6, -5, 0x8a6a3a], [7, -6, 0xe8dcc0]]) dot(x + dx, top + dy, c);
+          // Dark hair at the sides, down to just above her eyes
+          fill(x - 3, top + 1, 1, 3, look.hair); fill(x + 3, top + 1, 1, 3, look.hair);
+          if (away) { fill(x - 3, top + 1, 7, 6, look.hair); return; }
+          // The falcon on her glove, a column clear of her face, in profile looking out: the leather hood, the pale hooked beak,
+          // the pale breast in front and the slate back, its feet on the glove (its tail hangs below it, see arms). Now and then
+          // it flaps: its wings up in a V over its back, then spread low in front, clear of her
+          const B = 0x5a6474, BD = 0x3a4250;
+          fill(x - 7, top + 1, 2, 2, 0x5e3018); dot(x - 7, top + 1, 0x925228); dot(x - 8, top + 2, 0xb8c0cc);
+          fill(x - 7, top + 3, 3, 3, B); fill(x - 7, top + 3, 1, 3, 0xeee6d6); fill(x - 5, top + 3, 1, 3, BD);
+          fill(x - 6, top + 6, 2, 1, 0xe8c040);
+          if (look.castleFlap) {
+            if (Math.floor(now * 9) % 2) { dot(x - 6, top, B); dot(x - 7, top, BD); dot(x - 7, top - 1, B); dot(x - 8, top - 2, BD); fill(x - 5, top + 1, 1, 2, BD); }
+            else { fill(x - 9, top + 3, 2, 1, B); fill(x - 10, top + 4, 2, 1, BD); dot(x - 8, top + 4, BD); }
+          }
+        },
+        // The arm raised with its thick glove under the falcon's feet, the falcon's tail hanging below it (the falcon is drawn
+        // with the face); the other at her side; tall boots
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose);
+          if (lift) { fill(x - 2, top + 14 - lift[0], 2, 2, 0x3a2a1a); fill(x + 1, top + 14 - lift[1], 2, 2, 0x3a2a1a); }
+          look.castleFlap = pose.kind !== 'walk' && every(look, 14, 1.8, 2) !== null;
+          costumeArm(x, top, 4, look, sleeve);
+          sleeve(x - 4, top + 7, 1, 3); fill(x - 6, top + 7, 2, 2, 0x8a5a32); dot(x - 6, top + 7, 0xa8743e);
+          fill(x - 6, top + 9, 1, 2, 0x3a4250);
+          return true;
+        },
+      },
+      castlelady: {
+        // The lady-in-waiting: a tall cone hennin in blue with a gold band and a white veil floating from its tip, a high plucked
+        // brow; a blue gown to the floor with a gold band under the bust and long hanging sleeves. Now and then she curtsies, her
+        // skirt spreading.
+        look: costumeLook(0xf6dcc8, 0xc89a5a),
+        front(x, y, o, look) {
+          // The neckline, the gold band high under the bust, the gown lit on the left
+          fill(x - 1, y, 3, 1, look.skin); dot(x, y + 1, 0xf6f4ee); fill(x - 3, y + 2, 7, 1, CASTLE_GOLD); dot(x + 3, y + 2, CASTLE_GOLD_DARK);
+          fill(x - 3, y, 1, 2, 0x5a9ad8); fill(x - 3, y + 3, 1, 3, 0x5a9ad8); fill(x + 3, y + 3, 1, 3, 0x1e4a7a);
+        },
+        head(x, top, look, away) {
+          const C = 0x2a5aa8, CL = 0x4a7ac8, veil = 0xf6f8ff;
+          // The high plucked brow: no hair showing at the front
+          if (!away) fill(x - 2, top + 1, 5, 1, look.skin);
+          // The hennin: a tall cone leaning back, lit on the left and shaded down its straight right edge, a gold band at its foot;
+          // the veil from its tip floating down behind
+          fill(x - 3, top, 7, 1, CASTLE_GOLD); dot(x - 3, top, CASTLE_GOLD_LIGHT);
+          [[-2, 5], [-2, 5], [-1, 4], [-1, 4], [0, 3], [0, 3], [1, 2], [1, 2], [2, 1]].forEach(([dx, w], i) => {
+            fill(x + dx, top - 1 - i, w, 1, C); dot(x + dx, top - 1 - i, CL); if (w > 1) dot(x + dx + w - 1, top - 1 - i, 0x1e4a7a);
+          });
+          const sway = Math.round(Math.sin(now * 1.3 + look.phase * 6));
+          for (let i = 0; i < 12; i++) {
+            const vx = x + 3 + Math.floor(i / 4) + (i > 6 ? sway : 0), vy = top - 9 + i;
+            dot(vx, vy, veil, 0.8); if (i > 4) dot(vx + 1, vy, veil, 0.45);
+          }
+          if (away) { fill(x - 3, top + 1, 7, 5, look.hair); return; }
+          dot(x, top + 6, 0xd86a7a);
+        },
+        // Long hanging sleeves; now and then a curtsy (see nods), the skirt spreading
+        arms(x, top, look, o, sleeve, pose) {
+          look.castleCurtsy = pose.kind !== 'walk' && every(look, 16, 1.8, 12) !== null;
+          if (costumeLift(pose) && look.castleCurtsy) { fill(x - 4, top + 14, 9, 2, 0x2a5aa8); dot(x - 4, top + 14, 0x5a9ad8); }
+          for (const side of [-1, 1]) {
+            sleeve(x + side * 4, top + 8, 1, 4); dot(x + side * 4, top + 12, look.skin);
+            fill(x + side * 5, top + 10, 1, 4, 0x4a7ac8, 0.9); dot(x + side * 5, top + 14, 0x2a5aa8);
+          }
+          return true;
+        },
+        nods(look) { return look.castleCurtsy ? 1 : 0; },
+      },
+      olympuszeus: {
+        // Zeus: white curls and a great white beard; a white himation round him and over one shoulder, the chest bare on the other
+        // side under a gold border, a gold cord at the waist, gold sandals; a golden thunderbolt in his hand. Now and then he raises
+        // it high and it crackles with lightning; by night it lights him up. His whites are shaded storm-grey on the right, his arms
+        // bare and tanned, so he holds his own against pale stone and marble.
+        look: costumeLook(0xe8c0a0, 0xf2f0ea),
+        front(x, y, o, look) {
+          // The bare chest at his left shoulder above the gold border, the cloth's folds, the cord; lit on the left, storm-grey in
+          // the shade on the right
+          dot(x + 2, y, look.skin); dot(x + 3, y, look.skin); dot(x + 3, y + 1, shaded(look.skin, 0.9));
+          dot(x + 1, y, 0xe8b830); dot(x + 2, y + 1, 0xe8b830); dot(x + 3, y + 2, 0xa07818);
+          dot(x - 1, y + 3, 0xd8d4c8); fill(x + 3, y + 3, 1, 3, 0x9ca0b0); fill(x - 3, y + 4, 7, 1, 0xc8a050);
+          fill(x - 3, y, 1, 4, 0xffffff);
+        },
+        back(x, y) { fill(x + 3, y, 1, 6, 0x9ca0b0); fill(x - 3, y + 4, 7, 1, 0xc8a050); },
+        head(x, top, look, away) {
+          const W = look.hair, WL = 0xffffff, WD = 0xc8c6be, WS = 0x767c90;
+          // The curls, full round the head and down to the jaw, their right edge in storm-grey shade
+          fill(x - 3, top - 1, 7, 1, W); fill(x - 4, top, 9, 2, W); fill(x - 4, top + 2, 1, 3, W); fill(x - 3, top + 2, 1, 2, W); fill(x + 3, top + 2, 1, 2, WD);
+          for (const [dx, dy] of [[-2, -1], [1, -1], [-3, 0], [0, 0], [3, 1], [-1, 1]]) dot(x + dx, top + dy, WL);
+          for (const [dx, dy] of [[2, 0], [-4, 1]]) dot(x + dx, top + dy, WD);
+          fill(x + 4, top, 1, 5, WS); dot(x + 3, top - 1, WS);
+          if (away) { fill(x - 3, top + 2, 7, 5, W); fill(x + 3, top + 2, 1, 3, WD); fill(x + 3, top + 5, 1, 2, WS); return; }
+          // Stern brows and the great beard, curling down onto his chest, shaded down its right edge; light next to the eyes
+          dot(x - 2, top + 3, WD); dot(x + 2, top + 3, WD);
+          fill(x - 3, top + 5, 7, 2, W); fill(x - 2, top + 7, 5, 2, W); fill(x - 1, top + 9, 3, 1, W);
+          for (const [dx, dy] of [[-1, 5], [1, 5], [-2, 7], [0, 9]]) dot(x + dx, top + dy, WD);
+          for (const [dx, dy] of [[3, 5], [3, 6], [2, 7], [2, 8], [1, 9]]) dot(x + dx, top + dy, WS);
+        },
+        // The thunderbolt in his hand, a gold zigzag; now and then raised high over his head, crackling, lighting him by night: his
+        // arm up and out past his curls, as the office raises an arm, the bolt's tip in his fist
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 15, 2.2, 7), lift = costumeLift(pose);
+          // The himation's shade on down to his feet, standing
+          if (lift) { dot(x + 3, top + 13, 0x9ca0b0); if (pose.kind !== 'walk') fill(x + 3, top + 14, 1, 2, 0x9ca0b0); }
+          // `w` wide from `bx`, `by` down: a stroke down to the left, a jog back across, a stroke down to the left again; pale at
+          // the top, gold across, amber at the tip
+          const bolt = (bx, by, w) => {
+            for (let i = 0; i < w; i++) {
+              dot(bx + w - 1 - i, by + i, 0xfff0a0); dot(bx + i, by + w, 0xffd84a); dot(bx + w - 1 - i, by + w + 1 + i, 0xe8a828);
+            }
+          };
+          costumeArm(x, top, -4, look, sleeve);
+          if (p !== null) {
+            sleeve(x + 4, top + 7, 1, 2); sleeve(x + 5, top + 3, 1, 4); dot(x + 5, top + 2, look.skin);
+            bolt(x + 5, top - 7, 4);
+            const flick = Math.floor(now * 12) % 2;
+            for (const [dx, dy] of flick ? [[5, -6], [-1, -5], [4, -1]] : [[1, -8], [5, -3], [-2, -4]]) dot(x + 5 + dx, top + dy, 0xfff6c0, 0.9);
+            if (isNight) glowLate(() => { glowAt(x + 7, top - 3, 8, 8, 0xfff0a0, 0.25); bolt(x + 5, top - 7, 4); }); else glowAt(x + 7, top - 3, 6, 6, 0xfff0a0, 0.12);
+          } else {
+            costumeArm(x, top, 4, look, sleeve);
+            bolt(x + 5, top + 6, 3);
+          }
+          return true;
+        },
+      },
+      olympushera: {
+        // Hera: a tall gold crown, dark hair waved at the sides, gold earrings; a white gown under a peacock-teal mantle with a gold
+        // brooch at each shoulder, a peacock feather in her hand. Now and then a peacock's tail fans out behind her, its eyes
+        // shimmering.
+        look: costumeLook(0xf0d0b8, 0x2e1e14),
+        front(x, y) {
+          // The white gown down the middle, the mantle either side, its brooches; lit on the left
+          fill(x - 1, y, 3, 6, 0xf6f4ee); fill(x + 1, y, 1, 6, 0xdcdad2); dot(x - 2, y, 0xe8b830); dot(x + 2, y, 0xa07818);
+          fill(x - 3, y, 1, 6, 0x4aaab4); fill(x + 3, y, 1, 6, 0x1a5a64);
+        },
+        head(x, top, look, away) {
+          const G = 0xe8b830, GL = 0xffe08a, GD = 0xa07818, H = look.hair;
+          // Dark hair waved at the sides
+          fill(x - 3, top + 1, 1, 4, H); fill(x + 3, top + 1, 1, 4, H); dot(x - 4, top + 2, H); dot(x + 4, top + 2, H);
+          // The crown: a tall gold cylinder rising to three points, a lighter band round it, a teal jewel
+          fill(x - 2, top - 3, 5, 3, G); fill(x - 2, top - 3, 1, 3, GL); fill(x + 2, top - 3, 1, 3, GD); fill(x - 2, top - 2, 5, 1, GL); dot(x, top - 2, 0x2a8a96);
+          dot(x - 2, top - 4, GL); dot(x, top - 4, GL); dot(x + 2, top - 4, G);
+          if (away) { fill(x - 2, top + 2, 5, 4, H); fill(x - 1, top + 6, 3, 1, H); return; }
+          dot(x - 3, top + 5, G); dot(x + 3, top + 5, G); dot(x, top + 6, 0xc84a5a);
+        },
+        // The feather in her hand; now and then the peacock's tail fanning out behind her head and shoulders (drawn here, before her
+        // head, so she stays in front of it)
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 17, 2.6, 5);
+          if (p !== null) {
+            const r = Math.round(4 + Math.min(1, p * 4) * 3), shimmer = Math.floor(now * 6) % 2;
+            for (let i = 0; i <= 8; i++) {
+              const a = Math.PI + (i / 8) * Math.PI, fx = x + Math.round(Math.cos(a) * r), fy = top + 4 + Math.round(Math.sin(a) * r);
+              line(x, top + 4, fx, fy, 0x3a8a4a, 0.9);
+              dot(fx, fy, (i + shimmer) % 2 ? 0x2a6ad8 : 0x2ab0a8); if (r > 5) dot(fx, fy + (fy < top + 4 ? 1 : 0), 0xe8b830, 0.8);
+            }
+          }
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          fill(x + 5, top + 6, 1, 7, 0x3a8a4a); dot(x + 5, top + 5, 0x2a6ad8); dot(x + 5, top + 4, 0x2ab0a8); dot(x + 6, top + 5, 0xe8b830);
+          return true;
+        },
+      },
+      olympusposeidon: {
+        // Poseidon: wild sea-green hair and a sea-green beard under a gold crown of points; a teal mantle patterned like fish scales
+        // over a white tunic; a gold trident. Now and then a wave rises round his feet and spray flies off the trident.
+        look: costumeLook(0xd8b090, 0x2a8a7a),
+        front(x, y) {
+          // The white tunic at the neck and its gold clasp, the scales on the mantle; lit on the left
+          fill(x - 1, y, 3, 1, 0xf2f0e8); dot(x - 2, y, 0xe8b830);
+          for (const [dx, dy] of [[-2, 2], [0, 2], [2, 2], [-1, 3], [1, 3], [-2, 4], [0, 4], [2, 4], [-1, 5], [1, 5]]) dot(x + dx, y + dy, 0x1a6a6a);
+          fill(x - 3, y, 1, 6, 0x4ab4a4); fill(x + 3, y, 1, 6, 0x10484a);
+        },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0x4ab4a4, HD = 0x1a5a50, G = 0xe8b830;
+          // Wild sea-green hair, out past the ears, and the gold crown of points on it
+          fill(x - 4, top, 9, 2, H); fill(x - 4, top + 2, 1, 3, H); fill(x + 4, top + 2, 1, 3, HD); fill(x - 3, top + 2, 1, 2, H); fill(x + 3, top + 2, 1, 2, HD);
+          for (const [dx, dy] of [[-4, 0], [-1, 1], [2, 0], [4, 1]]) dot(x + dx, top + dy, HL);
+          fill(x - 3, top - 1, 7, 1, G); for (const dx of [-3, -1, 1, 3]) dot(x + dx, top - 2, G); dot(x - 1, top - 2, 0xffe08a);
+          if (away) { fill(x - 3, top + 2, 7, 5, H); return; }
+          // The sea-green beard, curling down onto his chest
+          fill(x - 3, top + 5, 7, 2, H); fill(x - 2, top + 7, 5, 2, H); dot(x, top + 9, H);
+          for (const [dx, dy] of [[-2, 5], [1, 6], [-1, 7], [2, 7], [0, 8]]) dot(x + dx, top + dy, HL);
+          dot(x - 1, top + 5, HD); dot(x + 1, top + 5, HD);
+        },
+        // The trident upright in his right hand; now and then a wave round his feet and spray off the trident's tip
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 16, 2.4, 9), lift = costumeLift(pose), G = 0xe8b830;
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          // The trident taller than him, its head clear of his crown: a crossbar and three prongs with a gap between each
+          fill(x + 5, top - 3, 1, 19, G); fill(x + 3, top - 4, 5, 1, G); dot(x + 7, top - 4, 0xa07818);
+          for (const dx of [3, 7]) fill(x + dx, top - 6, 1, 2, G); fill(x + 5, top - 7, 1, 3, G);
+          for (const dx of [3, 5, 7]) dot(x + dx, top - (dx === 5 ? 7 : 6), 0xffe08a);
+          if (p !== null) {
+            const k = Math.floor(now * 6) % 3, rise = k === 1 ? 1 : 0;
+            if (lift) { fill(x - 5, top + 15 - rise, 11, 2, 0x4ab0d8, 0.85); for (const dx of [-5, -2, 1, 4]) dot(x + dx + (k % 2), top + 14 - rise, 0xf2f8ff); }
+            for (const [dx, dy] of [[-2, -2], [2, -3], [0, -4], [1, -1]]) dot(x + 5 + dx, top - 7 + dy - k, 0xbfe8ff, 0.85);
+          }
+          return true;
+        },
+      },
+      olympusathena: {
+        // Athena: a bronze helmet pushed back on her head, its face-guard tipped up and a tall blue crest along it, long brown hair
+        // under it; a golden scaled aegis over the shoulders of a blue gown; a spear, and a little owl on her shoulder. Now and then
+        // the owl hops up flapping, turns its head and blinks.
+        look: costumeLook(0xf0d4bc, 0x4a2a1a),
+        front(x, y) {
+          // The aegis: gold scales over the shoulders and chest, its fringe; the blue gown under it with a gold girdle; lit on the left
+          for (let r = 0; r < 2; r++) for (let dx = -3; dx <= 3; dx++) dot(x + dx, y + r, (dx + r) % 2 ? 0xe8b830 : 0xa07818);
+          for (const dx of [-2, 0, 2]) dot(x + dx, y + 2, 0xa07818);
+          fill(x - 3, y + 2, 1, 4, 0x5a7ac8); fill(x + 3, y + 2, 1, 4, 0x1e3a7a); fill(x - 3, y + 4, 7, 1, 0xe8b830);
+        },
+        head(x, top, look, away) {
+          const B = 0xc8903a, BL = 0xe8b860, BD = 0x7a5420;
+          // Long brown hair under the helmet, down the sides
+          fill(x - 3, top + 1, 1, 6, look.hair); fill(x + 3, top + 1, 1, 6, look.hair);
+          // The helmet pushed back: a bronze bowl over the brow, the tipped-up face-guard with its eye holes (from the front only),
+          // the crest along the top
+          fill(x - 3, top - 2, 7, 3, B); fill(x - 3, top - 2, 1, 3, BL); fill(x + 3, top - 2, 1, 3, BD);
+          fill(x - 1, top - 6, 2, 4, 0x2a5aa8); dot(x - 1, top - 6, 0x6a9ae8); dot(x + 1, top - 5, 0x2a5aa8); dot(x + 1, top - 4, 0x1a3a7a); dot(x - 2, top - 4, 0x6a9ae8);
+          if (away) { fill(x - 3, top + 1, 7, 6, look.hair); return; }
+          dot(x - 2, top, 0x3a2410); dot(x + 2, top, 0x3a2410);
+          dot(x, top + 6, 0xc86a6a);
+          // The owl on her shoulder: grey-brown, lit on the left, ear tufts, a pale face and breast, two big yellow eyes; now and
+          // then it hops up off her shoulder flapping its wings, turns its head and blinks (see arms)
+          const turn = look.costumeOwl, hop = turn !== null && turn !== undefined && turn < 0.5;
+          const ox = x - 5, oy = top + 3 - (hop ? 1 : 0), owl = 0xb09c80, owlLight = 0xd0c0a4, tuft = 0x5e4e3e, face = 0xf4ecdc, eye = 0xffd23a;
+          fill(ox - 1, oy, 3, 4, owl); fill(ox - 1, oy + 2, 1, 2, owlLight); dot(ox - 1, oy, tuft); dot(ox + 1, oy, tuft);
+          if (hop) { const wy = oy + 1 + (Math.floor(now * 8) % 2); dot(ox - 2, wy, owlLight); dot(ox + 2, wy, owl); }
+          if (turn !== null && turn !== undefined && turn < 0.6) { dot(ox - 1, oy + 1, eye); dot(ox, oy + 1, face); }
+          else if (turn !== null && turn !== undefined && turn < 0.75) { dot(ox - 1, oy + 1, tuft); dot(ox, oy + 1, face); dot(ox + 1, oy + 1, tuft); }
+          else { dot(ox - 1, oy + 1, eye); dot(ox, oy + 1, face); dot(ox + 1, oy + 1, eye); }
+          dot(ox, oy + 2, 0xe8a030); dot(ox, oy + 3, face); dot(ox - 1, oy + 4, 0xe8a030); dot(ox + 1, oy + 4, 0xe8a030);
+        },
+        // The spear in her right hand; the owl's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeOwl = pose.kind === 'walk' ? null : every(look, 13, 2, 4);
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          fill(x + 5, top - 2, 1, 16, 0x8a5a32); fill(x + 5, top - 4, 1, 2, 0xc8903a); dot(x + 5, top - 5, 0xe8b860);
+          return true;
+        },
+      },
+      olympusapollo: {
+        // Apollo: short golden curls; a white chiton to the knee with a gold belt and a gold border at the hem, a red cloak pinned at
+        // one shoulder, gold sandals; a golden lyre. Now and then he strums it and notes float up.
+        look: costumeLook(0xf0c8a0, 0xf0c040),
+        front(x, y) {
+          // The red cloak at his shoulders and its gold pin, the gold belt; the chiton lit on the left
+          dot(x - 3, y, 0xc8302a); dot(x + 3, y, 0x8a1c1c); fill(x + 3, y + 1, 1, 3, 0x8a1c1c); dot(x + 2, y, 0xe8b830);
+          fill(x - 3, y + 3, 7, 1, 0xe8b830); fill(x - 3, y + 1, 1, 2, 0xffffff);
+        },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xffe080, HD = 0xb88a1a;
+          // Short golden curls all over, lit on top
+          fill(x - 3, top - 1, 7, 1, H); fill(x - 4, top, 9, 2, H); dot(x - 4, top + 2, H); dot(x + 4, top + 2, HD); dot(x - 3, top + 2, H); dot(x + 3, top + 2, HD);
+          for (const [dx, dy] of [[-2, -1], [1, -1], [-3, 0], [0, 0], [3, 1], [-1, 1]]) dot(x + dx, top + dy, HL);
+          for (const [dx, dy] of [[2, 0], [-4, 1], [4, 1]]) dot(x + dx, top + dy, HD);
+          if (away) { fill(x - 3, top + 2, 7, 3, H); return; }
+          // Strumming: amber-gold notes floating up off the lyre (see arms), to read on pale stone and dark wood alike
+          const p = look.costumeLyre;
+          if (p !== null && p !== undefined) for (let i = 0; i < 2; i++) {
+            const k = (p * 2 + i * 0.5) % 1, nx = x + 7 + i * 2, ny = top + 4 - Math.round(k * 8);
+            dot(nx, ny, 0xd8921c, 1 - k); dot(nx, ny - 1, 0xd8921c, 1 - k); dot(nx + 1, ny - 1, 0xd8921c, 1 - k);
+          }
+        },
+        // The lyre held at his side, now and then raised and strummed; sitting at a desk, held up at his shoulder, clear of the
+        // desk; the chiton's gold hem when the legs show
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), G = 0xe8b830, GD = 0xa07818;
+          if (lift) { fill(x - 3, top + 13, 7, 1, 0xf6f2e8); for (const dx of [-3, -1, 1, 3]) dot(x + dx, top + 13, G); }
+          const p = pose.kind === 'walk' ? null : every(look, 14, 2.6, 6);
+          look.costumeLyre = p;
+          // The lyre: two arms curving up out of a round sound box and out at their tips, a crossbar under the tips, two strings
+          const lyre = (lx, ly) => {
+            dot(lx - 1, ly - 1, G); dot(lx + 4, ly - 1, GD); fill(lx, ly, 1, 4, G); fill(lx + 3, ly, 1, 4, GD);
+            fill(lx, ly + 1, 4, 1, G); fill(lx + 1, ly + 4, 2, 1, GD); dot(lx + 1, ly + 4, G);
+            fill(lx + 1, ly + 2, 1, 2, 0xf8f6f0, 0.85); fill(lx + 2, ly + 2, 1, 2, 0xf8f6f0, 0.55);
+          };
+          costumeArm(x, top, -4, look, sleeve);
+          if (p !== null) { sleeve(x + 4, top + 7, 1, 3); lyre(x + 5, top + 5); dot(x + 6 + (Math.floor(now * 8) % 2), top + 7, look.skin); }
+          else if (!lift) { lyre(x + 4, top + 5); dot(x + 4, top + 9, look.skin); }
+          else { costumeArm(x, top, 4, look, sleeve); lyre(x + 5, top + 9); }
+          return true;
+        },
+      },
+      olympusartemis: {
+        // Artemis: auburn hair tied up high, a silver crescent moon on her brow; a short pale chiton belted at the waist, hunting
+        // sandals, a quiver of arrows over her shoulder; a silver bow. Now and then she draws the bow, an arrow on it, and looses it;
+        // by night her crescent shines.
+        look: costumeLook(0xf2d0b4, 0x9a3a1a),
+        front(x, y) {
+          // The quiver's strap over one shoulder, the belt and its silver clasp; the chiton lit on the left
+          dot(x + 2, y, 0x6a4424); dot(x + 1, y + 1, 0x6a4424); dot(x, y + 2, 0x6a4424); fill(x - 3, y + 3, 7, 1, 0x6a4424); dot(x, y + 3, 0xc8ccd4);
+          fill(x - 3, y, 1, 3, 0xffffff);
+        },
+        back(x, y) { fill(x + 1, y - 1, 2, 5, 0x8a5a32); for (const dx of [1, 2]) dot(x + dx, y - 2, 0xf2f0ea); },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xc85a2a, HD = 0x6a2410, silver = 0xe8ecf4;
+          // The hair tied up high in a knot on a short tail
+          fill(x - 1, top - 3, 3, 2, H); dot(x - 1, top - 3, HL); dot(x + 1, top - 2, HD); dot(x, top - 1, H);
+          fill(x - 3, top + 1, 1, 3, H); fill(x + 3, top + 1, 1, 3, H);
+          if (away) { fill(x - 3, top + 2, 7, 4, H); return; }
+          // The arrows' fletching peeking over her shoulder (from behind, the quiver shows its own)
+          dot(x + 4, top + 6, 0xf2f0ea); dot(x + 5, top + 6, 0xc83a3a); dot(x + 4, top + 7, 0x8a5a32);
+          // The silver crescent on her brow, shining through the night: a soft light on the brow alone
+          const moon = () => { dot(x - 1, top + 1, silver); dot(x + 1, top + 1, silver); dot(x, top + 2, silver); };
+          if (isNight) glowLate(() => { glowAt(x, top + 1, 2, 1, 0xe0e8ff, 0.3); moon(); }); else moon();
+        },
+        // The bow in her left hand, its silver a step darker than pale stone; now and then drawn, an arrow on the string, then
+        // loosed with a streak
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 15, 2.2, 8), S = 0xc0c6d2, SD = 0x767a86;
+          costumeArm(x, top, 4, look, sleeve);
+          if (p === null) {
+            // At rest, upright at her side: the limbs bowed out from tip to tip, the string straight between them
+            costumeArm(x, top, -4, look, sleeve);
+            dot(x - 5, top + 6, SD); dot(x - 6, top + 7, S); fill(x - 7, top + 8, 1, 5, S); dot(x - 6, top + 13, S); dot(x - 5, top + 14, SD);
+            fill(x - 5, top + 7, 1, 7, 0xf2f2f2, 0.6);
+            return true;
+          }
+          // Drawn: the bow out at arm's length, the string back to her chest; or loosed, a streak where the arrow went
+          sleeve(x - 4, top + 8, 1, 1); sleeve(x - 6, top + 8, 2, 1); dot(x - 7, top + 8, look.skin);
+          fill(x - 8, top + 4, 1, 9, S); dot(x - 7, top + 3, SD); dot(x - 7, top + 13, SD);
+          if (p < 0.7) {
+            line(x - 7, top + 4, x - 2, top + 8, 0xf2f2f2, 0.7); line(x - 7, top + 12, x - 2, top + 8, 0xf2f2f2, 0.7);
+            fill(x - 10, top + 8, 8, 1, 0x8a5a32); dot(x - 11, top + 8, 0xc8ccd4); dot(x - 2, top + 7, 0xc83a3a);
+          } else {
+            line(x - 8, top + 4, x - 8, top + 12, 0xf2f2f2, 0.7);
+            const k = (p - 0.7) / 0.3; for (let i = 0; i < 3; i++) dot(x - 11 - Math.round(k * 6) - i * 2, top + 8, 0xe8ecf4, 0.8 - i * 0.25);
+          }
+          return true;
+        },
+      },
+      olympushermes: {
+        // Hermes: a round brimmed traveller's hat with a little white wing either side, brown curls; a short white tunic with a red
+        // cloak at the shoulders and a satchel of letters at the hip; winged sandals; the caduceus. Now and then a letter flies out
+        // of the satchel and zooms off, delivered.
+        look: costumeLook(0xe8bc94, 0x5a3418),
+        front(x, y) {
+          // The red cloak round his shoulders and its clasp, the satchel's strap across; lit on the left
+          dot(x - 3, y, 0xc8302a); dot(x - 2, y, 0xc8302a); dot(x + 2, y, 0x9a2020); dot(x + 3, y, 0x9a2020); dot(x, y, 0xe8b830);
+          dot(x - 1, y + 1, 0x6a4424); dot(x, y + 2, 0x6a4424); dot(x + 1, y + 3, 0x6a4424);
+          fill(x - 3, y + 1, 1, 3, 0xffffff);
+        },
+        head(x, top, look, away) {
+          const hat = 0xb08a5a, wing = 0xf6f6f2, wingDark = 0xc8ccd4, flap = look.costumeLetter !== null && look.costumeLetter !== undefined && Math.floor(now * 10) % 2;
+          // The hat: a low round crown and a wide brim, a little white wing out to each side, beating while a letter goes
+          fill(x - 2, top - 2, 5, 2, hat); fill(x - 2, top - 2, 2, 1, 0xd0aa78); fill(x - 4, top, 9, 1, hat); dot(x - 4, top, 0xd0aa78); dot(x + 4, top, 0x7a5a34);
+          const up = flap ? 1 : 0;
+          dot(x - 5, top - 1 - up, wing); dot(x - 6, top - 2 - up, wing); dot(x - 5, top - 2 - up, wingDark);
+          dot(x + 5, top - 1 - up, wing); dot(x + 6, top - 2 - up, wingDark); dot(x + 5, top - 2 - up, wing);
+          fill(x - 3, top + 1, 1, 2, look.hair); fill(x + 3, top + 1, 1, 2, look.hair);
+          if (away) fill(x - 3, top + 1, 7, 4, look.hair);
+        },
+        // The caduceus in his left hand, the satchel at his right hip, the sandals' wings; now and then a letter zooms off
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), G = 0xe8b830;
+          // The sandals' little wings, out from each heel, clear of the tunic
+          if (lift) for (const [side, l] of [[-1, lift[0]], [1, lift[1]]]) { dot(x + side * 3, top + 16 - l, 0xd8dce4); dot(x + side * 4, top + 15 - l, 0xf6f6f2); }
+          const p = pose.kind === 'walk' ? null : every(look, 14, 1.6, 3);
+          look.costumeLetter = p;
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          // The caduceus: a gold staff, two green snakes winding up it, little wings at its top
+          fill(x - 5, top + 3, 1, 11, G); dot(x - 6, top + 3, 0xf6f6f2); dot(x - 4, top + 3, 0xf6f6f2); dot(x - 5, top + 2, 0xffe08a);
+          for (let i = 0; i < 4; i++) dot(x - 6 + (i % 2) * 2, top + 5 + i * 2, 0x3a9a4a);
+          // The satchel, a letter in it, or the letter flying off
+          fill(x + 2, top + 11, 3, 2, 0x8a5a32); dot(x + 2, top + 11, 0xa8743e);
+          if (p === null) dot(x + 3, top + 10, 0xf6f4ee);
+          else {
+            const k = Math.min(1, p * 1.2), lx = x + 4 + Math.round(k * 12), ly = top + 9 - Math.round(k * 5);
+            fill(lx, ly, 3, 2, 0xf6f4ee); dot(lx + 1, ly, 0xc8302a);
+            for (let i = 1; i <= 3; i++) dot(lx - i * 2, ly + 1, 0xd8dce4, 0.8 - i * 0.2);
+          }
+          return true;
+        },
+      },
+      olympusares: {
+        // Ares: a bronze helmet closing over his face but for the T of its opening, a tall red crest arching over it; a bronze cuirass
+        // shaped to the chest, a red cloak, a short red skirt, bronze greaves; a round bronze shield and a spear. Now and then he
+        // strikes the shield with a war cry, and it rings.
+        look: costumeLook(0xd8a888, 0x2a1a12),
+        front(x, y) {
+          const BL = 0xe8b860, BD = 0x7a5420;
+          // The cuirass lit on the left, the chest and belly modelled in it; the red cloak at the shoulders; the skirt's strips
+          fill(x - 2, y, 1, 4, BL); dot(x - 1, y + 1, BD); dot(x + 1, y + 1, BD); dot(x, y + 2, BD); dot(x - 1, y + 3, BD); dot(x + 1, y + 3, BD); fill(x + 2, y, 1, 4, BD);
+          dot(x - 3, y, 0xc8302a); dot(x + 3, y, 0x8a1c1c); fill(x - 3, y + 4, 7, 2, 0xb02a2a); for (const dx of [-2, 0, 2]) dot(x + dx, y + 5, 0x7a1414);
+        },
+        back(x, y) { fill(x - 3, y, 7, 6, 0xb02a2a); fill(x + 3, y, 1, 6, 0x7a1414); },
+        head(x, top, look, away) {
+          const B = 0xc8903a, BL = 0xe8b860, BD = 0x7a5420, crest = 0xc8302a;
+          // The helmet: a bronze bowl closing over the face, the T of its opening showing his eyes and mouth
+          fill(x - 3, top - 1, 7, 8, B); fill(x - 3, top - 1, 1, 8, BL); fill(x + 3, top - 1, 1, 8, BD); fill(x - 2, top - 2, 5, 1, B);
+          if (!away) {
+            fill(x - 2, top + 4, 5, 1, look.skin); fill(x, top + 5, 1, 2, look.skin); dot(x - 2, top + 4, PALETTE.eye); dot(x + 2, top + 4, PALETTE.eye); dot(x, top + 3, BD);
+            if (look.costumeCry) dot(x, top + 6, 0x3a1010);
+          }
+          // The crest: tall red horsehair arching over the top from front to back
+          fill(x - 1, top - 6, 3, 4, crest); fill(x - 2, top - 5, 1, 3, crest); fill(x + 2, top - 5, 1, 3, 0x8a1c1c); dot(x - 1, top - 6, 0xe85a4a); dot(x, top - 7, crest);
+        },
+        // Greaves on the shins; the round shield on his left arm, ringing when struck; the spear in his right hand, raised to strike
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), B = 0xc8903a, BL = 0xe8b860, BD = 0x7a5420;
+          if (lift) { fill(x - 2, top + 14 - lift[0], 2, 2, B); fill(x + 1, top + 14 - lift[1], 2, 2, BD); }
+          const p = pose.kind === 'walk' ? null : every(look, 15, 1.8, 2), hit = p !== null && Math.floor(p * 6) % 2 === 0;
+          look.costumeCry = p !== null;
+          costumeArm(x, top, -4, look, sleeve);
+          const sx = x - 6 + (hit ? 1 : 0);
+          disc(sx, top + 10, 3, B); disc(sx - 1, top + 9, 1.5, BL); ring(sx, top + 10, 3.2, BD, 0.9); dot(sx, top + 10, BD);
+          if (hit) costumeTwinkle(sx - 2, top + 8, 0.9);
+          costumeArm(x, top, 4, look, sleeve);
+          const up = p !== null ? 3 : 0;
+          fill(x + 5, top - 3 - up, 1, 16, 0x8a5a32); fill(x + 5, top - 5 - up, 1, 2, 0xc8ccd4); dot(x + 5, top - 6 - up, 0xe8ecf2);
+          return true;
+        },
+      },
+      olympusaphrodite: {
+        // Aphrodite: long golden waves down to her waist with a pink rose in them, red lips; a rose-pink chiton with a gold girdle and a
+        // pearly scallop-shell clasp, a golden apple in her hand. Now and then little hearts float up from her.
+        look: costumeLook(0xf6dcc8, 0xf2c860),
+        front(x, y) {
+          // The shell clasp at her shoulder, the gold girdle under the bust, the chiton's folds; lit on the left
+          dot(x + 2, y, 0xf6eee6); dot(x + 3, y, 0xe8d8cc); dot(x + 2, y + 1, 0xe8d8cc);
+          fill(x - 2, y + 2, 5, 1, 0xe8b830); dot(x, y + 3, 0xe8b830);
+          for (const dx of [-1, 1]) fill(x + dx, y + 3, 1, 3, 0xe07888);
+          fill(x - 3, y, 1, 6, 0xf8b8c4);
+        },
+        back(x, y, o, look) { fill(x - 3, y, 7, 5, look.hair); for (const dx of [-2, 0, 2]) dot(x + dx, y + 2, 0xc8a040); },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xfff0a8, HD = 0xc8a040;
+          // The long golden waves: over the head and down both sides past the shoulders, a rose tucked in them
+          fill(x - 3, top - 1, 7, 1, H); fill(x - 4, top, 9, 2, H);
+          for (const side of [-1, 1]) { fill(x + side * 4, top + 2, 1, 10, H); fill(x + side * 3, top + 2, 1, 4, H); }
+          for (const [dx, dy] of [[-2, -1], [1, 0], [-4, 4], [-4, 7], [-4, 10], [4, 3], [4, 6], [4, 9]]) dot(x + dx, top + dy, dx < 0 ? HL : HD);
+          dot(x - 3, top, 0xe8405a); dot(x - 4, top, 0xc82a4a); dot(x - 3, top + 1, 0x4a8a3a);
+          if (away) { fill(x - 3, top + 2, 7, 5, H); return; }
+          fill(x - 1, top + 6, 3, 1, 0xd8283c); dot(x - 2, top + 5, 0xf0a0a8, 0.5); dot(x + 2, top + 5, 0xf0a0a8, 0.5);
+          // The hearts floating up from her (see arms)
+          const p = look.costumeHearts;
+          if (p !== null && p !== undefined) for (let i = 0; i < 3; i++) {
+            const k = (p * 1.5 + i / 3) % 1, hx = x - 3 + i * 3 + Math.round(Math.sin(k * 6 + i)), hy = top - 1 - Math.round(k * 8), a = 1 - k;
+            dot(hx - 1, hy - 1, 0xf0507a, a); dot(hx + 1, hy - 1, 0xf0507a, a); fill(hx - 1, hy, 3, 1, 0xf0507a, a); dot(hx, hy + 1, 0xf0507a, a);
+          }
+        },
+        // The golden apple in her right hand; the hearts' moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeHearts = pose.kind === 'walk' ? null : every(look, 13, 2.4, 6);
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          // The apple held out past her hair, so it doesn't melt into it: lit on the top left, a leaf at its stalk
+          fill(x + 5, top + 11, 2, 2, 0xe8b830); dot(x + 5, top + 11, 0xffe08a); dot(x + 6, top + 12, 0xa07818); dot(x + 6, top + 10, 0x4a8a3a);
+          return true;
+        },
+      },
+      zoolion: {
+        // The lion onesie: a golden suit with a cream belly, its hood ringed by a big shaggy mane falling over the shoulders, two little
+        // round ears on top. Now and then it roars: the mane bristles out and the mouth opens wide.
+        look: zooTucked,
+        front(x, y) {
+          // The cream belly, the zip, the suit lit on the left
+          fill(x - 1, y + 2, 3, 4, 0xf2e2b8); dot(x, y + 2, 0xb88a2a);
+          fill(x - 3, y + 2, 1, 4, 0xf0c060); fill(x + 3, y + 2, 1, 4, 0xa87820);
+        },
+        back(x, y) { fill(x - 3, y, 7, 2, 0xb8642a); dot(x + 1, y + 5, 0xb88a2a); },
+        head(x, top, look, away) {
+          const M = 0xb8642a, ML = 0xd8843a, MD = 0x8a4418, F = 0xe0aa48, FD = 0xb88a2a, roar = look.costumeRoar ? 1 : 0;
+          // The mane: a shaggy ring round the hood and under the chin, out over the shoulders; it bristles out further as it roars
+          const L = x - 5 - roar, R = x + 5 + roar, T = top - 3 - roar, B = top + 8 + roar;
+          fill(L, T + 1, x - 3 - L, B - T - 1, M); fill(x + 4, T + 1, R - x - 3, B - T - 1, M);
+          fill(x - 3, T, 7, top - 1 - T, M); fill(x - 3, top + 7, 7, B - top - 6, M);
+          for (let yy = T + 1; yy < B; yy += 2) { dot(L - 1, yy, M); dot(R + 1, yy + 1, MD); }
+          for (let xx = x - 3; xx <= x + 3; xx += 2) dot(xx, T - 1, ML);
+          fill(L, T + 1, 1, B - T - 1, ML); fill(R, T + 1, 1, B - T - 1, MD);
+          // The hood's golden fur inside it, round the face; two little round ears on top of the mane
+          fill(x - 3, top - 1, 7, 3, F); fill(x - 3, top + 2, 1, 5, F); fill(x + 3, top + 2, 1, 5, FD); dot(x - 3, top - 1, 0xf0c060);
+          fill(x - 4, T - 2, 2, 2, F); fill(x + 3, T - 2, 2, 2, FD); dot(x - 3, T - 1, 0x7a3a1a); dot(x + 3, T - 1, 0x7a3a1a);
+          if (away) { fill(x - 3, top + 2, 7, 5, M); return; }
+          // Roaring: the mouth wide open
+          if (roar) { fill(x - 1, top + 6, 3, 1, 0x5a1a1a); dot(x, top + 5, 0x5a1a1a); }
+        },
+        // Paws for hands; the roar's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeRoar = pose.kind !== 'walk' && every(look, 14, 1.4, 5) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0xb88a2a); costumeArm(x, top, 4, look, sleeve, 0xb88a2a);
+          return true;
+        },
+      },
+      zooelephant: {
+        // The elephant onesie: a grey suit, its hood with two great round ears pink inside and a trunk hanging down between the eyes,
+        // a little white tusk either side of it. Now and then the ears flap and the trunk swings up with a toot.
+        look: zooTucked,
+        front(x, y) {
+          // The paler belly, the suit lit on the left
+          fill(x - 1, y + 1, 3, 4, 0xb4b8c0); fill(x - 3, y, 1, 6, 0xb4b8c0); fill(x + 3, y, 1, 6, 0x6e727c);
+        },
+        back(x, y) { dot(x, y + 5, 0x6e727c); dot(x, y + 6, 0x4a4e58); },
+        head(x, top, look, away) {
+          const G = 0x9a9ea8, GL = 0xb8bcc6, GD = 0x6e727c, pink = 0xe8a8b4, toot = look.costumeToot;
+          costumeHood(x, top, G, GL, GD, away);
+          // The ears: great round flaps either side, pink inside, flapping as it toots
+          const flap = toot !== null && toot !== undefined && Math.floor(now * 6) % 2, ew = flap ? 2 : 3;
+          fill(x - 4 - ew, top - 1, ew, 7, GL); dot(x - 4 - ew, top - 1, G);
+          fill(x + 5, top - 1, ew, 7, GD); dot(x + 4 + ew, top - 1, G);
+          // From behind, the backs of the ears: grey, the pink only inside
+          if (away) return;
+          fill(x - 3 - ew, top, ew - 1, 5, pink); fill(x + 5, top, ew - 1, 5, pink);
+          // The trunk down between the eyes, or swung up with a toot: over the brow in its darker grey, so it shows on the hood, and
+          // out past it, its tip turned up; the toot puffs off the tip. The tusks.
+          if (toot !== null && toot !== undefined) {
+            dot(x, top + 2, G); dot(x, top + 1, GD); dot(x + 1, top, GD); dot(x + 2, top - 1, GD); dot(x + 3, top - 2, GD);
+            dot(x + 4, top - 3, G); dot(x + 4, top - 4, GL);
+            const k = (toot * 3) % 1, rise = Math.round(k * 2);
+            dot(x + 5 + rise, top - 4 - rise, WHITE, 0.8 * (1 - k)); dot(x + 6 + rise, top - 3 - rise, WHITE, 0.6 * (1 - k));
+          } else { fill(x, top + 2, 1, 4, G); dot(x, top + 6, GD); dot(x + 1, top + 6, GD); }
+          dot(x - 1, top + 5, 0xf6f4ee); dot(x + 1, top + 5, 0xf6f4ee);
+        },
+        // Grey paws; the toot's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeToot = pose.kind === 'walk' ? null : every(look, 14, 1.8, 4);
+          costumeArm(x, top, -4, look, sleeve, 0x6e727c); costumeArm(x, top, 4, look, sleeve, 0x6e727c);
+          return true;
+        },
+      },
+      zoogiraffe: {
+        // The giraffe onesie: a yellow suit with brown patches, its hood rising tall with patches of its own, two horns tipped in brown
+        // and little ears out to the sides. Now and then the ears flick and a long dark tongue curls out.
+        look: zooTucked,
+        front(x, y) {
+          // The patches, the suit lit on the left
+          for (const [dx, dy] of [[-2, 0], [1, 1], [-1, 3], [2, 3], [-3, 4], [0, 5]]) fill(x + dx, y + dy, 2, 1, 0xa86a2a);
+          fill(x - 3, y, 1, 4, 0xf8d878); fill(x + 3, y, 1, 3, 0xc8962a);
+        },
+        back(x, y) { for (const [dx, dy] of [[-2, 1], [1, 2], [-1, 4], [2, 5]]) fill(x + dx, y + dy, 2, 1, 0xa86a2a); },
+        head(x, top, look, away) {
+          const Y = 0xf0c050, YL = 0xf8d878, YD = 0xc8962a, spot = 0xa86a2a, flick = look.costumeFlick ? 1 : 0;
+          costumeHood(x, top, Y, YL, YD, away);
+          // Rising tall over the head, patched
+          fill(x - 2, top - 4, 5, 2, Y); dot(x - 2, top - 4, YL); dot(x + 2, top - 3, YD);
+          for (const [dx, dy] of [[-1, -3], [2, -1], [-3, 0], [1, 1], [-4, 3], [3, 4]]) dot(x + dx, top + dy, spot);
+          // The horns, tipped in brown; the ears out to the sides, flicking now and then
+          fill(x - 2, top - 6, 1, 2, YD); dot(x - 2, top - 7, 0x5a3418); fill(x + 2, top - 6, 1, 2, YD); dot(x + 2, top - 7, 0x5a3418);
+          dot(x - 5, top - 2 - flick, Y); dot(x - 6, top - 2 - flick, YL); dot(x + 5, top - 2 - flick, Y); dot(x + 6, top - 2 - flick, YD);
+          if (!away && flick) { dot(x, top + 6, 0x4a2a6a); dot(x + 1, top + 7, 0x4a2a6a); dot(x + 2, top + 7, 0x6a4a8a); }
+        },
+        // Hooves for hands; the flick's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeFlick = pose.kind !== 'walk' && every(look, 12, 1.4, 7) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x5a3418); costumeArm(x, top, 4, look, sleeve, 0x5a3418);
+          return true;
+        },
+      },
+      zoozebra: {
+        // The zebra onesie: a white suit striped in black, its hood striped too, with a black-and-white mane standing up over the top
+        // and pointed ears tipped black. Now and then the ears flick and the mane bristles.
+        look: zooTucked,
+        front(x, y) {
+          // The stripes, curving round the body
+          for (const r of [0, 2, 4]) { fill(x - 3, y + r, 2, 1, 0x1a1a1e); fill(x + 2, y + r + 1, 2, 1, 0x1a1a1e); }
+          dot(x - 1, y + 1, 0x1a1a1e); dot(x + 1, y + 3, 0x1a1a1e); dot(x - 1, y + 5, 0x1a1a1e);
+        },
+        back(x, y) {
+          // Its stripes curving round the back as on the front, not in straight bands like a referee's shirt
+          for (const r of [0, 2, 4]) { fill(x + 2, y + r, 2, 1, 0x1a1a1e); fill(x - 3, y + r + 1, 2, 1, 0x1a1a1e); }
+          dot(x + 1, y + 1, 0x1a1a1e); dot(x - 1, y + 3, 0x1a1a1e); dot(x + 1, y + 5, 0x1a1a1e);
+        },
+        head(x, top, look, away) {
+          const W = 0xf4f4f0, WD = 0xc8c8c4, K = 0x1a1a1e, up = look.costumeFlick ? 1 : 0;
+          costumeHood(x, top, W, 0xffffff, WD, away);
+          // The hood's stripes, down either side
+          for (const [dx, dy] of [[-4, 0], [-4, 2], [-4, 4], [-3, -1], [4, 1], [4, 3], [4, 5], [3, -1], [-2, -2], [2, -2]]) dot(x + dx, top + dy, K);
+          // The mane standing up over the top, striped, bristling now and then; the pointed ears tipped black
+          for (let i = 0; i < 4; i++) dot(x, top - 3 - i - up, i % 2 ? W : K);
+          dot(x - 1, top - 3 - up, K); dot(x + 1, top - 4 - up, K);
+          dot(x - 3, top - 3, W); dot(x - 3, top - 4 + up, K); dot(x + 3, top - 3, WD); dot(x + 3, top - 4 + up, K);
+          if (!away) dot(x, top + 6, 0x8a8a90);
+        },
+        // Black hooves for hands; the flick's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeFlick = pose.kind !== 'walk' && every(look, 12, 1.4, 2) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x1a1a1e); costumeArm(x, top, 4, look, sleeve, 0x1a1a1e);
+          return true;
+        },
+      },
+      zoopenguin: {
+        // The penguin onesie: black with a big white belly and orange feet; its hood black with a white face round the opening and an
+        // orange beak over the brow; flippers for arms. Now and then it flaps them.
+        look: zooTucked,
+        front(x, y) {
+          // The white belly, the black sides
+          fill(x - 2, y, 5, 6, 0xf6f6f2); dot(x - 2, y, 0x1e1e26); dot(x + 2, y, 0x1e1e26); dot(x + 2, y + 1, 0xdcdcd8); fill(x + 2, y + 2, 1, 4, 0xdcdcd8);
+          fill(x - 3, y, 1, 6, 0x3a3a44);
+        },
+        head(x, top, look, away) {
+          const K = 0x1e1e26;
+          costumeHood(x, top, K, 0x3a3a44, 0x0e0e12, away);
+          if (away) return;
+          // The white face round the opening, the orange beak over the brow
+          fill(x - 3, top + 2, 1, 4, 0xf6f6f2); fill(x + 3, top + 2, 1, 4, 0xdcdcd8);
+          fill(x - 1, top + 1, 3, 1, 0xf08a20); dot(x, top + 2, 0xd8701a);
+        },
+        // Flippers for arms, no hands; flapping now and then
+        arms(x, top, look, o, sleeve, pose) {
+          const flap = pose.kind !== 'walk' && every(look, 12, 1.6, 3) !== null && Math.floor(now * 8) % 2;
+          for (const side of [-1, 1]) {
+            if (flap) { fill(x + side * 4, top + 8, 1, 2, 0x1e1e26); fill(x + side * 5, top + 7, 1, 3, 0x2a2a34); }
+            else fill(x + side * 4, top + 8, 1, 5, side < 0 ? 0x2a2a34 : 0x14141a);
+          }
+          return true;
+        },
+      },
+      zoopanda: {
+        // The panda onesie: white with black arms and legs and a black band over the shoulders; its hood white with round black ears
+        // and a panda's face on it, black patches round its eyes and a black nose. Now and then it munches a stalk of bamboo.
+        look: zooTucked,
+        front(x, y) {
+          // The black band over the shoulders, the white belly lit on the left
+          fill(x - 3, y, 7, 2, 0x1e1e22); fill(x - 3, y + 2, 1, 4, 0xffffff); fill(x + 3, y + 2, 1, 4, 0xd8d8d4);
+        },
+        back(x, y) { fill(x - 3, y, 7, 2, 0x1e1e22); dot(x, y + 5, 0xf6f6f2); },
+        head(x, top, look, away) {
+          const W = 0xf6f6f2, K = 0x1e1e22;
+          costumeHood(x, top, W, 0xffffff, 0xd0d0cc, away);
+          // The round black ears on top
+          fill(x - 4, top - 4, 2, 2, K); fill(x + 3, top - 4, 2, 2, K); dot(x - 4, top - 4, 0x3a3a40);
+          if (away) return;
+          // The panda's face on the hood over the brow: black patches round its eyes, their glints, a black nose
+          fill(x - 3, top - 1, 2, 2, K); fill(x + 2, top - 1, 2, 2, K); dot(x - 2, top - 1, WHITE); dot(x + 2, top - 1, WHITE); dot(x, top + 1, K);
+          // Munching bamboo (see arms)
+          if (look.costumeMunch) {
+            const chew = Math.floor(now * 6) % 2;
+            fill(x + 1, top + 4 + chew, 1, 5, 0x5aa83a); dot(x + 1, top + 3 + chew, 0x8ad86a); dot(x + 2, top + 5 + chew, 0x3a8a2a); dot(x + 1, top + 6 + chew, 0x2e7a24);
+          }
+        },
+        // Black paws; now and then one comes up with a stalk of bamboo (the stalk is drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeMunch = pose.kind !== 'walk' && every(look, 15, 2.6, 8) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x1e1e22);
+          if (look.costumeMunch) { sleeve(x + 4, top + 7, 1, 3); dot(x + 3, top + 7, 0x1e1e22); dot(x + 2, top + 8, 0x1e1e22); }
+          else costumeArm(x, top, 4, look, sleeve, 0x1e1e22);
+          return true;
+        },
+      },
+      zoomonkey: {
+        // The monkey onesie: brown with a tan belly, its hood with big round ears out at the sides, tan inside, and a tan face round the
+        // opening; a banana in hand. Now and then it peels the banana and takes a bite.
+        look: zooTucked,
+        front(x, y) {
+          // The tan belly, the suit lit on the left
+          fill(x - 1, y + 1, 3, 5, 0xd8b088); fill(x - 3, y, 1, 6, 0x9a6a42); fill(x + 3, y, 1, 6, 0x5a3420);
+        },
+        // Its tail curled up its back, in the darker brown so it shows on the suit
+        back(x, y) { for (const [dx, dy] of [[2, 5], [3, 4], [3, 3], [2, 2]]) dot(x + dx, y + dy, 0x5a3420); },
+        head(x, top, look, away) {
+          const B = 0x7a4a2a, BL = 0x9a6a42, BD = 0x5a3420, T = 0xd8b088;
+          costumeHood(x, top, B, BL, BD, away);
+          // Big round ears out at the sides, tan inside
+          fill(x - 7, top + 1, 3, 3, B); fill(x - 6, top + 2, 2, 1, T); dot(x - 7, top + 1, BL);
+          fill(x + 5, top + 1, 3, 3, BD); fill(x + 5, top + 2, 2, 1, T);
+          if (away) return;
+          // The tan face round the opening
+          fill(x - 2, top + 1, 5, 1, T); dot(x - 3, top + 2, T); dot(x + 3, top + 2, T); dot(x - 3, top + 6, T); dot(x + 3, top + 6, T);
+          // The banana, up at the mouth, peeled and bitten (see arms)
+          const p = look.costumeBanana;
+          if (p !== null && p !== undefined) {
+            fill(x + 1, top + 5, 1, 4, 0xf2d84a); dot(x + 2, top + 8, 0xc8a82a);
+            if (p > 0.3) { dot(x, top + 5, 0xf2d84a); dot(x + 2, top + 5, 0xe8c83a); dot(x, top + 6, 0xe8c83a); }
+            if (p > 0.6) dot(x + 1, top + 4, 0xfaf2d0);
+          }
+        },
+        // Brown paws, a banana in one; now and then the banana goes up to its mouth (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 14, 2.4, 3);
+          look.costumeBanana = p;
+          costumeArm(x, top, -4, look, sleeve, 0x5a3420);
+          if (p !== null) { sleeve(x + 4, top + 7, 1, 3); dot(x + 3, top + 8, 0x5a3420); }
+          else { costumeArm(x, top, 4, look, sleeve, 0x5a3420); dot(x + 5, top + 11, 0xf2d84a); dot(x + 5, top + 12, 0xf2d84a); dot(x + 6, top + 10, 0xe8c83a); }
+          return true;
+        },
+      },
+      zooflamingo: {
+        // The flamingo onesie: pink all over, darker at the wing edges; its hood with a long neck curving up out of it and the
+        // flamingo's head on top, its bent beak black at the tip. Now and then the neck bends down to preen.
+        look: zooTucked,
+        front(x, y) {
+          // Feathered rows, the wings' darker edges, lit on the left
+          for (const dx of [-2, 0, 2]) dot(x + dx, y + 2, 0xe0708e); for (const dx of [-1, 1]) dot(x + dx, y + 4, 0xe0708e);
+          fill(x - 3, y, 1, 6, 0xf8b0c4); fill(x + 3, y, 1, 6, 0xc85a7a);
+        },
+        head(x, top, look, away) {
+          const P = 0xf28aa8, PL = 0xf8b0c4, PD = 0xc85a7a, dip = look.costumePreen ? 1 : 0;
+          costumeHood(x, top, P, PL, PD, away);
+          // The neck rising out of the hood in a curve, the head on top with its eye and bent beak, all of it within the outfit
+          // picker's picture; bent down to preen now and then
+          const neck = dip ? [[0, -3], [1, -4], [2, -4], [3, -3], [4, -2]] : [[0, -3], [1, -4], [1, -5]];
+          for (const [dx, dy] of neck) dot(x + dx, top + dy, P);
+          const [hx, hy] = dip ? [x + 5, top - 2] : [x - 1, top - 7];
+          fill(hx - 1, hy, 3, 2, P); dot(hx - 1, hy, PL); dot(hx + (dip ? 0 : -1), hy, 0x1a1a1a);
+          if (dip) { dot(hx + 2, hy + 1, 0xf6f2ea); dot(hx + 2, hy + 2, 0xf6f2ea); dot(hx + 1, hy + 3, 0x1a1a1a); }
+          else { dot(hx - 2, hy + 1, 0xf6f2ea); dot(hx - 2, hy + 2, 0xf6f2ea); dot(hx - 1, hy + 3, 0x1a1a1a); }
+        },
+        // Pink wings for arms, their edges darker; the preen's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumePreen = pose.kind !== 'walk' && every(look, 13, 2, 9) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0xc85a7a); costumeArm(x, top, 4, look, sleeve, 0xc85a7a);
+          dot(x - 4, top + 11, 0xc85a7a); dot(x + 4, top + 11, 0xc85a7a);
+          return true;
+        },
+      },
+      zoocroc: {
+        // The crocodile onesie: green with a pale yellow belly in bands; its hood is the crocodile's open jaws, the face looking out
+        // between rows of white teeth, the bulging yellow eyes on top, a ridged tail behind. Now and then the jaws snap a little.
+        look: zooTucked,
+        front(x, y) {
+          // The banded belly, the suit lit on the left
+          fill(x - 2, y + 1, 5, 5, 0xe8e0a0); for (const r of [2, 4]) fill(x - 2, y + r, 5, 1, 0xc8c080);
+          fill(x - 3, y, 1, 6, 0x6aaa4a); fill(x + 3, y, 1, 6, 0x2e5a22);
+        },
+        back(x, y) { for (const dx of [-2, 0, 2]) dot(x + dx, y, 0x2e5a22); for (const r of [2, 4]) dot(x, y + r, 0x2e5a22); },
+        head(x, top, look, away) {
+          const G = 0x4a8a3a, GD = 0x2e5a22, tooth = 0xf6f6f0, snap = look.costumeSnap ? 1 : 0;
+          costumeHood(x, top, G, 0x6aaa4a, GD, away);
+          // The bulging yellow eyes on top, the bumps along the head
+          fill(x - 3, top - 3, 2, 1, G); fill(x + 2, top - 3, 2, 1, G); dot(x - 3, top - 3, 0xf0d840); dot(x + 3, top - 3, 0xf0d840);
+          dot(x - 2, top - 3, 0x1a1a1a); dot(x + 2, top - 3, 0x1a1a1a); for (const dx of [-1, 1]) dot(x + dx, top - 2, GD);
+          if (away) return;
+          // The teeth: a row along the upper jaw over the brow, another along the lower jaw at the chin; snapping a little now and then
+          for (const dx of [-2, 0, 2]) dot(x + dx, top + 2 + snap, tooth);
+          fill(x - 3, top + 7, 7, 1, G); for (const dx of [-1, 1]) dot(x + dx, top + 6, tooth);
+        },
+        // Green claws; the snap's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeSnap = pose.kind !== 'walk' && every(look, 11, 1.2, 6) !== null && Math.floor(now * 5) % 2 === 0;
+          costumeArm(x, top, -4, look, sleeve, 0x2e5a22); costumeArm(x, top, 4, look, sleeve, 0x2e5a22);
+          return true;
+        },
+      },
+      /*
+       * The ant colony (an original team, no brand): nine ants of one nest, each in an ant onesie over the wearer's own face, with
+       * the work that ant does. Their hood, antennae, compound eyes and mandibles, and their second pair of legs, are drawn by
+       * costumeAntHead and costumeAntLegs, just after this table.
+       */
+      antcolonyqueen: {
+        // The queen: a deep red-brown ant hood with a little gold crown between its antennae; a long gown banded like a queen ant's
+        // great abdomen, a gold sash across it. Now and then she gives a royal wave, and the crown glints.
+        front(x, y) {
+          // The narrow waist and the banded abdomen of the gown below it, lit on the left; the gold sash from her shoulder down
+          fill(x - 3, y + 3, 7, 1, 0x3a1008); fill(x - 3, y + 4, 7, 1, 0x8a3420); fill(x - 3, y + 5, 7, 1, 0x6a2414);
+          fill(x - 3, y, 1, 3, 0xa04a30); dot(x - 2, y + 4, 0xb8604a);
+          for (let r = 1; r < 4; r++) fill(x - 4 + r, y + r, 2, 1, 0xe8b830);
+          dot(x - 3, y + 1, 0xffe08a); dot(x, y + 3, 0xb88a20);
+        },
+        back(x, y) { fill(x - 3, y + 3, 7, 1, 0x3a1008); fill(x - 3, y + 5, 7, 1, 0x6a2414); },
+        head(x, top, look, away) {
+          costumeAntHead(x, top, look, 0x7a2a1a, 0xa04a30, 0x4a1408, away);
+          // The little gold crown between the antennae, a ruby in it
+          fill(x - 1, top - 3, 3, 1, 0xe8b830); dot(x - 1, top - 4, 0xffe08a); dot(x + 1, top - 4, 0xe8b830); dot(x, top - 3, 0xc8283a);
+          if (look.costumeWave) costumeTwinkle(x + 1, top - 4, 0.8);
+        },
+        // Now and then a royal wave: the arm raised out past the hood's edge, the hand waggling by her cheek; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeWave = pose.kind !== 'walk' && every(look, 14, 2.2, 5) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x4a1408);
+          if (look.costumeWave) { sleeve(x + 4, top + 7, 1, 2); sleeve(x + 5, top + 4, 1, 3); dot(x + 5 + Math.floor(now * 4) % 2, top + 3, 0x4a1408); }
+          else costumeArm(x, top, 4, look, sleeve, 0x4a1408);
+          costumeAntLegs(x, top, pose, 0x4a1408);
+          return true;
+        },
+      },
+      antcolonyworker: {
+        // The worker: a black ant hood; a black suit pinched in at the waist; a big sugar cube carried in both arms. Now and then it
+        // hoists the cube high over its head, proud of its strength, a bead of sweat on its brow.
+        front(x, y) { fill(x - 3, y + 3, 7, 1, 0x0a0a0e); dot(x - 2, y + 4, 0x4a4a58); fill(x - 3, y, 1, 3, 0x3a3a46); },
+        back(x, y) { fill(x - 3, y + 3, 7, 1, 0x0a0a0e); },
+        head(x, top, look, away) {
+          costumeAntHead(x, top, look, 0x1e1e26, 0x3a3a46, 0x0e0e12, away);
+          if (!away && look.costumeHoist) dot(x - 2, top + 3, 0x8ac8f0, 0.85);   // a bead of sweat
+        },
+        // The cube in both arms, or held high over the head, between the antennae; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 15, 2.4, 3), hand = 0x0e0e12;
+          look.costumeHoist = p !== null && p > 0.15;
+          // A sugar cube: its lit top face, its front, its shaded side, a grain or two
+          const cube = (cx, cy) => {
+            fill(cx, cy, 5, 4, 0xeeeeea); fill(cx, cy, 5, 1, WHITE); fill(cx + 4, cy + 1, 1, 3, 0xc4c8d2);
+            dot(cx + 1, cy + 2, 0xd4d4ce); dot(cx + 3, cy + 3, 0xd4d4ce);
+          };
+          if (look.costumeHoist) {
+            // Both arms up round the hood, elbows out, the hands under the cube's corners
+            for (const side of [-1, 1]) {
+              for (const [dx, dy] of [[4, 7], [4, 8], [5, 4], [5, 5], [5, 6], [6, 0], [6, 1], [6, 2], [6, 3], [5, -2], [5, -1]]) {
+                sleeve(x + side * dx, top + dy, 1, 1);
+              }
+              dot(x + side * 4, top - 3, hand); dot(x + side * 3, top - 4, hand);
+            }
+            cube(x - 2, top - 7);
+            costumeTwinkle(x - 1, top - 6, 0.7);
+          } else {
+            sleeve(x - 4, top + 8, 1, 2); sleeve(x + 4, top + 8, 1, 2);
+            cube(x - 2, top + 8);
+            dot(x - 3, top + 10, hand); dot(x + 3, top + 10, hand);
+          }
+          costumeAntLegs(x, top, pose, hand);
+          return true;
+        },
+      },
+      antcolonysoldier: {
+        // The soldier: a dark red ant hood with great curved amber mandibles round the chin and a stern brow; a dark red suit with a
+        // heavy armoured thorax. Now and then it snaps the mandibles shut and open, on guard.
+        front(x, y) { fill(x - 3, y + 3, 7, 1, 0x2a0808); fill(x - 3, y, 7, 1, 0x6a1810); fill(x - 3, y + 1, 1, 2, 0xa83a2a); dot(x - 2, y + 4, 0xc04a3a); },
+        back(x, y) { fill(x - 3, y + 3, 7, 1, 0x2a0808); },
+        head(x, top, look, away) {
+          costumeAntHead(x, top, look, 0x8a2018, 0xb83a2a, 0x3a0806, away, { big: true, shut: !!look.costumeSnap });
+          if (!away) { dot(x - 2, top + 3, 0x5a1410); dot(x + 2, top + 3, 0x5a1410); }   // a stern brow
+        },
+        // Fists at its sides; now and then the snap (drawn with the head); the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeSnap = pose.kind !== 'walk' && every(look, 11, 1.2, 4) !== null && Math.floor(now * 5) % 2 === 0;
+          costumeArm(x, top, -4, look, sleeve, 0x3a0806); costumeArm(x, top, 4, look, sleeve, 0x3a0806);
+          costumeAntLegs(x, top, pose, 0x3a0806);
+          return true;
+        },
+      },
+      antcolonyleafcutter: {
+        // The leafcutter: a rust-red ant hood; a rust suit; a big green leaf held up over its head like a parasol on its stalk, a
+        // tiny ant riding on it. Now and then the leaf sways in the breeze and the rider waves.
+        front(x, y) { fill(x - 3, y + 3, 7, 1, 0x4a1e0a); fill(x - 3, y, 1, 3, 0xc06a3a); dot(x - 2, y + 4, 0xc06a3a); },
+        back(x, y) { fill(x - 3, y + 3, 7, 1, 0x4a1e0a); },
+        head(x, top, look, away) {
+          // The leaf held up over the head, tip up to the left, lit above its midrib, the rider on its edge: from the front it's
+          // behind the head and its antennae, its stalk down to the hand (see arms); from behind, over the hood
+          const sway = look.costumeSway ? (Math.floor(now * 3) % 2 ? 1 : -1) : 0, lx = x - 5 + sway, ly = top - 6;
+          const leaf = () => {
+            costumeAntSprite(['LLLL........', 'LmmGLLL.....', '.GGmmmGLL...', '..dGGGmmGL..', '....ddGGmmL.', '.......ddGms'], lx, ly,
+              { L: 0x6ab84a, G: 0x4a9a3a, m: 0x9ad870, d: 0x2e6a24, s: 0x5a8a3a });
+            dot(lx + 5, ly, 0x5a2410); dot(lx + 6, ly, 0x5a2410); if (look.costumeSway) dot(lx + 6 + (Math.floor(now * 4) % 2), ly - 1, 0x5a2410);
+          };
+          if (away) { costumeAntHead(x, top, look, 0xa04a20, 0xc06a3a, 0x5a2410, true); leaf(); return; }
+          leaf(); fill(x + 6, top, 1, 3, 0x5a8a3a);
+          costumeAntHead(x, top, look, 0xa04a20, 0xc06a3a, 0x5a2410, false);
+        },
+        // The arm up beside the hood holding the leaf's stalk; the other at its side; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeSway = pose.kind !== 'walk' && every(look, 13, 2.4, 9) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x5a2410);
+          sleeve(x + 4, top + 7, 1, 2); sleeve(x + 5, top + 4, 1, 3); dot(x + 6, top + 3, 0x5a2410);
+          costumeAntLegs(x, top, pose, 0x5a2410);
+          return true;
+        },
+      },
+      antcolonynurse: {
+        // The nurse: a ginger ant hood; a ginger suit, a lavender sling from her shoulder, a pale larva cradled in it. Now and then
+        // the larva wriggles and she rocks it.
+        front(x, y) {
+          // The top of the sling's strap, over her shoulder (the rest with the pouch, see arms); the waist; lit on the left
+          dot(x + 3, y, 0xb89ae0); dot(x + 2, y, 0x9a7ac8);
+          fill(x - 3, y + 4, 7, 1, 0x6a3a10); fill(x - 3, y, 1, 3, 0xe09a4a);
+        },
+        back(x, y) { for (let r = 0; r < 4; r++) dot(x - 3 + r, y + r, 0xb89ae0); },
+        head(x, top, look, away) { costumeAntHead(x, top, look, 0xc8742a, 0xe09a4a, 0x6a3a10, away, { twitch: look.costumeRock ? Math.floor(now * 4) % 2 : 0 }); },
+        // The larva in the sling, her arms round it, wriggling and rocked now and then; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 12, 2.4, 7);
+          look.costumeRock = p !== null;
+          const rock = p !== null ? (Math.floor(now * 3) % 2 ? 1 : 0) : 0, wr = p !== null ? Math.floor(now * 8) % 2 : 0, lx = x - 2 + rock;
+          sleeve(x - 4, top + 8, 1, 3); sleeve(x + 4, top + 8, 1, 3);
+          // The larva: a pale grub, plump and segmented, its little amber head at one end, its tail lifting as it wriggles
+          fill(lx, top + 8, 4, 2, 0xf4ecd8); dot(lx, top + 8, 0xfffaf0); dot(lx + 1, top + 9, 0xd8ccb0); dot(lx + 3, top + 9, 0xd8ccb0);
+          dot(lx + 3, top + 8, 0xe8b07a); dot(lx - 1, top + 9 - wr, 0xf4ecd8);
+          // The sling's pouch under it, round at the bottom, the strap up to her shoulder; her hands at its corners
+          fill(x - 2, top + 10, 5, 1, 0xb89ae0); fill(x - 1, top + 11, 3, 1, 0x9a7ac8); dot(x - 2, top + 10, 0xd0b8f0);
+          fill(x + 3, top + 8, 1, 2, 0xb89ae0);
+          dot(x - 3, top + 10, 0x6a3a10); dot(x + 3, top + 10, 0x6a3a10);
+          costumeAntLegs(x, top, pose, 0x6a3a10);
+          return true;
+        },
+      },
+      antcolonydrone: {
+        // The drone: a slim black-brown ant hood with extra-big compound eyes; two pairs of clear wings out from its shoulders, veined,
+        // a dark spot on each forewing. Now and then the wings buzz.
+        front(x, y) { fill(x - 3, y + 3, 7, 1, 0x0e0a08); fill(x - 3, y, 1, 3, 0x4a3e36); },
+        back(x, y) { for (const dx of [-3, 2]) { fill(x + dx, y, 2, 6, 0xdceaf4, 0.5); dot(x + dx, y + 2, 0x8a9aa8, 0.6); } },
+        head(x, top, look, away) { costumeAntHead(x, top, look, 0x2a2420, 0x4a3e36, 0x0e0c0a, away, { eyes: 3, twitch: look.costumeBuzz ? Math.floor(now * 6) % 2 : 0 }); },
+        // The wings, out either side, buzzing now and then (a blur between two beats); the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeBuzz = pose.kind !== 'walk' && every(look, 12, 1.8, 11) !== null;
+          const beat = look.costumeBuzz ? Math.floor(now * 14) % 2 : 0, a = look.costumeBuzz ? 0.7 : 1;
+          const wing = { w: [0xdceaf4, 0.55 * a], e: [0xeef6fc, 0.75 * a], v: [0x8a9aa8, 0.8 * a], s: [0x3a3440, 0.85 * a], g: [WHITE, 0.85 * a] };
+          for (const side of [-1, 1]) {
+            // The forewing up and out from the shoulder, its dark spot near the tip; the hind wing smaller, below
+            costumeAntSprite(['...ve', '..vsw', '.vwgw', 'vwwwe', 'vwwe.', '.we..'], x + side * 5, top + 1 - beat, wing, 1, side < 0);
+            costumeAntSprite(['vwwe', '.wwe', '..e.'], x + side * 5, top + 7 + beat, wing, 1, side < 0);
+          }
+          costumeArm(x, top, -4, look, sleeve, 0x0e0c0a); costumeArm(x, top, 4, look, sleeve, 0x0e0c0a);
+          costumeAntLegs(x, top, pose, 0x0e0c0a);
+          return true;
+        },
+      },
+      antcolonyarchitect: {
+        // The architect: a brown ant hood, round glasses, a pencil tucked behind one antenna; a brown suit with a pen in its pocket;
+        // a rolled blueprint. Now and then it unrolls the blueprint, the colony's tunnels drawn on it, and studies it.
+        front(x, y) { fill(x - 3, y + 3, 7, 1, 0x2a1a0c); dot(x + 2, y + 1, 0x3a6ad8); dot(x + 2, y + 2, 0x3a6ad8); fill(x - 3, y, 1, 3, 0x8a6a42); },
+        back(x, y) { fill(x - 3, y + 3, 7, 1, 0x2a1a0c); },
+        head(x, top, look, away) {
+          costumeAntHead(x, top, look, 0x6a4a2a, 0x8a6a42, 0x3a2614, away);
+          if (away) return;
+          // The round glasses: a pale rim round each eye, lit at the top, the eye clear inside it; the pencil behind the antenna
+          for (const ex of [x - 2, x + 2]) {
+            dot(ex, top + 3, 0xe4f0f6); dot(ex - 1, top + 4, 0xd0e2ec); dot(ex + 1, top + 4, 0xd0e2ec); dot(ex, top + 5, 0xb8ccd8);
+          }
+          dot(x + 4, top - 3, 0xf0c838); dot(x + 5, top - 4, 0xf0c838); dot(x + 6, top - 5, 0xe88a9a);
+        },
+        // The blueprint rolled in its hand, or unrolled in both and studied; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 15, 2.8, 2);
+          if (p !== null) {
+            sleeve(x - 4, top + 8, 1, 2); sleeve(x + 4, top + 8, 1, 2);
+            fill(x - 4, top + 8, 9, 4, 0x2a5aa8); fill(x - 4, top + 8, 9, 1, 0x3a6ac0);
+            for (const [dx, dy] of [[-3, 9], [-2, 9], [-1, 9], [-1, 10], [0, 10], [1, 10], [2, 9], [3, 9], [1, 11], [-3, 10]]) dot(x + dx, top + dy, 0xe8f0ff, 0.9);
+            dot(x - 5, top + 8, 0x3a2614); dot(x + 5, top + 8, 0x3a2614);
+          } else {
+            costumeArm(x, top, -4, look, sleeve, 0x3a2614); costumeArm(x, top, 4, look, sleeve, 0x3a2614);
+            fill(x + 5, top + 9, 1, 4, 0x2a5aa8); dot(x + 5, top + 9, 0xe8f0ff); dot(x + 5, top + 12, 0x1a3a7a);
+          }
+          costumeAntLegs(x, top, pose, 0x3a2614);
+          return true;
+        },
+      },
+      antcolonyhoneypot: {
+        // The honeypot: an amber ant hood; a suit swelling below the chest into a great round golden belly of stored honey, glossy
+        // and clear. Now and then the honey sloshes and a drop glints; by night the belly glows softly.
+        front(x, y) { fill(x - 3, y, 1, 2, 0xf0bc5a); },
+        back(x, y) { disc(x, y + 4, 3.5, 0xe0a030); },
+        head(x, top, look, away) { costumeAntHead(x, top, look, 0xd8a040, 0xf0bc5a, 0x8a5a14, away); },
+        // The honey belly, out past the arms, its highlight sloshing now and then, glowing by night; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 12, 1.8, 6), slosh = p !== null ? Math.round(Math.sin(p * Math.PI * 4) * 1) : 0;
+          costumeArm(x, top, -5, look, sleeve, 0x8a5a14); costumeArm(x, top, 5, look, sleeve, 0x8a5a14);
+          fill(x - 3, top + 9, 7, 1, 0x6a4010);
+          disc(x, top + 13, 4.4, 0xe8a830); disc(x, top + 13, 3.4, 0xf2c050, 0.8);
+          dot(x - 2 + slosh, top + 11, WHITE, 0.85); dot(x - 1 + slosh, top + 11, WHITE, 0.5); dot(x + 2, top + 15, 0xc88a20);
+          if (p !== null) costumeTwinkle(x + 2 + slosh, top + 12, 0.8);
+          if (isNight) glowLate(() => glowAt(x, top + 13, 6, 5, 0xffc860, 0.18));
+          costumeAntLegs(x, top, pose, 0x8a5a14);
+          return true;
+        },
+      },
+      antcolonyfarmer: {
+        // The aphid farmer: a black-brown ant hood; a dark suit under a brown leather apron; a plump green aphid perched on its shoulder,
+        // a little milk pail in hand. Now and then the aphid hops and gives a golden drop of honeydew.
+        front(x, y) { fill(x - 2, y + 1, 5, 5, 0x8a5a32); fill(x - 2, y + 1, 5, 1, 0xa8743e); dot(x - 2, y, 0x6a4424); dot(x + 2, y, 0x6a4424); fill(x - 3, y, 1, 3, 0x4a3e36); },
+        back(x, y) { fill(x - 3, y + 2, 7, 1, 0x6a4424); },
+        head(x, top, look, away) {
+          costumeAntHead(x, top, look, 0x2e241e, 0x4a3e36, 0x0e0c0a, away);
+          if (away) return;
+          // The aphid on its shoulder: a plump green body, a dark eye, little legs; hopping and giving a drop now and then (see arms)
+          const hop = look.costumeHop ? 1 : 0, ax = x + 5, ay = top + 5 - hop;
+          fill(ax - 1, ay, 3, 2, 0x6ac04a); dot(ax - 1, ay, 0x8ad86a); dot(ax + 1, ay, 0x1a1a1a); dot(ax - 1, ay + 2, 0x3a7a2a); dot(ax + 1, ay + 2, 0x3a7a2a);
+          if (hop) { dot(ax - 2, ay + 3, 0xf0c040); costumeTwinkle(ax - 2, ay + 3, 0.6); }
+        },
+        // The pail in one hand; the hop's moment (drawn with the head); the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeHop = pose.kind !== 'walk' && every(look, 13, 1.6, 4) !== null && Math.floor(now * 4) % 2 === 0;
+          costumeArm(x, top, -4, look, sleeve, 0x0e0c0a); costumeArm(x, top, 4, look, sleeve, 0x0e0c0a);
+          fill(x - 6, top + 11, 2, 2, 0xa8adb6); dot(x - 6, top + 11, 0xd8dce4); dot(x - 5, top + 10, 0x6e727c);
+          costumeAntLegs(x, top, pose, 0x0e0c0a);
+          return true;
+        },
+      },
     };
+
+    /*
+     * The ant colony's own helpers, for its outfits at the end of OUTFIT_PARTS above (function declarations, so they're there
+     * before the table is first drawn).
+     */
+    /**
+     * An ant costume's head over the wearer's own, as `look` has it: the hood in `c`, two big glossy compound eyes on its front
+     * corners, two elbowed antennae from its crown (the right one twitching with `twitch`), and mandibles at the jaw, a soldier's
+     * great amber ones with `big`, snapped shut with `shut`; from behind, the hood and the antennae.
+     */
+    function costumeAntHead(x, top, look, c, light, dark, away, { twitch = 0, big = false, shut = false, eye = 0x14141a, eyes = 2 } = {}) {
+      costumeHood(x, top, c, light, dark, away);
+      // The wearer's own hair where the hood doesn't reach, tucked away: long hair's ends under its sides, an afro's under its crown
+      if (look.hairStyle === 'long') { fill(x - 3, top + 7, 1, 2, c); fill(x + 3, top + 7, 1, 2, c); }
+      if (look.hairStyle === 'afro') { dot(x - 4, top - 2, light); dot(x + 4, top - 2, dark); }
+      // The antennae: up from the crown, bent out at the elbow, a knob at each tip
+      for (const side of [-1, 1]) {
+        const t = side > 0 ? twitch : 0;
+        dot(x + side * 2, top - 3, dark); dot(x + side * 2, top - 4, c); dot(x + side * 3, top - 5 - t, c); dot(x + side * 4, top - 6 - t, c); dot(x + side * 5, top - 6 - t, dark);
+      }
+      if (away) return;
+      // The compound eyes: big and glossy on the hood's front corners, a glint and a facet in each
+      for (const side of [-1, 1]) {
+        const ex = side < 0 ? x - 4 : x + 5 - eyes;
+        fill(ex, top - 1, eyes, 2, eye); dot(side < 0 ? ex : ex + eyes - 1, top - 1, WHITE, 0.8); dot(side < 0 ? ex + 1 : ex, top, 0x4a4a5a);
+      }
+      // The mandibles at the jaw, curving in: small and dark, or a soldier's great amber ones from the corners of its jaw, down
+      // past its chin, their tips swinging in when they snap shut
+      for (const side of [-1, 1]) {
+        const s = (dx, dy, colour = dark) => dot(x + side * dx, top + dy, colour);
+        if (big) { s(3, 6, 0xf4d890); s(3, 7, 0xd89a40); s(2, 8, 0xd89a40); s(shut ? 1 : 2, 9, 0x8a4a18); }
+        else { s(3, 7); s(shut ? 1 : 2, 7); }
+      }
+    }
+    /** An ant costume's second pair of legs, out at the hips, wherever the legs show. */
+    function costumeAntLegs(x, top, pose, c) {
+      if (!costumeLift(pose)) return;
+      for (const side of [-1, 1]) { dot(x + side * 4, top + 13, c); dot(x + side * 5, top + 14, c); dot(x + side * 5, top + 15, c); }
+    }
+    /**
+     * A little picture in rows of pixels from `ox`, `oy`, one character a pixel, '.' for none: each character's colour (or
+     * [colour, alpha]) in `colours`; mirrored, it runs leftwards from `ox`.
+     */
+    function costumeAntSprite(rows, ox, oy, colours, alpha = 1, mirrored = false) {
+      rows.forEach((row, r) => [...row].forEach((ch, k) => {
+        const colour = colours[ch];
+        if (colour !== undefined) dot(mirrored ? ox - k : ox + k, oy + r, colour, Array.isArray(colour) ? undefined : alpha);
+      }));
+    }
 
     /**
      * The front of an outfit, over a shirt `half` either side of `x` and
@@ -64275,6 +65723,14 @@
       }));
     }
 
+    /** A hire in T3 Code's badge on the front of its desk: see T3_BADGE. */
+    function drawT3Badge(desk) {
+      const { x, y } = DESKS[desk], bx = x + 3, by = y + 7;
+      T3_BADGE.forEach((row, r) => [...row].forEach((ink, column) => {
+        if (ink !== '.') dot(bx + column, by + r, T3_INKS[ink]);
+      }));
+    }
+
     /**
      * What stands on the floor upstairs besides what stands downstairs: each headless desk's badge. The racks a floor
      * had in its corner are its chill area's now: the server room's servers, or a style's own, in the lounge's corner.
@@ -64323,6 +65779,12 @@
       items.push([d.y + 3, () => drawWorkspaceBack(desk)]);
     });
     if (frame.upstairs && !frame.arranging) upstairsItems(items);
+    // A hire in T3 Code's desk, on any floor: its badge, so it's never taken for a terminal's.
+    if (!frame.arranging) {
+      office.seats.forEach((s, desk) => {
+        if (s && s.session && s.session.t3 && DESKS[desk] && !DESKS[desk].off) items.push([DESKS[desk].y + 5.1, () => drawT3Badge(desk)]);
+      });
+    }
     // Someone being carried is drawn on top, where the finger has them, not at their desk. Someone at
     // the clock or the whiteboard is in front of the first row's workspaces, the tallest of which reach
     // the wall: they're there to be seen.
@@ -66669,6 +68131,13 @@
     /** The roles the computer can hire into, as you've set them up: none, and a hire is anyone. */
     const roles = () => (Array.isArray(hiring.roles) ? hiring.roles.filter((r) => r && typeof r.id === 'string' && r.name) : []);
 
+    /** Hires role `id` (null for anyone) into `desk`, and says so when that hire won't get Smolcorp's fence: the computer's `unfenced` line. */
+    function hireInto(desk, id, floor) {
+      on.hire?.(desk, id, floor);
+      const note = id ? (roles().find((r) => r.id === id) || {}).unfenced : hiring.unfenced;
+      if (typeof note === 'string' && note) on.hint?.(note);
+    }
+
     /** The roles a held empty desk can hire into, along the foot of the room, Anyone first, if there are any to choose from. */
     function roleRow() {
       if (framed || !held || held.kind !== 'empty' || !hiresHere(held) || !roles().length || arranging || styling || firing || maxing || carrying) return null;
@@ -67367,7 +68836,7 @@
         if (session) firing = { id: holding.id, name: memberOf(session)?.name || session.name, at: clock() };
         return on.held?.();
       }
-      if (target.kind === 'hire') return on.hire?.(holding.desk, null, holding.floor ? holding.floor - 1 : 0);
+      if (target.kind === 'hire') return hireInto(holding.desk, null, holding.floor ? holding.floor - 1 : 0);
       if (target.kind === 'micLanguage') return on.language?.(target.next);
       if (target.kind === 'micCleanup') return on.cleanup?.(target.next);
       // An empty or pinned desk says something on a tap, once the finger lifts: holding it is something else.
@@ -67472,7 +68941,7 @@
         if (dropped && chip && !finger.slid && held && held.kind === 'empty') {
           const { desk, floor } = held;
           held = null;
-          on.hire?.(desk, id, floor ? floor - 1 : 0);
+          hireInto(desk, id, floor ? floor - 1 : 0);
         }
       }
       if (finger && !finger.held) {

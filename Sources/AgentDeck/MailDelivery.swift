@@ -41,11 +41,18 @@ enum MailDelivery {
         /// Writes a line to a socket: nil once written, else why not.
         var post: (_ path: String, _ line: Data) -> String?
         var pause: (TimeInterval) -> Void
+        /// A hire in T3 Code's way in: `t3 thread send <id> -` (T797b).
+        var t3: (FrontDesk.Hire, String) -> MailRouter.Delivery = { T3Desk.send($0, $1) }
     }
 
     /// `commit` is called just before the first thing that types (the socket write, the tmux paste); if it
     /// answers false, nothing is typed. The router counts the try there. Tests may leave it out.
     static func deliver(_ hire: FrontDesk.Hire, _ text: String, ways: Ways, commit: () -> Bool = { true }) -> MailRouter.Delivery {
+        // 0. A hire in T3 Code has no window: its thread takes the text on t3's standard input, and queues it while busy.
+        if hire.engine == T3Desk.engine {
+            guard commit() else { return .trouble("The outbox couldn't be written, so nothing was sent.") }
+            return ways.t3(hire, text)
+        }
         // 1. The inbox socket, when it's switched on and known to work on this version. The deck's own
         // `.asking` state is looked at first, so that no path writes to a session waiting at a question.
         if ways.inboxOn(), let inbox = ways.inbox(hire), versionAtLeast(inbox.version, inboxSince) {

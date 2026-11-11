@@ -70,6 +70,18 @@ final class DeckRouter: Router {
         return (nil, caller)
     }
 
+    /// POST /setup/guide: the first-run guide finished or skipped (done=1), or to be shown again (done=0), saved.
+    static func saveGuide(_ request: Request, config: Config, file: URL = Paths.config) {
+        config.guideDone = request.query["done"] == "1"
+        config.save(to: file)
+    }
+
+    /// Setup's state for the first-run guide: whether it's over (see guide.js).
+    static func guideState(_ config: Config) -> [String: Any] { ["done": config.guideDone] }
+
+    /// Start here's GM hire with no folder for your hires: the page points at its folder step (#first-folder).
+    static let chooseHireFolderFirst = "Choose the folder for your hires first: it's the first step of Start here."
+
     /// A tool with the setup-key file may only run `--setup`'s own repair (auto=1),
     /// which leaves agents you disconnected alone: installing the app, the login
     /// and accessibility fixes, and a repair that reconnects are for the setup page (or the GM).
@@ -336,6 +348,10 @@ final class DeckRouter: Router {
         if request.method == "GET" && request.path == "/office.js" {
             return respond(.file(Paths.web.appendingPathComponent("office.js")))
         }
+        // The first-run guide's arrows, for the setup page: nothing of yours either.
+        if request.method == "GET" && request.path == "/guide.js" {
+            return respond(.file(Paths.web.appendingPathComponent("guide.js")))
+        }
         // Its recordings, the keyboards and the talk, in either kind a browser plays.
         if request.method == "GET" && DeckRouter.sounds.contains(request.path) {
             return respond(.file(Paths.web.appendingPathComponent(String(request.path.dropFirst()))))
@@ -398,6 +414,36 @@ final class DeckRouter: Router {
                 return respond(.status(403, "The details show only over Tailscale's HTTPS address."))
             }
             deck.choiceDetail(session, done: respond)
+
+        // "Open a window" on a hire's desk (T796), from the office's own window on this Mac, never a phone:
+        // whether hires run in the background, then a window for the hire in the picked session.
+        case ("GET", "/hire/window"):
+            guard DeckRouter.isOfficeWindow(request, phone: phone) else { return respond(.status(403, "Hires' windows open on your Mac.")) }
+            respond(.json(["background": Choices.background(Config.shared)]))
+
+        case ("POST", "/hire/window"):
+            guard DeckRouter.isOfficeWindow(request, phone: phone) else { return respond(.status(403, "Hires' windows open on your Mac.")) }
+            guard let id = deck.teamHireID(session: session) else { return respond(.status(404, "This agent wasn't hired by Smolcorp, so it has no window to open.")) }
+            deck.openHireWindow(id) { problem in respond(problem.map { .status(409, $0) } ?? .status(204)) }
+
+        // Open in T3 Code (T792), from the office's own window on this Mac: never a phone. What's installed, and
+        // whether the picked agent is a hire; then its folder opened, found by its session, never a path that's sent.
+        case ("GET", "/t3code"):
+            guard DeckRouter.isOfficeWindow(request, phone: phone) else { return respond(.status(403, "T3 Code opens on your Mac.")) }
+            guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }
+            let hire = deck.hire(inSession: session)
+            DeckRouter.t3Status(fresh: request.query["fresh"] == "1") { status in
+                var answer = T3Code.json(status)
+                answer["hire"] = hire.map { T3Code.title(of: $0) } ?? NSNull()
+                // A hire in T3 Code: its desk (the tag, its status) and branch, for the card.
+                if let hire, hire.engine == T3Desk.engine { answer["lane"] = T3Desk.deskJSON(hire).merging(["branch": hire.branch]) { $1 } }
+                respond(.json(answer))
+            }
+
+        case ("POST", "/t3code/open"):
+            guard DeckRouter.isOfficeWindow(request, phone: phone) else { return respond(.status(403, "T3 Code opens on your Mac.")) }
+            guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }
+            DeckRouter.openInT3Code(deck.hire(inSession: session), respond: respond)
 
         // The approvals list: who waits for you, read only. Answering is the paired phone's /act and /choose.
         case ("GET", "/approvals"):
@@ -470,6 +516,27 @@ final class DeckRouter: Router {
     /// "stop" (or ?type=): what a cloud bot's desk is told by hand. A report
     /// may say what it was, how many and when, for the desk's card:
     /// {"type": "report", "text": "Sent a report", "count": 3, "at": "<ISO 8601>"}.
+    /// T3 Code is off in Settings (T796): none of its routes answers, and `t3` is never run.
+    static let t3Off = "T3 Code is off: turn it on in Settings."
+
+    /// T3 Code's state, checked off the main thread (it runs `t3 --version`), answered on it.
+    static func t3Status(fresh: Bool, done: @escaping (T3Code.Status) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let status = T3Code.status(fresh: fresh)
+            DispatchQueue.main.async { done(status) }
+        }
+    }
+
+    /// A hire's folder opened in T3 Code, off the main thread: a hire still on the team, or a 404; and once at a
+    /// time for a hire, a 409 while it's being opened.
+    static func openInT3Code(_ hire: FrontDesk.Hire?, respond: @escaping (Response) -> Void) {
+        guard let hire, hire.state != .fired, hire.state != .failed else { return respond(.status(404, "That hire isn't on the team.")) }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let answer = T3Code.openOnce(hire)
+            DispatchQueue.main.async { respond(answer) }
+        }
+    }
+
     private func botEvent(_ request: Request) -> Response {
         let parts = request.path.split(separator: "/", omittingEmptySubsequences: false)
         guard request.method == "POST", parts.count == 4, parts[3] == "event" else { return .status(404) }
@@ -1020,6 +1087,11 @@ final class DeckRouter: Router {
                 }
             }
 
+        // The first-run guide, finished or skipped (done=1), or to be shown again (done=0).
+        case ("POST", "/setup/guide"):
+            DeckRouter.saveGuide(request, config: config)
+            respond(.json(setupState(caller)))
+
         case ("POST", "/setup/music"):
             config.musicEnabled = request.query["enabled"] == "1"
             config.save()
@@ -1060,7 +1132,34 @@ final class DeckRouter: Router {
             if let tmux { config.hireInTmux = tmux == "1" }
             config.save()
             deck.refresh()
+            // A folder typed while the Mac's folder window is open closes that window, as on Start here.
+            if folder?.isEmpty == false { deck.closeHireFolderPanel() }
             respond(.json(setupState(caller)))
+
+        // The two plain choices (T796), from first setup or Settings: T3 Code on or off, agent windows
+        // (background=1 runs hires in tmux with no window), and asked=1 once first setup has asked them.
+        // Switching to the background detaches each hire's windows and closes those Smolcorp opened.
+        case ("POST", "/setup/choices"):
+            let background = request.query["background"]
+            if background == "1", Tmux.path == nil { return respond(.status(400, "Running hires in the background needs tmux, which isn't on this Mac.")) }
+            let wasBackground = Choices.background(config)
+            if let t3 = request.query["t3"] { config.t3CodeEnabled = t3 == "1" }
+            if let background { config.hiresInBackground = background == "1" }
+            if request.query["asked"] == "1" { config.choicesAsked = true }
+            config.save()
+            deck.refresh()
+            guard !wasBackground, Choices.background(config) else { return respond(.json(setupState(caller))) }
+            deck.hiresToBackground { [self] said in
+                var answer = setupState(caller)
+                answer["windowsSaid"] = said
+                respond(.json(answer))
+            }
+
+        // "Open a window" on a hire's desk in Setup's team list (T796): by the hire's id, from the registry.
+        case ("POST", "/setup/hire/window"):
+            deck.openHireWindow(request.json["id"] as? String ?? "") { problem in
+                respond(problem.map { .status(409, $0) } ?? .status(204))
+            }
 
         // Dictation: turned on, its language, and whether Claude Code uses it. Turning it on
         // asks for the microphone, here on the Mac, and gets the language's model ready.
@@ -1114,7 +1213,7 @@ final class DeckRouter: Router {
 
         // The front desk: the team, and a hire's nickname, state and notes. The page or a tool may ask (T204 narrows it).
         case ("GET", "/setup/gm/team"):
-            respond(.json(deck.frontDesk.teamJSON(live: deck.frontDeskLive(), byHandGM: deck.byHandGMSession)))
+            respond(.json(T3Desk.decorate(deck.frontDesk.teamJSON(live: deck.frontDeskLive(), byHandGM: deck.byHandGMSession), hires: deck.frontDesk.hires)))
 
         // Who waits for you, and on what. Read only: a prompt is answered by your tap alone (the phone's /act and /choose).
         case ("GET", "/setup/gm/approvals"):
@@ -1204,6 +1303,9 @@ final class DeckRouter: Router {
             let mainHeight = Tiler.mainHeight(of: screens)
             let grid = Tiler.grid(on: screen, mainHeight: mainHeight)
             let terminal = config.hireTerminal
+            // Still on Terminal's queue, while iTerm2 and Ghostty hires now open their windows on their own
+            // terminal's queue: a tile asked right after such a hire can run before its window exists. For the
+            // follow-up that moves Tiler and `hiresToBackground` off Terminal's queue.
             Terminal.queue.async { [placeOffice] in
                 let tmuxPath = Tmux.path
                 let report = Tiler.tile(
@@ -1252,6 +1354,28 @@ final class DeckRouter: Router {
             } catch {
                 respond(.status(409, error.localizedDescription))
             }
+
+        // Open in T3 Code (T792): what's installed (again now, as its menu opens: fresh=1), and a hire's folder
+        // opened there, by the hire's id: the folder comes from the registry, never from the request. The page alone.
+        case ("GET", "/setup/t3code"):
+            guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }
+            let on = T3Code.laneAllowed(config)
+            DeckRouter.t3Status(fresh: request.query["fresh"] == "1") { status in
+                var answer = T3Code.json(status)
+                // Whether a hire may go into T3 Code (T797b), or the one sentence saying why not.
+                let why = T3Desk.refusal(on: on, status: status)
+                answer["lane"] = ["ok": why == nil, "why": why ?? ""]
+                respond(.json(answer))
+            }
+
+        case ("POST", "/setup/t3code/open"):
+            guard Choices.t3Code() else { return respond(.status(404, DeckRouter.t3Off)) }
+            let id = request.json["id"] as? String ?? ""
+            DeckRouter.openInT3Code(deck.frontDesk.hires.first { $0.id == id }, respond: respond)
+
+        // Let go of a hire in T3 Code (T797b), by its id after the page's confirm: its T3 project removed, its worktree kept.
+        case ("POST", "/setup/t3code/letgo"):
+            deck.letGoOfT3(id: request.json["id"] as? String ?? "", done: respond)
 
         // The hire guard's groups and your own patterns: a tool may read them, only the page changes them (see `SetupRoutes`).
         case ("GET", "/setup/guard"):
@@ -1307,9 +1431,29 @@ final class DeckRouter: Router {
             }
             respond(.json(setupState(caller)))
 
-        // The Mac's own folder picker, which a web page can't open.
+        // The Mac's own folder picker, which a web page can't open. With `pick=1` it only answers the folder
+        // picked (`picked`, empty if none), for Start here to keep through its checks (POST /setup/hire-folder),
+        // or with `for=floor`, for Floors to put a project on a floor (POST /setup/floors).
         case ("POST", "/setup/hiring/choose"):
-            deck.chooseHireFolder { [self] in respond(.json(setupState(caller))) }
+            if request.query["pick"] == "1" {
+                let message = request.query["for"] == "floor" ? Deck.floorFolderMessage : Deck.hireFolderMessage
+                deck.chooseHireFolder(keep: false, message: message) { picked in respond(.json(["picked": picked ?? ""])) }
+            } else {
+                deck.chooseHireFolder { [self] _ in respond(.json(setupState(caller))) }
+            }
+
+        // Start here's hires folder: the one set, or with none, one suggested; `check=` checks one as it's typed.
+        case ("GET", "/setup/hire-folder"):
+            respond(HireFolder.route(request, config: config) {})
+
+        // Keeps it, once checked; `create=1` makes it first if it isn't there yet. A problem answers 400 with the same JSON, to show with its fix.
+        // A folder typed on the page while the Mac's folder window is open closes that window: it's chosen now.
+        case ("POST", "/setup/hire-folder"):
+            respond(HireFolder.route(request, config: config) { [self] in
+                config.save()
+                deck.refresh()
+                deck.closeHireFolderPanel()
+            })
 
         case ("POST", "/setup/hooks"):
             var notice: String?
@@ -1373,22 +1517,35 @@ final class DeckRouter: Router {
             showOffice()
             respond(.status(204))
 
-        // Start here's Hire your General Manager: the GM role, in the folder for new hires or your home
-        // folder, started by the app with its token in its own environment. `worktree=1` gives it a worktree.
-        // The manager is switched on before the hire (the GM is a managed hire) and back if the hire fails.
+        // Start here's Hire your General Manager: the GM role, in the folder for your hires (never your home
+        // folder: with none set, it's refused and the page points at its folder step), started by the app with
+        // its token in its own environment. `worktree=1` gives it a worktree. The manager, and Hire and fire
+        // from the office (the GM hires its team), are switched on before the hire and back if it fails.
         // `account=` names the Claude account, as a role card's hire does; with one account it is left out.
         case ("POST", "/setup/hire/gm"):
             // One GM per office: the GM's token never hires the gm role, whatever the registry holds. Checked before anything is saved.
             if let refused = BriefRoutes.gmHireRefusal(role: GMPlugin.role, caller: caller, gmHired: BriefRoutes.gmIsHired(among: deck.frontDesk.hires)) { return respond(refused.response) }
-            let folder = config.hireFolder.isEmpty ? NSHomeDirectory() : config.hireFolder
+            guard let folder = Deck.folder(config.hireFolder) else { return respond(.status(409, DeckRouter.chooseHireFolderFirst)) }
             if let refusal = deck.gmRefusal() { return respond(.status(refusal.status, refusal.message)) }
-            let before = config.managerEnabled
+            let before = config.managerEnabled, hiring = config.hiringEnabled
             config.managerEnabled = true
+            config.hiringEnabled = true
             config.save()
             deck.hire(as: "gm", in: folder, answers: nil, account: request.query["account"] ?? "", options: HireDesk.HireOptions(worktree: request.query["worktree"] == "1")) { response in
-                if response.status >= 400 { config.managerEnabled = before; config.save() }
+                if response.status >= 400 { config.managerEnabled = before; config.hiringEnabled = hiring; config.save() }
                 respond(response.status < 400 ? .status(204) : response)
             }
+
+        // What a first General Manager hire needs (GMPreflight), Start here's lines above its Hire button.
+        // Outside /setup/gm/, which is closed while the manager is off, as it is on a first run. The page's
+        // alone (SetupRoutes): it starts your login shell and Claude Code. An account that isn't there is
+        // said, as the hire would say it, rather than checked as the default.
+        case ("GET", "/setup/hire/gm/preflight"):
+            let account = request.query["account"] ?? ""
+            if !account.trimmingCharacters(in: .whitespaces).isEmpty, let why = ClaudeProfiles.hireRefusal(account: account, among: ClaudeProfiles.current) {
+                return respond(.status(400, why.message))
+            }
+            GMPreflight.check(config: config, account: account) { respond(.json($0)) }
 
         // Whether the GM's token is also kept in a file, for a GM started by hand: the page alone, off by default.
         case ("POST", "/setup/gm/by-hand"):
@@ -1414,8 +1571,10 @@ final class DeckRouter: Router {
     /// `POST /setup/claude-accounts` with `{profiles: [{name, dir}]}`: the
     /// accounts besides ~/.claude, whole, checked before anything is kept. One
     /// added while Smolcorp is connected is connected too; one taken out has
-    /// Smolcorp's hooks taken out of it, and nothing else.
-    func setClaudeAccounts(_ body: Data) -> Response {
+    /// Smolcorp's hooks taken out of it, and nothing else. A test copy keeps the
+    /// list in its own settings (its General Manager needs an account of its own)
+    /// and never touches an account's hooks: its hires report through its own.
+    func setClaudeAccounts(_ body: Data, testCopy: Bool = TestCopy.isOn) -> Response {
         guard let given = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any], let list = given["profiles"] as? [[String: Any]]
         else { return .status(400, "Send {profiles: [{name, dir}]}.") }
         let asked = list.map { ClaudeProfile(name: $0["name"] as? String ?? "", dir: $0["dir"] as? String ?? "") }
@@ -1423,10 +1582,10 @@ final class DeckRouter: Router {
         case .failure(let refused): return .status(400, refused.message)
         case .success(let profiles):
             let config = Config.shared
-            guard !TestCopy.isOn else { return .status(409, Hooks.HookError.testCopy.localizedDescription) }
             let before = config.claudeProfiles
             config.claudeProfiles = profiles
             config.save()
+            if testCopy { return .json(ClaudeProfiles.json(ClaudeProfiles.current)) }
             if !config.hooksDisconnected { Hooks.connectAdded(profiles.filter { !before.contains($0) }) }
             for gone in before where !profiles.contains(where: { $0.dir == gone.dir }) { _ = try? Hooks.removeClaude(from: gone) } // writes nothing if none of ours is in it
             return .json(ClaudeProfiles.json(ClaudeProfiles.current))
@@ -1525,8 +1684,11 @@ final class DeckRouter: Router {
 
     /// The manager's part of the setup state. `gmStartedByHand` is true only with the
     /// setting on and a GM that has used the token (see `GMIdentity.startedByHand`).
-    static func managerState(enabled: Bool, byHand: Bool, startedByHand: Bool) -> [String: Any] {
-        ["enabled": enabled, "gmByHand": byHand, "gmStartedByHand": byHand && startedByHand]
+    /// `gmTokenFile` is where "Allow a General Manager started by hand" writes the token,
+    /// for the page to say where (`gmTokenFileShown`, with ~) and copy the path: never the token.
+    static func managerState(enabled: Bool, byHand: Bool, startedByHand: Bool, tokenFile: URL = Paths.gmToken) -> [String: Any] {
+        ["enabled": enabled, "gmByHand": byHand, "gmStartedByHand": byHand && startedByHand,
+         "gmTokenFile": tokenFile.path, "gmTokenFileShown": (tokenFile.path as NSString).abbreviatingWithTildeInPath]
     }
 
     private func setupState(_ caller: SetupSessions.Caller) -> [String: Any] {
@@ -1537,8 +1699,9 @@ final class DeckRouter: Router {
             if let session = key.session { keyOf[session.id] = index }
         }
 
+        // Tailscale reaches this Mac only over HTTPS, with the phone mic on (see Tailnet): only then is it said.
         let pairing = SetupSessions.pairing(code: deck.access.activeCode, expiresIn: Int(deck.access.codeExpiry.timeIntervalSinceNow),
-                                            address: deck.phoneAddress, for: caller)
+                                            address: deck.phoneAddress, tailnet: config.phoneMicEnabled ? Tailnet.url : nil, for: caller)
 
         return [
             // Which Smolcorp this is, shown at the foot of setup's first pane.
@@ -1587,10 +1750,18 @@ final class DeckRouter: Router {
             ] as [String: Any],
             "music": ["enabled": config.musicEnabled],
             "maxConfirm": ["enabled": config.maxConfirm],
+            // The first-run guide's arrows: shown until it's finished or skipped (see guide.js).
+            "guide": DeckRouter.guideState(config),
             "manager": DeckRouter.managerState(enabled: config.managerEnabled, byHand: config.gmByHand, startedByHand: deck.access.gm.startedByHand),
+            // Whether a General Manager is hired, whatever the manager switch says: Start here looks no further
+            // then. Top level, as Linux/Windows has no manager object to put it in.
+            "gmHired": BriefRoutes.gmIsHired(among: deck.frontDesk.hires),
             "keystrokes": ["enabled": config.keystrokesAllowed, "accessibility": Permissions.hasAccessibility,
                            "apps": config.keystrokeApps, "running": Keystrokes.runningApps(except: config.keystrokeApps)] as [String: Any],
             "dock": ["enabled": config.showInDock],
+            // The two plain choices (T796), and the T3 Code gate as T3 Code's own code reads it.
+            "choices": Choices.json(config, hasTmux: Tmux.path != nil),
+            "t3CodeEnabled": Choices.t3Code(config),
             "officeWindow": ["available": true, "mac": true, "onTop": config.officeOnTop ?? false],
             "summary": { () -> [String: Any] in
                 SummaryProviders.shared.refresh()

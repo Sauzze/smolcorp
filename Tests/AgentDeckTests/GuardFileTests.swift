@@ -168,4 +168,36 @@ final class GuardFileTests: XCTestCase {
         if ProcessInfo.processInfo.environment["SMOLCORP_WRITE_FIXTURES"] == "1" { try written.write(to: fixture) }
         XCTAssertEqual(try Data(contentsOf: fixture), written, "hire-guard.json is out of date: run once with SMOLCORP_WRITE_FIXTURES=1")
     }
+
+    /// `Tests/fixtures/frontdesk/fence-commands.json` is what the guard refuses, and still runs, around the fence of a hire in
+    /// T3 Code (T797b); the Go guard's own test checks every line of it. Here: it names the very file `T3Desk` writes, and
+    /// taking that file, its folder or every ignored file away is among what's refused. Given a built `smolcorp` in
+    /// SMOLCORP_GUARD_CLI, the real guard is also run on every line, as the hook runs it.
+    func testTheFenceFixtureNamesT3DesksFenceAndTheRealGuardHoldsToIt() throws {
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: FrontDeskFixtures.url("fence-commands.json"))) as? [String: Any])
+        XCTAssertEqual(fixture["fence"] as? String, T3Desk.fenceName)
+        let refused = try XCTUnwrap(fixture["refused"] as? [String]), allowed = try XCTUnwrap(fixture["allowed"] as? [String])
+        for line in ["rm \(T3Desk.fenceName)", "rm -rf .claude", "echo '{}' > \(T3Desk.fenceName)", "vim \(T3Desk.fenceName)", "git clean -fdx", "git stash --all"] {
+            XCTAssertTrue(refused.contains(line), line)
+        }
+        XCTAssertTrue(allowed.contains("cat \(T3Desk.fenceName)"))
+        guard let cli = ProcessInfo.processInfo.environment["SMOLCORP_GUARD_CLI"] else { return }
+        // No rules file there: the guard's default groups.
+        let rules = url.deletingLastPathComponent().appendingPathComponent("none.json").path
+        for (line, refuse) in refused.map({ ($0, true) }) + allowed.map({ ($0, false) }) {
+            let call = try JSONSerialization.data(withJSONObject: ["tool_name": "Bash", "tool_input": ["command": line]])
+            let hook = Process(), input = Pipe(), output = Pipe()
+            hook.executableURL = URL(fileURLWithPath: cli)
+            hook.arguments = ["guard", "--rules", rules]
+            hook.standardInput = input
+            hook.standardOutput = output
+            try hook.run()
+            try input.fileHandleForWriting.write(contentsOf: call)
+            try input.fileHandleForWriting.close()
+            let said = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            hook.waitUntilExit()
+            XCTAssertEqual(hook.terminationStatus, 0, line)
+            XCTAssertEqual(said.contains(#""permissionDecision":"deny""#), refuse, "\(line): \(said)")
+        }
+    }
 }

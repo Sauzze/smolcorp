@@ -81,9 +81,15 @@ struct HireTmux {
         return answer.status == 0
     }
 
-    /// The ttys of the terminal windows attached to the session: where its viewers are.
-    func clientTTYs() -> [String] {
-        guard let answer = run(command(["list-clients", "-t", "=" + HireTmux.session, "-F", "#{client_tty}"])), answer.status == 0 else { return [] }
+    /// The ttys of the terminal windows attached to the session: where its viewers are. Nil when tmux couldn't be asked.
+    func clientTTYs() -> [String]? {
+        guard let answer = run(command(["list-clients", "-t", "=" + HireTmux.session, "-F", "#{client_tty}"])), answer.status == 0 else { return nil }
+        return answer.output.split(separator: "\n").map(String.init).filter(TabAddress.isTTY)
+    }
+
+    /// The ttys of every pane on this server (the team grid's: each a viewer of one hire). Nil when tmux couldn't be asked.
+    func paneTTYs() -> [String]? {
+        guard let answer = run(command(["list-panes", "-a", "-F", "#{pane_tty}"])), answer.status == 0 else { return nil }
         return answer.output.split(separator: "\n").map(String.init).filter(TabAddress.isTTY)
     }
 
@@ -102,7 +108,7 @@ struct HireTmux {
     /// tmux from turning line feeds into Return.
     func paste(_ text: String) -> Bool {
         guard HireTmux.canPaste(text) else { return false }
-        return ran(["set-buffer", "-b", HireTmux.buffer, "--", text])
+        return ran(["set-buffer", "-b", HireTmux.buffer, "--", Tmux.literal(text)])
             && ran(["paste-buffer", "-p", "-r", "-d", "-b", HireTmux.buffer, "-t", HireTmux.pane])
     }
 
@@ -135,6 +141,10 @@ struct HireTmux {
     func exit() -> Bool {
         paste("/exit") && submit()
     }
+
+    /// Detaches the terminal windows attached to the session, on this socket
+    /// alone: the hire carries on, with no window (agent windows in the background).
+    func detachClients() -> Bool { ran(["detach-client", "-s", "=" + HireTmux.session]) }
 
     /// Ends the hire's server, and so its session. Only this socket's.
     func kill() -> Bool { ran(["kill-server"]) }

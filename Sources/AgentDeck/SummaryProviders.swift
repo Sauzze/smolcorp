@@ -541,7 +541,7 @@ enum SummaryCLI {
 
 /// Whether each coding agent is here and signed in, as setup shows it.
 struct SummaryProviderState: Equatable {
-    enum Kind: String { case ready, missing, signedOut, changed, unsupported
+    enum Kind: String, CaseIterable { case ready, missing, signedOut, changed, unsupported
         /// Signed in with an API account (a Console login): it works, billed to that account.
         case apiAccount
     }
@@ -580,6 +580,19 @@ final class SummaryProviders {
     var isChecking: Bool {
         lock.lock(); defer { lock.unlock() }
         return checking
+    }
+
+    /// For a test: what's known set as if just checked, so asking for the setup state starts no agent's
+    /// command. It answers how to put back what was known before.
+    func preset(_ states: [SummaryProvider: SummaryProviderState]) -> () -> Void {
+        lock.lock(); defer { lock.unlock() }
+        let kept = (known, checkedAt)
+        known = states
+        checkedAt = Date()
+        return { [self] in
+            lock.lock(); defer { lock.unlock() }
+            (known, checkedAt) = kept
+        }
     }
 
     /// Checks again, in the background, if it's been a while or `force`.

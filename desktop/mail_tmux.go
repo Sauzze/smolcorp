@@ -58,7 +58,7 @@ func (h *hireTmux) paste(text string) bool {
 	if !mailPastable(text) {
 		return false
 	}
-	if !h.ok("set-buffer", "-b", mailPasteBuffer, "--", text) {
+	if !h.ok("set-buffer", "-b", mailPasteBuffer, "--", tmuxLiteral(text)) {
 		return false
 	}
 	if h.ok("paste-buffer", "-p", "-r", "-d", "-b", mailPasteBuffer, "-t", hirePane) {

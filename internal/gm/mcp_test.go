@@ -178,7 +178,7 @@ func TestMCPHasNoAnswerTool(t *testing.T) {
 // T735: the tools the Go app doesn't serve yet say so in their description.
 func TestMCPToolsNameWhatLinuxAndWindowsLack(t *testing.T) {
 	for _, tool := range mcpTools() {
-		want := tool.Name == "hire" || tool.Name == "brief" || tool.Name == "fire" || tool.Name == "accounts"
+		want := tool.Name == "accounts"
 		if got := strings.Contains(tool.Description, "Not served on Linux and Windows yet."); got != want {
 			t.Errorf("%s: note = %v, want %v", tool.Name, got, want)
 		}

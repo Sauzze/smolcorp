@@ -229,17 +229,24 @@ func (t commandTab) Type(text string) error {
 	return t.sendKey(Enter)
 }
 
+// tmuxLiteral is text as the last argument of a tmux command, kept whole.
+// tmux reads an argument ending in ";" as the end of its command and drops
+// that ";" (a lone ";" leaves no text at all), and takes one ending in "\;"
+// for a ";": so a ";" at the end goes as "\;". As the Mac app's Tmux.literal.
+func tmuxLiteral(text string) string {
+	if strings.HasSuffix(text, ";") {
+		return strings.TrimSuffix(text, ";") + `\;`
+	}
+	return text
+}
+
 // typeArgs are the terminal's arguments for typing text as it is. "--" ends
 // the options, so text starting with "-" is typed rather than read as one;
-// and tmux takes an argument ending in ";" for the end of its command unless
-// the ";" is escaped.
+// and a ";" at its end is kept (tmuxLiteral).
 func (t commandTab) typeArgs(text string) []string {
 	switch t.kind {
 	case "tmux":
-		if strings.HasSuffix(text, ";") {
-			text = strings.TrimSuffix(text, ";") + `\;`
-		}
-		return []string{"send-keys", "-t", t.id, "-l", "--", text}
+		return []string{"send-keys", "-t", t.id, "-l", "--", tmuxLiteral(text)}
 	case "wezterm":
 		return []string{"send-text", "--pane-id", t.id, "--no-paste", "--", text}
 	case "kitty":

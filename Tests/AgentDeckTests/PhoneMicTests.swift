@@ -59,6 +59,139 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertNotNil(PhoneDictation.prepared(String(repeating: "a", count: PhoneDictation.longest)))
     }
 
+    /// Only control characters go: the invisible joiner that makes 👩‍💻 one
+    /// emoji is a format character, kept, as are accents and French quotes.
+    func testEmojiAndAccentsArriveWhole() {
+        let french = "Café à l’été, ça va ? « Œuvre » é è à ç ô œ 🎉👍🏽 👩‍💻 ❤️ 👨‍👩‍👧"
+        XCTAssertEqual(PhoneDictation.prepared(french), french)
+        XCTAssertEqual(PhoneDictation.prepared("a\u{200D}b\u{00AD}c"), "a\u{200D}b\u{00AD}c")
+        XCTAssertEqual(PhoneDictation.prepared(#"He said "hi" $HOME `x` $(y) ; a && b \"#), #"He said "hi" $HOME `x` $(y) ; a && b \"#)
+    }
+
+    /// Too long is said as such: "Nothing to type" for 2,001 characters sent the owner looking for nothing.
+    func testTooLongSaysSo() {
+        XCTAssertEqual(PhoneDictation.refusal(String(repeating: "a", count: PhoneDictation.longest + 1)), "Too long: at most 2000 characters at a time.")
+        XCTAssertEqual(PhoneDictation.refusal(" \n "), "Nothing to type")
+        XCTAssertEqual(PhoneDictation.refusal(""), "Nothing to type")
+        // One character can carry any number of combining marks: the bytes are capped too.
+        let heavy = "e" + String(repeating: "\u{301}", count: 20_000)
+        XCTAssertEqual(heavy.count, 1)
+        XCTAssertNil(PhoneDictation.prepared(heavy))
+        XCTAssertEqual(PhoneDictation.refusal(heavy), PhoneDictation.tooLong)
+        // 2,000 emoji of several pieces still go.
+        XCTAssertNotNil(PhoneDictation.prepared(String(repeating: "👍🏽", count: PhoneDictation.longest)))
+    }
+
+    /// Typed into Claude Code (or Codex, Gemini CLI, OpenCode), "!" first switches it
+    /// to its shell, and Send would run the rest there: refused before any key goes.
+    func testTextStartingWithABangIsRefused() throws {
+        XCTAssertTrue(PhoneDictation.runsInShell("!rm -rf build"))
+        XCTAssertFalse(PhoneDictation.runsInShell("ship it!"))
+        XCTAssertFalse(PhoneDictation.runsInShell("¡hola!"))
+        // "!" with an accent, a joiner or an emoji's variation selector on it is one character to
+        // Swift, but Claude Code looks at the first code point and still goes into its shell.
+        for bang in ["!\u{301}x", "!\u{200D}x", "!\u{FE0F}x"] {
+            XCTAssertFalse(bang.hasPrefix("!"), "what let it through")
+            XCTAssertTrue(PhoneDictation.runsInShell(bang), bang.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " "))
+            XCTAssertTrue(PhoneDictation.runsInShell(try XCTUnwrap(PhoneDictation.prepared("  " + bang))), "trimmed first")
+        }
+        XCTAssertFalse(PhoneDictation.runsInShell("！x"), "a full-width one is text")
+        let body = try Self.body(of: "func typePhoneDictation(", until: "static let answerFirst")
+        func at(_ text: String) throws -> String.Index { try XCTUnwrap(body.range(of: text)?.lowerBound, text) }
+        XCTAssertLessThan(try at("guard let words = PhoneDictation.prepared(text) else { return done(.status(400, PhoneDictation.refusal(text))) }"),
+                          try at("guard !PhoneDictation.runsInShell(words) else { return done(.status(400, Deck.noBangPrompt)) }"),
+                          "checked on the text as it would be typed: spaces in front are trimmed first")
+        XCTAssertLessThan(try at("guard !PhoneDictation.runsInShell(words)"), try at("driver.insert(words, in: tab)"))
+    }
+
+    // MARK: On a deck of its own, with a stand-in terminal
+
+    /// A deck that restores, saves and tells nothing, its desk "s1" a Claude Code session in
+    /// a terminal that records what it's given.
+    private func deckWithDesk(agent: Agent = .claude) -> (Deck, RecordingTerminal) {
+        let deck = Deck(quiet: true)
+        deck.sessions.apply(["hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "/work/api"],
+                            agent: agent, tab: "tmux:%3@/tmp/standin-socket", startedIn: "", at: 10)
+        deck.sessions.apply(["hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api"],
+                            agent: agent, tab: "tmux:%3@/tmp/standin-socket", startedIn: "", at: 20)
+        let terminal = RecordingTerminal()
+        Terminals.standIn = terminal
+        addTeardownBlock { Terminals.standIn = nil }
+        return (deck, terminal)
+    }
+
+    private func asks(_ deck: Deck, at time: Double) {
+        deck.sessions.apply(["hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/api", "tool_name": "Bash",
+                             "tool_input": ["command": "touch x"]], agent: .claude, tab: "tmux:%3@/tmp/standin-socket", startedIn: "", at: time)
+    }
+
+    private func dictate(_ deck: Deck, _ text: String, send: Bool = false) -> Response {
+        let answered = expectation(description: "answered")
+        var response: Response?
+        deck.typePhoneDictation(text, into: "s1", send: send) {
+            response = $0
+            answered.fulfill()
+        }
+        wait(for: [answered], timeout: 10)
+        return response!
+    }
+
+    func testTheTextGoesToAFreeDesk() {
+        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
+        let (deck, terminal) = deckWithDesk()
+        XCTAssertEqual(dictate(deck, "Café, ça va ? 👩‍💻 fin;").status, 204)
+        XCTAssertEqual(terminal.inserted, ["Café, ça va ? 👩‍💻 fin;"])
+        XCTAssertEqual(dictate(deck, "!\u{301};touch canary").status, 400, "never typed")
+        XCTAssertEqual(terminal.inserted.count, 1)
+    }
+
+    /// The desk free when the request came, asked something while it waited for the terminal (I1
+    /// measured waits of minutes behind Terminal.app): checked again right before the paste, so
+    /// the words never reach the menu.
+    func testADeskThatStartedAskingMeanwhileGetsNothing() {
+        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
+        let (deck, terminal) = deckWithDesk()
+        // Between the check on the request and the paste: as the terminal is asked where the agent is.
+        terminal.whenLookedUp = { DispatchQueue.main.sync { self.asks(deck, at: 30) } }
+        let response = dictate(deck, "fais un test court", send: true)
+        XCTAssertEqual(response.status, 409)
+        XCTAssertEqual(String(decoding: response.body, as: UTF8.self), Deck.answerFirst)
+        XCTAssertEqual(terminal.inserted, [], "nothing pasted")
+        XCTAssertEqual(terminal.pressed, [], "no Return")
+        XCTAssertEqual(deck.sessions["s1"]?.state, .asking)
+    }
+
+    /// ✗ or Esc from the deck on a Claude Code prompt: Claude ends the turn and waits for a
+    /// prompt, and no hook says so. The deck frees the desk once the key has gone, so the
+    /// phone may type what to do instead; for another agent, nothing is assumed.
+    func testRejectingFromTheDeckFreesAClaudeDesk() {
+        for agent in [Agent.claude, .codex] {
+            let (deck, terminal) = deckWithDesk(agent: agent)
+            deck.sessions.apply(["hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/api", "tool_name": "Bash"],
+                                agent: agent, tab: "tmux:%3@/tmp/standin-socket", startedIn: "", at: 30)
+            XCTAssertEqual(deck.sessions["s1"]?.state, .asking)
+            let answered = expectation(description: "answered")
+            deck.perform("reject", on: "s1", query: [:]) {
+                XCTAssertEqual($0.status, 204)
+                answered.fulfill()
+            }
+            wait(for: [answered], timeout: 10)
+            XCTAssertEqual(terminal.pressed.count, 1, "\(agent)")
+            XCTAssertEqual(deck.sessions["s1"]?.state, agent == .claude ? .idle : .asking, "\(agent)")
+        }
+        // A key that didn't go leaves it asking.
+        let (deck, terminal) = deckWithDesk()
+        asks(deck, at: 30)
+        terminal.takesKeys = false
+        let answered = expectation(description: "answered")
+        deck.perform("esc", on: "s1", query: [:]) {
+            XCTAssertGreaterThanOrEqual($0.status, 400)
+            answered.fulfill()
+        }
+        wait(for: [answered], timeout: 10)
+        XCTAssertEqual(deck.sessions["s1"]?.state, .asking)
+    }
+
     func testItSendsFromThreeWordsWithTheSettingOn() {
         XCTAssertFalse(PhoneDictation.sends("yes", autoSend: true))
         XCTAssertFalse(PhoneDictation.sends("yes please", autoSend: true))
@@ -219,7 +352,7 @@ final class PhoneMicTests: XCTestCase {
             XCTAssertEqual(Tailnet.serving, true)
             first.fulfill()
         }
-        wait(for: [first], timeout: 3)
+        wait(for: [first], timeout: 10)
         XCTAssertEqual(changed, 1)
 
         // Fresh: answered at once, and Tailscale isn't asked again.
@@ -239,19 +372,19 @@ final class PhoneMicTests: XCTestCase {
             return ("https://my-mac.tail1234.ts.net", nil)
         }
         var answers = 0
-        let started = Date()
         let answered = expectation(description: "answered without it")
         Tailnet.whenFresh(within: 0.2, changed: {}) {
             answers += 1
+            // Answered before Tailscale's answer, which takes a second, came in: not by the
+            // clock, which a busy Mac can hold up, but by what's known when it answers.
             XCTAssertNil(Tailnet.url)
-            XCTAssertLessThan(Date().timeIntervalSince(started), 0.9)
             answered.fulfill()
         }
-        wait(for: [answered], timeout: 2)
+        wait(for: [answered], timeout: 10)
         // Its late answer is kept for next time, and `then` isn't called again.
         let late = expectation(description: "the late answer")
         Tailnet.refresh(changed: {}) { late.fulfill() }
-        wait(for: [late], timeout: 3)
+        wait(for: [late], timeout: 10)
         XCTAssertEqual(Tailnet.url, "https://my-mac.tail1234.ts.net")
         XCTAssertEqual(answers, 1)
         Tailnet.forget()
@@ -305,4 +438,36 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertTrue(saved.contains(#""phoneMicSkipsConfirm":false"#))
         XCTAssertFalse(saved.contains(#""phoneMicAutoSend""#))
     }
+}
+
+/// A terminal that records the text and keys it's given, and can run something as it's asked where the agent is.
+private final class RecordingTerminal: TerminalDriver {
+    private(set) var inserted: [String] = []
+    private(set) var pressed: [Terminal.Key] = []
+    var takesKeys = true
+    var whenLookedUp: (() -> Void)?
+
+    var abilities: TerminalAbilities { [.keys, .text] }
+    var keysNeedAccessibility: Bool { false }
+    func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool {
+        guard takesKeys else { return false }
+        pressed.append(keystroke.key)
+        return true
+    }
+    func type(_ text: String, in tab: TabAddress) -> Bool { false }
+    func insert(_ text: String, in tab: TabAddress) -> Bool {
+        inserted.append(text)
+        return true
+    }
+    func focus(_ tab: TabAddress) -> Bool { false }
+    func scroll(lines: Int, in tab: TabAddress) -> Bool { false }
+    func scrollToBottom(in tab: TabAddress) -> Bool { false }
+    func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired { .notStopped }
+    /// Unknown: the keys go as they always did (see `Deck.toAgent`), and nothing real is asked.
+    func tty(of tab: TabAddress) -> String? {
+        whenLookedUp?()
+        return nil
+    }
+    func isOpen(_ tab: TabAddress) -> Bool? { nil }
+    func screen(of tab: TabAddress) -> String? { nil }
 }

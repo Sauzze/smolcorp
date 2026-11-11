@@ -70,6 +70,12 @@ final class HireTmuxTests: XCTestCase {
         XCTAssertFalse(asked.joined().contains("send-keys"))
     }
 
+    /// A ";" at the end reaches the hire: tmux would take it for the end of set-buffer and drop it.
+    func testASemicolonAtTheEndIsPastedToo() {
+        XCTAssertTrue(desk().paste("lance les tests;"))
+        XCTAssertEqual(asked.first, ["-L", "smolcorp-ab12-cd34", "set-buffer", "-b", "smolcorp-paste", "--", #"lance les tests\;"#])
+    }
+
     /// Escape and Return could press Enter, so those texts never reach tmux.
     func testControlCharactersAreNotPasted() {
         for text in ["a\u{1B}[201~\rb", "a\rb", "a\u{7}b", "a\u{85}b"] {

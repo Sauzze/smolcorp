@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -45,6 +46,69 @@ type engineRequest struct {
 	// GMToken makes the General Manager's token, new at its hire (the Deck's
 	// newGMToken); asked only for the gm role, after the hire is written down.
 	GMToken func() string
+	// For its brief: the desk it was hired at on the ground floor (nil for none
+	// or upstairs), the answers to its role's questions (nil when it asks them
+	// itself) and the task whoever hired wrote for it ("" for none).
+	Desk    *int
+	Answers []string
+	Task    string
+	// Setup's own hire (POST /setup/hire, setuphire.go) may say more: the
+	// nickname, kept in the registry and naming its worktree and branch; no
+	// worktree of its own (the manager off and none asked for, or the GM, as
+	// the Mac's); the account it works on, by name, for the registry; and the
+	// Claude accounts whose settings and transcripts its fence denies.
+	Nickname    string
+	NoWorktree  bool
+	AccountName string
+	Profiles    []claudeProfile
+}
+
+// engineAutoMode is whether an engine hire's settings put it in auto mode: on
+// a Mac, as the Mac's HireSettings.forHire always does, so a Mac hire's fence
+// is the same file whichever engine starts it. Linux and Windows keep theirs.
+const engineAutoMode = runtime.GOOS == "darwin"
+
+// hireBrief writes a hire's brief where the Mac's HireDesk writes it: a
+// managed hire's (one with a worktree) in its own folder in Smolcorp's, any
+// other's in Smolcorp's briefs folder. Nil for a role on its own
+// instructions, or an agent that takes no first message (Grok).
+func hireBrief(r engineRequest, place hirePlace, hireID string, now time.Time) (*briefMade, error) {
+	if Agent(r.Role.Agent) == Grok {
+		return nil, nil
+	}
+	managed := ""
+	if place.Worktree != "" {
+		managed = hireFolder(supportDir, hireID)
+	}
+	return makeBrief(briefRequest{role: r.Role, library: editableBriefs(bundledBriefs(), briefTemplatesDir()), folder: place.Folder,
+		pinned: r.How == hiredAtPinnedDesk, desk: r.Desk, answers: r.Answers, task: r.Task, managed: managed, date: now,
+		kept: briefsKeptDir(), write: true})
+}
+
+// engineBrief is an engine hire's first message and its brief's path: to read
+// the brief it was just written, or, for a role on its own instructions, the
+// role's own first message ("" for the path).
+func engineBrief(r engineRequest, place hirePlace, hireID string, now time.Time) (message, brief string, err error) {
+	message = r.Role.firstMessage(place.Folder, r.How)
+	if r.Answers != nil {
+		message = r.Role.firstMessageAnswered(place.Folder, r.Answers)
+	}
+	made, err := hireBrief(r, place, hireID, now)
+	if err != nil {
+		return "", "", err
+	}
+	if made != nil {
+		message, brief = made.firstMessage, made.names.brief
+	}
+	return message, brief, nil
+}
+
+// briefDesk is the desk a hire's brief is named for: one held on the ground floor, or none.
+func briefDesk(held, floor int) *int {
+	if floor > 0 || held < 0 {
+		return nil
+	}
+	return &held
 }
 
 // takenPorts are the port ranges of hires still working.

@@ -28,7 +28,7 @@ type FloorRule struct {
 	// The folder alone, not those in it: as "Always put … here" remembers it
 	// from the office, where a folder above a project's would otherwise take
 	// all of them up. A rule added in setup holds the folders in it too.
-	Exact bool `json:"exact,omitempty"`
+	Exact bool `json:"exact"`
 }
 
 const mostFloorRules = 64
@@ -474,6 +474,9 @@ func (d *Deck) move(id, given string, remember bool) (int, string) {
 		d.changed()
 		return http.StatusNoContent, ""
 	}
+	if hire, ok := d.t3HireAtDesk(id); ok {
+		return d.moveT3(hire, id, floor, full)
+	}
 	s := d.sessions.Get(id)
 	if s == nil {
 		return http.StatusNotFound, "Session not found"
@@ -530,6 +533,11 @@ func (d *Deck) hasRoom(floor int, id string) bool {
 	put := 0
 	for _, s := range d.sessions.All() {
 		if f, ok := d.aboveGround(s); ok && f == floor && s.ID != id {
+			put++
+		}
+	}
+	for _, one := range d.t3Seated() {
+		if one.session.ID != id && t3FloorOf(one.hire) == floor {
 			put++
 		}
 	}

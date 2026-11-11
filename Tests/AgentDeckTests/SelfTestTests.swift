@@ -59,7 +59,11 @@ final class SelfTestTests: XCTestCase {
         let all = SelfTest.hooksCheck(found: ["Claude Code", "Codex"], connected: ["Claude Code", "Codex"], scriptThere: true, testCopy: false)
         XCTAssertEqual(all.status, .ok)
         XCTAssertTrue(all.detail.hasPrefix("Claude Code, Codex:"))
-        XCTAssertEqual(SelfTest.hooksCheck(found: [], connected: [], scriptThere: false, testCopy: true).status, .info)
+        // A test copy's hires report through its own hook: ticked, as its GM preflight's line is (FX7).
+        let copy = SelfTest.hooksCheck(found: [], connected: [], scriptThere: false, testCopy: true)
+        XCTAssertEqual(copy.status, .ok)
+        XCTAssertTrue(copy.detail.hasPrefix(SelfTest.testCopyHires))
+        XCTAssertNil(copy.fix)
     }
 
     /// A step still to take, as pairing a phone or allowing the keys, isn't in the way; a fix is.
@@ -68,6 +72,8 @@ final class SelfTestTests: XCTestCase {
         XCTAssertEqual(SelfTest.accessibilityCheck(false).fix, SelfTest.accessibility)
         XCTAssertEqual(SelfTest.phoneCheck(0).status, .todo)
         XCTAssertEqual(SelfTest.phoneCheck(1).status, .ok)
+        // The Mac shows the code and the QR; the phone scans one or types the other.
+        XCTAssertEqual(SelfTest.phoneCheck(0).detail, "Open Pair a phone, then scan its QR code with your phone's camera, or type its 6-digit code on your phone.")
         XCTAssertEqual(SelfTest.networkCheck(tailnet: nil).status, .info)
         XCTAssertTrue(SelfTest.networkCheck(tailnet: "https://mac.example.ts.net").detail.contains("mac.example.ts.net"))
         XCTAssertEqual(SelfTest.loginCheck(false, testCopy: false).fix, SelfTest.login)

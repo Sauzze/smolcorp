@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
@@ -247,12 +248,16 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			if r.URL.Path == "/setup/state" {
 				w.Header().Set(appHeader, runtime.GOOS)
 			}
+			if session {
+				writeStatus(w)(http.StatusUnauthorized, setupSessionRefusal)
+				return
+			}
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		if session {
 			if !redeemed {
-				w.WriteHeader(http.StatusUnauthorized)
+				writeStatus(w)(http.StatusUnauthorized, setupSessionRefusal)
 				return
 			}
 			d.completeSetup()
@@ -419,6 +424,11 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		serveFile(w, "Resources/web/office.js")
 		return
 	}
+	// The first-run guide's arrows, for the setup page: nothing of yours either.
+	if r.Method == http.MethodGet && r.URL.Path == "/guide.js" {
+		serveFile(w, "Resources/web/guide.js")
+		return
+	}
 	// Its recordings, the keyboards and the talk, in either kind a browser plays.
 	if r.Method == http.MethodGet && slices.Contains(sounds, r.URL.Path) {
 		serveFile(w, "Resources/web"+r.URL.Path)
@@ -488,6 +498,49 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		writeStatus(w)(http.StatusNoContent, "")
+	// Open in T3 Code, from the office's own window on this computer, never a phone: what's installed, and
+	// whether the picked agent is a hire; then its folder opened, found by its session, never a path that's sent.
+	case r.URL.Path == "/t3code" || r.URL.Path == "/t3code/open":
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, "T3 Code opens on your computer.")
+			return
+		}
+		if !d.t3On() {
+			writeStatus(w)(http.StatusNotFound, t3Off)
+			return
+		}
+		hire, found := d.hireInSession(session)
+		switch r.Method {
+		case http.MethodGet:
+			answer := t3JSON(t3StatusNow(r.URL.Query().Get("fresh") == "1", newT3Machine()))
+			answer["hire"] = nil
+			if found {
+				answer["hire"] = t3Title(hire)
+			}
+			// A hire in T3 Code: its desk (the tag, its status) and branch, for the card.
+			if found && hire.Engine == t3Engine {
+				lane := t3DeskJSON(hire, d.t3)
+				lane["branch"] = hire.Branch
+				answer["lane"] = lane
+			}
+			writeJSON(w, http.StatusOK, answer)
+		case http.MethodPost:
+			openHireInT3(w, d.t3Latest(hire), found)
+		default:
+			http.NotFound(w, r.Request)
+		}
+	// Let go of a hire in T3 Code from its desk's card, after its confirm (t3desks.go): the lane's answer, as Setup's.
+	case r.Method == http.MethodPost && r.URL.Path == "/act" && r.URL.Query().Get("action") == "letgo":
+		status, answer, ok := d.letGoAtDesk(session)
+		if !ok {
+			writeStatus(w)(d.Perform("letgo", session, r.URL.Query()))
+			return
+		}
+		if text, isText := answer.(string); isText {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
 	case r.Method == http.MethodPost && r.URL.Path == "/act":
 		writeStatus(w)(d.Perform(r.URL.Query().Get("action"), session, r.URL.Query()))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
@@ -498,10 +551,14 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"summary": text})
+	// The Mac answers an unknown route with an empty 404.
 	default:
-		http.NotFound(w, r.Request)
+		w.WriteHeader(http.StatusNotFound)
 	}
 }
+
+// setupSessionRefusal is the Mac's text (DeckRouter.swift) in the 401 of POST /setup/session without a menu link's key.
+const setupSessionRefusal = "Only the menu's link opens a setup page."
 
 // callerOf says who is asking, one caller per request, in this order (the same
 // as SetupSessions.caller): the page by its session cookie, a hire by its send
@@ -695,6 +752,20 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	config := d.config
 	d.mu.Unlock()
 
+	// The briefs, and the folders a hire from setup can start in (briefroutes.go).
+	if d.briefRoute(w, r.Method, path, r.Body) {
+		return
+	}
+	// Setup's own hire sheet (setuphire.go).
+	if d.setupHireRoute(w, r.Method, path, r.Body, r.caller) {
+		return
+	}
+
+	// What only macOS does, under the Mac app (hostsetup.go): not served elsewhere.
+	if rt.macSetup(w, r) {
+		return
+	}
+
 	switch {
 	case r.Method == http.MethodGet && path == "/setup":
 		// Only the page or the setup key counts as setup; a GM token or a hire's key
@@ -738,6 +809,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 
+	// The Claude accounts Smolcorp follows: a tool may read them, only the page changes them (claudeaccounts.go).
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/setup/claude-accounts":
+		rt.claudeAccounts(w, r)
+
 	case r.Method == http.MethodPost && path == "/setup/profiles":
 		rt.profiles(w, r)
 
@@ -747,7 +822,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		// No code, or no address a phone could open: no QR code to scan.
 		if code == "" || phoneAddress() == "" {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		writeQR(w, pairingLink(code))
@@ -847,7 +922,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/setup/logo/"):
 		logo := strings.TrimPrefix(path, "/setup/logo/")
 		if !contains(logos, logo) {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		serveFile(w, "Resources/web/icon-"+logo+".png")
@@ -1046,6 +1121,14 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
+	// The first-run guide, finished or skipped (done=1), or to be shown again (done=0).
+	case r.Method == http.MethodPost && path == "/setup/guide":
+		d.mu.Lock()
+		config.GuideDone = query.Get("done") == "1"
+		config.save()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
 	case r.Method == http.MethodPost && path == "/setup/music":
 		d.mu.Lock()
 		config.MusicEnabled = query.Get("enabled") == "1"
@@ -1056,6 +1139,55 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.changed()
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
+	// The two plain choices (T796), from first setup or Settings: T3 Code on or
+	// off, agent windows, and asked=1 once first setup has asked them. Switching
+	// to the background detaches each hire's windows on its own tmux server.
+	case r.Method == http.MethodPost && path == "/setup/choices":
+		_, tmux := hireWays()
+		d.mu.Lock()
+		switched, status, refusal := setChoices(config, query, tmux)
+		if refusal != "" {
+			d.mu.Unlock()
+			http.Error(w, refusal, status)
+			return
+		}
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		answer := rt.setupStateFor(r.caller)
+		if switched {
+			answer["windowsSaid"] = hiresToBackground(officeHires(), func(h Hire) detached { return detachHireViewers(h, nil) })
+		}
+		writeJSON(w, http.StatusOK, answer)
+
+	// "Open a window" on a hire's desk in Setup's team list (T796): by the hire's
+	// id, from the registry; a window attached to its own tmux server.
+	case r.Method == http.MethodPost && path == "/setup/hire/window":
+		var given struct {
+			ID string `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&given)
+		// Read once: the list may change meanwhile, and i must point into this one.
+		hires := officeHires()
+		i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == given.ID && h.State != "fired" && h.State != "failed" })
+		if i < 0 {
+			http.Error(w, "That hire isn't on the team.", http.StatusConflict)
+			return
+		}
+		terminals, _ := hireWays()
+		d.mu.Lock()
+		terminal, hasTerminal := hireTerminal(config.HireTerminal, terminals)
+		d.mu.Unlock()
+		if !hasTerminal {
+			http.Error(w, "There's no terminal here to open a window in: tmux attach shows it.", http.StatusConflict)
+			return
+		}
+		if err := openHireViewer(hires[i], terminal); err != nil {
+			http.Error(w, "Its window didn't open: the hire may have ended.", http.StatusConflict)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 
 	// Every part is checked before any is kept, so a wrong one changes
 	// nothing. An empty folder clears it.
@@ -1131,6 +1263,40 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
+	// Start here's hires folder: the one set, or with none, one suggested; check= checks one as it's typed.
+	case r.Method == http.MethodGet && path == "/setup/hire-folder":
+		var asked *string
+		if query.Has("check") {
+			given := query.Get("check")
+			asked = &given
+		}
+		d.mu.Lock()
+		saved := config.HireFolder
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, hireFolderState(saved, asked, homeDir))
+
+	// Keeps it, once checked; create=1 makes it first if it isn't there yet. A problem answers 400 with the same JSON, to show with its fix.
+	case r.Method == http.MethodPost && path == "/setup/hire-folder":
+		folder, refused := keepHireFolder(query.Get("folder"), query.Get("create") == "1", homeDir)
+		if refused != nil {
+			writeJSON(w, http.StatusBadRequest, hireFolderJSON(*refused, "", homeDir))
+			return
+		}
+		d.mu.Lock()
+		config.HireFolder = folder
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, hireFolderState(folder, nil, homeDir))
+
+	// The hire guard's groups and your own patterns: a tool may read them, only the page changes them (routes.go, guardstate.go).
+	case r.Method == http.MethodGet && path == "/setup/guard":
+		writeJSON(w, http.StatusOK, guardState(filepath.Join(supportDir, hireGuardFile), runtime.GOOS))
+
+	case r.Method == http.MethodPost && path == "/setup/guard":
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		saveGuard(body, filepath.Join(supportDir, hireGuardFile), runtime.GOOS).write(w)
+
 	// The roles as the page has them, all of them: checked as they're kept,
 	// since their instructions go to agents.
 	case r.Method == http.MethodPost && path == "/setup/roles":
@@ -1151,7 +1317,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		bots := config.CloudBots
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]any{"bots": bots})
+		writeJSON(w, http.StatusOK, map[string]any{"bots": botsResolved(d.macHost(), bots)})
 
 	case r.Method == http.MethodPost && path == "/setup/bots":
 		given, ok := cloudBotsSent(r.Body)
@@ -1167,7 +1333,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.changed()
 		bots := config.CloudBots
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]any{"bots": bots})
+		writeJSON(w, http.StatusOK, map[string]any{"bots": botsResolved(d.macHost(), bots)})
 
 	// A bot's mailbox folder, page only (routes.json).
 	case r.Method == http.MethodPost && path == "/setup/bots/mailbox":
@@ -1355,8 +1521,55 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"managerEnabled": enabled == "1"})
 
+	// Open in T3 Code (t3code.go): what's installed (again now, as its menu opens: fresh=1), and a hire's
+	// folder opened there, by the hire's id: the folder comes from the registry, never from the request.
+	// The page alone (routes.go).
+	case r.Method == http.MethodGet && path == "/setup/t3code":
+		if !d.t3On() {
+			http.Error(w, t3Off, http.StatusNotFound)
+			return
+		}
+		d.mu.Lock()
+		on := t3CodeAllowed(d.config)
+		d.mu.Unlock()
+		status := t3StatusNow(query.Get("fresh") == "1", newT3Machine())
+		answer := t3JSON(status)
+		// Whether a hire may go into T3 Code (t3desk.go), or the one sentence saying why not.
+		why := t3LaneRefusal(on, status)
+		answer["lane"] = map[string]any{"ok": why == "", "why": why}
+		writeJSON(w, http.StatusOK, answer)
+	case r.Method == http.MethodPost && path == "/setup/t3code/open":
+		if !d.t3On() {
+			http.Error(w, t3Off, http.StatusNotFound)
+			return
+		}
+		id, _ := decodeJSON(r.Body)["id"].(string)
+		var hire Hire
+		found := false
+		for _, h := range readRegistry(registryPath(), false).hires {
+			if h.ID == id {
+				hire, found = h, true
+			}
+		}
+		openHireInT3(w, d.t3Latest(hire), found)
+	// Let go of a hire in T3 Code (t3deskdeck.go), by its id after the page's confirm: its T3 project removed, its
+	// worktree kept. The worktree comes from the registry, never from the request.
+	case r.Method == http.MethodPost && path == "/setup/t3code/letgo":
+		id, _ := decodeJSON(r.Body)["id"].(string)
+		status, answer := d.letGoOfT3(id)
+		if text, ok := answer.(string); ok {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
+
+	// What a first General Manager hire needs (gmpreflight.go), Start here's lines above its
+	// Hire button. Outside /setup/gm/, which is closed while the manager is off, as on a first run.
+	case r.Method == http.MethodGet && path == "/setup/hire/gm/preflight":
+		writeJSON(w, http.StatusOK, d.gmPreflight())
+
 	// Start here's Hire your General Manager: the GM role, in the folder for
-	// new hires or your home folder, its questions asked in its terminal.
+	// your hires, its questions asked in its terminal.
 	case r.Method == http.MethodPost && path == "/setup/hire/gm":
 		// One GM per office: the GM's token never hires the gm role. Checked before anything is saved
 		// (DeckRouter.swift: the same refusal before the hire).
@@ -1364,11 +1577,26 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			writeStatus(w)(status, text)
 			return
 		}
+		// One at a time, as the Mac claims it: a second click while one runs would read the switches
+		// the first turned on as its own "before", and could leave them on when both fail.
+		if !d.gmHiring.TryLock() {
+			writeStatus(w)(http.StatusConflict, gmBeingHired)
+			return
+		}
+		defer d.gmHiring.Unlock()
 		// The manager is switched on before the hire (the GM is a managed hire) and back if the hire
-		// fails, as the Mac does (DeckRouter.swift). d.mu is not held across the hire.
+		// fails, as the Mac does (DeckRouter.swift). d.mu is not held across the hire. Hire and fire
+		// from the office goes on with it too, as the GM hires its team, and back off the same way.
+		// In the folder for your hires, never your home folder: Start here's first step sets it.
 		d.mu.Lock()
-		before := d.config.ManagerEnabled
+		if _, ok := existingFolder(d.config.HireFolder); !ok {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusConflict, chooseHireFolderFirst)
+			return
+		}
+		before, hiring := d.config.ManagerEnabled, d.config.HiringEnabled
 		d.config.ManagerEnabled = true
+		d.config.HiringEnabled = true
 		d.config.save()
 		d.changed()
 		d.mu.Unlock()
@@ -1376,11 +1604,16 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		if status >= http.StatusBadRequest {
 			d.mu.Lock()
 			d.config.ManagerEnabled = before
+			d.config.HiringEnabled = hiring
 			d.config.save()
 			d.changed()
 			d.mu.Unlock()
 		}
 		writeStatus(w)(status, text)
+
+	// routes.json: POST /setup/gm/hire is an action for gm and page (see gmhire.go).
+	case r.Method == http.MethodPost && path == "/setup/gm/hire":
+		d.gmHire(w, r)
 
 	// The front desk. routes.json: GET /setup/gm/team is read for gm, page and tool.
 	case r.Method == http.MethodGet && path == "/setup/gm/team":
@@ -1437,6 +1670,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && path == "/setup/gm/send":
 		rt.mailSend(w, r)
 
+	// Fire and brief a hire found by its registry id (gmfire.go, gmbrief.go).
+	case r.Method == http.MethodPost && path == "/setup/gm/fire":
+		rt.gmFire(w, r)
+
+	case r.Method == http.MethodPost && path == "/setup/gm/brief":
+		rt.gmBrief(w, r)
+
 	case r.Method == http.MethodGet && path == "/setup/gm/outbox":
 		rt.mailOutboxList(w, r)
 
@@ -1457,8 +1697,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		(r.Method == http.MethodPost || r.Method == http.MethodDelete) && path == "/setup/gm/unwatch":
 		rt.watchRoutes(w, r, path)
 
+	// The Mac answers an unknown route under /setup with an empty 404.
 	default:
-		http.NotFound(w, r.Request)
+		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
@@ -1533,6 +1774,14 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 	}
 	connected := allConnected()
 	openAtLogin := isOpenAtLogin()
+	gmHired := readRegistry(registryPath(), false).gmIsHired()
+	// Under the Mac app, what only it can say of this Mac (hostsetup.go).
+	facts := d.macFactsNow()
+	// The account folders are looked in without the lock: one that doesn't answer must not stop the deck.
+	d.mu.Lock()
+	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
+	d.mu.Unlock()
+	claudeAccounts := claudeAccountsState(savedAccounts)
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -1543,7 +1792,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 			keyOf[key.session.ID] = i
 		}
 	}
-	pairing := map[string]any{"address": phoneAddress(), "open": false, "codeExpiresIn": 0}
+	pairing := map[string]any{"address": phoneAddress(), "tailnet": phoneTailnet(), "open": false, "codeExpiresIn": 0}
 	if code := d.access.ActiveCode(); code != "" {
 		pairing["open"] = true
 		pairing["codeExpiresIn"] = int(d.access.CodeExpiresIn().Seconds())
@@ -1581,7 +1830,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 			"agent": s.Agent, "model": nilIfEmpty(s.Model), "role": roleID(d.roleOf(s)),
 		})
 	}
-	return map[string]any{
+	_, tmuxHere := hireWays()
+	state := map[string]any{
 		"version": Version,
 		// Which computer this is, so the page shows its own kind of folder path.
 		"platform": runtime.GOOS,
@@ -1590,18 +1840,31 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		// No accessibility step: nothing here needs that permission.
 		"checklist": map[string]any{"hooks": connected, "scroll": d.config.ScrollEnabled, "openAtLogin": openAtLogin},
 		"agents":    agentList,
+		// Whether a General Manager is hired, whatever the manager switch says: Start here looks no further then.
+		"gmHired": gmHired,
+		// The Claude accounts besides ~/.claude, for the account pickers and the accounts step.
+		"claudeAccounts": claudeAccounts,
+		// The manager, as the Mac's setup state has it. This app has no GM started by hand and no token file
+		// (the token is in memory only), so those say so: no path is ever sent, and never the token.
+		"manager": map[string]any{"enabled": d.config.ManagerEnabled, "gmByHand": false, "gmStartedByHand": false,
+			"gmTokenFile": "", "gmTokenFileShown": ""},
 		// Where hires open: the terminals here that can open them, and tmux if it's there.
 		"hiring": d.hireState(),
 		// The roles, those that come with the app to go back to, and what a
 		// role can be: its agent, whether that agent has an effort and takes a
 		// first message, its badge, and how long each part can be.
 		"roles": map[string]any{
-			"roles": d.config.Roles, "shipped": shippedRoles, "agents": roleAgents(), "efforts": effortLevels, "badges": roleBadges,
+			"roles": d.config.Roles, "shipped": shippedWithBriefs(), "agents": roleAgents(), "efforts": effortLevels, "badges": roleBadges,
 			"limits": map[string]int{"name": roleNameLimit, "model": roleModelLimit, "instructions": roleInstructionsLimit,
 				"questions": roleQuestionsMost, "question": roleQuestionLimit},
 		},
 		"music":      map[string]any{"enabled": d.config.MusicEnabled},
 		"maxConfirm": map[string]any{"enabled": d.config.MaxConfirm},
+		// The first-run guide's arrows: shown until it's finished or skipped (see guide.js).
+		"guide": map[string]any{"done": d.config.GuideDone},
+		// The two plain choices (T796), and the T3 Code gate as T3 Code's own code reads it.
+		"choices":       choicesState(d.config, tmuxHere, t3InstalledRecently),
+		"t3CodeEnabled": t3CodeAllowed(d.config),
 		// Without a window of its own, setup says why there's no switch.
 		"officeWindow": map[string]any{"available": hasNativeWindow, "mac": false, "onTop": hasNativeWindow && d.config.AlwaysOnTop},
 		"summary":      d.summaryState(),
@@ -1637,6 +1900,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"activeProfile": d.config.ActiveProfile,
 		"profileEdited": d.config.profileEdited(),
 	}
+	d.addMacSetup(state, facts)
+	return state
 }
 
 // MARK: Helpers

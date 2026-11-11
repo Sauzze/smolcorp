@@ -1,7 +1,7 @@
-# Builds both apps on every push and pull request: the Mac app with Swift,
-# and the Windows and Linux app with Go, vetted and tested on each system
-# (on Linux under the race detector too), then built for every download the
-# releases carry.
+# Builds and tests both apps on every push and pull request: the Mac app with
+# Swift, and the Windows and Linux app with Go, vetted and tested on each system
+# (on Linux checked for gofmt's layout and run under the race detector too),
+# then built for every download the releases carry.
 
 name: CI
 
@@ -28,6 +28,15 @@ jobs:
       - uses: actions/checkout@v7
       - run: swift build -c release
       - run: scripts/build-saver.sh
+      # The whole suite. Its tests keep to a support folder of their own and use stand-ins for tmux and the
+      # terminals; the few that drive real tmux panes skip themselves here, where the runner has no tmux and
+      # CI is "true". The time limits stop a hung build or test instead of holding the job for six hours.
+      - name: Build the tests
+        timeout-minutes: 20
+        run: swift build --build-tests
+      - name: Test
+        timeout-minutes: 15
+        run: swift test --skip-build
 
   desktop:
     name: Windows and Linux app, on ${{ matrix.os }}
@@ -41,8 +50,55 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # Every Go file laid out as gofmt lays it out: the step names any that isn't and fails.
+      - name: Go files formatted
+        if: runner.os == 'Linux'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Not formatted with gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
       - run: go vet ./...
+      # The GM's end-to-end tests need tmux and fail, not skip, without it.
+      - name: Install tmux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
       - run: go test ./...
+      # The GM's hire, fire and brief on the launcher's way, Windows' own, run by name: each one must say PASS, so
+      # a test that's skipped, renamed or left out of the build fails the step instead of passing unseen. The
+      # first six are PEGASUS PR3's (managed windows off among them), the last two FXPGS's. It runs even when the
+      # whole suite above failed, so their answer is never hidden behind another test's.
+      - name: The GM's launcher tests ran and passed
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v -run 'TestTheGM' ./desktop/ 2>&1 | tee gm-tests.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in \
+            TestTheGMHireOnTheLauncherStartsItsWindowWithTheGuardOfAHireFromTheOffice \
+            TestTheGMHireWithManagedWindowsOffRefusesNamingTheSwitchAndOpensNothing \
+            TestTheGMFireOnTheLauncherEndsOnlyTheHiresOwnLauncherAndTypesNothing \
+            TestTheGMFireOnTheLauncherRefusesFromTheLaunchersStateAndAnUnknownIdAndEndsNothing \
+            TestTheGMFireRefusesAHireThatIsNoLaunchersWindowAndALauncherThatWontStop \
+            TestTheGMBriefOnTheLauncherAddsToTheFileAndTypesNothing \
+            TestTheGMHireOnTheLauncherOnAFloorWithItsOwnFolderIsRefusedAndOpensNothing \
+            TestTheGMFireOnTheLauncherKeepsTheCleanWorktreeUnlessAskedToRemoveIt
+          do
+            if ! grep -qE "^--- PASS: $name \(" gm-tests.txt; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          rm -f gm-tests.txt
+          if [ "$status" -ne 0 ] || [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
       # The same tests under the race detector, which needs cgo: on Linux, whose runner has a C compiler.
       - name: Test with the race detector
         if: runner.os == 'Linux'

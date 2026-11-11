@@ -4,7 +4,6 @@ package desktop
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -77,10 +76,7 @@ type fakeClaude struct {
 // startFakeClaude runs the fake agent in a real tmux on a socket of the test's own, and ends it at the end.
 func startFakeClaude(t *testing.T, id, mode string, bracketed bool) *fakeClaude {
 	t.Helper()
-	path, err := exec.LookPath("tmux")
-	if err != nil {
-		t.Skip("tmux isn't installed")
-	}
+	path := needTmux(t)
 	shortSupport(t)
 	saved := tmuxPath
 	tmuxPath = func() string { return path }
@@ -317,6 +313,24 @@ func TestThePasteIsOneBracketedPasteThroughANamedBufferAndReturnIsSeparate(t *te
 	r.asked = nil
 	if h.paste("bad\x1b") || len(r.asked) != 0 {
 		t.Errorf("a control character was pasted: %q", r.asked)
+	}
+}
+
+// A ";" at the end reaches the hire: tmux takes an argument ending in ";" for the end of its
+// command and drops the ";", so it goes as "\;", as typing sends it (tmuxLiteral).
+func TestASemicolonAtTheEndIsPastedToo(t *testing.T) {
+	r := newRecorder()
+	h, socket := fakeHireTmux(t, r, 0)
+	if !h.paste("lance les tests;") {
+		t.Fatal("paste failed")
+	}
+	if want := []string{"-S", socket, "set-buffer", "-b", "smolcorp-paste", "--", `lance les tests\;`}; !reflect.DeepEqual(r.asked[0], want) {
+		t.Errorf("asked %q, want %q", r.asked[0], want)
+	}
+	for text, want := range map[string]string{";": `\;`, `a\;`: `a\\;`, "a; b && c": "a; b && c", `end\`: `end\`} {
+		if got := tmuxLiteral(text); got != want {
+			t.Errorf("tmuxLiteral(%q) = %q, want %q", text, got, want)
+		}
 	}
 }
 

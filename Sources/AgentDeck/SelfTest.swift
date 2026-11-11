@@ -101,14 +101,18 @@ enum SelfTest {
         getxattr(path, "com.apple.quarantine", nil, 0, 0, XATTR_NOFOLLOW) >= 0
     }
 
+    /// How a test copy hears from its hires: through its own hook, whatever your agents' settings hold. Said by this
+    /// check and by the GM preflight's hooks line (GMPreflight.items), both ticked, so Start here, its hire's lines and
+    /// General never disagree on it.
+    static let testCopyHires = "Your hires report to this test copy through its own hook."
+
     /// Whether every agent found is hooked up. Their hooks run report.sh in
     /// Smolcorp's own folder, never the app where it happens to be, so it's
-    /// enough that it's there.
+    /// enough that it's there. A test copy's hires report through its own hook: ticked.
     static func hooksCheck(found: [String], connected: [String], scriptThere: Bool, testCopy: Bool = TestCopy.isOn) -> Check {
         var check = Check(id: "hooks", status: .ok, title: "Your agents report to Smolcorp", detail: "")
         if testCopy {
-            check.status = .info
-            check.detail = "A test copy is told only of sessions started with its own hook (see scripts/test-copy.sh)."
+            check.detail = testCopyHires + " Sessions you start yourself report to the Smolcorp you use."
             return check
         }
         guard !found.isEmpty else {
@@ -120,7 +124,7 @@ enum SelfTest {
         if !missing.isEmpty || !scriptThere {
             check.status = .fix
             check.fix = repair
-            check.label = "Connect them"
+            check.label = "Connect"
             check.detail = missing.isEmpty ? "Their hook script is missing from Smolcorp's folder."
                 : missing.joined(separator: ", ") + (missing.count == 1 ? " isn't" : " aren't") + " connected."
             return check
@@ -129,15 +133,16 @@ enum SelfTest {
         return check
     }
 
+    /// Accessibility, said the same way here and in General (setup.html draws both from this line).
     static func accessibilityCheck(_ allowed: Bool) -> Check {
-        var check = Check(id: "accessibility", status: .ok, title: "Your phone's keys reach your agents", detail: "")
+        var check = Check(id: "accessibility", status: .ok, title: "Smolcorp can use your keyboard", detail: "")
         if allowed {
-            check.detail = "macOS lets Smolcorp press the keys you tap on your phone."
+            check.detail = "Your phone's keys, the buttons, the mic and scrolling reach your agents."
         } else {
             check.status = .todo
             check.fix = accessibility
             check.label = "Allow"
-            check.detail = "macOS asks once, in Privacy & Security, for Smolcorp to press the keys you tap on your phone."
+            check.detail = "Your phone's keys, the buttons, the mic and scrolling need it. Turn Smolcorp on in the list that opens. After an update, turn it on again."
         }
         return check
     }
@@ -159,7 +164,7 @@ enum SelfTest {
         var check = Check(id: "phone", status: .ok, title: "A phone is paired", detail: "\(phones) paired. Pair another from Phone and voice.")
         if phones == 0 {
             check.status = .todo
-            check.detail = "Scan the code under Pair a phone with your phone's camera, then type the 6 digits it shows."
+            check.detail = "Open Pair a phone, then scan its QR code with your phone's camera, or type its 6-digit code on your phone."
         }
         return check
     }
@@ -214,6 +219,8 @@ enum SelfTest {
         case accessibility: Permissions.requestAccessibility()
         case login: LoginItem.isEnabled = true
         case tailscale: NSWorkspace.shared.open(URL(string: "https://tailscale.com/download")!)
+        // The GM preflight's: where you let Smolcorp open your terminal.
+        case GMPreflight.automationFix: NSWorkspace.shared.open(GMPreflight.automationPane)
         default: throw FixError.unknown
         }
     }

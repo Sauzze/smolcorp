@@ -116,6 +116,22 @@ func TestAConfigThatCantBeReadIsKeptAside(t *testing.T) {
 	}
 }
 
+// As the Mac's Config (B1-b, RM4c): a hire agent Smolcorp doesn't know loads as
+// Claude Code, on every computer. One it knows stays.
+func TestAHireAgentSmolcorpDoesntKnowLoadsAsClaude(t *testing.T) {
+	isolate(t)
+	for _, saved := range []string{"Claude", "/opt/x/bin/claude", ""} {
+		writeFile(t, configFile, `{"hireAgent": "`+saved+`"}`)
+		if got := loadConfig().HireAgent; got != string(Claude) {
+			t.Errorf("hireAgent %q loads as %q, want %q", saved, got, Claude)
+		}
+	}
+	writeFile(t, configFile, `{"hireAgent": "codex"}`)
+	if got := loadConfig().HireAgent; got != string(Codex) {
+		t.Errorf("hireAgent codex loads as %q", got)
+	}
+}
+
 func TestAFieldOfTheWrongTypeLosesOnlyItself(t *testing.T) {
 	isolate(t)
 	writeFile(t, configFile, `{"pins": ["/work/a"], "scrollEnabled": "yes", "hireFolder": "/work"}`)
