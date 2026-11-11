@@ -362,6 +362,8 @@ func removeLeftStartScripts() {
 			setHire(id, "failed", startScriptNotRun)
 			continue
 		}
+		// This write's result can't be acted on: the script is gone already, so a failure leaves the row as it was,
+		// as setHire does for a plain script (FXTO2 N4).
 		_ = updateRegistry(func(f *registryFile) {
 			if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id && isOpen(h) }); i >= 0 {
 				f.hires[i].State = "failed"

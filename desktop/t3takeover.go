@@ -283,7 +283,9 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 		// as below: if the Hand back stops too, the next one still removes the project (RM5c2 S1).
 		if !added.Ended || added.Code == 0 {
 			h.T3Thread = thread
-			_ = t3SaveTries(ways, func() error { return ways.Save(h.ID, func(r *Hire) { r.T3Thread = thread }) })
+			if !t3SaveTries(ways, func() error { return ways.Save(h.ID, func(r *Hire) { r.T3Thread = thread }) }) {
+				return giveBack(http.StatusBadGateway, "T3 Code didn't add "+name+"'s worktree as its own project ("+t3Said(added)+"), so it wasn't handed over. The registry couldn't be written either: if T3 Code has a project for it, remove \""+title+"\" in T3 Code.")
+			}
 		}
 		return giveBack(http.StatusBadGateway, "T3 Code didn't add "+name+"'s worktree as its own project ("+t3Said(added)+"), so it wasn't handed over.")
 	}
@@ -517,36 +519,42 @@ func (d *Deck) takeOverIntoT3(id string) (int, any) {
 		return http.StatusConflict, why
 	}
 	session := d.t3SessionOf(asked)
-	t3Desk.Lock()
-	// The hire held from fires until Take over is done: a fire under way refuses it, and a fire from now on is
-	// refused, then reads the registry again and finds it taken over (RM5c2 N1).
-	firing.Lock()
-	beingFired := firing.ids[id]
-	if !beingFired {
-		firing.takingOver[id] = true
-	}
-	firing.Unlock()
-	// Read again once it's this one's turn, so a second click finds it already taken over.
-	hire, found := registryHire(id)
+	// The desk and the slot are let go by defer, so a panic inside t3TakeOver leaves neither held (FXTO2 N2).
 	var thread string
 	var err error
-	switch {
-	case !found:
-	case beingFired:
-		err = t3Refused(http.StatusConflict, calledHire(hire)+" is being fired right now, so it wasn't taken over.")
-	default:
-		if why := t3TakeOverRefusal(hire, session, ways.Machine.Home, testCopyPort() != 0); why != "" {
-			err = t3Refused(http.StatusConflict, why)
-		} else {
-			thread, err = t3TakeOver(hire, session, ways)
-		}
-	}
-	if !beingFired {
+	func() {
+		t3Desk.Lock()
+		defer t3Desk.Unlock()
+		// The hire held from fires until Take over is done: a fire under way refuses it, and a fire from now on is
+		// refused, then reads the registry again and finds it taken over (RM5c2 N1).
 		firing.Lock()
-		delete(firing.takingOver, id)
+		beingFired := firing.ids[id]
+		if !beingFired {
+			firing.takingOver[id] = true
+		}
 		firing.Unlock()
-	}
-	t3Desk.Unlock()
+		if !beingFired {
+			defer func() {
+				firing.Lock()
+				delete(firing.takingOver, id)
+				firing.Unlock()
+			}()
+		}
+		// Read again once it's this one's turn, so a second click finds it already taken over.
+		var hire Hire
+		hire, found = registryHire(id)
+		switch {
+		case !found:
+		case beingFired:
+			err = t3Refused(http.StatusConflict, calledHire(hire)+" is being fired right now, so it wasn't taken over.")
+		default:
+			if why := t3TakeOverRefusal(hire, session, ways.Machine.Home, testCopyPort() != 0); why != "" {
+				err = t3Refused(http.StatusConflict, why)
+			} else {
+				thread, err = t3TakeOver(hire, session, ways)
+			}
+		}
+	}()
 	d.mu.Lock()
 	d.changed()
 	d.mu.Unlock()

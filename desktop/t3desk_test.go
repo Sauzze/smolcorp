@@ -106,7 +106,7 @@ case "$1 $2" in
     has busy && { echo "{\"threadId\":\"$3\",\"status\":\"running\",\"delivery\":\"queued\"}"; exit 0; }
     echo "{\"threadId\":\"$3\",\"status\":\"starting\",\"delivery\":\"started\"}"; exit 0 ;;
   "auth session")
-    has authfail && { echo '{"sessionId":"s-1","token":"fake-tok-leak"}'; echo "Could not open T3 Code's auth store." >&2; exit 1; }
+    has authfail && [ "$3" = issue ] && { echo '{"sessionId":"s-1","token":"fake-tok-leak"}'; echo "Could not open T3 Code's auth store." >&2; exit 1; }
     has authgarbled && [ "$3" = issue ] && { echo "Issued bearer access token s-9."; exit 0; }
     [ "$3" = list ] && { echo '[{"sessionId":"s-9","client":{"label":"` + t3CallLabel + `","deviceType":"bot"}},{"sessionId":"s-8","client":{"label":"Someone else","deviceType":"bot"}}]'; exit 0; }
     [ "$3" = issue ] && { echo '{"sessionId":"s-1","token":"fake-tok","method":"bearer","scopes":["orchestration:operate"]}'; exit 0; }

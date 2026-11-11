@@ -88,10 +88,9 @@ func t3Call(m t3Machine, program, method string, payload map[string]any) (map[st
 	issued := m.Run(program, []string{"auth", "session", "issue", "--scope", t3CallScope, "--ttl", "2m", "--label", t3CallLabel, "--json"}, t3Within)
 	// Its output holds the token: only its error side is ever said.
 	if !issued.Ended || issued.Code != 0 {
-		if !issued.Ended {
-			// No answer in time: T3 Code may have issued it all the same (RM5b N1).
-			t3RevokeOurs(m, program)
-		}
+		// No answer in time, or an end with a failure after it issued: T3 Code may have issued it all the same, so
+		// whatever it listed as ours is signed out (RM5b N1, FXTO2 N3).
+		t3RevokeOurs(m, program)
 		why := firstLine(issued.Error)
 		if why == "" {
 			why = "it gave no reason"

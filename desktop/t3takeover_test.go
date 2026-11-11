@@ -1145,6 +1145,74 @@ func TestT3TakeOverAProjectAddedButNotAsAskedIsOnRecordBeforeItsHandedBack(t *te
 	}
 }
 
+// FXTO2 N1: when the thread can't be put on record either, the answer says the registry wasn't written, as the
+// main path's does, and names the project to remove by hand.
+func TestT3TakeOverSaysSoWhenTheRegistryCantHoldTheThreadOfAnUnansweredAdd(t *testing.T) {
+	k := newT3TakeOverRig(t)
+	ways := k.ways()
+	run := ways.Machine.Run
+	ways.Machine.Run = func(program string, args []string, within time.Duration) t3Ran {
+		if slices.Equal(args[:2], []string{"project", "add"}) {
+			return t3Ran{}
+		}
+		return run(program, args, within)
+	}
+	// The first save (the thread's turn to be marked taken over) holds; the later ones don't.
+	saves := 0
+	save := ways.Save
+	ways.Save = func(id string, change func(*Hire)) error {
+		if saves++; saves > 1 {
+			return errors.New("disk full")
+		}
+		return save(id, change)
+	}
+	_, err := t3TakeOver(k.hire, k.session, ways)
+	if refused := refusalOf(t, err); !strings.Contains(refused.Message, "The registry couldn't be written either: if T3 Code has a project for it, remove \"Ada · hire/ada-abcdef\" in T3 Code.") {
+		t.Errorf("%q", refused.Message)
+	}
+}
+
+// FXTO2 N2: a panic inside Take over leaves neither the desk nor the hire's slot held.
+func TestT3TakeOverLetsGoOfItsDeskAndSlotWhenItPanics(t *testing.T) {
+	k := newT3TakeOverRig(t)
+	keptMachine, keptStand := newT3Machine, t3HandingStand
+	newT3Machine = k.machine
+	t3HandingStand = func(*Deck, Hire) t3Handing {
+		ways := k.ways()
+		ways.Stop = func(Hire, string) error { panic("boom") }
+		return ways
+	}
+	t.Cleanup(func() { newT3Machine, t3HandingStand = keptMachine, keptStand })
+	t3Kept.Lock()
+	t3Kept.status, t3Kept.at = t3Status{}, time.Time{}
+	t3Kept.Unlock()
+	d := newTestDeck(t)
+	d.mu.Lock()
+	d.config.T3CodeEnabled = true
+	d.mu.Unlock()
+	t3Registered(t, k.hire)
+	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree,
+		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree, nowMillis())
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("no panic reached here")
+			}
+		}()
+		d.takeOverIntoT3(k.hire.ID)
+	}()
+	firing.Lock()
+	held := firing.takingOver[k.hire.ID]
+	firing.Unlock()
+	if held {
+		t.Error("the slot is still held")
+	}
+	if !t3Desk.TryLock() {
+		t.Fatal("the desk is still held")
+	}
+	t3Desk.Unlock()
+}
+
 // RM5c2 N1: Take over holds the hire from fires while it runs, and is refused while a fire holds it.
 func TestT3TakeOverAndAFireOfOneHireNeverRunAtOnce(t *testing.T) {
 	k := newT3TakeOverRig(t)
@@ -1308,11 +1376,12 @@ func TestT3CallSignsOutASignInItCouldntRead(t *testing.T) {
 	if got := revoked(r); !reflect.DeepEqual(got, [][]string{{"auth", "session", "revoke", "s-9"}}) {
 		t.Errorf("no answer: %q", r.runs())
 	}
-	// A sign-in t3 refused (it ended, and said why) issued nothing: nothing is listed or revoked.
+	// A sign-in that ended with a failure may have issued all the same (the fake prints a session first): what's
+	// listed as Smolcorp's is signed out, and nobody else's (FXTO2 N3).
 	r.fake("authfail")
 	_ = os.Remove(r.calls)
 	_, _ = t3Call(r.machine(), program, "agentSessions.import", nil)
-	if len(r.runs()) != 1 {
+	if got := revoked(r); !reflect.DeepEqual(got, [][]string{{"auth", "session", "revoke", "s-9"}}) {
 		t.Errorf("refused: %q", r.runs())
 	}
 }
