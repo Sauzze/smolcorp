@@ -443,6 +443,20 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual((line["check"] as? [String: Any])?["detail"] as? String, SelfTest.installCheck(testCopy: true).detail)
     }
 
+    /// No `Actions` of a test run can move a bundle (FXC1e N-1): one built by hand refuses by default, and `.mac`
+    /// (not a test copy, but in the test suite) refuses too, in the Mac's words, before /Applications is reached.
+    func testNoActionsOfATestRunMovesToApplications() {
+        // `actions` is built memberwise and leaves the mover alone; `.mac` is the real one, in a test run.
+        for (name, base) in [("by hand", actions), ("mac", HostBridge.Actions.mac)] {
+            var copy = base
+            copy.main = terminals
+            let request: [String: Any] = ["action": "install", "token": token]
+            let answer = HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: copy)
+            XCTAssertFalse(isOK(answer), name)
+            XCTAssertEqual(answer["error"] as? String, "A test copy stays where it was built.", name)
+        }
+    }
+
     /// A test copy's login item is the copy in use's: the bridge reads it, as the Swift engine's own setup
     /// does in a test copy, and never sets it, saying so in the Mac's words (SelfTest.loginCheck's).
     func testATestCopyLeavesTheLoginItemAlone() {

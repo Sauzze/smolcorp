@@ -1075,7 +1075,8 @@ final class HostBridge {
         var facts: (_ apps: [String]) -> [String: Any] = { _ in [:] }
         /// The checklist's install line (`SelfTest.installCheck`), and its fix: the app moved to Applications.
         var installCheck: () -> Check = { SelfTest.installCheck() }
-        var moveToApplications: () throws -> Void = { try SelfTest.moveToApplications() }
+        /// Refuses unless `onThisMac` supplies the real one, so no `Actions` built by hand can move a bundle.
+        var moveToApplications: () throws -> Void = { throw SelfTest.FixError.testCopy }
         var dock: (Bool) -> Void = { _ in }
         var askAccessibility: () -> Void = {}
         /// Keys in other apps switched on: Accessibility asked for if it isn't given, but never by a test copy.
@@ -1179,7 +1180,8 @@ final class HostBridge {
                 },
                 installCheck: { SelfTest.installCheck(testCopy: testCopy) },
                 // A test copy never moves its bundle, whatever the global switch says (so a test of `onThisMac(testCopy: true)` can't reach /Applications).
-                moveToApplications: { if testCopy { throw SelfTest.FixError.testCopy }; try SelfTest.moveToApplications() },
+                // Only the Mac's own app moves its bundle: never a test copy, nor the test suite's bundle.
+                moveToApplications: { if testCopy || Paths.underTest { throw SelfTest.FixError.testCopy }; try SelfTest.moveToApplications() },
                 dock: { Dock.show($0) },
                 askAccessibility: { Permissions.requestAccessibility() },
                 keystrokesOn: { if !testCopy, !Permissions.hasAccessibility { Permissions.requestAccessibility() } },

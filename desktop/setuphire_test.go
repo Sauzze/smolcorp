@@ -5,6 +5,7 @@ package desktop
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -373,5 +374,48 @@ func TestSetupsHireSaysWhenItsTaskWasntPassedOn(t *testing.T) {
 	status, answer, why = d.hireFromSetupSheet(setupHire{Role: "accountant", Folder: repo, Answers: []string{"x"}, Task: "Count."})
 	if status != http.StatusOK || answer.(map[string]any)["note"] != setupHireNotPassedOn || len(h.windows)+len(h.tmux) == 0 {
 		t.Fatalf("the old way: %d %v %s, opened %q %q", status, answer, why, h.windows, h.tmux)
+	}
+}
+
+// FXC1e N-2: the refusals the route ends itself (the GM's, the API-key account's and a hire that
+// couldn't be made) go out as the Mac's words alone: no newline after them, as Swift's `.status` answers.
+func TestSetupHireRefusalsEndWithoutANewline(t *testing.T) {
+	d, _, _ := engineDeck(t)
+	repo := homeRepo(t)
+	ask := func(who caller, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		if !d.setupHireRoute(w, http.MethodPost, "/setup/hire", strings.NewReader(body), who) {
+			t.Fatalf("the route didn't answer %s", body)
+		}
+		return w
+	}
+	// The GM asking for a GM.
+	w := ask(callerGM, `{"role":"gm"}`)
+	if w.Code != http.StatusConflict || (w.Body.String() != onlyOwnerHiresGMRefusal && w.Body.String() != secondGMRefusal) {
+		t.Errorf("the GM's hire of a GM: %d %q", w.Code, w.Body)
+	}
+	// The API-key account, while it isn't offered.
+	offer := d.apiKeyOffer()
+	if offer.Available || offer.Refusal == "" {
+		t.Skipf("the API-key account is offered here: %+v", offer)
+	}
+	w = ask(callerPage, `{"role":"janitor","folder":"`+repo+`","apiKey":true}`)
+	if w.Code != http.StatusConflict || w.Body.String() != offer.Refusal {
+		t.Errorf("the API-key account: %d %q, want 409 %q", w.Code, w.Body, offer.Refusal)
+	}
+	// A hire that couldn't be made: a second one right after the first, which hireInto refuses as the Mac's Deck.hire does.
+	d.engine.HeardFrom = func(Hire) bool { return true }
+	hire := `{"role":"janitor","folder":"` + repo + `"}`
+	if w = ask(callerPage, hire); w.Code != http.StatusOK {
+		t.Fatalf("the first hire: %d %q", w.Code, w.Body)
+	}
+	d.watching.Wait()
+	other := filepath.Join(homeDir, "Projects", "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w = ask(callerPage, `{"role":"janitor","folder":"`+physical(other)+`"}`)
+	if w.Code != http.StatusTooManyRequests || w.Body.String() != "Hired a moment ago. Try again in a few seconds." {
+		t.Errorf("a hire that couldn't be made: %d %q", w.Code, w.Body)
 	}
 }
