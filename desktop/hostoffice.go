@@ -100,7 +100,7 @@ func (d *Deck) addMacControls(entry map[string]any, s *Session) {
 	entry["dial"] = s.Agent.HasEffortDial() && can.Text
 	entry["phoneMic"] = d.config.PhoneMicEnabled && can.Text
 	// The agent's own voice mode through Space, or dictation through the text it types (hostdictation.go).
-	dictates := d.dictatesFor(s.Agent)
+	dictates := d.dictatesFor(s.Tab, s.Agent)
 	entry["mic"] = s.Agent.HasVoice() && can.Keys
 	if dictates {
 		entry["mic"] = can.Text

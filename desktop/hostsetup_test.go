@@ -33,12 +33,22 @@ type macStandIn struct {
 	roster   *[]grokRow
 	keyboard bool
 	volume   int
-	// The office's mic (hostdictation.go): a recording that won't start, and what a stop heard.
+	// The office's mic (hostdictation.go): a recording that won't start, and what a stop heard; a start held
+	// until startWait is closed, if set (before the lock, so a stop can be answered meanwhile).
 	notStarting bool
 	heard       string
+	startWait   chan struct{}
 }
 
 func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
+	if request.Action == "dictation-start" {
+		m.mu.Lock()
+		wait := m.startWait
+		m.mu.Unlock()
+		if wait != nil {
+			<-wait
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.asked = append(m.asked, request)
@@ -109,7 +119,12 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 		playing := true
 		return bridgeAnswer{OK: true, Playing: &playing, Volume: &bridgeVolume{Level: m.volume}}, nil
 	case "dictation-start":
-		return bridgeAnswer{OK: true, Started: !m.notStarting}, nil
+		// A launcher's id isn't a tab the app knows (TabAddress): its no, as RGAPA B2 found it. Busy, the core is
+		// recording already: checked, then not started.
+		if kind, _, _ := splitTab(request.Tab); kind == "launcher" {
+			return bridgeAnswer{Error: "Not a tab."}, nil
+		}
+		return bridgeAnswer{OK: true, Started: !m.notStarting && !request.Busy}, nil
 	case "dictation-stop":
 		return bridgeAnswer{OK: true, Text: m.heard}, nil
 	case "dictation-clean":
@@ -259,10 +274,16 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"dictation got ready, with a problem":     func(h hostBridge) (any, error) { return hostPrepareDictation(h, "fr_FR") },
 		"dictation in a language it doesn't know": func(h hostBridge) (any, error) { return hostPrepareDictation(h, "xx_XX") },
 		"the office's mic, recording for a Terminal tab": func(h hostBridge) (any, error) {
-			return hostDictationStart(h, "tty:/dev/ttys003", "fr_FR")
+			return hostDictationStart(h, "tty:/dev/ttys003", "fr_FR", false)
 		},
 		"the office's mic, recording that couldn't start": func(h hostBridge) (any, error) {
-			return hostDictationStart(h, "tty:/dev/ttys004", "en_US")
+			return hostDictationStart(h, "tty:/dev/ttys004", "en_US", false)
+		},
+		"the office's mic, while the core is recording already": func(h hostBridge) (any, error) {
+			return hostDictationStart(h, "tty:/dev/ttys003", "fr_FR", true)
+		},
+		"the clean-up switched off, its last problem forgotten": func(h hostBridge) (any, error) {
+			return nil, hostDictationCleanupOff(h)
 		},
 		"the office's mic let go, what it heard": func(h hostBridge) (any, error) { return hostDictationStop(h) },
 		"the office's mic let go, nothing heard": func(h hostBridge) (any, error) { return hostDictationStop(h) },
@@ -362,6 +383,7 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"dictation in a language it doesn't know":                                     "",
 		"the office's mic, recording for a Terminal tab":                              true,
 		"the office's mic, recording that couldn't start":                             false,
+		"the office's mic, while the core is recording already":                       false,
 		"the office's mic let go, what it heard":                                      "Fix the uh small corp build",
 		"the office's mic let go, nothing heard":                                      "",
 		"what it heard, cleaned up by Claude":                                         dictationCleaned{text: "Fix the Smolcorp build", note: "cleaned in 0.9 s", cleaned: true},

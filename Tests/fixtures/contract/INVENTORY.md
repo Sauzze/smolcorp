@@ -308,7 +308,7 @@ has are the known gaps' "extra" rows.
 | `.phoneMic` | object | same |
 | `.phoneMic.autoSend` | bool | same |
 | `.phoneMic.enabled` | bool | same |
-| `.phoneMic.serving` | string or null | same |
+| `.phoneMic.serving` | bool or null | same |
 | `.phoneMic.tailnet` | string or null | same |
 | `.phones` | array | same |
 | `.phones[].connected` | bool | same |
@@ -539,7 +539,7 @@ such mark, with why, until M7.
 | `GET /setup/gm/team` | `.team[].started` | `number or null` | when its hire was started: null for a session no hire matches, as both in the given |
 | `setup-state` | `.dictation.cleanupProblem` | `string or null` | what stops Claude cleaning dictation up: null when nothing does, as in the given |
 | `setup-state` | `.dictation.problem` | `string or null` | what stops dictation: null when nothing does, as this Mac's speech recognition says |
-| `setup-state` | `.phoneMic.serving` | `string or null` | the HTTPS address the phone mic is served on: none without Tailscale (personal build) |
+| `setup-state` | `.phoneMic.serving` | `bool or null` | whether `tailscale serve` hands the deck on: unknown without Tailscale, as Tailscale isn't asked |
 | `setup-state` | `.phoneMic.tailnet` | `string or null` | this Mac's Tailscale name: none, as Tailscale isn't asked (personal build) |
 | `setup-state` | `.summary.fallback` | `string or null` | the provider used when the one picked can't answer: none with summaries off, as in the given |
 | `snapshot` | `.floors[].desks[].errorKind` | `string or null` | why its last turn failed: no turn fails in the given |

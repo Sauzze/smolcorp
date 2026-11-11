@@ -83,6 +83,8 @@ func runTailscale(tool string, arguments ...string) ([]byte, bool) {
 	}
 	var out bytes.Buffer
 	command.Stdout = &out
+	// A child of the tool's left holding its output never keeps the call past the timeout by much (RGAPA N5).
+	command.WaitDelay = time.Second
 	if err := command.Run(); err != nil {
 		return nil, false
 	}

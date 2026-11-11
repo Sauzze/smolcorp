@@ -321,6 +321,9 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 		}
 		if query.Has("cleanup") {
 			d.config.DictationCleanup = query.Get("cleanup") == "1"
+			if !d.config.DictationCleanup {
+				d.cleanupOff()
+			}
 		}
 		if query.Has("enabled") {
 			d.config.DictationEnabled = query.Get("enabled") == "1" && facts.Dictation.Available

@@ -81,6 +81,8 @@ type bridgeRequest struct {
 	Names []string `json:"names,omitempty"`
 	// dictation: the language whose model gets ready; dictation-start: the language recorded in.
 	Language string `json:"language,omitempty"`
+	// dictation-start: this program is recording already, so the app checks the tab and says no (RGAPA N2).
+	Busy bool `json:"busy,omitempty"`
 	// dictation-clean: the clean-up's glossary as setup has it (none: the app's own), and the desks' names;
 	// the text is Text, and whether to clean it up On.
 	Glossary *[]string `json:"glossary,omitempty"`

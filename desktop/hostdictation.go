@@ -43,8 +43,9 @@ type dictationRun struct {
 	tab   string
 	agent Agent
 	phone string
-	// Being stopped: the app has been asked, and hasn't answered yet. With the deck's lock.
-	stopping bool
+	// Starting: the app has been asked to record, and hasn't answered yet. Being stopped: let go, and the app
+	// asked to stop, or to be once it has answered the start. With the deck's lock.
+	starting, stopping bool
 }
 
 // voiceNote is how a desk's last dictation went, for a moment (Deck.voiceNotes).
@@ -56,15 +57,20 @@ type voiceNote struct {
 }
 
 // dictationOn says whether the office's mic can dictate: under the Mac app, turned on in setup, and the
-// Mac able to (its speech engine, and the microphone allowed), as Dictation.isOn. With the lock held.
+// Mac able to (its speech engine, and the microphone allowed), as Dictation.isOn. Never in a test copy,
+// whatever its settings say: it doesn't record from the Mac's microphone (RGAPA B1). With the lock held.
 func (d *Deck) dictationOn() bool {
-	return d.mac.host != nil && d.config.DictationEnabled && d.mac.canDictate
+	return d.mac.host != nil && d.config.DictationEnabled && d.mac.canDictate && testCopyPort() == 0
 }
 
-// dictatesFor says whether the mic dictates for agent rather than pressing its own voice key: for every
-// agent without one, and for Claude Code too if setup says so, or while Claude's clean-up is on
-// (Deck.dictates). With the lock held.
-func (d *Deck) dictatesFor(agent Agent) bool {
+// dictatesFor says whether the mic dictates for agent, in tab, rather than pressing its own voice key: for
+// every agent without one, and for Claude Code too if setup says so, or while Claude's clean-up is on
+// (Deck.dictates). Never in a launcher's window: the Swift engine had none, and the Mac app only records for
+// a terminal's tab it knows (RGAPA B2); there the mic is the agent's voice key, as before. With the lock held.
+func (d *Deck) dictatesFor(tab string, agent Agent) bool {
+	if kind, _, _ := splitTab(tab); kind == "launcher" {
+		return false
+	}
 	return d.dictationOn() && (!agent.HasVoice() || d.config.DictationForClaude || d.config.DictationCleanup)
 }
 
@@ -73,34 +79,42 @@ func (d *Deck) dictatesFor(agent Agent) bool {
 func (d *Deck) startDictation(tab string, agent Agent, phone string) (int, string) {
 	d.mu.Lock()
 	h, language := d.mac.host, d.dictationLanguage()
-	can := d.mac.abilities[tab]
-	if kind, _, _ := splitTab(tab); kind == "launcher" {
-		can.Text = true
-	}
-	if !can.Text {
+	if !d.mac.abilities[tab].Text {
 		d.mu.Unlock()
 		return http.StatusConflict, notHere
 	}
-	// Already recording, or getting ready to: Dictation.start's no.
-	if d.dictating != nil {
-		d.mu.Unlock()
-		return http.StatusConflict, dictationCouldntStart
+	// Already recording, or getting ready to: the app still checks the terminal and Accessibility first, and
+	// then says no without recording, so the refusals come in the Swift engine's order (RGAPA N2).
+	busy := d.dictating != nil
+	run := &dictationRun{tab: tab, agent: agent, phone: phone, starting: true}
+	if !busy {
+		d.dictating = run
 	}
-	run := &dictationRun{tab: tab, agent: agent, phone: phone}
-	d.dictating = run
 	d.mu.Unlock()
 
-	started, err := hostDictationStart(h, tab, language)
-	if err == nil && started {
-		// Held longer than a recording runs: it stops, and its text goes in.
-		d.rounds.after(dictationLongest, func() { d.endDictation(run) })
-		return http.StatusNoContent, ""
+	started, err := hostDictationStart(h, tab, language, busy)
+	if busy {
+		started = false
+	} else {
+		d.mu.Lock()
+		run.starting = false
+		released := run.stopping
+		if !started && d.dictating == run {
+			d.dictating = nil
+		}
+		d.mu.Unlock()
+		if err == nil && started {
+			if released {
+				// Let go while it was starting (RGAPA N1): stopped now the app has begun, never before, so the
+				// stop can't reach it first and leave the Mac recording with nothing here holding it.
+				d.rounds.run(func() { d.stopDictation(run) })
+			} else {
+				// Held longer than a recording runs: it stops, and its text goes in.
+				d.rounds.after(dictationLongest, func() { d.endDictation(run) })
+			}
+			return http.StatusNoContent, ""
+		}
 	}
-	d.mu.Lock()
-	if d.dictating == run {
-		d.dictating = nil
-	}
-	d.mu.Unlock()
 	var refusal appRefusal
 	switch {
 	case errors.Is(err, errUnsupported):
@@ -111,7 +125,7 @@ func (d *Deck) startDictation(tab string, agent Agent, phone string) (int, strin
 			return http.StatusForbidden, macNoKeyboard
 		}
 		return http.StatusConflict, dictationCouldntStart
-	case err != nil:
+	case err != nil && !busy:
 		// Not answered in time, it may still come up: it's stopped, and what it heard is dropped.
 		d.rounds.run(func() { _, _ = hostDictationStop(h) })
 	}
@@ -151,6 +165,18 @@ func (d *Deck) endDictation(run *dictationRun) {
 		return
 	}
 	run.stopping = true
+	// Still starting: the start, once answered, stops it (RGAPA N1).
+	starting := run.starting
+	d.mu.Unlock()
+	if !starting {
+		d.stopDictation(run)
+	}
+}
+
+// stopDictation has the app stop run, which is being stopped, and types what it heard, as endDictation says.
+// Called without the lock.
+func (d *Deck) stopDictation(run *dictationRun) {
+	d.mu.Lock()
 	h := d.mac.host
 	d.mu.Unlock()
 	heard, err := hostDictationStop(h)
@@ -205,7 +231,7 @@ func dictationText(heard string) string {
 }
 
 // typeDictation types text into run's tab, without Return, only while its agent is in front there, as the
-// deck's keys go (Deck.typeDictation). A terminal that didn't take it says so over the desk. Called without the lock.
+// deck's keys go (Deck.typeDictation). A terminal that stopped answering says so over the desk. Called without the lock.
 func (d *Deck) typeDictation(run *dictationRun, text string) {
 	var failed error
 	_, _ = d.toAgent(run.tab, run.agent, func(t Tab) error {
@@ -226,12 +252,20 @@ func (d *Deck) typeDictation(run *dictationRun, text string) {
 		failed = err
 		return err
 	})
-	// The Mac app's sentence for a terminal that stopped answering, said over the desk; an agent that
-	// has ended or isn't in front is left as the deck leaves it.
+	// The Mac app's sentence for a terminal that stopped answering, said over the desk: only that, the Swift
+	// engine's delivery's 503 (RGAPA N3). Any other no, and an agent that has ended or isn't in front, is
+	// left as the deck leaves it.
 	var refusal appRefusal
-	if errors.As(failed, &refusal) {
+	if errors.As(failed, &refusal) && terminalNotAnswering(refusal.Error()) {
 		d.noteVoice(run.tab, refusal.Error(), false)
 	}
+}
+
+// terminalNotAnswering says whether the Mac app's no is its sentence for a terminal that didn't answer in
+// time, at all or part way (Terminals.notAnswering).
+func terminalNotAnswering(why string) bool {
+	return strings.HasSuffix(why, " isn't answering, so nothing was typed. Try again in a moment.") ||
+		strings.HasSuffix(why, " stopped answering part way. Look at the desk before you try again.")
 }
 
 // noteVoice puts a few seconds' note over tab's desk, of how its dictation went, and forgets it after
@@ -285,8 +319,20 @@ func (d *Deck) setCleanup(on string) (int, string) {
 		d.config.DictationCleanup = on == "1"
 		d.config.save()
 		d.changed()
+		if on == "0" {
+			d.cleanupOff()
+		}
 	}
 	return http.StatusNoContent, ""
+}
+
+// cleanupOff is Claude's clean-up switched off, by the mic's switch or setup's checkbox: its last problem goes
+// with it, as Deck.setCleanup (RGAPA N4), so switched on again setup doesn't show an old one. Not waited for.
+// With the lock held.
+func (d *Deck) cleanupOff() {
+	if h := d.mac.host; h != nil {
+		d.rounds.run(func() { _ = hostDictationCleanupOff(h) })
+	}
 }
 
 // dictationClean is what the app is told as it cleans up what it heard: whether to, the glossary as setup has
@@ -306,9 +352,10 @@ type dictationCleaned struct {
 
 // hostDictationStart has the Mac app record for tab, in language: false when it couldn't start, as
 // Dictation.start says it (already recording, or the microphone or the model not there). The app checks
-// tab's terminal types text, and has Accessibility where its keys need it (macNoKeyboard).
-func hostDictationStart(h hostBridge, tab, language string) (bool, error) {
-	answer, err := ask(h, bridgeRequest{Action: "dictation-start", Tab: tab, Language: language})
+// tab's terminal types text, and has Accessibility where its keys need it (macNoKeyboard). Busy, this
+// program is recording already: the app checks the same, then says false without recording.
+func hostDictationStart(h hostBridge, tab, language string, busy bool) (bool, error) {
+	answer, err := ask(h, bridgeRequest{Action: "dictation-start", Tab: tab, Language: language, Busy: busy})
 	return answer.Started, err
 }
 
@@ -317,6 +364,12 @@ func hostDictationStart(h hostBridge, tab, language string) (bool, error) {
 func hostDictationStop(h hostBridge) (string, error) {
 	answer, err := ask(h, bridgeRequest{Action: "dictation-stop"})
 	return answer.Text, err
+}
+
+// hostDictationCleanupOff has the Mac app forget why the clean-up last didn't work.
+func hostDictationCleanupOff(h hostBridge) error {
+	_, err := ask(h, bridgeRequest{Action: "dictation-cleanup-off"})
+	return err
 }
 
 // hostDictationClean has the Mac app clean text up with Claude and your key when clean says so

@@ -82,6 +82,11 @@
       "answer": {"ok": true, "started": false}
     },
     {
+      "name": "the office's mic, while the core is recording already",
+      "request": {"action": "dictation-start", "tab": "tty:/dev/ttys003", "language": "fr_FR", "busy": true},
+      "answer": {"ok": true, "started": false}
+    },
+    {
       "name": "the office's mic let go, what it heard",
       "request": {"action": "dictation-stop"},
       "answer": {"ok": true, "text": "Fix the uh small corp build"}
@@ -100,6 +105,11 @@
       "name": "what it heard, the clean-up off",
       "request": {"action": "dictation-clean", "text": "hello there", "on": false, "glossary": []},
       "answer": {"ok": true, "text": "hello there", "note": null, "cleaned": false}
+    },
+    {
+      "name": "the clean-up switched off, its last problem forgotten",
+      "request": {"action": "dictation-cleanup-off"},
+      "answer": {"ok": true}
     },
     {
       "name": "dictation's text, into a Terminal tab, its agent in front",

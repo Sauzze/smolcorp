@@ -192,6 +192,28 @@ func TestTheMicsRefusalsAreTheMacs(t *testing.T) {
 		t.Errorf("no Accessibility: %d %q", status, text)
 	}
 	mac.refusing(nil)
+	// While one records, a second press is checked as the Swift engine checked it: Accessibility first, then
+	// Dictation.start's no; the app records nothing for it (RGAPA N2).
+	if status, _ := d.PerformFrom("phone-1", "mic", "codex-1", url.Values{"phase": {"down"}}); status != http.StatusNoContent {
+		t.Fatalf("the first press: %d", status)
+	}
+	mac.refusing(map[string]string{"dictation-start": macNoKeyboard})
+	if status, text := d.PerformFrom("phone-2", "mic", "codex-1", url.Values{"phase": {"down"}}); status != http.StatusForbidden || text != macNoKeyboard {
+		t.Errorf("a second press without Accessibility: %d %q", status, text)
+	}
+	mac.refusing(nil)
+	if status, text := d.PerformFrom("phone-2", "mic", "codex-1", url.Values{"phase": {"down"}}); status != http.StatusConflict || text != dictationCouldntStart {
+		t.Errorf("a second press: %d %q", status, text)
+	}
+	if started := askedFor(mac, "dictation-start"); len(started) != 5 || started[3].Busy != true || started[4].Busy != true || started[2].Busy {
+		t.Errorf("the starts asked: %+v", started)
+	}
+	d.Perform("mic", "", url.Values{})
+	eventually(t, "stopped", func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.dictating == nil
+	})
 	d.mu.Lock()
 	d.mac.abilities[tab] = tabAbilities{Keys: true}
 	d.mu.Unlock()
@@ -212,7 +234,7 @@ func TestTheMicsRefusalsAreTheMacs(t *testing.T) {
 // A Claude Code desk keeps its own voice mode (Space) unless setup says Claude Code too, or the clean-up is on;
 // and dictation off, or a Mac that can't, every desk does as before.
 func TestClaudeCodeKeepsItsVoiceModeUnlessSetupSaysOtherwise(t *testing.T) {
-	d, _, _ := dictationDeck(t)
+	d, _, tab := dictationDeck(t)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, c := range []struct {
@@ -227,8 +249,8 @@ func TestClaudeCodeKeepsItsVoiceModeUnlessSetupSaysOtherwise(t *testing.T) {
 	} {
 		d.config.DictationEnabled, d.mac.canDictate = c.enabled, c.canDictate
 		d.config.DictationForClaude, d.config.DictationCleanup = c.forClaude, c.cleanup
-		if d.dictatesFor(Claude) != c.claude || d.dictatesFor(Codex) != c.codex {
-			t.Errorf("%+v: Claude %v, Codex %v", c, d.dictatesFor(Claude), d.dictatesFor(Codex))
+		if d.dictatesFor(tab, Claude) != c.claude || d.dictatesFor(tab, Codex) != c.codex {
+			t.Errorf("%+v: Claude %v, Codex %v", c, d.dictatesFor(tab, Claude), d.dictatesFor(tab, Codex))
 		}
 	}
 }
@@ -265,7 +287,7 @@ func TestWithoutTheMacAppTheMicDoesntDictate(t *testing.T) {
 	d.mu.Lock()
 	d.config.DictationEnabled, d.config.DictationForClaude = true, true
 	d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "codex-1", "cwd": "/work/smolcorp"}, Codex, "tmux:%1@/tmp/tmux", "", 100)
-	dictates := d.dictatesFor(Codex)
+	dictates := d.dictatesFor("tmux:%1@/tmp/tmux", Codex)
 	d.mu.Unlock()
 	if dictates {
 		t.Error("dictates without the Mac app")
@@ -293,4 +315,150 @@ func TestDictationsTextIsOneLine(t *testing.T) {
 	if got := dictationText(strings.Repeat("é", dictationTextMost+10)); len([]rune(got)) != dictationTextMost {
 		t.Errorf("a long one kept %d characters", len([]rune(got)))
 	}
+}
+
+// A test copy never records from the Mac's microphone (RGAPA B1), even with dictation on in its settings: the
+// office shows no dictation and no mic for an agent without a voice key, and a press asks the app nothing.
+func TestATestCopyNeverDictates(t *testing.T) {
+	d, mac, _ := dictationDeck(t)
+	onPort(t, portFromEnvironment("")+1)
+	entry, dictation := sessionSaid(t, d, "codex-1")
+	if dictation["on"] != false || entry["dictates"] != false || entry["mic"] != false {
+		t.Errorf("dictation %v, the desk's dictates %v and mic %v", dictation, entry["dictates"], entry["mic"])
+	}
+	if status, text := d.PerformFrom("phone-1", "mic", "codex-1", url.Values{"phase": {"down"}}); status != http.StatusBadRequest || !strings.Contains(text, "no voice input") {
+		t.Errorf("the mic held: %d %q", status, text)
+	}
+	if started := askedFor(mac, "dictation-start"); len(started) != 0 {
+		t.Errorf("the app was asked to record: %+v", started)
+	}
+}
+
+// A launcher's desk never dictates (RGAPA B2): the Mac app only records for a terminal tab it knows, and says
+// "Not a tab." to a launcher's id. There Claude Code keeps its voice key, Space, through the launcher, as before;
+// an agent without one has no mic. The app is never asked to record for it.
+func TestALaunchersDeskKeepsItsVoiceKey(t *testing.T) {
+	d, mac, _ := dictationDeck(t)
+	const id = "0123456789ABCDEF0123456789ABCDEF"
+	d.mu.Lock()
+	d.config.DictationForClaude, d.config.DictationCleanup = true, true
+	d.mu.Unlock()
+	launcher := d.launcherConnected(id, Claude, "/work/api", "", "")
+	d.mu.Lock()
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "claude-l", "cwd": "/work/api"},
+		Claude, "launcher:"+id, "", 200)
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "codex-l", "cwd": "/work/web"},
+		Codex, "launcher:FEDCBA9876543210FEDCBA9876543210", "", 300)
+	d.mu.Unlock()
+	// The stand-in says no as the app does, were it asked.
+	if _, err := hostDictationStart(mac, "launcher:"+id, "en_US", false); err == nil || err.Error() != "Not a tab." {
+		t.Fatalf("the stand-in for a launcher: %v", err)
+	}
+	if entry, _ := sessionSaid(t, d, "claude-l"); entry["dictates"] != false || entry["mic"] != true {
+		t.Errorf("Claude's launcher desk: dictates %v, mic %v", entry["dictates"], entry["mic"])
+	}
+	if entry, _ := sessionSaid(t, d, "codex-l"); entry["dictates"] != false || entry["mic"] != false {
+		t.Errorf("Codex's launcher desk: dictates %v, mic %v", entry["dictates"], entry["mic"])
+	}
+	if status, text := d.PerformFrom("phone-1", "mic", "claude-l", url.Values{"phase": {"down"}}); status != http.StatusNoContent {
+		t.Fatalf("Claude's mic held: %d %q", status, text)
+	}
+	if command := sent(t, launcher); command.Press == nil || command.Press.Key != Space {
+		t.Errorf("the launcher was sent %+v, want Space", command)
+	}
+	if status, text := d.PerformFrom("phone-1", "mic", "codex-l", url.Values{"phase": {"down"}}); status != http.StatusBadRequest || !strings.Contains(text, "no voice input") {
+		t.Errorf("Codex's mic held: %d %q", status, text)
+	}
+	if started := askedFor(mac, "dictation-start"); len(started) != 1 {
+		t.Errorf("the app was asked to record for a launcher: %+v", started)
+	}
+}
+
+// Let go while the app is still starting (RGAPA N1): the stop waits for the start's answer, so it can't reach
+// the app first and leave the Mac recording with nothing here holding it. Then what was heard goes in.
+func TestALetGoWhileStartingStopsOnceStarted(t *testing.T) {
+	d, mac, _ := dictationDeck(t)
+	wait := make(chan struct{})
+	mac.mu.Lock()
+	mac.startWait, mac.heard = wait, "short"
+	mac.mu.Unlock()
+	pressed := make(chan int, 1)
+	go func() {
+		status, _ := d.PerformFrom("phone-1", "mic", "codex-1", url.Values{"phase": {"down"}})
+		pressed <- status
+	}()
+	eventually(t, "getting ready", func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.dictating != nil
+	})
+	if status, _ := d.Perform("mic", "", url.Values{}); status != http.StatusNoContent {
+		t.Fatalf("the release: %d", status)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if stops := askedFor(mac, "dictation-stop"); len(stops) != 0 {
+		t.Fatal("stopped before the app had answered the start")
+	}
+	close(wait)
+	if status := <-pressed; status != http.StatusNoContent {
+		t.Errorf("the press: %d", status)
+	}
+	eventually(t, "stopped and typed", func() bool { return len(askedFor(mac, "insert")) == 1 })
+	d.mu.Lock()
+	recording := d.dictating != nil
+	d.mu.Unlock()
+	if recording || len(askedFor(mac, "dictation-stop")) != 1 {
+		t.Errorf("still recording %v, %d stops", recording, len(askedFor(mac, "dictation-stop")))
+	}
+}
+
+// Only a terminal that stopped answering is said over the desk, as the Swift engine's delivery's 503 (RGAPA N3):
+// any other no from the app leaves no note.
+func TestOnlyATerminalNotAnsweringIsNoted(t *testing.T) {
+	d, mac, _ := dictationDeck(t)
+	mac.heard = "hello"
+	for _, c := range []struct {
+		why  string
+		note bool
+	}{
+		{"Not text to type.", false},
+		{"The terminal didn't take it.", false},
+		{"Terminal isn't answering, so nothing was typed. Try again in a moment.", true},
+		{"iTerm2 stopped answering part way. Look at the desk before you try again.", true},
+	} {
+		d.mu.Lock()
+		delete(d.voiceNotes, "codex-1")
+		d.mu.Unlock()
+		mac.refusing(map[string]string{"insert": c.why})
+		inserts := len(askedFor(mac, "insert"))
+		d.PerformFrom("phone-1", "mic", "codex-1", url.Values{"phase": {"down"}})
+		d.Perform("mic", "", url.Values{})
+		eventually(t, "tried to type", func() bool { return len(askedFor(mac, "insert")) == inserts+1 })
+		time.Sleep(50 * time.Millisecond)
+		entry, _ := sessionSaid(t, d, "codex-1")
+		note, _ := entry["voiceNote"].(map[string]any)
+		if (note != nil) != c.note || (c.note && note["text"] != c.why) {
+			t.Errorf("%q: the note %v", c.why, entry["voiceNote"])
+		}
+	}
+}
+
+// Claude's clean-up switched off, from the mic's switch or setup's checkbox, has the app forget its last problem,
+// as Deck.setCleanup (RGAPA N4); switched on, nothing is forgotten.
+func TestTheCleanUpSwitchedOffForgetsItsProblem(t *testing.T) {
+	d, mac, _ := dictationDeck(t)
+	d.Perform("cleanup", "", url.Values{"on": {"1"}})
+	if code, _ := pageCall(t, d, "POST", "/setup/dictation?cleanup=1"); code >= 300 {
+		t.Fatalf("setup's checkbox on: %d", code)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := len(askedFor(mac, "dictation-cleanup-off")); n != 0 {
+		t.Fatalf("switched on, forgotten %d times", n)
+	}
+	d.Perform("cleanup", "", url.Values{"on": {"0"}})
+	eventually(t, "forgotten from the mic's switch", func() bool { return len(askedFor(mac, "dictation-cleanup-off")) == 1 })
+	if code, _ := pageCall(t, d, "POST", "/setup/dictation?cleanup=0"); code >= 300 {
+		t.Fatalf("setup's checkbox off: %d", code)
+	}
+	eventually(t, "forgotten from setup", func() bool { return len(askedFor(mac, "dictation-cleanup-off")) == 2 })
 }

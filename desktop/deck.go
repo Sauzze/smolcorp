@@ -1601,7 +1601,7 @@ func (d *Deck) PerformFrom(phone, action, id string, query url.Values) (int, str
 	case "mic":
 		// Under the Mac app, dictation, as setup says, rather than the agent's own voice mode through Space.
 		d.mu.Lock()
-		dictates := d.dictatesFor(agent)
+		dictates := d.dictatesFor(tab, agent)
 		d.mu.Unlock()
 		if dictates {
 			return d.startDictation(tab, agent, phone)

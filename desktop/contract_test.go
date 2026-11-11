@@ -802,8 +802,9 @@ func contractGaps(t *testing.T, c contract) []knownGap {
 // macDictationGaps is the office's dictation under the Mac app, which no fixture shows: the Mac's own test
 // can't count on its speech recognition and microphone. With both (the stand-in app has them, learned as the
 // deck learns them, from its facts), and dictation on for Claude Code too, the Mac's rule (Deck.dictates,
-// Dictation.isOn) has the snapshot's dictation on and contract-a, a Claude desk in a launcher's window,
-// dictate. A gap if this app's mic doesn't (closed in M7GAPA, hostdictation.go).
+// Dictation.isOn) has the snapshot's dictation on and a Claude desk in a Terminal tab that types text dictate.
+// A gap if this app's mic doesn't (closed in M7GAPA, hostdictation.go). Not contract-a, in a launcher's window:
+// the Mac had no launchers, and this app keeps them out of dictation (RGAPA B2).
 func macDictationGaps(t *testing.T, c contract) []knownGap {
 	cd := newContractDeck(t, c, []string{"sessions"})
 	d := cd.d
@@ -817,8 +818,11 @@ func macDictationGaps(t *testing.T, c contract) []knownGap {
 	mac.facts.Dictation.Available, mac.facts.Dictation.Allowed = true, true
 	mac.mu.Unlock()
 	d.macFactsNow()
+	const tab = "tty:/dev/ttys009"
 	d.mu.Lock()
 	d.config.DictationEnabled, d.config.DictationForClaude = true, true
+	d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "contract-tty", "cwd": "/work/alpha"}, Claude, tab, "", 100)
+	d.mac.abilities, d.mac.abilitiesFor = map[string]tabAbilities{tab: {Keys: true, Text: true, Fire: true}}, tab
 	var state struct {
 		Dictation struct{ On bool }
 		Keys      []struct{ Session map[string]any }
@@ -827,7 +831,7 @@ func macDictationGaps(t *testing.T, c contract) []knownGap {
 	d.mu.Unlock()
 	dictates := false
 	for _, key := range state.Keys {
-		if key.Session["id"] == "contract-a" {
+		if key.Session["id"] == "contract-tty" {
 			dictates = key.Session["dictates"] == true
 		}
 	}
