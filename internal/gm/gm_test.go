@@ -516,6 +516,41 @@ func TestHireLeavesOutWhatIsNotGiven(t *testing.T) {
 	}
 }
 
+// PR1: the Go app serves POST /setup/gm/hire, so `gm hire` against it sends the request and prints the
+// answer, and a refusal is printed as the Mac's is. The "isn't available" text is gone for hire only.
+func TestHireAgainstTheGoAppSendsTheRequestAndPrintsTheAnswer(t *testing.T) {
+	var got []byte
+	status := http.StatusOK
+	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Smolcorp-App", "linux")
+		if r.URL.Path != "/setup/gm/hire" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		got, _ = io.ReadAll(r.Body)
+		if status != http.StatusOK {
+			w.WriteHeader(status)
+			w.Write([]byte("Install tmux: the General Manager hires only into a hire Smolcorp can fence."))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true,"desk":3,"session":null}`))
+	})
+	code, out, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor")
+	if code != 0 || !strings.Contains(out, "Hired a janitor. At desk 4.") || string(got) != `{"role":"janitor"}` {
+		t.Fatalf("exit %d out %q err %q body %s", code, out, errOut, got)
+	}
+	if strings.Contains(errOut, "isn't available") {
+		t.Errorf("still says hire isn't available: %q", errOut)
+	}
+	// A refusal from the Go app is its own sentence, not the "isn't available" text.
+	status = http.StatusConflict
+	code, _, errOut = runGM(app.env(t, withToken()), "hire", "--role", "janitor")
+	if code != exitApp || !strings.Contains(errOut, "409") || !strings.Contains(errOut, "Install tmux") || strings.Contains(errOut, "isn't available") {
+		t.Errorf("refusal: exit %d %q", code, errOut)
+	}
+}
+
 func TestHireRefusalIsPrinted(t *testing.T) {
 	app := newFakeApp(t, serve([]byte("Choose a folder for new hires in setup, on your Mac."), 409))
 	code, _, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor")
@@ -897,7 +932,6 @@ func TestUnservedGMRoutesSayWhatTheGoAppLacks(t *testing.T) {
 		args          []string
 		goMsg, macMsg string
 	}{
-		{[]string{"hire", "--role", "janitor", "--task", "tidy"}, "smolcorp gm: `gm hire` isn't available in Smolcorp on Linux and Windows yet: the owner hires from the office or Setup.\n", "smolcorp gm: Smolcorp answered 404: not found\n"},
 		{[]string{"fire", "Rev"}, "smolcorp gm: `gm fire` isn't available in Smolcorp on Linux and Windows yet.\n", ""},
 		{[]string{"brief", "Rev", "--text", "hi"}, "smolcorp gm: `gm brief` isn't available in Smolcorp on Linux and Windows yet.\n", ""},
 		{[]string{"tile"}, "smolcorp gm: `gm tile` isn't available in Smolcorp on Linux and Windows yet.\n", "smolcorp gm: this Smolcorp can't tile windows yet; update it.\n"},
@@ -931,7 +965,7 @@ func TestUnservedGMRoutesSayWhatTheGoAppLacks(t *testing.T) {
 func TestHelpAndBadTokenNameTheirApp(t *testing.T) {
 	app := newFakeApp(t, serve(teamAnswer(t), 200))
 	_, out, _ := runGM(app.env(t, withToken()), "help")
-	for _, want := range []string{"On Linux and Windows, hire, brief, fire, tile, screens, screen and accounts\naren't served yet.", "on the Mac, ask the owner to rotate it", "hire the GM again from Setup"} {
+	for _, want := range []string{"On Linux and Windows, brief, fire, tile, screens, screen and accounts\naren't served yet.", "on the Mac, ask the owner to rotate it", "hire the GM again from Setup"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help lacks %q", want)
 		}
