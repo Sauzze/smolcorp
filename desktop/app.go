@@ -247,67 +247,51 @@ func newTray(deck *Deck, failed <-chan error, code *int) {
 // update shows the sessions, and how many are waiting on you, the way the
 // Mac's menu bar title does.
 func (t *tray) update() {
-	d := t.deck
-	d.mu.Lock()
-	all := d.sessions.All()
-	waiting := 0
-	for _, s := range all {
-		if s.State == Asking {
-			waiting++
-		}
-	}
-	// The office window's own device is not a phone to unpair.
-	phones := phonesOnly(d.access.Phones)
-	logo := d.config.Logo
-	onTop := d.config.AlwaysOnTop
-	d.mu.Unlock()
-
-	if len(all) == 1 {
+	state := t.deck.menuState()
+	if state.Sessions == 1 {
 		t.count.SetTitle("1 agent session")
 	} else {
-		t.count.SetTitle(fmt.Sprintf("%d agent sessions", len(all)))
+		t.count.SetTitle(fmt.Sprintf("%d agent sessions", state.Sessions))
 	}
 	title := ""
-	if waiting > 0 {
-		title = fmt.Sprint(waiting)
+	if state.Waiting > 0 {
+		title = fmt.Sprint(state.Waiting)
 	}
 	systray.SetTitle(title)
-	systray.SetTooltip(strings.TrimSpace("Smolcorp " + map[bool]string{true: "· " + title + " waiting on you"}[waiting > 0]))
-	if phones > 0 {
+	systray.SetTooltip(strings.TrimSpace("Smolcorp " + map[bool]string{true: "· " + title + " waiting on you"}[state.Waiting > 0]))
+	if state.Phones > 0 {
 		t.unpair.Show()
 	} else {
 		t.unpair.Hide()
 	}
-	t.updatePortable()
+	t.updatePortable(state.Portable)
 	// Set from setup too: the check box follows.
-	if hasNativeWindow && onTop != t.onTop.Checked() {
-		if onTop {
+	if hasNativeWindow && state.OnTop != t.onTop.Checked() {
+		if state.OnTop {
 			t.onTop.Check()
 		} else {
 			t.onTop.Uncheck()
 		}
 	}
-	if logo != t.logo {
-		if icon, err := trayIcons.ReadFile("tray-" + logo + ".png"); err == nil {
+	if state.Logo != t.logo {
+		if icon, err := trayIcons.ReadFile("tray-" + state.Logo + ".png"); err == nil {
 			systray.SetIcon(trayIcon(icon))
-			t.logo = logo
+			t.logo = state.Logo
 		}
 	}
 }
 
 // updatePortable shows the portable office as the Mac's menu does: on, with
 // how it's going, and its switch; or off, with what it needs.
-func (t *tray) updatePortable() {
-	portable := t.deck.portable
-	on, setUp := portable.IsOn(), portable.IsSetUp()
-	status, problem := portable.Status()
+func (t *tray) updatePortable(portable portableMenu) {
+	on, setUp := portable.On, portable.SetUp
 	switch {
 	case on:
-		t.portableStatus.SetTitle("Portable office: ON · " + status)
+		t.portableStatus.SetTitle("Portable office: ON · " + portable.Status)
 		t.portableStatus.Show()
 		t.portable.SetTitle("Stop portable office")
-	case setUp && problem != "":
-		t.portableStatus.SetTitle(problem)
+	case setUp && portable.Problem != "":
+		t.portableStatus.SetTitle(portable.Problem)
 		t.portableStatus.Show()
 	default:
 		t.portableStatus.Hide()

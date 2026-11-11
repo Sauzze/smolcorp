@@ -6,6 +6,9 @@ import Carbon.HIToolbox
 /// the core asks for what only macOS can do.
 /// No Swift deck is made and the Swift server doesn't start, so the core alone
 /// reads and writes the support folder. Quitting stops the core.
+/// Its menus are the Swift app's (StatusMenu and AppDelegate before 1.25.0):
+/// what they show of the deck, the core sends as it changes (`ShellMenu`), and
+/// what they do to it, they ask the core (`GoCore.Op`).
 final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let bridge: HostBridge
     private let core: GoCore
@@ -18,6 +21,8 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settings: SettingsWindow?
     /// Why the core isn't there, while it isn't.
     private var problem: String? = "The Go engine is starting…"
+    /// What the menu shows of the deck, as the core last said.
+    private var state: ShellMenu?
 
     init(port: UInt16 = Deck.port, support: URL = Paths.support) {
         bridge = HostBridge(socket: support.appendingPathComponent("bridge.sock"), actions: officeLink.actions(.mac))
@@ -26,11 +31,18 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        item.button?.image = StatusMenu.icon(for: Config.shared.logo)
+        item.button?.imagePosition = .imageLeading
+        showState()
         item.menu = NSMenu()
         item.menu?.delegate = self
         NSApp.mainMenu = mainMenu()
+        // A test copy leaves your login item to the copy in use (see LoginItem.refresh).
+        LoginItem.refresh()
         core.onExit = { [weak self] status in self?.coreStopped(status) }
+        core.onMenu = { [weak self] state in
+            self?.state = state
+            self?.showState()
+        }
         // The office's window on top or not, settled once as the Swift engine settles it, before the core reads the file.
         OfficeWindow.settleForCore(Config.shared)
         do {
@@ -77,6 +89,8 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let said = "The Go engine stopped (\(status)). Quit and open Smolcorp again."
         guard problem != said else { return }
         problem = said
+        state = nil
+        showState()
         officeLink.keys.hold(nil)
         office?.hide()
         office = nil
@@ -94,47 +108,153 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Its input ends, then SIGTERM, then SIGKILL, until its pid is gone.
+        // Its input ends, then SIGTERM, then SIGKILL, until its pid is gone. The core stops the portable office
+        // as its input ends, and asks the viewer to forget it.
         core.stop()
         bridge.stop()
     }
 
+    /// A click on the Dock icon, or the app opened again from Finder,
+    /// Spotlight or Launchpad: the office, shown if it's hidden and brought
+    /// forward if it isn't, never a second one. Settings opens from ⚙︎, the
+    /// menus and ⌘, only.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         office?.bringForward()
         return false
     }
 
-    // MARK: Menus
+    /// The Dock icon's own menu, once the core is ready.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        office.map { GoShellDelegate.dockMenu(officeShown: $0.isShown, target: self) }
+    }
+
+    // MARK: The menu bar item
+
+    /// The logo, with a small dot while the portable office is on, so it's seen at a glance, and the number of
+    /// sessions waiting on you beside it.
+    private func showState() {
+        item.button?.image = GoShellDelegate.icon(for: state)
+        item.button?.title = GoShellDelegate.beside(state)
+    }
+
+    static func icon(for state: ShellMenu?) -> NSImage {
+        let logo = state?.logo ?? Config.shared.logo
+        return state?.portable.on == true ? StatusMenu.dotted(logo) : StatusMenu.icon(for: logo)
+    }
+
+    static func beside(_ state: ShellMenu?) -> String {
+        guard let waiting = state?.waiting, waiting > 0 else { return "" }
+        return " \(waiting)"
+    }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-        menu.addItem(withTitle: problem ?? GoShellDelegate.title(port: core.port), action: nil, keyEquivalent: "")
-        menu.addItem(.separator())
-        if let office {
+        // As it is now, if the core answers at once ("last sent 4 s ago"); else as it last said.
+        if office != nil, let now = core.menu(waitingUpTo: 0.5) {
+            state = now
+            showState()
+        }
+        let headline = GoShellDelegate.headline(port: core.port, problem: problem, sessions: state?.sessions)
+        let window = office.map { office -> OfficeMenu in
             let labels = OfficeKey.currentLabels()
             let keys = OfficeKey.chosen(Config.shared, labels: labels)?.menuKey(labels)
-            let show = add(to: menu, "Show Office", #selector(toggleOffice), key: keys?.key ?? "")
-            show.keyEquivalentModifierMask = keys?.modifiers ?? []
-            show.state = office.isShown ? .on : .off
-            add(to: menu, "Settings…", #selector(openSettings), key: ",")
-            add(to: menu, "Open Settings in Browser", #selector(openInBrowser))
-            menu.addItem(.separator())
+            return OfficeMenu(shown: office.isShown, onTop: office.alwaysOnTop, allSpaces: office.onAllSpaces,
+                              clickThrough: office.clickThrough, upright: office.isUpright,
+                              key: keys?.key ?? "", modifiers: keys?.modifiers ?? [])
         }
-        add(to: menu, "Quit Smolcorp", #selector(quit), key: "q")
+        GoShellDelegate.fill(menu, headline: headline, state: state, office: window, openAtLogin: LoginItem.isEnabled, target: self)
     }
 
-    /// The menu's first line while the core serves: a test copy says it's one, and its port.
-    static func title(port: UInt16, testCopy: Bool = TestCopy.isOn) -> String {
-        testCopy ? "Smolcorp Test · port \(port)" : "Smolcorp is running"
+    /// The menu's first lines: why the core isn't there, while it isn't; a test copy says it's one, and its port;
+    /// then the sessions, once the core has said.
+    static func headline(port: UInt16, problem: String?, sessions: Int?, testCopy: Bool = TestCopy.isOn) -> [String] {
+        if let problem { return [problem] }
+        var lines = testCopy ? ["Smolcorp Test · port \(port)"] : []
+        if let sessions { lines.append(sessions == 1 ? "1 agent session" : "\(sessions) agent sessions") }
+        return lines.isEmpty ? ["Smolcorp is running"] : lines
     }
 
-    /// Smolcorp's, Edit and Window, so the Settings page's fields take their keys.
+    /// The menu bar item's menu, as the Swift app's (StatusMenu): what needs the core only once it's ready
+    /// (`office`), and what depends on the deck once it has said (`state`).
+    static func fill(_ menu: NSMenu, headline: [String], state: ShellMenu?, office: OfficeMenu?, openAtLogin: Bool,
+                     target: AnyObject?) {
+        menu.removeAllItems()
+        for line in headline { menu.addItem(withTitle: line, action: nil, keyEquivalent: "") }
+        menu.addItem(.separator())
+        func add(_ title: String, _ action: Selector?, to menu: NSMenu = menu, key: String = "") -> NSMenuItem {
+            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
+            item.target = target
+            return item
+        }
+        if let office {
+            _ = add("Settings…", #selector(openSettings), key: ",")
+            _ = add("Open Settings in Browser", #selector(openInBrowser))
+            _ = add("Pair a Phone…", #selector(pairPhone))
+            _ = add("Show Me Around Again", #selector(showMeAround))
+            if let state, state.phones > 0 { _ = add("Unpair All Phones…", #selector(unpairAll)) }
+            menu.addItem(.separator())
+            // The portable office (beta): the office on a phone from anywhere, view only.
+            if let portable = state?.portable {
+                if portable.on {
+                    _ = add("Portable office: ON · \(portable.status)", nil)
+                    _ = add("Stop portable office", #selector(stopPortable))
+                    _ = add("Copy viewer link", #selector(copyViewerLink))
+                } else if !portable.setUp {
+                    _ = add("Going away: launch portable office", nil)
+                    add("Set up the viewer on the setup page", #selector(setUpViewer)).indentationLevel = 1
+                } else {
+                    _ = add("Going away: launch portable office", #selector(startPortable))
+                    if !portable.problem.isEmpty { _ = add(portable.problem, nil) }
+                }
+                menu.addItem(.separator())
+            }
+            // The keys chosen in Settings (⌥⌘O unless changed), as the layout in use prints them; none when off.
+            let show = add("Show Office", #selector(toggleOffice), key: office.key)
+            show.keyEquivalentModifierMask = office.modifiers
+            show.state = office.shown ? .on : .off
+            let options = NSMenu()
+            menu.addItem(withTitle: "Office Window", action: nil, keyEquivalent: "").submenu = options
+            add("Always on Top", #selector(toggleOnTop), to: options).state = office.onTop ? .on : .off
+            add("Show on All Spaces", #selector(toggleAllSpaces), to: options).state = office.allSpaces ? .on : .off
+            add("Click-Through", #selector(toggleClickThrough), to: options).state = office.clickThrough ? .on : .off
+            options.addItem(.separator())
+            add("Sideways", #selector(officeSideways), to: options).state = office.upright ? .off : .on
+            add("Upright", #selector(officeUpright), to: options).state = office.upright ? .on : .off
+        }
+        _ = add("Install Screen Saver…", #selector(installScreenSaver))
+        add("Open at Login", #selector(toggleLogin)).state = openAtLogin ? .on : .off
+        menu.addItem(.separator())
+        _ = add("Quit Smolcorp", #selector(quit), key: "q")
+    }
+
+    /// The Dock icon's menu, as the Swift app's.
+    static func dockMenu(officeShown: Bool, target: AnyObject?) -> NSMenu {
+        let menu = NSMenu()
+        for (title, action) in [("Show Office", #selector(toggleOffice)), ("Settings…", #selector(openSettings)),
+                                ("Pair a Phone…", #selector(pairPhone))] {
+            menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = target
+        }
+        menu.items.first?.state = officeShown ? .on : .off
+        return menu
+    }
+
+    // MARK: The menu bar's menus, while Smolcorp is in the Dock
+
+    /// Smolcorp's, Edit, Window and Help, as the Swift app's. In the menu bar only, they aren't shown, but their
+    /// keys still work in its windows: the Settings page's fields take theirs.
     private func mainMenu() -> NSMenu {
         let bar = NSMenu()
         let app = submenu(of: bar, "Smolcorp")
+        add(to: app, "About Smolcorp", #selector(about))
+        app.addItem(.separator())
         add(to: app, "Settings…", #selector(openSettings), key: ",")
         app.addItem(.separator())
+        add(to: app, "Hide Smolcorp", #selector(NSApplication.hide(_:)), key: "h", target: NSApp)
+        add(to: app, "Hide Others", #selector(NSApplication.hideOtherApplications(_:)), key: "h", target: NSApp)
+            .keyEquivalentModifierMask = [.command, .option]
+        add(to: app, "Show All", #selector(NSApplication.unhideAllApplications(_:)), target: NSApp)
+        app.addItem(.separator())
         add(to: app, "Quit Smolcorp", #selector(quit), key: "q")
+        // To whatever has the keyboard: the settings page's fields among them.
         let edit = submenu(of: bar, "Edit")
         edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
         edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z").keyEquivalentModifierMask = [.command, .shift]
@@ -144,9 +264,17 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         let window = submenu(of: bar, "Window")
+        // The office's keys work from anywhere already (⌥⌘O, or those chosen in Settings), so they aren't given again here.
+        add(to: window, "Office", #selector(toggleOffice))
+        add(to: window, "Settings", #selector(openSettings))
+        window.addItem(.separator())
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         NSApp.windowsMenu = window
+        // The first-run guide's arrows again, from the start, in Settings.
+        let help = submenu(of: bar, "Help")
+        add(to: help, "Show Me Around Again", #selector(showMeAround))
+        NSApp.helpMenu = help
         return bar
     }
 
@@ -156,22 +284,149 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return menu
     }
 
+    /// This app's own, or `target`'s.
     @discardableResult
-    private func add(to menu: NSMenu, _ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+    private func add(to menu: NSMenu, _ title: String, _ action: Selector, key: String = "", target: AnyObject? = nil) -> NSMenuItem {
         let item = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
-        item.target = self
+        item.target = target ?? self
         return item
     }
 
-    @objc private func toggleOffice() { office?.toggle() }
-    @objc private func openSettings() { settings?.show() }
+    // MARK: What the menus do
+
+    /// Settings, at `then` if given, as the page arrives there (#pair, #guide, #viewer). Never a test copy's
+    /// window: its tester reaches setup by its own link.
+    /// Before the core is ready, or once it's gone, there's no window: the browser, as the Swift app did.
+    private func showSettings(then: String? = nil) {
+        guard TestCopy.mayComeForward("Settings") else { return }
+        if let url = GoShellDelegate.browserFallback(windowReady: settings != nil, port: core.port, then: then) {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        settings?.show(then: then)
+    }
+
+    /// The setup page's address for the browser while there's no Settings window; nil once there is one.
+    static func browserFallback(windowReady: Bool, port: UInt16, then: String?) -> URL? {
+        windowReady ? nil : SettingsWindow.address(port: port, then: then)
+    }
+
+    @objc private func openSettings() { showSettings() }
     @objc private func openInBrowser() {
+        guard TestCopy.mayComeForward("Settings in the browser") else { return }
         DispatchQueue.global().async { [core] in
             guard let link = core.setupLink() else { return }
             DispatchQueue.main.async { NSWorkspace.shared.open(link) }
         }
     }
+    /// The setup page has a code ready when it opens on #pair.
+    @objc private func pairPhone() { showSettings(then: "pair") }
+    /// The first-run guide's arrows again, from the start, in Settings: the core turns the guide on and keeps it.
+    @objc private func showMeAround() {
+        core.tell(.guideAgain) { [weak self] _ in self?.showSettings(then: SettingsWindow.guide) }
+    }
+
+    @objc private func unpairAll() {
+        guard TestCopy.mayComeForward("the alert “Unpair all phones?”") else { return }
+        let alert = NSAlert()
+        alert.messageText = "Unpair all phones?"
+        alert.informativeText = "They stop working straight away. To use the deck again, pair each phone with a new code."
+        alert.addButton(withTitle: "Unpair All")
+        alert.addButton(withTitle: "Cancel")
+        // A menu bar app is never active by itself, and the alert would open behind other windows.
+        Foreground.activate("the alert “Unpair all phones?”")
+        if alert.runModal() == .alertFirstButtonReturn { core.tell(.unpairAll) }
+    }
+
+    @objc private func startPortable() { core.tell(.portableStart) }
+    @objc private func stopPortable() { core.tell(.portableStop) }
+    @objc private func setUpViewer() { showSettings(then: "viewer") }
+    @objc private func copyViewerLink() {
+        core.tell(.viewerLink) { answer in
+            if let link = answer?["link"] as? String { GoShellDelegate.copyForThisMacOnly(link) }
+        }
+    }
+
+    /// The link holds the key: copied for this Mac only, not to your other devices
+    /// over Universal Clipboard, and marked so clipboard managers leave it out.
+    static func copyForThisMacOnly(_ link: String, to pasteboard: NSPasteboard = .general) {
+        pasteboard.prepareForNewContents(with: .currentHostOnly)
+        let item = NSPasteboardItem()
+        item.setString(link, forType: .string)
+        for marker in ["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType"] {
+            item.setString("", forType: NSPasteboard.PasteboardType(marker))
+        }
+        pasteboard.writeObjects([item])
+    }
+
+    @objc private func toggleOffice() { office?.toggle() }
+    /// As setup's switch: the core has this app keep it on top at once (the bridge's office-ontop), then keeps it.
+    @objc private func toggleOnTop() {
+        guard let office else { return }
+        core.tell(.officeOnTop, on: !office.alwaysOnTop)
+    }
+    @objc private func toggleAllSpaces() { office?.onAllSpaces.toggle() }
+    @objc private func toggleClickThrough() { office?.clickThrough.toggle() }
+    @objc private func officeSideways() { office?.setUpright(false) }
+    @objc private func officeUpright() { office?.setUpright(true) }
+
+    @objc private func installScreenSaver() {
+        do {
+            // The installed screen saver is the copy in use's: a test copy would put its own over it.
+            guard !TestCopy.isOn else { throw TestCopy.Refused.screenSaver }
+            try ScreenSaver.install()
+        } catch {
+            guard TestCopy.mayComeForward("the alert “Couldn't install the screen saver”: \(error.localizedDescription)") else { return }
+            let alert = NSAlert()
+            alert.messageText = "Couldn't install the screen saver"
+            alert.informativeText = error.localizedDescription
+            Foreground.activate("the alert “Couldn't install the screen saver”")
+            alert.runModal()
+        }
+    }
+
+    /// A test copy leaves the login item to the copy in use (LoginItem).
+    @objc private func toggleLogin() { LoginItem.isEnabled.toggle() }
+
+    @objc private func about() {
+        guard TestCopy.mayComeForward("About Smolcorp") else { return }
+        Foreground.activate("About Smolcorp")
+        NSApp.orderFrontStandardAboutPanel(nil)
+    }
+
     @objc private func quit() { NSApp.terminate(nil) }
+}
+
+/// The office's window as the menu bar menu shows it: shown or not, its options, and its keys.
+struct OfficeMenu {
+    var shown, onTop, allSpaces, clickThrough, upright: Bool
+    var key = ""
+    var modifiers: NSEvent.ModifierFlags = []
+}
+
+/// What the menu bar menu shows of the deck, as the core sends it (desktop/menustate.go): the sessions and how
+/// many wait on you, the phones paired, the logo, and the portable office.
+struct ShellMenu: Equatable {
+    struct Portable: Equatable {
+        var on = false, setUp = false
+        /// While it's on, how it's going; while it's off, what's wrong, if anything.
+        var status = "", problem = ""
+    }
+
+    var sessions = 0, waiting = 0, phones = 0
+    var logo: Logo?
+    var portable = Portable()
+
+    init?(_ object: Any?) {
+        guard let object = object as? [String: Any] else { return nil }
+        sessions = object["sessions"] as? Int ?? 0
+        waiting = object["waiting"] as? Int ?? 0
+        phones = object["phones"] as? Int ?? 0
+        logo = (object["logo"] as? String).flatMap(Logo.init(stored:))
+        let portable = object["portable"] as? [String: Any] ?? [:]
+        self.portable = Portable(on: portable["on"] as? Bool ?? false, setUp: portable["setUp"] as? Bool ?? false,
+                                 status: portable["status"] as? String ?? "", problem: portable["problem"] as? String ?? "")
+    }
 }
 
 /// The Go shell's office window, for the bridge's `office`, `office-ontop` and `office-key` (setup's Open the

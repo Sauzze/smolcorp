@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
@@ -394,6 +395,10 @@ func TestTheAppsLines(t *testing.T) {
 		if err := json.Unmarshal([]byte(line), &a); err != nil {
 			t.Fatal(err)
 		}
+		// The menu's state, sent unasked: TestTheMenuIsSentWheneverItChanges.
+		if a.ID == 0 && !a.Ready && a.Menu != nil {
+			continue
+		}
 		answers = append(answers, a)
 	}
 	if len(answers) != 7 || !answers[0].Ready || answers[0].Port != Port || answers[0].Cookie != setupCookie() {
@@ -412,6 +417,152 @@ func TestTheAppsLines(t *testing.T) {
 		if a.Error == "" || a.Link != "" {
 			t.Errorf("refused: %+v", a)
 		}
+	}
+}
+
+// Each op the app may ask (Tests/fixtures/shell/ops.json, which ShellMenuTests.swift checks the app's side of),
+// answered with what the fixture says it carries and nothing else, and done: the guide on again, every phone
+// unpaired (the office window's key kept), the office's window kept on top through the app and saved.
+func TestTheAppsOpsAreTheFixtures(t *testing.T) {
+	var fixture struct {
+		Ops []struct {
+			Request map[string]any `json:"request"`
+			Carries []string       `json:"carries"`
+		} `json:"ops"`
+	}
+	data, err := os.ReadFile(filepath.Join("..", "Tests", "fixtures", "shell", "ops.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, op := range fixture.Ops {
+		names = append(names, op.Request["op"].(string))
+	}
+	if !slices.Equal(names, shellOps) {
+		t.Fatalf("the fixture's ops %v, the core's %v", names, shellOps)
+	}
+
+	d := newTestDeck(t)
+	app := &fakeHost{answer: bridgeAnswer{OK: true}}
+	d.mu.Lock()
+	d.mac.host = app
+	d.config.GuideDone = true
+	d.access.Phones.Pair("Test phone")
+	window := d.access.WindowKey
+	d.mu.Unlock()
+	for i, op := range fixture.Ops {
+		request := maps.Clone(op.Request)
+		request["id"] = i + 1
+		line, _ := json.Marshal(request)
+		said, _ := json.Marshal(answerShell(d, line))
+		var answer map[string]any
+		_ = json.Unmarshal(said, &answer)
+		if answer["id"] != float64(i+1) {
+			t.Errorf("%s: id %v", op.Request["op"], answer["id"])
+		}
+		delete(answer, "id")
+		got := slices.Sorted(maps.Keys(answer))
+		if want := slices.Sorted(slices.Values(op.Carries)); !slices.Equal(got, want) {
+			t.Errorf("%s: carries %v, want %v (%s)", op.Request["op"], got, want, said)
+		}
+	}
+	d.mu.Lock()
+	guideDone, phones, onTop := d.config.GuideDone, len(d.access.Phones.All), d.config.AlwaysOnTop
+	d.mu.Unlock()
+	if guideDone || phones != 0 || !d.access.IsWindowKey(window) {
+		t.Errorf("guide done %v, %d phones, window key kept %v", guideDone, phones, d.access.IsWindowKey(window))
+	}
+	if !onTop || !loadConfig().AlwaysOnTop || !slices.ContainsFunc(app.asked, func(r bridgeRequest) bool {
+		return r.Action == "office-ontop" && r.On != nil && *r.On
+	}) {
+		t.Errorf("on top: kept %v, asked %+v", onTop, app.asked)
+	}
+	// The menu's own state, as the tray reads it.
+	said := answerShell(d, []byte(`{"id":1,"op":"menu"}`))
+	if said.Menu == nil || said.Menu.Phones != 0 || said.Menu.Logo != "smolcorp" || said.Menu.Portable.On || said.Menu.Portable.SetUp {
+		t.Errorf("menu: %+v", said.Menu)
+	}
+	// Refused: on top without saying which, or with no app to keep it.
+	if said := answerShell(d, []byte(`{"id":2,"op":"office-ontop"}`)); said.Error == "" {
+		t.Errorf("on top, neither on nor off: %+v", said)
+	}
+	d.mu.Lock()
+	d.mac.host = nil
+	d.mu.Unlock()
+	if said := answerShell(d, []byte(`{"id":3,"op":"office-ontop","on":false}`)); said.Error == "" || !loadConfig().AlwaysOnTop {
+		t.Errorf("on top with no app: %+v", said)
+	}
+}
+
+// The menu's state goes to the app unasked, with no id: once ready, then whenever it changes, and not again
+// while it doesn't. Nothing is written once the app's input has ended.
+func TestTheMenuIsSentWheneverItChanges(t *testing.T) {
+	saved := menuPushGap
+	menuPushGap = 10 * time.Millisecond
+	t.Cleanup(func() { menuPushGap = saved })
+	d := newTestDeck(t)
+	lines := make(chan []byte)
+	read, write := io.Pipe()
+	ended := make(chan int, 1)
+	go func() {
+		ended <- serveShell(d, lines, write, make(chan error))
+		write.Close()
+	}()
+	said := make(chan shellAnswer, 16)
+	go func() {
+		scanner := bufio.NewScanner(read)
+		for scanner.Scan() {
+			var a shellAnswer
+			if json.Unmarshal(scanner.Bytes(), &a) == nil {
+				said <- a
+			}
+		}
+		close(said)
+	}()
+	next := func() shellAnswer {
+		t.Helper()
+		select {
+		case a := <-said:
+			return a
+		case <-time.After(5 * time.Second):
+			t.Fatal("nothing said")
+		}
+		return shellAnswer{}
+	}
+	if a := next(); !a.Ready {
+		t.Fatalf("first: %+v", a)
+	}
+	if a := next(); a.ID != 0 || a.Menu == nil || a.Menu.Phones != 0 || a.Menu.Sessions != 0 {
+		t.Fatalf("the menu once ready: %+v", a)
+	}
+	d.mu.Lock()
+	d.access.Phones.Pair("Test phone")
+	d.changed()
+	d.mu.Unlock()
+	if a := next(); a.ID != 0 || a.Menu == nil || a.Menu.Phones != 1 {
+		t.Fatalf("after pairing: %+v", a)
+	}
+	// A change the menu doesn't show sends nothing; the next answer is the one asked for.
+	d.mu.Lock()
+	d.changed()
+	d.mu.Unlock()
+	time.Sleep(5 * menuPushGap)
+	lines <- []byte(`{"id":7,"op":"menu"}`)
+	if a := next(); a.ID != 7 || a.Menu == nil || a.Menu.Phones != 1 {
+		t.Fatalf("asked: %+v", a)
+	}
+	close(lines)
+	if code := <-ended; code != 0 {
+		t.Errorf("code %d", code)
+	}
+	d.mu.Lock()
+	d.changed()
+	d.mu.Unlock()
+	for a := range said {
+		t.Errorf("said after the end: %+v", a)
 	}
 }
 

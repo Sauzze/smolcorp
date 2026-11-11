@@ -28,7 +28,8 @@ enum Engine: String {
 /// which other processes of yours can read (`ps -E`). It says it's ready on
 /// its standard output; this app then asks it, a line of JSON each way, for
 /// the office window's key and for setup sessions: only this app holds that
-/// pipe's other end. The bridge serves this core's pid alone, and the core
+/// pipe's other end. It asks what the menus do too (`Op`), and the core sends,
+/// unasked, the menu's state whenever it changes (`onMenu`). The bridge serves this core's pid alone, and the core
 /// sends the token only to its parent, this app (see `HostBridge`). When this
 /// app quits, or dies, the core's input ends and it stops: `stop` also makes
 /// sure, by its pid.
@@ -45,6 +46,14 @@ final class GoCore {
         }
     }
 
+    /// What this app may ask the core, as Tests/fixtures/shell/ops.json lists them for both sides.
+    enum Op: String, CaseIterable {
+        case office, setupSession = "setup-session", setupLink = "setup-link"
+        // The menu bar menu's (GoShellDelegate).
+        case menu, guideAgain = "guide-again", unpairAll = "unpair-all", portableStart = "portable-start"
+        case portableStop = "portable-stop", viewerLink = "viewer-link", officeOnTop = "office-ontop"
+    }
+
     let program: URL
     let port: UInt16
     let support: URL
@@ -53,6 +62,8 @@ final class GoCore {
     private(set) var setupCookie = "smolcorp-setup"
     /// Told on the main queue if the core stops by itself, with its exit status.
     var onExit: (Int32) -> Void = { _ in }
+    /// Told on the main queue the menu's state the core sends unasked, as it changes.
+    var onMenu: (ShellMenu) -> Void = { _ in }
 
     private var process: Process?
     private var input: FileHandle?
@@ -65,6 +76,10 @@ final class GoCore {
     private let asking = NSLock()
     private var nextID = 1
     private var stopping = false
+    /// A `menu` question was written and nothing has come from the core since (no answer, no push). Guarded by
+    /// `lock`. The menu, opening on the main queue, doesn't write again while it's set: a core that is alive but
+    /// stuck would otherwise leave one more unread request on the pipe at each opening, until it's full and a write blocks.
+    private var menuUnanswered = false
 
     init(program: URL = Paths.bundledCLI, port: UInt16, support: URL, bridge: HostBridge) {
         self.program = program
@@ -153,18 +168,25 @@ final class GoCore {
         if let cookie = ready["cookie"] as? String, !cookie.isEmpty { setupCookie = cookie }
     }
 
-    /// Asks the core `op` and waits a moment for its answer: nil without one.
-    func ask(_ op: String, then: String? = nil, waitingUpTo wait: TimeInterval = 3) -> [String: Any]? {
-        asking.lock()
+    /// Asks the core `op` and waits a moment for its answer: nil without one. `queueing` is how long it waits
+    /// for an earlier question to be answered first: the menu, opening, waits only a moment.
+    func ask(_ op: Op, then: String? = nil, on: Bool? = nil, waitingUpTo wait: TimeInterval = 3,
+             queueing: TimeInterval = 60) -> [String: Any]? {
+        guard asking.lock(before: Date().addingTimeInterval(queueing)) else { return nil }
         defer { asking.unlock() }
         guard let input, process?.isRunning == true else { return nil }
         let id = nextID
         nextID += 1
-        var request: [String: Any] = ["id": id, "op": op]
+        var request: [String: Any] = ["id": id, "op": op.rawValue]
         if let then { request["then"] = then }
+        if let on { request["on"] = on }
         guard var line = try? JSONSerialization.data(withJSONObject: request) else { return nil }
         line.append(0x0A)
-        do { try input.write(contentsOf: line) } catch { return nil }
+        if op == .menu { setMenuUnanswered(true) }
+        do { try input.write(contentsOf: line) } catch {
+            if op == .menu { setMenuUnanswered(false) }
+            return nil
+        }
         let deadline = Date().addingTimeInterval(wait)
         // An answer to an earlier request that came too late is passed over.
         while let answer = nextLine(until: deadline) {
@@ -173,23 +195,47 @@ final class GoCore {
         return nil
     }
 
+    /// `op` off the main queue, as the menus ask, then `done` on the main queue with the answer, or nil.
+    func tell(_ op: Op, on: Bool? = nil, then done: @escaping ([String: Any]?) -> Void = { _ in }) {
+        DispatchQueue.global().async { [self] in
+            let answer = ask(op, on: on)
+            DispatchQueue.main.async { done(answer) }
+        }
+    }
+
+    /// The menu's state now, for the menu as it opens: nil if the core doesn't answer at once.
+    /// Not asked while an earlier question of the menu's is unanswered (see `menuUnanswered`): the last push stands.
+    func menu(waitingUpTo wait: TimeInterval) -> ShellMenu? {
+        guard !isMenuUnanswered else { return nil }
+        return ShellMenu(ask(.menu, waitingUpTo: wait, queueing: wait)?["menu"])
+    }
+
+    var isMenuUnanswered: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return menuUnanswered
+    }
+
+    private func setMenuUnanswered(_ value: Bool) {
+        lock.lock(); menuUnanswered = value; lock.unlock()
+    }
+
     /// A new setup session for the Settings window, and its cookie's name.
     func setupSession() -> (session: String, cookie: String)? {
-        guard let answer = ask("setup-session"), let session = answer["session"] as? String,
+        guard let answer = ask(.setupSession), let session = answer["session"] as? String,
               let cookie = answer["cookie"] as? String, !session.isEmpty, !cookie.isEmpty else { return nil }
         return (session, cookie)
     }
 
     /// The office's window, with the office's own key on this Mac, as the Swift engine's.
     func officeAddress() -> URL? {
-        guard let key = ask("office")?["key"] as? String, !key.isEmpty,
+        guard let key = ask(.office)?["key"] as? String, !key.isEmpty,
               let encoded = key.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return nil }
         return URL(string: "http://127.0.0.1:\(port)/office?window&t=\(encoded)")
     }
 
     /// A link to setup that works once, for the browser.
     func setupLink(then: String? = nil) -> URL? {
-        (ask("setup-link", then: then ?? "")?["link"] as? String).flatMap(URL.init(string:))
+        (ask(.setupLink, then: then ?? "")?["link"] as? String).flatMap(URL.init(string:))
     }
 
     /// Stops the core: its input ends, which it takes as this app quitting;
@@ -233,18 +279,26 @@ final class GoCore {
         lock.lock()
         buffer.append(data)
         var count = 0
+        var menu: ShellMenu?
         while let newline = buffer.firstIndex(of: 0x0A) {
             let line = buffer[buffer.startIndex..<newline]
             buffer.removeSubrange(buffer.startIndex...newline)
-            if let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] {
-                lines.append(object)
-                count += 1
+            guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { continue }
+            // Anything from the core says it's reading and writing: the menu may ask again.
+            menuUnanswered = false
+            // Neither an answer nor ready: the menu's state, sent unasked, never waited for.
+            if object["id"] == nil, object["ready"] == nil {
+                menu = ShellMenu(object["menu"]) ?? menu
+                continue
             }
+            lines.append(object)
+            count += 1
         }
         // Nothing sane is this long: dropped, rather than kept growing.
         if buffer.count > 1 << 20 { buffer.removeAll() }
         lock.unlock()
         for _ in 0..<count { arrived.signal() }
+        if let menu { DispatchQueue.main.async { self.onMenu(menu) } }
     }
 
     private func nextLine(until deadline: Date) -> [String: Any]? {
