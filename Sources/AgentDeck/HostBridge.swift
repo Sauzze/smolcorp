@@ -17,8 +17,11 @@ import Security
 ///
 /// Each action is this app's own code, as the Swift engine runs it: the
 /// terminal drivers (Accessibility and AppleScript), the openers, the
-/// secrets' stores, the login item. Nothing here runs a shell line: a
-/// terminal is opened only on a script the core wrote in the hires folder.
+/// secrets' stores, the login item; and setup's Mac parts (Accessibility, keys
+/// in other apps, In the Dock, dictation, Add smolcorp to Terminal, the Grok
+/// Bot app) and what each desk's terminal allows, from the drivers' tables.
+/// Nothing here runs a shell line: a terminal is opened only on a script the
+/// core wrote in the hires folder.
 /// The core's side is desktop/hostbridge.go.
 final class HostBridge {
     let socket: URL
@@ -249,10 +252,117 @@ final class HostBridge {
             guard let item = actions.loginItem else { return refused("A test copy has no login item: it's the copy in use's.") }
             if let on = request["on"] as? Bool { item.set(on) }
             return ["ok": true, "on": item.get()]
+        case "facts", "dock", "accessibility", "keystrokes-on", "keystroke-apps", "glossary", "dictation", "terminal-command":
+            return setup(action, request, actions, until: deadline)
+        case "abilities":
+            guard let tabs = strings(request["tabs"], most: tabsMost) else { return refused("Not a list of tabs.") }
+            switch run(on: actions.main, until: deadline, { tabs.map(actions.abilities) }) {
+            case .done(let abilities): return ["ok": true, "abilities": abilities]
+            case .tooLate: return refused("The Mac didn't answer in time.")
+            }
+        case "bots-resolve":
+            return resolveBots(request, actions)
         default:
-            // Notifications and dictation aren't asked of the app yet.
+            // Notifications and the office's mic dictating aren't asked of the app yet.
             return refused("This Mac app can't do \(action) for the engine yet.")
         }
+    }
+
+    /// The most tabs asked about at once, and the most bots looked for.
+    static let tabsMost = 256
+    static let botsMost = 128
+
+    /// `value` as a list of strings, none longer than 1024: none for nothing, nil for anything else or more than `most`.
+    static func strings(_ value: Any?, most: Int) -> [String]? {
+        guard let value else { return [] }
+        guard let list = value as? [String], list.count <= most, list.allSatisfy({ $0.utf8.count <= 1024 }) else { return nil }
+        return list
+    }
+
+    /// Setup's Mac parts, as the Swift engine's routes do them (DeckRouter.swift), each with its code: the
+    /// settings themselves are the core's to keep.
+    private static func setup(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
+        switch action {
+        case "facts":
+            guard let apps = strings(request["apps"], most: Keystrokes.AppList.most) else { return refused("Not a list of apps.") }
+            switch run(on: actions.main, until: deadline, { actions.facts(apps) }) {
+            case .done(let facts): return ["ok": true, "facts": facts]
+            case .tooLate: return refused("The Mac didn't answer in time.")
+            }
+        case "dock":
+            guard let on = request["on"] as? Bool else { return refused("Say on or off.") }
+            return onMain(actions, until: deadline) { actions.dock(on) }
+        case "accessibility":
+            return onMain(actions, until: deadline) { actions.askAccessibility() }
+        case "keystrokes-on":
+            return onMain(actions, until: deadline) { actions.keystrokesOn() }
+        case "keystroke-apps":
+            guard let list = strings(request["apps"], most: Keystrokes.AppList.most), let app = request["app"] as? String,
+                  let add = request["on"] as? Bool else { return refused("Say the app, the list, and on or off.") }
+            guard add else { return ["ok": true, "apps": Keystrokes.AppList.removing(app, from: list)] }
+            switch Keystrokes.AppList.adding(app, to: list) {
+            case .success(let apps): return ["ok": true, "apps": apps]
+            case .failure(let problem): return refused(problem.reason)
+            }
+        case "glossary":
+            guard let names = strings(request["names"], most: 10_000) else { return refused("That isn't a list of names.") }
+            return ["ok": true, "names": DictationCleanup.checked(names)]
+        case "dictation":
+            guard let language = request["language"] as? String, Dictation.languages.contains(language) else {
+                return refused("Not a language dictation knows.")
+            }
+            // The microphone asked for, then the language's model got ready: downloaded the first time, which
+            // can take longer than the core waits. It goes on getting ready, and setup says so meanwhile.
+            let pending = Pending<String?>()
+            actions.main.async { actions.prepareDictation(language) { pending.finish($0) } }
+            switch pending.wait(until: deadline) {
+            case .done(let problem): return ["ok": true, "problem": problem ?? NSNull()]
+            case .tooLate: return ["ok": true, "problem": stillGettingReady]
+            }
+        default: // terminal-command
+            guard let on = request["on"] as? Bool else { return refused("Say on or off.") }
+            do {
+                try actions.terminalCommand(on)
+                return ["ok": true]
+            } catch {
+                return refused(error.localizedDescription)
+            }
+        }
+    }
+
+    /// What setup says while Apple's model for a language is still on its way.
+    static let stillGettingReady = "Dictation is still getting the language ready on this Mac. Look again in a moment."
+
+    /// `body` run on the app's main queue, as the Swift engine's routes run it, waited for until `deadline`.
+    private static func onMain(_ actions: Actions, until deadline: DispatchTime, _ body: @escaping () -> Void) -> [String: Any] {
+        switch run(on: actions.main, until: deadline, body) {
+        case .done: return ["ok": true]
+        case .tooLate: return refused("The Mac didn't answer in time.")
+        }
+    }
+
+    /// Who each bot is in the Grok Bot app now, read afresh, in the order asked: null for one not there.
+    private static func resolveBots(_ request: [String: Any], _ actions: Actions) -> [String: Any] {
+        guard let bots = request["bots"] as? [[String: Any]], bots.count <= botsMost else { return refused("Not a list of bots.") }
+        var wanted: [(botId: String, name: String)] = []
+        for bot in bots {
+            guard let id = bot["botId"] as? String, let name = bot["bot"] as? String, id.count <= 64, name.count <= 200 else {
+                return refused("Not a list of bots.")
+            }
+            wanted.append((GrokBotApp.safeID(id) ?? "", name))
+        }
+        let rows = actions.roster()
+        return ["ok": true, "resolved": wanted.map { bot -> Any in
+            rows.flatMap { GrokBotApp.resolve(botId: bot.botId, name: bot.name, in: $0) }?.json ?? NSNull()
+        }]
+    }
+
+    /// What `tab`'s terminal lets the office do, as its driver's table says (`Terminals.abilities`), and
+    /// whether it can say what the tab shows: no terminal is asked.
+    static func abilities(of tab: String) -> [String: Bool] {
+        let driver = TabAddress(tab).flatMap(Terminals.driver(for:))
+        let can = driver?.abilities ?? .none
+        return ["keys": can.contains(.keys), "text": can.contains(.text), "fire": can.contains(.fire), "screen": driver?.showsScreen ?? false]
     }
 
     private static func refused(_ why: String) -> [String: Any] { ["ok": false, "error": why] }
@@ -465,6 +575,21 @@ final class HostBridge {
         var loginItem: (get: () -> Bool, set: (Bool) -> Void)?
         /// Where tab actions and windows opened run, one at a time.
         var queue: DispatchQueue = Terminal.queue
+        /// Where setup's Mac parts run, as the Swift engine's routes do: the main queue.
+        var main: DispatchQueue = .main
+        /// Setup's facts of this Mac (see desktop/hostbridge.go's macFacts), given the apps keys may go to.
+        var facts: (_ apps: [String]) -> [String: Any] = { _ in [:] }
+        var dock: (Bool) -> Void = { _ in }
+        var askAccessibility: () -> Void = {}
+        /// Keys in other apps switched on: Accessibility asked for if it isn't given, but never by a test copy.
+        var keystrokesOn: () -> Void = {}
+        /// The microphone asked for, and the language's model got ready: why not, or nil.
+        var prepareDictation: (_ language: String, _ done: @escaping (String?) -> Void) -> Void = { _, done in done(nil) }
+        /// Add smolcorp to Terminal's link made (true) or removed: why not, thrown.
+        var terminalCommand: (Bool) throws -> Void = { _ in }
+        var abilities: (String) -> [String: Bool] = HostBridge.abilities(of:)
+        /// The Grok Bot app's bots now, read afresh: nil when its roster can't be read.
+        var roster: () -> [GrokBotApp.Row]? = { nil }
 
         /// The Swift engine's own: the terminal drivers on `Terminal.queue`, one at a time
         /// as the deck runs them, the openers, the secrets' stores (files in a test copy), the login item.
@@ -510,7 +635,31 @@ final class HostBridge {
                     "viewer-key": viewerItem(.key),
                     "viewer-write-secret": viewerItem(.writeSecret),
                 ],
-                loginItem: testCopy ? nil : loginItem)
+                loginItem: testCopy ? nil : loginItem,
+                facts: { apps in
+                    [
+                        "accessibility": Permissions.hasAccessibility,
+                        "testCopy": testCopy,
+                        "dictation": [
+                            "available": Dictation.isAvailable, "allowed": Dictation.microphoneAllowed,
+                            "languages": Dictation.languages, "suggested": Dictation.suggestedLanguage,
+                            "glossary": DictationCleanup.defaultGlossary, "cleanupProblem": DictationCleanup.problem ?? NSNull(),
+                        ] as [String: Any],
+                        "running": Keystrokes.runningApps(except: apps),
+                        "terminalCommand": TerminalCommand.json(),
+                    ]
+                },
+                dock: { Dock.show($0) },
+                askAccessibility: { Permissions.requestAccessibility() },
+                keystrokesOn: { if !testCopy, !Permissions.hasAccessibility { Permissions.requestAccessibility() } },
+                prepareDictation: { language, done in
+                    Dictation.askForMicrophone { _ in Dictation.prepare(language, done: done) }
+                },
+                terminalCommand: { add in
+                    guard !testCopy else { throw TerminalCommand.Problem.testCopy }
+                    if add { try TerminalCommand.add() } else { try TerminalCommand.remove() }
+                },
+                roster: { GrokBotApp.rows() })
         }
     }
 }

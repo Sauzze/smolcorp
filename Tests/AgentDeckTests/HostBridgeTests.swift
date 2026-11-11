@@ -420,6 +420,68 @@ final class HostBridgeTests: XCTestCase {
         try FileManager.default.moveItem(at: kept, to: socket)
     }
 
+    /// Setup's Mac parts and the desks' abilities, on stand-ins for what asks macOS: each request of the shared
+    /// fixture is answered exactly as it says (desktop/hostbridge_test.go checks the core sends and reads the same).
+    func testSetupsMacPartsAnswerAsTheSharedFixture() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("fixtures/bridge/actions.json")
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let cases = try XCTUnwrap(fixture["cases"] as? [[String: Any]])
+        let facts = try XCTUnwrap((cases.first?["answer"] as? [String: Any])?["facts"] as? [String: Any])
+        var mac = actions
+        mac.main = terminals
+        mac.facts = { [unowned self] apps in asked.append("facts \(apps.joined(separator: ","))"); return facts }
+        mac.dock = { [unowned self] in asked.append("dock \($0)") }
+        mac.askAccessibility = { [unowned self] in asked.append("accessibility") }
+        mac.keystrokesOn = { [unowned self] in asked.append("keystrokes on") }
+        mac.prepareDictation = { [unowned self] language, done in
+            asked.append("dictation \(language)")
+            done(language == "fr_FR" ? "Apple's model for French couldn't be downloaded." : nil)
+        }
+        mac.terminalCommand = { [unowned self] add in
+            asked.append("terminal command \(add)")
+            throw TerminalCommand.Problem.testCopy
+        }
+        mac.roster = { [GrokBotApp.Row(id: "0a1b-2c3d", name: "Smolcorp Mini Manager")] }
+        func text(_ object: Any) -> String {
+            String(decoding: (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data(), as: UTF8.self)
+        }
+        XCTAssertGreaterThanOrEqual(cases.count, 10)
+        for one in cases {
+            var request = try XCTUnwrap(one["request"] as? [String: Any])
+            request["token"] = token
+            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: token, actions: mac)
+            XCTAssertEqual(text(answer), text(one["answer"] ?? NSNull()), one["name"] as? String ?? "")
+        }
+        // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
+        XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true"])
+    }
+
+    func testSetupsMacPartsTakeOnlyWhatTheyShould() {
+        var mac = actions
+        mac.main = terminals
+        mac.facts = { _ in ["accessibility": true] }
+        XCTAssertFalse(isOK(HostBridge.answer(line(["action": "facts", "apps": "com.example.notes"]), token: token, actions: mac)), "apps not a list")
+        XCTAssertFalse(isOK(HostBridge.answer(line(["action": "facts", "apps": Array(repeating: "a.b", count: 51)]), token: token, actions: mac)))
+        XCTAssertTrue(isOK(HostBridge.answer(line(["action": "facts"]), token: token, actions: mac)), "no apps: none")
+        XCTAssertFalse(isOK(HostBridge.answer(line(["action": "dock"]), token: token, actions: mac)), "neither on nor off")
+        XCTAssertFalse(isOK(HostBridge.answer(line(["action": "abilities", "tabs": Array(repeating: "tty:/dev/ttys001", count: 257)]), token: token, actions: mac)))
+        XCTAssertFalse(isOK(HostBridge.answer(line(["action": "bots-resolve", "bots": [["bot": "No id"]]]), token: token, actions: mac)))
+        XCTAssertFalse(isOK(HostBridge.answer(line(["action": "keystroke-apps", "app": "com.example.mail"]), token: token, actions: mac)), "neither on nor off")
+        // No roster to read: nobody found, as the Swift engine answers.
+        let none = HostBridge.answer(line(["action": "bots-resolve", "bots": [["botId": "", "bot": "Mini"]]]), token: token, actions: mac)
+        XCTAssertEqual((none["resolved"] as? [Any])?.first is NSNull, true)
+        // A tab Smolcorp can only watch, or none at all: nothing offered.
+        XCTAssertEqual(HostBridge.abilities(of: "headless:3f2a9c1e"), ["keys": false, "text": false, "fire": false, "screen": false])
+        XCTAssertEqual(HostBridge.abilities(of: "not a tab"), ["keys": false, "text": false, "fire": false, "screen": false])
+    }
+
+    private func line(_ request: [String: Any]) -> Data {
+        var request = request
+        request["token"] = token
+        return try! JSONSerialization.data(withJSONObject: request)
+    }
+
     func testEachLaunchHasItsOwnToken() {
         let one = HostBridge.newToken(), two = HostBridge.newToken()
         XCTAssertEqual(one.count, 64)

@@ -725,6 +725,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	config := d.config
 	d.mu.Unlock()
 
+	// What only macOS does, under the Mac app (hostsetup.go): not served elsewhere.
+	if rt.macSetup(w, r) {
+		return
+	}
 	switch {
 	case r.Method == http.MethodGet && path == "/setup":
 		// Only the page or the setup key counts as setup; a GM token or a hire's key
@@ -1264,7 +1268,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		bots := config.CloudBots
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]any{"bots": bots})
+		writeJSON(w, http.StatusOK, map[string]any{"bots": botsResolved(host, bots)})
 
 	case r.Method == http.MethodPost && path == "/setup/bots":
 		given, ok := cloudBotsSent(r.Body)
@@ -1280,7 +1284,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.changed()
 		bots := config.CloudBots
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]any{"bots": bots})
+		writeJSON(w, http.StatusOK, map[string]any{"bots": botsResolved(host, bots)})
 
 	// A bot's mailbox folder, page only (routes.json).
 	case r.Method == http.MethodPost && path == "/setup/bots/mailbox":
@@ -1695,6 +1699,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 	connected := allConnected()
 	openAtLogin := isOpenAtLogin()
 	gmHired := readRegistry(registryPath(), false).gmIsHired()
+	// Under the Mac app, what only it can say of this Mac (hostsetup.go).
+	facts := d.macFactsNow()
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -1744,7 +1750,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		})
 	}
 	_, tmuxHere := hireWays()
-	return map[string]any{
+	state := map[string]any{
 		"version": Version,
 		// Which computer this is, so the page shows its own kind of folder path.
 		"platform": runtime.GOOS,
@@ -1807,6 +1813,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"activeProfile": d.config.ActiveProfile,
 		"profileEdited": d.config.profileEdited(),
 	}
+	d.addMacSetup(state, facts)
+	return state
 }
 
 // MARK: Helpers

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -80,7 +81,7 @@ func TestTheMacAppDrivesItsOwnTerminals(t *testing.T) {
 		t.Fatalf("asked %+v", fake.asked)
 	}
 	for i := range want {
-		if fake.asked[i] != want[i] {
+		if !reflect.DeepEqual(fake.asked[i], want[i]) {
 			t.Errorf("request %d: got %+v, want %+v", i, fake.asked[i], want[i])
 		}
 	}
