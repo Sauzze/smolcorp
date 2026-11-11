@@ -2587,11 +2587,11 @@
     const adding = addingForGm();
     const found = accounts.found.length > 0;
     $('accounts-for-gm').hidden = !adding;
-    const forGm = found
+    const gmHint = found
       ? 'Pick any account below that isn\'t the one you use yourself, and click Add: your General Manager will work on it.'
       : 'Your General Manager needs an account that isn\'t the one you use yourself: sign in to one below, then add it. It will work on that one.';
     // A live region: written only when its words change, so a screen reader doesn't read it again at every refresh.
-    if ($('accounts-for-gm').textContent !== forGm) $('accounts-for-gm').textContent = forGm;
+    if ($('accounts-for-gm').textContent !== gmHint) $('accounts-for-gm').textContent = gmHint;
     const rows = accounts.profiles.map((p) => {
       const row = document.createElement('div');
       row.className = 'row';
