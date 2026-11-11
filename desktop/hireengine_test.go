@@ -627,3 +627,70 @@ func TestAHireRefusedAfterItWasWrittenDownLeavesNoRowAndNoKey(t *testing.T) {
 		t.Errorf("registry %+v, keys %v", file.hires, file.keys)
 	}
 }
+
+// As the Mac's HireDesk: a managed hire's brief is written in its own folder, outside its worktree,
+// written down with it, and its first message says only to read it.
+func TestAnEngineHireIsToldToReadTheBriefWrittenForIt(t *testing.T) {
+	r := newEngineRig(t)
+	request := r.request("tester")
+	request.Role.Brief = &RoleBrief{Kind: "library", ID: "tester"}
+	request.Task = "Fix the login bug."
+	hire, err := runManagedHire(request, r.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := filepath.Join(hireFolder(supportDir, hire.ID), "BRIEF.md")
+	data, err := os.ReadFile(brief)
+	if err != nil || !strings.Contains(string(data), "# Brief: Tester") || !strings.Contains(string(data), "The task, from whoever hired you:\n\nFix the login bug.") ||
+		!strings.Contains(string(data), "`"+tildePath(hire.Worktree)+"`") {
+		t.Fatalf("the brief: %v\n%s", err, data)
+	}
+	if hire.Brief != brief || registered(t)[0].Brief != brief {
+		t.Errorf("the brief written down: %q, %q", hire.Brief, registered(t)[0].Brief)
+	}
+	if script := r.script(hire); !strings.Contains(script, "'Read `"+tildePath(brief)+"` and start: it'\\''s your brief, as my Tester") {
+		t.Errorf("the first message doesn't name the brief:\n%s", script)
+	}
+	if entries, _ := os.ReadDir(hire.Worktree); slices.ContainsFunc(entries, func(e os.DirEntry) bool { return strings.HasPrefix(e.Name(), "BRIEF") }) {
+		t.Error("the brief went in the worktree")
+	}
+	// A role on its own instructions is told them, as before.
+	request = r.request("janitor")
+	request.Role.Brief = &RoleBrief{Kind: "text", Text: "Tidy."}
+	request.Role.Instructions = "Tidy."
+	plain, err := runManagedHire(request, r.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(hireFolder(supportDir, plain.ID), "BRIEF.md")); err == nil || plain.Brief != "" {
+		t.Errorf("a role on its instructions got a brief: %q", plain.Brief)
+	}
+	if script := r.script(plain); !strings.Contains(script, "Once I'\\''ve answered, as my Janitor: Tidy.") {
+		t.Errorf("the plain role's message:\n%s", script)
+	}
+}
+
+// Outside git there's no worktree: the brief goes in Smolcorp's briefs folder, named for the desk, and is taken
+// away again if the hire doesn't go ahead.
+func TestAnEngineHireOutsideGitKeepsItsBriefInSmolcorpsFolder(t *testing.T) {
+	r := newEngineRig(t)
+	request := r.request("tester")
+	request.Role.Brief = &RoleBrief{Kind: "library", ID: "tester"}
+	request.Folder = t.TempDir()
+	desk := 2
+	request.Desk = &desk
+	hire, err := runManagedHire(request, r.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hire.Worktree != "" || filepath.Dir(hire.Brief) != briefsKeptDir() || !strings.HasPrefix(filepath.Base(hire.Brief), "2-tester-") {
+		t.Fatalf("the hire: %+v", hire)
+	}
+	r.tmux.starts = false
+	if _, err := runManagedHire(request, r.o); err == nil {
+		t.Fatal("a hire tmux didn't start went ahead")
+	}
+	if kept, _ := filepath.Glob(filepath.Join(briefsKeptDir(), "*.md")); len(kept) != 1 || kept[0] != hire.Brief {
+		t.Errorf("briefs kept: %v", kept)
+	}
+}

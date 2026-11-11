@@ -59,6 +59,9 @@ type Config struct {
 	// The folder new hires start in, and the agent they are.
 	HireFolder string `json:"hireFolder"`
 	HireAgent  string `json:"hireAgent"`
+	// The folders hires last started in, newest first, as the Mac app keeps
+	// them: setup's hire sheet offers those still there.
+	RecentHireFolders []string `json:"recentHireFolders,omitempty"`
 	// The terminal hires open in (see hireOpeners), the first installed when
 	// it's empty or not here, and whether the agent runs in a tmux session of
 	// its own there. The Mac app's choices aren't this system's, and are
@@ -191,6 +194,9 @@ func loadConfig() *Config {
 			}
 		}
 	}
+	// Full paths only, and at most as many as the Mac app keeps.
+	config.RecentHireFolders = slices.DeleteFunc(config.RecentHireFolders, func(path string) bool { return !filepath.IsAbs(path) })
+	config.RecentHireFolders = config.RecentHireFolders[:min(len(config.RecentHireFolders), recentHireFoldersMost)]
 	// At least 1 each, as on the Mac (Config.swift).
 	config.MailMaxBytes = max(1, config.MailMaxBytes)
 	config.MailPerHour = max(1, config.MailPerHour)

@@ -103,12 +103,24 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		undo()
 		return Hire{}, err
 	}
+	// Its brief, as the Mac writes it: the first message then only says to read it.
+	message, brief, err := engineBrief(r, place, id, o.Now())
+	if err != nil {
+		return fail(http.StatusInternalServerError, err.Error())
+	}
+	if brief != "" && place.Worktree == "" {
+		undoSettings := undo
+		undo = func() {
+			_ = os.Remove(brief) // written for this hire a moment ago, and read by no one
+			undoSettings()
+		}
+	}
 	// The hire is written down before its start script, so it can be given its
 	// own send key (T726: newSendKey keeps only the key's hash, against its row).
 	// The socket is the one its tmux server will have; the one tmux reports is
 	// kept below. Any refusal from here on takes the row and its key away again.
 	hire := Hire{ID: id, Name: r.Role.Name, Role: r.Role.ID, Folder: place.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
-		TmuxSocket: tmux.socket, Model: r.Role.Model, Ports: place.Ports, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
+		TmuxSocket: tmux.socket, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
 	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, hire) }); err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't save the hire in the registry.")
 	}
@@ -130,7 +142,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 			return fail(http.StatusInternalServerError, "Couldn't make the General Manager's token.")
 		}
 	}
-	start := hireStart{Role: r.Role, Message: r.Role.firstMessage(place.Folder, r.How), ConfigDir: r.ConfigDir, DefaultAccount: r.DefaultAccount,
+	start := hireStart{Role: r.Role, Message: message, ConfigDir: r.ConfigDir, DefaultAccount: r.DefaultAccount,
 		Settings: settings, CLIDir: filepath.Dir(o.CLI), Ports: place.Ports, SendKey: sendKey, GMToken: gmToken, APIKey: r.APIKey}
 	if r.TestPort != 0 {
 		start.TestPort, start.TestSupportDir = r.TestPort, supportDir
@@ -216,7 +228,7 @@ func (d *Deck) managedHire(roleID, folder string, terminal hireOpener, hasTermin
 			return openWindow(terminal, folder, []string{tmuxPath(), "-S", socket, "attach", "-t", "=" + hireSession})
 		}
 	}
-	request := engineRequest{Role: role, How: how, Folder: folder, DefaultAccount: true, TestPort: testPort}
+	request := engineRequest{Role: role, How: how, Folder: folder, DefaultAccount: true, TestPort: testPort, Desk: briefDesk(held, floor)}
 	// The GM gets a new token at its hire, in its start script alone; the one it
 	// was given is taken away again if the hire doesn't go ahead or never starts.
 	token := ""

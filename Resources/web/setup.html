@@ -3395,7 +3395,8 @@
 
   /** How to hire `role`: from the phone's office, or, with a launcher, in a terminal. The page can't hire by itself. */
   function showHire(role) {
-    if (canHireHere) return openHireSheet(role);
+    // An app that lists the folders but can't hire from here yet says so (hiring.fromSetup false): it gets the steps below.
+    if (canHireHere && !(state.hiring && state.hiring.fromSetup === false)) return openHireSheet(role);
     hireShown = role.id;
     drawEasyRoles(state.roles);
     const how = $('easy-hire-how'), text = document.createElement('span'), tools = [];

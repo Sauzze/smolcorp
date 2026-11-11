@@ -131,10 +131,23 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 		undo()
 		return Hire{}, "", err
 	}
+	// Its brief, as the Mac writes it. The launcher is handed the first message
+	// with the hire's environment, so it says to read the brief.
+	message, brief, err := engineBrief(r, place, id, o.Now())
+	if err != nil {
+		return fail(http.StatusInternalServerError, err.Error())
+	}
+	if brief != "" && place.Worktree == "" {
+		undoSettings := undo
+		undo = func() {
+			_ = os.Remove(brief) // written for this hire a moment ago, and read by no one
+			undoSettings()
+		}
+	}
 	// The hire is written down before its key is made (a key's hash is kept against
 	// its row). It has no tmux socket: its launcher is known by its id.
 	hire = Hire{ID: id, Name: r.Role.Name, Role: r.Role.ID, Folder: place.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
-		ViaLauncher: true, Model: r.Role.Model, Ports: place.Ports, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
+		ViaLauncher: true, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
 	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, hire) }); err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't save the hire in the registry.")
 	}
@@ -162,6 +175,9 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	}
 	// What the launcher sets on the agent's process, and only there.
 	env := hireStartEnv{Set: map[string]string{}, PathFirst: filepath.Dir(o.CLI)}
+	if brief != "" {
+		env.Message = message
+	}
 	if place.Ports != "" {
 		env.Set["SMOLCORP_HIRE_PORTS"] = place.Ports
 	}
@@ -417,7 +433,7 @@ func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, h
 	// The desk chosen (held, on floor) comes with the launcher's token, as it does for any hire.
 	options.Expect = func(token, hireID string, env hireStartEnv) { d.expectLauncherAt(token, hireID, env, held, floor) }
 	options.Forget = d.forgetLauncher
-	request := engineRequest{Role: role, How: hiredIntoGeneralFolder, Folder: folder, DefaultAccount: true, TestPort: testPort}
+	request := engineRequest{Role: role, How: hiredIntoGeneralFolder, Folder: folder, DefaultAccount: true, TestPort: testPort, Desk: briefDesk(held, floor)}
 	// The GM gets a new token at its hire, handed to its launcher alone; the one it
 	// was given is taken away again if the hire doesn't go ahead or never starts.
 	gmToken := ""

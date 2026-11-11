@@ -148,12 +148,29 @@ func parseRun(args []string) (*launcherRun, error) {
 func launch(run *launcherRun) int {
 	args := run.command
 	folder, _ := os.Getwd()
+	// An engine hire's secrets come from the app, before anything starts: if they
+	// can't be had, nothing is started and the window says why. With them comes
+	// its first message, when the app wrote it a brief.
+	var startEnv *hireStartEnv
+	if run.hireID != "" {
+		key, _ := os.ReadFile(hookKeyFile)
+		got, err := fetchHireStartEnv(hireStartClient(), fmt.Sprintf("http://127.0.0.1:%d", Port), string(key), run.hire, run.hireID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "smolcorp: couldn't get this hire's start settings, so nothing was started: %v\n", err)
+			return 1
+		}
+		startEnv = &got
+	}
 	if run.role != "" {
 		how := startedHere
 		if run.hire != "" {
 			how = map[bool]roleStart{true: hiredAtPinnedDesk, false: hiredIntoGeneralFolder}[run.pinned]
 		}
-		found, err := roleArguments(run.role, folder, how)
+		message := ""
+		if startEnv != nil {
+			message = startEnv.Message
+		}
+		found, err := roleArguments(run.role, folder, how, message)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 			return 2
@@ -182,19 +199,6 @@ func launch(run *launcherRun) int {
 			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 			return 2
 		}
-	}
-
-	// An engine hire's secrets come from the app, before anything starts: if they
-	// can't be had, nothing is started and the window says why.
-	var startEnv *hireStartEnv
-	if run.hireID != "" {
-		key, _ := os.ReadFile(hookKeyFile)
-		got, err := fetchHireStartEnv(hireStartClient(), fmt.Sprintf("http://127.0.0.1:%d", Port), string(key), run.hire, run.hireID)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "smolcorp: couldn't get this hire's start settings, so nothing was started: %v\n", err)
-			return 1
-		}
-		startEnv = &got
 	}
 
 	terminal, err := pty.New()
@@ -313,12 +317,17 @@ func sameAgentAsHired(run *launcherRun, agent string) error {
 }
 
 // roleArguments are the agent and its arguments for the role with the id
-// given, as set up on the setup page, started in folder as how says.
-func roleArguments(id, folder string, how roleStart) ([]string, error) {
+// given, as set up on the setup page, started in folder as how says. message,
+// unless it's empty, is its first message instead of the role's own: the one
+// the app made with the hire's brief.
+func roleArguments(id, folder string, how roleStart, message string) ([]string, error) {
 	roles := loadConfig().Roles
 	for _, role := range roles {
 		if role.ID == id {
-			return append([]string{role.Agent}, role.arguments(role.firstMessage(folder, how))...), nil
+			if message == "" {
+				message = role.firstMessage(folder, how)
+			}
+			return append([]string{role.Agent}, role.arguments(message)...), nil
 		}
 	}
 	names := []string{}
