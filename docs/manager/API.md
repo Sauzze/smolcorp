@@ -11,7 +11,7 @@ The app tells callers apart by what they send. Every request is local, and has t
 | Caller | Sends | Notes |
 |---|---|---|
 | **page** | the setup page's session cookie | Opened from the menu's one-time link. |
-| **GM** | `x-smolcorp-gm-token: <token>` | The token lives in the GM's environment only. A hire can't use it. |
+| **GM** | `x-smolcorp-gm-token: <token>` | The token lives in the GM's environment only. A hire can't use it. Smolcorp keeps it in the Mac's Keychain (on Linux and Windows, the computer's secret store, else a file only you can read), so a hired GM keeps working after Smolcorp restarts or updates. |
 | **tool** | `x-smolcorp-setup-key: <contents of the setup-key file>` | For your own scripts. A hire can read this file, so a tool can do less than the GM. |
 | nobody | none of these | Answered `401`. |
 

@@ -58,6 +58,10 @@ func TestNoSpellingNamesTheTokenOrTheGuardFile(t *testing.T) {
 		"sh -c 'cat gm-tok\"\"en'", "echo $(cat gm-to\\ken)", "cat *token", "cat gm-*oken",
 		"cat <<EOF\n$(cat gm-tok\"\"en)\nEOF", "echo x > gm-tok\"\"en", "git commit -m x -- gm-t*",
 	})
+	// Where a computer with no secret store keeps the GM's token (desktop/gmtokenstore.go): no pattern names it either.
+	mustRefuse(t, "kept token by pattern", []string{
+		"cat ~/.config/smolcorp/*-kept", "cat g?-token-kept", "cat *oken-kept", "cp *-kept /tmp/x",
+	})
 	mustRefuse(t, "guard file by pattern", []string{
 		"cp /tmp/off.json " + dir + "hire-gu*", "rm " + dir + "hire-g*", "cp x hire-guar?.json", "echo '{}' > " + dir + "hire-g*",
 		"echo '{}' > hire-gu\"\"ard.json", "echo '{}' > hire-guard.js{on,}", "echo '{}' > HIRE-g*", "tee hire-guard.js*",

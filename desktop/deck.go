@@ -27,7 +27,8 @@ type Deck struct {
 	// Held through Start here's GM hire (server.go), never with mu: one at a time.
 	gmHiring sync.Mutex
 	access   *Access
-	gmToken  string // the GM's token, in memory, and under the Mac app in a file for a GM started by hand (gmbyhand.go)
+	gmToken  string         // the GM's token, in memory, kept by gmKept, and under the Mac app in a file for a GM started by hand (gmbyhand.go)
+	gmKept   *gmTokenKeeper // where the token is kept between runs: the Keychain, a secret store or a file (gmtokenstore.go)
 	gmHand   gmByHandState
 	config   *Config
 	sessions *Sessions
@@ -165,8 +166,13 @@ func NewDeck() *Deck {
 	if settleListenScope(d.config, phonesOnly(d.access.Phones), runtime.GOOS) {
 		d.config.save()
 	}
-	// Under the Mac app, a GM started by hand keeps its token across a restart (gmbyhand.go).
+	// The GM's token kept from the last run (gmtokenstore.go): a GM hired before it, or one started by hand, goes on
+	// working. Read before anything is served, without d.mu; then, under the Mac app, the file of a GM started by hand
+	// (gmbyhand.go), and whatever the token is now is kept.
+	d.gmKept = newGMTokenKeeper(gmStoreFor(d.mac.host))
+	d.gmToken = d.gmKept.restore(readRegistry(registryPath(), false).gmIsHired() || d.byHandAllowed())
 	d.loadByHandGM()
+	d.keepGMToken()
 	d.mail = d.newDeckOutbox()
 	// The folders are taken now, not at each look, so a look never reads a variable a test changes.
 	registry, support := registryPath(), supportDir

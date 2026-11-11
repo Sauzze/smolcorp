@@ -10,10 +10,11 @@ import (
 
 // A General Manager started by hand, and a new GM token, under the Mac app, as the Swift engine had them
 // (GMIdentity.swift, DeckRouter.swift): POST /setup/gm/by-hand and POST /setup/gm/token/rotate, the page's
-// alone. The GM's token is still made at each GM hire and kept in memory (frontdeskmail.go); with "Allow a
-// General Manager started by hand" on, it is also kept in <support>/gm-token, readable by you alone, where
-// `smolcorp gm` reads it when $SMOLCORP_GM_TOKEN isn't set. That file is the only place it is kept: read back as
-// the core starts, so a GM started by hand goes on working after a restart. With the setting off the file is
+// alone. The GM's token is still made at each GM hire, kept in memory (frontdeskmail.go) and in the Keychain item
+// (gmtokenstore.go); with "Allow a General Manager started by hand" on, it is also kept in <support>/gm-token,
+// readable by you alone, where `smolcorp gm` reads it when $SMOLCORP_GM_TOKEN isn't set. The file is read back as
+// the core starts when the Keychain gave none, so a GM started by hand goes on working after a restart, as the
+// Swift engine read its file when its Keychain item couldn't be. With the setting off the file is
 // taken away, and so is the one an earlier build left. A GM that has used the token with the setting on is
 // "started by hand" for setup, and the live session it named (X-Smolcorp-Session) has the GM's role, kept in
 // <support>/gm-session (the id alone) until the GM is fired or the token changes.
@@ -60,14 +61,15 @@ func validGMSession(text string) string {
 	return text
 }
 
-// loadByHandGM is the core's start, under the Mac app: with the setting on, the token and the session kept in
-// their files, and a token made if there is none; with it off, the files taken away. The caller holds d.mu.
+// loadByHandGM is the core's start, under the Mac app: with the setting on, the token kept in its file when the
+// Keychain gave none, the session kept in its file, and a token made if there is none; with it off, the files taken
+// away. The caller holds d.mu.
 func (d *Deck) loadByHandGM() {
 	if d.mac.host == nil {
 		return
 	}
 	if d.config.GMByHand {
-		if saved, err := os.ReadFile(gmTokenPath()); err == nil {
+		if saved, err := os.ReadFile(gmTokenPath()); err == nil && d.gmToken == "" {
 			d.gmToken = validGMToken(string(saved))
 		}
 		if saved, err := os.ReadFile(gmSessionPath()); err == nil && d.gmToken != "" {
@@ -87,6 +89,7 @@ func (d *Deck) applyByHand() error {
 	}
 	if d.gmToken == "" {
 		d.gmToken = randomKey()
+		d.keepGMToken()
 	}
 	return d.syncGMTokenFile()
 }
@@ -110,14 +113,15 @@ func (d *Deck) forgetByHand() {
 }
 
 // gmTokenChanged is called, under d.mu, once d.gmToken has been made or taken away: a GM started by hand with
-// the old token is forgotten, and the file follows. With the setting on there is always a token, so a GM can be
-// started by hand at any time: one taken away (its GM fired, or its hire failed) is replaced by a new one.
+// the old token is forgotten, and the file and the store follow. With the setting on there is always a token, so a
+// GM can be started by hand at any time: one taken away (its GM fired, or its hire failed) is replaced by a new one.
 func (d *Deck) gmTokenChanged() {
 	d.forgetByHand()
 	if d.gmToken == "" && d.byHandAllowed() {
 		d.gmToken = randomKey()
 	}
 	_ = d.syncGMTokenFile()
+	d.keepGMToken()
 }
 
 // noteGM is a request the GM's token signed, under d.mu: with the setting on, the GM has started by hand, and a
@@ -225,6 +229,7 @@ func (rt *router) byHandRoutes(w http.ResponseWriter, r *request) bool {
 		}
 	}
 	d.forgetByHand()
+	d.keepGMToken()
 	writeJSON(w, http.StatusOK, gmRotated)
 	return true
 }

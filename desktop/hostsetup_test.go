@@ -242,8 +242,15 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the folder panel for the hires, none picked": func(h hostBridge) (any, error) { return hostChooseFolder(h, "", folderForHires) },
 		"the hires' folder panel closed":              func(h hostBridge) (any, error) { return nil, hostCloseFolderPanel(h) },
 		"the Summary key, from the Keychain":          func(h hostBridge) (any, error) { return summaryStore(h).get() },
-		"Accessibility asked for":                     func(h hostBridge) (any, error) { return nil, hostAskAccessibility(h) },
-		"keys in other apps switched on":              func(h hostBridge) (any, error) { return nil, hostKeystrokesOn(h) },
+		"the GM's token, from the Keychain item the Swift engine kept it in": func(h hostBridge) (any, error) {
+			return gmStoreFor(h).read()
+		},
+		"a new GM's token, kept in the Keychain": func(h hostBridge) (any, error) {
+			return nil, gmStoreFor(h).write("fake-gm-token-other-00000000000000000000000")
+		},
+		"the GM's token, taken away":     func(h hostBridge) (any, error) { return nil, gmStoreFor(h).write("") },
+		"Accessibility asked for":        func(h hostBridge) (any, error) { return nil, hostAskAccessibility(h) },
+		"keys in other apps switched on": func(h hostBridge) (any, error) { return nil, hostKeystrokesOn(h) },
 		"an app allowed keys": func(h hostBridge) (any, error) {
 			return hostKeystrokeApps(h, []string{"com.example.notes"}, "com.example.mail", true)
 		},
@@ -344,6 +351,7 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the folder panel for a floor, a folder picked":                               "/Users/example/project",
 		"the folder panel for the hires, none picked":                                 "",
 		"the Summary key, from the Keychain":                                          "sk-ant-fake",
+		"the GM's token, from the Keychain item the Swift engine kept it in":          "fake-gm-token-from-1-24-0000000000000000000",
 		"an app allowed keys":                                                         []string{"com.example.notes", "com.example.mail"},
 		"an app taken off, any capitals":                                              []string{"com.example.mail"},
 		"a terminal never allowed keys":                                               []string{},

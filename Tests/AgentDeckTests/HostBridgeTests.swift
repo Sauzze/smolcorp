@@ -28,7 +28,7 @@ final class HostBridgeTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    private var kept: [String: String] = ["summary-key": "sk-ant-fake"]
+    private var kept: [String: String] = ["summary-key": "sk-ant-fake", "gm-token": "fake-gm-token-from-1-24-0000000000000000000"]
     private var login = false
     /// Where the stand-ins' tab actions run, as the terminals' queue.
     private let terminals = DispatchQueue(label: "test.terminals")
@@ -56,6 +56,10 @@ final class HostBridgeTests: XCTestCase {
                                                  write: { [unowned self] in kept["summary-key"] = $0; return true },
                                                  delete: { [unowned self] in kept["summary-key"] = nil }),
                 "viewer-key": HostBridge.Secret(read: { nil }, write: { _ in false }, delete: nil),
+                // The GM's token (M7TOK), a stand-in for GMIdentity's store.
+                "gm-token": HostBridge.Secret(read: { [unowned self] in kept["gm-token"] },
+                                              write: { [unowned self] in kept["gm-token"] = $0; return true },
+                                              delete: { [unowned self] in kept["gm-token"] = nil }),
             ],
             loginItem: (get: { [unowned self] in login }, set: { [unowned self] in login = $0 }),
             queue: { [terminals] _ in terminals },

@@ -263,7 +263,7 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 		return false
 	}
 	for _, entry := range entries {
-		if entry != "hires" && !strings.HasPrefix(entry, ".") && !strings.Contains(entry, "/") {
+		if entry != "hires" && entry != keptGMTokenName && !strings.HasPrefix(entry, ".") && !strings.Contains(entry, "/") {
 			both(root + "/" + entry + "/**")
 		}
 	}
@@ -287,6 +287,11 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 	// Nothing secret or app-state can be read either.
 	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json"} {
 		rules = append(rules, "Read("+root+"/"+name+")")
+	}
+	// The GM's token, kept in a file on a computer whose secret store can't keep it (gmtokenstore.go): only there,
+	// so the Mac's fence is unchanged.
+	if has(entries, keptGMTokenName) {
+		rules = append(rules, "Edit("+root+"/"+keptGMTokenName+")", "Read("+root+"/"+keptGMTokenName+")")
 	}
 	return rules
 }

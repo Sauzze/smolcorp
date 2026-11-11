@@ -709,12 +709,13 @@ func finishWord(word []byte, unq []bool, ps bool) []string {
 }
 
 // protectedNames are the files and variable a hire may not name by any
-// spelling (the GM token, the guard file). protectedByPattern says which a
+// spelling (the GM token, in its file or where a computer with no secret
+// store keeps it, the guard file). protectedByPattern says which a
 // pattern word (gm-t*, hire-g?ard.json) fills in on the disk, matched
 // in lower case on its last path part. A pattern with fewer than three
 // plain characters (*, g*, *.json) is no more than a pattern, unless the
 // path before it is the app's own folder.
-var protectedNames = []string{"gm-token", "smolcorp_gm_token", "hire-guard.json", "hire-guard"}
+var protectedNames = []string{"gm-token", "gm-token-kept", "smolcorp_gm_token", "hire-guard.json", "hire-guard"}
 
 func protectedByPattern(s string, unq []bool) []string {
 	glob := false
