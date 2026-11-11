@@ -67,8 +67,8 @@ func (k *KeyCount) UnmarshalJSON(data []byte) error {
 // app's Room. office.js draws it, with the same choices. Anything unknown, or of the wrong kind, is
 // as standard: it only changes how the room looks.
 type Room struct {
-	Mic    string   `json:"mic"`
-	Wave   string   `json:"wave"` // how the mic's sound waves look while it is held: the red dotted arcs ("classic") or another style
+	Mic  string `json:"mic"`
+	Wave string `json:"wave"` // how the mic's sound waves look while it is held: the red dotted arcs ("classic") or another style
 	// Button is the emergency button: "nuclear" is the red dome; the others
 	// each go off their own way.
 	Button string   `json:"button"`
@@ -327,11 +327,11 @@ func (a Attire) checked() Attire {
 var (
 	// Each part's choices; the first is the standard one.
 	roomChoices = map[string][]string{
-		"wave":  {"classic", "orange", "ocean", "mint", "gold", "rainbow", "rings", "dashed", "sine", "eq", "dots", "notes", "hearts", "sparks", "lightning", "speech", "radar", "glitch", "bubbles", "coins", "basketballs"},
-		"mic":   {"mic", "megaphone", "studio", "podcast", "karaoke", "headset", "walkie", "tincan", "radio", "reporter", "clawdspark", "ribbon", "elvis", "carbon", "condenser", "banana", "tentacle", "cthulhu", "coinmic", "holomic", "ringmic", "spacecomm", "bulbmic", "pumpkinmic"},
+		"wave":   {"classic", "orange", "ocean", "mint", "gold", "rainbow", "rings", "dashed", "sine", "eq", "dots", "notes", "hearts", "sparks", "lightning", "speech", "radar", "glitch", "bubbles", "coins", "basketballs"},
+		"mic":    {"mic", "megaphone", "studio", "podcast", "karaoke", "headset", "walkie", "tincan", "radio", "reporter", "clawdspark", "ribbon", "elvis", "carbon", "condenser", "banana", "tentacle", "cthulhu", "coinmic", "holomic", "ringmic", "spacecomm", "bulbmic", "pumpkinmic"},
 		"button": {"nuclear", "mushroom", "glassbox", "keyswitch", "easy", "slots", "disco", "confetti", "gong", "bikehorn", "spark", "buzzer", "goalhorn", "selfdestruct", "hologram", "warp"},
-		"floor": floors,
-		"paint": paints,
+		"floor":  floors,
+		"paint":  paints,
 		// The lounge's carpets, or any of the office's floors
 		"lounge":      append([]string{"navy", "teal", "plum", "sand"}, floors...),
 		"loungePaint": append([]string{"auto"}, paints...),

@@ -295,7 +295,9 @@ func TestAFailedAgentFallsBackToTheKeyAndSaysSo(t *testing.T) {
 	s := newSummaries(func() string { return testSummaryKey })
 	s.savedKey = func() string { return testSummaryKey }
 	s.agent = func(summaryProvider, string, string) (string, cliFailure) { return "", cliSignedOut }
-	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) { return "From the key.", nil }
+	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) {
+		return "From the key.", nil
+	}
 	text, err := s.SummarizeWith("s1", path, "p", providerClaude)
 	note := "(Claude Code isn't signed in, so this was made with your API key.)"
 	if err != nil || text != "From the key.\n"+note || s.LastFallback() != note {
@@ -308,7 +310,10 @@ func TestAFailedAgentWithNoKeySaysWhy(t *testing.T) {
 	s := newSummaries(func() string { return "" })
 	s.agent = func(summaryProvider, string, string) (string, cliFailure) { return "", cliQuota }
 	asked := false
-	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) { asked = true; return "", nil }
+	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) {
+		asked = true
+		return "", nil
+	}
 	if _, err := s.SummarizeWith("s1", path, "p", providerCodex); asked || err == nil || err.Message != cliQuota.err(providerCodex).Message {
 		t.Fatalf("asked %v, %v", asked, err)
 	}
@@ -376,7 +381,10 @@ func TestTheFallbackKeepsWithinTheLimit(t *testing.T) {
 	s.savedKey = func() string { return testSummaryKey }
 	s.agent = func(summaryProvider, string, string) (string, cliFailure) { return "", cliQuota }
 	asked := 0
-	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) { asked++; return "From the key.", nil }
+	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) {
+		asked++
+		return "From the key.", nil
+	}
 	for i := 0; i < summaryMost; i++ {
 		s.SummarizeWith("s"+strconv.Itoa(i), path, "p", providerClaude)
 	}
@@ -430,8 +438,8 @@ func TestOpenCodesSummaryAgentMustDenyEveryTool(t *testing.T) {
 func TestAConsoleLoginSaysItBillsTheAPIAccount(t *testing.T) {
 	for status, want := range map[string]providerKind{
 		`{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}`: providerReady,
-		`{"loggedIn":true,"authMethod":"console","subscriptionType":null}`:   providerAPIAccount,
-		`{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":""}`:   providerAPIAccount,
+		`{"loggedIn":true,"authMethod":"console","subscriptionType":null}`:    providerAPIAccount,
+		`{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":""}`:    providerAPIAccount,
 		`{"loggedIn":false}`: "",
 	} {
 		if got := claudeLogin([]byte(status)); got != want {

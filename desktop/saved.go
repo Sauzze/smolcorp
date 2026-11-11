@@ -121,7 +121,7 @@ func (d *Deck) scheduleSave() {
 		return
 	}
 	d.savePending = true
-	time.AfterFunc(saveDelay, d.saveSessions)
+	d.saveTimer = time.AfterFunc(saveDelay, d.saveSessions)
 }
 
 func (d *Deck) saveSessions() {

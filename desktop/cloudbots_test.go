@@ -402,7 +402,9 @@ func floorDesks(t *testing.T, d *Deck, n int) []map[string]any {
 	d.mu.Lock()
 	data := d.snapshot()
 	d.mu.Unlock()
-	var state struct{ Floors []struct{ Desks []map[string]any } }
+	var state struct {
+		Floors []struct{ Desks []map[string]any }
+	}
 	if err := json.Unmarshal(data, &state); err != nil {
 		t.Fatal(err)
 	}

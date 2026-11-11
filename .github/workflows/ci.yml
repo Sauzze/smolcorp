@@ -1,7 +1,7 @@
 # Builds and tests both apps on every push and pull request: the Mac app with
 # Swift, and the Windows and Linux app with Go, vetted and tested on each system
-# (on Linux under the race detector too), then built for every download the
-# releases carry.
+# (on Linux checked for gofmt's layout and run under the race detector too),
+# then built for every download the releases carry.
 
 name: CI
 
@@ -50,6 +50,16 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # Every Go file laid out as gofmt lays it out: the step names any that isn't and fails.
+      - name: Go files formatted
+        if: runner.os == 'Linux'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Not formatted with gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
       - run: go vet ./...
       - run: go test ./...
       # The same tests under the race detector, which needs cgo: on Linux, whose runner has a C compiler.
