@@ -46,11 +46,17 @@ var openSetupPage = func(d *Deck) error { return d.openSetup("") }
 // showGuideAgain is the tray's "Show Me Around Again": the first-run guide is
 // on again, saved, and setup opens on it.
 func (d *Deck) showGuideAgain() error {
+	d.guideAgain()
+	return openGuidePage(d)
+}
+
+// guideAgain turns the first-run guide on again, saved, so setup starts it
+// however it opens: the Mac's menus then open their Settings window on it.
+func (d *Deck) guideAgain() {
 	d.mu.Lock()
 	d.config.GuideDone = false
 	d.config.save()
 	d.mu.Unlock()
-	return openGuidePage(d)
 }
 
 // openGuidePage opens setup on the guide: a variable, for the tests.

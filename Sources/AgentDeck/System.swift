@@ -40,10 +40,12 @@ enum LoginItem {
         }
     }
 
-    /// Points the LaunchAgent at this copy of the app. An update can move or
-    /// rename it, and the agent would go on opening the old path.
-    static func refresh() {
-        if isEnabled { enable() }
+    /// Points the LaunchAgent at this copy of the app, as it starts. An update
+    /// can move or rename it, and the agent would go on opening the old path.
+    /// A test copy leaves it to the copy in use.
+    static func refresh(testCopy: Bool = TestCopy.isOn, isEnabled: () -> Bool = { isEnabled }, enable: () -> Void = enable) {
+        guard !testCopy, isEnabled() else { return }
+        enable()
     }
 
     private static func enable() {

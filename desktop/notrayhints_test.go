@@ -137,6 +137,8 @@ func TestNoTrayHintsInThePagesAndTheRecipe(t *testing.T) {
 		// The portable office's hint: the tray is one way, "with a tray"; the Mac's text is as it was.
 		"'Off. Turn it on here, or, with a tray, with Going away: launch portable office in the tray.'",
 		"'Off. Turn it on here, or with Going away: launch portable office in the menu bar.'",
+		// Chosen by the Mac's own test, as the Mac's state names a launcher too since 1.25.0 (M7MENU).
+		"detail = v.problem || (state && !onMac()\n",
 	} {
 		if !strings.Contains(setup, want) {
 			t.Errorf("setup.html lacks %q", want)

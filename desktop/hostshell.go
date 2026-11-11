@@ -16,6 +16,19 @@ import (
 // in the Mac's words. On Windows and Linux there is no host, and each does what
 // it did before: autostart_*.go, window_*.go, picker*.go, summary_store_other.go.
 
+// keepOfficeOnTop is setup's switch, and the Mac's menu's Always on Top: the app keeps the office's window on
+// top, or not, at once, and then it's kept. A bridge that doesn't answer leaves the setting as it was.
+func (d *Deck) keepOfficeOnTop(h hostBridge, on bool) error {
+	if err := hostOfficeOnTop(h, on); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	d.config.AlwaysOnTop = on
+	d.config.save()
+	d.mu.Unlock()
+	return nil
+}
+
 // macShell answers setup's routes the Mac app does with its own windows, panel
 // and login item, under the Mac app, and says whether the route was one.
 // Elsewhere it answers none: they're served as on Windows and Linux.
@@ -29,16 +42,10 @@ func (rt *router) macShell(w http.ResponseWriter, r *request) bool {
 	switch r.URL.Path {
 	// The office's window kept on top of other windows: at once, and kept.
 	case "/setup/ontop":
-		on := query.Get("enabled") == "1"
-		// Kept once the app has it: a bridge that doesn't answer leaves the setting as it was.
-		if err := hostOfficeOnTop(h, on); err != nil {
+		if err := d.keepOfficeOnTop(h, query.Get("enabled") == "1"); err != nil {
 			bridgeFailed(w, err)
 			return true
 		}
-		d.mu.Lock()
-		d.config.AlwaysOnTop = on
-		d.config.save()
-		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The keys that show and hide the office from anywhere: checked on the layout the app says is in use, held

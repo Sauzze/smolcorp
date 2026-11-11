@@ -1,6 +1,7 @@
 import AppKit
 
-/// The menu bar item's logo, as config.json's `logo` chooses it (`GoShellDelegate`).
+/// The menu bar item's logo, as config.json's `logo` chooses it, with a dot while the portable office is on
+/// (`GoShellDelegate`).
 enum StatusMenu {
     /// Both are drawn as templates, so they follow the menu bar's colour.
     static func icon(for logo: Logo) -> NSImage {
@@ -8,6 +9,29 @@ enum StatusMenu {
         case .smolcorp: return smolcorpIcon
         case .keys: return keysIcon
         }
+    }
+
+    private static var dottedIcons: [Logo: NSImage] = [:]
+
+    /// The logo with a small dot in its corner, a hole cut around it so it
+    /// reads on the logo too. Still a template.
+    static func dotted(_ logo: Logo) -> NSImage {
+        if let made = dottedIcons[logo] { return made }
+        let base = icon(for: logo)
+        let size = base.size
+        let image = NSImage(size: size, flipped: false) { rect in
+            base.draw(in: rect)
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            let dot = CGRect(x: size.width - 6, y: 0, width: 6, height: 6)
+            context.setBlendMode(.clear)
+            context.fillEllipse(in: dot.insetBy(dx: -1.5, dy: -1.5))
+            context.setBlendMode(.normal)
+            context.fillEllipse(in: dot)
+            return true
+        }
+        image.isTemplate = true
+        dottedIcons[logo] = image
+        return image
     }
 
     /// The hire, a little person in a suit and tie, a point to each cell of

@@ -4332,7 +4332,8 @@
       detail = 'Not set up yet. Set the address and the write secret first.';
     } else {
       // A Mac has its menu bar; elsewhere the tray may be missing, so the tray is named as one way, not the way.
-      detail = v.problem || (state && state.launcher
+      // Asked of the page's own Mac test: since 1.25.0 a Mac's state names a launcher too.
+      detail = v.problem || (state && !onMac()
         ? 'Off. Turn it on here, or, with a tray, with Going away: launch portable office in the tray.'
         : 'Off. Turn it on here, or with Going away: launch portable office in the menu bar.');
     }

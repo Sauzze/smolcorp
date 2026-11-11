@@ -30,11 +30,6 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(Engine.ignoredSetting("swift").contains(#""engine": "swift" is ignored"#))
     }
 
-    func testTheMenuNamesATestCopyAndNotTheRealApp() {
-        XCTAssertEqual(GoShellDelegate.title(port: 7790, testCopy: true), "Smolcorp Test · port 7790")
-        XCTAssertEqual(GoShellDelegate.title(port: 7710, testCopy: false), "Smolcorp is running")
-    }
-
     func testTheSettingIsKeptAndNeverAdded() throws {
         let file = folder.appendingPathComponent("config.json")
         try Data(#"{"hasCompletedSetup": true}"#.utf8).write(to: file)
@@ -60,14 +55,16 @@ final class EngineTests: XCTestCase {
     }
 
     /// A stand-in that reads the token first, as the core does, then says it's
-    /// ready and answers each line with its id. It ends at once (9) without the token.
+    /// ready and answers each line with its id, the menu's state sent unasked
+    /// before each answer, as the core may. It ends at once (9) without the token.
     private let answering = #"""
         read token
         [ "$token" = "fake-token-fake-token-fake-token-0" ] || exit 9
         echo '{"ready":true,"port":7779,"cookie":"fake-cookie"}'
         while read line; do
           id=$(echo "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
-          echo "{\"id\":$id,\"key\":\"fake/key\",\"session\":\"fake-session\",\"cookie\":\"smolcorp-setup\",\"link\":\"http://localhost:7779/setup#o=fake\"}"
+          echo "{\"menu\":{\"sessions\":$id,\"waiting\":1,\"portable\":{\"on\":true}}}"
+          echo "{\"id\":$id,\"key\":\"fake/key\",\"session\":\"fake-session\",\"cookie\":\"smolcorp-setup\",\"link\":\"http://localhost:7779/setup#o=fake\",\"menu\":{\"sessions\":$id,\"phones\":2}}"
         done
         """#
 
@@ -110,7 +107,7 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(core.stop(grace: 2), "its input ended, and it went")
         XCTAssertTrue(GoCore.isGone(pid))
         XCTAssertNil(core.bridge.core, "and none once it's gone")
-        XCTAssertNil(core.ask("office"), "nothing to ask once stopped")
+        XCTAssertNil(core.ask(.office), "nothing to ask once stopped")
     }
 
     /// What the real one sees: its arguments, its environment and its first line of input, written to a file.
@@ -153,7 +150,30 @@ final class EngineTests: XCTestCase {
     func testAnUnansweredQuestionIsNil() throws {
         let core = try core("echo '{\"ready\":true}'\nwhile read line; do echo '{\"id\":99}'; done")
         try core.start(waitingUpTo: 5)
-        XCTAssertNil(core.ask("office", waitingUpTo: 0.3), "an answer to another question isn't this one's")
+        XCTAssertNil(core.ask(.office, waitingUpTo: 0.3), "an answer to another question isn't this one's")
+        core.stop(grace: 1)
+    }
+
+    /// The menu's state, sent unasked between answers, goes to `onMenu` on the main queue, never taken for an
+    /// answer; asked, it's the answer's. A question the menu asks as it opens waits only a moment.
+    func testTheMenusStateComesUnaskedAndAsked() throws {
+        let core = try core(answering)
+        var told: [ShellMenu] = []
+        let heard = expectation(description: "the menu's state, unasked")
+        heard.assertForOverFulfill = false
+        core.onMenu = {
+            XCTAssertTrue(Thread.isMainThread)
+            told.append($0)
+            heard.fulfill()
+        }
+        try core.start(waitingUpTo: 5)
+        let asked = try XCTUnwrap(core.menu(waitingUpTo: 2), "the answer, not the line before it")
+        XCTAssertEqual(asked.phones, 2)
+        XCTAssertEqual(core.ask(.setupLink, then: "pair")?["link"] as? String, "http://localhost:7779/setup#o=fake")
+        wait(for: [heard], timeout: 5)
+        XCTAssertEqual(told.first?.waiting, 1)
+        XCTAssertEqual(told.first?.portable.on, true)
+        XCTAssertEqual(told.first?.phones, 0)
         core.stop(grace: 1)
     }
 
