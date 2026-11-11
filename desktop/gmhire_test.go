@@ -38,7 +38,7 @@ func gmHireDeck(t *testing.T) (*Deck, *engineRig, *hiring, string) {
 // postGMHire is POST /setup/gm/hire from as, carrying token (the GM's, or a hire's key).
 func postGMHire(t *testing.T, d *Deck, as, token, body string) (int, string) {
 	t.Helper()
-	c := call{method: "POST", target: "/setup/gm/hire", host: "localhost:7710", from: thisComputer, body: body, headers: map[string]string{setupHeader: "1"}}
+	c := call{method: "POST", target: "/setup/gm/hire", host: "localhost", from: thisComputer, body: body, headers: map[string]string{setupHeader: "1"}}
 	if as != asPageCaller {
 		c.withoutSetupKey, c.headers[map[string]string{asGMCaller: gmTokenHeader, asHireCaller: hireKeyHeader}[as]] = true, token
 	}
