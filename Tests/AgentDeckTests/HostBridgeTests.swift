@@ -811,6 +811,16 @@ final class HostBridgeTests: XCTestCase {
         var typed: [String] = []
         mac.driver = { tab in PhoneTerminal(pastes: tab.id == "CD34" ? .notRead : .pasted) { typed.append($0) } }
         mac.screen = { _ in .some("> Bonjour l’équipe\n  ? for shortcuts\n\n\n") }
+        // The office's mic (M7GAPA): recording starts for ttys003 only; stopped, it heard a few words, cleaned up
+        // in 0.9 s; the text then goes into the tab where its agent is in front (ttys005's has ended).
+        var heard = ["Fix the uh small corp build"]
+        mac.startDictation = { [unowned self] language, tab, done in asked.append("record \(language) \(tab)"); done(tab == "tty:/dev/ttys003") }
+        mac.stopDictation = { [unowned self] done in asked.append("stop recording"); done(heard.isEmpty ? "" : heard.removeFirst()) }
+        mac.cleanDictation = { [unowned self] text, desks, cleanup, glossary, done in
+            asked.append("clean \(text) \(desks) \(cleanup) \(glossary == DictationCleanup.defaultGlossary ? "default" : "\(glossary)")")
+            cleanup ? done("Fix the Smolcorp build", .cleaned(0.9)) : done(text, .off)
+        }
+        mac.insert = { [unowned self] text, tab in asked.append("insert \(text) \(tab.text)"); return true }
         // The processes (M5c): three in the hire's worktree or naming its session; a Mac that can't list them without one.
         mac.processes = { folder, session in
             guard folder == "/Users/ada/repo-hires/ada-abcdef", !session.isEmpty else { return nil }
@@ -836,7 +846,10 @@ final class HostBridgeTests: XCTestCase {
         }
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
         XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "office", "on top true", "keys ctrl+alt+K", "keys ctrl+alt+T", "choose /Users/example/hires floor", "choose - hires",
-                               "close hires", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true",
+                               "close hires", "accessibility", "keystrokes on", "dictation fr_FR",
+                               "record fr_FR tty:/dev/ttys003", "record en_US tty:/dev/ttys004", "stop recording", "stop recording",
+                               "clean Fix the uh small corp build [\"smolcorp\", \"website\"] true default", "clean hello there [] false []",
+                               "insert Fix the Smolcorp build tty:/dev/ttys003", "terminal command true",
                                "t3 app opened", "t3 link t3code://threads/local/mcp%3Aabc-1", "volume 30"])
         XCTAssertTrue(login, "Open at login, switched on")
         // The phone's text, by `Deck.typePhoneWords` on the stand-in drivers: nothing for an agent that has ended,

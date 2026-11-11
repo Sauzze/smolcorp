@@ -48,7 +48,7 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | POST | `/hook` | hook | hook event; headers `x-agentdeck-agent`, `-tab`, `-tty`, `-project`, `-pid`, `-parent`, `-at`, `-billing` | empty | 204, 400 (a header twice), 401, 404 (not local, not POST) | office.json, frontdesk/hook-events.json | served |
 | GET | `/events` | phone | `?t=` | event stream: `data:` the snapshot at once and at each change, `event: ping` | 200, 401 | state.json | differs |
 | POST | `/focus` | phone | `?session=`; a hire in T3 Code's desk opens its own thread in T3 Code (T3D-a) | empty, or text | 204, 404, 409 | office.json | served |
-| POST | `/act` | phone | `?action=` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap, style, music, fire, hire, move, seen, language, cleanup, settings, choose, letgo (a hire in T3 Code's desk, T3D-a; any other action there is 409; on a desk in a terminal Smolcorp can only watch, every control, the effort dial included, is 409 "Smolcorp can't do that in this terminal yet.": FXC2b)…; `&session=` | empty, or text | 204, 400, 403, 404, 409 | office.json | differs |
+| POST | `/act` | phone | `?action=` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap, style, music, fire, hire, move, seen, language, cleanup, settings, choose, letgo (a hire in T3 Code's desk, T3D-a; any other action there is 409; on a desk in a terminal Smolcorp can only watch, every control, the effort dial included, is 409 "Smolcorp can't do that in this terminal yet.": FXC2b)…; `&session=` | empty, or text | 204, 400, 403, 404, 409 | office.json | served |
 | POST | `/summary` | phone | `?session=` | `{summary}` or `{error}` | 200, 400–503 `{error}` | office.json | served |
 | GET | `/approvals` | phone | — | `{approvals, at}` | 200, 403 (not Tailscale) | office.json | 404 |
 | GET | `/conversation` | phone | `?session=&before=&size=` | a page of the conversation | 200, 400, 403 | office.json | 404 |
@@ -77,7 +77,7 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | POST | `/setup/maxconfirm` | gm, page | `?enabled=` | the setup state | 200 | setup.json | differs |
 | POST | `/setup/guide` | page, tool | `?done=` | the setup state | 200 | setup.json | differs |
 | POST | `/setup/music` | page, tool | `?enabled=` | the setup state | 200 | none: asks the music app what's playing | served |
-| POST | `/setup/phonemic` | gm, page | `?enabled=&autosend=` | the setup state | 200 | setup.json | 404 |
+| POST | `/setup/phonemic` | gm, page | `?enabled=&autosend=` | the setup state | 200 | setup.json | differs |
 | POST | `/setup/dock` | page, tool | `?enabled=` | the setup state | 200 | none: shows or hides the app in the Dock | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
 | POST | `/setup/ontop` | page, tool | `?enabled=` | the setup state | 200 | none: puts the office's window on top, on Windows, and under the Mac app its own window (FXC1b) | Windows only (and under the Mac app, through the bridge; 404 on Linux: no window) |
 | POST | `/setup/office` | page, tool | — | empty | 204 | none: opens the office's window, or the browser | served (opens the browser; under the Mac app, its office window through the bridge) |
@@ -305,11 +305,11 @@ has are the known gaps' "extra" rows.
 | `.pairing.open` | bool | same |
 | `.pairing.tailnet` | string | same |
 | `.phoneKeys` | number | same |
-| `.phoneMic` | object | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 |
-| `.phoneMic.autoSend` | bool | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 |
-| `.phoneMic.enabled` | bool | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 |
-| `.phoneMic.serving` | string or null | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 |
-| `.phoneMic.tailnet` | string or null | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 |
+| `.phoneMic` | object | same |
+| `.phoneMic.autoSend` | bool | same |
+| `.phoneMic.enabled` | bool | same |
+| `.phoneMic.serving` | string or null | same |
+| `.phoneMic.tailnet` | string or null | same |
 | `.phones` | array | same |
 | `.phones[].connected` | bool | same |
 | `.phones[].id` | string | same |
@@ -437,7 +437,7 @@ for hires (`.hiring.roles` is `[]`).
 | `.keys[].session.t3` | object | same |
 | `.keys[].session.tool` | string or null | same |
 | `.keys[].session.turnStartedAt` | number or null | same |
-| `.keys[].session.voiceNote` | object or null | missing: a voice note: a few seconds' note over a desk of how its last dictation went |
+| `.keys[].session.voiceNote` | object or null | same |
 | `.layout` | object | same |
 | `.maxConfirm` | bool | same |
 | `.music` | object or null | same |
@@ -581,7 +581,6 @@ has until the Go app serves it; the Swift engine's twin is in the history before
 | `setup-state` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
 | `setup-state` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
-| `setup-state` | `.phoneMic` | missing | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 | M2: setup's Phone microphone switch |
 | `setup-state` | `.roles.limits.answer` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state` | `.roles.limits.briefFile` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state` | `.roles.limits.briefFileName` | missing | briefs aren't served here (M4) | M4a: briefs |
@@ -591,24 +590,18 @@ has until the Go app serves it; the Swift engine's twin is in the history before
 | `setup-state-tool` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
 | `setup-state-tool` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
 | `setup-state-tool` | `.pairing.codeExpiresIn` | extra | a tool is told how long the code lasts; the Mac tells only the page | stays: Go-only, a tool's; the page has it in its own state on both apps |
-| `setup-state-tool` | `.phoneMic` | missing | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 | M2: setup's Phone microphone switch |
 | `setup-state-tool` | `.roles.limits.answer` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state-tool` | `.roles.limits.briefFile` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state-tool` | `.roles.limits.briefFileName` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state-tool` | `.summary.noStore` | extra | says there's no secret store for the key, which a Mac always has | stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false |
 | `snapshot` | `.floors[].desks[].conversation` | missing | whether a desk has a conversation to read, for the office window's ▤ conversation | M3: the office window's ▤ conversation and ⓘ info |
-| `snapshot` | `.floors[].desks[].voiceNote` | missing | a voice note: a few seconds' note over a desk of how its last dictation went | M3: the office's voice notes |
 | `snapshot` | `.keys[].session.conversation` | missing | whether a desk has a conversation to read, for the office window's ▤ conversation | M3: the office window's ▤ conversation and ⓘ info |
-| `snapshot` | `.keys[].session.voiceNote` | missing | a voice note: a few seconds' note over a desk of how its last dictation went | M3: the office's voice notes |
 | `snapshot` | `.upstairs.desks[].conversation` | missing | whether a desk has a conversation to read, for the office window's ▤ conversation | M3: the office window's ▤ conversation and ⓘ info |
-| `snapshot` | `.upstairs.desks[].voiceNote` | missing | a voice note: a few seconds' note over a desk of how its last dictation went | M3: the office's voice notes |
-| `POST /setup/phonemic` | `route` | 404 | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 | M2: setup's Phone microphone switch |
 | `GET /setup/hire/gm/preflight` | `refusal: no such Claude account` | status 200 | the preflight takes no account yet: Go has the Claude accounts since M2, but the GM's tools are checked for any account | M4 |
 | `GET /setup/gm/screens` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |
 | `POST /setup/gm/screen` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |
 | `POST /setup/gm/by-hand` | `route` | 404 | no GM token here (M4) | M4 |
 | `POST /setup/gm/token/rotate` | `route` | 404 | no GM token here (M4) | M4 |
-| `POST /act` | `mic: dictation on, under the Mac app` | not dictated | the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false | M3 via the bridge (M1) |
 | `GET /approvals` | `route` | 404 | the deck's list of who waits for you, over Tailscale only | M3: the deck's waiting list |
 | `GET /conversation` | `route` | 404 | the office window's ▤ conversation, as it was written | M3: the office window's ▤ conversation and ⓘ info |
 | `GET /session/info` | `route` | 404 | the office window's ⓘ info: a session's account, model, time and tokens | M3: the office window's ▤ conversation and ⓘ info |

@@ -26,7 +26,9 @@ import Security
 /// at), read only: nothing is ever signalled; and T3 Code's app, found and
 /// opened by its bundle id, and a hire's thread opened by T3 Code's own link
 /// (`T3Code.Machine`), for Open in T3 Code; and the jukebox (`Music`): its
-/// keys only with Accessibility, the volume, and what's playing.
+/// keys only with Accessibility, the volume, and what's playing; and the
+/// office's mic dictating (`Dictation`, `DictationCleanup`): this Mac's
+/// microphone recording for a desk, and what it heard, cleaned up as asked.
 /// Nothing here runs a shell line: a terminal is opened only on a script the
 /// core wrote in the hires folder.
 /// The core's side is desktop/hostbridge.go.
@@ -362,6 +364,8 @@ final class HostBridge {
             return shell(action, request, actions, until: deadline)
         case "facts", "dock", "accessibility", "keystrokes-on", "keystroke-apps", "glossary", "dictation", "terminal-command":
             return setup(action, request, actions, until: deadline)
+        case "dictation-start", "dictation-stop", "dictation-clean":
+            return dictate(action, request, actions, until: deadline)
         case "abilities":
             guard let tabs = strings(request["tabs"], most: tabsMost) else { return refused("Not a list of tabs.") }
             switch run(on: actions.main, until: deadline, { tabs.map(actions.abilities) }) {
@@ -382,7 +386,7 @@ final class HostBridge {
         case "music", "music-state", "volume":
             return music(action, request, actions, until: deadline)
         default:
-            // Notifications and the office's mic dictating aren't asked of the app yet.
+            // Notifications aren't asked of the app yet.
             return refused("This Mac app can't do \(action) for the engine yet.")
         }
     }
@@ -446,6 +450,71 @@ final class HostBridge {
             } catch {
                 return refused(error.localizedDescription)
             }
+        }
+    }
+
+    /// The office's mic dictating (desktop/hostdictation.go): this Mac's microphone recording for a desk's tab, as
+    /// the Swift engine's mic started it (`Deck.perform`'s mic: only where the tab's terminal types text, with
+    /// Accessibility where its keys need it; `Dictation.start`), and stopped, what was heard given back; then that
+    /// text cleaned up by Claude when the core says so, with the core's glossary and desks (`Deck.insertDictation`,
+    /// `DictationCleanup.clean`). The core types it into the tab and keeps the settings and the desk's note.
+    private static func dictate(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
+        if action == "dictation-start" {
+            guard let language = request["language"] as? String, Dictation.languages.contains(language) else {
+                return refused("Not a language dictation knows.")
+            }
+            guard let text = request["tab"] as? String, let tab = TabAddress(text) else { return refused("Not a tab.") }
+            guard let driver = actions.driver(tab), driver.abilities.contains(.text) else { return unsupported }
+            guard !driver.keysNeedAccessibility || Deck.keyboardAllowed() else { return refused(Deck.noKeyboard) }
+            let pending = Pending<Bool>(startBy: deadline)
+            actions.main.async { actions.startDictation(language, tab.text) { pending.finish($0) } }
+            switch pending.wait(until: deadline) {
+            case .done(let started): return ["ok": true, "started": started]
+            case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
+            }
+        }
+        let pending = Pending<[String: Any]>(startBy: deadline)
+        if action == "dictation-stop" {
+            // Stopped, and what was heard given back at once: the recording is over before the clean-up, so the
+            // next one can start meanwhile, as the Swift engine's.
+            actions.main.async { actions.stopDictation { pending.finish(["ok": true, "text": $0]) } }
+        } else {
+            // dictation-clean: the glossary as setup has it, or none set and the app's own.
+            guard let text = request["text"] as? String, !text.isEmpty, text.count <= textMost else { return refused("Not text to clean up.") }
+            guard let desks = strings(request["desks"], most: 10_000),
+                  let glossary = request["glossary"] == nil ? DictationCleanup.defaultGlossary : strings(request["glossary"], most: 10_000) else {
+                return refused("That isn't a list of names.")
+            }
+            let cleanup = request["on"] as? Bool ?? false
+            actions.main.async {
+                actions.cleanDictation(text, desks, cleanup, glossary) { cleaned, outcome in
+                    pending.finish(["ok": true, "text": cleaned, "note": outcome.note ?? NSNull(), "cleaned": outcome.isCleaned])
+                }
+            }
+        }
+        switch pending.wait(until: deadline) {
+        case .done(let answer): return answer
+        case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
+        }
+    }
+
+    /// The office's mic for the core: `Dictation` itself, with what a recording heard when it stopped by itself, at
+    /// its cap, kept for the core's stop, which comes for it. A new recording drops what an old one left. Main thread.
+    enum CoreDictation {
+        private static var leftover = ""
+
+        static func start(_ language: String, _ tab: String, _ done: @escaping (Bool) -> Void) {
+            leftover = ""
+            Dictation.start(language: language, for: tab, phone: "core", deliver: { text, _ in leftover = text }, done: done)
+        }
+
+        static func stop(_ done: @escaping (String) -> Void) {
+            guard Dictation.isActive else {
+                let text = leftover
+                leftover = ""
+                return done(text)
+            }
+            Dictation.stop { text, _ in done(text) }
         }
     }
 
@@ -683,7 +752,19 @@ final class HostBridge {
             guard let text = request["text"] as? String, !text.isEmpty, text.count <= textMost, !text.hasControlCharacters else {
                 return refused("Not text to type.")
             }
-            work = { done(action == "type" ? actions.type(text, tab) : actions.insert(text, tab)) }
+            let agent = (request["agent"] as? String).flatMap(Agent.init(rawValue:))
+            work = {
+                // Dictation's text (desktop/hostdictation.go): only where its agent is in front, as `Deck.typeDictation`
+                // looked; unknown is not the same as gone.
+                if action == "insert", let agent {
+                    switch actions.place(tab, agent) {
+                    case .gone?: return ["ok": false, "error": "That agent has ended.", "place": "gone"]
+                    case .behind?: return ["ok": false, "error": "That agent isn't in front in its terminal: bring it back with fg.", "place": "behind"]
+                    case .front?, nil: break
+                    }
+                }
+                return done(action == "type" ? actions.type(text, tab) : actions.insert(text, tab))
+            }
         case "focus":
             work = { done(actions.focus(tab)) }
         case "scroll":
@@ -1062,6 +1143,13 @@ final class HostBridge {
         var keystrokesOn: () -> Void = {}
         /// The microphone asked for, and the language's model got ready: why not, or nil.
         var prepareDictation: (_ language: String, _ done: @escaping (String?) -> Void) -> Void = { _, done in done(nil) }
+        /// The office's mic (desktop/hostdictation.go), on main: recording started in a language for a tab, and whether
+        /// it did (`Dictation.start`); stopped, with what was heard, "" for nothing; and that text cleaned up, given
+        /// the desks, whether to, and the glossary (`DictationCleanup.clean`).
+        var startDictation: (_ language: String, _ tab: String, _ done: @escaping (Bool) -> Void) -> Void = { _, _, done in done(false) }
+        var stopDictation: (_ done: @escaping (String) -> Void) -> Void = { done in done("") }
+        var cleanDictation: (_ text: String, _ desks: [String], _ cleanup: Bool, _ glossary: [String],
+                             _ done: @escaping (String, DictationCleanup.Outcome) -> Void) -> Void = { text, _, _, _, done in done(text, .off) }
         /// Add smolcorp to Terminal's link made (true) or removed: why not, thrown.
         var terminalCommand: (Bool) throws -> Void = { _ in }
         var abilities: (String) -> [String: Bool] = HostBridge.abilities(of:)
@@ -1162,6 +1250,11 @@ final class HostBridge {
                 keystrokesOn: { if !testCopy, !Permissions.hasAccessibility { Permissions.requestAccessibility() } },
                 prepareDictation: { language, done in
                     Dictation.askForMicrophone { _ in Dictation.prepare(language, done: done) }
+                },
+                startDictation: { language, tab, done in CoreDictation.start(language, tab, done) },
+                stopDictation: { CoreDictation.stop($0) },
+                cleanDictation: { text, desks, cleanup, glossary, done in
+                    DictationCleanup.clean(text, desks: desks, enabled: cleanup, configured: glossary, done: done)
                 },
                 terminalCommand: { add in
                     guard !testCopy else { throw TerminalCommand.Problem.testCopy }

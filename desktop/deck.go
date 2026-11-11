@@ -60,6 +60,11 @@ type Deck struct {
 	seatOf map[string]Seat
 	// The tab recording started in, and when. One computer, one microphone.
 	micPress *micPress
+	// Under the Mac app, the recording its microphone makes for the office's mic, if any (hostdictation.go);
+	// and how each desk's last dictation went, by session id, for a few seconds' note, and their count.
+	dictating      *dictationRun
+	voiceNotes     map[string]voiceNote
+	voiceNoteCount int
 	// When each session was last sent Return from the phone, so a tap that
 	// lands twice sends it once.
 	lastReturn map[string]time.Time
@@ -155,7 +160,7 @@ func NewDeck() *Deck {
 	d := &Deck{
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
-		keyOf: map[string]int{}, floorOf: map[string]int{}, seatOf: map[string]Seat{}, lastReturn: map[string]time.Time{}, lastPeek: map[string]time.Time{}, lastChoiceLook: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
+		keyOf: map[string]int{}, floorOf: map[string]int{}, seatOf: map[string]Seat{}, lastReturn: map[string]time.Time{}, voiceNotes: map[string]voiceNote{}, lastPeek: map[string]time.Time{}, lastChoiceLook: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue), events: newEventLog(supportDir, eventsFileMost),
 		rounds: deckRounds{stopped: make(chan struct{})},
 		// The Mac app it runs under, or none, taken now: the deck reads only its own (hostsetup.go).
@@ -863,6 +868,8 @@ func (d *Deck) sessionEntry(s *Session) map[string]any {
 		"role":    d.roleOf(s),
 		// Whether the phone's text can be typed here: on, and a terminal this app types into.
 		"phoneMic": d.config.PhoneMicEnabled && typesText(s.Tab),
+		// How its last dictation went, for a moment (hostdictation.go): none where nothing dictates.
+		"voiceNote": d.voiceNoteOf(s.ID),
 	}
 	d.addMacControls(entry, s)
 	return entry
@@ -1085,7 +1092,10 @@ func (d *Deck) attach(phone string) *eventStream {
 func (d *Deck) detach(stream *eventStream) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	phone := d.streams[stream]
 	delete(d.streams, stream)
+	// Its last stream gone, as it sleeps or leaves the Wi-Fi: dictation it started stops.
+	d.dictationPhoneLeft(phone)
 }
 
 func (d *Deck) isConnected(phone string) bool {
@@ -1426,10 +1436,24 @@ var dictationLanguages = []string{"fr_FR", "en_US"}
 
 // Perform runs one of the phone's controls on a session.
 func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
+	return d.PerformFrom("", action, id, query)
+}
+
+// PerformFrom runs one of the phone's controls on a session, for phone: the mic's dictation stops when
+// the phone that holds it goes away.
+func (d *Deck) PerformFrom(phone, action, id string, query url.Values) (int, string) {
 	// Releasing the mic stops recording where it started, whatever is
 	// selected now — and even if that session has since gone.
 	if action == "mic" && query.Get("phase") != "down" {
+		// Dictating, or getting ready to: the text goes into the tab it was for, without Return.
+		if d.releaseDictation() {
+			return http.StatusNoContent, ""
+		}
 		return d.releaseMic()
+	}
+	// The mic's other quick switch: Claude's clean-up on or off, for every phone.
+	if action == "cleanup" {
+		return d.setCleanup(query.Get("on"))
 	}
 	d.mu.Lock()
 	hiring := d.config.HiringEnabled
@@ -1575,6 +1599,13 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		}
 		return d.inTab(tab, func(t Tab) error { return t.Scroll(clamp(lines, maxScroll)) })
 	case "mic":
+		// Under the Mac app, dictation, as setup says, rather than the agent's own voice mode through Space.
+		d.mu.Lock()
+		dictates := d.dictatesFor(agent)
+		d.mu.Unlock()
+		if dictates {
+			return d.startDictation(tab, agent, phone)
+		}
 		if !agent.HasVoice() {
 			return http.StatusBadRequest, agent.Name() + " has no voice input"
 		}

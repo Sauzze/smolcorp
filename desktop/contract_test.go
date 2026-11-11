@@ -42,7 +42,6 @@ var knownGaps = []knownGap{
 	{"setup-state", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for", "M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher"},
 	{"setup-state", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
-	{"setup-state", ".phoneMic", "missing", "setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5", "M2: setup's Phone microphone switch"},
 	{"setup-state", ".roles.limits.answer", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state", ".roles.limits.briefFile", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state", ".roles.limits.briefFileName", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
@@ -52,24 +51,18 @@ var knownGaps = []knownGap{
 	{"setup-state-tool", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for", "M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher"},
 	{"setup-state-tool", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
 	{"setup-state-tool", ".pairing.codeExpiresIn", "extra", "a tool is told how long the code lasts; the Mac tells only the page", "stays: Go-only, a tool's; the page has it in its own state on both apps"},
-	{"setup-state-tool", ".phoneMic", "missing", "setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5", "M2: setup's Phone microphone switch"},
 	{"setup-state-tool", ".roles.limits.answer", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state-tool", ".roles.limits.briefFile", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state-tool", ".roles.limits.briefFileName", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state-tool", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
 	{"snapshot", ".floors[].desks[].conversation", "missing", "whether a desk has a conversation to read, for the office window's ▤ conversation", "M3: the office window's ▤ conversation and ⓘ info"},
-	{"snapshot", ".floors[].desks[].voiceNote", "missing", "a voice note: a few seconds' note over a desk of how its last dictation went", "M3: the office's voice notes"},
 	{"snapshot", ".keys[].session.conversation", "missing", "whether a desk has a conversation to read, for the office window's ▤ conversation", "M3: the office window's ▤ conversation and ⓘ info"},
-	{"snapshot", ".keys[].session.voiceNote", "missing", "a voice note: a few seconds' note over a desk of how its last dictation went", "M3: the office's voice notes"},
 	{"snapshot", ".upstairs.desks[].conversation", "missing", "whether a desk has a conversation to read, for the office window's ▤ conversation", "M3: the office window's ▤ conversation and ⓘ info"},
-	{"snapshot", ".upstairs.desks[].voiceNote", "missing", "a voice note: a few seconds' note over a desk of how its last dictation went", "M3: the office's voice notes"},
-	{"POST /setup/phonemic", "route", "404", "setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5", "M2: setup's Phone microphone switch"},
 	{"GET /setup/hire/gm/preflight", "refusal: no such Claude account", "status 200", "the preflight takes no account yet: Go has the Claude accounts since M2, but the GM's tools are checked for any account", "M4"},
 	{"GET /setup/gm/screens", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
 	{"POST /setup/gm/screen", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
 	{"POST /setup/gm/by-hand", "route", "404", "no GM token here (M4)", "M4"},
 	{"POST /setup/gm/token/rotate", "route", "404", "no GM token here (M4)", "M4"},
-	{"POST /act", "mic: dictation on, under the Mac app", "not dictated", "the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false", "M3 via the bridge (M1)"},
 	{"GET /approvals", "route", "404", "the deck's list of who waits for you, over Tailscale only", "M3: the deck's waiting list"},
 	{"GET /conversation", "route", "404", "the office window's ▤ conversation, as it was written", "M3: the office window's ▤ conversation and ⓘ info"},
 	{"GET /session/info", "route", "404", "the office window's ⓘ info: a session's account, model, time and tokens", "M3: the office window's ▤ conversation and ⓘ info"},
@@ -807,9 +800,10 @@ func contractGaps(t *testing.T, c contract) []knownGap {
 }
 
 // macDictationGaps is the office's dictation under the Mac app, which no fixture shows: the Mac's own test
-// can't count on its speech recognition and microphone. With both (the stand-in app has them), and dictation
-// on for Claude Code too, the Mac's rule (Deck.dictates, Dictation.isOn) has the snapshot's dictation on and
-// contract-a, a Claude desk in a launcher's window, dictate. A gap while this app's mic doesn't.
+// can't count on its speech recognition and microphone. With both (the stand-in app has them, learned as the
+// deck learns them, from its facts), and dictation on for Claude Code too, the Mac's rule (Deck.dictates,
+// Dictation.isOn) has the snapshot's dictation on and contract-a, a Claude desk in a launcher's window,
+// dictate. A gap if this app's mic doesn't (closed in M7GAPA, hostdictation.go).
 func macDictationGaps(t *testing.T, c contract) []knownGap {
 	cd := newContractDeck(t, c, []string{"sessions"})
 	d := cd.d
@@ -822,6 +816,7 @@ func macDictationGaps(t *testing.T, c contract) []knownGap {
 	mac.mu.Lock()
 	mac.facts.Dictation.Available, mac.facts.Dictation.Allowed = true, true
 	mac.mu.Unlock()
+	d.macFactsNow()
 	d.mu.Lock()
 	d.config.DictationEnabled, d.config.DictationForClaude = true, true
 	var state struct {

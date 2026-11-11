@@ -33,6 +33,9 @@ type macState struct {
 	languages []string
 	// Why dictation's language isn't ready, as the app said when it got it ready last, or "".
 	dictationProblem string
+	// Whether the Mac can dictate, from the last facts: its speech engine, and the microphone allowed
+	// (Dictation.isAvailable, microphoneAllowed). The office's mic dictates only then (hostdictation.go).
+	canDictate bool
 	// What each session's terminal lets the office do (hostoffice.go): for the tabs in abilitiesFor,
 	// and whether the app is being asked now; the tabs it didn't answer for last, how many times, and
 	// when it may be asked again.
@@ -79,12 +82,13 @@ func (d *Deck) macFactsNow() *macFacts {
 	return &facts
 }
 
-// learnedLanguages keeps the dictation languages the Mac has, and the one it suggests, and tells the office
-// when its language changes with them. With the lock held.
+// learnedLanguages keeps the dictation languages the Mac has, the one it suggests, and whether it can
+// dictate, and tells the office when its language or its mic changes with them. With the lock held.
 func (d *Deck) learnedLanguages(facts macFacts) {
-	before := d.dictationLanguage()
+	before, could := d.dictationLanguage(), d.mac.canDictate
 	d.mac.suggested, d.mac.languages = facts.Dictation.Suggested, facts.Dictation.Languages
-	if d.dictationLanguage() != before {
+	d.mac.canDictate = facts.Dictation.Available && facts.Dictation.Allowed
+	if d.dictationLanguage() != before || d.mac.canDictate != could {
 		d.changed()
 	}
 }
@@ -335,6 +339,21 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 			d.changed()
 			d.mu.Unlock()
 		}
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
+	// Phone microphone: the phone's text on or off, and whether an older page's goes with Return. Off, Tailscale
+	// addresses are refused again at once (router.ServeHTTP).
+	case path == "/setup/phonemic":
+		d.mu.Lock()
+		if query.Has("enabled") {
+			d.config.PhoneMicEnabled = query.Get("enabled") == "1"
+		}
+		if query.Has("autosend") {
+			d.config.PhoneMicAutoSend = query.Get("autosend") == "1"
+		}
+		d.config.save()
+		d.changed()
+		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The names dictation's clean-up knows, as the page's lines.
