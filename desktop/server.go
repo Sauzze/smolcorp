@@ -159,10 +159,12 @@ type router struct {
 // request is what the router needs to know about one.
 type request struct {
 	*http.Request
-	isLocal             bool // sent from this computer to a local name
+	isLocal             bool // sent from this computer to a local name, not passed on by a proxy
 	isAddressedDirectly bool // to an IP address or a local name, as a phone would
-	remoteAddress       string
-	caller              caller // who is asking setup: set only for /setup and /bots
+	// On a Mac: handed on by `tailscale serve` on this computer, to a ts.net name or with a proxy's headers.
+	isTailnet     bool
+	remoteAddress string
+	caller        caller // who is asking setup: set only for /setup and /bots
 }
 
 // caller is who is asking for setup: the page, a tool of yours, or no one.
@@ -197,10 +199,17 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := portSuffix.ReplaceAllString(r.Host, "")
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)
+	fromLoopback, proxied := ip != nil && ip.IsLoopback(), isProxied(r.Header)
+	// On a Mac, as its app reads a request (HTTPServer.swift's Request.addressed): `tailscale serve` hands a
+	// phone's request on from this computer's loopback, with whatever Host the phone sent, so a proxy's hand-on
+	// is the tailnet's, never addressed directly; let in only with the phone's text on.
+	fromProxy := macTailscale && fromLoopback && proxied
 	req := &request{
-		Request:             r,
-		isLocal:             ip != nil && ip.IsLoopback() && (host == "localhost" || host == "127.0.0.1" || host == "[::1]"),
-		isAddressedDirectly: host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasPrefix(host, "[") || ipv4Address.MatchString(host),
+		Request: r,
+		// A proxy on this computer passes on someone else's request: never this computer's, for setup, the hook or the window's key.
+		isLocal:             fromLoopback && !proxied && (host == "localhost" || host == "127.0.0.1" || host == "[::1]"),
+		isAddressedDirectly: !fromProxy && (host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasPrefix(host, "[") || ipv4Address.MatchString(host)),
+		isTailnet:           fromProxy || macTailscale && fromLoopback && isTailnetName(host),
 		remoteAddress:       remote,
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -395,7 +404,12 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	}
 
-	if !r.isAddressedDirectly {
+	// Past setup and the hook: to an IP address or a local name, as a phone asks; or on a Mac, with the phone's
+	// text on, handed on by `tailscale serve`, as the Mac app lets it in (DeckRouter.admits).
+	d.mu.Lock()
+	phoneText := d.config.PhoneMicEnabled
+	d.mu.Unlock()
+	if !r.isAddressedDirectly && !(r.isTailnet && phoneText) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -543,6 +557,50 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		writeJSON(w, status, answer)
 	case r.Method == http.MethodPost && r.URL.Path == "/act":
 		writeStatus(w)(d.Perform(r.URL.Query().Get("action"), session, r.URL.Query()))
+	// The phone's text (typed, or heard by its own mic), typed into the session's agent: from a paired phone
+	// with its key, over the Wi-Fi as over Tailscale (I34), never from the office's own window. See phonetext.go.
+	case r.Method == http.MethodPost && r.URL.Path == "/dictate":
+		if phoneID == officeWindowID {
+			writeStatus(w)(http.StatusForbidden, phoneTextPhonesOnly)
+			return
+		}
+		body := decodeJSON(r.Body)
+		// The confirm box's choice, Send ⏎ or Type only; an older page's says nothing.
+		var send *bool
+		if value, ok := body["send"].(bool); ok {
+			send = &value
+		}
+		writeStatus(w)(d.TypePhoneText(stringValue(body["text"]), session, send))
+	// The last lines of the session's tab, read-only, to see what was typed: over Tailscale only.
+	case r.Method == http.MethodPost && r.URL.Path == "/peek":
+		if !fromTailnet(r.Request) {
+			writeStatus(w)(http.StatusForbidden, peekTailnet)
+			return
+		}
+		status, lines, message := d.Peek(session)
+		if status != http.StatusOK {
+			writeStatus(w)(status, message)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"lines": lines})
+	// A typed answer to a menu's "Type something": as /dictate, one line only.
+	case r.Method == http.MethodPost && r.URL.Path == "/choose":
+		if phoneID == officeWindowID {
+			writeStatus(w)(http.StatusForbidden, phoneTextPhonesOnly)
+			return
+		}
+		if r.URL.Query().Get("option") != "other" {
+			writeStatus(w)(http.StatusBadRequest, pickWithKeys)
+			return
+		}
+		writeStatus(w)(d.AnswerOther(stringValue(decodeJSON(r.Body)["text"]), r.URL.Query().Get("choice"), session))
+	// What a permission prompt is about: over Tailscale only.
+	case r.Method == http.MethodGet && r.URL.Path == "/choice":
+		if !fromTailnet(r.Request) {
+			writeStatus(w)(http.StatusForbidden, choiceTailnet)
+			return
+		}
+		writeStatus(w)(d.ChoiceDetail(session))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
 	case r.Method == http.MethodPost && r.URL.Path == "/summary":
 		text, err := d.Summarize(session)

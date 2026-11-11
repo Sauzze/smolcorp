@@ -283,7 +283,7 @@ func (d *Deck) upperEntry(s *Session) map[string]any {
 		return entry
 	}
 	entry["headless"] = true
-	for _, control := range []string{"keys", "fire", "mic", "dial", "dictates", "summary"} {
+	for _, control := range []string{"keys", "fire", "mic", "dial", "dictates", "summary", "phoneMic"} {
 		entry[control] = false
 	}
 	entry["role"] = nil

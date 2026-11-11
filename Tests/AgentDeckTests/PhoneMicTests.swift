@@ -117,7 +117,7 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertLessThan(try at("guard let words = PhoneDictation.prepared(text) else { return done(.status(400, PhoneDictation.refusal(text))) }"),
                           try at("guard !PhoneDictation.runsInShell(words) else { return done(.status(400, Deck.noBangPrompt)) }"),
                           "checked on the text as it would be typed: spaces in front are trimmed first")
-        XCTAssertLessThan(try at("guard !PhoneDictation.runsInShell(words)"), try at("driver.insert(words, in: tab)"))
+        XCTAssertLessThan(try at("guard !PhoneDictation.runsInShell(words)"), try at("Deck.typePhoneWords(words, driver: driver, tab: tab"))
     }
 
     // MARK: On a deck of its own, with a stand-in terminal
@@ -415,6 +415,81 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertEqual(terminal.inserted, ["une ligne"])
     }
 
+    /// The phone's text on both engines, one table (Tests/fixtures/bridge/phone-text.json, IGL): each case on the
+    /// Swift engine (`typePhoneDictation`), and as the Go core asks it, through the bridge's phone-text action,
+    /// with the desk's state the core would say. Both type through `Deck.typePhoneWords`: the same refusals in
+    /// the same sentences, the paste only where both let it, and the bridge's answer is the one the Go core reads
+    /// (desktop/phonetext_test.go runs the same table through it). Nothing real is looked at or told anything.
+    func testThePhonesTextTableOnBothEngines() throws {
+        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("fixtures/bridge/phone-text.json")
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let cases = try XCTUnwrap(fixture["cases"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(cases.count, 6)
+        let gates = (Deck.keyboardAllowed, Deck.macLocked, Deck.tabFront)
+        addTeardownBlock { (Deck.keyboardAllowed, Deck.macLocked, Deck.tabFront) = gates }
+        Deck.keyboardAllowed = { true }
+        Deck.macLocked = { false }
+        func json(_ object: Any) -> String {
+            String(decoding: (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data(), as: UTF8.self)
+        }
+        for one in cases {
+            let name = try XCTUnwrap(one["name"] as? String)
+            let agent = try XCTUnwrap(Agent(rawValue: one["agent"] as? String ?? ""))
+            let desk = try XCTUnwrap(SessionState(rawValue: one["desk"] as? String ?? ""))
+            let front = try XCTUnwrap(one["front"] as? [String: Any])
+            let place: Terminal.Place = ["front": .front, "behind": .behind, "gone": .gone][front["place"] as? String ?? ""] ?? .gone
+            Deck.tabFront = { _, _ in Terminal.TabFront(place: place, readers: Set(front["readers"] as? [String] ?? [])) }
+            let pastes: LinesPasted = ["pasted": .pasted, "macInUse": .macInUse, "notRead": .notRead][one["terminal"] as? String ?? ""] ?? .failed
+            var request = try XCTUnwrap(one["request"] as? [String: Any])
+            let text = try XCTUnwrap(request["text"] as? String)
+            let swift = try XCTUnwrap(one["swift"] as? [String: Any])
+            let typed = one["typed"] as? Bool == true, returns = one["returns"] as? Bool == true
+
+            // The Swift engine, its desk in Terminal's tab, as the Go core's.
+            let deck = Deck(quiet: true)
+            deck.sessions.apply(["hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "/work/api"],
+                                agent: agent, tab: "tty:/dev/ttys003", startedIn: "", at: 10)
+            if desk != .thinking {
+                deck.sessions.apply(["hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api"],
+                                    agent: agent, tab: "tty:/dev/ttys003", startedIn: "", at: 20)
+            }
+            XCTAssertEqual(deck.sessions["s1"]?.state, desk, name)
+            let terminal = RecordingTerminal()
+            terminal.linesWay = .clipboard(inFront: true)
+            terminal.lines = pastes
+            Terminals.standIn = terminal
+            defer { Terminals.standIn = nil }
+            let response = dictate(deck, text, send: true)
+            XCTAssertEqual(response.status, swift["status"] as? Int, name)
+            XCTAssertEqual(String(decoding: response.body, as: UTF8.self), swift["says"] as? String, name)
+            XCTAssertEqual(!(terminal.inserted + terminal.insertedLines).isEmpty, typed, "\(name): typed")
+            XCTAssertEqual(terminal.pressed.contains(.returnKey), returns, "\(name): Return")
+
+            // The bridge, as the Go core asks it: the same driver, the desk's state as the core has it.
+            let bridged = RecordingTerminal()
+            bridged.linesWay = .clipboard(inFront: true)
+            bridged.lines = pastes
+            var mac = HostBridge.Actions(press: { _, _ in false }, type: { _, _ in false }, insert: { _, _ in false }, focus: { _ in false },
+                                         scroll: { _, _ in false }, scrollToBottom: { _ in false }, fire: { _, _ in .notStopped },
+                                         hires: FileManager.default.temporaryDirectory, open: { _, _, _ in nil }, secrets: [:], loginItem: nil)
+            mac.driver = { _ in bridged }
+            mac.place = { _, _ in nil }
+            mac.screen = { _ in nil }
+            let queue = DispatchQueue(label: "test.phone-text")
+            mac.queue = { _ in queue }
+            var asked: [String] = []
+            request["token"] = "fake-token"
+            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: "fake-token", actions: mac,
+                                           until: .now() + HostBridge.actionWait, deskState: { asked.append(desk.rawValue); return desk })
+            XCTAssertEqual(json(answer), json(one["answer"] ?? NSNull()), name)
+            XCTAssertEqual(asked, one["asked"] as? [String], "\(name): the core asked")
+            XCTAssertEqual(!(bridged.inserted + bridged.insertedLines).isEmpty, typed, "\(name): typed through the bridge")
+            XCTAssertEqual(bridged.pressed, [], "\(name): the bridge never presses Return: the core does, after")
+        }
+    }
+
     /// Each way several lines didn't go is said in its own sentence; ⌘V that went but wasn't read in time is
     /// a 503, so the page doesn't offer the words to send twice.
     func testEachWayTheClipboardPasteDidntGoIsSaid() {
@@ -544,7 +619,7 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertTrue(block.contains("driver.press(.init(key: .returnKey), in: tab)"))
         XCTAssertTrue(block.contains("Thread.sleep(forTimeInterval: PhoneDictation.settle)"))
         func at(_ text: String) throws -> String.Index { try XCTUnwrap(body.range(of: text)?.lowerBound, text) }
-        XCTAssertLessThan(try at("driver.insert(words, in: tab)"), try at("Thread.sleep(forTimeInterval: PhoneDictation.settle)"))
+        XCTAssertLessThan(try at("Deck.typePhoneWords(words, driver: driver, tab: tab"), try at("Thread.sleep(forTimeInterval: PhoneDictation.settle)"))
         XCTAssertLessThan(try at("Thread.sleep(forTimeInterval: PhoneDictation.settle)"), try at("driver.press(.init(key: .returnKey), in: tab)"))
         XCTAssertGreaterThanOrEqual(PhoneDictation.settle, 0.15)
         XCTAssertLessThanOrEqual(PhoneDictation.settle, 0.3)
@@ -568,7 +643,11 @@ final class PhoneMicTests: XCTestCase {
         let body = try Self.body(of: "func typePhoneDictation(", until: "static let answerFirst")
         func at(_ text: String) throws -> String.Index { try XCTUnwrap(body.range(of: text)?.lowerBound, text) }
         let guardAsking = try at("guard !Deck.isAsking(session.state) else { return done(.status(409, Deck.answerFirst)) }")
-        XCTAssertLessThan(guardAsking, try at("driver.insert(words, in: tab)"), "checked before any key")
+        XCTAssertLessThan(guardAsking, try at("Deck.typePhoneWords(words, driver: driver, tab: tab"), "checked before any key")
+        // And again where both engines type (IGL), right before one line: the words go only after it.
+        let typing = try Self.body(of: "static func typePhoneWords(", until: "static let oneLineAnswer")
+        let again = try XCTUnwrap(typing.range(of: "guard !isAsking(state()) else { return .refused(.status(409, answerFirst)) }")?.lowerBound)
+        XCTAssertLessThan(again, try XCTUnwrap(typing.range(of: "driver.insert(words, in: tab)")?.lowerBound))
         XCTAssertLessThan(guardAsking, try at("toAgent(session"))
         // Again right before Return, on the main queue, where the state and the last Return live.
         let settle = try at("Thread.sleep(forTimeInterval: PhoneDictation.settle)")

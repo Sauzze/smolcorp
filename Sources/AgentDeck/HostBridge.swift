@@ -16,7 +16,8 @@ import Security
 /// this app (desktop/hostbridge_darwin.go).
 ///
 /// Each action is this app's own code, as the Swift engine runs it: the
-/// terminal drivers (Accessibility and AppleScript), the openers, the
+/// terminal drivers (Accessibility and AppleScript; the phone's text and the
+/// peek at an input line among them, as `Deck` types and reads them), the openers, the
 /// secrets' stores, the login item; and setup's Mac parts (Accessibility, keys
 /// in other apps, In the Dock, dictation, Add smolcorp to Terminal, the Grok
 /// Bot app) and what each desk's terminal allows, from the drivers' tables.
@@ -211,16 +212,97 @@ final class HostBridge {
             guard request.count <= HostBridge.requestMost else { return }
         }
         let line = request.prefix(upTo: request.firstIndex(of: 0x0A)!)
-        let answer = HostBridge.answer(line, token: token, actions: actions, until: taken + HostBridge.actionWait)
+        // Anything sent after the request came before any question: it answers none (see CoreQuestion).
+        let question = CoreQuestion(connection, sentEarly: request.count > line.count + 1, until: taken + HostBridge.actionWait)
+        let answer = HostBridge.answer(line, token: token, actions: actions, until: taken + HostBridge.actionWait, deskState: question.ask)
+        question.close()
         var data = (try? JSONSerialization.data(withJSONObject: answer)) ?? Data()
         data.append(0x0A)
+        _ = HostBridge.write(data, to: connection)
+    }
+
+    /// Writes all of `data` to `connection`: false if it couldn't.
+    static func write(_ data: Data, to connection: Int32) -> Bool {
         data.withUnsafeBytes { raw in
             var sent = 0
             while sent < raw.count {
-                let count = write(connection, raw.baseAddress! + sent, raw.count - sent)
-                guard count > 0 else { return }
+                let count = Darwin.write(connection, raw.baseAddress! + sent, raw.count - sent)
+                guard count > 0 else { return false }
                 sent += count
             }
+            return true
+        }
+    }
+
+    /// The one thing the bridge asks the core back, on a request's own connection: the desk's state as the core
+    /// has it now, for the phone's text (desktop/hostbridge_darwin.go answers it at once, from its sessions).
+    /// Asked from the terminal's queue, by `Deck.typePhoneWords`, where the Swift engine looks at its own
+    /// sessions: right before one line, and before and right before a paste of several (`ready`). So a prompt
+    /// that came while the words waited for the queue holds them, and so does a turn that started. At most
+    /// `most` times, and never once the request is answered: the connection may be closed by then, and its
+    /// number another's. No answer in time, or anything but a state, is asking: nothing goes.
+    final class CoreQuestion {
+        /// How long the core has to answer each time: it only looks at its sessions.
+        static let wait: TimeInterval = 2
+        /// The longest answer read: `{"state":"thinking"}`.
+        static let answerMost = 64
+        /// The most times one request asks: `Deck.typePhoneWords` asks twice at most (`ClipboardPaste.paste`).
+        static let most = 3
+        private let lock = NSLock()
+        private let connection: Int32
+        private let deadline: DispatchTime
+        private var left: Int
+
+        init(_ connection: Int32, sentEarly: Bool, until deadline: DispatchTime) {
+            self.connection = connection
+            self.deadline = deadline
+            left = sentEarly ? 0 : CoreQuestion.most
+        }
+
+        /// The desk's state, as the core said it: nil for a desk it no longer has.
+        func ask() -> SessionState? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard left > 0 else { return .asking }
+            left -= 1
+            guard HostBridge.write(Data("{\"ready\":true}\n".utf8), to: connection) else {
+                left = 0
+                return .asking
+            }
+            let by = min(deadline, .now() + CoreQuestion.wait)
+            var reply = Data()
+            var chunk = [UInt8](repeating: 0, count: CoreQuestion.answerMost)
+            while !reply.contains(0x0A) {
+                let time = Int64(by.uptimeNanoseconds) - Int64(DispatchTime.now().uptimeNanoseconds)
+                guard time > 0, reply.count <= CoreQuestion.answerMost else { return unheard() }
+                var wait = timeval(tv_sec: Int(time / 1_000_000_000), tv_usec: Int32(time % 1_000_000_000 / 1000))
+                setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
+                let count = read(connection, &chunk, chunk.count)
+                guard count > 0 else { return unheard() }
+                reply.append(chunk, count: count)
+            }
+            // One line, and nothing after it: the core says nothing more until it has the answer.
+            let line = reply.prefix(upTo: reply.firstIndex(of: 0x0A)!)
+            guard reply.count == line.count + 1,
+                  let said = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+                  let state = said["state"] as? String else { return unheard() }
+            // "": the core has no such desk now, as the Swift engine's own sessions would say nil.
+            guard !state.isEmpty else { return nil }
+            return SessionState(rawValue: state) ?? .asking
+        }
+
+        /// Not heard in time, or not as asked: asking, and the connection is asked nothing more, as what it
+        /// says next could be the late answer to this.
+        private func unheard() -> SessionState? {
+            left = 0
+            return .asking
+        }
+
+        /// No question once the request is answered.
+        func close() {
+            lock.lock()
+            left = 0
+            lock.unlock()
         }
     }
 
@@ -235,8 +317,10 @@ final class HostBridge {
     // MARK: Answers
 
     /// The answer to one request: refused without the token, then the action's.
-    /// A tab action or a window not started by `deadline` isn't run.
-    static func answer(_ line: Data, token: String, actions: Actions, until deadline: DispatchTime = .distantFuture) -> [String: Any] {
+    /// A tab action or a window not started by `deadline` isn't run. `deskState` asks the core the desk's state,
+    /// for the phone's text (`CoreQuestion`): with none to ask, it's asking, and nothing goes.
+    static func answer(_ line: Data, token: String, actions: Actions, until deadline: DispatchTime = .distantFuture,
+                       deskState: @escaping () -> SessionState? = { .asking }) -> [String: Any] {
         guard let request = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
               let given = request["token"] as? String, sameToken(given, token) else {
             return ["ok": false, "error": "Not this app's engine."]
@@ -247,6 +331,8 @@ final class HostBridge {
             return ["ok": true]
         case "press", "type", "insert", "focus", "scroll", "scroll-bottom", "close":
             return tabAction(action, request, actions, until: deadline)
+        case "phone-text", "peek":
+            return phoneAction(action, request, actions, until: deadline, deskState: deskState)
         case "open":
             return open(request, actions, until: deadline)
         case "terminals":
@@ -430,16 +516,81 @@ final class HostBridge {
                 }
             }
         }
-        // On its own terminal's queue, as the deck's keys go: given no longer to start than they are
-        // (`Terminals.inputWait`), then waited for to its end, within the bridge's own deadline.
+        return onTabQueue(tab, actions, until: deadline, work)
+    }
+
+    /// The phone's text (desktop/phonetext.go, I5): what a paired phone typed or heard, into a Terminal, iTerm2
+    /// or Ghostty tab, without Return (the core presses it after the settle, as the Swift engine does), by the
+    /// Swift engine's own code (IGL): `Deck.phoneWordsRefusal` before anything waits on the terminal's queue,
+    /// then on that queue, once the agent is known to be in front there or that can't be told (as `Deck.toAgent`
+    /// looks), `Deck.typePhoneWords`, with the desk's state as the core has it (`deskState`, asked right when the
+    /// Swift engine looks at its own sessions). Every no comes with the Swift engine's sentence (`Deck.linesResponse`):
+    /// nothing was typed. What may have typed says so (`mayHaveTyped`): ⌘V that the terminal hadn't read in time,
+    /// a terminal that didn't take it, or stopped answering part way; the core then sends no Return and never
+    /// offers the words again. And the peek: the end of what the tab shows (`PhoneDictation.peek`), only while the
+    /// agent is in front, as `Deck.peek` looks. The words are checked again: as `PhoneDictation.prepared` gives
+    /// them, so 2,000 characters at most; no "!" first; no control character but a line feed and a tab.
+    private static func phoneAction(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime,
+                                    deskState: @escaping () -> SessionState?) -> [String: Any] {
+        guard let text = request["tab"] as? String, let tab = TabAddress(text) else { return refused("Not a tab.") }
+        guard let name = request["agent"] as? String, let agent = Agent(rawValue: name) else { return refused("Not an agent.") }
+        let work: () -> [String: Any]
+        if action == "phone-text" {
+            guard let words = request["text"] as? String, PhoneDictation.prepared(words) == words, !PhoneDictation.runsInShell(words),
+                  HireTmux.canPaste(words) else { return refused("Not text to type.") }
+            guard let driver = actions.driver(tab), driver.abilities.contains(.text) else { return unsupported }
+            if let refusal = Deck.phoneWordsRefusal(words, way: driver.linesWay, keysNeedAccessibility: driver.keysNeedAccessibility,
+                                                    agent: agent) { return refused(said(refusal)) }
+            work = {
+                // Unknown is not the same as gone: the words go, as the deck's keys do.
+                switch actions.place(tab, agent) {
+                case .gone?: return ["ok": false, "error": "That agent has ended.", "place": "gone"]
+                case .behind?: return ["ok": false, "error": "That agent isn't in front in its terminal: bring it back with fg.", "place": "behind"]
+                case .front?, nil: break
+                }
+                switch Deck.typePhoneWords(words, driver: driver, tab: tab, agent: agent, state: deskState) {
+                case .typed: return ["ok": true, "pasted": "pasted"]
+                case .refused(let why): return refused(said(why))
+                case .notRead(let why): return ["ok": false, "error": said(why), "mayHaveTyped": true]
+                case .failed: return ["ok": false, "error": "The terminal didn't take it.", "mayHaveTyped": true]
+                }
+            }
+        } else {
+            work = {
+                // Only where the agent is known to be in front: a shell's screen is never read.
+                guard actions.place(tab, agent) == .front else {
+                    return ["ok": false, "error": "That agent isn't in front in its terminal.", "place": "behind"]
+                }
+                switch actions.screen(tab) {
+                case nil: return unsupported
+                case .some(nil): return refused("This terminal can't show its input line.")
+                case .some(let screen?): return ["ok": true, "peek": PhoneDictation.peek(screen)]
+                }
+            }
+        }
+        return onTabQueue(tab, actions, until: deadline, typing: action == "phone-text", work)
+    }
+
+    /// What a response says, as the phone reads it.
+    private static func said(_ response: Response) -> String { String(decoding: response.body, as: UTF8.self) }
+
+    /// `work` on `tab`'s own terminal's queue, as the deck's keys go: given no longer to start than they are
+    /// (`Terminals.inputWait`), then waited for to its end, within the bridge's own deadline. `typing` the
+    /// phone's text, a terminal that stopped answering part way may have typed it (`mayHaveTyped`).
+    private static func onTabQueue(_ tab: TabAddress, _ actions: Actions, until deadline: DispatchTime, typing: Bool = false,
+                                   _ work: @escaping () -> [String: Any]) -> [String: Any] {
         let tabText = tab.text
+        func partWay(_ said: String) -> [String: Any] {
+            typing ? ["ok": false, "error": said, "mayHaveTyped": true] : refused(said)
+        }
         switch run(on: actions.queue(tab), startBy: min(deadline, .now() + Terminals.inputWait), until: deadline,
                    { Terminal.noticingTimeouts(work) }) {
         case .done(let answer) where answer.timedOut && answer.value["ok"] as? Bool != true:
-            return refused(Terminals.notAnswering(tabText, partWay: answer.partWay))
+            let said = Terminals.notAnswering(tabText, partWay: answer.partWay)
+            return answer.partWay || answer.value["mayHaveTyped"] as? Bool == true ? partWay(said) : refused(said)
         case .done(let answer): return answer.value
         case .notStarted: return refused(Terminals.notAnswering(tabText))
-        case .unfinished: return refused(Terminals.notAnswering(tabText, partWay: true))
+        case .unfinished: return partWay(Terminals.notAnswering(tabText, partWay: true))
         }
     }
 
@@ -613,6 +764,14 @@ final class HostBridge {
         var press: (Terminal.Keystroke, TabAddress) -> Bool?
         var type: (String, TabAddress) -> Bool?
         var insert: (String, TabAddress) -> Bool?
+        /// The driver the phone's text goes through (`Deck.typePhoneWords`): nil for a terminal the app can't drive.
+        var driver: (TabAddress) -> TerminalDriver? = { Terminals.driver(for: $0) }
+        /// What the tab shows: nil for a terminal the app can't drive, `.some(nil)` where it can't say.
+        var screen: (TabAddress) -> String?? = { tab in Terminals.driver(for: tab).map { $0.screen(of: tab) } }
+        /// Where `agent` is in the tab, as the deck looks before its keys: nil if that couldn't be looked at.
+        var place: (TabAddress, Agent) -> Terminal.Place? = { tab, agent in
+            Terminals.tty(of: tab.text).flatMap { Terminal.place(of: agent, on: $0) }
+        }
         var focus: (TabAddress) -> Bool?
         var scroll: (Int, TabAddress) -> Bool?
         var scrollToBottom: (TabAddress) -> Bool?

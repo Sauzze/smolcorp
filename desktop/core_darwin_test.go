@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -392,4 +394,75 @@ func TestTheAppsLines(t *testing.T) {
 			t.Errorf("refused: %+v", a)
 		}
 	}
+}
+
+// The phone's text: the app asks the desk's state, on the same connection, where the Swift engine looks at its
+// own sessions, and is answered at once with it ("" for a desk gone). No question to answer is asking. Up to
+// bridgeQuestionsMost questions on one request (a paste asks before and right before ⌘V); more is an error.
+func TestTheAppAsksTheDesksStateOnItsConnection(t *testing.T) {
+	folder := shortFolder(t)
+	path := filepath.Join(folder, "bridge.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	_ = os.Chmod(path, 0o600)
+	heard := make(chan []string, 8)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				reader := bufio.NewReader(conn)
+				line, err := reader.ReadBytes('\n')
+				var request bridgeRequest
+				if err != nil || json.Unmarshal(line, &request) != nil || request.Token != fakeBridgeToken {
+					return
+				}
+				// As many questions as the text says, as the app asks before a paste and right before ⌘V.
+				asks := strings.Count(request.Text, "?")
+				var replies []string
+				for range asks {
+					_, _ = conn.Write([]byte(`{"ready":true}` + "\n"))
+					said, err := reader.ReadBytes('\n')
+					if err != nil {
+						heard <- replies
+						return
+					}
+					replies = append(replies, strings.TrimSpace(string(said)))
+				}
+				heard <- replies
+				_, _ = conn.Write([]byte(`{"ok":true,"pasted":"pasted"}` + "\n"))
+			}()
+		}
+	}()
+	bridge := appBridge(path, fakeBridgeToken)
+	for _, c := range []struct {
+		text  string
+		state func() SessionState
+		said  []string
+	}{
+		{"one?", func() SessionState { return Unread }, []string{`{"state":"unread"}`}},
+		{"two??", func() SessionState { return Thinking }, []string{`{"state":"thinking"}`, `{"state":"thinking"}`}},
+		{"gone?", func() SessionState { return "" }, []string{`{"state":""}`}},
+		{"none?", nil, []string{`{"state":"asking"}`}},
+	} {
+		result, err := hostPhoneText(bridge, "tty:/dev/ttys003", Claude, c.text, c.state)
+		if err != nil || result != pasteDone {
+			t.Errorf("%s: %v %v", c.text, result, err)
+		}
+		if said := <-heard; !slices.Equal(said, c.said) {
+			t.Errorf("%s: answered %q, want %q", c.text, said, c.said)
+		}
+	}
+	// One question too many: an error that may have come after the words went, never the app's no.
+	result, err := hostPhoneText(bridge, "tty:/dev/ttys003", Claude, "four????", func() SessionState { return Idle })
+	if !errors.Is(err, errPasteFailed) || result != pasteFailed {
+		t.Errorf("asked four times: %v %v", result, err)
+	}
+	<-heard
 }

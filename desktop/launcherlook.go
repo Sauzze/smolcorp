@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sync"
@@ -76,6 +77,8 @@ type screenAnswer struct {
 	Unknown bool   `json:"unknown"`
 	// Bracketed: the agent turned bracketed paste on. Mail pastes multi-line text only then.
 	Bracketed bool `json:"bracketed"`
+	// Pasted: for the phone's text, "pasted" or "not-taken" (see launcherCommand.PhoneText); "" for a look.
+	Pasted string `json:"pasted,omitempty"`
 }
 
 // lookSecretHeader carries the launcher's secret back with an answer. The
@@ -111,8 +114,13 @@ const screenAnswerPath = "/launcher/screen"
 // address without a path. A failure is dropped: the app's wait times out,
 // which it reads as unknown.
 func postScreenAnswer(client *http.Client, base, key, proof, id, look string, screen *launcherScreen) {
+	postPasteAnswer(client, base, key, proof, id, look, "", screen)
+}
+
+// postPasteAnswer is postScreenAnswer, saying too what came of the phone's text: pasted, or not-taken.
+func postPasteAnswer(client *http.Client, base, key, proof, id, look, pasted string, screen *launcherScreen) {
 	state, unknown, bracketed := screen.lookPaste()
-	body, _ := json.Marshal(screenAnswer{Look: look, State: state.String(), Unknown: unknown, Bracketed: bracketed})
+	body, _ := json.Marshal(screenAnswer{Look: look, State: state.String(), Unknown: unknown, Bracketed: bracketed, Pasted: pasted})
 	request, err := http.NewRequest(http.MethodPost, base+screenAnswerPath+"?"+url.Values{"id": {id}}.Encode(), bytes.NewReader(body))
 	if err != nil {
 		return
@@ -205,6 +213,10 @@ func (d *Deck) launcherScreenAnswered(id, proof string, answer screenAnswer) boo
 		// Only a screen that was known can say bracketed paste is on.
 		d.lookBracketed[key] = answer.Bracketed && state != PaneUnknown
 	}
+	// Kept only for a phone paste waiting for it (pasteIntoLauncher made its entry): an ordinary look leaves nothing behind.
+	if _, paste := d.lookPasted[key]; ok && paste {
+		d.lookPasted[key] = answer.Pasted
+	}
 	d.mu.Unlock()
 	if !ok {
 		return false
@@ -214,4 +226,64 @@ func (d *Deck) launcherScreenAnswered(id, proof string, answer screenAnswer) boo
 	default: // answered already
 	}
 	return true
+}
+
+// launcherPasteWait is how long the phone's text waits for a launcher to say it pasted it.
+var launcherPasteWait = 2 * time.Second
+
+// pasteIntoLauncher has the launcher with the id given paste the phone's words into its agent, and waits
+// for it to say whether it did. The launcher pastes as for mail (cursorMode.pasteBytes): several lines only
+// inside a bracketed paste, which it sees the agent turn on in what it draws, and checks right as it writes;
+// otherwise nothing. On Windows that is the agent's console input (ConPTY), which carries the paste's
+// markers to an agent that asked for them. A launcher that's gone, doesn't answer, or only looked (an older
+// one) is a failure: nothing more goes, not even Return.
+func (d *Deck) pasteIntoLauncher(id, words string) (pasteResult, error) {
+	d.mu.Lock()
+	tab, ok := d.launchers[id]
+	if !ok {
+		d.mu.Unlock()
+		return pasteFailed, errLauncherGone
+	}
+	if d.looks == nil {
+		d.looks = map[string]chan PaneState{}
+	}
+	if d.lookPasted == nil {
+		d.lookPasted = map[string]string{}
+	}
+	number := randomHex(8)
+	key := id + "/" + number
+	answer := make(chan PaneState, 1)
+	d.looks[key] = answer
+	d.lookPasted[key] = "" // a paste's look: only this one's answer is kept there
+	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		delete(d.looks, key)
+		delete(d.lookBracketed, key)
+		delete(d.lookPasted, key)
+		d.mu.Unlock()
+	}()
+	if err := tab.send(launcherCommand{PhoneText: words, Look: number}); err != nil {
+		return pasteFailed, err
+	}
+	timer := time.NewTimer(launcherPasteWait)
+	defer timer.Stop()
+	select {
+	case <-answer:
+	case <-tab.gone:
+		// Gone after the words were sent: they may have landed.
+		return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, errLauncherGone)
+	case <-timer.C:
+		return pasteFailed, errLookTimedOut
+	}
+	d.mu.Lock()
+	outcome := d.lookPasted[key]
+	d.mu.Unlock()
+	switch outcome {
+	case "pasted":
+		return pasteDone, nil
+	case "not-taken":
+		return pasteNotTaken, nil
+	}
+	return pasteFailed, errPasteFailed
 }

@@ -2392,15 +2392,11 @@ final class Deck {
         // highlighted ("Yes"): neither Send nor Type only goes until it's answered on the deck.
         guard !Deck.isAsking(session.state) else { return done(.status(409, Deck.answerFirst)) }
         guard let (driver, tab) = terminal(of: session, for: .text) else { return done(.status(409, Deck.notHere)) }
-        guard !driver.keysNeedAccessibility || Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
+        // What's known before the terminal is asked anything: the same refusal the Go core's words get (I5 + IGL).
+        if let refusal = Deck.phoneWordsRefusal(words, way: driver.linesWay, keysNeedAccessibility: driver.keysNeedAccessibility,
+                                                agent: session.agent) { return done(refusal) }
         let sends = send ?? PhoneDictation.sends(words, autoSend: Config.shared.phoneMicAutoSend)
-        // Several lines go as one paste the terminal wraps in bracketed-paste markers, where the agent asked for them:
-        // a line break is then a new line in the text, never Return. Where it can't be, nothing is typed: never
-        // flattened, never a Return per line (I34). What's known before the terminal is asked is refused here (N3).
-        let lines = PhoneDictation.isLines(words)
-        if lines, let refusal = Deck.linesRefusal(driver.linesWay, agent: session.agent) { return done(refusal) }
         let address = session.tab, agent = session.agent
-        let throughClipboard: Bool = { if case .clipboard = driver.linesWay { return true } else { return false } }()
         var withheld = false, refused: Response?
         toAgent(session, done: { response in
             if let refused { return done(refused) }
@@ -2408,25 +2404,12 @@ final class Deck {
         }) {
             // Asked something while this waited for the terminal: checked again, on the main queue, right before the text.
             let state = { DispatchQueue.main.sync(execute: { self.sessions[id]?.state }) }
-            if lines {
-                // Right before the paste itself, after the tab was brought forward where it must be. Through the
-                // clipboard, where the terminal can't say whether the agent asked for bracketed paste, only while
-                // the desk waits at its prompt with nothing else in front of it in its tab (RI34b B1).
-                let ready: () -> String? = throughClipboard
-                    ? { Deck.clipboardRefusal(state: state(), front: Deck.tabFront(agent, address)) }
-                    : { Deck.isAsking(state()) ? Deck.answerFirst : nil }
-                let pasted = driver.insertLines(words, in: tab, ready: ready)
-                if let refusal = Deck.linesResponse(pasted) {
-                    refused = refusal
-                    return true
-                }
-                guard pasted == .pasted else { return false }
-            } else {
-                guard !Deck.isAsking(state()) else {
-                    refused = .status(409, Deck.answerFirst)
-                    return true
-                }
-                guard driver.insert(words, in: tab) else { return false }
+            switch Deck.typePhoneWords(words, driver: driver, tab: tab, agent: agent, state: state) {
+            case .typed: break
+            case .refused(let why), .notRead(let why):
+                refused = why
+                return true
+            case .failed: return false
             }
             if sends {
                 // Return on its own once the text is in, as the ⏎ key presses it: with the text, it would be a new line.
@@ -2547,6 +2530,69 @@ final class Deck {
             return locked() ? .status(409, lockedLines) : nil
         }
     }
+    /// Whether this app may post keys, and whether the Mac is locked: settable for tests, which give stand-ins
+    /// so nothing real is looked at.
+    static var keyboardAllowed: () -> Bool = { Permissions.hasAccessibility }
+    static var macLocked: () -> Bool = { Terminal.isLocked }
+
+    /// How the phone's words went into a tab (`typePhoneWords`).
+    enum PhoneTyped {
+        /// In, without Return.
+        case typed
+        /// Nothing typed, and what the phone is told (a 409).
+        case refused(Response)
+        /// ⌘V went, but the terminal hadn't read the paste in time: it may still appear (503 `linesNotRead`).
+        case notRead(Response)
+        /// The terminal didn't take it, or ended for taking too long: it may have typed some of it.
+        case failed
+    }
+
+    /// The phone's words to a desk whose terminal is `driver` (its `way` for several lines, whether its keys
+    /// need Accessibility), for `agent`, refused before anything waits on the terminal's queue: nil if they
+    /// may go. Both engines ask it, the Swift engine (`typePhoneDictation`) and the bridge's `phone-text` for
+    /// the Go core (`HostBridge.phoneAction`, IGL), with the same answers: posted keys need Accessibility, and
+    /// several lines `linesRefusal` (a terminal that can't take them, an agent not known to ask for bracketed
+    /// paste, a locked Mac).
+    static func phoneWordsRefusal(_ words: String, way: LinesWay, keysNeedAccessibility: Bool, agent: Agent) -> Response? {
+        guard !keysNeedAccessibility || keyboardAllowed() else { return .status(403, noKeyboard) }
+        guard PhoneDictation.isLines(words) else { return nil }
+        return linesRefusal(way, agent: agent, accessibility: keyboardAllowed, locked: macLocked)
+    }
+
+    /// The phone's words typed into `tab` by its `driver`, without Return: the one way both engines type them
+    /// (IGL), on the terminal's queue, once `phoneWordsRefusal` let them and the agent is known to be in front
+    /// there, or that can't be told. `state` is the desk's state as its engine has it right then (the Swift
+    /// engine's sessions, or the Go core's, asked over the bridge), nil for a desk it no longer has.
+    ///
+    /// One line goes as typed text, unless the desk is asking you something by then. Several go as one paste
+    /// the terminal wraps in bracketed-paste markers, where the agent asked for them: a line break is then a
+    /// new line in the text, never Return. Where it can't be, nothing is typed: never flattened, never a
+    /// Return per line (I34). Right before the paste itself, after the tab was brought forward where it must
+    /// be, `ready` asks again: through the clipboard, where the terminal can't say whether the agent asked
+    /// for bracketed paste, only while the desk waits at its prompt with nothing else in front of it in its
+    /// tab (`clipboardRefusal`, RI34b B1); in tmux, which reads the pane's own flag, while it asks nothing.
+    static func typePhoneWords(_ words: String, driver: TerminalDriver, tab: TabAddress, agent: Agent,
+                               state: @escaping () -> SessionState?) -> PhoneTyped {
+        guard PhoneDictation.isLines(words) else {
+            guard !isAsking(state()) else { return .refused(.status(409, answerFirst)) }
+            return driver.insert(words, in: tab) ? .typed : .failed
+        }
+        let address = tab.text
+        let ready: () -> String?
+        if case .clipboard = driver.linesWay {
+            ready = { clipboardRefusal(state: state(), front: tabFront(agent, address)) }
+        } else {
+            ready = { isAsking(state()) ? answerFirst : nil }
+        }
+        let pasted = driver.insertLines(words, in: tab, ready: ready)
+        switch (pasted, linesResponse(pasted)) {
+        case (.pasted, _): return .typed
+        case (.notRead, let said?): return .notRead(said)
+        case (_, let said?): return .refused(said)
+        case (_, nil): return .failed
+        }
+    }
+
     static let oneLineAnswer = "A typed answer goes as keys, where a new line would press Return, so nothing was typed: put it on one line."
     static let choiceGone = "It's asking something else now, or nothing: look again."
     static let menuDiffers = "The Mac's menu doesn't show that option now: answer it on the Mac or with ▲ ▼ ✓."

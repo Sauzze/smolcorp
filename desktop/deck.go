@@ -41,6 +41,9 @@ type Deck struct {
 	looks map[string]chan PaneState
 	// Whether the answer to each of those said bracketed paste is on, by the same key.
 	lookBracketed map[string]bool
+	// What a launcher said of the phone's text it was asked to paste, by the same key, only while that paste
+	// waits for it: see pasteIntoLauncher.
+	lookPasted map[string]string
 	// The key each session was given, so it keeps it.
 	keyOf map[string]int
 	// The sessions hired at a desk the owner chose: with Auto they keep it,
@@ -60,6 +63,8 @@ type Deck struct {
 	// When each session was last sent Return from the phone, so a tap that
 	// lands twice sends it once.
 	lastReturn map[string]time.Time
+	// When each session's input line, and its prompt's details, were last looked at from the phone: once a second.
+	lastPeek, lastChoiceLook map[string]time.Time
 	// The hires whose launcher hasn't connected yet, by their token, and
 	// when the last hire was made: see hire.go.
 	hires    map[string]*pendingHire
@@ -148,7 +153,7 @@ func NewDeck() *Deck {
 	d := &Deck{
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
-		keyOf: map[string]int{}, floorOf: map[string]int{}, seatOf: map[string]Seat{}, lastReturn: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
+		keyOf: map[string]int{}, floorOf: map[string]int{}, seatOf: map[string]Seat{}, lastReturn: map[string]time.Time{}, lastPeek: map[string]time.Time{}, lastChoiceLook: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue), events: newEventLog(supportDir, eventsFileMost),
 		rounds: deckRounds{stopped: make(chan struct{})},
 		// The Mac app it runs under, or none, taken now: the deck reads only its own (hostsetup.go).
@@ -814,6 +819,8 @@ func (d *Deck) snapshot() []byte {
 		"hiring": d.hiringState(),
 		"music":  d.musicState(),
 		"layout": d.config.Layout,
+		// The phone's text: on, and whether an older page's goes with Return (see phonetext.go).
+		"phoneMic": map[string]any{"on": d.config.PhoneMicEnabled, "autoSend": d.config.PhoneMicAutoSend},
 		// This computer's clock, so the office can count turns on the phone's,
 		// whichever of the two is right.
 		"now": int64(nowMillis()),
@@ -843,6 +850,8 @@ func (d *Deck) sessionEntry(s *Session) map[string]any {
 		// ✨ Summary: offered only when it's on, with a key, and a transcript to read.
 		"summary": s.Transcript != "" && d.summaryOffered(),
 		"role":    d.roleOf(s),
+		// Whether the phone's text can be typed here: on, and a terminal this app types into.
+		"phoneMic": d.config.PhoneMicEnabled && typesText(s.Tab),
 	}
 	d.addMacControls(entry, s)
 	return entry
@@ -1290,6 +1299,8 @@ func (d *Deck) inTab(name string, op func(Tab) error) (int, string) {
 		return http.StatusNotFound, "This terminal can't do that"
 	case errors.Is(err, errNotStopped):
 		return http.StatusConflict, "Couldn't stop the agent, so its tab is left open."
+	case errors.Is(err, errAgentBehind):
+		return http.StatusConflict, notFrontFg
 	case err != nil:
 		return http.StatusNotFound, "Tab not found"
 	}

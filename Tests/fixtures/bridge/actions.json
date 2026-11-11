@@ -1,5 +1,5 @@
 {
-  "about": "The host bridge's actions for what only macOS does (M2m): each request as the Go core sends it (desktop/hostbridge.go, without its token) and the Mac app's answer (Sources/AgentDeck/HostBridge.swift), on the stand-ins both tests use. desktop/hostbridge_test.go checks the core asks exactly this and reads the answer; HostBridgeTests.swift checks the app answers exactly this.",
+  "about": "The host bridge's actions for what only macOS does (M2m), and the phone's text into a Mac terminal (I5, IGL: the Swift engine's own Deck.typePhoneWords; the app asks the core the desk's state on the same connection, where the Swift engine looks at its own sessions, which no case here shows: the held one is the core saying it's asking; phone-text.json has the whole table): each request as the Go core sends it (desktop/hostbridge.go, without its token) and the Mac app's answer (Sources/AgentDeck/HostBridge.swift), on the stand-ins both tests use. desktop/hostbridge_test.go checks the core asks exactly this and reads the answer; HostBridgeTests.swift checks the app answers exactly this.",
   "cases": [
     {
       "name": "setup's facts, the apps keys may go to left out of those running",
@@ -65,6 +65,51 @@
       "name": "Grok Bots looked for in the Grok Bot app",
       "request": {"action": "bots-resolve", "bots": [{"botId": "", "bot": "Smolcorp Mini"}, {"botId": "", "bot": "Nobody Here"}]},
       "answer": {"ok": true, "resolved": [{"botId": "0a1b-2c3d", "name": "Smolcorp Mini Manager", "by": "guess"}, null]}
+    },
+    {
+      "name": "the phone's text, one line, into a Terminal tab",
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": "Bonjour l’équipe « ça marche » 👩‍💻 ;"},
+      "answer": {"ok": true, "pasted": "pasted"}
+    },
+    {
+      "name": "the phone's text, several lines, as one paste in iTerm2",
+      "request": {"action": "phone-text", "tab": "iterm:AB12", "agent": "claude", "text": "first line\n    indented\tand a tab"},
+      "answer": {"ok": true, "pasted": "pasted"}
+    },
+    {
+      "name": "the phone's text, several lines, to an agent not known to take one paste",
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys004", "agent": "codex", "text": "one\ntwo"},
+      "answer": {"ok": false, "error": "Codex isn't known to take several lines as one paste here, so nothing was typed: send it as one line."}
+    },
+    {
+      "name": "the phone's text, to an agent that has ended",
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys005", "agent": "claude", "text": "hello"},
+      "answer": {"ok": false, "error": "That agent has ended.", "place": "gone"}
+    },
+    {
+      "name": "the phone's text, starting with !, refused",
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": "!ls"},
+      "answer": {"ok": false, "error": "Not text to type."}
+    },
+    {
+      "name": "the phone's text, held: the core said it's asking as the terminal got to it",
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys006", "agent": "claude", "text": "hello"},
+      "answer": {"ok": false, "error": "It's asking you something: answer it on the deck first."}
+    },
+    {
+      "name": "the phone's text, several lines, ⌘V the terminal hadn't read in time",
+      "request": {"action": "phone-text", "tab": "iterm:CD34", "agent": "claude", "text": "one\ntwo"},
+      "answer": {"ok": false, "error": "The terminal hadn't taken the paste in time, so no Return was sent: look at the Mac before trying again, as the text may still appear.", "mayHaveTyped": true}
+    },
+    {
+      "name": "the peek at the input line",
+      "request": {"action": "peek", "tab": "tty:/dev/ttys003", "agent": "claude"},
+      "answer": {"ok": true, "peek": ["> Bonjour l’équipe", "  ? for shortcuts"]}
+    },
+    {
+      "name": "the peek, the agent not in front",
+      "request": {"action": "peek", "tab": "tty:/dev/ttys005", "agent": "claude"},
+      "answer": {"ok": false, "error": "That agent isn't in front in its terminal.", "place": "behind"}
     }
   ]
 }

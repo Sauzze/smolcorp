@@ -42,7 +42,7 @@ var knownGaps = []knownGap{
 	{"setup-state", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for", "M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher"},
 	{"setup-state", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
-	{"setup-state", ".phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
+	{"setup-state", ".phoneMic", "missing", "setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit (personal build): here config.json's phoneMicEnabled", "M6: personal shell"},
 	{"setup-state", ".roles.limits.answer", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state", ".roles.limits.briefFile", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state", ".roles.limits.briefFileName", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
@@ -53,22 +53,18 @@ var knownGaps = []knownGap{
 	{"setup-state-tool", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for", "M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher"},
 	{"setup-state-tool", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
 	{"setup-state-tool", ".pairing.codeExpiresIn", "extra", "a tool is told how long the code lasts; the Mac tells only the page", "stays: Go-only, a tool's; the page has it in its own state on both apps"},
-	{"setup-state-tool", ".phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
+	{"setup-state-tool", ".phoneMic", "missing", "setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit (personal build): here config.json's phoneMicEnabled", "M6: personal shell"},
 	{"setup-state-tool", ".roles.limits.answer", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state-tool", ".roles.limits.briefFile", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state-tool", ".roles.limits.briefFileName", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state-tool", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
 	{"snapshot", ".floors[].desks[].conversation", "missing", "the conversation view: the iPhone app's (personal build)", "M6: personal shell"},
-	{"snapshot", ".floors[].desks[].phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
 	{"snapshot", ".floors[].desks[].voiceNote", "missing", "voice notes: the Mac's personal build", "M6: personal shell"},
 	{"snapshot", ".keys[].session.conversation", "missing", "the conversation view: the iPhone app's (personal build)", "M6: personal shell"},
-	{"snapshot", ".keys[].session.phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
 	{"snapshot", ".keys[].session.voiceNote", "missing", "voice notes: the Mac's personal build", "M6: personal shell"},
-	{"snapshot", ".phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
 	{"snapshot", ".upstairs.desks[].conversation", "missing", "the conversation view: the iPhone app's (personal build)", "M6: personal shell"},
-	{"snapshot", ".upstairs.desks[].phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
 	{"snapshot", ".upstairs.desks[].voiceNote", "missing", "voice notes: the Mac's personal build", "M6: personal shell"},
-	{"POST /setup/phonemic", "route", "404", "the phone mic is the Mac's personal build", "M6: personal shell"},
+	{"POST /setup/phonemic", "route", "404", "setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit (personal build): here config.json's phoneMicEnabled", "M6: personal shell"},
 	{"GET /setup/hire/gm/preflight", "refusal: no such Claude account", "status 200", "the preflight takes no account yet: Go has the Claude accounts since M2, but the GM's tools are checked for any account", "M4"},
 	{"POST /setup/notify", "route", "404", "a push to the iPhone app (personal build)", "M6: personal shell"},
 	{"GET /setup/gm/screens", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
@@ -83,10 +79,6 @@ var knownGaps = []knownGap{
 	{"GET /session/info", "route", "404", "ⓘ Info (personal build)", "M6: personal shell"},
 	{"GET /notifications", "route", "404", "the iPhone app's push notifications (personal build)", "M6: personal shell"},
 	{"POST /notifications", "route", "404", "the iPhone app's push notifications (personal build)", "M6: personal shell"},
-	{"POST /dictate", "route", "404", "the phone's text, typed or heard (personal build), over the Wi-Fi or Tailscale, several lines as one paste", "M6: personal shell"},
-	{"POST /peek", "route", "404", "the phone mic (personal build)", "M6: personal shell"},
-	{"POST /choose", "route", "404", "the iPhone app's typed answers (personal build), over the Wi-Fi or Tailscale", "M6: personal shell"},
-	{"GET /choice", "route", "404", "the iPhone app's prompt details (personal build)", "M6: personal shell"},
 	{"GET /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1)"},
 	{"POST /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1)"},
 }
@@ -525,6 +517,11 @@ func newContractDeck(t *testing.T, c contract, given []string) *contractDeck {
 			cd.d.mu.Unlock()
 		case "a paired phone":
 			cd.phoneKey()
+		case "the phone mic off":
+			// config.json's phoneMicEnabled, which the Go core reads too since I5.
+			cd.d.mu.Lock()
+			cd.d.config.PhoneMicEnabled = false
+			cd.d.mu.Unlock()
 		case "the app's briefs":
 			// Built in (bundledBriefs), and copied into the library you edit on first use: nothing to set up.
 		case "sessions":

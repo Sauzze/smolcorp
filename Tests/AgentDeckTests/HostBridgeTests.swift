@@ -16,6 +16,12 @@ final class HostBridgeTests: XCTestCase {
         hires = folder.appendingPathComponent("hires", isDirectory: true)
         try FileManager.default.createDirectory(at: hires, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         asked = []
+        // The phone's text's gates on stand-ins: keys allowed, the Mac unlocked, the agent alone in front of its tab.
+        let gates = (Deck.keyboardAllowed, Deck.macLocked, Deck.tabFront)
+        Deck.keyboardAllowed = { true }
+        Deck.macLocked = { false }
+        Deck.tabFront = { _, _ in Terminal.TabFront(place: .front, readers: []) }
+        addTeardownBlock { (Deck.keyboardAllowed, Deck.macLocked, Deck.tabFront) = gates }
     }
 
     override func tearDownWithError() throws {
@@ -28,7 +34,7 @@ final class HostBridgeTests: XCTestCase {
     private let terminals = DispatchQueue(label: "test.terminals")
 
     private var actions: HostBridge.Actions {
-        HostBridge.Actions(
+        var actions = HostBridge.Actions(
             press: { [unowned self] key, tab in asked.append("press \(key.key) \(key.modifiers.rawValue) \(key.times) \(tab.text)"); return true },
             type: { [unowned self] text, tab in asked.append("type \(text) \(tab.text)"); return true },
             insert: { [unowned self] text, tab in asked.append("insert \(text) \(tab.text)"); return false },
@@ -50,6 +56,11 @@ final class HostBridgeTests: XCTestCase {
             loginItem: (get: { [unowned self] in login }, set: { [unowned self] in login = $0 }),
             queue: { [terminals] _ in terminals },
             windowQueue: { [terminals] _ in terminals })
+        // No real terminal is looked at or told anything: a test gives its own stand-in.
+        actions.driver = { _ in nil }
+        actions.place = { _, _ in nil }
+        actions.screen = { _ in nil }
+        return actions
     }
 
     private func ask(_ request: [String: Any], token given: String? = nil) -> [String: Any] {
@@ -559,6 +570,12 @@ final class HostBridgeTests: XCTestCase {
             throw TerminalCommand.Problem.testCopy
         }
         mac.roster = { [GrokBotApp.Row(id: "0a1b-2c3d", name: "Smolcorp Mini Manager")] }
+        // The phone's text and the peek (I5): the agent in front but on ttys005, where it has ended; Codex on
+        // ttys004, not known to take several lines as one paste; iTerm2's CD34 doesn't read its ⌘V in time.
+        mac.place = { tab, _ in tab.id == "/dev/ttys005" ? .gone : .front }
+        var typed: [String] = []
+        mac.driver = { tab in PhoneTerminal(pastes: tab.id == "CD34" ? .notRead : .pasted) { typed.append($0) } }
+        mac.screen = { _ in .some("> Bonjour l’équipe\n  ? for shortcuts\n\n\n") }
         func text(_ object: Any) -> String {
             String(decoding: (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data(), as: UTF8.self)
         }
@@ -566,11 +583,206 @@ final class HostBridgeTests: XCTestCase {
         for one in cases {
             var request = try XCTUnwrap(one["request"] as? [String: Any])
             request["token"] = token
-            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: token, actions: mac)
+            // The core says the desk waits at its prompt, but ttys006's began asking as its terminal got to the words.
+            let held = request["tab"] as? String == "tty:/dev/ttys006"
+            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: token, actions: mac,
+                                           deskState: { held ? .asking : .unread })
             XCTAssertEqual(text(answer), text(one["answer"] ?? NSNull()), one["name"] as? String ?? "")
         }
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
         XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true"])
+        // The phone's text, by `Deck.typePhoneWords` on the stand-in drivers: nothing for an agent that has ended,
+        // nor for "!", nor for Codex, nor to a desk asking. ⌘V that wasn't read in time went.
+        XCTAssertEqual(typed, ["insert tty:/dev/ttys003 Bonjour l’équipe « ça marche » 👩‍💻 ;",
+                               "paste iterm:AB12 first line\n    indented\tand a tab", "paste iterm:CD34 one\ntwo"])
+    }
+
+    /// The phone's text (I5): checked again as the Swift engine prepares it, then only by `Deck.typePhoneWords`,
+    /// on the terminal's queue, while the agent isn't known to have left; several lines only by `insertLines`.
+    func testThePhonesTextIsCheckedAgainAndTypedByTheDrivers() {
+        var mac = actions
+        var typed: [String] = []
+        mac.place = { tab, _ in ["/dev/ttys004": .behind, "/dev/ttys005": nil][tab.id] ?? .front }
+        mac.driver = { tab in tab.kind == "tty" ? PhoneTerminal(pastes: .failed) { typed.append($0) } : nil }
+        mac.screen = { tab in tab.kind == "tty" ? .some(nil) : nil }
+        func phone(_ text: Any?, tab: String = "tty:/dev/ttys003", agent: String? = "claude") -> [String: Any] {
+            var request: [String: Any] = ["action": "phone-text", "tab": tab, "token": token]
+            if let text { request["text"] = text }
+            if let agent { request["agent"] = agent }
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: mac, deskState: { .idle })
+        }
+        for refused: Any? in ["", "  padded  ", "one\u{1b}[201~", "tab\there", "a\r\nb", "!ls", String(repeating: "a", count: 2001), 42, nil] {
+            XCTAssertFalse(isOK(phone(refused)), "\(String(describing: refused))")
+        }
+        XCTAssertFalse(isOK(phone("hello", agent: nil)), "no agent")
+        XCTAssertFalse(isOK(phone("hello", agent: "nobody")), "not an agent")
+        XCTAssertFalse(isOK(phone("hello", tab: "not a tab")))
+        XCTAssertTrue(typed.isEmpty, "nothing typed")
+        let behind = phone("hello", tab: "tty:/dev/ttys004")
+        XCTAssertEqual(behind["place"] as? String, "behind")
+        XCTAssertTrue(typed.isEmpty, "nothing typed behind the shell")
+        // Where it can't be told, the words go, as the deck's keys do.
+        XCTAssertEqual(phone("hello", tab: "tty:/dev/ttys005")["pasted"] as? String, "pasted")
+        // A paste that failed may have typed: said so, for the core's 502, never a 409 that offers the words again.
+        let failed = phone("one\ntwo")
+        XCTAssertFalse(isOK(failed))
+        XCTAssertEqual(failed["mayHaveTyped"] as? Bool, true)
+        XCTAssertEqual(typed, ["insert tty:/dev/ttys005 hello", "paste tty:/dev/ttys003 one\ntwo"])
+        // A terminal the app can't drive: the core is told so, and nothing is typed.
+        XCTAssertEqual(phone("hello", tab: "iterm:AB12")["unsupported"] as? Bool, true)
+        // With no core to ask, it's asking: nothing goes.
+        let unasked = HostBridge.answer(try! JSONSerialization.data(withJSONObject: ["action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude",
+                                                                                     "text": "hello", "token": token]), token: token, actions: mac)
+        XCTAssertEqual(unasked["error"] as? String, Deck.answerFirst)
+        XCTAssertNil(unasked["mayHaveTyped"])
+        XCTAssertEqual(typed.count, 2)
+        // The peek: only in front, and only where the terminal can show its screen.
+        func peek(_ tab: String) -> [String: Any] {
+            HostBridge.answer(try! JSONSerialization.data(withJSONObject: ["action": "peek", "tab": tab, "agent": "claude", "token": token]),
+                              token: token, actions: mac)
+        }
+        XCTAssertEqual(peek("tty:/dev/ttys005")["place"] as? String, "behind", "unknown isn't in front")
+        XCTAssertEqual(peek("tty:/dev/ttys003")["error"] as? String, "This terminal can't show its input line.")
+        XCTAssertEqual(peek("iterm:AB12")["unsupported"] as? Bool, true)
+    }
+
+    /// The owner's rule, never answer a waiting prompt, under the Go core: the desk began asking while the words
+    /// waited for its terminal's queue. The core is asked from that queue, after the agent's place and right
+    /// before the words, as `Deck.typePhoneDictation` looks at its sessions there: nothing is typed.
+    func testTheCoreIsAskedOnTheTerminalsQueueRightBeforeTheWords() {
+        let log = NSLock()
+        var done: [String] = []
+        var asking = false
+        func note(_ what: String) { log.lock(); done.append(what); log.unlock() }
+        var mac = actions
+        mac.place = { _, _ in note("place"); return .front }
+        mac.driver = { _ in PhoneTerminal(pastes: .pasted, note: note) }
+        let deskState = { () -> SessionState? in
+            log.lock(); defer { log.unlock() }
+            done.append("asked the core")
+            return asking ? .asking : .idle
+        }
+        for (words, typed) in [("fix the login bug", "insert tty:/dev/ttys003 fix the login bug"), ("one\n  two", "paste tty:/dev/ttys003 one\n  two")] {
+            // Another desk's AppleScript holds Terminal's queue; the prompt comes meanwhile.
+            let release = DispatchSemaphore(value: 0)
+            terminals.async { release.wait() }
+            var answer: [String: Any] = [:]
+            let answered = DispatchSemaphore(value: 0)
+            let line = try! JSONSerialization.data(withJSONObject: ["action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": words, "token": token])
+            DispatchQueue.global().async { [token] in
+                answer = HostBridge.answer(line, token: token, actions: mac, until: .now() + HostBridge.actionWait, deskState: deskState)
+                answered.signal()
+            }
+            Thread.sleep(forTimeInterval: 0.2)
+            log.lock(); XCTAssertEqual(done, [], "nothing before the queue"); asking = true; log.unlock()
+            release.signal()
+            answered.wait()
+            XCTAssertEqual(answer["error"] as? String, Deck.answerFirst)
+            XCTAssertEqual(done, ["place", "asked the core"], "nothing typed")
+            // Answered on the deck: the next words go, after the same question.
+            log.lock(); asking = false; done = []; log.unlock()
+            let free = HostBridge.answer(line, token: token, actions: mac, until: .now() + HostBridge.actionWait, deskState: deskState)
+            XCTAssertEqual(free["pasted"] as? String, "pasted")
+            XCTAssertEqual(done, ["place", "asked the core", typed])
+            done = []
+        }
+    }
+
+    /// The question goes on the request's own connection: the desk's state, as the core has it. The words go
+    /// as `Deck.typePhoneWords` lets them on that state; asking, no answer in time, anything but a state, or an
+    /// answer sent before it was asked holds them. A paste asks again right before ⌘V, `CoreQuestion.most` times
+    /// at most: past that, it's asking, and the core isn't asked.
+    func testTheCoreIsAskedTheDesksStateOnTheRequestsOwnConnection() throws {
+        let socket = folder.appendingPathComponent("bridge.sock")
+        var mac = actions
+        let log = NSLock()
+        var typed: [String] = []
+        var readies = 1
+        mac.place = { _, _ in .front }
+        mac.driver = { _ in PhoneTerminal(pastes: .pasted, readies: readies) { what in log.lock(); typed.append(what); log.unlock() } }
+        let bridge = HostBridge(socket: socket, token: token, actions: mac)
+        try bridge.start()
+        defer { bridge.stop() }
+        bridge.core = getpid() // this test stands in for the core
+        func request(_ text: String) -> String {
+            let line = try! JSONSerialization.data(withJSONObject: ["token": token, "action": "phone-text", "tab": "tty:/dev/ttys003",
+                                                                    "agent": "claude", "text": text])
+            return String(decoding: line, as: UTF8.self)
+        }
+        /// The request, then each of `replies` once the app has said something, as the core answers.
+        func converse(_ first: String, replies: [String]) -> [String] {
+            let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+            defer { close(fd) }
+            var address = sockaddr_un()
+            address.sun_family = sa_family_t(AF_UNIX)
+            withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: socket.path.utf8.prefix($0.count - 1)) }
+            _ = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+            }
+            var wait = timeval(tv_sec: 5, tv_usec: 0)
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
+            // A reply to an app that has answered and closed mustn't raise SIGPIPE in the tests.
+            var noSignal: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
+            _ = HostBridge.write(Data(first.utf8), to: fd)
+            var heard: [String] = [], pending = Data(), replies = replies
+            var chunk = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = read(fd, &chunk, chunk.count)
+                guard count > 0 else { break }
+                pending.append(chunk, count: count)
+                while let end = pending.firstIndex(of: 0x0A) {
+                    let line = String(decoding: pending[pending.startIndex..<end], as: UTF8.self)
+                    heard.append(line)
+                    pending = Data(pending[(end + 1)...])
+                    // Only a question is answered.
+                    if line == #"{"ready":true}"#, !replies.isEmpty { _ = HostBridge.write(Data((replies.removeFirst() + "\n").utf8), to: fd) }
+                }
+            }
+            return heard
+        }
+        /// The app's answer, parsed: JSONSerialization doesn't keep key order.
+        func answer(_ heard: [String]) -> NSDictionary? {
+            heard.last.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? NSDictionary }
+        }
+        let pasted = ["ok": true, "pasted": "pasted"] as NSDictionary
+        let held = ["ok": false, "error": Deck.answerFirst] as NSDictionary
+        // One line: the core asked once; a desk working or gone (as the Swift engine's own sessions say nil) takes it.
+        for state in [#"{"state":"idle"}"#, #"{"state":"thinking"}"#, #"{"state":""}"#] {
+            let heard = converse(request("hello") + "\n", replies: [state])
+            XCTAssertEqual(heard.count, 2, "\(state): \(heard)")
+            XCTAssertEqual(heard.first, #"{"ready":true}"#)
+            XCTAssertEqual(answer(heard), pasted, "\(state): \(heard)")
+        }
+        XCTAssertEqual(typed, Array(repeating: "insert tty:/dev/ttys003 hello", count: 3))
+        for no in [#"{"state":"asking"}"#, #"{"go":true}"#, #"{"state":"sleeping"}"#, #"{"state":"idle"} {"state":"idle"}"#, "nonsense"] {
+            let heard = converse(request("hello") + "\n", replies: [no])
+            XCTAssertEqual(heard.first, #"{"ready":true}"#, no)
+            XCTAssertEqual(answer(heard), held, "\(no): \(heard)")
+        }
+        // Said before it was asked: not an answer, and not asked at all.
+        XCTAssertEqual(converse(request("hello") + "\n" + #"{"state":"idle"}"# + "\n", replies: []).map { answer([$0]) }, [held])
+        // No answer in time.
+        let started = Date()
+        let silent = converse(request("hello") + "\n", replies: [])
+        XCTAssertEqual(silent.first, #"{"ready":true}"#)
+        XCTAssertEqual(answer(silent), held, "\(silent)")
+        XCTAssertLessThan(Date().timeIntervalSince(started), HostBridge.CoreQuestion.wait + 1.5)
+        XCTAssertEqual(typed.count, 3, "typed only on a state that lets it")
+        // Several lines through the clipboard: asked before and right before ⌘V, as `ClipboardPaste.paste` asks.
+        readies = 2
+        let twice = converse(request("one\ntwo") + "\n", replies: [#"{"state":"unread"}"#, #"{"state":"unread"}"#])
+        XCTAssertEqual(twice.filter { $0 == #"{"ready":true}"# }.count, 2)
+        XCTAssertEqual(answer(twice), pasted, "\(twice)")
+        let working = converse(request("one\ntwo") + "\n", replies: [#"{"state":"unread"}"#, #"{"state":"thinking"}"#])
+        XCTAssertEqual(answer(working), ["ok": false, "error": Deck.linesWhileWorking] as NSDictionary, "a turn began as it was brought forward")
+        // Past `most`, the core isn't asked again: asking, and nothing goes.
+        readies = HostBridge.CoreQuestion.most + 1
+        let many = converse(request("one\ntwo") + "\n", replies: Array(repeating: #"{"state":"unread"}"#, count: readies))
+        XCTAssertEqual(many.filter { $0 == #"{"ready":true}"# }.count, HostBridge.CoreQuestion.most)
+        XCTAssertEqual(answer(many), held, "\(many)")
+        XCTAssertEqual(typed.suffix(1), ["paste tty:/dev/ttys003 one\ntwo"])
+        XCTAssertEqual(typed.count, 4, "one paste only")
     }
 
     func testSetupsMacPartsTakeOnlyWhatTheyShould() {
@@ -605,4 +817,45 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(one.count, 64)
         XCTAssertNotEqual(one, two)
     }
+}
+
+/// A stand-in terminal for the phone's text over the bridge: nothing real is asked. Several lines go through
+/// the clipboard with ⌘V, as Terminal's and iTerm2's do; once its checks (`ready`, asked `readies` times, as
+/// `ClipboardPaste.paste` asks before the clipboard is touched and right before ⌘V) let the paste go, it
+/// answers `pastes`, noting what it typed: "insert <tab> <text>", or "paste <tab> <text>" where ⌘V went.
+private final class PhoneTerminal: TerminalDriver {
+    let linesWay: LinesWay
+    private let pastes: LinesPasted
+    private let readies: Int
+    private let note: (String) -> Void
+
+    init(way: LinesWay = .clipboard(inFront: true), pastes: LinesPasted, readies: Int = 1, note: @escaping (String) -> Void) {
+        linesWay = way
+        self.pastes = pastes
+        self.readies = readies
+        self.note = note
+    }
+
+    var abilities: TerminalAbilities { [.keys, .text] }
+    var keysNeedAccessibility: Bool { true }
+    func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool { false }
+    func type(_ text: String, in tab: TabAddress) -> Bool { false }
+    func insert(_ text: String, in tab: TabAddress) -> Bool {
+        note("insert \(tab.text) \(text)")
+        return true
+    }
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> String?) -> LinesPasted {
+        for _ in 0..<readies {
+            if let why = ready() { return .refused(why) }
+        }
+        if [.pasted, .notRead, .failed].contains(pastes) { note("paste \(tab.text) \(text)") }
+        return pastes
+    }
+    func focus(_ tab: TabAddress) -> Bool { false }
+    func scroll(lines: Int, in tab: TabAddress) -> Bool { false }
+    func scrollToBottom(in tab: TabAddress) -> Bool { false }
+    func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired { .notStopped }
+    func tty(of tab: TabAddress) -> String? { nil }
+    func isOpen(_ tab: TabAddress) -> Bool? { nil }
+    func screen(of tab: TabAddress) -> String? { nil }
 }

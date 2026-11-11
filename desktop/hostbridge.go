@@ -10,7 +10,8 @@ import (
 // and keeps what only macOS lets an app do. The engine asks the app for those
 // over the host bridge, a socket in the support folder that only the two of
 // them use (each checks the other's pid; see socketBridge): keys typed
-// into a Terminal, iTerm2 or Ghostty tab, a window brought forward or closed,
+// into a Terminal, iTerm2 or Ghostty tab, the phone's text and a look at what
+// the tab shows (phonetext.go), a window brought forward or closed,
 // a terminal opened on a script, the app's own Keychain items, its login item;
 // setup's Mac parts (hostsetup.go) and what each desk's terminal allows
 // (hostoffice.go). Each is the Mac app's own code, as the Swift engine runs it
@@ -60,6 +61,10 @@ type bridgeRequest struct {
 	Tabs []string `json:"tabs,omitempty"`
 	// bots-resolve: the Grok Bots to look for in the Grok Bot app.
 	Bots []bridgeBot `json:"bots,omitempty"`
+	// phone-text: the desk's state now, as this engine's sessions have it ("" for one gone). The Mac app asks
+	// it on this request's own connection, from the terminal's queue, where the Swift engine looks at its own
+	// sessions (Deck.typePhoneWords); the transport answers it (socketBridge). Never sent itself; nil is asking.
+	deskState func() SessionState
 }
 
 // bridgeBot is a Grok Bot as set: its id in the Grok Bot app, if known, and its name there.
@@ -99,6 +104,17 @@ type bridgeAnswer struct {
 	Abilities []tabAbilities `json:"abilities,omitempty"`
 	// bots-resolve: who each bot is in the Grok Bot app, in the order asked; null for one not there.
 	Resolved []*botResolution `json:"resolved,omitempty"`
+	// phone-text: "pasted". Anything else comes as the app's no, in the Swift engine's words: nothing typed.
+	Pasted string `json:"pasted,omitempty"`
+	// phone-text: with the app's no, the words may have been typed all the same (⌘V the terminal hadn't read in
+	// time, a terminal that didn't take it or stopped answering part way): never offered again, and no Return.
+	MayHaveTyped bool `json:"mayHaveTyped,omitempty"`
+	// phone-text, peek: refused as the agent isn't in front in its tab: "gone" (ended) or "behind" (the shell's in front).
+	Place string `json:"place,omitempty"`
+	// peek: the end of what the tab shows, as the phone's peek gives it.
+	Peek []string `json:"peek,omitempty"`
+	// Not the answer yet: the Mac app asking the desk's state, for the phone's text (bridgeRequest.deskState).
+	Ready bool `json:"ready,omitempty"`
 }
 
 // macFacts is what setup shows of this Mac, as the Swift engine's setup state
@@ -314,6 +330,56 @@ func hostResolveBots(h hostBridge, bots []bridgeBot) ([]*botResolution, error) {
 		err = fmt.Errorf("the Mac app said who %d bots are for %d", len(answer.Resolved), len(bots))
 	}
 	return answer.Resolved, err
+}
+
+// hostPhoneText has the Mac app type the phone's words into tab, a Terminal, iTerm2 or Ghostty tab, for
+// agent, without Return, by the Swift engine's own code (Deck.phoneWordsRefusal, Deck.typePhoneWords: IGL),
+// so with its every gate: one line as typed text and several as one paste where the terminal takes one and
+// the agent is known to ask for bracketed paste, only while agent is in front there, and, through the
+// clipboard, only while the desk waits at its prompt with nothing else reading its tab. The app checks the
+// words again: prepared, no "!" first, no control character but a line feed and a tab, 2,000 characters at
+// most. On the terminal's queue it asks deskState, where the Swift engine looks at its own sessions. Its no
+// comes in the Swift engine's sentence (an appRefusal); one that may have typed is errPasteFailed.
+func hostPhoneText(h hostBridge, tab string, agent Agent, words string, deskState func() SessionState) (pasteResult, error) {
+	answer, err := ask(h, bridgeRequest{Action: "phone-text", Tab: tab, Agent: agent, Text: words, deskState: deskState})
+	if err != nil {
+		err = placeError(answer, err)
+		// Only the app's own no, an agent not in front and a terminal it can't drive are known to have typed
+		// nothing, unless the app says it may have. Any other failure (the connection lost, a deadline, asked
+		// too many times) may have come after the words went.
+		var refusal appRefusal
+		if !answer.MayHaveTyped && (answer.Place != "" || errors.Is(err, errUnsupported) || errors.As(err, &refusal)) {
+			return pasteFailed, err
+		}
+		return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, err)
+	}
+	if answer.Pasted == "pasted" {
+		return pasteDone, nil
+	}
+	return pasteFailed, fmt.Errorf("%w: the Mac app answered %q", errPasteFailed, answer.Pasted)
+}
+
+// hostPeek has the Mac app read the end of what tab shows, only while agent is in front there.
+func hostPeek(h hostBridge, tab string, agent Agent) ([]string, error) {
+	answer, err := ask(h, bridgeRequest{Action: "peek", Tab: tab, Agent: agent})
+	if err != nil {
+		return nil, placeError(answer, err)
+	}
+	if answer.Peek == nil {
+		answer.Peek = []string{}
+	}
+	return answer.Peek, nil
+}
+
+// placeError is err, or the agent not in front as the deck's own errors say it.
+func placeError(answer bridgeAnswer, err error) error {
+	switch answer.Place {
+	case "gone":
+		return fmt.Errorf("%w (%w)", errAgentGone, err)
+	case "behind":
+		return fmt.Errorf("%w (%w)", errAgentBehind, err)
+	}
+	return err
 }
 
 // macTab is a session's tab when the engine runs under the Mac app. Terminal,

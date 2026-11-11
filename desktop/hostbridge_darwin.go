@@ -12,7 +12,9 @@ import (
 
 // socketBridge reaches the Mac app on its socket in the support folder, with
 // the token the app gave this engine as it started it: one connection per
-// request, a line of JSON each way.
+// request, a line of JSON each way. Only the phone's text has more of each,
+// before its answer: the app asking the desk's state, at most
+// bridgeQuestionsMost times, and this side's answer (bridgeRequest.deskState).
 //
 // The socket's path alone says nothing of who listens there: another process
 // of yours could move the app's socket aside and listen in its place. So each
@@ -37,6 +39,10 @@ type socketBridge struct {
 
 // bridgeAnswerMost is the longest answer read: a secret or a tab name is short.
 const bridgeAnswerMost = 64 << 10
+
+// bridgeQuestionsMost is the most times the app asks the desk's state on one request, as its CoreQuestion.most:
+// before a paste and right before it (Deck.typePhoneWords), and one to spare.
+const bridgeQuestionsMost = 3
 
 // errNotTheApp is a socket whose other end isn't the app that started this engine.
 var errNotTheApp = errors.New("the bridge's socket isn't the app's that started this engine")
@@ -65,6 +71,30 @@ func (b *socketBridge) call(request bridgeRequest) (bridgeAnswer, error) {
 		return bridgeAnswer{}, err
 	}
 	reader := bufio.NewReaderSize(conn, 4096)
+	asked := 0
+	for {
+		answer, err := readBridgeAnswer(reader)
+		if err != nil || !answer.Ready {
+			return answer, err
+		}
+		// The app asking, right before the phone's words, what the desk is doing: its state as the sessions have it
+		// now, "" for one gone. With nothing to say it, it's asking, and nothing goes.
+		if asked++; asked > bridgeQuestionsMost {
+			return bridgeAnswer{}, errors.New("the Mac app asked too many times")
+		}
+		state := Asking
+		if request.deskState != nil {
+			state = request.deskState()
+		}
+		reply, _ := json.Marshal(map[string]SessionState{"state": state})
+		if _, err := conn.Write(append(reply, '\n')); err != nil {
+			return bridgeAnswer{}, err
+		}
+	}
+}
+
+// readBridgeAnswer reads one line of the app's, no longer than bridgeAnswerMost.
+func readBridgeAnswer(reader *bufio.Reader) (bridgeAnswer, error) {
 	var text []byte
 	for {
 		part, more, err := reader.ReadLine()

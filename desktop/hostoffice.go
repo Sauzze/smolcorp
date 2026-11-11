@@ -98,6 +98,7 @@ func (d *Deck) addMacControls(entry map[string]any, s *Session) {
 	// The effort dial types its command, and the mic presses the agent's own voice key: only where the
 	// terminal lets them, as the Swift engine's (the mic as when it doesn't dictate, below).
 	entry["dial"] = s.Agent.HasEffortDial() && can.Text
+	entry["phoneMic"] = d.config.PhoneMicEnabled && can.Text
 	entry["mic"] = s.Agent.HasVoice() && can.Keys
 	// The office's mic dictates only in the Swift engine for now: nothing asks the app to listen yet
 	// (a known gap of M3's, through the bridge, in contract_test.go).

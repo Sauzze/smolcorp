@@ -134,6 +134,12 @@ func (f *fixtureHost) call(request bridgeRequest) (bridgeAnswer, error) {
 
 // Each of the fixture's requests is what the core sends, and its answer is read as the core needs it.
 func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
+	idle := func() SessionState { return Idle }
+	// What the core makes of the phone's text: how it went, and whether the words may have gone all the same.
+	phoneText := func(h hostBridge, tab string, agent Agent, words string, state func() SessionState) (any, error) {
+		result, err := hostPhoneText(h, tab, agent, words, state)
+		return []any{result, errors.Is(err, errPasteFailed)}, err
+	}
 	want := map[string]func(h hostBridge) (any, error){
 		"setup's facts, the apps keys may go to left out of those running": func(h hostBridge) (any, error) {
 			facts, err := hostFacts(h, []string{"com.example.notes"})
@@ -164,19 +170,56 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"Grok Bots looked for in the Grok Bot app": func(h hostBridge) (any, error) {
 			return hostResolveBots(h, []bridgeBot{{Bot: "Smolcorp Mini"}, {Bot: "Nobody Here"}})
 		},
+		"the phone's text, one line, into a Terminal tab": func(h hostBridge) (any, error) {
+			return phoneText(h, "tty:/dev/ttys003", Claude, "Bonjour l’équipe « ça marche » 👩‍💻 ;", idle)
+		},
+		"the phone's text, several lines, as one paste in iTerm2": func(h hostBridge) (any, error) {
+			return phoneText(h, "iterm:AB12", Claude, "first line\n    indented\tand a tab", idle)
+		},
+		"the phone's text, several lines, to an agent not known to take one paste": func(h hostBridge) (any, error) {
+			return phoneText(h, "tty:/dev/ttys004", Codex, "one\ntwo", idle)
+		},
+		"the phone's text, to an agent that has ended": func(h hostBridge) (any, error) {
+			result, err := hostPhoneText(h, "tty:/dev/ttys005", Claude, "hello", idle)
+			return []any{result, errors.Is(err, errAgentGone)}, err
+		},
+		"the phone's text, starting with !, refused": func(h hostBridge) (any, error) {
+			return phoneText(h, "tty:/dev/ttys003", Claude, "!ls", idle)
+		},
+		"the phone's text, held: the core said it's asking as the terminal got to it": func(h hostBridge) (any, error) {
+			return phoneText(h, "tty:/dev/ttys006", Claude, "hello", func() SessionState { return Asking })
+		},
+		"the phone's text, several lines, ⌘V the terminal hadn't read in time": func(h hostBridge) (any, error) {
+			return phoneText(h, "iterm:CD34", Claude, "one\ntwo", idle)
+		},
+		"the peek at the input line": func(h hostBridge) (any, error) { return hostPeek(h, "tty:/dev/ttys003", Claude) },
+		"the peek, the agent not in front": func(h hostBridge) (any, error) {
+			lines, err := hostPeek(h, "tty:/dev/ttys005", Claude)
+			return []any{lines == nil, errors.Is(err, errAgentBehind)}, err
+		},
 	}
 	// What the core makes of each answer.
 	got := map[string]any{
 		"setup's facts, the apps keys may go to left out of those running": []any{false, true, []string{"fr_FR", "en_US"}, true,
 			[]runningApp{{ID: "com.example.mail", Name: "Mail"}}, "absent", true},
-		"an app allowed keys":                            []string{"com.example.notes", "com.example.mail"},
-		"an app taken off, any capitals":                 []string{"com.example.mail"},
-		"a terminal never allowed keys":                  []string{},
-		"dictation's names, checked":                     []string{"Smolcorp", "Tailscale"},
-		"dictation got ready, with a problem":            "Apple's model for French couldn't be downloaded.",
-		"dictation in a language it doesn't know":        "",
-		"the desks' terminals, from the drivers' tables": []tabAbilities{{true, true, true, true}, {true, true, true, true}, {}},
-		"Grok Bots looked for in the Grok Bot app":       []*botResolution{{BotID: "0a1b-2c3d", Name: "Smolcorp Mini Manager", By: "guess"}, nil},
+		"an app allowed keys":                                                         []string{"com.example.notes", "com.example.mail"},
+		"an app taken off, any capitals":                                              []string{"com.example.mail"},
+		"a terminal never allowed keys":                                               []string{},
+		"dictation's names, checked":                                                  []string{"Smolcorp", "Tailscale"},
+		"dictation got ready, with a problem":                                         "Apple's model for French couldn't be downloaded.",
+		"dictation in a language it doesn't know":                                     "",
+		"the desks' terminals, from the drivers' tables":                              []tabAbilities{{true, true, true, true}, {true, true, true, true}, {}},
+		"Grok Bots looked for in the Grok Bot app":                                    []*botResolution{{BotID: "0a1b-2c3d", Name: "Smolcorp Mini Manager", By: "guess"}, nil},
+		"the phone's text, one line, into a Terminal tab":                             []any{pasteDone, false},
+		"the phone's text, several lines, as one paste in iTerm2":                     []any{pasteDone, false},
+		"the phone's text, several lines, to an agent not known to take one paste":    []any{pasteFailed, false},
+		"the phone's text, to an agent that has ended":                                []any{pasteFailed, true},
+		"the phone's text, starting with !, refused":                                  []any{pasteFailed, false},
+		"the phone's text, held: the core said it's asking as the terminal got to it": []any{pasteFailed, false},
+		// The app's no, but the words may be in: 502 pasteUnsaid, never a 409 that offers them again.
+		"the phone's text, several lines, ⌘V the terminal hadn't read in time": []any{pasteFailed, true},
+		"the peek at the input line":       []string{"> Bonjour l’équipe", "  ? for shortcuts"},
+		"the peek, the agent not in front": []any{true, true},
 	}
 	cases := readBridgeCases(t)
 	if len(cases) != len(want) {
