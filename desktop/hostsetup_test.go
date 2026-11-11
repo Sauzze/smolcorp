@@ -29,6 +29,8 @@ type macStandIn struct {
 	login   bool
 	picked  string
 	secrets map[string]string
+	// unreadable: items the Keychain has but can't read now (locked, say).
+	unreadable map[string]bool
 	// The Grok Bot app's roster (nil: it can't be read); the jukebox: Accessibility given, the volume.
 	roster   *[]grokRow
 	keyboard bool
@@ -80,6 +82,9 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 	case "choose-folder":
 		return bridgeAnswer{OK: true, Folder: m.picked}, nil
 	case "secret-read", "secret-write", "secret-delete":
+		if request.Action == "secret-read" && m.unreadable[request.Item] {
+			return bridgeAnswer{OK: true, Failed: true}, nil
+		}
 		if m.secrets == nil {
 			m.secrets = map[string]string{}
 		}

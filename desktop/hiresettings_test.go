@@ -192,7 +192,7 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 		work = `C:\work\`
 	}
 	got := hireDenyRules("abc123", groups, "/s", []claudeProfile{{Name: "work", Dir: work}, {Name: "bad", Dir: "rel"}},
-		[]string{"abc123", "other11", ".hid"}, []string{"events", "hires", ".x", "briefs"})
+		[]string{"abc123", "other11", ".hid"}, []string{"events", "hires", ".x", "briefs"}, "darwin")
 	var want []string
 	both := func(p string) { want = append(want, "Edit("+p+")") }
 	want = append(want, "Bash(git push:*)", "Bash(npx git push:*)", "Bash(git send-pack:*)", "Bash(npx git send-pack:*)",

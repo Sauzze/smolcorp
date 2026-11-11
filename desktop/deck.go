@@ -168,11 +168,13 @@ func NewDeck() *Deck {
 	}
 	// The GM's token kept from the last run (gmtokenstore.go): a GM hired before it, or one started by hand, goes on
 	// working. Read before anything is served, without d.mu; then, under the Mac app, the file of a GM started by hand
-	// (gmbyhand.go), and whatever the token is now is kept.
+	// (gmbyhand.go), and whatever the token is now is kept, but over an item that couldn't be read.
 	d.gmKept = newGMTokenKeeper(gmStoreFor(d.mac.host))
 	d.gmToken = d.gmKept.restore(readRegistry(registryPath(), false).gmIsHired() || d.byHandAllowed())
 	d.loadByHandGM()
-	d.keepGMToken()
+	if !d.gmKept.readFailed() {
+		d.keepGMToken()
+	}
 	d.mail = d.newDeckOutbox()
 	// The folders are taken now, not at each look, so a look never reads a variable a test changes.
 	registry, support := registryPath(), supportDir

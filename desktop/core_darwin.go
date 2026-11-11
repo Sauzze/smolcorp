@@ -255,6 +255,8 @@ func serveShell(deck *Deck, lines <-chan []byte, out io.Writer, failed <-chan er
 				// The app has gone: the engine goes with it, as on quit.
 				deck.portable.Stop(viewerQuitWait)
 				deck.waitForHires(hireStopWait)
+				// The GM's token's last change, while the app may still answer (gmtokenstore.go).
+				deck.gmKept.flush(gmTokenFlushWait)
 				return 0
 			}
 			if encoder.Encode(answerShell(deck, line)) != nil {

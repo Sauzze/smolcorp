@@ -428,6 +428,29 @@ final class HostBridgeTests: XCTestCase {
                        "as desktop/hostbridge.go's bridgeSecrets")
     }
 
+    /// The GM's token the Keychain has but couldn't read is said as such, never as "none", so the core neither makes
+    /// a new one nor writes over it (RTOK N2); one it read, or none, is said as before.
+    func testTheGMsTokenTheKeychainCouldntReadIsSaidSo() {
+        var actions = self.actions
+        var held: GMTokenRead = .failed
+        actions.secrets["gm-token"] = HostBridge.Secret(read: { nil }, write: { _ in true }, delete: {}, look: { held })
+        func read() -> [String: Any] {
+            let line = try! JSONSerialization.data(withJSONObject: ["token": token, "action": "secret-read", "item": "gm-token"])
+            return HostBridge.answer(line, token: token, actions: actions)
+        }
+        let failed = read()
+        XCTAssertTrue(isOK(failed))
+        XCTAssertEqual(failed["failed"] as? Bool, true)
+        XCTAssertEqual(failed["found"] as? Bool, false)
+        XCTAssertNil(failed["value"])
+        held = .none
+        XCTAssertEqual(read()["found"] as? Bool, false)
+        XCTAssertNil(read()["failed"])
+        held = .token("fake-gm-token-from-1-24-0000000000000000000")
+        XCTAssertEqual(read()["value"] as? String, "fake-gm-token-from-1-24-0000000000000000000")
+        XCTAssertNil(read()["failed"])
+    }
+
     func testTheLoginItem() {
         XCTAssertEqual(ask(["action": "login-item"])["on"] as? Bool, false)
         XCTAssertEqual(ask(["action": "login-item", "on": true])["on"] as? Bool, true)

@@ -136,6 +136,8 @@ type bridgeAnswer struct {
 	// secret-read, api-key-read: the value, and whether there is one; t3-app: whether T3 Code's app is on the Mac.
 	Value string `json:"value,omitempty"`
 	Found bool   `json:"found,omitempty"`
+	// secret-read of the GM's token: there is an item, but the Keychain couldn't read it (Found is false).
+	Failed bool `json:"failed,omitempty"`
 	// api-key-offer: whether a hire may work on the API-key account, the notice beside the choice, and
 	// when it may not, the refusal a hire on it gets, in the Mac app's words.
 	Available bool   `json:"available,omitempty"`

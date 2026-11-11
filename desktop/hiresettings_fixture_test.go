@@ -53,7 +53,7 @@ func TestTheFenceIsTheMacsByteForByte(t *testing.T) {
 		for _, p := range c.Profiles {
 			profiles = append(profiles, claudeProfile{Name: p["name"], Dir: p["dir"]})
 		}
-		deny := hireDenyRules(c.HireID, groups, c.Support, profiles, c.Others, c.Entries)
+		deny := hireDenyRules(c.HireID, groups, c.Support, profiles, c.Others, c.Entries, "darwin")
 		got := string(swiftJSON(hireSettingsValue(deny, guardHookCommand(fixture.CLI, rules, profile), c.Auto, c.Reporting)))
 		if got != c.File {
 			gotLines, wantLines := strings.Split(got, "\n"), strings.Split(c.File, "\n")

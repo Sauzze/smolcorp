@@ -1,13 +1,17 @@
 package desktop
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/zalando/go-keyring"
 )
@@ -49,7 +53,7 @@ func TestAHiredGMsTokenIsKeptInTheMacsKeychainItemAcrossARestart(t *testing.T) {
 	mac := withMac(t)
 	d := startDeck(t)
 	token := d.newGMToken()
-	d.gmKept.flush()
+	d.gmKept.flush(time.Minute)
 	if kept, _ := mac.keptItem(); kept != token {
 		t.Fatalf("the hired GM's token isn't the Keychain item's (kept %v)", kept != "")
 	}
@@ -61,7 +65,7 @@ func TestAHiredGMsTokenIsKeptInTheMacsKeychainItemAcrossARestart(t *testing.T) {
 
 	// Fired: its token stops working, and isn't kept for the next run.
 	again.clearGMTokenIf(token)
-	again.gmKept.flush()
+	again.gmKept.flush(time.Minute)
 	if _, found := mac.keptItem(); found {
 		t.Error("a fired GM's token is still in the Keychain item")
 	}
@@ -80,7 +84,7 @@ func TestTheTokenOfAGMHiredOn124WorksOnTheFirstLaunch(t *testing.T) {
 	mac.secrets = map[string]string{gmTokenItem: fakeKeptToken}
 	withHiredGM(t, "working")
 	d := startDeck(t)
-	d.gmKept.flush()
+	d.gmKept.flush(time.Minute)
 	if !worksAsGM(d, fakeKeptToken) {
 		t.Fatal("the GM hired on 1.24 is refused on the first launch")
 	}
@@ -92,7 +96,7 @@ func TestTheTokenOfAGMHiredOn124WorksOnTheFirstLaunch(t *testing.T) {
 
 	withHiredGM(t, "fired")
 	gone := startDeck(t)
-	gone.gmKept.flush()
+	gone.gmKept.flush(time.Minute)
 	if worksAsGM(gone, fakeKeptToken) {
 		t.Error("with no GM hired, the old token works")
 	}
@@ -112,7 +116,7 @@ func TestANewGMTokenIsTheOneKeptForTheNextRun(t *testing.T) {
 	if code, _, _ := fromPage(t, d, http.MethodPost, "/setup/gm/token/rotate", nil); code != http.StatusOK {
 		t.Fatalf("rotate: %d", code)
 	}
-	d.gmKept.flush()
+	d.gmKept.flush(time.Minute)
 	fresh, _ := mac.keptItem()
 	if fresh == "" || fresh == fakeKeptToken || !worksAsGM(d, fresh) {
 		t.Fatalf("the Keychain item after a new token: changed %v, works %v", fresh != fakeKeptToken, worksAsGM(d, fresh))
@@ -125,10 +129,13 @@ func TestANewGMTokenIsTheOneKeptForTheNextRun(t *testing.T) {
 
 // Without the Mac app, and in every test, the deck's store reaches no real one: nothing is read, nothing written.
 func TestATestNeverReachesARealStoreForTheGMsToken(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("on a Mac the system's store is none at all (gmtoken_store_darwin.go), so this can't fail here: it checks Linux and Windows, in CI")
+	}
 	isolate(t)
 	d := startDeck(t)
 	d.newGMToken()
-	d.gmKept.flush()
+	d.gmKept.flush(time.Minute)
 	if token, err := systemGMTokenStore.read(); token != "" || err != nil {
 		t.Errorf("the system's store in a test read %v, %v", token != "", err)
 	}
@@ -219,22 +226,256 @@ func TestWhereTheSecretStoreCantKeepItTheTokenIsInAFileOfYoursAlone(t *testing.T
 	}
 }
 
-// A hire's fence keeps it from that file when it's there (only where a computer has no secret store).
+// A hire's fence keeps it from that file and the one it is written through on Linux and Windows, whether or not
+// they're there when the hire's settings are written: a GM hired after the hire makes the file (RTOK B2). A Mac
+// never keeps the token there, and its fence is the Mac's, byte for byte.
 func TestAHireIsFencedFromTheKeptTokensFile(t *testing.T) {
 	support := t.TempDir()
 	root := absoluteRulePath(support)
-	rules := hireDenyRules("abc123", nil, support, nil, nil, []string{"briefs", keptGMTokenName})
-	for _, want := range []string{"Read(" + root + "/" + keptGMTokenName + ")", "Edit(" + root + "/" + keptGMTokenName + ")"} {
-		if !slices.Contains(rules, want) {
-			t.Errorf("no %s in %v", want, rules)
+	for _, system := range []string{"linux", "windows"} {
+		for _, entries := range [][]string{{"briefs"}, {"briefs", keptGMTokenName, keptGMTokenTemp}} {
+			rules := hireDenyRules("abc123", nil, support, nil, nil, entries, system)
+			for _, name := range []string{keptGMTokenName, keptGMTokenTemp} {
+				for _, want := range []string{"Read(" + root + "/" + name + ")", "Edit(" + root + "/" + name + ")"} {
+					if !slices.Contains(rules, want) {
+						t.Errorf("%s, with %v in the folder: no %s", system, entries, want)
+					}
+				}
+			}
+			if slices.ContainsFunc(rules, func(rule string) bool {
+				return strings.Contains(rule, keptGMTokenName+"/") || strings.Contains(rule, keptGMTokenTemp+"/")
+			}) {
+				t.Errorf("%s: the file is fenced as a folder", system)
+			}
 		}
 	}
-	if slices.ContainsFunc(rules, func(rule string) bool { return strings.Contains(rule, keptGMTokenName+"/") }) {
-		t.Error("the file is fenced as a folder")
-	}
-	if without := hireDenyRules("abc123", nil, support, nil, nil, []string{"briefs"}); slices.ContainsFunc(without, func(rule string) bool {
+	if mac := hireDenyRules("abc123", nil, support, nil, nil, []string{"briefs"}, "darwin"); slices.ContainsFunc(mac, func(rule string) bool {
 		return strings.Contains(rule, keptGMTokenName)
 	}) {
-		t.Error("fenced from a file that isn't there")
+		t.Error("the Mac's fence has rules for a file it never has")
+	}
+}
+
+// refuseWrites has the stand-in Mac app refuse to change its items, as a locked Keychain would, or, with why "",
+// change them again.
+func (m *macStandIn) refuseWrites(why string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if why == "" {
+		m.refuse = nil
+		return
+	}
+	m.refuse = map[string]string{"secret-write": why, "secret-delete": why}
+}
+
+// A new token the Keychain refused is not given: the page is told (500), the old token goes on working, and it is
+// still the one kept after a restart, so it is never said to be dead while it can come back (RTOK B1). Once the
+// Keychain takes it, the new token is kept before the page is told, and the old one never works again.
+func TestANewGMTokenTheKeychainRefusedIsNotGiven(t *testing.T) {
+	isolate(t)
+	mac := withMac(t)
+	mac.secrets = map[string]string{gmTokenItem: fakeKeptToken}
+	withHiredGM(t, "working")
+	d := startDeck(t)
+	managerOn(d)
+	mac.refuseWrites("The Keychain is locked.")
+	code, said, body := fromPage(t, d, http.MethodPost, "/setup/gm/token/rotate", nil)
+	if code != http.StatusInternalServerError || said["rotated"] == true || !strings.Contains(body, "the old one still works") {
+		t.Errorf("a new token the Keychain refused: %d %q", code, body)
+	}
+	if kept, _ := mac.keptItem(); !worksAsGM(d, fakeKeptToken) || kept != fakeKeptToken {
+		t.Fatalf("after the refusal, the old token works %v, is still kept %v", worksAsGM(d, fakeKeptToken), kept == fakeKeptToken)
+	}
+	if !worksAsGM(startDeck(t), fakeKeptToken) {
+		t.Error("after the refusal and a restart, the running GM's token is refused")
+	}
+
+	mac.refuseWrites("")
+	if code, _, _ := fromPage(t, d, http.MethodPost, "/setup/gm/token/rotate", nil); code != http.StatusOK {
+		t.Fatalf("rotate with the Keychain back: %d", code)
+	}
+	// No flush: the store was written before the page was answered.
+	fresh, _ := mac.keptItem()
+	if fresh == fakeKeptToken || !worksAsGM(d, fresh) {
+		t.Fatalf("the Keychain item after the rotate: changed %v, works %v", fresh != fakeKeptToken, worksAsGM(d, fresh))
+	}
+	again := startDeck(t)
+	if worksAsGM(again, fakeKeptToken) || !worksAsGM(again, fresh) {
+		t.Errorf("after a restart, the old token works %v, the new one %v", worksAsGM(again, fakeKeptToken), worksAsGM(again, fresh))
+	}
+}
+
+// With a GM started by hand allowed, a GM fired while the Keychain refuses every change never comes back with its
+// token after a restart: the gm-token file, written at once, holds its replacement, and wins over the Keychain's
+// item, which may lag (RTOK B1). The item follows once the Keychain takes changes again.
+func TestAGMFiredWhileTheKeychainRefusesNeverComesBackWithItsToken(t *testing.T) {
+	isolate(t)
+	mac := withMac(t)
+	d := startDeck(t)
+	d.summaryProviders.set(map[summaryProvider]providerState{})
+	managerOn(d)
+	if code, _, _ := fromPage(t, d, http.MethodPost, "/setup/gm/by-hand?enabled=1", nil); code != http.StatusOK {
+		t.Fatalf("by hand on: %d", code)
+	}
+	fired := d.newGMToken()
+	withHiredGM(t, "working")
+	d.gmKept.flush(time.Minute)
+	if kept, _ := mac.keptItem(); kept != fired || tokenInFile(t) != fired {
+		t.Fatalf("the hired GM's token is the Keychain item's %v, the file's %v", kept == fired, tokenInFile(t) == fired)
+	}
+
+	mac.refuseWrites("The Keychain is locked.")
+	d.clearGMTokenIf(fired)
+	withHiredGM(t, "fired")
+	replacement := tokenInFile(t)
+	if replacement == "" || replacement == fired {
+		t.Fatalf("by hand, after the fire: a replacement in the file %v", replacement != "")
+	}
+	if d.gmKept.flush(10 * time.Millisecond) {
+		t.Error("the keeper says the replacement is kept while the Keychain refuses it")
+	}
+	again := startDeck(t)
+	if worksAsGM(again, fired) {
+		t.Error("after a restart, the fired GM's token works")
+	}
+	if !worksAsGM(again, replacement) || tokenInFile(t) != replacement {
+		t.Errorf("after a restart, the file's replacement works %v, is still the file's %v", worksAsGM(again, replacement), tokenInFile(t) == replacement)
+	}
+
+	mac.refuseWrites("")
+	if !again.gmKept.flush(time.Minute) || !d.gmKept.flush(time.Minute) {
+		t.Fatal("the Keychain is back, and the token still isn't kept")
+	}
+	if kept, _ := mac.keptItem(); kept != replacement {
+		t.Error("the Keychain is back, and its item isn't the replacement")
+	}
+}
+
+// A write the store refused is tried again until one succeeds; until then the keeper doesn't take the store to hold
+// the token, and a quit's flush says it isn't kept. A change asked meanwhile is the one written.
+func TestAWriteTheStoreRefusedIsTriedAgainUntilItIsKept(t *testing.T) {
+	var mu sync.Mutex
+	down, held, writes := true, "", 0
+	k := newGMTokenKeeper(gmTokenStore{
+		read: func() (string, error) { return "", nil },
+		write: func(token string) error {
+			mu.Lock()
+			defer mu.Unlock()
+			writes++
+			if down {
+				return errStoreDown
+			}
+			held = token
+			return nil
+		},
+	})
+	k.retry = time.Millisecond
+	k.restore(true)
+	k.keep(fakeKeptToken)
+	if k.flush(20 * time.Millisecond) {
+		t.Error("flushed while the store refuses every write")
+	}
+	k.keep(fakeOtherToken)
+	k.mu.Lock()
+	known := k.known
+	k.mu.Unlock()
+	mu.Lock()
+	tried := writes
+	down = false
+	mu.Unlock()
+	if known || tried < 2 {
+		t.Errorf("after refused writes: taken as kept %v, tried %d times", known, tried)
+	}
+	if !k.flush(time.Minute) {
+		t.Fatal("the store is back, and the token isn't kept")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if held != fakeOtherToken {
+		t.Errorf("the store holds the latest change %v", held == fakeOtherToken)
+	}
+}
+
+// The Mac app has an item it couldn't read (a locked Keychain): with a GM started by hand allowed and no file to fall
+// back on, no token is made in its place and nothing is written over it, as the Swift engine did (RTOK N2). With the
+// file, the file's token is used, still with nothing written. A GM hired then has its token kept as usual.
+func TestAKeychainItemThatCouldntBeReadIsNeverWrittenOver(t *testing.T) {
+	var answer bridgeAnswer
+	if err := json.Unmarshal([]byte(`{"ok": true, "found": false, "failed": true}`), &answer); err != nil || !answer.Failed {
+		t.Fatalf("the app's answer for an item it couldn't read: %v %+v", err, answer)
+	}
+	isolate(t)
+	mac := withMac(t)
+	mac.secrets = map[string]string{gmTokenItem: fakeKeptToken}
+	mac.unreadable = map[string]bool{gmTokenItem: true}
+	config := loadConfig()
+	config.GMByHand = true
+	config.save()
+	withHiredGM(t, "working")
+	changed := func() bool {
+		return slices.ContainsFunc(mac.actions(), func(action string) bool { return action == "secret-write" || action == "secret-delete" })
+	}
+
+	d := startDeck(t)
+	d.gmKept.flush(time.Minute)
+	d.mu.Lock()
+	token := d.gmToken
+	d.mu.Unlock()
+	if token != "" || tokenInFile(t) != "" || changed() {
+		t.Fatalf("an item that couldn't be read: a token made %v, a file %v, the item changed %v", token != "", tokenInFile(t) != "", changed())
+	}
+
+	if err := os.WriteFile(gmTokenPath(), []byte(fakeOtherToken+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withFile := startDeck(t)
+	withFile.gmKept.flush(time.Minute)
+	if !worksAsGM(withFile, fakeOtherToken) || changed() {
+		t.Fatalf("with the file: its token works %v, the item changed %v", worksAsGM(withFile, fakeOtherToken), changed())
+	}
+
+	hired := withFile.newGMToken()
+	withFile.gmKept.flush(time.Minute)
+	if kept, _ := mac.keptItem(); kept != hired {
+		t.Error("a GM hired after the item couldn't be read has its token not kept")
+	}
+}
+
+// The kept token's file is written through a file made for it alone: one left behind with a wider mode, or a link
+// put in its place, changes nothing (RTOK N1).
+func TestTheKeptTokensFileIsNeverWrittenThroughAnotherOne(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, keptGMTokenName)
+	if err := os.WriteFile(path+".tmp", []byte("left behind\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeKeptToken(path, []byte(fakeKeptToken+"\n")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if data, _ := os.ReadFile(path); err != nil || !modeIs(info, 0o600) || validGMToken(string(data)) != fakeKeptToken {
+		t.Fatalf("over a temp file left behind: %v, mode %v", err, info.Mode().Perm())
+	}
+	if _, err := os.Lstat(path + ".tmp"); !errors.Is(err, os.ErrNotExist) {
+		t.Error("the temp file is left")
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	elsewhere := filepath.Join(dir, "elsewhere")
+	if err := os.WriteFile(elsewhere, []byte("untouched\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, path+".tmp"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeKeptToken(path, []byte(fakeOtherToken+"\n")); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(elsewhere); string(data) != "untouched\n" {
+		t.Error("the token was written through a link at the temp file")
+	}
+	if data, _ := os.ReadFile(path); validGMToken(string(data)) != fakeOtherToken {
+		t.Error("the kept file doesn't hold the new token")
 	}
 }

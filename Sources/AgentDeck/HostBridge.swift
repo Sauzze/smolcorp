@@ -1027,6 +1027,13 @@ final class HostBridge {
         guard let item = request["item"] as? String, let store = actions.secrets[item] else { return refused("Not an item of Smolcorp's.") }
         switch action {
         case "secret-read":
+            if let look = store.look {
+                switch look() {
+                case .token(let value) where !value.isEmpty: return ["ok": true, "found": true, "value": value]
+                case .failed: return ["ok": true, "found": false, "failed": true]
+                default: return ["ok": true, "found": false]
+                }
+            }
             guard let value = store.read() else { return ["ok": true, "found": false] }
             return ["ok": true, "found": true, "value": value]
         case "secret-write":
@@ -1069,11 +1076,14 @@ final class HostBridge {
         var read: () -> String? = { SummaryKey.store.read() }
     }
 
-    /// One of the app's own items: where it's kept, as the Swift engine keeps it.
+    /// One of the app's own items: where it's kept, as the Swift engine keeps it. `failed`, for the GM's token
+    /// alone, says whether the item is there but couldn't be read (a locked Keychain), which the core must not take
+    /// for "none": it would make a new token and write it over the item (`desktop/gmtokenstore.go`).
     struct Secret {
         var read: () -> String?
         var write: (String) -> Bool
         var delete: (() -> Void)?
+        var look: (() -> GMTokenRead)? = nil
     }
 
     /// The app's code each action runs: `mac` in the app, stand-ins in the tests.
@@ -1203,7 +1213,7 @@ final class HostBridge {
                     "gm-token": Secret(read: {
                         if case .token(let token) = gm.read(), !token.isEmpty { return token }
                         return nil
-                    }, write: { gm.write($0) }, delete: { gm.remove() }),
+                    }, write: { gm.write($0) }, delete: { gm.remove() }, look: { gm.read() }),
                     "viewer-id": viewerItem(.id),
                     "viewer-key": viewerItem(.key),
                     "viewer-write-secret": viewerItem(.writeSecret),
