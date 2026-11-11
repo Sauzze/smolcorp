@@ -20,3 +20,10 @@ func hireSessionUp(h Hire, testPort int, o engineOptions) bool { return false }
 func (d *Deck) fireTab(tab string, force bool) (int, string, bool) {
 	return d.fireLauncherTab(tab, force)
 }
+
+// For the GM's fire route (gmfire.go): a hire here is a launcher's window, never a tmux session.
+func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (string, error) {
+	return "", &hireRefusal{Status: 409, Message: "Couldn't reach " + calledHire(h) + "'s window, so nothing was changed."}
+}
+
+func ownTmuxTab(Hire, string) bool { return false }

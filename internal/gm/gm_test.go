@@ -924,8 +924,6 @@ func TestUnservedGMRoutesSayWhatTheGoAppLacks(t *testing.T) {
 		args          []string
 		goMsg, macMsg string
 	}{
-		{[]string{"fire", "Rev"}, "smolcorp gm: `gm fire` isn't available in Smolcorp on Linux and Windows yet.\n", ""},
-		{[]string{"brief", "Rev", "--text", "hi"}, "smolcorp gm: `gm brief` isn't available in Smolcorp on Linux and Windows yet.\n", ""},
 		{[]string{"tile"}, "smolcorp gm: `gm tile` isn't available in Smolcorp on Linux and Windows yet.\n", "smolcorp gm: this Smolcorp can't tile windows yet; update it.\n"},
 		{[]string{"screens"}, "smolcorp gm: `gm screens` isn't available in Smolcorp on Linux and Windows yet.\n", "smolcorp gm: this Smolcorp can't choose a screen yet; update it.\n"},
 		{[]string{"accounts"}, "smolcorp gm: `gm accounts` isn't available in Smolcorp on Linux and Windows yet.\n", "smolcorp gm: this Smolcorp has no accounts route yet; update it.\n"},
@@ -957,7 +955,7 @@ func TestUnservedGMRoutesSayWhatTheGoAppLacks(t *testing.T) {
 func TestHelpAndBadTokenNameTheirApp(t *testing.T) {
 	app := newFakeApp(t, serve(teamAnswer(t), 200))
 	_, out, _ := runGM(app.env(t, withToken()), "help")
-	for _, want := range []string{"On Linux and Windows, brief, fire, tile, screens, screen and accounts\naren't served yet.", "on the Mac, ask the owner to rotate it", "hire the GM again from Setup"} {
+	for _, want := range []string{"On Linux and Windows, tile, screens, screen and accounts\naren't served yet.", "on the Mac, ask the owner to rotate it", "hire the GM again from Setup"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help lacks %q", want)
 		}

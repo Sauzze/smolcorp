@@ -254,8 +254,6 @@ var errNotServedHere = errors.New("route not served by the Go app yet")
 
 // goAppUnserved maps the GM routes the Go app still answers 404 to, to the command that uses each.
 var goAppUnserved = map[string]string{
-	"POST /setup/gm/fire":        "fire",
-	"POST /setup/gm/brief":       "brief",
 	"POST /setup/gm/tile":        "tile",
 	"GET /setup/gm/screens":      "screens",
 	"POST /setup/gm/screen":      "screen",

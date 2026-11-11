@@ -1501,6 +1501,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && path == "/setup/gm/send":
 		rt.mailSend(w, r)
 
+	// Fire and brief a hire found by its registry id (gmfire.go, gmbrief.go).
+	case r.Method == http.MethodPost && path == "/setup/gm/fire":
+		rt.gmFire(w, r)
+
+	case r.Method == http.MethodPost && path == "/setup/gm/brief":
+		rt.gmBrief(w, r)
+
 	case r.Method == http.MethodGet && path == "/setup/gm/outbox":
 		rt.mailOutboxList(w, r)
 

@@ -50,6 +50,8 @@ type launcherEngineOptions struct {
 	Grace time.Duration
 	Now   func() time.Time
 	Pause func(time.Duration)
+	// As engineOptions'.
+	KeepWorktree bool
 }
 
 func (o launcherEngineOptions) withDefaults() launcherEngineOptions {
@@ -501,9 +503,9 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 	if !d.stopLauncherOf(h.ID, o.StopWait) {
 		return refuse("Couldn't end " + calledHire(h) + "'s window, so nothing was changed.")
 	}
-	removed := h.Worktree != "" && removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(h)
+	removed := h.Worktree != "" && !o.KeepWorktree && removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(h)
 	writeRecap(h, "", removed, o.Now())
-	if h.Worktree != "" && !removed {
+	if h.Worktree != "" && !removed && !o.KeepWorktree {
 		kept = "it has changes, or git wouldn't remove it"
 		markFired(h.ID, "Its worktree "+h.Worktree+" was kept: "+kept+".")
 		return kept, nil
