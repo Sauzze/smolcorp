@@ -67,8 +67,10 @@ enum SetupRoutes {
         // 1.23's routes a hire could misuse with the setup-key file.
         action("/setup/hire", "a hire hiring more hires"),
         action("/setup/hire/gm", "starting a GM"),
+        page("GET", "/setup/hire/gm/preflight", "what a first GM hire needs: it starts your login shell and Claude Code to tell"),
         action("/setup/hiring", "how and where hires start"),
         action("/setup/hiring/choose", "the folder for new hires"),
+        action("/setup/hire-folder", "the folder for new hires, from Start here"),
         action("/setup/roles", "the roles, and so the briefs future hires get"),
         action("/setup/hooks", "connecting or disconnecting the agents' hooks"),
         action("/setup/unpair", "cutting off your phone"),
@@ -105,6 +107,14 @@ enum SetupRoutes {
         page("POST", "/setup/guard", "the hire guard's groups: a hire or the GM must never loosen its own fence"),
         page("POST", "/setup/keystrokes", "letting features press keys in other apps, only from its switch"),
         page("POST", "/setup/keystrokes/apps", "the apps keys may go to: added or removed, only from the page"),
+
+        // The two plain choices, and a background hire's window: the page alone, never the GM or a hire (T796).
+        page("POST", "/setup/choices", "T3 Code on or off, and agent windows: switching to the background closes the windows Smolcorp opened"),
+        page("POST", "/setup/hire/window", "a window attached to a hire's own tmux session, by the hire's id"),
+        // Another app on this computer: the page alone, never the GM or a hire (T792).
+        page("GET", "/setup/t3code", "whether T3 Code and its t3 command are installed"),
+        page("POST", "/setup/t3code/open", "a hire's folder, from the registry, opened in T3 Code on this computer"),
+        page("POST", "/setup/t3code/letgo", "let a hire in T3 Code go: its T3 project removed, its worktree kept"),
 
         // Phones' codes and keys: the page alone (1.23.1).
         page("POST", "/setup/pair", "a pairing code"),

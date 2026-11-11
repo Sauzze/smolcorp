@@ -267,6 +267,15 @@
     },
     {
       "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "GET",
+      "path" : "\/setup\/hire\/gm\/preflight",
+      "why" : "what a first GM hire needs: it starts your login shell and Claude Code to tell"
+    },
+    {
+      "callers" : [
         "gm",
         "page"
       ],
@@ -284,6 +293,16 @@
       "method" : "POST",
       "path" : "\/setup\/hiring\/choose",
       "why" : "the folder for new hires"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/hire-folder",
+      "why" : "the folder for new hires, from Start here"
     },
     {
       "callers" : [
@@ -603,6 +622,51 @@
       "method" : "POST",
       "path" : "\/setup\/keystrokes\/apps",
       "why" : "the apps keys may go to: added or removed, only from the page"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/choices",
+      "why" : "T3 Code on or off, and agent windows: switching to the background closes the windows Smolcorp opened"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/hire\/window",
+      "why" : "a window attached to a hire's own tmux session, by the hire's id"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "GET",
+      "path" : "\/setup\/t3code",
+      "why" : "whether T3 Code and its t3 command are installed"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/t3code\/open",
+      "why" : "a hire's folder, from the registry, opened in T3 Code on this computer"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/t3code\/letgo",
+      "why" : "let a hire in T3 Code go: its T3 project removed, its worktree kept"
     },
     {
       "callers" : [

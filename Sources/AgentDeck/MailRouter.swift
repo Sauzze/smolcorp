@@ -26,13 +26,13 @@ import Foundation
 /// (`FrontDesk.mayWrite`). It reaches the GM also through its STATUS and
 /// NEEDS-REVIEW lines (the watchers, T405). Only used on the main thread.
 final class MailRouter {
-    enum State: String, Codable {
+    enum State: String, Codable, CaseIterable {
         case queued, delivered, left, failed
     }
 
     /// Who a message is from, and so the words of its first line. A hire's line names the
     /// hire (see `Message.fromLine`), so it can't read as the GM's or the owner's.
-    enum Sender: String, Codable {
+    enum Sender: String, Codable, CaseIterable {
         case gm, owner, hire
 
         var line: String {

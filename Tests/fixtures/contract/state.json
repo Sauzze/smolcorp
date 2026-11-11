@@ -1,0 +1,96 @@
+{
+  "routes" : [
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "no cookie, no setup key: the locked page"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "GET \/setup\/state"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state-tool",
+        "status" : 200
+      },
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "note" : "a tool sees whether pairing is open, never the code, and no webhook secret",
+      "request" : {
+        "as" : "tool",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "GET \/setup\/state"
+    },
+    {
+      "answer" : {
+        "kind" : "event-stream",
+        "shape" : "snapshot",
+        "status" : 200
+      },
+      "callers" : [
+        "phone"
+      ],
+      "note" : "an event stream; its first message is the snapshot (shape snapshot), and each change sends it again",
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "no phone's key"
+        }
+      ],
+      "request" : {
+        "as" : "phone",
+        "given" : [
+          "a T3 hire",
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a session at a free key",
+          "a cloud bot"
+        ]
+      },
+      "route" : "GET \/events"
+    }
+  ]
+}

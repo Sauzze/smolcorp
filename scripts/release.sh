@@ -12,15 +12,16 @@
 #                                        staples the DMG around it, then the zip
 #
 # By default the app is signed ad hoc, not notarised, so macOS asks people to
-# approve it once in System Settings → Privacy & Security. The README explains
-# how. With a Developer ID set up (docs/RELEASING.md), two variables change that:
+# approve it once in System Settings → Privacy & Security. With a Developer ID
+# set up (docs/RELEASING.md), two variables change that:
 #
 #   SMOLCORP_DEVELOPER_ID     "Developer ID Application: Your Name (TEAMID)":
 #                             signs the app and the DMG with it, hardened runtime on.
 #                             Unset, the one Developer ID Application identity in
 #                             the keychain is used, if there's exactly one.
 #   SMOLCORP_NOTARY_PROFILE   a notarytool keychain profile: has Apple notarise the
-#                             DMG, then staples the ticket to the DMG and the app
+#                             DMG, staples the ticket to the app, then makes the DMG
+#                             again around it and has that notarised and stapled too
 #
 # The DMG's one-time setup (a venv in build/) is in scripts/make-dmg.sh.
 
@@ -166,9 +167,23 @@ if [ -n "$NOTARY_PROFILE" ]; then
   check "the DMG's ticket couldn't be stapled: was it accepted?" xcrun stapler staple "$DMG"
   # --dmg-only's app has its ticket already, and is left as it is.
   [ "$DMG_ONLY" = 1 ] || check "the app's ticket couldn't be stapled." xcrun stapler staple "$APP"
-  # As a download is checked: the DMG and the app it holds, each with its ticket.
+  # The DMG, and the app it's made from and the zip will hold, each with its ticket.
   check "the DMG's stapled ticket doesn't validate." xcrun stapler validate "$DMG"
   check "the app's stapled ticket doesn't validate." xcrun stapler validate "$APP"
+  # --dmg-only made this DMG around the stapled app: open it read-only and check
+  # the app inside, which is the one people drag to Applications.
+  if [ "$DMG_ONLY" = 1 ]; then
+    MOUNT="$(mktemp -d build/dmg-check.XXXX)"
+    check "the DMG can't be opened to check the app in it." \
+      hdiutil attach -quiet -readonly -nobrowse -noautoopen -mountpoint "$MOUNT" "$DMG"
+    INSIDE_OK=0
+    if xcrun stapler validate "$MOUNT/Smolcorp.app" && codesign --verify --deep --strict "$MOUNT/Smolcorp.app"; then
+      INSIDE_OK=1
+    fi
+    hdiutil detach -quiet "$MOUNT" || echo "(couldn't detach $MOUNT: eject it by hand)"
+    rmdir "$MOUNT" 2>/dev/null || true
+    [ "$INSIDE_OK" = 1 ] || { echo "Stopped: the app inside the DMG has no valid ticket or signature."; exit 1; }
+  fi
   check "Gatekeeper refuses the DMG." spctl --assess -vvv --type open --context context:primary-signature "$DMG"
   check "Gatekeeper refuses the app." spctl --assess -vvv --type execute "$APP"
   # How an installer would see it too: said, not a reason to stop, as -t install is for packages more than DMGs.
@@ -178,8 +193,18 @@ if [ -n "$NOTARY_PROFILE" ]; then
   [ "$DMG_ONLY" = 1 ] || exec env SMOLCORP_DEVELOPER_ID="$DEVELOPER_ID" SMOLCORP_NOTARY_PROFILE="$NOTARY_PROFILE" scripts/release.sh --dmg-only
 fi
 
+# No resource forks or extended attributes in the zip: ditto would write them as
+# AppleDouble ._ entries, which unzip (Homebrew's, among others) turns into real
+# files inside the app, and the seal breaks. The ticket is a file, not an attribute.
 rm -f "$ZIP"
-ditto -c -k --keepParent "$APP" "$ZIP"
+ditto -c -k --keepParent --norsrc --noextattr "$APP" "$ZIP"
+# The listing is read whole first: grep -q stopping at a match would make unzip fail with SIGPIPE, which
+# pipefail turns into "no match".
+LISTING="$(unzip -Z1 "$ZIP")"
+if grep -E -q '(^|/)\._|^__MACOSX/' <<<"$LISTING"; then
+  echo "Stopped: $ZIP holds AppleDouble (._) entries, which break the app's seal when it's unzipped."
+  exit 1
+fi
 
 echo
 SIGNED="signed ad hoc"

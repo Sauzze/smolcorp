@@ -90,7 +90,7 @@ func hooksCheck(found []Agent, connected func(Agent) bool, here func(Agent) (boo
 		}
 	}
 	if len(wrong) > 0 {
-		c.Status, c.Fix, c.Label = checkFix, fixRepair, "Connect them"
+		c.Status, c.Fix, c.Label = checkFix, fixRepair, "Connect"
 		c.Detail = strings.Join(wrong, "; ") + "."
 		return c
 	}
@@ -161,7 +161,7 @@ func phoneCheck(phones int) check {
 		c.Status, c.Detail = checkOK, fmt.Sprintf("%d paired. Pair another from Phone and voice.", phones)
 		return c
 	}
-	c.Status, c.Detail = checkTodo, "Scan the code under Pair a phone with your phone's camera, then type the 6 digits it shows."
+	c.Status, c.Detail = checkTodo, "Open Pair a phone, then scan its QR code with your phone's camera, or type its 6-digit code on your phone."
 	return c
 }
 

@@ -45,11 +45,11 @@ type CloudBot struct {
 	// Found in the Grok Bot app by the Mac app rather than set by you, and
 	// whether it's kept whatever that app says: kept here as set, for the
 	// Mac app's config, as nothing here looks in that app.
-	Discovered bool `json:"discovered,omitempty"`
-	Pinned     bool `json:"pinned,omitempty"`
+	Discovered bool `json:"discovered"`
+	Pinned     bool `json:"pinned"`
 	// The folder mail to this bot goes through (see botmailbox.go), chosen on the setup page and
 	// nowhere else; "" for none. POST /setup/bots never changes it.
-	Mailbox string `json:"mailbox,omitempty"`
+	Mailbox string `json:"mailbox"`
 }
 
 // safeGrokBotID is whether id can be a Grok Bot app's bot id, as the Mac

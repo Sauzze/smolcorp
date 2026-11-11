@@ -702,7 +702,7 @@ func finishWord(word []byte, unq []bool, ps bool) []string {
 		} else {
 			words = append(words, a.s)
 		}
-		// A pattern that the GM's token file or the guard file could fill in: the name follows it as a word.
+		// A pattern that the GM's token file, the guard file or Claude Code's settings could fill in: the name follows it as a word.
 		words = append(words, protectedByPattern(a.s, a.q)...)
 	}
 	return words
@@ -743,10 +743,24 @@ func protectedByPattern(s string, unq []bool) []string {
 		}
 	}
 	dir := strings.ToLower(s[:cut])
-	if plain < 3 && !strings.Contains(dir, "agentdeck") && !strings.Contains(dir, "smolcorp") && !strings.Contains(dir, "application support") {
-		return nil
-	}
 	var out []string
+	// Claude Code's settings in a .claude folder, by any pattern (.claude/s*, .claude/*), and that folder itself by a
+	// pattern for hidden names (.c*, .*): see fenceRule.
+	if strings.HasSuffix(strings.ReplaceAll(dir, `\`, "/"), ".claude/") {
+		for _, name := range []string{"settings.local.json", "settings.json"} {
+			if ok, err := path.Match(lower, name); err == nil && ok {
+				out = append(out, ".claude/"+name)
+			}
+		}
+	}
+	if strings.HasPrefix(lower, ".") {
+		if ok, err := path.Match(lower, ".claude"); err == nil && ok {
+			out = append(out, ".claude")
+		}
+	}
+	if plain < 3 && !strings.Contains(dir, "agentdeck") && !strings.Contains(dir, "smolcorp") && !strings.Contains(dir, "application support") {
+		return out
+	}
 	for _, name := range protectedNames {
 		if ok, err := path.Match(lower, name); err == nil && ok {
 			out = append(out, name)

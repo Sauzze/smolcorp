@@ -1,3 +1,27 @@
+# Smolcorp 1.24.3 (beta)
+
+An easier start: Smolcorp now shows a newcomer the way from the first screen to a General Manager at its desk, and setup is easier to find your way around.
+
+## Your first General Manager, step by step
+- **Arrows that point the way.** On the first run, a pixel arrow points at the next thing to do: choose where your hires work, check what the first hire needs, hire your General Manager, then see it at its desk. It moves on when you've done each step. Skip it any time; **Show Me Around Again** is in the Help menu, the menu bar icon's menu (the tray icon on Windows and Linux) and Easy setup.
+- **The folder for your hires in one click.** Start here suggests one (such as ~/Projects), says what it's for, and has **Use this folder** and **Choose another…**. If a folder can't be used, it says why and what to do instead.
+- **Checked before the first hire.** Start here checks that Claude Code is installed, signed in and reporting to Smolcorp, and that your Mac lets Smolcorp open the terminal (tmux on Windows and Linux). Each line that isn't ready says what to do: a command to copy, a button that opens the right setting, or **Check again**.
+- **One click to hire your General Manager.** Its role is filled in for you. Hiring it also turns on **Hire and fire from the office**, so it can hire its team. Once it's at its desk, Start here suggests what to say to it first.
+- **No more hiring into your home folder.** Without a folder for your hires, the General Manager's hire (and, on Windows and Linux, a hire from setup) is refused, and setup points at the step that sets one.
+
+## Setup is easier to find your way around
+- **Fewer, clearer sections:** Easy setup, Office and look, Hires and roles, Floors, and Phone and voice, then General and Advanced. Each choice now has one home.
+- **Find a setting** on Easy setup leads to what people change most, and the search finds every setting by its words and says where it is.
+
+## Four teams in costume
+- **Four new styles that dress the whole office:** the Castle great hall (a royal court: king, queen, jester, knight and more), Mount Olympus (Zeus, Hera and seven more Greek gods), the Zoo (nine animal onesies) and the Ant colony (a queen, workers, soldiers and more). Each has nine outfits that everyone wears in that style, the office's staff included, and you can pick any of them for someone on your team.
+
+## Fixed
+- The release's zip holds no hidden `._` files, which some unzip tools turned into files inside the app and broke its signature.
+
+## Updating
+As with 1.24.2: download the new version and replace the app. Your office, floors, pins and hires are kept, and you won't see the first-run arrows unless you ask for them.
+
 # Smolcorp 1.24.2 (beta)
 
 A small release for 1.24.1: the Mac app is notarised, there's a new floor style for your bots, and a few fixes.

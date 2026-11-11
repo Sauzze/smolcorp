@@ -76,9 +76,9 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 			return refuse("Couldn't end " + calledHire(h) + "'s tmux session, so nothing was changed.")
 		}
 	}
-	removed := h.Worktree != "" && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
+	removed := h.Worktree != "" && !o.KeepWorktree && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
 	writeRecap(h, capture, removed, o.Now())
-	if h.Worktree != "" && !removed {
+	if h.Worktree != "" && !removed && !o.KeepWorktree {
 		kept = "it has changes, or git wouldn't remove it"
 		markFired(h.ID, "Its worktree "+h.Worktree+" was kept: "+kept+".")
 		return kept, nil
@@ -132,6 +132,8 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 		}
 		return http.StatusInternalServerError, err.Error(), true
 	}
+	// Its windows' records go with it (hirewindows.go): it has none to close any more.
+	forgetHireWindows(h.ID, windowsOfHire(h.ID))
 	// A fired GM's token stops working, and mail still waiting for the hire fails
 	// now rather than on the pump's next round.
 	if h.Role == gmRole {
@@ -146,4 +148,18 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 	}
 	d.mu.Unlock()
 	return http.StatusNoContent, "", true
+}
+
+// For the GM's fire route (gmfire.go): the engine's fire, and whether a tab's socket is h's own.
+func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (string, error) {
+	d.mu.Lock()
+	options := d.engine
+	d.mu.Unlock()
+	options.KeepWorktree = keep
+	return fireEngineHire(h, testCopyPort(), options, force)
+}
+
+func ownTmuxTab(h Hire, socket string) bool {
+	found, ok := engineHireAt(socket)
+	return ok && found.ID == h.ID
 }

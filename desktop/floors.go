@@ -146,6 +146,9 @@ func (d *Deck) aboveGround(s *Session) (int, bool) {
 	if bot, ok := d.cloud.botOf(s.ID); ok {
 		return d.cloudFloor(bot), true
 	}
+	if hire, ok := d.t3Desks.hireOf(s.ID); ok {
+		return t3FloorOf(hire), true
+	}
 	put, ok := d.floorOf[s.ID]
 	if !ok {
 		put = -1
@@ -198,6 +201,17 @@ func (d *Deck) seatedBuilding(overflow []*Session) ([][]seatedPerson[*Session], 
 	bots, of := d.cloud.seated()
 	for i, s := range bots {
 		put(s, of[i].floorIndex() < 0)
+	}
+	// A hire in T3 Code upstairs is on the floor it was hired onto, at the desk the registry kept for it.
+	for _, one := range d.t3Seated() {
+		if floor := t3FloorOf(one.hire); floor > 0 && !isPlaced[one.session.ID] {
+			p := up(one.session, floor)
+			if p.had == nil && one.hire.T3Desk != nil {
+				p.had = &Seat{floor, *one.hire.T3Desk}
+			}
+			placed = append(placed, p)
+			isPlaced[one.session.ID] = true
+		}
 	}
 	for _, s := range headless {
 		put(s, false)
@@ -254,6 +268,12 @@ func (d *Deck) upperEntry(s *Session) map[string]any {
 	if bot, ok := d.cloud.botOf(s.ID); ok {
 		return d.cloudEntry(s, bot)
 	}
+	// Picked by a tap, upstairs as downstairs, so its thread opens: there's nothing to drive.
+	if hire, ok := d.t3Desks.hireOf(s.ID); ok {
+		entry := d.t3Entry(s, hire)
+		entry["headless"], entry["drivable"] = false, true
+		return entry
+	}
 	entry := d.sessionEntry(s)
 	if !s.Headless() {
 		floor, put := d.aboveGround(s)
@@ -263,7 +283,7 @@ func (d *Deck) upperEntry(s *Session) map[string]any {
 		return entry
 	}
 	entry["headless"] = true
-	for _, control := range []string{"keys", "fire", "mic", "dial", "dictates", "summary"} {
+	for _, control := range []string{"keys", "fire", "mic", "dial", "dictates", "summary", "phoneMic"} {
 		entry[control] = false
 	}
 	entry["role"] = nil

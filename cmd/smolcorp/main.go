@@ -61,6 +61,9 @@ func main() {
 		os.Exit(gm.RunMCP(args[1:], os.Stdin, os.Stdout, os.Stderr))
 	case "quit":
 		os.Exit(desktop.RunQuit())
+	case "core":
+		// Not in the usage: Smolcorp.app starts it, as its engine (start_darwin.go).
+		os.Exit(runCore(args[1:]))
 	case "version", "--version":
 		fmt.Println("Smolcorp", version)
 	case "help", "--help", "-h":

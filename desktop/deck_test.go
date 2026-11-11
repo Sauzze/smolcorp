@@ -164,6 +164,34 @@ func TestATapThatLandsTwiceSendsReturnOnce(t *testing.T) {
 	}
 }
 
+// ✗ from the phone on a Claude Code prompt: Claude ends the turn and waits for a prompt, which no
+// hook says. The key is white again, so the phone may type what to do instead; an event raised
+// before the ✗, arriving late, doesn't bring the prompt back. As the Mac app.
+func TestRejectingFromThePhoneLeavesTheSessionFree(t *testing.T) {
+	for _, action := range []string{"reject", "esc"} {
+		d, tab := madeButtonDeck(t)
+		d.sessions.Apply(map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s1", "tool_name": "Bash"}, Claude, "launcher:L1", "", 200)
+		if status, _ := d.Perform(action, "s1", url.Values{}); status != http.StatusNoContent || *sent(t, tab).Press != press(Escape) {
+			t.Fatalf("%s didn't press Escape", action)
+		}
+		d.mu.Lock()
+		state := d.sessions.Get("s1").State
+		late := d.sessions.Apply(map[string]any{"hook_event_name": "Notification", "session_id": "s1", "notification_type": "permission_prompt"},
+			Claude, "launcher:L1", "", 300)
+		after := d.sessions.Get("s1").State
+		d.mu.Unlock()
+		if state != Idle || after != Idle {
+			t.Fatalf("after %s the session is %s, then %s with a late notification (applied %v), want idle", action, state, after, late)
+		}
+	}
+	// A session that isn't asking is left as it is.
+	s := NewSessions()
+	s.Apply(event("UserPromptSubmit"), Claude, tab, "", 100)
+	if s.StoppedAsking("s1", 200) || stateAfter(t, s) != Thinking {
+		t.Fatal("a thinking session was marked idle")
+	}
+}
+
 func TestAReturnThatDidntGoDoesntHoldBackTheNext(t *testing.T) {
 	d, tab := madeButtonDeck(t)
 	d.mu.Lock()

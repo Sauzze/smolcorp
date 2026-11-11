@@ -40,6 +40,9 @@ type Config struct {
 	// ManagerEnabled is the front desk (manager) switch, the Mac app's
 	// managerEnabled: off until you turn it on. See manager.go.
 	ManagerEnabled bool `json:"managerEnabled"`
+	// ClaudeProfiles are the Claude accounts besides ~/.claude that setup confirmed (claudeaccounts.go),
+	// as the Mac app keeps them.
+	ClaudeProfiles []claudeProfile `json:"claudeProfiles,omitempty"`
 	// HooksDisconnected: you disconnected the agents on purpose, so smolcorp
 	// setup leaves them be. Connecting, on the setup page, clears it.
 	HooksDisconnected bool `json:"hooksDisconnected,omitempty"`
@@ -59,6 +62,9 @@ type Config struct {
 	// The folder new hires start in, and the agent they are.
 	HireFolder string `json:"hireFolder"`
 	HireAgent  string `json:"hireAgent"`
+	// The folders hires last started in, newest first, as the Mac app keeps
+	// them: setup's hire sheet offers those still there.
+	RecentHireFolders []string `json:"recentHireFolders,omitempty"`
 	// The terminal hires open in (see hireOpeners), the first installed when
 	// it's empty or not here, and whether the agent runs in a tmux session of
 	// its own there. The Mac app's choices aren't this system's, and are
@@ -68,6 +74,18 @@ type Config struct {
 	// Beta, Windows only: a role's Claude hire made by the hire engine in a window run by
 	// the launcher (hirelauncher.go), as the tmux engine does on Linux. Off unless switched on.
 	HireManagedWindows bool `json:"hireManagedWindows"`
+	// Agent windows (T796), the Mac app's hiresInBackground: false, a window
+	// for each hire, as before; true, hires run in tmux only, with no window
+	// (Linux, with tmux; see backgroundHires).
+	HiresInBackground bool `json:"hiresInBackground"`
+	// T3 Code (T796), the Mac app's t3CodeEnabled: whether its features show,
+	// and whether Smolcorp looks for it at all. Off until you turn it on; the
+	// T3 Code code asks t3CodeAllowed first.
+	T3CodeEnabled bool `json:"t3CodeEnabled"`
+	// Whether first setup has asked the two choices above. A new computer's
+	// file: not yet. A file from before them: as asked, so an existing user
+	// keeps what they had.
+	ChoicesAsked bool `json:"choicesAsked"`
 	// The roles `smolcorp run --role` starts, as the Mac app's office hires
 	// them: those that come with the app until you change them, and your own.
 	Roles []Role `json:"roles"`
@@ -76,6 +94,11 @@ type Config struct {
 	// one you've deleted isn't given back. Saved as every shipped role.
 	RolesOffered      []string `json:"rolesOffered"`
 	HasCompletedSetup bool     `json:"hasCompletedSetup"`
+	// Whether the first-run guide, the arrows in setup that point at the next
+	// thing to do, is over: finished or skipped. "Show Me Around Again" in the
+	// tray turns it back off. A file from before it, of someone who had set up
+	// already (setup opened, a hires folder or a GM, by hand too), counts as done.
+	GuideDone bool `json:"guideDone"`
 	// Window is where the office window was left, and whether it stays above the others (Windows).
 	Window      *WindowState `json:"window"`
 	AlwaysOnTop bool         `json:"alwaysOnTop"`
@@ -92,10 +115,29 @@ type Config struct {
 	// here looks in that app, which is the Mac's alone.
 	BotsAutoDetect *bool    `json:"botsAutoDetect,omitempty"`
 	HiddenBots     []string `json:"hiddenBots,omitempty"`
+	// The Mac's own settings, as the Mac app keeps them: pressing keys in other
+	// apps and the apps they may go to, In the Dock (unset for on), and
+	// dictation, its language (unset for the one the Mac suggests), Claude Code
+	// too, the clean-up and its names (unset for the app's). Used only under the
+	// Mac app, which does what they say (hostsetup.go); kept as set elsewhere.
+	KeystrokesAllowed  bool      `json:"keystrokesAllowed,omitempty"`
+	KeystrokeApps      []string  `json:"keystrokeApps,omitempty"`
+	ShowInDock         *bool     `json:"showInDock,omitempty"`
+	DictationEnabled   bool      `json:"dictationEnabled,omitempty"`
+	DictationLanguage  string    `json:"dictationLanguage,omitempty"`
+	DictationForClaude bool      `json:"dictationForClaude,omitempty"`
+	DictationCleanup   bool      `json:"dictationCleanup,omitempty"`
+	DictationGlossary  *[]string `json:"dictationGlossary,omitempty"`
 	// The floor new bots go to, 0 for the ground floor up to 5 for 6F, when
 	// no floor rule names one for them (see CloudBot.Floor); chosen in setup.
 	// Until it is, the floor your bots are on (newBotsFloor).
 	BotFloor int `json:"botFloor"`
+	// The phone's text (personal build on the Mac): whether a paired phone may type what it typed or heard
+	// into a desk's agent (POST /dictate, /choose; /peek and /choice over Tailscale), on unless the file says
+	// otherwise, as on the Mac; and whether an older page's text goes with Return once it's a few words.
+	// Kept under the Mac's names. Setup has no switch for them here yet: see phonetext.go.
+	PhoneMicEnabled  bool `json:"phoneMicEnabled"`
+	PhoneMicAutoSend bool `json:"phoneMicSkipsConfirm"`
 	// Whether the file had BotFloor: one from before it has it worked out
 	// again once the bots that were upstairs are settled (see settleBots).
 	botFloorKept bool
@@ -138,7 +180,7 @@ var logos = []string{"smolcorp", "keys"}
 func loadConfig() *Config {
 	config := &Config{Colours: map[string]string{}, Logo: "smolcorp", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook(),
 		MaxConfirm: true, Viewer: standardViewerSettings(),
-		MailMaxBytes: mailDefaultMaxBytes, MailPerHour: mailDefaultPerHour, MailWaitHours: mailDefaultWaitHours, BuiltinWatches: true}
+		MailMaxBytes: mailDefaultMaxBytes, MailPerHour: mailDefaultPerHour, MailWaitHours: mailDefaultWaitHours, BuiltinWatches: true, PhoneMicEnabled: true}
 	if data, err := os.ReadFile(configFile); err == nil {
 		// A field it can't read loses only itself. A file it can't read at all
 		// starts from the defaults, but a copy is kept beside it first, so the
@@ -157,16 +199,39 @@ func loadConfig() *Config {
 					config.unknown[name] = value
 				}
 			}
+			// Someone who had set up before the guide came never sees it unless they ask. A GM
+			// started by hand counts as hired: this app has no switch for it, but keeps the key.
+			if _, ok := fields["guideDone"]; !ok {
+				var byHand bool
+				_ = json.Unmarshal(fields["gmByHand"], &byHand)
+				config.GuideDone = config.HasCompletedSetup || config.HireFolder != "" || config.ManagerEnabled || byHand
+			}
+			// A file from before the two choices: asked already, as the Mac app reads it.
+			if _, ok := fields["choicesAsked"]; !ok {
+				config.ChoicesAsked = true
+			}
 			var floor int
 			if raw, ok := fields["botFloor"]; ok && json.Unmarshal(raw, &floor) == nil && floor >= 0 && floor < floorCount {
 				config.BotFloor, config.botFloorKept = floor, true
 			}
 		}
 	}
+	// Full paths only, and at most as many as the Mac app keeps.
+	config.RecentHireFolders = slices.DeleteFunc(config.RecentHireFolders, func(path string) bool { return !filepath.IsAbs(path) })
+	config.RecentHireFolders = config.RecentHireFolders[:min(len(config.RecentHireFolders), recentHireFoldersMost)]
+	// As the Mac's Config: an agent Smolcorp doesn't know (another case, a path, none) loads as
+	// Claude Code. Hiring with no role then fences or refuses it as Claude, as the Mac does.
+	if !slices.Contains(agents, Agent(config.HireAgent)) {
+		config.HireAgent = string(Claude)
+	}
 	// At least 1 each, as on the Mac (Config.swift).
 	config.MailMaxBytes = max(1, config.MailMaxBytes)
 	config.MailPerHour = max(1, config.MailPerHour)
 	config.MailWaitHours = max(1, config.MailWaitHours)
+	// The apps keys may go to, as many as the Mac app keeps (its AppList.checked), so asking it about
+	// them is never refused: a longer id than any app's isn't one.
+	config.KeystrokeApps = slices.DeleteFunc(config.KeystrokeApps, func(id string) bool { return id == "" || len(id) > bridgeTextMost })
+	config.KeystrokeApps = config.KeystrokeApps[:min(len(config.KeystrokeApps), keystrokeAppsMost)]
 	// Layouts are checked again as they load: their buttons type into sessions.
 	config.Layout = config.Layout.checked()
 	for i := range config.Profiles {

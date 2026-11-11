@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -96,12 +97,22 @@ var tailscaleAddresses = func() []string {
 // tailnet is Tailscale's range, 100.64.0.0/10 (the carrier-grade NAT block).
 var tailnet = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
 
+// tailnet6 is Tailscale's own IPv6 range, fd7a:115c:a1e0::/48: unlike 100.64/10, nobody else's.
+var tailnet6 = &net.IPNet{IP: net.ParseIP("fd7a:115c:a1e0::"), Mask: net.CIDRMask(48, 128)}
+
+// macTailscale: on a Mac, Tailscale's adapter is a utunN like any VPN's, so it's
+// told by its addresses, and `tailscale serve`'s ts.net names are let in as the
+// Mac app lets them in (see router.ServeHTTP). A variable so a test can say either.
+var macTailscale = runtime.GOOS == "darwin"
+
 // tailscaleFrom picks the Tailscale addresses out of one adapter: it must be
-// up, named Tailscale (tailscale0 on Linux), and the address IPv4 in the
-// tailnet range. An address in that range on another adapter is not Tailscale's:
-// some providers use it for their own customers.
+// up, Tailscale's, and the address IPv4 in the tailnet range. Tailscale's is one
+// named so (tailscale0 on Linux), or on a Mac, whatever its name, one that also
+// has an address in Tailscale's own IPv6 range. An address in the IPv4 range on
+// another adapter is not Tailscale's: some providers use it for their own customers.
 func tailscaleFrom(name string, up bool, ips []net.IP) []string {
-	if !up || !strings.HasPrefix(strings.ToLower(name), "tailscale") {
+	named := strings.HasPrefix(strings.ToLower(name), "tailscale")
+	if !up || !named && !(macTailscale && slices.ContainsFunc(ips, func(ip net.IP) bool { return ip.To4() == nil && tailnet6.Contains(ip) })) {
 		return nil
 	}
 	var found []string
@@ -130,6 +141,17 @@ func phoneHost() string {
 		return lan
 	}
 	return tailscale[0]
+}
+
+// phoneTailnet is where a phone signed in to Tailscale opens Smolcorp from
+// anywhere, for Pair a phone to say beside the Wi-Fi address: "" with no
+// Tailscale here, or when the phone's address is Tailscale's already.
+func phoneTailnet() string {
+	tailscale := tailscaleAddresses()
+	if len(tailscale) == 0 || phoneHost() == tailscale[0] {
+		return ""
+	}
+	return fmt.Sprintf("http://%s:%d", tailscale[0], Port)
 }
 
 // listenerFor opens what the scope asks for on port.

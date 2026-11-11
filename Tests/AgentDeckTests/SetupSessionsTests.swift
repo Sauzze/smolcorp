@@ -19,6 +19,13 @@ final class SetupSessionsTests: XCTestCase {
         XCTAssertEqual(SetupSessions.pairing(code: nil, expiresIn: 0, address: "", for: .tool)["open"] as? Bool, false)
     }
 
+    /// Pair a phone says the Tailscale address where there's one, as the Go app does: "" where there's none.
+    func testThePairingStateSaysTheTailscaleAddressOrNone() {
+        XCTAssertEqual(SetupSessions.pairing(code: nil, expiresIn: 0, address: "http://mac.local:7710", for: .page)["tailnet"] as? String, "")
+        XCTAssertEqual(SetupSessions.pairing(code: "123456", expiresIn: 280, address: "http://mac.local:7710", tailnet: "https://mac.example.ts.net", for: .page)["tailnet"] as? String,
+                       "https://mac.example.ts.net")
+    }
+
     func testTheMenusPageGetsASessionThatIsShownTheCode() throws {
         let sessions = SetupSessions()
         let cookie = try XCTUnwrap(sessions.open(link: sessions.newLink()))

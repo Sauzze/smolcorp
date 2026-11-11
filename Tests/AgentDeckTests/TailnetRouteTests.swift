@@ -86,7 +86,11 @@ final class TailnetRouteTests: XCTestCase {
         }
         XCTAssertGreaterThan(routes.count, 30)
         let paired: Set = ["/events", "/focus", "/act", "/dictate", "/peek", "/summary", "/glossary", "/choice", "/choose",
-                           "/conversation", "/notifications", "/session/info", "/approvals", "/reviews"]
+                           "/conversation", "/notifications", "/session/info", "/approvals", "/reviews",
+                           // Open in T3 Code (T792): behind the key, then the office's own window alone.
+                           "/t3code", "/t3code/open",
+                           // Open a window (T796).
+                           "/hire/window"]
         for route in routes {
             XCTAssertTrue(DeckRouter.isSetupPath(route) || paired.contains(route), "\(route) is neither setup's nor behind a paired key")
         }
@@ -168,20 +172,22 @@ final class TailnetRouteTests: XCTestCase {
 
     // MARK: Dictation
 
-    /// The phone's words are typed only from the Tailscale deck, over HTTPS:
-    /// a key seen on the Wi-Fi's plain http can't type a prompt of its own.
-    func testDictationIsTakenOnlyThroughTailscale() throws {
-        let wifi = Request.addressed(method: "POST", path: "/dictate", query: ["t": "a-paired-key", "session": "s1"],
-                                     headers: ["host": "192.168.1.4:7710"], body: Data(), fromLoopback: false, remoteAddress: "192.168.1.9")
-        XCTAssertFalse(DeckRouter.takesDictation(wifi))
-        XCTAssertFalse(DeckRouter.takesDictation(fromThisMac("POST", "/dictate")))
-        XCTAssertTrue(DeckRouter.takesDictation(throughTailscale("POST", "/dictate", query: ["t": "a-paired-key", "session": "s1"])))
-        // And the route asks it first, answering 403.
+    /// The phone's text is typed from a paired phone over the Wi-Fi's plain http as well as through
+    /// Tailscale (I34): the gate is the phone's key, as for every key it presses, never where the
+    /// request came from; the office's own window types none. The route asks it first, answering 403.
+    func testTextIsTakenFromAPairedPhoneOverTheWiFiOrTailscale() throws {
+        let phone = PairedPhone(id: "p1", name: "iPhone", pairedAt: Date(), lastSeen: Date(), keyHash: "")
+        XCTAssertTrue(DeckRouter.takesDictation(phone: phone))
+        XCTAssertFalse(DeckRouter.takesDictation(phone: .officeWindow))
         let router = try Self.source("Sources/AgentDeck/DeckRouter.swift")
-        let route = try XCTUnwrap(router.range(of: #"case ("POST", "/dictate"):"#))
-        let first = router[route.upperBound...].split(separator: "\n").prefix(3).map { $0.trimmingCharacters(in: .whitespaces) }
-        XCTAssertEqual(first.first, "guard DeckRouter.takesDictation(request) else {")
-        XCTAssertTrue(first.dropFirst().first?.hasPrefix("return respond(.status(403,") == true)
+        for path in ["/dictate", "/choose"] {
+            let route = try XCTUnwrap(router.range(of: "case (\"POST\", \"\(path)\"):"))
+            let first = router[route.upperBound...].split(separator: "\n").first.map { $0.trimmingCharacters(in: .whitespaces) }
+            XCTAssertEqual(first, "guard DeckRouter.takesDictation(phone: phone) else { return respond(.status(403, DeckRouter.phonesOnly)) }", path)
+        }
+        // After the phone's key: a request without one never gets there (401), as PhoneMicTests checks on a deck.
+        let key = try XCTUnwrap(router.range(of: "guard let phone else { return respond(.status(401)) }"))
+        XCTAssertLessThan(key.lowerBound, try XCTUnwrap(router.range(of: "case (\"POST\", \"/dictate\"):")).lowerBound)
     }
 
     /// The peek at an agent's input line is what its terminal shows: given
@@ -256,21 +262,11 @@ final class TailnetRouteTests: XCTestCase {
         XCTAssertFalse(choice[forPhone.upperBound...].prefix(300).contains("detail"))
     }
 
-    /// A typed answer to a menu's "Type something" is text typed into an
-    /// agent, as dictation is: taken only through Tailscale, never over the
-    /// Wi-Fi's plain http (P-1), and the route asks it first.
-    func testATypedAnswerIsTakenOnlyThroughTailscale() throws {
-        let wifi = Request.addressed(method: "POST", path: "/choose", query: ["t": "a-paired-key", "session": "s1", "option": "other"],
-                                     headers: ["host": "192.168.1.4:7710"], body: Data(), fromLoopback: false, remoteAddress: "192.168.1.9")
-        XCTAssertFalse(DeckRouter.takesDictation(wifi))
-        XCTAssertFalse(DeckRouter.takesDictation(fromThisMac("POST", "/choose")))
-        XCTAssertTrue(DeckRouter.takesDictation(throughTailscale("POST", "/choose", query: ["t": "a-paired-key", "session": "s1"])))
+    /// A typed answer to a menu's "Type something" is text typed into an agent, as dictation is: from a
+    /// paired phone, over the Wi-Fi or Tailscale (I34; the gate is checked above), and only by its own route.
+    func testATypedAnswerIsTakenOnlyThroughItsOwnRoute() throws {
         let router = try Self.source("Sources/AgentDeck/DeckRouter.swift")
-        let route = try XCTUnwrap(router.range(of: #"case ("POST", "/choose"):"#))
-        let first = router[route.upperBound...].split(separator: "\n").prefix(3).map { $0.trimmingCharacters(in: .whitespaces) }
-        XCTAssertEqual(first.first, "guard DeckRouter.takesDictation(request) else {")
-        XCTAssertTrue(first.dropFirst().first?.hasPrefix("return respond(.status(403,") == true)
-        // The deck's /act, which the Wi-Fi reaches, never takes text for it.
+        // The deck's /act never takes text for it.
         let deck = try Self.source("Sources/AgentDeck/Deck.swift")
         XCTAssertEqual(deck.components(separatedBy: "answerOther(").count, 2, "defined, and called by /choose only")
         XCTAssertEqual(router.components(separatedBy: "deck.answerOther(").count, 2)

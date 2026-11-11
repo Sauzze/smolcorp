@@ -172,6 +172,19 @@ func (h *hireTmux) paneState() PaneState {
 	return ReadPaneState(screen)
 }
 
+// viewers is how many terminal windows are attached to the session; -1 when tmux couldn't say.
+func (h *hireTmux) viewers() int {
+	out, status, ran := h.run(h.command("list-clients", "-t", "="+hireSession, "-F", "#{client_tty}"))
+	if !ran || status != 0 {
+		return -1
+	}
+	return len(strings.Fields(out))
+}
+
+// detachViewers detaches the windows attached to the session, on this socket
+// alone: the hire carries on with no window (agent windows in the background).
+func (h *hireTmux) detachViewers() bool { return h.ok("detach-client", "-s", "="+hireSession) }
+
 // end ends the hire's session by its own name, on this socket only. With no
 // other session the server ends with it.
 func (h *hireTmux) end() bool { return h.ok("kill-session", "-t", "="+hireSession) }

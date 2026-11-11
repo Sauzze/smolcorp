@@ -30,6 +30,18 @@ final class Config: Codable {
     /// agent runs in a tmux session of its own there.
     var hireTerminal = "terminal"
     var hireInTmux = false
+    /// Agent windows (T796): off, a window for each hire, as before; on, hires
+    /// run in tmux only, with no window, and a desk's "Open a window" shows one.
+    /// Only with tmux on this Mac (see `Choices.background`).
+    var hiresInBackground = false
+    /// T3 Code (T796): whether its features show, in the office and Setup, and
+    /// whether Smolcorp looks for it at all. Off until you turn it on; the T3
+    /// Code code asks `Choices.t3Code` first.
+    var t3CodeEnabled = false
+    /// Whether first setup has asked the two choices above. A new Mac's file:
+    /// not yet. A file from before them: as asked, so an existing user keeps
+    /// what they had and isn't asked.
+    var choicesAsked = false
     /// Where hires' git worktrees go; empty puts them beside the repo (see `HireDesk`).
     var hireWorktrees = ""
     /// Dictation for agents with no voice mode of their own (see `Dictation`):
@@ -91,6 +103,10 @@ final class Config: Codable {
     /// default: the box shows what was heard, to send, type or cancel.
     var phoneMicAutoSend = false
     var hasCompletedSetup = false
+    /// Whether the first-run guide, the arrows in setup that point at the next thing to do, is over:
+    /// finished or skipped. "Show Me Around Again" in the Help menu turns it back off. A file from
+    /// before it, of someone who had set up already (setup opened, a hires folder or a GM, by hand too), counts as done.
+    var guideDone = false
     /// You disconnected the agents on purpose, so `--setup` leaves them be.
     /// Connecting, in Settings or Start here, clears it.
     var hooksDisconnected = false
@@ -152,6 +168,10 @@ final class Config: Codable {
     var floors = Floor.standard
     /// The folders whose sessions sit on a floor of their own (see `FloorRule`).
     var floorRules: [FloorRule] = []
+    /// Which engine runs the deck: none or "swift" is this app's own, as
+    /// always; "go" is the Go core the app starts as its child (`Engine`),
+    /// for a test copy only for now. Never saved unless it was set.
+    var engine: String?
     /// Some of the file couldn't be read as this version reads it, and is
     /// left out: a copy of the file is kept before it's saved over.
     private(set) var lostOnLoad = false
@@ -163,11 +183,13 @@ final class Config: Codable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles, rolesOffered
-        case hireTerminal, hireInTmux, hireWorktrees, recentHireFolders, dictationEnabled, dictationLanguage, dictationForClaude
+        case hireTerminal, hireInTmux, hiresInBackground, t3CodeEnabled, choicesAsked, hireWorktrees, recentHireFolders, dictationEnabled, dictationLanguage, dictationForClaude
         case dictationCleanup, dictationGlossary
         case musicEnabled, maxConfirm, webhook, summaryOptIn, summaryProvider, viewer, hasCompletedSetup, hooksDisconnected, claudeProfiles, managerEnabled, gmByHand
+        case guideDone
         case mailMaxBytes, mailPerHour, mailWaitHours, mailInboxSocket, builtinWatches, teamScreen, keystrokesAllowed, keystrokeApps
         case phoneMicEnabled, showInDock, cloudBots, floors, floorRules, botsAutoDetect, hiddenBots, botFloor
+        case engine
         // Under a name of its own since the confirm box: the old one, saved as
         // true by every earlier build, meant no box had been offered yet.
         case phoneMicAutoSend = "phoneMicSkipsConfirm"
@@ -207,6 +229,9 @@ final class Config: Codable {
         hireAgent = field(String.self, .hireAgent).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
         hireTerminal = field(String.self, .hireTerminal).flatMap { id in Openers.choices.contains { $0.id == id } ? id : nil } ?? hireTerminal
         hireInTmux = field(Bool.self, .hireInTmux) ?? false
+        hiresInBackground = field(Bool.self, .hiresInBackground) ?? false
+        t3CodeEnabled = field(Bool.self, .t3CodeEnabled) ?? false
+        choicesAsked = field(Bool.self, .choicesAsked) ?? true
         hireWorktrees = field(String.self, .hireWorktrees).flatMap { $0.hasPrefix("/") ? $0 : nil } ?? ""
         recentHireFolders = Array((field([String].self, .recentHireFolders) ?? []).filter { $0.hasPrefix("/") }.prefix(Config.recentHireFoldersMost))
         dictationEnabled = field(Bool.self, .dictationEnabled) ?? false
@@ -237,6 +262,8 @@ final class Config: Codable {
         }
         managerEnabled = field(Bool.self, .managerEnabled) ?? false
         gmByHand = field(Bool.self, .gmByHand) ?? false
+        // Someone who had set up before the guide came never sees it unless they ask.
+        guideDone = field(Bool.self, .guideDone) ?? (hasCompletedSetup || !hireFolder.isEmpty || managerEnabled || gmByHand)
         // At least 1, so a bad value can't shut the mail off without saying so.
         mailMaxBytes = max(1, field(Int.self, .mailMaxBytes) ?? MailRouter.defaultMaxBytes)
         mailPerHour = max(1, field(Int.self, .mailPerHour) ?? MailRouter.defaultPerHour)
@@ -261,6 +288,8 @@ final class Config: Codable {
         // Checked as they load: their names are drawn in the office.
         floors = Floor.checked(field([Lossy<Floor>].self, .floors)?.map(\.value) ?? [])
         floorRules = FloorRule.checked(field([Lossy<FloorRule>].self, .floorRules)?.compactMap(\.value) ?? [])
+        // Kept as written, even a name this version doesn't know, which runs the Swift engine.
+        engine = field(String.self, .engine)
         lostOnLoad = lost
     }
 

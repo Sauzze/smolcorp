@@ -209,6 +209,20 @@
   html.bare .info-rows { gap: 1px 12px; font-size: 12px; }
   html.bare #info .summary-head { margin-bottom: 4px; }
   html.bare .info-note { margin-top: 5px; }
+  /* Open in T3 Code (T792): the office's own window on this computer only, a card for the picked agent. */
+  #t3 { cursor: default; }
+  .t3-open { display: block; width: 100%; min-height: 40px; margin-top: 4px; border-radius: 10px; cursor: pointer;
+    font: 600 15px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: #fff; background: #2563eb; border: 2px solid #1f2129; box-shadow: 0 2px 0 #1f2129; }
+  .t3-open:disabled { opacity: .35; cursor: default; box-shadow: none; }
+  /* A hire in T3 Code's desk (T3D-a): its card's Let go, and the confirm that says what's removed. */
+  .t3-tag { display: inline-block; margin: 2px 0 6px; padding: 2px 6px; border-radius: 6px; font: 700 11px/1.3 ui-monospace, Menlo, monospace;
+    letter-spacing: .04em; color: #fff; background: #6d28d9; }
+  .t3-leave { display: block; width: 100%; min-height: 36px; margin-top: 8px; border-radius: 10px; cursor: pointer;
+    font: 600 14px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: #1f2129; background: #f4f1ea; border: 2px solid #1f2129; }
+  .t3-leave.sure { color: #fff; background: #b91c1c; }
+  .t3-leave:disabled { opacity: .35; cursor: default; }
+  .t3-leave[hidden], .t3-tag[hidden] { display: none; }
   /* Served at the Tailscale address: marked, so it's never mistaken for the Wi-Fi's deck. Where the http hint
      sits, which never shows here. */
   .tail-mark { display: none; }
@@ -241,9 +255,9 @@
   <div class="summary-head"><span>✨</span><b id="summary-name"></b><span aria-label="Close">✕</span></div>
   <div class="summary-text" id="summary-text"></div>
 </div>
-<div class="confirm" id="confirm" role="dialog" aria-label="What the phone heard" hidden>
+<div class="confirm" id="confirm" role="dialog" aria-label="Text for the agent" hidden>
   <div class="summary-head"><span>🎙</span><b id="confirm-name"></b></div>
-  <textarea id="confirm-text" rows="3" autocapitalize="sentences" spellcheck="true" aria-label="What the phone heard"></textarea>
+  <textarea id="confirm-text" rows="3" autocapitalize="sentences" spellcheck="true" aria-label="What the phone heard, or what you type"></textarea>
   <div class="confirm-why" id="confirm-why" role="status" hidden>It's asking you something: answer it on the deck first. Your words wait here.</div>
   <div class="confirm-keys">
     <button class="confirm-send" id="confirm-send">Send ⏎</button>
@@ -269,6 +283,15 @@
   <div class="summary-head"><span>ⓘ</span><b id="info-name"></b><span aria-label="Close">✕</span></div>
   <dl class="info-rows" id="info-rows"></dl>
   <div class="info-note" id="info-note" hidden></div>
+</div>
+<div class="summary" id="t3" role="dialog" aria-label="Open in T3 Code" hidden>
+  <div class="summary-head"><span>T3</span><b id="t3-name"></b><span id="t3-close" role="button" aria-label="Close" style="cursor:pointer">✕</span></div>
+  <span class="t3-tag" id="t3-tag" hidden></span>
+  <button class="t3-open" id="t3-open" disabled>Open in T3 Code</button>
+  <div class="info-note" id="t3-line" role="status" hidden></div>
+  <button class="t3-leave" id="t3-leave" type="button" hidden>Let go…</button>
+  <div class="info-note" id="t3-confirm" hidden></div>
+  <button class="t3-leave sure" id="t3-leave-yes" type="button" hidden></button>
 </div>
 <div class="tail-mark" aria-hidden="true">TAIL · phone mic</div>
 <div class="mic-hint" id="mic-hint" role="status" hidden>🎙 Phone mic needs HTTPS: see Tailscale in setup</div>
@@ -325,6 +348,9 @@
       tick();
       selected = id;
       render();
+      // A hire in T3 Code's desk: the tap opens its own thread in T3 Code, and its card (T3D-a).
+      const t3Desk = sessions.find((s) => s.id === id && s.t3);
+      if (t3Desk) return openT3Desk(t3Desk, true);
       post('/focus', { session: id });
     },
     max() {
@@ -424,6 +450,8 @@
       // same two keys, and answers them itself from what reaches it as /act.
       if (bare && action === `button:${BOARD_BUTTON}`) return openBoard(selected);
       if (bare && action === `button:${INFO_BUTTON}`) return openInfo(selected);
+      if (bare && action === `button:${WINDOW_BUTTON}`) return openHireWindow(selected);
+      if (t3Here && action === `button:${T3_BUTTON}`) return openT3(selected);
       if (action.startsWith('button:')) return send('/act', { session: selected, action: 'button', button: action.slice(7) });
       if (['esc', 'send', 'clear'].includes(action)) send('/act', { session: selected, action });
       if (action === 'summary') summarize(selected);
@@ -773,18 +801,25 @@
    * Only the words, to the computer, for the session that was listening:
    * with Return if `send` (the box's Send ⏎), without it if false (Type
    * only). Without the box, the computer decides by the setting, as before.
+   * Several lines go as they are, as one paste (I34); refused, as where the
+   * desk can't take one, the words from the box go back in it.
    */
   async function dictate(session, text, send) {
-    const res = await post('/dictate', { session }, undefined, send === undefined ? { text } : { text, send });
+    const res = await post('/dictate', { session }, timeLimit(INPUT_WAIT), send === undefined ? { text } : { text, send });
     if (!res) return flash("Can't reach your computer");
+    if (res.timedOut) return flash(NO_ANSWER);
     if (res.status === 401) return unpaired();
-    if (!res.ok) return flash((await res.text()) || `failed (${res.status})`);
+    if (!res.ok) {
+      if (send !== undefined && res.status < 500) confirmDictation(session, text);
+      return flash((await res.text()) || `failed (${res.status})`);
+    }
     const sent = send === undefined ? phoneMic.autoSend && text.split(/\s+/).length >= 3 : send;
     flash(sent ? `sent: ${text}` : `typed: ${text}`);
-    setTimeout(() => peek(session), PEEK_AFTER);
+    // The peek reads a terminal: through Tailscale's HTTPS only, as the computer gives it.
+    if (location.protocol === 'https:') setTimeout(() => peek(session), PEEK_AFTER);
   }
 
-  /** The box over the room: what was heard, to correct, for the session that was listening. */
+  /** The box over the room: what was heard, to correct, or what you type, for the session it's for. */
   let confirming = null; // the session id the box is for
   function confirmDictation(session, text) {
     confirming = session;
@@ -814,7 +849,8 @@
   }
   function confirmed(send) {
     const session = confirming;
-    const text = $('confirm-text').value.replace(/\s+/g, ' ').trim();
+    // Several lines stay several lines: the computer sends them as one paste, or says it can't (I34).
+    const text = $('confirm-text').value.replace(/\r\n?/g, '\n').trim();
     if (!session || $('confirm-send').disabled) return;
     tick();
     if (!text) return flash('Nothing to type');
@@ -929,9 +965,14 @@
       flash(rehearse(params));
       return false;
     }
-    const res = await post(pathname, params, signal);
+    const input = pathname === '/act' && INPUT_ACTIONS.has(params.action);
+    const res = await post(pathname, params, signal || (input ? timeLimit(INPUT_WAIT) : undefined));
     if (!res) {
       flash("Can't reach your computer");
+      return false;
+    }
+    if (res.timedOut) {
+      flash(NO_ANSWER);
       return false;
     }
     if (res.status === 401) unpaired();
@@ -1021,11 +1062,43 @@
   const BOARD_EVERY = 3000;
   const INFO_EVERY = 5000;
 
+  /*
+   * Agent windows in the background (T796): the office's own window on the Mac gets one more key in the picked
+   * agent's row, ⧉ window, which opens a window attached to that hire's tmux session. The Mac answers /hire/window
+   * to that window alone, never to a phone, and says whether hires run in the background; it's asked again now
+   * and then, as Settings may change it.
+   */
+  const WINDOW_BUTTON = 'smolcorp-window';
+  let windowKey = false;
+  let windowSnapshot = null;
+
+  function askWindowKey() {
+    get('/hire/window').then(async (res) => {
+      const answer = res && res.ok ? await res.json().catch(() => null) : null;
+      const shown = !!(answer && answer.background);
+      if (shown === windowKey) return;
+      windowKey = shown;
+      if (windowSnapshot) office.show({ ...withMacKeys(windowSnapshot), theme: {} });
+    });
+  }
+  if (bare && !preview) {
+    askWindowKey();
+    setInterval(askWindowKey, 30000);
+  }
+
+  async function openHireWindow(id) {
+    const res = await post('/hire/window', { session: id });
+    if (!res) return flash("Can't reach your Mac.");
+    flash(res.ok ? "Its window is open." : await problemText(res));
+  }
+
   function withMacKeys(data) {
-    if (!bare) return data;
+    const buttons = [...(bare ? [{ id: BOARD_BUTTON, label: '▤ conversation' }, { id: INFO_BUTTON, label: 'ⓘ info' }] : []),
+      ...(bare && windowKey ? [{ id: WINDOW_BUTTON, label: '⧉ window' }] : []),
+      ...(t3Here ? [{ id: T3_BUTTON, label: 'T3 Code' }] : [])];
+    if (!buttons.length) return data;
     const rows = data.layout && Array.isArray(data.layout.rows) ? data.layout.rows : [];
-    const keys = { buttons: [{ id: BOARD_BUTTON, label: '▤ conversation' }, { id: INFO_BUTTON, label: 'ⓘ info' }] };
-    return { ...data, layout: { ...(data.layout || {}), rows: [keys, ...rows] } };
+    return { ...data, layout: { ...(data.layout || {}), rows: [{ buttons }, ...rows] } };
   }
 
   function get(pathname, params = {}) {
@@ -1033,9 +1106,10 @@
     return fetch(`${pathname}?${new URLSearchParams({ t: token, ...params })}`).catch(() => {});
   }
 
-  async function problemText(res) {
+  // A body longer than `longest` isn't a sentence meant to be read: its status is said instead.
+  async function problemText(res, longest = 200) {
     const text = (await res.text().catch(() => '')).trim();
-    return text && text.length <= 200 ? text : `Your computer answered ${res.status}.`;
+    return text && text.length <= longest ? text : `Your computer answered ${res.status}.`;
   }
 
   /*
@@ -1196,6 +1270,162 @@
     refreshInfo();
   }
 
+  /* ------------------------------------------- Open in T3 Code (T792), the office's own window on this computer */
+
+  /*
+   * One more key in the picked agent's row, T3 Code, only in the office's own window on this computer: the computer
+   * answers /t3code to that window alone, never to a phone, and the key is added only once it has. A phone never
+   * asks. The key opens a card: Open in T3 Code for a hire's folder, greyed with its hint where T3 Code or its t3
+   * command is missing; what's installed is asked again each time the card opens.
+   */
+  const T3_BUTTON = 'smolcorp-t3code';
+  const T3_NOTE = 'T3 Code opens its own agent there, separate from this hire.';
+  const T3_OPENED = { thread: "T3 Code is open on this hire's folder, in a new thread.", project: "Added to T3 Code's projects: open T3 Code to see it.",
+    unsure: "T3 Code has this hire's folder open as a project; it didn't confirm a new thread, so look in T3 Code.",
+    link: "T3 Code is open on this hire's own thread." };
+  /* A hire that runs in T3 Code (T797b, experimental): its card says so, with its branch and its thread's status. */
+  const T3_STATUS = { starting: 'starting', working: 'at work', waiting: 'waiting for an answer in T3 Code', done: 'done', unknown: "T3 Code didn't say" };
+  let t3Here = false;  // the computer said this window may open T3 Code
+  let t3Snapshot = null; // the last snapshot, to show again with the key once it's allowed
+  let t3For = null;    // the session the card is for
+
+  if (whole && !preview && !saver && !matchMedia('(pointer: coarse)').matches) {
+    get('/t3code').then((res) => {
+      if (!res || !res.ok) return;
+      t3Here = true;
+      if (t3Snapshot) office.show({ ...withMacKeys(t3Snapshot), theme: {} });
+    });
+  }
+
+  function t3Say(text) {
+    $('t3-line').textContent = text;
+    $('t3-line').hidden = !text;
+  }
+
+  async function openT3(id) {
+    const session = sessions.find((s) => s.id === id);
+    if (!session) return;
+    t3For = id;
+    t3DeskFor = null;
+    $('t3-tag').hidden = true;
+    $('t3-leave').hidden = true;
+    t3Confirm(false);
+    $('t3-name').textContent = session.project || session.name;
+    $('t3-open').disabled = true;
+    t3Say('');
+    $('t3').hidden = false;
+    const res = await get('/t3code', { session: id, fresh: '1' });
+    const found = res && res.ok ? await res.json().catch(() => null) : null;
+    if (t3For !== id) return;
+    if (!found) return t3Say("Couldn't tell whether T3 Code is installed.");
+    if (!found.hire) return t3Say("Only a hire's folder opens in T3 Code: this agent wasn't hired by Smolcorp.");
+    if (found.lane) {
+      const lane = found.lane;
+      $('t3-open').disabled = !((found.state === 'found' || found.state === 'appOnly') && lane.canOpen);
+      return t3Say(`${lane.tag}${lane.branch ? ` · ${lane.branch}` : ''} · ${T3_STATUS[lane.status] || T3_STATUS.unknown}. Let it go from Setup's team list or from its desk.`);
+    }
+    const usable = found.state === 'found' || found.state === 'cliOnly';
+    $('t3-open').disabled = !usable;
+    t3Say(usable ? (found.state === 'found' ? T3_NOTE : '') : found.hint);
+  }
+
+  $('t3-open').addEventListener('click', async () => {
+    // A T3 desk's card: its own thread, as its tap opens it.
+    if (t3DeskFor) return t3DeskOpen(t3DeskFor);
+    const id = t3For;
+    $('t3-open').disabled = true;
+    t3Say('Opening T3 Code…');
+    const res = await post('/t3code/open', { session: id });
+    if (t3For !== id) return;
+    $('t3-open').disabled = false;
+    t3Say(res && res.ok ? T3_OPENED[(await res.json().catch(() => ({}))).opened] || T3_OPENED.thread
+      : res ? await problemText(res) : "Couldn't reach your computer.");
+  });
+
+  $('t3-close').addEventListener('click', () => {
+    t3For = null;
+    t3DeskFor = null;
+    $('t3').hidden = true;
+  });
+
+  /*
+   * A hire that runs in T3 Code (T3D-a, experimental) has a desk: its card says so, with its branch and its thread's
+   * status as T3 Code last said it. Tapped, its own thread opens in T3 Code, on the computer; the card's button opens
+   * it again. Let go is the lane's, after a confirm that says what's removed. Nothing here types into it: its desk has
+   * no keys, mic or fire, and mail reaches it through T3 Code.
+   */
+  const T3_LET_GO = "T3 Code's thread for this hire, and its history in T3 Code, are removed. Its worktree and branch stay.";
+  let t3DeskFor = null; // the T3 desk the card is for
+
+  /** The name the office gives desk `s`: its nickname on the team, else its folder's. */
+  function deskName(s) {
+    const member = layout && layout.room && layout.room.team && Object.hasOwn(layout.room.team, s.name) ? layout.room.team[s.name] : null;
+    return (member && member.name) || s.project || s.name;
+  }
+
+  function t3DeskLine(s) {
+    const t3 = s.t3 || {};
+    return `${t3.branch ? `${t3.branch} · ` : ''}${T3_STATUS[t3.status] || T3_STATUS.unknown}.`;
+  }
+
+  async function openT3Desk(s, open) {
+    const first = t3DeskFor !== s.id;
+    t3For = null;
+    t3DeskFor = s.id;
+    $('t3-name').textContent = deskName(s);
+    $('t3-tag').textContent = (s.t3 && s.t3.tag) || 'EXPERIMENTAL · runs in T3 Code';
+    $('t3-tag').hidden = false;
+    $('t3-open').disabled = !(s.t3 && s.t3.canOpen);
+    $('t3-leave').hidden = false;
+    $('t3-leave').disabled = false;
+    if (first) t3Confirm(false);
+    t3Say(t3DeskLine(s));
+    $('t3').hidden = false;
+    if (open) await t3DeskOpen(s.id);
+  }
+
+  async function t3DeskOpen(id) {
+    if (preview) return t3Say('Opens its thread in T3 Code.');
+    $('t3-open').disabled = true;
+    t3Say('Opening T3 Code…');
+    const res = await post('/focus', { session: id });
+    if (t3DeskFor !== id) return;
+    const s = sessions.find((x) => x.id === id);
+    $('t3-open').disabled = !(s && s.t3 && s.t3.canOpen);
+    // Its status stays in front of what happened, opened or not.
+    const said = res && res.ok ? T3_OPENED.link : res ? await problemText(res) : "Couldn't reach your computer.";
+    t3Say(`${s ? t3DeskLine(s) + ' ' : ''}${said}`);
+  }
+
+  function t3Confirm(on) {
+    const s = sessions.find((x) => x.id === t3DeskFor);
+    $('t3-confirm').textContent = on ? `Let ${s ? deskName(s) : 'this hire'} go? ${T3_LET_GO}` : '';
+    $('t3-confirm').hidden = !on;
+    $('t3-leave-yes').textContent = `Let ${s ? deskName(s) : 'it'} go`;
+    $('t3-leave-yes').hidden = !on;
+    $('t3-leave').textContent = on ? 'Keep it' : 'Let go…';
+  }
+
+  $('t3-leave').addEventListener('click', () => t3Confirm($('t3-confirm').hidden));
+  $('t3-leave-yes').addEventListener('click', async () => {
+    const id = t3DeskFor;
+    if (!id) return;
+    t3Confirm(false);
+    $('t3-leave').disabled = true;
+    t3Say('Letting go…');
+    if (preview) return t3Say('Lets it go: its thread in T3 Code is removed; its worktree and branch stay.');
+    const res = await post('/act', { session: id, action: 'letgo' });
+    if (t3DeskFor !== id) return;
+    $('t3-leave').disabled = false;
+    if (res && res.ok) {
+      $('t3-leave').hidden = true;
+      $('t3-open').disabled = true;
+      return t3Say("Let go: its thread in T3 Code was removed; its worktree and branch were kept.");
+    }
+    // The lane's refusal, said in full: it can carry T3 Code's own line, and the names of what still works there.
+    t3Say(res ? await problemText(res, 700) : "Couldn't reach your computer.");
+  });
+
   /* ------------------------------------------------------------ ⚙︎ settings, on a phone */
 
   let dictationNow = null; // the computer's dictation, as last streamed: its clean-up, where the build has it
@@ -1226,6 +1456,16 @@
         openSettings();
       }));
     }
+    // Text for the picked desk, typed here: the way in where the phone's own mic can't listen, as over the
+    // Wi-Fi's plain http (I34), and over HTTPS without speaking. Only where the computer types into that desk.
+    const picked = !preview && !whole && phoneMic.on && selected && sessions.find((x) => x.id === selected);
+    if (picked && picked.phoneMic) {
+      row(`Type to ${picked.project || picked.name}`, button('Type…', null, () => {
+        closeSettings();
+        confirmDictation(picked.id, '');
+        $('confirm-text').focus();
+      }));
+    }
     if (dictationNow && typeof dictationNow.cleanup === 'boolean') {
       const on = dictationNow.cleanup;
       row('Clean up dictation', button(on ? 'On' : 'Off', on, () => {
@@ -1233,6 +1473,14 @@
         dictationNow = { ...dictationNow, cleanup: !on };
         openSettings();
       }));
+    }
+    if (!preview && !whole && phoneMic.on && location.protocol !== 'https:') {
+      rows.push(Object.assign(document.createElement('div'), { className: 'info-note', id: 'lan-note',
+        textContent: "Over the Wi-Fi, what you type isn't encrypted. Tailscale is the private option." }));
+    }
+    if (!preview && !whole && phoneMic.on) {
+      rows.push(Object.assign(document.createElement('div'), { className: 'info-note', id: 'clipboard-note',
+        textContent: "Several lines typed to Claude Code in Terminal, iTerm2 or Ghostty go through the clipboard: a clipboard manager, or iTerm2's paste history, may keep a copy, and a password you'd copied is cleared, not put back." }));
     }
     $('settings-rows').replaceChildren(...rows);
     $('settings').hidden = false;
@@ -1339,9 +1587,12 @@
 
   function render() {
     if (selected && !sessions.some((s) => s.id === selected)) selected = null;
-    // Nothing chosen: whoever is waiting on you, else the first, on the ground floor's keys. Upstairs, an agent is
-    // picked only by a tap, where it can be seen: the elevator's list dots a floor where someone waits.
-    if (!selected && keyed.length) selected = (keyed.find((s) => s.state === 'asking') || keyed[0]).id;
+    // Nothing chosen: whoever is waiting on you, else the first, on the ground floor's keys, one with controls (a
+    // hire in T3 Code's desk has none) before one without. Upstairs, an agent is picked only by a tap, where it can be
+    // seen: the elevator's list dots a floor where someone waits.
+    if (!selected && keyed.length) {
+      selected = (keyed.find((s) => s.state === 'asking') || keyed.find((s) => !s.t3) || keyed[0]).id;
+    }
     office.select(selected);
     // An agent gone: its conversation and its card go with it.
     if (board && !sessions.some((s) => s.id === board.session)) closeBoard();
@@ -1353,11 +1604,29 @@
 
   /* ----------------------------------------------------------- plumbing */
 
+  /*
+   * A desk's keys and text, and the words dictated: the phone never just waits. The computer answers within
+   * seconds, saying so itself when a terminal isn't answering; past this, it's the computer that isn't. What
+   * it was given may still be on its way, so look at the desk before trying again.
+   */
+  const INPUT_WAIT = 20000;
+  const NO_ANSWER = "Your computer didn't answer in time. Look at the desk before you try again.";
+  const INPUT_ACTIONS = new Set(['accept', 'send', 'reject', 'esc', 'up', 'down', 'choose', 'button', 'clear', 'scroll']);
+
+  /** A signal that gives up after `ms`, made by hand where the browser has no AbortSignal.timeout. */
+  function timeLimit(ms) {
+    if (AbortSignal.timeout) return AbortSignal.timeout(ms);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), ms);
+    return controller.signal;
+  }
+
+  /** The computer's answer; nothing if it can't be reached; `{ timedOut: true }` once `signal` has given up. */
   function post(pathname, params = {}, signal, json) {
     if (preview) return Promise.resolve();
     const q = new URLSearchParams({ t: token, ...params });
     const body = json === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(json) };
-    return fetch(`${pathname}?${q}`, { method: 'POST', signal, ...body }).catch(() => {});
+    return fetch(`${pathname}?${q}`, { method: 'POST', signal, ...body }).catch(() => (signal && signal.aborted ? { timedOut: true } : undefined));
   }
 
   /** What the computer streams: the sessions at their desks and the layout. */
@@ -1380,8 +1649,9 @@
     micLanguage = (data.dictation && data.dictation.language) || micLanguage;
     dictationNow = data.dictation || null;
     if (phoneMic.on && !wasOn) phoneMicHint();
-    if (!phoneMicHere()) {
-      dropHearing();
+    if (!phoneMicHere()) dropHearing();
+    // The box goes with the phone's text, not its mic: typed from Settings, it works over the Wi-Fi too (I34).
+    if (!phoneMic.on) {
       closeConfirm();
       closePeek();
     }
@@ -1398,6 +1668,8 @@
       };
     }
     // The office's own colours: a theme saved by an older setup page is left out.
+    windowSnapshot = data;
+    t3Snapshot = data;
     office.show({ ...withMacKeys(data), theme: {} });
     $('status').classList.remove('off');
     render();

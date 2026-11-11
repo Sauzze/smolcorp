@@ -1,0 +1,107 @@
+# Smolcorp on your phone
+
+The office in your phone's browser: what each tap does, pairing, and voice. Back to the [README](../README.md).
+
+<p align="center">
+  <img src="demo.gif" alt="Smolcorp on a phone held sideways: the office fills the screen, and the new hire, in an orange tie, works at their desk while coffee mugs drop in as their effort rises; a finger held on their desk brings up their keys along the foot of the room; they wait for an answer, the phone's edge glows orange and ✓ is tapped; then the jukebox plays and heads bob to the beat" width="800">
+</p>
+
+There's no app to install. The office opens in your phone's browser, over
+your Wi-Fi, or from anywhere with [Tailscale](https://tailscale.com), and the
+AI coding agents in your terminal (Claude Code, Codex, Gemini CLI, OpenCode
+and Grok) are the people in it.
+
+Each agent session sits at a desk in [the little pixel-art office](office.md#the-office),
+acting out what it's doing. From the office you can
+approve a permission request from across the room, interrupt an agent, change
+how hard Claude Code thinks, press buttons of your own, or hold the mic and talk to
+it. Smolcorp runs in
+your Mac's menu bar, or in the tray on [Windows and Linux](windows-linux.md#windows-and-linux).
+
+<p align="center">
+  <img src="deck-portrait.png" alt="The deck on a phone held upright: the office, an agent picked, and its keys along the foot of the room" width="300">
+</p>
+
+## On your phone
+
+The phone opens straight into the office, full screen, upright or sideways as
+you hold it. Each desk is one of your agent sessions, named after its project:
+the folder the agent started in, or the top of its git repository.
+
+| In the office | What it does |
+|---|---|
+| **A desk, or its person** | Picks that session and brings its Terminal window to the front. |
+| **▲ ▼ ✓ ✕ over the picked agent, when it's waiting on you** | Move through its options, accept or reject. They come up on their own. |
+| **A desk, held** | Brings out its keys along the foot of the room: **esc** interrupts it, **⏎ send** presses Return, **/clear** starts a fresh conversation (tap twice), **↑ ↓** move through its menus, then [your own buttons](office.md#make-it-yours). On a Claude Code desk, also paint chips for its thinking effort, from low to max; if Claude is mid-task, the change waits until it finishes. The coffee by the monitor shows the effort: one mug for low, up to four, and a steaming pot at max. A tap elsewhere puts them away. |
+| **The red button** | ☢ Max effort for the picked session, in one press. |
+| **The mic, held** | Talk to Claude Code. Let go, and Claude sends what you said once it's three words or more. |
+| **Two fingers, dragged** | Scroll the picked session's Terminal window; tap with two to jump back to the bottom. Off until you turn on **Let two fingers scroll Terminal** on the setup page. |
+
+How the people show what their sessions are doing is under
+[The office](office.md#the-office). The room's edge glows while an agent is waiting on
+you.
+
+Sessions keep their order at the desks, and each keeps its own until it ends.
+You can pin projects to specific desks and furnish the office your way.
+
+## Pair your phone
+
+1. On your computer, click the Smolcorp icon in the menu bar or tray and
+   choose **Pair a Phone…**. The setup page opens with a six-digit code and a
+   QR code.
+2. Scan the QR code with your phone's camera. Or open your phone's browser, go
+   to the address shown with the code (for example `192.168.1.20:7710`) and
+   type the code.
+3. Add the deck to your Home Screen: on an iPhone, tap **Share → Add to Home
+   Screen**; on Android, open the browser's menu and tap **Add to Home
+   screen**. Smolcorp now opens full screen and stays paired.
+
+While the deck is open, your phone's screen stays on, from your first tap. If
+an agent has been waiting on you for five minutes, the deck reminds you once,
+with a chime, and a buzz on phones that allow it.
+
+Each phone you pair appears under **Paired phones** on the setup page, with
+when it was last used. **Revoke** cuts one phone off straight away;
+**Unpair All Phones** does it for every phone, and is also in Smolcorp's
+menu. A phone you've cut off shows the pairing page again. To use it once
+more, pair it with a new code, then remove the old Home Screen icon and add
+the deck again: the icon keeps the old pairing.
+
+<p align="center">
+  <img src="deck-landscape.png" alt="The deck sideways: the office, with the picked agent's keys along the foot of the room" width="640">
+</p>
+
+## Voice
+
+The mic button uses Claude Code's own voice input (`/voice`), in *tap* mode.
+Connecting Claude Code sets that up, unless you had already set voice up
+yourself. In that case, make sure `~/.claude/settings.json` contains:
+
+```json
+"voice": { "enabled": true, "mode": "tap" }
+```
+
+Voice input needs Claude Code signed in with a Claude.ai account. Claude Code
+sends your audio to Anthropic to be transcribed. Smolcorp itself never
+hears it.
+
+**Typing from the phone** (Mac, personal build, with setup's Phone microphone on):
+⚙︎ → *Type to …* types into the picked agent, over Tailscale or the Wi-Fi
+(where it isn't encrypted). Several lines go as one paste: in tmux when the
+agent asked for it, and in Terminal, iTerm2 and Ghostty through the clipboard
+and ⌘V, for Claude Code only, waiting at its prompt with nothing else open in
+its tab (Terminal and iTerm2 come to the front for it, never while the Mac is
+locked or in use); other agents there are told to send one line. The clipboard
+is put back afterwards, except a
+password you'd copied, which is cleared, not put back. A clipboard manager, or
+iTerm2's paste history, may keep a copy of text sent this way. Left in `!` mode
+or with a menu open at the Mac (/resume, /model, Ctrl-R), Claude Code looks
+idle, so Smolcorp still reads it as waiting: several lines go to that mode or
+menu, and Return runs them or picks the highlighted item.
+
+**Clean up dictation with Claude** (Mac, setup → Phone and voice; off until
+you turn it on): with the Mac's own dictation on, the dictated *text*, never
+the audio, goes to Claude Haiku before it's typed, with
+[your own API key](extras.md#summaries-with-claude): fillers and stutters go, and
+misheard names come back as the glossary beside it spells them. If that
+fails, there's no key, or it takes over 2.5 s, the text goes in as heard.

@@ -1,0 +1,688 @@
+{
+  "routes" : [
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "features" : [
+            "string"
+          ],
+          "managerEnabled" : "bool",
+          "version" : "string"
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page"
+      },
+      "route" : "GET \/setup\/gm\/version"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "managerEnabled" : "bool"
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "enabled" : "2"
+            }
+          },
+          "status" : 400,
+          "why" : "neither enabled=1 nor enabled=0"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "query" : {
+          "enabled" : "1"
+        }
+      },
+      "route" : "POST \/setup\/gm\/manager"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "at" : "number",
+          "contacts" : [
+
+          ],
+          "team" : [
+            {
+              "account" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "branch" : "string",
+              "desk" : "number",
+              "floor" : "number",
+              "folder" : "string",
+              "id" : "string",
+              "idleFor" : "number",
+              "lastEventAt" : "number",
+              "live" : "bool",
+              "liveState" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+              "model" : "string",
+              "name" : "string",
+              "nickname" : "string",
+              "notes" : "string",
+              "registered" : "bool",
+              "role" : "string",
+              "sessionId" : "string",
+              "started" : "number|null",
+              "state" : "'starting'|'working'|'idle'|'fired'|'failed'|''",
+              "status" : "string",
+              "tmuxSocket" : "string",
+              "worktree" : "string"
+            }
+          ]
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page"
+          },
+          "status" : 409,
+          "why" : "the manager is off"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "manager on",
+          "sessions"
+        ]
+      },
+      "route" : "GET \/setup\/gm\/team"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "events" : [
+            {
+              "agent" : "string",
+              "at" : "number",
+              "detail" : "string",
+              "folder" : "string",
+              "id" : "number",
+              "kind" : "'sessionStart'|'sessionStop'|'prompt'|'permissionAsked'|'permissionDenied'|'notification'|'idle'|'watcherFired'|'mail'|'keystroke'",
+              "session" : "string"
+            }
+          ],
+          "next" : "number",
+          "oldest" : "number"
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "manager on",
+          "sessions"
+        ],
+        "query" : {
+          "since" : "0",
+          "wait" : "0"
+        }
+      },
+      "route" : "GET \/setup\/gm\/events"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "approvals" : [
+            {
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "desk" : "number",
+              "floor" : "number",
+              "hire" : "string",
+              "kind" : "string",
+              "label" : "string",
+              "name" : "string",
+              "nickname" : "string",
+              "notified" : "bool",
+              "session" : "string",
+              "since" : "number",
+              "tool" : "string",
+              "waitingSeconds" : "number"
+            }
+          ],
+          "at" : "number"
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "manager on",
+          "sessions"
+        ]
+      },
+      "route" : "GET \/setup\/gm\/approvals"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "messages" : [
+            {
+              "at" : "number",
+              "attempts" : "number",
+              "from" : "'gm'|'owner'|'hire'",
+              "fromID" : "string",
+              "fromName" : "string",
+              "id" : "string",
+              "note" : "string",
+              "size" : "number",
+              "state" : "'queued'|'delivered'|'left'|'failed'",
+              "text" : "string",
+              "to" : "string",
+              "toName" : "string"
+            },
+            {
+              "at" : "number",
+              "attempts" : "number",
+              "from" : "'gm'|'owner'|'hire'",
+              "id" : "string",
+              "size" : "number",
+              "state" : "'queued'|'delivered'|'left'|'failed'",
+              "text" : "string",
+              "to" : "string",
+              "toName" : "string"
+            }
+          ]
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "manager on",
+          "an outbox message"
+        ]
+      },
+      "route" : "GET \/setup\/gm\/outbox"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "watches" : [
+            {
+              "active" : "bool",
+              "by" : "string",
+              "createdAt" : "number",
+              "due" : "number",
+              "fired" : "number",
+              "id" : "string",
+              "kind" : "'file'|'event'|'idle'|'exit'|'time'",
+              "minutes" : "number",
+              "pattern" : "string",
+              "repeat" : "bool",
+              "target" : "string"
+            }
+          ]
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "manager on",
+          "a watch"
+        ]
+      },
+      "route" : "GET \/setup\/gm\/watches"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : "not json",
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "not a watch"
+        }
+      ],
+      "route" : "POST \/setup\/gm\/watch"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "no id"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "given" : [
+              "manager on"
+            ],
+            "query" : {
+              "id" : "no-such-watch"
+            }
+          },
+          "status" : 404,
+          "why" : "no such watch"
+        }
+      ],
+      "route" : "POST \/setup\/gm\/unwatch"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "no id"
+        }
+      ],
+      "route" : "DELETE \/setup\/gm\/unwatch"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "ask" : "bool",
+          "chosen" : "string",
+          "screens" : "array"
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "manager on"
+        ]
+      },
+      "route" : "GET \/setup\/gm\/screens"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "no id"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "given" : [
+              "manager on"
+            ],
+            "query" : {
+              "id" : "no-such-screen"
+            }
+          },
+          "status" : 409,
+          "why" : "no such screen"
+        }
+      ],
+      "route" : "POST \/setup\/gm\/screen"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "the request and answer are frontdesk\/hire.json's",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+
+            },
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "no role"
+        }
+      ],
+      "route" : "POST \/setup\/gm\/hire"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "the request and answer are frontdesk\/fire.json's",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+
+            },
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "no id"
+        }
+      ],
+      "route" : "POST \/setup\/gm\/fire"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "the request and answer are frontdesk\/brief.json's",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+
+            },
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "no hire named"
+        }
+      ],
+      "route" : "POST \/setup\/gm\/brief"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page",
+        "hire"
+      ],
+      "note" : "the request and answer are frontdesk\/send.json's",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+
+            },
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "no one to send to"
+        }
+      ],
+      "route" : "POST \/setup\/gm\/send"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "the request and answer are frontdesk\/contacts.json's",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+
+            },
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "no pair given"
+        }
+      ],
+      "route" : "POST \/setup\/gm\/contacts"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "the request and answer are frontdesk\/registry-edit.json's",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+
+            },
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "no hire named"
+        }
+      ],
+      "route" : "POST \/setup\/gm\/registry"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+
+            },
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "no project or name"
+        }
+      ],
+      "route" : "POST \/setup\/gm\/nickname"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page",
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 404,
+          "why" : "listed for the page, but nothing answers it"
+        }
+      ],
+      "route" : "GET \/setup\/gm\/registry"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "gmByHand" : "bool"
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 400,
+          "why" : "neither enabled=1 nor enabled=0"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "manager on"
+        ],
+        "query" : {
+          "enabled" : "0"
+        }
+      },
+      "route" : "POST \/setup\/gm\/by-hand"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "message" : "string",
+          "rotated" : "bool"
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "page"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "manager on"
+        ]
+      },
+      "route" : "POST \/setup\/gm\/token\/rotate"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "any path under \/setup\/gm\/ that isn't a route (INVENTORY: * \/setup\/gm\/*)",
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page",
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 404,
+          "why" : "no such route"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "tool",
+            "given" : [
+              "manager on"
+            ]
+          },
+          "status" : 403,
+          "why" : "a tool, on a route not listed for it"
+        }
+      ],
+      "route" : "GET \/setup\/gm\/nothing-here"
+    }
+  ]
+}

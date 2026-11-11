@@ -18,6 +18,46 @@ import Foundation
 extension TerminalDriver {
     func typeKeys(_ text: String, in tab: TabAddress) -> Bool { insert(text, in: tab) }
     var showsScreen: Bool { true }
+    /// Nowhere by default: WezTerm and kitty send text as it is and can't say whether the agent asked for
+    /// bracketed paste, so a line break could press Return part way. Refused before anything waits on them.
+    var linesWay: LinesWay { .never }
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> String?) -> LinesPasted { .notTaken }
+}
+
+/// How a terminal takes text of several lines from the phone, if at all.
+enum LinesWay: Equatable {
+    /// It can't: refused before anything waits on its queue.
+    case never
+    /// tmux: it reads whether the pane's agent asked for bracketed paste, and pastes only then.
+    case paneFlag
+    /// Through the clipboard, as you'd paste it: the terminal wraps it in bracketed-paste markers itself
+    /// where the agent asked for them, which it can't say, so only for an agent known to ask
+    /// (`Agent.asksForBracketedPaste`). `inFront`: the tab is brought forward and ⌘V pressed, which needs
+    /// Accessibility and the Mac unlocked.
+    case clipboard(inFront: Bool)
+}
+
+/// How text of several lines went. Only `.pasted` typed anything, and only it is followed by Return;
+/// `.notRead` and `.failed` may have typed it, or may yet, but never with a Return of ours.
+enum LinesPasted: Equatable {
+    /// As one paste.
+    case pasted
+    /// Not at all: the tab doesn't take one now (tmux: the agent didn't ask for bracketed paste).
+    case notTaken
+    /// Not at all: tmux's pane is in copy mode, where nothing is pasted.
+    case inMode
+    /// Not at all: `ready` said why, right before the paste (asking, working, an editor in the tab…).
+    case refused(String)
+    /// Not at all: the tab couldn't be brought to the front, or another tab or app was in front by ⌘V.
+    case notInFront
+    /// Not at all: Terminal.app or iTerm2 would have to come to the front while the Mac is in use.
+    case macInUse
+    /// Not at all: what's on the clipboard couldn't be put back exactly afterwards (a file being copied).
+    case unsaved
+    /// ⌘V went, but the terminal hadn't read the clipboard in time: it may still paste.
+    case notRead
+    /// The terminal didn't take it, or ended for taking too long.
+    case failed
 }
 
 struct TabAddress: Hashable {
@@ -101,8 +141,9 @@ struct TerminalAbilities: OptionSet {
     static let none: TerminalAbilities = []
 }
 
-/// One terminal app, as the deck drives it. Each call is made on
-/// `Terminal.queue`, and may take a moment; none is made on the main thread.
+/// One terminal app, as the deck drives it. Each call is made on its
+/// terminal's queue (`Terminals.queue(for:)`), and may take a moment; none is
+/// made on the main thread.
 protocol TerminalDriver {
     var abilities: TerminalAbilities { get }
     /// Whether pressing keys needs Smolcorp's Accessibility permission.
@@ -114,6 +155,14 @@ protocol TerminalDriver {
     /// Puts `text` in the tab without Return, as dictation does, for you to
     /// read before sending.
     func insert(_ text: String, in tab: TabAddress) -> Bool
+    /// How this terminal takes text of several lines (`insertLines`), if at all.
+    var linesWay: LinesWay { get }
+    /// Text of several lines, without Return, as ONE paste the terminal wraps in bracketed-paste
+    /// markers: only where the agent in the tab has asked for bracketed paste, so a line break is a
+    /// new line in the text and never presses Return. Anywhere else nothing is typed. `ready` is asked
+    /// right before the paste itself, once the tab is in front where it must be: nil to go on, or why not,
+    /// and nothing is typed (`.refused`).
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> String?) -> LinesPasted
     /// iPhone app (personal build): `text` typed as keys, never as a paste,
     /// without Return: into a menu's own text field, as Claude Code's "Type
     /// something", which a paste may not reach. `insert` where that already
@@ -137,8 +186,12 @@ protocol TerminalDriver {
 }
 
 enum Terminals {
+    /// Settable for tests, which give a stand-in terminal for every tab.
+    static var standIn: TerminalDriver?
+
     /// The driver for `tab`'s terminal, or nil for one the deck can only watch.
     static func driver(for tab: TabAddress) -> TerminalDriver? {
+        if let standIn { return standIn }
         switch tab.kind {
         case "tty": return TerminalApp()
         case "tmux": return Tmux.path == nil ? nil : Tmux()
@@ -191,4 +244,13 @@ struct TerminalApp: TerminalDriver {
     func tty(of tab: TabAddress) -> String? { tab.id }
     func isOpen(_ tab: TabAddress) -> Bool? { nil }
     func screen(of tab: TabAddress) -> String? { Terminal.contents(tty: tab.id) }
+
+    /// Several lines through the clipboard and ⌘V, the tab brought forward first: Terminal's own paste,
+    /// which it wraps in bracketed-paste markers where the agent asked for them.
+    var linesWay: LinesWay { .clipboard(inFront: true) }
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> String?) -> LinesPasted {
+        ClipboardPaste.paste(text, first: { Terminal.macInUse ? .macInUse : nil },
+                             forward: { Terminal.macInUse ? .macInUse : Terminal.forwardForPaste(tty: tab.id) ? nil : .notInFront },
+                             ready: ready, press: { posting in Terminal.pressPaste(tty: tab.id, posting: posting) })
+    }
 }

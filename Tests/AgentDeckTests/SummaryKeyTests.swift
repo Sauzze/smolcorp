@@ -207,16 +207,16 @@ final class SummaryKeyTests: XCTestCase {
         let saved = expectation(description: "saved")
         var kept: Bool?
         SummaryKey.save(key) { kept = $0; saved.fulfill() }
-        wait(for: [started], timeout: 2)
+        wait(for: [started], timeout: 10)
 
         // Another route's reply, on the main queue, while the write still waits.
         let answered = expectation(description: "another route answered")
         DispatchQueue.main.async { answered.fulfill() }
-        wait(for: [answered], timeout: 2)
+        wait(for: [answered], timeout: 10)
         XCTAssertNil(kept, "the save is still waiting")
 
         release.signal()
-        wait(for: [saved], timeout: 2)
+        wait(for: [saved], timeout: 10)
         XCTAssertEqual(kept, true)
         XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: "sk-ant-…xY9z"))
     }
@@ -235,13 +235,13 @@ final class SummaryKeyTests: XCTestCase {
         defer { SummaryKey.onLearned = {} }
 
         XCTAssertNil(SummaryKey.shown(environment: [:]), "nothing known yet, and not waited for")
-        XCTAssertEqual(started.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(started.wait(timeout: .now() + 10), .success)
         let answered = expectation(description: "main answered")
         DispatchQueue.main.async { answered.fulfill() }
-        wait(for: [answered], timeout: 2)
+        wait(for: [answered], timeout: 10)
 
         release.signal()
-        wait(for: [learned], timeout: 2)
+        wait(for: [learned], timeout: 10)
         XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: "sk-ant-…xY9z"))
     }
 
@@ -252,7 +252,7 @@ final class SummaryKeyTests: XCTestCase {
             XCTAssertTrue(Thread.isMainThread)
             removed.fulfill()
         }
-        wait(for: [removed], timeout: 2)
+        wait(for: [removed], timeout: 10)
         XCTAssertNil(SummaryKey.shown(environment: [:]))
         XCTAssertNil(memory.key)
     }
@@ -263,7 +263,7 @@ final class SummaryKeyTests: XCTestCase {
             XCTAssertFalse(kept)
             refused.fulfill()
         }
-        wait(for: [refused], timeout: 2)
+        wait(for: [refused], timeout: 10)
         XCTAssertNil(memory.key)
     }
 

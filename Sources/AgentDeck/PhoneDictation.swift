@@ -7,11 +7,15 @@ import Foundation
 ///
 /// iOS only lets a page use the microphone over HTTPS, so this works when the
 /// deck is opened through `tailscale serve`; over plain http on the Wi-Fi,
-/// the mic is the Mac's, as before.
+/// the mic is the Mac's, as before. The same route carries text typed on the
+/// phone, over the Wi-Fi as well (I34), with the same checks.
 enum PhoneDictation {
     /// The most text one dictation may carry, in characters: well beyond a
     /// minute of speech, short enough that a stray request can't type a book.
     static let longest = 2000
+    /// …and in bytes: one character can hide any number of combining marks,
+    /// each counted as part of it. Room for 2,000 emoji of several pieces.
+    static let longestBytes = 8 * longest
     /// Claude Code's own /voice sends what it heard once it's this many words.
     static let wordsToSend = 3
     /// How long the agent is given to take the text in before Return goes,
@@ -31,17 +35,51 @@ enum PhoneDictation {
         last.map { now.timeIntervalSince($0) < peekGap } ?? false
     }
 
-    /// The text as it will be typed: line breaks (Unicode's own line and
-    /// paragraph separators too) and other control characters become spaces
-    /// (a line break would press Return part way through), runs of spaces
-    /// one, trimmed. Nil if nothing's left or it's too long.
+    /// The text as it will be typed. On one line: control characters become
+    /// spaces, runs of spaces one, trimmed. Of several lines (I34): the line
+    /// breaks (Unicode's own line and paragraph separators too) kept, each a
+    /// line feed, for a bracketed paste to carry (see `Deck.typePhoneDictation`);
+    /// the lines themselves as they were, a tab kept, other control characters
+    /// spaces, blank lines at either end and the spaces round the whole trimmed.
+    /// Nil if nothing's left or it's too long (`refusal` says which).
+    /// Only control characters (Cc): the invisible format ones (Cf) stay, as the
+    /// joiner in 👩‍💻, which CharacterSet.controlCharacters counts too.
     static func prepared(_ text: String) -> String? {
-        let breaks = CharacterSet.controlCharacters.union(.newlines)
-        let flat = String(text.unicodeScalars.map { breaks.contains($0) ? " " : Character($0) })
-        let single = flat.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
-        guard !single.isEmpty, single.count <= longest else { return nil }
+        let single = flattened(text)
+        guard !single.isEmpty, single.count <= longest, single.utf8.count <= longestBytes else { return nil }
         return single
     }
+
+    /// Whether the text, as `prepared` gave it, is of several lines.
+    static func isLines(_ words: String) -> Bool { words.contains("\n") }
+
+    /// What ends a line: a line feed, a return (or both, as Windows writes them), and Unicode's next-line,
+    /// line and paragraph separators. A vertical tab or form feed is a control character like any other.
+    private static let lineBreaks: Set<Unicode.Scalar> = ["\n", "\r", "\u{85}", "\u{2028}", "\u{2029}"]
+
+    private static func flattened(_ text: String) -> String {
+        let scalars = text.replacingOccurrences(of: "\r\n", with: "\n").unicodeScalars.map { scalar -> Unicode.Scalar in
+            if lineBreaks.contains(scalar) { return "\n" }
+            return scalar.properties.generalCategory == .control && scalar != "\t" ? " " : scalar
+        }
+        let lines = String(String.UnicodeScalarView(scalars)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lines.contains("\n") else { return lines }
+        // One line, as before: a tab a space too (typed, it would be a key), runs of spaces one.
+        return lines.replacingOccurrences(of: "\t", with: " ").split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+    }
+
+    /// Why `prepared` gave nothing, for the phone to say: too long, or nothing to type.
+    static func refusal(_ text: String) -> String {
+        let single = flattened(text)
+        return single.count > longest || single.utf8.count > longestBytes ? tooLong : "Nothing to type"
+    }
+    static let tooLong = "Too long: at most \(longest) characters at a time."
+
+    /// Whether the agent would take the text for a shell command: Claude Code,
+    /// Codex, Gemini CLI and OpenCode all run a prompt starting with "!" in a shell.
+    /// By its first code point, as they look: "!" with an accent, a joiner or an
+    /// emoji's variation selector on it is one character to Swift, but still "!" to them.
+    static func runsInShell(_ words: String) -> Bool { words.unicodeScalars.first == "!" }
 
     /// Whether the text goes with Return: with the setting on, and once it's
     /// a few words, as Claude Code does. Shorter, it waits for you to send.

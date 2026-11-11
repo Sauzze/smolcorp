@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -44,6 +45,21 @@ const (
 	longestText = 4096
 )
 
+// testSupportVariable is a test copy's support folder, which a test copy's
+// hire's start script exports (hirestart.go), as the guard and `smolcorp gm`
+// read it.
+const testSupportVariable = "SMOLCORP_TEST_SUPPORT_DIR"
+
+// hookKeyFileFor is the hook key a hook sends: a test copy's own, in its
+// folder, when testSupport names one (a full path), so a test copy's hire never
+// reads the real app's key, nor reports with it; else the app's.
+func hookKeyFileFor(testSupport string) string {
+	if testSupport != "" && filepath.IsAbs(testSupport) {
+		return filepath.Join(filepath.Clean(testSupport), "hook-key")
+	}
+	return hookKeyFile
+}
+
 // RunHook always returns 0: a hook that fails would hold up the agent.
 func RunHook(args []string) int {
 	agent := string(Claude)
@@ -64,7 +80,7 @@ func RunHook(args []string) int {
 		return 0
 	}
 	event = trimmedEvent(event)
-	key, err := os.ReadFile(hookKeyFile)
+	key, err := os.ReadFile(hookKeyFileFor(os.Getenv(testSupportVariable)))
 	if err != nil {
 		return 0
 	}

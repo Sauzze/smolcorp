@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,29 +10,56 @@ import (
 	"testing"
 )
 
-// The office page's source, as the app serves it and as the viewer carries it.
-func officeSources(t *testing.T) (web, viewer []byte) {
+// The office page's source, as the app serves it. The viewer has no copy of its own in git: Vercel copies this
+// file into viewer/public when it builds the viewer (viewer/vercel.json's buildCommand).
+func officeSource(t *testing.T) []byte {
 	t.Helper()
 	web, err := os.ReadFile("../Resources/web/office.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	viewer, err = os.ReadFile("../viewer/public/office.js")
+	return web
+}
+
+// The viewer draws with the app's own office.js, copied in at deploy time, so it can't fall behind: no copy is
+// committed, and the build copies the one source into the folder Vercel serves.
+func TestTheViewerTakesTheOfficeFromTheAppsOwnFileAtDeploy(t *testing.T) {
+	data, err := os.ReadFile("../viewer/vercel.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return web, viewer
-}
-
-func TestTheViewersOfficePageIsTheAppsOfficePage(t *testing.T) {
-	web, viewer := officeSources(t)
-	if !bytes.Equal(web, viewer) {
-		t.Fatal("viewer/public/office.js differs from Resources/web/office.js: copy one over the other")
+	var config struct {
+		BuildCommand    string `json:"buildCommand"`
+		OutputDirectory string `json:"outputDirectory"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.BuildCommand != "cp ../Resources/web/office.js public/office.js" || config.OutputDirectory != "public" {
+		t.Errorf("viewer/vercel.json must copy ../Resources/web/office.js into public/, the folder it serves: %q, %q",
+			config.BuildCommand, config.OutputDirectory)
+	}
+	ignored, err := os.ReadFile("../viewer/.gitignore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains("\n"+string(ignored)+"\n", "\npublic/office.js\n") {
+		t.Error("viewer/.gitignore must keep the local copy, public/office.js, out of git")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git to ask what's committed")
+	}
+	out, err := exec.Command("git", "ls-files", "--", "../viewer/public/office.js").Output()
+	if err != nil {
+		t.Skipf("not a git checkout: %v", err)
+	}
+	if len(bytes.TrimSpace(out)) > 0 {
+		t.Error("viewer/public/office.js is committed: the viewer must take the office from Resources/web/office.js alone")
 	}
 }
 
 func TestEscapeAndTheKeyBarsEscPutAwayTheDeskHoldMenu(t *testing.T) {
-	web, _ := officeSources(t)
+	web := officeSource(t)
 	src := string(web)
 
 	// The Escape handler: after the picker and max-effort cases, it puts away the keys and chips a held desk put out.
@@ -53,8 +81,7 @@ func TestEscapeAndTheKeyBarsEscPutAwayTheDeskHoldMenu(t *testing.T) {
 }
 
 func TestTheRoleChipsUnderAHeldDeskSlideWithTheMouseWheel(t *testing.T) {
-	web, viewer := officeSources(t)
-	src := string(web)
+	src := string(officeSource(t))
 
 	// A wheel handler of its own, over the roles strip only, that moves the same offset a finger's drag does.
 	at := strings.Index(src, "canvas.addEventListener('wheel', (e) => {\n      if (!rolesAt")
@@ -68,17 +95,11 @@ func TestTheRoleChipsUnderAHeldDeskSlideWithTheMouseWheel(t *testing.T) {
 			t.Errorf("the role chips' wheel handler lacks %q:\n%s", want, handler)
 		}
 	}
-	if !bytes.Equal(web, viewer) {
-		t.Fatal("the two office.js copies differ")
-	}
 }
 
 func TestTheOfficeAndSetupShowWhyHiringIsOff(t *testing.T) {
-	web, viewer := officeSources(t)
-	for name, src := range map[string]string{"Resources/web/office.js": string(web), "viewer/public/office.js": string(viewer)} {
-		if !strings.Contains(src, "on.hint?.(hold || (typeof hiring.reason === 'string' ? hiring.reason : ''))") {
-			t.Errorf("%s: a free desk with hiring unavailable no longer shows hiring.reason as its hint", name)
-		}
+	if !strings.Contains(string(officeSource(t)), "on.hint?.(hold || (typeof hiring.reason === 'string' ? hiring.reason : ''))") {
+		t.Error("office.js: a free desk with hiring unavailable no longer shows hiring.reason as its hint")
 	}
 	page, err := os.ReadFile("../Resources/web/setup.html")
 	if err != nil {
@@ -103,7 +124,7 @@ func TestAStyleDressesEveryNameEvenWhenItsRemainderIsNegative(t *testing.T) {
 	if err != nil {
 		t.Skip("node is not installed: styleDressOf can't be run")
 	}
-	web, _ := officeSources(t)
+	web := officeSource(t)
 	src := string(web)
 	at := strings.Index(src, "function styleDressOf(seed) {")
 	if at < 0 {
@@ -147,7 +168,7 @@ func TestSomeoneNamedAfterOneOfAStylesOutfitsWearsIt(t *testing.T) {
 	if err != nil {
 		t.Skip("node is not installed: styleDressOf can't be run")
 	}
-	web, _ := officeSources(t)
+	web := officeSource(t)
 	src := string(web)
 	at := strings.Index(src, "function styleDressOf(seed) {")
 	if at < 0 {

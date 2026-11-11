@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -87,6 +89,11 @@ func (t commandTab) run(args ...string) error {
 
 // output runs the terminal's command, and gives what it printed.
 func (t commandTab) output(args ...string) ([]byte, error) {
+	return t.outputWith(nil, args...)
+}
+
+// outputWith is output with input on the command's standard input.
+func (t commandTab) outputWith(input io.Reader, args ...string) ([]byte, error) {
 	var cmd *exec.Cmd
 	var cancel context.CancelFunc
 	switch t.kind {
@@ -103,6 +110,7 @@ func (t commandTab) output(args ...string) ([]byte, error) {
 		return nil, errUnsupported
 	}
 	defer cancel()
+	cmd.Stdin = input
 	output, err := cmd.Output()
 	if err != nil {
 		var failed *exec.ExitError
@@ -229,17 +237,24 @@ func (t commandTab) Type(text string) error {
 	return t.sendKey(Enter)
 }
 
+// tmuxLiteral is text as the last argument of a tmux command, kept whole.
+// tmux reads an argument ending in ";" as the end of its command and drops
+// that ";" (a lone ";" leaves no text at all), and takes one ending in "\;"
+// for a ";": so a ";" at the end goes as "\;". As the Mac app's Tmux.literal.
+func tmuxLiteral(text string) string {
+	if strings.HasSuffix(text, ";") {
+		return strings.TrimSuffix(text, ";") + `\;`
+	}
+	return text
+}
+
 // typeArgs are the terminal's arguments for typing text as it is. "--" ends
 // the options, so text starting with "-" is typed rather than read as one;
-// and tmux takes an argument ending in ";" for the end of its command unless
-// the ";" is escaped.
+// and a ";" at its end is kept (tmuxLiteral).
 func (t commandTab) typeArgs(text string) []string {
 	switch t.kind {
 	case "tmux":
-		if strings.HasSuffix(text, ";") {
-			text = strings.TrimSuffix(text, ";") + `\;`
-		}
-		return []string{"send-keys", "-t", t.id, "-l", "--", text}
+		return []string{"send-keys", "-t", t.id, "-l", "--", tmuxLiteral(text)}
 	case "wezterm":
 		return []string{"send-text", "--pane-id", t.id, "--no-paste", "--", text}
 	case "kitty":
@@ -518,4 +533,105 @@ func abs(n int) int {
 		return -n
 	}
 	return n
+}
+
+// tmuxPaneID is a pane's id as tmux gives it, the only shape put in a tmux command line (if-shell's).
+var tmuxPaneID = regexp.MustCompile(`^%[0-9]+$`)
+
+// tmuxBuffer is a paste buffer's name of its own, never another's.
+func tmuxBuffer() string { return "smolcorp-" + randomHex(4) }
+
+// phoneText types the phone's words into the pane without Return (see Deck.TypePhoneText).
+//
+//   - tmux: through a buffer of its own, loaded from tmux's standard input, byte for byte. One line is
+//     pasted as the Mac's Tmux.insert pastes it (-p: bracketed where the agent asked). Several lines go
+//     only while the pane's agent has asked for bracketed paste: tmux reads the pane's flag and pastes
+//     in one command (if-shell -F), so it can't change in between; -r keeps each line feed a line feed.
+//     tmux then says which it did, "pasted" or "not-taken" (the buffer gone with it); anything else is a
+//     failure, and the buffer goes. A tmux before 3.7, without the flag, reads as not asked.
+//   - WezTerm and kitty: one line through send-text, as the Mac's drivers; several lines never (see
+//     takesLinesAtAll).
+//
+// Escape could end the bracket early, and a return press Enter: any control character but a line feed
+// and a tab is refused before the terminal is asked.
+func (t commandTab) phoneText(words string, lines bool) (pasteResult, error) {
+	if words == "" || !mailPastable(words) || lines && t.kind != "tmux" || !lines && strings.ContainsAny(words, "\n\t") {
+		return pasteFailed, nil
+	}
+	switch t.kind {
+	case "tmux":
+		if !tmuxPaneID.MatchString(t.id) {
+			return pasteFailed, nil
+		}
+		buffer := tmuxBuffer()
+		if _, err := t.outputWith(strings.NewReader(words), "load-buffer", "-b", buffer, "-"); err != nil {
+			return pasteFailed, err
+		}
+		if !lines {
+			if err := t.run("paste-buffer", "-p", "-d", "-b", buffer, "-t", t.id); err != nil {
+				_ = t.run("delete-buffer", "-b", buffer) // -d only deletes after a paste
+				// tmux may have pasted before it failed.
+				return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, err)
+			}
+			return pasteDone, nil
+		}
+		output, err := t.output("if-shell", "-F", "-t", t.id, "#{bracket_paste_flag}",
+			"paste-buffer -p -r -d -b "+buffer+" -t "+t.id+" ; display-message -p pasted",
+			"delete-buffer -b "+buffer+" ; display-message -p not-taken")
+		switch strings.TrimSpace(string(output)) {
+		case "pasted":
+			return pasteDone, nil
+		case "not-taken":
+			return pasteNotTaken, nil
+		}
+		_ = t.run("delete-buffer", "-b", buffer)
+		// Not said either way, even if tmux was stopped once it had pasted: nothing more goes.
+		if err == nil {
+			return pasteFailed, errPasteFailed
+		}
+		return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, err)
+	case "wezterm":
+		return sentText(t.run("send-text", "--pane-id", t.id, "--", words))
+	case "kitty":
+		return sentText(t.run("send-text", "--match", "id:"+t.id, "--", kittyEscaped(words)))
+	}
+	return pasteFailed, errUnsupported
+}
+
+// sentText is a send-text's outcome as the phone's text takes it: an error may have come after some of the
+// words went, so it is a paste that failed to say, not a tab that wasn't there.
+func sentText(err error) (pasteResult, error) {
+	if err != nil {
+		return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, err)
+	}
+	return pasteDone, nil
+}
+
+// screen is the pane's visible lines, as text, without its colours.
+func (t commandTab) screen() (string, error) {
+	var output []byte
+	var err error
+	switch t.kind {
+	case "tmux":
+		output, err = t.output("capture-pane", "-p", "-t", t.id)
+	case "wezterm":
+		output, err = t.output("get-text", "--pane-id", t.id)
+	case "kitty":
+		output, err = t.output("get-text", "--match", "id:"+t.id)
+	default:
+		return "", errUnsupported
+	}
+	return string(output), err
+}
+
+// peek is the end of what the pane shows (peekOf), read only while agent is known to be in front there.
+func (t commandTab) peek(agent Agent) ([]string, error) {
+	if running, known := t.runs(agent); !known || !running {
+		return nil, errAgentBehind
+	}
+	screen, err := t.screen()
+	if err != nil {
+		return nil, err
+	}
+	return peekOf(screen), nil
 }

@@ -113,10 +113,8 @@ enum Processes {
         guard let resolved = realpath(folder, nil) else { return nil }
         let wanted = String(cString: resolved)
         free(resolved)
-        var pids = [pid_t](repeating: 0, count: 8192)
-        let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size)))
         var matches: Set<String> = []
-        for pid in pids.prefix(max(count, 0)) where pid > 0 {
+        for pid in allPIDs() {
             guard let info = bsdInfo(pid), string(info.pbi_comm) == name,
                   info.e_tdev != noTerminal, workingDirectory(of: pid) == wanted,
                   let device = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) else { continue }
@@ -126,17 +124,56 @@ enum Processes {
         return matches.count == 1 ? matches.first : nil
     }
 
+    /// Every process's id, as the kernel lists them.
+    static func allPIDs() -> [pid_t] {
+        var pids = [pid_t](repeating: 0, count: 8192)
+        let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size)))
+        return pids.prefix(max(count, 0)).filter { $0 > 0 }
+    }
+
     private static func bsdInfo(_ pid: pid_t) -> proc_bsdinfo? {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
         return proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size ? info : nil
     }
 
-    private static func workingDirectory(of pid: pid_t) -> String? {
+    static func workingDirectory(of pid: pid_t) -> String? {
         var info = proc_vnodepathinfo()
         let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) == size else { return nil }
         return string(info.pvi_cdir.vip_path)
+    }
+
+    /// What a process has as its standard input (fd 0).
+    enum StandardInput: Equatable {
+        /// A file or a device, by its path: a terminal tab's is its tty, /dev/ttys….
+        case file(String)
+        /// A pipe or a socket, nothing open there, or the process has ended: no tab's keys.
+        case other
+        /// It couldn't be looked at, as another user's process (`sudo`'s) can't.
+        case unknown
+    }
+
+    /// `pid`'s standard input, read from the kernel: no command is run.
+    static func standardInput(of pid: pid_t) -> StandardInput {
+        var info = vnode_fdinfowithpath()
+        let size = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+        errno = 0
+        if proc_pidfdinfo(pid, 0, PROC_PIDFDVNODEPATHINFO, &info, size) == size { return .file(string(info.pvip.vip_path)) }
+        // Not a file (a pipe, a socket) or not open is EBADF; ended is ESRCH. Anything else isn't known.
+        return errno == EBADF || errno == ESRCH ? .other : .unknown
+    }
+
+    /// The path of the program `pid` runs, as the kernel has it: whole, spaces and all.
+    static func programPath(of pid: pid_t) -> String? {
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
+        return String(cString: path)
+    }
+
+    /// The name of the program `pid` runs: the last part of its path.
+    static func programName(of pid: pid_t) -> String? {
+        programPath(of: pid).map { ($0 as NSString).lastPathComponent }
     }
 
     /// A C string held in a fixed-size array, which Swift sees as a tuple.

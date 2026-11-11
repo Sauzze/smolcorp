@@ -156,6 +156,7 @@ final class SetupRoutesTests: XCTestCase {
             "/setup/dictation/glossary",  // a list of names, nothing sent
             "/setup/accessibility",       // asks macOS for its prompt
             "/setup/office",              // shows the window
+            "/setup/guide",               // whether setup's first-run guide shows: looks only
             "/setup/fix",                 // a tool may repair (see fixRefusal)
         ]
         let router = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

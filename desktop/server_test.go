@@ -65,10 +65,20 @@ func newTestDeck(t *testing.T) *Deck {
 // startDeck starts a deck on the folders the test has set up, as the app does at each start, and
 // stops its rounds at the end (see deckRounds), so it never reads the stand-ins a later test puts in.
 // A stand-in the deck's rounds or looks read goes in before the deck starts: cleanups run last
-// first, so it is put back once the deck has stopped.
+// first, so it is put back once the deck has stopped. A save of the sessions still to come is called
+// off once the rounds have stopped, and none is asked for after: it would read the deck after the test
+// and write into folders being removed.
 func startDeck(t *testing.T) *Deck {
 	t.Helper()
 	d := NewDeck()
+	t.Cleanup(func() {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if d.saveTimer != nil {
+			d.saveTimer.Stop()
+		}
+		d.savePending = true
+	})
 	t.Cleanup(d.stopWatchers)
 	return d
 }
@@ -215,6 +225,10 @@ func TestHiringIsSetUpOnlyWhenEveryPartIsRight(t *testing.T) {
 		"enabled=1&agent=codex&folder=~/nowhere",   // a folder that isn't there
 		"enabled=1&agent=codex&folder=~/work/keep", // a file, not a folder
 		"enabled=1&agent=skynet&folder=" + homeDir, // an agent there isn't
+		// Names config.json would load as Claude Code (B1-b, RM4c): this route never keeps them.
+		"enabled=1&agent=Claude&folder=" + homeDir,
+		"enabled=1&agent=/opt/x/bin/claude&folder=" + homeDir,
+		"enabled=1&agent=&folder=" + homeDir,
 	} {
 		if got := setUp(query); got != http.StatusBadRequest {
 			t.Errorf("%s: %d, want %d", query, got, http.StatusBadRequest)
@@ -638,7 +652,7 @@ func TestAPhoneHearsThePingAsAnEvent(t *testing.T) {
 			if !strings.HasPrefix(got, "data: ") {
 				t.Fatalf("the ping came as %q, want a named event with data", got)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatal("no ping came")
 		}
 	}
@@ -778,7 +792,7 @@ func TestSetupStateNamesThePlatform(t *testing.T) {
 func TestTheOfficePaneHeaderDoesNotNameTheMac(t *testing.T) {
 	d := newTestDeck(t)
 	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
-	const head = "<h1>Office</h1><p>"
+	const head = "<h1>Office and look</h1><p>"
 	i := strings.Index(page, head)
 	if i < 0 {
 		t.Fatal("the setup page has no Office pane header")

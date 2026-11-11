@@ -3,6 +3,7 @@ package desktop
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -103,6 +104,34 @@ func TestNoQRCodeWithNoAddressAPhoneCanOpen(t *testing.T) {
 	tailscaleAddresses = func() []string { return []string{"100.101.102.103"} }
 	if got := serve(t, d, call{method: "GET", target: "/setup/qr.png", host: "localhost:7710", from: thisComputer}).Code; got != http.StatusOK {
 		t.Errorf("the QR code with Tailscale's address: %d, want %d", got, http.StatusOK)
+	}
+}
+
+// Pair a phone says the Tailscale address beside the Wi-Fi one, only where it is another way in.
+func TestPairingSaysTheTailscaleAddressOnlyWhereItIsAnotherWayIn(t *testing.T) {
+	savedScope, savedAddresses := listenScope, tailscaleAddresses
+	t.Cleanup(func() { listenScope, tailscaleAddresses = savedScope, savedAddresses })
+	listenScope = listenAll
+	tailscaleAddresses = func() []string { return nil }
+	if got := phoneTailnet(); got != "" {
+		t.Errorf("no Tailscale here: %q, want none", got)
+	}
+	tailscaleAddresses = func() []string { return []string{"100.101.102.103"} }
+	want := fmt.Sprintf("http://100.101.102.103:%d", Port)
+	if localAddress() == "localhost" {
+		want = "" // no Wi-Fi here: the phone's address is Tailscale's already
+	}
+	if got := phoneTailnet(); got != want {
+		t.Errorf("on the Wi-Fi and Tailscale: %q, want %q", got, want)
+	}
+	listenScope = listenTailscale
+	if got := phoneTailnet(); got != "" {
+		t.Errorf("on Tailscale only, where the phone's address is Tailscale's: %q, want none", got)
+	}
+	d := newTestDeck(t)
+	pairing, _ := (&router{deck: d}).setupStateFor(callerPage)["pairing"].(map[string]any)
+	if got, ok := pairing["tailnet"].(string); !ok || got != "" {
+		t.Errorf("the setup state's pairing tailnet: %#v, want \"\"", pairing["tailnet"])
 	}
 }
 

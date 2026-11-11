@@ -21,7 +21,7 @@ enum OpenCodeInstall {
 
     /// The PATH your login shell sets, asked once, never on the main thread:
     /// empty if it doesn't say within a few seconds.
-    private static func loginShellPath() -> [String] {
+    static func loginShellPath() -> [String] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
         // A marker before it, as a shell's start-up files can print things of their own
@@ -46,11 +46,16 @@ enum OpenCodeInstall {
 
     /// Any program by `name`, looked for where OpenCode is: the coding agents
     /// ✨ Summary can use are installed the same ways.
-    static func program(named name: String) -> URL? {
+    static func program(named name: String) -> URL? { place(named: name)?.resolvingSymlinksInPath() }
+
+    /// Where a program by `name` is found, links left as they are: its folder is
+    /// the one a PATH names (~/.local/bin), never where a link leads (a versions folder).
+    /// Looked for in `folders`, or as `program(named:)` looks.
+    static func place(named name: String, in folders: [String]? = nil) -> URL? {
         let path = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
-        for folder in path + places {
+        for folder in folders ?? path + places {
             let candidate = URL(fileURLWithPath: folder).appendingPathComponent(name)
-            if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate.resolvingSymlinksInPath() }
+            if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate }
         }
         return nil
     }

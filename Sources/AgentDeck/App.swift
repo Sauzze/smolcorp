@@ -15,7 +15,10 @@ enum AgentDeckApp {
         }
         #endif
         let app = NSApplication.shared
-        let delegate = AppDelegate()
+        // The engine: this app's own, as always, or in a test copy set to "go", the Go core with this app as its shell.
+        let (engine, refusal) = Engine.chosen(Config.shared.engine)
+        if let refusal { FileHandle.standardError.write(Data((refusal + "\n").utf8)) }
+        let delegate: NSApplicationDelegate = engine == .go ? GoShellDelegate() : AppDelegate()
         app.delegate = delegate
         // In the Dock, or the menu bar only, as set up, from the start.
         app.setActivationPolicy(Dock.policy(showing: Config.shared.showInDock))
@@ -47,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server.onReady = { [menu] in menu.showListening() }
         server.service = PhoneApp.service
         server.start()
+        // A test copy leaves its tester a setup link in its own folder (see TestCopy.leaveSetupLink).
+        // Only a test copy makes the link: the real app mints no setup key nobody asked for.
+        if TestCopy.isOn { TestCopy.leaveSetupLink(deck.setupURL()) }
         deck.watchers.start()
         // Tailscale's address, looked up from the start, for setup and the phone mic.
         Tailnet.refresh { [deck] in deck.refresh() }
@@ -127,6 +133,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         forward(to: window, "Minimize", #selector(NSWindow.performMiniaturize(_:)), key: "m")
         forward(to: window, "Close", #selector(NSWindow.performClose(_:)), key: "w")
         NSApp.windowsMenu = window
+
+        // The first-run guide's arrows again, from the start, in Settings.
+        let help = submenu(of: bar, "Help")
+        add(to: help, "Show Me Around Again", #selector(showMeAround))
+        NSApp.helpMenu = help
         return bar
     }
 
@@ -157,6 +168,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() { settings.show() }
     @objc private func pairPhone() { settings.show(then: "pair") }
+    @objc private func showMeAround() {
+        SettingsWindow.showGuideAgain()
+        settings.show(then: SettingsWindow.guide)
+    }
     @objc private func toggleOffice() { office.toggle() }
 }
 

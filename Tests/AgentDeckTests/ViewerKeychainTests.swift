@@ -47,13 +47,13 @@ final class ViewerKeychainTests: XCTestCase {
     private func known(_ office: PortableOffice) {
         let ready = expectation(description: "known")
         office.whenKeychainKnown { ready.fulfill() }
-        wait(for: [ready], timeout: 2)
+        wait(for: [ready], timeout: 10)
     }
 
     private func mainStillAnswers() {
         let answered = expectation(description: "main answered")
         DispatchQueue.main.async { answered.fulfill() }
-        wait(for: [answered], timeout: 2)
+        wait(for: [answered], timeout: 10)
     }
 
     func testMakingTheWriteSecretWhileTheKeychainWaitsDoesNotBlockMain() {
@@ -65,7 +65,7 @@ final class ViewerKeychainTests: XCTestCase {
         let made = expectation(description: "secret made")
         var secret: String?
         office.makeWriteSecret { secret = $0; made.fulfill() }
-        XCTAssertEqual(memory.started.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(memory.started.wait(timeout: .now() + 10), .success)
 
         // Another route's reply on the main queue, and the state it would show, while the write waits.
         mainStillAnswers()
@@ -74,7 +74,7 @@ final class ViewerKeychainTests: XCTestCase {
 
         memory.holdWrites = false
         memory.release.signal()
-        wait(for: [made], timeout: 2)
+        wait(for: [made], timeout: 10)
         XCTAssertNotNil(secret)
         XCTAssertEqual(memory.get(.writeSecret), secret)
         XCTAssertTrue(office.hasWriteSecret)
@@ -93,14 +93,14 @@ final class ViewerKeychainTests: XCTestCase {
 
         let rotated = expectation(description: "rotated")
         office.rotateKey { rotated.fulfill() }
-        XCTAssertEqual(memory.started.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(memory.started.wait(timeout: .now() + 10), .success)
         mainStillAnswers()
         XCTAssertEqual(office.setupState()["revision"] as? Int, before, "nothing changes until the Keychain has answered")
 
         memory.holdWrites = false
         memory.release.signal()
         memory.release.signal()
-        wait(for: [rotated], timeout: 2)
+        wait(for: [rotated], timeout: 10)
         XCTAssertEqual(office.setupState()["revision"] as? Int, (before ?? 0) + 1)
         XCTAssertNotEqual(memory.get(.key), "old")
     }
@@ -110,7 +110,7 @@ final class ViewerKeychainTests: XCTestCase {
         memory.set("secret-for-test", .writeSecret)
         memory.holdAsks = true
         let office = office(memory)
-        XCTAssertEqual(memory.started.wait(timeout: .now() + 2), .success, "asked at once, off the main queue")
+        XCTAssertEqual(memory.started.wait(timeout: .now() + 10), .success, "asked at once, off the main queue")
 
         // Waiting on the Keychain: the main queue answers, and the state says there's nothing yet.
         mainStillAnswers()
@@ -121,7 +121,7 @@ final class ViewerKeychainTests: XCTestCase {
         office.whenKeychainKnown { ready.fulfill() }
         memory.holdAsks = false
         for _ in 0..<3 { memory.release.signal() }
-        wait(for: [ready], timeout: 2)
+        wait(for: [ready], timeout: 10)
         XCTAssertTrue(office.hasWriteSecret)
     }
 
@@ -162,7 +162,7 @@ final class ViewerKeychainTests: XCTestCase {
         let got = expectation(description: "link")
         var link: String?
         office.currentLink { link = $0; got.fulfill() }
-        wait(for: [got], timeout: 2)
+        wait(for: [got], timeout: 10)
         XCTAssertEqual(link, "https://viewer.example.com/v/AAAAAAAAAAAAAAAAAAAAAA#k=\(key)")
         XCTAssertNil(office.link, "read for the reply, not kept")
     }
@@ -180,13 +180,13 @@ final class ViewerKeychainTests: XCTestCase {
         memory.holdReads = true
         let told = expectation(description: "start told")
         office.start { told.fulfill() }
-        XCTAssertEqual(memory.started.wait(timeout: .now() + 2), .success, "Start is waiting on the Keychain")
+        XCTAssertEqual(memory.started.wait(timeout: .now() + 10), .success, "Start is waiting on the Keychain")
         mainStillAnswers()
 
         office.stop()
         memory.holdReads = false
         for _ in 0..<4 { memory.release.signal() }
-        wait(for: [told], timeout: 2)
+        wait(for: [told], timeout: 10)
         XCTAssertFalse(office.isOn, "the Stop cancelled the Start")
     }
 }

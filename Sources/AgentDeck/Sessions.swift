@@ -1,7 +1,7 @@
 import Foundation
 
 /// What a session is doing, as the keys show it.
-enum SessionState: String {
+enum SessionState: String, CaseIterable {
     case idle      // white: nothing running, or finished and already seen
     case thinking  // blue: a turn is running
     case asking    // orange: waiting on you — a permission prompt or a question
@@ -193,6 +193,8 @@ final class Sessions {
     func apply(_ event: [String: Any], agent: Agent, tab: String, startedIn: String, pid: Int32? = nil, parent: String = "",
                at time: Double) {
         guard let id = event["session_id"] as? String, let name = event["hook_event_name"] as? String else { return }
+        // `t3:` ids are the desks of hires in T3 Code (`T3Desks`): no hook event takes one (FXT3Da N7).
+        guard !id.hasPrefix(T3Desks.prefix) else { return }
         let folder = event["cwd"] as? String ?? ""
 
         if let end = endedAt[id], time <= end { return }
@@ -621,6 +623,22 @@ final class Sessions {
         return (event["message"] as? String)?.localizedCaseInsensitiveContains("permission") ?? false
     }
 
+    /// Session `id`'s question or permission prompt put away from the deck
+    /// (✗ or Esc): Claude Code ends the turn there and waits for a prompt,
+    /// and no hook says so. Idle, as after an Interrupt, from `time` on: an
+    /// event raised before it, arriving late, changes nothing.
+    func stoppedAsking(_ id: String, at time: Double = Date().timeIntervalSince1970 * 1000) {
+        guard let session = byID[id], session.state == .asking else { return }
+        session.state = .idle
+        session.endTurn()
+        session.lastEventAt = max(session.lastEventAt, time)
+        session.leftAskingAt = time
+        session.choice = nil
+        session.asked = .init()
+        session.askedSince = 0
+        onChange()
+    }
+
     /// Looking at a finished session's tab turns it from green back to white.
     func markSeen(tab: String) {
         var changed = false
@@ -728,7 +746,8 @@ final class Sessions {
     /// as it was; any older, a turn may have ended unheard, so each is shown
     /// at rest until it's heard from.
     func restore(_ saved: [Saved], fresh: Bool) {
-        for entry in saved where byID[entry.id] == nil && endedAt[entry.id] == nil {
+        // `t3:` ids are the desks of hires in T3 Code, made from the registry alone: none comes back as a session (RT3Da2 n2).
+        for entry in saved where byID[entry.id] == nil && endedAt[entry.id] == nil && !entry.id.hasPrefix(T3Desks.prefix) {
             guard let agent = Agent(rawValue: entry.agent) else { continue }
             let session = Session(id: entry.id, agent: agent, folder: entry.folder, project: entry.project, startedAt: entry.startedAt)
             session.tab = entry.address
