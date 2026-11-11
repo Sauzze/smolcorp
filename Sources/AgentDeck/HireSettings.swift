@@ -124,8 +124,12 @@ enum HireSettings {
         }
 
         // This app's folder, piece by piece: never a rule that would cover the hire's own STATUS.md.
+        // The secrets of both engines a Mac may run (this app's gm-session and hook-header, the Go engine's
+        // hook-key and window-key), as the Go engine lists them: one file whichever engine writes it.
         let root = absolute(support.path)
-        for pattern in ["*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "token"] { both("\(root)/\(pattern)") }
+        for pattern in ["*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token"] {
+            both("\(root)/\(pattern)")
+        }
         for entry in entries where entry != "hires" && !entry.hasPrefix(".") && !entry.contains("/") { both("\(root)/\(entry)/**") }
         // The folders the app is known to make, listed even when absent now, so one made later is covered too.
         for name in knownFolders where !entries.contains(name) { both("\(root)/\(name)/**") }
@@ -135,7 +139,7 @@ enum HireSettings {
         for pattern in ["*.json", "*.sh", "*.jsonl", "*.log", "settings*"] { both("\(root)/hires/*/\(pattern)") }
         for other in others where other != hireID && !other.contains("/") && !other.hasPrefix(".") { both("\(root)/hires/\(other)/**") }
         // Nothing secret or app-state can be read either.
-        for name in ["gm-token", "gm-session", "setup-key", "hook-header", "token", guardFileName, "phones.json", "sessions.json", "config.json", "registry.json"] {
+        for name in ["gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", guardFileName, "phones.json", "sessions.json", "config.json", "registry.json"] {
             rules.append("Read(\(root)/\(name))")
         }
         return rules

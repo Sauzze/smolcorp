@@ -513,9 +513,15 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			if found {
 				answer["hire"] = t3Title(hire)
 			}
+			// A hire in T3 Code: its desk (the tag, its status) and branch, for the card.
+			if found && hire.Engine == t3Engine {
+				lane := t3DeskJSON(hire, d.t3)
+				lane["branch"] = hire.Branch
+				answer["lane"] = lane
+			}
 			writeJSON(w, http.StatusOK, answer)
 		case http.MethodPost:
-			openHireInT3(w, hire, found)
+			openHireInT3(w, d.t3Latest(hire), found)
 		default:
 			http.NotFound(w, r.Request)
 		}
@@ -1490,7 +1496,15 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			http.Error(w, t3Off, http.StatusNotFound)
 			return
 		}
-		writeJSON(w, http.StatusOK, t3JSON(t3StatusNow(query.Get("fresh") == "1", newT3Machine())))
+		d.mu.Lock()
+		on := t3CodeAllowed(d.config)
+		d.mu.Unlock()
+		status := t3StatusNow(query.Get("fresh") == "1", newT3Machine())
+		answer := t3JSON(status)
+		// Whether a hire may go into T3 Code (t3desk.go), or the one sentence saying why not.
+		why := t3LaneRefusal(on, status)
+		answer["lane"] = map[string]any{"ok": why == "", "why": why}
+		writeJSON(w, http.StatusOK, answer)
 	case r.Method == http.MethodPost && path == "/setup/t3code/open":
 		if !d.t3On() {
 			http.Error(w, t3Off, http.StatusNotFound)
@@ -1504,10 +1518,17 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 				hire, found = h, true
 			}
 		}
-		openHireInT3(w, hire, found)
-	// Hiring into T3 Code (T797b) is the Mac app's alone for now: on this computer no hire runs in T3 Code to let go.
+		openHireInT3(w, d.t3Latest(hire), found)
+	// Let go of a hire in T3 Code (t3deskdeck.go), by its id after the page's confirm: its T3 project removed, its
+	// worktree kept. The worktree comes from the registry, never from the request.
 	case r.Method == http.MethodPost && path == "/setup/t3code/letgo":
-		writeStatus(w)(http.StatusConflict, "Hiring into T3 Code is in the Mac app only for now, so no hire here runs in T3 Code.")
+		id, _ := decodeJSON(r.Body)["id"].(string)
+		status, answer := d.letGoOfT3(id)
+		if text, ok := answer.(string); ok {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
 
 	// What a first General Manager hire needs (gmpreflight.go), Start here's lines above its
 	// Hire button. Outside /setup/gm/, which is closed while the manager is off, as on a first run.

@@ -53,7 +53,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/peek` | phone | `?session=` | the input line | 200, 403 | office.json | 404 |
 | POST | `/choose` | phone | `?option=other&choice=`, `{text}` | empty | 204, 400, 403 | office.json | 404 |
 | GET | `/choice` | phone | `?session=` | a prompt's command or file | 200, 403 | office.json | 404 |
-| GET | `/t3code` | window | `?session=&fresh=1` | `{installed, …, hire}`, and `lane` for a hire in T3 Code (Go: no such hire yet, M5) | 200, 403 (a phone), 404 (T3 Code off) | office.json | served |
+| GET | `/t3code` | window | `?session=&fresh=1` | `{installed, …, hire}`, and `lane` for a hire in T3 Code | 200, 403 (a phone), 404 (T3 Code off) | office.json | served |
 | POST | `/t3code/open` | window | `?session=` | empty or text | 204, 403, 404 (T3 Code off, not a hire), 409 | office.json | served |
 | GET | `/hire/window` | window | — | `{background}`: whether hires run in the background | 200, 403 (a phone) | office.json | 404 |
 | POST | `/hire/window` | window | `?session=` | empty or text: a window attached to the hire's tmux session | 204, 403 (a phone), 404 (not a hire), 409 | office.json | 404 |
@@ -107,9 +107,9 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | GET | `/setup/guard` | gm, page, tool | — | `{extra, groups, limits}` | 200 | setup.json | served |
 | POST | `/setup/guard` | page | the guard's groups and patterns | as GET | 200, 400, 500 | setup.json | served |
 | POST | `/setup/choices` | page | `?t3=&background=&asked=1`, each 0 or 1 | the setup state, and `windowsSaid` when it switched hires to the background | 200, 400 (background without tmux) | setup.json | differs |
-| GET | `/setup/t3code` | page | `?fresh=1` | `{installed, …, lane}` (Go: no `lane` yet, M5) | 200, 404 (T3 Code off) | setup.json (T3 Code off; with it on, it looks for the T3 Code app and runs its command: not asked) | served |
+| GET | `/setup/t3code` | page | `?fresh=1` | `{installed, …, lane}` | 200, 404 (T3 Code off) | setup.json (T3 Code off; with it on, it looks for the T3 Code app and runs its command: not asked) | served |
 | POST | `/setup/t3code/open` | page | `{id}` | empty or text | 204, 404 (T3 Code off, no such hire), 409 | setup.json | served |
-| POST | `/setup/t3code/letgo` | page | `{id}` | `{ok, recap, note, worktree, branch}` | 200, 404, 409 | setup.json | differs |
+| POST | `/setup/t3code/letgo` | page | `{id}` | `{ok, recap, note, worktree, branch}` | 200, 404, 409 | setup.json | served |
 
 ## Setup: hiring, roles, briefs and bots
 
@@ -120,7 +120,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | GET | `/setup/hire-folder` | page, tool | `?check=` | `{exists, fix, folder, home, problem, suggested}` | 200 | setup.json | served |
 | POST | `/setup/hire-folder` | gm, page | `?folder=&create=1` | as GET | 200, 400 | setup.json | served |
 | GET | `/setup/hire/folders` | page, tool | — | `{default, recent}` | 200 | setup.json | served |
-| POST | `/setup/hire` | gm, page | `{role, folder, account, model, floor, worktree, apiKey, task, answers, engine}` (`engine: "t3"`: into T3 Code, the Mac's, experimental) | empty or `{ok, desk, session}` | 200, 204, 400, 404, 409 | setup.json, frontdesk/hire-guard.json | 404 |
+| POST | `/setup/hire` | gm, page | `{role, folder, account, model, floor, worktree, apiKey, task, answers, engine}` (`engine: "t3"`: into T3 Code, experimental; Go's lane is `Deck.hireIntoT3`, reached once M4 serves this route) | empty or `{ok, desk, session}` | 200, 204, 400, 404, 409 | setup.json, frontdesk/hire-guard.json | 404 |
 | POST | `/setup/hire/gm` | gm, page | `?worktree=1&account=` | empty | 204, 409, and the hire's | setup.json | served |
 | POST | `/setup/hire/window` | page | `{id}` | empty or text: a window attached to the hire's own tmux session | 204, 409 | setup.json | served |
 | GET | `/setup/hire/gm/preflight` | page | `?account=` | `{ready, items}` | 200, 400 | setup.json | differs |
@@ -630,7 +630,6 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `GET /setup/hire/gm/preflight` | `refusal: no such Claude account` | status 200 | Claude accounts are the Mac's (M2): the GM's tools are checked for any account | M4, once M2 has the Claude accounts |
 | `POST /setup/hire` | `route` | 404 | hiring from the setup page by role is the Mac's (M4) | M4 |
 | `POST /setup/notify` | `route` | 404 | a push to the iPhone app (personal build) | M6: personal shell |
-| `POST /setup/t3code/letgo` | `refusal: no such hire` | status 409 | hiring into T3 Code is the Mac's alone for now: Go answers 409 to any let go, a hire it knows or not | M5: the desk lane (port of T797b) |
 | `GET /setup/nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
 | `GET /setup/gm/screens` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |
 | `POST /setup/gm/screen` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |

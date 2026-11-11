@@ -62,6 +62,8 @@ type Deck struct {
 	// when the last hire was made: see hire.go.
 	hires    map[string]*pendingHire
 	lastHire time.Time
+	// t3 follows the hires in T3 Code (t3deskdeck.go).
+	t3 *t3Follower
 	// A hire is under way: its agent being looked for, or its terminal opening,
 	// with the lock let go. No other starts until it's done.
 	hiring bool
@@ -220,6 +222,9 @@ func NewDeck() *Deck {
 	// The mail pump, after d.cloud is set; the watchers' stop ends it too, and the deck's rounds.
 	stopWatching, stopMail := d.stopWatchers, d.startMailPump()
 	d.stopWatchers = func() { stopMail(); d.rounds.stop(); stopWatching() }
+	// The hires in T3 Code, followed with the deck's rounds, so they stop with it.
+	d.t3 = newT3Follower()
+	d.startT3Follow()
 	return d
 }
 
@@ -1450,6 +1455,12 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	case "fire":
 		if !hiring {
 			return http.StatusForbidden, hiringOff
+		}
+		// A hire in T3 Code is let go from Setup's team list, after a confirm that says what's removed.
+		if h, found := d.hireInSession(id); found {
+			if why := t3FireRefusal(h); why != "" {
+				return http.StatusConflict, why
+			}
 		}
 		if status, message, handled := d.fireTab(tab, query.Get("force") == "1"); handled {
 			return status, message

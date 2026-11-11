@@ -53,6 +53,11 @@ type Hire struct {
 	Started     float64 `json:"started"`
 	State       string  `json:"state"`
 	Notes       string  `json:"notes"`
+	// Where its agent runs: "" in a terminal of Smolcorp's, t3Engine ("t3") in T3 Code (t3desk.go), with its
+	// thread's id and link there. Written only when set, so every other hire's row is as it always was.
+	Engine   string `json:"engine,omitempty"`
+	T3Thread string `json:"t3Thread,omitempty"`
+	T3Link   string `json:"t3Link,omitempty"`
 }
 
 // liveSession is a session as the deck follows it, with where it sits.
@@ -310,6 +315,10 @@ func teamRow(h *Hire, s *liveSession, now float64, status func(string) string) m
 		row["branch"], row["worktree"], row["tmuxSocket"], row["account"] = h.Branch, h.Worktree, h.TmuxSocket, h.Account
 		row["started"], row["state"], row["notes"] = h.Started, h.State, h.Notes
 		row["model"] = h.Model
+		// A hire in T3 Code says so, with its thread; nobody else's row changes.
+		if h.Engine != "" {
+			row["engine"], row["t3Thread"] = h.Engine, h.T3Thread
+		}
 	} else {
 		folder, place = s.Project, s.Folder
 		row["id"], row["name"], row["nickname"], row["role"] = "live:"+s.ID, lastPart(folder), "", ""
@@ -428,7 +437,7 @@ func (rt *router) team(w http.ResponseWriter) {
 	file := readRegistry(registryPath(), false)
 	now := float64(time.Now().UnixMilli())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"at": int64(now), "team": buildTeam(file.hires, live, now, statusLine), "contacts": file.contactsJSON(),
+		"at": int64(now), "team": t3Decorate(buildTeam(file.hires, live, now, statusLine), file.hires, rt.deck.t3), "contacts": file.contactsJSON(),
 	})
 }
 
