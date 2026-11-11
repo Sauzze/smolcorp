@@ -10,6 +10,11 @@ import Security
 /// What goes through Apple is only a desk's name and "finished" or "needs
 /// you", or the GM's own short message, and the session's id for the tap to
 /// open: never anything an agent or the user wrote.
+///
+/// The owner's personal build only (M6): all of it but `PushTarget` is built
+/// with `-Xswiftc -DIPHONE_APP` (`SMOLCORP_IPHONE_APP=1 scripts/build-app.sh`).
+/// `PushTarget` is in every build, so a phones.json the personal build wrote
+/// keeps its phones' tokens when a public build saves it again.
 
 /// What a phone asked to be told, and where: its device token, kept beside
 /// its pairing in phones.json.
@@ -44,6 +49,7 @@ struct PushTarget: Codable, Equatable {
         return text
     }
 
+    #if IPHONE_APP
     func wants(_ event: PushEvent) -> Bool {
         switch event {
         case .finished, .review: return finished
@@ -51,6 +57,7 @@ struct PushTarget: Codable, Equatable {
         case .gm: return gm
         }
     }
+    #endif
 
     /// Hex, as iOS gives it: 32 bytes today, up to 100 allowed.
     static func isToken(_ text: String) -> Bool {
@@ -58,6 +65,7 @@ struct PushTarget: Codable, Equatable {
     }
 }
 
+#if IPHONE_APP
 enum PushEvent: String { case finished, waiting, gm, review }
 
 /// One notification: what it's about, and its only words.
@@ -398,3 +406,4 @@ final class Pushes {
         }
     }
 }
+#endif

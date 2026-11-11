@@ -1,10 +1,12 @@
+#if IPHONE_APP
 import CryptoKit
 import XCTest
 @testable import AgentDeck
 
 /// iPhone app (personal build): notifications through Apple. The provider
 /// token is signed with a key made here for the test, never the real one;
-/// the Keychain and the network are stubbed: nothing is read or sent.
+/// the Keychain and the network are stubbed: nothing is read or sent. Built
+/// only with IPHONE_APP (M6): `swift test -Xswiftc -DIPHONE_APP` runs them.
 final class PushTests: XCTestCase {
     private let token = String(repeating: "ab", count: 32)
 
@@ -431,3 +433,4 @@ final class PushTests: XCTestCase {
         XCTAssertEqual((aps["alert"] as? [String: String])?["subtitle"], "Home Mac")
     }
 }
+#endif

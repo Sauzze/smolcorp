@@ -26,7 +26,8 @@ final class HTTPServer {
     var onFailure: (Error) -> Void = { _ in }
     var onReady: () -> Void = {}
     /// Personal build: how the deck is found on the Wi-Fi by Bonjour, as the
-    /// iPhone app looks for it. Set before `start`.
+    /// iPhone app looks for it. Set before `start`, by a build with IPHONE_APP
+    /// only; nil, as a public build leaves it, is no Bonjour.
     var service: NWListener.Service?
 
     init(port: UInt16, router: Router) {

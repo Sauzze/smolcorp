@@ -23,6 +23,11 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 - **Fixture** names the file, or says `none: ` and why: no fixture asks a route that writes the home folder,
   asks the Keychain, opens a window, a picker or a terminal, starts another program, or reaches another
   computer. Those have their refusals in a fixture where one comes first.
+- The contract is a public build's. What only the native iPhone app (`ios/`) asks (`/glossary`, `/notifications`,
+  `/reviews`, `/setup/notify`) is built only into the owner's personal build, with `-Xswiftc -DIPHONE_APP`
+  (`SMOLCORP_IPHONE_APP=1 scripts/build-app.sh`, M6): its rows say `none: the iPhone app's…` and `404, owner: M6:
+  personal shell`, as a public build answers 404 like the Go app. The personal build also gives the conversation
+  and ⓘ info to the iPhone app through Tailscale; a public build gives them to the office's own window only.
 - Callers: `page` (the setup page's cookie), `tool` (the setup-key file), `gm` (the GM's token), `hire` (a
   hire's send key), as `frontdesk/routes.json`; `phone` (a paired phone's key, or the office's own window),
   `window` (the office's window on this computer only), `hook` (the hook's key, from this computer), `anyone`.
@@ -47,13 +52,13 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/focus` | phone | `?session=`; a hire in T3 Code's desk opens its own thread in T3 Code (T3D-a) | empty, or text | 204, 404, 409 | office.json | served |
 | POST | `/act` | phone | `?action=` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap, style, music, fire, hire, move, seen, language, cleanup, settings, choose, letgo (a hire in T3 Code's desk, T3D-a; any other action there is 409)…; `&session=` | empty, or text | 204, 400, 403, 404, 409 | office.json | differs |
 | POST | `/summary` | phone | `?session=` | `{summary}` or `{error}` | 200, 400–503 `{error}` | office.json | served |
-| GET | `/glossary` | phone | — | `{api, glossary, language}` for the iPhone app's speech | 200 | office.json | 404 |
+| GET | `/glossary` | phone | — | `{api, glossary, language}` for the iPhone app's speech | 200 | none: the iPhone app's, served only by the owner's personal build (built with IPHONE_APP); a public build answers 404 | 404, owner: M6: personal shell |
 | GET | `/approvals` | phone | — | `{approvals, at}` | 200, 403 (not Tailscale) | office.json | 404 |
-| GET | `/reviews` | phone | — | the NEEDS-REVIEW list | 200, 403 (not Tailscale) | office.json | 404 |
+| GET | `/reviews` | phone | — | the NEEDS-REVIEW list | 200, 403 (not Tailscale) | none: the iPhone app's, served only by the owner's personal build (built with IPHONE_APP); a public build answers 404 | 404, owner: M6: personal shell |
 | GET | `/conversation` | phone | `?session=&before=&size=` | a page of the conversation | 200, 400, 403 | office.json | 404 |
 | GET | `/session/info` | phone | `?id=` or `?session=` | account, model, time, tokens | 200, 403 | office.json | 404 |
-| GET | `/notifications` | phone | — | `{key, registered, finished, waiting, gm}` | 200 | office.json | 404 |
-| POST | `/notifications` | phone | `{token, sandbox, finished, waiting, gm, office, officeID}` | as GET | 200, 403 | office.json | 404 |
+| GET | `/notifications` | phone | — | `{key, registered, finished, waiting, gm}` | 200 | none: the iPhone app's, served only by the owner's personal build (built with IPHONE_APP); a public build answers 404 | 404, owner: M6: personal shell |
+| POST | `/notifications` | phone | `{token, sandbox, finished, waiting, gm, office, officeID}` | as GET | 200, 403 | none: the iPhone app's, served only by the owner's personal build (built with IPHONE_APP); a public build answers 404 | 404, owner: M6: personal shell |
 | POST | `/dictate` | phone | `{text, send}`, over the Wi-Fi or Tailscale (I34); several lines as one paste (tmux by the pane's flag; Terminal.app, iTerm2 and Ghostty through the clipboard and ⌘V, Claude Code only) | empty or text | 204, 400, 403 (the office's window, the phone mic off, no Accessibility for ⌘V), 404, 409 (asking; several lines where its terminal or agent can't take one paste, a tmux pane in copy mode, the Mac locked for ⌘V; through the clipboard: working, not in front of its tab, something else reading the tab's keys (an editor, a pager, a shell, anything else), the tab not known, not brought or kept in front, the Mac in use, the clipboard can't be put back, another paste still on it), 503 (the terminal stopped answering; ⌘V went but the paste wasn't read in time, no Return) | office.json | served |
 | POST | `/peek` | phone | `?session=` | the input line | 200, 403 | office.json | served |
 | POST | `/choose` | phone | `?option=other&choice=`, `{text}`, over the Wi-Fi or Tailscale (I34), one line | empty | 204, 400 (several lines too), 403 | office.json | served |
@@ -139,7 +144,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/setup/bots/override` | gm, page | `{id, pinned, floor, hidden, show, autoDetect, botFloor}` | the setup state | 200, 400, 404 | setup.json | differs |
 | POST | `/setup/bots/mailbox` | page | `{id, folder}` | `{bots}` | 200, 400 | setup.json | served |
 | POST | `/setup/bots/resolve` | gm, page | — | `{bots, filled, unresolved}` | 200 | setup.json | served |
-| POST | `/setup/notify` | gm, page | `{title, body}` | `{sent}` | 200, 400, 503 | setup.json | 404 |
+| POST | `/setup/notify` | gm, page | `{title, body}` | `{sent}` | 200, 400, 503 | none: the iPhone app's, served only by the owner's personal build (built with IPHONE_APP); a public build answers 404 | 404, owner: M6: personal shell |
 
 ## Setup: the portable office's viewer
 
@@ -287,11 +292,11 @@ has are the known gaps' "extra" rows.
 | `.pairing.open` | bool | same |
 | `.pairing.tailnet` | string | same |
 | `.phoneKeys` | number | same |
-| `.phoneMic` | object | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit (personal build): here config.json's phoneMicEnabled |
-| `.phoneMic.autoSend` | bool | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit (personal build): here config.json's phoneMicEnabled |
-| `.phoneMic.enabled` | bool | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit (personal build): here config.json's phoneMicEnabled |
-| `.phoneMic.serving` | string or null | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit (personal build): here config.json's phoneMicEnabled |
-| `.phoneMic.tailnet` | string or null | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit (personal build): here config.json's phoneMicEnabled |
+| `.phoneMic` | object | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 |
+| `.phoneMic.autoSend` | bool | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 |
+| `.phoneMic.enabled` | bool | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 |
+| `.phoneMic.serving` | string or null | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 |
+| `.phoneMic.tailnet` | string or null | missing: setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 |
 | `.phones` | array | same |
 | `.phones[].connected` | bool | same |
 | `.phones[].id` | string | same |
@@ -394,7 +399,7 @@ for hires (`.hiring.roles` is `[]`).
 | `.keys[].session.agentName` | string | same |
 | `.keys[].session.choice` | object or null | same |
 | `.keys[].session.compacting` | bool | same |
-| `.keys[].session.conversation` | bool | missing: the conversation view: the iPhone app's (personal build) |
+| `.keys[].session.conversation` | bool | missing: whether a desk has a conversation to read, for the office window's ▤ conversation |
 | `.keys[].session.dial` | bool | same |
 | `.keys[].session.dictates` | bool | same |
 | `.keys[].session.effort` | one of 'low', 'medium', 'high', 'xhigh', 'max', '' | same |
@@ -419,7 +424,7 @@ for hires (`.hiring.roles` is `[]`).
 | `.keys[].session.t3` | object | same |
 | `.keys[].session.tool` | string or null | same |
 | `.keys[].session.turnStartedAt` | number or null | same |
-| `.keys[].session.voiceNote` | object or null | missing: voice notes: the Mac's personal build |
+| `.keys[].session.voiceNote` | object or null | missing: a voice note: a few seconds' note over a desk of how its last dictation went |
 | `.layout` | object | same |
 | `.maxConfirm` | bool | same |
 | `.music` | object or null | same |
@@ -561,7 +566,7 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `setup-state` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
 | `setup-state` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
-| `setup-state` | `.phoneMic` | missing | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit (personal build): here config.json's phoneMicEnabled | M6: personal shell |
+| `setup-state` | `.phoneMic` | missing | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 | M2: setup's Phone microphone switch |
 | `setup-state` | `.roles.limits.answer` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state` | `.roles.limits.briefFile` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state` | `.roles.limits.briefFileName` | missing | briefs aren't served here (M4) | M4a: briefs |
@@ -572,31 +577,26 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `setup-state-tool` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
 | `setup-state-tool` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
 | `setup-state-tool` | `.pairing.codeExpiresIn` | extra | a tool is told how long the code lasts; the Mac tells only the page | stays: Go-only, a tool's; the page has it in its own state on both apps |
-| `setup-state-tool` | `.phoneMic` | missing | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit (personal build): here config.json's phoneMicEnabled | M6: personal shell |
+| `setup-state-tool` | `.phoneMic` | missing | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 | M2: setup's Phone microphone switch |
 | `setup-state-tool` | `.roles.limits.answer` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state-tool` | `.roles.limits.briefFile` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state-tool` | `.roles.limits.briefFileName` | missing | briefs aren't served here (M4) | M4a: briefs |
 | `setup-state-tool` | `.summary.noStore` | extra | says there's no secret store for the key, which a Mac always has | stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false |
-| `snapshot` | `.floors[].desks[].conversation` | missing | the conversation view: the iPhone app's (personal build) | M6: personal shell |
-| `snapshot` | `.floors[].desks[].voiceNote` | missing | voice notes: the Mac's personal build | M6: personal shell |
-| `snapshot` | `.keys[].session.conversation` | missing | the conversation view: the iPhone app's (personal build) | M6: personal shell |
-| `snapshot` | `.keys[].session.voiceNote` | missing | voice notes: the Mac's personal build | M6: personal shell |
-| `snapshot` | `.upstairs.desks[].conversation` | missing | the conversation view: the iPhone app's (personal build) | M6: personal shell |
-| `snapshot` | `.upstairs.desks[].voiceNote` | missing | voice notes: the Mac's personal build | M6: personal shell |
-| `POST /setup/phonemic` | `route` | 404 | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit (personal build): here config.json's phoneMicEnabled | M6: personal shell |
+| `snapshot` | `.floors[].desks[].conversation` | missing | whether a desk has a conversation to read, for the office window's ▤ conversation | M3: the office window's ▤ conversation and ⓘ info |
+| `snapshot` | `.floors[].desks[].voiceNote` | missing | a voice note: a few seconds' note over a desk of how its last dictation went | M3: the office's voice notes |
+| `snapshot` | `.keys[].session.conversation` | missing | whether a desk has a conversation to read, for the office window's ▤ conversation | M3: the office window's ▤ conversation and ⓘ info |
+| `snapshot` | `.keys[].session.voiceNote` | missing | a voice note: a few seconds' note over a desk of how its last dictation went | M3: the office's voice notes |
+| `snapshot` | `.upstairs.desks[].conversation` | missing | whether a desk has a conversation to read, for the office window's ▤ conversation | M3: the office window's ▤ conversation and ⓘ info |
+| `snapshot` | `.upstairs.desks[].voiceNote` | missing | a voice note: a few seconds' note over a desk of how its last dictation went | M3: the office's voice notes |
+| `POST /setup/phonemic` | `route` | 404 | setup's phone-mic switch and its tailscale serve steps, which this server doesn't admit: here config.json's phoneMicEnabled, read since I5 | M2: setup's Phone microphone switch |
 | `GET /setup/hire/gm/preflight` | `refusal: no such Claude account` | status 200 | the preflight takes no account yet: Go has the Claude accounts since M2, but the GM's tools are checked for any account | M4 |
-| `POST /setup/notify` | `route` | 404 | a push to the iPhone app (personal build) | M6: personal shell |
 | `GET /setup/gm/screens` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |
 | `POST /setup/gm/screen` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |
 | `POST /setup/gm/by-hand` | `route` | 404 | no GM token here (M4) | M4 |
 | `POST /setup/gm/token/rotate` | `route` | 404 | no GM token here (M4) | M4 |
 | `POST /act` | `mic: dictation on, under the Mac app` | not dictated | the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false | M3 via the bridge (M1) |
-| `GET /glossary` | `route` | 404 | the iPhone app's speech names (personal build) | M6: personal shell |
-| `GET /approvals` | `route` | 404 | over Tailscale only (personal build) | M6: personal shell |
-| `GET /reviews` | `route` | 404 | over Tailscale only (personal build) | M6: personal shell |
-| `GET /conversation` | `route` | 404 | the iPhone app's conversation (personal build) | M6: personal shell |
-| `GET /session/info` | `route` | 404 | ⓘ Info (personal build) | M6: personal shell |
-| `GET /notifications` | `route` | 404 | the iPhone app's push notifications (personal build) | M6: personal shell |
-| `POST /notifications` | `route` | 404 | the iPhone app's push notifications (personal build) | M6: personal shell |
+| `GET /approvals` | `route` | 404 | the deck's list of who waits for you, over Tailscale only | M3: the deck's waiting list |
+| `GET /conversation` | `route` | 404 | the office window's ▤ conversation, as it was written | M3: the office window's ▤ conversation and ⓘ info |
+| `GET /session/info` | `route` | 404 | the office window's ⓘ info: a session's account, model, time and tokens | M3: the office window's ▤ conversation and ⓘ info |
 | `GET /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1) |
 | `POST /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1) |

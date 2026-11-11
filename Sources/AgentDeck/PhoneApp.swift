@@ -1,10 +1,12 @@
+#if IPHONE_APP
 import Foundation
 import Network
 
 /// Personal build: what the iPhone app (ios/) needs of the deck beyond what
 /// the deck's page has. It pairs and reads the deck as the page does, with
 /// the same key; it finds the deck on the Wi-Fi by Bonjour, and asks for the
-/// names its own speech recognition should listen for.
+/// names its own speech recognition should listen for. Built only with
+/// `-Xswiftc -DIPHONE_APP`, as the owner's personal build is (M6).
 enum PhoneApp {
     /// The app's User-Agent starts so, for setup to name it.
     static let userAgent = "Smolcorp iOS"
@@ -27,3 +29,4 @@ enum PhoneApp {
          "language": Config.shared.dictationLanguage, "api": api]
     }
 }
+#endif

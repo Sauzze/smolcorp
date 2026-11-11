@@ -130,8 +130,14 @@ final class DeckRouter: Router {
     /// iPhone app (personal build): an agent's conversation, read from its
     /// transcript, goes only through `tailscale serve`, to a phone paired with
     /// its own key: never over the Wi-Fi's plain http, nor to the office's window.
+    /// No web page reads it on a phone (the deck's ▤ is the Mac's window's), so a
+    /// public build gives it to no phone; the personal build's IPHONE_APP does (M6).
     static func showsConversation(_ request: Request, phone: PairedPhone) -> Bool {
-        request.isTailnet && phone.id != PairedPhone.officeWindow.id
+        #if IPHONE_APP
+        return request.isTailnet && phone.id != PairedPhone.officeWindow.id
+        #else
+        return false
+        #endif
     }
 
     /// ⓘ Info and the Mac's ▤ conversation (personal build): this Mac's own
@@ -141,6 +147,16 @@ final class DeckRouter: Router {
         request.isLocal && !request.isTailnet && phone.id == PairedPhone.officeWindow.id
     }
 
+    /// Where the conversation and ⓘ Info show, said when they're refused: the office's window, and in the
+    /// personal build the iPhone app through Tailscale too.
+    static func shownOnly(_ what: String) -> String {
+        #if IPHONE_APP
+        return "\(what) shows only over Tailscale's HTTPS address."
+        #else
+        return "\(what) shows only in the office's window on your Mac."
+        #endif
+    }
+
     /// ⓘ Info (personal build): the session's account, model, time and tokens,
     /// to this Mac's office window, or to a phone paired with its own key
     /// through `tailscale serve`, as the conversation goes: never over the Wi-Fi.
@@ -148,7 +164,8 @@ final class DeckRouter: Router {
         isOfficeWindow(request, phone: phone) || showsConversation(request, phone: phone)
     }
 
-    /// iPhone app (personal build): a phone's device token comes only through
+    #if IPHONE_APP
+    /// iPhone app (personal build only, M6): a phone's device token comes only through
     /// `tailscale serve`, from a phone paired with its own key.
     static func takesPushToken(_ request: Request, phone: PairedPhone) -> Bool {
         request.isTailnet && phone.id != PairedPhone.officeWindow.id
@@ -170,6 +187,7 @@ final class DeckRouter: Router {
                           waiting: given["waiting"] as? Bool ?? true, gm: given["gm"] as? Bool ?? true,
                           office: PushTarget.officeLabel(given["office"]), officeID: PushTarget.officeIdentifier(given["officeID"]))
     }
+    #endif
 
     /// A page's end in the transcript, as an earlier page gave it: digits only.
     static func offset(_ text: String?) -> UInt64?? {
@@ -452,6 +470,9 @@ final class DeckRouter: Router {
             }
             respond(.json(Approvals.answer(deck.approvalItems())))
 
+        // The iPhone app's routes, in the owner's personal build only (built with -Xswiftc -DIPHONE_APP, M6): no web
+        // page asks them, so a public build answers them 404, as the Linux/Windows app does.
+        #if IPHONE_APP
         // The reviews list: hires that wrote NEEDS-REVIEW, the newest, read only, tailnet only like the approvals.
         case ("GET", "/reviews"):
             guard DeckRouter.showsApprovals(request, phone: phone) else {
@@ -462,26 +483,28 @@ final class DeckRouter: Router {
         // iPhone app (personal build): the names its speech recognition listens for, and in which language.
         case ("GET", "/glossary"):
             respond(.json(PhoneApp.glossary(desks: deck.sessions.all.map(\.projectName))))
+        #endif
 
-        // iPhone app (personal build): the session's conversation, a page at a time, never over the Wi-Fi.
-        // The Mac's office window (personal build): the same, as it was written, never leaving the Mac.
+        // The Mac's office window: the session's conversation, a page at a time, as it was written, never leaving
+        // the Mac. The personal build's iPhone app: the same, redacted, through Tailscale only, never over the Wi-Fi.
         case ("GET", "/conversation"):
             let here = DeckRouter.isOfficeWindow(request, phone: phone)
             guard here || DeckRouter.showsConversation(request, phone: phone) else {
-                return respond(.status(403, "The conversation shows only over Tailscale's HTTPS address."))
+                return respond(.status(403, DeckRouter.shownOnly("The conversation")))
             }
             guard let before = DeckRouter.offset(request.query["before"]), let known = DeckRouter.offset(request.query["size"]) else {
                 return respond(.status(400, "That isn't a place in the conversation."))
             }
             deck.conversation(session, before: before, known: known, redacted: !here, done: respond)
 
-        // ⓘ Info (personal build): what the session runs on, and what it has used.
+        // ⓘ Info: what the session runs on, and what it has used, to the office window (and the personal build's iPhone app).
         case ("GET", "/session/info"):
             guard DeckRouter.showsInfo(request, phone: phone) else {
-                return respond(.status(403, "The info shows only over Tailscale's HTTPS address."))
+                return respond(.status(403, DeckRouter.shownOnly("The info")))
             }
             deck.info(request.query["id"] ?? session, done: respond)
 
+        #if IPHONE_APP
         // iPhone app (personal build): whether this Mac sends notifications, and which this phone gets.
         case ("GET", "/notifications"):
             respond(.json(DeckRouter.notifications(phone.push, hasKey: deck.pushes.hasKey)))
@@ -495,6 +518,7 @@ final class DeckRouter: Router {
             let push = DeckRouter.pushTarget(request.json)
             deck.access.phones.setPush(push, for: phone.id)
             respond(.json(DeckRouter.notifications(push, hasKey: deck.pushes.hasKey)))
+        #endif
 
         // ✨ Summary: a few lines on what the session has been doing, or why there are none.
         case ("POST", "/summary"):
@@ -963,7 +987,8 @@ final class DeckRouter: Router {
         case ("POST", "/setup/webhook/test"):
             deck.testWebhook { [self] in respond(.json(setupState(caller))) }
 
-        // iPhone app (personal build): the GM session's own short message, to the phones that want it.
+        #if IPHONE_APP
+        // iPhone app (personal build only, M6): the GM session's own short message, to the phones that want it.
         // Only its title and body go, on a line each; nothing is sent without the push key.
         case ("POST", "/setup/notify"):
             guard let note = PushNote.gm(title: request.json["title"] as? String ?? "", body: request.json["body"] as? String ?? "") else {
@@ -973,6 +998,7 @@ final class DeckRouter: Router {
                 return respond(.status(503, "Notifications need a push key in the Keychain (\(PushKey.service)), with your team and app as its comment: see the README."))
             }
             deck.push(note) { sent in respond(.json(["sent": sent])) }
+        #endif
 
         // ✨ Summary on only once the page's dialog has said what it sends where,
         // and only with what it names working; off at any time.

@@ -28,6 +28,12 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# The owner's personal build (the iPhone app's push, Bonjour and the rest) is
+# never released: build-app.sh leaves it out unless this is 1.
+if [ -n "${SMOLCORP_IPHONE_APP:-}" ]; then
+  echo "SMOLCORP_IPHONE_APP is set: that's the personal build, which is never released. Unset it and run again."
+  exit 1
+fi
 APP="build/Smolcorp.app"
 DMG="build/Smolcorp.dmg"
 ZIP="build/Smolcorp.zip"

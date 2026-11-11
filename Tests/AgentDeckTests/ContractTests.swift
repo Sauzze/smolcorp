@@ -182,7 +182,6 @@ final class ContractTests: XCTestCase {
                                                      (ask(body: ["role": "nobody-at-all"]), "no such role")]),
         Route("POST", "/setup/hire/gm", nil, refusals: [(ask(), "no folder for your hires yet")],
               note: "hires the GM in the folder for your hires; asked here only with none set"),
-        Route("POST", "/setup/notify", nil, refusals: [(ask(body: [String: Any]()), "no title or body")]),
         Route("POST", "/setup/viewer", nil, refusals: [(ask(body: "not json"), "not a viewer setting")]),
         // The two plain choices (T796): asked with nothing switched to the background, which would detach the hires' windows.
         Route("POST", "/setup/choices", ask(query: ["t3": "0"]),
@@ -258,13 +257,11 @@ final class ContractTests: XCTestCase {
         ]),
         Route("POST", "/summary", nil, refusals: [(ask("phone", query: ["session": "no-such-session"]), "summaries are off")],
               note: "{summary} or {error} with the status"),
-        Route("GET", "/glossary", ask("phone", given: ["sessions"])),
+        // The iPhone app's own routes (/glossary, /notifications, /reviews, /setup/notify) are the owner's personal build's
+        // (IPHONE_APP, M6), never a public build's: not asked here, as the contract is the public build's (INVENTORY.md).
         Route("GET", "/approvals", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
-        Route("GET", "/reviews", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
-        Route("GET", "/conversation", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
-        Route("GET", "/session/info", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
-        Route("GET", "/notifications", ask("phone")),
-        Route("POST", "/notifications", nil, refusals: [(ask("phone", body: ["token": "not-a-token"]), "over Tailscale's HTTPS address only")]),
+        Route("GET", "/conversation", nil, refusals: [(ask("phone"), "a phone: the office's own window only")]),
+        Route("GET", "/session/info", nil, refusals: [(ask("phone"), "a phone: the office's own window only")]),
         Route("POST", "/dictate", nil, refusals: [(ask("phone", body: ["text": "!ls"]), "a Wi-Fi phone too (I34): text starting with “!”"),
                                                   (ask("phone", query: ["session": "nope"], body: ["text": "one\ntwo"]), "several lines, to no such session"),
                                                   (ask("phone", body: ["text": "one line"], given: ["the phone mic off"]), "the phone mic off in setup")]),
@@ -334,8 +331,8 @@ final class ContractTests: XCTestCase {
     static let givens: [String: [String: Any]] = [
         "manager on": ["says": "config.json's managerEnabled is true"],
         "T3 Code on": ["says": "config.json's t3CodeEnabled is true (the T3 Code choice, T796)"],
-        "the phone mic off": ["says": "config.json's phoneMicEnabled is false (setup's Phone microphone, personal build): "
-            + "the Go app has no phone mic (M6)"],
+        "the phone mic off": ["says": "config.json's phoneMicEnabled is false (setup's Phone microphone): "
+            + "the Go app reads it too since I5, with no switch for it in setup yet (M2)"],
         "sessions": [
             "requests": hooks.map { hook -> [String: Any] in
                 ["as": "hook", "method": "POST", "path": "/hook", "headers": hook["headers"]!, "body": hook["body"]!]

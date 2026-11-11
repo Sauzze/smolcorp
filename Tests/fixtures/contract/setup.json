@@ -1646,26 +1646,6 @@
     },
     {
       "callers" : [
-        "gm",
-        "page"
-      ],
-      "refusals" : [
-        {
-          "kind" : "text",
-          "request" : {
-            "as" : "page",
-            "body" : {
-
-            }
-          },
-          "status" : 400,
-          "why" : "no title or body"
-        }
-      ],
-      "route" : "POST \/setup\/notify"
-    },
-    {
-      "callers" : [
         "page"
       ],
       "refusals" : [

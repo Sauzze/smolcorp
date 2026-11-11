@@ -54,7 +54,10 @@ final class Deck {
     /// What the sessions did, kept in the support folder for the GM to read.
     lazy var events: EventLog = {
         let log = EventLog(folder: Paths.support)
+        // The personal build's iPhone app is told of each new review (IPHONE_APP, M6).
+        #if IPHONE_APP
         log.onAppend = { [weak self] entry in self?.noteReview(entry) }
+        #endif
         return log
     }()
     /// What the GM asked to be told of (T405), kept in the support folder (a test copy's own), so a test
@@ -77,9 +80,12 @@ final class Deck {
     var t3Leaving = T3Desk.Leaving()
     /// ✨ Summary: what each session has been doing, from Claude, with your own key.
     let summaries = Summaries()
-    /// iPhone app (personal build): notifications, sent to Apple by this Mac.
+    #if IPHONE_APP
+    /// iPhone app (personal build only, M6): notifications, sent to Apple by this Mac.
     let pushes = Pushes()
-    /// iPhone app (personal build): where conversations are read, off the main queue, one at a time.
+    #endif
+    /// Where conversations are read, off the main queue, one at a time: the office window's ▤ conversation, and in
+    /// the personal build the iPhone app's.
     private let conversations = DispatchQueue(label: "smolcorp.conversation")
     /// The key the office's own window on this Mac reads the office with:
     /// new at each start, never saved, and taken only from this Mac.
@@ -358,7 +364,9 @@ final class Deck {
         onChange()
         scheduleSave()
         tellWebhook()
+        #if IPHONE_APP
         tellPhones()
+        #endif
         portable.changed()
     }
 
@@ -382,8 +390,9 @@ final class Deck {
         }
     }
 
-    // MARK: Notifications (personal build)
+    // MARK: Notifications (personal build only: IPHONE_APP, M6)
 
+    #if IPHONE_APP
     /// Tells the iPhone app's phones of desks newly waiting on you or done, through Apple.
     private func tellPhones() {
         let desks = Deck.downstairs(sessions.all).map { (id: $0.id, name: $0.projectName, state: $0.state) }
@@ -397,6 +406,7 @@ final class Deck {
             self?.access.phones.forgetPush(token: token, for: phone)
         }, done: done)
     }
+    #endif
 
     /// The iPhone app's conversation, a page of session `id`'s transcript ending at `before`, or its end. With
     /// `known`, the size the phone last saw of it, the end isn't read again while the file hasn't grown. Not

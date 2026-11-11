@@ -221,39 +221,6 @@
       "route" : "POST \/summary"
     },
     {
-      "answer" : {
-        "kind" : "json",
-        "shape" : {
-          "api" : "number",
-          "glossary" : [
-            "string"
-          ],
-          "language" : "string"
-        },
-        "status" : 200
-      },
-      "callers" : [
-        "phone"
-      ],
-      "refusals" : [
-        {
-          "kind" : "empty",
-          "request" : {
-            "as" : "nobody"
-          },
-          "status" : 401,
-          "why" : "not one of its callers"
-        }
-      ],
-      "request" : {
-        "as" : "phone",
-        "given" : [
-          "sessions"
-        ]
-      },
-      "route" : "GET \/glossary"
-    },
-    {
       "callers" : [
         "phone"
       ],
@@ -288,31 +255,7 @@
             "as" : "phone"
           },
           "status" : 403,
-          "why" : "over Tailscale's HTTPS address only"
-        },
-        {
-          "kind" : "empty",
-          "request" : {
-            "as" : "nobody"
-          },
-          "status" : 401,
-          "why" : "not one of its callers"
-        }
-      ],
-      "route" : "GET \/reviews"
-    },
-    {
-      "callers" : [
-        "phone"
-      ],
-      "refusals" : [
-        {
-          "kind" : "text",
-          "request" : {
-            "as" : "phone"
-          },
-          "status" : 403,
-          "why" : "over Tailscale's HTTPS address only"
+          "why" : "a phone: the office's own window only"
         },
         {
           "kind" : "empty",
@@ -336,7 +279,7 @@
             "as" : "phone"
           },
           "status" : 403,
-          "why" : "over Tailscale's HTTPS address only"
+          "why" : "a phone: the office's own window only"
         },
         {
           "kind" : "empty",
@@ -348,66 +291,6 @@
         }
       ],
       "route" : "GET \/session\/info"
-    },
-    {
-      "answer" : {
-        "kind" : "json",
-        "shape" : {
-          "finished" : "bool",
-          "gm" : "bool",
-          "key" : "bool",
-          "registered" : "bool",
-          "waiting" : "bool"
-        },
-        "status" : 200
-      },
-      "callers" : [
-        "phone"
-      ],
-      "refusals" : [
-        {
-          "kind" : "empty",
-          "request" : {
-            "as" : "nobody"
-          },
-          "status" : 401,
-          "why" : "not one of its callers"
-        }
-      ],
-      "request" : {
-        "as" : "phone"
-      },
-      "route" : "GET \/notifications"
-    },
-    {
-      "callers" : [
-        "phone"
-      ],
-      "refusals" : [
-        {
-          "kind" : "text",
-          "request" : {
-            "as" : "phone",
-            "body" : {
-              "token" : "not-a-token"
-            }
-          },
-          "status" : 403,
-          "why" : "over Tailscale's HTTPS address only"
-        },
-        {
-          "kind" : "empty",
-          "request" : {
-            "as" : "nobody",
-            "body" : {
-              "token" : "not-a-token"
-            }
-          },
-          "status" : 401,
-          "why" : "not one of its callers"
-        }
-      ],
-      "route" : "POST \/notifications"
     },
     {
       "callers" : [

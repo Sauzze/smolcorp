@@ -271,7 +271,12 @@ final class ConversationTests: XCTestCase {
     private let phone = PairedPhone(id: "p1", name: "iPhone app", pairedAt: Date(), lastSeen: Date(), keyHash: "x")
 
     func testTheConversationGoesOnlyThroughTailscaleToAPairedPhone() {
+        // The personal build's iPhone app reads it through Tailscale; a public build gives it to no phone (M6).
+        #if IPHONE_APP
         XCTAssertTrue(DeckRouter.showsConversation(throughTailscale("/conversation"), phone: phone))
+        #else
+        XCTAssertFalse(DeckRouter.showsConversation(throughTailscale("/conversation"), phone: phone))
+        #endif
         XCTAssertFalse(DeckRouter.showsConversation(overWiFi("/conversation"), phone: phone))
         XCTAssertFalse(DeckRouter.showsConversation(throughTailscale("/conversation"), phone: .officeWindow))
         let fromThisMac = Request.addressed(method: "GET", path: "/conversation", query: [:], headers: ["host": "localhost:7710"],
@@ -303,14 +308,20 @@ final class ConversationTests: XCTestCase {
         let fromThisMac = Request.addressed(method: "GET", path: "/session/info", query: [:], headers: ["host": "localhost:7710"],
                                             body: Data(), fromLoopback: true, remoteAddress: "127.0.0.1")
         XCTAssertTrue(DeckRouter.showsInfo(fromThisMac, phone: .officeWindow))
+        #if IPHONE_APP
         XCTAssertTrue(DeckRouter.showsInfo(throughTailscale("/session/info"), phone: phone))
+        #else
+        XCTAssertFalse(DeckRouter.showsInfo(throughTailscale("/session/info"), phone: phone))
+        #endif
         XCTAssertFalse(DeckRouter.showsInfo(overWiFi("/session/info"), phone: phone))
         XCTAssertFalse(DeckRouter.showsInfo(overWiFi("/session/info"), phone: .officeWindow))
     }
 
+    #if IPHONE_APP
     func testTheDeviceTokenComesOnlyThroughTailscaleFromAPairedPhone() {
         XCTAssertTrue(DeckRouter.takesPushToken(throughTailscale("/notifications"), phone: phone))
         XCTAssertFalse(DeckRouter.takesPushToken(overWiFi("/notifications"), phone: phone))
         XCTAssertFalse(DeckRouter.takesPushToken(throughTailscale("/notifications"), phone: .officeWindow))
     }
+    #endif
 }

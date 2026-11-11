@@ -10,6 +10,8 @@ final class ReviewsTests: XCTestCase {
                        detail: detail ?? "needs-review: \(hire): STATUS.md: \(text)")
     }
 
+    // The list and its push are the personal build's (IPHONE_APP, M6): `swift test -Xswiftc -DIPHONE_APP` runs them.
+    #if IPHONE_APP
     func testAReviewIsTheHireAndTheWordsAfterTheMark() throws {
         let item = try XCTUnwrap(Reviews.item(line(7)))
         XCTAssertEqual(item, Reviews.Item(id: 7, at: 1_761_000_000_007, session: "", hire: "Mia", file: "STATUS.md", text: "the export is ready"))
@@ -54,6 +56,8 @@ final class ReviewsTests: XCTestCase {
         XCTAssertFalse(PushTarget(token: String(repeating: "a", count: 64), finished: false, waiting: true, gm: true).wants(.review),
                        "it follows the finished switch")
     }
+
+    #endif
 
     func testTheLogTellsTheDeckOfEachNewLine() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("reviews-\(UUID().uuidString)")

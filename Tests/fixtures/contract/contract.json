@@ -293,7 +293,7 @@
       "says" : "the library you edit (the support folder's briefs\/templates) is the app's own, Resources\/briefs: the Go app has it built in and copies it there on first use; the Mac's test bundle has none, so its test copies it there"
     },
     "the phone mic off" : {
-      "says" : "config.json's phoneMicEnabled is false (setup's Phone microphone, personal build): the Go app has no phone mic (M6)"
+      "says" : "config.json's phoneMicEnabled is false (setup's Phone microphone): the Go app reads it too since I5, with no switch for it in setup yet (M2)"
     }
   },
   "note" : "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1), read by desktop\/contract_test.go. Shapes, not values: \"string\", \"number\", \"bool\", \"null\"; 'x' for that string; alternatives joined by | (\"string|null\", a closed set 'a'|'b'); an object's keys, no more, no fewer; an array's elements as the different shapes they have, each element like one of them and each like some element ([] for none). \"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why, and each null allowed. Beside a shape, ids: the given's sessions in each of its lists, sorted, compared as they are; and t3Desk: what every t3: desk must hold by value (each 'false' field false, each 'null' field null, its t3 with each of those fields, no \/ in a 'noSlash' field). A refusal answered in JSON has its shape too.",

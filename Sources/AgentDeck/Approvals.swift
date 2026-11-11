@@ -75,13 +75,22 @@ extension Deck {
         guard !asking.isEmpty else { return [] }
         let live = frontDeskLive()
         let hires = frontDesk.hires
+        // Whether the iPhone app was told: the personal build's push (IPHONE_APP); a public build tells no one.
+        #if IPHONE_APP
         let phonesHavePush = access.phones.all.contains { $0.push != nil }
+        #else
+        let phonesHavePush = false
+        #endif
         return asking.map { session in
             let place = live.first { $0.id == session.id }
             let hire = place.flatMap { place in hires.first { $0.state != .fired && $0.state != .failed && FrontDesk.works(place, for: $0) } }
             let tool = session.asked.tool.isEmpty ? session.waitingFor : session.asked.tool
             let since = session.askedSince > 0 ? session.askedSince : session.lastEventAt
+            #if IPHONE_APP
             let told = pushes.toldWaiting(session.id) != nil
+            #else
+            let told = false
+            #endif
             return Approvals.Item(session: session.id, hire: hire?.id ?? "", name: hire?.name ?? session.projectName,
                                   nickname: hire?.nickname ?? "", agent: session.agent.rawValue, floor: place?.floor, desk: place?.desk,
                                   kind: tool == "AskUserQuestion" ? "question" : "permission", tool: tool, input: session.asked.input,

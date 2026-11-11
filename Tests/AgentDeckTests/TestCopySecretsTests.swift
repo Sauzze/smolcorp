@@ -138,8 +138,10 @@ final class TestCopySecretsTests: XCTestCase {
         XCTAssertTrue(asked)
     }
 
+    #if IPHONE_APP
     func testAPushKeyIsNeverLookedForInATestCopy() {
         XCTAssertNil(PushKey.account(testCopy: true))
         XCTAssertNil(PushKey.token(keyID: "TESTKEY123", now: Date(), testCopy: true))
     }
+    #endif
 }

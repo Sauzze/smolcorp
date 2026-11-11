@@ -48,7 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         server.onFailure = { [menu] _ in menu.showPortInUse() }
         server.onReady = { [menu] in menu.showListening() }
+        // The owner's personal build: the iPhone app finds the deck by Bonjour (M6: not in a public build).
+        #if IPHONE_APP
         server.service = PhoneApp.service
+        #endif
         server.start()
         // A test copy leaves its tester a setup link in its own folder (see TestCopy.leaveSetupLink).
         // Only a test copy makes the link: the real app mints no setup key nobody asked for.

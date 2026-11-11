@@ -1,8 +1,12 @@
+#if IPHONE_APP
 import Foundation
 
 /// "Ready for review": a hire wrote a NEEDS-REVIEW line in its STATUS.md and the app's own watch
 /// (T406) logged it. The deck lists the recent ones at `GET /reviews` for the paired phone, and each
 /// new one sends a push that says only who is ready, never the line.
+///
+/// The iPhone app's alone (no web page asks `/reviews`), so built only into the owner's personal build,
+/// with `-Xswiftc -DIPHONE_APP` (M6). The watch's log line itself is in every build: `gm inbox` reads it.
 ///
 /// The event log line is the watch's: `agent` is `needs-review`, and the detail reads
 /// "needs-review: <hire>: <file>: <the line, NEEDS-REVIEW: first>". Lines that don't have that shape
@@ -87,3 +91,4 @@ extension Deck {
         push(.review(item.hire))
     }
 }
+#endif

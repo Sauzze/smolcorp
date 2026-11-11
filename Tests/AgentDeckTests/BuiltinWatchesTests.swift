@@ -127,7 +127,9 @@ final class BuiltinWatchesTests: XCTestCase {
         XCTAssertTrue(logged[0].detail.contains("Rev") && logged[0].detail.contains("NEEDS-REVIEW: T406 ready"), logged[0].detail)
     }
 
-    /// T406's firing is what T411's list reads: the same line, whose hire may have a colon in its name.
+    /// T406's firing is what T411's list reads: the same line, whose hire may have a colon in its name. The list is the
+    /// iPhone app's, in the personal build only (IPHONE_APP, M6).
+    #if IPHONE_APP
     func testARealNeedsReviewFiringShowsInTheReviewsList() throws {
         hires[0].nickname = "Rev: two"
         try write("start\n")
@@ -141,6 +143,7 @@ final class BuiltinWatchesTests: XCTestCase {
         XCTAssertEqual(item.text, "T406 ready: see PR")
         XCTAssertEqual(Reviews.recent(logged).count, 1)
     }
+    #endif
 
     func testDoneStopBlockedAndBudgetRequestEachFireOncePerNewLineWithNoMark() throws {
         try write("start\n")
