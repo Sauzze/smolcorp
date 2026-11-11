@@ -439,10 +439,14 @@ enum Terminal {
     /// `code`, a script, runs as bash. Nil if one couldn't be looked at: not
     /// known is refused. A hook's or the status line's `sh -c`, an MCP server
     /// or `caffeinate` has a pipe or /dev/null there, and reads none of the
-    /// tab's keys. Settable lookups for tests, which give stand-ins.
+    /// tab's keys. The one exception is the system's `caffeinate` (FXI34d), which owners run in front of
+    /// the agent (`caffeinate -di claude`): it has the tab as its input but never reads it. It's known by
+    /// its program's whole path, `/usr/bin/caffeinate`, so a name alone exempts nothing. Settable lookups
+    /// for tests, which give stand-ins.
     static func readers(of agent: Agent, in job: [(pid: pid_t, args: String)], tty: String,
                         input: (pid_t) -> Processes.StandardInput = Processes.standardInput(of:),
-                        name: (pid_t) -> String? = Processes.programName(of:)) -> Set<String>? {
+                        name: (pid_t) -> String? = Processes.programName(of:),
+                        path: (pid_t) -> String? = Processes.programPath(of:)) -> Set<String>? {
         let device = tty.hasPrefix("/dev/") ? tty : "/dev/" + tty
         let named = { (word: String) in (word as NSString).lastPathComponent.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "-")) }
         var readers: Set<String> = []
@@ -450,8 +454,9 @@ enum Terminal {
             switch input(process.pid) {
             case .unknown: return nil
             case .other: continue
-            case .file(let path):
-                guard path == device else { continue }
+            case .file(let inputPath):
+                guard inputPath == device else { continue }
+                if path(process.pid) == neverReads { continue }
                 let first = process.args.split(separator: " ").first.map(String.init)
                 let names = Set([name(process.pid), first].compactMap { $0.map(named) }.filter { !$0.isEmpty })
                 // Unnamed, it still reads the keys.
@@ -460,6 +465,9 @@ enum Terminal {
         }
         return readers
     }
+
+    /// The one program that has the tab's tty as its input and never reads it (see `readers`).
+    static let neverReads = "/usr/bin/caffeinate"
 
     /// Whether a job other than the shell runs on `tty`, as one sent to the
     /// background with `&` or stopped with Ctrl-Z: closing the tab would hang

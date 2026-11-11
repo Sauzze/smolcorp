@@ -2339,7 +2339,12 @@ final class Deck {
     static let linesInEditor = "An editor is open in this desk's tab, so nothing was typed: close it, then send again."
     static let linesInPager = "A pager (less, man) is open in this desk's tab, so nothing was typed: quit it, then send again."
     static let linesInShell = "A shell or a command is running in this desk's tab, so nothing was typed: send again once it's finished."
-    static let linesInTab = "Something else open in this desk's tab is taking the keys, so nothing was typed: close it, then send again."
+    /// Names what has the tab's keys when it's known, so the owner can find it (FXI34d); "?" is a nameless one.
+    static func linesInTab(_ readers: Set<String>) -> String {
+        let names = readers.filter { $0 != "?" }.sorted()
+        guard !names.isEmpty else { return "Something else open in this desk's tab has the tab's keys, so nothing was typed: close it, then send again." }
+        return "\(names.joined(separator: " and ")) \(names.count == 1 ? "has" : "have") this tab's keys, so nothing was typed: close it, then send again."
+    }
     static let linesNotInFront = "This desk's tab couldn't be brought to the front, or another tab or app was in front by the time of the paste, so nothing was typed: try again."
     static let linesMacInUse = "The Mac is in use, and pasting would bring this desk's terminal to the front, so nothing was typed: try again once it's been left alone for 10 seconds, or send it as one line."
     static let linesClipboardKept = "What's on the Mac's clipboard (a file being copied, perhaps) couldn't be put back exactly after the paste, so nothing was typed: send it as one line, or copy something else first."
@@ -2392,7 +2397,7 @@ final class Deck {
         if readers.contains(where: { editors.contains($0) || $0.hasPrefix("emacs") }) { return linesInEditor }
         if !readers.isDisjoint(with: pagers) { return linesInPager }
         if !readers.isDisjoint(with: shells) { return linesInShell }
-        return linesInTab
+        return linesInTab(readers)
     }
 
     /// Only to pick the sentence (see `clipboardRefusal`), never what refuses: what `$EDITOR` and `$VISUAL`

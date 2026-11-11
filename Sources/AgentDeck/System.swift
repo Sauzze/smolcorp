@@ -164,11 +164,16 @@ enum Processes {
         return errno == EBADF || errno == ESRCH ? .other : .unknown
     }
 
-    /// The name of the program `pid` runs, from its path as the kernel has it: whole, spaces and all.
-    static func programName(of pid: pid_t) -> String? {
+    /// The path of the program `pid` runs, as the kernel has it: whole, spaces and all.
+    static func programPath(of pid: pid_t) -> String? {
         var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
-        return (String(cString: path) as NSString).lastPathComponent
+        return String(cString: path)
+    }
+
+    /// The name of the program `pid` runs: the last part of its path.
+    static func programName(of pid: pid_t) -> String? {
+        programPath(of: pid).map { ($0 as NSString).lastPathComponent }
     }
 
     /// A C string held in a fixed-size array, which Swift sees as a tuple.

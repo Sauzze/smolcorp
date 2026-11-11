@@ -299,7 +299,7 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(["bash", "sleep"])), Deck.linesInShell)
         // Whatever it's called, what reads the tab's keys is refused (RI34c S1): the names only pick the sentence.
         for unlisted: Set<String> in [["vis"], ["nvi"], ["mcedit"], ["?"]] {
-            XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(unlisted)), Deck.linesInTab, "\(unlisted)")
+            XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(unlisted)), Deck.linesInTab(unlisted), "\(unlisted)")
         }
         XCTAssertEqual(Deck.clipboardRefusal(state: .asking, front: alone), Deck.answerFirst, "a menu: a question or a permission")
         XCTAssertEqual(Deck.clipboardRefusal(state: .thinking, front: alone), Deck.linesWhileWorking,
@@ -315,10 +315,12 @@ final class PhoneMicTests: XCTestCase {
     func testWhatReadsTheTabsKeysIsWhatHasItsTTYAsInput() {
         let tty = "/dev/ttys041"
         typealias Input = Processes.StandardInput
-        func readers(_ job: [(pid: pid_t, args: String, input: Input, name: String?)], agent: Agent = .claude) -> Set<String>? {
+        func readers(_ job: [(pid: pid_t, args: String, input: Input, name: String?)], agent: Agent = .claude,
+                     paths: [pid_t: String] = [:]) -> Set<String>? {
             Terminal.readers(of: agent, in: job.map { ($0.pid, $0.args) }, tty: tty,
                              input: { pid in job.first { $0.pid == pid }?.input ?? .other },
-                             name: { pid in job.first { $0.pid == pid }?.name })
+                             name: { pid in job.first { $0.pid == pid }?.name },
+                             path: { paths[$0] })
         }
         let claude = (pid: pid_t(100), args: "claude --resume", input: Input.file(tty), name: String?("2.1.322"))
         // Claude Code's own job, as on a real tab: caffeinate and the MCP servers have /dev/null or a pipe.
@@ -346,7 +348,22 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertEqual(readers([claude, (160, "tail -f log", .file("/dev/ttys042"), "tail"), (161, "cat", .file("/tmp/x"), "cat")]), [])
         XCTAssertNil(readers([claude, (170, "sudo ls", .unknown, nil)]))
         // The tty given without /dev/, as ps names it.
-        XCTAssertEqual(Terminal.readers(of: .claude, in: [(120, "vis")], tty: "ttys041", input: { _ in .file(tty) }, name: { _ in nil }), ["vis"])
+        XCTAssertEqual(Terminal.readers(of: .claude, in: [(120, "vis")], tty: "ttys041", input: { _ in .file(tty) }, name: { _ in nil }, path: { _ in nil }), ["vis"])
+        // `caffeinate -di claude` (FXI34d): the system's caffeinate has the tty as its input and never reads it.
+        // Only its whole path says so: a name alone, or another path, exempts nothing.
+        let wrapper = (pid: pid_t(105), args: "caffeinate -di claude --resume x", input: Input.file(tty), name: String?("caffeinate"))
+        XCTAssertEqual(readers([wrapper, claude], paths: [105: "/usr/bin/caffeinate"]), [], "the system's caffeinate")
+        XCTAssertEqual(readers([wrapper, claude], paths: [105: "/tmp/tools/caffeinate"]), ["caffeinate"], "another file called caffeinate")
+        XCTAssertEqual(readers([wrapper, claude], paths: [105: "/usr/bin/caffeinate-fake"]), ["caffeinate"], "not exactly that path")
+        XCTAssertEqual(readers([wrapper, claude]), ["caffeinate"], "no path known: not exempt")
+        // It exempts only itself: an editor next to it still refuses.
+        XCTAssertEqual(readers([wrapper, claude, (121, "vis notes.md", .file(tty), "vis")], paths: [105: "/usr/bin/caffeinate"]), ["vis"])
+        // The refusal says who has the keys, so the owner can find it.
+        XCTAssertTrue(Deck.linesInTab(["caffeinate"]).hasPrefix("caffeinate has this tab's keys"), Deck.linesInTab(["caffeinate"]))
+        XCTAssertTrue(Deck.linesInTab(["vis", "wrap"]).hasPrefix("vis and wrap have this tab's keys"))
+        XCTAssertTrue(Deck.linesInTab(["?"]).hasPrefix("Something else"), "nameless")
+        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: Terminal.TabFront(place: .front, readers: ["caffeinate"])),
+                       Deck.linesInTab(["caffeinate"]))
         // The agent itself is left out by its command line, whatever its program's file is called.
         XCTAssertEqual(readers([(200, "node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js", .file(tty), "node")]), [])
     }
@@ -368,6 +385,7 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertEqual(Processes.standardInput(of: null.processIdentifier), .file("/dev/null"))
         XCTAssertEqual(Processes.standardInput(of: piped.processIdentifier), .other)
         XCTAssertEqual(Processes.programName(of: piped.processIdentifier), "sleep")
+        XCTAssertEqual(Processes.programPath(of: piped.processIdentifier), "/bin/sleep")
         null.terminate()
         null.waitUntilExit()
         XCTAssertEqual(Processes.standardInput(of: null.processIdentifier), .other, "ended")
