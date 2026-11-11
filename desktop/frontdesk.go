@@ -117,16 +117,34 @@ func readRegistry(path string, aside bool) registryFile {
 		(raw["keys"] != nil && json.Unmarshal(raw["keys"], &keys) != nil) {
 		return unreadable(path, aside)
 	}
-	for _, h := range hires {
+	for i, h := range hires {
 		if h.ID == "" || h.Name == "" || h.Folder == "" {
 			return unreadable(path, aside)
 		}
+		hires[i].Folder = projectFolder(h)
 	}
 	delete(raw, "version")
 	delete(raw, "hires")
 	delete(raw, "contacts")
 	delete(raw, "keys")
 	return registryFile{hires: hires, contacts: contacts, keys: keys, rest: raw}
+}
+
+// projectFolder is a hire's folder as the contract's registry.json has it: the project it was hired into.
+// A row the Go core wrote before 1.25 has the worktree there (or a folder in it): it is read as the same
+// place in the repo, and written so at the registry's next save.
+func projectFolder(h Hire) string {
+	if h.Worktree == "" || h.Repo == "" {
+		return h.Folder
+	}
+	worktree, folder := filepath.Clean(h.Worktree), filepath.Clean(h.Folder)
+	if folder == worktree {
+		return h.Repo
+	}
+	if rest, inside := strings.CutPrefix(folder, worktree+string(filepath.Separator)); inside {
+		return filepath.Join(h.Repo, rest)
+	}
+	return h.Folder
 }
 
 func unreadable(path string, aside bool) registryFile {

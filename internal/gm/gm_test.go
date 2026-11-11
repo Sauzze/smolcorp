@@ -964,6 +964,30 @@ func TestUnservedGMRoutesSayWhatTheGoAppLacks(t *testing.T) {
 	}
 }
 
+// C3 A10: the Go engine under the Mac app says "mac" and words its own 404 for what it doesn't serve: that is
+// what the GM is told, never "Linux and Windows" nor "update it".
+func TestTheGoEngineUnderTheMacSaysWhatItLacksInItsOwnWords(t *testing.T) {
+	team := teamAnswer(t)
+	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Smolcorp-App", "mac")
+		switch r.URL.Path {
+		case "/setup/gm/team":
+			w.Write(team)
+		case "/setup/state":
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			command := strings.TrimPrefix(r.URL.Path, "/setup/gm/")
+			http.Error(w, "`gm "+command+"` isn't available on this engine yet: switch back to the Swift engine to use it.", http.StatusNotFound)
+		}
+	})
+	for _, args := range [][]string{{"tile"}, {"screens"}, {"screen", "1"}} {
+		want := "smolcorp gm: `gm " + args[0] + "` isn't available on this engine yet: switch back to the Swift engine to use it.\n"
+		if code, _, errOut := runGM(app.env(t, withToken()), args...); code != exitApp || errOut != want {
+			t.Errorf("%v: %d %q, want %q", args, code, errOut, want)
+		}
+	}
+}
+
 // T735: the help names which app each fact is for, and the malformed-token line follows the app.
 func TestHelpAndBadTokenNameTheirApp(t *testing.T) {
 	app := newFakeApp(t, serve(teamAnswer(t), 200))

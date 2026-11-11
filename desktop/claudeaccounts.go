@@ -92,8 +92,9 @@ func checkClaudeProfile(p claudeProfile) (claudeProfile, error) {
 	if name == claudeDefaultName || dir == claudeDefaultProfile().Dir {
 		return p, fmt.Errorf("\"default\" is ~/.claude, which is always there.")
 	}
+	// A full path, but outside the home folder: said as that, not as a path that isn't full.
 	if !insideHome(dir) {
-		return p, errClaudeFolder
+		return p, fmt.Errorf("%s isn't inside your home folder: an account's folder is one of yours, such as ~/.claude-work.", dir)
 	}
 	return claudeProfile{Name: name, Dir: dir}, nil
 }

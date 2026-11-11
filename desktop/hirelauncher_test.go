@@ -609,7 +609,7 @@ func (r *lrig) manage(roleID string) (int, string, bool) {
 	r.d.launcherEngine = r.o
 	r.d.mu.Lock()
 	defer r.d.mu.Unlock()
-	return r.d.managedLauncherHire(roleID, r.repo, hireOpener{}, true, -1, 0)
+	return r.d.managedLauncherHire(roleID, r.repo, hireOpener{}, true, -1, 0, nil)
 }
 
 func TestAHireHeardFromIsWorkingAndOneNeverHeardFromIsCleanedUpWithItsLauncherStopped(t *testing.T) {

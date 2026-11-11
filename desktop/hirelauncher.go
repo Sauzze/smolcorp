@@ -148,7 +148,7 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	}
 	// The hire is written down before its key is made (a key's hash is kept against
 	// its row). It has no tmux socket: its launcher is known by its id.
-	hire = Hire{ID: id, Name: r.Role.Name, Role: r.Role.ID, Folder: place.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
+	hire = Hire{ID: id, Name: r.Role.Name, Role: r.Role.ID, Folder: r.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
 		ViaLauncher: true, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
 	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, hire) }); err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't save the hire in the registry.")
@@ -203,7 +203,7 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if err := o.Open(command, place.Folder); err != nil {
 		// It was written down, so its row stays, marked failed (its key with it: a failed hire's key works no more).
 		o.Forget(token)
-		setHire(id, "failed", "Its window didn't open.")
+		failHire(id, "Its window didn't open.")
 		undoMade()
 		return Hire{}, "", &hireRefusal{Status: http.StatusInternalServerError, Message: "The terminal didn't open."}
 	}
@@ -419,7 +419,8 @@ func (d *Deck) forgetLauncher(token string) {
 // it hires role roleID through the launcher engine and says what to answer,
 // or handled false: the switch is off, no terminal, or no such role, so it
 // opens as it did. The lock is let go while the engine works.
-func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int) (status int, message string, handled bool) {
+// account, when not nil, says the Claude account it works on (its name and folder): the launcher starts it there.
+func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int, account *setupHire) (status int, message string, handled bool) {
 	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == roleID })
 	if i < 0 || !d.config.HireManagedWindows || !hasTerminal {
 		return 0, "", false
@@ -436,6 +437,12 @@ func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, h
 	options.Expect = func(token, hireID string, env hireStartEnv) { d.expectLauncherAt(token, hireID, env, held, floor) }
 	options.Forget = d.forgetLauncher
 	request := engineRequest{Role: role, How: hiredIntoGeneralFolder, Folder: folder, DefaultAccount: true, TestPort: testPort, Desk: briefDesk(held, floor)}
+	if account != nil {
+		request.AccountName = account.Account
+		if account.configDir != "" {
+			request.ConfigDir, request.DefaultAccount = account.configDir, false
+		}
+	}
 	// The accounts' settings and transcripts are denied to the hire, as in tmux (managedHireWith): the saved list is
 	// copied here, and its folders are looked in once the lock is let go.
 	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
@@ -459,6 +466,7 @@ func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, h
 		}
 		return http.StatusInternalServerError, err.Error(), true
 	}
+	d.hiredInto(hire)
 	d.watching.Add(1)
 	go func() {
 		defer d.watching.Done()
@@ -526,9 +534,8 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 	removed := h.Worktree != "" && !o.KeepWorktree && removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(h)
 	writeRecap(h, "", removed, o.Now())
 	if h.Worktree != "" && !removed && !o.KeepWorktree {
-		kept = "it has changes, or git wouldn't remove it"
-		markFired(h.ID, "Its worktree "+h.Worktree+" was kept: "+kept+".")
-		return kept, nil
+		markFired(h.ID, firedKeptNote(h.Worktree))
+		return firedWorktreeKept, nil
 	}
 	markFired(h.ID, "")
 	return "", nil

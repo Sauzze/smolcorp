@@ -49,7 +49,7 @@ func (f *fakeTmux) run(args []string) (string, int, bool) {
 			return "", 0, true
 		}
 		return "", 1, true
-	case "kill-session":
+	case "kill-session", "kill-server":
 		f.up = false
 	}
 	return "", 0, true
@@ -134,8 +134,9 @@ func TestAManagedHireIsMadeInOrderAndRegistered(t *testing.T) {
 			t.Errorf("start script lacks %q:\n%s", want, script)
 		}
 	}
-	// One tmux call, on the hire's own socket, in the worktree.
-	if len(r.tmux.asked) != 1 || r.tmux.asked[0][0] != "-S" || r.tmux.asked[0][1] != hire.TmuxSocket || !slices.Contains(r.tmux.asked[0], hire.Folder) {
+	// One tmux call, on the hire's own socket, in the worktree; the registry's folder is the project (C3 A5).
+	if len(r.tmux.asked) != 1 || r.tmux.asked[0][0] != "-S" || r.tmux.asked[0][1] != hire.TmuxSocket || !slices.Contains(r.tmux.asked[0], hire.Worktree) ||
+		hire.Folder != r.repo || startedIn(hire) != hire.Worktree {
 		t.Errorf("tmux was asked %q", r.tmux.asked)
 	}
 	// The next hire gets the next ports.
@@ -478,7 +479,7 @@ func TestARoleHireInTmuxIsWorkingOnceItsSessionReportsToTheDeck(t *testing.T) {
 	hire := registered(t)[0]
 	// Under the deck's lock, as its ingest path holds it: the watcher reads the sessions meanwhile.
 	d.mu.Lock()
-	d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": hire.Folder}, Claude, "tmux:s1", "", hire.Started+1)
+	d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": startedIn(hire)}, Claude, "tmux:s1", "", hire.Started+1)
 	d.mu.Unlock()
 	d.watching.Wait()
 	if got := registered(t); got[0].State != "working" {

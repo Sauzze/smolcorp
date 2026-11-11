@@ -257,24 +257,29 @@ func TestClaudeAccountsRefuseAFolderOutsideTheHomeFolder(t *testing.T) {
 	if !linked {
 		t.Log("no symlinks here (Windows without the right): that case is skipped")
 	}
-	want := "Give the account's folder as a full path, such as ~/.claude-work."
+	// A full path outside is said as that (C3 A10); one that isn't a plain full path, as before.
+	notFull := "Give the account's folder as a full path, such as ~/.claude-work."
+	outsideOf := func(dir string) string {
+		return dir + " isn't inside your home folder: an account's folder is one of yours, such as ~/.claude-work."
+	}
 	for _, c := range []struct {
 		name, dir string
 		skip      bool
+		want      string
 	}{
-		{"named outright", filepath.ToSlash(outside), false},
-		{"up with ..", "~/" + filepath.ToSlash(up), false},
-		{"a link that leads out", filepath.ToSlash(link), !linked},
-		{"a network path", `\\\\server\\share\\x`, false},
-		{"a network path with slashes", `//server/share/x`, false},
-		{"a device path", `\\\\?\\C:\\x`, false},
+		{"named outright", filepath.ToSlash(outside), false, outsideOf(outside)},
+		{"up with ..", "~/" + filepath.ToSlash(up), false, outsideOf(outside)},
+		{"a link that leads out", filepath.ToSlash(link), !linked, outsideOf(link)},
+		{"a network path", `\\\\server\\share\\x`, false, notFull},
+		{"a network path with slashes", `//server/share/x`, false, notFull},
+		{"a device path", `\\\\?\\C:\\x`, false, notFull},
 	} {
 		if c.skip {
 			continue
 		}
 		status, text, _ := claudeAccountsCall(t, d, "POST", `{"profiles":[{"name":"w","dir":"`+c.dir+`"}]}`, false)
-		if status != http.StatusBadRequest || text != want {
-			t.Errorf("%s: %d %q, want 400 %q", c.name, status, text, want)
+		if status != http.StatusBadRequest || text != c.want {
+			t.Errorf("%s: %d %q, want 400 %q", c.name, status, text, c.want)
 		}
 	}
 	if saved := loadConfig().ClaudeProfiles; len(saved) != 0 {

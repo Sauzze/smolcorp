@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -32,8 +31,10 @@ func (d *Deck) hiresOpenThroughMacApp() bool {
 	return underMacApp(hireTerminal(chosen, terminals))
 }
 
-// gmHireFolder checks the folder asked for: inside your home folder, never the home folder
-// itself, and one a hire can work in. "" is none, which is the folder for new hires.
+// gmHireFolder checks the folder asked for as Setup's sheet checks it (checkedSetupFolder, the Mac's
+// BriefRoutes.checkedFolder, which the Mac's route uses too): a folder that's there, inside your home folder
+// but not the home folder itself, nor ~/Library or a hidden folder at its top. A folder further down a hidden
+// one (~/Projects/.team/app) is a project's, as on the Mac. "" is none, which is the folder for new hires.
 func gmHireFolder(given any) (folder string, why string) {
 	text, ok := given.(string)
 	if given != nil && !ok {
@@ -42,12 +43,8 @@ func gmHireFolder(given any) (folder string, why string) {
 	if strings.TrimSpace(text) == "" {
 		return "", ""
 	}
-	check := checkHireFolder(text, homeDir, choosingHireFolder)
-	rel, err := filepath.Rel(realPath(homeDir), check.folder)
-	if check.folder != "" && (err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel)) {
-		return "", "That folder isn't inside your home folder: the General Manager hires only in a folder of yours, not the home folder itself."
-	}
-	return check.folder, check.problem
+	folder, _, why = checkedSetupFolder(text, homeDir)
+	return folder, why
 }
 
 // gmHire answers POST /setup/gm/hire.
@@ -63,6 +60,14 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 	}
 	if role == "" {
 		reply(http.StatusBadRequest, "Send {role}, the role to hire.")
+		return
+	}
+	// A role that isn't there is said first, before anything else is looked at, as the Mac's hireRequest.
+	d.mu.Lock()
+	known := slices.ContainsFunc(d.config.Roles, func(r Role) bool { return r.ID == role })
+	d.mu.Unlock()
+	if !known {
+		reply(http.StatusNotFound, "That role isn't there any more. Pick another.")
 		return
 	}
 	if _, isText := body["task"].(string); body["task"] != nil && !isText {
@@ -85,7 +90,7 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 	for _, f := range []struct {
 		field string
 		bad   bool
-	}{{"account", set("account", "")}, {"model", set("model", "")}, {"nickname", set("nickname", "")}, {"task", set("task", "")},
+	}{{"model", set("model", "")}, {"nickname", set("nickname", "")}, {"task", set("task", "")},
 		{"apiKey", set("apiKey", false)}, {"worktree", set("worktree", true)}, // a hire is always in a worktree of its own
 		{"answers", set("answers") && (!isList || len(answers) > 0)}} {
 		if f.bad {
@@ -116,8 +121,12 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		d.gmHireIntoT3(w, setupHire{Role: role, Folder: folder, Floor: int(floor), Answers: []string{}, Worktree: true, T3: true})
 		return
 	}
+	// The Claude account, by name, as the Mac's route reads it (anything but text is none): with more than
+	// one saved, hireWith asks which.
+	account, _ := body["account"].(string)
 	seat := -1
-	if status, text := d.hireWith(hireSpec{roleID: role, floor: int(floor), fromSetup: true, folder: folder, fenced: true, seat: &seat}); status != http.StatusNoContent {
+	if status, text := d.hireWith(hireSpec{roleID: role, floor: int(floor), fromSetup: true, folder: folder, fenced: true, seat: &seat,
+		account: strings.Trim(account, " \t")}); status != http.StatusNoContent {
 		reply(status, text)
 		return
 	}

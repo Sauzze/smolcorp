@@ -133,7 +133,8 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	// own send key (T726: newSendKey keeps only the key's hash, against its row).
 	// The socket is the one its tmux server will have; the one tmux reports is
 	// kept below. Any refusal from here on takes the row and its key away again.
-	hire := Hire{ID: id, Name: r.Role.Name, Nickname: r.Nickname, Account: r.AccountName, Role: r.Role.ID, Folder: place.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
+	// Its folder is the project it was hired into, its worktree where it works (the contract's registry.json).
+	hire := Hire{ID: id, Name: r.Role.Name, Nickname: r.Nickname, Account: r.AccountName, Role: r.Role.ID, Folder: r.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
 		TmuxSocket: tmux.socket, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
 	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, hire) }); err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't save the hire in the registry.")
@@ -190,7 +191,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 			// It was started, so its row stays, marked failed; its key's hash stays but is inert
 			// (hireForSendKey only finds open hires).
 			tmux.end()
-			setHire(id, "failed", "Its window didn't open.")
+			failHire(id, "Its window didn't open.")
 			undoMade()
 			return Hire{}, &hireRefusal{Status: http.StatusInternalServerError, Message: "The terminal didn't open."}
 		}
@@ -291,6 +292,7 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 	}
 	recordHireWindow(hire.ID, window)
 	d.seatEngineHire(hire.TmuxSocket, held, floor)
+	d.hiredInto(hire)
 	d.watching.Add(1)
 	go func() {
 		defer d.watching.Done()
