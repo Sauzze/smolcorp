@@ -30,6 +30,8 @@ type Deck struct {
 	gmToken  string // the GM's token, in memory only (see newGMToken)
 	config   *Config
 	sessions *Sessions
+	// Under the Mac app: what it last said of this Mac (see hostsetup.go, hostoffice.go).
+	mac macState
 	// Bots working in a cloud, each at a desk of its own (see cloudDesks).
 	cloud     *cloudDesks
 	streams   map[*eventStream]string // each open stream, with the phone that opened it
@@ -145,6 +147,8 @@ func NewDeck() *Deck {
 		keyOf: map[string]int{}, floorOf: map[string]int{}, seatOf: map[string]Seat{}, lastReturn: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue), events: newEventLog(supportDir, eventsFileMost),
 		rounds: deckRounds{stopped: make(chan struct{})},
+		// The Mac app it runs under, or none, taken now: the deck reads only its own (hostsetup.go).
+		mac: macState{host: host},
 	}
 	if settleListenScope(d.config, phonesOnly(d.access.Phones), runtime.GOOS) {
 		d.config.save()
@@ -220,6 +224,11 @@ func NewDeck() *Deck {
 	// The mail pump, after d.cloud is set; the watchers' stop ends it too, and the deck's rounds.
 	stopWatching, stopMail := d.stopWatchers, d.startMailPump()
 	d.stopWatchers = func() { stopMail(); d.rounds.stop(); stopWatching() }
+	// Under the Mac app, its dictation languages and the one it suggests, asked once now, so the
+	// office has a language before setup is first opened.
+	if d.mac.host != nil {
+		d.rounds.run(func() { d.macFactsNow() })
+	}
 	return d
 }
 
@@ -744,6 +753,8 @@ func (d *Deck) previousKey(s *Session) int {
 // snapshot is what the phone draws: the keys, the theme and the layout. No
 // tabs or paths.
 func (d *Deck) snapshot() []byte {
+	// Under the Mac app, what the desks' terminals let the office do, asked once for new tabs (hostoffice.go).
+	d.askAbilities()
 	keys, overflow := d.layout()
 	entries := make([]map[string]any, len(keys))
 	for i, key := range keys {
@@ -763,7 +774,7 @@ func (d *Deck) snapshot() []byte {
 	// The six floors, the ground floor's desks being the keys, and how many
 	// there's no floor for; and the second floor alone, for phones from before the others.
 	floors, floorsOverflow, upstairs := d.floorsState(overflow)
-	state, _ := json.Marshal(map[string]any{
+	fields := map[string]any{
 		"keys": entries, "overflow": len(overflow), "upstairs": upstairs,
 		"floors": floors, "floorsOverflow": floorsOverflow,
 		"theme": currentTheme(d.config), "scroll": d.config.ScrollEnabled,
@@ -776,7 +787,9 @@ func (d *Deck) snapshot() []byte {
 		// This computer's clock, so the office can count turns on the phone's,
 		// whichever of the two is right.
 		"now": int64(nowMillis()),
-	})
+	}
+	d.addMacOffice(fields)
+	state, _ := json.Marshal(fields)
 	return state
 }
 
@@ -786,7 +799,7 @@ func (d *Deck) sessionEntry(s *Session) map[string]any {
 	if s.PendingEffort != "" {
 		effort = s.PendingEffort
 	}
-	return map[string]any{
+	entry := map[string]any{
 		"id": s.ID, "name": s.Name(), "project": s.ProjectName(), "state": s.State, "effort": effort,
 		"pending": s.PendingEffort != "", "agent": s.Agent, "agentName": s.Agent.Name(),
 		"dial": s.Agent.HasEffortDial(), "mic": s.Agent.HasVoice(),
@@ -801,6 +814,8 @@ func (d *Deck) sessionEntry(s *Session) map[string]any {
 		"summary": s.Transcript != "" && d.summaryOffered(),
 		"role":    d.roleOf(s),
 	}
+	d.addMacControls(entry, s)
+	return entry
 }
 
 // summaryState is ✨ Summary for the setup page: on or off, what makes

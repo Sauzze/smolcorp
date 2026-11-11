@@ -11,8 +11,10 @@ import (
 // over the host bridge, a socket in the support folder that only the two of
 // them use (each checks the other's pid; see socketBridge): keys typed
 // into a Terminal, iTerm2 or Ghostty tab, a window brought forward or closed,
-// a terminal opened on a script, the app's own Keychain items, its login item.
-// Each is the Mac app's own code, as the Swift engine runs it (HostBridge.swift).
+// a terminal opened on a script, the app's own Keychain items, its login item;
+// setup's Mac parts (hostsetup.go) and what each desk's terminal allows
+// (hostoffice.go). Each is the Mac app's own code, as the Swift engine runs it
+// (HostBridge.swift); their requests and answers are Tests/fixtures/bridge/actions.json.
 //
 // On Windows and Linux there is no host: host stays nil, and every tab is
 // driven as before.
@@ -45,7 +47,25 @@ type bridgeRequest struct {
 	// secret-*: one of the app's own items (see bridgeSecrets).
 	Item  string `json:"item,omitempty"`
 	Value string `json:"value,omitempty"`
-	On    *bool  `json:"on,omitempty"`
+	// login-item, dock: on or off; keystroke-apps: App added or removed; terminal-command: made or removed.
+	On *bool `json:"on,omitempty"`
+	// facts: the apps keys may go to, left out of those running; keystroke-apps: the list App goes on or off.
+	Apps []string `json:"apps,omitempty"`
+	App  string   `json:"app,omitempty"`
+	// glossary: dictation's names, as the page has them.
+	Names []string `json:"names,omitempty"`
+	// dictation: the language whose model gets ready.
+	Language string `json:"language,omitempty"`
+	// abilities: the sessions' tabs, as the deck names them.
+	Tabs []string `json:"tabs,omitempty"`
+	// bots-resolve: the Grok Bots to look for in the Grok Bot app.
+	Bots []bridgeBot `json:"bots,omitempty"`
+}
+
+// bridgeBot is a Grok Bot as set: its id in the Grok Bot app, if known, and its name there.
+type bridgeBot struct {
+	BotID string `json:"botId"`
+	Bot   string `json:"bot"`
 }
 
 // bridgeAnswer is the Mac app's answer.
@@ -63,7 +83,89 @@ type bridgeAnswer struct {
 	Found bool   `json:"found,omitempty"`
 	// login-item: whether Smolcorp opens at login.
 	On bool `json:"on,omitempty"`
+	// facts: what only the Mac can say, for setup.
+	Facts *macFacts `json:"facts,omitempty"`
+	// keystroke-apps: the list, with the app on it or off it; glossary: the names, checked.
+	Apps  []string `json:"apps,omitempty"`
+	Names []string `json:"names,omitempty"`
+	// dictation: why the language's model isn't ready, or nothing.
+	Problem string `json:"problem,omitempty"`
+	// abilities: each tab's, in the order asked.
+	Abilities []tabAbilities `json:"abilities,omitempty"`
+	// bots-resolve: who each bot is in the Grok Bot app, in the order asked; null for one not there.
+	Resolved []*botResolution `json:"resolved,omitempty"`
 }
+
+// macFacts is what setup shows of this Mac, as the Swift engine's setup state
+// has it (DeckRouter.setupState): asked of the app at each setup state.
+type macFacts struct {
+	// Whether macOS has given Smolcorp Accessibility.
+	Accessibility bool `json:"accessibility"`
+	// A test copy leaves your Terminal's commands and the Accessibility prompt to the copy in use.
+	TestCopy  bool         `json:"testCopy"`
+	Dictation macDictation `json:"dictation"`
+	Running   []runningApp `json:"running"`
+	Terminal  terminalCmd  `json:"terminalCommand"`
+}
+
+// macDictation is Apple's speech recognition on this Mac: whether it can
+// dictate at all and has the microphone; the languages it knows, the one the
+// Mac's own settings suggest, and the names its clean-up knows before you
+// change them; and why the clean-up didn't work last, if it didn't.
+type macDictation struct {
+	Available      bool     `json:"available"`
+	Allowed        bool     `json:"allowed"`
+	Languages      []string `json:"languages"`
+	Suggested      string   `json:"suggested"`
+	Glossary       []string `json:"glossary"`
+	CleanupProblem *string  `json:"cleanupProblem"`
+}
+
+// runningApp is an app running on the Mac that keys could go to.
+type runningApp struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// terminalCmd is "Add smolcorp to Terminal", as the Mac's TerminalCommand.json says it.
+type terminalCmd struct {
+	Available bool   `json:"available"`
+	State     string `json:"state"`
+	Link      string `json:"link"`
+	OnPath    bool   `json:"onPath"`
+	PathLine  string `json:"pathLine"`
+	PathFile  string `json:"pathFile"`
+	TestCopy  bool   `json:"testCopy"`
+}
+
+// tabAbilities is what a tab's terminal lets the office do, as the Mac app's
+// driver for it says (Terminals.abilities): press keys, type a line, fire its
+// agent; and whether it can say what the tab shows.
+type tabAbilities struct {
+	Keys   bool `json:"keys"`
+	Text   bool `json:"text"`
+	Fire   bool `json:"fire"`
+	Screen bool `json:"screen"`
+}
+
+// botResolution is who a bot is in the Grok Bot app now, and how that was
+// told: "id", "name", or "guess" (the one name like it).
+type botResolution struct {
+	BotID string `json:"botId"`
+	Name  string `json:"name"`
+	By    string `json:"by"`
+}
+
+// bridgeTabsMost is the most tabs asked about at once: the app refuses more.
+const bridgeTabsMost = 256
+
+// keystrokeAppsMost is the most apps keys may go to, and bridgeTextMost the
+// longest text in a list the app is sent: it refuses a list with more, or
+// longer (Keystrokes.AppList.most, HostBridge.strings).
+const (
+	keystrokeAppsMost = 50
+	bridgeTextMost    = 1024
+)
 
 // bridgeSecrets are the Keychain items the app owns that the engine may ask
 // for: the ✨ Summary API key, the GM's token, and the portable office's id,
@@ -83,7 +185,7 @@ func ask(h hostBridge, request bridgeRequest) (bridgeAnswer, error) {
 		if answer.Error == "" {
 			answer.Error = "the Mac app said no"
 		}
-		return answer, errors.New(answer.Error)
+		return answer, appRefusal(answer.Error)
 	}
 	return answer, nil
 }
@@ -115,6 +217,91 @@ func hostWriteSecret(h hostBridge, item, value string) error {
 func hostLoginItem(h hostBridge, on *bool) (bool, error) {
 	answer, err := ask(h, bridgeRequest{Action: "login-item", On: on})
 	return answer.On, err
+}
+
+// hostFacts is what setup shows of this Mac: apps are the apps keys may go
+// to, left out of the running ones.
+func hostFacts(h hostBridge, apps []string) (macFacts, error) {
+	answer, err := ask(h, bridgeRequest{Action: "facts", Apps: apps})
+	if err == nil && answer.Facts == nil {
+		err = errors.New("the Mac app said nothing of this Mac")
+	}
+	if err != nil {
+		return macFacts{}, err
+	}
+	return *answer.Facts, nil
+}
+
+// hostDock shows Smolcorp in the Dock and ⌘-Tab, or in the menu bar only, at once.
+func hostDock(h hostBridge, on bool) error {
+	_, err := ask(h, bridgeRequest{Action: "dock", On: &on})
+	return err
+}
+
+// hostAskAccessibility asks macOS for Accessibility, as setup's button does: a system prompt.
+func hostAskAccessibility(h hostBridge) error {
+	_, err := ask(h, bridgeRequest{Action: "accessibility"})
+	return err
+}
+
+// hostKeystrokesOn is pressing keys in other apps switched on: macOS is asked
+// for Accessibility if Smolcorp hasn't it, but never by a test copy.
+func hostKeystrokesOn(h hostBridge) error {
+	_, err := ask(h, bridgeRequest{Action: "keystrokes-on"})
+	return err
+}
+
+// hostKeystrokeApps is list with app added (add) or taken off, as the Mac's
+// rules have it; a refusal says why (a terminal, a password app…).
+func hostKeystrokeApps(h hostBridge, list []string, app string, add bool) ([]string, error) {
+	answer, err := ask(h, bridgeRequest{Action: "keystroke-apps", Apps: list, App: app, On: &add})
+	if answer.Apps == nil {
+		answer.Apps = []string{}
+	}
+	return answer.Apps, err
+}
+
+// hostGlossary is dictation's names as its clean-up keeps them: one line
+// each, no doubles, none too long, not too many.
+func hostGlossary(h hostBridge, lines []string) ([]string, error) {
+	answer, err := ask(h, bridgeRequest{Action: "glossary", Names: lines})
+	if answer.Names == nil {
+		answer.Names = []string{}
+	}
+	return answer.Names, err
+}
+
+// hostPrepareDictation asks for the microphone, as setup's switch does, and
+// gets language's model ready: why it isn't, or "".
+func hostPrepareDictation(h hostBridge, language string) (string, error) {
+	answer, err := ask(h, bridgeRequest{Action: "dictation", Language: language})
+	return answer.Problem, err
+}
+
+// hostTerminalCommand makes "Add smolcorp to Terminal"'s link (add) or takes it away.
+func hostTerminalCommand(h hostBridge, add bool) error {
+	_, err := ask(h, bridgeRequest{Action: "terminal-command", On: &add})
+	return err
+}
+
+// hostAbilities is each tab's abilities, in order, as the Mac app's drivers
+// have them: from their tables, never asking a terminal.
+func hostAbilities(h hostBridge, tabs []string) ([]tabAbilities, error) {
+	answer, err := ask(h, bridgeRequest{Action: "abilities", Tabs: tabs})
+	if err == nil && len(answer.Abilities) != len(tabs) {
+		err = fmt.Errorf("the Mac app said %d tabs' abilities for %d", len(answer.Abilities), len(tabs))
+	}
+	return answer.Abilities, err
+}
+
+// hostResolveBots is who each bot is in the Grok Bot app now, read afresh, in
+// order: nil for one that isn't there.
+func hostResolveBots(h hostBridge, bots []bridgeBot) ([]*botResolution, error) {
+	answer, err := ask(h, bridgeRequest{Action: "bots-resolve", Bots: bots})
+	if err == nil && len(answer.Resolved) != len(bots) {
+		err = fmt.Errorf("the Mac app said who %d bots are for %d", len(answer.Resolved), len(bots))
+	}
+	return answer.Resolved, err
 }
 
 // macTab is a session's tab when the engine runs under the Mac app. Terminal,

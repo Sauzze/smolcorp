@@ -37,17 +37,12 @@ type knownGap struct{ subject, where, got, why, owner string }
 // knownGaps is every difference between the Mac's answers and this app's, today. Keep it in INVENTORY.md's
 // order: TestTheKnownGapsAreInventorysGoStatus checks the two are the same table.
 var knownGaps = []knownGap{
-	{"setup-state", ".checklist.accessibility", "missing", "nothing off the Mac needs Accessibility", "M2 via the bridge (M1)"},
 	{"setup-state", ".claudeAccounts", "missing", "Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2)", "M2"},
-	{"setup-state", ".cloudBots.autoDetect", "missing", "only the Mac looks in the Grok Bot app", "M3 via the bridge (M1)"},
-	{"setup-state", ".dictation", "missing", "dictation is Apple's speech recognition", "M2 via the bridge (M1)"},
-	{"setup-state", ".dock", "missing", "In the Dock is a Mac setting", "M2 via the bridge (M1)"},
 	{"setup-state", ".floorRules[].exact", "missing", "a rule's exact is left out when false (omitempty)", "M3 fixes: sent when false or empty too"},
 	{"setup-state", ".hiring.apiKey", "missing", "a hire on the API-key account is the Mac's (M4)", "M4"},
 	{"setup-state", ".hiring.fromSetup", "extra", "setup's own hire sheet (POST /setup/hire) isn't served here: false tells the page to show smolcorp run --role instead", "M4: removed with POST /setup/hire on Go"},
 	{"setup-state", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
-	{"setup-state", ".keystrokes", "missing", "pressing keys in other apps needs Accessibility: the Mac's", "M2 via the bridge (M1)"},
 	{"setup-state", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for", "M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher"},
 	{"setup-state", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
 	{"setup-state", ".manager", "missing", "no manager object here: the switch is in config.json, gmHired is top level (M2)", "M2"},
@@ -56,18 +51,12 @@ var knownGaps = []knownGap{
 	{"setup-state", ".roles.limits.briefFile", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state", ".roles.limits.briefFileName", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
-	{"setup-state", ".terminalCommand", "missing", "Add smolcorp to Terminal is the Mac's", "M2 via the bridge (M1)"},
-	{"setup-state-tool", ".checklist.accessibility", "missing", "nothing off the Mac needs Accessibility", "M2 via the bridge (M1)"},
 	{"setup-state-tool", ".claudeAccounts", "missing", "Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2)", "M2"},
-	{"setup-state-tool", ".cloudBots.autoDetect", "missing", "only the Mac looks in the Grok Bot app", "M3 via the bridge (M1)"},
-	{"setup-state-tool", ".dictation", "missing", "dictation is Apple's speech recognition", "M2 via the bridge (M1)"},
-	{"setup-state-tool", ".dock", "missing", "In the Dock is a Mac setting", "M2 via the bridge (M1)"},
 	{"setup-state-tool", ".floorRules[].exact", "missing", "a rule's exact is left out when false (omitempty)", "M3 fixes: sent when false or empty too"},
 	{"setup-state-tool", ".hiring.apiKey", "missing", "a hire on the API-key account is the Mac's (M4)", "M4"},
 	{"setup-state-tool", ".hiring.fromSetup", "extra", "setup's own hire sheet (POST /setup/hire) isn't served here: false tells the page to show smolcorp run --role instead", "M4: removed with POST /setup/hire on Go"},
 	{"setup-state-tool", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state-tool", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
-	{"setup-state-tool", ".keystrokes", "missing", "pressing keys in other apps needs Accessibility: the Mac's", "M2 via the bridge (M1)"},
 	{"setup-state-tool", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for", "M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher"},
 	{"setup-state-tool", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
 	{"setup-state-tool", ".manager", "missing", "no manager object here: the switch is in config.json, gmHired is top level (M2)", "M2"},
@@ -77,49 +66,31 @@ var knownGaps = []knownGap{
 	{"setup-state-tool", ".roles.limits.briefFile", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state-tool", ".roles.limits.briefFileName", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state-tool", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
-	{"setup-state-tool", ".terminalCommand", "missing", "Add smolcorp to Terminal is the Mac's", "M2 via the bridge (M1)"},
-	{"snapshot", ".dictation", "missing", "dictation is Apple's speech recognition", "M3 via the bridge (M1)"},
-	{"snapshot", ".floors[].desks[].choice", "missing", "a menu's options, read from the Mac's terminals (M3)", "M3 via the bridge (M1)"},
 	{"snapshot", ".floors[].desks[].conversation", "missing", "the conversation view: the iPhone app's (personal build)", "M6: personal shell"},
-	{"snapshot", ".floors[].desks[].dictates", "missing", "dictation is Apple's speech recognition", "M3 via the bridge (M1)"},
-	{"snapshot", ".floors[].desks[].fire", "missing", "what the desk's terminal lets the office do: said once here, as hiring.fire (M3)", "M3 via the bridge (M1)"},
-	{"snapshot", ".floors[].desks[].keys", "missing", "what the desk's terminal lets the office do (M3)", "M3 via the bridge (M1)"},
 	{"snapshot", ".floors[].desks[].phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
 	{"snapshot", ".floors[].desks[].voiceNote", "missing", "voice notes: the Mac's personal build", "M6: personal shell"},
-	{"snapshot", ".keys[].session.choice", "missing", "a menu's options, read from the Mac's terminals (M3)", "M3 via the bridge (M1)"},
 	{"snapshot", ".keys[].session.conversation", "missing", "the conversation view: the iPhone app's (personal build)", "M6: personal shell"},
-	{"snapshot", ".keys[].session.dictates", "missing", "dictation is Apple's speech recognition", "M3 via the bridge (M1)"},
-	{"snapshot", ".keys[].session.fire", "missing", "what the desk's terminal lets the office do: said once here, as hiring.fire (M3)", "M3 via the bridge (M1)"},
-	{"snapshot", ".keys[].session.keys", "missing", "what the desk's terminal lets the office do (M3)", "M3 via the bridge (M1)"},
 	{"snapshot", ".keys[].session.phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
 	{"snapshot", ".keys[].session.voiceNote", "missing", "voice notes: the Mac's personal build", "M6: personal shell"},
 	{"snapshot", ".phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
-	{"snapshot", ".upstairs.desks[].choice", "missing", "a menu's options, read from the Mac's terminals (M3)", "M3 via the bridge (M1)"},
 	{"snapshot", ".upstairs.desks[].conversation", "missing", "the conversation view: the iPhone app's (personal build)", "M6: personal shell"},
-	{"snapshot", ".upstairs.desks[].dictates", "missing", "dictation is Apple's speech recognition", "M3 via the bridge (M1)"},
-	{"snapshot", ".upstairs.desks[].fire", "missing", "what the desk's terminal lets the office do: said once here, as hiring.fire (M3)", "M3 via the bridge (M1)"},
-	{"snapshot", ".upstairs.desks[].keys", "missing", "what the desk's terminal lets the office do (M3)", "M3 via the bridge (M1)"},
 	{"snapshot", ".upstairs.desks[].phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
 	{"snapshot", ".upstairs.desks[].voiceNote", "missing", "voice notes: the Mac's personal build", "M6: personal shell"},
 	{"POST /setup/session", "refusal: no menu link's key: no session", "kind empty", "its 401 has no text; the Mac's says why", "M2 fixes: the Mac's text in the 401"},
 	{"POST /setup/phonemic", "route", "404", "the phone mic is the Mac's personal build", "M6: personal shell"},
 	{"GET /setup/qr.png", "refusal: no pairing code asked for", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
 	{"GET /setup/logo/nope", "refusal: no such logo", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
-	{"POST /setup/dictation", "route", "404", "dictation is Apple's speech recognition", "M2 via the bridge (M1)"},
-	{"POST /setup/dictation/glossary", "route", "404", "dictation is Apple's speech recognition", "M2 via the bridge (M1)"},
-	{"POST /setup/keystrokes", "route", "404", "pressing keys in other apps needs Accessibility: the Mac's", "M2 via the bridge (M1)"},
-	{"POST /setup/keystrokes/apps", "route", "404", "pressing keys in other apps needs Accessibility: the Mac's", "M2 via the bridge (M1)"},
 	{"GET /setup/claude-accounts", "route", "404", "Claude accounts are the Mac's (M2)", "M2"},
 	{"POST /setup/claude-accounts", "route", "404", "Claude accounts are the Mac's (M2)", "M2"},
 	{"GET /setup/bots", ".bots[].discovered", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
 	{"GET /setup/bots", ".bots[].mailbox", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
 	{"GET /setup/bots", ".bots[].pinned", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
-	{"GET /setup/bots", ".bots[].resolved", "missing", "only the Mac looks in the Grok Bot app", "M3 via the bridge (M1)"},
+	{"POST /setup/bots/resolve", ".bots[].discovered", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
+	{"POST /setup/bots/resolve", ".bots[].mailbox", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
+	{"POST /setup/bots/resolve", ".bots[].pinned", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
 	{"POST /setup/bots", ".bots[].discovered", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
 	{"POST /setup/bots", ".bots[].mailbox", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
 	{"POST /setup/bots", ".bots[].pinned", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
-	{"POST /setup/bots", ".bots[].resolved", "missing", "only the Mac looks in the Grok Bot app", "M3 via the bridge (M1)"},
-	{"POST /setup/bots/resolve", "route", "404", "only the Mac looks in the Grok Bot app", "M3 via the bridge (M1)"},
 	{"GET /setup/hire/gm/preflight", "refusal: no such Claude account", "status 200", "Claude accounts are the Mac's (M2): the GM's tools are checked for any account", "M4, once M2 has the Claude accounts"},
 	{"POST /setup/hire", "route", "404", "hiring from the setup page by role is the Mac's (M4)", "M4"},
 	{"POST /setup/notify", "route", "404", "a push to the iPhone app (personal build)", "M6: personal shell"},
@@ -135,6 +106,7 @@ var knownGaps = []knownGap{
 	{"POST /setup/gm/token/rotate", "route", "404", "no GM token here (M4)", "M4"},
 	{"GET /setup/gm/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
 	{"POST /act", "refusal: unknown dictation language", "status 404", "no dictation here: action=language isn't known, so its session is looked for", "M3 fixes: action=language known, an unknown language refused with 400"},
+	{"POST /act", "mic: dictation on, under the Mac app", "not dictated", "the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false", "M3 via the bridge (M1)"},
 	{"GET /glossary", "route", "404", "the iPhone app's speech names (personal build)", "M6: personal shell"},
 	{"GET /approvals", "route", "404", "over Tailscale only (personal build)", "M6: personal shell"},
 	{"GET /reviews", "route", "404", "over Tailscale only (personal build)", "M6: personal shell"},
@@ -551,6 +523,10 @@ type contractDeck struct {
 func newContractDeck(t *testing.T, c contract, given []string) *contractDeck {
 	t.Helper()
 	isolate(t)
+	// The Mac's answers are the Go core's under the Mac app: what only macOS does is asked of a stand-in for the
+	// app (hostsetup_test.go), so the darwin answers are proved here on any computer. Without the app, none of
+	// it is said (TestWithoutTheMacAppSetupAndTheOfficeHaveNoneOfTheMacs).
+	withMac(t)
 	for _, name := range given {
 		if g, ok := c.givens[name]; !ok {
 			t.Fatalf("nothing gives %q", name)
@@ -844,7 +820,46 @@ func contractGaps(t *testing.T, c contract) []knownGap {
 			}
 		}
 	}
+	for _, g := range macDictationGaps(t, c) {
+		add(g)
+	}
 	return gaps
+}
+
+// macDictationGaps is the office's dictation under the Mac app, which no fixture shows: the Mac's own test
+// can't count on its speech recognition and microphone. With both (the stand-in app has them), and dictation
+// on for Claude Code too, the Mac's rule (Deck.dictates, Dictation.isOn) has the snapshot's dictation on and
+// contract-a, a Claude desk in a launcher's window, dictate. A gap while this app's mic doesn't.
+func macDictationGaps(t *testing.T, c contract) []knownGap {
+	cd := newContractDeck(t, c, []string{"sessions"})
+	d := cd.d
+	d.mu.Lock()
+	mac, _ := d.mac.host.(*macStandIn)
+	d.mu.Unlock()
+	if mac == nil {
+		t.Fatal("no stand-in Mac app")
+	}
+	mac.mu.Lock()
+	mac.facts.Dictation.Available, mac.facts.Dictation.Allowed = true, true
+	mac.mu.Unlock()
+	d.mu.Lock()
+	d.config.DictationEnabled, d.config.DictationForClaude = true, true
+	var state struct {
+		Dictation struct{ On bool }
+		Keys      []struct{ Session map[string]any }
+	}
+	_ = json.Unmarshal(d.snapshot(), &state)
+	d.mu.Unlock()
+	dictates := false
+	for _, key := range state.Keys {
+		if key.Session["id"] == "contract-a" {
+			dictates = key.Session["dictates"] == true
+		}
+	}
+	if state.Dictation.On && dictates {
+		return nil
+	}
+	return []knownGap{{subject: "POST /act", where: "mic: dictation on, under the Mac app", got: "not dictated"}}
 }
 
 // valuesAt is the values at where (".a[].b") in an answer, every element's, as text, sorted: as the Mac writes ids.

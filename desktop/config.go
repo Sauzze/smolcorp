@@ -112,6 +112,19 @@ type Config struct {
 	// here looks in that app, which is the Mac's alone.
 	BotsAutoDetect *bool    `json:"botsAutoDetect,omitempty"`
 	HiddenBots     []string `json:"hiddenBots,omitempty"`
+	// The Mac's own settings, as the Mac app keeps them: pressing keys in other
+	// apps and the apps they may go to, In the Dock (unset for on), and
+	// dictation, its language (unset for the one the Mac suggests), Claude Code
+	// too, the clean-up and its names (unset for the app's). Used only under the
+	// Mac app, which does what they say (hostsetup.go); kept as set elsewhere.
+	KeystrokesAllowed  bool      `json:"keystrokesAllowed,omitempty"`
+	KeystrokeApps      []string  `json:"keystrokeApps,omitempty"`
+	ShowInDock         *bool     `json:"showInDock,omitempty"`
+	DictationEnabled   bool      `json:"dictationEnabled,omitempty"`
+	DictationLanguage  string    `json:"dictationLanguage,omitempty"`
+	DictationForClaude bool      `json:"dictationForClaude,omitempty"`
+	DictationCleanup   bool      `json:"dictationCleanup,omitempty"`
+	DictationGlossary  *[]string `json:"dictationGlossary,omitempty"`
 	// The floor new bots go to, 0 for the ground floor up to 5 for 6F, when
 	// no floor rule names one for them (see CloudBot.Floor); chosen in setup.
 	// Until it is, the floor your bots are on (newBotsFloor).
@@ -201,6 +214,10 @@ func loadConfig() *Config {
 	config.MailMaxBytes = max(1, config.MailMaxBytes)
 	config.MailPerHour = max(1, config.MailPerHour)
 	config.MailWaitHours = max(1, config.MailWaitHours)
+	// The apps keys may go to, as many as the Mac app keeps (its AppList.checked), so asking it about
+	// them is never refused: a longer id than any app's isn't one.
+	config.KeystrokeApps = slices.DeleteFunc(config.KeystrokeApps, func(id string) bool { return id == "" || len(id) > bridgeTextMost })
+	config.KeystrokeApps = config.KeystrokeApps[:min(len(config.KeystrokeApps), keystrokeAppsMost)]
 	// Layouts are checked again as they load: their buttons type into sessions.
 	config.Layout = config.Layout.checked()
 	for i := range config.Profiles {
