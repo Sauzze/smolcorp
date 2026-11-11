@@ -197,6 +197,11 @@ func loadConfig() *Config {
 	// Full paths only, and at most as many as the Mac app keeps.
 	config.RecentHireFolders = slices.DeleteFunc(config.RecentHireFolders, func(path string) bool { return !filepath.IsAbs(path) })
 	config.RecentHireFolders = config.RecentHireFolders[:min(len(config.RecentHireFolders), recentHireFoldersMost)]
+	// As the Mac's Config: an agent Smolcorp doesn't know (another case, a path, none) loads as
+	// Claude Code. Hiring with no role then fences or refuses it as Claude, as the Mac does.
+	if !slices.Contains(agents, Agent(config.HireAgent)) {
+		config.HireAgent = string(Claude)
+	}
 	// At least 1 each, as on the Mac (Config.swift).
 	config.MailMaxBytes = max(1, config.MailMaxBytes)
 	config.MailPerHour = max(1, config.MailPerHour)

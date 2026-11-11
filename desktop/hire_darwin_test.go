@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -314,6 +315,19 @@ func TestUnderTheMacAppAManagedHireThatCantBeFencedIsRefused(t *testing.T) {
 	terminals, tmux := hireWays()
 	if note := d.unfencedNote("", d.config.HireAgent, terminals, tmux); note != macHireNoRoleUnfenced {
 		t.Errorf("the office's line for Anyone: %q", note)
+	}
+	// A hire agent the Mac reads as Claude Code but not spelled claude, from a config.json edited
+	// by hand: it loads as Claude, as on the Mac, so it's refused the same (B1-b, RM4c).
+	for _, saved := range []string{"Claude", "/opt/x/bin/claude", ""} {
+		writeFile(t, configFile, `{"hireAgent": "`+saved+`"}`)
+		d.config.HireAgent = loadConfig().HireAgent
+		if status, message := hire("", "", nil); status != http.StatusConflict || message != macHireNoRoleUnfenced {
+			t.Errorf("Anyone on %q, the manager on: %d %s", saved, status, message)
+		}
+		nothing(fmt.Sprintf("Anyone on %q, the manager on", saved))
+		if note := d.unfencedNote("", d.config.HireAgent, terminals, tmux); note != macHireNoRoleUnfenced {
+			t.Errorf("the office's line for Anyone on %q: %q", saved, note)
+		}
 	}
 	// A role on an agent Smolcorp doesn't know, at an unpinned desk: its own words, not the pinned desk's (N-c).
 	d.config.Roles = slices.Clone(d.config.Roles)
