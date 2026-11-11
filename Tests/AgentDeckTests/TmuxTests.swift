@@ -130,7 +130,12 @@ final class TmuxFiringTests: XCTestCase {
     private var tmux: String!
 
     override func setUpWithError() throws {
-        tmux = try XCTUnwrap(Tool.find(["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"]), "needs tmux")
+        let found = Tool.find(["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"])
+        // GitHub's Mac runners have no tmux (CI is "true" there). Anywhere else, a missing tmux is a failure.
+        if found == nil, ProcessInfo.processInfo.environment["CI"] == "true" {
+            throw XCTSkip("needs real tmux panes, and this CI runner has no tmux")
+        }
+        tmux = try XCTUnwrap(found, "needs tmux")
         Tmux.path = tmux
         // tmux's sockets live in a short path.
         folder = URL(fileURLWithPath: "/tmp/smolcorp-test-\(UUID().uuidString.prefix(8))", isDirectory: true)
@@ -144,6 +149,8 @@ final class TmuxFiringTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        // Also run after a setUp that stopped early: without tmux, or before the folder was made.
+        guard let tmux, let folder else { return }
         _ = Tool.run(tmux, ["-S", socket, "kill-server"])
         try? FileManager.default.removeItem(at: folder)
     }
