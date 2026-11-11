@@ -136,7 +136,7 @@ func mcpTools() []mcpTool {
 				return build("inbox", nil, a, nil, []string{"since", "wait"}, nil)
 			}},
 		plainTool("version", "The app, its API and its features (gm version)."),
-		{Name: "hire", Description: "Hire an employee (gm hire). Not served on Linux and Windows yet.",
+		{Name: "hire", Description: "Hire an employee (gm hire).",
 			Props: map[string]any{"role": str("the role"), "folder": str("the folder"), "account": str("the Claude account"), "model": str("the model"),
 				"nickname": str("a nickname"), "floor": num("the floor, 0 to 5"), "worktree": flag01("a worktree of its own"),
 				"api-key": flag01("on the API-key account"), "task": str("what to do first")},
