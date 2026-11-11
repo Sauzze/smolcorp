@@ -183,7 +183,9 @@ func macApp(t *testing.T, d *Deck) (ran *[]string) {
 	saved := installedOpeners
 	t.Cleanup(func() { installedOpeners = saved })
 	useMacOpeners(&scriptedHost{answers: map[string]func(bridgeRequest) (bridgeAnswer, error){
-		"terminals": func(bridgeRequest) (bridgeAnswer, error) { return bridgeAnswer{OK: true, Terminals: []string{"terminal"}}, nil },
+		"terminals": func(bridgeRequest) (bridgeAnswer, error) {
+			return bridgeAnswer{OK: true, Terminals: []string{"terminal"}}, nil
+		},
 		"open": func(r bridgeRequest) (bridgeAnswer, error) {
 			script, _ := os.ReadFile(r.Script)
 			*ran = append(*ran, string(script))
@@ -246,7 +248,8 @@ func TestUnderTheMacAppARolesClaudeHireIsAlwaysFenced(t *testing.T) {
 		t.Errorf("windows: plain %q %q, through the app %q", h.windows, h.tmux, *ran)
 	}
 	for _, script := range *ran {
-		if strings.Contains(script, "'run' '--hire'") || !strings.Contains(script, "'attach'") {
+		// The launcher's window wraps its command in the login shell's quotes: --hire is all that's sure to be there.
+		if strings.Contains(script, "--hire") || !strings.Contains(script, "'attach'") {
 			t.Errorf("a window ran the launcher, or didn't attach to the hire:\n%s", script)
 		}
 	}
@@ -278,22 +281,49 @@ func TestUnderTheMacAppAManagedHireThatCantBeFencedIsRefused(t *testing.T) {
 	if status, message := hire("1", "janitor", nil); status != http.StatusNoContent || len(*ran) != 1 {
 		t.Fatalf("an unmanaged hire at a pinned desk: %d %s, windows %q", status, message, *ran)
 	}
+	// It ran the launcher, and the other test's check for that (--hire) sees it.
+	if !strings.Contains((*ran)[0], "--hire") {
+		t.Errorf("the launcher's window doesn't show --hire:\n%s", (*ran)[0])
+	}
 	*ran = nil
 	for _, c := range []struct {
 		name, desk, role string
 		extra            *setupHire
 		manager          bool
+		want             string
 	}{
-		{"the manager on", "1", "janitor", nil, true},
-		{"a worktree asked for", "1", "janitor", &setupHire{Role: "janitor", Folder: repo, Worktree: true}, false},
-		{"the GM", "1", gmRole, nil, false},
+		{"the manager on", "1", "janitor", nil, true, macHirePinnedUnfenced},
+		// Setup's sheet chose the pinned desk itself: another desk isn't its way out.
+		{"a worktree asked for", "1", "janitor", &setupHire{Role: "janitor", Folder: repo, Worktree: true}, false, macSetupHirePinnedUnfenced},
+		{"the GM", "1", gmRole, nil, false, macHirePinnedUnfenced},
 	} {
 		d.config.ManagerEnabled = c.manager
-		if status, message := hire(c.desk, c.role, c.extra); status != http.StatusConflict || message != macHirePinnedUnfenced {
+		if status, message := hire(c.desk, c.role, c.extra); status != http.StatusConflict || message != c.want {
 			t.Errorf("%s, pinned: %d %s", c.name, status, message)
 		}
 		nothing(c.name + ", pinned")
 	}
+	d.config.Pins[1] = nil
+	d.config.ManagerEnabled = true
+	// Anyone (no role), Claude, the manager on: the Mac fences it, so here it's refused (B1-a, RM4b).
+	d.config.HireAgent = "claude"
+	if status, message := hire("", "", nil); status != http.StatusConflict || message != macHireNoRoleUnfenced {
+		t.Errorf("Anyone, the manager on: %d %s", status, message)
+	}
+	nothing("Anyone, the manager on")
+	terminals, tmux := hireWays()
+	if note := d.unfencedNote("", d.config.HireAgent, terminals, tmux); note != macHireNoRoleUnfenced {
+		t.Errorf("the office's line for Anyone: %q", note)
+	}
+	// A role on an agent Smolcorp doesn't know, at an unpinned desk: its own words, not the pinned desk's (N-c).
+	d.config.Roles = slices.Clone(d.config.Roles)
+	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == "janitor" })
+	d.config.Roles[i].Agent = "robot"
+	if status, message := hire("", "janitor", nil); status != http.StatusConflict || message != macHireUnknownAgent {
+		t.Errorf("a role on an unknown agent: %d %s", status, message)
+	}
+	nothing("a role on an unknown agent")
+	d.config.Roles[i].Agent = "claude"
 	tmuxPath = func() string { return "" }
 	d.config.ManagerEnabled = true
 	for _, c := range []struct {

@@ -244,9 +244,14 @@ func TestAHireThatNeverReportsIsCleanedUp(t *testing.T) {
 	now := time.Unix(1000, 0)
 	r.o.Now = func() time.Time { return now }
 	r.o.Pause = func(d time.Duration) { now = now.Add(d) }
+	recordHireWindow(hire.ID, "tty:/dev/ttys004#w1234") // its window, as the Mac's attach would record it
+	t.Cleanup(func() { forgetHireWindows(hire.ID, windowsOfHire(hire.ID)) })
 	watchManagedHire(hire, 0, r.o)
 	if !r.tmux.ran("kill-session") || r.tmux.up {
 		t.Error("its session wasn't ended")
+	}
+	if windows := windowsOfHire(hire.ID); len(windows) != 0 {
+		t.Errorf("its windows' records were kept: %q", windows)
 	}
 	if branches(t, r.repo) != "" {
 		t.Error("its clean worktree and branch weren't removed")

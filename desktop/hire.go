@@ -156,10 +156,14 @@ func (d *Deck) unfencedNote(roleID, program string, terminals []hireOpener, tmux
 		}
 		return "This hire doesn't get Smolcorp's fence: it runs with its own settings."
 	}
+	terminal, hasTerminal := hireTerminal(d.config.HireTerminal, terminals)
 	if roleID == "" {
+		// Under the Mac app, with the manager on, it isn't started at all (hireAsWith).
+		if d.config.ManagerEnabled && underMacApp(terminal, hasTerminal) {
+			return macHireNoRoleUnfenced
+		}
 		return "A hire with no role doesn't get Smolcorp's fence: it runs with its own settings."
 	}
-	terminal, hasTerminal := hireTerminal(d.config.HireTerminal, terminals)
 	inTmux := tmux && (d.config.HireInTmux || !hasTerminal || underMacApp(terminal, hasTerminal))
 	if hasTmuxHires && inTmux || !inTmux && launcherHires && d.config.HireManagedWindows && hasTerminal {
 		return ""
@@ -219,8 +223,14 @@ const setupHireNeedsFolder = "Choose the folder for your hires first: it's the f
 
 // Refusals of a hire that would otherwise start without its fence, or on the wrong Claude account.
 const (
-	macHireNeedsTmux        = "Hires on this engine need tmux on your Mac to start fenced: install it, or switch back to the Swift engine."
-	macHirePinnedUnfenced   = "On this engine, a hire at a desk or floor pinned to a folder can't start fenced yet: hire at another desk, or switch back to the Swift engine."
+	macHireNeedsTmux      = "Hires on this engine need tmux on your Mac to start fenced: install it, or switch back to the Swift engine."
+	macHirePinnedUnfenced = "On this engine, a hire at a desk or floor pinned to a folder can't start fenced yet: hire at another desk, or switch back to the Swift engine."
+	// Setup's sheet picks the desk pinned to the folder itself, so another desk isn't its way out.
+	macSetupHirePinnedUnfenced = "On this engine, a hire in a folder a desk or floor is pinned to can't start fenced yet: unpin that folder, or switch back to the Swift engine."
+	// A role whose agent isn't one Smolcorp knows: the Mac starts it as Claude Code, fenced.
+	macHireUnknownAgent = "On this engine, a role whose agent Smolcorp doesn't know can't start fenced yet: set its agent to Claude Code in setup, or switch back to the Swift engine."
+	// Anyone's hire (no role) with the manager on: the Mac fences it, the engine only hires a role.
+	macHireNoRoleUnfenced   = "On this engine, a hire with no role can't start fenced yet: pick a role, or switch back to the Swift engine."
 	plainHireDefaultAccount = "This hire would start on your default Claude account, so it wasn't started: hire in tmux, at a desk that isn't pinned."
 	// Setup's hire that went the plain way, said with its answer (setuphire.go).
 	setupHireNotPassedOn = "It starts the old way: your task and answers weren't passed on, and it asks its role's questions itself."
@@ -400,10 +410,23 @@ func (d *Deck) hireAsWith(desk, roleID string, floor int, fromSetup bool, extra 
 	// GM) starts fenced or not at all, as the Swift engine's Deck.open does.
 	if macApp && claudeRole && (d.config.ManagerEnabled || extra != nil && extra.Worktree || roleID == gmRole) {
 		d.lastHire = time.Time{}
-		if !tmux {
+		switch {
+		case !tmux:
 			return http.StatusConflict, macHireNeedsTmux
+		case Agent(program) != Claude:
+			// Not pinned: the engine only took it as Claude Code if its agent says so.
+			return http.StatusConflict, macHireUnknownAgent
+		case extra != nil:
+			return http.StatusConflict, macSetupHirePinnedUnfenced
 		}
 		return http.StatusConflict, macHirePinnedUnfenced
+	}
+	// A hire with no role isn't the engine's: under the Mac app, with the manager on, it would start
+	// unfenced. Agent(program), not agentOrClaude: the Mac's hiredAgent(role: nil) is the raw hire
+	// agent, and an unknown one isn't Claude.
+	if macApp && roleID == "" && Agent(program) == Claude && d.config.ManagerEnabled {
+		d.lastHire = time.Time{}
+		return http.StatusConflict, macHireNoRoleUnfenced
 	}
 	// The launcher can't start on a named Claude account, and a test copy never hires on the default one.
 	if agentOrClaude(program) == Claude && (configDir != "" || testCopyPort() != 0) {

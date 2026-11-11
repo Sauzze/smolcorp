@@ -206,6 +206,8 @@ func watchManagedHire(hire Hire, testPort int, o engineOptions) {
 	}
 	cleanUpHire(hire, reason, hireOwnTmux(hire, testPort, o.Tmux), removeHireWorktree(o.Git, testPort, o.Worktrees),
 		func(id, why string) { setHire(id, "failed", firstRunes(why, longestNotes)) })
+	// Its windows' records go too, as a fired hire's do (hirewindows.go).
+	forgetHireWindows(hire.ID, windowsOfHire(hire.ID))
 	// A start script that never ran still holds its send key or token: it goes too.
 	scripts, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hire.ID), "hire-*.sh"))
 	for _, script := range scripts {
