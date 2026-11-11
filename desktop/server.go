@@ -1442,6 +1442,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		writeStatus(w)(status, text)
 
+	// routes.json: POST /setup/gm/hire is an action for gm and page (see gmhire.go).
+	case r.Method == http.MethodPost && path == "/setup/gm/hire":
+		d.gmHire(w, r)
+
 	// The front desk. routes.json: GET /setup/gm/team is read for gm, page and tool.
 	case r.Method == http.MethodGet && path == "/setup/gm/team":
 		rt.team(w)

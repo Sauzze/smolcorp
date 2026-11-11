@@ -185,6 +185,44 @@ func hooksRefusal(agent Agent) string {
 const setupHireNeedsFolder = "Choose the folder for your hires first: it's the first step of Start here."
 
 func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, string) {
+	return d.hireWith(hireSpec{desk: desk, roleID: roleID, floor: floor, fromSetup: fromSetup})
+}
+
+// hireSpec is a hire's request, as hireAs and the General Manager's route
+// (POST /setup/gm/hire) both make it: the one hire path.
+type hireSpec struct {
+	desk, roleID string
+	floor        int
+	fromSetup    bool
+	// folder is the folder asked for, already checked by the caller; "" is the
+	// folder for new hires.
+	folder string
+	// fenced hires only through a fenced way (the tmux engine, or the launcher's
+	// behind its switch), and refuses with 409 what would open a plain terminal.
+	fenced bool
+	// seat, when set, is given the desk the hire takes when none was chosen.
+	seat *int
+}
+
+// fenceRefusal is why a fenced hire of program can't be made, or "": nothing
+// the General Manager hires is ever opened in a plain terminal, which has no guard.
+func fenceRefusal(program, pinned string, tmux, launcher bool) string {
+	switch {
+	case Agent(program) != Claude:
+		return "The General Manager hires only Claude roles: Smolcorp can't fence another agent."
+	case pinned != "":
+		return "The General Manager doesn't hire at a pinned desk: Smolcorp can fence only a hire in a worktree of its own."
+	case tmux, launcherHires && launcher:
+		return ""
+	case launcherHires:
+		return "Turn on managed windows in Setup: the General Manager hires only into a hire Smolcorp can fence."
+	}
+	return "Install tmux: the General Manager hires only into a hire Smolcorp can fence."
+}
+
+// hireWith is hireAs for a hireSpec.
+func (d *Deck) hireWith(s hireSpec) (int, string) {
+	desk, roleID, floor, fromSetup := s.desk, s.roleID, s.floor, s.fromSetup
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if !fromSetup && !d.config.HiringEnabled {
@@ -234,8 +272,17 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 				held = index
 			}
 		}
+	} else if s.seat != nil {
+		keys, _ := d.layout()
+		*s.seat = slices.IndexFunc(keys, func(k deckKey) bool { return k.pin == nil && k.session == nil })
+		if *s.seat < 0 {
+			*s.seat = len(keys)
+		}
 	}
 	folder := pinned
+	if folder == "" && s.folder != "" {
+		folder = s.folder
+	}
 	if folder == "" {
 		var ok bool
 		if folder, ok = existingFolder(d.config.HireFolder); !ok && fromSetup {
@@ -243,6 +290,10 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 		}
 		if !ok {
 			return http.StatusConflict, "Choose a folder for new hires in setup, on your computer."
+		}
+		// Never your home folder, whatever setup holds.
+		if s.fenced && sameFolder(realPath(folder), realPath(homeDir)) {
+			return http.StatusConflict, setupHireNeedsFolder
 		}
 	}
 	program := d.config.HireAgent
@@ -271,6 +322,11 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	if !hasTerminal && !tmux {
 		return http.StatusConflict, "There's no terminal here to open a hire in."
 	}
+	if s.fenced {
+		if why := fenceRefusal(program, pinned, tmux, d.config.HireManagedWindows && hasTerminal); why != "" {
+			return http.StatusConflict, why
+		}
+	}
 	d.lastHire = time.Now()
 	// Until it's done, however long the lock is let go, which may be longer
 	// than the cooldown: no second hire takes the same desk meanwhile.
@@ -296,7 +352,7 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	}
 
 	// In tmux when chosen, or when there's no window to open.
-	inTmux := tmux && (d.config.HireInTmux || !hasTerminal)
+	inTmux := tmux && (d.config.HireInTmux || !hasTerminal || s.fenced)
 	// A role's Claude hire goes through the engine, at the desk chosen too (it
 	// is seated there when its session appears); the rest open as they did.
 	// A pinned desk stays on the old path: the engine's hire sits in a
@@ -313,6 +369,11 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 				return status, message
 			}
 		}
+	}
+	if s.fenced {
+		// Not made by an engine: never the plain terminal, which has no guard.
+		d.lastHire = time.Time{}
+		return http.StatusConflict, "The General Manager hires only into a hire Smolcorp can fence, and this one couldn't be."
 	}
 	token := newID()
 	command := []string{commandLineProgram(), "run", "--hire", token}
