@@ -422,8 +422,8 @@ func (d *Deck) hireAsWith(desk, roleID string, floor int, fromSetup bool, extra 
 		return http.StatusConflict, macHirePinnedUnfenced
 	}
 	// A hire with no role isn't the engine's: under the Mac app, with the manager on, it would start
-	// unfenced. Agent(program), not agentOrClaude: the Mac's hiredAgent(role: nil) is the raw hire
-	// agent, and an unknown one isn't Claude.
+	// unfenced. Agent(program): the hire agent always loads as a known one (loadConfig, as the
+	// Mac's Config), so this is the Mac's hiredAgent(role: nil).
 	if macApp && roleID == "" && Agent(program) == Claude && d.config.ManagerEnabled {
 		d.lastHire = time.Time{}
 		return http.StatusConflict, macHireNoRoleUnfenced
