@@ -6,6 +6,7 @@ final class TmuxTests: XCTestCase {
     private var folder: URL!
     private var saved: String?
     private var log: URL { folder.appendingPathComponent("asked.txt") }
+    private var stdin: URL { folder.appendingPathComponent("stdin.bin") }
 
     override func setUpWithError() throws {
         folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -14,6 +15,7 @@ final class TmuxTests: XCTestCase {
         try """
             #!/bin/sh
             echo "$*" >> "\(log.path)"
+            case "$*" in *load-buffer*) cat > "\(stdin.path)" ;; esac
             case "$*" in
               *pane_id*) case "$*" in *%9*) exit 1 ;; *) echo %3 ;; esac ;;
               *pane_tty*) echo /dev/ttys042 ;;
@@ -65,13 +67,43 @@ final class TmuxTests: XCTestCase {
         ])
     }
 
-    /// Dictation's text: a bracketed paste, without Return.
-    func testDictatedTextIsPastedWithoutReturn() {
+    /// Dictation's text: a bracketed paste, without Return, the text on tmux's standard input.
+    func testDictatedTextIsPastedWithoutReturn() throws {
         XCTAssertTrue(Tmux().insert("ajoute un test; puis lance-le", in: pane))
         XCTAssertEqual(asked.count, 2)
-        XCTAssertTrue(asked[0].hasPrefix("-S /tmp/tmux-501/default set-buffer -b smolcorp-") && asked[0].hasSuffix(" -- ajoute un test; puis lance-le"))
+        XCTAssertTrue(asked[0].hasPrefix("-S /tmp/tmux-501/default load-buffer -b smolcorp-") && asked[0].hasSuffix(" -"), asked[0])
         XCTAssertTrue(asked[1].contains("paste-buffer -p -d -b smolcorp-") && asked[1].hasSuffix("-t %3"))
+        XCTAssertEqual(asked[0].split(separator: " ")[4], asked[1].split(separator: " ")[6], "the same buffer")
         XCTAssertFalse(asked.contains { $0.hasSuffix(" Enter") })
+        XCTAssertEqual(try Data(contentsOf: stdin), Data("ajoute un test; puis lance-le".utf8))
+    }
+
+    /// As an argument, macOS takes accents apart (é as e and a combining accent) and tmux drops a ";"
+    /// at the end: the phone's text goes on tmux's standard input, byte for byte, never as an argument.
+    func testAccentsAndASemicolonArriveByteForByte() throws {
+        let text = "Café à l’été, ça va ? « œ » 👩‍💻 fin;"
+        XCTAssertTrue(Tmux().insert(text, in: pane))
+        XCTAssertEqual(try Data(contentsOf: stdin), Data(text.utf8))
+        XCTAssertFalse(asked.joined().contains("Caf"), "never an argument")
+        try FileManager.default.removeItem(at: stdin)
+        XCTAssertTrue(Tmux().typeKeys("oui, ça marche;", in: pane))
+        XCTAssertEqual(try Data(contentsOf: stdin), Data("oui, ça marche;".utf8))
+        XCTAssertTrue(asked.last!.contains("paste-buffer -r -d -b smolcorp-"), "as keys: no brackets, a line feed as itself")
+        // Text that could press Enter or end a bracket never reaches tmux.
+        let before = asked.count
+        XCTAssertFalse(Tmux().typeKeys("a\u{1B}[201~\rb", in: pane))
+        XCTAssertEqual(asked.count, before)
+    }
+
+    /// tmux reads an argument ending in ";" as the end of its command and
+    /// drops that ";" (a lone one leaves nothing): the phone's "echo hi;"
+    /// reached the agent as "echo hi". Text given as an argument keeps it.
+    func testASemicolonAtTheEndIsKept() {
+        XCTAssertEqual(Tmux.literal("fin de phrase;"), #"fin de phrase\;"#)
+        XCTAssertEqual(Tmux.literal(";"), #"\;"#)
+        XCTAssertEqual(Tmux.literal(#"a\;"#), #"a\\;"#, "tmux takes one backslash away, so the text's own stays")
+        XCTAssertEqual(Tmux.literal("a; b && c"), "a; b && c", "only at the end")
+        XCTAssertEqual(Tmux.literal(#"end\"#), #"end\"#)
     }
 
     func testThePaneIsAskedAbout() {

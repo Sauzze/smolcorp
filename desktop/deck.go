@@ -1375,6 +1375,8 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		return http.StatusConflict, headlessNoControls
 	}
 	tab, agent, busy := session.Tab, session.Agent, session.IsBusy()
+	// Claude Code ends the turn when its prompt is put away, and no hook says so: see StoppedAsking.
+	asking := session.State == Asking && agent == Claude
 	d.mu.Unlock()
 
 	// Accept and send are both Enter. They are separate controls on the phone
@@ -1393,10 +1395,20 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 			d.mu.Unlock()
 		}
 		return status, message
-	case "reject":
-		return d.pressTo(tab, agent, agent.Reject())
-	case "esc":
-		return d.pressTo(tab, agent, agent.Interrupt())
+	case "reject", "esc":
+		key := agent.Reject()
+		if action == "esc" {
+			key = agent.Interrupt()
+		}
+		status, message := d.pressTo(tab, agent, key)
+		if asking && status < http.StatusBadRequest {
+			d.mu.Lock()
+			if d.sessions.StoppedAsking(id, nowMillis()) {
+				d.changed()
+			}
+			d.mu.Unlock()
+		}
+		return status, message
 	case "up":
 		return d.pressTo(tab, agent, press(Up))
 	case "down":

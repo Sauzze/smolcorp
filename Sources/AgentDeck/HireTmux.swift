@@ -102,7 +102,7 @@ struct HireTmux {
     /// tmux from turning line feeds into Return.
     func paste(_ text: String) -> Bool {
         guard HireTmux.canPaste(text) else { return false }
-        return ran(["set-buffer", "-b", HireTmux.buffer, "--", text])
+        return ran(["set-buffer", "-b", HireTmux.buffer, "--", Tmux.literal(text)])
             && ran(["paste-buffer", "-p", "-r", "-d", "-b", HireTmux.buffer, "-t", HireTmux.pane])
     }
 

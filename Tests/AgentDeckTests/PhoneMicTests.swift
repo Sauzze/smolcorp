@@ -59,6 +59,36 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertNotNil(PhoneDictation.prepared(String(repeating: "a", count: PhoneDictation.longest)))
     }
 
+    /// Only control characters go: the invisible joiner that makes 👩‍💻 one
+    /// emoji is a format character, kept, as are accents and French quotes.
+    func testEmojiAndAccentsArriveWhole() {
+        let french = "Café à l’été, ça va ? « Œuvre » é è à ç ô œ 🎉👍🏽 👩‍💻 ❤️ 👨‍👩‍👧"
+        XCTAssertEqual(PhoneDictation.prepared(french), french)
+        XCTAssertEqual(PhoneDictation.prepared("a\u{200D}b\u{00AD}c"), "a\u{200D}b\u{00AD}c")
+        XCTAssertEqual(PhoneDictation.prepared(#"He said "hi" $HOME `x` $(y) ; a && b \"#), #"He said "hi" $HOME `x` $(y) ; a && b \"#)
+    }
+
+    /// Too long is said as such: "Nothing to type" for 2,001 characters sent the owner looking for nothing.
+    func testTooLongSaysSo() {
+        XCTAssertEqual(PhoneDictation.refusal(String(repeating: "a", count: PhoneDictation.longest + 1)), "Too long: at most 2000 characters at a time.")
+        XCTAssertEqual(PhoneDictation.refusal(" \n "), "Nothing to type")
+        XCTAssertEqual(PhoneDictation.refusal(""), "Nothing to type")
+    }
+
+    /// Typed into Claude Code (or Codex, Gemini CLI, OpenCode), "!" first switches it
+    /// to its shell, and Send would run the rest there: refused before any key goes.
+    func testTextStartingWithABangIsRefused() throws {
+        XCTAssertTrue(PhoneDictation.runsInShell("!rm -rf build"))
+        XCTAssertFalse(PhoneDictation.runsInShell("ship it!"))
+        XCTAssertFalse(PhoneDictation.runsInShell("¡hola!"))
+        let body = try Self.body(of: "func typePhoneDictation(", until: "static let answerFirst")
+        func at(_ text: String) throws -> String.Index { try XCTUnwrap(body.range(of: text)?.lowerBound, text) }
+        XCTAssertLessThan(try at("guard let words = PhoneDictation.prepared(text) else { return done(.status(400, PhoneDictation.refusal(text))) }"),
+                          try at("guard !PhoneDictation.runsInShell(words) else { return done(.status(400, Deck.noBangPrompt)) }"),
+                          "checked on the text as it would be typed: spaces in front are trimmed first")
+        XCTAssertLessThan(try at("guard !PhoneDictation.runsInShell(words)"), try at("driver.insert(words, in: tab)"))
+    }
+
     func testItSendsFromThreeWordsWithTheSettingOn() {
         XCTAssertFalse(PhoneDictation.sends("yes", autoSend: true))
         XCTAssertFalse(PhoneDictation.sends("yes please", autoSend: true))

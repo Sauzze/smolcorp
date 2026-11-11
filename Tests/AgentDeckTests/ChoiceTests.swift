@@ -214,6 +214,38 @@ final class ChoiceTests: XCTestCase {
         XCTAssertTrue(deck[reject...].prefix(200).contains("session.choice = nil"))
     }
 
+    /// ✗ or Esc from the deck on a Claude Code prompt: Claude ends the turn and
+    /// waits for a prompt, and no hook says so. The session is idle then, so the
+    /// phone may type what to do instead; it stayed "asking", and the phone was
+    /// told to answer what was already answered.
+    func testRejectingFromTheDeckLetsThePhoneTypeTheNextPrompt() throws {
+        let sessions = asked(["tool_name": "Bash", "tool_input": ["command": "touch x"]])
+        sessions.apply(event("PermissionRequest", ["tool_name": "Bash", "tool_input": ["command": "touch x"]]), agent: .claude,
+                       tab: "tty:/dev/ttys003", startedIn: "", at: 21)
+        XCTAssertEqual(sessions["s1"]?.state, .asking)
+        sessions.stoppedAsking("s1", at: 30)
+        XCTAssertEqual(sessions["s1"]?.state, .idle)
+        XCTAssertNil(sessions["s1"]?.choice)
+        XCTAssertEqual(sessions["s1"]?.tool, "")
+        // Its prompt's own events, raised before the ✗ and arriving late, don't bring it back.
+        sessions.apply(event("Notification", ["notification_type": "permission_prompt", "message": "Claude needs your permission"]),
+                       agent: .claude, tab: "tty:/dev/ttys003", startedIn: "", at: 25)
+        XCTAssertEqual(sessions["s1"]?.state, .idle)
+        // A new prompt asks again, as ever.
+        sessions.apply(event("PermissionRequest", ["tool_name": "Bash"]), agent: .claude, tab: "tty:/dev/ttys003", startedIn: "", at: 40)
+        XCTAssertEqual(sessions["s1"]?.state, .asking)
+        // Only a session that asks: one thinking is left as it is.
+        sessions.apply(event("UserPromptSubmit"), agent: .claude, tab: "tty:/dev/ttys003", startedIn: "", at: 50)
+        sessions.stoppedAsking("s1", at: 60)
+        XCTAssertEqual(sessions["s1"]?.state, .thinking)
+        // And the deck marks it only for Claude Code, once the key has gone.
+        let deck = try String(contentsOfFile: Self.root + "Sources/AgentDeck/Deck.swift", encoding: .utf8)
+        let reject = try XCTUnwrap(deck.range(of: #"case "reject", "esc":"#)).upperBound
+        let block = String(deck[reject...].prefix(700))
+        XCTAssertTrue(block.contains("let wasAsking = Deck.isAsking(session.state) && agent == .claude"))
+        XCTAssertTrue(block.contains("if wasAsking, response.status < 400 { self?.sessions.stoppedAsking(id) }"))
+    }
+
     /// C-3: the arrows' way stays off unless set by hand, the highlight moves
     /// only once ▲ or ▼ has gone, and arrows that may have gone part way
     /// drop the choice rather than give it back.
@@ -761,7 +793,7 @@ final class ChoiceTests: XCTestCase {
         XCTAssertFalse(body.contains("driver.type("), "never the text and Return together")
         // The terminals whose `insert` pastes type it as keys here.
         let drivers = try String(contentsOfFile: Self.root + "Sources/AgentDeck/TerminalDrivers.swift", encoding: .utf8)
-        XCTAssertTrue(drivers.contains(#"func typeKeys(_ text: String, in tab: TabAddress) -> Bool { ran(tab, ["send-keys", "-t", tab.id, "-l", "--", text]) }"#))
+        XCTAssertTrue(drivers.contains("return pasted(text, in: tab, bracketed: false)"))
         XCTAssertTrue(drivers.contains(#"func typeKeys(_ text: String, in tab: TabAddress) -> Bool { ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", "--", text]) }"#))
     }
 

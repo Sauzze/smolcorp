@@ -34,14 +34,30 @@ enum PhoneDictation {
     /// The text as it will be typed: line breaks (Unicode's own line and
     /// paragraph separators too) and other control characters become spaces
     /// (a line break would press Return part way through), runs of spaces
-    /// one, trimmed. Nil if nothing's left or it's too long.
+    /// one, trimmed. Nil if nothing's left or it's too long (`refusal` says which).
+    /// Only control characters (Cc): the invisible format ones (Cf) stay, as the
+    /// joiner in 👩‍💻, which CharacterSet.controlCharacters counts too.
     static func prepared(_ text: String) -> String? {
-        let breaks = CharacterSet.controlCharacters.union(.newlines)
-        let flat = String(text.unicodeScalars.map { breaks.contains($0) ? " " : Character($0) })
-        let single = flat.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+        let single = flattened(text)
         guard !single.isEmpty, single.count <= longest else { return nil }
         return single
     }
+
+    private static func flattened(_ text: String) -> String {
+        let breaks = { (scalar: Unicode.Scalar) in scalar.properties.generalCategory == .control || CharacterSet.newlines.contains(scalar) }
+        let flat = String(String.UnicodeScalarView(text.unicodeScalars.map { breaks($0) ? " " : $0 }))
+        return flat.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+    }
+
+    /// Why `prepared` gave nothing, for the phone to say: too long, or nothing to type.
+    static func refusal(_ text: String) -> String {
+        flattened(text).count > longest ? tooLong : "Nothing to type"
+    }
+    static let tooLong = "Too long: at most \(longest) characters at a time."
+
+    /// Whether the agent would take the text for a shell command: Claude Code,
+    /// Codex, Gemini CLI and OpenCode all run a prompt starting with "!" in a shell.
+    static func runsInShell(_ words: String) -> Bool { words.hasPrefix("!") }
 
     /// Whether the text goes with Return: with the setting on, and once it's
     /// a few words, as Claude Code does. Shorter, it waits for you to send.

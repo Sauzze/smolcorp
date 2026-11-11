@@ -47,14 +47,36 @@ enum Tool {
     /// Its output and exit status, or nil if it couldn't be run or was stopped for taking too long.
     /// With `errors`, what it says on its standard error comes in its output too.
     /// `timeout` is how long it has, `Tool.timeout` unless a slow one (a checkout) is given longer.
-    static func run(_ path: String, _ arguments: [String], errors: Bool = false, timeout limit: TimeInterval = Tool.timeout) -> (status: Int32, output: String)? {
+    /// `input`, if given, is its standard input, then closed: text that must arrive byte for byte goes
+    /// there, as Process passes each argument in the file system's form, its accents taken apart (é as
+    /// e and a combining accent).
+    static func run(_ path: String, _ arguments: [String], errors: Bool = false, timeout limit: TimeInterval = Tool.timeout,
+                    input: Data? = nil) -> (status: Int32, output: String)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
         let output = Pipe()
         process.standardOutput = output
         process.standardError = errors ? output : FileHandle.nullDevice
+        let given = input.map { _ in Pipe() }
+        if let given { process.standardInput = given }
         do { try process.run() } catch { return nil }
+        if let given, let input {
+            let fd = given.fileHandleForWriting.fileDescriptor
+            // A tool that stops reading early mustn't raise SIGPIPE in Smolcorp.
+            _ = fcntl(fd, F_SETNOSIGPIPE, 1)
+            DispatchQueue.global().async {
+                input.withUnsafeBytes { bytes in
+                    var sent = 0
+                    while sent < bytes.count {
+                        let n = write(fd, bytes.baseAddress! + sent, bytes.count - sent)
+                        if n <= 0 { break }
+                        sent += n
+                    }
+                }
+                try? given.fileHandleForWriting.close()
+            }
+        }
         // Stopped when it overruns, which also ends the reading below.
         let overran = DispatchWorkItem { if process.isRunning { process.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + limit, execute: overran)
@@ -126,12 +148,12 @@ struct Tmux: TerminalDriver {
     /// Settable for tests, which give a stand-in.
     static var path = Tool.find(["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/opt/local/bin/tmux", "/usr/bin/tmux"])
 
-    private func run(_ tab: TabAddress, _ arguments: [String]) -> (status: Int32, output: String)? {
+    private func run(_ tab: TabAddress, _ arguments: [String], input: Data? = nil) -> (status: Int32, output: String)? {
         guard let path = Tmux.path else { return nil }
-        return Tool.run(path, (tab.socket.isEmpty ? [] : ["-S", tab.socket]) + arguments)
+        return Tool.run(path, (tab.socket.isEmpty ? [] : ["-S", tab.socket]) + arguments, input: input)
     }
 
-    private func ran(_ tab: TabAddress, _ arguments: [String]) -> Bool { run(tab, arguments)?.status == 0 }
+    private func ran(_ tab: TabAddress, _ arguments: [String], input: Data? = nil) -> Bool { run(tab, arguments, input: input)?.status == 0 }
 
     func press(_ keystroke: Terminal.Keystroke, in tab: TabAddress) -> Bool {
         guard let name = keystroke.tmuxName else { return false }
@@ -142,22 +164,42 @@ struct Tmux: TerminalDriver {
         return true
     }
 
+    /// `text` as the last argument of a tmux command, kept whole. tmux reads an
+    /// argument ending in ";" as the end of its command and drops that ";"
+    /// (a lone ";" leaves no text at all), and takes one ending in "\;" for a
+    /// ";": so a ";" at the end goes as "\;". As the Windows and Linux app's
+    /// tmuxLiteral (desktop/tabs.go). Text that must arrive byte for byte goes
+    /// on tmux's standard input instead (see `pasted`).
+    static func literal(_ text: String) -> String {
+        text.hasSuffix(";") ? String(text.dropLast()) + #"\;"# : text
+    }
+
     func type(_ text: String, in tab: TabAddress) -> Bool {
-        // A ; at the end would be read as tmux's own command separator.
-        let literal = text.hasSuffix(";") ? String(text.dropLast()) + #"\;"# : text
-        return ran(tab, ["send-keys", "-t", tab.id, "-l", "--", literal]) && ran(tab, ["send-keys", "-t", tab.id, "Enter"])
+        ran(tab, ["send-keys", "-t", tab.id, "-l", "--", Tmux.literal(text)]) && ran(tab, ["send-keys", "-t", tab.id, "Enter"])
     }
 
     /// As a bracketed paste, so the agent takes it as one piece of text.
     func insert(_ text: String, in tab: TabAddress) -> Bool {
         // Escape could end the bracket early and Return would press Enter: refused, as a hire's paste does.
         guard HireTmux.canPaste(text) else { return false }
-        let buffer = "smolcorp-\(UUID().uuidString.prefix(8))"
-        return ran(tab, ["set-buffer", "-b", buffer, "--", text]) && ran(tab, ["paste-buffer", "-p", "-d", "-b", buffer, "-t", tab.id])
+        return pasted(text, in: tab, bracketed: true)
     }
 
-    /// As keys, where `insert` pastes.
-    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { ran(tab, ["send-keys", "-t", tab.id, "-l", "--", text]) }
+    /// As keys, where `insert` pastes: the same text, without the brackets, a line feed as itself (-r) as send-keys sent it.
+    func typeKeys(_ text: String, in tab: TabAddress) -> Bool {
+        guard HireTmux.canPaste(text) else { return false }
+        return pasted(text, in: tab, bracketed: false)
+    }
+
+    /// `text` into the pane through a buffer of its own, loaded from tmux's standard input, byte for
+    /// byte: as an argument, its accents would come apart (see `Tool.run`) and a ";" at its end go.
+    private func pasted(_ text: String, in tab: TabAddress, bracketed: Bool) -> Bool {
+        let buffer = "smolcorp-\(UUID().uuidString.prefix(8))"
+        guard ran(tab, ["load-buffer", "-b", buffer, "-"], input: Data(text.utf8)) else { return false }
+        if ran(tab, ["paste-buffer", bracketed ? "-p" : "-r", "-d", "-b", buffer, "-t", tab.id]) { return true }
+        _ = ran(tab, ["delete-buffer", "-b", buffer]) // -d only deletes after a paste
+        return false
+    }
 
     /// The pane, and the terminal tab tmux is shown in, when that's one the
     /// deck can bring forward.
