@@ -72,8 +72,8 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		return
 	}
 	given := body["folder"]
-	if given == nil || given == "" {
-		// Left out: the folder for new hires. With none set, hireWith says so (setupHireNeedsFolder).
+	if text, isText := given.(string); given == nil || isText && strings.TrimSpace(text) == "" {
+		// Left out (or only spaces): the folder for new hires, checked like any other. With none set, hireWith says so (setupHireNeedsFolder).
 		d.mu.Lock()
 		given = d.config.HireFolder
 		d.mu.Unlock()

@@ -131,7 +131,8 @@ func TestTheGMHireFolder(t *testing.T) {
 	}{
 		{"the folder for new hires", "~/proj", "", 200}, {"a folder given inside home", "~/proj", "~/other", 200},
 		{"none set up", "", "", 409}, {"the one set up is gone", "~/gone", "", 409}, {"the one set up is the home folder", "~", "", 400},
-		{"the one set up is outside home", outside, "", 400}, {"outside home", "~/proj", outside, 400}, {"/etc", "~/proj", "/etc", 400},
+		{"the one set up is outside home", outside, "", 400},
+		{"spaces for the one set up, which is home", "~", "   ", 400}, {"spaces for the one set up, outside home", outside, "   ", 400}, {"spaces for the one set up", "~/proj", "   ", 200}, {"outside home", "~/proj", outside, 400}, {"/etc", "~/proj", "/etc", 400},
 		{"the home folder", "~/proj", "~", 400}, {"home spelt out", "~/proj", "~/proj/../.", 400}, {"a link out of home", "~/proj", "~/escape", 400},
 	} {
 		d, r, h, token := gmHireDeck(t)
@@ -146,7 +147,7 @@ func TestTheGMHireFolder(t *testing.T) {
 		}
 		if hires := registered(t); c.status != 200 {
 			nothingMade(t, r, h)
-		} else if len(hires) != 1 || (c.folder != "" && hires[0].Folder != at(c.folder)) || hires[0].Folder == homeDir {
+		} else if len(hires) != 1 || (strings.TrimSpace(c.folder) != "" && hires[0].Folder != at(c.folder)) || hires[0].Folder == homeDir {
 			t.Errorf("%s: registry %+v", c.name, hires)
 		}
 	}
