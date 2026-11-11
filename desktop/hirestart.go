@@ -53,6 +53,8 @@ type hireStart struct {
 	// Under the Mac app, the API key itself, read through the bridge for this hire alone (hireapikey.go):
 	// exported by this script, which removes itself as it starts. "" reads the secret store as it runs.
 	KeyText string
+	// Resume is a Claude Code session to go on with (Hand back, t3takeover.go): `--resume <id>`, and no first message.
+	Resume string
 	// A test copy: both set, and the port not one a real Smolcorp owns.
 	TestPort       int
 	TestSupportDir string
@@ -131,7 +133,11 @@ func (h hireStart) script() (string, error) {
 	if claude && h.TestPort != 0 {
 		words = append(words, testCopySources)
 	}
-	words = append(words, h.Role.arguments(h.Message)...)
+	if claude && h.Resume != "" {
+		words = append(words, h.Role.resumeArguments(h.Resume)...)
+	} else {
+		words = append(words, h.Role.arguments(h.Message)...)
+	}
 	quoted := make([]string, len(words))
 	for i, word := range words {
 		quoted[i] = shellQuoted(word)

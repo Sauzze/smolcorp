@@ -602,6 +602,18 @@ func (r Role) arguments(message string) []string {
 	return nil
 }
 
+// resumeArguments are a Claude Code role's arguments to go on with session: its model and effort, then --resume.
+func (r Role) resumeArguments(session string) []string {
+	var args []string
+	if r.Model != "" {
+		args = append(args, "--model="+r.Model)
+	}
+	if r.Effort != "" {
+		args = append(args, "--effort="+r.Effort)
+	}
+	return append(args, "--resume", session)
+}
+
 // roleAgents are the agents a role can be, for the setup page: whether each
 // has an effort, and whether it takes a first message.
 func roleAgents() []map[string]any {

@@ -197,6 +197,9 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/launcher/screen` | a launcher's answer to a look at its window | none |
 | POST | `/raise` | a second Smolcorp asking this one to show the office | none |
 | GET | `/office?o=` | the tray's one-time token swapped for the window key (303) | the Mac's window has its key |
+| POST | `/setup/t3code/takeover` | Take over in T3 Code (EXPERIMENTAL, M5b), the page alone: `{id}`, a hire in a tmux session of its own goes on, the same session, in T3 Code; `{ok, thread, tag}`, 200, 404, 409, 500, 502 | none: M7: the Go engine (the Mac's Swift engine has no Take over) |
+| POST | `/setup/t3code/handback` | Hand back (EXPERIMENTAL, M5b), the page alone: `{id}`, T3 Code lets go, the session is checked free, then resumed in its tmux session; `{ok, note}`, 200, 404, 409, 500, 502 | none: M7: the Go engine (the Mac's Swift engine has no Hand back) |
+| POST | `/act?action=takeover`, `/act?action=handback` | the same from a desk's card, the office's own window only (403 from a phone, 404 for a desk with no hire); `GET /t3code` and `GET /setup/t3code` say `takeOver` where it's offered, a T3 desk's `t3.handBack` and a team row's `handBack` only for a hire taken over | none: M7: the Go engine |
 
 
 ## Fields of `/setup/state` (shape `setup-state`, the page's)

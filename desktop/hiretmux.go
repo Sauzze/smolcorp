@@ -30,8 +30,6 @@ import (
 const (
 	// hireSession is the one session on a hire's server.
 	hireSession = "hire"
-	// hireSocketPrefix starts every socket we make, and ownsHireSocket checks for it.
-	hireSocketPrefix = "smolcorp-"
 	// hirePane is the exact pane target: "=" matches the name exactly, ":" makes it the session's active pane.
 	hirePane = "=" + hireSession + ":"
 	// A unix socket's path is cut off a little over 100 bytes.

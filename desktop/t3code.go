@@ -81,9 +81,23 @@ var newT3Machine = defaultT3Machine
 func defaultT3Machine() t3Machine {
 	home, _ := os.UserHomeDir()
 	m := t3Machine{Home: home, GOOS: runtime.GOOS, Path: os.Getenv("PATH"), Getenv: os.Getenv, Run: runT3, Feed: feedT3,
-		OpenURL: func(link string) error { return openURL(link) }, Pause: time.Sleep, Now: time.Now}
+		Pause: time.Sleep, Now: time.Now}
 	m.App = func() string { return t3AppLauncher(m) }
+	m.OpenURL = func(link string) error {
+		// Under the Mac app, its opener (NSWorkspace), as the Swift engine hands T3 Code a thread's link.
+		if m.GOOS == "darwin" && host != nil {
+			return hostT3Link(host, link)
+		}
+		return openURL(link)
+	}
 	m.OpenApp = func(launcher string) {
+		if m.GOOS == "darwin" {
+			// The app by its bundle id, opened by the Mac app; a bare core finds none to open.
+			if host != nil && launcher == t3MacBundleID {
+				_ = hostT3OpenApp(host)
+			}
+			return
+		}
 		cmd := exec.Command(launcher)
 		detach(cmd)
 		if cmd.Start() == nil {
@@ -126,10 +140,19 @@ func t3Program(m t3Machine) string {
 
 // t3AppLauncher is T3 Code's desktop app, as its builds install it: on Linux the .deb's t3code (/usr/bin, or
 // /opt/<product>), Nix's t3code-desktop, or an AppImage (T3-Code-<version>-<arch>.AppImage) in ~/Applications
-// or ~/.local/bin; on Windows, the installer's T3 Code (Beta).exe, for you or for everyone. "" without.
+// or ~/.local/bin; on Windows, the installer's T3 Code (Beta).exe, for you or for everyone; on a Mac, its bundle
+// id when the Mac app finds the app by it (C4 A1, as T3Code.Machine.appInstalled). "" without.
 func t3AppLauncher(m t3Machine) string {
 	var candidates []string
 	switch m.GOOS {
+	case "darwin":
+		// Only the Mac app can ask macOS for an app by its bundle id: a bare core finds none.
+		if host != nil {
+			if found, _ := hostT3App(host); found {
+				return t3MacBundleID
+			}
+		}
+		return ""
 	case "linux":
 		for _, folder := range filepath.SplitList(m.Path) {
 			candidates = append(candidates, filepath.Join(folder, "t3code-desktop"), filepath.Join(folder, "t3code"))
@@ -155,6 +178,15 @@ func t3AppLauncher(m t3Machine) string {
 		}
 	}
 	return ""
+}
+
+// t3Here is this machine as the T3 Code sentences name it: "Mac" under the Mac app, as the Swift engine says it
+// (C4 A3), else "computer".
+func t3Here() string {
+	if host != nil {
+		return "Mac"
+	}
+	return "computer"
 }
 
 // t3Detect is what's installed now, and t3's version. It runs t3.

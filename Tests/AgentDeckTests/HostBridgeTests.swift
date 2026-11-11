@@ -64,6 +64,8 @@ final class HostBridgeTests: XCTestCase {
         actions.driver = { _ in nil }
         actions.place = { _, _ in nil }
         actions.screen = { _ in nil }
+        // The team's registry, as the core keeps it: the fixture's hire, and the one these tests ask about.
+        actions.openWorktrees = { ["/Users/ada/repo-hires/ada-abcdef", "/Users/ada/wt"] }
         return actions
     }
 
@@ -742,6 +744,16 @@ final class HostBridgeTests: XCTestCase {
         var typed: [String] = []
         mac.driver = { tab in PhoneTerminal(pastes: tab.id == "CD34" ? .notRead : .pasted) { typed.append($0) } }
         mac.screen = { _ in .some("> Bonjour l’équipe\n  ? for shortcuts\n\n\n") }
+        // The processes (M5c): three in the hire's worktree or naming its session; a Mac that can't list them without one.
+        mac.processes = { folder, session in
+            guard folder == "/Users/ada/repo-hires/ada-abcdef", !session.isEmpty else { return nil }
+            return [(4242, "claude", "folder"), (4343, "node", "add-dir"), (4444, "tail", "session")]
+        }
+        // T3 Code's app (C4 A1): there, opened, and handed only its own thread's link.
+        mac.looking = terminals
+        mac.t3App = { true }
+        mac.t3OpenApp = { [unowned self] in asked.append("t3 app opened") }
+        mac.t3OpenLink = { [unowned self] in asked.append("t3 link \($0.absoluteString)"); return true }
         func text(_ object: Any) -> String {
             String(decoding: (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data(), as: UTF8.self)
         }
@@ -757,7 +769,8 @@ final class HostBridgeTests: XCTestCase {
         }
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
         XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "office", "on top true", "choose /Users/example/hires floor", "choose - hires",
-                               "close hires", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true"])
+                               "close hires", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true",
+                               "t3 app opened", "t3 link t3code://threads/local/mcp%3Aabc-1"])
         XCTAssertTrue(login, "Open at login, switched on")
         // The phone's text, by `Deck.typePhoneWords` on the stand-in drivers: nothing for an agent that has ended,
         // nor for "!", nor for Codex, nor to a desk asking. ⌘V that wasn't read in time went.
@@ -998,6 +1011,176 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(answer(many), held, "\(many)")
         XCTAssertEqual(typed.suffix(1), ["paste tty:/dev/ttys003 one\ntwo"])
         XCTAssertEqual(typed.count, 4, "one paste only")
+    }
+
+    /// The processes (M5c): a full path that isn't `/` and has no `..`, the worktree of a hire open in the core's
+    /// registry, and a session's id (its UUID shape) or none; anything else is refused before anything is looked at
+    /// (RM5c S2). What's found is answered, the first `processesMost`; a Mac that can't look says so.
+    func testTheProcessesTakeOnlyAFolderAndASession() {
+        let session = "6f1c2a9e-0b3d-4e5f-8a7b-1C2D3E4F5A6B"
+        var mac = actions
+        var looked: [String] = []
+        let looking = DispatchQueue(label: "test.looking")
+        mac.looking = looking
+        mac.processes = { folder, session in
+            dispatchPrecondition(condition: .onQueue(looking))
+            looked.append("\(folder) \(session)")
+            return folder == "/nowhere" ? nil : (1...70).map { (pid_t($0), "zsh", "folder") }
+        }
+        for refused: [String: Any] in [
+            ["action": "processes"],
+            ["action": "processes", "folder": "relative/wt"],
+            ["action": "processes", "folder": "/"],
+            ["action": "processes", "folder": "/Users/ada/../bob"],
+            ["action": "processes", "folder": "/Users/ada/wt\n"],
+            ["action": "processes", "folder": "/" + String(repeating: "a", count: 1024)],
+            ["action": "processes", "folder": 42],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": "a/b"],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": "a b"],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": String(repeating: "a", count: 65)],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": 7],
+            // Not a session's id: a letter, part of one, one too long, or not hex.
+            ["action": "processes", "folder": "/Users/ada/wt", "session": "e"],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": "6f1c2a9e-0b3d"],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": session + "0"],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": "6f1c2a9e-0b3d-4e5f-8a7b-1c2d3e4f5a6g"],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": "6f1c2a9e0b3d-4e5f-8a7b-1c2d3e4f5a6b-"],
+            // Not a hire's worktree: above one, inside one, beside one.
+            ["action": "processes", "folder": "/Users"],
+            ["action": "processes", "folder": "/Users/ada"],
+            ["action": "processes", "folder": "/Users/ada/wt/sub"],
+            ["action": "processes", "folder": "/Users/ada/repo-hires/bob-123456", "session": session],
+        ] {
+            var request = refused
+            request["token"] = token
+            XCTAssertFalse(isOK(HostBridge.answer(line(request), token: token, actions: mac)), "\(refused)")
+        }
+        XCTAssertEqual(looked, [], "nothing looked at for a refused request")
+        // A registry that can't be read: nothing looked at, and the core can't look.
+        var unread = mac
+        unread.openWorktrees = { nil }
+        let blind = HostBridge.answer(line(["action": "processes", "folder": "/Users/ada/wt"]), token: token, actions: unread)
+        XCTAssertEqual(blind["error"] as? String, "This Mac couldn't read the team's registry.")
+        XCTAssertEqual(looked, [])
+        let some = HostBridge.answer(line(["action": "processes", "folder": "/Users/ada/wt", "session": session]), token: token, actions: mac)
+        let named = some["processes"] as? [[String: Any]]
+        XCTAssertEqual(named?.count, HostBridge.processesMost)
+        XCTAssertEqual(named?.first?["pid"] as? Int, 1)
+        XCTAssertEqual(named?.first?["why"] as? String, "folder")
+        XCTAssertTrue(isOK(HostBridge.answer(line(["action": "processes", "folder": "/Users/ada/wt"]), token: token, actions: mac)))
+        var nowhere = mac
+        nowhere.openWorktrees = { ["/nowhere"] }
+        let cant = HostBridge.answer(line(["action": "processes", "folder": "/nowhere"]), token: token, actions: nowhere)
+        XCTAssertEqual(cant["error"] as? String, "This Mac couldn't list its processes.")
+        XCTAssertEqual(looked, ["/Users/ada/wt \(session)", "/Users/ada/wt ", "/nowhere "])
+    }
+
+    /// The registry `processes` reads (RM5c S2): the open hires' worktrees, as the core writes them; none without a
+    /// registry; nil for one that can't be read, which is left where it is, as it is.
+    func testTheProcessesReadTheOpenHiresWorktreesFromTheRegistry() throws {
+        let file = folder.appendingPathComponent("registry.json")
+        XCTAssertEqual(HostBridge.openWorktrees(in: file), [])
+        let registry: [String: Any] = ["version": 1, "hires": [
+            ["id": "a", "state": "working", "worktree": "/Users/ada/repo-hires/ada-abcdef", "engine": "t3", "t3Session": "x"],
+            ["id": "b", "state": "starting", "worktree": "/Users/ada/repo-hires/bob-123456"],
+            ["id": "c", "state": "fired", "worktree": "/Users/ada/repo-hires/cy-654321"],
+            ["id": "d", "state": "failed", "worktree": "/Users/ada/repo-hires/di-111111"],
+            ["id": "e", "state": "working", "worktree": ""],
+            ["id": "f", "state": "idle"],
+        ]]
+        try JSONSerialization.data(withJSONObject: registry).write(to: file)
+        XCTAssertEqual(HostBridge.openWorktrees(in: file), ["/Users/ada/repo-hires/ada-abcdef", "/Users/ada/repo-hires/bob-123456"])
+        for broken in ["{", "[]", #"{"hires":7}"#] {
+            try Data(broken.utf8).write(to: file)
+            XCTAssertNil(HostBridge.openWorktrees(in: file), broken)
+            XCTAssertEqual(try Data(contentsOf: file), Data(broken.utf8), "left as it is")
+        }
+        XCTAssertTrue(HostBridge.isSessionID("6f1c2a9e-0b3d-4e5f-8a7b-1c2d3e4f5a6b"))
+        XCTAssertFalse(HostBridge.isSessionID(""))
+    }
+
+    /// The processes, for real (M5c): the kernel's own list, by the code the Mac's Let go uses. A process working in
+    /// the folder, one given it with --add-dir and one naming the session are each found, with why and their names;
+    /// without the session, only the first two. Nothing is signalled: each is still running after.
+    func testTheProcessesAreReadFromTheKernel() throws {
+        let wt = folder.appendingPathComponent("wt/sub", isDirectory: true)
+        let other = folder.appendingPathComponent("other", isDirectory: true)
+        try FileManager.default.createDirectory(at: wt, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        let session = "6f1c2a9e-0b3d-4e5f-8a7b-" + String(UUID().uuidString.suffix(12)).lowercased()
+        let transcript = other.appendingPathComponent(session + ".jsonl")
+        try Data().write(to: transcript)
+        func start(_ program: String, _ arguments: [String], in place: URL) throws -> Process {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: program)
+            process.arguments = arguments
+            process.currentDirectoryURL = place
+            try process.run()
+            return process
+        }
+        let worktree = folder.appendingPathComponent("wt").path
+        var mac = actions
+        mac.openWorktrees = { [worktree] }
+        let sleeper = try start("/bin/sleep", ["30"], in: wt)
+        let adder = try start("/bin/sh", ["-c", "/bin/sleep 30; :", "sh", "--add-dir", worktree], in: other)
+        let tail = try start("/usr/bin/tail", ["-f", transcript.path], in: other)
+        let all = [sleeper, adder, tail]
+        defer { for process in all { process.terminate(); process.waitUntilExit() } }
+        func ask(_ session: String) -> [Int32: [String: Any]] {
+            var request: [String: Any] = ["action": "processes", "folder": worktree, "token": token]
+            if !session.isEmpty { request["session"] = session }
+            let answer = HostBridge.answer(line(request), token: token, actions: mac)
+            var byPid: [Int32: [String: Any]] = [:]
+            for one in answer["processes"] as? [[String: Any]] ?? [] { byPid[Int32(one["pid"] as? Int ?? 0)] = one }
+            return byPid
+        }
+        var found: [Int32: [String: Any]] = [:]
+        let by = Date().addingTimeInterval(5)
+        repeat {
+            found = ask(session)
+            if all.allSatisfy({ found[$0.processIdentifier] != nil }) { break }
+            Thread.sleep(forTimeInterval: 0.05)
+        } while Date() < by
+        XCTAssertEqual(found[sleeper.processIdentifier]?["why"] as? String, "folder")
+        XCTAssertEqual(found[sleeper.processIdentifier]?["name"] as? String, "sleep")
+        XCTAssertEqual(found[adder.processIdentifier]?["why"] as? String, "add-dir")
+        XCTAssertEqual(found[tail.processIdentifier]?["why"] as? String, "session")
+        XCTAssertEqual(found[tail.processIdentifier]?["name"] as? String, "tail")
+        let alone = ask("")
+        XCTAssertNotNil(alone[sleeper.processIdentifier])
+        XCTAssertNotNil(alone[adder.processIdentifier])
+        XCTAssertNil(alone[tail.processIdentifier], "no session asked: not looked for")
+        XCTAssertEqual(Set(Processes.working(in: worktree)), Set(alone.keys), "the same as the Mac's own Let go finds")
+        XCTAssertTrue(all.allSatisfy(\.isRunning), "nothing signalled")
+    }
+
+    /// T3 Code's app (C4 A1): only T3 Code's own link to a thread, exactly as `T3Desk.deepLink` makes it, reaches the
+    /// opener; the app looked for and opened by the stand-ins only.
+    func testT3CodesAppAndOnlyItsThreadLinks() {
+        var mac = actions
+        mac.main = terminals
+        mac.looking = terminals
+        var opened: [String] = []
+        mac.t3App = { false }
+        mac.t3OpenLink = { opened.append($0.absoluteString); return $0.absoluteString.hasSuffix("abc-1") }
+        let made = T3Desk.deepLink(thread: "mcp:abc-1", link: "https://app.t3.codes/threads/local/mcp:abc-1")!.absoluteString
+        XCTAssertEqual(made, "t3code://threads/local/mcp%3Aabc-1")
+        XCTAssertEqual(HostBridge.t3ThreadLink(made)?.absoluteString, made)
+        for refused in ["https://app.t3.codes/threads/local/mcp%3Aabc-1", "t3code://threads/local/mcp:abc-1", "t3code://threads/lo cal/x",
+                        "t3code://threads/local/x?y=1", "t3code://threads/local/x#y", "t3code://evil/local/x", "t3code://threads/local",
+                        "t3code://threads/local/x/y", "t3code://threads//x", "t3code://threads/local/", "file:///etc/passwd",
+                        "t3code://u@threads/local/x", "t3code://threads:80/local/x", "t3code://threads/local/" + String(repeating: "a", count: 1100)] {
+            XCTAssertNil(HostBridge.t3ThreadLink(refused), refused)
+            XCTAssertFalse(isOK(HostBridge.answer(line(["action": "t3-link", "link": refused]), token: token, actions: mac)), refused)
+        }
+        XCTAssertFalse(isOK(HostBridge.answer(line(["action": "t3-link"]), token: token, actions: mac)))
+        XCTAssertEqual(opened, [], "no refused link reached the opener")
+        XCTAssertTrue(isOK(HostBridge.answer(line(["action": "t3-link", "link": made]), token: token, actions: mac)))
+        let other = T3Desk.deepLink(thread: "mcp:abc-2", link: "https://app.t3.codes/threads/local/x")!.absoluteString
+        XCTAssertEqual(HostBridge.answer(line(["action": "t3-link", "link": other]), token: token, actions: mac)["error"] as? String,
+                       "T3 Code didn't take the link to the hire's thread.")
+        XCTAssertEqual(opened, [made, other])
+        XCTAssertEqual(HostBridge.answer(line(["action": "t3-app"]), token: token, actions: mac)["found"] as? Bool, false)
     }
 
     func testSetupsMacPartsTakeOnlyWhatTheyShould() {

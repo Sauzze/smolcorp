@@ -17,7 +17,11 @@ import (
 // the tab shows (phonetext.go), a window brought forward or closed,
 // a terminal opened on a script, the app's own Keychain items, its login item;
 // setup's Mac parts (hostsetup.go), the office's window and the Mac's folder
-// panel (hostshell.go), and what each desk's terminal allows (hostoffice.go). Each is the Mac app's own code, as the Swift engine runs it
+// panel (hostshell.go), and what each desk's terminal allows (hostoffice.go);
+// and which processes work in a folder or name a session, read only, for Let
+// go and Take over (t3process_darwin.go); T3 Code's app, found and opened by
+// its bundle id, and a hire's thread opened by its link (t3code.go). Each is
+// the Mac app's own code, as the Swift engine runs it
 // (HostBridge.swift); their requests and answers are Tests/fixtures/bridge/actions.json.
 //
 // On Windows and Linux there is no host: host stays nil, and every tab is
@@ -45,9 +49,13 @@ type bridgeRequest struct {
 	Agent Agent  `json:"agent,omitempty"`
 	// open: which terminal (terminal, iterm, ghostty), the folder, and a script
 	// in the support folder's hires folder for the window to run. Never a command line.
+	// processes: the folder looked at, and the Claude Code session whose name is looked for ("" for none).
 	Terminal string `json:"terminal,omitempty"`
 	Folder   string `json:"folder,omitempty"`
 	Script   string `json:"script,omitempty"`
+	Session  string `json:"session,omitempty"`
+	// t3-link: T3 Code's own link to a hire's thread (t3DeepLink).
+	Link string `json:"link,omitempty"`
 	// window-look, window-close: a window the app opened for this engine, by the record its open answered;
 	// window-close: the tty it showed, as window-look said.
 	Window string `json:"window,omitempty"`
@@ -107,7 +115,7 @@ type bridgeAnswer struct {
 	Left   string `json:"left,omitempty"`
 	// close: fired, gone or not-stopped, as the Mac's Terminal.Fired.
 	Fired string `json:"fired,omitempty"`
-	// secret-read, api-key-read: the value, and whether there is one.
+	// secret-read, api-key-read: the value, and whether there is one; t3-app: whether T3 Code's app is on the Mac.
 	Value string `json:"value,omitempty"`
 	Found bool   `json:"found,omitempty"`
 	// api-key-offer: whether a hire may work on the API-key account, the notice beside the choice, and
@@ -141,7 +149,21 @@ type bridgeAnswer struct {
 	Peek []string `json:"peek,omitempty"`
 	// Not the answer yet: the Mac app asking the desk's state, for the phone's text (bridgeRequest.deskState).
 	Ready bool `json:"ready,omitempty"`
+	// processes: those working in the folder or naming the session, the first bridgeProcessesMost.
+	Processes []bridgeProcess `json:"processes,omitempty"`
 }
+
+// bridgeProcess is a process the Mac app found working in a folder or naming a session: its pid, its name as
+// the kernel keeps it, and why: "folder" (its current folder is in it), "add-dir" (given it with --add-dir) or
+// "session" (an argument names the session).
+type bridgeProcess struct {
+	PID  int    `json:"pid"`
+	Name string `json:"name"`
+	Why  string `json:"why"`
+}
+
+// bridgeProcessesMost is the most processes the app answers (HostBridge.processesMost).
+const bridgeProcessesMost = 64
 
 // macFacts is what setup shows of this Mac, as the Swift engine's setup state
 // has it (DeckRouter.setupState): asked of the app at each setup state.
@@ -452,6 +474,42 @@ func hostResolveBots(h hostBridge, bots []bridgeBot) ([]*botResolution, error) {
 		err = fmt.Errorf("the Mac app said who %d bots are for %d", len(answer.Resolved), len(bots))
 	}
 	return answer.Resolved, err
+}
+
+// hostProcesses is the processes working in folder (or a folder inside it), or given it with --add-dir, and
+// with a session, those whose arguments name it, as the Mac app's own Let go finds them (Processes.holding):
+// read from the kernel by PID, nothing run, nothing signalled. An error is the app couldn't look, or wasn't asked.
+func hostProcesses(h hostBridge, folder, session string) ([]bridgeProcess, error) {
+	answer, err := ask(h, bridgeRequest{Action: "processes", Folder: folder, Session: session})
+	if err == nil && len(answer.Processes) > bridgeProcessesMost {
+		err = fmt.Errorf("the Mac app named %d processes", len(answer.Processes))
+	}
+	if err != nil {
+		return nil, err
+	}
+	return answer.Processes, nil
+}
+
+// t3MacBundleID is T3 Code's app as macOS knows it (T3Code.bundleID): the "launcher" t3AppLauncher gives on a Mac.
+const t3MacBundleID = "com.t3tools.t3code"
+
+// hostT3App says whether T3 Code's app is on the Mac, by its bundle id, as the Mac app's T3Code.Machine looks.
+func hostT3App(h hostBridge) (bool, error) {
+	answer, err := ask(h, bridgeRequest{Action: "t3-app"})
+	return err == nil && answer.Found, err
+}
+
+// hostT3OpenApp has the Mac app open T3 Code's app, as the Swift engine's Open in T3 Code does before `t3 app`.
+func hostT3OpenApp(h hostBridge) error {
+	_, err := ask(h, bridgeRequest{Action: "t3-open-app"})
+	return err
+}
+
+// hostT3Link has the Mac app open a hire's thread by T3 Code's own link (t3code://threads/…), with its opener:
+// it takes no other link.
+func hostT3Link(h hostBridge, link string) error {
+	_, err := ask(h, bridgeRequest{Action: "t3-link", Link: link})
+	return err
 }
 
 // hostPhoneText has the Mac app type the phone's words into tab, a Terminal, iTerm2 or Ghostty tab, for

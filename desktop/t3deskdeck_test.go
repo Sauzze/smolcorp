@@ -288,6 +288,39 @@ func TestT3TheOfficesFireOfAT3HireIsRefused(t *testing.T) {
 	}
 }
 
+// A Let go whose registry can't be written says so, rather than answering ok for a hire still on the team; let go
+// again once it can be, it's fired (its project already removed is no error then).
+func TestT3LetGoWhoseRegistryCantBeWrittenSaysSo(t *testing.T) {
+	r := newT3Rig(t)
+	r.fake("gone")
+	h := r.t3Hire(r.fencedWorktree())
+	keptMachine, keptStand := newT3Machine, t3Stand
+	newT3Machine = r.machine
+	t3Stand.Leaving = func() t3Leaving { leave, _ := r.leaving(); return leave }
+	t.Cleanup(func() { newT3Machine, t3Stand = keptMachine, keptStand })
+	d := newTestDeck(t)
+	t3Registered(t, h)
+	// The registry's temp file can't be made: a folder is where it goes.
+	blocker := registryPath() + ".tmp"
+	if err := os.Mkdir(blocker, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got := serve(t, d, t3PageCall("POST", "/setup/t3code/letgo", `{"id":"`+h.ID+`"}`))
+	if got.Code != http.StatusInternalServerError || got.Body.String() != "Ada was let go from T3 Code, but the registry couldn't be written, so it's still on the team: let it go again." {
+		t.Errorf("%d %s", got.Code, got.Body)
+	}
+	if still, _ := registryHire(h.ID); !isOpen(still) {
+		t.Errorf("%+v", still)
+	}
+	_ = os.Remove(blocker)
+	if got := serve(t, d, t3PageCall("POST", "/setup/t3code/letgo", `{"id":"`+h.ID+`"}`)); got.Code != http.StatusOK {
+		t.Errorf("again: %d %s", got.Code, got.Body)
+	}
+	if after, _ := registryHire(h.ID); after.State != "fired" {
+		t.Errorf("%+v", after)
+	}
+}
+
 // At launch, a hire left part way is let go and marked failed, saying what was done.
 func TestT3ADeckStartingLetsGoOfAHireLeftPartWay(t *testing.T) {
 	r := newT3Rig(t)

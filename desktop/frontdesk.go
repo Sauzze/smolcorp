@@ -63,6 +63,10 @@ type Hire struct {
 	// only for a hire in T3 Code, as the Mac writes them.
 	T3Floor *int `json:"t3Floor,omitempty"`
 	T3Desk  *int `json:"t3Desk,omitempty"`
+	// A hire taken over in T3 Code from its own tmux session (t3takeover.go, the Go core's only): its Claude Code
+	// session and that session's transcript, kept until Hand back resumes it there. Written only then.
+	T3Session    string `json:"t3Session,omitempty"`
+	T3Transcript string `json:"t3Transcript,omitempty"`
 }
 
 // liveSession is a session as the deck follows it, with where it sits.

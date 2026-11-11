@@ -438,7 +438,8 @@ final class T3CodeTests: XCTestCase {
     func testSetupsTeamListHasTheButtonItsHintsAndFitsAPhoneWidth() throws {
         let page = try web("setup.html")
         let row = try XCTUnwrap(page.range(of: "function teamRow(r) {"))
-        let teamRow = String(page[row.lowerBound...].prefix(4500))
+        // 5,500: M5b's Take over / Hand back menu made the row longer (M5c).
+        let teamRow = String(page[row.lowerBound...].prefix(5500))
         XCTAssertTrue(teamRow.contains("const t3Key = state.t3CodeEnabled ? t3Button(r) : null;"), "T3 Code on (T796)")
         XCTAssertTrue(teamRow.contains("head.style.flexWrap = 'wrap';"), "390 px: the buttons go under the name")
         XCTAssertTrue(teamRow.contains("row.append(head, ...(t3Key ? [t3Key.line] : []), ...(why ? [why] : []));"), "the hint on its own line under the button")

@@ -201,15 +201,22 @@ func (d *Deck) letGoOfT3(id string) (int, any) {
 	// Read again once it's this let go's turn, so a second click finds the hire already gone.
 	hire, found := registryHire(id)
 	var gone t3Gone
-	var err error
+	var err, unsaved error
 	if found {
 		gone, err = t3LetGo(hire, t3Leaver(), func(g t3Gone) {
 			note := "Let go from T3 Code: its thread there was removed; its worktree and branch were kept."
 			if g.Note != "" {
 				note += " " + g.Note
 			}
-			markFired(hire.ID, note)
+			// Unwritten, it would still show on the team as if nothing happened: said, so it's let go again (a
+			// project already removed is no error then).
+			if markFired(hire.ID, note) != nil {
+				unsaved = t3Refused(http.StatusInternalServerError, calledHire(hire)+" was let go from T3 Code, but the registry couldn't be written, so it's still on the team: let it go again.")
+			}
 		})
+		if err == nil {
+			err = unsaved
+		}
 	}
 	t3Desk.Unlock()
 	if !found {
@@ -316,17 +323,30 @@ func (d *Deck) t3Latest(h Hire) Hire {
 }
 
 // t3FireRefusal is why a fire from the office, a phone or the GM doesn't reach a hire in T3 Code: it's let go
-// from Setup's team list or its desk, after a confirm that says what's removed. "" for any other hire.
+// from Setup's team list or its desk, after a confirm that says what's removed. A hire taken over (T3Session
+// set: in T3 Code, or stopped and waiting for Hand back) is handed back first, so T3 Code's project and thread
+// are never left behind a fired hire (RM5b S3). "" for any other hire.
 func t3FireRefusal(h Hire) string {
-	if h.Engine != t3Engine {
+	switch {
+	case h.T3Session != "":
+		return t3FireTakenOver(h)
+	case h.Engine != t3Engine:
 		return ""
 	}
 	return calledHire(h) + " runs in T3 Code: let it go from Setup's team list or from its desk."
 }
 
+// t3FireTakenOver is the fire of a hire taken over in T3 Code, refused in one sentence.
+func t3FireTakenOver(h Hire) string {
+	return calledHire(h) + " was taken over in T3 Code: hand it back first, then fire it."
+}
+
 // gmT3FireRefusal is the GM's fire of a hire in T3 Code, refused in the Mac's words (Deck.fire), or "" for any other hire.
 func gmT3FireRefusal(h Hire) string {
-	if h.Engine != t3Engine {
+	switch {
+	case h.T3Session != "":
+		return t3FireTakenOver(h)
+	case h.Engine != t3Engine:
 		return ""
 	}
 	return calledHire(h) + " runs in T3 Code: let it go from Setup's team list or from its desk."

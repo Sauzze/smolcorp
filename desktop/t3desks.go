@@ -230,6 +230,10 @@ func (d *Deck) t3Entry(s *Session, h Hire) map[string]any {
 	entry["choice"] = nil
 	desk := t3DeskJSON(h, d.t3)
 	entry["t3"] = map[string]any{"tag": t3Tag, "experimental": true, "status": desk["status"], "branch": h.Branch, "canOpen": desk["canOpen"]}
+	// Taken over from its tmux session (t3takeover.go): Hand back on its card, only then.
+	if h.T3Session != "" {
+		entry["t3"].(map[string]any)["handBack"] = true
+	}
 	return entry
 }
 

@@ -240,6 +240,20 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			return []any{available, notice == apiKeyNotice, refusal}, err
 		},
 		"the API-key account's key, for the hire being made": func(h hostBridge) (any, error) { return hostAPIKeyRead(h) },
+		"the processes working in a hire's worktree, or naming its session": func(h hostBridge) (any, error) {
+			return hostProcesses(h, "/Users/ada/repo-hires/ada-abcdef", "6f1c2a9e-0b3d-4e5f-8a7b-1c2d3e4f5a6b")
+		},
+		"the processes, on a Mac that can't list them": func(h hostBridge) (any, error) {
+			return hostProcesses(h, "/Users/ada/repo-hires/ada-abcdef", "")
+		},
+		"T3 Code's app looked for by its bundle id": func(h hostBridge) (any, error) { return hostT3App(h) },
+		"T3 Code's app opened":                      func(h hostBridge) (any, error) { return nil, hostT3OpenApp(h) },
+		"a hire's thread opened by T3 Code's own link": func(h hostBridge) (any, error) {
+			return nil, hostT3Link(h, t3DeepLink("mcp:abc-1", "https://app.t3.codes/threads/local/mcp:abc-1"))
+		},
+		"any other link refused": func(h hostBridge) (any, error) {
+			return nil, hostT3Link(h, "https://example.com/threads/local/mcp%3Aabc-1")
+		},
 	}
 	// What the core makes of each answer.
 	got := map[string]any{
@@ -270,6 +284,10 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the peek, the agent not in front":                             []any{true, true},
 		"the API-key account, offered for a hire (the key isn't read)": []any{true, true, ""},
 		"the API-key account's key, for the hire being made":           "fk-m4c-0123456789",
+		"the processes working in a hire's worktree, or naming its session": []bridgeProcess{{4242, "claude", "folder"}, {4343, "node", "add-dir"},
+			{4444, "tail", "session"}},
+		"the processes, on a Mac that can't list them": []bridgeProcess(nil),
+		"T3 Code's app looked for by its bundle id":    true,
 	}
 	cases := readBridgeCases(t)
 	if len(cases) != len(want) {

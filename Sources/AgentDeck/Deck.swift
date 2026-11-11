@@ -1909,7 +1909,7 @@ final class Deck {
         }
         Timer.scheduledTimer(withTimeInterval: T3Desk.followTick, repeats: true) { [weak self] _ in
             guard let self else { return }
-            let hires = self.frontDesk.hires.filter { $0.engine == T3Desk.engine && $0.state != .fired && $0.state != .failed }
+            let hires = T3Desk.followed(self.frontDesk.hires, config: .shared)
             guard !hires.isEmpty else { return }
             T3Desk.tick(hires) { seen, looksMoved in
                 let before = self.frontDesk.hires

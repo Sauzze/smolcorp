@@ -613,13 +613,18 @@ func t3DeskJSON(h Hire, f *t3Follower) map[string]any {
 		"canOpen": t3DeepLink(h.T3Thread, h.T3Link) != ""}
 }
 
-// t3Decorate gives each T3 hire's row of the team, as the page gets it, its desk (t3).
+// t3Decorate gives each T3 hire's row of the team, as the page gets it, its desk (t3); and a hire taken over from
+// its tmux session (t3takeover.go), handBack, only then, so Hand back is offered.
 func t3Decorate(rows []map[string]any, hires []Hire, f *t3Follower) []map[string]any {
 	for _, row := range rows {
-		if row["engine"] != t3Engine {
+		i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == row["id"] })
+		if i < 0 {
 			continue
 		}
-		if i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == row["id"] }); i >= 0 {
+		if hires[i].T3Session != "" && isOpen(hires[i]) {
+			row["handBack"] = true
+		}
+		if row["engine"] == t3Engine {
 			row["t3"] = t3DeskJSON(hires[i], f)
 		}
 	}
@@ -669,7 +674,7 @@ func t3Encoded(text string) string {
 // latest, which its route puts in h), handed to this computer's opener. Never a shell, never t3.
 func t3OpenThread(h Hire, status t3Status, machine t3Machine) (int, any) {
 	if status.State != t3Found && status.State != t3AppOnlyIs {
-		return http.StatusConflict, "T3 Code's app isn't on this computer, so the hire's thread can't be shown there."
+		return http.StatusConflict, "T3 Code's app isn't on this " + t3Here() + ", so the hire's thread can't be shown there."
 	}
 	deep := t3DeepLink(h.T3Thread, h.T3Link)
 	if deep == "" {
@@ -785,7 +790,7 @@ func t3Leave(h Hire, leaving t3Leaving) (bool, error) {
 		still, looked = leaving.Working(h.Worktree)
 	}
 	if !looked {
-		return false, t3Refused(http.StatusConflict, "T3 Code removed the project, but Smolcorp can't see which processes work in "+name+"'s worktree on this computer, so its fence was kept and it isn't let go yet.")
+		return false, t3Refused(http.StatusConflict, "T3 Code removed the project, but Smolcorp can't see which processes work in "+name+"'s worktree on this "+t3Here()+", so its fence was kept and it isn't let go yet.")
 	}
 	if len(still) > 0 {
 		// Named, so you know your own terminal or editor there when it's that.

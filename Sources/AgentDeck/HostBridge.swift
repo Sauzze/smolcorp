@@ -21,7 +21,11 @@ import Security
 /// secrets' stores, the login item; setup's Mac parts (Accessibility, keys
 /// in other apps, In the Dock, dictation, Add smolcorp to Terminal, the Grok
 /// Bot app), the office's window and the folder panel; and what each desk's
-/// terminal allows, from the drivers' tables.
+/// terminal allows, from the drivers' tables; and which processes work in a
+/// folder or name a session (`Processes.holding`, what the Mac's Let go looks
+/// at), read only: nothing is ever signalled; and T3 Code's app, found and
+/// opened by its bundle id, and a hire's thread opened by T3 Code's own link
+/// (`T3Code.Machine`), for Open in T3 Code.
 /// Nothing here runs a shell line: a terminal is opened only on a script the
 /// core wrote in the hires folder.
 /// The core's side is desktop/hostbridge.go.
@@ -365,6 +369,10 @@ final class HostBridge {
             }
         case "bots-resolve":
             return resolveBots(request, actions)
+        case "processes":
+            return processes(request, actions, until: deadline)
+        case "t3-app", "t3-open-app", "t3-link":
+            return t3(action, request, actions, until: deadline)
         default:
             // Notifications and the office's mic dictating aren't asked of the app yet.
             return refused("This Mac app can't do \(action) for the engine yet.")
@@ -502,6 +510,93 @@ final class HostBridge {
         return ["ok": true, "resolved": wanted.map { bot -> Any in
             rows.flatMap { GrokBotApp.resolve(botId: bot.botId, name: bot.name, in: $0) }?.json ?? NSNull()
         }]
+    }
+
+    /// The most processes answered: more than one is enough for the core to wait or refuse.
+    static let processesMost = 64
+
+    /// The processes working in a folder (or one inside it), or given it with `--add-dir`, and, with a session, those
+    /// whose arguments name it: Let go's check and Take over's on the Go core (desktop/t3process_darwin.go), by the
+    /// code the Mac's own Let go uses (`Processes.holding`). Each with its pid, its name and why; the first
+    /// `processesMost`. Read from the kernel only: no process is signalled, nothing is run. A folder is a full path
+    /// with no `..` and isn't `/`, and must be the worktree of a hire still open in the core's registry (RM5c S2:
+    /// no more than Let go, Take over and Hand back look at); a session is a Claude Code session's id, its UUID
+    /// shape exactly (desktop/t3takeover.go's t3SessionShape), or none. A Mac that can't look says so, and the core
+    /// then changes nothing.
+    private static func processes(_ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
+        guard let folder = request["folder"] as? String, folder.hasPrefix("/"), folder != "/", folder.utf8.count <= 1024,
+              !folder.hasControlCharacters, !folder.split(separator: "/").contains("..") else { return refused("Not a folder.") }
+        let session = request["session"] as? String ?? ""
+        guard request["session"] == nil || request["session"] is String, session.isEmpty || isSessionID(session) else {
+            return refused("Not a session.")
+        }
+        guard let worktrees = actions.openWorktrees() else { return refused("This Mac couldn't read the team's registry.") }
+        let wanted = HireDesk.physical(folder)
+        guard worktrees.contains(where: { $0 == folder || HireDesk.physical($0) == wanted }) else {
+            return refused("Not the worktree of a hire on the team.")
+        }
+        switch run(on: actions.looking, until: deadline, { actions.processes(folder, session) }) {
+        case .done(let found?):
+            return ["ok": true, "processes": found.prefix(processesMost).map { ["pid": Int($0.pid), "name": $0.name, "why": $0.why] }]
+        case .done(nil): return refused("This Mac couldn't list its processes.")
+        case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
+        }
+    }
+
+    /// A Claude Code session's id as T3 Code resumes one: 8-4-4-4-12 hex digits, either case.
+    static func isSessionID(_ text: String) -> Bool {
+        let groups = text.split(separator: "-", omittingEmptySubsequences: false)
+        return groups.map(\.count) == [8, 4, 4, 4, 12] && groups.allSatisfy { $0.allSatisfy { $0.isASCII && $0.isHexDigit } }
+    }
+
+    /// The worktrees of the hires still open (neither fired nor failed) in the registry at `file`, the one the core
+    /// keeps: read as it is, never written, never set aside (`FrontDesk.load` would move a file it can't read). None
+    /// when there's no registry yet; nil when it can't be read.
+    static func openWorktrees(in file: URL) -> [String]? {
+        guard let data = try? Data(contentsOf: file) else { return FileManager.default.fileExists(atPath: file.path) ? nil : [] }
+        guard let registry = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let hires = registry["hires"] as? [[String: Any]] else { return nil }
+        return hires.compactMap { hire in
+            guard let worktree = hire["worktree"] as? String, !worktree.isEmpty,
+                  !["fired", "failed"].contains(hire["state"] as? String ?? "") else { return nil }
+            return worktree
+        }
+    }
+
+    /// T3 Code's app on this Mac, as the Swift engine's `T3Code.Machine` has it, for the Go core's Open in T3 Code
+    /// (C4 A1): whether it's installed, by its bundle id (`t3-app`); the app opened (`t3-open-app`), as before
+    /// `t3 app <folder>`, which the core runs itself; and a hire's thread opened by T3 Code's own link (`t3-link`),
+    /// `t3code://threads/<env>/<thread>` exactly as `T3Desk.deepLink` makes it, with NSWorkspace. Never a shell,
+    /// never `t3`, never any other link.
+    private static func t3(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
+        switch action {
+        case "t3-app":
+            switch run(on: actions.looking, until: deadline, { actions.t3App() }) {
+            case .done(let found): return ["ok": true, "found": found]
+            case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
+            }
+        case "t3-open-app":
+            return onMain(actions, until: deadline) { actions.t3OpenApp() }
+        default: // t3-link
+            guard let text = request["link"] as? String, let link = t3ThreadLink(text) else { return refused("Not a T3 Code thread's link.") }
+            switch run(on: actions.main, until: deadline, { actions.t3OpenLink(link) }) {
+            case .done(true): return ["ok": true]
+            case .done(false): return refused("T3 Code didn't take the link to the hire's thread.")
+            case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
+            }
+        }
+    }
+
+    /// `text` if it's T3 Code's own link to a thread, `t3code://threads/<env>/<thread id, URL-encoded>`, exactly as
+    /// `T3Desk.deepLink` makes it (nothing more: no query, no other part); nil for anything else.
+    static func t3ThreadLink(_ text: String) -> URL? {
+        guard text.utf8.count <= 1024, let parts = URLComponents(string: text), parts.scheme == "t3code", parts.host == "threads",
+              parts.user == nil, parts.password == nil, parts.port == nil, parts.query == nil, parts.fragment == nil else { return nil }
+        let path = parts.percentEncodedPath.split(separator: "/", omittingEmptySubsequences: false)
+        guard path.count == 3, path[0].isEmpty, let thread = path[2].removingPercentEncoding,
+              let made = T3Desk.deepLink(thread: thread, link: "https://app.t3.codes/threads/\(path[1])/"),
+              made.absoluteString == text else { return nil }
+        return made
     }
 
     /// What `tab`'s terminal lets the office do, as its driver's table says (`Terminals.abilities`), and
@@ -938,6 +1033,20 @@ final class HostBridge {
         var chooseFolder: (_ start: String?, _ message: String, _ done: @escaping (String?) -> Void) -> Void = { _, _, done in done(nil) }
         /// The folder panel closed if it's open saying a message, as if cancelled.
         var closeFolderPanel: (_ message: String) -> Void = { _ in }
+        /// The processes working in a folder or naming a session, with their names and why (`Processes.holding`):
+        /// nil when the Mac can't look. Read from the kernel, nothing signalled.
+        var processes: (_ folder: String, _ session: String) -> [(pid: pid_t, name: String, why: String)]? = { folder, session in
+            Processes.holding(folder, session: session)?.map { ($0.pid, Processes.name(of: $0.pid), $0.why.rawValue) }
+        }
+        /// The worktrees of the hires open in the core's registry (`HostBridge.openWorktrees`): the only folders
+        /// `processes` looks at. Nil when it can't be read.
+        var openWorktrees: () -> [String]? = { HostBridge.openWorktrees(in: Paths.support.appendingPathComponent("registry.json")) }
+        /// Where processes and T3 Code's app are looked at: off the main queue and the terminals'.
+        var looking: DispatchQueue = .global(qos: .utility)
+        /// T3 Code's app, as the Swift engine's Open in T3 Code finds it, opens it and hands it a thread's link.
+        var t3App: () -> Bool = { T3Code.Machine().appInstalled() }
+        var t3OpenApp: () -> Void = { T3Code.Machine().openApp() }
+        var t3OpenLink: (URL) -> Bool = { T3Code.Machine().openURL($0) }
 
         /// The Swift engine's own: the terminal drivers on their terminals' queues, one at a time
         /// as the deck runs them, the openers, the secrets' stores (files in a test copy), the login item.

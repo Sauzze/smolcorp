@@ -72,6 +72,10 @@ type engineRequest struct {
 // is the same file whichever engine starts it. Linux and Windows keep theirs.
 const engineAutoMode = runtime.GOOS == "darwin"
 
+// hireSocketPrefix starts every hire's tmux socket we make (hiretmux.go), and ownsHireSocket checks for it. Here,
+// for every system: Take over (t3takeover.go) refuses a hire without one, on Windows too.
+const hireSocketPrefix = "smolcorp-"
+
 // hireBrief writes a hire's brief where the Mac's HireDesk writes it: a
 // managed hire's (one with a worktree) in its own folder in Smolcorp's, any
 // other's in Smolcorp's briefs folder. Nil for a role on its own
@@ -238,9 +242,9 @@ func uncommittedRefusal(h Hire, git gitRunner) string {
 // moves a hire still starting, a fire ends a working hire too. The notes are
 // the owner's: they stay as the registry holds them now (read under its
 // lock, not the copy read when the fire began), and a kept line, if given, goes
-// before them, as the Mac's.
-func markFired(id, keptLine string) {
-	_ = updateRegistry(func(f *registryFile) {
+// before them, as the Mac's. An error when the registry couldn't be written.
+func markFired(id, keptLine string) error {
+	return updateRegistry(func(f *registryFile) {
 		if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id && h.State != "fired" && h.State != "failed" }); i >= 0 {
 			f.hires[i].State = "fired"
 			if keptLine != "" {
