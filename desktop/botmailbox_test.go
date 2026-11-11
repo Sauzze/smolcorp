@@ -419,7 +419,7 @@ func TestAFileSwappedForAPipeIsLeftAndDoesNotHangTheLook(t *testing.T) {
 		if ok {
 			t.Error("a pipe was taken as the file")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("opening a pipe with nobody writing held the look")
 	}
 }

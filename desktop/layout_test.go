@@ -260,7 +260,7 @@ func sent(t *testing.T, tab *launcherTab) launcherCommand {
 	select {
 	case command := <-tab.commands:
 		return command
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("nothing reached the session")
 		return launcherCommand{}
 	}

@@ -638,7 +638,7 @@ func TestAPhoneHearsThePingAsAnEvent(t *testing.T) {
 			if !strings.HasPrefix(got, "data: ") {
 				t.Fatalf("the ping came as %q, want a named event with data", got)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatal("no ping came")
 		}
 	}

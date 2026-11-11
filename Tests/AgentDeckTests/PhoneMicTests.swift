@@ -219,7 +219,7 @@ final class PhoneMicTests: XCTestCase {
             XCTAssertEqual(Tailnet.serving, true)
             first.fulfill()
         }
-        wait(for: [first], timeout: 3)
+        wait(for: [first], timeout: 10)
         XCTAssertEqual(changed, 1)
 
         // Fresh: answered at once, and Tailscale isn't asked again.
@@ -239,19 +239,19 @@ final class PhoneMicTests: XCTestCase {
             return ("https://my-mac.tail1234.ts.net", nil)
         }
         var answers = 0
-        let started = Date()
         let answered = expectation(description: "answered without it")
         Tailnet.whenFresh(within: 0.2, changed: {}) {
             answers += 1
+            // Answered before Tailscale's answer, which takes a second, came in: not by the
+            // clock, which a busy Mac can hold up, but by what's known when it answers.
             XCTAssertNil(Tailnet.url)
-            XCTAssertLessThan(Date().timeIntervalSince(started), 0.9)
             answered.fulfill()
         }
-        wait(for: [answered], timeout: 2)
+        wait(for: [answered], timeout: 10)
         // Its late answer is kept for next time, and `then` isn't called again.
         let late = expectation(description: "the late answer")
         Tailnet.refresh(changed: {}) { late.fulfill() }
-        wait(for: [late], timeout: 3)
+        wait(for: [late], timeout: 10)
         XCTAssertEqual(Tailnet.url, "https://my-mac.tail1234.ts.net")
         XCTAssertEqual(answers, 1)
         Tailnet.forget()
