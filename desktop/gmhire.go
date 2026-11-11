@@ -92,5 +92,9 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		reply(status, text)
 		return
 	}
+	if floor > 0 { // upstairs the answer is the floor, as the Mac's
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "desk": nil, "floor": int(floor), "session": nil})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "desk": seat, "session": nil})
 }

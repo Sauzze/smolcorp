@@ -168,7 +168,7 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 		}
 	}
 	nothingMade(t, r, h)
-	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","apiKey":false,"worktree":true,"task":"","answers":[],"account":null,"floor":2}`); code != http.StatusOK || !strings.Contains(text, `"desk":0`) {
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","apiKey":false,"worktree":true,"task":"","answers":[],"account":null,"floor":2}`); code != http.StatusOK || text != `{"desk":null,"floor":2,"ok":true,"session":null}` {
 		t.Fatalf("what is already so, on floor 2: %d %q", code, text)
 	}
 	d.mu.Lock()

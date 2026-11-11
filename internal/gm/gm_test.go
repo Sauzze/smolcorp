@@ -533,6 +533,10 @@ func TestHireAgainstTheGoAppSendsTheRequestAndPrintsTheAnswer(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "Hired a janitor. At desk 4.") || string(body) != `{"role":"janitor"}` {
 		t.Fatalf("exit %d out %q body %s", code, out, body)
 	}
+	status, answer = http.StatusOK, `{"ok":true,"desk":null,"floor":2,"session":null}` // a floor hire names no desk
+	if code, out, _ := runGM(app.env(t, withToken()), "hire", "--role", "janitor"); code != 0 || strings.Contains(out, "At desk") {
+		t.Errorf("a floor hire: exit %d out %q, want no desk line", code, out)
+	}
 	status, answer = http.StatusNotFound, `{"error":"not found"}`
 	if code, _, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor"); code != exitApp || strings.Contains(errOut, "isn't available") {
 		t.Errorf("a 404: exit %d %q", code, errOut)
