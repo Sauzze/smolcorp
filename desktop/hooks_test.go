@@ -1117,6 +1117,9 @@ func TestTheHookReportsToThePortInItsCommand(t *testing.T) {
 func TestAHookInATestCopySendsTheCopysKeyNeverTheApps(t *testing.T) {
 	isolate(t)
 	t.Setenv(summaryRunVariable, "")
+	// A launcher's session names its tab without a terminal, so the hook sends whether or not this
+	// test runs under a tty (on a Mac, a hook with no tab sends nothing, as report.sh).
+	t.Setenv("SMOLCORP_SESSION", "test-copy-hook")
 	copyFolder := t.TempDir()
 	writeFile(t, filepath.Join(copyFolder, "hook-key"), "copy-key\n")
 	t.Setenv(testSupportVariable, copyFolder)
