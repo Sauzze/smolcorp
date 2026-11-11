@@ -94,7 +94,7 @@ final class TmuxTests: XCTestCase {
     func testSeveralLinesArePastedOnlyWhereThePaneAskedForIt() throws {
         let text = "ligne une;\n\tligne deux 👩‍💻"
         try Data().write(to: pastedFlag)
-        XCTAssertEqual(Tmux().insertLines(text, in: pane, ready: { true }), .pasted)
+        XCTAssertEqual(Tmux().insertLines(text, in: pane, ready: { nil }), .pasted)
         XCTAssertEqual(asked.count, 2)
         XCTAssertTrue(asked[0].hasPrefix("-S /tmp/tmux-501/default load-buffer -b smolcorp-") && asked[0].hasSuffix(" -"), asked[0])
         let buffer = String(asked[0].split(separator: " ")[4])
@@ -103,21 +103,21 @@ final class TmuxTests: XCTestCase {
             + "delete-buffer -b \(buffer) ; display-message -p -t %3 'not-taken #{pane_in_mode}'")
         XCTAssertEqual(try Data(contentsOf: stdin), Data(text.utf8))
         try FileManager.default.removeItem(at: pastedFlag)
-        XCTAssertEqual(Tmux().insertLines(text, in: pane, ready: { true }), .notTaken, "tmux said so: not pasted")
+        XCTAssertEqual(Tmux().insertLines(text, in: pane, ready: { nil }), .notTaken, "tmux said so: not pasted")
         XCTAssertEqual(asked.count, 4, "the buffer went in the same command")
         try "not-taken 1".write(to: ifShellSays, atomically: true, encoding: .utf8)
-        XCTAssertEqual(Tmux().insertLines(text, in: pane, ready: { true }), .inMode, "copy mode: nothing pasted")
+        XCTAssertEqual(Tmux().insertLines(text, in: pane, ready: { nil }), .inMode, "copy mode: nothing pasted")
         XCTAssertFalse(asked.contains { $0.contains("Enter") })
         // Anything else (tmux ended for taking too long, a hiccup, a pane gone) isn't proof of a paste.
         for said in ["", "pasted later", "not-taken"] {
             try said.write(to: ifShellSays, atomically: true, encoding: .utf8)
-            XCTAssertEqual(Tmux().insertLines(text, in: pane, ready: { true }), .failed, said)
+            XCTAssertEqual(Tmux().insertLines(text, in: pane, ready: { nil }), .failed, said)
             let buffer = String(asked[asked.count - 3].split(separator: " ")[4])
             XCTAssertEqual(asked.last, "-S /tmp/tmux-501/default delete-buffer -b \(buffer)", "the buffer goes")
         }
         let before = asked.count
-        XCTAssertEqual(Tmux().insertLines("a\u{1B}[201~\nb", in: pane, ready: { true }), .failed, "an Escape could end the paste early")
-        XCTAssertEqual(Tmux().insertLines(text, in: pane, ready: { false }), .asking, "asking something now: nothing goes")
+        XCTAssertEqual(Tmux().insertLines("a\u{1B}[201~\nb", in: pane, ready: { nil }), .failed, "an Escape could end the paste early")
+        XCTAssertEqual(Tmux().insertLines(text, in: pane, ready: { Deck.answerFirst }), .refused(Deck.answerFirst), "asking something now: nothing goes")
         XCTAssertEqual(asked.count, before, "tmux not asked")
     }
 
@@ -357,20 +357,20 @@ final class TmuxFiringTests: XCTestCase {
             return (pane, out)
         }
         let (asked, got) = try reader(true)
-        XCTAssertEqual(Tmux().insertLines(text, in: asked, ready: { true }), .pasted)
+        XCTAssertEqual(Tmux().insertLines(text, in: asked, ready: { nil }), .pasted)
         let expected = Data("\u{1B}[200~".utf8) + Data(text.utf8) + Data("\u{1B}[201~".utf8)
         XCTAssertTrue(eventually { (try? Data(contentsOf: got)) == expected }, String(decoding: (try? Data(contentsOf: got)) ?? Data(), as: UTF8.self))
         let (plain, nothing) = try reader(false)
-        XCTAssertEqual(Tmux().insertLines(text, in: plain, ready: { true }), .notTaken)
+        XCTAssertEqual(Tmux().insertLines(text, in: plain, ready: { nil }), .notTaken)
         Thread.sleep(forTimeInterval: 0.3)
         XCTAssertEqual(try Data(contentsOf: nothing), Data(), "nothing typed, no Return")
         // Scrolled back (copy mode), the pane that asked takes nothing, and says why (RI34 N2).
         XCTAssertEqual(Tool.run(tmux, ["-S", socket, "copy-mode", "-t", asked.id])?.status, 0)
-        XCTAssertEqual(Tmux().insertLines(text, in: asked, ready: { true }), .inMode)
+        XCTAssertEqual(Tmux().insertLines(text, in: asked, ready: { nil }), .inMode)
         XCTAssertEqual(Tool.run(tmux, ["-S", socket, "send-keys", "-t", asked.id, "-X", "cancel"])?.status, 0)
         // A pane that's gone: a failure, not "can't take one paste" (RI34 N2).
         let gone = try XCTUnwrap(TabAddress("tmux:%99@\(socket)"))
-        XCTAssertEqual(Tmux().insertLines(text, in: gone, ready: { true }), .failed)
+        XCTAssertEqual(Tmux().insertLines(text, in: gone, ready: { nil }), .failed)
         Thread.sleep(forTimeInterval: 0.3)
         XCTAssertEqual(try Data(contentsOf: got), expected, "only the one paste reached it")
         XCTAssertEqual(Tool.run(tmux, ["-S", socket, "list-buffers", "-F", "#{buffer_name}"])?.output.contains("smolcorp-"), false, "no buffer left")

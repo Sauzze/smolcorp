@@ -191,6 +191,7 @@ final class PhoneMicTests: XCTestCase {
         let (deck, terminal) = deckWithDesk()
         terminal.linesWay = .clipboard(inFront: false)
         terminal.lines = .pasted
+        agentAloneInFront()
         XCTAssertEqual(dictate(deck, text, send: true).status, 204)
         XCTAssertEqual(terminal.insertedLines, [text])
         XCTAssertEqual(terminal.pressed, [.returnKey], "Return once, after the paste")
@@ -234,14 +235,18 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertNil(Deck.linesRefusal(.paneFlag, agent: .grok, accessibility: no, locked: yes), "tmux reads the pane itself")
         XCTAssertEqual(Deck.linesRefusal(.never, agent: .claude)?.status, 409)
         XCTAssertEqual(Deck.linesRefusal(.clipboard(inFront: false), agent: .grok)?.status, 409)
-        XCTAssertNil(Deck.linesRefusal(.clipboard(inFront: false), agent: .codex, accessibility: no, locked: yes), "Ghostty needs neither")
+        XCTAssertNil(Deck.linesRefusal(.clipboard(inFront: false), agent: .opencode, accessibility: no, locked: yes), "Ghostty needs neither")
         XCTAssertEqual(Deck.linesRefusal(.clipboard(inFront: true), agent: .claude, accessibility: no, locked: no)?.status, 403)
         let locked = Deck.linesRefusal(.clipboard(inFront: true), agent: .claude, accessibility: yes, locked: yes)
         XCTAssertEqual(locked?.status, 409)
         XCTAssertEqual(locked.map { String(decoding: $0.body, as: UTF8.self) }, Deck.lockedLines)
-        XCTAssertNil(Deck.linesRefusal(.clipboard(inFront: true), agent: .gemini, accessibility: yes, locked: no))
-        for agent in [Agent.claude, .codex, .gemini, .opencode] { XCTAssertTrue(agent.asksForBracketedPaste, agent.name) }
-        XCTAssertFalse(Agent.grok.asksForBracketedPaste)
+        XCTAssertNil(Deck.linesRefusal(.clipboard(inFront: true), agent: .claude, accessibility: yes, locked: no))
+        // Only what was checked on the Mac's installed binaries (RI34b §1): Codex and Gemini CLI weren't there.
+        for agent in [Agent.claude, .opencode] { XCTAssertTrue(agent.asksForBracketedPaste, agent.name) }
+        for agent in [Agent.codex, .gemini, .grok] {
+            XCTAssertFalse(agent.asksForBracketedPaste, agent.name)
+            XCTAssertEqual(Deck.linesRefusal(.clipboard(inFront: false), agent: agent)?.status, 409, agent.name)
+        }
     }
 
     /// The desk free when the paste was asked for, asking something by the time the tab was in front for ⌘V:
@@ -251,6 +256,7 @@ final class PhoneMicTests: XCTestCase {
         let (deck, terminal) = deckWithDesk()
         terminal.linesWay = .clipboard(inFront: false)
         terminal.lines = .pasted
+        agentAloneInFront()
         terminal.beforePaste = { DispatchQueue.main.sync { self.asks(deck, at: 30) } }
         let response = dictate(deck, "une\ndeux", send: true)
         XCTAssertEqual(response.status, 409)
@@ -258,6 +264,79 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertEqual(terminal.askedToPasteLines, 1)
         XCTAssertEqual(terminal.insertedLines, [], "nothing pasted")
         XCTAssertEqual(terminal.pressed, [], "no Return")
+    }
+
+    /// The tab as `Terminal.front` would read it: the agent in front, alone in its job unless `others` say.
+    private func agentAloneInFront(_ others: Set<String> = [], place: Terminal.Place = .front) {
+        let saved = Deck.tabFront
+        Deck.tabFront = { _, _ in Terminal.TabFront(place: place, names: Set(["claude"]).union(others)) }
+        addTeardownBlock { Deck.tabFront = saved }
+    }
+
+    /// Several lines through the clipboard only while the desk waits at its main prompt, the agent alone in
+    /// front of its tab (RI34b B1): each case where bracketed paste may be off, or a Return could land
+    /// elsewhere, is refused in its own sentence. Not known is refused too.
+    func testTheClipboardPasteGoesOnlyToAnAgentWaitingAtItsPrompt() {
+        let alone = Terminal.TabFront(place: .front, names: ["claude"])
+        func with(_ names: Set<String>) -> Terminal.TabFront { Terminal.TabFront(place: .front, names: names.union(["claude"])) }
+        for state in [SessionState.idle, .unread, .error] { XCTAssertNil(Deck.clipboardRefusal(state: state, front: alone), "\(state)") }
+        // Claude Code hands the tab to $EDITOR (Ctrl-G, opening a file), bracketed paste off: vim, nano, an app's --wait.
+        for editor in ["vim", "nvim", "nano", "emacs", "emacs-29.4", "code", "hx"] {
+            XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with([editor])), Deck.linesInEditor, editor)
+        }
+        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(["less"])), Deck.linesInPager, "a pager")
+        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(["man"])), Deck.linesInPager, "a manual page")
+        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(["zsh"])), Deck.linesInShell, "a ! shell")
+        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(["bash", "sleep"])), Deck.linesInShell)
+        XCTAssertEqual(Deck.clipboardRefusal(state: .asking, front: alone), Deck.answerFirst, "a menu: a question or a permission")
+        XCTAssertEqual(Deck.clipboardRefusal(state: .thinking, front: alone), Deck.linesWhileWorking,
+                       "a sub-prompt: a tool's own prompt runs while the turn does")
+        XCTAssertEqual(Deck.clipboardRefusal(state: nil, front: alone), Deck.linesUnknown, "unknown state")
+        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: nil), Deck.linesUnknown, "a tab that couldn't be looked at")
+        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: Terminal.TabFront(place: .behind, names: ["vim"])), Deck.linesBehind)
+        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: Terminal.TabFront(place: .gone, names: [])), Deck.linesAgentEnded)
+        // An MCP server or a helper of the agent's own isn't any of those.
+        XCTAssertNil(Deck.clipboardRefusal(state: .idle, front: with(["node", "uvx", "python3"])))
+    }
+
+    /// On a whole deck: an editor open in the tab, or no way to tell, and nothing is pasted, no Return.
+    func testAnEditorOpenFromTheAgentGetsNothing() {
+        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
+        let (deck, terminal) = deckWithDesk()
+        terminal.linesWay = .clipboard(inFront: true)
+        terminal.lines = .pasted
+        agentAloneInFront(["nano"])
+        let response = dictate(deck, "une\ndeux", send: true)
+        XCTAssertEqual(response.status, 409)
+        XCTAssertEqual(String(decoding: response.body, as: UTF8.self), Deck.linesInEditor)
+        XCTAssertEqual(terminal.insertedLines, [], "nothing pasted")
+        XCTAssertEqual(terminal.pressed, [], "no Return")
+
+        let saved = Deck.tabFront
+        Deck.tabFront = { _, _ in nil }
+        defer { Deck.tabFront = saved }
+        XCTAssertEqual(String(decoding: dictate(deck, "une\ndeux", send: true).body, as: UTF8.self), Deck.linesUnknown)
+        XCTAssertEqual(terminal.insertedLines + terminal.inserted, [])
+        // One line keeps today's rule: the asking check only.
+        XCTAssertEqual(dictate(deck, "une ligne", send: false).status, 204)
+        XCTAssertEqual(terminal.inserted, ["une ligne"])
+    }
+
+    /// Each way several lines didn't go is said in its own sentence; ⌘V that went but wasn't read in time is
+    /// a 503, so the page doesn't offer the words to send twice.
+    func testEachWayTheClipboardPasteDidntGoIsSaid() {
+        func said(_ pasted: LinesPasted) -> (Int, String)? {
+            Deck.linesResponse(pasted).map { ($0.status, String(decoding: $0.body, as: UTF8.self)) }
+        }
+        XCTAssertNil(said(.pasted))
+        XCTAssertNil(said(.failed), "said as any key that didn't go")
+        XCTAssertEqual(said(.notInFront)?.1, Deck.linesNotInFront, "not 404 'Terminal tab not found' (RI34 N2)")
+        XCTAssertEqual(said(.macInUse)?.1, Deck.linesMacInUse)
+        XCTAssertEqual(said(.unsaved)?.1, Deck.linesClipboardKept)
+        XCTAssertEqual(said(.refused("x"))?.1, "x")
+        for pasted in [LinesPasted.notTaken, .inMode, .notInFront, .macInUse, .unsaved, .refused("x")] { XCTAssertEqual(said(pasted)?.0, 409) }
+        XCTAssertEqual(said(.notRead)?.0, 503)
+        XCTAssertEqual(said(.notRead)?.1, Deck.linesNotRead)
     }
 
     /// Over the Wi-Fi's plain http (I34): a paired phone's key types, as through Tailscale; no key, or a
@@ -442,12 +521,13 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertTrue(page.contains("if (send !== undefined && res.status < 500) confirmDictation(session, text);"))
         // A clipboard manager may keep a copy of several lines pasted through the clipboard (Q1 b), said in the
         // phone's ⚙︎, in setup's Phone microphone text with the Wi-Fi's line (RI34 N5), and in docs/phone.md.
-        let clipboard = "Several lines typed to Terminal, iTerm2 or Ghostty go through the clipboard: a clipboard manager may keep a copy."
-        XCTAssertTrue(page.contains("textContent: '\(clipboard)'"))
+        let clipboard = "Several lines typed to Terminal, iTerm2 or Ghostty go through the clipboard: a clipboard manager may keep a copy, and a password you'd copied is cleared, not put back."
+        XCTAssertTrue(page.contains("textContent: \"\(clipboard)\""))
         let setup = try String(contentsOf: Self.repo.appendingPathComponent("Resources/web/setup.html"), encoding: .utf8)
         XCTAssertTrue(setup.contains("over the Wi-Fi too, where what you type isn't encrypted: Tailscale is the private option. \(clipboard)\"></div>"))
         let docs = try String(contentsOf: Self.repo.appendingPathComponent("docs/phone.md"), encoding: .utf8)
-        XCTAssertTrue(docs.contains("a clipboard manager may keep a\ncopy of text sent this way."))
+        XCTAssertTrue(docs.contains("A clipboard manager\nmay keep a copy of text sent this way."))
+        XCTAssertTrue(docs.contains("password you'd copied, which is cleared, not put back"), "VICTOR's ruling on RI34b S2")
         XCTAssertFalse(page.contains("aria-label=\"What the phone heard\" hidden"), "the box is for typed text too (RI34 N1)")
     }
 
@@ -653,10 +733,10 @@ private final class RecordingTerminal: TerminalDriver {
         inserted.append(text)
         return true
     }
-    func insertLines(_ text: String, in tab: TabAddress, ready: () -> Bool) -> LinesPasted {
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> String?) -> LinesPasted {
         askedToPasteLines += 1
         beforePaste?()
-        guard ready() else { return .asking }
+        if let why = ready() { return .refused(why) }
         if lines == .pasted { insertedLines.append(text) }
         return lines
     }

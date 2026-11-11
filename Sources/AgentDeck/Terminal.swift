@@ -405,6 +405,29 @@ enum Terminal {
         return .job(tpgid, names: Set(job.map(\.name)), commandLines: job.map(\.args))
     }
 
+    /// The names of the processes in the foreground of `tty`, whatever they
+    /// are (the agent's own, an editor it opened, a shell), lowercased and
+    /// without a login shell's "-": empty when nothing is in front, nil if
+    /// `ps` couldn't be asked.
+    static func foregroundNames(tty: String) -> Set<String>? {
+        guard let rows = processes(on: tty) else { return nil }
+        guard let tpgid = rows.first?.tpgid, tpgid > 0 else { return [] }
+        return Set(rows.filter { $0.pgid == tpgid }.map { $0.name.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "-")) })
+    }
+
+    /// What's in front in a tab, for a paste of several lines (RI34b B1):
+    /// where `agent` is, and the names of everything in the foreground job.
+    struct TabFront: Equatable {
+        let place: Place
+        let names: Set<String>
+    }
+
+    /// `agent`'s tab on `tty` as `TabFront` says it; nil if either couldn't be looked at.
+    static func front(of agent: Agent, on tty: String) -> TabFront? {
+        guard let place = place(of: agent, on: tty), let names = foregroundNames(tty: tty) else { return nil }
+        return TabFront(place: place, names: names)
+    }
+
     /// Whether a job other than the shell runs on `tty`, as one sent to the
     /// background with `&` or stopped with Ctrl-Z: closing the tab would hang
     /// it up. `shell` as for `foreground`. Nil if that couldn't be looked at.
@@ -479,6 +502,15 @@ enum Terminal {
         return onlyLooking { frontTTY() } == tty
     }
 
+    /// ⌘V in this very tab (RI34b B2): asked again right before, whether it's
+    /// still the selected tab of Terminal's front window, as a click on
+    /// another tab or window could have changed since it was brought forward.
+    /// Not, and nothing is pressed.
+    static func pressPaste(tty: String) -> PastePress {
+        guard onlyLooking({ frontTTY() }) == tty else { return .notInFront }
+        return pressPaste(in: bundleID) ? .sent : .notInFront
+    }
+
     /// ⌘V through the keyboard's own path, as Terminal's menu shortcuts go
     /// (see `pressInFront`): to the app in front, only while that is still
     /// `bundle`'s, so it never lands in the app you switched to.
@@ -495,7 +527,37 @@ enum Terminal {
         return true
     }
 
-    static func pressPaste() -> Bool { pressPaste(in: bundleID) }
+    /// Whether you're using the Mac: keyboard or mouse input in the last
+    /// `inUseWindow` seconds (VICTOR's ruling on RI34b S3). Terminal.app and
+    /// iTerm2 come to the front for ⌘V, which would take your focus, and your
+    /// keys could land in the agent's tab: refused then. Ghostty pastes where
+    /// it is, so it never asks.
+    static var macInUse: Bool { inUse(sinceInput: secondsSinceInput(), sinceOwnKeys: lastOwnKeys.map { -$0.timeIntervalSinceNow }) }
+
+    static let inUseWindow: TimeInterval = 10
+
+    /// In use, given how long ago the Mac last had input and how long ago
+    /// Smolcorp last posted keys of its own (nil: not since it started): the
+    /// Mac may count those as input too, and they aren't you.
+    static func inUse(sinceInput: TimeInterval, sinceOwnKeys: TimeInterval?) -> Bool {
+        guard sinceInput < inUseWindow else { return false }
+        guard let sinceOwnKeys else { return true }
+        return sinceInput < sinceOwnKeys - 0.25
+    }
+
+    /// Seconds since the Mac's keyboard or mouse was last used. Settable for
+    /// tests: the stand-in clock.
+    static var secondsSinceInput: () -> TimeInterval = {
+        CGEventType(rawValue: ~0).map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) } ?? 0
+    }
+
+    /// When Smolcorp last posted keys through the keyboard's path.
+    static var lastOwnKeys: Date? {
+        get { ownKeysLock.withLock { ownKeys } }
+        set { ownKeysLock.withLock { ownKeys = newValue } }
+    }
+    private static var ownKeys: Date?
+    private static let ownKeysLock = NSLock()
 
     /// V's key, which pastes with ⌘.
     private static let pasteKey: CGKeyCode = 9
@@ -519,7 +581,10 @@ enum Terminal {
     /// for tests, which give one that posts nothing: no key of theirs ever
     /// reaches a real app.
     static var postEvent: (CGEvent, pid_t?) -> Void = { event, pid in
-        if let pid { event.postToPid(pid) } else { event.post(tap: .cghidEventTap) }
+        if let pid { event.postToPid(pid) } else {
+            lastOwnKeys = Date()
+            event.post(tap: .cghidEventTap)
+        }
     }
 
     /// Terminal's pid while it runs. Settable for tests, with `postEvent`.

@@ -89,9 +89,11 @@ hears it.
 ⚙︎ → *Type to …* types into the picked agent, over Tailscale or the Wi-Fi
 (where it isn't encrypted). Several lines go as one paste: in tmux when the
 agent asked for it, and in Terminal, iTerm2 and Ghostty through the clipboard
-and ⌘V (Terminal and iTerm2 come to the front for it, never while the Mac is
-locked). The clipboard is put back afterwards; a clipboard manager may keep a
-copy of text sent this way.
+and ⌘V, for Claude Code or OpenCode waiting at its prompt with nothing else
+open in its tab (Terminal and iTerm2 come to the front for it, never while the
+Mac is locked or in use). The clipboard is put back afterwards, except a
+password you'd copied, which is cleared, not put back. A clipboard manager
+may keep a copy of text sent this way.
 
 **Clean up dictation with Claude** (Mac, setup → Phone and voice; off until
 you turn it on): with the Mac's own dictation on, the dictated *text*, never

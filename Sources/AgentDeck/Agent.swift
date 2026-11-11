@@ -51,10 +51,22 @@ enum Agent: String, CaseIterable {
 
     /// Whether the agent asks its terminal for bracketed paste while it waits at its prompt, so a paste
     /// of several lines comes to it between markers, its line breaks new lines in the text, never Return.
-    /// Terminal.app, iTerm2 and Ghostty can't say whether it did, so several lines are pasted there
-    /// only for these (`LinesWay.clipboard`). Claude Code and Gemini CLI ask through their Ink input,
-    /// Codex through crossterm and OpenCode through its TUI; Grok CLI isn't known to: refused there.
-    var asksForBracketedPaste: Bool { self != .grok }
+    /// Terminal.app, iTerm2 and Ghostty can't say whether it did, so several lines are pasted there only
+    /// for these (`LinesWay.clipboard`), and only while the desk waits at its prompt with nothing else in
+    /// front of it in the tab (`Deck.clipboardRefusal`). Only what was checked is on the list (the owner's
+    /// rule: when in doubt, nothing is typed). Checked on 11 Nov 2026 by reading the installed binaries'
+    /// strings, none of them started:
+    /// - Claude Code 2.1.322: its terminal-mode manager writes `set("bracketedPaste")` (ESC[?2004h) when
+    ///   its input's raw mode first turns on, `reset("bracketedPaste")` when raw mode drops to zero, and
+    ///   reasserts it on resume. It's off while Claude Code hands the tab to `$EDITOR` (Ctrl-G, opening a
+    ///   file: its alternate-screen switch suspends every mode) and after Ctrl-Z: the deck's own checks
+    ///   cover both (the editor in the foreground job, the agent not in front).
+    /// - OpenCode 2.0.32 (Homebrew): writes ESC[?2004h and ESC[?2004l among its start-up and exit modes, and
+    ///   asks for the mode's state itself (ESC[?2004$p).
+    /// - Codex and Gemini CLI: not installed on that Mac, so nothing could be checked: left off.
+    /// - Grok CLI: its binary has the sequences too (crossterm), but when it turns them on wasn't
+    ///   checked: left off.
+    var asksForBracketedPaste: Bool { self == .claude || self == .opencode }
 
     /// The agent's process in its Terminal tab, for finding the tab when its
     /// hooks run elsewhere: Codex runs them in a shared background service,

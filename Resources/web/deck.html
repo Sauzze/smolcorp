@@ -1379,7 +1379,7 @@
     }
     if (!preview && !whole && phoneMic.on) {
       rows.push(Object.assign(document.createElement('div'), { className: 'info-note', id: 'clipboard-note',
-        textContent: 'Several lines typed to Terminal, iTerm2 or Ghostty go through the clipboard: a clipboard manager may keep a copy.' }));
+        textContent: "Several lines typed to Terminal, iTerm2 or Ghostty go through the clipboard: a clipboard manager may keep a copy, and a password you'd copied is cleared, not put back." }));
     }
     $('settings-rows').replaceChildren(...rows);
     $('settings').hidden = false;

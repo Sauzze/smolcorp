@@ -2278,33 +2278,31 @@ final class Deck {
         // flattened, never a Return per line (I34). What's known before the terminal is asked is refused here (N3).
         let lines = PhoneDictation.isLines(words)
         if lines, let refusal = Deck.linesRefusal(driver.linesWay, agent: session.agent) { return done(refusal) }
-        let address = session.tab
-        var withheld = false, asked = false, refused: String?
+        let address = session.tab, agent = session.agent
+        let throughClipboard: Bool = { if case .clipboard = driver.linesWay { return true } else { return false } }()
+        var withheld = false, refused: Response?
         toAgent(session, done: { response in
-            if asked { return done(.status(409, Deck.answerFirst)) }
-            if let refused { return done(.status(409, refused)) }
+            if let refused { return done(refused) }
             done(withheld && response.status < 400 ? .status(409, Deck.typedNotSent) : response)
         }) {
             // Asked something while this waited for the terminal: checked again, on the main queue, right before the text.
-            let free = { DispatchQueue.main.sync(execute: { !Deck.isAsking(self.sessions[id]?.state) }) }
+            let state = { DispatchQueue.main.sync(execute: { self.sessions[id]?.state }) }
             if lines {
-                // Right before the paste itself, after the tab was brought forward where it must be.
-                switch driver.insertLines(words, in: tab, ready: free) {
-                case .pasted: break
-                case .asking:
-                    asked = true
+                // Right before the paste itself, after the tab was brought forward where it must be. Through the
+                // clipboard, where the terminal can't say whether the agent asked for bracketed paste, only while
+                // the desk waits at its prompt with nothing else in front of it in its tab (RI34b B1).
+                let ready: () -> String? = throughClipboard
+                    ? { Deck.clipboardRefusal(state: state(), front: Deck.tabFront(agent, address)) }
+                    : { Deck.isAsking(state()) ? Deck.answerFirst : nil }
+                let pasted = driver.insertLines(words, in: tab, ready: ready)
+                if let refusal = Deck.linesResponse(pasted) {
+                    refused = refusal
                     return true
-                case .notTaken:
-                    refused = Deck.noLines
-                    return true
-                case .inMode:
-                    refused = Deck.linesInCopyMode
-                    return true
-                case .failed: return false
                 }
+                guard pasted == .pasted else { return false }
             } else {
-                guard free() else {
-                    asked = true
+                guard !Deck.isAsking(state()) else {
+                    refused = .status(409, Deck.answerFirst)
                     return true
                 }
                 guard driver.insert(words, in: tab) else { return false }
@@ -2334,6 +2332,73 @@ final class Deck {
         "\(agent.name) isn't known to take several lines as one paste here, so nothing was typed: send it as one line."
     }
     static let lockedLines = "Several lines are pasted with ⌘V in this desk's terminal, which can't be done with the Mac locked, so nothing was typed: send it as one line."
+    static let linesWhileWorking = "It's working, and several lines go only while it waits at its prompt, so nothing was typed: send them once it's finished."
+    static let linesUnknown = "Smolcorp can't tell what this desk's tab is showing now, so nothing was typed: try again in a moment, or send it as one line."
+    static let linesAgentEnded = "That agent has ended, so nothing was typed."
+    static let linesBehind = "That agent isn't in front in its terminal, so nothing was typed: bring it back with fg."
+    static let linesInEditor = "An editor is open in this desk's tab, so nothing was typed: close it, then send again."
+    static let linesInPager = "A pager (less, man) is open in this desk's tab, so nothing was typed: quit it, then send again."
+    static let linesInShell = "A shell or a command is running in this desk's tab, so nothing was typed: send again once it's finished."
+    static let linesNotInFront = "This desk's tab couldn't be brought to the front, or another tab or app was in front by the time of the paste, so nothing was typed: try again."
+    static let linesMacInUse = "The Mac is in use, and pasting would bring this desk's terminal to the front, so nothing was typed: try again once it's been left alone for 10 seconds, or send it as one line."
+    static let linesClipboardKept = "What's on the Mac's clipboard (a file being copied, perhaps) couldn't be put back exactly after the paste, so nothing was typed: send it as one line, or copy something else first."
+    static let linesNotRead = "The terminal hadn't taken the paste in time, so no Return was sent: look at the Mac before trying again, as the text may still appear."
+
+    /// What the phone is told when several lines weren't pasted as they should be: nil for `.pasted`, and for
+    /// `.failed`, which is said as any key that didn't go (404, or 503 when its terminal stopped answering).
+    static func linesResponse(_ pasted: LinesPasted) -> Response? {
+        switch pasted {
+        case .pasted, .failed: return nil
+        case .notTaken: return .status(409, noLines)
+        case .inMode: return .status(409, linesInCopyMode)
+        case .refused(let why): return .status(409, why)
+        case .notInFront: return .status(409, linesNotInFront)
+        case .macInUse: return .status(409, linesMacInUse)
+        case .unsaved: return .status(409, linesClipboardKept)
+        // ⌘V went: not a refusal, so the page doesn't offer the words again to paste twice.
+        case .notRead: return .status(503, linesNotRead)
+        }
+    }
+
+    /// Where `agent` is in its tab `tab`, and what else is in front there (see `Terminal.front`). Settable
+    /// for tests, which give a stand-in: nothing real is looked at.
+    static var tabFront: (Agent, String) -> Terminal.TabFront? = { agent, tab in
+        Terminals.tty(of: tab).flatMap { Terminal.front(of: agent, on: $0) }
+    }
+
+    /// Why several lines can't be pasted through the clipboard now (RI34b B1), nil if they may. The terminal
+    /// can't say whether the agent asked for bracketed paste, which an agent on the list does only at its
+    /// main prompt (`Agent.asksForBracketedPaste`): so only while the desk waits there (idle, unread or
+    /// error: not asking, not working, as a tool's own prompt runs while it works), and only with the agent
+    /// in front of its tab, nothing else in its foreground job: no editor it opened (Claude Code turns
+    /// bracketed paste off while `$EDITOR` has the tab), no pager, no shell. Not known is refused.
+    static func clipboardRefusal(state: SessionState?, front: Terminal.TabFront?) -> String? {
+        switch state {
+        case .asking?: return answerFirst
+        case .thinking?: return linesWhileWorking
+        case nil: return linesUnknown
+        case .idle?, .unread?, .error?: break
+        }
+        guard let front else { return linesUnknown }
+        switch front.place {
+        case .gone: return linesAgentEnded
+        case .behind: return linesBehind
+        case .front: break
+        }
+        if front.names.contains(where: { editors.contains($0) || $0.hasPrefix("emacs") }) { return linesInEditor }
+        if !front.names.isDisjoint(with: pagers) { return linesInPager }
+        if !front.names.isDisjoint(with: shells) { return linesInShell }
+        return nil
+    }
+
+    /// What `$EDITOR` and `$VISUAL` are set to, in a terminal or waiting on a window (`code --wait`).
+    static let editors: Set<String> = ["vi", "vim", "nvim", "view", "vimdiff", "gvim", "mvim", "nano", "pico", "micro", "hx", "helix",
+                                       "kak", "joe", "jed", "ne", "mg", "ed", "ex", "code", "cursor", "windsurf", "subl", "zed",
+                                       "mate", "bbedit", "edit", "open"]
+    static let pagers: Set<String> = ["less", "more", "most", "pg", "man", "bat", "delta", "w3m", "lynx"]
+    /// Shells, and what opens one or asks for a password.
+    static let shells: Set<String> = ["sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "xonsh", "elvish",
+                                      "pwsh", "login", "sudo", "su", "ssh", "mosh", "telnet", "script", "tmux", "screen"]
 
     /// Why several lines can't go to a desk in a terminal that takes them `way`, for `agent`, known before
     /// its terminal is asked anything: nil if they may. A terminal that can't take them gets `noLines`; one

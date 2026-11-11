@@ -6,93 +6,247 @@ struct ClipboardEntry: Equatable {
     let data: Data
 }
 
+/// What was on the clipboard before a paste through it, to put back.
+enum SavedClipboard: Equatable {
+    /// Every item, with every type each had, in order.
+    case items([[ClipboardEntry]])
+    /// Something marked concealed, as a password manager copies a password: never read, and never put
+    /// back (VICTOR's ruling on RI34b S2). The clipboard is left empty instead, so the password manager's
+    /// own "clear after a while" isn't defeated by a copy of ours.
+    case concealed
+}
+
 /// The clipboard, as a paste through it uses it: everything on it saved, the phone's text put in its
 /// place, and what was saved put back. Settable for tests, which give a stand-in: no test touches the
 /// real clipboard.
 protocol Clipboard: AnyObject {
     /// Changes each time anything is copied.
     var changeCount: Int { get }
-    /// Every item, with every type each has, in order.
-    func save() -> [[ClipboardEntry]]
-    /// `text` alone, as plain text; the clipboard's count once it's there, nil if it couldn't be put.
-    func put(_ text: String) -> Int?
-    /// `items` back, exactly: every item and every type; none clears it.
-    func restore(_ items: [[ClipboardEntry]])
+    /// What's on it, to put back exactly; nil when that can't be done (a file being copied, whose promise
+    /// can't be kept, or a type whose data can't be read): nothing is pasted then.
+    func save() -> SavedClipboard?
+    /// `text` alone, as plain text, handed over only when it's read: `read` is called then. The clipboard's
+    /// count once it's there, nil if it couldn't be put.
+    func put(_ text: String, read: @escaping () -> Void) -> Int?
+    /// What it holds now as plain text, if any.
+    var plainText: String? { get }
+    /// `saved` back, for this Mac only; a concealed copy leaves it empty.
+    func restore(_ saved: SavedClipboard)
 }
 
 /// The Mac's own clipboard.
 final class SystemClipboard: Clipboard {
-    private var pasteboard: NSPasteboard { .general }
+    private let pasteboard: NSPasteboard
+    /// The phone's text, handed over when it's read (see `put`).
+    private var served: Served?
+
+    /// `.general` is the Mac's clipboard; a test gives a pasteboard of its own name, never that one.
+    init(_ pasteboard: NSPasteboard = .general) { self.pasteboard = pasteboard }
 
     var changeCount: Int { pasteboard.changeCount }
+    var plainText: String? { pasteboard.string(forType: .string) }
 
-    func save() -> [[ClipboardEntry]] {
-        (pasteboard.pasteboardItems ?? []).map { item in
-            item.types.compactMap { type in item.data(forType: type).map { ClipboardEntry(type: type.rawValue, data: $0) } }
+    static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+
+    func save() -> SavedClipboard? {
+        let items = pasteboard.pasteboardItems ?? []
+        // A password isn't even read.
+        if items.contains(where: { $0.types.contains(SystemClipboard.concealedType) }) { return .concealed }
+        var saved: [[ClipboardEntry]] = []
+        for item in items {
+            let types = SystemClipboard.worthSaving(item.types.map(\.rawValue))
+            // A file being copied is a promise only its app can keep: it can't be put back as it was.
+            guard !types.contains(where: SystemClipboard.isPromise) else { return nil }
+            var entries: [ClipboardEntry] = []
+            for type in types {
+                guard let data = item.data(forType: NSPasteboard.PasteboardType(type)) else { return nil }
+                entries.append(ClipboardEntry(type: type, data: data))
+            }
+            saved.append(entries)
         }
+        return .items(saved)
     }
+
+    /// The types to read and put back: all but the plain-text copies the Mac makes itself from another
+    /// type (UTF-16 from UTF-8 or RTF), which it makes again from what's put back, so they aren't
+    /// rendered for nothing. Every type an app put there is read: only that brings it back exactly.
+    static func worthSaving(_ types: [String]) -> [String] {
+        guard types.contains(NSPasteboard.PasteboardType.string.rawValue) else { return types }
+        return types.filter { !["public.utf16-external-plain-text", "public.utf16-plain-text"].contains($0) }
+    }
+
+    /// A file promised by the app it's copied from (as Finder's or Photos' copies can be).
+    static func isPromise(_ type: String) -> Bool { type.lowercased().contains("promise") }
 
     /// For this Mac only, not your other devices over Universal Clipboard, and marked so clipboard
     /// managers that follow the nspasteboard.org markers leave it out (as the viewer's link is copied).
-    func put(_ text: String) -> Int? {
+    /// The text is handed over only when something reads it, which is how the paste knows the terminal
+    /// took it (RI34b S1).
+    func put(_ text: String, read: @escaping () -> Void) -> Int? {
+        let served = Served(text, read: read)
         pasteboard.prepareForNewContents(with: .currentHostOnly)
         let item = NSPasteboardItem()
-        guard item.setString(text, forType: .string) else { return nil }
-        for marker in ["org.nspasteboard.TransientType", "org.nspasteboard.ConcealedType"] {
-            item.setString("", forType: NSPasteboard.PasteboardType(marker))
-        }
-        return pasteboard.writeObjects([item]) ? pasteboard.changeCount : nil
+        guard item.setDataProvider(served, forTypes: [.string]) else { return nil }
+        for marker in [SystemClipboard.transientType, SystemClipboard.concealedType] { item.setString("", forType: marker) }
+        guard pasteboard.writeObjects([item]) else { return nil }
+        self.served = served
+        return pasteboard.changeCount
     }
 
-    func restore(_ items: [[ClipboardEntry]]) {
-        pasteboard.clearContents()
-        let restored = items.map { entries -> NSPasteboardItem in
+    /// For this Mac only, as the phone's text was put (RI34b S2): a copy made for this Mac alone never
+    /// goes to your iPhone over Universal Clipboard by being put back.
+    func restore(_ saved: SavedClipboard) {
+        pasteboard.prepareForNewContents(with: .currentHostOnly)
+        served = nil
+        guard case .items(let items) = saved, !items.isEmpty else { return }
+        pasteboard.writeObjects(items.map { entries -> NSPasteboardItem in
             let item = NSPasteboardItem()
             for entry in entries { item.setData(entry.data, forType: NSPasteboard.PasteboardType(entry.type)) }
             return item
-        }
-        if !restored.isEmpty { pasteboard.writeObjects(restored) }
+        })
     }
+
+    /// The phone's text, given to whatever reads the clipboard, and saying so.
+    private final class Served: NSObject, NSPasteboardItemDataProvider {
+        private let text: String
+        private let read: () -> Void
+
+        init(_ text: String, read: @escaping () -> Void) {
+            self.text = text
+            self.read = read
+        }
+
+        func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
+            item.setString(text, forType: type)
+            read()
+        }
+    }
+}
+
+/// How ⌘V went, for a paste through the clipboard.
+enum PastePress: Equatable {
+    /// It went, to the tab checked again right before.
+    case sent
+    /// Not pressed: another tab or app was in front by then.
+    case notInFront
+    /// It may or may not have gone, and may yet: Ghostty's paste ended for taking too long.
+    case unsure
 }
 
 /// Text of several lines from the phone, pasted as you would paste it, for terminals that type text
 /// as keys (where a line feed is Return) and can't say whether the agent asked for bracketed paste:
 /// Terminal.app, iTerm2 and Ghostty (owner's call, Q1 b). The text goes on the clipboard, the
-/// terminal's own paste takes it (⌘V), and the clipboard is put back as it was, every item and type,
-/// however the paste went: done, failed or ended for taking too long. The terminal wraps the paste in
-/// bracketed-paste markers itself where the agent asked for them, so a line break is a new line in
-/// the text, never Return; Return, if sent, goes on its own afterwards.
+/// terminal's own paste takes it (⌘V), and the clipboard is put back as it was once the terminal has
+/// read it. The terminal wraps the paste in bracketed-paste markers itself where the agent asked for
+/// them, so a line break is a new line in the text, never Return; Return, if sent, goes on its own
+/// afterwards. A Return is never pressed mid-text: when in doubt, nothing is pasted.
 enum ClipboardPaste {
     /// Settable for tests, which give a stand-in.
     static var clipboard: Clipboard = SystemClipboard()
-    /// How long the terminal is given to read the clipboard once ⌘V has gone, before it's put back. The
-    /// terminal reads it as it handles the key, within a few hundredths of a second on a Mac in use.
-    static var readWait: TimeInterval = 0.4
-    /// One paste at a time, whichever terminal: the clipboard is the Mac's, not a terminal's.
-    private static let lock = NSLock()
+    /// How long the terminal is given to read the clipboard once ⌘V has gone. It's put back as soon as
+    /// it's read (and `hold` has passed); not read by then, the paste is said to have failed.
+    static var readWait: TimeInterval = 2
+    /// Read, the phone's text still stays this long after ⌘V: a clipboard manager that doesn't skip what's
+    /// marked may be the one that read it, with the terminal's read still on its way.
+    static var hold: TimeInterval = 0.4
+    /// Not read in time, the phone's text stays on the clipboard this long after ⌘V before what you had
+    /// copied comes back (RI34b S1): a terminal that gets to the paste late then pastes the phone's text,
+    /// never what you had copied, which could be a password.
+    static var grace: TimeInterval = 10
+    /// One paste at a time, whichever terminal: the clipboard is the Mac's, not a terminal's. Held until
+    /// the clipboard is put back, even after the paste has answered.
+    private static let turn = DispatchSemaphore(value: 1)
+    private static let later = DispatchQueue(label: "smolcorp.clipboard-paste.restore")
 
-    /// `forward` brings the tab forward and checks it's the one in front, typing nothing; `ready` is
-    /// asked right after, right before the paste; `press` pastes. The clipboard is touched only once
-    /// both said yes, and put back afterwards in every case, unless something else was copied in the
-    /// meantime: that copy is newer than what was saved, and stays.
-    static func paste(_ text: String, ready: () -> Bool, forward: () -> Bool, press: () -> Bool) -> LinesPasted {
+    static let busy = "Another paste is still on the Mac's clipboard, so nothing was typed: try again in a few seconds."
+
+    /// In this order (RI34b B2): what's on the clipboard saved and the phone's text put in its place, so
+    /// nothing slow comes between the tab's checks and ⌘V; `forward` brings the tab forward and checks it's
+    /// the one in front, typing nothing (nil, or why not); `ready` checks the desk is free for it (nil, or
+    /// why not), right before; `press` checks the tab once more and presses ⌘V. What was saved comes back
+    /// in every case, for this Mac only, unless something else was copied in the meantime: that copy is
+    /// newer, and stays.
+    static func paste(_ text: String, forward: () -> LinesPasted?, ready: () -> String?, press: () -> PastePress) -> LinesPasted {
         // Escape could end the terminal's bracket early, and a return would press Enter: refused, as tmux's paste does.
         guard HireTmux.canPaste(text) else { return .failed }
-        lock.lock()
-        defer { lock.unlock() }
-        guard forward() else { return .failed }
-        guard ready() else { return .asking }
-        let saved = clipboard.save()
-        guard let ours = clipboard.put(text) else {
+        guard turn.wait(timeout: .now() + grace + readWait) == .success else { return .refused(busy) }
+        var handedOn = false
+        defer { if !handedOn { turn.signal() } }
+        // What can't be put back exactly isn't taken off: a file being copied stays, and nothing is pasted.
+        guard let saved = clipboard.save() else { return .unsaved }
+        var reads = Reads()
+        guard var ours = clipboard.put(text, read: reads.note) else {
             clipboard.restore(saved)
             return .failed
         }
-        defer {
-            if clipboard.changeCount == ours { clipboard.restore(saved) }
+        let putBack = { (ours: Int, reads: Reads) in
+            // Rewritten by a clipboard tool (as one that strips formatting does), it's still ours (RI34b N2): such
+            // a tool reads it first, so what's there is only looked at once the phone's text was read.
+            if clipboard.changeCount == ours || (!reads.none && clipboard.plainText == text) { clipboard.restore(saved) }
         }
-        let pressed = press()
-        // Even if the press looked failed (a script ended for taking too long), the terminal may still be reading.
-        Thread.sleep(forTimeInterval: readWait)
-        return pressed ? .pasted : .failed
+        if let why = forward() {
+            putBack(ours, reads)
+            return why
+        }
+        if let why = ready() {
+            putBack(ours, reads)
+            return .refused(why)
+        }
+        // Read already, by something else than the terminal: put again, so the read that's heard is the paste's.
+        if !reads.none {
+            reads = Reads()
+            guard let again = clipboard.put(text, read: reads.note) else {
+                clipboard.restore(saved)
+                return .failed
+            }
+            ours = again
+        }
+        let pressing = press()
+        let pressed = DispatchTime.now()
+        if pressing == .notInFront {
+            putBack(ours, reads)
+            return .notInFront
+        }
+        if reads.wait(until: pressed + readWait) {
+            let since = Double(DispatchTime.now().uptimeNanoseconds - pressed.uptimeNanoseconds) / 1e9
+            if since < hold { Thread.sleep(forTimeInterval: hold - since) }
+            putBack(ours, reads)
+            return pressing == .sent ? .pasted : .failed
+        }
+        // Not read yet: said as failed, no Return follows, and the phone's text stays until it's read or the grace ends.
+        handedOn = true
+        let (stillOurs, stillReads) = (ours, reads)
+        later.async {
+            _ = stillReads.wait(until: pressed + grace)
+            putBack(stillOurs, stillReads)
+            turn.signal()
+        }
+        return pressing == .sent ? .notRead : .failed
+    }
+
+    /// Whether the phone's text has been read, and waiting until it is.
+    final class Reads {
+        private let lock = NSLock()
+        private var count = 0
+        private let signal = DispatchSemaphore(value: 0)
+
+        func note() {
+            lock.lock()
+            count += 1
+            lock.unlock()
+            signal.signal()
+        }
+
+        var none: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return count == 0
+        }
+
+        /// True once read, waiting no later than `deadline`.
+        func wait(until deadline: DispatchTime) -> Bool {
+            !none || signal.wait(timeout: deadline) == .success
+        }
     }
 }
