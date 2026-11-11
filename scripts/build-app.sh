@@ -35,7 +35,16 @@ cp "$BIN" "$APP/Contents/MacOS/$EXECUTABLE"
 strip -S -no_code_signature_warning "$APP/Contents/MacOS/$EXECUTABLE"
 cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns Resources/report.sh Resources/opencode-plugin.js Resources/opencode-plugin-v1.js "$APP/Contents/Resources/"
+# office.js is built from Resources/web/office (scripts/buildoffice), and
+# committed: checked here, never rebuilt, so a change made in office.js itself
+# isn't lost. The app serves office.js alone, without its sources.
+if command -v go >/dev/null 2>&1; then
+  go run ./scripts/buildoffice -check
+else
+  echo "Go isn't installed: office.js isn't checked against its sources in Resources/web/office (brew install go)."
+fi
 cp -R Resources/web "$APP/Contents/Resources/"
+rm -rf "$APP/Contents/Resources/web/office"
 cp -R Resources/briefs "$APP/Contents/Resources/"
 cp -R Resources/gm "$APP/Contents/Resources/"
 # Signed already, so the app's signature seals it as it is.
