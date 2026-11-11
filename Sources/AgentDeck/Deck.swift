@@ -2273,10 +2273,14 @@ final class Deck {
         guard let (driver, tab) = terminal(of: session, for: .text) else { return done(.status(409, Deck.notHere)) }
         guard !driver.keysNeedAccessibility || Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
         let sends = send ?? PhoneDictation.sends(words, autoSend: Config.shared.phoneMicAutoSend)
+        // Several lines go as one bracketed paste, where the tab takes one: a line break is then a new line in the text,
+        // never Return. Where it doesn't, nothing is typed: never flattened, never a Return per line (I34).
+        let lines = PhoneDictation.isLines(words)
         let address = session.tab
-        var withheld = false, asked = false
+        var withheld = false, asked = false, notTaken = false
         toAgent(session, done: { response in
             if asked { return done(.status(409, Deck.answerFirst)) }
+            if notTaken { return done(.status(409, Deck.noLines)) }
             done(withheld && response.status < 400 ? .status(409, Deck.typedNotSent) : response)
         }) {
             // Asked something while this waited for the terminal: checked again, on the main queue, right before the text.
@@ -2284,7 +2288,17 @@ final class Deck {
                 asked = true
                 return true
             }
-            guard driver.insert(words, in: tab) else { return false }
+            if lines {
+                switch driver.insertLines(words, in: tab) {
+                case .pasted: break
+                case .notTaken:
+                    notTaken = true
+                    return true
+                case .failed: return false
+                }
+            } else {
+                guard driver.insert(words, in: tab) else { return false }
+            }
             if sends {
                 // Return on its own once the text is in, as the ⏎ key presses it: with the text, it would be a new line.
                 Thread.sleep(forTimeInterval: PhoneDictation.settle)
@@ -2304,6 +2318,8 @@ final class Deck {
     }
 
     static let answerFirst = "It's asking you something: answer it on the deck first."
+    static let noLines = "This desk's terminal can't take several lines as one paste, so nothing was typed: send it as one line."
+    static let oneLineAnswer = "A typed answer goes as keys, where a new line would press Return, so nothing was typed: put it on one line."
     static let choiceGone = "It's asking something else now, or nothing: look again."
     static let menuDiffers = "The Mac's menu doesn't show that option now: answer it on the Mac or with ▲ ▼ ✓."
     static let stillTyping = "Still typing your answer: a moment."
@@ -2446,6 +2462,7 @@ final class Deck {
         guard let words = PhoneDictation.prepared(text) else { return done(.status(400, PhoneDictation.refusal(text))) }
         // Where the field didn't open, the text would be a prompt, and one starting with ! a shell command.
         guard !PhoneDictation.runsInShell(words) else { return done(.status(400, Deck.noBang)) }
+        guard !PhoneDictation.isLines(words) else { return done(.status(400, Deck.oneLineAnswer)) }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
         guard !session.isHeadless else { return done(.status(409, Deck.headless)) }
         guard let choice = Deck.claimable(session.choice, state: session.state, id: choiceID, lastReturn: lastReturn[id], now: Date()) else {

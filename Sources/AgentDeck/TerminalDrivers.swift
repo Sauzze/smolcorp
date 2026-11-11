@@ -198,6 +198,21 @@ struct Tmux: TerminalDriver {
         return pasted(text, in: tab, bracketed: false)
     }
 
+    /// Several lines as one bracketed paste, only while the pane's agent has asked for bracketed paste:
+    /// tmux reads the pane's flag and pastes in one command (`if-shell -F`), so the flag can't change in
+    /// between, and `-r` keeps each line feed a line feed, byte for byte. A tmux before 3.7, without the
+    /// flag, reads as not asked: nothing typed. Not pasted, the buffer is still there, and goes.
+    func insertLines(_ text: String, in tab: TabAddress) -> LinesPasted {
+        guard HireTmux.canPaste(text) else { return .failed }
+        let buffer = "smolcorp-\(UUID().uuidString.prefix(8))"
+        guard ran(tab, ["load-buffer", "-b", buffer, "-"], input: Data(text.utf8)) else { return .failed }
+        guard ran(tab, ["if-shell", "-F", "-t", tab.id, "#{bracket_paste_flag}", "paste-buffer -p -r -d -b \(buffer) -t \(tab.id)"]) else {
+            _ = ran(tab, ["delete-buffer", "-b", buffer])
+            return .failed
+        }
+        return ran(tab, ["delete-buffer", "-b", buffer]) ? .notTaken : .pasted
+    }
+
     /// `text` into the pane through a buffer of its own, loaded from tmux's standard input, byte for
     /// byte: as an argument, its accents would come apart (see `Tool.run`) and a ";" at its end go.
     private func pasted(_ text: String, in tab: TabAddress, bracketed: Bool) -> Bool {

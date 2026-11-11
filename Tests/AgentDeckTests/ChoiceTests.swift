@@ -755,10 +755,16 @@ final class ChoiceTests: XCTestCase {
         XCTAssertFalse(Deck.mayAnswer(state: nil, newChoice: false, last: nil, now: now), "the session has gone")
     }
 
-    /// Cleaned and capped as dictation is: line breaks become spaces, and
-    /// more than 2,000 characters types nothing.
+    /// Cleaned and capped as dictation is, and more than 2,000 characters types nothing. It goes as keys,
+    /// where a line break would press Return part way: several lines are refused, never flattened (I34).
     func testATypedAnswerIsCleanedAsDictationIs() throws {
-        XCTAssertEqual(PhoneDictation.prepared("  Use\nPostgres \u{2028} please\t "), "Use Postgres please")
+        XCTAssertEqual(PhoneDictation.prepared("  Use  Postgres please\t "), "Use Postgres please")
+        XCTAssertTrue(PhoneDictation.isLines(try XCTUnwrap(PhoneDictation.prepared("  Use\nPostgres \u{2028} please\t "))))
+        let deck = try String(contentsOfFile: Self.root + "Sources/AgentDeck/Deck.swift", encoding: .utf8)
+        let start = try XCTUnwrap(deck.range(of: "func answerOther(_ text: String")).upperBound
+        let body = deck[start...].prefix(3400)
+        let refused = try XCTUnwrap(body.range(of: "guard !PhoneDictation.isLines(words) else { return done(.status(400, Deck.oneLineAnswer)) }"))
+        XCTAssertLessThan(refused.lowerBound, try XCTUnwrap(body.range(of: "toAgent(session")).lowerBound, "before any key")
         XCTAssertNil(PhoneDictation.prepared(String(repeating: "a", count: PhoneDictation.longest + 1)))
         XCTAssertNotNil(PhoneDictation.prepared(String(repeating: "a", count: PhoneDictation.longest)))
         XCTAssertNil(PhoneDictation.prepared(" \n "))

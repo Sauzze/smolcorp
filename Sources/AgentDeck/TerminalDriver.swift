@@ -18,6 +18,15 @@ import Foundation
 extension TerminalDriver {
     func typeKeys(_ text: String, in tab: TabAddress) -> Bool { insert(text, in: tab) }
     var showsScreen: Bool { true }
+    /// Nowhere by default: Terminal.app, iTerm2 and Ghostty type text as keys or can't say whether the
+    /// agent asked for bracketed paste, so a line break could press Return part way. Only tmux can tell.
+    func insertLines(_ text: String, in tab: TabAddress) -> LinesPasted { .notTaken }
+}
+
+/// How text of several lines went: as one bracketed paste, not at all because the tab doesn't take one
+/// now (nothing typed), or not at all because the terminal didn't take it.
+enum LinesPasted: Equatable {
+    case pasted, notTaken, failed
 }
 
 struct TabAddress: Hashable {
@@ -115,6 +124,10 @@ protocol TerminalDriver {
     /// Puts `text` in the tab without Return, as dictation does, for you to
     /// read before sending.
     func insert(_ text: String, in tab: TabAddress) -> Bool
+    /// Text of several lines, without Return, as ONE bracketed paste: only where the
+    /// agent in the tab has asked for bracketed paste, so a line break is a new line
+    /// in the text and never presses Return. Anywhere else nothing is typed (`.notTaken`).
+    func insertLines(_ text: String, in tab: TabAddress) -> LinesPasted
     /// iPhone app (personal build): `text` typed as keys, never as a paste,
     /// without Return: into a menu's own text field, as Claude Code's "Type
     /// something", which a paste may not reach. `insert` where that already

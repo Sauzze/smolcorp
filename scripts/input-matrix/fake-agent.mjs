@@ -9,6 +9,8 @@
 //
 // Its input box takes bracketed pastes and keys like a real agent's. A prompt of exactly
 // `ask` makes it ask a permission question (state "asking"), which only 1 or 2 answers;
+// `nopaste` stops asking for bracketed paste, as an agent that never asks for it, and `paste`
+// asks again (I34: several lines must then be refused, never typed);
 // `/exit` ends it with SessionEnd, as an agent that quits.
 import { appendFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -44,6 +46,7 @@ function submit() {
     return;
   }
   hook('UserPromptSubmit', { prompt });
+  if (prompt === 'nopaste' || prompt === 'paste') process.stdout.write(prompt === 'paste' ? '\x1b[?2004h' : '\x1b[?2004l');
   if (prompt === 'ask') {
     state = 'asking';
     // After the prompt's own event: hooks run side by side, and arrive in any order.

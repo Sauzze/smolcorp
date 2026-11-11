@@ -44,12 +44,28 @@ final class PhoneMicTests: XCTestCase {
 
     // MARK: The text
 
-    func testTheTextIsFlattenedToOneLine() {
-        XCTAssertEqual(PhoneDictation.prepared("  fix the\nlogin\tbug \r\n "), "fix the login bug")
+    func testOneLineIsFlattenedAsBefore() {
+        XCTAssertEqual(PhoneDictation.prepared("  fix the  login\tbug \r\n "), "fix the login bug")
         XCTAssertEqual(PhoneDictation.prepared("café, déjà vu"), "café, déjà vu")
-        // Unicode's own line and paragraph separators, and the next-line character, break no line either.
-        XCTAssertEqual(PhoneDictation.prepared("fix\u{2028}the\u{2029}login\u{85}bug"), "fix the login bug")
+        // A vertical tab or a form feed is a control character, not a line break.
         XCTAssertEqual(PhoneDictation.prepared("go\u{1b}[A\u{0b}on\u{0c}"), "go [A on")
+        XCTAssertFalse(PhoneDictation.isLines("fix the login bug"))
+    }
+
+    /// Several lines stay several lines (I34): each break a line feed, for one bracketed paste to carry; the
+    /// lines as they were, indentation and tabs kept; an Escape, which could end the paste early, a space.
+    func testSeveralLinesAreKeptAsTheyWere() {
+        XCTAssertEqual(PhoneDictation.prepared("  fix the\nlogin\tbug \r\n "), "fix the\nlogin\tbug")
+        XCTAssertEqual(PhoneDictation.prepared("a\r\nb\rc\u{2028}d\u{2029}e\u{85}f"), "a\nb\nc\nd\ne\nf")
+        let code = "Change this:\n\n    def f():\n\t\treturn 1;  \n« fin » 👩‍💻 $(touch x) `y` \\"
+        XCTAssertEqual(PhoneDictation.prepared("\n\n" + code + "\n\n"), code, "blank lines at either end go, nothing else")
+        XCTAssertEqual(PhoneDictation.prepared("one\u{1b}[201~\ntwo\u{7}"), "one [201~\ntwo")
+        XCTAssertTrue(PhoneDictation.isLines("one\ntwo"))
+        // The same size limit, the line breaks counted; the "!" rule on the first code point, once trimmed.
+        XCTAssertNil(PhoneDictation.prepared(String(repeating: "a\n", count: PhoneDictation.longest / 2) + "a"))
+        XCTAssertNotNil(PhoneDictation.prepared(String(repeating: "a\n", count: PhoneDictation.longest / 2 - 1) + "aa"))
+        XCTAssertEqual(PhoneDictation.refusal(String(repeating: "a\n", count: PhoneDictation.longest)), PhoneDictation.tooLong)
+        XCTAssertTrue(PhoneDictation.runsInShell(PhoneDictation.prepared("\n \n!\u{301}rm -rf x\nmore")!))
     }
 
     func testNothingOrTooMuchIsRefused() {
@@ -134,6 +150,73 @@ final class PhoneMicTests: XCTestCase {
         }
         wait(for: [answered], timeout: 10)
         return response!
+    }
+
+    /// Several lines go as ONE bracketed paste where the terminal takes one, then Return on its own if sent;
+    /// where it doesn't, nothing is typed and the phone is told in one sentence: never flattened, never a
+    /// Return per line (I34).
+    func testSeveralLinesGoAsOnePasteOrNotAtAll() {
+        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
+        let text = "Deux lignes :\n    « ça marche » 👩‍💻 fin;"
+        let (deck, terminal) = deckWithDesk()
+        terminal.lines = .pasted
+        XCTAssertEqual(dictate(deck, text, send: true).status, 204)
+        XCTAssertEqual(terminal.insertedLines, [text], "byte for byte, one paste")
+        XCTAssertEqual(terminal.inserted, [], "never as one line")
+        XCTAssertEqual(terminal.pressed, [.returnKey], "Return once, after the paste")
+
+        let (other, refusing) = deckWithDesk()
+        let response = dictate(other, text, send: true)
+        XCTAssertEqual(response.status, 409)
+        XCTAssertEqual(String(decoding: response.body, as: UTF8.self), Deck.noLines)
+        XCTAssertEqual(refusing.inserted + refusing.insertedLines, [], "nothing typed")
+        XCTAssertEqual(refusing.pressed, [], "no Return")
+
+        // A desk asking something gets nothing, several lines or one.
+        let (asking, held) = deckWithDesk()
+        held.lines = .pasted
+        asks(asking, at: 30)
+        XCTAssertEqual(dictate(asking, text, send: true).status, 409)
+        XCTAssertEqual(held.insertedLines + held.inserted, [])
+        // A typed answer to a menu goes as keys: one line only.
+        XCTAssertFalse(Deck.oneLineAnswer.isEmpty)
+    }
+
+    /// Over the Wi-Fi's plain http (I34): a paired phone's key types, as through Tailscale; no key, or a
+    /// wrong one, types nothing (401); the office's own window types nothing (403). The peek stays Tailscale's.
+    func testTheWiFiTypesWithAPairedPhonesKeyOnly() throws {
+        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
+        let (deck, terminal) = deckWithDesk()
+        let router = DeckRouter(deck: deck)
+        let key = try XCTUnwrap(deck.access.redeem(deck.access.newCode(), from: "192.168.1.20", userAgent: "Test iPhone"))
+        func post(_ path: String, key: String?, text: String = "deux\nlignes", local: Bool = false) throws -> Response {
+            var query = ["session": "s1"]
+            if let key { query["t"] = key }
+            let request = Request.addressed(method: "POST", path: path, query: query,
+                                            headers: ["host": local ? "localhost:7710" : "192.168.1.4:7710", "content-type": "application/json"],
+                                            body: try JSONSerialization.data(withJSONObject: ["text": text, "send": false]),
+                                            fromLoopback: local, remoteAddress: local ? "127.0.0.1" : "192.168.1.20")
+            XCTAssertFalse(request.isTailnet)
+            let answered = expectation(description: path)
+            var got: Response?
+            router.handle(request) { reply in
+                if case .response(let response) = reply { got = response }
+                answered.fulfill()
+            }
+            wait(for: [answered], timeout: 10)
+            return try XCTUnwrap(got)
+        }
+        XCTAssertEqual(try post("/dictate", key: nil).status, 401)
+        XCTAssertEqual(try post("/dictate", key: "not-a-paired-key").status, 401)
+        XCTAssertEqual(try post("/dictate", key: deck.windowKey, local: true).status, 403, "the office's window")
+        XCTAssertEqual(terminal.inserted + terminal.insertedLines, [], "nothing typed without a paired phone's key")
+        terminal.lines = .pasted
+        XCTAssertEqual(try post("/dictate", key: key).status, 204)
+        XCTAssertEqual(terminal.insertedLines, ["deux\nlignes"])
+        XCTAssertEqual(try post("/dictate", key: key, text: "une ligne").status, 204)
+        XCTAssertEqual(terminal.inserted, ["une ligne"])
+        XCTAssertEqual(try post("/dictate", key: key, text: "!rm -rf x").status, 400, "the same rules")
+        XCTAssertEqual(try post("/peek", key: key).status, 403, "reading a terminal stays Tailscale's")
     }
 
     func testTheTextGoesToAFreeDesk() {
@@ -263,6 +346,22 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertTrue(page[receive.upperBound...].prefix(1800).contains("confirmable();"))
         XCTAssertTrue(page.contains("$('confirm').hidden = false;\n    confirmable();"))
         XCTAssertTrue(page.contains("It's asking you something: answer it on the deck first."))
+    }
+
+    /// The page (I34): the box keeps several lines; Settings opens it to type where the phone's mic can't
+    /// listen, as over the Wi-Fi, and says in one line that the Wi-Fi isn't encrypted; the box stays open
+    /// over plain http; the peek is asked for only over HTTPS; refused words go back in the box.
+    func testThePageTypesOverTheWiFiAndKeepsTheLines() throws {
+        let page = try String(contentsOf: Self.repo.appendingPathComponent("Resources/web/deck.html"), encoding: .utf8)
+        XCTAssertTrue(page.contains("const text = $('confirm-text').value.replace(/\\r\\n?/g, '\\n').trim();"))
+        XCTAssertFalse(page.contains("$('confirm-text').value.replace(/\\s+/g, ' ')"), "never flattened")
+        XCTAssertTrue(page.contains("row(`Type to ${picked.project || picked.name}`, button('Type…', null, () => {"))
+        XCTAssertTrue(page.contains("if (picked && picked.phoneMic) {"), "only where the computer types into that desk")
+        XCTAssertTrue(page.contains("textContent: \"Over the Wi-Fi, what you type isn't encrypted. Tailscale is the private option.\""))
+        XCTAssertTrue(page.contains("if (!preview && !whole && phoneMic.on && location.protocol !== 'https:') {"))
+        XCTAssertTrue(page.contains("if (!phoneMicHere()) dropHearing();\n    // The box goes with the phone's text"))
+        XCTAssertTrue(page.contains("if (location.protocol === 'https:') setTimeout(() => peek(session), PEEK_AFTER);"))
+        XCTAssertTrue(page.contains("if (send !== undefined && res.status < 500) confirmDictation(session, text);"))
     }
 
     // MARK: The peek
@@ -443,8 +542,11 @@ final class PhoneMicTests: XCTestCase {
 /// A terminal that records the text and keys it's given, and can run something as it's asked where the agent is.
 private final class RecordingTerminal: TerminalDriver {
     private(set) var inserted: [String] = []
+    private(set) var insertedLines: [String] = []
     private(set) var pressed: [Terminal.Key] = []
     var takesKeys = true
+    /// How text of several lines goes: not taken, as by every terminal but tmux, unless a test says so.
+    var lines = LinesPasted.notTaken
     var whenLookedUp: (() -> Void)?
 
     var abilities: TerminalAbilities { [.keys, .text] }
@@ -458,6 +560,10 @@ private final class RecordingTerminal: TerminalDriver {
     func insert(_ text: String, in tab: TabAddress) -> Bool {
         inserted.append(text)
         return true
+    }
+    func insertLines(_ text: String, in tab: TabAddress) -> LinesPasted {
+        if lines == .pasted { insertedLines.append(text) }
+        return lines
     }
     func focus(_ tab: TabAddress) -> Bool { false }
     func scroll(lines: Int, in tab: TabAddress) -> Bool { false }

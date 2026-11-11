@@ -7,6 +7,8 @@ final class TmuxTests: XCTestCase {
     private var saved: String?
     private var log: URL { folder.appendingPathComponent("asked.txt") }
     private var stdin: URL { folder.appendingPathComponent("stdin.bin") }
+    /// There, the stand-in's paste took the buffer, as tmux's does when the pane asked for bracketed paste.
+    private var pastedFlag: URL { folder.appendingPathComponent("pasted") }
 
     override func setUpWithError() throws {
         folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -16,6 +18,7 @@ final class TmuxTests: XCTestCase {
             #!/bin/sh
             echo "$*" >> "\(log.path)"
             case "$*" in *load-buffer*) cat > "\(stdin.path)" ;; esac
+            case "$*" in *delete-buffer*) [ -e "\(pastedFlag.path)" ] && exit 1 ;; esac
             case "$*" in
               *pane_id*) case "$*" in *%9*) exit 1 ;; *) echo %3 ;; esac ;;
               *pane_tty*) echo /dev/ttys042 ;;
@@ -76,6 +79,26 @@ final class TmuxTests: XCTestCase {
         XCTAssertEqual(asked[0].split(separator: " ")[4], asked[1].split(separator: " ")[6], "the same buffer")
         XCTAssertFalse(asked.contains { $0.hasSuffix(" Enter") })
         XCTAssertEqual(try Data(contentsOf: stdin), Data("ajoute un test; puis lance-le".utf8))
+    }
+
+    /// Several lines (I34): on stdin, then pasted only if the pane's flag says it takes bracketed paste,
+    /// read and pasted in one tmux command, `-r` keeping each line feed; a buffer left over means it didn't.
+    func testSeveralLinesArePastedOnlyWhereThePaneAskedForIt() throws {
+        let text = "ligne une;\n\tligne deux 👩‍💻"
+        try Data().write(to: pastedFlag)
+        XCTAssertEqual(Tmux().insertLines(text, in: pane), .pasted)
+        XCTAssertEqual(asked.count, 3)
+        XCTAssertTrue(asked[0].hasPrefix("-S /tmp/tmux-501/default load-buffer -b smolcorp-") && asked[0].hasSuffix(" -"), asked[0])
+        let buffer = String(asked[0].split(separator: " ")[4])
+        XCTAssertEqual(asked[1], "-S /tmp/tmux-501/default if-shell -F -t %3 #{bracket_paste_flag} paste-buffer -p -r -d -b \(buffer) -t %3")
+        XCTAssertEqual(asked[2], "-S /tmp/tmux-501/default delete-buffer -b \(buffer)")
+        XCTAssertEqual(try Data(contentsOf: stdin), Data(text.utf8))
+        try FileManager.default.removeItem(at: pastedFlag)
+        XCTAssertEqual(Tmux().insertLines(text, in: pane), .notTaken, "the buffer was still there: not pasted")
+        XCTAssertFalse(asked.contains { $0.contains("Enter") })
+        let before = asked.count
+        XCTAssertEqual(Tmux().insertLines("a\u{1B}[201~\nb", in: pane), .failed, "an Escape could end the paste early")
+        XCTAssertEqual(asked.count, before)
     }
 
     /// As an argument, macOS takes accents apart (é as e and a combining accent) and tmux drops a ";"
@@ -287,6 +310,42 @@ final class TmuxFiringTests: XCTestCase {
         let shell = try pane("/bin/sh", typed: "/bin/sleep 300 &")
         XCTAssertEqual(Tmux().fire(shell, agent: .claude), .notStopped)
         XCTAssertTrue(isThere(shell))
+    }
+
+    /// Several lines into a real pane (I34): a program that asked for bracketed paste gets them as ONE
+    /// paste, byte for byte, line feeds and all, and no Return; one that didn't gets nothing at all.
+    func testSeveralLinesReachAPaneThatAskedForBracketedPasteByteForByte() throws {
+        let text = "Deux lignes :\n    « ça marche » 👩‍💻 $(touch x) `y` fin;\n\tet un tab"
+        func reader(_ bracketed: Bool) throws -> (TabAddress, URL) {
+            let out = folder.appendingPathComponent(bracketed ? "bracketed.bin" : "plain.bin"), ready = folder.appendingPathComponent(bracketed ? "b-ready" : "p-ready")
+            let script = folder.appendingPathComponent(bracketed ? "bracketed.sh" : "plain.sh")
+            // Raw, so the pane's line discipline changes nothing; the mode asked for as an agent asks for it.
+            try """
+                #!/bin/sh
+                stty raw -echo
+                \(bracketed ? "printf '\\033[?2004h'" : ":")
+                touch '\(ready.path)'
+                exec cat > '\(out.path)'
+                """.write(to: script, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+            let made = try XCTUnwrap(Tool.run(tmux, ["-S", socket, "new-session", "-d", "-P", "-F", "#{pane_id}", "-x", "80", "-y", "24", script.path]))
+            let pane = try XCTUnwrap(TabAddress("tmux:\(made.output)@\(socket)"))
+            XCTAssertTrue(eventually { FileManager.default.fileExists(atPath: ready.path) }, "the reader runs")
+            if bracketed {
+                XCTAssertTrue(eventually { Tool.run(tmux, ["-S", socket, "display-message", "-p", "-t", pane.id, "#{bracket_paste_flag}"])?.output == "1" })
+            }
+            return (pane, out)
+        }
+        let (asked, got) = try reader(true)
+        XCTAssertEqual(Tmux().insertLines(text, in: asked), .pasted)
+        let expected = Data("\u{1B}[200~".utf8) + Data(text.utf8) + Data("\u{1B}[201~".utf8)
+        XCTAssertTrue(eventually { (try? Data(contentsOf: got)) == expected }, String(decoding: (try? Data(contentsOf: got)) ?? Data(), as: UTF8.self))
+        let (plain, nothing) = try reader(false)
+        XCTAssertEqual(Tmux().insertLines(text, in: plain), .notTaken)
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertEqual(try Data(contentsOf: nothing), Data(), "nothing typed, no Return")
+        XCTAssertEqual(Tool.run(tmux, ["-S", socket, "list-buffers", "-F", "#{buffer_name}"])?.output.contains("smolcorp-"), false, "no buffer left")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("x").path))
     }
 
     /// A hire's script lives in Application Support: its path has a space.

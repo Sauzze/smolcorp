@@ -629,6 +629,24 @@ func TestT3OpenInT3CodeOpensAT3HiresOwnThreadByItsLinkAndRunsNothing(t *testing.
 
 // Mail
 
+// Several lines reach a T3 hire's thread as they are (I34): on t3's standard input, byte for byte, line
+// feeds, indentation, a tab, accents and emoji kept, never typed anywhere, so no line break can press Return.
+func TestT3MailOfSeveralLinesArrivesByteForByte(t *testing.T) {
+	r := newT3Rig(t)
+	hire := Hire{ID: "h1", Name: "Ada", Folder: "/x", State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1"}
+	text := "Deux lignes :\n    « ça marche » 👩‍💻 $(touch nope) `y` fin;\n\tet un tab\r\nfin"
+	r.fake()
+	if got := t3Mail(hire, text, func() bool { return true }, r.machine()); got != (mailResult{Outcome: mailSent}) {
+		t.Errorf("%+v", got)
+	}
+	if got, _ := os.ReadFile(r.stdin); !bytes.Equal(got, []byte(text)) {
+		t.Errorf("stdin: %q", got)
+	}
+	if exists(filepath.Join(r.home, "nope")) {
+		t.Error("the text was run")
+	}
+}
+
 func TestT3MailGoesOnStandardInputAndABusyThreadQueuesIt(t *testing.T) {
 	r := newT3Rig(t)
 	hire := Hire{ID: "h1", Name: "Ada", Folder: "/x", State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1"}
