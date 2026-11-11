@@ -716,7 +716,12 @@ final class HostBridgeTests: XCTestCase {
             }
             return heard
         }
-        XCTAssertEqual(converse(request + "\n", replies: [#"{"go":true}"#]), [#"{"ready":true}"#, #"{"ok":true,"pasted":"pasted"}"#])
+        // JSONSerialization doesn't keep key order, so the answer is compared parsed, never as text.
+        let yes = converse(request + "\n", replies: [#"{"go":true}"#])
+        XCTAssertEqual(yes.count, 2, "\(yes)")
+        XCTAssertEqual(yes.first, #"{"ready":true}"#)
+        let said = yes.last.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? NSDictionary }
+        XCTAssertEqual(said, ["ok": true, "pasted": "pasted"] as NSDictionary, "\(yes)")
         XCTAssertEqual(typed, ["hello"])
         for no in [#"{"go":false}"#, #"{"go":1}"#, #"{"go":true} {"go":true}"#, "nonsense"] {
             let heard = converse(request + "\n", replies: [no])

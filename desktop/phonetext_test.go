@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -150,6 +152,8 @@ type phoneMac struct {
 	queued func()
 	// held counts the phone's texts the core said no to on the terminal's queue: nothing typed.
 	held int
+	// broken, if set, is how phone-text fails: the connection to the app, not the app's answer.
+	broken error
 }
 
 // reply sets how phone-text is answered from now on.
@@ -180,6 +184,9 @@ func (m *phoneMac) call(request bridgeRequest) (bridgeAnswer, error) {
 	m.mu.Unlock()
 	switch request.Action {
 	case "phone-text":
+		if m.broken != nil {
+			return bridgeAnswer{}, m.broken
+		}
 		// As the Mac app: the agent's place, then on the terminal's queue the core asked again, right before the words.
 		if !answer.OK {
 			return answer, nil
@@ -374,6 +381,86 @@ func TestAFailureSaysWhatHappened(t *testing.T) {
 			t.Errorf("a Return went: %q", mac.actions())
 		}
 	}
+}
+
+// A failure that can come after the words went (the connection to the app lost, a pane's tool failing as it
+// pastes or sends, a launcher gone once it was told) is a 502 with "may have landed, no Return went": never
+// "Tab not found", which would have the phone put the words back and invite a second send.
+func TestAFailureAfterTheWordsMayHaveLandedAnswers502(t *testing.T) {
+	check := func(t *testing.T, label string, status int, message string) {
+		t.Helper()
+		if status != http.StatusBadGateway || message != pasteUnsaid {
+			t.Errorf("%s: %d %s", label, status, message)
+		}
+	}
+	t.Run("the connection to the Mac app", func(t *testing.T) {
+		for name, broken := range map[string]error{
+			"lost":      errors.New("read unix: connection reset by peer"),
+			"deadline":  os.ErrDeadlineExceeded,
+			"asked two": errors.New("the Mac app asked twice"),
+		} {
+			d, mac := phoneDeck(t)
+			mac.mu.Lock()
+			mac.broken = broken
+			mac.mu.Unlock()
+			status, message := d.TypePhoneText("hello there", "s1", sendIt())
+			check(t, name, status, message)
+			for _, action := range mac.actions() {
+				if strings.HasPrefix(action, "press") {
+					t.Errorf("%s: a Return went: %q", name, mac.actions())
+				}
+			}
+		}
+		// The app's own no, and an agent not in front, still say what they said (above).
+	})
+	t.Run("tmux, WezTerm and kitty", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("fake tools are shell scripts")
+		}
+		dir := t.TempDir()
+		log := filepath.Join(dir, "log")
+		// Each tool takes what it is given, and fails on the paste or send itself.
+		script := "#!/bin/sh\necho \"$0 $*\" >> " + log + "\ncat > /dev/null\ncase \" $* \" in *\" paste-buffer \"*|*\" send-text \"*) exit 1;; esac\nexit 0\n"
+		for _, tool := range []string{"tmux", "wezterm", "kitty"} {
+			if err := os.WriteFile(filepath.Join(dir, tool), []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		saved, settle := host, phoneTextSettle
+		host, phoneTextSettle = nil, time.Millisecond
+		t.Cleanup(func() { host, phoneTextSettle = saved, settle })
+		for id, tab := range map[string]string{"t": "tmux:%1@" + filepath.Join(dir, "sock"), "w": "wezterm:3@" + filepath.Join(dir, "wez"), "k": "kitty:4@unix:" + filepath.Join(dir, "kit")} {
+			d := newTestDeck(t)
+			d.Ingest(map[string]any{"hook_event_name": "Stop", "session_id": id, "cwd": "/work/api"}, "claude", tab, "", 20)
+			status, message := d.TypePhoneText("hello there", id, sendIt())
+			check(t, tab, status, message)
+		}
+		logged, _ := os.ReadFile(log)
+		if strings.Contains(string(logged), "send-keys") || strings.Contains(string(logged), "\r") {
+			t.Errorf("a Return went: %q", logged)
+		}
+		if !strings.Contains(string(logged), "paste-buffer") || strings.Count(string(logged), "send-text") != 2 {
+			t.Errorf("the tools weren't asked as meant: %q", logged)
+		}
+	})
+	t.Run("a launcher gone once it was told", func(t *testing.T) {
+		saved, settle, wait := host, phoneTextSettle, launcherPasteWait
+		host, phoneTextSettle, launcherPasteWait = nil, time.Millisecond, 5*time.Second
+		t.Cleanup(func() { host, phoneTextSettle, launcherPasteWait = saved, settle, wait })
+		d := newTestDeck(t)
+		tab := d.launcherConnected("L1", Claude, "/work/api", "", "")
+		d.Ingest(map[string]any{"hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api"}, "claude", "launcher:L1", "", 20)
+		go func() {
+			command := <-tab.commands
+			if command.PhoneText == "" {
+				return
+			}
+			d.launcherGone("L1", tab) // closed once the words were sent
+		}()
+		status, message := d.TypePhoneText("hello there", "s1", sendIt())
+		check(t, "launcher", status, message)
+	})
 }
 
 // A launcher that doesn't say in time may still paste: the phone is told the words may have landed, and no

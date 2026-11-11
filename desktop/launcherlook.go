@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sync"
@@ -270,7 +271,8 @@ func (d *Deck) pasteIntoLauncher(id, words string) (pasteResult, error) {
 	select {
 	case <-answer:
 	case <-tab.gone:
-		return pasteFailed, errLauncherGone
+		// Gone after the words were sent: they may have landed.
+		return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, errLauncherGone)
 	case <-timer.C:
 		return pasteFailed, errLookTimedOut
 	}

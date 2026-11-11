@@ -570,7 +570,8 @@ func (t commandTab) phoneText(words string, lines bool) (pasteResult, error) {
 		if !lines {
 			if err := t.run("paste-buffer", "-p", "-d", "-b", buffer, "-t", t.id); err != nil {
 				_ = t.run("delete-buffer", "-b", buffer) // -d only deletes after a paste
-				return pasteFailed, err
+				// tmux may have pasted before it failed.
+				return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, err)
 			}
 			return pasteDone, nil
 		}
@@ -590,11 +591,20 @@ func (t commandTab) phoneText(words string, lines bool) (pasteResult, error) {
 		}
 		return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, err)
 	case "wezterm":
-		return pasteDone, t.run("send-text", "--pane-id", t.id, "--", words)
+		return sentText(t.run("send-text", "--pane-id", t.id, "--", words))
 	case "kitty":
-		return pasteDone, t.run("send-text", "--match", "id:"+t.id, "--", kittyEscaped(words))
+		return sentText(t.run("send-text", "--match", "id:"+t.id, "--", kittyEscaped(words)))
 	}
 	return pasteFailed, errUnsupported
+}
+
+// sentText is a send-text's outcome as the phone's text takes it: an error may have come after some of the
+// words went, so it is a paste that failed to say, not a tab that wasn't there.
+func sentText(err error) (pasteResult, error) {
+	if err != nil {
+		return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, err)
+	}
+	return pasteDone, nil
 }
 
 // screen is the pane's visible lines, as text, without its colours.

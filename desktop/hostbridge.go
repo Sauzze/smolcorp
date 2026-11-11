@@ -338,7 +338,14 @@ func hostResolveBots(h hostBridge, bots []bridgeBot) ([]*botResolution, error) {
 func hostPhoneText(h hostBridge, tab string, agent Agent, words string, stillFree func() bool) (pasteResult, error) {
 	answer, err := ask(h, bridgeRequest{Action: "phone-text", Tab: tab, Agent: agent, Text: words, stillFree: stillFree})
 	if err != nil {
-		return pasteFailed, placeError(answer, err)
+		err = placeError(answer, err)
+		// Only the app's own no, an agent not in front and a terminal it can't drive are known to have typed
+		// nothing. Any other failure (the connection lost, a deadline, asked twice) may have come after the words went.
+		var refusal appRefusal
+		if answer.Place != "" || errors.Is(err, errUnsupported) || errors.As(err, &refusal) {
+			return pasteFailed, err
+		}
+		return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, err)
 	}
 	switch answer.Pasted {
 	case "pasted":
