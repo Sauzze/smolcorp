@@ -44,25 +44,33 @@ func closedTabs(fake *fakeHost) []bridgeRequest {
 	return closes
 }
 
-func TestTheGMFiresAHireInAWindowOfItsOwnByClosingItsTab(t *testing.T) {
+// RHIRE2 B1: the GM's and Setup's fires never close the tab of a hire in a window of its own, even its own session's
+// there: found by its folder alone, it can't be told from the owner's. Nothing is asked of the Mac app. With force,
+// it's marked fired, its window left open with its desk, and its worktree kept; the answer says so.
+func TestTheGMAndSetupNeverCloseTheTabOfAHireInAWindowOfItsOwn(t *testing.T) {
 	d, g, fake := ownWindowHire(t, "tty:/dev/ttys009", "fired")
-	if w := g.fire(t, true, nil); w.Code != http.StatusNoContent {
-		t.Fatalf("fire: %d %q", w.Code, w.Body)
+	refusedUnchanged(t, g.fire(t, true, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
+	refusedUnchanged(t, g.fire(t, false, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
+	w := g.fire(t, true, map[string]any{"force": true})
+	var said map[string]any
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &said) != nil ||
+		said["note"] != "Rex is marked fired, but Smolcorp couldn't find its window, so it wasn't closed. If it's still open, close it there." {
+		t.Fatalf("fire with force: %d %q", w.Code, w.Body)
 	}
-	if closes := closedTabs(fake); len(closes) != 1 || closes[0].Tab != "tty:/dev/ttys009" || closes[0].Agent != Claude || !closes[0].Strict {
-		t.Errorf("the app was asked %+v, want one close of its tab", fake.asked)
+	if len(fake.asked) != 0 {
+		t.Errorf("the app was asked %+v", fake.asked)
 	}
-	if got := registered(t)[0]; got.State != "fired" || got.Notes != "" {
-		t.Errorf("row %+v, want fired with no note", got)
+	if got := registered(t)[0]; got.State != "fired" {
+		t.Errorf("row %+v, want fired", got)
 	}
 	if _, err := os.Stat(filepath.Join(supportDir, "recaps", g.hire.ID+".md")); err != nil {
 		t.Errorf("no recap: %v", err)
 	}
 	if _, err := os.Stat(g.hire.Worktree); err != nil {
-		t.Errorf("the worktree went though nobody asked: %v", err)
+		t.Errorf("the worktree went: %v", err)
 	}
-	if d.sessions.Get("rex-1") != nil {
-		t.Error("its session is still on a desk")
+	if d.sessions.Get("rex-1") == nil {
+		t.Error("its desk went, though its window wasn't closed")
 	}
 	if len(g.asked()) != 0 {
 		t.Errorf("tmux was asked %q", g.asked())
@@ -82,9 +90,9 @@ func TestAHireInAWindowOfItsOwnKeepsTheRefusalsThatNeedNoWindow(t *testing.T) {
 		}
 	})
 	t.Run("not stopped", func(t *testing.T) {
-		_, g, _ := ownWindowHire(t, "tty:/dev/ttys009", "not-stopped")
-		if w := g.fire(t, true, map[string]any{"force": true}); w.Code != http.StatusConflict || w.Body.String() != "Couldn't stop the agent, so its tab is left open." {
-			t.Fatalf("fire: %d %q", w.Code, w.Body)
+		d, _, _ := ownWindowHire(t, "tty:/dev/ttys009", "not-stopped")
+		if status, message := d.Perform("fire", "rex-1", url.Values{"force": {"1"}}); status != http.StatusConflict || message != "Couldn't stop the agent, so its tab is left open." {
+			t.Fatalf("the office's fire: %d %q", status, message)
 		}
 		if registered(t)[0].State != "working" {
 			t.Errorf("row %+v, want it still working", registered(t)[0])
@@ -109,7 +117,7 @@ func refusedUnchanged(t *testing.T, w *httptest.ResponseRecorder, fake *fakeHost
 	}
 }
 
-// With no tab to close (none in its worktree, the tab has gone, or only its shell is left there), nothing changes
+// The GM's and Setup's fire, whatever is in its worktree (no session, or one on a tab that has gone): nothing changes
 // and it says so. With force (RHIRE B2) it's marked fired, but the answer, a 200, says its window wasn't closed, and
 // its worktree stays even though its removal was asked: the hire may still be at work in it.
 func TestAHireInAWindowOfItsOwnWithNoTabIsMarkedFiredOnlyWithForceAndSaysSo(t *testing.T) {
@@ -132,26 +140,34 @@ func TestAHireInAWindowOfItsOwnWithNoTabIsMarkedFiredOnlyWithForceAndSaysSo(t *t
 			if _, err := os.Stat(g.hire.Worktree); err != nil {
 				t.Errorf("the clean worktree of a hire maybe still at work went: %v", err)
 			}
-			if c.tab == "" && len(closedTabs(fake)) != 0 {
-				t.Errorf("closed %+v with no tab", fake.asked)
+			if len(fake.asked) != 0 {
+				t.Errorf("the app was asked %+v", fake.asked)
 			}
 		})
 	}
 }
 
 // RHIRE B1 case 1: a session left on a tab whose agent has gone (the hire's tab closed by hand, its tty given to a
-// new tab of the owner's, a shell at its prompt) is closed only strictly, which the Mac app answers gone.
+// new tab of the owner's, a shell at its prompt) is closed by the office's fire only strictly, which the Mac app
+// answers gone.
 func TestAStaleSessionOnATabWithOnlyAShellIsNeverClosed(t *testing.T) {
-	_, g, fake := ownWindowHire(t, "tty:/dev/ttys005", "gone")
-	refusedUnchanged(t, g.fire(t, true, nil), nil, http.StatusConflict, ownWindowNotFoundRex)
+	d, _, fake := ownWindowHire(t, "tty:/dev/ttys005", "gone")
+	if status, message := d.Perform("fire", "rex-1", url.Values{}); status != http.StatusConflict || message != ownWindowNotFoundRex {
+		t.Fatalf("the office's fire: %d %q", status, message)
+	}
+	if registered(t)[0].State != "working" {
+		t.Errorf("row %+v, want it still working", registered(t)[0])
+	}
 	if len(fake.asked) != 1 || fake.asked[0].Action != "close" || !fake.asked[0].Strict {
 		t.Errorf("the app was asked %+v, want one strict close", fake.asked)
 	}
 }
 
-// RHIRE B1 case 2: the owner's own session alone in the worktree is never taken for the hire's by the GM or Setup:
-// one that started before the hire, or one after the hire's own session there ended. The office's fire of that desk,
-// where the owner points at it, still closes it.
+// RHIRE B1 case 2 and RHIRE2 B1: the owner's own session alone in the worktree is never taken for the hire's by the
+// GM or Setup, and nothing is asked of the Mac app: one that started before the hire; one after the hire's own
+// session there ended; one first heard after the core restarted, the hire unheard since (probe 1); one on the hire's
+// tty used again, its session dropped (probe 2). The office's fire of that desk, where the owner points at it, still
+// closes it.
 func TestTheOwnersSessionAloneInTheWorktreeIsNeverClosedByTheGM(t *testing.T) {
 	t.Run("started before the hire", func(t *testing.T) {
 		d, g, fake := ownWindowHire(t, "", "fired")
@@ -170,15 +186,36 @@ func TestTheOwnersSessionAloneInTheWorktreeIsNeverClosedByTheGM(t *testing.T) {
 			"cwd": g.hire.Worktree}, Claude, "tty:/dev/ttys004", "", nowMillis()+1)
 		refusedUnchanged(t, g.fire(t, true, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
 	})
+	t.Run("first heard after a restart", func(t *testing.T) {
+		d, g, fake := ownWindowHire(t, "", "fired")
+		d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "owner-1",
+			"cwd": g.hire.Worktree}, Claude, "tty:/dev/ttys004", "", nowMillis())
+		refusedUnchanged(t, g.fire(t, true, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
+		refusedUnchanged(t, g.fire(t, false, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
+		if len(fake.asked) != 0 {
+			t.Errorf("the app was asked %+v", fake.asked)
+		}
+	})
+	t.Run("on a tty used again", func(t *testing.T) {
+		d, g, fake := ownWindowHire(t, "tty:/dev/ttys009", "fired")
+		d.sessions.Prune(func(tab string) bool { return tab != "tty:/dev/ttys009" }, nowMillis())
+		d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "owner-1",
+			"cwd": g.hire.Worktree}, Claude, "tty:/dev/ttys009", "", nowMillis()+1)
+		refusedUnchanged(t, g.fire(t, true, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
+		refusedUnchanged(t, g.fire(t, false, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
+		if len(fake.asked) != 0 {
+			t.Errorf("the app was asked %+v", fake.asked)
+		}
+	})
 }
 
 // RHIRE N3: the Mac app not answering isn't a window that has gone: nothing is changed, even with force.
 func TestABridgeFailureIsNotTakenForAWindowThatHasGone(t *testing.T) {
-	_, g, fake := ownWindowHire(t, "tty:/dev/ttys009", "fired")
+	d, _, fake := ownWindowHire(t, "tty:/dev/ttys009", "fired")
 	fake.err = errors.New("the Mac app stopped answering part way")
-	w := g.fire(t, true, map[string]any{"force": true})
-	if w.Code != http.StatusBadGateway || w.Body.String() != "The Mac app didn't close Rex's window, so nothing was changed. Try again in a moment." {
-		t.Fatalf("fire: %d %q", w.Code, w.Body)
+	status, message := d.Perform("fire", "rex-1", url.Values{"force": {"1"}})
+	if status != http.StatusBadGateway || message != "The Mac app didn't close Rex's window, so nothing was changed. Try again in a moment." {
+		t.Fatalf("the office's fire: %d %q", status, message)
 	}
 	if registered(t)[0].State != "working" {
 		t.Errorf("row %+v, want it still working", registered(t)[0])
@@ -201,15 +238,17 @@ func TestAHireInAWindowOfItsOwnStillStartingCanBeFired(t *testing.T) {
 // RHIRE N8 (testCopyKeepsTab once FXWTC is merged): a test copy never closes such a hire's tab, the owner's own,
 // even with force; nothing is changed.
 func TestATestCopyNeverClosesTheTabOfAHireInAWindowOfItsOwn(t *testing.T) {
-	_, g, fake := ownWindowHire(t, "tty:/dev/ttys009", "fired")
+	d, _, fake := ownWindowHire(t, "tty:/dev/ttys009", "fired")
 	saved := Port
 	t.Cleanup(func() { Port = saved })
 	Port = 7799
 	if testCopyPort() == 0 {
 		t.Fatal("not a test copy's port")
 	}
-	refusedUnchanged(t, g.fire(t, true, map[string]any{"force": true}), fake, http.StatusConflict, ownWindowTestCopy)
-	if len(fake.asked) != 0 {
+	if status, message := d.Perform("fire", "rex-1", url.Values{"force": {"1"}}); status != http.StatusConflict || message != ownWindowTestCopy {
+		t.Fatalf("the office's fire: %d %q", status, message)
+	}
+	if registered(t)[0].State != "working" || len(fake.asked) != 0 {
 		t.Errorf("the app was asked %+v", fake.asked)
 	}
 }
@@ -246,27 +285,58 @@ func TestATabWhoseAgentHasLeftItIsDroppedAtTheSecondLook(t *testing.T) {
 	}
 }
 
-func TestRemovingTheWorktreeOfAHireInAWindowOfItsOwnGoesAsTheEnginesDoes(t *testing.T) {
-	_, g, _ := ownWindowHire(t, "tty:/dev/ttys009", "fired")
-	if w := g.fire(t, true, map[string]any{"removeWorktree": true}); w.Code != http.StatusNoContent {
-		t.Fatalf("fire: %d %q", w.Code, w.Body)
+// hostAnswering is a Mac app stand-in that answers each request as told.
+type hostAnswering func(bridgeRequest) (bridgeAnswer, error)
+
+func (f hostAnswering) call(request bridgeRequest) (bridgeAnswer, error) { return f(request) }
+
+// RHIRE2 nit 2: the second look is about a session, not a tab. One that takes the tab while the Mac app looks (its
+// tty given to a new tab, a new agent started there) keeps its desk; the one judged gone goes.
+func TestASessionThatTookTheTabWhileTheMacAppLookedKeepsItsDesk(t *testing.T) {
+	d := newTestDeck(t)
+	looks := 0
+	saved := host
+	t.Cleanup(func() { host = saved })
+	host = hostAnswering(func(asked bridgeRequest) (bridgeAnswer, error) {
+		if looks++; looks == 2 {
+			d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s-2", "cwd": t.TempDir()},
+				Claude, "tty:/dev/ttys005", "", nowMillis())
+		}
+		return bridgeAnswer{OK: true, Ended: []bool{true}}, nil
+	})
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s-1", "cwd": t.TempDir()},
+		Claude, "tty:/dev/ttys005", "", nowMillis())
+	d.pruneClosedTabs()
+	d.pruneClosedTabs()
+	if d.sessions.Get("s-2") == nil {
+		t.Error("the session that took the tab during the look lost its desk")
 	}
-	if _, err := os.Stat(g.hire.Worktree); !os.IsNotExist(err) {
-		t.Errorf("the clean worktree is still there: %v", err)
+	if d.sessions.Get("s-1") != nil {
+		t.Error("the session whose agent left its tab twice in a row stays")
 	}
 }
 
-// The office's fire of its desk: the same, the worktree kept, as the Mac's office keeps it.
+// The office's fire of its desk, where the owner points at its tab: closed strictly through the Mac app, its recap
+// written, marked fired, its desk gone and its worktree kept, as the Mac's office keeps it.
 func TestTheOfficeFiresAHireInAWindowOfItsOwnFromItsDesk(t *testing.T) {
 	d, g, fake := ownWindowHire(t, "tty:/dev/ttys009", "fired")
 	if status, message := d.Perform("fire", "rex-1", url.Values{}); status != http.StatusNoContent {
 		t.Fatalf("fire: %d %q", status, message)
 	}
-	if len(closedTabs(fake)) != 1 || registered(t)[0].State != "fired" {
-		t.Errorf("closed %+v, row %+v", fake.asked, registered(t)[0])
+	if closes := closedTabs(fake); len(closes) != 1 || closes[0].Tab != "tty:/dev/ttys009" || closes[0].Agent != Claude || !closes[0].Strict {
+		t.Errorf("the app was asked %+v, want one strict close of its tab", fake.asked)
+	}
+	if got := registered(t)[0]; got.State != "fired" || got.Notes != "" {
+		t.Errorf("row %+v, want fired with no note", got)
+	}
+	if _, err := os.Stat(filepath.Join(supportDir, "recaps", g.hire.ID+".md")); err != nil {
+		t.Errorf("no recap: %v", err)
 	}
 	if _, err := os.Stat(g.hire.Worktree); err != nil {
 		t.Errorf("the worktree went: %v", err)
+	}
+	if d.sessions.Get("rex-1") != nil {
+		t.Error("its session is still on a desk")
 	}
 }
 
@@ -318,6 +388,58 @@ const res = (status, body) => ({ status, json: async () => body });
 	}
 	want := `["","Rex is marked fired, but Smolcorp couldn't find its window, so it wasn't closed. If it's still open, close it there.",` +
 		`"Rex is marked fired, but… Its worktree (/w/rex) was kept: its window wasn't closed, so it may still be at work in it."]`
+	if got := strings.TrimSpace(string(out)); got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+// RHIRE2 nit 3: the office says what a fire's 200 says (a hire marked fired with its window left open), as Setup does,
+// and takes it for a yes, so the agent carries its box out; run in node on deck.html's own send and fire. Without node
+// the test is skipped.
+func TestTheOfficeSaysWhenAFireClosedNoWindow(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: deck.html's fire can't be run")
+	}
+	data, err := os.ReadFile(filepath.Join("..", "Resources", "web", "deck.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(data)
+	part := func(from, to string) string {
+		start := strings.Index(page, from)
+		end := strings.Index(page[max(start, 0):], to)
+		if start < 0 || end < 0 {
+			t.Fatalf("deck.html has no %q", from)
+		}
+		return page[start : start+end+len(to)]
+	}
+	office, err := os.ReadFile(filepath.Join("..", "Resources", "web", "office.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(office), "return Promise.resolve(on.fire?.(id)).then((fired) => {") ||
+		!strings.Contains(string(office), "if (fired && person) person.isFired = true;") {
+		t.Error("office.js no longer carries a fired agent out on the deck's yes")
+	}
+	script := part("  async function send(pathname, params, signal, said) {", "\n  }\n") +
+		"const on = {\n" + part("    async fire(id) {", "\n    },\n") + `};
+let preview = false, flashed = [], status = 0, text = '';
+const flash = (said) => flashed.push(said), tick = () => {}, unpaired = () => {}, timeLimit = () => undefined;
+const INPUT_ACTIONS = new Set(), INPUT_WAIT = 0, NO_ANSWER = 'no answer';
+const post = async () => ({ status, ok: status >= 200 && status < 300, text: async () => text });
+(async () => {
+  const fired = [];
+  for ([status, text] of [[204, ''], [200, "Rex is marked fired, but Smolcorp couldn't find its window, so it wasn't closed. If it's still open, close it there."], [409, 'Rex runs in a window of its own…']]) {
+    fired.push(await on.fire('rex-1'));
+  }
+  console.log(JSON.stringify({ fired, flashed }));
+})();`
+	out, err := exec.Command(node, "-e", script).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
+	}
+	want := `{"fired":[true,true,false],"flashed":["Rex is marked fired, but Smolcorp couldn't find its window, so it wasn't closed. If it's still open, close it there.","Rex runs in a window of its own…"]}`
 	if got := strings.TrimSpace(string(out)); got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}

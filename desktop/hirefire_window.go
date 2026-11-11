@@ -9,16 +9,16 @@ import (
 
 // Fire, for a hire in a window of its own, not in tmux: one the Mac's Swift engine made in a Terminal tab, 1.24's
 // default (hireInTmux off and no agent windows in the background), as its Deck.fire and HireDesk.settle did. First
-// the refusals that need no look at a window (gone, changes nobody committed unless force); then its tab is closed
-// through the Mac app, strictly (only with its agent in front there: a tab with only its shell left may be someone
-// else's on a tty used again); and only once it has closed, its worktree goes when that was asked and it's clean,
-// its recap is written and it is marked fired.
-// Its tab is the one session working in its worktree; from the GM or Setup, only one that started since the hire
-// did, with no other tab in that worktree since (the office's fire, where the owner points at the tab, needs
-// neither). A hire without a worktree can't be told from the owner's own session in that folder, and one whose tab
-// has gone has nothing to close: then nothing is changed, and the answer says so. Fired again with force, it is
-// marked fired, its worktree kept, and the answer says its window wasn't closed. A test copy never closes one: its
-// tab is the owner's own.
+// the refusals that need no look at a window (gone, changes nobody committed unless force); then, from the office's
+// desk alone, where the owner points at it, its tab is closed through the Mac app, strictly (only with its agent in
+// front there: a tab with only its shell left may be someone else's on a tty used again); and only once it has
+// closed, its recap is written and it is marked fired, its worktree kept, as the Mac's office keeps it.
+// The GM's and Setup's fires never close a tab (RHIRE2 B1). They could only find it by its folder, and the one
+// session in the hire's worktree may be the owner's own Claude Code, opened there to look at the work, or the GM's:
+// what this core has heard since it started can't tell it from the hire's, whose own session may never be heard
+// again after an upgrade. They answer that the window can't be found and nothing was changed; fired again with force,
+// it is marked fired, its worktree kept, and the answer says its window wasn't closed. A test copy never closes one:
+// its tab is the owner's own.
 // Only the Mac has such hires: on Linux every hire is on its own tmux server, and Windows' are its launcher's.
 
 // inOwnWindow says whether h is a hire in a window of its own: no tmux server, no launcher and not in T3 Code.
@@ -42,22 +42,18 @@ const ownWindowKept = "Its window wasn't closed, so it may still be at work in i
 // FXWTC is merged).
 const ownWindowTestCopy = "This is a test copy of Smolcorp: it never closes a terminal's tab, and that hire's window is your own. Nothing was changed."
 
-// ownWindowTab is the tab of h's session: the one session working in its worktree, else "". sure is the GM's and
-// Setup's: the tab is matched by its folder alone, so the session must also have started at or after the hire, and
-// no other tab must have worked in that worktree since (an owner's session there, the hire's own having ended).
-func (d *Deck) ownWindowTab(h Hire, sure bool) (tab string, agent Agent) {
+// ownWindowTab is the tab of h's session: the one session working in its worktree, else "". Only the office's fire,
+// where the owner points at the tab, goes by it.
+func (d *Deck) ownWindowTab(h Hire) (tab string, agent Agent) {
 	if h.Worktree == "" {
 		return "", ""
 	}
 	tree := physical(h.Worktree)
-	in := func(folder, project string) bool {
-		return folder != "" && physical(folder) == tree || project != "" && physical(project) == tree
-	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var found *Session
 	for _, s := range d.sessions.All() {
-		if in(s.Folder, s.Project) {
+		if s.Folder != "" && physical(s.Folder) == tree || s.Project != "" && physical(s.Project) == tree {
 			if found != nil {
 				return "", "" // two in one worktree: neither is closed on a guess
 			}
@@ -66,16 +62,6 @@ func (d *Deck) ownWindowTab(h Hire, sure bool) (tab string, agent Agent) {
 	}
 	if found == nil {
 		return "", ""
-	}
-	if sure {
-		if found.StartedAt < h.Started {
-			return "", ""
-		}
-		for _, ended := range d.sessions.EndedWhere() {
-			if ended.Tab != found.Tab && ended.EndedAt >= h.Started && in(ended.Folder, ended.Project) {
-				return "", ""
-			}
-		}
 	}
 	return found.Tab, found.Agent
 }
@@ -181,7 +167,7 @@ func (d *Deck) fireOwnWindowTab(tab string, force bool) (status int, message str
 		if !inOwnWindow(h) || h.State == "fired" || h.State == "failed" {
 			continue
 		}
-		mine, agent := d.ownWindowTab(h, false) // the owner points at this tab
+		mine, agent := d.ownWindowTab(h) // the owner points at this tab
 		if mine != tab {
 			continue
 		}

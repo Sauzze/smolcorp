@@ -570,27 +570,40 @@ final class HostBridge {
     }
 
     /// Whether each tab's agent has left it, for the core to drop the desks of tabs closed in the terminals only this
-    /// app drives (FXHIRE B1 b, as the Swift engine's `Deck.pruneClosedPanes`): `tabs` and `agents` side by side,
-    /// answered in order, true only when it's known. Read only (`ended`): nothing is signalled, nothing closed.
+    /// app drives (FXHIRE B1 b, as the Swift engine's `Deck.pruneClosedTabs` and `pruneClosedPanes`): `tabs` and
+    /// `agents` side by side, answered in order, true only when it's known. Read only (`openTTYs`, `ended`): nothing is
+    /// signalled, nothing closed.
     private static func agentsEnded(_ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
         guard let tabs = strings(request["tabs"], most: tabsMost), let names = strings(request["agents"], most: tabsMost),
               tabs.count == names.count else { return refused("Not a list of tabs and their agents.") }
         let asked = zip(tabs, names).map { (TabAddress($0), Agent(rawValue: $1)) }
-        switch run(on: actions.looking, until: deadline, {
-            asked.map { tab, agent in tab.flatMap { tab in agent.map { actions.ended(tab, $0, actions.testCopy) } } ?? false }
+        switch run(on: actions.looking, until: deadline, { () -> [Bool] in
+            // A Terminal tab is asked of `ps` only once it has left Terminal's own tab list, as
+            // `Deck.pruneClosedTabs` did: Terminal asked once for all. Unknown is not gone, and a test copy never
+            // asks Terminal (an Automation prompt on the owner's screen), so its Terminal tabs never go this way.
+            let open = !actions.testCopy && asked.contains { $0.0?.kind == "tty" } ? actions.openTTYs() : nil
+            return asked.map { tab, agent in
+                guard let tab, let agent, tab.kind != "tty" || open.map({ !$0.contains(tab.id) }) == true else { return false }
+                return actions.ended(tab, agent, actions.testCopy)
+            }
         }) {
         case .done(let ended): return ["ok": true, "ended": ended]
         case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
         }
     }
 
-    /// Whether `agent` has left `tab`, as `Deck.pruneClosedPanes` judges it: a Terminal tab by `ps` alone (its
-    /// agent no longer on its tty); another app's tab closed, or open with its agent gone from its tty. Unknown is
-    /// not gone. A test copy never asks iTerm2 or Ghostty (an Automation prompt on the owner's screen): `ps` only.
+    /// Whether `agent` has left `tab`, as the Swift engine's `Deck.pruneClosedTabs` and `pruneClosedPanes` judge
+    /// it: a Terminal tab (already off Terminal's tab list: `agentsEnded`) by `ps`, its agent no longer on its tty;
+    /// another app's tab closed, or open with its agent gone from its tty; a tab Smolcorp can only watch, its address
+    /// a tty (`other:<tty>`), by `ps`. Unknown is not gone. A test copy never asks iTerm2 or Ghostty (an Automation
+    /// prompt on the owner's screen): `ps` only.
     static func agentEnded(_ tab: TabAddress, _ agent: Agent, testCopy: Bool) -> Bool {
         if tab.kind == "tty" { return Terminal.isRunning(agent, on: tab.id) == false }
-        guard !testCopy, let driver = Terminals.driver(for: tab) else { return false }
-        return driver.isOpen(tab) == false || driver.tty(of: tab).flatMap { Terminal.isRunning(agent, on: $0) } == false
+        if !testCopy, let driver = Terminals.driver(for: tab) {
+            return driver.isOpen(tab) == false || driver.tty(of: tab).flatMap { Terminal.isRunning(agent, on: $0) } == false
+        }
+        guard tab.kind == "other", let tty = Terminals.ttyInAddress(of: tab.text) else { return false }
+        return Terminal.isRunning(agent, on: tty) == false
     }
 
     /// A Claude Code session's id as T3 Code resumes one: 8-4-4-4-12 hex digits, either case.
@@ -1074,6 +1087,8 @@ final class HostBridge {
         var fire: (TabAddress, Agent) -> Terminal.Fired?
         /// Whether the agent has left its tab, known for sure (`agentEnded`), given whether this is a test copy.
         var ended: (TabAddress, Agent, _ testCopy: Bool) -> Bool = HostBridge.agentEnded
+        /// The ttys of Terminal's open tabs (`Terminal.openTTYs`), nil if it couldn't be asked: for `agents-ended`.
+        var openTTYs: () -> Set<String>? = { Terminal.openTTYs() }
         var hires: URL
         var open: (_ terminal: String, _ folder: String, _ script: String) -> Openers.Opened?
         /// The ids of `Openers.choices` installed on this Mac.

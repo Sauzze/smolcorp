@@ -64,6 +64,7 @@ final class HostBridgeTests: XCTestCase {
         actions.driver = { _ in nil }
         actions.place = { _, _ in nil }
         actions.screen = { _ in nil }
+        actions.openTTYs = { [] } // Terminal with no tab open: its tab list is never read
         // The team's registry, as the core keeps it: the fixture's hire, and the one these tests ask about.
         actions.openWorktrees = { ["/Users/ada/repo-hires/ada-abcdef", "/Users/ada/wt"] }
         return actions
@@ -188,6 +189,38 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(opens, [], "a test copy never asks another terminal app")
         XCTAssertTrue(HostBridge.agentEnded(iterm, .claude, testCopy: false), "closed")
         XCTAssertEqual(opens, ["iterm:AB12"])
+    }
+
+    /// RHIRE2 nit 1, as the Swift engine's `Deck.pruneClosedTabs`: a Terminal tab is asked of `ps` only once it has left
+    /// Terminal's own tab list, read once for all; unknown is not gone, and a test copy never reads that list. A tab
+    /// Smolcorp can only watch, its address a tty, is judged by `ps` (`pruneClosedPanes`), in a test copy too.
+    func testATerminalTabIsAskedOfPsOnlyOnceTerminalNoLongerListsIt() {
+        var mac = actions
+        var looked: [String] = [], listed = 0
+        mac.ended = { tab, _, _ in looked.append(tab.text); return true }
+        mac.openTTYs = { listed += 1; return ["/dev/ttys004"] }
+        func ask() -> [Bool]? {
+            let request: [String: Any] = ["action": "agents-ended", "token": token,
+                                          "tabs": ["tty:/dev/ttys004", "tty:/dev/ttys005", "iterm:AB12"], "agents": ["claude", "claude", "codex"]]
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: mac)["ended"] as? [Bool]
+        }
+        XCTAssertEqual(ask(), [false, true, true], "ttys004 is still one of Terminal's tabs: its agent is kept, whatever ps says")
+        XCTAssertEqual(looked, ["tty:/dev/ttys005", "iterm:AB12"])
+        XCTAssertEqual(listed, 1, "Terminal is asked once for all its tabs")
+        looked = []
+        mac.openTTYs = { listed += 1; return nil }
+        XCTAssertEqual(ask(), [false, false, true], "Terminal not answering: unknown is not gone")
+        XCTAssertEqual(looked, ["iterm:AB12"])
+        looked = []
+        listed = 0
+        mac.testCopy = true
+        XCTAssertEqual(ask(), [false, false, true])
+        XCTAssertEqual(listed, 0, "a test copy never reads Terminal's tab list")
+        XCTAssertEqual(looked, ["iterm:AB12"])
+
+        // Nothing runs on a tty no tab has: an agent there has left it, by ps alone (no other app asked).
+        XCTAssertTrue(HostBridge.agentEnded(TabAddress("other:/dev/ttys987")!, .claude, testCopy: true))
+        XCTAssertFalse(HostBridge.agentEnded(TabAddress("tmux:%3@/tmp/tmux-501/default")!, .claude, testCopy: true), "a pane is no tty: unknown")
     }
 
     /// The core gives up at 20 s: an action that hasn't started by the bridge's deadline is never run.

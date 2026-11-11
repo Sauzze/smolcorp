@@ -88,8 +88,9 @@ type Deck struct {
 	sessionsFile string
 	// Whether the folder picker is open, from setup.
 	picking bool
-	// The tabs only the Mac app drives whose agent it last said had left them: gone at a second look in a row.
-	agentLeft map[string]bool
+	// The sessions on tabs only the Mac app drives whose agent it last said had left them, by id, to that tab: gone
+	// at a second look in a row.
+	agentLeft map[string]string
 	// Whether music is playing, for the office's jukebox, when it can be told.
 	playing *bool
 	// This computer's output volume, for the jukebox's volume bar, nil where
@@ -1256,19 +1257,19 @@ func (d *Deck) tab(name string) Tab {
 func (d *Deck) pruneClosedTabs() {
 	d.mu.Lock()
 	panes := map[string]commandTab{}
-	var appTabs []string
+	var ids, appTabs []string
 	var agents []Agent
 	for _, s := range d.sessions.All() {
 		tab := d.tab(s.Tab)
 		if pane, ok := paneOf(tab); ok {
 			panes[s.Tab] = pane
 		} else if _, ok := tab.(macTab); ok {
-			appTabs, agents = append(appTabs, s.Tab), append(agents, s.Agent)
+			ids, appTabs, agents = append(ids, s.ID), append(appTabs, s.Tab), append(agents, s.Agent)
 		}
 	}
 	h := host
 	d.mu.Unlock()
-	d.pruneAgentsLeft(h, appTabs, agents)
+	d.pruneAgentsLeft(h, ids, appTabs, agents)
 
 	gone := map[string]bool{}
 	for name, pane := range panes {
@@ -1287,7 +1288,9 @@ func (d *Deck) pruneClosedTabs() {
 }
 
 // pruneAgentsLeft is pruneClosedTabs' look at the tabs only the Mac app drives: read only, and unknown is not gone.
-func (d *Deck) pruneAgentsLeft(h hostBridge, tabs []string, agents []Agent) {
+// ids are the sessions on tabs, by which they're judged and dropped: one that has taken a tab between the look and
+// the drop is another session, and stays.
+func (d *Deck) pruneAgentsLeft(h hostBridge, ids, tabs []string, agents []Agent) {
 	if h == nil || len(tabs) == 0 {
 		d.mu.Lock()
 		d.agentLeft = nil
@@ -1300,18 +1303,18 @@ func (d *Deck) pruneAgentsLeft(h hostBridge, tabs []string, agents []Agent) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	left, gone := map[string]bool{}, map[string]bool{}
-	for i, tab := range tabs {
+	left, gone := map[string]string{}, map[string]string{}
+	for i, id := range ids {
 		switch {
 		case !ended[i]:
-		case d.agentLeft[tab]:
-			gone[tab] = true // seen twice in a row
+		case d.agentLeft[id] == tabs[i]:
+			gone[id] = tabs[i] // seen twice in a row
 		default:
-			left[tab] = true
+			left[id] = tabs[i]
 		}
 	}
 	d.agentLeft = left
-	if d.sessions.Prune(func(name string) bool { return !gone[name] }, nowMillis()) {
+	if d.sessions.PruneIDs(gone, nowMillis()) {
 		d.changed()
 	}
 }

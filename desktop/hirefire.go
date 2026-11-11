@@ -186,8 +186,8 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 // (hirefire_window.go, whose note says it was marked fired with no window closed), and whether a tab's socket is h's own.
 func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (kept, note string, err error) {
 	if inOwnWindow(h) {
-		tab, agent := d.ownWindowTab(h, true)
-		return d.fireOwnWindowHire(h, tab, agent, force, keep)
+		// Its tab is never closed from here: only by folder could it be found, and that may be the owner's (RHIRE2 B1).
+		return d.fireOwnWindowHire(h, "", "", force, keep)
 	}
 	d.mu.Lock()
 	options := d.engine

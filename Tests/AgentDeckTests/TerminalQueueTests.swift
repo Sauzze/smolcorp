@@ -129,7 +129,7 @@ final class TerminalQueueTests: XCTestCase {
         let body = page[dictate.upperBound...].prefix(500)
         XCTAssertTrue(body.contains("post('/dictate', { session }, timeLimit(INPUT_WAIT),"))
         XCTAssertTrue(body.contains("if (res.timedOut) return flash(NO_ANSWER);"))
-        let send = try XCTUnwrap(page.range(of: "async function send(pathname, params, signal) {"))
+        let send = try XCTUnwrap(page.range(of: "async function send(pathname, params, signal, said) {"))
         let sending = page[send.upperBound...].prefix(700)
         XCTAssertTrue(sending.contains("const input = pathname === '/act' && INPUT_ACTIONS.has(params.action);"))
         XCTAssertTrue(sending.contains("signal || (input ? timeLimit(INPUT_WAIT) : undefined)"))

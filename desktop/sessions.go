@@ -185,23 +185,11 @@ type Sessions struct {
 	// Sessions that took another's place in its tab since the deck last
 	// looked, new id to old: the deck gives each the key the old one had.
 	replacements map[string]string
-	// Where each session that has ended (or been dropped) worked, by id, the newest endedWhereMost: the fire of a
-	// hire in a window of its own asks whether another tab worked in its worktree since it was hired.
-	endedWhere map[string]endedSession
 }
-
-// endedSession is where an ended session worked, its tab, and when it started and ended (ms).
-type endedSession struct {
-	Tab, Folder, Project string
-	StartedAt, EndedAt   float64
-}
-
-// endedWhereMost is how many ended sessions' places are kept: far more than a day's.
-const endedWhereMost = 512
 
 func NewSessions() *Sessions {
 	return &Sessions{byID: map[string]*Session{}, endedAt: map[string]float64{}, dropped: map[string]droppedSession{},
-		replacements: map[string]string{}, endedWhere: map[string]endedSession{}}
+		replacements: map[string]string{}}
 }
 
 type droppedSession struct {
@@ -601,18 +589,6 @@ func followDetails(name string, event map[string]any, session *Session, at float
 }
 
 func (s *Sessions) end(id string, at float64) {
-	if session := s.byID[id]; session != nil {
-		s.endedWhere[id] = endedSession{session.Tab, session.Folder, session.Project, session.StartedAt, at}
-		for len(s.endedWhere) > endedWhereMost {
-			oldest := id
-			for other, ended := range s.endedWhere {
-				if ended.EndedAt < s.endedWhere[oldest].EndedAt {
-					oldest = other
-				}
-			}
-			delete(s.endedWhere, oldest)
-		}
-	}
 	delete(s.byID, id)
 	delete(s.dropped, id)
 	s.endedAt[id] = at
@@ -628,15 +604,6 @@ func (s *Sessions) end(id string, at float64) {
 			delete(s.dropped, other)
 		}
 	}
-}
-
-// EndedWhere is where the sessions that have ended worked, as end kept it.
-func (s *Sessions) EndedWhere() []endedSession {
-	all := make([]endedSession, 0, len(s.endedWhere))
-	for _, ended := range s.endedWhere {
-		all = append(all, ended)
-	}
-	return all
 }
 
 // remembered is how long an ended or dropped session is remembered, in ms.
@@ -775,6 +742,19 @@ func (s *Sessions) Prune(alive func(tab string) bool, now float64) bool {
 	changed := false
 	for _, session := range s.All() {
 		if !session.Headless() && !alive(session.Tab) {
+			s.drop(session, now)
+			changed = true
+		}
+	}
+	return changed
+}
+
+// PruneIDs drops the sessions gone names by id, each only while it is still on the tab it was judged on: a session
+// that has taken that tab since is another's, and stays. As for Prune, each is remembered for a while.
+func (s *Sessions) PruneIDs(gone map[string]string, now float64) bool {
+	changed := false
+	for _, session := range s.All() {
+		if tab, ok := gone[session.ID]; ok && session.Tab == tab && !session.Headless() {
 			s.drop(session, now)
 			changed = true
 		}
