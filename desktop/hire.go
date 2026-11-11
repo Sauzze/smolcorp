@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -779,6 +780,11 @@ func openWindow(terminal hireOpener, folder string, command []string) error {
 // showWindow is openWindow, and the record of the window it opened, "" for
 // none: only a terminal the Mac app opens gives one (hirewindows.go).
 func showWindow(terminal hireOpener, folder string, command []string) (string, error) {
+	// A test copy opens no window of the owner's terminal app, whichever way it's asked (RTCH N1): a hire that
+	// would open one fails, saying so; one in tmux (the switch for it, or no terminal) never gets here.
+	if why := testCopyKeepsAway(testCopyKeepsTerminal); why != "" {
+		return "", errors.New(why)
+	}
 	if terminal.open != nil {
 		return terminal.open(folder, command)
 	}

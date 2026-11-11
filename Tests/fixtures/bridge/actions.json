@@ -222,6 +222,11 @@
       "name": "the jukebox's volume set",
       "request": {"action": "volume", "level": 30},
       "answer": {"ok": true}
+    },
+    {
+      "name": "how the Mac writes a short time, for a webhook delivery's",
+      "request": {"action": "time-format"},
+      "answer": {"ok": true, "timeFormat": {"pattern": "h:mm a", "am": "AM", "pm": "PM"}}
     }
   ]
 }

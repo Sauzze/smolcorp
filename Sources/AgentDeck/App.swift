@@ -186,7 +186,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// Smolcorp in the Dock and ⌘-Tab, as a full app, or in the menu bar only,
 /// as setup's Show in Dock says. The menu bar's item is there either way.
 enum Dock {
-    static func policy(showing: Bool) -> NSApplication.ActivationPolicy { showing ? .regular : .accessory }
+    /// A test copy is never in the Dock or ⌘-Tab, whatever its settings say (RTCH N6): the Dock icon would be a
+    /// second Smolcorp beside the one in use.
+    static func policy(showing: Bool, testCopy: Bool = TestCopy.isOn) -> NSApplication.ActivationPolicy {
+        showing && !testCopy ? .regular : .accessory
+    }
 
     /// At once: from the settings window, it stays in front, with the menus
     /// it now has or hasn't; from the browser, Smolcorp stays behind.

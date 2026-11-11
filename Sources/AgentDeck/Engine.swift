@@ -101,7 +101,7 @@ final class GoCore {
         var environment = base.filter { GoCore.inherited.contains($0.key) }
         environment["SMOLCORP_PORT"] = String(port)
         environment["SMOLCORP_TEST_SUPPORT_DIR"] = support.path
-        if base["SMOLCORP_TEST_LISTEN"]?.lowercased() == "lan" { environment["SMOLCORP_TEST_LISTEN"] = "lan" }
+        if TestCopy.wantsLAN(base) { environment["SMOLCORP_TEST_LISTEN"] = "lan" }
         return environment
     }
 

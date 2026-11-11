@@ -144,6 +144,8 @@ type bridgeAnswer struct {
 	Facts *macFacts `json:"facts,omitempty"`
 	// install-check: the checklist's install line, as the app says it (SelfTest.installCheck).
 	Check *check `json:"check,omitempty"`
+	// time-format: how this Mac writes a short time (macclock.go).
+	TimeFormat *macTimeFormat `json:"timeFormat,omitempty"`
 	// keystroke-apps: the list, with the app on it or off it; glossary: the names, checked.
 	Apps  []string `json:"apps,omitempty"`
 	Names []string `json:"names,omitempty"`
@@ -454,6 +456,19 @@ func hostInstallCheck(h hostBridge) (check, error) {
 func hostInstall(h hostBridge) error {
 	_, err := ask(h, bridgeRequest{Action: "install"})
 	return err
+}
+
+// hostTimeFormat is how this Mac writes a short time, asked alone (RWTC N7): a webhook delivery's time needs only
+// that, not the whole facts (running apps, dictation, the terminal command) on the Mac's main queue.
+func hostTimeFormat(h hostBridge) (macTimeFormat, error) {
+	answer, err := ask(h, bridgeRequest{Action: "time-format"})
+	if err == nil && answer.TimeFormat == nil {
+		err = errors.New("the Mac app said nothing of how it writes a time")
+	}
+	if err != nil {
+		return macTimeFormat{}, err
+	}
+	return *answer.TimeFormat, nil
 }
 
 // hostDock shows Smolcorp in the Dock and ⌘-Tab, or in the menu bar only, at once.

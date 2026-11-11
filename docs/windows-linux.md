@@ -88,7 +88,18 @@ within about 15 seconds, with no restart; if it stops, the address is let go.
   you use. It is for tests: the hooks and the launcher read it too, so set it for
   everything that should talk to that copy. That copy listens on this computer
   only (127.0.0.1 and ::1), whatever `"listen"` says, so the firewall never asks
-  about it; `SMOLCORP_TEST_LISTEN=lan` lets it onto every interface, to try a phone.
+  about it; `SMOLCORP_TEST_LISTEN=lan` lets it onto every interface, to try a phone
+  (spaces and capitals don't matter, as on the Mac).
+  Set `SMOLCORP_TEST_SUPPORT_DIR` beside the port to make it a test copy as the Mac
+  means it: its setup says "this test copy" and ticks the hooks line. With the port
+  alone it still listens on this computer only and never writes your agents'
+  settings, but its setup says "Not connected: Smolcorp is on port N". A test copy never
+  brings another app forward: no terminal window or focus, no Accessibility or Settings
+  prompt, no T3 Code, no download page, no firewall change. It types nothing into a tab
+  that isn't one of its own hires' tmux panes (a launcher's included), plays no music,
+  leaves the volume and opening at login alone, and never installs itself. Each says so
+  in a sentence: "This is a test copy…", or with the port alone "Smolcorp on port N
+  never…". On Windows, which has no tmux, such a copy can't hire at all.
 
 ### One Smolcorp at a time
 

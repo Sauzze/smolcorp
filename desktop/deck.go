@@ -319,7 +319,9 @@ func (d *Deck) followMusic() {
 	d.mu.Lock()
 	enabled := d.config.MusicEnabled
 	d.mu.Unlock()
-	if !enabled {
+	// A test copy never asks the music players (on a Mac, an Automation prompt), even with the jukebox on in a
+	// settings file it was given (RWTC N2).
+	if !enabled || testCopyPort() != 0 {
 		return
 	}
 	playing := musicPlaying()
@@ -1291,6 +1293,10 @@ func (d *Deck) pruneGoneAgents() {
 // inTab runs op on the session's tab, on the key worker, and waits for it.
 // A tab you have been shown counts as seen. Called without the lock.
 func (d *Deck) inTab(name string, op func(Tab) error) (int, string) {
+	// On a test copy, nothing in a tab that isn't its own (RWTC N1): each way in says so first, and this keeps any other out.
+	if why := testCopyKeepsTab(name); why != "" {
+		return http.StatusConflict, why
+	}
 	d.mu.Lock()
 	tab := d.tab(name)
 	d.mu.Unlock()
@@ -1333,12 +1339,13 @@ const hiringOff = "Hiring and firing are off. Turn them on in setup, on your com
 
 // What the phone is told elsewhere: in the Mac's words under the Mac app (macWords).
 const (
-	pairCodeRefusal    = "That code isn't valid. Get a new one on your computer."
-	settingsElsewhere  = "Settings open on your computer."
-	t3Elsewhere        = "T3 Code opens on your computer."
-	scrollingOff       = "Scrolling is off. Turn it on in setup, on your computer."
-	buttonTypesNothing = "This button types nothing yet. Set it up in setup, on your computer."
-	hireFolderFirst    = "Choose a folder for new hires in setup, on your computer."
+	pairCodeRefusal     = "That code isn't valid. Get a new one on your computer."
+	settingsElsewhere   = "Settings open on your computer."
+	hireWindowElsewhere = "Hires' windows open on your computer."
+	t3Elsewhere         = "T3 Code opens on your computer."
+	scrollingOff        = "Scrolling is off. Turn it on in setup, on your computer."
+	buttonTypesNothing  = "This button types nothing yet. Set it up in setup, on your computer."
+	hireFolderFirst     = "Choose a folder for new hires in setup, on your computer."
 )
 
 var errAgentGone = errors.New("the agent no longer runs in its pane")
@@ -1477,6 +1484,10 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		return http.StatusNoContent, ""
 	}
 	if action == "music" {
+		// A test copy plays nothing and leaves the volume as it is: they're the owner's (RWTC N2).
+		if why := testCopyKeepsAway(testCopyKeepsMusic); why != "" {
+			return http.StatusConflict, why
+		}
 		key := query.Get("do")
 		if key == "volume" {
 			return d.setMusicLevel(query.Get("level"))
@@ -1520,6 +1531,11 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	if session.Headless() {
 		d.mu.Unlock()
 		return http.StatusConflict, headlessNoControls
+	}
+	// A test copy does nothing in the owner's terminal tabs, only in its own hires' tmux panes (RWTC N1).
+	if why := testCopyKeepsTab(session.Tab); why != "" {
+		d.mu.Unlock()
+		return http.StatusConflict, why
 	}
 	tab, agent, busy := session.Tab, session.Agent, session.IsBusy()
 	// Claude Code ends the turn when its prompt is put away, and no hook says so: see StoppedAsking.
@@ -1721,11 +1737,17 @@ func (d *Deck) releaseMic() (int, string) {
 
 // Focus brings a session's tab forward, as far as its terminal allows.
 func (d *Deck) Focus(id string) (int, string) {
+	// A test copy brings no other app forward (RTCH N1): the Grok app, T3 Code, a terminal, as the Mac's. A desk's
+	// news is seen all the same, as the tap means it was looked at: only the open is left out (RWTC N9).
 	d.mu.Lock()
 	// A cloud bot's desk: its news seen. (The Mac app also brings forward
 	// the app it works in, which is the Mac's only.)
 	if d.cloud.seen(id) {
+		grok := d.mac.host != nil && d.cloud.isGrokApp(id) // the lock is held, as macHost() takes it
 		d.mu.Unlock()
+		if why := testCopyKeepsAway(testCopyKeepsGrok); grok && why != "" {
+			return http.StatusConflict, why
+		}
 		return http.StatusNoContent, ""
 	}
 	d.mu.Unlock()
@@ -1749,6 +1771,9 @@ func (d *Deck) Focus(id string) (int, string) {
 	}
 	if isHeadless(tab) {
 		return http.StatusConflict, headlessNoControls
+	}
+	if why := testCopyKeepsAway(testCopyKeepsTerminal); why != "" {
+		return http.StatusConflict, why
 	}
 	return d.inTab(tab, func(t Tab) error { return t.Focus() })
 }
@@ -1783,7 +1808,8 @@ func (d *Deck) applyQueuedEffort() {
 		}
 		level, tab, agent := session.PendingEffort, d.tab(session.Tab), session.Agent
 		session.PendingEffort = ""
-		if tab == nil {
+		// Nothing typed into a tab a test copy keeps away from (RWTC N1).
+		if tab == nil || testCopyKeepsTab(session.Tab) != "" {
 			continue
 		}
 		// Queued from a goroutine of its own: the lock is held here, and the

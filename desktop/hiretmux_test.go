@@ -424,3 +424,27 @@ func TestHireViewersAreDetachedOnTheirOwnSocketOnly(t *testing.T) {
 		}
 	}
 }
+
+// RWTC N1: only a tmux pane on one of the copy's own hire sockets is its own.
+func TestATabIsATestCopysOwnOnlyAsATmuxPaneOnItsOwnHireSocket(t *testing.T) {
+	isolate(t)
+	onMarkedPort(t, 7799)
+	own := "tmux:%3@" + filepath.Join(supportDir, hireSocketName("abcdef123456", 7799))
+	if why := testCopyKeepsTab(own); why != "" {
+		t.Errorf("its own hire's pane: %q", why)
+	}
+	for _, tab := range []string{"iterm:AB12", "tty:/dev/ttys003", "launcher:L1", "kitty:3@/tmp/kitty", "wezterm:4@/tmp/w", "tmux:%3",
+		"tmux:%3@/tmp/tmux-501/default", "headless:abc", "",
+		"tmux:%3@" + filepath.Join(supportDir, hireSocketName("abcdef123456", 0)),     // the office's own hire
+		"tmux:%3@" + filepath.Join(supportDir, hireSocketName("abcdef123456", 7798)),  // another copy's
+		"tmux:%3@" + filepath.Join(t.TempDir(), hireSocketName("abcdef123456", 7799)), // not in a hire socket folder
+	} {
+		if why := testCopyKeepsTab(tab); why != testCopyKeepsTerminal {
+			t.Errorf("%q: %q", tab, why)
+		}
+	}
+	onDefaultPort(t)
+	if why := testCopyKeepsTab("iterm:AB12"); why != "" {
+		t.Errorf("the office's own: %q", why)
+	}
+}

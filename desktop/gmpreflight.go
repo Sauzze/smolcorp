@@ -234,7 +234,16 @@ func (d *Deck) gmPreflight() preflightReport {
 			add(preflightItem{ID: "signin", Optional: true, Title: "Smolcorp couldn't tell if Claude Code is signed in.",
 				Fix: "You can hire anyway: if your General Manager asks you to sign in, type /login in its window."})
 		}
-		if hooksNotConnected(Claude) != "" {
+		if leavesAgentsAlone() {
+			// A test copy never connects Claude Code (it can't write its settings): no Connect to offer, which would
+			// only end in a 409. Ticked, as the Mac's (GMPreflight.items); a copy that's on another port without being
+			// marked a test copy says it isn't connected, and why (RFXC1a N3).
+			if testCopyMarked() {
+				add(preflightItem{ID: "hooks", OK: true, Title: testCopyHires})
+			} else {
+				add(preflightItem{ID: "hooks", Title: notConnectedOnPort()})
+			}
+		} else if hooksNotConnected(Claude) != "" {
 			add(preflightItem{ID: "hooks", Title: "Claude Code doesn't report to Smolcorp yet, so your General Manager would never reach a desk.",
 				Fix: "Press Connect, then Check again.", Action: &preflightAction{Kind: "fix", Label: "Connect", Fix: fixRepair}, Todo: true})
 		} else {

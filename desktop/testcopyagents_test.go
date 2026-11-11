@@ -92,6 +92,8 @@ func TestATestCopyLeavesYourAgentsSettingsAlone(t *testing.T) {
 	if disconnected {
 		t.Error("a refused disconnect was kept as disconnected")
 	}
+	// Marked a test copy (a support folder beside the port), as the Mac's is.
+	t.Setenv(testSupportVariable, t.TempDir())
 	for _, c := range d.selfTest() {
 		if c.ID == "hooks" && (c.Status != checkOK || c.Fix != "" || !strings.HasPrefix(c.Detail, "Your hires report to this test copy through its own hook.")) {
 			t.Errorf("a test copy's hooks line is %+v, want the Mac's: ticked, with nothing to press", c)

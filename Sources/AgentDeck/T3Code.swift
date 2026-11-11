@@ -167,8 +167,10 @@ enum T3Code {
 
     /// `open`, once at a time for a hire: a second open for the same hire while one runs is a 409. What's
     /// installed is `check`ed once it's this hire's turn. Never on the main thread.
-    static func openOnce(_ hire: FrontDesk.Hire, machine: Machine = Machine(),
+    static func openOnce(_ hire: FrontDesk.Hire, machine: Machine = Machine(), testCopy: Bool = TestCopy.isOn,
                          check: (Machine) -> Status = { status(machine: $0) }) -> Response {
+        // A test copy never brings T3 Code forward (RTCH N1).
+        if let why = TestCopy.refusal(for: .t3Code, testCopy: testCopy) { return .status(409, why) }
         lock.lock()
         let first = opening.insert(hire.id).inserted
         lock.unlock()

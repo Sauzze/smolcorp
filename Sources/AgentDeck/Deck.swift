@@ -195,6 +195,9 @@ final class Deck {
 
     /// The settings the keys are laid out by: the owner's, unless a test gives its own.
     var layoutConfig = Config.shared
+    /// Whether this deck is a test copy's, which does nothing in the owner's terminal tabs and leaves their music
+    /// alone (RWTC N1, N2): `TestCopy.isOn`, unless a test says otherwise.
+    var isTestCopy = TestCopy.isOn
 
     /// `quiet`, for the tests: a deck that restores nothing and runs no timers, bot
     /// search or mail, so its keys can be looked at alone.
@@ -880,7 +883,9 @@ final class Deck {
     }
 
     /// The hires in T3 Code at their desks, as the registry says now.
-    func t3Seated() -> [(session: Session, hire: FrontDesk.Hire)] { t3Desks.seated(frontDesk.hires) }
+    func t3Seated() -> [(session: Session, hire: FrontDesk.Hire)] { t3Desks.seated(frontDesk.hires, seen: t3Seen) }
+    /// What the lane's follow last saw of each T3 hire's thread: `T3Desk.lastSeen`, unless a test says otherwise.
+    var t3Seen: (String) -> T3Desk.Seen? = T3Desk.lastSeen
 
     /// The hire at T3 desk `id`, as the registry says now: nil for any other desk, or one let go since.
     func t3Hire(atDesk id: String) -> FrontDesk.Hire? {
@@ -1227,6 +1232,8 @@ final class Deck {
             return done(.status(204))
         }
         if action == "music" {
+            // A test copy plays nothing and leaves the volume as it is: they're the owner's (RWTC N2).
+            if let why = TestCopy.refusal(for: .music, testCopy: isTestCopy) { return done(.status(409, why)) }
             if query["do"] == "volume" { return done(setVolume(query["level"])) }
             return done(playMusic(query["do"] ?? "playpause"))
         }
@@ -1237,6 +1244,8 @@ final class Deck {
         }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
         guard !session.isHeadless else { return done(.status(409, Deck.headless)) }
+        // A test copy does nothing in the owner's terminal tabs, only in its own hires' tmux panes (RWTC N1).
+        if let why = TestCopy.refusal(forTab: session.tab, testCopy: isTestCopy) { return done(.status(409, why)) }
 
         // Accept and send are both Return. They are separate controls on the
         // phone because they mean different things, as do reject and esc,
@@ -1354,6 +1363,7 @@ final class Deck {
     }
 
     private func fire(_ hire: FrontDesk.Hire?, session: Session?, agent: Agent?, options: HireDesk.FireOptions, done: @escaping (Response) -> Void) {
+        if let session, let why = TestCopy.refusal(forTab: session.tab, testCopy: isTestCopy) { return done(.status(409, why)) }
         let route = session.flatMap { s in terminal(of: s, for: .fire) }
         let tmux = hire.flatMap { $0.tmuxSocket.isEmpty ? nil : HireTmux(socketName: URL(fileURLWithPath: $0.tmuxSocket).lastPathComponent) }
         if hire == nil, route == nil { return done(.status(409, Deck.notHere)) }
@@ -1466,7 +1476,8 @@ final class Deck {
     /// `session`'s tab and the driver for its terminal, if that terminal lets
     /// the deck do `what` there.
     private func terminal(of session: Session, for what: TerminalAbilities) -> (TerminalDriver, TabAddress)? {
-        guard let tab = TabAddress(session.tab), let driver = Terminals.driver(for: tab), driver.abilities.contains(what) else { return nil }
+        // On a test copy, nothing in a tab that isn't its own (RWTC N1): each way in says so first, and this keeps any other out.
+        guard TestCopy.refusal(forTab: session.tab, testCopy: isTestCopy) == nil, let tab = TabAddress(session.tab), let driver = Terminals.driver(for: tab), driver.abilities.contains(what) else { return nil }
         return (driver, tab)
     }
 
@@ -1636,7 +1647,8 @@ final class Deck {
             followVolume()
         }
         guard !checkingMusic else { return }
-        guard Config.shared.musicEnabled else {
+        // A test copy never asks Music or Spotify (an Automation prompt), even with the jukebox on in a settings file it was given.
+        guard Config.shared.musicEnabled, !isTestCopy else {
             if playing != nil {
                 playing = nil
                 changed()
@@ -1797,6 +1809,7 @@ final class Deck {
                                        connected: { agent in agent == .claude ? profile.map(Hooks.isConnected) ?? Hooks.isConnected(agent) : Hooks.isConnected(agent) }) {
             return done(.status(409, why))
         }
+        if let why = Deck.testCopyWindowRefusal(config) { return done(.status(409, why)) }
         if let last = lastHire, Date().timeIntervalSince(last) < Deck.hireCooldown {
             return done(.status(429, "Hired a moment ago. Try again in a few seconds."))
         }
@@ -2198,6 +2211,12 @@ final class Deck {
     }
 
     /// Why a test copy won't hire `agent`, or nil: only Claude Code can be kept from the real app's hooks (see `Hooks.hireHooks`).
+    /// Without tmux a test copy's hire would open a window of the owner's terminal app: refused, before anything is
+    /// made (RTCH N1). With tmux it always runs there (`Choices.background`). Nil for the real app.
+    static func testCopyWindowRefusal(_ config: Config, hasTmux: Bool = Tmux.path != nil, testCopy: Bool = TestCopy.isOn) -> String? {
+        testCopy && !Choices.background(config, hasTmux: hasTmux, testCopy: testCopy) ? TestCopy.OtherApp.terminal.sentence : nil
+    }
+
     static func testCopyRefusal(for agent: Agent?, testCopy: Bool = TestCopy.isOn) -> String? {
         testCopy && agent != .claude ? TestCopy.Refused.hiring.localizedDescription : nil
     }
@@ -2392,8 +2411,8 @@ final class Deck {
     /// if its terminal gets to it in time (see `Delivery`). Text that isn't
     /// typed because its terminal didn't answer is said over its desk.
     private func typeDictation(_ text: String, into tab: String) {
-        guard !text.isEmpty, let address = TabAddress(tab), let driver = Terminals.driver(for: address),
-              driver.abilities.contains(.text) else { return }
+        guard !text.isEmpty, TestCopy.refusal(forTab: tab, testCopy: isTestCopy) == nil, let address = TabAddress(tab),
+              let driver = Terminals.driver(for: address), driver.abilities.contains(.text) else { return }
         let agent = sessions.all.first { $0.tab == tab }?.agent
         Deck.deliver(to: tab, done: { [weak self] response in
             guard response.status == 503 else { return }
@@ -2423,6 +2442,7 @@ final class Deck {
         // Asking you something, its menu would take the words, a digit picking an option and Return the one
         // highlighted ("Yes"): neither Send nor Type only goes until it's answered on the deck.
         guard !Deck.isAsking(session.state) else { return done(.status(409, Deck.answerFirst)) }
+        if let why = TestCopy.refusal(forTab: session.tab, testCopy: isTestCopy) { return done(.status(409, why)) }
         guard let (driver, tab) = terminal(of: session, for: .text) else { return done(.status(409, Deck.notHere)) }
         // What's known before the terminal is asked anything: the same refusal the Go core's words get (I5 + IGL).
         if let refusal = Deck.phoneWordsRefusal(words, way: driver.linesWay, keysNeedAccessibility: driver.keysNeedAccessibility,
@@ -2771,6 +2791,7 @@ final class Deck {
         guard !PhoneDictation.isLines(words) else { return done(.status(400, Deck.oneLineAnswer)) }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
         guard !session.isHeadless else { return done(.status(409, Deck.headless)) }
+        if let why = TestCopy.refusal(forTab: session.tab, testCopy: isTestCopy) { return done(.status(409, why)) }
         guard let choice = Deck.claimable(session.choice, state: session.state, id: choiceID, lastReturn: lastReturn[id], now: Date()) else {
             return done(.status(409, Deck.choiceGone))
         }
@@ -2892,6 +2913,7 @@ final class Deck {
         let now = Date()
         guard !PhoneDictation.peekTooSoon(last: lastPeek[id], now: now) else { return done(.status(429, "Too soon: one look a second.")) }
         lastPeek[id] = now
+        if let why = TestCopy.refusal(forTab: session.tab, testCopy: isTestCopy) { return done(.status(409, why)) }
         guard let address = TabAddress(session.tab), let driver = Terminals.driver(for: address) else { return done(.status(409, Deck.notHere)) }
         let tab = session.tab, agent = session.agent
         Terminals.queue(for: address).async {
@@ -2936,6 +2958,7 @@ final class Deck {
     }
 
     private func press(_ keystroke: Terminal.Keystroke, tab: String, done: @escaping (Response) -> Void) {
+        if let why = TestCopy.refusal(forTab: tab, testCopy: isTestCopy) { return done(.status(409, why)) }
         guard let address = TabAddress(tab), let driver = Terminals.driver(for: address), driver.abilities.contains(.keys) else {
             return done(.status(409, Deck.notHere))
         }
@@ -3029,12 +3052,18 @@ final class Deck {
     }
 
     func focus(_ id: String, done: @escaping (Response) -> Void) {
+        // A test copy brings no other app forward (RTCH N1): the Grok app, T3 Code, a terminal. Each says so. A desk's
+        // news is seen all the same, as the tap means it was looked at: only the open is left out (RWTC N9).
         // A cloud bot's desk: its news seen, and its app brought forward.
-        if cloud.tapped(session: id) { return done(.status(204)) }
+        if cloud.tapped(session: id, opening: !isTestCopy) {
+            if isTestCopy, cloud.isGrokApp(session: id) { return done(.status(409, TestCopy.OtherApp.grok.sentence)) }
+            return done(.status(204))
+        }
         // A hire in T3 Code's desk: its done seen, and its own thread opened in T3 Code (T3D-a).
         if let hire = t3Hire(atDesk: id) {
             t3Desks.tapped(session: id)
             changed()
+            if let why = TestCopy.refusal(for: .t3Code, testCopy: isTestCopy) { return done(.status(409, why)) }
             guard Choices.t3Code() else { return done(.status(409, DeckRouter.t3Off)) }
             let machine = t3Machine
             DispatchQueue.global(qos: .userInitiated).async {
@@ -3044,6 +3073,10 @@ final class Deck {
             return
         }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404)) }
+        // Any tab it could bring forward, its own hires' panes too: their window would be one of the owner's terminal app.
+        if isTestCopy, Terminals.abilities(of: session.tab).contains(.focus) {
+            return done(.status(409, TestCopy.OtherApp.terminal.sentence))
+        }
         // A terminal Smolcorp can only watch has nothing to bring forward: the tap only picks the desk.
         guard let (driver, tab) = terminal(of: session, for: .focus) else { return done(.status(204)) }
         inTab(session.tab, done: done) { driver.focus(tab) }

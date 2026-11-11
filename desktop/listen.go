@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -81,6 +82,13 @@ func settleListenScope(c *Config, phones int, system string) bool {
 		c.Listen = listenAll
 	}
 	return true
+}
+
+// effectiveScope is where the server listens, as Serve works it out: the config's scope, or for a test copy this
+// computer only (or every interface for SMOLCORP_TEST_LISTEN=lan). The self-test and the firewall read this one,
+// not the config's, so a test copy's lines describe what it does (RTCH N2).
+func effectiveScope(c *Config) string {
+	return testCopyScope(scopeOf(c), testCopyPort(), os.Getenv(testListenVariable))
 }
 
 // scopeOf is the scope a config asks for: its own if valid, else the default.

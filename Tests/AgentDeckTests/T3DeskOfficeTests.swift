@@ -341,6 +341,28 @@ final class T3DeskOfficeTests: XCTestCase {
         XCTAssertEqual(opened.map(\.absoluteString), ["t3code://threads/env-1/mcp%3Aabc-1"])
     }
 
+    /// RTCH N1: a test copy never opens T3 Code, so a tap on the desk says so and opens nothing. Its done is seen all
+    /// the same: only the open is left out (RWTC N9).
+    func testATestCopysTapOpensNothingInT3CodeButSeesItsDone() throws {
+        let hire = t3Hire()
+        let deck = deck([hire])
+        deck.t3Machine = machine()
+        Config.shared.t3CodeEnabled = true
+        deck.t3Seen = { _ in T3Desk.Seen(status: .done, raw: "") }
+        XCTAssertEqual(deck.t3Seated().first?.session.state, .unread, "done, green till seen")
+        deck.isTestCopy = true
+        let refused = answer { deck.focus(self.deskID, done: $0) }
+        XCTAssertEqual(refused?.status, 409)
+        XCTAssertEqual(text(refused), TestCopy.OtherApp.t3Code.sentence)
+        XCTAssertTrue(opened.isEmpty)
+        XCTAssertEqual(deck.t3Seated().first?.session.state, .idle, "seen")
+        // The Take over / Open in T3 Code route's own entry says the same, whatever machine it's given.
+        let answered = T3Code.openOnce(hire, machine: machine(), testCopy: true)
+        XCTAssertEqual(answered.status, 409)
+        XCTAssertEqual(String(decoding: answered.body, as: UTF8.self), TestCopy.OtherApp.t3Code.sentence)
+        XCTAssertTrue(opened.isEmpty)
+    }
+
     func testLetGoFromTheDeskFreesItAndKeepsTheLanesRefusals() throws {
         let deck = deck([t3Hire()])
         deck.t3Leaving = try leaving()

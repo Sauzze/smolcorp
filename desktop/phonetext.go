@@ -326,6 +326,10 @@ func (d *Deck) TypePhoneText(text, id string, send *bool) (int, string) {
 	}
 	name, agent, asking, tab := s.Tab, s.Agent, s.State == Asking, d.tab(s.Tab)
 	d.mu.Unlock()
+	// A test copy types nothing into the owner's terminal tabs (RWTC N1).
+	if why := testCopyKeepsTab(name); why != "" {
+		return http.StatusConflict, why
+	}
 	// Asking you something, its menu would take the words: a digit picking an option, Return the one highlighted.
 	if asking {
 		return http.StatusConflict, answerFirst
@@ -442,8 +446,12 @@ func (d *Deck) Peek(id string) (int, []string, string) {
 		d.mu.Unlock()
 		return http.StatusTooManyRequests, nil, peekTooSoon
 	}
-	agent, tab := s.Agent, d.tab(s.Tab)
+	agent, tab, name := s.Agent, d.tab(s.Tab), s.Tab
 	d.mu.Unlock()
+	// A test copy reads nothing of the owner's terminal tabs (RWTC N1).
+	if why := testCopyKeepsTab(name); why != "" {
+		return http.StatusConflict, nil, why
+	}
 	if tab == nil {
 		return http.StatusConflict, nil, notHere
 	}

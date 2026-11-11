@@ -78,6 +78,135 @@ final class HostBridgeTests: XCTestCase {
 
     private func isOK(_ answer: [String: Any]) -> Bool { answer["ok"] as? Bool == true }
 
+    /// RTCH N1: on a test copy the bridge refuses what would bring another app or a system window forward, in a
+    /// plain sentence, and asks the Mac nothing; on the real app the same actions go through.
+    func testATestCopyRefusesWhatWouldBringAnotherAppForward() throws {
+        var told: [String] = []
+        func copy(_ on: Bool) -> HostBridge.Actions {
+            var actions = self.actions
+            actions.testCopy = on
+            actions.main = terminals
+            actions.askAccessibility = { told.append("accessibility") }
+            actions.t3OpenApp = { told.append("t3-app") }
+            actions.t3OpenLink = { _ in told.append("t3-link"); return true }
+            return actions
+        }
+        let script = hires.appendingPathComponent("hire-1.sh")
+        try Data("#!/bin/sh\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+        let link = "t3code://threads/env-1/mcp%3Aabc-1"
+        let requests: [(String, [String: Any], TestCopy.OtherApp)] = [
+            ("focus", ["action": "focus", "tab": "tmux:%1@/tmp/s"], .terminal),
+            ("open", ["action": "open", "terminal": "terminal", "folder": folder.path, "script": script.path], .terminal),
+            ("accessibility", ["action": "accessibility"], .accessibility),
+            ("t3-open-app", ["action": "t3-open-app"], .t3Code),
+            ("t3-link", ["action": "t3-link", "link": link], .t3Code),
+        ]
+        for (name, request, app) in requests {
+            var line = request
+            line["token"] = token
+            let data = try JSONSerialization.data(withJSONObject: line)
+            let refused = HostBridge.answer(data, token: token, actions: copy(true))
+            XCTAssertEqual(refused["ok"] as? Bool, false, name)
+            XCTAssertEqual(refused["error"] as? String, app.sentence, name)
+        }
+        XCTAssertTrue(told.isEmpty, "the Mac was asked nothing")
+        XCTAssertTrue(asked.isEmpty, "no tab was driven, no window opened")
+        // The real app's actions still go through.
+        for (name, request, _) in requests {
+            var line = request
+            line["token"] = token
+            let data = try JSONSerialization.data(withJSONObject: line)
+            let answered = HostBridge.answer(data, token: token, actions: copy(false))
+            XCTAssertEqual(answered["ok"] as? Bool, true, name)
+        }
+        XCTAssertEqual(told, ["accessibility", "t3-app", "t3-link"])
+        // Looking at T3 Code's app is not opening it.
+        XCTAssertEqual(HostBridge.answer(try JSONSerialization.data(withJSONObject: ["token": token, "action": "t3-app"]),
+                                         token: token, actions: copy(true))["ok"] as? Bool, true)
+    }
+
+    /// RWTC N1 and N2: on a test copy the bridge does nothing in a tab that isn't one of its own hires' tmux panes
+    /// (keys, text, a paste, a scroll, a close, the phone's words, a peek), and leaves the owner's music, volume and
+    /// microphone alone; each in a sentence, with nothing asked of the Mac. Its own panes are driven as ever.
+    func testATestCopyDoesNothingInTheOwnersTabsNorToTheirMusicOrMicrophone() throws {
+        var told: [String] = []
+        func copy(_ on: Bool) -> HostBridge.Actions {
+            var actions = self.actions
+            actions.testCopy = on
+            actions.main = terminals
+            actions.keyboard = { true }
+            actions.pressMusic = { told.append("music \($0)") }
+            actions.setVolume = { told.append("volume \($0)") }
+            actions.musicState = { told.append("music-state"); return (nil, nil) }
+            actions.prepareDictation = { language, done in told.append("dictation \(language)"); done(nil) }
+            actions.driver = { _ in told.append("driver"); return nil }
+            return actions
+        }
+        func answer(_ request: [String: Any], _ actions: HostBridge.Actions) throws -> [String: Any] {
+            var line = request
+            line["token"] = token
+            return HostBridge.answer(try JSONSerialization.data(withJSONObject: line), token: token, actions: actions)
+        }
+        let owners = ["iterm:AB12-CD34", "tty:/dev/ttys003", "ghostty:/dev/ttys004", "kitty:3@/tmp/kitty-501",
+                      "tmux:%1@/private/tmp/tmux-501/default", "launcher:L1", ""]
+        let tabActions: [[String: Any]] = [
+            ["action": "press", "key": "enter"], ["action": "type", "text": "/compact"], ["action": "insert", "text": "hello"],
+            ["action": "scroll", "lines": 3], ["action": "scroll-bottom"], ["action": "close", "agent": "claude"],
+            ["action": "phone-text", "text": "hello", "agent": "claude"], ["action": "peek", "agent": "claude"],
+        ]
+        for tab in owners {
+            for var request in tabActions {
+                request["tab"] = tab
+                let refused = try answer(request, copy(true))
+                XCTAssertEqual(refused["ok"] as? Bool, false, "\(request)")
+                XCTAssertEqual(refused["error"] as? String, TestCopy.OtherApp.terminal.sentence, "\(request)")
+            }
+        }
+        for (request, app) in [(["action": "music", "music": "playpause"], TestCopy.OtherApp.music), (["action": "volume", "level": 30], .music),
+                               (["action": "music-state"], .music), (["action": "dictation", "language": "en_US"], .microphone)] as [([String: Any], TestCopy.OtherApp)] {
+            let refused = try answer(request, copy(true))
+            XCTAssertEqual(refused["error"] as? String, app.sentence, "\(request)")
+        }
+        XCTAssertTrue(told.isEmpty, "the Mac was asked nothing: \(told)")
+        XCTAssertTrue(asked.isEmpty, "no tab was driven: \(asked)")
+
+        // Its own hire's pane, on a socket of its own: driven as ever.
+        let own = "tmux:%1@/private/tmp/tmux-501/smolcorp-h1"
+        XCTAssertNil(TestCopy.refusal(forTab: own, testCopy: true))
+        for request in [["action": "press", "key": "enter", "tab": own], ["action": "close", "agent": "claude", "tab": own]] as [[String: Any]] {
+            XCTAssertEqual(try answer(request, copy(true))["ok"] as? Bool, true, "\(request)")
+        }
+        XCTAssertEqual(asked.count, 2, "its own pane took both: \(asked)")
+        XCTAssertTrue(asked.first?.hasPrefix("press ") == true && asked.first?.hasSuffix(own) == true, "\(asked)")
+        XCTAssertEqual(asked.last, "fire claude \(own)")
+        // The real app: every tab, and the jukebox and dictation, as before.
+        asked = []
+        XCTAssertEqual(try answer(["action": "press", "key": "enter", "tab": "iterm:AB12-CD34"], copy(false))["ok"] as? Bool, true)
+        XCTAssertEqual(asked.count, 1)
+        XCTAssertEqual(try answer(["action": "music-state"], copy(false))["ok"] as? Bool, true)
+        XCTAssertEqual(try answer(["action": "volume", "level": 30], copy(false))["ok"] as? Bool, true)
+        XCTAssertEqual(try answer(["action": "dictation", "language": "en_US"], copy(false))["ok"] as? Bool, true)
+        XCTAssertEqual(told, ["music-state", "volume 30", "dictation en_US"])
+    }
+
+    /// RFXC1a N5: the facts say how this Mac writes a short time, so the core writes a webhook's delivery time as the Mac does.
+    /// RWTC N7: how the Mac writes a short time is asked alone (`time-format`), not with the whole facts.
+    func testTheMacSaysHowItWritesAShortTime() throws {
+        let english = HostBridge.shortTimeFormat(locale: Locale(identifier: "en_US"))
+        XCTAssertTrue(try XCTUnwrap(english["pattern"]).hasPrefix("h:mm"), "\(english)")
+        XCTAssertEqual(english["am"], "AM")
+        XCTAssertEqual(english["pm"], "PM")
+        XCTAssertEqual(HostBridge.shortTimeFormat(locale: Locale(identifier: "fr_FR"))["pattern"], "HH:mm")
+        var mac = actions
+        mac.timeFormat = { HostBridge.shortTimeFormat(locale: Locale(identifier: "en_GB")) }
+        mac.facts = { [unowned self] _ in asked.append("facts"); return [:] }
+        let line = try JSONSerialization.data(withJSONObject: ["token": token, "action": "time-format"])
+        let answered = HostBridge.answer(line, token: token, actions: mac)
+        XCTAssertEqual((answered["timeFormat"] as? [String: String])?["pattern"], "HH:mm")
+        XCTAssertFalse(asked.contains("facts"), "the facts aren't read for it")
+    }
+
     func testNothingWithoutTheToken() {
         XCTAssertFalse(isOK(ask(["action": "hello"], token: "wrong-token-wrong-token-wrong-tok")))
         XCTAssertFalse(isOK(ask(["action": "hello"], token: "")))
@@ -364,7 +493,8 @@ final class HostBridgeTests: XCTestCase {
         try Data("#!/bin/sh\n".utf8).write(to: spaced)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: spaced.path)
         var opened: [String] = []
-        var actions = HostBridge.Actions.onThisMac(testCopy: true, opener: { command, folder, terminal in
+        // Not a test copy: a test copy opens no window of a terminal (RTCH N1), which testATestCopyRefusesWhatWouldBringAnotherAppForward checks.
+        var actions = HostBridge.Actions.onThisMac(testCopy: false, opener: { command, folder, terminal in
             opened.append("\(terminal)|\(folder)|\(command)")
             return Openers.Opened(tab: "iterm:AB12", window: nil)
         })
@@ -853,6 +983,8 @@ final class HostBridgeTests: XCTestCase {
         mac.musicState = { (true, (45, false)) }
         mac.pressMusic = { [unowned self] in asked.append("music \($0)") }
         mac.setVolume = { [unowned self] in asked.append("volume \($0)") }
+        // How the Mac writes a short time, as an American English Mac does.
+        mac.timeFormat = { ["pattern": "h:mm a", "am": "AM", "pm": "PM"] }
         // The phone's text and the peek (I5): the agent in front but on ttys005, where it has ended; Codex on
         // ttys004, not known to take several lines as one paste; iTerm2's CD34 doesn't read its ⌘V in time.
         mac.place = { tab, _ in tab.id == "/dev/ttys005" ? .gone : .front }

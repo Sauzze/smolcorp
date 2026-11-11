@@ -493,7 +493,13 @@ func TestAPlainHireNeverStartsOnTheDefaultAccountInsteadOfANamedOne(t *testing.T
 			status, message := d.hireAsWith(c.desk, "janitor", 0, true,
 				&setupHire{Role: "janitor", Folder: repo, Account: "test", configDir: account})
 			tmuxPath = saved
-			if status != http.StatusConflict || message != plainHireDefaultAccount {
+			// A test copy's hires run in tmux with no window (RTCH N1), so with tmux off in setup it takes the engine's
+			// way, not the plain one: the named account has no .claude.json here, and the engine says so.
+			want := plainHireDefaultAccount
+			if copy && c.name == "tmux off" {
+				want = "Start Claude Code once on this account, so it has a .claude.json, then hire again: Smolcorp only edits that file, it never creates it."
+			}
+			if status != http.StatusConflict || message != want {
 				t.Errorf("test copy %v, %s: %d %s", copy, c.name, status, message)
 			}
 			if len(h.windows)+len(h.tmux)+len(r.tmux.asked) != 0 || len(registered(t)) != 0 {

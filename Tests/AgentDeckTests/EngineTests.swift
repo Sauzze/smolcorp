@@ -91,6 +91,8 @@ final class EngineTests: XCTestCase {
         let core = try core("exit 0")
         XCTAssertEqual(core.environment(base: ["PATH": "/usr/bin", "SMOLCORP_TEST_LISTEN": "lan"])["SMOLCORP_TEST_LISTEN"], "lan")
         XCTAssertEqual(core.environment(base: ["PATH": "/usr/bin", "SMOLCORP_TEST_LISTEN": "LAN"])["SMOLCORP_TEST_LISTEN"], "lan")
+        // " lan" is lan for the core, as for the Swift engine (RTCH N3).
+        XCTAssertEqual(core.environment(base: ["PATH": "/usr/bin", "SMOLCORP_TEST_LISTEN": " Lan "])["SMOLCORP_TEST_LISTEN"], "lan")
         XCTAssertNil(core.environment(base: ["PATH": "/usr/bin", "SMOLCORP_TEST_LISTEN": "all"])["SMOLCORP_TEST_LISTEN"])
         XCTAssertNil(core.environment(base: ["PATH": "/usr/bin"])["SMOLCORP_TEST_LISTEN"])
     }

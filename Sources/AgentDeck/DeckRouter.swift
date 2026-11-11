@@ -603,6 +603,9 @@ final class DeckRouter: Router {
 
         // With the manager off, the GM's routes say so (the version and the switch itself stay open).
         if let refusal = ManagerSwitch.refusal(request.method, request.path, enabled: config.managerEnabled) { return respond(refusal) }
+        // A test copy puts no system prompt in front of the owner, moves no other app's windows, and leaves their music
+        // and microphone alone (RTCH N1, RWTC N2): those routes answer in a sentence before anything is done.
+        if let why = TestCopy.routeRefusal(request.method, request.path, query: request.query) { return respond(.status(409, why)) }
 
         switch (request.method, request.path) {
         case ("GET", "/setup"):
@@ -1223,7 +1226,8 @@ final class DeckRouter: Router {
             if let enabled = request.query["enabled"] { config.dictationEnabled = enabled == "1" && Dictation.isAvailable }
             config.save()
             deck.refresh()
-            guard config.dictationEnabled else { return respond(.json(setupState(caller))) }
+            // A test copy never asks for the microphone, even with dictation on in a settings file it was given (RWTC N2).
+            guard config.dictationEnabled, !TestCopy.isOn else { return respond(.json(setupState(caller))) }
             Dictation.askForMicrophone { [self] _ in
                 Dictation.prepare(config.dictationLanguage) { [self] problem in
                     DeckRouter.dictationProblem = problem

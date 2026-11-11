@@ -138,7 +138,9 @@ for _ in $(seq 200); do
   sleep 0.1
 done
 WHERE="this Mac only"
-[[ "$(printf %s "${SMOLCORP_TEST_LISTEN:-}" | tr "[:upper:]" "[:lower:]")" == "lan" ]] && WHERE="the local network too"
+# Read as both engines read it (TestCopy.wantsLAN): spaces and line breaks around it, and the letter case, don't
+# matter; one inside it does.
+[[ "$(printf %s "${SMOLCORP_TEST_LISTEN:-}" | tr "[:upper:]" "[:lower:]" | tr '[:space:]' ' ' | sed -e 's/^ *//' -e 's/ *$//')" == "lan" ]] && WHERE="the local network too"
 if [[ -n "$COPY" ]]; then
   echo "Smolcorp Test is running on port $PORT ($WHERE), pid $COPY, with its settings in $SUPPORT."
   echo "Quit it with: kill $COPY"
