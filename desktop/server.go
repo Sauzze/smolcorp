@@ -356,7 +356,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		if text := r.Header.Get("X-AgentDeck-PID"); text != "" && strings.Trim(text, "0123456789") == "" && len(text) < 10 {
 			pid, _ = strconv.Atoi(text)
 		}
-		d.IngestFrom(decodeJSON(r.Body), r.Header.Get("X-AgentDeck-Agent"), r.Header.Get("X-AgentDeck-Tab"),
+		event := decodeJSON(r.Body)
+		// ⓘ Info: whether the agent's environment has an API key or a cloud provider, never the key.
+		infos.noteBilling(r.Header.Get("X-AgentDeck-Billing"), stringValue(event["session_id"]))
+		d.IngestFrom(event, r.Header.Get("X-AgentDeck-Agent"), r.Header.Get("X-AgentDeck-Tab"),
 			r.Header.Get("X-AgentDeck-Project"), pid, r.Header.Get("X-AgentDeck-Parent"), at)
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -676,6 +679,40 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		writeStatus(w)(d.ChoiceDetail(session))
+	// The approvals list: who waits for you, read only, to a paired phone over Tailscale, never over the Wi-Fi nor
+	// to the office's window. Answering is /act and /choose.
+	case r.Method == http.MethodGet && r.URL.Path == "/approvals":
+		if phoneID == officeWindowID || !fromTailnet(r.Request) {
+			writeStatus(w)(http.StatusForbidden, "The approvals show only over Tailscale's HTTPS address.")
+			return
+		}
+		writeJSON(w, http.StatusOK, approvalsAnswer(d.approvalItems(), nowMillis()))
+	// ▤ Conversation, in the office's own window on this computer, never a phone: the session's conversation, a page
+	// at a time, as it was written (conversation.go).
+	case r.Method == http.MethodGet && r.URL.Path == "/conversation":
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, d.shownOnlyInTheWindow("The conversation"))
+			return
+		}
+		before, placed := conversationPlace(r.URL.Query(), "before")
+		known, sized := conversationPlace(r.URL.Query(), "size")
+		if !placed || !sized {
+			writeStatus(w)(http.StatusBadRequest, "That isn't a place in the conversation.")
+			return
+		}
+		writeAnswer(w)(d.conversation(session, before, known))
+	// ⓘ Info, in the office's own window on this computer, never a phone: what the session runs on, and what it
+	// has used (sessioninfo.go).
+	case r.Method == http.MethodGet && r.URL.Path == "/session/info":
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, d.shownOnlyInTheWindow("The info"))
+			return
+		}
+		id := session
+		if r.URL.Query().Has("id") {
+			id = r.URL.Query().Get("id")
+		}
+		writeAnswer(w)(d.sessionInfo(id))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
 	case r.Method == http.MethodPost && r.URL.Path == "/summary":
 		text, err := d.Summarize(session)
@@ -2108,7 +2145,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"roles": map[string]any{
 			"roles": d.config.Roles, "shipped": shippedWithBriefs(), "agents": roleAgents(), "efforts": effortLevels, "badges": roleBadges,
 			"limits": map[string]int{"name": roleNameLimit, "model": roleModelLimit, "instructions": roleInstructionsLimit,
-				"questions": roleQuestionsMost, "question": roleQuestionLimit},
+				"questions": roleQuestionsMost, "question": roleQuestionLimit, "briefFile": roleBriefFileLimit,
+				"briefFileName": roleBriefFileNameLimit, "answer": briefAnswerLimit},
 		},
 		"music":      map[string]any{"enabled": d.config.MusicEnabled},
 		"maxConfirm": map[string]any{"enabled": d.config.MaxConfirm},
@@ -2261,6 +2299,17 @@ func (d *Deck) openHireWindow(hire Hire) (int, string) {
 		return http.StatusConflict, "Its window didn't open: the hire may have ended."
 	}
 	return http.StatusNoContent, ""
+}
+
+// writeAnswer answers with a status and JSON, or, for text, as writeStatus.
+func writeAnswer(w http.ResponseWriter) func(int, any) {
+	return func(status int, answer any) {
+		if text, isText := answer.(string); isText {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
+	}
 }
 
 // writeStatus answers with a status and, unless it's empty, a message the

@@ -860,7 +860,9 @@ func (d *Deck) sessionEntry(s *Session) map[string]any {
 		"startedAt": int64(s.StartedAt),
 		// ✨ Summary: offered only when it's on, with a key, and a transcript to read.
 		"summary": s.Transcript != "" && d.summaryOffered(),
-		"role":    d.roleOf(s),
+		// ▤ Conversation: whether there's one to read, in the office's own window.
+		"conversation": s.Transcript != "",
+		"role":         d.roleOf(s),
 		// Whether the phone's text can be typed here: on, and a terminal this app types into.
 		"phoneMic": d.config.PhoneMicEnabled && typesText(s.Tab),
 	}

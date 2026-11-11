@@ -113,6 +113,9 @@ func RunHook(args []string) int {
 		request.Header.Set("X-AgentDeck-TTY", tty)
 	}
 	request.Header.Set("X-AgentDeck-Project", startFolderFromEnvironment())
+	if billing := hookBilling(os.Getenv); billing != "" {
+		request.Header.Set("X-AgentDeck-Billing", billing)
+	}
 	client := http.Client{Timeout: hookTimeout}
 	if response, err := client.Do(request); err == nil {
 		response.Body.Close()
@@ -275,4 +278,16 @@ func shortened(value any) any {
 		}
 	}
 	return value
+}
+
+// hookBilling is how the agent pays, from its environment, for ⓘ Info's card, as report.sh says it: "cloud" with
+// Bedrock, Vertex or Foundry, "api-key" with a key or token, else "". Only whether one is set, never what it is.
+func hookBilling(getenv func(string) string) string {
+	switch {
+	case getenv("CLAUDE_CODE_USE_BEDROCK")+getenv("CLAUDE_CODE_USE_VERTEX")+getenv("CLAUDE_CODE_USE_FOUNDRY") != "":
+		return billingCloud
+	case getenv("ANTHROPIC_API_KEY")+getenv("ANTHROPIC_AUTH_TOKEN") != "":
+		return billingAPIKey
+	}
+	return ""
 }
