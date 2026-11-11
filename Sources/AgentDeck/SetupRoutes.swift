@@ -69,7 +69,8 @@ enum SetupRoutes {
         action("/setup/hire/gm", "starting a GM"),
         page("GET", "/setup/hire/gm/preflight", "what a first GM hire needs: it starts your login shell and Claude Code to tell"),
         action("/setup/hiring", "how and where hires start"),
-        action("/setup/hiring/choose", "the folder for new hires"),
+        // The Mac's folder panel opens on your screen: only you, from the page, ever pop it (a GM is given a folder by `hire --folder` or the hiring settings).
+        page("POST", "/setup/hiring/choose", "the Mac's folder panel, opened on your screen"),
         action("/setup/hire-folder", "the folder for new hires, from Start here"),
         action("/setup/roles", "the roles, and so the briefs future hires get"),
         action("/setup/hooks", "connecting or disconnecting the agents' hooks"),

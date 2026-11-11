@@ -126,7 +126,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
 |---|---|---|---|---|---|---|---|
 | POST | `/setup/hiring` | gm, page | `?enabled=&folder=&agent=&terminal=&tmux=` | the setup state | 200, 400 | setup.json | differs |
-| POST | `/setup/hiring/choose` | gm, page | `?pick=1&for=floor` | the setup state; pick: `{picked}` | 200 | none: opens the system's folder picker | served (the system's picker; under the Mac app, its folder panel through the bridge) |
+| POST | `/setup/hiring/choose` | page | `?pick=1&for=floor` | the setup state; pick: `{picked}` | 200 | none: opens the system's folder picker | served (the system's picker; under the Mac app, its folder panel through the bridge) |
 | GET | `/setup/hire-folder` | page, tool | `?check=` | `{exists, fix, folder, home, problem, suggested}` | 200 | setup.json | served |
 | POST | `/setup/hire-folder` | gm, page | `?folder=&create=1` | as GET | 200, 400 | setup.json | served |
 | GET | `/setup/hire/folders` | page, tool | — | `{default, recent}` | 200 | setup.json | served |

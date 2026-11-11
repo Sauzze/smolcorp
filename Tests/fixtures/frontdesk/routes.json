@@ -286,13 +286,12 @@
     },
     {
       "callers" : [
-        "gm",
         "page"
       ],
-      "kind" : "action",
+      "kind" : "page",
       "method" : "POST",
       "path" : "\/setup\/hiring\/choose",
-      "why" : "the folder for new hires"
+      "why" : "the Mac's folder panel, opened on your screen"
     },
     {
       "callers" : [
