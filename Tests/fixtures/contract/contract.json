@@ -93,6 +93,37 @@
         }
       ]
     },
+    "a T3 hire" : {
+      "content" : {
+        "hires" : [
+          {
+            "account" : "",
+            "branch" : "hire\/rev-c0ffee",
+            "brief" : "",
+            "engine" : "t3",
+            "folder" : "\/work\/delta",
+            "id" : "c0ffee12-0000-4000-8000-0000000000d3",
+            "model" : "claude-sonnet-5-5",
+            "name" : "Reviewer",
+            "nickname" : "Rev",
+            "notes" : "",
+            "ports" : "",
+            "repo" : "\/work\/delta",
+            "role" : "reviewer",
+            "started" : 1761000000000,
+            "state" : "working",
+            "t3Floor" : 0,
+            "t3Link" : "https:\/\/app.t3.codes\/threads\/env-1\/mcp%3Acontract-t3",
+            "t3Thread" : "mcp:contract-t3",
+            "tmuxSocket" : "",
+            "worktree" : "\/work\/delta-hires\/rev-c0ffee"
+          }
+        ],
+        "version" : 1
+      },
+      "file" : "registry.json",
+      "says" : "registry.json holds a hire in T3 Code (engine t3, with its thread and worktree): the Mac gives it a desk at a free key, from the registry alone, with no control (T3D-a); T3 Code isn't asked"
+    },
     "a watch" : {
       "requests" : [
         {
@@ -262,7 +293,7 @@
       "says" : "the library you edit (the support folder's briefs\/templates) is the app's own, Resources\/briefs: the Go app has it built in and copies it there on first use; the Mac's test bundle has none, so its test copies it there"
     }
   },
-  "note" : "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1), read by desktop\/contract_test.go. Shapes, not values: \"string\", \"number\", \"bool\", \"null\"; 'x' for that string; alternatives joined by | (\"string|null\", a closed set 'a'|'b'); an object's keys, no more, no fewer; an array's elements as the different shapes they have, each element like one of them and each like some element ([] for none). \"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why, and each null allowed. Beside a shape, ids: the given's sessions in each of its lists, sorted, compared as they are. A refusal answered in JSON has its shape too.",
+  "note" : "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1), read by desktop\/contract_test.go. Shapes, not values: \"string\", \"number\", \"bool\", \"null\"; 'x' for that string; alternatives joined by | (\"string|null\", a closed set 'a'|'b'); an object's keys, no more, no fewer; an array's elements as the different shapes they have, each element like one of them and each like some element ([] for none). \"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why, and each null allowed. Beside a shape, ids: the given's sessions in each of its lists, sorted, compared as they are; and t3Desk: what every t3: desk must hold by value (each 'false' field false, each 'null' field null, its t3 with each of those fields, no \/ in a 'noSlash' field). A refusal answered in JSON has its shape too.",
   "shapes" : {
     "setup-state" : {
       "as" : "page",
@@ -1383,7 +1414,8 @@
         ],
         ".keys[].session.id" : [
           "contract-a",
-          "contract-c"
+          "contract-c",
+          "t3:c0ffee12-0000-4000-8000-0000000000d3"
         ],
         ".upstairs.desks[].id" : [
           "cloud-contract-bot",
@@ -1552,6 +1584,55 @@
               "summary" : "bool",
               "tool" : "string",
               "turnStartedAt" : "number",
+              "voiceNote" : "object|null"
+            }
+          },
+          {
+            "pin" : "string|null",
+            "session" : {
+              "activity" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "agentName" : "string",
+              "choice" : "object|null",
+              "compacting" : "bool",
+              "conversation" : "bool",
+              "dial" : "bool",
+              "dictates" : "bool",
+              "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+              "errorKind" : "string|null",
+              "fire" : "bool",
+              "id" : "string",
+              "keys" : "bool",
+              "maxPressedAt" : "number|null",
+              "messaged" : "string|null",
+              "messagedAt" : "number|null",
+              "mic" : "bool",
+              "model" : "string",
+              "name" : "string",
+              "pending" : "bool",
+              "phoneMic" : "bool",
+              "project" : "string",
+              "role" : {
+                "badge" : "string",
+                "id" : "string",
+                "name" : "string",
+                "outfit" : "string"
+              },
+              "startedAt" : "number",
+              "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+              "subagents" : [
+
+              ],
+              "summary" : "bool",
+              "t3" : {
+                "branch" : "string",
+                "canOpen" : "bool",
+                "experimental" : "bool",
+                "status" : "'starting'|'working'|'waiting'|'done'|'unknown'",
+                "tag" : "string"
+              },
+              "tool" : "string|null",
+              "turnStartedAt" : "number|null",
               "voiceNote" : "object|null"
             }
           },
@@ -1814,6 +1895,32 @@
           ],
           "overflow" : "number"
         }
+      },
+      "t3Desk" : {
+        "false" : [
+          "conversation",
+          "dial",
+          "dictates",
+          "fire",
+          "keys",
+          "mic",
+          "phoneMic",
+          "summary"
+        ],
+        "id" : "t3:c0ffee12-0000-4000-8000-0000000000d3",
+        "noSlash" : [
+          "name",
+          "project"
+        ],
+        "null" : [
+          "choice"
+        ],
+        "t3" : [
+          "branch",
+          "canOpen",
+          "status",
+          "tag"
+        ]
       }
     }
   }

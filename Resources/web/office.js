@@ -57,6 +57,8 @@
  * A cloud bot's desk there (`cloud`, with what it `last` did) opens its card
  * on a tap as well as held, and opening it while the desk is green calls
  * `on.seen(id)`, so its news is seen.
+ * A hire in T3 Code's desk (`t3`, experimental), on any floor, wears a T3 badge on its desk's front; it has no
+ * controls, and a tap on it is `on.select(id)`, as any desk's, for the page to open its thread.
  *
  * Its sound, once set up and tapped, is in the style of an old console. A
  * piece of the room asks for one of its sounds by name with
@@ -2257,6 +2259,9 @@
   /** The headless desks' badge, a little robot, on the front of each desk upstairs: its antenna's light blinks. */
   const ROBOT_BADGE = ['...a...', '.GGGGG.', 'GgggggG', 'GgcgcgG', 'GgkkkgG', '.GGGGG.'];
   const ROBOT_INKS = { G: 0x7d838f, g: 0xc4c8d0, c: 0x6fe0ff, k: 0x1f2129 };
+  /** A hire in T3 Code's badge, "T3" on a violet tag, on the front of its desk on any floor (T3D-a, experimental). */
+  const T3_BADGE = ['.bbbbbbb.', 'bwwwbwwbb', 'bbwbbbbwb', 'bbwbbbwwb', 'bbwbbbbwb', 'bbwbbwwbb', '.bbbbbbb.'];
+  const T3_INKS = { b: 0x6d28d9, w: 0xf4f1ea };
   /**
    * What a floor upstairs never has, in either shape, however it's arranged: the red button and the mic, the ground
    * floor's controls, and the ping-pong table, gone from every lounge.
@@ -65718,6 +65723,14 @@
       }));
     }
 
+    /** A hire in T3 Code's badge on the front of its desk: see T3_BADGE. */
+    function drawT3Badge(desk) {
+      const { x, y } = DESKS[desk], bx = x + 3, by = y + 7;
+      T3_BADGE.forEach((row, r) => [...row].forEach((ink, column) => {
+        if (ink !== '.') dot(bx + column, by + r, T3_INKS[ink]);
+      }));
+    }
+
     /**
      * What stands on the floor upstairs besides what stands downstairs: each headless desk's badge. The racks a floor
      * had in its corner are its chill area's now: the server room's servers, or a style's own, in the lounge's corner.
@@ -65766,6 +65779,12 @@
       items.push([d.y + 3, () => drawWorkspaceBack(desk)]);
     });
     if (frame.upstairs && !frame.arranging) upstairsItems(items);
+    // A hire in T3 Code's desk, on any floor: its badge, so it's never taken for a terminal's.
+    if (!frame.arranging) {
+      office.seats.forEach((s, desk) => {
+        if (s && s.session && s.session.t3 && DESKS[desk] && !DESKS[desk].off) items.push([DESKS[desk].y + 5.1, () => drawT3Badge(desk)]);
+      });
+    }
     // Someone being carried is drawn on top, where the finger has them, not at their desk. Someone at
     // the clock or the whiteboard is in front of the first row's workspaces, the tallest of which reach
     // the wall: they're there to be seen.

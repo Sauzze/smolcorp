@@ -308,7 +308,7 @@ enum T3Desk {
     // MARK: Following
 
     /// A thread as the desk shows it.
-    enum Status: String {
+    enum Status: String, CaseIterable {
         case starting, working, waiting, done, unknown
     }
 

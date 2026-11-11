@@ -797,7 +797,7 @@ final class T3DeskTests: XCTestCase {
 
     func testTheOfficeCardSaysSoForAT3Hire() throws {
         let page = try web("deck.html")
-        for words in ["if (found.lane) {", "lane.tag", "Let it go from Setup's team list.", "link: \"T3 Code is open on this hire's own thread.\""] {
+        for words in ["if (found.lane) {", "lane.tag", "Let it go from Setup's team list or from its desk.", "link: \"T3 Code is open on this hire's own thread.\""] {
             XCTAssertTrue(page.contains(words), words)
         }
     }

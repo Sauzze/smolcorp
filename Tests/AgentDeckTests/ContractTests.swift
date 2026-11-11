@@ -78,9 +78,9 @@ final class ContractTests: XCTestCase {
     /// with something in each of its lists.
     /// The floor rule comes first: it puts contract-b upstairs as it starts.
     static let stateGiven = ["a floor rule", "sessions", "a pin", "a saved profile", "a cloud bot", "a pairing code", "a paired phone"]
-    /// What the office's snapshot is asked with: a desk at the pinned key, one at a free key, one upstairs, and a
-    /// cloud bot.
-    static let officeGiven = ["a floor rule", "sessions", "a pin", "a session at a free key", "a cloud bot"]
+    /// What the office's snapshot is asked with: a desk at the pinned key, one at a free key, one upstairs, a
+    /// cloud bot, and a hire in T3 Code's desk (T3D-a), first, as its registry is read before anything else.
+    static let officeGiven = ["a T3 hire", "a floor rule", "sessions", "a pin", "a session at a free key", "a cloud bot"]
 
     /// The setup page's state route, and the office's snapshot (the first message of /events): the shapes most
     /// routes refer to, by name.
@@ -348,6 +348,18 @@ final class ContractTests: XCTestCase {
         "a floor rule": ["requests": [step("POST", "/setup/floors", body: ["rules": [["folder": "/work/beta", "floor": 1, "exact": false]]])]],
         "a cloud bot": ["requests": [step("POST", "/setup/bots", body: ["bots": [["id": "contract-bot", "name": "Contract Bot"]]])]],
         "a watch": ["requests": [step("POST", "/setup/gm/watch", body: ["kind": "time", "target": "check the build", "minutes": 30])]],
+        // A hire in T3 Code (T3D-a): its desk comes from the registry alone, at a free key, with every control off.
+        "a T3 hire": ["file": "registry.json", "content": [
+            "version": 1,
+            "hires": [
+                ["id": t3HireID, "name": "Reviewer", "nickname": "Rev", "role": hiredRole,
+                 "folder": "/work/delta", "branch": "hire/rev-c0ffee", "worktree": "/work/delta-hires/rev-c0ffee", "repo": "/work/delta",
+                 "tmuxSocket": "", "account": "", "model": "claude-sonnet-5-5", "ports": "", "brief": "", "started": 1_761_000_000_000,
+                 "state": "working", "notes": "", "engine": "t3", "t3Thread": "mcp:contract-t3",
+                 "t3Link": "https://app.t3.codes/threads/env-1/mcp%3Acontract-t3", "t3Floor": 0],
+            ],
+        ] as [String: Any], "says": "registry.json holds a hire in T3 Code (engine t3, with its thread and worktree): the Mac gives it "
+            + "a desk at a free key, from the registry alone, with no control (T3D-a); T3 Code isn't asked"],
         "an outbox message": ["file": "outbox.json", "content": [
             "version": 1,
             "messages": [
@@ -391,6 +403,8 @@ final class ContractTests: XCTestCase {
             ".voiceNote": .loose("object|null", why: "how the last dictation went, for a moment: none in the given (personal build)"),
             ".choice": .loose("object|null", why: "a menu's options, read from the terminal: none in the given"),
             ".last": .loose("object|null", why: "a cloud bot's last report: none in the given"),
+            // A hire in T3 Code's desk (T3D-a): its thread's status, as the lane's follow last saw it.
+            ".t3.status": .oneOf(T3Desk.Status.allCases.map(\.rawValue)),
         ]
         let layout: [String: Mark] = [
             ".layout.room.floorPlans": .loose("map", why: "a floor's plan by its number: keys are data"),
@@ -605,6 +619,67 @@ final class ContractTests: XCTestCase {
         "setup-state-tool": [".sessions[].id"],
         "snapshot": [".keys[].session.id", ".floors[].desks[].id", ".upstairs.desks[].id"],
     ]
+
+    /// The given's hire in T3 Code (`givens["a T3 hire"]`), whose desk is checked by value too (FXT3Da N1).
+    static let t3HireID = "c0ffee12-0000-4000-8000-0000000000d3"
+
+    /// A hire in T3 Code's desk, checked by value beside the snapshot's shape: a shape alone passes a desk with no
+    /// `t3`, or with its controls on, as like a plain desk's. Written into contract.json, where `desktop/contract_test.go`
+    /// checks every `t3:` desk the Go core answers by it, the same way.
+    static let t3DeskRule: [String: Any] = [
+        "id": T3Desks.sessionID(of: t3HireID),
+        "false": T3Desks.controlsOff.sorted(),
+        "null": ["choice"],
+        "t3": ["branch", "canOpen", "status", "tag"],
+        "noSlash": ["name", "project"],
+    ]
+
+    /// Where a `t3:` desk in `snapshot` (at a key, on a floor, upstairs) isn't as `rule` says, as "where: what" lines:
+    /// each `false` field false, each `null` field null, its `t3` with each of those fields, no `/` in a `noSlash`
+    /// field. None where there's no such desk: the ids say whether there should be one.
+    static func t3DeskDifferences(_ rule: [String: Any], _ snapshot: Any) -> [String] {
+        let lists = [".keys[].session", ".floors[].desks[]", ".upstairs.desks[]"]
+        var found: [String] = []
+        for list in lists {
+            for desk in Self.objects(at: list, in: snapshot) {
+                guard let id = desk["id"] as? String, id.hasPrefix(T3Desks.prefix) else { continue }
+                let here = "\(list)[\(id)]"
+                let isFalse = { (value: Any?) in (value as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && !$0.boolValue } ?? false }
+                for field in rule["false"] as? [String] ?? [] where !isFalse(desk[field]) {
+                    found.append("\(here).\(field): \(desk[field].map { "\($0)" } ?? "missing"), want false")
+                }
+                for field in rule["null"] as? [String] ?? [] where !(desk[field] is NSNull) {
+                    found.append("\(here).\(field): \(desk[field].map { "\($0)" } ?? "missing"), want null")
+                }
+                let t3 = desk["t3"] as? [String: Any]
+                for field in rule["t3"] as? [String] ?? [] where t3?[field] == nil || t3?[field] is NSNull {
+                    found.append("\(here).t3.\(field): missing, want a value")
+                }
+                for field in rule["noSlash"] as? [String] ?? [] where (desk[field] as? String)?.contains("/") != false {
+                    found.append("\(here).\(field): \(desk[field].map { "\($0)" } ?? "missing"), want a name with no /")
+                }
+            }
+        }
+        return found
+    }
+
+    /// The objects at `path` (".a[].b"), every element's.
+    static func objects(at path: String, in json: Any) -> [[String: Any]] {
+        var found = [json]
+        var rest = Substring(path)
+        while !rest.isEmpty {
+            if rest.hasPrefix("[]") {
+                found = found.flatMap { $0 as? [Any] ?? [] }
+                rest = rest.dropFirst(2)
+                continue
+            }
+            rest = rest.dropFirst()
+            let key = rest.prefix { $0 != "." && $0 != "[" }
+            rest = rest.dropFirst(key.count)
+            found = found.compactMap { ($0 as? [String: Any])?[String(key)] }
+        }
+        return found.compactMap { $0 as? [String: Any] }
+    }
 
     /// The values at `path` (".a[].b"), every element's, as text, sorted.
     static func values(at path: String, in json: Any) -> [String] {
@@ -872,6 +947,10 @@ final class ContractTests: XCTestCase {
             if let paths = Self.idLists[name] {
                 named[name]?["ids"] = paths.reduce(into: [String: Any]()) { $0[$1] = Self.values(at: $1, in: json) }
             }
+            if name == "snapshot" {
+                XCTAssertEqual(Self.t3DeskDifferences(Self.t3DeskRule, json), [], "the Mac's own T3 desk")
+                named[name]?["t3Desk"] = Self.t3DeskRule
+            }
         }
         let shared: [String: Any] = [
             "note": "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1), read by desktop/contract_test.go. "
@@ -879,7 +958,9 @@ final class ContractTests: XCTestCase {
                 + "(\"string|null\", a closed set 'a'|'b'); an object's keys, no more, no fewer; an array's elements as the "
                 + "different shapes they have, each element like one of them and each like some element ([] for none). "
                 + "\"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why, "
-                + "and each null allowed. Beside a shape, ids: the given's sessions in each of its lists, sorted, compared as they are. "
+                + "and each null allowed. Beside a shape, ids: the given's sessions in each of its lists, sorted, compared as they are; "
+                + "and t3Desk: what every t3: desk must hold by value (each 'false' field false, each 'null' field null, its t3 with "
+                + "each of those fields, no / in a 'noSlash' field). "
                 + "A refusal answered in JSON has its shape too.",
             "shapes": named,
             "given": Self.givens,
@@ -1030,6 +1111,31 @@ final class ContractTests: XCTestCase {
         }
     }
 
+    /// The given's T3 desk is held to its values, not only its shape (FXT3Da N1): a `t3:` desk with a control on or
+    /// gone, a choice, a `t3` with only its tag, or a path for its project is a difference; the Mac's own has none.
+    func testAT3DeskIsCheckedByValueToo() throws {
+        let route = Self.state[2]
+        let got = try XCTUnwrap(try answer(route, try XCTUnwrap(route.ask)).json as? [String: Any])
+        XCTAssertEqual(Self.t3DeskDifferences(Self.t3DeskRule, got), [])
+        let id = try XCTUnwrap(Self.t3DeskRule["id"] as? String)
+        var keys = try XCTUnwrap(got["keys"] as? [[String: Any]])
+        let at = try XCTUnwrap(keys.firstIndex { ($0["session"] as? [String: Any])?["id"] as? String == id }, "the given's T3 desk at a key")
+        var desk = try XCTUnwrap(keys[at]["session"] as? [String: Any])
+        desk["keys"] = true
+        desk.removeValue(forKey: "fire")
+        desk["choice"] = ["options": ["Yes"]]
+        desk["t3"] = ["tag": T3Desk.tag]
+        desk["project"] = "/work/delta-hires/rev-c0ffee"
+        keys[at]["session"] = desk
+        var doctored = got
+        doctored["keys"] = keys
+        let wheres = Self.t3DeskDifferences(Self.t3DeskRule, doctored).map { $0.components(separatedBy: ": ")[0] }
+        XCTAssertEqual(wheres.sorted(), ["keys", "fire", "choice", "t3.branch", "t3.canOpen", "t3.status", "project"]
+            .map { ".keys[].session[\(id)].\($0)" }.sorted())
+        // Only a `t3:` desk: another with its controls on is a desk like any.
+        XCTAssertEqual(Self.t3DeskDifferences(Self.t3DeskRule, ["keys": [["session": ["id": "contract-x", "keys": true, "project": "/a/b"]]]]), [])
+    }
+
     /// A desk's fields are typed by what the given fills: contract-a, at the pinned key, has a model, a tool and an
     /// activity, so a null in any is a difference, though contract-c, at the free key, has no model. And the free
     /// key's pin is null: anything but a string or a null there is a difference too.
@@ -1041,7 +1147,9 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(Self.differences(shape, got), [])
         let keys = try XCTUnwrap(got["keys"] as? [[String: Any]])
         let pinned = try XCTUnwrap(keys.firstIndex { $0["pin"] is String }, "a pinned key in the given")
-        let free = try XCTUnwrap(keys.firstIndex { $0["pin"] is NSNull && $0["session"] != nil }, "a session at a free key in the given")
+        // contract-c's: the T3 desk (T3D-a) at another free key has its hire's model.
+        let free = try XCTUnwrap(keys.firstIndex { $0["pin"] is NSNull && ($0["session"] as? [String: Any])?["id"] as? String == "contract-c" },
+                                 "a session at a free key in the given")
         let freeSession = try XCTUnwrap(keys[free]["session"] as? [String: Any])
         XCTAssertTrue(freeSession["model"] is NSNull, "the free key's desk has no model")
         func changed(_ index: Int, _ change: (inout [String: Any]) -> Void) -> [String: Any] {
