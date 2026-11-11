@@ -568,3 +568,62 @@ func TestEverySavedAccountsFolderIsDeniedToALauncherHire(t *testing.T) {
 		}
 	}
 }
+
+// RX1e N2: the route's task and account reach a hire made through the launcher (managed windows on): the task is in
+// the hire's brief, the account is the one it works on (the row's, and the launcher's environment), and a task
+// of 8000 characters or an account that isn't there is refused with nothing opened, as on the engine's way.
+func TestTheGMHireOnTheLauncherCarriesItsTaskAndAccountToTheHire(t *testing.T) {
+	w := newWinRig(t)
+	work := claudeFolder(t, filepath.Join(homeDir, "accounts", "work"), "settings.json", ".claude.json")
+	w.d.mu.Lock()
+	w.d.config.ClaudeProfiles = []claudeProfile{{Name: "work", Dir: work}}
+	// A role with a brief of its own (the stand-in janitor has none to put a task in).
+	w.d.config.Roles[0].Brief = &RoleBrief{Kind: "library", ID: "tester"}
+	w.d.mu.Unlock()
+	// What the launcher is told to set on the agent: read as the window is opened, before it connects and takes it.
+	var env hireStartEnv
+	open := w.d.launcherEngine.Open
+	w.d.launcherEngine.Open = func(command []string, folder string) error {
+		w.d.mu.Lock()
+		if pending := w.d.hires[after(command, "--hire")]; pending != nil && pending.env != nil {
+			env = *pending.env
+		}
+		w.d.mu.Unlock()
+		return open(command, folder)
+	}
+	const task = "The lost cent is fixed; proof: python3 -m unittest passes."
+	// Refused before anything is made.
+	for _, c := range []struct {
+		body map[string]any
+		want string
+	}{
+		{map[string]any{"role": "janitor", "task": strings.Repeat("x", briefTaskLimit+1)}, "The task is at most 8000 characters."},
+		{map[string]any{"role": "janitor", "account": "nobody"}, "There's no Claude account called nobody. Pick one of: default, work."},
+	} {
+		if status, text := w.post("/setup/gm/hire", c.body, winAsGM); status < 400 || text != c.want {
+			t.Errorf("%.60v: %d %q, want a refusal %q", c.body, status, text, c.want)
+		}
+	}
+	if len(w.opened) != 0 || len(winRegistry(t)) != 0 {
+		t.Fatalf("a refused hire opened %q, registry %+v", w.opened, winRegistry(t))
+	}
+	// Hired, through the launcher, with both.
+	status, text := w.post("/setup/gm/hire", map[string]any{"role": "janitor", "task": task, "account": "work"}, winAsGM)
+	if status != http.StatusOK {
+		t.Fatalf("hire: %d %q", status, text)
+	}
+	rows := winRegistry(t)
+	if len(rows) != 1 || !rows[0].ViaLauncher || len(w.opened) != 1 {
+		t.Fatalf("not made by the launcher: opened %q, registry %+v", w.opened, rows)
+	}
+	if rows[0].Account != "work" {
+		t.Errorf("the row's account is %q, want work", rows[0].Account)
+	}
+	brief, err := os.ReadFile(rows[0].Brief)
+	if err != nil || !strings.Contains(string(brief), task) {
+		t.Errorf("the brief %q doesn't hold the task (%v):\n%s", rows[0].Brief, err, brief)
+	}
+	if env.Set["CLAUDE_CONFIG_DIR"] != work {
+		t.Errorf("the launcher's environment sets CLAUDE_CONFIG_DIR to %q, want %q (%+v)", env.Set["CLAUDE_CONFIG_DIR"], work, env)
+	}
+}
