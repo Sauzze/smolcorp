@@ -19,6 +19,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     static let frameName = "SmolcorpSettings"
 
     private let port: UInt16
+    /// The page session's cookie, as the engine serving the page names it.
+    private let cookieName: String
     /// A new page session, from a one-time link (`SetupSessions`), as the window opens.
     private let newSession: () -> String?
     private var window: SettingsPanel?
@@ -31,8 +33,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     /// Where each download goes, to show it in the Finder once it's saved.
     private var saving: [ObjectIdentifier: URL] = [:]
 
-    init(port: UInt16 = Deck.port, newSession: @escaping () -> String?) {
+    init(port: UInt16 = Deck.port, cookieName: String = DeckRouter.setupCookie, newSession: @escaping () -> String?) {
         self.port = port
+        self.cookieName = cookieName
         self.newSession = newSession
     }
 
@@ -47,9 +50,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     }
 
     /// The cookie the page is given in the browser, for the window's store.
-    static func sessionCookie(session: String) -> HTTPCookie? {
+    static func sessionCookie(session: String, name: String = DeckRouter.setupCookie) -> HTTPCookie? {
         HTTPCookie(properties: [
-            .name: DeckRouter.setupCookie, .value: session, .domain: "localhost", .path: "/setup",
+            .name: name, .value: session, .domain: "localhost", .path: "/setup",
             .sameSitePolicy: HTTPCookieStringPolicy.sameSiteStrict, HTTPCookiePropertyKey("HttpOnly"): "TRUE",
         ])
     }
@@ -140,7 +143,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     /// every load opens its own session from a new one-time link, so none
     /// runs on one that later ones pushed out. Without one, the page shows itself locked.
     private func load(_ address: URL, in web: WKWebView) {
-        guard let session = newSession(), let cookie = SettingsWindow.sessionCookie(session: session) else {
+        guard let session = newSession(), let cookie = SettingsWindow.sessionCookie(session: session, name: cookieName) else {
             web.load(URLRequest(url: address))
             return
         }
@@ -160,7 +163,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     }
 
     func reload(_ web: WKWebView) {
-        guard let session = newSession(), let cookie = SettingsWindow.sessionCookie(session: session) else {
+        guard let session = newSession(), let cookie = SettingsWindow.sessionCookie(session: session, name: cookieName) else {
             web.reload()
             return
         }
