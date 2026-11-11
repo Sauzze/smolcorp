@@ -430,14 +430,14 @@ final class T3CodeTests: XCTestCase {
         let page = try web("setup.html")
         let row = try XCTUnwrap(page.range(of: "function teamRow(r) {"))
         let teamRow = String(page[row.lowerBound...].prefix(4500))
-        XCTAssertTrue(teamRow.contains("const t3Key = t3Button(r);"))
+        XCTAssertTrue(teamRow.contains("const t3Key = state.t3CodeEnabled ? t3Button(r) : null;"), "T3 Code on (T796)")
         XCTAssertTrue(teamRow.contains("head.style.flexWrap = 'wrap';"), "390 px: the buttons go under the name")
-        XCTAssertTrue(teamRow.contains("row.append(head, t3Key.line);"), "the hint on its own line under the button")
+        XCTAssertTrue(teamRow.contains("row.append(head, ...(t3Key ? [t3Key.line] : []), ...(why ? [why] : []));"), "the hint on its own line under the button")
         for words in ["textContent: 'Open in T3 Code', disabled: true", "fetch('/setup/t3code/open'", "JSON.stringify({ id: r.id })",
                       "'Opening T3 Code…'", "'T3 Code opens its own agent there, separate from this hire.'",
                       "Added to T3 Code's projects: open T3 Code to see it.", "t3.state === 'found' ? T3_NOTE : ''", ": t3.hint;",
                       #"unsure: "T3 Code has this hire's folder open as a project; it didn't confirm a new thread, so look in T3 Code.""#,
-                      "const T3_EVERY = 30000", "`/setup/t3code${fresh ? '?fresh=1' : ''}`", "row.addEventListener('pointerenter', () => t3State(true));"] {
+                      "const T3_EVERY = 30000", "`/setup/t3code${fresh ? '?fresh=1' : ''}`", "if (t3Key) row.addEventListener('pointerenter', () => t3State(true));"] {
             XCTAssertTrue(page.contains(words), words)
         }
         // Greyed for appOnly and none: only found and cliOnly may click.

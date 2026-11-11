@@ -30,6 +30,18 @@ final class Config: Codable {
     /// agent runs in a tmux session of its own there.
     var hireTerminal = "terminal"
     var hireInTmux = false
+    /// Agent windows (T796): off, a window for each hire, as before; on, hires
+    /// run in tmux only, with no window, and a desk's "Open a window" shows one.
+    /// Only with tmux on this Mac (see `Choices.background`).
+    var hiresInBackground = false
+    /// T3 Code (T796): whether its features show, in the office and Setup, and
+    /// whether Smolcorp looks for it at all. Off until you turn it on; the T3
+    /// Code code asks `Choices.t3Code` first.
+    var t3CodeEnabled = false
+    /// Whether first setup has asked the two choices above. A new Mac's file:
+    /// not yet. A file from before them: as asked, so an existing user keeps
+    /// what they had and isn't asked.
+    var choicesAsked = false
     /// Where hires' git worktrees go; empty puts them beside the repo (see `HireDesk`).
     var hireWorktrees = ""
     /// Dictation for agents with no voice mode of their own (see `Dictation`):
@@ -167,7 +179,7 @@ final class Config: Codable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles, rolesOffered
-        case hireTerminal, hireInTmux, hireWorktrees, recentHireFolders, dictationEnabled, dictationLanguage, dictationForClaude
+        case hireTerminal, hireInTmux, hiresInBackground, t3CodeEnabled, choicesAsked, hireWorktrees, recentHireFolders, dictationEnabled, dictationLanguage, dictationForClaude
         case dictationCleanup, dictationGlossary
         case musicEnabled, maxConfirm, webhook, summaryOptIn, summaryProvider, viewer, hasCompletedSetup, hooksDisconnected, claudeProfiles, managerEnabled, gmByHand
         case guideDone
@@ -212,6 +224,9 @@ final class Config: Codable {
         hireAgent = field(String.self, .hireAgent).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
         hireTerminal = field(String.self, .hireTerminal).flatMap { id in Openers.choices.contains { $0.id == id } ? id : nil } ?? hireTerminal
         hireInTmux = field(Bool.self, .hireInTmux) ?? false
+        hiresInBackground = field(Bool.self, .hiresInBackground) ?? false
+        t3CodeEnabled = field(Bool.self, .t3CodeEnabled) ?? false
+        choicesAsked = field(Bool.self, .choicesAsked) ?? true
         hireWorktrees = field(String.self, .hireWorktrees).flatMap { $0.hasPrefix("/") ? $0 : nil } ?? ""
         recentHireFolders = Array((field([String].self, .recentHireFolders) ?? []).filter { $0.hasPrefix("/") }.prefix(Config.recentHireFoldersMost))
         dictationEnabled = field(Bool.self, .dictationEnabled) ?? false

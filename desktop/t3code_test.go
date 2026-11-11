@@ -535,6 +535,10 @@ func TestT3RoutesArePageOnlyAndTheOfficesItsWindowOnly(t *testing.T) {
 	}
 	d := newTestDeck(t)
 	phone := pair(t, d)
+	// T3 Code on (T796): off, every route is a 404; see TestT3RoutesAnswerNothingWhileT3CodeIsOff.
+	d.mu.Lock()
+	d.config.T3CodeEnabled = true
+	d.mu.Unlock()
 	for _, c := range []struct {
 		method, target string
 	}{{"GET", "/t3code"}, {"POST", "/t3code/open"}} {
@@ -558,5 +562,44 @@ func TestT3RoutesArePageOnlyAndTheOfficesItsWindowOnly(t *testing.T) {
 	if got := serve(t, d, call{method: "POST", target: "/setup/t3code/open", host: "localhost:7710", from: thisComputer,
 		headers: map[string]string{setupHeader: "1"}, body: `{"id":"nobody","folder":"/etc"}`}); got.Code != http.StatusNotFound {
 		t.Errorf("an unknown id: %d", got.Code)
+	}
+}
+
+// The T3 Code gate (T796): off, which it is until chosen, none of the four routes answers, and nothing of T3 Code's
+// is looked for or run; on, they answer as above. The page's and the office's, both ways.
+func TestT3RoutesAnswerNothingWhileT3CodeIsOff(t *testing.T) {
+	d := newTestDeck(t)
+	looked := 0
+	kept := newT3Machine
+	newT3Machine = func() t3Machine {
+		looked++
+		return kept()
+	}
+	t.Cleanup(func() { newT3Machine = kept })
+	calls := []call{
+		{method: "GET", target: "/t3code?session=s1&t=" + d.access.WindowKey, host: "localhost:7710", from: thisComputer},
+		{method: "POST", target: "/t3code/open?session=s1&t=" + d.access.WindowKey, host: "localhost:7710", from: thisComputer},
+		{method: "GET", target: "/setup/t3code?fresh=1", host: "localhost:7710", from: thisComputer, headers: map[string]string{setupHeader: "1"}},
+		{method: "POST", target: "/setup/t3code/open", host: "localhost:7710", from: thisComputer,
+			headers: map[string]string{setupHeader: "1"}, body: `{"id":"nobody"}`},
+	}
+	for _, c := range calls {
+		if got := serve(t, d, c); got.Code != http.StatusNotFound || !strings.Contains(got.Body.String(), t3Off) {
+			t.Errorf("off: %s %s: %d %q", c.method, c.target, got.Code, got.Body)
+		}
+	}
+	if looked != 0 {
+		t.Fatalf("off, T3 Code was looked for %d times", looked)
+	}
+	d.mu.Lock()
+	d.config.T3CodeEnabled = true
+	d.mu.Unlock()
+	for _, c := range calls {
+		if got := serve(t, d, c); strings.Contains(got.Body.String(), t3Off) {
+			t.Errorf("on: %s %s: %d %q", c.method, c.target, got.Code, got.Body)
+		}
+	}
+	if got := serve(t, d, calls[2]); got.Code != http.StatusOK || looked == 0 {
+		t.Errorf("on, the page's look: %d, looked %d", got.Code, looked)
 	}
 }

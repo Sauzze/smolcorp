@@ -266,17 +266,29 @@ enum Terminal {
     }
 
     /// Opens a new window in `folder`, running `command`, and gives its
-    /// tab's tty, or nil if it didn't open. Both go through `quoted form of`,
-    /// so each is taken as it is: the command is one of the agents' own
-    /// names, or the path of a hire's start-up script.
-    static func open(_ command: String, in folder: String) -> String? {
-        run("""
+    /// tab's tty and the window's id, or nil if it didn't open. Both go
+    /// through `quoted form of`, so each is taken as it is: the command is
+    /// one of the agents' own names, or the path of a hire's start-up script.
+    /// The id is only asked for: without it, the window still opened.
+    static func open(_ command: String, in folder: String) -> (tty: String, window: String?)? {
+        let opened = run("""
             tell application "Terminal"
                 activate
                 set opened to do script "cd " & quoted form of (item 1 of argv) & " && " & quoted form of (item 2 of argv)
-                return "tty:" & (tty of opened)
+                set found to tty of opened
+                try
+                    repeat with w in windows
+                        repeat with t in tabs of w
+                            if tty of t is found then return "tty:" & found & linefeed & (id of w)
+                        end repeat
+                    end repeat
+                end try
+                return "tty:" & found
             end tell
-            """, arguments: [folder, command]).flatMap { $0.hasPrefix("tty:") ? String($0.dropFirst(4)) : nil }
+            """, arguments: [folder, command])?.split(separator: "\n").map(String.init) ?? []
+        guard let first = opened.first, first.hasPrefix("tty:") else { return nil }
+        let window = opened.count == 2 && !opened[1].isEmpty && opened[1].allSatisfy(\.isNumber) ? opened[1] : nil
+        return (String(first.dropFirst(4)), window)
     }
 
     /// What firing came to: see `fire(tty:agent:)`.

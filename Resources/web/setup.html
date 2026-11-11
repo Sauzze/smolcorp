@@ -405,6 +405,15 @@
   .ff-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .ff-done { color: var(--dim); font-size: 12.5px; }
   .ff-done code { color: var(--ink); }
+  /* Two plain choices (T796), first thing after the folder on a first run: each a question, two answers, one line. */
+  .first-choices { display: grid; gap: 10px; margin-top: 10px; padding: 12px 14px; border-radius: 10px; background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+  .first-choices .fc-q { display: grid; gap: 4px; min-width: 0; }
+  .first-choices .fc-q > b { font-size: 13px; }
+  .choice-line { margin: 0; color: var(--dim); font-size: 12.5px; overflow-wrap: anywhere; }
+  .choices .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .step .choices { margin: 6px 0 4px; }
+  .choices .btn .tag { margin-left: 6px; font-size: 11px; color: var(--accent); }
   /* Before the General Manager's hire: what it needs, each line with what to do; then what to say to it first. */
   .start-here .first-gm-go { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
   .start-here .btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
@@ -742,6 +751,21 @@
           </div>
         </div>
         <div class="ff-done" id="first-folder-done" hidden>Hires work in <code id="first-folder-short"></code> · <button class="link" id="first-folder-change">Change</button></div>
+      </div>
+      <!-- Two plain choices (T796), asked once on a first run; Settings has them too, under Hires and roles. -->
+      <div class="first-choices" id="first-choices" hidden>
+        <div class="fc-q" id="first-t3" hidden>
+          <b>T3 Code is on this computer. Show its features in Smolcorp?</b>
+          <div class="choices" id="first-t3-choices"><button class="btn" data-t3="1">On</button><button class="btn" data-t3="0">Off</button></div>
+          <p class="choice-line">On adds Open in T3 Code to your hires' desks; off, Smolcorp never looks for T3 Code.</p>
+        </div>
+        <div class="fc-q">
+          <b>Agent windows</b>
+          <div class="choices" id="first-windows-choices"><button class="btn" data-background="0">Open a window for each hire</button><button class="btn" data-background="1">Run hires in the background</button></div>
+          <p class="choice-line" id="first-windows-line"></p>
+        </div>
+        <div class="ff-tools"><button class="btn primary" id="first-choices-use">Use these</button></div>
+        <p class="note" id="first-choices-said" role="status" hidden></p>
       </div>
       <div class="box" id="start-checks"></div>
       <div class="box" id="first-gm-checks" aria-label="What your General Manager needs" hidden></div>
@@ -1102,6 +1126,23 @@
             <p class="note" id="hiring-problem" role="alert" hidden></p>
           </div>
           <button class="switch" id="hiring" aria-label="Let the office hire and fire"></button>
+        </div>
+        <!-- The two plain choices (T796): the same as Start here asks on a first run. -->
+        <div class="step" id="step-t3code" data-search="T3 Code" data-keywords="t3 code t3code open button app">
+          <div class="text">
+            <div class="title">T3 Code</div>
+            <div class="choices" id="t3code-choices" aria-label="T3 Code"><button class="btn" data-t3="1">On</button><button class="btn" data-t3="0">Off</button></div>
+            <p class="choice-line">On adds Open in T3 Code to your hires' desks; off, Smolcorp never looks for T3 Code.</p>
+            <p class="note" id="t3code-hint" hidden>T3 Code isn't on this computer yet: install it from t3.codes.</p>
+          </div>
+        </div>
+        <div class="step" id="step-windows" data-search="Agent windows" data-keywords="window windows background tmux hire terminal open detach">
+          <div class="text">
+            <div class="title">Agent windows</div>
+            <div class="choices" id="windows-choices" aria-label="Agent windows"><button class="btn" data-background="0">Open a window for each hire</button><button class="btn" data-background="1">Run hires in the background</button></div>
+            <p class="choice-line" id="windows-line"></p>
+            <p class="note" id="windows-said" role="status" hidden></p>
+          </div>
         </div>
       </div>
     </div>
@@ -1857,6 +1898,7 @@
     $('scroll').classList.toggle('on', c.scroll);
     $('login').classList.toggle('on', c.openAtLogin);
     renderHiring();
+    renderChoices();
     renderDictation();
     renderMusic();
     renderMaxConfirm();
@@ -2062,7 +2104,7 @@
     list.replaceChildren(...(rest.length ? rest.map(teamRow)
       : [Object.assign(document.createElement('p'), { className: 'hint',
         textContent: gm || byHand ? 'No one else is on the team yet.' : 'No one is hired yet.', style: 'padding:10px 14px;margin:0' })]));
-    if (rest.length) t3State(false).then(paintT3);
+    if (rest.length && state.t3CodeEnabled) t3State(false).then(paintT3);
   }
 
   // How long "Yes, make a new token" waits for its click, and longer while the pointer is on it.
@@ -2146,17 +2188,33 @@
     };
     body.append(go, problem);
     fire.append(open, body);
-    const t3Key = t3Button(r);
+    // Open in T3 Code (T792), only while T3 Code is on (T796).
+    const t3Key = state.t3CodeEnabled ? t3Button(r) : null;
     const keys = Object.assign(document.createElement('span'), { className: 'choices' });
     // It may shrink: Fire… opened, its sentences wrap inside the row rather than push it wider.
     keys.style.cssText = 'flex:0 1 auto;min-width:0;justify-content:flex-end;align-items:flex-start';
-    keys.append(t3Key.button, fire);
-    // On a phone-wide window (390 px), the two buttons go under the name rather than squeeze it.
+    if (t3Key) keys.append(t3Key.button);
+    // Agent windows in the background (T796): a window attached to this hire's own tmux session, on request.
+    let why = null;
+    if (state.choices && state.choices.background && r.tmuxSocket) {
+      const show = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Open a window' });
+      why = Object.assign(document.createElement('p'), { className: 'note', hidden: true });
+      show.onclick = async () => {
+        show.disabled = true;
+        const res = await fetch('/setup/hire/window', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify({ id: r.id }) }).catch(() => null);
+        show.disabled = false;
+        why.textContent = res && res.ok ? '' : await refusal(res, "Its window didn't open.");
+        why.hidden = !why.textContent;
+      };
+      keys.append(show);
+    }
+    keys.append(fire);
+    // On a phone-wide window (390 px), the buttons go under the name rather than squeeze it.
     head.style.flexWrap = 'wrap';
     head.append(label, keys);
-    row.append(head, t3Key.line);
+    row.append(head, ...(t3Key ? [t3Key.line] : []), ...(why ? [why] : []));
     // Pointed at, the row asks again: a greyed button, being disabled, may not hear the pointer itself.
-    row.addEventListener('pointerenter', () => t3State(true));
+    if (t3Key) row.addEventListener('pointerenter', () => t3State(true));
     return row;
   }
 
@@ -2535,6 +2593,62 @@
       : !h.canHire ? "Hold an agent's desk in the office to fire it."
       : h.folder ? `New hires: ${agent ? agent.name : h.agent}, in ${h.folder}.` : 'Choose the folder new hires work in.';
   }
+
+  /*
+   * The two plain choices (T796): T3 Code on or off, and agent windows. Settings shows both, always; Start here
+   * asks them once on a first run (T3 Code only where it's installed) until Use these. Running hires in the
+   * background needs tmux: without it, that answer is greyed, and the line under it says so. With T3 Code on,
+   * the background is recommended. Switching to it says, in a line, what was done with the hires' windows.
+   */
+  function windowsLine(c, asking) {
+    if (!c.hasTmux) return wording("Running hires in the background needs tmux, which isn't on this computer.");
+    if (asking && c.t3Code && !c.background) return 'Recommended with T3 Code: your hires work out of sight while you work in T3 Code.';
+    return c.background ? "Hires run in tmux with no window: open one from a hire's desk when you want to watch."
+      : 'Each hire opens in a terminal window of its own, as before.';
+  }
+  function showChoice(box, key, on, greyed) {
+    box.querySelectorAll(`[data-${key}]`).forEach((b) => {
+      const picked = b.dataset[key] === (on ? '1' : '0');
+      b.classList.toggle('on', picked);
+      b.setAttribute('aria-pressed', String(picked));
+      if (key === 'background' && b.dataset.background === '1') b.disabled = !!greyed;
+    });
+  }
+  function renderChoices() {
+    const c = state.choices;
+    $('step-t3code').hidden = !c;
+    $('step-windows').hidden = !c;
+    $('first-choices').hidden = !c || !!c.asked;
+    if (!c) return;
+    showChoice($('t3code-choices'), 't3', c.t3Code);
+    $('t3code-hint').hidden = !(c.t3Code && c.t3Installed === false);
+    showChoice($('windows-choices'), 'background', c.background, !c.hasTmux);
+    $('windows-line').textContent = windowsLine(c, false);
+    $('first-t3').hidden = !c.t3Installed;
+    showChoice($('first-t3-choices'), 't3', c.t3Code);
+    showChoice($('first-windows-choices'), 'background', c.background, !c.hasTmux);
+    $('first-windows-line').textContent = windowsLine(c, true);
+    const recommended = c.t3Code && c.hasTmux;
+    const background = $('first-windows-choices').querySelector('[data-background="1"]');
+    background.replaceChildren('Run hires in the background',
+      ...(recommended ? [Object.assign(document.createElement('span'), { className: 'tag', textContent: 'Recommended' })] : []));
+  }
+  /** One choice saved, from Settings or Start here; what switching to the background did, said under it. */
+  async function choose(query, said) {
+    const res = await post(`/setup/choices?${query}`).catch(() => null);
+    if (!res || !res.ok) return tell(said, await refusal(res, "That choice couldn't be saved."));
+    const lines = state.windowsSaid || [];
+    tell(said, lines.join(' '));
+  }
+  for (const id of ['t3code-choices', 'first-t3-choices', 'windows-choices', 'first-windows-choices']) {
+    const said = id.startsWith('first') ? 'first-choices-said' : 'windows-said';
+    $(id).addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b || b.disabled || b.classList.contains('on')) return;
+      choose('t3' in b.dataset ? `t3=${b.dataset.t3}` : `background=${b.dataset.background}`, said);
+    });
+  }
+  $('first-choices-use').onclick = () => choose('asked=1', 'first-choices-said');
 
   // The folder last shown in the hires folder row, and its "Saved" sign's timer.
   let hireFolderShown;
@@ -7753,6 +7867,10 @@
       { id: 'folder', target: '#first-folder-use', area: '#first-folder', doneTarget: '#first-folder', ...inStartHere,
         say: 'Pick where your hires work', press: 'Use this folder', doneSay: 'Your hires work in this folder. You can change it here.',
         done: () => !!(state && state.hiring && state.hiring.folder) || gmSessions().length > 0 },
+      // The two plain choices (T796), asked once: done with Use these, or where the app has none to ask.
+      { id: 'choices', target: '#first-choices-use', area: '#first-choices', ...inStartHere,
+        say: 'Two quick choices: T3 Code, and how hires open', press: 'Use these', doneSay: 'Saved. Settings has them too, under Hires and roles.',
+        done: () => !state || !state.choices || !!state.choices.asked },
       // Off the other checks above, and off Hire, Check again and why Hire is greyed, below.
       { id: 'checks', target: '#first-gm-checks', keep: '#start-checks, #start-gm-account, #start-gm, #first-gm-recheck, #first-gm-why', ...inStartHere, patience: () => (checksPending() ? 15000 : 0),
         say: 'Make these checks green: each one says what to do', doneSay: 'These checks are green: your General Manager has what it needs.',
