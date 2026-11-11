@@ -2250,8 +2250,9 @@ final class Deck {
         return (expanded as NSString).standardizingPath
     }
 
-    /// The folder panel, while it's open.
-    private var hirePanel: NSOpenPanel?
+    /// The folder panel, while it's open: one for the app, whichever engine asked for it (the Go core asks
+    /// through the bridge, HostBridge's choose-folder).
+    private static var hirePanel: NSOpenPanel?
 
     /// What the panel says it's for: the hires folder, or a project's folder for a floor (Floors' Choose…).
     static let hireFolderMessage = "New hires from the office start their work in this folder."
@@ -2263,6 +2264,21 @@ final class Deck {
     /// kept as the hires folder unless `keep` is false (Start here keeps it
     /// itself, through its checks, and Floors puts it on a floor, with its own `message`).
     func chooseHireFolder(keep: Bool = true, message: String = Deck.hireFolderMessage, then done: @escaping (String?) -> Void) {
+        Deck.chooseFolder(from: Deck.folder(Config.shared.hireFolder), message: message) { picked in
+            if keep, let picked {
+                Config.shared.hireFolder = picked
+                Config.shared.save()
+                self.refresh()
+            }
+            done(picked)
+        }
+    }
+
+    /// The Mac's own folder panel, opened at `start` (nil: the panel's own choice) and saying `message`:
+    /// `done` gets the folder picked, or nil. Asked again while it's open, it brings that panel forward
+    /// rather than opening another, and answers nil at once. The Swift engine keeps what's picked
+    /// (`chooseHireFolder`); under the Go core, the core does (HostBridge's choose-folder).
+    static func chooseFolder(from start: String?, message: String, then done: @escaping (String?) -> Void) {
         if let open = hirePanel {
             NSApp.activate(ignoringOtherApps: true)
             open.makeKeyAndOrderFront(nil)
@@ -2275,17 +2291,11 @@ final class Deck {
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose"
         panel.message = message
-        if let current = Deck.folder(Config.shared.hireFolder) { panel.directoryURL = URL(fileURLWithPath: current) }
+        if let start { panel.directoryURL = URL(fileURLWithPath: start) }
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in
-            self.hirePanel = nil
-            let picked = response == .OK ? panel.url?.path : nil
-            if keep, let picked {
-                Config.shared.hireFolder = picked
-                Config.shared.save()
-                self.refresh()
-            }
-            done(picked)
+            hirePanel = nil
+            done(response == .OK ? panel.url?.path : nil)
         }
     }
 
@@ -2293,7 +2303,12 @@ final class Deck {
     /// the page is kept instead, the panel left open would ask for a folder already chosen. Its caller
     /// then gets nothing picked. A panel open for a floor's project (Floors' Choose…) stays.
     func closeHireFolderPanel() {
-        guard let open = hirePanel, open.message == Deck.hireFolderMessage else { return }
+        Deck.closeFolderPanel(for: Deck.hireFolderMessage)
+    }
+
+    /// Closes the folder panel if it's open saying `message`, as if cancelled.
+    static func closeFolderPanel(for message: String) {
+        guard let open = hirePanel, open.message == message else { return }
         open.cancel(nil)
     }
 

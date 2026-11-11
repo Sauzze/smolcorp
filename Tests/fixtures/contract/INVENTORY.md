@@ -80,8 +80,8 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/setup/music` | page, tool | `?enabled=` | the setup state | 200 | none: asks the music app what's playing | served |
 | POST | `/setup/phonemic` | gm, page | `?enabled=&autosend=` | the setup state | 200 | setup.json | 404 |
 | POST | `/setup/dock` | page, tool | `?enabled=` | the setup state | 200 | none: shows or hides the app in the Dock | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
-| POST | `/setup/ontop` | page, tool | `?enabled=` | the setup state | 200 | none: puts the office's window on top, on Windows only | Windows only (404 elsewhere: no window) |
-| POST | `/setup/office` | page, tool | — | empty | 204 | none: opens the office's window, or the browser | served (opens the browser) |
+| POST | `/setup/ontop` | page, tool | `?enabled=` | the setup state | 200 | none: puts the office's window on top, on Windows, and under the Mac app its own window (FXC1b) | Windows only (and under the Mac app, through the bridge; 404 on Linux: no window) |
+| POST | `/setup/office` | page, tool | — | empty | 204 | none: opens the office's window, or the browser | served (opens the browser; under the Mac app, its office window through the bridge) |
 | POST | `/setup/login` | gm, page | `?enabled=` | the setup state | 200 | none: writes the login item in your home folder | served |
 | POST | `/setup/accessibility` | page, tool | — | empty | 204 | none: asks macOS for Accessibility, a system prompt | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
 | POST | `/setup/hooks` | gm, page | `?remove=1` to disconnect | the setup state (`notice`) | 200, 409 (test copy), 500 | none: writes the agents' hooks in your home folder | served |
@@ -121,7 +121,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
 |---|---|---|---|---|---|---|---|
 | POST | `/setup/hiring` | gm, page | `?enabled=&folder=&agent=&terminal=&tmux=` | the setup state | 200, 400 | setup.json | differs |
-| POST | `/setup/hiring/choose` | gm, page | `?pick=1&for=floor` | the setup state; pick: `{picked}` | 200 | none: opens the system's folder picker | served (the system's picker) |
+| POST | `/setup/hiring/choose` | gm, page | `?pick=1&for=floor` | the setup state; pick: `{picked}` | 200 | none: opens the system's folder picker | served (the system's picker; under the Mac app, its folder panel through the bridge) |
 | GET | `/setup/hire-folder` | page, tool | `?check=` | `{exists, fix, folder, home, problem, suggested}` | 200 | setup.json | served |
 | POST | `/setup/hire-folder` | gm, page | `?folder=&create=1` | as GET | 200, 400 | setup.json | served |
 | GET | `/setup/hire/folders` | page, tool | — | `{default, recent}` | 200 | setup.json | served |

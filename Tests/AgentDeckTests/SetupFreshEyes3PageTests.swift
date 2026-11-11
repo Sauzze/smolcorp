@@ -36,7 +36,8 @@ final class SetupFreshEyes3PageTests: XCTestCase {
         let deck = try file("Sources/AgentDeck/Deck.swift")
         let close = try part(deck, from: "func closeHireFolderPanel() {", to: "/// Push to talk")
         // Only the hires folder's panel, as if cancelled: its caller gets nothing picked; a floor's stays.
-        XCTAssertTrue(close.contains("guard let open = hirePanel, open.message == Deck.hireFolderMessage else { return }"))
+        XCTAssertTrue(close.contains("Deck.closeFolderPanel(for: Deck.hireFolderMessage)"))
+        XCTAssertTrue(close.contains("guard let open = hirePanel, open.message == message else { return }"))
         XCTAssertTrue(close.contains("open.cancel(nil)"))
         let router = try file("Sources/AgentDeck/DeckRouter.swift")
         // Start here's keep, once checked and saved (never on a refusal), and Hires and roles' typed folder.

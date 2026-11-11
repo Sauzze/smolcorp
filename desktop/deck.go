@@ -193,7 +193,8 @@ func NewDeck() *Deck {
 	// The hires in T3 Code and their desks, before anything lays the office out.
 	d.t3 = newT3Follower()
 	d.t3Desks = newT3Desks(registry)
-	d.summaryKeys = newSummaryKeys(keyringStore, os.Getenv)
+	// Under the Mac app, a pasted key is kept in its Keychain (hostshell.go).
+	d.summaryKeys = newSummaryKeys(summaryStore(d.mac.host), os.Getenv)
 	d.summaries = newSummaries(d.summaryKeys.Read)
 	d.summaryProviders = newSummaryProviders()
 	d.summaries.agent = d.runSummaryAgent

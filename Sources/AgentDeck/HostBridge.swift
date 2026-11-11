@@ -18,9 +18,10 @@ import Security
 /// Each action is this app's own code, as the Swift engine runs it: the
 /// terminal drivers (Accessibility and AppleScript; the phone's text and the
 /// peek at an input line among them, as `Deck` types and reads them), the openers, the
-/// secrets' stores, the login item; and setup's Mac parts (Accessibility, keys
+/// secrets' stores, the login item; setup's Mac parts (Accessibility, keys
 /// in other apps, In the Dock, dictation, Add smolcorp to Terminal, the Grok
-/// Bot app) and what each desk's terminal allows, from the drivers' tables.
+/// Bot app), the office's window and the folder panel; and what each desk's
+/// terminal allows, from the drivers' tables.
 /// Nothing here runs a shell line: a terminal is opened only on a script the
 /// core wrote in the hires folder.
 /// The core's side is desktop/hostbridge.go.
@@ -341,9 +342,15 @@ final class HostBridge {
         case "secret-read", "secret-write", "secret-delete":
             return secret(action, request, actions)
         case "login-item":
-            guard let item = actions.loginItem else { return refused("A test copy has no login item: it's the copy in use's.") }
-            if let on = request["on"] as? Bool { item.set(on) }
+            guard let item = actions.loginItem else { return refused("This app has no login item.") }
+            if let on = request["on"] as? Bool {
+                // A test copy's login item is the Smolcorp in use's: read, as the Swift engine's setup reads it, never set.
+                guard !actions.testCopy else { return refused(SelfTest.testCopyLogin) }
+                item.set(on)
+            }
             return ["ok": true, "on": item.get()]
+        case "office", "office-ontop", "choose-folder", "folder-panel-close":
+            return shell(action, request, actions, until: deadline)
         case "facts", "dock", "accessibility", "keystrokes-on", "keystroke-apps", "glossary", "dictation", "terminal-command":
             return setup(action, request, actions, until: deadline)
         case "abilities":
@@ -418,6 +425,48 @@ final class HostBridge {
                 return ["ok": true]
             } catch {
                 return refused(error.localizedDescription)
+            }
+        }
+    }
+
+    /// How long the folder panel waits for you before it's closed, as if cancelled, and nothing is picked:
+    /// under the core's own wait for it (desktop/hostbridge.go's folderPanelWait and folderPanelMargin).
+    static var panelWait: TimeInterval = 600
+
+    /// What the Swift engine does with this app's own windows, as DeckRouter does it: the office's window
+    /// shown or kept on top (the setting is the core's to keep), and the folder panel, which waits for you.
+    private static func shell(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
+        switch action {
+        case "office":
+            return onMain(actions, until: deadline) { actions.showOffice() }
+        case "office-ontop":
+            guard let on = request["on"] as? Bool else { return refused("Say on or off.") }
+            return onMain(actions, until: deadline) { actions.officeOnTop(on) }
+        case "folder-panel-close":
+            return onMain(actions, until: deadline) { actions.closeFolderPanel(Deck.hireFolderMessage) }
+        default: // choose-folder
+            let messages = ["hires": Deck.hireFolderMessage, "floor": Deck.floorFolderMessage]
+            guard let purpose = request["for"] as? String, let message = messages[purpose] else { return refused("Not a folder panel Smolcorp opens.") }
+            var start: String?
+            if let folder = request["folder"] as? String, !folder.isEmpty {
+                guard folder.hasPrefix("/"), folder.utf8.count <= 1024, !folder.hasControlCharacters else { return refused("Not a folder.") }
+                start = folder
+            }
+            // Opened within the bridge's own time, as a window is, then waited for as long as you take, up to `panelWait`.
+            let until = DispatchTime.now() + panelWait
+            let pending = Pending<String?>(startBy: min(deadline, until))
+            actions.main.async {
+                guard pending.begin() else { return }
+                actions.chooseFolder(start, message) { pending.finish($0) }
+            }
+            switch pending.wait(until: until) {
+            case .done(let picked?): return ["ok": true, "folder": picked]
+            case .done(nil): return ["ok": true]
+            case .notStarted: return refused("The Mac didn't answer in time.")
+            case .unfinished:
+                // Left open: closed now, as if cancelled, so a later choice isn't kept by nobody.
+                actions.main.async { actions.closeFolderPanel(message) }
+                return ["ok": true]
             }
         }
     }
@@ -781,8 +830,10 @@ final class HostBridge {
         /// The ids of `Openers.choices` installed on this Mac.
         var terminals: () -> [String] = { Openers.choices.filter { Openers.isInstalled($0.id) }.map(\.id) }
         var secrets: [String: Secret]
-        /// The login item, or nil in a test copy, whose login item is the copy in use's: never read or set.
+        /// The login item, or nil for an app without one.
         var loginItem: (get: () -> Bool, set: (Bool) -> Void)?
+        /// A test copy: its login item is the copy in use's, read and never set.
+        var testCopy = false
         /// Where a tab's actions run, one at a time: its terminal's queue, as the deck's keys go.
         var queue: (TabAddress?) -> DispatchQueue = { Terminals.queue(for: $0) }
         /// Where a window of a terminal (an `Openers` choice) opens: that terminal's queue, as the deck opens a hire's.
@@ -802,6 +853,13 @@ final class HostBridge {
         var abilities: (String) -> [String: Bool] = HostBridge.abilities(of:)
         /// The Grok Bot app's bots now, read afresh: nil when its roster can't be read.
         var roster: () -> [GrokBotApp.Row]? = { nil }
+        /// The office's window shown, and kept on top or not: the Go shell's own (GoShellDelegate), nothing elsewhere.
+        var showOffice: () -> Void = {}
+        var officeOnTop: (Bool) -> Void = { _ in }
+        /// The folder panel opened at a folder (nil: its own choice), saying a message, and what was picked, or nil.
+        var chooseFolder: (_ start: String?, _ message: String, _ done: @escaping (String?) -> Void) -> Void = { _, _, done in done(nil) }
+        /// The folder panel closed if it's open saying a message, as if cancelled.
+        var closeFolderPanel: (_ message: String) -> Void = { _ in }
 
         /// The Swift engine's own: the terminal drivers on their terminals' queues, one at a time
         /// as the deck runs them, the openers, the secrets' stores (files in a test copy), the login item.
@@ -846,7 +904,8 @@ final class HostBridge {
                     "viewer-key": viewerItem(.key),
                     "viewer-write-secret": viewerItem(.writeSecret),
                 ],
-                loginItem: testCopy ? nil : loginItem,
+                loginItem: loginItem,
+                testCopy: testCopy,
                 facts: { apps in
                     [
                         "accessibility": Permissions.hasAccessibility,
@@ -870,7 +929,9 @@ final class HostBridge {
                     guard !testCopy else { throw TerminalCommand.Problem.testCopy }
                     if add { try TerminalCommand.add() } else { try TerminalCommand.remove() }
                 },
-                roster: { GrokBotApp.rows() })
+                roster: { GrokBotApp.rows() },
+                chooseFolder: { start, message, done in Deck.chooseFolder(from: start.flatMap(Deck.folder), message: message, then: done) },
+                closeFolderPanel: { Deck.closeFolderPanel(for: $0) })
         }
     }
 }

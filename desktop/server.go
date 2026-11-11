@@ -823,6 +823,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	if rt.macSetup(w, r) {
 		return
 	}
+	// What the Mac app does with its own windows, panel and login item, under it (hostshell.go).
+	if rt.macShell(w, r) {
+		return
+	}
 
 	switch {
 	case r.Method == http.MethodGet && path == "/setup":
@@ -1307,6 +1311,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		config.save()
 		d.changed()
 		d.mu.Unlock()
+		// A folder typed while the Mac's folder panel is open closes that panel, as on Start here.
+		if folder != "" {
+			d.closeMacFolderPanel()
+		}
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The system's own folder picker, which a web page can't open.
@@ -1345,6 +1353,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		config.save()
 		d.changed()
 		d.mu.Unlock()
+		// A folder typed on the page while the Mac's folder panel is open closes that panel: it's chosen now.
+		d.closeMacFolderPanel()
 		writeJSON(w, http.StatusOK, hireFolderState(folder, nil, homeDir))
 
 	// The hire guard's groups and your own patterns: a tool may read them, only the page changes them (routes.go, guardstate.go).
@@ -1831,7 +1841,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		agentList[i] = map[string]any{"id": agent, "name": agent.Name(), "connected": isConnected(agent)}
 	}
 	connected := allConnected()
-	openAtLogin := isOpenAtLogin()
+	openAtLogin := d.openAtLogin()
 	gmHired := readRegistry(registryPath(), false).gmIsHired()
 	// Under the Mac app, what only it can say of this Mac (hostsetup.go).
 	facts := d.macFactsNow()
@@ -1923,8 +1933,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		// The two plain choices (T796), and the T3 Code gate as T3 Code's own code reads it.
 		"choices":       choicesState(d.config, tmuxHere, t3InstalledRecently),
 		"t3CodeEnabled": t3CodeAllowed(d.config),
-		// Without a window of its own, setup says why there's no switch.
-		"officeWindow": map[string]any{"available": hasNativeWindow, "mac": false, "onTop": hasNativeWindow && d.config.AlwaysOnTop},
+		// Without a window of its own, setup says why there's no switch; under the Mac app, its own window.
+		"officeWindow": d.officeWindowState(),
 		"summary":      d.summaryState(),
 		"webhook": map[string]any{
 			"enabled": d.config.Webhook.Enabled, "url": d.config.Webhook.URL, "secret": webhookSecretFor(who, d.config.Webhook.Secret),
