@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -28,121 +29,128 @@ import (
 // that passes must come out of both.
 
 // knownGap is one difference: in what (a route, or a shape by its name in contract.json), where (route: the
-// route isn't served; status, kind, a refusal, or a field's path), and what this app has instead.
-type knownGap struct{ subject, where, got, why string }
+// route isn't served; status, kind, a refusal, or a field's path), what this app has instead, why, and who
+// closes it: the M piece (M2 server and setup, M3 office and bots, M4 hiring and the GM, M4a briefs, M5 T3, M6
+// the personal shell), "via the bridge (M1)" for what only macOS can do, or "stays: <why>" for a Go-only extra.
+type knownGap struct{ subject, where, got, why, owner string }
 
 // knownGaps is every difference between the Mac's answers and this app's, today. Keep it in INVENTORY.md's
 // order: TestTheKnownGapsAreInventorysGoStatus checks the two are the same table.
 var knownGaps = []knownGap{
-	{"setup-state", ".checklist.accessibility", "missing", "nothing off the Mac needs Accessibility"},
-	{"setup-state", ".claudeAccounts", "missing", "Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2)"},
-	{"setup-state", ".cloudBots.autoDetect", "missing", "only the Mac looks in the Grok Bot app"},
-	{"setup-state", ".dictation", "missing", "dictation is Apple's speech recognition"},
-	{"setup-state", ".dock", "missing", "In the Dock is a Mac setting"},
-	{"setup-state", ".floorRules[].exact", "missing", "a rule's exact is left out when false (omitempty)"},
-	{"setup-state", ".hiring.apiKey", "missing", "a hire on the API-key account is the Mac's (M4)"},
-	{"setup-state", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)"},
-	{"setup-state", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)"},
-	{"setup-state", ".keystrokes", "missing", "pressing keys in other apps needs Accessibility: the Mac's"},
-	{"setup-state", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for"},
-	{"setup-state", ".mailBeta", "extra", "mail to a hire is beta on Windows"},
-	{"setup-state", ".manager", "missing", "no manager object here: the switch is in config.json, gmHired is top level (M2)"},
-	{"setup-state", ".phoneMic", "missing", "the phone mic is the Mac's personal build"},
-	{"setup-state", ".roles.limits.answer", "missing", "briefs aren't served here (M4)"},
-	{"setup-state", ".roles.limits.briefFile", "missing", "briefs aren't served here (M4)"},
-	{"setup-state", ".roles.limits.briefFileName", "missing", "briefs aren't served here (M4)"},
-	{"setup-state", ".roles.shipped[].brief", "missing", "briefs aren't served here (M4)"},
-	{"setup-state", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has"},
-	{"setup-state", ".terminalCommand", "missing", "Add smolcorp to Terminal is the Mac's"},
-	{"setup-state-tool", ".checklist.accessibility", "missing", "nothing off the Mac needs Accessibility"},
-	{"setup-state-tool", ".claudeAccounts", "missing", "Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2)"},
-	{"setup-state-tool", ".cloudBots.autoDetect", "missing", "only the Mac looks in the Grok Bot app"},
-	{"setup-state-tool", ".dictation", "missing", "dictation is Apple's speech recognition"},
-	{"setup-state-tool", ".dock", "missing", "In the Dock is a Mac setting"},
-	{"setup-state-tool", ".floorRules[].exact", "missing", "a rule's exact is left out when false (omitempty)"},
-	{"setup-state-tool", ".hiring.apiKey", "missing", "a hire on the API-key account is the Mac's (M4)"},
-	{"setup-state-tool", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)"},
-	{"setup-state-tool", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)"},
-	{"setup-state-tool", ".keystrokes", "missing", "pressing keys in other apps needs Accessibility: the Mac's"},
-	{"setup-state-tool", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for"},
-	{"setup-state-tool", ".mailBeta", "extra", "mail to a hire is beta on Windows"},
-	{"setup-state-tool", ".manager", "missing", "no manager object here: the switch is in config.json, gmHired is top level (M2)"},
-	{"setup-state-tool", ".pairing.codeExpiresIn", "extra", "a tool is told how long the code lasts; the Mac tells only the page"},
-	{"setup-state-tool", ".phoneMic", "missing", "the phone mic is the Mac's personal build"},
-	{"setup-state-tool", ".roles.limits.answer", "missing", "briefs aren't served here (M4)"},
-	{"setup-state-tool", ".roles.limits.briefFile", "missing", "briefs aren't served here (M4)"},
-	{"setup-state-tool", ".roles.limits.briefFileName", "missing", "briefs aren't served here (M4)"},
-	{"setup-state-tool", ".roles.shipped[].brief", "missing", "briefs aren't served here (M4)"},
-	{"setup-state-tool", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has"},
-	{"setup-state-tool", ".terminalCommand", "missing", "Add smolcorp to Terminal is the Mac's"},
-	{"snapshot", ".dictation", "missing", "dictation is Apple's speech recognition"},
-	{"snapshot", ".floors[].desks[].choice", "missing", "a menu's options, read from the Mac's terminals (M3)"},
-	{"snapshot", ".floors[].desks[].conversation", "missing", "the conversation view: the iPhone app's (personal build)"},
-	{"snapshot", ".floors[].desks[].dictates", "missing", "dictation is Apple's speech recognition"},
-	{"snapshot", ".floors[].desks[].fire", "missing", "what the desk's terminal lets the office do: said once here, as hiring.fire (M3)"},
-	{"snapshot", ".floors[].desks[].keys", "missing", "what the desk's terminal lets the office do (M3)"},
-	{"snapshot", ".floors[].desks[].phoneMic", "missing", "the phone mic is the Mac's personal build"},
-	{"snapshot", ".floors[].desks[].voiceNote", "missing", "voice notes: the Mac's personal build"},
-	{"snapshot", ".keys[].session.choice", "missing", "a menu's options, read from the Mac's terminals (M3)"},
-	{"snapshot", ".keys[].session.conversation", "missing", "the conversation view: the iPhone app's (personal build)"},
-	{"snapshot", ".keys[].session.dictates", "missing", "dictation is Apple's speech recognition"},
-	{"snapshot", ".keys[].session.fire", "missing", "what the desk's terminal lets the office do: said once here, as hiring.fire (M3)"},
-	{"snapshot", ".keys[].session.keys", "missing", "what the desk's terminal lets the office do (M3)"},
-	{"snapshot", ".keys[].session.phoneMic", "missing", "the phone mic is the Mac's personal build"},
-	{"snapshot", ".keys[].session.voiceNote", "missing", "voice notes: the Mac's personal build"},
-	{"snapshot", ".phoneMic", "missing", "the phone mic is the Mac's personal build"},
-	{"snapshot", ".upstairs.desks[].choice", "missing", "a menu's options, read from the Mac's terminals (M3)"},
-	{"snapshot", ".upstairs.desks[].voiceNote", "missing", "voice notes: the Mac's personal build"},
-	{"POST /setup/session", "refusal: no menu link's key: no session", "kind empty", "its 401 has no text; the Mac's says why"},
-	{"POST /setup/phonemic", "route", "404", "the phone mic is the Mac's personal build"},
-	{"GET /setup/qr.png", "refusal: no pairing code asked for", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty"},
-	{"GET /setup/logo/nope", "refusal: no such logo", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty"},
-	{"POST /setup/dictation", "route", "404", "dictation is Apple's speech recognition"},
-	{"POST /setup/dictation/glossary", "route", "404", "dictation is Apple's speech recognition"},
-	{"POST /setup/keystrokes", "route", "404", "pressing keys in other apps needs Accessibility: the Mac's"},
-	{"POST /setup/keystrokes/apps", "route", "404", "pressing keys in other apps needs Accessibility: the Mac's"},
-	{"GET /setup/guard", "route", "404", "the hire guard's settings are the Mac's (M4)"},
-	{"POST /setup/guard", "route", "404", "the hire guard's settings are the Mac's (M4)"},
-	{"GET /setup/claude-accounts", "route", "404", "Claude accounts are the Mac's (M2)"},
-	{"POST /setup/claude-accounts", "route", "404", "Claude accounts are the Mac's (M2)"},
-	{"GET /setup/bots", ".bots[].discovered", "missing", "left out when false or empty (omitempty)"},
-	{"GET /setup/bots", ".bots[].mailbox", "missing", "left out when false or empty (omitempty)"},
-	{"GET /setup/bots", ".bots[].pinned", "missing", "left out when false or empty (omitempty)"},
-	{"GET /setup/bots", ".bots[].resolved", "missing", "only the Mac looks in the Grok Bot app"},
-	{"POST /setup/bots", ".bots[].discovered", "missing", "left out when false or empty (omitempty)"},
-	{"POST /setup/bots", ".bots[].mailbox", "missing", "left out when false or empty (omitempty)"},
-	{"POST /setup/bots", ".bots[].pinned", "missing", "left out when false or empty (omitempty)"},
-	{"POST /setup/bots", ".bots[].resolved", "missing", "only the Mac looks in the Grok Bot app"},
-	{"POST /setup/bots/resolve", "route", "404", "only the Mac looks in the Grok Bot app"},
-	{"GET /setup/hire/folders", "route", "404", "hiring from the setup page by role is the Mac's (M4)"},
-	{"GET /setup/hire/gm/preflight", "refusal: no such Claude account", "status 200", "Claude accounts are the Mac's (M2): the GM's tools are checked for any account"},
-	{"GET /setup/briefs", "route", "404", "briefs aren't served here (M4)"},
-	{"POST /setup/briefs/preview", "route", "404", "briefs aren't served here (M4)"},
-	{"POST /setup/hire", "route", "404", "hiring from the setup page by role is the Mac's (M4)"},
-	{"POST /setup/notify", "route", "404", "a push to the iPhone app (personal build)"},
-	{"GET /setup/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty"},
-	{"GET /setup/gm/screens", "route", "404", "tiling the team is the Mac's (M4)"},
-	{"POST /setup/gm/screen", "route", "404", "tiling the team is the Mac's (M4)"},
-	{"POST /setup/gm/hire", "route", "404", "the GM's hiring is the Mac's (M4)"},
-	{"POST /setup/gm/fire", "route", "404", "the GM's firing is the Mac's (M4)"},
-	{"POST /setup/gm/brief", "route", "404", "a later brief is the Mac's (M4)"},
-	{"GET /setup/gm/registry", "refusal: listed for the page, but nothing answers it", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty"},
-	{"POST /setup/gm/by-hand", "route", "404", "no GM token here (M4)"},
-	{"POST /setup/gm/token/rotate", "route", "404", "no GM token here (M4)"},
-	{"GET /setup/gm/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty"},
-	{"POST /act", "refusal: unknown dictation language", "status 404", "no dictation here: action=language isn't known, so its session is looked for"},
-	{"GET /glossary", "route", "404", "the iPhone app's speech names (personal build)"},
-	{"GET /approvals", "route", "404", "over Tailscale only (personal build)"},
-	{"GET /reviews", "route", "404", "over Tailscale only (personal build)"},
-	{"GET /conversation", "route", "404", "the iPhone app's conversation (personal build)"},
-	{"GET /session/info", "route", "404", "ⓘ Info (personal build)"},
-	{"GET /notifications", "route", "404", "the iPhone app's push notifications (personal build)"},
-	{"POST /notifications", "route", "404", "the iPhone app's push notifications (personal build)"},
-	{"POST /dictate", "route", "404", "the phone mic (personal build)"},
-	{"POST /peek", "route", "404", "the phone mic (personal build)"},
-	{"POST /choose", "route", "404", "the iPhone app's typed answers (personal build)"},
-	{"GET /choice", "route", "404", "the iPhone app's prompt details (personal build)"},
-	{"GET /nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty"},
+	{"setup-state", ".checklist.accessibility", "missing", "nothing off the Mac needs Accessibility", "M2 via the bridge (M1)"},
+	{"setup-state", ".claudeAccounts", "missing", "Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2)", "M2"},
+	{"setup-state", ".cloudBots.autoDetect", "missing", "only the Mac looks in the Grok Bot app", "M3 via the bridge (M1)"},
+	{"setup-state", ".dictation", "missing", "dictation is Apple's speech recognition", "M2 via the bridge (M1)"},
+	{"setup-state", ".dock", "missing", "In the Dock is a Mac setting", "M2 via the bridge (M1)"},
+	{"setup-state", ".floorRules[].exact", "missing", "a rule's exact is left out when false (omitempty)", "M3 fixes: sent when false or empty too"},
+	{"setup-state", ".hiring.apiKey", "missing", "a hire on the API-key account is the Mac's (M4)", "M4"},
+	{"setup-state", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
+	{"setup-state", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
+	{"setup-state", ".keystrokes", "missing", "pressing keys in other apps needs Accessibility: the Mac's", "M2 via the bridge (M1)"},
+	{"setup-state", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for", "M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher"},
+	{"setup-state", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
+	{"setup-state", ".manager", "missing", "no manager object here: the switch is in config.json, gmHired is top level (M2)", "M2"},
+	{"setup-state", ".phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
+	{"setup-state", ".roles.limits.answer", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
+	{"setup-state", ".roles.limits.briefFile", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
+	{"setup-state", ".roles.limits.briefFileName", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
+	{"setup-state", ".roles.shipped[].brief", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
+	{"setup-state", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
+	{"setup-state", ".terminalCommand", "missing", "Add smolcorp to Terminal is the Mac's", "M2 via the bridge (M1)"},
+	{"setup-state-tool", ".checklist.accessibility", "missing", "nothing off the Mac needs Accessibility", "M2 via the bridge (M1)"},
+	{"setup-state-tool", ".claudeAccounts", "missing", "Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2)", "M2"},
+	{"setup-state-tool", ".cloudBots.autoDetect", "missing", "only the Mac looks in the Grok Bot app", "M3 via the bridge (M1)"},
+	{"setup-state-tool", ".dictation", "missing", "dictation is Apple's speech recognition", "M2 via the bridge (M1)"},
+	{"setup-state-tool", ".dock", "missing", "In the Dock is a Mac setting", "M2 via the bridge (M1)"},
+	{"setup-state-tool", ".floorRules[].exact", "missing", "a rule's exact is left out when false (omitempty)", "M3 fixes: sent when false or empty too"},
+	{"setup-state-tool", ".hiring.apiKey", "missing", "a hire on the API-key account is the Mac's (M4)", "M4"},
+	{"setup-state-tool", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
+	{"setup-state-tool", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
+	{"setup-state-tool", ".keystrokes", "missing", "pressing keys in other apps needs Accessibility: the Mac's", "M2 via the bridge (M1)"},
+	{"setup-state-tool", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for", "M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher"},
+	{"setup-state-tool", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
+	{"setup-state-tool", ".manager", "missing", "no manager object here: the switch is in config.json, gmHired is top level (M2)", "M2"},
+	{"setup-state-tool", ".pairing.codeExpiresIn", "extra", "a tool is told how long the code lasts; the Mac tells only the page", "stays: Go-only, a tool's; the page has it in its own state on both apps"},
+	{"setup-state-tool", ".phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
+	{"setup-state-tool", ".roles.limits.answer", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
+	{"setup-state-tool", ".roles.limits.briefFile", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
+	{"setup-state-tool", ".roles.limits.briefFileName", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
+	{"setup-state-tool", ".roles.shipped[].brief", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
+	{"setup-state-tool", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
+	{"setup-state-tool", ".terminalCommand", "missing", "Add smolcorp to Terminal is the Mac's", "M2 via the bridge (M1)"},
+	{"snapshot", ".dictation", "missing", "dictation is Apple's speech recognition", "M3 via the bridge (M1)"},
+	{"snapshot", ".floors[].desks[].choice", "missing", "a menu's options, read from the Mac's terminals (M3)", "M3 via the bridge (M1)"},
+	{"snapshot", ".floors[].desks[].conversation", "missing", "the conversation view: the iPhone app's (personal build)", "M6: personal shell"},
+	{"snapshot", ".floors[].desks[].dictates", "missing", "dictation is Apple's speech recognition", "M3 via the bridge (M1)"},
+	{"snapshot", ".floors[].desks[].fire", "missing", "what the desk's terminal lets the office do: said once here, as hiring.fire (M3)", "M3 via the bridge (M1)"},
+	{"snapshot", ".floors[].desks[].keys", "missing", "what the desk's terminal lets the office do (M3)", "M3 via the bridge (M1)"},
+	{"snapshot", ".floors[].desks[].phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
+	{"snapshot", ".floors[].desks[].voiceNote", "missing", "voice notes: the Mac's personal build", "M6: personal shell"},
+	{"snapshot", ".keys[].session.choice", "missing", "a menu's options, read from the Mac's terminals (M3)", "M3 via the bridge (M1)"},
+	{"snapshot", ".keys[].session.conversation", "missing", "the conversation view: the iPhone app's (personal build)", "M6: personal shell"},
+	{"snapshot", ".keys[].session.dictates", "missing", "dictation is Apple's speech recognition", "M3 via the bridge (M1)"},
+	{"snapshot", ".keys[].session.fire", "missing", "what the desk's terminal lets the office do: said once here, as hiring.fire (M3)", "M3 via the bridge (M1)"},
+	{"snapshot", ".keys[].session.keys", "missing", "what the desk's terminal lets the office do (M3)", "M3 via the bridge (M1)"},
+	{"snapshot", ".keys[].session.phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
+	{"snapshot", ".keys[].session.voiceNote", "missing", "voice notes: the Mac's personal build", "M6: personal shell"},
+	{"snapshot", ".phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
+	{"snapshot", ".upstairs.desks[].choice", "missing", "a menu's options, read from the Mac's terminals (M3)", "M3 via the bridge (M1)"},
+	{"snapshot", ".upstairs.desks[].conversation", "missing", "the conversation view: the iPhone app's (personal build)", "M6: personal shell"},
+	{"snapshot", ".upstairs.desks[].dictates", "missing", "dictation is Apple's speech recognition", "M3 via the bridge (M1)"},
+	{"snapshot", ".upstairs.desks[].fire", "missing", "what the desk's terminal lets the office do: said once here, as hiring.fire (M3)", "M3 via the bridge (M1)"},
+	{"snapshot", ".upstairs.desks[].keys", "missing", "what the desk's terminal lets the office do (M3)", "M3 via the bridge (M1)"},
+	{"snapshot", ".upstairs.desks[].phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
+	{"snapshot", ".upstairs.desks[].voiceNote", "missing", "voice notes: the Mac's personal build", "M6: personal shell"},
+	{"POST /setup/session", "refusal: no menu link's key: no session", "kind empty", "its 401 has no text; the Mac's says why", "M2 fixes: the Mac's text in the 401"},
+	{"POST /setup/phonemic", "route", "404", "the phone mic is the Mac's personal build", "M6: personal shell"},
+	{"GET /setup/qr.png", "refusal: no pairing code asked for", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
+	{"GET /setup/logo/nope", "refusal: no such logo", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
+	{"POST /setup/dictation", "route", "404", "dictation is Apple's speech recognition", "M2 via the bridge (M1)"},
+	{"POST /setup/dictation/glossary", "route", "404", "dictation is Apple's speech recognition", "M2 via the bridge (M1)"},
+	{"POST /setup/keystrokes", "route", "404", "pressing keys in other apps needs Accessibility: the Mac's", "M2 via the bridge (M1)"},
+	{"POST /setup/keystrokes/apps", "route", "404", "pressing keys in other apps needs Accessibility: the Mac's", "M2 via the bridge (M1)"},
+	{"GET /setup/guard", "route", "404", "the hire guard's settings are the Mac's (M4)", "M4"},
+	{"POST /setup/guard", "route", "404", "the hire guard's settings are the Mac's (M4)", "M4"},
+	{"GET /setup/claude-accounts", "route", "404", "Claude accounts are the Mac's (M2)", "M2"},
+	{"POST /setup/claude-accounts", "route", "404", "Claude accounts are the Mac's (M2)", "M2"},
+	{"GET /setup/bots", ".bots[].discovered", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
+	{"GET /setup/bots", ".bots[].mailbox", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
+	{"GET /setup/bots", ".bots[].pinned", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
+	{"GET /setup/bots", ".bots[].resolved", "missing", "only the Mac looks in the Grok Bot app", "M3 via the bridge (M1)"},
+	{"POST /setup/bots", ".bots[].discovered", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
+	{"POST /setup/bots", ".bots[].mailbox", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
+	{"POST /setup/bots", ".bots[].pinned", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
+	{"POST /setup/bots", ".bots[].resolved", "missing", "only the Mac looks in the Grok Bot app", "M3 via the bridge (M1)"},
+	{"POST /setup/bots/resolve", "route", "404", "only the Mac looks in the Grok Bot app", "M3 via the bridge (M1)"},
+	{"GET /setup/hire/folders", "route", "404", "hiring from the setup page by role is the Mac's (M4)", "M4"},
+	{"GET /setup/hire/gm/preflight", "refusal: no such Claude account", "status 200", "Claude accounts are the Mac's (M2): the GM's tools are checked for any account", "M4, once M2 has the Claude accounts"},
+	{"GET /setup/briefs", "route", "404", "briefs aren't served here (M4)", "M4a: briefs"},
+	{"POST /setup/briefs/preview", "route", "404", "briefs aren't served here (M4)", "M4a: briefs"},
+	{"POST /setup/hire", "route", "404", "hiring from the setup page by role is the Mac's (M4)", "M4"},
+	{"POST /setup/notify", "route", "404", "a push to the iPhone app (personal build)", "M6: personal shell"},
+	{"GET /setup/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
+	{"GET /setup/gm/screens", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
+	{"POST /setup/gm/screen", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
+	{"POST /setup/gm/hire", "route", "404", "the GM's hiring is the Mac's (M4)", "M4"},
+	{"POST /setup/gm/fire", "route", "404", "the GM's firing is the Mac's (M4)", "M4"},
+	{"POST /setup/gm/brief", "route", "404", "a later brief is the Mac's (M4)", "M4"},
+	{"GET /setup/gm/registry", "refusal: listed for the page, but nothing answers it", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M4: take the dead row out of both route tables (SetupRoutes.swift, routes.go)"},
+	{"POST /setup/gm/by-hand", "route", "404", "no GM token here (M4)", "M4"},
+	{"POST /setup/gm/token/rotate", "route", "404", "no GM token here (M4)", "M4"},
+	{"GET /setup/gm/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
+	{"POST /act", "refusal: unknown dictation language", "status 404", "no dictation here: action=language isn't known, so its session is looked for", "M3 fixes: action=language known, an unknown language refused with 400"},
+	{"GET /glossary", "route", "404", "the iPhone app's speech names (personal build)", "M6: personal shell"},
+	{"GET /approvals", "route", "404", "over Tailscale only (personal build)", "M6: personal shell"},
+	{"GET /reviews", "route", "404", "over Tailscale only (personal build)", "M6: personal shell"},
+	{"GET /conversation", "route", "404", "the iPhone app's conversation (personal build)", "M6: personal shell"},
+	{"GET /session/info", "route", "404", "ⓘ Info (personal build)", "M6: personal shell"},
+	{"GET /notifications", "route", "404", "the iPhone app's push notifications (personal build)", "M6: personal shell"},
+	{"POST /notifications", "route", "404", "the iPhone app's push notifications (personal build)", "M6: personal shell"},
+	{"POST /dictate", "route", "404", "the phone mic (personal build)", "M6: personal shell"},
+	{"POST /peek", "route", "404", "the phone mic (personal build)", "M6: personal shell"},
+	{"POST /choose", "route", "404", "the iPhone app's typed answers (personal build)", "M6: personal shell"},
+	{"GET /choice", "route", "404", "the iPhone app's prompt details (personal build)", "M6: personal shell"},
+	{"GET /nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
 }
 
 // contractAsk is a fixture's request: who asks, its query, headers and body, and what's set up first.
@@ -167,6 +175,7 @@ type contractRoute struct {
 		Request contractAsk `json:"request"`
 		Status  int         `json:"status"`
 		Kind    string      `json:"kind"`
+		Shape   any         `json:"shape"` // a refusal in JSON's
 		Why     string      `json:"why"`
 	} `json:"refusals"`
 }
@@ -188,7 +197,8 @@ type contractGiven struct {
 }
 
 type contract struct {
-	shapes map[string]any // by name: what a route's answer refers to
+	shapes map[string]any                 // by name: what a route's answer refers to
+	ids    map[string]map[string][]string // by name: the given's sessions in each of the shape's lists, by where
 	givens map[string]contractGiven
 	files  map[string][]contractRoute
 }
@@ -204,15 +214,19 @@ func readContract(t *testing.T) contract {
 		t.Fatal(err)
 	}
 	var shared struct {
-		Shapes map[string]struct{ Shape any } `json:"shapes"`
-		Given  map[string]contractGiven       `json:"given"`
+		Shapes map[string]struct {
+			Shape any
+			IDs   map[string][]string `json:"ids"`
+		} `json:"shapes"`
+		Given map[string]contractGiven `json:"given"`
 	}
 	if err := json.Unmarshal(data, &shared); err != nil {
 		t.Fatal(err)
 	}
-	c := contract{shapes: map[string]any{}, givens: shared.Given, files: map[string][]contractRoute{}}
+	c := contract{shapes: map[string]any{}, ids: map[string]map[string][]string{}, givens: shared.Given, files: map[string][]contractRoute{}}
 	for name, s := range shared.Shapes {
 		c.shapes[name] = s.Shape
+		c.ids[name] = s.IDs
 	}
 	for _, file := range contractFiles {
 		data, err := os.ReadFile(filepath.Join(contractFolder(), file))
@@ -459,6 +473,62 @@ func TestShapesAreKeysTypesAndClosedSetsAsOnTheMac(t *testing.T) {
 			t.Errorf("%s: each field null gives %d differences, want %d", name, got, len(shape)-nullable)
 		}
 	}
+}
+
+// A desk's fields are typed by what the given fills: a null model, tool or activity at the pinned key (contract-a
+// has each) is a difference, though the free key's desk (contract-c) has no model; and so is a pin of false at
+// the free key. Asked of this app's own snapshot: each change adds a difference to what it already has.
+func TestWhatTheGivenFillsAtADeskMustBeFilled(t *testing.T) {
+	c := readContract(t)
+	var events *contractRoute
+	for i, route := range c.files["state.json"] {
+		if route.Route == "GET /events" {
+			events = &c.files["state.json"][i]
+		}
+	}
+	if events == nil || events.Request == nil {
+		t.Fatal("no GET /events in state.json")
+	}
+	got := newContractDeck(t, c, events.Request.Given).ask("GET", "/events", *events.Request)
+	shape := c.shapes["snapshot"]
+	before := shapeDifferences(shape, got.json, "")
+	changed := func(change func(keys []any)) any {
+		data, _ := json.Marshal(got.json)
+		var answer map[string]any
+		_ = json.Unmarshal(data, &answer)
+		keys, _ := answer["keys"].([]any)
+		change(keys)
+		return answer
+	}
+	pinned, free := -1, -1
+	answer, _ := got.json.(map[string]any)
+	keys, _ := answer["keys"].([]any)
+	for i, key := range keys {
+		key, _ := key.(map[string]any)
+		if _, ok := key["pin"].(string); ok {
+			pinned = i
+		} else if key["pin"] == nil && key["session"] != nil {
+			free = i
+		}
+	}
+	if pinned < 0 || free < 0 {
+		t.Fatalf("the snapshot has no pinned key (%d) or no session at a free key (%d)", pinned, free)
+	}
+	adds := func(what string, answer any) {
+		for _, line := range shapeDifferences(shape, answer, "") {
+			if !slices.Contains(before, line) {
+				return
+			}
+		}
+		t.Errorf("%s passes the snapshot's shape", what)
+	}
+	for _, field := range []string{"model", "tool", "activity"} {
+		adds("a null "+field+" at the pinned key", changed(func(keys []any) {
+			keys[pinned].(map[string]any)["session"].(map[string]any)[field] = nil
+		}))
+	}
+	adds("a pin of false at the free key", changed(func(keys []any) { keys[free].(map[string]any)["pin"] = false }))
+	adds("a null pin at the pinned key", changed(func(keys []any) { keys[pinned].(map[string]any)["pin"] = nil }))
 }
 
 // MARK: Asking this app
@@ -734,6 +804,12 @@ func contractGaps(t *testing.T, c contract) []knownGap {
 						where, what, _ := strings.Cut(line, ": ")
 						found = append(found, knownGap{subject: subject, where: where, got: what})
 					}
+					// The given's sessions, each in every list it's in: a shape alone passes a list that drops one.
+					for where, ids := range c.ids[subject] {
+						if have := valuesAt(where, got.json); !slices.Equal(have, ids) {
+							found = append(found, knownGap{subject: subject, where: where, got: "ids " + strings.Join(have, ", ")})
+						}
+					}
 				}
 			}
 			for _, refusal := range route.Refusals {
@@ -748,6 +824,11 @@ func contractGaps(t *testing.T, c contract) []knownGap {
 					found = append(found, knownGap{subject: route.Route, where: "refusal: " + refusal.Why, got: "status " + strconv.Itoa(got.status)})
 				case got.kind != refusal.Kind:
 					found = append(found, knownGap{subject: route.Route, where: "refusal: " + refusal.Why, got: "kind " + got.kind})
+				case refusal.Shape != nil:
+					for _, line := range shapeDifferences(refusal.Shape, got.json, "") {
+						where, what, _ := strings.Cut(line, ": ")
+						found = append(found, knownGap{subject: route.Route, where: "refusal: " + refusal.Why + ", " + where, got: what})
+					}
 				}
 			}
 			// A route that answers nothing but 404 here, where the Mac answers it, isn't served: one gap, not one per request.
@@ -760,6 +841,48 @@ func contractGaps(t *testing.T, c contract) []knownGap {
 		}
 	}
 	return gaps
+}
+
+// valuesAt is the values at where (".a[].b") in an answer, every element's, as text, sorted: as the Mac writes ids.
+func valuesAt(where string, answer any) []string {
+	found := []any{answer}
+	for rest := where; rest != ""; {
+		if after, ok := strings.CutPrefix(rest, "[]"); ok {
+			var elements []any
+			for _, value := range found {
+				list, _ := value.([]any)
+				elements = append(elements, list...)
+			}
+			found, rest = elements, after
+			continue
+		}
+		rest = strings.TrimPrefix(rest, ".")
+		end := strings.IndexAny(rest, ".[")
+		if end < 0 {
+			end = len(rest)
+		}
+		key := rest[:end]
+		var values []any
+		for _, value := range found {
+			if object, ok := value.(map[string]any); ok {
+				if v, has := object[key]; has {
+					values = append(values, v)
+				}
+			}
+		}
+		found, rest = values, rest[end:]
+	}
+	texts := []string{}
+	for _, value := range found {
+		if text, ok := value.(string); ok {
+			texts = append(texts, text)
+		} else {
+			data, _ := json.Marshal(value)
+			texts = append(texts, string(data))
+		}
+	}
+	sort.Strings(texts)
+	return texts
 }
 
 func gapKey(g knownGap) string { return g.subject + " | " + g.where + " | " + g.got }
@@ -776,7 +899,7 @@ func TestThisAppAnswersAsTheMacsContractSaysButForItsKnownGaps(t *testing.T) {
 	for _, g := range found {
 		differs[gapKey(g)] = true
 		if !known[gapKey(g)] {
-			t.Errorf("not a known gap: {%q, %q, %q, \"\"},", g.subject, g.where, g.got)
+			t.Errorf("not a known gap: {%q, %q, %q, \"<why>\", \"<owner>\"},", g.subject, g.where, g.got)
 		}
 	}
 	for _, g := range knownGaps {
@@ -790,7 +913,7 @@ func TestThisAppAnswersAsTheMacsContractSaysButForItsKnownGaps(t *testing.T) {
 
 // inventoryRoute is a row of INVENTORY.md's route tables: the path asked (a pattern's stand-in), and its
 // fixture and Go cells.
-type inventoryRoute struct{ fixture, goStatus string }
+type inventoryRoute struct{ callers, fixture, goStatus string }
 
 // inventory is what INVENTORY.md says: its routes, its known gaps, and its field tables (field, type, Go).
 type inventory struct {
@@ -822,8 +945,8 @@ func readInventory(t *testing.T) inventory {
 		header := cells[0] == "In" || cells[0] == "Field" || strings.HasPrefix(cells[0], "---")
 		switch {
 		case header:
-		case section == "Known gaps" && len(cells) == 4:
-			inv.gaps = append(inv.gaps, knownGap{subject: cells[0], where: cells[1], got: cells[2], why: cells[3]})
+		case section == "Known gaps" && len(cells) == 5:
+			inv.gaps = append(inv.gaps, knownGap{subject: cells[0], where: cells[1], got: cells[2], why: cells[3], owner: cells[4]})
 		case strings.HasPrefix(section, "Fields of") && len(cells) == 3:
 			name := "snapshot"
 			if strings.Contains(section, "setup-state") {
@@ -832,7 +955,7 @@ func readInventory(t *testing.T) inventory {
 			inv.fields[name] = append(inv.fields[name], [3]string{cells[0], cells[1], cells[2]})
 		case len(cells) >= 8 && slices.Contains([]string{"GET", "POST", "DELETE", "*"}, cells[0]):
 			// Method, path, callers, request, answer, statuses, fixture, Go.
-			inv.routes[cells[0]+" "+cells[1]] = inventoryRoute{fixture: cells[6], goStatus: cells[7]}
+			inv.routes[cells[0]+" "+cells[1]] = inventoryRoute{callers: cells[2], fixture: cells[6], goStatus: cells[7]}
 		}
 	}
 	return inv
@@ -864,6 +987,12 @@ func TestTheKnownGapsAreInventorysGoStatus(t *testing.T) {
 	for i := 0; i < len(inv.gaps) && i < len(knownGaps); i++ {
 		if inv.gaps[i] != knownGaps[i] {
 			t.Errorf("gap %d: INVENTORY.md has %+v, knownGaps %+v", i+1, inv.gaps[i], knownGaps[i])
+		}
+	}
+	// Every gap names who closes it, so none is a Mac feature that goes quietly when the Mac switches to this core.
+	for _, g := range knownGaps {
+		if problem := ownerProblem(g.owner, g.why); problem != "" {
+			t.Errorf("%s: owner %q %s", gapKey(g), g.owner, problem)
 		}
 	}
 	c := readContract(t)
@@ -902,9 +1031,13 @@ func TestTheKnownGapsAreInventorysGoStatus(t *testing.T) {
 			t.Errorf("%s: INVENTORY.md names no fixture", route)
 		}
 	}
-	// A route without a fixture says why, and one INVENTORY.md says this app doesn't serve answers 404 here
-	// (with the manager on, as the GM's routes are 409 before anything else with it off).
+	// A route without a fixture says why. One INVENTORY.md says this app doesn't serve ("404, owner: <who>") names
+	// who serves it, and answers 404 here (with the manager on, as the GM's routes are 409 before anything else
+	// with it off). One it says this app serves is served: a file of the web folder is asked for, as reading it
+	// changes nothing; a setup route has its callers in the route table, and its case in the router (asking it
+	// would write the home folder, open a window, or ask the Keychain).
 	cd := newContractDeck(t, c, []string{"manager on"})
+	handlers := goSources(t)
 	for name, row := range inv.routes {
 		if _, has := status[name]; has {
 			continue
@@ -912,19 +1045,90 @@ func TestTheKnownGapsAreInventorysGoStatus(t *testing.T) {
 		if !strings.HasPrefix(row.fixture, "none: ") || len(row.fixture) < len("none: ")+10 {
 			t.Errorf("%s: no fixture, and INVENTORY.md says no why (a fixture cell \"none: <why>\")", name)
 		}
-		if row.goStatus != "404" {
-			continue
-		}
 		method, path, _ := strings.Cut(name, " ")
-		path = strings.NewReplacer("<name>", "contract", "<logo>", "keys", "<id>", "contract-bot", "*", "contract").Replace(path)
-		caller := "page"
-		if !isSetupRoute(path) {
-			caller = "phone"
-		}
-		if got := cd.ask(method, path, contractAsk{As: caller}); got.status != http.StatusNotFound {
-			t.Errorf("%s: INVENTORY.md says Go 404, but it answers %d", name, got.status)
+		switch {
+		case strings.HasPrefix(row.goStatus, "404"):
+			owner, named := strings.CutPrefix(row.goStatus, "404, owner: ")
+			if !named {
+				t.Errorf("%s: INVENTORY.md says Go 404, and names no owner (\"404, owner: <who>\")", name)
+			} else if problem := ownerProblem(owner, row.fixture); problem != "" {
+				t.Errorf("%s: owner %q %s", name, owner, problem)
+			}
+			path = strings.NewReplacer("<name>", "contract", "<logo>", "keys", "<id>", "contract-bot", "*", "contract").Replace(path)
+			caller := "page"
+			if !isSetupRoute(path) {
+				caller = "phone"
+			}
+			if got := cd.ask(method, path, contractAsk{As: caller}); got.status != http.StatusNotFound {
+				t.Errorf("%s: INVENTORY.md says Go 404, but it answers %d", name, got.status)
+			}
+		case strings.HasPrefix(row.goStatus, "served"):
+			if method == http.MethodGet && strings.Contains(row.fixture, "a file of the app's web folder") {
+				path = strings.Replace(path, "/sounds/*", "/sounds/keys.m4a", 1)
+				caller := "phone"
+				if isSetupRoute(path) {
+					caller = "page"
+				}
+				if got := cd.ask(method, path, contractAsk{As: caller}); got.status == http.StatusNotFound {
+					t.Errorf("%s: INVENTORY.md says Go serves it, but it answers 404", name)
+				}
+				continue
+			}
+			if !isSetupRoute(path) {
+				t.Errorf("%s: served, with no fixture: this test doesn't know how to check it", name)
+				continue
+			}
+			// Its callers are the route table's, or for a route not in it, 1.23's rule: the page, or a tool.
+			callers := []string{"page", "tool"}
+			if row := routeFor(method, path); row != nil {
+				callers = row.callers
+			}
+			if path != "/setup" && strings.Join(callers, ", ") != row.callers {
+				t.Errorf("%s: INVENTORY.md says callers %s, the route table (routes.go) %s", name, row.callers, strings.Join(callers, ", "))
+			}
+			if !regexp.MustCompile(`[pP]ath == "` + regexp.QuoteMeta(path) + `"`).MatchString(handlers) {
+				t.Errorf("%s: INVENTORY.md says Go serves it, but no case in the router answers path == %q", name, path)
+			}
 		}
 	}
+}
+
+// goSources is this app's code, but for its tests and its route table: where the router's cases are.
+func goSources(t *testing.T) string {
+	t.Helper()
+	files, _ := filepath.Glob("*.go")
+	var all strings.Builder
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") || file == "routes.go" {
+			continue
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all.Write(data)
+	}
+	return all.String()
+}
+
+// ownerNames is who may close a gap: an M piece, with what it does or "via the bridge (M1)", or "stays: <why>".
+var ownerNames = regexp.MustCompile(`^(M[2-6]a?( fixes)?( via the bridge \(M1\)|: .{5,}|, .{5,})?|stays: .{10,})$`)
+
+// ownerProblem is what's wrong with a gap's owner, given its why: none, or a personal build's that isn't the
+// personal shell's (M6), or something only macOS does that doesn't go through the bridge (M1).
+func ownerProblem(owner, why string) string {
+	switch {
+	case !ownerNames.MatchString(owner):
+		return "names no M piece (M2 to M6, M4a) and no \"stays: <why>\""
+	case strings.Contains(why, "personal build") && owner != "M6: personal shell":
+		return "is a personal build's: \"M6: personal shell\", so M7 doesn't drop it"
+	}
+	for _, macOnly := range []string{"Accessibility", "speech recognition", "In the Dock", "Add smolcorp to Terminal", "Grok Bot app", "Terminal command"} {
+		if strings.Contains(why, macOnly) && !strings.HasSuffix(owner, " via the bridge (M1)") {
+			return "is something only macOS does: \"<M piece> via the bridge (M1)\""
+		}
+	}
+	return ""
 }
 
 // INVENTORY.md's field tables are the shapes' fields, two levels down (a desk's session: three), each with its

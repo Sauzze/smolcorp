@@ -651,6 +651,14 @@
               "folder" : "\/no\/such\/folder\/for\/contract"
             }
           },
+          "shape" : {
+            "exists" : "bool",
+            "fix" : "string",
+            "folder" : "string",
+            "home" : "string",
+            "problem" : "string",
+            "suggested" : "string"
+          },
           "status" : 400,
           "why" : "no folder there"
         }

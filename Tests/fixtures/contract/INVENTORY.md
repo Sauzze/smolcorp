@@ -12,7 +12,9 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
   the shapes routes share (the setup state, the snapshot) and what each fixture's `given` sets up.
 - **Go** is checked by `desktop/contract_test.go` for every route with a fixture here: it must be what the
   known gaps (the last table) make it. For a route without one it is read from `desktop/server.go`, and
-  cross-checked with `docs/GO-PARITY.md`; a "404" there is asked of the Go app in process, and must be 404.
+  cross-checked with `docs/GO-PARITY.md`; a "404" there is asked of the Go app in process, and must be 404, and
+  names who serves it (`404, owner: <who>`, as the known gaps' Owner). A "served" one is checked too: a file of
+  the web folder is asked for; a setup route must have its callers in Go's route table and its case in the router.
 - **Fixture** names the file, or says `none: ` and why: no fixture asks a route that writes the home folder,
   asks the Keychain, opens a window, a picker or a terminal, starts another program, or reaches another
   computer. Those have their refusals in a fixture where one comes first.
@@ -70,11 +72,11 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/setup/guide` | page, tool | `?done=` | the setup state | 200 | setup.json | differs |
 | POST | `/setup/music` | page, tool | `?enabled=` | the setup state | 200 | none: asks the music app what's playing | served |
 | POST | `/setup/phonemic` | gm, page | `?enabled=&autosend=` | the setup state | 200 | setup.json | 404 |
-| POST | `/setup/dock` | page, tool | `?enabled=` | the setup state | 200 | none: shows or hides the app in the Dock | 404 |
+| POST | `/setup/dock` | page, tool | `?enabled=` | the setup state | 200 | none: shows or hides the app in the Dock | 404, owner: M2 via the bridge (M1) |
 | POST | `/setup/ontop` | page, tool | `?enabled=` | the setup state | 200 | none: puts the office's window on top, on Windows only | Windows only (404 elsewhere: no window) |
 | POST | `/setup/office` | page, tool | — | empty | 204 | none: opens the office's window, or the browser | served (opens the browser) |
 | POST | `/setup/login` | gm, page | `?enabled=` | the setup state | 200 | none: writes the login item in your home folder | served |
-| POST | `/setup/accessibility` | page, tool | — | empty | 204 | none: asks macOS for Accessibility, a system prompt | 404 |
+| POST | `/setup/accessibility` | page, tool | — | empty | 204 | none: asks macOS for Accessibility, a system prompt | 404, owner: M2 via the bridge (M1) |
 | POST | `/setup/hooks` | gm, page | `?remove=1` to disconnect | the setup state (`notice`) | 200, 409 (test copy), 500 | none: writes the agents' hooks in your home folder | served |
 | POST | `/setup/logo` | page, tool | `?logo=smolcorp or keys` | the setup state | 200, 400 | setup.json | differs |
 | GET | `/setup/logo/<logo>` | page, tool | — | PNG | 200, 404 | setup.json | differs |
@@ -97,7 +99,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/setup/dictation/glossary` | page, tool | `[names]` | the setup state | 200, 400 | setup.json | 404 |
 | POST | `/setup/keystrokes` | page | `?enabled=` | the setup state | 200, 400 | setup.json | 404 |
 | POST | `/setup/keystrokes/apps` | page | `?add=` or `?remove=` | the setup state | 200, 400, 409 | setup.json | 404 |
-| POST | `/setup/terminal-command` | page | `?remove=1` | the setup state | 200, 409 | none: writes the smolcorp link and your shell's PATH line | 404 |
+| POST | `/setup/terminal-command` | page | `?remove=1` | the setup state | 200, 409 | none: writes the smolcorp link and your shell's PATH line | 404, owner: M2 via the bridge (M1) |
 | GET | `/setup/claude-accounts` | gm, page, tool | — | `{found, most, profiles}` | 200 | setup.json | 404 |
 | POST | `/setup/claude-accounts` | page | `{profiles: [{name, dir}]}` | as GET | 200, 400 | setup.json | 404 |
 | GET | `/setup/guard` | gm, page, tool | — | `{extra, groups, limits}` | 200 | setup.json | 404 |
@@ -119,9 +121,9 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | GET | `/setup/hire/gm/preflight` | page | `?account=` | `{ready, items}` | 200, 400 | setup.json | differs |
 | POST | `/setup/roles` | gm, page | the roles, whole | the setup state | 200, 400 | setup.json | differs |
 | GET | `/setup/briefs` | page, tool | — | `{briefs}` | 200 | setup.json | 404 |
-| GET | `/setup/briefs/<name>` | page, tool | — | the brief's markdown | 200, 404 | none: reads one of the app's briefs, which the test bundle doesn't have (404 there) | 404 |
+| GET | `/setup/briefs/<name>` | page, tool | — | the brief's markdown | 200, 404 | none: reads one of the app's briefs, which the test bundle doesn't have (404 there) | 404, owner: M4a: briefs |
 | POST | `/setup/briefs/preview` | page, tool | a role and folder | the brief as a hire would get it | 200, 400 | setup.json | 404 |
-| POST | `/setup/briefs/restore` | page | — | the briefs | 200 | none: puts back the app's own briefs, which the test bundle doesn't have | 404 |
+| POST | `/setup/briefs/restore` | page | — | the briefs | 200 | none: puts back the app's own briefs, which the test bundle doesn't have | 404, owner: M4a: briefs |
 | GET | `/setup/bots` | page, tool | — | `{bots}` | 200 | setup.json | differs |
 | POST | `/setup/bots` | gm, page | `{bots: [...]}` | `{bots}` | 200, 400 | setup.json | differs |
 | POST | `/setup/bots/override` | gm, page | `{id, pinned, floor, hidden, show, autoDetect, botFloor}` | the setup state | 200, 400, 404 | setup.json | differs |
@@ -158,7 +160,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | DELETE | `/setup/gm/unwatch` | gm, page | as POST | as POST | as POST | gm.json | served |
 | GET | `/setup/gm/screens` | gm, page, tool | — | `{ask, chosen, screens}` | 200, 409 | gm.json | 404 |
 | POST | `/setup/gm/screen` | gm, page | `?id=` | as GET | 200, 400, 409 | gm.json | 404 |
-| POST | `/setup/gm/tile` | gm, page | — | the tiling's report | 200, 409 | none: tiles the team's windows on a screen, which moves them; with the manager off, both apps answer 409 first | 404 |
+| POST | `/setup/gm/tile` | gm, page | — | the tiling's report | 200, 409 | none: tiles the team's windows on a screen, which moves them; with the manager off, both apps answer 409 first | 404, owner: M4 via the bridge (M1) |
 | POST | `/setup/gm/hire` | gm, page | as `/setup/hire`, folder optional | `{ok, desk, session}` | 200, 400, 404, 409 | gm.json, frontdesk/hire.json | 404 |
 | POST | `/setup/gm/fire` | gm, page | `{id, force}` | the fire's report | 200, 400, 404, 409 | gm.json, frontdesk/fire.json | 404 |
 | POST | `/setup/gm/brief` | gm, page | `{id, text, file}` | `{ok, …}` | 200, 400, 404, 409 | gm.json, frontdesk/brief.json | 404 |
@@ -337,7 +339,9 @@ has are the known gaps' "extra" rows.
 
 ## Fields of the office snapshot (shape `snapshot`, `/events`' messages)
 
-Two levels down (a desk's session: three), as above.
+Two levels down (a desk's session: three), as above. A list's elements are compared each as it is, so a type
+here is all of theirs: `.keys[].session.model` is "string or null" as the free key's desk has none, but the
+pinned key's desk is "string" alone in the shape, and a null there is a difference.
 
 | Field | Type | Go |
 |---|---|---|
@@ -359,7 +363,7 @@ Two levels down (a desk's session: three), as above.
 | `.keys` | array | same |
 | `.keys[].pin` | string or null | same |
 | `.keys[].session` | object | same |
-| `.keys[].session.activity` | string or null | same |
+| `.keys[].session.activity` | string | same |
 | `.keys[].session.agent` | one of 'claude', 'codex', 'gemini', 'opencode', 'grok' | same |
 | `.keys[].session.agentName` | string | same |
 | `.keys[].session.choice` | object or null | missing: a menu's options, read from the Mac's terminals (M3) |
@@ -381,13 +385,13 @@ Two levels down (a desk's session: three), as above.
 | `.keys[].session.pending` | bool | same |
 | `.keys[].session.phoneMic` | bool | missing: the phone mic is the Mac's personal build |
 | `.keys[].session.project` | string | same |
-| `.keys[].session.role` | object | same |
+| `.keys[].session.role` | object or null | same |
 | `.keys[].session.startedAt` | number | same |
 | `.keys[].session.state` | one of 'idle', 'thinking', 'asking', 'unread', 'error' | same |
-| `.keys[].session.subagents` | array | same |
+| `.keys[].session.subagents` | array or [] | same |
 | `.keys[].session.summary` | bool | same |
 | `.keys[].session.tool` | string or null | same |
-| `.keys[].session.turnStartedAt` | number or null | same |
+| `.keys[].session.turnStartedAt` | number | same |
 | `.keys[].session.voiceNote` | object or null | missing: voice notes: the Mac's personal build |
 | `.layout` | object | same |
 | `.maxConfirm` | bool | same |
@@ -408,7 +412,8 @@ Two levels down (a desk's session: three), as above.
 Where a shape doesn't compare all the way down: a list this computer fills (its agents, terminals, accounts,
 screens), a map whose keys are data, something the given can't set up (`object or null`), or a list empty in
 every given (`[]`: the Go app's must be empty too). ContractTests.swift checks this table is every such spot,
-with its why. **In** is a shape's name or a route; a setup-state row is the tool's too.
+with its why. **In** is a shape's name or a route; a setup-state row is the tool's too. The nulls allowed are
+in the next table.
 
 | In | Where | Shape | Why |
 |---|---|---|---|
@@ -476,121 +481,165 @@ with its why. **In** is a shape's name or a route; a setup-state row is the tool
 | `snapshot` | `.upstairs.desks[].subagents` | `[]` | only contract-a, at a key, has a subagent in the given |
 | `snapshot` | `.upstairs.desks[].voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given (personal build) |
 
+## Null allowed
+
+Where a shape allows a null although the Mac's value alone can't say so: every element in the given leaves it
+empty, so none beside it says its type. A null the given does fill somewhere is typed by that element instead
+(a model at the pinned key, none at the free one: `string` there, `string or null` here), and isn't in this table.
+The Go app may answer null here, or the type. ContractTests.swift checks this table is every such mark, with why.
+
+| In | Where | Shape | Why |
+|---|---|---|---|
+| `GET /setup/gm/team` | `.team[].started` | `number or null` | when its hire was started: null for a session no hire matches, as both in the given |
+| `setup-state` | `.dictation.cleanupProblem` | `string or null` | what stops Claude cleaning dictation up: null when nothing does, as in the given |
+| `setup-state` | `.dictation.problem` | `string or null` | what stops dictation: null when nothing does, as this Mac's speech recognition says |
+| `setup-state` | `.phoneMic.serving` | `string or null` | the HTTPS address the phone mic is served on: none without Tailscale (personal build) |
+| `setup-state` | `.phoneMic.tailnet` | `string or null` | this Mac's Tailscale name: none, as Tailscale isn't asked (personal build) |
+| `setup-state` | `.summary.fallback` | `string or null` | the provider used when the one picked can't answer: none with summaries off, as in the given |
+| `snapshot` | `.floors[].desks[].errorKind` | `string or null` | why its last turn failed: no turn fails in the given |
+| `snapshot` | `.floors[].desks[].hiredBy.id` | `string or null` | the desk of who started it: a cloud bot's hirer has none |
+| `snapshot` | `.floors[].desks[].maxPressedAt` | `number or null` | when max effort was last asked for from the office: never in the given |
+| `snapshot` | `.floors[].desks[].messaged` | `string or null` | the last text sent to it from the office: none in the given |
+| `snapshot` | `.floors[].desks[].messagedAt` | `number or null` | when text was last sent to it from the office: never in the given |
+| `snapshot` | `.floors[].desks[].model` | `string or null` | upstairs, contract-b's agent hasn't said its model and a cloud bot has none |
+| `snapshot` | `.floors[].desks[].turnStartedAt` | `number or null` | upstairs, contract-b was asked nothing (it asks you) and a cloud bot has no turns |
+| `snapshot` | `.keys[].session.errorKind` | `string or null` | why its last turn failed: no turn fails in the given |
+| `snapshot` | `.keys[].session.maxPressedAt` | `number or null` | when max effort was last asked for from the office: never in the given |
+| `snapshot` | `.keys[].session.messaged` | `string or null` | the last text sent to it from the office: none in the given |
+| `snapshot` | `.keys[].session.messagedAt` | `number or null` | when text was last sent to it from the office: never in the given |
+| `snapshot` | `.keys[].session.subagents[].model` | `string or null` | a subagent's model: the given's SubagentStart says none |
+| `snapshot` | `.upstairs.desks[].errorKind` | `string or null` | why its last turn failed: no turn fails in the given |
+| `snapshot` | `.upstairs.desks[].hiredBy.id` | `string or null` | the desk of who started it: a cloud bot's hirer has none |
+| `snapshot` | `.upstairs.desks[].maxPressedAt` | `number or null` | when max effort was last asked for from the office: never in the given |
+| `snapshot` | `.upstairs.desks[].messaged` | `string or null` | the last text sent to it from the office: none in the given |
+| `snapshot` | `.upstairs.desks[].messagedAt` | `number or null` | when text was last sent to it from the office: never in the given |
+| `snapshot` | `.upstairs.desks[].model` | `string or null` | upstairs, contract-b's agent hasn't said its model and a cloud bot has none |
+| `snapshot` | `.upstairs.desks[].turnStartedAt` | `number or null` | upstairs, contract-b was asked nothing (it asks you) and a cloud bot has no turns |
+
 ## Known gaps
 
 Where the Go app doesn't answer as the Mac does, today: `knownGaps` in `desktop/contract_test.go`, row for row
 (the test checks they're the same). **In** is a route or a shape by its name in `contract.json`; **Where** is
-`route` (not served: 404), `callers`, a refusal, or a field; **Go** is what the Go app has instead. Each M piece
-turns rows into passes, and takes them out of both tables.
+`route` (not served: 404), `callers`, a refusal (its status, kind, or a field of its JSON), a field, or the
+given's sessions in a list (`ids`); **Go** is what the Go app has instead. **Owner** is who closes it: the M
+piece (M2 server and setup, M3 office, snapshot and bots, M4 hiring, guard and GM, M4a briefs, M5 T3, M6 the
+personal shell), "via the bridge (M1)" for what only macOS can do, served on a Mac through the bridge, or
+`stays: <why>` for a Go-only extra that's meant to stay. Each M piece turns rows into passes, and takes them
+out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_test.go` checks each row has one.
 
-| In | Where | Go | Why |
-|---|---|---|---|
-| `setup-state` | `.checklist.accessibility` | missing | nothing off the Mac needs Accessibility |
-| `setup-state` | `.claudeAccounts` | missing | Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) |
-| `setup-state` | `.cloudBots.autoDetect` | missing | only the Mac looks in the Grok Bot app |
-| `setup-state` | `.dictation` | missing | dictation is Apple's speech recognition |
-| `setup-state` | `.dock` | missing | In the Dock is a Mac setting |
-| `setup-state` | `.floorRules[].exact` | missing | a rule's exact is left out when false (omitempty) |
-| `setup-state` | `.hiring.apiKey` | missing | a hire on the API-key account is the Mac's (M4) |
-| `setup-state` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) |
-| `setup-state` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) |
-| `setup-state` | `.keystrokes` | missing | pressing keys in other apps needs Accessibility: the Mac's |
-| `setup-state` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for |
-| `setup-state` | `.mailBeta` | extra | mail to a hire is beta on Windows |
-| `setup-state` | `.manager` | missing | no manager object here: the switch is in config.json, gmHired is top level (M2) |
-| `setup-state` | `.phoneMic` | missing | the phone mic is the Mac's personal build |
-| `setup-state` | `.roles.limits.answer` | missing | briefs aren't served here (M4) |
-| `setup-state` | `.roles.limits.briefFile` | missing | briefs aren't served here (M4) |
-| `setup-state` | `.roles.limits.briefFileName` | missing | briefs aren't served here (M4) |
-| `setup-state` | `.roles.shipped[].brief` | missing | briefs aren't served here (M4) |
-| `setup-state` | `.summary.noStore` | extra | says there's no secret store for the key, which a Mac always has |
-| `setup-state` | `.terminalCommand` | missing | Add smolcorp to Terminal is the Mac's |
-| `setup-state-tool` | `.checklist.accessibility` | missing | nothing off the Mac needs Accessibility |
-| `setup-state-tool` | `.claudeAccounts` | missing | Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) |
-| `setup-state-tool` | `.cloudBots.autoDetect` | missing | only the Mac looks in the Grok Bot app |
-| `setup-state-tool` | `.dictation` | missing | dictation is Apple's speech recognition |
-| `setup-state-tool` | `.dock` | missing | In the Dock is a Mac setting |
-| `setup-state-tool` | `.floorRules[].exact` | missing | a rule's exact is left out when false (omitempty) |
-| `setup-state-tool` | `.hiring.apiKey` | missing | a hire on the API-key account is the Mac's (M4) |
-| `setup-state-tool` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) |
-| `setup-state-tool` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) |
-| `setup-state-tool` | `.keystrokes` | missing | pressing keys in other apps needs Accessibility: the Mac's |
-| `setup-state-tool` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for |
-| `setup-state-tool` | `.mailBeta` | extra | mail to a hire is beta on Windows |
-| `setup-state-tool` | `.manager` | missing | no manager object here: the switch is in config.json, gmHired is top level (M2) |
-| `setup-state-tool` | `.pairing.codeExpiresIn` | extra | a tool is told how long the code lasts; the Mac tells only the page |
-| `setup-state-tool` | `.phoneMic` | missing | the phone mic is the Mac's personal build |
-| `setup-state-tool` | `.roles.limits.answer` | missing | briefs aren't served here (M4) |
-| `setup-state-tool` | `.roles.limits.briefFile` | missing | briefs aren't served here (M4) |
-| `setup-state-tool` | `.roles.limits.briefFileName` | missing | briefs aren't served here (M4) |
-| `setup-state-tool` | `.roles.shipped[].brief` | missing | briefs aren't served here (M4) |
-| `setup-state-tool` | `.summary.noStore` | extra | says there's no secret store for the key, which a Mac always has |
-| `setup-state-tool` | `.terminalCommand` | missing | Add smolcorp to Terminal is the Mac's |
-| `snapshot` | `.dictation` | missing | dictation is Apple's speech recognition |
-| `snapshot` | `.floors[].desks[].choice` | missing | a menu's options, read from the Mac's terminals (M3) |
-| `snapshot` | `.floors[].desks[].conversation` | missing | the conversation view: the iPhone app's (personal build) |
-| `snapshot` | `.floors[].desks[].dictates` | missing | dictation is Apple's speech recognition |
-| `snapshot` | `.floors[].desks[].fire` | missing | what the desk's terminal lets the office do: said once here, as hiring.fire (M3) |
-| `snapshot` | `.floors[].desks[].keys` | missing | what the desk's terminal lets the office do (M3) |
-| `snapshot` | `.floors[].desks[].phoneMic` | missing | the phone mic is the Mac's personal build |
-| `snapshot` | `.floors[].desks[].voiceNote` | missing | voice notes: the Mac's personal build |
-| `snapshot` | `.keys[].session.choice` | missing | a menu's options, read from the Mac's terminals (M3) |
-| `snapshot` | `.keys[].session.conversation` | missing | the conversation view: the iPhone app's (personal build) |
-| `snapshot` | `.keys[].session.dictates` | missing | dictation is Apple's speech recognition |
-| `snapshot` | `.keys[].session.fire` | missing | what the desk's terminal lets the office do: said once here, as hiring.fire (M3) |
-| `snapshot` | `.keys[].session.keys` | missing | what the desk's terminal lets the office do (M3) |
-| `snapshot` | `.keys[].session.phoneMic` | missing | the phone mic is the Mac's personal build |
-| `snapshot` | `.keys[].session.voiceNote` | missing | voice notes: the Mac's personal build |
-| `snapshot` | `.phoneMic` | missing | the phone mic is the Mac's personal build |
-| `snapshot` | `.upstairs.desks[].choice` | missing | a menu's options, read from the Mac's terminals (M3) |
-| `snapshot` | `.upstairs.desks[].voiceNote` | missing | voice notes: the Mac's personal build |
-| `POST /setup/session` | `refusal: no menu link's key: no session` | kind empty | its 401 has no text; the Mac's says why |
-| `POST /setup/phonemic` | `route` | 404 | the phone mic is the Mac's personal build |
-| `GET /setup/qr.png` | `refusal: no pairing code asked for` | kind text | its 404 says "404 page not found" in text; the Mac's is empty |
-| `GET /setup/logo/nope` | `refusal: no such logo` | kind text | its 404 says "404 page not found" in text; the Mac's is empty |
-| `POST /setup/dictation` | `route` | 404 | dictation is Apple's speech recognition |
-| `POST /setup/dictation/glossary` | `route` | 404 | dictation is Apple's speech recognition |
-| `POST /setup/keystrokes` | `route` | 404 | pressing keys in other apps needs Accessibility: the Mac's |
-| `POST /setup/keystrokes/apps` | `route` | 404 | pressing keys in other apps needs Accessibility: the Mac's |
-| `GET /setup/guard` | `route` | 404 | the hire guard's settings are the Mac's (M4) |
-| `POST /setup/guard` | `route` | 404 | the hire guard's settings are the Mac's (M4) |
-| `GET /setup/claude-accounts` | `route` | 404 | Claude accounts are the Mac's (M2) |
-| `POST /setup/claude-accounts` | `route` | 404 | Claude accounts are the Mac's (M2) |
-| `GET /setup/bots` | `.bots[].discovered` | missing | left out when false or empty (omitempty) |
-| `GET /setup/bots` | `.bots[].mailbox` | missing | left out when false or empty (omitempty) |
-| `GET /setup/bots` | `.bots[].pinned` | missing | left out when false or empty (omitempty) |
-| `GET /setup/bots` | `.bots[].resolved` | missing | only the Mac looks in the Grok Bot app |
-| `POST /setup/bots` | `.bots[].discovered` | missing | left out when false or empty (omitempty) |
-| `POST /setup/bots` | `.bots[].mailbox` | missing | left out when false or empty (omitempty) |
-| `POST /setup/bots` | `.bots[].pinned` | missing | left out when false or empty (omitempty) |
-| `POST /setup/bots` | `.bots[].resolved` | missing | only the Mac looks in the Grok Bot app |
-| `POST /setup/bots/resolve` | `route` | 404 | only the Mac looks in the Grok Bot app |
-| `GET /setup/hire/folders` | `route` | 404 | hiring from the setup page by role is the Mac's (M4) |
-| `GET /setup/hire/gm/preflight` | `refusal: no such Claude account` | status 200 | Claude accounts are the Mac's (M2): the GM's tools are checked for any account |
-| `GET /setup/briefs` | `route` | 404 | briefs aren't served here (M4) |
-| `POST /setup/briefs/preview` | `route` | 404 | briefs aren't served here (M4) |
-| `POST /setup/hire` | `route` | 404 | hiring from the setup page by role is the Mac's (M4) |
-| `POST /setup/notify` | `route` | 404 | a push to the iPhone app (personal build) |
-| `GET /setup/nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty |
-| `GET /setup/gm/screens` | `route` | 404 | tiling the team is the Mac's (M4) |
-| `POST /setup/gm/screen` | `route` | 404 | tiling the team is the Mac's (M4) |
-| `POST /setup/gm/hire` | `route` | 404 | the GM's hiring is the Mac's (M4) |
-| `POST /setup/gm/fire` | `route` | 404 | the GM's firing is the Mac's (M4) |
-| `POST /setup/gm/brief` | `route` | 404 | a later brief is the Mac's (M4) |
-| `GET /setup/gm/registry` | `refusal: listed for the page, but nothing answers it` | kind text | its 404 says "404 page not found" in text; the Mac's is empty |
-| `POST /setup/gm/by-hand` | `route` | 404 | no GM token here (M4) |
-| `POST /setup/gm/token/rotate` | `route` | 404 | no GM token here (M4) |
-| `GET /setup/gm/nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty |
-| `POST /act` | `refusal: unknown dictation language` | status 404 | no dictation here: action=language isn't known, so its session is looked for |
-| `GET /glossary` | `route` | 404 | the iPhone app's speech names (personal build) |
-| `GET /approvals` | `route` | 404 | over Tailscale only (personal build) |
-| `GET /reviews` | `route` | 404 | over Tailscale only (personal build) |
-| `GET /conversation` | `route` | 404 | the iPhone app's conversation (personal build) |
-| `GET /session/info` | `route` | 404 | ⓘ Info (personal build) |
-| `GET /notifications` | `route` | 404 | the iPhone app's push notifications (personal build) |
-| `POST /notifications` | `route` | 404 | the iPhone app's push notifications (personal build) |
-| `POST /dictate` | `route` | 404 | the phone mic (personal build) |
-| `POST /peek` | `route` | 404 | the phone mic (personal build) |
-| `POST /choose` | `route` | 404 | the iPhone app's typed answers (personal build) |
-| `GET /choice` | `route` | 404 | the iPhone app's prompt details (personal build) |
-| `GET /nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty |
+| In | Where | Go | Why | Owner |
+|---|---|---|---|---|
+| `setup-state` | `.checklist.accessibility` | missing | nothing off the Mac needs Accessibility | M2 via the bridge (M1) |
+| `setup-state` | `.claudeAccounts` | missing | Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) | M2 |
+| `setup-state` | `.cloudBots.autoDetect` | missing | only the Mac looks in the Grok Bot app | M3 via the bridge (M1) |
+| `setup-state` | `.dictation` | missing | dictation is Apple's speech recognition | M2 via the bridge (M1) |
+| `setup-state` | `.dock` | missing | In the Dock is a Mac setting | M2 via the bridge (M1) |
+| `setup-state` | `.floorRules[].exact` | missing | a rule's exact is left out when false (omitempty) | M3 fixes: sent when false or empty too |
+| `setup-state` | `.hiring.apiKey` | missing | a hire on the API-key account is the Mac's (M4) | M4 |
+| `setup-state` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
+| `setup-state` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
+| `setup-state` | `.keystrokes` | missing | pressing keys in other apps needs Accessibility: the Mac's | M2 via the bridge (M1) |
+| `setup-state` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
+| `setup-state` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
+| `setup-state` | `.manager` | missing | no manager object here: the switch is in config.json, gmHired is top level (M2) | M2 |
+| `setup-state` | `.phoneMic` | missing | the phone mic is the Mac's personal build | M6: personal shell |
+| `setup-state` | `.roles.limits.answer` | missing | briefs aren't served here (M4) | M4a: briefs |
+| `setup-state` | `.roles.limits.briefFile` | missing | briefs aren't served here (M4) | M4a: briefs |
+| `setup-state` | `.roles.limits.briefFileName` | missing | briefs aren't served here (M4) | M4a: briefs |
+| `setup-state` | `.roles.shipped[].brief` | missing | briefs aren't served here (M4) | M4a: briefs |
+| `setup-state` | `.summary.noStore` | extra | says there's no secret store for the key, which a Mac always has | stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false |
+| `setup-state` | `.terminalCommand` | missing | Add smolcorp to Terminal is the Mac's | M2 via the bridge (M1) |
+| `setup-state-tool` | `.checklist.accessibility` | missing | nothing off the Mac needs Accessibility | M2 via the bridge (M1) |
+| `setup-state-tool` | `.claudeAccounts` | missing | Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2) | M2 |
+| `setup-state-tool` | `.cloudBots.autoDetect` | missing | only the Mac looks in the Grok Bot app | M3 via the bridge (M1) |
+| `setup-state-tool` | `.dictation` | missing | dictation is Apple's speech recognition | M2 via the bridge (M1) |
+| `setup-state-tool` | `.dock` | missing | In the Dock is a Mac setting | M2 via the bridge (M1) |
+| `setup-state-tool` | `.floorRules[].exact` | missing | a rule's exact is left out when false (omitempty) | M3 fixes: sent when false or empty too |
+| `setup-state-tool` | `.hiring.apiKey` | missing | a hire on the API-key account is the Mac's (M4) | M4 |
+| `setup-state-tool` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
+| `setup-state-tool` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
+| `setup-state-tool` | `.keystrokes` | missing | pressing keys in other apps needs Accessibility: the Mac's | M2 via the bridge (M1) |
+| `setup-state-tool` | `.launcher` | extra | the command that starts an agent through the launcher, which the Mac has no use for | M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher |
+| `setup-state-tool` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
+| `setup-state-tool` | `.manager` | missing | no manager object here: the switch is in config.json, gmHired is top level (M2) | M2 |
+| `setup-state-tool` | `.pairing.codeExpiresIn` | extra | a tool is told how long the code lasts; the Mac tells only the page | stays: Go-only, a tool's; the page has it in its own state on both apps |
+| `setup-state-tool` | `.phoneMic` | missing | the phone mic is the Mac's personal build | M6: personal shell |
+| `setup-state-tool` | `.roles.limits.answer` | missing | briefs aren't served here (M4) | M4a: briefs |
+| `setup-state-tool` | `.roles.limits.briefFile` | missing | briefs aren't served here (M4) | M4a: briefs |
+| `setup-state-tool` | `.roles.limits.briefFileName` | missing | briefs aren't served here (M4) | M4a: briefs |
+| `setup-state-tool` | `.roles.shipped[].brief` | missing | briefs aren't served here (M4) | M4a: briefs |
+| `setup-state-tool` | `.summary.noStore` | extra | says there's no secret store for the key, which a Mac always has | stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false |
+| `setup-state-tool` | `.terminalCommand` | missing | Add smolcorp to Terminal is the Mac's | M2 via the bridge (M1) |
+| `snapshot` | `.dictation` | missing | dictation is Apple's speech recognition | M3 via the bridge (M1) |
+| `snapshot` | `.floors[].desks[].choice` | missing | a menu's options, read from the Mac's terminals (M3) | M3 via the bridge (M1) |
+| `snapshot` | `.floors[].desks[].conversation` | missing | the conversation view: the iPhone app's (personal build) | M6: personal shell |
+| `snapshot` | `.floors[].desks[].dictates` | missing | dictation is Apple's speech recognition | M3 via the bridge (M1) |
+| `snapshot` | `.floors[].desks[].fire` | missing | what the desk's terminal lets the office do: said once here, as hiring.fire (M3) | M3 via the bridge (M1) |
+| `snapshot` | `.floors[].desks[].keys` | missing | what the desk's terminal lets the office do (M3) | M3 via the bridge (M1) |
+| `snapshot` | `.floors[].desks[].phoneMic` | missing | the phone mic is the Mac's personal build | M6: personal shell |
+| `snapshot` | `.floors[].desks[].voiceNote` | missing | voice notes: the Mac's personal build | M6: personal shell |
+| `snapshot` | `.keys[].session.choice` | missing | a menu's options, read from the Mac's terminals (M3) | M3 via the bridge (M1) |
+| `snapshot` | `.keys[].session.conversation` | missing | the conversation view: the iPhone app's (personal build) | M6: personal shell |
+| `snapshot` | `.keys[].session.dictates` | missing | dictation is Apple's speech recognition | M3 via the bridge (M1) |
+| `snapshot` | `.keys[].session.fire` | missing | what the desk's terminal lets the office do: said once here, as hiring.fire (M3) | M3 via the bridge (M1) |
+| `snapshot` | `.keys[].session.keys` | missing | what the desk's terminal lets the office do (M3) | M3 via the bridge (M1) |
+| `snapshot` | `.keys[].session.phoneMic` | missing | the phone mic is the Mac's personal build | M6: personal shell |
+| `snapshot` | `.keys[].session.voiceNote` | missing | voice notes: the Mac's personal build | M6: personal shell |
+| `snapshot` | `.phoneMic` | missing | the phone mic is the Mac's personal build | M6: personal shell |
+| `snapshot` | `.upstairs.desks[].choice` | missing | a menu's options, read from the Mac's terminals (M3) | M3 via the bridge (M1) |
+| `snapshot` | `.upstairs.desks[].conversation` | missing | the conversation view: the iPhone app's (personal build) | M6: personal shell |
+| `snapshot` | `.upstairs.desks[].dictates` | missing | dictation is Apple's speech recognition | M3 via the bridge (M1) |
+| `snapshot` | `.upstairs.desks[].fire` | missing | what the desk's terminal lets the office do: said once here, as hiring.fire (M3) | M3 via the bridge (M1) |
+| `snapshot` | `.upstairs.desks[].keys` | missing | what the desk's terminal lets the office do (M3) | M3 via the bridge (M1) |
+| `snapshot` | `.upstairs.desks[].phoneMic` | missing | the phone mic is the Mac's personal build | M6: personal shell |
+| `snapshot` | `.upstairs.desks[].voiceNote` | missing | voice notes: the Mac's personal build | M6: personal shell |
+| `POST /setup/session` | `refusal: no menu link's key: no session` | kind empty | its 401 has no text; the Mac's says why | M2 fixes: the Mac's text in the 401 |
+| `POST /setup/phonemic` | `route` | 404 | the phone mic is the Mac's personal build | M6: personal shell |
+| `GET /setup/qr.png` | `refusal: no pairing code asked for` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
+| `GET /setup/logo/nope` | `refusal: no such logo` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
+| `POST /setup/dictation` | `route` | 404 | dictation is Apple's speech recognition | M2 via the bridge (M1) |
+| `POST /setup/dictation/glossary` | `route` | 404 | dictation is Apple's speech recognition | M2 via the bridge (M1) |
+| `POST /setup/keystrokes` | `route` | 404 | pressing keys in other apps needs Accessibility: the Mac's | M2 via the bridge (M1) |
+| `POST /setup/keystrokes/apps` | `route` | 404 | pressing keys in other apps needs Accessibility: the Mac's | M2 via the bridge (M1) |
+| `GET /setup/guard` | `route` | 404 | the hire guard's settings are the Mac's (M4) | M4 |
+| `POST /setup/guard` | `route` | 404 | the hire guard's settings are the Mac's (M4) | M4 |
+| `GET /setup/claude-accounts` | `route` | 404 | Claude accounts are the Mac's (M2) | M2 |
+| `POST /setup/claude-accounts` | `route` | 404 | Claude accounts are the Mac's (M2) | M2 |
+| `GET /setup/bots` | `.bots[].discovered` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
+| `GET /setup/bots` | `.bots[].mailbox` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
+| `GET /setup/bots` | `.bots[].pinned` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
+| `GET /setup/bots` | `.bots[].resolved` | missing | only the Mac looks in the Grok Bot app | M3 via the bridge (M1) |
+| `POST /setup/bots` | `.bots[].discovered` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
+| `POST /setup/bots` | `.bots[].mailbox` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
+| `POST /setup/bots` | `.bots[].pinned` | missing | left out when false or empty (omitempty) | M3 fixes: sent when false or empty too |
+| `POST /setup/bots` | `.bots[].resolved` | missing | only the Mac looks in the Grok Bot app | M3 via the bridge (M1) |
+| `POST /setup/bots/resolve` | `route` | 404 | only the Mac looks in the Grok Bot app | M3 via the bridge (M1) |
+| `GET /setup/hire/folders` | `route` | 404 | hiring from the setup page by role is the Mac's (M4) | M4 |
+| `GET /setup/hire/gm/preflight` | `refusal: no such Claude account` | status 200 | Claude accounts are the Mac's (M2): the GM's tools are checked for any account | M4, once M2 has the Claude accounts |
+| `GET /setup/briefs` | `route` | 404 | briefs aren't served here (M4) | M4a: briefs |
+| `POST /setup/briefs/preview` | `route` | 404 | briefs aren't served here (M4) | M4a: briefs |
+| `POST /setup/hire` | `route` | 404 | hiring from the setup page by role is the Mac's (M4) | M4 |
+| `POST /setup/notify` | `route` | 404 | a push to the iPhone app (personal build) | M6: personal shell |
+| `GET /setup/nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
+| `GET /setup/gm/screens` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |
+| `POST /setup/gm/screen` | `route` | 404 | tiling the team is the Mac's (M4) | M4 via the bridge (M1) |
+| `POST /setup/gm/hire` | `route` | 404 | the GM's hiring is the Mac's (M4) | M4 |
+| `POST /setup/gm/fire` | `route` | 404 | the GM's firing is the Mac's (M4) | M4 |
+| `POST /setup/gm/brief` | `route` | 404 | a later brief is the Mac's (M4) | M4 |
+| `GET /setup/gm/registry` | `refusal: listed for the page, but nothing answers it` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M4: take the dead row out of both route tables (SetupRoutes.swift, routes.go) |
+| `POST /setup/gm/by-hand` | `route` | 404 | no GM token here (M4) | M4 |
+| `POST /setup/gm/token/rotate` | `route` | 404 | no GM token here (M4) | M4 |
+| `GET /setup/gm/nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
+| `POST /act` | `refusal: unknown dictation language` | status 404 | no dictation here: action=language isn't known, so its session is looked for | M3 fixes: action=language known, an unknown language refused with 400 |
+| `GET /glossary` | `route` | 404 | the iPhone app's speech names (personal build) | M6: personal shell |
+| `GET /approvals` | `route` | 404 | over Tailscale only (personal build) | M6: personal shell |
+| `GET /reviews` | `route` | 404 | over Tailscale only (personal build) | M6: personal shell |
+| `GET /conversation` | `route` | 404 | the iPhone app's conversation (personal build) | M6: personal shell |
+| `GET /session/info` | `route` | 404 | ⓘ Info (personal build) | M6: personal shell |
+| `GET /notifications` | `route` | 404 | the iPhone app's push notifications (personal build) | M6: personal shell |
+| `POST /notifications` | `route` | 404 | the iPhone app's push notifications (personal build) | M6: personal shell |
+| `POST /dictate` | `route` | 404 | the phone mic (personal build) | M6: personal shell |
+| `POST /peek` | `route` | 404 | the phone mic (personal build) | M6: personal shell |
+| `POST /choose` | `route` | 404 | the iPhone app's typed answers (personal build) | M6: personal shell |
+| `GET /choice` | `route` | 404 | the iPhone app's prompt details (personal build) | M6: personal shell |
+| `GET /nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |

@@ -25,7 +25,7 @@
             "rules" : [
               {
                 "exact" : false,
-                "floor" : 2,
+                "floor" : 1,
                 "folder" : "\/work\/beta"
               }
             ]
@@ -70,6 +70,26 @@
             "action" : "save",
             "name" : "Contract"
           }
+        }
+      ]
+    },
+    "a session at a free key" : {
+      "requests" : [
+        {
+          "as" : "hook",
+          "body" : {
+            "cwd" : "\/work\/gamma",
+            "hook_event_name" : "UserPromptSubmit",
+            "prompt" : "Look at the logs.",
+            "session_id" : "contract-c"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/gamma",
+            "x-agentdeck-tab" : "tty:\/dev\/ttys903"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
         }
       ]
     },
@@ -236,10 +256,16 @@
       "says" : "before its hooks, contract-a's tab (launcher:contract-a) is a hire's, opened with the role reviewer: the Mac keeps that in Deck.hiredTabs, the Go app in its launcher (launcherConnected)"
     }
   },
-  "note" : "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1), read by desktop\/contract_test.go. Shapes, not values: \"string\", \"number\", \"bool\", \"null\"; 'x' for that string; alternatives joined by | (\"string|null\", a closed set 'a'|'b'); an object's keys, no more, no fewer; an array's elements as the different shapes they have, each element like one of them and each like some element ([] for none). \"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why.",
+  "note" : "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1), read by desktop\/contract_test.go. Shapes, not values: \"string\", \"number\", \"bool\", \"null\"; 'x' for that string; alternatives joined by | (\"string|null\", a closed set 'a'|'b'); an object's keys, no more, no fewer; an array's elements as the different shapes they have, each element like one of them and each like some element ([] for none). \"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why, and each null allowed. Beside a shape, ids: the given's sessions in each of its lists, sorted, compared as they are. A refusal answered in JSON has its shape too.",
   "shapes" : {
     "setup-state" : {
       "as" : "page",
+      "ids" : {
+        ".sessions[].id" : [
+          "contract-a",
+          "contract-b"
+        ]
+      },
       "route" : "GET \/setup\/state",
       "shape" : {
         "activeProfile" : "string",
@@ -782,6 +808,12 @@
     },
     "setup-state-tool" : {
       "as" : "tool",
+      "ids" : {
+        ".sessions[].id" : [
+          "contract-a",
+          "contract-b"
+        ]
+      },
       "route" : "GET \/setup\/state",
       "shape" : {
         "activeProfile" : "string",
@@ -1322,6 +1354,20 @@
     },
     "snapshot" : {
       "as" : "phone",
+      "ids" : {
+        ".floors[].desks[].id" : [
+          "cloud-contract-bot",
+          "contract-b"
+        ],
+        ".keys[].session.id" : [
+          "contract-a",
+          "contract-c"
+        ],
+        ".upstairs.desks[].id" : [
+          "cloud-contract-bot",
+          "contract-b"
+        ]
+      },
       "route" : "GET \/events",
       "shape" : {
         "dictation" : {
@@ -1343,7 +1389,7 @@
             "asking" : "number",
             "desks" : [
               {
-                "activity" : "string|null",
+                "activity" : "string",
                 "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
                 "agentName" : "string",
                 "choice" : "object|null",
@@ -1387,17 +1433,9 @@
                 "tool" : "string|null",
                 "turnStartedAt" : "number|null",
                 "voiceNote" : "object|null"
-              }
-            ],
-            "n" : "number",
-            "name" : "string",
-            "preset" : "string"
-          },
-          {
-            "asking" : "number",
-            "desks" : [
+              },
               {
-                "activity" : "string|null",
+                "activity" : "string",
                 "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
                 "agentName" : "string",
                 "choice" : "object|null",
@@ -1430,7 +1468,7 @@
 
                 ],
                 "summary" : "bool",
-                "tool" : "string|null",
+                "tool" : "string",
                 "turnStartedAt" : "number|null",
                 "voiceNote" : "object|null"
               }
@@ -1450,9 +1488,55 @@
         },
         "keys" : [
           {
+            "pin" : "string",
+            "session" : {
+              "activity" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "agentName" : "string",
+              "choice" : "object|null",
+              "compacting" : "bool",
+              "conversation" : "bool",
+              "dial" : "bool",
+              "dictates" : "bool",
+              "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+              "errorKind" : "string|null",
+              "fire" : "bool",
+              "id" : "string",
+              "keys" : "bool",
+              "maxPressedAt" : "number|null",
+              "messaged" : "string|null",
+              "messagedAt" : "number|null",
+              "mic" : "bool",
+              "model" : "string",
+              "name" : "string",
+              "pending" : "bool",
+              "phoneMic" : "bool",
+              "project" : "string",
+              "role" : {
+                "badge" : "string",
+                "id" : "string",
+                "name" : "string",
+                "outfit" : "string"
+              },
+              "startedAt" : "number",
+              "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+              "subagents" : [
+                {
+                  "id" : "string",
+                  "model" : "string|null",
+                  "type" : "string"
+                }
+              ],
+              "summary" : "bool",
+              "tool" : "string",
+              "turnStartedAt" : "number",
+              "voiceNote" : "object|null"
+            }
+          },
+          {
             "pin" : "string|null",
             "session" : {
-              "activity" : "string|null",
+              "activity" : "string",
               "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
               "agentName" : "string",
               "choice" : "object|null",
@@ -1474,24 +1558,15 @@
               "pending" : "bool",
               "phoneMic" : "bool",
               "project" : "string",
-              "role" : {
-                "badge" : "string",
-                "id" : "string",
-                "name" : "string",
-                "outfit" : "string"
-              },
+              "role" : "null",
               "startedAt" : "number",
               "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
               "subagents" : [
-                {
-                  "id" : "string",
-                  "model" : "string|null",
-                  "type" : "string"
-                }
+
               ],
               "summary" : "bool",
               "tool" : "string|null",
-              "turnStartedAt" : "number|null",
+              "turnStartedAt" : "number",
               "voiceNote" : "object|null"
             }
           }
@@ -1631,7 +1706,7 @@
         "upstairs" : {
           "desks" : [
             {
-              "activity" : "string|null",
+              "activity" : "string",
               "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
               "agentName" : "string",
               "choice" : "object|null",
@@ -1673,6 +1748,44 @@
               ],
               "summary" : "bool",
               "tool" : "string|null",
+              "turnStartedAt" : "number|null",
+              "voiceNote" : "object|null"
+            },
+            {
+              "activity" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "agentName" : "string",
+              "choice" : "object|null",
+              "compacting" : "bool",
+              "conversation" : "bool",
+              "desk" : "number",
+              "dial" : "bool",
+              "dictates" : "bool",
+              "drivable" : "bool",
+              "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+              "errorKind" : "string|null",
+              "fire" : "bool",
+              "headless" : "bool",
+              "id" : "string",
+              "keys" : "bool",
+              "maxPressedAt" : "number|null",
+              "messaged" : "string|null",
+              "messagedAt" : "number|null",
+              "mic" : "bool",
+              "model" : "string|null",
+              "name" : "string",
+              "overflow" : "bool",
+              "pending" : "bool",
+              "phoneMic" : "bool",
+              "project" : "string",
+              "role" : "null",
+              "startedAt" : "number",
+              "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+              "subagents" : [
+
+              ],
+              "summary" : "bool",
+              "tool" : "string",
               "turnStartedAt" : "number|null",
               "voiceNote" : "object|null"
             }

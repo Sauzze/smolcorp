@@ -78,8 +78,9 @@ final class ContractTests: XCTestCase {
     /// with something in each of its lists.
     /// The floor rule comes first: it puts contract-b upstairs as it starts.
     static let stateGiven = ["a floor rule", "sessions", "a pin", "a saved profile", "a cloud bot", "a pairing code", "a paired phone"]
-    /// What the office's snapshot is asked with: a desk at a key, one upstairs, and a cloud bot.
-    static let officeGiven = ["a floor rule", "sessions", "a pin", "a cloud bot"]
+    /// What the office's snapshot is asked with: a desk at the pinned key, one at a free key, one upstairs, and a
+    /// cloud bot.
+    static let officeGiven = ["a floor rule", "sessions", "a pin", "a session at a free key", "a cloud bot"]
 
     /// The setup page's state route, and the office's snapshot (the first message of /events): the shapes most
     /// routes refer to, by name.
@@ -297,6 +298,13 @@ final class ContractTests: XCTestCase {
              ["hook_event_name": "Notification", "message": "Claude needs your permission to use Bash"]),
     ]
 
+    /// "a session at a free key": contract-c, just asked something, with no model, tool or role said yet. It takes
+    /// a key no folder is pinned to, so the snapshot has a key with no pin beside the pinned one.
+    static let freeKeyHooks: [[String: Any]] = [
+        hook("contract-c", tab: "tty:/dev/ttys903", project: "/work/gamma",
+             ["hook_event_name": "UserPromptSubmit", "prompt": "Look at the logs."]),
+    ]
+
     /// The role contract-a's tab was opened with.
     static let hiredRole = "reviewer"
 
@@ -319,8 +327,12 @@ final class ContractTests: XCTestCase {
                 + "the Mac keeps that in Deck.hiredTabs, the Go app in its launcher (launcherConnected)",
         ],
         "a pin": ["requests": [step("POST", "/setup/pin", query: ["key": "0", "folder": "/work/alpha"])]],
+        "a session at a free key": ["requests": freeKeyHooks.map { hook -> [String: Any] in
+            ["as": "hook", "method": "POST", "path": "/hook", "headers": hook["headers"]!, "body": hook["body"]!]
+        }],
         "a saved profile": ["requests": [step("POST", "/setup/profiles", query: ["action": "save", "name": "Contract"])]],
-        "a floor rule": ["requests": [step("POST", "/setup/floors", body: ["rules": [["folder": "/work/beta", "floor": 2, "exact": false]]])]],
+        // contract-b on 2F (floor 1: the ground floor, the keys, is 0), with the cloud bot: upstairs.
+        "a floor rule": ["requests": [step("POST", "/setup/floors", body: ["rules": [["folder": "/work/beta", "floor": 1, "exact": false]]])]],
         "a cloud bot": ["requests": [step("POST", "/setup/bots", body: ["bots": [["id": "contract-bot", "name": "Contract Bot"]]])]],
         "a watch": ["requests": [step("POST", "/setup/gm/watch", body: ["kind": "time", "target": "check the build", "minutes": 30])]],
         "an outbox message": ["file": "outbox.json", "content": [
@@ -342,8 +354,9 @@ final class ContractTests: XCTestCase {
 
     /// What's written where the Mac's value alone can't say what the contract is.
     enum Mark {
-        /// This type, or null: "string|null".
-        case nullable(String)
+        /// This type, or null: "string|null", and why: the given leaves it empty everywhere, so no element beside it
+        /// shows its type. INVENTORY.md's "Null allowed" lists each.
+        case nullable(String, why: String)
         /// One of a closed set of strings (a Swift enum's cases where there is one), or null too.
         case oneOf([String], nullable: Bool = false)
         /// Compared no further than this (any, map: an object whose keys are data, array, object|null…), and why.
@@ -360,14 +373,9 @@ final class ContractTests: XCTestCase {
             ".state": .oneOf(SessionState.allCases.map(\.rawValue)), ".agent": .oneOf(agents),
             // "" until the agent says.
             ".effort": .oneOf(Deck.effortLevels + [""]),
-            ".activity": .nullable("string"), ".tool": .nullable("string"), ".model": .nullable("string"),
-            ".messaged": .nullable("string"), ".errorKind": .nullable("string"),
-            ".maxPressedAt": .nullable("number"), ".messagedAt": .nullable("number"), ".turnStartedAt": .nullable("number"),
-            ".subagents[].model": .nullable("string"),
             ".voiceNote": .loose("object|null", why: "how the last dictation went, for a moment: none in the given (personal build)"),
             ".choice": .loose("object|null", why: "a menu's options, read from the terminal: none in the given"),
             ".last": .loose("object|null", why: "a cloud bot's last report: none in the given"),
-            ".hiredBy.id": .nullable("string"),
         ]
         let layout: [String: Mark] = [
             ".layout.room.floorPlans": .loose("map", why: "a floor's plan by its number: keys are data"),
@@ -380,14 +388,25 @@ final class ContractTests: XCTestCase {
             ".layout.room.plan.added.tall": .empty("nothing added to the default plan"),
             ".layout.room.plan.added.wide": .empty("nothing added to the default plan"),
         ]
+        // What no desk in the given has, so no desk beside it says its type. Each other field of a desk is typed
+        // by its value, or, where one desk has none, by another's (a model at the pinned key, none at the free one).
+        let unsaid: [String: Mark] = [
+            ".messaged": .nullable("string", why: "the last text sent to it from the office: none in the given"),
+            ".messagedAt": .nullable("number", why: "when text was last sent to it from the office: never in the given"),
+            ".errorKind": .nullable("string", why: "why its last turn failed: no turn fails in the given"),
+            ".maxPressedAt": .nullable("number", why: "when max effort was last asked for from the office: never in the given"),
+        ]
         var snapshot = layout
         for prefix in [".keys[].session", ".floors[].desks[]", ".upstairs.desks[]"] {
-            for (path, mark) in desk { snapshot[prefix + path] = mark }
+            for (path, mark) in desk.merging(unsaid, uniquingKeysWith: { a, _ in a }) { snapshot[prefix + path] = mark }
         }
+        snapshot[".keys[].session.subagents[].model"] = .nullable("string", why: "a subagent's model: the given's SubagentStart says none")
         for prefix in [".floors[].desks[]", ".upstairs.desks[]"] {
             snapshot[prefix + ".subagents"] = .empty("only contract-a, at a key, has a subagent in the given")
+            snapshot[prefix + ".model"] = .nullable("string", why: "upstairs, contract-b's agent hasn't said its model and a cloud bot has none")
+            snapshot[prefix + ".turnStartedAt"] = .nullable("number", why: "upstairs, contract-b was asked nothing (it asks you) and a cloud bot has no turns")
+            snapshot[prefix + ".hiredBy.id"] = .nullable("string", why: "the desk of who started it: a cloud bot's hirer has none")
         }
-        snapshot[".keys[].pin"] = .nullable("string")
         snapshot[".hiring.roles"] = .empty("no folder for hires in the given, so no role to hire as")
         snapshot[".music"] = .loose("object|null", why: "what's playing: null with music off, as in the given")
         // The saved looks, each with a layout of its own and the colours changed from the theme.
@@ -404,11 +423,13 @@ final class ContractTests: XCTestCase {
             ".claudeAccounts.profiles": .loose("array", why: "the Claude accounts found in this Mac's home folder"),
             ".keystrokes.running": .loose("array", why: "the apps running on this Mac"),
             ".keystrokes.apps": .empty("no app allowed keys by default"),
-            ".dictation.problem": .nullable("string"), ".dictation.cleanupProblem": .nullable("string"),
-            ".phoneMic.tailnet": .nullable("string"), ".phoneMic.serving": .nullable("string"),
+            ".dictation.problem": .nullable("string", why: "what stops dictation: null when nothing does, as this Mac's speech recognition says"),
+            ".dictation.cleanupProblem": .nullable("string", why: "what stops Claude cleaning dictation up: null when nothing does, as in the given"),
+            ".phoneMic.tailnet": .nullable("string", why: "this Mac's Tailscale name: none, as Tailscale isn't asked (personal build)"),
+            ".phoneMic.serving": .nullable("string", why: "the HTTPS address the phone mic is served on: none without Tailscale (personal build)"),
             ".summary.provider": .loose("object|null", why: "the provider picked: none with summaries off, as in the given"),
             ".summary.key": .loose("object|null", why: "where the API key is from: none in the given (no Keychain is asked)"),
-            ".summary.fallback": .nullable("string"),
+            ".summary.fallback": .nullable("string", why: "the provider used when the one picked can't answer: none with summaries off, as in the given"),
             ".summary.providers[].id": .oneOf(SummaryProvider.allCases.map(\.rawValue)),
             ".summary.providers[].state": .oneOf(SummaryProviderState.Kind.allCases.map(\.rawValue) + ["checking"]),
             ".webhook.last": .loose("object|null", why: "the last webhook sent: none in the given"),
@@ -448,7 +469,7 @@ final class ContractTests: XCTestCase {
             "GET /setup/briefs": [".briefs": .empty("this test bundle has none of the app's briefs")],
             "GET /setup/gm/team": [
                 ".contacts": .empty("no pair of hires allowed to write to each other in the given"),
-                ".team[].started": .nullable("number"),
+                ".team[].started": .nullable("number", why: "when its hire was started: null for a session no hire matches, as both in the given"),
                 ".team[].agent": .oneOf(agents),
                 ".team[].liveState": .oneOf(SessionState.allCases.map(\.rawValue)),
                 // "" for a session that isn't a hire.
@@ -470,8 +491,9 @@ final class ContractTests: XCTestCase {
         marks[subject == "setup-state-tool" ? "setup-state" : subject]?[path]
     }
 
-    /// A spot a shape doesn't compare all the way down: in what, where, what's written, and why.
-    struct Loose: Hashable { let subject, path, shape, why: String }
+    /// A spot a shape doesn't compare all the way down ("Not compared"), or where it allows a null ("Null allowed"):
+    /// the INVENTORY.md table it's listed in, in what, where, what's written, and why.
+    struct Loose: Hashable { let table, subject, path, shape, why: String }
 
     /// The shape written for a value of `subject` (a shape's name or a route) at `path`:
     /// - "string", "number", "bool", "null" for a leaf; 'x' for that string; alternatives as "string|null";
@@ -485,14 +507,18 @@ final class ContractTests: XCTestCase {
         if let mark = mark(subject, path) {
             let written: Any
             switch mark {
-            case .nullable(let type): written = "\(type)|null"
+            case .nullable(let type, let why):
+                let spec = "\(type)|null"
+                written = spec
+                loose.insert(Loose(table: "Null allowed", subject: subject == "setup-state-tool" ? "setup-state" : subject, path: path,
+                                   shape: spec, why: why))
             case .oneOf(let values, let nullable): written = values.map { "'\($0)'" }.joined(separator: "|") + (nullable ? "|null" : "")
             case .loose(let spec, let why):
                 written = spec
-                loose.insert(Loose(subject: subject == "setup-state-tool" ? "setup-state" : subject, path: path, shape: spec, why: why))
+                loose.insert(Loose(table: "Not compared", subject: subject == "setup-state-tool" ? "setup-state" : subject, path: path, shape: spec, why: why))
             case .empty(let why):
                 written = [Any]()
-                loose.insert(Loose(subject: subject == "setup-state-tool" ? "setup-state" : subject, path: path, shape: "[]", why: why))
+                loose.insert(Loose(table: "Not compared", subject: subject == "setup-state-tool" ? "setup-state" : subject, path: path, shape: "[]", why: why))
             }
             for difference in differences(written, value, at: path) { problems.append("\(subject) \(difference): the Mac's own value, against its mark") }
             return written
@@ -556,6 +582,32 @@ final class ContractTests: XCTestCase {
             }
         }
         return settle(shape, "")
+    }
+
+    /// The lists whose elements are the given's sessions, in the named shapes: their ids are written beside the
+    /// shape, and compared too. A shape alone passes a list that drops a session another element looks like.
+    static let idLists: [String: [String]] = [
+        "setup-state": [".sessions[].id"],
+        "setup-state-tool": [".sessions[].id"],
+        "snapshot": [".keys[].session.id", ".floors[].desks[].id", ".upstairs.desks[].id"],
+    ]
+
+    /// The values at `path` (".a[].b"), every element's, as text, sorted.
+    static func values(at path: String, in json: Any) -> [String] {
+        var found = [json]
+        var rest = Substring(path)
+        while !rest.isEmpty {
+            if rest.hasPrefix("[]") {
+                found = found.flatMap { $0 as? [Any] ?? [] }
+                rest = rest.dropFirst(2)
+                continue
+            }
+            rest = rest.dropFirst()
+            let key = rest.prefix { $0 != "." && $0 != "[" }
+            rest = rest.dropFirst(key.count)
+            found = found.compactMap { ($0 as? [String: Any])?[String(key)] }
+        }
+        return found.map { "\($0)" }.sorted()
     }
 
     /// The shape written for an answer: made, then settled, with every problem found.
@@ -785,15 +837,21 @@ final class ContractTests: XCTestCase {
         var named: [String: [String: Any]] = [:]
         for (name, route) in [("setup-state", Self.state[0]), ("setup-state-tool", Self.state[1]), ("snapshot", Self.state[2])] {
             let got = try answer(route, try XCTUnwrap(route.ask))
+            let json = try XCTUnwrap(got.json, name)
             named[name] = ["route": route.name, "as": route.ask!.caller,
-                           "shape": Self.written(try XCTUnwrap(got.json, name), in: name, loose: &loose, problems: &problems)]
+                           "shape": Self.written(json, in: name, loose: &loose, problems: &problems)]
+            if let paths = Self.idLists[name] {
+                named[name]?["ids"] = paths.reduce(into: [String: Any]()) { $0[$1] = Self.values(at: $1, in: json) }
+            }
         }
         let shared: [String: Any] = [
             "note": "Written by ContractTests.swift from the Mac's answers (SMOLCORP_WRITE_FIXTURES=1), read by desktop/contract_test.go. "
                 + "Shapes, not values: \"string\", \"number\", \"bool\", \"null\"; 'x' for that string; alternatives joined by | "
                 + "(\"string|null\", a closed set 'a'|'b'); an object's keys, no more, no fewer; an array's elements as the "
                 + "different shapes they have, each element like one of them and each like some element ([] for none). "
-                + "\"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why.",
+                + "\"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why, "
+                + "and each null allowed. Beside a shape, ids: the given's sessions in each of its lists, sorted, compared as they are. "
+                + "A refusal answered in JSON has its shape too.",
             "shapes": named,
             "given": Self.givens,
         ]
@@ -836,7 +894,12 @@ final class ContractTests: XCTestCase {
                 row["refusals"] = try refusals.map { refusal -> [String: Any] in
                     let got = try answer(route, refusal.ask)
                     XCTAssertGreaterThanOrEqual(got.status, 400, "\(route.name): \(refusal.why)")
-                    return ["request": refusal.ask.json, "status": got.status, "kind": got.kind, "why": refusal.why]
+                    var written: [String: Any] = ["request": refusal.ask.json, "status": got.status, "kind": got.kind, "why": refusal.why]
+                    // A refusal in JSON is a shape too: what the office reads of it ({error}, {message}…).
+                    if let json = got.json {
+                        written["shape"] = Self.written(json, in: "\(route.name) refusal", loose: &loose, problems: &problems)
+                    }
+                    return written
                 }
             }
             if let note = route.note { row["note"] = note }
@@ -937,6 +1000,39 @@ final class ContractTests: XCTestCase {
         }
     }
 
+    /// A desk's fields are typed by what the given fills: contract-a, at the pinned key, has a model, a tool and an
+    /// activity, so a null in any is a difference, though contract-c, at the free key, has no model. And the free
+    /// key's pin is null: anything but a string or a null there is a difference too.
+    func testWhatTheGivenFillsAtADeskMustBeFilled() throws {
+        let route = Self.state[2]
+        var loose = Set<Loose>(), problems: [String] = []
+        let got = try XCTUnwrap(try answer(route, try XCTUnwrap(route.ask)).json as? [String: Any])
+        let shape = Self.written(got, in: "snapshot", loose: &loose, problems: &problems)
+        XCTAssertEqual(Self.differences(shape, got), [])
+        let keys = try XCTUnwrap(got["keys"] as? [[String: Any]])
+        let pinned = try XCTUnwrap(keys.firstIndex { $0["pin"] is String }, "a pinned key in the given")
+        let free = try XCTUnwrap(keys.firstIndex { $0["pin"] is NSNull && $0["session"] != nil }, "a session at a free key in the given")
+        let freeSession = try XCTUnwrap(keys[free]["session"] as? [String: Any])
+        XCTAssertTrue(freeSession["model"] is NSNull, "the free key's desk has no model")
+        func changed(_ index: Int, _ change: (inout [String: Any]) -> Void) -> [String: Any] {
+            var keys = keys, answer = got
+            change(&keys[index])
+            answer["keys"] = keys
+            return answer
+        }
+        for field in ["model", "tool", "activity"] {
+            let nulled = changed(pinned) { key in
+                var session = key["session"] as! [String: Any]
+                XCTAssertTrue(session[field] is String, "contract-a has a \(field) in the given")
+                session[field] = NSNull()
+                key["session"] = session
+            }
+            XCTAssertFalse(Self.differences(shape, nulled).isEmpty, "a null \(field) at the pinned key must not pass")
+        }
+        XCTAssertFalse(Self.differences(shape, changed(free) { $0["pin"] = false }).isEmpty, "a pin of false at the free key must not pass")
+        XCTAssertFalse(Self.differences(shape, changed(pinned) { $0["pin"] = NSNull() }).isEmpty, "a null pin at the pinned key must not pass")
+    }
+
     private static func nullableTopKeys(_ shape: Any) -> Int {
         (shape as? [String: Any])?.values.filter { ($0 as? String)?.split(separator: "|").contains("null") == true }.count ?? 0
     }
@@ -965,25 +1061,28 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(Self.differences(["map", "any"], [[String: Any](), 3]), [])
     }
 
-    /// INVENTORY.md's "Not compared" table is every spot the shapes don't compare all the way down, with why
-    /// (alternatives said with "or", as a table's cells can't hold a |).
+    /// INVENTORY.md's "Not compared" table is every spot the shapes don't compare all the way down, and its "Null
+    /// allowed" every null marked as allowed, each with why (alternatives said with "or", as a table's cells can't
+    /// hold a |).
     func testEveryLooseSpotIsInTheInventory() throws {
         var found = Set<Loose>(), problems: [String] = []
         _ = try files(loose: &found, problems: &problems)
-        let loose = Set(found.map { Loose(subject: $0.subject, path: $0.path, shape: $0.shape.replacingOccurrences(of: "|", with: " or "), why: $0.why) })
+        let loose = Set(found.map {
+            Loose(table: $0.table, subject: $0.subject, path: $0.path, shape: $0.shape.replacingOccurrences(of: "|", with: " or "), why: $0.why)
+        })
         let inventory = try String(contentsOf: Self.folder.appendingPathComponent("INVENTORY.md"), encoding: .utf8)
         var section = "", listed = Set<Loose>()
         for line in inventory.split(separator: "\n", omittingEmptySubsequences: false) {
             if line.hasPrefix("## ") { section = String(line.dropFirst(3)) }
             let cells = line.split(separator: "|", omittingEmptySubsequences: false).dropFirst().dropLast()
                 .map { $0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "`", with: "") }
-            guard section == "Not compared", cells.count == 4, cells[0] != "In", !cells[0].hasPrefix("---") else { continue }
-            listed.insert(Loose(subject: cells[0], path: cells[1], shape: cells[2], why: cells[3]))
+            guard section == "Not compared" || section == "Null allowed", cells.count == 4, cells[0] != "In", !cells[0].hasPrefix("---") else { continue }
+            listed.insert(Loose(table: section, subject: cells[0], path: cells[1], shape: cells[2], why: cells[3]))
         }
         for spot in loose.subtracting(listed).sorted(by: { ($0.subject, $0.path) < ($1.subject, $1.path) }) {
-            XCTFail("not in INVENTORY.md's Not compared: | `\(spot.subject)` | `\(spot.path)` | `\(spot.shape)` | \(spot.why) |")
+            XCTFail("not in INVENTORY.md's \(spot.table): | `\(spot.subject)` | `\(spot.path)` | `\(spot.shape)` | \(spot.why) |")
         }
-        for spot in listed.subtracting(loose) { XCTFail("INVENTORY.md's Not compared has a row no shape has: \(spot)") }
+        for spot in listed.subtracting(loose) { XCTFail("INVENTORY.md's \(spot.table) has a row no shape has: \(spot)") }
     }
 
     /// Every route the Mac's router answers is a row of INVENTORY.md, so none is left out of the contract: the

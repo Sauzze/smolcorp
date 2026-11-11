@@ -60,6 +60,9 @@
               "code" : "1"
             }
           },
+          "shape" : {
+            "error" : "string"
+          },
           "status" : 403,
           "why" : "a code that isn't the one asked for"
         }
@@ -196,6 +199,9 @@
             "query" : {
               "session" : "no-such-session"
             }
+          },
+          "shape" : {
+            "error" : "string"
           },
           "status" : 403,
           "why" : "summaries are off"
