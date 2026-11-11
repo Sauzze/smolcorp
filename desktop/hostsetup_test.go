@@ -246,6 +246,12 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the desks' terminals, from the drivers' tables": func(h hostBridge) (any, error) {
 			return hostAbilities(h, []string{"iterm:AB12", "tty:/dev/ttys003", "headless:3f2a9c1e"})
 		},
+		"the desks whose agent has left its tab, read only": func(h hostBridge) (any, error) {
+			return hostAgentsEnded(h, []string{"tty:/dev/ttys005", "iterm:AB12"}, []Agent{Claude, Codex})
+		},
+		"a hire's own window closed strictly, only a shell left there": func(h hostBridge) (any, error) {
+			return errors.Is(macTab{name: "tty:/dev/ttys005", host: h}.CloseStrict(Claude), errTabClosed), nil
+		},
 		"Grok Bots looked for in the Grok Bot app": func(h hostBridge) (any, error) {
 			return hostResolveBots(h, []bridgeBot{{Bot: "Smolcorp Mini"}, {Bot: "Nobody Here"}})
 		},
@@ -323,6 +329,8 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"dictation got ready, with a problem":                                         "Apple's model for French couldn't be downloaded.",
 		"dictation in a language it doesn't know":                                     "",
 		"the desks' terminals, from the drivers' tables":                              []tabAbilities{{true, true, true, true}, {true, true, true, true}, {}},
+		"the desks whose agent has left its tab, read only":                           []bool{true, false},
+		"a hire's own window closed strictly, only a shell left there":                true,
 		"Grok Bots looked for in the Grok Bot app":                                    []*botResolution{{BotID: "0a1b-2c3d", Name: "Smolcorp Mini Manager", By: "guess"}, nil},
 		"the phone's text, one line, into a Terminal tab":                             []any{pasteDone, false},
 		"the phone's text, several lines, as one paste in iTerm2":                     []any{pasteDone, false},

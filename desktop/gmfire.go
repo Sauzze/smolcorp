@@ -59,12 +59,12 @@ func (rt *router) gmFire(w http.ResponseWriter, r *request) {
 	force := asked["force"] == true
 	options.KeepWorktree = asked["removeWorktree"] != true // as the Mac: kept unless asked to remove
 	launcher, _ := d.launcherOf(h.ID)
-	var kept string
+	var kept, note string
 	var err error
 	if h.ViaLauncher {
 		kept, err = d.fireLauncherHire(h, options, force)
 	} else {
-		kept, err = d.fireTmuxHire(h, force, options.KeepWorktree)
+		kept, note, err = d.fireTmuxHire(h, force, options.KeepWorktree)
 	}
 	if err != nil {
 		var refused *hireRefusal
@@ -76,6 +76,14 @@ func (rt *router) gmFire(w http.ResponseWriter, r *request) {
 		return
 	}
 	d.afterGMFire(h, launcher)
+	if note != "" { // marked fired with no window closed (hirefire_window.go): 200, saying so, and why a worktree stayed
+		answer := map[string]any{"ok": true, "note": note}
+		if kept != "" {
+			answer["kept"], answer["worktree"], answer["branch"] = kept, h.Worktree, h.Branch
+		}
+		writeJSON(w, http.StatusOK, answer)
+		return
+	}
 	if kept != "" && asked["removeWorktree"] == true { // fire.json: 200 only when removal was asked and the worktree had to stay
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "kept": kept, "worktree": h.Worktree, "branch": h.Branch})
 		return

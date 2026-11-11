@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -26,11 +27,17 @@ const mailInboxSince = "2.1.309"
 
 // mailIntoInbox is one try through the inbox socket; tried is false when it wasn't used, so tmux is next.
 func (d *Deck) mailIntoInbox(h Hire, text string, commit func() bool) (result mailResult, tried bool) {
+	gms := []Hire{}
+	for _, other := range readRegistry(registryPath(), false).hires {
+		if gmHired(other) && other.ID != h.ID {
+			gms = append(gms, other)
+		}
+	}
 	d.mu.Lock()
 	on, saved := d.config.MailInboxSocket, d.config.ClaudeProfiles
 	ids := []string{}
 	for _, s := range d.sessions.All() {
-		if works(liveSession{Folder: s.Folder, Project: s.Project}, h) {
+		if inboxSession(s, h, gms) {
 			ids = append(ids, s.ID)
 		}
 	}
@@ -56,6 +63,16 @@ func (d *Deck) mailIntoInbox(h Hire, text string, commit func() bool) (result ma
 		return mailResult{Outcome: mailSent, Typed: true}, true
 	}
 	return mailResult{}, false
+}
+
+// inboxSession is whether s may be h's for its inbox (RHIRE N4): for a hire with a worktree, a session working in
+// that worktree only, not anywhere in its folder, as its fire goes by; and never a session the GM works in.
+func inboxSession(s *Session, h Hire, gms []Hire) bool {
+	place := liveSession{Folder: s.Folder, Project: s.Project}
+	if h.Worktree != "" && !works(place, Hire{Worktree: h.Worktree}) {
+		return false
+	}
+	return works(place, h) && !slices.ContainsFunc(gms, func(gm Hire) bool { return works(place, gm) })
 }
 
 // claudeInbox is the inbox socket and Claude Code version the session file of session id names, in the first of

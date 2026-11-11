@@ -3,17 +3,22 @@
 package desktop
 
 import (
+	"errors"
 	"net/http"
 )
 
 // Fire, for a hire in a window of its own, not in tmux: one the Mac's Swift engine made in a Terminal tab, 1.24's
 // default (hireInTmux off and no agent windows in the background), as its Deck.fire and HireDesk.settle did. First
-// the refusals that need no look at a window (gone, still starting, changes nobody committed unless force); then its
-// tab is closed the way the office closes any tab (on a Mac, the app's close, through the bridge); and only once it
-// has closed, its worktree goes when that was asked and it's clean, its recap is written and it is marked fired.
-// Its tab is the one session working in its worktree. A hire without a worktree can't be told from the owner's own
-// session in that folder, and one whose tab has gone has nothing to close: then nothing is changed, and the answer
-// says so; fired again with force, it is only marked fired (and its tab, if still open, is the owner's to close).
+// the refusals that need no look at a window (gone, changes nobody committed unless force); then its tab is closed
+// through the Mac app, strictly (only with its agent in front there: a tab with only its shell left may be someone
+// else's on a tty used again); and only once it has closed, its worktree goes when that was asked and it's clean,
+// its recap is written and it is marked fired.
+// Its tab is the one session working in its worktree; from the GM or Setup, only one that started since the hire
+// did, with no other tab in that worktree since (the office's fire, where the owner points at the tab, needs
+// neither). A hire without a worktree can't be told from the owner's own session in that folder, and one whose tab
+// has gone has nothing to close: then nothing is changed, and the answer says so. Fired again with force, it is
+// marked fired, its worktree kept, and the answer says its window wasn't closed. A test copy never closes one: its
+// tab is the owner's own.
 // Only the Mac has such hires: on Linux every hire is on its own tmux server, and Windows' are its launcher's.
 
 // inOwnWindow says whether h is a hire in a window of its own: no tmux server, no launcher and not in T3 Code.
@@ -25,33 +30,65 @@ func ownWindowNotFound(h Hire) string {
 		"If it's still open, close it there. Then fire again with force to mark " + calledHire(h) + " fired."
 }
 
-// ownWindowTab is the tab of h's session: the one session working in its worktree, else "".
-func (d *Deck) ownWindowTab(h Hire) (tab string, agent Agent) {
+// ownWindowNotClosed is what a fire with force says when it closed no window.
+func ownWindowNotClosed(h Hire) string {
+	return calledHire(h) + " is marked fired, but Smolcorp couldn't find its window, so it wasn't closed. If it's still open, close it there."
+}
+
+// ownWindowKept is why the worktree stayed though its removal was asked: its window wasn't closed.
+const ownWindowKept = "Its window wasn't closed, so it may still be at work in it."
+
+// ownWindowTestCopy is a test copy's refusal to close a window of the owner's (RHIRE N8; testCopyKeepsTab once
+// FXWTC is merged).
+const ownWindowTestCopy = "This is a test copy of Smolcorp: it never closes a terminal's tab, and that hire's window is your own. Nothing was changed."
+
+// ownWindowTab is the tab of h's session: the one session working in its worktree, else "". sure is the GM's and
+// Setup's: the tab is matched by its folder alone, so the session must also have started at or after the hire, and
+// no other tab must have worked in that worktree since (an owner's session there, the hire's own having ended).
+func (d *Deck) ownWindowTab(h Hire, sure bool) (tab string, agent Agent) {
 	if h.Worktree == "" {
 		return "", ""
 	}
 	tree := physical(h.Worktree)
+	in := func(folder, project string) bool {
+		return folder != "" && physical(folder) == tree || project != "" && physical(project) == tree
+	}
 	d.mu.Lock()
-	all := d.sessions.All()
-	d.mu.Unlock()
-	found := 0
-	for _, s := range all {
-		if s.Folder != "" && physical(s.Folder) == tree || s.Project != "" && physical(s.Project) == tree {
-			tab, agent = s.Tab, s.Agent
-			found++
+	defer d.mu.Unlock()
+	var found *Session
+	for _, s := range d.sessions.All() {
+		if in(s.Folder, s.Project) {
+			if found != nil {
+				return "", "" // two in one worktree: neither is closed on a guess
+			}
+			found = s
 		}
 	}
-	if found != 1 {
-		return "", "" // two in one worktree: neither is closed on a guess
+	if found == nil {
+		return "", ""
 	}
-	return tab, agent
+	if sure {
+		if found.StartedAt < h.Started {
+			return "", ""
+		}
+		for _, ended := range d.sessions.EndedWhere() {
+			if ended.Tab != found.Tab && ended.EndedAt >= h.Started && in(ended.Folder, ended.Project) {
+				return "", ""
+			}
+		}
+	}
+	return found.Tab, found.Agent
 }
 
+// strictCloser is a tab the Mac app closes only with its agent in front (macTab).
+type strictCloser interface{ CloseStrict(Agent) error }
+
 // fireOwnWindowHire fires h (inOwnWindow): a refusal says why and leaves everything as it was. tab is its session's,
-// "" when none was found; keep keeps its worktree. kept says why a worktree asked to go stayed.
-func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bool) (kept string, err error) {
-	refuse := func(status int, message string) (string, error) {
-		return "", &hireRefusal{Status: status, Message: message}
+// "" when none was found; keep keeps its worktree. kept says why a worktree asked to go stayed; note, that it was
+// marked fired with no window closed.
+func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bool) (kept, note string, err error) {
+	refuse := func(status int, message string) (string, string, error) {
+		return "", "", &hireRefusal{Status: status, Message: message}
 	}
 	firing.Lock()
 	if firing.ids[h.ID] {
@@ -62,13 +99,10 @@ func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bo
 	firing.Unlock()
 	defer func() { firing.Lock(); delete(firing.ids, h.ID); firing.Unlock() }()
 
-	// The registry is the truth, not the copy the caller holds.
-	now, found := hireByID(h.ID)
-	switch {
-	case !found || now.State == "fired" || now.State == "failed":
+	// The registry is the truth, not the copy the caller holds. A row still "starting" is fired too: no start is in
+	// flight for one (Swift moved it to working only at its first hook, and nothing here moves it).
+	if now, found := hireByID(h.ID); !found || now.State == "fired" || now.State == "failed" {
 		return refuse(http.StatusConflict, calledHire(h)+" is already gone.")
-	case now.State == "starting":
-		return refuse(http.StatusConflict, calledHire(h)+" is still starting. Try again in a moment.")
 	}
 	d.mu.Lock()
 	o := d.engine
@@ -80,26 +114,54 @@ func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bo
 			return refuse(http.StatusConflict, message)
 		}
 	}
+	if tab != "" && testCopyPort() != 0 {
+		return refuse(http.StatusConflict, ownWindowTestCopy)
+	}
 	closed := false
 	if tab != "" {
-		switch status, message := d.inTab(tab, func(t Tab) error { return t.Close(agent) }); {
-		case status < http.StatusMultipleChoices:
+		var tried bool
+		var closing error
+		status, message := d.inTab(tab, func(t Tab) error {
+			tried = true
+			if closer, ok := t.(strictCloser); ok {
+				closing = closer.CloseStrict(agent)
+			} else {
+				closing = errUnsupported // only the Mac app closes such a tab, and only strictly
+			}
+			return closing
+		})
+		switch {
+		case !tried, errors.Is(closing, errTabClosed):
+			// Its tab, or its agent, has gone already: nothing is left to close.
+		case closing == nil:
 			closed = true
-		case status == http.StatusNotFound || status == http.StatusGone:
-			// Its tab or its agent has gone already: nothing is left to close.
-		default:
+		case errors.Is(closing, errNotStopped), errors.Is(closing, errUnsupported):
 			return refuse(status, message) // not stopped, or a terminal Smolcorp can only watch: it stays open
+		default:
+			// The Mac app didn't answer, or not as asked: not the same as a window that has gone.
+			return refuse(http.StatusBadGateway, "The Mac app didn't close "+calledHire(h)+"'s window, so nothing was changed. Try again in a moment.")
 		}
 	}
 	if !closed && !force {
 		return refuse(http.StatusConflict, ownWindowNotFound(h))
 	}
+	if !closed {
+		// It may still be at work in a window nobody closed: its worktree stays, whatever was asked.
+		note = ownWindowNotClosed(h)
+		if h.Worktree != "" && !keep {
+			kept = ownWindowKept
+		}
+		keep = true
+	}
 	removed := h.Worktree != "" && !keep && removeOwnWorktree(o.Git, o.Worktrees, h)
 	writeRecap(h, "", removed, o.Now())
-	if h.Worktree != "" && !removed && !keep {
+	switch {
+	case note != "":
+		markFired(h.ID, note)
+	case h.Worktree != "" && !removed && !keep:
 		markFired(h.ID, firedKeptNote(h.Worktree))
 		kept = firedWorktreeKept
-	} else {
+	default:
 		markFired(h.ID, "")
 	}
 	if tab != "" {
@@ -109,7 +171,7 @@ func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bo
 		}
 		d.mu.Unlock()
 	}
-	return kept, nil
+	return kept, note, nil
 }
 
 // fireOwnWindowTab is the office's fire of a tab that is a hire's in a window of its own: handled is true then,
@@ -119,17 +181,21 @@ func (d *Deck) fireOwnWindowTab(tab string, force bool) (status int, message str
 		if !inOwnWindow(h) || h.State == "fired" || h.State == "failed" {
 			continue
 		}
-		mine, agent := d.ownWindowTab(h)
+		mine, agent := d.ownWindowTab(h, false) // the owner points at this tab
 		if mine != tab {
 			continue
 		}
-		if _, err := d.fireOwnWindowHire(h, tab, agent, force, true); err != nil {
+		_, note, err := d.fireOwnWindowHire(h, tab, agent, force, true)
+		if err != nil {
 			if refused, ok := err.(*hireRefusal); ok {
 				return refused.Status, refused.Message, true
 			}
 			return http.StatusInternalServerError, err.Error(), true
 		}
 		d.afterGMFire(h, "")
+		if note != "" {
+			return http.StatusOK, note, true
+		}
 		return http.StatusNoContent, "", true
 	}
 	return 0, "", false

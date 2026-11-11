@@ -88,6 +88,8 @@ type Deck struct {
 	sessionsFile string
 	// Whether the folder picker is open, from setup.
 	picking bool
+	// The tabs only the Mac app drives whose agent it last said had left them: gone at a second look in a row.
+	agentLeft map[string]bool
 	// Whether music is playing, for the office's jukebox, when it can be told.
 	playing *bool
 	// This computer's output volume, for the jukebox's volume bar, nil where
@@ -1247,17 +1249,26 @@ func (d *Deck) tab(name string) Tab {
 	return commandTab{kind: kind, id: id, socket: socket}
 }
 
-// pruneClosedTabs drops sessions whose pane has closed. Launchers say so
-// themselves, as their connection drops.
+// pruneClosedTabs drops sessions whose pane has closed, and under the Mac app those in a Terminal, iTerm2 or
+// Ghostty tab whose agent has left it, seen twice in a row, as the Swift engine's Deck.pruneClosedPanes did: such a
+// tab's tty may be another tab's next, and the fire of a hire in a window of its own goes by its session's tab.
+// Launchers say so themselves, as their connection drops.
 func (d *Deck) pruneClosedTabs() {
 	d.mu.Lock()
 	panes := map[string]commandTab{}
+	var appTabs []string
+	var agents []Agent
 	for _, s := range d.sessions.All() {
-		if tab, ok := paneOf(d.tab(s.Tab)); ok {
-			panes[s.Tab] = tab
+		tab := d.tab(s.Tab)
+		if pane, ok := paneOf(tab); ok {
+			panes[s.Tab] = pane
+		} else if _, ok := tab.(macTab); ok {
+			appTabs, agents = append(appTabs, s.Tab), append(agents, s.Agent)
 		}
 	}
+	h := host
 	d.mu.Unlock()
+	d.pruneAgentsLeft(h, appTabs, agents)
 
 	gone := map[string]bool{}
 	for name, pane := range panes {
@@ -1270,6 +1281,36 @@ func (d *Deck) pruneClosedTabs() {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.sessions.Prune(func(name string) bool { return !gone[name] }, nowMillis()) {
+		d.changed()
+	}
+}
+
+// pruneAgentsLeft is pruneClosedTabs' look at the tabs only the Mac app drives: read only, and unknown is not gone.
+func (d *Deck) pruneAgentsLeft(h hostBridge, tabs []string, agents []Agent) {
+	if h == nil || len(tabs) == 0 {
+		d.mu.Lock()
+		d.agentLeft = nil
+		d.mu.Unlock()
+		return
+	}
+	ended, err := hostAgentsEnded(h, tabs, agents)
+	if err != nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	left, gone := map[string]bool{}, map[string]bool{}
+	for i, tab := range tabs {
+		switch {
+		case !ended[i]:
+		case d.agentLeft[tab]:
+			gone[tab] = true // seen twice in a row
+		default:
+			left[tab] = true
+		}
+	}
+	d.agentLeft = left
 	if d.sessions.Prune(func(name string) bool { return !gone[name] }, nowMillis()) {
 		d.changed()
 	}

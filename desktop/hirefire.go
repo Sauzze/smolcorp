@@ -183,10 +183,10 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 }
 
 // For the GM's fire route (gmfire.go): the engine's fire, or a hire's in a window of its own
-// (hirefire_window.go), and whether a tab's socket is h's own.
-func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (string, error) {
+// (hirefire_window.go, whose note says it was marked fired with no window closed), and whether a tab's socket is h's own.
+func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (kept, note string, err error) {
 	if inOwnWindow(h) {
-		tab, agent := d.ownWindowTab(h)
+		tab, agent := d.ownWindowTab(h, true)
 		return d.fireOwnWindowHire(h, tab, agent, force, keep)
 	}
 	d.mu.Lock()
@@ -194,7 +194,8 @@ func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (string, error) {
 	options.Worktrees = d.worktreesFolder(options.Worktrees)
 	d.mu.Unlock()
 	options.KeepWorktree = keep
-	return fireEngineHire(h, testCopyPort(), options, force)
+	kept, err = fireEngineHire(h, testCopyPort(), options, force)
+	return kept, "", err
 }
 
 func ownTmuxTab(h Hire, socket string) bool {

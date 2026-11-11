@@ -138,3 +138,35 @@ func TestInboxMailWaitsWhileTheDeckKnowsTheHireIsAsking(t *testing.T) {
 		t.Errorf("result %+v", result)
 	}
 }
+
+// RHIRE N4: a worktree hire's inbox is its worktree's session only, never the one session left in its folder; and
+// the GM's own session is never taken for a hire's, even alone in the hire's folder.
+func TestTheInboxIsNeverASessionInTheHiresFolderButNotItsWorktreeNorTheGMs(t *testing.T) {
+	cannot := "Rex doesn't run in tmux here and has no inbox socket to use, so mail can't reach it."
+	t.Run("worktree", func(t *testing.T) {
+		path, got := inboxSocket(t)
+		d, h := inboxHire(t, true, "2.1.309", path)
+		h.Worktree = t.TempDir()
+		writeRegistry(t, h)
+		if result := d.mailTypeIntoHire(h, "hello", func() bool { t.Error("counted a try"); return true }); result.Outcome != mailCannot || result.Note != cannot {
+			t.Fatalf("the owner's session in the hire's folder was taken for its own: %+v", result)
+		}
+		d.sessions.Apply(map[string]any{"hook_event_name": "SessionEnd", "session_id": "s-rex"}, Claude, "tty:/dev/ttys009", "", nowMillis())
+		d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s-rex", "cwd": h.Worktree},
+			Claude, "tty:/dev/ttys010", "", nowMillis()+1)
+		if result := d.mailTypeIntoHire(h, "hello", func() bool { return true }); result.Outcome != mailSent {
+			t.Fatalf("its session in its worktree: %+v", result)
+		}
+		if line := <-got; line != string(mailInboxLine("hello")) {
+			t.Errorf("the socket read %q", line)
+		}
+	})
+	t.Run("the GM's", func(t *testing.T) {
+		path, _ := inboxSocket(t)
+		d, h := inboxHire(t, true, "2.1.309", path)
+		writeRegistry(t, h, Hire{ID: "gm-1", Name: "General Manager", Role: gmRole, Folder: h.Folder, State: "working"})
+		if result := d.mailTypeIntoHire(h, "hello", func() bool { t.Error("counted a try"); return true }); result.Outcome != mailCannot || result.Note != cannot {
+			t.Errorf("the GM's own session was taken for the hire's: %+v", result)
+		}
+	})
+}

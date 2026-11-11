@@ -42,8 +42,8 @@ func hiresToBackgroundClosing(hires []Hire, closer bridgeCloser, run func([]stri
 }
 
 // For the GM's fire route (gmfire.go): a hire here is a launcher's window, never a tmux session.
-func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (string, error) {
-	return "", &hireRefusal{Status: 409, Message: "Couldn't reach " + calledHire(h) + "'s window, so nothing was changed."}
+func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (kept, note string, err error) {
+	return "", "", &hireRefusal{Status: 409, Message: "Couldn't reach " + calledHire(h) + "'s window, so nothing was changed."}
 }
 
 func ownTmuxTab(Hire, string) bool { return false }

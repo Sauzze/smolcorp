@@ -83,7 +83,7 @@ func resolveHire(c *Client, ref string) (string, error) {
 }
 
 // Fire fires the hire; the app answers 204, or 200 with {kept, worktree, branch} when it was asked to remove the
-// worktree and left it. A refusal comes back whole, the app's words as it wrote them (the unsaved files it lists,
+// worktree and left it, and with {note} when it marked the hire fired with no window closed (firedNote). A refusal comes back whole, the app's words as it wrote them (the unsaved files it lists,
 // the question it sees), not cut to one line.
 func Fire(c *Client, id string, force, removeWorktree bool) ([]byte, error) {
 	body := map[string]any{"id": id}
@@ -114,6 +114,15 @@ func keptNote(raw []byte) string {
 		where = " (" + oneLine(a.Worktree) + ")"
 	}
 	return fmt.Sprintf(" Its worktree%s and branch were kept, not removed: %s", where, afterColon(oneLine(strings.TrimSuffix(a.Kept, ".")+".")))
+}
+
+// firedNote is what the app says of a fire that closed no window ("Rex is marked fired, but…"), or "".
+func firedNote(raw []byte) string {
+	var a struct{ Note string }
+	if json.Unmarshal(raw, &a) != nil {
+		return ""
+	}
+	return oneLine(a.Note)
 }
 
 // afterColon lowers the first letter of a reason that follows a colon ("It holds…" reads "it holds…"),
@@ -299,7 +308,9 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 		return finish(err, stderr)
 	}
 	raw, err := Fire(c, id, force, removeWorktree)
-	if err == nil && !*asJSON {
+	if note := firedNote(raw); err == nil && !*asJSON && note != "" {
+		fmt.Fprintf(stdout, "%s%s\n", note, keptNote(raw))
+	} else if err == nil && !*asJSON {
 		fmt.Fprintf(stdout, "Fired %s.%s\n", oneLine(ref), keptNote(raw))
 	} else if err == nil && len(strings.TrimSpace(string(raw))) > 0 {
 		err = prettyJSON(stdout, raw)

@@ -86,6 +86,16 @@
       ]}
     },
     {
+      "name": "the desks whose agent has left its tab, read only",
+      "request": {"action": "agents-ended", "tabs": ["tty:/dev/ttys005", "iterm:AB12"], "agents": ["claude", "codex"]},
+      "answer": {"ok": true, "ended": [true, false]}
+    },
+    {
+      "name": "a hire's own window closed strictly, only a shell left there",
+      "request": {"action": "close", "tab": "tty:/dev/ttys005", "agent": "claude", "strict": true},
+      "answer": {"ok": true, "fired": "gone"}
+    },
+    {
       "name": "Grok Bots looked for in the Grok Bot app",
       "request": {"action": "bots-resolve", "bots": [{"botId": "", "bot": "Smolcorp Mini"}, {"botId": "", "bot": "Nobody Here"}]},
       "answer": {"ok": true, "resolved": [{"botId": "0a1b-2c3d", "name": "Smolcorp Mini Manager", "by": "guess"}, null]}
