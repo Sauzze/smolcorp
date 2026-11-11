@@ -688,7 +688,7 @@ func TestTheTraysOfficeIsTheOfficeOnThisComputerOnly(t *testing.T) {
 	token := d.access.NewOfficeToken()
 	d.mu.Unlock()
 	opened := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer})
-	if opened.Code != http.StatusSeeOther || opened.Header().Get("Location") != "/office?t="+d.access.WindowKey {
+	if opened.Code != http.StatusSeeOther || opened.Header().Get("Location") != "/office?t="+d.access.WindowKey+"&own" {
 		t.Fatalf("the tray's link gave %d to %q, want the office with its own key", opened.Code, opened.Header().Get("Location"))
 	}
 	if again := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer}); again.Code == http.StatusSeeOther {

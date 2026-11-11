@@ -34,6 +34,13 @@ func detachHireViewers(hire Hire, run func([]string) (string, int, bool)) detach
 // openHireViewer: no hire runs in tmux here.
 func openHireViewer(hire Hire, terminal hireOpener) error { return errUnsupported }
 
+// bridgeCloser and hiresToBackgroundClosing are the Mac app's (hirewindows_close.go): there is no host here.
+type bridgeCloser struct{ h hostBridge }
+
+func hiresToBackgroundClosing(hires []Hire, closer bridgeCloser, run func([]string) (string, int, bool)) []string {
+	return nil
+}
+
 // For the GM's fire route (gmfire.go): a hire here is a launcher's window, never a tmux session.
 func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (string, error) {
 	return "", &hireRefusal{Status: 409, Message: "Couldn't reach " + calledHire(h) + "'s window, so nothing was changed."}

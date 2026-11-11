@@ -338,6 +338,8 @@ final class HostBridge {
         case "terminals":
             // The terminals of the three Smolcorp opens that are installed, in setup's order.
             return ["ok": true, "terminals": actions.terminals()]
+        case "window-look", "window-close":
+            return window(action, request, actions, until: deadline)
         case "secret-read", "secret-write", "secret-delete":
             return secret(action, request, actions)
         case "login-item":
@@ -697,11 +699,54 @@ final class HostBridge {
             // The window's own record, as the Swift engine keeps it for a hire (`Deck.hireWindows`): what
             // switching hires to the background closes, by its terminal's id. A tab with no window: none.
             var answer: [String: Any] = ["ok": true, "tab": opened.tab]
-            if let window = opened.window { answer["window"] = window }
+            if let window = opened.window {
+                answer["window"] = window
+                actions.opened.add(window)
+            }
             return answer
         case .done(nil): return refused("The window didn't open.")
         case .notStarted, .unfinished: return refused("The terminal didn't answer in time.")
         }
+    }
+
+    /// Hires switched to the background under the core (desktop/hirewindows_close.go, as the Swift engine's
+    /// `HireWindows.toBackground`): a window this app opened for the core, by the record its `open` answered, looked
+    /// at (open on a tty, gone, or it couldn't be asked) and closed by `actions.closer`, as the Swift engine closes
+    /// its own: only once nothing but the tab's shell runs on that tty. Never a window it didn't open for the core,
+    /// nor one by a name. Each on its terminal's queue, as its window was opened.
+    private static func window(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
+        guard let window = request["window"] as? String, let parsed = HireWindows.Terminals.parse(window) else {
+            return refused("Not a window's record.")
+        }
+        guard actions.opened.contains(window) else { return refused("Not a window Smolcorp opened for the engine.") }
+        let terminal = parsed.kind == "ghostty-id" ? "ghostty" : parsed.kind
+        if action == "window-look" {
+            switch run(on: actions.windowQueue(terminal), until: deadline, { actions.closer.look(window) }) {
+            case .done(.open(let tty)): return ["ok": true, "shown": "open", "tty": tty]
+            case .done(.gone):
+                actions.opened.remove(window)
+                return ["ok": true, "shown": "gone"]
+            case .done(.unknown), .notStarted, .unfinished: return ["ok": true, "shown": "unknown"]
+            }
+        }
+        guard let tty = request["tty"] as? String, TabAddress.isTTY(tty) else { return refused("Not a tty.") }
+        switch run(on: actions.windowQueue(terminal), until: deadline, { actions.closer.close(window, tty: tty) }) {
+        case .done(.closed):
+            actions.opened.remove(window)
+            return ["ok": true, "closed": true]
+        case .done(.left(let why)): return ["ok": true, "closed": false, "left": why]
+        case .notStarted, .unfinished: return refused("The terminal didn't answer in time.")
+        }
+    }
+
+    /// The windows this app opened for the core, by their records: the only ones it looks at or closes for it.
+    final class OpenedWindows {
+        private let lock = NSLock()
+        private var records: Set<String> = []
+
+        func add(_ record: String) { lock.lock(); records.insert(record); lock.unlock() }
+        func remove(_ record: String) { lock.lock(); records.remove(record); lock.unlock() }
+        func contains(_ record: String) -> Bool { lock.lock(); defer { lock.unlock() }; return records.contains(record) }
     }
 
     private static func isFolder(_ path: String) -> Bool {
@@ -780,6 +825,9 @@ final class HostBridge {
         var open: (_ terminal: String, _ folder: String, _ script: String) -> Openers.Opened?
         /// The ids of `Openers.choices` installed on this Mac.
         var terminals: () -> [String] = { Openers.choices.filter { Openers.isInstalled($0.id) }.map(\.id) }
+        /// The windows opened for the core (`open`), and what looks at and closes them, as the Swift engine's own.
+        var opened = OpenedWindows()
+        var closer: HireWindows.Closer = HireWindows.Terminals()
         var secrets: [String: Secret]
         /// The login item, or nil in a test copy, whose login item is the copy in use's: never read or set.
         var loginItem: (get: () -> Bool, set: (Bool) -> Void)?

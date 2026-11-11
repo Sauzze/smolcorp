@@ -112,8 +112,9 @@ func (d *Deck) hireIntoT3(ask t3Ask) (int, string) {
 	d.lastHire = time.Now()
 	// The saved accounts are copied under the lock, and looked in once it's let go (claudeaccounts.go).
 	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
+	worktrees := d.worktreesFolder(d.engine.worktrees())
 	d.mu.Unlock()
-	status, message := d.hireIntoT3Now(ask, role, on, claudeDenyProfiles(savedAccounts))
+	status, message := d.hireIntoT3Now(ask, role, on, claudeDenyProfiles(savedAccounts), worktrees)
 	d.mu.Lock()
 	if status != http.StatusNoContent {
 		d.lastHire = time.Time{} // nobody was hired, so the next try needn't wait
@@ -123,8 +124,9 @@ func (d *Deck) hireIntoT3(ask t3Ask) (int, string) {
 	return status, message
 }
 
-// hireIntoT3Now is the hire itself; profiles are the accounts its fence denies (claudeDenyProfiles).
-func (d *Deck) hireIntoT3Now(ask t3Ask, role Role, on bool, profiles []claudeProfile) (int, string) {
+// hireIntoT3Now is the hire itself; profiles are the accounts its fence denies (claudeDenyProfiles), and
+// worktrees the folder its worktree is made in ("" for beside the repo).
+func (d *Deck) hireIntoT3Now(ask t3Ask, role Role, on bool, profiles []claudeProfile, worktrees string) (int, string) {
 	t3Desk.Lock()
 	defer t3Desk.Unlock()
 	machine := newT3Machine()
@@ -138,7 +140,7 @@ func (d *Deck) hireIntoT3Now(ask t3Ask, role Role, on bool, profiles []claudePro
 		how = hiredAtPinnedDesk
 	}
 	hiring := t3Hiring{HireID: hireID, Name: cmpOr(ask.Nickname, role.ID), Called: cmpOr(ask.Nickname, role.Name), Folder: ask.Folder,
-		Model: model, Taken: takenPorts()}
+		Model: model, Worktrees: worktrees, Taken: takenPorts()}
 	ways := t3Ways{
 		Machine: machine, Git: t3Stand.Git, PortFree: t3Stand.PortFree,
 		Settings: func() (map[string]any, error) { return t3FenceSettings(hireID, profiles) },

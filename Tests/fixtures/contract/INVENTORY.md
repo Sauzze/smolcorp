@@ -60,8 +60,8 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | GET | `/choice` | phone | `?session=` | a prompt's command or file | 200, 403 | office.json | served |
 | GET | `/t3code` | window | `?session=&fresh=1` | `{installed, …, hire}`, and `lane` for a hire in T3 Code | 200, 403 (a phone), 404 (T3 Code off) | office.json | served |
 | POST | `/t3code/open` | window | `?session=` | empty or text | 204, 403, 404 (T3 Code off, not a hire), 409 | office.json | served |
-| GET | `/hire/window` | window | — | `{background}`: whether hires run in the background | 200, 403 (a phone) | office.json | 404 |
-| POST | `/hire/window` | window | `?session=` | empty or text: a window attached to the hire's tmux session | 204, 403 (a phone), 404 (not a hire), 409 | office.json | 404 |
+| GET | `/hire/window` | window | — | `{background}`: whether hires run in the background | 200, 403 (a phone) | office.json | served |
+| POST | `/hire/window` | window | `?session=` | empty or text: a window attached to the hire's tmux session | 204, 403 (a phone), 404 (not a hire), 409 | office.json | served |
 | POST | `/bots/<id>/event` | page, tool | `{type: report or seen or start or stop, text, count, at}` | empty | 204, 400, 401, 404 | office.json | served |
 
 ## Setup: the page, the state and its switches
@@ -598,5 +598,3 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `GET /session/info` | `route` | 404 | ⓘ Info (personal build) | M6: personal shell |
 | `GET /notifications` | `route` | 404 | the iPhone app's push notifications (personal build) | M6: personal shell |
 | `POST /notifications` | `route` | 404 | the iPhone app's push notifications (personal build) | M6: personal shell |
-| `GET /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1) |
-| `POST /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1) |

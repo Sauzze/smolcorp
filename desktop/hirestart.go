@@ -77,10 +77,14 @@ func testCopyPort() int {
 
 // testCopyRefusal is why a test copy won't hire program, or nil (T721). Claude
 // on the default account, or on none named, would use the real office's login:
-// refused before anything is made.
+// refused before anything is made. Another agent is refused too, as the Mac's
+// Deck.testCopyRefusal: it reports through its own hooks, to the real office.
 func testCopyRefusal(testPort int, program, configDir string) error {
-	if testPort == 0 || agentOrClaude(program) != Claude {
+	if testPort == 0 {
 		return nil
+	}
+	if agentOrClaude(program) != Claude {
+		return &hireRefusal{Status: 409, Message: testCopyOnlyClaude}
 	}
 	if configDir == "" {
 		return &hireRefusal{Status: 409, Message: "This is a test copy of Smolcorp, so it never hires Claude on the default account: that is the real office's login. Hire from the real Smolcorp."}
@@ -92,6 +96,9 @@ func testCopyRefusal(testPort int, program, configDir string) error {
 	}
 	return &hireRefusal{Status: 409, Message: "A test copy's hires on a named account aren't set up yet, so none is started."}
 }
+
+// testCopyOnlyClaude is the Mac's TestCopy.Refused.hiring, word for word.
+const testCopyOnlyClaude = "This is a test copy of Smolcorp: only Claude Code hires here, because another agent would report to the real one."
 
 // sendKeyFor is the send key hire hireID's start script holds, made now by
 // newSendKey (T726) against its registry row, so the hire must be written down

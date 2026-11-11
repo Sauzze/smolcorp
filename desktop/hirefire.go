@@ -125,6 +125,7 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 	}
 	d.mu.Lock()
 	options := d.engine
+	options.Worktrees = d.worktreesFolder(options.Worktrees)
 	d.mu.Unlock()
 	if _, err := fireEngineHire(h, testCopyPort(), options, force); err != nil {
 		if refused, ok := err.(*hireRefusal); ok {
@@ -154,6 +155,7 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (string, error) {
 	d.mu.Lock()
 	options := d.engine
+	options.Worktrees = d.worktreesFolder(options.Worktrees)
 	d.mu.Unlock()
 	options.KeepWorktree = keep
 	return fireEngineHire(h, testCopyPort(), options, force)

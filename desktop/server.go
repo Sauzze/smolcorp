@@ -456,7 +456,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		redeemed, windowKey := d.access.RedeemOfficeToken(r.URL.Query().Get("o")), d.access.WindowKey
 		d.mu.Unlock()
 		if redeemed {
-			http.Redirect(w, r.Request, "/office?t="+url.QueryEscape(windowKey), http.StatusSeeOther)
+			http.Redirect(w, r.Request, "/office?t="+url.QueryEscape(windowKey)+"&"+ownWindowMark, http.StatusSeeOther)
 			return
 		}
 	}
@@ -512,6 +512,29 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		writeStatus(w)(http.StatusNoContent, "")
+	// ⧉ window (T796), from the office's own window on this computer, never a phone: whether hires run in
+	// the background, so the key shows; then a window attached to the picked hire's own tmux session, as
+	// Setup's Open a window (openHireWindow).
+	case r.URL.Path == "/hire/window" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, "Hires' windows open on your computer.")
+			return
+		}
+		if r.Method == http.MethodGet {
+			_, tmux := hireWays()
+			d.mu.Lock()
+			background := backgroundHires(d.config, tmux)
+			d.mu.Unlock()
+			writeJSON(w, http.StatusOK, map[string]any{"background": background})
+			return
+		}
+		hire, found := d.hireInSession(session)
+		if !found {
+			writeStatus(w)(http.StatusNotFound, "This agent wasn't hired by Smolcorp, so it has no window to open.")
+			return
+		}
+		status, problem := d.openHireWindow(hire)
+		writeStatus(w)(status, problem)
 	// Open in T3 Code, from the office's own window on this computer, never a phone: what's installed, and
 	// whether the picked agent is a hire; then its folder opened, found by its session, never a path that's sent.
 	case r.URL.Path == "/t3code" || r.URL.Path == "/t3code/open":
@@ -1215,7 +1238,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		answer := rt.setupStateFor(r.caller)
 		if switched {
-			answer["windowsSaid"] = hiresToBackground(officeHires(), func(h Hire) detached { return detachHireViewers(h, nil) })
+			// Under the Mac app, the windows it opened for hires close too, as its Swift engine closes them
+			// (hirewindows_close.go); elsewhere a terminal running tmux attach ends as its viewer is detached.
+			if host != nil {
+				answer["windowsSaid"] = hiresToBackgroundClosing(officeHires(), bridgeCloser{host}, nil)
+			} else {
+				answer["windowsSaid"] = hiresToBackground(officeHires(), func(h Hire) detached { return detachHireViewers(h, nil) })
+			}
 		}
 		writeJSON(w, http.StatusOK, answer)
 
@@ -1228,21 +1257,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		_ = json.NewDecoder(r.Body).Decode(&given)
 		// Read once: the list may change meanwhile, and i must point into this one.
 		hires := officeHires()
-		i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == given.ID && h.State != "fired" && h.State != "failed" })
+		i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == given.ID })
 		if i < 0 {
 			http.Error(w, "That hire isn't on the team.", http.StatusConflict)
 			return
 		}
-		terminals, _ := hireWays()
-		d.mu.Lock()
-		terminal, hasTerminal := hireTerminal(config.HireTerminal, terminals)
-		d.mu.Unlock()
-		if !hasTerminal {
-			http.Error(w, "There's no terminal here to open a window in: tmux attach shows it.", http.StatusConflict)
-			return
-		}
-		if err := openHireViewer(hires[i], terminal); err != nil {
-			http.Error(w, "Its window didn't open: the hire may have ended.", http.StatusConflict)
+		if status, problem := d.openHireWindow(hires[i]); problem != "" {
+			http.Error(w, problem, status)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -2038,6 +2059,30 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+// openHireWindow is "Open a window" on hire, from Setup's team list or the
+// office's ⧉ window, as the Mac's Deck.openHireWindow: one window of the hires'
+// terminal attached to the hire's own tmux session, recorded as this app's (on a
+// Mac, through the app). 204, or 409 and why not.
+func (d *Deck) openHireWindow(hire Hire) (int, string) {
+	if hire.State == "fired" || hire.State == "failed" {
+		return http.StatusConflict, "That hire isn't on the team."
+	}
+	if hire.TmuxSocket == "" {
+		return http.StatusConflict, "This hire runs in a window of its own, not in tmux."
+	}
+	terminals, _ := hireWays()
+	d.mu.Lock()
+	terminal, hasTerminal := hireTerminal(d.config.HireTerminal, terminals)
+	d.mu.Unlock()
+	if !hasTerminal {
+		return http.StatusConflict, "There's no terminal here to open a window in: tmux attach shows it."
+	}
+	if err := openHireViewer(hire, terminal); err != nil {
+		return http.StatusConflict, "Its window didn't open: the hire may have ended."
+	}
+	return http.StatusNoContent, ""
 }
 
 // writeStatus answers with a status and, unless it's empty, a message the

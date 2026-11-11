@@ -237,6 +237,7 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 	}
 	role, how := d.config.Roles[i], hiredIntoGeneralFolder
 	options, testPort := d.engine, testCopyPort()
+	options.Worktrees = d.worktreesFolder(options.Worktrees)
 	if options.HeardFrom == nil {
 		options.HeardFrom = d.hireHeardFrom
 	}

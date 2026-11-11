@@ -699,3 +699,47 @@ func TestAnEngineHireOutsideGitKeepsItsBriefInSmolcorpsFolder(t *testing.T) {
 		t.Errorf("briefs kept: %v", kept)
 	}
 }
+
+// The Mac's hireWorktrees, set by hand in config.json: a full path is where hires' worktrees are made, each
+// repo's under a folder of its own name there, as the Mac's HireDesk.place makes them; the fire removes the
+// worktree from there. Anything but a full path loads as "", beside the repo, as the Mac's Config reads it.
+func TestHiresWorktreesGoInTheFolderConfigJSONSets(t *testing.T) {
+	d, r, _ := engineDeck(t)
+	for _, saved := range []string{"relative/hires", "~/hires", ""} {
+		writeFile(t, configFile, `{"hireWorktrees": "`+saved+`"}`)
+		if got := loadConfig().HireWorktrees; got != "" {
+			t.Errorf("hireWorktrees %q loads as %q, want beside the repo", saved, got)
+		}
+	}
+	folder := t.TempDir()
+	writeFile(t, configFile, `{"hireWorktrees": "`+folder+`"}`)
+	if got := loadConfig().HireWorktrees; got != folder {
+		t.Fatalf("hireWorktrees loads as %q, want %q", got, folder)
+	}
+	d.engine.HeardFrom = func(Hire) bool { return true }
+	d.mu.Lock()
+	d.config.HireWorktrees = folder
+	d.mu.Unlock()
+	if status, message := d.Perform("hire", "", url.Values{"role": {"janitor"}}); status != http.StatusNoContent {
+		t.Fatalf("hire: %d %s", status, message)
+	}
+	d.watching.Wait()
+	got := registered(t)
+	if len(got) != 1 || got[0].Worktree == "" {
+		t.Fatalf("registry %+v", got)
+	}
+	hire := got[0]
+	if parent := physical(filepath.Join(folder, filepath.Base(r.repo))); filepath.Dir(hire.Worktree) != parent {
+		t.Fatalf("the worktree is %q, want it in %q", hire.Worktree, parent)
+	}
+	windowShows(r, pane(t, "idle-empty"), true)
+	d.mu.Lock()
+	d.engine.Tmux = r.o.Tmux
+	d.mu.Unlock()
+	if kept, err := d.fireTmuxHire(hire, false, false); err != nil || kept != "" {
+		t.Fatalf("fire: kept %q, err %v", kept, err)
+	}
+	if _, err := os.Stat(hire.Worktree); err == nil || branches(t, r.repo) != "" {
+		t.Error("the clean worktree in hireWorktrees, or its branch, was left")
+	}
+}

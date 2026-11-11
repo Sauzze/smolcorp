@@ -3,6 +3,8 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"unicode"
 )
 
 // On a Mac, this program can run as Smolcorp.app's engine (`smolcorp core`,
@@ -45,6 +47,10 @@ type bridgeRequest struct {
 	Terminal string `json:"terminal,omitempty"`
 	Folder   string `json:"folder,omitempty"`
 	Script   string `json:"script,omitempty"`
+	// window-look, window-close: a window the app opened for this engine, by the record its open answered;
+	// window-close: the tty it showed, as window-look said.
+	Window string `json:"window,omitempty"`
+	TTY    string `json:"tty,omitempty"`
 	// secret-*: one of the app's own items (see bridgeSecrets).
 	Item  string `json:"item,omitempty"`
 	Value string `json:"value,omitempty"`
@@ -86,6 +92,12 @@ type bridgeAnswer struct {
 	Window string `json:"window,omitempty"`
 	// terminals: which of Terminal, iTerm2 and Ghostty are installed (their ids).
 	Terminals []string `json:"terminals,omitempty"`
+	// window-look: "open" (showing TTY), "gone", or "unknown" (its terminal couldn't be asked).
+	Shown string `json:"shown,omitempty"`
+	TTY   string `json:"tty,omitempty"`
+	// window-close: closed, or left open and why, in a few words.
+	Closed bool   `json:"closed,omitempty"`
+	Left   string `json:"left,omitempty"`
 	// close: fired, gone or not-stopped, as the Mac's Terminal.Fired.
 	Fired string `json:"fired,omitempty"`
 	// secret-read: the value, and whether there is one.
@@ -217,6 +229,43 @@ func ask(h hostBridge, request bridgeRequest) (bridgeAnswer, error) {
 func hostOpenTerminal(h hostBridge, terminal, folder, script string) (tab, window string, err error) {
 	answer, err := ask(h, bridgeRequest{Action: "open", Terminal: terminal, Folder: folder, Script: script})
 	return answer.Tab, answer.Window, err
+}
+
+// hostLookWindow asks the Mac app about a window it opened for a hire, by its
+// record: "open" and the tty it shows, "gone", or "unknown" when its terminal
+// couldn't be asked (an app that said no is unknown too: nothing is closed).
+func hostLookWindow(h hostBridge, window string) (shown, tty string) {
+	answer, err := ask(h, bridgeRequest{Action: "window-look", Window: window})
+	if err != nil || (answer.Shown == "open" && !isTTYPath(answer.TTY)) {
+		return "unknown", ""
+	}
+	if answer.Shown != "open" && answer.Shown != "gone" {
+		return "unknown", ""
+	}
+	return answer.Shown, answer.TTY
+}
+
+// hostCloseWindow asks the Mac app to close a window it opened for a hire, once
+// nothing but its shell runs on tty: closed, or why it was left open.
+func hostCloseWindow(h hostBridge, window, tty string) (closed bool, left string) {
+	answer, err := ask(h, bridgeRequest{Action: "window-close", Window: window, TTY: tty})
+	switch {
+	case err != nil:
+		return false, "the terminal didn't close it"
+	case answer.Closed:
+		return true, ""
+	case answer.Left == "":
+		return false, "the terminal didn't close it"
+	}
+	return false, answer.Left
+}
+
+// isTTYPath is a terminal's device, as the Mac's TabAddress.isTTY reads one: /dev/tty and letters or digits.
+func isTTYPath(path string) bool {
+	name, ok := strings.CutPrefix(path, "/dev/tty")
+	return ok && name != "" && strings.IndexFunc(name, func(r rune) bool {
+		return r > unicode.MaxASCII || !(unicode.IsLetter(r) || unicode.IsDigit(r))
+	}) < 0
 }
 
 // hostTerminals are the terminals the Mac app can open a window of, by id.

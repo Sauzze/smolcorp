@@ -1289,7 +1289,10 @@
   let t3Snapshot = null; // the last snapshot, to show again with the key once it's allowed
   let t3For = null;    // the session the card is for
 
-  if (whole && !preview && !saver && !matchMedia('(pointer: coarse)').matches) {
+  // Asked only from the office's own window on this computer, which its address marks (?window on a Mac, &own
+  // elsewhere): a browser paired with its own key would only be refused (403), so it never asks.
+  const ownWindow = bare || new URLSearchParams(location.search).has('own');
+  if (ownWindow && whole && !preview && !saver && !matchMedia('(pointer: coarse)').matches) {
     get('/t3code').then((res) => {
       if (!res || !res.ok) return;
       t3Here = true;

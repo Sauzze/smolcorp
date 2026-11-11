@@ -84,7 +84,7 @@ func TestCentred(t *testing.T) {
 }
 
 func TestOfficeAddress(t *testing.T) {
-	if got := officeAddress("http://localhost:7710", "abc-_"); got != "http://localhost:7710/office?t=abc-_" {
+	if got := officeAddress("http://localhost:7710", "abc-_"); got != "http://localhost:7710/office?t=abc-_&own" {
 		t.Fatal(got)
 	}
 	if got := officeAddress("http://localhost:7710", ""); got != "http://localhost:7710/office" {
