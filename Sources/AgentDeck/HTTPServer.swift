@@ -345,11 +345,20 @@ private final class HTTPConnection {
 
 /// A connection kept open to push the deck's state as it changes.
 final class EventStream {
-    private let connection: NWConnection
+    private let connection: NWConnection?
+    /// Where a stream with no connection writes, for tests: each message as the phone would read it.
+    private let written: ((String) -> Void)?
     var onClose: () -> Void = {}
+
+    /// A stream with no connection, for tests: what would go to the phone goes to `written`.
+    init(written: @escaping (String) -> Void) {
+        connection = nil
+        self.written = written
+    }
 
     fileprivate init(_ connection: NWConnection) {
         self.connection = connection
+        written = nil
         write("HTTP/1.1 200 OK\r\n"
             + "Content-Type: text/event-stream\r\n"
             + "Cache-Control: no-store\r\n"
@@ -362,6 +371,7 @@ final class EventStream {
     /// background, would otherwise have every one kept for it in memory.
     func send(_ json: Data) {
         guard !sending else { return waiting = json }
+        guard let connection else { return written?("data: " + String(decoding: json, as: UTF8.self) + "\n\n") ?? () }
         sending = true
         connection.send(content: Data(("data: " + String(decoding: json, as: UTF8.self) + "\n\n").utf8),
                         completion: .contentProcessed { [weak self] _ in
@@ -383,19 +393,20 @@ final class EventStream {
 
     /// Hangs up. The phone's next attempt to reconnect is answered afresh.
     func close() {
-        connection.cancel()
+        connection?.cancel()
         onClose()
     }
 
     private func write(_ text: String) {
+        guard let connection else { return written?(text) ?? () }
         connection.send(content: Data(text.utf8), completion: .contentProcessed { _ in })
     }
 
     private func watchForClose() {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 1024) { [weak self] _, _, isComplete, error in
+        connection?.receive(minimumIncompleteLength: 1, maximumLength: 1024) { [weak self] _, _, isComplete, error in
             guard let self else { return }
             if isComplete || error != nil {
-                connection.cancel()
+                connection?.cancel()
                 onClose()
             } else {
                 watchForClose()

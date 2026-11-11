@@ -36,9 +36,13 @@ subsystem of its own. "–" where there is nothing to port.
 | `/setup/hiring` enabled, folder, agent | ✓ | ✓ | none | – |
 | `/setup/hiring` terminal, tmux | ✓ | ✓ | **done**, with this system's terminals | – |
 | `/setup/hiring/choose` (the system's folder picker) | ✓ | ✓ | **done** | – |
-| `/setup/briefs`, `/setup/briefs/<id>`, `/setup/briefs/preview`, `/setup/briefs/restore`, `/setup/hire/folders` | ✓ | ✓ | none; Go hires get the Mac's BRIEF files, byte for byte (`Tests/fixtures/briefs`), but for the differences under Briefs, below | – |
-| `GET /setup/guard`, `POST /setup/guard` | ✓ | ✓ | none: setup's switches and your own patterns are saved as the Mac saves them, and the guard refuses by them | – |
-| `POST /setup/hire` (setup's own hire sheet) | ✓ | – | not served: the state says `hiring.fromSetup: false`, and the page shows `smolcorp run --role` instead of the sheet | M |
+| `/setup/briefs`, `/setup/briefs/<id>`, `/setup/briefs/preview`, `/setup/briefs/restore`, `/setup/hire/folders` | ✓ | ✓ | none on the routes; Go hires get the Mac's BRIEF files, byte for byte (`Tests/fixtures/briefs`), but for the differences under Briefs, below. The setup state's `roles.limits` has no `answer`, `briefFile` or `briefFileName` yet (known gaps in the route contract). Checked by the route contract (`setup.json`), `GET /setup/briefs` on the app's own library on both | – |
+| `GET /setup/guard`, `POST /setup/guard` | ✓ | ✓ | none: setup's switches and your own patterns are saved as the Mac saves them, and the guard refuses by them. Checked by the route contract (`setup.json`) | – |
+| `POST /setup/hire` (setup's own hire sheet) | ✓ | – | not served: the state says `hiring.fromSetup: false` (a field the Mac doesn't send: a known gap in the route contract, gone with the route), and the page shows `smolcorp run --role` instead of the sheet | M |
+| `/setup/choices` (T3 Code on or off, agent windows), `/setup/hire/window`; the setup state's `choices` and `t3CodeEnabled` | ✓ | ✓ | none (`choices.go`). Checked by the route contract (`Tests/fixtures/contract/setup.json`) | – |
+| `/hire/window` (the office's Open a window on a hire's desk) | ✓ | – | not served: 404 (the office polls it every 30 s when hires run in the background: a console error on Linux/Windows until served); Setup's `/setup/hire/window` is. Owner: M4b (Linux/Windows by `openHireViewer`; the Mac via the bridge) | S |
+| `/t3code`, `/t3code/open`, `/setup/t3code`, `/setup/t3code/open` (Open in T3 Code) | ✓ | ✓ | none, but for `lane` (T3 Code's desk lane, below) in what's installed; all four answer 404 while T3 Code is off, as on the Mac | – |
+| `/setup/t3code/letgo`, and hiring into T3 Code (`engine: "t3"`, experimental) | ✓ | – | the Mac's alone for now: Go's letgo answers 409 to any hire | L |
 | `/setup/dictation` | ✓ | – | Mac only (Apple's speech recognition) | – |
 | `/setup/accessibility` | ✓ | – | not needed off the Mac | – |
 | `/setup/viewer*` (portable office) | ✓ | ✓ | **done** | – |
@@ -46,10 +50,10 @@ subsystem of its own. "–" where there is nothing to port.
 | `POST /setup/gm/manager` (the manager switch) | ✓ | ✓ | the page only; no GM caller exists here yet | – |
 | `POST /setup/gm/registry` | ✓ | ✓ | the page only, for the same reason | – |
 | `/setup/hire/gm` (Start here's Hire your General Manager) | ✓ | ✓ | the Go app hires the plain GM role (through the hire engine only on Linux when tmux is the chosen or only way and the agent is Claude, otherwise as before); the Mac's also gives it its token, rules and tools. It refuses (409) while a GM is working, as the Mac does: "A General Manager is already working. Fire it first, then hire another." Nothing is fired for it | L |
-| `POST /setup/gm/send`, `GET /setup/gm/outbox` (mail) | ✓ | ✓ | none on the routes (`mail_routes.go`); a hire's mail is typed into its tmux or launcher pane, a bot's goes to its mailbox folder | – |
-| `POST /setup/gm/contacts` | ✓ | ✓ | none (`frontdeskmail.go`) | – |
-| `GET /setup/gm/watches`, `POST /setup/gm/watch`, `POST`/`DELETE /setup/gm/unwatch` | ✓ | ✓ | none on the routes (`watchers.go`); a firing is a line in the event log, as on the Mac | – |
-| `POST /setup/gm/nickname` | ✓ | ✓ | none (`gmnickname.go`) | – |
+| `POST /setup/gm/send`, `GET /setup/gm/outbox` (mail) | ✓ | ✓ | none on the routes (`mail_routes.go`); a hire's mail is typed into its tmux or launcher pane, a bot's goes to its mailbox folder. Checked by the route contract (`Tests/fixtures/contract/gm.json`) | – |
+| `POST /setup/gm/contacts` | ✓ | ✓ | none (`frontdeskmail.go`). Checked by the route contract (`gm.json`) | – |
+| `GET /setup/gm/watches`, `POST /setup/gm/watch`, `POST`/`DELETE /setup/gm/unwatch` | ✓ | ✓ | none on the routes (`watchers.go`); a firing is a line in the event log, as on the Mac. Checked by the route contract (`gm.json`) | – |
+| `POST /setup/gm/nickname` | ✓ | ✓ | none (`gmnickname.go`). Checked by the route contract (`gm.json`) | – |
 | `GET /setup/gm/screens` | ✓ | – | not served: 404 | M |
 | `POST /setup/gm/hire`, `fire`, `brief`, `tile`, `screen` | ✓ | – | not served: 404; the team's work (worktrees, briefs, tiling) is the Mac's | XL |
 | `POST /setup/gm/token/rotate`, `POST /setup/gm/by-hand` | ✓ | – | no GM token here | – |
