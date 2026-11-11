@@ -603,6 +603,9 @@ final class DeckRouter: Router {
 
         // With the manager off, the GM's routes say so (the version and the switch itself stay open).
         if let refusal = ManagerSwitch.refusal(request.method, request.path, enabled: config.managerEnabled) { return respond(refusal) }
+        // A test copy puts no system prompt in front of the owner, moves no other app's windows, and leaves their music
+        // and microphone alone (RTCH N1, RWTC N2): those routes answer in a sentence before anything is done.
+        if let why = TestCopy.routeRefusal(request.method, request.path, query: request.query) { return respond(.status(409, why)) }
 
         switch (request.method, request.path) {
         case ("GET", "/setup"):
@@ -1220,7 +1223,8 @@ final class DeckRouter: Router {
             if let enabled = request.query["enabled"] { config.dictationEnabled = enabled == "1" && Dictation.isAvailable }
             config.save()
             deck.refresh()
-            guard config.dictationEnabled else { return respond(.json(setupState(caller))) }
+            // A test copy never asks for the microphone, even with dictation on in a settings file it was given (RWTC N2).
+            guard config.dictationEnabled, !TestCopy.isOn else { return respond(.json(setupState(caller))) }
             Dictation.askForMicrophone { [self] _ in
                 Dictation.prepare(config.dictationLanguage) { [self] problem in
                     DeckRouter.dictationProblem = problem
@@ -1343,8 +1347,6 @@ final class DeckRouter: Router {
 
         // Tiling: each hire's viewer window over its desk, or a read-only tmux grid where a terminal can't place windows.
         case ("POST", "/setup/gm/tile"):
-            // Tiling moves other apps' windows: a test copy never does (RTCH N1).
-            if let why = TestCopy.refusal(for: .tiler) { return respond(.status(409, why)) }
             let seats = Tiler.seats(fromTeam: deck.frontDesk.teamJSON(live: deck.frontDeskLive())["team"] as? [[String: Any]] ?? [])
             let screens = Tiler.screens()
             guard let screen = Tiler.teamScreen(among: screens, chosen: config.teamScreen) else { return respond(.status(409, "No screen was found to tile on.")) }
@@ -1527,8 +1529,6 @@ final class DeckRouter: Router {
             }
 
         case ("POST", "/setup/accessibility"):
-            // A test copy puts no system prompt or System Settings in front of the owner (RTCH N1).
-            if let why = TestCopy.refusal(for: .accessibility) { return respond(.status(409, why)) }
             Permissions.requestAccessibility()
             respond(.status(204))
 

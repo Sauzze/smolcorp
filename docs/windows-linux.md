@@ -95,7 +95,11 @@ within about 15 seconds, with no restart; if it stops, the address is let go.
   alone it still listens on this computer only and never writes your agents'
   settings, but its setup says "Not connected: Smolcorp is on port N". A test copy never
   brings another app forward: no terminal window or focus, no Accessibility or Settings
-  prompt, no T3 Code, no download page, no firewall change. Each says so in a sentence.
+  prompt, no T3 Code, no download page, no firewall change. It types nothing into a tab
+  that isn't one of its own hires' tmux panes (a launcher's included), plays no music,
+  leaves the volume and opening at login alone, and never installs itself. Each says so
+  in a sentence: "This is a test copy…", or with the port alone "Smolcorp on port N
+  never…". On Windows, which has no tmux, such a copy can't hire at all.
 
 ### One Smolcorp at a time
 

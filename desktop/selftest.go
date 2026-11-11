@@ -246,9 +246,10 @@ var errUnknownFix = errors.New("There's no fix by that name.")
 // where it couldn't. Without the lock.
 func (d *Deck) fix(name string) (int, string) {
 	// A test copy runs none that opens another app, a download page, System Settings or a system prompt (RTCH N1).
+	// Accessibility is the Mac's alone: elsewhere it's no fix at all, test copy or not (RWTC N5).
 	switch name {
 	case fixAccessibility:
-		if why := testCopyKeepsAway(testCopyKeepsAccessibility); why != "" {
+		if why := testCopyKeepsAway(testCopyKeepsAccessibility); why != "" && d.macHost() != nil {
 			return http.StatusConflict, why
 		}
 	case fixTailscale, fixFirewall, fixHomeWiFi:
@@ -268,6 +269,10 @@ func (d *Deck) fix(name string) (int, string) {
 		}
 		d.setHooksDisconnected(false)
 	case fixInstall:
+		// A test copy never installs itself over the Smolcorp in use (RWTC N3), as the Mac's.
+		if why := testCopyKeepsAway(testCopyKeepsInstall); why != "" {
+			return http.StatusConflict, why
+		}
 		if err := installNow(); err != nil {
 			return http.StatusConflict, err.Error()
 		}
@@ -292,6 +297,11 @@ func (d *Deck) fix(name string) (int, string) {
 	case fixTailscale:
 		openURL("https://tailscale.com/download")
 	case fixLogin:
+		// Opening at login is the Smolcorp in use's: a test copy's entry would start the copy in its place (RWTC N3).
+		// Under the Mac app the app says so itself (macFix).
+		if why := testCopyKeepsAway(testCopyKeepsLogin); why != "" {
+			return http.StatusConflict, why
+		}
 		setOpenAtLogin(true)
 	default:
 		return http.StatusBadRequest, errUnknownFix.Error()

@@ -1282,6 +1282,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	case r.Method == http.MethodPost && path == "/setup/music":
+		// A test copy leaves the owner's music and volume alone (RWTC N2): the jukebox is never turned on there.
+		if query.Get("enabled") == "1" && refusedInTestCopy(w, testCopyKeepsMusic) {
+			return
+		}
 		d.mu.Lock()
 		config.MusicEnabled = query.Get("enabled") == "1"
 		if !config.MusicEnabled {

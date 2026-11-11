@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,7 +31,8 @@ func macOtherApps(t *testing.T) []string {
 
 func TestATestCopysSentencesAreTheMacs(t *testing.T) {
 	said := macOtherApps(t)
-	for _, want := range []string{testCopyKeepsTerminal, testCopyKeepsWindows, testCopyKeepsGrok, testCopyKeepsT3Code, testCopyKeepsAccessibility, testCopyKeepsFixes} {
+	for _, want := range []string{testCopyKeepsTerminal, testCopyKeepsWindows, testCopyKeepsGrok, testCopyKeepsT3Code, testCopyKeepsAccessibility,
+		testCopyKeepsFixes, testCopyKeepsMusic, testCopyKeepsMicrophone} {
 		found := false
 		for _, mac := range said {
 			found = found || mac == want
@@ -39,26 +41,43 @@ func TestATestCopysSentencesAreTheMacs(t *testing.T) {
 			t.Errorf("the Mac says nothing like %q: %q", want, said)
 		}
 	}
-	if len(said) != 6 {
-		t.Errorf("the Mac has %d sentences, this has 6", len(said))
+	if len(said) != 8 {
+		t.Errorf("the Mac has %d sentences, this has 8", len(said))
 	}
 }
 
+// onMarkedPort makes this a marked test copy on port: SMOLCORP_TEST_SUPPORT_DIR beside it, as the Mac shell gives.
+func onMarkedPort(t *testing.T, port int) {
+	t.Helper()
+	onPort(t, port)
+	t.Setenv(testSupportVariable, t.TempDir())
+}
+
+// macTabDeck is a deck under the stand-in Mac app with desk s1, a Claude Code session in an iTerm2 tab.
+func macTabDeck(t *testing.T) (*Deck, *macStandIn) {
+	t.Helper()
+	mac := withMac(t)
+	d := newTestDeck(t)
+	d.mu.Lock()
+	d.sessions.Apply(map[string]any{"hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api"}, Claude, "iterm:AB12-CD34", "", 100)
+	d.mu.Unlock()
+	return d, mac
+}
+
+// The office's own brings the tab forward through the Mac app; a test copy asks it nothing (RTCH N1, RWTC N8).
 func TestATestCopyBringsNoTerminalForwardOnAnyComputer(t *testing.T) {
-	d, tab := madeButtonDeck(t)
-	go func() {
-		for range tab.commands {
-			t.Error("a tab was told something")
-		}
-	}()
-	// The office's own focuses it, as before.
+	d, mac := macTabDeck(t)
 	onDefaultPort(t)
-	if status, why := d.Focus("s1"); status == http.StatusConflict && why == testCopyKeepsTerminal {
-		t.Errorf("the office's own port refused: %d %q", status, why)
+	_, _ = d.Focus("s1")
+	if asked := mac.requests("focus"); len(asked) != 1 {
+		t.Errorf("the office's own tap asked the Mac %+v", asked)
 	}
-	onPort(t, 7799)
+	onMarkedPort(t, 7799)
 	if status, why := d.Focus("s1"); status != http.StatusConflict || why != testCopyKeepsTerminal {
 		t.Errorf("a test copy's tap: %d %q, want 409 and the sentence", status, why)
+	}
+	if asked := mac.requests("focus"); len(asked) != 1 {
+		t.Errorf("a test copy's tap asked the Mac: %+v", asked)
 	}
 	// A window of a hire's terminal, either entry.
 	if status, why := d.openHireWindow(Hire{ID: "h1", State: "working"}); status != http.StatusConflict || why != testCopyKeepsTerminal {
@@ -66,15 +85,78 @@ func TestATestCopyBringsNoTerminalForwardOnAnyComputer(t *testing.T) {
 	}
 }
 
-func TestATestCopyOpensNoGrokAppAndNoT3Code(t *testing.T) {
+// RWTC N1: every control, the phone's words and a peek, in a tab that isn't the copy's own: refused in a sentence,
+// on either engine, and nothing reaches the tab. The office's own goes through.
+func TestATestCopyDoesNothingInATabThatIsntItsOwn(t *testing.T) {
+	d, mac := macTabDeck(t)
+	d.mu.Lock()
+	d.config.ScrollEnabled, d.config.HiringEnabled, d.config.PhoneMicEnabled = true, true, true
+	d.mu.Unlock()
+	onMarkedPort(t, 7799)
+	query := url.Values{"lines": {"3"}, "level": {"high"}, "button": {"clear"}, "force": {"1"}, "phase": {"down"}}
+	for _, action := range []string{"accept", "send", "reject", "esc", "up", "down", "scroll", "mic", "fire", "clear", "button", "effort"} {
+		if status, why := d.Perform(action, "s1", query); status != http.StatusConflict || why != testCopyKeepsTerminal {
+			t.Errorf("%s on a test copy: %d %q", action, status, why)
+		}
+	}
+	if status, why := d.TypePhoneText("hello", "s1", nil); status != http.StatusConflict || why != testCopyKeepsTerminal {
+		t.Errorf("the phone's words on a test copy: %d %q", status, why)
+	}
+	if status, _, why := d.Peek("s1"); status != http.StatusConflict || why != testCopyKeepsTerminal {
+		t.Errorf("a peek on a test copy: %d %q", status, why)
+	}
+	for _, action := range []string{"press", "type", "scroll", "scroll-bottom", "close", "phone-text", "peek", "focus"} {
+		if asked := mac.requests(action); len(asked) != 0 {
+			t.Errorf("the Mac app was asked %s: %+v", action, asked)
+		}
+	}
+	// The office's own presses it.
+	onDefaultPort(t)
+	_, _ = d.Perform("accept", "s1", url.Values{})
+	if asked := mac.requests("press"); len(asked) != 1 {
+		t.Errorf("the office's own accept asked the Mac %+v", asked)
+	}
+}
+
+// A launcher (Linux, Windows) is the owner's terminal window too: a test copy tells it nothing.
+func TestATestCopyTellsALauncherNothing(t *testing.T) {
+	d, tab := madeButtonDeck(t)
+	onMarkedPort(t, 7799)
+	for _, action := range []string{"accept", "clear", "esc"} {
+		if status, why := d.Perform(action, "s1", url.Values{}); status != http.StatusConflict || why != testCopyKeepsTerminal {
+			t.Errorf("%s: %d %q", action, status, why)
+		}
+	}
+	select {
+	case command := <-tab.commands:
+		t.Errorf("the launcher was told %+v", command)
+	default:
+	}
+}
+
+// A tap on a Grok Bot app desk opens nothing on a test copy, but its news is seen (RWTC N9).
+func TestATestCopyOpensNoGrokAppButSeesItsNews(t *testing.T) {
 	mac := withMac(t)
 	d := newTestDeck(t)
 	bot := standardCloudBotNamed("mini", "Mini")
 	bot.Source = CloudSource{Kind: "grokBotApp", Bot: "Mini"}
 	withCloudBots(d, bot)
-	onPort(t, 7799)
+	reported(d, "mini", &CloudAction{Text: "Sent a report", Count: 1})
+	unread := func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		s := d.cloud.sessions[bot.sessionID()]
+		return s != nil && s.State == Unread
+	}
+	if !unread() {
+		t.Fatal("the report isn't news")
+	}
+	onMarkedPort(t, 7799)
 	if status, why := d.Focus("cloud-mini"); status != http.StatusConflict || why != testCopyKeepsGrok {
 		t.Errorf("a Grok Bot app desk's tap on a test copy: %d %q", status, why)
+	}
+	if unread() {
+		t.Error("its news wasn't seen")
 	}
 	// A bot with no app behind it has nothing to open: seen, as ever.
 	plain := standardCloudBotNamed("plain", "Plain")
@@ -82,25 +164,53 @@ func TestATestCopyOpensNoGrokAppAndNoT3Code(t *testing.T) {
 	if status, _ := d.Focus("cloud-plain"); status != http.StatusNoContent {
 		t.Errorf("a bot of the event route alone: %d", status)
 	}
-	// T3 Code, any way it's asked: the open by the desk's tap, by the route, by the Take over's own open.
-	for _, name := range []string{"focus", "open"} {
-		status, answer := t3OpenOnce(Hire{ID: "h-" + name}, t3Machine{})
-		why, _ := answer.(string)
-		if status != http.StatusConflict || why != testCopyKeepsT3Code {
-			t.Errorf("T3 Code on a test copy (%s): %d %v", name, status, answer)
-		}
+	if asked := mac.requests("open"); len(asked) != 0 {
+		t.Errorf("the Mac app was asked to open: %+v", asked)
 	}
-	for _, action := range []string{"t3-open-app", "t3-link", "open", "focus"} {
-		if asked := mac.requests(action); len(asked) != 0 {
-			t.Errorf("the Mac app was asked %s: %+v", action, asked)
-		}
+}
+
+// A tap on a T3 desk opens nothing on a test copy, but its done is seen (RWTC N8, N9); the Take over's own open
+// says the same.
+func TestATestCopyOpensNoT3CodeButSeesItsDone(t *testing.T) {
+	r, d, h := t3DeskRig(t)
+	desk := t3DeskID(h.ID)
+	d.mu.Lock()
+	d.config.T3CodeEnabled = true
+	d.mu.Unlock()
+	// Done, as T3 Code said it last: green till seen.
+	d.t3.Lock()
+	d.t3.seen[h.ID] = t3Glance{Status: "done"}
+	d.t3.Unlock()
+	d.mu.Lock()
+	_, _ = d.t3HireAtDesk(desk)
+	state := d.t3Desks.byHire[h.ID]
+	d.mu.Unlock()
+	if state == nil || state.State != Unread {
+		t.Fatalf("the desk before the tap: %+v", state)
+	}
+	onMarkedPort(t, 7799)
+	if status, why := d.Focus(desk); status != http.StatusConflict || why != testCopyKeepsT3Code || len(r.opened) != 0 {
+		t.Errorf("a T3 desk's tap on a test copy: %d %q, opened %v", status, why, r.opened)
+	}
+	d.mu.Lock()
+	seen := d.t3Desks.seenDone[h.ID]
+	d.mu.Unlock()
+	if !seen {
+		t.Error("its done wasn't seen")
+	}
+	status, answer := t3OpenOnce(h, t3Machine{})
+	if why, _ := answer.(string); status != http.StatusConflict || why != testCopyKeepsT3Code {
+		t.Errorf("T3 Code's own open on a test copy: %d %v", status, answer)
+	}
+	if len(r.opened) != 0 {
+		t.Errorf("opened %v", r.opened)
 	}
 }
 
 func TestATestCopyAsksMacOSForNothingAndRunsNoFixThatOpensAnApp(t *testing.T) {
 	mac := withMac(t)
 	d := newTestDeck(t)
-	onPort(t, 7799)
+	onMarkedPort(t, 7799)
 	for fix, want := range map[string]string{fixAccessibility: testCopyKeepsAccessibility, fixTailscale: testCopyKeepsFixes,
 		fixFirewall: testCopyKeepsFixes, fixHomeWiFi: testCopyKeepsFixes} {
 		if status, why := d.fix(fix); status != http.StatusConflict || why != want {
@@ -133,7 +243,7 @@ func TestATestCopyOpensNoTerminalWindowForAHire(t *testing.T) {
 		t.Fatalf("the office's own window: %v, opened %v", err, opened)
 	}
 	opened = false
-	onPort(t, 7799)
+	onMarkedPort(t, 7799)
 	if _, err := showWindow(terminal, t.TempDir(), []string{"true"}); err == nil || err.Error() != testCopyKeepsTerminal || opened {
 		t.Errorf("a test copy's window: %v, opened %v", err, opened)
 	}
@@ -264,22 +374,31 @@ func TestAMacShortTimeIsWrittenAsTheMacsPatternSaysIt(t *testing.T) {
 	}
 }
 
-func TestADeliveryIsTimedAsTheMacsFactsSayIt(t *testing.T) {
+// RWTC N7: a delivery's time asks the Mac only how it writes a time, never the whole facts.
+func TestADeliveryIsTimedAsTheMacSaysIt(t *testing.T) {
 	mac := withMac(t)
 	d := newTestDeck(t)
 	saved := macTimePrefs
 	t.Cleanup(func() { macTimePrefs = saved })
 	macTimePrefs = func() macTimeSettings { return macTimeSettings{force24: "1"} }
 	at := time.Date(2026, 11, 11, 20, 41, 0, 0, time.Local)
-	// The facts' pattern beats the Region settings' reading.
-	mac.set(func(m *macStandIn) { m.facts.TimeFormat = macTimeFormat{"h:mm a", "am", "pm"} })
+	// The Mac's pattern beats the Region settings' reading.
+	mac.set(func(m *macStandIn) { m.timeFormat = macTimeFormat{"h:mm a", "am", "pm"} })
+	before := len(mac.requests("facts"))
 	if got := d.deliveryClock(at); got != "8:41 pm" {
 		t.Errorf("with the Mac's pattern: %q", got)
 	}
-	// No pattern (an older app): the Region settings, as before.
-	mac.set(func(m *macStandIn) { m.facts.TimeFormat = macTimeFormat{} })
+	if asked := mac.requests("facts"); len(asked) != before {
+		t.Errorf("the facts were asked for a delivery's time: %+v", asked[before:])
+	}
+	// No pattern: the Region settings, as before; and so for an app that doesn't know the action.
+	mac.set(func(m *macStandIn) { m.timeFormat = macTimeFormat{} })
 	if got := d.deliveryClock(at); got != "20:41" {
 		t.Errorf("with no pattern: %q", got)
+	}
+	mac.refusing(map[string]string{"time-format": "This Mac app can't do time-format for the engine yet."})
+	if got := d.deliveryClock(at); got != "20:41" {
+		t.Errorf("from an older app: %q", got)
 	}
 }
 
@@ -310,5 +429,140 @@ func TestTheMacsWordsReachTheRemainingSentences(t *testing.T) {
 	host = &fakeHost{}
 	if got := hireFolderRefusal(library, home); !strings.Contains(got, "your Mac's or") {
 		t.Errorf("under the Mac app: %q", got)
+	}
+}
+
+// copyCall is a setup page's POST on the test copy's own port, from this computer.
+func copyCall(t *testing.T, d *Deck, target string) (int, string) {
+	t.Helper()
+	w := serve(t, d, call{method: "POST", target: target, host: "localhost:7799", from: thisComputer, headers: map[string]string{setupHeader: "1"}})
+	return w.Code, strings.TrimSpace(w.Body.String())
+}
+
+// RWTC N2: a test copy's jukebox plays nothing and leaves the volume, and its dictation never asks for the microphone.
+func TestATestCopyLeavesTheMusicAndTheMicrophoneAlone(t *testing.T) {
+	mac := withMac(t)
+	d := newTestDeck(t)
+	d.mu.Lock()
+	d.config.MusicEnabled = true // as in a settings file it was given
+	d.config.DictationEnabled = true
+	d.mu.Unlock()
+	pressed := false
+	savedPress, savedSet := pressMusicKey, setMusicVolume
+	t.Cleanup(func() { pressMusicKey, setMusicVolume = savedPress, savedSet })
+	pressMusicKey = func(string) error { pressed = true; return nil }
+	setMusicVolume = func(int) error { pressed = true; return nil }
+	onMarkedPort(t, 7799)
+	for _, query := range []url.Values{{"do": {"playpause"}}, {"do": {"next"}}, {"do": {"volume"}, "level": {"30"}}} {
+		if status, why := d.Perform("music", "", query); status != http.StatusConflict || why != testCopyKeepsMusic {
+			t.Errorf("the jukebox %v on a test copy: %d %q", query, status, why)
+		}
+	}
+	d.followMusic()
+	if code, text := copyCall(t, d, "/setup/music?enabled=1"); code != http.StatusConflict || text != testCopyKeepsMusic {
+		t.Errorf("the jukebox turned on: %d %q", code, text)
+	}
+	if code, _ := copyCall(t, d, "/setup/music?enabled=0"); code != http.StatusOK {
+		t.Errorf("the jukebox turned off: %d", code)
+	}
+	if code, text := copyCall(t, d, "/setup/dictation?enabled=1"); code != http.StatusConflict || text != testCopyKeepsMicrophone {
+		t.Errorf("dictation turned on: %d %q", code, text)
+	}
+	// Dictation already on: its language changes, and the microphone still isn't asked for.
+	if code, _ := copyCall(t, d, "/setup/dictation?claude=1"); code != http.StatusOK {
+		t.Errorf("dictation's Claude switch: %d", code)
+	}
+	if pressed {
+		t.Error("a jukebox key or the volume reached the computer")
+	}
+	for _, action := range []string{"music", "volume", "music-state", "dictation"} {
+		if asked := mac.requests(action); len(asked) != 0 {
+			t.Errorf("the Mac app was asked %s: %+v", action, asked)
+		}
+	}
+	// The office's own plays it.
+	onDefaultPort(t)
+	d.mu.Lock()
+	d.config.MusicEnabled = true
+	d.mu.Unlock()
+	if status, why := d.Perform("music", "", url.Values{"do": {"playpause"}}); status != http.StatusNoContent || !pressed {
+		t.Errorf("the office's own jukebox: %d %q", status, why)
+	}
+}
+
+// RWTC N3: on Linux and Windows a test copy's self-test never sets opening at login or installs itself; under the
+// Mac app the login item is the app's to refuse, as before.
+func TestATestCopyLeavesLoginAndInstallToTheSmolcorpInUse(t *testing.T) {
+	saved := host
+	t.Cleanup(func() { host = saved })
+	host = nil
+	d := newTestDeck(t)
+	onMarkedPort(t, 7799)
+	for fix, want := range map[string]string{fixLogin: testCopyKeepsLogin, fixInstall: testCopyKeepsInstall} {
+		if status, why := d.fix(fix); status != http.StatusConflict || why != want {
+			t.Errorf("fix %s on a test copy: %d %q", fix, status, why)
+		}
+	}
+	// Under the Mac app the login item is asked of the app, which keeps it for the Smolcorp in use (SelfTest.testCopyLogin).
+	mac := withMac(t)
+	d = newTestDeck(t)
+	if status, _ := d.fix(fixLogin); status != http.StatusNoContent || len(mac.requests("login-item")) != 1 {
+		t.Errorf("under the Mac app: %d, asked %+v", status, mac.requests("login-item"))
+	}
+}
+
+// RWTC N4: a copy only on another port (not marked a test copy) refuses the same things, in words that don't call it one.
+func TestAPortOnlyCopySaysItsPortNotTestCopy(t *testing.T) {
+	saved := host
+	t.Cleanup(func() { host = saved })
+	host = nil
+	d := newTestDeck(t)
+	onPort(t, 7799)
+	t.Setenv(testSupportVariable, "")
+	for why, want := range map[string]string{
+		testCopyKeepsTerminal: "Smolcorp on port 7799 never brings a terminal app forward, opens a window in one or touches its tabs: only the one on port 7710 does that.",
+		testCopyKeepsFixes:    "Smolcorp on port 7799 never opens another app, a download page or this computer's settings to fix something: only the one on port 7710 does that.",
+		testCopyKeepsLogin:    "Smolcorp on port 7799 leaves opening at login to the one on port 7710.",
+		testCopyKeepsInstall:  "Smolcorp on port 7799 stays where it was built: only the one on port 7710 installs itself.",
+	} {
+		if got := testCopyKeepsAway(why); got != want {
+			t.Errorf("%q: %q", why, got)
+		}
+	}
+	if status, why := d.fix(fixLogin); status != http.StatusConflict || strings.Contains(why, "test copy") || !strings.Contains(why, "port 7799") {
+		t.Errorf("a port-only copy's login fix: %d %q", status, why)
+	}
+	if _, err := showWindow(hireOpener{id: "terminal", open: func(string, []string) (string, error) { return "", nil }}, t.TempDir(), []string{"true"}); err == nil ||
+		strings.Contains(err.Error(), "test copy") {
+		t.Errorf("a port-only copy's hire window: %v", err)
+	}
+	// Marked, it says it's a test copy, as the Mac does.
+	t.Setenv(testSupportVariable, t.TempDir())
+	if got := testCopyKeepsAway(testCopyKeepsTerminal); got != testCopyKeepsTerminal {
+		t.Errorf("a marked test copy: %q", got)
+	}
+}
+
+// RWTC N5: off the Mac a test copy's fixes speak of this computer, and Accessibility is no fix at all, as for the
+// office's own; under the Mac app the Mac's words, word for word.
+func TestATestCopysFixesOffTheMacSpeakOfThisComputer(t *testing.T) {
+	saved := host
+	t.Cleanup(func() { host = saved })
+	host = nil
+	d := newTestDeck(t)
+	onMarkedPort(t, 7799)
+	for _, fix := range []string{fixFirewall, fixHomeWiFi, fixTailscale} {
+		status, why := d.fix(fix)
+		if status != http.StatusConflict || strings.Contains(why, "System Settings") || !strings.Contains(why, "this computer's settings") {
+			t.Errorf("fix %s off the Mac: %d %q", fix, status, why)
+		}
+	}
+	if status, why := d.fix(fixAccessibility); status != http.StatusBadRequest || why != errUnknownFix.Error() {
+		t.Errorf("Accessibility off the Mac: %d %q", status, why)
+	}
+	withMac(t)
+	d = newTestDeck(t)
+	if status, why := d.fix(fixFirewall); status != http.StatusConflict || why != testCopyKeepsFixes {
+		t.Errorf("under the Mac app: %d %q", status, why)
 	}
 }

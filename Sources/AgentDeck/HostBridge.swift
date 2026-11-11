@@ -336,10 +336,13 @@ final class HostBridge {
         case "hello":
             return ["ok": true]
         case "press", "type", "insert", "focus", "scroll", "scroll-bottom", "close":
-            // Bringing a terminal forward is the one tab action a test copy refuses (RTCH N1).
+            // A test copy brings no terminal forward (RTCH N1), its own hires' panes included, and does nothing at all in
+            // a tab that isn't one of those panes (RWTC N1), as the Swift engine's deck.
             if action == "focus", let why = TestCopy.refusal(for: .terminal, testCopy: actions.testCopy) { return refused(why) }
+            if let why = TestCopy.refusal(forTab: request["tab"] as? String ?? "", testCopy: actions.testCopy) { return refused(why) }
             return tabAction(action, request, actions, until: deadline)
         case "phone-text", "peek":
+            if let why = TestCopy.refusal(forTab: request["tab"] as? String ?? "", testCopy: actions.testCopy) { return refused(why) }
             return phoneAction(action, request, actions, until: deadline, deskState: deskState)
         case "open":
             if let why = TestCopy.refusal(for: .terminal, testCopy: actions.testCopy) { return refused(why) }
@@ -365,6 +368,8 @@ final class HostBridge {
             return shell(action, request, actions, until: deadline)
         case "facts", "dock", "accessibility", "keystrokes-on", "keystroke-apps", "glossary", "dictation", "terminal-command":
             if action == "accessibility", let why = TestCopy.refusal(for: .accessibility, testCopy: actions.testCopy) { return refused(why) }
+            // Getting dictation ready asks for the microphone: a system prompt a test copy never raises (RWTC N2).
+            if action == "dictation", let why = TestCopy.refusal(for: .microphone, testCopy: actions.testCopy) { return refused(why) }
             return setup(action, request, actions, until: deadline)
         case "abilities":
             guard let tabs = strings(request["tabs"], most: tabsMost) else { return refused("Not a list of tabs.") }
@@ -386,7 +391,12 @@ final class HostBridge {
             let rows = actions.roster().map { $0.map { ["id": $0.id, "name": $0.name, "isGroup": $0.isGroup] as [String: Any] } }
             return ["ok": true, "rows": rows ?? NSNull()]
         case "music", "music-state", "volume":
+            // The owner's music and volume, and Music or Spotify asked over Apple Events: never from a test copy (RWTC N2).
+            if let why = TestCopy.refusal(for: .music, testCopy: actions.testCopy) { return refused(why) }
             return music(action, request, actions, until: deadline)
+        case "time-format":
+            // How this Mac writes a short time, alone: a webhook delivery's time asks it, not the whole facts (RWTC N7).
+            return ["ok": true, "timeFormat": actions.timeFormat()]
         default:
             // Notifications and the office's mic dictating aren't asked of the app yet.
             return refused("This Mac app can't do \(action) for the engine yet.")
@@ -1115,6 +1125,8 @@ final class HostBridge {
         var pressMusic: (String) -> Void = { _ in }
         var musicState: () -> (playing: Bool?, volume: (level: Int, muted: Bool)?) = { (nil, nil) }
         var setVolume: (Int) -> Void = { _ in }
+        /// How this Mac writes a short time (`shortTimeFormat`).
+        var timeFormat: () -> [String: String] = { HostBridge.shortTimeFormat() }
 
         /// The Swift engine's own: the terminal drivers on their terminals' queues, one at a time
         /// as the deck runs them, the openers, the secrets' stores (files in a test copy), the login item.
@@ -1172,7 +1184,6 @@ final class HostBridge {
                         ] as [String: Any],
                         "running": Keystrokes.runningApps(except: apps),
                         "terminalCommand": TerminalCommand.json(),
-                        "timeFormat": HostBridge.shortTimeFormat(),
                     ]
                 },
                 dock: { Dock.show($0) },

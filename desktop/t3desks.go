@@ -369,6 +369,10 @@ func (d *Deck) focusT3(id string) (int, string, bool) {
 	d.changed()
 	on := t3CodeAllowed(d.config)
 	d.mu.Unlock()
+	// Its done is seen; a test copy only leaves T3 Code closed (RTCH N1, RWTC N9).
+	if why := testCopyKeepsAway(testCopyKeepsT3Code); why != "" {
+		return http.StatusConflict, why, true
+	}
 	if !on {
 		return http.StatusConflict, t3Off, true
 	}

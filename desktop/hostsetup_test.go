@@ -33,6 +33,8 @@ type macStandIn struct {
 	roster   *[]grokRow
 	keyboard bool
 	volume   int
+	// How the Mac writes a short time (time-format).
+	timeFormat macTimeFormat
 }
 
 func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
@@ -105,6 +107,9 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 	case "music-state":
 		playing := true
 		return bridgeAnswer{OK: true, Playing: &playing, Volume: &bridgeVolume{Level: m.volume}}, nil
+	case "time-format":
+		format := m.timeFormat
+		return bridgeAnswer{OK: true, TimeFormat: &format}, nil
 	}
 	return bridgeAnswer{Error: "This terminal can't do that.", Unsupported: true}, nil
 }
@@ -303,8 +308,9 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			playing, volume, err := hostMusicState(h)
 			return []any{*playing, *volume}, err
 		},
-		"the jukebox's play key, without Accessibility": func(h hostBridge) (any, error) { return nil, hostMusicKey(h, "playpause") },
-		"the jukebox's volume set":                      func(h hostBridge) (any, error) { return nil, hostSetVolume(h, 30) },
+		"the jukebox's play key, without Accessibility":             func(h hostBridge) (any, error) { return nil, hostMusicKey(h, "playpause") },
+		"the jukebox's volume set":                                  func(h hostBridge) (any, error) { return nil, hostSetVolume(h, 30) },
+		"how the Mac writes a short time, for a webhook delivery's": func(h hostBridge) (any, error) { return hostTimeFormat(h) },
 	}
 	// What the core makes of each answer.
 	got := map[string]any{
@@ -342,7 +348,8 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"T3 Code's app looked for by its bundle id":    true,
 		"the Grok Bot app's bots, for the core to find": []any{[]grokRow{{ID: "0a1b-2c3d", Name: "Smolcorp Mini Manager"},
 			{ID: "9f8e", Name: "Two bots", IsGroup: true}}, true},
-		"the jukebox: what's playing and the volume": []any{true, musicVolume{level: 45}},
+		"the jukebox: what's playing and the volume":                []any{true, musicVolume{level: 45}},
+		"how the Mac writes a short time, for a webhook delivery's": macTimeFormat{"h:mm a", "AM", "PM"},
 	}
 	cases := readBridgeCases(t)
 	if len(cases) != len(want) {

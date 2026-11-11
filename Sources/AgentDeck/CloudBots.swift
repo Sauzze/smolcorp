@@ -815,11 +815,12 @@ final class CloudDesks {
     /// Whether the desk is a bot of the Grok Bot app, whose tap opens that app.
     func isGrokApp(session id: String) -> Bool { bot(ofSession: id)?.source.kind == "grokBotApp" }
 
-    /// The desk was tapped: its news is seen, and the app it works in comes forward.
-    func tapped(session id: String) -> Bool {
+    /// The desk was tapped: its news is seen, and the app it works in comes forward, unless `opening` is false (a
+    /// test copy's tap, RWTC N9).
+    func tapped(session id: String, opening: Bool = true) -> Bool {
         guard let bot = bot(ofSession: id) else { return false }
         apply(.seen, to: bot.id)
-        if bot.source.kind == "grokBotApp", let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anysphere.sand") {
+        if opening, bot.source.kind == "grokBotApp", let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anysphere.sand") {
             NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
         }
         return true

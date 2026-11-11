@@ -66,18 +66,21 @@ enum TestCopy {
 
     /// What a test copy never does to another app (RTCH N1): a route or a bridge action that would bring
     /// a terminal app, T3 Code, the Grok app, System Settings or a system prompt in front of the owner's
-    /// work answers with the sentence below instead. The real app: nothing is refused.
-    enum OtherApp {
-        case terminal, tiler, grok, t3Code, accessibility, fix
+    /// work, or touch the owner's music or microphone (RWTC N2), answers with the sentence below instead.
+    /// The real app: nothing is refused.
+    enum OtherApp: CaseIterable {
+        case terminal, tiler, grok, t3Code, accessibility, fix, music, microphone
 
         var sentence: String {
             switch self {
-            case .terminal: return "This is a test copy of Smolcorp: it never brings a terminal app forward or opens a window in one."
+            case .terminal: return "This is a test copy of Smolcorp: it never brings a terminal app forward, opens a window in one or touches its tabs."
             case .tiler: return "This is a test copy of Smolcorp: it never moves or tiles the windows of other apps."
             case .grok: return "This is a test copy of Smolcorp: it never opens the Grok app."
             case .t3Code: return "This is a test copy of Smolcorp: it never opens T3 Code."
             case .accessibility: return "This is a test copy of Smolcorp: it never asks macOS for Accessibility or opens System Settings."
             case .fix: return "This is a test copy of Smolcorp: it never opens another app, a download page or System Settings to fix something."
+            case .music: return "This is a test copy of Smolcorp: it never plays or skips your music, or changes the volume."
+            case .microphone: return "This is a test copy of Smolcorp: it never asks for the microphone or turns dictation on."
             }
         }
     }
@@ -85,6 +88,30 @@ enum TestCopy {
     /// The sentence a test copy answers when asked to bring `app` forward, or nil for the real app.
     static func refusal(for app: OtherApp, testCopy: Bool = isOn) -> String? {
         testCopy ? app.sentence : nil
+    }
+
+    /// The sentence a test copy answers when asked to do anything in `tab` (RWTC N1): keys, text, a paste, a
+    /// scroll, a look at its screen, a close. Only a tmux pane on one of the copy's own hire sockets is its own;
+    /// any other tab is in one of the owner's terminal apps, or on a tmux server of theirs. Nil for the real app.
+    static func refusal(forTab tab: String, testCopy: Bool = isOn, testPort: UInt16? = port) -> String? {
+        guard testCopy else { return nil }
+        if let address = TabAddress(tab), address.kind == "tmux", !address.socket.isEmpty,
+           HireTmux.owns(address.socket, testPort: testPort) { return nil }
+        return OtherApp.terminal.sentence
+    }
+
+    /// The setup routes a test copy answers with a sentence before doing anything (RTCH N1, RWTC N2): the
+    /// Accessibility prompt, tiling other apps' windows, the jukebox turned on (the owner's music and volume)
+    /// and dictation turned on (the microphone's prompt). Turning the last two off is as ever. Nil for the real app.
+    static func routeRefusal(_ method: String, _ path: String, query: [String: String], testCopy: Bool = isOn) -> String? {
+        guard testCopy, method == "POST" else { return nil }
+        switch path {
+        case "/setup/accessibility": return OtherApp.accessibility.sentence
+        case "/setup/gm/tile": return OtherApp.tiler.sentence
+        case "/setup/music" where query["enabled"] == "1": return OtherApp.music.sentence
+        case "/setup/dictation" where query["enabled"] == "1": return OtherApp.microphone.sentence
+        default: return nil
+        }
     }
 
     /// A test copy, as it opens, writes a setup link to `setup-link` in its own folder (0600), so a

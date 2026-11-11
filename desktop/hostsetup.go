@@ -301,6 +301,10 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 	// Dictation: turned on, its language, and whether Claude Code uses it. Turning it on asks for the
 	// microphone, on the Mac, and gets the language's model ready.
 	case path == "/setup/dictation":
+		// Turning it on asks for the microphone, a system prompt a test copy never raises (RWTC N2).
+		if query.Get("enabled") == "1" && refusedInTestCopy(w, testCopyKeepsMicrophone) {
+			return true
+		}
 		facts, err := hostFacts(h, nil)
 		if err != nil {
 			bridgeFailed(w, err)
@@ -329,7 +333,8 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 		d.changed()
 		enabled, ready := d.config.DictationEnabled, d.dictationLanguage()
 		d.mu.Unlock()
-		if enabled {
+		// Nor with dictation on in a settings file it was given.
+		if enabled && testCopyPort() == 0 {
 			problem, err := hostPrepareDictation(h, ready)
 			if err != nil {
 				problem = "The Mac app didn't get dictation ready: " + err.Error()

@@ -142,6 +142,8 @@ type bridgeAnswer struct {
 	Folder string `json:"folder,omitempty"`
 	// facts: what only the Mac can say, for setup.
 	Facts *macFacts `json:"facts,omitempty"`
+	// time-format: how this Mac writes a short time (macclock.go).
+	TimeFormat *macTimeFormat `json:"timeFormat,omitempty"`
 	// keystroke-apps: the list, with the app on it or off it; glossary: the names, checked.
 	Apps  []string `json:"apps,omitempty"`
 	Names []string `json:"names,omitempty"`
@@ -196,8 +198,6 @@ type macFacts struct {
 	Terminal  terminalCmd  `json:"terminalCommand"`
 	// The office's keys held now and the layout in use (officekey.go).
 	OfficeKey *macOfficeKey `json:"officeKey,omitempty"`
-	// How this Mac writes a short time (macclock.go).
-	TimeFormat macTimeFormat `json:"timeFormat"`
 }
 
 // macDictation is Apple's speech recognition on this Mac: whether it can
@@ -434,6 +434,19 @@ func hostFacts(h hostBridge, apps []string) (macFacts, error) {
 		return macFacts{}, err
 	}
 	return *answer.Facts, nil
+}
+
+// hostTimeFormat is how this Mac writes a short time, asked alone (RWTC N7): a webhook delivery's time needs only
+// that, not the whole facts (running apps, dictation, the terminal command) on the Mac's main queue.
+func hostTimeFormat(h hostBridge) (macTimeFormat, error) {
+	answer, err := ask(h, bridgeRequest{Action: "time-format"})
+	if err == nil && answer.TimeFormat == nil {
+		err = errors.New("the Mac app said nothing of how it writes a time")
+	}
+	if err != nil {
+		return macTimeFormat{}, err
+	}
+	return *answer.TimeFormat, nil
 }
 
 // hostDock shows Smolcorp in the Dock and ⌘-Tab, or in the menu bar only, at once.

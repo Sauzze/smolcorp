@@ -18,10 +18,10 @@ func (d *Deck) deliveryClock(t time.Time) string {
 	if h == nil {
 		return t.Format("15:04")
 	}
-	// The Mac's own pattern, asked of the app (its facts), so it's exact; the Region settings' reading below only
-	// where the app doesn't say or the pattern has a part this doesn't know.
-	if facts, err := hostFacts(h, nil); err == nil {
-		if text, ok := facts.TimeFormat.format(t); ok {
+	// The Mac's own pattern, asked of the app, so it's exact; the Region settings' reading below only where the app
+	// doesn't say or the pattern has a part this doesn't know.
+	if format, err := hostTimeFormat(h); err == nil {
+		if text, ok := format.format(t); ok {
 			return text
 		}
 	}
@@ -29,7 +29,7 @@ func (d *Deck) deliveryClock(t time.Time) string {
 }
 
 // macTimeFormat is how the Mac writes a short time: DateFormatter's .short time style as an ICU pattern ("h:mm a",
-// "HH:mm"), and its words for AM and PM (HostBridge.shortTimeFormat).
+// "HH:mm"), and its words for AM and PM (HostBridge.shortTimeFormat, the bridge's time-format).
 type macTimeFormat struct {
 	Pattern string `json:"pattern"`
 	AM      string `json:"am"`
