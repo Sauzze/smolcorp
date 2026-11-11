@@ -173,7 +173,7 @@ struct Tmux: TerminalDriver {
             let config = Config.shared
             let terminal = Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal"
             let folder = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_current_path}"]).flatMap { $0.status == 0 ? $0.output : nil }
-            _ = Openers.reattach(socket: tab.socket, in: folder ?? NSHomeDirectory(), terminal: terminal)
+            Openers.reattach(socket: tab.socket, in: folder ?? NSHomeDirectory(), terminal: terminal)
         }
         return true
     }
@@ -666,32 +666,48 @@ enum Openers {
         return NSWorkspace.shared.urlForApplication(withBundleIdentifier: choice.bundle) != nil
     }
 
+    /// A hire as it opened: its tab as the deck will know it, and the window
+    /// Smolcorp opened for it, by the id its terminal gave (nil for none, as a
+    /// hire in the background).
+    struct Opened: Equatable {
+        let tab: String
+        let window: String?
+    }
+
     /// Opens the hire's window and gives its tab as the deck will know it,
     /// or nil if it didn't open. A Ghostty terminal's tab is given as
     /// ghostty-id:<terminal>, its tty being known only once its session
-    /// reports. Off the main thread.
-    static func open(_ command: String, in folder: String, terminal: String, inTmux: Bool, hireID: String) -> String? {
-        guard inTmux, let tmux = Tmux.path, let desk = HireTmux(hireID: hireID) else { return window(command, in: folder, terminal: terminal) }
-        // The agent's own tmux server and session, through your login shell, so
-        // it finds what your PATH finds; then a window showing it.
-        let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
-        guard let made = desk.start(in: folder, shell: shell, running: command),
-              let attach = script(desk.attachLine(tmuxPath: tmux)),
-              window(attach, in: folder, terminal: terminal) != nil else {
-            // Not hired: its server goes, and nothing else's.
-            if desk.isAlive() == true { _ = desk.kill() }
-            return nil
+    /// reports. In tmux without `window` (agent windows in the background),
+    /// no window opens: "Open a window" on its desk shows one. Off the main thread.
+    static func open(_ command: String, in folder: String, terminal: String, inTmux: Bool, window showing: Bool = true, hireID: String) -> Opened? {
+        guard inTmux, let tmux = Tmux.path, let desk = HireTmux(hireID: hireID) else {
+            return window(command, in: folder, terminal: terminal).map { Opened(tab: $0, window: $0) }
         }
-        return "tmux:\(made.pane)@\(made.socket)"
+        // The agent's own tmux server and session, through your login shell, so
+        // it finds what your PATH finds; then a window showing it, unless it runs in the background.
+        let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
+        guard let made = desk.start(in: folder, shell: shell, running: command) else { return nil }
+        var opened: String?
+        if showing {
+            guard let attach = script(desk.attachLine(tmuxPath: tmux)), let shown = window(attach, in: folder, terminal: terminal) else {
+                // Not hired: its server goes, and nothing else's.
+                if desk.isAlive() == true { _ = desk.kill() }
+                return nil
+            }
+            opened = shown
+        }
+        return Opened(tab: "tmux:\(made.pane)@\(made.socket)", window: opened)
     }
 
     /// Shows a running tmux hire again in a new window of `terminal`, after its
     /// window was closed. The hire was never stopped; this only attaches.
-    /// False for a socket that isn't one of ours, or a hire no longer there.
-    static func reattach(socket: String, in folder: String, terminal: String) -> Bool {
+    /// Gives the window it opened, by its terminal's id; nil for a socket that
+    /// isn't one of ours, or a hire no longer there.
+    @discardableResult
+    static func reattach(socket: String, in folder: String, terminal: String) -> String? {
         guard HireTmux.owns(socket), let tmux = Tmux.path, let desk = HireTmux(socketName: URL(fileURLWithPath: socket).lastPathComponent),
-              desk.isAlive() == true, let attach = script(desk.attachLine(tmuxPath: tmux)) else { return false }
-        return window(attach, in: folder, terminal: terminal) != nil
+              desk.isAlive() == true, let attach = script(desk.attachLine(tmuxPath: tmux)) else { return nil }
+        return window(attach, in: folder, terminal: terminal)
     }
 
     /// Shows `line` (a shell line, as `TeamGrid.attachLine`) in a new window of `terminal`.
@@ -705,7 +721,7 @@ enum Openers {
         ["new-session", "-d", "-P", "-F", "#{pane_id} #{socket_path}", "-s", name, "-c", folder, shell, "-lic", quoted(command)]
     }
 
-    private static func window(_ command: String, in folder: String, terminal: String) -> String? {
+    static func window(_ command: String, in folder: String, terminal: String) -> String? {
         switch terminal {
         case "iterm":
             return Terminal.run("""
@@ -730,7 +746,7 @@ enum Openers {
     }
 
     /// A few lines for a hire's window to run once, which remove themselves as they run.
-    private static func script(_ line: String) -> String? {
+    static func script(_ line: String) -> String? {
         try? FileManager.default.createDirectory(at: Paths.hires, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let url = Paths.hires.appendingPathComponent("attach-\(UUID().uuidString).sh")
         guard FileManager.default.createFile(atPath: url.path, contents: Data("#!/bin/sh\nrm -f -- \"$0\"\n\(line)\n".utf8),

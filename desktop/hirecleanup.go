@@ -63,3 +63,35 @@ func removeHireWorktree(git gitRunner, testPort int, worktrees string) func(Hire
 		return removeOwnWorktree(git, worktrees, h)
 	}
 }
+
+// detachHireViewers is hiresToBackground's detach for a hire on its own tmux
+// server: how many windows were attached, and whether they're detached now.
+// A hire whose socket isn't exactly its own is left as it is.
+func detachHireViewers(hire Hire) (int, bool) {
+	server := hireOwnTmux(hire, testCopyPort(), nil)
+	if server == nil {
+		return 0, true
+	}
+	viewers := server.viewers()
+	if viewers <= 0 {
+		return 0, viewers == 0
+	}
+	return viewers, server.detachViewers()
+}
+
+// openHireViewer is "Open a window" for a hire on its own tmux server: a
+// window of terminal attached to its session, in its worktree or folder.
+func openHireViewer(hire Hire, terminal hireOpener) error {
+	server := hireOwnTmux(hire, testCopyPort(), nil)
+	if server == nil {
+		return errUnsupported
+	}
+	if alive, _ := server.alive(); !alive {
+		return errUnsupported
+	}
+	folder := hire.Worktree
+	if folder == "" {
+		folder = hire.Folder
+	}
+	return openWindow(terminal, folder, []string{tmuxPath(), "-S", server.socket, "attach", "-t", "=" + hireSession})
+}

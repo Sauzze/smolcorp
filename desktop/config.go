@@ -68,6 +68,18 @@ type Config struct {
 	// Beta, Windows only: a role's Claude hire made by the hire engine in a window run by
 	// the launcher (hirelauncher.go), as the tmux engine does on Linux. Off unless switched on.
 	HireManagedWindows bool `json:"hireManagedWindows"`
+	// Agent windows (T796), the Mac app's hiresInBackground: false, a window
+	// for each hire, as before; true, hires run in tmux only, with no window
+	// (Linux, with tmux; see backgroundHires).
+	HiresInBackground bool `json:"hiresInBackground"`
+	// T3 Code (T796), the Mac app's t3CodeEnabled: whether its features show,
+	// and whether Smolcorp looks for it at all. Off until you turn it on; the
+	// T3 Code code asks t3CodeAllowed first.
+	T3CodeEnabled bool `json:"t3CodeEnabled"`
+	// Whether first setup has asked the two choices above. A new computer's
+	// file: not yet. A file from before them: as asked, so an existing user
+	// keeps what they had.
+	ChoicesAsked bool `json:"choicesAsked"`
 	// The roles `smolcorp run --role` starts, as the Mac app's office hires
 	// them: those that come with the app until you change them, and your own.
 	Roles []Role `json:"roles"`
@@ -168,6 +180,10 @@ func loadConfig() *Config {
 				var byHand bool
 				_ = json.Unmarshal(fields["gmByHand"], &byHand)
 				config.GuideDone = config.HasCompletedSetup || config.HireFolder != "" || config.ManagerEnabled || byHand
+			}
+			// A file from before the two choices: asked already, as the Mac app reads it.
+			if _, ok := fields["choicesAsked"]; !ok {
+				config.ChoicesAsked = true
 			}
 			var floor int
 			if raw, ok := fields["botFloor"]; ok && json.Unmarshal(raw, &floor) == nil && floor >= 0 && floor < floorCount {

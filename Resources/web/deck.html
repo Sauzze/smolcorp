@@ -424,6 +424,7 @@
       // same two keys, and answers them itself from what reaches it as /act.
       if (bare && action === `button:${BOARD_BUTTON}`) return openBoard(selected);
       if (bare && action === `button:${INFO_BUTTON}`) return openInfo(selected);
+      if (bare && action === `button:${WINDOW_BUTTON}`) return openHireWindow(selected);
       if (action.startsWith('button:')) return send('/act', { session: selected, action: 'button', button: action.slice(7) });
       if (['esc', 'send', 'clear'].includes(action)) send('/act', { session: selected, action });
       if (action === 'summary') summarize(selected);
@@ -1021,10 +1022,41 @@
   const BOARD_EVERY = 3000;
   const INFO_EVERY = 5000;
 
+  /*
+   * Agent windows in the background (T796): the office's own window on the Mac gets one more key in the picked
+   * agent's row, ⧉ window, which opens a window attached to that hire's tmux session. The Mac answers /hire/window
+   * to that window alone, never to a phone, and says whether hires run in the background; it's asked again now
+   * and then, as Settings may change it.
+   */
+  const WINDOW_BUTTON = 'smolcorp-window';
+  let windowKey = false;
+  let windowSnapshot = null;
+
+  function askWindowKey() {
+    get('/hire/window').then(async (res) => {
+      const answer = res && res.ok ? await res.json().catch(() => null) : null;
+      const shown = !!(answer && answer.background);
+      if (shown === windowKey) return;
+      windowKey = shown;
+      if (windowSnapshot) office.show({ ...withMacKeys(windowSnapshot), theme: {} });
+    });
+  }
+  if (bare && !preview) {
+    askWindowKey();
+    setInterval(askWindowKey, 30000);
+  }
+
+  async function openHireWindow(id) {
+    const res = await post('/hire/window', { session: id });
+    if (!res) return flash("Can't reach your Mac.");
+    flash(res.ok ? "Its window is open." : await problemText(res));
+  }
+
   function withMacKeys(data) {
     if (!bare) return data;
     const rows = data.layout && Array.isArray(data.layout.rows) ? data.layout.rows : [];
-    const keys = { buttons: [{ id: BOARD_BUTTON, label: '▤ conversation' }, { id: INFO_BUTTON, label: 'ⓘ info' }] };
+    const keys = { buttons: [{ id: BOARD_BUTTON, label: '▤ conversation' }, { id: INFO_BUTTON, label: 'ⓘ info' },
+      ...(windowKey ? [{ id: WINDOW_BUTTON, label: '⧉ window' }] : [])] };
     return { ...data, layout: { ...(data.layout || {}), rows: [keys, ...rows] } };
   }
 
@@ -1398,6 +1430,7 @@
       };
     }
     // The office's own colours: a theme saved by an older setup page is left out.
+    windowSnapshot = data;
     office.show({ ...withMacKeys(data), theme: {} });
     $('status').classList.remove('off');
     render();

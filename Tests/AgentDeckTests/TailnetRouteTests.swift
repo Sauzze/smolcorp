@@ -86,7 +86,7 @@ final class TailnetRouteTests: XCTestCase {
         }
         XCTAssertGreaterThan(routes.count, 30)
         let paired: Set = ["/events", "/focus", "/act", "/dictate", "/peek", "/summary", "/glossary", "/choice", "/choose",
-                           "/conversation", "/notifications", "/session/info", "/approvals", "/reviews"]
+                           "/conversation", "/notifications", "/session/info", "/approvals", "/reviews", "/hire/window"]
         for route in routes {
             XCTAssertTrue(DeckRouter.isSetupPath(route) || paired.contains(route), "\(route) is neither setup's nor behind a paired key")
         }

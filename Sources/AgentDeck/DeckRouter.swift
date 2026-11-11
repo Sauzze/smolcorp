@@ -415,6 +415,17 @@ final class DeckRouter: Router {
             }
             deck.choiceDetail(session, done: respond)
 
+        // "Open a window" on a hire's desk (T796), from the office's own window on this Mac, never a phone:
+        // whether hires run in the background, then a window for the hire in the picked session.
+        case ("GET", "/hire/window"):
+            guard DeckRouter.isOfficeWindow(request, phone: phone) else { return respond(.status(403, "Hires' windows open on your Mac.")) }
+            respond(.json(["background": Choices.background(Config.shared)]))
+
+        case ("POST", "/hire/window"):
+            guard DeckRouter.isOfficeWindow(request, phone: phone) else { return respond(.status(403, "Hires' windows open on your Mac.")) }
+            guard let id = deck.teamHireID(session: session) else { return respond(.status(404, "This agent wasn't hired by Smolcorp, so it has no window to open.")) }
+            deck.openHireWindow(id) { problem in respond(problem.map { .status(409, $0) } ?? .status(204)) }
+
         // The approvals list: who waits for you, read only. Answering is the paired phone's /act and /choose.
         case ("GET", "/approvals"):
             guard DeckRouter.showsApprovals(request, phone: phone) else {
@@ -1085,6 +1096,31 @@ final class DeckRouter: Router {
             if folder?.isEmpty == false { deck.closeHireFolderPanel() }
             respond(.json(setupState(caller)))
 
+        // The two plain choices (T796), from first setup or Settings: T3 Code on or off, agent windows
+        // (background=1 runs hires in tmux with no window), and asked=1 once first setup has asked them.
+        // Switching to the background detaches each hire's windows and closes those Smolcorp opened.
+        case ("POST", "/setup/choices"):
+            let background = request.query["background"]
+            if background == "1", Tmux.path == nil { return respond(.status(400, "Running hires in the background needs tmux, which isn't on this Mac.")) }
+            let wasBackground = Choices.background(config)
+            if let t3 = request.query["t3"] { config.t3CodeEnabled = t3 == "1" }
+            if let background { config.hiresInBackground = background == "1" }
+            if request.query["asked"] == "1" { config.choicesAsked = true }
+            config.save()
+            deck.refresh()
+            guard !wasBackground, Choices.background(config) else { return respond(.json(setupState(caller))) }
+            deck.hiresToBackground { [self] said in
+                var answer = setupState(caller)
+                answer["windowsSaid"] = said
+                respond(.json(answer))
+            }
+
+        // "Open a window" on a hire's desk in Setup's team list (T796): by the hire's id, from the registry.
+        case ("POST", "/setup/hire/window"):
+            deck.openHireWindow(request.json["id"] as? String ?? "") { problem in
+                respond(problem.map { .status(409, $0) } ?? .status(204))
+            }
+
         // Dictation: turned on, its language, and whether Claude Code uses it. Turning it on
         // asks for the microphone, here on the Mac, and gets the language's model ready.
         case ("POST", "/setup/dictation"):
@@ -1658,6 +1694,9 @@ final class DeckRouter: Router {
             "keystrokes": ["enabled": config.keystrokesAllowed, "accessibility": Permissions.hasAccessibility,
                            "apps": config.keystrokeApps, "running": Keystrokes.runningApps(except: config.keystrokeApps)] as [String: Any],
             "dock": ["enabled": config.showInDock],
+            // The two plain choices (T796), and the T3 Code gate as T3 Code's own code reads it.
+            "choices": Choices.json(config, hasTmux: Tmux.path != nil),
+            "t3CodeEnabled": Choices.t3Code(config),
             "officeWindow": ["available": true, "mac": true, "onTop": config.officeOnTop ?? false],
             "summary": { () -> [String: Any] in
                 SummaryProviders.shared.refresh()

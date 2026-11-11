@@ -295,8 +295,11 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 		return http.StatusConflict, why
 	}
 
-	// In tmux when chosen, or when there's no window to open.
-	inTmux := tmux && (d.config.HireInTmux || !hasTerminal)
+	// In tmux when chosen, or when there's no window to open. Agent windows in
+	// the background (T796): in tmux, with no window, as without a terminal.
+	background := backgroundHires(d.config, tmux)
+	inTmux := tmux && (d.config.HireInTmux || !hasTerminal || background)
+	showWindow := hasTerminal && !background
 	// A role's Claude hire goes through the engine, at the desk chosen too (it
 	// is seated there when its session appears); the rest open as they did.
 	// A pinned desk stays on the old path: the engine's hire sits in a
@@ -304,7 +307,7 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	// at its pinned desk.
 	if roleID != "" && pinned == "" && Agent(program) == Claude {
 		if inTmux {
-			if status, message, handled := d.managedHire(roleID, folder, terminal, hasTerminal, held, floor); handled {
+			if status, message, handled := d.managedHire(roleID, folder, terminal, showWindow, held, floor); handled {
 				return status, message
 			}
 		} else if launcherHires && d.config.HireManagedWindows && hasTerminal {
@@ -328,7 +331,7 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	}
 	// Opened outside the lock: the terminal may take a moment to start.
 	d.mu.Unlock()
-	err := openHire(command, folder, terminal, hasTerminal, inTmux)
+	err := openHire(command, folder, terminal, showWindow, inTmux)
 	d.mu.Lock()
 	if err != nil {
 		// Nobody was hired, so the next try needn't wait.

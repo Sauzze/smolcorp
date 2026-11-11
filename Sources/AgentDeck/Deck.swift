@@ -134,6 +134,9 @@ final class Deck {
     /// The folders of hires made with the manager on: new on a floor above, they sit by whole rows.
     private var managerHireFolders: Set<String> = []
     var hiredTabs: [(tab: String, role: String?, desk: Int?, at: Date, folder: String, floor: Int?)] = []
+    /// The window Smolcorp opened for each hire, by hire id, as its terminal
+    /// gave it (T796). Kept while the app runs: a window from before a restart isn't known.
+    var hireWindows: [String: [String]] = [:]
     /// The tab recording started in, and when. One Mac, one microphone.
     private var micPress: (tab: String, at: Date)?
     /// Personal build: how each desk's last dictation went, by session id,
@@ -1804,13 +1807,15 @@ final class Deck {
             }
         }
         let terminal = Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal"
-        let inTmux = config.hireInTmux && Tmux.path != nil
-        let name = Openers.choices.first { $0.id == terminal }?.name ?? "Terminal"
+        // Agent windows in the background (T796): in tmux, with no window.
+        let background = Choices.background(config)
+        let inTmux = background || (config.hireInTmux && Tmux.path != nil)
+        let name = background ? "tmux" : Openers.choices.first { $0.id == terminal }?.name ?? "Terminal"
         Terminal.queue.async {
-            let tab = Openers.open(command, in: folder, terminal: terminal, inTmux: inTmux, hireID: hireID)
+            let opened = Openers.open(command, in: folder, terminal: terminal, inTmux: inTmux, window: !background, hireID: hireID)
             DispatchQueue.main.async {
                 // Nobody was hired, so the next try needn't wait.
-                guard let tab else {
+                guard let opened else {
                     self.lastHire = nil
                     undo()
                     if role != nil { try? FileManager.default.removeItem(atPath: command) }
@@ -1827,7 +1832,10 @@ final class Deck {
                 }
                 config.save()
                 // Kept for the role, the desk and the floor it's hired on, and for a Ghostty hire, to know its terminal by.
+                let tab = opened.tab
                 self.hiredTabs.append((tab, role?.id, held, Date(), folder, floor > 0 ? floor : nil))
+                // The window Smolcorp opened for it, by its terminal's id: the only one switching to the background closes.
+                if let window = opened.window { self.hireWindows[hireID, default: []].append(window) }
                 // A hire on its own tmux server is written down with the socket it runs on, and the account it runs on.
                 let socket = TabAddress(tab).flatMap { HireTmux.owns($0.socket) ? $0.socket : nil } ?? ""
                 let record = FrontDesk.Hire(id: hireID, name: role?.name ?? "Agent", nickname: options.nickname, role: role?.id ?? "", folder: original,

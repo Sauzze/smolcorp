@@ -136,6 +136,10 @@ struct HireTmux {
         paste("/exit") && submit()
     }
 
+    /// Detaches the terminal windows attached to the session, on this socket
+    /// alone: the hire carries on, with no window (agent windows in the background).
+    func detachClients() -> Bool { ran(["detach-client", "-s", "=" + HireTmux.session]) }
+
     /// Ends the hire's server, and so its session. Only this socket's.
     func kill() -> Bool { ran(["kill-server"]) }
 
