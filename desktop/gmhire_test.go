@@ -333,7 +333,17 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 		cases = append(cases, turned)
 	}
 	// hire makes a hire of role with the guard saying groups, and says what it started with, its own names made plain.
+	var hireIn func(t *testing.T, role string, groups []map[string]any, route bool) (string, []string)
 	hire := func(role string, groups []map[string]any, route bool) (settings string, guard []string) {
+		// Each hire is a subtest of its own: its deck stops, with the rounds that read the support folder,
+		// before the next hire puts the test's folders somewhere else (a deck left running beside the
+		// next one raced it on the support folder).
+		t.Run(role+"/"+map[bool]string{false: "desk", true: "route"}[route], func(t *testing.T) {
+			settings, guard = hireIn(t, role, groups, route)
+		})
+		return settings, guard
+	}
+	hireIn = func(t *testing.T, role string, groups []map[string]any, route bool) (settings string, guard []string) {
 		d, r, _, token := gmHireDeck(t)
 		// One saved account besides the default: both hires deny it (RPGM2 n1). Outside the home folder, so no
 		// hire takes it and the office's hire, which can't name an account, isn't asked which (the Mac's rule).
