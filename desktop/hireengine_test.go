@@ -910,3 +910,75 @@ func TestAnAPIKeyHireTheEngineCantTakeIsRefusedNeverPlain(t *testing.T) {
 		t.Errorf("on a Claude account: %d %s, windows %q", w.Code, w.Body, h.windows)
 	}
 }
+
+// A start script left by a core that stopped before the hire's shell ran it has no watcher: it is
+// removed as the next core starts, and the hire it was for, still "starting", is marked failed.
+func TestAStartScriptLeftByAStoppedCoreIsRemovedAtTheNextStart(t *testing.T) {
+	isolate(t)
+	const leftKey = "fk-left-77"
+	scripts := map[string]string{}
+	for _, id := range []string{"aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"} {
+		folder := hireFolder(supportDir, id)
+		if err := os.MkdirAll(folder, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		scripts[id] = filepath.Join(folder, "hire-1234.sh")
+		if err := os.WriteFile(scripts[id], []byte("#!/bin/sh\nrm -f \"$0\"\nexport ANTHROPIC_API_KEY='"+leftKey+"'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(folder, "settings.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// "a" is still starting, "b" was fired meanwhile, "c" has no row at all.
+	err := updateRegistry(func(f *registryFile) {
+		f.hires = append(f.hires, Hire{ID: "aaaaaaaaaaaa", Name: "Janitor", Folder: "/work/a", State: "starting"}, Hire{ID: "bbbbbbbbbbbb", Name: "Cook", Folder: "/work/b", State: "fired"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startDeck(t)
+	for id, script := range scripts {
+		if _, err := os.Stat(script); !os.IsNotExist(err) {
+			t.Errorf("hire %s's start script, with a key, is still there after the start: %v", id, err)
+		}
+		if _, err := os.Stat(filepath.Join(hireFolder(supportDir, id), "settings.json")); err != nil {
+			t.Errorf("hire %s's other files must stay: %v", id, err)
+		}
+	}
+	got := map[string]Hire{}
+	for _, h := range registered(t) {
+		got[h.ID] = h
+	}
+	if h := got["aaaaaaaaaaaa"]; h.State != "failed" || h.Notes == "" || strings.Contains(h.Notes, leftKey) {
+		t.Errorf("the hire that never ran its script should be failed with a plain sentence: %+v", h)
+	}
+	if h := got["bbbbbbbbbbbb"]; h.State != "fired" {
+		t.Errorf("a fired hire is left as it is: %+v", h)
+	}
+}
+
+// On a clean stop the core waits, for a while, for the hires it is still watching to finish cleaning.
+func TestTheCoreWaitsABoundedWhileForHiresBeingWatched(t *testing.T) {
+	d := &Deck{}
+	d.watching.Add(1)
+	done := make(chan struct{})
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		d.watching.Done()
+		close(done)
+	}()
+	if !d.waitForHires(5 * time.Second) {
+		t.Error("it gave up on a watcher that finished in 50 ms")
+	}
+	<-done
+	d.watching.Add(1) // one that never finishes
+	t0 := time.Now()
+	if d.waitForHires(100 * time.Millisecond) {
+		t.Error("it said all were done with a watcher left")
+	}
+	if took := time.Since(t0); took > 2*time.Second {
+		t.Errorf("the wait wasn't bounded: %v", took)
+	}
+	d.watching.Done()
+}

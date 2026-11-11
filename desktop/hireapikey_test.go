@@ -16,16 +16,18 @@ func TestTheAPIKeyAccountIsOfferedOnlyFromTheSecretStore(t *testing.T) {
 	yes, no := func() bool { return true }, func() bool { return false }
 	for _, c := range []struct {
 		goos, shown string
+		noStore     bool
 		tool        func() bool
 		want        apiKeyOffer
 	}{
-		{"linux", "store", yes, apiKeyOffer{Available: true, Notice: apiKeyNotice}},
-		{"linux", "environment", yes, apiKeyOffer{Notice: apiKeyNotice, Refusal: apiKeyNotInStore}},
-		{"linux", "", yes, apiKeyOffer{Notice: apiKeyNotice, Refusal: apiKeyNotInStore}},
-		{"linux", "store", no, apiKeyOffer{Notice: apiKeyNotice, Refusal: apiKeyNoSecretTool}},
-		{"windows", "store", yes, apiKeyOffer{Notice: apiKeyNotice, Refusal: apiKeyNotHere}},
+		{"linux", "store", false, yes, apiKeyOffer{Available: true, Notice: apiKeyNotice}},
+		{"linux", "environment", false, yes, apiKeyOffer{Notice: apiKeyNotice, Refusal: apiKeyNotInStore}},
+		{"linux", "", false, yes, apiKeyOffer{Notice: apiKeyNotice, Refusal: apiKeyNotInStore}},
+		{"linux", "", true, yes, apiKeyOffer{Notice: apiKeyNotice, Refusal: apiKeyNoStore}},
+		{"linux", "store", false, no, apiKeyOffer{Notice: apiKeyNotice, Refusal: apiKeyNoSecretTool}},
+		{"windows", "store", false, yes, apiKeyOffer{Notice: apiKeyNotice, Refusal: apiKeyNotHere}},
 	} {
-		if got := localAPIKeyOffer(c.goos, c.shown, c.tool); got != c.want {
+		if got := localAPIKeyOffer(c.goos, c.shown, c.noStore, c.tool); got != c.want {
 			t.Errorf("%s %q: %+v, want %+v", c.goos, c.shown, got, c.want)
 		}
 	}

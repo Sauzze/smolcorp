@@ -125,6 +125,7 @@ func stopPortableOnSignalNow(deck *Deck) {
 	go func() {
 		<-stopped
 		deck.portable.Stop(viewerQuitWait)
+		deck.waitForHires(hireStopWait)
 		forgetPid()
 		os.Exit(1)
 	}()
@@ -361,6 +362,7 @@ func (t *tray) listen(failed <-chan error) {
 		case <-t.quit.ClickedCh:
 			// The portable office stops on quit, and the viewer is asked to forget it, for up to 5 s.
 			t.deck.portable.Stop(viewerQuitWait)
+			t.deck.waitForHires(hireStopWait)
 			systray.Quit()
 			return
 		case err := <-failed:

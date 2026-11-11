@@ -28,9 +28,20 @@ import (
 //     starts, has the script removed with it (runManagedHire's undo,
 //     watchManagedHire). Never an argument (tmux is given the script's path),
 //     never the registry (it says "api-key" as the Mac's does), never a log,
-//     and the core keeps no copy. The Mac's own script reads the Keychain
-//     with /usr/bin/security instead, which this core can't ask for the app's
-//     item without macOS asking the owner.
+//     and the core doesn't keep it after the hire: the request's field is
+//     emptied once the hire is made. Go strings can't be wiped, so copies (the
+//     request passed by value, the key's closure, the script's text) stay in
+//     memory until the garbage collector reuses them, as in any process that
+//     holds a secret. A start script left on disk by a core that stopped
+//     before the hire's shell ran it is removed as the next core starts
+//     (removeLeftStartScripts), and its hire fails.
+//     A DIFFERENCE FROM THE MAC: the Mac's own script never writes the key
+//     down, it reads the Keychain with /usr/bin/security as the hire starts.
+//     The Go core under the Mac app can't ask for the app's item that way
+//     without macOS asking the owner, so it writes the key into the start
+//     script, for the seconds until the hire's shell starts it. That is the
+//     same lifetime the send key and the GM's token already have, and it
+//     needs the owner's OK.
 //   - Linux: the Secret Service (GNOME Keyring, KWallet), where Summaries keep
 //     it (keyringStore, go-keyring). The tail is read through keyringStore;
 //     the script reads the key with secret-tool as it runs, so it's never
@@ -49,6 +60,7 @@ const (
 	apiKeyNotClaude = "The API-key account is for Claude Code hires."
 	// This computer's own words, as the Mac's HireDesk.apiKeyRefusal says them of the Keychain.
 	apiKeyNotInStore   = "There's no Anthropic API key in the secret store. Save one under Summaries, or hire on a Claude account."
+	apiKeyNoStore      = "There's no secret store on this computer to keep an Anthropic API key in: hire on a Claude account."
 	apiKeyNoSecretTool = "Install secret-tool (libsecret-tools) so a hire can read the API key from the secret store, or hire on a Claude account."
 	apiKeyNotHere      = "A hire on the API key isn't set up on this computer yet: hire on a Claude account."
 	apiKeyMacUnasked   = "Smolcorp couldn't ask the Mac app about the API key: hire on a Claude account."
@@ -79,11 +91,11 @@ func (d *Deck) apiKeyOffer() apiKeyOffer {
 	if h := d.macHost(); h != nil {
 		return macAPIKeyOffer(h)
 	}
-	shown := ""
+	shown, noStore := "", false
 	if d.summaryKeys != nil {
-		shown = d.summaryKeys.Shown()
+		shown, noStore = d.summaryKeys.Shown(), d.summaryKeys.NoStore()
 	}
-	return localAPIKeyOffer(runtime.GOOS, shown, secretToolFound)
+	return localAPIKeyOffer(runtime.GOOS, shown, noStore, secretToolFound)
 }
 
 // macAPIKeyOffer is the Mac app's answer, in its words; an app that can't be
@@ -103,12 +115,15 @@ func macAPIKeyOffer(h hostBridge) apiKeyOffer {
 }
 
 // localAPIKeyOffer is the offer on Linux and Windows: shown is where
-// Summaries' key is (summaryKeys.Shown), secretTool whether the script can read it.
-func localAPIKeyOffer(goos, shown string, secretTool func() bool) apiKeyOffer {
+// Summaries' key is (summaryKeys.Shown), noStore that there's no secret store to
+// keep one in (summaryKeys.NoStore), secretTool whether the script can read it.
+func localAPIKeyOffer(goos, shown string, noStore bool, secretTool func() bool) apiKeyOffer {
 	offer := apiKeyOffer{Notice: apiKeyNotice}
 	switch {
 	case goos == "windows":
 		offer.Refusal = apiKeyNotHere
+	case noStore:
+		offer.Refusal = apiKeyNoStore
 	case shown != "store":
 		offer.Refusal = apiKeyNotInStore
 	case !secretTool():

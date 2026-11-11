@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -42,7 +43,7 @@ type engineRequest struct {
 	DefaultAccount bool
 	APIKey         bool
 	// Under the Mac app, the API key read through the bridge for this hire alone (hireapikey.go); "" elsewhere.
-	// Its tail is approved and it goes in the start script; it's never kept anywhere else.
+	// Its tail is approved and it goes in the start script; the core doesn't keep it after the hire (see hireapikey.go).
 	APIKeyText string
 	// The port of a test copy, 0 for the office's own.
 	TestPort int
@@ -262,5 +263,43 @@ func (d *Deck) clearFiredGMToken() {
 	defer d.mu.Unlock()
 	if !slices.ContainsFunc(officeHires(), gmHired) {
 		d.gmToken = ""
+	}
+}
+
+// startScriptNotRun is what a hire says when its start script was taken away at the next start.
+const startScriptNotRun = "Didn't start: Smolcorp stopped before it could, so its start script was taken away."
+
+// removeLeftStartScripts takes away every <support>/hires/<id>/hire-*.sh as the core starts. A
+// script still there was never run by its hire's shell (it removes itself as the first thing it
+// does), and the watcher that would have taken it away went with the core that made it: it may
+// still hold the API key, a send key or the GM's token. A hire whose shell hadn't reached it fails
+// to start, which is the safe side, and its "starting" row is marked failed.
+func removeLeftStartScripts() {
+	scripts, _ := filepath.Glob(filepath.Join(supportDir, "hires", "*", "hire-*.sh"))
+	for _, script := range scripts {
+		if os.Remove(script) == nil {
+			setHire(filepath.Base(filepath.Dir(script)), "failed", startScriptNotRun)
+		}
+	}
+}
+
+// hireStopWait is how long a clean stop waits for the hires being watched to finish cleaning.
+// A hire that hasn't started by then is left to the next start, which takes its script away.
+const hireStopWait = 5 * time.Second
+
+// waitForHires waits up to within for the hires the deck is still watching to finish (the
+// watchers clean up a hire that never started, scripts included): on a clean stop, so a hire
+// in the middle of cleaning isn't cut off. False when some were still going.
+func (d *Deck) waitForHires(within time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		d.watching.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(within):
+		return false
 	}
 }

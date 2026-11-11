@@ -277,7 +277,7 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 	if err == nil {
 		hire, err = runManagedHire(request, options)
 	}
-	request.APIKeyText = ""
+	request.APIKeyText = "" // not kept after the hire; copies stay until the garbage collector (hireapikey.go)
 	d.mu.Lock()
 	if err != nil {
 		if token != "" && constantTimeEqual(d.gmToken, token) {

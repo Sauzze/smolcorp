@@ -150,6 +150,8 @@ const (
 var effortLevels = []string{"low", "medium", "high", "xhigh", "max"}
 
 func NewDeck() *Deck {
+	// Before anything is served: a start script left by a core that stopped has no watcher.
+	removeLeftStartScripts()
 	d := &Deck{
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
