@@ -104,8 +104,11 @@ func TestAChosenDeskIsKeptAcrossARestartAndForgottenWithItsSession(t *testing.T)
 	if json.Unmarshal(data, &saved) != nil || len(saved.Chosen) != 1 || saved.Chosen[0] != "hired" || saved.Keys["hired"] != 6 {
 		t.Fatalf("saved %s", data)
 	}
-	// An app that starts again: the same sessions come back on their saved places.
+	// An app that starts again: the same sessions come back on their saved places. With the lock held, as
+	// the app holds it: the restore asks for a save, which reads the sessions and desks a moment later.
 	again := newTestDeck(t)
+	again.mu.Lock()
+	defer again.mu.Unlock()
 	again.restore([]savedSession{{ID: "s0", Tab: "tmux:%0@/tmp/tmux", Agent: string(Claude)}, {ID: "hired", Tab: "tmux:%7@/tmp/tmux", Agent: string(Claude)}},
 		savedDeck{Keys: saved.Keys, Chosen: saved.Chosen}, false)
 	for _, id := range []string{"s0", "hired"} {

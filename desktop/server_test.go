@@ -65,10 +65,20 @@ func newTestDeck(t *testing.T) *Deck {
 // startDeck starts a deck on the folders the test has set up, as the app does at each start, and
 // stops its rounds at the end (see deckRounds), so it never reads the stand-ins a later test puts in.
 // A stand-in the deck's rounds or looks read goes in before the deck starts: cleanups run last
-// first, so it is put back once the deck has stopped.
+// first, so it is put back once the deck has stopped. A save of the sessions still to come is called
+// off once the rounds have stopped, and none is asked for after: it would read the deck after the test
+// and write into folders being removed.
 func startDeck(t *testing.T) *Deck {
 	t.Helper()
 	d := NewDeck()
+	t.Cleanup(func() {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if d.saveTimer != nil {
+			d.saveTimer.Stop()
+		}
+		d.savePending = true
+	})
 	t.Cleanup(d.stopWatchers)
 	return d
 }

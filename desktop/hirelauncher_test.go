@@ -278,6 +278,19 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 	r.d.config.HiringEnabled, r.d.config.HireFolder = true, r.repo
 	o := r.o
 	o.Open = nil // the real opener, through the terminal's own arguments
+	// No launcher connects here, so the hire is heard from only once the test is done: its watch ends then,
+	// in this test, and never writes the registry in a later test's folder.
+	done := make(chan struct{})
+	o.HeardFrom = func(Hire) bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}
+	o.Every = 5 * time.Millisecond
+	t.Cleanup(func() { close(done); r.d.watching.Wait() })
 	r.d.launcherEngine = o
 	if status, message := r.d.hireFromSetup("janitor"); status != http.StatusNoContent {
 		t.Fatalf("hire: %d %s", status, message)

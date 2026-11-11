@@ -72,9 +72,10 @@ type Deck struct {
 	// The same for the launcher's way (hirelauncher.go).
 	launcherEngine launcherEngineOptions
 	watching       sync.WaitGroup
-	// Whether a save of the sessions is coming, and the sessions from before
-	// a restart still waiting for their launcher: see saved.go.
+	// Whether a save of the sessions is coming, its timer, and the sessions
+	// from before a restart still waiting for their launcher: see saved.go.
 	savePending  bool
+	saveTimer    *time.Timer
 	restoring    *pendingRestore
 	sessionsFile string
 	// Whether the folder picker is open, from setup.
