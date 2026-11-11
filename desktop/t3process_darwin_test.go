@@ -82,10 +82,11 @@ func TestT3OnAMacWithoutTheAppTheGoCoreCantLook(t *testing.T) {
 
 // Under the Mac app, the core asks it (the bridge's read-only "processes"), with the folder and, for Take over
 // and Hand back, the session; what it names is what's found. Its no, a bridge that can't be reached, or an
-// answer longer than the app gives are all "can't look": nothing is made up.
+// answer longer than the app gives, or one naming a pid no process has (RM5c N4), are all "can't look": nothing
+// is made up.
 func TestT3OnAMacTheGoCoreAsksTheMacAppWhichProcessesWork(t *testing.T) {
 	wt := "/Users/ada/repo-hires/ada-abcdef"
-	mac := withProcessesMac(t, macFound(4242, 0, 4343))
+	mac := withProcessesMac(t, macFound(4242, 4343))
 	if pids, looked := processesWorkingIn(wt); !looked || !slices.Equal(pids, []int{4242, 4343}) {
 		t.Errorf("%v %v", pids, looked)
 	}
@@ -100,6 +101,12 @@ func TestT3OnAMacTheGoCoreAsksTheMacAppWhichProcessesWork(t *testing.T) {
 	withProcessesMac(t, macFound())
 	if pids, looked := processesWorkingIn(wt); !looked || len(pids) != 0 {
 		t.Errorf("none there: %v %v", pids, looked)
+	}
+	for _, malformed := range []int{0, -1} {
+		withProcessesMac(t, macFound(4242, malformed))
+		if pids, looked := processesHolding(wt, t3TakeOverSession); looked || pids != nil {
+			t.Errorf("pid %d: %v %v", malformed, pids, looked)
+		}
 	}
 	withProcessesMac(t, bridgeAnswer{Error: "This Mac couldn't list its processes."})
 	if pids, looked := processesHolding(wt, t3TakeOverSession); looked || pids != nil {

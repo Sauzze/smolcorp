@@ -466,19 +466,47 @@ final class HostBridge {
     /// whose arguments name it: Let go's check and Take over's on the Go core (desktop/t3process_darwin.go), by the
     /// code the Mac's own Let go uses (`Processes.holding`). Each with its pid, its name and why; the first
     /// `processesMost`. Read from the kernel only: no process is signalled, nothing is run. A folder is a full path
-    /// with no `..` and isn't `/`; a session is a Claude Code session's id (letters, digits and dashes). A Mac that
-    /// can't look says so, and the core then changes nothing.
+    /// with no `..` and isn't `/`, and must be the worktree of a hire still open in the core's registry (RM5c S2:
+    /// no more than Let go, Take over and Hand back look at); a session is a Claude Code session's id, its UUID
+    /// shape exactly (desktop/t3takeover.go's t3SessionShape), or none. A Mac that can't look says so, and the core
+    /// then changes nothing.
     private static func processes(_ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
         guard let folder = request["folder"] as? String, folder.hasPrefix("/"), folder != "/", folder.utf8.count <= 1024,
               !folder.hasControlCharacters, !folder.split(separator: "/").contains("..") else { return refused("Not a folder.") }
         let session = request["session"] as? String ?? ""
-        guard request["session"] == nil || request["session"] is String, session.count <= 64,
-              session.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) else { return refused("Not a session.") }
+        guard request["session"] == nil || request["session"] is String, session.isEmpty || isSessionID(session) else {
+            return refused("Not a session.")
+        }
+        guard let worktrees = actions.openWorktrees() else { return refused("This Mac couldn't read the team's registry.") }
+        let wanted = HireDesk.physical(folder)
+        guard worktrees.contains(where: { $0 == folder || HireDesk.physical($0) == wanted }) else {
+            return refused("Not the worktree of a hire on the team.")
+        }
         switch run(on: actions.looking, until: deadline, { actions.processes(folder, session) }) {
         case .done(let found?):
             return ["ok": true, "processes": found.prefix(processesMost).map { ["pid": Int($0.pid), "name": $0.name, "why": $0.why] }]
         case .done(nil): return refused("This Mac couldn't list its processes.")
         case .notStarted, .unfinished: return refused("The Mac didn't answer in time.")
+        }
+    }
+
+    /// A Claude Code session's id as T3 Code resumes one: 8-4-4-4-12 hex digits, either case.
+    static func isSessionID(_ text: String) -> Bool {
+        let groups = text.split(separator: "-", omittingEmptySubsequences: false)
+        return groups.map(\.count) == [8, 4, 4, 4, 12] && groups.allSatisfy { $0.allSatisfy { $0.isASCII && $0.isHexDigit } }
+    }
+
+    /// The worktrees of the hires still open (neither fired nor failed) in the registry at `file`, the one the core
+    /// keeps: read as it is, never written, never set aside (`FrontDesk.load` would move a file it can't read). None
+    /// when there's no registry yet; nil when it can't be read.
+    static func openWorktrees(in file: URL) -> [String]? {
+        guard let data = try? Data(contentsOf: file) else { return FileManager.default.fileExists(atPath: file.path) ? nil : [] }
+        guard let registry = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let hires = registry["hires"] as? [[String: Any]] else { return nil }
+        return hires.compactMap { hire in
+            guard let worktree = hire["worktree"] as? String, !worktree.isEmpty,
+                  !["fired", "failed"].contains(hire["state"] as? String ?? "") else { return nil }
+            return worktree
         }
     }
 
@@ -874,6 +902,9 @@ final class HostBridge {
         var processes: (_ folder: String, _ session: String) -> [(pid: pid_t, name: String, why: String)]? = { folder, session in
             Processes.holding(folder, session: session)?.map { ($0.pid, Processes.name(of: $0.pid), $0.why.rawValue) }
         }
+        /// The worktrees of the hires open in the core's registry (`HostBridge.openWorktrees`): the only folders
+        /// `processes` looks at. Nil when it can't be read.
+        var openWorktrees: () -> [String]? = { HostBridge.openWorktrees(in: Paths.support.appendingPathComponent("registry.json")) }
         /// Where processes and T3 Code's app are looked at: off the main queue and the terminals'.
         var looking: DispatchQueue = .global(qos: .utility)
         /// T3 Code's app, as the Swift engine's Open in T3 Code finds it, opens it and hands it a thread's link.

@@ -60,6 +60,8 @@ final class HostBridgeTests: XCTestCase {
         actions.driver = { _ in nil }
         actions.place = { _, _ in nil }
         actions.screen = { _ in nil }
+        // The team's registry, as the core keeps it: the fixture's hire, and the one these tests ask about.
+        actions.openWorktrees = { ["/Users/ada/repo-hires/ada-abcdef", "/Users/ada/wt"] }
         return actions
     }
 
@@ -796,10 +798,11 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(typed.count, 4, "one paste only")
     }
 
-    /// The processes (M5c): a full path that isn't `/` and has no `..`, and a session's id or none; anything else is
-    /// refused before anything is looked at. What's found is answered, the first `processesMost`; a Mac that can't
-    /// look says so.
+    /// The processes (M5c): a full path that isn't `/` and has no `..`, the worktree of a hire open in the core's
+    /// registry, and a session's id (its UUID shape) or none; anything else is refused before anything is looked at
+    /// (RM5c S2). What's found is answered, the first `processesMost`; a Mac that can't look says so.
     func testTheProcessesTakeOnlyAFolderAndASession() {
+        let session = "6f1c2a9e-0b3d-4e5f-8a7b-1C2D3E4F5A6B"
         var mac = actions
         var looked: [String] = []
         let looking = DispatchQueue(label: "test.looking")
@@ -821,21 +824,64 @@ final class HostBridgeTests: XCTestCase {
             ["action": "processes", "folder": "/Users/ada/wt", "session": "a b"],
             ["action": "processes", "folder": "/Users/ada/wt", "session": String(repeating: "a", count: 65)],
             ["action": "processes", "folder": "/Users/ada/wt", "session": 7],
+            // Not a session's id: a letter, part of one, one too long, or not hex.
+            ["action": "processes", "folder": "/Users/ada/wt", "session": "e"],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": "6f1c2a9e-0b3d"],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": session + "0"],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": "6f1c2a9e-0b3d-4e5f-8a7b-1c2d3e4f5a6g"],
+            ["action": "processes", "folder": "/Users/ada/wt", "session": "6f1c2a9e0b3d-4e5f-8a7b-1c2d3e4f5a6b-"],
+            // Not a hire's worktree: above one, inside one, beside one.
+            ["action": "processes", "folder": "/Users"],
+            ["action": "processes", "folder": "/Users/ada"],
+            ["action": "processes", "folder": "/Users/ada/wt/sub"],
+            ["action": "processes", "folder": "/Users/ada/repo-hires/bob-123456", "session": session],
         ] {
             var request = refused
             request["token"] = token
             XCTAssertFalse(isOK(HostBridge.answer(line(request), token: token, actions: mac)), "\(refused)")
         }
         XCTAssertEqual(looked, [], "nothing looked at for a refused request")
-        let some = HostBridge.answer(line(["action": "processes", "folder": "/Users/ada/wt", "session": "6f1c2a9e-0b3d"]), token: token, actions: mac)
+        // A registry that can't be read: nothing looked at, and the core can't look.
+        var unread = mac
+        unread.openWorktrees = { nil }
+        let blind = HostBridge.answer(line(["action": "processes", "folder": "/Users/ada/wt"]), token: token, actions: unread)
+        XCTAssertEqual(blind["error"] as? String, "This Mac couldn't read the team's registry.")
+        XCTAssertEqual(looked, [])
+        let some = HostBridge.answer(line(["action": "processes", "folder": "/Users/ada/wt", "session": session]), token: token, actions: mac)
         let named = some["processes"] as? [[String: Any]]
         XCTAssertEqual(named?.count, HostBridge.processesMost)
         XCTAssertEqual(named?.first?["pid"] as? Int, 1)
         XCTAssertEqual(named?.first?["why"] as? String, "folder")
         XCTAssertTrue(isOK(HostBridge.answer(line(["action": "processes", "folder": "/Users/ada/wt"]), token: token, actions: mac)))
-        let cant = HostBridge.answer(line(["action": "processes", "folder": "/nowhere"]), token: token, actions: mac)
+        var nowhere = mac
+        nowhere.openWorktrees = { ["/nowhere"] }
+        let cant = HostBridge.answer(line(["action": "processes", "folder": "/nowhere"]), token: token, actions: nowhere)
         XCTAssertEqual(cant["error"] as? String, "This Mac couldn't list its processes.")
-        XCTAssertEqual(looked, ["/Users/ada/wt 6f1c2a9e-0b3d", "/Users/ada/wt ", "/nowhere "])
+        XCTAssertEqual(looked, ["/Users/ada/wt \(session)", "/Users/ada/wt ", "/nowhere "])
+    }
+
+    /// The registry `processes` reads (RM5c S2): the open hires' worktrees, as the core writes them; none without a
+    /// registry; nil for one that can't be read, which is left where it is, as it is.
+    func testTheProcessesReadTheOpenHiresWorktreesFromTheRegistry() throws {
+        let file = folder.appendingPathComponent("registry.json")
+        XCTAssertEqual(HostBridge.openWorktrees(in: file), [])
+        let registry: [String: Any] = ["version": 1, "hires": [
+            ["id": "a", "state": "working", "worktree": "/Users/ada/repo-hires/ada-abcdef", "engine": "t3", "t3Session": "x"],
+            ["id": "b", "state": "starting", "worktree": "/Users/ada/repo-hires/bob-123456"],
+            ["id": "c", "state": "fired", "worktree": "/Users/ada/repo-hires/cy-654321"],
+            ["id": "d", "state": "failed", "worktree": "/Users/ada/repo-hires/di-111111"],
+            ["id": "e", "state": "working", "worktree": ""],
+            ["id": "f", "state": "idle"],
+        ]]
+        try JSONSerialization.data(withJSONObject: registry).write(to: file)
+        XCTAssertEqual(HostBridge.openWorktrees(in: file), ["/Users/ada/repo-hires/ada-abcdef", "/Users/ada/repo-hires/bob-123456"])
+        for broken in ["{", "[]", #"{"hires":7}"#] {
+            try Data(broken.utf8).write(to: file)
+            XCTAssertNil(HostBridge.openWorktrees(in: file), broken)
+            XCTAssertEqual(try Data(contentsOf: file), Data(broken.utf8), "left as it is")
+        }
+        XCTAssertTrue(HostBridge.isSessionID("6f1c2a9e-0b3d-4e5f-8a7b-1c2d3e4f5a6b"))
+        XCTAssertFalse(HostBridge.isSessionID(""))
     }
 
     /// The processes, for real (M5c): the kernel's own list, by the code the Mac's Let go uses. A process working in
@@ -858,6 +904,8 @@ final class HostBridgeTests: XCTestCase {
             return process
         }
         let worktree = folder.appendingPathComponent("wt").path
+        var mac = actions
+        mac.openWorktrees = { [worktree] }
         let sleeper = try start("/bin/sleep", ["30"], in: wt)
         let adder = try start("/bin/sh", ["-c", "/bin/sleep 30; :", "sh", "--add-dir", worktree], in: other)
         let tail = try start("/usr/bin/tail", ["-f", transcript.path], in: other)
@@ -866,7 +914,7 @@ final class HostBridgeTests: XCTestCase {
         func ask(_ session: String) -> [Int32: [String: Any]] {
             var request: [String: Any] = ["action": "processes", "folder": worktree, "token": token]
             if !session.isEmpty { request["session"] = session }
-            let answer = HostBridge.answer(line(request), token: token, actions: actions)
+            let answer = HostBridge.answer(line(request), token: token, actions: mac)
             var byPid: [Int32: [String: Any]] = [:]
             for one in answer["processes"] as? [[String: Any]] ?? [] { byPid[Int32(one["pid"] as? Int ?? 0)] = one }
             return byPid

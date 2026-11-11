@@ -357,10 +357,6 @@ enum T3Desk {
 
     static func stillHiring(_ name: String) -> String { "\(name) is still being hired, try again in a moment." }
 
-    /// One tick of the follow, on the main thread: a round on the follow's own queue, unless the last one hasn't come back
-    /// yet (then nothing, so rounds never pile up behind a slow T3 Code). What it saw, and whether a desk's look moved,
-    /// go to `apply` on the main thread. Says whether a round began.
-    @discardableResult
     /// The hires the Follow looks at now: those still open in T3 Code, and none while T3 Code is off in Settings, when
     /// `t3` is never run (C4 B1, as the Go core rests).
     static func followed(_ hires: [FrontDesk.Hire], config: Config) -> [FrontDesk.Hire] {
@@ -368,6 +364,10 @@ enum T3Desk {
         return hires.filter { $0.engine == engine && $0.state != .fired && $0.state != .failed }
     }
 
+    /// One tick of the follow, on the main thread: a round on the follow's own queue, unless the last one hasn't come back
+    /// yet (then nothing, so rounds never pile up behind a slow T3 Code). What it saw, and whether a desk's look moved,
+    /// go to `apply` on the main thread. Says whether a round began.
+    @discardableResult
     static func tick(_ hires: [FrontDesk.Hire], machine: T3Code.Machine = T3Code.Machine(),
                      apply: @escaping (_ seen: [(id: String, seen: Seen)], _ moved: Bool) -> Void) -> Bool {
         dispatchPrecondition(condition: .onQueue(.main))

@@ -33,9 +33,11 @@ func processesOnTheMac(folder, session string) ([]int, bool) {
 	}
 	var pids []int
 	for _, process := range found {
-		if process.PID > 0 {
-			pids = append(pids, process.PID)
+		// The app never sends one; an answer that does isn't one to trust as "nothing holds it" (RM5c N4).
+		if process.PID <= 0 {
+			return nil, false
 		}
+		pids = append(pids, process.PID)
 	}
 	return pids, true
 }

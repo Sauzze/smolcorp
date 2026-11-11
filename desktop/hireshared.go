@@ -238,9 +238,9 @@ func uncommittedRefusal(h Hire, git gitRunner) string {
 // moves a hire still starting, a fire ends a working hire too. The notes are
 // the owner's: they stay as the registry holds them now (read under its
 // lock, not the copy read when the fire began), and a kept line, if given, goes
-// before them, as the Mac's.
-func markFired(id, keptLine string) {
-	_ = updateRegistry(func(f *registryFile) {
+// before them, as the Mac's. An error when the registry couldn't be written.
+func markFired(id, keptLine string) error {
+	return updateRegistry(func(f *registryFile) {
 		if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id && h.State != "fired" && h.State != "failed" }); i >= 0 {
 			f.hires[i].State = "fired"
 			if keptLine != "" {

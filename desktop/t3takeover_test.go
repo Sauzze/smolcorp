@@ -647,6 +647,123 @@ func TestT3TakeOverWhoseRegistryCantBeWrittenAfterTheStopAdvisesAFencedResume(t 
 	}
 }
 
+// RM5c B1: the thread is never only in memory. Its save failing once is tried again, and the last save holds it
+// too, so Hand back removes T3 Code's project; failing every try, nothing more goes to T3 Code and the hire is
+// handed back at once, its project removed.
+func TestT3TakeOverNeverKeepsTheThreadOnlyInMemory(t *testing.T) {
+	thread := t3ImportedThread + t3TakeOverSession
+	removed := func(k *t3TakeOverRig) bool {
+		return slices.ContainsFunc(k.runs(), func(run []string) bool {
+			return slices.Equal(run, []string{"project", "remove", k.hire.Worktree, "--force"})
+		})
+	}
+	// failing makes saves number from..to (counted from 1) fail.
+	failing := func(k *t3TakeOverRig, ways t3Handing, from, to int) t3Handing {
+		save, count := ways.Save, 0
+		ways.Save = func(id string, change func(*Hire)) error {
+			count++
+			if count >= from && count <= to {
+				return errors.New("disk full")
+			}
+			return save(id, change)
+		}
+		return ways
+	}
+	k := newT3TakeOverRig(t)
+	if got, err := t3TakeOver(k.hire, k.session, failing(k, k.ways(), 2, 2)); err != nil || got != thread {
+		t.Fatalf("%q %v", got, err)
+	}
+	if k.saved.Engine != t3Engine || k.saved.T3Thread != thread {
+		t.Fatalf("the registry: %+v", k.saved)
+	}
+	if _, err := t3HandBack(k.saved, k.ways()); err != nil || !removed(k) {
+		t.Errorf("Hand back: %v %q", err, k.runs())
+	}
+
+	k = newT3TakeOverRig(t)
+	_, err := t3TakeOver(k.hire, k.session, failing(k, k.ways(), 2, 1+t3SaveMost))
+	refused := refusalOf(t, err)
+	if refused.Message != "The registry couldn't be written, so Ada wasn't handed over. Nothing stayed in T3 Code, and Ada was resumed in its tmux session." {
+		t.Errorf("%q", refused.Message)
+	}
+	if !removed(k) || !slices.Contains(k.log, "resume "+t3TakeOverSession) {
+		t.Errorf("not handed back: %q %q", k.runs(), k.log)
+	}
+	if slices.ContainsFunc(k.srv.made(), func(call string) bool { return strings.HasPrefix(call, "agentSessions.import") }) {
+		t.Errorf("imported: %q", k.srv.made())
+	}
+	if k.saved.T3Session != "" || k.saved.T3Thread != "" || k.saved.Engine != "" {
+		t.Errorf("the registry: %+v", k.saved)
+	}
+}
+
+// RM5c N2: Hand back's last save is tried again; still unwritten, the hire runs in its tmux and Hand back says so.
+func TestT3HandBackWhoseLastSaveFailsSaysSo(t *testing.T) {
+	k := newT3TakeOverRig(t)
+	h := k.takenOver()
+	ways := k.ways()
+	save, tries := ways.Save, 0
+	ways.Save = func(id string, change func(*Hire)) error {
+		probe := Hire{T3Session: "x"}
+		if change(&probe); probe.T3Session == "" {
+			tries++
+			return errors.New("disk full")
+		}
+		return save(id, change)
+	}
+	note, err := t3HandBack(h, ways)
+	if err != nil || note != t3ResumedUnsaved("Ada") || tries != t3SaveMost || !slices.Contains(k.log, "resume "+t3TakeOverSession) {
+		t.Errorf("%q %v %d %q", note, err, tries, k.log)
+	}
+}
+
+// RM5c N2 and N3: a hire whose Hand back resumed it but couldn't write its last save is handed back by the registry
+// alone, as its own session runs at its own tmux socket: nothing looked at, stopped or resumed, t3 not run. With
+// T3 Code off, t3 isn't asked its version. Without its session there, it's a Hand back as any other.
+func TestT3HandBackOfAHireAlreadyResumedOnlyClearsTheRegistry(t *testing.T) {
+	k := newT3TakeOverRig(t)
+	keptMachine, keptStand := newT3Machine, t3HandingStand
+	newT3Machine = k.machine
+	t3HandingStand = func(*Deck, Hire) t3Handing { return k.ways() }
+	t.Cleanup(func() { newT3Machine, t3HandingStand = keptMachine, keptStand })
+	t3Kept.Lock()
+	t3Kept.status, t3Kept.at = t3Status{}, time.Time{}
+	t3Kept.Unlock()
+	d := newTestDeck(t)
+	resumed := k.hire
+	resumed.T3Session, resumed.T3Transcript = k.session.ID, k.session.Transcript
+	k.saved = resumed
+	t3Registered(t, resumed)
+	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree,
+		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree, nowMillis())
+	got := serve(t, d, t3PageCall("POST", "/setup/t3code/handback", `{"id":"`+k.hire.ID+`"}`))
+	if got.Code != http.StatusOK || k.saved.T3Session != "" || k.saved.State != "working" || !slices.Equal(k.log, []string{"save"}) || len(k.runs()) != 0 {
+		t.Errorf("%d %s %+v %q %q", got.Code, got.Body, k.saved, k.log, k.runs())
+	}
+	// Taken over (in T3 Code, or with its thread on record), its session at its tmux is no proof: a Hand back as any other.
+	for _, h := range []Hire{{Engine: t3Engine}, {T3Thread: t3ImportedThread + t3TakeOverSession}} {
+		h.T3Session = t3TakeOverSession
+		if t3AlreadyResumed(h, k.session) {
+			t.Errorf("%+v", h)
+		}
+	}
+	if t3AlreadyResumed(resumed, t3Session{}) || t3AlreadyResumed(resumed, t3Session{ID: "1" + t3TakeOverSession[1:]}) {
+		t.Error("no session, or another, taken for its own")
+	}
+	// Its session gone from its tmux: the hard check and the resume, as any Hand back.
+	d.Ingest(map[string]any{"hook_event_name": "SessionEnd", "session_id": t3TakeOverSession, "reason": "other"},
+		"claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree, nowMillis())
+	_ = updateRegistry(func(f *registryFile) { f.hires[0] = resumed })
+	k.saved, k.log = resumed, nil
+	if got := serve(t, d, t3PageCall("POST", "/setup/t3code/handback", `{"id":"`+k.hire.ID+`"}`)); got.Code != http.StatusOK ||
+		!slices.Contains(k.log, "look") || !slices.Contains(k.log, "resume "+t3TakeOverSession) {
+		t.Errorf("%d %s %q", got.Code, got.Body, k.log)
+	}
+	if slices.ContainsFunc(k.runs(), func(run []string) bool { return slices.Contains(run, "--version") }) {
+		t.Errorf("t3 asked its version with T3 Code off: %q", k.runs())
+	}
+}
+
 // RM5b S3: a hire taken over (in T3 Code, or stopped and waiting for Hand back) isn't fired from the office, Setup
 // or the GM: hand it back first.
 func TestT3AHireTakenOverIsHandedBackBeforeItsFired(t *testing.T) {

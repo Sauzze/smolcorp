@@ -277,9 +277,13 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 		}
 		return giveBack(http.StatusBadGateway, "T3 Code didn't add "+name+"'s worktree as its own project ("+t3Said(added)+"), so it wasn't handed over.")
 	}
-	// The project is Smolcorp's: Hand back removes it (it never removes a project it didn't add).
+	// The project is Smolcorp's: Hand back removes it (it never removes a project it didn't add). Its thread goes
+	// on record before T3 Code is asked anything more, and in the last save too: a thread only in memory is a
+	// project Hand back wouldn't know to remove (RM5c B1). Not written: handed back at once, from h.
 	h.T3Thread = thread
-	_ = ways.Save(h.ID, func(r *Hire) { r.T3Thread = thread })
+	if !t3SaveTries(ways, func() error { return ways.Save(h.ID, func(r *Hire) { r.T3Thread = thread }) }) {
+		return giveBack(http.StatusInternalServerError, "The registry couldn't be written, so "+name+" wasn't handed over.")
+	}
 	if !t3FenceHolds(fence, settings) {
 		return giveBack(http.StatusConflict, name+"'s fence was gone or changed before T3 Code took the session, so it wasn't handed over.")
 	}
@@ -302,7 +306,7 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 	}
 	link, _ := shown["link"].(string)
 	// 6. A T3 desk now: the lane's follow, card and Let go.
-	if ways.Save(h.ID, func(r *Hire) { r.Engine, r.T3Link, r.State = t3Engine, link, "idle" }) != nil {
+	if ways.Save(h.ID, func(r *Hire) { r.Engine, r.T3Thread, r.T3Link, r.State = t3Engine, thread, link, "idle" }) != nil {
 		return giveBack(http.StatusInternalServerError, "The registry couldn't be written, so "+name+" wasn't handed over.")
 	}
 	return thread, nil
@@ -337,6 +341,8 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 		if !(removed.Ended && removed.Code == 0) && !t3NoProject(removed) {
 			return "", t3Refused(http.StatusBadGateway, "T3 Code didn't remove "+name+"'s project ("+t3Said(removed)+"), so it wasn't handed back: T3 Code could still open its session.")
 		}
+		// Unwritten, the registry keeps a thread whose project is gone: harmless, as the next Hand back's removal
+		// finds no project (t3NoProject), and step 4's save clears it before any resume.
 		h.T3Thread = ""
 		_ = ways.Save(h.ID, func(r *Hire) { r.T3Thread, r.T3Link = "", "" })
 	}
@@ -363,8 +369,19 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 	if err := ways.Resume(h, session); err != nil {
 		return "", t3Refused(http.StatusInternalServerError, name+"'s session is free, but it couldn't be resumed: "+err.Error()+" Hand it back again to retry.")
 	}
-	_ = ways.Save(h.ID, func(r *Hire) { r.T3Session, r.T3Transcript, r.State = "", "", "working" })
+	if !t3SaveTries(ways, func() error {
+		return ways.Save(h.ID, func(r *Hire) { r.T3Session, r.T3Transcript, r.State = "", "", "working" })
+	}) {
+		// It runs in its tmux; only the registry lags. Hand back again sees its own session there and clears it
+		// (handBackFromT3), as nothing else would: Fire waits for Hand back (RM5c N2).
+		note = strings.TrimSpace(note + " " + t3ResumedUnsaved(name))
+	}
 	return note, nil
+}
+
+// t3ResumedUnsaved is what Hand back says when the hire was resumed but the registry still has it as handed over.
+func t3ResumedUnsaved(name string) string {
+	return name + " was resumed in its tmux session, but the registry couldn't be written, so Hand back is still offered: hand it back again to clear that."
 }
 
 // t3WindowRefusal is why a hire's window isn't left as it is for Take over, or "": only an idle one is.
@@ -504,7 +521,8 @@ func (d *Deck) handBackFromT3(id string) (int, any) {
 	ways := d.t3HandingFor(asked)
 	// Not gated as Take over is: a hire taken over is handed back even once T3 Code is off, t3 was updated or its
 	// app is closed, without T3 Code's internal calls then (RM5b S4). Without t3 at all, t3HandBack says why.
-	ways.NoCalls = t3TakeOverGate(on, t3StatusNow(true, ways.Machine)) != ""
+	// T3 Code off is known without asking t3 (RM5c N3).
+	ways.NoCalls = !on || t3TakeOverGate(on, t3StatusNow(true, ways.Machine)) != ""
 	t3Desk.Lock()
 	hire, found := registryHire(id)
 	var note string
@@ -515,6 +533,12 @@ func (d *Deck) handBackFromT3(id string) (int, any) {
 		err = t3Refused(http.StatusConflict, calledHire(hire)+" wasn't taken over from Smolcorp, so there's nothing to hand back.")
 	case !isOpen(hire):
 		err = t3Refused(http.StatusConflict, calledHire(hire)+" is already gone.")
+	case t3AlreadyResumed(hire, d.t3SessionOf(hire)):
+		// Resumed by an earlier Hand back whose last save failed (RM5c N2): its own Claude Code runs that session in
+		// its own tmux, so only the registry is behind. Nothing is stopped, removed or resumed.
+		if ways.Save(hire.ID, func(r *Hire) { r.T3Session, r.T3Transcript, r.State = "", "", "working" }) != nil {
+			err = t3Refused(http.StatusInternalServerError, "The registry couldn't be written, so "+calledHire(hire)+" still shows as handed over.")
+		}
 	default:
 		note, err = t3HandBack(hire, ways)
 	}
@@ -529,6 +553,13 @@ func (d *Deck) handBackFromT3(id string) (int, any) {
 		return t3Answer(err)
 	}
 	return http.StatusOK, map[string]any{"ok": true, "note": note}
+}
+
+// t3AlreadyResumed is whether hire h, on record as waiting for Hand back, was in fact resumed: nothing of T3 Code's
+// is on record (no engine, no thread), and the one session at its own tmux socket, as its hooks say, is the one
+// handed over. Then it's its own Claude Code that holds it, and Hand back has only the registry left to do.
+func t3AlreadyResumed(h Hire, live t3Session) bool {
+	return h.T3Session != "" && h.Engine == "" && h.T3Thread == "" && live.ID == h.T3Session
 }
 
 // t3Answer is a refusal as a route says it.

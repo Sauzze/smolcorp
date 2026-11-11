@@ -199,15 +199,22 @@ func (d *Deck) letGoOfT3(id string) (int, any) {
 	// Read again once it's this let go's turn, so a second click finds the hire already gone.
 	hire, found := registryHire(id)
 	var gone t3Gone
-	var err error
+	var err, unsaved error
 	if found {
 		gone, err = t3LetGo(hire, t3Leaver(), func(g t3Gone) {
 			note := "Let go from T3 Code: its thread there was removed; its worktree and branch were kept."
 			if g.Note != "" {
 				note += " " + g.Note
 			}
-			markFired(hire.ID, note)
+			// Unwritten, it would still show on the team as if nothing happened: said, so it's let go again (a
+			// project already removed is no error then).
+			if markFired(hire.ID, note) != nil {
+				unsaved = t3Refused(http.StatusInternalServerError, calledHire(hire)+" was let go from T3 Code, but the registry couldn't be written, so it's still on the team: let it go again.")
+			}
 		})
+		if err == nil {
+			err = unsaved
+		}
 	}
 	t3Desk.Unlock()
 	if !found {
