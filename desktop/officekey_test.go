@@ -84,8 +84,6 @@ func TestTheOfficeKeysAreCheckedAsTheSharedFixtureSays(t *testing.T) {
 	}
 }
 
-// On Windows and Linux there's no key from anywhere: the keys are checked and kept for the page, nothing asked.
-// Only the page may set them: a GM, a tool and a hire are refused.
 // A test copy of the Mac app holds no office shortcut (TKEY): whatever the app says it holds, setup says
 // held: false, even with the keys off; the real app's word is believed.
 func TestATestCopyOfTheMacHoldsNoOfficeKeys(t *testing.T) {
@@ -111,6 +109,8 @@ func TestATestCopyOfTheMacHoldsNoOfficeKeys(t *testing.T) {
 	}
 }
 
+// On Windows and Linux there's no key from anywhere: the keys are checked and kept for the page, nothing asked.
+// Only the page may set them: a GM, a tool and a hire are refused.
 func TestTheOfficeKeysAreKeptHereAndSetByThePageAlone(t *testing.T) {
 	d := newTestDeck(t)
 	gm, hireKey := withGMAndAHire(t, d)
