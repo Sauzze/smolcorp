@@ -111,7 +111,12 @@ enum T3Desk {
     /// worktree. Refused at any step with everything made taken back. Runs git and `t3`: never on the main thread.
     static func hire(_ hiring: Hiring, ways: Ways) -> Result<Started, Refusal> {
         let machine = ways.machine, git = ways.git
+        // While it's being hired, it isn't let go (`letGo`): a let go part way could take its fence away before its thread starts.
+        lock.lock(); inFlight.insert(hiring.hireID); lock.unlock()
+        defer { lock.lock(); inFlight.remove(hiring.hireID); lock.unlock() }
         guard let program = T3Code.program(machine) else { return .failure(Refusal(status: 409, message: T3Code.noneHint)) }
+        // The main checkout's own local settings merge with the fence (T797a, run 4): one that switches hooks off competes with the guard.
+        guard !hooksSwitchedOff(folder: hiring.folder, git: git) else { return .failure(Refusal(status: 409, message: hooksOff)) }
         // 1. The worktree and branch, named as every hire's. T3 Code's agent works on T3's own Claude account, so no
         //    account of Smolcorp's is trusted or checked for it.
         let request = HireDesk.Request(hireID: hiring.hireID, name: hiring.name, folder: hiring.folder, claude: false,
@@ -138,7 +143,7 @@ enum T3Desk {
             var message = why
             if project {
                 let removed = machine.run(program, ["project", "remove", worktree, "--force"], within)
-                if removed.status != 0 {
+                if removed.status != 0 && !noProject(removed) {
                     message += " T3 Code didn't remove the project it was given (\(said(removed))), so the hire's worktree and fence were kept: remove \"\(title)\" in T3 Code."
                     ways.fail(message)
                     return .failure(Refusal(status: status, message: message))
@@ -174,45 +179,79 @@ enum T3Desk {
         do { brief = try ways.brief(ready) } catch {
             return takeBack(500, error.localizedDescription, brief: true)
         }
+        // The fence is checked again right before T3 Code hears of the folder, and right before the thread starts.
+        guard fenceHolds(fence, settings) else { return takeBack(409, fenceLost, brief: true) }
         // 6. The worktree as a T3 project of its own: then the thread can't land in a project around it (T797a 2a).
         let added = machine.run(program, ["project", "add", worktree, "--title", title], within)
         guard added.status == 0 else {
-            // "already exists" is someone else's project: it's left alone.
-            return takeBack(502, "T3 Code didn't add the hire's worktree as a project: \(said(added))", brief: true)
+            // "already exists" is someone else's project: it's left alone. No answer at all: T3 Code may have added it anyway.
+            return takeBack(502, "T3 Code didn't add the hire's worktree as a project: \(said(added))", project: added.status == nil, brief: true)
         }
         guard let project = addedProject(added.output, folder: worktree) else {
             return takeBack(502, "T3 Code didn't say it added the hire's worktree as its own project, so the thread wasn't started.", project: true, brief: true)
         }
+        guard fenceHolds(fence, settings) else { return takeBack(409, fenceLost, project: true, brief: true) }
         // 7. The thread, in that folder, told to read its brief.
         let start = machine.run(program, ["thread", "start", worktree, brief.message, "--provider", provider, "--model", hiring.model, "--json"], within)
         guard start.status == 0, let thread = object(start.output)?["threadId"] as? String, !thread.isEmpty else {
             return takeBack(502, "T3 Code didn't start the hire's thread: \(said(start))", project: true, brief: true)
         }
         // 8. It runs in the worktree: T3 made no worktree of its own, and the thread is in the project just added.
-        guard let shown = show(thread, program: program, machine: machine),
-              shown["worktreePath"] == nil || shown["worktreePath"] is NSNull, shown["projectId"] as? String == project else {
+        guard let shown = show(thread, program: program, machine: machine) else {
             return takeBack(502, "Smolcorp couldn't confirm the thread runs in the hire's worktree, so it was taken back.", project: true, brief: true)
+        }
+        let inProject = shown["projectId"] as? String ?? ""
+        guard inProject == project else {
+            // Removing the hire's own project doesn't reach a thread in another one, and T3 Code has no stop: said as it is.
+            return takeBack(502, "T3 Code started the hire's thread in another project (\(inProject.isEmpty ? "it didn't say which" : inProject)), not in its worktree; Smolcorp removed only the hire's own project, and T3 Code has no stop, so that thread may still be running there, outside the fence: stop it in T3 Code.", project: true, brief: true)
+        }
+        if let elsewhere = shown["worktreePath"] as? String {
+            // In the hire's project still, so removing that project ends it (T797a).
+            return takeBack(502, "T3 Code put the hire's thread in a worktree of its own (\(elsewhere)), not the hire's, so it was taken back with its project.", project: true, brief: true)
         }
         let link = shown["link"] as? String ?? ""
         ways.started(thread, link, brief.path)
         return .success(Started(ready: ready, thread: thread, link: link))
     }
 
+    static let fenceLost = "The hire's fence was gone or changed before its thread could start, so no thread was started and the hire was taken back."
+    static let hooksOff = "This repository's own .claude/settings.local.json switches Claude Code's hooks off (disableAllHooks), which would compete with the hire's fence, so Smolcorp won't hire into T3 Code here."
+
     /// The fence written whole, private to you, and read back the same.
     static func writeFence(_ settings: [String: Any], to fence: URL) -> Bool {
         guard let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
               (try? FileManager.default.createDirectory(at: fence.deletingLastPathComponent(), withIntermediateDirectories: true)) != nil,
-              Paths.writePrivately(data, to: fence),
-              let back = try? Data(contentsOf: fence), let read = try? JSONSerialization.jsonObject(with: back) else { return false }
+              Paths.writePrivately(data, to: fence) else { return false }
+        return fenceHolds(fence, settings)
+    }
+
+    /// The fence is on disk and holds what was written.
+    static func fenceHolds(_ fence: URL, _ settings: [String: Any]) -> Bool {
+        guard let back = try? Data(contentsOf: fence), let read = try? JSONSerialization.jsonObject(with: back) else { return false }
         return JSONText.same(read, settings)
     }
 
-    /// The fence and, if Smolcorp made it, its .claude folder (only while empty).
-    static func removeFence(_ fence: URL, folder: URL?) {
+    /// The fence and, if Smolcorp made it, its .claude folder (only while empty). Says whether the fence is gone.
+    @discardableResult
+    static func removeFence(_ fence: URL, folder: URL?) -> Bool {
         try? FileManager.default.removeItem(at: fence)
         if let folder, (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.isEmpty == true {
             try? FileManager.default.removeItem(at: folder)
         }
+        return !FileManager.default.fileExists(atPath: fence.path)
+    }
+
+    /// Whether the main checkout of `folder`'s repo has its own .claude/settings.local.json with `disableAllHooks` true. Claude
+    /// Code merges that file with a worktree's own at the same level (T797a, run 4), so it would compete with the fence's
+    /// `false`. Only that one key is read.
+    static func hooksSwitchedOff(folder: String, git: HireDesk.Git) -> Bool {
+        guard let common = git(folder, ["rev-parse", "--path-format=absolute", "--git-common-dir"]), common.status == 0 else { return false }
+        let dir = URL(fileURLWithPath: common.output.trimmingCharacters(in: .whitespacesAndNewlines))
+        // A bare repo has no main checkout.
+        guard dir.lastPathComponent == ".git" else { return false }
+        let local = dir.deletingLastPathComponent().appendingPathComponent(fenceName)
+        guard let data = try? Data(contentsOf: local), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return object["disableAllHooks"] as? Bool == true
     }
 
     /// `.claude/settings.local.json` in the repo's info/exclude (once), then git asked that it's ignored and not listed.
@@ -255,6 +294,11 @@ enum T3Desk {
         (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
     }
 
+    /// `t3` said there's no such project: one already removed is as good as removed now.
+    static func noProject(_ ran: T3Code.Ran) -> Bool {
+        (ran.output + ran.errors).contains("No T3 Code project matches")
+    }
+
     /// The first line `t3` said, on its errors first, cut to 200 characters; what's said when it said nothing.
     static func said(_ ran: T3Code.Ran) -> String {
         let line = T3Code.firstLine(ran.errors.isEmpty ? ran.output : ran.errors)
@@ -287,25 +331,65 @@ enum T3Desk {
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var seen: [String: Seen] = [:]
-    nonisolated(unsafe) private static var looking = false
+    /// When each hire's thread was last looked at.
+    nonisolated(unsafe) private static var looked: [String: Date] = [:]
+    /// The hires being hired into T3 Code now (`hire`).
+    nonisolated(unsafe) private static var inFlight: Set<String> = []
+    /// A follow round is on its way (the main thread's alone).
+    nonisolated(unsafe) private static var following = false
+    /// Hiring and letting go, one at a time: a let go comes strictly before a hire is registered or after its thread is known.
     static let queue = DispatchQueue(label: "smolcorp.t3-desk")
+    /// The follow's own: a slow T3 Code never holds a hire or a let go behind it.
+    static let followQueue = DispatchQueue(label: "smolcorp.t3-follow")
+    /// How often the follow's clock ticks: each hire is still looked at no more than every `followEvery`.
+    static let followTick: TimeInterval = 2
 
     static func lastSeen(_ hireID: String) -> Seen? {
         lock.lock(); defer { lock.unlock() }
         return seen[hireID]
     }
 
-    /// Looks at each hire's thread, one at a time, unless a look is still running: then nothing (so each hire is looked
-    /// at no more than every `followEvery`). Gives what was seen. Runs `t3`: never on the main thread.
-    static func follow(_ hires: [FrontDesk.Hire], machine: T3Code.Machine = T3Code.Machine()) -> [(id: String, seen: Seen)]? {
-        lock.lock()
-        if looking { lock.unlock(); return nil }
-        looking = true
-        lock.unlock()
-        defer { lock.lock(); looking = false; lock.unlock() }
+    /// Whether hire `hireID` is being hired into T3 Code now.
+    static func isHiring(_ hireID: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return inFlight.contains(hireID)
+    }
+
+    static func stillHiring(_ name: String) -> String { "\(name) is still being hired, try again in a moment." }
+
+    /// One tick of the follow, on the main thread: a round on the follow's own queue, unless the last one hasn't come back
+    /// yet (then nothing, so rounds never pile up behind a slow T3 Code). What it saw, and whether a desk's look moved,
+    /// go to `apply` on the main thread. Says whether a round began.
+    @discardableResult
+    static func tick(_ hires: [FrontDesk.Hire], machine: T3Code.Machine = T3Code.Machine(),
+                     apply: @escaping (_ seen: [(id: String, seen: Seen)], _ moved: Bool) -> Void) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard !following else { return false }
+        following = true
+        followQueue.async {
+            let earlier = hires.map { lastSeen($0.id) }
+            let seen = follow(hires, machine: machine)
+            let moved = hires.map { lastSeen($0.id) } != earlier
+            DispatchQueue.main.async {
+                following = false
+                apply(seen, moved)
+            }
+        }
+        return true
+    }
+
+    /// Looks at each open hire's thread, one at a time, each no more than every `followEvery` (a hire looked at sooner is
+    /// left for a later round). Gives what was seen. Runs `t3`: never on the main thread.
+    static func follow(_ hires: [FrontDesk.Hire], machine: T3Code.Machine = T3Code.Machine(), now: () -> Date = Date.init) -> [(id: String, seen: Seen)] {
         let program = T3Code.program(machine)
         var found: [(id: String, seen: Seen)] = []
         for hire in hires where hire.engine == engine && !hire.t3Thread.isEmpty && hire.state != .fired && hire.state != .failed {
+            let at = now()
+            lock.lock()
+            let due = looked[hire.id].map { at.timeIntervalSince($0) >= followEvery } ?? true
+            if due { looked[hire.id] = at }
+            lock.unlock()
+            guard due else { continue }
             let look: Seen
             if let program, let thread = show(hire.t3Thread, program: program, machine: machine) {
                 look = Seen(status: status(of: thread), raw: thread["status"] as? String ?? "", link: thread["link"] as? String ?? "")
@@ -381,40 +465,67 @@ enum T3Desk {
         let name = HireDesk.called(hire)
         guard !hire.t3Thread.isEmpty else { return .failed("\(name) has no T3 Code thread, so mail can't reach it.") }
         guard let program = T3Code.program(machine) else { return .trouble("T3 Code's t3 command isn't there, so mail can't reach \(name) now.") }
-        let ran = machine.feed(program, ["thread", "send", hire.t3Thread, "-"], Data(text.utf8), within)
+        let ran = machine.feed(program, ["thread", "send", hire.t3Thread, "-", "--json"], Data(text.utf8), within)
         // No answer: it may have been taken, so it isn't sent again.
         guard let status = ran.status else { return .failed("T3 Code didn't answer, so it isn't known whether \(name) got it; it won't be sent again.") }
         guard status == 0 else { return .trouble("T3 Code didn't take it: \(said(ran))") }
-        return T3Code.firstLine(ran.output).hasPrefix("Queued") ? .deliveredAs("queued: \(name)'s thread in T3 Code was busy, so it's its next turn.") : .delivered
+        // T797a: `"delivery":"started"`, or `"queued"` when the thread is busy.
+        return object(ran.output)?["delivery"] as? String == "queued" ? .deliveredAs("queued: \(name)'s thread in T3 Code was busy, so it's its next turn.") : .delivered
     }
 
     // MARK: Letting go
 
     static let letGoConfirm = "T3 Code's thread for this hire, and its history in T3 Code, are removed. Its worktree and branch stay."
 
-    /// What letting go uses besides `t3`: the processes now (read from the kernel, by PID), and the clock.
+    /// What letting go uses besides `t3`: the processes now (read from the kernel, by PID) and their names, and the clock.
     struct Leaving {
         var machine = T3Code.Machine()
         var working: (String) -> [pid_t] = Processes.working(in:)
+        var name: (pid_t) -> String = Processes.name(of:)
         var pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
         var now: () -> Date = Date.init
     }
 
+    /// A hire let go: its recap, and what's to know besides (its fence couldn't be taken away), or "".
+    struct Gone: Equatable {
+        var recap: String
+        var note = ""
+    }
+
     /// Lets a hire in T3 Code go: T3 has no stop, so its project is removed with --force (which ends T3's agent for it,
     /// T797a), then no process may still work in its worktree; only then is the fence taken away, the recap written and
-    /// the registry told. Any step that fails says so and stops there. Never on the main thread. Gives the recap's path.
+    /// the registry told. Any step that fails says so and stops there; a hire still being hired isn't let go at all.
+    /// Never on the main thread.
     static func letGo(_ hire: FrontDesk.Hire, leaving: Leaving = Leaving(), recaps: URL = Paths.recaps,
-                      letGone: (String) -> Void) -> Result<String, Refusal> {
+                      letGone: (Gone) -> Void) -> Result<Gone, Refusal> {
+        switch leave(hire, leaving: leaving) {
+        case .failure(let refusal):
+            return .failure(refusal)
+        case .success(let fenceGone):
+            let recap = HireDesk.writeRecap(hire, capture: nil, worktreeRemoved: false, kept: "", in: recaps, now: leaving.now())
+            let gone = Gone(recap: recap, note: fenceGone ? "" : fenceKept(hire))
+            letGone(gone)
+            return .success(gone)
+        }
+    }
+
+    static func fenceKept(_ hire: FrontDesk.Hire) -> String {
+        "\(HireDesk.called(hire))'s fence couldn't be taken out of its worktree, so that folder is still fenced: \(hire.worktree)/\(fenceName)."
+    }
+
+    /// Let go's steps up to the fence: its project removed, nothing left working in its worktree, the fence taken away.
+    /// Says whether the fence is gone.
+    private static func leave(_ hire: FrontDesk.Hire, leaving: Leaving) -> Result<Bool, Refusal> {
         let name = HireDesk.called(hire)
         guard hire.engine == engine else { return .failure(Refusal(status: 409, message: "\(name) doesn't run in T3 Code.")) }
+        guard !isHiring(hire.id) else { return .failure(Refusal(status: 409, message: stillHiring(name))) }
         guard hire.state != .fired, hire.state != .failed else { return .failure(Refusal(status: 409, message: "\(name) is already gone.")) }
         guard !hire.worktree.isEmpty else { return .failure(Refusal(status: 409, message: "\(name) has no worktree on record, so nothing was changed.")) }
         guard let program = T3Code.program(leaving.machine) else {
             return .failure(Refusal(status: 409, message: "T3 Code's t3 command isn't there, so nothing was changed: \(name) may still be running in T3 Code."))
         }
         let removed = leaving.machine.run(program, ["project", "remove", hire.worktree, "--force"], within)
-        // A project already removed in T3 Code is as good as removed now.
-        guard removed.status == 0 || (removed.output + removed.errors).contains("No T3 Code project matches") else {
+        guard removed.status == 0 || noProject(removed) else {
             return .failure(Refusal(status: 502, message: "T3 Code didn't remove \(name)'s project (\(said(removed))), so nothing else was changed: it may still be running there."))
         }
         let end = leaving.now().addingTimeInterval(leaveWithin)
@@ -424,14 +535,31 @@ enum T3Desk {
             still = leaving.working(hire.worktree)
         }
         guard still.isEmpty else {
-            let pids = still.prefix(5).map(String.init).joined(separator: ", ")
-            return .failure(Refusal(status: 409, message: "T3 Code removed the project, but a process still works in \(name)'s worktree (PID \(pids)), so its fence was kept and it isn't let go yet."))
+            // Named, so you know your own Terminal or editor there when it's that.
+            let named = still.prefix(5).map { pid in
+                let called = leaving.name(pid)
+                return called.isEmpty ? "PID \(pid)" : "\(called), PID \(pid)"
+            }.joined(separator: "; ")
+            return .failure(Refusal(status: 409, message: "T3 Code removed the project, but a process still works in \(name)'s worktree (\(named)), so its fence was kept and it isn't let go yet: if that's yours, leave that folder and let go again."))
         }
         let fence = URL(fileURLWithPath: hire.worktree).appendingPathComponent(fenceName)
-        removeFence(fence, folder: fence.deletingLastPathComponent())
-        let recap = HireDesk.writeRecap(hire, capture: nil, worktreeRemoved: false, kept: "", in: recaps, now: leaving.now())
-        letGone(recap)
-        return .success(recap)
+        return .success(removeFence(fence, folder: fence.deletingLastPathComponent()))
+    }
+
+    /// The hires into T3 Code left part way at launch: registered (starting) but with no thread, as Smolcorp closed while
+    /// hiring them (nothing is being hired at launch). Each is let go as Let go does, then marked failed with what was done
+    /// or where it stopped. Gives each one's reason. Never on the main thread.
+    static func reconcile(_ hires: [FrontDesk.Hire], leaving: Leaving = Leaving()) -> [(id: String, reason: String)] {
+        hires.filter { $0.engine == engine && $0.state == .starting && $0.t3Thread.isEmpty && !isHiring($0.id) }.map { hire in
+            switch leave(hire, leaving: leaving) {
+            case .success(true):
+                return (hire.id, "Smolcorp closed while hiring it into T3 Code, so at the next launch its T3 Code project (if it had one) was removed and its fence taken away. Its worktree and branch stay.")
+            case .success(false):
+                return (hire.id, "Smolcorp closed while hiring it into T3 Code, so at the next launch its T3 Code project (if it had one) was removed. \(fenceKept(hire))")
+            case .failure(let refusal):
+                return (hire.id, "Smolcorp closed while hiring it into T3 Code, and at the next launch it couldn't be let go: \(refusal.message)")
+            }
+        }
     }
 }
 
@@ -456,6 +584,14 @@ extension Processes {
                 word == "--add-dir=\(wanted)" || word == "--add-dir=\(folder)" || (word == "--add-dir" && (next == wanted || next == folder))
             }
         }
+    }
+
+    /// A process's name as the kernel keeps it (zsh, node…), or "".
+    static func name(of pid: pid_t) -> String {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return "" }
+        return withUnsafeBytes(of: info.pbi_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
     }
 
     /// A process's arguments, from the kernel (KERN_PROCARGS2); empty when they can't be read.

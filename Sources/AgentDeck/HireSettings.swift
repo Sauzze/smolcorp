@@ -186,14 +186,26 @@ enum HireSettings {
         return settings(deny: deny, guardCommand: guardCommand(tool: cli.path, rules: rules, profile: profile), auto: auto, reporting: reporting)
     }
 
+    /// What a hire of `role` is given: the General Manager's profile for the GM, a hire's for anyone else, and `reporting` for a
+    /// test copy's hire. The one place this is chosen, for a hire Smolcorp starts (`save`d as its settings file) and for a hire
+    /// in T3 Code (written as its worktree's fence, `T3Desk`) alike, so the two never drift apart.
+    static func forHire(_ hireID: String, role: Role?, reporting: [String: Any]? = nil) throws -> [String: Any] {
+        try object(hireID: hireID, profile: role?.id == Deck.gmRole ? .gm : .hire, reporting: reporting)
+    }
+
     /// Writes hire `hireID`'s settings and says where: refused if the guard can't be run. The file is private
     /// to you and replaced whole. `cli` is the smolcorp command inside the app.
     @discardableResult
     static func write(hireID: String, auto: Bool = true, profile: Profile = .hire, cli: URL = Paths.bundledCLI, support: URL = Paths.support,
                       profiles: [ClaudeProfile] = ClaudeProfiles.current, run: Runner = runTool, reporting: [String: Any]? = nil,
                       isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) throws -> URL {
-        let object = try HireSettings.object(hireID: hireID, auto: auto, profile: profile, cli: cli, support: support, profiles: profiles, run: run,
-                                reporting: reporting, isExecutable: isExecutable)
+        try save(HireSettings.object(hireID: hireID, auto: auto, profile: profile, cli: cli, support: support, profiles: profiles, run: run,
+                                     reporting: reporting, isExecutable: isExecutable), hireID: hireID, support: support)
+    }
+
+    /// Writes `object` as hire `hireID`'s settings file, private to you and replaced whole, and says where.
+    @discardableResult
+    static func save(_ object: [String: Any], hireID: String, support: URL = Paths.support) throws -> URL {
         let manager = FileManager.default
         let place = folder(of: hireID, support: support)
         let target = file(of: hireID, support: support)

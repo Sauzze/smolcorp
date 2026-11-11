@@ -1678,8 +1678,9 @@ final class Deck {
         }
     }
 
-    /// A hire into T3 Code (T797b, experimental), once `hire` has checked who and where: the gate, then `T3Desk.hire`, off
-    /// the main thread; the registry is written on the main one. Answered as every hire is: 204 once its thread runs.
+    /// A hire into T3 Code (T797b, experimental), once `hire` has checked who and where: the gate, then `T3Desk.hire`, on
+    /// `T3Desk.queue` (so a let go comes strictly before or after it); the registry is written on the main thread. Answered
+    /// as every hire is: 204 once its thread runs.
     private func hireIntoT3(_ request: HireDesk.Request, role: Role, original: String, pinned: Bool, desk: Int?, answers: [String]?,
                             options: HireDesk.HireOptions, task: String, worktrees: String, taken: [String], held: Int?,
                             done hired: @escaping (Response, Int?) -> Void) {
@@ -1691,7 +1692,7 @@ final class Deck {
                                    folder: request.folder, model: model, worktrees: worktrees, taken: taken)
         let onMain = { (work: () -> Void) in DispatchQueue.main.sync(execute: work) }
         let ways = T3Desk.Ways(
-            settings: { try HireSettings.object(hireID: hireID) },
+            settings: { try HireSettings.forHire(hireID, role: role) },
             brief: { ready in
                 var message = answers.map { role.firstMessage(in: ready.folder, answers: $0) } ?? role.firstMessage(in: ready.folder, pinned: pinned)
                 var path = ""
@@ -1711,7 +1712,7 @@ final class Deck {
             } },
             started: { [weak self] thread, link, brief in onMain { self?.frontDesk.setT3(hireID, thread: thread, link: link, brief: brief) } },
             fail: { [weak self] why in onMain { self?.frontDesk.fail(hireID, reason: "Didn't start in T3 Code: \(why)") } })
-        DispatchQueue.global(qos: .userInitiated).async {
+        T3Desk.queue.async {
             let result: Result<T3Desk.Started, FrontDesk.Refusal>
             if let why = T3Desk.refusal(on: on, status: T3Code.status(fresh: true)) {
                 result = .failure(FrontDesk.Refusal(status: 409, message: why))
@@ -1737,27 +1738,33 @@ final class Deck {
         }
     }
 
-    /// Looks at every T3 hire's thread every `T3Desk.followEvery` seconds, one at a time off the main thread: its status for
-    /// its desk, and the registry's state and link kept as T3 Code says.
+    /// Looks at every T3 hire's thread, each no more than every `T3Desk.followEvery` seconds, one at a time off the main
+    /// thread and never while the last round is still out (`T3Desk.tick`): its status for its desk, and the registry's state
+    /// and link kept as T3 Code says. At launch, a hire left part way by a Smolcorp that closed is let go and marked failed.
     func startT3Follow() {
-        Timer.scheduledTimer(withTimeInterval: T3Desk.followEvery, repeats: true) { [weak self] _ in
+        let left = frontDesk.hires.filter { $0.engine == T3Desk.engine && $0.state == .starting && $0.t3Thread.isEmpty }
+        if !left.isEmpty {
+            T3Desk.queue.async {
+                let reasons = T3Desk.reconcile(left)
+                DispatchQueue.main.async {
+                    for (id, reason) in reasons { self.frontDesk.fail(id, reason: reason) }
+                    self.changed()
+                }
+            }
+        }
+        Timer.scheduledTimer(withTimeInterval: T3Desk.followTick, repeats: true) { [weak self] _ in
             guard let self else { return }
             let hires = self.frontDesk.hires.filter { $0.engine == T3Desk.engine && $0.state != .fired && $0.state != .failed }
             guard !hires.isEmpty else { return }
-            T3Desk.queue.async {
-                let earlier = hires.map { T3Desk.lastSeen($0.id) }
-                guard let seen = T3Desk.follow(hires) else { return }
-                let looksMoved = hires.map { T3Desk.lastSeen($0.id) } != earlier
-                DispatchQueue.main.async {
-                    let before = self.frontDesk.hires
-                    for (id, look) in seen {
-                        guard let hire = self.frontDesk.hires.first(where: { $0.id == id }), hire.state != .fired, hire.state != .failed else { continue }
-                        if let state = T3Desk.state(for: look.status) { self.frontDesk.move(id, to: state) }
-                        if !look.link.isEmpty { self.frontDesk.setT3(id, thread: hire.t3Thread, link: look.link) }
-                    }
-                    // The desks show what was seen; the office is told only when something moved.
-                    if self.frontDesk.hires != before || looksMoved { self.changed() }
+            T3Desk.tick(hires) { seen, looksMoved in
+                let before = self.frontDesk.hires
+                for (id, look) in seen {
+                    guard let hire = self.frontDesk.hires.first(where: { $0.id == id }), hire.state != .fired, hire.state != .failed else { continue }
+                    if let state = T3Desk.state(for: look.status) { self.frontDesk.move(id, to: state) }
+                    if !look.link.isEmpty { self.frontDesk.setT3(id, thread: hire.t3Thread, link: look.link) }
                 }
+                // The desks show what was seen; the office is told only when something moved.
+                if self.frontDesk.hires != before || looksMoved { self.changed() }
             }
         }
     }
@@ -1765,18 +1772,20 @@ final class Deck {
     /// `POST /setup/t3code/letgo {id}`: a hire in T3 Code let go (`T3Desk.letGo`), off the main thread; the registry says
     /// so on the main one. The page alone, after its confirm.
     func letGoOfT3(id: String, done: @escaping (Response) -> Void) {
-        guard frontDesk.hires.contains(where: { $0.id == id }) else { return done(.status(404, "That hire isn't on the team.")) }
-        // One `t3` at a time, the follow's too; the registry is read again once it's this let go's turn, so a second
-        // click finds the hire already gone.
+        guard let asked = frontDesk.hires.first(where: { $0.id == id }) else { return done(.status(404, "That hire isn't on the team.")) }
+        // Not while it's being hired: said at once, rather than after the hire.
+        if T3Desk.isHiring(id) { return done(.status(409, T3Desk.stillHiring(HireDesk.called(asked)))) }
+        // After any hire into T3 Code under way (never behind the follow, which has its own queue); the registry is read
+        // again once it's this let go's turn, so a second click finds the hire already gone.
         T3Desk.queue.async {
             guard let hire = DispatchQueue.main.sync(execute: { self.frontDesk.hires.first { $0.id == id } }) else {
                 return DispatchQueue.main.async { done(.status(404, "That hire isn't on the team.")) }
             }
-            let result = T3Desk.letGo(hire) { _ in
+            let result = T3Desk.letGo(hire) { gone in
                 DispatchQueue.main.sync {
                     self.frontDesk.move(hire.id, to: .fired)
                     let now = self.frontDesk.hires.first { $0.id == hire.id }?.notes ?? ""
-                    let note = "Let go from T3 Code: its thread there was removed; its worktree and branch were kept."
+                    let note = "Let go from T3 Code: its thread there was removed; its worktree and branch were kept." + (gone.note.isEmpty ? "" : " " + gone.note)
                     _ = try? self.frontDesk.edit(["id": hire.id, "notes": String((now.isEmpty ? note : note + "\n" + now).prefix(FrontDesk.longestNotes))])
                 }
             }
@@ -1784,7 +1793,7 @@ final class Deck {
                 self.changed()
                 switch result {
                 case .failure(let refusal): done(.status(refusal.status, refusal.message))
-                case .success(let recap): done(.json(["ok": true, "recap": recap, "worktree": hire.worktree, "branch": hire.branch]))
+                case .success(let gone): done(.json(["ok": true, "recap": gone.recap, "note": gone.note, "worktree": hire.worktree, "branch": hire.branch]))
                 }
             }
         }
@@ -1861,7 +1870,7 @@ final class Deck {
             }
         }
         if managed, claudeHire {
-            do { settings = try HireSettings.write(hireID: hireID, profile: role?.id == Deck.gmRole ? .gm : .hire, reporting: reporting).path } catch {
+            do { settings = try HireSettings.save(HireSettings.forHire(hireID, role: role, reporting: reporting), hireID: hireID).path } catch {
                 lastHire = nil
                 undo()
                 return done(.status((error as? FrontDesk.Refusal)?.status ?? 500, (error as? FrontDesk.Refusal)?.message ?? error.localizedDescription))
