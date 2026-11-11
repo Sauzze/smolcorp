@@ -1168,8 +1168,9 @@
         </div>
       </div>
       <p class="hint said-under" id="gm-fence"></p>
-      <!-- Its token: what it is, who gets it, and the file for one started by hand. Never the token itself. -->
-      <h3 class="sub">Its token</h3>
+      <!-- Its token: what it is, who gets it, and the file for one started by hand. Never the token itself.
+           Hidden where Smolcorp has no General Manager started by hand (Linux and Windows): no file is named. -->
+      <h3 class="sub" id="gm-token-head">Its token</h3>
       <div class="box gm-token" id="gm-token" data-search="The General Manager's token" data-keywords="gm general manager token key file path copy by hand rotate new">
         <div class="pad">
           <p class="text">The token is your General Manager's key to Smolcorp: with it, it can see your team and hire, brief and fire. This page never shows it.</p>
@@ -2079,11 +2080,14 @@
   /**
    * Its token, with the manager on or off: what it is, and where "started by hand" writes it, with
    * Copy path. Never the token. A new one only with the manager on, as the app refuses it while off.
+   * Smolcorp on Linux and Windows has no General Manager started by hand and names no file: the whole
+   * box is hidden there, so neither the switch nor "New GM token" is offered only to say it couldn't.
    */
   function renderGmToken(m) {
     const file = m.gmTokenFile || '';
+    $('gm-token-head').hidden = $('gm-token').hidden = !file;
+    if (!file) return;
     pathLine($('gm-token-file'), m.gmTokenFileShown || file, file);
-    $('gm-token-file').parentElement.hidden = !file; // an app from before says no path
     $('gm-token-copy').onclick = () => copyText(file, 'gm-token-copied');
     $('gm-byhand').classList.toggle('on', !!m.gmByHand);
     $('gm-byhand').setAttribute('aria-pressed', String(!!m.gmByHand));

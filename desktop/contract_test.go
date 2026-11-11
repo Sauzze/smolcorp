@@ -37,27 +37,21 @@ type knownGap struct{ subject, where, got, why, owner string }
 // knownGaps is every difference between the Mac's answers and this app's, today. Keep it in INVENTORY.md's
 // order: TestTheKnownGapsAreInventorysGoStatus checks the two are the same table.
 var knownGaps = []knownGap{
-	{"setup-state", ".claudeAccounts", "missing", "Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2)", "M2"},
-	{"setup-state", ".floorRules[].exact", "missing", "a rule's exact is left out when false (omitempty)", "M3 fixes: sent when false or empty too"},
 	{"setup-state", ".hiring.apiKey", "missing", "a hire on the API-key account is the Mac's (M4)", "M4"},
 	{"setup-state", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for", "M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher"},
 	{"setup-state", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
-	{"setup-state", ".manager", "missing", "no manager object here: the switch is in config.json, gmHired is top level (M2)", "M2"},
 	{"setup-state", ".phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
 	{"setup-state", ".roles.limits.answer", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state", ".roles.limits.briefFile", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state", ".roles.limits.briefFileName", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
 	{"setup-state", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
-	{"setup-state-tool", ".claudeAccounts", "missing", "Claude accounts are the Mac's: /setup/claude-accounts isn't served (M2)", "M2"},
-	{"setup-state-tool", ".floorRules[].exact", "missing", "a rule's exact is left out when false (omitempty)", "M3 fixes: sent when false or empty too"},
 	{"setup-state-tool", ".hiring.apiKey", "missing", "a hire on the API-key account is the Mac's (M4)", "M4"},
 	{"setup-state-tool", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state-tool", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state-tool", ".launcher", "extra", "the command that starts an agent through the launcher, which the Mac has no use for", "M2: the page shows the launcher's step when it's sent, so a Mac sends it only once it has the launcher"},
 	{"setup-state-tool", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
-	{"setup-state-tool", ".manager", "missing", "no manager object here: the switch is in config.json, gmHired is top level (M2)", "M2"},
 	{"setup-state-tool", ".pairing.codeExpiresIn", "extra", "a tool is told how long the code lasts; the Mac tells only the page", "stays: Go-only, a tool's; the page has it in its own state on both apps"},
 	{"setup-state-tool", ".phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
 	{"setup-state-tool", ".roles.limits.answer", "missing", "briefs aren't served here (M4)", "M4a: briefs"},
@@ -74,34 +68,16 @@ var knownGaps = []knownGap{
 	{"snapshot", ".upstairs.desks[].conversation", "missing", "the conversation view: the iPhone app's (personal build)", "M6: personal shell"},
 	{"snapshot", ".upstairs.desks[].phoneMic", "missing", "the phone mic is the Mac's personal build", "M6: personal shell"},
 	{"snapshot", ".upstairs.desks[].voiceNote", "missing", "voice notes: the Mac's personal build", "M6: personal shell"},
-	{"POST /setup/session", "refusal: no menu link's key: no session", "kind empty", "its 401 has no text; the Mac's says why", "M2 fixes: the Mac's text in the 401"},
 	{"POST /setup/phonemic", "route", "404", "the phone mic is the Mac's personal build", "M6: personal shell"},
-	{"GET /setup/qr.png", "refusal: no pairing code asked for", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
-	{"GET /setup/logo/nope", "refusal: no such logo", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
-	{"GET /setup/claude-accounts", "route", "404", "Claude accounts are the Mac's (M2)", "M2"},
-	{"POST /setup/claude-accounts", "route", "404", "Claude accounts are the Mac's (M2)", "M2"},
-	{"GET /setup/bots", ".bots[].discovered", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
-	{"GET /setup/bots", ".bots[].mailbox", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
-	{"GET /setup/bots", ".bots[].pinned", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
-	{"POST /setup/bots/resolve", ".bots[].discovered", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
-	{"POST /setup/bots/resolve", ".bots[].mailbox", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
-	{"POST /setup/bots/resolve", ".bots[].pinned", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
-	{"POST /setup/bots", ".bots[].discovered", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
-	{"POST /setup/bots", ".bots[].mailbox", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
-	{"POST /setup/bots", ".bots[].pinned", "missing", "left out when false or empty (omitempty)", "M3 fixes: sent when false or empty too"},
 	{"GET /setup/hire/gm/preflight", "refusal: no such Claude account", "status 200", "Claude accounts are the Mac's (M2): the GM's tools are checked for any account", "M4, once M2 has the Claude accounts"},
 	{"POST /setup/notify", "route", "404", "a push to the iPhone app (personal build)", "M6: personal shell"},
-	{"GET /setup/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
 	{"GET /setup/gm/screens", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
 	{"POST /setup/gm/screen", "route", "404", "tiling the team is the Mac's (M4)", "M4 via the bridge (M1)"},
 	{"POST /setup/gm/hire", "route", "404", "the GM's hiring is the Mac's (M4)", "M4"},
 	{"POST /setup/gm/fire", "route", "404", "the GM's firing is the Mac's (M4)", "M4"},
 	{"POST /setup/gm/brief", "route", "404", "a later brief is the Mac's (M4)", "M4"},
-	{"GET /setup/gm/registry", "refusal: listed for the page, but nothing answers it", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M4: take the dead row out of both route tables (SetupRoutes.swift, routes.go)"},
 	{"POST /setup/gm/by-hand", "route", "404", "no GM token here (M4)", "M4"},
 	{"POST /setup/gm/token/rotate", "route", "404", "no GM token here (M4)", "M4"},
-	{"GET /setup/gm/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
-	{"POST /act", "refusal: unknown dictation language", "status 404", "no dictation here: action=language isn't known, so its session is looked for", "M3 fixes: action=language known, an unknown language refused with 400"},
 	{"POST /act", "mic: dictation on, under the Mac app", "not dictated", "the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false", "M3 via the bridge (M1)"},
 	{"GET /glossary", "route", "404", "the iPhone app's speech names (personal build)", "M6: personal shell"},
 	{"GET /approvals", "route", "404", "over Tailscale only (personal build)", "M6: personal shell"},
@@ -116,7 +92,6 @@ var knownGaps = []knownGap{
 	{"GET /choice", "route", "404", "the iPhone app's prompt details (personal build)", "M6: personal shell"},
 	{"GET /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1)"},
 	{"POST /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1)"},
-	{"GET /nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
 }
 
 // contractAsk is a fixture's request: who asks, its query, headers and body, and what's set up first.
@@ -742,6 +717,10 @@ func contractGaps(t *testing.T, c contract) []knownGap {
 	saved := startHire
 	t.Cleanup(func() { startHire = saved })
 	startHire = func(*exec.Cmd) error { return nil }
+	// Linux and Windows serve Tailscale only: the pairing code's QR needs an address a phone could open, so one is
+	// given, whether or not this computer has Tailscale.
+	addresses := []string{"100.101.102.103"}
+	withTailscale(t, &addresses)
 	var gaps []knownGap
 	seen := map[knownGap]bool{}
 	add := func(g knownGap) {

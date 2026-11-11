@@ -35,6 +35,8 @@ final class SetupFreshEyesPageTests: XCTestCase {
         XCTAssertTrue(render.contains("pathLine($('gm-token-file'), m.gmTokenFileShown || file, file);"))
         XCTAssertTrue(render.contains("copyText(file, 'gm-token-copied')"))
         XCTAssertTrue(render.contains("$('gm-rotate-row').hidden = !m.enabled;"), "a new token only where the app makes one")
+        // Where no file is named (Smolcorp on Linux and Windows, no GM started by hand), nothing of it is offered.
+        XCTAssertTrue(render.contains("$('gm-token-head').hidden = $('gm-token').hidden = !file;\n    if (!file) return;"))
         // Drawn with the manager off too, before renderManager stops there.
         let manager = try part(page, from: "function renderManager()", to: "if (!m.enabled) return;")
         XCTAssertTrue(manager.contains("renderGmToken(m);"))
@@ -55,7 +57,7 @@ final class SetupFreshEyesPageTests: XCTestCase {
         XCTAssertTrue(tools.contains("gm || byHand ? 'No one else is on the team yet.' : 'No one is hired yet.'"))
         // The small headings sit between the boxes, with room: not the old hint headings crammed against them.
         XCTAssertFalse(page.contains(#"<h3 class="hint">Hired, its token, and by hand</h3>"#))
-        XCTAssertTrue(page.contains(#"<h3 class="sub">Its token</h3>"#))
+        XCTAssertTrue(page.contains(#"<h3 class="sub" id="gm-token-head">Its token</h3>"#))
         XCTAssertTrue(page.contains(#"<h3 class="sub">Team</h3>"#))
         XCTAssertTrue(page.contains(".group > h3.sub, #manager-tools > h3.sub { font-size: 12px; font-weight: 600; color: var(--dim); margin: 8px 2px 0; }"))
     }

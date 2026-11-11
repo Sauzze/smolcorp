@@ -248,12 +248,16 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			if r.URL.Path == "/setup/state" {
 				w.Header().Set(appHeader, runtime.GOOS)
 			}
+			if session {
+				writeStatus(w)(http.StatusUnauthorized, setupSessionRefusal)
+				return
+			}
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		if session {
 			if !redeemed {
-				w.WriteHeader(http.StatusUnauthorized)
+				writeStatus(w)(http.StatusUnauthorized, setupSessionRefusal)
 				return
 			}
 			d.completeSetup()
@@ -547,10 +551,14 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"summary": text})
+	// The Mac answers an unknown route with an empty 404.
 	default:
-		http.NotFound(w, r.Request)
+		w.WriteHeader(http.StatusNotFound)
 	}
 }
+
+// setupSessionRefusal is the Mac's text (DeckRouter.swift) in the 401 of POST /setup/session without a menu link's key.
+const setupSessionRefusal = "Only the menu's link opens a setup page."
 
 // callerOf says who is asking, one caller per request, in this order (the same
 // as SetupSessions.caller): the page by its session cookie, a hire by its send
@@ -801,6 +809,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 
+	// The Claude accounts Smolcorp follows: a tool may read them, only the page changes them (claudeaccounts.go).
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/setup/claude-accounts":
+		rt.claudeAccounts(w, r)
+
 	case r.Method == http.MethodPost && path == "/setup/profiles":
 		rt.profiles(w, r)
 
@@ -810,7 +822,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		// No code, or no address a phone could open: no QR code to scan.
 		if code == "" || phoneAddress() == "" {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		writeQR(w, pairingLink(code))
@@ -910,7 +922,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/setup/logo/"):
 		logo := strings.TrimPrefix(path, "/setup/logo/")
 		if !contains(logos, logo) {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		serveFile(w, "Resources/web/icon-"+logo+".png")
@@ -1674,8 +1686,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		(r.Method == http.MethodPost || r.Method == http.MethodDelete) && path == "/setup/gm/unwatch":
 		rt.watchRoutes(w, r, path)
 
+	// The Mac answers an unknown route under /setup with an empty 404.
 	default:
-		http.NotFound(w, r.Request)
+		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
@@ -1753,6 +1766,11 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 	gmHired := readRegistry(registryPath(), false).gmIsHired()
 	// Under the Mac app, what only it can say of this Mac (hostsetup.go).
 	facts := d.macFactsNow()
+	// The account folders are looked in without the lock: one that doesn't answer must not stop the deck.
+	d.mu.Lock()
+	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
+	d.mu.Unlock()
+	claudeAccounts := claudeAccountsState(savedAccounts)
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -1813,6 +1831,12 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"agents":    agentList,
 		// Whether a General Manager is hired, whatever the manager switch says: Start here looks no further then.
 		"gmHired": gmHired,
+		// The Claude accounts besides ~/.claude, for the account pickers and the accounts step.
+		"claudeAccounts": claudeAccounts,
+		// The manager, as the Mac's setup state has it. This app has no GM started by hand and no token file
+		// (the token is in memory only), so those say so: no path is ever sent, and never the token.
+		"manager": map[string]any{"enabled": d.config.ManagerEnabled, "gmByHand": false, "gmStartedByHand": false,
+			"gmTokenFile": "", "gmTokenFileShown": ""},
 		// Where hires open: the terminals here that can open them, and tmux if it's there.
 		"hiring": d.hireState(),
 		// The roles, those that come with the app to go back to, and what a

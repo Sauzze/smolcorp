@@ -1384,6 +1384,9 @@ func (d *Deck) swapKeys(query url.Values) (int, string) {
 	return http.StatusNoContent, ""
 }
 
+// dictationLanguages are the languages the Mac's dictation takes (Dictation.languages).
+var dictationLanguages = []string{"fr_FR", "en_US"}
+
 // Perform runs one of the phone's controls on a session.
 func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	// Releasing the mic stops recording where it started, whatever is
@@ -1412,6 +1415,28 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 	}
 	if action == "style" {
 		return d.setStyle(query.Get("preset"))
+	}
+	// The mic's quick switch, as the Mac answers it: a language it takes is 204, any other 400. Under the Mac
+	// app it is dictation's language for every phone, kept, saved and sent as the Mac's Deck does, checked
+	// against the languages that Mac has (as setup's /setup/dictation). On Linux and Windows there is no
+	// dictation: nothing is stored and nothing is started, so a known one only says so.
+	if action == "language" {
+		lang := query.Get("lang")
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		known := dictationLanguages
+		if d.mac.host != nil && d.mac.languages != nil {
+			known = d.mac.languages
+		}
+		if !slices.Contains(known, lang) {
+			return http.StatusBadRequest, "Unknown language"
+		}
+		if d.mac.host != nil {
+			d.config.DictationLanguage = lang
+			d.config.save()
+			d.changed()
+		}
+		return http.StatusNoContent, ""
 	}
 	if action == "music" {
 		key := query.Get("do")

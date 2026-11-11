@@ -81,6 +81,65 @@ func TestSetupsHireSheetHiresWithWhatItSaid(t *testing.T) {
 	}
 }
 
+// An account saved in config.json is one a hire can work on, as setup lists it: loaded from the file, the
+// sheet's hire names it (no "There's no Claude account called work"), the registry keeps its name, and the
+// hire's settings deny it the account's settings and transcripts as they do the default's.
+func TestAHireWorksOnAnAccountSavedInConfigJSON(t *testing.T) {
+	d, _, _ := engineDeck(t)
+	d.engine.HeardFrom = func(Hire) bool { return true }
+	repo := homeRepo(t)
+	// Not a ~/.claude* folder: only the account's own rules cover it.
+	work := filepath.Join(homeDir, "accounts", "work")
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"settings.json", ".claude.json"} { // Claude Code started once on it
+		os.WriteFile(filepath.Join(work, name), []byte("{}"), 0o600)
+	}
+	// config.json as the Mac (or setup) leaves it, then read back the way the app starts.
+	d.mu.Lock()
+	d.config.save()
+	data, err := os.ReadFile(configFile)
+	var fields map[string]any
+	if err == nil {
+		err = json.Unmarshal(data, &fields)
+	}
+	if err != nil {
+		d.mu.Unlock()
+		t.Fatalf("config.json: %v", err)
+	}
+	fields["claudeProfiles"] = []map[string]string{{"name": "work", "dir": "~/accounts/work"}}
+	data, _ = json.Marshal(fields)
+	os.WriteFile(configFile, data, 0o600)
+	d.config = loadConfig()
+	d.mu.Unlock()
+
+	body, _ := json.Marshal(map[string]any{"role": "janitor", "folder": repo, "account": "work"})
+	w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer, body: string(body),
+		headers: map[string]string{setupHeader: "1"}})
+	if w.Code != http.StatusOK {
+		t.Fatalf("hire on the saved account: %d %s", w.Code, w.Body)
+	}
+	d.watching.Wait()
+	got := registered(t)
+	if len(got) != 1 || got[0].Account != "work" {
+		t.Fatalf("registry %+v", got)
+	}
+	settings, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, got[0].ID), hireSettingsFile))
+	for _, rule := range []string{"Edit(" + absoluteRulePath(work) + "/settings*.json)", "Read(" + absoluteRulePath(work) + "/projects/**)"} {
+		if !strings.Contains(string(settings), rule) {
+			t.Errorf("the saved account's %s isn't denied:\n%s", rule, settings)
+		}
+	}
+	// Among two accounts, a hire must still say which.
+	body, _ = json.Marshal(map[string]any{"role": "janitor", "folder": repo})
+	w = serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer, body: string(body),
+		headers: map[string]string{setupHeader: "1"}})
+	if w.Code != http.StatusBadRequest || w.Body.String() != "Say which Claude account to hire on: default, work.\n" {
+		t.Errorf("no account named: %d %q", w.Code, w.Body)
+	}
+}
+
 // With the manager off and no worktree asked for, the hire works in the folder
 // itself, as the Mac's; a floor above answers with the floor and no desk.
 func TestSetupsHireWithoutAWorktreeWorksInTheFolder(t *testing.T) {
