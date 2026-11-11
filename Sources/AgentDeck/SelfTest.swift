@@ -169,11 +169,14 @@ enum SelfTest {
         return check
     }
 
+    /// What a test copy says of the login item, which is the Smolcorp in use's: here, and through the bridge.
+    static let testCopyLogin = "A test copy leaves the login item to the Smolcorp you use."
+
     static func loginCheck(_ on: Bool, testCopy: Bool = TestCopy.isOn) -> Check {
         var check = Check(id: "login", status: .ok, title: "Smolcorp opens at login", detail: "It's in the menu bar from the moment you log in.")
         if testCopy {
             check.status = .info
-            check.detail = "A test copy leaves the login item to the Smolcorp you use."
+            check.detail = SelfTest.testCopyLogin
         } else if !on {
             check.status = .todo
             check.fix = login

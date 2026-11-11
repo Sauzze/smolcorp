@@ -62,9 +62,28 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     /// the office window before keeps what it had, its choice or that
     /// default, and a new one starts with it off. Once, as the app starts.
     static func settle(_ config: Config, defaults: UserDefaults = .standard, file: URL = Paths.config) {
-        guard config.officeOnTop == nil else { return }
-        config.officeOnTop = defaults.object(forKey: "officeWindow.alwaysOnTop") as? Bool ?? config.hasCompletedSetup
+        guard let onTop = settled(config, defaults: defaults) else { return }
+        config.officeOnTop = onTop
         config.save(to: file)
+    }
+
+    /// What `settle` keeps on top, or nil once it's kept.
+    static func settled(_ config: Config, defaults: UserDefaults = .standard) -> Bool? {
+        guard config.officeOnTop == nil else { return nil }
+        return defaults.object(forKey: "officeWindow.alwaysOnTop") as? Bool ?? config.hasCompletedSetup
+    }
+
+    /// `settle` under the Go core (`GoShellDelegate`), before it starts: the core keeps the config file,
+    /// so only this one setting is put in it, as `settle` decides, and the rest is left exactly as it is,
+    /// never this app's whole config. No file yet: the core's default, off, as `settle` would keep for a
+    /// Mac that hasn't been set up.
+    static func settleForCore(_ config: Config, defaults: UserDefaults = .standard, file: URL = Paths.config) {
+        guard let onTop = settled(config, defaults: defaults), let data = try? Data(contentsOf: file),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        object["alwaysOnTop"] = onTop // Config.officeOnTop's key in the file
+        guard let settled = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
+        Paths.writePrivately(settled, to: file)
+        config.officeOnTop = onTop
     }
 
     /// On every Space, and beside apps in full screen, on its own: kept on

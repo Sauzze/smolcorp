@@ -40,6 +40,8 @@ const (
 	fixHomeWiFi  = "homewifi"  // phones on the home network too, not only Tailscale
 	fixTailscale = "tailscale" // Tailscale's download page
 	fixLogin     = "login"     // Smolcorp opens at login
+	// Under the Mac app only (hostshell.go).
+	fixAccessibility = "accessibility" // macOS asked to let Smolcorp use the keyboard
 )
 
 // selfTest is the checklist, in the order it's done in. Without the lock.
@@ -60,6 +62,10 @@ func (d *Deck) selfTest() []check {
 	scope := scopeOf(d.config)
 	phones := phonesOnly(d.access.Phones)
 	d.mu.Unlock()
+	// Under the Mac app, the rest is the Mac's (hostshell.go).
+	if d.macHost() != nil {
+		return append(checks, d.macChecks(phones)...)
+	}
 	checks = append(checks, networkCheck(scope, tailscaleAddresses()))
 	if firewall := firewallCheck(scope); firewall != nil {
 		checks = append(checks, *firewall)
@@ -217,6 +223,10 @@ var errUnknownFix = errors.New("There's no fix by that name.")
 // fix runs the fix named name, and says how it went: a message for the page
 // where it couldn't. Without the lock.
 func (d *Deck) fix(name string) (int, string) {
+	// Under the Mac app, Accessibility and the login item are the app's (hostshell.go).
+	if status, message, done := d.macFix(name); done {
+		return status, message
+	}
 	switch name {
 	case fixRepair:
 		// Repair connects what was connected; it never turns voice on, so there's nothing to tell

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -15,8 +16,8 @@ import (
 // into a Terminal, iTerm2 or Ghostty tab, the phone's text and a look at what
 // the tab shows (phonetext.go), a window brought forward or closed,
 // a terminal opened on a script, the app's own Keychain items, its login item;
-// setup's Mac parts (hostsetup.go) and what each desk's terminal allows
-// (hostoffice.go). Each is the Mac app's own code, as the Swift engine runs it
+// setup's Mac parts (hostsetup.go), the office's window and the Mac's folder
+// panel (hostshell.go), and what each desk's terminal allows (hostoffice.go). Each is the Mac app's own code, as the Swift engine runs it
 // (HostBridge.swift); their requests and answers are Tests/fixtures/bridge/actions.json.
 //
 // On Windows and Linux there is no host: host stays nil, and every tab is
@@ -51,10 +52,13 @@ type bridgeRequest struct {
 	// window-close: the tty it showed, as window-look said.
 	Window string `json:"window,omitempty"`
 	TTY    string `json:"tty,omitempty"`
+	// choose-folder: what the panel is for, "hires" or "floor" (the app says it in its own words); Folder is
+	// where it opens, "" for the panel's own choice.
+	For string `json:"for,omitempty"`
 	// secret-*: one of the app's own items (see bridgeSecrets).
 	Item  string `json:"item,omitempty"`
 	Value string `json:"value,omitempty"`
-	// login-item, dock: on or off; keystroke-apps: App added or removed; terminal-command: made or removed.
+	// login-item, dock, office-ontop: on or off; keystroke-apps: App added or removed; terminal-command: made or removed.
 	On *bool `json:"on,omitempty"`
 	// facts: the apps keys may go to, left out of those running; keystroke-apps: the list App goes on or off.
 	Apps []string `json:"apps,omitempty"`
@@ -71,6 +75,9 @@ type bridgeRequest struct {
 	// it on this request's own connection, from the terminal's queue, where the Swift engine looks at its own
 	// sessions (Deck.typePhoneWords); the transport answers it (socketBridge). Never sent itself; nil is asking.
 	deskState func() SessionState
+	// How long this request may take, when longer than the transport's own: the Mac's folder panel waits
+	// for you (folderPanelWait). Never sent itself.
+	wait time.Duration
 }
 
 // bridgeBot is a Grok Bot as set: its id in the Grok Bot app, if known, and its name there.
@@ -105,6 +112,8 @@ type bridgeAnswer struct {
 	Found bool   `json:"found,omitempty"`
 	// login-item: whether Smolcorp opens at login.
 	On bool `json:"on,omitempty"`
+	// choose-folder: the folder picked in the Mac's panel, "" for none.
+	Folder string `json:"folder,omitempty"`
 	// facts: what only the Mac can say, for setup.
 	Facts *macFacts `json:"facts,omitempty"`
 	// keystroke-apps: the list, with the app on it or off it; glossary: the names, checked.
@@ -294,6 +303,47 @@ func hostWriteSecret(h hostBridge, item, value string) error {
 func hostLoginItem(h hostBridge, on *bool) (bool, error) {
 	answer, err := ask(h, bridgeRequest{Action: "login-item", On: on})
 	return answer.On, err
+}
+
+// The two folder panels the app opens for setup, each in its own words (Deck.hireFolderMessage,
+// Deck.floorFolderMessage): the hires' folder, and a project's folder for a floor.
+const (
+	folderForHires = "hires"
+	folderForFloor = "floor"
+)
+
+// folderPanelWait is how long the Mac's folder panel waits for you before the app closes it, as if
+// cancelled; the core waits a little longer for the app's answer, so the app always answers first.
+var folderPanelWait = 10 * time.Minute
+
+// folderPanelMargin is how much longer than the panel the core waits for the app's answer.
+const folderPanelMargin = 30 * time.Second
+
+// hostChooseFolder opens the Mac's folder panel for purpose, at start ("" for the panel's own choice), and
+// waits for you: the folder picked, or "" for none (cancelled, closed, or already open, which the app
+// brings forward and answers at once, as the Swift engine's).
+func hostChooseFolder(h hostBridge, start, purpose string) (string, error) {
+	answer, err := ask(h, bridgeRequest{Action: "choose-folder", Folder: start, For: purpose, wait: folderPanelWait + folderPanelMargin})
+	return answer.Folder, err
+}
+
+// hostCloseFolderPanel closes the Mac's folder panel if it's open for the hires' folder, as if cancelled.
+func hostCloseFolderPanel(h hostBridge) error {
+	_, err := ask(h, bridgeRequest{Action: "folder-panel-close"})
+	return err
+}
+
+// hostShowOffice shows the office's window on the Mac, as the menu's Show Office does.
+func hostShowOffice(h hostBridge) error {
+	_, err := ask(h, bridgeRequest{Action: "office"})
+	return err
+}
+
+// hostOfficeOnTop keeps the office's window on top of other windows, or not, at once: the setting is the
+// core's to keep, in the config the app reads it from as it starts.
+func hostOfficeOnTop(h hostBridge, on bool) error {
+	_, err := ask(h, bridgeRequest{Action: "office-ontop", On: &on})
+	return err
 }
 
 // hostFacts is what setup shows of this Mac: apps are the apps keys may go

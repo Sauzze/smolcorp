@@ -425,20 +425,122 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertTrue(login)
     }
 
-    /// A test copy's login item is the copy in use's: the bridge neither reads nor sets it.
+    /// A test copy's login item is the copy in use's: the bridge reads it, as the Swift engine's own setup
+    /// does in a test copy, and never sets it, saying so in the Mac's words (SelfTest.loginCheck's).
     func testATestCopyLeavesTheLoginItemAlone() {
-        var touched = false
-        let item: (get: () -> Bool, set: (Bool) -> Void) = (get: { touched = true; return true }, set: { _ in touched = true })
+        var set: [Bool] = []
+        let item: (get: () -> Bool, set: (Bool) -> Void) = (get: { true }, set: { set.append($0) })
         let copy = HostBridge.Actions.onThisMac(testCopy: true, loginItem: item)
-        for request: [String: Any] in [["action": "login-item"], ["action": "login-item", "on": false]] {
+        func ask(_ request: [String: Any], _ actions: HostBridge.Actions) -> [String: Any] {
             var request = request
             request["token"] = token
-            let answer = HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: copy)
-            XCTAssertFalse(isOK(answer))
-            XCTAssertEqual(answer["error"] as? String, "A test copy has no login item: it's the copy in use's.")
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: actions)
         }
-        XCTAssertFalse(touched)
-        XCTAssertNotNil(HostBridge.Actions.onThisMac(testCopy: false, loginItem: item).loginItem, "the copy in use's own")
+        let read = ask(["action": "login-item"], copy)
+        XCTAssertTrue(isOK(read))
+        XCTAssertEqual(read["on"] as? Bool, true, "the copy in use's, read")
+        for on in [false, true] {
+            let answer = ask(["action": "login-item", "on": on], copy)
+            XCTAssertFalse(isOK(answer))
+            XCTAssertEqual(answer["error"] as? String, "A test copy leaves the login item to the Smolcorp you use.")
+        }
+        XCTAssertEqual(set, [], "never set")
+        XCTAssertEqual(SelfTest.loginCheck(false, testCopy: true).detail, SelfTest.testCopyLogin, "the self-test's words")
+        // The copy in use sets its own.
+        XCTAssertTrue(isOK(ask(["action": "login-item", "on": false], HostBridge.Actions.onThisMac(testCopy: false, loginItem: item))))
+        XCTAssertEqual(set, [false])
+        // An app without one: nothing read or set.
+        var none = copy
+        none.loginItem = nil
+        XCTAssertFalse(isOK(ask(["action": "login-item"], none)))
+    }
+
+    /// The office's window and the folder panel: each checked, then run on the main queue, as the Swift
+    /// engine's routes run them. Nothing here shows a window or opens a panel: stand-ins.
+    func testTheOfficeWindowAndTheFolderPanelAreTheShellsOwn() {
+        var mac = actions
+        mac.main = terminals
+        var shown: [String] = []
+        mac.showOffice = { shown.append("office") }
+        mac.officeOnTop = { shown.append("on top \($0)") }
+        mac.closeFolderPanel = { shown.append("close \($0 == Deck.hireFolderMessage ? "hires" : "floor")") }
+        var opened: [String?] = []
+        mac.chooseFolder = { start, _, done in opened.append(start); done("/Users/example/project") }
+        func ask(_ request: [String: Any]) -> [String: Any] {
+            var request = request
+            request["token"] = token
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: mac)
+        }
+        XCTAssertFalse(isOK(ask(["action": "office-ontop"])), "on or off, said")
+        XCTAssertFalse(isOK(ask(["action": "office-ontop", "on": "yes"])))
+        XCTAssertFalse(isOK(ask(["action": "choose-folder"])), "for what, said")
+        XCTAssertFalse(isOK(ask(["action": "choose-folder", "for": "anything"])))
+        XCTAssertFalse(isOK(ask(["action": "choose-folder", "for": "hires", "folder": "relative/path"])))
+        XCTAssertFalse(isOK(ask(["action": "choose-folder", "for": "hires", "folder": "/Users/a\nb"])))
+        XCTAssertEqual(shown, [])
+        XCTAssertEqual(opened, [])
+        XCTAssertEqual(ask(["action": "choose-folder", "for": "hires", "folder": ""])["folder"] as? String, "/Users/example/project")
+        XCTAssertEqual(opened, [nil], "an empty folder: the panel's own choice")
+        XCTAssertTrue(isOK(ask(["action": "office-ontop", "on": false])))
+        XCTAssertEqual(shown, ["on top false"])
+
+        // A panel left open past its time: closed as if cancelled, and nothing picked.
+        let wait = HostBridge.panelWait
+        HostBridge.panelWait = 0.2
+        defer { HostBridge.panelWait = wait }
+        mac.chooseFolder = { _, _, _ in }
+        let left = ask(["action": "choose-folder", "for": "floor"])
+        XCTAssertTrue(isOK(left))
+        XCTAssertNil(left["folder"])
+        terminals.sync {}
+        XCTAssertEqual(shown, ["on top false", "close floor"])
+    }
+
+    /// Under the Go core, the office's window on top is settled as the Swift engine settles it (on once set up,
+    /// unless the menu said otherwise), with only that one key put in the core's file: the rest as it was.
+    func testTheOnTopSettingIsSettledForTheCoreWithOneKey() throws {
+        let file = folder.appendingPathComponent("config.json")
+        let suite = "test.onTop.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let written = #"{"engine": "go", "hasCompletedSetup": true, "somethingOfTheCore": {"kept": [1, 2]}}"#
+        try Data(written.utf8).write(to: file)
+        let config = Config.load(from: file)
+        OfficeWindow.settleForCore(config, defaults: defaults, file: file)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        XCTAssertEqual(object.keys.sorted(), ["alwaysOnTop", "engine", "hasCompletedSetup", "somethingOfTheCore"], "one key added, nothing else")
+        XCTAssertEqual(object["alwaysOnTop"] as? Bool, true)
+        XCTAssertEqual((object["somethingOfTheCore"] as? [String: Any])?["kept"] as? [Int], [1, 2])
+        XCTAssertEqual(config.officeOnTop, true)
+        // Once set, never again: the file is left alone.
+        let before = try Data(contentsOf: file)
+        OfficeWindow.settleForCore(Config.load(from: file), defaults: defaults, file: file)
+        XCTAssertEqual(try Data(contentsOf: file), before)
+        // The menu's choice from before, kept; and not set up yet: off.
+        defaults.set(false, forKey: "officeWindow.alwaysOnTop")
+        try Data(written.utf8).write(to: file)
+        OfficeWindow.settleForCore(Config.load(from: file), defaults: defaults, file: file)
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])?["alwaysOnTop"] as? Bool, false)
+        // No file yet: none made.
+        try FileManager.default.removeItem(at: file)
+        OfficeWindow.settleForCore(Config(), defaults: defaults, file: file)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    /// The Go shell's office window: shown, and kept on top in memory only, never saved from the shell (the
+    /// core keeps the setting in config.json).
+    func testTheGoShellsOfficeLinkKeepsTheSettingInMemoryOnly() throws {
+        let file = folder.appendingPathComponent("config.json")
+        let config = Config()
+        config.officeOnTop = false
+        config.save(to: file)
+        let before = try Data(contentsOf: file)
+        let link = OfficeLink()
+        let actions = link.actions(actions, config: config)
+        actions.officeOnTop(true)
+        actions.showOffice()
+        XCTAssertEqual(config.officeOnTop, true)
+        XCTAssertEqual(try Data(contentsOf: file), before, "the config file is the core's")
     }
 
     // MARK: The socket
@@ -624,6 +726,14 @@ final class HostBridgeTests: XCTestCase {
             throw TerminalCommand.Problem.testCopy
         }
         mac.roster = { [GrokBotApp.Row(id: "0a1b-2c3d", name: "Smolcorp Mini Manager")] }
+        // The Go shell's office window and the folder panel: a floor's picks a project, the hires' is cancelled.
+        mac.showOffice = { [unowned self] in asked.append("office") }
+        mac.officeOnTop = { [unowned self] in asked.append("on top \($0)") }
+        mac.chooseFolder = { [unowned self] start, message, done in
+            asked.append("choose \(start ?? "-") \(message == Deck.floorFolderMessage ? "floor" : message == Deck.hireFolderMessage ? "hires" : message)")
+            done(message == Deck.floorFolderMessage ? "/Users/example/project" : nil)
+        }
+        mac.closeFolderPanel = { [unowned self] in asked.append("close \($0 == Deck.hireFolderMessage ? "hires" : $0)") }
         // The phone's text and the peek (I5): the agent in front but on ttys005, where it has ended; Codex on
         // ttys004, not known to take several lines as one paste; iTerm2's CD34 doesn't read its ⌘V in time.
         mac.place = { tab, _ in tab.id == "/dev/ttys005" ? .gone : .front }
@@ -644,7 +754,9 @@ final class HostBridgeTests: XCTestCase {
             XCTAssertEqual(text(answer), text(one["answer"] ?? NSNull()), one["name"] as? String ?? "")
         }
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
-        XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true"])
+        XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "office", "on top true", "choose /Users/example/hires floor", "choose - hires",
+                               "close hires", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true"])
+        XCTAssertTrue(login, "Open at login, switched on")
         // The phone's text, by `Deck.typePhoneWords` on the stand-in drivers: nothing for an agent that has ended,
         // nor for "!", nor for Codex, nor to a desk asking. ⌘V that wasn't read in time went.
         XCTAssertEqual(typed, ["insert tty:/dev/ttys003 Bonjour l’équipe « ça marche » 👩‍💻 ;",

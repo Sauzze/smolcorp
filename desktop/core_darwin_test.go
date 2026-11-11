@@ -262,6 +262,25 @@ func TestAnAppThatNeverAnswersIsGivenUpOn(t *testing.T) {
 	}
 }
 
+// The Mac's folder panel waits for you: its request is given its own, longer wait, past the transport's.
+func TestTheFolderPanelIsWaitedForPastTheUsualWait(t *testing.T) {
+	folder := shortFolder(t)
+	path := fakeApp(t, folder, func(bridgeRequest) string {
+		time.Sleep(300 * time.Millisecond)
+		return `{"ok":true,"folder":"/Users/me/project"}`
+	})
+	bridge := &socketBridge{path: path, token: fakeBridgeToken, parent: os.Getpid, wait: 100 * time.Millisecond}
+	if _, err := ask(bridge, bridgeRequest{Action: "hello"}); err == nil {
+		t.Error("an ordinary request isn't waited for past the transport's wait")
+	}
+	saved := folderPanelWait
+	t.Cleanup(func() { folderPanelWait = saved })
+	folderPanelWait = time.Second
+	if picked, err := hostChooseFolder(bridge, "", folderForHires); err != nil || picked != "/Users/me/project" {
+		t.Errorf("the panel's answer: %q %v", picked, err)
+	}
+}
+
 func TestTheEngineRefusesAnyoneButTheApp(t *testing.T) {
 	folder := shortFolder(t)
 	socket := fakeApp(t, folder, func(bridgeRequest) string { return `{"ok":true}` })

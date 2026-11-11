@@ -10,14 +10,18 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let bridge: HostBridge
     private let core: GoCore
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private var office: OfficeWindow?
+    private var office: OfficeWindow? {
+        didSet { officeLink.window = office }
+    }
+    /// The office's window as the bridge reaches it: made only once the core is ready (see `ready`).
+    private let officeLink = OfficeLink()
     private var settings: SettingsWindow?
     private var officeKey: HotKey?
     /// Why the core isn't there, while it isn't.
     private var problem: String? = "The Go engine is starting…"
 
     init(port: UInt16 = Deck.port, support: URL = Paths.support) {
-        bridge = HostBridge(socket: support.appendingPathComponent("bridge.sock"))
+        bridge = HostBridge(socket: support.appendingPathComponent("bridge.sock"), actions: officeLink.actions(.mac))
         core = GoCore(port: port, support: support, bridge: bridge)
         super.init()
     }
@@ -28,6 +32,8 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu?.delegate = self
         NSApp.mainMenu = mainMenu()
         core.onExit = { [weak self] status in self?.coreStopped(status) }
+        // The office's window on top or not, settled once as the Swift engine settles it, before the core reads the file.
+        OfficeWindow.settleForCore(Config.shared)
         do {
             try bridge.start()
         } catch {
@@ -156,4 +162,22 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
     @objc private func quit() { NSApp.terminate(nil) }
+}
+
+/// The Go shell's office window, for the bridge's `office` and `office-ontop` (setup's Open the office, and
+/// its switch to keep it on top), on the main queue as the bridge runs them. The core keeps the setting in
+/// config.json, which this app read as it started: it's changed here in memory only, never saved from here.
+final class OfficeLink {
+    weak var window: OfficeWindow?
+
+    /// `actions`, with the office's window this shell shows.
+    func actions(_ actions: HostBridge.Actions, config: Config = .shared) -> HostBridge.Actions {
+        var actions = actions
+        actions.showOffice = { [weak self] in self?.window?.show() }
+        actions.officeOnTop = { [weak self] on in
+            config.officeOnTop = on
+            self?.window?.applyOptions()
+        }
+        return actions
+    }
 }

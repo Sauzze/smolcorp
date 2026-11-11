@@ -62,6 +62,8 @@ func (b *socketBridge) call(request bridgeRequest) (bridgeAnswer, error) {
 	if wait <= 0 {
 		wait = 20 * time.Second
 	}
+	// A request that waits for you (the folder panel) has its own, longer.
+	wait = max(wait, request.wait)
 	_ = conn.SetDeadline(time.Now().Add(wait))
 	line, err := json.Marshal(request)
 	if err != nil {
