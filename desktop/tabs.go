@@ -98,7 +98,7 @@ func (t commandTab) outputWith(input io.Reader, args ...string) ([]byte, error) 
 	var cancel context.CancelFunc
 	switch t.kind {
 	case "tmux":
-		cmd, cancel = terminalCommand("tmux", append([]string{"-S", t.socket}, args...)...)
+		cmd, cancel = terminalCommand(tmuxProgram(), append([]string{"-S", t.socket}, args...)...)
 	case "wezterm":
 		cmd, cancel = terminalCommand("wezterm", append([]string{"cli"}, args...)...)
 		if t.socket != "" {
@@ -499,7 +499,7 @@ func frontOf(lines string, own int) inFront {
 func (t commandTab) alive() bool {
 	switch t.kind {
 	case "tmux":
-		cmd, cancel := terminalCommand("tmux", "-S", t.socket, "display-message", "-p", "-t", t.id, "#{pane_id}")
+		cmd, cancel := terminalCommand(tmuxProgram(), "-S", t.socket, "display-message", "-p", "-t", t.id, "#{pane_id}")
 		defer cancel()
 		output, err := cmd.Output()
 		var answered *exec.ExitError

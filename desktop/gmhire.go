@@ -60,7 +60,7 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		return
 	}
 	if role == "" {
-		reply(http.StatusBadRequest, "Send {role}, the role to hire.")
+		reply(http.StatusBadRequest, "Say which role to hire.")
 		return
 	}
 	// A role that isn't there is said first, before anything else is looked at, as the Mac's hireRequest.

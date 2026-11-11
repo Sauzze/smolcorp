@@ -336,6 +336,10 @@ func TestTheSocketFolderIsTmuxsOwnAndMustBePrivate(t *testing.T) {
 	if got := tmuxSocketFolder(); got != "/tmp/tmux-"+strconv.Itoa(os.Getuid()) {
 		t.Errorf("tmux's folder %q", got)
 	}
+	t.Setenv("TMUX_TMPDIR", "relative/folder") // taken against the core's own folder: ignored
+	if got := tmuxSocketFolder(); got != "/tmp/tmux-"+strconv.Itoa(os.Getuid()) {
+		t.Errorf("a relative TMUX_TMPDIR gave %q", got)
+	}
 	base := t.TempDir()
 	made := filepath.Join(base, "made")
 	if !ownSocketFolder(made) {

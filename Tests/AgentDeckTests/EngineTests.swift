@@ -69,14 +69,19 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.arguments, ["core", "--port", "7779", "--support", folder.path, "--bridge", folder.appendingPathComponent("bridge.sock").path])
         XCTAssertFalse(core.arguments.joined(separator: " ").contains(core.bridge.token))
         let environment = core.environment(base: ["HOME": "/Users/me", "PATH": "/usr/bin:/bin", "SHELL": "/bin/zsh",
-                                                  "GH_TOKEN": "fake-gh", "ANTHROPIC_API_KEY": "sk-ant-fake", "SMOLCORP_SESSION": "s1"])
+                                                  "GH_TOKEN": "fake-gh", "ANTHROPIC_API_KEY": "sk-ant-fake", "SMOLCORP_SESSION": "s1",
+                                                  "SSH_AUTH_SOCK": "/fake/agent.sock", "LOGNAME": "me", "LC_CTYPE": "UTF-8", "LC_ALL": "fr_FR.UTF-8",
+                                                  "__CF_USER_TEXT_ENCODING": "0x1F5:0x0:0x0", "TMUX_TMPDIR": "/fake/tmux",
+                                                  "XPC_SERVICE_NAME": "0", "LCX": "no", "LC_TERMINAL": "iTerm2", "LC_TOKEN": "fake-secret", "SMOLCORP_HIRE_KEY": "fake-send-key"])
         XCTAssertFalse(environment.contains { $0.key.contains(core.bridge.token) || $0.value.contains(core.bridge.token) },
                        "other processes of yours read a process's environment (ps -E)")
         XCTAssertFalse(environment.keys.contains("SMOLCORP_BRIDGE_TOKEN"))
         XCTAssertEqual(environment["SMOLCORP_PORT"], "7779")
         XCTAssertEqual(environment["SMOLCORP_TEST_SUPPORT_DIR"], folder.path)
         XCTAssertEqual(environment["HOME"], "/Users/me")
-        XCTAssertEqual(Set(environment.keys), ["HOME", "PATH", "SHELL", "SMOLCORP_PORT", "SMOLCORP_TEST_SUPPORT_DIR"],
+        XCTAssertEqual(environment["SSH_AUTH_SOCK"], "/fake/agent.sock", "a hire's git push over SSH uses your agent, as on the Swift engine")
+        XCTAssertEqual(Set(environment.keys), ["HOME", "PATH", "SHELL", "SMOLCORP_PORT", "SMOLCORP_TEST_SUPPORT_DIR", "SSH_AUTH_SOCK", "LOGNAME",
+                                               "LC_CTYPE", "LC_ALL", "__CF_USER_TEXT_ENCODING", "TMUX_TMPDIR"],
                        "nothing else of a terminal Smolcorp was opened from: not its tokens")
     }
 
