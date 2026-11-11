@@ -249,6 +249,26 @@ func TestATestCopyOpensNoTerminalWindowForAHire(t *testing.T) {
 	}
 }
 
+// A test copy's hires always run in tmux, whatever the switch says (RTCH N1): the window above is never even tried
+// while tmux is here. Without tmux it is the window's turn, and showWindow refuses (RMSY4 nit 2).
+func TestATestCopysHiresAlwaysRunInTmux(t *testing.T) {
+	onDefaultPort(t)
+	off := &Config{}
+	if backgroundHires(off, true) {
+		t.Error("the office's own hires run in the background with the switch off")
+	}
+	if !backgroundHires(&Config{HiresInBackground: true}, true) {
+		t.Error("the office's own hires don't run in the background with the switch on")
+	}
+	onPort(t, portFromEnvironment("")+89)
+	if !backgroundHires(off, true) {
+		t.Error("a test copy's hire would open a window with tmux here")
+	}
+	if backgroundHires(off, false) {
+		t.Error("a test copy's hire runs in the background with no tmux")
+	}
+}
+
 // RTCH N2: a test copy's self-test describes what it does: it listens on this computer only.
 func TestATestCopysSelfTestReadsWhereItReallyListens(t *testing.T) {
 	d := newTestDeck(t)

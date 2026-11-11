@@ -454,6 +454,36 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertFalse(isOK(send(["action": "window-look", "window": record])), "a gone window is forgotten")
     }
 
+    /// A test copy looks at and closes no window (RMSY4 nit 5), not even one recorded as opened for the core: the
+    /// terminal's sentence, and the closer is asked nothing.
+    func testATestCopyLooksAtAndClosesNoWindow() {
+        final class StandIn: HireWindows.Closer {
+            var asked: [String] = []
+            func look(_ window: String) -> HireWindows.Shown { asked.append("look \(window)"); return .open("/dev/ttys007") }
+            func close(_ window: String, tty: String) -> HireWindows.Closed { asked.append("close \(window)"); return .closed }
+        }
+        let closer = StandIn()
+        var copy = actions
+        copy.closer = closer
+        copy.testCopy = true
+        let record = "iterm:AB12"
+        copy.opened.add(record)
+        for request in [["action": "window-look", "window": record], ["action": "window-close", "window": record, "tty": "/dev/ttys007"]] {
+            var request = request
+            request["token"] = token
+            let answer = HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: copy)
+            XCTAssertFalse(isOK(answer), request["action"] ?? "")
+            XCTAssertEqual(answer["error"] as? String, TestCopy.OtherApp.terminal.sentence, request["action"] ?? "")
+        }
+        XCTAssertEqual(closer.asked, [], "no terminal was asked")
+        // The real app looks at the same window, as before.
+        copy.testCopy = false
+        let look = HostBridge.answer(try! JSONSerialization.data(withJSONObject: ["action": "window-look", "window": record, "token": token]),
+                                     token: token, actions: copy)
+        XCTAssertEqual(look["shown"] as? String, "open")
+        XCTAssertEqual(closer.asked, ["look \(record)"])
+    }
+
     func testATerminalOpensOnlyOnAHireScript() throws {
         let script = hires.appendingPathComponent("abc/hire-1.sh")
         try FileManager.default.createDirectory(at: script.deletingLastPathComponent(), withIntermediateDirectories: true)

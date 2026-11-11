@@ -354,6 +354,9 @@ final class HostBridge {
             // The terminals of the three Smolcorp opens that are installed, in setup's order.
             return ["ok": true, "terminals": actions.terminals()]
         case "window-look", "window-close":
+            // A test copy opens no hire's window (`open` above), so it has none to look at or close: either would ask
+            // the owner's terminal app about one of its windows (RMSY4 nit 5).
+            if let why = TestCopy.refusal(for: .terminal, testCopy: actions.testCopy) { return refused(why) }
             return window(action, request, actions, until: deadline)
         case "secret-read", "secret-write", "secret-delete":
             return secret(action, request, actions)
