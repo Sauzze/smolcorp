@@ -1,6 +1,8 @@
-// A stand-in for a non-Claude coding agent at a desk, for scripts/input-matrix/run.sh.
-// Run as `exec -a codex node fake-agent.mjs <log> <report.sh>` inside a tmux pane, so the
-// app sees a Codex in front there. It reports in through the copy's own hook, as Codex's
+// A stand-in for a non-Claude coding agent at a desk, for scripts/input-matrix/matrix.mjs.
+// Run as `exec -a codex node fake-agent.mjs <log> <hook>` inside a tmux pane, so the
+// app sees a Codex in front there. <hook> is a command line, run by /bin/sh with "codex" after
+// it and the event on its stdin: the Mac test copy's quoted report.sh, or the Go core's
+// `smolcorp hook --port N`. It reports in through that hook, as Codex's
 // hooks would, and writes every byte it receives to <log>, one JSON line per read:
 //   {"at":…, "bytes":"<hex>", "text":"…", "state":"idle"|"asking"}
 // and one line per submitted prompt: {"submit":"…"}. Nothing it reads is ever run.
@@ -23,7 +25,7 @@ const decoder = new StringDecoder('utf8');
 
 function hook(event, extra = {}) {
   const body = JSON.stringify({ hook_event_name: event, session_id: session, cwd: process.cwd(), ...extra });
-  const child = spawn(report, ['codex'], { stdio: ['pipe', 'ignore', 'ignore'] });
+  const child = spawn('/bin/sh', ['-c', `${report} codex`], { stdio: ['pipe', 'ignore', 'ignore'] });
   child.stdin.end(body);
 }
 

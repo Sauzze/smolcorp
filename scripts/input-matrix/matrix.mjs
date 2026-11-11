@@ -12,7 +12,12 @@
 //
 // Settings, from the environment:
 //   MATRIX_PORT     the test copy's port (7780)
-//   MATRIX_SUPPORT  its support folder (build/test-support): its hook and, on the Mac, sessions.json
+//   MATRIX_SUPPORT  its support folder (build/test-support): its sessions.json, and by default its hooks
+//   MATRIX_CLAUDE_SETTINGS  the --settings file whose hooks report to the app under test
+//                   ($MATRIX_SUPPORT/claude-settings.json, which scripts/test-copy.sh writes)
+//   MATRIX_HOOK     the command line the stand-in agent reports through, "codex" added after it and
+//                   the event on its stdin ($MATRIX_SUPPORT/report.sh, the same); for Go parity, the
+//                   Go core's own: '/path/to/smolcorp' hook --port <its port>
 //   MATRIX_KEY      a file holding a paired phone's key (pair one in the copy's setup first)
 //   MATRIX_DIR      where desks.json, the stand-in's log and the canaries go (a scratch folder)
 //   MATRIX_SOCKETS  the prefix of the tmux sockets it makes (i1): only those are ever touched
@@ -28,7 +33,9 @@
 // T3 desk has no pane to read, so its text is read back with `t3 thread show <id> --json`.
 //
 // Every Claude session runs with --permission-mode default, so nothing it might be asked runs
-// without a prompt. Costs: four short turns per Claude desk (short, long, the prompt, the follow-up).
+// without a prompt, and with --setting-sources project,local, so your own ~/.claude/settings.json,
+// whose hooks report to the Smolcorp you use (7710), isn't loaded: only the app under test hears
+// of these desks. Costs: four short turns per Claude desk (short, long, the prompt, the follow-up).
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
@@ -41,6 +48,9 @@ const SUPPORT = process.env.MATRIX_SUPPORT || join(repo, 'build/test-support');
 const DIR = process.env.MATRIX_DIR || join(repo, 'build/input-matrix');
 const PREFIX = process.env.MATRIX_SOCKETS || 'i1';
 const MODEL = process.env.MATRIX_MODEL || 'haiku';
+const CLAUDE_SETTINGS = process.env.MATRIX_CLAUDE_SETTINGS || join(SUPPORT, 'claude-settings.json');
+const quoted = (word) => `'${word.replace(/'/g, `'\\''`)}'`;
+const HOOK = process.env.MATRIX_HOOK || quoted(join(SUPPORT, 'report.sh'));
 const KEY = process.env.MATRIX_KEY ? readFileSync(process.env.MATRIX_KEY, 'utf8').trim() : '';
 const DESKS = join(DIR, 'desks.json');
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -138,7 +148,9 @@ const sessionsFile = () => JSON.parse(readFileSync(join(SUPPORT, 'sessions.json'
 
 async function up() {
   mkdirSync(DIR, { recursive: true });
-  const claude = `claude --model ${MODEL} --permission-mode default --settings ${join(SUPPORT, 'claude-settings.json')}`;
+  if (!existsSync(CLAUDE_SETTINGS)) throw new Error(`no ${CLAUDE_SETTINGS}: start the copy first, or set MATRIX_CLAUDE_SETTINGS`);
+  // Only the app under test's hooks: never the user's settings, which report to the Smolcorp in use.
+  const claude = `claude --model ${MODEL} --permission-mode default --setting-sources project,local --settings ${quoted(CLAUDE_SETTINGS)}`;
   const plan = [
     { name: 'gm', kind: 'claude', role: 'gm', socket: `${PREFIX}-gm`, target: 'gm', command: claude },
     // A manager started by hand: typed into a shell, which stays when the agent ends.
@@ -147,7 +159,7 @@ async function up() {
     { name: 'hire', kind: 'claude', socket: `${PREFIX}-hire`, target: 'hire', command: claude },
     // Typed into a shell too, so it can be killed with its terminal left open.
     { name: 'fake', kind: 'fake', socket: `${PREFIX}-fake`, target: 'hire', log: join(DIR, 'fake.log'),
-      typed: `(exec -a codex ${process.execPath} ${join(here, 'fake-agent.mjs')} ${join(DIR, 'fake.log')} ${join(SUPPORT, 'report.sh')})` },
+      typed: `(exec -a codex ${process.execPath} ${join(here, 'fake-agent.mjs')} ${join(DIR, 'fake.log')} ${quoted(HOOK)})` },
   ];
   // Sessions already known: a new one in the same tab may take an old one's start time, so it's told by its id.
   const before = new Set(existsSync(join(SUPPORT, 'sessions.json')) ? sessionsFile().map((s) => s.id) : []);
@@ -201,7 +213,10 @@ const ran = (name) => [join(repo, 'build/input-matrix-desks/gm'), join(repo, 'bu
   join(repo, 'build/input-matrix-desks/fake'), repo, DIR, process.env.HOME].some((folder) => existsSync(join(folder, canary(name))));
 const SHELLISH = () => `He said "hi" and it's 'ok' $HOME \`touch ${canary('bt')}\` $(touch ${canary('cs')}) ; echo a && echo b \\`;
 const SEMI = 'fin de phrase;';
-const BANG = () => `!touch ${canary('bang')}`;
+// "!" alone, and with what makes it one character with the next to Swift while the agent still sees "!" first:
+// a combining accent, a zero-width joiner, an emoji variation selector.
+const BANGS = [['', 'bang'], ['\u0301', 'bang-301'], ['\u200d', 'bang-200d'], ['\ufe0f', 'bang-fe0f']];
+const CANARIES = ['bt', 'cs', 'perm', ...BANGS.map(([, name]) => name)];
 
 /** Types `text` without Return, reads it back from the box, and empties the box. */
 async function typedBack(desk, text) {
@@ -245,15 +260,15 @@ const cases = [
     const r = await typedBack(desk, SEMI);
     return { pass: r.ok, note: `${r.res.status}; ${r.ok ? 'exact' : `got ${JSON.stringify(r.got)}`}` };
   }],
-  ['leading ! (shell mode)', async (desk) => {
-    const res = await dictate(desk.id, BANG(), false);
+  ...BANGS.map(([mark, name]) => [`leading !${mark ? ` + U+${mark.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}` : ''} (shell mode)`, async (desk) => {
+    const res = await dictate(desk.id, `!${mark}touch ${canary(name)}`, false);
     await sleep(700);
     const box = boxLine(desk) ?? '';
     const shell = /for shell mode|bash mode/.test(screen(desk)) || box.includes('touch');
     emptyBox(desk); tmux(desk, 'send-keys', '-t', desk.target, 'BSpace');
     await sleep(300);
-    return { pass: res.status === 400 && !shell && !ran('bang'), note: `${res.status} ${res.body}; ${shell ? 'IN THE BOX' : 'box empty'}` };
-  }],
+    return { pass: res.status === 400 && !shell && !ran(name), note: `${res.status} ${res.body}; ${shell ? 'IN THE BOX' : 'box empty'}` };
+  }]),
   ['over 2000 characters', async (desk) => {
     const res = await dictate(desk.id, 'x'.repeat(2001), false);
     return { pass: res.status === 400 && /long/i.test(res.body), note: `${res.status} ${res.body}` };
@@ -322,7 +337,7 @@ const endings = [
 async function run(endingsOnly = false) {
   const only = process.env.MATRIX_ONLY?.split(',');
   const desks = JSON.parse(readFileSync(DESKS, 'utf8')).filter((d) => d.id && (!only || only.includes(d.name)));
-  if (['bt', 'cs', 'bang', 'perm'].some(ran)) throw new Error('a canary from an earlier run is still there: remove it first');
+  if (CANARIES.some(ran)) throw new Error('a canary from an earlier run is still there: remove it first');
   const rows = [];
   for (const desk of endingsOnly ? [] : desks) {
     for (const [name, check] of cases) {

@@ -31,9 +31,15 @@
 #
 #   SMOLCORP_TEST_ANTHROPIC_URL=http://127.0.0.1:7781/v1/messages scripts/test-copy.sh
 #
-# Sessions report to it only when started with its own hook, as:
+# To run it while Terminal.app is open without asking Terminal anything (no
+# Automation prompt, no wait on one), for desks in tmux only:
 #
-#   claude --settings build/test-support/claude-settings.json
+#   SMOLCORP_TEST_NO_TERMINAL_APP=1 scripts/test-copy.sh
+#
+# Sessions report to it only when started with its own hook, and without your
+# own settings, whose hooks report to the Smolcorp you use:
+#
+#   claude --setting-sources project,local --settings build/test-support/claude-settings.json
 #
 # Quit it from its menu bar icon. Running this again replaces the copy on
 # the same port, and only that one.
@@ -85,6 +91,7 @@ for pid in $(lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null); do
   esac
 done
 open -n --env "SMOLCORP_TEST_PORT=$PORT" --env "SMOLCORP_TEST_SUPPORT_DIR=$SUPPORT" \
-  ${SMOLCORP_TEST_ANTHROPIC_URL:+--env "SMOLCORP_TEST_ANTHROPIC_URL=$SMOLCORP_TEST_ANTHROPIC_URL"} "$APP"
+  ${SMOLCORP_TEST_ANTHROPIC_URL:+--env "SMOLCORP_TEST_ANTHROPIC_URL=$SMOLCORP_TEST_ANTHROPIC_URL"} \
+  ${SMOLCORP_TEST_NO_TERMINAL_APP:+--env "SMOLCORP_TEST_NO_TERMINAL_APP=$SMOLCORP_TEST_NO_TERMINAL_APP"} "$APP"
 echo "Smolcorp Test is opening on port $PORT, with its settings in $SUPPORT."
-echo "A Claude session that reports to it: claude --settings $SUPPORT/claude-settings.json"
+echo "A Claude session that reports to it: claude --setting-sources project,local --settings $SUPPORT/claude-settings.json"

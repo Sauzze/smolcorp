@@ -218,7 +218,7 @@ final class ChoiceTests: XCTestCase {
     /// waits for a prompt, and no hook says so. The session is idle then, so the
     /// phone may type what to do instead; it stayed "asking", and the phone was
     /// told to answer what was already answered.
-    func testRejectingFromTheDeckLetsThePhoneTypeTheNextPrompt() throws {
+    func testRejectingFromTheDeckLetsThePhoneTypeTheNextPrompt() {
         let sessions = asked(["tool_name": "Bash", "tool_input": ["command": "touch x"]])
         sessions.apply(event("PermissionRequest", ["tool_name": "Bash", "tool_input": ["command": "touch x"]]), agent: .claude,
                        tab: "tty:/dev/ttys003", startedIn: "", at: 21)
@@ -238,12 +238,8 @@ final class ChoiceTests: XCTestCase {
         sessions.apply(event("UserPromptSubmit"), agent: .claude, tab: "tty:/dev/ttys003", startedIn: "", at: 50)
         sessions.stoppedAsking("s1", at: 60)
         XCTAssertEqual(sessions["s1"]?.state, .thinking)
-        // And the deck marks it only for Claude Code, once the key has gone.
-        let deck = try String(contentsOfFile: Self.root + "Sources/AgentDeck/Deck.swift", encoding: .utf8)
-        let reject = try XCTUnwrap(deck.range(of: #"case "reject", "esc":"#)).upperBound
-        let block = String(deck[reject...].prefix(700))
-        XCTAssertTrue(block.contains("let wasAsking = Deck.isAsking(session.state) && agent == .claude"))
-        XCTAssertTrue(block.contains("if wasAsking, response.status < 400 { self?.sessions.stoppedAsking(id) }"))
+        // The deck's own ✗ and Esc, only for Claude Code and once the key has gone:
+        // PhoneMicTests.testRejectingFromTheDeckFreesAClaudeDesk.
     }
 
     /// C-3: the arrows' way stays off unless set by hand, the highlight moves
@@ -273,7 +269,7 @@ final class ChoiceTests: XCTestCase {
         let body = drivers[ghostty.upperBound...].prefix(9000)
         let end = try XCTUnwrap(body.range(of: "\n}\n")).lowerBound
         let own = body[..<end]
-        XCTAssertTrue(own.contains("func typeKeys(_ text: String, in tab: TabAddress) -> Bool { typeBytes(text, in: tab) }"))
+        XCTAssertTrue(own.contains("func typeKeys(_ text: String, in tab: TabAddress) -> Bool { typeText(text, in: tab) }"))
         XCTAssertTrue(own.contains("var showsScreen: Bool { false }"))
         let choice = try XCTUnwrap(PendingChoice.question(question))
         XCTAssertEqual(choice.forPhone(menuSeen: false)["answerable"] as? Bool, false)
@@ -285,11 +281,13 @@ final class ChoiceTests: XCTestCase {
     /// would run as a shell command, is refused, spaces before it or not.
     func testATypedAnswerNeverStartsWithABang() throws {
         XCTAssertEqual(PhoneDictation.prepared("  !rm -rf build"), "!rm -rf build")
+        // By the first code point, as Claude Code looks: "!" with an accent on it is still its shell.
+        XCTAssertTrue(PhoneDictation.runsInShell("!\u{301}rm -rf build"))
         let deck = try String(contentsOfFile: Self.root + "Sources/AgentDeck/Deck.swift", encoding: .utf8)
         let start = try XCTUnwrap(deck.range(of: "func answerOther(_ text: String")).upperBound
         let body = deck[start...].prefix(900)
         let cleaned = try XCTUnwrap(body.range(of: "guard let words = PhoneDictation.prepared(text) else")).lowerBound
-        let bang = try XCTUnwrap(body.range(of: #"guard !words.hasPrefix("!") else { return done(.status(400, Deck.noBang)) }"#)).lowerBound
+        let bang = try XCTUnwrap(body.range(of: "guard !PhoneDictation.runsInShell(words) else { return done(.status(400, Deck.noBang)) }")).lowerBound
         XCTAssertLessThan(cleaned, bang, "checked on the text as it would be typed")
     }
 
@@ -776,7 +774,7 @@ final class ChoiceTests: XCTestCase {
         let steps = [
             "guard Config.shared.phoneMicEnabled else",
             "guard let words = PhoneDictation.prepared(text) else",
-            "guard !words.hasPrefix(\"!\") else",
+            "guard !PhoneDictation.runsInShell(words) else",
             "guard let choice = Deck.claimable(session.choice, state: session.state, id: choiceID, lastReturn: lastReturn[id], now: Date()) else",
             "guard choice.typesOther, let other = Terminal.Key.digit(choice.options.count + 1),",
             "session.choice = nil",
@@ -791,10 +789,8 @@ final class ChoiceTests: XCTestCase {
         XCTAssertEqual(places, places.sorted())
         XCTAssertFalse(body.contains("driver.insert("), "never a paste into the menu's field")
         XCTAssertFalse(body.contains("driver.type("), "never the text and Return together")
-        // The terminals whose `insert` pastes type it as keys here.
-        let drivers = try String(contentsOfFile: Self.root + "Sources/AgentDeck/TerminalDrivers.swift", encoding: .utf8)
-        XCTAssertTrue(drivers.contains("return pasted(text, in: tab, bracketed: false)"))
-        XCTAssertTrue(drivers.contains(#"func typeKeys(_ text: String, in tab: TabAddress) -> Bool { ran(tab, ["send-text", "--pane-id", tab.id, "--no-paste", "--", text]) }"#))
+        // The terminals whose `insert` pastes type it as keys here: TmuxTests and
+        // WezTermKittyTests check what each is given.
     }
 
     private static let root: String = {

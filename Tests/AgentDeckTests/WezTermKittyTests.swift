@@ -13,7 +13,10 @@ final class WezTermKittyTests: XCTestCase {
 
     private func standIn(_ name: String, _ body: String) throws -> String {
         let url = folder.appendingPathComponent(name)
-        try "#!/bin/sh\nprintf '%s\\n' \"${WEZTERM_UNIX_SOCKET:+socket=$WEZTERM_UNIX_SOCKET }$*\" >> \"\(log.path)\"\n\(body)\n"
+        // Text given on standard input (the call ends with no text of its own) is logged as its own line, as it came.
+        let stdin = #"case "$*" in *"send-text --match id:3 --stdin"|*"send-text --pane-id 5"|*"send-text --pane-id 5 --no-paste") printf 'stdin=' >> "LOG"; cat >> "LOG"; echo >> "LOG" ;; esac"#
+            .replacingOccurrences(of: "LOG", with: log.path)
+        try "#!/bin/sh\nprintf '%s\\n' \"${WEZTERM_UNIX_SOCKET:+socket=$WEZTERM_UNIX_SOCKET }$*\" >> \"\(log.path)\"\n\(stdin)\n\(body)\n"
             .write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url.path
@@ -46,9 +49,39 @@ final class WezTermKittyTests: XCTestCase {
         XCTAssertTrue(WezTerm().type("-n run it", in: pane))
         XCTAssertEqual(asked, [
             "socket=/tmp/wezterm-gui-sock cli send-text --pane-id 5 --no-paste \u{1b}[Z",
-            "socket=/tmp/wezterm-gui-sock cli send-text --pane-id 5 --no-paste -- -n run it",
+            "socket=/tmp/wezterm-gui-sock cli send-text --pane-id 5 --no-paste",
+            "stdin=-n run it",
             "socket=/tmp/wezterm-gui-sock cli send-text --pane-id 5 --no-paste \r",
         ])
+    }
+
+    /// The same bytes, compared as bytes: Swift calls é and e with a combining accent equal.
+    private func assertBytes(_ line: String, _ text: String, file: StaticString = #filePath, line number: UInt = #line) {
+        XCTAssertEqual(Array(line.utf8), Array(("stdin=" + text).utf8), file: file, line: number)
+    }
+
+    /// As an argument, macOS takes accents apart (é as e and a combining accent): the phone's
+    /// text reaches WezTerm and kitty on their standard input, byte for byte, never as an argument.
+    func testTextGoesOnStandardInputByteForByte() throws {
+        let text = "Café à l’été, ça va ? « œ » 👩‍💻 $(id) `x` a\\b fin;"
+        XCTAssertTrue(WezTerm().insert(text, in: pane))
+        XCTAssertTrue(WezTerm().typeKeys(text, in: pane))
+        XCTAssertTrue(Kitty().insert(text, in: window))
+        XCTAssertTrue(Kitty().typeKeys(text, in: window))
+        XCTAssertTrue(Kitty().type("/clear", in: window))
+        let lines = asked
+        XCTAssertEqual(lines.count, 10)
+        XCTAssertEqual(lines[0], "socket=/tmp/wezterm-gui-sock cli send-text --pane-id 5", "a paste, send-text's own way")
+        assertBytes(lines[1], text)
+        XCTAssertEqual(lines[2], "socket=/tmp/wezterm-gui-sock cli send-text --pane-id 5 --no-paste", "as keys")
+        assertBytes(lines[3], text)
+        XCTAssertEqual(lines[4], "@ --to unix:/tmp/kitty-99 send-text --match id:3 --stdin")
+        assertBytes(lines[5], text)
+        XCTAssertEqual(lines[6], lines[4])
+        assertBytes(lines[7], text)
+        XCTAssertEqual(lines[8], lines[4])
+        assertBytes(lines[9], "/clear\r")
+        for line in lines where !line.hasPrefix("stdin=") { XCTAssertFalse(line.contains("Caf"), "never an argument: \(line)") }
     }
 
     /// The phone mic's peek reads the visible screen only: get-text at its
@@ -68,12 +101,14 @@ final class WezTermKittyTests: XCTestCase {
         XCTAssertEqual(WezTerm().isOpen(TabAddress("wezterm:7@/tmp/wezterm-gui-sock")!), false)
     }
 
-    func testKittyKeysAndTextAreEscapedAsSendTextReadsThem() {
+    /// Keys as an argument, escaped as send-text reads them; text on its standard input, which it takes as it is.
+    func testKittyKeysAreEscapedAsSendTextReadsThem() {
         XCTAssertTrue(Kitty().press(.init(key: .escape), in: window))
         XCTAssertTrue(Kitty().type(#"a\b"#, in: window))
         XCTAssertEqual(asked, [
             "@ --to unix:/tmp/kitty-99 send-text --match id:3 \\x1b",
-            #"@ --to unix:/tmp/kitty-99 send-text --match id:3 -- a\\b\x0d"#,
+            "@ --to unix:/tmp/kitty-99 send-text --match id:3 --stdin",
+            "stdin=a\\b\r",
         ])
     }
 

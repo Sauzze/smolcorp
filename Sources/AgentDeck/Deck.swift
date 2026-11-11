@@ -2092,10 +2092,16 @@ final class Deck {
         guard !driver.keysNeedAccessibility || Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
         let sends = send ?? PhoneDictation.sends(words, autoSend: Config.shared.phoneMicAutoSend)
         let address = session.tab
-        var withheld = false
+        var withheld = false, asked = false
         toAgent(session, done: { response in
+            if asked { return done(.status(409, Deck.answerFirst)) }
             done(withheld && response.status < 400 ? .status(409, Deck.typedNotSent) : response)
         }) {
+            // Asked something while this waited for the terminal: checked again, on the main queue, right before the text.
+            guard DispatchQueue.main.sync(execute: { !Deck.isAsking(self.sessions[id]?.state) }) else {
+                asked = true
+                return true
+            }
             guard driver.insert(words, in: tab) else { return false }
             if sends {
                 // Return on its own once the text is in, as the ⏎ key presses it: with the text, it would be a new line.
@@ -2257,7 +2263,7 @@ final class Deck {
         guard Config.shared.phoneMicEnabled else { return done(.status(403, "The phone mic is off. Turn it on in setup, on your Mac.")) }
         guard let words = PhoneDictation.prepared(text) else { return done(.status(400, PhoneDictation.refusal(text))) }
         // Where the field didn't open, the text would be a prompt, and one starting with ! a shell command.
-        guard !words.hasPrefix("!") else { return done(.status(400, Deck.noBang)) }
+        guard !PhoneDictation.runsInShell(words) else { return done(.status(400, Deck.noBang)) }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
         guard !session.isHeadless else { return done(.status(409, Deck.headless)) }
         guard let choice = Deck.claimable(session.choice, state: session.state, id: choiceID, lastReturn: lastReturn[id], now: Date()) else {
