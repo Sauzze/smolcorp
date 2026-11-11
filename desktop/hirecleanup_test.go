@@ -238,7 +238,7 @@ func TestACleanUpNeverRemovesAUsersOwnWorktree(t *testing.T) {
 	hire, repo, trees := cleanupHireIn(t, "ab12cd34ef56", 0)
 	git := func(args ...string) {
 		t.Helper()
-		all := append([]string{"-C", repo, "-c", "commit.gpgsign=false"}, args...)
+		all := append([]string{"-C", repo}, args...)
 		if out, err := exec.Command("git", all...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
@@ -381,7 +381,7 @@ func TestPhysicalGivesAnAbsoluteResolvedPath(t *testing.T) {
 // gitIn runs git in repo for a test's setup.
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	all := append([]string{"-C", dir, "-c", "commit.gpgsign=false"}, args...)
+	all := append([]string{"-C", dir}, args...)
 	out, err := exec.Command("git", all...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v %s", args, err, out)

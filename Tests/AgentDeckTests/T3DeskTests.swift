@@ -102,6 +102,7 @@ final class T3DeskTests: XCTestCase {
     private func repo() throws -> String {
         let repo = home.appendingPathComponent("repo").path
         for arguments in [["init", "-q", "-b", "main", repo], ["-C", repo, "commit", "-q", "--allow-empty", "-m", "init"]] {
+            if arguments[0] == "-C" { TempRepo.stopSigning(repo) }  // after the init, before the first commit
             let git = Process()
             git.executableURL = URL(fileURLWithPath: "/usr/bin/git")
             git.arguments = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"] + arguments
@@ -300,6 +301,11 @@ final class T3DeskTests: XCTestCase {
         XCTAssertTrue(refusal.message.hasSuffix(" T3 Code didn't remove the project it was given (Could not reach the T3 Code desktop app.), so the hire's worktree and fence were kept: remove \"Ada · hire/ada-abcdef\" in T3 Code."), refusal.message)
         XCTAssertTrue(FileManager.default.fileExists(atPath: worktree() + "/.claude/settings.local.json"), "whatever T3 still runs there stays fenced")
         _ = repo
+    }
+
+    func testTheTempRepoDoesNotSign() throws {
+        let repo = try repo()
+        XCTAssertEqual(TempRepo.local("commit.gpgsign", in: repo), "false")
     }
 
     func testAFenceFileTheRepoAlreadyHasIsNeverWrittenOver() throws {
@@ -831,6 +837,7 @@ final class T3DeskRealFenceTests: XCTestCase {
         try FileManager.default.createDirectory(at: support.appendingPathComponent("hires"), withIntermediateDirectories: true)
         XCTAssertEqual(git(["init", "-q", "--bare", remote])?.status, 0)
         XCTAssertEqual(git(["init", "-q", "-b", "main", repo])?.status, 0)
+        TempRepo.stopSigning(repo)
         XCTAssertEqual(git(["-C", repo, "remote", "add", "origin", remote])?.status, 0)
         XCTAssertEqual(git(["-C", repo, "commit", "-q", "--allow-empty", "-m", "init"])?.status, 0)
         // What a read must not reach: the deny rules name this support folder's config.json.
