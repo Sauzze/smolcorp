@@ -218,7 +218,7 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 	desk, roleID, floor, fromSetup := s.desk, s.roleID, s.floor, s.fromSetup
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if !fromSetup && !d.config.HiringEnabled {
+	if !d.config.HiringEnabled && (!fromSetup || s.fenced) {
 		return http.StatusForbidden, hiringOff
 	}
 	pinned := ""

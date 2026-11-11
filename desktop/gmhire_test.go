@@ -196,6 +196,20 @@ func TestTheGMHireWithEveryDeskTaken(t *testing.T) {
 	}
 }
 
+// The owner's hiring switch holds for the GM too, as on the Mac: off is 403 with the office's words and nothing made; on again, 200.
+func TestTheGMHireHonoursTheHiringSwitch(t *testing.T) {
+	d, r, h, token := gmHireDeck(t)
+	d.config.HiringEnabled = false
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor"}`); code != http.StatusForbidden || text != hiringOff {
+		t.Errorf("hiring off: %d %q, want 403 %q", code, text, hiringOff)
+	}
+	nothingMade(t, r, h)
+	d.config.HiringEnabled = true
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor"}`); code != http.StatusOK {
+		t.Errorf("hiring on again: %d %q, want 200", code, text)
+	}
+}
+
 // Only the fenced ways: what would open a plain terminal is 409 in one sentence, nothing opened; the office keeps its behaviour.
 func TestTheGMHireNeverOpensAPlainTerminal(t *testing.T) {
 	for _, c := range []struct{ name, want string }{{"no tmux", "Install tmux: "}, {"another agent", "only Claude roles"}} {
