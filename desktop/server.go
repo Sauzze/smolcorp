@@ -1945,7 +1945,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			return
 		}
 		command := strings.TrimPrefix(path, "/setup/gm/")
-		http.Error(w, "`gm "+command+"` isn't available on this engine yet: switch back to the Swift engine to use it.", http.StatusNotFound)
+		http.Error(w, "`gm "+command+"` isn't available in this version of Smolcorp yet.", http.StatusNotFound)
 
 	// The Mac answers an unknown route under /setup with an empty 404.
 	default:

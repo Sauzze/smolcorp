@@ -1,9 +1,9 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// The app as the Go core's shell, when `Config.engine` is "go" in a test copy
-/// (see `Engine`): the menu bar item, the office's window and Settings, loaded
-/// from the core's port, and the bridge the core asks for what only macOS can do.
+/// The app as the Go core's shell (see `Engine`): the menu bar item, the
+/// office's window and Settings, loaded from the core's port, and the bridge
+/// the core asks for what only macOS can do.
 /// No Swift deck is made and the Swift server doesn't start, so the core alone
 /// reads and writes the support folder. Quitting stops the core.
 final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -71,7 +71,7 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// The core ended by itself: its pages are gone, so their windows close, and
     /// it's said once. It isn't started again: a core that keeps failing would
-    /// only fail again (a test copy only, for now).
+    /// only fail again.
     private func coreStopped(_ status: Int32) {
         let said = "The Go engine stopped (\(status)). Quit and open Smolcorp again."
         guard problem != said else { return }
@@ -107,7 +107,7 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        menu.addItem(withTitle: problem ?? "Smolcorp Test · Go engine on port \(core.port)", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: problem ?? GoShellDelegate.title(port: core.port), action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         if let office {
             let labels = OfficeKey.currentLabels()
@@ -120,6 +120,11 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(.separator())
         }
         add(to: menu, "Quit Smolcorp", #selector(quit), key: "q")
+    }
+
+    /// The menu's first line while the core serves: a test copy says it's one, and its port.
+    static func title(port: UInt16, testCopy: Bool = TestCopy.isOn) -> String {
+        testCopy ? "Smolcorp Test · port \(port)" : "Smolcorp is running"
     }
 
     /// Smolcorp's, Edit and Window, so the Settings page's fields take their keys.

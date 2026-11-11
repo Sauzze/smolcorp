@@ -14,11 +14,10 @@ import (
 // With `engine: "t3"`, into T3 Code through Setup's own lane (hireFromSetupSheetIntoT3), as the Mac's route does.
 // The request is the fixture Tests/fixtures/frontdesk/hire.json.
 
-// gmHireCantHonour is the 400 for a field the Go path can't honour yet. Under the Mac app it's "this engine".
-// It never says to switch back to the Swift engine: that one doesn't serve smolcorp demo, so a GM there would end it.
+// gmHireCantHonour is the 400 for a field the Go path can't honour yet: on a Mac, as the app's own words.
 func gmHireCantHonour(field string, macApp bool) string {
 	if macApp {
-		return "On this engine, the General Manager's hire can't honour \"" + field + "\" yet: leave it out."
+		return "The General Manager's hire can't honour \"" + field + "\" yet: leave it out."
 	}
 	return "Smolcorp on Linux and Windows can't honour \"" + field + "\" in a hire yet: leave it out."
 }

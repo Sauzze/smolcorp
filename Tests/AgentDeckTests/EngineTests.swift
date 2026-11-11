@@ -15,17 +15,24 @@ final class EngineTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    func testOnlyATestCopyRunsTheGoEngine() {
-        for setting in [nil, "swift", "rust", "GO", ""] as [String?] {
-            let (engine, refusal) = Engine.chosen(setting, testCopy: true)
-            XCTAssertEqual(engine, .swift, "\(String(describing: setting))")
-            XCTAssertNil(refusal)
+    func testEveryMacRunsTheGoEngineWhateverTheFileSays() {
+        for setting in [nil, "go"] as [String?] {
+            let (engine, ignored) = Engine.chosen(setting)
+            XCTAssertEqual(engine, .go, "\(String(describing: setting))")
+            XCTAssertNil(ignored, "nothing to say")
         }
-        XCTAssertEqual(Engine.chosen("go", testCopy: true).engine, .go)
-        let (engine, refusal) = Engine.chosen("go", testCopy: false)
-        XCTAssertEqual(engine, .swift, "the copy in use keeps its own engine")
-        XCTAssertEqual(refusal, Engine.refusal)
-        XCTAssertEqual(refusal?.filter { $0 == "." }.count, 1, "one sentence")
+        for setting in ["swift", "rust", "GO", ""] {
+            let (engine, ignored) = Engine.chosen(setting)
+            XCTAssertEqual(engine, .go, setting)
+            XCTAssertEqual(ignored, Engine.ignoredSetting(setting))
+            XCTAssertEqual(ignored?.split(separator: "\n").count, 1, "one log line")
+        }
+        XCTAssertTrue(Engine.ignoredSetting("swift").contains(#""engine": "swift" is ignored"#))
+    }
+
+    func testTheMenuNamesATestCopyAndNotTheRealApp() {
+        XCTAssertEqual(GoShellDelegate.title(port: 7790, testCopy: true), "Smolcorp Test · port 7790")
+        XCTAssertEqual(GoShellDelegate.title(port: 7710, testCopy: false), "Smolcorp is running")
     }
 
     func testTheSettingIsKeptAndNeverAdded() throws {

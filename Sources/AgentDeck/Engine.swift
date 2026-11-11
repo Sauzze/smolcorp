@@ -1,21 +1,23 @@
 import Foundation
 
-/// Which engine runs the deck, as `Config.engine` says: this app's own (Swift,
-/// as always), or the Go core, the same server the Linux and Windows app runs,
-/// started by this app as its child (`GoCore`), with this app as its shell:
-/// the menu bar, the windows, and what only macOS can do (`HostBridge`).
-/// For now only a test copy may run the Go core.
+/// The engine that runs the deck: since 1.25.0, on every Mac, the Go core, the
+/// same server the Linux and Windows app runs, started by this app as its child
+/// (`GoCore`), with this app as its shell: the menu bar, the windows, and what
+/// only macOS can do (`HostBridge`). The Swift engine this app had before is
+/// gone, so config.json's `engine` no longer chooses anything.
 enum Engine: String {
-    case swift, go
+    case go
 
-    /// Said once, as the app starts, when a copy that isn't a test copy is set to "go".
-    static let refusal = "The Go engine is only for a test copy of Smolcorp for now, so this Smolcorp runs its own engine."
+    /// The engine to run, and the line to log once, as the app starts, when
+    /// config.json still names another (a test copy's "swift", say): the field
+    /// is left in the file as it is, and ignored.
+    static func chosen(_ setting: String?) -> (engine: Engine, ignored: String?) {
+        guard let setting, setting != Engine.go.rawValue else { return (.go, nil) }
+        return (.go, ignoredSetting(setting))
+    }
 
-    /// The engine to run for `setting`, and the sentence to say when "go" is refused.
-    static func chosen(_ setting: String?, testCopy: Bool = TestCopy.isOn) -> (engine: Engine, refusal: String?) {
-        guard setting == Engine.go.rawValue else { return (.swift, nil) }
-        guard testCopy else { return (.swift, refusal) }
-        return (.go, nil)
+    static func ignoredSetting(_ setting: String) -> String {
+        "config.json's \"engine\": \"\(setting)\" is ignored: Smolcorp runs its Go engine, the only one it has since 1.25.0."
     }
 }
 
