@@ -255,7 +255,7 @@ final class GMPreflightTests: XCTestCase {
         // R791: one fact counts once (the hooks line in both lists), and the live region is written only when it changes.
         XCTAssertTrue(page.contains("const twice = (c) => c.id === 'hooks' && hire.some((i) => i.id === 'hooks');"))
         XCTAssertTrue(page.contains("own.filter((c) => c.status === 'fix' && !twice(c))"))
-        XCTAssertTrue(page.contains("if ($('accounts-for-gm').textContent !== forGm) $('accounts-for-gm').textContent = forGm;"))
+        XCTAssertTrue(page.contains("if ($('accounts-for-gm').textContent !== gmHint) $('accounts-for-gm').textContent = gmHint;"))
         XCTAssertTrue(page.contains("const said = officeOpened(button);"))
         XCTAssertTrue(page.contains("button.after(said);"))
     }
