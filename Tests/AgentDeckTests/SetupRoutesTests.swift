@@ -83,8 +83,40 @@ final class SetupRoutesTests: XCTestCase {
         XCTAssertEqual(gate("POST", "/setup/bots/mailbox", headers(for: .tool)).refusal?.status, 403)
     }
 
+    /// 11 Nov: a GM can never pop the Mac's folder panel. The gate answers before the route's code runs, so a refused
+    /// request opens nothing: the panel stays shut, with `pick=1` and `for=floor` too. The page is let through to its panel.
+    func testTheFolderPanelIsOpenedByThePageAlone() throws {
+        for query in [[:], ["pick": "1"], ["pick": "1", "for": "floor"]] as [[String: String]] {
+            for caller in [SetupSessions.Caller.gm, .tool, .hire, .nobody] {
+                let answer = DeckRouter.setupGate(
+                    Request(method: "POST", path: "/setup/hiring/choose", query: query, headers: headers(for: caller), body: Data(), isLocal: true,
+                            isAddressedDirectly: true, remoteAddress: "127.0.0.1"),
+                    sessions: sessions, isSetupKey: { $0 == self.fileKey }, isGMToken: { $0 == self.gmToken }, isHireKey: { $0 == self.hireKey })
+                XCTAssertNotNil(answer.refusal, "\(query) \(caller): refused, so nothing is opened")
+                if caller == .gm || caller == .tool { XCTAssertEqual(answer.refusal?.status, 403, "\(query) \(caller)") }
+            }
+            let page = DeckRouter.setupGate(
+                Request(method: "POST", path: "/setup/hiring/choose", query: query, headers: headers(for: .page), body: Data(), isLocal: true,
+                        isAddressedDirectly: true, remoteAddress: "127.0.0.1"),
+                sessions: sessions, isSetupKey: { $0 == self.fileKey }, isGMToken: { $0 == self.gmToken }, isHireKey: { $0 == self.hireKey })
+            XCTAssertNil(page.refusal, "\(query): the page")
+            XCTAssertEqual(page.caller, .page)
+        }
+        XCTAssertTrue(SetupSessions.isPageOnly("POST", "/setup/hiring/choose"))
+        // The GM still gets a folder the other ways: the hiring settings and the hire-folder route.
+        XCTAssertNil(gate("POST", "/setup/hiring", headers(for: .gm)).refusal)
+        XCTAssertNil(gate("POST", "/setup/hire-folder", headers(for: .gm)).refusal)
+        // And the panel is opened from that one route only: nothing else in the Mac's code asks for it.
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let router = try String(contentsOf: repo.appendingPathComponent("Sources/AgentDeck/DeckRouter.swift"), encoding: .utf8)
+        XCTAssertEqual(router.components(separatedBy: "deck.chooseHireFolder").count - 1, 2, "both branches of the one route")
+        let route = try XCTUnwrap(router.range(of: #"case ("POST", "/setup/hiring/choose"):"#))
+        let first = try XCTUnwrap(router.range(of: "deck.chooseHireFolder"))
+        XCTAssertLessThan(route.lowerBound, first.lowerBound, "the first call sits in that route's case")
+    }
+
     func testTheSetupKeyFileAloneCantDoWhatAHireCouldMisuse() {
-        let misusable = ["/setup/hire", "/setup/hire/gm", "/setup/hiring", "/setup/hiring/choose", "/setup/roles", "/setup/hooks",
+        let misusable = ["/setup/hire", "/setup/hire/gm", "/setup/hiring", "/setup/roles", "/setup/hooks",
                          "/setup/unpair", "/setup/notify", "/setup/webhook", "/setup/webhook/test", "/setup/bots", "/setup/bots/override",
                          "/setup/bots/resolve", "/setup/maxconfirm", "/setup/phonemic", "/setup/dictation", "/setup/login",
                          "/setup/layout", "/setup/profiles", "/setup/pin", "/setup/unpin", "/setup/floors",

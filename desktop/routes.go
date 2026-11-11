@@ -43,7 +43,7 @@ var routeTable = []routeRow{
 	{"POST", "/setup/hire/gm", []string{"gm", "page"}},
 	{"GET", "/setup/hire/gm/preflight", []string{"page"}},
 	{"POST", "/setup/hiring", []string{"gm", "page"}},
-	{"POST", "/setup/hiring/choose", []string{"gm", "page"}},
+	{"POST", "/setup/hiring/choose", []string{"page"}},
 	{"POST", "/setup/hire-folder", []string{"gm", "page"}},
 	{"POST", "/setup/roles", []string{"gm", "page"}},
 	{"POST", "/setup/hooks", []string{"gm", "page"}},
