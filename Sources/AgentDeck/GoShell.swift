@@ -176,13 +176,18 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 final class OfficeLink {
     weak var window: OfficeWindow?
     /// The office's keys, held while the core is ready.
-    lazy var keys = OfficeKeyHolder(labels: labels) { [weak self] in self?.window?.toggle() }
+    lazy var keys = OfficeKeyHolder(labels: labels, testCopy: testCopy) { [weak self] in self?.window?.toggle() }
+    private let testCopy: Bool
     /// Each key's name on the layout in use: a stand-in in the tests.
     private let labels: () -> OfficeKey.Labels
 
-    init(keys register: OfficeKeyHolder.Register? = nil, labels: @escaping () -> OfficeKey.Labels = OfficeKey.currentLabels) {
+    init(keys register: OfficeKeyHolder.Register? = nil, labels: @escaping () -> OfficeKey.Labels = OfficeKey.currentLabels,
+         testCopy: Bool = TestCopy.isOn) {
         self.labels = labels
-        if let register { keys = OfficeKeyHolder(register: register, labels: labels) { [weak self] in self?.window?.toggle() } }
+        self.testCopy = testCopy
+        if let register {
+            keys = OfficeKeyHolder(register: register, labels: labels, testCopy: testCopy) { [weak self] in self?.window?.toggle() }
+        }
     }
 
     /// `actions`, with the office's window this shell shows.

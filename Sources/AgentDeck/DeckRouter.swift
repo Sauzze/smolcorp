@@ -1815,7 +1815,7 @@ final class DeckRouter: Router {
                 let labels = officeKeyLabels()
                 let chosen = OfficeKey.chosen(config, labels: labels)
                 return ["keys": chosen?.text ?? OfficeKey.off, "default": OfficeKey.standard.text,
-                        "held": officeKeyHeld() == chosen, "labels": labels]
+                        "held": OfficeKeyHolder.isHeld(officeKeyHeld(), chosen: chosen), "labels": labels]
             }(),
             "summary": { () -> [String: Any] in
                 SummaryProviders.shared.refresh()

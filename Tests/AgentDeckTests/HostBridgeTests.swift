@@ -545,6 +545,25 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file), before, "the config file is the core's")
     }
 
+    /// The Go shell's office keys in a test copy (TKEY): the bridge's office-key saves the choice in memory and
+    /// holds nothing (the stand-in is never asked), and the facts say nothing is held.
+    func testTheGoShellsOfficeKeysAreNeverHeldInATestCopy() throws {
+        let config = Config()
+        var asked = 0
+        let link = OfficeLink(keys: { _, _ in asked += 1; return NSObject() }, labels: { [:] }, testCopy: true)
+        var mac = actions
+        mac.facts = { _ in ["testCopy": true] }
+        let actions = link.actions(mac, config: config)
+        XCTAssertNil(actions.officeKey(OfficeKey(modifiers: ["ctrl", "alt"], key: "K")))
+        XCTAssertEqual(config.officeKey, "ctrl+alt+K", "the choice is still kept")
+        XCTAssertNil(actions.officeKey(nil))
+        XCTAssertEqual(config.officeKey, "off")
+        XCTAssertNil(actions.officeKey(.standard))
+        XCTAssertNil(config.officeKey)
+        XCTAssertEqual(asked, 0, "no hot key asked for")
+        XCTAssertNil(link.keys.current)
+    }
+
     /// The Go shell's office keys (KSC): held at once by its holder (a stand-in here, never a real key), then kept
     /// in memory for the menu; keys it can't hold are its refusal, and nothing changes. Never saved from the shell.
     /// Setup's facts carry the keys held now and the layout's names for the keys (FXKSC B2, N2), for the core.

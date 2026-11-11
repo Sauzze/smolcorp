@@ -187,6 +187,38 @@ final class OfficeKeyTests: XCTestCase {
         XCTAssertNil(holder.current, "nothing held")
     }
 
+    /// A test copy holds no office shortcut (TKEY): the holder never asks its register (a stand-in: no real hot key is
+    /// touched), says done, holds nothing, and setup's `held` is false, even with the keys off.
+    func testATestCopyHoldsNoShortcutAndSetupSaysSo() {
+        var asked: [String] = []
+        let holder = OfficeKeyHolder(register: { key, _ in asked.append(key.text); return NSObject() }, labels: { [:] }, testCopy: true, action: {})
+        XCTAssertNil(holder.hold(.standard))
+        XCTAssertNil(holder.hold(OfficeKey(modifiers: ["ctrl", "alt"], key: "K")))
+        XCTAssertNil(holder.hold(nil))
+        XCTAssertNil(holder.current)
+        XCTAssertEqual(asked, [], "no hot key asked for")
+        XCTAssertFalse(OfficeKeyHolder.isHeld(nil, chosen: nil, testCopy: true), "off is not held either")
+        XCTAssertFalse(OfficeKeyHolder.isHeld(.standard, chosen: .standard, testCopy: true))
+        XCTAssertTrue(OfficeKeyHolder.isHeld(.standard, chosen: .standard, testCopy: false))
+        XCTAssertTrue(OfficeKeyHolder.isHeld(nil, chosen: nil, testCopy: false), "the real app: off is as asked")
+        XCTAssertFalse(OfficeKeyHolder.isHeld(nil, chosen: .standard, testCopy: false))
+    }
+
+    /// Every way the office comes forward goes through the test-copy check (the shortcut, the menu and the
+    /// bridge all end in `show()`), and the router says held through `isHeld`.
+    func testTheOfficeWindowShowsOnlyAfterTheTestCopyCheck() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/AgentDeck")
+        let window = try String(contentsOf: sources.appendingPathComponent("OfficeWindow.swift"), encoding: .utf8)
+        let show = try XCTUnwrap(window.range(of: "    func show() {"))
+        let body = String(window[show.upperBound...].prefix(900))
+        let check = try XCTUnwrap(body.range(of: "guard TestCopy.mayComeForward(\"the office window\") else { return }"))
+        XCTAssertLessThan(check.lowerBound, try XCTUnwrap(body.range(of: "orderFrontRegardless")).lowerBound)
+        XCTAssertLessThan(check.lowerBound, try XCTUnwrap(body.range(of: "makePanel()")).lowerBound)
+        let router = try String(contentsOf: sources.appendingPathComponent("DeckRouter.swift"), encoding: .utf8)
+        XCTAssertTrue(router.contains("\"held\": OfficeKeyHolder.isHeld(officeKeyHeld(), chosen: chosen)"))
+    }
+
     // MARK: The route
 
     /// POST /setup/officekey, from the page: checked first (400, the holder not asked), held at once, then kept;

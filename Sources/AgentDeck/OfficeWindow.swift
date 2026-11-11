@@ -125,6 +125,8 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     func toggle() { isShown ? hide() : show() }
 
     func show() {
+        // The second layer for a test copy: no path (the shortcut, the menu, a page, the Dock) puts its office in front.
+        guard TestCopy.mayComeForward("the office window") else { return }
         let panel = self.panel ?? makePanel()
         let screen = screenUnderPointer()
         panel.setFrame(savedFrame(on: screen) ?? firstFrame(on: screen), display: false)

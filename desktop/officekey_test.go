@@ -84,6 +84,31 @@ func TestTheOfficeKeysAreCheckedAsTheSharedFixtureSays(t *testing.T) {
 	}
 }
 
+// A test copy of the Mac app holds no office shortcut (TKEY): whatever the app says it holds, setup says
+// held: false, even with the keys off; the real app's word is believed.
+func TestATestCopyOfTheMacHoldsNoOfficeKeys(t *testing.T) {
+	for _, c := range []struct {
+		saved, held string
+		testCopy    bool
+		want        bool
+	}{
+		{"", "alt+cmd+O", false, true},
+		{"", "alt+cmd+O", true, false},
+		{"off", "off", false, true},
+		{"off", "off", true, false},
+		{"ctrl+alt+K", "ctrl+alt+K", true, false},
+		{"ctrl+alt+K", "alt+cmd+O", false, false},
+	} {
+		state := officeKeyState(c.saved, &macOfficeKey{Held: c.held}, c.testCopy)
+		if state["held"] != c.want {
+			t.Errorf("saved %q, held %q, test copy %v: held %v, want %v", c.saved, c.held, c.testCopy, state["held"], c.want)
+		}
+	}
+	if state := officeKeyState("", nil, false); state["held"] != false {
+		t.Errorf("no Mac app: %v", state["held"])
+	}
+}
+
 // On Windows and Linux there's no key from anywhere: the keys are checked and kept for the page, nothing asked.
 // Only the page may set them: a GM, a tool and a hire are refused.
 func TestTheOfficeKeysAreKeptHereAndSetByThePageAlone(t *testing.T) {
@@ -126,6 +151,7 @@ func TestTheOfficeKeysAreKeptHereAndSetByThePageAlone(t *testing.T) {
 // types there, and setup shows those names and whether the keys kept are the ones held (FXKSC B2, N2).
 func TestTheMacAppHoldsTheOfficeKeysBeforeTheyreKept(t *testing.T) {
 	mac := withMac(t)
+	mac.facts.TestCopy = false // the fixture's facts are a test copy's, which holds none (TKEY): this is the real app
 	d := newTestDeck(t)
 	if code, _ := pageCall(t, d, "POST", "/setup/officekey?keys=off"); code != http.StatusOK || loadConfig().OfficeKey != "off" {
 		t.Fatalf("off: %d, kept %q", code, loadConfig().OfficeKey)
@@ -159,6 +185,12 @@ func TestTheMacAppHoldsTheOfficeKeysBeforeTheyreKept(t *testing.T) {
 	if s := state(); s["keys"] != "alt+cmd+Q" || s["held"] != true {
 		t.Errorf("held: %v", s)
 	}
+	// The same word from a test copy of the Mac app: not held, as it holds none (TKEY).
+	mac.facts.TestCopy = true
+	if s := state(); s["keys"] != "alt+cmd+Q" || s["held"] != false {
+		t.Errorf("a test copy's: %v", s)
+	}
+	mac.facts.TestCopy = false
 	if code, _ := pageCall(t, d, "POST", "/setup/officekey?keys=default"); code != http.StatusOK || loadConfig().OfficeKey != "" {
 		t.Errorf("back to ⌥⌘O: %d, kept %q", code, loadConfig().OfficeKey)
 	}

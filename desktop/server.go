@@ -2102,7 +2102,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		// Without a window of its own, setup says why there's no switch; under the Mac app, its own window.
 		"officeWindow": d.officeWindowState(),
 		// The keys that show and hide it from anywhere: the Mac app's, kept here as set.
-		"officeKey": officeKeyState(d.config.OfficeKey, nil),
+		"officeKey": officeKeyState(d.config.OfficeKey, nil, false),
 		"summary":   d.summaryState(),
 		"webhook": map[string]any{
 			"enabled": d.config.Webhook.Enabled, "url": d.config.Webhook.URL, "secret": webhookSecretFor(who, d.config.Webhook.Secret),

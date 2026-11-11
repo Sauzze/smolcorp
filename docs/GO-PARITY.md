@@ -164,6 +164,7 @@ and kept:
 | Accessibility step | ✓ | – | not needed | – |
 | A test copy (another port: the Mac's `scripts/test-copy.sh`, or `SMOLCORP_PORT`) listens on this computer only | ✓ | ✓ | none (TCH): 127.0.0.1 and ::1, never every interface or Tailscale's address, whatever `listen` in its config.json says, so nothing on the network reaches it and the firewall never asks about it; `SMOLCORP_TEST_LISTEN=lan` lets it onto every interface, for the phone matrix only (the Mac app hands it on to its Go core). On this computer only it gives a phone no address. The Swift server (`TestCopy.listensOn`) and the Go core (`testCopyScope`) are each checked at the socket. The office's own copy is unchanged | – |
 | A test copy never comes forward by itself (the Mac's two shells) | ✓ | ✓ | none (TCH): opened hidden (`open -g -j`, `--show` to opt in), it never activates, and first-run Settings, the Go engine's stopped alert, setup's Open the office and the folder panel are logged instead (`TestCopy.mayComeForward`); a folder panel asked for answers nothing picked, as cancelled | – |
+| A test copy holds no office shortcut (the Mac's two shells) | ✓ | ✓ | none (TKEY): launch, Settings' recorder, Reset and Off, and the bridge's `office-key` hold nothing and say done; the choice is still saved, setup says `held: false`, and the page says a test copy holds no shortcut. `OfficeWindow.show()` goes through `TestCopy.mayComeForward` too | – |
 
 ### Setup page
 
