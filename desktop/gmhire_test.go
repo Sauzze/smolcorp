@@ -296,7 +296,7 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 // End to end on a real Deck on a test port (a test copy): T721 refuses Claude on the default account, and nothing is left.
 func TestARealDeckOnATestPortRefusesTheGMHireAsATestCopy(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("needs tmux installed (a Deck on a test port picks its hire engine from it) and a free port from 7750 to 7799")
+		t.Fatal("needs tmux installed (a Deck on a test port picks its hire engine from it) and a free port from 7750 to 7799")
 	}
 	d, r, h, token := gmHireDeck(t)
 	var listener net.Listener
@@ -308,7 +308,7 @@ func TestARealDeckOnATestPortRefusesTheGMHireAsATestCopy(t *testing.T) {
 		}
 	}
 	if listener == nil {
-		t.Skip("no port from 7750 to 7799 is free")
+		t.Fatal("no port from 7750 to 7799 is free")
 	}
 	server := &http.Server{Handler: &router{deck: d}}
 	go server.Serve(listener)
