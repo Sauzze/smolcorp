@@ -85,6 +85,14 @@ Voice input needs Claude Code signed in with a Claude.ai account. Claude Code
 sends your audio to Anthropic to be transcribed. Smolcorp itself never
 hears it.
 
+**Typing from the phone** (Mac, personal build, with setup's Phone microphone on):
+⚙︎ → *Type to …* types into the picked agent, over Tailscale or the Wi-Fi
+(where it isn't encrypted). Several lines go as one paste: in tmux when the
+agent asked for it, and in Terminal, iTerm2 and Ghostty through the clipboard
+and ⌘V (Terminal and iTerm2 come to the front for it, never while the Mac is
+locked). The clipboard is put back afterwards; a clipboard manager may keep a
+copy of text sent this way.
+
 **Clean up dictation with Claude** (Mac, setup → Phone and voice; off until
 you turn it on): with the Mac's own dictation on, the dictated *text*, never
 the audio, goes to Claude Haiku before it's typed, with

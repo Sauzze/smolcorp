@@ -18,15 +18,31 @@ import Foundation
 extension TerminalDriver {
     func typeKeys(_ text: String, in tab: TabAddress) -> Bool { insert(text, in: tab) }
     var showsScreen: Bool { true }
-    /// Nowhere by default: Terminal.app, iTerm2 and Ghostty type text as keys or can't say whether the
-    /// agent asked for bracketed paste, so a line break could press Return part way. Only tmux can tell.
-    func insertLines(_ text: String, in tab: TabAddress) -> LinesPasted { .notTaken }
+    /// Nowhere by default: WezTerm and kitty send text as it is and can't say whether the agent asked for
+    /// bracketed paste, so a line break could press Return part way. Refused before anything waits on them.
+    var linesWay: LinesWay { .never }
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> Bool) -> LinesPasted { .notTaken }
 }
 
-/// How text of several lines went: as one bracketed paste, not at all because the tab doesn't take one
-/// now (nothing typed), or not at all because the terminal didn't take it.
+/// How a terminal takes text of several lines from the phone, if at all.
+enum LinesWay: Equatable {
+    /// It can't: refused before anything waits on its queue.
+    case never
+    /// tmux: it reads whether the pane's agent asked for bracketed paste, and pastes only then.
+    case paneFlag
+    /// Through the clipboard, as you'd paste it: the terminal wraps it in bracketed-paste markers itself
+    /// where the agent asked for them, which it can't say, so only for an agent known to ask
+    /// (`Agent.asksForBracketedPaste`). `inFront`: the tab is brought forward and ⌘V pressed, which needs
+    /// Accessibility and the Mac unlocked.
+    case clipboard(inFront: Bool)
+}
+
+/// How text of several lines went: as one paste; not at all because the tab doesn't take one now (the
+/// agent didn't ask for bracketed paste); not at all because tmux's pane is in copy mode, where nothing
+/// is pasted; not at all because the desk started asking something right before (`ready` said no); or
+/// not at all because the terminal didn't take it. Only `.pasted` typed anything.
 enum LinesPasted: Equatable {
-    case pasted, notTaken, failed
+    case pasted, notTaken, inMode, asking, failed
 }
 
 struct TabAddress: Hashable {
@@ -124,10 +140,13 @@ protocol TerminalDriver {
     /// Puts `text` in the tab without Return, as dictation does, for you to
     /// read before sending.
     func insert(_ text: String, in tab: TabAddress) -> Bool
-    /// Text of several lines, without Return, as ONE bracketed paste: only where the
-    /// agent in the tab has asked for bracketed paste, so a line break is a new line
-    /// in the text and never presses Return. Anywhere else nothing is typed (`.notTaken`).
-    func insertLines(_ text: String, in tab: TabAddress) -> LinesPasted
+    /// How this terminal takes text of several lines (`insertLines`), if at all.
+    var linesWay: LinesWay { get }
+    /// Text of several lines, without Return, as ONE paste the terminal wraps in bracketed-paste
+    /// markers: only where the agent in the tab has asked for bracketed paste, so a line break is a
+    /// new line in the text and never presses Return. Anywhere else nothing is typed. `ready` is asked
+    /// right before the paste itself (the desk isn't asking anything): no, and nothing is typed (`.asking`).
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> Bool) -> LinesPasted
     /// iPhone app (personal build): `text` typed as keys, never as a paste,
     /// without Return: into a menu's own text field, as Claude Code's "Type
     /// something", which a paste may not reach. `insert` where that already
@@ -209,4 +228,11 @@ struct TerminalApp: TerminalDriver {
     func tty(of tab: TabAddress) -> String? { tab.id }
     func isOpen(_ tab: TabAddress) -> Bool? { nil }
     func screen(of tab: TabAddress) -> String? { Terminal.contents(tty: tab.id) }
+
+    /// Several lines through the clipboard and ⌘V, the tab brought forward first: Terminal's own paste,
+    /// which it wraps in bracketed-paste markers where the agent asked for them.
+    var linesWay: LinesWay { .clipboard(inFront: true) }
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> Bool) -> LinesPasted {
+        ClipboardPaste.paste(text, ready: ready, forward: { Terminal.forwardForPaste(tty: tab.id) }, press: { Terminal.pressPaste() })
+    }
 }

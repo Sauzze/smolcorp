@@ -2273,30 +2273,40 @@ final class Deck {
         guard let (driver, tab) = terminal(of: session, for: .text) else { return done(.status(409, Deck.notHere)) }
         guard !driver.keysNeedAccessibility || Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
         let sends = send ?? PhoneDictation.sends(words, autoSend: Config.shared.phoneMicAutoSend)
-        // Several lines go as one bracketed paste, where the tab takes one: a line break is then a new line in the text,
-        // never Return. Where it doesn't, nothing is typed: never flattened, never a Return per line (I34).
+        // Several lines go as one paste the terminal wraps in bracketed-paste markers, where the agent asked for them:
+        // a line break is then a new line in the text, never Return. Where it can't be, nothing is typed: never
+        // flattened, never a Return per line (I34). What's known before the terminal is asked is refused here (N3).
         let lines = PhoneDictation.isLines(words)
+        if lines, let refusal = Deck.linesRefusal(driver.linesWay, agent: session.agent) { return done(refusal) }
         let address = session.tab
-        var withheld = false, asked = false, notTaken = false
+        var withheld = false, asked = false, refused: String?
         toAgent(session, done: { response in
             if asked { return done(.status(409, Deck.answerFirst)) }
-            if notTaken { return done(.status(409, Deck.noLines)) }
+            if let refused { return done(.status(409, refused)) }
             done(withheld && response.status < 400 ? .status(409, Deck.typedNotSent) : response)
         }) {
             // Asked something while this waited for the terminal: checked again, on the main queue, right before the text.
-            guard DispatchQueue.main.sync(execute: { !Deck.isAsking(self.sessions[id]?.state) }) else {
-                asked = true
-                return true
-            }
+            let free = { DispatchQueue.main.sync(execute: { !Deck.isAsking(self.sessions[id]?.state) }) }
             if lines {
-                switch driver.insertLines(words, in: tab) {
+                // Right before the paste itself, after the tab was brought forward where it must be.
+                switch driver.insertLines(words, in: tab, ready: free) {
                 case .pasted: break
+                case .asking:
+                    asked = true
+                    return true
                 case .notTaken:
-                    notTaken = true
+                    refused = Deck.noLines
+                    return true
+                case .inMode:
+                    refused = Deck.linesInCopyMode
                     return true
                 case .failed: return false
                 }
             } else {
+                guard free() else {
+                    asked = true
+                    return true
+                }
                 guard driver.insert(words, in: tab) else { return false }
             }
             if sends {
@@ -2319,6 +2329,28 @@ final class Deck {
 
     static let answerFirst = "It's asking you something: answer it on the deck first."
     static let noLines = "This desk's terminal can't take several lines as one paste, so nothing was typed: send it as one line."
+    static let linesInCopyMode = "This desk's tmux pane is scrolled back, so nothing was typed: bring it back to the bottom and try again."
+    static func noLines(for agent: Agent) -> String {
+        "\(agent.name) isn't known to take several lines as one paste here, so nothing was typed: send it as one line."
+    }
+    static let lockedLines = "Several lines are pasted with ⌘V in this desk's terminal, which can't be done with the Mac locked, so nothing was typed: send it as one line."
+
+    /// Why several lines can't go to a desk in a terminal that takes them `way`, for `agent`, known before
+    /// its terminal is asked anything: nil if they may. A terminal that can't take them gets `noLines`; one
+    /// pasting through the clipboard, for an agent not known to ask for bracketed paste (where each line
+    /// break would press Return), `noLines(for:)`. ⌘V needs Accessibility and the Mac unlocked.
+    static func linesRefusal(_ way: LinesWay, agent: Agent, accessibility: () -> Bool = { Permissions.hasAccessibility },
+                             locked: () -> Bool = { Terminal.isLocked }) -> Response? {
+        switch way {
+        case .never: return .status(409, noLines)
+        case .paneFlag: return nil
+        case .clipboard(let inFront):
+            guard agent.asksForBracketedPaste else { return .status(409, noLines(for: agent)) }
+            guard inFront else { return nil }
+            if !accessibility() { return .status(403, noKeyboard) }
+            return locked() ? .status(409, lockedLines) : nil
+        }
+    }
     static let oneLineAnswer = "A typed answer goes as keys, where a new line would press Return, so nothing was typed: put it on one line."
     static let choiceGone = "It's asking something else now, or nothing: look again."
     static let menuDiffers = "The Mac's menu doesn't show that option now: answer it on the Mac or with ▲ ▼ ✓."
@@ -2454,8 +2486,8 @@ final class Deck {
 
     /// The menu's "Type something", with `text`: its digit, the text typed
     /// as keys once the field is open, then Return, claimed as dictation's
-    /// is. Only through Tailscale (see DeckRouter), only while the session
-    /// asks question `choiceID`, and only once for it.
+    /// is. From a paired phone, over the Wi-Fi or Tailscale (see DeckRouter),
+    /// only while the session asks question `choiceID`, and only once for it.
     func answerOther(_ text: String, of choiceID: String?, in id: String, done: @escaping (Response) -> Void) {
         let done = Deck.logged("answerOther", option: "other", in: sessions[id] == nil ? "unknown" : id, done)
         guard Config.shared.phoneMicEnabled else { return done(.status(403, "The phone mic is off. Turn it on in setup, on your Mac.")) }

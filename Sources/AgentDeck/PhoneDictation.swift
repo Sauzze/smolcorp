@@ -7,7 +7,8 @@ import Foundation
 ///
 /// iOS only lets a page use the microphone over HTTPS, so this works when the
 /// deck is opened through `tailscale serve`; over plain http on the Wi-Fi,
-/// the mic is the Mac's, as before.
+/// the mic is the Mac's, as before. The same route carries text typed on the
+/// phone, over the Wi-Fi as well (I34), with the same checks.
 enum PhoneDictation {
     /// The most text one dictation may carry, in characters: well beyond a
     /// minute of speech, short enough that a stray request can't type a book.

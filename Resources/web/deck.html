@@ -247,9 +247,9 @@
   <div class="summary-head"><span>✨</span><b id="summary-name"></b><span aria-label="Close">✕</span></div>
   <div class="summary-text" id="summary-text"></div>
 </div>
-<div class="confirm" id="confirm" role="dialog" aria-label="What the phone heard" hidden>
+<div class="confirm" id="confirm" role="dialog" aria-label="Text for the agent" hidden>
   <div class="summary-head"><span>🎙</span><b id="confirm-name"></b></div>
-  <textarea id="confirm-text" rows="3" autocapitalize="sentences" spellcheck="true" aria-label="What the phone heard"></textarea>
+  <textarea id="confirm-text" rows="3" autocapitalize="sentences" spellcheck="true" aria-label="What the phone heard, or what you type"></textarea>
   <div class="confirm-why" id="confirm-why" role="status" hidden>It's asking you something: answer it on the deck first. Your words wait here.</div>
   <div class="confirm-keys">
     <button class="confirm-send" id="confirm-send">Send ⏎</button>
@@ -804,7 +804,7 @@
     if (location.protocol === 'https:') setTimeout(() => peek(session), PEEK_AFTER);
   }
 
-  /** The box over the room: what was heard, to correct, for the session that was listening. */
+  /** The box over the room: what was heard, to correct, or what you type, for the session it's for. */
   let confirming = null; // the session id the box is for
   function confirmDictation(session, text) {
     confirming = session;
@@ -1376,6 +1376,10 @@
     if (!preview && !whole && phoneMic.on && location.protocol !== 'https:') {
       rows.push(Object.assign(document.createElement('div'), { className: 'info-note', id: 'lan-note',
         textContent: "Over the Wi-Fi, what you type isn't encrypted. Tailscale is the private option." }));
+    }
+    if (!preview && !whole && phoneMic.on) {
+      rows.push(Object.assign(document.createElement('div'), { className: 'info-note', id: 'clipboard-note',
+        textContent: 'Several lines typed to Terminal, iTerm2 or Ghostty go through the clipboard: a clipboard manager may keep a copy.' }));
     }
     $('settings-rows').replaceChildren(...rows);
     $('settings').hidden = false;

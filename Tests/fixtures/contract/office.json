@@ -440,6 +440,20 @@
           "why" : "several lines, to no such session"
         },
         {
+          "kind" : "text",
+          "request" : {
+            "as" : "phone",
+            "body" : {
+              "text" : "one line"
+            },
+            "given" : [
+              "the phone mic off"
+            ]
+          },
+          "status" : 403,
+          "why" : "the phone mic off in setup"
+        },
+        {
           "kind" : "empty",
           "request" : {
             "as" : "nobody",

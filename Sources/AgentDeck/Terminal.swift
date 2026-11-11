@@ -450,11 +450,11 @@ enum Terminal {
     }
 
     /// Keys go to whichever app is in front, so they wait until that is
-    /// Terminal. Posted any sooner, they land in the app you were using:
-    /// Space in Finder opens Quick Look.
-    private static func waitUntilFrontmost() -> Bool {
+    /// Terminal (or `bundle`'s app). Posted any sooner, they land in the app
+    /// you were using: Space in Finder opens Quick Look.
+    static func waitUntilFrontmost(_ bundle: String = bundleID) -> Bool {
         let deadline = Date().addingTimeInterval(activationTimeout)
-        while !isFrontmost {
+        while !isFrontmost(bundle) {
             guard Date() < deadline else { return false }
             Thread.sleep(forTimeInterval: 0.01)
         }
@@ -462,9 +462,43 @@ enum Terminal {
         return true
     }
 
-    private static var isFrontmost: Bool {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID
+    private static var isFrontmost: Bool { isFrontmost(bundleID) }
+
+    private static func isFrontmost(_ bundle: String) -> Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundle
     }
+
+    // MARK: Several lines through the clipboard (I34, owner's Q1 b)
+
+    /// The tab brought forward for ⌘V (see `ClipboardPaste`): never while the
+    /// Mac is locked, when the app in front is the lock screen. True once
+    /// Terminal is in front with this very tab selected in its front window,
+    /// asked again after it came forward. Types nothing.
+    static func forwardForPaste(tty: String) -> Bool {
+        guard !isLocked, focus(tty: tty), waitUntilFrontmost() else { return false }
+        return onlyLooking { frontTTY() } == tty
+    }
+
+    /// ⌘V through the keyboard's own path, as Terminal's menu shortcuts go
+    /// (see `pressInFront`): to the app in front, only while that is still
+    /// `bundle`'s, so it never lands in the app you switched to.
+    static func pressPaste(in bundle: String) -> Bool {
+        guard !isLocked, isFrontmost(bundle) else { return false }
+        for down in [true, false] {
+            let event = CGEvent(keyboardEventSource: nil, virtualKey: pasteKey, keyDown: down)
+            event?.flags = .maskCommand
+            // "v", whatever the keyboard's layout says that key types.
+            event?.keyboardSetUnicodeString(stringLength: 1, unicodeString: [0x76])
+            if let event { postEvent(event, nil) }
+        }
+        noteStep()
+        return true
+    }
+
+    static func pressPaste() -> Bool { pressPaste(in: bundleID) }
+
+    /// V's key, which pastes with ⌘.
+    private static let pasteKey: CGKeyCode = 9
 
     /// Posts `key` to the app in front, or, given `pid`, to that app alone.
     private static func post(_ key: Key, modifiers: CGEventFlags, times: Int, to pid: pid_t? = nil) {

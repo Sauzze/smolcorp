@@ -130,8 +130,10 @@ async function dictate(id, text, send, { lan = false, key = KEY, path = '/dictat
  * of several lines, the lines as they are (I34); of one, a tab a space too and runs of spaces one.
  */
 const prepared = (text) => {
+  // Swift's .whitespacesAndNewlines, not JS's \s, which trims U+FEFF but neither U+0085 nor U+200B.
+  const space = '[\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200b\\u2028\\u2029\\u202f\\u205f\\u3000]';
   const lines = text.replace(/\r\n/g, '\n').replace(/[\r\u0085\u2028\u2029]/g, '\n')
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, ' ').replace(/^\s+|\s+$/g, '');
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, ' ').replace(new RegExp(`^${space}+|${space}+$`, 'g'), '');
   return lines.includes('\n') ? lines : lines.replace(/\t/g, ' ').split(' ').filter(Boolean).join(' ');
 };
 

@@ -114,9 +114,9 @@ final class DeckRouter: Router {
     static let phonesOnly = "Text is typed from a paired phone."
 
     /// Personal build: the peek at an agent's input line shows what its
-    /// terminal shows, so it's given only where dictation is taken, through
-    /// `tailscale serve`. Never over the Wi-Fi, where a key seen on the
-    /// network could otherwise read a terminal.
+    /// terminal shows, so it's given only through `tailscale serve`, though
+    /// text is typed over the Wi-Fi too (I34). Never over the Wi-Fi, where a
+    /// key seen on the network could otherwise read a terminal.
     static func showsTerminal(_ request: Request) -> Bool {
         request.isTailnet
     }
@@ -149,7 +149,7 @@ final class DeckRouter: Router {
     }
 
     /// iPhone app (personal build): a phone's device token comes only through
-    /// `tailscale serve`, as typed text does, from a phone paired with its own key.
+    /// `tailscale serve`, from a phone paired with its own key.
     static func takesPushToken(_ request: Request, phone: PairedPhone) -> Bool {
         request.isTailnet && phone.id != PairedPhone.officeWindow.id
     }
@@ -402,7 +402,7 @@ final class DeckRouter: Router {
             }
             deck.peek(session, done: respond)
 
-        // iPhone app (personal build): a typed answer to a menu's "Type something", never over the Wi-Fi.
+        // iPhone app (personal build): a typed answer to a menu's "Type something", from a paired phone, over the Wi-Fi too.
         case ("POST", "/choose"):
             guard DeckRouter.takesDictation(phone: phone) else { return respond(.status(403, DeckRouter.phonesOnly)) }
             guard request.query["option"] == "other" else { return respond(.status(400, "Pick an option with the deck's keys.")) }

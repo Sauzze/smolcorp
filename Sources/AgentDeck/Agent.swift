@@ -49,6 +49,13 @@ enum Agent: String, CaseIterable {
     var hasEffortDial: Bool { self == .claude }
     var hasVoice: Bool { self == .claude }
 
+    /// Whether the agent asks its terminal for bracketed paste while it waits at its prompt, so a paste
+    /// of several lines comes to it between markers, its line breaks new lines in the text, never Return.
+    /// Terminal.app, iTerm2 and Ghostty can't say whether it did, so several lines are pasted there
+    /// only for these (`LinesWay.clipboard`). Claude Code and Gemini CLI ask through their Ink input,
+    /// Codex through crossterm and OpenCode through its TUI; Grok CLI isn't known to: refused there.
+    var asksForBracketedPaste: Bool { self != .grok }
+
     /// The agent's process in its Terminal tab, for finding the tab when its
     /// hooks run elsewhere: Codex runs them in a shared background service,
     /// whose process tree leads to no tab. Gemini CLI runs as `node`, which

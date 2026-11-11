@@ -182,6 +182,84 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertFalse(Deck.oneLineAnswer.isEmpty)
     }
 
+    /// Terminal.app, iTerm2 and Ghostty paste several lines through the clipboard (owner's Q1 b), and wrap
+    /// them in bracketed-paste markers only where the agent asked, which they can't say: so only for an agent
+    /// known to ask. Refused before the terminal's queue is waited on where it can't be done at all (RI34 N3).
+    func testSeveralLinesThroughTheClipboardOnlyForAnAgentThatAsksForBracketedPaste() {
+        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
+        let text = "une\ndeux"
+        let (deck, terminal) = deckWithDesk()
+        terminal.linesWay = .clipboard(inFront: false)
+        terminal.lines = .pasted
+        XCTAssertEqual(dictate(deck, text, send: true).status, 204)
+        XCTAssertEqual(terminal.insertedLines, [text])
+        XCTAssertEqual(terminal.pressed, [.returnKey], "Return once, after the paste")
+
+        // Grok CLI isn't known to ask: each line break would press Return.
+        let (grok, refusing) = deckWithDesk(agent: .grok)
+        refusing.linesWay = .clipboard(inFront: false)
+        refusing.lines = .pasted
+        var looked = false
+        refusing.whenLookedUp = { looked = true }
+        let response = dictate(grok, text, send: true)
+        XCTAssertEqual(response.status, 409)
+        XCTAssertEqual(String(decoding: response.body, as: UTF8.self), Deck.noLines(for: .grok))
+        XCTAssertEqual(refusing.askedToPasteLines, 0)
+        XCTAssertEqual(refusing.pressed, [], "no Return")
+        XCTAssertFalse(looked, "refused before its terminal is asked anything")
+        XCTAssertEqual(dictate(grok, "une ligne", send: false).status, 204, "one line goes as before")
+
+        // A terminal that can't take them at all (WezTerm, kitty): refused at once, not after waiting on its queue.
+        let (never, wez) = deckWithDesk()
+        wez.linesWay = .never
+        var waited = false
+        wez.whenLookedUp = { waited = true }
+        XCTAssertEqual(dictate(never, text, send: true).status, 409)
+        XCTAssertEqual(wez.askedToPasteLines, 0)
+        XCTAssertFalse(waited)
+
+        // A tmux pane scrolled back says so in its own sentence (RI34 N2).
+        let (scrolled, inMode) = deckWithDesk()
+        inMode.lines = .inMode
+        let said = dictate(scrolled, text, send: true)
+        XCTAssertEqual(said.status, 409)
+        XCTAssertEqual(String(decoding: said.body, as: UTF8.self), Deck.linesInCopyMode)
+        XCTAssertEqual(inMode.pressed, [], "no Return")
+    }
+
+    /// What's known before the terminal is asked: a terminal that can't, an agent not known to ask for
+    /// bracketed paste, ⌘V without Accessibility or with the Mac locked.
+    func testWhatRefusesSeveralLinesUpFront() {
+        let yes = { true }, no = { false }
+        XCTAssertNil(Deck.linesRefusal(.paneFlag, agent: .grok, accessibility: no, locked: yes), "tmux reads the pane itself")
+        XCTAssertEqual(Deck.linesRefusal(.never, agent: .claude)?.status, 409)
+        XCTAssertEqual(Deck.linesRefusal(.clipboard(inFront: false), agent: .grok)?.status, 409)
+        XCTAssertNil(Deck.linesRefusal(.clipboard(inFront: false), agent: .codex, accessibility: no, locked: yes), "Ghostty needs neither")
+        XCTAssertEqual(Deck.linesRefusal(.clipboard(inFront: true), agent: .claude, accessibility: no, locked: no)?.status, 403)
+        let locked = Deck.linesRefusal(.clipboard(inFront: true), agent: .claude, accessibility: yes, locked: yes)
+        XCTAssertEqual(locked?.status, 409)
+        XCTAssertEqual(locked.map { String(decoding: $0.body, as: UTF8.self) }, Deck.lockedLines)
+        XCTAssertNil(Deck.linesRefusal(.clipboard(inFront: true), agent: .gemini, accessibility: yes, locked: no))
+        for agent in [Agent.claude, .codex, .gemini, .opencode] { XCTAssertTrue(agent.asksForBracketedPaste, agent.name) }
+        XCTAssertFalse(Agent.grok.asksForBracketedPaste)
+    }
+
+    /// The desk free when the paste was asked for, asking something by the time the tab was in front for ⌘V:
+    /// the check runs right before the paste itself, so nothing goes, and no Return.
+    func testTheAskingCheckComesRightBeforeThePaste() {
+        guard Config.shared.phoneMicEnabled else { return XCTFail("the phone mic is on by default") }
+        let (deck, terminal) = deckWithDesk()
+        terminal.linesWay = .clipboard(inFront: false)
+        terminal.lines = .pasted
+        terminal.beforePaste = { DispatchQueue.main.sync { self.asks(deck, at: 30) } }
+        let response = dictate(deck, "une\ndeux", send: true)
+        XCTAssertEqual(response.status, 409)
+        XCTAssertEqual(String(decoding: response.body, as: UTF8.self), Deck.answerFirst)
+        XCTAssertEqual(terminal.askedToPasteLines, 1)
+        XCTAssertEqual(terminal.insertedLines, [], "nothing pasted")
+        XCTAssertEqual(terminal.pressed, [], "no Return")
+    }
+
     /// Over the Wi-Fi's plain http (I34): a paired phone's key types, as through Tailscale; no key, or a
     /// wrong one, types nothing (401); the office's own window types nothing (403). The peek stays Tailscale's.
     func testTheWiFiTypesWithAPairedPhonesKeyOnly() throws {
@@ -362,6 +440,15 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertTrue(page.contains("if (!phoneMicHere()) dropHearing();\n    // The box goes with the phone's text"))
         XCTAssertTrue(page.contains("if (location.protocol === 'https:') setTimeout(() => peek(session), PEEK_AFTER);"))
         XCTAssertTrue(page.contains("if (send !== undefined && res.status < 500) confirmDictation(session, text);"))
+        // A clipboard manager may keep a copy of several lines pasted through the clipboard (Q1 b), said in the
+        // phone's ⚙︎, in setup's Phone microphone text with the Wi-Fi's line (RI34 N5), and in docs/phone.md.
+        let clipboard = "Several lines typed to Terminal, iTerm2 or Ghostty go through the clipboard: a clipboard manager may keep a copy."
+        XCTAssertTrue(page.contains("textContent: '\(clipboard)'"))
+        let setup = try String(contentsOf: Self.repo.appendingPathComponent("Resources/web/setup.html"), encoding: .utf8)
+        XCTAssertTrue(setup.contains("over the Wi-Fi too, where what you type isn't encrypted: Tailscale is the private option. \(clipboard)\"></div>"))
+        let docs = try String(contentsOf: Self.repo.appendingPathComponent("docs/phone.md"), encoding: .utf8)
+        XCTAssertTrue(docs.contains("a clipboard manager may keep a\ncopy of text sent this way."))
+        XCTAssertFalse(page.contains("aria-label=\"What the phone heard\" hidden"), "the box is for typed text too (RI34 N1)")
     }
 
     // MARK: The peek
@@ -545,9 +632,14 @@ private final class RecordingTerminal: TerminalDriver {
     private(set) var insertedLines: [String] = []
     private(set) var pressed: [Terminal.Key] = []
     var takesKeys = true
-    /// How text of several lines goes: not taken, as by every terminal but tmux, unless a test says so.
+    /// How text of several lines goes: not taken, as by a tmux pane whose agent didn't ask, unless a test says so.
     var lines = LinesPasted.notTaken
+    var linesWay = LinesWay.paneFlag
     var whenLookedUp: (() -> Void)?
+    /// Run as the terminal gets ready to paste, before it asks whether the desk is still free: as the tab
+    /// is brought forward for ⌘V.
+    var beforePaste: (() -> Void)?
+    private(set) var askedToPasteLines = 0
 
     var abilities: TerminalAbilities { [.keys, .text] }
     var keysNeedAccessibility: Bool { false }
@@ -561,7 +653,10 @@ private final class RecordingTerminal: TerminalDriver {
         inserted.append(text)
         return true
     }
-    func insertLines(_ text: String, in tab: TabAddress) -> LinesPasted {
+    func insertLines(_ text: String, in tab: TabAddress, ready: () -> Bool) -> LinesPasted {
+        askedToPasteLines += 1
+        beforePaste?()
+        guard ready() else { return .asking }
         if lines == .pasted { insertedLines.append(text) }
         return lines
     }
