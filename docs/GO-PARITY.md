@@ -37,7 +37,7 @@ subsystem of its own. "–" where there is nothing to port.
 | `/setup/hiring` terminal, tmux | ✓ | ✓ | **done**, with this system's terminals | – |
 | `/setup/hiring/choose` (the system's folder picker) | ✓ | ✓ | **done** | – |
 | `/setup/choices` (T3 Code on or off, agent windows), `/setup/hire/window`; the setup state's `choices` and `t3CodeEnabled` | ✓ | ✓ | none (`choices.go`). Checked by the route contract (`Tests/fixtures/contract/setup.json`) | – |
-| `/hire/window` (the office's Open a window on a hire's desk) | ✓ | – | not served: 404; Setup's `/setup/hire/window` is | S |
+| `/hire/window` (the office's Open a window on a hire's desk) | ✓ | – | not served: 404 (the office polls it every 30 s when hires run in the background: a console error on Linux/Windows until served); Setup's `/setup/hire/window` is. Owner: M4b (Linux/Windows by `openHireViewer`; the Mac via the bridge) | S |
 | `/t3code`, `/t3code/open`, `/setup/t3code`, `/setup/t3code/open` (Open in T3 Code) | ✓ | ✓ | none, but for `lane` (T3 Code's desk lane, below) in what's installed; all four answer 404 while T3 Code is off, as on the Mac | – |
 | `/setup/t3code/letgo`, and hiring into T3 Code (`engine: "t3"`, experimental) | ✓ | – | the Mac's alone for now: Go's letgo answers 409 to any hire | L |
 | `/setup/dictation` | ✓ | – | Mac only (Apple's speech recognition) | – |

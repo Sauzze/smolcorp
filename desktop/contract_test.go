@@ -30,7 +30,7 @@ import (
 
 // knownGap is one difference: in what (a route, or a shape by its name in contract.json), where (route: the
 // route isn't served; status, kind, a refusal, or a field's path), what this app has instead, why, and who
-// closes it: the M piece (M2 server and setup, M3 office and bots, M4 hiring and the GM, M4a briefs, M5 T3, M6
+// closes it: the M piece (M2 server and setup, M3 office and bots, M4 hiring and the GM, M4a briefs, M4b hiring follow-ups, M5 T3, M6
 // the personal shell), "via the bridge (M1)" for what only macOS can do, or "stays: <why>" for a Go-only extra.
 type knownGap struct{ subject, where, got, why, owner string }
 
@@ -151,8 +151,8 @@ var knownGaps = []knownGap{
 	{"POST /peek", "route", "404", "the phone mic (personal build)", "M6: personal shell"},
 	{"POST /choose", "route", "404", "the iPhone app's typed answers (personal build)", "M6: personal shell"},
 	{"GET /choice", "route", "404", "the iPhone app's prompt details (personal build)", "M6: personal shell"},
-	{"GET /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4 via the bridge (M1)"},
-	{"POST /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4 via the bridge (M1)"},
+	{"GET /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1)"},
+	{"POST /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1)"},
 	{"GET /nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
 }
 
@@ -1119,14 +1119,14 @@ func goSources(t *testing.T) string {
 }
 
 // ownerNames is who may close a gap: an M piece, with what it does or "via the bridge (M1)", or "stays: <why>".
-var ownerNames = regexp.MustCompile(`^(M[2-6]a?( fixes)?( via the bridge \(M1\)|: .{5,}|, .{5,})?|stays: .{10,})$`)
+var ownerNames = regexp.MustCompile(`^(M[2-6][ab]?( fixes)?( via the bridge \(M1\)|: .{5,}|, .{5,})?|stays: .{10,})$`)
 
 // ownerProblem is what's wrong with a gap's owner, given its why: none, or a personal build's that isn't the
 // personal shell's (M6), or something only macOS does that doesn't go through the bridge (M1).
 func ownerProblem(owner, why string) string {
 	switch {
 	case !ownerNames.MatchString(owner):
-		return "names no M piece (M2 to M6, M4a) and no \"stays: <why>\""
+		return "names no M piece (M2 to M6, M4a, M4b) and no \"stays: <why>\""
 	case strings.Contains(why, "personal build") && owner != "M6: personal shell":
 		return "is a personal build's: \"M6: personal shell\", so M7 doesn't drop it"
 	}

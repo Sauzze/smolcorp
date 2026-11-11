@@ -659,6 +659,6 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `POST /peek` | `route` | 404 | the phone mic (personal build) | M6: personal shell |
 | `POST /choose` | `route` | 404 | the iPhone app's typed answers (personal build) | M6: personal shell |
 | `GET /choice` | `route` | 404 | the iPhone app's prompt details (personal build) | M6: personal shell |
-| `GET /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4 via the bridge (M1) |
-| `POST /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4 via the bridge (M1) |
+| `GET /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1) |
+| `POST /hire/window` | `route` | 404 | the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window | M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1) |
 | `GET /nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
