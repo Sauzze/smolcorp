@@ -35,8 +35,9 @@ final class HireFireTests: XCTestCase {
         try FileManager.default.createDirectory(atPath: repo, withIntermediateDirectories: true)
         try "x".write(toFile: repo + "/a.txt", atomically: true, encoding: .utf8)
         for arguments in [["init", "-q", "-b", "main"], ["add", "."], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "first"]] {
-            XCTAssertEqual(HireDesk.git(repo, arguments)?.status, 0)
-            if arguments[0] == "init" { TempRepo.stopSigning(repo) }
+            let done = HireDesk.git(repo, arguments)
+            XCTAssertEqual(done?.status, 0, arguments.joined(separator: " "))
+            if arguments[0] == "init", done?.status == 0 { TempRepo.stopSigning(repo) }  // only a repo that was made
         }
         branch = "hire/rev-abcdef"
         worktree = HireDesk.physical(root.path) + "/app-hires/rev-abcdef"

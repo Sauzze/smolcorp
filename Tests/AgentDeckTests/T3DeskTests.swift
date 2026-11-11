@@ -102,13 +102,14 @@ final class T3DeskTests: XCTestCase {
     private func repo() throws -> String {
         let repo = home.appendingPathComponent("repo").path
         for arguments in [["init", "-q", "-b", "main", repo], ["-C", repo, "commit", "-q", "--allow-empty", "-m", "init"]] {
-            if arguments[0] == "-C" { TempRepo.stopSigning(repo) }  // after the init, before the first commit
             let git = Process()
             git.executableURL = URL(fileURLWithPath: "/usr/bin/git")
             git.arguments = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"] + arguments
             try git.run()
             git.waitUntilExit()
-            XCTAssertEqual(git.terminationStatus, 0)
+            XCTAssertEqual(git.terminationStatus, 0, arguments.joined(separator: " "))
+            // After the init, before the first commit; only for a repo that was made.
+            if arguments[0] == "init", git.terminationStatus == 0 { TempRepo.stopSigning(repo) }
         }
         return repo
     }
@@ -836,8 +837,9 @@ final class T3DeskRealFenceTests: XCTestCase {
         let support = root.appendingPathComponent("support")
         try FileManager.default.createDirectory(at: support.appendingPathComponent("hires"), withIntermediateDirectories: true)
         XCTAssertEqual(git(["init", "-q", "--bare", remote])?.status, 0)
-        XCTAssertEqual(git(["init", "-q", "-b", "main", repo])?.status, 0)
-        TempRepo.stopSigning(repo)
+        let made = git(["init", "-q", "-b", "main", repo])
+        XCTAssertEqual(made?.status, 0)
+        if made?.status == 0 { TempRepo.stopSigning(repo) }
         XCTAssertEqual(git(["-C", repo, "remote", "add", "origin", remote])?.status, 0)
         XCTAssertEqual(git(["-C", repo, "commit", "-q", "--allow-empty", "-m", "init"])?.status, 0)
         // What a read must not reach: the deny rules name this support folder's config.json.
