@@ -536,6 +536,9 @@ func (d *Deck) hireState() map[string]any {
 		"tmux": d.config.HireInTmux && tmux, "hasTmux": tmux,
 		// Beta: a role's Claude hire through the launcher, where that is made (Windows). Field only.
 		"managedWindows": d.config.HireManagedWindows && launcherHires, "managedBeta": launcherHires,
+		// Setup's own hire sheet sends POST /setup/hire, which this app doesn't serve yet: the page
+		// says how to hire instead, though it can list the folders a hire would start in.
+		"fromSetup": false,
 	}
 }
 

@@ -36,6 +36,9 @@ subsystem of its own. "–" where there is nothing to port.
 | `/setup/hiring` enabled, folder, agent | ✓ | ✓ | none | – |
 | `/setup/hiring` terminal, tmux | ✓ | ✓ | **done**, with this system's terminals | – |
 | `/setup/hiring/choose` (the system's folder picker) | ✓ | ✓ | **done** | – |
+| `/setup/briefs`, `/setup/briefs/<id>`, `/setup/briefs/preview`, `/setup/briefs/restore`, `/setup/hire/folders` | ✓ | ✓ | none; Go hires get the Mac's BRIEF files, byte for byte (`Tests/fixtures/briefs`), but for the differences under Briefs, below | – |
+| `GET /setup/guard`, `POST /setup/guard` | ✓ | ✓ | none: setup's switches and your own patterns are saved as the Mac saves them, and the guard refuses by them | – |
+| `POST /setup/hire` (setup's own hire sheet) | ✓ | – | not served: the state says `hiring.fromSetup: false`, and the page shows `smolcorp run --role` instead of the sheet | M |
 | `/setup/dictation` | ✓ | – | Mac only (Apple's speech recognition) | – |
 | `/setup/accessibility` | ✓ | – | not needed off the Mac | – |
 | `/setup/viewer*` (portable office) | ✓ | ✓ | **done** | – |
@@ -81,6 +84,35 @@ subsystem of its own. "–" where there is nothing to port.
 | Layout and room fields (style, pets, wall, plan, hung, added, team, dress code, calm) | ✓ | ✓ | none: the choices are the same lists | – |
 | Calm office | ✓ | ✓ | a room choice in both; the drawing is office.js | – |
 | "Lite" | – | – | no such setting in either app; office.js's lighter drawing is shared | – |
+
+### Briefs: what differs
+
+The BRIEF files, the setup routes above and the guard file are the Mac's,
+checked against a fixture the Mac's tests write. These differences are known
+and kept:
+
+- **Accented folder names.** The Mac builds a brief's paths with `URL`, which
+  decomposes accents (NFD: "e" then the accent), while it keeps the project
+  folder as given (usually precomposed, NFC); so a Mac brief for
+  `~/Projets/équipe` mixes the two. Go keeps every path as given, which is
+  right on Linux, where an NFD name is a different file. The fixture's
+  accented hire is compared with the Mac's brief made NFC.
+- **Limits count code points, not characters.** The Mac counts and cuts an
+  answer (2,000), a task (8,000), a picked file's name (100) and a guard
+  pattern (200) in characters as a reader sees them (grapheme clusters); Go
+  counts code points. They agree but for text made of combining marks or
+  emoji built from several code points, over the limit: there Go keeps less,
+  and refuses a guard pattern sooner. French typed on a keyboard is
+  precomposed, so it counts the same.
+- **Text compared as is.** Swift's strings are equal when only their accents'
+  encoding differs; Go's compare byte for byte. It matters only for two of
+  your guard patterns, or two guard groups, that differ that way: the Mac
+  takes them for one.
+- **Windows line ends.** A library brief you edited and saved with CRLF reads
+  as one with plain line ends on Go. The Mac doesn't, and loses its front
+  matter and slots.
+- **The guard file's layout.** Go writes `"name": "push"`, the Mac
+  `"name" : "push"`: the same JSON, with the same groups in the same order.
 
 ### Sessions
 

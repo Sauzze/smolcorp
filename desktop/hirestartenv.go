@@ -35,6 +35,9 @@ type hireStartEnv struct {
 	Unset []string `json:"unset,omitempty"`
 	// PathFirst is a folder to put first on the agent's PATH: the app's own smolcorp.
 	PathFirst string `json:"pathFirst,omitempty"`
+	// Message is the agent's first message when the app wrote the hire a brief:
+	// to read it, and where it is. Empty, the launcher makes the role's own.
+	Message string `json:"message,omitempty"`
 }
 
 // startEnvironment is base with env applied: unset names removed, set names
