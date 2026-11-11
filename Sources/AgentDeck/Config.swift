@@ -168,6 +168,10 @@ final class Config: Codable {
     var floors = Floor.standard
     /// The folders whose sessions sit on a floor of their own (see `FloorRule`).
     var floorRules: [FloorRule] = []
+    /// Which engine runs the deck: none or "swift" is this app's own, as
+    /// always; "go" is the Go core the app starts as its child (`Engine`),
+    /// for a test copy only for now. Never saved unless it was set.
+    var engine: String?
     /// Some of the file couldn't be read as this version reads it, and is
     /// left out: a copy of the file is kept before it's saved over.
     private(set) var lostOnLoad = false
@@ -185,6 +189,7 @@ final class Config: Codable {
         case guideDone
         case mailMaxBytes, mailPerHour, mailWaitHours, mailInboxSocket, builtinWatches, teamScreen, keystrokesAllowed, keystrokeApps
         case phoneMicEnabled, showInDock, cloudBots, floors, floorRules, botsAutoDetect, hiddenBots, botFloor
+        case engine
         // Under a name of its own since the confirm box: the old one, saved as
         // true by every earlier build, meant no box had been offered yet.
         case phoneMicAutoSend = "phoneMicSkipsConfirm"
@@ -283,6 +288,8 @@ final class Config: Codable {
         // Checked as they load: their names are drawn in the office.
         floors = Floor.checked(field([Lossy<Floor>].self, .floors)?.map(\.value) ?? [])
         floorRules = FloorRule.checked(field([Lossy<FloorRule>].self, .floorRules)?.compactMap(\.value) ?? [])
+        // Kept as written, even a name this version doesn't know, which runs the Swift engine.
+        engine = field(String.self, .engine)
         lostOnLoad = lost
     }
 

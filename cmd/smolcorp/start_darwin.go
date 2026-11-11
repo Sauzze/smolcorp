@@ -5,6 +5,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/Sauzze/smolcorp/desktop"
 )
 
 // On the Mac the app is Smolcorp.app, and this program is the command inside
@@ -15,3 +17,7 @@ func runApp() int {
 }
 
 func runServer() int { return runApp() }
+
+// runCore is the app's engine, which Smolcorp.app starts itself behind its
+// `engine` switch, with its bridge's token: refused to anyone else.
+func runCore(args []string) int { return desktop.RunCore(args, os.Stdin, os.Stdout, os.Stderr) }

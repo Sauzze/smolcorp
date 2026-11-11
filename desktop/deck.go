@@ -1173,6 +1173,10 @@ func (d *Deck) tab(name string) Tab {
 		}
 		return nil
 	}
+	// Under the Mac app, what macOS alone can do goes to it: see macTab.
+	if tab := hostTab(name, kind, id, socket); tab != nil {
+		return tab
+	}
 	return commandTab{kind: kind, id: id, socket: socket}
 }
 
@@ -1182,7 +1186,7 @@ func (d *Deck) pruneClosedTabs() {
 	d.mu.Lock()
 	panes := map[string]commandTab{}
 	for _, s := range d.sessions.All() {
-		if tab, ok := d.tab(s.Tab).(commandTab); ok {
+		if tab, ok := paneOf(d.tab(s.Tab)); ok {
 			panes[s.Tab] = tab
 		}
 	}
@@ -1261,7 +1265,7 @@ var errAgentGone = errors.New("the agent no longer runs in its pane")
 // so only panes are asked.
 func (d *Deck) toAgent(name string, agent Agent, op func(Tab) error) (int, string) {
 	return d.inTab(name, func(t Tab) error {
-		if pane, ok := t.(commandTab); ok {
+		if pane, ok := paneOf(t); ok {
 			if running, known := pane.runs(agent); known && !running {
 				return errAgentGone
 			}
@@ -1601,7 +1605,7 @@ func (d *Deck) applyQueuedEffort() {
 		go func() {
 			d.work <- func() {
 				// Not into a pane its agent has left: see toAgent.
-				if pane, ok := tab.(commandTab); ok {
+				if pane, ok := paneOf(tab); ok {
 					if running, known := pane.runs(agent); known && !running {
 						return
 					}

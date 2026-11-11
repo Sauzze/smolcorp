@@ -15,7 +15,10 @@ enum AgentDeckApp {
         }
         #endif
         let app = NSApplication.shared
-        let delegate = AppDelegate()
+        // The engine: this app's own, as always, or in a test copy set to "go", the Go core with this app as its shell.
+        let (engine, refusal) = Engine.chosen(Config.shared.engine)
+        if let refusal { FileHandle.standardError.write(Data((refusal + "\n").utf8)) }
+        let delegate: NSApplicationDelegate = engine == .go ? GoShellDelegate() : AppDelegate()
         app.delegate = delegate
         // In the Dock, or the menu bar only, as set up, from the start.
         app.setActivationPolicy(Dock.policy(showing: Config.shared.showInDock))

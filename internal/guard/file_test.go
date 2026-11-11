@@ -157,3 +157,26 @@ func TestAFreshRulesFileHasEveryGroupOn(t *testing.T) {
 		}
 	}
 }
+
+// A test copy's hires read the copy's own hire-guard.json, never the real app's.
+func TestATestCopysGuardFileIsItsOwn(t *testing.T) {
+	copyDir := t.TempDir()
+	t.Setenv(testSupportEnv, copyDir)
+	got, err := supportFile()
+	if err != nil || got != filepath.Join(copyDir, fileName) {
+		t.Fatalf("supportFile() = %q, %v; want the copy's", got, err)
+	}
+	// The hook reads it: a broken file there denies every command.
+	if err := os.WriteFile(got, []byte("it isn't a guard file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	Run(nil, strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"ls"}}`), &out, &bytes.Buffer{})
+	if !strings.Contains(out.String(), "deny") || !strings.Contains(out.String(), "broken") {
+		t.Errorf("the copy's broken file wasn't read: %q", out.String())
+	}
+	t.Setenv(testSupportEnv, "")
+	if got, err := supportFile(); err != nil || strings.HasPrefix(got, copyDir) {
+		t.Errorf("supportFile() = %q, %v; want the app's own folder once the variable is gone", got, err)
+	}
+}
