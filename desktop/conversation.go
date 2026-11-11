@@ -3,6 +3,8 @@ package desktop
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -66,6 +68,38 @@ type conversationPage struct {
 	Size   int64              `json:"size"`
 }
 
+// openRegular opens a regular file only: a pipe, a socket or a device could block the read for ever, and
+// with it everything that waits behind it. The file is checked before it is opened, and once more as opened.
+func openRegular(path string) (*os.File, os.FileInfo, error) {
+	if info, err := os.Stat(path); err != nil {
+		return nil, nil, err
+	} else if !info.Mode().IsRegular() {
+		return nil, nil, errNotRegular
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		file.Close()
+		return nil, nil, errNotRegular
+	}
+	return file, info, nil
+}
+
+var errNotRegular = errors.New("not a regular file")
+
+// readRegular is os.ReadFile for a regular file only.
+func readRegular(path string) ([]byte, error) {
+	file, _, err := openRegular(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(file)
+}
+
 // conversationReads is where conversations are read: one at a time, as the
 // Mac's own queue read them.
 var conversationReads sync.Mutex
@@ -77,15 +111,11 @@ func readConversation(path string, before *int64, most int) (conversationPage, b
 	if path == "" {
 		return conversationPage{}, false
 	}
-	file, err := os.Open(path)
+	file, info, err := openRegular(path)
 	if err != nil {
 		return conversationPage{}, false
 	}
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return conversationPage{}, false
-	}
 	size := info.Size()
 	end := size
 	if before != nil && *before < size {
@@ -152,6 +182,11 @@ scan:
 			}
 		}
 		position = from
+		if tooLong && position <= stop {
+			// The reach is spent inside a line that is skipped anyway: the next page goes on from here.
+			earliest = position
+			break
+		}
 		if from == 0 {
 			if !tooLong {
 				take(pending, 0)

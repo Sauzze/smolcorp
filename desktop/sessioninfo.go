@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -247,15 +248,11 @@ var (
 // update reads what's new. A file that got shorter is read again from its start.
 func (f *transcriptFollower) update() {
 	f.lastUsed = time.Now()
-	file, err := os.Open(f.path)
+	file, info, err := openRegular(f.path)
 	if err != nil {
 		return
 	}
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return
-	}
 	if info.Size() < f.offset {
 		*f = transcriptFollower{path: f.path, lastUsed: f.lastUsed}
 	}
@@ -423,7 +420,11 @@ func claudeConfigFolder(transcript, home string) string {
 
 // claudeProfilePath is the profile Claude Code keeps for that folder: ~/.claude.json for ~/.claude, and inside any other.
 func claudeProfilePath(folder, home string) string {
-	if folder == filepath.Join(home, ".claude") {
+	same := folder == filepath.Join(home, ".claude")
+	if runtime.GOOS == "windows" { // its paths don't tell capitals apart
+		same = strings.EqualFold(folder, filepath.Join(home, ".claude"))
+	}
+	if same {
 		return filepath.Join(home, ".claude.json")
 	}
 	return filepath.Join(folder, ".claude.json")
@@ -432,7 +433,7 @@ func claudeProfilePath(folder, home string) string {
 // hasKeyHelper is whether any of these settings files names an apiKeyHelper: only whether it's there, never what it runs.
 func hasKeyHelper(files []string) bool {
 	for _, path := range files {
-		data, err := os.ReadFile(path)
+		data, err := readRegular(path)
 		if err != nil {
 			continue
 		}
@@ -490,9 +491,10 @@ type infoDesk struct {
 
 // sessionInfos are every desk's facts, kept up to date as the card asks for them, under a lock of their own.
 type sessionInfos struct {
-	mu        sync.Mutex
+	mu        sync.Mutex // the followers and the profiles: held while files are read
 	followers map[string]*transcriptFollower
 	profiles  map[string]keptProfile
+	billingMu sync.Mutex // the billing only, never held for a read: a hook never waits on the card
 	billing   map[string]string
 }
 
@@ -513,8 +515,8 @@ func (s *sessionInfos) noteBilling(header, session string) {
 	if session == "" {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.billingMu.Lock()
+	defer s.billingMu.Unlock()
 	if header == billingAPIKey || header == billingCloud {
 		s.billing[session] = header
 	} else {
@@ -529,12 +531,14 @@ func (s *sessionInfos) report(desk infoDesk, now float64, home string) map[strin
 	var read *tally
 	var account *claudeAccount
 	apiKey := false
+	own := "" // the transcript this report follows: never the one to let go
 	if desk.agent == Claude && desk.transcript != "" {
 		t := s.follow(desk.transcript)
+		own = desk.transcript
 		subagents := strings.TrimSuffix(desk.transcript, filepath.Ext(desk.transcript)) + string(filepath.Separator) + "subagents"
 		if entries, err := os.ReadDir(subagents); err == nil {
 			for _, entry := range entries {
-				if strings.HasSuffix(entry.Name(), ".jsonl") {
+				if entry.Type().IsRegular() && strings.HasSuffix(entry.Name(), ".jsonl") {
 					t.takeSubagent(s.follow(filepath.Join(subagents, entry.Name())))
 				}
 			}
@@ -547,8 +551,10 @@ func (s *sessionInfos) report(desk infoDesk, now float64, home string) map[strin
 		apiKey = hasKeyHelper([]string{filepath.Join(folder, "settings.json"), filepath.Join(desk.projectPath, ".claude", "settings.json"),
 			filepath.Join(desk.projectPath, ".claude", "settings.local.json")})
 	}
-	s.trim()
+	s.trim(own)
+	s.billingMu.Lock()
 	billing := s.billing[desk.id]
+	s.billingMu.Unlock()
 	if apiKey {
 		billing = billingAPIKey
 	}
@@ -567,14 +573,14 @@ func (s *sessionInfos) follow(path string) tally {
 
 func (s *sessionInfos) account(path string, now float64) (claudeAccount, bool) {
 	info, err := os.Stat(path)
-	if err != nil {
+	if err != nil || !info.Mode().IsRegular() {
 		return claudeAccount{}, false
 	}
 	if kept, ok := s.profiles[path]; ok && kept.modified.Equal(info.ModTime()) {
 		// The same file, a little later: a window may have reset meanwhile.
 		return agedAccount(kept.account, now), kept.ok
 	}
-	data, err := os.ReadFile(path)
+	data, err := readRegular(path)
 	var profile map[string]any
 	if err != nil || json.Unmarshal(data, &profile) != nil {
 		return claudeAccount{}, false
@@ -584,16 +590,19 @@ func (s *sessionInfos) account(path string, now float64) (claudeAccount, bool) {
 	return account, ok
 }
 
-func (s *sessionInfos) trim() {
+// trim lets the least recently used transcripts go, but never keep, the one this report followed.
+func (s *sessionInfos) trim(keep string) {
 	if len(s.followers) <= followersMost {
 		return
 	}
 	paths := make([]string, 0, len(s.followers))
 	for path := range s.followers {
-		paths = append(paths, path)
+		if path != keep {
+			paths = append(paths, path)
+		}
 	}
 	sort.Slice(paths, func(i, j int) bool { return s.followers[paths[i]].lastUsed.Before(s.followers[paths[j]].lastUsed) })
-	for _, path := range paths[:len(paths)-followersMost] {
+	for _, path := range paths[:min(len(paths), len(s.followers)-followersMost)] {
 		delete(s.followers, path)
 	}
 }
