@@ -146,7 +146,7 @@ func TestTheGMHireFolder(t *testing.T) {
 		}
 		if hires := registered(t); c.status != 200 {
 			nothingMade(t, r, h)
-		} else if len(hires) != 1 || (strings.TrimSpace(c.folder) != "" && hires[0].Folder != at(c.folder)) || hires[0].Folder == homeDir {
+		} else if len(hires) != 1 || (strings.TrimSpace(c.folder) != "" && physical(hires[0].Folder) != physical(at(c.folder))) || physical(hires[0].Folder) == physical(homeDir) {
 			t.Errorf("%s: registry %+v", c.name, hires)
 		}
 	}
