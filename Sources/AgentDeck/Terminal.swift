@@ -405,27 +405,60 @@ enum Terminal {
         return .job(tpgid, names: Set(job.map(\.name)), commandLines: job.map(\.args))
     }
 
-    /// The names of the processes in the foreground of `tty`, whatever they
-    /// are (the agent's own, an editor it opened, a shell), lowercased and
-    /// without a login shell's "-": empty when nothing is in front, nil if
-    /// `ps` couldn't be asked.
-    static func foregroundNames(tty: String) -> Set<String>? {
+    /// The processes in the foreground job of `tty`, each with its command
+    /// line: empty when nothing is in front, nil if `ps` couldn't be asked.
+    static func foregroundJob(tty: String) -> [(pid: pid_t, args: String)]? {
         guard let rows = processes(on: tty) else { return nil }
         guard let tpgid = rows.first?.tpgid, tpgid > 0 else { return [] }
-        return Set(rows.filter { $0.pgid == tpgid }.map { $0.name.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "-")) })
+        return rows.filter { $0.pgid == tpgid }.map { ($0.pid, $0.args) }
     }
 
     /// What's in front in a tab, for a paste of several lines (RI34b B1):
-    /// where `agent` is, and the names of everything in the foreground job.
+    /// where `agent` is, and what else in its foreground job reads the tab's
+    /// keys (RI34c S1).
     struct TabFront: Equatable {
         let place: Place
-        let names: Set<String>
+        /// The names of the processes in the foreground job, other than the
+        /// agent itself, that have the tab's tty as their standard input: a
+        /// terminal editor or a pager the agent opened, a shell. Whichever it
+        /// is, the paste would go to it, not to the agent. Only for saying
+        /// which: having the tty is what counts, whatever the name.
+        let readers: Set<String>
     }
 
-    /// `agent`'s tab on `tty` as `TabFront` says it; nil if either couldn't be looked at.
+    /// `agent`'s tab on `tty` as `TabFront` says it; nil if any of it couldn't be looked at.
     static func front(of agent: Agent, on tty: String) -> TabFront? {
-        guard let place = place(of: agent, on: tty), let names = foregroundNames(tty: tty) else { return nil }
-        return TabFront(place: place, names: names)
+        guard let place = place(of: agent, on: tty), let job = foregroundJob(tty: tty),
+              let readers = readers(of: agent, in: job, tty: tty) else { return nil }
+        return TabFront(place: place, readers: readers)
+    }
+
+    /// Which processes of `job`, other than `agent` itself, have `tty` as
+    /// their standard input (RI34c S1), by name: the program's own (`name`,
+    /// the path whole, spaces and all) and its command line's first word, as
+    /// `code`, a script, runs as bash. Nil if one couldn't be looked at: not
+    /// known is refused. A hook's or the status line's `sh -c`, an MCP server
+    /// or `caffeinate` has a pipe or /dev/null there, and reads none of the
+    /// tab's keys. Settable lookups for tests, which give stand-ins.
+    static func readers(of agent: Agent, in job: [(pid: pid_t, args: String)], tty: String,
+                        input: (pid_t) -> Processes.StandardInput = Processes.standardInput(of:),
+                        name: (pid_t) -> String? = Processes.programName(of:)) -> Set<String>? {
+        let device = tty.hasPrefix("/dev/") ? tty : "/dev/" + tty
+        let named = { (word: String) in (word as NSString).lastPathComponent.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "-")) }
+        var readers: Set<String> = []
+        for process in job where !agent.isItself(commandLine: process.args) {
+            switch input(process.pid) {
+            case .unknown: return nil
+            case .other: continue
+            case .file(let path):
+                guard path == device else { continue }
+                let first = process.args.split(separator: " ").first.map(String.init)
+                let names = Set([name(process.pid), first].compactMap { $0.map(named) }.filter { !$0.isEmpty })
+                // Unnamed, it still reads the keys.
+                readers.formUnion(names.isEmpty ? ["?"] : names)
+            }
+        }
+        return readers
     }
 
     /// Whether a job other than the shell runs on `tty`, as one sent to the
@@ -505,17 +538,20 @@ enum Terminal {
     /// ⌘V in this very tab (RI34b B2): asked again right before, whether it's
     /// still the selected tab of Terminal's front window, as a click on
     /// another tab or window could have changed since it was brought forward.
-    /// Not, and nothing is pressed.
-    static func pressPaste(tty: String) -> PastePress {
+    /// Not, and nothing is pressed. `posting` as for `pressPaste(in:)`.
+    static func pressPaste(tty: String, posting: () -> Void = {}) -> PastePress {
         guard onlyLooking({ frontTTY() }) == tty else { return .notInFront }
-        return pressPaste(in: bundleID) ? .sent : .notInFront
+        return pressPaste(in: bundleID, posting: posting) ? .sent : .notInFront
     }
 
     /// ⌘V through the keyboard's own path, as Terminal's menu shortcuts go
     /// (see `pressInFront`): to the app in front, only while that is still
-    /// `bundle`'s, so it never lands in the app you switched to.
-    static func pressPaste(in bundle: String) -> Bool {
+    /// `bundle`'s, so it never lands in the app you switched to. `posting` is
+    /// called right before the key goes, once every check has passed: the
+    /// clipboard's reads count from then on (RI34c N2).
+    static func pressPaste(in bundle: String, posting: () -> Void = {}) -> Bool {
         guard !isLocked, isFrontmost(bundle) else { return false }
+        posting()
         for down in [true, false] {
             let event = CGEvent(keyboardEventSource: nil, virtualKey: pasteKey, keyDown: down)
             event?.flags = .maskCommand

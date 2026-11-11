@@ -274,7 +274,7 @@ const cases = [
     return { pass: r.ok, note: `${r.res.status}; ${r.ok ? 'exact, \\e[200~ … \\e[201~ around it, no Return' : `got ${JSON.stringify(r.got)}`}` };
   }],
   ['multi-line where the pane takes no bracketed paste', async (desk) => {
-    if (desk.kind !== 'fake') return { pass: true, note: 'n/a: Claude Code asks for bracketed paste at its prompt (not while $EDITOR has the tab, which the deck refuses); the stand-in can stop' };
+    if (desk.kind !== 'fake') return { pass: true, note: 'n/a: Claude Code asks for bracketed paste at its prompt (not while a terminal $EDITOR has the tab, which the deck refuses); the stand-in can stop' };
     await dictate(desk.id, 'nopaste', true);
     await sleep(700);
     const mark = fakeMark(desk);

@@ -249,7 +249,8 @@ struct TerminalApp: TerminalDriver {
     /// which it wraps in bracketed-paste markers where the agent asked for them.
     var linesWay: LinesWay { .clipboard(inFront: true) }
     func insertLines(_ text: String, in tab: TabAddress, ready: () -> String?) -> LinesPasted {
-        ClipboardPaste.paste(text, forward: { Terminal.macInUse ? .macInUse : Terminal.forwardForPaste(tty: tab.id) ? nil : .notInFront },
-                             ready: ready, press: { Terminal.pressPaste(tty: tab.id) })
+        ClipboardPaste.paste(text, first: { Terminal.macInUse ? .macInUse : nil },
+                             forward: { Terminal.macInUse ? .macInUse : Terminal.forwardForPaste(tty: tab.id) ? nil : .notInFront },
+                             ready: ready, press: { posting in Terminal.pressPaste(tty: tab.id, posting: posting) })
     }
 }

@@ -2339,6 +2339,7 @@ final class Deck {
     static let linesInEditor = "An editor is open in this desk's tab, so nothing was typed: close it, then send again."
     static let linesInPager = "A pager (less, man) is open in this desk's tab, so nothing was typed: quit it, then send again."
     static let linesInShell = "A shell or a command is running in this desk's tab, so nothing was typed: send again once it's finished."
+    static let linesInTab = "Something else open in this desk's tab is taking the keys, so nothing was typed: close it, then send again."
     static let linesNotInFront = "This desk's tab couldn't be brought to the front, or another tab or app was in front by the time of the paste, so nothing was typed: try again."
     static let linesMacInUse = "The Mac is in use, and pasting would bring this desk's terminal to the front, so nothing was typed: try again once it's been left alone for 10 seconds, or send it as one line."
     static let linesClipboardKept = "What's on the Mac's clipboard (a file being copied, perhaps) couldn't be put back exactly after the paste, so nothing was typed: send it as one line, or copy something else first."
@@ -2370,8 +2371,9 @@ final class Deck {
     /// can't say whether the agent asked for bracketed paste, which an agent on the list does only at its
     /// main prompt (`Agent.asksForBracketedPaste`): so only while the desk waits there (idle, unread or
     /// error: not asking, not working, as a tool's own prompt runs while it works), and only with the agent
-    /// in front of its tab, nothing else in its foreground job: no editor it opened (Claude Code turns
-    /// bracketed paste off while `$EDITOR` has the tab), no pager, no shell. Not known is refused.
+    /// in front of its tab, nothing else in its foreground job reading the tab's keys (RI34c S1): no
+    /// terminal editor it opened (Claude Code turns bracketed paste off while one has the tab), whatever
+    /// it's called, no pager, no shell. The names only pick the sentence. Not known is refused.
     static func clipboardRefusal(state: SessionState?, front: Terminal.TabFront?) -> String? {
         switch state {
         case .asking?: return answerFirst
@@ -2385,18 +2387,21 @@ final class Deck {
         case .behind: return linesBehind
         case .front: break
         }
-        if front.names.contains(where: { editors.contains($0) || $0.hasPrefix("emacs") }) { return linesInEditor }
-        if !front.names.isDisjoint(with: pagers) { return linesInPager }
-        if !front.names.isDisjoint(with: shells) { return linesInShell }
-        return nil
+        let readers = front.readers
+        guard !readers.isEmpty else { return nil }
+        if readers.contains(where: { editors.contains($0) || $0.hasPrefix("emacs") }) { return linesInEditor }
+        if !readers.isDisjoint(with: pagers) { return linesInPager }
+        if !readers.isDisjoint(with: shells) { return linesInShell }
+        return linesInTab
     }
 
-    /// What `$EDITOR` and `$VISUAL` are set to, in a terminal or waiting on a window (`code --wait`).
+    /// Only to pick the sentence (see `clipboardRefusal`), never what refuses: what `$EDITOR` and `$VISUAL`
+    /// are often set to, in a terminal or waiting on a window (`code --wait`); pagers; shells, and what
+    /// opens one or asks for a password.
     static let editors: Set<String> = ["vi", "vim", "nvim", "view", "vimdiff", "gvim", "mvim", "nano", "pico", "micro", "hx", "helix",
                                        "kak", "joe", "jed", "ne", "mg", "ed", "ex", "code", "cursor", "windsurf", "subl", "zed",
                                        "mate", "bbedit", "edit", "open"]
     static let pagers: Set<String> = ["less", "more", "most", "pg", "man", "bat", "delta", "w3m", "lynx"]
-    /// Shells, and what opens one or asks for a password.
     static let shells: Set<String> = ["sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "xonsh", "elvish",
                                       "pwsh", "login", "sudo", "su", "ssh", "mosh", "telnet", "script", "tmux", "screen"]
 

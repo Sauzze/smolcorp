@@ -104,7 +104,8 @@ final class ClipboardPasteTests: XCTestCase {
 
     /// The text goes byte for byte, line feeds and all, ⌘V once (no Return of ours, mid-text or after), and
     /// what you had copied comes back exactly, every item and type, once the terminal has read it. In
-    /// RI34b B2's order: the clipboard first, then forward → ready → the tab checked again → ⌘V.
+    /// RI34b B2's order, with RI34c N1's check first: ready, then the clipboard, then forward → ready again →
+    /// the tab checked again → ⌘V.
     func testThePasteTakesTheTextAndTheClipboardComesBack() {
         var steps: [String] = []
         clipboard.log = { steps.append($0) }
@@ -118,7 +119,7 @@ final class ClipboardPasteTests: XCTestCase {
                                           })
         XCTAssertEqual(result, .pasted)
         XCTAssertEqual(pasted.map { Data($0.utf8) }, Data(text.utf8), "byte for byte")
-        XCTAssertEqual(steps, ["save", "put", "forward", "ready", "tab checked again", "⌘V", "read", "restore"])
+        XCTAssertEqual(steps, ["ready", "save", "put", "forward", "ready", "tab checked again", "⌘V", "read", "restore"])
         XCTAssertEqual(clipboard.items, yours, "every item and type back")
     }
 
@@ -131,12 +132,22 @@ final class ClipboardPasteTests: XCTestCase {
     }
 
     /// The desk not ready, the tab not brought forward, or the Mac in use: nothing pressed, the clipboard back.
+    /// What's known before the tab is brought forward (the Mac in use, the desk not free) is refused before
+    /// the clipboard is even read (RI34c N1): a password you'd copied stays, and the phone's text never goes on.
     func testNothingIsPressedWhenTheDeskOrTheTabSaysNo() {
         var pressed = 0
         let press = { () -> PastePress in pressed += 1; return .sent }
         XCTAssertEqual(ClipboardPaste.paste(text, forward: { nil }, ready: { Deck.linesInEditor }, press: press), .refused(Deck.linesInEditor))
+        XCTAssertEqual(ClipboardPaste.paste(text, first: { .macInUse }, forward: { nil }, ready: { nil }, press: press), .macInUse)
+        XCTAssertEqual(clipboard.steps, [], "not touched")
         XCTAssertEqual(ClipboardPaste.paste(text, forward: { .notInFront }, ready: { nil }, press: press), .notInFront)
         XCTAssertEqual(ClipboardPaste.paste(text, forward: { .macInUse }, ready: { nil }, press: press), .macInUse)
+        // Free when first asked, not by the time the tab is in front: the clipboard back.
+        var asked = 0
+        XCTAssertEqual(ClipboardPaste.paste(text, forward: { nil }, ready: {
+            asked += 1
+            return asked == 1 ? nil : Deck.answerFirst
+        }, press: press), .refused(Deck.answerFirst))
         XCTAssertEqual(pressed, 0)
         XCTAssertEqual(clipboard.items, yours)
         XCTAssertEqual(clipboard.steps, Array(repeating: ["save", "put", "restore"], count: 3).flatMap { $0 })
@@ -145,6 +156,31 @@ final class ClipboardPasteTests: XCTestCase {
             XCTAssertEqual(ClipboardPaste.paste(text, forward: { nil }, ready: { nil }, press: press), .failed)
         }
         XCTAssertEqual(clipboard.steps.count, 9)
+    }
+
+    /// Only a read after ⌘V goes is the paste's (RI34c N2): one while the press checks the tab again, before
+    /// posting, isn't. The text it took is gone then, so the paste is said not read: a 503, and no Return.
+    func testOnlyAReadAfterCommandVIsThePastes() {
+        XCTAssertEqual(ClipboardPaste.paste(text, forward: { nil }, ready: { nil }, press: { posting in
+            posting()
+            _ = self.clipboard.read()
+            return .sent
+        }), .pasted)
+        XCTAssertEqual(clipboard.items, yours)
+        XCTAssertEqual(ClipboardPaste.paste(text, forward: { nil }, ready: { nil }, press: { posting in
+            _ = self.clipboard.read()
+            posting()
+            return .sent
+        }), .notRead, "read while the tab was checked again, before ⌘V")
+        XCTAssertEqual(clipboard.plainText, text, "the phone's text stays for the grace, never yours")
+        // Nothing posted, nothing counted, even a read during the press.
+        let reads = ClipboardPaste.Reads()
+        reads.note()
+        reads.mark()
+        XCTAssertFalse(reads.wait(until: .now() + 0.05), "a read before the mark isn't counted, though it signalled")
+        XCTAssertFalse(reads.none)
+        reads.note()
+        XCTAssertTrue(reads.wait(until: .now() + 0.05))
     }
 
     /// What can't be put back exactly (a file being copied) isn't taken off the clipboard: nothing is put,
@@ -238,8 +274,11 @@ final class ClipboardPasteTests: XCTestCase {
     /// Read before ⌘V (a clipboard manager that doesn't skip what's marked): the text is put again right
     /// before it, so the read that's waited for is the terminal's.
     func testAReadBeforeThePressDoesntCountAsThePaste() {
+        var asked = 0
         let result = ClipboardPaste.paste(text, forward: { nil }, ready: {
-            _ = self.clipboard.read()
+            // Asked first before the clipboard is touched (RI34c N1), then right before ⌘V, with the phone's text on.
+            asked += 1
+            if asked == 2 { _ = self.clipboard.read() }
             return nil
         }, press: { .sent })
         XCTAssertEqual(result, .notRead, "only the manager read it")
@@ -310,6 +349,12 @@ final class ClipboardPasteTests: XCTestCase {
         XCTAssertEqual(posted.map(\.down), [true, false])
         XCTAssertEqual(posted.map(\.command), [true, true])
         XCTAssertEqual(posted.map(\.pid), [nil, nil], "the keyboard's own path, as Terminal's menu shortcuts go")
+        // Told right before the key goes, once every check has passed (RI34c N2); not at all when it doesn't go.
+        var order: [String] = []
+        Terminal.postEvent = { _, _ in order.append("key") }
+        XCTAssertFalse(Terminal.pressPaste(in: front + ".not-in-front", posting: { order.append("posting") }))
+        XCTAssertTrue(Terminal.pressPaste(in: front, posting: { order.append("posting") }))
+        XCTAssertEqual(order, ["posting", "key", "key"])
     }
 
     /// Terminal.app's ⌘V asks again, right before, which tab is in front (RI34b B2): another one, and
@@ -343,7 +388,7 @@ final class ClipboardPasteTests: XCTestCase {
         XCTAssertEqual(TerminalApp().insertLines(text, in: .terminalApp(tty: "/dev/ttys979"), ready: ready), .macInUse)
         XCTAssertEqual(ITerm().insertLines(text, in: TabAddress(kind: "iterm", id: "BD2206F6"), ready: ready), .macInUse)
         XCTAssertEqual(clipboard.items, yours)
-        XCTAssertFalse(clipboard.steps.contains("read"), "nothing pasted")
+        XCTAssertEqual(clipboard.steps, [], "the clipboard not even read (RI34c N1)")
         Terminal.secondsSinceInput = { 12 }
         XCTAssertFalse(Terminal.macInUse, "left alone for 10 seconds")
         // The rule itself: within 10 seconds of input, unless that input was Smolcorp's own keys.

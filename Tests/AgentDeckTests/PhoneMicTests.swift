@@ -235,17 +235,24 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertNil(Deck.linesRefusal(.paneFlag, agent: .grok, accessibility: no, locked: yes), "tmux reads the pane itself")
         XCTAssertEqual(Deck.linesRefusal(.never, agent: .claude)?.status, 409)
         XCTAssertEqual(Deck.linesRefusal(.clipboard(inFront: false), agent: .grok)?.status, 409)
-        XCTAssertNil(Deck.linesRefusal(.clipboard(inFront: false), agent: .opencode, accessibility: no, locked: yes), "Ghostty needs neither")
+        XCTAssertNil(Deck.linesRefusal(.clipboard(inFront: false), agent: .claude, accessibility: no, locked: yes), "Ghostty needs neither")
         XCTAssertEqual(Deck.linesRefusal(.clipboard(inFront: true), agent: .claude, accessibility: no, locked: no)?.status, 403)
         let locked = Deck.linesRefusal(.clipboard(inFront: true), agent: .claude, accessibility: yes, locked: yes)
         XCTAssertEqual(locked?.status, 409)
         XCTAssertEqual(locked.map { String(decoding: $0.body, as: UTF8.self) }, Deck.lockedLines)
         XCTAssertNil(Deck.linesRefusal(.clipboard(inFront: true), agent: .claude, accessibility: yes, locked: no))
-        // Only what was checked on the Mac's installed binaries (RI34b §1): Codex and Gemini CLI weren't there.
-        for agent in [Agent.claude, .opencode] { XCTAssertTrue(agent.asksForBracketedPaste, agent.name) }
-        for agent in [Agent.codex, .gemini, .grok] {
+        // Claude Code only (RI34c B1): OpenCode's binary may turn bracketed paste on only where the terminal
+        // answers its query; Codex and Gemini CLI weren't there to read; Grok CLI's wasn't checked. Each is
+        // refused in one sentence, in Terminal, iTerm2 and Ghostty alike; tmux still goes by its pane flag.
+        XCTAssertTrue(Agent.claude.asksForBracketedPaste)
+        for agent in [Agent.opencode, .codex, .gemini, .grok] {
             XCTAssertFalse(agent.asksForBracketedPaste, agent.name)
-            XCTAssertEqual(Deck.linesRefusal(.clipboard(inFront: false), agent: agent)?.status, 409, agent.name)
+            for inFront in [false, true] {
+                let refused = Deck.linesRefusal(.clipboard(inFront: inFront), agent: agent, accessibility: yes, locked: no)
+                XCTAssertEqual(refused?.status, 409, agent.name)
+                XCTAssertEqual(refused.map { String(decoding: $0.body, as: UTF8.self) }, Deck.noLines(for: agent), agent.name)
+            }
+            XCTAssertNil(Deck.linesRefusal(.paneFlag, agent: agent), agent.name)
         }
     }
 
@@ -266,10 +273,11 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertEqual(terminal.pressed, [], "no Return")
     }
 
-    /// The tab as `Terminal.front` would read it: the agent in front, alone in its job unless `others` say.
-    private func agentAloneInFront(_ others: Set<String> = [], place: Terminal.Place = .front) {
+    /// The tab as `Terminal.front` would read it: the agent in front, nothing else reading the tab's keys
+    /// unless `readers` say.
+    private func agentAloneInFront(_ readers: Set<String> = [], place: Terminal.Place = .front) {
         let saved = Deck.tabFront
-        Deck.tabFront = { _, _ in Terminal.TabFront(place: place, names: Set(["claude"]).union(others)) }
+        Deck.tabFront = { _, _ in Terminal.TabFront(place: place, readers: readers) }
         addTeardownBlock { Deck.tabFront = saved }
     }
 
@@ -277,26 +285,93 @@ final class PhoneMicTests: XCTestCase {
     /// front of its tab (RI34b B1): each case where bracketed paste may be off, or a Return could land
     /// elsewhere, is refused in its own sentence. Not known is refused too.
     func testTheClipboardPasteGoesOnlyToAnAgentWaitingAtItsPrompt() {
-        let alone = Terminal.TabFront(place: .front, names: ["claude"])
-        func with(_ names: Set<String>) -> Terminal.TabFront { Terminal.TabFront(place: .front, names: names.union(["claude"])) }
+        let alone = Terminal.TabFront(place: .front, readers: [])
+        func with(_ readers: Set<String>) -> Terminal.TabFront { Terminal.TabFront(place: .front, readers: readers) }
         for state in [SessionState.idle, .unread, .error] { XCTAssertNil(Deck.clipboardRefusal(state: state, front: alone), "\(state)") }
-        // Claude Code hands the tab to $EDITOR (Ctrl-G, opening a file), bracketed paste off: vim, nano, an app's --wait.
-        for editor in ["vim", "nvim", "nano", "emacs", "emacs-29.4", "code", "hx"] {
-            XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with([editor])), Deck.linesInEditor, editor)
+        // Claude Code hands the tab to a terminal $EDITOR (Ctrl-G, opening a file), bracketed paste off: vim, nano,
+        // an app's --wait run as a script.
+        for editor: Set<String> in [["vim"], ["nvim"], ["nano"], ["emacs"], ["emacs-29.4"], ["code", "bash"], ["hx"]] {
+            XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(editor)), Deck.linesInEditor, "\(editor)")
         }
         XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(["less"])), Deck.linesInPager, "a pager")
         XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(["man"])), Deck.linesInPager, "a manual page")
         XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(["zsh"])), Deck.linesInShell, "a ! shell")
         XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(["bash", "sleep"])), Deck.linesInShell)
+        // Whatever it's called, what reads the tab's keys is refused (RI34c S1): the names only pick the sentence.
+        for unlisted: Set<String> in [["vis"], ["nvi"], ["mcedit"], ["?"]] {
+            XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: with(unlisted)), Deck.linesInTab, "\(unlisted)")
+        }
         XCTAssertEqual(Deck.clipboardRefusal(state: .asking, front: alone), Deck.answerFirst, "a menu: a question or a permission")
         XCTAssertEqual(Deck.clipboardRefusal(state: .thinking, front: alone), Deck.linesWhileWorking,
                        "a sub-prompt: a tool's own prompt runs while the turn does")
         XCTAssertEqual(Deck.clipboardRefusal(state: nil, front: alone), Deck.linesUnknown, "unknown state")
         XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: nil), Deck.linesUnknown, "a tab that couldn't be looked at")
-        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: Terminal.TabFront(place: .behind, names: ["vim"])), Deck.linesBehind)
-        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: Terminal.TabFront(place: .gone, names: [])), Deck.linesAgentEnded)
-        // An MCP server or a helper of the agent's own isn't any of those.
-        XCTAssertNil(Deck.clipboardRefusal(state: .idle, front: with(["node", "uvx", "python3"])))
+        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: Terminal.TabFront(place: .behind, readers: ["vim"])), Deck.linesBehind)
+        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: Terminal.TabFront(place: .gone, readers: [])), Deck.linesAgentEnded)
+    }
+
+    /// What reads a tab's keys, from a stand-in process table and stand-in standard inputs (RI34c S1): every
+    /// process of the foreground job but the agent itself with the tab's tty as its fd 0. Nothing real is looked at.
+    func testWhatReadsTheTabsKeysIsWhatHasItsTTYAsInput() {
+        let tty = "/dev/ttys041"
+        typealias Input = Processes.StandardInput
+        func readers(_ job: [(pid: pid_t, args: String, input: Input, name: String?)], agent: Agent = .claude) -> Set<String>? {
+            Terminal.readers(of: agent, in: job.map { ($0.pid, $0.args) }, tty: tty,
+                             input: { pid in job.first { $0.pid == pid }?.input ?? .other },
+                             name: { pid in job.first { $0.pid == pid }?.name })
+        }
+        let claude = (pid: pid_t(100), args: "claude --resume", input: Input.file(tty), name: String?("2.1.322"))
+        // Claude Code's own job, as on a real tab: caffeinate and the MCP servers have /dev/null or a pipe.
+        let helpers: [(pid: pid_t, args: String, input: Input, name: String?)] = [
+            (101, "caffeinate -i -t 300", .file("/dev/null"), "caffeinate"),
+            (102, "npm exec @modelcontextprotocol/server-filesystem /tmp", .other, "node"),
+            (103, "uv run mcp-server", .other, "uv"),
+            (104, "/usr/bin/python3 -m server", .other, "python3"),
+        ]
+        XCTAssertEqual(readers([claude] + helpers), [], "the agent alone reads the keys")
+        // A hook's or the status line's sh -c reads a pipe: not refused, as the name list did.
+        XCTAssertEqual(readers([claude, (110, "/bin/sh -c ~/.claude/statusline.sh", .other, "sh")]), [])
+        // An unlisted terminal editor with the tty: refused, by its own name.
+        XCTAssertEqual(readers([claude, (120, "vis notes.md", .file(tty), "vis")] + helpers), ["vis"])
+        // An editor whose path has a space: the program's own name, whole, as well as the command line's first word.
+        XCTAssertEqual(readers([claude, (130, "/Users/me/Editor Tools/nvim notes.md", .file(tty), "nvim")]), ["nvim", "editor"])
+        XCTAssertEqual(Deck.clipboardRefusal(state: .idle, front: Terminal.TabFront(place: .front, readers: ["nvim", "editor"])),
+                       Deck.linesInEditor)
+        // A window editor run as a script (code --wait): bash runs it, and its first word says code.
+        XCTAssertEqual(readers([claude, (140, "/bin/bash /usr/local/bin/code --wait x", .file(tty), "bash")]), ["bash"])
+        XCTAssertEqual(readers([claude, (141, "code --wait x", .file(tty), "bash")]), ["code", "bash"])
+        // Nameless, it's still refused.
+        XCTAssertEqual(readers([claude, (150, "", .file(tty), nil)]), ["?"])
+        // Another tty or a file isn't this tab's keys; a process that couldn't be looked at (sudo's) isn't known.
+        XCTAssertEqual(readers([claude, (160, "tail -f log", .file("/dev/ttys042"), "tail"), (161, "cat", .file("/tmp/x"), "cat")]), [])
+        XCTAssertNil(readers([claude, (170, "sudo ls", .unknown, nil)]))
+        // The tty given without /dev/, as ps names it.
+        XCTAssertEqual(Terminal.readers(of: .claude, in: [(120, "vis")], tty: "ttys041", input: { _ in .file(tty) }, name: { _ in nil }), ["vis"])
+        // The agent itself is left out by its command line, whatever its program's file is called.
+        XCTAssertEqual(readers([(200, "node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js", .file(tty), "node")]), [])
+    }
+
+    /// The real lookups, on processes of the test's own: /dev/null and a pipe aren't a tty, and a process that
+    /// has ended has nothing there. Only the kernel is asked, about the test's own children.
+    func testTheRealStandardInputLookup() throws {
+        let null = Process()
+        null.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        null.arguments = ["5"]
+        null.standardInput = FileHandle.nullDevice
+        let piped = Process()
+        piped.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        piped.arguments = ["5"]
+        piped.standardInput = Pipe()
+        try null.run()
+        try piped.run()
+        defer { null.terminate(); piped.terminate() }
+        XCTAssertEqual(Processes.standardInput(of: null.processIdentifier), .file("/dev/null"))
+        XCTAssertEqual(Processes.standardInput(of: piped.processIdentifier), .other)
+        XCTAssertEqual(Processes.programName(of: piped.processIdentifier), "sleep")
+        null.terminate()
+        null.waitUntilExit()
+        XCTAssertEqual(Processes.standardInput(of: null.processIdentifier), .other, "ended")
+        XCTAssertEqual(Processes.standardInput(of: 1), .unknown, "launchd is root's: not known")
     }
 
     /// On a whole deck: an editor open in the tab, or no way to tell, and nothing is pasted, no Return.
@@ -521,12 +596,15 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertTrue(page.contains("if (send !== undefined && res.status < 500) confirmDictation(session, text);"))
         // A clipboard manager may keep a copy of several lines pasted through the clipboard (Q1 b), said in the
         // phone's ⚙︎, in setup's Phone microphone text with the Wi-Fi's line (RI34 N5), and in docs/phone.md.
-        let clipboard = "Several lines typed to Terminal, iTerm2 or Ghostty go through the clipboard: a clipboard manager may keep a copy, and a password you'd copied is cleared, not put back."
+        let clipboard = "Several lines typed to Claude Code in Terminal, iTerm2 or Ghostty go through the clipboard: a clipboard manager, or iTerm2's paste history, may keep a copy, and a password you'd copied is cleared, not put back."
         XCTAssertTrue(page.contains("textContent: \"\(clipboard)\""))
         let setup = try String(contentsOf: Self.repo.appendingPathComponent("Resources/web/setup.html"), encoding: .utf8)
         XCTAssertTrue(setup.contains("over the Wi-Fi too, where what you type isn't encrypted: Tailscale is the private option. \(clipboard)\"></div>"))
         let docs = try String(contentsOf: Self.repo.appendingPathComponent("docs/phone.md"), encoding: .utf8)
-        XCTAssertTrue(docs.contains("A clipboard manager\nmay keep a copy of text sent this way."))
+        XCTAssertTrue(docs.contains("A clipboard manager, or\niTerm2's paste history, may keep a copy of text sent this way."), "RI34c N3")
+        XCTAssertTrue(docs.contains("and ⌘V, for Claude Code only,"), "RI34c B1")
+        XCTAssertFalse(docs.contains("OpenCode waiting"), "RI34c B1")
+        XCTAssertTrue(docs.contains("idle, so Smolcorp still reads it as waiting: several lines go to that mode or"), "RI34c's residual note")
         XCTAssertTrue(docs.contains("password you'd copied, which is cleared, not put back"), "VICTOR's ruling on RI34b S2")
         XCTAssertFalse(page.contains("aria-label=\"What the phone heard\" hidden"), "the box is for typed text too (RI34 N1)")
     }

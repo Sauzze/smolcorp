@@ -161,18 +161,24 @@ enum ClipboardPaste {
 
     static let busy = "Another paste is still on the Mac's clipboard, so nothing was typed: try again in a few seconds."
 
-    /// In this order (RI34b B2): what's on the clipboard saved and the phone's text put in its place, so
-    /// nothing slow comes between the tab's checks and ⌘V; `forward` brings the tab forward and checks it's
-    /// the one in front, typing nothing (nil, or why not); `ready` checks the desk is free for it (nil, or
-    /// why not), right before; `press` checks the tab once more and presses ⌘V. What was saved comes back
-    /// in every case, for this Mac only, unless something else was copied in the meantime: that copy is
-    /// newer, and stays.
-    static func paste(_ text: String, forward: () -> LinesPasted?, ready: () -> String?, press: () -> PastePress) -> LinesPasted {
+    /// In this order (RI34b B2): `first` (the Mac in use) and `ready` (the desk free for it) asked once
+    /// before the clipboard is touched, so a refusal leaves it as it was (RI34c N1); what's on it saved and
+    /// the phone's text put in its place, so nothing slow comes between the tab's checks and ⌘V; `forward`
+    /// brings the tab forward and checks it's the one in front, typing nothing (nil, or why not); `ready`
+    /// again, right before; `press` checks the tab once more and presses ⌘V, calling `posting` right before
+    /// it posts the key: only a read after that is the paste's (RI34c N2). What was saved comes back in every
+    /// case, for this Mac only, unless something else was copied in the meantime: that copy is newer, and
+    /// stays.
+    static func paste(_ text: String, first: () -> LinesPasted? = { nil }, forward: () -> LinesPasted?, ready: () -> String?,
+                      press: (_ posting: () -> Void) -> PastePress) -> LinesPasted {
         // Escape could end the terminal's bracket early, and a return would press Enter: refused, as tmux's paste does.
         guard HireTmux.canPaste(text) else { return .failed }
         guard turn.wait(timeout: .now() + grace + readWait) == .success else { return .refused(busy) }
         var handedOn = false
         defer { if !handedOn { turn.signal() } }
+        // What's known already is refused before the clipboard is touched: a password you'd copied stays.
+        if let why = first() { return why }
+        if let why = ready() { return .refused(why) }
         // What can't be put back exactly isn't taken off: a file being copied stays, and nothing is pasted.
         guard let saved = clipboard.save() else { return .unsaved }
         var reads = Reads()
@@ -202,7 +208,10 @@ enum ClipboardPaste {
             }
             ours = again
         }
-        let pressing = press()
+        // From the press on, unless the press says later, right before it posts ⌘V: a read while it checks the tab
+        // again isn't the paste's. The text it took is then gone, and the paste is said not read: no Return.
+        reads.mark()
+        let pressing = press { reads.mark() }
         let pressed = DispatchTime.now()
         if pressing == .notInFront {
             putBack(ours, reads)
@@ -225,28 +234,55 @@ enum ClipboardPaste {
         return pressing == .sent ? .notRead : .failed
     }
 
-    /// Whether the phone's text has been read, and waiting until it is.
+    /// As above, for a press with no check of its own between being called and posting ⌘V (Ghostty's,
+    /// a stand-in's): a read from the press on is the paste's.
+    static func paste(_ text: String, first: () -> LinesPasted? = { nil }, forward: () -> LinesPasted?, ready: () -> String?,
+                      press: () -> PastePress) -> LinesPasted {
+        paste(text, first: first, forward: forward, ready: ready, press: { _ in press() })
+    }
+
+    /// Whether the phone's text has been read, at all and since the mark (⌘V), and waiting until it is.
     final class Reads {
         private let lock = NSLock()
         private var count = 0
+        private var sinceMark: Int?
         private let signal = DispatchSemaphore(value: 0)
 
         func note() {
             lock.lock()
             count += 1
+            sinceMark = sinceMark.map { $0 + 1 }
             lock.unlock()
             signal.signal()
         }
 
+        /// Reads from now on are the paste's; any before aren't.
+        func mark() {
+            lock.lock()
+            sinceMark = 0
+            lock.unlock()
+        }
+
+        /// Not read at all, mark or not.
         var none: Bool {
             lock.lock()
             defer { lock.unlock() }
             return count == 0
         }
 
-        /// True once read, waiting no later than `deadline`.
+        private var readSinceMark: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return (sinceMark ?? 0) > 0
+        }
+
+        /// True once read since the mark, waiting no later than `deadline`.
         func wait(until deadline: DispatchTime) -> Bool {
-            !none || signal.wait(timeout: deadline) == .success
+            while !readSinceMark {
+                // A read before the mark signalled too: only one since counts.
+                guard signal.wait(timeout: deadline) == .success else { return readSinceMark }
+            }
+            return true
         }
     }
 }

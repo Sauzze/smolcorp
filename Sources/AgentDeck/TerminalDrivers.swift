@@ -384,8 +384,9 @@ struct ITerm: TerminalDriver {
     /// which it wraps in bracketed-paste markers where the agent asked for them. Posting ⌘V needs Accessibility.
     var linesWay: LinesWay { .clipboard(inFront: true) }
     func insertLines(_ text: String, in tab: TabAddress, ready: () -> String?) -> LinesPasted {
-        ClipboardPaste.paste(text, forward: { Terminal.macInUse ? .macInUse : forwardForPaste(tab) ? nil : .notInFront }, ready: ready,
-                             press: { isInFront(tab) && Terminal.pressPaste(in: ITerm.bundleID) ? .sent : .notInFront })
+        ClipboardPaste.paste(text, first: { Terminal.macInUse ? .macInUse : nil },
+                             forward: { Terminal.macInUse ? .macInUse : forwardForPaste(tab) ? nil : .notInFront }, ready: ready,
+                             press: { posting in isInFront(tab) && Terminal.pressPaste(in: ITerm.bundleID, posting: posting) ? .sent : .notInFront })
     }
 
     /// The session selected and iTerm2 in front, never while the Mac is locked; true once this very
