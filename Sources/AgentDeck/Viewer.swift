@@ -147,6 +147,91 @@ struct ViewerKept: Equatable {
     }
 }
 
+/// "Stop when I'm back at the Mac", for the Go core's portable office (desktop/viewer.go's `macReturn`): what the
+/// Swift engine's PortableOffice watched (Viewer.swift at 1da4e935), told through the bridge's `presence`. The
+/// screen's unlocks, and the Mac's and its screens' wakes, are counted from the app's start: the core asks every
+/// few seconds while the portable office is on, and a count gone up is one since it last asked. Nothing here asks
+/// for a permission or shows anything.
+final class MacPresence {
+    /// What the core is told: the keyboard's and mouse's idle time in seconds, whether the screen is locked, and
+    /// the unlocks and wakes counted so far.
+    struct Now: Equatable {
+        var idle: TimeInterval = 0
+        var locked = false
+        var unlocks = 0
+        var wakes = 0
+    }
+
+    /// Idle for longer than this (never used since the Mac started) is said as this: a year.
+    static let idleMost: TimeInterval = 365 * 24 * 3600
+
+    static let shared = MacPresence()
+
+    private let distributed: NotificationCenter
+    private let workspace: NotificationCenter
+    private let idle: () -> TimeInterval
+    private let locked: () -> Bool
+    /// Guards the counts: they're counted on the main queue and read on the bridge's.
+    private let lock = NSLock()
+    private var unlocks = 0
+    private var wakes = 0
+    private var watchers: [(NotificationCenter, NSObjectProtocol)] = []
+
+    /// The Mac's own centres and readings, or a test's stand-ins.
+    init(distributed: NotificationCenter = DistributedNotificationCenter.default(),
+         workspace: NotificationCenter = NSWorkspace.shared.notificationCenter,
+         idle: @escaping () -> TimeInterval = { MacPresence.idleSeconds },
+         locked: @escaping () -> Bool = { MacPresence.screenIsLocked }) {
+        self.distributed = distributed
+        self.workspace = workspace
+        self.idle = idle
+        self.locked = locked
+    }
+
+    deinit { watchers.forEach { $0.0.removeObserver($0.1) } }
+
+    /// Starts counting, once: on an unlock, as the Swift engine came back on it, and on a wake, after which it
+    /// watched the keyboard and mouse (the core does that now, with `now`).
+    func start() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard watchers.isEmpty else { return }
+        let unlocked = distributed.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: nil) { [weak self] _ in
+            self?.count { $0.unlocks += 1 }
+        }
+        watchers.append((distributed, unlocked))
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            let woke = workspace.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in self?.count { $0.wakes += 1 } }
+            watchers.append((workspace, woke))
+        }
+    }
+
+    private func count(_ change: (MacPresence) -> Void) {
+        lock.lock()
+        change(self)
+        lock.unlock()
+    }
+
+    /// What's counted, with the idle time and the lock read now. On any queue.
+    func now() -> Now {
+        lock.lock()
+        let counted = (unlocks, wakes)
+        lock.unlock()
+        return Now(idle: idle(), locked: locked(), unlocks: counted.0, wakes: counted.1)
+    }
+
+    /// Seconds since the keyboard or mouse was last used.
+    static var idleSeconds: TimeInterval {
+        guard let anyInput = CGEventType(rawValue: ~0) else { return .infinity }
+        return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
+    }
+
+    static var screenIsLocked: Bool {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        return (session["CGSSessionScreenIsLocked"] as? Bool) ?? false
+    }
+}
+
 /// The body the viewer stores and the phone opens: [0x01] + nonce + ciphertext
 /// + tag, AES-256-GCM over the padded JSON, bound to the viewer's id.
 enum ViewerCrypto {

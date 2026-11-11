@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,7 +16,9 @@ import (
 // them use (each checks the other's pid; see socketBridge): keys typed
 // into a Terminal, iTerm2 or Ghostty tab, the phone's text and a look at what
 // the tab shows (phonetext.go), a window brought forward or closed,
-// a terminal opened on a script, the app's own Keychain items, its login item;
+// a terminal opened on a script, the app's own Keychain items (✨ Summary's key
+// and the portable office's), its login item, and when you're back at the Mac
+// (hostPresence);
 // setup's Mac parts (hostsetup.go), the office's window and the Mac's folder
 // panel (hostshell.go), and what each desk's terminal allows (hostoffice.go);
 // and which processes work in a folder or name a session, read only, for Let
@@ -174,6 +177,12 @@ type bridgeAnswer struct {
 	Ready bool `json:"ready,omitempty"`
 	// processes: those working in the folder or naming the session, the first bridgeProcessesMost.
 	Processes []bridgeProcess `json:"processes,omitempty"`
+	// presence: how long the keyboard and mouse have gone unused, in seconds, whether the screen is locked,
+	// and how many times the screen was unlocked, and the Mac or its screens woke, since the app started.
+	Idle    float64 `json:"idle,omitempty"`
+	Locked  bool    `json:"locked,omitempty"`
+	Unlocks int     `json:"unlocks,omitempty"`
+	Wakes   int     `json:"wakes,omitempty"`
 }
 
 // bridgeProcess is a process the Mac app found working in a folder or naming a session: its pid, its name as
@@ -367,6 +376,27 @@ func hostWriteSecret(h hostBridge, item, value string) error {
 	}
 	_, err := ask(h, bridgeRequest{Action: action, Item: item, Value: value})
 	return err
+}
+
+// macPresence is "stop when I'm back at the Mac", as the Mac app tells it (presence): what the Swift
+// engine's portable office watched (Viewer.swift at 1da4e935). The unlocks and the wakes (the Mac's own
+// and its screens') are counted by the app from its start, so a count gone up is one since last asked.
+type macPresence struct {
+	idle           time.Duration
+	locked         bool
+	unlocks, wakes int
+}
+
+// hostPresence asks the Mac app how long the keyboard and mouse have gone unused, whether the screen is
+// locked, and how many unlocks and wakes it has seen.
+func hostPresence(h hostBridge) (macPresence, error) {
+	answer, err := ask(h, bridgeRequest{Action: "presence"})
+	if err != nil || answer.Idle < 0 || answer.Unlocks < 0 || answer.Wakes < 0 {
+		return macPresence{}, cmp.Or(err, errors.New("the Mac app's presence isn't one"))
+	}
+	// Never used since the Mac started, or more than a year: away for as long as can be told.
+	idle := time.Duration(min(answer.Idle, 365*24*3600) * float64(time.Second))
+	return macPresence{idle: idle, locked: answer.Locked, unlocks: answer.Unlocks, wakes: answer.Wakes}, nil
 }
 
 // hostLoginItem says whether Smolcorp opens at login; with on, it sets it first.

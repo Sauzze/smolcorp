@@ -202,11 +202,13 @@ func NewDeck() *Deck {
 	d.summaryProviders = newSummaryProviders()
 	d.summaries.agent = d.runSummaryAgent
 	d.summaries.savedKey = d.summaryKeys.Saved
-	d.portable = newPortableOffice(viewerStore, d.config.Viewer, func(hideNames bool, alias func(string) string) map[string]any {
+	// Under the Mac app, the portable office's keys are its Keychain items, and it tells when you're back (hostshell.go).
+	d.portable = newPortableOffice(viewerStoreFor(d.mac.host), d.config.Viewer, func(hideNames bool, alias func(string) string) map[string]any {
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		return d.viewerSnapshot(hideNames, alias)
 	})
+	d.portable.mac = macPresenceOf(d.mac.host)
 	go d.sendWebhooks()
 	// What's running as it starts is where the webhook starts from, so the first change after it is news
 	d.mu.Lock()

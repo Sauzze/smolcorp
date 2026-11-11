@@ -123,8 +123,17 @@ final class TestCopySecretsTests: XCTestCase {
         // The real app keeps the Keychain.
         var asked = false
         let real = ViewerStore(read: { _ in nil }, absent: { _ in asked = true; return true }, write: { _, _ in false })
-        _ = ViewerStore.defaultStore(testCopy: false, support: folder, keychain: real).absent(.id)
+        _ = ViewerStore.defaultStore(testCopy: false, support: folder, underTest: false, keychain: real).absent(.id)
         XCTAssertTrue(asked)
+    }
+
+    func testTheTestSuiteNeverAsksTheViewersKeychainItems() {
+        let fail = { (what: String) in XCTFail("Keychain: \(what)") }
+        let keychain = ViewerStore(read: { _ in fail("read"); return nil }, absent: { _ in fail("absent"); return false },
+                                   write: { _, _ in fail("write"); return false })
+        let store = ViewerStore.defaultStore(testCopy: false, support: nil, underTest: true, keychain: keychain)
+        XCTAssertTrue(store.absent(.id))
+        XCTAssertNil(store.read(.id))
     }
 
     #if IPHONE_APP
