@@ -2633,8 +2633,9 @@
     const off = k.keys === 'off';
     const shown = off ? '' : officeKeySymbols(k.keys, k.labels);
     // Kept but not held (macOS has them on since, or won't let go): said, and not ticked.
-    const lost = onMac() && !off && !k.held;
-    $('step-officekey').classList.toggle('done', !off && !lost);
+    // A test copy holds no shortcut by design: said plainly, not as lost.
+    const lost = onMac() && !off && !k.held && !testCopy();
+    $('step-officekey').classList.toggle('done', !off && !lost && !(onMac() && testCopy()));
     $('officekey').textContent = off ? 'Record shortcut' : shown;
     $('officekey').setAttribute('aria-label', off ? 'Record a shortcut' : `Shortcut ${shown}: click, then press new keys`);
     $('officekey-default').hidden = k.keys === k.default && !lost;
@@ -2642,6 +2643,7 @@
     const warning = off ? null : officeKeyWarning(k.keys, k.labels);
     $('officekey-detail').textContent = !onMac()
       ? 'For Smolcorp on a Mac. This computer has no shortcut for the office: use Show Office in Smolcorp\'s menu in the tray.'
+      : testCopy() ? 'A test copy holds no shortcut for the office. Your choice is saved in this copy only.'
       : off ? 'Off: open the office from Smolcorp\'s menu.'
       : lost ? `${shown} isn't working now: macOS has it switched on, or won't let Smolcorp hold it. Choose another, or Reset to default.`
       : `From any app, ${shown} shows and hides the office.` + (warning ? ` ${warning}` : '');

@@ -198,28 +198,33 @@ struct OfficeKey: Equatable {
 
 /// The office's keys, held from anywhere and changed at once from Settings, no restart. `register` holds keys
 /// until what it gives back is let go, or gives nil when they're taken: Carbon's hot keys in the app (`HotKey`,
-/// which needs no permission), a stand-in in the tests, which never hold a real key.
+/// which needs no permission), a stand-in in the tests, which never hold a real key. A test copy holds none at
+/// all (`testCopy`): a hidden copy taking ⌥⌘O would toggle its own office onto the owner's screen. Its choice is
+/// still saved by the callers, and `held` says it isn't held.
 final class OfficeKeyHolder {
     typealias Register = (_ key: OfficeKey, _ action: @escaping () -> Void) -> AnyObject?
     private let register: Register
     /// The layout in use, to name the keys in what it says.
     private let labels: () -> OfficeKey.Labels
     private let action: () -> Void
+    private let testCopy: Bool
     private var held: AnyObject?
     /// The keys held now: nil when off, or when the keys asked for couldn't be held.
     private(set) var current: OfficeKey?
 
     init(register: @escaping Register = OfficeKeyHolder.carbon, labels: @escaping () -> OfficeKey.Labels = OfficeKey.currentLabels,
-         action: @escaping () -> Void) {
+         testCopy: Bool = TestCopy.isOn, action: @escaping () -> Void) {
         self.register = register
+        self.testCopy = testCopy
         self.labels = labels
         self.action = action
     }
 
     /// Holds `key` instead (nil: none). Nil when done; else why not, and the keys held before are held again, or
-    /// said lost too when they can't be.
+    /// said lost too when they can't be. In a test copy: nothing is held, and that's done, not a refusal.
     @discardableResult
     func hold(_ key: OfficeKey?) -> String? {
+        guard !testCopy else { return nil }
         let before = current
         // Let go first: the same keys asked for again are held afresh, not refused as taken.
         held = nil
@@ -239,6 +244,11 @@ final class OfficeKeyHolder {
         held = holding
         current = before
         return refusal
+    }
+
+    /// Whether the keys chosen are held now, for setup. A test copy holds none, even with the keys off.
+    static func isHeld(_ holding: OfficeKey?, chosen: OfficeKey?, testCopy: Bool = TestCopy.isOn) -> Bool {
+        !testCopy && holding == chosen
     }
 
     /// Carbon's hot key, unless macOS's own shortcuts have these keys on.

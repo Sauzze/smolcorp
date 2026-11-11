@@ -158,9 +158,10 @@ func (m *macOfficeKey) labels() map[string]string {
 
 // officeKeyState is setup's officeKey, as the Mac app's: the keys kept ("off" for none), the default, whether
 // the keys kept are the ones held now, and the layout's names for the keys. Without the Mac app's word nothing
-// holds them (Windows, Linux) and they're named by their US names.
-func officeKeyState(saved string, mac *macOfficeKey) map[string]any {
+// holds them (Windows, Linux) and they're named by their US names. A test copy of the Mac app holds none
+// (testCopy, from the app's facts), whatever it says it holds: the page says so in a line of its own.
+func officeKeyState(saved string, mac *macOfficeKey, testCopy bool) map[string]any {
 	labels := mac.labels()
 	keys := officeKeyChosen(saved, labels)
-	return map[string]any{"keys": keys, "default": officeKeyDefault, "held": mac != nil && mac.Held == keys, "labels": labels}
+	return map[string]any{"keys": keys, "default": officeKeyDefault, "held": mac != nil && !testCopy && mac.Held == keys, "labels": labels}
 }

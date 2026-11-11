@@ -48,7 +48,8 @@ won't take keys macOS has switched on in Keyboard Shortcuts, or keys macOS
 won't let it hold. It can't see other apps' own shortcuts, so keys with ⌘ and
 neither ⌥ nor ⌃ get a warning: an app of yours may use them, and it won't get
 them while Smolcorp holds them. If the keys you chose can't be held any more,
-the setting says so. On Windows and Linux the setting is kept but does
+the setting says so. A test copy holds no shortcut at all, and says so; it
+never brings its office forward. On Windows and Linux the setting is kept but does
 nothing: use **Show Office** in the tray. **Let features press
 keys in other apps** (Mac) is off until you turn it on and name the apps it may
 use.
