@@ -111,6 +111,7 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/setup/dictation/glossary` | page, tool | `[names]` | the setup state | 200, 400 | setup.json | served |
 | POST | `/setup/keystrokes` | page | `?enabled=` | the setup state | 200, 400 | setup.json | served |
 | POST | `/setup/keystrokes/apps` | page | `?add=` or `?remove=` | the setup state | 200, 400, 409 | setup.json | served |
+| POST | `/setup/officekey` | page | `?keys=` recorded keys (`alt+cmd+O`), `default` or `off` | the setup state | 200, 400 (no ⌘, ⌥ or ⌃; the Mac's own keys), 409 (macOS or another app has them) | setup.json | differs |
 | POST | `/setup/terminal-command` | page | `?remove=1` | the setup state | 200, 409 | none: writes the smolcorp link and your shell's PATH line | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
 | GET | `/setup/claude-accounts` | gm, page, tool | — | `{found, most, profiles}` | 200 | setup.json | served |
 | POST | `/setup/claude-accounts` | page | `{profiles: [{name, dir}]}` | as GET | 200, 400 | setup.json | served |
@@ -284,6 +285,9 @@ has are the known gaps' "extra" rows.
 | `.maxConfirm.enabled` | bool | same |
 | `.music` | object | same |
 | `.music.enabled` | bool | same |
+| `.officeKey` | object | same |
+| `.officeKey.default` | string | same |
+| `.officeKey.keys` | string | same |
 | `.officeWindow` | object | same |
 | `.officeWindow.available` | bool | same |
 | `.officeWindow.mac` | bool | same |

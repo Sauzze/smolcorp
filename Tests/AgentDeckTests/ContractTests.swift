@@ -113,6 +113,9 @@ final class ContractTests: XCTestCase {
               note: "the menu's one-time link key, in the setup-key header, for a cookie (204 with Set-Cookie)"),
         Route("POST", "/setup/scroll", ask(query: ["enabled": "1"])),
         Route("POST", "/setup/maxconfirm", ask(query: ["enabled": "1"])),
+        // The router's own stand-in holds the keys: no key is ever held from a test.
+        Route("POST", "/setup/officekey", ask(query: ["keys": "ctrl+alt+K"]),
+              refusals: [(ask(query: ["keys": "cmd+Q"]), "the Mac's own keys"), (ask(query: ["keys": "K"]), "no ⌘, ⌥ or ⌃")]),
         Route("POST", "/setup/guide", ask(query: ["done": "1"])),
         Route("POST", "/setup/phonemic", ask(query: ["enabled": "0"])),
         Route("POST", "/setup/logo", ask(query: ["logo": "keys"]),
@@ -1054,7 +1057,7 @@ final class ContractTests: XCTestCase {
 
     override func setUpWithError() throws {
         reset(\.managerEnabled); reset(\.scrollEnabled); reset(\.maxConfirm); reset(\.guideDone); reset(\.phoneMicEnabled)
-        reset(\.phoneMicAutoSend); reset(\.officeOnTop); reset(\.logo); reset(\.colours); reset(\.layout); reset(\.pins)
+        reset(\.phoneMicAutoSend); reset(\.officeOnTop); reset(\.officeKey); reset(\.logo); reset(\.colours); reset(\.layout); reset(\.pins)
         reset(\.floors); reset(\.floorRules); reset(\.webhook); reset(\.profiles); reset(\.activeProfile); reset(\.hireAgent)
         reset(\.summaryOptIn); reset(\.summaryProvider); reset(\.cloudBots); reset(\.botFloor); reset(\.hireFolder)
         reset(\.hiringEnabled); reset(\.gmByHand); reset(\.roles); reset(\.rolesOffered); reset(\.recentHireFolders)

@@ -155,6 +155,7 @@ and kept:
 | Open at login | ✓ | ✓ | none | – |
 | Menu: Open Setup, Pair, Unpair All, Open at Login, Quit | ✓ | ✓ | none | – |
 | Menu: Show Office (the office in a window) | native window | in the browser | **done** | – |
+| A shortcut to show and hide the office from anywhere (⌥⌘O, chosen in setup) | ✓ | kept, not used | the Mac app's Carbon hot key; under it, the Go core asks the app through the bridge (`office-key`). Windows and Linux have no key from anywhere: setup keeps the setting and says it's for a Mac | – |
 | Portable office (beta) | ✓ | ✓ | **done**, but for Copy viewer link, and stop-when-back where the system can't say | – |
 | Screen saver | ✓ | – | a macOS `.saver` | – |
 | Dictation for agents without a voice mode | ✓ | – | Apple's on-device speech recognition | – |

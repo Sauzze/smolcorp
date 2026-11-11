@@ -95,8 +95,9 @@ Read the key again after Smolcorp restarts.
 On a Mac, the key reads setup state, runs the check and repair that `smolcorp
 setup` does, and flips the plain look-and-feel switches (theme, music, dock,
 keep on top). It can't pair or unpair a phone, show a pairing code, hire,
-connect or disconnect agents, change the webhook, bots or layout, or turn on
-anything that spends money or sends data elsewhere. Those are for the setup
+connect or disconnect agents, change the webhook, bots or layout, change the
+office's shortcut, or turn on anything that spends money or sends data
+elsewhere. Those are for the setup
 page. On Windows and Linux the same limits apply, except that a tool of yours
 can also install this copy and open the firewall for how Smolcorp already
 listens.

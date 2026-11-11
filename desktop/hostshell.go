@@ -41,6 +41,24 @@ func (rt *router) macShell(w http.ResponseWriter, r *request) bool {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
+	// The keys that show and hide the office from anywhere: checked, held by the app at once, then kept. Keys
+	// macOS or another app has are the app's refusal (409), and nothing changes.
+	case "/setup/officekey":
+		keys, refusal := officeKeyChoice(query.Get("keys"))
+		if refusal != "" {
+			http.Error(w, refusal, http.StatusBadRequest)
+			return true
+		}
+		if err := hostOfficeKey(h, keys); err != nil {
+			bridgeFailed(w, err)
+			return true
+		}
+		d.mu.Lock()
+		d.config.OfficeKey = officeKeySaved(keys)
+		d.config.save()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
 	// Opening Smolcorp when you log in. A test copy leaves the login item to the Smolcorp you use: the app
 	// says no, and setup answers as it is, as the Swift engine's LoginItem does in a test copy.
 	case "/setup/login":

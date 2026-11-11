@@ -289,6 +289,8 @@ final class DeckRouter: Router {
     var showOffice: () -> Void = {}
     /// The office's window takes its options again, as setup changed one.
     var officeOptionsChanged: () -> Void = {}
+    /// The office's keys held instead (nil: none): why not, or nil once they're held (`OfficeKeyHolder.hold`).
+    var officeKeyChanged: (OfficeKey?) -> String? = { _ in nil }
     /// The office's window goes to a rect (AppleScript's coordinates, from the main screen's top-left) when it is shown, as tiling places it.
     var placeOffice: (CGRect, CGFloat) -> Void = { _, _ in }
 
@@ -1061,6 +1063,19 @@ final class DeckRouter: Router {
             officeOptionsChanged()
             respond(.json(setupState(caller)))
 
+        // The keys that show and hide the office's window from anywhere: "default" for ⌥⌘O, "off" for none, or
+        // keys recorded on the page. Checked, held at once, then kept; keys the Mac or another app has are refused.
+        case ("POST", "/setup/officekey"):
+            switch OfficeKey.choice(request.query["keys"] ?? "") {
+            case .failure(let refusal):
+                respond(.status(400, refusal.message))
+            case .success(let key):
+                if let problem = officeKeyChanged(key) { return respond(.status(409, problem)) }
+                config.officeKey = OfficeKey.saved(key)
+                config.save()
+                respond(.json(setupState(caller)))
+            }
+
         // What makes summaries: picked while they're on, only from the dialog,
         // as it changes where they're sent; and only one that works.
         case ("POST", "/setup/summary/provider"):
@@ -1789,6 +1804,8 @@ final class DeckRouter: Router {
             "choices": Choices.json(config, hasTmux: Tmux.path != nil),
             "t3CodeEnabled": Choices.t3Code(config),
             "officeWindow": ["available": true, "mac": true, "onTop": config.officeOnTop ?? false],
+            // The keys that show and hide it from anywhere: "off" for none.
+            "officeKey": ["keys": OfficeKey.chosen(config)?.text ?? OfficeKey.off, "default": OfficeKey.standard.text],
             "summary": { () -> [String: Any] in
                 SummaryProviders.shared.refresh()
                 return DeckRouter.summaryState(optIn: config.summaryOptIn, saved: config.summaryProvider,

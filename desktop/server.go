@@ -1556,6 +1556,20 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
+	// The keys that show and hide the office from anywhere: the Mac app's (hostshell.go under it). Here there's
+	// no such key, so they're checked and kept, for the page to show.
+	case r.Method == http.MethodPost && path == "/setup/officekey":
+		keys, refusal := officeKeyChoice(query.Get("keys"))
+		if refusal != "" {
+			http.Error(w, refusal, http.StatusBadRequest)
+			return
+		}
+		d.mu.Lock()
+		config.OfficeKey = officeKeySaved(keys)
+		config.save()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
 	case r.Method == http.MethodPost && path == "/setup/scroll":
 		d.mu.Lock()
 		config.ScrollEnabled = query.Get("enabled") == "1"
@@ -2019,7 +2033,9 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"t3CodeEnabled": t3CodeAllowed(d.config),
 		// Without a window of its own, setup says why there's no switch; under the Mac app, its own window.
 		"officeWindow": d.officeWindowState(),
-		"summary":      d.summaryState(),
+		// The keys that show and hide it from anywhere: the Mac app's, kept here as set.
+		"officeKey": officeKeyState(d.config.OfficeKey),
+		"summary":   d.summaryState(),
 		"webhook": map[string]any{
 			"enabled": d.config.Webhook.Enabled, "url": d.config.Webhook.URL, "secret": webhookSecretFor(who, d.config.Webhook.Secret),
 			"outside": d.config.Webhook.Outside, "events": d.config.Webhook.Events, "last": d.lastDelivery(),

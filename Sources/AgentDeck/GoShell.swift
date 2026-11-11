@@ -16,7 +16,6 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The office's window as the bridge reaches it: made only once the core is ready (see `ready`).
     private let officeLink = OfficeLink()
     private var settings: SettingsWindow?
-    private var officeKey: HotKey?
     /// Why the core isn't there, while it isn't.
     private var problem: String? = "The Go engine is starting…"
 
@@ -65,7 +64,8 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // A test copy leaves its tester a setup link in its own folder, as with the Swift engine.
         if let setupLink { TestCopy.leaveSetupLink(setupLink) }
-        officeKey = HotKey(keyCode: UInt32(kVK_ANSI_O), modifiers: UInt32(cmdKey | optionKey), id: 1) { [weak self] in self?.office?.toggle() }
+        // The office's keys, as config.json has them; the bridge's office-key changes them at once (OfficeLink).
+        officeLink.keys.hold(OfficeKey.chosen(Config.shared))
         if !Config.shared.hasCompletedSetup { settings?.show() }
     }
 
@@ -76,7 +76,7 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let said = "The Go engine stopped (\(status)). Quit and open Smolcorp again."
         guard problem != said else { return }
         problem = said
-        officeKey = nil
+        officeLink.keys.hold(nil)
         office?.hide()
         office = nil
         settings?.close()
@@ -108,8 +108,9 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: problem ?? "Smolcorp Test · Go engine on port \(core.port)", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         if let office {
-            let show = add(to: menu, "Show Office", #selector(toggleOffice), key: "o")
-            show.keyEquivalentModifierMask = [.command, .option]
+            let keys = OfficeKey.chosen(Config.shared)?.menuKey
+            let show = add(to: menu, "Show Office", #selector(toggleOffice), key: keys?.key ?? "")
+            show.keyEquivalentModifierMask = keys?.modifiers ?? []
             show.state = office.isShown ? .on : .off
             add(to: menu, "Settings…", #selector(openSettings), key: ",")
             add(to: menu, "Open Settings in Browser", #selector(openInBrowser))
@@ -164,11 +165,18 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
 }
 
-/// The Go shell's office window, for the bridge's `office` and `office-ontop` (setup's Open the office, and
-/// its switch to keep it on top), on the main queue as the bridge runs them. The core keeps the setting in
-/// config.json, which this app read as it started: it's changed here in memory only, never saved from here.
+/// The Go shell's office window, for the bridge's `office`, `office-ontop` and `office-key` (setup's Open the
+/// office, its switch to keep it on top, and the keys that show and hide it from anywhere), on the main queue as
+/// the bridge runs them. The core keeps the settings in config.json, which this app read as it started: they're
+/// changed here in memory only, never saved from here.
 final class OfficeLink {
     weak var window: OfficeWindow?
+    /// The office's keys, held while the core is ready.
+    lazy var keys = OfficeKeyHolder { [weak self] in self?.window?.toggle() }
+
+    init(keys register: OfficeKeyHolder.Register? = nil) {
+        if let register { keys = OfficeKeyHolder(register: register) { [weak self] in self?.window?.toggle() } }
+    }
 
     /// `actions`, with the office's window this shell shows.
     func actions(_ actions: HostBridge.Actions, config: Config = .shared) -> HostBridge.Actions {
@@ -177,6 +185,13 @@ final class OfficeLink {
         actions.officeOnTop = { [weak self] on in
             config.officeOnTop = on
             self?.window?.applyOptions()
+        }
+        // Held at once; kept in memory for the menu once they are, as the core keeps them once told.
+        actions.officeKey = { [weak self] key in
+            guard let self else { return "The office isn't open." }
+            if let problem = keys.hold(key) { return problem }
+            config.officeKey = OfficeKey.saved(key)
+            return nil
         }
         return actions
     }

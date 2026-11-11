@@ -148,6 +148,9 @@ final class Config: Codable {
     /// until it's settled once at launch: off on a new Mac, and on one that
     /// had it before as it was.
     var officeOnTop: Bool?
+    /// The keys that show and hide the office's window from anywhere, as the
+    /// setup page records them (see `OfficeKey`): none for ⌥⌘O, "off" for none.
+    var officeKey: String?
     /// Bots that work in a cloud, not in a terminal here, each at a desk of
     /// its own (see `CloudBot`). None until you set some.
     var cloudBots: [CloudBot] = []
@@ -189,7 +192,7 @@ final class Config: Codable {
         case guideDone
         case mailMaxBytes, mailPerHour, mailWaitHours, mailInboxSocket, builtinWatches, teamScreen, keystrokesAllowed, keystrokeApps
         case phoneMicEnabled, showInDock, cloudBots, floors, floorRules, botsAutoDetect, hiddenBots, botFloor
-        case engine
+        case engine, officeKey
         // Under a name of its own since the confirm box: the old one, saved as
         // true by every earlier build, meant no box had been offered yet.
         case phoneMicAutoSend = "phoneMicSkipsConfirm"
@@ -278,6 +281,7 @@ final class Config: Codable {
         phoneMicAutoSend = field(Bool.self, .phoneMicAutoSend) ?? false
         showInDock = field(Bool.self, .showInDock) ?? true
         officeOnTop = field(Bool.self, .officeOnTop)
+        officeKey = field(String.self, .officeKey)
         cloudBots = CloudBot.checked(field([Lossy<CloudBot>].self, .cloudBots)?.compactMap(\.value) ?? [])
         // A file from before it: where the bots are, and again once those that were upstairs are settled.
         let keptFloor = field(Int.self, .botFloor).flatMap { (0..<Floor.count).contains($0) ? $0 : nil }

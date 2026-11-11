@@ -36,7 +36,13 @@ Applications. A bookmark of the page won't open it: the menu opens it with a
 link that works once, for five minutes.
 
 On a Mac, **Keep the office on top of other windows** is a switch in the Office
-pane, and the office's corner key is **⚙︎ Settings**. **Let features press
+pane, and the office's corner key is **⚙︎ Settings**. Beside it, **Shortcut to
+show and hide the office** is ⌥⌘O until you change it: click it and press the
+keys you want, with ⌘, ⌥ or ⌃. It works at once, from any app, and needs no
+permission. **Reset to default** brings back ⌥⌘O and **Off** turns it off.
+Smolcorp won't take the Mac's own keys (⌘Tab, ⌘Space, ⌘Q, ⌘W, ⌘H, ⌘M, ⌘,) or
+keys macOS or another app already uses. On Windows and Linux the setting is
+kept but does nothing: use **Show Office** in the tray. **Let features press
 keys in other apps** (Mac) is off until you turn it on and name the apps it may
 use.
 

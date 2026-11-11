@@ -63,7 +63,7 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 		return bridgeAnswer{OK: true, Abilities: said}, nil
 	case "bots-resolve":
 		return bridgeAnswer{OK: true, Resolved: make([]*botResolution, len(request.Bots))}, nil
-	case "office", "office-ontop", "folder-panel-close":
+	case "office", "office-ontop", "office-key", "folder-panel-close":
 		return bridgeAnswer{OK: true}, nil
 	case "login-item":
 		if request.On != nil {
@@ -179,6 +179,10 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		},
 		"the office's window shown":       func(h hostBridge) (any, error) { return nil, hostShowOffice(h) },
 		"the office's window kept on top": func(h hostBridge) (any, error) { return nil, hostOfficeOnTop(h, true) },
+		"the office's keys held instead":  func(h hostBridge) (any, error) { return nil, hostOfficeKey(h, "ctrl+alt+K") },
+		"the office's keys, taken by another app": func(h hostBridge) (any, error) {
+			return nil, hostOfficeKey(h, "ctrl+alt+T")
+		},
 		"the folder panel for a floor, a folder picked": func(h hostBridge) (any, error) {
 			return hostChooseFolder(h, "/Users/example/hires", folderForFloor)
 		},
