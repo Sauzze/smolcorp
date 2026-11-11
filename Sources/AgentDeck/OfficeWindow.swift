@@ -48,34 +48,24 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
 
     /// On top of other windows, on every Space and beside apps in full
     /// screen: setup's switch, and the menu's Always on Top. Off unless you
-    /// turn it on (see `settle`).
+    /// turn it on (see `settleForCore`).
     var alwaysOnTop: Bool {
         get { config.officeOnTop ?? false }
-        set {
-            config.officeOnTop = newValue
-            config.save()
-            applyOptions()
-        }
     }
 
     /// Kept on top once in the menu, and on by default there: a Mac that had
     /// the office window before keeps what it had, its choice or that
-    /// default, and a new one starts with it off. Once, as the app starts.
-    static func settle(_ config: Config, defaults: UserDefaults = .standard, file: URL = Paths.config) {
-        guard let onTop = settled(config, defaults: defaults) else { return }
-        config.officeOnTop = onTop
-        config.save(to: file)
-    }
-
-    /// What `settle` keeps on top, or nil once it's kept.
+    /// default, and a new one starts with it off. Once, as the app starts
+    /// (`settleForCore`).
+    /// What `settleForCore` keeps on top, or nil once it's kept.
     static func settled(_ config: Config, defaults: UserDefaults = .standard) -> Bool? {
         guard config.officeOnTop == nil else { return nil }
         return defaults.object(forKey: "officeWindow.alwaysOnTop") as? Bool ?? config.hasCompletedSetup
     }
 
-    /// `settle` under the Go core (`GoShellDelegate`), before it starts: the core keeps the config file,
-    /// so only this one setting is put in it, as `settle` decides, and the rest is left exactly as it is,
-    /// never this app's whole config. No file yet: the core's default, off, as `settle` would keep for a
+    /// `settled` under the Go core (`GoShellDelegate`), before it starts: the core keeps the config file,
+    /// so only this one setting is put in it, as `settled` decides, and the rest is left exactly as it is,
+    /// never this app's whole config. No file yet: the core's default, off, as `settled` would keep for a
     /// Mac that hasn't been set up.
     static func settleForCore(_ config: Config, defaults: UserDefaults = .standard, file: URL = Paths.config) {
         guard let onTop = settled(config, defaults: defaults), let data = try? Data(contentsOf: file),

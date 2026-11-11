@@ -177,6 +177,49 @@ final class EngineTests: XCTestCase {
         core.stop(grace: 1)
     }
 
+    /// RMENU N3: a core that is alive but stuck leaves the menu's question unread. The menu, opening on the main
+    /// queue, writes it once, not at each opening, so the pipe never fills; any word from the core lets it ask again.
+    func testTheMenuDoesntAskAgainWhileItsQuestionIsUnanswered() throws {
+        let seen = folder.appendingPathComponent("menus")
+        let core = try core("""
+            read token
+            echo '{"ready":true}'
+            while read line; do
+              case "$line" in
+                *'"op":"menu"'*) echo x >> '\(seen.path)';;
+                *) echo '{"menu":{"sessions":1}}';;
+              esac
+            done
+            """)
+        try core.start(waitingUpTo: 5)
+        XCTAssertNil(core.menu(waitingUpTo: 0.2), "no answer in time")
+        XCTAssertTrue(core.isMenuUnanswered)
+        let begun = Date()
+        for _ in 0..<500 { XCTAssertNil(core.menu(waitingUpTo: 0.2)) }
+        XCTAssertLessThan(Date().timeIntervalSince(begun), 2, "not even waited for")
+        // Something from the core (a push, here after another question): the menu may ask once more.
+        XCTAssertNil(core.ask(.office, waitingUpTo: 0.3), "the push isn't the answer")
+        XCTAssertFalse(core.isMenuUnanswered)
+        XCTAssertNil(core.menu(waitingUpTo: 0.2))
+        core.stop(grace: 1)
+        XCTAssertEqual(try String(contentsOf: seen).split(separator: "\n").count, 2, "two questions written, not 502")
+    }
+
+    /// The menu waits only a moment for an earlier question (the lock `ask` keeps) too, and then asks nothing.
+    func testTheMenuGivesUpOnAnEarlierQuestionAtOnce() throws {
+        let core = try core("read token\necho '{\"ready\":true}'\nwhile read line; do :; done")
+        try core.start(waitingUpTo: 5)
+        let slow = expectation(description: "the earlier question")
+        DispatchQueue.global().async { _ = core.ask(.office, waitingUpTo: 2); slow.fulfill() }
+        Thread.sleep(forTimeInterval: 0.3)
+        let begun = Date()
+        XCTAssertNil(core.menu(waitingUpTo: 0.3))
+        XCTAssertLessThan(Date().timeIntervalSince(begun), 1)
+        XCTAssertFalse(core.isMenuUnanswered, "nothing was written")
+        wait(for: [slow], timeout: 5)
+        core.stop(grace: 1)
+    }
+
     func testTheSettingsWindowUsesTheEnginesCookie() throws {
         let cookie = try XCTUnwrap(SettingsWindow.sessionCookie(session: "abc", name: "smolcorp-setup"))
         XCTAssertEqual(cookie.name, "smolcorp-setup")

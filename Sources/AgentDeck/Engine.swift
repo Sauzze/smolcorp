@@ -76,6 +76,10 @@ final class GoCore {
     private let asking = NSLock()
     private var nextID = 1
     private var stopping = false
+    /// A `menu` question was written and nothing has come from the core since (no answer, no push). Guarded by
+    /// `lock`. The menu, opening on the main queue, doesn't write again while it's set: a core that is alive but
+    /// stuck would otherwise leave one more unread request on the pipe at each opening, until it's full and a write blocks.
+    private var menuUnanswered = false
 
     init(program: URL = Paths.bundledCLI, port: UInt16, support: URL, bridge: HostBridge) {
         self.program = program
@@ -170,7 +174,11 @@ final class GoCore {
         if let on { request["on"] = on }
         guard var line = try? JSONSerialization.data(withJSONObject: request) else { return nil }
         line.append(0x0A)
-        do { try input.write(contentsOf: line) } catch { return nil }
+        if op == .menu { setMenuUnanswered(true) }
+        do { try input.write(contentsOf: line) } catch {
+            if op == .menu { setMenuUnanswered(false) }
+            return nil
+        }
         let deadline = Date().addingTimeInterval(wait)
         // An answer to an earlier request that came too late is passed over.
         while let answer = nextLine(until: deadline) {
@@ -188,8 +196,19 @@ final class GoCore {
     }
 
     /// The menu's state now, for the menu as it opens: nil if the core doesn't answer at once.
+    /// Not asked while an earlier question of the menu's is unanswered (see `menuUnanswered`): the last push stands.
     func menu(waitingUpTo wait: TimeInterval) -> ShellMenu? {
-        ShellMenu(ask(.menu, waitingUpTo: wait, queueing: wait)?["menu"])
+        guard !isMenuUnanswered else { return nil }
+        return ShellMenu(ask(.menu, waitingUpTo: wait, queueing: wait)?["menu"])
+    }
+
+    var isMenuUnanswered: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return menuUnanswered
+    }
+
+    private func setMenuUnanswered(_ value: Bool) {
+        lock.lock(); menuUnanswered = value; lock.unlock()
     }
 
     /// A new setup session for the Settings window, and its cookie's name.
@@ -257,6 +276,8 @@ final class GoCore {
             let line = buffer[buffer.startIndex..<newline]
             buffer.removeSubrange(buffer.startIndex...newline)
             guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { continue }
+            // Anything from the core says it's reading and writing: the menu may ask again.
+            menuUnanswered = false
             // Neither an answer nor ready: the menu's state, sent unasked, never waited for.
             if object["id"] == nil, object["ready"] == nil {
                 menu = ShellMenu(object["menu"]) ?? menu

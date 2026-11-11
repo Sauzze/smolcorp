@@ -296,13 +296,24 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Settings, at `then` if given, as the page arrives there (#pair, #guide, #viewer). Never a test copy's
     /// window: its tester reaches setup by its own link.
+    /// Before the core is ready, or once it's gone, there's no window: the browser, as the Swift app did.
     private func showSettings(then: String? = nil) {
-        guard let settings, TestCopy.mayComeForward("Settings") else { return }
-        settings.show(then: then)
+        guard TestCopy.mayComeForward("Settings") else { return }
+        if let url = GoShellDelegate.browserFallback(windowReady: settings != nil, port: core.port, then: then) {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        settings?.show(then: then)
+    }
+
+    /// The setup page's address for the browser while there's no Settings window; nil once there is one.
+    static func browserFallback(windowReady: Bool, port: UInt16, then: String?) -> URL? {
+        windowReady ? nil : SettingsWindow.address(port: port, then: then)
     }
 
     @objc private func openSettings() { showSettings() }
     @objc private func openInBrowser() {
+        guard TestCopy.mayComeForward("Settings in the browser") else { return }
         DispatchQueue.global().async { [core] in
             guard let link = core.setupLink() else { return }
             DispatchQueue.main.async { NSWorkspace.shared.open(link) }

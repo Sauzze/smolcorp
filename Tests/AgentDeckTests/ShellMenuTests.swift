@@ -68,6 +68,14 @@ final class ShellMenuTests: XCTestCase {
         XCTAssertEqual(GoShellDelegate.headline(port: 7710, problem: "Gone.", sessions: 2, testCopy: true), ["Gone."])
     }
 
+    /// RMENU N1: Settings, before the core is ready (or once it's gone), opens the setup page in the browser, as the
+    /// Swift app did; with the window, never.
+    func testSettingsFallsBackToTheBrowserWithoutTheWindow() {
+        XCTAssertEqual(GoShellDelegate.browserFallback(windowReady: false, port: 7779, then: nil)?.absoluteString, "http://localhost:7779/setup")
+        XCTAssertEqual(GoShellDelegate.browserFallback(windowReady: false, port: 7779, then: "pair")?.absoluteString, "http://localhost:7779/setup#pair")
+        XCTAssertNil(GoShellDelegate.browserFallback(windowReady: true, port: 7779, then: "pair"))
+    }
+
     func testTheShowOfficeKeysAreTheChosenOnes() throws {
         let built = NSMenu()
         GoShellDelegate.fill(built, headline: [], state: nil,
