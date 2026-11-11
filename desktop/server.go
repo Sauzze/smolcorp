@@ -527,6 +527,50 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/act":
 		writeStatus(w)(d.Perform(r.URL.Query().Get("action"), session, r.URL.Query()))
+	// The phone's text (typed, or heard by its own mic), typed into the session's agent: from a paired phone
+	// with its key, over the Wi-Fi as over Tailscale (I34), never from the office's own window. See phonetext.go.
+	case r.Method == http.MethodPost && r.URL.Path == "/dictate":
+		if phoneID == officeWindowID {
+			writeStatus(w)(http.StatusForbidden, phoneTextPhonesOnly)
+			return
+		}
+		body := decodeJSON(r.Body)
+		// The confirm box's choice, Send ⏎ or Type only; an older page's says nothing.
+		var send *bool
+		if value, ok := body["send"].(bool); ok {
+			send = &value
+		}
+		writeStatus(w)(d.TypePhoneText(stringValue(body["text"]), session, send))
+	// The last lines of the session's tab, read-only, to see what was typed: over Tailscale only.
+	case r.Method == http.MethodPost && r.URL.Path == "/peek":
+		if !fromTailnet(r.Request) {
+			writeStatus(w)(http.StatusForbidden, peekTailnet)
+			return
+		}
+		status, lines, message := d.Peek(session)
+		if status != http.StatusOK {
+			writeStatus(w)(status, message)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"lines": lines})
+	// A typed answer to a menu's "Type something": as /dictate, one line only.
+	case r.Method == http.MethodPost && r.URL.Path == "/choose":
+		if phoneID == officeWindowID {
+			writeStatus(w)(http.StatusForbidden, phoneTextPhonesOnly)
+			return
+		}
+		if r.URL.Query().Get("option") != "other" {
+			writeStatus(w)(http.StatusBadRequest, pickWithKeys)
+			return
+		}
+		writeStatus(w)(d.AnswerOther(stringValue(decodeJSON(r.Body)["text"]), r.URL.Query().Get("choice"), session))
+	// What a permission prompt is about: over Tailscale only.
+	case r.Method == http.MethodGet && r.URL.Path == "/choice":
+		if !fromTailnet(r.Request) {
+			writeStatus(w)(http.StatusForbidden, choiceTailnet)
+			return
+		}
+		writeStatus(w)(d.ChoiceDetail(session))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
 	case r.Method == http.MethodPost && r.URL.Path == "/summary":
 		text, err := d.Summarize(session)

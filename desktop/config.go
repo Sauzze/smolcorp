@@ -129,6 +129,12 @@ type Config struct {
 	// no floor rule names one for them (see CloudBot.Floor); chosen in setup.
 	// Until it is, the floor your bots are on (newBotsFloor).
 	BotFloor int `json:"botFloor"`
+	// The phone's text (personal build on the Mac): whether a paired phone may type what it typed or heard
+	// into a desk's agent (POST /dictate, /choose; /peek and /choice over Tailscale), on unless the file says
+	// otherwise, as on the Mac; and whether an older page's text goes with Return once it's a few words.
+	// Kept under the Mac's names. Setup has no switch for them here yet: see phonetext.go.
+	PhoneMicEnabled  bool `json:"phoneMicEnabled"`
+	PhoneMicAutoSend bool `json:"phoneMicSkipsConfirm"`
 	// Whether the file had BotFloor: one from before it has it worked out
 	// again once the bots that were upstairs are settled (see settleBots).
 	botFloorKept bool
@@ -171,7 +177,7 @@ var logos = []string{"smolcorp", "keys"}
 func loadConfig() *Config {
 	config := &Config{Colours: map[string]string{}, Logo: "smolcorp", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook(),
 		MaxConfirm: true, Viewer: standardViewerSettings(),
-		MailMaxBytes: mailDefaultMaxBytes, MailPerHour: mailDefaultPerHour, MailWaitHours: mailDefaultWaitHours, BuiltinWatches: true}
+		MailMaxBytes: mailDefaultMaxBytes, MailPerHour: mailDefaultPerHour, MailWaitHours: mailDefaultWaitHours, BuiltinWatches: true, PhoneMicEnabled: true}
 	if data, err := os.ReadFile(configFile); err == nil {
 		// A field it can't read loses only itself. A file it can't read at all
 		// starts from the defaults, but a copy is kept beside it first, so the

@@ -559,6 +559,16 @@ final class HostBridgeTests: XCTestCase {
             throw TerminalCommand.Problem.testCopy
         }
         mac.roster = { [GrokBotApp.Row(id: "0a1b-2c3d", name: "Smolcorp Mini Manager")] }
+        // The phone's text and the peek (I5): the agent in front but on ttys005, where it has ended;
+        // Terminal's tab on ttys004 can't take several lines as one paste.
+        mac.place = { tab, _ in tab.id == "/dev/ttys005" ? .gone : .front }
+        var typed: [String] = []
+        mac.insert = { text, tab in typed.append("insert \(tab.text) \(text)"); return true }
+        mac.insertLines = { text, tab in
+            typed.append("lines \(tab.text) \(text)")
+            return tab.kind == "iterm" ? .pasted : .notTaken
+        }
+        mac.screen = { _ in .some("> Bonjour l’équipe\n  ? for shortcuts\n\n\n") }
         func text(_ object: Any) -> String {
             String(decoding: (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data(), as: UTF8.self)
         }
@@ -571,6 +581,48 @@ final class HostBridgeTests: XCTestCase {
         }
         // Only what each asked for was done; a language it doesn't know and a refused app did nothing.
         XCTAssertEqual(asked, ["facts com.example.notes", "dock false", "accessibility", "keystrokes on", "dictation fr_FR", "terminal command true"])
+        // The phone's text, by the drivers: nothing for an agent that has ended, nor for "!".
+        XCTAssertEqual(typed, ["insert tty:/dev/ttys003 Bonjour l’équipe « ça marche » 👩‍💻 ;",
+                               "lines iterm:AB12 first line\n    indented\tand a tab", "lines tty:/dev/ttys004 one\ntwo"])
+    }
+
+    /// The phone's text (I5): checked again as the Swift engine prepares it, then only by the drivers, on the
+    /// terminal's queue, while the agent isn't known to have left; several lines only by `insertLines`.
+    func testThePhonesTextIsCheckedAgainAndTypedByTheDrivers() {
+        var mac = actions
+        var typed: [String] = []
+        mac.place = { tab, _ in ["/dev/ttys004": .behind, "/dev/ttys005": nil][tab.id] ?? .front }
+        mac.insert = { text, _ in typed.append(text); return true }
+        mac.insertLines = { text, _ in typed.append(text); return .failed }
+        mac.screen = { tab in tab.kind == "tty" ? .some(nil) : nil }
+        func phone(_ text: Any?, tab: String = "tty:/dev/ttys003", agent: String? = "claude") -> [String: Any] {
+            var request: [String: Any] = ["action": "phone-text", "tab": tab, "token": token]
+            if let text { request["text"] = text }
+            if let agent { request["agent"] = agent }
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: mac)
+        }
+        for refused: Any? in ["", "  padded  ", "one\u{1b}[201~", "tab\there", "a\r\nb", "!ls", String(repeating: "a", count: 2001), 42, nil] {
+            XCTAssertFalse(isOK(phone(refused)), "\(String(describing: refused))")
+        }
+        XCTAssertFalse(isOK(phone("hello", agent: nil)), "no agent")
+        XCTAssertFalse(isOK(phone("hello", agent: "nobody")), "not an agent")
+        XCTAssertFalse(isOK(phone("hello", tab: "not a tab")))
+        XCTAssertTrue(typed.isEmpty, "nothing typed")
+        let behind = phone("hello", tab: "tty:/dev/ttys004")
+        XCTAssertEqual(behind["place"] as? String, "behind")
+        XCTAssertTrue(typed.isEmpty, "nothing typed behind the shell")
+        // Where it can't be told, the words go, as the deck's keys do.
+        XCTAssertEqual(phone("hello", tab: "tty:/dev/ttys005")["pasted"] as? String, "pasted")
+        XCTAssertFalse(isOK(phone("one\ntwo")), "a paste that failed")
+        XCTAssertEqual(typed, ["hello", "one\ntwo"])
+        // The peek: only in front, and only where the terminal can show its screen.
+        func peek(_ tab: String) -> [String: Any] {
+            HostBridge.answer(try! JSONSerialization.data(withJSONObject: ["action": "peek", "tab": tab, "agent": "claude", "token": token]),
+                              token: token, actions: mac)
+        }
+        XCTAssertEqual(peek("tty:/dev/ttys005")["place"] as? String, "behind", "unknown isn't in front")
+        XCTAssertEqual(peek("tty:/dev/ttys003")["error"] as? String, "This terminal can't show its input line.")
+        XCTAssertEqual(peek("iterm:AB12")["unsupported"] as? Bool, true)
     }
 
     func testSetupsMacPartsTakeOnlyWhatTheyShould() {

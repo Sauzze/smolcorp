@@ -43,6 +43,10 @@ type launcherCommand struct {
 	// isn't safe to paste, and multi-line text when the agent didn't ask for
 	// bracketed paste. See pasteBytes.
 	Paste string `json:"paste,omitempty"`
+	// PhoneText pastes the phone's words as Paste does (one line, or several as one bracketed paste where the
+	// agent asked for it), then answers the look numbered Look with whether it did: "pasted" or "not-taken".
+	// An older launcher, without it, only looks: its answer says neither, and nothing is typed after it.
+	PhoneText string `json:"phoneText,omitempty"`
 	// Stop ends the agent: the office's firing.
 	Stop bool `json:"stop,omitempty"`
 	// Look asks for the state of the window, answered at /launcher/screen
@@ -478,7 +482,10 @@ func serveDeck(id string, agent Agent, folder, role, hire string, input io.Write
 				look := func(proof, number string) {
 					postScreenAnswer(http.DefaultClient, base, secret, proof, id, number, screen)
 				}
-				follow(response.Body, input, cursor, look, stop)
+				pasted := func(proof, number, outcome string) {
+					postPasteAnswer(http.DefaultClient, base, secret, proof, id, number, outcome, screen)
+				}
+				followWith(response.Body, input, cursor, look, pasted, stop)
 				response.Body.Close()
 			}
 		}
@@ -499,6 +506,12 @@ func stopProcess(process *os.Process) {
 // follow carries out the app's commands. look answers a look at the window;
 // it runs on its own, so a slow answer never holds up the keys.
 func follow(commands io.Reader, input io.Writer, cursor *cursorMode, look func(proof, number string), stop func()) {
+	followWith(commands, input, cursor, look, nil, stop)
+}
+
+// followWith is follow, with pasted to answer the phone's text: whether it was pasted, after it was.
+func followWith(commands io.Reader, input io.Writer, cursor *cursorMode, look func(proof, number string),
+	pasted func(proof, number, outcome string), stop func()) {
 	lines := bufio.NewScanner(commands)
 	proof := "" // the secret from the stream's first line
 	for lines.Scan() {
@@ -509,6 +522,16 @@ func follow(commands io.Reader, input io.Writer, cursor *cursorMode, look func(p
 		switch {
 		case command.Secret != "":
 			proof = command.Secret // not a command
+		case command.PhoneText != "":
+			// Written before the answer, in this one goroutine: the answer is what was done.
+			outcome := "not-taken"
+			if text, ok := cursor.pasteBytes(command.PhoneText); ok {
+				_, _ = io.WriteString(input, text)
+				outcome = "pasted"
+			}
+			if pasted != nil && command.Look != "" {
+				go pasted(proof, command.Look, outcome)
+			}
 		case command.Look != "":
 			if look != nil {
 				go look(proof, command.Look)

@@ -164,19 +164,47 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"Grok Bots looked for in the Grok Bot app": func(h hostBridge) (any, error) {
 			return hostResolveBots(h, []bridgeBot{{Bot: "Smolcorp Mini"}, {Bot: "Nobody Here"}})
 		},
+		"the phone's text, one line, into a Terminal tab": func(h hostBridge) (any, error) {
+			return hostPhoneText(h, "tty:/dev/ttys003", Claude, "Bonjour l’équipe « ça marche » 👩‍💻 ;")
+		},
+		"the phone's text, several lines, as one paste in iTerm2": func(h hostBridge) (any, error) {
+			return hostPhoneText(h, "iterm:AB12", Claude, "first line\n    indented\tand a tab")
+		},
+		"the phone's text, several lines, where the terminal can't take one paste": func(h hostBridge) (any, error) {
+			return hostPhoneText(h, "tty:/dev/ttys004", Codex, "one\ntwo")
+		},
+		"the phone's text, to an agent that has ended": func(h hostBridge) (any, error) {
+			result, err := hostPhoneText(h, "tty:/dev/ttys005", Claude, "hello")
+			return []any{result, errors.Is(err, errAgentGone)}, err
+		},
+		"the phone's text, starting with !, refused": func(h hostBridge) (any, error) {
+			return hostPhoneText(h, "tty:/dev/ttys003", Claude, "!ls")
+		},
+		"the peek at the input line": func(h hostBridge) (any, error) { return hostPeek(h, "tty:/dev/ttys003", Claude) },
+		"the peek, the agent not in front": func(h hostBridge) (any, error) {
+			lines, err := hostPeek(h, "tty:/dev/ttys005", Claude)
+			return []any{lines == nil, errors.Is(err, errAgentBehind)}, err
+		},
 	}
 	// What the core makes of each answer.
 	got := map[string]any{
 		"setup's facts, the apps keys may go to left out of those running": []any{false, true, []string{"fr_FR", "en_US"}, true,
 			[]runningApp{{ID: "com.example.mail", Name: "Mail"}}, "absent", true},
-		"an app allowed keys":                            []string{"com.example.notes", "com.example.mail"},
-		"an app taken off, any capitals":                 []string{"com.example.mail"},
-		"a terminal never allowed keys":                  []string{},
-		"dictation's names, checked":                     []string{"Smolcorp", "Tailscale"},
-		"dictation got ready, with a problem":            "Apple's model for French couldn't be downloaded.",
-		"dictation in a language it doesn't know":        "",
-		"the desks' terminals, from the drivers' tables": []tabAbilities{{true, true, true, true}, {true, true, true, true}, {}},
-		"Grok Bots looked for in the Grok Bot app":       []*botResolution{{BotID: "0a1b-2c3d", Name: "Smolcorp Mini Manager", By: "guess"}, nil},
+		"an app allowed keys":                                                      []string{"com.example.notes", "com.example.mail"},
+		"an app taken off, any capitals":                                           []string{"com.example.mail"},
+		"a terminal never allowed keys":                                            []string{},
+		"dictation's names, checked":                                               []string{"Smolcorp", "Tailscale"},
+		"dictation got ready, with a problem":                                      "Apple's model for French couldn't be downloaded.",
+		"dictation in a language it doesn't know":                                  "",
+		"the desks' terminals, from the drivers' tables":                           []tabAbilities{{true, true, true, true}, {true, true, true, true}, {}},
+		"Grok Bots looked for in the Grok Bot app":                                 []*botResolution{{BotID: "0a1b-2c3d", Name: "Smolcorp Mini Manager", By: "guess"}, nil},
+		"the phone's text, one line, into a Terminal tab":                          pasteDone,
+		"the phone's text, several lines, as one paste in iTerm2":                  pasteDone,
+		"the phone's text, several lines, where the terminal can't take one paste": pasteNotTaken,
+		"the phone's text, to an agent that has ended":                             []any{pasteFailed, true},
+		"the phone's text, starting with !, refused":                               pasteFailed,
+		"the peek at the input line":                                               []string{"> Bonjour l’équipe", "  ? for shortcuts"},
+		"the peek, the agent not in front":                                         []any{true, true},
 	}
 	cases := readBridgeCases(t)
 	if len(cases) != len(want) {

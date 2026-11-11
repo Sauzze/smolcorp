@@ -16,7 +16,8 @@ import Security
 /// this app (desktop/hostbridge_darwin.go).
 ///
 /// Each action is this app's own code, as the Swift engine runs it: the
-/// terminal drivers (Accessibility and AppleScript), the openers, the
+/// terminal drivers (Accessibility and AppleScript; the phone's text and the
+/// peek at an input line among them, as `Deck` types and reads them), the openers, the
 /// secrets' stores, the login item; and setup's Mac parts (Accessibility, keys
 /// in other apps, In the Dock, dictation, Add smolcorp to Terminal, the Grok
 /// Bot app) and what each desk's terminal allows, from the drivers' tables.
@@ -247,6 +248,8 @@ final class HostBridge {
             return ["ok": true]
         case "press", "type", "insert", "focus", "scroll", "scroll-bottom", "close":
             return tabAction(action, request, actions, until: deadline)
+        case "phone-text", "peek":
+            return phoneAction(action, request, actions, until: deadline)
         case "open":
             return open(request, actions, until: deadline)
         case "terminals":
@@ -430,8 +433,67 @@ final class HostBridge {
                 }
             }
         }
-        // On its own terminal's queue, as the deck's keys go: given no longer to start than they are
-        // (`Terminals.inputWait`), then waited for to its end, within the bridge's own deadline.
+        return onTabQueue(tab, actions, until: deadline, work)
+    }
+
+    /// The phone's text (desktop/phonetext.go, I5): what a paired phone typed or heard, into a Terminal, iTerm2
+    /// or Ghostty tab, without Return (the core presses it after the settle, as the Swift engine does), by the
+    /// drivers the Swift engine types it with: `insert` for one line, `insertLines` for several, one paste where
+    /// the terminal takes one. And the peek: the end of what the tab shows (`PhoneDictation.peek`). Each only
+    /// while the agent is in front in its tab, looked at on the terminal's queue right before, as `Deck.toAgent`
+    /// and `Deck.peek` look. The words are checked again: as `PhoneDictation.prepared` gives them, so 2,000
+    /// characters at most; no "!" first; no control character but a line feed and a tab.
+    private static func phoneAction(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
+        guard let text = request["tab"] as? String, let tab = TabAddress(text) else { return refused("Not a tab.") }
+        guard let name = request["agent"] as? String, let agent = Agent(rawValue: name) else { return refused("Not an agent.") }
+        let work: () -> [String: Any]
+        if action == "phone-text" {
+            guard let words = request["text"] as? String, PhoneDictation.prepared(words) == words, !PhoneDictation.runsInShell(words),
+                  HireTmux.canPaste(words) else { return refused("Not text to type.") }
+            work = {
+                // Unknown is not the same as gone: the words go, as the deck's keys do.
+                switch actions.place(tab, agent) {
+                case .gone?: return ["ok": false, "error": "That agent has ended.", "place": "gone"]
+                case .behind?: return ["ok": false, "error": "That agent isn't in front in its terminal: bring it back with fg.", "place": "behind"]
+                case .front?, nil: break
+                }
+                guard PhoneDictation.isLines(words) else { return pasted(actions.insert(words, tab)) }
+                switch actions.insertLines(words, tab) {
+                case .pasted?: return ["ok": true, "pasted": "pasted"]
+                case .notTaken?: return ["ok": true, "pasted": "not-taken"]
+                case .failed?: return refused("The terminal didn't take it.")
+                case nil: return unsupported
+                }
+            }
+        } else {
+            work = {
+                // Only where the agent is known to be in front: a shell's screen is never read.
+                guard actions.place(tab, agent) == .front else {
+                    return ["ok": false, "error": "That agent isn't in front in its terminal.", "place": "behind"]
+                }
+                switch actions.screen(tab) {
+                case nil: return unsupported
+                case .some(nil): return refused("This terminal can't show its input line.")
+                case .some(let screen?): return ["ok": true, "peek": PhoneDictation.peek(screen)]
+                }
+            }
+        }
+        return onTabQueue(tab, actions, until: deadline, work)
+    }
+
+    /// One line typed: pasted, or why not.
+    private static func pasted(_ result: Bool?) -> [String: Any] {
+        switch result {
+        case true?: return ["ok": true, "pasted": "pasted"]
+        case false?: return refused("The terminal didn't take it.")
+        case nil: return unsupported
+        }
+    }
+
+    /// `work` on `tab`'s own terminal's queue, as the deck's keys go: given no longer to start than they are
+    /// (`Terminals.inputWait`), then waited for to its end, within the bridge's own deadline.
+    private static func onTabQueue(_ tab: TabAddress, _ actions: Actions, until deadline: DispatchTime,
+                                   _ work: @escaping () -> [String: Any]) -> [String: Any] {
         let tabText = tab.text
         switch run(on: actions.queue(tab), startBy: min(deadline, .now() + Terminals.inputWait), until: deadline,
                    { Terminal.noticingTimeouts(work) }) {
@@ -613,6 +675,14 @@ final class HostBridge {
         var press: (Terminal.Keystroke, TabAddress) -> Bool?
         var type: (String, TabAddress) -> Bool?
         var insert: (String, TabAddress) -> Bool?
+        /// Several lines as one paste, where the tab takes one (the phone's text).
+        var insertLines: (String, TabAddress) -> LinesPasted? = { text, tab in Terminals.driver(for: tab)?.insertLines(text, in: tab) }
+        /// What the tab shows: nil for a terminal the app can't drive, `.some(nil)` where it can't say.
+        var screen: (TabAddress) -> String?? = { tab in Terminals.driver(for: tab).map { $0.screen(of: tab) } }
+        /// Where `agent` is in the tab, as the deck looks before its keys: nil if that couldn't be looked at.
+        var place: (TabAddress, Agent) -> Terminal.Place? = { tab, agent in
+            Terminals.tty(of: tab.text).flatMap { Terminal.place(of: agent, on: $0) }
+        }
         var focus: (TabAddress) -> Bool?
         var scroll: (Int, TabAddress) -> Bool?
         var scrollToBottom: (TabAddress) -> Bool?

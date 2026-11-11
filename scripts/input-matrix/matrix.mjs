@@ -27,9 +27,13 @@
 //   MATRIX_ONLY     comma-separated desk names to run (all)
 //   MATRIX_LAN      the copy's address on the Wi-Fi, as a phone there opens it (http://192.168.1.4:7780):
 //                   the plain-LAN rows (I34) need it, and say SKIPPED without
+//   MATRIX_LAUNCHER Go engine only (I5): the command line that starts an agent in a launcher's window, as
+//                   on Windows and Linux ('SMOLCORP_PORT=7781 /path/to/smolcorp' run): a "launcher" desk
+//                   then runs the stand-in through it, and every stand-in row runs there too
 //
 // The desks: gm (Claude, GM role), mgr (Claude, a manager started by hand in a shell),
-// hire (Claude in a hire's tmux session) and fake (a non-Claude agent: fake-agent.mjs, as Codex).
+// hire (Claude in a hire's tmux session) and fake (a non-Claude agent: fake-agent.mjs, as Codex); on the Go
+// engine, launcher too (the stand-in in a launcher's window, with MATRIX_LAUNCHER).
 // T3 Code desks and taken-over hires are PENDING until their lanes merge: their rows say what
 // each must show. A taken-over hire still in tmux runs as any desk here once `up` makes one; a
 // T3 desk has no pane to read, so its text is read back with `t3 thread show <id> --json`.
@@ -57,6 +61,7 @@ const KEY = process.env.MATRIX_KEY ? readFileSync(process.env.MATRIX_KEY, 'utf8'
 const DESKS = join(DIR, 'desks.json');
 const BASE = `http://127.0.0.1:${PORT}`;
 const LAN = process.env.MATRIX_LAN || '';
+const LAUNCHER = process.env.MATRIX_LAUNCHER || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ------------------------------------------------------------- tmux, ours only */
@@ -175,6 +180,15 @@ async function up() {
     { name: 'fake', kind: 'fake', socket: `${PREFIX}-fake`, target: 'hire', log: join(DIR, 'fake.log'),
       typed: `(exec -a codex ${process.execPath} ${join(here, 'fake-agent.mjs')} ${join(DIR, 'fake.log')} ${quoted(HOOK)})` },
   ];
+  // Go engine (I5): the stand-in in a launcher's window, as `smolcorp run codex` starts an agent on Windows and
+  // Linux; "codex" a script of the matrix's own that runs the stand-in. Its session's tab is the launcher's.
+  if (LAUNCHER) {
+    const bin = join(DIR, 'bin'), log = join(DIR, 'launcher.log');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'codex'), `#!/bin/sh\nexec ${quoted(process.execPath)} ${quoted(join(here, 'fake-agent.mjs'))} ${quoted(log)} ${quoted(HOOK)}\n`, { mode: 0o700 });
+    plan.push({ name: 'launcher', kind: 'fake', launcher: true, socket: `${PREFIX}-launcher`, target: 'launcher', log,
+      typed: `PATH=${quoted(bin)}:"$PATH" ${LAUNCHER} codex` });
+  }
   // Sessions already known: a new one in the same tab may take an old one's start time, so it's told by its id.
   const before = new Set(existsSync(join(SUPPORT, 'sessions.json')) ? sessionsFile().map((s) => s.id) : []);
   const desks = [];
@@ -189,12 +203,14 @@ async function up() {
     if (d.typed) tmux(d, 'send-keys', '-t', d.target, '-l', '--', d.typed), tmux(d, 'send-keys', '-t', d.target, 'Enter');
     const socketPath = tmux(d, 'display-message', '-p', '#{socket_path}').stdout.trim();
     const pane = tmux(d, 'display-message', '-p', '-t', d.target, '#{pane_id}').stdout.trim();
-    desks.push({ name: d.name, kind: d.kind, role: d.role, socket: d.socket, target: d.target, log: d.log, tab: `tmux:${pane}@${socketPath}` });
+    desks.push({ name: d.name, kind: d.kind, role: d.role, socket: d.socket, target: d.target, log: d.log, launcher: d.launcher, tab: `tmux:${pane}@${socketPath}` });
   }
   // Each desk's session, by its tab, once it has reported in: the one started now, not one an earlier run left.
   for (let i = 0; i < 40 && desks.some((d) => !d.id); i++) {
     await sleep(1000);
-    for (const d of desks) d.id ||= sessionsFile().filter((s) => s.tab === d.tab && !before.has(s.id)).at(-1)?.id;
+    for (const d of desks) {
+      d.id ||= sessionsFile().filter((s) => (d.launcher ? s.tab?.startsWith('launcher:') : s.tab === d.tab) && !before.has(s.id)).at(-1)?.id;
+    }
   }
   const gm = desks.find((d) => d.role === 'gm');
   if (gm?.id && process.env.MATRIX_GM_TOKEN) {
@@ -299,6 +315,31 @@ const cases = [
     const landed = desk.kind === 'fake' ? fakeBytes(desk, before) !== '' : (boxLine(desk) ?? '').includes('should not land');
     return { pass: none.status === 401 && wrong.status === 401 && peek.status === 403 && !landed,
       note: `no key ${none.status}, wrong key ${wrong.status}, peek ${peek.status}; ${landed ? 'TEXT LANDED' : 'nothing typed'}` };
+  }],
+  // I5: the peek reads the input line through Tailscale only (the plain LAN row above); the same on both engines.
+  ['the peek over Tailscale, after a line typed', async (desk) => {
+    const typed = await dictate(desk.id, SHORT, false);
+    await sleep(700);
+    const res = await dictate(desk.id, '', false, { path: '/peek' });
+    let lines = [];
+    try { lines = JSON.parse(res.body).lines ?? []; } catch {}
+    const shown = lines.some((line) => line.includes(SHORT.slice(0, 20)));
+    emptyBox(desk);
+    await sleep(300);
+    return { pass: typed.status === 204 && res.status === 200 && shown, note: `typed ${typed.status}; peek ${res.status}, ${lines.length} lines; ${shown ? 'the line is there' : 'NOT SHOWN'}` };
+  }],
+  // A typed answer to a menu goes as keys: one line only. No menu is open here, so one line is "gone", never typed.
+  ['a typed answer: one line only, none with no menu', async (desk) => {
+    const before = desk.kind === 'fake' ? fakeMark(desk) : 0;
+    const lines = await dictate(desk.id, 'one\ntwo', false, { path: '/choose' });
+    const none = await fetch(`${BASE}/choose?t=${encodeURIComponent(KEY)}&session=${encodeURIComponent(desk.id)}&option=other&choice=none`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'one line' }) });
+    const several = await fetch(`${BASE}/choose?t=${encodeURIComponent(KEY)}&session=${encodeURIComponent(desk.id)}&option=other&choice=none`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'one\ntwo' }) });
+    await sleep(500);
+    const landed = desk.kind === 'fake' ? fakeBytes(desk, before) !== '' : /one line|two/.test(boxLine(desk) ?? '');
+    return { pass: lines.status === 400 && none.status === 409 && several.status === 400 && !landed,
+      note: `no option ${lines.status}, one line ${none.status}, several lines ${several.status}; ${landed ? 'TEXT LANDED' : 'nothing typed'}` };
   }],
   ['French accents + emoji (typed)', async (desk) => {
     const r = await typedBack(desk, FRENCH);
