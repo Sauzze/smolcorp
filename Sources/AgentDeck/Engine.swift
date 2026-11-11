@@ -25,9 +25,11 @@ enum Engine: String {
 /// line on its standard input: never in its arguments or its environment,
 /// which other processes of yours can read (`ps -E`). It says it's ready on
 /// its standard output; this app then asks it, a line of JSON each way, for
-/// the office window's key and for setup sessions. Nothing else can reach that
-/// channel. When this app quits, or dies, the core's input ends and it stops:
-/// `stop` also makes sure, by its pid.
+/// the office window's key and for setup sessions: only this app holds that
+/// pipe's other end. The bridge serves this core's pid alone, and the core
+/// sends the token only to its parent, this app (see `HostBridge`). When this
+/// app quits, or dies, the core's input ends and it stops: `stop` also makes
+/// sure, by its pid.
 final class GoCore {
     enum Failure: LocalizedError {
         case noProgram, didNotStart(String), notReady(String)
@@ -77,10 +79,16 @@ final class GoCore {
         ["core", "--port", String(port), "--support", support.path, "--bridge", bridge.socket.path]
     }
 
-    /// The core's environment: this app's, with the port and folder a test
-    /// copy's hires and `smolcorp gm` read, as the Swift engine gives them. Never the token.
+    /// What the core keeps of this app's environment: what a program needs to
+    /// find yours and its tools (`SHELL` gives your login shell's PATH), and
+    /// nothing else. A Smolcorp opened from a terminal would otherwise hand the
+    /// core that terminal's whole environment, its tokens too.
+    static let inherited = ["PATH", "HOME", "USER", "LANG", "TMPDIR", "SHELL"]
+
+    /// The core's environment: `inherited` from this app's, with the port and folder
+    /// a test copy's hires and `smolcorp gm` read, as the Swift engine gives them. Never the token.
     func environment(base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
-        var environment = base
+        var environment = base.filter { GoCore.inherited.contains($0.key) }
         environment["SMOLCORP_PORT"] = String(port)
         environment["SMOLCORP_TEST_SUPPORT_DIR"] = support.path
         return environment
@@ -109,11 +117,15 @@ final class GoCore {
             self.lock.lock()
             let expected = self.stopping
             self.lock.unlock()
+            // Its pid may be another process's soon: the bridge serves no one now.
+            if self.bridge.core == ended.processIdentifier { self.bridge.core = nil }
             self.arrived.signal()
             if !expected { DispatchQueue.main.async { self.onExit(ended.terminationStatus) } }
         }
         do { try process.run() } catch { throw Failure.didNotStart(error.localizedDescription) }
         self.process = process
+        // The only process the bridge serves, from before the core has its token.
+        bridge.core = process.processIdentifier
         input = toCore.fileHandleForWriting
         // A core that has ended mustn't raise SIGPIPE in this app as it's written to.
         _ = fcntl(toCore.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
@@ -186,6 +198,7 @@ final class GoCore {
                 _ = GoCore.waitForExit(process, upTo: 1)
             }
         }
+        if bridge.core == pid { bridge.core = nil }
         return GoCore.isGone(pid)
     }
 

@@ -68,19 +68,23 @@ final class EngineTests: XCTestCase {
         let core = try core("exit 0")
         XCTAssertEqual(core.arguments, ["core", "--port", "7779", "--support", folder.path, "--bridge", folder.appendingPathComponent("bridge.sock").path])
         XCTAssertFalse(core.arguments.joined(separator: " ").contains(core.bridge.token))
-        let environment = core.environment(base: ["HOME": "/Users/me"])
+        let environment = core.environment(base: ["HOME": "/Users/me", "PATH": "/usr/bin:/bin", "SHELL": "/bin/zsh",
+                                                  "GH_TOKEN": "fake-gh", "ANTHROPIC_API_KEY": "sk-ant-fake", "SMOLCORP_SESSION": "s1"])
         XCTAssertFalse(environment.contains { $0.key.contains(core.bridge.token) || $0.value.contains(core.bridge.token) },
                        "other processes of yours read a process's environment (ps -E)")
         XCTAssertFalse(environment.keys.contains("SMOLCORP_BRIDGE_TOKEN"))
         XCTAssertEqual(environment["SMOLCORP_PORT"], "7779")
         XCTAssertEqual(environment["SMOLCORP_TEST_SUPPORT_DIR"], folder.path)
         XCTAssertEqual(environment["HOME"], "/Users/me")
+        XCTAssertEqual(Set(environment.keys), ["HOME", "PATH", "SHELL", "SMOLCORP_PORT", "SMOLCORP_TEST_SUPPORT_DIR"],
+                       "nothing else of a terminal Smolcorp was opened from: not its tokens")
     }
 
     func testItStartsAsksAndStops() throws {
         let core = try core(answering)
         try core.start(waitingUpTo: 5)
         let pid = try XCTUnwrap(core.pid)
+        XCTAssertEqual(core.bridge.core, pid, "the only process its bridge serves")
         XCTAssertEqual(core.setupCookie, "fake-cookie", "as the core named it when ready")
         XCTAssertEqual(core.officeAddress()?.absoluteString, "http://127.0.0.1:7779/office?window&t=fake%2Fkey")
         XCTAssertEqual(core.setupSession()?.session, "fake-session")
@@ -88,6 +92,7 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.setupLink(then: "pair")?.absoluteString, "http://localhost:7779/setup#o=fake")
         XCTAssertTrue(core.stop(grace: 2), "its input ended, and it went")
         XCTAssertTrue(GoCore.isGone(pid))
+        XCTAssertNil(core.bridge.core, "and none once it's gone")
         XCTAssertNil(core.ask("office"), "nothing to ask once stopped")
     }
 

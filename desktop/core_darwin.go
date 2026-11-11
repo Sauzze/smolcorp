@@ -24,8 +24,11 @@ import (
 // The bridge's token is the first line on its standard input, which only the
 // app holds: never on the command line or in the environment, which other
 // processes of yours can read (ps -E -ww). It is never exported, so nothing
-// this engine starts has it. Without the app's socket and token it doesn't
-// start: it is never a second app of its own.
+// this engine starts has it. It is sent only to the app that started this
+// engine, its parent, checked by the socket's pid at each request (see
+// socketBridge); the app serves this engine's pid alone, token or not.
+// Without the app's socket and token it doesn't start: it is never a second
+// app of its own.
 //
 // The app talks to it on its standard input and output, which nothing else
 // can reach: a line of JSON each way. The first line out says it's ready;
@@ -43,7 +46,8 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 		fmt.Fprintf(errs, "%s (%v)\n", coreRefusal, err)
 		return 2
 	}
-	bridge := &socketBridge{path: options.bridge, token: options.token}
+	// Only ever the app that started it: the token goes to no other process.
+	bridge := &socketBridge{path: options.bridge, token: options.token, parent: os.Getppid}
 	if _, err := ask(bridge, bridgeRequest{Action: "hello"}); err != nil {
 		fmt.Fprintf(errs, "%s (the app's bridge: %v)\n", coreRefusal, err)
 		return 2

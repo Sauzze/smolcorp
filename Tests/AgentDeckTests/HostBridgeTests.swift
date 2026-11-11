@@ -140,6 +140,32 @@ final class HostBridgeTests: XCTestCase {
         if case .done(let value) = HostBridge.run(on: terminals, until: .now() + 5, { 42 }) { XCTAssertEqual(value, 42) } else { XCTFail("not run") }
     }
 
+    /// A window, as a tab action: on the terminals' queue, and never once the core has given up,
+    /// so a retry doesn't open a second one.
+    func testAWindowTheCoreGaveUpOnIsNeverOpened() throws {
+        let script = hires.appendingPathComponent("hire-1.sh")
+        try Data("#!/bin/sh\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+        let line = try JSONSerialization.data(withJSONObject: ["token": token, "action": "open", "terminal": "iterm",
+                                                               "folder": folder.path, "script": script.path])
+        let release = DispatchSemaphore(value: 0)
+        terminals.async { release.wait() }
+        let late = HostBridge.answer(line, token: token, actions: actions, until: .now() + 0.2)
+        XCTAssertEqual(late["error"] as? String, "The terminal didn't answer in time.")
+        release.signal()
+        terminals.sync {}
+        XCTAssertTrue(asked.isEmpty, "not opened once the queue was free")
+        var onQueue = false
+        var actions = self.actions
+        actions.open = { [terminals] _, _, _ in
+            dispatchPrecondition(condition: .onQueue(terminals))
+            onQueue = true
+            return "iterm:AB12"
+        }
+        XCTAssertEqual(HostBridge.answer(line, token: token, actions: actions, until: .now() + 5)["tab"] as? String, "iterm:AB12")
+        XCTAssertTrue(onQueue, "opened on the terminals' queue")
+    }
+
     func testATerminalOpensOnlyOnAHireScript() throws {
         let script = hires.appendingPathComponent("abc/hire-1.sh")
         try FileManager.default.createDirectory(at: script.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -265,6 +291,7 @@ final class HostBridgeTests: XCTestCase {
         let bridge = HostBridge(socket: socket, token: token, actions: actions)
         try bridge.start()
         defer { bridge.stop() }
+        bridge.core = getpid() // this test stands in for the core
         let mode = { (path: String) in (try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.intValue }
         XCTAssertEqual(try mode(socket.path), 0o600)
         XCTAssertEqual(try mode(folder.path), 0o700, "its folder made yours alone")
@@ -296,6 +323,7 @@ final class HostBridgeTests: XCTestCase {
         let first = HostBridge(socket: socket, token: token, actions: actions)
         try first.start()
         defer { first.stop() }
+        first.core = getpid() // this test stands in for the core
         XCTAssertNotNil(try XCTUnwrap(send(#"{"token":"\#(token)","action":"hello"}"#, to: socket.path)).range(of: "true"))
 
         // A live one is another Smolcorp's on this folder: never taken over.
@@ -318,6 +346,7 @@ final class HostBridgeTests: XCTestCase {
         let bridge = HostBridge(socket: socket, token: token, actions: actions)
         try bridge.start()
         defer { bridge.stop() }
+        bridge.core = getpid() // this test stands in for the core
         func connect() -> Int32 {
             let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
             var address = sockaddr_un()
@@ -352,6 +381,43 @@ final class HostBridgeTests: XCTestCase {
         }
         XCTAssertTrue(closed)
         XCTAssertLessThan(Date().timeIntervalSince(start), HostBridge.requestWait + 3)
+    }
+
+    /// The token alone opens nothing: only the core this app started is served,
+    /// at whatever name its socket has been moved to.
+    func testOnlyTheCoreIsServedTokenOrNot() throws {
+        let socket = folder.appendingPathComponent("bridge.sock")
+        let bridge = HostBridge(socket: socket, token: token, actions: actions)
+        try bridge.start()
+        defer { bridge.stop() }
+        let request = #"{"token":"\#(token)","action":"secret-read","item":"summary-key"}"#
+        XCTAssertNil(bridge.core)
+        XCTAssertEqual(send(request, to: socket.path), "", "no core started yet: closed unanswered")
+        bridge.core = getppid()
+        XCTAssertEqual(send(request, to: socket.path), "", "not the core's pid")
+
+        // Moved aside, as another process of yours would to listen in its place: still only the core's.
+        let kept = folder.appendingPathComponent("kept.sock")
+        try FileManager.default.moveItem(at: socket, to: kept)
+        bridge.core = getpid()
+        // Another process, with the right token.
+        let other = Process()
+        other.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
+        other.arguments = ["-U", kept.path]
+        let toOther = Pipe(), fromOther = Pipe()
+        other.standardInput = toOther
+        other.standardOutput = fromOther
+        other.standardError = FileHandle.nullDevice
+        try other.run()
+        try toOther.fileHandleForWriting.write(contentsOf: Data((request + "\n").utf8))
+        let heard = fromOther.fileHandleForReading.readDataToEndOfFile()
+        other.waitUntilExit()
+        XCTAssertEqual(heard, Data(), "another process is given nothing")
+        try? toOther.fileHandleForWriting.close()
+
+        // The core itself, at the new name.
+        XCTAssertNotNil(try XCTUnwrap(send(request, to: kept.path)).range(of: "sk-ant-fake"))
+        try FileManager.default.moveItem(at: kept, to: socket)
     }
 
     func testEachLaunchHasItsOwnToken() {

@@ -8,6 +8,13 @@ import Security
 /// environment, which other processes of yours can read). A request is a line
 /// of JSON, and so is its answer, one per connection.
 ///
+/// The folder and the token aren't enough on their own: another process of
+/// yours can reach the folder, and could move the socket aside and listen at
+/// its name. So both ends check who is at the other one, by pid, as the
+/// system has it (`LOCAL_PEERPID`): this app serves only the core it started
+/// (`core`), token or not, and the core sends its token only to its parent,
+/// this app (desktop/hostbridge_darwin.go).
+///
 /// Each action is this app's own code, as the Swift engine runs it: the
 /// terminal drivers (Accessibility and AppleScript), the openers, the
 /// secrets' stores, the login item. Nothing here runs a shell line: a
@@ -22,6 +29,16 @@ final class HostBridge {
     /// Connections being served, never more than `connectionsMost`. Guarded by `counting`.
     private var serving = 0
     private let counting = NSLock()
+    /// The pid of the core this app started (`GoCore`), the only process served: nil while there's none.
+    private var corePid: pid_t?
+    private let coreLock = NSLock()
+
+    /// The core's pid: set by `GoCore` as it starts it, before the core has the token, and
+    /// cleared as it ends. A connection from any other process is closed unanswered.
+    var core: pid_t? {
+        get { coreLock.lock(); defer { coreLock.unlock() }; return corePid }
+        set { coreLock.lock(); corePid = newValue; coreLock.unlock() }
+    }
 
     /// The longest request read: a typed text or a secret is short.
     static let requestMost = 256 << 10
@@ -166,11 +183,13 @@ final class HostBridge {
         }
     }
 
-    /// One request on `connection`, from a process of this user only, read whole
-    /// within `requestWait` of its being taken.
+    /// One request on `connection`, from the core this app started only (its
+    /// pid, and this user's), read whole within `requestWait` of its being taken.
     private func serve(_ connection: Int32, taken: DispatchTime) {
         var uid = uid_t(0), gid = gid_t(0)
         guard getpeereid(connection, &uid, &gid) == 0, uid == getuid() else { return }
+        // Another process of yours, even with the token, is never served.
+        guard let core, HostBridge.peerPid(connection) == core else { return }
         let readBy = taken + HostBridge.requestWait
         var request = Data()
         var chunk = [UInt8](repeating: 0, count: 4096)
@@ -199,10 +218,18 @@ final class HostBridge {
         }
     }
 
+    /// The pid of the process at `connection`'s other end, as the system has it, or nil.
+    static func peerPid(_ connection: Int32) -> pid_t? {
+        var pid = pid_t(0)
+        var size = socklen_t(MemoryLayout<pid_t>.size)
+        guard getsockopt(connection, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0, pid > 0 else { return nil }
+        return pid
+    }
+
     // MARK: Answers
 
     /// The answer to one request: refused without the token, then the action's.
-    /// A tab action not started by `deadline` isn't run.
+    /// A tab action or a window not started by `deadline` isn't run.
     static func answer(_ line: Data, token: String, actions: Actions, until deadline: DispatchTime = .distantFuture) -> [String: Any] {
         guard let request = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
               let given = request["token"] as? String, sameToken(given, token) else {
@@ -215,7 +242,7 @@ final class HostBridge {
         case "press", "type", "insert", "focus", "scroll", "scroll-bottom", "close":
             return tabAction(action, request, actions, until: deadline)
         case "open":
-            return open(request, actions)
+            return open(request, actions, until: deadline)
         case "secret-read", "secret-write", "secret-delete":
             return secret(action, request, actions)
         case "login-item":
@@ -350,7 +377,9 @@ final class HostBridge {
 
     /// A window of a terminal of yours, in `folder`, running `script`: a file
     /// of yours alone in the hires folder, which the core wrote. Never a line of text.
-    private static func open(_ request: [String: Any], _ actions: Actions) -> [String: Any] {
+    /// Opened on the terminals' queue, as the deck opens a hire's, and as a tab
+    /// action: not at all once the core has given up, so a retry never makes two.
+    private static func open(_ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
         guard let terminal = request["terminal"] as? String, Openers.choices.contains(where: { $0.id == terminal }) else {
             return refused("Not a terminal Smolcorp opens.")
         }
@@ -358,8 +387,11 @@ final class HostBridge {
         guard let script = request["script"] as? String, isHireScript(script, in: actions.hires) else {
             return refused("Not a script in Smolcorp's hires folder.")
         }
-        guard let tab = actions.open(terminal, folder, script) else { return refused("The window didn't open.") }
-        return ["ok": true, "tab": tab]
+        switch run(on: actions.queue, until: deadline, { actions.open(terminal, folder, script) }) {
+        case .done(let tab?): return ["ok": true, "tab": tab]
+        case .done(nil): return refused("The window didn't open.")
+        case .tooLate: return refused("The terminal didn't answer in time.")
+        }
     }
 
     private static func isFolder(_ path: String) -> Bool {
@@ -431,7 +463,7 @@ final class HostBridge {
         var secrets: [String: Secret]
         /// The login item, or nil in a test copy, whose login item is the copy in use's: never read or set.
         var loginItem: (get: () -> Bool, set: (Bool) -> Void)?
-        /// Where tab actions run, one at a time.
+        /// Where tab actions and windows opened run, one at a time.
         var queue: DispatchQueue = Terminal.queue
 
         /// The Swift engine's own: the terminal drivers on `Terminal.queue`, one at a time

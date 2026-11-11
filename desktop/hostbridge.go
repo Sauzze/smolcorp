@@ -8,7 +8,8 @@ import (
 // On a Mac, this program can run as Smolcorp.app's engine (`smolcorp core`,
 // core_darwin.go): the app starts it, shows its pages in the app's windows,
 // and keeps what only macOS lets an app do. The engine asks the app for those
-// over the host bridge, a private socket in the support folder: keys typed
+// over the host bridge, a socket in the support folder that only the two of
+// them use (each checks the other's pid; see socketBridge): keys typed
 // into a Terminal, iTerm2 or Ghostty tab, a window brought forward or closed,
 // a terminal opened on a script, the app's own Keychain items, its login item.
 // Each is the Mac app's own code, as the Swift engine runs it (HostBridge.swift).
