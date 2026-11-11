@@ -22,9 +22,12 @@ func placeRepo(t *testing.T) string {
 	repo = physical(repo)
 	os.WriteFile(filepath.Join(repo, "sub", "a.txt"), []byte("a"), 0o644)
 	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "."},
-		{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "one"}} {
+		{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "one"}} {
 		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+		if args[0] == "init" {
+			stopSigning(t, repo)
 		}
 	}
 	return repo

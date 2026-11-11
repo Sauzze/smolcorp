@@ -160,6 +160,7 @@ func (r *t3Rig) repo() string {
 		r.t.Fatal(err)
 	}
 	r.git(repo, "init", "-q", "-b", "main")
+	stopSigning(r.t, repo)
 	r.git(repo, "commit", "-q", "--allow-empty", "-m", "init")
 	return repo
 }

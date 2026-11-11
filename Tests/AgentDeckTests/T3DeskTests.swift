@@ -107,7 +107,9 @@ final class T3DeskTests: XCTestCase {
             git.arguments = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"] + arguments
             try git.run()
             git.waitUntilExit()
-            XCTAssertEqual(git.terminationStatus, 0)
+            XCTAssertEqual(git.terminationStatus, 0, arguments.joined(separator: " "))
+            // After the init, before the first commit; only for a repo that was made.
+            if arguments[0] == "init", git.terminationStatus == 0 { TempRepo.stopSigning(repo) }
         }
         return repo
     }
@@ -300,6 +302,11 @@ final class T3DeskTests: XCTestCase {
         XCTAssertTrue(refusal.message.hasSuffix(" T3 Code didn't remove the project it was given (Could not reach the T3 Code desktop app.), so the hire's worktree and fence were kept: remove \"Ada · hire/ada-abcdef\" in T3 Code."), refusal.message)
         XCTAssertTrue(FileManager.default.fileExists(atPath: worktree() + "/.claude/settings.local.json"), "whatever T3 still runs there stays fenced")
         _ = repo
+    }
+
+    func testTheTempRepoDoesNotSign() throws {
+        let repo = try repo()
+        XCTAssertEqual(TempRepo.local("commit.gpgsign", in: repo), "false")
     }
 
     func testAFenceFileTheRepoAlreadyHasIsNeverWrittenOver() throws {
@@ -830,7 +837,9 @@ final class T3DeskRealFenceTests: XCTestCase {
         let support = root.appendingPathComponent("support")
         try FileManager.default.createDirectory(at: support.appendingPathComponent("hires"), withIntermediateDirectories: true)
         XCTAssertEqual(git(["init", "-q", "--bare", remote])?.status, 0)
-        XCTAssertEqual(git(["init", "-q", "-b", "main", repo])?.status, 0)
+        let made = git(["init", "-q", "-b", "main", repo])
+        XCTAssertEqual(made?.status, 0)
+        if made?.status == 0 { TempRepo.stopSigning(repo) }
         XCTAssertEqual(git(["-C", repo, "remote", "add", "origin", remote])?.status, 0)
         XCTAssertEqual(git(["-C", repo, "commit", "-q", "--allow-empty", "-m", "init"])?.status, 0)
         // What a read must not reach: the deny rules name this support folder's config.json.
