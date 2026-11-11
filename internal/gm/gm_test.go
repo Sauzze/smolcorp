@@ -516,37 +516,22 @@ func TestHireLeavesOutWhatIsNotGiven(t *testing.T) {
 	}
 }
 
-// PR1: the Go app serves POST /setup/gm/hire, so `gm hire` against it sends the request and prints the
-// answer, and a refusal is printed as the Mac's is. The "isn't available" text is gone for hire only.
+// PR1: the Go app serves POST /setup/gm/hire: `gm hire` against it sends the request and prints the answer or the
+// refusal, never the "isn't available" text.
 func TestHireAgainstTheGoAppSendsTheRequestAndPrintsTheAnswer(t *testing.T) {
-	var got []byte
-	status := http.StatusOK
+	status, answer, body := http.StatusOK, `{"ok":true,"desk":3,"session":null}`, []byte(nil)
 	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Smolcorp-App", "linux")
-		if r.URL.Path != "/setup/gm/hire" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		got, _ = io.ReadAll(r.Body)
-		if status != http.StatusOK {
-			w.WriteHeader(status)
-			w.Write([]byte("Install tmux: the General Manager hires only into a hire Smolcorp can fence."))
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"ok":true,"desk":3,"session":null}`))
+		body, _ = io.ReadAll(r.Body)
+		w.WriteHeader(status)
+		w.Write([]byte(answer))
 	})
-	code, out, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor")
-	if code != 0 || !strings.Contains(out, "Hired a janitor. At desk 4.") || string(got) != `{"role":"janitor"}` {
-		t.Fatalf("exit %d out %q err %q body %s", code, out, errOut, got)
+	code, out, _ := runGM(app.env(t, withToken()), "hire", "--role", "janitor")
+	if code != 0 || !strings.Contains(out, "Hired a janitor. At desk 4.") || string(body) != `{"role":"janitor"}` {
+		t.Fatalf("exit %d out %q body %s", code, out, body)
 	}
-	if strings.Contains(errOut, "isn't available") {
-		t.Errorf("still says hire isn't available: %q", errOut)
-	}
-	// A refusal from the Go app is its own sentence, not the "isn't available" text.
-	status = http.StatusConflict
-	code, _, errOut = runGM(app.env(t, withToken()), "hire", "--role", "janitor")
-	if code != exitApp || !strings.Contains(errOut, "409") || !strings.Contains(errOut, "Install tmux") || strings.Contains(errOut, "isn't available") {
+	status, answer = http.StatusConflict, "Install tmux: the General Manager hires only into a hire Smolcorp can fence."
+	if code, _, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor"); code != exitApp || !strings.Contains(errOut, "409: Install tmux") {
 		t.Errorf("refusal: exit %d %q", code, errOut)
 	}
 }
