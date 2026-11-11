@@ -363,7 +363,7 @@ func (d *Deck) hireFromSetupSheetIntoT3(h setupHire, roles []Role) (int, any, st
 		desk = &at
 	}
 	status, why = d.hireIntoT3(t3Ask{Role: roles[i], Folder: h.Folder, Nickname: h.Nickname, Model: h.Model, Task: h.Task,
-		Answers: h.Answers, Pinned: pinned, Desk: desk, Account: h.Account, APIKey: h.APIKey})
+		Answers: h.Answers, Pinned: pinned, Desk: desk, Floor: max(0, h.Floor), Account: h.Account, APIKey: h.APIKey})
 	if status != http.StatusNoContent {
 		return status, nil, why
 	}

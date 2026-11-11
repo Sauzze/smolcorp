@@ -15,6 +15,9 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 
 type engineOptions struct{}
 
+// worktrees is the folder hires' worktrees are made in: beside the repo here, as there's no engine to set another.
+func (engineOptions) worktrees() string { return "" }
+
 // hireSessionUp: no tmux session of an engine hire's here. A launcher hire's window
 // counts through gmRefusal, which asks the launchers.
 func hireSessionUp(h Hire, testPort int, o engineOptions) bool { return false }

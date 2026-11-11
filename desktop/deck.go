@@ -64,8 +64,9 @@ type Deck struct {
 	// when the last hire was made: see hire.go.
 	hires    map[string]*pendingHire
 	lastHire time.Time
-	// t3 follows the hires in T3 Code (t3deskdeck.go).
-	t3 *t3Follower
+	// t3 follows the hires in T3 Code (t3deskdeck.go); t3Desks are their desks in the office (t3desks.go).
+	t3      *t3Follower
+	t3Desks *t3Desks
 	// A hire is under way: its agent being looked for, or its terminal opening,
 	// with the lock let go. No other starts until it's done.
 	hiring bool
@@ -184,6 +185,9 @@ func NewDeck() *Deck {
 	d.stopWatchers = d.startWatchers()
 	d.cloud = newCloudDesks(d.config.CloudBots, &d.mu)
 	d.cloud.onChange = d.changed
+	// The hires in T3 Code and their desks, before anything lays the office out.
+	d.t3 = newT3Follower()
+	d.t3Desks = newT3Desks(registry)
 	d.summaryKeys = newSummaryKeys(keyringStore, os.Getenv)
 	d.summaries = newSummaries(d.summaryKeys.Read)
 	d.summaryProviders = newSummaryProviders()
@@ -233,7 +237,6 @@ func NewDeck() *Deck {
 		d.rounds.run(func() { d.macFactsNow() })
 	}
 	// The hires in T3 Code, followed with the deck's rounds, so they stop with it.
-	d.t3 = newT3Follower()
 	d.startT3Follow()
 	return d
 }
@@ -398,6 +401,12 @@ func (d *Deck) IngestFrom(event map[string]any, reported, tab, startedIn string,
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	// A hire in T3 Code's own Claude Code, heard through your hooks: never a desk, nor anyone else's. Its events
+	// are kept in the event log, as any session's the deck has no desk for.
+	if d.isT3HiresOwn(canonical, startedIn) {
+		d.logEvent(canonical, agent, at)
+		return
+	}
 	if tab == "" {
 		tab = d.launcherFor(canonical, agent)
 	}
@@ -485,6 +494,7 @@ func (d *Deck) launcherFor(event map[string]any, agent Agent) string {
 // changed re-sends the state, with the lock held.
 func (d *Deck) changed() {
 	d.applyQueuedEffort()
+	d.keepT3Seats()
 	state := d.snapshot()
 	for stream := range d.streams {
 		stream.send(state)
@@ -524,6 +534,17 @@ func (d *Deck) layout() ([]deckKey, []*Session) {
 	for i, s := range bots {
 		if d.cloudFloor(sitting[i]) == 0 {
 			remaining = append(remaining, s)
+		}
+	}
+	// A hire in T3 Code on the ground floor takes a desk as anyone does: the one the registry kept for it, if it's free.
+	for _, one := range d.t3Seated() {
+		if t3FloorOf(one.hire) != 0 {
+			continue
+		}
+		remaining = append(remaining, one.session)
+		if _, has := d.keyOf[one.session.ID]; !has && one.hire.T3Desk != nil && *one.hire.T3Desk >= 0 && *one.hire.T3Desk < mostKeys {
+			d.keyOf[one.session.ID] = *one.hire.T3Desk
+			d.setChosen(one.session.ID)
 		}
 	}
 	// A session that took another's place in its tab, as after /clear, takes its key and floor too.
@@ -609,7 +630,8 @@ func (d *Deck) layout() ([]deckKey, []*Session) {
 		}
 	}
 	for id := range d.seatOf {
-		if _, cloud := d.cloud.botOf(id); !kept(id) && !cloud {
+		_, cloud := d.cloud.botOf(id)
+		if _, t3 := d.t3Desks.hireOf(id); !kept(id) && !cloud && !t3 {
 			delete(d.seatOf, id)
 		}
 	}
@@ -771,6 +793,8 @@ func (d *Deck) snapshot() []byte {
 		if s := key.session; s != nil {
 			if bot, ok := d.cloud.botOf(s.ID); ok {
 				entry["session"] = d.cloudEntry(s, bot)
+			} else if hire, ok := d.t3Desks.hireOf(s.ID); ok {
+				entry["session"] = d.t3Entry(s, hire)
 			} else {
 				entry["session"] = d.sessionEntry(s)
 			}
@@ -1133,6 +1157,8 @@ func (d *Deck) sessionRole(s *Session) (Role, bool) {
 		roleID = tab.role
 	} else if kind == "tmux" {
 		roleID = d.hiredRoleAt(socket) // a hire the engine made: no launcher, its registry row has the role
+	} else if hire, ok := d.t3Desks.hireOf(s.ID); ok {
+		roleID = hire.Role // a hire in T3 Code's desk: its registry row has the role
 	}
 	if roleID != "" {
 		for _, role := range d.config.Roles {
@@ -1331,6 +1357,14 @@ func (d *Deck) swapKeys(query url.Values) (int, string) {
 	if errA != nil || errB != nil || a == b || a < 0 || b < 0 || a >= len(keys) || b >= len(keys) {
 		return http.StatusBadRequest, "Unknown desks"
 	}
+	// A hire in T3 Code's desk is no project's to pin: it stays where it sits.
+	for _, i := range []int{a, b} {
+		if s := keys[i].session; s != nil {
+			if hire, ok := d.t3Desks.hireOf(s.ID); ok {
+				return http.StatusConflict, calledHire(hire) + " runs in T3 Code: its desk stays where it is."
+			}
+		}
+	}
 	project := func(i int) *string {
 		if s := keys[i].session; s != nil {
 			p := s.Project
@@ -1399,7 +1433,21 @@ func (d *Deck) Perform(action, id string, query url.Values) (int, string) {
 		}
 		return d.hire(query.Get("desk"), query.Get("role"))
 	}
+	// A hire in T3 Code's desk: Let go, the lane's, from its card; nothing else reaches it, as there's nothing to type into.
+	if action == "letgo" {
+		if status, answer, ok := d.letGoAtDesk(id); ok {
+			if text, isText := answer.(string); isText {
+				return status, text
+			}
+			data, _ := json.Marshal(answer)
+			return status, string(data)
+		}
+	}
 	d.mu.Lock()
+	if hire, ok := d.t3HireAtDesk(id); ok {
+		d.mu.Unlock()
+		return http.StatusConflict, t3NoControls(calledHire(hire))
+	}
 	session := d.sessions.Get(id)
 	if session == nil || session.Tab == "" {
 		d.mu.Unlock()
@@ -1611,6 +1659,12 @@ func (d *Deck) Focus(id string) (int, string) {
 		d.mu.Unlock()
 		return http.StatusNoContent, ""
 	}
+	d.mu.Unlock()
+	// A hire in T3 Code's desk: its done seen, and its own thread opened in T3 Code.
+	if status, text, ok := d.focusT3(id); ok {
+		return status, text
+	}
+	d.mu.Lock()
 	tab := ""
 	if session := d.sessions.Get(id); session != nil {
 		tab = session.Tab // read while locked: a hook can move the session meanwhile

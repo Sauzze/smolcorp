@@ -1918,6 +1918,7 @@
         "t3" : [
           "branch",
           "canOpen",
+          "experimental",
           "status",
           "tag"
         ]
