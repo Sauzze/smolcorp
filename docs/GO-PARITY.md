@@ -44,6 +44,7 @@ subsystem of its own. "–" where there is nothing to port.
 | `/hire/window` (the office's Open a window on a hire's desk) | ✓ | – | not served: 404 (the office polls it every 30 s when hires run in the background: a console error on Linux/Windows until served); Setup's `/setup/hire/window` is. Owner: M4b (Linux/Windows by `openHireViewer`; the Mac via the bridge) | S |
 | `/t3code`, `/t3code/open`, `/setup/t3code`, `/setup/t3code/open` (Open in T3 Code) | ✓ | ✓ | none, but for `lane` (T3 Code's desk lane, below) in what's installed; all four answer 404 while T3 Code is off, as on the Mac | – |
 | `/setup/t3code/letgo`, and hiring into T3 Code (`engine: "t3"`, experimental) | ✓ | – | the Mac's alone for now: Go's letgo answers 409 to any hire | L |
+| A hire in T3 Code's desk in the office (T3D-a, experimental): the snapshot's `t3` desk from the registry alone (its worktree in `<repo>-hires` or the hires' worktree folder), `/focus` opening its thread, `/act?action=letgo`. A terminal you open in a T3 hire's worktree has no desk until the hire is let go | ✓ | – | the Go core seats no T3 hire, so its snapshot has no T3 desk (`Tests/fixtures/contract`, given "a T3 hire"; the known gap on the snapshot's ids, and the T3 desk's value check, contract.json's `t3Desk`, run on any `t3:` desk Go answers). Owner: M5: T3D-b, the desk on the Go core | M |
 | `/setup/dictation` | ✓ | – | Mac only (Apple's speech recognition) | – |
 | `/setup/accessibility` | ✓ | – | not needed off the Mac | – |
 | `/setup/viewer*` (portable office) | ✓ | ✓ | **done** | – |

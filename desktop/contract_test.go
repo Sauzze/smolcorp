@@ -105,6 +105,7 @@ var knownGaps = []knownGap{
 	{"POST /setup/gm/by-hand", "route", "404", "no GM token here (M4)", "M4"},
 	{"POST /setup/gm/token/rotate", "route", "404", "no GM token here (M4)", "M4"},
 	{"GET /setup/gm/nothing-here", "refusal: no such route", "kind text", "its 404 says \"404 page not found\" in text; the Mac's is empty", "M2 fixes: an empty 404, as the Mac answers"},
+	{"snapshot", ".keys[].session.id", "ids contract-a, contract-c", "a hire in T3 Code has no desk on the Go core: its registry entry (engine t3, with its thread and worktree) isn't seated, so the snapshot has no T3 desk (its t3 tag, branch and status, every control off)", "M5: T3D-b, the desk on the Go core"},
 	{"POST /act", "refusal: unknown dictation language", "status 404", "no dictation here: action=language isn't known, so its session is looked for", "M3 fixes: action=language known, an unknown language refused with 400"},
 	{"POST /act", "mic: dictation on, under the Mac app", "not dictated", "the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false", "M3 via the bridge (M1)"},
 	{"GET /glossary", "route", "404", "the iPhone app's speech names (personal build)", "M6: personal shell"},
@@ -169,6 +170,7 @@ type contractGiven struct {
 type contract struct {
 	shapes map[string]any                 // by name: what a route's answer refers to
 	ids    map[string]map[string][]string // by name: the given's sessions in each of the shape's lists, by where
+	t3Desk map[string]*t3DeskRule         // by name: what a t3: desk in it must hold by value
 	givens map[string]contractGiven
 	files  map[string][]contractRoute
 }
@@ -185,18 +187,23 @@ func readContract(t *testing.T) contract {
 	}
 	var shared struct {
 		Shapes map[string]struct {
-			Shape any
-			IDs   map[string][]string `json:"ids"`
+			Shape  any
+			IDs    map[string][]string `json:"ids"`
+			T3Desk *t3DeskRule         `json:"t3Desk"`
 		} `json:"shapes"`
 		Given map[string]contractGiven `json:"given"`
 	}
 	if err := json.Unmarshal(data, &shared); err != nil {
 		t.Fatal(err)
 	}
-	c := contract{shapes: map[string]any{}, ids: map[string]map[string][]string{}, givens: shared.Given, files: map[string][]contractRoute{}}
+	c := contract{shapes: map[string]any{}, ids: map[string]map[string][]string{}, t3Desk: map[string]*t3DeskRule{}, givens: shared.Given,
+		files: map[string][]contractRoute{}}
 	for name, s := range shared.Shapes {
 		c.shapes[name] = s.Shape
 		c.ids[name] = s.IDs
+		if s.T3Desk != nil {
+			c.t3Desk[name] = s.T3Desk
+		}
 	}
 	for _, file := range contractFiles {
 		data, err := os.ReadFile(filepath.Join(contractFolder(), file))
@@ -790,6 +797,14 @@ func contractGaps(t *testing.T, c contract) []knownGap {
 							found = append(found, knownGap{subject: subject, where: where, got: "ids " + strings.Join(have, ", ")})
 						}
 					}
+					// A hire in T3 Code's desk, by value: run on every t3: desk this app answers, whatever else differs
+					// (the shape's own pass from the Mac's side is skipped while any line is found).
+					if rule := c.t3Desk[subject]; rule != nil {
+						for _, line := range t3DeskDifferences(*rule, got.json) {
+							where, what, _ := strings.Cut(line, ": ")
+							found = append(found, knownGap{subject: subject, where: where, got: what})
+						}
+					}
 				}
 			}
 			for _, refusal := range route.Refusals {
@@ -864,6 +879,21 @@ func macDictationGaps(t *testing.T, c contract) []knownGap {
 
 // valuesAt is the values at where (".a[].b") in an answer, every element's, as text, sorted: as the Mac writes ids.
 func valuesAt(where string, answer any) []string {
+	texts := []string{}
+	for _, value := range foundAt(where, answer) {
+		if text, ok := value.(string); ok {
+			texts = append(texts, text)
+		} else {
+			data, _ := json.Marshal(value)
+			texts = append(texts, string(data))
+		}
+	}
+	sort.Strings(texts)
+	return texts
+}
+
+// foundAt is the values at where (".a[].b") in an answer, every element's, in order.
+func foundAt(where string, answer any) []any {
 	found := []any{answer}
 	for rest := where; rest != ""; {
 		if after, ok := strings.CutPrefix(rest, "[]"); ok {
@@ -891,20 +921,123 @@ func valuesAt(where string, answer any) []string {
 		}
 		found, rest = values, rest[end:]
 	}
-	texts := []string{}
-	for _, value := range found {
-		if text, ok := value.(string); ok {
-			texts = append(texts, text)
-		} else {
-			data, _ := json.Marshal(value)
-			texts = append(texts, string(data))
+	return found
+}
+
+// t3DeskRule is what every t3: desk in a snapshot must hold by value, as the Mac writes it beside the shape
+// (FXT3Da N1): a shape alone passes a desk with no t3, or with its controls on, as like a plain desk's.
+type t3DeskRule struct {
+	ID      string   `json:"id"`
+	False   []string `json:"false"`
+	Null    []string `json:"null"`
+	T3      []string `json:"t3"`
+	NoSlash []string `json:"noSlash"`
+}
+
+// t3DeskDifferences is where a t3: desk in a snapshot (at a key, on a floor, upstairs) isn't as rule says, as
+// "where: what" lines, as the Mac's ContractTests.t3DeskDifferences finds them: each false field false, each
+// null field null, its t3 with each of those fields, no / in a noSlash field. None where there's no such desk:
+// the ids say whether there should be one.
+func t3DeskDifferences(rule t3DeskRule, snapshot any) []string {
+	var found []string
+	for _, list := range []string{".keys[].session", ".floors[].desks[]", ".upstairs.desks[]"} {
+		for _, value := range foundAt(list, snapshot) {
+			desk, _ := value.(map[string]any)
+			id, _ := desk["id"].(string)
+			if !strings.HasPrefix(id, "t3:") {
+				continue
+			}
+			here := list + "[" + id + "]"
+			shown := func(field string) string {
+				v, has := desk[field]
+				if !has {
+					return "missing"
+				}
+				data, _ := json.Marshal(v)
+				return string(data)
+			}
+			for _, field := range rule.False {
+				if v, ok := desk[field].(bool); !ok || v {
+					found = append(found, here+"."+field+": "+shown(field)+", want false")
+				}
+			}
+			for _, field := range rule.Null {
+				if v, has := desk[field]; !has || v != nil {
+					found = append(found, here+"."+field+": "+shown(field)+", want null")
+				}
+			}
+			t3, _ := desk["t3"].(map[string]any)
+			for _, field := range rule.T3 {
+				if t3[field] == nil {
+					found = append(found, here+".t3."+field+": missing, want a value")
+				}
+			}
+			for _, field := range rule.NoSlash {
+				if v, ok := desk[field].(string); !ok || strings.Contains(v, "/") {
+					found = append(found, here+"."+field+": "+shown(field)+", want a name with no /")
+				}
+			}
 		}
 	}
-	sort.Strings(texts)
-	return texts
+	return found
 }
 
 func gapKey(g knownGap) string { return g.subject + " | " + g.where + " | " + g.got }
+
+// The Mac's rule for a hire in T3 Code's desk holds a t3: desk to its values: its controls off, no choice, its t3
+// tag, status, branch and whether it opens, and names with no path. A desk that isn't a T3 hire's isn't held to it.
+func TestAT3DeskIsCheckedByValueToo(t *testing.T) {
+	rule := readContract(t).t3Desk["snapshot"]
+	if rule == nil || !strings.HasPrefix(rule.ID, "t3:") || len(rule.False) == 0 || len(rule.T3) == 0 {
+		t.Fatalf("no T3 desk rule beside the snapshot's shape: %+v", rule)
+	}
+	good := map[string]any{"id": rule.ID, "name": "rev-c0ffee", "project": "rev-c0ffee"}
+	for _, field := range rule.False {
+		good[field] = false
+	}
+	for _, field := range rule.Null {
+		good[field] = nil
+	}
+	t3 := map[string]any{}
+	for _, field := range rule.T3 {
+		t3[field] = "x"
+	}
+	good["t3"] = t3
+	snapshot := func(desk map[string]any) any {
+		return map[string]any{"keys": []any{map[string]any{"session": desk}}, "floors": []any{}, "upstairs": map[string]any{"desks": []any{}}}
+	}
+	if got := t3DeskDifferences(*rule, snapshot(good)); len(got) != 0 {
+		t.Fatalf("a T3 desk as the Mac's: %v", got)
+	}
+	bad := map[string]any{}
+	for k, v := range good {
+		bad[k] = v
+	}
+	bad["keys"] = true
+	delete(bad, rule.False[0])
+	bad["choice"] = map[string]any{"options": []any{"Yes"}}
+	bad["t3"] = map[string]any{"tag": "T3 Code"}
+	bad["project"] = "/work/delta-hires/rev-c0ffee"
+	var wheres []string
+	for _, line := range t3DeskDifferences(*rule, snapshot(bad)) {
+		where, _, _ := strings.Cut(line, ": ")
+		wheres = append(wheres, where)
+	}
+	sort.Strings(wheres)
+	want := []string{}
+	for _, field := range []string{"keys", rule.False[0], "choice", "t3.branch", "t3.canOpen", "t3.status", "project"} {
+		want = append(want, ".keys[].session["+rule.ID+"]."+field)
+	}
+	sort.Strings(want)
+	want = slices.Compact(want)
+	if !slices.Equal(wheres, want) {
+		t.Fatalf("a T3 desk with a control on, a choice, no t3 but its tag and a path: %v, want %v", wheres, want)
+	}
+	other := map[string]any{"id": "contract-x", "keys": true, "project": "/a/b"}
+	if got := t3DeskDifferences(*rule, snapshot(other)); len(got) != 0 {
+		t.Fatalf("a desk that isn't a T3 hire's: %v", got)
+	}
+}
 
 // Every fixture asked of this app: what differs from the Mac must be a known gap, and every known gap must
 // still differ, so a gap closed by an M piece is taken out of the table (and INVENTORY.md) with it.

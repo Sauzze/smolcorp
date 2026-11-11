@@ -82,6 +82,7 @@
       "request" : {
         "as" : "phone",
         "given" : [
+          "a T3 hire",
           "a floor rule",
           "sessions",
           "a pin",

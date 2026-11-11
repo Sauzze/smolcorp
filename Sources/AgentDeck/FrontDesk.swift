@@ -47,6 +47,10 @@ final class FrontDesk {
         /// Its T3 Code thread's id and link, for a hire in T3 Code; "" otherwise.
         var t3Thread = ""
         var t3Link = ""
+        /// Where a hire in T3 Code's desk is in the office (T3D-a): its floor (0 for the ground floor, 1 for 2F up to 5
+        /// for 6F) and its desk there, so it sits there again after a restart; nil for where there's room.
+        var t3Floor: Int?
+        var t3Desk: Int?
     }
 
     /// A session as the deck follows it, with where it sits in the office.
@@ -213,6 +217,17 @@ final class FrontDesk {
         return true
     }
 
+    /// A hire in T3 Code's desk, where the office seats it now (T3D-a); saved only when it moved. Says whether it did.
+    @discardableResult
+    func setT3Seat(_ id: String, floor: Int, desk: Int?) -> Bool {
+        guard let i = hires.firstIndex(where: { $0.id == id }), hires[i].engine == T3Desk.engine,
+              hires[i].t3Floor != floor || hires[i].t3Desk != desk else { return false }
+        hires[i].t3Floor = floor
+        hires[i].t3Desk = desk
+        save()
+        return true
+    }
+
     /// A hire that didn't start: failed, with the reason put first in its notes.
     func fail(_ id: String, reason: String) {
         guard let i = hires.firstIndex(where: { $0.id == id }) else { return }
@@ -344,7 +359,9 @@ final class FrontDesk {
         var rows: [[String: Any]] = []
         for hire in hires {
             let open = hire.state != .fired && hire.state != .failed
-            let session = open ? live.first { !claimed.contains($0.id) && works($0, for: hire) } : nil
+            // A hire in T3 Code claims only its own desk, never a session in the folder it was hired from (FXT3Da B1).
+            let mine = { (live: Live) in hire.engine == T3Desk.engine ? live.id == T3Desks.sessionID(of: hire.id) : works(live, for: hire) }
+            let session = open ? live.first { !claimed.contains($0.id) && mine($0) } : nil
             if let session { claimed.insert(session.id) }
             rows.append(row(hire: hire, live: session, now: now, status: status))
         }
@@ -472,11 +489,13 @@ extension FrontDesk.Hire {
         engine = try c.decodeIfPresent(String.self, forKey: .engine) ?? ""
         t3Thread = try c.decodeIfPresent(String.self, forKey: .t3Thread) ?? ""
         t3Link = try c.decodeIfPresent(String.self, forKey: .t3Link) ?? ""
+        t3Floor = try c.decodeIfPresent(Int.self, forKey: .t3Floor)
+        t3Desk = try c.decodeIfPresent(Int.self, forKey: .t3Desk)
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, nickname, role, folder, branch, worktree, repo, tmuxSocket, account, model, ports, brief, started, state, notes
-        case engine, t3Thread, t3Link
+        case engine, t3Thread, t3Link, t3Floor, t3Desk
     }
 
     /// Written as it always was; where it runs and its T3 Code thread only for a hire in T3 Code, so every
@@ -502,6 +521,8 @@ extension FrontDesk.Hire {
         if !engine.isEmpty { try c.encode(engine, forKey: .engine) }
         if !t3Thread.isEmpty { try c.encode(t3Thread, forKey: .t3Thread) }
         if !t3Link.isEmpty { try c.encode(t3Link, forKey: .t3Link) }
+        if !engine.isEmpty, let t3Floor { try c.encode(t3Floor, forKey: .t3Floor) }
+        if !engine.isEmpty, let t3Desk { try c.encode(t3Desk, forKey: .t3Desk) }
     }
 }
 
@@ -518,7 +539,8 @@ extension Deck {
         for (floor, people) in above.floors.enumerated() where floor > 0 {
             for person in people { seat[person.id] = (floor, above.desks[person.id] ?? -1) }
         }
-        return sessions.all.map { session in
+        // A hire in T3 Code's desk is its live session here (T3D-a), so the team pairs it by its worktree.
+        return (sessions.all + t3Seated().map(\.session)).map { session in
             let place = seat[session.id]
             return FrontDesk.Live(id: session.id, agent: session.agent.rawValue, folder: session.folder, project: session.project,
                                   state: session.state.rawValue, model: session.model, floor: place?.floor,

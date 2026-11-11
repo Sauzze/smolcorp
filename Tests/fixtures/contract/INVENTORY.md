@@ -44,8 +44,8 @@ Linux/Windows app (`desktop/`) serves it: **served**, **404**, or **differs** (s
 | POST | `/pair` | anyone | `{code}` | `{key}` | 200, 403 `{error}` | office.json | served |
 | POST | `/hook` | hook | hook event; headers `x-agentdeck-agent`, `-tab`, `-tty`, `-project`, `-pid`, `-parent`, `-at`, `-billing` | empty | 204, 400 (a header twice), 401, 404 (not local, not POST) | office.json, frontdesk/hook-events.json | served |
 | GET | `/events` | phone | `?t=` | event stream: `data:` the snapshot at once and at each change, `event: ping` | 200, 401 | state.json | differs |
-| POST | `/focus` | phone | `?session=` | empty | 204, 404 | office.json | served |
-| POST | `/act` | phone | `?action=` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap, style, music, fire, hire, move, seen, language, cleanup, settings, choose…; `&session=` | empty, or text | 204, 400, 403, 404, 409 | office.json | differs |
+| POST | `/focus` | phone | `?session=`; a hire in T3 Code's desk opens its own thread in T3 Code (T3D-a) | empty, or text | 204, 404, 409 | office.json | served |
+| POST | `/act` | phone | `?action=` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap, style, music, fire, hire, move, seen, language, cleanup, settings, choose, letgo (a hire in T3 Code's desk, T3D-a; any other action there is 409)…; `&session=` | empty, or text | 204, 400, 403, 404, 409 | office.json | differs |
 | POST | `/summary` | phone | `?session=` | `{summary}` or `{error}` | 200, 400–503 `{error}` | office.json | served |
 | GET | `/glossary` | phone | — | `{api, glossary, language}` for the iPhone app's speech | 200 | office.json | 404 |
 | GET | `/approvals` | phone | — | `{approvals, at}` | 200, 403 (not Tailscale) | office.json | 404 |
@@ -358,7 +358,12 @@ has are the known gaps' "extra" rows.
 
 Two levels down (a desk's session: three), as above. A list's elements are compared each as it is, so a type
 here is all of theirs: `.keys[].session.model` is "string or null" as the free key's desk has none, but the
-pinned key's desk is "string" alone in the shape, and a null there is a difference.
+pinned key's desk is "string" alone in the shape, and a null there is a difference. A hire in T3 Code's desk (T3D-a,
+the given's "a T3 hire", from the registry alone) is a key's session of its own shape: its `t3` (tag, branch, its
+thread's status, whether it can be opened), every control false, and no turn's start (`turnStartedAt` null), as T3
+Code doesn't say one. Its values are checked too, beside the shape (contract.json's `t3Desk`, FXT3Da): every `t3:`
+desk an app answers has each control false, `choice` null, its `t3` with its tag, status, branch and `canOpen`, and
+a `name` and `project` with no `/`.
 
 Not in the table, as no given has them: `.hiring.unfenced` and `.hiring.roles[].unfenced`, the line saying a hire
 won't get Smolcorp's fence. Both apps send them only where a hire can be made here, and the given has no folder
@@ -411,8 +416,9 @@ for hires (`.hiring.roles` is `[]`).
 | `.keys[].session.state` | one of 'idle', 'thinking', 'asking', 'unread', 'error' | same |
 | `.keys[].session.subagents` | array or [] | same |
 | `.keys[].session.summary` | bool | same |
+| `.keys[].session.t3` | object | same |
 | `.keys[].session.tool` | string or null | same |
-| `.keys[].session.turnStartedAt` | number | same |
+| `.keys[].session.turnStartedAt` | number or null | same |
 | `.keys[].session.voiceNote` | object or null | missing: voice notes: the Mac's personal build |
 | `.layout` | object | same |
 | `.maxConfirm` | bool | same |
@@ -618,6 +624,7 @@ out of both tables; M7 deletes no Swift twin with a row left. `desktop/contract_
 | `POST /setup/gm/by-hand` | `route` | 404 | no GM token here (M4) | M4 |
 | `POST /setup/gm/token/rotate` | `route` | 404 | no GM token here (M4) | M4 |
 | `GET /setup/gm/nothing-here` | `refusal: no such route` | kind text | its 404 says "404 page not found" in text; the Mac's is empty | M2 fixes: an empty 404, as the Mac answers |
+| `snapshot` | `.keys[].session.id` | ids contract-a, contract-c | a hire in T3 Code has no desk on the Go core: its registry entry (engine t3, with its thread and worktree) isn't seated, so the snapshot has no T3 desk (its t3 tag, branch and status, every control off) | M5: T3D-b, the desk on the Go core |
 | `POST /act` | `refusal: unknown dictation language` | status 404 | no dictation here: action=language isn't known, so its session is looked for | M3 fixes: action=language known, an unknown language refused with 400 |
 | `POST /act` | `mic: dictation on, under the Mac app` | not dictated | the office's mic doesn't dictate on the Go engine: nothing asks the Mac app's speech recognition to listen (action=mic, language, cleanup), so a desk's dictates and the snapshot's dictation.on stay false | M3 via the bridge (M1) |
 | `GET /glossary` | `route` | 404 | the iPhone app's speech names (personal build) | M6: personal shell |

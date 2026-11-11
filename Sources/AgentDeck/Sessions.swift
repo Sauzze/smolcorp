@@ -193,6 +193,8 @@ final class Sessions {
     func apply(_ event: [String: Any], agent: Agent, tab: String, startedIn: String, pid: Int32? = nil, parent: String = "",
                at time: Double) {
         guard let id = event["session_id"] as? String, let name = event["hook_event_name"] as? String else { return }
+        // `t3:` ids are the desks of hires in T3 Code (`T3Desks`): no hook event takes one (FXT3Da N7).
+        guard !id.hasPrefix(T3Desks.prefix) else { return }
         let folder = event["cwd"] as? String ?? ""
 
         if let end = endedAt[id], time <= end { return }
