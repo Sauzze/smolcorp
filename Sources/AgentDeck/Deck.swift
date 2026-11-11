@@ -1792,6 +1792,8 @@ final class Deck {
                                        connected: { agent in agent == .claude ? profile.map(Hooks.isConnected) ?? Hooks.isConnected(agent) : Hooks.isConnected(agent) }) {
             return done(.status(409, why))
         }
+        // Without tmux a test copy's hire would open a window of the owner's terminal app: refused, before anything is made.
+        if TestCopy.isOn, !Choices.background(config) { return done(.status(409, TestCopy.OtherApp.terminal.sentence)) }
         if let last = lastHire, Date().timeIntervalSince(last) < Deck.hireCooldown {
             return done(.status(429, "Hired a moment ago. Try again in a few seconds."))
         }
@@ -3023,7 +3025,12 @@ final class Deck {
         summaries.summarize(id, transcript: session.transcript, project: session.projectName, provider: provider, done: done)
     }
 
-    func focus(_ id: String, done: @escaping (Response) -> Void) {
+    func focus(_ id: String, testCopy: Bool = TestCopy.isOn, done: @escaping (Response) -> Void) {
+        // A test copy brings no other app forward (RTCH N1): the Grok app, T3 Code, a terminal. Each says so.
+        if testCopy {
+            if cloud.isGrokApp(session: id) { return done(.status(409, TestCopy.OtherApp.grok.sentence)) }
+            if t3Hire(atDesk: id) != nil { return done(.status(409, TestCopy.OtherApp.t3Code.sentence)) }
+        }
         // A cloud bot's desk: its news seen, and its app brought forward.
         if cloud.tapped(session: id) { return done(.status(204)) }
         // A hire in T3 Code's desk: its done seen, and its own thread opened in T3 Code (T3D-a).
@@ -3041,6 +3048,7 @@ final class Deck {
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404)) }
         // A terminal Smolcorp can only watch has nothing to bring forward: the tap only picks the desk.
         guard let (driver, tab) = terminal(of: session, for: .focus) else { return done(.status(204)) }
+        if testCopy { return done(.status(409, TestCopy.OtherApp.terminal.sentence)) }
         inTab(session.tab, done: done) { driver.focus(tab) }
     }
 

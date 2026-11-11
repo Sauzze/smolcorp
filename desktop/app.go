@@ -43,7 +43,10 @@ func RunApp() int {
 	deck := NewDeck()
 	refreshHooks()
 	deck.mu.Lock()
-	lookAtFirewall(scopeOf(deck.config))
+	// Nothing to read for a test copy on this computer only: the firewall doesn't filter loopback (RTCH N2).
+	if scope := effectiveScope(deck.config); scope != listenThisComputer {
+		lookAtFirewall(scope)
+	}
 	deck.mu.Unlock()
 	watchOpenCode()
 	moveOpenAtLogin()

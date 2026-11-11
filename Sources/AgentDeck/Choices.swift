@@ -40,8 +40,9 @@ enum Choices {
     }
 
     /// Whether hires run in the background now: chosen, and tmux here.
-    static func background(_ config: Config = .shared, hasTmux: Bool = Tmux.path != nil) -> Bool {
-        config.hiresInBackground && hasTmux
+    static func background(_ config: Config = .shared, hasTmux: Bool = Tmux.path != nil, testCopy: Bool = TestCopy.isOn) -> Bool {
+        // A test copy's hires always run in tmux, never in a window of the owner's terminal app (RTCH N1).
+        (config.hiresInBackground || testCopy) && hasTmux
     }
 
     /// What setup shows of the two. Whether T3 Code is installed is looked for only where it's
@@ -372,7 +373,9 @@ extension Deck {
     /// "Open a window" on a hire's desk: one window of the hires' terminal,
     /// attached to the hire's own tmux session, recorded as Smolcorp's. Nil
     /// when it opened, else why not.
-    func openHireWindow(_ id: String, done: @escaping (String?) -> Void) {
+    func openHireWindow(_ id: String, testCopy: Bool = TestCopy.isOn, done: @escaping (String?) -> Void) {
+        // A test copy opens no window of the owner's terminal app (RTCH N1).
+        if testCopy { return done(TestCopy.OtherApp.terminal.sentence) }
         guard let hire = frontDesk.hires.first(where: { $0.id == id && $0.state != .fired && $0.state != .failed }) else {
             return done("That hire isn't on the team.")
         }

@@ -108,7 +108,10 @@ func t3InstalledRecently() bool {
 }
 
 // backgroundHires says whether hires run in the background now: chosen, and tmux here.
-func backgroundHires(c *Config, hasTmux bool) bool { return c.HiresInBackground && hasTmux }
+func backgroundHires(c *Config, hasTmux bool) bool {
+	// A test copy's hires run in tmux with no window, never in one of the owner's terminal app (RTCH N1), as the Mac's.
+	return (c.HiresInBackground || testCopyPort() != 0) && hasTmux
+}
 
 // choicesState is what setup shows of the two. Whether T3 Code is installed is
 // looked for only in first setup, to know whether to ask, and with T3 Code on.
@@ -120,11 +123,14 @@ func choicesState(c *Config, hasTmux bool, installed func() bool) map[string]any
 	return state
 }
 
+// backgroundNeedsTmux is the refusal of background hires with no tmux, in the Mac's words under the Mac app (macWords).
+const backgroundNeedsTmux = "Running hires in the background needs tmux, which isn't on this computer."
+
 // setChoices applies POST /setup/choices: t3, background and asked, each 0 or
 // 1. Whether it switched hires to the background, or a refusal.
 func setChoices(c *Config, query url.Values, hasTmux bool) (switched bool, status int, refusal string) {
 	if query.Get("background") == "1" && !hasTmux {
-		return false, http.StatusBadRequest, "Running hires in the background needs tmux, which isn't on this computer."
+		return false, http.StatusBadRequest, backgroundNeedsTmux
 	}
 	was := backgroundHires(c, hasTmux)
 	if query.Has("t3") {

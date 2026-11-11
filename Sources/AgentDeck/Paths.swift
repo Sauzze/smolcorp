@@ -49,10 +49,42 @@ enum TestCopy {
     /// never asks about it and nothing on the network reaches it, unless SMOLCORP_TEST_LISTEN=lan asks
     /// for every interface, as the phone matrix needs. The real app listens on every interface. The
     /// suite counts as a test copy here: its stand-in servers stay on this Mac too.
-    static let listensOn = listenScope(testCopy: isOn || Paths.underTest, environment: ProcessInfo.processInfo.environment)
+    /// SMOLCORP_TEST_LISTEN=lan left in the environment of `swift test` never puts the suite's stand-in
+    /// servers on the network (RTCH N4): only a real test copy reads it.
+    static let listensOn = listenScope(testCopy: isOn || Paths.underTest,
+                                       environment: isOn ? ProcessInfo.processInfo.environment : [:])
     static func listenScope(testCopy: Bool, environment: [String: String]) -> HTTPServer.Scope {
-        guard testCopy, environment["SMOLCORP_TEST_LISTEN"]?.lowercased() != "lan" else { return .everywhere }
+        guard testCopy, !wantsLAN(environment) else { return .everywhere }
         return .thisMac
+    }
+
+    /// Whether SMOLCORP_TEST_LISTEN says "lan", as the Go engine reads it: spaces around it and the
+    /// letter case don't matter (RTCH N3), so both engines and scripts/test-copy.sh agree.
+    static func wantsLAN(_ environment: [String: String]) -> Bool {
+        environment["SMOLCORP_TEST_LISTEN"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "lan"
+    }
+
+    /// What a test copy never does to another app (RTCH N1): a route or a bridge action that would bring
+    /// a terminal app, T3 Code, the Grok app, System Settings or a system prompt in front of the owner's
+    /// work answers with the sentence below instead. The real app: nothing is refused.
+    enum OtherApp {
+        case terminal, tiler, grok, t3Code, accessibility, fix
+
+        var sentence: String {
+            switch self {
+            case .terminal: return "This is a test copy of Smolcorp: it never brings a terminal app forward or opens a window in one."
+            case .tiler: return "This is a test copy of Smolcorp: it never moves or tiles the windows of other apps."
+            case .grok: return "This is a test copy of Smolcorp: it never opens the Grok app."
+            case .t3Code: return "This is a test copy of Smolcorp: it never opens T3 Code."
+            case .accessibility: return "This is a test copy of Smolcorp: it never asks macOS for Accessibility or opens System Settings."
+            case .fix: return "This is a test copy of Smolcorp: it never opens another app, a download page or System Settings to fix something."
+            }
+        }
+    }
+
+    /// The sentence a test copy answers when asked to bring `app` forward, or nil for the real app.
+    static func refusal(for app: OtherApp, testCopy: Bool = isOn) -> String? {
+        testCopy ? app.sentence : nil
     }
 
     /// A test copy, as it opens, writes a setup link to `setup-link` in its own folder (0600), so a

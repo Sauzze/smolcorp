@@ -187,7 +187,7 @@ enum SelfTest {
     }
 
     enum FixError: LocalizedError, Equatable {
-        case unknown, testCopy, notMoved(String), disconnected
+        case unknown, testCopy, notMoved(String), disconnected, otherApp(TestCopy.OtherApp)
         var errorDescription: String? {
             switch self {
             case .unknown: return "There's no fix by that name."
@@ -195,6 +195,7 @@ enum SelfTest {
                 return "Your agents are disconnected, as you left them, so setup didn't connect them. "
                     + "To connect them again, press Connect in Smolcorp's Settings."
             case .testCopy: return "A test copy stays where it was built."
+            case .otherApp(let app): return app.sentence
             case .notMoved(let why): return "Smolcorp couldn't be moved to Applications: \(why)"
             }
         }
@@ -208,7 +209,15 @@ enum SelfTest {
     }
 
     /// Runs the fix named `name`. On the main queue.
-    static func fix(_ name: String) throws {
+    static func fix(_ name: String, testCopy: Bool = TestCopy.isOn) throws {
+        // Three fixes open another app or a system window (RTCH N1): a test copy refuses them, in a sentence.
+        if testCopy {
+            switch name {
+            case accessibility: throw FixError.otherApp(.accessibility)
+            case tailscale, GMPreflight.automationFix: throw FixError.otherApp(.fix)
+            default: break
+            }
+        }
         switch name {
         case repair:
             // Repair connects what was connected; it never turns voice on, so there's nothing to tell

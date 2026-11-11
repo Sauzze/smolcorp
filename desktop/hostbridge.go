@@ -196,6 +196,8 @@ type macFacts struct {
 	Terminal  terminalCmd  `json:"terminalCommand"`
 	// The office's keys held now and the layout in use (officekey.go).
 	OfficeKey *macOfficeKey `json:"officeKey,omitempty"`
+	// How this Mac writes a short time (macclock.go).
+	TimeFormat macTimeFormat `json:"timeFormat"`
 }
 
 // macDictation is Apple's speech recognition on this Mac: whether it can

@@ -1332,12 +1332,13 @@ const hiringOff = "Hiring and firing are off. Turn them on in setup, on your com
 
 // What the phone is told elsewhere: in the Mac's words under the Mac app (macWords).
 const (
-	pairCodeRefusal    = "That code isn't valid. Get a new one on your computer."
-	settingsElsewhere  = "Settings open on your computer."
-	t3Elsewhere        = "T3 Code opens on your computer."
-	scrollingOff       = "Scrolling is off. Turn it on in setup, on your computer."
-	buttonTypesNothing = "This button types nothing yet. Set it up in setup, on your computer."
-	hireFolderFirst    = "Choose a folder for new hires in setup, on your computer."
+	pairCodeRefusal     = "That code isn't valid. Get a new one on your computer."
+	settingsElsewhere   = "Settings open on your computer."
+	hireWindowElsewhere = "Hires' windows open on your computer."
+	t3Elsewhere         = "T3 Code opens on your computer."
+	scrollingOff        = "Scrolling is off. Turn it on in setup, on your computer."
+	buttonTypesNothing  = "This button types nothing yet. Set it up in setup, on your computer."
+	hireFolderFirst     = "Choose a folder for new hires in setup, on your computer."
 )
 
 var errAgentGone = errors.New("the agent no longer runs in its pane")
@@ -1720,6 +1721,19 @@ func (d *Deck) releaseMic() (int, string) {
 
 // Focus brings a session's tab forward, as far as its terminal allows.
 func (d *Deck) Focus(id string) (int, string) {
+	// A test copy brings no other app forward (RTCH N1): the Grok app, T3 Code, a terminal, as the Mac's.
+	if testCopyPort() != 0 {
+		d.mu.Lock()
+		_, t3Desk := d.t3HireAtDesk(id)
+		grok := d.mac.host != nil && d.cloud.isGrokApp(id) // the lock is held, as macHost() takes it
+		d.mu.Unlock()
+		switch {
+		case grok:
+			return http.StatusConflict, testCopyKeepsGrok
+		case t3Desk:
+			return http.StatusConflict, testCopyKeepsT3Code
+		}
+	}
 	d.mu.Lock()
 	// A cloud bot's desk: its news seen. (The Mac app also brings forward
 	// the app it works in, which is the Mac's only.)
@@ -1748,6 +1762,9 @@ func (d *Deck) Focus(id string) (int, string) {
 	}
 	if isHeadless(tab) {
 		return http.StatusConflict, headlessNoControls
+	}
+	if why := testCopyKeepsAway(testCopyKeepsTerminal); why != "" {
+		return http.StatusConflict, why
 	}
 	return d.inTab(tab, func(t Tab) error { return t.Focus() })
 }

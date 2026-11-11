@@ -812,6 +812,9 @@ final class CloudDesks {
         return apply(.seen, to: bot.id)
     }
 
+    /// Whether the desk is a bot of the Grok Bot app, whose tap opens that app.
+    func isGrokApp(session id: String) -> Bool { bot(ofSession: id)?.source.kind == "grokBotApp" }
+
     /// The desk was tapped: its news is seen, and the app it works in comes forward.
     func tapped(session id: String) -> Bool {
         guard let bot = bot(ofSession: id) else { return false }

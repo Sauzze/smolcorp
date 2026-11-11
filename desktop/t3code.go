@@ -477,6 +477,10 @@ var t3Opening = struct {
 // t3OpenOnce is t3Open once at a time for a hire: a second open for the same hire while one runs is a 409. What's
 // installed is checked once it's this hire's turn.
 func t3OpenOnce(h Hire, m t3Machine) (int, any) {
+	// A test copy never brings T3 Code forward (RTCH N1), whatever way it's asked.
+	if why := testCopyKeepsAway(testCopyKeepsT3Code); why != "" {
+		return http.StatusConflict, why
+	}
 	t3Opening.Lock()
 	busy := t3Opening.ids[h.ID]
 	t3Opening.ids[h.ID] = true

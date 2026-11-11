@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -85,7 +84,7 @@ func setupCookie() string {
 // this computer and Tailscale only, or a test copy on this computer only (see listen.go).
 func Serve(deck *Deck) error {
 	deck.mu.Lock()
-	scope := testCopyScope(scopeOf(deck.config), testCopyPort(), os.Getenv(testListenVariable))
+	scope := effectiveScope(deck.config)
 	deck.mu.Unlock()
 	listenScope = scope
 	listener, err := listenerFor(scope, Port)
@@ -546,7 +545,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// Setup's Open a window (openHireWindow).
 	case r.URL.Path == "/hire/window" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
 		if phoneID != officeWindowID {
-			writeStatus(w)(http.StatusForbidden, "Hires' windows open on your computer.")
+			writeStatus(w)(http.StatusForbidden, hireWindowElsewhere)
 			return
 		}
 		if r.Method == http.MethodGet {
@@ -1302,7 +1301,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		switched, status, refusal := setChoices(config, query, tmux)
 		if refusal != "" {
 			d.mu.Unlock()
-			http.Error(w, refusal, status)
+			http.Error(w, inMacWords(refusal), status)
 			return
 		}
 		config.save()
@@ -2244,6 +2243,10 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 // terminal attached to the hire's own tmux session, recorded as this app's (on a
 // Mac, through the app). 204, or 409 and why not.
 func (d *Deck) openHireWindow(hire Hire) (int, string) {
+	// A test copy opens no window of the owner's terminal app (RTCH N1).
+	if why := testCopyKeepsAway(testCopyKeepsTerminal); why != "" {
+		return http.StatusConflict, why
+	}
 	if hire.State == "fired" || hire.State == "failed" {
 		return http.StatusConflict, "That hire isn't on the team."
 	}
@@ -2276,17 +2279,19 @@ func writeStatus(w http.ResponseWriter) func(int, string) {
 // macWords are the phone's sentences that name this computer, or say how the phone reaches it, as the Mac
 // app's Swift engine says them (Deck.swift, DeckRouter.swift).
 var macWords = map[string]string{
-	pairCodeRefusal:    "That code isn't valid. Get a new one on your Mac.",
-	settingsElsewhere:  "Settings open on your Mac.",
-	t3Elsewhere:        "T3 Code opens on your Mac.",
-	hiringOff:          "Hiring and firing are off. Turn them on in setup, on your Mac.",
-	scrollingOff:       "Scrolling is off. Turn it on in setup, on your Mac.",
-	buttonTypesNothing: "This button types nothing yet. Set it up in setup, on your Mac.",
-	hireFolderFirst:    "Choose a folder for new hires in setup, on your Mac.",
-	musicOff:           "The jukebox can't play your music: turn it on in setup, on your Mac.",
-	phoneTextOff:       "The phone mic is off. Turn it on in setup, on your Mac.",
-	peekTailnet:        "The input line shows only over Tailscale's HTTPS address.",
-	choiceTailnet:      "The details show only over Tailscale's HTTPS address.",
+	pairCodeRefusal:     "That code isn't valid. Get a new one on your Mac.",
+	settingsElsewhere:   "Settings open on your Mac.",
+	hireWindowElsewhere: "Hires' windows open on your Mac.",
+	backgroundNeedsTmux: "Running hires in the background needs tmux, which isn't on this Mac.",
+	t3Elsewhere:         "T3 Code opens on your Mac.",
+	hiringOff:           "Hiring and firing are off. Turn them on in setup, on your Mac.",
+	scrollingOff:        "Scrolling is off. Turn it on in setup, on your Mac.",
+	buttonTypesNothing:  "This button types nothing yet. Set it up in setup, on your Mac.",
+	hireFolderFirst:     "Choose a folder for new hires in setup, on your Mac.",
+	musicOff:            "The jukebox can't play your music: turn it on in setup, on your Mac.",
+	phoneTextOff:        "The phone mic is off. Turn it on in setup, on your Mac.",
+	peekTailnet:         "The input line shows only over Tailscale's HTTPS address.",
+	choiceTailnet:       "The details show only over Tailscale's HTTPS address.",
 }
 
 // inMacWords is message as the Mac app says it, under the Mac app; elsewhere as it is.

@@ -347,7 +347,7 @@ func (d *Deck) setupHireRoute(w http.ResponseWriter, method, path string, body i
 	// Mac's Deck.hire refuses first, for every caller. Start here's own GM hire
 	// (hireFromSetup) keeps its rule.
 	if off {
-		http.Error(w, hiringOff, http.StatusForbidden)
+		http.Error(w, inMacWords(hiringOff), http.StatusForbidden)
 		return true
 	}
 	// On the API-key account: only while it's offered, refused in the Mac's words (or this computer's) before anything is made.

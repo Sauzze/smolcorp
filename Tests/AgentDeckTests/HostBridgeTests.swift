@@ -78,6 +78,69 @@ final class HostBridgeTests: XCTestCase {
 
     private func isOK(_ answer: [String: Any]) -> Bool { answer["ok"] as? Bool == true }
 
+    /// RTCH N1: on a test copy the bridge refuses what would bring another app or a system window forward, in a
+    /// plain sentence, and asks the Mac nothing; on the real app the same actions go through.
+    func testATestCopyRefusesWhatWouldBringAnotherAppForward() throws {
+        var told: [String] = []
+        func copy(_ on: Bool) -> HostBridge.Actions {
+            var actions = self.actions
+            actions.testCopy = on
+            actions.main = terminals
+            actions.askAccessibility = { told.append("accessibility") }
+            actions.t3OpenApp = { told.append("t3-app") }
+            actions.t3OpenLink = { _ in told.append("t3-link"); return true }
+            return actions
+        }
+        let script = hires.appendingPathComponent("hire-1.sh")
+        try Data("#!/bin/sh\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+        let link = "t3code://threads/env-1/mcp%3Aabc-1"
+        let requests: [(String, [String: Any], TestCopy.OtherApp)] = [
+            ("focus", ["action": "focus", "tab": "tmux:%1@/tmp/s"], .terminal),
+            ("open", ["action": "open", "terminal": "terminal", "folder": folder.path, "script": script.path], .terminal),
+            ("accessibility", ["action": "accessibility"], .accessibility),
+            ("t3-open-app", ["action": "t3-open-app"], .t3Code),
+            ("t3-link", ["action": "t3-link", "link": link], .t3Code),
+        ]
+        for (name, request, app) in requests {
+            var line = request
+            line["token"] = token
+            let data = try JSONSerialization.data(withJSONObject: line)
+            let refused = HostBridge.answer(data, token: token, actions: copy(true))
+            XCTAssertEqual(refused["ok"] as? Bool, false, name)
+            XCTAssertEqual(refused["error"] as? String, app.sentence, name)
+        }
+        XCTAssertTrue(told.isEmpty, "the Mac was asked nothing")
+        XCTAssertTrue(asked.isEmpty, "no tab was driven, no window opened")
+        // The real app's actions still go through.
+        for (name, request, _) in requests {
+            var line = request
+            line["token"] = token
+            let data = try JSONSerialization.data(withJSONObject: line)
+            let answered = HostBridge.answer(data, token: token, actions: copy(false))
+            XCTAssertEqual(answered["ok"] as? Bool, true, name)
+        }
+        XCTAssertEqual(told, ["accessibility", "t3-app", "t3-link"])
+        // Looking at T3 Code's app is not opening it.
+        XCTAssertEqual(HostBridge.answer(try JSONSerialization.data(withJSONObject: ["token": token, "action": "t3-app"]),
+                                         token: token, actions: copy(true))["ok"] as? Bool, true)
+    }
+
+    /// RFXC1a N5: the facts say how this Mac writes a short time, so the core writes a webhook's delivery time as the Mac does.
+    func testTheFactsSayHowTheMacWritesAShortTime() throws {
+        let english = HostBridge.shortTimeFormat(locale: Locale(identifier: "en_US"))
+        XCTAssertTrue(try XCTUnwrap(english["pattern"]).hasPrefix("h:mm"), "\(english)")
+        XCTAssertEqual(english["am"], "AM")
+        XCTAssertEqual(english["pm"], "PM")
+        XCTAssertEqual(HostBridge.shortTimeFormat(locale: Locale(identifier: "fr_FR"))["pattern"], "HH:mm")
+        var facts = actions
+        facts.facts = { _ in ["timeFormat": HostBridge.shortTimeFormat(locale: Locale(identifier: "en_GB"))] }
+        facts.main = terminals
+        let line = try JSONSerialization.data(withJSONObject: ["token": token, "action": "facts"])
+        let answered = HostBridge.answer(line, token: token, actions: facts)["facts"] as? [String: Any]
+        XCTAssertEqual((answered?["timeFormat"] as? [String: String])?["pattern"], "HH:mm")
+    }
+
     func testNothingWithoutTheToken() {
         XCTAssertFalse(isOK(ask(["action": "hello"], token: "wrong-token-wrong-token-wrong-tok")))
         XCTAssertFalse(isOK(ask(["action": "hello"], token: "")))
@@ -364,7 +427,8 @@ final class HostBridgeTests: XCTestCase {
         try Data("#!/bin/sh\n".utf8).write(to: spaced)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: spaced.path)
         var opened: [String] = []
-        var actions = HostBridge.Actions.onThisMac(testCopy: true, opener: { command, folder, terminal in
+        // Not a test copy: a test copy opens no window of a terminal (RTCH N1), which testATestCopyRefusesWhatWouldBringAnotherAppForward checks.
+        var actions = HostBridge.Actions.onThisMac(testCopy: false, opener: { command, folder, terminal in
             opened.append("\(terminal)|\(folder)|\(command)")
             return Openers.Opened(tab: "iterm:AB12", window: nil)
         })

@@ -626,6 +626,12 @@ func (c *cloudDesks) last(id string) *CloudAction {
 	return nil
 }
 
+// isGrokApp is whether desk id is a bot of the Grok Bot app, whose tap the Mac app answers by opening that app.
+func (c *cloudDesks) isGrokApp(id string) bool {
+	bot, ok := c.botOf(id)
+	return ok && bot.Source.Kind == "grokBotApp"
+}
+
 // seen: its card was opened, or its desk tapped: its news is seen, and
 // nothing else happens. False for a desk that isn't a cloud bot's. (The Mac
 // app's tap also brings the Grok Bot app forward, which is the Mac's only.)

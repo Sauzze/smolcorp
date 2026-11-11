@@ -138,7 +138,7 @@ for _ in $(seq 200); do
   sleep 0.1
 done
 WHERE="this Mac only"
-[[ "$(printf %s "${SMOLCORP_TEST_LISTEN:-}" | tr "[:upper:]" "[:lower:]")" == "lan" ]] && WHERE="the local network too"
+[[ "$(printf %s "${SMOLCORP_TEST_LISTEN:-}" | tr "[:upper:]" "[:lower:]" | tr -d '[:space:]')" == "lan" ]] && WHERE="the local network too"
 if [[ -n "$COPY" ]]; then
   echo "Smolcorp Test is running on port $PORT ($WHERE), pid $COPY, with its settings in $SUPPORT."
   echo "Quit it with: kill $COPY"

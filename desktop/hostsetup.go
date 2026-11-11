@@ -226,6 +226,10 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 
 	// Setup's Accessibility step: macOS asks you, in its own window.
 	case path == "/setup/accessibility":
+		// A test copy puts no system prompt or System Settings in front of the owner (RTCH N1).
+		if refusedInTestCopy(w, testCopyKeepsAccessibility) {
+			return true
+		}
 		if err := hostAskAccessibility(h); err != nil {
 			bridgeFailed(w, err)
 			return true

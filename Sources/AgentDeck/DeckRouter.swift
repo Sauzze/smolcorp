@@ -1343,6 +1343,8 @@ final class DeckRouter: Router {
 
         // Tiling: each hire's viewer window over its desk, or a read-only tmux grid where a terminal can't place windows.
         case ("POST", "/setup/gm/tile"):
+            // Tiling moves other apps' windows: a test copy never does (RTCH N1).
+            if let why = TestCopy.refusal(for: .tiler) { return respond(.status(409, why)) }
             let seats = Tiler.seats(fromTeam: deck.frontDesk.teamJSON(live: deck.frontDeskLive())["team"] as? [[String: Any]] ?? [])
             let screens = Tiler.screens()
             guard let screen = Tiler.teamScreen(among: screens, chosen: config.teamScreen) else { return respond(.status(409, "No screen was found to tile on.")) }
@@ -1525,6 +1527,8 @@ final class DeckRouter: Router {
             }
 
         case ("POST", "/setup/accessibility"):
+            // A test copy puts no system prompt or System Settings in front of the owner (RTCH N1).
+            if let why = TestCopy.refusal(for: .accessibility) { return respond(.status(409, why)) }
             Permissions.requestAccessibility()
             respond(.status(204))
 
