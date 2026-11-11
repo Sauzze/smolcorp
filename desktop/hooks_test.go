@@ -1326,6 +1326,18 @@ func TestUnderTheMacAppTheRefreshReplacesTheSwiftEnginesReportScript(t *testing.
 	if !isOurs(map[string]any{"command": `"` + script + `" codex`}) || isOurs(map[string]any{"command": `"` + script + `" nobody`}) {
 		t.Error("an agent's report.sh entry is the deck's only with an agent's name after it")
 	}
+	// Exact (RGAPC N2): the Swift engine wrote the bare path for Claude Code and Grok, and the agent's name only for
+	// Codex, Gemini and OpenCode; `claude` or `grok` after it was never written, so it is the user's own.
+	for _, command := range []string{`"` + script + `" claude`, `"` + script + `" grok`} {
+		if isOurs(map[string]any{"command": command}) {
+			t.Errorf("%s counts as the deck's, which Swift never wrote", command)
+		}
+	}
+	for _, name := range []string{"codex", "gemini", "opencode"} {
+		if !isOurs(map[string]any{"command": `"` + script + `" ` + name}) || !isOurs(map[string]any{"command": `"` + script + `"`}) {
+			t.Errorf("an entry Swift wrote (%s) isn't the deck's", name)
+		}
+	}
 	// Not under the Mac app (Linux, Windows), nor another folder's script: not the deck's.
 	if isOurs(map[string]any{"command": `"/elsewhere/report.sh"`}) {
 		t.Error("another folder's report.sh counts as the deck's")

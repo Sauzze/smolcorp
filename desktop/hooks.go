@@ -537,7 +537,7 @@ func isMacReportScript(command string) bool {
 		return false
 	}
 	agent, spaced := strings.CutPrefix(rest, " ")
-	return rest == "" || spaced && slices.Contains(agents, Agent(agent))
+	return rest == "" || spaced && Agent(agent) != Claude && Agent(agent) != Grok && slices.Contains(agents, Agent(agent))
 }
 
 // isHookArguments is what follows hook in the deck's command: at most

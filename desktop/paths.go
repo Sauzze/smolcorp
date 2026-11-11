@@ -87,11 +87,27 @@ func useSupportDir(dir string) {
 // on a Mac (AgentDeck), so the setup key is found there.
 func supportDirName(goos string) string { return appdirs.Name(goos) }
 
-// writePrivate writes a file only its owner can read, as the keys need.
+// writePrivate writes a file only its owner can read, as the keys need: to a file beside it, then put in its
+// place. The temp file is set to 0600 once open, before any of the data goes in, so one left by a crash with a
+// wider mode is never what lands in the key's place.
 func writePrivate(path string, data []byte) error {
 	temp := path + ".tmp"
-	if err := os.WriteFile(temp, data, 0o600); err != nil {
+	file, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
 		return err
 	}
-	return os.Rename(temp, path)
+	err = file.Chmod(0o600)
+	if err == nil {
+		_, err = file.Write(data)
+	}
+	if closed := file.Close(); err == nil {
+		err = closed
+	}
+	if err == nil {
+		err = os.Rename(temp, path)
+	}
+	if err != nil {
+		_ = os.Remove(temp)
+	}
+	return err
 }

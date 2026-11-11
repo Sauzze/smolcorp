@@ -297,6 +297,10 @@ func hostPlaceOffice(h hostBridge, rect tileRect, mainHeight float64) error {
 	return err
 }
 
+// testCopyKeepsWindows is what a test copy answers to a tile, word for word as the Mac's TestCopy.OtherApp.tiler and the
+// test copies' sentences of the Go core have it (desktop/testcopyapps.go on feat/words-tc).
+const testCopyKeepsWindows = "This is a test copy of Smolcorp: it never moves or tiles the windows of other apps."
+
 // gmScreenRoutes answers the GM's screens and tile under the Mac app, and says whether the request was one of
 // them. The route table and the manager's switch have had their say by here.
 func (rt *router) gmScreenRoutes(w http.ResponseWriter, r *request) bool {
@@ -313,6 +317,12 @@ func (rt *router) gmScreenRoutes(w http.ResponseWriter, r *request) bool {
 	id := r.URL.Query().Get("id")
 	if path == "/setup/gm/screen" && id == "" {
 		writeStatus(w)(http.StatusBadRequest, "Say which screen: id=<id> from /setup/gm/screens.")
+		return true
+	}
+	// A test copy never moves another app's windows: told before the Mac is asked for anything (the Swift engine's
+	// TestCopy.routeRefusal). Which screen to use and the screens are the copy's own to keep and read.
+	if path == "/setup/gm/tile" && testCopyPort() != 0 {
+		writeStatus(w)(http.StatusConflict, testCopyKeepsWindows)
 		return true
 	}
 	screens, err := hostScreens(h)

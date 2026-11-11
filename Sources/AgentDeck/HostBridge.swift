@@ -512,6 +512,8 @@ final class HostBridge {
     /// for your answer to macOS's Automation question: under the core's own wait for it (desktop/gmscreens.go's
     /// tileWait). And the most windows moved at once: the ground floor's nine desks.
     static var tileWait: TimeInterval = 90
+    /// What a test copy says to the GM's tiling, as the Go core says it (testCopyKeepsWindows in desktop/gmscreens.go).
+    static let testCopyKeepsWindows = "This is a test copy of Smolcorp: it never moves or tiles the windows of other apps."
     static let tilePlacesMost = 9
 
     /// The GM's tiling, for the core (desktop/gmscreens.go), as the Swift engine's `POST /setup/gm/tile` did it with
@@ -519,6 +521,10 @@ final class HostBridge {
     /// AppleScript on its queue, each to the place the core gives for the tty it shows; the office's window put
     /// under them. The grid and which windows are the core's to work out.
     private static func tiling(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
+        // A test copy never moves another app's windows, nor puts its own office under them: the Swift engine's refusal
+        // of `POST /setup/gm/tile` (TestCopy.routeRefusal), now where the bridge's two moving actions are. Reading the
+        // screens is harmless.
+        if action != "screens", actions.testCopy { return refused(testCopyKeepsWindows) }
         switch action {
         case "screens":
             switch run(on: actions.main, until: deadline, { actions.screens() }) {

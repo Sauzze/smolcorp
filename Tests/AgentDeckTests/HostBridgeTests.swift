@@ -72,11 +72,11 @@ final class HostBridgeTests: XCTestCase {
         return actions
     }
 
-    private func ask(_ request: [String: Any], token given: String? = nil) -> [String: Any] {
+    private func ask(_ request: [String: Any], token given: String? = nil, actions these: HostBridge.Actions? = nil) -> [String: Any] {
         var request = request
         request["token"] = given ?? token
         let line = try! JSONSerialization.data(withJSONObject: request)
-        return HostBridge.answer(line, token: token, actions: actions)
+        return HostBridge.answer(line, token: token, actions: these ?? actions)
     }
 
     private func isOK(_ answer: [String: Any]) -> Bool { answer["ok"] as? Bool == true }
@@ -848,7 +848,10 @@ final class HostBridgeTests: XCTestCase {
             request["token"] = token
             // The core says the desk waits at its prompt, but ttys006's began asking as its terminal got to the words.
             let held = request["tab"] as? String == "tty:/dev/ttys006"
-            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: token, actions: mac,
+            // A test copy's tile is refused before any terminal is told anything (B1, RGAPC).
+            var here = mac
+            here.testCopy = one["name"] as? String == "tiling refused in a test copy"
+            let answer = HostBridge.answer(try JSONSerialization.data(withJSONObject: request), token: token, actions: here,
                                            deskState: { held ? .asking : .unread })
             XCTAssertEqual(text(answer), text(one["answer"] ?? NSNull()), one["name"] as? String ?? "")
         }
@@ -880,6 +883,33 @@ final class HostBridgeTests: XCTestCase {
             XCTAssertEqual(answer["error"] as? String, refusal, "\(request)")
         }
         XCTAssertEqual(windowQueues, [], "nothing was run on a terminal's queue")
+    }
+
+    /// A test copy never moves another app's windows (B1, RGAPC): `tile` and `office-place` are refused with the Swift
+    /// engine's sentence before any terminal's queue, AppleScript or window is touched. The screens are only read. The
+    /// same requests are done for the Mac in use.
+    func testATestCopyRefusesToTileAndToPlaceTheOffice() {
+        var copy = actions
+        copy.main = terminals // the test is on the main queue, which would wait for itself
+        copy.testCopy = true
+        var scripts = 0, placed = 0
+        copy.tileScript = { _, _ in scripts += 1; return .failed }
+        copy.placeOffice = { _, _ in placed += 1 }
+        copy.screens = { [["id": "1", "name": "Built-in"]] }
+        let place: [String: Any] = ["tty": "/dev/ttys003", "rect": ["x": 0, "y": 30, "width": 480, "height": 573]]
+        let office: [String: Any] = ["x": 0, "y": 1750, "width": 1440, "height": 810]
+        for request in [["action": "tile", "terminal": "terminal", "places": [place]],
+                        ["action": "tile", "terminal": "iterm", "places": [place]],
+                        ["action": "tile", "terminal": "ghostty", "places": [place]],
+                        ["action": "office-place", "office": office, "mainHeight": 2560]] as [[String: Any]] {
+            let answer = ask(request, actions: copy)
+            XCTAssertFalse(isOK(answer), "\(request)")
+            XCTAssertEqual(answer["error"] as? String, HostBridge.testCopyKeepsWindows, "\(request)")
+        }
+        XCTAssertEqual(HostBridge.testCopyKeepsWindows, "This is a test copy of Smolcorp: it never moves or tiles the windows of other apps.")
+        XCTAssertEqual(scripts + placed, 0, "nothing was run")
+        XCTAssertEqual(windowQueues, [], "nothing was run on a terminal's queue")
+        XCTAssertTrue(isOK(ask(["action": "screens"], actions: copy)), "the screens are only read")
     }
 
     /// The API-key account for a hire (M4c): whether it's offered and in what words, never reading the key; the key

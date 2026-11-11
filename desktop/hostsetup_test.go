@@ -330,6 +330,10 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			placed, needsPermission, err := hostTile(h, "iterm", []tilePlace{{"/dev/ttys005", tileRect{0, 30, 480, 573}}})
 			return []any{placed, needsPermission}, err
 		},
+		"tiling refused in a test copy": func(h hostBridge) (any, error) {
+			placed, needsPermission, err := hostTile(h, "terminal", []tilePlace{{"/dev/ttys003", tileRect{0, 30, 480, 573}}})
+			return []any{placed, needsPermission}, err
+		},
 		"the office's window put under the team": func(h hostBridge) (any, error) {
 			return nil, hostPlaceOffice(h, tileRect{0, 1750, 1440, 810}, 2560)
 		},
@@ -396,6 +400,10 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		}
 		if refusal := appRefusal(""); !fake.answer.OK && !errors.As(err, &refusal) {
 			t.Errorf("%q: %v isn't the app's refusal", c.Name, err)
+		}
+		// The app says a test copy's no in the words the core's own refusal has (B1, RGAPC).
+		if c.Name == "tiling refused in a test copy" && (err == nil || err.Error() != testCopyKeepsWindows) {
+			t.Errorf("%q: the app said %v, want %q", c.Name, err, testCopyKeepsWindows)
 		}
 		if fake.asked == nil {
 			t.Errorf("%q: nothing asked", c.Name)

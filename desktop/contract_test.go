@@ -1144,7 +1144,8 @@ func TestTheKnownGapsAreInventorysGoStatus(t *testing.T) {
 		switch {
 		case !ok:
 			t.Errorf("%s has a fixture but no row in INVENTORY.md", route)
-		case row.goStatus != want:
+		// "served" may say where, as the Mac-only rows do: "served (under the Mac app, …; 404 on Linux and Windows)".
+		case row.goStatus != want && !(want == "served" && strings.HasPrefix(row.goStatus, "served (")):
 			t.Errorf("%s: INVENTORY.md says Go %q, the known gaps say %q", route, row.goStatus, want)
 		case !strings.Contains(row.fixture, ".json"):
 			t.Errorf("%s: INVENTORY.md names no fixture", route)

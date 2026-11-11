@@ -212,6 +212,11 @@
       "answer": {"ok": true, "placed": [], "needsPermission": true}
     },
     {
+      "name": "tiling refused in a test copy",
+      "request": {"action": "tile", "terminal": "terminal", "places": [{"tty": "/dev/ttys003", "rect": {"x": 0, "y": 30, "width": 480, "height": 573}}]},
+      "answer": {"ok": false, "error": "This is a test copy of Smolcorp: it never moves or tiles the windows of other apps."}
+    },
+    {
       "name": "the office's window put under the team",
       "request": {"action": "office-place", "office": {"x": 0, "y": 1750, "width": 1440, "height": 810}, "mainHeight": 2560},
       "answer": {"ok": true}

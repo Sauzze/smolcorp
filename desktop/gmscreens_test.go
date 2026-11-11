@@ -173,3 +173,35 @@ func TestTheGMScreensRoutesUnderTheMacApp(t *testing.T) {
 		t.Errorf("no screen: %d %q", code, body)
 	}
 }
+
+// B1 (RGAPC): a test copy never tiles. The tile route is told no before the Mac is asked for a screen or anything
+// else, in the sentence of the other test-copy refusals; the screens and the choice of one are still the copy's.
+func TestATestCopyRefusesTiling(t *testing.T) {
+	mac := withMac(t)
+	mac.screens = []macScreen{builtIn, tallLeft}
+	onPort(t, 7799)
+	if testCopyPort() == 0 {
+		t.Fatal("not a test copy")
+	}
+	d := newTestDeck(t)
+	managerOn(d)
+	code, _, body := fromPage(t, d, http.MethodPost, "/setup/gm/tile", nil)
+	if code != http.StatusConflict || body != testCopyKeepsWindows || !strings.HasPrefix(body, "This is a test copy of Smolcorp: it never ") {
+		t.Errorf("tile in a test copy: %d %q", code, body)
+	}
+	mac.mu.Lock()
+	for _, asked := range mac.asked {
+		if asked.Action == "screens" || asked.Action == "tile" || asked.Action == "office-place" {
+			t.Errorf("the Mac was asked %q by a refused tile", asked.Action)
+		}
+	}
+	mac.mu.Unlock()
+	if code, said, _ := fromPage(t, d, http.MethodGet, "/setup/gm/screens", nil); code != http.StatusOK || said["ask"] != true {
+		t.Errorf("screens in a test copy: %d %v", code, said)
+	}
+	// The office's own port still tiles.
+	onDefaultPort(t)
+	if code, _, body := fromPage(t, d, http.MethodPost, "/setup/gm/tile", nil); code != http.StatusOK || strings.Contains(body, "test copy") {
+		t.Errorf("tile on the office's port: %d %q", code, body)
+	}
+}
