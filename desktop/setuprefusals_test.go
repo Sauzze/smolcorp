@@ -44,3 +44,38 @@ func TestTheSetupSideRefusesAsTheMacDoes(t *testing.T) {
 		}
 	}
 }
+
+// A bot's floor sent as a number isn't refused: it changes nothing, as the Mac's reads only text (the page sends text).
+func TestABotsFloorSentAsANumberIsIgnoredNotRefused(t *testing.T) {
+	d := newTestDeck(t)
+	page := func(path, body string) *httptest.ResponseRecorder {
+		return serve(t, d, call{method: "POST", target: path, body: body, host: "localhost:7710", from: thisComputer,
+			headers: map[string]string{setupHeader: "1"}})
+	}
+	if got := page("/setup/bots", `{"bots":[{"id":"c2-bot2","name":"C2 Bot Two"}]}`); got.Code != http.StatusOK {
+		t.Fatalf("the bot: %d %s", got.Code, got.Body)
+	}
+	floor := func() string {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.config.CloudBots[0].Floor
+	}
+	before := floor()
+	for _, body := range []string{`{"id":"c2-bot2","floor":3}`, `{"id":"c2-bot2","floor":null}`, `{"id":"c2-bot2","floor":["3"]}`, `{"id":"c2-bot2","floor":true}`} {
+		if got := page("/setup/bots/override", body); got.Code != http.StatusOK {
+			t.Errorf("%s: %d %s", body, got.Code, got.Body)
+		}
+	}
+	if floor() != before {
+		t.Errorf("the floor moved to %q from %q", floor(), before)
+	}
+	// As text it still moves it.
+	want := cloudFloors[len(cloudFloors)-1]
+	if got := page("/setup/bots/override", `{"id":"c2-bot2","floor":"`+want+`"}`); got.Code != http.StatusOK || floor() != want {
+		t.Errorf("as text: %d, floor %q, want %q", got.Code, floor(), want)
+	}
+	// And a bot that isn't there is as it was.
+	if got := page("/setup/bots/override", `{"id":"nobody","floor":3}`); got.Code != http.StatusNotFound {
+		t.Errorf("no such bot: %d %s", got.Code, got.Body)
+	}
+}

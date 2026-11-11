@@ -3,6 +3,8 @@ package desktop
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"runtime"
 	"slices"
@@ -620,5 +622,82 @@ func TestSetupPinsABotOrPutsItOnAFloorAndKeepsTheMacAppsFields(t *testing.T) {
 	}
 	if code := override(`{"id": "mini", "hidden": true}`); code != 200 || len(d.config.CloudBots) != 0 {
 		t.Errorf("hidden gave %d, bots %v", code, d.config.CloudBots)
+	}
+}
+
+// botNews posts a bot's event to /bots/<id>/event as the caller named, and gives the status.
+func botNews(t *testing.T, d *Deck, as, target string, extra map[string]string) int {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPost, target, strings.NewReader(`{"type":"seen"}`))
+	r.Host, r.RemoteAddr = "localhost:7710", thisComputer
+	r.Header.Set(setupHeader, "1")
+	switch as {
+	case "page":
+		d.mu.Lock()
+		r.AddCookie(&http.Cookie{Name: setupCookie(), Value: d.access.NewSetupSession()})
+		d.mu.Unlock()
+	case "tool":
+		r.Header.Set(setupKeyHeader, d.access.SetupKey)
+	}
+	for name, value := range extra {
+		r.Header.Set(name, value)
+	}
+	// An empty setup header in extra means none at all.
+	if value, ok := extra[setupHeader]; ok && value == "" {
+		r.Header.Del(setupHeader)
+	}
+	w := httptest.NewRecorder()
+	(&router{deck: d}).ServeHTTP(w, r)
+	return w.Code
+}
+
+// The setup page's cookie may post a bot's news, as a tool's key may (the table's "/bots/*": page, tool): the Mac's
+// gate lets the page through where the Go core answered 401. With nobody known it is 401 still.
+func TestThePagesCookieMayPostABotsNews(t *testing.T) {
+	d := newTestDeck(t)
+	asked := serve(t, d, call{method: "POST", target: "/setup/bots", body: `{"bots":[{"id":"c2-bot","name":"C2 Bot"}]}`, host: "localhost:7710", from: thisComputer,
+		headers: map[string]string{setupHeader: "1"}})
+	if asked.Code != http.StatusOK {
+		t.Fatalf("the bot: %d %s", asked.Code, asked.Body)
+	}
+	for _, c := range []struct {
+		as, target string
+		want       int
+	}{
+		{"page", "/bots/c2-bot/event", http.StatusNoContent},
+		{"tool", "/bots/c2-bot/event", http.StatusNoContent},
+		{"page", "/bots/no-such-bot/event", http.StatusNotFound},
+		{"", "/bots/c2-bot/event", http.StatusUnauthorized},
+	} {
+		if got := botNews(t, d, c.as, c.target, nil); got != c.want {
+			t.Errorf("%q %s: %d, want %d", c.as, c.target, got, c.want)
+		}
+	}
+	// Nobody else may: a hire's key and the GM's token are refused (403), alone or together, and the page's cookie
+	// without the setup header is refused too (a page from another site can't send it).
+	if err := os.WriteFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hireKey, err := newSendKey(registryPath(), "aaa111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gmToken := d.newGMToken()
+	for name, c := range map[string]struct {
+		as    string
+		extra map[string]string
+	}{
+		"a hire key":              {"", map[string]string{hireKeyHeader: hireKey}},
+		"a GM token":              {"", map[string]string{gmTokenHeader: gmToken}},
+		"a hire key and GM token": {"", map[string]string{hireKeyHeader: hireKey, gmTokenHeader: gmToken}},
+	} {
+		if got := botNews(t, d, c.as, "/bots/c2-bot/event", c.extra); got != http.StatusForbidden {
+			t.Errorf("%s: %d, want 403", name, got)
+		}
+	}
+	for _, as := range []string{"page", "tool"} {
+		if got := botNews(t, d, as, "/bots/c2-bot/event", map[string]string{setupHeader: ""}); got != http.StatusForbidden {
+			t.Errorf("%s without the setup header: %d, want 403", as, got)
+		}
 	}
 }

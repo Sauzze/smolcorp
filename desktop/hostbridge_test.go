@@ -178,3 +178,87 @@ func TestTheAppsOwnItems(t *testing.T) {
 		t.Errorf("the Summary key is the first of the app's items: %q", bridgeSecrets[0])
 	}
 }
+
+// watchOnly is a deck with a Claude Code session in a terminal Smolcorp can only watch, a tmux one, and a headless run, and
+// a paired phone: asks gives what each of the phone's controls answers.
+type watchOnly struct {
+	d     *Deck
+	phone string
+}
+
+func newWatchOnly(t *testing.T) watchOnly {
+	t.Helper()
+	d := newTestDeck(t)
+	hookOn(d, "watch", "SessionStart", "/work/watch", "other:/dev/ttys009", "/work/watch", 1793500000000)
+	hookOn(d, "tmuxed", "SessionStart", "/work/tmuxed", "tmux:%1@/tmp/fxc2b-no-such-socket", "/work/tmuxed", 1793500000001)
+	hookOn(d, "headless", "SessionStart", "/work/headless", "headless:3f2a9c1e", "/work/headless", 1793500000002)
+	d.mu.Lock()
+	d.config.ScrollEnabled = true
+	d.mu.Unlock()
+	return watchOnly{d: d, phone: pair(t, d)}
+}
+
+func (w watchOnly) post(t *testing.T, path, query string) (int, string) {
+	t.Helper()
+	got := serve(t, w.d, call{method: "POST", target: path + "?" + query + "&t=" + w.phone, host: deckOnWiFi, from: aPhone})
+	return got.Code, got.Body.String()
+}
+
+// On a desk in a terminal Smolcorp can only watch, under the Mac app, every control but Let go says "Smolcorp can't do
+// that in this terminal yet." (409), the effort dial included, and a tap on the desk (/focus) only picks it (204), as
+// the Swift engine does. A terminal it has a driver for takes the effort; a headless run is as it was for the controls.
+func TestAWatchOnlyDeskAnswersAsTheMacsEngineDoes(t *testing.T) {
+	withMac(t)
+	w := newWatchOnly(t)
+	for _, action := range []string{"effort&level=high", "send", "accept", "reject", "esc", "up", "down", "scroll&lines=3", "scroll&to=bottom", "mic&phase=down", "clear"} {
+		if status, said := w.post(t, "/act", "action="+action+"&session=watch"); status != http.StatusConflict || said != notHere {
+			t.Errorf("%s: %d %q", action, status, said)
+		}
+	}
+	// The terminal is looked at before the level, as the Mac's order is.
+	if status, said := w.post(t, "/act", "action=effort&level=nope&session=watch"); status != http.StatusConflict || said != notHere {
+		t.Errorf("a bad level on a watch-only desk: %d %q", status, said)
+	}
+	if status, said := w.post(t, "/focus", "session=watch"); status != http.StatusNoContent || said != "" {
+		t.Errorf("focus: %d %q", status, said)
+	}
+	// A headless run: nothing to bring forward either (the Mac's 204), and its controls say it runs headless.
+	if status, said := w.post(t, "/focus", "session=headless"); status != http.StatusNoContent || said != "" {
+		t.Errorf("focus, headless: %d %q", status, said)
+	}
+	if status, said := w.post(t, "/act", "action=effort&level=high&session=headless"); status != http.StatusConflict || said != headlessNoControls {
+		t.Errorf("effort, headless: %d %q", status, said)
+	}
+	// The effort is taken where the terminal has a driver, and queued until the agent is free.
+	if status, said := w.post(t, "/act", "action=effort&level=high&session=tmuxed"); status != http.StatusNoContent && status != http.StatusAccepted || said != "" {
+		t.Errorf("effort in tmux: %d %q", status, said)
+	}
+	// A watch-only desk's effort wasn't taken.
+	w.d.mu.Lock()
+	pending := w.d.sessions.Get("watch").PendingEffort
+	w.d.mu.Unlock()
+	if pending != "" {
+		t.Errorf("the effort was kept: %q", pending)
+	}
+}
+
+// Without the Mac app, Linux and Windows keep what they answered: the dial's effort is taken on any desk (their desks
+// show the dial everywhere), a control the terminal can't do is 404 "This terminal can't do that", a tap on a watch-only
+// desk is that 404 and on a headless run its own 409.
+func TestWithoutTheMacAppAWatchOnlyDeskIsAsItWas(t *testing.T) {
+	w := newWatchOnly(t)
+	for _, action := range []string{"send", "accept", "esc", "scroll&lines=3", "mic&phase=down", "clear"} {
+		if status, said := w.post(t, "/act", "action="+action+"&session=watch"); status != http.StatusNotFound || said != "This terminal can't do that" {
+			t.Errorf("%s: %d %q", action, status, said)
+		}
+	}
+	if status, said := w.post(t, "/act", "action=effort&level=high&session=watch"); status != http.StatusNoContent || said != "" {
+		t.Errorf("effort: %d %q", status, said)
+	}
+	if status, said := w.post(t, "/focus", "session=watch"); status != http.StatusNotFound || said != "This terminal can't do that" {
+		t.Errorf("focus: %d %q", status, said)
+	}
+	if status, said := w.post(t, "/focus", "session=headless"); status != http.StatusConflict || said != headlessNoControls {
+		t.Errorf("focus, headless: %d %q", status, said)
+	}
+}

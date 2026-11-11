@@ -856,3 +856,35 @@ func TestTheOfficesHireWindowIsTheOfficesOwnWindowsOnly(t *testing.T) {
 		t.Errorf("a window opened: %q", h.windows)
 	}
 }
+
+// Hiring off, an empty desk is 403 in the Mac's words, as the Mac's hire checks it first; with hiring on it is still
+// "Unknown desk" (400). The same on every OS, with "computer" for "Mac" off the Mac app.
+func TestHiringAtAnEmptyDeskWithHiringOffIsRefusedAsHiringOff(t *testing.T) {
+	for _, mac := range []bool{false, true} {
+		if mac {
+			withMac(t)
+		}
+		d := newTestDeck(t)
+		key := pair(t, d)
+		hire := func() (int, string) {
+			got := serve(t, d, call{method: "POST", target: "/act?action=hire&desk=&t=" + key, host: deckOnWiFi, from: aPhone})
+			return got.Code, got.Body.String()
+		}
+		want := hiringOff
+		if mac {
+			want = "Hiring and firing are off. Turn them on in setup, on your Mac."
+		}
+		d.mu.Lock()
+		d.config.HiringEnabled = false
+		d.mu.Unlock()
+		if status, said := hire(); status != http.StatusForbidden || said != want {
+			t.Errorf("mac %v, hiring off: %d %q", mac, status, said)
+		}
+		d.mu.Lock()
+		d.config.HiringEnabled = true
+		d.mu.Unlock()
+		if status, said := hire(); status != http.StatusBadRequest || said != "Unknown desk" {
+			t.Errorf("mac %v, hiring on: %d %q", mac, status, said)
+		}
+	}
+}
