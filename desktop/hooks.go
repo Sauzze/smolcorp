@@ -170,11 +170,24 @@ func allConnected() bool {
 
 var errNoAgents = errors.New("No coding agent found on this computer. Install one, open it once, then connect again.")
 
+// errTestCopyAgents is a test copy's no, in the Mac's words (Hooks.HookError.testCopy): a copy on a port of its own
+// never writes your agents' settings, which are the real Smolcorp's. Its hires report through a hook of their own.
+var errTestCopyAgents = errors.New("This is a test copy of Smolcorp: it doesn't change your agents' settings. Report to it with a hook of its own.")
+
+// leavesAgentsAlone is whether this copy never writes your agents' settings (~/.claude, ~/.codex, ~/.gemini,
+// OpenCode's plugin, Grok's hooks): a test copy, on any computer. Every writer below asks it first.
+func leavesAgentsAlone() bool {
+	return testCopyPort() != 0
+}
+
 // connectAgents connects every agent found. One whose settings can't be read
 // is left alone, and named in the error once the others are done.
 // The notice returned says so when connecting turned Claude Code's voice on;
 // with turnOnVoice false (the repair) it never does.
 func connectAgents(turnOnVoice bool) (string, error) {
+	if leavesAgentsAlone() {
+		return "", errTestCopyAgents
+	}
 	found := foundAgents()
 	if len(found) == 0 {
 		return "", errNoAgents
@@ -221,6 +234,9 @@ func connect(agent Agent, turnOnVoice bool) error {
 
 // connectVoice is connect, and says whether it turned voice on.
 func connectVoice(agent Agent, turnOnVoice bool) (bool, error) {
+	if leavesAgentsAlone() {
+		return false, errTestCopyAgents
+	}
 	entries := entriesFor(agent)
 	if entries == nil {
 		if err := writePlugin(); err != nil {
@@ -277,6 +293,9 @@ func connectVoice(agent Agent, turnOnVoice bool) (bool, error) {
 }
 
 func disconnectAgents() error {
+	if leavesAgentsAlone() {
+		return errTestCopyAgents
+	}
 	for _, agent := range agents {
 		entries := entriesFor(agent)
 		switch {
@@ -321,7 +340,11 @@ func disconnectAgents() error {
 // didn't. Voice is left alone: only connecting turns it on. An agent whose
 // entries name another office's port is left as it is, so two offices on one
 // computer never move each other's hooks: only connecting replaces them.
+// A test copy refreshes none: they're the real Smolcorp's.
 func refreshHooks() {
+	if leavesAgentsAlone() {
+		return
+	}
 	for _, agent := range foundAgents() {
 		if namesAnotherOffice(agent) {
 			continue
@@ -416,6 +439,9 @@ func writePlugin() error {
 
 // writePluginLocked is writePlugin, with openCodeMu held.
 func writePluginLocked() error {
+	if leavesAgentsAlone() {
+		return errTestCopyAgents
+	}
 	stamp := openCodeStamp()
 	template, err := fs.ReadFile(agentdeck.Files, openCodePluginTemplate())
 	if err != nil {
@@ -682,6 +708,9 @@ const (
 // followed, so the file it points to, in a dotfiles folder say, is the one
 // that changes. The backups are made first, or nothing is written.
 func writeSettings(settings map[string]any, file string, backup bool) error {
+	if leavesAgentsAlone() {
+		return errTestCopyAgents
+	}
 	if resolved, err := filepath.EvalSymlinks(file); err == nil {
 		file = resolved
 	}

@@ -559,9 +559,11 @@ func parseLayout(data []byte) (Layout, error) {
 }
 
 // checked keeps what the deck can draw and press: known buttons, each of
-// the deck's own once, within the limits.
+// the deck's own once, within the limits. Desks are always as many as there
+// are sessions now: a fixed count, from an older config, profile or page, is
+// read but not kept, as the Mac's (Layout.swift).
 func (l Layout) checked() Layout {
-	checked := Layout{Keys: l.Keys, Office: l.Office, Room: l.Room.checked(), Dial: l.Dial, Stick: l.Stick, Rows: []ButtonRow{}}
+	checked := Layout{Keys: Auto, Office: l.Office, Room: l.Room.checked(), Dial: l.Dial, Stick: l.Stick, Rows: []ButtonRow{}}
 	seen := map[string]bool{}
 	for _, row := range l.Rows[:min(len(l.Rows), maxRows)] {
 		buttons := []Button{}

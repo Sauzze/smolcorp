@@ -41,7 +41,7 @@ func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
 			r.Header.Set(setupKeyHeader, d.access.SetupKey)
 		} else {
 			d.mu.Lock()
-			r.AddCookie(&http.Cookie{Name: setupCookie, Value: d.access.NewSetupSession()})
+			r.AddCookie(&http.Cookie{Name: setupCookie(), Value: d.access.NewSetupSession()})
 			d.mu.Unlock()
 		}
 	}
@@ -413,7 +413,7 @@ func TestWhatSetupReadsAndChangesNeedsTheSetupKey(t *testing.T) {
 	}
 	// The key is for the header only: as a cookie, it opens nothing.
 	if got := local(call{method: "GET", target: "/setup/state", withoutSetupKey: true,
-		headers: map[string]string{"Cookie": setupCookie + "=" + d.access.SetupKey}}); got != http.StatusUnauthorized {
+		headers: map[string]string{"Cookie": setupCookie() + "=" + d.access.SetupKey}}); got != http.StatusUnauthorized {
 		t.Errorf("setup's state with the key as a cookie: %d, want %d", got, http.StatusUnauthorized)
 	}
 	// Nor does the key open a session at /setup/session: only a token does.

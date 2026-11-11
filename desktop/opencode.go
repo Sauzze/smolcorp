@@ -162,6 +162,9 @@ func lookAtOpenCode() {
 // forgetOpenCode removes the plugin, as disconnecting does, and what it was
 // written for, so connecting again writes it afresh.
 func forgetOpenCode() {
+	if leavesAgentsAlone() {
+		return
+	}
 	openCodeMu.Lock()
 	defer openCodeMu.Unlock()
 	_ = os.Remove(openCodePlugin())

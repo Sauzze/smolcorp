@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"fmt"
@@ -75,14 +76,16 @@ func checkedFloorRules(given []FloorRule) floorRuleList {
 // floorRulesSent is the rules POST /setup/floors sends, as {"rules": [...]},
 // checked; false when there's no list of them, as from a setup page from
 // before rules.
+// Rules that aren't a list are none, as the Mac reads them (Floor.rules): never an empty list that clears them.
 func floorRulesSent(body []byte) (floorRuleList, bool) {
 	var sent struct {
-		Rules *floorRuleList `json:"rules"`
+		Rules json.RawMessage `json:"rules"`
 	}
-	if json.Unmarshal(body, &sent) != nil || sent.Rules == nil {
+	var rules floorRuleList
+	if json.Unmarshal(body, &sent) != nil || !bytes.HasPrefix(sent.Rules, []byte("[")) || json.Unmarshal(sent.Rules, &rules) != nil {
 		return nil, false
 	}
-	return checkedFloorRules(*sent.Rules), true
+	return checkedFloorRules(rules), true
 }
 
 // ruleFolder is a rule's folder as it's kept: a whole path, a Mac's or

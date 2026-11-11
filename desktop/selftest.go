@@ -51,7 +51,11 @@ func (d *Deck) selfTest() []check {
 	if install := installCheck(); install != nil {
 		checks = append(checks, *install)
 	}
-	checks = append(checks, hooksCheck(foundAgents(), isConnected, hooksPointHere))
+	if leavesAgentsAlone() {
+		checks = append(checks, testCopyHooksCheck())
+	} else {
+		checks = append(checks, hooksCheck(foundAgents(), isConnected, hooksPointHere))
+	}
 	d.mu.Lock()
 	scope := scopeOf(d.config)
 	phones := phonesOnly(d.access.Phones)
@@ -68,6 +72,13 @@ func (d *Deck) selfTest() []check {
 // isn't.
 func ready(checks []check) bool {
 	return !slices.ContainsFunc(checks, func(c check) bool { return c.Status == checkFix })
+}
+
+// testCopyHooksCheck is a test copy's hooks line, as the Mac's (SelfTest.hooksCheck): ticked, with no Connect, as
+// a test copy never writes your agents' settings (errTestCopyAgents) and its hires report through a hook of their own.
+func testCopyHooksCheck() check {
+	return check{ID: "hooks", Status: checkOK, Title: "Your agents report to Smolcorp",
+		Detail: "Your hires report to this test copy through its own hook. Sessions you start yourself report to the Smolcorp you use."}
 }
 
 // hooksCheck is whether every agent found reports to this Smolcorp: hooked
