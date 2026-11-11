@@ -88,6 +88,10 @@ func t3TakeOverRefusal(h Hire, session t3Session, home string, testCopy bool) st
 		return name + " is waiting to be handed back from T3 Code: hand it back first."
 	case h.Role == gmRole:
 		return "The General Manager isn't taken over in T3 Code."
+	// T3 Code's agent works on your Claude sign-in, and Hand back resumes on the default account: an API-key hire
+	// would come back on your subscription (RMSY S1).
+	case h.Account == apiKeyAccountName:
+		return name + " works on the API-key account, and T3 Code's agent works on your Claude account, so it can't take this session over."
 	case h.ViaLauncher:
 		return name + " runs in a window of Smolcorp's launcher: Take over reaches only a hire in a tmux session of its own, for now."
 	case h.TmuxSocket == "" || !strings.HasPrefix(filepath.Base(h.TmuxSocket), hireSocketPrefix):
@@ -135,9 +139,11 @@ type t3Handing struct {
 	Fence func() (map[string]any, error)
 	// Stop ends the hire's Claude Code (session) in its own tmux, as a fire would without force: an error says why not.
 	Stop func(h Hire, session string) error
-	// Resume starts `claude --resume <session>` in the hire's own tmux, with its own settings file.
-	Resume func(h Hire, session string) error
-	// Save changes hire id's row in the registry.
+	// Resume starts `claude --resume <session>` in the hire's own tmux, with its own settings file: its tmux socket
+	// as tmux spells it, for the registry.
+	Resume func(h Hire, session string) (string, error)
+	// Save changes hire id's row in the registry: an error when it couldn't be written, or the row is gone or no
+	// longer open (fired or failed meanwhile).
 	Save func(id string, change func(*Hire)) error
 }
 
@@ -273,9 +279,11 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 	thread := t3ImportedThread + session.ID
 	if project == "" {
 		// Added but not as asked, or no answer (T3 Code may have added it): taken back as Smolcorp's. Only a project
-		// T3 Code refused to add (one already there, someone else's) is left alone.
+		// T3 Code refused to add (one already there, someone else's) is left alone. Its thread goes on record first,
+		// as below: if the Hand back stops too, the next one still removes the project (RM5c2 S1).
 		if !added.Ended || added.Code == 0 {
 			h.T3Thread = thread
+			_ = t3SaveTries(ways, func() error { return ways.Save(h.ID, func(r *Hire) { r.T3Thread = thread }) })
 		}
 		return giveBack(http.StatusBadGateway, "T3 Code didn't add "+name+"'s worktree as its own project ("+t3Said(added)+"), so it wasn't handed over.")
 	}
@@ -368,17 +376,29 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 		return "", t3Refused(http.StatusInternalServerError, "The registry couldn't be written, so "+name+" wasn't resumed.")
 	}
 	// 5. Its session resumed in its own tmux session, with its own settings file.
-	if err := ways.Resume(h, session); err != nil {
+	socket, err := ways.Resume(h, session)
+	if err != nil {
 		return "", t3Refused(http.StatusInternalServerError, name+"'s session is free, but it couldn't be resumed: "+err.Error()+" Hand it back again to retry.")
 	}
+	// Its socket as tmux spells it, as the engine keeps it, in the same checked save.
 	if !t3SaveTries(ways, func() error {
-		return ways.Save(h.ID, func(r *Hire) { r.T3Session, r.T3Transcript, r.State = "", "", "working" })
+		return ways.Save(h.ID, func(r *Hire) {
+			r.T3Session, r.T3Transcript, r.State = "", "", "working"
+			if socket != "" {
+				r.TmuxSocket = socket
+			}
+		})
 	}) {
 		// It runs in its tmux; only the registry lags. Hand back again sees its own session there and clears it
 		// (handBackFromT3), as nothing else would: Fire waits for Hand back (RM5c N2).
 		note = strings.TrimSpace(note + " " + t3ResumedUnsaved(name))
 	}
 	return note, nil
+}
+
+// t3BeingTakenOver is a fire of hire h refused while it's being taken over in T3 Code.
+func t3BeingTakenOver(h Hire) string {
+	return calledHire(h) + " is being taken over in T3 Code right now, so it wasn't fired: try again once that's done."
 }
 
 // t3ResumedUnsaved is what Hand back says when the hire was resumed but the registry still has it as handed over.
@@ -426,6 +446,24 @@ func (d *Deck) t3SessionOf(h Hire) t3Session {
 	return t3Session{ID: found[0].ID, Transcript: found[0].Transcript}
 }
 
+// t3SaveOpen changes hire id's row in the registry, only while it's open: a row gone, or fired or failed meanwhile
+// (a registry edit), is an error and is left as it is, so Take over never goes on with a hire that's gone (RM5b N4).
+func t3SaveOpen(id string, change func(*Hire)) error {
+	gone := false
+	if err := updateRegistry(func(f *registryFile) {
+		i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id && isOpen(h) })
+		if gone = i < 0; !gone {
+			change(&f.hires[i])
+		}
+	}); err != nil {
+		return err
+	}
+	if gone {
+		return errors.New("that hire is gone from the registry")
+	}
+	return nil
+}
+
 // t3Stand's ways, for Take over and Hand back: tests replace them.
 var t3HandingStand func(d *Deck, h Hire) t3Handing
 
@@ -457,14 +495,10 @@ func (d *Deck) t3HandingFor(h Hire) t3Handing {
 			d.mu.Unlock()
 			return nil
 		},
-		Resume: func(h Hire, session string) error { return d.t3ResumeInTmux(h, session, claudeDenyProfiles(saved)) },
-		Save: func(id string, change func(*Hire)) error {
-			return updateRegistry(func(f *registryFile) {
-				if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id }); i >= 0 {
-					change(&f.hires[i])
-				}
-			})
+		Resume: func(h Hire, session string) (string, error) {
+			return d.t3ResumeInTmux(h, session, claudeDenyProfiles(saved))
 		},
+		Save: t3SaveOpen,
 	}
 }
 
@@ -484,16 +518,33 @@ func (d *Deck) takeOverIntoT3(id string) (int, any) {
 	}
 	session := d.t3SessionOf(asked)
 	t3Desk.Lock()
+	// The hire held from fires until Take over is done: a fire under way refuses it, and a fire from now on is
+	// refused, then reads the registry again and finds it taken over (RM5c2 N1).
+	firing.Lock()
+	beingFired := firing.ids[id]
+	if !beingFired {
+		firing.takingOver[id] = true
+	}
+	firing.Unlock()
 	// Read again once it's this one's turn, so a second click finds it already taken over.
 	hire, found := registryHire(id)
 	var thread string
 	var err error
-	if found {
+	switch {
+	case !found:
+	case beingFired:
+		err = t3Refused(http.StatusConflict, calledHire(hire)+" is being fired right now, so it wasn't taken over.")
+	default:
 		if why := t3TakeOverRefusal(hire, session, ways.Machine.Home, testCopyPort() != 0); why != "" {
 			err = t3Refused(http.StatusConflict, why)
 		} else {
 			thread, err = t3TakeOver(hire, session, ways)
 		}
+	}
+	if !beingFired {
+		firing.Lock()
+		delete(firing.takingOver, id)
+		firing.Unlock()
 	}
 	t3Desk.Unlock()
 	d.mu.Lock()

@@ -257,6 +257,11 @@ func editHire(path string, body []byte) (Hire, *refusal) {
 		if json.Unmarshal(v, &text) != nil || !slices.Contains(hireStates, text) {
 			return Hire{}, &refusal{http.StatusBadRequest, "State is one of " + strings.Join(hireStates, ", ") + "."}
 		}
+		// A hire taken over (in T3 Code, or waiting for Hand back) is handed back first, as a fire is refused: marked
+		// gone, Hand back would never be offered again and T3 Code's project would stay (RM5c2 N2).
+		if (text == "fired" || text == "failed") && isOpen(file.hires[i]) && file.hires[i].T3Session != "" {
+			return Hire{}, &refusal{http.StatusConflict, calledHire(file.hires[i]) + " was taken over in T3 Code: hand it back first, then mark it " + text + "."}
+		}
 		hire.State = text
 	}
 	if v, ok := given["notes"]; ok {

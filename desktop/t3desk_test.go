@@ -60,7 +60,9 @@ func newT3Rig(t *testing.T) *t3Rig {
 // fake installs a fake t3 in ~/.local/bin: each run's arguments one to a line, then "--". flags make a step
 // fail: addfail, elsewhere (add names another folder), eatfence (add deletes the fence), startfail, ownworktree
 // (show has a T3 worktree), otherproject (show has another project), slow (show takes a second), removefail,
-// gone (remove finds no project), busy (send queues), sendfail, authfail (Take over's sign-in, t3takeover_test.go). At `project add` it notes whether the
+// gone (remove finds no project), busy (send queues), sendfail, authfail (Take over's sign-in, t3takeover_test.go),
+// authgarbled (the sign-in answers what Smolcorp can't read; `auth session list` has one of Smolcorp's and one
+// other). At `project add` it notes whether the
 // worktree, the fence, git's ignoring it and the brief were there; `thread send` keeps its standard input.
 func (r *t3Rig) fake(flags ...string) {
 	r.t.Helper()
@@ -105,6 +107,8 @@ case "$1 $2" in
     echo "{\"threadId\":\"$3\",\"status\":\"starting\",\"delivery\":\"started\"}"; exit 0 ;;
   "auth session")
     has authfail && { echo '{"sessionId":"s-1","token":"fake-tok-leak"}'; echo "Could not open T3 Code's auth store." >&2; exit 1; }
+    has authgarbled && [ "$3" = issue ] && { echo "Issued bearer access token s-9."; exit 0; }
+    [ "$3" = list ] && { echo '[{"sessionId":"s-9","client":{"label":"` + t3CallLabel + `","deviceType":"bot"}},{"sessionId":"s-8","client":{"label":"Someone else","deviceType":"bot"}}]'; exit 0; }
     [ "$3" = issue ] && { echo '{"sessionId":"s-1","token":"fake-tok","method":"bearer","scopes":["orchestration:operate"]}'; exit 0; }
     echo "Revoked session $4."; exit 0 ;;
   "project remove")
@@ -199,11 +203,12 @@ func (r *t3Rig) ways() t3Ways {
 		},
 		DiscardBrief: func() { r.log = append(r.log, "discard"); _ = os.Remove(brief) },
 		Register:     func(place hirePlace) error { r.log = append(r.log, "register "+place.Branch); return nil },
-		Started: func(thread, link, _ string) {
+		Started: func(thread, link, _ string) error {
 			r.log = append(r.log, "started")
 			r.startedWith = []string{thread, link}
+			return nil
 		},
-		Fail: func(why string) { r.log = append(r.log, "fail"); r.failed = append(r.failed, why) },
+		Fail: func(why string) error { r.log = append(r.log, "fail"); r.failed = append(r.failed, why); return nil },
 	}
 }
 
@@ -1259,5 +1264,58 @@ func TestT3TheFenceIsTheMacsByteForByte(t *testing.T) {
 	// The fence a Go hire gets is that: auto mode as the Mac's, on a Mac only.
 	if !t3FenceAuto("darwin") || t3FenceAuto("linux") || t3FenceAuto("windows") {
 		t.Error("auto mode")
+	}
+}
+
+// FXM5c: a thread the registry couldn't keep isn't left only in memory: the hire is taken back, its project
+// removed, and the registry told why. When that can't be written either, the answer says so, and that the next
+// launch lets it go; t3MarkFailed says when the registry couldn't be written.
+func TestT3AThreadTheRegistryCantKeepIsTakenBack(t *testing.T) {
+	r := newT3Rig(t)
+	r.fake()
+	repo := r.repo()
+	ways := r.ways()
+	started := ways.Started
+	ways.Started = func(thread, link, brief string) error {
+		_ = started(thread, link, brief)
+		return errors.New("disk full")
+	}
+	_, err := t3HireInto(r.hiring(repo), ways)
+	refused := refusalOf(t, err)
+	if refused.Status != http.StatusInternalServerError || refused.Message != "The registry couldn't be written, so the hire was taken back." {
+		t.Errorf("%+v", refused)
+	}
+	runs := r.runs()
+	if !reflect.DeepEqual(runs[len(runs)-1], []string{"project", "remove", r.worktree(), "--force"}) || exists(r.worktree()) || r.branchExists(repo) {
+		t.Errorf("not taken back: %q", runs)
+	}
+	if !reflect.DeepEqual(r.failed, []string{refused.Message}) {
+		t.Errorf("%q", r.failed)
+	}
+
+	r = newT3Rig(t)
+	r.fake("addfail")
+	ways = r.ways()
+	ways.Fail = func(string) error { return errors.New("disk full") }
+	_, err = t3HireInto(r.hiring(r.repo()), ways)
+	if refused := refusalOf(t, err); !strings.HasSuffix(refused.Message, " The registry couldn't be written either, so it shows as starting until Smolcorp's next launch lets it go.") {
+		t.Errorf("%q", refused.Message)
+	}
+
+	h := r.t3Hire(r.worktree())
+	t3Registered(t, h)
+	blocker := registryPath() + ".tmp"
+	if err := os.Mkdir(blocker, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if t3MarkFailed(registryPath(), h.ID, "why") == nil {
+		t.Error("an unwritten registry said nothing")
+	}
+	_ = os.Remove(blocker)
+	if err := t3MarkFailed(registryPath(), h.ID, "why"); err != nil {
+		t.Error(err)
+	}
+	if after, _ := registryHire(h.ID); after.State != "failed" || after.Notes != "why" {
+		t.Errorf("%+v", after)
 	}
 }

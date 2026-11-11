@@ -40,13 +40,22 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 		firing.Unlock()
 		return refuse(calledHire(h) + " is being fired already.")
 	}
+	if firing.takingOver[h.ID] {
+		firing.Unlock()
+		return refuse(t3BeingTakenOver(h))
+	}
 	firing.ids[h.ID] = true
 	firing.Unlock()
 	defer func() { firing.Lock(); delete(firing.ids, h.ID); firing.Unlock() }()
 
+	// Read again once this fire holds the hire: a Take over that finished meanwhile left it in T3 Code, or
+	// waiting for Hand back, and it's handed back first (RM5c2 N1).
 	for _, now := range readRegistry(registryPath(), false).hires {
 		if now.ID == h.ID && (now.State == "fired" || now.State == "failed") {
 			return refuse(calledHire(h) + " is already gone.")
+		}
+		if now.ID == h.ID && now.T3Session != "" {
+			return refuse(t3FireTakenOver(now))
 		}
 	}
 	unreached := "Couldn't reach " + calledHire(h) + "'s tmux session, so nothing was changed."

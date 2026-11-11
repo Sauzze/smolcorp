@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"runtime"
@@ -65,16 +66,18 @@ func t3FenceSettings(hireID string, profiles []claudeProfile) (map[string]any, e
 // its permissions bypassed anyway, so it only matters for the file being the Mac's, byte for byte.
 func t3FenceAuto(system string) bool { return system == "darwin" }
 
-// t3MarkFailed marks hire id failed in the registry at path, its reason before its notes.
-func t3MarkFailed(path, id, reason string) {
+// t3MarkFailed marks hire id failed in the registry at path, its reason before its notes: an error when the
+// registry couldn't be written.
+func t3MarkFailed(path, id, reason string) error {
 	frontDeskMu.Lock()
 	defer frontDeskMu.Unlock()
 	file := readRegistry(path, true)
 	if i := slices.IndexFunc(file.hires, func(h Hire) bool { return h.ID == id }); i >= 0 {
 		file.hires[i].State = "failed"
 		file.hires[i].Notes = firstRunes(strings.Join(slices.DeleteFunc([]string{reason, file.hires[i].Notes}, func(s string) bool { return s == "" }), "\n"), longestNotes)
-		_ = file.save(path)
+		return file.save(path)
 	}
+	return nil
 }
 
 // hireIntoT3 hires into T3 Code (EXPERIMENTAL), in the Mac's Deck.hire order: hiring off, the per-hire refusals
@@ -159,14 +162,19 @@ func (d *Deck) hireIntoT3Now(ask t3Ask, role Role, on bool, profiles []claudePro
 			hire.T3Floor = &floor
 			return updateRegistry(func(f *registryFile) { f.hires = append(f.hires, hire) })
 		},
-		Started: func(thread, link, brief string) {
-			_ = updateRegistry(func(f *registryFile) {
-				if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == hireID }); i >= 0 {
-					f.hires[i].T3Thread, f.hires[i].T3Link, f.hires[i].Brief = thread, link, brief
-				}
-			})
+		Started: func(thread, link, brief string) error {
+			if t3SaveTries(t3Handing{Pause: time.Sleep}, func() error {
+				return updateRegistry(func(f *registryFile) {
+					if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == hireID }); i >= 0 {
+						f.hires[i].T3Thread, f.hires[i].T3Link, f.hires[i].Brief = thread, link, brief
+					}
+				})
+			}) {
+				return nil
+			}
+			return errors.New("the registry couldn't be written")
 		},
-		Fail: func(why string) { t3MarkFailed(registryPath(), hireID, "Didn't start in T3 Code: "+why) },
+		Fail: func(why string) error { return t3MarkFailed(registryPath(), hireID, "Didn't start in T3 Code: "+why) },
 	}
 	if _, err := t3HireInto(hiring, ways); err != nil {
 		if refused, ok := err.(*hireRefusal); ok {
@@ -252,7 +260,9 @@ func (d *Deck) startT3Follow() {
 			reasons := t3Reconcile(left, t3Leaver())
 			t3Desk.Unlock()
 			for _, r := range reasons {
-				t3MarkFailed(registry, r.ID, r.Reason)
+				// Unwritten, it's still "starting" with no thread: the next launch lets it go again, which finds no
+				// project (t3NoProject) and marks it then.
+				_ = t3MarkFailed(registry, r.ID, r.Reason)
 			}
 			d.mu.Lock()
 			d.changed()

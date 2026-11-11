@@ -139,14 +139,16 @@ func (f *t3FakeServer) made() []string {
 // session's transcript on the default account; and the ways, each a stand-in that writes down what it did.
 type t3TakeOverRig struct {
 	*t3Rig
-	srv      *t3FakeServer
-	hire     Hire
-	session  t3Session
-	saved    Hire
-	holders  func() []int
-	looks    bool
-	stopped  error
-	resumed  error
+	srv     *t3FakeServer
+	hire    Hire
+	session t3Session
+	saved   Hire
+	holders func() []int
+	looks   bool
+	stopped error
+	resumed error
+	// socket is the resumed tmux socket as tmux spells it, "" for none.
+	socket   string
 	stat     func(string) (os.FileInfo, error)
 	now      time.Time
 	pausedAt func()
@@ -196,9 +198,9 @@ func (k *t3TakeOverRig) ways() t3Handing {
 			k.log = append(k.log, "stop "+session)
 			return k.stopped
 		},
-		Resume: func(h Hire, session string) error {
+		Resume: func(h Hire, session string) (string, error) {
 			k.log = append(k.log, "resume "+session)
-			return k.resumed
+			return k.socket, k.resumed
 		},
 		Save: func(id string, change func(*Hire)) error {
 			if id != k.hire.ID {
@@ -272,6 +274,8 @@ func TestT3TakeOverRefusesEveryHireItCantTakeOver(t *testing.T) {
 		{with(func(h *Hire) { h.Engine = t3Engine }), session, false, "Ada already runs in T3 Code."},
 		{with(func(h *Hire) { h.T3Session = t3TakeOverSession }), session, false, "Ada is waiting to be handed back from T3 Code: hand it back first."},
 		{with(func(h *Hire) { h.Role = gmRole }), session, false, "The General Manager isn't taken over in T3 Code."},
+		// RMSY S1: it would come back on your subscription.
+		{with(func(h *Hire) { h.Account = apiKeyAccountName }), session, false, "Ada works on the API-key account, and T3 Code's agent works on your Claude account, so it can't take this session over."},
 		{with(func(h *Hire) { h.ViaLauncher, h.TmuxSocket = true, "" }), session, false, "Ada runs in a window of Smolcorp's launcher: Take over reaches only a hire in a tmux session of its own, for now."},
 		{with(func(h *Hire) { h.TmuxSocket = "" }), session, false, "Only a hire Smolcorp runs in a tmux session of its own can be taken over in T3 Code, and Ada isn't one."},
 		{with(func(h *Hire) { h.TmuxSocket = "/tmp/default" }), session, false, "Only a hire Smolcorp runs in a tmux session of its own can be taken over in T3 Code, and Ada isn't one."},
@@ -1016,7 +1020,8 @@ func TestT3TakeOverRunsWithItsPinnedArgumentListsOnly(t *testing.T) {
 	}
 	if runs := t3RunsIn(t, "t3internal.go", ".Run(program, "); !reflect.DeepEqual(runs, []string{
 		`[]string{"auth", "session", "issue", "--scope", t3CallScope, "--ttl", "2m", "--label", t3CallLabel, "--json"}`,
-		`[]string{"auth", "session", "revoke", session.SessionID}`,
+		`[]string{"auth", "session", "revoke", id}`,
+		`[]string{"auth", "session", "list", "--json"}`,
 	}) {
 		t.Errorf("%q", runs)
 	}
@@ -1096,5 +1101,244 @@ func TestT3HoldingFindsAProcessNamingTheSession(t *testing.T) {
 	found, looked := processesHolding(t.TempDir(), t3TakeOverSession)
 	if !looked || !slices.Contains(found, holder.Process.Pid) {
 		t.Errorf("%v %v", found, looked)
+	}
+}
+
+// MARK: TAKEOVER-2
+
+// RM5c2 S1: a project T3 Code added but not as asked (or didn't answer about) has its thread on record before it's
+// handed back, so when that Hand back stops at the project's removal, the next one still removes it.
+func TestT3TakeOverAProjectAddedButNotAsAskedIsOnRecordBeforeItsHandedBack(t *testing.T) {
+	removes := func(k *t3TakeOverRig) int {
+		n := 0
+		for _, run := range k.runs() {
+			if slices.Equal(run, []string{"project", "remove", k.hire.Worktree, "--force"}) {
+				n++
+			}
+		}
+		return n
+	}
+	for _, how := range []string{"elsewhere", "no answer"} {
+		k := newT3TakeOverRig(t, "elsewhere", "removefail")
+		ways := k.ways()
+		if how == "no answer" {
+			run := ways.Machine.Run
+			ways.Machine.Run = func(program string, args []string, within time.Duration) t3Ran {
+				if slices.Equal(args[:2], []string{"project", "add"}) {
+					return t3Ran{}
+				}
+				return run(program, args, within)
+			}
+		}
+		_, err := t3TakeOver(k.hire, k.session, ways)
+		if refused := refusalOf(t, err); !strings.Contains(refused.Message, "Then handing it back didn't finish either: T3 Code didn't remove Ada's project") {
+			t.Fatalf("%s: %q", how, refused.Message)
+		}
+		if k.saved.T3Thread != t3ImportedThread+t3TakeOverSession || k.saved.T3Session != t3TakeOverSession {
+			t.Fatalf("%s: only in memory: %+v", how, k.saved)
+		}
+		// T3 Code answers again: the next Hand back removes the project, then resumes.
+		k.fake()
+		if _, err := t3HandBack(k.saved, k.ways()); err != nil || removes(k) != 2 || k.saved.T3Thread != "" || k.saved.T3Session != "" {
+			t.Errorf("%s: %v, %d removals, %+v", how, err, removes(k), k.saved)
+		}
+	}
+}
+
+// RM5c2 N1: Take over holds the hire from fires while it runs, and is refused while a fire holds it.
+func TestT3TakeOverAndAFireOfOneHireNeverRunAtOnce(t *testing.T) {
+	k := newT3TakeOverRig(t)
+	keptMachine, keptStand := newT3Machine, t3HandingStand
+	newT3Machine = k.machine
+	held := false
+	t3HandingStand = func(*Deck, Hire) t3Handing {
+		ways := k.ways()
+		stop := ways.Stop
+		ways.Stop = func(h Hire, session string) error {
+			firing.Lock()
+			held = firing.takingOver[h.ID]
+			firing.Unlock()
+			return stop(h, session)
+		}
+		return ways
+	}
+	t.Cleanup(func() { newT3Machine, t3HandingStand = keptMachine, keptStand })
+	t3Kept.Lock()
+	t3Kept.status, t3Kept.at = t3Status{}, time.Time{}
+	t3Kept.Unlock()
+	d := newTestDeck(t)
+	d.mu.Lock()
+	d.config.T3CodeEnabled = true
+	d.mu.Unlock()
+	t3Registered(t, k.hire)
+	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree,
+		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree, nowMillis())
+	takeOver := func() (int, string) {
+		got := serve(t, d, t3PageCall("POST", "/setup/t3code/takeover", `{"id":"`+k.hire.ID+`"}`))
+		return got.Code, got.Body.String()
+	}
+	firing.Lock()
+	firing.ids[k.hire.ID] = true
+	firing.Unlock()
+	status, body := takeOver()
+	firing.Lock()
+	delete(firing.ids, k.hire.ID)
+	firing.Unlock()
+	if status != http.StatusConflict || body != "Ada is being fired right now, so it wasn't taken over." || len(k.log) != 0 {
+		t.Errorf("while it's fired: %d %s %q", status, body, k.log)
+	}
+	if status, body := takeOver(); status != http.StatusOK || !held {
+		t.Errorf("held %v: %d %s", held, status, body)
+	}
+	firing.Lock()
+	defer firing.Unlock()
+	if firing.takingOver[k.hire.ID] || firing.ids[k.hire.ID] {
+		t.Error("still held once Take over was done")
+	}
+}
+
+// FXM5c: the resumed hire's tmux socket, as tmux spells it, goes in Hand back's last save, which is tried again
+// and said when it can't be written; a resume that gives none leaves the registry's.
+func TestT3HandBackKeepsTheResumedSocketInItsCheckedSave(t *testing.T) {
+	k := newT3TakeOverRig(t)
+	h := k.takenOver()
+	k.socket = "/private" + k.hire.TmuxSocket
+	if _, err := t3HandBack(h, k.ways()); err != nil || k.saved.TmuxSocket != k.socket || k.saved.T3Session != "" {
+		t.Errorf("%v %+v", err, k.saved)
+	}
+	k = newT3TakeOverRig(t)
+	h = k.takenOver()
+	if _, err := t3HandBack(h, k.ways()); err != nil || k.saved.TmuxSocket != k.hire.TmuxSocket {
+		t.Errorf("%v %+v", err, k.saved)
+	}
+}
+
+// RM5b N4, for RM5c2 N1/N2: Take over's and Hand back's saves change only an open row; one fired or failed meanwhile,
+// or gone, is an error and stays as it is.
+func TestT3SavesChangeOnlyAnOpenRow(t *testing.T) {
+	isolate(t)
+	open := Hire{ID: "abcdef123456", Name: "Ada", Folder: "/w", State: "working"}
+	fired := Hire{ID: "fedcba654321", Name: "Bo", Folder: "/w", State: "fired"}
+	t3Registered(t, open, fired)
+	mark := func(r *Hire) { r.T3Session = t3TakeOverSession }
+	if err := t3SaveOpen(open.ID, mark); err != nil {
+		t.Error(err)
+	}
+	if t3SaveOpen(fired.ID, mark) == nil || t3SaveOpen("nobody", mark) == nil {
+		t.Error("a row that isn't open was saved")
+	}
+	if h, _ := registryHire(open.ID); h.T3Session != t3TakeOverSession {
+		t.Errorf("%+v", h)
+	}
+	if h, _ := registryHire(fired.ID); h.T3Session != "" {
+		t.Errorf("%+v", h)
+	}
+}
+
+// RMSY N1: a start script the core takes away at its start was never run. A hire still starting fails, as before;
+// a hire handed back from T3 Code, whose resume's script it was, fails too, its notes kept after the reason. Any
+// other hire's plain script leaves its row as it is, and so does a fired hire's resume script.
+func TestT3AHandedBackHireWhoseResumeScriptWasTakenAwayFails(t *testing.T) {
+	isolate(t)
+	handedBack := Hire{ID: "abcdef123456", Name: "Ada", Folder: "/w", State: "working", Notes: "Owner's note."}
+	starting := Hire{ID: "fedcba654321", Name: "Bo", Folder: "/w", State: "starting"}
+	fired := Hire{ID: "aaaaaa111111", Name: "Cy", Folder: "/w", State: "fired"}
+	working := Hire{ID: "bbbbbb222222", Name: "Di", Folder: "/w", State: "working"}
+	t3Registered(t, handedBack, starting, fired, working)
+	for id, name := range map[string]string{handedBack.ID: resumeScriptPrefix + "1.sh", starting.ID: "hire-1.sh", fired.ID: resumeScriptPrefix + "2.sh", working.ID: "hire-2.sh"} {
+		folder := hireFolder(supportDir, id)
+		if err := os.MkdirAll(folder, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(folder, name), []byte("#!/bin/sh\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removeLeftStartScripts()
+	if h, _ := registryHire(handedBack.ID); h.State != "failed" || h.Notes != resumeScriptNotRun+"\nOwner's note." {
+		t.Errorf("handed back: %+v", h)
+	}
+	if h, _ := registryHire(starting.ID); h.State != "failed" || h.Notes != startScriptNotRun {
+		t.Errorf("starting: %+v", h)
+	}
+	for _, kept := range []Hire{fired, working} {
+		if h, _ := registryHire(kept.ID); h.State != kept.State || h.Notes != "" {
+			t.Errorf("%+v", h)
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(supportDir, "hires", "*", "hire-*.sh")); len(left) != 0 {
+		t.Errorf("%q", left)
+	}
+}
+
+// RM5b N1: a sign-in whose answer is lost (t3 didn't end in time) or can't be read is signed out at once: every
+// session T3 Code lists under Smolcorp's label, and no other.
+func TestT3CallSignsOutASignInItCouldntRead(t *testing.T) {
+	revoked := func(r *t3Rig) [][]string {
+		var out [][]string
+		for _, run := range r.runs() {
+			if len(run) > 2 && run[2] == "revoke" {
+				out = append(out, run)
+			}
+		}
+		return out
+	}
+	r := newT3Rig(t)
+	r.fake("authgarbled")
+	newT3FakeServer(t, r.home)
+	program := t3Program(r.machine())
+	if _, err := t3Call(r.machine(), program, "agentSessions.import", nil); err == nil || err.Error() != "T3 Code didn't sign Smolcorp in the way Smolcorp knows" {
+		t.Errorf("%v", err)
+	}
+	if got := revoked(r); !reflect.DeepEqual(got, [][]string{{"auth", "session", "revoke", "s-9"}}) {
+		t.Errorf("unreadable: %q", r.runs())
+	}
+	r.fake()
+	_ = os.Remove(r.calls)
+	machine := r.machine()
+	machine.Run = func(program string, args []string, within time.Duration) t3Ran {
+		if slices.Contains(args, "issue") {
+			return t3Ran{}
+		}
+		return runT3(program, args, within)
+	}
+	if _, err := t3Call(machine, program, "agentSessions.import", nil); err == nil || !strings.HasPrefix(err.Error(), "T3 Code didn't sign Smolcorp in") {
+		t.Errorf("%v", err)
+	}
+	if got := revoked(r); !reflect.DeepEqual(got, [][]string{{"auth", "session", "revoke", "s-9"}}) {
+		t.Errorf("no answer: %q", r.runs())
+	}
+	// A sign-in t3 refused (it ended, and said why) issued nothing: nothing is listed or revoked.
+	r.fake("authfail")
+	_ = os.Remove(r.calls)
+	_, _ = t3Call(r.machine(), program, "agentSessions.import", nil)
+	if len(r.runs()) != 1 {
+		t.Errorf("refused: %q", r.runs())
+	}
+}
+
+// RM5b N3: a control frame that's fragmented or over 125 bytes is refused before it's read, answered or not.
+func TestT3SocketRefusesAControlFrameThatIsntOne(t *testing.T) {
+	for name, frame := range map[string][]byte{
+		"fragmented ping": append([]byte{0x09, 1}, 'p'),
+		"long ping":       append([]byte{0x89, 126, 0, 126}, bytes.Repeat([]byte("p"), 126)...),
+		"long close":      append([]byte{0x88, 126, 0, 200}, bytes.Repeat([]byte("c"), 200)...),
+	} {
+		var b bytes.Buffer
+		b.Write(append([]byte{0x01, 2}, "hi"...))
+		b.Write(frame)
+		b.Write(append([]byte{0x80, 2}, "!!"...))
+		pinged := 0
+		if _, _, err := t3SocketReadAnswering(bufio.NewReader(&b), 1<<20, func([]byte) { pinged++ }); err == nil || pinged != 0 {
+			t.Errorf("%s: %v, pinged %d", name, err, pinged)
+		}
+		if _, _, err := t3SocketRead(bufio.NewReader(bytes.NewReader(frame)), 1<<20); err == nil {
+			t.Errorf("%s, on its own: read", name)
+		}
+	}
+	// 125 bytes is a ping still.
+	ping := append([]byte{0x89, 125}, bytes.Repeat([]byte("p"), 125)...)
+	if op, data, err := t3SocketRead(bufio.NewReader(bytes.NewReader(ping)), 1<<20); err != nil || op != 9 || len(data) != 125 {
+		t.Errorf("%d %d %v", op, len(data), err)
 	}
 }

@@ -88,6 +88,10 @@ func t3Call(m t3Machine, program, method string, payload map[string]any) (map[st
 	issued := m.Run(program, []string{"auth", "session", "issue", "--scope", t3CallScope, "--ttl", "2m", "--label", t3CallLabel, "--json"}, t3Within)
 	// Its output holds the token: only its error side is ever said.
 	if !issued.Ended || issued.Code != 0 {
+		if !issued.Ended {
+			// No answer in time: T3 Code may have issued it all the same (RM5b N1).
+			t3RevokeOurs(m, program)
+		}
 		why := firstLine(issued.Error)
 		if why == "" {
 			why = "it gave no reason"
@@ -99,10 +103,38 @@ func t3Call(m t3Machine, program, method string, payload map[string]any) (map[st
 		Token     string `json:"token"`
 	}
 	if json.Unmarshal([]byte(issued.Output), &session) != nil || session.Token == "" || session.SessionID == "" {
+		// Issued, but not in a way Smolcorp reads: signed out now, not left to its two minutes (RM5b N1).
+		t3RevokeOurs(m, program)
 		return nil, t3CallFailed("T3 Code didn't sign Smolcorp in the way Smolcorp knows")
 	}
-	defer m.Run(program, []string{"auth", "session", "revoke", session.SessionID}, t3Within)
+	defer t3Revoke(m, program, session.SessionID)
 	return t3CallWith(origin, session.Token, method, payload, t3CallWithin)
+}
+
+// t3Revoke signs Smolcorp's session id out of T3 Code.
+func t3Revoke(m t3Machine, program, id string) {
+	m.Run(program, []string{"auth", "session", "revoke", id}, t3Within)
+}
+
+// t3RevokeOurs signs out every session T3 Code lists under Smolcorp's label, for a sign-in whose answer was lost
+// or couldn't be read, so its id isn't known. The list holds no token. Calls are made one at a time (under t3Desk),
+// so none of these is another call's own.
+func t3RevokeOurs(m t3Machine, program string) {
+	listed := m.Run(program, []string{"auth", "session", "list", "--json"}, t3Within)
+	var sessions []struct {
+		SessionID string `json:"sessionId"`
+		Client    struct {
+			Label string `json:"label"`
+		} `json:"client"`
+	}
+	if !listed.Ended || listed.Code != 0 || json.Unmarshal([]byte(listed.Output), &sessions) != nil {
+		return
+	}
+	for _, session := range sessions {
+		if session.Client.Label == t3CallLabel && session.SessionID != "" && !strings.HasPrefix(session.SessionID, "-") {
+			t3Revoke(m, program, session.SessionID)
+		}
+	}
 }
 
 // t3CallWith is the call itself, signed in: a ticket for the socket, then the request on T3 Code's socket,
@@ -294,6 +326,11 @@ func t3SocketReadAnswering(r *bufio.Reader, longest int, ping func([]byte)) (byt
 		}
 		if size > uint64(longest) || len(message)+int(size) > longest {
 			return 0, nil, errors.New("too long")
+		}
+		// A control frame is never fragmented, and never over 125 bytes (RFC 6455 §5.5): one that is, is refused
+		// before it's read (RM5b N3).
+		if frameOp >= 8 && (!final || size > 125) {
+			return 0, nil, errors.New("a control frame that isn't one")
 		}
 		var key []byte
 		if masked {

@@ -129,10 +129,11 @@ type t3Ways struct {
 	DiscardBrief func()
 	// Register writes its registry entry, with engine t3, once its worktree is made.
 	Register func(place hirePlace) error
-	// Started gives its thread, link and brief, once the thread runs in its worktree.
-	Started func(thread, link, brief string)
-	// Fail says in the registry why it didn't start.
-	Fail func(why string)
+	// Started gives its thread, link and brief, once the thread runs in its worktree: an error when the registry
+	// couldn't keep them, and the hire is taken back (FXM5c).
+	Started func(thread, link, brief string) error
+	// Fail says in the registry why it didn't start: an error when it couldn't.
+	Fail func(why string) error
 }
 
 // t3Started is a hire whose thread runs in its worktree.
@@ -219,11 +220,17 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 	// have keeps its fence and worktree.
 	takeBack := func(status int, why string, project, brief bool) (t3Started, error) {
 		message := why
+		// Unwritten, its row stays "starting" with no thread, which the next launch lets go (t3Reconcile): said so.
+		fail := func() {
+			if ways.Fail(message) != nil {
+				message += " The registry couldn't be written either, so it shows as starting until Smolcorp's next launch lets it go."
+			}
+		}
 		if project {
 			removed := machine.Run(program, []string{"project", "remove", worktree, "--force"}, t3Within)
 			if !(removed.Ended && removed.Code == 0) && !t3NoProject(removed) {
 				message += " T3 Code didn't remove the project it was given (" + t3Said(removed) + "), so the hire's worktree and fence were kept: remove \"" + title + "\" in T3 Code."
-				ways.Fail(message)
+				fail()
 				return t3Started{}, t3Refused(status, message)
 			}
 		}
@@ -240,7 +247,7 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 		if !removeWorkspace(place.Repo, worktree, place.Branch, git) {
 			message += " Its worktree " + worktree + " was kept: git wouldn't remove it."
 		}
-		ways.Fail(message)
+		fail()
 		return t3Started{}, t3Refused(status, message)
 	}
 
@@ -315,7 +322,11 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 		return takeBack(http.StatusBadGateway, "T3 Code put the hire's thread in a worktree of its own ("+elsewhere+"), not the hire's, so it was taken back with its project.", true, true)
 	}
 	link, _ := shown["link"].(string)
-	ways.Started(thread, link, brief.Path)
+	// Its thread on record, or taken back: a thread only in memory isn't followed, and only the next launch would
+	// let it go.
+	if ways.Started(thread, link, brief.Path) != nil {
+		return takeBack(http.StatusInternalServerError, "The registry couldn't be written, so the hire was taken back.", true, true)
+	}
 	return t3Started{Place: place, Thread: thread, Link: link}, nil
 }
 
