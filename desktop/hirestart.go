@@ -207,13 +207,22 @@ func startOneLine(text string) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 
+// resumeScriptPrefix starts the name of a start script that resumes a hire handed back from T3 Code
+// (t3ResumeInTmux): one left behind is that hire's, never a new hire's (removeLeftStartScripts).
+const resumeScriptPrefix = "hire-resume-"
+
 // writeHireStartScript writes script into folder (made 0700 if need be) as a
 // file only its owner can read or run, and returns its path.
 func writeHireStartScript(folder, script string) (string, error) {
+	return writeStartScriptAs(folder, "hire-*.sh", script)
+}
+
+// writeStartScriptAs is writeHireStartScript with the file named after pattern (os.CreateTemp's).
+func writeStartScriptAs(folder, pattern, script string) (string, error) {
 	if err := os.MkdirAll(folder, 0o700); err != nil {
 		return "", err
 	}
-	file, err := os.CreateTemp(folder, "hire-*.sh")
+	file, err := os.CreateTemp(folder, pattern)
 	if err != nil {
 		return "", err
 	}

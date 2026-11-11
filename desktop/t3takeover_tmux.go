@@ -62,8 +62,9 @@ func (d *Deck) t3StopInTmux(h Hire) error {
 // t3ResumeInTmux starts hire h's Claude Code again on session, in a tmux session of its own made as the engine
 // makes one: its own settings file (its fence, written afresh), its ports, a new send key, the default account
 // (the one T3 Code's agent worked on), in the folder it started in. No window is opened: Setup's Open a window
-// shows it.
-func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) error {
+// shows it. Its socket as tmux spells it, which Hand back's last save keeps, as the engine keeps it (checked there,
+// not dropped here: FXM5c).
+func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) (string, error) {
 	d.mu.Lock()
 	o := d.engine.withDefaults()
 	roles := slices.Clone(d.config.Roles)
@@ -71,27 +72,27 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	testPort := testCopyPort()
 	tmux := newHireTmux(h.ID, testPort, o.Tmux)
 	if tmux == nil {
-		return errors.New("tmux is missing, or its socket's path is too long.")
+		return "", errors.New("tmux is missing, or its socket's path is too long.")
 	}
 	if up, known := tmux.alive(); !known || up {
-		return errors.New("its tmux session is there already, or tmux didn't answer.")
+		return "", errors.New("its tmux session is there already, or tmux didn't answer.")
 	}
 	role := Role{ID: h.Role, Name: h.Name, Agent: string(Claude)}
 	if i := slices.IndexFunc(roles, func(r Role) bool { return r.ID == h.Role }); i >= 0 {
 		role = roles[i]
 	}
 	if agentOrClaude(role.Agent) != Claude {
-		return errors.New("its role isn't a Claude Code one any more.")
+		return "", errors.New("its role isn't a Claude Code one any more.")
 	}
 	role.Model = cmpOr(h.Model, role.Model)
 	settings, err := writeHireSettings(hireSettingsOptions{HireID: h.ID, Auto: engineAutoMode, Profile: guardHire, CLI: o.CLI,
 		Support: supportDir, ReportPort: testPort, Profiles: profiles, Run: o.Guard, IsExec: o.IsExec})
 	if err != nil {
-		return errors.New("its settings, its fence, couldn't be written.")
+		return "", errors.New("its settings, its fence, couldn't be written.")
 	}
 	sendKey, err := sendKeyFor(role, h.ID)
 	if err != nil {
-		return errors.New("its send key couldn't be made.")
+		return "", errors.New("its send key couldn't be made.")
 	}
 	start := hireStart{Role: role, Resume: session, DefaultAccount: true, Settings: settings, CLIDir: filepath.Dir(o.CLI),
 		Ports: h.Ports, SendKey: sendKey}
@@ -100,25 +101,17 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	}
 	script, err := start.script()
 	if err != nil {
-		return err
+		return "", err
 	}
-	file, err := writeHireStartScript(hireFolder(supportDir, h.ID), script)
+	file, err := writeStartScriptAs(hireFolder(supportDir, h.ID), resumeScriptPrefix+"*.sh", script)
 	if err != nil {
-		return errors.New("its start script couldn't be written.")
+		return "", errors.New("its start script couldn't be written.")
 	}
 	// In the folder the session started in (its worktree), never the project the registry names.
 	_, socket, ok := tmux.start(startedIn(h), loginShell(), file)
 	if !ok {
 		_ = os.Remove(file)
-		return errors.New("tmux didn't start it.")
+		return "", errors.New("tmux didn't start it.")
 	}
-	if socket != h.TmuxSocket {
-		// As tmux spells it, as the engine keeps it.
-		_ = updateRegistry(func(f *registryFile) {
-			if i := slices.IndexFunc(f.hires, func(r Hire) bool { return r.ID == h.ID }); i >= 0 {
-				f.hires[i].TmuxSocket = socket
-			}
-		})
-	}
-	return nil
+	return socket, nil
 }

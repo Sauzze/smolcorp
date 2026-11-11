@@ -96,8 +96,8 @@ func TestT3TheFenceHoldsOnARealT3Thread(t *testing.T) {
 		Brief:        func(hirePlace) (t3Brief, error) { return t3Brief{Message: message}, nil },
 		DiscardBrief: func() {},
 		Register:     func(hirePlace) error { said = append(said, "register"); return nil },
-		Started:      func(thread, _, _ string) { said = append(said, "started "+thread) },
-		Fail:         func(why string) { said = append(said, "fail: "+why) },
+		Started:      func(thread, _, _ string) error { said = append(said, "started "+thread); return nil },
+		Fail:         func(why string) error { said = append(said, "fail: "+why); return nil },
 	}
 	begun := time.Now()
 	started, err := t3HireInto(t3Hiring{HireID: hireID, Name: "fence", Called: "m5a-fence", Folder: repo, Model: "claude-haiku-5-5"}, ways)

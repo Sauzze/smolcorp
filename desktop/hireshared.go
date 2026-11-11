@@ -238,11 +238,13 @@ func calledHire(h Hire) string {
 	return h.Name
 }
 
-// firing is the hires being fired right now, so two fires of one can't both go ahead.
+// firing is the hires being fired right now, so two fires of one can't both go ahead; and the hires being taken
+// over in T3 Code right now (t3takeover.go), so a fire and a Take over of one never run at once (RM5c2 N1).
 var firing = struct {
 	sync.Mutex
-	ids map[string]bool
-}{ids: map[string]bool{}}
+	ids        map[string]bool
+	takingOver map[string]bool
+}{ids: map[string]bool{}, takingOver: map[string]bool{}}
 
 // windowRefusal is why a window showing screen (readable false: it couldn't be
 // looked at) may not be ended, or "". A question or a menu, or a window that
@@ -339,17 +341,35 @@ func (d *Deck) clearFiredGMToken() {
 // startScriptNotRun is what a hire says when its start script was taken away at the next start.
 const startScriptNotRun = "Didn't start: Smolcorp stopped before it could, so its start script was taken away."
 
+// resumeScriptNotRun is what a hire handed back from T3 Code says when its resume's start script was taken away.
+const resumeScriptNotRun = "Wasn't resumed after Hand back: Smolcorp stopped before it could, so its start script was taken away. Its worktree and session were kept."
+
 // removeLeftStartScripts takes away every <support>/hires/<id>/hire-*.sh as the core starts. A
 // script still there was never run by its hire's shell (it removes itself as the first thing it
 // does), and the watcher that would have taken it away went with the core that made it: it may
 // still hold the API key, a send key or the GM's token. A hire whose shell hadn't reached it fails
-// to start, which is the safe side, and its "starting" row is marked failed.
+// to start, which is the safe side, and its "starting" row is marked failed. So is a hire handed
+// back from T3 Code whose resume's script it was (resumeScriptPrefix, t3ResumeInTmux): its row was
+// open already, and its tmux shell had nothing left to run (RMSY N1). Its notes stay, after the reason.
 func removeLeftStartScripts() {
 	scripts, _ := filepath.Glob(filepath.Join(supportDir, "hires", "*", "hire-*.sh"))
 	for _, script := range scripts {
-		if os.Remove(script) == nil {
-			setHire(filepath.Base(filepath.Dir(script)), "failed", startScriptNotRun)
+		if os.Remove(script) != nil {
+			continue
 		}
+		id := filepath.Base(filepath.Dir(script))
+		if !strings.HasPrefix(filepath.Base(script), resumeScriptPrefix) {
+			setHire(id, "failed", startScriptNotRun)
+			continue
+		}
+		// This write's result can't be acted on: the script is gone already, so a failure leaves the row as it was,
+		// as setHire does for a plain script (FXTO2 N4).
+		_ = updateRegistry(func(f *registryFile) {
+			if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id && isOpen(h) }); i >= 0 {
+				f.hires[i].State = "failed"
+				f.hires[i].Notes = firstRunes(strings.Join(slices.DeleteFunc([]string{resumeScriptNotRun, f.hires[i].Notes}, func(s string) bool { return s == "" }), "\n"), longestNotes)
+			}
+		})
 	}
 }
 
