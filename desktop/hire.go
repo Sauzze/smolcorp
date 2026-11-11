@@ -137,6 +137,35 @@ func canHireHere() bool {
 	return len(terminals) > 0 || tmux
 }
 
+// unfencedNote is the office's line for a hire that won't get Smolcorp's
+// fence (Claude Code's deny rules and the guard, hiresettings.go), or "" for
+// one that will. It follows hireAs: the fence is written only for a role's
+// Claude Code hire made by the engine, in tmux (hireengine.go), or on Windows
+// in the launcher's window behind the beta switch (hirelauncher.go). A hire at
+// a pinned desk, or on a floor with a folder of its own, takes the old way too;
+// the snapshot can't tell which desk will be held, so those get no line.
+func (d *Deck) unfencedNote(roleID, program string, terminals []hireOpener, tmux bool) string {
+	agent := Agent(program)
+	if agent != Claude {
+		if name := agent.Name(); name != "" {
+			return name + " hires don't get Smolcorp's fence: they run with their own settings."
+		}
+		return "This hire doesn't get Smolcorp's fence: it runs with its own settings."
+	}
+	if roleID == "" {
+		return "A hire with no role doesn't get Smolcorp's fence: it runs with its own settings."
+	}
+	_, hasTerminal := hireTerminal(d.config.HireTerminal, terminals)
+	inTmux := tmux && (d.config.HireInTmux || !hasTerminal)
+	if hasTmuxHires && inTmux || !inTmux && launcherHires && d.config.HireManagedWindows && hasTerminal {
+		return ""
+	}
+	if !hasTmuxHires {
+		return "On Windows, only managed hires (a beta, off by default) get Smolcorp's fence: this one runs with its own settings."
+	}
+	return "Outside tmux, this hire doesn't get Smolcorp's fence: it runs with its own settings. Start inside tmux, in setup, gives it the fence."
+}
+
 // hire opens a new hire's terminal, as the Mac app's: see the top of this
 // file. desk and roleID are as the phone sent them, either empty.
 func (d *Deck) hire(desk, roleID string) (int, string) {

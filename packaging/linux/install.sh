@@ -36,7 +36,7 @@ cat > "$DATA/applications/smolcorp.desktop" <<ENTRY
 [Desktop Entry]
 Type=Application
 Name=Smolcorp
-Comment=A control pad for your coding agents, on your phone
+Comment=A General Manager for your AI coding agents, in a pixel-art office
 Exec="$BIN/smolcorp"
 Icon=$DATA/smolcorp/icon.png
 Categories=Development;

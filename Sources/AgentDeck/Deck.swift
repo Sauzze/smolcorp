@@ -967,8 +967,18 @@ final class Deck {
                 var hiring: [String: Any] = [
                     "fire": Config.shared.hiringEnabled,
                     "hire": canHire,
-                    "roles": canHire ? Config.shared.roles.map(\.forPhone) : [],
+                    // A hire that won't be fenced says so in the office as it's made: each role's line, and Anyone's.
+                    "roles": canHire ? Config.shared.roles.map { role in
+                        var phone = role.forPhone
+                        if let note = Deck.unfencedNote(role: role, hireAgent: Config.shared.hireAgent, managerOn: Config.shared.managerEnabled) {
+                            phone["unfenced"] = note
+                        }
+                        return phone
+                    } : [],
                 ]
+                if canHire, let note = Deck.unfencedNote(role: nil, hireAgent: Config.shared.hireAgent, managerOn: Config.shared.managerEnabled) {
+                    hiring["unfenced"] = note
+                }
                 if let reason = Deck.hiringReason(Config.shared, canHireHere: Deck.canHireHere()) { hiring["reason"] = reason }
                 return hiring
             }(),
@@ -1868,6 +1878,18 @@ final class Deck {
         let url = Paths.hires.appendingPathComponent("hire-\(UUID().uuidString).sh")
         guard manager.createFile(atPath: url.path, contents: Data(script.utf8), attributes: [.posixPermissions: 0o700]) else { return nil }
         return url
+    }
+
+    /// The office's line for a hire that won't get Smolcorp's fence (deny rules and the guard), or nil for one
+    /// that will. As `open` decides it: the fence is written for a managed Claude Code hire, and the office's hire
+    /// asks for no worktree, so it's managed when the manager is on, or when it's the General Manager.
+    static func unfencedNote(role: Role?, hireAgent: String, managerOn: Bool) -> String? {
+        guard let agent = hiredAgent(role: role, hireAgent: hireAgent) else {
+            return "This hire doesn't get Smolcorp's fence: it runs with its own settings."
+        }
+        if agent != .claude { return "\(agent.name) hires don't get Smolcorp's fence: they run with their own settings." }
+        if managerOn || role?.id == gmRole { return nil }
+        return "With the manager off, this Claude Code hire doesn't get Smolcorp's fence: it runs with its own settings."
     }
 
     /// The agent a hire starts: the role's, which launches as Claude Code when it

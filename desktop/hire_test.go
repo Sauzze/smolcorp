@@ -754,3 +754,53 @@ func TestATestCopyRefusesAClaudeHireOnEveryRouteBeforeAnythingIsMade(t *testing.
 		t.Errorf("a test copy's codex hire: %d %q, %d windows", status, message, len(h.windows))
 	}
 }
+
+// The office says which hires won't get Smolcorp's fence, as hireAs decides it:
+// only a role's Claude Code hire made by the engine (tmux here, the launcher's
+// beta window on Windows) is fenced; every other agent, and a hire with no role, isn't.
+func TestTheOfficeSaysWhichHiresGetNoFence(t *testing.T) {
+	d, _, _ := hiringDeck(t, "/usr/bin/tmux")
+	d.config.Roles = []Role{{ID: "dev", Name: "Dev", Agent: "claude"}, {ID: "rev", Name: "Rev", Agent: "codex"}}
+	state := func() (dev, rev, anyone any) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		s := d.hiringState()
+		roles := s["roles"].([]map[string]any)
+		return roles[0]["unfenced"], roles[1]["unfenced"], s["unfenced"]
+	}
+	d.config.HireInTmux = true
+	dev, rev, anyone := state()
+	if rev != "Codex hires don't get Smolcorp's fence: they run with their own settings." {
+		t.Errorf("a Codex role: %v", rev)
+	}
+	if anyone != "A hire with no role doesn't get Smolcorp's fence: it runs with its own settings." {
+		t.Errorf("a hire with no role: %v", anyone)
+	}
+	if hasTmuxHires && dev != nil {
+		t.Errorf("a Claude role started inside tmux is fenced, but says %v", dev)
+	}
+	// Outside tmux (or on Windows without the beta switch), it isn't.
+	d.config.HireInTmux = false
+	d.config.HireManagedWindows = false
+	if dev, _, _ := state(); dev == nil || !strings.Contains(dev.(string), "Smolcorp's fence") {
+		t.Errorf("a Claude role outside tmux says %v", dev)
+	}
+	// On Windows, the beta switch's managed hires are fenced.
+	if !hasTmuxHires {
+		d.config.HireManagedWindows = true
+		if dev, _, _ := state(); dev != nil {
+			t.Errorf("a Claude role with managed hires on says %v", dev)
+		}
+		d.config.HireManagedWindows = false
+	}
+	// With no terminal window to open, the hire goes into tmux, so it's fenced again where tmux hires are made.
+	installedOpeners = func() []hireOpener { return nil }
+	if dev, _, _ := state(); hasTmuxHires && dev != nil {
+		t.Errorf("a Claude role in tmux for want of a window says %v", dev)
+	}
+	// Another hire agent: Anyone's line names it.
+	d.config.HireAgent = "gemini"
+	if _, _, anyone := state(); anyone != "Gemini CLI hires don't get Smolcorp's fence: they run with their own settings." {
+		t.Errorf("a Gemini CLI hire with no role: %v", anyone)
+	}
+}

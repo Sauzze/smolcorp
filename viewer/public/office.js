@@ -35,7 +35,9 @@
  * `on.hire(desk, role, floor)` for an empty desk held and hired into: by the id
  * of one of the snapshot's `hiring.roles`, along the foot of the room, or
  * null for Anyone, or for its Hire button where there are no roles; `floor`
- * is 0 on the ground floor, whose desks are the keys, and 1 to 5 upstairs,
+ * is 0 on the ground floor, whose desks are the keys, and 1 to 5 upstairs
+ * (a role, or `hiring` for Anyone, with an `unfenced` line is a hire that won't
+ * get Smolcorp's fence: `on.hint` says it as the hire is made),
  * `on.move(id, floor, remember)` for someone put on another floor, 0 to 5,
  * their folder's next sessions too if `remember`, true if they went,
  * `on.settings()` for the cog in the room's corner, where the page opens its
@@ -68110,6 +68112,13 @@
     /** The roles the computer can hire into, as you've set them up: none, and a hire is anyone. */
     const roles = () => (Array.isArray(hiring.roles) ? hiring.roles.filter((r) => r && typeof r.id === 'string' && r.name) : []);
 
+    /** Hires role `id` (null for anyone) into `desk`, and says so when that hire won't get Smolcorp's fence: the computer's `unfenced` line. */
+    function hireInto(desk, id, floor) {
+      on.hire?.(desk, id, floor);
+      const note = id ? (roles().find((r) => r.id === id) || {}).unfenced : hiring.unfenced;
+      if (typeof note === 'string' && note) on.hint?.(note);
+    }
+
     /** The roles a held empty desk can hire into, along the foot of the room, Anyone first, if there are any to choose from. */
     function roleRow() {
       if (framed || !held || held.kind !== 'empty' || !hiresHere(held) || !roles().length || arranging || styling || firing || maxing || carrying) return null;
@@ -68808,7 +68817,7 @@
         if (session) firing = { id: holding.id, name: memberOf(session)?.name || session.name, at: clock() };
         return on.held?.();
       }
-      if (target.kind === 'hire') return on.hire?.(holding.desk, null, holding.floor ? holding.floor - 1 : 0);
+      if (target.kind === 'hire') return hireInto(holding.desk, null, holding.floor ? holding.floor - 1 : 0);
       if (target.kind === 'micLanguage') return on.language?.(target.next);
       if (target.kind === 'micCleanup') return on.cleanup?.(target.next);
       // An empty or pinned desk says something on a tap, once the finger lifts: holding it is something else.
@@ -68913,7 +68922,7 @@
         if (dropped && chip && !finger.slid && held && held.kind === 'empty') {
           const { desk, floor } = held;
           held = null;
-          on.hire?.(desk, id, floor ? floor - 1 : 0);
+          hireInto(desk, id, floor ? floor - 1 : 0);
         }
       }
       if (finger && !finger.held) {

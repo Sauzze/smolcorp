@@ -1038,15 +1038,25 @@ func (d *Deck) isConnected(phone string) bool {
 // is where a hire there starts. With the lock held.
 func (d *Deck) hiringState() map[string]any {
 	folder := hasHireFolder(d.config)
-	canHire := canHireHere()
+	terminals, tmux := hireWays()
+	canHire := len(terminals) > 0 || tmux // canHireHere, with the ways kept for the fence's lines
 	hire := d.config.HiringEnabled && folder && canHire
 	roles := []map[string]any{}
+	state := map[string]any{"fire": d.config.HiringEnabled, "hire": hire}
 	if hire {
+		// A hire that won't be fenced says so in the office as it's made: each role's line, and Anyone's.
 		for _, role := range d.config.Roles {
-			roles = append(roles, role.forPhone())
+			phone := role.forPhone()
+			if note := d.unfencedNote(role.ID, role.Agent, terminals, tmux); note != "" {
+				phone["unfenced"] = note
+			}
+			roles = append(roles, phone)
+		}
+		if note := d.unfencedNote("", d.config.HireAgent, terminals, tmux); note != "" {
+			state["unfenced"] = note
 		}
 	}
-	state := map[string]any{"fire": d.config.HiringEnabled, "hire": hire, "roles": roles}
+	state["roles"] = roles
 	if d.config.HiringEnabled && !folder && canHire {
 		state["reason"] = hiringNeedsFolder
 	}
