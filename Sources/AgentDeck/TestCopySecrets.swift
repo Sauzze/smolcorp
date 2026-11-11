@@ -78,9 +78,11 @@ extension ViewerStore {
     }
 
     /// The Keychain, or in a test copy files in its own support folder (the Keychain is never asked there).
-    static func defaultStore(testCopy: Bool = TestCopy.isOn, support: URL? = TestCopy.support,
+    static func defaultStore(testCopy: Bool = TestCopy.isOn, support: URL? = TestCopy.support, underTest: Bool = Paths.underTest,
                              keychain: ViewerStore = .keychain) -> ViewerStore {
         if testCopy, let support { return .file(in: support) }
+        // The test suite never reads or replaces the owner's own items.
+        if underTest { return .file(in: Paths.testSupport) }
         return keychain
     }
 }

@@ -9,7 +9,7 @@ import (
 )
 
 // What the Mac app does with its own windows, panel, login item and Keychain,
-// under the Mac app (engine=go), through the bridge (hostbridge.go), as the
+// under the Mac app, through the bridge (hostbridge.go), as the
 // Swift engine does them (DeckRouter.swift, SelfTest.swift): Open at login
 // (LoginItem), the office's own window and keeping it on top (OfficeWindow),
 // the Mac's folder panel (Deck.chooseHireFolder), ✨ Summary's key and the

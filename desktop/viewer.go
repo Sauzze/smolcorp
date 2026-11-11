@@ -544,10 +544,15 @@ func (p *portableOffice) setSettings(settings ViewerSettings) {
 
 func (p *portableOffice) origin() (string, bool) { return viewerOrigin(p.settings.BaseURL) }
 
-// hasWriteSecret, with the lock held.
+// hasWriteSecret, with the lock held. Only a sure answer is kept; a failed or late one is asked again.
 func (p *portableOffice) hasWriteSecret() bool {
 	if p.secretKnown == nil {
 		_, err := p.secrets.get(viewerSecretAccount)
+		if err != nil && !p.secrets.notFound(err) {
+			// Not an answer: the app said no or took too long. A link that works must not vanish for that,
+			// so it's taken as there (as the Mac engine did) and asked again next time.
+			return true
+		}
 		known := err == nil
 		p.secretKnown = &known
 	}
@@ -951,6 +956,10 @@ func (p *portableOffice) watchForReturn(stop <-chan struct{}, started time.Time)
 			return
 		case <-ticker.C:
 		}
+		if !p.stopsOnReturn() {
+			away = false
+			continue
+		}
 		idle, locked, ok := p.presence()
 		if !ok {
 			continue
@@ -962,6 +971,13 @@ func (p *portableOffice) watchForReturn(stop <-chan struct{}, started time.Time)
 			p.cameBack(started, time.Now())
 		}
 	}
+}
+
+// stopsOnReturn is whether "Stop when I'm back" is on.
+func (p *portableOffice) stopsOnReturn() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.settings.StopOnReturn
 }
 
 // cameBack: back this soon after it was turned on may be launch, then lock,
@@ -1005,8 +1021,10 @@ func (p *portableOffice) presenceNow() (idle time.Duration, locked, ok bool) {
 // this start (macReturn).
 func (p *portableOffice) watchMac(stop <-chan struct{}, started time.Time) {
 	var watch macReturn
-	if now, ok := p.mac(); ok {
-		watch.see(now, time.Now())
+	if p.stopsOnReturn() {
+		if now, ok := p.mac(); ok {
+			watch.see(now, time.Now())
+		}
 	}
 	ticker := time.NewTicker(viewerPresenceInterval)
 	defer ticker.Stop()
@@ -1015,6 +1033,11 @@ func (p *portableOffice) watchMac(stop <-chan struct{}, started time.Time) {
 		case <-stop:
 			return
 		case <-ticker.C:
+		}
+		if !p.stopsOnReturn() {
+			// Nothing is asked while it's off; what happens meanwhile isn't counted when it's turned on.
+			watch = macReturn{}
+			continue
 		}
 		if now, ok := p.mac(); ok && watch.see(now, time.Now()) {
 			p.cameBack(started, time.Now())
