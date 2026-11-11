@@ -128,7 +128,7 @@ func hireTmuxAt(socket string, testPort int, run tmuxRunner) *hireTmux {
 // folder, with a name of only a-z, 0-9 and -, not the user's default.
 func ownsHireSocket(socket string, testPort int) bool {
 	socket = filepath.Clean(socket)
-	if socket == "" || !slices.Contains(hireSocketFolders(), filepath.Dir(socket)) {
+	if socket == "" || !inHireSocketFolder(socket) {
 		return false
 	}
 	name := filepath.Base(socket)

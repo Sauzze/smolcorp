@@ -17,12 +17,14 @@ import (
 func preflightDeck(t *testing.T) (*Deck, *hiring, *string, *signIn) {
 	t.Helper()
 	d, h, _ := hiringDeck(t, "")
-	saved := []any{claudeFoundAt, claudeSignIn, hasProgram}
+	saved := []any{claudeFoundAt, claudeSignIn, hasProgram, brewPlaces}
 	t.Cleanup(func() {
 		claudeFoundAt = saved[0].(func() string)
 		claudeSignIn = saved[1].(func(string) signIn)
 		hasProgram = saved[2].(func(string) bool)
+		brewPlaces = saved[3].([]string)
 	})
+	brewPlaces = nil // no Homebrew but where hasProgram says
 	at, state := "/opt/claude/bin/claude", signedIn
 	claudeFoundAt = func() string { return at }
 	claudeSignIn = func(program string) signIn {
@@ -246,6 +248,28 @@ func TestTheGMPreflightWithoutATerminalSaysHowToInstallTmux(t *testing.T) {
 	report = d.gmPreflight()
 	if line := preflightLine(t, report, "terminal"); !report.Ready || !line.OK || !strings.Contains(line.Title, "tmux") {
 		t.Errorf("no desktop, with tmux: ready %v, %+v", report.Ready, line)
+	}
+}
+
+// An app opened from the Finder or the Dock has no Homebrew on its PATH: brew is looked for where the Mac
+// looks, as tmux is, so the Mac's line still offers to copy the command that installs tmux.
+func TestTheTmuxInstallLineFindsBrewBesideThePATH(t *testing.T) {
+	d, _, _, _ := preflightDeck(t)
+	canOpenWindows = func() bool { return false }
+	hasProgram = func(string) bool { return false }
+	homebrew := t.TempDir()
+	if err := os.WriteFile(filepath.Join(homebrew, "brew"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	brewPlaces = []string{filepath.Join(homebrew, "missing"), homebrew}
+	if line := preflightLine(t, d.gmPreflight(), "terminal"); line.Action == nil || line.Action.Command != "brew install tmux" {
+		t.Errorf("brew in Homebrew's folder, not on the PATH: %+v", line)
+	}
+	if err := os.Chmod(filepath.Join(homebrew, "brew"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if line := preflightLine(t, d.gmPreflight(), "terminal"); line.Action != nil {
+		t.Errorf("a brew that can't run: %+v", line)
 	}
 }
 

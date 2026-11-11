@@ -620,6 +620,39 @@ func TestHiredRoleAtLooksInEveryHireSocketFolder(t *testing.T) {
 	}
 }
 
+// A hire the Mac's engine made gives its socket with the folders on the way resolved (/private/tmp for /tmp,
+// FXC3c): it keeps its role, and is still ours to fire, once the Go engine runs the office.
+func TestASocketSpelledThroughALinkIsStillInAHireSocketFolder(t *testing.T) {
+	d, _, _ := engineDeck(t)
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "tmp")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	saved := hireSocketFolder
+	t.Cleanup(func() { hireSocketFolder = saved })
+	hireSocketFolder = func() string { return link } // tmux's own folder, as /tmp/tmux-501
+	resolved := filepath.Join(physical(real), "smolcorp-hire-x")
+	if filepath.Dir(resolved) == filepath.Clean(link) {
+		t.Fatal("the socket's folder is spelled as the hire socket folder: the test proves nothing")
+	}
+	if err := updateRegistry(func(f *registryFile) {
+		f.hires = append(f.hires, Hire{ID: "hire-x", Name: "Janitor", Folder: "/x", Role: "janitor", TmuxSocket: resolved, State: "working"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.hiredRoleAt(resolved); got != "janitor" {
+		t.Errorf("a socket spelled through the link's target: %q, want janitor", got)
+	}
+	if !ownsHireSocket(resolved, 0) {
+		t.Error("a hire's socket spelled through the link's target isn't ours")
+	}
+	elsewhere := filepath.Join(physical(t.TempDir()), "smolcorp-hire-x")
+	if ownsHireSocket(elsewhere, 0) || d.hiredRoleAt(elsewhere) != "" {
+		t.Error("a socket in another folder is ours")
+	}
+}
+
 // scriptSendKey is the send key a start script exports, or "".
 func scriptSendKey(script string) string {
 	for _, line := range strings.Split(script, "\n") {

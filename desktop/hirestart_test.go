@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -274,6 +276,41 @@ func TestHireEnvironmentNeverCarriesTheGMToken(t *testing.T) {
 		if strings.HasPrefix(variable, "SMOLCORP_GM_TOKEN=") || strings.HasPrefix(variable, "TMUX=") {
 			t.Errorf("a hire's environment has %q", variable)
 		}
+	}
+}
+
+// The office's own hires get what the Mac's engine passes on (Engine.swift inherited: the ssh agent, LOGNAME,
+// LC_*), never the port and folder the Mac app names its engine by, nor a hire's send key. A test copy's hires
+// keep its port and folder, so they never reach the real office (FXC3c).
+func TestTheOfficesHireIsNotGivenTheEnginesPortFolderOrAHireKey(t *testing.T) {
+	onPort(t, portFromEnvironment(""))
+	t.Setenv("SMOLCORP_PORT", "7710")
+	t.Setenv("SMOLCORP_TEST_SUPPORT_DIR", "/fake/support")
+	t.Setenv(hireKeyEnvironment, "fake-send-key")
+	t.Setenv("SSH_AUTH_SOCK", "/fake/agent.sock")
+	t.Setenv("LOGNAME", "me")
+	t.Setenv("LC_CTYPE", "UTF-8")
+	env := hireEnvironment()
+	for _, name := range []string{"SMOLCORP_PORT", "SMOLCORP_TEST_SUPPORT_DIR", hireKeyEnvironment} {
+		if slices.ContainsFunc(env, func(v string) bool { return strings.HasPrefix(v, name+"=") }) {
+			t.Errorf("the office's hire gets %s", name)
+		}
+	}
+	for _, kept := range []string{"SSH_AUTH_SOCK=/fake/agent.sock", "LOGNAME=me", "LC_CTYPE=UTF-8"} {
+		if !slices.Contains(env, kept) {
+			t.Errorf("the office's hire lost %s", kept)
+		}
+	}
+	onPort(t, portFromEnvironment("")+1)
+	t.Setenv("SMOLCORP_PORT", strconv.Itoa(Port))
+	env = hireEnvironment()
+	for _, kept := range []string{"SMOLCORP_PORT=" + strconv.Itoa(Port), "SMOLCORP_TEST_SUPPORT_DIR=/fake/support"} {
+		if !slices.Contains(env, kept) {
+			t.Errorf("a test copy's hire lost %s", kept)
+		}
+	}
+	if slices.ContainsFunc(env, func(v string) bool { return strings.HasPrefix(v, hireKeyEnvironment+"=") }) {
+		t.Error("a test copy's hire gets another's send key")
 	}
 }
 

@@ -88,6 +88,11 @@ func Serve(deck *Deck) error {
 	scope := testCopyScope(scopeOf(deck.config), testCopyPort(), os.Getenv(testListenVariable))
 	deck.mu.Unlock()
 	listenScope = scope
+	// Where tmux is, now: if only your login shell's PATH can say, the shell is
+	// asked in the background from here, so no request waits for it.
+	if hasTmuxHires {
+		findTmux()
+	}
 	listener, err := listenerFor(scope, Port)
 	if err != nil {
 		return err

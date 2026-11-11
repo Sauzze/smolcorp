@@ -96,18 +96,30 @@ var tmuxPath = func() string {
 	return findTmux()
 }
 
+// macShell is the shell a Mac with no SHELL starts, as Terminal and the Mac's
+// engine do (TerminalDrivers.swift): zsh, so your ~/.zprofile and ~/.zshrc
+// still give the PATH your agents are on.
+const macShell = "/bin/zsh"
+
 // tmuxPlaces are where tmux may be besides this program's PATH, as the Mac's
 // engine looks (Tmux.path in TerminalDrivers.swift): a program opened from
 // the Finder or the Dock has only launchd's PATH, which has no Homebrew.
 // A variable, for the tests.
 var tmuxPlaces = []string{"/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/usr/bin"}
 
-// tmuxLoginPath is the PATH your login shell sets, asked once, for a tmux
-// somewhere stranger (a home folder's own bin, Nix, Linuxbrew). A variable,
+// tmuxLoginPath is the PATH your login shell sets, for a tmux somewhere
+// stranger (a home folder's own bin, Nix, Linuxbrew): never waited for, as
+// the deck's lock may be held. Until the shell has said, it's nothing, and
+// the shell is asked in the background (Serve asks at start). A variable,
 // for the tests.
 var tmuxLoginPath = func() []string {
-	loginPathOnce.Do(func() { loginPath = loginShellPath() })
-	return loginPath
+	if loginPathKnown.Load() {
+		return loginPath
+	}
+	if loginPathAsking.CompareAndSwap(false, true) {
+		go askLoginPath()
+	}
+	return nil
 }
 
 // findTmux is the tmux program, or "": on this program's PATH, then in the
@@ -781,11 +793,20 @@ func showWindow(terminal hireOpener, folder string, command []string) (string, e
 // hireEnvironment is this app's environment, less what says where it was
 // started: a hire is in a terminal of its own, not the one Smolcorp was
 // started from, nor a headless run. It never carries the GM's token.
+// Nor another hire's send key (each hire's start script exports its own).
+// The office's own hires never get the port and support folder the Mac app
+// names its engine by: a Mac-engine hire doesn't have them either, and
+// `smolcorp` finds the office without them. A test copy's keep them, as a
+// Mac test copy's do, so its hires never reach the real office.
 func hireEnvironment() []string {
+	dropped := []string{"SMOLCORP_SESSION", "SAUZZEDECK_SESSION", "SMOLCORP_HEADLESS", "SMOLCORP_PARENT_FOLDER",
+		"SMOLCORP_GM_TOKEN", hireKeyEnvironment, "TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON"}
+	if testCopyPort() == 0 {
+		dropped = append(dropped, "SMOLCORP_PORT", testSupportVariable)
+	}
 	return slices.DeleteFunc(os.Environ(), func(variable string) bool {
 		name, _, _ := strings.Cut(variable, "=")
-		return slices.Contains([]string{"SMOLCORP_SESSION", "SAUZZEDECK_SESSION", "SMOLCORP_HEADLESS", "SMOLCORP_PARENT_FOLDER",
-			"SMOLCORP_GM_TOKEN", "TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON"}, strings.ToUpper(name))
+		return slices.Contains(dropped, strings.ToUpper(name))
 	})
 }
 
@@ -838,7 +859,7 @@ func (d *Deck) hireState(apiKey apiKeyOffer) map[string]any {
 // socket in a hire socket folder is looked up: where new hires go (tmux's own
 // folder), or the support folder, where the Go core put them before 1.25.
 func (d *Deck) hiredRoleAt(socket string) string {
-	if socket == "" || !slices.Contains(hireSocketFolders(), filepath.Dir(filepath.Clean(socket))) {
+	if socket == "" || !inHireSocketFolder(socket) {
 		return ""
 	}
 	for _, h := range readRegistry(registryPath(), false).hires {
@@ -847,6 +868,13 @@ func (d *Deck) hiredRoleAt(socket string) string {
 		}
 	}
 	return ""
+}
+
+// inHireSocketFolder says whether socket is right inside a hire socket folder, with the folders on the way
+// resolved, as recordedOwnSocket compares them: a hire the Mac's engine made says /private/tmp for /tmp.
+func inHireSocketFolder(socket string) bool {
+	folder := physical(filepath.Dir(filepath.Clean(socket)))
+	return slices.ContainsFunc(hireSocketFolders(), func(own string) bool { return physical(own) == folder })
 }
 
 // refusalStatus is the status a refusal carries, or 409 for an error that isn't one.

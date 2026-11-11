@@ -136,12 +136,21 @@ var hasProgram = func(name string) bool {
 	return err == nil
 }
 
+// brewPlaces are where Homebrew's brew is besides this app's PATH, as tmux is looked for (tmuxPlaces): an
+// app opened from the Finder or the Dock has no Homebrew on its PATH. A variable, for the tests.
+var brewPlaces = []string{"/opt/homebrew/bin", "/usr/local/bin"}
+
 // tmuxInstall is the command that installs tmux with this computer's package manager, "" if none is known.
 func tmuxInstall() string {
 	for _, pm := range [][2]string{{"apt-get", "sudo apt install tmux"}, {"dnf", "sudo dnf install tmux"}, {"pacman", "sudo pacman -S tmux"},
 		{"zypper", "sudo zypper install tmux"}, {"brew", "brew install tmux"}} {
 		if hasProgram(pm[0]) {
 			return pm[1]
+		}
+	}
+	for _, folder := range brewPlaces {
+		if executableIn(folder, "brew") != "" {
+			return "brew install tmux"
 		}
 	}
 	return ""
