@@ -825,6 +825,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	if d.setupHireRoute(w, r.Method, path, r.Body, r.caller) {
 		return
 	}
+	// The demo's page: Setup opened at `smolcorp demo`'s hire (demopage.go).
+	if d.demoRoute(w, r) {
+		return
+	}
 
 	// What only macOS does, under the Mac app (hostsetup.go): not served elsewhere.
 	if rt.macSetup(w, r) {

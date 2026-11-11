@@ -34,6 +34,11 @@ import (
 //	smolcorp demo                 the real thing, after your OK
 //	smolcorp demo --dry-run       the same steps with stand-ins: no office, no Claude Code, nothing spent
 //	smolcorp demo --in FOLDER     make the demo folder in FOLDER (default: your home folder)
+//	smolcorp demo --no-open       print the link to the demo's page instead of opening it
+//
+// The demo never hires: the setup key it holds can't (the route table). After your yes it makes the folder,
+// and Smolcorp opens Setup in your browser at the demo (demopage.go): you check it there and click Hire, which
+// hires the General Manager held to the project. The demo then follows the team.
 
 //go:embed demosample
 var demoSample embed.FS
@@ -96,7 +101,7 @@ func demoSwitchesOff(off []demoSwitch) string {
 	if many {
 		it, stays = "them", "they stay"
 	}
-	return strings.ToUpper(names[:1]) + names[1:] + ": the demo turns " + it + " on, and " + stays + " on until you turn " + it + " off in Setup."
+	return strings.ToUpper(names[:1]) + names[1:] + ": the demo's page turns " + it + " on when you click Hire, and " + stays + " on until you turn " + it + " off in Setup."
 }
 
 // demoSwitchesLeftOn is the run's last word on the switches it turned on: they're still on, and where to turn them off.
@@ -109,7 +114,7 @@ func demoSwitchesLeftOn(on []demoSwitch) string {
 	for _, s := range on {
 		settings = append(settings, s.setting)
 	}
-	return fmt.Sprintf("The demo turned on %s, and left %s on for the team. Once you've fired the demo's team, turn %s off in Setup, Hires and roles: %s.",
+	return fmt.Sprintf("The demo's page turned on %s, and left %s on for the team. Once you've fired the demo's team, turn %s off in Setup, Hires and roles: %s.",
 		names, them, them, strings.Join(settings, "; "))
 }
 
@@ -121,6 +126,7 @@ func RunDemo(args []string) int {
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	dry := fs.Bool("dry-run", false, "stand-ins for the office and Claude Code: nothing is spent")
 	in := fs.String("in", homeDir, "where to make the demo folder")
+	noOpen := fs.Bool("no-open", false, "print the link to the demo's page instead of opening it in your browser")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -128,7 +134,9 @@ func RunDemo(args []string) int {
 		fmt.Fprintf(os.Stderr, "smolcorp demo takes no argument %q (smolcorp demo --help)\n", fs.Arg(0))
 		return 2
 	}
-	var team demoTeam = newOfficeTeam()
+	office := newOfficeTeam()
+	office.noOpen = *noOpen
+	var team demoTeam = office
 	if *dry {
 		team = standInTeam{}
 	}
@@ -169,6 +177,9 @@ plan's usage, as any Claude Code session does, never an API key.
 %s
 Nothing is pushed, merged or published: the project has no remote, and the
 team stops before anything ships.
+
+After your yes, the demo makes its folder, and Setup opens in your browser at
+the demo: check it there, and click Hire to hire the General Manager.
 
 Go on? [y/N] `, demoSwitchesOff(r.team.off()))
 		answer, _ := bufio.NewReader(r.stdin).ReadString('\n')

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -26,7 +27,11 @@ type officeTeam struct {
 	start func() error // starts Smolcorp when it doesn't answer
 	every time.Duration
 	state demoState
-	on    []demoSwitch // the switches this run turned on and left on
+	on    []demoSwitch // the switches the demo's page turned on and left on
+	// noOpen: the demo's page isn't opened, its link is printed (--no-open).
+	noOpen bool
+	// wait is how long the demo waits for its General Manager's hire on the page.
+	wait time.Duration
 }
 
 // demoState is what the demo reads of GET /setup/state.
@@ -62,7 +67,7 @@ type demoMember struct {
 
 func newOfficeTeam() *officeTeam {
 	return &officeTeam{base: localBase(), key: func() ([]byte, error) { return os.ReadFile(setupKeyFile) },
-		http: &http.Client{Timeout: time.Minute}, start: startApp, every: 3 * time.Second}
+		http: &http.Client{Timeout: time.Minute}, start: startApp, every: 3 * time.Second, wait: demoHireWait}
 }
 
 // call sends one request with the setup key and reads its JSON answer into answer (nil: none).
@@ -90,13 +95,21 @@ func (o *officeTeam) call(method, path string, body, answer any) error {
 	defer response.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if response.StatusCode >= 400 {
-		return fmt.Errorf("Smolcorp said: %s", strings.TrimSpace(string(data)))
+		return demoRefusal{response.StatusCode, strings.TrimSpace(string(data))}
 	}
 	if answer == nil {
 		return nil
 	}
 	return json.Unmarshal(data, answer)
 }
+
+// demoRefusal is Smolcorp's answer to a request it refused.
+type demoRefusal struct {
+	status int
+	said   string
+}
+
+func (r demoRefusal) Error() string { return "Smolcorp said: " + r.said }
 
 func (o *officeTeam) up() bool {
 	quick := &http.Client{Timeout: 2 * time.Second}
@@ -128,24 +141,23 @@ func (o *officeTeam) ready(out io.Writer) ([]string, error) {
 	if err := o.call(http.MethodGet, "/setup/state", nil, &o.state); err != nil {
 		return nil, err
 	}
-	if o.state.GMHired {
+	// The office as the demo needs it, read whatever the manager's switch says (the team's route is closed while it's off).
+	var office struct {
+		GMHired bool     `json:"gmHired"`
+		Open    []string `json:"open"`
+	}
+	if err := o.call(http.MethodGet, "/setup/demo", nil, &office); err != nil {
+		if refused := (demoRefusal{}); errors.As(err, &refused) && refused.status == http.StatusNotFound {
+			return nil, errors.New(demoNotServed())
+		}
+		return nil, err
+	}
+	if o.state.GMHired || office.GMHired {
 		return nil, errors.New("A General Manager is already hired. The demo hires its own: fire yours in the office first, then run the demo again.")
 	}
 	// Only the demo's own team in the office: its GM never finds another hire to brief, write to or fire.
-	var team struct {
-		Team []demoMember `json:"team"`
-	}
-	if err := o.call(http.MethodGet, "/setup/gm/team", nil, &team); err != nil {
-		return nil, err
-	}
-	var open []string
-	for _, m := range team.Team {
-		if m.Registered && m.State != "fired" && m.State != "failed" {
-			open = append(open, demoMemberName(m))
-		}
-	}
-	if len(open) > 0 {
-		return nil, fmt.Errorf("The demo runs its own team: fire or finish your hires first (%s), then run the demo again.", strings.Join(open, ", "))
+	if len(office.Open) > 0 {
+		return nil, fmt.Errorf("The demo runs its own team: fire or finish your hires first (%s), then run the demo again.", strings.Join(office.Open, ", "))
 	}
 	if !o.state.Hiring.CanHire {
 		return nil, errors.New("Smolcorp can't open a hire on this computer yet: see the hiring step in Setup.")
@@ -175,53 +187,102 @@ func (o *officeTeam) off() []demoSwitch {
 
 func (o *officeTeam) leftOn() []demoSwitch { return o.on }
 
-// work turns the manager and hiring on if they're off, hires the GM into the project with the
-// demo's goal, and follows the team until the GM writes its report. Should anything fail before
-// the GM is hired, it turns back off what it turned on.
+// demoHireWait is how long the demo waits for you to hire its General Manager on its page.
+const demoHireWait = 15 * time.Minute
+
+// demoNotServed is why the demo can't go on with a Smolcorp that doesn't serve its page.
+func demoNotServed() string {
+	if setupSystem == "darwin" {
+		return "Smolcorp on this Mac doesn't serve the demo's page yet, so the demo can't have you hire its General Manager here. Nothing was made."
+	}
+	return "This Smolcorp doesn't serve the demo's page: update it, then run the demo again. Nothing was made."
+}
+
+// demoLink is Setup at the demo, with no token: it opens signed in only in a browser Setup is already open in.
+func (o *officeTeam) demoLink(f demoFolder) string {
+	return o.base + "/setup?demo=" + url.QueryEscape(f.root)
+}
+
+// work has Setup open at the demo (or prints its link), waits for you to hire the General Manager there, and
+// follows the team until the GM writes its report. The page's Hire turns on the switches the demo needs.
 func (o *officeTeam) work(ctx context.Context, f demoFolder, roles []string, out io.Writer) error {
-	// Ctrl-C after the yes, before the GM is hired, is a no: nothing more is turned on or hired.
-	stopped := errors.New("Stopped before hiring: nothing is working.")
-	for _, s := range o.off() {
-		if ctx.Err() != nil {
-			return o.putBack(stopped, out)
+	off := o.off()
+	if o.noOpen {
+		fmt.Fprintf(out, "Open the demo's page in a browser on this computer, and click Hire there:\n\n  %s\n\n"+
+			"It opens signed in where Setup is already open. If it isn't, %s first, then open the link above.\n", o.demoLink(f), setupMenuWords())
+	} else {
+		if err := o.call(http.MethodPost, "/setup/demo/open?root="+url.QueryEscape(f.root), nil, nil); err != nil {
+			return fmt.Errorf("The demo's page didn't open. %v\nNobody was hired. The demo folder stays: %s", err, f.root)
 		}
-		if err := o.call(http.MethodPost, s.route+"?enabled=1", nil, nil); err != nil {
-			return o.putBack(err, out)
+		fmt.Fprintln(out, "Setup is open in your browser at the demo. Check what it says, then click Hire there: that's the one click the demo needs from you.")
+	}
+	fmt.Fprintln(out, "Waiting for the General Manager's hire. Nothing is hired until you click; Ctrl-C stops waiting.")
+	if err := o.waitForGM(ctx, f); err != nil {
+		return err
+	}
+	// What the page turned on for the hire, as the last word says.
+	if err := o.call(http.MethodGet, "/setup/state", nil, &o.state); err == nil {
+		now := o.off()
+		for _, s := range off {
+			if !slices.Contains(now, s) {
+				o.on = append(o.on, s)
+			}
 		}
-		o.on = append(o.on, s)
-		fmt.Fprintf(out, "Turned %s on.\n", s.name)
 	}
-	var hired struct {
-		Desk *int `json:"desk"`
-	}
-	if ctx.Err() != nil {
-		return o.putBack(stopped, out)
-	}
-	if err := o.call(http.MethodPost, "/setup/hire", demoGMHire(f, roles), &hired); err != nil {
-		return o.putBack(err, out)
-	}
-	at := ""
-	if hired.Desk != nil {
-		at = fmt.Sprintf(" at desk %d", *hired.Desk+1)
-	}
-	fmt.Fprintf(out, "Hired the General Manager%s. It shows you its plan in its terminal: answer there to approve it.\n", at)
+	fmt.Fprintln(out, "You hired the General Manager. It shows you its plan in its terminal: answer there to approve it.")
 	fmt.Fprintln(out, "Watch the team in the office, on your phone or from Smolcorp's menu. This window follows along; Ctrl-C stops following, not the team.")
 	return o.follow(ctx, f, out)
 }
 
-// putBack turns off, last first, the switches this run turned on, says so, and gives back why it had to.
-func (o *officeTeam) putBack(why error, out io.Writer) error {
-	fmt.Fprintln(out, why)
-	for i := len(o.on) - 1; i >= 0; i-- {
-		s := o.on[i]
-		if err := o.call(http.MethodPost, s.route+"?enabled=0", nil, nil); err != nil {
-			fmt.Fprintf(out, "Couldn't turn %s back off (%v).\n", s.name, err)
-			continue
-		}
-		o.on = slices.Delete(o.on, i, i+1)
-		fmt.Fprintf(out, "Turned %s back off: the demo hired no General Manager.\n", s.name)
+// demoWaitWords is a wait as the demo says it: "15 minutes", "1 minute", "30 seconds".
+func demoWaitWords(wait time.Duration) string {
+	n, unit := int(wait/time.Minute), "minute"
+	if n == 0 {
+		n, unit = int(wait/time.Second), "second"
 	}
-	return errors.New("The demo stopped before hiring its General Manager.")
+	if n != 1 {
+		unit += "s"
+	}
+	return fmt.Sprintf("%d %s", n, unit)
+}
+
+// waitForGM waits, at most o.wait, for the General Manager hired into f's project. It gives up when the page was
+// closed without a hire, when Smolcorp stops answering, or on Ctrl-C; the demo folder stays.
+func (o *officeTeam) waitForGM(ctx context.Context, f demoFolder) error {
+	stays := "The demo folder stays: " + f.root + ". Delete it, or run smolcorp demo again for a new one."
+	deadline, failed := time.Now().Add(o.wait), 0
+	for {
+		var answer struct {
+			Demo struct {
+				Page string `json:"page"`
+				GM   *struct {
+					ID string `json:"id"`
+				} `json:"gm"`
+			} `json:"demo"`
+		}
+		if err := o.call(http.MethodGet, "/setup/demo?root="+url.QueryEscape(f.root), nil, &answer); err != nil {
+			if failed++; failed >= 5 {
+				return fmt.Errorf("Smolcorp stopped answering (%v). %s", err, stays)
+			}
+		} else {
+			failed = 0
+			if answer.Demo.GM != nil {
+				return nil
+			}
+			if answer.Demo.Page == "closed" {
+				return errors.New("The demo's page was closed without a hire: nobody was hired, nothing was spent. " + stays)
+			}
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("No General Manager was hired on the demo's page within %s: the demo stops waiting, and nothing was spent. %s",
+				demoWaitWords(o.wait), stays)
+		}
+		select {
+		case <-ctx.Done():
+			return errors.New("Stopped waiting: nobody was hired, nothing was spent. If the demo's page is still open, close it. " + stays)
+		case <-time.After(o.every):
+		}
+	}
 }
 
 // follow prints each change in the demo's team until the GM's report is there.

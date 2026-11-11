@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -389,7 +390,8 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 	}
 }
 
-// standInOffice is Smolcorp's setup API as the demo uses it, for the real flow's tests.
+// standInOffice is Smolcorp's setup API as the demo uses it, for the real flow's tests. Its page is a stand-in
+// too: opened (POST /setup/demo/open), it hires the GM as your click on Hire does, turning on what's off.
 type standInOffice struct {
 	mu        sync.Mutex
 	state     string
@@ -397,10 +399,13 @@ type standInOffice struct {
 	hire      map[string]any
 	teamCalls int
 	finish    func()           // the stand-in GM's last step, at the second look at the team
-	failHire  bool             // the GM's hire fails
 	gone      bool             // Smolcorp stops answering the team
-	others    []map[string]any // the team before the demo's GM is hired
-	onSwitch  func()           // runs at each switch turned on or off
+	others    []map[string]any // the hires open before the demo's GM is hired
+	noClick   bool             // the page is opened, and nobody clicks Hire
+	page      string           // what the page says: "" (waiting), "open", "closed"
+	failOpen  bool             // the browser doesn't open
+	noDemo    bool             // a Smolcorp that doesn't serve the demo's page (404)
+	onWait    func()           // runs at each look for the GM before it's hired
 }
 
 func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -411,22 +416,55 @@ func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.calls = append(s.calls, r.Method+" "+r.URL.RequestURI())
+	root := r.URL.Query().Get("root")
+	if s.noDemo && strings.HasPrefix(r.URL.Path, "/setup/demo") {
+		http.NotFound(w, r)
+		return
+	}
 	switch r.Method + " " + r.URL.Path {
 	case "GET /pair":
 	case "GET /setup/state":
 		io.WriteString(w, s.state)
-	case "POST /setup/hire":
-		if s.failHire {
-			http.Error(w, "No desk is free.", http.StatusConflict)
+	case "GET /setup/demo":
+		if root == "" {
+			open := []string{}
+			for _, m := range s.others {
+				if m["registered"] == true && m["state"] != "fired" && m["state"] != "failed" {
+					name, _ := m["nickname"].(string)
+					if name == "" {
+						name, _ = m["name"].(string)
+					}
+					open = append(open, name)
+				}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"gmHired": false, "open": open})
 			return
 		}
-		json.NewDecoder(r.Body).Decode(&s.hire)
-		io.WriteString(w, `{"ok":true,"desk":2,"session":null}`)
+		var gm any
+		if s.hire != nil {
+			gm = map[string]any{"id": "g1", "state": "starting"}
+		} else if s.onWait != nil {
+			s.onWait()
+		}
+		page := s.page
+		if page == "" {
+			page = "waiting"
+		}
+		json.NewEncoder(w).Encode(map[string]any{"demo": map[string]any{"page": page, "gm": gm}})
+	case "POST /setup/demo/open":
+		if s.failOpen {
+			http.Error(w, "The browser didn't open (no xdg-open): run smolcorp demo --no-open for the demo's link.", http.StatusBadGateway)
+			return
+		}
+		if !s.noClick {
+			// Your click: the page turns on what's off, then hires the GM into the project, held to it.
+			s.state = strings.Replace(strings.Replace(s.state, `"manager":{"enabled":false}`, `"manager":{"enabled":true}`, 1),
+				`"hiring":{"enabled":false`, `"hiring":{"enabled":true`, 1)
+			repo := filepath.Join(root, demoRepoName)
+			s.hire = map[string]any{"role": gmRole, "folder": repo, "scope": repo}
+		}
+		w.WriteHeader(http.StatusNoContent)
 	case "GET /setup/gm/team":
-		if s.hire == nil {
-			json.NewEncoder(w).Encode(map[string]any{"team": append([]map[string]any{}, s.others...)})
-			return
-		}
 		if s.teamCalls++; s.teamCalls == 2 && s.finish != nil {
 			s.finish()
 		}
@@ -440,13 +478,20 @@ func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			{"id": "t1", "name": "Tester", "nickname": "Ada", "role": "tester", "folder": filepath.Join(filepath.Dir(folder), "app-hires", "tester-ab12"), "branch": "hire/tester-ab12", "state": "working"},
 			{"id": "x1", "name": "Someone else's", "role": "docs", "folder": "/elsewhere", "state": "idle"},
 		}})
-	case "POST /setup/gm/manager", "POST /setup/hiring":
-		if s.onSwitch != nil {
-			s.onSwitch()
-		}
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// posts is the office's POSTs, in order.
+func (s *standInOffice) posts() []string {
+	var posts []string
+	for _, c := range s.calls {
+		if strings.HasPrefix(c, "POST") {
+			posts = append(posts, c)
+		}
+	}
+	return posts
 }
 
 const demoTestState = `{"gmHired":%s,"manager":{"enabled":false},"hiring":{"enabled":true,"canHire":true},
@@ -459,21 +504,31 @@ func realDemo(t *testing.T, office *standInOffice, answer string) (int, string, 
 
 func realDemoIn(t *testing.T, ctx context.Context, office *standInOffice, answer string) (int, string, string) {
 	t.Helper()
+	return realDemoWith(t, ctx, office, answer, nil)
+}
+
+// realDemoWith is the real flow against office, with the demo's team changed by change first (nil: as is).
+func realDemoWith(t *testing.T, ctx context.Context, office *standInOffice, answer string, change func(*officeTeam)) (int, string, string) {
+	t.Helper()
 	in := demoTestFolder(t)
 	server := httptest.NewServer(office)
 	t.Cleanup(server.Close)
 	team := &officeTeam{base: server.URL, key: func() ([]byte, error) { return []byte("fake-setup-key\n"), nil }, http: server.Client(),
-		start: func() error { t.Error("started the app while it was running"); return nil }, every: 5 * time.Millisecond}
+		start: func() error { t.Error("started the app while it was running"); return nil }, every: 5 * time.Millisecond, wait: 5 * time.Second}
+	if change != nil {
+		change(team)
+	}
 	var out bytes.Buffer
 	code := runDemo(ctx, demoRun{in: in, team: team, stdin: strings.NewReader(answer), out: &out})
 	return code, out.String(), in
 }
 
-func TestTheRealDemoAsksBeforeItSpendsAndHiresTheGMInsideItsFolder(t *testing.T) {
-	// No OK: nothing made, nobody hired.
+func TestTheRealDemoAsksBeforeItSpendsAndHasYouHireTheGMOnItsPage(t *testing.T) {
+	// No OK: nothing made, nothing opened.
 	office := &standInOffice{state: strings.Replace(demoTestState, "%s", "false", 1)}
 	code, out, in := realDemo(t, office, "n\n")
-	if entries, _ := os.ReadDir(in); code != 1 || len(entries) != 0 || slices.Contains(office.calls, "POST /setup/hire") || !strings.Contains(out, "your default Claude account") {
+	if entries, _ := os.ReadDir(in); code != 1 || len(entries) != 0 || len(office.posts()) != 0 || !strings.Contains(out, "your default Claude account") ||
+		!strings.Contains(out, "Setup opens in your browser at\nthe demo: check it there, and click Hire") {
 		t.Errorf("without an OK: %d %v %v\n%s", code, entries, office.calls, out)
 	}
 
@@ -484,7 +539,8 @@ func TestTheRealDemoAsksBeforeItSpendsAndHiresTheGMInsideItsFolder(t *testing.T)
 		t.Errorf("with a GM working: %d %v\n%s", code, entries, out)
 	}
 
-	// With an OK: the manager on, the GM hired into the project with the demo's goal, followed until its report.
+	// With an OK: the folder, then the page opened at it, and nothing else asked of the office but reads: the demo
+	// never hires nor turns a switch on (its key can't). You click Hire; the demo follows the team until the report.
 	office = &standInOffice{state: strings.Replace(demoTestState, "%s", "false", 1)}
 	office.finish = func() {
 		folder, _ := office.hire["folder"].(string)
@@ -495,19 +551,12 @@ func TestTheRealDemoAsksBeforeItSpendsAndHiresTheGMInsideItsFolder(t *testing.T)
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	root := filepath.Join(in, demoFolderName)
-	repo := filepath.Join(root, demoRepoName)
-	if !slices.Contains(office.calls, "POST /setup/gm/manager?enabled=1") || slices.Contains(office.calls, "POST /setup/hiring?enabled=1") {
-		t.Errorf("the switches: %v", office.calls)
+	if want := []string{"POST /setup/demo/open?root=" + url.QueryEscape(root)}; !slices.Equal(office.posts(), want) {
+		t.Errorf("the demo's POSTs: %v, want %v", office.posts(), want)
 	}
-	task, _ := office.hire["task"].(string)
-	answers, _ := office.hire["answers"].([]any)
-	// FXX1c: held by the app to the project, whatever way its GM asks.
-	if office.hire["role"] != "gm" || office.hire["folder"] != repo || office.hire["scope"] != repo || len(answers) != 3 || !strings.Contains(task, "--folder "+repo) ||
-		!strings.Contains(task, "Stop before anything ships") || !strings.Contains(task, "reviewer, tester.") {
-		t.Errorf("the GM's hire: %v", office.hire)
-	}
-	for _, want := range []string{"Hired the General Manager at desk 3", "General Manager (gm): working", "Ada (tester): working, on hire/tester-ab12",
-		"All three reviewed.", "Nothing shipped"} {
+	for _, want := range []string{"Setup is open in your browser at the demo", "Waiting for the General Manager's hire", "You hired the General Manager",
+		"General Manager (gm): working", "Ada (tester): working, on hire/tester-ab12", "All three reviewed.", "Nothing shipped",
+		"The demo's page turned on Smolcorp's manager, and left it on"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("doesn't say %q:\n%s", want, out)
 		}
@@ -516,52 +565,35 @@ func TestTheRealDemoAsksBeforeItSpendsAndHiresTheGMInsideItsFolder(t *testing.T)
 		t.Errorf("shows a hire outside the demo:\n%s", out)
 	}
 	// Only the roles on Claude Code may be hired, through the fence of every session in the project.
-	settings, _ := os.ReadFile(filepath.Join(repo, ".claude", "settings.json"))
+	settings, _ := os.ReadFile(filepath.Join(root, demoRepoName, ".claude", "settings.json"))
 	if !strings.Contains(string(settings), "reviewer,tester") || strings.Contains(string(settings), "porter") {
 		t.Errorf("the settings: %s", settings)
 	}
 }
 
-func TestTheDemoSaysWhichSwitchesItTurnsOnAndPutsThemBack(t *testing.T) {
+func TestTheDemoSaysWhichSwitchesItsPageTurnsOn(t *testing.T) {
 	bothOff := strings.Replace(strings.Replace(demoTestState, "%s", "false", 1), `"hiring":{"enabled":true`, `"hiring":{"enabled":false`, 1)
 	managerOff := strings.Replace(demoTestState, "%s", "false", 1)
 	leftOn := "turn it off in Setup, Hires and roles: Let a General Manager run your team."
 
-	// The question names the switches that are off, and that they stay on; a no changes nothing.
+	// The question names the switches that are off, that the page's Hire turns them on, and that they stay on.
 	office := &standInOffice{state: bothOff}
 	code, out, _ := realDemo(t, office, "n\n")
-	if code != 1 || !strings.Contains(out, "Smolcorp's manager is off and hiring is off: the demo turns them on, and they stay on until you turn them off in Setup.") ||
-		slices.ContainsFunc(office.calls, func(c string) bool { return strings.HasPrefix(c, "POST") }) {
+	if code != 1 || !strings.Contains(out, "Smolcorp's manager is off and hiring is off: the demo's page turns them on when you click Hire, and they stay on until you turn them off in Setup.") ||
+		len(office.posts()) != 0 {
 		t.Errorf("both off, no: %d %v\n%s", code, office.calls, out)
 	}
-	if _, out, _ := realDemo(t, &standInOffice{state: managerOff}, "n\n"); !strings.Contains(out, "Smolcorp's manager is off: the demo turns it on, and it stays on until you turn it off in Setup.") {
+	if _, out, _ := realDemo(t, &standInOffice{state: managerOff}, "n\n"); !strings.Contains(out, "Smolcorp's manager is off: the demo's page turns it on when you click Hire, and it stays on until you turn it off in Setup.") {
 		t.Errorf("the manager off:\n%s", out)
 	}
-
-	// The GM's hire fails: what the demo turned on goes back off, last first, and it says so.
-	office = &standInOffice{state: bothOff, failHire: true}
-	code, out, _ = realDemo(t, office, "y\n")
-	want := []string{"POST /setup/gm/manager?enabled=1", "POST /setup/hiring?enabled=1", "POST /setup/hire", "POST /setup/hiring?enabled=0", "POST /setup/gm/manager?enabled=0"}
-	var posts []string
-	for _, c := range office.calls {
-		if strings.HasPrefix(c, "POST") {
-			posts = append(posts, c)
-		}
-	}
-	if code != 1 || !slices.Equal(posts, want) || !strings.Contains(out, "No desk is free.") || !strings.Contains(out, "Turned hiring back off") ||
-		!strings.Contains(out, "Turned Smolcorp's manager back off") || strings.Contains(out, "left") {
-		t.Errorf("a failed hire: %d %v\n%s", code, posts, out)
-	}
-
-	// The report: the last word says what's still on, and where to turn it off.
-	office = &standInOffice{state: managerOff}
+	// Both turned on by the page: both named at the end.
+	office = &standInOffice{state: bothOff}
 	office.finish = func() {
 		folder, _ := office.hire["folder"].(string)
 		os.WriteFile(filepath.Join(filepath.Dir(folder), demoReportName), []byte("# Report"), 0o644)
 	}
-	if code, out, _ := realDemo(t, office, "y\n"); code != 0 || !strings.HasSuffix(strings.TrimSpace(out), leftOn) ||
-		!strings.Contains(out, "The demo turned on Smolcorp's manager, and left it on") {
-		t.Errorf("after the report: %d\n%s", code, out)
+	if code, out, _ := realDemo(t, office, "y\n"); code != 0 || !strings.Contains(out, "The demo's page turned on Smolcorp's manager and hiring, and left them on") {
+		t.Errorf("both turned on: %d\n%s", code, out)
 	}
 
 	// Ctrl-C while following: the same last word.
@@ -591,6 +623,64 @@ func TestTheDemoSaysWhichSwitchesItTurnsOnAndPutsThemBack(t *testing.T) {
 	runDemo(context.Background(), demoRun{in: demoTestFolder(t), team: readyTeam{team}, stdin: strings.NewReader("n\n"), out: io.Discard, interrupt: interrupt})
 	if caught {
 		t.Error("Ctrl-C was caught before the answer")
+	}
+}
+
+// FXX1d: the wait for your click on the page is bounded, ends when the page is closed without a hire, on Ctrl-C,
+// or when Smolcorp stops answering; each says so, and leaves the folder. Nobody is hired by the demo.
+func TestTheDemoWaitsForYourHireAndStopsCleanly(t *testing.T) {
+	managerOff := strings.Replace(demoTestState, "%s", "false", 1)
+	ends := func(name string, office *standInOffice, ctx context.Context, change func(*officeTeam), want string) {
+		t.Helper()
+		code, out, in := realDemoWith(t, ctx, office, "y\n", change)
+		root := filepath.Join(in, demoFolderName)
+		if _, err := os.Stat(filepath.Join(root, demoRepoName, ".git")); err != nil {
+			t.Errorf("%s: the demo folder didn't stay: %v", name, err)
+		}
+		if code != 1 || !strings.Contains(out, want) || !strings.Contains(out, "The demo folder stays: "+root) || strings.Contains(out, "hired the General Manager") ||
+			strings.Contains(out, "left it on") || slices.ContainsFunc(office.posts(), func(c string) bool { return !strings.HasPrefix(c, "POST /setup/demo/open?") }) {
+			t.Errorf("%s: %d %v\n%s", name, code, office.posts(), out)
+		}
+	}
+	// The page closed without a hire.
+	ends("closed", &standInOffice{state: managerOff, noClick: true, page: "closed"}, context.Background(), nil,
+		"The demo's page was closed without a hire: nobody was hired, nothing was spent.")
+	// Nobody clicks: the wait is bounded.
+	ends("timeout", &standInOffice{state: managerOff, noClick: true, page: "open"}, context.Background(),
+		func(o *officeTeam) { o.wait = 50 * time.Millisecond }, "No General Manager was hired on the demo's page within 0 seconds: the demo stops waiting")
+	// Ctrl-C while waiting.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	office := &standInOffice{state: managerOff, noClick: true, page: "open"}
+	office.onWait = cancel
+	ends("Ctrl-C", office, ctx, nil, "Stopped waiting: nobody was hired, nothing was spent. If the demo's page is still open, close it.")
+	// The browser didn't open: said, with the way to the link.
+	ends("no browser", &standInOffice{state: managerOff, failOpen: true}, context.Background(), nil,
+		"The demo's page didn't open. Smolcorp said: The browser didn't open (no xdg-open): run smolcorp demo --no-open for the demo's link.")
+
+	if demoWaitWords(15*time.Minute) != "15 minutes" || demoWaitWords(time.Minute) != "1 minute" || demoWaitWords(30*time.Second) != "30 seconds" {
+		t.Error("the wait's words")
+	}
+}
+
+// --no-open: the link is printed, nothing is opened, and the demo waits for the hire all the same.
+func TestTheDemoPrintsItsPageWithNoOpen(t *testing.T) {
+	office := &standInOffice{state: strings.Replace(demoTestState, "%s", "false", 1), noClick: true, page: "closed"}
+	code, out, in := realDemoWith(t, context.Background(), office, "y\n", func(o *officeTeam) { o.noOpen = true })
+	link := office.posts()
+	root := filepath.Join(in, demoFolderName)
+	if code != 1 || len(link) != 0 || !strings.Contains(out, "/setup?demo="+url.QueryEscape(root)+"\n") || strings.Contains(out, "#o=") ||
+		!strings.Contains(out, "It opens signed in where Setup is already open.") || !strings.Contains(out, "closed without a hire") {
+		t.Errorf("--no-open: %d %v\n%s", code, link, out)
+	}
+}
+
+// A Smolcorp that doesn't serve the demo's page (the Mac's own engine, an older app): said before the question, nothing made.
+func TestTheDemoNeedsASmolcorpThatServesItsPage(t *testing.T) {
+	office := &standInOffice{state: strings.Replace(demoTestState, "%s", "false", 1), noDemo: true}
+	code, out, in := realDemo(t, office, "y\n")
+	if entries, _ := os.ReadDir(in); code != 1 || len(entries) != 0 || strings.Contains(out, "Go on?") || !strings.Contains(out, demoNotServed()) {
+		t.Errorf("no demo page: %d %v\n%s", code, entries, out)
 	}
 }
 
@@ -699,38 +789,6 @@ func TestTheDemoWaitsForAnOfficeWithNoHires(t *testing.T) {
 	}}
 	if code, out, _ := realDemo(t, office, "n\n"); code != 1 || !strings.Contains(out, "Go on?") || !strings.Contains(out, "Nothing was made or started.") {
 		t.Errorf("with no hire working: %d\n%s", code, out)
-	}
-}
-
-// RX1b S1: Ctrl-C after the yes, before the GM is hired, is a no: nothing more is turned on, nobody is hired.
-func TestCtrlCBeforeTheHireHiresNobody(t *testing.T) {
-	bothOff := strings.Replace(strings.Replace(demoTestState, "%s", "false", 1), `"hiring":{"enabled":true`, `"hiring":{"enabled":false`, 1)
-	posts := func(office *standInOffice) []string {
-		var posts []string
-		for _, c := range office.calls {
-			if strings.HasPrefix(c, "POST") {
-				posts = append(posts, c)
-			}
-		}
-		return posts
-	}
-	// Ctrl-C already in: nothing posted at all.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	office := &standInOffice{state: bothOff}
-	code, out, _ := realDemoIn(t, ctx, office, "y\n")
-	if code != 1 || len(posts(office)) != 0 || !strings.Contains(out, "Stopped before hiring: nothing is working.") || strings.Contains(out, "Hired") {
-		t.Errorf("cancelled before: %d %v\n%s", code, posts(office), out)
-	}
-	// Ctrl-C while the first switch goes on: that one goes back off, the second is never turned on, nobody is hired.
-	ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
-	office = &standInOffice{state: bothOff, onSwitch: cancel}
-	code, out, _ = realDemoIn(t, ctx, office, "y\n")
-	want := []string{"POST /setup/gm/manager?enabled=1", "POST /setup/gm/manager?enabled=0"}
-	if code != 1 || !slices.Equal(posts(office), want) || !strings.Contains(out, "Stopped before hiring: nothing is working.") ||
-		!strings.Contains(out, "Turned Smolcorp's manager back off") || strings.Contains(out, "left it on") {
-		t.Errorf("cancelled during: %d %v\n%s", code, posts(office), out)
 	}
 }
 

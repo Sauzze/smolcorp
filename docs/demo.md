@@ -17,19 +17,33 @@ It makes a new folder, `~/smolcorp-demo` (then `smolcorp-demo-2`, and so on;
 sample project into it, and starts Smolcorp if it isn't running. Then it says
 what it's about to spend and waits for your yes.
 
+**A browser page opens for the one click.** After your yes, Smolcorp opens
+Setup in your browser at the demo, signed in, as Open Setup… does. The page
+shows what the demo is about to hire: the project, the folder the General
+Manager is held to, the roles it may hire, its task word for word, what it
+spends, and which switches Hire turns on. You click Hire there; the demo's
+terminal waits for that, then follows the team. The demo itself never hires:
+the setup key it holds can't, on purpose. Close the page without hiring and
+the demo says so and stops, nothing spent; the demo folder stays for you to
+delete. It waits 15 minutes at most, and Ctrl-C stops the wait.
+
+With `--no-open`, nothing is opened: the demo prints the page's link instead.
+Open it in a browser on this computer where Setup is already open (signed in);
+if it isn't, open Setup from Smolcorp's menu first, then the link.
+
 The sample is `bill`: one Python file that splits a restaurant bill, with its
 tests, MIT licensed. Its `TASKS.md` lists three tasks: a lost cent to fix,
 tests to add, and a README to finish. Python 3 is all the proof needs.
 
 ## What happens
 
-1. **The General Manager is hired** into the sample project, with the demo's
-   goal and its questions answered. If Smolcorp's manager or hiring is off,
-   the question says so: the demo turns it on, and it stays on until you turn
-   it off in Setup. If anything fails before the GM is hired, the demo turns
-   back off what it turned on, and a Ctrl-C after your yes stops it before
-  the hire. At the end (the report, Ctrl-C, or Smolcorp no
-   longer answering), it says what it turned on and where to turn it off.
+1. **You hire the General Manager** on the demo's page, into the sample
+   project, with the demo's goal and its questions answered. If Smolcorp's
+   manager or hiring is off, the question and the page say so: Hire turns it
+   on, and it stays on until you turn it off in Setup. If the hire is
+   refused, the page turns back off what it turned on and says why. At the
+   end (the report, Ctrl-C, or Smolcorp no longer answering), the demo's
+   terminal says what the page turned on and where to turn it off.
 2. **It plans with you.** It shows you the plan in its terminal and waits for
    your OK there.
 3. **It hires one agent per task**, each in a worktree of its own on a branch of
@@ -57,8 +71,8 @@ else is paid for, and the demo asks before it starts anything.
 - **Everything is in the demo folder**: the project in `app`, the hires'
   worktrees beside it in `app-hires`.
 - **The project has no remote**, and a pre-push hook that refuses every push.
-- **Smolcorp holds the General Manager to the project.** The demo hires its GM
-  with a scope, the project, and Smolcorp keeps it with that GM (in its
+- **Smolcorp holds the General Manager to the project.** The demo's page hires
+  its GM with a scope, the project, and Smolcorp keeps it with that GM (in its
   registry, so a restart doesn't drop it). Every request made with the GM's
   token, whichever way it comes (`smolcorp gm`, its MCP tools, or a request
   of its own), is held to it: a hire only into the project or the top of one
