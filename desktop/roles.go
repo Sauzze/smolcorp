@@ -376,6 +376,20 @@ func (r Role) defaultBrief() *RoleBrief {
 	return &RoleBrief{Kind: "text", Text: r.Instructions}
 }
 
+// shippedWithBriefs are the shipped roles as setup is sent them, each with the
+// brief it comes with, as the Mac's Role.jsonObject sends them: a role kept is
+// given that brief (checkedRoles), so without it "Back to how it came" would
+// take every shipped role for changed.
+func shippedWithBriefs() []Role {
+	roles := slices.Clone(shippedRoles)
+	for i := range roles {
+		if roles[i].Brief == nil {
+			roles[i].Brief = roles[i].defaultBrief()
+		}
+	}
+	return roles
+}
+
 // checked is the role as kept, and false without an id or a name. An
 // unknown agent is Claude Code; a model with anything but a model name's
 // characters, an effort the agent hasn't, an unknown badge or an outfit the

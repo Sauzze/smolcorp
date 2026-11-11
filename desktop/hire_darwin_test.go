@@ -4,11 +4,13 @@ package desktop
 
 import (
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // scriptedHost stands in for the Mac app, answering each action its own way.
@@ -170,5 +172,193 @@ func TestAnEngineHiresMacWindowIsRecorded(t *testing.T) {
 	forgetHireWindows(got[0].ID, []string{"tty:/dev/ttys004#w1234"})
 	if windows := windowsOfHire(got[0].ID); len(windows) != 0 {
 		t.Errorf("forgotten, yet %v", windows)
+	}
+}
+
+// macApp puts the Mac's openers in place on a stand-in app that keeps what each
+// window's script would run (it never tells a terminal anything), for one test.
+func macApp(t *testing.T, d *Deck) (ran *[]string) {
+	t.Helper()
+	ran = &[]string{}
+	saved := installedOpeners
+	t.Cleanup(func() { installedOpeners = saved })
+	useMacOpeners(&scriptedHost{answers: map[string]func(bridgeRequest) (bridgeAnswer, error){
+		"terminals": func(bridgeRequest) (bridgeAnswer, error) { return bridgeAnswer{OK: true, Terminals: []string{"terminal"}}, nil },
+		"open": func(r bridgeRequest) (bridgeAnswer, error) {
+			script, _ := os.ReadFile(r.Script)
+			*ran = append(*ran, string(script))
+			return bridgeAnswer{OK: true, Tab: "tty:/dev/ttys004", Window: "tty:/dev/ttys004#w1234"}, nil
+		},
+	}})
+	d.mu.Lock()
+	// The Mac's defaults: hires not in tmux, their windows in front.
+	d.config.HireTerminal, d.config.HireInTmux, d.config.HiresInBackground = "terminal", false, false
+	d.mu.Unlock()
+	return ran
+}
+
+// B1 (RM4): under the Mac app, with the Mac's defaults (not in tmux, windows in
+// front), a role's Claude hire is the engine's: setup's janitor, setup's GM and
+// the office's janitor each get a registry row whose settings hold the guard,
+// and no window runs the launcher (`run --hire`), which writes no fence.
+func TestUnderTheMacAppARolesClaudeHireIsAlwaysFenced(t *testing.T) {
+	d, _, h := engineDeck(t)
+	d.engine.HeardFrom = func(Hire) bool { return true }
+	managerOn(d)
+	ran := macApp(t, d)
+	repo := homeRepo(t)
+	page := func(body string) {
+		t.Helper()
+		d.mu.Lock()
+		d.lastHire = time.Time{}
+		d.mu.Unlock()
+		w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer, body: body,
+			headers: map[string]string{setupHeader: "1"}})
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", body, w.Code, w.Body)
+		}
+		d.watching.Wait()
+	}
+	page(`{"role":"janitor","folder":"` + repo + `","answers":[],"worktree":true,"task":"Sweep."}`)
+	page(`{"role":"gm","folder":"` + repo + `","answers":[]}`)
+	d.mu.Lock()
+	d.lastHire = time.Time{}
+	d.mu.Unlock()
+	if status, message := d.Perform("hire", "", map[string][]string{"role": {"janitor"}}); status != http.StatusNoContent {
+		t.Fatalf("the office's hire: %d %s", status, message)
+	}
+	d.watching.Wait()
+	got := registered(t)
+	if len(got) != 3 {
+		t.Fatalf("registry %+v", got)
+	}
+	for _, hire := range got {
+		settings, err := os.ReadFile(filepath.Join(hireFolder(supportDir, hire.ID), hireSettingsFile))
+		guard := " guard --rules "
+		if hire.Role == gmRole {
+			guard = " guard --profile gm --rules " // the GM's own fence
+		}
+		if err != nil || !strings.Contains(string(settings), guard) {
+			t.Errorf("%s (%s) has no guard: %v %s", hire.ID, hire.Role, err, settings)
+		}
+	}
+	if len(h.windows)+len(h.tmux) != 0 || len(*ran) != 3 {
+		t.Errorf("windows: plain %q %q, through the app %q", h.windows, h.tmux, *ran)
+	}
+	for _, script := range *ran {
+		if strings.Contains(script, "'run' '--hire'") || !strings.Contains(script, "'attach'") {
+			t.Errorf("a window ran the launcher, or didn't attach to the hire:\n%s", script)
+		}
+	}
+}
+
+// B1 (RM4): under the Mac app, a hire the Mac would manage (the manager on, a
+// worktree asked for, or the GM) is refused rather than started unfenced: with
+// no tmux, or at a desk pinned to a folder. A hire it wouldn't manage still
+// starts the old way, as the Swift engine's does.
+func TestUnderTheMacAppAManagedHireThatCantBeFencedIsRefused(t *testing.T) {
+	d, r, h := engineDeck(t)
+	ran := macApp(t, d)
+	repo := homeRepo(t)
+	hire := func(desk, role string, extra *setupHire) (int, string) {
+		d.mu.Lock()
+		d.lastHire = time.Time{}
+		d.mu.Unlock()
+		return d.hireAsWith(desk, role, 0, extra != nil, extra)
+	}
+	nothing := func(what string) {
+		t.Helper()
+		if len(*ran)+len(h.windows)+len(h.tmux)+len(r.tmux.asked) != 0 || len(registered(t)) != 0 {
+			t.Errorf("%s: something was opened or made: %q %q %q", what, *ran, h.windows, r.tmux.asked)
+		}
+	}
+	// The manager off, at a desk pinned to a folder: not managed, so the old way, as before.
+	pin := r.repo
+	d.config.Pins[1] = &pin
+	if status, message := hire("1", "janitor", nil); status != http.StatusNoContent || len(*ran) != 1 {
+		t.Fatalf("an unmanaged hire at a pinned desk: %d %s, windows %q", status, message, *ran)
+	}
+	*ran = nil
+	for _, c := range []struct {
+		name, desk, role string
+		extra            *setupHire
+		manager          bool
+	}{
+		{"the manager on", "1", "janitor", nil, true},
+		{"a worktree asked for", "1", "janitor", &setupHire{Role: "janitor", Folder: repo, Worktree: true}, false},
+		{"the GM", "1", gmRole, nil, false},
+	} {
+		d.config.ManagerEnabled = c.manager
+		if status, message := hire(c.desk, c.role, c.extra); status != http.StatusConflict || message != macHirePinnedUnfenced {
+			t.Errorf("%s, pinned: %d %s", c.name, status, message)
+		}
+		nothing(c.name + ", pinned")
+	}
+	tmuxPath = func() string { return "" }
+	d.config.ManagerEnabled = true
+	for _, c := range []struct {
+		name  string
+		extra *setupHire
+	}{{"the office's", nil}, {"setup's", &setupHire{Role: "janitor", Folder: repo}}} {
+		if status, message := hire("", "janitor", c.extra); status != http.StatusConflict || message != macHireNeedsTmux {
+			t.Errorf("%s hire, no tmux: %d %s", c.name, status, message)
+		}
+		nothing(c.name + ", no tmux")
+	}
+	d.mu.Lock()
+	cooling := !d.lastHire.IsZero()
+	d.mu.Unlock()
+	if cooling {
+		t.Error("a refused hire spent the cooldown")
+	}
+}
+
+// B2 (RM4): the launcher starts on the default account, so a hire on a named
+// account, or any Claude hire in a test copy, is refused on each plain way
+// (tmux off, a pinned folder, no tmux) with nothing opened.
+func TestAPlainHireNeverStartsOnTheDefaultAccountInsteadOfANamedOne(t *testing.T) {
+	d, r, h := engineDeck(t)
+	repo := homeRepo(t)
+	account := filepath.Join(homeDir, ".claude-test")
+	if err := os.MkdirAll(account, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	saved := Port
+	t.Cleanup(func() { Port = saved })
+	pin := r.repo
+	for _, copy := range []bool{true, false} {
+		Port = portFromEnvironment("")
+		if copy {
+			Port = 7799
+		}
+		for _, c := range []struct {
+			name  string
+			desk  string
+			setup func()
+		}{
+			{"tmux off", "", func() { d.config.HireInTmux = false }},
+			{"a pinned folder", "1", func() { d.config.HireInTmux, d.config.Pins[1] = true, &pin }},
+			{"no tmux", "", func() { tmuxPath = func() string { return "" } }},
+		} {
+			saved := tmuxPath
+			d.config.HireInTmux, d.config.Pins[1] = true, nil
+			c.setup()
+			d.lastHire = time.Time{}
+			status, message := d.hireAsWith(c.desk, "janitor", 0, true,
+				&setupHire{Role: "janitor", Folder: repo, Account: "test", configDir: account})
+			tmuxPath = saved
+			if status != http.StatusConflict || message != plainHireDefaultAccount {
+				t.Errorf("test copy %v, %s: %d %s", copy, c.name, status, message)
+			}
+			if len(h.windows)+len(h.tmux)+len(r.tmux.asked) != 0 || len(registered(t)) != 0 {
+				t.Errorf("test copy %v, %s: opened %q %q %q", copy, c.name, h.windows, h.tmux, r.tmux.asked)
+			}
+		}
+	}
+	// A test copy's Claude hire through the office (no account named) is refused before, by T721's own words.
+	Port, d.config.HireInTmux = 7799, false
+	d.lastHire = time.Time{}
+	if status, message := d.hireAsWith("", "janitor", 0, false, nil); status != http.StatusConflict || message == plainHireDefaultAccount {
+		t.Errorf("a test copy's office hire: %d %s", status, message)
 	}
 }

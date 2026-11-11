@@ -163,11 +163,17 @@ func TestTheActFireRouteFiresAnEngineHireThroughTheRefusals(t *testing.T) {
 		Claude, tab, "", 200)
 	windowShows(r, pane(t, "permission-menu"), true)
 	d.engine = r.o
+	// A Mac window opened for it (hirewindows.go): kept while it's there, forgotten as it's fired.
+	recordHireWindow(hire.ID, "tty:/dev/ttys004#w1234")
+	t.Cleanup(func() { forgetHireWindows(hire.ID, windowsOfHire(hire.ID)) })
 	if status, message := d.Perform("fire", "s1", url.Values{}); status != http.StatusConflict || !strings.HasPrefix(message, "Rex is waiting") {
 		t.Fatalf("at a menu: %d %q", status, message)
 	}
 	if r.tmux.ran("kill-session") {
 		t.Error("the session was ended at a menu")
+	}
+	if len(windowsOfHire(hire.ID)) != 1 {
+		t.Error("a refused fire forgot the hire's window")
 	}
 	windowShows(r, pane(t, "idle-empty"), true)
 	d.engine = r.o
@@ -176,6 +182,9 @@ func TestTheActFireRouteFiresAnEngineHireThroughTheRefusals(t *testing.T) {
 	}
 	if !r.tmux.ran("kill-session") || registered(t)[0].State != "fired" {
 		t.Error("the idle hire wasn't fired")
+	}
+	if windows := windowsOfHire(hire.ID); len(windows) != 0 {
+		t.Errorf("a fired hire's windows are still recorded: %v", windows)
 	}
 	if _, _, handled := d.fireTab("tmux:%1@"+filepath.Join(t.TempDir(), "other"), false); handled {
 		t.Error("a tab that isn't an engine hire's was taken")

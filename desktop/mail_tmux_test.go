@@ -320,6 +320,24 @@ func TestThePasteIsOneBracketedPasteThroughANamedBufferAndReturnIsSeparate(t *te
 	}
 }
 
+// A ";" at the end reaches the hire: tmux takes an argument ending in ";" for the end of its
+// command and drops the ";", so it goes as "\;", as typing sends it (tmuxLiteral).
+func TestASemicolonAtTheEndIsPastedToo(t *testing.T) {
+	r := newRecorder()
+	h, socket := fakeHireTmux(t, r, 0)
+	if !h.paste("lance les tests;") {
+		t.Fatal("paste failed")
+	}
+	if want := []string{"-S", socket, "set-buffer", "-b", "smolcorp-paste", "--", `lance les tests\;`}; !reflect.DeepEqual(r.asked[0], want) {
+		t.Errorf("asked %q, want %q", r.asked[0], want)
+	}
+	for text, want := range map[string]string{";": `\;`, `a\;`: `a\\;`, "a; b && c": "a; b && c", `end\`: `end\`} {
+		if got := tmuxLiteral(text); got != want {
+			t.Errorf("tmuxLiteral(%q) = %q, want %q", text, got, want)
+		}
+	}
+}
+
 func TestPasteStateReadsTheTwoFlags(t *testing.T) {
 	r := newRecorder()
 	h, socket := fakeHireTmux(t, r, 0)

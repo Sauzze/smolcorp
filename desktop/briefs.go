@@ -503,7 +503,9 @@ func (l briefLibrary) read(name string) (string, bool) {
 	if err != nil || !utf8.Valid(data) {
 		return "", false
 	}
-	return string(data), true
+	// A brief you edited and saved with Windows' line ends (CRLF) reads as one
+	// saved with plain ones, or its front matter and slots would go unseen.
+	return strings.ReplaceAll(string(data), "\r\n", "\n"), true
 }
 
 func (l briefLibrary) source(id string) (string, bool) {

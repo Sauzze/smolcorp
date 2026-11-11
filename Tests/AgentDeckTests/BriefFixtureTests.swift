@@ -7,6 +7,10 @@ import XCTest
 /// (desktop/briefs_fixture_test.go) makes the same from the same inputs and must match byte for byte. Paths are written with
 /// `~` and each side expands them with its own home; dates are shown in UTC. Set SMOLCORP_WRITE_FIXTURES=1 for a run to
 /// write it again.
+///
+/// One difference is known and kept: a path that goes through `URL` comes out decomposed here (NFD: "e" then the accent),
+/// while the folder as given, and everything on the Go side, stays precomposed (NFC). A hire marked `"normalized": "NFC"`
+/// holds this side's brief with that undone (`made`), and as it really is (`madeAsIs`); see docs/GO-PARITY.md.
 final class BriefFixtureTests: XCTestCase {
     private let library = BriefLibrary(folder: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/briefs"))
@@ -91,7 +95,7 @@ final class BriefFixtureTests: XCTestCase {
 
     /// One hire's brief, as `BriefBuilder.make` makes it (not written).
     private func hire(_ name: String, role: Role, folder: String = "~/Projects/app", pinned: Bool = false, desk: Int? = nil,
-                      answers: [String]? = nil, task: String? = nil, managed: String? = nil) throws -> [String: Any] {
+                      answers: [String]? = nil, task: String? = nil, managed: String? = nil, nfc: Bool = false) throws -> [String: Any] {
         let kept = "~/Support/briefs"
         var input: [String: Any] = ["name": name, "role": try json(role), "folder": folder, "pinned": pinned, "kept": kept,
                                     "date": date.timeIntervalSince1970]
@@ -103,8 +107,17 @@ final class BriefFixtureTests: XCTestCase {
                                          task: task, managed: managed.map { URL(fileURLWithPath: expanded($0), isDirectory: true) },
                                          date: date, kept: URL(fileURLWithPath: expanded(kept), isDirectory: true), write: false)
         guard let made else { input["made"] = NSNull(); return input }
-        input["made"] = ["brief": shown(made.names.brief.path), "status": shown(made.names.status.path),
-                         "report": made.names.report.map { shown($0.path) } ?? "", "markdown": made.markdown, "firstMessage": made.firstMessage]
+        let asIs: [String: String] = ["brief": shown(made.names.brief.path), "status": shown(made.names.status.path),
+                                      "report": made.names.report.map { shown($0.path) } ?? "", "markdown": made.markdown, "firstMessage": made.firstMessage]
+        input["made"] = asIs
+        if nfc {
+            let precomposed = asIs.mapValues(\.precomposedStringWithCanonicalMapping)
+            // The difference is still there: if this ever fails, the Mac writes NFC too, and the note can go.
+            XCTAssertNotEqual(precomposed.values.map { Array($0.unicodeScalars) }, asIs.values.map { Array($0.unicodeScalars) }, name)
+            input["made"] = precomposed
+            input["madeAsIs"] = asIs
+            input["normalized"] = "NFC"
+        }
         return input
     }
 
@@ -123,6 +136,8 @@ final class BriefFixtureTests: XCTestCase {
             try hire("the security guard's", role: try XCTUnwrap(roles["securityguard"]), desk: 0),
             try hire("the general manager", role: try XCTUnwrap(roles["gm"]), managed: "~/Support/hires/9a9a9a9a9a9a"),
             try hire("its own instructions", role: try XCTUnwrap(roles["plain"])),
+            try hire("pinned to a folder with accents, answered", role: tester, folder: "~/Projets/équipe café", pinned: true,
+                     answers: ["« tout », s’il te plaît", "la base\u{00A0}de test, déjà prête"], nfc: true),
         ]
         // Every brief of the library, by a role of its own.
         var every: [[String: Any]] = []
@@ -204,12 +219,73 @@ final class BriefFixtureTests: XCTestCase {
             "{\"groups\":[{\"name\":\"push\",\"on\":\"yes\"}]}",
             "{\"groups\":[{\"name\":\"push\",\"on\":true,\"commands\":[\"  \"]}]}",
             "{\"groups\":[{\"name\":\"push\",\"on\":true}],\"more\":1}",
+            "{\"groups\":[null]}",
+            "{\"groups\":[{\"name\":\"\\n\",\"on\":true}]}",
+            "{\"groups\":[{\"name\":\"push\",\"on\":true,\"commands\":[\"a\",1]}]}",
+            "{\"groups\":[{\"name\":\"push\",\"on\":0},{\"name\":\"deploy\",\"on\":1.0}]}",
         ]
         var guards: [[String: Any]] = []
         for (i, text) in guardFiles.enumerated() {
             let url = folder.appendingPathComponent("guard-\(i).json")
             if let text { try text.write(to: url, atomically: true, encoding: .utf8) }
             guards.append(["file": text.map { $0 as Any } ?? NSNull(), "state": GuardFile.state(url)])
+        }
+
+        // The guard saved from setup (DeckRouter's POST /setup/guard): what it answers, and the file it leaves.
+        let kept = "{\"groups\":[{\"name\":\"cloud\",\"on\":false,\"commands\":[\"aws\",\"gcloud\"]},{\"name\":\"extra\",\"on\":true,\"commands\":[\"terraform import\"]},"
+            + "{\"name\":\"mine\",\"on\":true,\"commands\":[\"make ship\"]},{\"name\":\"theirs\",\"on\":false}]}"
+        let guardSaves: [(file: String?, missingFolder: Bool, body: String)] = [
+            (nil, false, "{\"groups\":[{\"name\":\"push\",\"on\":false}]}"),
+            (nil, false, "{}"),
+            (kept, false, "{\"extra\":[\"terraform import\",\"\\u00a0terraform import\\t\",\"gh  api\",\"git|svn dcommit\",\"make-it.go_v2+ x\"]}"),
+            (kept, false, "{\"groups\":[{\"name\":\"cloud\",\"on\":true},{\"name\":\"local\",\"on\":false}]}"),
+            (kept, false, "{\"extra\":[]}"),
+            ("not json", false, "{\"groups\":[{\"name\":\"deploy\",\"on\":false}]}"),
+            (nil, false, "{\"groups\":[{\"name\":\"push\",\"on\":0},{\"name\":\"remote\",\"on\":1}]}"),
+            (nil, true, "{\"groups\":[{\"name\":\"push\",\"on\":false}]}"),
+            (kept, false, "not json"),
+            (nil, false, "[]"),
+            (nil, false, "null"),
+            (nil, false, "{\"groups\":[],\"more\":1}"),
+            (nil, false, "{\"groups\":{\"name\":\"push\",\"on\":false}}"),
+            (nil, false, "{\"groups\":null}"),
+            (nil, false, "{\"groups\":[null]}"),
+            (nil, false, "{\"groups\":[{\"name\":\"push\"}]}"),
+            (nil, false, "{\"groups\":[{\"name\":\"push\",\"on\":\"no\"}]}"),
+            (nil, false, "{\"groups\":[{\"name\":\"push\",\"on\":2}]}"),
+            (kept, false, "{\"groups\":[{\"name\":\"mine\",\"on\":false}]}"),
+            (nil, false, "{\"groups\":[{\"name\":\"extra\",\"on\":false}]}"),
+            (nil, false, "{\"groups\":[{\"name\":\"push\",\"on\":true},{\"name\":\"push\",\"on\":false}]}"),
+            (nil, false, "{\"extra\":\"terraform import\"}"),
+            (nil, false, "{\"extra\":[\"ok\",1]}"),
+            (nil, false, "{\"extra\":[" + (1...41).map { "\"tool\($0)\"" }.joined(separator: ",") + "]}"),
+            (nil, false, "{\"extra\":[\" \\t\"]}"),
+            (nil, false, "{\"extra\":[\"*\"]}"),
+            (nil, false, "{\"extra\":[\"git|\"]}"),
+            (nil, false, "{\"extra\":[\"-rf x\"]}"),
+            (nil, false, "{\"extra\":[\"été x\"]}"),
+            (nil, false, "{\"extra\":[\"git\\npush\"]}"),
+            (nil, false, "{\"extra\":[\"git\\u200bpush\"]}"),
+            (nil, false, "{\"extra\":[\"" + String(repeating: "x", count: 201) + "\"]}"),
+            (nil, false, "{\"extra\":[\"" + String(repeating: "x", count: 200) + "\"]}"),
+        ]
+        var saves: [[String: Any]] = []
+        for (i, save) in guardSaves.enumerated() {
+            let url = save.missingFolder ? folder.appendingPathComponent("missing-\(i)/hire-guard.json") : folder.appendingPathComponent("save-\(i).json")
+            if let file = save.file { try file.write(to: url, atomically: true, encoding: .utf8) }
+            var row: [String: Any] = ["file": save.file.map { $0 as Any } ?? NSNull(), "body": save.body]
+            if save.missingFolder { row["missingFolder"] = true }
+            switch GuardFile.save(Data(save.body.utf8), to: url) {
+            case .success(let state): row["status"] = 200; row["answer"] = state
+            case .failure(.bad(let why)): row["status"] = 400; row["answer"] = why
+            case .failure(.notWritten): row["status"] = 500; row["answer"] = "Couldn't write the guard file."
+            }
+            if let data = try? Data(contentsOf: url) {
+                row["after"] = (try? JSONSerialization.jsonObject(with: data)) ?? String(decoding: data, as: UTF8.self)
+            } else {
+                row["after"] = NSNull()
+            }
+            saves.append(row)
         }
 
         let object: [String: Any] = [
@@ -222,6 +298,7 @@ final class BriefFixtureTests: XCTestCase {
             "files": picked,
             "parts": parts,
             "guard": guards,
+            "guardSaves": saves,
         ]
         return try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) + Data("\n".utf8)
     }

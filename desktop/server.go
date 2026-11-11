@@ -730,8 +730,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	if d.briefRoute(w, r.Method, path, r.Body) {
 		return
 	}
-	// Setup's own hire sheet (setuphire.go), and the guard's groups switched (guardstate.go).
-	if d.setupHireRoute(w, r.Method, path, r.Body, r.caller) || guardRoute(w, r.Method, path, r.Body) {
+	// Setup's own hire sheet (setuphire.go).
+	if d.setupHireRoute(w, r.Method, path, r.Body, r.caller) {
 		return
 	}
 
@@ -1254,9 +1254,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, hireFolderState(folder, nil, homeDir))
 
-	// The hire guard's groups and your own patterns: a tool may read them (guardstate.go).
+	// The hire guard's groups and your own patterns: a tool may read them, only the page changes them (routes.go, guardstate.go).
 	case r.Method == http.MethodGet && path == "/setup/guard":
 		writeJSON(w, http.StatusOK, guardState(filepath.Join(supportDir, hireGuardFile), runtime.GOOS))
+
+	case r.Method == http.MethodPost && path == "/setup/guard":
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		saveGuard(body, filepath.Join(supportDir, hireGuardFile), runtime.GOOS).write(w)
 
 	// The roles as the page has them, all of them: checked as they're kept,
 	// since their instructions go to agents.
@@ -1775,7 +1779,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		// role can be: its agent, whether that agent has an effort and takes a
 		// first message, its badge, and how long each part can be.
 		"roles": map[string]any{
-			"roles": d.config.Roles, "shipped": shippedRoles, "agents": roleAgents(), "efforts": effortLevels, "badges": roleBadges,
+			"roles": d.config.Roles, "shipped": shippedWithBriefs(), "agents": roleAgents(), "efforts": effortLevels, "badges": roleBadges,
 			"limits": map[string]int{"name": roleNameLimit, "model": roleModelLimit, "instructions": roleInstructionsLimit,
 				"questions": roleQuestionsMost, "question": roleQuestionLimit},
 		},

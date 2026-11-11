@@ -1148,7 +1148,12 @@ final class Deck {
         case "reject", "esc":
             // Either puts the menu away.
             session.choice = nil
-            press(action == "reject" ? agent.reject : agent.interrupt, to: session, done: done)
+            // Claude Code then ends the turn and waits for a prompt, which no hook says: the next one may be typed.
+            let wasAsking = Deck.isAsking(session.state) && agent == .claude
+            press(action == "reject" ? agent.reject : agent.interrupt, to: session) { [weak self] response in
+                if wasAsking, response.status < 400 { self?.sessions.stoppedAsking(id) }
+                done(response)
+            }
         case "up", "down":
             // The menu's highlight, followed for picking an option by the arrows, once the key has gone.
             press(.init(key: action == "up" ? .up : .down), to: session) { [weak self] response in
@@ -2240,7 +2245,9 @@ final class Deck {
     /// key (see `toAgent`). No Claude clean-up, and nothing is kept.
     func typePhoneDictation(_ text: String, into id: String, send: Bool? = nil, done: @escaping (Response) -> Void) {
         guard Config.shared.phoneMicEnabled else { return done(.status(403, "The phone mic is off. Turn it on in setup, on your Mac.")) }
-        guard let words = PhoneDictation.prepared(text) else { return done(.status(400, "Nothing to type")) }
+        guard let words = PhoneDictation.prepared(text) else { return done(.status(400, PhoneDictation.refusal(text))) }
+        // Typed into the agent, "!" would switch it to its shell, and Return run the rest there.
+        guard !PhoneDictation.runsInShell(words) else { return done(.status(400, Deck.noBangPrompt)) }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
         // Asking you something, its menu would take the words, a digit picking an option and Return the one
         // highlighted ("Yes"): neither Send nor Type only goes until it's answered on the deck.
@@ -2249,10 +2256,16 @@ final class Deck {
         guard !driver.keysNeedAccessibility || Permissions.hasAccessibility else { return done(.status(403, Deck.noKeyboard)) }
         let sends = send ?? PhoneDictation.sends(words, autoSend: Config.shared.phoneMicAutoSend)
         let address = session.tab
-        var withheld = false
+        var withheld = false, asked = false
         toAgent(session, done: { response in
+            if asked { return done(.status(409, Deck.answerFirst)) }
             done(withheld && response.status < 400 ? .status(409, Deck.typedNotSent) : response)
         }) {
+            // Asked something while this waited for the terminal: checked again, on the main queue, right before the text.
+            guard DispatchQueue.main.sync(execute: { !Deck.isAsking(self.sessions[id]?.state) }) else {
+                asked = true
+                return true
+            }
             guard driver.insert(words, in: tab) else { return false }
             if sends {
                 // Return on its own once the text is in, as the ⏎ key presses it: with the text, it would be a new line.
@@ -2412,9 +2425,9 @@ final class Deck {
     func answerOther(_ text: String, of choiceID: String?, in id: String, done: @escaping (Response) -> Void) {
         let done = Deck.logged("answerOther", option: "other", in: sessions[id] == nil ? "unknown" : id, done)
         guard Config.shared.phoneMicEnabled else { return done(.status(403, "The phone mic is off. Turn it on in setup, on your Mac.")) }
-        guard let words = PhoneDictation.prepared(text) else { return done(.status(400, "Nothing to type")) }
+        guard let words = PhoneDictation.prepared(text) else { return done(.status(400, PhoneDictation.refusal(text))) }
         // Where the field didn't open, the text would be a prompt, and one starting with ! a shell command.
-        guard !words.hasPrefix("!") else { return done(.status(400, Deck.noBang)) }
+        guard !PhoneDictation.runsInShell(words) else { return done(.status(400, Deck.noBang)) }
         guard let session = sessions[id], !session.tab.isEmpty else { return done(.status(404, "Session not found")) }
         guard !session.isHeadless else { return done(.status(409, Deck.headless)) }
         guard let choice = Deck.claimable(session.choice, state: session.state, id: choiceID, lastReturn: lastReturn[id], now: Date()) else {
@@ -2463,6 +2476,7 @@ final class Deck {
 
     static let typedNotAnswered = "Typed, not sent: the question was answered meanwhile, or a Return had just gone. Look at the deck."
     static let noBang = "A typed answer can't start with “!”: Claude Code would take it for a shell command."
+    static let noBangPrompt = "Text can't start with “!”: the agent would run it as a shell command."
 
     /// Whether a typed answer's Return may go: to a session still asking,
     /// its question not answered meanwhile, no new question come in its

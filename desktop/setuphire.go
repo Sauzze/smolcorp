@@ -266,10 +266,15 @@ func (d *Deck) hireFromSetupSheet(h setupHire) (int, any, string) {
 	d.config.noteHireFolder(h.Folder)
 	d.config.save()
 	d.mu.Unlock()
+	answer := map[string]any{"ok": true, "desk": expected, "session": nil}
 	if h.Floor > 0 {
-		return http.StatusOK, map[string]any{"ok": true, "desk": nil, "floor": h.Floor, "session": nil}, ""
+		answer = map[string]any{"ok": true, "desk": nil, "floor": h.Floor, "session": nil}
 	}
-	return http.StatusOK, map[string]any{"ok": true, "desk": expected, "session": nil}, ""
+	// A hire that went the plain way (another agent, a pinned desk): its task and answers weren't passed on.
+	if message != "" {
+		answer["note"] = message
+	}
+	return http.StatusOK, answer, ""
 }
 
 // setupHireRoute answers POST /setup/hire; false for any other request.
@@ -287,11 +292,19 @@ func (d *Deck) setupHireRoute(w http.ResponseWriter, method, path string, body i
 		return true
 	}
 	d.mu.Lock()
+	off := !d.config.HiringEnabled
 	roles, accounts := slices.Clone(d.config.Roles), claudeAccounts(d.config, homeDir)
 	d.mu.Unlock()
 	hire, status, why := setupHireRequest(data, roles, accounts, homeDir)
 	if status != 0 {
 		http.Error(w, why, status)
+		return true
+	}
+	// Hiring off is off for setup's sheet and the GM too: once the request is checked, the
+	// Mac's Deck.hire refuses first, for every caller. Start here's own GM hire
+	// (hireFromSetup) keeps its rule.
+	if off {
+		http.Error(w, hiringOff, http.StatusForbidden)
 		return true
 	}
 	status, answer, why := d.hireFromSetupSheet(hire)

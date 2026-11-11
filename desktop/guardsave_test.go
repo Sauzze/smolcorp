@@ -6,16 +6,200 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"testing/fstest"
+
+	"github.com/Sauzze/smolcorp/internal/guard"
 )
 
+// Setup's guard controls, as the page sends them (setup.html's saveGuard): a
+// group switched, a pattern of your own added, one removed. Only the page may
+// change the file, and the guard itself then refuses or allows by it. The
+// Mac's own answers are in the shared fixture (briefs_fixture_test.go).
+func TestSetupsGuardControlsChangeWhatTheGuardRefuses(t *testing.T) {
+	d := newTestDeck(t)
+	path := filepath.Join(supportDir, hireGuardFile)
+	post := func(c call, body string) (int, map[string]any, string) {
+		t.Helper()
+		c.method, c.target, c.host, c.from, c.body = "POST", "/setup/guard", "localhost:7710", thisComputer, body
+		c.headers = mergeHeaders(c.headers, map[string]string{setupHeader: "1"})
+		w := serve(t, d, c)
+		var answer map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &answer)
+		return w.Code, answer, w.Body.String()
+	}
+	refuses := func(line string) string {
+		t.Helper()
+		groups, problem := guard.Load(path)
+		if problem != "" {
+			t.Fatalf("the guard can't read what setup wrote: %s", problem)
+		}
+		if refusal := guard.Check(line, groups); refusal != nil {
+			return refusal.Group
+		}
+		return ""
+	}
+	if refuses("git push origin main") != "push" {
+		t.Fatal("push isn't refused with no file")
+	}
+
+	// Nobody but the page changes it: not a tool with the setup key, not the GM, not a caller without either.
+	body := `{"groups":[{"name":"push","on":false}]}`
+	for name, c := range map[string]call{
+		"a tool": {asTool: true},
+		"the GM": {withoutSetupKey: true, headers: map[string]string{gmTokenHeader: d.newGMToken()}},
+		"nobody": {withoutSetupKey: true},
+	} {
+		if code, _, _ := post(c, body); code != http.StatusForbidden && code != http.StatusUnauthorized {
+			t.Errorf("%s switched the guard: %d", name, code)
+		}
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the file was written for a caller that isn't the page: %v", err)
+	}
+
+	// The switch: push off, and hires may push; back on, and they may not.
+	code, answer, _ := post(call{}, body)
+	if groups, _ := answer["groups"].([]any); code != http.StatusOK || len(groups) != 6 || groups[0].(map[string]any)["on"] != false {
+		t.Fatalf("push off: %d %v", code, answer)
+	}
+	if group := refuses("git push origin main"); group != "" {
+		t.Errorf("push is off, but the guard refuses it (%s)", group)
+	}
+	if refuses("vercel deploy") != "deploy" {
+		t.Error("switching push off loosened deploy")
+	}
+	if code, _, _ = post(call{}, `{"groups":[{"name":"push","on":true}]}`); code != http.StatusOK || refuses("git push") != "push" {
+		t.Errorf("push back on: %d, refused by %q", code, refuses("git push"))
+	}
+
+	// Another command to refuse, then removed: the page sends the whole list each time.
+	if refuses("terraform import x y") != "" {
+		t.Fatal("terraform import is refused before it's added")
+	}
+	if code, answer, _ = post(call{}, `{"extra":["terraform import"]}`); code != http.StatusOK || refuses("terraform import x y") != guardExtraGroup {
+		t.Errorf("a pattern added: %d %v", code, answer)
+	}
+	if extra, _ := answer["extra"].([]any); len(extra) != 1 || extra[0] != "terraform import" {
+		t.Errorf("the page isn't shown its pattern: %v", answer["extra"])
+	}
+	if code, answer, _ = post(call{}, `{"extra":[]}`); code != http.StatusOK || refuses("terraform import x y") != "" {
+		t.Errorf("a pattern removed: %d %v", code, answer)
+	}
+
+	// A refusal is the Mac's sentence, as text, and the file stays as it was.
+	before, _ := os.ReadFile(path)
+	if code, _, text := post(call{}, `{"extra":["*"]}`); code != http.StatusBadRequest ||
+		text != `A pattern starts with the command's name, such as "terraform import"; "*" isn't one.` {
+		t.Errorf("a bad pattern: %d %q", code, text)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Error("a refused save changed the file")
+	}
+
+	// Written whole and private: readable by you alone, nothing left beside it.
+	if info, err := os.Stat(path); err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Errorf("the guard file: %v %v", info.Mode(), err)
+	}
+	entries, _ := os.ReadDir(supportDir)
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), hireGuardFile) && entry.Name() != hireGuardFile {
+			t.Errorf("left beside the guard file: %s", entry.Name())
+		}
+	}
+}
+
+// A group the page doesn't know, someone's own in the file, is kept as it
+// was and still refuses what it says.
+func TestASaveKeepsTheGroupsThePageDoesntKnow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), hireGuardFile)
+	mine := `{"groups":[{"name":"mine","on":true,"commands":["make ship"]},{"name":"cloud","on":false,"commands":["aws"]}]}`
+	if err := os.WriteFile(path, []byte(mine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if answer := saveGuard([]byte(`{"groups":[{"name":"push","on":false}]}`), path, runtime.GOOS); answer.status != http.StatusOK {
+		t.Fatalf("%d %s", answer.status, answer.message)
+	}
+	groups, problem := guard.Load(path)
+	if problem != "" {
+		t.Fatal(problem)
+	}
+	if refusal := guard.Check("make ship now", groups); refusal == nil || refusal.Group != "mine" {
+		t.Errorf("your own group is lost: %v", refusal)
+	}
+	if guard.Check("aws s3 ls", groups) != nil || guard.Check("gcloud run deploy", groups) != nil {
+		t.Error("cloud, off in the file with its own commands, came back on")
+	}
+	if guard.Check("git push", groups) != nil || guard.Check("ssh host", groups) == nil {
+		t.Error("only push was switched")
+	}
+}
+
+// A library brief you edited and saved with Windows' line ends reads as one with
+// plain ones: its front matter and slots are still seen.
+func TestALibraryBriefSavedWithWindowsLineEndsStillReads(t *testing.T) {
+	shipped := briefLibrary{files: bundledBriefs()}
+	text, ok := shipped.read("tester.md")
+	if !ok {
+		t.Fatal("no tester brief")
+	}
+	edited := briefLibrary{files: fstest.MapFS{"tester.md": {Data: []byte(strings.ReplaceAll(text, "\n", "\r\n"))}}}
+	got, want := edited.entries(), shipped.entries()
+	if len(got) != 1 || got[0].ID != "tester" || got[0].Name != "Tester" || got[0].Summary == "" ||
+		len(got[0].Questions) == 0 || mustJSON(t, got[0]) != mustJSON(t, want[1]) {
+		t.Errorf("read with CRLF: %+v\nwith LF: %+v", got, want[1])
+	}
+}
+
+// "Back to how it came" compares a role with the one that came with the app,
+// as JSON: a shipped role you haven't changed is sent the same both ways, its
+// brief included, so the button is off until you change it.
+func TestAShippedRoleYouHaventChangedIsSentAsItCame(t *testing.T) {
+	d := newTestDeck(t)
+	w := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer})
+	var state struct {
+		Roles struct {
+			Roles   []json.RawMessage `json:"roles"`
+			Shipped []json.RawMessage `json:"shipped"`
+		} `json:"roles"`
+	}
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &state) != nil || len(state.Roles.Shipped) != len(shippedRoles) {
+		t.Fatalf("setup state: %d", w.Code)
+	}
+	kept := map[string]string{}
+	for _, raw := range state.Roles.Roles {
+		var role Role
+		_ = json.Unmarshal(raw, &role)
+		kept[role.ID] = string(raw)
+	}
+	same := 0
+	for _, raw := range state.Roles.Shipped {
+		var role Role
+		_ = json.Unmarshal(raw, &role)
+		if role.Brief == nil {
+			t.Errorf("%s is sent without its brief", role.ID)
+		}
+		if saved, ok := kept[role.ID]; ok {
+			same++
+			if saved != string(raw) {
+				t.Errorf("%s, unchanged, differs from how it came:\n%s\n%s", role.ID, saved, raw)
+			}
+		}
+	}
+	if same == 0 {
+		t.Fatal("no shipped role among the roles kept")
+	}
+}
+
 // What setup writes for "cloud off, one pattern of your own" is the Mac's file,
-// byte for byte (GuardFileTests.swift writes the fixture; the guard reads it).
+// byte for byte (GuardFileTests.swift writes the fixture; the guard reads it),
+// at mode 0600; and no patterns is written as the Mac writes an empty list.
 func TestSavingTheGuardWritesTheMacsFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), hireGuardFile)
-	if status, why := saveGuard([]byte(`{"groups":[{"name":"cloud","on":false}],"extra":["terraform import"]}`), path); status != 0 {
-		t.Fatalf("%d %s", status, why)
+	if answer := saveGuard([]byte(`{"groups":[{"name":"cloud","on":false}],"extra":["terraform import"]}`), path, runtime.GOOS); answer.status != http.StatusOK {
+		t.Fatalf("%d %s", answer.status, answer.message)
 	}
 	written, _ := os.ReadFile(path)
 	fixture, err := os.ReadFile(filepath.Join("..", "Tests", "fixtures", "frontdesk", "hire-guard.json"))
@@ -28,135 +212,10 @@ func TestSavingTheGuardWritesTheMacsFile(t *testing.T) {
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", info.Mode().Perm())
 	}
-	// Left out, a group keeps what it was, and so do your patterns.
-	if status, _ := saveGuard([]byte(`{"groups":[{"name":"push","on":false}]}`), path); status != 0 {
-		t.Fatal(status)
-	}
-	on, extra, problem := guardFileState(path)
-	if on["cloud"] || on["push"] || !on["deploy"] || len(extra) != 1 || extra[0] != "terraform import" || problem != "" {
-		t.Errorf("on %v, extra %v, %q", on, extra, problem)
-	}
-	// Patterns are trimmed, kept once each, in order; none is none.
-	if status, _ := saveGuard([]byte(`{"extra":[" helm ","helm","kubectl drain"]}`), path); status != 0 {
-		t.Fatal(status)
-	}
-	if _, extra, _ := guardFileState(path); strings.Join(extra, "|") != "helm|kubectl drain" {
-		t.Errorf("extra %v", extra)
-	}
-	if status, _ := saveGuard([]byte(`{"extra":[]}`), path); status != 0 {
-		t.Fatal(status)
+	if answer := saveGuard([]byte(`{"extra":[]}`), path, runtime.GOOS); answer.status != http.StatusOK {
+		t.Fatal(answer.status)
 	}
 	if written, _ := os.ReadFile(path); !strings.Contains(string(written), "\"commands\" : [\n\n      ],\n      \"name\" : \"extra\"") {
 		t.Errorf("no patterns isn't written as the Mac writes it:\n%s", written)
-	}
-}
-
-// A group the page doesn't know is kept as it is; a broken file is replaced by the defaults and the change.
-func TestSavingTheGuardKeepsWhatItDoesntKnow(t *testing.T) {
-	path := filepath.Join(t.TempDir(), hireGuardFile)
-	os.WriteFile(path, []byte(`{"groups":[{"name":"push","on":false,"commands":["git push"]},{"name":"mine","on":true,"commands":["make deploy"]}]}`), 0o600)
-	if status, why := saveGuard([]byte(`{"groups":[{"name":"remote","on":false}]}`), path); status != 0 {
-		t.Fatalf("%d %s", status, why)
-	}
-	written, _ := os.ReadFile(path)
-	var file struct {
-		Groups []struct {
-			Name     string   `json:"name"`
-			On       bool     `json:"on"`
-			Commands []string `json:"commands"`
-		} `json:"groups"`
-	}
-	if err := json.Unmarshal(written, &file); err != nil || len(file.Groups) != 8 {
-		t.Fatalf("%v: %s", err, written)
-	}
-	if g := file.Groups[0]; g.Name != "push" || g.On || strings.Join(g.Commands, "|") != "git push" {
-		t.Errorf("push: %+v", g)
-	}
-	if g := file.Groups[4]; g.Name != "remote" || g.On {
-		t.Errorf("remote: %+v", g)
-	}
-	if g := file.Groups[7]; g.Name != "mine" || strings.Join(g.Commands, "|") != "make deploy" {
-		t.Errorf("the group it doesn't know: %+v", g)
-	}
-	os.WriteFile(path, []byte(`{"groups":"no"}`), 0o600)
-	if status, _ := saveGuard([]byte(`{"groups":[{"name":"cloud","on":false}]}`), path); status != 0 {
-		t.Fatal(status)
-	}
-	if on, _, problem := guardFileState(path); on["cloud"] || !on["push"] || problem != "" {
-		t.Errorf("after a broken file: %v %q", on, problem)
-	}
-}
-
-// Each refusal in the Mac's words, and the file left as it was.
-func TestSavingTheGuardRefusesAsTheMacs(t *testing.T) {
-	path := filepath.Join(t.TempDir(), hireGuardFile)
-	saveGuard([]byte(`{"extra":["helm"]}`), path)
-	before, _ := os.ReadFile(path)
-	for body, why := range map[string]string{
-		`[]`:                        "Send {groups: [{name, on}], extra: [pattern]}.",
-		`{"groups":[],"other":1}`:   "Send {groups: [{name, on}], extra: [pattern]}.",
-		`{"groups":{}}`:             "groups is a list of {name, on}.",
-		`{"groups":[{"name":"x"}]}`: "Each group is {name, on}.",
-		`{"groups":[{"name":"extra","on":false}]}`:                          "There is no group called extra.",
-		`{"groups":[{"name":"sky","on":false}]}`:                            "There is no group called sky.",
-		`{"groups":[{"name":"push","on":false},{"name":"push","on":true}]}`: "There are two groups called push.",
-		`{"extra":"helm"}`:                               "extra is a list of patterns.",
-		`{"extra":[1]}`:                                  "extra is a list of patterns.",
-		`{"extra":["*"]}`:                                `A pattern starts with the command's name, such as "terraform import"; "*" isn't one.`,
-		`{"extra":["a||b x"]}`:                           `A pattern starts with the command's name, such as "terraform import"; "a||b" isn't one.`,
-		`{"extra":["   "]}`:                              "A pattern can't be empty.",
-		`{"extra":["helm\u0007"]}`:                       "A pattern is one line of plain words.",
-		`{"extra":["` + strings.Repeat("a", 201) + `"]}`: "A pattern is at most 200 characters.",
-	} {
-		if status, got := saveGuard([]byte(body), path); status != http.StatusBadRequest || got != why {
-			t.Errorf("%s: %d %q, want %q", body, status, got, why)
-		}
-	}
-	many, _ := json.Marshal(map[string]any{"extra": strings.Split(strings.Repeat("helm,", 41)[:5*41-1], ",")})
-	if status, why := saveGuard(many, path); status != http.StatusBadRequest || why != "At most 40 patterns of your own." {
-		t.Errorf("41 patterns: %d %q", status, why)
-	}
-	if after, _ := os.ReadFile(path); !bytes.Equal(before, after) {
-		t.Error("a refused change touched the file")
-	}
-	if guardPatternProblem("terraform|tofu import") != "" || guardPatternProblem("npm.cmd publish") != "" {
-		t.Error("a good pattern was refused")
-	}
-}
-
-// The route: the page alone switches the groups, and is answered with the guard's state.
-func TestThePageAloneSwitchesTheGuard(t *testing.T) {
-	d := newTestDeck(t)
-	path := filepath.Join(supportDir, hireGuardFile)
-	os.Remove(path)
-	w := serve(t, d, call{method: "POST", target: "/setup/guard", host: "localhost:7710", from: thisComputer, asTool: true,
-		body: `{"groups":[{"name":"cloud","on":false}]}`, headers: map[string]string{setupHeader: "1"}})
-	if w.Code == http.StatusOK {
-		t.Fatalf("a tool switched the guard: %s", w.Body)
-	}
-	if _, err := os.Stat(path); err == nil {
-		t.Fatal("a tool's refused change wrote the file")
-	}
-	w = serve(t, d, call{method: "POST", target: "/setup/guard", host: "localhost:7710", from: thisComputer,
-		body: `{"groups":[{"name":"cloud","on":false}]}`, headers: map[string]string{setupHeader: "1"}})
-	var state struct {
-		Groups []struct {
-			Name string `json:"name"`
-			On   bool   `json:"on"`
-		} `json:"groups"`
-		Limits string `json:"limits"`
-	}
-	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &state) != nil || len(state.Groups) != 6 || state.Limits == "" {
-		t.Fatalf("%d %s", w.Code, w.Body)
-	}
-	for _, g := range state.Groups {
-		if g.On == (g.Name == "cloud") {
-			t.Errorf("%s is on: %v", g.Name, g.On)
-		}
-	}
-	w = serve(t, d, call{method: "POST", target: "/setup/guard", host: "localhost:7710", from: thisComputer,
-		body: `{"groups":[{"name":"sky","on":false}]}`, headers: map[string]string{setupHeader: "1"}})
-	if w.Code != http.StatusBadRequest || strings.TrimSpace(w.Body.String()) != "There is no group called sky." {
-		t.Errorf("%d %q", w.Code, w.Body)
 	}
 }

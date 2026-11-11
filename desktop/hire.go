@@ -159,8 +159,8 @@ func (d *Deck) unfencedNote(roleID, program string, terminals []hireOpener, tmux
 	if roleID == "" {
 		return "A hire with no role doesn't get Smolcorp's fence: it runs with its own settings."
 	}
-	_, hasTerminal := hireTerminal(d.config.HireTerminal, terminals)
-	inTmux := tmux && (d.config.HireInTmux || !hasTerminal)
+	terminal, hasTerminal := hireTerminal(d.config.HireTerminal, terminals)
+	inTmux := tmux && (d.config.HireInTmux || !hasTerminal || underMacApp(terminal, hasTerminal))
 	if hasTmuxHires && inTmux || !inTmux && launcherHires && d.config.HireManagedWindows && hasTerminal {
 		return ""
 	}
@@ -216,6 +216,21 @@ func hooksRefusal(agent Agent) string {
 // hires, or one that's gone: the page points at Start here's folder step. The
 // same words as the GM route's refusal (POST /setup/hire/gm) on both apps.
 const setupHireNeedsFolder = "Choose the folder for your hires first: it's the first step of Start here."
+
+// Refusals of a hire that would otherwise start without its fence, or on the wrong Claude account.
+const (
+	macHireNeedsTmux        = "Hires on this engine need tmux on your Mac to start fenced: install it, or switch back to the Swift engine."
+	macHirePinnedUnfenced   = "On this engine, a hire at a desk or floor pinned to a folder can't start fenced yet: hire at another desk, or switch back to the Swift engine."
+	plainHireDefaultAccount = "This hire would start on your default Claude account, so it wasn't started: hire in tmux, at a desk that isn't pinned."
+	// Setup's hire that went the plain way, said with its answer (setuphire.go).
+	setupHireNotPassedOn = "It starts the old way: your task and answers weren't passed on, and it asks its role's questions itself."
+)
+
+// underMacApp is whether hires open through the Mac app (`smolcorp core`,
+// hire_darwin.go): there, a role's Claude hire is always the engine's.
+func underMacApp(terminal hireOpener, hasTerminal bool) bool {
+	return host != nil || hasTerminal && terminal.open != nil
+}
 
 func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, string) {
 	return d.hireAsWith(desk, roleID, floor, fromSetup, nil)
@@ -356,8 +371,12 @@ func (d *Deck) hireAsWith(desk, roleID string, floor int, fromSetup bool, extra 
 
 	// In tmux when chosen, or when there's no window to open. Agent windows in
 	// the background (T796): in tmux, with no window, as without a terminal.
+	// Under the Mac app, a role's Claude hire is the engine's whatever the tmux
+	// choice: it runs in its own tmux server and its window is attached through
+	// the app, so it is fenced as the Swift engine's are.
 	background := backgroundHires(d.config, tmux)
-	inTmux := tmux && (d.config.HireInTmux || !hasTerminal || background)
+	macApp, claudeRole := underMacApp(terminal, hasTerminal), roleID != "" && agentOrClaude(program) == Claude
+	inTmux := tmux && (d.config.HireInTmux || !hasTerminal || background || macApp && claudeRole)
 	showWindow := hasTerminal && !background
 	// A role's Claude hire goes through the engine, at the desk chosen too (it
 	// is seated there when its session appears); the rest open as they did.
@@ -375,6 +394,21 @@ func (d *Deck) hireAsWith(desk, roleID string, floor int, fromSetup bool, extra 
 				return status, message
 			}
 		}
+	}
+	// The plain path, through the launcher: it writes no fence and starts on the default account.
+	// Under the Mac app, a hire the Mac would manage (the manager on, a worktree asked for, or the
+	// GM) starts fenced or not at all, as the Swift engine's Deck.open does.
+	if macApp && claudeRole && (d.config.ManagerEnabled || extra != nil && extra.Worktree || roleID == gmRole) {
+		d.lastHire = time.Time{}
+		if !tmux {
+			return http.StatusConflict, macHireNeedsTmux
+		}
+		return http.StatusConflict, macHirePinnedUnfenced
+	}
+	// The launcher can't start on a named Claude account, and a test copy never hires on the default one.
+	if agentOrClaude(program) == Claude && (configDir != "" || testCopyPort() != 0) {
+		d.lastHire = time.Time{}
+		return http.StatusConflict, plainHireDefaultAccount
 	}
 	token := newID()
 	command := []string{commandLineProgram(), "run", "--hire", token}
@@ -412,6 +446,10 @@ func (d *Deck) hireAsWith(desk, roleID string, floor int, fromSetup bool, extra 
 		}
 	}
 	d.hires[token] = &pendingHire{desk: held, floor: floor, at: time.Now()}
+	if extra != nil {
+		// Setup's sheet is told: only the engine's hires get its task and answers, in a BRIEF.
+		return http.StatusNoContent, setupHireNotPassedOn
+	}
 	return http.StatusNoContent, ""
 }
 

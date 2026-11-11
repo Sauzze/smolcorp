@@ -690,6 +690,21 @@ func isWaitingOnUser(event map[string]any) bool {
 	return strings.Contains(strings.ToLower(message), "permission")
 }
 
+// StoppedAsking: session id's question or permission prompt put away from the
+// phone (✗ or Esc). Claude Code ends the turn there and waits for a prompt, and
+// no hook says so: idle, as after an Interrupt, from at on, so an event raised
+// before it, arriving late, changes nothing. As the Mac app's stoppedAsking.
+func (s *Sessions) StoppedAsking(id string, at float64) bool {
+	session := s.byID[id]
+	if session == nil || session.State != Asking {
+		return false
+	}
+	session.State = Idle
+	session.endTurn(nil)
+	session.LastEventAt = max(session.LastEventAt, at)
+	return true
+}
+
 // MarkSeen: looking at a finished session turns it from green back to white.
 func (s *Sessions) MarkSeen(tab string) bool {
 	changed := false

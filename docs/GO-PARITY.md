@@ -36,6 +36,12 @@ subsystem of its own. "–" where there is nothing to port.
 | `/setup/hiring` enabled, folder, agent | ✓ | ✓ | none | – |
 | `/setup/hiring` terminal, tmux | ✓ | ✓ | **done**, with this system's terminals | – |
 | `/setup/hiring/choose` (the system's folder picker) | ✓ | ✓ | **done** | – |
+| `/setup/briefs`, `/setup/briefs/<id>`, `/setup/briefs/preview`, `/setup/briefs/restore`, `/setup/hire/folders` | ✓ | ✓ | none on the routes; Go hires get the Mac's BRIEF files, byte for byte (`Tests/fixtures/briefs`), but for the differences under Briefs, below. The setup state's `roles.limits` has no `answer`, `briefFile` or `briefFileName` yet (known gaps in the route contract). Checked by the route contract (`setup.json`), `GET /setup/briefs` on the app's own library on both | – |
+| `GET /setup/guard`, `POST /setup/guard` | ✓ | ✓ | none: setup's switches and your own patterns are saved as the Mac saves them, the file byte for byte (`Tests/fixtures/frontdesk/hire-guard.json`), and the guard refuses by them. Checked by the route contract (`setup.json`) | – |
+| `/setup/choices` (T3 Code on or off, agent windows), `/setup/hire/window`; the setup state's `choices` and `t3CodeEnabled` | ✓ | ✓ | none (`choices.go`). Checked by the route contract (`Tests/fixtures/contract/setup.json`) | – |
+| `/hire/window` (the office's Open a window on a hire's desk) | ✓ | – | not served: 404 (the office polls it every 30 s when hires run in the background: a console error on Linux/Windows until served); Setup's `/setup/hire/window` is. Owner: M4b (Linux/Windows by `openHireViewer`; the Mac via the bridge) | S |
+| `/t3code`, `/t3code/open`, `/setup/t3code`, `/setup/t3code/open` (Open in T3 Code) | ✓ | ✓ | none, but for `lane` (T3 Code's desk lane, below) in what's installed; all four answer 404 while T3 Code is off, as on the Mac | – |
+| `/setup/t3code/letgo`, and hiring into T3 Code (`engine: "t3"`, experimental) | ✓ | – | the Mac's alone for now: Go's letgo answers 409 to any hire | L |
 | `/setup/dictation` | ✓ | – | Mac only (Apple's speech recognition) | – |
 | `/setup/accessibility` | ✓ | – | not needed off the Mac | – |
 | `/setup/viewer*` (portable office) | ✓ | ✓ | **done** | – |
@@ -43,12 +49,11 @@ subsystem of its own. "–" where there is nothing to port.
 | `POST /setup/gm/manager` (the manager switch) | ✓ | ✓ | the page only; no GM caller exists here yet | – |
 | `POST /setup/gm/registry` | ✓ | ✓ | the page only, for the same reason | – |
 | `/setup/hire/gm` (Start here's Hire your General Manager) | ✓ | ✓ | the Go app hires the plain GM role (through the hire engine only on Linux when tmux is the chosen or only way and the agent is Claude, otherwise as before); the Mac's also gives it its token, rules and tools. It refuses (409) while a GM is working, as the Mac does: "A General Manager is already working. Fire it first, then hire another." Nothing is fired for it | L |
-| `POST /setup/hire` (Setup's own hire sheet: folder, answers, task, model, nickname, worktree, account) | ✓ | ✓ | the Mac's checks and words; a role's Claude hire in tmux goes through the hire engine with its answers, task and fence, any other opens through the launcher, which asks the role's questions itself. Into T3 Code and on the API-key account: refused in a sentence (409) | – |
-| `POST /setup/guard` (switching the guard's groups, your own patterns) | ✓ | ✓ | none: the page alone, and the file is the Mac's byte for byte (`Tests/fixtures/frontdesk/hire-guard.json`) | – |
-| `POST /setup/gm/send`, `GET /setup/gm/outbox` (mail) | ✓ | ✓ | none on the routes (`mail_routes.go`); a hire's mail is typed into its tmux or launcher pane, a bot's goes to its mailbox folder | – |
-| `POST /setup/gm/contacts` | ✓ | ✓ | none (`frontdeskmail.go`) | – |
-| `GET /setup/gm/watches`, `POST /setup/gm/watch`, `POST`/`DELETE /setup/gm/unwatch` | ✓ | ✓ | none on the routes (`watchers.go`); a firing is a line in the event log, as on the Mac | – |
-| `POST /setup/gm/nickname` | ✓ | ✓ | none (`gmnickname.go`) | – |
+| `POST /setup/hire` (Setup's own hire sheet: folder, answers, task, model, nickname, worktree, account) | ✓ | ✓ | the Mac's checks and words, and refused while hiring is off (403), for the page and the GM alike. A role's Claude hire in tmux goes through the hire engine with its answers, task and fence; under the Mac app it always does, and one the Mac would manage (the manager on, a worktree asked for, or the GM) that can't start fenced (no tmux, a desk or floor pinned to a folder) is refused (409). Any other opens through the launcher, which asks the role's questions itself: the answer's `note` (an extra the Mac doesn't send) says the task and answers weren't passed on, and a Claude hire that way on a named account, or in a test copy, is refused (409). Into T3 Code and on the API-key account: refused in a sentence (409). The sheet names no account until M2 (`state.claudeAccounts`), so with two or more accounts it gets "Say which Claude account to hire on" | – |
+| `POST /setup/gm/send`, `GET /setup/gm/outbox` (mail) | ✓ | ✓ | none on the routes (`mail_routes.go`); a hire's mail is typed into its tmux or launcher pane, a bot's goes to its mailbox folder. Checked by the route contract (`Tests/fixtures/contract/gm.json`) | – |
+| `POST /setup/gm/contacts` | ✓ | ✓ | none (`frontdeskmail.go`). Checked by the route contract (`gm.json`) | – |
+| `GET /setup/gm/watches`, `POST /setup/gm/watch`, `POST`/`DELETE /setup/gm/unwatch` | ✓ | ✓ | none on the routes (`watchers.go`); a firing is a line in the event log, as on the Mac. Checked by the route contract (`gm.json`) | – |
+| `POST /setup/gm/nickname` | ✓ | ✓ | none (`gmnickname.go`). Checked by the route contract (`gm.json`) | – |
 | `GET /setup/gm/screens` | ✓ | – | not served: 404 | M |
 | `POST /setup/gm/hire`, `fire`, `brief`, `tile`, `screen` | ✓ | – | not served: 404; the team's work (worktrees, briefs, tiling) is the Mac's | XL |
 | `POST /setup/gm/token/rotate`, `POST /setup/gm/by-hand` | ✓ | – | no GM token here | – |
@@ -83,6 +88,35 @@ subsystem of its own. "–" where there is nothing to port.
 | Layout and room fields (style, pets, wall, plan, hung, added, team, dress code, calm) | ✓ | ✓ | none: the choices are the same lists | – |
 | Calm office | ✓ | ✓ | a room choice in both; the drawing is office.js | – |
 | "Lite" | – | – | no such setting in either app; office.js's lighter drawing is shared | – |
+
+### Briefs: what differs
+
+The BRIEF files, the setup routes above and the guard file are the Mac's,
+checked against a fixture the Mac's tests write. These differences are known
+and kept:
+
+- **Accented folder names.** The Mac builds a brief's paths with `URL`, which
+  decomposes accents (NFD: "e" then the accent), while it keeps the project
+  folder as given (usually precomposed, NFC); so a Mac brief for
+  `~/Projets/équipe` mixes the two. Go keeps every path as given, which is
+  right on Linux, where an NFD name is a different file. The fixture's
+  accented hire is compared with the Mac's brief made NFC.
+- **Limits count code points, not characters.** The Mac counts and cuts an
+  answer (2,000), a task (8,000), a picked file's name (100) and a guard
+  pattern (200) in characters as a reader sees them (grapheme clusters); Go
+  counts code points. They agree but for text made of combining marks or
+  emoji built from several code points, over the limit: there Go keeps less,
+  and refuses a guard pattern sooner. French typed on a keyboard is
+  precomposed, so it counts the same.
+- **Text compared as is.** Swift's strings are equal when only their accents'
+  encoding differs; Go's compare byte for byte. It matters only for two of
+  your guard patterns, or two guard groups, that differ that way: the Mac
+  takes them for one.
+- **Windows line ends.** A library brief you edited and saved with CRLF reads
+  as one with plain line ends on Go. The Mac doesn't, and loses its front
+  matter and slots.
+- **The guard file's layout.** Go writes `"name": "push"`, the Mac
+  `"name" : "push"`: the same JSON, with the same groups in the same order.
 
 ### Sessions
 

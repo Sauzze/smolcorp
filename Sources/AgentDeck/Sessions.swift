@@ -1,7 +1,7 @@
 import Foundation
 
 /// What a session is doing, as the keys show it.
-enum SessionState: String {
+enum SessionState: String, CaseIterable {
     case idle      // white: nothing running, or finished and already seen
     case thinking  // blue: a turn is running
     case asking    // orange: waiting on you — a permission prompt or a question
@@ -619,6 +619,22 @@ final class Sessions {
     private static func isWaitingOnUser(_ event: [String: Any]) -> Bool {
         if let type = event["notification_type"] as? String { return waitingNotifications.contains(type) }
         return (event["message"] as? String)?.localizedCaseInsensitiveContains("permission") ?? false
+    }
+
+    /// Session `id`'s question or permission prompt put away from the deck
+    /// (✗ or Esc): Claude Code ends the turn there and waits for a prompt,
+    /// and no hook says so. Idle, as after an Interrupt, from `time` on: an
+    /// event raised before it, arriving late, changes nothing.
+    func stoppedAsking(_ id: String, at time: Double = Date().timeIntervalSince1970 * 1000) {
+        guard let session = byID[id], session.state == .asking else { return }
+        session.state = .idle
+        session.endTurn()
+        session.lastEventAt = max(session.lastEventAt, time)
+        session.leftAskingAt = time
+        session.choice = nil
+        session.asked = .init()
+        session.askedSince = 0
+        onChange()
     }
 
     /// Looking at a finished session's tab turns it from green back to white.

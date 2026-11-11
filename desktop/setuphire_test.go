@@ -9,8 +9,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // homeRepo is a git repo inside the test's home folder, where setup may hire.
@@ -181,5 +183,61 @@ func TestATestCopyHiresOnANamedAccountOnAMac(t *testing.T) {
 	}
 	if err := testCopyRefusal(7779, "claude", "/Users/me/.claude-test"); (err == nil) != (runtime.GOOS == "darwin") {
 		t.Errorf("a named account on %s: %v", runtime.GOOS, err)
+	}
+}
+
+// B3 (RM4): with hiring off, setup's hire is refused for the page and the GM
+// alike, as the Mac's Deck.hire refuses first for every caller; Start here's
+// own GM hire (hireFromSetup) keeps its rule and isn't refused for it.
+func TestSetupsHireIsOffWhenHiringIsOff(t *testing.T) {
+	d, _, _ := engineDeck(t)
+	d.engine.HeardFrom = func(Hire) bool { return true }
+	managerOn(d)
+	repo := homeRepo(t)
+	d.mu.Lock()
+	d.config.HiringEnabled = false
+	d.mu.Unlock()
+	gm := d.newGMToken()
+	body := `{"role":"janitor","folder":"` + repo + `","answers":[]}`
+	for _, c := range []struct {
+		name string
+		call call
+	}{
+		{"the page", call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer, body: body,
+			headers: map[string]string{setupHeader: "1"}}},
+		{"the GM", call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer, body: body,
+			withoutSetupKey: true, headers: map[string]string{setupHeader: "1", gmTokenHeader: gm}}},
+	} {
+		w := serve(t, d, c.call)
+		if w.Code != http.StatusForbidden || strings.TrimSpace(w.Body.String()) != hiringOff {
+			t.Errorf("%s: %d %s", c.name, w.Code, w.Body)
+		}
+	}
+	if got := registered(t); len(got) != 0 {
+		t.Fatalf("hired with hiring off: %+v", got)
+	}
+	if status, message := d.hireFromSetup(gmRole); status == http.StatusForbidden || message == hiringOff {
+		t.Errorf("Start here's GM hire: %d %s", status, message)
+	}
+	d.watching.Wait()
+}
+
+// N3 (RM4): a setup hire that goes the old way (here, a role on another agent)
+// says its task and answers weren't passed on; the engine's says nothing of it.
+func TestSetupsHireSaysWhenItsTaskWasntPassedOn(t *testing.T) {
+	d, _, h := engineDeck(t)
+	d.engine.HeardFrom = func(Hire) bool { return true }
+	repo := homeRepo(t)
+	status, answer, why := d.hireFromSetupSheet(setupHire{Role: "janitor", Folder: repo, Answers: []string{}, Task: "Sweep."})
+	if status != http.StatusOK || answer.(map[string]any)["note"] != nil {
+		t.Fatalf("the engine's hire: %d %v %s", status, answer, why)
+	}
+	d.watching.Wait()
+	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == "accountant" })
+	d.config.Roles[i].Agent = "codex"
+	d.lastHire = time.Time{}
+	status, answer, why = d.hireFromSetupSheet(setupHire{Role: "accountant", Folder: repo, Answers: []string{"x"}, Task: "Count."})
+	if status != http.StatusOK || answer.(map[string]any)["note"] != setupHireNotPassedOn || len(h.windows)+len(h.tmux) == 0 {
+		t.Fatalf("the old way: %d %v %s, opened %q %q", status, answer, why, h.windows, h.tmux)
 	}
 }
