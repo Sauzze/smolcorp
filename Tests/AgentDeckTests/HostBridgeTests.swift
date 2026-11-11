@@ -48,7 +48,8 @@ final class HostBridgeTests: XCTestCase {
                 "viewer-key": HostBridge.Secret(read: { nil }, write: { _ in false }, delete: nil),
             ],
             loginItem: (get: { [unowned self] in login }, set: { [unowned self] in login = $0 }),
-            queue: terminals)
+            queue: { [terminals] _ in terminals },
+            windowQueue: { [terminals] _ in terminals })
     }
 
     private func ask(_ request: [String: Any], token given: String? = nil) -> [String: Any] {
@@ -128,7 +129,7 @@ final class HostBridgeTests: XCTestCase {
         terminals.async { release.wait() }
         let line = try! JSONSerialization.data(withJSONObject: ["token": token, "action": "type", "tab": "tty:/dev/ttys003", "text": "hello"])
         let late = HostBridge.answer(line, token: token, actions: actions, until: .now() + 0.2)
-        XCTAssertEqual(late["error"] as? String, "The terminal didn't answer in time.")
+        XCTAssertEqual(late["error"] as? String, "Terminal isn't answering, so nothing was typed. Try again in a moment.")
         release.signal()
         terminals.sync {}
         XCTAssertTrue(asked.isEmpty, "not typed once the queue was free: the core had given up")
@@ -138,6 +139,91 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertLessThan(HostBridge.actionWait, 20, "under the core's own wait (desktop/hostbridge_darwin.go)")
         // Running, it's waited for; done, its answer is given.
         if case .done(let value) = HostBridge.run(on: terminals, until: .now() + 5, { 42 }) { XCTAssertEqual(value, 42) } else { XCTFail("not run") }
+    }
+
+    /// A tab action runs on its own terminal's queue, as the deck's keys do: a tmux tab's never waits behind
+    /// Terminal.app, and one its terminal doesn't get to within the deck's input wait is never run.
+    func testATabActionWaitsOnlyOnItsOwnTerminal() {
+        let tmux = DispatchQueue(label: "test.tmux")
+        var actions = self.actions
+        actions.queue = { [terminals] tab in tab?.kind == "tmux" ? tmux : terminals }
+        let release = DispatchSemaphore(value: 0)
+        terminals.async { release.wait() } // Terminal.app not answering
+        func line(_ tab: String) -> Data {
+            try! JSONSerialization.data(withJSONObject: ["token": token, "action": "type", "tab": tab, "text": "hello"])
+        }
+        let started = Date()
+        XCTAssertTrue(isOK(HostBridge.answer(line("tmux:%1@/tmp/s"), token: token, actions: actions, until: .now() + HostBridge.actionWait)))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+        XCTAssertEqual(asked, ["type hello tmux:%1@/tmp/s"])
+        // Terminal.app's: given the deck's input wait to start, not the bridge's whole 18 s.
+        let late = HostBridge.answer(line("tty:/dev/ttys003"), token: token, actions: actions, until: .now() + HostBridge.actionWait)
+        XCTAssertEqual(late["error"] as? String, "Terminal isn't answering, so nothing was typed. Try again in a moment.")
+        XCTAssertLessThan(Date().timeIntervalSince(started), Terminals.inputWait + 1.5)
+        release.signal()
+        terminals.sync {}
+        XCTAssertEqual(asked, ["type hello tmux:%1@/tmp/s"], "never typed once Terminal was free")
+        XCTAssertTrue(Terminals.inputWait < HostBridge.actionWait)
+    }
+
+    /// A tab action is given the deck's input wait to start, not to finish: one
+    /// that starts in time is waited for to its end and answered as it went, as
+    /// a close that takes longer than that; one that never starts is refused and
+    /// never runs. The core is never told "failed" for keys that went.
+    func testATabActionStartedInTimeIsAnsweredAsItWent() {
+        let tmux = DispatchQueue(label: "test.tmux"), iterm = DispatchQueue(label: "test.iterm")
+        let log = NSLock()
+        var actions = self.actions
+        actions.queue = { [terminals] tab in ["tmux": tmux, "iterm": iterm][tab?.kind ?? ""] ?? terminals }
+        actions.type = { [unowned self] text, tab in
+            Thread.sleep(forTimeInterval: 1) // its keys take a while
+            log.lock(); asked.append("type \(text) \(tab.text)"); log.unlock()
+            return true
+        }
+        actions.fire = { [unowned self] tab, agent in
+            Thread.sleep(forTimeInterval: Terminals.inputWait + 1) // stopping the agent, then the tab closed
+            log.lock(); asked.append("fire \(agent.rawValue) \(tab.text)"); log.unlock()
+            return .fired
+        }
+        func line(_ request: [String: Any]) -> Data { try! JSONSerialization.data(withJSONObject: request.merging(["token": token]) { $1 }) }
+        terminals.async { Thread.sleep(forTimeInterval: Terminals.inputWait - 0.5) } // Terminal.app slow, but in time
+        let release = DispatchSemaphore(value: 0)
+        tmux.async { release.wait() } // tmux not answering at all
+        var answers: [String: [String: Any]] = [:]
+        let group = DispatchGroup()
+        let started = Date()
+        for (name, request) in [
+            ("slow", ["action": "type", "tab": "tty:/dev/ttys003", "text": "hello"]),
+            ("never", ["action": "type", "tab": "tmux:%1@/tmp/s", "text": "hello"]),
+            ("close", ["action": "close", "tab": "iterm:AB12", "agent": "claude"]),
+        ] as [(String, [String: Any])] {
+            DispatchQueue.global().async(group: group) { [token, actions] in
+                let answer = HostBridge.answer(line(request), token: token, actions: actions, until: .now() + HostBridge.actionWait)
+                log.lock(); answers[name] = answer; log.unlock()
+            }
+        }
+        group.wait()
+        XCTAssertLessThan(Date().timeIntervalSince(started), HostBridge.actionWait - 5)
+        XCTAssertTrue(isOK(answers["slow"] ?? [:]), "\(answers["slow"] ?? [:])")
+        XCTAssertEqual(answers["close"]?["fired"] as? String, "fired")
+        XCTAssertEqual(answers["never"]?["error"] as? String, "tmux isn't answering, so nothing was typed. Try again in a moment.")
+        release.signal()
+        tmux.sync {}
+        XCTAssertEqual(Set(asked), ["type hello tty:/dev/ttys003", "fire claude iterm:AB12"], "the tmux one never ran")
+
+        // Still running at the bridge's own deadline: said to have stopped part way, not "nothing typed".
+        if case .unfinished = HostBridge.run(on: terminals, startBy: .now() + 1, until: .now() + 0.2, { Thread.sleep(forTimeInterval: 0.5) }) {} else {
+            XCTFail("not unfinished")
+        }
+        // A script that timed out once something may have gone: the deck's own words.
+        actions.type = { _, _ in Tool.run("/bin/sleep", ["5"], timeout: 0.2) != nil }
+        let partWay = HostBridge.answer(line(["action": "type", "tab": "iterm:AB12", "text": "hello"]), token: token, actions: actions,
+                                        until: .now() + 5)
+        XCTAssertEqual(partWay["error"] as? String, "iTerm2 stopped answering part way. Look at the desk before you try again.")
+        actions.type = { _, _ in Terminal.onlyLooking { Tool.run("/bin/sleep", ["5"], timeout: 0.2) != nil } }
+        let nothing = HostBridge.answer(line(["action": "type", "tab": "iterm:AB12", "text": "hello"]), token: token, actions: actions,
+                                        until: .now() + 5)
+        XCTAssertEqual(nothing["error"] as? String, "iTerm2 isn't answering, so nothing was typed. Try again in a moment.")
     }
 
     /// A window, as a tab action: on the terminals' queue, and never once the core has given up,

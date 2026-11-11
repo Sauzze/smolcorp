@@ -1303,6 +1303,9 @@ final class DeckRouter: Router {
             let mainHeight = Tiler.mainHeight(of: screens)
             let grid = Tiler.grid(on: screen, mainHeight: mainHeight)
             let terminal = config.hireTerminal
+            // Still on Terminal's queue, while iTerm2 and Ghostty hires now open their windows on their own
+            // terminal's queue: a tile asked right after such a hire can run before its window exists. For the
+            // follow-up that moves Tiler and `hiresToBackground` off Terminal's queue.
             Terminal.queue.async { [placeOffice] in
                 let tmuxPath = Tmux.path
                 let report = Tiler.tile(

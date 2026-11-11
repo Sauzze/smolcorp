@@ -101,8 +101,9 @@ struct TerminalAbilities: OptionSet {
     static let none: TerminalAbilities = []
 }
 
-/// One terminal app, as the deck drives it. Each call is made on
-/// `Terminal.queue`, and may take a moment; none is made on the main thread.
+/// One terminal app, as the deck drives it. Each call is made on its
+/// terminal's queue (`Terminals.queue(for:)`), and may take a moment; none is
+/// made on the main thread.
 protocol TerminalDriver {
     var abilities: TerminalAbilities { get }
     /// Whether pressing keys needs Smolcorp's Accessibility permission.

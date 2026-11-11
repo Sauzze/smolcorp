@@ -156,7 +156,10 @@ final class Deck {
     /// iPhone app (personal build): the sessions a typed answer is being typed into, till its Return:
     /// a ✓ meanwhile would send it half typed.
     private var answering: Set<String> = []
-    private var checkingFront = false
+    /// Terminal.app's looks at its tabs, each on a poller of its own, off the desks' keys' way.
+    private let frontPoll = Poller("front")
+    private let tabsPoll = Poller("tabs")
+    /// Set from a look at Terminal's tabs until what it found has been dealt with.
     private var checkingTabs = false
     /// Ttys Terminal reported last time. Only these can be found closed:
     /// sessions in other terminal apps never appear here and are left alone.
@@ -168,7 +171,8 @@ final class Deck {
     /// Tabs of other terminals found gone at the last look: gone again at the
     /// next, their sessions go too.
     private var panesMissedOnce = Set<String>()
-    private var checkingPanes = false
+    /// Other terminals' tabs, looked at for closing on a poller of its own.
+    private let panesPoll = Poller("panes")
     private var savePending = false
     /// Whether music is playing, for the office's jukeboxes: true, or nil when it can't be told.
     private var playing: Bool?
@@ -305,7 +309,7 @@ final class Deck {
         // At most every few seconds: each try asks Ghostty.
         if let last = learningGhostty[address.id], Date().timeIntervalSince(last) < 5 { return }
         learningGhostty[address.id] = Date()
-        Terminal.queue.async {
+        Terminals.queue(for: address).async {
             Ghostty.learn(tty: address.id)
             if Ghostty.id(on: address.id) != nil { DispatchQueue.main.async { self.changed() } }
         }
@@ -1259,21 +1263,21 @@ final class Deck {
                     case .success(let fired): kept = options.removeWorktree ? fired.kept : ""
                     }
                     // Its window only showed the session: it closes now, if the terminal keeps it open.
-                    if let (driver, address) = route, let agent { closed = Terminal.queue.sync { driver.fire(address, agent: agent) } }
+                    if let (driver, address) = route, let agent { closed = Terminals.queue(for: address).sync { driver.fire(address, agent: agent) } }
                 } else {
                     // A hire from 1.23's way: the refusals that can be asked without a window, then the tab.
                     if let refusal = HireDesk.fireRefusal(hire, force: options.force, capture: nil) {
                         return DispatchQueue.main.async { done(.status(refusal.status, refusal.message)) }
                     }
                     guard let (driver, address) = route, let agent else { return DispatchQueue.main.async { done(.status(409, Deck.notHere)) } }
-                    closed = Terminal.queue.sync { driver.fire(address, agent: agent) }
+                    closed = Terminals.queue(for: address).sync { driver.fire(address, agent: agent) }
                     if closed == .fired {
                         let fired = HireDesk.settle(hire, options: options, desk: frontDesk)
                         kept = options.removeWorktree ? fired.kept : ""
                     }
                 }
             } else if let (driver, address) = route, let agent {
-                closed = Terminal.queue.sync { driver.fire(address, agent: agent) }
+                closed = Terminals.queue(for: address).sync { driver.fire(address, agent: agent) }
             }
             DispatchQueue.main.async {
                 self.changed()
@@ -1960,7 +1964,8 @@ final class Deck {
         let background = Choices.background(config)
         let inTmux = background || (config.hireInTmux && Tmux.path != nil)
         let name = background ? "tmux" : Openers.choices.first { $0.id == terminal }?.name ?? "Terminal"
-        Terminal.queue.async {
+        // On the hire's terminal's queue: an iTerm2 or Ghostty window slow to open never holds up Terminal.app's desks.
+        Terminals.queue(opening: terminal).async {
             let opened = Openers.open(command, in: folder, terminal: terminal, inTmux: inTmux, window: !background, hireID: hireID)
             DispatchQueue.main.async {
                 // Nobody was hired, so the next try needn't wait.
@@ -2206,10 +2211,16 @@ final class Deck {
     /// its dictation went ("cleaned in 0.9 s", "raw: too slow (2.5 s)"). None
     /// with the clean-up off: then it's as before. Forgotten after a moment.
     private func noteDictation(_ outcome: DictationCleanup.Outcome, in tab: String) {
-        guard let text = outcome.note, let id = sessions.all.first(where: { $0.tab == tab })?.id else { return }
+        guard let text = outcome.note else { return }
+        noteVoice(text, cleaned: outcome.isCleaned, in: tab)
+    }
+
+    /// A few seconds' note over `tab`'s desk, of how its dictation went.
+    private func noteVoice(_ text: String, cleaned: Bool, in tab: String) {
+        guard let id = sessions.all.first(where: { $0.tab == tab })?.id else { return }
         voiceNoteCount += 1
         let count = voiceNoteCount
-        voiceNotes[id] = (count, text, outcome.isCleaned, Date())
+        voiceNotes[id] = (count, text, cleaned, Date())
         changed()
         // Once, not polling: the note goes from memory; the phone has faded it already.
         DispatchQueue.main.asyncAfter(deadline: .now() + Deck.voiceNoteLife) { [weak self] in
@@ -2225,16 +2236,23 @@ final class Deck {
     }
 
     /// Dictation's text, into the tab it was for, without Return: only while
-    /// that tab's agent still runs there, as for keys (see `toAgent`).
+    /// that tab's agent still runs there, as for keys (see `toAgent`), and only
+    /// if its terminal gets to it in time (see `Delivery`). Text that isn't
+    /// typed because its terminal didn't answer is said over its desk.
     private func typeDictation(_ text: String, into tab: String) {
         guard !text.isEmpty, let address = TabAddress(tab), let driver = Terminals.driver(for: address),
               driver.abilities.contains(.text) else { return }
         let agent = sessions.all.first { $0.tab == tab }?.agent
-        Terminal.queue.async {
+        Deck.deliver(to: tab, done: { [weak self] response in
+            guard response.status == 503 else { return }
+            self?.noteVoice(String(decoding: response.body, as: UTF8.self), cleaned: false, in: tab)
+        }, check: {
             // Only where the agent is in front: behind the shell, the text would wait there to run as a command.
-            if let agent, let tty = Terminals.tty(of: tab), let place = Terminal.place(of: agent, on: tty), place != .front { return }
-            _ = driver.insert(text, in: address)
-        }
+            if let agent, let tty = Terminals.tty(of: tab), let place = Terminal.place(of: agent, on: tty), place != .front {
+                return .status(409, "")
+            }
+            return nil
+        }) { driver.insert(text, in: address) }
     }
 
     /// Phone microphone (personal build): the words the phone heard, typed
@@ -2344,12 +2362,12 @@ final class Deck {
         case failed
     }
 
-    /// A tapped option's keys, on `Terminal.queue`: only where the screen
+    /// A tapped option's keys, on their terminal's queue: only where the screen
     /// shows that option at that number, never on a guess, nor on a menu
     /// answered on the Mac meanwhile (a terminal that can't show its screen
     /// is answered with ▲ ▼ ✓); then the screen read again until it changes,
     /// as a key posted to a terminal can reach nothing. The queue is held
-    /// for that look, `answerWait` at most, and other sessions' keys wait.
+    /// for that look, `answerWait` at most, and other desks' keys in that terminal wait.
     static func press(_ keys: [Terminal.Keystroke], look: (number: Int?, labels: [String])?, with driver: TerminalDriver, in tab: TabAddress,
                       wait: TimeInterval = answerWait) -> Pressed {
         guard let look, let screen = driver.screen(of: tab), PendingChoice.screen(screen, shows: look.number, startingWith: look.labels) else {
@@ -2553,7 +2571,7 @@ final class Deck {
         lastPeek[id] = now
         guard let address = TabAddress(session.tab), let driver = Terminals.driver(for: address) else { return done(.status(409, Deck.notHere)) }
         let tab = session.tab, agent = session.agent
-        Terminal.queue.async {
+        Terminals.queue(for: address).async {
             guard Terminals.tty(of: tab).flatMap({ Terminal.place(of: agent, on: $0) }) == .front else {
                 return DispatchQueue.main.async { done(.status(409, "That agent isn't in front in its terminal.")) }
             }
@@ -2605,7 +2623,7 @@ final class Deck {
     /// Runs `work`, which may bring `tab` forward. A tab you have been shown
     /// counts as seen.
     private func inTab(_ tab: String, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
-        onTerminal(done) {
+        Deck.deliver(to: tab, done: done) {
             let reached = work()
             if reached { DispatchQueue.main.async { self.sessions.markSeen(tab: tab) } }
             return reached
@@ -2638,28 +2656,33 @@ final class Deck {
     /// gets nothing until it's back in front.
     private func toAgent(_ session: Session, done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
         let tab = session.tab, agent = session.agent
-        Terminal.queue.async {
+        Deck.deliver(to: tab, done: done, check: {
             // Unknown is not the same as gone: the keys go as they always did.
             switch Terminals.tty(of: tab).flatMap({ Terminal.place(of: agent, on: $0) }) {
             case .gone?:
-                return DispatchQueue.main.async {
-                    self.sessions.prune(closedTabs: [tab])
-                    done(.status(410, "That agent has ended."))
-                }
+                DispatchQueue.main.async { self.sessions.prune(closedTabs: [tab]) }
+                return .status(410, "That agent has ended.")
             case .behind?:
-                return DispatchQueue.main.async { done(.status(409, "That agent isn't in front in its terminal: bring it back with fg.")) }
+                return .status(409, "That agent isn't in front in its terminal: bring it back with fg.")
             case .front?, nil:
-                break
+                return nil
             }
-            let ok = work()
-            DispatchQueue.main.async { done(ok ? .status(204) : .status(404, "Terminal tab not found")) }
-        }
+        }, work)
     }
 
-    private func onTerminal(_ done: @escaping (Response) -> Void, _ work: @escaping () -> Bool) {
-        Terminal.queue.async {
-            let ok = work()
-            DispatchQueue.main.async { done(ok ? .status(204) : .status(404, "Terminal tab not found")) }
+    /// Runs `work` on `tab`'s terminal's queue, after `check` (nil to go on),
+    /// and answers 204, or why not, once. Only if that terminal gets to it
+    /// within `wait`, checked right before `work`: past it, the caller has
+    /// been told the terminal isn't answering, and nothing is typed (see
+    /// `Delivery`). A desk only ever waits on its own terminal.
+    static func deliver(to tab: String, within wait: TimeInterval = Terminals.inputWait, done: @escaping (Response) -> Void,
+                        check: @escaping () -> Response? = { nil }, _ work: @escaping () -> Bool) {
+        let delivery = Delivery(within: wait, late: .status(503, Terminals.notAnswering(tab)), done: done)
+        Terminals.queue(for: tab).async {
+            if let refusal = check() { return delivery.answer(refusal) }
+            guard delivery.begin() else { return }
+            let (ok, timedOut, partWay) = Terminal.noticingTimeouts(work)
+            delivery.answer(ok ? .status(204) : timedOut ? .status(503, Terminals.notAnswering(tab, partWay: partWay)) : .status(404, "Terminal tab not found"))
         }
     }
 
@@ -2700,7 +2723,7 @@ final class Deck {
             session.pendingEffort = ""
             guard let (driver, tab) = terminal(of: session, for: .text) else { continue }
             let address = session.tab, agent = session.agent
-            Terminal.queue.async {
+            Terminals.queue(for: tab).async {
                 let tty = Terminals.tty(of: address)
                 // Only to the agent in front: see `toAgent`.
                 guard tty.flatMap({ Terminal.place(of: agent, on: $0) }).map({ $0 == .front }) != false, driver.type("/effort \(level)", in: tab) else { return }
@@ -2717,14 +2740,9 @@ final class Deck {
     /// Green means "finished, not looked at". While anything is green, watch
     /// for its tab coming to the front.
     private func checkFrontTab() {
-        guard sessions.contains(.unread), !checkingFront else { return }
-        checkingFront = true
-        Terminal.queue.async {
-            let tty = Terminal.frontTTY()
-            DispatchQueue.main.async {
-                self.checkingFront = false
-                if let tty { self.sessions.markSeen(tab: TabAddress.terminalApp(tty: tty).text) }
-            }
+        guard sessions.contains(.unread) else { return }
+        frontPoll.round({ Terminal.frontTTY() }) { tty in
+            if let tty { self.sessions.markSeen(tab: TabAddress.terminalApp(tty: tty).text) }
         }
     }
 
@@ -2732,45 +2750,44 @@ final class Deck {
         // Hires waiting for their agent are looked at too, sessions or not.
         guard !sessions.all.isEmpty || !hiredTabs.isEmpty || !hireWindows.isEmpty, !checkingTabs else { return }
         checkingTabs = true
-        Terminal.queue.async {
-            let open = Terminal.openTTYs()
-            DispatchQueue.main.async {
-                guard let open else { // unknown is not the same as none
+        // On a poller of its own: Terminal not answering never holds up a desk's keys, and a stuck look skips the next.
+        // Never refused for a round still running: that round holds `checkingTabs` until it's dealt with.
+        tabsPoll.round({ Terminal.openTTYs() }) { open in
+            guard let open else { // unknown is not the same as none
+                self.checkingTabs = false
+                return
+            }
+            let missing = self.terminalTTYs.subtracting(open)
+            let closed = missing.intersection(self.missedOnce)
+            self.missedOnce = missing.subtracting(closed)
+            self.terminalTTYs = open.union(self.missedOnce)
+            // A session found by its folder before Terminal had listed its tab is on Terminal's tab after all.
+            for tty in open { self.sessions.retag("other:\(tty)", as: TabAddress.terminalApp(tty: tty).text) }
+            // Only Terminal.app's tabs are looked at here: its tab list is what says one has closed.
+            let terminalTTY = { (tab: String) -> String? in TabAddress(tab).flatMap { $0.kind == "tty" ? $0.id : nil } }
+            // A hire's tab closed, seen open before or not: no tty used again later takes its desk or role.
+            self.hiredTabs.removeAll { hired in
+                guard let tty = terminalTTY(hired.tab) else { return false }
+                return closed.contains(tty) || !open.contains(tty) && Date().timeIntervalSince(hired.at) > Deck.hiredTabListed
+            }
+            // A Terminal window Smolcorp opened for a hire, its tab closed: forgotten, so a tab given that tty later is never taken for it.
+            self.forgetHireWindows { record in
+                HireWindows.Terminals.parse(record).map { $0.kind == "terminal" && closed.contains($0.id) } ?? false
+            }
+            let suspects = self.sessions.all.compactMap { session -> (tab: String, tty: String, agent: Agent)? in
+                guard let tty = terminalTTY(session.tab), closed.contains(tty) else { return nil }
+                return (session.tab, tty, session.agent)
+            }
+            guard !suspects.isEmpty else {
+                self.checkingTabs = false
+                return
+            }
+            // The last word is the tab's own: its agent still running there means it's open.
+            DispatchQueue.global(qos: .utility).async {
+                let gone = Set(suspects.filter { Terminal.isRunning($0.agent, on: $0.tty) == false }.map(\.tab))
+                DispatchQueue.main.async {
                     self.checkingTabs = false
-                    return
-                }
-                let missing = self.terminalTTYs.subtracting(open)
-                let closed = missing.intersection(self.missedOnce)
-                self.missedOnce = missing.subtracting(closed)
-                self.terminalTTYs = open.union(self.missedOnce)
-                // A session found by its folder before Terminal had listed its tab is on Terminal's tab after all.
-                for tty in open { self.sessions.retag("other:\(tty)", as: TabAddress.terminalApp(tty: tty).text) }
-                // Only Terminal.app's tabs are looked at here: its tab list is what says one has closed.
-                let terminalTTY = { (tab: String) -> String? in TabAddress(tab).flatMap { $0.kind == "tty" ? $0.id : nil } }
-                // A hire's tab closed, seen open before or not: no tty used again later takes its desk or role.
-                self.hiredTabs.removeAll { hired in
-                    guard let tty = terminalTTY(hired.tab) else { return false }
-                    return closed.contains(tty) || !open.contains(tty) && Date().timeIntervalSince(hired.at) > Deck.hiredTabListed
-                }
-                // A Terminal window Smolcorp opened for a hire, its tab closed: forgotten, so a tab given that tty later is never taken for it.
-                self.forgetHireWindows { record in
-                    HireWindows.Terminals.parse(record).map { $0.kind == "terminal" && closed.contains($0.id) } ?? false
-                }
-                let suspects = self.sessions.all.compactMap { session -> (tab: String, tty: String, agent: Agent)? in
-                    guard let tty = terminalTTY(session.tab), closed.contains(tty) else { return nil }
-                    return (session.tab, tty, session.agent)
-                }
-                guard !suspects.isEmpty else {
-                    self.checkingTabs = false
-                    return
-                }
-                // The last word is the tab's own: its agent still running there means it's open.
-                DispatchQueue.global(qos: .utility).async {
-                    let gone = Set(suspects.filter { Terminal.isRunning($0.agent, on: $0.tty) == false }.map(\.tab))
-                    DispatchQueue.main.async {
-                        self.checkingTabs = false
-                        self.sessions.prune(closedTabs: gone)
-                    }
+                    self.sessions.prune(closedTabs: gone)
                 }
             }
         }
@@ -2793,18 +2810,14 @@ final class Deck {
             guard let tty = Terminals.ttyInAddress(of: session.tab) else { return nil }
             return (session.tab, { Terminal.isRunning(agent, on: tty) == false })
         }
-        guard !tabs.isEmpty, !checkingPanes else { return }
-        checkingPanes = true
-        Terminal.queue.async {
-            let gone = Set(tabs.filter { $0.isGone() }.map(\.tab))
-            DispatchQueue.main.async {
-                self.checkingPanes = false
-                let closed = gone.intersection(self.panesMissedOnce)
-                self.panesMissedOnce = gone.subtracting(closed)
-                // A Ghostty terminal's tty may be another's next.
-                for tab in closed { if let address = TabAddress(tab), address.kind == "ghostty" { Ghostty.forget(tty: address.id) } }
-                if !closed.isEmpty { self.sessions.prune(closedTabs: closed) }
-            }
+        guard !tabs.isEmpty else { return }
+        // Read-only looks: on a poller of their own, off the desks' keys' way.
+        panesPoll.round({ Set(tabs.filter { $0.isGone() }.map(\.tab)) }) { gone in
+            let closed = gone.intersection(self.panesMissedOnce)
+            self.panesMissedOnce = gone.subtracting(closed)
+            // A Ghostty terminal's tty may be another's next.
+            for tab in closed { if let address = TabAddress(tab), address.kind == "ghostty" { Ghostty.forget(tty: address.id) } }
+            if !closed.isEmpty { self.sessions.prune(closedTabs: closed) }
         }
     }
 }

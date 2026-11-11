@@ -47,10 +47,13 @@ final class HostBridge {
     static let connectionsMost = 8
     /// How long a whole request has to arrive, however it's cut up.
     static let requestWait: TimeInterval = 5
-    /// How long a tab action has to start, from the moment its connection is
-    /// taken: under the core's 20 s (desktop/hostbridge_darwin.go), so the core
-    /// is still waiting when it's answered. One that hasn't started by then is
-    /// never run: the core has given up, and a phone may try again.
+    /// How long an action is waited for, from the moment its connection is
+    /// taken: under the core's 20 s (desktop/hostbridge_darwin.go), so the
+    /// core is still waiting when it's answered. A window has this long to
+    /// start opening; one that hasn't by then is never run: the core has given
+    /// up, and a phone may try again. A tab action has less to start,
+    /// `Terminals.inputWait`, as the deck's own keys have; once started, it's
+    /// waited for until this, and answered as it went.
     static let actionWait: TimeInterval = 18
     /// The longest a socket's path can be on a Mac.
     static let pathMost = 103
@@ -299,6 +302,9 @@ final class HostBridge {
         case "scroll-bottom":
             work = { done(actions.scrollToBottom(tab)) }
         default: // close
+            // In tmux each step has `Tool.timeout`, so a tmux that answers some steps and hangs on others could,
+            // in theory, take a close past `deadline`: then it's answered "stopped answering part way", while the
+            // close may still finish. It takes several separate hangs; nothing more is done about it.
             guard let name = request["agent"] as? String, let agent = Agent(rawValue: name) else { return refused("Not an agent.") }
             work = {
                 switch actions.fire(tab, agent) {
@@ -309,24 +315,38 @@ final class HostBridge {
                 }
             }
         }
-        switch run(on: actions.queue, until: deadline, work) {
-        case .done(let answer): return answer
-        case .tooLate: return refused("The terminal didn't answer in time.")
+        // On its own terminal's queue, as the deck's keys go: given no longer to start than they are
+        // (`Terminals.inputWait`), then waited for to its end, within the bridge's own deadline.
+        let tabText = tab.text
+        switch run(on: actions.queue(tab), startBy: min(deadline, .now() + Terminals.inputWait), until: deadline,
+                   { Terminal.noticingTimeouts(work) }) {
+        case .done(let answer) where answer.timedOut && answer.value["ok"] as? Bool != true:
+            return refused(Terminals.notAnswering(tabText, partWay: answer.partWay))
+        case .done(let answer): return answer.value
+        case .notStarted: return refused(Terminals.notAnswering(tabText))
+        case .unfinished: return refused(Terminals.notAnswering(tabText, partWay: true))
         }
     }
 
     /// What came of something run on a queue with a deadline.
     enum Timed<T> {
-        case done(T), tooLate
+        /// Run, with its answer.
+        case done(T)
+        /// Not started in time, and never run.
+        case notStarted
+        /// Started, but still running when the time was up: it's seen through, unheard.
+        case unfinished
     }
 
     /// Runs `body` on `queue`, after what's already there, as the deck runs its
-    /// terminals one at a time, and waits for it until `deadline`. One that
-    /// hasn't started by then never runs: its caller has given up, and a key
-    /// typed late could be typed twice. One already running when the time is up
-    /// can't be stopped; it finishes, and its answer goes unheard.
-    static func run<T>(on queue: DispatchQueue, until deadline: DispatchTime, _ body: @escaping () -> T) -> Timed<T> {
-        let pending = Pending<T>()
+    /// terminals one at a time. One that hasn't started by `startBy` never
+    /// runs: its caller is told at once, and a key typed late could be typed
+    /// twice. One that has is waited for until `deadline`, so what it did is
+    /// what's answered; still running then, it can't be stopped: it finishes,
+    /// and its answer goes unheard.
+    static func run<T>(on queue: DispatchQueue, startBy: DispatchTime? = nil, until deadline: DispatchTime,
+                       _ body: @escaping () -> T) -> Timed<T> {
+        let pending = Pending<T>(startBy: min(startBy ?? deadline, deadline))
         queue.async {
             guard pending.begin() else { return }
             pending.finish(body())
@@ -338,15 +358,22 @@ final class HostBridge {
     private final class Pending<T> {
         private let lock = NSLock()
         private let finished = DispatchSemaphore(value: 0)
+        private let startBy: DispatchTime
+        private var started = false
         private var givenUp = false
         private var value: T?
         private var hasValue = false
 
-        /// Whether to run it: not once its caller has given up.
+        init(startBy: DispatchTime) { self.startBy = startBy }
+
+        /// Whether to run it, right before it would: not once its caller has
+        /// given up, nor past its time to start.
         func begin() -> Bool {
             lock.lock()
             defer { lock.unlock() }
-            return !givenUp
+            guard !givenUp, DispatchTime.now() < startBy else { return false }
+            started = true
+            return true
         }
 
         func finish(_ result: T) {
@@ -358,12 +385,24 @@ final class HostBridge {
         }
 
         func wait(until deadline: DispatchTime) -> Timed<T> {
+            _ = finished.wait(timeout: startBy)
+            lock.lock()
+            if hasValue, let value {
+                lock.unlock()
+                return .done(value)
+            }
+            guard started else {
+                givenUp = true
+                lock.unlock()
+                return .notStarted
+            }
+            lock.unlock()
+            // Started in time: its answer is what it did, however long its keys take.
             _ = finished.wait(timeout: deadline)
             lock.lock()
             defer { lock.unlock() }
             if hasValue, let value { return .done(value) }
-            givenUp = true
-            return .tooLate
+            return .unfinished
         }
     }
 
@@ -377,7 +416,7 @@ final class HostBridge {
 
     /// A window of a terminal of yours, in `folder`, running `script`: a file
     /// of yours alone in the hires folder, which the core wrote. Never a line of text.
-    /// Opened on the terminals' queue, as the deck opens a hire's, and as a tab
+    /// Opened on that terminal's queue, as the deck opens a hire's, and as a tab
     /// action: not at all once the core has given up, so a retry never makes two.
     private static func open(_ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
         guard let terminal = request["terminal"] as? String, Openers.choices.contains(where: { $0.id == terminal }) else {
@@ -387,10 +426,10 @@ final class HostBridge {
         guard let script = request["script"] as? String, isHireScript(script, in: actions.hires) else {
             return refused("Not a script in Smolcorp's hires folder.")
         }
-        switch run(on: actions.queue, until: deadline, { actions.open(terminal, folder, script) }) {
+        switch run(on: actions.windowQueue(terminal), until: deadline, { actions.open(terminal, folder, script) }) {
         case .done(let tab?): return ["ok": true, "tab": tab]
         case .done(nil): return refused("The window didn't open.")
-        case .tooLate: return refused("The terminal didn't answer in time.")
+        case .notStarted, .unfinished: return refused("The terminal didn't answer in time.")
         }
     }
 
@@ -463,10 +502,12 @@ final class HostBridge {
         var secrets: [String: Secret]
         /// The login item, or nil in a test copy, whose login item is the copy in use's: never read or set.
         var loginItem: (get: () -> Bool, set: (Bool) -> Void)?
-        /// Where tab actions and windows opened run, one at a time.
-        var queue: DispatchQueue = Terminal.queue
+        /// Where a tab's actions run, one at a time: its terminal's queue, as the deck's keys go.
+        var queue: (TabAddress?) -> DispatchQueue = { Terminals.queue(for: $0) }
+        /// Where a window of a terminal (an `Openers` choice) opens: that terminal's queue, as the deck opens a hire's.
+        var windowQueue: (String) -> DispatchQueue = { Terminals.queue(opening: $0) }
 
-        /// The Swift engine's own: the terminal drivers on `Terminal.queue`, one at a time
+        /// The Swift engine's own: the terminal drivers on their terminals' queues, one at a time
         /// as the deck runs them, the openers, the secrets' stores (files in a test copy), the login item.
         static var mac: Actions { onThisMac() }
 

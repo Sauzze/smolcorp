@@ -62,13 +62,17 @@ enum Tool {
         if let given { process.standardInput = given }
         do { try process.run() } catch { return nil }
         if let given, let input { feed(input, to: given) }
+        Terminal.noteStep()
         // Stopped when it overruns, which also ends the reading below.
         let overran = DispatchWorkItem { if process.isRunning { process.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + limit, execute: overran)
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         overran.cancel()
-        guard process.terminationReason == .exit else { return nil }
+        guard process.terminationReason == .exit else {
+            Terminal.noteTimeout()
+            return nil
+        }
         return (process.terminationStatus, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
@@ -205,25 +209,47 @@ struct Tmux: TerminalDriver {
     }
 
     /// The pane, and the terminal tab tmux is shown in, when that's one the
-    /// deck can bring forward.
+    /// deck can bring forward. Only tmux is asked here, on tmux's queue; the
+    /// tab is brought forward, or a hire's window opened again, afterwards on
+    /// that terminal's own queue, so no tmux desk's keys wait on a terminal
+    /// app that isn't answering.
     func focus(_ tab: TabAddress) -> Bool {
-        guard ran(tab, ["select-window", "-t", tab.id]), ran(tab, ["select-pane", "-t", tab.id]) else { return false }
-        // The tab showing this pane's own session, not the server's first client.
-        if let session = run(tab, ["display-message", "-p", "-t", tab.id, "#{session_id}"]), session.status == 0,
-           let client = run(tab, ["list-clients", "-t", session.output, "-F", "#{client_tty}"])?.output
-               .split(separator: "\n").first.map(String.init) {
-            _ = Terminal.focus(tty: client) || ITerm().focus(tty: client)
-        } else if HireTmux.owns(tab.socket) {
-            // A hire's own server with no window showing it: "open" shows it again.
-            let config = Config.shared
-            let terminal = Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal"
-            let folder = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_current_path}"]).flatMap { $0.status == 0 ? $0.output : nil }
-            if let window = Openers.reattach(socket: tab.socket, in: folder ?? NSHomeDirectory(), terminal: terminal) {
-                Tmux.reopened?(tab.socket, window)
+        // Selecting a pane and asking tmux about it type nothing.
+        Terminal.onlyLooking {
+            guard ran(tab, ["select-window", "-t", tab.id]), ran(tab, ["select-pane", "-t", tab.id]) else { return false }
+            // The tab showing this pane's own session, not the server's first client.
+            if let session = run(tab, ["display-message", "-p", "-t", tab.id, "#{session_id}"]), session.status == 0,
+               let client = run(tab, ["list-clients", "-t", session.output, "-F", "#{client_tty}"])?.output
+                   .split(separator: "\n").first.map(String.init) {
+                // Skipped when its terminal gets to it too late, as when Terminal answers again after a
+                // hang: it would bring Terminal forward seconds after the tap.
+                let tapped = Date()
+                let inTime = { Date().timeIntervalSince(tapped) < Terminals.inputWait }
+                Terminal.queue.async {
+                    guard inTime(), !Terminal.focus(tty: client) else { return }
+                    Terminals.queue(kind: "iterm").async { if inTime() { _ = ITerm().focus(tty: client) } }
+                }
+            } else if HireTmux.owns(tab.socket) {
+                // A hire's own server with no window showing it: "open" shows it again.
+                let config = Config.shared
+                let terminal = Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal"
+                let folder = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_current_path}"]).flatMap { $0.status == 0 ? $0.output : nil }
+                let socket = tab.socket
+                // One window, however many taps arrive while it opens.
+                guard Tmux.reopening.insert(socket) else { return true }
+                Terminals.queue(opening: terminal).async {
+                    defer { Tmux.reopening.remove(socket) }
+                    if let window = Openers.reattach(socket: socket, in: folder ?? NSHomeDirectory(), terminal: terminal) {
+                        Tmux.reopened?(socket, window)
+                    }
+                }
             }
+            return true
         }
-        return true
     }
+
+    /// The hires' servers whose window `focus` is opening again.
+    static let reopening = Openings()
 
     /// Told of a window `focus` opened again for a hire's own server (its socket, the window as its terminal gave
     /// it), so the deck records it as Smolcorp's for that hire.
@@ -253,19 +279,20 @@ struct Tmux: TerminalDriver {
     }
 
     func tty(of tab: TabAddress) -> String? {
-        guard let tty = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_tty}"]), tty.status == 0, !tty.output.isEmpty else { return nil }
+        guard let tty = Terminal.onlyLooking({ run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_tty}"]) }), tty.status == 0,
+              !tty.output.isEmpty else { return nil }
         return tty.output
     }
 
     /// Whether the pane is there: tmux answering that it isn't is the only no.
     func isOpen(_ tab: TabAddress) -> Bool? {
-        guard let answer = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_id}"]) else { return nil }
+        guard let answer = Terminal.onlyLooking({ run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_id}"]) }) else { return nil }
         return answer.status == 0 && answer.output == tab.id
     }
 
     /// The pane's visible lines, as text, without its colours.
     func screen(of tab: TabAddress) -> String? {
-        guard let answer = run(tab, ["capture-pane", "-p", "-t", tab.id]), answer.status == 0 else { return nil }
+        guard let answer = Terminal.onlyLooking({ run(tab, ["capture-pane", "-p", "-t", tab.id]) }), answer.status == 0 else { return nil }
         return answer.output
     }
 }
@@ -798,7 +825,7 @@ enum Openers {
                     tell current session of w to write text "cd " & quoted form of (item 1 of argv) & " && " & quoted form of (item 2 of argv)
                     return "iterm:" & (unique ID of current session of w)
                 end tell
-                """, arguments: [folder, command]).flatMap { $0.hasPrefix("iterm:") ? $0 : nil }
+                """, arguments: [folder, command], timeout: Terminal.openTimeout).flatMap { $0.hasPrefix("iterm:") ? $0 : nil }
         case "ghostty":
             return Terminal.run("""
                 tell application "Ghostty"
@@ -806,7 +833,7 @@ enum Openers {
                     set w to new window with configuration {initial working directory:(item 1 of argv), initial input:(quoted form of (item 2 of argv)) & linefeed}
                     return "ghostty-id:" & (id of focused terminal of selected tab of w)
                 end tell
-                """, arguments: [folder, command]).flatMap { $0.hasPrefix("ghostty-id:") ? $0 : nil }
+                """, arguments: [folder, command], timeout: Terminal.openTimeout).flatMap { $0.hasPrefix("ghostty-id:") ? $0 : nil }
         default:
             // The tab's tty and its window's id, both: macOS gives a closed tab's tty to a new one (see `HireWindows`).
             return Terminal.open(command, in: folder).map { HireWindows.terminalRecord(tty: $0.tty, windowID: $0.window) }
@@ -824,4 +851,23 @@ enum Openers {
 
     /// `text` as one word to a shell, whatever it holds: a hire's path has a space, in Application Support.
     static func quoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+}
+
+/// Things being opened, by name, from any queue: a second ask while one is
+/// on its way is told so (`insert` false), rather than opening another.
+final class Openings {
+    private let lock = NSLock()
+    private var names = Set<String>()
+
+    func insert(_ name: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return names.insert(name).inserted
+    }
+
+    func remove(_ name: String) {
+        lock.lock()
+        names.remove(name)
+        lock.unlock()
+    }
 }
