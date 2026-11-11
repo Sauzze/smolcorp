@@ -55,7 +55,7 @@ const PRELOAD = `(() => {
 async function chrome() {
   mkdirSync(join(DIR, 'chrome'), { recursive: true });
   const browser = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${join(DIR, 'chrome')}`,
-    '--ignore-certificate-errors', '--no-first-run', '--no-default-browser-check', 'about:blank'], { stdio: 'ignore' });
+    '--ignore-certificate-errors', '--no-first-run', '--no-default-browser-check', '--use-mock-keychain', '--password-store=basic', '--disable-features=DialMediaRouteProvider', 'about:blank'], { stdio: 'ignore' });
   let target;
   for (let i = 0; i < 50 && !target; i++) {
     await sleep(200);
