@@ -61,7 +61,7 @@ Commands:
   screen <id>                   choose the screen that holds the team (an id from
                                 screens; only matters with two or more)
 
-On Linux and Windows, hire, brief, fire, tile, screens, screen and accounts
+On Linux and Windows, tile, screens, screen and accounts
 aren't served yet.
 
 To get a new token: on the Mac, ask the owner to rotate it in Smolcorp's setup;

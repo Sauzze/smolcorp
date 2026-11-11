@@ -35,6 +35,8 @@ type engineOptions struct {
 	Every     time.Duration
 	Now       func() time.Time
 	Pause     func(time.Duration)
+	// The GM's fire, unless removeWorktree is asked: leave the worktree. Zero removes it when clean.
+	KeepWorktree bool
 }
 
 // worktrees is the folder hires' worktrees are made in, "" for beside the repo (hiresFolder).

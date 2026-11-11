@@ -302,12 +302,21 @@ func TestCleaningUpAHireThatNeverReported(t *testing.T) {
 	}
 }
 
-// With a real tmux, on a socket of the test's own, and a fake agent in place of claude.
-func TestARealSessionOnItsOwnSocket(t *testing.T) {
+// needTmux is the path of tmux for a test that runs a real one: without it the test skips, but in CI (CI set) it fails.
+func needTmux(t *testing.T) string {
+	t.Helper()
 	path, err := exec.LookPath("tmux")
-	if err != nil {
+	if err != nil && os.Getenv("CI") != "" {
+		t.Fatal("tmux isn't installed: in CI a missing tmux is a failure, not a skip")
+	} else if err != nil {
 		t.Skip("tmux isn't installed")
 	}
+	return path
+}
+
+// With a real tmux, on a socket of the test's own, and a fake agent in place of claude.
+func TestARealSessionOnItsOwnSocket(t *testing.T) {
+	path := needTmux(t)
 	shortSupport(t)
 	saved := tmuxPath
 	tmuxPath = func() string { return path }

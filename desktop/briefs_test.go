@@ -286,4 +286,23 @@ func TestALaterPartIsAddedToTheHiresOwnBriefOnly(t *testing.T) {
 			t.Error("added through a link")
 		}
 	}
+	// Another file put in its place between the check and the open (a link, on Windows, where the open
+	// can't refuse one): nothing is added to either.
+	other := filepath.Join(t.TempDir(), "other.md")
+	_ = os.WriteFile(other, []byte("other"), 0o644)
+	before, _ := os.ReadFile(written)
+	kept := openBriefFile
+	t.Cleanup(func() { openBriefFile = kept })
+	openBriefFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		return os.OpenFile(other, flag, perm)
+	}
+	if err := appendBriefPart(written, "x", date); err == nil {
+		t.Error("added to a file swapped in after the check")
+	}
+	if data, _ := os.ReadFile(other); string(data) != "other" {
+		t.Errorf("the swapped-in file reads %q", data)
+	}
+	if data, _ := os.ReadFile(written); string(data) != string(before) {
+		t.Errorf("the brief reads %q", data)
+	}
 }

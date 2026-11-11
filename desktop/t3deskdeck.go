@@ -3,7 +3,6 @@ package desktop
 import (
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -53,12 +52,13 @@ func t3Leaver() t3Leaving {
 	return defaultT3Leaving()
 }
 
-// t3FenceSettings are hire hireID's fence: its settings as a hire's own file has them, on the default Claude
-// account (T3 Code's agent works on its own, the one in ~/.claude).
-func t3FenceSettings(hireID string) (map[string]any, error) {
+// t3FenceSettings are hire hireID's fence: its settings as a hire's own file has them. T3 Code's agent works on
+// the default Claude account (~/.claude), but profiles, every saved account's (claudeDenyProfiles), are denied to
+// it as to any hire, as the Mac's HireSettings.forHire does. With none saved, that's the default account alone.
+func t3FenceSettings(hireID string, profiles []claudeProfile) (map[string]any, error) {
 	return hireSettingsObject(hireSettingsOptions{HireID: hireID, Auto: t3FenceAuto(runtime.GOOS), Profile: guardHire,
 		CLI: cmpOr(t3Stand.CLI, commandLineProgram()), Support: supportDir, Run: t3Stand.Guard, IsExec: t3Stand.IsExec,
-		Profiles: []claudeProfile{{Name: "default", Dir: filepath.Join(homeDir, ".claude")}}})
+		Profiles: profiles})
 }
 
 // t3FenceAuto is whether a hire's fence carries auto mode: as the Mac's, on a Mac. T3 Code runs its agent with
@@ -110,8 +110,10 @@ func (d *Deck) hireIntoT3(ask t3Ask) (int, string) {
 		return http.StatusTooManyRequests, "Hired a moment ago. Try again in a few seconds."
 	}
 	d.lastHire = time.Now()
+	// The saved accounts are copied under the lock, and looked in once it's let go (claudeaccounts.go).
+	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
 	d.mu.Unlock()
-	status, message := d.hireIntoT3Now(ask, role, on)
+	status, message := d.hireIntoT3Now(ask, role, on, claudeDenyProfiles(savedAccounts))
 	d.mu.Lock()
 	if status != http.StatusNoContent {
 		d.lastHire = time.Time{} // nobody was hired, so the next try needn't wait
@@ -121,7 +123,8 @@ func (d *Deck) hireIntoT3(ask t3Ask) (int, string) {
 	return status, message
 }
 
-func (d *Deck) hireIntoT3Now(ask t3Ask, role Role, on bool) (int, string) {
+// hireIntoT3Now is the hire itself; profiles are the accounts its fence denies (claudeDenyProfiles).
+func (d *Deck) hireIntoT3Now(ask t3Ask, role Role, on bool, profiles []claudeProfile) (int, string) {
 	t3Desk.Lock()
 	defer t3Desk.Unlock()
 	machine := newT3Machine()
@@ -138,7 +141,7 @@ func (d *Deck) hireIntoT3Now(ask t3Ask, role Role, on bool) (int, string) {
 		Model: model, Taken: takenPorts()}
 	ways := t3Ways{
 		Machine: machine, Git: t3Stand.Git, PortFree: t3Stand.PortFree,
-		Settings: func() (map[string]any, error) { return t3FenceSettings(hireID) },
+		Settings: func() (map[string]any, error) { return t3FenceSettings(hireID, profiles) },
 		Brief: func(place hirePlace) (t3Brief, error) {
 			message, brief, err := engineBrief(engineRequest{Role: role, How: how, Folder: ask.Folder, Desk: ask.Desk, Answers: ask.Answers, Task: ask.Task},
 				place, hireID, time.Now())
@@ -313,6 +316,14 @@ func (d *Deck) t3Latest(h Hire) Hire {
 // t3FireRefusal is why a fire from the office, a phone or the GM doesn't reach a hire in T3 Code: it's let go
 // from Setup's team list or its desk, after a confirm that says what's removed. "" for any other hire.
 func t3FireRefusal(h Hire) string {
+	if h.Engine != t3Engine {
+		return ""
+	}
+	return calledHire(h) + " runs in T3 Code: let it go from Setup's team list or from its desk."
+}
+
+// gmT3FireRefusal is the GM's fire of a hire in T3 Code, refused in the Mac's words (Deck.fire), or "" for any other hire.
+func gmT3FireRefusal(h Hire) string {
 	if h.Engine != t3Engine {
 		return ""
 	}

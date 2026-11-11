@@ -416,3 +416,25 @@ func TestAHookInATestCopyReadsTheCopysKey(t *testing.T) {
 		}
 	}
 }
+
+// badlyFormedAccounts are saved entries no hire gets a rule for: network paths, a relative path and one with a NUL.
+var badlyFormedAccounts = []claudeProfile{{Name: "share", Dir: "//server/share/.claude-s"}, {Name: "unc", Dir: `\\server\share\.claude-u`},
+	{Name: "rel", Dir: "rel/.claude-r"}, {Name: "nul", Dir: "~/.claude-n\x00"}}
+
+// deniesTheAccounts checks that a hire's settings deny each of dirs' settings and transcripts, and give no rule
+// for any of badlyFormedAccounts.
+func deniesTheAccounts(t *testing.T, where, settings string, dirs ...string) {
+	t.Helper()
+	for _, dir := range dirs {
+		for _, rule := range []string{"Edit(" + absoluteRulePath(dir) + "/settings*.json)", "Read(" + absoluteRulePath(dir) + "/projects/**)"} {
+			if !strings.Contains(settings, rule) {
+				t.Errorf("%s: %s isn't denied:\n%s", where, rule, settings)
+			}
+		}
+	}
+	for _, part := range []string{"server/share", "server\\\\share", ".claude-s", ".claude-u", ".claude-r", ".claude-n"} {
+		if strings.Contains(settings, part) {
+			t.Errorf("%s: a rule for a badly formed folder (%s):\n%s", where, part, settings)
+		}
+	}
+}

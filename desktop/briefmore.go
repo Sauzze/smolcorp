@@ -60,15 +60,25 @@ func plainFile(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
+// openBriefFile opens a brief to add to it; tests put a file in the brief's place on the way.
+var openBriefFile = os.OpenFile
+
 // appendBriefPart adds the part to the end of file, as one write. The file is
-// opened, never made, and a link put in its place since it was found is not followed.
+// opened, never made, and a link put in its place since it was found is not
+// followed: the open refuses one where it can, and on Windows, where it can't
+// (noFollow is nothing there), the file opened must be the one checked.
 func appendBriefPart(file, text string, now time.Time) error {
-	if !plainFile(file) {
+	checked, err := os.Lstat(file)
+	if err != nil || !checked.Mode().IsRegular() {
 		return os.ErrNotExist
 	}
-	out, err := os.OpenFile(file, os.O_WRONLY|os.O_APPEND|noFollow, 0)
+	out, err := openBriefFile(file, os.O_WRONLY|os.O_APPEND|noFollow, 0)
 	if err != nil {
 		return err
+	}
+	if opened, err := out.Stat(); err != nil || !os.SameFile(checked, opened) {
+		out.Close()
+		return os.ErrNotExist
 	}
 	_, err = out.WriteString(briefMorePart(text, now))
 	if closeErr := out.Close(); err == nil {

@@ -61,6 +61,10 @@ jobs:
             exit 1
           fi
       - run: go vet ./...
+      # The GM's end-to-end tests need tmux and fail, not skip, without it.
+      - name: Install tmux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
       - run: go test ./...
       # The same tests under the race detector, which needs cgo: on Linux, whose runner has a C compiler.
       - name: Test with the race detector
