@@ -320,13 +320,14 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		who := d.routeCallerOf(r.Request, r.Method, r.URL.Path)
-		// The GM and a hire are known, and the table keeps them out (403), as the Mac's gate does.
-		if (who == callerGM || who == callerHire) && !routeAllows(who, r.Method, r.URL.Path) {
-			writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
+		// Nobody known is 401. Anyone known but the table's callers (the page and a tool) is 403, as the Mac's
+		// gate says it: the page's cookie may post a bot's news, as a tool's key does.
+		if who == callerNobody {
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if who != callerTool {
-			w.WriteHeader(http.StatusUnauthorized)
+		if !routeAllows(who, r.Method, r.URL.Path) {
+			writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
 			return
 		}
 		writeStatus(w)(d.cloudBotEvent(r.Method, r.URL.Path, r.URL.Query(), decodeJSON(r.Body)))
@@ -338,6 +339,12 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		}
 		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// A hook header twice is one smuggled in after another, as a line break in a variable the hook was
+		// given would make it: not believed, as the Mac's (DeckRouter.hasSmuggledHookHeader).
+		if hasSmuggledHookHeader(r.Header) {
+			writeStatus(w)(http.StatusBadRequest, "A hook header came twice")
 			return
 		}
 		at, err := strconv.ParseFloat(r.Header.Get("X-AgentDeck-At"), 64)
@@ -734,6 +741,16 @@ func (d *Deck) routeCallerOf(r *http.Request, method, path string) caller {
 		return callerGM
 	}
 	return who
+}
+
+// hasSmuggledHookHeader is whether any X-AgentDeck-* header came more than once.
+func hasSmuggledHookHeader(header http.Header) bool {
+	for name, values := range header {
+		if len(values) > 1 && strings.HasPrefix(strings.ToLower(name), "x-agentdeck-") {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *Deck) newSetupSession() string {
@@ -1487,11 +1504,12 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// One bot pinned or not, or put on a floor, from setup's list; or the floor new bots go to.
 	case r.Method == http.MethodPost && path == "/setup/bots/override":
 		var given struct {
-			ID       string  `json:"id"`
-			Pinned   *bool   `json:"pinned"`
-			Floor    *string `json:"floor"`
-			Hidden   bool    `json:"hidden"`
-			BotFloor *int    `json:"botFloor"`
+			ID     string `json:"id"`
+			Pinned *bool  `json:"pinned"`
+			// A floor that isn't a string changes nothing and isn't refused, as the Mac's does (the page sends a string).
+			Floor    any  `json:"floor"`
+			Hidden   bool `json:"hidden"`
+			BotFloor *int `json:"botFloor"`
 			// Under the Mac app: finding the Grok Bot app's bots on or off, and a bot hidden from there shown again.
 			AutoDetect *bool  `json:"autoDetect"`
 			Show       string `json:"show"`
@@ -1528,8 +1546,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			if given.Pinned != nil {
 				bots[i].Pinned = *given.Pinned
 			}
-			if given.Floor != nil && slices.Contains(cloudFloors, *given.Floor) {
-				bots[i].Floor = *given.Floor
+			if floor, isText := given.Floor.(string); isText && slices.Contains(cloudFloors, floor) {
+				bots[i].Floor = floor
 			}
 		}
 		if given.Hidden {

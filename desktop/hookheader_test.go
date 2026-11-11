@@ -118,3 +118,56 @@ func TestTheMacsReportShReachesTheGoCore(t *testing.T) {
 		t.Fatal("report.sh sent nothing")
 	}
 }
+
+// hookWith posts to /hook from this computer with the hook's key, and gives each header as many times as it lists.
+func hookWith(t *testing.T, d *Deck, headers map[string][]string) int {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPost, "/hook", strings.NewReader(`{"hook_event_name":"SessionStart","session_id":"twice","cwd":"/work/a"}`))
+	r.Host, r.RemoteAddr = "localhost:7710", thisComputer
+	r.Header.Set(hookKeyHeader, d.access.HookKey)
+	for name, values := range headers {
+		for _, value := range values {
+			r.Header.Add(name, value)
+		}
+	}
+	w := httptest.NewRecorder()
+	(&router{deck: d}).ServeHTTP(w, r)
+	if w.Code == http.StatusBadRequest && w.Body.String() != "A hook header came twice" {
+		t.Errorf("the refusal said %q", w.Body.String())
+	}
+	return w.Code
+}
+
+// A hook header that comes twice is one smuggled in after another, as a line break in a variable the hook was given
+// would make it: refused (400, as the Mac's), whichever of them is repeated, and nothing is taken from the request.
+// The same on every OS: the Go core's own hook never sends one twice.
+func TestAHookHeaderSentTwiceIsRefused(t *testing.T) {
+	for _, mac := range []bool{false, true} {
+		if mac {
+			withMac(t)
+		}
+		d := newTestDeck(t)
+		for _, name := range []string{"X-AgentDeck-Tab", "X-AgentDeck-Agent", "X-AgentDeck-Project", "X-AgentDeck-PID"} {
+			if got := hookWith(t, d, map[string][]string{name: {"one", "two"}}); got != http.StatusBadRequest {
+				t.Errorf("mac %v: %s twice: %d", mac, name, got)
+			}
+		}
+		if len(d.sessions.All()) != 0 {
+			t.Errorf("mac %v: a refused hook made a session", mac)
+		}
+		// Once is as it was; a header that isn't a hook's may come twice.
+		if got := hookWith(t, d, map[string][]string{"X-AgentDeck-Tab": {"launcher:one"}, "Accept": {"a", "b"}}); got != http.StatusNoContent {
+			t.Errorf("mac %v: one header each: %d", mac, got)
+		}
+		// Without the key it is 401 first, as the Mac checks the key before the headers.
+		r := httptest.NewRequest(http.MethodPost, "/hook", strings.NewReader(`{}`))
+		r.Host, r.RemoteAddr = "localhost:7710", thisComputer
+		r.Header.Add("X-AgentDeck-Tab", "a")
+		r.Header.Add("X-AgentDeck-Tab", "b")
+		w := httptest.NewRecorder()
+		(&router{deck: d}).ServeHTTP(w, r)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("mac %v: no key: %d", mac, w.Code)
+		}
+	}
+}

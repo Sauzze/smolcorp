@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1114,5 +1115,43 @@ func TestSeveralLinesReachATmuxPaneThatAskedForBracketedPasteByteForByte(t *test
 	}
 	if result, _ := plain.phoneText("one\x1b[201~\ntwo", true); result != pasteFailed {
 		t.Error("an Escape went to tmux")
+	}
+}
+
+// The phone's text to a hire's desk in T3 Code (nothing types into it) says what /act's controls say, in the Mac's
+// words: 409, not "Session not found". The same on every OS: nobody relies on the 404, and the sentence is T3 Code's.
+func TestThePhonesTextToAT3DeskGetsTheT3Sentence(t *testing.T) {
+	for _, mac := range []bool{false, true} {
+		if mac {
+			withMac(t)
+		}
+		d, _ := t3Deck(t, Hire{ID: t3DeskTestID})
+		d.mu.Lock()
+		d.config.PhoneMicEnabled = true
+		d.mu.Unlock()
+		key := pair(t, d)
+		desk := t3DeskID(t3DeskTestID)
+		hire, found := d.t3HireAtDesk(desk)
+		if !found {
+			t.Fatal("no desk for the hire")
+		}
+		want := t3NoControls(calledHire(hire))
+		for _, send := range []string{"", `,"send":true`, `,"send":false`} {
+			got := serve(t, d, call{method: "POST", target: "/dictate?session=" + url.QueryEscape(desk) + "&t=" + key, host: deckOnWiFi, from: aPhone,
+				body: `{"text":"one line"` + send + `}`})
+			if got.Code != http.StatusConflict || got.Body.String() != want {
+				t.Errorf("mac %v %q: %d %q, want 409 %q", mac, send, got.Code, got.Body, want)
+			}
+		}
+		// The checks before it keep their place (the Mac's order): the mic off, and a "!" first.
+		bang := serve(t, d, call{method: "POST", target: "/dictate?session=" + url.QueryEscape(desk) + "&t=" + key, host: deckOnWiFi, from: aPhone, body: `{"text":"!ls"}`})
+		if bang.Code != http.StatusBadRequest {
+			t.Errorf("mac %v: a bang: %d %q", mac, bang.Code, bang.Body)
+		}
+		// And a desk that isn't there is still that.
+		nobody := serve(t, d, call{method: "POST", target: "/dictate?session=nobody&t=" + key, host: deckOnWiFi, from: aPhone, body: `{"text":"one line"}`})
+		if nobody.Code != http.StatusNotFound {
+			t.Errorf("mac %v: no desk: %d %q", mac, nobody.Code, nobody.Body)
+		}
 	}
 }

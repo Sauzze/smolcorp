@@ -20,6 +20,29 @@
           },
           "status" : 401,
           "why" : "no hook key"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "hook",
+            "body" : {
+              "cwd" : "\/work\/alpha",
+              "hook_event_name" : "SessionStart",
+              "model" : "claude-opus-5-5",
+              "session_id" : "contract-a",
+              "source" : "startup"
+            },
+            "headers" : {
+              "x-agentdeck-agent" : "claude",
+              "x-agentdeck-project" : "\/work\/alpha",
+              "x-agentdeck-tab" : "launcher:contract-a"
+            },
+            "repeated" : [
+              "x-agentdeck-tab"
+            ]
+          },
+          "status" : 400,
+          "why" : "a hook header twice: one smuggled in after another (FXC2b)"
         }
       ],
       "request" : {
@@ -79,9 +102,14 @@
       "route" : "POST \/pair"
     },
     {
+      "answer" : {
+        "kind" : "empty",
+        "status" : 204
+      },
       "callers" : [
         "phone"
       ],
+      "note" : "a desk in a terminal Smolcorp can only watch has nothing to bring forward: the tap only picks it (FXC2b)",
       "refusals" : [
         {
           "kind" : "empty",
@@ -99,13 +127,22 @@
           "request" : {
             "as" : "nobody",
             "query" : {
-              "session" : "no-such-session"
+              "session" : "contract-w"
             }
           },
           "status" : 401,
           "why" : "not one of its callers"
         }
       ],
+      "request" : {
+        "as" : "phone",
+        "given" : [
+          "a watch-only desk"
+        ],
+        "query" : {
+          "session" : "contract-w"
+        }
+      },
       "route" : "POST \/focus"
     },
     {
@@ -136,6 +173,49 @@
           },
           "status" : 400,
           "why" : "no such floor"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "phone",
+            "query" : {
+              "action" : "hire",
+              "desk" : ""
+            }
+          },
+          "status" : 403,
+          "why" : "hiring off, whatever the desk: the Mac's hire checks it first (FXC2b)"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "phone",
+            "given" : [
+              "a watch-only desk"
+            ],
+            "query" : {
+              "action" : "effort",
+              "level" : "high",
+              "session" : "contract-w"
+            }
+          },
+          "status" : 409,
+          "why" : "the effort dial on a desk in a terminal Smolcorp can only watch (FXC2b)"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "phone",
+            "given" : [
+              "a watch-only desk"
+            ],
+            "query" : {
+              "action" : "send",
+              "session" : "contract-w"
+            }
+          },
+          "status" : 409,
+          "why" : "a control on a desk in a terminal Smolcorp can only watch: \"Smolcorp can't do that in this terminal yet.\" (FXC2b)"
         },
         {
           "kind" : "text",
@@ -337,6 +417,23 @@
           "why" : "the phone mic off in setup"
         },
         {
+          "kind" : "text",
+          "request" : {
+            "as" : "phone",
+            "body" : {
+              "text" : "one line"
+            },
+            "given" : [
+              "a T3 hire"
+            ],
+            "query" : {
+              "session" : "t3:c0ffee12-0000-4000-8000-0000000000d3"
+            }
+          },
+          "status" : 409,
+          "why" : "a hire in T3 Code's desk: nothing types into it (FXC2b)"
+        },
+        {
           "kind" : "empty",
           "request" : {
             "as" : "nobody",
@@ -513,6 +610,17 @@
           },
           "status" : 404,
           "why" : "no such bot"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "type" : "seen"
+            }
+          },
+          "status" : 404,
+          "why" : "no such bot, asked by the setup page: its cookie is a caller too (FXC2b)"
         },
         {
           "kind" : "empty",

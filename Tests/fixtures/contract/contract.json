@@ -138,6 +138,26 @@
         }
       ]
     },
+    "a watch-only desk" : {
+      "requests" : [
+        {
+          "as" : "hook",
+          "body" : {
+            "cwd" : "\/work\/watch",
+            "hook_event_name" : "SessionStart",
+            "session_id" : "contract-w",
+            "source" : "startup"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/watch",
+            "x-agentdeck-tab" : "other:\/dev\/ttys909"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        }
+      ]
+    },
     "an outbox message" : {
       "content" : {
         "messages" : [

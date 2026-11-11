@@ -1143,6 +1143,35 @@
       "route" : "POST \/setup\/bots\/override"
     },
     {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "a floor that isn't text changes nothing and isn't refused: the setup state, as for \"floor\": \"2\" (FXC2b)",
+      "request" : {
+        "as" : "page",
+        "body" : {
+          "floor" : 3,
+          "id" : "contract-bot"
+        },
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "POST \/setup\/bots\/override"
+    },
+    {
       "callers" : [
         "page"
       ],

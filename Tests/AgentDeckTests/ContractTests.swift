@@ -24,11 +24,14 @@ final class ContractTests: XCTestCase {
         var body: Any?
         var given: [String] = []
         var headers: [String: String] = [:]
+        /// Headers (by their lowercased names, among `headers`) that come twice in the request.
+        var repeated: [String] = []
 
         var json: [String: Any] {
             var json: [String: Any] = ["as": caller]
             if !query.isEmpty { json["query"] = query }
             if !headers.isEmpty { json["headers"] = headers }
+            if !repeated.isEmpty { json["repeated"] = repeated }
             if let body { json["body"] = body }
             if !given.isEmpty { json["given"] = given }
             return json
@@ -70,8 +73,8 @@ final class ContractTests: XCTestCase {
     }
 
     private static func ask(_ caller: String = "page", query: [String: String] = [:], body: Any? = nil, given: [String] = [],
-                            headers: [String: String] = [:]) -> Ask {
-        Ask(caller: caller, query: query, body: body, given: given, headers: headers)
+                            headers: [String: String] = [:], repeated: [String] = []) -> Ask {
+        Ask(caller: caller, query: query, body: body, given: given, headers: headers, repeated: repeated)
     }
 
     /// What the setup state is asked with, and every setup route that answers it: so that each answers it whole,
@@ -169,6 +172,8 @@ final class ContractTests: XCTestCase {
         Route("POST", "/setup/bots/override", ask(body: ["id": "contract-bot", "floor": "2"]),
               refusals: [(ask(body: ["botFloor": "2"]), "botFloor not a whole number"),
                          (ask(body: ["id": "no-such-bot"]), "no such bot")]),
+        Route("POST", "/setup/bots/override", ask(body: ["id": "contract-bot", "floor": 3]),
+              note: "a floor that isn't text changes nothing and isn't refused: the setup state, as for \"floor\": \"2\" (FXC2b)"),
         Route("POST", "/setup/bots/mailbox", nil, refusals: [(ask(body: [String: Any]()), "no id and folder")]),
         Route("POST", "/setup/bots/resolve", ask()),
         Route("GET", "/setup/hire-folder", ask()),
@@ -244,15 +249,24 @@ final class ContractTests: XCTestCase {
     /// The office's routes (a paired phone's), the hook's, a cloud bot's, and pairing.
     static let office: [Route] = [
         Route("POST", "/hook", ask("hook", body: hooks[0]["body"]!, headers: hooks[0]["headers"] as! [String: String]),
-              refusals: [(ask("nobody", body: [String: Any]()), "no hook key")],
+              refusals: [(ask("nobody", body: [String: Any]()), "no hook key"),
+                         (ask("hook", body: hooks[0]["body"]!, headers: hooks[0]["headers"] as! [String: String], repeated: ["x-agentdeck-tab"]),
+                          "a hook header twice: one smuggled in after another (FXC2b)")],
               note: "the agent's hook event, with its agent, tab, project, pid and parent headers; it feeds the snapshot"),
         Route("POST", "/pair", ask("nobody", body: ["code": "$code"], given: ["a pairing code"]),
               refusals: [(ask("nobody", body: ["code": "1"]), "a code that isn't the one asked for")],
               note: "\"$code\" stands for the code the given asked for"),
-        Route("POST", "/focus", nil, refusals: [(ask("phone", query: ["session": "no-such-session"]), "no such session")]),
+        Route("POST", "/focus", ask("phone", query: ["session": "contract-w"], given: ["a watch-only desk"]),
+              refusals: [(ask("phone", query: ["session": "no-such-session"]), "no such session")],
+              note: "a desk in a terminal Smolcorp can only watch has nothing to bring forward: the tap only picks it (FXC2b)"),
         Route("POST", "/act", nil, refusals: [
             (ask("phone", query: ["action": "accept", "session": "no-such-session"]), "no such session"),
             (ask("phone", query: ["action": "hire", "floor": "9"]), "no such floor"),
+            (ask("phone", query: ["action": "hire", "desk": ""]), "hiring off, whatever the desk: the Mac's hire checks it first (FXC2b)"),
+            (ask("phone", query: ["action": "effort", "level": "high", "session": "contract-w"], given: ["a watch-only desk"]),
+             "the effort dial on a desk in a terminal Smolcorp can only watch (FXC2b)"),
+            (ask("phone", query: ["action": "send", "session": "contract-w"], given: ["a watch-only desk"]),
+             "a control on a desk in a terminal Smolcorp can only watch: \"Smolcorp can't do that in this terminal yet.\" (FXC2b)"),
             (ask("phone", query: ["action": "settings"]), "settings open on the computer itself, not a phone"),
             (ask("phone", query: ["action": "seen", "session": "no-such-session"]), "no such cloud bot"),
             (ask("phone", query: ["action": "language", "lang": "xx"]), "unknown dictation language"),
@@ -267,7 +281,9 @@ final class ContractTests: XCTestCase {
         Route("GET", "/session/info", nil, refusals: [(ask("phone"), "a phone: the office's own window only")]),
         Route("POST", "/dictate", nil, refusals: [(ask("phone", body: ["text": "!ls"]), "a Wi-Fi phone too (I34): text starting with “!”"),
                                                   (ask("phone", query: ["session": "nope"], body: ["text": "one\ntwo"]), "several lines, to no such session"),
-                                                  (ask("phone", body: ["text": "one line"], given: ["the phone mic off"]), "the phone mic off in setup")]),
+                                                  (ask("phone", body: ["text": "one line"], given: ["the phone mic off"]), "the phone mic off in setup"),
+                                                  (ask("phone", query: ["session": T3Desks.sessionID(of: t3HireID)], body: ["text": "one line"], given: ["a T3 hire"]),
+                                                   "a hire in T3 Code's desk: nothing types into it (FXC2b)")]),
         Route("POST", "/peek", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
         Route("POST", "/choose", nil, refusals: [(ask("phone"), "a Wi-Fi phone too (I34): no option=other")]),
         Route("GET", "/choice", nil, refusals: [(ask("phone"), "over Tailscale's HTTPS address only")]),
@@ -278,6 +294,7 @@ final class ContractTests: XCTestCase {
         Route("POST", "/bots/no-such-bot/event", nil, refusals: [
             (ask("tool", body: ["type": "nope"]), "not an event a bot has"),
             (ask("tool", body: ["type": "seen"]), "no such bot"),
+            (ask("page", body: ["type": "seen"]), "no such bot, asked by the setup page: its cookie is a caller too (FXC2b)"),
             (ask("nobody", body: ["type": "seen"]), "no setup key"),
         ]),
         Route("GET", "/nothing-here", nil, refusals: [(ask("phone"), "no such route")]),
@@ -347,6 +364,13 @@ final class ContractTests: XCTestCase {
         "a session at a free key": ["requests": freeKeyHooks.map { hook -> [String: Any] in
             ["as": "hook", "method": "POST", "path": "/hook", "headers": hook["headers"]!, "body": hook["body"]!]
         }],
+        // A session in a terminal Smolcorp can only watch (its tab is of one no driver is made for): the dial and the controls
+        // are refused on its desk, and a tap on it only picks it.
+        "a watch-only desk": ["requests": [
+            ["as": "hook", "method": "POST", "path": "/hook",
+             "headers": ["x-agentdeck-agent": "claude", "x-agentdeck-project": "/work/watch", "x-agentdeck-tab": "other:/dev/ttys909"],
+             "body": ["cwd": "/work/watch", "hook_event_name": "SessionStart", "session_id": "contract-w", "source": "startup"]] as [String: Any],
+        ]],
         "a saved profile": ["requests": [step("POST", "/setup/profiles", query: ["action": "save", "name": "Contract"])]],
         // contract-b on 2F (floor 1: the ground floor, the keys, is 0), with the cloud bot: upstairs.
         "a floor rule": ["requests": [step("POST", "/setup/floors", body: ["rules": [["folder": "/work/beta", "floor": 1, "exact": false]]])]],
@@ -859,7 +883,7 @@ final class ContractTests: XCTestCase {
     }
 
     private func send(_ router: DeckRouter, _ deck: Deck, method: String, path: String, caller: String, query: [String: String] = [:],
-                      headers given: [String: String] = [:], body: Any? = nil) throws -> Answer {
+                      headers given: [String: String] = [:], repeated: [String] = [], body: Any? = nil) throws -> Answer {
         var headers = given
         var local = true
         headers["host"] = "127.0.0.1:7710"
@@ -895,7 +919,7 @@ final class ContractTests: XCTestCase {
         case let some?: data = try JSONSerialization.data(withJSONObject: some)
         }
         let request = Request.addressed(method: method, path: path, query: query, headers: headers, body: data,
-                                        fromLoopback: local, remoteAddress: local ? "127.0.0.1" : "192.168.1.20")
+                                        fromLoopback: local, remoteAddress: local ? "127.0.0.1" : "192.168.1.20", repeatedHeaders: Set(repeated))
         var got: Reply?
         let answered = expectation(description: "\(method) \(path)")
         router.handle(request) { reply in
@@ -933,7 +957,7 @@ final class ContractTests: XCTestCase {
         }
         try prepare(deck, router, ask.given)
         return try send(router, deck, method: route.method, path: route.path, caller: ask.caller, query: ask.query,
-                        headers: ask.headers, body: ask.body)
+                        headers: ask.headers, repeated: ask.repeated, body: ask.body)
     }
 
     // MARK: The files
