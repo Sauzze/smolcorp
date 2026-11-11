@@ -39,6 +39,9 @@ func runWithTempSupport(m *testing.M) int {
 	setupKeyFile = filepath.Join(supportDir, "setup-key")
 	windowKeyFile = filepath.Join(supportDir, "window-key")
 
+	// No test inherits a test copy's folder from whatever ran it (a hire's start script sets this): a test
+	// that wants one sets its own.
+	os.Unsetenv(testSupportVariable)
 	// Anything that asks the system for the home or config folder lands here too.
 	os.Setenv("HOME", homeDir)
 	os.Setenv("USERPROFILE", homeDir)

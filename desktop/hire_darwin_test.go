@@ -3,9 +3,11 @@
 package desktop
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -270,15 +272,23 @@ func TestUnderTheMacAppAManagedHireThatCantBeFencedIsRefused(t *testing.T) {
 		d.mu.Unlock()
 		return d.hireAsWith(desk, role, 0, extra != nil, extra)
 	}
+	// What a check opened is cleared after it, so one failure doesn't make every later check fail too (RM4d's N5).
 	nothing := func(what string) {
 		t.Helper()
 		if len(*ran)+len(h.windows)+len(h.tmux)+len(r.tmux.asked) != 0 || len(registered(t)) != 0 {
 			t.Errorf("%s: something was opened or made: %q %q %q", what, *ran, h.windows, r.tmux.asked)
 		}
+		*ran, h.windows, h.tmux, r.tmux.asked = nil, nil, nil, nil
+	}
+	// The deck's config is changed under its lock, as the deck's own rounds and saves read it (RSY3's nit 4).
+	set := func(change func(c *Config)) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		change(d.config)
 	}
 	// The manager off, at a desk pinned to a folder: not managed, so the old way, as before.
 	pin := r.repo
-	d.config.Pins[1] = &pin
+	set(func(c *Config) { c.Pins[1] = &pin })
 	if status, message := hire("1", "janitor", nil); status != http.StatusNoContent || len(*ran) != 1 {
 		t.Fatalf("an unmanaged hire at a pinned desk: %d %s, windows %q", status, message, *ran)
 	}
@@ -298,48 +308,84 @@ func TestUnderTheMacAppAManagedHireThatCantBeFencedIsRefused(t *testing.T) {
 		{"a worktree asked for", "1", "janitor", &setupHire{Role: "janitor", Folder: repo, Worktree: true}, false, macSetupHirePinnedUnfenced},
 		{"the GM", "1", gmRole, nil, false, macHirePinnedUnfenced},
 	} {
-		d.config.ManagerEnabled = c.manager
+		set(func(c2 *Config) { c2.ManagerEnabled = c.manager })
 		if status, message := hire(c.desk, c.role, c.extra); status != http.StatusConflict || message != c.want {
 			t.Errorf("%s, pinned: %d %s", c.name, status, message)
 		}
 		nothing(c.name + ", pinned")
 	}
-	d.config.Pins[1] = nil
-	d.config.ManagerEnabled = true
+	set(func(c *Config) { c.Pins[1], c.ManagerEnabled, c.HireAgent = nil, true, "claude" })
 	// Anyone (no role), Claude, the manager on: the Mac fences it, so here it's refused (B1-a, RM4b).
-	d.config.HireAgent = "claude"
 	if status, message := hire("", "", nil); status != http.StatusConflict || message != macHireNoRoleUnfenced {
 		t.Errorf("Anyone, the manager on: %d %s", status, message)
 	}
 	nothing("Anyone, the manager on")
 	terminals, tmux := hireWays()
-	if note := d.unfencedNote("", d.config.HireAgent, terminals, tmux); note != macHireNoRoleUnfenced {
-		t.Errorf("the office's line for Anyone: %q", note)
+	note := func() string {
+		d.mu.Lock()
+		agent := d.config.HireAgent
+		d.mu.Unlock()
+		return d.unfencedNote("", agent, terminals, tmux)
+	}
+	if got := note(); got != macHireNoRoleUnfenced {
+		t.Errorf("the office's line for Anyone: %q", got)
 	}
 	// A hire agent the Mac reads as Claude Code but not spelled claude, from a config.json edited
-	// by hand: it loads as Claude, as on the Mac, so it's refused the same (B1-b, RM4c).
+	// by hand: the whole config is loaded again, and the hire agent loads as Claude, as on the Mac,
+	// so a hire with no role is refused the same at a free desk, upstairs and at a pinned desk
+	// (B1-b, RM4c; RM4d's N3).
+	d.mu.Lock()
+	d.config.save()
+	d.mu.Unlock()
+	var whole map[string]any
+	if data, err := os.ReadFile(configFile); err != nil || json.Unmarshal(data, &whole) != nil {
+		t.Fatalf("the deck's config.json: %v", err)
+	}
+	ways := []struct {
+		name string
+		hire func() (int, string)
+	}{
+		{"a free desk", func() (int, string) { return hire("", "", nil) }},
+		{"upstairs", func() (int, string) {
+			d.mu.Lock()
+			d.lastHire = time.Time{}
+			d.mu.Unlock()
+			return d.Perform("hire", "", url.Values{"floor": {"1"}, "desk": {"0"}})
+		}},
+		{"a pinned desk", func() (int, string) {
+			set(func(c *Config) { c.Pins[1] = &pin })
+			defer set(func(c *Config) { c.Pins[1] = nil })
+			return hire("1", "", nil)
+		}},
+	}
 	for _, saved := range []string{"Claude", "/opt/x/bin/claude", ""} {
-		writeFile(t, configFile, `{"hireAgent": "`+saved+`"}`)
-		d.config.HireAgent = loadConfig().HireAgent
-		if status, message := hire("", "", nil); status != http.StatusConflict || message != macHireNoRoleUnfenced {
-			t.Errorf("Anyone on %q, the manager on: %d %s", saved, status, message)
+		whole["hireAgent"] = saved
+		data, _ := json.Marshal(whole)
+		writeFile(t, configFile, string(data))
+		set(func(c *Config) { *c = *loadConfig() })
+		for _, way := range ways {
+			if status, message := way.hire(); status != http.StatusConflict || message != macHireNoRoleUnfenced {
+				t.Errorf("Anyone on %q at %s, the manager on: %d %s", saved, way.name, status, message)
+			}
+			nothing(fmt.Sprintf("Anyone on %q at %s, the manager on", saved, way.name))
 		}
-		nothing(fmt.Sprintf("Anyone on %q, the manager on", saved))
-		if note := d.unfencedNote("", d.config.HireAgent, terminals, tmux); note != macHireNoRoleUnfenced {
-			t.Errorf("the office's line for Anyone on %q: %q", saved, note)
+		if got := note(); got != macHireNoRoleUnfenced {
+			t.Errorf("the office's line for Anyone on %q: %q", saved, got)
 		}
 	}
 	// A role on an agent Smolcorp doesn't know, at an unpinned desk: its own words, not the pinned desk's (N-c).
-	d.config.Roles = slices.Clone(d.config.Roles)
-	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == "janitor" })
-	d.config.Roles[i].Agent = "robot"
+	var i int
+	set(func(c *Config) {
+		c.Roles = slices.Clone(c.Roles)
+		i = slices.IndexFunc(c.Roles, func(r Role) bool { return r.ID == "janitor" })
+		c.Roles[i].Agent = "robot"
+	})
 	if status, message := hire("", "janitor", nil); status != http.StatusConflict || message != macHireUnknownAgent {
 		t.Errorf("a role on an unknown agent: %d %s", status, message)
 	}
 	nothing("a role on an unknown agent")
-	d.config.Roles[i].Agent = "claude"
+	set(func(c *Config) { c.Roles[i].Agent, c.ManagerEnabled = "claude", true })
 	tmuxPath = func() string { return "" }
-	d.config.ManagerEnabled = true
 	for _, c := range []struct {
 		name  string
 		extra *setupHire

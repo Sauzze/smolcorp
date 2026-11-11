@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -179,6 +180,15 @@ func (h *hireTmux) viewers() int {
 		return -1
 	}
 	return len(strings.Fields(out))
+}
+
+// clientTTYs are the ttys of the terminal windows attached to the session; false when tmux couldn't say.
+func (h *hireTmux) clientTTYs() ([]string, bool) {
+	out, status, ran := h.run(h.command("list-clients", "-t", "="+hireSession, "-F", "#{client_tty}"))
+	if !ran || status != 0 {
+		return nil, false
+	}
+	return slices.DeleteFunc(strings.Fields(out), func(tty string) bool { return !isTTYPath(tty) }), true
 }
 
 // detachViewers detaches the windows attached to the session, on this socket

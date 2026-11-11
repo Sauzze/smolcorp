@@ -1094,6 +1094,51 @@ func TestTheHookReportsToThePortInItsCommand(t *testing.T) {
 	}
 }
 
+// A test copy's hire reports with the copy's own key, from the folder its start script names: the app's
+// key file is never read, and isn't even there to read (FXM1's N11, end to end). The test itself reads
+// only its own temporary folders.
+func TestAHookInATestCopySendsTheCopysKeyNeverTheApps(t *testing.T) {
+	isolate(t)
+	t.Setenv(summaryRunVariable, "")
+	copyFolder := t.TempDir()
+	writeFile(t, filepath.Join(copyFolder, "hook-key"), "copy-key\n")
+	t.Setenv(testSupportVariable, copyFolder)
+	// The app's own key, in this test's support folder: never what's sent.
+	writeFile(t, hookKeyFile, "app-key\n")
+	got := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- r.Header.Get(hookKeyHeader)
+	}))
+	defer server.Close()
+	send := func() string {
+		stdin := os.Stdin
+		defer func() { os.Stdin = stdin }()
+		read, write, _ := os.Pipe()
+		write.WriteString(`{"session_id":"s","hook_event_name":"SessionStart"}`)
+		write.Close()
+		os.Stdin = read
+		if RunHook([]string{"--port", fmt.Sprint(mustPort(t, server.URL)), "claude"}) != 0 {
+			t.Fatal("the hook failed")
+		}
+		select {
+		case key := <-got:
+			return key
+		default:
+			return ""
+		}
+	}
+	if key := send(); key != "copy-key" {
+		t.Errorf("a test copy's hook sent %q, want the copy's key", key)
+	}
+	// With no key in the copy's folder, nothing is sent: the hook never falls back to the app's key.
+	if err := os.Remove(filepath.Join(copyFolder, "hook-key")); err != nil {
+		t.Fatal(err)
+	}
+	if key := send(); key != "" {
+		t.Errorf("with no key in the copy's folder, the hook sent %q", key)
+	}
+}
+
 func mustPort(t *testing.T, url string) int {
 	t.Helper()
 	n, err := strconv.Atoi(url[strings.LastIndex(url, ":")+1:])

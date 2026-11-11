@@ -748,9 +748,12 @@ func TestATestCopyRefusesAClaudeHireOnEveryRouteBeforeAnythingIsMade(t *testing.
 	if len(h.windows)+len(h.tmux) != 0 || len(d.hires) != 0 || !d.lastHire.IsZero() {
 		t.Error("something was opened, or the cooldown was spent, for a refused hire")
 	}
-	// Another agent on a test copy opens as it did.
+	// Another agent would report to the real office through its own hooks: refused too, before anything is
+	// made, as the Mac's test copy refuses it (Deck.testCopyRefusal).
 	d.config.HireAgent = "codex"
-	if status, message := d.Perform("hire", "", url.Values{}); status != http.StatusNoContent || len(h.windows) != 1 {
+	d.lastHire = time.Time{}
+	if status, message := d.Perform("hire", "", url.Values{}); status != http.StatusConflict || message != testCopyOnlyClaude ||
+		len(h.windows) != 0 || !d.lastHire.IsZero() {
 		t.Errorf("a test copy's codex hire: %d %q, %d windows", status, message, len(h.windows))
 	}
 }
@@ -802,5 +805,54 @@ func TestTheOfficeSaysWhichHiresGetNoFence(t *testing.T) {
 	d.config.HireAgent = "gemini"
 	if _, _, anyone := state(); anyone != "Gemini CLI hires don't get Smolcorp's fence: they run with their own settings." {
 		t.Errorf("a Gemini CLI hire with no role: %v", anyone)
+	}
+}
+
+// The office's ⧉ window (T796) on every computer, as the Mac answers it: only to the office's own window,
+// never a phone; whether hires run in the background (which needs tmux); a session that's no hire's is a
+// 404, and a hire with no tmux of its own, or off the team, a 409 before any window opens.
+func TestTheOfficesHireWindowIsTheOfficesOwnWindowsOnly(t *testing.T) {
+	d, h, _ := hiringDeck(t, "/usr/bin/tmux")
+	phone := pair(t, d)
+	for _, method := range []string{"GET", "POST"} {
+		if got := serve(t, d, call{method: method, target: "/hire/window?session=s1&t=" + phone, host: deckOnWiFi, from: aPhone}); got.Code != http.StatusForbidden {
+			t.Errorf("%s from a phone: %d, want 403", method, got.Code)
+		}
+	}
+	background := func() any {
+		t.Helper()
+		got := serve(t, d, call{method: "GET", target: "/hire/window?t=" + d.access.WindowKey, host: "localhost:7710", from: thisComputer})
+		var answer map[string]any
+		if got.Code != http.StatusOK || json.Unmarshal(got.Body.Bytes(), &answer) != nil {
+			t.Fatalf("GET from the window: %d %s", got.Code, got.Body)
+		}
+		return answer["background"]
+	}
+	if got := background(); got != false {
+		t.Errorf("hires in front: background %v", got)
+	}
+	d.mu.Lock()
+	d.config.HiresInBackground = true
+	d.mu.Unlock()
+	if got := background(); got != true {
+		t.Errorf("hires in the background, with tmux: background %v", got)
+	}
+	got := serve(t, d, call{method: "POST", target: "/hire/window?session=nobody&t=" + d.access.WindowKey, host: "localhost:7710", from: thisComputer})
+	if got.Code != http.StatusNotFound || got.Body.String() != "This agent wasn't hired by Smolcorp, so it has no window to open." {
+		t.Errorf("a session that's no hire's: %d %q", got.Code, got.Body)
+	}
+	for _, c := range []struct {
+		hire Hire
+		want string
+	}{
+		{Hire{ID: "h1", State: "working"}, "This hire runs in a window of its own, not in tmux."},
+		{Hire{ID: "h2", State: "fired", TmuxSocket: "/x/smolcorp-h2"}, "That hire isn't on the team."},
+	} {
+		if status, problem := d.openHireWindow(c.hire); status != http.StatusConflict || problem != c.want {
+			t.Errorf("%s: %d %q", c.hire.ID, status, problem)
+		}
+	}
+	if len(h.windows) != 0 {
+		t.Errorf("a window opened: %q", h.windows)
 	}
 }

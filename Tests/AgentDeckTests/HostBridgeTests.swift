@@ -32,6 +32,10 @@ final class HostBridgeTests: XCTestCase {
     private var login = false
     /// Where the stand-ins' tab actions run, as the terminals' queue.
     private let terminals = DispatchQueue(label: "test.terminals")
+    /// Where a window opens: a queue of its own, so a test sees `open` go there and not to a tab's queue (RSY3's nit 1),
+    /// and the terminal each window's queue was asked for.
+    private let windows = DispatchQueue(label: "test.windows")
+    private var windowQueues: [String] = []
 
     private var actions: HostBridge.Actions {
         var actions = HostBridge.Actions(
@@ -55,7 +59,7 @@ final class HostBridgeTests: XCTestCase {
             ],
             loginItem: (get: { [unowned self] in login }, set: { [unowned self] in login = $0 }),
             queue: { [terminals] _ in terminals },
-            windowQueue: { [terminals] _ in terminals })
+            windowQueue: { [unowned self] terminal in windowQueues.append(terminal); return windows })
         // No real terminal is looked at or told anything: a test gives its own stand-in.
         actions.driver = { _ in nil }
         actions.place = { _, _ in nil }
@@ -246,21 +250,71 @@ final class HostBridgeTests: XCTestCase {
         let line = try JSONSerialization.data(withJSONObject: ["token": token, "action": "open", "terminal": "iterm",
                                                                "folder": folder.path, "script": script.path])
         let release = DispatchSemaphore(value: 0)
-        terminals.async { release.wait() }
+        windows.async { release.wait() }
         let late = HostBridge.answer(line, token: token, actions: actions, until: .now() + 0.2)
         XCTAssertEqual(late["error"] as? String, "The terminal didn't answer in time.")
         release.signal()
-        terminals.sync {}
+        windows.sync {}
         XCTAssertTrue(asked.isEmpty, "not opened once the queue was free")
         var onQueue = false
         var actions = self.actions
-        actions.open = { [terminals] _, _, _ in
-            dispatchPrecondition(condition: .onQueue(terminals))
+        actions.open = { [windows] _, _, _ in
+            dispatchPrecondition(condition: .onQueue(windows))
             onQueue = true
             return Openers.Opened(tab: "iterm:AB12", window: "iterm:AB12")
         }
         XCTAssertEqual(HostBridge.answer(line, token: token, actions: actions, until: .now() + 5)["tab"] as? String, "iterm:AB12")
-        XCTAssertTrue(onQueue, "opened on the terminals' queue")
+        XCTAssertTrue(onQueue, "opened on the window's own queue, not a tab's")
+        XCTAssertEqual(windowQueues, ["iterm", "iterm"], "the queue of the terminal the window opens in")
+    }
+
+    /// Hires switched to the background under the core (desktop/hirewindows_close.go): only a window this app opened
+    /// for the core, by the record `open` answered, is looked at or closed, on its terminal's queue, by the closer
+    /// (here a stand-in: no real terminal is asked anything); what the closer says is answered, and a window closed
+    /// or gone is forgotten.
+    func testOnlyAWindowOpenedForTheCoreIsLookedAtOrClosed() throws {
+        final class StandIn: HireWindows.Closer {
+            var asked: [String] = []
+            var shown = HireWindows.Shown.open("/dev/ttys007")
+            var closed = HireWindows.Closed.left("something still runs in it")
+            func look(_ window: String) -> HireWindows.Shown { asked.append("look \(window)"); return shown }
+            func close(_ window: String, tty: String) -> HireWindows.Closed { asked.append("close \(window) \(tty)"); return closed }
+        }
+        let closer = StandIn()
+        var actions = self.actions
+        actions.closer = closer
+        func send(_ request: [String: Any]) -> [String: Any] {
+            var request = request
+            request["token"] = token
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: actions)
+        }
+        let record = "iterm:AB12" // what the stand-in opener answers
+        for window in [record, "tty:/dev/ttys004#w12", "nonsense"] {
+            XCTAssertFalse(isOK(send(["action": "window-look", "window": window])), "\(window), before it was opened for the core")
+        }
+        XCTAssertTrue(closer.asked.isEmpty, "nothing looked at")
+        let script = hires.appendingPathComponent("hire-1.sh")
+        try Data("#!/bin/sh\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+        XCTAssertEqual(send(["action": "open", "terminal": "iterm", "folder": folder.path, "script": script.path])["window"] as? String, record)
+        let look = send(["action": "window-look", "window": record])
+        XCTAssertEqual(look["shown"] as? String, "open")
+        XCTAssertEqual(look["tty"] as? String, "/dev/ttys007")
+        XCTAssertEqual(send(["action": "window-close", "window": record, "tty": "not a tty"])["error"] as? String, "Not a tty.")
+        let left = send(["action": "window-close", "window": record, "tty": "/dev/ttys007"])
+        XCTAssertEqual(left["closed"] as? Bool, false)
+        XCTAssertEqual(left["left"] as? String, "something still runs in it")
+        closer.closed = .closed
+        XCTAssertEqual(send(["action": "window-close", "window": record, "tty": "/dev/ttys007"])["closed"] as? Bool, true)
+        XCTAssertEqual(send(["action": "window-look", "window": record])["error"] as? String, "Not a window Smolcorp opened for the engine.",
+                       "a closed window is forgotten")
+        XCTAssertEqual(closer.asked, ["look \(record)", "close \(record) /dev/ttys007", "close \(record) /dev/ttys007"])
+        XCTAssertEqual(windowQueues, ["iterm", "iterm", "iterm", "iterm"], "each on the window's terminal's queue")
+        // A window gone is forgotten too.
+        XCTAssertTrue(isOK(send(["action": "open", "terminal": "iterm", "folder": folder.path, "script": script.path])))
+        closer.shown = .gone
+        XCTAssertEqual(send(["action": "window-look", "window": record])["shown"] as? String, "gone")
+        XCTAssertFalse(isOK(send(["action": "window-look", "window": record])), "a gone window is forgotten")
     }
 
     func testATerminalOpensOnlyOnAHireScript() throws {

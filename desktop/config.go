@@ -65,6 +65,9 @@ type Config struct {
 	// The folders hires last started in, newest first, as the Mac app keeps
 	// them: setup's hire sheet offers those still there.
 	RecentHireFolders []string `json:"recentHireFolders,omitempty"`
+	// HireWorktrees is the folder hires' worktrees are made in, the Mac's hireWorktrees (set by hand in
+	// config.json): each repo's under a folder of its own name there. "" for beside the repo.
+	HireWorktrees string `json:"hireWorktrees,omitempty"`
 	// The terminal hires open in (see hireOpeners), the first installed when
 	// it's empty or not here, and whether the agent runs in a tmux session of
 	// its own there. The Mac app's choices aren't this system's, and are
@@ -215,6 +218,10 @@ func loadConfig() *Config {
 				config.BotFloor, config.botFloorKept = floor, true
 			}
 		}
+	}
+	// A full path only, as the Mac's Config reads it; anything else is beside the repo.
+	if !filepath.IsAbs(config.HireWorktrees) {
+		config.HireWorktrees = ""
 	}
 	// Full paths only, and at most as many as the Mac app keeps.
 	config.RecentHireFolders = slices.DeleteFunc(config.RecentHireFolders, func(path string) bool { return !filepath.IsAbs(path) })

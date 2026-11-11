@@ -148,6 +148,16 @@ func canHireHere() bool {
 // in the launcher's window behind the beta switch (hirelauncher.go). A hire at
 // a pinned desk, or on a floor with a folder of its own, takes the old way too;
 // the snapshot can't tell which desk will be held, so those get no line.
+// worktreesFolder is where hires' worktrees are made: config.json's hireWorktrees,
+// as the Mac's Deck.hire places them (HireDesk.place), else given ("" for beside
+// the repo). Their fire and clean-up look there too. With the lock held.
+func (d *Deck) worktreesFolder(given string) string {
+	if d.config.HireWorktrees != "" {
+		return d.config.HireWorktrees
+	}
+	return given
+}
+
 func (d *Deck) unfencedNote(roleID, program string, terminals []hireOpener, tmux bool) string {
 	agent := Agent(program)
 	if agent != Claude {

@@ -218,8 +218,17 @@ func TestATestCopyNeverHiresClaudeOnTheDefaultAccount(t *testing.T) {
 	if runtime.GOOS != "darwin" && testCopyRefusal(7799, "claude", "/acct") == nil {
 		t.Error("a test copy's hire on a named account must wait for the reporting hooks")
 	}
-	if testCopyRefusal(0, "claude", "") != nil || testCopyRefusal(7799, "codex", "") != nil {
-		t.Error("the office's own hires, and a test copy's other agents, are not refused")
+	if testCopyRefusal(0, "claude", "") != nil || testCopyRefusal(0, "codex", "") != nil {
+		t.Error("the office's own hires are not refused")
+	}
+	// Another agent would report to the real office through its own hooks: refused, as the Mac's test copy does.
+	for _, program := range []string{"codex", "gemini", "opencode"} {
+		for _, configDir := range []string{"", "/acct"} {
+			err := testCopyRefusal(7799, program, configDir)
+			if r, ok := err.(*hireRefusal); !ok || r.Status != 409 || r.Message != testCopyOnlyClaude {
+				t.Errorf("a test copy hiring %s (%q): %v, want the Mac's refusal", program, configDir, err)
+			}
+		}
 	}
 }
 

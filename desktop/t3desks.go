@@ -194,7 +194,7 @@ func t3Doing(state SessionState) string {
 
 // t3Seated is the hires in T3 Code at their desks, as the registry says now. With the lock held.
 func (d *Deck) t3Seated() []t3Seated {
-	return d.t3Desks.seated(d.engine.worktrees(), d.t3.lastSeen)
+	return d.t3Desks.seated(d.worktreesFolder(d.engine.worktrees()), d.t3.lastSeen)
 }
 
 // t3HireAtDesk is the hire at T3 desk id, as the registry says now: false for any other desk, or one let go
@@ -246,7 +246,7 @@ func (d *Deck) isT3HiresOwn(event map[string]any, startedIn string) bool {
 	}
 	var worktrees []string
 	for _, h := range d.t3Desks.registryHires() {
-		if h.Engine == t3Engine && isOpen(h) && t3InHiresFolder(h, d.engine.worktrees()) {
+		if h.Engine == t3Engine && isOpen(h) && t3InHiresFolder(h, d.worktreesFolder(d.engine.worktrees())) {
 			worktrees = append(worktrees, h.Worktree, plainPath(h.Worktree))
 		}
 	}

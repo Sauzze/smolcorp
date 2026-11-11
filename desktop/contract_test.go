@@ -74,8 +74,6 @@ var knownGaps = []knownGap{
 	{"GET /approvals", "route", "404", "the deck's list of who waits for you, over Tailscale only", "M3: the deck's waiting list"},
 	{"GET /conversation", "route", "404", "the office window's ▤ conversation, as it was written", "M3: the office window's ▤ conversation and ⓘ info"},
 	{"GET /session/info", "route", "404", "the office window's ⓘ info: a session's account, model, time and tokens", "M3: the office window's ▤ conversation and ⓘ info"},
-	{"GET /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1)"},
-	{"POST /hire/window", "route", "404", "the office's Open a window on a hire's desk, a terminal attached to its tmux session: Go serves only Setup's /setup/hire/window", "M4b: Linux/Windows by openHireViewer, as Setup's /setup/hire/window; the Mac via the bridge (M1)"},
 }
 
 // contractAsk is a fixture's request: who asks, its query, headers and body, and what's set up first.

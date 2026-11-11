@@ -473,8 +473,10 @@ final class T3CodeTests: XCTestCase {
 
     func testTheOfficeOffersItOnlyInItsWindowOnThisComputerNeverOnAPhone() throws {
         let page = try web("deck.html")
-        // The key exists only once the computer has answered /t3code, which it does to its own window alone; a phone never asks.
-        XCTAssertTrue(page.contains("if (whole && !preview && !saver && !matchMedia('(pointer: coarse)').matches) {"))
+        // The key exists only once the computer has answered /t3code, which it does to its own window alone; a phone never asks,
+        // nor does a browser paired with its own key: only the window whose address marks it as the computer's own (M4b).
+        XCTAssertTrue(page.contains("const ownWindow = bare || new URLSearchParams(location.search).has('own');"))
+        XCTAssertTrue(page.contains("if (ownWindow && whole && !preview && !saver && !matchMedia('(pointer: coarse)').matches) {"))
         XCTAssertTrue(page.contains("if (!res || !res.ok) return;\n      t3Here = true;"))
         XCTAssertTrue(page.contains("...(t3Here ? [{ id: T3_BUTTON, label: 'T3 Code' }] : [])"))
         XCTAssertTrue(page.contains("if (t3Here && action === `button:${T3_BUTTON}`) return openT3(selected);"))
