@@ -223,8 +223,9 @@ func absoluteRulePath(path string) string {
 // hireDenyRules is every deny rule for hire hireID. others are the names of the other
 // hires' folders under <support>/hires, entries what sits in the support folder now (a
 // folder named here is denied whole, except hires, which is denied hire by hire so this
-// hire's own STATUS.md stays writable; hireKnownFolders are listed too when absent).
-func hireDenyRules(hireID string, groups []guardGroup, support string, profiles []claudeProfile, others, entries []string) []string {
+// hire's own STATUS.md stays writable; hireKnownFolders are listed too when absent). system
+// is Go's name for the system the hire runs on.
+func hireDenyRules(hireID string, groups []guardGroup, support string, profiles []claudeProfile, others, entries []string, system string) []string {
 	rules := hireCommandRules(groups)
 	// Claude Code's Edit rules cover every tool that changes a file (Write too); a Write(path) rule never matches and warns at every start.
 	both := func(pattern string) { rules = append(rules, "Edit("+pattern+")") }
@@ -263,7 +264,7 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 		return false
 	}
 	for _, entry := range entries {
-		if entry != "hires" && !strings.HasPrefix(entry, ".") && !strings.Contains(entry, "/") {
+		if entry != "hires" && entry != keptGMTokenName && entry != keptGMTokenTemp && !strings.HasPrefix(entry, ".") && !strings.Contains(entry, "/") {
 			both(root + "/" + entry + "/**")
 		}
 	}
@@ -287,6 +288,14 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 	// Nothing secret or app-state can be read either.
 	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json"} {
 		rules = append(rules, "Read("+root+"/"+name+")")
+	}
+	// The GM's token, kept in a file on a computer whose secret store can't keep it (gmtokenstore.go), and the file
+	// it is written through: on Linux and Windows always, whether or not it is there yet, since a GM hired after this
+	// hire makes it. A Mac never keeps it there, so its fence is unchanged.
+	if system != "darwin" {
+		for _, name := range []string{keptGMTokenName, keptGMTokenTemp} {
+			rules = append(rules, "Edit("+root+"/"+name+")", "Read("+root+"/"+name+")")
+		}
 	}
 	return rules
 }
@@ -401,7 +410,7 @@ func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 			others = append(others, name)
 		}
 	}
-	deny := hireDenyRules(o.HireID, groups, o.Support, o.Profiles, others, names(o.Support))
+	deny := hireDenyRules(o.HireID, groups, o.Support, o.Profiles, others, names(o.Support), runtime.GOOS)
 	var reporting map[string]any
 	if o.ReportPort != 0 {
 		reporting = reportingHooks(o.CLI, o.ReportPort)

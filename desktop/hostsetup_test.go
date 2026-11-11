@@ -29,6 +29,8 @@ type macStandIn struct {
 	login   bool
 	picked  string
 	secrets map[string]string
+	// lookFailed: items the Keychain has but can't read now (locked, say), said as failed (the GM's token, M7TOK).
+	lookFailed map[string]bool
 	// The Grok Bot app's roster (nil: it can't be read); the jukebox: Accessibility given, the volume.
 	roster   *[]grokRow
 	keyboard bool
@@ -101,6 +103,9 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 	case "choose-folder":
 		return bridgeAnswer{OK: true, Folder: m.picked}, nil
 	case "secret-read", "secret-write", "secret-delete":
+		if request.Action == "secret-read" && m.lookFailed[request.Item] {
+			return bridgeAnswer{OK: true, Failed: true}, nil
+		}
 		if m.secrets == nil {
 			m.secrets = map[string]string{}
 		}
@@ -296,6 +301,13 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the folder panel for the hires, none picked": func(h hostBridge) (any, error) { return hostChooseFolder(h, "", folderForHires) },
 		"the hires' folder panel closed":              func(h hostBridge) (any, error) { return nil, hostCloseFolderPanel(h) },
 		"the Summary key, from the Keychain":          func(h hostBridge) (any, error) { return summaryStore(h).get() },
+		"the GM's token, from the Keychain item the Swift engine kept it in": func(h hostBridge) (any, error) {
+			return gmStoreFor(h).read()
+		},
+		"a new GM's token, kept in the Keychain": func(h hostBridge) (any, error) {
+			return nil, gmStoreFor(h).write("fake-gm-token-other-00000000000000000000000")
+		},
+		"the GM's token, taken away":                  func(h hostBridge) (any, error) { return nil, gmStoreFor(h).write("") },
 		"the portable office's id, from the Keychain": func(h hostBridge) (any, error) { return viewerStoreFor(h).get(viewerIDAccount) },
 		// None: surely none, so a first key is made; the app's no: there but unreadable, never made again.
 		"the portable office's key, none yet": func(h hostBridge) (any, error) {
@@ -462,6 +474,7 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the portable office's write secret, there but unreadable": false,
 		"where you are, for the portable office: idle, locked, and the unlocks and wakes seen": macPresence{idle: 2500 * time.Millisecond,
 			unlocks: 3, wakes: 1},
+		"the GM's token, from the Keychain item the Swift engine kept it in": "fake-gm-token-from-1-24-0000000000000000000",
 		"an app allowed keys":                                                         []string{"com.example.notes", "com.example.mail"},
 		"an app taken off, any capitals":                                              []string{"com.example.mail"},
 		"a terminal never allowed keys":                                               []string{},

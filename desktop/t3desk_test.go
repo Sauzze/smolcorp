@@ -1245,7 +1245,7 @@ func TestT3TheFenceIsTheMacsByteForByte(t *testing.T) {
 		for _, p := range c.Profiles {
 			profiles = append(profiles, claudeProfile{Name: p["name"], Dir: p["dir"]})
 		}
-		settings := hireSettingsValue(hireDenyRules(c.HireID, groups, c.Support, profiles, c.Others, c.Entries), guardHookCommand(fixture.CLI, rules, guardHire), c.Auto, nil)
+		settings := hireSettingsValue(hireDenyRules(c.HireID, groups, c.Support, profiles, c.Others, c.Entries, "darwin"), guardHookCommand(fixture.CLI, rules, guardHire), c.Auto, nil)
 		fence := filepath.Join(t.TempDir(), filepath.FromSlash(t3FenceName))
 		if !t3WriteFence(settings, fence) {
 			t.Fatalf("%s: not written", c.Name)

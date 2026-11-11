@@ -129,6 +129,8 @@ func stopPortableOnSignalNow(deck *Deck) {
 		<-stopped
 		deck.portable.Stop(viewerQuitWait)
 		deck.waitForHires(hireStopWait)
+		// The GM's token's last change, kept for the next run (gmtokenstore.go).
+		deck.gmKept.flush(gmTokenFlushWait)
 		forgetPid()
 		os.Exit(1)
 	}()
@@ -350,6 +352,7 @@ func (t *tray) listen(failed <-chan error) {
 			// The portable office stops on quit, and the viewer is asked to forget it, for up to 5 s.
 			t.deck.portable.Stop(viewerQuitWait)
 			t.deck.waitForHires(hireStopWait)
+			t.deck.gmKept.flush(gmTokenFlushWait)
 			systray.Quit()
 			return
 		case err := <-failed:

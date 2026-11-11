@@ -28,7 +28,8 @@ final class HostBridgeTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    private var kept: [String: String] = ["summary-key": "sk-ant-fake", "viewer-id": "AbCdEfGhIjKlMnOpQrStUv"]
+    private var kept: [String: String] = ["summary-key": "sk-ant-fake", "viewer-id": "AbCdEfGhIjKlMnOpQrStUv",
+                                          "gm-token": "fake-gm-token-from-1-24-0000000000000000000"]
     private var login = false
     /// Where the stand-ins' tab actions run, as the terminals' queue.
     private let terminals = DispatchQueue(label: "test.terminals")
@@ -62,6 +63,10 @@ final class HostBridgeTests: XCTestCase {
                                                delete: nil, absent: { [unowned self] in kept["viewer-id"] == nil }),
                 "viewer-key": HostBridge.Secret(read: { nil }, write: { _ in false }, delete: nil, absent: { true }),
                 "viewer-write-secret": HostBridge.Secret(read: { nil }, write: { _ in false }, delete: nil, absent: { false }),
+                // The GM's token (M7TOK), a stand-in for GMIdentity's store.
+                "gm-token": HostBridge.Secret(read: { [unowned self] in kept["gm-token"] },
+                                              write: { [unowned self] in kept["gm-token"] = $0; return true },
+                                              delete: { [unowned self] in kept["gm-token"] = nil }),
             ],
             loginItem: (get: { [unowned self] in login }, set: { [unowned self] in login = $0 }),
             queue: { [terminals] _ in terminals },
@@ -645,6 +650,29 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(answer["unlocks"] as? Int, 1)
         XCTAssertEqual(answer["wakes"] as? Int, 2)
         XCTAssertNotNil(try? JSONSerialization.data(withJSONObject: answer))
+    }
+
+    /// The GM's token the Keychain has but couldn't read is said as such, never as "none", so the core neither makes
+    /// a new one nor writes over it (RTOK N2); one it read, or none, is said as before.
+    func testTheGMsTokenTheKeychainCouldntReadIsSaidSo() {
+        var actions = self.actions
+        var held: GMTokenRead = .failed
+        actions.secrets["gm-token"] = HostBridge.Secret(read: { nil }, write: { _ in true }, delete: {}, look: { held })
+        func read() -> [String: Any] {
+            let line = try! JSONSerialization.data(withJSONObject: ["token": token, "action": "secret-read", "item": "gm-token"])
+            return HostBridge.answer(line, token: token, actions: actions)
+        }
+        let failed = read()
+        XCTAssertTrue(isOK(failed))
+        XCTAssertEqual(failed["failed"] as? Bool, true)
+        XCTAssertEqual(failed["found"] as? Bool, false)
+        XCTAssertNil(failed["value"])
+        held = .none
+        XCTAssertEqual(read()["found"] as? Bool, false)
+        XCTAssertNil(read()["failed"])
+        held = .token("fake-gm-token-from-1-24-0000000000000000000")
+        XCTAssertEqual(read()["value"] as? String, "fake-gm-token-from-1-24-0000000000000000000")
+        XCTAssertNil(read()["failed"])
     }
 
     func testTheLoginItem() {

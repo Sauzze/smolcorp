@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fromPage is a request from the setup page, as the page sends it.
@@ -177,6 +178,46 @@ func TestANewGMTokenStopsTheOldOneAndTheFileFollows(t *testing.T) {
 	d.mu.Unlock()
 	if left == "" || left == hired || !works {
 		t.Errorf("after the GM went: a new token in the file %v, the same as the fired GM's %v, works %v", left != "", left == hired, works)
+	}
+}
+
+// With a GM started by hand allowed, a fire whose gm-token file write fails (here, its temp name is taken by a
+// folder) takes the file away, so the Keychain's replacement is read at the next start and the fired GM's token
+// stays dead (RTOK2 N1).
+func TestAFiredGMsTokenFileThatCantBeRewrittenIsTakenAway(t *testing.T) {
+	isolate(t)
+	mac := withMac(t)
+	d := startDeck(t)
+	d.summaryProviders.set(map[summaryProvider]providerState{})
+	managerOn(d)
+	if code, _, _ := fromPage(t, d, http.MethodPost, "/setup/gm/by-hand?enabled=1", nil); code != http.StatusOK {
+		t.Fatalf("by hand on: %d", code)
+	}
+	fired := d.newGMToken()
+	withHiredGM(t, "working")
+	d.gmKept.flush(time.Minute)
+	if tokenInFile(t) != fired {
+		t.Fatal("the hired GM's token isn't the file's")
+	}
+
+	if err := os.Mkdir(gmTokenPath()+".tmp", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	d.clearGMTokenIf(fired)
+	withHiredGM(t, "fired")
+	if !d.gmKept.flush(time.Minute) {
+		t.Fatal("the replacement isn't kept in the store")
+	}
+	replacement, _ := mac.keptItem()
+	if replacement == "" || replacement == fired {
+		t.Fatalf("the store's replacement: made %v", replacement != "")
+	}
+	if tokenInFile(t) == fired {
+		t.Error("the fired GM's token is still in the file")
+	}
+	again := startDeck(t)
+	if worksAsGM(again, fired) || !worksAsGM(again, replacement) {
+		t.Errorf("after a restart, the fired GM's token works %v, the replacement %v", worksAsGM(again, fired), worksAsGM(again, replacement))
 	}
 }
 
