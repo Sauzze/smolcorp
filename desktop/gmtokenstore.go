@@ -304,7 +304,8 @@ func (k *gmTokenKeeper) writeNow(token string) error {
 }
 
 // flush waits up to within until the store holds the last token asked, trying a failed write again at once, and
-// says whether it does. A quit calls it, so a change just made isn't lost.
+// says whether it does. It also says true when the keeper isn't trying to write anything: over an item that couldn't
+// be read at the start, a refused write isn't tried again on purpose. A quit calls it, so a change just made isn't lost.
 func (k *gmTokenKeeper) flush(within time.Duration) bool {
 	if k == nil {
 		return true

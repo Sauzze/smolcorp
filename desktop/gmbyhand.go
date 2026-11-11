@@ -125,7 +125,10 @@ func (d *Deck) gmTokenChanged() {
 	if d.gmToken == "" && d.byHandAllowed() {
 		d.gmToken = randomKey()
 	}
-	_ = d.syncGMTokenFile()
+	if d.syncGMTokenFile() != nil {
+		// A file that couldn't follow must not win at the next start with a token that is gone: without it, the store is read.
+		_ = os.Remove(gmTokenPath())
+	}
 	d.keepGMToken()
 }
 

@@ -351,6 +351,54 @@ func TestAGMFiredWhileTheKeychainRefusesNeverComesBackWithItsToken(t *testing.T)
 	}
 }
 
+// A GM fired and replaced while the Keychain refuses every change is never brought back as the old one after a
+// restart (RTOK2 B1): a new token is kept before it is given, so the hire that wanted it is refused, and the fired
+// GM's token, still the one kept, finds no open GM to be restored for.
+func TestAGMReplacedWhileTheKeychainRefusesIsRefusedAndTheOldTokenStaysDead(t *testing.T) {
+	isolate(t)
+	mac := withMac(t)
+	d := startDeck(t)
+	old := d.newGMToken()
+	withHiredGM(t, "working")
+	d.gmKept.flush(time.Minute)
+	if kept, _ := mac.keptItem(); old == "" || kept != old {
+		t.Fatalf("the first GM's token isn't the Keychain item's (made %v)", old != "")
+	}
+
+	mac.refuseWrites("The Keychain is locked.")
+	d.clearGMTokenIf(old)
+	withHiredGM(t, "fired")
+	fresh := d.newGMToken()
+	if fresh != "" {
+		// The hire went ahead on a token the Keychain didn't take.
+		withHiredGM(t, "working")
+	}
+	if fresh != "" || worksAsGM(d, old) {
+		t.Errorf("a new GM's token while the Keychain refuses: given %v, the fired GM's token works %v", fresh != "", worksAsGM(d, old))
+	}
+	for _, h := range readRegistry(registryPath(), false).hires {
+		if h.Role == gmRole && h.State != "fired" {
+			t.Errorf("a new GM is open (%s)", h.State)
+		}
+	}
+
+	d.gmKept.flush(10 * time.Millisecond)
+	again := startDeck(t)
+	if worksAsGM(again, old) {
+		t.Error("after a restart, the fired GM's token works")
+	}
+	if fresh != "" && worksAsGM(again, fresh) {
+		t.Error("after a restart, the new GM's token works though the Keychain refused it")
+	}
+
+	// With the Keychain back, a GM can be hired again, and its token is kept before it is given.
+	mac.refuseWrites("")
+	next := d.newGMToken()
+	if kept, _ := mac.keptItem(); next == "" || kept != next || !worksAsGM(d, next) {
+		t.Errorf("with the Keychain back: a token given %v, kept %v", next != "", kept == next)
+	}
+}
+
 // A write the store refused is tried again until one succeeds; until then the keeper doesn't take the store to hold
 // the token, and a quit's flush says it isn't kept. A change asked meanwhile is the one written.
 func TestAWriteTheStoreRefusedIsTriedAgainUntilItIsKept(t *testing.T) {

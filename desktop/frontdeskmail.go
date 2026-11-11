@@ -188,9 +188,15 @@ func setContacts(path string, body []byte) ([]Contact, *refusal) {
 // takes it away when the GM goes (clearGMToken). Until then nobody is the GM,
 // but for one started by hand with the setting on, which always has a token.
 
-// newGMToken makes a fresh token and makes it the only valid one.
+// newGMToken makes a fresh token and makes it the only valid one. It is kept for the next run before it is given,
+// as rotate does: written to the store at once, without d.mu, and "" if that fails, so the hire is refused and a
+// GM hired after one that was fired can't leave the fired GM's token as the one kept (RTOK2 B1). Never call it
+// with d.mu held.
 func (d *Deck) newGMToken() string {
 	token := randomKey()
+	if d.gmKept.writeNow(token) != nil {
+		return ""
+	}
 	d.mu.Lock()
 	d.gmToken = token
 	d.gmTokenChanged()
