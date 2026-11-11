@@ -167,15 +167,28 @@ func withMac(t *testing.T) *macStandIn {
 	return mac
 }
 
-// fixtureHost answers one case's answer and keeps the request.
+// fixtureHost answers one case's answer and keeps the request. A deck's own rounds (its look for the
+// Grok Bot app's bots, say) may ask it too, from their own goroutines: every request is kept, under a
+// lock, and sawAction says whether one was asked, whatever came after.
 type fixtureHost struct {
+	mu     sync.Mutex
 	asked  *bridgeRequest
+	all    []string
 	answer bridgeAnswer
 }
 
 func (f *fixtureHost) call(request bridgeRequest) (bridgeAnswer, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.asked = &request
+	f.all = append(f.all, request.Action)
 	return f.answer, nil
+}
+
+func (f *fixtureHost) sawAction(action string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Contains(f.all, action)
 }
 
 // Each of the fixture's requests is what the core sends, and its answer is read as the core needs it.
@@ -722,8 +735,9 @@ func TestGrokBotsAreFoundInTheGrokBotAppThroughTheApp(t *testing.T) {
 	if got := loadConfig().CloudBots[0].Source; got.BotID != "0a1b-2c3d" || got.Bot != "Smolcorp Mini Manager" {
 		t.Errorf("kept as %+v", got)
 	}
-	if found.asked == nil || found.asked.Action != "bots-resolve" {
-		t.Errorf("the app was asked %+v", found.asked)
+	// Not only the last request: the deck's own look for the bots (after a change in setup) asks it too.
+	if !found.sawAction("bots-resolve") {
+		t.Errorf("the app was never asked to resolve the bots; it was asked %q", found.all)
 	}
 	_ = mac
 }
