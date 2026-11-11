@@ -127,6 +127,8 @@ func (d *Deck) scheduleSave() {
 }
 
 func (d *Deck) saveSessions() {
+	d.saveMu.Lock()
+	defer d.saveMu.Unlock()
 	d.mu.Lock()
 	d.savePending = false
 	saved := savedDeck{SavedAt: nowMillis(), Sessions: d.sessions.Saved(), Keys: map[string]int{},
