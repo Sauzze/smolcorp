@@ -236,7 +236,8 @@ func TestSetupsHireRequestIsCheckedAsTheMacs(t *testing.T) {
 		{`{"role":"janitor","engine":"vim"}`, one, 400, `Where it works is "t3" (T3 Code), or left out for a terminal.`},
 		{`{"role":"janitor","folder":"~/Projects/app"}`, two, 400, "Say which Claude account to hire on: default, work."},
 		{`{"role":"janitor","account":"home","folder":"~/Projects/app"}`, two, 404, "There's no Claude account called home. Pick one of: default, work."},
-		{`{"role":"janitor","apiKey":true,"folder":"~/Projects/app"}`, two, 409, setupHireNotAPIKey},
+		{`{"role":"writer","apiKey":true,"folder":"~/Projects/app"}`, two, 400, apiKeyNotClaude},
+		{`{"role":"janitor","apiKey":true,"account":"home","folder":"~/Projects/app"}`, two, 404, "There's no Claude account called home. Pick one of: default, work."},
 		{`{"role":"janitor"}`, one, 400, "Say which folder to hire into."},
 		{`{"role":"janitor","folder":"Projects/app"}`, one, 400, "Give the folder's full path, such as ~/Projects/app."},
 		{`{"role":"janitor","folder":"~/Projects/none"}`, one, 400, "There's no folder at ~/Projects/none."},
@@ -271,6 +272,15 @@ func TestSetupsHireRequestIsCheckedAsTheMacs(t *testing.T) {
 	if hire, status, why := setupHireRequest([]byte(`{"role":"janitor","engine":"t3","folder":"~/Projects/app","account":" work ","apiKey":true}`), roles, two, home); status != 0 ||
 		!hire.T3 || hire.Account != "work" || !hire.APIKey || hire.configDir != "" {
 		t.Errorf("into T3 Code, an account: %d %q %+v", status, why, hire)
+	}
+	// On the API-key account (M4c): no account needed among several; one named is kept, with its folder.
+	if hire, status, why := setupHireRequest([]byte(`{"role":"janitor","folder":"~/Projects/app","apiKey":true}`), roles, two, home); status != 0 ||
+		!hire.APIKey || hire.T3 || hire.Account != "" || hire.configDir != "" {
+		t.Errorf("on the API-key account: %d %q %+v", status, why, hire)
+	}
+	if hire, status, why := setupHireRequest([]byte(`{"role":"janitor","folder":"~/Projects/app","apiKey":true,"account":"work"}`), roles, two, home); status != 0 ||
+		!hire.APIKey || hire.Account != "work" || hire.configDir != two[1].Dir {
+		t.Errorf("on the API-key account, an account named: %d %q %+v", status, why, hire)
 	}
 	// Another agent names no account; a floor that isn't one is the ground floor.
 	if hire, status, _ := setupHireRequest([]byte(`{"role":"writer","folder":"~/Projects/app","floor":9}`), roles, two, home); status != 0 || hire.Account != "" || hire.Floor != 0 {

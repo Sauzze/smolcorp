@@ -249,6 +249,7 @@ func serveShell(deck *Deck, lines <-chan []byte, out io.Writer, failed <-chan er
 			if !open {
 				// The app has gone: the engine goes with it, as on quit.
 				deck.portable.Stop(viewerQuitWait)
+				deck.waitForHires(hireStopWait)
 				return 0
 			}
 			if encoder.Encode(answerShell(deck, line)) != nil {

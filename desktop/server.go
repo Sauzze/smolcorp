@@ -1885,6 +1885,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 	gmHired := readRegistry(registryPath(), false).gmIsHired()
 	// Under the Mac app, what only it can say of this Mac (hostsetup.go).
 	facts := d.macFactsNow()
+	// The API-key account for a hire: the Mac app's Keychain, or this computer's secret store (hireapikey.go).
+	apiKey := d.apiKeyOffer()
 	// The account folders are looked in without the lock: one that doesn't answer must not stop the deck.
 	d.mu.Lock()
 	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
@@ -1957,7 +1959,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"manager": map[string]any{"enabled": d.config.ManagerEnabled, "gmByHand": false, "gmStartedByHand": false,
 			"gmTokenFile": "", "gmTokenFileShown": ""},
 		// Where hires open: the terminals here that can open them, and tmux if it's there.
-		"hiring": d.hireState(),
+		"hiring": d.hireState(apiKey),
 		// The roles, those that come with the app to go back to, and what a
 		// role can be: its agent, whether that agent has an effort and takes a
 		// first message, its badge, and how long each part can be.
