@@ -98,11 +98,8 @@ func TestTheGMHireCallersAndTheGMRole(t *testing.T) {
 	d, r, h, token := gmHireDeck(t)
 	writeRegistry(t, Hire{ID: "a1b2c3", Name: "Rev", Folder: "/w", Role: "reviewer", State: "working"})
 	key, err := newSendKey(registryPath(), "a1b2c3")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if code, _ := postGMHire(t, d, asHireCaller, key, `{"role":"janitor"}`); code != http.StatusForbidden {
-		t.Errorf("a hire's token: %d, want 403", code)
+	if code, _ := postGMHire(t, d, asHireCaller, key, `{"role":"janitor"}`); err != nil || code != http.StatusForbidden {
+		t.Errorf("a hire's token: %d (key error %v), want 403", code, err)
 	}
 	for _, as := range []string{asGMCaller, asPageCaller} {
 		d.mu.Lock()

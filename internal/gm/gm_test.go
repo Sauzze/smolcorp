@@ -516,12 +516,15 @@ func TestHireLeavesOutWhatIsNotGiven(t *testing.T) {
 	}
 }
 
-// PR1: the Go app serves POST /setup/gm/hire: `gm hire` against it sends the request and prints the answer; a 404 is
-// no longer the "isn't available" text.
+// PR1: the Go app serves POST /setup/gm/hire: `gm hire` prints its answer, and a 404 isn't the "isn't available" text.
 func TestHireAgainstTheGoAppSendsTheRequestAndPrintsTheAnswer(t *testing.T) {
 	status, answer, body := http.StatusOK, `{"ok":true,"desk":3,"session":null}`, []byte(nil)
 	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Smolcorp-App", "linux")
+		if r.URL.Path == "/setup/state" { // as the Go app's locked page
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		body, _ = io.ReadAll(r.Body)
 		w.WriteHeader(status)
 		w.Write([]byte(answer))
