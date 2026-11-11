@@ -17,8 +17,6 @@ approve a permission request from across the room, interrupt an agent, change
 how hard Claude Code thinks, press buttons of your own, or hold the mic and talk to
 it. Smolcorp runs in
 your Mac's menu bar, or in the tray on [Windows and Linux](windows-linux.md#windows-and-linux).
-Your phone connects to it over your Wi-Fi, so there's nothing to install from
-an app store.
 
 <p align="center">
   <img src="deck-portrait.png" alt="The deck on a phone held upright: the office, an agent picked, and its keys along the foot of the room" width="300">

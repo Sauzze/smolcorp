@@ -25,9 +25,9 @@ and talk to it. It opens in any browser, your phone's too, over your Wi-Fi or
 Works with Claude Code, Codex, Gemini CLI, OpenCode and Grok, in your own
 terminal. Free and open source (MIT).
 
-<!-- One line to flip: if the General Manager's hiring on Windows and Linux slips from 1.24.4, replace the next line with
-**For the Mac** (beta), **Windows and Linux** (alpha). On Windows and Linux the General Manager plans with you; hiring its team for you there is coming. -->
-**For the Mac** (beta), **Windows and Linux** (alpha). From 1.24.4, the General Manager hires its team on all three.
+<!-- One line to flip: when the General Manager's hiring on Windows and Linux is merged into 1.25.0, replace the next line with
+**For the Mac** (beta), **Windows and Linux** (alpha). From 1.25.0, the General Manager hires its team on all three. -->
+**For the Mac** (beta), **Windows and Linux** (alpha). On Windows and Linux the General Manager plans with you; hiring its team for you there is coming.
 
 > Smolcorp is an independent project. It is not made by or affiliated with Anthropic.
 
@@ -54,11 +54,12 @@ can do.
 - **A fence against mistakes, for the General Manager and the Claude Code
   hires it manages.** They start with deny rules and a guard that refuse
   `git push`, deploys, publishing and cloud commands, and keep out of `.env`
-  files and keys. **A Claude Code session you hire at a desk with the manager
-  off, and hires of Codex, Gemini CLI, OpenCode and Grok, don't get this
-  fence:** they run with their own settings. It's a fence, not a wall:
-  everyone runs as you. Who gets it on each platform is in
+  files and keys. **Hires of Codex, Gemini CLI, OpenCode and Grok don't get
+  this fence, and on the Mac nor does a Claude Code session you hire at a desk
+  with the manager off:** they run with their own settings. On Windows and
+  Linux fewer hires get it so far: see
   [The fence, and who gets it](docs/team.md#the-fence-and-who-gets-it).
+  It's a fence, not a wall: everyone runs as you.
 - **The General Manager's hires each work on a branch of their own**, so
   nothing lands on main without you.
 - **Nothing leaves your network unless you turn it on.** No account, no

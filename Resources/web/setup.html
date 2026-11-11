@@ -1947,12 +1947,14 @@
     if (onMac()) return 'The fence (Claude Code\'s deny rules and the guard, under Advanced) covers the General Manager and the Claude Code hires made while this is on, or into a worktree. A Claude Code hire made with this off, and ' + others;
     const covers = state.platform === 'windows'
       ? 'covers a role\'s Claude Code hire only with managed hires on, a beta that\'s off by default.'
-      : 'covers a role\'s Claude Code hire started inside tmux, the General Manager\'s included.';
+      : 'covers a role\'s Claude Code hire started inside tmux, the General Manager\'s included, except at a pinned project\'s desk or on a floor with a folder of its own.';
     return `The fence (Claude Code's deny rules and the guard) ${covers} Other hires, and ${others}`;
   }
 
   /** The Manager panel: the switch, and, once it is on, whether a General Manager is hired and how big the team is. */
   function renderManager() {
+    // The hire sheet's fence line follows the manager switch while the sheet is open (a no-op when it's closed).
+    showHireFence();
     const m = state.manager;
     $('step-manager').hidden = !m;
     $('step-manager').closest('.group').hidden = !m;
