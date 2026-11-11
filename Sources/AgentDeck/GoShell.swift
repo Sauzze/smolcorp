@@ -66,7 +66,7 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // A test copy leaves its tester a setup link in its own folder, as with the Swift engine.
         if let setupLink { TestCopy.leaveSetupLink(setupLink) }
         officeKey = HotKey(keyCode: UInt32(kVK_ANSI_O), modifiers: UInt32(cmdKey | optionKey), id: 1) { [weak self] in self?.office?.toggle() }
-        if !Config.shared.hasCompletedSetup { settings?.show() }
+        if !Config.shared.hasCompletedSetup, TestCopy.mayComeForward("first-run Settings") { settings?.show() }
     }
 
     /// The core ended by itself: its pages are gone, so their windows close, and
@@ -81,12 +81,14 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         office = nil
         settings?.close()
         settings = nil
+        // A test copy only logs it: the menu says it too, and its tester quits it by its pid.
+        guard TestCopy.mayComeForward("the alert “\(said)”") else { return }
         let alert = NSAlert()
         alert.messageText = "Smolcorp's engine stopped"
         alert.informativeText = "Its windows are closed. Quit Smolcorp and open it again."
         alert.addButton(withTitle: "Quit Smolcorp")
         alert.addButton(withTitle: "Not Now")
-        NSApp.activate(ignoringOtherApps: true)
+        Foreground.activate("the alert “Smolcorp's engine stopped”")
         if alert.runModal() == .alertFirstButtonReturn { NSApp.terminate(nil) }
     }
 
@@ -173,7 +175,10 @@ final class OfficeLink {
     /// `actions`, with the office's window this shell shows.
     func actions(_ actions: HostBridge.Actions, config: Config = .shared) -> HostBridge.Actions {
         var actions = actions
-        actions.showOffice = { [weak self] in self?.window?.show() }
+        actions.showOffice = { [weak self] in
+            // Setup's Open the office: the page's own ask, never a test copy's window.
+            if TestCopy.mayComeForward("the office (from setup)") { self?.window?.show() }
+        }
         actions.officeOnTop = { [weak self] on in
             config.officeOnTop = on
             self?.window?.applyOptions()

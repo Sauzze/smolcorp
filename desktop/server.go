@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -81,10 +82,10 @@ func setupCookie() string {
 }
 
 // Serve listens on the deck's port until it fails: on every interface, or on
-// this computer and Tailscale only (see listen.go).
+// this computer and Tailscale only, or a test copy on this computer only (see listen.go).
 func Serve(deck *Deck) error {
 	deck.mu.Lock()
-	scope := scopeOf(deck.config)
+	scope := testCopyScope(scopeOf(deck.config), testCopyPort(), os.Getenv(testListenVariable))
 	deck.mu.Unlock()
 	listenScope = scope
 	listener, err := listenerFor(scope, Port)

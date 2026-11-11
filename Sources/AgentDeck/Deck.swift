@@ -2289,8 +2289,10 @@ final class Deck {
     /// rather than opening another, and answers nil at once. The Swift engine keeps what's picked
     /// (`chooseHireFolder`); under the Go core, the core does (HostBridge's choose-folder).
     static func chooseFolder(from start: String?, message: String, then done: @escaping (String?) -> Void) {
+        // A test copy opens no panel: nothing is picked, as if cancelled. Its tester types the folder on the page.
+        guard TestCopy.mayComeForward("the folder panel") else { return done(nil) }
         if let open = hirePanel {
-            NSApp.activate(ignoringOtherApps: true)
+            Foreground.activate("the folder panel")
             open.makeKeyAndOrderFront(nil)
             return done(nil)
         }
@@ -2302,7 +2304,7 @@ final class Deck {
         panel.prompt = "Choose"
         panel.message = message
         if let start { panel.directoryURL = URL(fileURLWithPath: start) }
-        NSApp.activate(ignoringOtherApps: true)
+        Foreground.activate("the folder panel")
         panel.begin { response in
             hirePanel = nil
             done(response == .OK ? panel.url?.path : nil)

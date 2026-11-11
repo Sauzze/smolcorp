@@ -64,7 +64,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SummaryKey.learnHint()
         menu.office = office
         menu.settings = settings
-        router.showOffice = { [office] in office.show() }
+        router.showOffice = { [office] in
+            // Setup's Open the office: the page's own ask, never a test copy's window.
+            if TestCopy.mayComeForward("the office (from setup)") { office.show() }
+        }
         router.placeOffice = { [office] rect, mainHeight in office.place(atTile: rect, mainHeight: mainHeight) }
         OfficeWindow.settle(Config.shared)
         router.officeOptionsChanged = { [office] in office.applyOptions() }
@@ -72,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ⌥⌘O, from anywhere, shows and hides the office's window.
         officeKey = HotKey(keyCode: UInt32(kVK_ANSI_O), modifiers: UInt32(cmdKey | optionKey), id: 1) { [office] in office.toggle() }
 
-        if !Config.shared.hasCompletedSetup {
+        if !Config.shared.hasCompletedSetup, TestCopy.mayComeForward("first-run Settings") {
             settings.show()
         }
     }
@@ -165,7 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func about() {
-        NSApp.activate(ignoringOtherApps: true)
+        Foreground.activate("About Smolcorp")
         NSApp.orderFrontStandardAboutPanel(nil)
     }
 
@@ -191,6 +194,16 @@ enum Dock {
         let wasActive = NSApp.isActive
         NSApp.setActivationPolicy(policy)
         // macOS puts the app's menus in the menu bar, and keeps its windows forward, once it's activated again.
-        if wasActive { DispatchQueue.main.async { NSApp.activate(ignoringOtherApps: true) } }
+        if wasActive { DispatchQueue.main.async { Foreground.activate("the Dock's menus") } }
+    }
+}
+
+/// Smolcorp in front of other apps, with the keyboard, as a menu bar app is
+/// never by itself: every activation goes through here, so a test copy only
+/// logs it (see `TestCopy.mayComeForward`).
+enum Foreground {
+    static func activate(_ what: String) {
+        guard TestCopy.mayComeForward(what) else { return }
+        NSApp.activate(ignoringOtherApps: true)
     }
 }

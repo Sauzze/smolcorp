@@ -100,7 +100,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
             load(SettingsWindow.address(port: port, then: then), in: web)
         }
         // A menu bar app is never active by itself, and the window would open behind others.
-        NSApp.activate(ignoringOtherApps: true)
+        Foreground.activate("Settings")
         window.makeKeyAndOrderFront(nil)
     }
 

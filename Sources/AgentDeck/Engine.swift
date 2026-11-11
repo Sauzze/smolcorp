@@ -86,11 +86,14 @@ final class GoCore {
     static let inherited = ["PATH", "HOME", "USER", "LANG", "TMPDIR", "SHELL"]
 
     /// The core's environment: `inherited` from this app's, with the port and folder
-    /// a test copy's hires and `smolcorp gm` read, as the Swift engine gives them. Never the token.
+    /// a test copy's hires and `smolcorp gm` read, as the Swift engine gives them, and
+    /// SMOLCORP_TEST_LISTEN=lan if the copy was opened with it (the core listens on this
+    /// Mac only otherwise, as `TestCopy.listensOn`). Never the token.
     func environment(base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var environment = base.filter { GoCore.inherited.contains($0.key) }
         environment["SMOLCORP_PORT"] = String(port)
         environment["SMOLCORP_TEST_SUPPORT_DIR"] = support.path
+        if base["SMOLCORP_TEST_LISTEN"]?.lowercased() == "lan" { environment["SMOLCORP_TEST_LISTEN"] = "lan" }
         return environment
     }
 
