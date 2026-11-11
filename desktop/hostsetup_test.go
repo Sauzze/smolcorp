@@ -197,6 +197,11 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			lines, err := hostPeek(h, "tty:/dev/ttys005", Claude)
 			return []any{lines == nil, errors.Is(err, errAgentBehind)}, err
 		},
+		"the API-key account, offered for a hire (the key isn't read)": func(h hostBridge) (any, error) {
+			available, notice, refusal, err := hostAPIKeyOffer(h)
+			return []any{available, notice == apiKeyNotice, refusal}, err
+		},
+		"the API-key account's key, for the hire being made": func(h hostBridge) (any, error) { return hostAPIKeyRead(h) },
 	}
 	// What the core makes of each answer.
 	got := map[string]any{
@@ -218,8 +223,10 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the phone's text, held: the core said it's asking as the terminal got to it": []any{pasteFailed, false},
 		// The app's no, but the words may be in: 502 pasteUnsaid, never a 409 that offers them again.
 		"the phone's text, several lines, ⌘V the terminal hadn't read in time": []any{pasteFailed, true},
-		"the peek at the input line":       []string{"> Bonjour l’équipe", "  ? for shortcuts"},
-		"the peek, the agent not in front": []any{true, true},
+		"the peek at the input line":                                   []string{"> Bonjour l’équipe", "  ? for shortcuts"},
+		"the peek, the agent not in front":                             []any{true, true},
+		"the API-key account, offered for a hire (the key isn't read)": []any{true, true, ""},
+		"the API-key account's key, for the hire being made":           "fk-m4c-0123456789",
 	}
 	cases := readBridgeCases(t)
 	if len(cases) != len(want) {
@@ -378,7 +385,8 @@ func TestTheMacsSwitchesAreKeptHereAndDoneByTheApp(t *testing.T) {
 	mac.refusing(nil)
 	var done []string
 	for _, action := range mac.actions() {
-		if action != "facts" && action != "bots-resolve" && action != "abilities" {
+		// What setup's state reads at each look (the API-key account's offer never reads the key) isn't a change.
+		if action != "facts" && action != "bots-resolve" && action != "abilities" && action != "api-key-offer" {
 			done = append(done, action)
 		}
 	}

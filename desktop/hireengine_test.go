@@ -3,13 +3,18 @@
 package desktop
 
 import (
+	"bytes"
 	"errors"
+	"io/fs"
+	"log"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -741,5 +746,167 @@ func TestHiresWorktreesGoInTheFolderConfigJSONSets(t *testing.T) {
 	}
 	if _, err := os.Stat(hire.Worktree); err == nil || branches(t, r.repo) != "" {
 		t.Error("the clean worktree in hireWorktrees, or its branch, was left")
+	}
+}
+
+// keyMac stands in for the Mac app's API-key account (HostBridge's api-key-offer
+// and api-key-read): the key only while it's offered.
+type keyMac struct {
+	mu      sync.Mutex
+	offered bool
+	asked   []string
+}
+
+const keyMacRefusal = "There's no Anthropic API key in your Keychain. Save one under Summaries, or hire on a Claude account."
+
+func (m *keyMac) call(r bridgeRequest) (bridgeAnswer, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.asked = append(m.asked, r.Action)
+	switch {
+	case r.Action == "api-key-offer" && m.offered:
+		return bridgeAnswer{OK: true, Available: true, Notice: apiKeyNotice}, nil
+	case r.Action == "api-key-offer":
+		return bridgeAnswer{OK: true, Notice: apiKeyNotice, Refusal: keyMacRefusal}, nil
+	case r.Action == "api-key-read" && m.offered:
+		return bridgeAnswer{OK: true, Found: true, Value: fakeHireKey}, nil
+	case r.Action == "api-key-read":
+		return bridgeAnswer{Error: keyMacRefusal}, nil
+	}
+	return bridgeAnswer{Error: "not asked of this stand-in"}, nil
+}
+
+// filesHolding are the files under the folders that hold text, by path.
+func filesHolding(t *testing.T, text string, folders ...string) []string {
+	t.Helper()
+	var found []string
+	for _, folder := range folders {
+		filepath.WalkDir(folder, func(path string, entry fs.DirEntry, err error) error {
+			if err == nil && entry.Type().IsRegular() {
+				if data, _ := os.ReadFile(path); bytes.Contains(data, []byte(text)) {
+					found = append(found, path)
+				}
+			}
+			return nil
+		})
+	}
+	return found
+}
+
+// M4c: under the Mac app, setup's hire on the API-key account gets the key from
+// the app's Keychain through the bridge, once per hire, never from this
+// computer's store. Its tail is approved; the key itself is only in that
+// hire's start script (owner-only, removing itself as it runs): never in
+// tmux's arguments, a window's, the registry, a log, or a file left behind by
+// a hire refused or never started. Not offered, the Mac's refusal, nothing made.
+func TestUnderTheMacAppAnAPIKeyHireGetsTheKeyThroughTheBridgeAndNowhereElse(t *testing.T) {
+	d, r, h := engineDeck(t)
+	mac := &keyMac{}
+	d.mu.Lock()
+	d.mac.host = mac
+	d.mu.Unlock()
+	d.engine.Key = func() string { t.Error("this computer's secret store was asked under the Mac app"); return "" }
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	repo := homeRepo(t)
+	page := func(heard bool) *httptest.ResponseRecorder {
+		t.Helper()
+		d.mu.Lock()
+		d.lastHire = time.Time{}
+		d.engine.HeardFrom = func(Hire) bool { return heard }
+		d.mu.Unlock()
+		w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer,
+			body: `{"role":"janitor","folder":"` + repo + `","answers":[],"apiKey":true}`, headers: map[string]string{setupHeader: "1"}})
+		d.watching.Wait()
+		return w
+	}
+
+	// Not offered: the Mac's words, the key never asked for, nothing made.
+	if w := page(true); w.Code != http.StatusConflict || strings.TrimSpace(w.Body.String()) != keyMacRefusal {
+		t.Fatalf("not offered: %d %s", w.Code, w.Body)
+	}
+	if len(registered(t)) != 0 || len(r.tmux.asked) != 0 || !slices.Equal(mac.asked, []string{"api-key-offer"}) {
+		t.Fatalf("not offered: registry %+v, tmux %q, asked %q", registered(t), r.tmux.asked, mac.asked)
+	}
+
+	// Offered: hired, its tail approved, the key in its start script alone.
+	mac.offered = true
+	if w := page(true); w.Code != http.StatusOK {
+		t.Fatalf("offered: %d %s", w.Code, w.Body)
+	}
+	hires := registered(t)
+	if len(hires) != 1 || hires[0].Account != apiKeyAccountName || hires[0].State != "working" {
+		t.Fatalf("registry %+v", hires)
+	}
+	if data, _ := os.ReadFile(filepath.Join(homeDir, ".claude.json")); !isApproved(keyTail(fakeHireKey), data) {
+		t.Errorf("the key's tail isn't approved: %s", data)
+	}
+	script := r.script(hires[0])
+	if !strings.Contains(script, "export ANTHROPIC_API_KEY='"+fakeHireKey+"'") || strings.Contains(script, "secret-tool") {
+		t.Errorf("the script doesn't export the Mac app's key:\n%s", script)
+	}
+	scripts, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hires[0].ID), "hire-*.sh"))
+	for _, path := range append(scripts, hireFolder(supportDir, hires[0].ID)) {
+		if info, err := os.Stat(path); err != nil || info.Mode().Perm()&0o077 != 0 {
+			t.Errorf("%s isn't its owner's alone: %v %v", path, info.Mode(), err)
+		}
+	}
+
+	// Refused once its script is written (tmux won't start), and never started: both take their scripts away.
+	r.tmux.starts = false
+	if w := page(true); w.Code != http.StatusInternalServerError {
+		t.Errorf("tmux down: %d %s", w.Code, w.Body)
+	}
+	r.tmux.starts = true
+	if w := page(false); w.Code != http.StatusOK {
+		t.Fatalf("never started: %d %s", w.Code, w.Body)
+	}
+	if hires = registered(t); len(hires) != 2 || hires[1].State != "failed" {
+		t.Fatalf("registry %+v", hires)
+	}
+
+	// Once per hire, through the bridge; and nowhere but the working hire's own script.
+	if want := []string{"api-key-offer", "api-key-offer", "api-key-read", "api-key-offer", "api-key-read", "api-key-offer", "api-key-read"}; !slices.Equal(mac.asked, want) {
+		t.Errorf("asked of the Mac app %q, want %q", mac.asked, want)
+	}
+	if found := filesHolding(t, fakeHireKey, supportDir, homeDir, r.o.Worktrees); len(found) != 1 || found[0] != scripts[0] {
+		t.Errorf("files holding the key %q, want only %q", found, scripts)
+	}
+	for _, args := range append(r.tmux.asked, h.windows...) {
+		if strings.Contains(strings.Join(args, " "), fakeHireKey) {
+			t.Errorf("an argument holds the key: %q", args)
+		}
+	}
+	if registry, _ := os.ReadFile(registryPath()); bytes.Contains(registry, []byte(fakeHireKey)) || bytes.Contains(logged.Bytes(), []byte(fakeHireKey)) {
+		t.Error("the registry or the log holds the key")
+	}
+}
+
+// A hire on the API-key account that the engine can't take (no tmux, a pinned
+// desk) is refused before anything opens: the launcher can't give it the key,
+// and a plain terminal would start it on the subscription.
+func TestAnAPIKeyHireTheEngineCantTakeIsRefusedNeverPlain(t *testing.T) {
+	d, r, h := engineDeck(t)
+	d.mu.Lock()
+	d.mac.host = &keyMac{offered: true}
+	d.mu.Unlock()
+	tmuxPath = func() string { return "" }
+	repo := homeRepo(t)
+	w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer,
+		body: `{"role":"janitor","folder":"` + repo + `","answers":[],"apiKey":true}`, headers: map[string]string{setupHeader: "1"}})
+	if w.Code != http.StatusConflict || strings.TrimSpace(w.Body.String()) != apiKeyNeedsEngine {
+		t.Errorf("no tmux: %d %s", w.Code, w.Body)
+	}
+	if len(h.windows) != 0 || len(r.tmux.asked) != 0 || len(registered(t)) != 0 {
+		t.Errorf("something opened: windows %q, tmux %q", h.windows, r.tmux.asked)
+	}
+	// The same hire on a Claude account opens the old way, so it's the API key that refused it.
+	d.mu.Lock()
+	d.lastHire = time.Time{}
+	d.mu.Unlock()
+	if w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer,
+		body: `{"role":"janitor","folder":"` + repo + `","answers":[]}`, headers: map[string]string{setupHeader: "1"}}); w.Code != http.StatusOK || len(h.windows) != 1 {
+		t.Errorf("on a Claude account: %d %s, windows %q", w.Code, w.Body, h.windows)
 	}
 }

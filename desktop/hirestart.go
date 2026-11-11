@@ -50,6 +50,9 @@ type hireStart struct {
 	SendKey        string // the hire's own send key
 	GMToken        string // the GM's token, for the gm role's script only
 	APIKey         bool   // run on the API key in the secret store, never written down
+	// Under the Mac app, the API key itself, read through the bridge for this hire alone (hireapikey.go):
+	// exported by this script, which removes itself as it starts. "" reads the secret store as it runs.
+	KeyText string
 	// A test copy: both set, and the port not one a real Smolcorp owns.
 	TestPort       int
 	TestSupportDir string
@@ -149,9 +152,10 @@ func (h hireStart) script() (string, error) {
 }
 
 // environmentLines are the hire's exports: its ports, its send key, a test
-// copy's port and folder (T704), and on the API-key account the key read from
-// the secret store as the script runs, so it stops rather than fall back to
-// the subscription.
+// copy's port and folder (T704), and on the API-key account the key: under
+// the Mac app the one the bridge gave (KeyText), elsewhere read from the
+// secret store as the script runs, so it stops rather than fall back to the
+// subscription.
 func (h hireStart) environmentLines() (string, error) {
 	lines := ""
 	if h.GMToken != "" {
@@ -178,7 +182,12 @@ func (h hireStart) environmentLines() (string, error) {
 		lines += "export SMOLCORP_PORT=" + shellQuoted(strconv.Itoa(h.TestPort)) + "\n" +
 			"export SMOLCORP_TEST_SUPPORT_DIR=" + shellQuoted(h.TestSupportDir) + "\n"
 	}
-	if h.APIKey {
+	if h.KeyText != "" {
+		if !h.APIKey || !isHireKeyText(h.KeyText) {
+			return "", errors.New("only a hire on the API-key account is given a key, and only one that is a key")
+		}
+		lines += "export ANTHROPIC_API_KEY=" + shellQuoted(h.KeyText) + "\n"
+	} else if h.APIKey {
 		lines += "ANTHROPIC_API_KEY=\"$(secret-tool lookup service " + shellQuoted(summaryKeyService) +
 			" username " + shellQuoted(summaryKeyAccount) + ")\" && [ -n \"$ANTHROPIC_API_KEY\" ] || " +
 			"{ echo \"Smolcorp couldn't read the API key from the secret store.\"; exit 1; }\n" +

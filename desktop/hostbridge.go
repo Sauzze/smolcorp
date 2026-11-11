@@ -100,9 +100,14 @@ type bridgeAnswer struct {
 	Left   string `json:"left,omitempty"`
 	// close: fired, gone or not-stopped, as the Mac's Terminal.Fired.
 	Fired string `json:"fired,omitempty"`
-	// secret-read: the value, and whether there is one.
+	// secret-read, api-key-read: the value, and whether there is one.
 	Value string `json:"value,omitempty"`
 	Found bool   `json:"found,omitempty"`
+	// api-key-offer: whether a hire may work on the API-key account, the notice beside the choice, and
+	// when it may not, the refusal a hire on it gets, in the Mac app's words.
+	Available bool   `json:"available,omitempty"`
+	Notice    string `json:"notice,omitempty"`
+	Refusal   string `json:"refusal,omitempty"`
 	// login-item: whether Smolcorp opens at login.
 	On bool `json:"on,omitempty"`
 	// facts: what only the Mac can say, for setup.
@@ -278,6 +283,24 @@ func hostTerminals(h hostBridge) ([]string, error) {
 func hostReadSecret(h hostBridge, item string) (value string, found bool, err error) {
 	answer, err := ask(h, bridgeRequest{Action: "secret-read", Item: item})
 	return answer.Value, answer.Found, err
+}
+
+// hostAPIKeyOffer asks the Mac app whether a hire may work on the API-key
+// account (the Summary key in its Keychain, a test copy's own file), with its
+// notice and, when it may not, its refusal. The app never reads the key for it.
+func hostAPIKeyOffer(h hostBridge) (available bool, notice, refusal string, err error) {
+	answer, err := ask(h, bridgeRequest{Action: "api-key-offer"})
+	return answer.Available, answer.Notice, answer.Refusal, err
+}
+
+// hostAPIKeyRead is the key itself, for the hire being made, only while the
+// Mac app offers it: its refusal otherwise, in its words.
+func hostAPIKeyRead(h hostBridge) (string, error) {
+	answer, err := ask(h, bridgeRequest{Action: "api-key-read"})
+	if err == nil && (!answer.Found || answer.Value == "") {
+		err = errors.New("the Mac app gave no key")
+	}
+	return answer.Value, err
 }
 
 // hostWriteSecret keeps value as the item, or removes it when value is empty.

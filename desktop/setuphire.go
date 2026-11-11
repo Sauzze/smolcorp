@@ -24,8 +24,9 @@ import (
 // engine (hireengine.go) with its answers, task, nickname, model, account and
 // fence; any other opens the old way, through the launcher, which asks the
 // role's questions itself. Into T3 Code (`engine: "t3"`, experimental), the
-// T3 Code lane (Deck.hireIntoT3), as the Mac's. On the API-key account isn't
-// this engine's yet: refused in a sentence rather than hired another way.
+// T3 Code lane (Deck.hireIntoT3), as the Mac's. On the API-key account
+// (hireapikey.go), only a Claude Code role, only while the key is offered, and
+// only through the engine.
 
 // setupHire is what setup's hire asks for besides the role, checked.
 type setupHire struct {
@@ -41,6 +42,7 @@ type setupHire struct {
 	Worktree  bool
 	Task      string
 	// T3: into T3 Code. A named account (Account) or the API-key account (APIKey) is kept for T3 Code's own refusal.
+	// Otherwise APIKey is a Claude Code hire on the API-key account.
 	T3     bool
 	APIKey bool
 }
@@ -59,6 +61,9 @@ func (h *setupHire) apply(r *engineRequest, managerOn bool) {
 	if h.configDir != "" {
 		r.ConfigDir, r.DefaultAccount = h.configDir, false
 	}
+	if h.APIKey && !h.T3 {
+		r.APIKey, r.AccountName = true, apiKeyAccountName
+	}
 	if r.Role.ID == gmRole {
 		r.NoWorktree = !h.Worktree
 	} else {
@@ -66,10 +71,7 @@ func (h *setupHire) apply(r *engineRequest, managerOn bool) {
 	}
 }
 
-const (
-	setupHireModelLongest = 60
-	setupHireNotAPIKey    = "The API-key account isn't on this engine yet: hire on a Claude account."
-)
+const setupHireModelLongest = 60
 
 // setupHireRequest checks a request's body as the Mac's BriefRoutes.hireRequest:
 // the request, or a status and why not.
@@ -124,8 +126,12 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 			hire.configDir = account.Dir
 		}
 	}
+	// The API-key account is a Claude Code hire's alone (the Mac's Deck.hire); T3 Code refuses it in its own words.
 	if apiKey && !t3 {
-		return setupHire{}, http.StatusConflict, setupHireNotAPIKey
+		if agentOrClaude(role.Agent) != Claude {
+			return setupHire{}, http.StatusBadRequest, apiKeyNotClaude
+		}
+		hire.APIKey = true
 	}
 	path, _ := given["folder"].(string)
 	if path == "" {
@@ -339,6 +345,13 @@ func (d *Deck) setupHireRoute(w http.ResponseWriter, method, path string, body i
 	if off {
 		http.Error(w, hiringOff, http.StatusForbidden)
 		return true
+	}
+	// On the API-key account: only while it's offered, refused in the Mac's words (or this computer's) before anything is made.
+	if hire.APIKey && !hire.T3 {
+		if offer := d.apiKeyOffer(); !offer.Available {
+			http.Error(w, offer.Refusal, http.StatusConflict)
+			return true
+		}
 	}
 	hireInto := d.hireFromSetupSheet
 	if hire.T3 {

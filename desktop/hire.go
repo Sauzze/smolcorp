@@ -472,7 +472,7 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 			if status, message, handled := d.managedHireWith(roleID, folder, terminal, showWindow, held, floor, extra); handled {
 				return status, message
 			}
-		} else if launcherHires && d.config.HireManagedWindows && hasTerminal {
+		} else if launcherHires && d.config.HireManagedWindows && hasTerminal && !onAPIKey(extra) {
 			// Beta: in a window run by the launcher, only where that is made and the switch is on.
 			if status, message, handled := d.managedLauncherHire(roleID, folder, terminal, hasTerminal, held, floor); handled {
 				return status, message
@@ -501,6 +501,12 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 	if macApp && roleID == "" && Agent(program) == Claude && d.config.ManagerEnabled {
 		d.lastHire = time.Time{}
 		return http.StatusConflict, macHireNoRoleUnfenced
+	}
+	// A hire on the API-key account is the engine's or nobody's: the launcher can't give it the key,
+	// and a plain terminal would start it on the subscription.
+	if onAPIKey(extra) {
+		d.lastHire = time.Time{}
+		return http.StatusConflict, apiKeyNeedsEngine
 	}
 	// The backstop of a fenced hire (the GM route's) that no fenced way took: never a plain terminal.
 	// fenceRefusal has already refused every such hire before anything was made, so this isn't reached
@@ -703,8 +709,9 @@ func (d *Deck) hiredPending(token string) (desk, floor int, hireID string, ok bo
 }
 
 // hireState is what the setup page shows of hiring: the switch, the folder
-// and agent, and where hires open. With the lock held.
-func (d *Deck) hireState() map[string]any {
+// and agent, where hires open, and the API-key account as offered now (asked
+// without the lock). With the lock held.
+func (d *Deck) hireState(apiKey apiKeyOffer) map[string]any {
 	terminals, tmux := hireWays()
 	choices := []map[string]any{}
 	for _, terminal := range terminals {
@@ -718,6 +725,8 @@ func (d *Deck) hireState() map[string]any {
 		"tmux": d.config.HireInTmux && tmux, "hasTmux": tmux,
 		// Beta: a role's Claude hire through the launcher, where that is made (Windows). Field only.
 		"managedWindows": d.config.HireManagedWindows && launcherHires, "managedBeta": launcherHires,
+		// The API-key account for a hire, as the Mac's: offered only with a key where Summaries keep it.
+		"apiKey": apiKey.state(),
 	}
 }
 

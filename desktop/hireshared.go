@@ -41,6 +41,9 @@ type engineRequest struct {
 	ConfigDir      string
 	DefaultAccount bool
 	APIKey         bool
+	// Under the Mac app, the API key read through the bridge for this hire alone (hireapikey.go); "" elsewhere.
+	// Its tail is approved and it goes in the start script; it's never kept anywhere else.
+	APIKeyText string
 	// The port of a test copy, 0 for the office's own.
 	TestPort int
 	// GMToken makes the General Manager's token, new at its hire (the Deck's

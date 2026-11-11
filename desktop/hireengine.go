@@ -87,9 +87,13 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if r.Nickname != "" {
 		name = r.Nickname
 	}
+	key := o.Key
+	if r.APIKeyText != "" {
+		key = func() string { return r.APIKeyText } // the key the Mac app gave for this hire
+	}
 	place, err := prepareHire(hireRequest{HireID: id, Name: name, Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir,
 		APIKey: r.APIKey, Worktree: !r.NoWorktree},
-		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: o.Git, PortFree: o.PortFree, Key: o.Key})
+		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: o.Git, PortFree: o.PortFree, Key: key})
 	if err != nil {
 		return Hire{}, err
 	}
@@ -153,7 +157,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		}
 	}
 	start := hireStart{Role: r.Role, Message: message, ConfigDir: r.ConfigDir, DefaultAccount: r.DefaultAccount,
-		Settings: settings, CLIDir: filepath.Dir(o.CLI), Ports: place.Ports, SendKey: sendKey, GMToken: gmToken, APIKey: r.APIKey}
+		Settings: settings, CLIDir: filepath.Dir(o.CLI), Ports: place.Ports, SendKey: sendKey, GMToken: gmToken, APIKey: r.APIKey, KeyText: r.APIKeyText}
 	if r.TestPort != 0 {
 		start.TestPort, start.TestSupportDir = r.TestPort, supportDir
 	}
@@ -264,7 +268,16 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 	}
 	d.mu.Unlock()
 	request.Profiles = claudeDenyProfiles(savedAccounts)
-	hire, err := runManagedHire(request, options)
+	var hire Hire
+	var err error
+	// On the API-key account, under the Mac app: the key, from its Keychain through the bridge, for this hire alone.
+	if request.APIKey {
+		request.APIKeyText, err = d.hireAPIKeyText()
+	}
+	if err == nil {
+		hire, err = runManagedHire(request, options)
+	}
+	request.APIKeyText = ""
 	d.mu.Lock()
 	if err != nil {
 		if token != "" && constantTimeEqual(d.gmToken, token) {

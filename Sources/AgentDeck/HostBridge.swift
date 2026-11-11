@@ -342,6 +342,8 @@ final class HostBridge {
             return window(action, request, actions, until: deadline)
         case "secret-read", "secret-write", "secret-delete":
             return secret(action, request, actions)
+        case "api-key-offer", "api-key-read":
+            return hireKey(action, actions.hireKey)
         case "login-item":
             guard let item = actions.loginItem else { return refused("A test copy has no login item: it's the copy in use's.") }
             if let on = request["on"] as? Bool { item.set(on) }
@@ -794,7 +796,33 @@ final class HostBridge {
         }
     }
 
+    /// The API-key account for a hire (C23), as the Swift engine's `Deck.hire` has it, for setup's state and for one
+    /// hire on it. `api-key-offer` never reads the key: whether it's offered, the notice beside the choice, and,
+    /// when it isn't, the refusal a hire on it gets, all in this app's words (a test copy's own among them).
+    /// `api-key-read` is the key itself, only while it's offered, for the hire being made: the core puts it in that
+    /// hire's start script alone (desktop/hireapikey.go). It's the item `secret-read` gives too, to the same core.
+    private static func hireKey(_ action: String, _ key: HireKey) -> [String: Any] {
+        let offered = key.offered()
+        let refusal = HireDesk.apiKeyRefusal(picked: true, offered: offered, testCopy: key.testCopy)
+        guard action == "api-key-read" else {
+            var answer: [String: Any] = ["ok": true, "available": offered, "notice": HireDesk.apiKeyNoticeText(testCopy: key.testCopy)]
+            if let refusal { answer["refusal"] = refusal.message }
+            return answer
+        }
+        if let refusal { return refused(refusal.message) }
+        guard let value = key.read() else { return refused(HireDesk.keyRefusalText(testCopy: key.testCopy).message) }
+        return ["ok": true, "found": true, "value": value]
+    }
+
     // MARK: What each action does
+
+    /// The API-key account a hire may work on: the Summary key, offered only from the Keychain (a test copy's own
+    /// file there), never the environment's (`HireDesk.apiKeyOffered`).
+    struct HireKey {
+        var offered: () -> Bool = { HireDesk.apiKeyOffered() }
+        var testCopy = TestCopy.isOn
+        var read: () -> String? = { SummaryKey.store.read() }
+    }
 
     /// One of the app's own items: where it's kept, as the Swift engine keeps it.
     struct Secret {
@@ -829,6 +857,8 @@ final class HostBridge {
         var opened = OpenedWindows()
         var closer: HireWindows.Closer = HireWindows.Terminals()
         var secrets: [String: Secret]
+        /// The API-key account for a hire, as the Swift engine has it: stand-ins in the tests.
+        var hireKey = HireKey()
         /// The login item, or nil in a test copy, whose login item is the copy in use's: never read or set.
         var loginItem: (get: () -> Bool, set: (Bool) -> Void)?
         /// Where a tab's actions run, one at a time: its terminal's queue, as the deck's keys go.

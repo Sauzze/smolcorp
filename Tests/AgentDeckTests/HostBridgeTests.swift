@@ -624,6 +624,8 @@ final class HostBridgeTests: XCTestCase {
             throw TerminalCommand.Problem.testCopy
         }
         mac.roster = { [GrokBotApp.Row(id: "0a1b-2c3d", name: "Smolcorp Mini Manager")] }
+        // The API-key account (M4c): offered, out of a test copy, with a stand-in key.
+        mac.hireKey = HostBridge.HireKey(offered: { true }, testCopy: false, read: { "fk-m4c-0123456789" })
         // The phone's text and the peek (I5): the agent in front but on ttys005, where it has ended; Codex on
         // ttys004, not known to take several lines as one paste; iTerm2's CD34 doesn't read its ⌘V in time.
         mac.place = { tab, _ in tab.id == "/dev/ttys005" ? .gone : .front }
@@ -649,6 +651,53 @@ final class HostBridgeTests: XCTestCase {
         // nor for "!", nor for Codex, nor to a desk asking. ⌘V that wasn't read in time went.
         XCTAssertEqual(typed, ["insert tty:/dev/ttys003 Bonjour l’équipe « ça marche » 👩‍💻 ;",
                                "paste iterm:AB12 first line\n    indented\tand a tab", "paste iterm:CD34 one\ntwo"])
+    }
+
+    /// The API-key account for a hire (M4c): whether it's offered and in what words, never reading the key; the key
+    /// only while it's offered, and the Swift engine's refusals (a test copy's own) when it isn't or can't be read.
+    func testTheAPIKeyAccountIsOfferedInTheMacsWordsAndItsKeyGivenOnlyWhileOffered() {
+        var offered = false, reads = 0
+        var mac = actions
+        func stand(testCopy: Bool, key: String?) {
+            mac.hireKey = HostBridge.HireKey(offered: { offered }, testCopy: testCopy, read: { reads += 1; return key })
+        }
+        func answer(_ action: String, token given: String? = nil) -> [String: Any] {
+            HostBridge.answer(try! JSONSerialization.data(withJSONObject: ["action": action, "token": given ?? token]), token: token, actions: mac)
+        }
+        stand(testCopy: false, key: "fk-m4c-1")
+        let notInKeychain = HireDesk.apiKeyRefusal(picked: true, offered: false, testCopy: false)?.message
+        let off = answer("api-key-offer")
+        XCTAssertTrue(isOK(off))
+        XCTAssertEqual(off["available"] as? Bool, false)
+        XCTAssertEqual(off["notice"] as? String, HireDesk.apiKeyNotice)
+        XCTAssertEqual(off["refusal"] as? String, notInKeychain)
+        XCTAssertNotNil(notInKeychain)
+        let refusedRead = answer("api-key-read")
+        XCTAssertFalse(isOK(refusedRead))
+        XCTAssertEqual(refusedRead["error"] as? String, notInKeychain)
+        XCTAssertNil(refusedRead["value"])
+        XCTAssertEqual(reads, 0, "not offered: the key is never read")
+
+        offered = true
+        let on = answer("api-key-offer")
+        XCTAssertEqual(on["available"] as? Bool, true)
+        XCTAssertNil(on["refusal"])
+        XCTAssertNil(on["value"])
+        XCTAssertEqual(reads, 0, "the offer never reads the key")
+        let read = answer("api-key-read")
+        XCTAssertEqual(read["value"] as? String, "fk-m4c-1")
+        XCTAssertEqual(read["found"] as? Bool, true)
+        XCTAssertEqual(reads, 1)
+        XCTAssertFalse(isOK(answer("api-key-read", token: "wrong-token-wrong-token-wrong-tok")))
+        XCTAssertEqual(reads, 1, "nothing without the token")
+
+        // A test copy: its own words, and a key that can't be read is the Swift engine's refusal, never an empty key.
+        stand(testCopy: true, key: nil)
+        XCTAssertEqual(answer("api-key-offer")["notice"] as? String, HireDesk.testCopyApiKeyNotice)
+        let unread = answer("api-key-read")
+        XCTAssertFalse(isOK(unread))
+        XCTAssertEqual(unread["error"] as? String, HireDesk.keyRefusalText(testCopy: true).message)
+        XCTAssertNil(unread["value"])
     }
 
     /// The phone's text (I5): checked again as the Swift engine prepares it, then only by `Deck.typePhoneWords`,
