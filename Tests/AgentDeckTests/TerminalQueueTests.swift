@@ -21,11 +21,16 @@ final class TerminalQueueTests: XCTestCase {
         let osascript = folder.appendingPathComponent("osascript")
         try "#!/bin/sh\necho $$ >> '\(osascriptPids.path)'\nexec sleep 60\n".write(to: osascript, atomically: true, encoding: .utf8)
         // tmux answering at once, and saying what it was asked; no pane tty, so nothing is looked at with ps.
+        // Its session is shown in a Terminal.app tab (a client on a tty), as hires in tmux are.
         let tmux = folder.appendingPathComponent("tmux")
         try """
             #!/bin/sh
             echo "$*" >> '\(tmuxLog.path)'
-            case "$*" in *pane_tty*) exit 1 ;; esac
+            case "$*" in
+                *pane_tty*) exit 1 ;;
+                *session_id*) echo '$1' ;;
+                *client_tty*) echo /dev/ttys998 ;;
+            esac
             """.write(to: tmux, atomically: true, encoding: .utf8)
         for file in [osascript, tmux] { try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.path) }
         savedOsascript = Terminal.osascript
@@ -35,8 +40,9 @@ final class TerminalQueueTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        // What still runs on Terminal's queue finishes against the stand-in, then the real ones are back.
+        // What still runs on Terminal's queue, and iTerm2's after it, finishes against the stand-in, then the real ones are back.
         Terminal.queue.sync {}
+        Terminals.queue(kind: "iterm").sync {}
         Terminal.osascript = savedOsascript
         Tmux.path = savedTmux
         try? FileManager.default.removeItem(at: folder)
@@ -156,6 +162,72 @@ final class TerminalQueueTests: XCTestCase {
         XCTAssertFalse(Terminal.noticingTimeouts { Tool.run("/bin/echo", ["hi"]) }.timedOut)
     }
 
+    /// "Part way" only when something may have reached the tab: a key whose
+    /// tab couldn't even be selected was never typed, and is said so.
+    func testAKeyThatNeverWentSaysNothingWasTyped() {
+        let answered = expectation(description: "answered")
+        var answer: Response?
+        // Terminal.app's own key: selecting its tab is what hangs, so no key was posted.
+        Deck.deliver(to: "tty:/dev/ttys999", done: { answer = $0; answered.fulfill() }) {
+            Terminal.press(.escape, tty: "/dev/ttys999")
+        }
+        wait(for: [answered], timeout: Terminal.scriptTimeout + 2)
+        XCTAssertEqual(answer?.status, 503)
+        XCTAssertEqual(answer.map(text), "Terminal isn't answering, so nothing was typed. Try again in a moment.")
+        // A step that looks types nothing; one that may type, once started, counts even if it's ended.
+        let looked = Terminal.noticingTimeouts { Terminal.onlyLooking { Tool.run("/bin/sleep", ["5"], timeout: 0.2) } }
+        XCTAssertTrue(looked.timedOut)
+        XCTAssertFalse(looked.partWay)
+        let typed = Terminal.noticingTimeouts { () -> Bool in
+            _ = Tool.run("/bin/echo", ["typed"])
+            return Terminal.onlyLooking { Tool.run("/bin/sleep", ["5"], timeout: 0.2) } != nil
+        }
+        XCTAssertTrue(typed.partWay, "something went before it stopped answering")
+        XCTAssertTrue(Terminal.noticingTimeouts { Tool.run("/bin/sleep", ["5"], timeout: 0.2) }.partWay, "it may have typed")
+    }
+
+    /// Focusing a tmux desk shown in Terminal.app asks only tmux on tmux's
+    /// queue: the Terminal tab is brought forward on Terminal's own. So with
+    /// Terminal not answering, a tmux desk's dictation right after still goes
+    /// in its usual time, and a Terminal.app desk's input is refused naming
+    /// Terminal, not tmux.
+    func testATmuxFocusNeverHoldsTmuxBehindTerminal() throws {
+        let address = try XCTUnwrap(TabAddress(tab))
+        let focused = expectation(description: "focused")
+        var focus: Response?
+        let started = Date()
+        Deck.deliver(to: tab, done: { focus = $0; focused.fulfill() }) { Tmux().focus(address) }
+        wait(for: [focused], timeout: 2)
+        XCTAssertEqual(focus?.status, 204)
+        let dictated = expectation(description: "dictated")
+        var dictation: Response?
+        Deck.deliver(to: tab, done: { dictation = $0; dictated.fulfill() }) { Tmux().insert("on y va", in: address) }
+        wait(for: [dictated], timeout: 2)
+        XCTAssertEqual(dictation?.status, 204)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.5, "it didn't wait for Terminal")
+        XCTAssertTrue(tmuxAsked.contains("select-pane"), tmuxAsked)
+        XCTAssertTrue(tmuxAsked.contains("on y va"), tmuxAsked)
+        // Terminal's tab is being brought forward meanwhile, on Terminal's queue, and hangs there.
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertEqual(osascripts.count, 1, "Terminal was asked for the tmux client's tab")
+        let refused = expectation(description: "refused")
+        var refusal: Response?
+        var typed = false
+        Deck.deliver(to: "tty:/dev/ttys997", within: 0.3, done: { refusal = $0; refused.fulfill() }) {
+            typed = true
+            return true
+        }
+        wait(for: [refused], timeout: 2)
+        XCTAssertEqual(refusal?.status, 503)
+        XCTAssertEqual(refusal.map(text), "Terminal isn't answering, so nothing was typed. Try again in a moment.")
+        // Done with it: iTerm2's turn after Terminal (not found there) fails at once, never a real osascript.
+        Terminal.osascript = "/usr/bin/false"
+        for pid in osascripts { kill(pid, SIGKILL) }
+        Terminal.queue.sync {}
+        Terminals.queue(kind: "iterm").sync {}
+        XCTAssertFalse(typed, "never typed once Terminal was free")
+    }
+
     /// Terminal's look skips a round while the last is stuck, so hung osascripts never pile up.
     func testThePollSkipsARoundWhileTheLastIsStuck() {
         let poll = Poller("test-stuck")
@@ -181,6 +253,20 @@ final class TerminalQueueTests: XCTestCase {
         XCTAssertFalse(Terminals.queue(for: tab) === Terminal.queue)
         XCTAssertTrue(Terminals.queue(for: tab) === Terminals.queue(for: "tmux:%9@/tmp/other"), "one tmux queue: its keys stay in order")
         XCTAssertFalse(Terminals.queue(for: "iterm:AB12") === Terminals.queue(for: tab))
+        // A window opens on its own terminal's queue: a slow iTerm2 one never holds up Terminal.app's desks.
+        XCTAssertTrue(Terminals.queue(opening: "terminal") === Terminal.queue)
+        XCTAssertTrue(Terminals.queue(opening: "iterm") === Terminals.queue(for: "iterm:AB12"))
+        XCTAssertFalse(Terminals.queue(opening: "ghostty") === Terminal.queue)
+    }
+
+    /// The Mac's own mic dictation goes as the phone's input does, and text
+    /// dropped because its terminal didn't answer is said over its desk.
+    func testMacDictationDroppedIsSaidOnTheDesk() throws {
+        let body = try PhoneMicTests.body(of: "private func typeDictation(", until: "func typePhoneDictation(")
+        XCTAssertTrue(body.contains("Deck.deliver(to: tab, done:"), "the same wait and check right before typing")
+        XCTAssertTrue(body.contains("guard response.status == 503 else { return }"))
+        XCTAssertTrue(body.contains("self?.noteVoice(String(decoding: response.body, as: UTF8.self), cleaned: false, in: tab)"))
+        XCTAssertFalse(body.contains("Terminals.queue(for:"), "not around the wait")
     }
 
     /// The phone page gives up on a desk's keys and on dictation with a message, rather than waiting silently.

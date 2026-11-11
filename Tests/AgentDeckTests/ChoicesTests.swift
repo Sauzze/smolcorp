@@ -321,7 +321,7 @@ final class ChoicesTests: XCTestCase {
         XCTAssertNil(Deck.hireID(onSocket: "/private/tmp/tmux-501/default", among: hires, testPort: nil))
         XCTAssertNil(Deck.hireID(onSocket: "/private/tmp/tmux-501/smolcorp-other", among: hires, testPort: nil))
         let focus = try source("Sources/AgentDeck/TerminalDrivers.swift")
-        XCTAssertTrue(focus.contains("if let window = Openers.reattach(socket: tab.socket, in: folder ?? NSHomeDirectory(), terminal: terminal) {\n                Tmux.reopened?(tab.socket, window)"))
+        XCTAssertTrue(focus.contains("if let window = Openers.reattach(socket: socket, in: folder ?? NSHomeDirectory(), terminal: terminal) {\n                        Tmux.reopened?(socket, window)"))
         let deck = try source("Sources/AgentDeck/Deck.swift")
         XCTAssertTrue(deck.contains("Tmux.reopened = { [weak self] socket, window in"))
         XCTAssertTrue(deck.contains("HireWindows.Terminals.parse(record).map { $0.kind == \"terminal\" && closed.contains($0.id) } ?? false"))

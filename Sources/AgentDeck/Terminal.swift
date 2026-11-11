@@ -161,11 +161,13 @@ enum Terminal {
     }
 
     static func focus(tty: String) -> Bool {
-        withTab(tty, do: """
-            set selected of t to true
-            set index of w to 1
-            activate
-            """)
+        onlyLooking {
+            withTab(tty, do: """
+                set selected of t to true
+                set index of w to 1
+                activate
+                """)
+        }
     }
 
     /// Types `text` and Return into the tab without bringing it forward.
@@ -178,7 +180,7 @@ enum Terminal {
     /// What the tab shows, as text (its `contents`: the window's lines, not
     /// the scrollback), without bringing it forward. Nil if it isn't there.
     static func contents(tty: String) -> String? {
-        let output = run("""
+        let output = onlyLooking { run("""
             set target to item 1 of argv
             if application "Terminal" is not running then return "no"
             tell application "Terminal"
@@ -189,7 +191,7 @@ enum Terminal {
                 end repeat
             end tell
             return "no"
-            """, arguments: [tty])
+            """, arguments: [tty]) }
         guard let output, output.hasPrefix("yes") else { return nil }
         return String(output.dropFirst(3))
     }
@@ -201,7 +203,8 @@ enum Terminal {
     /// behind other apps, under the screen saver and with the Mac locked, and
     /// never the app in front or the lock screen. Needs Accessibility.
     static func press(_ key: Key, modifiers: CGEventFlags = [], times: Int = 1, tty: String) -> Bool {
-        guard withTab(tty, do: "set selected of t to true\nset index of w to 1"),
+        // Selecting the tab types nothing: a Terminal that didn't answer there has had no key.
+        guard onlyLooking({ withTab(tty, do: "set selected of t to true\nset index of w to 1") }),
               let terminal = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else { return false }
         Thread.sleep(forTimeInterval: settle)
         post(key, modifiers: modifiers, times: times, to: terminal)
@@ -212,7 +215,8 @@ enum Terminal {
     /// always ends with Return, so the characters go as key events carrying
     /// them, to Terminal itself, as `press` sends keys. Needs Accessibility.
     static func insert(_ text: String, tty: String) -> Bool {
-        guard withTab(tty, do: "set selected of t to true\nset index of w to 1"),
+        // Selecting the tab types nothing: a Terminal that didn't answer there has had no key.
+        guard onlyLooking({ withTab(tty, do: "set selected of t to true\nset index of w to 1") }),
               let terminal = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else { return false }
         Thread.sleep(forTimeInterval: settle)
         let units = Array(text.utf16)
@@ -517,6 +521,7 @@ enum Terminal {
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { return nil }
+        noteStep()
         let pid = process.processIdentifier
         // Ended when it overruns, which also ends the reading below.
         let overran = DispatchWorkItem { if process.isRunning { kill(pid, SIGKILL) } }
@@ -533,23 +538,48 @@ enum Terminal {
     }
 
     private static let timedOutKey = "io.github.sauzze.agentdeck.timedOut"
+    private static let mayHaveTypedKey = "io.github.sauzze.agentdeck.mayHaveTyped"
+    private static let lookingKey = "io.github.sauzze.agentdeck.looking"
 
-    /// `body`'s value, and whether a script or a tool it ran on this thread
-    /// was ended for taking too long: a key that didn't go because its
-    /// terminal didn't answer is told apart from a tab that's gone.
-    static func noticingTimeouts<T>(_ body: () -> T) -> (value: T, timedOut: Bool) {
+    /// `body`'s value, whether a script or a tool it ran on this thread was
+    /// ended for taking too long, and if so whether anything may have reached
+    /// the tab by then (`partWay`): a key that didn't go because its terminal
+    /// didn't answer is told apart from a tab that's gone, and "nothing was
+    /// typed" from "part of it may have been". Only a step that just looks, or
+    /// selects (`onlyLooking`), is known to type nothing.
+    static func noticingTimeouts<T>(_ body: () -> T) -> (value: T, timedOut: Bool, partWay: Bool) {
         let thread = Thread.current.threadDictionary
-        let outer = thread[timedOutKey]
+        let outer = (thread[timedOutKey], thread[mayHaveTypedKey])
         thread[timedOutKey] = false
+        thread[mayHaveTypedKey] = false
         let value = body()
         let timedOut = thread[timedOutKey] as? Bool == true
-        thread[timedOutKey] = outer.map { ($0 as? Bool == true) || timedOut }
-        return (value, timedOut)
+        let typed = thread[mayHaveTypedKey] as? Bool == true
+        thread[timedOutKey] = outer.0.map { ($0 as? Bool == true) || timedOut }
+        thread[mayHaveTypedKey] = outer.1.map { ($0 as? Bool == true) || typed }
+        return (value, timedOut, timedOut && typed)
     }
 
     /// A script or a tool was ended for taking too long, on this thread.
     static func noteTimeout() {
         let thread = Thread.current.threadDictionary
         if thread[timedOutKey] != nil { thread[timedOutKey] = true }
+    }
+
+    /// A script or a tool has started on this thread: unless it only looks,
+    /// what it does may reach the tab even if it's ended later.
+    static func noteStep() {
+        let thread = Thread.current.threadDictionary
+        if thread[mayHaveTypedKey] != nil, thread[lookingKey] as? Bool != true { thread[mayHaveTypedKey] = true }
+    }
+
+    /// Runs `body`, whose scripts and tools only look at a tab or select it:
+    /// one of them ended for taking too long has typed nothing.
+    static func onlyLooking<T>(_ body: () -> T) -> T {
+        let thread = Thread.current.threadDictionary
+        let outer = thread[lookingKey]
+        thread[lookingKey] = true
+        defer { thread[lookingKey] = outer }
+        return body()
     }
 }

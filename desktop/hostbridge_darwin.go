@@ -28,9 +28,10 @@ type socketBridge struct {
 	// parent is then launchd) sends nothing to anyone.
 	parent func() int
 	// How long one request may take: a terminal's AppleScript can take a few
-	// seconds. 20 s when zero; the app starts a tab action only within 18 s of
-	// taking the connection (HostBridge.actionWait), so it never runs one after
-	// this side has given up.
+	// seconds. 20 s when zero; the app starts a tab action only within 5 s of
+	// taking the connection (Terminals.inputWait) and a window within 18 s, and
+	// answers by 18 s (HostBridge.actionWait), so it never runs one after this
+	// side has given up.
 	wait time.Duration
 }
 

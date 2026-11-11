@@ -380,7 +380,7 @@ extension Deck {
         let config = Config.shared
         let terminal = Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal"
         let folder = hire.worktree.isEmpty ? hire.folder : hire.worktree
-        Terminal.queue.async {
+        Terminals.queue(opening: terminal).async {
             let window = Openers.reattach(socket: hire.tmuxSocket, in: folder, terminal: terminal)
             DispatchQueue.main.async {
                 guard let window else { return done("Its window didn't open: the hire may have ended.") }

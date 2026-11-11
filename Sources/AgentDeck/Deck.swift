@@ -1959,7 +1959,8 @@ final class Deck {
         let background = Choices.background(config)
         let inTmux = background || (config.hireInTmux && Tmux.path != nil)
         let name = background ? "tmux" : Openers.choices.first { $0.id == terminal }?.name ?? "Terminal"
-        Terminal.queue.async {
+        // On the hire's terminal's queue: an iTerm2 or Ghostty window slow to open never holds up Terminal.app's desks.
+        Terminals.queue(opening: terminal).async {
             let opened = Openers.open(command, in: folder, terminal: terminal, inTmux: inTmux, window: !background, hireID: hireID)
             DispatchQueue.main.async {
                 // Nobody was hired, so the next try needn't wait.
@@ -2205,10 +2206,16 @@ final class Deck {
     /// its dictation went ("cleaned in 0.9 s", "raw: too slow (2.5 s)"). None
     /// with the clean-up off: then it's as before. Forgotten after a moment.
     private func noteDictation(_ outcome: DictationCleanup.Outcome, in tab: String) {
-        guard let text = outcome.note, let id = sessions.all.first(where: { $0.tab == tab })?.id else { return }
+        guard let text = outcome.note else { return }
+        noteVoice(text, cleaned: outcome.isCleaned, in: tab)
+    }
+
+    /// A few seconds' note over `tab`'s desk, of how its dictation went.
+    private func noteVoice(_ text: String, cleaned: Bool, in tab: String) {
+        guard let id = sessions.all.first(where: { $0.tab == tab })?.id else { return }
         voiceNoteCount += 1
         let count = voiceNoteCount
-        voiceNotes[id] = (count, text, outcome.isCleaned, Date())
+        voiceNotes[id] = (count, text, cleaned, Date())
         changed()
         // Once, not polling: the note goes from memory; the phone has faded it already.
         DispatchQueue.main.asyncAfter(deadline: .now() + Deck.voiceNoteLife) { [weak self] in
@@ -2224,19 +2231,23 @@ final class Deck {
     }
 
     /// Dictation's text, into the tab it was for, without Return: only while
-    /// that tab's agent still runs there, as for keys (see `toAgent`).
+    /// that tab's agent still runs there, as for keys (see `toAgent`), and only
+    /// if its terminal gets to it in time (see `Delivery`). Text that isn't
+    /// typed because its terminal didn't answer is said over its desk.
     private func typeDictation(_ text: String, into tab: String) {
         guard !text.isEmpty, let address = TabAddress(tab), let driver = Terminals.driver(for: address),
               driver.abilities.contains(.text) else { return }
         let agent = sessions.all.first { $0.tab == tab }?.agent
-        // Only while it's still the text just said: a terminal that gets to it later drops it (see `Delivery`).
-        let by = Date().addingTimeInterval(Terminals.inputWait)
-        Terminals.queue(for: address).async {
+        Deck.deliver(to: tab, done: { [weak self] response in
+            guard response.status == 503 else { return }
+            self?.noteVoice(String(decoding: response.body, as: UTF8.self), cleaned: false, in: tab)
+        }, check: {
             // Only where the agent is in front: behind the shell, the text would wait there to run as a command.
-            if let agent, let tty = Terminals.tty(of: tab), let place = Terminal.place(of: agent, on: tty), place != .front { return }
-            guard Date() < by else { return }
-            _ = driver.insert(text, in: address)
-        }
+            if let agent, let tty = Terminals.tty(of: tab), let place = Terminal.place(of: agent, on: tty), place != .front {
+                return .status(409, "")
+            }
+            return nil
+        }) { driver.insert(text, in: address) }
     }
 
     /// Phone microphone (personal build): the words the phone heard, typed
@@ -2656,8 +2667,8 @@ final class Deck {
         Terminals.queue(for: tab).async {
             if let refusal = check() { return delivery.answer(refusal) }
             guard delivery.begin() else { return }
-            let (ok, timedOut) = Terminal.noticingTimeouts(work)
-            delivery.answer(ok ? .status(204) : timedOut ? .status(503, Terminals.notAnswering(tab, partWay: true)) : .status(404, "Terminal tab not found"))
+            let (ok, timedOut, partWay) = Terminal.noticingTimeouts(work)
+            delivery.answer(ok ? .status(204) : timedOut ? .status(503, Terminals.notAnswering(tab, partWay: partWay)) : .status(404, "Terminal tab not found"))
         }
     }
 
@@ -2726,7 +2737,8 @@ final class Deck {
         guard !sessions.all.isEmpty || !hiredTabs.isEmpty || !hireWindows.isEmpty, !checkingTabs else { return }
         checkingTabs = true
         // On a poller of its own: Terminal not answering never holds up a desk's keys, and a stuck look skips the next.
-        let started = tabsPoll.round({ Terminal.openTTYs() }) { open in
+        // Never refused for a round still running: that round holds `checkingTabs` until it's dealt with.
+        tabsPoll.round({ Terminal.openTTYs() }) { open in
             guard let open else { // unknown is not the same as none
                 self.checkingTabs = false
                 return
@@ -2765,7 +2777,6 @@ final class Deck {
                 }
             }
         }
-        if !started { checkingTabs = false }
     }
 
     /// Sessions in tabs of other terminals: tmux panes and iTerm2 sessions,

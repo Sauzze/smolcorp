@@ -10,8 +10,20 @@ extension Terminals {
 
     /// The queue `tab`'s terminal is driven on: `Terminal.queue` for
     /// Terminal.app's tabs, and for no tab at all (a window opened).
-    static func queue(for tab: TabAddress?) -> DispatchQueue {
-        guard let kind = tab?.kind, kind != "tty" else { return Terminal.queue }
+    static func queue(for tab: TabAddress?) -> DispatchQueue { queue(kind: tab?.kind ?? "tty") }
+
+    static func queue(for tab: String) -> DispatchQueue { queue(for: TabAddress(tab)) }
+
+    /// The queue a window of `terminal` (an `Openers` choice) opens on: that
+    /// terminal's own, so an iTerm2 or Ghostty window slow to open holds up
+    /// only that terminal's desks, never Terminal.app's.
+    static func queue(opening terminal: String) -> DispatchQueue {
+        queue(kind: ["iterm": "iterm", "ghostty": "ghostty"][terminal] ?? "tty")
+    }
+
+    /// The queue of the terminal whose tabs are addressed as `kind:` (`TabAddress.kind`).
+    static func queue(kind: String) -> DispatchQueue {
+        guard kind != "tty" else { return Terminal.queue }
         lock.lock()
         defer { lock.unlock() }
         if let queue = queues[kind] { return queue }
@@ -19,8 +31,6 @@ extension Terminals {
         queues[kind] = queue
         return queue
     }
-
-    static func queue(for tab: String) -> DispatchQueue { queue(for: TabAddress(tab)) }
 
     /// How long a desk's keys or text may wait for their terminal before the
     /// phone is told it isn't answering. Past it, they never go: typed late,
