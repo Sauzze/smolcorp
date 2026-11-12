@@ -1,2 +1,4 @@
 .vercel
 .env*
+# Copied from Resources/web/office.js at deploy time (vercel.json) and by scripts/sync-office.sh for a local preview
+public/office.js

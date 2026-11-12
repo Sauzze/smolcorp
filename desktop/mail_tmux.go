@@ -10,8 +10,8 @@ import (
 )
 
 // Mail typed into a hire's tmux window (MailDelivery.deliver step 2, MailDelivery.swift ~23-114, and
-// HireTmux.paste, pasteState and submit, HireTmux.swift ~103-127), without Claude Code's inbox socket
-// (that is for 1.24.x). tmuxMailWindow is the mailTyper over hireTmux; mailType does the order of looking,
+// HireTmux.paste, pasteState and submit, HireTmux.swift ~103-127), after Claude Code's inbox socket when the
+// owner switched it on (mail_inbox.go). tmuxMailWindow is the mailTyper over hireTmux; mailType does the order of looking,
 // counting the try and typing.
 
 const (
@@ -58,7 +58,7 @@ func (h *hireTmux) paste(text string) bool {
 	if !mailPastable(text) {
 		return false
 	}
-	if !h.ok("set-buffer", "-b", mailPasteBuffer, "--", text) {
+	if !h.ok("set-buffer", "-b", mailPasteBuffer, "--", tmuxLiteral(text)) {
 		return false
 	}
 	if h.ok("paste-buffer", "-p", "-r", "-d", "-b", mailPasteBuffer, "-t", hirePane) {
@@ -147,9 +147,12 @@ func mailTypeInto(server *hireTmux, name, text string, deckAsking func() bool, c
 	return mailType(mailTarget{Name: name}, text, &tmuxMailWindow{tmux: server, pause: pause}, deckAsking, commit)
 }
 
-// mailTypeIntoHire is the pump's way of typing a hire's message: on that hire's own server, never the
-// GM's window. A hire not in tmux here can't be reached.
+// mailTypeIntoHire is the pump's way of typing a hire's message: through its inbox socket when that is on and
+// it has one, else on that hire's own server, never the GM's window. A hire with neither can't be reached.
 func (d *Deck) mailTypeIntoHire(h Hire, text string, commit func() bool) mailResult {
+	if result, tried := d.mailIntoInbox(h, text, commit); tried {
+		return result
+	}
 	server := mailHireTmux(h)
 	name := mailHireName(h)
 	if server == nil && h.State == "starting" {
@@ -157,7 +160,7 @@ func (d *Deck) mailTypeIntoHire(h Hire, text string, commit func() bool) mailRes
 		return mailResult{Outcome: mailWaiting, Note: name + " is still starting."}
 	}
 	if server == nil {
-		return mailResult{Outcome: mailCannot, Note: name + " doesn't run in tmux here, so mail can't reach it."}
+		return mailResult{Outcome: mailCannot, Note: name + " doesn't run in tmux here and has no inbox socket to use, so mail can't reach it."}
 	}
 	return mailTypeInto(server, name, text, func() bool { return d.mailDeckAsking(h) }, commit, time.Sleep)
 }

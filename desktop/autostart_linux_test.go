@@ -158,3 +158,22 @@ func TestAnOldQuotedLoginEntryOfTheInstalledCopyHasItsQuotingFixed(t *testing.T)
 		t.Errorf("the entry is %q, want %q", entry, want)
 	}
 }
+
+// RWTC N3: a test copy never writes the owner's autostart entry, at start or when asked.
+func TestATestCopyLeavesTheLoginEntryAlone(t *testing.T) {
+	loginHome(t)
+	writeFile(t, oldAutostartFile(), "[Desktop Entry]\nName=SauzzeDeck Pro\n")
+	onPort(t, 7799)
+	moveOpenAtLogin()
+	setOpenAtLogin(true)
+	if _, err := os.Stat(oldAutostartFile()); err != nil {
+		t.Error("the old entry was moved")
+	}
+	if _, err := os.Stat(autostartFile()); !os.IsNotExist(err) {
+		t.Error("an entry was written for the test copy")
+	}
+	setOpenAtLogin(false)
+	if _, err := os.Stat(oldAutostartFile()); err != nil {
+		t.Error("the owner's entry was removed")
+	}
+}

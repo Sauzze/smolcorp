@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"fmt"
@@ -28,7 +29,7 @@ type FloorRule struct {
 	// The folder alone, not those in it: as "Always put … here" remembers it
 	// from the office, where a folder above a project's would otherwise take
 	// all of them up. A rule added in setup holds the folders in it too.
-	Exact bool `json:"exact,omitempty"`
+	Exact bool `json:"exact"`
 }
 
 const mostFloorRules = 64
@@ -75,14 +76,16 @@ func checkedFloorRules(given []FloorRule) floorRuleList {
 // floorRulesSent is the rules POST /setup/floors sends, as {"rules": [...]},
 // checked; false when there's no list of them, as from a setup page from
 // before rules.
+// Rules that aren't a list are none, as the Mac reads them (Floor.rules): never an empty list that clears them.
 func floorRulesSent(body []byte) (floorRuleList, bool) {
 	var sent struct {
-		Rules *floorRuleList `json:"rules"`
+		Rules json.RawMessage `json:"rules"`
 	}
-	if json.Unmarshal(body, &sent) != nil || sent.Rules == nil {
+	var rules floorRuleList
+	if json.Unmarshal(body, &sent) != nil || !bytes.HasPrefix(sent.Rules, []byte("[")) || json.Unmarshal(sent.Rules, &rules) != nil {
 		return nil, false
 	}
-	return checkedFloorRules(*sent.Rules), true
+	return checkedFloorRules(rules), true
 }
 
 // ruleFolder is a rule's folder as it's kept: a whole path, a Mac's or
@@ -474,6 +477,9 @@ func (d *Deck) move(id, given string, remember bool) (int, string) {
 		d.changed()
 		return http.StatusNoContent, ""
 	}
+	if hire, ok := d.t3HireAtDesk(id); ok {
+		return d.moveT3(hire, id, floor, full)
+	}
 	s := d.sessions.Get(id)
 	if s == nil {
 		return http.StatusNotFound, "Session not found"
@@ -530,6 +536,11 @@ func (d *Deck) hasRoom(floor int, id string) bool {
 	put := 0
 	for _, s := range d.sessions.All() {
 		if f, ok := d.aboveGround(s); ok && f == floor && s.ID != id {
+			put++
+		}
+	}
+	for _, one := range d.t3Seated() {
+		if one.session.ID != id && t3FloorOf(one.hire) == floor {
 			put++
 		}
 	}

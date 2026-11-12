@@ -167,6 +167,8 @@ func TestPhoneNames(t *testing.T) {
 		"Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)":           "iPad",
 		"Mozilla/5.0 (Linux; Android 15; Pixel 9) Chrome/140.0.0": "Android phone",
 		"curl/8.7.1": "Phone",
+		// The Mac's screen saver pairs from its Options (ScreenSaver/Pairing.swift).
+		"SauzzeDeckScreenSaver/1.25.0": "Screen saver",
 	} {
 		if got := phoneName(userAgent); got != want {
 			t.Errorf("phoneName(%q) = %q, want %q", userAgent, got, want)

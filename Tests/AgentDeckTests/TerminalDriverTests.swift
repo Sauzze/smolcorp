@@ -51,28 +51,6 @@ final class TerminalDriverTests: XCTestCase {
         XCTAssertNil(Terminals.ttyInAddress(of: "tmux:%3@/tmp/s"))
     }
 
-    func testADeckSavedBefore19StillLoadsItsTabs() throws {
-        let old = #"{"id":"s1","agent":"claude","folder":"/w","project":"/w","tty":"/dev/ttys003","state":"idle","effort":"","model":"","transcript":"","startedAt":1,"lastEventAt":1}"#
-        let saved = try JSONDecoder().decode(Sessions.Saved.self, from: Data(old.utf8))
-        XCTAssertEqual(saved.address, "tty:/dev/ttys003")
-        let sessions = Sessions()
-        sessions.restore([saved], fresh: true)
-        XCTAssertEqual(sessions["s1"]?.tab, "tty:/dev/ttys003")
-    }
-
-    func testASessionAndItsReplacementShareATab() {
-        let sessions = Sessions()
-        sessions.apply(["session_id": "a", "hook_event_name": "SessionStart", "source": "startup", "cwd": "/w"],
-                       agent: .claude, tab: "iterm:ABC", startedIn: "/w", at: 1)
-        sessions.apply(["session_id": "b", "hook_event_name": "SessionStart", "source": "clear", "cwd": "/w"],
-                       agent: .claude, tab: "iterm:ABC", startedIn: "/w", at: 2)
-        XCTAssertNil(sessions["a"], "the new session took the old one's place in the tab")
-        XCTAssertEqual(sessions["b"]?.tab, "iterm:ABC")
-        let saved = sessions.saved.first
-        XCTAssertEqual(saved?.tty, "", "a tab that isn't Terminal.app's has no tty to save for older versions")
-        XCTAssertEqual(saved?.address, "iterm:ABC")
-    }
-
     /// Nothing smuggled in: an address carrying a line break, or not in its
     /// terminal's own shape, isn't one.
     func testOnlyAddressesInTheirOwnShape() {
@@ -82,26 +60,6 @@ final class TerminalDriverTests: XCTestCase {
                     "tmux:%3", "tmux:%3@", "kitty:3", "wezterm:5", "wezterm:5@", "iterm:\u{FF11}\u{FF12}"] {
             XCTAssertNil(TabAddress(bad), bad)
         }
-    }
-
-    func testAHookHeaderTwiceIsntBelieved() {
-        let hook = { (repeated: Set<String>) in
-            Request(method: "POST", path: "/hook", query: [:], headers: [:], body: Data(), isLocal: true,
-                    isAddressedDirectly: true, remoteAddress: "127.0.0.1", repeatedHeaders: repeated)
-        }
-        XCTAssertTrue(DeckRouter.hasSmuggledHookHeader(hook(["x-agentdeck-tab"])))
-        XCTAssertTrue(DeckRouter.hasSmuggledHookHeader(hook(["x-agentdeck-token"])))
-        XCTAssertFalse(DeckRouter.hasSmuggledHookHeader(hook(["accept"])), "only the hook's own headers matter")
-        XCTAssertFalse(DeckRouter.hasSmuggledHookHeader(hook([])))
-    }
-
-    func testASessionFoundByItsFolderMovesToTerminalsTabOnceListed() {
-        let sessions = Sessions()
-        sessions.apply(["session_id": "codex", "hook_event_name": "SessionStart", "source": "startup", "cwd": "/w"],
-                       agent: .codex, tab: "other:/dev/ttys007", startedIn: "/w", at: 1)
-        XCTAssertEqual(Terminals.abilities(of: sessions["codex"]!.tab), .none, "watched until Terminal lists the tab")
-        sessions.retag("other:/dev/ttys007", as: "tty:/dev/ttys007")
-        XCTAssertEqual(sessions["codex"]?.tab, "tty:/dev/ttys007")
     }
 
     func testGhosttysTextIsTypedAsItsTextActionReadsIt() {

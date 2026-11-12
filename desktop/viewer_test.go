@@ -313,6 +313,47 @@ func TestAKeyThatCantBeReadIsNeverReplaced(t *testing.T) {
 	}
 }
 
+// A first ask that fails or times out isn't an answer: the write secret is asked for again, and a sure
+// "none" is the only thing kept.
+func TestAFailedAskForTheWriteSecretIsNotKept(t *testing.T) {
+	d, _, secrets := portableDeck(t)
+	d.portable.MakeWriteSecret()
+	d.portable.mu.Lock()
+	d.portable.secretKnown = nil
+	d.portable.mu.Unlock()
+	secrets.mu.Lock()
+	secrets.broken = true
+	secrets.mu.Unlock()
+	d.portable.mu.Lock()
+	failed := d.portable.hasWriteSecret()
+	kept := d.portable.secretKnown
+	d.portable.mu.Unlock()
+	if !failed || kept != nil {
+		t.Errorf("a failed ask gave %v and kept %v", failed, kept)
+	}
+	secrets.mu.Lock()
+	secrets.broken = false
+	secrets.mu.Unlock()
+	d.portable.mu.Lock()
+	again := d.portable.hasWriteSecret()
+	d.portable.mu.Unlock()
+	if !again || d.portable.Link() == "" {
+		t.Error("the write secret and the link are gone after one failed ask")
+	}
+	// A sure none is kept.
+	secrets.mu.Lock()
+	delete(secrets.values, viewerSecretAccount)
+	secrets.mu.Unlock()
+	d.portable.mu.Lock()
+	d.portable.secretKnown = nil
+	none := d.portable.hasWriteSecret()
+	kept = d.portable.secretKnown
+	d.portable.mu.Unlock()
+	if none || kept == nil || *kept {
+		t.Errorf("a sure none gave %v and kept %v", none, kept)
+	}
+}
+
 // The link holds the key: a tool with the setup-key file is let read the viewer's state, not the link.
 func TestOnlyThePageGetsTheViewerLink(t *testing.T) {
 	d, _, _ := portableDeck(t)

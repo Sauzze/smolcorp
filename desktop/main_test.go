@@ -39,10 +39,15 @@ func runWithTempSupport(m *testing.M) int {
 	setupKeyFile = filepath.Join(supportDir, "setup-key")
 	windowKeyFile = filepath.Join(supportDir, "window-key")
 
+	// No test inherits a test copy's folder from whatever ran it (a hire's start script sets this): a test
+	// that wants one sets its own.
+	os.Unsetenv(testSupportVariable)
 	// Anything that asks the system for the home or config folder lands here too.
 	os.Setenv("HOME", homeDir)
 	os.Setenv("USERPROFILE", homeDir)
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(homeDir, ".config"))
 	os.Setenv("APPDATA", filepath.Join(homeDir, "AppData"))
+	// Tailscale's command line is never run by a test: no Tailscale here, unless a test puts in its own.
+	askTailnet = func() (tailnetAnswer, bool) { return tailnetAnswer{}, false }
 	return m.Run()
 }

@@ -5,6 +5,7 @@ package desktop
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -60,7 +61,8 @@ func TestTheLoginShellIsTheOneSHELLNamesElseBashElseSh(t *testing.T) {
 		t.Errorf("with SHELL set the login shell is %q, want /usr/bin/zsh", got)
 	}
 
-	// SHELL unset (or empty): the bash on PATH, as a terminal's own start would have it.
+	// SHELL unset (or empty): the bash on PATH, as a terminal's own start would have it; on a Mac, zsh, as
+	// Terminal and the Mac's engine (TerminalDrivers.swift) start, so ~/.zprofile and ~/.zshrc are read.
 	bin := t.TempDir()
 	bash := filepath.Join(bin, "bash")
 	if err := os.WriteFile(bash, []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -68,14 +70,21 @@ func TestTheLoginShellIsTheOneSHELLNamesElseBashElseSh(t *testing.T) {
 	}
 	t.Setenv("SHELL", "")
 	t.Setenv("PATH", bin)
-	if got := loginShell(); got != bash {
-		t.Errorf("with SHELL empty the login shell is %q, want the bash on PATH, %s", got, bash)
+	withBash, withNone := bash, "/bin/sh"
+	if runtime.GOOS == "darwin" {
+		withBash, withNone = macShell, macShell
+	}
+	if got := loginShell(); got != withBash {
+		t.Errorf("with SHELL empty the login shell is %q, want %s", got, withBash)
+	}
+	if got := inLoginShell([]string{"claude"}); got[0] != withBash {
+		t.Errorf("a hire's command with SHELL empty: %q", got)
 	}
 
 	// No bash on PATH either.
 	t.Setenv("PATH", t.TempDir())
-	if got := loginShell(); got != "/bin/sh" {
-		t.Errorf("with SHELL empty and no bash the login shell is %q, want /bin/sh", got)
+	if got := loginShell(); got != withNone {
+		t.Errorf("with SHELL empty and no bash the login shell is %q, want %s", got, withNone)
 	}
 }
 

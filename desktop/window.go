@@ -81,8 +81,14 @@ func officeAddress(base, key string) string {
 	if key == "" {
 		return base + "/office"
 	}
-	return base + "/office?t=" + key
+	return base + "/office?t=" + key + "&" + ownWindowMark
 }
+
+// ownWindowMark marks the office's own window on this computer in its address, as
+// the Mac's office window is marked by ?window: the page asks /t3code only there,
+// so a browser paired with its own key never asks and is never refused (403). It
+// grants nothing: the key still decides, on every request.
+const ownWindowMark = "own"
 
 func localBase() string { return fmt.Sprintf("http://localhost:%d", Port) }
 

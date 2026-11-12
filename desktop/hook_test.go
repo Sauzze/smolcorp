@@ -131,8 +131,12 @@ func TestAHeadlessRunSaysWhoHiredIt(t *testing.T) {
 			t.Fatalf("the hook for %s gave %d", id, answer.Code)
 		}
 	}
+	// With the lock held, as the app holds it: the hooks asked for a save, which reads the desks a moment later.
+	d.mu.Lock()
+	desks := d.upstairs()["desks"].([]map[string]any)
+	d.mu.Unlock()
 	hired := map[string]any{}
-	for _, desk := range d.upstairs()["desks"].([]map[string]any) {
+	for _, desk := range desks {
 		hired[desk["id"].(string)] = desk["hiredBy"]
 	}
 	if by, _ := hired["h0"].(map[string]any); by["id"] != "s0" || by["name"] != "p0" {

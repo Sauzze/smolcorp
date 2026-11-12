@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"runtime"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Access decides who may use the deck: the phones you paired, and the agents'
@@ -199,15 +201,50 @@ func newSetupKey() string {
 	return key
 }
 
+// loadHookKey is the hook's key, kept across starts. Under the Mac app it is also kept as the Mac's
+// hook-header, the line its report.sh sends, which every agent hooked by the Swift engine runs: the key
+// already there is kept, so they go on reporting with no new connect, and switching back finds the same.
 func loadHookKey() string {
-	if saved, err := os.ReadFile(hookKeyFile); err == nil {
-		if key := strings.TrimSpace(string(saved)); key != "" {
-			return key
+	key := macHookKey()
+	if key == "" {
+		if saved, err := os.ReadFile(hookKeyFile); err == nil {
+			key = strings.TrimSpace(string(saved))
 		}
 	}
-	key := randomKey()
-	_ = writePrivate(hookKeyFile, []byte(key+"\n"))
+	if key == "" {
+		key = randomKey()
+	}
+	keepPrivate(hookKeyFile, key+"\n")
+	if hookHeaderFile != "" {
+		keepPrivate(hookHeaderFile, hookKeyHeader+": "+key+"\n")
+	}
 	return key
+}
+
+// macHookKey is the key in the Mac app's hook-header, read as its Access.loadHookKey reads it, or "".
+func macHookKey() string {
+	if hookHeaderFile == "" {
+		return ""
+	}
+	saved, err := os.ReadFile(hookHeaderFile)
+	if err != nil {
+		return ""
+	}
+	key, found := strings.CutPrefix(strings.TrimSpace(string(saved)), hookKeyHeader+": ")
+	if !found || strings.IndexFunc(key, unicode.IsControl) >= 0 {
+		return ""
+	}
+	return key
+}
+
+// keepPrivate writes text to path, readable by its owner only, unless it is so already.
+func keepPrivate(path, text string) {
+	if saved, err := os.ReadFile(path); err == nil && string(saved) == text {
+		if info, err := os.Stat(path); err == nil && (runtime.GOOS == "windows" || info.Mode().Perm() == 0o600) {
+			return
+		}
+	}
+	_ = writePrivate(path, []byte(text))
 }
 
 // PairedPhone is a phone you paired, as phones.json keeps it.
@@ -308,6 +345,9 @@ func phoneName(userAgent string) string {
 	// system may write it either way.
 	case strings.Contains(userAgent, "AgentOffice"), strings.Contains(userAgent, "Agent%20Office"):
 		return "Agent Office"
+	// So does the Mac's screen saver, from its Options (ScreenSaver/Pairing.swift).
+	case strings.Contains(userAgent, "SauzzeDeckScreenSaver"):
+		return "Screen saver"
 	case strings.Contains(userAgent, "iPhone"):
 		return "iPhone"
 	case strings.Contains(userAgent, "iPad"):

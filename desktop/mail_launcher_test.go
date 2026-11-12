@@ -95,8 +95,10 @@ func newFakeLauncherAs(t *testing.T, d *Deck, id, folder, role, hire, shows stri
 		}
 	}()
 	cursor := &cursorMode{bracketed: f.screen.Bracketed}
-	go follow(pipe, f, cursor, func(proof, number string) {
+	go followWith(pipe, f, cursor, func(proof, number string) {
 		postScreenAnswer(server.Client(), server.URL, d.access.HookKey, proof, id, number, f.screen)
+	}, func(proof, number, outcome string) {
+		postPasteAnswer(server.Client(), server.URL, d.access.HookKey, proof, id, number, outcome, f.screen)
 	}, func() {})
 	return f
 }

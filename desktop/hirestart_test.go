@@ -1,11 +1,14 @@
 package desktop
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -214,11 +217,21 @@ func TestATestCopyNeverHiresClaudeOnTheDefaultAccount(t *testing.T) {
 			t.Errorf("a test copy hiring %q: %v, want the T721 refusal", program, err)
 		}
 	}
-	if testCopyRefusal(7799, "claude", "/acct") == nil {
+	// On a Mac a test copy hires on a named account, as the Mac's Swift engine does (setuphire_test.go).
+	if runtime.GOOS != "darwin" && testCopyRefusal(7799, "claude", "/acct") == nil {
 		t.Error("a test copy's hire on a named account must wait for the reporting hooks")
 	}
-	if testCopyRefusal(0, "claude", "") != nil || testCopyRefusal(7799, "codex", "") != nil {
-		t.Error("the office's own hires, and a test copy's other agents, are not refused")
+	if testCopyRefusal(0, "claude", "") != nil || testCopyRefusal(0, "codex", "") != nil {
+		t.Error("the office's own hires are not refused")
+	}
+	// Another agent would report to the real office through its own hooks: refused, as the Mac's test copy does.
+	for _, program := range []string{"codex", "gemini", "opencode"} {
+		for _, configDir := range []string{"", "/acct"} {
+			err := testCopyRefusal(7799, program, configDir)
+			if r, ok := err.(*hireRefusal); !ok || r.Status != 409 || r.Message != testCopyOnlyClaude {
+				t.Errorf("a test copy hiring %s (%q): %v, want the Mac's refusal", program, configDir, err)
+			}
+		}
 	}
 }
 
@@ -267,6 +280,41 @@ func TestHireEnvironmentNeverCarriesTheGMToken(t *testing.T) {
 	}
 }
 
+// The office's own hires get what the Mac's engine passes on (Engine.swift inherited: the ssh agent, LOGNAME,
+// LC_*), never the port and folder the Mac app names its engine by, nor a hire's send key. A test copy's hires
+// keep its port and folder, so they never reach the real office (FXC3c).
+func TestTheOfficesHireIsNotGivenTheEnginesPortFolderOrAHireKey(t *testing.T) {
+	onPort(t, portFromEnvironment(""))
+	t.Setenv("SMOLCORP_PORT", "7710")
+	t.Setenv("SMOLCORP_TEST_SUPPORT_DIR", "/fake/support")
+	t.Setenv(hireKeyEnvironment, "fake-send-key")
+	t.Setenv("SSH_AUTH_SOCK", "/fake/agent.sock")
+	t.Setenv("LOGNAME", "me")
+	t.Setenv("LC_CTYPE", "UTF-8")
+	env := hireEnvironment()
+	for _, name := range []string{"SMOLCORP_PORT", "SMOLCORP_TEST_SUPPORT_DIR", hireKeyEnvironment} {
+		if slices.ContainsFunc(env, func(v string) bool { return strings.HasPrefix(v, name+"=") }) {
+			t.Errorf("the office's hire gets %s", name)
+		}
+	}
+	for _, kept := range []string{"SSH_AUTH_SOCK=/fake/agent.sock", "LOGNAME=me", "LC_CTYPE=UTF-8"} {
+		if !slices.Contains(env, kept) {
+			t.Errorf("the office's hire lost %s", kept)
+		}
+	}
+	onPort(t, portFromEnvironment("")+1)
+	t.Setenv("SMOLCORP_PORT", strconv.Itoa(Port))
+	env = hireEnvironment()
+	for _, kept := range []string{"SMOLCORP_PORT=" + strconv.Itoa(Port), "SMOLCORP_TEST_SUPPORT_DIR=/fake/support"} {
+		if !slices.Contains(env, kept) {
+			t.Errorf("a test copy's hire lost %s", kept)
+		}
+	}
+	if slices.ContainsFunc(env, func(v string) bool { return strings.HasPrefix(v, hireKeyEnvironment+"=") }) {
+		t.Error("a test copy's hire gets another's send key")
+	}
+}
+
 // The test-copy port comes from the default the app itself uses, and a refusal
 // that isn't a hireRefusal still gives a status.
 func TestTestCopyPortFollowsTheDefaultAndRefusalStatusHasAFallback(t *testing.T) {
@@ -283,5 +331,70 @@ func TestTestCopyPortFollowsTheDefaultAndRefusalStatusHasAFallback(t *testing.T)
 	}
 	if got := refusalStatus(errors.New("plain")); got != 409 {
 		t.Errorf("a plain error gave %d, want 409", got)
+	}
+}
+
+// The General Manager starts with its plugin, where the app bundles it (Role.startScript, GMPlugin.Launch): its
+// folder and its agent as the session's, the program its tools run, or none even from the terminal's, and it is
+// told who it is. No other role ever gets the plugin.
+func TestTheGMStartsWithItsPluginAndAgent(t *testing.T) {
+	gm := Role{ID: gmRole, Name: "General Manager", Agent: "claude", Model: "opus"}
+	start := hireStart{Role: gm, Message: "Read your brief.", GMToken: "t0ken", GMPlugin: "/Applications/Smolcorp.app/Contents/Resources/gm/plugin",
+		GMCLI: "/Applications/Smolcorp.app/Contents/Resources/bin/smolcorp"}
+	script, err := start.script()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`'--plugin-dir=/Applications/Smolcorp.app/Contents/Resources/gm/plugin' '--agent=smolcorp-gm:general-manager' '--model=opus'`,
+		"export SMOLCORP_CLI='/Applications/Smolcorp.app/Contents/Resources/bin/smolcorp'\n"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the GM's script has no %q:\n%s", want, script)
+		}
+	}
+	start.GMCLI = ""
+	if script, _ := start.script(); !strings.Contains(script, "unset SMOLCORP_CLI\n") || strings.Contains(script, "export SMOLCORP_CLI") {
+		t.Errorf("no program: the variable is unset:\n%s", script)
+	}
+	start.Role.ID, start.GMToken = "reviewer", ""
+	if _, err := start.script(); err == nil {
+		t.Error("a reviewer started with the GM's plugin")
+	}
+	if script, _ := (hireStart{Role: gm, Message: "m", GMToken: "t0ken"}).script(); strings.Contains(script, "plugin") || strings.Contains(script, "SMOLCORP_CLI") {
+		t.Errorf("no plugin bundled, none loaded:\n%s", script)
+	}
+
+	intro := gmIntroduction("/x/hires", false)
+	if !strings.HasPrefix(intro, "You are the General Manager of this team. Your folder is /x/hires.") || strings.Contains(intro, "not available") {
+		t.Errorf("the introduction: %q", intro)
+	}
+	if !strings.Contains(gmIntroduction("/x/hires", true), "The `smolcorp` tools are not available in this copy of Smolcorp") {
+		t.Error("the GM isn't told its tools are missing")
+	}
+}
+
+// The plugin is found beside the program as Smolcorp.app bundles it (bin/smolcorp and gm/plugin in Resources),
+// and the repo's own plugin is the one the start line names: its manifest's name, its agent, and its tools'
+// server run through SMOLCORP_CLI.
+func TestTheGMPluginIsFoundBesideTheProgramAsTheAppBundlesIt(t *testing.T) {
+	resources := t.TempDir()
+	cli := filepath.Join(resources, "bin", "smolcorp")
+	if gmPluginFolder(cli) != "" || gmPluginFolder("") != "" {
+		t.Error("a plugin found where there's none")
+	}
+	writeFile(t, filepath.Join(resources, "gm", "plugin", ".claude-plugin", "plugin.json"), "{}")
+	if got := gmPluginFolder(cli); got != filepath.Join(resources, "gm", "plugin") {
+		t.Errorf("found %q", got)
+	}
+	plugin := filepath.Join("..", "Resources", "gm", "plugin")
+	var manifest struct{ Name string }
+	data, err := os.ReadFile(filepath.Join(plugin, ".claude-plugin", "plugin.json"))
+	if err != nil || json.Unmarshal(data, &manifest) != nil || manifest.Name != gmPluginName {
+		t.Errorf("the plugin's manifest: %v %q", err, manifest.Name)
+	}
+	if _, err := os.Stat(filepath.Join(plugin, "agents", gmPluginAgent+".md")); err != nil {
+		t.Errorf("the plugin's agent: %v", err)
+	}
+	if tools, _ := os.ReadFile(filepath.Join(plugin, ".mcp.json")); !strings.Contains(string(tools), "${"+gmCLIEnvironment+"}") {
+		t.Errorf("the tools' server doesn't run through $%s: %s", gmCLIEnvironment, tools)
 	}
 }

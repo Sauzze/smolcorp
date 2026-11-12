@@ -121,12 +121,17 @@ func TestRolesAsShippedIn171AreBroughtUpToDate(t *testing.T) {
 func TestARoleIsStartedFromSetupsRoles(t *testing.T) {
 	isolate(t)
 	writeFile(t, configFile, `{"roles": [{"id": "tester", "name": "Tester", "agent": "codex", "instructions": "Run the tests."}]}`)
-	args, err := roleArguments("tester", "/work", startedHere)
+	args, err := roleArguments("tester", "/work", startedHere, "")
 	if err != nil || len(args) != 3 || args[0] != "codex" || args[1] != "--" || !strings.HasSuffix(args[2], "Once I've answered, as my Tester: Run the tests.") {
 		t.Errorf("the tester starts as %q, %v", args, err)
 	}
-	if _, err := roleArguments("nobody", "/work", startedHere); err == nil || !strings.Contains(err.Error(), "Yours are: tester") {
+	if _, err := roleArguments("nobody", "/work", startedHere, ""); err == nil || !strings.Contains(err.Error(), "Yours are: tester") {
 		t.Errorf("an unknown role gave %v, want the ones there are", err)
+	}
+	// An engine hire's launcher is handed the message the app made with its brief.
+	if args, err := roleArguments("tester", "/work", hiredIntoGeneralFolder, "Read `~/BRIEF.md` and follow it."); err != nil ||
+		args[len(args)-1] != "Read `~/BRIEF.md` and follow it." {
+		t.Errorf("with the brief's message the tester starts as %q, %v", args, err)
 	}
 }
 

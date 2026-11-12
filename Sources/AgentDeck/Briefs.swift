@@ -113,73 +113,36 @@ struct Brief: Codable, Equatable {
         try BriefTemplate.check(text)
         return Brief(kind: .file, text: text, fileName: fileName)
     }
-
-    /// The branch checked out where `folder` is, or nil outside git or with
-    /// none checked out. Read from git's own files, without running git.
-    static func branch(in folder: String) -> String? {
-        let manager = FileManager.default
-        var dir = URL(fileURLWithPath: folder).standardizedFileURL
-        while true {
-            let dotGit = dir.appendingPathComponent(".git")
-            var isFolder: ObjCBool = false
-            if manager.fileExists(atPath: dotGit.path, isDirectory: &isFolder) {
-                var gitDir = dotGit
-                // A worktree's .git is a file naming its folder.
-                if !isFolder.boolValue {
-                    guard let line = try? String(contentsOf: dotGit, encoding: .utf8), line.hasPrefix("gitdir:") else { return nil }
-                    let path = line.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespacesAndNewlines)
-                    gitDir = path.hasPrefix("/") ? URL(fileURLWithPath: path) : dir.appendingPathComponent(path)
-                }
-                guard let head = try? String(contentsOf: gitDir.appendingPathComponent("HEAD"), encoding: .utf8) else { return nil }
-                let ref = head.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard ref.hasPrefix("ref: refs/heads/") else { return nil }
-                let name = String(ref.dropFirst("ref: refs/heads/".count))
-                return name.isEmpty || name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) ? nil : name
-            }
-            let parent = dir.deletingLastPathComponent()
-            if parent.path == dir.path { return nil }
-            dir = parent
-        }
-    }
 }
 
 /// The few rules a brief is written in: `{{name}}` for a value,
 /// `{{#name}}…{{/name}}` for text kept only when the value is set (not empty,
 /// false, no or 0) and `{{^name}}…{{/name}}` only when it isn't, `<!-- … -->`
 /// for notes to whoever edits it, and front matter between `---` lines on top.
-/// A section tag alone on its line takes the line with it. The library's
-/// skeleton also has `{{> slot}}`, for each brief's own sections.
+/// A section tag alone on its line takes the line with it. Only checked here,
+/// for a brief you picked: the briefs themselves are filled in by the core.
 enum BriefTemplate {
     /// Every value a hire fills, besides the front matter's own keys.
     static let names: Set<String> = ["role", "date", "project_folder", "branch", "agent", "model", "effort", "job", "approval",
                                      "status_file", "brief_file", "report_file", "done_signal", "read_only"]
-    /// Front matter keys that aren't values, and `question`, of which there can be several.
-    static let metaKeys: Set<String> = ["name", "summary", "question", "report"]
 
     struct FrontMatter {
         var values: [String: String] = [:]
-        var questions: [String] = []
-        /// The front matter as written, with its `---` lines, or empty.
-        var head = ""
         var body: String
     }
 
-    /// The front matter, `key: value` lines, and the text after it.
+    /// The front matter, `key: value` lines (`question` lines aside, of which there can be several), and the text after it.
     static func frontMatter(_ text: String) -> FrontMatter {
         guard text.hasPrefix("---\n"), let end = text.range(of: "\n---\n", range: text.index(text.startIndex, offsetBy: 3)..<text.endIndex)
         else { return FrontMatter(body: text) }
-        var parsed = FrontMatter(head: String(text[..<end.upperBound]), body: String(text[end.upperBound...]))
+        var parsed = FrontMatter(body: String(text[end.upperBound...]))
         let start = text.index(text.startIndex, offsetBy: 4)
         for line in (start < end.lowerBound ? text[start..<end.lowerBound] : "").split(separator: "\n") {
             guard let colon = line.firstIndex(of: ":") else { continue }
             let key = line[..<colon].trimmingCharacters(in: .whitespaces)
             let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
             guard key.range(of: "^[A-Za-z0-9_]+$", options: .regularExpression) != nil else { continue }
-            if key == "question" {
-                if !value.isEmpty { parsed.questions.append(value) }
-            } else {
-                parsed.values[key] = value
-            }
+            if key != "question" { parsed.values[key] = value }
         }
         return parsed
     }
@@ -222,13 +185,6 @@ enum BriefTemplate {
         _ = try resolve(parsed.body, known: known, values: [:])
     }
 
-    /// `body` with its sections resolved and its values filled: each value
-    /// as it is, never read again for tags of its own. Refused, saying why,
-    /// if a tag would be left in it.
-    static func render(_ body: String, values: [String: String], known: Set<String>) throws -> String {
-        try resolve(body, known: known, values: values)
-    }
-
     private static func resolve(_ body: String, known: Set<String>, values: [String: String]) throws -> String {
         var text = replacing(comment, in: body) { _ in "" }
         if text.contains("{{>") { throw Brief.Problem.slots }
@@ -249,383 +205,5 @@ enum BriefTemplate {
         text = text.replacingOccurrences(of: #"[ \t]+\n"#, with: "\n", options: .regularExpression)
             .replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
         return text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
-    }
-}
-
-/// The briefs that come with the app: `_base.md`, the skeleton they share,
-/// and each brief's own front matter and sections, poured into it.
-struct BriefLibrary {
-    let folder: URL
-
-    static let bundled = BriefLibrary(folder: Paths.briefs)
-
-    /// The files that make the library: the skeleton and each brief.
-    static var fileNames: [String] { ["_base.md"] + Brief.libraryIDs.map { "\($0).md" } }
-
-    /// The library as you can edit it, in `folder`: each file the app has that
-    /// isn't there yet is copied in, one you've changed is never replaced.
-    /// Without the app's own files, or a folder to write in, the app's are used.
-    static func editable(from source: URL = Paths.briefs, in folder: URL = Paths.briefTemplates) -> BriefLibrary {
-        copyDefaults(from: source, to: folder, replacing: false)
-        let fm = FileManager.default
-        return fm.fileExists(atPath: folder.appendingPathComponent("_base.md").path) ? BriefLibrary(folder: folder) : BriefLibrary(folder: source)
-    }
-
-    /// "Restore defaults": the app's own files over yours, the library's only.
-    /// Anything else in the folder is left as it is.
-    @discardableResult
-    static func restoreDefaults(from source: URL = Paths.briefs, in folder: URL = Paths.briefTemplates) -> Int {
-        copyDefaults(from: source, to: folder, replacing: true)
-    }
-
-    @discardableResult
-    private static func copyDefaults(from source: URL, to folder: URL, replacing: Bool) -> Int {
-        let fm = FileManager.default
-        try? fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        var copied = 0
-        for name in fileNames {
-            let from = source.appendingPathComponent(name), to = folder.appendingPathComponent(name)
-            guard let data = try? Data(contentsOf: from) else { continue }
-            if !replacing, (try? fm.attributesOfItem(atPath: to.path)) != nil { continue }
-            // Whole or not at all, and never through a link someone put there.
-            try? fm.removeItem(at: to)
-            if Paths.writePrivately(data, to: to) { copied += 1 }
-        }
-        return copied
-    }
-
-    struct Entry {
-        let id, name, summary: String
-        let questions: [String]
-
-        var jsonObject: [String: Any] { ["id": id, "name": name, "summary": summary, "questions": questions] }
-    }
-
-    /// Those that are there, in `Brief.libraryIDs`'s order.
-    func entries() -> [Entry] {
-        Brief.libraryIDs.compactMap { id in
-            guard let text = source(id) else { return nil }
-            let parsed = BriefTemplate.frontMatter(text)
-            return Entry(id: id, name: parsed.values["name"] ?? id, summary: parsed.values["summary"] ?? "", questions: parsed.questions)
-        }
-    }
-
-    private func source(_ id: String) -> String? {
-        guard Brief.libraryIDs.contains(id) else { return nil }
-        return try? String(contentsOf: folder.appendingPathComponent("\(id).md"), encoding: .utf8)
-    }
-
-    /// The whole brief, as a picked file would be: its front matter, then
-    /// the skeleton with its sections in, placeholders left to fill. Nil for
-    /// an id that isn't one of the library's.
-    func template(_ id: String) -> String? {
-        guard let text = source(id), let base = try? String(contentsOf: folder.appendingPathComponent("_base.md"), encoding: .utf8)
-        else { return nil }
-        let parsed = BriefTemplate.frontMatter(text)
-        // Its sections, each from its `<!-- slot: name -->` line to the next.
-        var slots: [String: String] = [:]
-        var name: String?
-        var lines: [Substring] = []
-        func keep() { if let name { slots[name] = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines) } }
-        for line in parsed.body.split(separator: "\n", omittingEmptySubsequences: false) {
-            if let found = line.wholeMatch(of: #/<!-- slot: ([a-z_]+) -->/#) {
-                keep()
-                (name, lines) = (String(found.1), [])
-            } else {
-                lines.append(line)
-            }
-        }
-        keep()
-        let poured = base.split(separator: "\n", omittingEmptySubsequences: false).compactMap { line -> String? in
-            guard let found = line.wholeMatch(of: #/\{\{> ([a-z_]+)\}\}/#) else {
-                // A slot inside a line.
-                return String(line).replacing(#/\{\{> ([a-z_]+)\}\}/#) { slots[String($0.1)] ?? "" }
-            }
-            let slot = slots[String(found.1)] ?? ""
-            return slot.isEmpty ? nil : slot
-        }.joined(separator: "\n")
-        return parsed.head + poured
-    }
-}
-
-/// What a hire's brief is filled in with, besides its role.
-struct BriefContext {
-    /// Where the hire starts, and where its brief is written.
-    var folder: String
-    /// Started in a desk's own project, so it asks you to confirm that one
-    /// rather than which project to work on.
-    var pinned: Bool
-    /// The answers to the role's questions, in their order; nil when the
-    /// agent asks them itself, first.
-    var answers: [String]?
-    var date = Date()
-    var briefFile: String
-    var statusFile: String
-    var reportFile: String?
-    /// The task, written out by whoever hired (the GM): it is the job, in place of the role's questions.
-    var task: String?
-
-    static let answerLimit = 2000
-    static let taskLimit = 8000
-    static let approval = "The user hired you for this; don't wait for plan approval unless this brief says to ask."
-}
-
-extension Role {
-    /// The brief's text before it's filled in, or nil for a role started on
-    /// its own instructions. Throws if its library brief isn't there.
-    func briefTemplate(in library: BriefLibrary) throws -> String? {
-        switch source.kind {
-        case .text: return nil
-        case .file: return source.text
-        case .library:
-            guard let template = library.template(source.id) else { throw BriefError.missing(source.id) }
-            return template
-        }
-    }
-
-    /// The report file a brief names in its front matter, if any, as its
-    /// base name: REVIEW for REVIEW.md.
-    static func reportName(of template: String) -> String? {
-        let name = BriefTemplate.frontMatter(template).values["report"] ?? ""
-        return name.range(of: "^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$", options: .regularExpression) != nil ? name : nil
-    }
-
-    /// The brief filled in for a hire: its folder and branch, the answers
-    /// to its questions (or the questions to ask first), how it runs, the
-    /// pre-approval, and where it reports.
-    func renderBrief(_ template: String, _ context: BriefContext) throws -> String {
-        let parsed = BriefTemplate.frontMatter(template)
-        let agent = Agent(rawValue: agent) ?? .claude
-        let shown = { (path: String) in (path as NSString).abbreviatingWithTildeInPath }
-        let date = DateFormatter()
-        date.locale = Locale(identifier: "en_US_POSIX")
-        date.dateFormat = "yyyy-MM-dd"
-        var values = parsed.values
-        values["role"] = name
-        values["date"] = date.string(from: context.date)
-        values["project_folder"] = shown(context.folder)
-        values["branch"] = Brief.branch(in: context.folder) ?? ""
-        values["agent"] = agent.name
-        values["model"] = model
-        values["effort"] = agent.hasEffortDial ? effort : ""
-        values["approval"] = BriefContext.approval
-        values["brief_file"] = shown(context.briefFile)
-        values["status_file"] = shown(context.statusFile)
-        values["report_file"] = context.reportFile.map(shown) ?? ""
-        values["done_signal"] = BriefTemplate.isSet(parsed.values["done_signal"]) ? parsed.values["done_signal"] : "JOB DONE"
-        values["read_only"] = parsed.values["read_only"] ?? "false"
-        values["job"] = job(context, statusFile: shown(context.statusFile))
-        return try BriefTemplate.render(parsed.body, values: values, known: BriefTemplate.names.union(parsed.values.keys))
-    }
-
-    /// "The job": the role's questions with your answers, or, with none
-    /// given, the questions the agent asks you first, as a hire always has.
-    private func job(_ context: BriefContext, statusFile: String) -> String {
-        let shown = (context.folder as NSString).abbreviatingWithTildeInPath
-        if let task = context.task.map(BriefContext.task), !task.isEmpty {
-            return "The task, from whoever hired you:\n\n\(task)"
-        }
-        guard let answers = context.answers else {
-            let project = context.pinned
-                ? "You've started in \(shown), this desk's project. Is that the one to work on?"
-                : "Which project should you work on: a folder on this computer, or a GitHub repository?"
-            let asked = ([project] + questions).enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
-            return "Before anything else, ask the user these questions in your first reply, all together, and wait for "
-                + "their answers. Don't read code, run commands or start work until they've answered.\n\n\(asked)\n\n"
-                + "Once they've answered, write each question with its answer at the top of `\(statusFile)`, then start."
-        }
-        let answered = [("Which project should you work on?", "`\(shown)`")] + questions.enumerated().map { i, question in
-            let answer = i < answers.count ? BriefContext.answer(answers[i]) : ""
-            return (question, answer.isEmpty ? "*No answer: use your judgement, and say what you chose in `\(statusFile)`.*" : answer)
-        }
-        return "The user answered these questions as they hired you:\n\n"
-            + answered.map { "- **\($0.0)** \($0.1)" }.joined(separator: "\n")
-    }
-
-    /// What the agent is first told when its brief is written: to read it,
-    /// then to ask its questions first or, answered already, to start.
-    func briefMessage(at path: String, asks: Bool) -> String {
-        let shown = "`\((path as NSString).abbreviatingWithTildeInPath)`"
-        return asks
-            ? "Read \(shown) and follow it: it's your brief, as my \(name). As it says, your first reply must only ask me its "
-                + "questions, all together; wait for my answers before you read code or run commands."
-            : "Read \(shown) and start: it's your brief, as my \(name), with my answers to its questions."
-    }
-}
-
-extension BriefContext {
-    /// A task as it goes into the brief: without control characters but line
-    /// ends and tabs, trimmed, and not too long.
-    static func task(_ text: String) -> String {
-        let clean = String(String.UnicodeScalarView(text.unicodeScalars.filter {
-            $0 == "\n" || $0 == "\t" || !CharacterSet.controlCharacters.contains($0)
-        })).trimmingCharacters(in: .whitespacesAndNewlines)
-        return String(clean.prefix(taskLimit))
-    }
-
-    /// Text without control characters but line ends, trimmed.
-    static func cleaned(_ text: String) -> String {
-        String(String.UnicodeScalarView(text.unicodeScalars.filter {
-            $0 == "\n" || !CharacterSet.controlCharacters.contains($0)
-        })).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// An answer as it goes into the brief: without control characters
-    /// but line ends, trimmed, and each further line indented to stay in its
-    /// item.
-    static func answer(_ text: String) -> String {
-        let clean = cleaned(text)
-        return String(clean.prefix(answerLimit)).split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: "\n  ")
-    }
-}
-
-enum BriefError: LocalizedError {
-    case missing(String), notWritten(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .missing(let id): return "The brief \(id) isn't in this copy of Smolcorp."
-        case .notWritten(let folder): return "Couldn't write the brief into \((folder as NSString).abbreviatingWithTildeInPath)."
-        }
-    }
-}
-
-/// Where a hire's brief goes. At a desk pinned to its own project, into
-/// that folder: BRIEF.md, with STATUS.md beside it (and its report, if it
-/// has one), or with any of them taken, BRIEF-<role>.md and the rest, then
-/// BRIEF-<role>-2.md and on. Anywhere else, so a shared folder such as
-/// ~/Projects stays clean, into Smolcorp's own briefs folder:
-/// <desk>-<role>-<yyyyMMdd-HHmm>.md, with <…>-STATUS.md beside it, then
-/// <…>-2.md and on. A managed hire's (one with a worktree of its own) never
-/// goes in its worktree, which is shared git state: BRIEF.md and STATUS.md go
-/// in <support>/hires/<id>/, a folder of its own, and the first message names
-/// where. A file that's there is never written over, nor named to the agent
-/// as its own.
-enum BriefFiles {
-    struct Names: Equatable {
-        let brief, status: URL
-        let report: URL?
-    }
-
-    /// Where, and under what names.
-    enum Place: Equatable {
-        case project(URL, role: String)
-        case kept(URL, stem: String)
-        /// A managed hire's own folder in Smolcorp's, outside its worktree.
-        case managed(URL)
-
-        var folder: URL {
-            switch self {
-            case .project(let folder, _), .kept(let folder, _), .managed(let folder): return folder
-            }
-        }
-    }
-
-    static let most = 99
-
-    /// Where a hire's brief goes: into `folder` at a desk pinned to it,
-    /// otherwise into `kept`, named for the desk (as setup counts them, from
-    /// 0), the role and the minute.
-    static func place(for role: String, in folder: String, pinned: Bool, desk: Int?, at date: Date = Date(),
-                      kept: URL = Paths.hireBriefs, managed: URL? = nil) -> Place {
-        if let managed { return .managed(managed) }
-        guard !pinned else { return .project(URL(fileURLWithPath: folder), role: role) }
-        let stamp = DateFormatter()
-        stamp.locale = Locale(identifier: "en_US_POSIX")
-        stamp.dateFormat = "yyyyMMdd-HHmm"
-        return .kept(kept, stem: "\(desk.map(String.init) ?? "desk")-\(role)-\(stamp.string(from: date))")
-    }
-
-    static func names(_ place: Place, report: String?, suffix n: Int) -> Names {
-        switch place {
-        case .project(let folder, let role):
-            let tail = n == 0 ? "" : n == 1 ? "-\(role)" : "-\(role)-\(n)"
-            let file = { (base: String) in folder.appendingPathComponent("\(base)\(tail).md") }
-            return Names(brief: file("BRIEF"), status: file("STATUS"), report: report.map(file))
-        case .managed(let folder):
-            let tail = n == 0 ? "" : "-\(n + 1)"
-            let file = { (base: String) in folder.appendingPathComponent("\(base)\(tail).md") }
-            return Names(brief: file("BRIEF"), status: file("STATUS"), report: report.map(file))
-        case .kept(let folder, let stem):
-            let name = n == 0 ? stem : "\(stem)-\(n + 1)"
-            let file = { (part: String?) in folder.appendingPathComponent(part.map { "\(name)-\($0).md" } ?? "\(name).md") }
-            return Names(brief: file(nil), status: file("STATUS"), report: report.map(file))
-        }
-    }
-
-    /// Writes the brief `render` makes for the names it's given, under the
-    /// first names none of whose files is there. The brief is created only if
-    /// it isn't there, so even a file that turns up meanwhile is left as it is.
-    /// Smolcorp's own briefs folder is made if it isn't there, for you alone;
-    /// a project's folder never is.
-    static func write(_ place: Place, report: String?, render: (Names) throws -> String) throws -> Names {
-        let manager = FileManager.default
-        switch place {
-        case .kept(let folder, _), .managed(let folder):
-            try? manager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        case .project: break
-        }
-        let there = { (url: URL) in (try? manager.attributesOfItem(atPath: url.path)) != nil }
-        for n in 0...most {
-            let names = names(place, report: report, suffix: n)
-            guard ![names.brief, names.status].contains(where: there), !(names.report.map(there) ?? false) else { continue }
-            let text = try render(names)
-            let fd = open(names.brief.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o644)
-            if fd < 0 {
-                if errno == EEXIST { continue }
-                throw BriefError.notWritten(place.folder.path)
-            }
-            let data = Data(text.utf8)
-            let written = data.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
-            close(fd)
-            guard written == data.count else { throw BriefError.notWritten(place.folder.path) }
-            return names
-        }
-        throw BriefError.notWritten(place.folder.path)
-    }
-}
-
-
-/// The one way a hire's brief is made and placed, for every way in (the
-/// office, the phone, setup and the GM): the role's brief, with the base
-/// rules (the library's `_base.md`) and the task text, filled in, and, unless
-/// it is only previewed, written where `BriefFiles` says.
-enum BriefBuilder {
-    struct Made {
-        let names: BriefFiles.Names
-        let markdown: String
-        /// What the agent is first told: to read the brief, and where it is.
-        let firstMessage: String
-    }
-
-    /// The hire's folder for its brief and status files, when it is managed.
-    static func hireFolder(_ hireID: String, in hires: URL = Paths.hires) -> URL {
-        hires.appendingPathComponent(hireID, isDirectory: true)
-    }
-
-    /// Nil for a role on its own instructions, which has no brief. `managed`
-    /// is the folder a managed hire's files go in. With `write` off, nothing
-    /// is written and the names are those a first hire would get.
-    static func make(_ role: Role, library: BriefLibrary, folder: String, pinned: Bool, desk: Int?, answers: [String]?, task: String? = nil,
-                     managed: URL? = nil, date: Date = Date(), kept: URL = Paths.hireBriefs, write: Bool) throws -> Made? {
-        guard let template = try role.briefTemplate(in: library) else { return nil }
-        let place = BriefFiles.place(for: role.id, in: folder, pinned: pinned, desk: desk, at: date, kept: kept, managed: managed)
-        let report = Role.reportName(of: template)
-        var text = ""
-        func render(_ names: BriefFiles.Names) throws -> String {
-            text = try role.renderBrief(template, BriefContext(folder: folder, pinned: pinned, answers: answers, date: date, briefFile: names.brief.path,
-                                                        statusFile: names.status.path, reportFile: names.report?.path, task: task))
-            return text
-        }
-        let names: BriefFiles.Names
-        if write {
-            names = try BriefFiles.write(place, report: report, render: render)
-        } else {
-            names = BriefFiles.names(place, report: report, suffix: 0)
-            _ = try render(names)
-        }
-        return Made(names: names, markdown: text,
-                    firstMessage: role.briefMessage(at: names.brief.path, asks: answers == nil && (task ?? "").isEmpty))
     }
 }

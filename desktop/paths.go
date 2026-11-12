@@ -46,6 +46,9 @@ var (
 	// The key of the office window's own paired device, private like the hook's.
 	windowKeyFile = filepath.Join(supportDir, "window-key")
 	homeDir, _    = os.UserHomeDir()
+	// The hook key as the Mac app's report.sh sends it (curl -H @hook-header), set only under the Mac
+	// app (useSupportDir): "" elsewhere, where nothing reads it.
+	hookHeaderFile = ""
 )
 
 func makeSupportDir() string {
@@ -66,15 +69,45 @@ func makeSupportDir() string {
 	return dir
 }
 
+// useSupportDir points everything kept in the support folder at dir, before
+// anything is read from it: the Mac app's engine (`smolcorp core`) is given
+// the folder the app chose, a test copy's own among them.
+func useSupportDir(dir string) {
+	supportDir = dir
+	phonesFile = filepath.Join(dir, "phones.json")
+	configFile = filepath.Join(dir, "config.json")
+	hookKeyFile = filepath.Join(dir, "hook-key")
+	sessionsFile = filepath.Join(dir, "sessions.json")
+	setupKeyFile = filepath.Join(dir, "setup-key")
+	windowKeyFile = filepath.Join(dir, "window-key")
+	hookHeaderFile = filepath.Join(dir, "hook-header")
+}
+
 // supportDirName is the folder's name on a system: the one the Mac app writes
 // on a Mac (AgentDeck), so the setup key is found there.
 func supportDirName(goos string) string { return appdirs.Name(goos) }
 
-// writePrivate writes a file only its owner can read, as the keys need.
+// writePrivate writes a file only its owner can read, as the keys need: to a file beside it, then put in its
+// place. The temp file is set to 0600 once open, before any of the data goes in, so one left by a crash with a
+// wider mode is never what lands in the key's place.
 func writePrivate(path string, data []byte) error {
 	temp := path + ".tmp"
-	if err := os.WriteFile(temp, data, 0o600); err != nil {
+	file, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
 		return err
 	}
-	return os.Rename(temp, path)
+	err = file.Chmod(0o600)
+	if err == nil {
+		_, err = file.Write(data)
+	}
+	if closed := file.Close(); err == nil {
+		err = closed
+	}
+	if err == nil {
+		err = os.Rename(temp, path)
+	}
+	if err != nil {
+		_ = os.Remove(temp)
+	}
+	return err
 }

@@ -56,8 +56,8 @@ type guardGroup struct {
 
 // claudeProfile is a Claude Code account's config folder (CLAUDE_CONFIG_DIR).
 type claudeProfile struct {
-	Name string
-	Dir  string
+	Name string `json:"name"`
+	Dir  string `json:"dir"`
 }
 
 // guardProfile chooses whose guard rules a file carries: a hire's, or the GM's own.
@@ -223,8 +223,9 @@ func absoluteRulePath(path string) string {
 // hireDenyRules is every deny rule for hire hireID. others are the names of the other
 // hires' folders under <support>/hires, entries what sits in the support folder now (a
 // folder named here is denied whole, except hires, which is denied hire by hire so this
-// hire's own STATUS.md stays writable; hireKnownFolders are listed too when absent).
-func hireDenyRules(hireID string, groups []guardGroup, support string, profiles []claudeProfile, others, entries []string) []string {
+// hire's own STATUS.md stays writable; hireKnownFolders are listed too when absent). system
+// is Go's name for the system the hire runs on.
+func hireDenyRules(hireID string, groups []guardGroup, support string, profiles []claudeProfile, others, entries []string, system string) []string {
 	rules := hireCommandRules(groups)
 	// Claude Code's Edit rules cover every tool that changes a file (Write too); a Write(path) rule never matches and warns at every start.
 	both := func(pattern string) { rules = append(rules, "Edit("+pattern+")") }
@@ -249,7 +250,9 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 
 	// This app's folder, piece by piece: never a rule that would cover the hire's own STATUS.md.
 	root := absoluteRulePath(support)
-	for _, pattern := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token"} {
+	// The secrets of both engines a Mac may run (the Swift app's gm-session and hook-header, the Go
+	// engine's hook-key and window-key), in the same order as the Mac's HireSettings: one file either way.
+	for _, pattern := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token"} {
 		both(root + "/" + pattern)
 	}
 	has := func(list []string, name string) bool {
@@ -261,7 +264,7 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 		return false
 	}
 	for _, entry := range entries {
-		if entry != "hires" && !strings.HasPrefix(entry, ".") && !strings.Contains(entry, "/") {
+		if entry != "hires" && entry != keptGMTokenName && entry != keptGMTokenTemp && !strings.HasPrefix(entry, ".") && !strings.Contains(entry, "/") {
 			both(root + "/" + entry + "/**")
 		}
 	}
@@ -283,8 +286,16 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 		}
 	}
 	// Nothing secret or app-state can be read either.
-	for _, name := range []string{"gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json"} {
+	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json"} {
 		rules = append(rules, "Read("+root+"/"+name+")")
+	}
+	// The GM's token, kept in a file on a computer whose secret store can't keep it (gmtokenstore.go), and the file
+	// it is written through: on Linux and Windows always, whether or not it is there yet, since a GM hired after this
+	// hire makes it. A Mac never keeps it there, so its fence is unchanged.
+	if system != "darwin" {
+		for _, name := range []string{keptGMTokenName, keptGMTokenTemp} {
+			rules = append(rules, "Edit("+root+"/"+name+")", "Read("+root+"/"+name+")")
+		}
 	}
 	return rules
 }
@@ -339,6 +350,30 @@ type hireSettingsOptions struct {
 // writeHireSettings writes hire HireID's settings and says where: refused if the guard
 // can't be run. The file is private to you and replaced whole.
 func writeHireSettings(o hireSettingsOptions) (string, error) {
+	object, err := hireSettingsObject(o)
+	if err != nil {
+		return "", err
+	}
+
+	// Written as the Mac's HireSettings.save writes it, byte for byte (Tests/fixtures/frontdesk/hire-settings.json).
+	data := swiftJSON(object)
+	failed := &hireRefusal{Status: 500, Message: "Couldn't write the hire's settings, so Smolcorp won't start it unguarded."}
+	folder := hireFolder(o.Support, o.HireID)
+	if os.MkdirAll(folder, 0o700) != nil || os.Chmod(folder, 0o700) != nil {
+		return "", failed
+	}
+	target := filepath.Join(folder, hireSettingsFile)
+	if writePrivate(target, data) != nil {
+		return "", failed
+	}
+	return target, nil
+}
+
+// hireSettingsObject is what hire HireID's settings hold (deny rules, the guard as a
+// PreToolUse hook, auto mode), as writeHireSettings writes them: refused if the guard
+// can't be run. A hire in T3 Code gets the same, as its worktree's fence (t3desk.go), as
+// the Mac's HireSettings.object gives both.
+func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 	run, isExec := o.Run, o.IsExec
 	if run == nil {
 		run = runGuardTool
@@ -351,15 +386,15 @@ func writeHireSettings(o hireSettingsOptions) (string, error) {
 		profile = guardHire
 	}
 	if o.HireID == "" || strings.ContainsAny(o.HireID, `/\`) || strings.HasPrefix(o.HireID, ".") {
-		return "", &hireRefusal{Status: 400, Message: "That isn't a hire's name, so Smolcorp won't write settings for it."}
+		return nil, &hireRefusal{Status: 400, Message: "That isn't a hire's name, so Smolcorp won't write settings for it."}
 	}
 	if !isExec(o.CLI) {
-		return "", errGuardMissing
+		return nil, errGuardMissing
 	}
 	rules := filepath.Join(o.Support, hireGuardFile)
 	groups := guardGroups(o.CLI, rules, profile, run)
 	if groups == nil {
-		return "", &hireRefusal{Status: 500, Message: "The guard couldn't say which commands a hire is refused, so Smolcorp won't start one unguarded."}
+		return nil, &hireRefusal{Status: 500, Message: "The guard couldn't say which commands a hire is refused, so Smolcorp won't start one unguarded."}
 	}
 	names := func(dir string) []string {
 		var list []string
@@ -375,28 +410,10 @@ func writeHireSettings(o hireSettingsOptions) (string, error) {
 			others = append(others, name)
 		}
 	}
-	deny := hireDenyRules(o.HireID, groups, o.Support, o.Profiles, others, names(o.Support))
+	deny := hireDenyRules(o.HireID, groups, o.Support, o.Profiles, others, names(o.Support), runtime.GOOS)
 	var reporting map[string]any
 	if o.ReportPort != 0 {
 		reporting = reportingHooks(o.CLI, o.ReportPort)
 	}
-	object := hireSettingsValue(deny, guardHookCommand(o.CLI, rules, profile), o.Auto, reporting)
-
-	var data bytes.Buffer
-	encoder := json.NewEncoder(&data)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	failed := &hireRefusal{Status: 500, Message: "Couldn't write the hire's settings, so Smolcorp won't start it unguarded."}
-	if encoder.Encode(object) != nil {
-		return "", failed
-	}
-	folder := hireFolder(o.Support, o.HireID)
-	if os.MkdirAll(folder, 0o700) != nil || os.Chmod(folder, 0o700) != nil {
-		return "", failed
-	}
-	target := filepath.Join(folder, hireSettingsFile)
-	if writePrivate(target, data.Bytes()) != nil {
-		return "", failed
-	}
-	return target, nil
+	return hireSettingsValue(deny, guardHookCommand(o.CLI, rules, profile), o.Auto, reporting), nil
 }

@@ -3,13 +3,18 @@
 package desktop
 
 import (
+	"bytes"
 	"errors"
+	"io/fs"
+	"log"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -44,7 +49,7 @@ func (f *fakeTmux) run(args []string) (string, int, bool) {
 			return "", 0, true
 		}
 		return "", 1, true
-	case "kill-session":
+	case "kill-session", "kill-server":
 		f.up = false
 	}
 	return "", 0, true
@@ -129,8 +134,9 @@ func TestAManagedHireIsMadeInOrderAndRegistered(t *testing.T) {
 			t.Errorf("start script lacks %q:\n%s", want, script)
 		}
 	}
-	// One tmux call, on the hire's own socket, in the worktree.
-	if len(r.tmux.asked) != 1 || r.tmux.asked[0][0] != "-S" || r.tmux.asked[0][1] != hire.TmuxSocket || !slices.Contains(r.tmux.asked[0], hire.Folder) {
+	// One tmux call, on the hire's own socket, in the worktree; the registry's folder is the project (C3 A5).
+	if len(r.tmux.asked) != 1 || r.tmux.asked[0][0] != "-S" || r.tmux.asked[0][1] != hire.TmuxSocket || !slices.Contains(r.tmux.asked[0], hire.Worktree) ||
+		hire.Folder != r.repo || startedIn(hire) != hire.Worktree {
 		t.Errorf("tmux was asked %q", r.tmux.asked)
 	}
 	// The next hire gets the next ports.
@@ -244,9 +250,14 @@ func TestAHireThatNeverReportsIsCleanedUp(t *testing.T) {
 	now := time.Unix(1000, 0)
 	r.o.Now = func() time.Time { return now }
 	r.o.Pause = func(d time.Duration) { now = now.Add(d) }
+	recordHireWindow(hire.ID, "tty:/dev/ttys004#w1234") // its window, as the Mac's attach would record it
+	t.Cleanup(func() { forgetHireWindows(hire.ID, windowsOfHire(hire.ID)) })
 	watchManagedHire(hire, 0, r.o)
 	if !r.tmux.ran("kill-session") || r.tmux.up {
 		t.Error("its session wasn't ended")
+	}
+	if windows := windowsOfHire(hire.ID); len(windows) != 0 {
+		t.Errorf("its windows' records were kept: %q", windows)
 	}
 	if branches(t, r.repo) != "" {
 		t.Error("its clean worktree and branch weren't removed")
@@ -468,7 +479,7 @@ func TestARoleHireInTmuxIsWorkingOnceItsSessionReportsToTheDeck(t *testing.T) {
 	hire := registered(t)[0]
 	// Under the deck's lock, as its ingest path holds it: the watcher reads the sessions meanwhile.
 	d.mu.Lock()
-	d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": hire.Folder}, Claude, "tmux:s1", "", hire.Started+1)
+	d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": startedIn(hire)}, Claude, "tmux:s1", "", hire.Started+1)
 	d.mu.Unlock()
 	d.watching.Wait()
 	if got := registered(t); got[0].State != "working" {
@@ -573,26 +584,72 @@ func TestAWindowThatWontOpenEndsTheEngineHireAndSpendsNoCooldown(t *testing.T) {
 	d.watching.Wait()
 }
 
-// hiredRoleAt finds a role only for a socket in the support folder.
-func TestHiredRoleAtOnlyLooksUpASocketInTheSupportFolder(t *testing.T) {
+// hiredRoleAt finds a role for a socket in a hire socket folder: where new hires go (tmux's own folder,
+// FXC3 A8), or the support folder, where hires made before 1.25 are. A socket anywhere else is nobody's.
+func TestHiredRoleAtLooksInEveryHireSocketFolder(t *testing.T) {
 	d, _, _ := engineDeck(t)
-	inside := filepath.Join(supportDir, "hire-x.sock")
+	// New hires' sockets are not in the support folder: point their folder at another, as a real run has it.
+	own := t.TempDir()
+	saved := hireSocketFolder
+	t.Cleanup(func() { hireSocketFolder = saved })
+	hireSocketFolder = func() string { return own }
+	if filepath.Clean(own) == filepath.Clean(supportDir) {
+		t.Fatal("the stand-in socket folder is the support folder: the test proves nothing")
+	}
+	inOwn := filepath.Join(own, "smolcorp-hire-x")
+	inSupport := filepath.Join(supportDir, "hire-x.sock")
 	outside := filepath.Join(t.TempDir(), "hire-x.sock")
-	for _, socket := range []string{inside, outside} {
+	for _, socket := range []string{inOwn, inSupport, outside} {
 		if err := updateRegistry(func(f *registryFile) {
 			f.hires = append(f.hires, Hire{ID: newID(), Name: "Janitor", Folder: "/x", Role: "janitor", TmuxSocket: socket, State: "working"})
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := d.hiredRoleAt(inside); got != "janitor" {
+	if got := d.hiredRoleAt(inOwn); got != "janitor" {
+		t.Errorf("a socket in tmux's own folder: %q, want janitor", got)
+	}
+	if got := d.hiredRoleAt(inSupport); got != "janitor" {
 		t.Errorf("a socket in the support folder: %q, want janitor", got)
 	}
 	if got := d.hiredRoleAt(outside); got != "" {
-		t.Errorf("a socket outside it: %q, want none", got)
+		t.Errorf("a socket outside both: %q, want none", got)
 	}
 	if got := d.hiredRoleAt(""); got != "" {
 		t.Errorf("no socket: %q", got)
+	}
+}
+
+// A hire the Mac's engine made gives its socket with the folders on the way resolved (/private/tmp for /tmp,
+// FXC3c): it keeps its role, and is still ours to fire, once the Go engine runs the office.
+func TestASocketSpelledThroughALinkIsStillInAHireSocketFolder(t *testing.T) {
+	d, _, _ := engineDeck(t)
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "tmp")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	saved := hireSocketFolder
+	t.Cleanup(func() { hireSocketFolder = saved })
+	hireSocketFolder = func() string { return link } // tmux's own folder, as /tmp/tmux-501
+	resolved := filepath.Join(physical(real), "smolcorp-hire-x")
+	if filepath.Dir(resolved) == filepath.Clean(link) {
+		t.Fatal("the socket's folder is spelled as the hire socket folder: the test proves nothing")
+	}
+	if err := updateRegistry(func(f *registryFile) {
+		f.hires = append(f.hires, Hire{ID: "hire-x", Name: "Janitor", Folder: "/x", Role: "janitor", TmuxSocket: resolved, State: "working"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.hiredRoleAt(resolved); got != "janitor" {
+		t.Errorf("a socket spelled through the link's target: %q, want janitor", got)
+	}
+	if !ownsHireSocket(resolved, 0) {
+		t.Error("a hire's socket spelled through the link's target isn't ours")
+	}
+	elsewhere := filepath.Join(physical(t.TempDir()), "smolcorp-hire-x")
+	if ownsHireSocket(elsewhere, 0) || d.hiredRoleAt(elsewhere) != "" {
+		t.Error("a socket in another folder is ours")
 	}
 }
 
@@ -626,4 +683,349 @@ func TestAHireRefusedAfterItWasWrittenDownLeavesNoRowAndNoKey(t *testing.T) {
 	if file := readRegistry(registryPath(), false); len(file.hires) != 1 || file.keys[hire.ID] == "" {
 		t.Errorf("registry %+v, keys %v", file.hires, file.keys)
 	}
+}
+
+// As the Mac's HireDesk: a managed hire's brief is written in its own folder, outside its worktree,
+// written down with it, and its first message says only to read it.
+func TestAnEngineHireIsToldToReadTheBriefWrittenForIt(t *testing.T) {
+	r := newEngineRig(t)
+	request := r.request("tester")
+	request.Role.Brief = &RoleBrief{Kind: "library", ID: "tester"}
+	request.Task = "Fix the login bug."
+	hire, err := runManagedHire(request, r.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := filepath.Join(hireFolder(supportDir, hire.ID), "BRIEF.md")
+	data, err := os.ReadFile(brief)
+	if err != nil || !strings.Contains(string(data), "# Brief: Tester") || !strings.Contains(string(data), "The task, from whoever hired you:\n\nFix the login bug.") ||
+		!strings.Contains(string(data), "`"+tildePath(hire.Worktree)+"`") {
+		t.Fatalf("the brief: %v\n%s", err, data)
+	}
+	if hire.Brief != brief || registered(t)[0].Brief != brief {
+		t.Errorf("the brief written down: %q, %q", hire.Brief, registered(t)[0].Brief)
+	}
+	if script := r.script(hire); !strings.Contains(script, "'Read `"+tildePath(brief)+"` and start: it'\\''s your brief, as my Tester") {
+		t.Errorf("the first message doesn't name the brief:\n%s", script)
+	}
+	if entries, _ := os.ReadDir(hire.Worktree); slices.ContainsFunc(entries, func(e os.DirEntry) bool { return strings.HasPrefix(e.Name(), "BRIEF") }) {
+		t.Error("the brief went in the worktree")
+	}
+	// A role on its own instructions is told them, as before.
+	request = r.request("janitor")
+	request.Role.Brief = &RoleBrief{Kind: "text", Text: "Tidy."}
+	request.Role.Instructions = "Tidy."
+	plain, err := runManagedHire(request, r.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(hireFolder(supportDir, plain.ID), "BRIEF.md")); err == nil || plain.Brief != "" {
+		t.Errorf("a role on its instructions got a brief: %q", plain.Brief)
+	}
+	if script := r.script(plain); !strings.Contains(script, "Once I'\\''ve answered, as my Janitor: Tidy.") {
+		t.Errorf("the plain role's message:\n%s", script)
+	}
+}
+
+// Outside git there's no worktree: the brief goes in Smolcorp's briefs folder, named for the desk, and is taken
+// away again if the hire doesn't go ahead.
+func TestAnEngineHireOutsideGitKeepsItsBriefInSmolcorpsFolder(t *testing.T) {
+	r := newEngineRig(t)
+	request := r.request("tester")
+	request.Role.Brief = &RoleBrief{Kind: "library", ID: "tester"}
+	request.Folder = t.TempDir()
+	desk := 2
+	request.Desk = &desk
+	hire, err := runManagedHire(request, r.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hire.Worktree != "" || filepath.Dir(hire.Brief) != briefsKeptDir() || !strings.HasPrefix(filepath.Base(hire.Brief), "2-tester-") {
+		t.Fatalf("the hire: %+v", hire)
+	}
+	r.tmux.starts = false
+	if _, err := runManagedHire(request, r.o); err == nil {
+		t.Fatal("a hire tmux didn't start went ahead")
+	}
+	if kept, _ := filepath.Glob(filepath.Join(briefsKeptDir(), "*.md")); len(kept) != 1 || kept[0] != hire.Brief {
+		t.Errorf("briefs kept: %v", kept)
+	}
+}
+
+// The Mac's hireWorktrees, set by hand in config.json: a full path is where hires' worktrees are made, each
+// repo's under a folder of its own name there, as the Mac's HireDesk.place makes them; the fire removes the
+// worktree from there. Anything but a full path loads as "", beside the repo, as the Mac's Config reads it.
+func TestHiresWorktreesGoInTheFolderConfigJSONSets(t *testing.T) {
+	d, r, _ := engineDeck(t)
+	for _, saved := range []string{"relative/hires", "~/hires", ""} {
+		writeFile(t, configFile, `{"hireWorktrees": "`+saved+`"}`)
+		if got := loadConfig().HireWorktrees; got != "" {
+			t.Errorf("hireWorktrees %q loads as %q, want beside the repo", saved, got)
+		}
+	}
+	folder := t.TempDir()
+	writeFile(t, configFile, `{"hireWorktrees": "`+folder+`"}`)
+	if got := loadConfig().HireWorktrees; got != folder {
+		t.Fatalf("hireWorktrees loads as %q, want %q", got, folder)
+	}
+	d.engine.HeardFrom = func(Hire) bool { return true }
+	d.mu.Lock()
+	d.config.HireWorktrees = folder
+	d.mu.Unlock()
+	if status, message := d.Perform("hire", "", url.Values{"role": {"janitor"}}); status != http.StatusNoContent {
+		t.Fatalf("hire: %d %s", status, message)
+	}
+	d.watching.Wait()
+	got := registered(t)
+	if len(got) != 1 || got[0].Worktree == "" {
+		t.Fatalf("registry %+v", got)
+	}
+	hire := got[0]
+	if parent := physical(filepath.Join(folder, filepath.Base(r.repo))); filepath.Dir(hire.Worktree) != parent {
+		t.Fatalf("the worktree is %q, want it in %q", hire.Worktree, parent)
+	}
+	windowShows(r, pane(t, "idle-empty"), true)
+	d.mu.Lock()
+	d.engine.Tmux = r.o.Tmux
+	d.mu.Unlock()
+	if kept, _, err := d.fireTmuxHire(hire, false, false); err != nil || kept != "" {
+		t.Fatalf("fire: kept %q, err %v", kept, err)
+	}
+	if _, err := os.Stat(hire.Worktree); err == nil || branches(t, r.repo) != "" {
+		t.Error("the clean worktree in hireWorktrees, or its branch, was left")
+	}
+}
+
+// keyMac stands in for the Mac app's API-key account (HostBridge's api-key-offer
+// and api-key-read): the key only while it's offered.
+type keyMac struct {
+	mu      sync.Mutex
+	offered bool
+	asked   []string
+}
+
+const keyMacRefusal = "There's no Anthropic API key in your Keychain. Save one under Summaries, or hire on a Claude account."
+
+func (m *keyMac) call(r bridgeRequest) (bridgeAnswer, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.asked = append(m.asked, r.Action)
+	switch {
+	case r.Action == "api-key-offer" && m.offered:
+		return bridgeAnswer{OK: true, Available: true, Notice: apiKeyNotice}, nil
+	case r.Action == "api-key-offer":
+		return bridgeAnswer{OK: true, Notice: apiKeyNotice, Refusal: keyMacRefusal}, nil
+	case r.Action == "api-key-read" && m.offered:
+		return bridgeAnswer{OK: true, Found: true, Value: fakeHireKey}, nil
+	case r.Action == "api-key-read":
+		return bridgeAnswer{Error: keyMacRefusal}, nil
+	}
+	return bridgeAnswer{Error: "not asked of this stand-in"}, nil
+}
+
+// filesHolding are the files under the folders that hold text, by path.
+func filesHolding(t *testing.T, text string, folders ...string) []string {
+	t.Helper()
+	var found []string
+	for _, folder := range folders {
+		filepath.WalkDir(folder, func(path string, entry fs.DirEntry, err error) error {
+			if err == nil && entry.Type().IsRegular() {
+				if data, _ := os.ReadFile(path); bytes.Contains(data, []byte(text)) {
+					found = append(found, path)
+				}
+			}
+			return nil
+		})
+	}
+	return found
+}
+
+// M4c: under the Mac app, setup's hire on the API-key account gets the key from
+// the app's Keychain through the bridge, once per hire, never from this
+// computer's store. Its tail is approved; the key itself is only in that
+// hire's start script (owner-only, removing itself as it runs): never in
+// tmux's arguments, a window's, the registry, a log, or a file left behind by
+// a hire refused or never started. Not offered, the Mac's refusal, nothing made.
+func TestUnderTheMacAppAnAPIKeyHireGetsTheKeyThroughTheBridgeAndNowhereElse(t *testing.T) {
+	d, r, h := engineDeck(t)
+	mac := &keyMac{}
+	d.mu.Lock()
+	d.mac.host = mac
+	d.mu.Unlock()
+	d.engine.Key = func() string { t.Error("this computer's secret store was asked under the Mac app"); return "" }
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	repo := homeRepo(t)
+	page := func(heard bool) *httptest.ResponseRecorder {
+		t.Helper()
+		d.mu.Lock()
+		d.lastHire = time.Time{}
+		d.engine.HeardFrom = func(Hire) bool { return heard }
+		d.mu.Unlock()
+		w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer,
+			body: `{"role":"janitor","folder":"` + repo + `","answers":[],"apiKey":true}`, headers: map[string]string{setupHeader: "1"}})
+		d.watching.Wait()
+		return w
+	}
+
+	// Not offered: the Mac's words, the key never asked for, nothing made.
+	if w := page(true); w.Code != http.StatusConflict || strings.TrimSpace(w.Body.String()) != keyMacRefusal {
+		t.Fatalf("not offered: %d %s", w.Code, w.Body)
+	}
+	if len(registered(t)) != 0 || len(r.tmux.asked) != 0 || !slices.Equal(mac.asked, []string{"api-key-offer"}) {
+		t.Fatalf("not offered: registry %+v, tmux %q, asked %q", registered(t), r.tmux.asked, mac.asked)
+	}
+
+	// Offered: hired, its tail approved, the key in its start script alone.
+	mac.offered = true
+	if w := page(true); w.Code != http.StatusOK {
+		t.Fatalf("offered: %d %s", w.Code, w.Body)
+	}
+	hires := registered(t)
+	if len(hires) != 1 || hires[0].Account != apiKeyAccountName || hires[0].State != "working" {
+		t.Fatalf("registry %+v", hires)
+	}
+	if data, _ := os.ReadFile(filepath.Join(homeDir, ".claude.json")); !isApproved(keyTail(fakeHireKey), data) {
+		t.Errorf("the key's tail isn't approved: %s", data)
+	}
+	script := r.script(hires[0])
+	if !strings.Contains(script, "export ANTHROPIC_API_KEY='"+fakeHireKey+"'") || strings.Contains(script, "secret-tool") {
+		t.Errorf("the script doesn't export the Mac app's key:\n%s", script)
+	}
+	scripts, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hires[0].ID), "hire-*.sh"))
+	for _, path := range append(scripts, hireFolder(supportDir, hires[0].ID)) {
+		if info, err := os.Stat(path); err != nil || info.Mode().Perm()&0o077 != 0 {
+			t.Errorf("%s isn't its owner's alone: %v %v", path, info.Mode(), err)
+		}
+	}
+
+	// Refused once its script is written (tmux won't start), and never started: both take their scripts away.
+	r.tmux.starts = false
+	if w := page(true); w.Code != http.StatusInternalServerError {
+		t.Errorf("tmux down: %d %s", w.Code, w.Body)
+	}
+	r.tmux.starts = true
+	if w := page(false); w.Code != http.StatusOK {
+		t.Fatalf("never started: %d %s", w.Code, w.Body)
+	}
+	if hires = registered(t); len(hires) != 2 || hires[1].State != "failed" {
+		t.Fatalf("registry %+v", hires)
+	}
+
+	// Once per hire, through the bridge; and nowhere but the working hire's own script.
+	if want := []string{"api-key-offer", "api-key-offer", "api-key-read", "api-key-offer", "api-key-read", "api-key-offer", "api-key-read"}; !slices.Equal(mac.asked, want) {
+		t.Errorf("asked of the Mac app %q, want %q", mac.asked, want)
+	}
+	if found := filesHolding(t, fakeHireKey, supportDir, homeDir, r.o.Worktrees); len(found) != 1 || found[0] != scripts[0] {
+		t.Errorf("files holding the key %q, want only %q", found, scripts)
+	}
+	for _, args := range append(r.tmux.asked, h.windows...) {
+		if strings.Contains(strings.Join(args, " "), fakeHireKey) {
+			t.Errorf("an argument holds the key: %q", args)
+		}
+	}
+	if registry, _ := os.ReadFile(registryPath()); bytes.Contains(registry, []byte(fakeHireKey)) || bytes.Contains(logged.Bytes(), []byte(fakeHireKey)) {
+		t.Error("the registry or the log holds the key")
+	}
+}
+
+// A hire on the API-key account that the engine can't take (no tmux, a pinned
+// desk) is refused before anything opens: the launcher can't give it the key,
+// and a plain terminal would start it on the subscription.
+func TestAnAPIKeyHireTheEngineCantTakeIsRefusedNeverPlain(t *testing.T) {
+	d, r, h := engineDeck(t)
+	d.mu.Lock()
+	d.mac.host = &keyMac{offered: true}
+	d.mu.Unlock()
+	tmuxPath = func() string { return "" }
+	repo := homeRepo(t)
+	w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer,
+		body: `{"role":"janitor","folder":"` + repo + `","answers":[],"apiKey":true}`, headers: map[string]string{setupHeader: "1"}})
+	if w.Code != http.StatusConflict || strings.TrimSpace(w.Body.String()) != apiKeyNeedsEngine {
+		t.Errorf("no tmux: %d %s", w.Code, w.Body)
+	}
+	if len(h.windows) != 0 || len(r.tmux.asked) != 0 || len(registered(t)) != 0 {
+		t.Errorf("something opened: windows %q, tmux %q", h.windows, r.tmux.asked)
+	}
+	// The same hire on a Claude account opens the old way, so it's the API key that refused it.
+	d.mu.Lock()
+	d.lastHire = time.Time{}
+	d.mu.Unlock()
+	if w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer,
+		body: `{"role":"janitor","folder":"` + repo + `","answers":[]}`, headers: map[string]string{setupHeader: "1"}}); w.Code != http.StatusOK || len(h.windows) != 1 {
+		t.Errorf("on a Claude account: %d %s, windows %q", w.Code, w.Body, h.windows)
+	}
+}
+
+// A start script left by a core that stopped before the hire's shell ran it has no watcher: it is
+// removed as the next core starts, and the hire it was for, still "starting", is marked failed.
+func TestAStartScriptLeftByAStoppedCoreIsRemovedAtTheNextStart(t *testing.T) {
+	isolate(t)
+	const leftKey = "fk-left-77"
+	scripts := map[string]string{}
+	for _, id := range []string{"aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"} {
+		folder := hireFolder(supportDir, id)
+		if err := os.MkdirAll(folder, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		scripts[id] = filepath.Join(folder, "hire-1234.sh")
+		if err := os.WriteFile(scripts[id], []byte("#!/bin/sh\nrm -f \"$0\"\nexport ANTHROPIC_API_KEY='"+leftKey+"'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(folder, "settings.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// "a" is still starting, "b" was fired meanwhile, "c" has no row at all.
+	err := updateRegistry(func(f *registryFile) {
+		f.hires = append(f.hires, Hire{ID: "aaaaaaaaaaaa", Name: "Janitor", Folder: "/work/a", State: "starting"}, Hire{ID: "bbbbbbbbbbbb", Name: "Cook", Folder: "/work/b", State: "fired"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startDeck(t)
+	for id, script := range scripts {
+		if _, err := os.Stat(script); !os.IsNotExist(err) {
+			t.Errorf("hire %s's start script, with a key, is still there after the start: %v", id, err)
+		}
+		if _, err := os.Stat(filepath.Join(hireFolder(supportDir, id), "settings.json")); err != nil {
+			t.Errorf("hire %s's other files must stay: %v", id, err)
+		}
+	}
+	got := map[string]Hire{}
+	for _, h := range registered(t) {
+		got[h.ID] = h
+	}
+	if h := got["aaaaaaaaaaaa"]; h.State != "failed" || h.Notes == "" || strings.Contains(h.Notes, leftKey) {
+		t.Errorf("the hire that never ran its script should be failed with a plain sentence: %+v", h)
+	}
+	if h := got["bbbbbbbbbbbb"]; h.State != "fired" {
+		t.Errorf("a fired hire is left as it is: %+v", h)
+	}
+}
+
+// On a clean stop the core waits, for a while, for the hires it is still watching to finish cleaning.
+func TestTheCoreWaitsABoundedWhileForHiresBeingWatched(t *testing.T) {
+	d := &Deck{}
+	d.watching.Add(1)
+	done := make(chan struct{})
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		d.watching.Done()
+		close(done)
+	}()
+	if !d.waitForHires(5 * time.Second) {
+		t.Error("it gave up on a watcher that finished in 50 ms")
+	}
+	<-done
+	d.watching.Add(1) // one that never finishes
+	t0 := time.Now()
+	if d.waitForHires(100 * time.Millisecond) {
+		t.Error("it said all were done with a watcher left")
+	}
+	if took := time.Since(t0); took > 2*time.Second {
+		t.Errorf("the wait wasn't bounded: %v", took)
+	}
+	d.watching.Done()
 }

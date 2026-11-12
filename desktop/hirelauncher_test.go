@@ -278,6 +278,19 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 	r.d.config.HiringEnabled, r.d.config.HireFolder = true, r.repo
 	o := r.o
 	o.Open = nil // the real opener, through the terminal's own arguments
+	// No launcher connects here, so the hire is heard from only once the test is done: its watch ends then,
+	// in this test, and never writes the registry in a later test's folder.
+	done := make(chan struct{})
+	o.HeardFrom = func(Hire) bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}
+	o.Every = 5 * time.Millisecond
+	t.Cleanup(func() { close(done); r.d.watching.Wait() })
 	r.d.launcherEngine = o
 	if status, message := r.d.hireFromSetup("janitor"); status != http.StatusNoContent {
 		t.Fatalf("hire: %d %s", status, message)
@@ -596,7 +609,7 @@ func (r *lrig) manage(roleID string) (int, string, bool) {
 	r.d.launcherEngine = r.o
 	r.d.mu.Lock()
 	defer r.d.mu.Unlock()
-	return r.d.managedLauncherHire(roleID, r.repo, hireOpener{}, true, -1, 0)
+	return r.d.managedLauncherHire(roleID, r.repo, hireOpener{}, true, -1, 0, nil, nil)
 }
 
 func TestAHireHeardFromIsWorkingAndOneNeverHeardFromIsCleanedUpWithItsLauncherStopped(t *testing.T) {
@@ -1180,5 +1193,36 @@ func TestAHireWithNoWorktreeKeepsItsProtectionAfterItsLauncherConnectsAgain(t *t
 	}
 	if !r.d.launcherHolds(h) {
 		t.Error("the reconnected window isn't counted as the hire's")
+	}
+}
+
+// The launcher's hire has its brief written as the engine's does; the launcher is handed the message
+// that names it with the hire's environment, as it can't make that message itself.
+func TestALauncherHireIsHandedTheMessageToReadItsBrief(t *testing.T) {
+	r := newLRig(t)
+	r.launches = false
+	var token, hireID string
+	r.o.Expect = func(given, id string, env hireStartEnv) {
+		token, hireID = given, id
+		r.d.expectLauncher(given, id, env)
+	}
+	request := r.request("janitor")
+	request.Role.Brief = &RoleBrief{Kind: "library", ID: "janitor"}
+	hire, _, err := runLauncherHire(request, r.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := filepath.Join(hireFolder(supportDir, hire.ID), "BRIEF.md")
+	if data, err := os.ReadFile(brief); err != nil || !strings.Contains(string(data), "# Brief: Janitor") || hire.Brief != brief {
+		t.Fatalf("the brief: %v %q", err, hire.Brief)
+	}
+	env, status := r.d.takeStartEnv(token, hireID)
+	if status != http.StatusOK || env.Message != "Read `"+tildePath(brief)+"` and follow it: it's your brief, as my Janitor. As it says, your "+
+		"first reply must only ask me its questions, all together; wait for my answers before you read code or run commands." {
+		t.Errorf("handed %d %q", status, env.Message)
+	}
+	// The message isn't on the window's command line.
+	if words := strings.Join(commandWords(r.opened[0]), " "); strings.Contains(words, "BRIEF") {
+		t.Errorf("the command names the brief: %s", words)
 	}
 }

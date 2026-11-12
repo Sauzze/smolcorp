@@ -2,15 +2,6 @@ import AppKit
 import CryptoKit
 import Security
 
-/// The portable office (beta): the office, seen on a phone from
-/// anywhere, view only. While it's on, a redacted snapshot of the office is
-/// locked with a key only this Mac and the link know, and put on the
-/// viewer you run on your own Vercel, which never sees the key. Off at every
-/// start; nothing is snapshotted or sent until you turn it on.
-/// The contract with the viewer page, v1, is in `viewer/README.md`.
-
-// MARK: Settings
-
 /// The viewer's settings in config.json: its address and the options. No
 /// secret is ever kept here: the id, the key and the write secret are in the
 /// Keychain.
@@ -54,8 +45,6 @@ struct ViewerSettings: Codable, Equatable {
 
     static let addressProblem = "That isn't a viewer address. Paste the https:// address Vercel gives your project."
 }
-
-// MARK: Keychain
 
 /// The viewer's id, key and write secret: generic passwords under one
 /// service. Never in config.json, logs or the snapshot. A test copy keeps
@@ -133,7 +122,7 @@ enum ViewerKeychain {
 }
 
 /// What the portable office needs of the Keychain: the real one, or a stand-in in tests.
-/// Every call may stop on a dialog, so only `PortableOffice.keychainQueue` makes them.
+/// Every call may stop on a dialog: the bridge's secrets make them for the Go core (`HostBridge`).
 struct ViewerStore {
     var read: (ViewerKeychain.Account) -> String?
     var absent: (ViewerKeychain.Account) -> Bool
@@ -158,7 +147,90 @@ struct ViewerKept: Equatable {
     }
 }
 
-// MARK: Crypto
+/// "Stop when I'm back at the Mac", for the Go core's portable office (desktop/viewer.go's `macReturn`): what the
+/// Swift engine's PortableOffice watched (Viewer.swift at 1da4e935), told through the bridge's `presence`. The
+/// screen's unlocks, and the Mac's and its screens' wakes, are counted from the app's start: the core asks every
+/// few seconds while the portable office is on, and a count gone up is one since it last asked. Nothing here asks
+/// for a permission or shows anything.
+final class MacPresence {
+    /// What the core is told: the keyboard's and mouse's idle time in seconds, whether the screen is locked, and
+    /// the unlocks and wakes counted so far.
+    struct Now: Equatable {
+        var idle: TimeInterval = 0
+        var locked = false
+        var unlocks = 0
+        var wakes = 0
+    }
+
+    /// Idle for longer than this (never used since the Mac started) is said as this: a year.
+    static let idleMost: TimeInterval = 365 * 24 * 3600
+
+    static let shared = MacPresence()
+
+    private let distributed: NotificationCenter
+    private let workspace: NotificationCenter
+    private let idle: () -> TimeInterval
+    private let locked: () -> Bool
+    /// Guards the counts: they're counted on the main queue and read on the bridge's.
+    private let lock = NSLock()
+    private var unlocks = 0
+    private var wakes = 0
+    private var watchers: [(NotificationCenter, NSObjectProtocol)] = []
+
+    /// The Mac's own centres and readings, or a test's stand-ins.
+    init(distributed: NotificationCenter = DistributedNotificationCenter.default(),
+         workspace: NotificationCenter = NSWorkspace.shared.notificationCenter,
+         idle: @escaping () -> TimeInterval = { MacPresence.idleSeconds },
+         locked: @escaping () -> Bool = { MacPresence.screenIsLocked }) {
+        self.distributed = distributed
+        self.workspace = workspace
+        self.idle = idle
+        self.locked = locked
+    }
+
+    deinit { watchers.forEach { $0.0.removeObserver($0.1) } }
+
+    /// Starts counting, once: on an unlock, as the Swift engine came back on it, and on a wake, after which it
+    /// watched the keyboard and mouse (the core does that now, with `now`).
+    func start() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard watchers.isEmpty else { return }
+        let unlocked = distributed.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: nil) { [weak self] _ in
+            self?.count { $0.unlocks += 1 }
+        }
+        watchers.append((distributed, unlocked))
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            let woke = workspace.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in self?.count { $0.wakes += 1 } }
+            watchers.append((workspace, woke))
+        }
+    }
+
+    private func count(_ change: (MacPresence) -> Void) {
+        lock.lock()
+        change(self)
+        lock.unlock()
+    }
+
+    /// What's counted, with the idle time and the lock read now. On any queue.
+    func now() -> Now {
+        lock.lock()
+        let counted = (unlocks, wakes)
+        lock.unlock()
+        return Now(idle: idle(), locked: locked(), unlocks: counted.0, wakes: counted.1)
+    }
+
+    /// Seconds since the keyboard or mouse was last used.
+    static var idleSeconds: TimeInterval {
+        guard let anyInput = CGEventType(rawValue: ~0) else { return .infinity }
+        return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
+    }
+
+    static var screenIsLocked: Bool {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        return (session["CGSSessionScreenIsLocked"] as? Bool) ?? false
+    }
+}
 
 /// The body the viewer stores and the phone opens: [0x01] + nonce + ciphertext
 /// + tag, AES-256-GCM over the padded JSON, bound to the viewer's id.
@@ -215,969 +287,3 @@ enum ViewerCrypto {
         text.count == 22 && text.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
     }
 }
-
-// MARK: Snapshot
-
-/// What the viewer draws, built field by field from what's allowed (spec
-/// §3), never by taking the phone's snapshot and removing what isn't. The
-/// same shape as `Deck.snapshotJSON()`, so office.js draws it unchanged.
-enum ViewerSnapshot {
-    struct Desk {
-        let pin: String?
-        let session: Session?
-        let role: Role?
-    }
-
-    /// With names hidden, what can still carry your own text goes as a
-    /// generic value: an error kind the office doesn't know (it's an agent
-    /// hook's raw text), a subagent type that isn't one of Claude Code's own
-    /// (custom agents are named by you), and a role you made or renamed.
-    static let knownErrorKinds: Set<String> = ["rate_limit", "overloaded", "billing_error", "authentication_failed",
-                                               "oauth_org_not_allowed", "account_on_hold", "cloud_credential_error"]
-    static let knownSubagentTypes: Set<String> = ["general-purpose", "Explore", "Plan", "statusline-setup",
-                                                  "output-style-setup", "claude-code-guide"]
-
-    static func shownErrorKind(_ kind: String) -> String { knownErrorKinds.contains(kind) ? kind : "error" }
-    static func shownSubagentType(_ type: String) -> String { knownSubagentTypes.contains(type) ? type : "agent" }
-
-    /// The badge and outfit still draw; the id and name only as shipped.
-    static func shownRole(_ role: Role) -> [String: Any] {
-        let shipped = Role.shipped.first { $0.id == role.id }
-        return ["id": shipped == nil ? "role" : role.id, "name": shipped?.name == role.name ? role.name : "",
-                "badge": role.badge, "outfit": role.outfit]
-    }
-
-    static func build(desks: [Desk], overflow: Int, theme: [String: String], music: (enabled: Bool, playing: Bool?),
-                      layout: Layout, hideNames: Bool, now: Int64, alias: (String) -> String) -> [String: Any] {
-        // A desk's name, when names are hidden, by the session's folder (what office.js finds the team by).
-        var deskOfName: [String: String] = [:]
-        let keys = desks.enumerated().map { index, desk -> [String: Any] in
-            let deskName = "Desk \(index + 1)"
-            var entry: [String: Any] = [
-                "pin": hideNames ? NSNull() : desk.pin.map { ($0 as NSString).lastPathComponent } ?? NSNull(),
-            ]
-            if let s = desk.session {
-                if deskOfName[s.name] == nil { deskOfName[s.name] = hideNames ? deskName : s.name }
-                entry["session"] = [
-                    "id": alias(s.id),
-                    "name": hideNames ? deskName : s.name,
-                    "project": hideNames ? deskName : s.projectName,
-                    "state": s.state.rawValue,
-                    "effort": s.pendingEffort.isEmpty ? s.effort : s.pendingEffort,
-                    "pending": !s.pendingEffort.isEmpty,
-                    "agent": s.agent.rawValue, "agentName": s.agent.name,
-                    "compacting": s.compacting,
-                    "turnStartedAt": s.turnStartedAt.map { Int64($0) } ?? NSNull(),
-                    "errorKind": s.errorKind.isEmpty ? NSNull() : hideNames ? shownErrorKind(s.errorKind) : s.errorKind,
-                    "subagents": s.subagents.map {
-                        ["id": alias($0.id), "type": hideNames ? shownSubagentType($0.type) : $0.type, "model": NSNull()] as [String: Any]
-                    },
-                    "role": desk.role.map { hideNames ? shownRole($0) : $0.forPhone } ?? NSNull(),
-                    // Nothing to press
-                    "dial": false, "mic": false, "dictates": false, "keys": false, "fire": false, "summary": false,
-                ] as [String: Any]
-            }
-            return entry
-        }
-
-        // The room, with only the team members at a desk now, under the desk's name when names are hidden.
-        var room = layout.room
-        var team: [String: TeamMember] = [:]
-        for (name, shown) in deskOfName {
-            guard var member = room.team[name] else { continue }
-            if hideNames { member.name = "" }
-            team[shown] = member
-        }
-        room.team = team
-        // Rules match model names, which never leave
-        room.dress.rules = []
-        let layoutObject = (layout.jsonObject as? [String: Any]) ?? [:]
-        // The room as the Mac's office draws it (its plan of added pieces, the team's own names),
-        // with the same team and dress redactions as above. It's the same encoded `Room` as the one
-        // above (Layout.jsonObject encodes the struct), so either gives the phone the full room.
-        // Of the room, only the team (its projects and nicknames) and the dress rules (parts of model
-        // names) hold your own text: every other text in it is one of a fixed list of choices, checked
-        // as the room is read. The self-check holds the raw room to that with names hidden.
-        var roomObject = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(room))) as? [String: Any] ?? [:]
-        if var raw = layoutObject["room"] as? [String: Any] {
-            let rawTeam = raw["team"] as? [String: Any] ?? [:]
-            var shownTeam: [String: Any] = [:]
-            for (name, shown) in deskOfName {
-                guard var member = rawTeam[name] as? [String: Any] else { continue }
-                if hideNames { member["name"] = "" }
-                shownTeam[shown] = member
-            }
-            raw["team"] = shownTeam
-            if var dress = raw["dress"] as? [String: Any] {
-                dress["rules"] = [Any]()
-                raw["dress"] = dress
-            }
-            roomObject = raw
-        }
-        var arranged: [String: Any] = ["room": roomObject, "rows": [Any]()]
-        for field in ["keys", "office", "dial", "stick"] { arranged[field] = layoutObject[field] }
-
-        return [
-            "keys": keys,
-            "overflow": overflow,
-            "now": now,
-            "theme": theme,
-            "scroll": false,
-            "dictation": NSNull(),
-            "hiring": ["fire": false, "hire": false, "roles": [Any]()] as [String: Any],
-            "music": music.enabled ? ["playing": music.playing.map { $0 as Any } ?? NSNull()] as [String: Any] : NSNull(),
-            "layout": arranged,
-        ]
-    }
-}
-
-extension ViewerSnapshot {
-    /// Who hired a headless run, as the viewer may name them (see
-    /// `Deck.hiredBy`): by name with names shown; with names hidden, the
-    /// number of the hiring desk, as that desk shows it, or "Downstairs".
-    static func hirer(_ parent: (session: Session?, name: String)?, desks: [Session?], hideNames: Bool) -> String? {
-        guard let parent else { return nil }
-        guard hideNames else { return parent.name }
-        return desks.firstIndex { $0 != nil && $0 === parent.session }.map { "Desk \($0 + 1)" } ?? "Downstairs"
-    }
-
-    /// The second floor's headless runs, as the viewer may see them: each
-    /// desk's name, under the same rule as the desks downstairs, and its
-    /// state, and the name of whoever hired it, where `hiredBy` knows,
-    /// already under that rule; for a cloud bot's, that it is one, and what
-    /// it last did; for an agent with no desk downstairs, that it has none.
-    /// Nothing else of them leaves this Mac. With names hidden, the desks are
-    /// numbered from `first`, so a floor further up goes on from the one below.
-    static func upstairs(_ sessions: [Session], overflow: Int, hideNames: Bool, first: Int = 1,
-                         isCloud: (Session) -> Bool = { _ in false }, isOverflow: (Session) -> Bool = { _ in false },
-                         last: (Session) -> CloudAction? = { _ in nil },
-                         seat: (Session) -> Int? = { _ in nil },
-                         hiredBy: (Session) -> String? = { _ in nil }) -> [String: Any] {
-        let desks = sessions.enumerated().map { index, s -> [String: Any] in
-            var desk: [String: Any] = ["name": hideNames ? "Upstairs \(first + index)" : s.name, "state": s.state.rawValue]
-            if let name = hiredBy(s) { desk["hiredBy"] = ["name": name] }
-            if isOverflow(s) { desk["overflow"] = true }
-            // The desk it has on its floor, as the Mac's own office has it, so nobody sits somewhere else on a screen that packs them.
-            if let seat = seat(s) { desk["desk"] = seat }
-            // A cloud bot's desk, and what it last did: with names hidden, not in its own words.
-            if isCloud(s) {
-                desk["cloud"] = true
-                desk["last"] = last(s).map { last -> [String: Any] in
-                    var json = last.json
-                    if hideNames { json["text"] = CloudAction.report }
-                    return json
-                } ?? NSNull()
-            }
-            return desk
-        }
-        return ["desks": desks, "overflow": overflow]
-    }
-
-    /// The six floors, as the viewer may see them: each floor's desks as
-    /// `upstairs` shows them, numbered on from the floor below with names
-    /// hidden, and its style. Its name is your own words, so with names
-    /// hidden it's only 1F, 2F…
-    static func floors(_ floors: [[Session]], named: [Floor], hideNames: Bool, desk: ([Session], Int) -> [String: Any]) -> [[String: Any]] {
-        var first = 1
-        return named.enumerated().map { index, floor -> [String: Any] in
-            let sessions = index < floors.count ? floors[index] : []
-            let shown = desk(sessions, first)["desks"] ?? []
-            first += sessions.count
-            return ["n": index + 1, "name": hideNames ? Floor.defaultName(index) : floor.name, "preset": floor.preset, "desks": shown]
-        }
-    }
-}
-
-// MARK: The portable office
-
-/// Turning it on and off, and everything while it's on: the uploads (at
-/// most one every 5 s after a change, one in flight, a heartbeat every 60 s,
-/// backing off when the viewer can't be reached), stopping when you're back
-/// or after some hours, and the setup page's actions.
-final class PortableOffice {
-    static let debounce: TimeInterval = 5
-    static let heartbeat: TimeInterval = 60
-    static let backoff: [TimeInterval] = [5, 10, 30, 60]
-    static let timeout: TimeInterval = 10
-    /// How long a quit waits for the viewer to forget the office.
-    static let quitWait: TimeInterval = 5
-    /// Coming back this soon after turning it on doesn't count: launch, then lock.
-    static let returnGrace: TimeInterval = 120
-    /// How long after a wake to watch for you being at the Mac.
-    static let wakeWatch: TimeInterval = 600
-
-    private(set) var isOn = false
-    private(set) var since: Date?
-    private(set) var lastSent: Date?
-    /// What went wrong, in a few plain words.
-    private(set) var problem: String?
-    /// How the last "Check the viewer" or wipe went, for the setup page.
-    private(set) var checked: String?
-    /// Changes with the link, so the setup page knows to redraw its QR code.
-    private(set) var linkRevision = 0
-    /// Called when it turns on or off or an upload goes or fails, for the menu bar.
-    var onChange: () -> Void = {}
-
-    private let snapshot: (_ hideNames: Bool, _ alias: (String) -> String) -> [String: Any]
-    /// Each session's and subagent's stand-in id, "v1", "v2"…, for this run.
-    private var aliases: [String: String] = [:]
-    /// Read once as it starts, so the Keychain isn't asked at every upload.
-    private var credentials: (base: String, id: String, key: Data, secret: String)?
-    /// Changes at each start and stop, so a reply from before is ignored.
-    private var run = 0
-    /// Changes at each stop, so a Start still waiting on the Keychain finds it was cancelled.
-    private var startTicket = 0
-    private var inFlight = false
-    private var pending = false
-    private var failures = 0
-    private var lastAttempt: Date?
-    private var debounceTimer: Timer?
-    private var retryTimer: Timer?
-    private var heartbeatTimer: Timer?
-    private var activityTimer: Timer?
-    /// An unlock during `returnGrace`, looked at again once it's over.
-    private var graceTimer: Timer?
-    private var watchers: [(NotificationCenter, NSObjectProtocol)] = []
-    /// A PUT already sent can reach the viewer after a DELETE and bring the
-    /// office back. So each id told to forget while PUTs to it are still out
-    /// is told again once they've finished. Guarded by `lock`: PUTs finish on
-    /// the session's queue, and on quit the main thread is waiting.
-    private let lock = NSLock()
-    private var putsOut: [String: Int] = [:]
-    private var forgotten: [String: (base: String, secret: String)] = [:]
-    /// Every PUT and DELETE still out, so a quit can wait for them.
-    private let outstanding = DispatchGroup()
-    /// Where the Keychain is asked, one call at a time. macOS may show a dialog and wait for an
-    /// answer, so never the main queue, which answers setup, the office, phones and hooks.
-    static let keychainQueue = DispatchQueue(label: "smolcorp.viewer-keychain")
-    private let store: ViewerStore
-    /// What the Keychain held when last asked; nil until the first answer. Main queue only.
-    private var kept: ViewerKept?
-    private var loading = false
-    private var waiting: [() -> Void] = []
-
-    init(store: ViewerStore = .defaultStore(), snapshot: @escaping (_ hideNames: Bool, _ alias: (String) -> String) -> [String: Any]) {
-        self.store = store
-        self.snapshot = snapshot
-        // Asked at once, so the menu and setup know soon after launch.
-        whenKeychainKnown { [weak self] in self?.onChange() }
-    }
-
-    /// Runs `then` on the main queue once the Keychain has been asked (at once if it has). Asks once for any number waiting.
-    func whenKeychainKnown(_ then: @escaping () -> Void) {
-        if kept != nil { return then() }
-        waiting.append(then)
-        guard !loading else { return }
-        loading = true
-        let store = store
-        PortableOffice.keychainQueue.async {
-            let found = ViewerKept.load(store)
-            DispatchQueue.main.async { [self] in
-                kept = found
-                loading = false
-                let ready = waiting
-                waiting = []
-                ready.forEach { $0() }
-            }
-        }
-    }
-
-    // MARK: State
-
-    var origin: String? { ViewerSettings.origin(of: Config.shared.viewer.baseURL) }
-    var hasWriteSecret: Bool { kept?.secretPresent ?? false }
-    /// A viewer address and a write secret: enough to turn it on.
-    var isSetUp: Bool { origin != nil && hasWriteSecret }
-
-    /// The link to open on the phone, with the key after #k=, which browsers never send.
-    /// Only while it's on, when the id and key are in memory; `currentLink` reads them otherwise.
-    var link: String? {
-        guard let c = credentials else { return nil }
-        return "\(c.base)/v/\(c.id)#k=\(ViewerCrypto.base64URL(c.key))"
-    }
-
-    /// The link, read from the Keychain if it's off (off the main queue); nil if not set up or unreadable.
-    /// `done` is told on the main queue.
-    func currentLink(done: @escaping (String?) -> Void) {
-        whenKeychainKnown { [self] in
-            guard isSetUp, let base = origin else { return done(nil) }
-            if let link { return done(link) }
-            guard kept?.linkPresent == true else { return done(nil) }
-            let store = store
-            PortableOffice.keychainQueue.async {
-                let id = store.read(.id), key = store.read(.key)
-                DispatchQueue.main.async {
-                    guard let id, ViewerCrypto.isID(id), let key, ViewerCrypto.data(base64URL: key)?.count == 32 else { return done(nil) }
-                    done("\(base)/v/\(id)#k=\(key)")
-                }
-            }
-        }
-    }
-
-    /// The menu's header, after "Portable office: ON".
-    var status: String {
-        if let problem { return problem.prefix(1).lowercased() + problem.dropFirst() }
-        if let lastSent { return "last sent \(PortableOffice.ago(lastSent))" }
-        guard let since else { return "starting" }
-        let time = DateFormatter()
-        time.dateStyle = .none
-        time.timeStyle = .short
-        return "since \(time.string(from: since))"
-    }
-
-    static func ago(_ date: Date) -> String {
-        let seconds = max(0, Int(Date().timeIntervalSince(date)))
-        if seconds < 60 { return "\(seconds) s ago" }
-        if seconds < 3600 { return "\(seconds / 60) min ago" }
-        return "\(seconds / 3600) h ago"
-    }
-
-    /// For the setup page. The link (which holds the key) is the only secret
-    /// in it, and only in the reply to `GET /setup/viewer` (spec §7): every
-    /// other reply says whether there is one, and the page asks for it.
-    /// `given` is the link, when the caller has read it (see `currentLink`); without it the reply says only whether there is one.
-    func setupState(link given: String? = nil) -> [String: Any] {
-        let settings = Config.shared.viewer
-        let ms = { (date: Date?) -> Any in date.map { Int64($0.timeIntervalSince1970 * 1000) } ?? NSNull() }
-        let hasLink = given != nil || (isSetUp && (credentials != nil || kept?.linkPresent == true))
-        return [
-            "baseURL": settings.baseURL, "hasSecret": hasWriteSecret, "setUp": isSetUp,
-            "on": isOn, "since": ms(since), "lastSent": ms(lastSent),
-            "problem": problem ?? NSNull(), "checked": checked ?? NSNull(),
-            "hasLink": hasLink, "link": given.map { $0 as Any } ?? NSNull(), "revision": linkRevision,
-            "hideNames": settings.hideNames, "stopOnReturn": settings.stopOnReturn,
-            "stopAfterHours": settings.stopAfterHours, "hourChoices": ViewerSettings.hourChoices,
-        ]
-    }
-
-    /// The setup state once the Keychain has been asked, with the link in it if `withLink` (read on demand).
-    func setupState(withLink: Bool, done: @escaping ([String: Any]) -> Void) {
-        guard withLink else { return whenKeychainKnown { [self] in done(setupState()) } }
-        currentLink { [self] link in done(setupState(link: link)) }
-    }
-
-    // MARK: On and off
-
-    /// `done` is told on the main queue once it's on, or once it's clear it can't be.
-    func start(done: @escaping () -> Void = {}) {
-        guard !isOn else { return done() }
-        let ticket = startTicket
-        whenKeychainKnown { [self] in
-            guard ticket == startTicket, !isOn else { return done() }
-            guard let base = origin, kept?.secretPresent == true else {
-                problem = "Not set up yet"
-                onChange()
-                return done()
-            }
-            withIdentity { [self] secret, found in
-                // A Stop while the Keychain was answering cancels this Start.
-                guard ticket == startTicket, !isOn else { return done() }
-                guard let secret else {
-                    problem = "Not set up yet"
-                    onChange()
-                    return done()
-                }
-                guard let (id, key) = found else {
-                    // withIdentity says why when the key is there but unreadable
-                    if problem != PortableOffice.keychainProblem { problem = "Couldn't keep the viewer's key in the Keychain" }
-                    onChange()
-                    return done()
-                }
-                begin(base: base, id: id, key: key, secret: secret)
-                done()
-            }
-        }
-    }
-
-    private func begin(base: String, id: String, key: Data, secret: String) {
-        credentials = (base, id, key, secret)
-        lock.lock(); forgotten[id] = nil; lock.unlock()
-        run += 1
-        isOn = true
-        since = Date()
-        lastSent = nil
-        problem = nil
-        failures = 0
-        inFlight = false
-        pending = false
-        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: PortableOffice.heartbeat, repeats: true) { [weak self] _ in self?.beat() }
-        watchForReturn()
-        upload()
-        onChange()
-    }
-
-    /// Stops sending and asks the viewer to forget the office. It's off even
-    /// if that fails: the viewer forgets it by itself after 10 minutes.
-    /// `wait` is how long to wait for the viewer's reply, on quit.
-    func stop(waitingUpTo wait: TimeInterval = 0) {
-        startTicket += 1
-        guard isOn else { return }
-        let c = credentials
-        isOn = false
-        run += 1
-        credentials = nil
-        since = nil
-        problem = nil
-        inFlight = false
-        pending = false
-        [debounceTimer, retryTimer, heartbeatTimer, activityTimer, graceTimer].forEach { $0?.invalidate() }
-        debounceTimer = nil; retryTimer = nil; heartbeatTimer = nil; activityTimer = nil; graceTimer = nil
-        watchers.forEach { $0.0.removeObserver($0.1) }
-        watchers = []
-        onChange()
-        guard let c else { return }
-        let stoppedRun = run
-        forget(c.id, at: c.base, secret: c.secret) { [weak self] status in
-            guard !PortableOffice.isSuccess(status) else { return }
-            DispatchQueue.main.async {
-                guard let self, self.run == stoppedRun else { return }
-                self.problem = "Stopped, but can't reach the viewer: it forgets the office within 10 minutes"
-                self.onChange()
-            }
-        }
-        // On quit, also wait for an upload still out and the DELETE sent after it.
-        if wait > 0 { _ = outstanding.wait(timeout: .now() + wait) }
-    }
-
-    /// Asks the viewer to forget `id`, and again after each PUT to it that's still out.
-    private func forget(_ id: String, at base: String, secret: String, then done: @escaping (Int?) -> Void = { _ in }) {
-        lock.lock()
-        if putsOut[id, default: 0] > 0 { forgotten[id] = (base, secret) }
-        lock.unlock()
-        outstanding.enter()
-        PortableOffice.send("DELETE", to: "\(base)/api/s/\(id)", secret: secret) { [outstanding] status in
-            done(status)
-            outstanding.leave()
-        }
-    }
-
-    /// A PUT to `id` is done (or gave up), on the session's queue.
-    private func putFinished(_ id: String) {
-        lock.lock()
-        let left = putsOut[id, default: 1] - 1
-        putsOut[id] = left > 0 ? left : nil
-        let again = forgotten[id]
-        if left <= 0 { forgotten[id] = nil }
-        lock.unlock()
-        if let again {
-            outstanding.enter()
-            PortableOffice.send("DELETE", to: "\(again.base)/api/s/\(id)", secret: again.secret) { [outstanding] _ in
-                outstanding.leave()
-            }
-        }
-        outstanding.leave()
-    }
-
-    /// The deck changed: send it within 5 s, the newest each time.
-    func changed() {
-        guard isOn else { return }
-        pending = true
-        guard debounceTimer == nil, retryTimer == nil, !inFlight else { return }
-        scheduleUpload()
-    }
-
-    private func scheduleUpload() {
-        let since = lastAttempt.map { Date().timeIntervalSince($0) } ?? PortableOffice.debounce
-        let delay = max(1, PortableOffice.debounce - since)
-        debounceTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-            self?.debounceTimer = nil
-            self?.upload()
-        }
-    }
-
-    private func beat() {
-        guard isOn, !stopIfOverdue() else { return }
-        guard !inFlight, retryTimer == nil, debounceTimer == nil else { return }
-        if let lastAttempt, Date().timeIntervalSince(lastAttempt) < PortableOffice.heartbeat - 5 { return }
-        upload()
-    }
-
-    /// After N hours it turns itself off.
-    @discardableResult
-    private func stopIfOverdue() -> Bool {
-        let hours = Config.shared.viewer.stopAfterHours
-        guard hours > 0, let since, Date().timeIntervalSince(since) >= TimeInterval(hours) * 3600 else { return false }
-        stop()
-        return true
-    }
-
-    private func alias(_ id: String) -> String {
-        if let known = aliases[id] { return known }
-        let made = "v\(aliases.count + 1)"
-        aliases[id] = made
-        return made
-    }
-
-    private func upload() {
-        debounceTimer?.invalidate()
-        debounceTimer = nil
-        guard isOn, let c = credentials, !stopIfOverdue() else { return }
-        if inFlight { pending = true; return }
-        pending = false
-        lastAttempt = Date()
-        let office = snapshot(Config.shared.viewer.hideNames, alias)
-        guard let plain = ViewerCrypto.plaintext(office: office, at: Int64(Date().timeIntervalSince1970 * 1000)) else {
-            return failed("The office is too big to send")
-        }
-        guard let body = try? ViewerCrypto.seal(plain, key: c.key, id: c.id) else { return failed("Couldn't lock the snapshot") }
-        inFlight = true
-        let thisRun = run
-        let id = c.id
-        lock.lock(); putsOut[id, default: 0] += 1; lock.unlock()
-        outstanding.enter()
-        PortableOffice.send("PUT", to: "\(c.base)/api/s/\(id)", secret: c.secret, body: body) { [weak self] status in
-            self?.putFinished(id)
-            DispatchQueue.main.async {
-                guard let self, self.run == thisRun, self.isOn else { return }
-                self.inFlight = false
-                if PortableOffice.isSuccess(status) {
-                    self.lastSent = Date()
-                    self.problem = nil
-                    self.failures = 0
-                    if self.pending { self.scheduleUpload() }
-                    self.onChange()
-                } else {
-                    self.failed(PortableOffice.words(for: status))
-                }
-            }
-        }
-    }
-
-    /// It stays on, and tries again after 5, 10, 30, then every 60 s.
-    private func failed(_ words: String) {
-        problem = words
-        failures += 1
-        retryTimer?.invalidate()
-        let delay = PortableOffice.backoff[min(failures - 1, PortableOffice.backoff.count - 1)]
-        retryTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-            self?.retryTimer = nil
-            self?.upload()
-        }
-        onChange()
-    }
-
-    // MARK: When you're back
-
-    private func watchForReturn() {
-        let distributed = DistributedNotificationCenter.default()
-        let unlocked = distributed.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
-            self?.cameBack()
-        }
-        watchers.append((distributed, unlocked))
-        let workspace = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
-            let woke = workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.watchActivity() }
-            watchers.append((workspace, woke))
-        }
-    }
-
-    private func cameBack() {
-        guard isOn, Config.shared.viewer.stopOnReturn, let since else { return }
-        let early = PortableOffice.returnGrace - Date().timeIntervalSince(since)
-        guard early > 0 else { return stop() }
-        // Back this soon may be launch, then lock: looked at again once the grace is
-        // over, when you're back if the screen is unlocked and used since this unlock.
-        let unlocked = Date()
-        graceTimer?.invalidate()
-        graceTimer = Timer.scheduledTimer(withTimeInterval: early, repeats: false) { [weak self] _ in
-            guard let self, self.isOn, !PortableOffice.screenIsLocked else { return }
-            if PortableOffice.idleSeconds < Date().timeIntervalSince(unlocked) { self.stop() }
-        }
-    }
-
-    /// After a wake, you're back once the keyboard or mouse is used on an
-    /// unlocked screen. A locked one waits for its unlock instead.
-    private func watchActivity() {
-        activityTimer?.invalidate()
-        let woke = Date()
-        activityTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] timer in
-            guard let self, self.isOn, Date().timeIntervalSince(woke) < PortableOffice.wakeWatch else {
-                timer.invalidate()
-                return
-            }
-            if PortableOffice.idleSeconds < 5 && !PortableOffice.screenIsLocked { self.cameBack() }
-        }
-    }
-
-    /// Seconds since the keyboard or mouse was last used.
-    private static var idleSeconds: TimeInterval {
-        guard let anyInput = CGEventType(rawValue: ~0) else { return .infinity }
-        return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
-    }
-
-    private static var screenIsLocked: Bool {
-        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
-        return (session["CGSSessionScreenIsLocked"] as? Bool) ?? false
-    }
-
-    // MARK: Setup
-
-    static let keychainProblem = "Can't read the viewer's key from the Keychain"
-
-    /// The viewer's id and key, made the first time: only when there's
-    /// neither. One that's there but can't be read (a denied prompt after
-    /// the app is re-signed, a damaged item) is never overwritten, as every
-    /// link given out would stop working without a word.
-    /// The write secret is read first, and where it can't be, nothing is made.
-    /// The Keychain is asked on `keychainQueue` and `done` is told on the main queue.
-    private func withIdentity(_ done: @escaping (_ secret: String?, _ found: (String, Data)?) -> Void) {
-        let store = store
-        PortableOffice.keychainQueue.async {
-            guard let secret = store.read(.writeSecret) else {
-                return DispatchQueue.main.async { done(nil, nil) }
-            }
-            let (found, made, unreadable) = PortableOffice.identity(in: store)
-            let now = ViewerKept.load(store)
-            DispatchQueue.main.async { [self] in
-                kept = now
-                if unreadable { problem = PortableOffice.keychainProblem }
-                if made { linkRevision += 1 }
-                done(secret, found)
-            }
-        }
-    }
-
-    /// The write secret, read on demand (off the main queue) and not kept; nil if there is none or it can't be read.
-    private func withSecret(_ done: @escaping (String?) -> Void) {
-        whenKeychainKnown { [self] in
-            guard kept?.secretPresent == true else { return done(nil) }
-            let store = store
-            PortableOffice.keychainQueue.async {
-                let secret = store.read(.writeSecret)
-                DispatchQueue.main.async { done(secret) }
-            }
-        }
-    }
-
-    /// Reads the id and key, or makes them where there are neither; `keychainQueue` only.
-    private static func identity(in store: ViewerStore) -> (found: (String, Data)?, made: Bool, unreadable: Bool) {
-        if let id = store.read(.id), ViewerCrypto.isID(id),
-           let text = store.read(.key), let key = ViewerCrypto.data(base64URL: text), key.count == 32 {
-            return ((id, key), false, false)
-        }
-        guard store.absent(.id), store.absent(.key) else { return (nil, false, true) }
-        guard let made = newIdentity(in: store) else { return (nil, false, false) }
-        return (made, true, false)
-    }
-
-    private static func newIdentity(in store: ViewerStore) -> (String, Data)? {
-        guard let idBytes = ViewerCrypto.random(16), let key = ViewerCrypto.random(32) else { return nil }
-        let id = ViewerCrypto.base64URL(idBytes)
-        guard store.write(id, .id), store.write(ViewerCrypto.base64URL(key), .key) else { return nil }
-        return (id, key)
-    }
-
-    /// A new write secret, kept in the Keychain and given to `done` this once (nil if it couldn't be kept),
-    /// to paste into Vercel. The Keychain is asked off the main queue; `done` is told on it.
-    func makeWriteSecret(done: @escaping (String?) -> Void) {
-        guard let bytes = ViewerCrypto.random(32) else { return done(nil) }
-        let secret = ViewerCrypto.base64URL(bytes)
-        let store = store
-        PortableOffice.keychainQueue.async {
-            guard store.write(secret, .writeSecret) else {
-                return DispatchQueue.main.async { done(nil) }
-            }
-            let (_, made, unreadable) = PortableOffice.identity(in: store)
-            let now = ViewerKept.load(store)
-            DispatchQueue.main.async { [self] in
-                kept = now
-                if unreadable { problem = PortableOffice.keychainProblem }
-                if made { linkRevision += 1 }
-                if let c = credentials { credentials = (c.base, c.id, c.key, secret) }
-                checked = nil
-                done(secret)
-            }
-        }
-    }
-
-    /// A new id and key, so every link given out stops working; the old id is forgotten on the viewer.
-    /// The Keychain is asked off the main queue; `done` is told on it.
-    func rotateKey(done: @escaping () -> Void = {}) {
-        let store = store
-        PortableOffice.keychainQueue.async {
-            let oldID = store.read(.id), oldSecret = store.read(.writeSecret)
-            let made = PortableOffice.newIdentity(in: store)
-            let now = ViewerKept.load(store)
-            DispatchQueue.main.async { [self] in
-                kept = now
-                guard let (id, key) = made else {
-                    problem = "Couldn't make a new key in the Keychain"
-                    onChange()
-                    return done()
-                }
-                linkRevision += 1
-                afterRotation(oldID: credentials?.id ?? oldID, oldSecret: credentials?.secret ?? oldSecret, id: id, key: key)
-                done()
-            }
-        }
-    }
-
-    private func afterRotation(oldID: String?, oldSecret: String?, id: String, key: Data) {
-        checked = nil
-        if let base = credentials?.base ?? origin, let oldID, let secret = oldSecret, ViewerCrypto.isID(oldID) {
-            let rotatedAt = linkRevision
-            forget(oldID, at: base, secret: secret) { [weak self] status in
-                guard !PortableOffice.isSuccess(status) else { return }
-                DispatchQueue.main.async {
-                    // Unless it has been rotated again since
-                    guard let self, self.linkRevision == rotatedAt else { return }
-                    let words = "Rotated, but the viewer couldn't be reached: old links show the last frame for up to 10 minutes"
-                    self.problem = words
-                    self.checked = words
-                    self.onChange()
-                }
-            }
-        }
-        if let c = credentials {
-            credentials = (c.base, id, key, c.secret)
-            run += 1
-            inFlight = false
-            upload()
-        }
-        onChange()
-    }
-
-    /// The viewer forgets every office it holds. This one is turned off first.
-    func wipe(done: @escaping () -> Void) {
-        stop()
-        withSecret { [self] secret in wipeNow(secret: secret, done: done) }
-    }
-
-    private func wipeNow(secret: String?, done: @escaping () -> Void) {
-        guard let base = origin, let secret else {
-            checked = "Not set up yet"
-            return done()
-        }
-        PortableOffice.send("DELETE", to: "\(base)/api/s", secret: secret) { [weak self] status in
-            DispatchQueue.main.async {
-                self?.checked = PortableOffice.isSuccess(status) ? "Viewer wiped ✓" : PortableOffice.words(for: status)
-                done()
-            }
-        }
-    }
-
-    /// Asks the viewer whether it's ready: its settings, its storage and the write secret.
-    func check(done: @escaping () -> Void) {
-        withSecret { [self] secret in checkNow(secret: secret, done: done) }
-    }
-
-    private func checkNow(secret: String?, done: @escaping () -> Void) {
-        guard let base = origin, let secret else {
-            checked = "Not set up yet"
-            return done()
-        }
-        PortableOffice.send("GET", to: "\(base)/api/health", secret: secret) { [weak self] status in
-            DispatchQueue.main.async {
-                self?.checked = PortableOffice.isSuccess(status) ? "Viewer ready ✓" : PortableOffice.words(for: status)
-                done()
-            }
-        }
-    }
-
-    // MARK: Network
-
-    /// A redirect isn't followed: it could take the write secret elsewhere.
-    private static let session: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = timeout
-        configuration.timeoutIntervalForResource = timeout
-        configuration.urlCache = nil
-        configuration.httpCookieStorage = nil
-        return URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
-    }()
-
-    private final class NoRedirects: NSObject, URLSessionTaskDelegate {
-        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-            completionHandler(nil)
-        }
-    }
-
-    /// The reply's status, or nil if there was none, on the session's own queue. The body is never read.
-    private static func send(_ method: String, to address: String, secret: String, body: Data? = nil,
-                             done: @escaping (Int?) -> Void) {
-        guard let url = URL(string: address) else { return done(nil) }
-        var request = URLRequest(url: url, timeoutInterval: timeout)
-        request.httpMethod = method
-        request.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
-        request.setValue("Smolcorp", forHTTPHeaderField: "User-Agent")
-        if let body {
-            request.httpBody = body
-            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        }
-        session.dataTask(with: request) { _, response, _ in
-            done((response as? HTTPURLResponse)?.statusCode)
-        }.resume()
-    }
-
-    private static func isSuccess(_ status: Int?) -> Bool { status.map { (200..<300).contains($0) } ?? false }
-
-    /// What a failed reply means, in a few plain words: never its body or the address.
-    static func words(for status: Int?) -> String {
-        switch status {
-        case nil: return "Can't reach the viewer"
-        case 401?: return "The viewer refused the write secret"
-        case 503?: return "The viewer isn't set up on Vercel yet"
-        case 404?, 405?: return "No viewer at that address"
-        case 413?: return "The office is too big to send"
-        case 429?: return "The viewer is busy, trying again"
-        case let code?: return "The viewer said no (\(code))"
-        }
-    }
-}
-
-// MARK: Self-check (debug builds only)
-
-#if DEBUG
-/// `swift run AgentDeck --viewer-selftest [vector.bin]`: seals the spec's
-/// test vector and compares it with the file, then checks a sample deck's
-/// redaction. Touches no Keychain, no network and no port.
-enum ViewerSelfTest {
-    static func run(arguments: [String]) -> Int32 {
-        var ok = true
-        let path = arguments.first { $0.hasSuffix(".bin") } ?? ""
-        let id = "AAECAwQFBgcICQoLDA0ODw"
-        let key = ViewerCrypto.data(base64URL: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")!
-        let nonce = try! AES.GCM.Nonce(data: Data((0xa0...0xab).map { UInt8($0) }))
-        let plain = ViewerCrypto.padded(Data(#"{"v":1,"at":1792000000000,"office":{"keys":[],"overflow":0}}"#.utf8))!
-        let body = try! ViewerCrypto.seal(plain, key: key, id: id, nonce: nonce)
-        let hex = { (data: Data) in data.map { String(format: "%02x", $0) }.joined() }
-        let digest = hex(Data(SHA256.hash(data: body)))
-        print("vector: plaintext \(plain.count) bytes, body \(body.count) bytes")
-        print("vector: first 32 \(hex(body.prefix(32)))")
-        print("vector: tag      \(hex(body.suffix(16)))")
-        print("vector: sha256   \(digest)")
-        let expected = "aeb857fedacfd942ddda9f7b1824d43230bd580bf0f1ea25ea35972a88798327"
-        if let file = FileManager.default.contents(atPath: path) {
-            let match = file == body && digest == expected
-            print("vector match: \(match ? "yes" : "no") (against \(path))")
-            ok = ok && match
-        } else {
-            print("vector match: \(digest == expected ? "yes" : "no") (against the spec's SHA-256)")
-            ok = ok && digest == expected
-        }
-
-        for hide in [false, true] {
-            let problems = redactionProblems(hideNames: hide)
-            print("redaction (hide names \(hide ? "on" : "off")): \(problems.isEmpty ? "yes" : "no")")
-            problems.forEach { print("  - \($0)") }
-            ok = ok && problems.isEmpty
-        }
-        return ok ? 0 : 1
-    }
-
-    /// A deck with something sensitive in every field that must not leave.
-    static func redactionProblems(hideNames: Bool) -> [String] {
-        let session = Session(id: "real-session-id-1234", agent: .claude, folder: "/Users/someone/secret-folder",
-                              project: "/Users/someone/secret-project", startedAt: 1)
-        session.state = .asking
-        session.effort = "high"
-        session.tool = "Bash rm -rf /tmp/secret-tool"
-        session.toolActivity = "secret-activity"
-        session.waitingFor = "secret-waiting"
-        session.model = "claude-secret-model"
-        session.messaged = "secret-message"
-        session.messagedAt = 5
-        session.maxPressedAt = 6
-        session.transcript = "/Users/someone/.claude/secret-transcript.jsonl"
-        session.errorKind = "secret-error-kind"
-        session.subagents = [Session.Subagent(id: "real-subagent-id", type: "Explore", model: "claude-secret-submodel"),
-                             Session.Subagent(id: "real-subagent-id-2", type: "secret-agent-type", model: "")]
-        var role = Role.shipped[0]
-        role.instructions = "secret-instructions"
-        role.questions = ["secret-question"]
-        // A role you made: its id and name are your own text.
-        let ownRole = Role(id: "secret-role-id", name: "secret-role-name", agent: "claude", model: "", effort: "",
-                           instructions: "secret-instructions", badge: role.badge)
-        let other = Session(id: "real-session-id-5678", agent: .claude, folder: "/Users/someone/second-secret-folder",
-                            project: "/Users/someone/second-secret-project", startedAt: 1)
-        var layout = Layout.standard
-        // The room as the setup page keeps it, with every part that holds your text filled: the team's
-        // nicknames and projects, a dress rule (part of a model's name), and a plan with added pieces.
-        layout.room = try! JSONDecoder().decode(Room.self, from: Data(#"""
-            {"team": {"secret-folder": {"name": "secret-nickname", "outfit": "suit"},
-                      "second-secret-folder": {"name": "other-nickname"}, "other-secret-project": {}},
-             "dress": {"rules": [{"contains": "secret-rule", "size": "top"}]},
-             "plan": {"wide": {"desk1": {"x": 4, "thing": "duck"}}, "added": {"wide": [{"kind": "piano", "x": 3}]},
-                      "hung": {"tall": [{"kind": "map", "x": 40}]}}}
-            """#.utf8))
-        layout.rows = [ButtonRow(tall: false, buttons: [Button(id: "secret-button")])]
-        var aliases: [String: String] = [:]
-        var office = ViewerSnapshot.build(
-            desks: [.init(pin: "/Users/someone/pinned-secret", session: nil, role: nil),
-                    .init(pin: nil, session: session, role: role),
-                    .init(pin: nil, session: other, role: ownRole)],
-            overflow: 0, theme: ["idle": "#f2f2f2"], music: (true, true), layout: layout, hideNames: hideNames, now: 1,
-            alias: { id in aliases[id] ?? { aliases[id] = "v\(aliases.count + 1)"; return aliases[id]! }() })
-        let hiredHere = Session(id: "real-session-id-up-1", agent: .claude, folder: "/Users/someone/up-folder",
-                                project: "/Users/someone/up-folder", startedAt: 1)
-        hiredHere.parentFolder = session.project
-        let hiredElsewhere = Session(id: "real-session-id-up-2", agent: .claude, folder: "/Users/someone/up-folder-2",
-                                     project: "/Users/someone/up-folder-2", startedAt: 1)
-        hiredElsewhere.parentFolder = "/Users/someone/secret-hirer"
-        let all = [session, other, hiredHere, hiredElsewhere]
-        office["upstairs"] = ViewerSnapshot.upstairs([hiredHere, hiredElsewhere], overflow: 1, hideNames: hideNames) { s in
-            ViewerSnapshot.hirer(Deck.hiredBy(s, among: all), desks: [nil, session, other], hideNames: hideNames)
-        }
-        // The floors, one of them named in your own words.
-        var named = Floor.standard
-        named[2].name = "secret-floor-name"
-        office["floors"] = ViewerSnapshot.floors([[], [hiredHere], [hiredElsewhere]], named: named, hideNames: hideNames) { desks, first in
-            ViewerSnapshot.upstairs(desks, overflow: 0, hideNames: hideNames, first: first) { s in
-                ViewerSnapshot.hirer(Deck.hiredBy(s, among: all), desks: [nil, session, other], hideNames: hideNames)
-            }
-        }
-        guard let plain = ViewerCrypto.plaintext(office: office, at: 1), let text = String(data: plain, encoding: .utf8) else {
-            return ["couldn't serialise the snapshot"]
-        }
-        var problems: [String] = []
-        let forbiddenKeys = ["activity", "tool", "messaged", "messagedAt", "maxPressedAt", "voiceNote", "instructions",
-                             "questions", "transcript", "folder", "tab", "tty", "secret", "token", "phone", "summaryText"]
-        for key in forbiddenKeys where text.contains("\"\(key)\":") { problems.append("key \(key)") }
-        var forbiddenText = ["/Users", "real-session-id", "real-subagent-id", "secret-tool", "secret-activity", "secret-waiting",
-                             "secret-model", "secret-submodel", "secret-message", "secret-transcript", "secret-instructions",
-                             "secret-question", "secret-button", "other-secret-project", "secret-rule"]
-        if hideNames {
-            forbiddenText += ["secret-folder", "secret-project", "secret-nickname", "other-nickname", "pinned-secret", "secret-hirer", "up-folder",
-                              "secret-error-kind", "secret-agent-type", "secret-role-id", "secret-role-name", "secret-floor-name"]
-        }
-        for needle in forbiddenText where text.contains(needle) { problems.append("text \(needle)") }
-        // The session's own model key must be gone; subagents keep theirs as null.
-        if let keys = office["keys"] as? [[String: Any]], let s = keys.last?["session"] as? [String: Any] {
-            if s["model"] != nil { problems.append("session.model present") }
-            for control in ["dial", "mic", "dictates", "keys", "fire", "summary"] where s[control] as? Bool != false {
-                problems.append("control \(control) not false")
-            }
-        } else {
-            problems.append("no session in the snapshot")
-        }
-        if ((office["layout"] as? [String: Any])?["rows"] as? [Any])?.isEmpty != true { problems.append("layout.rows not empty") }
-        // Who hired each run upstairs: by name, or with names hidden, the hiring desk's number or "Downstairs".
-        let hirers = ((office["upstairs"] as? [String: Any])?["desks"] as? [[String: Any]] ?? []).map { ($0["hiredBy"] as? [String: String])?["name"] }
-        let wanted: [String?] = hideNames ? ["Desk 2", "Downstairs"] : ["secret-project", "secret-hirer"]
-        if hirers != wanted { problems.append("upstairs hiredBy \(hirers), not \(wanted)") }
-        // The raw room: with names hidden, every text in it is one of the room's own choices, and its
-        // team is under the desks' names. Whatever is added to Room later and holds your text fails here.
-        guard let room = (office["layout"] as? [String: Any])?["room"] as? [String: Any] else {
-            return problems + ["no layout.room in the snapshot"]
-        }
-        if (room["plan"] as? [String: Any])?["added"] == nil { problems.append("room.plan.added missing") }
-        if hideNames {
-            for key in (room["team"] as? [String: Any] ?? [:]).keys where key.range(of: #"^Desk \d+$"#, options: .regularExpression) == nil {
-                problems.append("room.team key \(key)")
-            }
-            var known: Set<String> = ["", "auto", "none", "bare"]
-            Room.choices.values.forEach { known.formUnion($0) }
-            TeamMember.choices.values.forEach { known.formUnion($0) }
-            known.formUnion(Room.wallChoices + Room.pets + Role.badges)
-            func texts(_ value: Any, at path: String) {
-                if let text = value as? String, !known.contains(text) { problems.append("room text at \(path)") }
-                if let list = value as? [Any] { list.enumerated().forEach { texts($1, at: "\(path)[\($0)]") } }
-                if let object = value as? [String: Any] { object.forEach { texts($1, at: "\(path).\($0)") } }
-            }
-            texts(room, at: "room")
-        }
-        return problems
-    }
-}
-#endif

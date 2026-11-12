@@ -1,7 +1,8 @@
 // Opens spec v1's test vector with the page's own code (public/viewer-crypto.js) and WebCrypto.
 //   node viewer/scripts/check-vector.mjs [path/to/viewer-vector-v1.bin]
 // With no file, the vector is sealed here, with Node's own AES-GCM and the spec's key, id and nonce, so it
-// must come out byte for byte as the spec says, as the Mac's `--viewer-selftest` seals it.
+// must come out byte for byte as the spec says, as the Mac's Swift engine's `--viewer-selftest` sealed it
+// until 1.25.0.
 // Exits 0 and prints "MATCH" when everything agrees with the spec, 1 otherwise.
 import { readFileSync } from 'node:fs';
 import { createCipheriv, createHash } from 'node:crypto';

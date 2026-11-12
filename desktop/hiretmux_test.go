@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -301,12 +302,21 @@ func TestCleaningUpAHireThatNeverReported(t *testing.T) {
 	}
 }
 
-// With a real tmux, on a socket of the test's own, and a fake agent in place of claude.
-func TestARealSessionOnItsOwnSocket(t *testing.T) {
+// needTmux is the path of tmux for a test that runs a real one: without it the test skips, but in CI (CI set) it fails.
+func needTmux(t *testing.T) string {
+	t.Helper()
 	path, err := exec.LookPath("tmux")
-	if err != nil {
+	if err != nil && os.Getenv("CI") != "" {
+		t.Fatal("tmux isn't installed: in CI a missing tmux is a failure, not a skip")
+	} else if err != nil {
 		t.Skip("tmux isn't installed")
 	}
+	return path
+}
+
+// With a real tmux, on a socket of the test's own, and a fake agent in place of claude.
+func TestARealSessionOnItsOwnSocket(t *testing.T) {
+	path := needTmux(t)
 	shortSupport(t)
 	saved := tmuxPath
 	tmuxPath = func() string { return path }
@@ -382,5 +392,59 @@ func TestTmuxIsGivenAHiresEnvironment(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "HIRE_KEEPS_THIS=yes") {
 		t.Error("the rest of the environment was dropped")
+	}
+}
+
+// Agent windows in the background (T796): a hire's viewers counted and detached on its own socket, by its session.
+func TestHireViewersAreDetachedOnTheirOwnSocketOnly(t *testing.T) {
+	calls := [][]string{}
+	server := &hireTmux{socket: "/s/smolcorp-a", run: func(args []string) (string, int, bool) {
+		calls = append(calls, args)
+		if slices.Contains(args, "list-clients") {
+			return "/dev/pts/3\n/dev/pts/4", 0, true
+		}
+		return "", 0, true
+	}}
+	if server.viewers() != 2 || !server.detachViewers() {
+		t.Fatal("viewers or detach")
+	}
+	want := [][]string{
+		{"-S", "/s/smolcorp-a", "list-clients", "-t", "=hire", "-F", "#{client_tty}"},
+		{"-S", "/s/smolcorp-a", "detach-client", "-s", "=hire"},
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("calls %v", calls)
+	}
+	for i := range want {
+		if !slices.Equal(calls[i], want[i]) {
+			t.Fatalf("call %d: %v, want %v", i, calls[i], want[i])
+		}
+		if slices.Contains(calls[i], "kill-session") || slices.Contains(calls[i], "kill-server") {
+			t.Fatalf("killed: %v", calls[i])
+		}
+	}
+}
+
+// RWTC N1: only a tmux pane on one of the copy's own hire sockets is its own.
+func TestATabIsATestCopysOwnOnlyAsATmuxPaneOnItsOwnHireSocket(t *testing.T) {
+	isolate(t)
+	onMarkedPort(t, 7799)
+	own := "tmux:%3@" + filepath.Join(supportDir, hireSocketName("abcdef123456", 7799))
+	if why := testCopyKeepsTab(own); why != "" {
+		t.Errorf("its own hire's pane: %q", why)
+	}
+	for _, tab := range []string{"iterm:AB12", "tty:/dev/ttys003", "launcher:L1", "kitty:3@/tmp/kitty", "wezterm:4@/tmp/w", "tmux:%3",
+		"tmux:%3@/tmp/tmux-501/default", "headless:abc", "",
+		"tmux:%3@" + filepath.Join(supportDir, hireSocketName("abcdef123456", 0)),     // the office's own hire
+		"tmux:%3@" + filepath.Join(supportDir, hireSocketName("abcdef123456", 7798)),  // another copy's
+		"tmux:%3@" + filepath.Join(t.TempDir(), hireSocketName("abcdef123456", 7799)), // not in a hire socket folder
+	} {
+		if why := testCopyKeepsTab(tab); why != testCopyKeepsTerminal {
+			t.Errorf("%q: %q", tab, why)
+		}
+	}
+	onDefaultPort(t)
+	if why := testCopyKeepsTab("iterm:AB12"); why != "" {
+		t.Errorf("the office's own: %q", why)
 	}
 }

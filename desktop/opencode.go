@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,10 +32,28 @@ var (
 	openCodeMu         sync.Mutex
 	openCodeWrittenFor string
 	openCodeVersion    = regexp.MustCompile(`(\d+)\.\d`)
-	// The PATH your login shell sets, asked once.
-	loginPath     []string
-	loginPathOnce sync.Once
+	// The PATH your login shell sets, asked once (askLoginPath), with
+	// loginPathMu held. loginPathKnown says it has been; loginPathAsking that
+	// it's being asked in the background.
+	loginPath       []string
+	loginPathMu     sync.Mutex
+	loginPathKnown  atomic.Bool
+	loginPathAsking atomic.Bool
+	// askShellPath asks your login shell for its PATH: a variable, for the tests.
+	askShellPath = loginShellPath
 )
+
+// askLoginPath is the PATH your login shell sets, asked once and waited for.
+// Never with the deck's lock held: tmuxLoginPath doesn't wait.
+func askLoginPath() []string {
+	loginPathMu.Lock()
+	defer loginPathMu.Unlock()
+	if !loginPathKnown.Load() {
+		loginPath = askShellPath()
+		loginPathKnown.Store(true)
+	}
+	return loginPath
+}
 
 // openCodeProgram is the opencode program, with every link resolved, or ""
 // if there's none: on the PATH, the one your login shell sets, or where its
@@ -69,10 +88,10 @@ func openCodePlaces() []string {
 		return []string{filepath.Join(os.Getenv("APPDATA"), "npm"), filepath.Join(os.Getenv("LOCALAPPDATA"), "pnpm"),
 			filepath.Join(os.Getenv("LOCALAPPDATA"), "Volta", "bin"), home(".opencode", "bin"), home(".bun", "bin")}
 	}
-	loginPathOnce.Do(func() { loginPath = loginShellPath() })
+	login := askLoginPath()
 	nvm, _ := filepath.Glob(home(".nvm", "versions", "node", "*", "bin"))
 	slices.Reverse(nvm) // the newest first
-	return slices.Concat(loginPath, []string{home(".opencode", "bin"), home(".local", "bin"), home(".bun", "bin"), home(".npm-global", "bin"),
+	return slices.Concat(login, []string{home(".opencode", "bin"), home(".local", "bin"), home(".bun", "bin"), home(".npm-global", "bin"),
 		home(".local", "share", "pnpm"), home(".volta", "bin"), home(".local", "share", "fnm", "aliases", "default", "bin"),
 		home(".asdf", "shims"), home(".local", "share", "mise", "shims"), "/opt/homebrew/bin", "/usr/local/bin"}, nvm)
 }
@@ -80,10 +99,7 @@ func openCodePlaces() []string {
 // loginShellPath is the PATH your login shell sets, which a program started
 // from the desktop may not have: empty if it doesn't say within a few seconds.
 func loginShellPath() []string {
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
+	shell := pathShell()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	// A marker before it, as a shell's start-up files can print things of their own
@@ -95,7 +111,22 @@ func loginShellPath() []string {
 	if i < 0 {
 		return nil
 	}
-	return filepath.SplitList(strings.TrimSpace(string(out)[i+len("<path>"):]))
+	// Only full paths: a relative one would be looked in wherever this program runs.
+	return slices.DeleteFunc(filepath.SplitList(strings.TrimSpace(string(out)[i+len("<path>"):])), func(folder string) bool {
+		return !filepath.IsAbs(folder)
+	})
+}
+
+// pathShell is the shell asked for its PATH: yours, else the Mac's own (zsh,
+// as Terminal and the Mac's engine start), else sh.
+func pathShell() string {
+	if shell := os.Getenv("SHELL"); shell != "" {
+		return shell
+	}
+	if runtime.GOOS == "darwin" {
+		return macShell
+	}
+	return "/bin/sh"
 }
 
 // openCodeStamp is where the program is and when it last changed, or "".
@@ -162,6 +193,9 @@ func lookAtOpenCode() {
 // forgetOpenCode removes the plugin, as disconnecting does, and what it was
 // written for, so connecting again writes it afresh.
 func forgetOpenCode() {
+	if leavesAgentsAlone() {
+		return
+	}
 	openCodeMu.Lock()
 	defer openCodeMu.Unlock()
 	_ = os.Remove(openCodePlugin())

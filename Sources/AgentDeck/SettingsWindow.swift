@@ -17,8 +17,14 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     static let minimumSize = NSSize(width: 900, height: 640)
     static let firstSize = NSSize(width: 1100, height: 780)
     static let frameName = "SmolcorpSettings"
+    /// The page session's cookie, as the Go core names it for this port (it says so as it starts: `GoCore.setupCookie`).
+    /// A browser sends localhost's cookies to every port, so a test copy's has a name of its own: each app's setup
+    /// page would otherwise sign the other out.
+    static let setupCookie = Deck.port == 7710 ? "smolcorp-setup" : "smolcorp-setup-\(Deck.port)"
 
     private let port: UInt16
+    /// The page session's cookie, as the engine serving the page names it.
+    private let cookieName: String
     /// A new page session, from a one-time link (`SetupSessions`), as the window opens.
     private let newSession: () -> String?
     private var window: SettingsPanel?
@@ -31,12 +37,16 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     /// Where each download goes, to show it in the Finder once it's saved.
     private var saving: [ObjectIdentifier: URL] = [:]
 
-    init(port: UInt16 = Deck.port, newSession: @escaping () -> String?) {
+    init(port: UInt16 = Deck.port, cookieName: String = SettingsWindow.setupCookie, newSession: @escaping () -> String?) {
         self.port = port
+        self.cookieName = cookieName
         self.newSession = newSession
     }
 
     var isShown: Bool { window?.isVisible == true }
+
+    /// Closed, as its close button does: its page goes with it.
+    func close() { window?.close() }
 
     // MARK: Addresses and what opens where
 
@@ -47,9 +57,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     }
 
     /// The cookie the page is given in the browser, for the window's store.
-    static func sessionCookie(session: String) -> HTTPCookie? {
+    static func sessionCookie(session: String, name: String = SettingsWindow.setupCookie) -> HTTPCookie? {
         HTTPCookie(properties: [
-            .name: DeckRouter.setupCookie, .value: session, .domain: "localhost", .path: "/setup",
+            .name: name, .value: session, .domain: "localhost", .path: "/setup",
             .sameSitePolicy: HTTPCookieStringPolicy.sameSiteStrict, HTTPCookiePropertyKey("HttpOnly"): "TRUE",
         ])
     }
@@ -57,7 +67,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     /// The setup page, or what it reads, from this Mac's Smolcorp.
     static func isSetupPage(_ url: URL?, port: UInt16) -> Bool {
         guard let url, url.scheme == "http", url.host == "localhost", url.port == Int(port) else { return false }
-        return DeckRouter.isSetupPath(url.path)
+        return isSetupPath(url.path)
+    }
+
+    /// Setup's page and everything it reads and changes.
+    static func isSetupPath(_ path: String) -> Bool {
+        path == "/setup" || path.hasPrefix("/setup/")
     }
 
     enum Decision: Equatable { case allow, download, openOutside, cancel }
@@ -94,7 +109,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
             load(SettingsWindow.address(port: port, then: then), in: web)
         }
         // A menu bar app is never active by itself, and the window would open behind others.
-        NSApp.activate(ignoringOtherApps: true)
+        Foreground.activate("Settings")
         window.makeKeyAndOrderFront(nil)
     }
 
@@ -140,7 +155,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     /// every load opens its own session from a new one-time link, so none
     /// runs on one that later ones pushed out. Without one, the page shows itself locked.
     private func load(_ address: URL, in web: WKWebView) {
-        guard let session = newSession(), let cookie = SettingsWindow.sessionCookie(session: session) else {
+        guard let session = newSession(), let cookie = SettingsWindow.sessionCookie(session: session, name: cookieName) else {
             web.load(URLRequest(url: address))
             return
         }
@@ -160,7 +175,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     }
 
     func reload(_ web: WKWebView) {
-        guard let session = newSession(), let cookie = SettingsWindow.sessionCookie(session: session) else {
+        guard let session = newSession(), let cookie = SettingsWindow.sessionCookie(session: session, name: cookieName) else {
             web.reload()
             return
         }
@@ -342,4 +357,12 @@ final class SettingsPanel: NSWindow {
         default: return nil
         }
     }
+}
+
+// MARK: The first-run guide
+
+extension SettingsWindow {
+    /// What setup's address ends with to start the first-run guide's arrows (see guide.js): "Show Me Around
+    /// Again", in the Help menu and the menu bar's, once the core has turned the guide on again (GoShellDelegate).
+    static let guide = "guide"
 }

@@ -1,0 +1,1963 @@
+{
+  "given" : {
+    "a cloud bot" : {
+      "requests" : [
+        {
+          "as" : "page",
+          "body" : {
+            "bots" : [
+              {
+                "id" : "contract-bot",
+                "name" : "Contract Bot"
+              }
+            ]
+          },
+          "method" : "POST",
+          "path" : "\/setup\/bots"
+        }
+      ]
+    },
+    "a floor rule" : {
+      "requests" : [
+        {
+          "as" : "page",
+          "body" : {
+            "rules" : [
+              {
+                "exact" : false,
+                "floor" : 1,
+                "folder" : "\/work\/beta"
+              }
+            ]
+          },
+          "method" : "POST",
+          "path" : "\/setup\/floors"
+        }
+      ]
+    },
+    "a paired phone" : {
+      "says" : "a phone paired with a code, as the pairing page does it (POST \/pair); phone requests carry its key as ?t=. A code open before is open after"
+    },
+    "a pairing code" : {
+      "requests" : [
+        {
+          "as" : "page",
+          "method" : "POST",
+          "path" : "\/setup\/pair"
+        }
+      ]
+    },
+    "a pin" : {
+      "requests" : [
+        {
+          "as" : "page",
+          "method" : "POST",
+          "path" : "\/setup\/pin",
+          "query" : {
+            "folder" : "\/work\/alpha",
+            "key" : "0"
+          }
+        }
+      ]
+    },
+    "a saved profile" : {
+      "requests" : [
+        {
+          "as" : "page",
+          "method" : "POST",
+          "path" : "\/setup\/profiles",
+          "query" : {
+            "action" : "save",
+            "name" : "Contract"
+          }
+        }
+      ]
+    },
+    "a session at a free key" : {
+      "requests" : [
+        {
+          "as" : "hook",
+          "body" : {
+            "cwd" : "\/work\/gamma",
+            "hook_event_name" : "UserPromptSubmit",
+            "prompt" : "Look at the logs.",
+            "session_id" : "contract-c"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/gamma",
+            "x-agentdeck-tab" : "tty:\/dev\/ttys903"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        }
+      ]
+    },
+    "a T3 hire" : {
+      "content" : {
+        "hires" : [
+          {
+            "account" : "",
+            "branch" : "hire\/rev-c0ffee",
+            "brief" : "",
+            "engine" : "t3",
+            "folder" : "\/work\/delta",
+            "id" : "c0ffee12-0000-4000-8000-0000000000d3",
+            "model" : "claude-sonnet-5-5",
+            "name" : "Reviewer",
+            "nickname" : "Rev",
+            "notes" : "",
+            "ports" : "",
+            "repo" : "\/work\/delta",
+            "role" : "reviewer",
+            "started" : 1761000000000,
+            "state" : "working",
+            "t3Floor" : 0,
+            "t3Link" : "https:\/\/app.t3.codes\/threads\/env-1\/mcp%3Acontract-t3",
+            "t3Thread" : "mcp:contract-t3",
+            "tmuxSocket" : "",
+            "worktree" : "\/work\/delta-hires\/rev-c0ffee"
+          }
+        ],
+        "version" : 1
+      },
+      "file" : "registry.json",
+      "says" : "registry.json holds a hire in T3 Code (engine t3, with its thread and worktree): the Mac gives it a desk at a free key, from the registry alone, with no control (T3D-a); T3 Code isn't asked"
+    },
+    "a watch" : {
+      "requests" : [
+        {
+          "as" : "page",
+          "body" : {
+            "kind" : "time",
+            "minutes" : 30,
+            "target" : "check the build"
+          },
+          "method" : "POST",
+          "path" : "\/setup\/gm\/watch"
+        }
+      ]
+    },
+    "a watch-only desk" : {
+      "requests" : [
+        {
+          "as" : "hook",
+          "body" : {
+            "cwd" : "\/work\/watch",
+            "hook_event_name" : "SessionStart",
+            "session_id" : "contract-w",
+            "source" : "startup"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/watch",
+            "x-agentdeck-tab" : "other:\/dev\/ttys909"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        }
+      ]
+    },
+    "an outbox message" : {
+      "content" : {
+        "messages" : [
+          {
+            "at" : 1761000000000,
+            "attempts" : 0,
+            "from" : "gm",
+            "id" : "gm-001",
+            "nextAt" : 0,
+            "note" : "",
+            "size" : 38,
+            "state" : "delivered",
+            "text" : "Please look at the login change first.",
+            "to" : "abcdef123456",
+            "toName" : "Rev"
+          },
+          {
+            "at" : 1761000240000,
+            "attempts" : 0,
+            "from" : "hire",
+            "fromID" : "abcdef123456",
+            "fromName" : "Rev",
+            "id" : "h-001",
+            "nextAt" : 0,
+            "note" : "Kept for the GM to read; not typed into its session.",
+            "size" : 12,
+            "state" : "delivered",
+            "text" : "Review done.",
+            "to" : "gm",
+            "toName" : "the GM"
+          }
+        ],
+        "version" : 1
+      },
+      "file" : "outbox.json"
+    },
+    "manager on" : {
+      "says" : "config.json's managerEnabled is true"
+    },
+    "sessions" : {
+      "requests" : [
+        {
+          "as" : "hook",
+          "body" : {
+            "cwd" : "\/work\/alpha",
+            "hook_event_name" : "SessionStart",
+            "model" : "claude-opus-5-5",
+            "session_id" : "contract-a",
+            "source" : "startup"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/alpha",
+            "x-agentdeck-tab" : "launcher:contract-a"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        },
+        {
+          "as" : "hook",
+          "body" : {
+            "cwd" : "\/work\/alpha",
+            "hook_event_name" : "UserPromptSubmit",
+            "prompt" : "Write the tests.",
+            "session_id" : "contract-a"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/alpha",
+            "x-agentdeck-tab" : "launcher:contract-a"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        },
+        {
+          "as" : "hook",
+          "body" : {
+            "agent_id" : "contract-sub",
+            "agent_type" : "Explore",
+            "cwd" : "\/work\/alpha",
+            "hook_event_name" : "SubagentStart",
+            "session_id" : "contract-a"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/alpha",
+            "x-agentdeck-tab" : "launcher:contract-a"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        },
+        {
+          "as" : "hook",
+          "body" : {
+            "cwd" : "\/work\/alpha",
+            "hook_event_name" : "PreToolUse",
+            "session_id" : "contract-a",
+            "tool_input" : {
+              "file_path" : "\/work\/alpha\/README.md"
+            },
+            "tool_name" : "Read"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/alpha",
+            "x-agentdeck-tab" : "launcher:contract-a"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        },
+        {
+          "as" : "hook",
+          "body" : {
+            "cwd" : "\/work\/beta",
+            "hook_event_name" : "PreToolUse",
+            "session_id" : "contract-b",
+            "tool_input" : {
+              "command" : "ls"
+            },
+            "tool_name" : "Bash"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/beta",
+            "x-agentdeck-tab" : "tty:\/dev\/ttys902"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        },
+        {
+          "as" : "hook",
+          "body" : {
+            "cwd" : "\/work\/beta",
+            "hook_event_name" : "Notification",
+            "message" : "Claude needs your permission to use Bash",
+            "session_id" : "contract-b"
+          },
+          "headers" : {
+            "x-agentdeck-agent" : "claude",
+            "x-agentdeck-project" : "\/work\/beta",
+            "x-agentdeck-tab" : "tty:\/dev\/ttys902"
+          },
+          "method" : "POST",
+          "path" : "\/hook"
+        }
+      ],
+      "says" : "before its hooks, contract-a's tab (launcher:contract-a) is a hire's, opened with the role reviewer: the Mac keeps that in Deck.hiredTabs, the Go app in its launcher (launcherConnected)"
+    },
+    "T3 Code on" : {
+      "says" : "config.json's t3CodeEnabled is true (the T3 Code choice, T796)"
+    },
+    "the app's briefs" : {
+      "says" : "the library you edit (the support folder's briefs\/templates) is the app's own, Resources\/briefs: the Go app has it built in and copies it there on first use; the Mac's test bundle has none, so its test copies it there"
+    },
+    "the phone mic off" : {
+      "says" : "config.json's phoneMicEnabled is false (setup's Phone microphone): the Go app reads it too since I5, with no switch for it in setup yet (M2)"
+    }
+  },
+  "note" : "The Swift engine's answers, written by its ContractTests.swift (gone with it in M7), kept by hand since as the Go app's reference and read by desktop\/contract_test.go. Shapes, not values: \"string\", \"number\", \"bool\", \"null\"; 'x' for that string; alternatives joined by | (\"string|null\", a closed set 'a'|'b'); an object's keys, no more, no fewer; an array's elements as the different shapes they have, each element like one of them and each like some element ([] for none). \"any\", \"object\", \"map\" (keys are data) and \"array\" compare no further: INVENTORY.md lists each, with why, and each null allowed. Beside a shape, ids: the given's sessions in each of its lists, sorted, compared as they are; and t3Desk: what every t3: desk must hold by value (each 'false' field false, each 'null' field null, its t3 with each of those fields, no \/ in a 'noSlash' field). A refusal answered in JSON has its shape too.",
+  "shapes" : {
+    "setup-state" : {
+      "as" : "page",
+      "ids" : {
+        ".sessions[].id" : [
+          "contract-a",
+          "contract-b"
+        ]
+      },
+      "route" : "GET \/setup\/state",
+      "shape" : {
+        "activeProfile" : "string",
+        "agents" : "array",
+        "checklist" : {
+          "accessibility" : "bool",
+          "hooks" : "bool",
+          "openAtLogin" : "bool",
+          "scroll" : "bool"
+        },
+        "choices" : {
+          "asked" : "bool",
+          "background" : "bool",
+          "hasTmux" : "bool",
+          "t3Code" : "bool",
+          "t3Installed" : "bool"
+        },
+        "claudeAccounts" : {
+          "found" : "array",
+          "most" : "number",
+          "profiles" : "array"
+        },
+        "cloudBots" : {
+          "autoDetect" : "bool",
+          "botFloor" : "number",
+          "bots" : [
+            {
+              "botId" : "string",
+              "discovered" : "bool",
+              "floor" : "string",
+              "fromApp" : "bool",
+              "id" : "string",
+              "mailbox" : "string",
+              "name" : "string",
+              "pinned" : "bool"
+            }
+          ],
+          "detects" : "bool",
+          "hidden" : [
+
+          ],
+          "noRoom" : [
+
+          ]
+        },
+        "dictation" : {
+          "allowed" : "bool",
+          "available" : "bool",
+          "claude" : "bool",
+          "cleanup" : "bool",
+          "cleanupProblem" : "string|null",
+          "enabled" : "bool",
+          "glossary" : [
+            "string"
+          ],
+          "language" : "string",
+          "problem" : "string|null"
+        },
+        "dock" : {
+          "enabled" : "bool"
+        },
+        "floorRules" : [
+          {
+            "exact" : "bool",
+            "floor" : "number",
+            "folder" : "string"
+          }
+        ],
+        "floors" : [
+          {
+            "name" : "string",
+            "preset" : "string"
+          }
+        ],
+        "gmHired" : "bool",
+        "guide" : {
+          "done" : "bool"
+        },
+        "hiring" : {
+          "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+          "apiKey" : {
+            "available" : "bool",
+            "notice" : "string"
+          },
+          "canChoose" : "bool",
+          "canHire" : "bool",
+          "enabled" : "bool",
+          "folder" : "string",
+          "hasTmux" : "bool",
+          "terminal" : "string",
+          "terminals" : "array",
+          "tmux" : "bool"
+        },
+        "keystrokes" : {
+          "accessibility" : "bool",
+          "apps" : [
+
+          ],
+          "enabled" : "bool",
+          "running" : "array"
+        },
+        "layout" : {
+          "dial" : "bool",
+          "keys" : "string",
+          "office" : "bool",
+          "room" : {
+            "ambience" : "string",
+            "arrivals" : "string",
+            "button" : "string",
+            "calm" : "string",
+            "chair" : "string",
+            "corner" : "string",
+            "desk" : "string",
+            "door" : "string",
+            "dress" : {
+              "agents" : {
+                "claude" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "codex" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "gemini" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "grok" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "opencode" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                }
+              },
+              "rules" : [
+
+              ],
+              "sizes" : {
+                "large" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "medium" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "small" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "top" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                }
+              }
+            },
+            "drift" : "string",
+            "fireworks" : "string",
+            "floor" : "string",
+            "floorPlans" : "map",
+            "lounge" : "string",
+            "loungePaint" : "string",
+            "mic" : "string",
+            "monitor" : "string",
+            "paint" : "string",
+            "pet" : [
+
+            ],
+            "plan" : {
+              "added" : {
+                "tall" : [
+
+                ],
+                "wide" : [
+
+                ]
+              },
+              "hung" : "map",
+              "tall" : "map",
+              "wide" : "map"
+            },
+            "preset" : "string",
+            "season" : "string",
+            "sky" : "string",
+            "sound" : "string",
+            "soundWhen" : "string",
+            "staff" : "string",
+            "team" : "map",
+            "wall" : [
+              "string"
+            ],
+            "wave" : "string",
+            "workspace" : "string"
+          },
+          "rows" : [
+            {
+              "buttons" : [
+                {
+                  "id" : "string",
+                  "width" : "number"
+                }
+              ],
+              "tall" : "bool"
+            }
+          ],
+          "stick" : "bool"
+        },
+        "logo" : "'smolcorp'|'keys'",
+        "manager" : {
+          "enabled" : "bool",
+          "gmByHand" : "bool",
+          "gmStartedByHand" : "bool",
+          "gmTokenFile" : "string",
+          "gmTokenFileShown" : "string"
+        },
+        "maxConfirm" : {
+          "enabled" : "bool"
+        },
+        "music" : {
+          "enabled" : "bool"
+        },
+        "officeKey" : {
+          "default" : "string",
+          "held" : "bool",
+          "keys" : "string",
+          "labels" : "map"
+        },
+        "officeWindow" : {
+          "available" : "bool",
+          "mac" : "bool",
+          "onTop" : "bool"
+        },
+        "pairing" : {
+          "address" : "string",
+          "code" : "string",
+          "codeExpiresIn" : "number",
+          "open" : "bool",
+          "tailnet" : "string"
+        },
+        "phoneKeys" : "number",
+        "phoneMic" : {
+          "autoSend" : "bool",
+          "enabled" : "bool",
+          "serving" : "bool|null",
+          "tailnet" : "string|null"
+        },
+        "phones" : [
+          {
+            "connected" : "bool",
+            "id" : "string",
+            "lastSeen" : "number",
+            "name" : "string",
+            "pairedAt" : "number"
+          }
+        ],
+        "pins" : [
+          "null",
+          {
+            "folder" : "string",
+            "name" : "string"
+          }
+        ],
+        "platform" : "'darwin'|'linux'|'windows'",
+        "presets" : [
+          "string"
+        ],
+        "profileEdited" : "bool",
+        "profiles" : [
+          {
+            "colours" : "map",
+            "layout" : {
+              "dial" : "bool",
+              "keys" : "string",
+              "office" : "bool",
+              "room" : {
+                "ambience" : "string",
+                "arrivals" : "string",
+                "button" : "string",
+                "calm" : "string",
+                "chair" : "string",
+                "corner" : "string",
+                "desk" : "string",
+                "door" : "string",
+                "dress" : {
+                  "agents" : {
+                    "claude" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "codex" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "gemini" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "grok" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "opencode" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    }
+                  },
+                  "rules" : [
+
+                  ],
+                  "sizes" : {
+                    "large" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "medium" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "small" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "top" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    }
+                  }
+                },
+                "drift" : "string",
+                "fireworks" : "string",
+                "floor" : "string",
+                "floorPlans" : "map",
+                "lounge" : "string",
+                "loungePaint" : "string",
+                "mic" : "string",
+                "monitor" : "string",
+                "paint" : "string",
+                "pet" : [
+
+                ],
+                "plan" : {
+                  "added" : {
+                    "tall" : [
+
+                    ],
+                    "wide" : [
+
+                    ]
+                  },
+                  "hung" : "map",
+                  "tall" : "map",
+                  "wide" : "map"
+                },
+                "preset" : "string",
+                "season" : "string",
+                "sky" : "string",
+                "sound" : "string",
+                "soundWhen" : "string",
+                "staff" : "string",
+                "team" : "map",
+                "wall" : [
+                  "string"
+                ],
+                "wave" : "string",
+                "workspace" : "string"
+              },
+              "rows" : [
+                {
+                  "buttons" : [
+                    {
+                      "id" : "string",
+                      "width" : "number"
+                    }
+                  ],
+                  "tall" : "bool"
+                }
+              ],
+              "stick" : "bool"
+            },
+            "name" : "string"
+          }
+        ],
+        "roles" : {
+          "agents" : [
+            {
+              "effort" : "bool",
+              "id" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "name" : "string",
+              "starts" : "bool"
+            }
+          ],
+          "badges" : [
+            "string"
+          ],
+          "efforts" : [
+            "string"
+          ],
+          "limits" : {
+            "answer" : "number",
+            "briefFile" : "number",
+            "briefFileName" : "number",
+            "instructions" : "number",
+            "model" : "number",
+            "name" : "number",
+            "question" : "number",
+            "questions" : "number"
+          },
+          "roles" : [
+            {
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "badge" : "string",
+              "brief" : {
+                "id" : "string",
+                "kind" : "string"
+              },
+              "effort" : "string",
+              "id" : "string",
+              "instructions" : "string",
+              "model" : "string",
+              "name" : "string",
+              "outfit" : "string",
+              "questions" : [
+                "string"
+              ]
+            }
+          ],
+          "shipped" : [
+            {
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "badge" : "string",
+              "brief" : {
+                "id" : "string",
+                "kind" : "string"
+              },
+              "effort" : "string",
+              "id" : "string",
+              "instructions" : "string",
+              "model" : "string",
+              "name" : "string",
+              "outfit" : "string",
+              "questions" : [
+                "string"
+              ]
+            }
+          ]
+        },
+        "sessions" : [
+          {
+            "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+            "agentName" : "string",
+            "folder" : "string",
+            "id" : "string",
+            "key" : "number",
+            "model" : "string",
+            "name" : "string",
+            "role" : "string",
+            "state" : "'idle'|'thinking'|'asking'|'unread'|'error'"
+          },
+          {
+            "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+            "agentName" : "string",
+            "folder" : "string",
+            "id" : "string",
+            "key" : "number|null",
+            "model" : "string|null",
+            "name" : "string",
+            "role" : "string|null",
+            "state" : "'idle'|'thinking'|'asking'|'unread'|'error'"
+          }
+        ],
+        "summary" : {
+          "checking" : "bool",
+          "enabled" : "bool",
+          "fallback" : "string|null",
+          "key" : "object|null",
+          "model" : "string",
+          "provider" : "object|null",
+          "providers" : [
+            {
+              "id" : "'claude'|'codex'|'gemini'|'grok'|'cursor'|'opencode'|'apikey'",
+              "name" : "string",
+              "reason" : "string",
+              "state" : "'ready'|'missing'|'signedOut'|'changed'|'unsupported'|'apiAccount'|'checking'"
+            }
+          ],
+          "saved" : "string",
+          "savedKey" : "bool"
+        },
+        "t3CodeEnabled" : "bool",
+        "terminalCommand" : {
+          "available" : "bool",
+          "link" : "string",
+          "onPath" : "bool",
+          "pathFile" : "string",
+          "pathLine" : "string",
+          "state" : "string",
+          "testCopy" : "bool"
+        },
+        "theme" : {
+          "colours" : {
+            "asking" : "string",
+            "body" : "string",
+            "cap" : "string",
+            "cap-top" : "string",
+            "dim" : "string",
+            "edge" : "string",
+            "error" : "string",
+            "faint" : "string",
+            "idle" : "string",
+            "ink" : "string",
+            "thinking" : "string",
+            "unread" : "string"
+          },
+          "presets" : [
+            {
+              "colours" : {
+                "asking" : "string",
+                "body" : "string",
+                "cap" : "string",
+                "cap-top" : "string",
+                "dim" : "string",
+                "edge" : "string",
+                "error" : "string",
+                "faint" : "string",
+                "idle" : "string",
+                "ink" : "string",
+                "thinking" : "string",
+                "unread" : "string"
+              },
+              "name" : "string"
+            }
+          ],
+          "tokens" : [
+            [
+              "string"
+            ]
+          ]
+        },
+        "version" : "string",
+        "webhook" : {
+          "enabled" : "bool",
+          "events" : [
+            "'waiting'|'done'|'error'|'working'|'started'|'ended'"
+          ],
+          "last" : "object|null",
+          "outside" : "bool",
+          "secret" : "string",
+          "url" : "string"
+        }
+      }
+    },
+    "setup-state-tool" : {
+      "as" : "tool",
+      "ids" : {
+        ".sessions[].id" : [
+          "contract-a",
+          "contract-b"
+        ]
+      },
+      "route" : "GET \/setup\/state",
+      "shape" : {
+        "activeProfile" : "string",
+        "agents" : "array",
+        "checklist" : {
+          "accessibility" : "bool",
+          "hooks" : "bool",
+          "openAtLogin" : "bool",
+          "scroll" : "bool"
+        },
+        "choices" : {
+          "asked" : "bool",
+          "background" : "bool",
+          "hasTmux" : "bool",
+          "t3Code" : "bool",
+          "t3Installed" : "bool"
+        },
+        "claudeAccounts" : {
+          "found" : "array",
+          "most" : "number",
+          "profiles" : "array"
+        },
+        "cloudBots" : {
+          "autoDetect" : "bool",
+          "botFloor" : "number",
+          "bots" : [
+            {
+              "botId" : "string",
+              "discovered" : "bool",
+              "floor" : "string",
+              "fromApp" : "bool",
+              "id" : "string",
+              "mailbox" : "string",
+              "name" : "string",
+              "pinned" : "bool"
+            }
+          ],
+          "detects" : "bool",
+          "hidden" : [
+
+          ],
+          "noRoom" : [
+
+          ]
+        },
+        "dictation" : {
+          "allowed" : "bool",
+          "available" : "bool",
+          "claude" : "bool",
+          "cleanup" : "bool",
+          "cleanupProblem" : "string|null",
+          "enabled" : "bool",
+          "glossary" : [
+            "string"
+          ],
+          "language" : "string",
+          "problem" : "string|null"
+        },
+        "dock" : {
+          "enabled" : "bool"
+        },
+        "floorRules" : [
+          {
+            "exact" : "bool",
+            "floor" : "number",
+            "folder" : "string"
+          }
+        ],
+        "floors" : [
+          {
+            "name" : "string",
+            "preset" : "string"
+          }
+        ],
+        "gmHired" : "bool",
+        "guide" : {
+          "done" : "bool"
+        },
+        "hiring" : {
+          "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+          "apiKey" : {
+            "available" : "bool",
+            "notice" : "string"
+          },
+          "canChoose" : "bool",
+          "canHire" : "bool",
+          "enabled" : "bool",
+          "folder" : "string",
+          "hasTmux" : "bool",
+          "terminal" : "string",
+          "terminals" : "array",
+          "tmux" : "bool"
+        },
+        "keystrokes" : {
+          "accessibility" : "bool",
+          "apps" : [
+
+          ],
+          "enabled" : "bool",
+          "running" : "array"
+        },
+        "layout" : {
+          "dial" : "bool",
+          "keys" : "string",
+          "office" : "bool",
+          "room" : {
+            "ambience" : "string",
+            "arrivals" : "string",
+            "button" : "string",
+            "calm" : "string",
+            "chair" : "string",
+            "corner" : "string",
+            "desk" : "string",
+            "door" : "string",
+            "dress" : {
+              "agents" : {
+                "claude" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "codex" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "gemini" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "grok" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "opencode" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                }
+              },
+              "rules" : [
+
+              ],
+              "sizes" : {
+                "large" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "medium" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "small" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "top" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                }
+              }
+            },
+            "drift" : "string",
+            "fireworks" : "string",
+            "floor" : "string",
+            "floorPlans" : "map",
+            "lounge" : "string",
+            "loungePaint" : "string",
+            "mic" : "string",
+            "monitor" : "string",
+            "paint" : "string",
+            "pet" : [
+
+            ],
+            "plan" : {
+              "added" : {
+                "tall" : [
+
+                ],
+                "wide" : [
+
+                ]
+              },
+              "hung" : "map",
+              "tall" : "map",
+              "wide" : "map"
+            },
+            "preset" : "string",
+            "season" : "string",
+            "sky" : "string",
+            "sound" : "string",
+            "soundWhen" : "string",
+            "staff" : "string",
+            "team" : "map",
+            "wall" : [
+              "string"
+            ],
+            "wave" : "string",
+            "workspace" : "string"
+          },
+          "rows" : [
+            {
+              "buttons" : [
+                {
+                  "id" : "string",
+                  "width" : "number"
+                }
+              ],
+              "tall" : "bool"
+            }
+          ],
+          "stick" : "bool"
+        },
+        "logo" : "'smolcorp'|'keys'",
+        "manager" : {
+          "enabled" : "bool",
+          "gmByHand" : "bool",
+          "gmStartedByHand" : "bool",
+          "gmTokenFile" : "string",
+          "gmTokenFileShown" : "string"
+        },
+        "maxConfirm" : {
+          "enabled" : "bool"
+        },
+        "music" : {
+          "enabled" : "bool"
+        },
+        "officeKey" : {
+          "default" : "string",
+          "held" : "bool",
+          "keys" : "string",
+          "labels" : "map"
+        },
+        "officeWindow" : {
+          "available" : "bool",
+          "mac" : "bool",
+          "onTop" : "bool"
+        },
+        "pairing" : {
+          "address" : "string",
+          "open" : "bool",
+          "tailnet" : "string"
+        },
+        "phoneKeys" : "number",
+        "phoneMic" : {
+          "autoSend" : "bool",
+          "enabled" : "bool",
+          "serving" : "bool|null",
+          "tailnet" : "string|null"
+        },
+        "phones" : [
+          {
+            "connected" : "bool",
+            "id" : "string",
+            "lastSeen" : "number",
+            "name" : "string",
+            "pairedAt" : "number"
+          }
+        ],
+        "pins" : [
+          "null",
+          {
+            "folder" : "string",
+            "name" : "string"
+          }
+        ],
+        "platform" : "'darwin'|'linux'|'windows'",
+        "presets" : [
+          "string"
+        ],
+        "profileEdited" : "bool",
+        "profiles" : [
+          {
+            "colours" : "map",
+            "layout" : {
+              "dial" : "bool",
+              "keys" : "string",
+              "office" : "bool",
+              "room" : {
+                "ambience" : "string",
+                "arrivals" : "string",
+                "button" : "string",
+                "calm" : "string",
+                "chair" : "string",
+                "corner" : "string",
+                "desk" : "string",
+                "door" : "string",
+                "dress" : {
+                  "agents" : {
+                    "claude" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "codex" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "gemini" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "grok" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "opencode" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    }
+                  },
+                  "rules" : [
+
+                  ],
+                  "sizes" : {
+                    "large" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "medium" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "small" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    },
+                    "top" : {
+                      "colour" : "string",
+                      "outfit" : "string"
+                    }
+                  }
+                },
+                "drift" : "string",
+                "fireworks" : "string",
+                "floor" : "string",
+                "floorPlans" : "map",
+                "lounge" : "string",
+                "loungePaint" : "string",
+                "mic" : "string",
+                "monitor" : "string",
+                "paint" : "string",
+                "pet" : [
+
+                ],
+                "plan" : {
+                  "added" : {
+                    "tall" : [
+
+                    ],
+                    "wide" : [
+
+                    ]
+                  },
+                  "hung" : "map",
+                  "tall" : "map",
+                  "wide" : "map"
+                },
+                "preset" : "string",
+                "season" : "string",
+                "sky" : "string",
+                "sound" : "string",
+                "soundWhen" : "string",
+                "staff" : "string",
+                "team" : "map",
+                "wall" : [
+                  "string"
+                ],
+                "wave" : "string",
+                "workspace" : "string"
+              },
+              "rows" : [
+                {
+                  "buttons" : [
+                    {
+                      "id" : "string",
+                      "width" : "number"
+                    }
+                  ],
+                  "tall" : "bool"
+                }
+              ],
+              "stick" : "bool"
+            },
+            "name" : "string"
+          }
+        ],
+        "roles" : {
+          "agents" : [
+            {
+              "effort" : "bool",
+              "id" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "name" : "string",
+              "starts" : "bool"
+            }
+          ],
+          "badges" : [
+            "string"
+          ],
+          "efforts" : [
+            "string"
+          ],
+          "limits" : {
+            "answer" : "number",
+            "briefFile" : "number",
+            "briefFileName" : "number",
+            "instructions" : "number",
+            "model" : "number",
+            "name" : "number",
+            "question" : "number",
+            "questions" : "number"
+          },
+          "roles" : [
+            {
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "badge" : "string",
+              "brief" : {
+                "id" : "string",
+                "kind" : "string"
+              },
+              "effort" : "string",
+              "id" : "string",
+              "instructions" : "string",
+              "model" : "string",
+              "name" : "string",
+              "outfit" : "string",
+              "questions" : [
+                "string"
+              ]
+            }
+          ],
+          "shipped" : [
+            {
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "badge" : "string",
+              "brief" : {
+                "id" : "string",
+                "kind" : "string"
+              },
+              "effort" : "string",
+              "id" : "string",
+              "instructions" : "string",
+              "model" : "string",
+              "name" : "string",
+              "outfit" : "string",
+              "questions" : [
+                "string"
+              ]
+            }
+          ]
+        },
+        "sessions" : [
+          {
+            "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+            "agentName" : "string",
+            "folder" : "string",
+            "id" : "string",
+            "key" : "number",
+            "model" : "string",
+            "name" : "string",
+            "role" : "string",
+            "state" : "'idle'|'thinking'|'asking'|'unread'|'error'"
+          },
+          {
+            "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+            "agentName" : "string",
+            "folder" : "string",
+            "id" : "string",
+            "key" : "number|null",
+            "model" : "string|null",
+            "name" : "string",
+            "role" : "string|null",
+            "state" : "'idle'|'thinking'|'asking'|'unread'|'error'"
+          }
+        ],
+        "summary" : {
+          "checking" : "bool",
+          "enabled" : "bool",
+          "fallback" : "string|null",
+          "key" : "object|null",
+          "model" : "string",
+          "provider" : "object|null",
+          "providers" : [
+            {
+              "id" : "'claude'|'codex'|'gemini'|'grok'|'cursor'|'opencode'|'apikey'",
+              "name" : "string",
+              "reason" : "string",
+              "state" : "'ready'|'missing'|'signedOut'|'changed'|'unsupported'|'apiAccount'|'checking'"
+            }
+          ],
+          "saved" : "string",
+          "savedKey" : "bool"
+        },
+        "t3CodeEnabled" : "bool",
+        "terminalCommand" : {
+          "available" : "bool",
+          "link" : "string",
+          "onPath" : "bool",
+          "pathFile" : "string",
+          "pathLine" : "string",
+          "state" : "string",
+          "testCopy" : "bool"
+        },
+        "theme" : {
+          "colours" : {
+            "asking" : "string",
+            "body" : "string",
+            "cap" : "string",
+            "cap-top" : "string",
+            "dim" : "string",
+            "edge" : "string",
+            "error" : "string",
+            "faint" : "string",
+            "idle" : "string",
+            "ink" : "string",
+            "thinking" : "string",
+            "unread" : "string"
+          },
+          "presets" : [
+            {
+              "colours" : {
+                "asking" : "string",
+                "body" : "string",
+                "cap" : "string",
+                "cap-top" : "string",
+                "dim" : "string",
+                "edge" : "string",
+                "error" : "string",
+                "faint" : "string",
+                "idle" : "string",
+                "ink" : "string",
+                "thinking" : "string",
+                "unread" : "string"
+              },
+              "name" : "string"
+            }
+          ],
+          "tokens" : [
+            [
+              "string"
+            ]
+          ]
+        },
+        "version" : "string",
+        "webhook" : {
+          "enabled" : "bool",
+          "events" : [
+            "'waiting'|'done'|'error'|'working'|'started'|'ended'"
+          ],
+          "last" : "object|null",
+          "outside" : "bool",
+          "secret" : "string",
+          "url" : "string"
+        }
+      }
+    },
+    "snapshot" : {
+      "as" : "phone",
+      "ids" : {
+        ".floors[].desks[].id" : [
+          "cloud-contract-bot",
+          "contract-b"
+        ],
+        ".keys[].session.id" : [
+          "contract-a",
+          "contract-c",
+          "t3:c0ffee12-0000-4000-8000-0000000000d3"
+        ],
+        ".upstairs.desks[].id" : [
+          "cloud-contract-bot",
+          "contract-b"
+        ]
+      },
+      "route" : "GET \/events",
+      "shape" : {
+        "dictation" : {
+          "cleanup" : "bool",
+          "language" : "string",
+          "on" : "bool"
+        },
+        "floors" : [
+          {
+            "asking" : "number",
+            "desks" : [
+
+            ],
+            "n" : "number",
+            "name" : "string",
+            "preset" : "string"
+          },
+          {
+            "asking" : "number",
+            "desks" : [
+              {
+                "activity" : "string",
+                "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+                "agentName" : "string",
+                "choice" : "object|null",
+                "cloud" : "bool",
+                "compacting" : "bool",
+                "conversation" : "bool",
+                "desk" : "number",
+                "dial" : "bool",
+                "dictates" : "bool",
+                "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+                "errorKind" : "string|null",
+                "fire" : "bool",
+                "hiredBy" : {
+                  "id" : "string|null",
+                  "name" : "string"
+                },
+                "id" : "string",
+                "keys" : "bool",
+                "last" : "object|null",
+                "maxPressedAt" : "number|null",
+                "messaged" : "string|null",
+                "messagedAt" : "number|null",
+                "mic" : "bool",
+                "model" : "string|null",
+                "name" : "string",
+                "pending" : "bool",
+                "phoneMic" : "bool",
+                "project" : "string",
+                "role" : {
+                  "badge" : "string",
+                  "id" : "string",
+                  "name" : "string",
+                  "outfit" : "string"
+                },
+                "startedAt" : "number",
+                "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+                "subagents" : [
+
+                ],
+                "summary" : "bool",
+                "tool" : "string|null",
+                "turnStartedAt" : "number|null",
+                "voiceNote" : "object|null"
+              },
+              {
+                "activity" : "string",
+                "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+                "agentName" : "string",
+                "choice" : "object|null",
+                "compacting" : "bool",
+                "conversation" : "bool",
+                "desk" : "number",
+                "dial" : "bool",
+                "dictates" : "bool",
+                "drivable" : "bool",
+                "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+                "errorKind" : "string|null",
+                "fire" : "bool",
+                "headless" : "bool",
+                "id" : "string",
+                "keys" : "bool",
+                "maxPressedAt" : "number|null",
+                "messaged" : "string|null",
+                "messagedAt" : "number|null",
+                "mic" : "bool",
+                "model" : "string|null",
+                "name" : "string",
+                "overflow" : "bool",
+                "pending" : "bool",
+                "phoneMic" : "bool",
+                "project" : "string",
+                "role" : "null",
+                "startedAt" : "number",
+                "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+                "subagents" : [
+
+                ],
+                "summary" : "bool",
+                "tool" : "string",
+                "turnStartedAt" : "number|null",
+                "voiceNote" : "object|null"
+              }
+            ],
+            "n" : "number",
+            "name" : "string",
+            "preset" : "string"
+          }
+        ],
+        "floorsOverflow" : "number",
+        "hiring" : {
+          "fire" : "bool",
+          "hire" : "bool",
+          "roles" : [
+
+          ]
+        },
+        "keys" : [
+          {
+            "pin" : "string",
+            "session" : {
+              "activity" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "agentName" : "string",
+              "choice" : "object|null",
+              "compacting" : "bool",
+              "conversation" : "bool",
+              "dial" : "bool",
+              "dictates" : "bool",
+              "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+              "errorKind" : "string|null",
+              "fire" : "bool",
+              "id" : "string",
+              "keys" : "bool",
+              "maxPressedAt" : "number|null",
+              "messaged" : "string|null",
+              "messagedAt" : "number|null",
+              "mic" : "bool",
+              "model" : "string",
+              "name" : "string",
+              "pending" : "bool",
+              "phoneMic" : "bool",
+              "project" : "string",
+              "role" : {
+                "badge" : "string",
+                "id" : "string",
+                "name" : "string",
+                "outfit" : "string"
+              },
+              "startedAt" : "number",
+              "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+              "subagents" : [
+                {
+                  "id" : "string",
+                  "model" : "string|null",
+                  "type" : "string"
+                }
+              ],
+              "summary" : "bool",
+              "tool" : "string",
+              "turnStartedAt" : "number",
+              "voiceNote" : "object|null"
+            }
+          },
+          {
+            "pin" : "string|null",
+            "session" : {
+              "activity" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "agentName" : "string",
+              "choice" : "object|null",
+              "compacting" : "bool",
+              "conversation" : "bool",
+              "dial" : "bool",
+              "dictates" : "bool",
+              "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+              "errorKind" : "string|null",
+              "fire" : "bool",
+              "id" : "string",
+              "keys" : "bool",
+              "maxPressedAt" : "number|null",
+              "messaged" : "string|null",
+              "messagedAt" : "number|null",
+              "mic" : "bool",
+              "model" : "string",
+              "name" : "string",
+              "pending" : "bool",
+              "phoneMic" : "bool",
+              "project" : "string",
+              "role" : {
+                "badge" : "string",
+                "id" : "string",
+                "name" : "string",
+                "outfit" : "string"
+              },
+              "startedAt" : "number",
+              "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+              "subagents" : [
+
+              ],
+              "summary" : "bool",
+              "t3" : {
+                "branch" : "string",
+                "canOpen" : "bool",
+                "experimental" : "bool",
+                "status" : "'starting'|'working'|'waiting'|'done'|'unknown'",
+                "tag" : "string"
+              },
+              "tool" : "string|null",
+              "turnStartedAt" : "number|null",
+              "voiceNote" : "object|null"
+            }
+          },
+          {
+            "pin" : "string|null",
+            "session" : {
+              "activity" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "agentName" : "string",
+              "choice" : "object|null",
+              "compacting" : "bool",
+              "conversation" : "bool",
+              "dial" : "bool",
+              "dictates" : "bool",
+              "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+              "errorKind" : "string|null",
+              "fire" : "bool",
+              "id" : "string",
+              "keys" : "bool",
+              "maxPressedAt" : "number|null",
+              "messaged" : "string|null",
+              "messagedAt" : "number|null",
+              "mic" : "bool",
+              "model" : "string|null",
+              "name" : "string",
+              "pending" : "bool",
+              "phoneMic" : "bool",
+              "project" : "string",
+              "role" : "null",
+              "startedAt" : "number",
+              "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+              "subagents" : [
+
+              ],
+              "summary" : "bool",
+              "tool" : "string|null",
+              "turnStartedAt" : "number",
+              "voiceNote" : "object|null"
+            }
+          }
+        ],
+        "layout" : {
+          "dial" : "bool",
+          "keys" : "string",
+          "office" : "bool",
+          "room" : {
+            "ambience" : "string",
+            "arrivals" : "string",
+            "button" : "string",
+            "calm" : "string",
+            "chair" : "string",
+            "corner" : "string",
+            "desk" : "string",
+            "door" : "string",
+            "dress" : {
+              "agents" : {
+                "claude" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "codex" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "gemini" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "grok" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "opencode" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                }
+              },
+              "rules" : [
+
+              ],
+              "sizes" : {
+                "large" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "medium" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "small" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                },
+                "top" : {
+                  "colour" : "string",
+                  "outfit" : "string"
+                }
+              }
+            },
+            "drift" : "string",
+            "fireworks" : "string",
+            "floor" : "string",
+            "floorPlans" : "map",
+            "lounge" : "string",
+            "loungePaint" : "string",
+            "mic" : "string",
+            "monitor" : "string",
+            "paint" : "string",
+            "pet" : [
+
+            ],
+            "plan" : {
+              "added" : {
+                "tall" : [
+
+                ],
+                "wide" : [
+
+                ]
+              },
+              "hung" : "map",
+              "tall" : "map",
+              "wide" : "map"
+            },
+            "preset" : "string",
+            "season" : "string",
+            "sky" : "string",
+            "sound" : "string",
+            "soundWhen" : "string",
+            "staff" : "string",
+            "team" : "map",
+            "wall" : [
+              "string"
+            ],
+            "wave" : "string",
+            "workspace" : "string"
+          },
+          "rows" : [
+            {
+              "buttons" : [
+                {
+                  "id" : "string",
+                  "width" : "number"
+                }
+              ],
+              "tall" : "bool"
+            }
+          ],
+          "stick" : "bool"
+        },
+        "maxConfirm" : "bool",
+        "music" : "object|null",
+        "now" : "number",
+        "overflow" : "number",
+        "phoneMic" : {
+          "autoSend" : "bool",
+          "on" : "bool"
+        },
+        "scroll" : "bool",
+        "theme" : {
+          "asking" : "string",
+          "body" : "string",
+          "cap" : "string",
+          "cap-top" : "string",
+          "dim" : "string",
+          "edge" : "string",
+          "error" : "string",
+          "faint" : "string",
+          "idle" : "string",
+          "ink" : "string",
+          "thinking" : "string",
+          "unread" : "string"
+        },
+        "upstairs" : {
+          "desks" : [
+            {
+              "activity" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "agentName" : "string",
+              "choice" : "object|null",
+              "cloud" : "bool",
+              "compacting" : "bool",
+              "conversation" : "bool",
+              "desk" : "number",
+              "dial" : "bool",
+              "dictates" : "bool",
+              "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+              "errorKind" : "string|null",
+              "fire" : "bool",
+              "hiredBy" : {
+                "id" : "string|null",
+                "name" : "string"
+              },
+              "id" : "string",
+              "keys" : "bool",
+              "last" : "object|null",
+              "maxPressedAt" : "number|null",
+              "messaged" : "string|null",
+              "messagedAt" : "number|null",
+              "mic" : "bool",
+              "model" : "string|null",
+              "name" : "string",
+              "pending" : "bool",
+              "phoneMic" : "bool",
+              "project" : "string",
+              "role" : {
+                "badge" : "string",
+                "id" : "string",
+                "name" : "string",
+                "outfit" : "string"
+              },
+              "startedAt" : "number",
+              "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+              "subagents" : [
+
+              ],
+              "summary" : "bool",
+              "tool" : "string|null",
+              "turnStartedAt" : "number|null",
+              "voiceNote" : "object|null"
+            },
+            {
+              "activity" : "string",
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "agentName" : "string",
+              "choice" : "object|null",
+              "compacting" : "bool",
+              "conversation" : "bool",
+              "desk" : "number",
+              "dial" : "bool",
+              "dictates" : "bool",
+              "drivable" : "bool",
+              "effort" : "'low'|'medium'|'high'|'xhigh'|'max'|''",
+              "errorKind" : "string|null",
+              "fire" : "bool",
+              "headless" : "bool",
+              "id" : "string",
+              "keys" : "bool",
+              "maxPressedAt" : "number|null",
+              "messaged" : "string|null",
+              "messagedAt" : "number|null",
+              "mic" : "bool",
+              "model" : "string|null",
+              "name" : "string",
+              "overflow" : "bool",
+              "pending" : "bool",
+              "phoneMic" : "bool",
+              "project" : "string",
+              "role" : "null",
+              "startedAt" : "number",
+              "state" : "'idle'|'thinking'|'asking'|'unread'|'error'",
+              "subagents" : [
+
+              ],
+              "summary" : "bool",
+              "tool" : "string",
+              "turnStartedAt" : "number|null",
+              "voiceNote" : "object|null"
+            }
+          ],
+          "overflow" : "number"
+        }
+      },
+      "t3Desk" : {
+        "false" : [
+          "conversation",
+          "dial",
+          "dictates",
+          "fire",
+          "keys",
+          "mic",
+          "phoneMic",
+          "summary"
+        ],
+        "id" : "t3:c0ffee12-0000-4000-8000-0000000000d3",
+        "noSlash" : [
+          "name",
+          "project"
+        ],
+        "null" : [
+          "choice"
+        ],
+        "t3" : [
+          "branch",
+          "canOpen",
+          "experimental",
+          "status",
+          "tag"
+        ]
+      }
+    }
+  }
+}

@@ -93,7 +93,7 @@ func TestALauncherEngineHireAtAChosenDeskSitsThere(t *testing.T) {
 	r.d.launcherEngine = r.o
 	r.d.mu.Lock()
 	running(r.d, 1)
-	status, message, handled := r.d.managedLauncherHire("janitor", r.repo, hireOpener{}, true, 5, 0)
+	status, message, handled := r.d.managedLauncherHire("janitor", r.repo, hireOpener{}, true, 5, 0, nil, nil)
 	r.d.mu.Unlock()
 	if !handled || status != http.StatusNoContent {
 		t.Fatalf("%d %q %v", status, message, handled)

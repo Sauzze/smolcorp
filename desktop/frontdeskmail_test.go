@@ -376,7 +376,7 @@ func TestAGMOrHireKeyDoesNotCompleteSetup(t *testing.T) {
 	cookie := d.access.NewSetupSession()
 	d.mu.Unlock()
 	serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
-		headers: map[string]string{"Cookie": setupCookie + "=" + cookie}})
+		headers: map[string]string{"Cookie": setupCookie() + "=" + cookie}})
 	if !d.config.HasCompletedSetup {
 		t.Error("the page no longer completes setup")
 	}

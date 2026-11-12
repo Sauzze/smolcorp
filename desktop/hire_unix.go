@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -58,10 +59,14 @@ func inLoginShell(command []string) []string {
 	return []string{loginShell(), "-lic", "exec " + strings.Join(quoted, " ")}
 }
 
-// loginShell is your shell, as a terminal starts it.
+// loginShell is your shell, as a terminal starts it: with no SHELL, the
+// Mac's own (macShell), elsewhere bash where there is one.
 func loginShell() string {
 	if shell := os.Getenv("SHELL"); shell != "" {
 		return shell
+	}
+	if runtime.GOOS == "darwin" {
+		return macShell
 	}
 	if found, err := exec.LookPath("bash"); err == nil {
 		return found
