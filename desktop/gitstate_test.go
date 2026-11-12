@@ -187,32 +187,210 @@ func TestAnUpstreamGivesAheadAndBehind(t *testing.T) {
 	}
 }
 
-// A repo's own config may name a program for fsmonitor: reading it must not run it.
-func TestReadingARepoRunsNothingItsConfigNames(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("a shell script")
-	}
-	dir := aGitRepo(t)
-	marker := filepath.Join(physical(t.TempDir()), "ran")
-	hook := filepath.Join(physical(t.TempDir()), "monitor.sh")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0o755); err != nil {
+// withAttrSource forces the answer of the version check, so both paths are run on any git.
+func withAttrSource(t *testing.T, on bool) {
+	t.Helper()
+	was := gitHasAttrSource
+	gitHasAttrSource = func() bool { return on }
+	t.Cleanup(func() { gitHasAttrSource = was })
+}
+
+// A hostile repo: its own config, its attributes (in the working folder and in .git/info), an included config, the
+// owner's own config and the environment each name a program that writes a marker. Reading it must run none.
+type hostileRepo struct {
+	dir     string
+	markers string
+	names   []string
+}
+
+func (h *hostileRepo) program(t *testing.T, name string) string {
+	t.Helper()
+	script := filepath.Join(physical(t.TempDir()), name+".sh")
+	body := "#!/bin/sh\ntouch '" + filepath.Join(h.markers, name) + "'\ncat\n" // a filter passes its input on
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	gitRepoCmd(t, dir, "config", "core.fsmonitor", hook)
-	writeRepoFile(t, dir, "a.txt", "changed\n")
-	if state := realGitState(dir); state.Changed != 1 {
-		t.Fatalf("%+v", state)
+	h.names = append(h.names, name)
+	return script
+}
+
+// ran says which programs left their marker since the last call, and clears the markers.
+func (h *hostileRepo) ran() []string {
+	var ran []string
+	for _, name := range h.names {
+		if err := os.Remove(filepath.Join(h.markers, name)); err == nil {
+			ran = append(ran, name)
+		}
 	}
-	if _, err := os.Stat(marker); err == nil {
-		t.Error("git ran the repo's fsmonitor program")
+	return ran
+}
+
+func aHostileGitRepo(t *testing.T) *hostileRepo {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell scripts")
+	}
+	h := &hostileRepo{dir: aGitRepo(t), markers: physical(t.TempDir())}
+	dir := h.dir
+	for _, name := range []string{"c.txt", "d.txt", "e.txt"} {
+		writeRepoFile(t, dir, name, name+"\n")
+	}
+	gitRepoCmd(t, dir, "add", "c.txt", "d.txt", "e.txt")
+	gitRepoCmd(t, dir, "commit", "-q", "-m", "more")
+
+	cfg := func(key, value string) { gitRepoCmd(t, dir, "config", key, value) }
+	cfg("filter.clean1.clean", h.program(t, "clean"))
+	cfg("filter.clean1.smudge", h.program(t, "smudge"))
+	cfg("filter.clean1.process", h.program(t, "process"))
+	cfg("diff.conv.textconv", h.program(t, "textconv"))
+	cfg("diff.conv.command", h.program(t, "externaldiff"))
+	cfg("diff.external", h.program(t, "diffexternal"))
+	cfg("core.fsmonitor", h.program(t, "fsmonitor"))
+	cfg("core.pager", h.program(t, "pager"))
+	cfg("core.sshCommand", h.program(t, "ssh"))
+	cfg("credential.helper", h.program(t, "credential"))
+	cfg("filter.infofilter.clean", h.program(t, "infoclean"))
+	hooks := physical(t.TempDir())
+	for _, hook := range []string{"post-index-change", "fsmonitor-watchman", "reference-transaction"} {
+		if err := os.WriteFile(filepath.Join(hooks, hook), []byte("#!/bin/sh\ntouch '"+filepath.Join(h.markers, "hook")+"'\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.names = append(h.names, "hook")
+	cfg("core.hooksPath", hooks)
+	included := filepath.Join(physical(t.TempDir()), "included.cfg")
+	if err := os.WriteFile(included, []byte("[filter \"inc\"]\n\tclean = "+h.program(t, "included")+"\n[core]\n\tfsmonitor = "+h.program(t, "includedmonitor")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg("include.path", included)
+	cfg("includeIf.gitdir:"+dir+"/.path", included)
+
+	writeRepoFile(t, dir, ".gitattributes", "a.txt filter=clean1 diff=conv\nc.txt filter=inc\nd.txt filter=owners\ne.txt filter=fromenv\n")
+	writeRepoFile(t, dir, ".git/info/attributes", "src/b.txt filter=infofilter\n")
+
+	// The owner's own config and the environment, set after the setup above, which ran with both as they were.
+	home := physical(t.TempDir())
+	writeRepoFile(t, home, ".gitconfig", "[filter \"owners\"]\n\tclean = "+h.program(t, "global")+"\n[core]\n\tfsmonitor = "+h.program(t, "globalmonitor")+"\n")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "filter.fromenv.clean")
+	t.Setenv("GIT_CONFIG_VALUE_0", h.program(t, "env"))
+	t.Setenv("GIT_EXTERNAL_DIFF", h.program(t, "envdiff"))
+
+	// Every tracked file changed in size after the index was written, so any read has to look inside it.
+	for _, name := range []string{"a.txt", "src/b.txt", "c.txt", "d.txt", "e.txt"} {
+		writeRepoFile(t, dir, name, "changed, and longer than before\n")
+	}
+	return h
+}
+
+// A repo's own config may name programs (and so may the owner's, and the environment): reading it must run none of
+// them, on a git that has --attr-source and on one that has not.
+func TestReadingARepoRunsNothingItsConfigNames(t *testing.T) {
+	for _, mode := range []struct {
+		name string
+		on   bool
+	}{{"with an attribute source", true}, {"without one", false}} {
+		t.Run(mode.name, func(t *testing.T) {
+			h := aHostileGitRepo(t)
+			if out, err := exec.Command("git", "version").Output(); err != nil || (mode.on && !gitVersionAtLeast(string(out), 2, 40)) {
+				t.Skip("this git has no --attr-source")
+			}
+			// The control: a plain diff of this repo does run its filters, so the repo is really hostile.
+			if control, err := exec.Command("git", "-C", h.dir, "diff", "--numstat", "HEAD", "--").CombinedOutput(); err != nil {
+				t.Fatalf("%v: %s", err, control)
+			}
+			if ran := h.ran(); len(ran) == 0 {
+				t.Fatal("the control repo's filters never ran, so this test proves nothing")
+			}
+			withAttrSource(t, mode.on)
+			state := realGitState(h.dir)
+			if ran := h.ran(); len(ran) != 0 {
+				t.Errorf("reading the repo ran: %v", ran)
+			}
+			if state.Skipped || state.Changed != 6 || state.Added != 5 || state.Removed != 7 {
+				t.Errorf("the state is still read: %+v", state)
+			}
+			// The same through the cache the app reads with.
+			if got := newGitStates().get(h.dir, 0); got.Changed != 6 {
+				t.Errorf("%+v", got)
+			}
+			if ran := h.ran(); len(ran) != 0 {
+				t.Errorf("the cached read ran: %v", ran)
+			}
+		})
+	}
+}
+
+func TestBothPathsAgreeOnAnOrdinaryRepo(t *testing.T) {
+	dir := aGitRepo(t)
+	writeRepoFile(t, dir, "a.txt", "one\ntwo changed\n")
+	writeRepoFile(t, dir, "new.txt", "n\n")
+	withAttrSource(t, true)
+	on := realGitState(dir)
+	withAttrSource(t, false)
+	off := realGitState(dir)
+	on.At, off.At = 0, 0
+	if on.Skipped || off.Skipped || on.Changed != 2 || on.Added != 1 || on.Removed != 2 {
+		t.Fatalf("%+v", on)
+	}
+	if on.Files[0] != off.Files[0] || on.Files[1] != off.Files[1] || on.Head != off.Head || on.Branch != off.Branch {
+		t.Errorf("%+v / %+v", on, off)
+	}
+}
+
+func TestASha256RepoIsReadWithItsOwnEmptyTree(t *testing.T) {
+	if out, err := exec.Command("git", "version").Output(); err != nil || !gitVersionAtLeast(string(out), 2, 40) {
+		t.Skip("this git has no --attr-source")
+	}
+	dir := physical(t.TempDir())
+	if out, err := exec.Command("git", "-C", dir, "init", "-q", "-b", "main", "--object-format=sha256").CombinedOutput(); err != nil {
+		t.Skipf("no sha256 repos here: %s", out)
+	}
+	gitRepoCmd(t, dir, "config", "commit.gpgsign", "false")
+	writeRepoFile(t, dir, "a.txt", "one\n")
+	gitRepoCmd(t, dir, "add", ".")
+	gitRepoCmd(t, dir, "commit", "-q", "-m", "first")
+	writeRepoFile(t, dir, "a.txt", "one\ntwo\n")
+	withAttrSource(t, true)
+	if state := realGitState(dir); state.Skipped || state.Changed != 1 || state.Added != 1 {
+		t.Errorf("%+v", state)
 	}
 }
 
 func TestGitIsReadWithNothingToAskAndNoOtherRepoNamed(t *testing.T) {
-	env := gitReadEnv([]string{"PATH=/bin", "git_dir=/elsewhere", "GIT_WORK_TREE=/x", "GIT_TERMINAL_PROMPT=1", "GIT_PAGER=less", "HOME=/h"})
+	env := gitReadEnv([]string{"PATH=/bin", "git_dir=/elsewhere", "GIT_WORK_TREE=/x", "GIT_TERMINAL_PROMPT=1", "GIT_PAGER=less", "HOME=/h",
+		"GIT_CONFIG_COUNT=1", "git_config_key_0=filter.x.clean", "GIT_CONFIG_VALUE_0=prog", "GIT_CONFIG_PARAMETERS='a.b=c'", "GIT_CONFIG_GLOBAL=/g",
+		"GIT_EXTERNAL_DIFF=prog", "GIT_SSH_COMMAND=prog", "GIT_ASKPASS=prog", "GIT_ATTR_SOURCE=HEAD", "GIT_AUTHOR_NAME=kept"})
 	got := strings.Join(env, " ")
-	if got != "PATH=/bin HOME=/h GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 GIT_PAGER=cat" {
+	want := "PATH=/bin HOME=/h GIT_AUTHOR_NAME=kept GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 GIT_PAGER=cat GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=" + os.DevNull
+	if got != want {
 		t.Errorf("%s", got)
+	}
+}
+
+func TestFiltersAndConvertersAConfigNamesAreBlankedByName(t *testing.T) {
+	list := "core.bare\nfalse\x00filter.lfs.clean\ngit-lfs clean\x00filter.lfs.required\ntrue\x00Filter.a.b.Process\nprog\x00" +
+		"diff.tc.textconv\nprog\x00diff.tc.command\nprog\x00diff.tc.binary\ntrue\x00diff.algorithm\nhistogram\x00filter.x\ny\x00filter.lfs.clean\nagain\x00"
+	got := strings.Join(gitBlanks([]byte(list)), " ")
+	want := "-c filter.lfs.clean= -c filter.lfs.required=false -c filter.a.b.process= -c filter.a.b.required=false -c diff.tc.textconv= -c diff.tc.command="
+	if got != want {
+		t.Errorf("%s", got)
+	}
+	if len(gitBlanks(nil)) != 0 {
+		t.Error("a config with none names none")
+	}
+}
+
+func TestTheGitVersionDecidesTheAttributeSource(t *testing.T) {
+	for text, want := range map[string]bool{
+		"git version 2.55.0\n": true, "git version 2.40.0": true, "git version 2.39.5 (Apple Git-154)": false,
+		"git version 2.43.0.windows.1": true, "git version 3.0.1": true, "git version 1.9.0": false, "": false, "git version x.y": false,
+	} {
+		if got := gitVersionAtLeast(text, 2, 40); got != want {
+			t.Errorf("%q: %v", text, got)
+		}
 	}
 }
 
@@ -237,7 +415,7 @@ type fakeGit struct {
 	gate    chan struct{}
 }
 
-func (f *fakeGit) read(_ context.Context, _ string, args ...string) ([]byte, int, error) {
+func (f *fakeGit) read(_ context.Context, _ string, _ []string, args ...string) ([]byte, int, error) {
 	f.mu.Lock()
 	f.calls[args[0]]++
 	err, gate := f.fail[args[0]], f.gate
@@ -251,6 +429,8 @@ func (f *fakeGit) read(_ context.Context, _ string, args ...string) ([]byte, int
 	switch args[0] {
 	case "rev-parse":
 		return []byte("/repo\n" + f.dir + "\n"), 0, nil
+	case "config":
+		return nil, 0, nil
 	case "status":
 		return []byte("# branch.oid abc\x00# branch.head main\x00" + f.changes), 0, nil
 	}

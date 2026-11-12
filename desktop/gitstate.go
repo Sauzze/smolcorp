@@ -16,8 +16,11 @@ import (
 
 // Git state of a folder (1.26 FG1): the repo's top, its branch and upstream, how far ahead and behind, the
 // changed files and the lines added and removed against HEAD. It only reads: no command here writes a repo (no
-// optional locks, so even `status` leaves the index alone; no fsmonitor, which a repo's own config could point at a
-// program). The PR badge and the diffs read it, and it never goes in the /events snapshot, so phones see nothing.
+// optional locks, so even `status` leaves the index alone). It also runs nothing the repo names: hires write the
+// repos read here, and a repo's own config can point at programs (filters, text converters, an external diff, an
+// fsmonitor, hooks, a pager, an ssh or credential helper), so each of those is blanked, and the owner's own git
+// config is left out too (see gitReadArgs and gitReadEnv). The PR badge and the diffs read it, and it never goes in
+// the /events snapshot, so phones see nothing.
 //
 // Each read runs off the main loop with no shell, a timeout, no pager and no prompts. Answers are kept per folder:
 // a folder is read again at most every gitStateEvery, then only when its index or HEAD moved or its session's
@@ -65,8 +68,9 @@ type GitState struct {
 }
 
 // gitReader runs one read-only git command in dir and returns its standard output, its exit code, and an error
-// when it could not run, took too long (ctx) or answered more than the cap.
-type gitReader func(ctx context.Context, dir string, args ...string) (out []byte, status int, err error)
+// when it could not run, took too long (ctx) or answered more than the cap. global is the options that go before
+// the command's own name (the guards of gitReadArgs and what readGitState adds to them).
+type gitReader func(ctx context.Context, dir string, global []string, args ...string) (out []byte, status int, err error)
 
 // gitOutput takes git's output and stops the copy, so git ends on a broken pipe, past the cap.
 type gitOutput struct {
@@ -82,29 +86,46 @@ func (b *gitOutput) Write(p []byte) (int, error) {
 	return b.Buffer.Write(p)
 }
 
-// gitReadArgs go before every command: nothing paged, no lock taken for a refresh, no fsmonitor program, and
-// no external diff or text filter (the commands add --no-ext-diff and --no-textconv where they diff).
-var gitReadArgs = []string{"--no-pager", "--no-optional-locks", "-c", "core.fsmonitor=false"}
+// gitReadArgs go before every command: nothing paged, no lock taken for a refresh, and every program a repo's
+// config could name blanked (fsmonitor, hooks, pager, attributes file, ssh and credential helpers, the external
+// diff). The commands add --no-ext-diff and --no-textconv where they diff; the filters and text converters a repo
+// names are blanked by readGitState (gitBlanks), which has to read the repo's config to know their names.
+var gitReadArgs = []string{"--no-pager", "--no-optional-locks",
+	"-c", "core.fsmonitor=false", "-c", "core.pager=cat", "-c", "core.hooksPath=" + os.DevNull,
+	"-c", "core.attributesFile=" + os.DevNull, "-c", "core.sshCommand=", "-c", "credential.helper=", "-c", "diff.external="}
 
-// gitReadEnv is the environment of a read: the app's, without what would point git at another repo, and
-// with nothing to ask the owner.
+// gitConfigNames are the environment variables that put git config (or a program) in git's hands from outside:
+// they are dropped, whole or by prefix, from a read's environment.
+var gitConfigNames = map[string]bool{
+	"GIT_DIR": true, "GIT_WORK_TREE": true, "GIT_INDEX_FILE": true, "GIT_COMMON_DIR": true, "GIT_OBJECT_DIRECTORY": true,
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES": true, "GIT_PAGER": true, "GIT_TERMINAL_PROMPT": true, "GIT_OPTIONAL_LOCKS": true,
+	"GIT_CONFIG": true, "GIT_CONFIG_COUNT": true, "GIT_CONFIG_PARAMETERS": true, "GIT_CONFIG_SYSTEM": true,
+	"GIT_CONFIG_GLOBAL": true, "GIT_CONFIG_NOSYSTEM": true, "GIT_EXTERNAL_DIFF": true, "GIT_ATTR_SOURCE": true,
+	"GIT_SSH": true, "GIT_SSH_COMMAND": true, "GIT_ASKPASS": true, "SSH_ASKPASS": true, "GIT_PROXY_COMMAND": true,
+}
+
+// gitReadEnv is the environment of a read: the app's, without what would point git at another repo or hand it
+// config or a program, and with nothing to ask the owner. The system and user git config are switched off, so
+// they can't run anything either: the cost is that the owner's own settings don't apply to what is read here (their
+// global ignore file, so files it hides show as untracked, and their safe.directory list, so a repo owned by
+// another account is refused and reads as "not a repo"). Git older than 2.32 doesn't know GIT_CONFIG_GLOBAL; the
+// programs its config names are blanked by name all the same.
 func gitReadEnv(env []string) []string {
-	out := make([]string, 0, len(env)+3)
+	out := make([]string, 0, len(env)+5)
 	for _, kv := range env {
 		name, _, _ := strings.Cut(kv, "=")
-		switch strings.ToUpper(name) {
-		case "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
-			"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PAGER", "GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS":
+		name = strings.ToUpper(name)
+		if gitConfigNames[name] || strings.HasPrefix(name, "GIT_CONFIG_KEY_") || strings.HasPrefix(name, "GIT_CONFIG_VALUE_") {
 			continue
 		}
 		out = append(out, kv)
 	}
-	return append(out, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_PAGER=cat")
+	return append(out, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_PAGER=cat", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
 }
 
 // readGitOut is the real gitReader: `git -C dir …` with no shell, in ctx, with only its standard output kept.
-func readGitOut(ctx context.Context, dir string, args ...string) ([]byte, int, error) {
-	cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", dir}, gitReadArgs...), args...)...)
+func readGitOut(ctx context.Context, dir string, global []string, args ...string) ([]byte, int, error) {
+	cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", dir}, global...), args...)...)
 	cmd.Env = gitReadEnv(os.Environ())
 	cmd.WaitDelay = 2 * time.Second
 	hideGitWindow(cmd)
@@ -123,6 +144,66 @@ func readGitOut(ctx context.Context, dir string, args ...string) ([]byte, int, e
 		return out.Bytes(), exit.ExitCode(), nil
 	}
 	return nil, 0, err
+}
+
+// gitHasAttrSource says whether the git here knows --attr-source (2.40 and later), asked once. With an empty tree
+// as the source no .gitattributes in the working folder is read, so none can name a filter. It does not cover the
+// repo's .git/info/attributes (git reads that whatever the source), so the filters are blanked by name as well.
+var gitHasAttrSource = sync.OnceValue(func() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), gitStateTimeout)
+	defer cancel()
+	out, status, err := readGitOut(ctx, os.TempDir(), nil, "--version")
+	return err == nil && status == 0 && gitVersionAtLeast(string(out), 2, 40)
+})
+
+// gitVersionAtLeast reads "git version 2.43.0.windows.1" or "git version 2.39.5 (Apple Git-154)".
+func gitVersionAtLeast(text string, major, minor int) bool {
+	fields := strings.Fields(text)
+	if len(fields) < 3 {
+		return false
+	}
+	nums := strings.SplitN(fields[2], ".", 3)
+	if len(nums) < 2 {
+		return false
+	}
+	a, errA := strconv.Atoi(nums[0])
+	b, errB := strconv.Atoi(nums[1])
+	return errA == nil && errB == nil && (a > major || (a == major && b >= minor))
+}
+
+// The empty tree, by the repo's hash: no attributes in it.
+var gitEmptyTrees = map[string]string{
+	"sha1":   "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+	"sha256": "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
+}
+
+// gitBlanks reads `config --list -z` (config with its includes followed) and says, for every filter and text
+// converter the repo's config names, the -c options that blank it. Reading config runs nothing.
+func gitBlanks(list []byte) []string {
+	var blanks []string
+	seen := map[string]bool{}
+	blank := func(key, value string) {
+		if !seen[key] {
+			seen[key] = true
+			blanks = append(blanks, "-c", key+"="+value)
+		}
+	}
+	for _, record := range strings.Split(string(list), "\x00") {
+		key, _, _ := strings.Cut(record, "\n")
+		first, last := strings.Index(key, "."), strings.LastIndex(key, ".")
+		if first < 0 || first == last { // a variable with no subsection names no program of this kind
+			continue
+		}
+		section, sub, name := strings.ToLower(key[:first]), key[first+1:last], strings.ToLower(key[last+1:])
+		switch {
+		case section == "filter" && (name == "clean" || name == "smudge" || name == "process"):
+			blank("filter."+sub+"."+name, "")
+			blank("filter."+sub+".required", "false")
+		case section == "diff" && (name == "textconv" || name == "command"):
+			blank("diff."+sub+"."+name, "")
+		}
+	}
+	return blanks
 }
 
 // gitStamp is where a repo's index and HEAD were when it was read.
@@ -158,17 +239,41 @@ func readGitState(dir string, read gitReader, now time.Time) (state GitState, gi
 		}
 		return state
 	}
-	out, status, err := read(ctx, dir, "rev-parse", "--show-toplevel", "--absolute-git-dir")
+	attrSource := gitHasAttrSource()
+	revParse := []string{"rev-parse", "--show-toplevel", "--absolute-git-dir"}
+	if attrSource {
+		revParse = append(revParse, "--show-object-format")
+	}
+	out, status, err := read(ctx, dir, gitReadArgs, revParse...)
 	if err != nil {
 		return failed(err), ""
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if status != 0 || len(lines) != 2 { // a folder in no repo, a bare repo, or the inside of a .git folder
+	if status != 0 || len(lines) < 2 || len(lines) > 3 { // a folder in no repo, a bare repo, or the inside of a .git folder
 		return state, ""
 	}
 	state.Repo, state.Top, gitDir = true, filepath.FromSlash(lines[0]), filepath.FromSlash(lines[1])
+	// From here git reads files of the repo, which a filter its config names would run a program on: so the
+	// filters and text converters it names are blanked, and, where git allows, no attributes are read from the
+	// working folder. If the config can't be read, nothing else is.
+	list, listStatus, err := read(ctx, dir, gitReadArgs, "config", "--list", "-z")
+	if err != nil || listStatus != 0 {
+		return failed(err), gitDir
+	}
+	global := append(append([]string{}, gitReadArgs...), gitBlanks(list)...)
+	if attrSource {
+		format := "sha1"
+		if len(lines) == 3 {
+			format = lines[2]
+		}
+		tree, known := gitEmptyTrees[format]
+		if !known {
+			return failed(nil), gitDir
+		}
+		global = append(global, "--attr-source="+tree)
+	}
 	// Untracked files are listed as folders, not file by file, so a build folder is one line.
-	out, status, err = read(ctx, dir, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=normal", "--ignore-submodules=dirty")
+	out, status, err = read(ctx, dir, global, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=normal", "--ignore-submodules=dirty")
 	if err != nil || status != 0 {
 		return failed(err), gitDir
 	}
@@ -176,7 +281,7 @@ func readGitState(dir string, read gitReader, now time.Time) (state GitState, gi
 	if unborn { // no HEAD to count against
 		return state, gitDir
 	}
-	out, status, err = read(ctx, dir, "diff", "--numstat", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty", "HEAD", "--")
+	out, status, err = read(ctx, dir, global, "diff", "--numstat", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty", "HEAD", "--")
 	if err != nil || status != 0 {
 		state.Skipped = true
 		state.Note = "The lines added and removed couldn't be counted."
