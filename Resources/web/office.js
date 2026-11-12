@@ -8020,15 +8020,17 @@
   const LABEL_SMALLEST = 8;
   /**
    * How long a turn has run, short enough for its name tag: 9:41 for the
-   * first ten minutes, then 12m, then 2h. `short`, where a long name needs
-   * the room, says 41s, then 9m, then 12m.
+   * first ten minutes, then 12m, then 2h, then 4d from 100 hours on, never
+   * stopping at a cap that would read as less than it is. `short`, where a
+   * long name needs the room, says 41s, then 9m, then 12m.
    */
   function turnLength(seconds, short = false) {
     const minutes = Math.floor(seconds / 60);
     if (short && minutes < 1) return `${seconds}s`;
     if (minutes < 10 && !short) return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
     if (minutes < 60) return `${minutes}m`;
-    return `${Math.min(Math.floor(minutes / 60), 99)}h`;
+    const hours = Math.floor(minutes / 60);
+    return hours > 99 ? `${Math.floor(hours / 24)}d` : `${hours}h`;
   }
 
   /** Waiting on you longer than this, in seconds, an agent gets agitated, and more so the longer it goes on… */
@@ -64641,6 +64643,7 @@
     function turnSecondsAt(desk) {
       const session = sessionAt(desk);
       if (DESKS[desk].off || !session || !session.turnStartedAt || (session.state !== 'thinking' && session.state !== 'asking')) return null;
+      if (session.startedAt && session.turnStartedAt < session.startedAt) return null;
       return Math.max(0, Math.floor((Date.now() - session.turnStartedAt) / 1000));
     }
 
@@ -64653,6 +64656,8 @@
     function sessionSecondsAt(desk) {
       const session = sessionAt(desk);
       if (DESKS[desk].off || !session || (session.state !== 'thinking' && session.state !== 'asking')) return null;
+      // A turn that began before its session did is wrong data: nothing shown, rather than a made-up length.
+      if (session.startedAt && session.turnStartedAt && session.turnStartedAt < session.startedAt) return null;
       const from = Math.min(session.startedAt || Infinity, session.turnStartedAt || Infinity);
       return from === Infinity ? null : Math.max(0, Math.floor((Date.now() - from) / 1000));
     }

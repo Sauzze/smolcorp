@@ -280,6 +280,12 @@ func (s *Sessions) Apply(event map[string]any, agent Agent, tab, startedIn strin
 			session.ErrorKind = ""
 		}
 	}
+	// A turn that no prompt began, such as a queued message picked up after
+	// the last one ended or work carrying on after a missed Stop, still has
+	// a start: the first thing seen of it, never a time long gone.
+	if session.IsBusy() && session.TurnStartedAt == 0 {
+		session.TurnStartedAt = at
+	}
 	return true
 }
 
