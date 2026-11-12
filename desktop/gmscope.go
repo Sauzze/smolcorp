@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -227,11 +226,12 @@ func (d *Deck) gmScopeRefusal(r *request) (int, string) {
 		}
 		resend(given)
 	case post && (path == "/setup/pin" || path == "/setup/unpin"):
-		index, err := strconv.Atoi(query.Get("key"))
+		// The desk on whichever floor it's named on, as the route reads it (pinDesk).
+		floor, index, ok := pinDesk(query)
 		d.mu.Lock()
 		var pinned *string
-		if err == nil && index >= 0 && index < len(d.config.Pins) {
-			pinned = d.config.Pins[index]
+		if ok {
+			pinned = d.config.pinAt(floor, index)
 		}
 		d.mu.Unlock()
 		folder, _ := existingFolder(query.Get("folder"))

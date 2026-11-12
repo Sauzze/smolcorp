@@ -1165,16 +1165,17 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	case r.Method == http.MethodPost && (path == "/setup/pin" || path == "/setup/unpin"):
-		index, err := strconv.Atoi(query.Get("key"))
-		if err != nil || index < 0 || index >= mostKeys {
+		// A desk on a floor: the ground floor's keys with no floor given, as before floors had pins.
+		floor, index, ok := pinDesk(query)
+		if !ok {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		d.mu.Lock()
 		if path == "/setup/unpin" {
-			config.Unpin(index)
+			config.UnpinOn(floor, index)
 		} else if folder := query.Get("folder"); folder != "" {
-			config.Pin(folder, index)
+			config.PinOn(folder, floor, index)
 		} else {
 			d.mu.Unlock()
 			w.WriteHeader(http.StatusBadRequest)

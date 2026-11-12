@@ -48,10 +48,13 @@ Commands:
   contacts [allow|remove <a> <b> [--one-way]]
                                 which hires may write to each other; with no
                                 argument, the pairs now
-  pin [--desk N] [--folder F]   pin a project to a desk (N counts from 1, as the
-                                office shows; without --desk, the desk its session
-                                sits at now; the folder is this one unless given)
-  unpin --desk N                take what is pinned to desk N away
+  pin [--desk N [--floor N]] [--folder F]
+                                pin a project to a desk (N counts from 1, as the
+                                office shows; --floor 2 for 2F, the ground floor
+                                unless given; without --desk, the desk its session
+                                sits at now, on any floor; the folder is this one
+                                unless given)
+  unpin --desk N [--floor N]    take what is pinned to desk N away
   nickname <name> [--folder F]  name whoever works in the folder (an empty name,
                                 "", takes the nickname away; 16 characters at most)
   tile                          put each hire's window over its desk (a read-only

@@ -1472,6 +1472,9 @@
             ],
             "n" : "number",
             "name" : "string",
+            "pins" : [
+              "string|null"
+            ],
             "preset" : "string"
           },
           {
@@ -1564,6 +1567,9 @@
             ],
             "n" : "number",
             "name" : "string",
+            "pins" : [
+              "string|null"
+            ],
             "preset" : "string"
           }
         ],

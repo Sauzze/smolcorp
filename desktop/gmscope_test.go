@@ -354,6 +354,8 @@ func TestAScopedGMReachesOnlyItsOwnHiresAfterARestartToo(t *testing.T) {
 	d = startDeck(t)
 	d.config.ManagerEnabled, d.config.HiringEnabled, d.config.HireInTmux = true, true, true
 	d.config.Pins[1] = &elsewhere // the owner's pin
+	upstairs := filepath.Join(homeDir, "upstairs")
+	d.config.FloorPins = floorPinList{{Floor: 2, Desk: 4, Folder: upstairs}} // and one on 3F
 	owners, refused := d.watchers.add(map[string]any{"kind": "time", "target": "tea", "minutes": 5.0}, "owner")
 	if refused != nil {
 		t.Fatal(refused.message)
@@ -375,6 +377,9 @@ func TestAScopedGMReachesOnlyItsOwnHiresAfterARestartToo(t *testing.T) {
 		{"POST", "/setup/pin?key=2&folder=" + elsewhere, ""},
 		{"POST", "/setup/pin?key=1&folder=" + project, ""}, // over the owner's pin
 		{"POST", "/setup/unpin?key=1", ""},
+		{"POST", "/setup/pin?key=2&floor=2&folder=" + elsewhere, ""},
+		{"POST", "/setup/pin?key=4&floor=2&folder=" + project, ""}, // over the owner's pin on 3F
+		{"POST", "/setup/unpin?key=4&floor=2", ""},
 		{"POST", "/setup/gm/tile", ""},
 		{"POST", "/setup/gm/screen?id=1", ""},
 		{"POST", "/setup/gm/watch", `{"kind":"exit","target":"rev-9"}`},
@@ -397,6 +402,8 @@ func TestAScopedGMReachesOnlyItsOwnHiresAfterARestartToo(t *testing.T) {
 		{"POST", "/setup/gm/nickname", `{"folder":"` + wt + `","name":"Ada"}`},
 		{"POST", "/setup/pin?key=3&folder=" + wt, ""},
 		{"POST", "/setup/unpin?key=3", ""},
+		{"POST", "/setup/pin?key=3&floor=1&folder=" + wt, ""},
+		{"POST", "/setup/unpin?key=3&floor=1", ""},
 		{"POST", "/setup/gm/watch", `{"kind":"exit","target":"tester-1"}`},
 		{"POST", "/setup/gm/watch", `{"kind":"file","target":"` + filepath.Join(wt, "x.log") + `","pattern":"x"}`},
 		{"POST", "/setup/gm/watch", `{"kind":"time","target":"look again","minutes":5}`},
@@ -408,6 +415,9 @@ func TestAScopedGMReachesOnlyItsOwnHiresAfterARestartToo(t *testing.T) {
 	}
 	if pins := d.config.Pins; len(pins) < 2 || pins[1] == nil || *pins[1] != elsewhere {
 		t.Errorf("the owner's pin moved: %v", pins)
+	}
+	if pin := d.config.pinAt(2, 4); pin == nil || *pin != upstairs {
+		t.Errorf("the owner's pin on 3F moved: %+v", d.config.FloorPins)
 	}
 }
 

@@ -307,6 +307,18 @@
           "request" : {
             "as" : "page",
             "query" : {
+              "floor" : "6",
+              "key" : "0"
+            }
+          },
+          "status" : 400,
+          "why" : "no such floor"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page",
+            "query" : {
               "key" : "0"
             }
           },
@@ -352,6 +364,18 @@
           },
           "status" : 400,
           "why" : "no such key"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "floor" : "6",
+              "key" : "0"
+            }
+          },
+          "status" : 400,
+          "why" : "no such floor"
         }
       ],
       "request" : {
@@ -366,6 +390,7 @@
           "a paired phone"
         ],
         "query" : {
+          "floor" : "1",
           "key" : "0"
         }
       },
