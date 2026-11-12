@@ -316,6 +316,76 @@ func TestTheGMPreflightSaysTmuxIsMissingWithoutStoppingTheHire(t *testing.T) {
 	}
 }
 
+// underTheMacApp gives the deck's terminals the Mac app's way (a window opened by the app itself), as macApp
+// does in hire_darwin_test.go, so these run on every system: only the opener's `open` says it's the Mac's.
+func underTheMacApp(t *testing.T) {
+	t.Helper()
+	saved := installedOpeners
+	t.Cleanup(func() { installedOpeners = saved })
+	installedOpeners = func() []hireOpener {
+		return []hireOpener{{id: "terminal", name: "Terminal", open: func(string, []string) (string, error) { return "", nil }}}
+	}
+}
+
+// On a Mac without tmux the GM can't be hired (macHireNeedsTmux), so Start here says so before Hire: a tmux line
+// that is not ready, with the install command, whether or not "Start inside tmux" is on.
+func TestTheGMPreflightUnderTheMacAppIsNotReadyWithoutTmux(t *testing.T) {
+	if !hasTmuxHires {
+		t.Skip("no tmux hires here")
+	}
+	for _, inTmux := range []bool{false, true} {
+		d, _, _, _ := preflightDeck(t)
+		underTheMacApp(t)
+		hasProgram = func(string) bool { return false }
+		brewPlaces = nil
+		d.config.HireInTmux = inTmux
+		report := d.gmPreflight()
+		line := preflightLine(t, report, "tmux")
+		if report.Ready || line.OK || line.Optional || !line.Todo || line.Action != nil || !strings.Contains(line.Title, "needs tmux on your Mac") || !strings.Contains(line.Fix, "brew.sh") {
+			t.Errorf("hireInTmux %v, no tmux, no brew: ready %v, %+v", inTmux, report.Ready, line)
+		}
+		hasProgram = func(name string) bool { return name == "brew" }
+		report = d.gmPreflight()
+		line = preflightLine(t, report, "tmux")
+		if report.Ready || line.Action == nil || line.Action.Kind != "copy" || line.Action.Command != "brew install tmux" || !strings.Contains(line.Fix, "Paste this in Terminal") {
+			t.Errorf("hireInTmux %v, brew found: ready %v, %+v", inTmux, report.Ready, line)
+		}
+		tmuxPath = func() string { return "/opt/homebrew/bin/tmux" }
+		report = d.gmPreflight()
+		if line := preflightLine(t, report, "tmux"); !report.Ready || !line.OK || line.Fix != "" || line.Action != nil {
+			t.Errorf("hireInTmux %v, tmux there: ready %v, %+v", inTmux, report.Ready, line)
+		}
+	}
+}
+
+// Off the Mac app, a plain terminal window needs no tmux: no tmux line unless "Start inside tmux" is on, and then
+// it only says so, as before.
+func TestTheGMPreflightOffTheMacAppKeepsTmuxOptional(t *testing.T) {
+	if !hasTmuxHires {
+		t.Skip("no tmux hires here")
+	}
+	d, _, _, _ := preflightDeck(t)
+	report := d.gmPreflight()
+	if !report.Ready || slices.Contains(preflightIDs(report), "tmux") {
+		t.Errorf("no tmux, not in tmux: ready %v, %q", report.Ready, preflightIDs(report))
+	}
+	d.config.HireInTmux = true
+	if report := d.gmPreflight(); !report.Ready || !preflightLine(t, report, "tmux").Optional {
+		t.Errorf("no tmux, in tmux: ready %v", report.Ready)
+	}
+}
+
+// Windows' refusal names the real switch: a config.json key, as setup has none (MTMUX).
+func TestTheManagedWindowsRefusalNamesTheConfigKey(t *testing.T) {
+	saved := launcherHires
+	t.Cleanup(func() { launcherHires = saved })
+	launcherHires = true
+	why := fenceRefusal("claude", "", false, false, false)
+	if !strings.Contains(why, "managed windows") || !strings.Contains(why, `"hireManagedWindows": true in config.json`) || strings.Contains(why, "in Setup") {
+		t.Errorf("managed windows off: %q", why)
+	}
+}
+
 // The route answers the page with the manager off, as on a first run, in the Mac's JSON (GMPreflight.swift).
 func TestTheGMPreflightRouteAnswersBeforeTheManagerIsOn(t *testing.T) {
 	d, _, _, _ := preflightDeck(t)
