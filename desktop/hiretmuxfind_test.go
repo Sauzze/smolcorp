@@ -160,6 +160,9 @@ func TestFindingTmuxNeverWaitsForTheLoginShell(t *testing.T) {
 // Only full paths count from the login shell's PATH (Nit 3 of RFXC3b): a relative one would be looked for
 // wherever this program runs. A stand-in shell says the PATH; no real start-up file is read.
 func TestTheLoginShellsPATHKeepsOnlyFullPaths(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no login shell, and the stand-in is a #!/bin/sh script")
+	}
 	shell := filepath.Join(t.TempDir(), "shell")
 	if err := os.WriteFile(shell, []byte("#!/bin/sh\nprintf 'hello\\n<path>%s' 'bin:/opt/one::./two:/opt/three'\n"), 0o700); err != nil {
 		t.Fatal(err)

@@ -193,9 +193,13 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		data, _ := json.Marshal(input)
 		return demoCall{ToolName: name, ToolInput: data, Cwd: repo}
 	}
+	// Claude Code's Bash is bash, Git Bash on Windows, where a \ escapes: a Windows path goes in with /, as the
+	// demo writes it for the GM. PowerShell keeps a \: its calls below write the system's own paths.
+	bash := demoShellFolder
+	powerShell := func(command string) demoCall { return tool("PowerShell", map[string]any{"command": command}) }
 	allowed := []demoCall{
 		bashCall("smolcorp gm hire --role tester --folder "+shellPath(repo)+" --worktree --task 'fix it'", repo),
-		bashCall("smolcorp gm hire --role=reviewer --folder="+repo, repo),
+		bashCall("smolcorp gm hire --role=reviewer --folder="+bash(repo), repo),
 		bashCall("smolcorp gm hire --role tester --folder .", repo),
 		bashCall("smolcorp gm fire tester-1", repo),
 		bashCall("python3 -m unittest && git diff main...hire/tester-1", repo),
@@ -204,15 +208,15 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		tool("Read", map[string]any{"file_path": "/etc/hosts"}),
 		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": repo}),
 		// On the default account, said or not; a $ in single quotes is text, not the shell's.
-		bashCall("smolcorp gm hire --role tester --folder "+repo+" --account default", repo),
-		bashCall("smolcorp gm hire --role tester --folder "+repo+" --task 'parse_amount reads $12.50'", repo),
+		bashCall("smolcorp gm hire --role tester --folder "+bash(repo)+" --account default", repo),
+		bashCall("smolcorp gm hire --role tester --folder "+bash(repo)+" --task 'parse_amount reads $12.50'", repo),
 		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": repo, "account": "default", "api-key": false}),
 		// A $ in a line that doesn't name smolcorp, though its paths do (smolcorp-demo).
-		bashCall("ls "+root+" && echo $?", repo),
+		bashCall("ls "+bash(root)+" && echo $?", repo),
 		// git reads its config, and puts files back.
 		bashCall("git config user.email", repo),
 		bashCall("git config --get core.hooksPath", repo),
-		bashCall("git -C "+repo+" config --list --show-origin", repo),
+		bashCall("git -C "+bash(repo)+" config --list --show-origin", repo),
 		bashCall("git restore bill.py && git status", repo),
 		bashCall("cat .git/HEAD .claude/settings.json", repo),
 		write(filepath.Join(repo, "docs", "claude.md")),
@@ -222,13 +226,19 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		bashCall("smolcorp --version && smolcorp help", repo),
 		bashCall("smolcorp gm team", repo),
 		// RX1b S3: a hire over several lines, as models write them.
-		bashCall("smolcorp gm hire --role tester \\\n  --folder "+repo+" \\\n  --worktree \\\n  --task 'Fix the rounding'", repo),
+		bashCall("smolcorp gm hire --role tester \\\n  --folder "+bash(repo)+" \\\n  --worktree \\\n  --task 'Fix the rounding'", repo),
 		// FXX1c: the top of a worktree of the project, as the office makes them; paths in the demo name it.
-		bashCall("smolcorp gm hire --role reviewer --folder "+worktree, repo),
+		bashCall("smolcorp gm hire --role reviewer --folder "+bash(worktree), repo),
 		tool("mcp__smolcorp__hire", map[string]any{"role": "reviewer", "folder": worktree}),
-		bashCall("cd "+worktree+" && python3 -m unittest", repo),
-		bashCall("git -C "+repo+" worktree list && git worktree add ../app-hires/extra -b extra", repo),
-		bashCall("smolcorp gm hire --role tester --folder="+repo+" --worktree", repo),
+		bashCall("cd "+bash(worktree)+" && python3 -m unittest", repo),
+		bashCall("git -C "+bash(repo)+" worktree list && git worktree add ../app-hires/extra -b extra", repo),
+		bashCall("smolcorp gm hire --role tester --folder="+bash(repo)+" --worktree", repo),
+		// PowerShell reads a \ as a letter, so C:\Users\… is the path written there.
+		powerShell("smolcorp gm hire --role tester --folder " + repo + " --worktree --task 'fix it'"),
+		powerShell("smolcorp gm hire --role=reviewer --folder=" + worktree),
+		powerShell("git -C " + repo + " config --list --show-origin"),
+		powerShell("Get-ChildItem " + root),
+		powerShell(`Get-Content notes\smolcorp-plan.md`),
 	}
 	refused := []demoCall{
 		bashCall("smolcorp gm hire --role tester --folder ~", repo),
@@ -348,8 +358,18 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		bashCall("git -C "+elsewhere+" worktree add wt", repo),
 		bashCall("git worktree add -b x "+elsewhere+"/wt main", repo),
 	}
+	refused = append(refused,
+		powerShell("smolcorp gm hire --role tester --folder "+elsewhere),
+		powerShell("smolcorp gm hire --role tester --folder ~someone/Projects"),
+		powerShell("smolcorp mcp"),
+		powerShell("$S='smolcorp'; & $S mcp"),
+		// bash reads notes\smolcorp-plan.md as notessmolcorp-plan.md: a word that holds smolcorp and isn't a path.
+		bashCall(`cat notes\smolcorp-plan.md`, repo))
 	if runtime.GOOS == "windows" { // elsewhere, C:\ is a folder name like any other
-		refused = append(refused, bashCall(`smolcorp gm hire --role tester --folder C:\Users\someone\elsewhere`, repo))
+		refused = append(refused, bashCall(`smolcorp gm hire --role tester --folder C:\Users\someone\elsewhere`, repo),
+			powerShell(`smolcorp gm hire --role tester --folder C:\Users\someone\elsewhere`),
+			// A hire's folder as bash would get it: C:Users… with the \ taken away.
+			bashCall("smolcorp gm hire --role tester --folder "+repo, repo))
 	}
 	if linked {
 		refused = append(refused, bashCall("smolcorp gm hire --role tester --folder "+filepath.Join(root, "link"), repo),
@@ -387,6 +407,52 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		if denied := strings.Contains(out.String(), `"permissionDecision":"deny"`); denied != c.deny || !c.deny && out.Len() > 0 {
 			t.Errorf("%v %s: %q", c.args, c.input, out.String())
 		}
+	}
+}
+
+// WIN125: a ~ inside a name is a letter (a Windows short name, RUNNER~1); one that starts a name is a home.
+func TestTheDemosFenceReadsAShortNamesTildeAsALetter(t *testing.T) {
+	for folder, plain := range map[string]bool{
+		"C:/Users/RUNNER~1/AppData/Local/Temp/SMOLCO~4/app": true,
+		`C:\PROGRA~1\smolcorp-demo\app`:                     true,
+		"/Users/ada/smolcorp-demo/app":                      true,
+		"~/smolcorp-demo/app":                               true,
+		`~\smolcorp-demo\app`:                               true,
+		"~":                                                 true,
+		"~someone/Projects":                                 false,
+		"app/~x":                                            false,
+		`app\~x`:                                            false,
+		"a=~x":                                              false,
+		"a:~x":                                              false,
+		"~/a/~b":                                            false,
+		"C:/Users/RUNNER~1/$HOME":                           false,
+	} {
+		if plainFolder(folder) != plain {
+			t.Errorf("plainFolder(%q) = %v, want %v", folder, !plain, plain)
+		}
+	}
+}
+
+// WIN125: the folder the demo tells the GM to hire into is written as bash and PowerShell both read it.
+func TestTheDemoWritesAWindowsFolderWithSlashes(t *testing.T) {
+	for _, c := range []struct{ goos, path, want string }{
+		{"windows", `C:\Users\ada\smolcorp-demo\app`, "C:/Users/ada/smolcorp-demo/app"},
+		{"windows", `C:\Users\Ada Lovelace\smolcorp-demo\app`, "'C:/Users/Ada Lovelace/smolcorp-demo/app'"},
+		{"windows", `C:\Users\a,b\smolcorp-demo\app`, "'C:/Users/a,b/smolcorp-demo/app'"},
+		{"darwin", "/Users/ada/smolcorp-demo/app", "/Users/ada/smolcorp-demo/app"},
+		{"linux", "/home/ada/smolcorp-demo/app", "/home/ada/smolcorp-demo/app"},
+	} {
+		if got := shellFolderOn(c.goos, c.path); got != c.want {
+			t.Errorf("on %s, %s is written %s, want %s", c.goos, c.path, got, c.want)
+		}
+	}
+	// A path bash would take the \ out of is refused with the way to write it.
+	f := demoFence{root: "/demo", roles: []string{"tester"}}
+	if why := f.command(`cat notes\smolcorp-plan.md`, "/demo/app"); !strings.Contains(why, "In bash, a \\ escapes the letter after it") {
+		t.Errorf("the refusal doesn't say how to write a Windows path: %q", why)
+	}
+	if why := f.check(demoCall{ToolName: "PowerShell", ToolInput: json.RawMessage(`{"command":"Get-Content notes\\smolcorp-plan.md"}`), Cwd: "/demo/app"}); why != "" {
+		t.Errorf("PowerShell's \\ is a letter, not an escape: %q", why)
 	}
 }
 

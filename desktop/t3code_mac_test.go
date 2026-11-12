@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -84,6 +85,9 @@ func TestT3OnAMacTheAppIsFoundByItsBundleIDThroughTheMacApp(t *testing.T) {
 
 // C4 A1: so /setup/t3code says found with the app and t3, and appOnly, with the Mac's hint, with the app alone.
 func TestT3OnAMacTheStateIsFoundOrAppOnlyAsOnTheSwiftEngine(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Mac's t3 is found by its exec bit, which a file on Windows doesn't carry")
+	}
 	withT3Mac(t, true)
 	home := t.TempDir()
 	m := t3Machine{GOOS: "darwin", Home: home, Run: func(string, []string, time.Duration) t3Ran {

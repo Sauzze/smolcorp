@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -141,13 +142,21 @@ func (f demoFence) check(c demoCall) string {
 		if !isText {
 			return demoFenceRefusal + "a command it can't read."
 		}
+		if name == "PowerShell" {
+			return f.commandRead(command, c.Cwd, false)
+		}
 		return f.command(command, c.Cwd)
 	}
 	return ""
 }
 
 // command checks a shell command line: what the guard refuses, a hire's folder and role, and no other way to hire.
-func (f demoFence) command(line, cwd string) string {
+// It's read as bash would read it too: Claude Code's Bash runs bash, Git Bash on Windows.
+func (f demoFence) command(line, cwd string) string { return f.commandRead(line, cwd, true) }
+
+// commandRead is command, with bash's reading (a backslash escapes) or without it: PowerShell, whose escape
+// is the backtick, leaves a backslash in a word as it is, so C:\Users\… is the path written.
+func (f demoFence) commandRead(line, cwd string, bash bool) string {
 	// The GM's profile: the GM hires and fires; a hire's own office fence refuses it that.
 	if r := guard.Check(line, guard.ForGM(guard.DefaultGroups())); r != nil {
 		return demoFenceRefusal + r.Error()
@@ -159,10 +168,13 @@ func (f demoFence) command(line, cwd string) string {
 		return demoFenceRefusal + "in the demo, hire with `smolcorp gm hire --folder <a folder in the demo>` only."
 	}
 	// Read twice, as the guard reads a line: a backslash escapes (bash), or it's part of a path
-	// (Windows, C:\Users\…). A hire either reading refuses is refused.
-	all := append(demoCommands(line, true, 0), demoCommands(line, false, 0)...)
+	// (Windows, C:\Users\…). A hire either reading refuses is refused. PowerShell's line is read the second way only.
+	all := demoCommands(line, false, 0)
+	if bash {
+		all = append(demoCommands(line, true, 0), all...)
+	}
 	// A command whose name the shell builds ($X mcp, after X=smolcorp in another call) can't be read.
-	for _, words := range demoSegments(line, true) {
+	for _, words := range demoSegments(line, bash) {
 		if name := demoCommandName(words); strings.ContainsAny(name, "$`") {
 			return demoFenceRefusal + "a command whose name holds $ or a backtick: write the program's name out plainly."
 		}
@@ -173,7 +185,12 @@ func (f demoFence) command(line, cwd string) string {
 	}
 	for _, words := range all {
 		if word := f.smolcorpInAWord(words, cwd); word != "" {
-			return demoFenceRefusal + fmt.Sprintf("%q holds smolcorp: in the demo, smolcorp is the program's name or a path in %s only.", word, f.root)
+			why := demoFenceRefusal + fmt.Sprintf("%q holds smolcorp: in the demo, smolcorp is the program's name or a path in %s only.", word, f.root)
+			if bash && strings.Contains(line, `\`) {
+				// C:\Users\… unquoted is C:Users… to bash, Git Bash included: not the folder written.
+				why += " In bash, a \\ escapes the letter after it, so C:\\Users reads C:Users: write a Windows path with / (" + demoShellFolder(f.root) + ") or in single quotes."
+			}
+			return why
 		}
 		if !demoSmolcorpAllowed(words) {
 			return demoFenceRefusal + "in the demo, smolcorp runs `smolcorp gm …` (and version, help) only: its other commands hire or start agents where the fence can't see."
@@ -529,12 +546,12 @@ func (f demoFence) hire(ask demoHireAsk, cwd string) string {
 	case !slices.Contains(f.roles, ask.role):
 		return demoFenceRefusal + fmt.Sprintf("the demo hires these roles only, all on Claude Code: %s.", strings.Join(f.roles, ", "))
 	case folder == "":
-		return demoFenceRefusal + "name the folder: --folder " + filepath.Join(f.root, demoRepoName) + "."
+		return demoFenceRefusal + "name the folder: --folder " + demoShellFolder(filepath.Join(f.root, demoRepoName)) + "."
 	case !plainFolder(folder):
 		// The shell would make it something else ($HOME, ~user, {a,b}, *): the fence can't know what.
-		return demoFenceRefusal + "write the folder out plainly, with no $, `, {, *, ?, [ or ~user in it: --folder " + filepath.Join(f.root, demoRepoName) + "."
+		return demoFenceRefusal + "write the folder out plainly, with no $, `, {, *, ?, [ or ~user in it: --folder " + demoShellFolder(filepath.Join(f.root, demoRepoName)) + "."
 	case !f.checkout(folder, cwd):
-		return demoFenceRefusal + "hire into the demo's project, " + filepath.Join(f.root, demoRepoName) + " (with --worktree), or the top of one of its worktrees: no other folder holds the demo's fence."
+		return demoFenceRefusal + "hire into the demo's project, " + demoShellFolder(filepath.Join(f.root, demoRepoName)) + " (with --worktree), or the top of one of its worktrees: no other folder holds the demo's fence."
 	}
 	return ""
 }
@@ -561,15 +578,39 @@ func (f demoFence) checkout(folder, cwd string) bool {
 }
 
 // plainFolder says whether the shell leaves a folder as written: no expansion in it but ~ or ~/… at its start.
+// A ~ inside a name, as in a Windows short name (C:/Users/RUNNER~1/…), is a letter to every shell; one that
+// starts a name (~user, app/~x, a=~x, a:~x) is refused, as bash may read it as someone's home.
 func plainFolder(folder string) bool {
 	if strings.ContainsAny(folder, "$`{*?[") {
 		return false
 	}
 	rest := folder
 	if folder == "~" || strings.HasPrefix(folder, "~/") || strings.HasPrefix(folder, `~\`) {
-		rest = folder[1:]
+		rest = "x" + folder[1:]
 	}
-	return !strings.Contains(rest, "~")
+	for i := strings.IndexByte(rest, '~'); i >= 0; i = strings.IndexByte(rest, '~') {
+		if i == 0 || strings.IndexByte(`/\=:`, rest[i-1]) >= 0 {
+			return false
+		}
+		rest = rest[i+1:]
+	}
+	return true
+}
+
+// demoShellFolder is a folder as the demo writes it in a command for the GM: as it is, and on Windows with /,
+// which bash (Claude Code's Bash there is Git Bash), PowerShell and smolcorp all read as the path, where bash
+// would take a \ away; in single quotes for a space or a character a shell reads as its own.
+func demoShellFolder(path string) string { return shellFolderOn(runtime.GOOS, path) }
+
+func shellFolderOn(goos, path string) string {
+	if goos != "windows" {
+		return path
+	}
+	path = strings.ReplaceAll(path, `\`, "/")
+	if strings.ContainsAny(path, " &()'^;,=!#%") && !strings.Contains(path, "'") {
+		return "'" + path + "'"
+	}
+	return path
 }
 
 // inFenceFolder says whether path is in a .claude or .git folder inside the demo (the project's,

@@ -206,8 +206,7 @@ func TestWhereTheSecretStoreCantKeepItTheTokenIsInAFileOfYoursAlone(t *testing.T
 	if err := kept.write(fakeOtherToken); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(path)
-	if err != nil || !modeIs(info, 0o600) || read() != fakeOtherToken {
+	if err := yoursAlone(path); err != nil || read() != fakeOtherToken {
 		t.Fatalf("no store: the file %v, read back %v", err, read() == fakeOtherToken)
 	}
 	secrets.down = false
@@ -500,9 +499,8 @@ func TestTheKeptTokensFileIsNeverWrittenThroughAnotherOne(t *testing.T) {
 	if err := writeKeptToken(path, []byte(fakeKeptToken+"\n")); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(path)
-	if data, _ := os.ReadFile(path); err != nil || !modeIs(info, 0o600) || validGMToken(string(data)) != fakeKeptToken {
-		t.Fatalf("over a temp file left behind: %v, mode %v", err, info.Mode().Perm())
+	if data, _ := os.ReadFile(path); yoursAlone(path) != nil || validGMToken(string(data)) != fakeKeptToken {
+		t.Fatalf("over a temp file left behind: %v", yoursAlone(path))
 	}
 	if _, err := os.Lstat(path + ".tmp"); !errors.Is(err, os.ErrNotExist) {
 		t.Error("the temp file is left")
