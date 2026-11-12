@@ -204,11 +204,13 @@ var (
 )
 
 func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestSize)
+	// As big and as slow as the route's row in the table says, else maxRequestSize and requestTimeout.
+	most, wait := requestLimits(r.Method, r.URL.Path)
+	r.Body = http.MaxBytesReader(w, r.Body, most)
 	// A body sent a byte at a time would hold its connection for as long as
 	// it liked. The event streams and launchers stay open, and send nothing.
 	if r.URL.Path != "/events" && r.URL.Path != "/launcher" {
-		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(requestTimeout))
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(wait))
 	}
 	host := portSuffix.ReplaceAllString(r.Host, "")
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
@@ -530,6 +532,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	// A route in the table (phoneroutes.go): its class says who may use it, then its feature's handler answers.
+	if d.servePhoneRoute(w, r, phoneID) {
+		return
+	}
 
 	session := r.URL.Query().Get("session")
 	switch {
@@ -639,84 +645,6 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		writeJSON(w, status, answer)
 	case r.Method == http.MethodPost && r.URL.Path == "/act":
 		writeStatus(w)(d.PerformFrom(phoneID, r.URL.Query().Get("action"), session, r.URL.Query()))
-	// The phone's text (typed, or heard by its own mic), typed into the session's agent: from a paired phone
-	// with its key, over the Wi-Fi as over Tailscale (I34), never from the office's own window. See phonetext.go.
-	case r.Method == http.MethodPost && r.URL.Path == "/dictate":
-		if phoneID == officeWindowID {
-			writeStatus(w)(http.StatusForbidden, phoneTextPhonesOnly)
-			return
-		}
-		body := decodeJSON(r.Body)
-		// The confirm box's choice, Send ⏎ or Type only; an older page's says nothing.
-		var send *bool
-		if value, ok := body["send"].(bool); ok {
-			send = &value
-		}
-		writeStatus(w)(d.TypePhoneText(stringValue(body["text"]), session, send))
-	// The last lines of the session's tab, read-only, to see what was typed: over Tailscale only.
-	case r.Method == http.MethodPost && r.URL.Path == "/peek":
-		if !fromTailnet(r.Request) {
-			writeStatus(w)(http.StatusForbidden, peekTailnet)
-			return
-		}
-		status, lines, message := d.Peek(session)
-		if status != http.StatusOK {
-			writeStatus(w)(status, message)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"lines": lines})
-	// A typed answer to a menu's "Type something": as /dictate, one line only.
-	case r.Method == http.MethodPost && r.URL.Path == "/choose":
-		if phoneID == officeWindowID {
-			writeStatus(w)(http.StatusForbidden, phoneTextPhonesOnly)
-			return
-		}
-		if r.URL.Query().Get("option") != "other" {
-			writeStatus(w)(http.StatusBadRequest, pickWithKeys)
-			return
-		}
-		writeStatus(w)(d.AnswerOther(stringValue(decodeJSON(r.Body)["text"]), r.URL.Query().Get("choice"), session))
-	// What a permission prompt is about: over Tailscale only.
-	case r.Method == http.MethodGet && r.URL.Path == "/choice":
-		if !fromTailnet(r.Request) {
-			writeStatus(w)(http.StatusForbidden, choiceTailnet)
-			return
-		}
-		writeStatus(w)(d.ChoiceDetail(session))
-	// The approvals list: who waits for you, read only, to a paired phone over Tailscale, never over the Wi-Fi nor
-	// to the office's window. Answering is /act and /choose.
-	case r.Method == http.MethodGet && r.URL.Path == "/approvals":
-		if phoneID == officeWindowID || !fromTailnet(r.Request) {
-			writeStatus(w)(http.StatusForbidden, "The approvals show only over Tailscale's HTTPS address.")
-			return
-		}
-		writeJSON(w, http.StatusOK, approvalsAnswer(d.approvalItems(), nowMillis()))
-	// ▤ Conversation, in the office's own window on this computer, never a phone: the session's conversation, a page
-	// at a time, as it was written (conversation.go).
-	case r.Method == http.MethodGet && r.URL.Path == "/conversation":
-		if phoneID != officeWindowID {
-			writeStatus(w)(http.StatusForbidden, d.shownOnlyInTheWindow("The conversation"))
-			return
-		}
-		before, placed := conversationPlace(r.URL.Query(), "before")
-		known, sized := conversationPlace(r.URL.Query(), "size")
-		if !placed || !sized {
-			writeStatus(w)(http.StatusBadRequest, "That isn't a place in the conversation.")
-			return
-		}
-		writeAnswer(w)(d.conversation(session, before, known))
-	// ⓘ Info, in the office's own window on this computer, never a phone: what the session runs on, and what it
-	// has used (sessioninfo.go).
-	case r.Method == http.MethodGet && r.URL.Path == "/session/info":
-		if phoneID != officeWindowID {
-			writeStatus(w)(http.StatusForbidden, d.shownOnlyInTheWindow("The info"))
-			return
-		}
-		id := session
-		if r.URL.Query().Has("id") {
-			id = r.URL.Query().Get("id")
-		}
-		writeAnswer(w)(d.sessionInfo(id))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
 	case r.Method == http.MethodPost && r.URL.Path == "/summary":
 		text, err := d.Summarize(session)

@@ -704,6 +704,20 @@ func infoCard(desk infoDesk, read *tally, account *claudeAccount, billing string
 	return card
 }
 
+// ⓘ Info (phoneroutes.go), in the office's own window on this computer, never a phone: what the session runs on, and
+// what it has used. ?id= names another session than ?session=.
+func init() {
+	registerPhoneRoute(phoneRoute{method: http.MethodGet, path: "/session/info", access: accessWindow,
+		refusal: func(d *Deck) string { return d.shownOnlyInTheWindow("The info") },
+		serve: func(d *Deck, w http.ResponseWriter, r *request, session string) {
+			id := session
+			if r.URL.Query().Has("id") {
+				id = r.URL.Query().Get("id")
+			}
+			writeAnswer(w)(d.sessionInfo(id))
+		}})
+}
+
 // sessionInfo answers GET /session/info: session id's account, model, time and tokens, from what this computer has of them.
 func (d *Deck) sessionInfo(id string) (int, any) {
 	d.mu.Lock()
