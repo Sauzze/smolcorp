@@ -68,6 +68,9 @@ type GitState struct {
 	Skipped  bool      `json:"skipped,omitempty"`
 	Note     string    `json:"note,omitempty"`
 	At       int64     `json:"at"` // when it was read, in milliseconds
+	// remote is the address of the remote the branch tracks, as written in the repo's config (it may hold a user
+	// name). Never sent: the pull request badge reads the owner and name off it (ghpr.go).
+	remote string
 }
 
 // gitCall is what goes with a command: global is the options before the command's own name (the guards of
@@ -447,6 +450,7 @@ func readGitState(dir string, read gitReader, now time.Time) (state GitState, gi
 		return failed(err), gitDir
 	}
 	unborn := parseGitStatus(out, &state)
+	state.remote = gitRemoteOf(list, state.Branch)
 	if unborn { // no HEAD to count against
 		return state, gitDir
 	}
@@ -666,7 +670,7 @@ func (d *Deck) deskGit(id string) (int, any) {
 	if s == nil {
 		return http.StatusNotFound, "That agent has gone."
 	}
-	return http.StatusOK, gits.get(folder, event)
+	return http.StatusOK, withPR(gits.get(folder, event))
 }
 
 // gmGit answers GET /setup/gm/git for the GM (and the page and tools): ?hire= is a hire's registry id, read where it
@@ -680,7 +684,7 @@ func (rt *router) gmGit(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusNotFound, "There is no hire with that id.")
 			return
 		}
-		writeJSON(w, http.StatusOK, gits.get(startedIn(h), 0))
+		writeJSON(w, http.StatusOK, withPR(gits.get(startedIn(h), 0)))
 	case query.Get("session") != "":
 		writeAnswer(w)(rt.deck.deskGit(query.Get("session")))
 	default:
