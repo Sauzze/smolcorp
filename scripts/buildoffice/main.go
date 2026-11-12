@@ -39,11 +39,12 @@ type module struct {
 	file, name string
 }
 
-// The tables, in the order they come in office.js.
+// The tables and code modules, in the order they come in office.js.
 var modules = []module{
 	{"data/room-styles.js", "ROOM_STYLES"},
 	{"data/paints.js", "PAINTS"},
 	{"data/outfits.js", "OUTFITS"},
+	{"talk/anchors.js", "TALK_ANCHORS"},
 	{"data/wall-finishes.js", "WALL_FINISHES"},
 	{"data/floor-finishes.js", "FLOOR_FINISHES"},
 	{"data/wall-pieces.js", "WALL_PIECES"},

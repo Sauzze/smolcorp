@@ -56,6 +56,17 @@ top-level names for the first three.
 
 The first three are at the top of the IIFE, the rest inside `drawOffice`.
 
+## Code modules (1.26)
+
+The first files here that are code, not data tables. Each is one `const` (an
+object of functions), built in exactly as a table is, and parses on its own
+(`node --check`). The Talk Bubble's other files (`talk/style.js`,
+`talk/bubble.js`, `talk/terminal.js`) join this list as they land.
+
+| File | Const | Where | What it is |
+| --- | --- | --- | --- |
+| `talk/anchors.js` | `TALK_ANCHORS` | top of the IIFE, before `poseOf` | where each person's talk bubble is: its box and tail point in art and CSS pixels, the hover's timing, which small question bubbles fit, who has waited longest; plain functions of what they're given, so node tests run them alone |
+
 ## Adding a table
 
 1. Move it out of `main.js` into `data/<name>.js`, from its doc comment to the
