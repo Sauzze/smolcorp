@@ -130,8 +130,11 @@ func namesAlways(text string) string {
 // path part, quotes and escapes taken away, any case: echo setup-key too) or a pattern that fills
 // it in (setup-k?y, setup-*) is refused, whatever the command: reading it is
 // the harm. Only as a word, not anywhere in the line as the token is, so a
-// commit message or a grep for the word in Smolcorp's own code still runs;
-// and not as the pattern of a search of other files (searchesForSetupKey).
+// commit message that mentions it still runs. A search for the word as a
+// pattern (grep -rn setup-key desktop/) is refused too (RWIN4 B1): which word
+// grep, rg or git reads as the pattern turns on option spellings (--reg is
+// --regexp), GREP_OPTIONS, rg's config file and git's: a race the guard won't
+// win, so the word is refused wherever it stands.
 // Nothing in the app can stop a process of the owner's reading a file of the
 // owner's; the per-hire deny rules cover Read, and this covers Bash.
 const setupKeyFile = "setup-key"
@@ -148,120 +151,6 @@ func namesSetupKey(words simple) bool {
 		}
 	}
 	return false
-}
-
-// searchesForSetupKey is whether every word of a command's args that names the setup key is where only a
-// search's pattern is (searchPatterns): grep -rn setup-key desktop/, git log -S setup-key. Those search other
-// files for the word and never read the key (RWIN3). The key's own path among their files, a --glob or -f
-// naming it, or a pattern that fills it in (grep x set*, whose filled-in name follows it as a word of its own)
-// is still refused.
-func searchesForSetupKey(name string, args []string) bool {
-	at := searchPatterns(name, unmark(args))
-	for i, a := range args {
-		if namesSetupKey(simple{a}) && !at[i] {
-			return false
-		}
-	}
-	return len(at) > 0
-}
-
-// searchPatterns are the places in args (a command's words after its name) of a search's pattern alone, for
-// the commands that search other files for one: grep (egrep, fgrep), rg and git grep, whose pattern is -e's
-// (--regexp's) or else the first plain word, and git log's -S, -G and --grep. Every other word is a file, a
-// revision or an option's value: -f's file of patterns, rg's --glob, grep's --include.
-func searchPatterns(name string, args []string) map[int]bool {
-	at := map[int]bool{}
-	switch name {
-	case "grep", "egrep", "fgrep", "rg":
-		grepPatterns(args, 0, grepShortValued[name], at)
-	case "git":
-		sub, rest := gitSubcommand(args)
-		from := len(args) - len(rest)
-		switch sub {
-		case "grep":
-			grepPatterns(rest, from, grepShortValued["git"], at)
-		case "log":
-			for i := 0; i < len(rest) && rest[i] != "--"; i++ {
-				switch a := rest[i]; {
-				case a == "-S" || a == "-G" || a == "--grep":
-					if i+1 < len(rest) {
-						i++
-						at[from+i] = true
-					}
-				case strings.HasPrefix(a, "-S") || strings.HasPrefix(a, "-G") || strings.HasPrefix(a, "--grep="):
-					at[from+i] = true
-				}
-			}
-		}
-	}
-	return at
-}
-
-// grepShortValued are, by command, the short options that take a value: the next word, or the rest of the word
-// they end (grep's -r is a flag, rg's takes its replacement). An option missing here reads its value as the
-// pattern, so the word after it is a file: the safe side.
-var grepShortValued = map[string]string{"grep": "efmABCdD", "egrep": "efmABCdD", "fgrep": "efmABCdD", "rg": "efgmtTABCjMrEd", "git": "efmABC"}
-
-// grepLongValued are their long options that take the next word as their value (without an =). grep's
-// --color takes one only after an =, so it isn't here: rg's --color never then reads never as the pattern.
-var grepLongValued = map[string]bool{
-	"--regexp": true, "--file": true, "--max-count": true, "--after-context": true, "--before-context": true, "--context": true,
-	"--label": true, "--include": true, "--exclude": true, "--exclude-from": true, "--exclude-dir": true, "--binary-files": true,
-	"--devices": true, "--directories": true, "--group-separator": true, "--glob": true, "--iglob": true, "--type": true,
-	"--type-not": true, "--type-add": true, "--type-clear": true, "--threads": true, "--max-columns": true, "--replace": true,
-	"--encoding": true, "--max-depth": true, "--maxdepth": true, "--max-filesize": true, "--ignore-file": true, "--pre": true,
-	"--pre-glob": true, "--sort": true, "--sortr": true, "--path-separator": true, "--colors": true,
-	"--engine": true, "--context-separator": true, "--field-match-separator": true, "--field-context-separator": true,
-	"--dfa-size-limit": true, "--regex-size-limit": true, "--hostname-bin": true, "--hyperlink-format": true,
-}
-
-// grepPatterns marks in at (from on) where a grep's pattern is in args: -e's values, else its first plain word.
-// With -f (--file), rg's --files or --type-list, no plain word is a pattern.
-func grepPatterns(args []string, from int, valued string, at map[int]bool) {
-	given, first := false, -1
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--":
-			if first < 0 && i+1 < len(args) {
-				first = i + 1
-			}
-			i = len(args)
-		case strings.HasPrefix(a, "--"):
-			flag, _, joined := strings.Cut(a, "=")
-			if flag == "--regexp" || flag == "--file" || flag == "--files" || flag == "--type-list" {
-				given = true
-			}
-			if !joined && grepLongValued[flag] {
-				i++
-			}
-			if flag == "--regexp" && i < len(args) {
-				at[from+i] = true
-			}
-		case strings.HasPrefix(a, "-") && len(a) > 1:
-			for k := 1; k < len(a); k++ {
-				c := a[k]
-				if c == 'e' || c == 'f' {
-					given = true
-				}
-				if strings.IndexByte(valued, c) < 0 {
-					continue
-				}
-				if k == len(a)-1 {
-					i++
-				}
-				if c == 'e' && i < len(args) {
-					at[from+i] = true
-				}
-				break
-			}
-		case first < 0:
-			first = i
-		}
-	}
-	if !given && first >= 0 {
-		at[from+first] = true
-	}
 }
 
 // guardFile is the owner's guard file: one edit from a hire would switch
@@ -368,7 +257,7 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 		args = append([]string{name[len("git-"):]}, args...)
 		name = "git"
 	}
-	if namesSetupKey(words) && (namesSetupKey(words[:1]) || !searchesForSetupKey(name, args)) {
+	if namesSetupKey(words) {
 		return &Refusal{Group: "guard", Rule: setupKeyFile, Command: strings.Join(unmark(words), " ")}
 	}
 	if namesGuardFile(words) && !readsGuardFile(name, args) {

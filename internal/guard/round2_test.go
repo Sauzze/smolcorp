@@ -258,27 +258,36 @@ func TestNoSpellingNamesTheSetupKey(t *testing.T) {
 	})
 }
 
-// WIN125d (RWIN3, the guard's breadth): a search of other files for the word runs, for the GM and every hire:
-// grep, rg and git grep with setup-key as their pattern, git log -S and --grep, a pipe into grep. Each row of
-// RWIN3's table is here, allowed or refused. What reads the key stays refused: its path among a search's files
-// (or as -f's, --glob's, --include's), a pattern that fills it in, and every other command naming it.
-func TestTheGuardRunsASearchForTheSetupKeyWord(t *testing.T) {
+// WIN125e (RWIN4 B1): a search of other files for the word is refused, for the GM and every hire, as WIN125c
+// refused it. WIN125d let grep, rg and git grep run with setup-key as their pattern, and RWIN4 read the key
+// through options the guard didn't know: grep's --reg (any unique prefix of --regexp), GREP_OPTIONS, rg's
+// RIPGREP_CONFIG_PATH. Telling the pattern from a file means knowing every option spelling, variable and config
+// file of every search tool, so the word is refused wherever it stands. The cost: searching other files for
+// the word is refused too.
+func TestTheGuardRefusesASearchForTheSetupKeyWord(t *testing.T) {
 	const support = `~/Library/Application\ Support/AgentDeck`
 	runs := []string{
-		// RWIN3's table: refused by WIN125c, run now.
+		// RWIN3's "these still run": the word inside a word, or not the word.
+		`git commit -m "the setup-key file"`, "find . -name '*key*'", "ls setup-*.md", "sort < in.txt", "cat < notes.md",
+		"wc -l < setup-keys.md", "grep -rn hook-key desktop/", "git log -S setupKey --oneline",
+		// A word that holds setup-key but isn't it: as a file, it isn't the key either.
+		"egrep -c 'setup-key|hook-key' notes.md",
+	}
+	refused := []string{
+		// RWIN4 B1's table: grep reads setup-key as a file, through an option or a variable the guard can't know.
+		"grep setup-key --reg .", "grep setup-key --reg=.", "GREP_OPTIONS='-e .' grep setup-key",
+		"RIPGREP_CONFIG_PATH=rgcfg rg setup-key", "cd " + support + " && grep setup-key --reg .",
+		"egrep setup-key --reg .", "grep -E setup-key --rege=.", "grep --exclude-f setup-key x .",
+		"env GREP_OPTIONS='-e .' grep setup-key", "rg --no-config setup-key",
+		// WIN125d let these run as searches of other files for the word: refused again (RWIN4 B1), as the
+		// guard can't tell for sure that setup-key is the pattern and not a file.
 		"grep -rn setup-key desktop/", `grep -rn "setup-key" .`, "git grep setup-key", "rg -l setup-key Sources/",
 		"git log -S setup-key --oneline", "git log --grep=setup-key",
 		"go test ./internal/guard/ 2>&1 | grep setup-key",
-		// The same, by other spellings.
 		"grep -e setup-key -r desktop/", "grep --regexp setup-key desktop/x.go", "grep -i -- setup-key README.md",
-		"egrep -c 'setup-key|hook-key' notes.md", "rg -n --glob '*.go' setup-key", "rg -C 2 setup-key internal/",
+		"rg -n --glob '*.go' setup-key", "rg -C 2 setup-key internal/",
 		"git log -G setup-key -p", "git log --all --grep setup-key", "git -C ../app grep -n setup-key -- '*.go'",
 		"git grep -e setup-key HEAD~1", "grep -esetup-key notes.md", "git log -Ssetup-key",
-		// RWIN3's "these still run".
-		`git commit -m "the setup-key file"`, "find . -name '*key*'", "ls setup-*.md", "sort < in.txt", "cat < notes.md",
-		"wc -l < setup-keys.md",
-	}
-	refused := []string{
 		// RWIN3's table: they read the key, or name it as a file.
 		"shasum -a 256 setup-key | cut -c1-64 | shasum | cut -c1-12",
 		"stat -f '%N %z %m' " + support + "/setup-key", "ls -la " + support + "/setup-key", `test -f "$S/setup-key"`,
@@ -290,7 +299,6 @@ func TestTheGuardRunsASearchForTheSetupKeyWord(t *testing.T) {
 		"grep x set*", "grep set* .", "grep -e x set*", "rg x " + support + "/setup-k?y",
 		"git grep x -- setup-key", "git grep -e x HEAD -- " + support + "/setup-key", "git log -S x -- setup-key",
 		"git log setup-key", "grep -- x setup-key", "grep setup-key < setup-key", "grep -c setup-key setup-key",
-		// grep's -r is a flag, rg's -r takes the replacement: neither turns a file into the pattern.
 		"grep -r x setup-key", "rg -r y x setup-key",
 		// Not a search: the word names the key.
 		"setup-key", "cat setup-key", "xargs grep setup-key", "echo setup-key", "git show setup-key",

@@ -1,9 +1,11 @@
 package desktop
 
 import (
+	"os"
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -128,6 +130,72 @@ func (p fencePaths) below(root, name string) (string, bool) {
 		return "", false
 	}
 	return strings.ReplaceAll(name[len(top):], `\`, "/"), true
+}
+
+// caseAside says whether the system's disk reads names case aside: the Mac's (APFS and HFS+ as they come) and
+// Windows'. Linux's doesn't.
+func (p fencePaths) caseAside() bool {
+	goos := p.goos
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	return goos == "darwin" || goos == "windows"
+}
+
+// parts are a path's names, its volume aside.
+func (p fencePaths) parts(name string) []string {
+	return strings.FieldsFunc(name[len(p.volume(name)):], func(r rune) bool { return r < 0x80 && p.separator(byte(r)) })
+}
+
+// belowAnyCase is below for the app's support folder, where a path the fence reads as outside it would reach
+// the owner's secrets: fail-closed, a path the disk could read as root or below it counts as in it. Case aside
+// where the disk reads names that way (caseAside: ~/library/application support/agentdeck is the folder on a
+// Mac, RWIN4 B2), name by name, so a letter that changes length as it folds (K, the Kelvin sign) still matches.
+// On this computer, the disk is asked too (belowOnDisk): it knows its own folding and its other names for a
+// folder (the Mac's /System/Volumes/Data/Users is /Users), which no spelling rule does. The rest keeps name's case.
+func (p fencePaths) belowAnyCase(root, name string) (string, bool) {
+	if rest, in := p.below(root, name); in {
+		return rest, true
+	}
+	if p.caseAside() {
+		root, name = p.clean(root), p.clean(name)
+		want, have := p.parts(root), p.parts(name)
+		if p.isAbs(root) && p.isAbs(name) && strings.EqualFold(p.volume(root), p.volume(name)) && len(have) >= len(want) &&
+			slices.EqualFunc(want, have[:len(want)], strings.EqualFold) {
+			if len(have) == len(want) {
+				return ".", true
+			}
+			return strings.Join(have[len(want):], "/"), true
+		}
+	}
+	if p.here() {
+		return belowOnDisk(root, name)
+	}
+	return "", false
+}
+
+// belowOnDisk is name's rest below root when name, or one of the folders it's in, is root on this computer's
+// disk (os.SameFile: the same file whatever its spelling, links followed). The parts of name that aren't there
+// yet are kept as written.
+func belowOnDisk(root, name string) (string, bool) {
+	want, err := os.Stat(root)
+	if err != nil || !filepath.IsAbs(name) {
+		return "", false
+	}
+	var rest []string
+	for dir := filepath.Clean(name); ; dir = filepath.Dir(dir) {
+		if info, err := os.Stat(dir); err == nil && os.SameFile(info, want) {
+			if len(rest) == 0 {
+				return ".", true
+			}
+			slices.Reverse(rest)
+			return strings.Join(rest, "/"), true
+		}
+		if filepath.Dir(dir) == dir {
+			return "", false
+		}
+		rest = append(rest, filepath.Base(dir))
+	}
 }
 
 // resolveExisting and resolvePhysical are the package's, on this computer's disk; for another system, the

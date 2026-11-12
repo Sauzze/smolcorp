@@ -170,3 +170,51 @@ func TestTheDemosFenceRefusesWhatItDoesntRead(t *testing.T) {
 		t.Log("this computer's reading is Windows'; the Mac's and Linux's are read by their rules alone")
 	}
 }
+
+// WIN125e (RWIN4 B2): the Mac's disk and Windows' read names case aside, so the app's support folder written in
+// another case is the same folder there: every support rule holds for it, read as each system reads it. A name
+// whose letter changes length as it folds (the Kelvin sign K is k) too. Linux's disk reads names by case: there
+// it's another folder, and the fence lets a Read of it through.
+func TestTheDemosFenceReadsTheSupportFolderInAnyCase(t *testing.T) {
+	for _, s := range []struct {
+		goos, root, home, support, other, tilde string
+		caseAside                               bool
+	}{
+		{"windows", `C:\Users\ada\smolcorp-demo`, `C:\Users\ada`, `C:\Users\ada\AppData\Roaming\SauzzeDeck Pro`,
+			`c:\USERS\Ada\appdata\ROAMING\sauzzedeck pro`, `~/APPDATA/roaming/SAUZZEDECK\ PRO`, true},
+		{"darwin", "/Users/ada/smolcorp-demo", "/Users/ada", "/Users/ada/Library/Application Support/AgentDeck",
+			"/users/ADA/library/APPLICATION SUPPORT/agentdec\u212a", `~/LIBRARY/application\ support/AGENTDECK`, true},
+		{"linux", "/home/ada/smolcorp-demo", "/home/ada", "/home/ada/.config/sauzzedeck-pro",
+			"/home/ada/.CONFIG/Sauzzedeck-Pro", "~/.CONFIG/Sauzzedeck-Pro", false},
+	} {
+		f := demoFence{root: s.root, roles: []string{"tester"}, home: s.home, support: s.support, goos: s.goos}
+		repo := f.paths().join(s.root, demoRepoName)
+		tool := func(name string, input map[string]any) demoCall {
+			data, _ := json.Marshal(input)
+			return demoCall{ToolName: name, ToolInput: data, Cwd: repo}
+		}
+		registry := f.paths().join(s.other, "registry.json")
+		for _, c := range []demoCall{
+			tool("Read", map[string]any{"file_path": registry}),
+			tool("Read", map[string]any{"file_path": f.paths().join(s.other, "gm-token-kept")}),
+			tool("Read", map[string]any{"file_path": f.paths().join(s.other, "hires/x/../../config.json")}),
+			tool("LS", map[string]any{"path": s.other}),
+			tool("Grep", map[string]any{"path": s.other, "pattern": ".", "output_mode": "content"}),
+			tool("Glob", map[string]any{"path": s.other, "pattern": "*"}),
+			tool("Write", map[string]any{"file_path": f.paths().join(s.other, "config.json")}),
+			bashCall("cat '"+strings.ReplaceAll(registry, `\`, "/")+"'", repo),
+			bashCall("cat "+s.tilde+"/registry.json", repo),
+			bashCall("cp x "+s.tilde+"/config.json", repo),
+			bashCall("cat "+s.tilde+"/hires/x/../../registry.json", repo),
+			bashCall("cat "+s.tilde+"/*.json", repo),
+		} {
+			why := f.check(c)
+			switch refused := strings.HasPrefix(why, demoFenceRefusal); {
+			case s.caseAside && !refused:
+				t.Errorf("on %s, let through %s %s", s.goos, c.ToolName, c.ToolInput)
+			case !s.caseAside && c.ToolName == "Read" && refused:
+				t.Errorf("on %s, refused %s %s: %s", s.goos, c.ToolName, c.ToolInput, why)
+			}
+		}
+	}
+}

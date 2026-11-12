@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -222,6 +223,83 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 			row{who.fence, bashCall("cat "+filepath.Join(support, "hires")+"/*/settings.json", who.cwd)},
 			row{who.fence, bashCall("cat "+filepath.Join(support, "briefs")+"/*.md", who.cwd)},
 			row{who.fence, bashCall("cat "+support+"/**/BRIEF.md", who.cwd)})
+	}
+	// RWIN4 N1: ~user is that user's home to bash, not a folder from cwd. N2: a folder named like a brief file
+	// is a place to cd from, to ../../../registry.json.
+	briefFolder := filepath.Join(testerFolder, "d.md")
+	if err := os.Mkdir(briefFolder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, who := range []struct {
+		fence demoFence
+		cwd   string
+	}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+		refused = append(refused,
+			row{who.fence, bashCall("cat ~nobody/registry.json", who.cwd)},
+			row{who.fence, bashCall("cat ~root/Library/Application\\ Support/AgentDeck/registry.json", who.cwd)},
+			row{who.fence, read(who.cwd, "~nobody/registry.json")},
+			row{who.fence, write(who.cwd, "~nobody/STATUS.md")},
+			row{who.fence, bashCall("mkdir "+shellQuoted(filepath.Join(testerFolder, "e.md")), who.cwd)},
+			row{who.fence, bashCall("cd "+shellQuoted(briefFolder)+" && cat ../../../registry.json", who.cwd)},
+			row{who.fence, bashCall("ls "+shellQuoted(briefFolder), who.cwd)})
+	}
+	// RWIN4 B2: the support folder written in another case is the same folder on the Mac's disk (and Windows'):
+	// every rule holds for it. The last part upper-cased, the whole path, through ~ and .., and a link to it.
+	if runtime.GOOS == "darwin" {
+		other := func(path string) string {
+			rest, _ := filepath.Rel(supportDir, path)
+			return filepath.Join(filepath.Dir(supportDir), strings.ToUpper(filepath.Base(supportDir)), rest)
+		}
+		upper := other(supportDir)
+		if _, err := os.Stat(upper); err != nil {
+			t.Fatalf("this Mac's disk reads names by case: %v", err)
+		}
+		fromHome, err := filepath.Rel(homeDir, upper)
+		if err != nil {
+			t.Fatal(err)
+		}
+		linkUpper := filepath.Join(tester.Worktree, "upper.md")
+		if err := os.Symlink(filepath.Join(upper, "registry.json"), linkUpper); err != nil {
+			t.Fatal(err)
+		}
+		// Its own brief, in another case, is still its own.
+		if why := asTester.check(read(tester.Worktree, other(tester.Brief))); why != "" {
+			t.Errorf("refused its brief in another case: %s", why)
+		}
+		for _, who := range []struct {
+			fence demoFence
+			cwd   string
+		}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+			for _, file := range []string{
+				filepath.Join(upper, "gm-token"), filepath.Join(upper, "registry.json"), filepath.Join(upper, "config.json"),
+				filepath.Join(upper, "setup-key"), strings.ToUpper(filepath.Join(supportDir, "registry.json")),
+				strings.ToLower(filepath.Join(supportDir, "registry.json")), other(filepath.Join(testerFolder, "settings.json")),
+				filepath.Join(other(testerFolder), "..", "..", "registry.json"), linkUpper, upper,
+			} {
+				refused = append(refused,
+					row{who.fence, read(who.cwd, file)},
+					row{who.fence, bashCall("cat "+shellQuoted(file), who.cwd)},
+					row{who.fence, bashCall("cp x "+shellQuoted(file), who.cwd)},
+					row{who.fence, write(who.cwd, file)})
+			}
+			refused = append(refused,
+				row{who.fence, bashCall("cat ~/"+filepath.ToSlash(fromHome)+"/registry.json", who.cwd)},
+				row{who.fence, read(who.cwd, "~/"+filepath.ToSlash(fromHome)+"/gm-token")},
+				row{who.fence, tool(who.cwd, "LS", map[string]any{"path": upper})},
+				row{who.fence, tool(who.cwd, "Grep", map[string]any{"path": upper, "pattern": ".", "output_mode": "content"})},
+				row{who.fence, tool(who.cwd, "Glob", map[string]any{"path": upper, "pattern": "*"})},
+				row{who.fence, tool(who.cwd, "Grep", map[string]any{"path": strings.ToUpper(filepath.Dir(supportDir)), "pattern": "."})},
+				row{who.fence, tool(who.cwd, "Glob", map[string]any{"path": strings.ToUpper(filepath.Dir(supportDir)), "pattern": "*/gm-t*"})},
+				row{who.fence, bashCall("cat "+shellQuoted(upper)+"/*.json", who.cwd)})
+			// The Mac's other name for the data volume's folders: the same folder to the disk, whatever its spelling.
+			if data := filepath.Join("/System/Volumes/Data", support); fileExists(data) {
+				refused = append(refused,
+					row{who.fence, read(who.cwd, filepath.Join(data, "registry.json"))},
+					row{who.fence, bashCall("cat "+shellQuoted(filepath.Join(data, "gm-token")), who.cwd)},
+					row{who.fence, tool(who.cwd, "Grep", map[string]any{"path": data, "pattern": "."})},
+					row{who.fence, tool(who.cwd, "Grep", map[string]any{"path": filepath.Dir(data), "pattern": "."})})
+			}
+		}
 	}
 	for _, r := range refused {
 		if why := r.fence.check(r.call); !strings.HasPrefix(why, demoFenceRefusal) {

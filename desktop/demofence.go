@@ -242,7 +242,7 @@ func (f demoFence) command(line, cwd string) string {
 	}
 	for _, words := range all {
 		for _, word := range words {
-			if (strings.HasPrefix(word, "~") || strings.ContainsAny(word, `/\`)) && f.reachesSupport(word, cwd) {
+			if (strings.HasPrefix(word, "~") || strings.ContainsAny(word, `/\`)) && (f.reachesSupport(word, cwd) || f.briefFolder(words, word, cwd)) {
 				return demoFenceRefusal + demoSupportRefusal
 			}
 		}
@@ -789,7 +789,8 @@ func (f demoFence) checkout(folder, cwd string) bool {
 }
 
 // whole is path as a whole path: ~ is home, a relative one is from cwd. False when it can't be told: no
-// cwd to start from, \x or /x on Windows (the top of some drive), C:x or a : after the drive (drifts).
+// cwd to start from, \x or /x on Windows (the top of some drive), C:x or a : after the drive (drifts), ~user
+// (that user's home to bash, RWIN4 N1).
 func (f demoFence) whole(path, cwd string) (string, bool) {
 	p := f.paths()
 	path = strings.TrimSpace(path)
@@ -797,7 +798,7 @@ func (f demoFence) whole(path, cwd string) (string, bool) {
 		path = p.join(f.home, path[1:])
 	}
 	switch {
-	case p.drifts(path):
+	case otherHome(path) || p.drifts(path):
 		return "", false
 	case p.isAbs(path):
 		return path, true
@@ -805,6 +806,13 @@ func (f demoFence) whole(path, cwd string) (string, bool) {
 		return "", false
 	}
 	return p.join(cwd, path), true
+}
+
+// otherHome says whether path starts with a ~ that isn't the home's own (~, ~/…, ~\…): ~user, ~+, ~-, a
+// home or a folder bash fills in and the fence doesn't.
+func otherHome(path string) bool {
+	path = strings.TrimSpace(path)
+	return strings.HasPrefix(path, "~") && path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, `~\`)
 }
 
 // plainFolder says whether the shell leaves a folder as written: no expansion in it but ~ or ~/… at its start.
@@ -886,16 +894,21 @@ func (f demoFence) inFenceFolder(path, cwd string) bool {
 
 // supportRests are where path (~ is home, a relative one is from cwd) is in the app's support folder: its rest
 // below it, parts split by /, "." for the folder itself, once for each way its links are followed (a tool
-// that cleans the path first, the system that walks it); none outside it.
+// that cleans the path first, the system that walks it); none outside it. In any case where the disk reads
+// names case aside, and by whatever name this computer's disk has for it (belowAnyCase, RWIN4 B2). ~user is
+// some home the fence doesn't read: the support folder, fail-closed (RWIN4 N1).
 func (f demoFence) supportRests(path, cwd string) []string {
 	p := f.paths()
+	if f.support != "" && otherHome(path) {
+		return []string{"."}
+	}
 	path, ok := f.whole(path, cwd)
 	if f.support == "" || !ok {
 		return nil
 	}
 	var rests []string
 	for _, resolved := range []string{p.resolveExisting(path), p.resolvePhysical(path)} {
-		if rest, in := p.below(f.support, resolved); in {
+		if rest, in := p.belowAnyCase(f.support, resolved); in {
 			rests = append(rests, rest)
 		}
 	}
@@ -912,6 +925,25 @@ func (f demoFence) reachesSupport(path, cwd string) bool {
 	return slices.ContainsFunc(rests, func(rest string) bool { return !f.demosBriefFile(rest, false) })
 }
 
+// briefFolder says whether a Bash word that is a demo hire's brief file (or one beside it) could be a folder to
+// work from in the app's own folder (RWIN4 N2): it's there and isn't a file, or the command makes it a folder or
+// goes into it (mkdir, cd, pushd). From such a folder, cd …/d.md && cat ../../../registry.json reads the app's state.
+func (f demoFence) briefFolder(words []string, word, cwd string) bool {
+	if len(f.supportRests(word, cwd)) == 0 {
+		return false
+	}
+	switch demoProgram(demoCommandName(words)) {
+	case "mkdir", "cd", "pushd":
+		return true
+	}
+	path, ok := f.whole(word, cwd)
+	if !ok || !f.paths().here() {
+		return true
+	}
+	info, err := os.Stat(path)
+	return err == nil && !info.Mode().IsRegular()
+}
+
 // demosOwnFile says whether path is a file a demo hire writes in the app's own folder, whichever way its links
 // are followed: its STATUS.md (or report) beside its brief.
 func (f demoFence) demosOwnFile(path, cwd string) bool {
@@ -924,8 +956,8 @@ const demoWildcards = "*?[{"
 
 // patternInSupport is a pattern's rest below the app's support folder when what it fills in could be there
 // (cat ~/Lib*/App*/A*/s*, RWIN3 N7): each of its parts matches the folder's, case aside, a { part anything and a
-// ** part any number of them, and its plain folder before the first wildcard has its links followed. false for
-// a path with no wildcard, or one that stays above the folder or beside it.
+// ** part any number of them, and its plain folder before the first wildcard has its links followed and is
+// compared as belowAnyCase does. false for a path with no wildcard, or one that stays above the folder or beside it.
 func (f demoFence) patternInSupport(path, cwd string) (string, bool) {
 	p := f.paths()
 	path, ok := f.whole(path, cwd)
@@ -937,29 +969,32 @@ func (f demoFence) patternInSupport(path, cwd string) (string, bool) {
 	for cut > 0 && !p.separator(path[cut-1]) {
 		cut--
 	}
-	folder := p.resolveExisting(path[:cut])
-	if !strings.EqualFold(p.volume(folder), p.volume(f.support)) {
+	folder, pattern := p.resolveExisting(path[:cut]), p.parts(path[cut:])
+	if rest, in := p.belowAnyCase(f.support, folder); in {
+		// In the folder already: the pattern fills in names below it.
+		if rest != "." {
+			pattern = append(strings.Split(rest, "/"), pattern...)
+		}
+		return strings.Join(pattern, "/"), true
+	}
+	// Above it: the pattern's parts against the folder's names below the plain folder.
+	below, above := p.belowAnyCase(folder, f.support)
+	if !above {
 		return "", false
 	}
-	have, want := append(f.pathParts(folder), f.pathParts(path[cut:])...), f.pathParts(f.support)
-	for i, part := range have {
+	want := strings.Split(below, "/")
+	for i, part := range pattern {
 		switch {
 		case i == len(want) || part == "**":
-			return strings.Join(have[i:], "/"), true
+			return strings.Join(pattern[i:], "/"), true
 		case !demoPartMatches(part, want[i]):
 			return "", false
 		}
 	}
-	if len(have) == len(want) {
+	if len(pattern) == len(want) {
 		return ".", true
 	}
 	return "", false
-}
-
-// pathParts are a path's names, its volume aside.
-func (f demoFence) pathParts(name string) []string {
-	p := f.paths()
-	return strings.FieldsFunc(name[len(p.volume(name)):], func(r rune) bool { return r < 0x80 && p.separator(byte(r)) })
 }
 
 // demoPartMatches says whether one part of a pattern could fill in name, case aside: a { part (bash's
@@ -985,14 +1020,15 @@ func (f demoFence) fixedFolder(pattern string) string {
 	return p.clean(pattern[:cut])
 }
 
-// aboveSupport says whether folder (a whole path) holds the app's support folder, or is it, links followed.
+// aboveSupport says whether folder (a whole path) holds the app's support folder, or is it, links followed, in
+// any case where the disk reads names case aside (belowAnyCase).
 func (f demoFence) aboveSupport(folder string) bool {
 	p := f.paths()
 	if f.support == "" || folder == "" {
 		return false
 	}
 	for _, resolved := range []string{p.resolveExisting(folder), p.resolvePhysical(folder)} {
-		if _, in := p.below(resolved, f.support); in {
+		if _, in := p.belowAnyCase(resolved, f.support); in {
 			return true
 		}
 	}
@@ -1030,7 +1066,7 @@ func (f demoFence) demosBriefFile(rest string, write bool) bool {
 		if h.Brief == "" || !f.inside(h.Folder, "") || h.Worktree != "" && !f.inside(h.Worktree, "") {
 			continue
 		}
-		brief, in := p.below(f.support, p.resolveExisting(h.Brief))
+		brief, in := p.belowAnyCase(f.support, p.resolveExisting(h.Brief))
 		briefDir, briefName := path.Split(brief)
 		briefDir = strings.TrimSuffix(briefDir, "/")
 		switch {
