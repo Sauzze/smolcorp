@@ -125,7 +125,11 @@ func dumpPhoneRoutes(t *testing.T) string {
 				in = append(in, c.name)
 			}
 		}
-		fmt.Fprintf(&dump, "%s %s: %s; let in: %s\n", route[0], route[1], strings.Join(answers, " "), strings.Join(in, ", "))
+		letIn := strings.Join(in, ", ")
+		if letIn == "" {
+			letIn = "nobody"
+		}
+		fmt.Fprintf(&dump, "%s %s: %s; let in: %s\n", route[0], route[1], strings.Join(answers, " "), letIn)
 	}
 	return dump.String()
 }
@@ -232,7 +236,7 @@ func TestARowsLimitsAreItsOwn(t *testing.T) {
 const phoneRouteAccess = `GET /icon.png: 200 200 200 200 200 200 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-other, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /favicon-16.png: 200 200 200 200 200 200 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-other, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /favicon-32.png: 200 200 200 200 200 200 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-other, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
-POST /pair: 403 403 403 403 403 403 403 403 403 403 403; let in: 
+POST /pair: 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
 GET /office.js: 200 200 200 200 403 403 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /guide.js: 200 200 200 200 403 403 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /sounds/keys.m4a: 200 200 200 200 403 403 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
@@ -257,7 +261,7 @@ GET /choice: 401 403 404 404 403 403 404 403 403 401 401; let in: phone-wireguar
 GET /approvals: 401 403 200 200 403 403 200 403 403 401 401; let in: phone-wireguard, phone-serve-mac, phone-proxied-localhost-other
 GET /conversation: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 GET /session/info: 401 403 403 403 403 403 403 403 404 401 401; let in: window
-POST /summary: 401 403 403 403 403 403 403 403 403 401 401; let in: 
+POST /summary: 401 403 403 403 403 403 403 403 403 401 401; let in: nobody
 GET /talk: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 GET /talk/asking: 401 403 403 403 403 403 403 403 200 401 401; let in: window
 POST /talk/say: 401 403 403 403 403 403 403 403 400 401 401; let in: window
