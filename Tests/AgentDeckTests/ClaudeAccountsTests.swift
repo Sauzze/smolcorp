@@ -186,15 +186,8 @@ final class ClaudeAccountsTests: XCTestCase {
 
     // MARK: Hiring
 
-    func testAHireMustNameItsAccountWhenThereIsMoreThanOne() throws {
+    func testAHireIsOnTheAccountItNames() throws {
         let accounts = [ClaudeProfiles.defaultProfile(home: home), profile("work", ".claude-work")]
-        for case let row as [String: Any] in try fixture()["hireRefusals"] as? [Any] ?? [] {
-            let refusal = try XCTUnwrap(ClaudeProfiles.hireRefusal(account: row["account"] as? String, among: accounts))
-            XCTAssertEqual(refusal.status, row["status"] as? Int)
-            XCTAssertEqual(refusal.message, row["message"] as? String)
-        }
-        XCTAssertNil(ClaudeProfiles.hireRefusal(account: "work", among: accounts))
-        XCTAssertNil(ClaudeProfiles.hireRefusal(account: nil, among: [accounts[0]]), "the only account needs no name")
         XCTAssertEqual(ClaudeProfiles.profile(named: "work", among: accounts)?.name, "work")
         XCTAssertNil(ClaudeProfiles.profile(named: nil, among: accounts))
     }
@@ -227,16 +220,5 @@ final class ClaudeAccountsTests: XCTestCase {
         XCTAssertTrue(Hooks.isConnected(work), "a connected account is brought up to date")
         XCTAssertFalse(Hooks.hasEntries(spare), "a disconnected one stays so")
         XCTAssertEqual(try String(contentsOf: spare.settings, encoding: .utf8), "{}")
-    }
-
-    func testAnAddedAccountIsConnectedOnlyWhileConnected() throws {
-        try folder(".claude", files: ["settings.json": "{}"])
-        try folder(".claude-work", files: ["settings.json": "{}"])
-        let work = profile("work", ".claude-work")
-        Hooks.connectAdded([work], home: home)
-        XCTAssertFalse(Hooks.hasEntries(work), "disconnected: the new account is left alone")
-        try Hooks.addClaude(to: ClaudeProfiles.defaultProfile(home: home), turningOnVoice: false)
-        Hooks.connectAdded([work], home: home)
-        XCTAssertTrue(Hooks.isConnected(work), "connected: the new account joins")
     }
 }

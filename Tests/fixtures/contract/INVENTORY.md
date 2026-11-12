@@ -506,10 +506,10 @@ in the next table.
 | `snapshot` | `.floors[].desks[].choice` | `object or null` | a menu's options, read from the terminal: none in the given |
 | `snapshot` | `.floors[].desks[].last` | `object or null` | a cloud bot's last report: none in the given |
 | `snapshot` | `.floors[].desks[].subagents` | `[]` | only contract-a, at a key, has a subagent in the given |
-| `snapshot` | `.floors[].desks[].voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given (personal build) |
+| `snapshot` | `.floors[].desks[].voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given |
 | `snapshot` | `.hiring.roles` | `[]` | no folder for hires in the given, so no role to hire as |
 | `snapshot` | `.keys[].session.choice` | `object or null` | a menu's options, read from the terminal: none in the given |
-| `snapshot` | `.keys[].session.voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given (personal build) |
+| `snapshot` | `.keys[].session.voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given |
 | `snapshot` | `.layout.room.dress.rules` | `[]` | no dress rule in the default layout |
 | `snapshot` | `.layout.room.floorPlans` | `map` | a floor's plan by its number: keys are data |
 | `snapshot` | `.layout.room.pet` | `[]` | no pet in the default layout |
@@ -523,7 +523,7 @@ in the next table.
 | `snapshot` | `.upstairs.desks[].choice` | `object or null` | a menu's options, read from the terminal: none in the given |
 | `snapshot` | `.upstairs.desks[].last` | `object or null` | a cloud bot's last report: none in the given |
 | `snapshot` | `.upstairs.desks[].subagents` | `[]` | only contract-a, at a key, has a subagent in the given |
-| `snapshot` | `.upstairs.desks[].voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given (personal build) |
+| `snapshot` | `.upstairs.desks[].voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given |
 
 ## Null allowed
 
@@ -539,7 +539,7 @@ such mark, with why, until M7.
 | `setup-state` | `.dictation.cleanupProblem` | `string or null` | what stops Claude cleaning dictation up: null when nothing does, as in the given |
 | `setup-state` | `.dictation.problem` | `string or null` | what stops dictation: null when nothing does, as this Mac's speech recognition says |
 | `setup-state` | `.phoneMic.serving` | `bool or null` | whether `tailscale serve` hands the deck on: unknown without Tailscale, as Tailscale isn't asked |
-| `setup-state` | `.phoneMic.tailnet` | `string or null` | this Mac's Tailscale name: none, as Tailscale isn't asked (personal build) |
+| `setup-state` | `.phoneMic.tailnet` | `string or null` | this Mac's Tailscale name: none, as Tailscale isn't asked |
 | `setup-state` | `.summary.fallback` | `string or null` | the provider used when the one picked can't answer: none with summaries off, as in the given |
 | `snapshot` | `.floors[].desks[].errorKind` | `string or null` | why its last turn failed: no turn fails in the given |
 | `snapshot` | `.floors[].desks[].hiredBy.id` | `string or null` | the desk of who started it: a cloud bot's hirer has none |

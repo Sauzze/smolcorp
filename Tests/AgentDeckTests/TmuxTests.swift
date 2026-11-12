@@ -128,13 +128,9 @@ final class TmuxTests: XCTestCase {
         XCTAssertTrue(Tmux().insert(text, in: pane))
         XCTAssertEqual(try Data(contentsOf: stdin), Data(text.utf8))
         XCTAssertFalse(asked.joined().contains("Caf"), "never an argument")
-        try FileManager.default.removeItem(at: stdin)
-        XCTAssertTrue(Tmux().typeKeys("oui, ça marche;", in: pane))
-        XCTAssertEqual(try Data(contentsOf: stdin), Data("oui, ça marche;".utf8))
-        XCTAssertTrue(asked.last!.contains("paste-buffer -r -d -b smolcorp-"), "as keys: no brackets, a line feed as itself")
         // Text that could press Enter or end a bracket never reaches tmux.
         let before = asked.count
-        XCTAssertFalse(Tmux().typeKeys("a\u{1B}[201~\rb", in: pane))
+        XCTAssertFalse(Tmux().insert("a\u{1B}[201~\rb", in: pane))
         XCTAssertEqual(asked.count, before)
     }
 

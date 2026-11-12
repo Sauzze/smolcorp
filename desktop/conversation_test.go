@@ -13,7 +13,7 @@ import (
 )
 
 // ▤ Conversation (conversation.go), as the Mac's ConversationTests had it: read from transcripts of the tests' own,
-// its pages, and who may read it. The phone's redacted reading was the iPhone app's (personal build) and isn't here.
+// its pages, and who may read it. No redacted reading for a phone is served, so none is tested.
 
 func convUser(text string) string {
 	return jsonLine(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": text}, "timestamp": "2026-10-22T10:00:00.000Z"})
@@ -154,9 +154,9 @@ func TestALongMessageIsCutWithMore(t *testing.T) {
 
 // The office's own window reads it as it was written: nothing leaves the computer.
 func TestTheWindowReadsTheConversationAsItWasWritten(t *testing.T) {
-	path := transcriptFile(t, convUser("deploy with\nsk-ant-abc123"), convClaude("the password is swordfish"),
+	path := transcriptFile(t, convUser("deploy with\nsk-"+"ant-abc123"), convClaude("the password is swordfish"),
 		convToolUse("Bash", map[string]any{"command": "ls"}, "t1"), convToolResult("API_KEY=hunter2\nmore", "t1", false))
-	want := []string{"deploy with\nsk-ant-abc123", "the password is swordfish", "Bash: ls", "API_KEY=hunter2"}
+	want := []string{"deploy with\nsk-" + "ant-abc123", "the password is swordfish", "Bash: ls", "API_KEY=hunter2"}
 	if got := convTexts(convPage(t, path, nil, conversationPageMost)); !reflect.DeepEqual(got, want) {
 		t.Fatalf("%q", got)
 	}

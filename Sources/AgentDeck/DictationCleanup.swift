@@ -99,9 +99,6 @@ enum DictationCleanup {
         text.split(whereSeparator: { $0.isWhitespace }).count
     }
 
-    /// Whether `text` is worth sending: on, long enough, not too long.
-    static func shouldClean(_ text: String) -> Bool { skipped(text) == nil }
-
     /// Why `text` goes in as heard without a call, or nil when it's sent. `enabled`: as the Go core's config
     /// says it (desktop/hostdictation.go), or the setting here.
     static func skipped(_ text: String, enabled: Bool? = nil) -> Outcome? {

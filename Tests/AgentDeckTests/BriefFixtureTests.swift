@@ -2,15 +2,15 @@ import CryptoKit
 import XCTest
 @testable import AgentDeck
 
-/// `Tests/fixtures/briefs/briefs.json` is what this side makes of a fixed set of inputs: hires' briefs (their text, files and
-/// first message), setup's previews, picked files, a brief's later parts and the guard's state. The Go app's test
+/// `Tests/fixtures/briefs/briefs.json` is what the Mac's own brief code made of a fixed set of inputs: hires' briefs (their text,
+/// files and first message), setup's previews, picked files, a brief's later parts and the guard's state. The Go app's test
 /// (desktop/briefs_fixture_test.go) makes the same from the same inputs and must match byte for byte. Paths are written with
-/// `~` and each side expands them with its own home; dates are shown in UTC. Set SMOLCORP_WRITE_FIXTURES=1 for a run to
-/// write it again.
+/// `~` and each side expands them with its own home; dates are shown in UTC. Since the Go core alone makes briefs, nothing
+/// writes this file any more: it's kept as it was, and only read.
 ///
-/// One difference is known and kept: a path that goes through `URL` comes out decomposed here (NFD: "e" then the accent),
+/// One difference is known and kept: a path that went through `URL` came out decomposed there (NFD: "e" then the accent),
 /// while the folder as given, and everything on the Go side, stays precomposed (NFC). A hire marked `"normalized": "NFC"`
-/// holds this side's brief with that undone (`made`), and as it really is (`madeAsIs`); see docs/GO-PARITY.md.
+/// holds the Mac's brief with that undone (`made`), and as it really was (`madeAsIs`); see docs/GO-PARITY.md.
 final class BriefFixtureTests: XCTestCase {
     private let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("fixtures/briefs/briefs.json")

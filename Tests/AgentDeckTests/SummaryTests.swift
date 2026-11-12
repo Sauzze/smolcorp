@@ -479,7 +479,7 @@ final class SummaryTests: XCTestCase {
 
     // MARK: Summaries, with the network stubbed
 
-    /// Off until turned on, under its own name: a personal build's "summariesEnabled" never turns it on.
+    /// Off until turned on, under its own name: an older "summariesEnabled" never turns it on.
     func testItIsOffByDefaultAndAnOldSettingDoesntTurnItOn() throws {
         XCTAssertFalse(Config().summaryOptIn)
         let old = try JSONDecoder().decode(Config.self, from: Data(#"{"summariesEnabled": true, "musicEnabled": true}"#.utf8))

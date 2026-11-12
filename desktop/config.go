@@ -138,7 +138,7 @@ type Config struct {
 	// no floor rule names one for them (see CloudBot.Floor); chosen in setup.
 	// Until it is, the floor your bots are on (newBotsFloor).
 	BotFloor int `json:"botFloor"`
-	// The phone's text (personal build on the Mac): whether a paired phone may type what it typed or heard
+	// The phone's text: whether a paired phone may type what it typed or heard
 	// into a desk's agent (POST /dictate, /choose; /peek and /choice over Tailscale), on unless the file says
 	// otherwise, as on the Mac; and whether an older page's text goes with Return once it's a few words.
 	// Kept under the Mac's names. Setup has no switch for them here yet: see phonetext.go.

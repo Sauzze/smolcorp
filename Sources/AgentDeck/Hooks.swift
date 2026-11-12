@@ -195,13 +195,6 @@ enum Hooks {
         refreshClaude(accounts)
     }
 
-    /// Accounts just added to the list join the deck only while it is
-    /// connected (in ~/.claude); disconnected, they are left as they are.
-    static func connectAdded(_ added: [ClaudeProfile], home: URL = Paths.home) {
-        guard isConnected(ClaudeProfiles.defaultProfile(home: home)) else { return }
-        for profile in added { try? addClaude(to: profile, turningOnVoice: false) }
-    }
-
     /// Each Claude account on its own: one you disconnected stays so, and an
     /// account with some of the deck's entries gets the rest.
     static func refreshClaude(_ accounts: [ClaudeProfile]) {

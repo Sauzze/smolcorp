@@ -5,19 +5,13 @@ import Foundation
 /// (`GoCore`), with this app as its shell: the menu bar, the windows, and what
 /// only macOS can do (`HostBridge`). The Swift engine this app had before is
 /// gone, so config.json's `engine` no longer chooses anything.
-enum Engine: String {
-    case go
-
-    /// The engine to run, and the line to log once, as the app starts, when
-    /// config.json still names another (a test copy's "swift", say): the field
-    /// is left in the file as it is, and ignored.
-    static func chosen(_ setting: String?) -> (engine: Engine, ignored: String?) {
-        guard let setting, setting != Engine.go.rawValue else { return (.go, nil) }
-        return (.go, ignoredSetting(setting))
-    }
-
-    static func ignoredSetting(_ setting: String) -> String {
-        "config.json's \"engine\": \"\(setting)\" is ignored: Smolcorp runs its Go engine, the only one it has since 1.25.0."
+enum Engine {
+    /// The line to log once, as the app starts, when config.json still names
+    /// an engine other than "go" (a test copy's "swift", say): the field is
+    /// left in the file as it is, and ignored. Nil when it names none, or "go".
+    static func ignored(_ setting: String?) -> String? {
+        guard let setting, setting != "go" else { return nil }
+        return "config.json's \"engine\": \"\(setting)\" is ignored: Smolcorp runs its Go engine, the only one it has since 1.25.0."
     }
 }
 

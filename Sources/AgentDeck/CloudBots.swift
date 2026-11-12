@@ -513,12 +513,6 @@ final class GrokBotApp: CloudBotSource {
         !id.isEmpty && id.count <= 64 && id.allSatisfy({ $0.isASCII && ($0.isHexDigit || $0 == "-") }) ? id : nil
     }
 
-    /// The id of the bot called `name` in the roster, its case aside.
-    static func botID(named name: String, inRoster data: Data) -> String? {
-        let wanted = name.lowercased()
-        return roster(in: data)?.first { $0.name.lowercased() == wanted }?.id
-    }
-
     /// One line of a transcript, as much of it as is read.
     struct Entry: Equatable {
         let id: String

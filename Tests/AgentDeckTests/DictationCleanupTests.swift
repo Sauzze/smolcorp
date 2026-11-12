@@ -1,7 +1,7 @@
 import XCTest
 @testable import AgentDeck
 
-/// Personal build: dictation's clean-up by Claude, with the network and the Keychain stubbed.
+/// Dictation's clean-up by Claude, with the network and the Keychain stubbed.
 final class DictationCleanupTests: XCTestCase {
     private var saved: (TimeInterval, () -> Bool, () -> [String], () -> String?, (URLRequest, @escaping (Data?, Int) -> Void) -> Void)!
     private var sent: [URLRequest] = []
@@ -115,8 +115,6 @@ final class DictationCleanupTests: XCTestCase {
         XCTAssertEqual(clean("uh yes").0, "uh yes")
         XCTAssertEqual(clean("  ok  ").0, "  ok  ")
         XCTAssertTrue(sent.isEmpty)
-        XCTAssertFalse(DictationCleanup.shouldClean("oui vas-y"))
-        XCTAssertTrue(DictationCleanup.shouldClean("oui vas-y maintenant"))
     }
 
     func testTurnedOffMakesNoCallAtAll() {
@@ -127,7 +125,10 @@ final class DictationCleanupTests: XCTestCase {
     }
 
     func testVeryLongTextsGoInAsHeard() {
-        XCTAssertFalse(DictationCleanup.shouldClean(String(repeating: "mot ", count: 1200)))
+        network(answer("never"))
+        let long = String(repeating: "mot ", count: 1200)
+        XCTAssertEqual(clean(long).0, long)
+        XCTAssertTrue(sent.isEmpty)
     }
 
     // MARK: The glossary

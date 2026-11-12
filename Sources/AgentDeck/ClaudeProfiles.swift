@@ -124,16 +124,6 @@ enum ClaudeProfiles {
         return profiles.first { $0.name == name }
     }
 
-    /// Why a hire can't go ahead on `account`: with more than one account, it
-    /// must name one that is there. Nil when it can.
-    static func hireRefusal(account: String?, among profiles: [ClaudeProfile]) -> (status: Int, message: String)? {
-        let names = profiles.map(\.name).joined(separator: ", ")
-        if let name = account?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
-            return profiles.contains { $0.name == name } ? nil : (404, "There's no Claude account called \(name). Pick one of: \(names).")
-        }
-        return profiles.count > 1 ? (400, "Say which Claude account to hire on: \(names).") : nil
-    }
-
     /// A Claude Code config folder holds a settings.json, a .claude.json or a sessions folder.
     private static func looksLikeAccount(_ dir: String) -> Bool {
         ["settings.json", ".claude.json", "sessions"].contains { FileManager.default.fileExists(atPath: (dir as NSString).appendingPathComponent($0)) }

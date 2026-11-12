@@ -65,22 +65,16 @@ final class WezTermKittyTests: XCTestCase {
     func testTextGoesOnStandardInputByteForByte() throws {
         let text = "Café à l’été, ça va ? « œ » 👩‍💻 $(id) `x` a\\b fin;"
         XCTAssertTrue(WezTerm().insert(text, in: pane))
-        XCTAssertTrue(WezTerm().typeKeys(text, in: pane))
         XCTAssertTrue(Kitty().insert(text, in: window))
-        XCTAssertTrue(Kitty().typeKeys(text, in: window))
         XCTAssertTrue(Kitty().type("/clear", in: window))
         let lines = asked
-        XCTAssertEqual(lines.count, 10)
+        XCTAssertEqual(lines.count, 6)
         XCTAssertEqual(lines[0], "socket=/tmp/wezterm-gui-sock cli send-text --pane-id 5", "a paste, send-text's own way")
         assertBytes(lines[1], text)
-        XCTAssertEqual(lines[2], "socket=/tmp/wezterm-gui-sock cli send-text --pane-id 5 --no-paste", "as keys")
+        XCTAssertEqual(lines[2], "@ --to unix:/tmp/kitty-99 send-text --match id:3 --stdin")
         assertBytes(lines[3], text)
-        XCTAssertEqual(lines[4], "@ --to unix:/tmp/kitty-99 send-text --match id:3 --stdin")
-        assertBytes(lines[5], text)
-        XCTAssertEqual(lines[6], lines[4])
-        assertBytes(lines[7], text)
-        XCTAssertEqual(lines[8], lines[4])
-        assertBytes(lines[9], "/clear\r")
+        XCTAssertEqual(lines[4], lines[2])
+        assertBytes(lines[5], "/clear\r")
         for line in lines where !line.hasPrefix("stdin=") { XCTAssertFalse(line.contains("Caf"), "never an argument: \(line)") }
     }
 

@@ -29,7 +29,7 @@
  * control a finger held on it opens, 'previous', 'playpause' or 'next',
  * `on.key(action)` for one of the picked agent's keys along the foot of the
  * room, out from a finger held on the agent till a tap elsewhere, 'esc', 'send',
- * 'clear', 'up', 'down', 'summary' (personal build: what the agent has been
+ * 'clear', 'up', 'down', 'summary' (what the agent has been
  * doing, where its session has a transcript to read) or 'button:<id>' for one of the layout's own
  * buttons (/clear and a button marked `confirm` on a second tap),
  * `on.hire(desk, role, floor)` for an empty desk held and hired into: by the id
@@ -8079,7 +8079,7 @@
   };
   /** How wide `text` is in the pixel font. */
   const textWidth = (text) => [...text].reduce((w, c) => w + GLYPHS[c][0].length + 1, -1);
-  /** Personal build: how long a dictation's note shows over its desk, and the last part of that, fading, in seconds. */
+  /** How long a dictation's note shows over its desk, and the last part of that, fading, in seconds. */
   const VOICE_NOTE_FOR = 4;
   const VOICE_NOTE_FADE = 1;
   /** How long everyone looks up when the mic goes on, as if the boss were shouting. */
@@ -8254,7 +8254,7 @@
   const KEY_NAMES = { enter: '⏎', escape: 'esc', tab: '⇥', 'shift-tab': '⇤', up: '↑', down: '↓', 'ctrl-c': '^C' };
   /** ⏎, in pixels. */
   const SEND_MARK = ['0000001', '0000001', '0100001', '1111111', '0100000'];
-  /** ✨ Summary (personal build): for an agent whose session has a transcript to read, with the setting on. */
+  /** ✨ Summary: for an agent whose session has a transcript to read, with the setting on. */
   const SUMMARY_KEY = { action: 'summary', label: '✨ summary' };
   /** The picked agent's key to put them on another floor, where the page can and there's a floor to go to. */
   const MOVE_KEY = { action: 'floor', label: '⇅ floor' };
@@ -58002,7 +58002,7 @@
      * below.
      */
     /**
-     * Personal build: how a desk's dictation went, a small pill over its
+     * How a desk's dictation went, a small pill over its
      * agent for a few seconds: green once cleaned, grey when typed as heard.
      */
     function drawVoiceNote({ desk, text, cleaned, alpha }) {
@@ -58025,7 +58025,7 @@
     }
 
     /**
-     * Personal build: what the phone hears while its mic is held, live, in a
+     * What the phone hears while its mic is held, live, in a
      * bubble over the listening desk: the latest words, a mic before them.
      */
     function drawHearing({ desk, text }) {
@@ -65970,7 +65970,7 @@
     if (frame.hiredCard) drawHiredCard(frame.hiredCard);
     if (frame.floorPicker) drawFloorPicker(frame.floorPicker);
     if (frame.styles) drawStyleMenu(frame.styles);
-    // Personal build: the phone mic's live words, over everything, as they're what you're watching while you speak.
+    // The phone mic's live words, over everything, as they're what you're watching while you speak.
     if (frame.hearing) drawHearing(frame.hearing);
 
     if (layer) layer.ops.push(['mark', []]); // and what's round it starts
@@ -67633,10 +67633,10 @@
     let music = null;        // what the computer says of its music, with the jukebox on: { playing: true | false | null }
     let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
     let dictation = null;    // the Mac's dictation, from the snapshot: { on, language, cleanup }
-    // Personal build: each desk's last dictation note, by session id, as it came in: { id, text, cleaned, from }
+    // Each desk's last dictation note, by session id, as it came in: { id, text, cleaned, from }
     const voiceNotes = new Map();
     const voiceNotesSeen = new Map(); // the last note's id each session showed, so a snapshot again doesn't show it twice
-    // Personal build: what the phone's own mic hears while it's held, from the deck: { id, text }, or null.
+    // What the phone's own mic hears while it's held, from the deck: { id, text }, or null.
     let hearing = null;
     let musicPanel = null;   // a music piece's control, held open: { part, at }, `at` when it was last used
     let musicDown = null;    // the music control's key last pressed: { action, at, held }
@@ -68020,7 +68020,7 @@
     }
 
     /**
-     * Personal build: the mic's other quick switch, beside FR or EN: Claude's
+     * The mic's other quick switch, beside FR or EN: Claude's
      * clean-up of the text, AI while it's on, RAW while it's off; a tap flips
      * it, for every phone. Over any desk with a mic, so a Claude Code desk
      * back on its own /voice can turn it on again.
@@ -68035,7 +68035,7 @@
       return { left: Math.round(at.x) - w - 2, top: Math.round(at.y), w, h: 9, label, on: dictation.cleanup, next: !dictation.cleanup };
     }
 
-    /** Personal build: the dictation notes still showing, each with its desk and how faded it is. */
+    /** The dictation notes still showing, each with its desk and how faded it is. */
     function voiceNotesShown(now) {
       const shown = [];
       for (const [id, note] of voiceNotes) {
@@ -68050,7 +68050,7 @@
       return shown;
     }
 
-    /** Personal build: the phone mic's live words, over the desk they're for, while it's there. */
+    /** The phone mic's live words, over the desk they're for, while it's there. */
     function hearingShown() {
       if (!hearing) return null;
       const desk = deskInView(hearing.id);
@@ -69526,7 +69526,7 @@
         askMax = snapshot.maxConfirm !== false;
         music = snapshot.music || null;
         dictation = snapshot.dictation || null;
-        // Personal build: a dictation note new since the last snapshot, and only while it's fresh on the computer's clock.
+        // A dictation note new since the last snapshot, and only while it's fresh on the computer's clock.
         // The keys' agents, and those driven upstairs, whose desks are the floors' own.
         const upstairsSessions = floorsOf(snapshot).slice(1).flatMap((f) => f.desks).filter((s) => s && typeof s === 'object');
         for (const session of [...(snapshot.keys || []).map((key) => key.session), ...upstairsSessions]) {
@@ -69644,7 +69644,7 @@
         if (row) rideTo(row.n);
         else picker = null;
       },
-      /** Personal build: what the phone's mic hears for session `id`, shown live over its desk; null hides it. */
+      /** What the phone's mic hears for session `id`, shown live over its desk; null hides it. */
       hearing(state) { hearing = state && state.id ? { id: String(state.id), text: String(state.text || '') } : null; },
       /** Floats the room's window in a 'window' of its own or a whole 'screen', fills it from 'edge' to edge, or stops, with null. */
       setFloating(how) { floating = how; },

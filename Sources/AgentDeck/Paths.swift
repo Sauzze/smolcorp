@@ -177,20 +177,11 @@ enum Paths {
     static let hires = support.appendingPathComponent("hires", isDirectory: true)
     /// A short recap of each hire fired, `<hire>.md`: see `HireDesk.fire`.
     static let recaps = support.appendingPathComponent("recaps", isDirectory: true)
-    /// Where a hire's brief is written when its desk isn't pinned to its own
-    /// project, so a shared folder such as ~/Projects stays clean: see `BriefFiles`.
-    static let hireBriefs = support.appendingPathComponent("briefs", isDirectory: true)
-    /// The briefs you can edit: the app's own, copied here on first use, and
-    /// put back by "Restore defaults": see `BriefLibrary.editable`. Inside the
-    /// folder hires' briefs are kept in, in a folder of its own.
-    static let briefTemplates = hireBriefs.appendingPathComponent("templates", isDirectory: true)
     /// The hook's key, as the header curl sends: see `Access`.
     static let hookHeader = support.appendingPathComponent("hook-header")
     /// The setup page's key, new at every launch, for tools of your own on
     /// this Mac: see `DeckRouter`.
     static let setupKey = support.appendingPathComponent("setup-key")
-    /// The General Manager's token, made when something first needs it: see `GMIdentity`.
-    static let gmToken = support.appendingPathComponent("gm-token")
     /// 1.0's single key, shared by the phone and the hook. Deleted at launch.
     static let legacyToken = support.appendingPathComponent("token")
 
@@ -209,12 +200,6 @@ enum Paths {
     /// The screen saver as it was called before, taken out when the new one goes in.
     static let oldScreenSaver = home.appendingPathComponent("Library/Screen Savers/SauzzeDeck Office.saver")
 
-    /// The phone and setup pages, bundled inside the app.
-    static let web = Bundle.main.resourceURL!.appendingPathComponent("web", isDirectory: true)
-    /// The briefs that come with the app: see `BriefLibrary`.
-    static let briefs = Bundle.main.resourceURL!.appendingPathComponent("briefs", isDirectory: true)
-    /// The General Manager's plugin, bundled inside the app: see `GMPlugin`.
-    static let gmPlugin = Bundle.main.resourceURL!.appendingPathComponent("gm/plugin", isDirectory: true)
     static let bundledHookScript = Bundle.main.resourceURL!.appendingPathComponent("report.sh")
     static let bundledOpenCodePlugin = Bundle.main.resourceURL!.appendingPathComponent("opencode-plugin.js")
     /// 1.7.2's plugin, the one OpenCode 1 loads: see `OpenCodeInstall`.

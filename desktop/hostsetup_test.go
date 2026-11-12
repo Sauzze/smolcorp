@@ -474,7 +474,7 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"Open at login, switched on":                               true,
 		"the folder panel for a floor, a folder picked":            "/Users/example/project",
 		"the folder panel for the hires, none picked":              "",
-		"the Summary key, from the Keychain":                       "sk-ant-fake",
+		"the Summary key, from the Keychain":                       "fake-summary-key",
 		"the portable office's id, from the Keychain":              "AbCdEfGhIjKlMnOpQrStUv",
 		"the portable office's key, none yet":                      true,
 		"the portable office's write secret, there but unreadable": false,
