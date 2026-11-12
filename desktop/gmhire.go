@@ -140,6 +140,9 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		return
 	}
 	seat := -1
+	d.mu.Lock()
+	d.lastPlace = hiredPlace{}
+	d.mu.Unlock()
 	// The account goes to hireWith, which asks which with more than one saved (as the Mac's route), and finds
 	// its folder; a GM held to one project has its own filled in (gmScopeRefusal).
 	if status, text := d.hireWith(hireSpec{roleID: role, floor: int(floor), fromSetup: true, folder: folder, fenced: true, seat: &seat,
@@ -147,11 +150,22 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		reply(status, text)
 		return
 	}
+	// Where it works is said, so nobody assumes it is the folder asked for: with a worktree of its own, that is
+	// the worktree (<folder>-hires/<name>, on its branch), not the folder given.
+	d.mu.Lock()
+	place := d.lastPlace
+	d.mu.Unlock()
+	answer := map[string]any{"ok": true, "desk": seat, "session": nil}
 	if floor > 0 { // upstairs the answer is the floor, as the Mac's
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "desk": nil, "floor": int(floor), "session": nil})
-		return
+		answer = map[string]any{"ok": true, "desk": nil, "floor": int(floor), "session": nil}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "desk": seat, "session": nil})
+	if place.WorksIn != "" {
+		answer["worksIn"] = place.WorksIn
+		if place.Branch != "" {
+			answer["branch"] = place.Branch
+		}
+	}
+	writeJSON(w, http.StatusOK, answer)
 }
 
 // gmHireIntoT3 is the route's hire into T3 Code: Setup's own lane, which refuses as the Mac does (the role, hiring

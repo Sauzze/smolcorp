@@ -76,6 +76,8 @@ type Deck struct {
 	// when the last hire was made: see hire.go.
 	hires    map[string]*pendingHire
 	lastHire time.Time
+	// Where the hire made last works, for the GM route's answer (hiredInto).
+	lastPlace hiredPlace
 	// t3 follows the hires in T3 Code (t3deskdeck.go); t3Desks are their desks in the office (t3desks.go).
 	t3      *t3Follower
 	t3Desks *t3Desks

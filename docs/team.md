@@ -158,7 +158,12 @@ Two choices, asked once on Start here and kept in setup under Hires and roles
   window. Watch one any time with **Open a window** in setup's team list, or
   the **⧉ window** key in the office on this computer. The background needs
   tmux, so it isn't offered on Windows. Switching to it closes only windows
-  Smolcorp opened for its hires, and says which it left open.
+  Smolcorp opened for its hires, and says which it left open. A hire's session
+  never depends on its window: closing the window, or detaching it, leaves the
+  hire running. But the window shows the hire's own pane, so what you type
+  there reaches the agent: quitting it (Ctrl-D at an empty prompt, `/exit`)
+  ends that hire. If you type in your hires' windows, choose the background
+  and open a window from the team list only to watch.
 - **T3 Code** ([t3.codes](https://t3.codes)), off by default. Off, Smolcorp
   never looks for it and shows no T3 Code button. On:
   - **Open in T3 Code**, on a hire's row in setup or the **T3 Code** key in

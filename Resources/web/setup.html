@@ -2395,7 +2395,11 @@
     // On a phone-wide window (390 px), the buttons go under the name rather than squeeze it.
     head.style.flexWrap = 'wrap';
     head.append(label, keys);
-    row.append(head, ...(t3Key ? [t3Key.line] : []), ...(why ? [why] : []));
+    // Where it works: a hire in a worktree of its own is not in the folder it was hired into.
+    const works = r.registered && (r.worktree || r.folder)
+      ? [Object.assign(document.createElement('p'), { className: 'hint mono', textContent: r.worktree
+        ? `Works in ${r.worktree}, a worktree of its own${r.folder ? ` (hired into ${r.folder})` : ''}` : `Works in ${r.folder}` })] : [];
+    row.append(head, ...works, ...(t3Key ? [t3Key.line] : []), ...(why ? [why] : []));
     // Pointed at, the row asks again: a greyed button, being disabled, may not hear the pointer itself.
     if (t3Key) row.addEventListener('pointerenter', () => t3State(true));
     return row;
@@ -2919,7 +2923,7 @@
     if (!c.hasTmux) return wording("Running hires in the background needs tmux, which isn't on this computer.");
     if (asking && c.t3Code && !c.background) return 'Recommended with T3 Code: your hires work out of sight while you work in T3 Code.';
     return c.background ? "Hires run in tmux with no window: open one from a hire's desk when you want to watch."
-      : 'Each hire opens in a terminal window of its own, as before.';
+      : 'Each hire opens in a terminal window of its own, as before. Typing exit or Ctrl-D in it ends that hire: running hires in the background is safer.';
   }
   function showChoice(box, key, on, greyed) {
     box.querySelectorAll(`[data-${key}]`).forEach((b) => {

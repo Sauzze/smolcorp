@@ -87,9 +87,35 @@ func TestTheGMHireAnswersAndRefusesAsTheFixtureDoes(t *testing.T) {
 	code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor"}`)
 	var got map[string]any
 	json.Unmarshal([]byte(text), &got)
-	if hires := registered(t); code != f.Answer.Status || len(got) != len(f.Answer.Body) || got["ok"] != true || got["session"] != nil || got["desk"] != 0.0 ||
+	// The fixture's keys, and the two the Go core adds to say where the hire works (worksIn, branch).
+	extra := 0
+	for key := range got {
+		if _, inFixture := f.Answer.Body[key]; !inFixture {
+			extra++
+		}
+	}
+	if hires := registered(t); code != f.Answer.Status || len(got) != len(f.Answer.Body)+extra || extra > 2 || got["ok"] != true || got["session"] != nil || got["desk"] != 0.0 ||
 		len(hires) != 1 || hires[0].Role != "janitor" || hires[0].Worktree == "" || !r.tmux.ran("new-session") {
 		t.Errorf("answer %d %q, registry %+v: want %d, ok, desk 0, no session, a worktree hire by the engine", code, text, hires, f.Answer.Status)
+	}
+}
+
+// HIREUX: the answer says where the hire works. Without --worktree, a hire is in a worktree of its own beside the
+// folder (<folder>-hires/<name>, on its branch), never in the folder given, and the answer names that place.
+func TestTheGMHireAnswerSaysWhereTheHireWorks(t *testing.T) {
+	d, r, _, token := gmHireDeck(t)
+	code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor"}`)
+	var got struct{ WorksIn, Branch string }
+	json.Unmarshal([]byte(text), &got)
+	hires := registered(t)
+	if code != http.StatusOK || len(hires) != 1 || hires[0].Worktree == "" {
+		t.Fatalf("answer %d %q, registry %+v", code, text, hires)
+	}
+	if got.WorksIn != hires[0].Worktree || got.Branch != hires[0].Branch || got.Branch == "" || physical(got.WorksIn) == physical(r.repo) {
+		t.Errorf("worksIn %q branch %q: want the hire's worktree %q on %q, not the folder %q", got.WorksIn, got.Branch, hires[0].Worktree, hires[0].Branch, r.repo)
+	}
+	if !strings.Contains(got.WorksIn, "-hires") {
+		t.Errorf("worksIn %q isn't in <folder>-hires", got.WorksIn)
 	}
 }
 
@@ -180,7 +206,7 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 		}
 	}
 	nothingMade(t, r, h)
-	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","apiKey":false,"worktree":true,"task":"","answers":[],"account":null,"engine":"terminal","floor":2}`); code != http.StatusOK || text != `{"desk":null,"floor":2,"ok":true,"session":null}` {
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","apiKey":false,"worktree":true,"task":"","answers":[],"account":null,"engine":"terminal","floor":2}`); code != http.StatusOK || !strings.HasPrefix(text, `{"branch":"hire/janitor-`) || !strings.Contains(text, `"desk":null,"floor":2,"ok":true,"session":null,"worksIn":"`) {
 		t.Fatalf("what is already so, on floor 2: %d %q", code, text)
 	}
 	d.mu.Lock()
