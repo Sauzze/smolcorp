@@ -95,7 +95,7 @@ fails, there's no key, or it takes over 2.5 s, the text goes in as heard.
 ## Typing from the phone
 
 **⚙︎ → Type to …** types into the picked agent, on the Mac, Windows and
-Linux, over Tailscale or your Wi-Fi. Over the Wi-Fi, what you type isn't
+Linux, over Tailscale, or your Wi-Fi where Smolcorp lets it in. Over the Wi-Fi, what you type isn't
 encrypted, and the deck says so: Tailscale is the private option. It's on
 unless you turn it off: on the Mac with setup's **Phone microphone** switch
 (Phone and voice); on Windows and Linux, which have no switch in setup yet,

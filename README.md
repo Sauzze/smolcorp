@@ -25,7 +25,7 @@ and talk to it. It opens in any browser, your phone's too, over your Wi-Fi or
 Works with Claude Code, Codex, Gemini CLI, OpenCode and Grok, in your own
 terminal. Free and open source (MIT).
 
-**For the Mac** (beta), **Windows and Linux** (alpha). From 1.25.0, the General Manager hires its team on all three.
+**For the Mac** (beta), **Windows and Linux** (alpha). From 1.25.0, the General Manager hires its team on all three (on Windows, with managed hires turned on).
 
 > Smolcorp is an independent project. It is not made by or affiliated with Anthropic.
 
@@ -56,7 +56,7 @@ can do.
   `git push`, deploys, publishing and cloud commands, and keep out of `.env`
   files and keys. **Hires of Codex, Gemini CLI, OpenCode and Grok don't get
   this fence, and nor do some Claude Code hires you make yourself, such as one
-  with no role while the manager is off:** they run with their own settings.
+  with no role on the Mac while the manager is off:** they run with their own settings.
   Who gets it differs from system to system: see
   [The fence, and who gets it](docs/team.md#the-fence-and-who-gets-it).
   It's a fence, not a wall: everyone runs as you.

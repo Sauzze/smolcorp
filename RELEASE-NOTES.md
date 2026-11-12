@@ -4,7 +4,7 @@
 
 If you're coming from 1.24.2, this covers everything since: 1.24.3 and 1.24.4 were never released, so their changes are here too. The General Manager now hires its team on Windows and Linux as well, your phone can type to your agents, `smolcorp demo` shows a General Manager at work on a sample project, and the Mac app runs the same core as the Windows and Linux app. Read **Updating** at the end before you update a Mac.
 
-**For the Mac** (beta), **Windows and Linux** (alpha). From 1.25.0, the General Manager hires its team on all three.
+**For the Mac** (beta), **Windows and Linux** (alpha). From 1.25.0, the General Manager hires its team on all three (on Windows, with managed hires turned on).
 
 ## One core on every computer
 - **The Mac app now runs the same core as the Windows and Linux app.** The Mac's own engine is gone. The Mac app is now the menu bar, the windows, and what only macOS can do (the keys, Terminal, iTerm2 and Ghostty, the Keychain, dictation), around the core all three share. The office, setup and your phone work as before, and a fix now reaches every computer at once.
@@ -17,7 +17,7 @@ If you're coming from 1.24.2, this covers everything since: 1.24.3 and 1.24.4 we
 - **Still the Mac's:** tiling the team's windows, choosing the screen that holds them, a General Manager started by hand, and getting it a new token without hiring it again. On Windows and Linux, hire the General Manager again from Setup for a new token.
 
 ## Type to your agents from your phone
-- **⚙︎ → Type to …** types into the picked agent, on the Mac, Windows and Linux, over Tailscale or your Wi-Fi. Over the Wi-Fi, what you type isn't encrypted, and the deck says so: Tailscale is the private option.
+- **⚙︎ → Type to …** types into the picked agent, on the Mac, Windows and Linux, over Tailscale, or your Wi-Fi where Smolcorp lets it in. Over the Wi-Fi, what you type isn't encrypted, and the deck says so: Tailscale is the private option.
 - **Several lines go in as one paste**, never with a Return part way through. That works in tmux when the agent asked for it, and in a window of Smolcorp's launcher on Windows and Linux. On a Mac it also works in Terminal, iTerm2 and Ghostty, through the clipboard and ⌘V, for Claude Code only: it has to be waiting at its prompt with nothing else open in its tab, and the Mac mustn't be locked or in use (Terminal and iTerm2 come to the front for it). Anywhere else, such as WezTerm and kitty, it's one line at a time: several lines are refused, with a sentence saying so, and nothing is typed.
 - **Your clipboard comes back.** After a paste on the Mac, Smolcorp puts back what you had copied, except a password, which is cleared. A clipboard manager, or iTerm2's paste history, may keep a copy of what you sent.
 - **Careful by design.** Nothing is typed to an agent that's asking you something, and that's checked again right before the words go in. Text starting with `!` is refused, since Claude Code would run it as a shell command. Return is pressed on its own, after the text is in.
@@ -42,8 +42,8 @@ If you're coming from 1.24.2, this covers everything since: 1.24.3 and 1.24.4 we
 
 ## Take over in T3 Code (experimental)
 **Experimental**, and only with the T3 Code choice on and T3 Code's `t3` v0.1.8, the version it was tried on.
-- **Take over in T3 Code**, on a hire's row in setup's team list, stops its Claude Code in its own tmux session (only while it's idle, with nothing typed) and carries on the same session in T3 Code, in its worktree, with its fence. T3 Code runs it with its permission prompts turned off: the fence still applies.
-- **Hand back** brings it home. T3 Code lets go of the session and its thread there is removed, and once nothing holds the session any more, the hire carries on in its own tmux session. If a process still holds the session, Hand back names it and doesn't resume the hire, so two agents never share one session.
+- **Take over in T3 Code** is on a hire's row in setup's team list. It works only while the hire is idle with nothing typed. It stops the hire's Claude Code in its own tmux session and carries on the same session in T3 Code, in its worktree, with its fence. T3 Code turns its own permission prompts off, but the fence still applies.
+- **Hand back** brings it home. T3 Code lets go of the session and removes its thread. Once nothing holds the session, the hire carries on in its own tmux session. If a process still holds it, Hand back names that process and doesn't resume the hire, so two agents never share one session.
 - **While it's taken over**, nobody can fire it, neither you nor the General Manager, until it's handed back. A hire on the API-key account can't be taken over, because Hand back would bring it back on your Claude account.
 - **On the Mac and Linux.** On Windows, a hire runs in a window of Smolcorp's launcher, not in tmux, so Take over is refused there.
 
@@ -128,7 +128,7 @@ Download the new version and replace the app, as with 1.24.2. Your office, floor
 On a Mac, also expect this:
 - **The firewall may ask once.** Your phone now reaches Smolcorp through `smolcorp`, the core inside the app. If the macOS firewall is on and **Automatically allow downloaded signed software to receive incoming connections** is off, macOS asks once whether "smolcorp" may accept incoming network connections. Click **Allow**, or your phone can't connect.
 - **The General Manager and the hires it manages run in tmux.** If tmux isn't installed, hiring them says so: install it with `brew install tmux`, then hire again.
-- **Hires made by 1.24 in a Terminal tab of their own** keep working, but the General Manager and setup no longer close their tab when they fire one: they say they can't find it, and `gm fire --force` only marks it fired and keeps its worktree. To end one, fire it from its desk in the office, which closes its tab, or close the tab yourself.
+- **Hires made by 1.24 in a Terminal tab of their own** keep working, but the General Manager and setup no longer close their tab when they fire one: they say they can't find it, and `gm fire --force` only marks it fired and keeps its worktree. To end one, fire it from its desk in the office, which closes its tab when it's sure which one is the hire's, or close the tab yourself.
 - **"Port 7710 is in use"** works as it did: if another copy of Smolcorp, or another app, holds the port, the menu bar says so and Smolcorp tries again every couple of seconds, starting by itself once the port is free.
 
 # Smolcorp 1.24.2 (beta)
