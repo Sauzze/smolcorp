@@ -230,11 +230,34 @@ func dictationText(heard string) string {
 	return text
 }
 
+// dictationAsking is the note over a desk whose dictation was dropped because it began asking you something
+// while you spoke: its menu would take the words.
+const dictationAsking = "It's asking you something, so what you said wasn't typed. Answer it first."
+
+// tabAsking says whether an agent in tab waits on you, a permission prompt or a question. Called without the lock.
+func (d *Deck) tabAsking(tab string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, s := range d.sessions.All() {
+		if s.Tab == tab && s.State == Asking {
+			return true
+		}
+	}
+	return false
+}
+
 // typeDictation types text into run's tab, without Return, only while its agent is in front there, as the
-// deck's keys go (Deck.typeDictation). A terminal that stopped answering says so over the desk. Called without the lock.
+// deck's keys go (Deck.typeDictation), and never while it asks you something, as the phone's words and the
+// window's go (typeTarget): checked right before the text, on the key worker. A terminal that stopped
+// answering, or a desk that began asking, says so over the desk. Called without the lock.
 func (d *Deck) typeDictation(run *dictationRun, text string) {
 	var failed error
+	var asked bool
 	_, _ = d.toAgent(run.tab, run.agent, func(t Tab) error {
+		if d.tabAsking(run.tab) {
+			asked = true
+			return nil
+		}
 		switch tab := t.(type) {
 		case macTab:
 			if tab.pane == nil {
@@ -252,6 +275,10 @@ func (d *Deck) typeDictation(run *dictationRun, text string) {
 		failed = err
 		return err
 	})
+	if asked {
+		d.noteVoice(run.tab, dictationAsking, false)
+		return
+	}
 	// The Mac app's sentence for a terminal that stopped answering, said over the desk: only that, the Swift
 	// engine's delivery's 503 (RGAPA N3). Any other no, and an agent that has ended or isn't in front, is
 	// left as the deck leaves it.

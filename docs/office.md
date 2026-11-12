@@ -95,6 +95,11 @@ There's more to see while they work:
   monitor, one for low up to four, swaying, for extra high, and at max a
   steaming moka pot, with steam coming off the agent. Press ☢ Max, and the
   agent runs to the big red button in the corridor and slams it.
+- **The mic** works for a desk in tmux with no window open, too. On a Mac with
+  dictation on in setup, hold it, speak and let go: what you said is pasted
+  into that desk's prompt, without Return, and never while the desk is asking
+  you something. Claude Code keeps its own voice key unless setup says Claude
+  Code too, or its clean-up is on.
 - When few sessions are running, the office's own staff hang around the lounge.
 
 **Furnish it your way** under *Office* on the setup page:
