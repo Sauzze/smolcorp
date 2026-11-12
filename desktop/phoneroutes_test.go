@@ -48,7 +48,9 @@ var everyPhoneRoute = [][2]string{
 	{"POST", "/act?action=letgo"}, {"POST", "/act?action=stop"},
 	{"POST", "/dictate"}, {"POST", "/peek"}, {"POST", "/choose?option=other"}, {"GET", "/choice"}, {"GET", "/approvals"},
 	{"GET", "/conversation"}, {"GET", "/session/info"}, {"POST", "/summary"},
+	{"GET", "/talk"}, {"GET", "/talk/asking"},
 	{"GET", "/dictate"}, {"GET", "/peek"}, {"POST", "/choice"}, {"POST", "/approvals"}, {"POST", "/conversation"},
+	{"POST", "/talk"}, {"PUT", "/talk"}, {"POST", "/talk/asking"},
 	{"GET", "/nowhere"},
 }
 
@@ -130,7 +132,7 @@ func dumpPhoneRoutes(t *testing.T) string {
 
 // TestEveryRouteKeepsItsAccessThroughTheMove dumps every phone and window route with who it lets in, and holds it to
 // the dump taken before FR1 moved routes into the table (phoneRouteAccess, from release/1.26.0 at 4209ca71). A new
-// route adds its line there.
+// route adds its line there, as the talk bubble's did (1.26: the window only; a phone 403, anyone else 401).
 func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
 	after := dumpPhoneRoutes(t)
 	if after != phoneRouteAccess {
@@ -155,8 +157,9 @@ var reachTheTable = []string{"phone-wifi", "phone-wireguard", "phone-serve-mac",
 // dump of every route.
 func TestEachRowLetsInItsClassOnly(t *testing.T) {
 	d, phoneKey := probeDeck(t)
-	if len(phoneRouteTable) != 7 {
-		t.Errorf("%d rows; FR1 moves 7", len(phoneRouteTable))
+	// FR1 moved 7; the talk bubble adds GET /talk and GET /talk/asking (1.26).
+	if len(phoneRouteTable) != 9 {
+		t.Errorf("%d rows; want 9", len(phoneRouteTable))
 	}
 	for key, row := range phoneRouteTable {
 		if !slices.ContainsFunc(everyPhoneRoute, func(route [2]string) bool {
@@ -255,10 +258,15 @@ GET /approvals: 401 403 200 200 403 403 200 403 403 401 401; let in: phone-wireg
 GET /conversation: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 GET /session/info: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 POST /summary: 401 403 403 403 403 403 403 403 403 401 401; let in: 
+GET /talk: 401 403 403 403 403 403 403 403 404 401 401; let in: window
+GET /talk/asking: 401 403 403 403 403 403 403 403 200 401 401; let in: window
 GET /dictate: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 GET /peek: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 POST /choice: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 POST /approvals: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 POST /conversation: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
+POST /talk: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
+PUT /talk: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
+POST /talk/asking: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 GET /nowhere: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 `
