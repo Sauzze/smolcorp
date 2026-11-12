@@ -92,6 +92,24 @@ func permissionMenu(command string) string {
 `
 }
 
+// fileMenu is Claude Code's permission prompt for Write (create) or Edit (edit) on note.txt, as 2.1.322 draws it:
+// taken from a real capture (TestRealClaudeMenusTakeTheDigit, steps 7 and 8).
+func fileMenu(edit bool) string {
+	tool, title, diff, ask := "Write", "Create file", "  1 hello", "Do you want to create note.txt?"
+	if edit {
+		tool, title, ask = "Update", "Edit file", "Do you want to make this edit to note.txt?"
+		diff = " 1 -hello\n 1   No newline at end of file\n 2 +goodbye\n 3   No newline at end of file"
+	}
+	return talkTop + "⏺ " + tool + "(note.txt)\n\n" + strings.Repeat("─", 60) + "\n " + title + "\n note.txt\n" + strings.Repeat("╌", 60) + "\n" +
+		diff + "\n" + strings.Repeat("╌", 60) + "\n " + ask + `
+ ❯ 1. Yes
+   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)
+   3. No
+
+ Esc to cancel · Tab to amend
+`
+}
+
 // questionMenu is Claude Code's menu for AskUserQuestion's one question, as 2.1.322 draws it.
 func questionMenu(question string, options ...string) string {
 	menu := talkTop + strings.Repeat("─", 60) + "\n ☐ Colour\n" + question + "\n"
@@ -345,19 +363,20 @@ func TestEveryTerminalTakesTheDigits(t *testing.T) {
 	}
 }
 
-// RT126P3 B1: the hooks still say the desk asks, but its screen shows no menu. Put away in its own terminal (Esc
-// there, no hook), or answered Yes there while its command runs (no hook till it ends): nothing is pressed, neither
-// a digit into the input box nor an Escape into the running tool, and the desk stops asking so the input wakes.
+// RT126P3 B1: the hooks still say the desk asks, but its screen ends with Claude Code's input box. Put away in its
+// own terminal (Esc there, no hook), or answered Yes there while its command runs (no hook till it ends): nothing is
+// pressed, neither a digit into the input box nor an Escape into the running tool, and the desk stops asking so the
+// input wakes: idle, or thinking while the tool runs (RT126P3b N1).
 func TestAPickWithNoMenuOnItsScreenPressesNothingAndStopsAsking(t *testing.T) {
 	for name, c := range map[string]struct {
 		screen string
 		ask    func(*Deck)
 		n      string
+		state  SessionState
 	}{
-		"Esc in its terminal, then Yes":        {talkInputBox, func(d *Deck) { talkPermission(d, 200) }, "1"},
-		"Yes in its terminal, then No":         {talkToolRuns, func(d *Deck) { talkPermission(d, 200) }, "2"},
-		"a question put away, then its choice": {talkInputBox, func(d *Deck) { talkAsksColor(d, 200, false) }, "2"},
-		"a screen with nothing on it":          {"", func(d *Deck) { talkPermission(d, 200) }, "1"},
+		"Esc in its terminal, then Yes":        {talkInputBox, func(d *Deck) { talkPermission(d, 200) }, "1", Idle},
+		"Yes in its terminal, then No":         {talkToolRuns, func(d *Deck) { talkPermission(d, 200) }, "2", Thinking},
+		"a question put away, then its choice": {talkInputBox, func(d *Deck) { talkAsksColor(d, 200, false) }, "2", Idle},
 	} {
 		d, tab := madeButtonDeck(t)
 		show := talkScreenShows(t, permissionMenu("touch x"))
@@ -370,6 +389,62 @@ func TestAPickWithNoMenuOnItsScreenPressesNothingAndStopsAsking(t *testing.T) {
 		nothingSent(t, tab, name)
 		if since := talkSinceOf(d, "s1"); since != 0 {
 			t.Errorf("%s: still asking", name)
+		}
+		d.mu.Lock()
+		s := d.sessions.Get("s1")
+		state, activity := s.State, s.Activity()
+		d.mu.Unlock()
+		if state != c.state || strings.Contains(activity, "Waiting for you") {
+			t.Errorf("%s: %s %q, want %s", name, state, activity, c.state)
+		}
+	}
+}
+
+// A file's menu (Write, Edit), not Bash's: Yes is its digit 1 too (RT126P3b B1, 3).
+func TestAPickAnswersAFilesMenu(t *testing.T) {
+	for _, edit := range []bool{false, true} {
+		d, tab := madeButtonDeck(t)
+		talkScreenShows(t, fileMenu(edit))
+		tool := map[bool]string{false: "Write", true: "Edit"}[edit]
+		d.mu.Lock()
+		d.sessions.Apply(map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/api", "tool_name": tool,
+			"tool_input": map[string]any{"file_path": "/work/api/note.txt"}}, Claude, "launcher:L1", "", 200)
+		d.mu.Unlock()
+		if got := talkPickAt(t, d, "s1", "1", talkSinceOf(d, "s1")); got.Code != http.StatusNoContent || *sent(t, tab).Press != press("1") {
+			t.Errorf("%s's Yes: %d %s", tool, got.Code, got.Body)
+		}
+	}
+}
+
+// RT126P3b B1: a screen it can't make out may be a live menu: choice 1 off its top, a footer in words it doesn't
+// know, neither a footer nor the input box, nothing read. Nothing is pressed and the desk still asks, so the phone's
+// words still keep out of it and the four keys answer it.
+func TestAPickOfAScreenItCantMakeOutPressesNothingAndStillAsks(t *testing.T) {
+	// A question in a short pane: its options' descriptions push choice 1 off the screen's top.
+	question := questionMenu("Which color?", "Red", "Green", "Blue")
+	cutTop := question[strings.Index(question, "  2. Green"):]
+	for name, c := range map[string]struct {
+		screen string
+		ask    func(*Deck)
+		n      string
+	}{
+		"a screen with nothing on it":        {"", func(d *Deck) { talkPermission(d, 200) }, "1"},
+		"a question's choice 1 cut off":      {cutTop, func(d *Deck) { talkAsksColor(d, 200, false) }, "2"},
+		"an unknown footer word":             {strings.Replace(permissionMenu("touch x"), "Esc to cancel", "Esc to dismiss", 1), func(d *Deck) { talkPermission(d, 200) }, "1"},
+		"an unknown footer word, No":         {strings.Replace(permissionMenu("touch x"), "Esc to cancel", "Esc to dismiss", 1), func(d *Deck) { talkPermission(d, 200) }, "2"},
+		"neither a footer nor the input box": {talkTop + "✻ Sautéed for 0s · done 1:45 AM\n", func(d *Deck) { talkPermission(d, 200) }, "1"},
+	} {
+		d, tab := madeButtonDeck(t)
+		show := talkScreenShows(t, permissionMenu("touch x"))
+		c.ask(d)
+		since := talkSinceOf(d, "s1")
+		show(c.screen)
+		if got := talkPickAt(t, d, "s1", c.n, since); got.Code != http.StatusConflict || strings.TrimSpace(got.Body.String()) != talkUseTheKeys {
+			t.Errorf("%s: %d %s", name, got.Code, got.Body)
+		}
+		nothingSent(t, tab, name)
+		if talkSinceOf(d, "s1") != since {
+			t.Errorf("%s: no longer asking", name)
 		}
 	}
 }
@@ -467,21 +542,41 @@ func TestTheMenuIsKnownOnTheScreen(t *testing.T) {
 		{"its cursor moved to choice 3", cursorMoved, permission, talkThisMenu},
 		{"a command wrapped over two lines", wrapped, &talkAsking{Kind: "permission", command: long}, talkThisMenu},
 		{"a tool with no command (Edit)", permissionMenu("Edit file Deck.swift"), &talkAsking{Kind: "permission"}, talkThisMenu},
+		{"Write's menu", fileMenu(false), &talkAsking{Kind: "permission", Tool: "Write"}, talkThisMenu},
+		{"Edit's menu", fileMenu(true), &talkAsking{Kind: "permission", Tool: "Edit"}, talkThisMenu},
+		{"Edit's menu for a command's card", fileMenu(true), permission, talkOtherMenu},
+		{"Edit's menu for a question", fileMenu(true), question, talkOtherMenu},
 		{"another command", permissionMenu("touch y"), permission, talkOtherMenu},
 		{"the command only in the turn above, not in the box", permissionMenu("touch y"), &talkAsking{Kind: "permission", command: "$ touch x"}, talkOtherMenu},
 		{"a question", questionMenu("Which color?", "Red", "Green"), question, talkThisMenu},
 		{"a question cut on the card", questionMenu(question300[:120]+"\n"+question300[120:], "Red"),
 			&talkAsking{Kind: "question", Questions: []talkQuestion{{Question: clip(question300, talkQuestionMost)}}}, talkThisMenu},
 		{"another question", questionMenu("Which fruit?", "Apple"), question, talkOtherMenu},
-		{"no menu, the input box", talkInputBox, permission, talkNoMenu},
-		{"no menu, a tool running", talkToolRuns, permission, talkNoMenu},
-		{"no menu, a question", talkInputBox, question, talkNoMenu},
-		{"nothing", "", permission, talkNoMenu},
-		{"an old menu's words above the input box", "Do you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel\n" + talkInputBox, permission, talkNoMenu},
-		{"typed into the input box", talkTop + "────\n❯ 1. Yes, Esc to cancel\n────\n  ? for shortcuts\n", permission, talkNoMenu},
+		{"the question's words only in the turn above, not in the box", strings.Replace(questionMenu("Which fruit?", "Apple"), "Use the Bash tool",
+			"Which color? Use the Bash tool", 1), question, talkOtherMenu},
+		{"a longer command on the screen than the card's", permissionMenu("git push --force origin main"), &talkAsking{Kind: "permission", command: "git push"},
+			talkOtherMenu},
+		{"the input box", talkInputBox, permission, talkBoxWaits},
+		{"the input box, a tool running", talkToolRuns, permission, talkBoxWorks},
+		{"the input box, for a question", talkInputBox, question, talkBoxWaits},
+		{"the input box under a status of three lines", strings.Replace(talkInputBox, "? for shortcuts", "? for shortcuts\n  ⧉ In notes.md\n  ✓ Update installed", 1),
+			permission, talkBoxWaits},
+		{"an old menu's words above the input box", "Do you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel\n" + talkInputBox, permission, talkBoxWaits},
+		{"typed into the input box", talkTop + "────\n❯ 1. Yes, Esc to cancel\n────\n  ? for shortcuts\n", permission, talkBoxWaits},
+		{"nothing", "", permission, talkCantTell},
+		{"neither a footer nor the input box", talkTop, permission, talkCantTell},
+		{"a question's choice 1 off the screen's top", "  2. Green\n     means Green\n  3. Type something.\n────\n  4. Chat about this\nEnter to select · Esc to cancel\n",
+			question, talkCantTell},
+		{"choice 1 over 40 lines above the footer", strings.Replace(questionMenu("Which color?", "Red", "Green"), "  2. Green", strings.Repeat("     more about red\n", 40)+"  2. Green", 1),
+			question, talkCantTell},
+		{"a footer in words it doesn't know", strings.Replace(permissionMenu("touch x"), "Esc to cancel", "Esc to dismiss", 1), permission, talkCantTell},
+		{"the input box's lower rule too far up", strings.Replace(talkInputBox, "? for shortcuts", "a\nb\nc\nd", 1), permission, talkCantTell},
+		{"a footer under the input box", strings.Replace(talkInputBox, "? for shortcuts", "Esc to cancel", 1), permission, talkCantTell},
+		{"a rule and ❯ under it, but no rule above", "❯\n────\n  ? for shortcuts\n", permission, talkCantTell},
 		{"a menu with no foot (before 2.1)", talkTop + " Bash command\n   touch x\n Do you want to proceed?\n ❯ 1. Yes\n   2. No, and tell Claude what to do differently (esc)\n",
 			permission, talkThisMenu},
-		{"no foot, and the input box under it", talkTop + " Do you want to proceed?\n ❯ 1. Yes\n────\n❯\n────\n", permission, talkNoMenu},
+		{"no foot, and the input box under it", talkTop + " Do you want to proceed?\n ❯ 1. Yes\n────\n❯\n────\n", permission, talkBoxWaits},
+		{"no foot, and a rule under it", talkTop + " Do you want to proceed?\n ❯ 1. Yes\n   2. No\n────\n", permission, talkCantTell},
 	} {
 		if got := talkMenuOn(screenEnd(c.screen, talkScreenLines), c.asking); got != c.want {
 			t.Errorf("%s: %d, want %d", c.name, got, c.want)

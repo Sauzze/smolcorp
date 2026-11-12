@@ -28,8 +28,10 @@ import (
 // two menus by their digit: a permission prompt's Yes (1) and No (Escape), and AskUserQuestion's second option.
 // Then the prompts answered in the pane itself, which no hook says at once (RT126P3 B1): Escape there, then the
 // window's Yes; Yes there while a long command runs, then the window's No; both 409 with nothing pressed. And two
-// permission prompts at once (N1): a Yes never allows a command other than the card's. What the pane shows around
-// each pick is logged, for the report. It costs six short Haiku turns.
+// permission prompts at once (N1): a Yes never allows a command other than the card's. Then a file's menus, which
+// aren't Bash's (RT126P3b B1): Write's Yes from the window, and an Edit put away in the pane, then the window's Yes:
+// 409, nothing typed, and the desk idle only if the pane really shows the input box. What the pane shows around each
+// pick is logged, for the report. It costs eight short Haiku turns.
 func TestRealClaudeMenusTakeTheDigit(t *testing.T) {
 	// The tests' home is a temp folder (TestMain): Claude Code is signed in in yours, given here.
 	home := os.Getenv("SMOLCORP_REAL_MENU_HOME")
@@ -316,6 +318,48 @@ func TestRealClaudeMenusTakeTheDigit(t *testing.T) {
 	for i := 0; i < 4 && menuShows(); i++ {
 		run("send-keys", "-t", "hire", "Escape")
 		time.Sleep(2 * time.Second)
+	}
+
+	// 7. A file's permission prompt (Write), not Bash's: the window's Yes is its digit 1 too.
+	say("Use the Write tool to create the file note.txt containing exactly the word hello . Do nothing else and do not explain.")
+	waitFor("Write's permission prompt", 90*time.Second, func() bool { a := asking(); return a != nil && a.Kind == "permission" && a.Tool == "Write" })
+	a = asking()
+	t.Logf("asking: kind %s, tool %s, label %q, pickable %v\n--- the pane before Write's Yes ---\n%s", a.Kind, a.Tool, a.Label, a.Pickable, screen())
+	if status := pick(1, a.Since); status != http.StatusNoContent {
+		t.Fatalf("Write's Yes: %d", status)
+	}
+	waitFor("the file Write's Yes allowed", 30*time.Second, func() bool { return exists("note.txt") })
+	waitFor("the turn's end", 60*time.Second, func() bool { return asking() == nil && strings.Contains(screen(), "❯") })
+	t.Logf("--- the pane after Write's Yes (note.txt made) ---\n%s", screen())
+
+	// 8. An Edit put away in the pane, which no hook says: the window's Yes is 409, types nothing, and the desk
+	// stops asking only if its screen really ends with the input box.
+	say("Use the Edit tool to replace hello with goodbye in note.txt . Do nothing else and do not explain.")
+	waitFor("Edit's permission prompt", 90*time.Second, func() bool { a := asking(); return a != nil && a.Kind == "permission" && a.Tool == "Edit" })
+	a = asking()
+	t.Logf("--- the pane before Escape in it (Edit) ---\n%s", screen())
+	run("send-keys", "-t", "hire", "Escape")
+	waitFor("Edit's menu put away in the pane", 15*time.Second, func() bool { return !strings.Contains(screen(), talkEscToCancel) })
+	t.Logf("--- the pane after Escape in it (the deck still believes it asks: %v) ---\n%s", asking() != nil, screen())
+	if status := pick(1, a.Since); status != http.StatusConflict {
+		t.Fatalf("Yes after Edit's Escape in the pane: %d, want 409", status)
+	}
+	time.Sleep(2 * time.Second)
+	lines := screenEnd(screen(), talkScreenLines)
+	folded := make([]string, len(lines))
+	for i, line := range lines {
+		folded[i] = strings.Join(strings.Fields(line), " ")
+	}
+	box, _ := talkInputBoxAtEnd(folded)
+	t.Logf("--- the pane after the window's Yes (input box at its end %v, still asking %v) ---\n%s", box, asking() != nil, screen())
+	if line := inputLine(); line != "" {
+		t.Fatalf("the input box holds %q after the window's Yes", line)
+	}
+	if note, _ := os.ReadFile(filepath.Join(repo, "note.txt")); strings.Contains(string(note), "goodbye") {
+		t.Fatal("the Edit was made after Escape in the pane")
+	}
+	if still := asking() != nil; still == box {
+		t.Fatalf("input box at the end %v, yet still asking %v", box, still)
 	}
 	t.Logf("--- the pane at the end ---\n%s", screen())
 }
