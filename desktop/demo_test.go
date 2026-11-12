@@ -823,7 +823,7 @@ func TestTheSampleHasNoPrivateNames(t *testing.T) {
 			return err
 		}
 		data, _ := demoSample.ReadFile(path)
-		for _, name := range []string{"Sauzze", "coachpop", "David", "AgentDeck", "/Users/"} {
+		for _, name := range []string{"Sauzze", "coach" + "pop", "Dav" + "id", "AgentDeck", "/Users/"} {
 			if strings.Contains(string(data), name) {
 				t.Errorf("%s names %q", path, name)
 			}

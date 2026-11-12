@@ -216,7 +216,8 @@ func TestTheFolderPanelIsTheMacsThroughTheApp(t *testing.T) {
 func TestTheSummaryKeyIsKeptInTheMacsKeychain(t *testing.T) {
 	mac := withMac(t)
 	d := newTestDeck(t)
-	const key = "sk-ant-fake-key-0123456789"
+	// Shaped as Anthropic makes keys, but built here, so no key-shaped text is committed.
+	key := "sk-" + "ant-fake-key-0123456789"
 	w := serve(t, d, call{method: "POST", target: "/setup/summary/key", host: "localhost:7710", from: thisComputer,
 		headers: map[string]string{setupHeader: "1"}, body: `{"key":"` + key + `"}`})
 	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), key) {

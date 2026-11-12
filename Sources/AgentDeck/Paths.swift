@@ -33,17 +33,24 @@ enum TestCopy {
     /// A test copy runs beside the owner's own work, hidden (scripts/test-copy.sh opens it with
     /// `open -g -j`): it never comes in front of other apps, takes the keyboard, or puts up a window
     /// or an alert by itself (first-run Settings, the engine-stopped alert, a page's Open the office
-    /// or folder panel). Each is written to its log instead (subsystem io.github.sauzze.agentdeck,
+    /// or folder panel). In a debug build each is written to its log instead (subsystem io.github.sauzze.agentdeck,
     /// category test-copy, readable: `log show --predicate 'category == "test-copy"'`), and this
-    /// says no. The real app: yes.
+    /// says no (a debug build also writes it to its log, below). The real app: yes.
     static func mayComeForward(_ what: String, testCopy: Bool = isOn,
-                               log: (String) -> Void = { quietLog.notice("\($0, privacy: .public)") }) -> Bool {
+                               log: (String) -> Void = quietLogLine) -> Bool {
         guard testCopy else { return true }
         log("Smolcorp Test: \(what) not shown, a test copy never comes forward by itself")
         return false
     }
 
-    private static let quietLog = Logger(subsystem: "io.github.sauzze.agentdeck", category: "test-copy")
+    /// A test copy's line in the system log, written only by a debug build: the Mac app logs nothing in a release
+    /// build (scripts/check-public.sh). A test copy from scripts/test-copy.sh is a release build, so it says no
+    /// without a line; a debug run of the app writes it.
+    private static func quietLogLine(_ line: String) {
+        #if DEBUG
+        Logger(subsystem: "io.github.sauzze.agentdeck", category: "test-copy").notice("\(line, privacy: .public)")
+        #endif
+    }
 
     /// Whether SMOLCORP_TEST_LISTEN says "lan", as the Go engine reads it: spaces around it and the
     /// letter case don't matter (RTCH N3), so both engines and scripts/test-copy.sh agree.
