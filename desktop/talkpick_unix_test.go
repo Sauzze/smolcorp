@@ -28,7 +28,8 @@ func TestATestCopyPicksInItsOwnHiresPaneOnly(t *testing.T) {
 		"default": "/tmp/tmux-501/default",
 	} {
 		d.mu.Lock()
-		d.sessions.Apply(map[string]any{"hook_event_name": "PermissionRequest", "session_id": id, "cwd": "/work/" + id, "tool_name": "Bash"},
+		d.sessions.Apply(map[string]any{"hook_event_name": "PermissionRequest", "session_id": id, "cwd": "/work/" + id, "tool_name": "Bash",
+			"tool_input": map[string]any{"command": "touch x"}},
 			Claude, "tmux:%1@"+socket, "", 200)
 		d.mu.Unlock()
 	}

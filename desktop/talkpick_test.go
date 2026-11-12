@@ -416,6 +416,74 @@ func TestAPickAnswersAFilesMenu(t *testing.T) {
 	}
 }
 
+// RT126P3c N1: a card for a file or any other tool matches only its own menu. A Write card with a Bash menu on the
+// screen presses nothing and is answered 409 choiceGone, still asking; a tool whose menu it can't tell is 409 with the
+// keys' sentence, still asking.
+func TestAFileCardPicksOnlyItsOwnMenu(t *testing.T) {
+	writeCard := func(tool string, input map[string]any) func(*Deck) {
+		return func(d *Deck) {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			d.sessions.Apply(map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/api", "tool_name": tool,
+				"tool_input": input}, Claude, "launcher:L1", "", 200)
+		}
+	}
+	file := map[string]any{"file_path": "/work/api/note.txt"}
+	for name, c := range map[string]struct {
+		screen string
+		ask    func(*Deck)
+		n      string
+		body   string
+	}{
+		"a Write card, a Bash menu":    {permissionMenu("rm -rf build"), writeCard("Write", file), "1", choiceGone},
+		"a Write card, Bash's No":      {permissionMenu("rm -rf build"), writeCard("Write", file), "2", choiceGone},
+		"an Edit card, a Bash menu":    {permissionMenu("touch x"), writeCard("Edit", file), "1", choiceGone},
+		"a Write card, another file":   {fileMenu(false), writeCard("Write", map[string]any{"file_path": "/work/api/other.txt"}), "1", choiceGone},
+		"a Write card, no path":        {fileMenu(false), writeCard("Write", map[string]any{}), "1", talkUseTheKeys},
+		"a Bash card, no command":      {permissionMenu("touch x"), writeCard("Bash", map[string]any{}), "1", talkUseTheKeys},
+		"a tool it can't tell, a menu": {permissionMenu("touch x"), writeCard("WebFetch", map[string]any{"url": "https://example.com"}), "1", talkUseTheKeys},
+	} {
+		d, tab := madeButtonDeck(t)
+		talkScreenShows(t, c.screen)
+		c.ask(d)
+		since := talkSinceOf(d, "s1")
+		if got := talkPickAt(t, d, "s1", c.n, since); got.Code != http.StatusConflict || strings.TrimSpace(got.Body.String()) != c.body {
+			t.Errorf("%s: %d %s, want 409 %s", name, got.Code, got.Body, c.body)
+		}
+		nothingSent(t, tab, name)
+		if talkSinceOf(d, "s1") != since {
+			t.Errorf("%s: no longer asking", name)
+		}
+	}
+}
+
+// RT126P3c N2: clearing asking from the screen leaves the desk's last event where it was, so a hook raised before the
+// look (a parallel prompt's) that lands after it isn't dropped as older: asking comes back, the safe side.
+func TestAPickThatClearsAskingKeepsTheTimeOfTheLastEvent(t *testing.T) {
+	for name, screen := range map[string]string{"waiting": talkInputBox, "working": talkToolRuns} {
+		d, tab := madeButtonDeck(t)
+		show := talkScreenShows(t, permissionMenu("touch x"))
+		talkPermission(d, 200)
+		since := talkSinceOf(d, "s1")
+		show(screen)
+		if got := talkPickAt(t, d, "s1", "1", since); got.Code != http.StatusConflict {
+			t.Fatalf("%s: %d %s", name, got.Code, got.Body)
+		}
+		nothingSent(t, tab, name)
+		if talkSinceOf(d, "s1") != 0 {
+			t.Fatalf("%s: still asking", name)
+		}
+		// The next prompt's hook, stamped after the first's and before the pick's own look.
+		d.mu.Lock()
+		d.sessions.Apply(map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/api", "tool_name": "Bash",
+			"tool_input": map[string]any{"command": "touch y"}}, Claude, "launcher:L1", "", 300)
+		d.mu.Unlock()
+		if talkSinceOf(d, "s1") == 0 {
+			t.Errorf("%s: a hook still on its way was dropped as older", name)
+		}
+	}
+}
+
 // RT126P3b B1: a screen it can't make out may be a live menu: choice 1 off its top, a footer in words it doesn't
 // know, neither a footer nor the input box, nothing read. Nothing is pressed and the desk still asks, so the phone's
 // words still keep out of it and the four keys answer it.
@@ -526,8 +594,10 @@ func (talkMacApp) call(bridgeRequest) (bridgeAnswer, error) { return bridgeAnswe
 
 // What the menu looks like, from what Claude Code draws: its own, another, or none.
 func TestTheMenuIsKnownOnTheScreen(t *testing.T) {
-	permission := &talkAsking{Kind: "permission", command: "touch x"}
+	permission := &talkAsking{Kind: "permission", Tool: "Bash", command: "touch x"}
 	question := &talkAsking{Kind: "question", Questions: []talkQuestion{{Question: "Which color?"}}}
+	write := &talkAsking{Kind: "permission", Tool: "Write", file: "/work/api/note.txt"}
+	edit := &talkAsking{Kind: "permission", Tool: "Edit", file: "/work/api/note.txt"}
 	long := "cd /work/api && go test -count=1 -race -run 'TestTheMenuIsKnownOnTheScreen' ./desktop/ 2>&1 | tail -40"
 	wrapped := strings.Replace(permissionMenu(long), long, long[:50]+"\n "+long[50:], 1)
 	cursorMoved := strings.Replace(strings.Replace(permissionMenu("touch x"), "❯ 1. Yes", "  1. Yes", 1), "  3. Yes, and switch", "❯ 3. Yes, and switch", 1)
@@ -540,21 +610,32 @@ func TestTheMenuIsKnownOnTheScreen(t *testing.T) {
 	}{
 		{"a permission", permissionMenu("touch x"), permission, talkThisMenu},
 		{"its cursor moved to choice 3", cursorMoved, permission, talkThisMenu},
-		{"a command wrapped over two lines", wrapped, &talkAsking{Kind: "permission", command: long}, talkThisMenu},
-		{"a tool with no command (Edit)", permissionMenu("Edit file Deck.swift"), &talkAsking{Kind: "permission"}, talkThisMenu},
-		{"Write's menu", fileMenu(false), &talkAsking{Kind: "permission", Tool: "Write"}, talkThisMenu},
-		{"Edit's menu", fileMenu(true), &talkAsking{Kind: "permission", Tool: "Edit"}, talkThisMenu},
+		{"a command wrapped over two lines", wrapped, &talkAsking{Kind: "permission", Tool: "Bash", command: long}, talkThisMenu},
+		{"Write's menu", fileMenu(false), write, talkThisMenu},
+		{"Edit's menu", fileMenu(true), edit, talkThisMenu},
+		{"Write's menu, its path cut at the start", strings.Replace(fileMenu(false), "\n note.txt\n", "\n …api/note.txt\n", 1), write, talkThisMenu},
+		{"Write's menu for another file", fileMenu(false), &talkAsking{Kind: "permission", Tool: "Write", file: "/work/api/other.txt"}, talkOtherMenu},
+		{"Write's menu for a file of the same ending", fileMenu(false), &talkAsking{Kind: "permission", Tool: "Write", file: "/work/api/old-note.txt"}, talkOtherMenu},
+		{"Write's card, a command's menu (RT126P3c N1)", permissionMenu("rm -rf build"), write, talkOtherMenu},
+		{"Edit's card, a command's menu", permissionMenu("rm -rf build"), edit, talkOtherMenu},
+		{"a file's card, a question's menu", questionMenu("Which color?", "Red"), write, talkOtherMenu},
+		{"a Write card with no path", fileMenu(false), &talkAsking{Kind: "permission", Tool: "Write"}, talkCantTell},
+		{"a Bash card with no command", permissionMenu("touch x"), &talkAsking{Kind: "permission", Tool: "Bash"}, talkCantTell},
+		{"a tool whose menu it can't tell (WebFetch)", permissionMenu("touch x"), &talkAsking{Kind: "permission", Tool: "WebFetch"}, talkCantTell},
+		{"a tool it can't tell, a file's menu", fileMenu(true), &talkAsking{Kind: "permission", Tool: "NotebookEdit"}, talkCantTell},
+		{"text over 20 lines in the input box, for a Write card (RT126P3c N3)", talkTop + "────\n❯ 1. Yes\n" + strings.Repeat("a line\n", 21) + "Esc to cancel\n────\n  ? for shortcuts\n",
+			write, talkOtherMenu},
 		{"Edit's menu for a command's card", fileMenu(true), permission, talkOtherMenu},
 		{"Edit's menu for a question", fileMenu(true), question, talkOtherMenu},
 		{"another command", permissionMenu("touch y"), permission, talkOtherMenu},
-		{"the command only in the turn above, not in the box", permissionMenu("touch y"), &talkAsking{Kind: "permission", command: "$ touch x"}, talkOtherMenu},
+		{"the command only in the turn above, not in the box", permissionMenu("touch y"), &talkAsking{Kind: "permission", Tool: "Bash", command: "$ touch x"}, talkOtherMenu},
 		{"a question", questionMenu("Which color?", "Red", "Green"), question, talkThisMenu},
 		{"a question cut on the card", questionMenu(question300[:120]+"\n"+question300[120:], "Red"),
 			&talkAsking{Kind: "question", Questions: []talkQuestion{{Question: clip(question300, talkQuestionMost)}}}, talkThisMenu},
 		{"another question", questionMenu("Which fruit?", "Apple"), question, talkOtherMenu},
 		{"the question's words only in the turn above, not in the box", strings.Replace(questionMenu("Which fruit?", "Apple"), "Use the Bash tool",
 			"Which color? Use the Bash tool", 1), question, talkOtherMenu},
-		{"a longer command on the screen than the card's", permissionMenu("git push --force origin main"), &talkAsking{Kind: "permission", command: "git push"},
+		{"a longer command on the screen than the card's", permissionMenu("git push --force origin main"), &talkAsking{Kind: "permission", Tool: "Bash", command: "git push"},
 			talkOtherMenu},
 		{"the input box", talkInputBox, permission, talkBoxWaits},
 		{"the input box, a tool running", talkToolRuns, permission, talkBoxWorks},

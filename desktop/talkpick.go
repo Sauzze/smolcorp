@@ -93,6 +93,8 @@ const (
 	talkBoxMost    = 20
 	// How long a line of the screen must be, at least, to be taken for the start of a question or a command.
 	talkMatchLeast = 8
+	// And a file's line, at least (a.go).
+	talkFileLeast = 4
 )
 
 var (
@@ -104,7 +106,8 @@ var (
 // talkMenuOn says what lines, the end of a desk's screen, show of asking: its own menu, another, Claude Code's
 // input box, or nothing it can make out.
 // A permission prompt's menu: "Esc to cancel" at its foot, or "Do you want to proceed?" right over its ❯ on
-// choice 1, with a ❯ on a choice and a choice 1; and, for a Bash command, the command's first line in its box. A
+// choice 1, with a ❯ on a choice and a choice 1; and, for a Bash command, the command's first line in its box, for
+// Write and Edit the file's path as its file line; any other tool's menu can't be told (RT126P3c N1). A
 // question's: "Enter to select" at its foot, a choice 1, and the question's text in its box over it.
 func talkMenuOn(lines []string, asking *talkAsking) talkMenu {
 	text := make([]string, len(lines))
@@ -160,21 +163,38 @@ func talkMenuOn(lines []string, asking *talkAsking) talkMenu {
 	if kind != asking.Kind {
 		return talkOtherMenu
 	}
-	// What it is about, over its first choice: the question's text, or the command, from its first line on screen.
-	about, cut := "", false
+	// What it is about, over its first choice: the question's text, a command from its first line on screen, or a
+	// file's path as its menu's file line gives it. Any other tool's menu can't be told from another's (RT126P3c N1).
+	about, cut, file := "", false, false
 	switch {
 	case kind == "question" && len(asking.Questions) > 0:
 		about, cut = strings.CutSuffix(asking.Questions[0].Question, "…")
-	case kind == "permission":
+	case kind == "permission" && asking.Tool == "Bash":
 		about = asking.command
+	case kind == "permission" && (asking.Tool == "Write" || asking.Tool == "Edit"):
+		about, file = asking.file, true
+	case kind == "permission":
+		return talkCantTell
 	}
 	if about = strings.Join(strings.Fields(about), " "); about == "" {
+		if kind == "permission" {
+			return talkCantTell
+		}
 		return talkThisMenu
 	}
 	// The menu's box only, under the rule at its top: never the turn above it.
 	above := menu[:first]
 	above = above[lastIndexFunc(above, talkRule)+1:]
 	for _, line := range above {
+		if file {
+			// A file's line is its path as given, or as Claude Code shortens it: under the folder it works in, or
+			// with the start cut off with …. The whole line, so a diff's or a typed line can't pass for it.
+			shown, cutAtStart := strings.CutPrefix(line, "…")
+			if len([]rune(shown)) >= talkFileLeast && (shown == about || strings.HasSuffix(about, "/"+shown) || cutAtStart && strings.HasSuffix(about, shown)) {
+				return talkThisMenu
+			}
+			continue
+		}
 		line = strings.TrimSuffix(line, "…")
 		// The screen's line is the start of what the card asks (wrapped, or cut with …), or, for a question cut on
 		// the card, the card's text the start of the line.
@@ -380,11 +400,13 @@ func (d *Deck) talkPick(id string, query url.Values) (int, string) {
 		// thinks, keeping its tool and its turn till the tool's own hook.
 		if s := d.sessions.Get(id); looked && s != nil && (menu == talkBoxWaits || menu == talkBoxWorks) {
 			if asking := talkAskingOf(s); asking != nil && asking.Since == since {
+				// At 0, so the desk's last event keeps its time: a hook raised before this look, still on its way
+				// (a parallel prompt's), then lands and can bring asking back, never be dropped as older (RT126P3c N2).
 				stopped := false
 				if menu == talkBoxWaits {
-					stopped = d.sessions.StoppedAsking(id, nowMillis())
+					stopped = d.sessions.StoppedAsking(id, 0)
 				} else {
-					stopped = d.sessions.AnsweredInItsTerminal(id, nowMillis())
+					stopped = d.sessions.AnsweredInItsTerminal(id, 0)
 				}
 				if stopped {
 					d.changed()

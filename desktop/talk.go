@@ -61,9 +61,9 @@ type talkAsking struct {
 	Label     string         `json:"label"`
 	Questions []talkQuestion `json:"questions"`
 	Pickable  bool           `json:"pickable"`
-	// A Bash prompt's command, its first line: looked for in the menu on the screen before a pick's key, never
-	// on the card.
-	command string
+	// A Bash prompt's command, its first line, or a Write or Edit prompt's file path: looked for in the menu on the
+	// screen before a pick's key, never on the card.
+	command, file string
 }
 
 // talkCard is GET /talk: one desk. Asking is null unless the desk is asking; Last is what the agent last said
@@ -108,6 +108,13 @@ func talkAskingOf(s *Session) *talkAsking {
 			}
 			_ = json.Unmarshal([]byte(s.askedInput), &input)
 			asking.command, _, _ = strings.Cut(input.Command, "\n")
+		}
+		if tool == "Write" || tool == "Edit" {
+			var input struct {
+				FilePath string `json:"file_path"`
+			}
+			_ = json.Unmarshal([]byte(s.askedInput), &input)
+			asking.file = input.FilePath
 		}
 	}
 	// Only where a choice can be pressed (Agent.Pick): another agent's menu is answered with the four keys. And
