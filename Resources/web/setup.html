@@ -1289,6 +1289,10 @@
           </div>
         </div>
       </div>
+      <div class="box" id="pinned-box" hidden data-search="Pinned desks" data-keywords="desk pin pinned unpin keep project floor upstairs free">
+        <p class="hint pad">Pinned desks keep a project's place, on any floor. Unpin one to give the desk to whoever starts next.</p>
+        <div id="pinned"></div>
+      </div>
       <details class="box dress-code" data-search="Dress code" data-keywords="outfit clothes model size">
         <summary>Dress code</summary>
         <div class="dress" id="room-dress"></div>
@@ -1923,6 +1927,7 @@
     renderProfiles();
     renderLayout();
     renderFloors();
+    renderPinned();
     renderBots();
     renderAttention();
     showInvite();
@@ -5085,6 +5090,7 @@
   /** The projects a team can have: those running, those pinned to a desk, and those already dressed. */
   function teamProjects() {
     const names = [...state.sessions.map((s) => s.name), ...state.pins.filter(Boolean).map((p) => p.name),
+      ...(state.floorPins || []).map((p) => p.name),
       ...Object.keys((layout.room && layout.room.team) || {})];
     return [...new Set(names.filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }
@@ -6632,6 +6638,40 @@
 
   function changesWaiting() {
     return Boolean(unsaved || inFlight.size);
+  }
+
+  /* ---------------------------------------------------------------- pinned desks */
+
+  /**
+   * Every desk a project is pinned to, the ground floor's first and then each floor above, with where it is
+   * as the office names it: `floor` and `key` as the pin routes count them, from 0.
+   */
+  function pinnedDesks(st) {
+    const floorName = (i) => ((Array.isArray(st.floors) && st.floors[i]) || {}).name || `${i + 1}F`;
+    const rows = [];
+    (st.pins || []).forEach((pin, key) => { if (pin) rows.push({ floor: 0, key, name: pin.name, folder: pin.folder }); });
+    (st.floorPins || []).forEach((pin) => rows.push({ floor: pin.floor, key: pin.desk, name: pin.name, folder: pin.folder }));
+    rows.sort((a, b) => a.floor - b.floor || a.key - b.key);
+    return rows.map((row) => ({ ...row, where: `${floorName(row.floor)}, desk ${row.key + 1}` }));
+  }
+
+  /** The pinned desks, each with a way to unpin it, whatever floor it's on: the owner needn't ask the GM. */
+  function renderPinned() {
+    const rows = pinnedDesks(state);
+    $('pinned-box').hidden = !rows.length;
+    if (!rows.length || !changed($('pinned'), rows)) return;
+    $('pinned').replaceChildren(...rows.map((row) => {
+      const line = document.createElement('div');
+      line.className = 'field floor';
+      const label = document.createElement('span');
+      label.textContent = `${row.name} · ${row.where}`;
+      label.title = row.folder;
+      const undo = Object.assign(document.createElement('button'), { className: 'btn', type: 'button', textContent: 'Unpin' });
+      undo.setAttribute('aria-label', `Unpin ${row.name} from ${row.where}`);
+      undo.onclick = () => post(`/setup/unpin?key=${row.key}${row.floor ? `&floor=${row.floor}` : ''}`);
+      line.append(label, undo);
+      return line;
+    }));
   }
 
   /* ---------------------------------------------------------------- floors */

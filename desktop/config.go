@@ -475,6 +475,16 @@ func (c *Config) upstairsPin(folder string) (Seat, bool) {
 	return Seat{}, false
 }
 
+// everyPin is every folder pinned to a desk, on any floor: the ground floor's nine first, then the ones above.
+func (c *Config) everyPin() []*string {
+	pins := slices.Clone(c.Pins)
+	for _, pin := range c.FloorPins {
+		folder := pin.Folder
+		pins = append(pins, &folder)
+	}
+	return pins
+}
+
 // upstairsPins is every desk pinned above the ground floor.
 func (c *Config) upstairsPins() []Seat {
 	seats := make([]Seat, 0, len(c.FloorPins))

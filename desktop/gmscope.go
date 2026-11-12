@@ -18,7 +18,7 @@ import (
 //     its checkout, and the checkout's git folder is the project's), a folder that is there, in a terminal
 //     of Smolcorp's, on the Claude account the GM was hired on (filled in when left out), never the API key;
 //   - send, brief, fire, contacts, nickname, pin, unpin, watch and unwatch only for its own hires, folders
-//     and watches;
+//     and watches; a pin only on the ground floor or a floor above where it has a session or a pin already;
 //   - nothing else that changes the office (its switches, roles, layout, windows…); what it reads is as before.
 // Each refusal is one sentence. A GM with no scope, every other, is as it always was. `smolcorp demo`
 // hires its GM so. Go only: the Mac's Swift engine has no scope (M7).
@@ -117,6 +117,35 @@ func (s gmScope) place(folder string) (string, bool) {
 func (s gmScope) pinned(pin string) bool {
 	folder, _ := existingFolder(pin)
 	return s.holds(folder)
+}
+
+// hasFloor is whether a floor above the ground floor (1 to 5) is one the scope has: one where a session of
+// the project or its worktrees sits now, or where one of its folders is pinned to a desk.
+func (s gmScope) hasFloor(d *Deck, floor int) bool {
+	// What's on each floor is read with the lock held; whether it's the project's, which runs git, is not.
+	type sitter struct {
+		floor   int
+		project string
+	}
+	var sitters []sitter
+	d.mu.Lock()
+	for _, pin := range d.config.FloorPins {
+		sitters = append(sitters, sitter{pin.Floor, pin.Folder})
+	}
+	_, overflow := d.layout()
+	seated, _ := d.seatedBuilding(overflow)
+	for at, people := range seated {
+		for _, one := range people {
+			sitters = append(sitters, sitter{at, one.person.Project})
+		}
+	}
+	d.mu.Unlock()
+	for _, one := range sitters {
+		if one.floor == floor && s.holds(one.project) {
+			return true
+		}
+	}
+	return false
 }
 
 // covers is whether path is inside the project or one of its worktrees: the nearest folder holding it is held.
@@ -237,6 +266,10 @@ func (d *Deck) gmScopeRefusal(r *request) (int, string) {
 		folder, _ := existingFolder(query.Get("folder"))
 		if pinned != nil && !s.pinned(*pinned) || path == "/setup/pin" && !s.holds(folder) {
 			return refuse("pins only" + where + " and its worktrees, never over another desk's pin.")
+		}
+		// A pin upstairs moves the folder's sessions to that floor: only to a floor the GM already has.
+		if ok && floor > 0 && path == "/setup/pin" && !s.hasFloor(d, floor) {
+			return refuse("pins only on the ground floor or a floor where its own sessions sit or it has a pin" + where + ".")
 		}
 	case post && path == "/setup/gm/watch":
 		// Read as the route reads it (watchers.add): the hire by id, nickname or name; a file by its full path,

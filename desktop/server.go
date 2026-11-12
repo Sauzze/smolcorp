@@ -1975,7 +1975,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		layout := config.Layout
 		layout.Room.Team = maps.Clone(layout.Room.Team)
-		project, name, refused := setNickname(&layout, body, places, config.Pins)
+		project, name, refused := setNickname(&layout, body, places, config.everyPin())
 		if refused == nil {
 			config.Layout = layout
 			config.save()
@@ -2146,6 +2146,11 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 			pins[i] = map[string]any{"folder": *pin, "name": lastPathComponent(*pin)}
 		}
 	}
+	// The desks pinned above the ground floor, on 2F to 6F, as `pins` has the ground floor's: floor from 0, desk from 0.
+	floorPins := []any{}
+	for _, pin := range d.config.FloorPins {
+		floorPins = append(floorPins, map[string]any{"floor": pin.Floor, "desk": pin.Desk, "folder": pin.Folder, "name": lastPathComponent(pin.Folder)})
+	}
 	sessions := []map[string]any{}
 	for _, s := range d.sessions.All() {
 		var key any
@@ -2207,6 +2212,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"phones":  phones,
 		"logo":    d.config.Logo,
 		"pins":    pins,
+		// Every floor above's pins, for the page to list and undo.
+		"floorPins": floorPins,
 		// How many keys the phone shows now.
 		"phoneKeys": len(keys),
 		"sessions":  sessions,

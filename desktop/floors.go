@@ -191,7 +191,12 @@ func (d *Deck) seatedBuilding(overflow []*Session) ([][]seatedPerson[*Session], 
 		if seat, ok := d.seatOf[s.ID]; ok {
 			p.had = &seat
 		}
-		if seat, ok := d.config.upstairsPin(s.Project); ok {
+		// A pin is a project's desk for its agents' sessions. A cloud bot has its own desk (its floor, kept or
+		// not), and a hire in T3 Code the desk the registry kept for it, where swapKeys leaves it; a pin on
+		// their folder doesn't move them.
+		_, bot := d.cloud.botOf(s.ID)
+		_, t3 := d.t3Desks.hireOf(s.ID)
+		if seat, ok := d.config.upstairsPin(s.Project); ok && !bot && !t3 {
 			p.pin = &seat
 		}
 		return p

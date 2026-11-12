@@ -250,6 +250,11 @@ has are the known gaps' "extra" rows.
 | `.dictation.problem` | string or null | same |
 | `.dock` | object | same |
 | `.dock.enabled` | bool | same |
+| `.floorPins` | array | same |
+| `.floorPins[].desk` | number | same |
+| `.floorPins[].floor` | number | same |
+| `.floorPins[].folder` | string | same |
+| `.floorPins[].name` | string | same |
 | `.floorRules` | array | same |
 | `.floorRules[].exact` | bool | same |
 | `.floorRules[].floor` | number | same |
