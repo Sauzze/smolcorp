@@ -5,6 +5,7 @@ package desktop
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -25,7 +26,10 @@ import (
 // Claude Code in a tmux server on the copy's own hire socket, started with --setting-sources project,local, so its
 // hooks report here and nowhere else, in a scratch folder under build/. The window's picks then answer Claude Code's
 // two menus by their digit: a permission prompt's Yes (1) and No (Escape), and AskUserQuestion's second option.
-// What the pane shows around each pick is logged, for the report. It costs three short Haiku turns.
+// Then the prompts answered in the pane itself, which no hook says at once (RT126P3 B1): Escape there, then the
+// window's Yes; Yes there while a long command runs, then the window's No; both 409 with nothing pressed. And two
+// permission prompts at once (N1): a Yes never allows a command other than the card's. What the pane shows around
+// each pick is logged, for the report. It costs six short Haiku turns.
 func TestRealClaudeMenusTakeTheDigit(t *testing.T) {
 	// The tests' home is a temp folder (TestMain): Claude Code is signed in in yours, given here.
 	home := os.Getenv("SMOLCORP_REAL_MENU_HOME")
@@ -156,10 +160,26 @@ func TestRealClaudeMenusTakeTheDigit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		said, _ := io.ReadAll(answer.Body)
 		answer.Body.Close()
+		t.Logf("pick %d of %d: %d %s", n, since, answer.StatusCode, strings.TrimSpace(string(said)))
 		return answer.StatusCode
 	}
 	exists := func(name string) bool { _, err := os.Stat(filepath.Join(repo, name)); return err == nil }
+	// What Claude Code's input box holds: its last line starting with ❯, after it.
+	inputLine := func() string {
+		lines := strings.Split(screen(), "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			if line := strings.TrimSpace(lines[i]); strings.HasPrefix(line, "❯") {
+				return strings.TrimSpace(strings.TrimPrefix(line, "❯"))
+			}
+		}
+		return "(no input box)"
+	}
+	menuShows := func() bool {
+		s := screen()
+		return strings.Contains(s, "Do you want to proceed?") || strings.Contains(s, "Enter to select")
+	}
 
 	// 1. A permission prompt: Yes is the digit 1.
 	say("Use the Bash tool to run exactly this command: touch yes-by-digit.txt . Do nothing else and do not explain.")
@@ -172,6 +192,10 @@ func TestRealClaudeMenusTakeTheDigit(t *testing.T) {
 	waitFor("the file Yes allowed", 30*time.Second, func() bool { return exists("yes-by-digit.txt") })
 	waitFor("the turn's end", 60*time.Second, func() bool { return asking() == nil && strings.Contains(screen(), "❯") })
 	t.Logf("--- the pane after Yes (yes-by-digit.txt made) ---\n%s", screen())
+	// Choice 1, not 2 ("Yes, and always allow"), which would have written a rule here.
+	if exists(".claude/settings.local.json") {
+		t.Fatal("Yes added a rule to the project's settings")
+	}
 
 	// 2. A permission prompt: No is Escape, and the desk is free again.
 	say("Use the Bash tool to run exactly this command: touch no-by-digit.txt . Do nothing else and do not explain.")
@@ -208,12 +232,90 @@ func TestRealClaudeMenusTakeTheDigit(t *testing.T) {
 	if status := pick(2, a.Since); status != http.StatusNoContent {
 		t.Fatalf("Banana: %d", status)
 	}
+	// 204 while the pick of 2 is still its claim, 409 once the hook says it's answered: nothing pressed either way.
 	if again := pick(1, a.Since); again != http.StatusNoContent && again != http.StatusConflict {
 		t.Errorf("a second pick: %d, want 204 (nothing pressed) or 409 (answered already)", again)
 	}
 	waitFor("the answer", 60*time.Second, func() bool { return asking() == nil && strings.Contains(screen(), "BANANA") })
 	t.Logf("--- the pane after 2 ---\n%s", screen())
-	if strings.Contains(screen(), "APPLE") {
-		t.Fatal("the second pick reached the menu too")
+	if strings.Contains(screen(), "APPLE") || inputLine() != "" {
+		t.Fatalf("the second pick reached the menu or the input box: %q", inputLine())
 	}
+
+	// 4. Escape in the pane itself, which no hook says: the window's Yes then finds no menu, presses nothing (no 1
+	// in the input box), and the desk stops asking.
+	say("Use the Bash tool to run exactly this command: touch esc-in-pane.txt . Do nothing else and do not explain.")
+	waitFor("permission prompt for Escape in the pane", 90*time.Second, func() bool { a := asking(); return a != nil && a.Kind == "permission" })
+	a = asking()
+	run("send-keys", "-t", "hire", "Escape")
+	waitFor("the menu put away in the pane", 15*time.Second, func() bool { return !menuShows() })
+	t.Logf("--- the pane after Escape in it (the deck still believes it asks: %v) ---\n%s", asking() != nil, screen())
+	if status := pick(1, a.Since); status != http.StatusConflict {
+		t.Fatalf("Yes after Escape in the pane: %d, want 409", status)
+	}
+	time.Sleep(2 * time.Second)
+	t.Logf("--- the pane after the window's Yes ---\n%s", screen())
+	if line := inputLine(); line != "" {
+		t.Fatalf("the input box holds %q after the window's Yes", line)
+	}
+	if exists("esc-in-pane.txt") || asking() != nil {
+		t.Fatalf("after the window's Yes: file made %v, still asking %v", exists("esc-in-pane.txt"), asking() != nil)
+	}
+
+	// 5. Yes in the pane itself while the command runs, which no hook says till it ends: the window's No then finds
+	// no menu and presses no Escape, so the command isn't stopped.
+	say("Use the Bash tool to run exactly this command: sleep 15 && touch slept.txt . Do nothing else and do not explain.")
+	waitFor("permission prompt for Yes in the pane", 90*time.Second, func() bool { a := asking(); return a != nil && a.Kind == "permission" })
+	a = asking()
+	run("send-keys", "-t", "hire", "Enter") // ❯ is on choice 1, Yes
+	waitFor("the menu put away in the pane", 15*time.Second, func() bool { return !menuShows() })
+	t.Logf("--- the pane while the command runs (the deck still believes it asks: %v) ---\n%s", asking() != nil, screen())
+	if status := pick(2, a.Since); status != http.StatusConflict {
+		t.Fatalf("No while the command runs: %d, want 409", status)
+	}
+	waitFor("the command's end, not stopped", 60*time.Second, func() bool { return exists("slept.txt") })
+	waitFor("the turn's end", 60*time.Second, func() bool { return asking() == nil && !strings.Contains(screen(), "esc to interrupt") })
+	t.Logf("--- the pane after the command (slept.txt made) ---\n%s", screen())
+	if _, after, _ := strings.Cut(screen(), "sleep 15"); strings.Contains(after, "Interrupted") {
+		t.Fatal("the window's No stopped the command")
+	}
+
+	// 6. Two permission prompts at once (N1): the card is the latest one the hooks said. A Yes either allows the
+	// card's own command, or finds another command's menu and presses nothing.
+	say("In one single reply, call the Bash tool twice in parallel: one call runs exactly: touch one.txt ; the other runs " +
+		"exactly: touch two.txt . Do nothing else and do not explain.")
+	waitFor("permission prompt for two at once", 90*time.Second, func() bool { a := asking(); return a != nil && a.Kind == "permission" })
+	first := asking()
+	time.Sleep(3 * time.Second) // the second's hook, if Claude Code sends it while the first is shown
+	a = asking()
+	t.Logf("--- two at once: the first card's command %q (since %d), the card now %q (since %d) ---\n%s", first.command, first.Since,
+		a.command, a.Since, screen())
+	files := map[string]string{"touch one.txt": "one.txt", "touch two.txt": "two.txt"}
+	mine := files[strings.TrimSpace(a.command)]
+	status := pick(1, a.Since)
+	time.Sleep(4 * time.Second)
+	t.Logf("--- after the window's Yes: one.txt %v, two.txt %v ---\n%s", exists("one.txt"), exists("two.txt"), screen())
+	switch {
+	case status == http.StatusNoContent && mine == "":
+		t.Fatalf("Yes went for a card with an unknown command %q", a.command)
+	case status == http.StatusNoContent:
+		for _, other := range files {
+			if other != mine && exists(other) {
+				t.Fatalf("Yes on the card for %s allowed %s", mine, other)
+			}
+		}
+		waitFor("the card's command", 30*time.Second, func() bool { return exists(mine) })
+	case status == http.StatusConflict:
+		if exists("one.txt") || exists("two.txt") {
+			t.Fatal("a 409 pick let a command run")
+		}
+	default:
+		t.Fatalf("Yes with two at once: %d", status)
+	}
+	// What's left is put away in the pane.
+	for i := 0; i < 4 && menuShows(); i++ {
+		run("send-keys", "-t", "hire", "Escape")
+		time.Sleep(2 * time.Second)
+	}
+	t.Logf("--- the pane at the end ---\n%s", screen())
 }

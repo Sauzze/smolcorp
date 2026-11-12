@@ -976,7 +976,7 @@ final class HostBridge {
     /// nothing was typed. What may have typed says so (`mayHaveTyped`): ⌘V that the terminal hadn't read in time,
     /// a terminal that didn't take it, or stopped answering part way; the core then sends no Return and never
     /// offers the words again. And the peek: the end of what the tab shows (`PhoneDictation.peek`), only while the
-    /// agent is in front, as `Deck.peek` looks. The words are checked again: as `PhoneDictation.prepared` gives
+    /// agent is in front, as `Deck.peek` looks, its last `lines` if asked (a pick, up to `PhoneDictation.menuLines`). The words are checked again: as `PhoneDictation.prepared` gives
     /// them, so 2,000 characters at most; no "!" first; no control character but a line feed and a tab.
     private static func phoneAction(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime,
                                     deskState: @escaping () -> SessionState?) -> [String: Any] {
@@ -1012,7 +1012,10 @@ final class HostBridge {
                 switch actions.screen(tab) {
                 case nil: return unsupported
                 case .some(nil): return refused("This terminal can't show its input line.")
-                case .some(let screen?): return ["ok": true, "peek": PhoneDictation.peek(screen)]
+                case .some(let screen?):
+                    // The phone's peek, or more of it for a pick looking for its menu (desktop/talkpick.go).
+                    let lines = min(max(request["lines"] as? Int ?? PhoneDictation.peekLines, 1), PhoneDictation.menuLines)
+                    return ["ok": true, "peek": PhoneDictation.peek(screen, lines: lines)]
                 }
             }
         }

@@ -153,6 +153,7 @@ func TestADeskNotAskingHasNoAskingAndAGoneOneIs404(t *testing.T) {
 
 // A question's card: its options numbered from 1, each cut, one question that isn't multi-select is pickable.
 func TestAQuestionsCardHasItsNumberedOptionsCutAndIsPickable(t *testing.T) {
+	talkScreenShows(t, "") // a terminal whose screen a pick reads
 	d := newTestDeck(t)
 	long := func(n int) string { return strings.Repeat("é", n) }
 	talkAskQuestion(d, "s1", 1761000541000, map[string]any{"question": long(400), "header": "Colour", "multiSelect": false,
@@ -185,6 +186,7 @@ func TestAQuestionsCardHasItsNumberedOptionsCutAndIsPickable(t *testing.T) {
 // Not pickable, so the window shows the four keys: several questions, a multi-select one, no options, more
 // options than a menu has digits. The question is still on the card.
 func TestSeveralQuestionsOrAMultiSelectOrTooManyOptionsAreNotPickable(t *testing.T) {
+	talkScreenShows(t, "") // a terminal whose screen a pick reads
 	many := make([]string, 10)
 	for i := range many {
 		many[i] = "o" + string(rune('a'+i))
@@ -222,6 +224,7 @@ func TestSeveralQuestionsOrAMultiSelectOrTooManyOptionsAreNotPickable(t *testing
 
 // A permission prompt's card has the label, Yes and No (pickable) and never the tool's input.
 func TestAPermissionCardHasItsLabelAndNeverTheRawInput(t *testing.T) {
+	talkScreenShows(t, "") // a terminal whose screen a pick reads
 	d := newTestDeck(t)
 	talkHook(d, 1761000541000, map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/s1", "tool_name": "Bash",
 		"tool_input": map[string]any{"command": "git push --force origin secretbranch", "description": "private words"}})
@@ -241,6 +244,12 @@ func TestAPermissionCardHasItsLabelAndNeverTheRawInput(t *testing.T) {
 		"tool_input": map[string]any{"file_path": "/work/s1/Sources/Deck.swift"}})
 	if asking, _ := talkCardOf(t, d, "s1")["asking"].(map[string]any); asking["label"] != "Edit: Deck.swift" {
 		t.Errorf("a file tool: %v", asking)
+	}
+	// Leaving plan mode: its choice 1 changes the mode too, more than a Yes says, so the keys answer it.
+	talkHook(d, 1761000543000, map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/s1", "tool_name": "ExitPlanMode",
+		"tool_input": map[string]any{"plan": "the plan"}})
+	if asking, _ := talkCardOf(t, d, "s1")["asking"].(map[string]any); asking["kind"] != "permission" || asking["pickable"] != false {
+		t.Errorf("leaving plan mode: %v", asking)
 	}
 }
 
@@ -337,6 +346,7 @@ func TestADeskWithNoTranscriptStillHasACard(t *testing.T) {
 
 // /talk/asking: every desk asking, the longest waiting first; none asking is an empty list.
 func TestTheAskingListHasEveryWaitingDeskLongestWaitingFirst(t *testing.T) {
+	talkScreenShows(t, "") // a terminal whose screen a pick reads
 	d := newTestDeck(t)
 	list := func() []map[string]any {
 		got := talkAsk(t, d, "/talk/asking")

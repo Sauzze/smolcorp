@@ -1433,6 +1433,18 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(peek("tty:/dev/ttys005")["place"] as? String, "behind", "unknown isn't in front")
         XCTAssertEqual(peek("tty:/dev/ttys003")["error"] as? String, "This terminal can't show its input line.")
         XCTAssertEqual(peek("iterm:AB12")["unsupported"] as? Bool, true)
+        // A pick looks for its menu in more of the screen (desktop/talkpick.go): the lines asked, never past menuLines.
+        mac.screen = { _ in .some((1...80).map { "line \($0)" }.joined(separator: "\n")) }
+        func lines(_ asked: Any?) -> [String]? {
+            var request: [String: Any] = ["action": "peek", "tab": "tty:/dev/ttys003", "agent": "claude", "token": token]
+            if let asked { request["lines"] = asked }
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: mac)["peek"] as? [String]
+        }
+        XCTAssertEqual(lines(nil), (71...80).map { "line \($0)" }, "the phone's peek")
+        XCTAssertEqual(lines(30), (51...80).map { "line \($0)" })
+        XCTAssertEqual(lines(500)?.count, PhoneDictation.menuLines)
+        XCTAssertEqual(lines(0), ["line 80"])
+        XCTAssertEqual(lines("many"), (71...80).map { "line \($0)" }, "not a number")
     }
 
     /// The owner's rule, never answer a waiting prompt, under the Go core: the desk began asking while the words

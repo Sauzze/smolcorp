@@ -634,8 +634,9 @@ func (t commandTab) screen() (string, error) {
 	return string(output), err
 }
 
-// peek is the end of what the pane shows (peekOf), read only while agent is known to be in front there.
-func (t commandTab) peek(agent Agent) ([]string, error) {
+// lastLines is the end of what the pane shows, in its last most lines (screenEnd), read only while agent is
+// known to be in front there.
+func (t commandTab) lastLines(agent Agent, most int) ([]string, error) {
 	if running, known := t.runs(agent); !known || !running {
 		return nil, errAgentBehind
 	}
@@ -643,5 +644,5 @@ func (t commandTab) peek(agent Agent) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return peekOf(screen), nil
+	return screenEnd(screen, most), nil
 }

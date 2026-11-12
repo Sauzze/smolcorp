@@ -706,7 +706,17 @@ func hostPhoneText(h hostBridge, tab string, agent Agent, words string, deskStat
 
 // hostPeek has the Mac app read the end of what tab shows, only while agent is in front there.
 func hostPeek(h hostBridge, tab string, agent Agent) ([]string, error) {
-	answer, err := ask(h, bridgeRequest{Action: "peek", Tab: tab, Agent: agent})
+	return hostScreen(h, tab, agent, peekLines)
+}
+
+// hostScreen has the Mac app read the last lines tab shows, as many as asked up to its own most (talkScreenLines),
+// only while agent is in front there. The phone's peek asks for its own peekLines, the app's default.
+func hostScreen(h hostBridge, tab string, agent Agent, lines int) ([]string, error) {
+	request := bridgeRequest{Action: "peek", Tab: tab, Agent: agent}
+	if lines != peekLines {
+		request.Lines = lines
+	}
+	answer, err := ask(h, request)
 	if err != nil {
 		return nil, placeError(answer, err)
 	}
