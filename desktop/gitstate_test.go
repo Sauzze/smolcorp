@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -59,6 +60,14 @@ func aGitRepo(t *testing.T) string {
 func realGitState(dir string) GitState {
 	state, _ := readGitState(dir, readGitOut, time.Now())
 	return state
+}
+
+// withGitHere stands in for what is asked of the git here: its version and the owner's settings.
+func withGitHere(t *testing.T, here gitHereInfo) {
+	t.Helper()
+	was := gitHere
+	gitHere = func() gitHereInfo { return here }
+	t.Cleanup(func() { gitHere = was })
 }
 
 func TestStatusOfGitIsReadFromItsPorcelainV2(t *testing.T) {
@@ -187,12 +196,14 @@ func TestAnUpstreamGivesAheadAndBehind(t *testing.T) {
 	}
 }
 
-// withAttrSource forces the answer of the version check, so both paths are run on any git.
+// withAttrSource forces the answer of the version check, so both paths are run on any git (2.32 or later).
 func withAttrSource(t *testing.T, on bool) {
 	t.Helper()
-	was := gitHasAttrSource
-	gitHasAttrSource = func() bool { return on }
-	t.Cleanup(func() { gitHasAttrSource = was })
+	if on {
+		withGitHere(t, gitHereInfo{version: "git version 2.40.0"})
+	} else {
+		withGitHere(t, gitHereInfo{version: "git version 2.39.0"})
+	}
 }
 
 // A hostile repo: its own config, its attributes (in the working folder and in .git/info), an included config, the
@@ -232,10 +243,10 @@ func aHostileGitRepo(t *testing.T) *hostileRepo {
 	}
 	h := &hostileRepo{dir: aGitRepo(t), markers: physical(t.TempDir())}
 	dir := h.dir
-	for _, name := range []string{"c.txt", "d.txt", "e.txt"} {
+	for _, name := range []string{"c.txt", "d.txt", "e.txt", "g.txt", "h.txt"} {
 		writeRepoFile(t, dir, name, name+"\n")
 	}
-	gitRepoCmd(t, dir, "add", "c.txt", "d.txt", "e.txt")
+	gitRepoCmd(t, dir, "add", "c.txt", "d.txt", "e.txt", "g.txt", "h.txt")
 	gitRepoCmd(t, dir, "commit", "-q", "-m", "more")
 
 	cfg := func(key, value string) { gitRepoCmd(t, dir, "config", key, value) }
@@ -250,6 +261,7 @@ func aHostileGitRepo(t *testing.T) *hostileRepo {
 	cfg("core.sshCommand", h.program(t, "ssh"))
 	cfg("credential.helper", h.program(t, "credential"))
 	cfg("filter.infofilter.clean", h.program(t, "infoclean"))
+	cfg("filter.x=y.clean", h.program(t, "equalsclean")) // `-c filter.x=y.clean=` would set "filter.x" instead
 	hooks := physical(t.TempDir())
 	for _, hook := range []string{"post-index-change", "fsmonitor-watchman", "reference-transaction"} {
 		if err := os.WriteFile(filepath.Join(hooks, hook), []byte("#!/bin/sh\ntouch '"+filepath.Join(h.markers, "hook")+"'\n"), 0o755); err != nil {
@@ -265,8 +277,8 @@ func aHostileGitRepo(t *testing.T) *hostileRepo {
 	cfg("include.path", included)
 	cfg("includeIf.gitdir:"+dir+"/.path", included)
 
-	writeRepoFile(t, dir, ".gitattributes", "a.txt filter=clean1 diff=conv\nc.txt filter=inc\nd.txt filter=owners\ne.txt filter=fromenv\n")
-	writeRepoFile(t, dir, ".git/info/attributes", "src/b.txt filter=infofilter\n")
+	writeRepoFile(t, dir, ".gitattributes", "a.txt filter=clean1 diff=conv\nc.txt filter=inc\nd.txt filter=owners\ne.txt filter=fromenv\nh.txt filter=x=y\n")
+	writeRepoFile(t, dir, ".git/info/attributes", "src/b.txt filter=infofilter\ng.txt filter=x=y\n")
 
 	// The owner's own config and the environment, set after the setup above, which ran with both as they were.
 	home := physical(t.TempDir())
@@ -279,7 +291,7 @@ func aHostileGitRepo(t *testing.T) *hostileRepo {
 	t.Setenv("GIT_EXTERNAL_DIFF", h.program(t, "envdiff"))
 
 	// Every tracked file changed in size after the index was written, so any read has to look inside it.
-	for _, name := range []string{"a.txt", "src/b.txt", "c.txt", "d.txt", "e.txt"} {
+	for _, name := range []string{"a.txt", "src/b.txt", "c.txt", "d.txt", "e.txt", "g.txt", "h.txt"} {
 		writeRepoFile(t, dir, name, "changed, and longer than before\n")
 	}
 	return h
@@ -301,25 +313,174 @@ func TestReadingARepoRunsNothingItsConfigNames(t *testing.T) {
 			if control, err := exec.Command("git", "-C", h.dir, "diff", "--numstat", "HEAD", "--").CombinedOutput(); err != nil {
 				t.Fatalf("%v: %s", err, control)
 			}
-			if ran := h.ran(); len(ran) == 0 {
-				t.Fatal("the control repo's filters never ran, so this test proves nothing")
+			if ran := h.ran(); !slices.Contains(ran, "equalsclean") || !slices.Contains(ran, "infoclean") {
+				t.Fatalf("the control repo's filters didn't run (%v), so this test proves nothing", ran)
 			}
 			withAttrSource(t, mode.on)
 			state := realGitState(h.dir)
 			if ran := h.ran(); len(ran) != 0 {
 				t.Errorf("reading the repo ran: %v", ran)
 			}
-			if state.Skipped || state.Changed != 6 || state.Added != 5 || state.Removed != 7 {
+			if state.Skipped || state.Changed != 8 || state.Added != 7 || state.Removed != 9 {
 				t.Errorf("the state is still read: %+v", state)
 			}
 			// The same through the cache the app reads with.
-			if got := newGitStates().get(h.dir, 0); got.Changed != 6 {
+			if got := newGitStates().get(h.dir, 0); got.Changed != 8 {
 				t.Errorf("%+v", got)
 			}
 			if ran := h.ran(); len(ran) != 0 {
 				t.Errorf("the cached read ran: %v", ran)
 			}
 		})
+	}
+}
+
+// aLazyRepo is a partial clone missing the blob a diff against HEAD needs, so git would fetch it from its promisor
+// remote: that remote's upload-pack and the alternates' refs command (core.alternateRefsCommand) each write a marker,
+// and the repo allows the file transport itself (protocol.file.allow), which beats a plain protocol.allow=never.
+func aLazyRepo(t *testing.T, h *hostileRepo) string {
+	t.Helper()
+	dir := aGitRepo(t)
+	origin, other := filepath.Join(physical(t.TempDir()), "origin"), filepath.Join(physical(t.TempDir()), "other")
+	gitRepoCmd(t, dir, "clone", "-q", "--bare", "--no-local", dir, origin)
+	gitRepoCmd(t, dir, "init", "-q", "--bare", other)
+	blob := gitRepoCmd(t, dir, "rev-parse", "HEAD:a.txt")
+	if err := os.Remove(filepath.Join(dir, ".git", "objects", blob[:2], blob[2:])); err != nil {
+		t.Fatal(err)
+	}
+	writeRepoFile(t, dir, ".git/objects/info/alternates", filepath.Join(other, "objects")+"\n")
+	cfg := func(key, value string) { gitRepoCmd(t, dir, "config", key, value) }
+	cfg("core.repositoryformatversion", "1")
+	cfg("extensions.partialClone", "origin")
+	gitRepoCmd(t, dir, "remote", "add", "origin", origin)
+	cfg("remote.origin.promisor", "true")
+	cfg("protocol.file.allow", "always")
+	up := filepath.Join(physical(t.TempDir()), "up.sh")
+	if err := os.WriteFile(up, []byte("#!/bin/sh\ntouch '"+filepath.Join(h.markers, "uploadpack")+"'\nexec git-upload-pack \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h.names = append(h.names, "uploadpack")
+	cfg("remote.origin.uploadpack", up)
+	cfg("core.alternateRefsCommand", h.program(t, "alternaterefs"))
+	writeRepoFile(t, dir, "a.txt", "one\ntwo\nthree\nfour\n")
+	return dir
+}
+
+// A missing object in a partial clone makes git fetch it, and the fetch runs what the repo's config names for it.
+// A read starts no fetch: no transport is allowed (GIT_ALLOW_PROTOCOL, protocol.allow) and no lazy fetch either
+// (GIT_NO_LAZY_FETCH); and the repo isn't read at all, as its config names an upload-pack, which isn't blanked.
+func TestALazyFetchStartsNothing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell scripts")
+	}
+	h := &hostileRepo{markers: physical(t.TempDir())}
+	// The control: plain git fetches, and runs both.
+	control := aLazyRepo(t, h)
+	if out, err := exec.Command("git", "-C", control, "diff", "--numstat", "HEAD", "--").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if ran := h.ran(); !slices.Contains(ran, "uploadpack") || !slices.Contains(ran, "alternaterefs") {
+		t.Fatalf("the control fetched nothing (%v), so this test proves nothing", ran)
+	}
+	dir := aLazyRepo(t, h)
+	state := realGitState(dir)
+	if ran := h.ran(); len(ran) != 0 {
+		t.Errorf("reading the repo ran: %v", ran)
+	}
+	if !state.Repo || !state.Skipped || (!strings.Contains(state.Note, "core.alternaterefscommand") && !strings.Contains(state.Note, "remote.*.uploadpack")) {
+		t.Errorf("%+v", state)
+	}
+	// Below that refusal, the guards alone: the diff a read would run, with what every read is given.
+	out, status, err := readGitOut(context.Background(), dir, gitCall{global: gitReadArgs}, "diff", "--numstat", "-z", "HEAD", "--")
+	if ran := h.ran(); len(ran) != 0 {
+		t.Errorf("the guarded diff ran: %v (%d %v %q)", ran, status, err, out)
+	}
+	if err != nil || status == 0 {
+		t.Errorf("the blob was there after all: %d %v %q", status, err, out)
+	}
+}
+
+// fakeRead is the cache on a fake git of the given version.
+func fakeRead(t *testing.T, version string) (*gitStates, *fakeGit) {
+	t.Helper()
+	withGitHere(t, gitHereInfo{version: version})
+	g, f, _ := cachedWith(t)
+	return g, f
+}
+
+// Before 2.32 git can't be handed config safely, so only where the repo is gets read, and the owner is told.
+func TestAnOldGitReadsOnlyWhereTheRepoIs(t *testing.T) {
+	g, f := fakeRead(t, "git version 2.31.8")
+	state := g.get(t.TempDir(), 0)
+	if !state.Repo || state.Top == "" || !state.Skipped || !strings.Contains(state.Note, "older than 2.32") {
+		t.Errorf("%+v", state)
+	}
+	if f.count("config") != 0 || f.count("status") != 0 || f.count("diff") != 0 {
+		t.Errorf("an old git was asked more: %v", f.calls)
+	}
+	g, f = fakeRead(t, "git version 2.32.0")
+	if state := g.get(t.TempDir(), 0); state.Skipped || f.count("status") != 1 {
+		t.Errorf("2.32: %+v", state)
+	}
+}
+
+// A key the read doesn't know, and nothing past the config is read: the owner is told which.
+func TestAConfigKeyNotUnderstoodStopsTheRead(t *testing.T) {
+	g, f := fakeRead(t, "git version 2.55.0")
+	f.config = "core.bare\nfalse\x00core.gitproxy\nprog\x00"
+	if state := g.get(t.TempDir(), 0); !state.Repo || !state.Skipped || !strings.Contains(state.Note, "core.gitproxy") || f.count("status") != 0 {
+		t.Errorf("%+v %v", state, f.calls)
+	}
+	dir := aGitRepo(t)
+	gitRepoCmd(t, dir, "config", "web.browser", "prog")
+	if state := realGitState(dir); !state.Skipped || !strings.Contains(state.Note, "web.browser") || state.Changed != 0 {
+		t.Errorf("a real repo: %+v", state)
+	}
+}
+
+// A repo owned by another account is refused by git: it is said so, unless the owner trusts it in their own config.
+func TestARepoOfAnotherAccountIsSaidSoUnlessTheOwnerTrustsIt(t *testing.T) {
+	dir := aGitRepo(t)
+	writeRepoFile(t, dir, "a.txt", "changed\n")
+	t.Setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1") // git's own stand-in for another account
+	if exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Run() == nil {
+		t.Skip("this git has no stand-in for another account")
+	}
+	withGitHere(t, gitHereInfo{version: "git version 2.40.0"})
+	if state := realGitState(dir); !state.Repo || state.Top != dir || !state.Skipped || !strings.Contains(state.Note, "another account") {
+		t.Errorf("%+v", state)
+	}
+	withGitHere(t, gitHereInfo{version: "git version 2.40.0", owner: [][2]string{{"safe.directory", dir}}})
+	if state := realGitState(dir); state.Skipped || state.Changed != 1 {
+		t.Errorf("trusted: %+v", state)
+	}
+	t.Setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "0")
+	if state := realGitState(physical(t.TempDir())); state.Repo || state.Note != "" {
+		t.Errorf("no repo: %+v", state)
+	}
+}
+
+// The owner's own git config is left out of a read, but its ignore file and trusted folders are asked for and kept.
+func TestTheOwnersIgnoreFileStillHidesFiles(t *testing.T) {
+	home := physical(t.TempDir())
+	writeRepoFile(t, home, ".gitconfig", "[core]\n\texcludesfile = ~/ignored\n\tfsmonitor = prog\n[safe]\n\tdirectory = /some/repo\n[filter \"x\"]\n\tclean = prog\n")
+	writeRepoFile(t, home, "ignored", "*.swp\n")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git here")
+	}
+	here := askGitHere()
+	if !gitVersionAtLeast(here.version, 2, 0) || len(here.owner) != 2 || here.owner[0] != [2]string{"core.excludesfile", "~/ignored"} ||
+		here.owner[1] != [2]string{"safe.directory", "/some/repo"} {
+		t.Fatalf("%+v", here)
+	}
+	withGitHere(t, here)
+	dir := aGitRepo(t)
+	writeRepoFile(t, dir, "notes.swp", "x\n")
+	writeRepoFile(t, dir, "kept.txt", "x\n")
+	if state := realGitState(dir); state.Skipped || state.Changed != 1 || state.Files[0].Path != "kept.txt" {
+		t.Errorf("%+v", state)
 	}
 }
 
@@ -360,26 +521,50 @@ func TestASha256RepoIsReadWithItsOwnEmptyTree(t *testing.T) {
 }
 
 func TestGitIsReadWithNothingToAskAndNoOtherRepoNamed(t *testing.T) {
-	env := gitReadEnv([]string{"PATH=/bin", "git_dir=/elsewhere", "GIT_WORK_TREE=/x", "GIT_TERMINAL_PROMPT=1", "GIT_PAGER=less", "HOME=/h",
+	app := []string{"PATH=/bin", "git_dir=/elsewhere", "GIT_WORK_TREE=/x", "GIT_TERMINAL_PROMPT=1", "GIT_PAGER=less", "HOME=/h",
 		"GIT_CONFIG_COUNT=1", "git_config_key_0=filter.x.clean", "GIT_CONFIG_VALUE_0=prog", "GIT_CONFIG_PARAMETERS='a.b=c'", "GIT_CONFIG_GLOBAL=/g",
-		"GIT_EXTERNAL_DIFF=prog", "GIT_SSH_COMMAND=prog", "GIT_ASKPASS=prog", "GIT_ATTR_SOURCE=HEAD", "GIT_AUTHOR_NAME=kept"})
-	got := strings.Join(env, " ")
-	want := "PATH=/bin HOME=/h GIT_AUTHOR_NAME=kept GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 GIT_PAGER=cat GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=" + os.DevNull
-	if got != want {
+		"GIT_EXTERNAL_DIFF=prog", "GIT_SSH_COMMAND=prog", "GIT_ASKPASS=prog", "GIT_ATTR_SOURCE=HEAD", "GIT_ALLOW_PROTOCOL=file:ext",
+		"GIT_PROTOCOL_FROM_USER=1", "GIT_NO_LAZY_FETCH=0", "GIT_AUTHOR_NAME=kept"}
+	want := "PATH=/bin HOME=/h GIT_AUTHOR_NAME=kept GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 GIT_PAGER=cat GIT_ALLOW_PROTOCOL= GIT_NO_LAZY_FETCH=1 " +
+		"GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=" + os.DevNull
+	if got := strings.Join(gitReadEnv(app, nil), " "); got != want {
+		t.Errorf("%s", got)
+	}
+	// Config is handed over whole, a key with an "=" in its subsection included.
+	got := strings.Join(gitReadEnv(app, [][2]string{{"filter.x=y.clean", ""}, {"filter.x=y.required", "false"}}), " ")
+	if got != want+" GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=filter.x=y.clean GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=filter.x=y.required GIT_CONFIG_VALUE_1=false" {
 		t.Errorf("%s", got)
 	}
 }
 
 func TestFiltersAndConvertersAConfigNamesAreBlankedByName(t *testing.T) {
-	list := "core.bare\nfalse\x00filter.lfs.clean\ngit-lfs clean\x00filter.lfs.required\ntrue\x00Filter.a.b.Process\nprog\x00" +
-		"diff.tc.textconv\nprog\x00diff.tc.command\nprog\x00diff.tc.binary\ntrue\x00diff.algorithm\nhistogram\x00filter.x\ny\x00filter.lfs.clean\nagain\x00"
-	got := strings.Join(gitBlanks([]byte(list)), " ")
-	want := "-c filter.lfs.clean= -c filter.lfs.required=false -c filter.a.b.process= -c filter.a.b.required=false -c diff.tc.textconv= -c diff.tc.command="
-	if got != want {
-		t.Errorf("%s", got)
+	list := "core.bare\nfalse\x00filter.lfs.clean\ngit-lfs clean\x00filter.lfs.required\ntrue\x00filter.a.B.process\nprog\x00" +
+		"diff.tc.textconv\nprog\x00diff.tc.command\nprog\x00diff.tc.binary\ntrue\x00diff.algorithm\nhistogram\x00filter.x=y.clean\nprog\x00" +
+		"filter.lfs.clean\nagain\x00remote.origin.url\n/r\x00protocol.file.allow\nalways\x00alias.st\n!prog\x00core.fsmonitor\nprog\x00" +
+		"core.hookspath\n.husky\x00branch.main.vscode-merge-base\norigin/main\x00include.path\n/x\x00lfs.repositoryformatversion\n0\x00"
+	blanks, refused := gitRepoConfig([]byte(list))
+	var got []string
+	for _, kv := range blanks {
+		got = append(got, kv[0]+"="+kv[1])
 	}
-	if len(gitBlanks(nil)) != 0 {
-		t.Error("a config with none names none")
+	want := "filter.lfs.clean= filter.lfs.required=false filter.a.B.process= diff.tc.textconv= diff.tc.command= filter.x=y.clean= " +
+		"protocol.file.allow=never alias.st="
+	if refused != "" || strings.Join(got, " ") != want {
+		t.Errorf("%q: %s", refused, strings.Join(got, " "))
+	}
+	if blanks, refused := gitRepoConfig([]byte(list + "bare-word\x00")); refused != "a key with no section" || blanks != nil {
+		t.Errorf("a record that isn't a key: %q %v", refused, blanks)
+	}
+	// Fail closed: a program the read doesn't blank, or a key it doesn't know, and the repo isn't read.
+	for key, rule := range map[string]string{"remote.origin.uploadpack": "remote.*.uploadpack", "core.alternateRefsCommand": "core.alternaterefscommand",
+		"core.gitproxy": "core.gitproxy", "remote.Odd=Name.vcs": "remote.*.vcs", "gpg.ssh.defaultkeycommand": "gpg.*.defaultkeycommand",
+		"something.new": "something.new", "difftool.x.cmd": "difftool.*.cmd", "core.fsmonitor.x": "core.*.x"} {
+		if blanks, refused := gitRepoConfig([]byte("core.bare\nfalse\x00" + key + "\nprog\x00")); refused != rule || blanks != nil {
+			t.Errorf("%s: %q %v", key, refused, blanks)
+		}
+	}
+	if blanks, refused := gitRepoConfig(nil); len(blanks) != 0 || refused != "" {
+		t.Error("an empty config names nothing")
 	}
 }
 
@@ -411,11 +596,12 @@ type fakeGit struct {
 	dir     string
 	calls   map[string]int
 	changes string // the status's entries
+	config  string // the config's list
 	fail    map[string]error
 	gate    chan struct{}
 }
 
-func (f *fakeGit) read(_ context.Context, _ string, _ []string, args ...string) ([]byte, int, error) {
+func (f *fakeGit) read(_ context.Context, _ string, _ gitCall, args ...string) ([]byte, int, error) {
 	f.mu.Lock()
 	f.calls[args[0]]++
 	err, gate := f.fail[args[0]], f.gate
@@ -430,7 +616,7 @@ func (f *fakeGit) read(_ context.Context, _ string, _ []string, args ...string) 
 	case "rev-parse":
 		return []byte("/repo\n" + f.dir + "\n"), 0, nil
 	case "config":
-		return nil, 0, nil
+		return []byte(f.config), 0, nil
 	case "status":
 		return []byte("# branch.oid abc\x00# branch.head main\x00" + f.changes), 0, nil
 	}
