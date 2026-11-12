@@ -717,6 +717,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			id = r.URL.Query().Get("id")
 		}
 		writeAnswer(w)(d.sessionInfo(id))
+	// Git state of the desk's folder (gitstate.go), in the office's own window on this computer, never a phone.
+	case r.Method == http.MethodGet && r.URL.Path == "/desk/git":
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, d.shownOnlyInTheWindow("The git state"))
+			return
+		}
+		writeAnswer(w)(d.deskGit(session))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
 	case r.Method == http.MethodPost && r.URL.Path == "/summary":
 		text, err := d.Summarize(session)
@@ -1930,6 +1937,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// routes.json: POST /setup/gm/hire is an action for gm and page (see gmhire.go).
 	case r.Method == http.MethodPost && path == "/setup/gm/hire":
 		d.gmHire(w, r)
+
+	// A hire's git state, read only (gitstate.go; goOnlyRoutes lists it: gm, page and tool). A GET, so a GM's scope passes it.
+	case r.Method == http.MethodGet && path == "/setup/gm/git":
+		rt.gmGit(w, r)
 
 	// The front desk. routes.json: GET /setup/gm/team is read for gm, page and tool.
 	case r.Method == http.MethodGet && path == "/setup/gm/team":
