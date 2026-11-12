@@ -485,3 +485,98 @@ func TestEveryRoleTheMacShipsShipsHere(t *testing.T) {
 		t.Errorf("Windows and Linux ship %v, the Mac %v", here, mac)
 	}
 }
+
+// The Builder is the shipped role that writes code, so it is held to the same
+// fence as the rest: Claude Code (the only agent Smolcorp fences), it asks
+// before it starts, and its instructions have it wait for an OK before it
+// changes anything and never push, merge, publish or deploy by itself.
+func TestTheBuilderIsFencedLikeTheOthers(t *testing.T) {
+	i := slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == "builder" })
+	if i < 0 {
+		t.Fatal("no Builder ships")
+	}
+	builder := shippedRoles[i]
+	if builder.Name != "Builder" || builder.Agent != "claude" {
+		t.Errorf("the Builder is %q on %q, want Builder on Claude Code, the agent Smolcorp fences", builder.Name, builder.Agent)
+	}
+	if len(builder.Questions) == 0 {
+		t.Error("the Builder asks nothing before it starts")
+	}
+	for _, want := range []string{"wait for my OK", "Never push, merge, publish or deploy unless I tell you to"} {
+		if !strings.Contains(builder.Instructions, want) {
+			t.Errorf("the Builder's instructions don't say %q: %q", want, builder.Instructions)
+		}
+	}
+	if builder.Brief != nil || builder.defaultBrief().Kind != "library" || builder.defaultBrief().ID != "builder" {
+		t.Errorf("the Builder's brief comes as %+v, want the library's builder", builder.defaultBrief())
+	}
+	// Like the others: it's last, the roles before it are as they were, and a config from before it is given it once.
+	if shippedRoleIDs()[len(shippedRoles)-1] != "builder" {
+		t.Errorf("the roles end with %q, want the Builder last", shippedRoleIDs()[len(shippedRoles)-1])
+	}
+	isolate(t)
+	writeFile(t, configFile, `{"roles": [{"id": "tester", "name": "Tester"}], "rolesOffered": `+
+		`["reviewer","tester","bughunter","docs","refactorer","artdirector","lawyer","therapist","plumber","gm","janitor","firefighter",`+
+		`"pilot","postman","accountant","marketer","securityguard","chef","thinker"]}`)
+	roles := loadConfig().Roles
+	if len(roles) != 2 || roles[1].ID != "builder" || !roles[1].sameAs(builder) {
+		t.Errorf("a config from before the Builder loads %+v, want its tester and then the Builder", roles)
+	}
+}
+
+// Each company template is a General Manager and shipped roles only, so the
+// hire queue (K2) and setup (K3) can hire it as it stands, and each is the
+// owner's list.
+func TestEveryCompanyTemplateHiresRolesThatExist(t *testing.T) {
+	if len(companyTemplates) != 3 {
+		t.Fatalf("%d templates ship, want 3", len(companyTemplates))
+	}
+	ids := map[string]bool{}
+	for _, template := range companyTemplates {
+		if template.ID == "" || ids[template.ID] || strings.TrimSpace(template.Name) == "" || strings.TrimSpace(template.Blurb) == "" {
+			t.Errorf("template %+v needs a name, a blurb and an id of its own", template)
+		}
+		ids[template.ID] = true
+		if template.GM != "gm" || !slices.Contains(shippedRoleIDs(), template.GM) {
+			t.Errorf("%s's General Manager is %q, want the shipped gm", template.Name, template.GM)
+		}
+		if len(template.Roles) == 0 {
+			t.Errorf("%s hires no roles besides the General Manager", template.Name)
+		}
+		for _, id := range template.Roles {
+			if id == "gm" || !slices.Contains(shippedRoleIDs(), id) {
+				t.Errorf("%s hires %q, which isn't a shipped role besides the General Manager", template.Name, id)
+			}
+		}
+		// What setup sends and a hire reads must be a role as it comes: checked leaves it as it is.
+		for _, id := range append([]string{template.GM}, template.Roles...) {
+			role := shippedRoles[slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == id })]
+			if checked, ok := role.checked(); !ok || !checked.sameAs(role) {
+				t.Errorf("%s's %s isn't kept as it comes", template.Name, id)
+			}
+		}
+	}
+	for _, want := range []struct {
+		id    string
+		name  string
+		roles []string
+	}{
+		{"solo-builder", "Solo builder", []string{"builder", "reviewer", "tester"}},
+		{"small-agency", "Small agency", []string{"builder", "builder", "artdirector", "reviewer", "docs"}},
+		{"bug-squash", "Bug squash", []string{"bughunter", "tester", "reviewer"}},
+	} {
+		template, ok := companyTemplate(want.id)
+		if !ok || template.Name != want.name || !slices.Equal(template.Roles, want.roles) {
+			t.Errorf("%s is %+v, want %s with %v", want.id, template, want.name, want.roles)
+		}
+	}
+	if _, ok := companyTemplate("nobody"); ok {
+		t.Error("a template that doesn't exist was found")
+	}
+	// What the lookup gives is a copy: changing it leaves the templates alone.
+	template, _ := companyTemplate("solo-builder")
+	template.Roles[0] = "changed"
+	if again, _ := companyTemplate("solo-builder"); again.Roles[0] != "builder" {
+		t.Errorf("changing a looked-up template changed the shipped one: %v", again.Roles)
+	}
+}
