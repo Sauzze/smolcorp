@@ -338,10 +338,18 @@ func (d *Deck) claimReturn(id string) bool {
 // checked as the request comes, and again right before the words: on the key worker, and under the Mac app
 // on the terminal's own queue too, as the Mac app asks (hostPhoneText).
 func (d *Deck) TypePhoneText(text, id string, send *bool) (int, string) {
+	return d.typeText(textFromPhone, text, id, send)
+}
+
+// typeText is the one copy of every rule for the words typed into a desk, from a paired phone (POST /dictate)
+// or from the office's own window (POST /talk/say, talksay.go). The window differs in three things only: it
+// needs no phone-text switch (D2), it is never typed into a Mac terminal app's tab (D3), and it always sends,
+// unless it says otherwise, with its own words where the phone's say "the deck".
+func (d *Deck) typeText(from textFrom, text, id string, send *bool) (int, string) {
 	d.mu.Lock()
 	on, autoSend := d.config.PhoneMicEnabled, d.config.PhoneMicAutoSend
 	d.mu.Unlock()
-	if !on {
+	if from == textFromPhone && !on {
 		return http.StatusForbidden, phoneTextOff
 	}
 	words, ok := preparedPhoneText(text)
@@ -352,35 +360,19 @@ func (d *Deck) TypePhoneText(text, id string, send *bool) (int, string) {
 	if runsInShell(words) {
 		return http.StatusBadRequest, noBangPrompt
 	}
-	d.mu.Lock()
-	// A hire in T3 Code's desk is not typed into: its own sentence, as /act's send and the Mac say it.
-	if hire, ok := d.t3HireAtDesk(id); ok {
-		d.mu.Unlock()
-		return http.StatusConflict, t3NoControls(calledHire(hire))
+	target, status, why := d.typeTarget(from, id)
+	if why != "" {
+		return status, why
 	}
-	s := d.sessions.Get(id)
-	if s == nil || s.Tab == "" {
-		d.mu.Unlock()
-		return http.StatusNotFound, "Session not found"
-	}
-	name, agent, asking, tab := s.Tab, s.Agent, s.State == Asking, d.tab(s.Tab)
-	d.mu.Unlock()
-	// A test copy types nothing into the owner's terminal tabs (RWTC N1).
-	if why := testCopyKeepsTab(name); why != "" {
-		return http.StatusConflict, why
-	}
-	// Asking you something, its menu would take the words: a digit picking an option, Return the one highlighted.
-	if asking {
-		return http.StatusConflict, answerFirst
-	}
-	if tab == nil {
-		return http.StatusConflict, notHere
-	}
+	name, agent := target.name, target.agent
 	lines := isPhoneLines(words)
 	if lines && !takesLinesAtAll(name) {
 		return http.StatusConflict, noLines
 	}
 	sends := phoneTextSends(words, autoSend)
+	if from == textFromWindow {
+		sends = true
+	}
 	if send != nil {
 		sends = *send
 	}
@@ -428,13 +420,13 @@ func (d *Deck) TypePhoneText(text, id string, send *bool) (int, string) {
 	})
 	switch {
 	case asked:
-		return http.StatusConflict, answerFirst
+		return http.StatusConflict, from.answerFirst()
 	case notTaken:
 		return http.StatusConflict, noLines
 	case unsupported:
 		return http.StatusConflict, notHere
 	case withheld && status < http.StatusBadRequest:
-		return http.StatusConflict, typedNotSent
+		return http.StatusConflict, from.typedNotSent()
 	}
 	if failed, why, ok := phoneTextFailure(failure); ok {
 		return failed, why
