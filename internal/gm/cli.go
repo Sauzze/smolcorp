@@ -25,8 +25,8 @@ Commands:
                                 hire an employee (the folder defaults to the
                                 one set up for new hires). Not the gm role:
                                 the owner hires the GM from Setup. --t3 hires
-                                into T3 Code (experimental, Mac only): its own
-                                worktree and a T3 Code thread
+                                into T3 Code (experimental; needs T3 Code and its
+                                t3 command): its own worktree and a T3 Code thread
   brief <hire> (--text TEXT | --file F)
                                 send a later brief to a hire already working
                                 (it comes to the hire as mail)

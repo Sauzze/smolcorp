@@ -1059,3 +1059,14 @@ func TestSessionHeaderIsSentOnlyWhenWellFormed(t *testing.T) {
 		t.Errorf("a hire sent the session header: %q", got)
 	}
 }
+
+// --t3's help doesn't say "Mac only": hiring into T3 Code works wherever T3 Code and its t3 command are (MTMUX).
+func TestHelpDoesNotSayT3IsMacOnly(t *testing.T) {
+	var out bytes.Buffer
+	if code := Run([]string{"help"}, &out, io.Discard); code != 0 {
+		t.Fatalf("help exits %d", code)
+	}
+	if strings.Contains(out.String(), "Mac only") || !strings.Contains(out.String(), "--t3 hires") {
+		t.Errorf("help says: %s", out.String())
+	}
+}

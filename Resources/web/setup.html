@@ -7658,6 +7658,7 @@
     hooks: () => 'pressed Connect',
     account: (i) => (!i.action ? '' : i.action.label === 'Choose an account' ? 'chosen a Claude account' : 'added a Claude account'),
     terminal: (i) => (!i.action ? 'installed tmux' : i.action.kind === 'fix' ? 'let Smolcorp open your terminal' : 'installed tmux'),
+    tmux: () => 'installed tmux',
   };
   /** Why Hire is greyed, naming the lines in its way (`left`, as startLines has them), so it never counts them apart. */
   function hireGreyedUntil(left) {

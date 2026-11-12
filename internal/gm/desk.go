@@ -22,7 +22,7 @@ type HireOptions struct {
 	Role, Folder, Account, Model, Nickname, Task string
 	Floor                                        int // -1: not given
 	Worktree, APIKey                             bool
-	T3                                           bool // into T3 Code (experimental, the Mac app only)
+	T3                                           bool // into T3 Code (experimental; needs T3 Code and its t3 command)
 }
 
 // body is the request as POST /setup/gm/hire takes it.
