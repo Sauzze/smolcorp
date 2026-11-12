@@ -224,6 +224,15 @@ var (
 				"on the web if it helps. Write your thinking to a file: the options, their trade-offs, what you recommend " +
 				"and why, the open questions, and your sources. Don't change any code: report, and wait for my OK on any " +
 				"next step."},
+		{ID: "builder", Name: "Builder", Agent: "claude", Model: "sonnet", Effort: "high", Badge: "rocket",
+			Questions: []string{
+				"What should you build: a feature, an app, or a website?",
+				"What must it do or include, and what does \"done\" look like?",
+				"Anything to build from, such as a design, a study or an existing page?",
+			},
+			Instructions: "Build what I describe, on a branch of its own. First list what you'll make or change, file by file, and wait " +
+				"for my OK. Then build it in small steps, and check it in the real thing, not only in tests. Show me what " +
+				"you did and how you checked it. Never push, merge, publish or deploy unless I tell you to."},
 	}
 	// The shipped roles as 1.7.1 had them, which assumed what to work on. A
 	// role still exactly so is brought up to date as it loads; one you've
@@ -290,6 +299,45 @@ func shippedRoleIDs() []string {
 		ids[i] = role.ID
 	}
 	return ids
+}
+
+// CompanyTemplate is a team the office can be set up with in one go: a name
+// and a blurb to pick it by, the General Manager, and the roles it hires,
+// each by its shipped id, in the order they are hired (a role twice is two
+// hires). It is only data: nothing here hires anything. The hire queue (K2)
+// and setup's "Pick your company" step (K3) read it.
+type CompanyTemplate struct {
+	ID    string   `json:"id"`
+	Name  string   `json:"name"`
+	Blurb string   `json:"blurb"`
+	GM    string   `json:"gm"`
+	Roles []string `json:"roles"`
+}
+
+// companyTemplates are the teams that come with the app, in the order setup
+// offers them. Each role is a shipped one; the Art Director is the Designer
+// of the owner's list, as no role of that name ships.
+var companyTemplates = []CompanyTemplate{
+	{ID: "solo-builder", Name: "Solo builder",
+		Blurb: "One builder, with a manager to plan the work, and a reviewer and a tester to check it before it counts as done.",
+		GM:    "gm", Roles: []string{"builder", "reviewer", "tester"}},
+	{ID: "small-agency", Name: "Small agency",
+		Blurb: "Two builders on a manager's plan, a designer for how it looks, a reviewer for the code and a writer for the docs.",
+		GM:    "gm", Roles: []string{"builder", "builder", "artdirector", "reviewer", "docs"}},
+	{ID: "bug-squash", Name: "Bug squash",
+		Blurb: "A bug hunter finds what's broken, a tester proves it, a reviewer checks the fix, and a manager keeps the list.",
+		GM:    "gm", Roles: []string{"bughunter", "tester", "reviewer"}},
+}
+
+// companyTemplate is the template with this id, and false if there is none.
+func companyTemplate(id string) (CompanyTemplate, bool) {
+	i := slices.IndexFunc(companyTemplates, func(t CompanyTemplate) bool { return t.ID == id })
+	if i < 0 {
+		return CompanyTemplate{}, false
+	}
+	template := companyTemplates[i]
+	template.Roles = slices.Clone(template.Roles)
+	return template, true
 }
 
 // UnmarshalJSON reads a role field by field: anything missing or of the

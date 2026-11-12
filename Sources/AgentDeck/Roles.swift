@@ -188,6 +188,15 @@ struct Role: Codable, Equatable {
             and why, the open questions, and your sources. Don't change any code: report, and wait for my OK on any \
             next step.
             """, badge: "bulb", outfit: "professor"),
+        Role(id: "builder", name: "Builder", agent: "claude", model: "sonnet", effort: "high", questions: [
+            "What should you build: a feature, an app, or a website?",
+            "What must it do or include, and what does \"done\" look like?",
+            "Anything to build from, such as a design, a study or an existing page?",
+        ], instructions: """
+            Build what I describe, on a branch of its own. First list what you'll make or change, file by file, and wait \
+            for my OK. Then build it in small steps, and check it in the real thing, not only in tests. Show me what \
+            you did and how you checked it. Never push, merge, publish or deploy unless I tell you to.
+            """, badge: "rocket"),
     ]
 
     /// The shipped roles each version came with, by id, in order: a config
