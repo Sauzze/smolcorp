@@ -119,6 +119,10 @@ Smart Chain or another EVM network:
 
 Check the address after pasting it: transfers can't be reversed.
 
+## Contributing
+
+Bug reports and ideas are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request: most changes need an approved issue first.
+
 ## License
 
 [MIT](LICENSE)
