@@ -397,7 +397,9 @@ func TestAMacShortTimeIsWrittenAsTheMacsPatternSaysIt(t *testing.T) {
 // RWTC N7: a delivery's time asks the Mac only how it writes a time, never the whole facts.
 func TestADeliveryIsTimedAsTheMacSaysIt(t *testing.T) {
 	mac := withMac(t)
-	d := newTestDeck(t)
+	// A deck that isn't started: a running deck's own rounds ask the facts on their own, which isn't the delivery's ask.
+	d := &Deck{}
+	d.mac.host = mac
 	saved := macTimePrefs
 	t.Cleanup(func() { macTimePrefs = saved })
 	macTimePrefs = func() macTimeSettings { return macTimeSettings{force24: "1"} }
