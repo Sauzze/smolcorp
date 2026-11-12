@@ -30130,10 +30130,11 @@
       const inLine = DESKS[desk].off && crowdAnchors.has(desk);
       if (DESKS[desk].off && !inLine) return;
       const between = inLine ? (desk === selectedDesk ? DESK_WIDTH : CROWD_GAP - 1) : DESK_COLUMNS[1] - DESK_COLUMNS[0] - 2;
-      // How long the agent has been at work, between the dot and the name: its room kept as wide as its widest
-      // digits, so the name doesn't shift as they change. Shorter before the name is cut, and left out where even
-      // that would cut a name that fits on its own, as on a phone.
-      const seconds = sessionSecondsAt(desk);
+      // How long the agent has been on its current turn (owner: the tag is the turn, not the session; the ⓘ card
+      // keeps the working time and the session's age), between the dot and the name, empty while it's idle: its room
+      // kept as wide as its widest digits, so the name doesn't shift as they change. Shorter before the name is cut,
+      // and left out where even that would cut a name that fits on its own, as on a phone.
+      const seconds = turnSecondsAt(desk);
       const clockRoom = (text) => (text ? ctx.measureText(text.replace(/\d/g, '0')).width + gap : 0);
       const nameFits = (text) => ctx.measureText(name).width <= between * scale - dotSize - gap - padding * 2 - clockRoom(text);
       let clock = seconds === null ? null : turnLength(seconds);
@@ -30450,21 +30451,6 @@
       if (DESKS[desk].off || !session || !session.turnStartedAt || (session.state !== 'thinking' && session.state !== 'asking')) return null;
       if (session.startedAt && session.turnStartedAt < session.startedAt) return null;
       return Math.max(0, Math.floor((Date.now() - session.turnStartedAt) / 1000));
-    }
-
-    /**
-     * How long the agent at a desk has been at work, in seconds, while it
-     * works or asks, or null: from its session's start, which /clear and
-     * compaction don't move, or its turn's if that's earlier or the start
-     * isn't said, as the portable viewer doesn't. Its name tag shows it.
-     */
-    function sessionSecondsAt(desk) {
-      const session = sessionAt(desk);
-      if (DESKS[desk].off || !session || (session.state !== 'thinking' && session.state !== 'asking')) return null;
-      // A turn that began before its session did is wrong data: nothing shown, rather than a made-up length.
-      if (session.startedAt && session.turnStartedAt && session.turnStartedAt < session.startedAt) return null;
-      const from = Math.min(session.startedAt || Infinity, session.turnStartedAt || Infinity);
-      return from === Infinity ? null : Math.max(0, Math.floor((Date.now() - from) / 1000));
     }
 
     /**
