@@ -433,7 +433,7 @@ func TestAConfigKeyNotUnderstoodStopsTheRead(t *testing.T) {
 	}
 	dir := aGitRepo(t)
 	gitRepoCmd(t, dir, "config", "web.browser", "prog")
-	if state := realGitState(dir); !state.Skipped || !strings.Contains(state.Note, "web.browser") || state.Changed != 0 {
+	if state := realGitState(dir); !state.Skipped || !strings.Contains(state.Note, "web.browser") || !strings.Contains(state.Note, "doesn't know") || state.Changed != 0 {
 		t.Errorf("a real repo: %+v", state)
 	}
 }
@@ -524,7 +524,7 @@ func TestGitIsReadWithNothingToAskAndNoOtherRepoNamed(t *testing.T) {
 	app := []string{"PATH=/bin", "git_dir=/elsewhere", "GIT_WORK_TREE=/x", "GIT_TERMINAL_PROMPT=1", "GIT_PAGER=less", "HOME=/h",
 		"GIT_CONFIG_COUNT=1", "git_config_key_0=filter.x.clean", "GIT_CONFIG_VALUE_0=prog", "GIT_CONFIG_PARAMETERS='a.b=c'", "GIT_CONFIG_GLOBAL=/g",
 		"GIT_EXTERNAL_DIFF=prog", "GIT_SSH_COMMAND=prog", "GIT_ASKPASS=prog", "GIT_ATTR_SOURCE=HEAD", "GIT_ALLOW_PROTOCOL=file:ext",
-		"GIT_PROTOCOL_FROM_USER=1", "GIT_NO_LAZY_FETCH=0", "GIT_AUTHOR_NAME=kept"}
+		"GIT_PROTOCOL_FROM_USER=1", "GIT_NO_LAZY_FETCH=0", "GIT_EXEC_PATH=/elsewhere", "GIT_AUTHOR_NAME=kept"}
 	want := "PATH=/bin HOME=/h GIT_AUTHOR_NAME=kept GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 GIT_PAGER=cat GIT_ALLOW_PROTOCOL= GIT_NO_LAZY_FETCH=1 " +
 		"GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=" + os.DevNull
 	if got := strings.Join(gitReadEnv(app, nil), " "); got != want {
@@ -558,13 +558,65 @@ func TestFiltersAndConvertersAConfigNamesAreBlankedByName(t *testing.T) {
 	// Fail closed: a program the read doesn't blank, or a key it doesn't know, and the repo isn't read.
 	for key, rule := range map[string]string{"remote.origin.uploadpack": "remote.*.uploadpack", "core.alternateRefsCommand": "core.alternaterefscommand",
 		"core.gitproxy": "core.gitproxy", "remote.Odd=Name.vcs": "remote.*.vcs", "gpg.ssh.defaultkeycommand": "gpg.*.defaultkeycommand",
-		"something.new": "something.new", "difftool.x.cmd": "difftool.*.cmd", "core.fsmonitor.x": "core.*.x"} {
+		"something.new": "something.new", "difftool.x.cmd": "difftool.*.cmd", "core.fsmonitor.x": "core.*.x",
+		"core.unsetEnvVars": "core.unsetenvvars", "mergetool.x.cmd": "mergetool.*.cmd", "trailer.x.cmd": "trailer.*.cmd",
+		"trailer.x.command": "trailer.*.command", "sendemail.smtpServer": "sendemail.smtpserver", "interactive.diffFilter": "interactive.difffilter"} {
 		if blanks, refused := gitRepoConfig([]byte("core.bare\nfalse\x00" + key + "\nprog\x00")); refused != rule || blanks != nil {
 			t.Errorf("%s: %q %v", key, refused, blanks)
 		}
 	}
 	if blanks, refused := gitRepoConfig(nil); len(blanks) != 0 || refused != "" {
 		t.Error("an empty config names nothing")
+	}
+}
+
+// Settings that real tools write, and that are only data, are read: submodules, relative worktree paths, scalar, a
+// Windows credential manager, SSH signing and the like. A key that names a program (or can) is still refused.
+func TestSettingsOrdinaryToolsWriteAreRead(t *testing.T) {
+	data := "submodule.active\n.\x00submodule.sub.active\ntrue\x00extensions.relativeworktrees\ntrue\x00worktree.useRelativePaths\ntrue\x00" +
+		"am.keepcr\nfalse\x00commitgraph.changedPaths\ntrue\x00commitgraph.generationVersion\n1\x00gui.gcwarning\nfalse\x00receive.autogc\nfalse\x00" +
+		"credential.validate\nfalse\x00credential.provider\ngeneric\x00credential.https://dev.azure.com.provider\nazure\x00" +
+		"gpg.ssh.allowedSignersFile\n~/allowed\x00gpg.format\nssh\x00mergetool.keepBackup\nfalse\x00stash.showPatch\ntrue\x00help.autocorrect\nprompt\x00" +
+		"versionsort.suffix\n-rc\x00format.signOff\ntrue\x00interactive.singleKey\ntrue\x00safe.bareRepository\nexplicit\x00notes.rewriteRef\nrefs/notes/*\x00" +
+		"trailer.separators\n:\x00trailer.sign.key\nSigned-off-by\x00trailer.where\nafter\x00core.hooksPath\n.husky/_\x00remote.origin.gh-resolved\nbase\x00" +
+		"feature.manyFiles\ntrue\x00core.untrackedCache\ntrue\x00branch.main.remote\norigin\x00lfs.repositoryformatversion\n0\x00"
+	if _, refused := gitRepoConfig([]byte(data)); refused != "" {
+		t.Errorf("refused %q", refused)
+	}
+}
+
+// A clone with its submodules (which sets submodule.active) and a worktree with relative paths are repos like any other.
+func TestARecursiveCloneAndARelativeWorktreeAreRead(t *testing.T) {
+	sub := aGitRepo(t)
+	super := aGitRepo(t)
+	gitRepoCmd(t, super, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "sub")
+	gitRepoCmd(t, super, "commit", "-q", "-m", "with a submodule")
+	parent := physical(t.TempDir())
+	gitRepoCmd(t, parent, "-c", "protocol.file.allow=always", "clone", "-q", "--recurse-submodules", super, "clone")
+	dir := filepath.Join(parent, "clone")
+	if got := gitRepoCmd(t, dir, "config", "--local", "--get", "submodule.active"); got == "" {
+		t.Skipf("this git sets no submodule.active on a recursive clone")
+	}
+	writeRepoFile(t, dir, "a.txt", "one\ntwo\nthree\nfour\n")
+	if state := realGitState(dir); state.Skipped || state.Changed != 1 || state.Added != 1 {
+		t.Errorf("a recursive clone: %+v", state)
+	}
+	if state := realGitState(filepath.Join(dir, "sub")); state.Skipped || !state.Repo {
+		t.Errorf("inside its submodule: %+v", state)
+	}
+
+	if out, err := exec.Command("git", "version").Output(); err != nil || !gitVersionAtLeast(string(out), 2, 48) {
+		t.Skip("this git has no relative worktree paths (2.48)")
+	}
+	main := aGitRepo(t)
+	tree := filepath.Join(physical(t.TempDir()), "hire")
+	gitRepoCmd(t, main, "worktree", "add", "-q", "--relative-paths", "-b", "hire", tree)
+	writeRepoFile(t, tree, "a.txt", "one\ntwo\nthree\nfour\n")
+	if state := realGitState(tree); state.Skipped || state.Changed != 1 || state.Added != 1 {
+		t.Errorf("a relative worktree: %+v", state)
+	}
+	if state := realGitState(main); state.Skipped {
+		t.Errorf("its main repo: %+v", state)
 	}
 }
 

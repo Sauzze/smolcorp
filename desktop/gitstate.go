@@ -116,7 +116,7 @@ var gitConfigNames = map[string]bool{
 	"GIT_CONFIG": true, "GIT_CONFIG_COUNT": true, "GIT_CONFIG_PARAMETERS": true, "GIT_CONFIG_SYSTEM": true,
 	"GIT_CONFIG_GLOBAL": true, "GIT_CONFIG_NOSYSTEM": true, "GIT_EXTERNAL_DIFF": true, "GIT_ATTR_SOURCE": true,
 	"GIT_SSH": true, "GIT_SSH_COMMAND": true, "GIT_ASKPASS": true, "SSH_ASKPASS": true, "GIT_PROXY_COMMAND": true,
-	"GIT_ALLOW_PROTOCOL": true, "GIT_PROTOCOL_FROM_USER": true, "GIT_NO_LAZY_FETCH": true,
+	"GIT_ALLOW_PROTOCOL": true, "GIT_PROTOCOL_FROM_USER": true, "GIT_NO_LAZY_FETCH": true, "GIT_EXEC_PATH": true,
 }
 
 // gitReadEnv is the environment of a read: the app's, without what would point git at another repo or hand it
@@ -255,7 +255,7 @@ var (
 		core.multipackindex core.commitgraph core.preloadindex core.notesref core.hidedotfiles core.longpaths core.fscache
 		core.filesreflocktimeout core.packedrefstimeout core.warnambiguousrefs core.restrictinheritedhandles core.fsync
 		core.fsyncmethod core.fsyncobjectfiles core.createobject core.sharedrepository core.protecthfs core.protectntfs
-		core.fsmonitorhookversion core.usereplacerefs core.unsetenvvars
+		core.fsmonitorhookversion core.usereplacerefs
 		diff.algorithm diff.autorefreshindex diff.colormoved diff.colormovedws diff.context diff.dirstat diff.ignoresubmodules
 		diff.indentheuristic diff.interhunkcontext diff.mnemonicprefix diff.noprefix diff.orderfile diff.relative
 		diff.renamelimit diff.renames diff.statgraphwidth diff.statnamewidth diff.submodule diff.suppressblankempty
@@ -269,12 +269,18 @@ var (
 		remote.*.gh-resolved
 		submodule.recurse submodule.fetchjobs submodule.propagatebranches submodule.alternatelocation
 		submodule.alternateerrorstrategy submodule.*.url submodule.*.path submodule.*.branch submodule.*.ignore
-		submodule.*.active submodule.*.fetchrecursesubmodules submodule.*.shallow
+		submodule.active submodule.*.active submodule.*.fetchrecursesubmodules submodule.*.shallow
 		extensions.objectformat extensions.compatobjectformat extensions.worktreeconfig extensions.partialclone
-		extensions.preciousobjects extensions.refstorage extensions.noop extensions.noop-v1
+		extensions.preciousobjects extensions.refstorage extensions.noop extensions.noop-v1 extensions.relativeworktrees
 		credential.username credential.usehttppath credential.interactive credential.*.username credential.*.usehttppath
 		gpg.format protocol.version include.path includeif.*.path gui.wmstate gui.geometry
-		worktree.guessremote safe.directory`)
+		worktree.guessremote worktree.userelativepaths safe.directory safe.barerepository
+		gpg.*.allowedsignersfile gpg.*.revocationfile credential.provider credential.*.provider credential.validate
+		am.keepcr stash.showpatch stash.showstat help.autocorrect versionsort.suffix versionsort.prereleasesuffix
+		format.signoff interactive.singlekey notes.rewriteref mergetool.keepbackup mergetool.keeptemporaries
+		mergetool.prompt mergetool.writetotemp commitgraph.changedpaths commitgraph.generationversion gui.gcwarning
+		receive.autogc trailer.separators trailer.where trailer.ifexists trailer.ifmissing trailer.*.key trailer.*.where
+		trailer.*.ifexists trailer.*.ifmissing`)
 	// gitDataSections hold nothing but data in any of their keys. lfs's keys are read by git-lfs alone, which runs
 	// only as a filter, and filters are blanked.
 	gitDataSections = gitKeySet(`user author committer init color advice i18n gc pack index rerere pull push fetch
@@ -420,7 +426,7 @@ func readGitState(dir string, read gitReader, now time.Time) (state GitState, gi
 	blanks, refused := gitRepoConfig(list)
 	if refused != "" {
 		state.Skipped = true
-		state.Note = "The changes aren't read: this repo's git config sets " + refused + ", which could make git run a program."
+		state.Note = "The changes aren't read: this repo's git config has a setting this read doesn't know (" + refused + ")."
 		return state, gitDir
 	}
 	call = gitCall{global: slices.Clip(gitReadArgs), config: append(slices.Clip(here.owner), blanks...)}
