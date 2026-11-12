@@ -41,6 +41,8 @@ type module struct {
 
 // The tables and code modules, in the order they come in office.js.
 var modules = []module{
+	{"talk/style.js", "TALK_STYLE"},
+	{"talk/bubble.js", "TALK_BUBBLE"},
 	{"data/room-styles.js", "ROOM_STYLES"},
 	{"data/paints.js", "PAINTS"},
 	{"data/outfits.js", "OUTFITS"},

@@ -242,8 +242,18 @@ func TestAPermissionCardHasItsLabelAndNeverTheRawInput(t *testing.T) {
 	// A file tool: its file's name.
 	talkHook(d, 1761000542000, map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/s1", "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": "/work/s1/Sources/Deck.swift"}})
-	if asking, _ := talkCardOf(t, d, "s1")["asking"].(map[string]any); asking["label"] != "Edit: Deck.swift" {
+	if asking, _ := talkCardOf(t, d, "s1")["asking"].(map[string]any); asking["label"] != "Edit: Deck.swift" || asking["pickable"] != true {
 		t.Errorf("a file tool: %v", asking)
+	}
+	// Any other tool's menu, or a Bash or Write prompt the hook didn't say the command or file of, can't be told from
+	// another prompt's: the card offers the four keys up front, not a Yes that would only be refused (FXP3c).
+	for tool, input := range map[string]map[string]any{"WebFetch": {"url": "https://example.com"}, "NotebookEdit": {"notebook_path": "/work/s1/a.ipynb"},
+		"Bash": {}, "Write": {}} {
+		talkHook(d, 1761000542500, map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/s1", "tool_name": tool,
+			"tool_input": input})
+		if asking, _ := talkCardOf(t, d, "s1")["asking"].(map[string]any); asking["kind"] != "permission" || asking["tool"] != tool || asking["pickable"] != false {
+			t.Errorf("%s with %v: %v", tool, input, asking)
+		}
 	}
 	// Leaving plan mode: its choice 1 changes the mode too, more than a Yes says, so the keys answer it.
 	talkHook(d, 1761000543000, map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s1", "cwd": "/work/s1", "tool_name": "ExitPlanMode",
