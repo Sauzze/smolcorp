@@ -238,10 +238,14 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertTrue(isOK(ask(["action": "press", "tab": "tty:/dev/ttys003", "key": "escape", "times": 2])))
         XCTAssertTrue(isOK(ask(["action": "press", "tab": "tty:/dev/ttys003", "key": "space"])))
         XCTAssertTrue(isOK(ask(["action": "press", "tab": "tty:/dev/ttys003", "key": "shift-tab"])))
+        // A menu's choice by its number, as the office's window picks one (desktop/talkpick.go).
+        XCTAssertTrue(isOK(ask(["action": "press", "tab": "tty:/dev/ttys003", "key": "3"])))
         XCTAssertEqual(asked, ["press escape 0 2 tty:/dev/ttys003", "press space 0 1 tty:/dev/ttys003",
-                               "press tab \(CGEventFlags.maskShift.rawValue) 1 tty:/dev/ttys003"])
+                               "press tab \(CGEventFlags.maskShift.rawValue) 1 tty:/dev/ttys003", "press three 0 1 tty:/dev/ttys003"])
         for refused: [String: Any] in [
             ["action": "press", "tab": "tty:/dev/ttys003", "key": "cmd-q"],
+            ["action": "press", "tab": "tty:/dev/ttys003", "key": "0"],
+            ["action": "press", "tab": "tty:/dev/ttys003", "key": "10"],
             ["action": "press", "tab": "tty:/dev/ttys003", "key": "enter", "times": 10],
             ["action": "press", "tab": "tty:/dev/ttys003", "key": "enter", "times": 0],
             ["action": "press", "tab": "/etc/passwd", "key": "enter"],
@@ -256,7 +260,7 @@ final class HostBridgeTests: XCTestCase {
         ] {
             XCTAssertFalse(isOK(ask(refused)), "\(refused)")
         }
-        XCTAssertEqual(asked.count, 3, "none of those reached a terminal")
+        XCTAssertEqual(asked.count, 4, "none of those reached a terminal")
     }
 
     func testEachTabActionIsTheDrivers() {
@@ -1429,6 +1433,18 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(peek("tty:/dev/ttys005")["place"] as? String, "behind", "unknown isn't in front")
         XCTAssertEqual(peek("tty:/dev/ttys003")["error"] as? String, "This terminal can't show its input line.")
         XCTAssertEqual(peek("iterm:AB12")["unsupported"] as? Bool, true)
+        // A pick looks for its menu in more of the screen (desktop/talkpick.go): the lines asked, never past menuLines.
+        mac.screen = { _ in .some((1...80).map { "line \($0)" }.joined(separator: "\n")) }
+        func lines(_ asked: Any?) -> [String]? {
+            var request: [String: Any] = ["action": "peek", "tab": "tty:/dev/ttys003", "agent": "claude", "token": token]
+            if let asked { request["lines"] = asked }
+            return HostBridge.answer(try! JSONSerialization.data(withJSONObject: request), token: token, actions: mac)["peek"] as? [String]
+        }
+        XCTAssertEqual(lines(nil), (71...80).map { "line \($0)" }, "the phone's peek")
+        XCTAssertEqual(lines(30), (51...80).map { "line \($0)" })
+        XCTAssertEqual(lines(500)?.count, PhoneDictation.menuLines)
+        XCTAssertEqual(lines(0), ["line 80"])
+        XCTAssertEqual(lines("many"), (71...80).map { "line \($0)" }, "not a number")
     }
 
     /// The owner's rule, never answer a waiting prompt, under the Go core: the desk began asking while the words

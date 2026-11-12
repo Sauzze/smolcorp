@@ -70,6 +70,9 @@ type Deck struct {
 	// When each session was last sent Return from the phone, so a tap that
 	// lands twice sends it once.
 	lastReturn map[string]time.Time
+	// The prompt each session was last picked a choice of from the office's window, by when it began asking, so a
+	// tap that lands twice picks once (talkpick.go).
+	talkPicks map[string]int64
 	// When each session's input line, and its prompt's details, were last looked at from the phone: once a second.
 	lastPeek, lastChoiceLook map[string]time.Time
 	// The hires whose launcher hasn't connected yet, by their token, and

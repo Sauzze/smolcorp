@@ -709,6 +709,23 @@ func (s *Sessions) StoppedAsking(id string, at float64) bool {
 	return true
 }
 
+// AnsweredInItsTerminal: session id's permission prompt answered Yes in its own
+// terminal, the tool it allowed now running, which no hook says until that
+// tool ends (RT126P3b N1). Thinking from at on, keeping its tool, its turn and
+// its subagents; only the prompt goes. Go app only: the office window's pick
+// sees it on the screen.
+func (s *Sessions) AnsweredInItsTerminal(id string, at float64) bool {
+	session := s.byID[id]
+	if session == nil || session.State != Asking {
+		return false
+	}
+	session.State = Thinking
+	session.WaitingFor = ""
+	session.clearAsked()
+	session.LastEventAt = max(session.LastEventAt, at)
+	return true
+}
+
 // MarkSeen: looking at a finished session turns it from green back to white.
 func (s *Sessions) MarkSeen(tab string) bool {
 	changed := false

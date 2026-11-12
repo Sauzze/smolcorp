@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -50,7 +51,9 @@ type talkQuestion struct {
 // talkAsking is what a desk waiting on you is about. Since is when it began asking, in ms: a pick says which
 // prompt it means by it. Kind is "question" (AskUserQuestion), "permission" or "unknown" (asking with nothing said:
 // a notification, or another agent). Pickable is whether its choices can be offered by label: one question that
-// isn't multi-select, or a permission prompt (Yes and No); otherwise the window shows the four keys.
+// isn't multi-select, or a permission prompt (Yes and No: n 1 and 2), of an agent whose menus take a choice's
+// number (POST /talk/pick), in a tab whose screen a pick can read to see the menu is still there (talkShowsScreen);
+// otherwise the window shows the four keys.
 type talkAsking struct {
 	Since     int64          `json:"since"`
 	Kind      string         `json:"kind"`
@@ -58,6 +61,9 @@ type talkAsking struct {
 	Label     string         `json:"label"`
 	Questions []talkQuestion `json:"questions"`
 	Pickable  bool           `json:"pickable"`
+	// A Bash prompt's command, its first line, or a Write or Edit prompt's file path: looked for in the menu on the
+	// screen before a pick's key, never on the card.
+	command, file string
 }
 
 // talkCard is GET /talk: one desk. Asking is null unless the desk is asking; Last is what the agent last said
@@ -95,8 +101,28 @@ func talkAskingOf(s *Session) *talkAsking {
 		// One question, with its options all listed, that takes one answer.
 		asking.Pickable = whole && len(asking.Questions) == 1 && !asking.Questions[0].MultiSelect && len(asking.Questions[0].Options) > 0
 	case tool != "":
-		// Yes or No: the hooks don't say Claude Code's menu, so nothing more is offered by label.
-		asking.Kind, asking.Pickable = "permission", true
+		// Yes or No: the hooks don't say Claude Code's menu, so nothing more is offered by label. Leaving plan
+		// mode's choice 1 also changes the mode (auto-accept edits), more than a Yes says: the keys answer it.
+		asking.Kind, asking.Pickable = "permission", tool != "ExitPlanMode"
+		if tool == "Bash" {
+			var input struct {
+				Command string `json:"command"`
+			}
+			_ = json.Unmarshal([]byte(s.askedInput), &input)
+			asking.command, _, _ = strings.Cut(input.Command, "\n")
+		}
+		if tool == "Write" || tool == "Edit" {
+			var input struct {
+				FilePath string `json:"file_path"`
+			}
+			_ = json.Unmarshal([]byte(s.askedInput), &input)
+			asking.file = input.FilePath
+		}
+	}
+	// Only where a choice can be pressed (Agent.Pick): another agent's menu is answered with the four keys. And
+	// only where the menu can be seen still there right before the key: elsewhere the four keys answer it.
+	if _, picks := s.Agent.Pick(1); !picks || !talkShowsScreen(s.Tab) {
+		asking.Pickable = false
 	}
 	return asking
 }

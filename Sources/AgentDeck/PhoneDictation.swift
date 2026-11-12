@@ -27,6 +27,8 @@ enum PhoneDictation {
     /// what's under it; never its scrollback.
     static let peekLines = 10
     static let peekWidth = 240
+    /// The most lines the core asks for when a pick looks for Claude Code's menu on the screen (desktop/talkpick.go).
+    static let menuLines = 60
     /// At most one peek a session this often: one look after each dictation, never a live view.
     static let peekGap: TimeInterval = 1
 
@@ -88,16 +90,16 @@ enum PhoneDictation {
     }
 
     /// The end of what a tab shows, as the phone's peek gives it: the blank
-    /// lines under it dropped, its last `peekLines`, each cut to `peekWidth`,
+    /// lines under it dropped, its last `lines` (`peekLines`), each cut to `peekWidth`,
     /// with escape and other control characters gone, so nothing is drawn
     /// but text, and no blank lines over it.
-    static func peek(_ screen: String) -> [String] {
+    static func peek(_ screen: String, lines count: Int = peekLines) -> [String] {
         let blank = { (line: String) in line.trimmingCharacters(in: .whitespaces).isEmpty }
         var lines = screen.components(separatedBy: .newlines).map { line in
             String(String(line.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }).prefix(peekWidth))
         }
         while let last = lines.last, blank(last) { lines.removeLast() }
-        return Array(lines.suffix(peekLines).drop(while: blank))
+        return Array(lines.suffix(count).drop(while: blank))
     }
 }
 

@@ -212,7 +212,10 @@ func characterPrefix(text string, n int) string {
 // peekOf is the end of what a tab shows, as the phone's peek gives it: its blank lines underneath dropped,
 // its last peekLines, each cut to peekWidth, with every control and format character gone, as the Mac's
 // PhoneDictation.peek.
-func peekOf(screen string) []string {
+func peekOf(screen string) []string { return screenEnd(screen, peekLines) }
+
+// screenEnd is the end of what a tab shows as peekOf gives it, in its last most lines.
+func screenEnd(screen string, most int) []string {
 	blank := func(line string) bool {
 		return strings.TrimFunc(line, func(r rune) bool { return r == '\t' || unicode.Is(unicode.Zs, r) }) == ""
 	}
@@ -229,7 +232,7 @@ func peekOf(screen string) []string {
 	for len(lines) > 0 && blank(lines[len(lines)-1]) {
 		lines = lines[:len(lines)-1]
 	}
-	lines = lines[max(0, len(lines)-peekLines):]
+	lines = lines[max(0, len(lines)-most):]
 	for len(lines) > 0 && blank(lines[0]) {
 		lines = lines[1:]
 	}
@@ -537,15 +540,19 @@ func (d *Deck) lookedAt(last map[string]time.Time, id string) bool {
 }
 
 // readPeek reads the peek from tab, only where agent is known to be in front. On the key worker.
-func readPeek(t Tab, agent Agent) ([]string, error) {
+func readPeek(t Tab, agent Agent) ([]string, error) { return readScreen(t, agent, peekLines) }
+
+// readScreen reads the last most lines tab shows, as the peek does, only where agent is known to be in front.
+// On the key worker.
+func readScreen(t Tab, agent Agent, most int) ([]string, error) {
 	switch tab := t.(type) {
 	case macTab:
 		if tab.pane == nil {
-			return hostPeek(tab.host, tab.name, agent)
+			return hostScreen(tab.host, tab.name, agent, most)
 		}
-		return tab.pane.peek(agent)
+		return tab.pane.lastLines(agent, most)
 	case commandTab:
-		return tab.peek(agent)
+		return tab.lastLines(agent, most)
 	}
 	// A launcher's window says its state, never its text.
 	return nil, errUnsupported

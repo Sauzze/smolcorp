@@ -414,6 +414,9 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			return phoneText(h, "iterm:CD34", Claude, "one\ntwo", idle)
 		},
 		"the peek at the input line": func(h hostBridge) (any, error) { return hostPeek(h, "tty:/dev/ttys003", Claude) },
+		"the screen a pick looks at for its menu, more of it than the peek": func(h hostBridge) (any, error) {
+			return hostScreen(h, "tty:/dev/ttys003", Claude, talkScreenLines)
+		},
 		"the peek, the agent not in front": func(h hostBridge) (any, error) {
 			lines, err := hostPeek(h, "tty:/dev/ttys005", Claude)
 			return []any{lines == nil, errors.Is(err, errAgentBehind)}, err

@@ -238,6 +238,11 @@
       "answer": {"ok": true, "peek": ["> Bonjour l’équipe", "  ? for shortcuts"]}
     },
     {
+      "name": "the screen a pick looks at for its menu, more of it than the peek",
+      "request": {"action": "peek", "tab": "tty:/dev/ttys003", "agent": "claude", "lines": 60},
+      "answer": {"ok": true, "peek": ["> Bonjour l’équipe", "  ? for shortcuts"]}
+    },
+    {
       "name": "the peek, the agent not in front",
       "request": {"action": "peek", "tab": "tty:/dev/ttys005", "agent": "claude"},
       "answer": {"ok": false, "error": "That agent isn't in front in its terminal.", "place": "behind"}
