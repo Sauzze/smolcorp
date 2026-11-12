@@ -34,7 +34,6 @@ type Member struct {
 	Branch      string  `json:"branch"`
 	Worktree    string  `json:"worktree"`
 	Registered  bool    `json:"registered"` // a hire, not a session alone
-	SessionID   string  `json:"sessionId"`  // the live session at its desk, "" when it has none
 	Desk        *int    `json:"desk"`
 	Floor       *int    `json:"floor"`
 	Live        bool    `json:"live"`

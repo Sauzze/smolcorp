@@ -52,10 +52,9 @@ const (
 	tokenHeader    = "x-smolcorp-gm-token"
 	hireKeyEnv     = "SMOLCORP_HIRE_KEY"
 	hireHeader     = "x-smolcorp-hire-key"
-	// setupKeyHeader and windowKeyHeader are what a person's own tool sends (people.go): the setup key, and the
-	// office window's key. Both are the owner's, kept in files only the owner reads.
-	setupKeyHeader  = "X-Smolcorp-Setup-Key"
-	windowKeyHeader = "X-AgentDeck-Token"
+	// setupKeyHeader is what a person's own tool sends (people.go): the setup key, the owner's, kept in a file only
+	// the owner reads.
+	setupKeyHeader = "X-Smolcorp-Setup-Key"
 	// sessionEnv is the id Claude Code gives the session it runs in; sessionHeader sends it so the
 	// Mac app can tell which session is a GM started by hand. The Go app ignores it.
 	sessionEnv    = "CLAUDE_CODE_SESSION_ID"
@@ -176,11 +175,10 @@ type Client struct {
 	BaseURL string
 	token   string
 	hireKey string
-	// A person's tool (people.go) holds the setup key, the office window's key, or both of the first two; never a hire key.
-	setupKey  string
-	windowKey string
-	session   string // the session id the token is sent from, when the environment names one
-	http      *http.Client
+	// A person's tool (people.go) holds the setup key alone: no GM token, no session id, no hire key.
+	setupKey string
+	session  string // the session id the token is sent from, when the environment names one
+	http     *http.Client
 }
 
 // NewClient is a client for the app at 127.0.0.1 on the environment's port,
@@ -363,9 +361,6 @@ func (c *Client) do(method, path string, query url.Values, body []byte, timeout 
 		if c.setupKey != "" {
 			req.Header.Set(setupKeyHeader, c.setupKey)
 		}
-		if c.windowKey != "" {
-			req.Header.Set(windowKeyHeader, c.windowKey)
-		}
 	}
 	req.Header.Set("Accept", "application/json")
 	if method != http.MethodGet {
@@ -466,9 +461,6 @@ func (c *Client) scrub(s string) string {
 	}
 	if c.setupKey != "" {
 		s = strings.ReplaceAll(s, c.setupKey, "[setup key]")
-	}
-	if c.windowKey != "" {
-		s = strings.ReplaceAll(s, c.windowKey, "[window key]")
 	}
 	return s
 }

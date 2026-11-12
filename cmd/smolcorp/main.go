@@ -7,7 +7,7 @@
 //	smolcorp setup                    set up and check everything, and say what's left
 //	smolcorp demo [--dry-run]         a General Manager and its team on a sample project
 //	smolcorp gm <command>             ask the running app about the team (the GM's hands)
-//	smolcorp status | desks | say | hire | open    the team, for you at the computer (see: smolcorp status --help)
+//	smolcorp status | desks           the team, for you at the computer (see: smolcorp status --help)
 //	smolcorp guard [--profile gm] [--rules FILE]     the hire guard: Claude Code runs it before each Bash command
 //	smolcorp quit                     stop the running copy, by the pid it recorded
 //	smolcorp version
@@ -39,9 +39,7 @@ const usage = `Usage: smolcorp [command]
   gm <command>            ask the running Smolcorp about the team (gm help)
   status                  the office at a glance: the team, who waits on you
   desks                   the team, one line a desk
-  say <desk> <words>      type words into a desk's agent (never into a prompt)
-  hire <role>             hire an employee, under the app's own rules
-  open <desk>             bring a desk's terminal forward
+  say, hire, open         come with app keys in Settings (not yet: use the office)
   guard [--profile gm] [--rules FILE]    the hire guard, a PreToolUse hook: reads the call on stdin
   mcp                     serve the gm commands as MCP tools on standard input and output
   quit                    stop the running Smolcorp (the one of this user)
