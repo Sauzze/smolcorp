@@ -21,6 +21,41 @@ jobs:
       - uses: actions/checkout@v7
       - run: scripts/check-public.sh
 
+  # The tmux that will ship inside the Mac app, built from pinned sources (third_party/tmux/SHA256SUMS) by the
+  # same script a release uses. The script checks the file itself (both architectures, only the Mac's own
+  # libraries, macOS 13 as the oldest, no weak imports, no build paths) and starts a server of it; this job
+  # runs that server check again on its own and keeps the file. A cache hit takes seconds, a build about 3
+  # minutes. Releases are still built and signed on the maintainer's Mac: this catches a new weak import from
+  # an Xcode update, or a tarball that changed, first.
+  tmux:
+    name: tmux for the Mac app
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Xcode SDK version
+        id: sdk
+        run: echo "version=$(xcrun --show-sdk-version)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/third-party
+            build/tmux
+          key: tmux-${{ runner.os }}-${{ runner.arch }}-sdk${{ steps.sdk.outputs.version }}-${{ hashFiles('scripts/build-tmux.sh', 'third_party/tmux/SHA256SUMS') }}
+      - name: Build tmux
+        id: build
+        run: echo "file=$(scripts/build-tmux.sh | tail -n 1)" >> "$GITHUB_OUTPUT"
+      # A server on a private socket, a key sent and the pane read back, then the server killed by its PID. The
+      # Intel slice runs under Rosetta where the runner has it, and the step says so where it doesn't.
+      - name: Run the built tmux
+        run: scripts/build-tmux.sh check "${{ steps.build.outputs.file }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tmux-macos
+          path: |
+            ${{ steps.build.outputs.file }}
+            build/tmux/*/THIRD-PARTY-NOTICES.txt
+
   mac:
     name: Mac app
     runs-on: macos-latest
