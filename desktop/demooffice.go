@@ -357,7 +357,7 @@ func demoGMHire(f demoFolder, roles []string) map[string]any {
 		"task": "This is Smolcorp's demo: `bill`, a small sample project made for it, in " + f.repo +
 			". Everything stays in " + f.root + ".\n" +
 			"1. Read TASKS.md and plan one hire per task. Show me the plan here and wait for my OK.\n" +
-			"2. Hire one agent per task, each on its own branch: `smolcorp gm hire --role <role> --folder " + f.repo +
+			"2. Hire one agent per task, each on its own branch: `smolcorp gm hire --role <role> --folder " + demoShellFolder(f.repo) +
 			" --worktree --task '<what done means, and the proof>'` (in single quotes: the fence refuses a $ the shell would read). Roles you may hire: " + list +
 			". Never hire into another folder: the demo's fence refuses it.\n" +
 			"3. Check each hire's proof yourself: `python3 -m unittest` in its worktree, and its diff.\n" +

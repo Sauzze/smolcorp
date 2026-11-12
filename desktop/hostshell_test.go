@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -173,7 +174,7 @@ func TestTheFolderPanelIsTheMacsThroughTheApp(t *testing.T) {
 	mac.set(func(m *macStandIn) { m.picked = project })
 
 	code, text := pageCall(t, d, "POST", "/setup/hiring/choose?pick=1&for=floor")
-	if code != http.StatusOK || text != `{"picked":"`+project+`"}` {
+	if want, _ := json.Marshal(map[string]string{"picked": project}); code != http.StatusOK || text != string(want) {
 		t.Errorf("picked for a floor: %d %s", code, text)
 	}
 	asked := mac.requests("choose-folder")

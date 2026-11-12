@@ -3,6 +3,7 @@ package desktop
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -44,7 +45,7 @@ func TestPairingAndRefusalsSayMacUnderTheMacApp(t *testing.T) {
 			t.Errorf("mac %v: a wrong code: %d %s", mac, wrong.Code, wrong.Body)
 		}
 		status, said, _ := claudeAccountsCall(t, d, "POST", `{"profiles":[{"name":"w","dir":"~/.claude-gone"}]}`, false)
-		if status != http.StatusBadRequest || !strings.HasSuffix(said, "/.claude-gone isn't a folder on this "+word+".") {
+		if status != http.StatusBadRequest || !strings.HasSuffix(said, string(filepath.Separator)+".claude-gone isn't a folder on this "+word+".") {
 			t.Errorf("mac %v: an account folder that isn't there: %d %q", mac, status, said)
 		}
 		key := pair(t, d)

@@ -1068,7 +1068,7 @@ func TestAnotherOfficesPortIsReplacedNotKeptBesideIt(t *testing.T) {
 	home := isolate(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
 	other := anotherOfficesHook(t, 4322)
-	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"`+other+`","async":true}]}]}}`)
+	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"`+inJSON(other)+`","async":true}]}]}}`)
 	onDefaultPort(t)
 	if err := connect(Claude, false); err != nil {
 		t.Fatal(err)
@@ -1175,7 +1175,7 @@ func TestRefreshKeepsAnotherOfficesPort(t *testing.T) {
 	home := isolate(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
 	other := anotherOfficesHook(t, 4322)
-	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"`+other+`","async":true}]}]}}`)
+	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"`+inJSON(other)+`","async":true}]}]}}`)
 	before, _ := os.ReadFile(settings)
 	onDefaultPort(t)
 	refreshHooks()
@@ -1305,10 +1305,15 @@ func TestUnderTheMacAppTheRefreshReplacesTheSwiftEnginesReportScript(t *testing.
 	hookHeaderFile = filepath.Join(supportDir, "hook-header")
 	script := filepath.Join(supportDir, "report.sh")
 	writeFile(t, script, "#!/bin/sh\n")
-	swift := `\"` + script + `\"`
+	swift := `"` + script + `"`
 	settings := filepath.Join(home, ".claude", "settings.json")
-	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"`+swift+`","async":true}]},`+
-		`{"hooks":[{"type":"command","command":"`+swift+` --mine"}]},{"hooks":[{"type":"command","command":"say done"}]}]}}`)
+	// Encoded, not spliced in: a Windows path's backslashes are JSON's escapes.
+	fixture, _ := json.Marshal(map[string]any{"hooks": map[string]any{"Stop": []any{
+		map[string]any{"hooks": []any{map[string]any{"type": "command", "command": swift, "async": true}}},
+		map[string]any{"hooks": []any{map[string]any{"type": "command", "command": swift + " --mine"}}},
+		map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "say done"}}},
+	}}})
+	writeFile(t, settings, string(fixture))
 	refreshHooks()
 	stop := commands(readJSON(t, settings), "Stop")
 	want := []string{`"` + script + `" --mine`, "say done", hookCommand(Claude)}

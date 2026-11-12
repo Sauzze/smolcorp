@@ -277,6 +277,9 @@ func TestTheGMPreflightWithoutATerminalSaysHowToInstallTmux(t *testing.T) {
 // An app opened from the Finder or the Dock has no Homebrew on its PATH: brew is looked for where the Mac
 // looks, as tmux is, so the Mac's line still offers to copy the command that installs tmux.
 func TestTheTmuxInstallLineFindsBrewBesideThePATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Homebrew and tmux are a Mac's and Linux's: a stand-in brew is found by its exec bit, which Windows has none of")
+	}
 	d, _, _, _ := preflightDeck(t)
 	canOpenWindows = func() bool { return false }
 	hasProgram = func(string) bool { return false }
