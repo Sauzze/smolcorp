@@ -46,6 +46,13 @@
  * `on.scroll(lines | 'bottom')` for two fingers moving up and down the room,
  * or tapped together, and `on.hint(text)` for a word on the status line.
  *
+ * `on.talk` (1.26, the office's own window only; see TALK_ANCHORS) turns the bubble over each agent's head into
+ * something to click, and takes the place of the four choice keys: `on.talk.open(id, anchor)` for a click or tap on
+ * the bubble of session `id`, and `on.talk.hover(id, anchor)` once a mouse has rested on it a quarter of a second
+ * (`anchor.again` false when the desk's card was asked for within the second), `on.talk.hover(null)` when it leaves.
+ * The `anchor` is { id, state, since, art: { box, tip }, css: { box, tip } }: the bubble's box and the point its
+ * tail aims at, in art pixels and in CSS pixels on the page. Without `on.talk` the room draws and answers as before.
+ *
  * The snapshot's `floors` (before them, its `upstairs`) are the floors over
  * this one, up to six in all, each with its name, its style and the desks on
  * it: cloud bots, headless runs, and those with no desk downstairs. The call
@@ -8240,7 +8247,7 @@
    * agent, or fire one. A first finger landing on them for a two-finger
    * scroll sends nothing.
    */
-  const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired', 'maxed'];
+  const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired', 'maxed', 'talk'];
   /** How long the question before firing, or max effort, ignores taps, in seconds: a double tap that opened it doesn't answer it too. */
   const FIRE_QUESTION_SETTLES = 0.5;
   /** Return again this soon, by accept or send, is one tap landing twice, in seconds. */
@@ -9048,6 +9055,135 @@
     });
     return { left, top, w, h, tip, keys };
   }
+
+  /**
+   * Where the talk bubbles are (1.26, Talk Bubble). The bubble over each head is
+   * what a click goes to, once the page gives the room a `talk` (see `on.talk`
+   * above): this works out its box, the point its tail aims at, how long a mouse
+   * rests on it before the tag shows, which waiting agents' small question
+   * bubbles fit and which fall back to the "?", and who is waiting longest.
+   *
+   * Everything here is a plain function of what it's given, art pixels in and
+   * out unless it says CSS pixels, so it runs on its own in node tests, and the
+   * hit test, the hover and the bubble panels share one copy. A box is
+   * { left, right, top, bottom }, its right and bottom edges just past its last
+   * pixel; a bubble, as the room records it, is
+   * { id, x, top, state, since }: the person's column and top row, their state,
+   * and when they started waiting on you (the office's clock, null if unknown).
+   */
+  const TALK_ANCHORS = {
+    /** The bubble `drawBubble` draws is 11 wide and 10 tall, its tail's last pixel included; a target is at least this many each way. */
+    SMALLEST: 12,
+    /** A mouse rests on a bubble this long before its tag shows, in seconds. */
+    HOVER_AFTER: 0.25,
+    /** A desk's card is asked for at most this often by hovering, in seconds. */
+    HOVER_EVERY: 1,
+    /** A box kept at least this far from the room's edges. */
+    MARGIN: 1,
+
+    /** The bubble over a head whose top row is `top`, in column `x`, as it rests (its shaking, when kept waiting, leaves it where it is). */
+    boxOf(x, top) {
+      return { left: x - 5, right: x + 6, top: top - 10, bottom: top };
+    },
+
+    /** The pixel the bubble's tail ends on: the point a panel grown from it points at. */
+    tipOf(x, top) {
+      return { x: x - 1, y: top - 1 };
+    },
+
+    /** `box` grown to at least `least` pixels each way: sideways about its middle, and only upwards, as its tail points down at the head. */
+    padded(box, least = TALK_ANCHORS.SMALLEST) {
+      const across = Math.max(0, least - (box.right - box.left)), down = Math.max(0, least - (box.bottom - box.top));
+      return { left: box.left - Math.floor(across / 2), right: box.right + Math.ceil(across / 2), top: box.top - down, bottom: box.bottom };
+    },
+
+    /** `box` slid, not resized, to lie `margin` inside a room `room.width` × `room.height`; where it's too big, its top left wins. */
+    fitInside(box, room, margin = TALK_ANCHORS.MARGIN) {
+      const w = box.right - box.left, h = box.bottom - box.top;
+      const left = Math.max(margin, Math.min(room.width - margin - w, box.left));
+      const top = Math.max(margin, Math.min(room.height - margin - h, box.top));
+      return { left, right: left + w, top, bottom: top + h };
+    },
+
+    /** What a click on the bubble over a head reaches: its box, padded, and inside the room even where the head is at its edge. */
+    hitBox(x, top, room) {
+      return TALK_ANCHORS.fitInside(TALK_ANCHORS.padded(TALK_ANCHORS.boxOf(x, top)), room);
+    },
+
+    /** Whether two boxes share a pixel. */
+    overlap(a, b) {
+      return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    },
+
+    /** Notes a bubble the room has just drawn on `list`, once for each person however often the room is drawn in a frame. */
+    record(list, bubble) {
+      if (!list.some((one) => one.id === bubble.id)) list.push(bubble);
+    },
+
+    /**
+     * What the page is told of a bubble: its id and state, and its box and tail point in art pixels and in CSS pixels
+     * on the page. `view` says where the room is: { scale, ox, oy } its art pixel's size and corner in canvas pixels,
+     * `k` the canvas pixels to a CSS pixel, and { left, top } the canvas's corner on the page.
+     */
+    anchorOf(bubble, room, view) {
+      const box = TALK_ANCHORS.hitBox(bubble.x, bubble.top, room), tip = TALK_ANCHORS.tipOf(bubble.x, bubble.top);
+      const css = (x, y) => ({ x: view.left + (view.ox + x * view.scale) / view.k, y: view.top + (view.oy + y * view.scale) / view.k });
+      const from = css(box.left, box.top), to = css(box.right, box.bottom);
+      return {
+        id: bubble.id, state: bubble.state, since: bubble.since,
+        art: { box, tip },
+        css: { box: { left: from.x, right: to.x, top: from.y, bottom: to.y }, tip: css(tip.x, tip.y) },
+      };
+    },
+
+    /** A mouse over nothing yet. */
+    hover() {
+      return { id: null, since: 0, shown: null };
+    },
+
+    /**
+     * The mouse is over bubble `id` (null: over none) at `now`, in seconds; `state` is what this returned before.
+     * Says the next state, who the tag is to show for now (`show`), whether a tag shown before goes away (`hide`), and
+     * how many seconds to wait before looking again (`wait`, null for no need). Moving to another bubble starts the wait again.
+     */
+    hoverStep(state, id, now) {
+      const hide = state.shown !== null && state.shown !== id;
+      if (id === null) return { state: TALK_ANCHORS.hover(), show: null, hide, wait: null };
+      const since = state.id === id ? state.since : now;
+      const due = since + TALK_ANCHORS.HOVER_AFTER;
+      if (now < due) return { state: { id, since, shown: null }, show: null, hide, wait: due - now };
+      return { state: { id, since, shown: id }, show: state.shown === id ? null : id, hide, wait: null };
+    },
+
+    /** Whether a desk's card may be asked for again, `last` being when it last was (undefined if never), in seconds. */
+    mayAsk(last, now) {
+      return last === undefined || now - last >= TALK_ANCHORS.HOVER_EVERY;
+    },
+
+    /** The waiting bubbles, longest waiting first, as the room's agitation grows; those whose start isn't known last, by id. */
+    needsYou(bubbles) {
+      const since = (b) => (typeof b.since === 'number' ? b.since : Infinity);
+      return bubbles.filter((b) => b.state === 'asking')
+        .sort((a, b) => (since(a) === since(b) ? String(a.id).localeCompare(String(b.id)) : since(a) - since(b)));
+    },
+
+    /**
+     * Where each waiting desk's small question bubble goes, `size` { w, h } art pixels, its tail on the head and the
+     * whole kept inside `room`, longest waiting first. One that would cover a bubble placed before it falls back to
+     * the "?" bubble: `small` is { id, box, tip } for those that fit, `marks` the ids of those that fall back, and
+     * `order` all of them in the order the Needs you key walks.
+     */
+    layoutSmall(bubbles, size, room) {
+      const order = TALK_ANCHORS.needsYou(bubbles), small = [], marks = [];
+      for (const b of order) {
+        const tip = TALK_ANCHORS.tipOf(b.x, b.top), left = tip.x - Math.floor(size.w / 2);
+        const box = TALK_ANCHORS.fitInside({ left, right: left + size.w, top: tip.y - size.h, bottom: tip.y }, room);
+        if (small.some((placed) => TALK_ANCHORS.overlap(placed.box, box))) marks.push(b.id);
+        else small.push({ id: b.id, box, tip });
+      }
+      return { small, marks, order: order.map((b) => b.id) };
+    },
+  };
 
   /** What a person is doing with their body, at `now`. */
   function poseOf(person, now) {
@@ -57954,6 +58090,11 @@
       fill(x - 4, bottom - 6, 9, 7, PALETTE.bubble);
       dot(x - 1, bottom + 1, PALETTE.bubble);
       dot(x - 1, bottom + 2, PALETTE.bubbleEdge);
+      // Where a click on it goes, when the page takes talk bubbles: the bubble at rest, not as it shakes. Staff and a
+      // hire in T3 Code have none.
+      if (frame.talk && !person.isStaff && !person.session.t3) {
+        TALK_ANCHORS.record(frame.talk.bubbles, { id: person.session.id, x: Math.round(person.position.x), top, state, since: person.askingSince });
+      }
 
       // A 5 × 5 mark in the middle, in the state's colour
       const marks = {
@@ -67646,6 +67787,10 @@
     let keyDown = null;      // the key last pressed: { action, at, held }
     const returnAt = new Map(); // when accept or send last went to each session, so a tap landing twice sends Return once
     let keysAt = null;       // where the keys were last drawn, in art pixels: { keys, box }
+    let bubblesAt = [];      // the talk bubbles last drawn on the ground floor, when the page takes them: { id, x, top, state, since }
+    let talkHover = TALK_ANCHORS.hover(); // the mouse over a talk bubble: see TALK_ANCHORS.hoverStep
+    let talkTimer = null;    // the wait before a hovered bubble's tag shows
+    const talkAsked = new Map(); // when hovering last asked for each desk's card, so it isn't asked for more than once a second
     let roleDown = null;     // the role last tapped, on a held empty desk: { id, at, held }
     let roleOffset = 0;      // how far the roles are slid along, in art pixels
     let rolesAt = null;      // where the roles were last drawn, in art pixels: { roles, box, most }
@@ -68003,6 +68148,8 @@
       host.window.document.removeEventListener('visibilitychange', host.seen);
       host.window.document.removeEventListener('pointerdown', host.tapped, { capture: true });
       host.window.document.removeEventListener('keydown', host.typed);
+      if (talkTimer !== null) host.window.clearTimeout(talkTimer);
+      talkTimer = null;
       host = null;
     }
 
@@ -68244,7 +68391,8 @@
     }
 
     function choices() {
-      if (framed) return null;
+      // The talk bubble answers for the four keys, where the page gives one
+      if (framed || on.talk) return null;
       return inView((there) => {
         const desk = there.seats.findIndex((s) => s && s.session && s.session.id === selected);
         const session = desk >= 0 && there.seats[desk].session;
@@ -68404,7 +68552,7 @@
         // Arranging a floor upstairs, it's drawn as that floor is: its walls, and its number over the elevator
         ...(arranging && arrangingFloor ? { upstairs: true, elevator: { floor: arrangingFloor.n + 1, top: FLOORS_MOST, open: 0, riding: null } } : {}),
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
-        deskButton: heldButton(), carrying, micLanguage: micLanguageKey(),
+        deskButton: heldButton(), carrying, micLanguage: micLanguageKey(), talk: on.talk ? { bubbles: [] } : null,
         firing: firing && { ...fireDialog(), title: `Fire ${firing.name}?`, detail: 'Its agent stops, and its tab closes.' },
         maxing: maxing && { ...maxDialog(), title: `Max effort for ${maxing.name}?`, detail: 'It uses much more of your usage.' },
         // Over the desks on the floor in view: downstairs only while it's the ground floor
@@ -68456,6 +68604,8 @@
         if (comparing) compareDirect(storey, frames);
       }
       styleKeyAt = key && key.at;
+      // The talk bubbles the ground floor drew; upstairs and on the ride, none is there to click
+      bubblesAt = storey < 2 && !ride && frames[1].talk ? frames[1].talk.bubbles : [];
       keysAt = keys && keys.at ? { keys: keys.at, box: keys.box } : null;
       rolesAt = hires && hires.at ? { roles: hires.at, box: hires.box, most: hires.most, arrows: hires.arrows || [] } : null;
     }
@@ -68603,6 +68753,8 @@
       }
       if (ride) return best && best.target;
 
+      // A person's bubble is its own target, ahead of the person under it
+      for (const bubble of bubblesAt) consider({ kind: 'talk', id: bubble.id }, TALK_ANCHORS.hitBox(bubble.x, bubble.top, shape), -1);
       for (const person of office.people) {
         if (person.isStaff || person.isLeaving || person.entering) continue;
         const px = Math.round(person.position.x), top = topOf(person, poseOf(person, now));
@@ -68698,6 +68850,43 @@
         }
         return best && best.target;
       }
+    }
+
+    /** Where the room is on the page, for TALK_ANCHORS.anchorOf. */
+    function talkView() {
+      const rect = canvas.getBoundingClientRect();
+      const { scale, ox, oy } = fitRoom(canvas.width, canvas.height, floating ? FLOAT_MARGINS[floating] * (host.window.devicePixelRatio || 1) : 0);
+      return { scale, ox, oy, k: canvas.width / rect.width, left: rect.left, top: rect.top };
+    }
+
+    /** What the page is told of the talk bubble over `id`'s head: its box and tail point, in art and CSS pixels. */
+    function talkAnchor(id) {
+      const bubble = bubblesAt.find((b) => b.id === id);
+      return bubble ? TALK_ANCHORS.anchorOf(bubble, shape, talkView()) : null;
+    }
+
+    /**
+     * The mouse is over the talk bubble of `id` (null: over none). A bubble it rests on for TALK_ANCHORS.HOVER_AFTER
+     * is told to the page, `on.talk.hover(id, anchor)`, with `anchor.again` false if the desk's card was asked for
+     * within the last second; one it leaves, `on.talk.hover(null)`. Only a mouse hovers: a touch has no hover.
+     */
+    function hoverTalk(id) {
+      if (!on.talk) return;
+      const at = clock();
+      if (talkTimer !== null) host.window.clearTimeout(talkTimer);
+      talkTimer = null;
+      const step = TALK_ANCHORS.hoverStep(talkHover, id, at);
+      talkHover = step.state;
+      if (step.hide) on.talk.hover?.(null);
+      if (step.show !== null) {
+        const anchor = talkAnchor(step.show);
+        if (anchor) {
+          anchor.again = TALK_ANCHORS.mayAsk(talkAsked.get(step.show), at);
+          if (anchor.again) talkAsked.set(step.show, at);
+          on.talk.hover?.(step.show, anchor);
+        }
+      }
+      if (step.wait !== null) talkTimer = host.window.setTimeout(() => { talkTimer = null; hoverTalk(talkHover.id); }, step.wait * 1000);
     }
 
     /** Everything a key or button does on the deck, done by tapping the room. */
@@ -68851,6 +69040,10 @@
       if (target.kind === 'chip') {
         chipDown = { level: target.level, at: clock(), held: true };
         return target.level === 'max' ? maxOrAsk(selectedSession()) : on.effort?.(target.level);
+      }
+      if (target.kind === 'talk') {
+        hoverTalk(null);
+        return on.talk?.open?.(target.id, talkAnchor(target.id));
       }
       if (target.kind === 'session') return on.select?.(target.id);
       const session = pickedHere();
@@ -69449,8 +69642,13 @@
       }
       if (finger && e.pointerId === finger.id) return carry(e);
       // A mouse shows what can be clicked.
-      if (e.pointerType === 'mouse' && !finger) canvas.style.cursor = targetAt(e.clientX, e.clientY) ? 'pointer' : '';
+      if (e.pointerType === 'mouse' && !finger) {
+        const over = targetAt(e.clientX, e.clientY);
+        canvas.style.cursor = over ? 'pointer' : '';
+        hoverTalk(over && over.kind === 'talk' ? over.id : null);
+      }
     });
+    canvas.addEventListener('pointerleave', () => hoverTalk(null));
 
     // A trackpad's or a wheel's scroll over the styles turns their page, one a swipe: on, going right or down
     canvas.addEventListener('wheel', (e) => {
