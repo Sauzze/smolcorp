@@ -264,8 +264,10 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertTrue(page.contains("textContent: \"\(clipboard)\""))
         let setup = try String(contentsOf: Self.repo.appendingPathComponent("Resources/web/setup.html"), encoding: .utf8)
         XCTAssertTrue(setup.contains("over the Wi-Fi too, where what you type isn't encrypted: Tailscale is the private option. \(clipboard)\"></div>"))
+        // The doc's safety notes, whatever its line wrapping: lines joined with single spaces.
         let docs = try String(contentsOf: Self.repo.appendingPathComponent("docs/phone.md"), encoding: .utf8)
-        XCTAssertTrue(docs.contains("A clipboard manager, or\niTerm2's paste history, may keep a copy of text sent this way."), "RI34c N3")
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        XCTAssertTrue(docs.contains("A clipboard manager, or iTerm2's paste history, may keep a copy of text sent this way."), "RI34c N3")
         XCTAssertTrue(docs.contains("and ⌘V, for Claude Code only,"), "RI34c B1")
         XCTAssertFalse(docs.contains("OpenCode waiting"), "RI34c B1")
         XCTAssertTrue(docs.contains("idle, so Smolcorp still reads it as waiting: several lines go to that mode or"), "RI34c's residual note")
