@@ -29,6 +29,15 @@ pairing, the same agents, roles and hiring. What's different from the Mac:
 - **Hook commands name the office's port**, so two offices on one computer
   don't mix. Agents set up by an older Smolcorp are moved over the first time
   1.24 starts.
+- **The General Manager** hires, briefs and fires its team here too, only
+  into hires Smolcorp can fence: in tmux on Linux, and on Windows only with
+  managed hires turned on, a beta that's off by default. Tiling the team's
+  windows and a General Manager started by hand are the Mac's. See
+  [Run a team](team.md#run-a-team).
+- **Typing from the phone** reaches tmux panes and the launcher's windows
+  (several lines as one paste where the agent asked for it), and WezTerm and
+  kitty one line at a time. The phone's own mic is the Mac's. See
+  [Typing from the phone](phone.md#typing-from-the-phone).
 - **Grok Bots** sit at their desks too, but their news comes only through
   `POST /bots/<id>/event`: the Grok Bot app that the Mac reads is the Mac's
   only.
