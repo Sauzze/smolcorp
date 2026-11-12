@@ -113,6 +113,42 @@ you do, it's the floor most of your bots are on. When that floor is full, the
 bot sits where there's room, and setup names any bot left with no desk on any
 floor. There's no set number of bots: the floors' desks are the room.
 
+## The team from a terminal
+
+On the computer Smolcorp runs on, five commands ask the running Smolcorp about
+your team, as you:
+
+```
+smolcorp status               the team at a glance, and who is waiting on you
+smolcorp desks                one line a desk, numbered as the office shows them
+smolcorp say ada "run the tests"   type into Ada's agent, then Return
+smolcorp hire reviewer --folder ~/Projects/app
+smolcorp open 3               bring desk 3's terminal forward
+```
+
+A desk is its number (`3`, or `2/3` for floor 2), an id, or a name or nickname.
+Add `--json` to get the answers as Smolcorp serves them, and `smolcorp status
+--help` for the rest.
+
+- **`say` never types into a prompt.** It goes through the same rules as the
+  office window's text box and your phone's: while a desk asks you something it
+  refuses, so a word can't answer a permission prompt by accident, and a
+  desk in T3 Code or a terminal Smolcorp can't type into says so. Answer a
+  prompt from the office.
+- **`hire` follows the hire rules.** The roles, the fence, the folder rules and
+  the pause between hires are Smolcorp's, not the command's. When Smolcorp
+  refuses, you get its sentence whole and the exit code is 1. From a terminal,
+  hiring needs the General Manager's token (on the Mac, "Allow a GM started by
+  hand" in setup); with only your setup key Smolcorp refuses, and you hire from
+  the office or setup.
+- **Keys stay in their files.** `status`, `desks` and `hire` send your setup key
+  (and the GM token when you have one); `say` and `open` send the office
+  window's key, kept in the `window-key` file by Smolcorp on Windows. They go to
+  this computer only, and no command prints one. A hire can't run these
+  commands: it can only `smolcorp gm send`. On the Mac and Linux the office
+  keeps its window key in memory, so for now `say` and `open` tell you to use
+  the office window.
+
 ## The fence, and who gets it
 
 The General Manager and the Claude Code hires it manages start with a fence:
