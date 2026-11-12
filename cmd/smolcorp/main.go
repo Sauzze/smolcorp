@@ -7,6 +7,7 @@
 //	smolcorp setup                    set up and check everything, and say what's left
 //	smolcorp demo [--dry-run]         a General Manager and its team on a sample project
 //	smolcorp gm <command>             ask the running app about the team (the GM's hands)
+//	smolcorp status | desks           the team, for you at the computer (see: smolcorp status --help)
 //	smolcorp guard [--profile gm] [--rules FILE]     the hire guard: Claude Code runs it before each Bash command
 //	smolcorp quit                     stop the running copy, by the pid it recorded
 //	smolcorp version
@@ -36,6 +37,9 @@ const usage = `Usage: smolcorp [command]
                           project, in a new folder (asks before it spends)
   hook [--port N] [agent] report a hook event: your agents run this
   gm <command>            ask the running Smolcorp about the team (gm help)
+  status                  the office at a glance: the team, who waits on you
+  desks                   the team, one line a desk
+  say, hire, open         come with app keys in Settings (not yet: use the office)
   guard [--profile gm] [--rules FILE]    the hire guard, a PreToolUse hook: reads the call on stdin
   mcp                     serve the gm commands as MCP tools on standard input and output
   quit                    stop the running Smolcorp (the one of this user)
@@ -61,6 +65,8 @@ func main() {
 		os.Exit(desktop.RunDemo(args[1:]))
 	case "gm":
 		os.Exit(gm.Run(args[1:], os.Stdout, os.Stderr))
+	case "status", "desks", "say", "hire", "open":
+		os.Exit(gm.RunPeople(args[0], args[1:], os.Stdout, os.Stderr))
 	case "guard":
 		os.Exit(guard.Run(args[1:], os.Stdin, os.Stdout, os.Stderr))
 	case "mcp":

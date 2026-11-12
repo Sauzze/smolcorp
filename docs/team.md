@@ -113,6 +113,30 @@ you do, it's the floor most of your bots are on. When that floor is full, the
 bot sits where there's room, and setup names any bot left with no desk on any
 floor. There's no set number of bots: the floors' desks are the room.
 
+## The team from a terminal
+
+On the computer Smolcorp runs on, two commands ask the running Smolcorp about
+your team, as you:
+
+```
+smolcorp status               the team at a glance, and who is waiting on you
+smolcorp desks                one line a desk, numbered as the office shows them
+```
+
+Add `--json` to get the answers as Smolcorp serves them, and `smolcorp status
+--help` for the rest.
+
+- **They only read.** They use your setup key, kept in the `setup-key` file in
+  Smolcorp's folder, and send it to this computer only; no command prints it.
+  They never use the General Manager's token or the office window's key, so a
+  terminal of yours can't pass for the General Manager.
+- **`say`, `hire` and `open` come later.** Typing into a desk, hiring and
+  bringing a terminal forward from a terminal need a key of their own, made in
+  Settings and limited to what you tick. Until then they answer in one line and
+  do nothing: type to a desk, bring its terminal forward and hire from the
+  office, and hire from setup too.
+- **A hire can't use them.** A hire can only `smolcorp gm send`.
+
 ## The fence, and who gets it
 
 The General Manager and the Claude Code hires it manages start with a fence:

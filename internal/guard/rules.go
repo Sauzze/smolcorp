@@ -40,7 +40,10 @@ func DefaultGroups() []Group {
 		{Name: "remote", On: true, Commands: []Rule{"ssh", "scp", "sftp", "rsync @remote"}},
 		{Name: "local", On: true, Commands: []Rule{
 			"tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
-			"smolcorp gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+			"smolcorp|smolcorp-cli gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+			// The person's own commands (1.26 X3): a hire is not a person. say, open and hire are refused by the command
+			// itself for now, but its own check (an environment variable) is only a polite refusal, so they are fenced here too.
+			"smolcorp|smolcorp-cli hire|say|open",
 			"security", "osascript",
 			// stored credentials, printed
 			"git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager", "op read|item|inject|signin", "bw", "pass",
@@ -64,7 +67,7 @@ func ForGM(groups []Group) []Group {
 		out[i].gm = true
 		out[i].Commands = nil
 		for _, r := range g.Commands {
-			if w := ruleWords(r); len(w) >= 2 && strings.EqualFold(w[0], "smolcorp") && strings.EqualFold(w[1], "gm") {
+			if w := ruleWords(r); len(w) >= 2 && oneOf(strings.ToLower(w[0]), "smolcorp") && strings.EqualFold(w[1], "gm") {
 				continue
 			}
 			out[i].Commands = append(out[i].Commands, r)
@@ -212,7 +215,7 @@ var valueOptions = map[string][]string{
 	"pnpm":     {"-C", "--dir", "--filter", "-F", "-w", "--workspace", "--reporter", "--loglevel"},
 	"yarn":     {"--cwd"},
 	"bun":      {"--cwd", "--filter"},
-	"smolcorp": {"--port", "--test"},
+	"smolcorp": {"--port", "--test"}, "smolcorp-cli": {"--port", "--test"},
 	"vercel":   {"--cwd", "--scope", "-S", "--token", "-t", "-A", "--local-config", "-Q", "--global-config"},
 	"netlify":  {"--cwd", "--auth"},
 	"firebase": {"--project", "-P", "--config", "-c", "--token"},

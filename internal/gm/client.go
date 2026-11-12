@@ -52,6 +52,9 @@ const (
 	tokenHeader    = "x-smolcorp-gm-token"
 	hireKeyEnv     = "SMOLCORP_HIRE_KEY"
 	hireHeader     = "x-smolcorp-hire-key"
+	// setupKeyHeader is what a person's own tool sends (people.go): the setup key, the owner's, kept in a file only
+	// the owner reads.
+	setupKeyHeader = "X-Smolcorp-Setup-Key"
 	// sessionEnv is the id Claude Code gives the session it runs in; sessionHeader sends it so the
 	// Mac app can tell which session is a GM started by hand. The Go app ignores it.
 	sessionEnv    = "CLAUDE_CODE_SESSION_ID"
@@ -172,8 +175,10 @@ type Client struct {
 	BaseURL string
 	token   string
 	hireKey string
-	session string // the session id the token is sent from, when the environment names one
-	http    *http.Client
+	// A person's tool (people.go) holds the setup key alone: no GM token, no session id, no hire key.
+	setupKey string
+	session  string // the session id the token is sent from, when the environment names one
+	http     *http.Client
 }
 
 // NewClient is a client for the app at 127.0.0.1 on the environment's port,
@@ -347,9 +352,14 @@ func (c *Client) do(method, path string, query url.Values, body []byte, timeout 
 	if c.hireKey != "" {
 		req.Header.Set(hireHeader, c.hireKey)
 	} else {
-		req.Header.Set(tokenHeader, c.token)
-		if c.session != "" {
-			req.Header.Set(sessionHeader, c.session)
+		if c.token != "" {
+			req.Header.Set(tokenHeader, c.token)
+			if c.session != "" {
+				req.Header.Set(sessionHeader, c.session)
+			}
+		}
+		if c.setupKey != "" {
+			req.Header.Set(setupKeyHeader, c.setupKey)
 		}
 	}
 	req.Header.Set("Accept", "application/json")
@@ -448,6 +458,9 @@ func (c *Client) scrub(s string) string {
 	}
 	if c.hireKey != "" {
 		s = strings.ReplaceAll(s, c.hireKey, "[hire key]")
+	}
+	if c.setupKey != "" {
+		s = strings.ReplaceAll(s, c.setupKey, "[setup key]")
 	}
 	return s
 }
