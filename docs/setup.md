@@ -21,7 +21,16 @@ What Smolcorp sends and never sends, how it keeps strangers out, and using setup
   phone without touching the others.
 - **Buttons you make type only what you set up.** A phone names a button by
   its id; the command it types, or the key it presses, comes from your
-  computer. A paired phone can't send text of its own.
+  computer.
+- **Text from a paired phone goes only where you send it.** What you type or
+  dictate on the phone goes to the agent you picked, as text: never to an
+  agent that's asking you something, never starting with `!` (Claude Code
+  would run it as a shell command), 2,000 characters at most, with Return
+  pressed on its own afterwards. Over your Wi-Fi it isn't encrypted; over
+  Tailscale it is. It's on unless you turn it off: on the Mac with setup's
+  **Phone microphone** switch, on Windows and Linux with `"phoneMicEnabled":
+  false` in `config.json`.
+  See [Typing from the phone](phone.md#typing-from-the-phone).
 - **Pairing codes are short-lived.** A code exists only after you ask for one.
   It works once and expires after five minutes. Five wrong tries from one
   device lock that device out until you get a new code, and twenty wrong tries
@@ -57,6 +66,12 @@ What Smolcorp sends and never sends, how it keeps strangers out, and using setup
   saved link with the key in it no longer opens setup. Your own scripts can
   still send the key as the `X-Smolcorp-Setup-Key` header, for what's listed
   under [Use setup from a script](#use-setup-from-a-script).
+- **On Windows, "a file only you can read" means your profile's folder.**
+  Smolcorp sets no permissions of its own on its files there (the setup key,
+  the agents' key, the guard's list): they're as private as `%APPDATA%`, which
+  Windows lets only you, administrators and the system read. Fenced hires
+  also have deny rules that keep them away from these files. On the Mac and
+  Linux, Smolcorp writes them so only you can read them.
 - **Employees are fenced, not walled, and not all of them.** The General
   Manager and the Claude Code hires it manages refuse `git push`, deploy,
   publish and cloud commands, stay out of your `.env` files and keys, and leave

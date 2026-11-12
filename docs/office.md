@@ -35,9 +35,9 @@ Setup…** in the tray on Windows and Linux), or by opening Smolcorp again from
 Applications. A bookmark of the page won't open it: the menu opens it with a
 link that works once, for five minutes.
 
-On a Mac, **Keep the office on top of other windows** is a switch in the Office
-pane, and the office's corner key is **⚙︎ Settings**. Beside it, **Shortcut to
-show and hide the office** is ⌥⌘O until you change it: click it and press the
+On a Mac, the office's corner key is **⚙︎ Settings**, and setup's General →
+Window has **Keep the office on top of other windows** and, below it,
+**Shortcut to show and hide the office**, ⌥⌘O until you change it: click it and press the
 keys you want, with ⌘, ⌥ or ⌃. It works at once, from any app, and needs no
 permission. **Reset to default** brings back ⌥⌘O and **Off** turns it off.
 The keys are shown as your keyboard prints them: on a French AZERTY Mac, ⌥⌘A

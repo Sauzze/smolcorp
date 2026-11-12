@@ -14,7 +14,9 @@ release notes:
 | `build/Smolcorp.zip` | The same app, zipped, for the Homebrew cask and older links. Keep uploading it. |
 
 The script won't run with uncommitted changes or untracked files: commit them
-or set them aside first.
+or set them aside first. It needs [Go](https://go.dev) 1.26 or later, as any
+build of the app does: the app's core, `Contents/Resources/bin/smolcorp`, is
+built from `cmd/smolcorp` for both architectures.
 
 ## The DMG
 

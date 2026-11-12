@@ -25,9 +25,7 @@ and talk to it. It opens in any browser, your phone's too, over your Wi-Fi or
 Works with Claude Code, Codex, Gemini CLI, OpenCode and Grok, in your own
 terminal. Free and open source (MIT).
 
-<!-- One line to flip: when the General Manager's hiring on Windows and Linux is merged into 1.25.0, replace the next line with
-**For the Mac** (beta), **Windows and Linux** (alpha). From 1.25.0, the General Manager hires its team on all three. -->
-**For the Mac** (beta), **Windows and Linux** (alpha). On Windows and Linux the General Manager plans with you; hiring its team for you there is coming.
+**For the Mac** (beta), **Windows and Linux** (alpha). From 1.25.0, the General Manager hires its team on all three (on Windows, with managed hires turned on).
 
 > Smolcorp is an independent project. It is not made by or affiliated with Anthropic.
 
@@ -57,9 +55,9 @@ can do.
   hires it manages.** They start with deny rules and a guard that refuse
   `git push`, deploys, publishing and cloud commands, and keep out of `.env`
   files and keys. **Hires of Codex, Gemini CLI, OpenCode and Grok don't get
-  this fence, and on the Mac nor does a Claude Code session you hire at a desk
-  with the manager off:** they run with their own settings. On Windows and
-  Linux fewer hires get it so far: see
+  this fence, and nor do some Claude Code hires you make yourself, such as one
+  with no role on the Mac while the manager is off:** they run with their own settings.
+  Who gets it differs from system to system: see
   [The fence, and who gets it](docs/team.md#the-fence-and-who-gets-it).
   It's a fence, not a wall: everyone runs as you.
 - **The General Manager's hires each work on a branch of their own**, so
@@ -95,8 +93,9 @@ install, building it yourself, and what each setup step does are in
 
 - [The office](docs/office.md): floors, styles, outfits, arranging the room
 - [Your team](docs/team.md): every role, hiring by hand, the General
-  Manager's commands, the fence, the agents and terminals it works with
-- [Your phone](docs/phone.md): pairing, the keys, voice
+  Manager's commands, the fence, T3 Code, the agents and terminals it works
+  with
+- [Your phone](docs/phone.md): pairing, the keys, typing and voice
 - [Setup, privacy and security](docs/setup.md): what's sent and what never
   is, and setup from a script
 - [Windows and Linux](docs/windows-linux.md): what differs, who can reach
