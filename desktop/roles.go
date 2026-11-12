@@ -70,7 +70,8 @@ var (
 	// then those for roles of your own.
 	briefLibraryIDs = []string{"reviewer", "tester", "bughunter", "docs", "refactorer", "artdirector", "lawyer", "therapist", "plumber",
 		"gm", "janitor", "firefighter", "pilot", "postman", "accountant", "marketer", "chef", "thinker",
-		"builder", "security-auditor", "perf-auditor", "designer", "pixel-artist", "planner", "fixer", "study"}
+		"builder", "designer", "security-auditor", "perf-auditor", "pixel-artist", "planner", "fixer", "study",
+		"issue-sorter", "test-writer", "dependency-updater", "translator", "api-checker", "support-writer"}
 	// A shipped role whose brief has an id of its own: the Security guard's is the security auditor's.
 	briefLibraryOfRole = map[string]string{"securityguard": "security-auditor"}
 	// What a role can wear in the office: the shipped roles' own, then some
@@ -92,16 +93,25 @@ var (
 		{ID: "tester", Name: "Tester", Agent: "claude", Model: "sonnet", Effort: "medium", Badge: "clipboard",
 			Questions: []string{
 				"Which tests should you run: all of them, a folder, or a single file?",
-				"Is there anything to set up or start first, such as a database, a server or environment variables?",
+				"What's the main thing someone must be able to do, for you to try by hand too?",
+				"Is there anything to set up or start first, such as a database or a server? Say what's needed; don't send keys or passwords.",
 			},
 			Instructions: "Run the tests I point you to. If any fail, find out why, and explain each failure with the fix you'd make. " +
 				"Don't change any code until I say so."},
 		{ID: "bughunter", Name: "Bug hunter", Agent: "claude", Model: "opus", Effort: "high", Badge: "magnifier", Outfit: "detective",
-			Questions: []string{"Which area or feature should you focus on, or should you look everywhere?"},
+			Questions: []string{
+				"Which area or feature should you focus on, or should you look everywhere?",
+				"Which devices, systems or browsers should you try, and can they run here?",
+				"Any known bugs to skip, and how serious must a bug be to report it?",
+			},
 			Instructions: "Look for bugs where I point you to: wrong results, crashes, edge cases that aren't handled. Report each one " +
 				"with how to reproduce it and how sure you are. Don't fix anything until I say which."},
 		{ID: "docs", Name: "Docs writer", Agent: "claude", Model: "sonnet", Effort: "medium", Badge: "quill", Outfit: "librarian",
-			Questions: []string{"Which docs should you check: the README, a docs folder, or comments in the code?"},
+			Questions: []string{
+				"Which docs should you check: the README, a docs folder, or comments in the code?",
+				"Who reads them: newcomers, developers, or both? In which languages?",
+				"Should you only list what's wrong, or fix it too? Anything that must stay as it is?",
+			},
 			Instructions: "Check the docs I point you to against what the code actually does. List what's missing, wrong or out of date, " +
 				"with the changes you'd make. Wait for my OK before editing any file."},
 		{ID: "refactorer", Name: "Refactorer", Agent: "claude", Model: "opus", Effort: "high", Badge: "wrench", Outfit: "hardhat",
@@ -165,6 +175,8 @@ var (
 			Questions: []string{
 				"What's on fire: what's broken, since when, and who is affected?",
 				"Is there an error, a log or a failing request you can look at?",
+				"What's the smallest outcome that will do for now: stop the harm, undo a recent change, or only find the cause? " +
+					"Anything you mustn't restart or touch?",
 			},
 			Instructions: "Triage first: find out what's broken, how badly, and the most likely cause, and tell me. Then propose the " +
 				"smallest safe fix, with how to undo it. Don't change, deploy or restart anything until I say so."},
@@ -233,6 +245,16 @@ var (
 			Instructions: "Build what I describe, on a branch of its own. First list what you'll make or change, file by file, and wait " +
 				"for my OK. Then build it in small steps, and check it in the real thing, not only in tests. Show me what " +
 				"you did and how you checked it. Never push, merge, publish or deploy unless I tell you to."},
+		{ID: "designer", Name: "Designer", Agent: "claude", Model: "opus", Effort: "high", Badge: "star",
+			Questions: []string{
+				"What should you design: a page, a screen, a site, or a whole look?",
+				"Who is it for, and what should it feel like?",
+				"Is there a current version to start from, or anything to avoid?",
+			},
+			Instructions: "Design what I point you to: one strong direction, proven with real HTML/CSS mockups built from real " +
+				"content, beside screenshots of what's there today. First tell me the direction in a few lines and wait for my " +
+				"OK. Keep the mockups next to your brief and leave the project's own code alone. Never push, merge, publish or " +
+				"deploy unless I tell you to."},
 	}
 	// The shipped roles as 1.7.1 had them, which assumed what to work on. A
 	// role still exactly so is brought up to date as it loads; one you've
@@ -271,6 +293,38 @@ func shippedBeforeOutfits() []Role {
 		if role.ID == "bughunter" || role.ID == "docs" || role.ID == "refactorer" {
 			role.Outfit = ""
 			role.Questions = slices.Clone(role.Questions)
+			if questions, ok := questionsBefore126[role.ID]; ok {
+				role.Questions = slices.Clone(questions)
+			}
+			old = append(old, role)
+		}
+	}
+	return old
+}
+
+// questionsBefore126 are what the Bug hunter, the Tester, the Docs writer and
+// the Firefighter asked before 1.26 gave each a sharper brief and more to ask.
+var questionsBefore126 = map[string][]string{
+	"bughunter": {"Which area or feature should you focus on, or should you look everywhere?"},
+	"tester": {
+		"Which tests should you run: all of them, a folder, or a single file?",
+		"Is there anything to set up or start first, such as a database, a server or environment variables?",
+	},
+	"docs": {"Which docs should you check: the README, a docs folder, or comments in the code?"},
+	"firefighter": {
+		"What's on fire: what's broken, since when, and who is affected?",
+		"Is there an error, a log or a failing request you can look at?",
+	},
+}
+
+// shippedBefore126 are those four roles as they came before 1.26: one still
+// exactly so, on its own brief from the library or none, is brought up to
+// date as it loads; one you've changed is left as you have it.
+func shippedBefore126() []Role {
+	var old []Role
+	for _, role := range shippedRoles {
+		if questions, ok := questionsBefore126[role.ID]; ok {
+			role.Questions = slices.Clone(questions)
 			old = append(old, role)
 		}
 	}
@@ -315,15 +369,16 @@ type CompanyTemplate struct {
 }
 
 // companyTemplates are the teams that come with the app, in the order setup
-// offers them. Each role is a shipped one; the Art Director is the Designer
-// of the owner's list, as no role of that name ships.
+// offers them. Each role is a shipped one. Small agency's designer is the
+// Designer, who makes the screens, not the Art Director, who reviews them
+// (pending the owner's OK).
 var companyTemplates = []CompanyTemplate{
 	{ID: "solo-builder", Name: "Solo builder",
 		Blurb: "One builder, with a manager to plan the work, and a reviewer and a tester to check it before it counts as done.",
 		GM:    "gm", Roles: []string{"builder", "reviewer", "tester"}},
 	{ID: "small-agency", Name: "Small agency",
 		Blurb: "Two builders on a manager's plan, a designer for how it looks, a reviewer for the code and a writer for the docs.",
-		GM:    "gm", Roles: []string{"builder", "builder", "artdirector", "reviewer", "docs"}},
+		GM:    "gm", Roles: []string{"builder", "builder", "designer", "reviewer", "docs"}},
 	{ID: "bug-squash", Name: "Bug squash",
 		Blurb: "A bug hunter finds what's broken, a tester proves it, a reviewer checks the fix, and a manager keeps the list.",
 		GM:    "gm", Roles: []string{"bughunter", "tester", "reviewer"}},
@@ -530,6 +585,10 @@ func checkedRoles(roles []Role) []Role {
 			continue
 		}
 		if role.Brief == nil && (slices.ContainsFunc(shippedIn171, role.sameAs) || slices.ContainsFunc(shippedBeforeOutfits(), role.sameAs)) {
+			role = shippedRoles[slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == role.ID })]
+		}
+		// A role from before 1.26 sharpened it, on its own library brief or none: another brief is yours, and stays.
+		if slices.ContainsFunc(shippedBefore126(), role.sameAs) && (role.Brief == nil || *role.Brief == RoleBrief{Kind: "library", ID: role.ID}) {
 			role = shippedRoles[slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == role.ID })]
 		}
 		// The General Manager from before it ran a team, whatever brief it was kept with: sameAs leaves briefs aside.

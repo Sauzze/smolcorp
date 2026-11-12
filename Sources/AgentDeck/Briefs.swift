@@ -23,7 +23,8 @@ struct Brief: Codable, Equatable {
     /// shipped roles' own, by their ids, then those for roles of your own.
     static let libraryIDs = ["reviewer", "tester", "bughunter", "docs", "refactorer", "artdirector", "lawyer", "therapist", "plumber",
                              "gm", "janitor", "firefighter", "pilot", "postman", "accountant", "marketer", "chef", "thinker",
-                             "builder", "security-auditor", "perf-auditor", "designer", "pixel-artist", "planner", "fixer", "study"]
+                             "builder", "designer", "security-auditor", "perf-auditor", "pixel-artist", "planner", "fixer", "study",
+                             "issue-sorter", "test-writer", "dependency-updater", "translator", "api-checker", "support-writer"]
     /// A shipped role whose brief has an id of its own: the Security guard's is the security auditor's.
     static let libraryOfRole = ["securityguard": "security-auditor"]
 

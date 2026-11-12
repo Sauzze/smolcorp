@@ -1373,7 +1373,8 @@
             "outfit" : "",
             "questions" : [
               "Which tests should you run: all of them, a folder, or a single file?",
-              "Is there anything to set up or start first, such as a database, a server or environment variables?"
+              "What's the main thing someone must be able to do, for you to try by hand too?",
+              "Is there anything to set up or start first, such as a database or a server? Say what's needed; don't send keys or passwords."
             ]
           },
           {
@@ -1386,7 +1387,9 @@
             "name" : "Bug hunter",
             "outfit" : "detective",
             "questions" : [
-              "Which area or feature should you focus on, or should you look everywhere?"
+              "Which area or feature should you focus on, or should you look everywhere?",
+              "Which devices, systems or browsers should you try, and can they run here?",
+              "Any known bugs to skip, and how serious must a bug be to report it?"
             ]
           },
           {
@@ -1399,7 +1402,9 @@
             "name" : "Docs writer",
             "outfit" : "librarian",
             "questions" : [
-              "Which docs should you check: the README, a docs folder, or comments in the code?"
+              "Which docs should you check: the README, a docs folder, or comments in the code?",
+              "Who reads them: newcomers, developers, or both? In which languages?",
+              "Should you only list what's wrong, or fix it too? Anything that must stay as it is?"
             ]
           },
           {
@@ -1511,7 +1516,8 @@
             "outfit" : "firefighter",
             "questions" : [
               "What's on fire: what's broken, since when, and who is affected?",
-              "Is there an error, a log or a failing request you can look at?"
+              "Is there an error, a log or a failing request you can look at?",
+              "What's the smallest outcome that will do for now: stop the harm, undo a recent change, or only find the cause? Anything you mustn't restart or touch?"
             ]
           },
           {
@@ -1626,6 +1632,21 @@
               "What should you build: a feature, an app, or a website?",
               "What must it do or include, and what does \"done\" look like?",
               "Anything to build from, such as a design, a study or an existing page?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "star",
+            "effort" : "high",
+            "id" : "designer",
+            "instructions" : "Design what I point you to: one strong direction, proven with real HTML\/CSS mockups built from real content, beside screenshots of what's there today. First tell me the direction in a few lines and wait for my OK. Keep the mockups next to your brief and leave the project's own code alone. Never push, merge, publish or deploy unless I tell you to.",
+            "model" : "opus",
+            "name" : "Designer",
+            "outfit" : "",
+            "questions" : [
+              "What should you design: a page, a screen, a site, or a whole look?",
+              "Who is it for, and what should it feel like?",
+              "Is there a current version to start from, or anything to avoid?"
             ]
           }
         ],
