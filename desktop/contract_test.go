@@ -1219,14 +1219,12 @@ func goSources(t *testing.T) string {
 // ownerNames is who may close a gap: an M piece, with what it does or "via the bridge (M1)", or "stays: <why>".
 var ownerNames = regexp.MustCompile(`^(M[2-6][ab]?( fixes)?( via the bridge \(M1\)|: .{5,}|, .{5,})?|stays: .{10,})$`)
 
-// ownerProblem is what's wrong with a gap's owner, given its why: none, or a personal build's that isn't the
-// personal shell's (M6), or something only macOS does that doesn't go through the bridge (M1).
+// ownerProblem is what's wrong with a gap's owner, given its why: none, or something only macOS does that
+// doesn't go through the bridge (M1).
 func ownerProblem(owner, why string) string {
 	switch {
 	case !ownerNames.MatchString(owner):
 		return "names no M piece (M2 to M6, M4a, M4b) and no \"stays: <why>\""
-	case strings.Contains(why, "personal build") && owner != "M6: personal shell":
-		return "is a personal build's: \"M6: personal shell\", so M7 doesn't drop it"
 	}
 	for _, macOnly := range []string{"Accessibility", "speech recognition", "In the Dock", "Add smolcorp to Terminal", "Grok Bot app", "Terminal command"} {
 		if strings.Contains(why, macOnly) && !strings.HasSuffix(owner, " via the bridge (M1)") {

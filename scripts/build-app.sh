@@ -43,11 +43,11 @@ cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns Resources/report.sh Resources/opencode-plugin.js Resources/opencode-plugin-v1.js "$APP/Contents/Resources/"
 # office.js is built from Resources/web/office (scripts/buildoffice), and
 # committed: checked here, never rebuilt, so a change made in office.js itself
-# isn't lost. The app serves office.js alone, without its sources.
+# isn't lost. The pages, office.js and the briefs are inside the `smolcorp`
+# command below (go:embed, web.go), so the app carries no copy of Resources/web
+# or Resources/briefs: nothing reads one. The GM's plugin stays a folder, as the
+# command finds it beside itself (desktop/hirestart.go).
 go run ./scripts/buildoffice -check
-cp -R Resources/web "$APP/Contents/Resources/"
-rm -rf "$APP/Contents/Resources/web/office"
-cp -R Resources/briefs "$APP/Contents/Resources/"
 cp -R Resources/gm "$APP/Contents/Resources/"
 # Signed already, so the app's signature seals it as it is.
 cp -R "build/Smolcorp Office.saver" "$APP/Contents/Resources/"

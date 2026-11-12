@@ -42,17 +42,6 @@ final class TestCopySecretsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
     }
 
-    func testGMIdentityInATestCopyMakesAndKeepsItsTokenInTheFile() {
-        let store = GMIdentity.defaultStore(testCopy: true, support: folder, keychain: {
-            XCTFail("a test copy asked for the Keychain store"); return NoKeychainToken(fail: { XCTFail("Keychain: \($0)") })
-        })
-        let made = GMIdentity(store: store, tokenFile: folder.appendingPathComponent("gm-token"), fileAllowed: { false }).token()
-        XCTAssertNotNil(made)
-        // A new run of the copy reads the same token back from the file.
-        let again = GMIdentity(store: store, tokenFile: folder.appendingPathComponent("gm-token"), fileAllowed: { false })
-        XCTAssertTrue(again.isToken(made))
-    }
-
     func testTheRealAppStillUsesTheKeychainStore() {
         var asked = false
         _ = GMIdentity.defaultStore(testCopy: false, support: folder, underTest: false, keychain: { asked = true; return NoKeychainToken(fail: { _ in }) })

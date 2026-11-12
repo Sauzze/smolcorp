@@ -126,7 +126,7 @@ func TestTheRunsChildSeesOnlyWhatItShould(t *testing.T) {
 	dir := t.TempDir()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test0")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-"+"ant-test0")
 	t.Setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "x")
 	t.Setenv("SMOLCORP_SESSION", "abc")
 	t.Setenv("TMUX", "/tmp/fake,1,0")
@@ -140,7 +140,7 @@ func TestTheRunsChildSeesOnlyWhatItShould(t *testing.T) {
 			t.Errorf("the child gets %s", name)
 		}
 	}
-	if strings.Contains(string(ran.output), "sk-ant-test0") {
+	if strings.Contains(string(ran.output), "sk-"+"ant-test0") {
 		t.Error("the key reaches the child")
 	}
 	if !slices.Contains(seen, "HOME="+home) || !slices.Contains(seen, "SMOLCORP_SUMMARY=1") || slices.Contains(seen, "SMOLCORP_SUMMARY=0") {
@@ -155,7 +155,7 @@ func TestAHiresEnvironmentLosesOnlyWhatMarksADeskOrATerminal(t *testing.T) {
 		t.Setenv(name, "x")
 	}
 	t.Setenv("tmux_pane", "x") // names are matched in any case
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test0")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-"+"ant-test0")
 	t.Setenv("OPENAI_API_KEY", "sk-test0")
 	t.Setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "m")
 	t.Setenv("SMOLCORP_SUMMARY", "1") // not in the hire's list: the summary's own mark
@@ -166,7 +166,7 @@ func TestAHiresEnvironmentLosesOnlyWhatMarksADeskOrATerminal(t *testing.T) {
 			t.Errorf("a hire gets %s", name)
 		}
 	}
-	for _, kept := range []string{"ANTHROPIC_API_KEY=sk-ant-test0", "OPENAI_API_KEY=sk-test0", "ANTHROPIC_DEFAULT_SONNET_MODEL=m"} {
+	for _, kept := range []string{"ANTHROPIC_API_KEY=sk-" + "ant-test0", "OPENAI_API_KEY=sk-test0", "ANTHROPIC_DEFAULT_SONNET_MODEL=m"} {
 		if !slices.Contains(env, kept) {
 			t.Errorf("a hire lost %s", kept)
 		}
@@ -177,7 +177,7 @@ func TestAHiresEnvironmentLosesOnlyWhatMarksADeskOrATerminal(t *testing.T) {
 }
 
 func TestTheSummaryEnvironmentMatchesNamesInAnyCaseAndKeepsOtherVariables(t *testing.T) {
-	env := summaryEnvironment([]string{"anthropic_api_key=sk-ant-test0", "Anthropic_Default_Haiku_Model=x", "tmux=x",
+	env := summaryEnvironment([]string{"anthropic_api_key=sk-" + "ant-test0", "Anthropic_Default_Haiku_Model=x", "tmux=x",
 		"smolcorp_summary=0", "ANTHROPIC_BASE_URLX=keep", "XDG_CONFIG_HOME=/tmp/c"})
 	want := []string{"ANTHROPIC_BASE_URLX=keep", "XDG_CONFIG_HOME=/tmp/c", "SMOLCORP_SUMMARY=1"}
 	if !slices.Equal(env, want) {

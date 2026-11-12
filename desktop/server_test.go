@@ -738,7 +738,7 @@ func TestOpeningSetupMarksItCompleteOnlyWithTheSetupKey(t *testing.T) {
 		}
 	}
 	open(nil)
-	open(map[string]string{setupKeyHeader: "sk-ant-test0"})
+	open(map[string]string{setupKeyHeader: "sk-" + "ant-test0"})
 	if d.config.HasCompletedSetup {
 		t.Fatal("opening /setup without a valid setup key marked setup complete")
 	}

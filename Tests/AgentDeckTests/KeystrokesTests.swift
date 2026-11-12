@@ -15,8 +15,6 @@ final class KeystrokesTests: XCTestCase {
         func userTouches() { lastEvent = time }
         var front: String? = "com.example.notes"
         var sent: [Keystrokes.Stroke] = []
-        var dropped: [URL] = []
-        var canDrop = true
         var logged: [(String, Keystrokes.Action, String)] = []
         /// Runs 4 ms after a key (the 12 ms pause), with the count of keys sent, to change the Mac between keys.
         var afterKey: ((Int) -> Void)?
@@ -28,7 +26,6 @@ final class KeystrokesTests: XCTestCase {
                 post: { stroke, _ in
                     if self.postResult != .sent { return self.postResult }
                     self.sent.append(stroke); return .sent },
-                drop: { url, _ in self.dropped.append(url); return self.canDrop },
                 pause: { self.time += 0.004; self.afterKey?(self.sent.count); self.time += 0.008 }, log: { self.logged.append(($0, $1, $2)) }))
         }
     }
@@ -124,9 +121,7 @@ final class KeystrokesTests: XCTestCase {
         XCTAssertTrue(Config().keystrokeApps.isEmpty, "empty by default")
         XCTAssertEqual(fake.keystrokes.type("hi", into: app), .init(sent: 0, stoppedBy: .notAllowedApp))
         XCTAssertEqual(fake.keystrokes.press(.tab, into: app).stoppedBy, .notAllowedApp)
-        XCTAssertEqual(fake.keystrokes.dropFile(URL(fileURLWithPath: NSTemporaryDirectory()), onto: app).stoppedBy, .notAllowedApp)
         XCTAssertTrue(fake.sent.isEmpty)
-        XCTAssertTrue(fake.dropped.isEmpty)
     }
 
     func testAnAllowedAppPassesAndOthersDoNot() {
@@ -269,40 +264,6 @@ final class KeystrokesTests: XCTestCase {
         XCTAssertEqual(fake.sent, [.key(.return, [.command, .shift])])
         XCTAssertEqual(Keystrokes.Key.return.code, 36)
         XCTAssertEqual(Keystrokes.Modifiers([.command, .shift]).flags, [.maskCommand, .maskShift])
-    }
-
-    // MARK: Files
-
-    func testAFileIsDroppedNeverTyped() throws {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("drop-\(UUID().uuidString).txt")
-        try "x".write(to: file, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: file) }
-        let fake = Fake()
-        XCTAssertEqual(fake.keystrokes.dropFile(file, onto: app), .init(sent: 1, stoppedBy: nil))
-        XCTAssertEqual(fake.dropped, [file])
-        XCTAssertTrue(fake.sent.isEmpty, "no key is pressed to drop a file")
-        fake.canDrop = false
-        XCTAssertEqual(fake.keystrokes.dropFile(file, onto: app).stoppedBy, .noDrop)
-    }
-
-    func testADropIsCheckedLikeAKeyAndWantsARealFile() {
-        let fake = Fake()
-        let missing = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString)")
-        XCTAssertEqual(fake.keystrokes.dropFile(missing, onto: app).stoppedBy, .notAFile)
-        XCTAssertEqual(fake.keystrokes.dropFile(URL(string: "https://example.com/a.txt")!, onto: app).stoppedBy, .notAFile)
-        let here = URL(fileURLWithPath: NSTemporaryDirectory())
-        fake.allowed = false
-        XCTAssertEqual(fake.keystrokes.dropFile(here, onto: app).stoppedBy, .off)
-        fake.allowed = true; fake.front = "other"
-        XCTAssertEqual(fake.keystrokes.dropFile(here, onto: app).stoppedBy, .wrongApp)
-        fake.front = app; fake.dialog = true
-        XCTAssertEqual(fake.keystrokes.dropFile(here, onto: app).stoppedBy, .fileDialog)
-        XCTAssertTrue(fake.dropped.isEmpty)
-    }
-
-    func testTheRealDropIsRefusedForNow() throws {
-        let live = Keystrokes.live(config: { true }, apps: { [] }, log: { _, _, _ in })
-        XCTAssertFalse(live.env.drop(URL(fileURLWithPath: "/tmp"), app), "a drag session into another app isn't done yet: it refuses")
     }
 
     // MARK: The log

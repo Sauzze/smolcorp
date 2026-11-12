@@ -38,7 +38,7 @@
     },
     {"name": "the folder panel for the hires, none picked", "request": {"action": "choose-folder", "for": "hires"}, "answer": {"ok": true}},
     {"name": "the hires' folder panel closed", "request": {"action": "folder-panel-close"}, "answer": {"ok": true}},
-    {"name": "the Summary key, from the Keychain", "request": {"action": "secret-read", "item": "summary-key"}, "answer": {"ok": true, "found": true, "value": "sk-ant-fake"}},
+    {"name": "the Summary key, from the Keychain", "request": {"action": "secret-read", "item": "summary-key"}, "answer": {"ok": true, "found": true, "value": "fake-summary-key"}},
     {"name": "the portable office's id, from the Keychain", "request": {"action": "secret-read", "item": "viewer-id"}, "answer": {"ok": true, "found": true, "value": "AbCdEfGhIjKlMnOpQrStUv"}},
     {"name": "the portable office's key, none yet", "request": {"action": "secret-read", "item": "viewer-key"}, "answer": {"ok": true, "found": false}},
     {"name": "the portable office's write secret, there but unreadable", "request": {"action": "secret-read", "item": "viewer-write-secret"}, "answer": {"ok": false, "error": "It couldn't be read."}},

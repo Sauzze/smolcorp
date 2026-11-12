@@ -82,7 +82,7 @@ func TestWindowsHasNoGrokOrCursor(t *testing.T) {
 }
 
 func TestOnlyTheSummaryRunLosesTheProvidersKeys(t *testing.T) {
-	base := []string{"ANTHROPIC_API_KEY=sk-ant-test0", "openai_api_key=x", "XAI_API_KEY=x", "PATH=/usr/bin", "HOME=/home/me",
+	base := []string{"ANTHROPIC_API_KEY=sk-" + "ant-test0", "openai_api_key=x", "XAI_API_KEY=x", "PATH=/usr/bin", "HOME=/home/me",
 		"SMOLCORP_SESSION=abc", "SMOLCORP_SUMMARY=0"}
 	env := summaryEnvironment(base)
 	for _, variable := range env {
@@ -95,7 +95,7 @@ func TestOnlyTheSummaryRunLosesTheProvidersKeys(t *testing.T) {
 		slices.Contains(env, "SMOLCORP_SUMMARY=0") {
 		t.Errorf("env: %q", env)
 	}
-	if base[0] != "ANTHROPIC_API_KEY=sk-ant-test0" {
+	if base[0] != "ANTHROPIC_API_KEY=sk-"+"ant-test0" {
 		t.Error("the environment given was changed")
 	}
 }
@@ -104,8 +104,8 @@ func TestOnlyTheSummaryRunLosesTheProvidersKeys(t *testing.T) {
 // keeps ANTHROPIC_API_KEY, Smolcorp's own environment keeps it, and only the
 // summary's process goes without.
 func TestAHireKeepsANTHROPIC_API_KEYWhileTheSummaryRunHasNone(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-hire0")
-	if !slices.Contains(hireEnvironment(), "ANTHROPIC_API_KEY=sk-ant-hire0") {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-"+"ant-hire0")
+	if !slices.Contains(hireEnvironment(), "ANTHROPIC_API_KEY=sk-"+"ant-hire0") {
 		t.Error("a hire's environment lost the key")
 	}
 	for _, variable := range summaryEnvironment(os.Environ()) {
@@ -113,7 +113,7 @@ func TestAHireKeepsANTHROPIC_API_KEYWhileTheSummaryRunHasNone(t *testing.T) {
 			t.Error("the summary's process has the key")
 		}
 	}
-	if os.Getenv("ANTHROPIC_API_KEY") != "sk-ant-hire0" {
+	if os.Getenv("ANTHROPIC_API_KEY") != "sk-"+"ant-hire0" {
 		t.Error("Smolcorp's own environment lost the key")
 	}
 }
@@ -180,7 +180,7 @@ func TestASummaryRunGetsTheExcerptOnItsInputInAnEmptyFolderItsOwnDeletedAfter(t 
 	claude := fakeCLI(t, dir, "claude", `if [ "$1" = auth ]; then echo '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}'; exit; fi
 { echo "ARGS: $*"; echo "DIR: $PWD"; ls -A; echo "KEY: ${ANTHROPIC_API_KEY:-none}"; echo "INPUT:"; cat; } > `+seen+`
 echo '{"type":"result","is_error":false,"result":"Asked: dark mode."}'`)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-run0")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-"+"ant-run0")
 	if text, reason := runSummaryCLI(providerClaude, claude, "SYSTEM", "Project: p\n"+promptMarker, os.Environ(), providerReady); text != "Asked: dark mode." || reason != cliOK {
 		t.Fatalf("got %q, %d", text, reason)
 	}

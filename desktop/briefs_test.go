@@ -19,6 +19,27 @@ import (
 // library you can edit, the routes as setup asks them, and a later part
 // added to a brief. The words are the Mac's (Tests/AgentDeckTests/BriefTests.swift).
 
+// Each brief that comes with the app, poured into the skeleton they share, has every section and no slot left
+// (the Mac's BriefTests had this; the Mac no longer pours briefs).
+func TestEveryLibraryBriefHasEverySection(t *testing.T) {
+	library := briefLibrary{files: bundledBriefs()}
+	for _, id := range briefLibraryIDs {
+		text, ok := library.template(id)
+		if !ok {
+			t.Errorf("%s: no brief", id)
+			continue
+		}
+		if strings.Contains(text, "{{>") {
+			t.Errorf("%s: a slot is left", id)
+		}
+		for _, heading := range []string{"## Who you are", "## The job", "## Deliver", "## Verify", "## Report", "## Never", "## Clean up"} {
+			if !strings.Contains(text, heading) {
+				t.Errorf("%s lacks %s", id, heading)
+			}
+		}
+	}
+}
+
 func TestABriefIsWrittenUnderTheFirstNamesNobodyHas(t *testing.T) {
 	isolate(t)
 	role := Role{ID: "tester", Name: "Tester", Agent: "claude", Brief: &RoleBrief{Kind: "library", ID: "tester"}}

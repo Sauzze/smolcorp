@@ -28,16 +28,6 @@ enum Terminal {
         case end = 119
         case c = 8
         case tab = 48
-        /// iPhone app (personal build): a menu's options, picked by their number.
-        case one = 18, two = 19, three = 20, four = 21, five = 23, six = 22, seven = 26, eight = 28, nine = 25
-
-        private static let digits: [Key] = [.one, .two, .three, .four, .five, .six, .seven, .eight, .nine]
-
-        /// The digit 1 to 9, picking option `n` of a menu.
-        static func digit(_ n: Int) -> Key? { digits.indices.contains(n - 1) ? digits[n - 1] : nil }
-
-        /// What a digit types, whatever the keyboard's layout: on a French one, its key alone types "&".
-        var character: String? { Key.digits.firstIndex(of: self).map { String($0 + 1) } }
     }
 
     /// A key, with its modifiers, pressed `times` times in a row.
@@ -612,10 +602,6 @@ enum Terminal {
             for down in [true, false] {
                 let event = CGEvent(keyboardEventSource: nil, virtualKey: key.rawValue, keyDown: down)
                 if !modifiers.isEmpty { event?.flags = modifiers }
-                if let character = key.character {
-                    let units = Array(character.utf16)
-                    event?.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
-                }
                 if let event { postEvent(event, pid) }
             }
         }

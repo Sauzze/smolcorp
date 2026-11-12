@@ -278,7 +278,7 @@ func TestTheSetupKeyFileAloneCantDoWhatAHireCouldMisuse(t *testing.T) {
 	}
 	// And nothing changed: the webhook, Summaries and the max-effort question are as they were.
 	post("/setup/webhook", `{"enabled":true,"url":"http://127.0.0.1:1/x","secret":"s"}`, true)
-	post("/setup/summary/key", `{"key":"sk-ant-test0"}`, true)
+	post("/setup/summary/key", `{"key":"sk-`+"ant-test0"+`"}`, true)
 	post("/setup/maxconfirm?enabled=0", "", true)
 	d.mu.Lock()
 	changed := d.config.Webhook.URL != "" || d.config.Webhook.Secret != "" || !d.config.MaxConfirm

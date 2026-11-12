@@ -28,7 +28,7 @@ final class HostBridgeTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    private var kept: [String: String] = ["summary-key": "sk-ant-fake", "viewer-id": "AbCdEfGhIjKlMnOpQrStUv",
+    private var kept: [String: String] = ["summary-key": "fake-summary-key", "viewer-id": "AbCdEfGhIjKlMnOpQrStUv",
                                           "gm-token": "fake-gm-token-from-1-24-0000000000000000000"]
     private var login = false
     /// Where the stand-ins' tab actions run, as the terminals' queue.
@@ -664,9 +664,9 @@ final class HostBridgeTests: XCTestCase {
     }
 
     func testTheAppsOwnItemsOnly() {
-        XCTAssertEqual(ask(["action": "secret-read", "item": "summary-key"])["value"] as? String, "sk-ant-fake")
-        XCTAssertTrue(isOK(ask(["action": "secret-write", "item": "summary-key", "value": "sk-ant-other"])))
-        XCTAssertEqual(kept["summary-key"], "sk-ant-other")
+        XCTAssertEqual(ask(["action": "secret-read", "item": "summary-key"])["value"] as? String, "fake-summary-key")
+        XCTAssertTrue(isOK(ask(["action": "secret-write", "item": "summary-key", "value": "fake-other-key"])))
+        XCTAssertEqual(kept["summary-key"], "fake-other-key")
         XCTAssertTrue(isOK(ask(["action": "secret-delete", "item": "summary-key"])))
         let none = ask(["action": "secret-read", "item": "summary-key"])
         XCTAssertTrue(isOK(none))
@@ -1144,7 +1144,7 @@ final class HostBridgeTests: XCTestCase {
         try? toOther.fileHandleForWriting.close()
 
         // The core itself, at the new name.
-        XCTAssertNotNil(try XCTUnwrap(send(request, to: kept.path)).range(of: "sk-ant-fake"))
+        XCTAssertNotNil(try XCTUnwrap(send(request, to: kept.path)).range(of: "fake-summary-key"))
         try FileManager.default.moveItem(at: kept, to: socket)
     }
 

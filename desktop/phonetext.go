@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 )
 
-// The phone's text (personal build on the Mac, I5 here): what the phone typed,
+// The phone's text (I5): what the phone typed,
 // or heard with its own mic, typed into a desk's agent by POST /dictate, as the
 // Mac app's PhoneDictation.swift and Deck.typePhoneDictation do. One line goes
 // as typed text; several lines as ONE paste (a bracketed paste, where the
@@ -522,8 +522,8 @@ func readPeek(t Tab, agent Agent) ([]string, error) {
 
 // AnswerOther is POST /choose with option=other: the menu's "Type something", with text, typed as keys
 // once the field is open. One line only: as keys, a line feed would press Return. This app doesn't follow
-// what a menu offers (the iPhone app's menus, the Mac's PendingChoice), so once the text passes every rule
-// no question can be claimed, and nothing is typed: 409, as the Mac answers a question gone.
+// what a menu offers, so once the text passes every rule no question can be claimed, and nothing is typed:
+// 409, as the Mac answers a question gone.
 func (d *Deck) AnswerOther(text, choiceID, id string) (int, string) {
 	d.mu.Lock()
 	on := d.config.PhoneMicEnabled

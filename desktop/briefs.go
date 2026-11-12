@@ -17,11 +17,11 @@ import (
 	agentdeck "github.com/Sauzze/smolcorp"
 )
 
-// A hire's brief, as the Mac app makes it (Briefs.swift): the role's brief
+// A hire's brief, as the Mac app made it before the core did: the role's brief
 // from the library that comes with the app (Resources/briefs), or a file
 // picked in setup, filled in on hire and written as BRIEF.md where the hire
 // reads it first. The text is the Mac's byte for byte for the same inputs:
-// Tests/fixtures/briefs/briefs.json, which the Mac's tests write, holds both.
+// Tests/fixtures/briefs/briefs.json, which the Mac's tests wrote, holds both.
 
 // The few rules a brief is written in: {{name}} for a value, {{#name}}…{{/name}}
 // for text kept only when the value is set (not empty, false, no or 0) and
