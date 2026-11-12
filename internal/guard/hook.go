@@ -82,14 +82,33 @@ func Hook(stdin io.Reader, stdout io.Writer, groups []Group, problem string) int
 		// A shell tool without a readable command, or any tool whose "command" isn't text.
 		return deny(stdout, "Refused by Smolcorp's hire guard: a "+*call.ToolName+" call with no command it can read.")
 	}
-	if problem != "" {
-		// A broken file is never read as "allow": every command waits until it is fixed.
-		return deny(stdout, "Refused by Smolcorp's hire guard: "+fileName+" is broken ("+problem+"). Ask the owner to fix it.")
-	}
-	if r := Check(*command, groups); r != nil {
-		return deny(stdout, r.Error())
+	if why := Refused(*command, groups, problem); why != "" {
+		return deny(stdout, why)
 	}
 	return exitOK
+}
+
+// Refused is why the hook refuses a command line with groups, "" to let it run. While the guard file is
+// broken (problem says how), every line is refused: a broken file is never read as "allow", and every
+// command waits until it is fixed. The app's gate service (desktop/gates.go) decides lines with it too.
+func Refused(command string, groups []Group, problem string) string {
+	if problem != "" {
+		return "Refused by Smolcorp's hire guard: " + fileName + " is broken (" + problem + "). Ask the owner to fix it."
+	}
+	if r := Check(command, groups); r != nil {
+		return r.Error()
+	}
+	return ""
+}
+
+// Profiled is the groups from the rules file at path for profile (ProfileHire, or ProfileGM for the
+// General Manager's), and what's wrong with the file, as `smolcorp guard --profile` reads them.
+func Profiled(path, profile string) (groups []Group, problem string) {
+	groups, problem = Load(path)
+	if profile == ProfileGM {
+		groups = ForGM(groups)
+	}
+	return groups, problem
 }
 
 // Run is `smolcorp guard`:
@@ -137,10 +156,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		rules = path
 	}
-	groups, problem := Load(rules)
-	if profile == ProfileGM {
-		groups = ForGM(groups)
-	}
+	groups, problem := Profiled(rules, profile)
 	if printing {
 		out, _ := json.MarshalIndent(map[string]any{"groups": groups, "file": rules, "problem": problem}, "", "  ")
 		fmt.Fprintln(stdout, string(out))

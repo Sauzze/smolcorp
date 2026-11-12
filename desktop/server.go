@@ -289,27 +289,19 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		// What each caller may use is the route table's (routes.go): pairing a
-		// phone, and what a hire holding the setup-key file could misuse, are
-		// the page's. A tool with the key can see whether pairing is open,
-		// never the code. /setup itself is the page.
-		if r.URL.Path != "/setup" && !routeAllows(r.caller, r.Method, r.URL.Path) {
-			writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
+		// The gate service (gates.go) decides: what each caller may use is the route table's (routes.go):
+		// pairing a phone, and what a hire holding the setup-key file could misuse, are the page's. A tool
+		// with the key can see whether pairing is open, never the code. /setup itself is the page. Then the
+		// manager's switch, and a General Manager the owner held to one project goes no further than it
+		// (gmscope.go), its route given the request as checked.
+		v := d.decide(actorOf(r.caller), action{route: &routeAsk{method: r.Method, path: r.URL.Path, query: r.URL.Query(), body: r.Body}})
+		if !v.allowed() {
+			writeStatus(w)(v.status, v.why)
 			return
 		}
-		d.mu.Lock()
-		managerOn := d.config.ManagerEnabled
-		d.mu.Unlock()
-		if managerRefuses(r.Method, r.URL.Path, managerOn) {
-			writeStatus(w)(http.StatusConflict, managerOffAnswer)
-			return
-		}
-		// A General Manager the owner held to one project goes no further than it (gmscope.go).
-		if r.caller == callerGM {
-			if status, why := d.gmScopeRefusal(r); status != 0 {
-				writeStatus(w)(status, why)
-				return
-			}
+		if v.body != nil {
+			data, _ := json.Marshal(v.body)
+			r.Body = io.NopCloser(bytes.NewReader(data))
 		}
 		rt.setup(w, r)
 		return
@@ -330,8 +322,8 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if !routeAllows(who, r.Method, r.URL.Path) {
-			writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
+		if v := d.decide(actorOf(who), action{route: &routeAsk{method: r.Method, path: r.URL.Path}}); !v.allowed() {
+			writeStatus(w)(v.status, v.why)
 			return
 		}
 		writeStatus(w)(d.cloudBotEvent(r.Method, r.URL.Path, r.URL.Query(), decodeJSON(r.Body)))

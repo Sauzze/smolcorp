@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/Sauzze/smolcorp/internal/gm"
-	"github.com/Sauzze/smolcorp/internal/guard"
 )
 
 // The demo's own fence: `smolcorp demo fence --root R --roles a,b`, a PreToolUse
@@ -148,9 +147,10 @@ func (f demoFence) check(c demoCall) string {
 
 // command checks a shell command line: what the guard refuses, a hire's folder and role, and no other way to hire.
 func (f demoFence) command(line, cwd string) string {
-	// The GM's profile: the GM hires and fires; a hire's own office fence refuses it that.
-	if r := guard.Check(line, guard.ForGM(guard.DefaultGroups())); r != nil {
-		return demoFenceRefusal + r.Error()
+	// The GM's profile, on the guard's own groups (no rules file): the GM hires and fires; a hire's own office
+	// fence refuses it that (gates.go).
+	if v := decideShell(actorGM, shellAsk{line: line}); !v.allowed() {
+		return demoFenceRefusal + v.why
 	}
 	// A backslash before a line end joins the lines (bash): `gm hi\⏎re` is gm hire, and a hire
 	// written over several lines is one command.

@@ -3,8 +3,8 @@ package desktop
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -146,30 +146,32 @@ func (s gmScope) named(name string) bool {
 	return refused == nil && s.hasHire(h)
 }
 
-// gmScopeRefusal is why a request made with the GM's token goes beyond the GM's scope: a status and one
-// sentence, or 0 to go on. A request it checks gets back, as its body, exactly what was checked.
-func (d *Deck) gmScopeRefusal(r *request) (int, string) {
-	gm := gmNow()
+// gmScopeHolds is whether a request to method is held to gm's scope: a GM with one, and anything but a read.
+func gmScopeHolds(gm Hire, method string) bool { return gm.Scope != "" && method != http.MethodGet }
+
+// gmScopeBody is the most of a request's body gmScopeRefusal reads.
+const gmScopeBody = 1 << 20
+
+// gmScopeRefusal is why a request made with the GM's token (raw, its body) goes beyond gm's scope: a status
+// and one sentence, or 0 to go on. It decides only; body is what was checked, which the route is given in
+// place of what was sent (gates.go writes it back), nil when nothing was checked.
+func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, raw []byte) (status int, why string, body any) {
 	root := gm.Scope
-	if root == "" || r.Method == http.MethodGet {
-		return 0, ""
+	if !gmScopeHolds(gm, method) {
+		return 0, "", nil
 	}
 	s := gmScope{root: root, git: runGit}
 	where := " in " + root
-	refuse := func(text string) (int, string) { return http.StatusForbidden, "This General Manager " + text }
-	raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	asked := map[string]any{}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	_ = decoder.Decode(&asked)
-	text := func(key string) string { v, _ := asked[key].(string); return v }
-	resend := func(body any) {
-		data, _ := json.Marshal(body)
-		r.Body = io.NopCloser(bytes.NewReader(data))
+	body = asked
+	refuse := func(text string) (int, string, any) {
+		return http.StatusForbidden, "This General Manager " + text, body
 	}
-	resend(asked)
-	path, query := r.URL.Path, r.URL.Query()
-	post := r.Method == http.MethodPost
+	text := func(key string) string { v, _ := asked[key].(string); return v }
+	post := method == http.MethodPost
 	switch {
 	case post && path == "/setup/gm/hire":
 		if v := asked["apiKey"]; v != nil && v != false {
@@ -203,7 +205,6 @@ func (d *Deck) gmScopeRefusal(r *request) (int, string) {
 		}
 		// The route hires into the folder as checked, links followed, never the words it was sent.
 		asked["folder"] = real
-		resend(asked)
 	case post && path == "/setup/gm/send":
 		if to := mailAsked(text("to")); to != "gm" && to != "the gm" && !s.named(text("to")) {
 			return refuse("writes only to its own hires" + where + ".")
@@ -225,7 +226,7 @@ func (d *Deck) gmScopeRefusal(r *request) (int, string) {
 		if given.Folder == nil || !s.holds(strings.TrimSpace(*given.Folder)) {
 			return refuse("names only who works" + where + " or its worktrees.")
 		}
-		resend(given)
+		body = given
 	case post && (path == "/setup/pin" || path == "/setup/unpin"):
 		index, err := strconv.Atoi(query.Get("key"))
 		d.mu.Lock()
@@ -263,7 +264,7 @@ func (d *Deck) gmScopeRefusal(r *request) (int, string) {
 		if !ok {
 			return refuse("watches only its own hires and the files" + where + ".")
 		}
-	case (post || r.Method == http.MethodDelete) && path == "/setup/gm/unwatch":
+	case (post || method == http.MethodDelete) && path == "/setup/gm/unwatch":
 		id := text("id")
 		if query.Has("id") {
 			id = query.Get("id")
@@ -276,5 +277,5 @@ func (d *Deck) gmScopeRefusal(r *request) (int, string) {
 	default:
 		return refuse("works only" + where + ": it can't change the office's settings.")
 	}
-	return 0, ""
+	return 0, "", body
 }

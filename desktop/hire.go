@@ -524,9 +524,13 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		return http.StatusConflict, "There's no terminal here to open a hire in."
 	}
 	macApp, claudeRole := underMacApp(terminal, hasTerminal), roleID != "" && agentOrClaude(program) == Claude
-	// A fenced hire (the GM route's) that no fenced way could take is refused here, before anything is made.
-	if why := fenceRefusal(program, pinned, tmux, d.config.HireManagedWindows && hasTerminal, macApp); s.fenced && why != "" {
-		return http.StatusConflict, why
+	// A fenced hire (the GM route's, decided as the GM's whoever calls it) that no fenced way could take is
+	// refused here, before anything is made (gates.go).
+	if s.fenced {
+		ask := fenceAsk{program: program, pinned: pinned, tmux: tmux, launcher: d.config.HireManagedWindows && hasTerminal, macApp: macApp}
+		if v := d.decide(actorGM, action{hire: &ask}); !v.allowed() {
+			return v.status, v.why
+		}
 	}
 	d.lastHire = time.Now()
 	// Until it's done, however long the lock is let go, which may be longer
