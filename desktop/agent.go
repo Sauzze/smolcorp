@@ -3,6 +3,7 @@ package desktop
 import (
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -44,6 +45,14 @@ const (
 	ShiftTab Key = "shift-tab"
 )
 
+// digitKey is the digit n, 1 to 9: a menu's choice picked by its number (talkpick.go).
+func digitKey(n int) (Key, bool) {
+	if n < 1 || n > 9 {
+		return "", false
+	}
+	return Key(strconv.Itoa(n)), true
+}
+
 // Keystroke is a key pressed Times times in a row.
 type Keystroke struct {
 	Key   Key `json:"key"`
@@ -71,6 +80,17 @@ func (a Agent) Reject() Keystroke {
 		return press(CtrlC)
 	}
 	return press(Escape)
+}
+
+// Pick is the key that picks choice n of a menu the agent shows, and whether there is one. Claude Code's menus, a
+// permission prompt's and AskUserQuestion's, take the choice's digit and answer at once. Other agents' menus aren't
+// picked by number from the office: their four keys are.
+func (a Agent) Pick(n int) (Keystroke, bool) {
+	key, ok := digitKey(n)
+	if a != Claude || !ok {
+		return Keystroke{}, false
+	}
+	return press(key), true
 }
 
 // NewConversation starts a fresh conversation in the same tab.

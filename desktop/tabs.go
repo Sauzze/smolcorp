@@ -200,9 +200,19 @@ func (t commandTab) tty() string {
 
 // tmux names keys; WezTerm and kitty take the bytes the key sends.
 var (
-	tmuxKeys = map[Key]string{Enter: "Enter", Escape: "Escape", Space: "Space", Up: "Up", Down: "Down", CtrlC: "C-c", TabKey: "Tab", ShiftTab: "BTab"}
-	keyBytes = map[Key]string{Enter: "\r", Escape: "\x1b", Space: " ", Up: "\x1b[A", Down: "\x1b[B", CtrlC: "\x03", TabKey: "\t", ShiftTab: "\x1b[Z"}
+	tmuxKeys = withDigits(map[Key]string{Enter: "Enter", Escape: "Escape", Space: "Space", Up: "Up", Down: "Down", CtrlC: "C-c", TabKey: "Tab", ShiftTab: "BTab"})
+	keyBytes = withDigits(map[Key]string{Enter: "\r", Escape: "\x1b", Space: " ", Up: "\x1b[A", Down: "\x1b[B", CtrlC: "\x03", TabKey: "\t", ShiftTab: "\x1b[Z"})
 )
+
+// withDigits is keys with the digits 1 to 9 added, a menu's choices by number (digitKey): tmux names a digit by
+// itself, and its byte is the digit.
+func withDigits(keys map[Key]string) map[Key]string {
+	for n := 1; n <= 9; n++ {
+		key, _ := digitKey(n)
+		keys[key] = string(key)
+	}
+	return keys
+}
 
 func (t commandTab) Press(k Keystroke) error {
 	for i := 0; i < max(k.Times, 1); i++ {

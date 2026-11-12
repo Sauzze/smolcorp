@@ -50,7 +50,8 @@ type talkQuestion struct {
 // talkAsking is what a desk waiting on you is about. Since is when it began asking, in ms: a pick says which
 // prompt it means by it. Kind is "question" (AskUserQuestion), "permission" or "unknown" (asking with nothing said:
 // a notification, or another agent). Pickable is whether its choices can be offered by label: one question that
-// isn't multi-select, or a permission prompt (Yes and No); otherwise the window shows the four keys.
+// isn't multi-select, or a permission prompt (Yes and No: n 1 and 2), of an agent whose menus take a choice's
+// number (POST /talk/pick); otherwise the window shows the four keys.
 type talkAsking struct {
 	Since     int64          `json:"since"`
 	Kind      string         `json:"kind"`
@@ -95,6 +96,10 @@ func talkAskingOf(s *Session) *talkAsking {
 	case tool != "":
 		// Yes or No: the hooks don't say Claude Code's menu, so nothing more is offered by label.
 		asking.Kind, asking.Pickable = "permission", true
+	}
+	// Only where a choice can be pressed (Agent.Pick): another agent's menu is answered with the four keys.
+	if _, picks := s.Agent.Pick(1); !picks {
+		asking.Pickable = false
 	}
 	return asking
 }

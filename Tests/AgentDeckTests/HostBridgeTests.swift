@@ -238,10 +238,14 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertTrue(isOK(ask(["action": "press", "tab": "tty:/dev/ttys003", "key": "escape", "times": 2])))
         XCTAssertTrue(isOK(ask(["action": "press", "tab": "tty:/dev/ttys003", "key": "space"])))
         XCTAssertTrue(isOK(ask(["action": "press", "tab": "tty:/dev/ttys003", "key": "shift-tab"])))
+        // A menu's choice by its number, as the office's window picks one (desktop/talkpick.go).
+        XCTAssertTrue(isOK(ask(["action": "press", "tab": "tty:/dev/ttys003", "key": "3"])))
         XCTAssertEqual(asked, ["press escape 0 2 tty:/dev/ttys003", "press space 0 1 tty:/dev/ttys003",
-                               "press tab \(CGEventFlags.maskShift.rawValue) 1 tty:/dev/ttys003"])
+                               "press tab \(CGEventFlags.maskShift.rawValue) 1 tty:/dev/ttys003", "press three 0 1 tty:/dev/ttys003"])
         for refused: [String: Any] in [
             ["action": "press", "tab": "tty:/dev/ttys003", "key": "cmd-q"],
+            ["action": "press", "tab": "tty:/dev/ttys003", "key": "0"],
+            ["action": "press", "tab": "tty:/dev/ttys003", "key": "10"],
             ["action": "press", "tab": "tty:/dev/ttys003", "key": "enter", "times": 10],
             ["action": "press", "tab": "tty:/dev/ttys003", "key": "enter", "times": 0],
             ["action": "press", "tab": "/etc/passwd", "key": "enter"],
@@ -256,7 +260,7 @@ final class HostBridgeTests: XCTestCase {
         ] {
             XCTAssertFalse(isOK(ask(refused)), "\(refused)")
         }
-        XCTAssertEqual(asked.count, 3, "none of those reached a terminal")
+        XCTAssertEqual(asked.count, 4, "none of those reached a terminal")
     }
 
     func testEachTabActionIsTheDrivers() {

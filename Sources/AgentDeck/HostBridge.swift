@@ -896,8 +896,9 @@ final class HostBridge {
     }
 
     /// The keys the core may press, by the names the deck gives them (desktop/agent.go):
-    /// a made button's keys, and Space.
+    /// a made button's keys, Space, and the digits 1 to 9, a menu's choice picked by its number (desktop/talkpick.go).
     static let keys: [String: Terminal.Keystroke] = Button.keys.merging(["space": .init(key: .space)]) { kept, _ in kept }
+        .merging((1...9).compactMap { n in Terminal.Key.digit(n).map { (String(n), Terminal.Keystroke(key: $0)) } }) { kept, _ in kept }
 
     /// The most text typed at once, and the most presses of one key.
     static let textMost = 4000

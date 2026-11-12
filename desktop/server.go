@@ -718,7 +718,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		}
 		writeAnswer(w)(d.sessionInfo(id))
 	// 💬 Talk bubble, in the office's own window on this computer, never a phone: one desk's card, and every waiting
-	// desk's question (talk.go). Neither changes anything.
+	// desk's question (talk.go), which change nothing; and a pick.
 	case r.Method == http.MethodGet && r.URL.Path == "/talk":
 		if phoneID != officeWindowID {
 			writeStatus(w)(http.StatusForbidden, d.shownOnlyInTheWindow("The talk bubble"))
@@ -731,6 +731,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, d.talkAskingAll())
+	// Pick choice n of the prompt a desk began asking at since: a tap on a labelled button, never text (talkpick.go).
+	case r.Method == http.MethodPost && r.URL.Path == "/talk/pick":
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, d.shownOnlyInTheWindow("The talk bubble"))
+			return
+		}
+		writeStatus(w)(d.talkPick(session, r.URL.Query()))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
 	case r.Method == http.MethodPost && r.URL.Path == "/summary":
 		text, err := d.Summarize(session)
