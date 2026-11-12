@@ -68,6 +68,8 @@ type talkCard struct {
 	Asking *talkAsking  `json:"asking"`
 	Last   string       `json:"last"`
 	Size   int64        `json:"size"`
+	// Whether the window can type into the desk now (talksay.go), so the bubble greys its input with the reason.
+	Typing deskTyping `json:"typing"`
 }
 
 // talkAskingOf is the session's prompt, or nil when it isn't asking. With the deck's lock held.
@@ -232,6 +234,11 @@ func (d *Deck) talk(id string) (int, any) {
 	if s == nil {
 		return http.StatusNotFound, "That agent has gone."
 	}
+	typing, found := d.windowTyping(id)
+	if !found {
+		return http.StatusNotFound, "That agent has gone."
+	}
+	card.Typing = typing
 	card.Size, card.Last = talkLastOf(path)
 	return http.StatusOK, card
 }

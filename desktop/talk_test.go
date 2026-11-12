@@ -394,3 +394,25 @@ func TestTheLastLineCacheIsBounded(t *testing.T) {
 		t.Errorf("%d kept, want the cache started over with this one", n)
 	}
 }
+
+// The card says whether the window can type into the desk now (P2's typing, talksay.go): the same answer as
+// windowTyping, so the bubble greys its input with the reason before anyone types.
+func TestTheCardSaysWhetherTheWindowCanTypeIntoTheDesk(t *testing.T) {
+	d := newTestDeck(t)
+	talkHook(d, 1761000541000, map[string]any{"hook_event_name": "SessionStart", "session_id": "s1", "cwd": "/work/s1", "source": "startup"})
+	want, found := d.windowTyping("s1")
+	if !found {
+		t.Fatal("the desk isn't found")
+	}
+	typing, _ := talkCardOf(t, d, "s1")["typing"].(map[string]any)
+	if typing["ok"] != want.OK || typing["lines"] != want.Lines || typing["why"] != want.Why {
+		t.Errorf("the card's typing %v, want %+v", typing, want)
+	}
+	talkAskQuestion(d, "s1", 1761000542000, talkQuestionOf("Which?", false, "A", "B"))
+	if want, _ = d.windowTyping("s1"); want.OK {
+		t.Fatalf("an asking desk can be typed into: %+v", want)
+	}
+	if typing, _ := talkCardOf(t, d, "s1")["typing"].(map[string]any); typing["ok"] != false || typing["why"] != want.Why {
+		t.Errorf("an asking desk's typing %v, want %+v", typing, want)
+	}
+}
