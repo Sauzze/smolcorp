@@ -249,6 +249,22 @@ func TestTheCLIShowsDesksFromOne(t *testing.T) {
 	}
 }
 
+// HIREUX: `gm hire` says where the hire works, so a worktree beside the folder isn't taken for the folder.
+func TestHireSaysWhereTheHireWorks(t *testing.T) {
+	app := placeApp(t, 200, `{"ok":true,"desk":2,"session":null,"worksIn":"/work/app-hires/ada-1a2b3c","branch":"hire/ada-1a2b3c"}`, nil)
+	code, out, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor", "--folder", "/work/app")
+	want := "Hired a janitor. At desk 3. Works in /work/app-hires/ada-1a2b3c (a worktree of its own on branch hire/ada-1a2b3c, not the project folder itself).\n"
+	if code != 0 || errOut != "" || out != want {
+		t.Errorf("exit %d out %q err %q, want %q", code, out, errOut, want)
+	}
+	if got := worksNote([]byte(`{"worksIn":"/work/app"}`)); got != " Works in /work/app." {
+		t.Errorf("no branch: worksNote = %q", got)
+	}
+	if got := worksNote([]byte(`{"desk":0}`)); got != "" {
+		t.Errorf("an answer without it: worksNote = %q", got)
+	}
+}
+
 func TestNicknameNameAfterTheFlagsSaysPutTheNameFirst(t *testing.T) {
 	app := placeApp(t, 200, `{}`, nil)
 	code, _, errOut := runGM(app.env(t, withToken()), "nickname", "--folder", "/work/app", "Ada")
