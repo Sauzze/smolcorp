@@ -63,6 +63,12 @@ const (
 	pasteUnsaid  = "The terminal didn't say it took the text, so nothing more went. Look at the desk before you try again."
 )
 
+// Typing over Wi-Fi off (SECWIFI), and pairing by a typed code on the Wi-Fi, whose answer is the phone's key.
+const (
+	typingOverWiFiOff = "Typing over Wi-Fi is off on this computer: open the deck with its Tailscale link, or turn on Typing over Wi-Fi in setup, under Paired phones."
+	pairOverWiFi      = "Over the Wi-Fi, scan the QR code instead: a typed code would send this phone's key unencrypted. A typed code works over Tailscale."
+)
+
 // phoneLineBreaks end a line: a line feed, a return (CRLF is one), and Unicode's next-line, line and paragraph separators.
 func phoneLineBreak(r rune) bool {
 	return r == '\n' || r == '\r' || r == 0x85 || r == 0x2028 || r == 0x2029
@@ -576,6 +582,17 @@ func (d *Deck) ChoiceDetail(id string) (int, string) {
 // computer's Tailscale address from another device's (WireGuard carries it encrypted), or passed on by
 // `tailscale serve` on this computer (from its loopback, with a proxy's headers, or on a Mac to a ts.net
 // name, as the Mac app's Request.isTailnet). Never the Wi-Fi's plain http.
+// typesFrom is whether the phone's text may come by r: over Tailscale or on this computer, always; over
+// plain http on the Wi-Fi, where anyone on it could read it, only with Typing over Wi-Fi on.
+func (d *Deck) typesFrom(r *request) bool {
+	if r.isLocal || r.isTailnet || fromTailnet(r.Request) {
+		return true
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.config.PhoneTextWiFi
+}
+
 func fromTailnet(r *http.Request) bool {
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)

@@ -49,12 +49,39 @@ You can pin projects to specific desks and furnish the office your way.
 1. On your computer, click the Smolcorp icon in the menu bar or tray and
    choose **Pair a Phone…**. The setup page opens with a six-digit code and a
    QR code.
-2. Scan the QR code with your phone's camera. Or open your phone's browser, go
-   to the address shown with the code (for example `192.168.1.20:7710`) and
-   type the code.
+2. Scan the QR code with your phone's camera. The key it hands your phone
+   is after `#` in its link, a part a browser never sends, so it never crosses
+   your Wi-Fi, and your phone adds a part of its own as it pairs, so a photo
+   of the QR code isn't your phone's key. Until your phone has scanned it,
+   though, a photo could pair another phone: keep it to yourself, and if your
+   phone says the code isn't valid, check **Paired phones** in setup. Typing
+   the code instead (open the address shown with it, for example
+   `192.168.1.20:7710`) works over Tailscale only: over plain Wi-Fi it's
+   refused, since the answer would carry your phone's key unencrypted.
 3. Add the deck to your Home Screen: on an iPhone, tap **Share → Add to Home
    Screen**; on Android, open the browser's menu and tap **Add to Home
    screen**. Smolcorp now opens full screen and stays paired.
+
+### Wi-Fi or Tailscale
+
+**Use the Tailscale link when you can.** Tailscale encrypts everything between
+your phone and your computer. Plain Wi-Fi doesn't: the deck is plain http
+there, so anyone on the same Wi-Fi can read what it shows and what you type.
+Your phone's key never travels: each request is signed with it, names its
+time, and works once, so a request someone captured can't be sent again.
+Someone who can tamper with the Wi-Fi's traffic, not just read it, could still
+change the page itself, which only Tailscale prevents.
+
+**Typing over Wi-Fi** is off for a new setup: the deck's keys work over the
+Wi-Fi, but text typed or dictated from the phone goes only over Tailscale.
+Turn it on under **Paired phones** in setup if you need it, and off again if
+you don't. A setup from before this switch keeps typing over Wi-Fi as it did,
+and setup shows the warning beside the switch.
+
+A page saved before signing (its address ends in `?t=` and a long key) sends
+its key unencrypted, so it no longer works over the Wi-Fi: unpair that phone
+in setup, since its key may have been read, then pair it again and add the
+new page to your Home Screen. Over Tailscale it still works.
 
 While the deck is open, your phone's screen stays on, from your first tap. If
 an agent has been waiting on you for five minutes, the deck reminds you once,
@@ -95,7 +122,8 @@ fails, there's no key, or it takes over 2.5 s, the text goes in as heard.
 ## Typing from the phone
 
 **⚙︎ → Type to …** types into the picked agent, on the Mac, Windows and
-Linux, over Tailscale, or your Wi-Fi where Smolcorp lets it in. Over the Wi-Fi, what you type isn't
+Linux, over Tailscale, or your Wi-Fi with **Typing over Wi-Fi** on
+([off for a new setup](#wi-fi-or-tailscale)). Over the Wi-Fi, what you type isn't
 encrypted, and the deck says so: Tailscale is the private option. It's on
 unless you turn it off: on the Mac with setup's **Phone microphone** switch
 (Phone and voice); on Windows and Linux, which have no switch in setup yet,

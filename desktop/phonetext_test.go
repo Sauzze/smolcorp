@@ -739,16 +739,17 @@ func TestTheLauncherPastesThePhonesTextAndSaysSo(t *testing.T) {
 
 // MARK: Through the router
 
-// phoneAsk sends a request as a phone would, from host (an address the server reads as the Wi-Fi's).
+// phoneAsk sends a request as a phone would, from host (an address the server reads as the Wi-Fi's):
+// signed with key, as the deck signs on the Wi-Fi (signed.go).
 func phoneAsk(t *testing.T, d *Deck, method, path, key string, body any, header http.Header) (int, string) {
 	t.Helper()
 	data, _ := json.Marshal(body)
+	if key != "" {
+		path = signedTarget(method, path+map[bool]string{true: "&", false: "?"}[strings.Contains(path, "?")]+"t="+url.QueryEscape(key), string(data), time.Now())
+	}
 	r := httptest.NewRequest(method, path, bytes.NewReader(data))
 	r.Host = "192.168.1.20:7710"
 	r.RemoteAddr = "192.168.1.30:50000"
-	if key != "" {
-		r.Header.Set(hookKeyHeader, key)
-	}
 	for name, values := range header {
 		r.Header[name] = values
 	}
@@ -762,6 +763,7 @@ func TestTheWiFiTypesWithAPairedPhonesKeyOnly(t *testing.T) {
 	d.mu.Lock()
 	key := d.access.Phones.Pair("Phone")
 	window := d.access.WindowKey
+	d.config.PhoneTextWiFi = true // Typing over Wi-Fi, off for a new setup (SECWIFI)
 	d.mu.Unlock()
 	text := map[string]any{"text": "first\n  second 👩‍💻", "send": false}
 	for _, who := range []string{"", "wrong-key-wrong-key", window} {
@@ -1128,6 +1130,7 @@ func TestThePhonesTextToAT3DeskGetsTheT3Sentence(t *testing.T) {
 		d, _ := t3Deck(t, Hire{ID: t3DeskTestID})
 		d.mu.Lock()
 		d.config.PhoneMicEnabled = true
+		d.config.PhoneTextWiFi = true // from the Wi-Fi: Typing over Wi-Fi on (SECWIFI)
 		d.mu.Unlock()
 		key := pair(t, d)
 		desk := t3DeskID(t3DeskTestID)

@@ -300,12 +300,35 @@
 <div class="mic-hint" id="mic-hint" role="status" hidden>🎙 Phone mic needs HTTPS: see Tailscale in setup</div>
 <label id="haptic" aria-hidden="true"><input type="checkbox" switch></label>
 
+<script src="/sign.js"></script>
 <script src="/office.js"></script>
 <script>
   /** The keys a button made in setup can press, for what the preview says it would do. */
   const KEY_NAMES = { enter: 'Return', escape: 'Esc', tab: 'Tab', 'shift-tab': 'Shift+Tab', up: '↑', down: '↓', 'ctrl-c': 'Ctrl+C' };
 
-  const token = new URLSearchParams(location.search).get('t') || '';
+  /*
+   * A paired phone's key is after # in the page's address, which a browser never sends: each request carries a
+   * signature made with it instead (sign.js), so no one on the Wi-Fi can read the key or send a request again.
+   * ?t= is the key itself, which the computer takes only from itself and over Tailscale: the office's own window,
+   * the screen saver, a page saved before.
+   */
+  const phoneKey = new URLSearchParams(location.hash.slice(1)).get('k') || '';
+  const token = phoneKey ? '' : new URLSearchParams(location.search).get('t') || '';
+  const signed = phoneKey ? smolcorpSign.signer(phoneKey) : null;
+  /** A request's address: signed, or with the key as it came. */
+  function address(method, pathname, params = {}, body = '') {
+    return signed ? signed(method, pathname, params, body) : `${pathname}?${new URLSearchParams({ t: token, ...params })}`;
+  }
+  /** fetch, signed afresh once if this phone's clock was off: the computer's refusal says its own time. */
+  async function signedFetch(method, pathname, params, init = {}) {
+    const body = typeof init.body === 'string' ? init.body : '';
+    const answer = await fetch(address(method, pathname, params, body), { method, ...init });
+    if (!signed || answer.status !== 401) return answer;
+    const why = await answer.clone().json().catch(() => ({}));
+    if (why.why !== 'clock') return answer;
+    smolcorpSign.setNow(why.now);
+    return fetch(address(method, pathname, params, body), { method, ...init });
+  }
   // On the setup page, the deck is a preview: that page sends it what to
   // draw, and its controls say what they would do instead of doing it.
   const preview = location.pathname === '/setup/preview';
@@ -1113,7 +1136,7 @@
 
   function get(pathname, params = {}) {
     if (preview) return Promise.resolve();
-    return fetch(`${pathname}?${new URLSearchParams({ t: token, ...params })}`).catch(() => {});
+    return signedFetch('GET', pathname, params).catch(() => {});
   }
 
   // A body longer than `longest` isn't a sentence meant to be read: its status is said instead.
@@ -1686,9 +1709,8 @@
   /** The computer's answer; nothing if it can't be reached; `{ timedOut: true }` once `signal` has given up. */
   function post(pathname, params = {}, signal, json) {
     if (preview) return Promise.resolve();
-    const q = new URLSearchParams({ t: token, ...params });
     const body = json === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(json) };
-    return fetch(`${pathname}?${q}`, { method: 'POST', signal, ...body }).catch(() => (signal && signal.aborted ? { timedOut: true } : undefined));
+    return signedFetch('POST', pathname, params, { signal, ...body }).catch(() => (signal && signal.aborted ? { timedOut: true } : undefined));
   }
 
   /** What the computer streams: the sessions at their desks and the layout. */
@@ -1874,7 +1896,7 @@
     function connect() {
       if (stream) stream.close();
       heard = Date.now();
-      const opened = new EventSource(`/events?t=${encodeURIComponent(token)}`);
+      const opened = new EventSource(address('GET', '/events'));
       stream = opened;
       opened.onmessage = (e) => {
         heard = Date.now();
@@ -1882,13 +1904,31 @@
       };
       opened.addEventListener('ping', () => { heard = Date.now(); });
       opened.onerror = () => {
+        // A signed address works once, so the stream never retries it: it asks whether this phone is still
+        // paired (and the computer's time, should its own clock be off), then starts afresh.
+        if (signed) {
+          opened.close();
+          recheck(opened);
+        }
         // Closed for good means the computer answered, but not with the deck: it no
         // longer knows this phone. Unreachable, the stream keeps retrying.
-        if (opened.readyState === EventSource.CLOSED) return unpaired();
+        else if (opened.readyState === EventSource.CLOSED) return unpaired();
         office.close();
         $('status').classList.add('off');
         $('status').textContent = "Can't reach your computer. Is Smolcorp running?";
       };
+    }
+    function recheck(failed) {
+      setTimeout(async () => {
+        if (stream !== failed) return; // started afresh meanwhile
+        const answer = await fetch(address('GET', '/paired')).catch(() => null);
+        if (answer && answer.status === 401) {
+          const why = await answer.json().catch(() => ({}));
+          if (why.why !== 'clock') return unpaired();
+          smolcorpSign.setNow(why.now);
+        }
+        if (stream === failed) connect();
+      }, 3000);
     }
     connect();
     document.addEventListener('visibilitychange', () => { if (!document.hidden) connect(); });

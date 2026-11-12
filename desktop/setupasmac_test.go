@@ -40,7 +40,8 @@ func TestPairingAndRefusalsSayMacUnderTheMacApp(t *testing.T) {
 		if mac && (strings.Contains(page, "menu bar or tray") || !strings.Contains(page, "On your Mac, click the Smolcorp icon in the menu bar and choose")) {
 			t.Error("the pairing page under the Mac app still names the tray")
 		}
-		wrong := serve(t, d, call{method: "POST", target: "/pair", host: deckOnWiFi, from: aPhone, body: `{"code":"000000"}`})
+		// A typed code works on this computer and over Tailscale (SECWIFI).
+		wrong := serve(t, d, call{method: "POST", target: "/pair", host: "localhost:7710", from: thisComputer, body: `{"code":"000000"}`})
 		if wrong.Code != http.StatusForbidden || !strings.Contains(wrong.Body.String(), "Get a new one on your "+word+".") {
 			t.Errorf("mac %v: a wrong code: %d %s", mac, wrong.Code, wrong.Body)
 		}

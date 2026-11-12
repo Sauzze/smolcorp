@@ -159,7 +159,8 @@ final class SetupFreshEyesPageTests: XCTestCase {
     func testPairingSaysTheQRCaptionAnyWayRoundAndTheTailscaleAddress() throws {
         let page = try page()
         XCTAssertFalse(page.contains("Pairs with the code beside it"))
-        XCTAssertTrue(page.contains(#"<div class="qr-note">Holds the same code as the 6 digits, so it works once.</div>"#))
+        // The QR code holds the key it hands over, not the code (SECWIFI): a typed code works over Tailscale only.
+        XCTAssertTrue(page.contains(#"<div class="qr-note">Works once, as the 6 digits do. It hands your phone its key without sending it over the Wi-Fi: keep it to yourself.</div>"#))
         XCTAssertTrue(page.contains(#"<span id="pair-tailnet" hidden>, or from anywhere, with Tailscale on your phone: <span class="address" id="pair-tailnet-address"></span></span>"#))
         XCTAssertTrue(page.contains("$('pair-tailnet').hidden = !p.tailnet || !p.address;"))
     }

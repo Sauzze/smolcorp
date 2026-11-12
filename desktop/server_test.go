@@ -30,11 +30,18 @@ type call struct {
 	// says not to, or asTool: then they carry the setup key in a header, as a tool does.
 	withoutSetupKey bool
 	asTool          bool
+	// A phone on the Wi-Fi signs its requests, as deck.html does (signed.go): a call from the network with
+	// ?t= goes signed with that key instead, unless bare says to send the key itself, as an old page did.
+	bare bool
 }
 
 func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
 	t.Helper()
-	r := httptest.NewRequest(c.method, c.target, strings.NewReader(c.body))
+	target := c.target
+	if !c.bare && !strings.HasPrefix(c.from, "127.") && !strings.HasPrefix(c.from, "[::1]") {
+		target = signedTarget(c.method, target, c.body, time.Now())
+	}
+	r := httptest.NewRequest(c.method, target, strings.NewReader(c.body))
 	r.Host, r.RemoteAddr = c.host, c.from
 	if strings.HasPrefix(c.target, "/setup/") && !c.withoutSetupKey {
 		if c.asTool {
@@ -89,8 +96,9 @@ func startDeck(t *testing.T) *Deck {
 	return d
 }
 
-// pair asks for a code on this computer and pairs a phone with it, as the
-// setup page and the pairing page do.
+// pair asks for a code on this computer and pairs a phone on the Wi-Fi with
+// its QR code, as the setup page and the pairing page do: the key is after #
+// in the code's link, and the phone claims it with a request signed with it.
 func pair(t *testing.T, d *Deck) string {
 	t.Helper()
 	asked := serve(t, d, call{method: "POST", target: "/setup/pair", host: "localhost:7710", from: thisComputer,
@@ -99,13 +107,16 @@ func pair(t *testing.T, d *Deck) string {
 	if err := json.Unmarshal(asked.Body.Bytes(), &state); err != nil || state.Pairing.Code == "" {
 		t.Fatalf("asking for a code gave %d %s", asked.Code, asked.Body)
 	}
-	paired := serve(t, d, call{method: "POST", target: "/pair", host: deckOnWiFi, from: aPhone,
-		headers: map[string]string{"User-Agent": iPhone}, body: `{"code": "` + state.Pairing.Code + `"}`})
-	var answer struct{ Key string }
-	if err := json.Unmarshal(paired.Body.Bytes(), &answer); err != nil || answer.Key == "" {
+	d.mu.Lock()
+	link := pairingLink(d.access.PairingKey())
+	d.mu.Unlock()
+	codeKey, part := strings.TrimPrefix(link[strings.Index(link, "#"):], "#pair="), randomKey()
+	paired := serve(t, d, call{method: "POST", target: "/pair?p=" + part + "&t=" + codeKey, host: deckOnWiFi, from: aPhone,
+		headers: map[string]string{"User-Agent": iPhone}})
+	if paired.Code != http.StatusNoContent || codeKey == "" {
 		t.Fatalf("pairing gave %d %s", paired.Code, paired.Body)
 	}
-	return answer.Key
+	return phoneKeyFrom(codeKey, part)
 }
 
 func TestTheSetupPageOpensOnlyOnThisComputer(t *testing.T) {
@@ -630,7 +641,7 @@ func (w *streamWriter) Flush() {
 func TestAPhoneHearsThePingAsAnEvent(t *testing.T) {
 	d := newTestDeck(t)
 	key := pair(t, d)
-	r := httptest.NewRequest("GET", "/events?t="+key, nil)
+	r := httptest.NewRequest("GET", signedTarget("GET", "/events?t="+key, "", time.Now()), nil)
 	r.Host, r.RemoteAddr = deckOnWiFi, aPhone
 	ctx, hangUp := context.WithCancel(r.Context())
 	defer hangUp()

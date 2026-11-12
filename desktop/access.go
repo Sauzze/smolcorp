@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -9,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -48,8 +50,14 @@ type Access struct {
 	WindowKey    string
 	officeTokens map[string]time.Time
 
-	code        string
-	codeExpiry  time.Time
+	code       string
+	codeExpiry time.Time
+	// The key the pairing QR code carries, in its fragment, for the phone that
+	// scans it: made with the code, it lasts and works as long as the code, and
+	// it never crosses the network (see Claim).
+	pairKey string
+	// The nonces of signed requests, until their time runs out (signed.go).
+	nonces      map[string]time.Time
 	misses      map[string]int // wrong codes since the current one, by address
 	totalMisses int
 }
@@ -160,6 +168,7 @@ func redeemToken(tokens map[string]time.Time, candidate string) bool {
 func (a *Access) NewCode() string {
 	n, _ := rand.Int(rand.Reader, big.NewInt(1_000_000))
 	a.code = fmt.Sprintf("%06d", n.Int64())
+	a.pairKey = randomKey()
 	a.codeExpiry = time.Now().Add(codeLifetime)
 	a.misses = map[string]int{}
 	a.totalMisses = 0
@@ -175,6 +184,49 @@ func (a *Access) ActiveCode() string {
 }
 
 func (a *Access) CodeExpiresIn() time.Duration { return time.Until(a.codeExpiry) }
+
+// PairingKey is the key the QR code hands over, while there's a code, or "".
+func (a *Access) PairingKey() string {
+	if a.ActiveCode() == "" {
+		return ""
+	}
+	return a.pairKey
+}
+
+// Claim pairs the phone that scanned the QR code: it signs its request with
+// the key the code carried, so the key itself never travels. Like a typed
+// code, it works once, and wrong tries count towards the lockouts. Refused,
+// it says why (signed.go's reasons): a phone whose clock is off may try again.
+func (a *Access) Claim(r *http.Request, address string, now time.Time) string {
+	key := a.PairingKey()
+	if key == "" || a.misses[address] >= maxAttemptsPerAddress {
+		return signedBad
+	}
+	part := r.URL.Query().Get("p")
+	if parts, ok := readSigned(r); ok && parts.signedBy(hashKey(key)) && len(part) == 43 && isNonce(part) {
+		if why := a.fresh(parts, now); why != "" {
+			return why
+		}
+		a.code, a.pairKey = "", ""
+		a.Phones.PairKey(phoneKeyFrom(key, part), phoneName(r.UserAgent()))
+		return ""
+	}
+	a.misses[address]++
+	a.totalMisses++
+	if a.totalMisses >= maxAttempts {
+		a.code = ""
+	}
+	return signedBad
+}
+
+// phoneKeyFrom is the key of a phone that claimed the QR code's key with a part
+// of its own (32 random bytes, base64url), as sign.js makes it: a photo of the
+// code alone isn't it.
+func phoneKeyFrom(codeKey, part string) string {
+	mac := hmac.New(sha256.New, []byte(codeKey))
+	mac.Write([]byte(part))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
 
 // Redeem returns a key for a newly paired phone if attempt is the active
 // code and address isn't locked out. The code is spent on success.
@@ -253,13 +305,15 @@ type PairedPhone struct {
 	Name     string    `json:"name"`
 	PairedAt time.Time `json:"pairedAt"`
 	LastSeen time.Time `json:"lastSeen"`
-	// SHA-256 of the phone's key, in hex. The key itself is never stored.
+	// SHA-256 of the phone's key, in hex. The key itself is never stored. It is
+	// also the secret the phone signs its requests with (signed.go), so this
+	// file, readable by you only, is kept as private as the keys.
 	KeyHash string `json:"keyHash"`
 }
 
 // Phones is every paired phone. Each has its own key, so one can be revoked
-// and the others keep working. This computer keeps only a hash of each key,
-// so the file can't be used to pose as a phone.
+// and the others keep working. This computer keeps only a hash of each key:
+// the key itself never shows, though the hash signs as the phone does.
 type Phones struct {
 	All []PairedPhone
 }
@@ -279,10 +333,15 @@ func loadPhones() *Phones {
 // Pair adds a phone and returns its key: the only time the key exists here.
 func (p *Phones) Pair(name string) string {
 	key := randomKey()
+	p.PairKey(key, name)
+	return key
+}
+
+// PairKey adds a phone holding key, made already for the QR code.
+func (p *Phones) PairKey(key, name string) {
 	now := time.Now().UTC().Truncate(time.Second)
 	p.All = append(p.All, PairedPhone{ID: newID(), Name: name, PairedAt: now, LastSeen: now, KeyHash: hashKey(key)})
 	p.save()
-	return key
 }
 
 // WithKey is the phone holding key, if any.

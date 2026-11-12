@@ -20,7 +20,7 @@ func TestUnderTheMacAppThePhoneHearsTheMacsWords(t *testing.T) {
 			return serve(t, d, call{method: "POST", target: target + "&t=" + key, host: deckOnWiFi, from: aPhone}).Body.String()
 		}
 		var refused struct{ Error string }
-		_ = json.Unmarshal(serve(t, d, call{method: "POST", target: "/pair", host: deckOnWiFi, from: aPhone, body: `{"code": "000000"}`}).Body.Bytes(), &refused)
+		_ = json.Unmarshal(serve(t, d, call{method: "POST", target: "/pair", host: "localhost:7710", from: thisComputer, body: `{"code": "000000"}`}).Body.Bytes(), &refused)
 		got := []string{refused.Error, said("/act?action=settings"), said("/act?action=music"), said("/act?action=hire&desk=0"),
 			said("/peek?session=nobody")}
 		want := []string{pairCodeRefusal, settingsElsewhere, musicOff, hiringOff, peekTailnet}

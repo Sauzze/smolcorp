@@ -41,11 +41,13 @@ var knownGaps = []knownGap{
 	{"setup-state", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
+	{"setup-state", ".wifiTyping", "extra", "Typing over Wi-Fi (SECWIFI), which the Swift engine never had", "stays: Go-only, the page's switch under Paired phones; the Mac runs the Go core"},
 	{"setup-state", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
 	{"setup-state-tool", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state-tool", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state-tool", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
 	{"setup-state-tool", ".pairing.codeExpiresIn", "extra", "a tool is told how long the code lasts; the Mac tells only the page", "stays: Go-only, a tool's; the page has it in its own state on both apps"},
+	{"setup-state-tool", ".wifiTyping", "extra", "Typing over Wi-Fi (SECWIFI), which the Swift engine never had", "stays: Go-only, the page's switch under Paired phones; the Mac runs the Go core"},
 	{"setup-state-tool", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
 }
 
@@ -475,6 +477,11 @@ func newContractDeck(t *testing.T, c contract, given []string) *contractDeck {
 	// No coding agent is looked for, as in newTestDeck.
 	d.summaryProviders.set(map[summaryProvider]providerState{})
 	cd := &contractDeck{t: t, d: d, c: c}
+	// The Mac's contract types from a phone on the Wi-Fi (I34): a setup from before Typing over Wi-Fi, which
+	// keeps it on. A new setup's, off, is signed_test.go's.
+	cd.d.mu.Lock()
+	cd.d.config.PhoneTextWiFi = true
+	cd.d.mu.Unlock()
 	for _, name := range given {
 		switch name {
 		case "manager on":
@@ -561,11 +568,13 @@ func (cd *contractDeck) request(method, path string, a contractAsk) *http.Reques
 		body = b
 	default:
 		// "$code" is the pairing code asked for.
+		// It's typed on this computer: over the Wi-Fi, a typed code is refused, and the QR code pairs (SECWIFI).
 		if object, ok := b.(map[string]any); ok && object["code"] == "$code" {
 			cd.d.mu.Lock()
 			code := cd.d.access.ActiveCode()
 			cd.d.mu.Unlock()
 			b = map[string]any{"code": code}
+			host, from = "localhost:7710", thisComputer
 		}
 		data, _ := json.Marshal(b)
 		body = string(data)
@@ -573,6 +582,10 @@ func (cd *contractDeck) request(method, path string, a contractAsk) *http.Reques
 	target := path
 	if len(query) > 0 {
 		target += "?" + query.Encode()
+	}
+	// A phone on the Wi-Fi signs what it asks, as the deck does (signed.go).
+	if a.As == "phone" {
+		target = signedTarget(method, target, body, time.Now())
 	}
 	r := httptest.NewRequest(method, target, strings.NewReader(body))
 	r.Host, r.RemoteAddr = host, from

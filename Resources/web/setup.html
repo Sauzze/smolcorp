@@ -1324,7 +1324,7 @@
           <ol>
             <li>Join the same Wi-Fi as this computer.</li>
             <li>In your phone's browser, go to <span class="address" id="address"></span><span id="pair-tailnet" hidden>, or from anywhere, with Tailscale on your phone: <span class="address" id="pair-tailnet-address"></span></span></li>
-            <li>Enter this code:</li>
+            <li>On the Wi-Fi, scan the QR code. Over Tailscale, you can enter this code instead:</li>
           </ol>
           <div class="code" id="code">— — —</div>
           <div class="expires" id="expires">Get a code when your phone is ready.</div>
@@ -1333,14 +1333,24 @@
         <div id="scan" hidden>
           <div class="or">or scan</div>
           <img class="qr" id="qr" alt="QR code that pairs your phone with this code">
-          <div class="qr-note">Holds the same code as the 6 digits, so it works once.</div>
+          <div class="qr-note">Works once, as the 6 digits do. It hands your phone its key without sending it over the Wi-Fi: keep it to yourself.</div>
         </div>
       </div>
     </div>
-    <div class="group paired" data-search="Paired phones" data-keywords="revoke unpair">
+    <div class="group paired" data-search="Paired phones" data-keywords="revoke unpair wifi wi-fi typing tailscale">
       <h2>Paired phones</h2>
       <div class="box" id="phones"></div>
       <div class="tools"><button class="btn" id="unpair-all">Unpair all phones</button></div>
+      <div class="box steps switches">
+        <div class="step" id="step-wifityping">
+          <div class="mark">✓</div>
+          <div class="text">
+            <div class="title">Typing over Wi-Fi</div>
+            <div class="detail" data-pending="Off: a paired phone types to agents over Tailscale only. Its keys still work over the Wi-Fi." data-done="On: a paired phone can also type to agents over plain http on the Wi-Fi. Anyone on this Wi-Fi could read what you type. The Tailscale link is private."></div>
+          </div>
+          <button class="switch" id="wifityping" aria-label="Typing over Wi-Fi"></button>
+        </div>
+      </div>
     </div>
     <div class="group">
       <h2>Voice</h2>
@@ -1968,6 +1978,7 @@
     renderOfficeKey();
     renderSummary();
     renderPhoneMic();
+    renderWifiTyping();
     renderWebhook();
     matchStartHere();
   }
@@ -2783,6 +2794,13 @@
   }
 
   /** Phone microphone: its switch, whether its text is sent, and the Tailscale section. */
+  /** Typing over Wi-Fi: off for a new setup, on for one from before that typed over the Wi-Fi. */
+  function renderWifiTyping() {
+    const on = state.wifiTyping === true;
+    mark('step-wifityping', on);
+    $('wifityping').classList.toggle('on', on);
+  }
+
   function renderPhoneMic() {
     const m = state.phoneMic;
     $('step-phonemic').hidden = !m;
@@ -4230,6 +4248,11 @@
     }));
   }
 
+  $('wifityping').onclick = () => {
+    const on = !state.wifiTyping;
+    if (on && !confirm('Anyone on this Wi-Fi could read what you type. The Tailscale link is private.\n\nTurn on typing over Wi-Fi?')) return;
+    post(`/setup/wifityping?on=${on ? 1 : 0}`);
+  };
   $('unpair-all').onclick = () => {
     if (confirm('Unpair all phones? They stop working straight away, and each needs a new code to pair again.')) {
       post('/setup/unpair?all=1');

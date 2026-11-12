@@ -82,9 +82,11 @@ func TestTheTailnetQRCodeNeedsThePhoneMicAndAnAddress(t *testing.T) {
 		t.Errorf("no code: %d", code)
 	}
 	d.mu.Lock()
-	code := d.access.NewCode()
+	d.access.NewCode()
+	key := d.access.PairingKey()
 	d.mu.Unlock()
-	eventually(t, "the address", func() bool { return d.tailnetPairingLink(code) == "https://my-mac.tail1234.ts.net/?pair="+code })
+	// The key the code hands over goes after #, never sent (SECWIFI).
+	eventually(t, "the address", func() bool { return d.tailnetPairingLink(key) == "https://my-mac.tail1234.ts.net/#pair="+key })
 	if status, _ := pageCall(t, d, "GET", "/setup/qr.png?via=tailnet"); status != http.StatusOK {
 		t.Errorf("with a code and an address: %d", status)
 	}

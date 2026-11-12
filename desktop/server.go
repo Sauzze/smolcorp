@@ -27,13 +27,17 @@ import (
 
 // The HTTP side, as the Mac app's HTTPServer.swift and DeckRouter.swift:
 //
-//   - The phone's pages and API need a paired phone's key, sent as ?t= (the
-//     page's own URL, so a home-screen bookmark keeps it) or as
-//     X-AgentDeck-Token. They must also be addressed to an IP address or a
-//     local name, which keeps out web pages using DNS rebinding.
+//   - The phone's pages and API need a paired phone: its requests signed with
+//     its key, which the page keeps in its address's fragment, never sent
+//     (signed.go); or, over this computer's loopback or Tailscale only, the
+//     key itself as ?t= or X-AgentDeck-Token. They must also be addressed to
+//     an IP address or a local name, which keeps out web pages using DNS
+//     rebinding.
 //   - /hook and /launcher need the hook's own key, and answer only to this
 //     computer.
-//   - Pairing is open, but useless without a code you asked for here.
+//   - Pairing is open, but useless without a code you asked for here. Its QR
+//     code hands over a key after #, never sent; a typed code, whose answer
+//     is the key, works only on this computer or over Tailscale.
 //   - The setup page answers only to this computer. The page itself holds
 //     nothing; what it reads and changes needs the setup key, new at every
 //     start, as the cookie the page gets when the tray opens it or as
@@ -445,7 +449,29 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	}
 
+	// Over plain http on the Wi-Fi, anyone there can read a request: a phone's key is taken only over this
+	// computer's loopback and Tailscale. On the Wi-Fi a phone signs its requests instead (signed.go).
+	private := r.isLocal || r.isTailnet || fromTailnet(r.Request)
+
 	if r.Method == http.MethodPost && r.URL.Path == "/pair" {
+		// Scanned: the QR code's key, never sent, signs the request.
+		if isSigned(r.Request) {
+			d.mu.Lock()
+			why := d.access.Claim(r.Request, r.remoteAddress, time.Now())
+			d.mu.Unlock()
+			if why != "" {
+				writeJSON(w, http.StatusForbidden, map[string]any{"error": "That QR code isn't valid any more. Get a new one on your " + d.machine() + ".",
+					"why": why, "now": time.Now().UnixMilli()})
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		// Typed: the answer holds the key, which no one on the Wi-Fi may read.
+		if !private {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": pairOverWiFi})
+			return
+		}
 		code := strings.Map(func(c rune) rune {
 			if c >= '0' && c <= '9' {
 				return c
@@ -467,6 +493,11 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// holds nothing of yours, so it needs no key.
 	if r.Method == http.MethodGet && r.URL.Path == "/office.js" {
 		serveFile(w, "Resources/web/office.js")
+		return
+	}
+	// What signs a paired phone's requests (signed.go): nothing of yours either.
+	if r.Method == http.MethodGet && r.URL.Path == "/sign.js" {
+		serveFile(w, "Resources/web/sign.js")
 		return
 	}
 	// The first-run guide's arrows, for the setup page: nothing of yours either.
@@ -497,22 +528,30 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		key = r.Header.Get(hookKeyHeader)
 	}
 	d.mu.Lock()
-	phoneID := ""
+	phoneID, refused := "", ""
 	// The office in a browser on this computer reads it as a phone does,
 	// from this computer only: a phone that isn't paired, saved or listed.
 	if r.isLocal && d.access.IsWindowKey(key) {
 		phoneID = officeWindowID
-	} else if phone := d.access.Phones.WithKey(key); phone != nil {
+	} else if isSigned(r.Request) {
+		if phone, why := d.access.SignedPhone(r.Request, time.Now()); phone != nil {
+			d.access.Phones.MarkSeen(phone)
+			phoneID = phone.ID
+		} else {
+			refused = why
+		}
+	} else if phone := d.access.Phones.WithKey(key); phone != nil && private {
 		d.access.Phones.MarkSeen(phone)
 		phoneID = phone.ID
 	}
 	d.mu.Unlock()
 
 	// The deck, or the office on a screen of its own: the same page, and the
-	// same pairing first.
+	// same pairing first. With ?deck, the page alone, which holds nothing of
+	// yours: a paired phone's key is in its fragment, and it signs what it asks.
 	if r.Method == http.MethodGet && (r.URL.Path == "/" || r.URL.Path == "/office") {
 		page := "deck.html"
-		if phoneID == "" {
+		if phoneID == "" && !(r.URL.Query().Has("deck") && key == "") {
 			page = "pair.html"
 		}
 		d.mu.Lock()
@@ -526,6 +565,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		servePageWithIcon(w, "Resources/web/"+page, "Resources/web/icon-"+logo+".png", worded)
 		return
 	}
+	if refused != "" {
+		writeSignedRefusal(w, refused)
+		return
+	}
 	if phoneID == "" {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
@@ -533,6 +576,9 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 
 	session := r.URL.Query().Get("session")
 	switch {
+	// Whether this phone is still paired, and its clock right: the deck asks when its stream fails.
+	case r.Method == http.MethodGet && r.URL.Path == "/paired":
+		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodGet && r.URL.Path == "/events":
 		rt.events(w, r, phoneID)
 	case r.Method == http.MethodPost && r.URL.Path == "/focus":
@@ -640,10 +686,15 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/act":
 		writeStatus(w)(d.PerformFrom(phoneID, r.URL.Query().Get("action"), session, r.URL.Query()))
 	// The phone's text (typed, or heard by its own mic), typed into the session's agent: from a paired phone
-	// with its key, over the Wi-Fi as over Tailscale (I34), never from the office's own window. See phonetext.go.
+	// with its key, over Tailscale, and over the Wi-Fi with Typing over Wi-Fi on (I34, SECWIFI), never from the
+	// office's own window. See phonetext.go.
 	case r.Method == http.MethodPost && r.URL.Path == "/dictate":
 		if phoneID == officeWindowID {
 			writeStatus(w)(http.StatusForbidden, phoneTextPhonesOnly)
+			return
+		}
+		if !d.typesFrom(r) {
+			writeStatus(w)(http.StatusForbidden, typingOverWiFiOff)
 			return
 		}
 		body := decodeJSON(r.Body)
@@ -669,6 +720,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/choose":
 		if phoneID == officeWindowID {
 			writeStatus(w)(http.StatusForbidden, phoneTextPhonesOnly)
+			return
+		}
+		if !d.typesFrom(r) {
+			writeStatus(w)(http.StatusForbidden, typingOverWiFiOff)
 			return
 		}
 		if r.URL.Query().Get("option") != "other" {
@@ -1024,14 +1079,14 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 
 	case r.Method == http.MethodGet && path == "/setup/qr.png":
 		d.mu.Lock()
-		code := d.access.ActiveCode()
+		key := d.access.PairingKey()
 		d.mu.Unlock()
-		// Under the Mac app, ?via=tailnet: the same code at this Mac's tailnet address, for the phone mic over
+		// Under the Mac app, ?via=tailnet: the same pairing at this Mac's tailnet address, for the phone mic over
 		// HTTPS, with the phone mic on and an address (hostphonemic.go).
 		if r.URL.Query().Get("via") == "tailnet" {
 			link := ""
-			if code != "" && d.macHost() != nil {
-				link = d.tailnetPairingLink(code)
+			if key != "" && d.macHost() != nil {
+				link = d.tailnetPairingLink(key)
 			}
 			if link == "" {
 				w.WriteHeader(http.StatusNotFound)
@@ -1041,11 +1096,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			return
 		}
 		// No code, or no address a phone could open: no QR code to scan.
-		if code == "" || phoneAddress() == "" {
+		if key == "" || phoneAddress() == "" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		writeQR(w, pairingLink(code))
+		writeQR(w, pairingLink(key))
 
 	// The portable office's viewer (beta). Only this reply carries the link,
 	// which holds the key; the write secret is in a reply only once, as it's made.
@@ -1150,6 +1205,15 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && path == "/setup/pair":
 		d.mu.Lock()
 		d.access.NewCode()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
+	// Typing over Wi-Fi (SECWIFI): on or off, the page's switch.
+	case r.Method == http.MethodPost && path == "/setup/wifityping":
+		d.mu.Lock()
+		d.config.PhoneTextWiFi = query.Get("on") == "1"
+		d.config.save()
+		d.changed()
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
@@ -2203,9 +2267,11 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 			"outside": d.config.Webhook.Outside, "events": d.config.Webhook.Events, "last": d.lastDelivery(),
 		},
 		"pairing": pairing,
-		"phones":  phones,
-		"logo":    d.config.Logo,
-		"pins":    pins,
+		// Typing over Wi-Fi: off for a new setup (SECWIFI).
+		"wifiTyping": d.config.PhoneTextWiFi,
+		"phones":     phones,
+		"logo":       d.config.Logo,
+		"pins":       pins,
 		// How many keys the phone shows now.
 		"phoneKeys": len(keys),
 		"sessions":  sessions,
@@ -2386,6 +2452,7 @@ var macWords = map[string]string{
 	hireFolderFirst:     "Choose a folder for new hires in setup, on your Mac.",
 	musicOff:            "The jukebox can't play your music: turn it on in setup, on your Mac.",
 	phoneTextOff:        "The phone mic is off. Turn it on in setup, on your Mac.",
+	typingOverWiFiOff:   "Typing over Wi-Fi is off on this Mac: open the deck with its Tailscale link, or turn on Typing over Wi-Fi in Settings, under Paired phones.",
 	peekTailnet:         "The input line shows only over Tailscale's HTTPS address.",
 	choiceTailnet:       "The details show only over Tailscale's HTTPS address.",
 }
