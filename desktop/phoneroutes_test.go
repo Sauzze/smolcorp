@@ -47,7 +47,7 @@ var everyPhoneRoute = [][2]string{
 	{"GET", "/t3code"}, {"POST", "/t3code/open"}, {"POST", "/act?action=takeover"}, {"POST", "/act?action=handback"},
 	{"POST", "/act?action=letgo"}, {"POST", "/act?action=stop"},
 	{"POST", "/dictate"}, {"POST", "/peek"}, {"POST", "/choose?option=other"}, {"GET", "/choice"}, {"GET", "/approvals"},
-	{"GET", "/conversation"}, {"GET", "/session/info"}, {"POST", "/summary"},
+	{"GET", "/conversation"}, {"GET", "/session/info"}, {"GET", "/desk/git"}, {"POST", "/summary"},
 	{"GET", "/talk"}, {"GET", "/talk/asking"}, {"POST", "/talk/say"}, {"POST", "/talk/pick"},
 	{"GET", "/dictate"}, {"GET", "/peek"}, {"POST", "/choice"}, {"POST", "/approvals"}, {"POST", "/conversation"},
 	{"POST", "/talk"}, {"PUT", "/talk"}, {"POST", "/talk/asking"}, {"GET", "/talk/say"}, {"GET", "/talk/pick"},
@@ -162,8 +162,8 @@ var reachTheTable = []string{"phone-wifi", "phone-wireguard", "phone-serve-mac",
 func TestEachRowLetsInItsClassOnly(t *testing.T) {
 	d, phoneKey := probeDeck(t)
 	// FR1 moved 7; the talk bubble adds GET /talk, GET /talk/asking, POST /talk/say and POST /talk/pick (1.26).
-	if len(phoneRouteTable) != 11 {
-		t.Errorf("%d rows; want 11", len(phoneRouteTable))
+	if len(phoneRouteTable) != 12 {
+		t.Errorf("%d rows; want 12", len(phoneRouteTable))
 	}
 	for key, row := range phoneRouteTable {
 		if !slices.ContainsFunc(everyPhoneRoute, func(route [2]string) bool {
@@ -261,6 +261,7 @@ GET /choice: 401 403 404 404 403 403 404 403 403 401 401; let in: phone-wireguar
 GET /approvals: 401 403 200 200 403 403 200 403 403 401 401; let in: phone-wireguard, phone-serve-mac, phone-proxied-localhost-other
 GET /conversation: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 GET /session/info: 401 403 403 403 403 403 403 403 404 401 401; let in: window
+GET /desk/git: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 POST /summary: 401 403 403 403 403 403 403 403 403 401 401; let in: nobody
 GET /talk: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 GET /talk/asking: 401 403 403 403 403 403 403 403 200 401 401; let in: window
