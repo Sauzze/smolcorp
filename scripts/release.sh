@@ -23,6 +23,9 @@
 #                             DMG, staples the ticket to the app, then makes the DMG
 #                             again around it and has that notarised and stapled too
 #
+# The app carries tmux (Resources/bin/tmux, built by scripts/build-tmux.sh) and its licence notices; a release
+# stops without them, and signs tmux with the Developer ID as it signs the smolcorp command, with no entitlements.
+#
 # The DMG's one-time setup (a venv in build/) is in scripts/make-dmg.sh.
 
 set -euo pipefail
@@ -127,6 +130,13 @@ fi
 # development certificate.
 [ "$DMG_ONLY" = 1 ] || SMOLCORP_SIGN_IDENTITY=- scripts/build-app.sh universal
 
+# tmux ships in the app (Resources/bin/tmux, for Apple silicon and Intel) with its notices. build-app.sh only warns
+# when it can't build tmux, so a copy of your own still gets built; a release stops here instead.
+TMUX_FILE="$APP/Contents/Resources/bin/tmux"
+[ -f "$TMUX_FILE" ] || { echo "Stopped: $APP has no tmux (Contents/Resources/bin/tmux): scripts/build-tmux.sh couldn't build it, and a release without it isn't made."; exit 1; }
+[ "$(lipo -archs "$TMUX_FILE" | tr ' ' '\n' | sort | tr '\n' ' ')" = "arm64 x86_64 " ] || { echo "Stopped: tmux isn't a file for Apple silicon and Intel in one (lipo -archs says: $(lipo -archs "$TMUX_FILE"))."; exit 1; }
+[ -s "$APP/Contents/Resources/licenses/THIRD-PARTY-NOTICES.txt" ] || { echo "Stopped: $APP has no Contents/Resources/licenses/THIRD-PARTY-NOTICES.txt, which tmux's licences require."; exit 1; }
+
 # Developer ID: the screen saver inside first, then the app around it, both
 # with the hardened runtime and a secure timestamp, as notarisation needs.
 if [ -n "$DEVELOPER_ID" ] && [ "$DMG_ONLY" = 0 ]; then
@@ -136,9 +146,20 @@ if [ -n "$DEVELOPER_ID" ] && [ "$DMG_ONLY" = 0 ]; then
   check "the smolcorp command couldn't be signed." \
     codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" --identifier io.github.sauzze.smolcorp-cli \
     "$APP/Contents/Resources/bin/smolcorp"
+  # tmux needs no entitlements (no JIT, no Apple Events, no microphone): none are given.
+  check "tmux couldn't be signed." \
+    codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" --identifier io.github.sauzze.smolcorp-tmux \
+    "$TMUX_FILE"
   check "the app couldn't be signed." codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" \
     --entitlements packaging/macos/Smolcorp.entitlements "$APP"
+  check "tmux's signature doesn't verify." codesign --verify --deep --strict --verbose=2 "$TMUX_FILE"
   check "the app's signature doesn't verify." codesign --verify --deep --strict --verbose=2 "$APP"
+  TMUX_SIGNATURE="$(codesign --display --verbose=2 "$TMUX_FILE" 2>&1 || true)"
+  grep -qF 'flags=0x10000(runtime)' <<<"$TMUX_SIGNATURE" || { echo "Stopped: tmux is signed without the hardened runtime."; exit 1; }
+  grep -qF "Authority=$DEVELOPER_ID" <<<"$TMUX_SIGNATURE" || { echo "Stopped: tmux isn't signed with ${DEVELOPER_ID}."; exit 1; }
+  grep -qF 'Identifier=io.github.sauzze.smolcorp-tmux' <<<"$TMUX_SIGNATURE" || { echo "Stopped: tmux is signed under another identifier."; exit 1; }
+  TMUX_ENTITLEMENTS="$(codesign --display --entitlements - "$TMUX_FILE" 2>&1 || true)"
+  ! grep -qF '<key>' <<<"$TMUX_ENTITLEMENTS" || { echo "Stopped: tmux carries entitlements, and needs none."; exit 1; }
   # The hardened runtime on, and the entitlements it was given
   SIGNATURE="$(codesign --display --verbose=2 "$APP" 2>&1 || true)"
   grep -qF 'flags=0x10000(runtime)' <<<"$SIGNATURE" || { echo "Stopped: the app is signed without the hardened runtime."; exit 1; }
@@ -211,7 +232,7 @@ echo
 SIGNED="signed ad hoc"
 [ -n "$DEVELOPER_ID" ] && SIGNED="Developer ID, not notarised"
 [ -n "$NOTARY_PROFILE" ] && SIGNED="Developer ID, notarised"
-echo "Smolcorp $(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist"): $(lipo -archs "$APP/Contents/MacOS/AgentDeck"), $SIGNED"
+echo "Smolcorp $(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist"): $(lipo -archs "$APP/Contents/MacOS/AgentDeck"), $SIGNED, $("$TMUX_FILE" -V)"
 for FILE in "$DMG" "$ZIP"; do
   echo "$FILE ($(du -h "$FILE" | cut -f 1 | tr -d ' '))"
   echo "SHA-256: $(shasum -a 256 "$FILE" | cut -d ' ' -f 1)"

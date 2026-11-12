@@ -41,7 +41,7 @@ var routeCallers = []routeCaller{
 // so nothing is typed, read or opened once a caller is let in. Wrong methods and an unknown path are in too.
 var everyPhoneRoute = [][2]string{
 	{"GET", "/icon.png"}, {"GET", "/favicon-16.png"}, {"GET", "/favicon-32.png"},
-	{"POST", "/pair"}, {"GET", "/office.js"}, {"GET", "/guide.js"}, {"GET", "/sounds/keys.m4a"},
+	{"POST", "/pair"}, {"GET", "/office.js"}, {"GET", "/guide.js"}, {"GET", "/licenses"}, {"GET", "/sounds/keys.m4a"},
 	{"GET", "/office?o=wrong"}, {"GET", "/"}, {"GET", "/office"}, {"GET", "/events"}, {"POST", "/focus"},
 	{"POST", "/act?action=settings"}, {"GET", "/hire/window"}, {"POST", "/hire/window"},
 	{"GET", "/t3code"}, {"POST", "/t3code/open"}, {"POST", "/act?action=takeover"}, {"POST", "/act?action=handback"},
@@ -239,6 +239,7 @@ GET /favicon-32.png: 200 200 200 200 200 200 200 200 200 200 200; let in: strang
 POST /pair: 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
 GET /office.js: 200 200 200 200 403 403 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /guide.js: 200 200 200 200 403 403 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
+GET /licenses: 404 404 404 404 403 403 404 404 404 404 404; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /sounds/keys.m4a: 200 200 200 200 403 403 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /office?o=wrong: 200 200 200 200 403 403 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /: 200 200 200 200 403 403 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi

@@ -1,3 +1,8 @@
+# Smolcorp 1.26.0 (beta)
+
+## tmux comes with Smolcorp
+- **Open-source notices.** The Mac app now includes tmux 3.8 (ISC licence), with libevent, ncurses, utf8proc and jemalloc built into it. Their licence notices are in the app, and setup links to them (**Open-source notices**).
+
 # Smolcorp 1.24.3 (beta)
 
 An easier start: Smolcorp now shows a newcomer the way from the first screen to a General Manager at its desk, and setup is easier to find your way around.
