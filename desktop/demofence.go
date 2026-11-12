@@ -111,6 +111,16 @@ func (f demoFence) check(c demoCall) string {
 	if namesSetupKey(c.ToolInput) {
 		return demoFenceRefusal + "the setup key is the owner's: the demo never reads or sends it."
 	}
+	// A path written with a letter outside ASCII or a control character may be another name to the disk (ß is ss):
+	// refused, as the guard refuses it in a line (WIN125g). Grep's pattern is text, not a path.
+	for _, key := range []string{"file_path", "path", "notebook_path", "glob"} {
+		if value, _ := input[key].(string); !demoPlainPath(value) {
+			return demoFenceRefusal + "a path with a letter outside ASCII or a control character, which the disk may read as another name: write the path plainly."
+		}
+	}
+	if pattern, _ := input["pattern"].(string); c.ToolName == "Glob" && !demoPlainPath(pattern) {
+		return demoFenceRefusal + "a pattern with a letter outside ASCII or a control character, which the disk may read as another name: write the pattern plainly."
+	}
 	switch name := c.ToolName; {
 	case name == "Read" || name == "Grep" || name == "Glob" || name == "LS" || name == "NotebookRead":
 		// What they read: a path, and Glob's pattern from the folder it searches (its path, else cwd). In the
@@ -367,6 +377,16 @@ func demoBuiltPath(line string) string {
 		}
 	}
 	return ""
+}
+
+// demoPlainPath is whether a tool's path is written plainly: printable ASCII and nothing else.
+func demoPlainPath(path string) bool {
+	for i := 0; i < len(path); i++ {
+		if path[i] < 0x20 || path[i] > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 // demoTopWords are the words of a line's simple commands, as bash reads it and as a plain reading does (a \ a
@@ -1268,7 +1288,7 @@ func demoHireFlags(args []string) (ask demoHireAsk) {
 }
 
 // demoSegments splits a command line into simple commands' words: quotes are taken
-// away, and ; & | ( ) ` newlines and $( end a command; with escapes, a backslash keeps
+// away, and ; & | ( ) ` newlines and $( end a command, < and > a word; with escapes, a backslash keeps
 // the next character (in double quotes, a " \ $ or ` only, as bash). Plain, as the fence needs: every "gm hire" in the line is found,
 // whatever runs it.
 func demoSegments(line string, escapes bool) [][]string {
@@ -1315,6 +1335,10 @@ func demoSegments(line string, escapes bool) [][]string {
 			i++
 			word.WriteByte(line[i])
 		case c == ' ' || c == '\t':
+			end()
+		case c == '<' || c == '>':
+			// A redirection's operator ends a word, and its target, glued to it or not (>file, 2>file, <file), is
+			// a word of its own, judged as a path (RWIN6 B1).
 			end()
 		case strings.IndexByte(";&|()`\n\r", c) >= 0 || c == '$' && i+1 < len(line) && line[i+1] == '(':
 			endSegment()

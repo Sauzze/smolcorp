@@ -113,7 +113,8 @@ func (r *Refusal) Error() string {
 // its Unicode simple case folding (ſ, the long s, is s; K, the Kelvin sign, is k), then to lower case. ToLower
 // alone leaves ſ as it is, and APFS reads ſetup-key as setup-key (RWIN5 B3). Every name the guard or the demo's
 // fence holds back (the setup key, the token, the guard file, Claude Code's settings, a program's name) is
-// compared folded. Full folding (ß as ss) isn't the disk's, and isn't needed for these names.
+// compared folded. The disk folds fully too (ß is ss, ﬁ is fi: RWIN6 B2), and Fold doesn't: a word with a letter
+// outside ASCII is refused, unless it is data such as a commit message (plain.go), so no such name gets this far.
 func Fold(text string) string {
 	return strings.Map(func(r rune) rune {
 		least := r
@@ -218,6 +219,9 @@ func Check(line string, groups []Group) *Refusal {
 }
 
 func check(line string, groups []Group) *Refusal {
+	if r := controlIn(line); r != nil {
+		return r
+	}
 	if name := namesAlways(line); name != "" {
 		return &Refusal{Group: "guard", Rule: name, Command: name}
 	}
@@ -244,6 +248,12 @@ func check(line string, groups []Group) *Refusal {
 func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 	if depth > 8 {
 		return &Refusal{Group: "guard", Rule: "nesting", Command: strings.Join(words, " ")}
+	}
+	if len(words) == 3 && words[0] == plainMark {
+		return &Refusal{Group: "guard", Rule: notPlainRule, Command: words[2], Why: words[1]}
+	}
+	if r := notPlainWords(words); r != nil {
+		return r
 	}
 	for _, w := range words {
 		if name := namesAlways(strings.TrimPrefix(w, unreadable)); name != "" {

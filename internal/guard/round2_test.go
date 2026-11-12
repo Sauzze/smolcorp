@@ -262,9 +262,14 @@ func TestNoSpellingNamesTheSetupKey(t *testing.T) {
 		`git commit -m "the setup-key file is the owner's"`, "grep -n 'setup-key file' docs/setup.md", "cat setup-keys.md", "ls setup-*.md",
 		"sort < in.txt", "cat docs/setup.md",
 		// Words that only look like it: another file on every disk.
-		"cat setup-keys.md", "cat setup-key.md", "ls setup-~", "cat sexy~1",
+		"cat setup-keys.md", "cat setup-key.md",
 	})
-	// Fold is the disk's folding: ſ and s, K and k, any case, are one letter; ß stays one letter.
+	// WIN125g: a ~ inside a word is a pattern to zsh (setup-key~1 is setup-key, but not 1), so these look-alikes
+	// are refused with it, as the plain-writing rule refuses every such word (plain.go).
+	mustRefuse(t, "a ~ inside a word", []string{"ls setup-~", "cat sexy~1", "cat setup-key~1"})
+	// Fold is simple case folding: ſ and s, K and k, any case, are one letter. ß stays one letter to Fold, though the
+	// Mac's disk reads it as ss (RWIN6 B2): a word with a letter outside ASCII never gets to Fold's comparison, as
+	// the guard refuses it first (plain.go).
 	for in, want := range map[string]string{"\u017fetup-KEY": "setup-key", "Setup-\u212aey": "setup-key", "Stra\u00dfe": "stra\u00dfe", "\u03a3\u03c2": "\u03c3\u03c3"} {
 		if got := Fold(in); got != want {
 			t.Errorf("Fold(%q) = %q, want %q", in, got, want)

@@ -279,6 +279,40 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 			}
 		}
 	}
+	// RWIN6 B1: a redirection glued to its target (>file, 2>file, <file) reads or writes that file: its target is a
+	// path, judged as any other. B2–B4: a line not written plainly is refused by the guard the fence asks first:
+	// ß, ﬂ and ﬁ in a program's name, a NUL in $'…', zsh's (a|b) and =cmd (the demo's wall too). And a tool's
+	// path with a letter outside ASCII. Its own STATUS.md, written with a glued >>, is still its own.
+	for _, who := range []struct {
+		fence demoFence
+		cwd   string
+	}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+		registry, config := filepath.Join(supportDir, "registry.json"), filepath.Join(supportDir, "config.json")
+		relRegistry, err := filepath.Rel(who.cwd, registry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		relConfig, _ := filepath.Rel(who.cwd, config)
+		for _, line := range []string{
+			"cat <" + shellQuoted(registry), "cat 0<" + shellQuoted(registry), "cat <" + tilde(registry), "cat <" + shellQuoted(relRegistry),
+			"cat<" + shellQuoted(registry), "cat <>" + shellQuoted(registry), "echo '{}' >" + shellQuoted(config), "echo '{}' >>" + shellQuoted(config),
+			"ls 2>" + shellQuoted(config), "ls &>" + shellQuoted(config), "echo x>" + shellQuoted(config), "echo x >" + shellQuoted(relConfig),
+			"cat x >" + tilde(config), "echo x 1>" + tilde(config),
+			"\u00dfh host", "\ufb02y deploy", "\ufb01rebase deploy", "cat \u00dfetup-key", `cat $'setup-key\0x'`, "cat setup-(key|x)",
+			"=git push origin main", "=git -C " + shellQuoted(filepath.Join(homeDir, "elsewhere")) + " status",
+			"=git worktree add " + shellQuoted(filepath.Join(homeDir, "elsewhere")), "=ssh host",
+		} {
+			refused = append(refused, row{who.fence, bashCall(line, who.cwd)})
+		}
+		refused = append(refused, row{who.fence, read(who.cwd, filepath.Join(who.cwd, "\u00dfetup.md"))},
+			row{who.fence, write(who.cwd, filepath.Join(who.cwd, "r\u00e9sum\u00e9.md"))},
+			row{who.fence, tool(who.cwd, "Glob", map[string]any{"pattern": "\ufb01*"})})
+	}
+	for _, line := range []string{"echo 'Done.' >>" + shellQuoted(filepath.Join(testerFolder, "STATUS.md")), "ls 2>/dev/null", "git diff HEAD~1 -- bill.py"} {
+		if why := asTester.check(bashCall(line, tester.Worktree)); why != "" {
+			t.Errorf("refused %q: %s", line, why)
+		}
+	}
 	// RWIN4 B2: the support folder written in another case is the same folder on the Mac's disk (and Windows'):
 	// every rule holds for it. The last part upper-cased, the whole path, through ~ and .., and a link to it.
 	if runtime.GOOS == "darwin" {

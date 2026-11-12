@@ -55,6 +55,8 @@ type lexer struct {
 	pessimist bool
 	budget    int
 	over      bool
+	// plain is why the line isn't written plainly, and the word (WIN125g, plain.go): "" when it is.
+	plain, plainWord string
 }
 
 // commandsAs is commands, as the usual reading or as the pessimist.
@@ -63,6 +65,9 @@ func commandsAs(line string, depth int, ps, pessimist bool) []simple {
 	out := l.lexLine(line, depth, ps, false)
 	if l.over {
 		out = append(out, simple{"\x00long", "an arithmetic or expansion the guard can't find the end of"})
+	}
+	if l.plain != "" {
+		out = append(out, simple{plainMark, l.plain, l.plainWord})
 	}
 	return out
 }
@@ -121,6 +126,7 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 		if !inWord {
 			return
 		}
+		l.judge(word, unq, ps)
 		if skipOne {
 			if redirOut {
 				out = append(out, append(simple{redirMark}, finishWord(word, unq, ps)...))
@@ -158,6 +164,10 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 
 	for i := 0; i < len(line); {
 		c := line[i]
+		if !ps && c == '$' && strings.HasPrefix(line[i:], "$'") {
+			// $'…' outside quotes, or in a body a shell runs (plain.go).
+			l.flag(plainANSI, "$'")
+		}
 		if unitOK {
 			// $(( )), $[ ], ${ }, a (( )) command and a name[ ] subscript are read whole: a << in them is no here document.
 			end, cmdForm := -1, false
@@ -268,6 +278,9 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 			endWord()
 			i++
 		case c == ';' || c == '&' || c == '|' || c == '\n' || c == '(' || c == ')' || ps && (c == '{' || c == '}'):
+			if c == '(' && !ps && !l.pessimist {
+				l.paren(word, inWord, cur)
+			}
 			endCommand()
 			i++
 			if c == '\n' {
@@ -662,6 +675,9 @@ func (l *lexer) unitCommands(text string, depth int, ps bool) []simple {
 			}
 			out = append(out, l.lexLine(text[k+1:k+1+end], depth+1, ps, false)...)
 			k += end + 2
+		case c == '$' && !ps && k+1 < len(text) && text[k+1] == '\'':
+			l.flag(plainANSI, "$'")
+			k++
 		case c == '$' && k+1 < len(text) && strings.IndexByte("[{(", text[k+1]) >= 0:
 			if end := l.unitEnd(text, k); end > k {
 				out = append(out, l.unitCommands(text[k:end], depth+1, ps)...)

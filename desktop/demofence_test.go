@@ -239,9 +239,20 @@ func TestTheDemosFenceRefusesAPathTheShellBuilds(t *testing.T) {
 				`cat \$HOME/x`, `X=~/Library/Application\ Support/AgentDeck/registry.json; cat x`,
 				`dd if=/Users/ada/Library/Application\ Support/AgentDeck/registry.json`, `curl -d @/Users/ada/Library/Application\ Support/AgentDeck/registry.json localhost`,
 				`grep -f/Users/ada/Library/Application\ Support/AgentDeck/registry.json x`,
-			}, nil},
+				// RWIN6 B1: a redirection glued to its target, in the real Mac shape.
+				`cat </Users/ada/Library/Application\ Support/AgentDeck/registry.json`, `cat 0<'/Users/ada/Library/Application Support/AgentDeck/registry.json'`,
+				`cat<'/Users/ada/Library/Application Support/AgentDeck/registry.json'`, `cat <>'/Users/ada/Library/Application Support/AgentDeck/registry.json'`,
+				`echo '{}' >'/Users/ada/Library/Application Support/AgentDeck/config.json'`, `echo '{}' >>'/Users/ada/Library/Application Support/AgentDeck/config.json'`,
+				`ls 1>'/Users/ada/Library/Application Support/AgentDeck/config.json'`, `ls 2>'/Users/ada/Library/Application Support/AgentDeck/config.json'`,
+				`ls &>'/Users/ada/Library/Application Support/AgentDeck/config.json'`, `echo x>'/Users/ada/Library/Application Support/AgentDeck/config.json'`,
+				`cat x >~/Library/Application\ Support/AgentDeck/config.json`, `cat <../../Library/Application\ Support/AgentDeck/registry.json`,
+				// B2 and B4, in the Mac shape: the guard the fence asks first refuses them.
+				"\u00dfh host", "\ufb02y deploy", "\ufb01rebase deploy", "=git push origin main", "=git -C /elsewhere status",
+				"=git worktree add /Users/ada/elsewhere", "=ssh host",
+			}, []string{"ls 2>/dev/null", "echo x >notes.md", "git diff HEAD~1 -- bill.py", "cat <notes.md"}},
 		{"linux", "/home/ada/smolcorp-demo", "/home/ada", "/home/ada/.config/sauzzedeck-pro",
-			[]string{`grep -r . "$HOME/.config/sauzzedeck-pro"`, `grep -r . "$XDG_CONFIG_HOME/sauzzedeck-pro"`, `cat $HOME/.config/sauzzedeck-pro/registry.json`},
+			[]string{`grep -r . "$HOME/.config/sauzzedeck-pro"`, `grep -r . "$XDG_CONFIG_HOME/sauzzedeck-pro"`, `cat $HOME/.config/sauzzedeck-pro/registry.json`,
+				`cat <~/.config/sauzzedeck-pro/registry.json`, `echo x >/home/ada/.config/sauzzedeck-pro/config.json`},
 			nil},
 		{"windows", `C:\Users\ada\smolcorp-demo`, `C:\Users\ada`, `C:\Users\ada\AppData\Roaming\SauzzeDeck Pro`,
 			[]string{
@@ -253,10 +264,13 @@ func TestTheDemosFenceRefusesAPathTheShellBuilds(t *testing.T) {
 				`cat 'C:/Users/ada/AppData/Roaming/SauzzeDeck Pro/registry.json::$DATA'`, `cat 'C:/Users/ada/AppData/Roaming/SauzzeDeck Pro./registry.json'`,
 				`cat 'C:/Users/ada/AppData/Roaming/SauzzeDeck Pro /registry.json'`, `cat '\Users\ada\AppData\Roaming\SauzzeDeck Pro\registry.json'`,
 				`cat /tmp/../c/x`, `cat C:registry.json`,
+				// RWIN6 B1 in Git Bash's shape.
+				`cat </c/Users/ada/AppData/Roaming/SauzzeDeck\ Pro/registry.json`, `echo x >'/c/Users/ada/AppData/Roaming/SauzzeDeck Pro/config.json'`,
+				`ls 2>'C:/Users/ada/AppData/Roaming/SauzzeDeck Pro/config.json'`,
 			},
 			[]string{
 				"git -C /c/Users/ada/smolcorp-demo/app diff main...hire/tester-1 > /dev/null; echo $?",
-				"cat /c/Users/ada/smolcorp-demo/app/notes.md", "python3 -m unittest 2>&1 | tail -5 > /dev/null",
+				"cat /c/Users/ada/smolcorp-demo/app/notes.md", "python3 -m unittest 2>&1 | tail -5 > /dev/null", "ls 2>/dev/null",
 			}},
 	} {
 		f := demoFence{root: s.root, roles: []string{"tester"}, home: s.home, support: s.support, goos: s.goos}
