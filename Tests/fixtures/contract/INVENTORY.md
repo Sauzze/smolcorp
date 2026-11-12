@@ -48,7 +48,7 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | POST | `/hook` | hook | hook event; headers `x-agentdeck-agent`, `-tab`, `-tty`, `-project`, `-pid`, `-parent`, `-at`, `-billing` | empty | 204, 400 (a header twice), 401, 404 (not local, not POST) | office.json, frontdesk/hook-events.json | served |
 | GET | `/events` | phone | `?t=` | event stream: `data:` the snapshot at once and at each change, `event: ping` | 200, 401 | state.json | served |
 | POST | `/focus` | phone | `?session=`; a hire in T3 Code's desk opens its own thread in T3 Code (T3D-a) | empty, or text | 204, 404, 409 | office.json | served |
-| POST | `/act` | phone | `?action=` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap, style, music, fire, hire, move, seen, language, cleanup, settings, choose, letgo (a hire in T3 Code's desk, T3D-a; any other action there is 409; on a desk in a terminal Smolcorp can only watch, every control, the effort dial included, is 409 "Smolcorp can't do that in this terminal yet.": FXC2b)…; `&session=` | empty, or text | 204, 400, 403, 404, 409 | office.json | served |
+| POST | `/act` | phone | `?action=` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap (`&from=&to=`, and `&floor=` 0 to 5 for the floor shown, 0 when left out), style, music, fire, hire, move, seen, language, cleanup, settings, choose, letgo (a hire in T3 Code's desk, T3D-a; any other action there is 409; on a desk in a terminal Smolcorp can only watch, every control, the effort dial included, is 409 "Smolcorp can't do that in this terminal yet.": FXC2b)…; `&session=` | empty, or text | 204, 400, 403, 404, 409 | office.json | served |
 | POST | `/summary` | phone | `?session=` | `{summary}` or `{error}` | 200, 400–503 `{error}` | office.json | served |
 | GET | `/approvals` | phone | — | `{approvals, at}` | 200, 403 (not Tailscale) | office.json | served |
 | GET | `/conversation` | phone | `?session=&before=&size=` | a page of the conversation | 200, 204, 400, 403, 404 | office.json | served |
@@ -88,8 +88,8 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | GET | `/setup/logo/<logo>` | page, tool | — | PNG | 200, 404 | setup.json | served |
 | POST | `/setup/theme` | page, tool | colours | empty | 204 | setup.json | served |
 | POST | `/setup/layout` | gm, page | a layout | empty | 204, 400 | setup.json | served |
-| POST | `/setup/pin` | gm, page | `?key=&folder=` | empty | 204, 400 | setup.json | served |
-| POST | `/setup/unpin` | gm, page | `?key=` | empty | 204, 400 | setup.json | served |
+| POST | `/setup/pin` | gm, page | `?key=&folder=&floor=` (floor 0 to 5, 0 when left out) | empty | 204, 400 | setup.json | served |
+| POST | `/setup/unpin` | gm, page | `?key=&floor=` (floor 0 to 5, 0 when left out) | empty | 204, 400 | setup.json | served |
 | POST | `/setup/floors` | gm, page | `{floors?, rules?}` | the setup state | 200, 400 | setup.json | differs |
 | POST | `/setup/profiles` | gm, page | `?action=switch or save or rename or delete or import or check&name=&to=` | the setup state; check: the profile | 200, 400 | setup.json, frontdesk/profiles.json | differs |
 | POST | `/setup/webhook` | gm, page | `{enabled, url, secret, outside, events}` | the setup state | 200, 400 | setup.json | differs |
@@ -254,6 +254,11 @@ has are the known gaps' "extra" rows.
 | `.dictation.problem` | string or null | same |
 | `.dock` | object | same |
 | `.dock.enabled` | bool | same |
+| `.floorPins` | array | same |
+| `.floorPins[].desk` | number | same |
+| `.floorPins[].floor` | number | same |
+| `.floorPins[].folder` | string | same |
+| `.floorPins[].name` | string | same |
 | `.floorRules` | array | same |
 | `.floorRules[].exact` | bool | same |
 | `.floorRules[].floor` | number | same |
@@ -402,6 +407,7 @@ for hires (`.hiring.roles` is `[]`).
 | `.floors[].desks` | [] or array | same |
 | `.floors[].n` | number | same |
 | `.floors[].name` | string | same |
+| `.floors[].pins` | array | same |
 | `.floors[].preset` | string | same |
 | `.hiring` | object | same |
 | `.hiring.fire` | bool | same |

@@ -417,10 +417,11 @@
       tick();
       return (await send('/act', { session: id, action: 'move', floor, ...(remember ? { remember: 1 } : {}) })) === 204;
     },
-    // An agent carried from one desk to another: the two swap, and stay so.
-    swap(from, to) {
+    // An agent carried from one desk to another: the two swap, and stay so. On a floor upstairs (`floor` 1 for 2F
+    // up to 5), its desks; the ground floor's keys with none.
+    swap(from, to, floor) {
       tick();
-      send('/act', { action: 'swap', from, to });
+      send('/act', { action: 'swap', from, to, ...(floor ? { floor } : {}) });
     },
     // A jukebox's keys: the computer's music plays or pauses, or skips a song
     // either way; and its volume bar, dragged, with no tick for every step.

@@ -1857,7 +1857,9 @@
         const name = typeof f.name === 'string' ? f.name.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 24) : '';
         // How many there wait on you, as the computer counts them: none from one from before it did
         const asking = Number(f.asking) > 0 ? Math.round(Number(f.asking)) : 0;
-        return { n: i + 1, name: name || `${i + 1}F`, preset: typeof f.preset === 'string' ? f.preset : '', desks: Array.isArray(f.desks) ? f.desks : [], asking };
+        // Each desk's pin, by its folder's name, as a key's: one from before floors had pins has none
+        const pins = Array.isArray(f.pins) ? f.pins.slice(0, UPSTAIRS_MOST).map((pin) => (typeof pin === 'string' && pin ? pin : null)) : [];
+        return { n: i + 1, name: name || `${i + 1}F`, preset: typeof f.preset === 'string' ? f.preset : '', desks: Array.isArray(f.desks) ? f.desks : [], asking, pins };
       });
     }
     const up = snapshot && snapshot.upstairs && Array.isArray(snapshot.upstairs.desks) ? snapshot.upstairs.desks : [];
@@ -1902,9 +1904,11 @@
    * state), named after its folder, at the desk the computer says it has, or
    * the first free one. An agent the computer says can be driven there keeps
    * its controls and its role, as on the ground floor; anyone else, a
-   * headless run, a cloud bot or the viewer's, has nothing to press.
+   * headless run, a cloud bot or the viewer's, has nothing to press. A desk
+   * pinned to a folder (`pins`, by desk) shows its name, as a pinned key does
+   * downstairs, kept for it while nobody of it is there.
    */
-  function upstairsSeatsOf(given, ahead) {
+  function upstairsSeatsOf(given, ahead, pins = []) {
     const named = new Map();
     const entries = given.filter((entry) => entry && typeof entry === 'object').slice(0, UPSTAIRS_MOST).map((entry) => {
       const name = String(entry.project || entry.name || '');
@@ -1926,8 +1930,9 @@
       while (keys[free]) free += 1;
       keys[free] = entry;
     }
-    return seatsOf({ keys: Array.from(keys, (k) => k || {}) }, ahead).map((seat) => ({
-      pin: null,
+    const pinned = pins.reduce((last, pin, desk) => (pin ? desk + 1 : last), 0);
+    return seatsOf({ keys: Array.from({ length: Math.max(keys.length, pinned) }, (_, desk) => keys[desk] || {}) }, ahead).map((seat, desk) => ({
+      pin: pins[desk] || null,
       session: !seat.session ? seat.session : seat.session.drivable === true ? seat.session
         : { ...seat.session, maxPressedAt: null, messagedAt: null, role: null, keys: false, fire: false, mic: false, dial: false },
     }));
@@ -33530,7 +33535,7 @@
      */
     function applyUpstairs(snapshot, now) {
       const floors = floorsOf(snapshot);
-      for (const floor of floors.slice(1)) onUpper(floor.n, (there) => there.apply(upstairsSeatsOf(floor.desks, ahead), snapshot.theme, now));
+      for (const floor of floors.slice(1)) onUpper(floor.n, (there) => there.apply(upstairsSeatsOf(floor.desks, ahead, floor.pins), snapshot.theme, now));
       for (const n of [...uppers.keys()]) {
         if (n <= floors.length) continue;
         uppers.get(n).office.close();
@@ -33910,8 +33915,8 @@
     function hiresHere(desk) {
       if (!desk.floor) return hiresInto(desk.desk);
       if (framed || !hiring.hire || desk.floor !== floorShown || ride || !on.hire) return false;
-      // Still empty: someone who sat down there meanwhile has it
-      return upstairs((upper) => !(upper.seats[desk.desk] && upper.seats[desk.desk].session));
+      // Still empty: someone who sat down there meanwhile has it; and not kept for a folder
+      return upstairs((upper) => !(upper.seats[desk.desk] && (upper.seats[desk.desk].session || upper.seats[desk.desk].pin)));
     }
 
     /** The empty desks upstairs on the floor in view, to a finger, where a hire would sit. */
@@ -33919,7 +33924,7 @@
       if (framed || !hiring.hire || !on.hire) return [];
       return upstairs((upper) => DESKS.slice(0, UPSTAIRS_MOST).flatMap((d, desk) => {
         const seat = upper.seats[desk];
-        if (!d || d.off || (seat && seat.session)) return [];
+        if (!d || d.off || (seat && (seat.session || seat.pin))) return [];
         return [{ desk, box: { left: d.x - 2, right: d.x + DESK_WIDTH + 2, top: d.y, bottom: d.y + 27 } }];
       }));
     }
@@ -34192,6 +34197,7 @@
             firing: firing && { ...fireDialog(), title: `Fire ${firing.name}?`, detail: 'Its agent stops, and its tab closes.' },
             maxing: maxing && { ...maxDialog(), title: `Max effort for ${maxing.name}?`, detail: 'It uses much more of your usage.' },
             keyRow: keys, roleRow: hires, styleKey: key, voiceNotes: voiceNotesShown(now), hearing: hearingShown(),
+            carrying: carrying && carrying.floor === n ? carrying : null,
           });
         }
       }
@@ -34200,7 +34206,7 @@
         // Arranging a floor upstairs, it's drawn as that floor is: its walls, and its number over the elevator
         ...(arranging && arrangingFloor ? { upstairs: true, elevator: { floor: arrangingFloor.n + 1, top: FLOORS_MOST, open: 0, riding: null } } : {}),
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
-        deskButton: heldButton(), carrying, micLanguage: micLanguageKey(),
+        deskButton: heldButton(), carrying: carrying && carrying.floor === 1 ? carrying : null, micLanguage: micLanguageKey(),
         firing: firing && { ...fireDialog(), title: `Fire ${firing.name}?`, detail: 'Its agent stops, and its tab closes.' },
         maxing: maxing && { ...maxDialog(), title: `Max effort for ${maxing.name}?`, detail: 'It uses much more of your usage.' },
         // Over the desks on the floor in view: downstairs only while it's the ground floor
@@ -34286,8 +34292,8 @@
      * reaches, down to the desk's front; and its label below. A tall one
      * reaches up into the label of the desk behind it, where it wins.
      */
-    function deskBoxes(desk) {
-      const { x, y } = DESKS[desk], seat = office.seats[desk] || {};
+    function deskBoxes(desk, there = office) {
+      const { x, y } = DESKS[desk], seat = there.seats[desk] || {};
       const left = x - 2, right = x + DESK_WIDTH + 2;
       return [
         { left, right, top: y + WORKSPACES[workspaceOf(seat.session, desk)].top, bottom: y + 18 },
@@ -34295,10 +34301,14 @@
       ];
     }
 
-    /** The key's desk under a point of the room, if there is one: where a carried agent would land. */
-    function deskAt(x, y) {
+    /**
+     * The desk under a point of the room, if there is one: where a carried agent would land. Downstairs a key's;
+     * upstairs, run in that floor's room (see inView), any of its desks.
+     */
+    function deskAt(x, y, there = office) {
       const within = (box) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
-      const boxes = DESKS.slice(0, office.seats.length).map((d, desk) => (d.off ? null : deskBoxes(desk)));
+      const count = there === office ? office.seats.length : Math.min(DESKS.length, UPSTAIRS_MOST);
+      const boxes = DESKS.slice(0, count).map((d, desk) => (d.off ? null : deskBoxes(desk, there)));
       let desk = boxes.findIndex((box) => box && within(box[0]));
       if (desk < 0) desk = boxes.findIndex((box) => box && within(box[1]));
       return desk >= 0 ? desk : null;
@@ -34710,11 +34720,12 @@
         }
       }
       if (carrying) {
-        const { from, over, toLift, person } = carrying;
+        const { from, over, toLift, person, floor } = carrying;
         carrying = null;
         finger = null;
         if (dropped && toLift && person && person.session) return openMoving(person.session.id);
-        if (dropped && over !== null && over !== from) on.swap?.(from, over);
+        // Upstairs, the floor's desks, counted from 0 for the ground floor: the ground floor's keys go as they always did
+        if (dropped && over !== null && over !== from) on.swap?.(from, over, floor > 1 ? floor - 1 : 0);
         return;
       }
       // A quick tap on a music piece plays or pauses the computer's music; held, it opened the control instead.
@@ -35285,23 +35296,26 @@
       roleOffset = Math.max(0, Math.min(rolesAt ? rolesAt.most : 0, finger.from + a.x - b.x));
     }
 
-    /** A finger held on an agent's desk, then moved, picks the agent up and carries them. */
-    /** Who is at each desk, and which are pinned: the desks a swap is counted by, by number. */
-    const desksNow = () => office.seats.map((s) => `${s.session ? s.session.id : ''} ${s.pin || ''}`).join('\n');
+    /** Who is at each desk of the floor in view, and which are pinned: the desks a swap is counted by, by number. */
+    const desksNow = () => `${floorShown}\n${inView((there) => there.seats.map((s) => `${s && s.session ? s.session.id : ''} ${(s && s.pin) || ''}`).join('\n'))}`;
 
+    /**
+     * A finger held on an agent's desk, then moved, picks the agent up and carries them: on the floor in view,
+     * upstairs as downstairs, to be let go at another desk on it.
+     */
     function carry(e) {
       const { x, y } = roomAt(e.clientX, e.clientY);
       if (!carrying) {
         if (!finger.held || finger.target.kind !== 'session') return;
         if (Math.hypot(e.clientX - finger.x, e.clientY - finger.y) < CARRY_AFTER) return;
-        const from = office.seats.findIndex((s) => s.session && s.session.id === finger.target.id);
+        const from = deskInView(finger.target.id);
         if (from < 0) return;
         held = null;
-        const person = office.people.find((p) => !p.isStaff && !p.isLeaving && p.session.id === finger.target.id) || null;
-        carrying = { person, from, x, y, over: from, desks: desksNow() };
+        const person = inView((there) => there.people.find((p) => !p.isStaff && !p.isLeaving && p.session.id === finger.target.id)) || null;
+        carrying = { person, from, x, y, over: from, desks: desksNow(), floor: floorShown };
         on.held?.();
       }
-      const over = deskAt(x, y);
+      const over = inView((there) => deskAt(x, y, there));
       if (over !== null && over !== carrying.over && over !== carrying.from) on.held?.(); // a tick for each desk passed over
       // Over the elevator, with another floor to go to: let go there, the floor list opens for them.
       const lift = on.move && floorList().length > 1 && elevatorBox();

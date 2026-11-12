@@ -4,7 +4,9 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -354,6 +356,8 @@ func TestAScopedGMReachesOnlyItsOwnHiresAfterARestartToo(t *testing.T) {
 	d = startDeck(t)
 	d.config.ManagerEnabled, d.config.HiringEnabled, d.config.HireInTmux = true, true, true
 	d.config.Pins[1] = &elsewhere // the owner's pin
+	upstairs := filepath.Join(homeDir, "upstairs")
+	d.config.FloorPins = floorPinList{{Floor: 2, Desk: 4, Folder: upstairs}} // and one on 3F
 	owners, refused := d.watchers.add(map[string]any{"kind": "time", "target": "tea", "minutes": 5.0}, "owner")
 	if refused != nil {
 		t.Fatal(refused.message)
@@ -375,6 +379,10 @@ func TestAScopedGMReachesOnlyItsOwnHiresAfterARestartToo(t *testing.T) {
 		{"POST", "/setup/pin?key=2&folder=" + elsewhere, ""},
 		{"POST", "/setup/pin?key=1&folder=" + project, ""}, // over the owner's pin
 		{"POST", "/setup/unpin?key=1", ""},
+		{"POST", "/setup/pin?key=2&floor=2&folder=" + elsewhere, ""},
+		{"POST", "/setup/pin?key=4&floor=2&folder=" + project, ""}, // over the owner's pin on 3F
+		{"POST", "/setup/unpin?key=4&floor=2", ""},
+		{"POST", "/setup/pin?key=3&floor=1&folder=" + wt, ""}, // its own folder, but a floor it has nothing on
 		{"POST", "/setup/gm/tile", ""},
 		{"POST", "/setup/gm/screen?id=1", ""},
 		{"POST", "/setup/gm/watch", `{"kind":"exit","target":"rev-9"}`},
@@ -397,6 +405,7 @@ func TestAScopedGMReachesOnlyItsOwnHiresAfterARestartToo(t *testing.T) {
 		{"POST", "/setup/gm/nickname", `{"folder":"` + wt + `","name":"Ada"}`},
 		{"POST", "/setup/pin?key=3&folder=" + wt, ""},
 		{"POST", "/setup/unpin?key=3", ""},
+		{"POST", "/setup/unpin?key=3&floor=1", ""},
 		{"POST", "/setup/gm/watch", `{"kind":"exit","target":"tester-1"}`},
 		{"POST", "/setup/gm/watch", `{"kind":"file","target":"` + filepath.Join(wt, "x.log") + `","pattern":"x"}`},
 		{"POST", "/setup/gm/watch", `{"kind":"time","target":"look again","minutes":5}`},
@@ -408,6 +417,9 @@ func TestAScopedGMReachesOnlyItsOwnHiresAfterARestartToo(t *testing.T) {
 	}
 	if pins := d.config.Pins; len(pins) < 2 || pins[1] == nil || *pins[1] != elsewhere {
 		t.Errorf("the owner's pin moved: %v", pins)
+	}
+	if pin := d.config.pinAt(2, 4); pin == nil || *pin != upstairs {
+		t.Errorf("the owner's pin on 3F moved: %+v", d.config.FloorPins)
 	}
 }
 
@@ -431,5 +443,44 @@ func TestAGMWithNoScopeIsAsBefore(t *testing.T) {
 		if code, text := scopedCall(t, d, token, c.method, c.target, c.body); code != c.status {
 			t.Errorf("%s %s: %d %q, want %d", c.method, c.target, code, text, c.status)
 		}
+	}
+}
+
+// A scoped GM moves only its own sessions, and only between the floors it has: the ground floor, and a floor
+// above where one of its sessions sits or it has a pin. Pinning its folder to a desk on any other floor would
+// send its sessions there, so it's refused; its own folders only, as ever.
+func TestAScopedGMPinsOnlyOnFloorsItHas(t *testing.T) {
+	d, _, _, token, project := scopedGM(t)
+	elsewhere := filepath.Join(homeDir, "elsewhere")
+	os.MkdirAll(elsewhere, 0o755)
+	pin := func(floor, key int, folder string) (int, string) {
+		return scopedCall(t, d, token, "POST", fmt.Sprintf("/setup/pin?key=%d&floor=%d&folder=%s", key, floor, url.QueryEscape(folder)), "")
+	}
+	// Its project has a session on 3F by a rule and nothing anywhere else.
+	d.mu.Lock()
+	d.config.FloorRules = checkedFloorRules([]FloorRule{{project, 2, true}})
+	d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "own", "cwd": project}, Claude, "tmux:%1@/tmp/tmux", "", 100)
+	d.mu.Unlock()
+	for _, floor := range []int{1, 3, 5} {
+		if code, text := pin(floor, 0, project); !scopeRefused(code, text) {
+			t.Errorf("pinning its own folder on floor %d it has nothing on: %d %q, want the scope's 403", floor, code, text)
+		}
+	}
+	if code, text := pin(2, 0, project); code != http.StatusNoContent {
+		t.Errorf("pinning on 3F, where its session sits: %d %q", code, text)
+	}
+	if code, text := pin(0, 1, project); code != http.StatusNoContent {
+		t.Errorf("pinning on the ground floor: %d %q", code, text)
+	}
+	// A pin of its own on a floor makes it one it has, for another desk there.
+	d.mu.Lock()
+	d.config.PinOn(project, 4, 2)
+	d.mu.Unlock()
+	if code, text := pin(4, 5, project); code != http.StatusNoContent {
+		t.Errorf("pinning on 5F, where it has a pin: %d %q", code, text)
+	}
+	// Never another project's folder, on a floor it has.
+	if code, text := pin(2, 1, elsewhere); !scopeRefused(code, text) {
+		t.Errorf("pinning another folder on 3F: %d %q, want the scope's 403", code, text)
 	}
 }
