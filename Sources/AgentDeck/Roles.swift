@@ -53,19 +53,24 @@ struct Role: Codable, Equatable {
             """, badge: "glasses"),
         Role(id: "tester", name: "Tester", agent: "claude", model: "sonnet", effort: "medium", questions: [
             "Which tests should you run: all of them, a folder, or a single file?",
-            "Is there anything to set up or start first, such as a database, a server or environment variables?",
+            "What's the main thing someone must be able to do, for you to try by hand too?",
+            "Is there anything to set up or start first, such as a database or a server? Say what's needed; don't send keys or passwords.",
         ], instructions: """
             Run the tests I point you to. If any fail, find out why, and explain each failure with the fix you'd \
             make. Don't change any code until I say so.
             """, badge: "clipboard"),
         Role(id: "bughunter", name: "Bug hunter", agent: "claude", model: "opus", effort: "high", questions: [
             "Which area or feature should you focus on, or should you look everywhere?",
+            "Which devices, systems or browsers should you try, and can they run here?",
+            "Any known bugs to skip, and how serious must a bug be to report it?",
         ], instructions: """
             Look for bugs where I point you to: wrong results, crashes, edge cases that aren't handled. Report each \
             one with how to reproduce it and how sure you are. Don't fix anything until I say which.
             """, badge: "magnifier", outfit: "detective"),
         Role(id: "docs", name: "Docs writer", agent: "claude", model: "sonnet", effort: "medium", questions: [
             "Which docs should you check: the README, a docs folder, or comments in the code?",
+            "Who reads them: newcomers, developers, or both? In which languages?",
+            "Should you only list what's wrong, or fix it too? Anything that must stay as it is?",
         ], instructions: """
             Check the docs I point you to against what the code actually does. List what's missing, wrong or out \
             of date, with the changes you'd make. Wait for my OK before editing any file.
@@ -129,6 +134,7 @@ struct Role: Codable, Equatable {
         Role(id: "firefighter", name: "Firefighter", agent: "claude", model: "opus", effort: "high", questions: [
             "What's on fire: what's broken, since when, and who is affected?",
             "Is there an error, a log or a failing request you can look at?",
+            "What's the smallest outcome that will do for now: stop the harm, undo a recent change, or only find the cause? Anything you mustn't restart or touch?",
         ], instructions: """
             Triage first: find out what's broken, how badly, and the most likely cause, and tell me. Then propose the \
             smallest safe fix, with how to undo it. Don't change, deploy or restart anything until I say so.
@@ -197,6 +203,16 @@ struct Role: Codable, Equatable {
             for my OK. Then build it in small steps, and check it in the real thing, not only in tests. Show me what \
             you did and how you checked it. Never push, merge, publish or deploy unless I tell you to.
             """, badge: "rocket"),
+        Role(id: "designer", name: "Designer", agent: "claude", model: "opus", effort: "high", questions: [
+            "What should you design: a page, a screen, a site, or a whole look?",
+            "Who is it for, and what should it feel like?",
+            "Is there a current version to start from, or anything to avoid?",
+        ], instructions: """
+            Design what I point you to: one strong direction, proven with real HTML/CSS mockups built from real \
+            content, beside screenshots of what's there today. First tell me the direction in a few lines and wait for my \
+            OK. Keep the mockups next to your brief and leave the project's own code alone. Never push, merge, publish or \
+            deploy unless I tell you to.
+            """, badge: "star"),
     ]
 
     /// The shipped roles each version came with, by id, in order: a config
@@ -211,6 +227,32 @@ struct Role: Codable, Equatable {
     static let shippedBeforeOutfits = shipped.filter { ["bughunter", "docs", "refactorer"].contains($0.id) }.map { role in
         var old = role
         old.outfit = ""
+        old.questions = questionsBefore126[role.id] ?? role.questions
+        return old
+    }
+
+    /// What the Bug hunter, the Tester, the Docs writer and the Firefighter
+    /// asked before 1.26 gave each a sharper brief and more to ask.
+    static let questionsBefore126 = [
+        "bughunter": ["Which area or feature should you focus on, or should you look everywhere?"],
+        "tester": [
+            "Which tests should you run: all of them, a folder, or a single file?",
+            "Is there anything to set up or start first, such as a database, a server or environment variables?",
+        ],
+        "docs": ["Which docs should you check: the README, a docs folder, or comments in the code?"],
+        "firefighter": [
+            "What's on fire: what's broken, since when, and who is affected?",
+            "Is there an error, a log or a failing request you can look at?",
+        ],
+    ]
+
+    /// Those four roles as they came before 1.26: one still exactly so, on
+    /// its own brief from the library or none, is brought up to date as it
+    /// loads; one you've changed is left as you have it.
+    static let shippedBefore126 = shipped.compactMap { role -> Role? in
+        guard let questions = questionsBefore126[role.id] else { return nil }
+        var old = role
+        old.questions = questions
         return old
     }
 
@@ -346,7 +388,10 @@ struct Role: Codable, Equatable {
         for given in roles.compactMap(\.checked) where !kept.contains(where: { $0.id == given.id }) {
             var plain = given
             plain.brief = nil
+            // One from before 1.26 sharpened it, on its own library brief or none: another brief is yours, and stays.
+            let before126 = Role.shippedBefore126.contains(plain) && (given.brief == nil || given.brief == .library(given.id))
             let old = Role.shippedIn171.contains(given) || Role.shippedBeforeOutfits.contains(given) || Role.shippedBeforeTeams.contains(plain)
+                || before126
             var role = old ? Role.shipped.first { $0.id == given.id } ?? given : given
             role.brief = role.source
             kept.append(role)

@@ -15,7 +15,8 @@
       "name" : "Tester",
       "questions" : [
         "Which tests should you run: all of them, a folder, or a single file?",
-        "Is there anything to set up or start first, such as a database, a server or environment variables?"
+        "What's the main thing someone must be able to do, for you to try by hand too?",
+        "Is there anything to set up or start first, such as a database or a server? Say what's needed; don't send keys or passwords."
       ],
       "summary" : "Runs the tests and tries the real thing, then explains each failure with its cause and the fix it needs. Changes no code."
     },
@@ -23,7 +24,9 @@
       "id" : "bughunter",
       "name" : "Bug hunter",
       "questions" : [
-        "Which area or feature should you focus on, or should you look everywhere?"
+        "Which area or feature should you focus on, or should you look everywhere?",
+        "Which devices, systems or browsers should you try, and can they run here?",
+        "Any known bugs to skip, and how serious must a bug be to report it?"
       ],
       "summary" : "Hunts for real bugs, read-only, and reports each with the exact steps to reproduce it. Fixes nothing."
     },
@@ -31,9 +34,11 @@
       "id" : "docs",
       "name" : "Docs writer",
       "questions" : [
-        "Which docs should you check: the README, a docs folder, or comments in the code?"
+        "Which docs should you check: the README, a docs folder, or comments in the code?",
+        "Who reads them: newcomers, developers, or both? In which languages?",
+        "Should you only list what's wrong, or fix it too? Anything that must stay as it is?"
       ],
-      "summary" : "Checks the docs against what the code really does, then fixes the docs, never the code."
+      "summary" : "Checks the docs against what the code really does, then lists or fixes the gaps in the docs, never the code."
     },
     {
       "id" : "refactorer",
@@ -103,7 +108,8 @@
       "name" : "Firefighter",
       "questions" : [
         "What's on fire: what's broken, since when, and who is affected?",
-        "Is there an error, a log or a failing request you can look at?"
+        "Is there an error, a log or a failing request you can look at?",
+        "What's the smallest outcome that will do for now: stop the harm, undo a recent change, or only find the cause? Anything you mustn't restart or touch?"
       ],
       "summary" : "Triages what's broken: how badly, the likely cause, then the smallest safe fix with how to undo it. Changes nothing until you say so."
     },
@@ -173,6 +179,16 @@
       "summary" : "Builds a feature, an app or a website on its own branch, and checks it in the real thing."
     },
     {
+      "id" : "designer",
+      "name" : "Designer",
+      "questions" : [
+        "What should you design: a page, a screen, a site, or a whole look?",
+        "Who is it for, and what should it feel like?",
+        "Is there a current version to start from, or anything to avoid?"
+      ],
+      "summary" : "Proposes one strong visual direction, proven with real HTML/CSS mockups and before/after screenshots."
+    },
+    {
       "id" : "security-auditor",
       "name" : "Security auditor",
       "questions" : [
@@ -191,16 +207,6 @@
         "Which pages, screens or flows matter most?"
       ],
       "summary" : "Measures speed, weight and accessibility basics, read-only, and writes a ranked report with numbers and exact fixes."
-    },
-    {
-      "id" : "designer",
-      "name" : "Designer",
-      "questions" : [
-        "What should you design: a page, a screen, a site, or a whole look?",
-        "Who is it for, and what should it feel like?",
-        "Is there a current version to start from, or anything to avoid?"
-      ],
-      "summary" : "Proposes one strong visual direction, proven with real HTML/CSS mockups and before/after screenshots."
     },
     {
       "id" : "pixel-artist",
@@ -240,6 +246,66 @@
         "Who will work from it, and what will they build?"
       ],
       "summary" : "Collects everything real about a site, a client or a topic, so a builder or a designer can work from it alone."
+    },
+    {
+      "id" : "issue-sorter",
+      "name" : "Issue sorter",
+      "questions" : [
+        "Where is the list of issues: a file, a page you can open without signing in, or a folder in this project?",
+        "What should you sort: bugs, requests, what may already be done, or all of it?",
+        "Is there an order or labels to follow, such as \"now, later, never\", and anything to leave alone?"
+      ],
+      "summary" : "Sorts a list of bugs and requests, read-only: groups the repeats and suggests what to do first. Posts and closes nothing."
+    },
+    {
+      "id" : "test-writer",
+      "name" : "Test writer",
+      "questions" : [
+        "Which part of the project needs tests, or should you find what's least tested?",
+        "How does this project run its tests: is there a command for it?",
+        "Anything you mustn't touch, such as live data, paid services or certain files?"
+      ],
+      "summary" : "Writes the tests that are missing, one commit each, without changing how the product works."
+    },
+    {
+      "id" : "dependency-updater",
+      "name" : "Dependency updater",
+      "questions" : [
+        "Which dependencies should you look at: all of them, or only some?",
+        "Only small bug-fix updates, or larger ones too? Every major version still waits for your OK.",
+        "Which command should you run after each update to check nothing broke?"
+      ],
+      "summary" : "Updates outdated dependencies one at a time on its own branch, with the tests after each, and asks before any major version."
+    },
+    {
+      "id" : "translator",
+      "name" : "Translator",
+      "questions" : [
+        "Which language should you check or add, and who will read it?",
+        "Where do the words live: a folder, a file, or only on the screens?",
+        "Should you only list problems, or also write the missing words? Any word list to follow, or words that must stay as they are?"
+      ],
+      "summary" : "Checks or writes an app's words in another language, so they read as a native speaker's, and lists what a person must still review."
+    },
+    {
+      "id" : "api-checker",
+      "name" : "API checker",
+      "questions" : [
+        "Where is the API described: a document, a file in the project, or nowhere yet?",
+        "Which side should you check: what this project offers, what it calls, or both?",
+        "Is there a version number, or a promise not to break existing callers?"
+      ],
+      "summary" : "Compares what an API promises with what the code does, read-only, and flags every change that would break an existing caller."
+    },
+    {
+      "id" : "support-writer",
+      "name" : "Support writer",
+      "questions" : [
+        "Which message should you answer? Paste it, or say which file it's in.",
+        "Who wrote it: a new user, a customer or a teammate? Any tone to keep?",
+        "May you check the answer in the code, and is there a help page it must match?"
+      ],
+      "summary" : "Checks a person's question against the product and drafts a clear reply for you to send, read-only. Sends nothing."
     }
   ],
   "files" : [
@@ -2633,7 +2699,7 @@
       "made" : {
         "brief" : "~/Support/hires/0123abcd4567/BRIEF.md",
         "firstMessage" : "Read `~/Support/hires/0123abcd4567/BRIEF.md` and start: it's your brief, as my Tester, with my answers to its questions.",
-        "markdown" : "# Brief: Tester\n\n## Who you are\nYou are the **Tester**, hired from the Smolcorp office on 2027-01-15. You test: you run the tests named under \"The job\" and use the real thing the way a user would, then report what passes, what fails and why. You don't change the code under test, and you don't weaken a test to make it pass.\n\n**The user hired you for this; don't wait for plan approval unless this brief says to ask.** Write your plan at the top of `~/Support/hires/0123abcd4567/STATUS.md`, then carry on until the job is done. Anything this brief doesn't cover isn't approved.\n\n## The job\nThe task, from whoever hired you:\n\nFix the login bug.\n\tStep by step.\n\n**How to work:**\n- **Set up first:** read the README for how to install and run. Anything that needs a key or a `.env` file you weren't given: skip it, and list it as not tested, with why.\n- **Work in a copy when running changes files:** copy the project into a folder of your own, leaving out `.git`, `node_modules`, build outputs and every `.env*` file (`rsync -a --exclude .git --exclude node_modules --exclude dist --exclude '.env*' <project>/ <copy>/`), and install and run there.\n- **Run the suite,** then try the real thing (start it on a free port, click through, call its routes) for what the tests don't cover.\n- **For each failure,** find out why: a real bug, a broken test, or the environment. Run anything that fails once twice more, to see if it's flaky.\n\n## Where you work\n- **Folder:** `~/Projects/app`. Work there, or in the project named under \"The job\". You're **read-only**: the only files you write are your own, next to this brief.\n- **No git here** that Smolcorp could see. In a project with git, follow its branch rules; without git, list every file you change in `~/Support/hires/0123abcd4567/STATUS.md`.\n- **You run as** Claude Code, model `sonnet`, effort medium. Don't switch accounts, log in or out, or use a key you weren't given.\n- **Servers:** on a free port above 4000 only (`lsof -iTCP:<port> -sTCP:LISTEN` shows nothing), never one another app is on.\n\n## Deliver\n`~/Support/hires/0123abcd4567/TEST-REPORT.md`, next to this brief:\n- the totals (passed, failed, skipped, flaky) and the exact commands you ran;\n- each failure with an id (`T1`, `T2`…), how to reproduce it, its cause, and the fix you'd make;\n- what you couldn't test, and why;\n- the checks you made by hand on the real thing, with what you saw.\n\n**The bar:**\n- A result is what you saw, not what should happen: quote the output.\n- Keep real bugs, broken tests and environment problems apart.\n- Do what's asked, nothing more: a related problem goes in `~/Support/hires/0123abcd4567/STATUS.md` under \"Found, not fixed\", with where it is and why it matters.\n- Write in the project's language. Copy for users reads as a native speaker would write it, never translated word for word.\n\n## Verify\nNothing is done until you've checked it yourself in the real thing (the command's output, the page in a browser, the file on disk), not \"it should work\".\n\n- Each test command with its summary output, and screenshots for anything visual.\n\n## Base rules\n1. Work only in your folder or worktree; the one place you also write is `~/Support/hires/0123abcd4567/STATUS.md`. `~/Support/hires/0123abcd4567/BRIEF.md` is your task.\n2. Add one line to `~/Support/hires/0123abcd4567/STATUS.md` for every step you finish.\n3. When the job is done, write `NEEDS-REVIEW: <what to look at>` as the last line of `~/Support/hires/0123abcd4567/STATUS.md`, then stop.\n4. If `STOP` appears in `~/Support/hires/0123abcd4567/STATUS.md`, stop at once, whatever you are doing.\n5. Don't push, deploy or publish anything.\n6. Don't read, write, print or commit secrets.\n7. Stage and commit only your own files, never `git add -A` or `git add .`.\n\n## Report\n- **`~/Support/hires/0123abcd4567/STATUS.md`** is your logbook, read by the user at any time: your plan at the top, then one dated line per step with its proof (commands and their results, screenshot paths, commit hashes).\n- **Markers,** at the start of a line: `QUESTION: <question>` (only the user can decide; carry on with your best default), `BLOCKED: <why>` (say what would unblock you), and, when the whole job is done, `TESTS DONE: <one-line summary>`, then the `NEEDS-REVIEW:` line from the base rules as the last line. Say the same in your terminal, with where things are and what needs the user.\n\n## Stop and ask\nWrite `QUESTION:` and ask before you push, merge, tag, deploy, publish, post or release anything; delete a file or branch; spend money, create an account, contact a person or submit a form on a live site; or go beyond this brief. If your agent's safety checks refuse an action, don't retry or work around it: note it and carry on.\n\n## Never\n- Open, write, print or commit `.env` files, keys or tokens (noting where one is is fine).\n- `rm`, `git clean` or empty folders, unless the user named what to delete.\n- Edit outside the project, except your own files next to `~/Support/hires/0123abcd4567/BRIEF.md`.\n- Quit, restart or call the apps the user has running, Smolcorp included, or type into another window.\n- Install anything system-wide, or invent facts, quotes, numbers or results.\n- Change the code under test, or skip, loosen or delete a test to make it pass.\n- Run tests against production data or live services.\n\n## Clean up\n- Stop every process you start (servers, watchers, headless browsers) once its step is done, by its own PID, never by name. Before you finish, check nothing of yours runs (`lsof -iTCP -sTCP:LISTEN`, `ps`), and list any leftover in `~/Support/hires/0123abcd4567/STATUS.md`.\n- **A job over about 30 minutes runs detached,** to outlive your session, logging to a file; write its PID, log and how to resume it in `~/Support/hires/0123abcd4567/STATUS.md`:\n  `nohup perl -MPOSIX -e 'POSIX::setsid() or die; exec @ARGV' -- <command> > <log> 2>&1 < /dev/null & echo $! > <pid file>`\n",
+        "markdown" : "# Brief: Tester\n\n## Who you are\nYou are the **Tester**, hired from the Smolcorp office on 2027-01-15. You test: you run the tests named under \"The job\" and use the real thing the way a user would, then report what passes, what fails and why. You don't change the code under test, and you don't weaken a test to make it pass.\n\n**The user hired you for this; don't wait for plan approval unless this brief says to ask.** Write your plan at the top of `~/Support/hires/0123abcd4567/STATUS.md`, then carry on until the job is done. Anything this brief doesn't cover isn't approved.\n\n## The job\nThe task, from whoever hired you:\n\nFix the login bug.\n\tStep by step.\n\n**How to work:**\n- **Set up first:** read the README for how to install and run. Anything that needs a key or a `.env` file you weren't given: skip it, and list it as not tested, with why. Never ask the user to paste a secret.\n- **Work in a copy when running changes files:** copy the project into a folder of your own, leaving out `.git`, `node_modules`, build outputs and every `.env*` file (`rsync -a --exclude .git --exclude node_modules --exclude dist --exclude '.env*' <project>/ <copy>/`), and install and run there.\n- **Run the suite,** then try the real thing (start it on a free port, click through, call its routes), starting with the main task (what someone must be able to do), even if every test passed. If you weren't given one, pick what a newcomer would try first, and say which.\n- **For each failure,** find out why: a real bug, a broken test, or the environment. Run anything that fails once twice more, to see if it's flaky.\n\n## Where you work\n- **Folder:** `~/Projects/app`. Work there, or in the project named under \"The job\". You're **read-only**: the only files you write are your own, next to this brief.\n- **No git here** that Smolcorp could see. In a project with git, follow its branch rules; without git, list every file you change in `~/Support/hires/0123abcd4567/STATUS.md`.\n- **You run as** Claude Code, model `sonnet`, effort medium. Don't switch accounts, log in or out, or use a key you weren't given.\n- **Servers:** on a free port above 4000 only (`lsof -iTCP:<port> -sTCP:LISTEN` shows nothing), never one another app is on.\n\n## Deliver\n`~/Support/hires/0123abcd4567/TEST-REPORT.md`, next to this brief:\n- a one-line verdict anyone can use: **ready**, or **not yet**, with the ids that block it;\n- the totals (passed, failed, skipped, flaky) and the exact commands you ran;\n- each failure with an id (`T1`, `T2`…), how to reproduce it, its cause, and the fix you'd make;\n- what you couldn't test, and why;\n- the checks you made by hand on the real thing, the main task first, with what you saw.\n\nYour done line gives the counts: passed, failed, flaky.\n\n**The bar:**\n- A result is what you saw, not what should happen: quote the output.\n- Keep real bugs, broken tests and environment problems apart.\n- **Ready** only when the suite and the main task both pass.\n- Do what's asked, nothing more: a related problem goes in `~/Support/hires/0123abcd4567/STATUS.md` under \"Found, not fixed\", with where it is and why it matters.\n- Write in the project's language. Copy for users reads as a native speaker would write it, never translated word for word.\n\n## Verify\nNothing is done until you've checked it yourself in the real thing (the command's output, the page in a browser, the file on disk), not \"it should work\".\n\n- Each test command with its summary output, and screenshots for anything visual, the main task included.\n\n## Base rules\n1. Work only in your folder or worktree; the one place you also write is `~/Support/hires/0123abcd4567/STATUS.md`. `~/Support/hires/0123abcd4567/BRIEF.md` is your task.\n2. Add one line to `~/Support/hires/0123abcd4567/STATUS.md` for every step you finish.\n3. When the job is done, write `NEEDS-REVIEW: <what to look at>` as the last line of `~/Support/hires/0123abcd4567/STATUS.md`, then stop.\n4. If `STOP` appears in `~/Support/hires/0123abcd4567/STATUS.md`, stop at once, whatever you are doing.\n5. Don't push, deploy or publish anything.\n6. Don't read, write, print or commit secrets.\n7. Stage and commit only your own files, never `git add -A` or `git add .`.\n\n## Report\n- **`~/Support/hires/0123abcd4567/STATUS.md`** is your logbook, read by the user at any time: your plan at the top, then one dated line per step with its proof (commands and their results, screenshot paths, commit hashes).\n- **Markers,** at the start of a line: `QUESTION: <question>` (only the user can decide; carry on with your best default), `BLOCKED: <why>` (say what would unblock you), and, when the whole job is done, `TESTS DONE: <one-line summary>`, then the `NEEDS-REVIEW:` line from the base rules as the last line. Say the same in your terminal, with where things are and what needs the user.\n\n## Stop and ask\nWrite `QUESTION:` and ask before you push, merge, tag, deploy, publish, post or release anything; delete a file or branch; spend money, create an account, contact a person or submit a form on a live site; or go beyond this brief. If your agent's safety checks refuse an action, don't retry or work around it: note it and carry on.\n\n## Never\n- Open, write, print or commit `.env` files, keys or tokens (noting where one is is fine).\n- `rm`, `git clean` or empty folders, unless the user named what to delete.\n- Edit outside the project, except your own files next to `~/Support/hires/0123abcd4567/BRIEF.md`.\n- Quit, restart or call the apps the user has running, Smolcorp included, or type into another window.\n- Install anything system-wide, or invent facts, quotes, numbers or results.\n- Change the code under test, or skip, loosen or delete a test to make it pass.\n- Run tests against production data or live services.\n\n## Clean up\n- Stop every process you start (servers, watchers, headless browsers) once its step is done, by its own PID, never by name. Before you finish, check nothing of yours runs (`lsof -iTCP -sTCP:LISTEN`, `ps`), and list any leftover in `~/Support/hires/0123abcd4567/STATUS.md`.\n- **A job over about 30 minutes runs detached,** to outlive your session, logging to a file; write its PID, log and how to resume it in `~/Support/hires/0123abcd4567/STATUS.md`:\n  `nohup perl -MPOSIX -e 'POSIX::setsid() or die; exec @ARGV' -- <command> > <log> 2>&1 < /dev/null & echo $! > <pid file>`\n",
         "report" : "~/Support/hires/0123abcd4567/TEST-REPORT.md",
         "status" : "~/Support/hires/0123abcd4567/STATUS.md"
       },
@@ -2667,7 +2733,7 @@
       "made" : {
         "brief" : "~/Projets/équipe café/BRIEF.md",
         "firstMessage" : "Read `~/Projets/équipe café/BRIEF.md` and start: it's your brief, as my Tester, with my answers to its questions.",
-        "markdown" : "# Brief: Tester\n\n## Who you are\nYou are the **Tester**, hired from the Smolcorp office on 2027-01-15. You test: you run the tests named under \"The job\" and use the real thing the way a user would, then report what passes, what fails and why. You don't change the code under test, and you don't weaken a test to make it pass.\n\n**The user hired you for this; don't wait for plan approval unless this brief says to ask.** Write your plan at the top of `~/Projets/équipe café/STATUS.md`, then carry on until the job is done. Anything this brief doesn't cover isn't approved.\n\n## The job\nThe user answered these questions as they hired you:\n\n- **Which project should you work on?** `~/Projets/équipe café`\n- **Which tests should you run: all of them, a folder, or a single file?** « tout », s’il te plaît\n- **Is there anything to set up or start first, such as a database, a server or environment variables?** la base de test, déjà prête\n\n**How to work:**\n- **Set up first:** read the README for how to install and run. Anything that needs a key or a `.env` file you weren't given: skip it, and list it as not tested, with why.\n- **Work in a copy when running changes files:** copy the project into a folder of your own, leaving out `.git`, `node_modules`, build outputs and every `.env*` file (`rsync -a --exclude .git --exclude node_modules --exclude dist --exclude '.env*' <project>/ <copy>/`), and install and run there.\n- **Run the suite,** then try the real thing (start it on a free port, click through, call its routes) for what the tests don't cover.\n- **For each failure,** find out why: a real bug, a broken test, or the environment. Run anything that fails once twice more, to see if it's flaky.\n\n## Where you work\n- **Folder:** `~/Projets/équipe café`. Work there, or in the project named under \"The job\". You're **read-only**: the only files you write are your own, next to this brief.\n- **No git here** that Smolcorp could see. In a project with git, follow its branch rules; without git, list every file you change in `~/Projets/équipe café/STATUS.md`.\n- **You run as** Claude Code, model `sonnet`, effort medium. Don't switch accounts, log in or out, or use a key you weren't given.\n- **Servers:** on a free port above 4000 only (`lsof -iTCP:<port> -sTCP:LISTEN` shows nothing), never one another app is on.\n\n## Deliver\n`~/Projets/équipe café/TEST-REPORT.md`, next to this brief:\n- the totals (passed, failed, skipped, flaky) and the exact commands you ran;\n- each failure with an id (`T1`, `T2`…), how to reproduce it, its cause, and the fix you'd make;\n- what you couldn't test, and why;\n- the checks you made by hand on the real thing, with what you saw.\n\n**The bar:**\n- A result is what you saw, not what should happen: quote the output.\n- Keep real bugs, broken tests and environment problems apart.\n- Do what's asked, nothing more: a related problem goes in `~/Projets/équipe café/STATUS.md` under \"Found, not fixed\", with where it is and why it matters.\n- Write in the project's language. Copy for users reads as a native speaker would write it, never translated word for word.\n\n## Verify\nNothing is done until you've checked it yourself in the real thing (the command's output, the page in a browser, the file on disk), not \"it should work\".\n\n- Each test command with its summary output, and screenshots for anything visual.\n\n## Base rules\n1. Work only in your folder or worktree; the one place you also write is `~/Projets/équipe café/STATUS.md`. `~/Projets/équipe café/BRIEF.md` is your task.\n2. Add one line to `~/Projets/équipe café/STATUS.md` for every step you finish.\n3. When the job is done, write `NEEDS-REVIEW: <what to look at>` as the last line of `~/Projets/équipe café/STATUS.md`, then stop.\n4. If `STOP` appears in `~/Projets/équipe café/STATUS.md`, stop at once, whatever you are doing.\n5. Don't push, deploy or publish anything.\n6. Don't read, write, print or commit secrets.\n7. Stage and commit only your own files, never `git add -A` or `git add .`.\n\n## Report\n- **`~/Projets/équipe café/STATUS.md`** is your logbook, read by the user at any time: your plan at the top, then one dated line per step with its proof (commands and their results, screenshot paths, commit hashes).\n- **Markers,** at the start of a line: `QUESTION: <question>` (only the user can decide; carry on with your best default), `BLOCKED: <why>` (say what would unblock you), and, when the whole job is done, `TESTS DONE: <one-line summary>`, then the `NEEDS-REVIEW:` line from the base rules as the last line. Say the same in your terminal, with where things are and what needs the user.\n\n## Stop and ask\nWrite `QUESTION:` and ask before you push, merge, tag, deploy, publish, post or release anything; delete a file or branch; spend money, create an account, contact a person or submit a form on a live site; or go beyond this brief. If your agent's safety checks refuse an action, don't retry or work around it: note it and carry on.\n\n## Never\n- Open, write, print or commit `.env` files, keys or tokens (noting where one is is fine).\n- `rm`, `git clean` or empty folders, unless the user named what to delete.\n- Edit outside the project, except your own files next to `~/Projets/équipe café/BRIEF.md`.\n- Quit, restart or call the apps the user has running, Smolcorp included, or type into another window.\n- Install anything system-wide, or invent facts, quotes, numbers or results.\n- Change the code under test, or skip, loosen or delete a test to make it pass.\n- Run tests against production data or live services.\n\n## Clean up\n- Stop every process you start (servers, watchers, headless browsers) once its step is done, by its own PID, never by name. Before you finish, check nothing of yours runs (`lsof -iTCP -sTCP:LISTEN`, `ps`), and list any leftover in `~/Projets/équipe café/STATUS.md`.\n- **A job over about 30 minutes runs detached,** to outlive your session, logging to a file; write its PID, log and how to resume it in `~/Projets/équipe café/STATUS.md`:\n  `nohup perl -MPOSIX -e 'POSIX::setsid() or die; exec @ARGV' -- <command> > <log> 2>&1 < /dev/null & echo $! > <pid file>`\n",
+        "markdown" : "# Brief: Tester\n\n## Who you are\nYou are the **Tester**, hired from the Smolcorp office on 2027-01-15. You test: you run the tests named under \"The job\" and use the real thing the way a user would, then report what passes, what fails and why. You don't change the code under test, and you don't weaken a test to make it pass.\n\n**The user hired you for this; don't wait for plan approval unless this brief says to ask.** Write your plan at the top of `~/Projets/équipe café/STATUS.md`, then carry on until the job is done. Anything this brief doesn't cover isn't approved.\n\n## The job\nThe user answered these questions as they hired you:\n\n- **Which project should you work on?** `~/Projets/équipe café`\n- **Which tests should you run: all of them, a folder, or a single file?** « tout », s’il te plaît\n- **Is there anything to set up or start first, such as a database, a server or environment variables?** la base de test, déjà prête\n\n**How to work:**\n- **Set up first:** read the README for how to install and run. Anything that needs a key or a `.env` file you weren't given: skip it, and list it as not tested, with why. Never ask the user to paste a secret.\n- **Work in a copy when running changes files:** copy the project into a folder of your own, leaving out `.git`, `node_modules`, build outputs and every `.env*` file (`rsync -a --exclude .git --exclude node_modules --exclude dist --exclude '.env*' <project>/ <copy>/`), and install and run there.\n- **Run the suite,** then try the real thing (start it on a free port, click through, call its routes), starting with the main task (what someone must be able to do), even if every test passed. If you weren't given one, pick what a newcomer would try first, and say which.\n- **For each failure,** find out why: a real bug, a broken test, or the environment. Run anything that fails once twice more, to see if it's flaky.\n\n## Where you work\n- **Folder:** `~/Projets/équipe café`. Work there, or in the project named under \"The job\". You're **read-only**: the only files you write are your own, next to this brief.\n- **No git here** that Smolcorp could see. In a project with git, follow its branch rules; without git, list every file you change in `~/Projets/équipe café/STATUS.md`.\n- **You run as** Claude Code, model `sonnet`, effort medium. Don't switch accounts, log in or out, or use a key you weren't given.\n- **Servers:** on a free port above 4000 only (`lsof -iTCP:<port> -sTCP:LISTEN` shows nothing), never one another app is on.\n\n## Deliver\n`~/Projets/équipe café/TEST-REPORT.md`, next to this brief:\n- a one-line verdict anyone can use: **ready**, or **not yet**, with the ids that block it;\n- the totals (passed, failed, skipped, flaky) and the exact commands you ran;\n- each failure with an id (`T1`, `T2`…), how to reproduce it, its cause, and the fix you'd make;\n- what you couldn't test, and why;\n- the checks you made by hand on the real thing, the main task first, with what you saw.\n\nYour done line gives the counts: passed, failed, flaky.\n\n**The bar:**\n- A result is what you saw, not what should happen: quote the output.\n- Keep real bugs, broken tests and environment problems apart.\n- **Ready** only when the suite and the main task both pass.\n- Do what's asked, nothing more: a related problem goes in `~/Projets/équipe café/STATUS.md` under \"Found, not fixed\", with where it is and why it matters.\n- Write in the project's language. Copy for users reads as a native speaker would write it, never translated word for word.\n\n## Verify\nNothing is done until you've checked it yourself in the real thing (the command's output, the page in a browser, the file on disk), not \"it should work\".\n\n- Each test command with its summary output, and screenshots for anything visual, the main task included.\n\n## Base rules\n1. Work only in your folder or worktree; the one place you also write is `~/Projets/équipe café/STATUS.md`. `~/Projets/équipe café/BRIEF.md` is your task.\n2. Add one line to `~/Projets/équipe café/STATUS.md` for every step you finish.\n3. When the job is done, write `NEEDS-REVIEW: <what to look at>` as the last line of `~/Projets/équipe café/STATUS.md`, then stop.\n4. If `STOP` appears in `~/Projets/équipe café/STATUS.md`, stop at once, whatever you are doing.\n5. Don't push, deploy or publish anything.\n6. Don't read, write, print or commit secrets.\n7. Stage and commit only your own files, never `git add -A` or `git add .`.\n\n## Report\n- **`~/Projets/équipe café/STATUS.md`** is your logbook, read by the user at any time: your plan at the top, then one dated line per step with its proof (commands and their results, screenshot paths, commit hashes).\n- **Markers,** at the start of a line: `QUESTION: <question>` (only the user can decide; carry on with your best default), `BLOCKED: <why>` (say what would unblock you), and, when the whole job is done, `TESTS DONE: <one-line summary>`, then the `NEEDS-REVIEW:` line from the base rules as the last line. Say the same in your terminal, with where things are and what needs the user.\n\n## Stop and ask\nWrite `QUESTION:` and ask before you push, merge, tag, deploy, publish, post or release anything; delete a file or branch; spend money, create an account, contact a person or submit a form on a live site; or go beyond this brief. If your agent's safety checks refuse an action, don't retry or work around it: note it and carry on.\n\n## Never\n- Open, write, print or commit `.env` files, keys or tokens (noting where one is is fine).\n- `rm`, `git clean` or empty folders, unless the user named what to delete.\n- Edit outside the project, except your own files next to `~/Projets/équipe café/BRIEF.md`.\n- Quit, restart or call the apps the user has running, Smolcorp included, or type into another window.\n- Install anything system-wide, or invent facts, quotes, numbers or results.\n- Change the code under test, or skip, loosen or delete a test to make it pass.\n- Run tests against production data or live services.\n\n## Clean up\n- Stop every process you start (servers, watchers, headless browsers) once its step is done, by its own PID, never by name. Before you finish, check nothing of yours runs (`lsof -iTCP -sTCP:LISTEN`, `ps`), and list any leftover in `~/Projets/équipe café/STATUS.md`.\n- **A job over about 30 minutes runs detached,** to outlive your session, logging to a file; write its PID, log and how to resume it in `~/Projets/équipe café/STATUS.md`:\n  `nohup perl -MPOSIX -e 'POSIX::setsid() or die; exec @ARGV' -- <command> > <log> 2>&1 < /dev/null & echo $! > <pid file>`\n",
         "report" : "~/Projets/équipe café/TEST-REPORT.md",
         "status" : "~/Projets/équipe café/STATUS.md"
       },
@@ -2703,7 +2769,7 @@
       "made" : {
         "brief" : "~/Projects/app/BRIEF.md",
         "firstMessage" : "Read `~/Projects/app/BRIEF.md` and follow it: it's your brief, as my Tester. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
-        "markdown" : "# Brief: Tester\n\n## Who you are\nYou are the **Tester**, hired from the Smolcorp office on 2027-01-15. You test: you run the tests named under \"The job\" and use the real thing the way a user would, then report what passes, what fails and why. You don't change the code under test, and you don't weaken a test to make it pass.\n\n**The user hired you for this; don't wait for plan approval unless this brief says to ask.** Write your plan at the top of `~/Projects/app/STATUS.md`, then carry on until the job is done. Anything this brief doesn't cover isn't approved.\n\n## The job\nBefore anything else, ask the user these questions in your first reply, all together, and wait for their answers. Don't read code, run commands or start work until they've answered.\n\n1. You've started in ~/Projects/app, this desk's project. Is that the one to work on?\n2. Which tests should you run: all of them, a folder, or a single file?\n3. Is there anything to set up or start first, such as a database, a server or environment variables?\n\nOnce they've answered, write each question with its answer at the top of `~/Projects/app/STATUS.md`, then start.\n\n**How to work:**\n- **Set up first:** read the README for how to install and run. Anything that needs a key or a `.env` file you weren't given: skip it, and list it as not tested, with why.\n- **Work in a copy when running changes files:** copy the project into a folder of your own, leaving out `.git`, `node_modules`, build outputs and every `.env*` file (`rsync -a --exclude .git --exclude node_modules --exclude dist --exclude '.env*' <project>/ <copy>/`), and install and run there.\n- **Run the suite,** then try the real thing (start it on a free port, click through, call its routes) for what the tests don't cover.\n- **For each failure,** find out why: a real bug, a broken test, or the environment. Run anything that fails once twice more, to see if it's flaky.\n\n## Where you work\n- **Folder:** `~/Projects/app`. Work there, or in the project named under \"The job\". You're **read-only**: the only files you write are your own, next to this brief.\n- **No git here** that Smolcorp could see. In a project with git, follow its branch rules; without git, list every file you change in `~/Projects/app/STATUS.md`.\n- **You run as** Claude Code, model `sonnet`, effort medium. Don't switch accounts, log in or out, or use a key you weren't given.\n- **Servers:** on a free port above 4000 only (`lsof -iTCP:<port> -sTCP:LISTEN` shows nothing), never one another app is on.\n\n## Deliver\n`~/Projects/app/TEST-REPORT.md`, next to this brief:\n- the totals (passed, failed, skipped, flaky) and the exact commands you ran;\n- each failure with an id (`T1`, `T2`…), how to reproduce it, its cause, and the fix you'd make;\n- what you couldn't test, and why;\n- the checks you made by hand on the real thing, with what you saw.\n\n**The bar:**\n- A result is what you saw, not what should happen: quote the output.\n- Keep real bugs, broken tests and environment problems apart.\n- Do what's asked, nothing more: a related problem goes in `~/Projects/app/STATUS.md` under \"Found, not fixed\", with where it is and why it matters.\n- Write in the project's language. Copy for users reads as a native speaker would write it, never translated word for word.\n\n## Verify\nNothing is done until you've checked it yourself in the real thing (the command's output, the page in a browser, the file on disk), not \"it should work\".\n\n- Each test command with its summary output, and screenshots for anything visual.\n\n## Base rules\n1. Work only in your folder or worktree; the one place you also write is `~/Projects/app/STATUS.md`. `~/Projects/app/BRIEF.md` is your task.\n2. Add one line to `~/Projects/app/STATUS.md` for every step you finish.\n3. When the job is done, write `NEEDS-REVIEW: <what to look at>` as the last line of `~/Projects/app/STATUS.md`, then stop.\n4. If `STOP` appears in `~/Projects/app/STATUS.md`, stop at once, whatever you are doing.\n5. Don't push, deploy or publish anything.\n6. Don't read, write, print or commit secrets.\n7. Stage and commit only your own files, never `git add -A` or `git add .`.\n\n## Report\n- **`~/Projects/app/STATUS.md`** is your logbook, read by the user at any time: your plan at the top, then one dated line per step with its proof (commands and their results, screenshot paths, commit hashes).\n- **Markers,** at the start of a line: `QUESTION: <question>` (only the user can decide; carry on with your best default), `BLOCKED: <why>` (say what would unblock you), and, when the whole job is done, `TESTS DONE: <one-line summary>`, then the `NEEDS-REVIEW:` line from the base rules as the last line. Say the same in your terminal, with where things are and what needs the user.\n\n## Stop and ask\nWrite `QUESTION:` and ask before you push, merge, tag, deploy, publish, post or release anything; delete a file or branch; spend money, create an account, contact a person or submit a form on a live site; or go beyond this brief. If your agent's safety checks refuse an action, don't retry or work around it: note it and carry on.\n\n## Never\n- Open, write, print or commit `.env` files, keys or tokens (noting where one is is fine).\n- `rm`, `git clean` or empty folders, unless the user named what to delete.\n- Edit outside the project, except your own files next to `~/Projects/app/BRIEF.md`.\n- Quit, restart or call the apps the user has running, Smolcorp included, or type into another window.\n- Install anything system-wide, or invent facts, quotes, numbers or results.\n- Change the code under test, or skip, loosen or delete a test to make it pass.\n- Run tests against production data or live services.\n\n## Clean up\n- Stop every process you start (servers, watchers, headless browsers) once its step is done, by its own PID, never by name. Before you finish, check nothing of yours runs (`lsof -iTCP -sTCP:LISTEN`, `ps`), and list any leftover in `~/Projects/app/STATUS.md`.\n- **A job over about 30 minutes runs detached,** to outlive your session, logging to a file; write its PID, log and how to resume it in `~/Projects/app/STATUS.md`:\n  `nohup perl -MPOSIX -e 'POSIX::setsid() or die; exec @ARGV' -- <command> > <log> 2>&1 < /dev/null & echo $! > <pid file>`\n",
+        "markdown" : "# Brief: Tester\n\n## Who you are\nYou are the **Tester**, hired from the Smolcorp office on 2027-01-15. You test: you run the tests named under \"The job\" and use the real thing the way a user would, then report what passes, what fails and why. You don't change the code under test, and you don't weaken a test to make it pass.\n\n**The user hired you for this; don't wait for plan approval unless this brief says to ask.** Write your plan at the top of `~/Projects/app/STATUS.md`, then carry on until the job is done. Anything this brief doesn't cover isn't approved.\n\n## The job\nBefore anything else, ask the user these questions in your first reply, all together, and wait for their answers. Don't read code, run commands or start work until they've answered.\n\n1. You've started in ~/Projects/app, this desk's project. Is that the one to work on?\n2. Which tests should you run: all of them, a folder, or a single file?\n3. Is there anything to set up or start first, such as a database, a server or environment variables?\n\nOnce they've answered, write each question with its answer at the top of `~/Projects/app/STATUS.md`, then start.\n\n**How to work:**\n- **Set up first:** read the README for how to install and run. Anything that needs a key or a `.env` file you weren't given: skip it, and list it as not tested, with why. Never ask the user to paste a secret.\n- **Work in a copy when running changes files:** copy the project into a folder of your own, leaving out `.git`, `node_modules`, build outputs and every `.env*` file (`rsync -a --exclude .git --exclude node_modules --exclude dist --exclude '.env*' <project>/ <copy>/`), and install and run there.\n- **Run the suite,** then try the real thing (start it on a free port, click through, call its routes), starting with the main task (what someone must be able to do), even if every test passed. If you weren't given one, pick what a newcomer would try first, and say which.\n- **For each failure,** find out why: a real bug, a broken test, or the environment. Run anything that fails once twice more, to see if it's flaky.\n\n## Where you work\n- **Folder:** `~/Projects/app`. Work there, or in the project named under \"The job\". You're **read-only**: the only files you write are your own, next to this brief.\n- **No git here** that Smolcorp could see. In a project with git, follow its branch rules; without git, list every file you change in `~/Projects/app/STATUS.md`.\n- **You run as** Claude Code, model `sonnet`, effort medium. Don't switch accounts, log in or out, or use a key you weren't given.\n- **Servers:** on a free port above 4000 only (`lsof -iTCP:<port> -sTCP:LISTEN` shows nothing), never one another app is on.\n\n## Deliver\n`~/Projects/app/TEST-REPORT.md`, next to this brief:\n- a one-line verdict anyone can use: **ready**, or **not yet**, with the ids that block it;\n- the totals (passed, failed, skipped, flaky) and the exact commands you ran;\n- each failure with an id (`T1`, `T2`…), how to reproduce it, its cause, and the fix you'd make;\n- what you couldn't test, and why;\n- the checks you made by hand on the real thing, the main task first, with what you saw.\n\nYour done line gives the counts: passed, failed, flaky.\n\n**The bar:**\n- A result is what you saw, not what should happen: quote the output.\n- Keep real bugs, broken tests and environment problems apart.\n- **Ready** only when the suite and the main task both pass.\n- Do what's asked, nothing more: a related problem goes in `~/Projects/app/STATUS.md` under \"Found, not fixed\", with where it is and why it matters.\n- Write in the project's language. Copy for users reads as a native speaker would write it, never translated word for word.\n\n## Verify\nNothing is done until you've checked it yourself in the real thing (the command's output, the page in a browser, the file on disk), not \"it should work\".\n\n- Each test command with its summary output, and screenshots for anything visual, the main task included.\n\n## Base rules\n1. Work only in your folder or worktree; the one place you also write is `~/Projects/app/STATUS.md`. `~/Projects/app/BRIEF.md` is your task.\n2. Add one line to `~/Projects/app/STATUS.md` for every step you finish.\n3. When the job is done, write `NEEDS-REVIEW: <what to look at>` as the last line of `~/Projects/app/STATUS.md`, then stop.\n4. If `STOP` appears in `~/Projects/app/STATUS.md`, stop at once, whatever you are doing.\n5. Don't push, deploy or publish anything.\n6. Don't read, write, print or commit secrets.\n7. Stage and commit only your own files, never `git add -A` or `git add .`.\n\n## Report\n- **`~/Projects/app/STATUS.md`** is your logbook, read by the user at any time: your plan at the top, then one dated line per step with its proof (commands and their results, screenshot paths, commit hashes).\n- **Markers,** at the start of a line: `QUESTION: <question>` (only the user can decide; carry on with your best default), `BLOCKED: <why>` (say what would unblock you), and, when the whole job is done, `TESTS DONE: <one-line summary>`, then the `NEEDS-REVIEW:` line from the base rules as the last line. Say the same in your terminal, with where things are and what needs the user.\n\n## Stop and ask\nWrite `QUESTION:` and ask before you push, merge, tag, deploy, publish, post or release anything; delete a file or branch; spend money, create an account, contact a person or submit a form on a live site; or go beyond this brief. If your agent's safety checks refuse an action, don't retry or work around it: note it and carry on.\n\n## Never\n- Open, write, print or commit `.env` files, keys or tokens (noting where one is is fine).\n- `rm`, `git clean` or empty folders, unless the user named what to delete.\n- Edit outside the project, except your own files next to `~/Projects/app/BRIEF.md`.\n- Quit, restart or call the apps the user has running, Smolcorp included, or type into another window.\n- Install anything system-wide, or invent facts, quotes, numbers or results.\n- Change the code under test, or skip, loosen or delete a test to make it pass.\n- Run tests against production data or live services.\n\n## Clean up\n- Stop every process you start (servers, watchers, headless browsers) once its step is done, by its own PID, never by name. Before you finish, check nothing of yours runs (`lsof -iTCP -sTCP:LISTEN`, `ps`), and list any leftover in `~/Projects/app/STATUS.md`.\n- **A job over about 30 minutes runs detached,** to outlive your session, logging to a file; write its PID, log and how to resume it in `~/Projects/app/STATUS.md`:\n  `nohup perl -MPOSIX -e 'POSIX::setsid() or die; exec @ARGV' -- <command> > <log> 2>&1 < /dev/null & echo $! > <pid file>`\n",
         "report" : "~/Projects/app/TEST-REPORT.md",
         "status" : "~/Projects/app/STATUS.md"
       },
@@ -2813,7 +2879,7 @@
     {
       "firstMessage" : "Read `~/Support/briefs/1-tester-20270115-0800.md` and follow it: it's your brief, as my Tester. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
       "id" : "tester",
-      "markdown" : "84ab3e9b385c2d13e5e272933ccccea47c403e55425b9b42e4cd03ff52675b6a",
+      "markdown" : "640cff9e1f3d9c42caca85b3a688983d0e4f1c09d3ee8771559a2263a7c89f1d",
       "role" : {
         "agent" : "claude",
         "badge" : "",
@@ -2829,15 +2895,16 @@
         "outfit" : "",
         "questions" : [
           "Which tests should you run: all of them, a folder, or a single file?",
-          "Is there anything to set up or start first, such as a database, a server or environment variables?"
+          "What's the main thing someone must be able to do, for you to try by hand too?",
+          "Is there anything to set up or start first, such as a database or a server? Say what's needed; don't send keys or passwords."
         ]
       },
-      "template" : "26eaa1e6dc3dec8d3956a62cef5d7742d67fc12076f01f6c28db17dd6030ba05"
+      "template" : "862c777f50a2b8758d099fb22209ed61e50e8c68f1044b19d82a6ebb0d9828d3"
     },
     {
       "firstMessage" : "Read `~/Support/briefs/1-bughunter-20270115-0800.md` and follow it: it's your brief, as my Bug hunter. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
       "id" : "bughunter",
-      "markdown" : "b23fc32f26e329b37dbbd1ab68646a33b889924e4fdd918aae554e4ac3c3d3c1",
+      "markdown" : "555214553c7c6cc8a79acc22e93e91fbf96ee9ccbc594f15fcc88a1d4d74bd49",
       "role" : {
         "agent" : "claude",
         "badge" : "",
@@ -2852,15 +2919,17 @@
         "name" : "Bug hunter",
         "outfit" : "",
         "questions" : [
-          "Which area or feature should you focus on, or should you look everywhere?"
+          "Which area or feature should you focus on, or should you look everywhere?",
+          "Which devices, systems or browsers should you try, and can they run here?",
+          "Any known bugs to skip, and how serious must a bug be to report it?"
         ]
       },
-      "template" : "ff17f7170ceb27c8b050de73d6fda60df4c4a0652c3712bc451ec6b4a629968e"
+      "template" : "3ed76491ece4c3191cadcd28f23bb321ab12199a334fec63199c8552f4102838"
     },
     {
       "firstMessage" : "Read `~/Support/briefs/1-docs-20270115-0800.md` and follow it: it's your brief, as my Docs writer. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
       "id" : "docs",
-      "markdown" : "c2341ff27c727605eb8a5075ba9f4bc08495ec8fef8dbdc878a849d696177a06",
+      "markdown" : "8b3a1de64b365a610ea56a1244bf9c970ffd6469c72a05965108f4ac9e043680",
       "role" : {
         "agent" : "claude",
         "badge" : "",
@@ -2875,10 +2944,12 @@
         "name" : "Docs writer",
         "outfit" : "",
         "questions" : [
-          "Which docs should you check: the README, a docs folder, or comments in the code?"
+          "Which docs should you check: the README, a docs folder, or comments in the code?",
+          "Who reads them: newcomers, developers, or both? In which languages?",
+          "Should you only list what's wrong, or fix it too? Anything that must stay as it is?"
         ]
       },
-      "template" : "3576170a32377e03b3ed6cf0882352898b8c91229d6a7f233aa3c781225a4778"
+      "template" : "ef299d8b526d1b0fec3f352d7ca94bf62826ec5723c4cb23bdcdaed1f366f082"
     },
     {
       "firstMessage" : "Read `~/Support/briefs/1-refactorer-20270115-0800.md` and follow it: it's your brief, as my Refactorer. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
@@ -3051,7 +3122,7 @@
     {
       "firstMessage" : "Read `~/Support/briefs/1-firefighter-20270115-0800.md` and follow it: it's your brief, as my Firefighter. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
       "id" : "firefighter",
-      "markdown" : "693b34ecf06eabd2ced5b42fedcd3f6d1a407f03089a837a5f7ada04de84e1f7",
+      "markdown" : "de2702566aab60ef222faf70f007ffd11005b2efcdf0bcfe193d78842a77ae62",
       "role" : {
         "agent" : "claude",
         "badge" : "",
@@ -3067,10 +3138,11 @@
         "outfit" : "",
         "questions" : [
           "What's on fire: what's broken, since when, and who is affected?",
-          "Is there an error, a log or a failing request you can look at?"
+          "Is there an error, a log or a failing request you can look at?",
+          "What's the smallest outcome that will do for now: stop the harm, undo a recent change, or only find the cause? Anything you mustn't restart or touch?"
         ]
       },
-      "template" : "f4e3cfb1668ef12abd72d7770244cd6e2199c29b04bd17fc841d0e68fdd15f0f"
+      "template" : "0afc072dbd182c4b3a84c86928166921fb9bee5f84f224d300e7b06b94bdc88f"
     },
     {
       "firstMessage" : "Read `~/Support/briefs/1-pilot-20270115-0800.md` and follow it: it's your brief, as my Pilot. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
@@ -3243,6 +3315,31 @@
       "template" : "cba851b49518584256c22f9273a7cbab6730177e5afd950f02ea00acc54520a1"
     },
     {
+      "firstMessage" : "Read `~/Support/briefs/1-designer-20270115-0800.md` and follow it: it's your brief, as my Designer. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
+      "id" : "designer",
+      "markdown" : "b465bd7b07e9c8bc5d091e1829bfbfdd4a6213eda991f9fceaa262d0eb422b7a",
+      "role" : {
+        "agent" : "claude",
+        "badge" : "",
+        "brief" : {
+          "id" : "designer",
+          "kind" : "library"
+        },
+        "effort" : "",
+        "id" : "designer",
+        "instructions" : "",
+        "model" : "",
+        "name" : "Designer",
+        "outfit" : "",
+        "questions" : [
+          "What should you design: a page, a screen, a site, or a whole look?",
+          "Who is it for, and what should it feel like?",
+          "Is there a current version to start from, or anything to avoid?"
+        ]
+      },
+      "template" : "b44abd27e2014a90f0bdab0f79933e996630b987f6f20e5f86f46084214a027e"
+    },
+    {
       "firstMessage" : "Read `~/Support/briefs/1-auditor-20270115-0800.md` and follow it: it's your brief, as my Security auditor. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
       "id" : "security-auditor",
       "markdown" : "8907403b42b85b5c527969fe45f918d29ee88b4ea8b1d5ad588f991e89c0e8f6",
@@ -3291,31 +3388,6 @@
         ]
       },
       "template" : "4d389253ca0fb13c9acaca1bdc877b884672e0d48f689f3de93632c7257a9148"
-    },
-    {
-      "firstMessage" : "Read `~/Support/briefs/1-designer-20270115-0800.md` and follow it: it's your brief, as my Designer. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
-      "id" : "designer",
-      "markdown" : "b465bd7b07e9c8bc5d091e1829bfbfdd4a6213eda991f9fceaa262d0eb422b7a",
-      "role" : {
-        "agent" : "claude",
-        "badge" : "",
-        "brief" : {
-          "id" : "designer",
-          "kind" : "library"
-        },
-        "effort" : "",
-        "id" : "designer",
-        "instructions" : "",
-        "model" : "",
-        "name" : "Designer",
-        "outfit" : "",
-        "questions" : [
-          "What should you design: a page, a screen, a site, or a whole look?",
-          "Who is it for, and what should it feel like?",
-          "Is there a current version to start from, or anything to avoid?"
-        ]
-      },
-      "template" : "b44abd27e2014a90f0bdab0f79933e996630b987f6f20e5f86f46084214a027e"
     },
     {
       "firstMessage" : "Read `~/Support/briefs/1-pixel-artist-20270115-0800.md` and follow it: it's your brief, as my Pixel artist. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
@@ -3415,6 +3487,156 @@
         ]
       },
       "template" : "6404cf0890da3704408d7e7d0923aa72902a2b85e8a270dac771b5de2c67196f"
+    },
+    {
+      "firstMessage" : "Read `~/Support/briefs/1-issue-sorter-20270115-0800.md` and follow it: it's your brief, as my Issue sorter. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
+      "id" : "issue-sorter",
+      "markdown" : "60cac139105bcc057dce1330bb6a64a9f9b7363c033c9f80c0c6fe85ac9592cd",
+      "role" : {
+        "agent" : "claude",
+        "badge" : "",
+        "brief" : {
+          "id" : "issue-sorter",
+          "kind" : "library"
+        },
+        "effort" : "",
+        "id" : "issue-sorter",
+        "instructions" : "",
+        "model" : "",
+        "name" : "Issue sorter",
+        "outfit" : "",
+        "questions" : [
+          "Where is the list of issues: a file, a page you can open without signing in, or a folder in this project?",
+          "What should you sort: bugs, requests, what may already be done, or all of it?",
+          "Is there an order or labels to follow, such as \"now, later, never\", and anything to leave alone?"
+        ]
+      },
+      "template" : "8e0222728edbf3287fb25c3f93de04e980dd24805c99760dd394bbab88931404"
+    },
+    {
+      "firstMessage" : "Read `~/Support/briefs/1-test-writer-20270115-0800.md` and follow it: it's your brief, as my Test writer. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
+      "id" : "test-writer",
+      "markdown" : "c4f0d18783da204485b435389e6a3ad8ed4f8294ff89da2c32e4fb33807b4ef2",
+      "role" : {
+        "agent" : "claude",
+        "badge" : "",
+        "brief" : {
+          "id" : "test-writer",
+          "kind" : "library"
+        },
+        "effort" : "",
+        "id" : "test-writer",
+        "instructions" : "",
+        "model" : "",
+        "name" : "Test writer",
+        "outfit" : "",
+        "questions" : [
+          "Which part of the project needs tests, or should you find what's least tested?",
+          "How does this project run its tests: is there a command for it?",
+          "Anything you mustn't touch, such as live data, paid services or certain files?"
+        ]
+      },
+      "template" : "b77563abbe61deaed95acb4b6639a95bca4fab1607350f9fb290f2a7a4b18521"
+    },
+    {
+      "firstMessage" : "Read `~/Support/briefs/1-dependency-updater-20270115-0800.md` and follow it: it's your brief, as my Dependency updater. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
+      "id" : "dependency-updater",
+      "markdown" : "07d10effff9232cd73046bd69948df90fb9cf6ba7b3f3915f36c8fdc6dfeb050",
+      "role" : {
+        "agent" : "claude",
+        "badge" : "",
+        "brief" : {
+          "id" : "dependency-updater",
+          "kind" : "library"
+        },
+        "effort" : "",
+        "id" : "dependency-updater",
+        "instructions" : "",
+        "model" : "",
+        "name" : "Dependency updater",
+        "outfit" : "",
+        "questions" : [
+          "Which dependencies should you look at: all of them, or only some?",
+          "Only small bug-fix updates, or larger ones too? Every major version still waits for your OK.",
+          "Which command should you run after each update to check nothing broke?"
+        ]
+      },
+      "template" : "9453643b36dfe389a6772ac5c5059c81184c38ff2e731a7d70b5a242b3a61725"
+    },
+    {
+      "firstMessage" : "Read `~/Support/briefs/1-translator-20270115-0800.md` and follow it: it's your brief, as my Translator. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
+      "id" : "translator",
+      "markdown" : "bce3df8c2cd39eb026142c15fca0b2bc1ae20799eb5031c569a09645e2ff742d",
+      "role" : {
+        "agent" : "claude",
+        "badge" : "",
+        "brief" : {
+          "id" : "translator",
+          "kind" : "library"
+        },
+        "effort" : "",
+        "id" : "translator",
+        "instructions" : "",
+        "model" : "",
+        "name" : "Translator",
+        "outfit" : "",
+        "questions" : [
+          "Which language should you check or add, and who will read it?",
+          "Where do the words live: a folder, a file, or only on the screens?",
+          "Should you only list problems, or also write the missing words? Any word list to follow, or words that must stay as they are?"
+        ]
+      },
+      "template" : "9398c1f07a5391623c9aaa4ff471d131ee3a2cacaededa521c6a78d7d3a8afae"
+    },
+    {
+      "firstMessage" : "Read `~/Support/briefs/1-api-checker-20270115-0800.md` and follow it: it's your brief, as my API checker. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
+      "id" : "api-checker",
+      "markdown" : "c1e41e0b534b8fc490bfbb104ff9be5ef7259036928d6c06515348045cabfce5",
+      "role" : {
+        "agent" : "claude",
+        "badge" : "",
+        "brief" : {
+          "id" : "api-checker",
+          "kind" : "library"
+        },
+        "effort" : "",
+        "id" : "api-checker",
+        "instructions" : "",
+        "model" : "",
+        "name" : "API checker",
+        "outfit" : "",
+        "questions" : [
+          "Where is the API described: a document, a file in the project, or nowhere yet?",
+          "Which side should you check: what this project offers, what it calls, or both?",
+          "Is there a version number, or a promise not to break existing callers?"
+        ]
+      },
+      "template" : "296bd565babf8e91e7ff11da06abbe75621095e347798509d5f7daf3c6e20d79"
+    },
+    {
+      "firstMessage" : "Read `~/Support/briefs/1-support-writer-20270115-0800.md` and follow it: it's your brief, as my Support writer. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
+      "id" : "support-writer",
+      "markdown" : "6698bf1cf97272f69829481ad2460ee5170638c3c4372c8d82bddf24466bfefa",
+      "role" : {
+        "agent" : "claude",
+        "badge" : "",
+        "brief" : {
+          "id" : "support-writer",
+          "kind" : "library"
+        },
+        "effort" : "",
+        "id" : "support-writer",
+        "instructions" : "",
+        "model" : "",
+        "name" : "Support writer",
+        "outfit" : "",
+        "questions" : [
+          "Which message should you answer? Paste it, or say which file it's in.",
+          "Who wrote it: a new user, a customer or a teammate? Any tone to keep?",
+          "May you check the answer in the code, and is there a help page it must match?"
+        ]
+      },
+      "template" : "ce74047cd01900f1ad71b4cd08df9b196ab9ec6f9def282d28f3baaca61ed981"
     }
   ],
   "note" : "Written by BriefFixtureTests.swift with SMOLCORP_WRITE_FIXTURES=1; read by desktop/briefs_fixture_test.go. Paths start with ~ (each side's home), dates are UTC.",

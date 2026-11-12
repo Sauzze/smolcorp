@@ -123,6 +123,33 @@ final class BriefTests: XCTestCase {
         XCTAssertEqual(Role.checked([edited]).first?.instructions, "Plan only.")
     }
 
+    /// The four roles 1.26 sharpened, as they came before, on their own brief or none, ask the new questions; one you
+    /// changed, or put on a brief of your own, doesn't.
+    func testRolesFromBefore126AskTheNewQuestions() throws {
+        XCTAssertEqual(Role.shippedBefore126.map(\.id), ["tester", "bughunter", "docs", "firefighter"])
+        for old in Role.shippedBefore126 {
+            let now = role(old.id)
+            XCTAssertGreaterThan(now.questions.count, old.questions.count, old.id)
+            for brief in [nil, Brief.library(old.id)] {
+                var saved = old
+                saved.brief = brief
+                let loaded = try XCTUnwrap(Role.checked([saved]).first)
+                XCTAssertEqual(loaded.questions, now.questions, old.id)
+                XCTAssertEqual(loaded.source, .library(old.id), old.id)
+            }
+            var edited = old
+            edited.questions.append("And mine?")
+            XCTAssertEqual(Role.checked([edited]).first?.questions, edited.questions, old.id)
+            var own = old
+            own.brief = .text(old.instructions)
+            XCTAssertEqual(Role.checked([own]).first?.questions, old.questions, old.id)
+        }
+        for old in Role.shippedBeforeOutfits {
+            XCTAssertEqual(Role.checked([old]).first?.questions, role(old.id).questions, old.id)
+            XCTAssertEqual(Role.checked([old]).first?.outfit, role(old.id).outfit, old.id)
+        }
+    }
+
     func testShippedRolesHaveTheirOwnBriefWithTheirQuestions() throws {
         let shipped = Role.shipped.map(\.id).filter { $0 != "securityguard" }
         XCTAssertEqual(Array(Brief.libraryIDs.prefix(shipped.count)), shipped)
