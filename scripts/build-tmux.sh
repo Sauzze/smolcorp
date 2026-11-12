@@ -3,10 +3,12 @@
 # macOS 13.0 and later, with libevent, ncurses, utf8proc and jemalloc linked in as static libraries, so the
 # only libraries it loads are the Mac's own libSystem and libresolv.
 #
-#   scripts/build-tmux.sh              builds (or finds the cached build) and prints the path of the tmux
-#                                      as its last line
-#   scripts/build-tmux.sh check FILE   starts a server of FILE on a private socket, sends it a key, reads the
-#                                      pane back and kills the server by its PID (the build runs this too)
+#   scripts/build-tmux.sh              builds (or finds the cached build, and checks it again) and prints the
+#                                      full path of the tmux as its last line
+#   scripts/build-tmux.sh check FILE   checks FILE: both architectures, only libSystem and libresolv, macOS 13.0
+#                                      as the oldest, a valid signature, `tmux -V`; then starts a server of it on a
+#                                      private socket, sends it a key, reads the pane back and kills the server by
+#                                      its PID. The build runs this on what it built, and on a cached build too.
 #
 # Sources are five pinned tarballs, downloaded into build/third-party/ and checked against
 # third_party/tmux/SHA256SUMS: a mismatch stops the build. The result is cached in build/tmux/<key>/, where
@@ -20,7 +22,11 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+# Where the script is and where it was run from, both before the cd: the cache key hashes the script's own text,
+# and a relative FILE for `check` means relative to the caller's folder.
+CALLER="$(pwd -P)"
+SELF="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+cd "$(dirname "$SELF")/.."
 REPO="$(pwd -P)"
 
 # Nothing from Homebrew or the home folder: only the Xcode tools and the system.
@@ -43,16 +49,29 @@ FALLBACKS="tmux-256color,tmux,screen-256color,screen,xterm-256color,xterm"
 
 # The runtime check: a server on a private socket, a key sent, the pane read back, the server killed by its
 # PID (never by name). The socket is relative to a folder of its own: a socket path over 104 bytes fails.
+# The server's PID and the folder are kept in RC_PID and RC_DIR, so the EXIT trap ends that server (by PID) and
+# removes the folder even when a tmux command fails half way.
+RC_PID="" RC_DIR=""
+runtime_cleanup() {
+  if [ -n "$RC_PID" ] && kill -0 "$RC_PID" 2>/dev/null; then
+    kill "$RC_PID" 2>/dev/null || true
+    sleep 0.5
+    if kill -0 "$RC_PID" 2>/dev/null; then kill -9 "$RC_PID" 2>/dev/null || true; fi
+  fi
+  RC_PID=""
+  if [ -n "$RC_DIR" ]; then cd "$REPO" 2>/dev/null || true; rm -rf "$RC_DIR"; RC_DIR=""; fi
+}
+trap runtime_cleanup EXIT
 runtime_check() {
-  local tmux="$1" arch_cmd="${2:-}" label="${3:-this Mac}" dir out pid
+  local tmux="$1" arch_cmd="${2:-}" label="${3:-this Mac}" out pid
   mkdir -p "$REPO/build"
-  dir="$(mktemp -d "$REPO/build/tmux-check.XXXXXX")"
-  cd "$dir"
-  # Every command names the socket and no config file, so nothing of the user's is read or touched.
+  RC_DIR="$(mktemp -d "$REPO/build/tmux-check.XXXXXX")"
+  cd "$RC_DIR"
+  # Every command names the socket and no config file, so nothing of the user's is read or touched. The new
+  # session prints the server's PID as it starts, so the PID is known from the first moment.
   # shellcheck disable=SC2086
-  $arch_cmd "$tmux" -f /dev/null -S p.sock new-session -d -s proof 'cat'
-  # shellcheck disable=SC2086
-  pid="$($arch_cmd "$tmux" -S p.sock display-message -p '#{pid}')"
+  pid="$($arch_cmd "$tmux" -f /dev/null -S p.sock new-session -d -P -F '#{pid}' -s proof 'cat')"
+  RC_PID="$pid"
   # shellcheck disable=SC2086
   $arch_cmd "$tmux" -S p.sock send-keys -t proof 'hello from bundled tmux' Enter
   sleep 1
@@ -61,11 +80,7 @@ runtime_check() {
   # shellcheck disable=SC2086
   echo "  $label: server $pid, version $($arch_cmd "$tmux" -S p.sock display-message -p '#{version}')," \
     "default-terminal $($arch_cmd "$tmux" -S p.sock show-options -gv default-terminal)"
-  kill "$pid"
-  sleep 0.5
-  if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid"; fi
-  cd "$REPO"
-  rm -rf "$dir"
+  runtime_cleanup
   case "$out" in
     *"hello from bundled tmux"*) echo "  $label: the pane says what was sent; server $pid ended (killed by PID)" ;;
     *) echo "The server on $label didn't echo what was sent to it." >&2; return 1 ;;
@@ -88,24 +103,61 @@ check_file() {
   fi
 }
 
+need() {
+  local tool
+  for tool in "$@"; do
+    command -v "$tool" >/dev/null 2>&1 || { echo "build-tmux.sh needs $tool: install the Xcode Command Line Tools (xcode-select --install)." >&2; exit 1; }
+  done
+}
+
+# Set while a cached build is being checked, so a failure says what to do about it.
+CACHED=""
+fail() {
+  echo "Check failed: $*" >&2
+  [ -z "$CACHED" ] || echo "That is the cached build in $CACHED: delete that folder to build it again." >&2
+  [ ! -d "${WORK:-/nonexistent}" ] || echo "Its work is left in build/tmux/$KEY.work." >&2
+  exit 1
+}
+
+# What every tmux file must be, whether just built or found cached: both architectures, nothing but the Mac's own
+# libraries, macOS 13.0 as the oldest on both, a valid signature, and the version pinned.
+verify_binary() {
+  local f="$1" libs minos
+  [ "$(lipo -archs "$f")" = "x86_64 arm64" ] || fail "lipo says '$(lipo -archs "$f")', not 'x86_64 arm64'"
+  # Sorted in the C locale, so the order doesn't depend on the caller's language settings.
+  libs="$(otool -L "$f" | grep -E '^[[:space:]]' | awk '{print $1}' | LC_ALL=C sort -u | tr '\n' ' ')"
+  [ "$libs" = "/usr/lib/libSystem.B.dylib /usr/lib/libresolv.9.dylib " ] || fail "it loads $libs, not only libSystem and libresolv"
+  # Both slices must say macOS 13.0, so the oldest supported Mac can run it.
+  minos="$(otool -l "$f" | awk '$1 == "minos" { print $2 }' | tr '\n' ' ')"
+  [ "$minos" = "13.0 13.0 " ] || fail "minos is '$minos', not 13.0 on both slices"
+  codesign --verify "$f" || fail "the signature doesn't verify"
+  [ "$("$f" -V)" = "tmux $TMUX_V" ] || fail "tmux -V says '$("$f" -V)', not 'tmux $TMUX_V'"
+  echo "  $(lipo -archs "$f"), $(wc -c <"$f" | tr -d ' ') bytes, loads only libSystem and libresolv, minos 13.0, tmux -V = $("$f" -V)"
+}
+
+[ "$(uname -s)" = Darwin ] || { echo "build-tmux.sh builds the Mac's tmux and runs only on a Mac." >&2; exit 1; }
+
 if [ "${1:-}" = "check" ]; then
-  [ -x "${2:-}" ] || { echo "Usage: scripts/build-tmux.sh check <tmux file>" >&2; exit 2; }
-  case "$2" in /*) ;; *) set -- "$1" "$REPO/$2" ;; esac
-  echo "Checking $2"
-  [ "$("$2" -V)" = "tmux $TMUX_V" ] || { echo "$("$2" -V) isn't tmux $TMUX_V." >&2; exit 1; }
-  check_file "$2"
+  case "${2:-}" in /*) f="$2" ;; *) f="$CALLER/${2:-}" ;; esac
+  [ -n "${2:-}" ] && [ -f "$f" ] && [ -x "$f" ] || { echo "Usage: scripts/build-tmux.sh check <tmux file>" >&2; exit 2; }
+  need lipo otool codesign awk sort tr wc arch
+  echo "Checking $f"
+  verify_binary "$f"
+  check_file "$f"
   exit 0
 fi
 
-[ "$(uname -s)" = Darwin ] || { echo "build-tmux.sh builds the Mac's tmux and runs only on a Mac." >&2; exit 1; }
-for tool in xcrun clang make lipo strip codesign otool nm strings curl shasum tar; do
-  command -v "$tool" >/dev/null 2>&1 || { echo "build-tmux.sh needs $tool: install the Xcode Command Line Tools (xcode-select --install)." >&2; exit 1; }
-done
+need xcrun clang make lipo strip codesign otool nm strings curl shasum tar awk sort tr wc arch
 
-KEY="$({ cat "$0" "$SUMS"; xcrun --show-sdk-version; clang --version; } | shasum -a 256 | cut -c1-16)"
-OUT="build/tmux/$KEY"
+KEY="$({ cat "$SELF" "$SUMS"; xcrun --show-sdk-version; clang --version; } | shasum -a 256 | cut -c1-16)"
+OUT="$REPO/build/tmux/$KEY"
 if [ -x "$OUT/tmux" ] && [ -s "$OUT/THIRD-PARTY-NOTICES.txt" ]; then
+  # Found, but not trusted unseen: the same checks as a fresh build's, before the path is handed on.
   echo "tmux $TMUX_V is already built: $OUT/tmux"
+  CACHED="$OUT"
+  verify_binary "$OUT/tmux"
+  check_file "$OUT/tmux"
+  CACHED=""
   echo "$OUT/tmux"
   exit 0
 fi
@@ -129,7 +181,7 @@ for name in $TARBALLS; do
   fetched=0
   for url in $urls; do
     echo "Downloading $name from $(echo "$url" | cut -d/ -f3)"
-    if curl -fsSL --retry 3 --connect-timeout 20 -o "$file.part" "$url" && [ "$(actual_sum "$file.part")" = "$want" ]; then
+    if curl -fsSL --proto '=https' --proto-redir '=https' --retry 3 --connect-timeout 20 -o "$file.part" "$url" && [ "$(actual_sum "$file.part")" = "$want" ]; then
       mv "$file.part" "$file"
       fetched=1
       break
@@ -224,7 +276,6 @@ cd "$REPO"
 trap - ERR
 
 # ---- 3. the checks: any one of them stops the build ----
-fail() { echo "Check failed: $*" >&2; echo "Its work is left in build/tmux/$KEY.work." >&2; exit 1; }
 echo "Checking the slices…"
 for arch in arm64 x86_64; do
   f="$WORK/out/tmux-$arch"
@@ -244,24 +295,50 @@ strip -S -x "$WORK/out/tmux"
 codesign --force --sign - "$WORK/out/tmux"
 T="$WORK/out/tmux"
 
-[ "$(lipo -archs "$T")" = "x86_64 arm64" ] || fail "lipo says '$(lipo -archs "$T")', not 'x86_64 arm64'"
-libs="$(otool -L "$T" | grep -E '^[[:space:]]' | awk '{print $1}' | sort -u | tr '\n' ' ')"
-[ "$libs" = "/usr/lib/libresolv.9.dylib /usr/lib/libSystem.B.dylib " ] || fail "it loads $libs, not only libSystem and libresolv"
-# Both slices must say macOS 13.0, so the oldest supported Mac can run it.
-minos="$(otool -l "$T" | awk '$1 == "minos" { print $2 }' | tr '\n' ' ')"
-[ "$minos" = "13.0 13.0 " ] || fail "minos is '$minos', not 13.0 on both slices"
+# lipo, otool, minos, the signature and -V: the same checks `check` and a cached build get.
+verify_binary "$T"
 # The build folders' paths would tell a download where it was built.
 strings -a "$T" >"$T.strings"
-if grep -q -e "$WORK" -e "$REPO" "$T.strings"; then
-  fail "the file carries the build folder's path: $(grep -e "$WORK" -e "$REPO" "$T.strings" | head -3)"
+if grep -F -q -e "$WORK" -e "$REPO" "$T.strings"; then
+  fail "the file carries the build folder's path: $(grep -F -e "$WORK" -e "$REPO" "$T.strings" | head -3)"
 fi
-codesign --verify "$T" || fail "the ad hoc signature doesn't verify"
-[ "$("$T" -V)" = "tmux $TMUX_V" ] || fail "tmux -V says '$("$T" -V)', not 'tmux $TMUX_V'"
-echo "  $(lipo -archs "$T"), $(wc -c <"$T" | tr -d ' ') bytes, loads only libSystem and libresolv, minos 13.0, tmux -V = $("$T" -V)"
 echo "Running it…"
 check_file "$T"
 
-# ---- 4. the notices: each library's licence whole, and the header of each compat file tmux compiled ----
+# ---- 4. the notices: each library's licence whole, and the notices at the top of tmux's own files ----
+# tmux's COPYING says "Various Authors". The files with a notice of their own (Tatu Ylonen's xmalloc, the BSD queue.h
+# and tree.h, the imsg, vis and bitstring files, a file with another author's ISC line...) carry it in their opening
+# comment, so every .c, .h and .y of the tarball (its main folder and compat/) is read, and each whose notice is
+# more than the standard one (Nicholas Marriott's copyright line over the ISC text COPYING shows) goes in.
+# Files with the same text are put together. Some are for other systems and weren't compiled in this build; they
+# are kept, because leaving one out is the mistake that matters.
+TREE="$SRC/tmux-$TMUX_V"
+# The comments a file opens with (an $OpenBSD$ line and then the licence, say), up to its first code, without the
+# one-line $OpenBSD$ and $NetBSD$ version stamps (they differ in every file and are no notice).
+file_notice() {
+  awk 'inc { print } !inc && /^[[:space:]]*$/ { next } !inc && !/^\/\*/ { exit } !inc { print; inc = 1 } inc && /\*\// { inc = 0 }' "$1" |
+    awk '!/^\/\*[ \t]*\$(OpenBSD|NetBSD)[^*]*\*\/[ \t]*$/'
+}
+# The same without the lines of Nicholas Marriott's own copyright: what is left of a standard file is the ISC text.
+without_marriott() { grep -v -E 'Copyright.*Nicholas Marriott' || true; }
+STD="$(file_notice "$TREE/tmux.c" | without_marriott)"
+case "$STD" in *"Permission to use, copy, modify, and distribute"*) ;; *) fail "tmux.c no longer opens with the ISC text: the notices step needs a look" ;; esac
+STD_ID="$(printf '%s\n' "$STD" | shasum -a 256 | cut -c1-16)"
+H="$WORK/headers"
+mkdir -p "$H"
+while IFS= read -r src; do
+  note="$(file_notice "$src")"
+  if [ -z "$note" ]; then
+    # No comment on top: there must be no copyright text in the file either.
+    ! grep -qi copyright "$src" || fail "${src#"$TREE"/} has copyright text but no notice at its top"
+    continue
+  fi
+  [ "$(printf '%s\n' "$note" | without_marriott | shasum -a 256 | cut -c1-16)" != "$STD_ID" ] || continue
+  id="$(printf '%s\n' "$note" | shasum -a 256 | cut -c1-16)"
+  [ -f "$H/h.$id" ] || printf '%s\n' "$note" >"$H/h.$id"
+  echo "${src#"$TREE"/}" >>"$H/n.$id"
+done < <(find "$TREE" "$TREE/compat" -maxdepth 1 -type f \( -name '*.c' -o -name '*.h' -o -name '*.y' \) | LC_ALL=C sort)
+ls "$H"/h.* >/dev/null 2>&1 || fail "no tmux notices were found: the notices step needs a look"
 N="$WORK/out/THIRD-PARTY-NOTICES.txt"
 {
   echo "Smolcorp's tmux and the libraries linked into it"
@@ -279,32 +356,15 @@ N="$WORK/out/THIRD-PARTY-NOTICES.txt"
     echo
     cat "$2"
   }
-  section "tmux $TMUX_V (ISC licence): COPYING" "$SRC/tmux-$TMUX_V/COPYING"
-  # tmux's compat/ files with a licence of their own: the header comment of each one that was compiled in.
-  H="$WORK/headers"
-  mkdir -p "$H"
-  for obj in "$WORK"/build/arm64/tmux/compat/*.o; do
-    [ -e "$obj" ] || continue
-    base="$(basename "$obj" .o)"
-    src="$SRC/tmux-$TMUX_V/compat/${base#tmux-}.c"
-    [ -f "$src" ] || src="$SRC/tmux-$TMUX_V/compat/$base.c"
-    [ -f "$src" ] || continue
-    # The comments the file opens with (an $OpenBSD$ line and then the licence, say), up to its first code.
-    head="$(awk 'inc { print } !inc && /^[[:space:]]*$/ { next } !inc && !/^\/\*/ { exit } !inc { print; inc = 1 } inc && /\*\// { inc = 0 }' "$src")"
-    [ -n "$head" ] || continue
-    id="$(printf '%s' "$head" | shasum -a 256 | cut -c1-16)"
-    printf '%s\n' "$head" >"$H/h.$id"
-    echo "compat/$(basename "$src")" >>"$H/n.$id"
-  done
+  section "tmux $TMUX_V (ISC licence): COPYING" "$TREE/COPYING"
   echo
   echo "################################################################################"
-  echo "# tmux $TMUX_V: the notices at the top of the compat/ files compiled into it"
+  echo "# tmux $TMUX_V: the notices at the top of the source files that carry more than the ISC licence above"
   echo "################################################################################"
   for hf in "$H"/h.*; do
-    [ -e "$hf" ] || continue
     id="${hf##*/h.}"
     echo
-    echo "Files: $(sort "$H/n.$id" | tr '\n' ' ')"
+    echo "Files: $(LC_ALL=C sort "$H/n.$id" | tr '\n' ' ')"
     echo
     cat "$hf"
   done

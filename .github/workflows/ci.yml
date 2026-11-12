@@ -22,39 +22,56 @@ jobs:
       - run: scripts/check-public.sh
 
   # The tmux that will ship inside the Mac app, built from pinned sources (third_party/tmux/SHA256SUMS) by the
-  # same script a release uses. The script checks the file itself (both architectures, only the Mac's own
-  # libraries, macOS 13 as the oldest, no weak imports, no build paths) and starts a server of it; this job
-  # runs that server check again on its own and keeps the file. A cache hit takes seconds, a build about 3
-  # minutes. Releases are still built and signed on the maintainer's Mac: this catches a new weak import from
-  # an Xcode update, or a tarball that changed, first.
+  # same script a release uses. The script checks what it built (both architectures, only the Mac's own
+  # libraries, macOS 13 as the oldest, no weak imports, no build paths) and starts a server of it. This job then
+  # runs `check` on the very file it uploads, so a cached build is looked at as hard as a fresh one. A cache hit
+  # takes seconds, a build about 3 minutes. Releases are still built and signed on the maintainer's Mac: this
+  # catches a new weak import from an Xcode update, or a tarball that changed, first.
   tmux:
     name: tmux for the Mac app
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - name: Xcode SDK version
+      # What the build depends on besides the repo: the Xcode SDK and the compiler (the script hashes both into
+      # its own key). With both in the cache key, a runner image that changes either starts a new cache, so the
+      # result is saved again instead of being rebuilt on every run.
+      - name: Xcode SDK and compiler
         id: sdk
-        run: echo "version=$(xcrun --show-sdk-version)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(xcrun --show-sdk-version)" >> "$GITHUB_OUTPUT"
+          echo "clang=$(/usr/bin/clang --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: |
             build/third-party
             build/tmux
-          key: tmux-${{ runner.os }}-${{ runner.arch }}-sdk${{ steps.sdk.outputs.version }}-${{ hashFiles('scripts/build-tmux.sh', 'third_party/tmux/SHA256SUMS') }}
+          key: tmux-${{ runner.os }}-${{ runner.arch }}-sdk${{ steps.sdk.outputs.version }}-clang${{ steps.sdk.outputs.clang }}-${{ hashFiles('scripts/build-tmux.sh', 'third_party/tmux/SHA256SUMS') }}
+      # A failing build fails this step, with its own error as the last thing in the log: pipefail makes the
+      # script's status the pipeline's, and the file's path (the script's last line) is read from the log after.
       - name: Build tmux
         id: build
-        run: echo "file=$(scripts/build-tmux.sh | tail -n 1)" >> "$GITHUB_OUTPUT"
-      # A server on a private socket, a key sent and the pane read back, then the server killed by its PID. The
-      # Intel slice runs under Rosetta where the runner has it, and the step says so where it doesn't.
-      - name: Run the built tmux
-        run: scripts/build-tmux.sh check "${{ steps.build.outputs.file }}"
+        shell: bash
+        run: |
+          set -o pipefail
+          scripts/build-tmux.sh | tee "$RUNNER_TEMP/build-tmux.log"
+          file="$(tail -n 1 "$RUNNER_TEMP/build-tmux.log")"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "notices=$(dirname "$file")/THIRD-PARTY-NOTICES.txt" >> "$GITHUB_OUTPUT"
+      # The file that gets uploaded: lipo says x86_64 and arm64, it loads only libSystem and libresolv, minos is
+      # 13.0, `-V` says the pinned version, and then a server on a private socket, a key sent and the pane read
+      # back, the server killed by its PID. The Intel slice runs under Rosetta where the runner has it, and the
+      # step says so where it doesn't.
+      - name: Check the built tmux
+        env:
+          TMUX_FILE: ${{ steps.build.outputs.file }}
+        run: scripts/build-tmux.sh check "$TMUX_FILE"
       - uses: actions/upload-artifact@v4
         with:
           name: tmux-macos
           path: |
             ${{ steps.build.outputs.file }}
-            build/tmux/*/THIRD-PARTY-NOTICES.txt
+            ${{ steps.build.outputs.notices }}
 
   mac:
     name: Mac app
