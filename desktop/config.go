@@ -144,6 +144,10 @@ type Config struct {
 	// Kept under the Mac's names. Setup has no switch for them here yet: see phonetext.go.
 	PhoneMicEnabled  bool `json:"phoneMicEnabled"`
 	PhoneMicAutoSend bool `json:"phoneMicSkipsConfirm"`
+	// Typing over Wi-Fi: whether the phone's text is taken over plain http on the Wi-Fi too, where anyone on
+	// it could read what's typed (SECWIFI). Off for a new setup; Tailscale and this computer don't need it.
+	// A file from before the switch keeps what it had: on with the phone's text, once set up.
+	PhoneTextWiFi bool `json:"phoneTextOverWiFi"`
 	// Whether the file had BotFloor: one from before it has it worked out
 	// again once the bots that were upstairs are settled (see settleBots).
 	botFloorKept bool
@@ -219,6 +223,10 @@ func loadConfig() *Config {
 				var byHand bool
 				_ = json.Unmarshal(fields["gmByHand"], &byHand)
 				config.GuideDone = config.HasCompletedSetup || config.HireFolder != "" || config.ManagerEnabled || byHand
+			}
+			// Typing over Wi-Fi: a setup from before the switch went on typing over the Wi-Fi, and keeps it.
+			if _, ok := fields["phoneTextOverWiFi"]; !ok {
+				config.PhoneTextWiFi = config.HasCompletedSetup && config.PhoneMicEnabled
 			}
 			// A file from before the two choices: asked already, as the Mac app reads it.
 			if _, ok := fields["choicesAsked"]; !ok {

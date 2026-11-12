@@ -22,8 +22,9 @@ func phoneAddress() string {
 	return fmt.Sprintf("http://%s:%d", host, Port)
 }
 
-// pairingLink is what the QR code opens: the pairing page with code filled in.
-func pairingLink(code string) string { return phoneAddress() + "/?pair=" + code }
+// pairingLink is what the QR code opens: the pairing page, with the key it hands over after # (SECWIFI),
+// which a browser never sends, so it never crosses the network; the phone signs with it to claim it.
+func pairingLink(key string) string { return phoneAddress() + "/#pair=" + key }
 
 // setupLink is the setup page, with a token after #o= that works once, for
 // five minutes: the key is never in a link. The page hands the token over for
