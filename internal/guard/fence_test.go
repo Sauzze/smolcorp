@@ -35,6 +35,22 @@ func TestNoHireTakesAwayOrRewritesClaudeCodesSettings(t *testing.T) {
 			t.Errorf("the GM: let through: %s", line)
 		}
 	}
+	// RWIN5 B3: the same names spelled with ſ (the long s), which the Mac's disk reads as s, and in any case. And a
+	// program the disk finds by such a name is that program (ſsh is ssh, Kubectl kubectl). git reads its own
+	// subcommands by their bytes: git puſh isn't push, and runs.
+	odd := []string{
+		"echo '{}' > .claude/\u017fettings.local.json", "rm .claude/\u017fettings.local.json", "cp x .claude/\u017fettings.json",
+		"echo '{}' > .claude/\u017fettings.json", "rm .claude/\u017fettings.json", "mv x .CLAUDE/SETTINGS.LOCAL.JSON",
+		"echo x > ~/.config/sauzzedeck-pro/hire-guard.json", "rm \u017fmolcorp_gm_token", "cat gm-token-kept",
+		"\u017fsh host", "\u212aubectl apply -f x.yaml", "/usr/bin/\u017f\u017fh host", "git pu\u017fh",
+	}
+	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+		for _, line := range odd[:len(odd)-1] {
+			if Check(line, groups) == nil {
+				t.Errorf("let through: %s", line)
+			}
+		}
+	}
 	for line, rule := range map[string]string{
 		"rm .claude/settings.local.json": fenceRule, "echo '{}' > .claude/settings.local.json": fenceRule,
 		"git clean -fdx": "git clean -x", "git stash push -a": "git stash --all",

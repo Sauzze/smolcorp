@@ -2,8 +2,11 @@ package guard
 
 import (
 	"path"
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/Sauzze/smolcorp/internal/appdirs"
 )
 
 // unreadable starts a word the guard can't tell the meaning of: a command
@@ -719,10 +722,14 @@ func finishWord(word []byte, unq []bool, ps bool) []string {
 // spelling (the GM token, in its file or where a computer with no secret
 // store keeps it, the guard file, the app's setup key). protectedByPattern says which a
 // pattern word (gm-t*, hire-g?ard.json) fills in on the disk, matched
-// in lower case on its last path part. A pattern with fewer than three
+// folded (Fold) on its last path part. A pattern with fewer than three
 // plain characters (*, g*, *.json) is no more than a pattern, unless the
 // path before it is the app's own folder.
 var protectedNames = []string{"gm-token", "gm-token-kept", "smolcorp_gm_token", "hire-guard.json", "hire-guard", setupKeyFile}
+
+// supportWords are the words of the app's support folder on each system (appdirs: AgentDeck, sauzzedeck-pro,
+// SauzzeDeck Pro), and Smolcorp's: a path before a pattern that holds one, folded, may be that folder.
+var supportWords = []string{appdirs.Mac, appdirs.Linux, appdirs.Windows, "smolcorp", "application support"}
 
 func protectedByPattern(s string, unq []bool) []string {
 	glob := false
@@ -743,14 +750,14 @@ func protectedByPattern(s string, unq []bool) []string {
 		}
 		pat = append(pat, s[i])
 	}
-	lower := strings.ToLower(string(pat))
+	lower := Fold(string(pat))
 	plain := 0
 	for _, c := range []byte(strings.TrimSuffix(lower, ".json")) {
 		if strings.IndexByte(`*?[]\`, c) < 0 {
 			plain++
 		}
 	}
-	dir := strings.ToLower(s[:cut])
+	dir := Fold(s[:cut])
 	var out []string
 	// Claude Code's settings in a .claude folder, by any pattern (.claude/s*, .claude/*), and that folder itself by a
 	// pattern for hidden names (.c*, .*): see fenceRule.
@@ -766,7 +773,7 @@ func protectedByPattern(s string, unq []bool) []string {
 			out = append(out, ".claude")
 		}
 	}
-	if plain < 3 && !strings.Contains(dir, "agentdeck") && !strings.Contains(dir, "smolcorp") && !strings.Contains(dir, "application support") {
+	if plain < 3 && !slices.ContainsFunc(supportWords, func(word string) bool { return strings.Contains(dir, Fold(word)) }) {
 		return out
 	}
 	for _, name := range protectedNames {

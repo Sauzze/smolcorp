@@ -240,10 +240,18 @@ func (f demoFence) command(line, cwd string) string {
 			return demoFenceRefusal + "a smolcorp or git worktree line with " + why + " outside quotes, which the fence doesn't read: run the plain command alone, on a line of its own, with any text in single quotes."
 		}
 	}
+	// A path the shell builds with $ or a backtick ($HOME/…, $(pwd)/…) could be anywhere, the app's own folder
+	// too (RWIN5 B1): refused as a path into it is. The demo writes its paths out plainly.
+	if word := demoBuiltPath(line); word != "" {
+		return demoFenceRefusal + "the shell builds " + word + " with $ or a backtick, so the fence can't tell where it is, and the app's own folder holds the setup key, which is the owner's: write the path out plainly."
+	}
 	for _, words := range all {
 		for _, word := range words {
-			if (strings.HasPrefix(word, "~") || strings.ContainsAny(word, `/\`)) && (f.reachesSupport(word, cwd) || f.briefFolder(words, word, cwd)) {
-				return demoFenceRefusal + demoSupportRefusal
+			for _, path := range demoPathsIn(word) {
+				// A path: from home, with a separator, or on a drive (C:x is that drive's own folder, drifts).
+				if (strings.HasPrefix(path, "~") || strings.ContainsAny(path, `/\`) || f.paths().volume(path) != "") && (f.reachesSupport(path, cwd) || f.briefFolder(words, path, cwd)) {
+					return demoFenceRefusal + demoSupportRefusal
+				}
 			}
 		}
 	}
@@ -294,6 +302,73 @@ func (f demoFence) command(line, cwd string) string {
 	return ""
 }
 
+// demoPathsIn are the paths a word may give a program: the word, what follows each = or @ in it (dd's
+// if=…, --file=…, curl's @…, X=~/… as bash fills in ~ there too), and a short option's value written in the same
+// word, from its first / \ or ~ (grep -f/…, -rf~/…).
+func demoPathsIn(word string) []string {
+	paths := []string{word}
+	for i := 0; i < len(word); i++ {
+		if word[i] == '=' || word[i] == '@' {
+			paths = append(paths, word[i+1:])
+		}
+	}
+	if strings.HasPrefix(word, "-") && !strings.HasPrefix(word, "--") {
+		if at := strings.IndexAny(word, `/\~`); at > 0 {
+			paths = append(paths, word[at:])
+		}
+	}
+	return paths
+}
+
+// demoBuiltPath is the first word of a line that the shell builds with a $ or a backtick outside single quotes
+// ($HOME/…, "${HOME}/…", $(pwd)/…, `pwd`/…, $'\x2f…', \$ too) and that holds a / or a \, "" for none (RWIN5 B1).
+// A word runs on through quotes and through what $( ), ${ } and backticks hold, as the shell's does, and ends at
+// a blank or one of ; & | < > outside them.
+func demoBuiltPath(line string) string {
+	start, single, double, tick, nest := 0, false, false, false, 0
+	built, separator := false, false
+	for i := 0; i <= len(line); i++ {
+		if i == len(line) || !single && !double && !tick && nest == 0 && strings.IndexByte(" \t\r\n;&|<>", line[i]) >= 0 {
+			if built && separator {
+				return strings.TrimSpace(line[start:min(i, len(line))])
+			}
+			start, built, separator = i+1, false, false
+			continue
+		}
+		switch c := line[i]; {
+		case c == '/':
+			separator = true
+		case c == '\\':
+			// A separator on Windows, and to bash the letter after it kept: a quote, a blank, a $ (counted all
+			// the same, as shellExpands does).
+			separator = true
+			if !single && i+1 < len(line) {
+				i++
+				built = built || line[i] == '$' || line[i] == '`'
+			}
+		case single:
+			if c == '\'' {
+				single = false
+			}
+		case c == '\'':
+			single = !double
+		case c == '"':
+			double = !double
+		case c == '`':
+			built, tick = true, !tick
+		case c == '$':
+			built = true
+			if i+1 < len(line) && (line[i+1] == '(' || line[i+1] == '{') {
+				nest++
+				i++
+			}
+		case (c == ')' || c == '}') && nest > 0:
+			nest--
+		}
+	}
+	return ""
+}
+
 // demoTopWords are the words of a line's simple commands, as bash reads it and as a plain reading does (a \ a
 // letter), quoted text one word: not read again as a line of its own.
 func demoTopWords(line string) []string {
@@ -306,9 +381,9 @@ func demoTopWords(line string) []string {
 	return words
 }
 
-// demoProgram is a word as a program's name: its last path part, in lower case, without .exe.
+// demoProgram is a word as a program's name: its last path part, folded (guard.Fold), without .exe.
 func demoProgram(word string) string {
-	name := strings.ToLower(strings.ReplaceAll(word, `\`, "/"))
+	name := guard.Fold(strings.ReplaceAll(word, `\`, "/"))
 	return strings.TrimSuffix(name[strings.LastIndexByte(name, '/')+1:], ".exe")
 }
 
@@ -375,7 +450,7 @@ func demoUnreadHere(line string) string {
 	for _, escapes := range []bool{true, false} {
 		for _, words := range demoSegments(line, escapes) {
 			for i, word := range words {
-				low := strings.ToLower(word)
+				low := guard.Fold(word)
 				switch name := demoProgram(word); {
 				case name == "cd" || name == "pushd" || name == "popd":
 					return name
@@ -410,9 +485,10 @@ func namesSmolcorp(words []string) bool {
 	return false
 }
 
-// isSmolcorp says whether a word names the smolcorp program, by any path, any case (the Mac's disk), .exe or not.
+// isSmolcorp says whether a word names the smolcorp program, by any path, any case (the Mac's disk, ſmolcorp too:
+// guard.Fold), .exe or not.
 func isSmolcorp(word string) bool {
-	name := strings.ToLower(strings.ReplaceAll(word, `\`, "/"))
+	name := guard.Fold(strings.ReplaceAll(word, `\`, "/"))
 	name = strings.TrimSuffix(name[strings.LastIndexByte(name, '/')+1:], ".exe")
 	return name == "smolcorp" || name == "smolcorp-cli"
 }
@@ -435,7 +511,7 @@ var demoAssignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 // A word with a blank in it is a line of its own, whose words are judged (demoCommands).
 func (f demoFence) smolcorpInAWord(words []string, cwd string) string {
 	for _, word := range words {
-		if !strings.Contains(strings.ToLower(word), "smolcorp") || strings.ContainsAny(word, " \t\n") || isSmolcorp(word) {
+		if !strings.Contains(guard.Fold(word), "smolcorp") || strings.ContainsAny(word, " \t\n") || isSmolcorp(word) {
 			continue
 		}
 		value := word
@@ -466,7 +542,7 @@ func demoSmolcorpAllowed(words []string) bool {
 }
 
 // namesSetupKey says whether a tool call's input names the setup key: its file (setup-key) or its header
-// (X-Smolcorp-Setup-Key), any case, JSON's escapes read.
+// (X-Smolcorp-Setup-Key), any case (guard.Fold: ſetup-key too, RWIN5 B3), JSON's escapes read.
 func namesSetupKey(input json.RawMessage) bool {
 	var value any
 	text := string(input)
@@ -474,7 +550,7 @@ func namesSetupKey(input json.RawMessage) bool {
 		data, _ := json.Marshal(value)
 		text = string(data)
 	}
-	return strings.Contains(strings.ToLower(text), "setup-key")
+	return strings.Contains(guard.Fold(text), "setup-key")
 }
 
 // demoTargetTool is send, brief, fire or contacts for the MCP tools of those names, else "".
@@ -628,7 +704,7 @@ func namesHireRoute(line string) bool {
 		}
 		line = decoded
 	}
-	line = strings.ToLower(strings.ReplaceAll(line, `\`, "/"))
+	line = guard.Fold(strings.ReplaceAll(line, `\`, "/"))
 	for {
 		squeezed := demoDotSegment.ReplaceAllString(strings.ReplaceAll(strings.ReplaceAll(line, "//", "/"), "/./", "/"), "/")
 		if squeezed == line {
@@ -646,8 +722,7 @@ var demoDotSegment = regexp.MustCompile(`/[^/\s'"]+/\.\./`)
 // outside the demo folder (from cwd, or the folder -C names).
 func (f demoFence) gitRefusal(words []string, cwd string) string {
 	for i, word := range words {
-		name := strings.ToLower(strings.ReplaceAll(word, `\`, "/"))
-		if strings.TrimSuffix(name[strings.LastIndexByte(name, '/')+1:], ".exe") != "git" {
+		if demoProgram(word) != "git" {
 			continue
 		}
 		sub, args, from := "", []string(nil), cwd
@@ -679,20 +754,11 @@ func (f demoFence) gitRefusal(words []string, cwd string) string {
 	return ""
 }
 
-// from is the folder git -C dir works from, read from where the command runs: "" when it can't be told.
+// from is the folder git -C dir works from, read from where the command runs as whole reads it: "" when it
+// can't be told.
 func (f demoFence) from(dir, cwd string) string {
-	p := f.paths()
-	switch {
-	case p.drifts(dir):
-		return ""
-	case dir == "~" || strings.HasPrefix(dir, "~/"):
-		return p.join(f.home, dir[1:])
-	case p.isAbs(dir):
-		return dir
-	case cwd == "" || !p.isAbs(cwd) || p.windows() && p.rooted(dir):
-		return ""
-	}
-	return p.join(cwd, dir)
+	whole, _ := f.whole(dir, cwd)
+	return whole
 }
 
 // gitWorktreeAddPath is the folder `git worktree add`'s arguments make: the first that isn't an option or an
@@ -788,24 +854,37 @@ func (f demoFence) checkout(folder, cwd string) bool {
 	return f.inside(folder, "") && gmScope{root: filepath.Join(f.root, demoRepoName), git: git}.holds(folder)
 }
 
-// whole is path as a whole path: ~ is home, a relative one is from cwd. False when it can't be told: no
-// cwd to start from, \x or /x on Windows (the top of some drive), C:x or a : after the drive (drifts), ~user
-// (that user's home to bash, RWIN4 N1).
+// whole is path as a whole path: ~ is home, a relative one is from cwd. On Windows, Git Bash's drives are read
+// first (/c/… is C:\…, gitBash). False when it can't be told: no cwd to start from, or the path's own doing
+// (untold).
 func (f demoFence) whole(path, cwd string) (string, bool) {
+	whole, ok, _ := f.place(path, cwd)
+	return whole, ok
+}
+
+// place is whole, and untold when what the path is can't be told whatever the cwd: \x or a /x on Windows that
+// isn't a Git Bash drive (the top of some drive, Git Bash's own /tmp), C:x or a : after the drive (drifts: that
+// drive's own folder, an NTFS stream), ~user (that user's home to bash, RWIN4 N1). Such a path could be the app's support folder (supportRests). Git
+// Bash's /dev/null and the rest of /dev are neither told nor untold: no folder of the disk's.
+func (f demoFence) place(path, cwd string) (whole string, ok, untold bool) {
 	p := f.paths()
-	path = strings.TrimSpace(path)
+	path, cwd = p.gitBash(strings.TrimSpace(path)), p.gitBash(cwd)
 	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
 		path = p.join(f.home, path[1:])
 	}
 	switch {
 	case otherHome(path) || p.drifts(path):
-		return "", false
+		return "", false, true
 	case p.isAbs(path):
-		return path, true
-	case cwd == "" || !p.isAbs(cwd) || p.windows() && p.rooted(path):
-		return "", false
+		return path, true, false
+	case p.gitBashDevice(path):
+		return "", false, false
+	case p.windows() && p.rooted(path):
+		return "", false, true
+	case cwd == "" || !p.isAbs(cwd):
+		return "", false, false
 	}
-	return p.join(cwd, path), true
+	return p.join(cwd, path), true, false
 }
 
 // otherHome says whether path starts with a ~ that isn't the home's own (~, ~/…, ~\…): ~user, ~+, ~-, a
@@ -881,7 +960,7 @@ func (f demoFence) inFenceFolder(path, cwd string) bool {
 			return true
 		}
 		for _, part := range strings.Split(rest, "/") {
-			if part = strings.ToLower(part); p.windows() {
+			if part = guard.Fold(part); p.windows() {
 				part = strings.TrimRight(part, ". ")
 			}
 			if part == ".claude" || part == ".git" {
@@ -895,15 +974,19 @@ func (f demoFence) inFenceFolder(path, cwd string) bool {
 // supportRests are where path (~ is home, a relative one is from cwd) is in the app's support folder: its rest
 // below it, parts split by /, "." for the folder itself, once for each way its links are followed (a tool
 // that cleans the path first, the system that walks it); none outside it. In any case where the disk reads
-// names case aside, and by whatever name this computer's disk has for it (belowAnyCase, RWIN4 B2). ~user is
-// some home the fence doesn't read: the support folder, fail-closed (RWIN4 N1).
+// names case aside, and by whatever name this computer's disk has for it (belowAnyCase, RWIN4 B2), each name as
+// Win32 reads it on Windows (win32: registry.json::$DATA, SauzzeDeck Pro.). A path whole can't tell for its own
+// reasons (~user, \x or /tmp on Windows, C:x: untold) is somewhere the fence doesn't read: the support folder,
+// fail-closed (RWIN4 N1, RWIN5 B2). One it can't tell for want of a cwd isn't.
 func (f demoFence) supportRests(path, cwd string) []string {
 	p := f.paths()
-	if f.support != "" && otherHome(path) {
+	path, ok, untold := f.place(p.win32(p.gitBash(strings.TrimSpace(path))), cwd)
+	switch {
+	case f.support == "":
+		return nil
+	case untold:
 		return []string{"."}
-	}
-	path, ok := f.whole(path, cwd)
-	if f.support == "" || !ok {
+	case !ok:
 		return nil
 	}
 	var rests []string
@@ -960,7 +1043,7 @@ const demoWildcards = "*?[{"
 // compared as belowAnyCase does. false for a path with no wildcard, or one that stays above the folder or beside it.
 func (f demoFence) patternInSupport(path, cwd string) (string, bool) {
 	p := f.paths()
-	path, ok := f.whole(path, cwd)
+	path, ok := f.whole(p.win32(p.gitBash(strings.TrimSpace(path))), cwd)
 	if f.support == "" || !ok || !strings.ContainsAny(path, demoWildcards) {
 		return "", false
 	}
@@ -1003,7 +1086,7 @@ func demoPartMatches(pattern, name string) bool {
 	if strings.Contains(pattern, "{") {
 		return true
 	}
-	matched, err := path.Match(strings.ToLower(pattern), strings.ToLower(name))
+	matched, err := path.Match(guard.Fold(pattern), guard.Fold(name))
 	return matched || err != nil
 }
 
@@ -1027,6 +1110,7 @@ func (f demoFence) aboveSupport(folder string) bool {
 	if f.support == "" || folder == "" {
 		return false
 	}
+	folder = p.win32(folder)
 	for _, resolved := range []string{p.resolveExisting(folder), p.resolvePhysical(folder)} {
 		if _, in := p.belowAnyCase(resolved, f.support); in {
 			return true
@@ -1061,7 +1145,7 @@ func (f demoFence) demosBriefFile(rest string, write bool) bool {
 		return false
 	}
 	p := f.paths()
-	low := strings.ToLower(name)
+	low := guard.Fold(name)
 	for _, h := range f.hires() {
 		if h.Brief == "" || !f.inside(h.Folder, "") || h.Worktree != "" && !f.inside(h.Worktree, "") {
 			continue
@@ -1076,7 +1160,7 @@ func (f demoFence) demosBriefFile(rest string, write bool) bool {
 				return true
 			}
 		case strings.EqualFold(briefDir, "briefs"):
-			stem := strings.ToLower(strings.TrimSuffix(briefName, path.Ext(briefName))) + "-"
+			stem := guard.Fold(strings.TrimSuffix(briefName, path.Ext(briefName))) + "-"
 			if !write && strings.EqualFold(name, briefName) {
 				return true
 			}

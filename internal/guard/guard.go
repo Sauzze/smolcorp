@@ -55,7 +55,9 @@ package guard
 
 import (
 	"path"
+	"regexp"
 	"strings"
+	"unicode"
 )
 
 // A Rule refuses one command: its name, then the words that must come
@@ -107,18 +109,33 @@ func (r *Refusal) Error() string {
 		"`. A hire doesn't do this; ask the GM, who asks the owner."
 }
 
+// Fold is text as the Mac's disk and Windows' compare names, case aside: each letter taken to the least member of
+// its Unicode simple case folding (ſ, the long s, is s; K, the Kelvin sign, is k), then to lower case. ToLower
+// alone leaves ſ as it is, and APFS reads ſetup-key as setup-key (RWIN5 B3). Every name the guard or the demo's
+// fence holds back (the setup key, the token, the guard file, Claude Code's settings, a program's name) is
+// compared folded. Full folding (ß as ss) isn't the disk's, and isn't needed for these names.
+func Fold(text string) string {
+	return strings.Map(func(r rune) rune {
+		least := r
+		for other := unicode.SimpleFold(r); other != r; other = unicode.SimpleFold(other) {
+			least = min(least, other)
+		}
+		return unicode.ToLower(least)
+	}, text)
+}
+
 // Always refused, whatever the groups say, wherever the text is in the
 // line and in any word of it (quotes, escapes and braces taken away, and
-// compared in lower case: the Mac's disk doesn't mind case): what would make
+// compared folded, Fold: the Mac's disk doesn't mind case): what would make
 // a hire the GM (its token, from its file or from the GM's own environment,
 // as ps shows it) or switch the hooks off. A pattern that fills in the
 // token file's name (gm-t*) comes out of the lexer as the name itself.
 var always = []string{"gm-token", "SMOLCORP_GM_TOKEN", "disableAllHooks"}
 
 func namesAlways(text string) string {
-	low := strings.ToLower(text)
+	low := Fold(text)
 	for _, name := range always {
-		if strings.Contains(low, strings.ToLower(name)) {
+		if strings.Contains(low, Fold(name)) {
 			return name
 		}
 	}
@@ -142,16 +159,41 @@ const setupKeyFile = "setup-key"
 // namesSetupKey is whether any word of the command is the setup key's file.
 func namesSetupKey(words simple) bool {
 	for _, w := range words {
-		low := strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(w, unreadable), `\`, "/"))
+		low := Fold(strings.ReplaceAll(strings.TrimPrefix(w, unreadable), `\`, "/"))
 		// After a /, and after an @ or = (curl's @file, dd's if=file, --file=…); and as a short option's
 		// value in the same word (grep -fsetup-key, -rf~/…/setup-key).
 		last := low[strings.LastIndexAny(low, "/@=")+1:]
-		if last == setupKeyFile || strings.HasPrefix(low, "-") && !strings.HasPrefix(low, "--") && strings.HasSuffix(last, setupKeyFile) {
+		if setupKeyName(last, strings.HasPrefix(low, "-") && !strings.HasPrefix(low, "--")) {
 			return true
 		}
 	}
 	return false
 }
+
+// setupKeyName says whether a word's last path part (folded) is the setup key to some system: as it is, and as
+// Windows reads it (RWIN5 B3): with the dots and blanks at its end taken off (Win32 drops them: setup-key. and
+// "setup-key " are the key), each side of a : (an NTFS stream, setup-key::$DATA; a drive's own folder,
+// C:setup-key), or its 8.3 short name (SETUP-~1, or the hashed SE1A2B~1). With option, the part may end with it
+// (grep -fsetup-key).
+func setupKeyName(last string, option bool) bool {
+	for _, part := range strings.Split(last, ":") {
+		part = strings.TrimRight(part, ". ")
+		if part == setupKeyFile || setupKeyShortName.MatchString(part) {
+			return true
+		}
+		if option && (strings.HasSuffix(part, setupKeyFile) || setupKeyShortTail.MatchString(part)) {
+			return true
+		}
+	}
+	return false
+}
+
+// setupKeyShortName is the shape of the setup key's 8.3 name on Windows: its first letters (setup-) or two and a
+// hash, then ~ and digits. Folded first, so in lower case.
+var (
+	setupKeyShortName = regexp.MustCompile(`^(setup-|se[0-9a-f]{4})~[0-9]+$`)
+	setupKeyShortTail = regexp.MustCompile(`(setup-|se[0-9a-f]{4})~[0-9]+$`)
+)
 
 // guardFile is the owner's guard file: one edit from a hire would switch
 // every group off, as the guard reads it at each command. A command that
@@ -232,7 +274,7 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 	}
 	if words[0] == redirMark {
 		for _, w := range words[1:] {
-			if strings.Contains(strings.ToLower(w), guardFile) {
+			if strings.Contains(Fold(w), guardFile) {
 				return &Refusal{Group: "guard", Rule: guardFile, Command: "> " + strings.TrimPrefix(w, unreadable)}
 			}
 			if namesFence(simple{w}) {
@@ -315,12 +357,12 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 	return nil
 }
 
-// commandName is how a word names a command: its last path part, lower
-// case (the Mac's disk doesn't mind case), any @version taken off (npx
+// commandName is how a word names a command: its last path part, folded
+// (Fold: the Mac's disk doesn't mind case, and finds verſel as vercel), any @version taken off (npx
 // vercel@latest), and a package's name for its command (eas-cli is eas).
 func commandName(word string) string {
 	// A Windows path: C:\Program Files\Git\bin\git.exe.
-	name := strings.ToLower(strings.ReplaceAll(word, "\\", "/"))
+	name := Fold(strings.ReplaceAll(word, "\\", "/"))
 	if at := strings.LastIndexByte(name, '@'); at > 0 {
 		name = name[:at]
 	}
@@ -347,10 +389,10 @@ var aliases = map[string]string{
 }
 
 // namesGuardFile is whether any word of the command names the guard file
-// (in lower case: the Mac's disk doesn't mind case).
+// (folded, Fold: the Mac's disk doesn't mind case).
 func namesGuardFile(words simple) bool {
 	for _, w := range words {
-		if strings.Contains(strings.ToLower(w), guardFile) {
+		if strings.Contains(Fold(w), guardFile) {
 			return true
 		}
 	}
@@ -368,7 +410,7 @@ const fenceRule = ".claude/settings"
 
 func namesFence(words simple) bool {
 	for _, w := range words {
-		low := strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(w, unreadable), `\`, "/"))
+		low := Fold(strings.ReplaceAll(strings.TrimPrefix(w, unreadable), `\`, "/"))
 		if strings.Contains(low, ".claude/settings") || strings.Contains(low, "settings.local.json") {
 			return true
 		}
@@ -522,7 +564,7 @@ func startsClaude(name string, args []string) bool {
 		return false
 	}
 	for _, a := range args {
-		low := strings.ToLower(strings.ReplaceAll(a, "\\", "/"))
+		low := Fold(strings.ReplaceAll(a, "\\", "/"))
 		if strings.Contains(low, "claude-code/cli") || strings.Contains(low, "@anthropic-ai/claude-code") {
 			return true
 		}

@@ -245,6 +245,12 @@ func TestNoSpellingNamesTheSetupKey(t *testing.T) {
 		"cat < " + dir + "setup-key", "x=$(< setup-key)", "while read k; do echo $k; done <setup-k*",
 		"sh -c 'cat setup-k?y'", "cp setup-key /tmp/k", "curl -H @setup-key localhost:7710/setup/state",
 		"dd if=setup-key", "echo setup-key",
+		// RWIN5 B3: ſ (the long s) is s to the Mac's disk, and K (the Kelvin sign) k; Windows drops a name's dots and
+		// blanks at its end, reads a stream after a :, and has a short name for it.
+		"cat " + dir + "\u017fetup-key", "cat \u017fetup-key", "cat \u017fETUP-KEY", "cat setup-\u212aey", "cp \u017fetup-key k",
+		"cat ~/Library/Application\\ \u017fupport/AgentDeck/s*", "cat ~/.config/sauzzedeck-pro/s*", "cat ~/AppData/Roaming/SauzzeDeck\\ Pro/s*",
+		"type setup-key.", `type "setup-key "`, "type setup-key::$DATA", "type SETUP-~1", "type se1a2b~1", `type C:setup-key`,
+		`type "C:\Users\ada\AppData\Roaming\SauzzeDeck Pro\SETUP-~1"`, "grep -fSETUP-~1 x", "grep -fsetup-key. x",
 	}
 	mustRefuse(t, "setup key", lines)
 	for _, line := range lines {
@@ -255,7 +261,15 @@ func TestNoSpellingNamesTheSetupKey(t *testing.T) {
 	mustRun(t, "the word as text", []string{
 		`git commit -m "the setup-key file is the owner's"`, "grep -n 'setup-key file' docs/setup.md", "cat setup-keys.md", "ls setup-*.md",
 		"sort < in.txt", "cat docs/setup.md",
+		// Words that only look like it: another file on every disk.
+		"cat setup-keys.md", "cat setup-key.md", "ls setup-~", "cat sexy~1",
 	})
+	// Fold is the disk's folding: ſ and s, K and k, any case, are one letter; ß stays one letter.
+	for in, want := range map[string]string{"\u017fetup-KEY": "setup-key", "Setup-\u212aey": "setup-key", "Stra\u00dfe": "stra\u00dfe", "\u03a3\u03c2": "\u03c3\u03c3"} {
+		if got := Fold(in); got != want {
+			t.Errorf("Fold(%q) = %q, want %q", in, got, want)
+		}
+	}
 }
 
 // WIN125e (RWIN4 B1): a search of other files for the word is refused, for the GM and every hire, as WIN125c

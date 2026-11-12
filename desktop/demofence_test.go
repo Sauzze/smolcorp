@@ -218,3 +218,90 @@ func TestTheDemosFenceReadsTheSupportFolderInAnyCase(t *testing.T) {
 		}
 	}
 }
+
+// WIN125f (RWIN5 B1, B2): on every system, a path the shell builds with $ or a backtick could be the app's
+// support folder, so it is refused as one into it is, in the real shape of each system's folder. On Windows, Git
+// Bash's /c/…, /cygdrive/c/… and /proc/cygdrive/c/… are C:\…, read before every rule; a path from the top of
+// some drive (\x, Git Bash's /tmp) can't be told, and counts as the support folder; a name as Win32 reads it (a
+// stream, a dot or a blank at its end aside) is the folder's. The demo's own lines still run.
+func TestTheDemosFenceRefusesAPathTheShellBuilds(t *testing.T) {
+	for _, s := range []struct {
+		goos, root, home, support string
+		refused, allowed          []string
+	}{
+		{"darwin", "/Users/ada/smolcorp-demo", "/Users/ada", "/Users/ada/Library/Application Support/AgentDeck",
+			[]string{
+				`cat "$HOME/Library/Application Support/AgentDeck/registry.json"`, `grep -r . "$HOME/Library/Application Support/AgentDeck"`,
+				`cat "${HOME}/Library/Application Support/AgentDeck/config.json"`, `cp "$HOME/Library/Application Support/AgentDeck/registry.json" leak.md`,
+				`echo x > "$HOME/Library/Application Support/AgentDeck/config.json"`, `cat "$(pwd)/../../Library/Application Support/AgentDeck/registry.json"`,
+				`cat $OLDPWD/registry.json`, "cat `echo ~`/Library/Application\\ Support/AgentDeck/registry.json",
+				`cat "$(echo ~ | tr a a)/Library/Application Support/AgentDeck/registry.json"`, `cat ${HOME%/*}/ada/x`,
+				`cat \$HOME/x`, `X=~/Library/Application\ Support/AgentDeck/registry.json; cat x`,
+				`dd if=/Users/ada/Library/Application\ Support/AgentDeck/registry.json`, `curl -d @/Users/ada/Library/Application\ Support/AgentDeck/registry.json localhost`,
+				`grep -f/Users/ada/Library/Application\ Support/AgentDeck/registry.json x`,
+			}, nil},
+		{"linux", "/home/ada/smolcorp-demo", "/home/ada", "/home/ada/.config/sauzzedeck-pro",
+			[]string{`grep -r . "$HOME/.config/sauzzedeck-pro"`, `grep -r . "$XDG_CONFIG_HOME/sauzzedeck-pro"`, `cat $HOME/.config/sauzzedeck-pro/registry.json`},
+			nil},
+		{"windows", `C:\Users\ada\smolcorp-demo`, `C:\Users\ada`, `C:\Users\ada\AppData\Roaming\SauzzeDeck Pro`,
+			[]string{
+				`cat '/c/Users/ada/AppData/Roaming/SauzzeDeck Pro/registry.json'`, `grep -r . '/c/Users/ada/AppData/Roaming/SauzzeDeck Pro'`,
+				`cat '/C/users/ada/appdata/roaming/sauzzedeck pro/registry.json'`, `cat '/cygdrive/c/Users/ada/AppData/Roaming/SauzzeDeck Pro/registry.json'`,
+				`cat '/proc/cygdrive/c/Users/ada/AppData/Roaming/SauzzeDeck Pro/gm-token-kept'`, `ls /c/Users/ada/AppData/Roaming/SauzzeDeck\ Pro`,
+				`cat "$APPDATA/SauzzeDeck Pro/registry.json"`, `cat "$HOME/AppData/Roaming/SauzzeDeck Pro/registry.json"`,
+				`cat "$USERPROFILE/AppData/Roaming/SauzzeDeck Pro/registry.json"`, `cat "$LOCALAPPDATA/../Roaming/SauzzeDeck Pro/registry.json"`,
+				`cat 'C:/Users/ada/AppData/Roaming/SauzzeDeck Pro/registry.json::$DATA'`, `cat 'C:/Users/ada/AppData/Roaming/SauzzeDeck Pro./registry.json'`,
+				`cat 'C:/Users/ada/AppData/Roaming/SauzzeDeck Pro /registry.json'`, `cat '\Users\ada\AppData\Roaming\SauzzeDeck Pro\registry.json'`,
+				`cat /tmp/../c/x`, `cat C:registry.json`,
+			},
+			[]string{
+				"git -C /c/Users/ada/smolcorp-demo/app diff main...hire/tester-1 > /dev/null; echo $?",
+				"cat /c/Users/ada/smolcorp-demo/app/notes.md", "python3 -m unittest 2>&1 | tail -5 > /dev/null",
+			}},
+	} {
+		f := demoFence{root: s.root, roles: []string{"tester"}, home: s.home, support: s.support, goos: s.goos}
+		repo := f.paths().join(s.root, demoRepoName)
+		tool := func(name string, input map[string]any) demoCall {
+			data, _ := json.Marshal(input)
+			return demoCall{ToolName: name, ToolInput: data, Cwd: repo}
+		}
+		var refused []demoCall
+		for _, line := range s.refused {
+			refused = append(refused, bashCall(line, repo))
+		}
+		allowed := []demoCall{bashCall("echo $?", repo), bashCall("grep -n '$HOME/x' notes.md", repo), bashCall(`echo "$HOME"`, repo)}
+		for _, line := range s.allowed {
+			allowed = append(allowed, bashCall(line, repo))
+		}
+		if s.goos == "windows" {
+			for _, file := range []string{
+				"/c/Users/ada/AppData/Roaming/SauzzeDeck Pro/registry.json", "/cygdrive/c/Users/ada/AppData/Roaming/SauzzeDeck Pro/setup-key",
+				"/proc/cygdrive/C/Users/ada/AppData/Roaming/SauzzeDeck Pro", `C:\Users\ada\AppData\Roaming\SauzzeDeck Pro\registry.json::$DATA`,
+				`C:\Users\ada\AppData\Roaming\SauzzeDeck Pro.\registry.json`, "/tmp/x", `\Users\ada\AppData`,
+			} {
+				refused = append(refused, tool("Read", map[string]any{"file_path": file}), tool("Write", map[string]any{"file_path": file}))
+			}
+			refused = append(refused, tool("Grep", map[string]any{"path": "/c/Users/ada/AppData/Roaming/SauzzeDeck Pro", "pattern": "."}),
+				tool("Glob", map[string]any{"pattern": "/c/Users/ada/AppData/Roaming/SauzzeDeck Pro/*"}),
+				tool("Glob", map[string]any{"path": "/c/Users/ada", "pattern": "**/s*"}),
+				tool("LS", map[string]any{"path": "/c/Users/ada/AppData/Roaming/SauzzeDeck Pro"}))
+			// Git Bash's drive is the demo's folder too: a write there is inside it.
+			allowed = append(allowed, tool("Write", map[string]any{"file_path": "/c/Users/ada/smolcorp-demo/app/notes.md"}),
+				tool("Read", map[string]any{"file_path": "/c/Users/ada/smolcorp-demo/app/bill.py"}))
+		}
+		for _, c := range refused {
+			if why := f.check(c); !strings.HasPrefix(why, demoFenceRefusal) {
+				t.Errorf("on %s, let through %s %s", s.goos, c.ToolName, c.ToolInput)
+			}
+		}
+		for _, c := range allowed {
+			if why := f.check(c); why != "" {
+				t.Errorf("on %s, refused %s %s: %s", s.goos, c.ToolName, c.ToolInput, why)
+			}
+		}
+	}
+	if why := (demoFence{root: "/Users/ada/smolcorp-demo", home: "/Users/ada", support: "/Users/ada/Library/Application Support/AgentDeck", goos: "darwin"}).
+		command(`cat "$HOME/x/y"`, "/Users/ada/smolcorp-demo/app"); !strings.Contains(why, "write the path out plainly") {
+		t.Errorf("the refusal: %q", why)
+	}
+}

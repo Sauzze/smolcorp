@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -66,6 +67,58 @@ func (p fencePaths) isAbs(name string) bool {
 // rooted says whether a path that isn't whole starts at the top of a drive (\x, /x on Windows).
 func (p fencePaths) rooted(name string) bool {
 	return strings.HasPrefix(name, "/") || strings.HasPrefix(name, `\`)
+}
+
+// gitBash is a path as Git Bash (MSYS2), Claude Code's Bash on Windows, hands it to Windows: /c/…, /cygdrive/c/…
+// and /proc/cygdrive/c/… are C:\… (RWIN5 B2). Only as written with /: Windows reads \c\… as a folder c at the
+// top of the drive. Any other path is as it was, and off Windows every path is.
+func (p fencePaths) gitBash(name string) string {
+	if !p.windows() {
+		return name
+	}
+	if drive := gitBashDrive.FindStringSubmatch(name); drive != nil {
+		return strings.ToUpper(drive[1]) + `:\` + name[len(drive[0]):]
+	}
+	return name
+}
+
+var gitBashDrive = regexp.MustCompile(`^/(?i:proc/+)?(?i:cygdrive/+)?([A-Za-z])(?:/+|$)`)
+
+// gitBashDevice says whether a path is one of Git Bash's devices (/dev/null, /dev/stdout, /dev/fd/2), written with
+// / and staying in /dev once its .. are taken: no folder of the disk's. Off Windows, /dev is the disk's own.
+func (p fencePaths) gitBashDevice(name string) bool {
+	return p.windows() && strings.HasPrefix(name, "/dev/") && !strings.Contains(name, `\`) && strings.HasPrefix(path.Clean(name), "/dev/")
+}
+
+// win32 is a Windows path with each name as Win32 reads it: what follows a : taken off (an NTFS stream,
+// registry.json::$DATA is registry.json) and the dots and blanks at its end (SauzzeDeck Pro. is SauzzeDeck Pro).
+// The drive's own : stays, so C:x still drifts. A name of dots alone (., ..) is as it was. Off Windows, name. The
+// fence reads a path into the app's support folder this way (supportRests); a write's path keeps its : and is
+// refused (drifts).
+func (p fencePaths) win32(name string) string {
+	if !p.windows() {
+		return name
+	}
+	volume := p.volume(name)
+	var out strings.Builder
+	out.WriteString(volume)
+	for rest := name[len(volume):]; rest != ""; {
+		end := strings.IndexAny(rest, `/\`)
+		if end < 0 {
+			end = len(rest)
+		}
+		part, _, _ := strings.Cut(rest[:end], ":")
+		if trimmed := strings.TrimRight(part, ". "); trimmed != "" && strings.Trim(part, ".") != "" {
+			part = trimmed
+		}
+		out.WriteString(part)
+		if end < len(rest) {
+			out.WriteByte(rest[end])
+			end++
+		}
+		rest = rest[end:]
+	}
+	return out.String()
 }
 
 // drifts says whether a Windows path means a place the fence can't read from its letters: a drive with no

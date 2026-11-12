@@ -243,6 +243,42 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 			row{who.fence, bashCall("cd "+shellQuoted(briefFolder)+" && cat ../../../registry.json", who.cwd)},
 			row{who.fence, bashCall("ls "+shellQuoted(briefFolder), who.cwd)})
 	}
+	// RWIN5 B1: a path the shell builds with $ or a backtick is refused, whatever it fills in: $HOME is the fence's
+	// home, and the app's folder is below it. B3: a name the Mac's disk reads with ſ (the long s) as s, which
+	// strings.ToLower didn't: the setup key, Claude Code's settings (the demo's own fence), smolcorp itself.
+	fromHome, err := filepath.Rel(homeDir, supportDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, who := range []struct {
+		fence demoFence
+		cwd   string
+	}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+		fromCwd, err := filepath.Rel(who.cwd, supportDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range []string{
+			`cat "$HOME/` + fromHome + `/registry.json"`, `cat "${HOME}/` + fromHome + `/config.json"`,
+			`cat "$TMPDIR/` + filepath.Base(supportDir) + `/registry.json"`, `cat "$PWD/` + fromCwd + `/registry.json"`,
+			`grep -r . "$HOME/` + fromHome + `"`, `cp "$HOME/` + fromHome + `/registry.json" leak.txt`,
+			`echo x > "$HOME/` + fromHome + `/config.json"`, `cat "$(pwd)/` + fromCwd + `/registry.json"`,
+			"cat `pwd`/" + strings.ReplaceAll(fromCwd, " ", `\ `) + "/registry.json", "cat $OLDPWD/registry.json",
+			`cat $'\x2f'` + shellQuoted(strings.TrimPrefix(supportDir, "/")) + `/registry.json`,
+			"echo '{}' > .claude/\u017fettings.json", "rm .claude/\u017fettings.json", "cp x.json .claude/\u017fettings.local.json",
+			"cat " + shellQuoted(filepath.Join(supportDir, "\u017fetup-key")), "cat \u017fetup-key", "\u017fmolcorp mcp",
+			"/usr/local/bin/\u017fmolcorp mcp < m.txt",
+		} {
+			refused = append(refused, row{who.fence, bashCall(line, who.cwd)})
+		}
+		// The demo's own lines with a $ still run: one with no path in it, and a $ in single quotes, which the
+		// shell leaves as it is.
+		for _, line := range []string{"echo $?", "git diff main...hire/tester-1 > /dev/null; echo $?", "grep -n '$HOME/x' notes.md"} {
+			if why := who.fence.check(bashCall(line, who.cwd)); why != "" {
+				t.Errorf("refused %q: %s", line, why)
+			}
+		}
+	}
 	// RWIN4 B2: the support folder written in another case is the same folder on the Mac's disk (and Windows'):
 	// every rule holds for it. The last part upper-cased, the whole path, through ~ and .., and a link to it.
 	if runtime.GOOS == "darwin" {
