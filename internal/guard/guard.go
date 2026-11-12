@@ -109,12 +109,14 @@ func (r *Refusal) Error() string {
 		"`. A hire doesn't do this; ask the GM, who asks the owner."
 }
 
-// Fold is text as the Mac's disk and Windows' compare names, case aside: each letter taken to the least member of
-// its Unicode simple case folding (ſ, the long s, is s; K, the Kelvin sign, is k), then to lower case. ToLower
-// alone leaves ſ as it is, and APFS reads ſetup-key as setup-key (RWIN5 B3). Every name the guard or the demo's
-// fence holds back (the setup key, the token, the guard file, Claude Code's settings, a program's name) is
-// compared folded. The disk folds fully too (ß is ss, ﬁ is fi: RWIN6 B2), and Fold doesn't: a word with a letter
-// outside ASCII is refused, unless it is data such as a commit message (plain.go), so no such name gets this far.
+// Fold is text as the Mac's disk and Windows' compare names, case aside: NFC, then full case folding (WIN125h).
+// Each letter goes to the least member of its Unicode simple case folding (ſ, the long s, is s; K, the Kelvin
+// sign, is k), then to lower case, and the letters that fold to more than one (ß and ẞ are ss, ﬁ is fi: RWIN6
+// B2) are spelled out first. NFC's one-letter forms that are ASCII (the Kelvin sign is K, U+037E is ;, U+1FEF is
+// `) are taken too. NFC's other changes put an accent on a letter, and an accented letter is never ASCII: every
+// name the guard or the demo's fence holds back (the setup key, the token, the guard file, Claude Code's
+// settings, a program's name) is ASCII, so these never make one match or miss. A path or argument that isn't
+// written plainly (an accent typed apart, a ligature) is refused before any comparison (plain.go).
 func Fold(text string) string {
 	return strings.Map(func(r rune) rune {
 		least := r
@@ -122,8 +124,15 @@ func Fold(text string) string {
 			least = min(least, other)
 		}
 		return unicode.ToLower(least)
-	}, text)
+	}, fullFolds.Replace(text))
 }
+
+// fullFolds are Unicode's full case folds of more than one letter where the letters are ASCII (as RWIN6 found them
+// on the Mac's disk), ŉ and ǰ (Latin letters the guard's plain words keep out anyway), and NFC's ASCII singletons.
+var fullFolds = strings.NewReplacer(
+	"\u00df", "ss", "\u1e9e", "ss", "\ufb00", "ff", "\ufb01", "fi", "\ufb02", "fl", "\ufb03", "ffi", "\ufb04", "ffl",
+	"\ufb05", "st", "\ufb06", "st", "\u0149", "\u02bcn", "\u01f0", "j\u030c", "\u037e", ";", "\u1fef", "`",
+)
 
 // Always refused, whatever the groups say, wherever the text is in the
 // line and in any word of it (quotes, escapes and braces taken away, and

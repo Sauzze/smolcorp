@@ -3,6 +3,7 @@ package guard
 import (
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // WIN125g (RWIN6 B2–B4): the guard stops chasing spellings and refuses a line not written plainly (plain.go), for
@@ -29,11 +30,15 @@ func TestTheGuardRefusesWhatIsntWrittenPlainly(t *testing.T) {
 		"cat setup-key\x00x", "cat setup\x1b-key", "ls\rgit push", "cat \xff", "echo x\x7f", "echo \u0085",
 		// $'…' outside other quotes, wherever it is.
 		`echo $'x'`, `git commit -m $'fix'`, "cat ${X:-$'\\x73etup-key'}", "echo \"$(cat $'x')\"",
-		// A letter outside ASCII outside quotes, anywhere; inside quotes, anywhere but data.
-		"cat ﬁle.txt", "cat docs/Straße.md", "git commit -m fix\\ é", "echo café", "'ßh' host", `"ﬂy" deploy`,
-		"cat 'docs/Straße.md'", "cp x 'ﬁle'", "npx 'ﬁrebase-tools' deploy", "env 'ßh' host", "echo x > 'é.txt'",
-		"cat < 'é.txt'", "X='é' make", "git log --author='Élodie'", "grep -rn 'é' .", "sh -c 'echo é'",
-		"git commit -F 'é.txt'", "git ls-files -m 'é'", "git commit -m ok 'é.go'",
+		// A word not written plainly (WIN125h: a letter the disk may read as another, another script, an accent
+		// typed apart, an invisible one) outside quotes, anywhere; inside quotes, anywhere but data. A program's
+		// name with any letter outside ASCII.
+		"cat ﬁle.txt", "cat docs/Straße.md", "git commit -m fix\\ ﬁ", "echo caﬁ", "'ßh' host", `"ﬂy" deploy`,
+		"cat 'docs/Straße.md'", "cp x 'ﬁle'", "npx 'ﬁrebase-tools' deploy", "env 'ßh' host", "echo x > 'ﬁ.txt'",
+		"cat < 'ﬁ.txt'", "X='ﬁ' make", "git log --author='Ｅlodie'", "grep -rn 'ß' .", "sh -c 'echo ß'",
+		"git commit -F 'ﬁ.txt'", "git ls-files -m 'ß'", "git commit -m ok 'ﬁ.go'",
+		"présentation.sh", "./présentation.sh", "'Équipe/run'", "env présentation", "sh -c 'présentation x'",
+		"timeout 9 ﬁx", "command été", "exec été",
 		// A word that starts with = (zsh's =cmd), even quoted as the command's name.
 		"'=git' push", "env =ssh host", "sudo =git push", "cat =(echo x)", "ls =ls",
 		// zsh's glob forms: ( glued or opening a word after the name, ^, ~ and # inside a word.
@@ -65,6 +70,81 @@ func TestTheGuardRefusesWhatIsntWrittenPlainly(t *testing.T) {
 		"git log HEAD~3..HEAD", "git show HEAD^:go.mod", "git diff abc1234^2 HEAD^{tree}", "git log origin/main..HEAD~1",
 		"cat 'setup-key(N)'", "echo 'x#y' \"a~b\" 'c^d'", "git log --format='%h %s' -3", "grep -n '^func ' x.go",
 	})
+}
+
+// WIN125h: the owner's clients are French, and their folders and files carry accents. A path or an argument with
+// an accented Latin letter, typed as one letter, runs for a managed hire and for the GM, quoted or not, and as a
+// redirection's target. A word the disk may read as another name, or that holds another script, an accent typed
+// apart or an invisible letter, is still refused, as is a program's name with any letter outside ASCII.
+func TestAccentedPathsRun(t *testing.T) {
+	accented := []string{
+		"cat docs/présentation.md", `cd "Wonder/Équipe"`, "ls Équipe/", "git add docs/présentation.md",
+		"mv présentation.md présentation-v2.md", `git commit -m "Ajoute la présentation de l'équipe"`,
+		"cat 'docs/présentation.md'", "cp Équipe/budget.xlsx Archivé/", "mkdir -p Réunions/Été", "git mv Œuvre.md œuvre.md",
+		"echo x > 'résumé.txt'", "cat < 'résumé.txt'", "X='é' make", "git log --author='Élodie'", "grep -rn 'é' .",
+		"sh -c 'cat présentation.md'", "git commit -F 'message-été.txt'", "git commit -m ok 'é.go'",
+		"echo café", "git commit -m fix\\ é", "rm -f Ÿ.md ÿ.md ø.md ñ.md ő.md ž.md ǎ.md", "timeout 9 cat présentation.md",
+		"env LANG=fr_FR.UTF-8 cat présentation.md", "find Équipe -name '*.md'", "git diff HEAD~1 -- docs/présentation.md",
+	}
+	refused := []string{
+		// Ligatures, fullwidth and compatibility forms: NFKC changes them.
+		"cat ﬁle.md", "cat Ｆile.md", "cat ﬂèche.md", "cat ĳs.md", "cat 'Ｆile.md'", "cat docs/\u212aelvin.md", "cat ŀl.md",
+		// Full case folding isn't lower case: ß is ss, ſ is s, ŉ, ǰ.
+		"cat Straße.md", "cat ẞ.md", "cat ſetup.md", "cat ŉ.md", "cat ǰ.md",
+		// A letter whose other case is ASCII: ı and İ.
+		"cat fıle.md", "cat İndex.md",
+		// Another script: a Cyrillic а and е, a Greek ο, Latin Extended Additional, IPA, a click that looks like |.
+		"cat d\u0430ta.md", "cat docs/pr\u0435sentation.md", "cat d\u03bfcs/x.md", "cat 'd\u0430ta.md'", "cat \u1ebd.md", "cat \u0251.md", "cat a\u01c0b.md",
+		// An accent typed apart (NFC would join it), zero-width and bidi characters, a no-break space.
+		"cat pre\u0301sentation.md", "cat se\u200btup-key", "cat a\u200db.md", "cat \u202etxt.md", "cat a\u2066b.md", "cat a\u00a0b.md",
+		"cat a\ufeffb.md", "cat \u00aa.md",
+		// A program's name, wherever it is.
+		"présentation.sh", "env présentation", "xargs -0 été",
+	}
+	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+		for _, line := range accented {
+			if r := Check(line, groups); r != nil {
+				t.Errorf("refused %q: %v", line, r)
+			}
+		}
+		for _, line := range refused {
+			if r := Check(line, groups); r == nil || r.Rule != notPlainRule {
+				t.Errorf("%q: %v, want: %s", line, r, notPlainRule)
+			}
+		}
+	}
+}
+
+// WIN125h: plainLatin's list is Unicode's. notPlainLatin was taken from Python's unicodedata (Unicode 16):
+//
+//	[c for c in map(chr, range(0xC0, 0x250)) if unicodedata.category(c)[0] == 'L' and
+//	 (unicodedata.normalize('NFKC', c) != c or c.casefold() != c.lower())]
+//
+// and the letters plainLatin keeps are the 371 that are upper or lower case, none of those, and with no case that
+// is ASCII. The French letters are among them; ß, ſ, ĳ, ŀ, ı, İ and the clicks aren't.
+func TestPlainLatinIsUnicodes(t *testing.T) {
+	kept := 0
+	for r := rune(0); r < 0x300; r++ {
+		if plainLatin(r) {
+			kept++
+			if r < 0xC0 || r > 0x24F || !unicode.Is(unicode.Latin, r) {
+				t.Errorf("%U kept", r)
+			}
+		}
+	}
+	if kept != 371 {
+		t.Errorf("%d letters kept, want 371", kept)
+	}
+	for _, r := range "àâäæçéèêëîïôöœùûüÿÀÂÄÆÇÉÈÊËÎÏÔÖŒÙÛÜŸñÑøØåÅőŐžŽǎ" {
+		if !plainLatin(r) {
+			t.Errorf("%c refused", r)
+		}
+	}
+	for _, r := range notPlainLatin + "ıİǀǁǂǃƻ×÷ʼ" {
+		if plainLatin(r) {
+			t.Errorf("%c (%U) kept", r, r)
+		}
+	}
 }
 
 // WIN125g: normal work still runs for a managed hire (and for the GM): the lines a developer runs every day, French

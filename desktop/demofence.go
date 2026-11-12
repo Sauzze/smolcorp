@@ -111,15 +111,16 @@ func (f demoFence) check(c demoCall) string {
 	if namesSetupKey(c.ToolInput) {
 		return demoFenceRefusal + "the setup key is the owner's: the demo never reads or sends it."
 	}
-	// A path written with a letter outside ASCII or a control character may be another name to the disk (ß is ss):
-	// refused, as the guard refuses it in a line (WIN125g). Grep's pattern is text, not a path.
+	// A path not written plainly (a control character, ß, ﬁ, another script, an accent typed apart) may be another
+	// name to the disk (ß is ss): refused, as the guard refuses it in a line (WIN125g). An accented Latin letter (é,
+	// ç) is plain (WIN125h). Grep's pattern is text, not a path.
 	for _, key := range []string{"file_path", "path", "notebook_path", "glob"} {
 		if value, _ := input[key].(string); !demoPlainPath(value) {
-			return demoFenceRefusal + "a path with a letter outside ASCII or a control character, which the disk may read as another name: write the path plainly."
+			return demoFenceRefusal + "a path with a control character or a letter the disk may read as another name (ß, ﬁ, another script): write the path plainly."
 		}
 	}
 	if pattern, _ := input["pattern"].(string); c.ToolName == "Glob" && !demoPlainPath(pattern) {
-		return demoFenceRefusal + "a pattern with a letter outside ASCII or a control character, which the disk may read as another name: write the pattern plainly."
+		return demoFenceRefusal + "a pattern with a control character or a letter the disk may read as another name (ß, ﬁ, another script): write the pattern plainly."
 	}
 	switch name := c.ToolName; {
 	case name == "Read" || name == "Grep" || name == "Glob" || name == "LS" || name == "NotebookRead":
@@ -379,14 +380,15 @@ func demoBuiltPath(line string) string {
 	return ""
 }
 
-// demoPlainPath is whether a tool's path is written plainly: printable ASCII and nothing else.
+// demoPlainPath is whether a tool's path is written plainly: no control character, and a plain word to the guard
+// (printable ASCII, and accented Latin letters typed as one letter: guard.PlainWord).
 func demoPlainPath(path string) bool {
 	for i := 0; i < len(path); i++ {
-		if path[i] < 0x20 || path[i] > 0x7e {
+		if path[i] < 0x20 || path[i] == 0x7f {
 			return false
 		}
 	}
-	return true
+	return guard.PlainWord(path)
 }
 
 // demoTopWords are the words of a line's simple commands, as bash reads it and as a plain reading does (a \ a

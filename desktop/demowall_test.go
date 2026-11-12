@@ -282,7 +282,7 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 	// RWIN6 B1: a redirection glued to its target (>file, 2>file, <file) reads or writes that file: its target is a
 	// path, judged as any other. B2–B4: a line not written plainly is refused by the guard the fence asks first:
 	// ß, ﬂ and ﬁ in a program's name, a NUL in $'…', zsh's (a|b) and =cmd (the demo's wall too). And a tool's
-	// path with a letter outside ASCII. Its own STATUS.md, written with a glued >>, is still its own.
+	// path not written plainly. Its own STATUS.md, written with a glued >>, is still its own.
 	for _, who := range []struct {
 		fence demoFence
 		cwd   string
@@ -304,13 +304,45 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 		} {
 			refused = append(refused, row{who.fence, bashCall(line, who.cwd)})
 		}
+		// WIN125h: a path the disk may read as another name, or in another script, is refused: ß, ﬁ, a fullwidth Ｆ, a
+		// Cyrillic а, and an é typed as e and an accent.
 		refused = append(refused, row{who.fence, read(who.cwd, filepath.Join(who.cwd, "\u00dfetup.md"))},
-			row{who.fence, write(who.cwd, filepath.Join(who.cwd, "r\u00e9sum\u00e9.md"))},
-			row{who.fence, tool(who.cwd, "Glob", map[string]any{"pattern": "\ufb01*"})})
+			row{who.fence, write(who.cwd, filepath.Join(who.cwd, "\ufb01le.md"))},
+			row{who.fence, read(who.cwd, filepath.Join(who.cwd, "\uff26ile.md"))},
+			row{who.fence, write(who.cwd, filepath.Join(who.cwd, "d\u0430ta.md"))},
+			row{who.fence, read(who.cwd, filepath.Join(who.cwd, "re\u0301sume\u0301.md"))},
+			row{who.fence, tool(who.cwd, "Glob", map[string]any{"pattern": "\ufb01*"})},
+			row{who.fence, bashCall("cat \ufb01le.md", who.cwd)}, row{who.fence, bashCall("cat \uff26ile.md", who.cwd)},
+			row{who.fence, bashCall("cat docs/pr\u0435sentation.md", who.cwd)})
 	}
 	for _, line := range []string{"echo 'Done.' >>" + shellQuoted(filepath.Join(testerFolder, "STATUS.md")), "ls 2>/dev/null", "git diff HEAD~1 -- bill.py"} {
 		if why := asTester.check(bashCall(line, tester.Worktree)); why != "" {
 			t.Errorf("refused %q: %s", line, why)
+		}
+	}
+	// WIN125h: an accented path in the demo's folder is the project's own (the owner's clients are French): read,
+	// written, listed and moved, by a tool and in a line, for the GM and the tester.
+	for _, who := range []struct {
+		fence demoFence
+		cwd   string
+	}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+		accented := []demoCall{
+			read(who.cwd, filepath.Join(who.cwd, "docs", "pr\u00e9sentation.md")),
+			write(who.cwd, filepath.Join(who.cwd, "\u00c9quipe", "r\u00e9sum\u00e9.md")),
+			tool(who.cwd, "Glob", map[string]any{"pattern": "\u00c9quipe/*.md"}),
+			tool(who.cwd, "Grep", map[string]any{"pattern": "fa\u00e7ade", "path": filepath.Join(who.cwd, "docs", "pr\u00e9sentation.md")}),
+		}
+		for _, line := range []string{
+			"cat docs/pr\u00e9sentation.md", `cd "Wonder/\u00c9quipe"`, "ls \u00c9quipe/", "git add docs/pr\u00e9sentation.md",
+			"mv pr\u00e9sentation.md pr\u00e9sentation-v2.md", "cat " + shellQuoted(filepath.Join(who.cwd, "docs", "pr\u00e9sentation.md")),
+			`git commit -m "Ajoute la pr\u00e9sentation de l'\u00e9quipe"`,
+		} {
+			accented = append(accented, bashCall(line, who.cwd))
+		}
+		for _, call := range accented {
+			if why := who.fence.check(call); why != "" {
+				t.Errorf("refused %s %s: %s", call.ToolName, call.ToolInput, why)
+			}
 		}
 	}
 	// RWIN4 B2: the support folder written in another case is the same folder on the Mac's disk (and Windows'):

@@ -267,10 +267,11 @@ func TestNoSpellingNamesTheSetupKey(t *testing.T) {
 	// WIN125g: a ~ inside a word is a pattern to zsh (setup-key~1 is setup-key, but not 1), so these look-alikes
 	// are refused with it, as the plain-writing rule refuses every such word (plain.go).
 	mustRefuse(t, "a ~ inside a word", []string{"ls setup-~", "cat sexy~1", "cat setup-key~1"})
-	// Fold is simple case folding: ſ and s, K and k, any case, are one letter. ß stays one letter to Fold, though the
-	// Mac's disk reads it as ss (RWIN6 B2): a word with a letter outside ASCII never gets to Fold's comparison, as
-	// the guard refuses it first (plain.go).
-	for in, want := range map[string]string{"\u017fetup-KEY": "setup-key", "Setup-\u212aey": "setup-key", "Stra\u00dfe": "stra\u00dfe", "\u03a3\u03c2": "\u03c3\u03c3"} {
+	// Fold is the disk's folding (WIN125h): ſ and s, K and k, any case, are one letter, and ß is ss, ﬁ is fi, as the
+	// Mac's disk reads them (RWIN6 B2). An accented letter stays itself.
+	for in, want := range map[string]string{"\u017fetup-KEY": "setup-key", "Setup-\u212aey": "setup-key", "Stra\u00dfe": "strasse", "\u03a3\u03c2": "\u03c3\u03c3",
+		"\u1e9eH": "ssh", "\ufb02y": "fly", "\ufb01rebase": "firebase", "fa\ufb06lane": "fastlane", "\ufb00\ufb03\ufb04\ufb05": "ffffifflst", "a\u037eb": "a;b",
+		"Pr\u00c9sentation": "pr\u00e9sentation"} {
 		if got := Fold(in); got != want {
 			t.Errorf("Fold(%q) = %q, want %q", in, got, want)
 		}
