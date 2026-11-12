@@ -204,6 +204,10 @@ func (d *Deck) gmScopeRefusal(r *request) (int, string) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	_ = decoder.Decode(&asked)
+	if asked == nil {
+		// A literal null decodes to a nil map: read as an empty request, never a panic.
+		asked = map[string]any{}
+	}
 	text := func(key string) string { v, _ := asked[key].(string); return v }
 	resend := func(body any) {
 		data, _ := json.Marshal(body)

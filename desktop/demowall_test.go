@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -21,6 +22,10 @@ func TestTheDemosGMIsHeldToItsRolesAndItsFolder(t *testing.T) {
 	hire := func(role, folder string) (int, string) {
 		body, _ := json.Marshal(map[string]any{"role": role, "folder": folder})
 		return scopedCall(t, d, token, "POST", "/setup/gm/hire", string(body))
+	}
+	// A literal null body is an empty request: refused or answered, never a panic.
+	if code, _ := scopedCall(t, d, token, "POST", "/setup/gm/hire", "null"); code == http.StatusOK || code >= 500 {
+		t.Errorf("a null body: %d", code)
 	}
 	// B1: a role the office has but the demo doesn't offer (the fence read a comment's --role).
 	if code, text := hire("janitor", f.repo); !scopeRefused(code, text) || text != "This General Manager hires only the demo's roles, reviewer, tester." {
@@ -88,5 +93,139 @@ func TestAGMHeldToADemoKeepsTheDemosRoles(t *testing.T) {
 	body, _ = json.Marshal(map[string]any{"role": gmRole, "folder": other, "scope": other})
 	if hire, status, why := setupHireRequest(body, roles, nil, homeDir); status != 0 || hire.ScopeRoles != "" || gmScopeOf(Hire{Scope: hire.Scope}).demo != "" {
 		t.Errorf("another project: %+v %d %q", hire, status, why)
+	}
+}
+
+// WIN125d (RWIN3 B1): on a real deck, the demo's GM reads its brief (kept in the app's briefs folder) and a hire
+// it made reads its own (in hires/<id>), each by Read and by cat, and writes its STATUS.md beside it, with the
+// fence built as runDemoFence builds it. The rest of the app's folder stays refused by every route: the setup
+// key, the GM's token, the app's state, a hire's settings, another project's hire, a pattern or a link into it.
+func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
+	d, f := demoPageDeck(t)
+	token := hireTheDemosGM(t, d, f)
+	body, _ := json.Marshal(map[string]any{"role": "tester", "folder": f.repo})
+	if code, text := scopedCall(t, d, token, "POST", "/setup/gm/hire", string(body)); code != http.StatusOK {
+		t.Fatalf("the GM's hire: %d %q", code, text)
+	}
+	support := resolveExisting(supportDir)
+	gm, tester := gmNow(), Hire{}
+	for _, h := range registered(t) {
+		if h.Role == "tester" {
+			tester = h
+		}
+	}
+	if !strings.HasPrefix(gm.Brief, filepath.Join(supportDir, "briefs")+string(filepath.Separator)) ||
+		tester.Worktree == "" || tester.Brief != filepath.Join(supportDir, "hires", tester.ID, "BRIEF.md") {
+		t.Fatalf("not the briefs RWIN3 probed: the GM's %q, the tester's %q in %q", gm.Brief, tester.Brief, tester.Worktree)
+	}
+	for _, brief := range []string{gm.Brief, tester.Brief} {
+		if _, err := os.Stat(brief); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gmStatus := strings.TrimSuffix(gm.Brief, ".md") + "-STATUS.md"
+	testerFolder := filepath.Dir(tester.Brief)
+	// Another project's hire, its brief in the app's folder too.
+	other := Hire{ID: "outsider-1", Name: "Outsider", Role: "tester", Folder: filepath.Join(homeDir, "elsewhere"), Brief: filepath.Join(supportDir, "hires", "outsider-1", "BRIEF.md"), State: "working"}
+	if err := updateRegistry(func(r *registryFile) { r.hires = append(r.hires, other) }); err != nil {
+		t.Fatal(err)
+	}
+	// Links into the app's folder: one in the hire's worktree, one beside its brief, named as a brief's file.
+	os.WriteFile(filepath.Join(supportDir, "gm-token"), []byte("x"), 0o600)
+	t.Cleanup(func() { os.Remove(filepath.Join(supportDir, "gm-token")) })
+	linkInWorktree, linkBeside := filepath.Join(tester.Worktree, "notes.md"), filepath.Join(testerFolder, "notes.md")
+	for _, link := range []string{linkInWorktree, linkBeside} {
+		if err := os.Symlink(filepath.Join(supportDir, "gm-token"), link); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	fence := demoFenceHere()
+	fence.root, fence.roles, fence.team = f.root, []string{"reviewer", "tester"}, nil
+	asGM, asTester := fence, fence
+	asTester.hireSession = true
+	tool := func(cwd, name string, input map[string]any) demoCall {
+		data, _ := json.Marshal(input)
+		return demoCall{ToolName: name, ToolInput: data, Cwd: cwd}
+	}
+	read := func(cwd, file string) demoCall { return tool(cwd, "Read", map[string]any{"file_path": file}) }
+	write := func(cwd, file string) demoCall {
+		return tool(cwd, "Write", map[string]any{"file_path": file, "content": "Done: the lost cent is fixed."})
+	}
+	type row struct {
+		fence demoFence
+		call  demoCall
+	}
+	allowed := []row{
+		{asGM, read(f.repo, gm.Brief)},
+		{asGM, read(f.repo, tildePath(gm.Brief))}, // as its first message names it
+		{asGM, bashCall("cat "+shellQuoted(gm.Brief), f.repo)},
+		{asGM, write(f.repo, gmStatus)},
+		{asGM, read(f.repo, gmStatus)},
+		{asGM, read(f.repo, filepath.Join(testerFolder, "STATUS.md"))}, // its hire's status
+		{asTester, read(tester.Worktree, tester.Brief)},
+		{asTester, read(tester.Worktree, tildePath(tester.Brief))},
+		{asTester, bashCall("cat "+shellQuoted(tester.Brief), tester.Worktree)},
+		{asTester, write(tester.Worktree, filepath.Join(testerFolder, "STATUS.md"))},
+		{asTester, tool(tester.Worktree, "Edit", map[string]any{"file_path": filepath.Join(testerFolder, "STATUS.md"), "old_string": "a", "new_string": "b"})},
+		{asTester, bashCall("tail -5 "+shellQuoted(filepath.Join(testerFolder, "STATUS.md")), tester.Worktree)},
+		// RWIN3 N1: a * in the project is the project's files, not the setup key.
+		{asTester, tool(tester.Worktree, "Glob", map[string]any{"pattern": "*"})},
+		{asGM, tool(f.repo, "Glob", map[string]any{"pattern": "bill/*"})},
+		{asGM, tool(f.repo, "Grep", map[string]any{"pattern": "set*"})},
+		{asGM, tool(f.repo, "Grep", map[string]any{"pattern": ".", "glob": "setup-*"})},
+	}
+	for _, r := range allowed {
+		if why := r.fence.check(r.call); why != "" {
+			t.Errorf("refused %s %s: %s", r.call.ToolName, r.call.ToolInput, why)
+		}
+	}
+	tilde := func(path string) string { return strings.ReplaceAll(tildePath(path), " ", `\ `) }
+	var refused []row
+	for _, who := range []struct {
+		fence demoFence
+		cwd   string
+	}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+		for _, file := range []string{
+			filepath.Join(supportDir, "setup-key"), filepath.Join(supportDir, "gm-token"), filepath.Join(supportDir, "gm-token-kept"),
+			filepath.Join(supportDir, "registry.json"), filepath.Join(supportDir, "config.json"), filepath.Join(supportDir, "hook-key"),
+			filepath.Join(testerFolder, "settings.json"), filepath.Join(testerFolder, "..", "..", "gm-token"), other.Brief,
+			filepath.Join(supportDir, "briefs", "templates", "tester.md"), filepath.Join(supportDir, "notes.md"),
+			linkInWorktree, linkBeside, supportDir,
+		} {
+			refused = append(refused,
+				row{who.fence, read(who.cwd, file)},
+				row{who.fence, bashCall("cat "+shellQuoted(file), who.cwd)},
+				row{who.fence, bashCall("cat "+tilde(file), who.cwd)},
+				row{who.fence, write(who.cwd, file)})
+		}
+		refused = append(refused,
+			// A brief is the GM's to write, and the other files there aren't a hire's.
+			row{who.fence, write(who.cwd, gm.Brief)}, row{who.fence, write(who.cwd, tester.Brief)},
+			row{who.fence, write(who.cwd, filepath.Join(filepath.Dir(other.Brief), "STATUS.md"))},
+			row{who.fence, write(who.cwd, filepath.Join(supportDir, "hires", "STATUS.md"))},
+			// The folder by LS, Grep and Glob; and patterns that fill in a name in it (RWIN3 N7).
+			row{who.fence, tool(who.cwd, "LS", map[string]any{"path": supportDir})},
+			row{who.fence, tool(who.cwd, "Grep", map[string]any{"path": supportDir, "pattern": "."})},
+			row{who.fence, tool(who.cwd, "Grep", map[string]any{"path": filepath.Join(supportDir, "briefs"), "pattern": "."})},
+			row{who.fence, tool(who.cwd, "Glob", map[string]any{"path": supportDir, "pattern": "*"})},
+			row{who.fence, tool(who.cwd, "Glob", map[string]any{"path": filepath.Join(supportDir, "briefs"), "pattern": "../s*"})},
+			row{who.fence, tool(who.cwd, "Glob", map[string]any{"pattern": filepath.Join(supportDir, "*")})},
+			row{who.fence, tool(who.cwd, "Glob", map[string]any{"path": filepath.Dir(supportDir), "pattern": "**/s*"})},
+			row{who.fence, tool(who.cwd, "Glob", map[string]any{"path": filepath.Dir(supportDir), "pattern": "*/gm-t*"})},
+			row{who.fence, tool(who.cwd, "Grep", map[string]any{"path": filepath.Dir(supportDir), "pattern": "."})},
+			row{who.fence, tool(who.cwd, "Grep", map[string]any{"path": filepath.Dir(supportDir), "pattern": ".", "glob": "gm-*"})},
+			row{who.fence, bashCall("cat "+filepath.Dir(support)+"/"+filepath.Base(support)[:2]+"*/s*", who.cwd)},
+			row{who.fence, bashCall("cat "+filepath.Dir(support)+"/*/g?-token", who.cwd)},
+			row{who.fence, bashCall("cat "+filepath.Dir(support)+"/{x,"+filepath.Base(support)+"}/gm-token-kept", who.cwd)},
+			row{who.fence, bashCall("cat "+filepath.Join(testerFolder, "..", "..")+"/s*", who.cwd)},
+			row{who.fence, bashCall("cat "+filepath.Join(support, "hires")+"/*/settings.json", who.cwd)},
+			row{who.fence, bashCall("cat "+filepath.Join(support, "briefs")+"/*.md", who.cwd)},
+			row{who.fence, bashCall("cat "+support+"/**/BRIEF.md", who.cwd)})
+	}
+	for _, r := range refused {
+		if why := r.fence.check(r.call); !strings.HasPrefix(why, demoFenceRefusal) {
+			t.Errorf("let through %s %s", r.call.ToolName, r.call.ToolInput)
+		}
 	}
 }

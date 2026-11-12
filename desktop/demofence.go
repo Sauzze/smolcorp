@@ -43,7 +43,9 @@ import (
 //   - a send, brief or fire (or contacts) for anyone but a hire the demo made: one whose
 //     folder is inside the demo, as the office's team says;
 //   - a line or a path that names the setup key: it opens the owner's whole setup; a Read, Grep or
-//     Glob, or a word of a line, that reaches into the app's support folder, where it is;
+//     Glob, or a word of a line (a pattern too), that reaches into the app's support folder, where it is,
+//     but for a demo hire's brief and the files beside it, which a hire reads and its STATUS.md, which it
+//     writes (WIN125d); a Glob or Grep from above that folder that could reach the key or a token file;
 //   - fail-closed, what it doesn't read (WIN125c): in any line, eval, env -S (--split-string), a
 //     nested shell's -c and cmd, powershell or pwsh, which build a command line of their own; and
 //     in a line that runs smolcorp (or gm) or git worktree, outside quotes, a # comment, a
@@ -78,6 +80,9 @@ type demoFence struct {
 	home  string
 	// support is the app's support folder, resolved, where the setup key is: "" for none to keep out of.
 	support string
+	// hires are the office's hires, as its registry holds them: whose brief in support is a demo hire's
+	// (demosBriefFile). nil for none.
+	hires func() []Hire
 	// team is the office's team as the GM's own token reads it: who a send, brief or fire is for.
 	team func() ([]demoMember, error)
 	// hireSession: the call is a hire's (its send key is set). The app lets a hire write only to
@@ -94,6 +99,9 @@ func (f demoFence) paths() fencePaths { return fencePaths{goos: f.goos} }
 // demoFenceRefusal starts every refusal, so the GM and the owner know whose it is.
 const demoFenceRefusal = "Refused by the Smolcorp demo's fence: "
 
+// demoSupportRefusal is why a path in the app's own folder is refused.
+const demoSupportRefusal = "the app's own folder holds the setup key, which is the owner's: the demo reads only its hires' briefs there, and writes only their STATUS.md and reports."
+
 // check says why the call is refused, or "" to let it run.
 func (f demoFence) check(c demoCall) string {
 	var input map[string]any
@@ -105,25 +113,38 @@ func (f demoFence) check(c demoCall) string {
 	}
 	switch name := c.ToolName; {
 	case name == "Read" || name == "Grep" || name == "Glob" || name == "LS" || name == "NotebookRead":
-		// What they read: a path, or Glob's pattern up to its first wildcard; Grep's glob by its name.
-		for _, key := range []string{"file_path", "path", "notebook_path", "pattern"} {
-			value, _ := input[key].(string)
-			if key == "pattern" && name != "Glob" {
-				continue
-			}
-			if at := strings.IndexAny(value, "*?[{"); key == "pattern" && at >= 0 {
-				value = value[:at]
-			}
-			if value != "" && f.inSupport(value, c.Cwd) {
-				return demoFenceRefusal + "the app's own folder holds the setup key, which is the owner's: the demo never reads it."
+		// What they read: a path, and Glob's pattern from the folder it searches (its path, else cwd). In the
+		// app's own folder, only a demo hire's brief and the files beside it (demosBriefFile).
+		for _, key := range []string{"file_path", "path", "notebook_path"} {
+			if value, _ := input[key].(string); value != "" && f.reachesSupport(value, c.Cwd) {
+				return demoFenceRefusal + demoSupportRefusal
 			}
 		}
-		for _, key := range []string{"glob", "pattern"} {
-			value, _ := input[key].(string)
-			last := strings.ToLower(value[strings.LastIndexAny(value, `/\`)+1:])
-			if matched, err := path.Match(last, "setup-key"); err == nil && matched {
-				return demoFenceRefusal + "the setup key is the owner's: the demo never reads or sends it."
+		searched := c.Cwd
+		if folder, _ := input["path"].(string); folder != "" {
+			searched, _ = f.whole(folder, c.Cwd)
+		}
+		pattern, _ := input["pattern"].(string)
+		if name == "Glob" && pattern != "" && f.reachesSupport(pattern, searched) {
+			return demoFenceRefusal + demoSupportRefusal
+		}
+		// From above the app's folder (home, ~/Library, ~/.config, AppData): a Glob whose last part could be the
+		// setup key or a token file, and a Grep that reads every file below (no glob) or such a file (RWIN3 N1).
+		// Below it, or beside it, a * is only a project's files.
+		last := ""
+		switch name {
+		case "Glob":
+			if whole, ok := f.whole(pattern, searched); ok {
+				searched, last = f.fixedFolder(whole), pattern[strings.LastIndexAny(pattern, `/\`)+1:]
 			}
+		case "Grep":
+			glob, _ := input["glob"].(string)
+			if last = glob[strings.LastIndexAny(glob, `/\`)+1:]; glob == "" {
+				last = "*"
+			}
+		}
+		if last != "" && searched != "" && f.aboveSupport(searched) && demoSecretPattern(last) {
+			return demoFenceRefusal + "the app's own folder, below " + searched + ", holds the setup key, which is the owner's: search the demo's folder instead."
 		}
 	case name == "PowerShell":
 		// PowerShell builds words the fence can't read: ('smol'+'corp'), quotes like ‘ ’, --% with %VAR%. The
@@ -142,6 +163,9 @@ func (f demoFence) check(c demoCall) string {
 			return demoFenceRefusal + "the demo only changes files inside " + f.root + "."
 		}
 		for _, path := range paths {
+			if path != "" && f.demosOwnFile(path, c.Cwd) {
+				continue // a demo hire's STATUS.md (or report) beside its brief, in the app's own folder
+			}
 			if path == "" || !f.inside(path, c.Cwd) {
 				return demoFenceRefusal + "the demo only changes files inside " + f.root + "."
 			}
@@ -218,8 +242,8 @@ func (f demoFence) command(line, cwd string) string {
 	}
 	for _, words := range all {
 		for _, word := range words {
-			if (strings.HasPrefix(word, "~") || strings.ContainsAny(word, `/\`)) && f.inSupport(word, cwd) {
-				return demoFenceRefusal + "the app's own folder holds the setup key, which is the owner's: the demo never reads it."
+			if (strings.HasPrefix(word, "~") || strings.ContainsAny(word, `/\`)) && f.reachesSupport(word, cwd) {
+				return demoFenceRefusal + demoSupportRefusal
 			}
 		}
 	}
@@ -860,17 +884,172 @@ func (f demoFence) inFenceFolder(path, cwd string) bool {
 	return false
 }
 
-// inSupport says whether path (~ is home, a relative one is from cwd) is the app's support folder or in it,
-// links followed either way.
-func (f demoFence) inSupport(path, cwd string) bool {
+// supportRests are where path (~ is home, a relative one is from cwd) is in the app's support folder: its rest
+// below it, parts split by /, "." for the folder itself, once for each way its links are followed (a tool
+// that cleans the path first, the system that walks it); none outside it.
+func (f demoFence) supportRests(path, cwd string) []string {
 	p := f.paths()
 	path, ok := f.whole(path, cwd)
 	if f.support == "" || !ok {
+		return nil
+	}
+	var rests []string
+	for _, resolved := range []string{p.resolveExisting(path), p.resolvePhysical(path)} {
+		if rest, in := p.below(f.support, resolved); in {
+			rests = append(rests, rest)
+		}
+	}
+	return rests
+}
+
+// reachesSupport says whether path (~ is home, a relative one is from cwd), or what it fills in as a pattern
+// (patternInSupport), is in the app's support folder anywhere but a demo hire's brief and the files beside it.
+func (f demoFence) reachesSupport(path, cwd string) bool {
+	rests := f.supportRests(path, cwd)
+	if rest, in := f.patternInSupport(path, cwd); in {
+		rests = append(rests, rest)
+	}
+	return slices.ContainsFunc(rests, func(rest string) bool { return !f.demosBriefFile(rest, false) })
+}
+
+// demosOwnFile says whether path is a file a demo hire writes in the app's own folder, whichever way its links
+// are followed: its STATUS.md (or report) beside its brief.
+func (f demoFence) demosOwnFile(path, cwd string) bool {
+	rests := f.supportRests(path, cwd)
+	return len(rests) == 2 && !strings.ContainsAny(path, demoWildcards) && f.demosBriefFile(rests[0], true) && f.demosBriefFile(rests[1], true)
+}
+
+// demoWildcards are the letters that make a path a pattern, to the shell or to Glob.
+const demoWildcards = "*?[{"
+
+// patternInSupport is a pattern's rest below the app's support folder when what it fills in could be there
+// (cat ~/Lib*/App*/A*/s*, RWIN3 N7): each of its parts matches the folder's, case aside, a { part anything and a
+// ** part any number of them, and its plain folder before the first wildcard has its links followed. false for
+// a path with no wildcard, or one that stays above the folder or beside it.
+func (f demoFence) patternInSupport(path, cwd string) (string, bool) {
+	p := f.paths()
+	path, ok := f.whole(path, cwd)
+	if f.support == "" || !ok || !strings.ContainsAny(path, demoWildcards) {
+		return "", false
+	}
+	path = p.clean(path)
+	cut := strings.IndexAny(path, demoWildcards)
+	for cut > 0 && !p.separator(path[cut-1]) {
+		cut--
+	}
+	folder := p.resolveExisting(path[:cut])
+	if !strings.EqualFold(p.volume(folder), p.volume(f.support)) {
+		return "", false
+	}
+	have, want := append(f.pathParts(folder), f.pathParts(path[cut:])...), f.pathParts(f.support)
+	for i, part := range have {
+		switch {
+		case i == len(want) || part == "**":
+			return strings.Join(have[i:], "/"), true
+		case !demoPartMatches(part, want[i]):
+			return "", false
+		}
+	}
+	if len(have) == len(want) {
+		return ".", true
+	}
+	return "", false
+}
+
+// pathParts are a path's names, its volume aside.
+func (f demoFence) pathParts(name string) []string {
+	p := f.paths()
+	return strings.FieldsFunc(name[len(p.volume(name)):], func(r rune) bool { return r < 0x80 && p.separator(byte(r)) })
+}
+
+// demoPartMatches says whether one part of a pattern could fill in name, case aside: a { part (bash's
+// {a,b}) or one path.Match can't read, always.
+func demoPartMatches(pattern, name string) bool {
+	if strings.Contains(pattern, "{") {
+		return true
+	}
+	matched, err := path.Match(strings.ToLower(pattern), strings.ToLower(name))
+	return matched || err != nil
+}
+
+// fixedFolder is a whole pattern's folder before its first wildcard: where a search for it starts.
+func (f demoFence) fixedFolder(pattern string) string {
+	p := f.paths()
+	cut := strings.IndexAny(pattern, demoWildcards)
+	if cut < 0 {
+		cut = len(pattern)
+	}
+	for cut > 0 && !p.separator(pattern[cut-1]) {
+		cut--
+	}
+	return p.clean(pattern[:cut])
+}
+
+// aboveSupport says whether folder (a whole path) holds the app's support folder, or is it, links followed.
+func (f demoFence) aboveSupport(folder string) bool {
+	p := f.paths()
+	if f.support == "" || folder == "" {
 		return false
 	}
-	_, cleanIn := p.below(f.support, p.resolveExisting(path))
-	_, physicalIn := p.below(f.support, p.resolvePhysical(path))
-	return cleanIn || physicalIn
+	for _, resolved := range []string{p.resolveExisting(folder), p.resolvePhysical(folder)} {
+		if _, in := p.below(resolved, f.support); in {
+			return true
+		}
+	}
+	return false
+}
+
+// demoSecretNames are the app's files that a Glob or Grep from above its folder mustn't reach by its last part:
+// the setup key and the GM's token files (gmbyhand.go, gmtokenstore.go).
+var demoSecretNames = []string{"setup-key", gmTokenFileName, keptGMTokenName, gmSessionFileName}
+
+// demoSecretPattern says whether a pattern's last part could fill in one of demoSecretNames.
+func demoSecretPattern(last string) bool {
+	return slices.ContainsFunc(demoSecretNames, func(name string) bool { return demoPartMatches(last, name) })
+}
+
+// demoBriefTail is what follows a kept brief's stem in a file that isn't its own: -2.md, -2-STATUS.md, the
+// next brief of the same desk and minute.
+var demoBriefTail = regexp.MustCompile(`^[0-9]+(-|$)`)
+
+// demosBriefFile says whether rest, below the app's support folder, is a demo hire's brief or a file beside it,
+// as the registry says where each hire's brief is (briefs.go): a hire whose folder, and worktree if it has one,
+// are in the demo folder. A managed hire's folder (hires/<id>) is its own: every .md in it is read, and all but
+// a BRIEF written (its STATUS.md, its report). A brief kept in briefs/ (the GM's, a hire's with no worktree) is
+// <stem>.md, read, beside <stem>-STATUS.md and its report, read and written. Nothing else there: the setup key,
+// the GM's token, the app's state, another project's hire.
+func (f demoFence) demosBriefFile(rest string, write bool) bool {
+	dir, name := path.Split(rest)
+	dir = strings.TrimSuffix(dir, "/")
+	if f.hires == nil || !strings.EqualFold(path.Ext(name), ".md") {
+		return false
+	}
+	p := f.paths()
+	low := strings.ToLower(name)
+	for _, h := range f.hires() {
+		if h.Brief == "" || !f.inside(h.Folder, "") || h.Worktree != "" && !f.inside(h.Worktree, "") {
+			continue
+		}
+		brief, in := p.below(f.support, p.resolveExisting(h.Brief))
+		briefDir, briefName := path.Split(brief)
+		briefDir = strings.TrimSuffix(briefDir, "/")
+		switch {
+		case !in || !strings.EqualFold(dir, briefDir):
+		case strings.EqualFold(briefDir, "hires/"+h.ID) && h.ID != "" && !strings.ContainsAny(h.ID, `/\`) && !strings.HasPrefix(h.ID, "."):
+			if !write || !strings.HasPrefix(low, "brief") {
+				return true
+			}
+		case strings.EqualFold(briefDir, "briefs"):
+			stem := strings.ToLower(strings.TrimSuffix(briefName, path.Ext(briefName))) + "-"
+			if !write && strings.EqualFold(name, briefName) {
+				return true
+			}
+			if tail := strings.TrimSuffix(strings.TrimPrefix(low, stem), ".md"); strings.HasPrefix(low, stem) && tail != "" && !demoBriefTail.MatchString(tail) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // inside says whether path (~ is home, a relative one is from cwd) is the demo folder or below it, links followed.
@@ -1030,8 +1209,14 @@ func demoSegments(line string, escapes bool) [][]string {
 
 // runDemoFence is `smolcorp demo fence --root R --roles a,b`: the call on stdin, an answer only to refuse.
 // Anything it can't read is refused: a fence that fails open isn't one.
+// demoFenceHere is a fence on this computer, for the session it runs in, before its root and roles are read.
+func demoFenceHere() demoFence {
+	return demoFence{home: homeDir, support: resolveExisting(supportDir), team: demoTeamHere, hireSession: strings.TrimSpace(os.Getenv(hireKeyEnvironment)) != "",
+		hires: func() []Hire { return readRegistry(registryPath(), false).hires }}
+}
+
 func runDemoFence(args []string, stdin io.Reader, stdout io.Writer) int {
-	f := demoFence{home: homeDir, support: resolveExisting(supportDir), team: demoTeamHere, hireSession: strings.TrimSpace(os.Getenv(hireKeyEnvironment)) != ""}
+	f := demoFenceHere()
 	for i := 0; i+1 < len(args); i += 2 {
 		switch args[i] {
 		case "--root":

@@ -257,3 +257,58 @@ func TestNoSpellingNamesTheSetupKey(t *testing.T) {
 		"sort < in.txt", "cat docs/setup.md",
 	})
 }
+
+// WIN125d (RWIN3, the guard's breadth): a search of other files for the word runs, for the GM and every hire:
+// grep, rg and git grep with setup-key as their pattern, git log -S and --grep, a pipe into grep. Each row of
+// RWIN3's table is here, allowed or refused. What reads the key stays refused: its path among a search's files
+// (or as -f's, --glob's, --include's), a pattern that fills it in, and every other command naming it.
+func TestTheGuardRunsASearchForTheSetupKeyWord(t *testing.T) {
+	const support = `~/Library/Application\ Support/AgentDeck`
+	runs := []string{
+		// RWIN3's table: refused by WIN125c, run now.
+		"grep -rn setup-key desktop/", `grep -rn "setup-key" .`, "git grep setup-key", "rg -l setup-key Sources/",
+		"git log -S setup-key --oneline", "git log --grep=setup-key",
+		"go test ./internal/guard/ 2>&1 | grep setup-key",
+		// The same, by other spellings.
+		"grep -e setup-key -r desktop/", "grep --regexp setup-key desktop/x.go", "grep -i -- setup-key README.md",
+		"egrep -c 'setup-key|hook-key' notes.md", "rg -n --glob '*.go' setup-key", "rg -C 2 setup-key internal/",
+		"git log -G setup-key -p", "git log --all --grep setup-key", "git -C ../app grep -n setup-key -- '*.go'",
+		"git grep -e setup-key HEAD~1", "grep -esetup-key notes.md", "git log -Ssetup-key",
+		// RWIN3's "these still run".
+		`git commit -m "the setup-key file"`, "find . -name '*key*'", "ls setup-*.md", "sort < in.txt", "cat < notes.md",
+		"wc -l < setup-keys.md",
+	}
+	refused := []string{
+		// RWIN3's table: they read the key, or name it as a file.
+		"shasum -a 256 setup-key | cut -c1-64 | shasum | cut -c1-12",
+		"stat -f '%N %z %m' " + support + "/setup-key", "ls -la " + support + "/setup-key", `test -f "$S/setup-key"`,
+		"ls *key*", "cat set*", "ls -d setup*", "rm -f *-key", "find . -name *key*", "ls docs/setup-*",
+		// A search whose files hold the key: by its path, by -f, --glob, --include, a pattern that fills it in.
+		"grep setup-key " + support + "/setup-key", "grep -r x " + support + "/setup-key", "grep -e x setup-key",
+		"grep -f setup-key notes.md", "grep -fsetup-key notes.md", "grep --file=setup-key notes.md",
+		"rg -g setup-key x .", "rg --glob=setup-key x .", "grep -r --include=setup-key x .", "grep -r --include setup-key x .",
+		"grep x set*", "grep set* .", "grep -e x set*", "rg x " + support + "/setup-k?y",
+		"git grep x -- setup-key", "git grep -e x HEAD -- " + support + "/setup-key", "git log -S x -- setup-key",
+		"git log setup-key", "grep -- x setup-key", "grep setup-key < setup-key", "grep -c setup-key setup-key",
+		// grep's -r is a flag, rg's -r takes the replacement: neither turns a file into the pattern.
+		"grep -r x setup-key", "rg -r y x setup-key",
+		// Not a search: the word names the key.
+		"setup-key", "cat setup-key", "xargs grep setup-key", "echo setup-key", "git show setup-key",
+	}
+	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+		for _, line := range runs {
+			if r := Check(line, groups); r != nil {
+				t.Errorf("refused %q: %v", line, r)
+			}
+		}
+		for _, line := range refused {
+			if r := Check(line, groups); r == nil || r.Rule != setupKeyFile {
+				t.Errorf("%q: %v", line, r)
+			}
+		}
+	}
+	// RWIN3 N8: a > to the key shows as a >.
+	if r := Check("echo x > setup-key", DefaultGroups()); r == nil || r.Command != "> setup-key" {
+		t.Errorf("a > to the key: %v", r)
+	}
+}

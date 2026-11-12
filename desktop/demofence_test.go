@@ -17,14 +17,19 @@ func TestTheDemosFenceRefusesWhatItDoesntRead(t *testing.T) {
 	hostRepo := demoCheckout(t, hostRoot, "tester-1")
 	type system struct {
 		goos, root, home, support, supportWord, outside string
+		// supportGlob is a pattern that fills in the folder, wildcards in every part (RWIN3 N7).
+		supportGlob string
 	}
 	systems := []system{
-		{"windows", `C:\Users\ada\smolcorp-demo`, `C:\Users\ada`, `C:\Users\ada\AppData\Roaming\SauzzeDeck Pro`, `~/AppData/Roaming/SauzzeDeck\ Pro`, "C:/Users/ada/elsewhere"},
-		{"darwin", "/Users/ada/smolcorp-demo", "/Users/ada", "/Users/ada/Library/Application Support/AgentDeck", `~/Library/Application\ Support/AgentDeck`, "/Users/Shared/rwin2-nowhere"},
-		{"linux", "/home/ada/smolcorp-demo", "/home/ada", "/home/ada/.config/sauzzedeck-pro", "~/.config/sauzzedeck-pro", "/srv/rwin2-nowhere"},
+		{"windows", `C:\Users\ada\smolcorp-demo`, `C:\Users\ada`, `C:\Users\ada\AppData\Roaming\SauzzeDeck Pro`, `~/AppData/Roaming/SauzzeDeck\ Pro`, "C:/Users/ada/elsewhere",
+			"~/App*/Roa*/Sau*"},
+		{"darwin", "/Users/ada/smolcorp-demo", "/Users/ada", "/Users/ada/Library/Application Support/AgentDeck", `~/Library/Application\ Support/AgentDeck`, "/Users/Shared/rwin2-nowhere",
+			"~/Lib*/App*/A*"},
+		{"linux", "/home/ada/smolcorp-demo", "/home/ada", "/home/ada/.config/sauzzedeck-pro", "~/.config/sauzzedeck-pro", "/srv/rwin2-nowhere",
+			"~/.config/s*"},
 		// This computer's own reading, on its disk: the demo's lines are let through whole here.
 		{"", hostRoot, homeDir, resolveExisting(filepath.Join(homeDir, "Library", "Application Support", "AgentDeck")),
-			`~/Library/Application\ Support/AgentDeck`, "/Users/Shared/rwin2-nowhere"},
+			`~/Library/Application\ Support/AgentDeck`, "/Users/Shared/rwin2-nowhere", "~/Lib*/App*/A*"},
 	}
 	team := func() ([]demoMember, error) {
 		return []demoMember{{ID: "tester-1", Folder: hostRepo, Worktree: filepath.Join(hostRoot, "app-hires", "tester-1"), Registered: true}}, nil
@@ -62,8 +67,16 @@ func TestTheDemosFenceRefusesWhatItDoesntRead(t *testing.T) {
 			bash("cat ~/.config/Smol*/setup-k?y"),
 			tool("Grep", map[string]any{"path": s.support, "glob": "setup-k?y", "output_mode": "content"}),
 			tool("Grep", map[string]any{"path": s.support, "pattern": "."}),
-			tool("Grep", map[string]any{"pattern": ".", "glob": "setup-*"}),
+			tool("Grep", map[string]any{"path": s.home, "pattern": ".", "glob": "setup-*"}),
 			tool("Glob", map[string]any{"pattern": s.support + "/*"}),
+			// RWIN3 N7 and N1: patterns that fill in the key, from the line or from above the folder.
+			bash("cat " + s.supportGlob + "/s*"),
+			bash("cat " + s.supportGlob + "/g?-token*"),
+			bash("grep -r . " + s.supportGlob),
+			tool("Glob", map[string]any{"pattern": s.supportGlob + "/*"}),
+			tool("Glob", map[string]any{"path": s.home, "pattern": "**/s*"}),
+			tool("Glob", map[string]any{"pattern": s.home + "/**/*"}),
+			tool("Grep", map[string]any{"path": s.home, "pattern": "."}),
 			tool("Glob", map[string]any{"path": s.support, "pattern": "*"}),
 			tool("Read", map[string]any{"file_path": s.support + "/setup-key"}),
 			// B4: eval, env -S and a name built in a nested line.
@@ -135,6 +148,12 @@ func TestTheDemosFenceRefusesWhatItDoesntRead(t *testing.T) {
 			tool("Read", map[string]any{"file_path": f.paths().join(repo, "TASKS.md")}),
 			tool("Grep", map[string]any{"path": repo, "pattern": "def split"}),
 			tool("Glob", map[string]any{"pattern": "**/*.py"}),
+			// RWIN3 N1: a * in the project, or a pattern Grep reads as a regex, is the project's, not the key.
+			tool("Glob", map[string]any{"pattern": "*"}),
+			tool("Glob", map[string]any{"pattern": "bill/*"}),
+			tool("Grep", map[string]any{"pattern": "set*"}),
+			tool("Grep", map[string]any{"pattern": ".", "glob": "setup-*"}),
+			tool("Glob", map[string]any{"path": s.home, "pattern": "smolcorp-demo/**/*.py"}),
 			tool("Write", map[string]any{"file_path": f.paths().join(s.root, demoReportName)}),
 		}
 		for _, c := range allowed {
