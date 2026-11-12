@@ -194,7 +194,7 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		return demoCall{ToolName: name, ToolInput: data, Cwd: repo}
 	}
 	// Claude Code's Bash is bash, Git Bash on Windows, where a \ escapes: a Windows path goes in with /, as the
-	// demo writes it for the GM. PowerShell keeps a \: its calls below write the system's own paths.
+	// demo writes it for the GM. PowerShell is refused whatever it says (RWIN B3).
 	bash := demoShellFolder
 	powerShell := func(command string) demoCall { return tool("PowerShell", map[string]any{"command": command}) }
 	allowed := []demoCall{
@@ -233,12 +233,9 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		bashCall("cd "+bash(worktree)+" && python3 -m unittest", repo),
 		bashCall("git -C "+bash(repo)+" worktree list && git worktree add ../app-hires/extra -b extra", repo),
 		bashCall("smolcorp gm hire --role tester --folder="+bash(repo)+" --worktree", repo),
-		// PowerShell reads a \ as a letter, so C:\Users\… is the path written there.
-		powerShell("smolcorp gm hire --role tester --folder " + repo + " --worktree --task 'fix it'"),
-		powerShell("smolcorp gm hire --role=reviewer --folder=" + worktree),
-		powerShell("git -C " + repo + " config --list --show-origin"),
-		powerShell("Get-ChildItem " + root),
-		powerShell(`Get-Content notes\smolcorp-plan.md`),
+		// RWIN B5: text in quotes is text: braces, globs and an escaped quote in it.
+		bashCall("smolcorp gm hire --role tester --folder "+bash(repo)+` --task "Fix {all} the *bugs*? say \"done\""`, repo),
+		bashCall("smolcorp gm send tester-1 --text 'h?re [x] {a,b}'", repo),
 	}
 	refused := []demoCall{
 		bashCall("smolcorp gm hire --role tester --folder ~", repo),
@@ -359,10 +356,31 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		bashCall("git worktree add -b x "+elsewhere+"/wt main", repo),
 	}
 	refused = append(refused,
+		// RWIN B3: PowerShell builds words the fence can't read, so the demo refuses it, whatever it says.
 		powerShell("smolcorp gm hire --role tester --folder "+elsewhere),
 		powerShell("smolcorp gm hire --role tester --folder ~someone/Projects"),
 		powerShell("smolcorp mcp"),
 		powerShell("$S='smolcorp'; & $S mcp"),
+		powerShell("smolcorp gm hire --role tester --folder "+repo+" --worktree --task 'fix it'"),
+		powerShell("Get-ChildItem "+root),
+		powerShell("Set-Location C:/Users; & ('cla'+'ude') -p 'x' --dangerously-skip-permissions"),
+		powerShell("& ('smol'+'corp') run claude"),
+		powerShell("smolcorp gm ‘hire’ --role tester --worktree --folder "+elsewhere),
+		// RWIN B4: cmd's %VAR% and !VAR! in a folder.
+		bashCall(`cmd //c "smolcorp gm hire --role tester --worktree --folder %USERPROFILE%"`, repo),
+		bashCall("git worktree add %USERPROFILE%", repo),
+		bashCall("smolcorp gm hire --role tester --worktree --folder !HOME!", repo),
+		// RWIN B1: zsh's extended globs (x#, ^x, a~b) make a folder something else.
+		bashCall("smolcorp gm hire --role tester --worktree --folder "+bash(in)+"/outsidee#~/../smolcorp-demo/app", repo),
+		bashCall("smolcorp gm hire --role tester --worktree --folder "+bash(in)+"/^demo~/../smolcorp-demo/app", repo),
+		bashCall("git worktree add "+bash(in)+"/outsidee#~/../smolcorp-demo/wt2", repo),
+		// RWIN B5: an escaped quote inside double quotes, braces and globs: the shell's words, not the fence's.
+		bashCall("smolcorp gm hire --role tester --worktree --folder "+elsewhere+` --task "\" --folder `+bash(repo)+`"`, repo),
+		bashCall("smolcorp gm {hire,} --role tester --worktree --folder "+elsewhere, repo),
+		bashCall("smolcorp gm {send,} someone-else --text hi", repo),
+		bashCall("smolcorp gm h?re --role tester --worktree --folder "+elsewhere, repo),
+		bashCall("smolcorp gm hi[r]e --role tester --worktree --folder "+elsewhere, repo),
+		bashCall("smolcorp gm hi*e --role tester --worktree --folder "+elsewhere, repo),
 		// bash reads notes\smolcorp-plan.md as notessmolcorp-plan.md: a word that holds smolcorp and isn't a path.
 		bashCall(`cat notes\smolcorp-plan.md`, repo))
 	if runtime.GOOS == "windows" { // elsewhere, C:\ is a folder name like any other
@@ -410,35 +428,54 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 	}
 }
 
-// WIN125: a ~ inside a name is a letter (a Windows short name, RUNNER~1); one that starts a name is a home.
+// WIN125, RWIN B1: on Windows a ~ is a letter only in a short name's shape (RUNNER~1); elsewhere only ~ and
+// ~/… at the start are plain (zsh reads a~b as a glob). cmd's % and !, and zsh's # and ^, never are.
 func TestTheDemosFenceReadsAShortNamesTildeAsALetter(t *testing.T) {
-	for folder, plain := range map[string]bool{
-		"C:/Users/RUNNER~1/AppData/Local/Temp/SMOLCO~4/app": true,
-		`C:\PROGRA~1\smolcorp-demo\app`:                     true,
-		"/Users/ada/smolcorp-demo/app":                      true,
-		"~/smolcorp-demo/app":                               true,
-		`~\smolcorp-demo\app`:                               true,
-		"~":                                                 true,
-		"~someone/Projects":                                 false,
-		"app/~x":                                            false,
-		`app\~x`:                                            false,
-		"a=~x":                                              false,
-		"a:~x":                                              false,
-		"~/a/~b":                                            false,
-		"C:/Users/RUNNER~1/$HOME":                           false,
+	for _, c := range []struct {
+		folder           string
+		windows, unixish bool
+	}{
+		{"C:/Users/RUNNER~1/AppData/Local/Temp/SMOLCO~4/app", true, false},
+		{`C:\PROGRA~1\smolcorp-demo\app`, true, false},
+		{`C:\Users\ada\NOTES~12.TXT`, true, false},
+		{"/Users/ada/smolcorp-demo/app", true, true},
+		{"~/smolcorp-demo/app", true, true},
+		{`~\smolcorp-demo\app`, true, true},
+		{"~", true, true},
+		{"~someone/Projects", false, false},
+		{"app/~x", false, false},
+		{`app\~x`, false, false},
+		{"app/x~", false, false},
+		{"app/x~y", false, false},
+		{"app/x~1y", false, false},
+		{"a=~x", false, false},
+		{"a:~x", false, false},
+		{"~/a/~b", false, false},
+		{"outside~1/../smolcorp-demo/app", true, false}, // a short name to Git Bash; zsh isn't the shell there
+		{"C:/Users/RUNNER~1/$HOME", false, false},
+		{"/Users/ada/outsidee#~/../smolcorp-demo/app", false, false},
+		{"/Users/ada/^demo/app", false, false},
+		{"%USERPROFILE%", false, false},
+		{"/Users/ada/!HOME!", false, false},
 	} {
-		if plainFolder(folder) != plain {
-			t.Errorf("plainFolder(%q) = %v, want %v", folder, !plain, plain)
+		if got := plainFolderOn(true, c.folder); got != c.windows {
+			t.Errorf("on Windows, plainFolder(%q) = %v, want %v", c.folder, got, c.windows)
+		}
+		if got := plainFolderOn(false, c.folder); got != c.unixish {
+			t.Errorf("on a Mac or Linux, plainFolder(%q) = %v, want %v", c.folder, got, c.unixish)
 		}
 	}
 }
 
-// WIN125: the folder the demo tells the GM to hire into is written as bash and PowerShell both read it.
+// WIN125: the folder the demo tells the GM to hire into is written as bash reads it on each system.
+// WIN125b: the fence reads another system's calls by that system's path rules (goos), so a Windows call is
+// judged on this Mac (or Linux) as on Windows, and the other way round.
 func TestTheDemoWritesAWindowsFolderWithSlashes(t *testing.T) {
 	for _, c := range []struct{ goos, path, want string }{
 		{"windows", `C:\Users\ada\smolcorp-demo\app`, "C:/Users/ada/smolcorp-demo/app"},
 		{"windows", `C:\Users\Ada Lovelace\smolcorp-demo\app`, "'C:/Users/Ada Lovelace/smolcorp-demo/app'"},
 		{"windows", `C:\Users\a,b\smolcorp-demo\app`, "'C:/Users/a,b/smolcorp-demo/app'"},
+		{"windows", `C:\Users\O'Brien Ada\smolcorp-demo\app`, `"C:/Users/O'Brien Ada/smolcorp-demo/app"`}, // RWIN N2
 		{"darwin", "/Users/ada/smolcorp-demo/app", "/Users/ada/smolcorp-demo/app"},
 		{"linux", "/home/ada/smolcorp-demo/app", "/home/ada/smolcorp-demo/app"},
 	} {
@@ -446,13 +483,120 @@ func TestTheDemoWritesAWindowsFolderWithSlashes(t *testing.T) {
 			t.Errorf("on %s, %s is written %s, want %s", c.goos, c.path, got, c.want)
 		}
 	}
-	// A path bash would take the \ out of is refused with the way to write it.
-	f := demoFence{root: "/demo", roles: []string{"tester"}}
-	if why := f.command(`cat notes\smolcorp-plan.md`, "/demo/app"); !strings.Contains(why, "In bash, a \\ escapes the letter after it") {
-		t.Errorf("the refusal doesn't say how to write a Windows path: %q", why)
+	bash := func(command string) demoCall { return bashCall(command, "") }
+	tool := func(name, key, value string) demoCall {
+		input, _ := json.Marshal(map[string]string{key: value})
+		return demoCall{ToolName: name, ToolInput: input}
 	}
-	if why := f.check(demoCall{ToolName: "PowerShell", ToolInput: json.RawMessage(`{"command":"Get-Content notes\\smolcorp-plan.md"}`), Cwd: "/demo/app"}); why != "" {
-		t.Errorf("PowerShell's \\ is a letter, not an escape: %q", why)
+	write := func(path string) demoCall { return tool("Write", "file_path", path) }
+	for _, system := range []struct {
+		goos, root, home string
+		allowed, refused []demoCall
+	}{
+		{"windows", `C:\Users\ada\smolcorp-demo`, `C:\Users\ada`,
+			[]demoCall{
+				// A relative path with either separator is a path: in quotes bash keeps the \.
+				bash(`cat 'notes\smolcorp-plan.md'`),
+				bash(`cat "notes\smolcorp-plan.md"`),
+				bash("cat notes/smolcorp-plan.md"),
+				bash(`cat 'C:\Users\ada\smolcorp-demo\app\notes.md'`),
+				bash("cat C:/Users/ada/smolcorp-demo/app/notes.md ../smolcorp-demo/PLAN.md"),
+				bash("cat c:/users/ADA/Smolcorp-Demo/app/notes.md"), // Windows' disk: case aside
+				bash("ls ~/smolcorp-demo/app"),
+				write(`notes\smolcorp-plan.md`),
+				write("C:/Users/ada/smolcorp-demo/app/bill.py"),
+				write(`..\app-hires\tester-1\bill.py`),
+			},
+			[]demoCall{
+				// bash takes the \ away: notessmolcorp-plan.md, a word, not a path.
+				bash(`cat notes\smolcorp-plan.md`),
+				bash(`cat C:\Users\ada\smolcorp-demo\app\notes.md`),
+				bash("cat C:/Users/ada/smolcorp-x/notes.md"),
+				bash("cat C:/Users/ada/smolcorp-demo/../smolcorp-x/notes.md"),
+				tool("PowerShell", "command", `Get-Content notes\smolcorp-plan.md`),
+				// RWIN B2: a drive with no folder after it is from that drive's own current folder; a : after the
+				// drive is an NTFS stream; \x is the top of some drive.
+				write(`C:..\..\x.txt`),
+				write(`C:.claude\settings.json`),
+				write(`C:\Users\ada\smolcorp-demo\app\.git::$INDEX_ALLOCATION\hooks\pre-push`),
+				write(`notes\a:b.txt`),
+				write(`\Users\ada\smolcorp-demo\app\x.txt`),
+				write(`D:\Users\ada\smolcorp-demo\app\x.txt`),
+				write(`\\server\share\smolcorp-demo\app\x.txt`),
+				bash(`cat 'C:smolcorp-demo\x'`),
+				bash("git worktree add 'C:..\\wt'"),
+				// Windows drops a name's dots and blanks at its end: .git. is .git.
+				write(`.git.\hooks\pre-push`),
+				write(`.claude \settings.json`),
+				write(`C:\Users\ada\smolcorp-demo\app\.CLAUDE\settings.json`),
+				// A hire needs its folder on the disk, and this Mac has no C:\: refused, never let through.
+				bash("smolcorp gm hire --role tester --folder C:/Users/ada/smolcorp-demo/app --worktree"),
+				bash("smolcorp gm hire --role tester --folder C:/Users/someone/elsewhere --worktree"),
+			}},
+		{"darwin", "/Users/ada/smolcorp-demo", "/Users/ada",
+			[]demoCall{
+				bash("cat notes/smolcorp-plan.md"),
+				bash(`cat 'notes\smolcorp-plan.md'`), // a \ in a Mac file's name is a letter
+				bash("cat /Users/ada/smolcorp-demo/app/notes.md"),
+				write("notes/smolcorp-plan.md"),
+				write(`C:\x.txt`), // a name like any other on a Mac
+				write("notes/a:b.txt"),
+			},
+			[]demoCall{
+				bash("cat /Users/ada/smolcorp-x/notes.md"),
+				bash("cat /users/ada/smolcorp-demo/app/notes.md"), // a case variant: refused (fails closed)
+				bash(`cat notes\smolcorp-plan.md`),
+				tool("PowerShell", "command", "Get-Content notes/smolcorp-plan.md"),
+				write("/Users/ada/smolcorp-demo/app/.git/hooks/pre-push"),
+				write("../../elsewhere.txt"),
+			}},
+		{"linux", "/home/ada/smolcorp-demo", "/home/ada",
+			[]demoCall{bash("cat notes/smolcorp-plan.md"), write("notes/smolcorp-plan.md")},
+			[]demoCall{bash("cat /home/ada/smolcorp-x/notes.md"), write("/home/ada/elsewhere.txt")}},
+	} {
+		f := demoFence{root: system.root, roles: []string{"tester"}, home: system.home, goos: system.goos}
+		cwd := f.paths().join(system.root, "app")
+		for _, c := range system.allowed {
+			if c.Cwd = cwd; f.check(c) != "" {
+				t.Errorf("on %s, refused %s %s: %s", system.goos, c.ToolName, c.ToolInput, f.check(c))
+			}
+		}
+		for _, c := range system.refused {
+			if c.Cwd = cwd; !strings.HasPrefix(f.check(c), demoFenceRefusal) {
+				t.Errorf("on %s, let through %s %s", system.goos, c.ToolName, c.ToolInput)
+			}
+		}
+		// A refusal names the word as it was read, its \ once (not Go-quoted), and on Windows says how to write a path.
+		why := f.command(`cat notes\smolcorp-plan.md`, cwd)
+		if !strings.Contains(why, `"notessmolcorp-plan.md" holds smolcorp`) || strings.Contains(why, `\\`) {
+			t.Errorf("on %s, the refusal: %q", system.goos, why)
+		}
+		hint := strings.Contains(why, "In bash, a \\ escapes the letter after it")
+		if hint != (system.goos == "windows") { // RWIN N1: a Mac GM is never told to write a Windows path
+			t.Errorf("on %s, the bash hint shown: %v: %q", system.goos, hint, why)
+		}
+		if why := f.command(`cat 'notes\smolcorp-x\plan.md' 'C:\smolcorp-x'`, cwd); system.goos == "windows" && !strings.Contains(why, `"C:\smolcorp-x" holds smolcorp`) {
+			t.Errorf("on %s, the refusal doubles a \\: %q", system.goos, why)
+		}
+	}
+}
+
+// WIN125b (CI #49): git on Windows checks a worktree out with \r\n (core.autocrlf), and the stand-ins' edits
+// still find their place. The same git setting here makes this computer's checkouts the same.
+func TestTheDryRunWorksWhereGitWritesCRLF(t *testing.T) {
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "core.autocrlf")
+	t.Setenv("GIT_CONFIG_VALUE_0", "true")
+	in := demoTestFolder(t)
+	if code, out := dryRun(t, in); code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	tree := filepath.Join(in, demoFolderName, demoRepoName+"-hires", "bughunter-1")
+	if data, err := os.ReadFile(filepath.Join(tree, "test_bill.py")); err != nil || !strings.Contains(string(data), "\r\n") {
+		t.Errorf("the worktree wasn't checked out with \\r\\n, so this test proves nothing: %v", err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(tree, "bill.py")); !strings.Contains(string(data), "divmod(with_tip, people)\r\n") {
+		t.Errorf("the bug hunter's change isn't in bill.py, in its line ends:\n%q", data)
 	}
 }
 

@@ -320,7 +320,8 @@ func demoSettings(root string, roles []string) ([]byte, error) {
 	}
 	command := fmt.Sprintf("%s demo fence --root %s --roles %s", shellPath(program), shellPath(root), shellPath(strings.Join(roles, ",")))
 	return json.MarshalIndent(map[string]any{
-		"permissions": map[string]any{"deny": []string{"Bash(git push:*)", "Bash(git remote add:*)", "Bash(gh:*)"}},
+		// PowerShell too: the demo works in Bash, and the fence can't read PowerShell's words (it refuses them).
+		"permissions": map[string]any{"deny": []string{"Bash(git push:*)", "Bash(git remote add:*)", "Bash(gh:*)", "PowerShell"}},
 		"hooks": map[string]any{"PreToolUse": []any{map[string]any{
 			"matcher": "*",
 			"hooks":   []any{map[string]any{"type": "command", "command": command, "timeout": 10}},
