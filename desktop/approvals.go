@@ -60,6 +60,16 @@ func approvalLabel(tool, input string) string {
 	return line
 }
 
+// GET /approvals (phoneroutes.go): who waits for you, read only, to a paired phone over Tailscale, never over the
+// Wi-Fi nor to the office's window. Answering is /act and /choose.
+func init() {
+	registerPhoneRoute(phoneRoute{method: http.MethodGet, path: "/approvals", access: accessPhoneSecure,
+		refusal: says("The approvals show only over Tailscale's HTTPS address."),
+		serve: func(d *Deck, w http.ResponseWriter, _ *request, _ string) {
+			writeJSON(w, http.StatusOK, approvalsAnswer(d.approvalItems(), nowMillis()))
+		}})
+}
+
 // approvalsAnswer is what GET /setup/gm/approvals answers, the longest waiting
 // first and those whose time isn't known last. now is in milliseconds.
 func approvalsAnswer(items []approvalItem, now float64) map[string]any {

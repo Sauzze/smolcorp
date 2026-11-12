@@ -375,6 +375,22 @@ func conversationAnswer(first string) string {
 	return clip(strings.Trim(text, " \t"), summaryTextMost)
 }
 
+// ▤ Conversation (phoneroutes.go), in the office's own window on this computer, never a phone: the session's
+// conversation, a page at a time, as it was written.
+func init() {
+	registerPhoneRoute(phoneRoute{method: http.MethodGet, path: "/conversation", access: accessWindow,
+		refusal: func(d *Deck) string { return d.shownOnlyInTheWindow("The conversation") },
+		serve: func(d *Deck, w http.ResponseWriter, r *request, session string) {
+			before, placed := conversationPlace(r.URL.Query(), "before")
+			known, sized := conversationPlace(r.URL.Query(), "size")
+			if !placed || !sized {
+				writeStatus(w)(http.StatusBadRequest, "That isn't a place in the conversation.")
+				return
+			}
+			writeAnswer(w)(d.conversation(session, before, known))
+		}})
+}
+
 // conversationPlace reads a page's place from the query, ?before= or ?size=:
 // none is nil, digits only else not ok.
 func conversationPlace(query map[string][]string, name string) (*int64, bool) {

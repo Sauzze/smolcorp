@@ -33,6 +33,45 @@ const (
 	peekGap   = time.Second
 )
 
+// The phone's routes (phoneroutes.go). /dictate: the phone's text (typed, or heard by its own mic), typed into the
+// session's agent, from a paired phone with its key, over the Wi-Fi as over Tailscale (I34), never from the office's
+// own window. /choose: a typed answer to a menu's "Type something", as /dictate, one line only. /peek: the last lines
+// of the session's tab, read-only, to see what was typed, and /choice: what a permission prompt is about, both over
+// Tailscale only.
+func init() {
+	registerPhoneRoute(phoneRoute{method: http.MethodPost, path: "/dictate", access: accessPhone, refusal: says(phoneTextPhonesOnly),
+		serve: func(d *Deck, w http.ResponseWriter, r *request, session string) {
+			body := decodeJSON(r.Body)
+			// The confirm box's choice, Send ⏎ or Type only; an older page's says nothing.
+			var send *bool
+			if value, ok := body["send"].(bool); ok {
+				send = &value
+			}
+			writeStatus(w)(d.TypePhoneText(stringValue(body["text"]), session, send))
+		}})
+	registerPhoneRoute(phoneRoute{method: http.MethodPost, path: "/choose", access: accessPhone, refusal: says(phoneTextPhonesOnly),
+		serve: func(d *Deck, w http.ResponseWriter, r *request, session string) {
+			if r.URL.Query().Get("option") != "other" {
+				writeStatus(w)(http.StatusBadRequest, pickWithKeys)
+				return
+			}
+			writeStatus(w)(d.AnswerOther(stringValue(decodeJSON(r.Body)["text"]), r.URL.Query().Get("choice"), session))
+		}})
+	registerPhoneRoute(phoneRoute{method: http.MethodPost, path: "/peek", access: accessPhoneSecure, refusal: says(peekTailnet),
+		serve: func(d *Deck, w http.ResponseWriter, _ *request, session string) {
+			status, lines, message := d.Peek(session)
+			if status != http.StatusOK {
+				writeStatus(w)(status, message)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"lines": lines})
+		}})
+	registerPhoneRoute(phoneRoute{method: http.MethodGet, path: "/choice", access: accessPhoneSecure, refusal: says(choiceTailnet),
+		serve: func(d *Deck, w http.ResponseWriter, _ *request, session string) {
+			writeStatus(w)(d.ChoiceDetail(session))
+		}})
+}
+
 // phoneTextSettle is how long the agent is given to take the text in before
 // Return goes on its own: sent with the text, it would be a new line in a paste.
 var phoneTextSettle = 250 * time.Millisecond
